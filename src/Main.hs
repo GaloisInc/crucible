@@ -1,6 +1,6 @@
 module Main where
 
-import SAWScript.Types
+import SAWScript.Parser
 
 main :: IO ()
 main = putStrLn "not done yet"
