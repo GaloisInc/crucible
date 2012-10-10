@@ -7,6 +7,9 @@ data Expr =
   | Binder String Expr
   | Bag [Expr]
 
+
+
+
 toCubitType :: Expr -> String
 toCubitType (BitLiteral bits)  
             | length bits == 1 = "1bit"
