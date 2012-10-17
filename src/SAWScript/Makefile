@@ -1,12 +1,12 @@
 .PHONY : all clean
 
-all : MyParser.hs
+all : Parser.hs
 
-MyLexer.hs : MyLexer.x MyToken.hs AST.hs
-	alex -o MyLexer.hs MyLexer.x
+Lexer.hs : Lexer.x Token.hs AST.hs
+	alex -o Lexer.hs Lexer.x
 
-MyParser.hs : MyParser.y MyLexer.hs
-	happy -o MyParser.hs MyParser.y
+Parser.hs : Parser.y Lexer.hs
+	happy -o Parser.hs Parser.y
 
 clean :
-	-rm *.o *.hi MyParser.hs MyLexer.hs
+	-rm *.o *.hi Parser.hs Lexer.hs

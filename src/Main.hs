@@ -3,9 +3,9 @@ module Main where
 import System.Console.Haskeline
 import System.Exit
 
-import SAWScript.MyParser  ( stringToExpr )
-import SAWScript.Evaluator ( evaluate )
-import SAWScript.AST       ( reflect )
+import SAWScript.Parser   ( parseLine )
+--import SAWScript.Evaluation ( evaluate )
+--import SAWScript.AST        ( reflect )
 
 echo s = do outputStrLn s; return ()
 
@@ -32,12 +32,14 @@ main = do
           Just (':':s) -> do
                             processDirective s
                             loop
-          Just line    -> case stringToExpr line of
+          Just line    -> case parseLine line of
                             Left error -> do echo error; loop
-                            Right ast  -> do
-                                            let val = evaluate ast
-                                            echo (reflect val)
-                                            loop
+                            Right (Just b, expr)  -> do
+                                                       echo (b++" = "++(show expr))
+                                                       loop
+                            Right (Nothing, expr) -> do
+                                                       echo (show expr)
+                                                       loop
 
 processDirective :: String -> InputT IO ()
 processDirective s = case s of
