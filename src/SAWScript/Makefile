@@ -6,7 +6,7 @@ Lexer.hs : Lexer.x Token.hs AST.hs
 	alex -o Lexer.hs Lexer.x
 
 Parser.hs : Parser.y Lexer.hs
-	happy -o Parser.hs Parser.y
+	happy -o Parser.hs --info=parseout.txt Parser.y
 
 clean :
 	-rm *.o *.hi Parser.hs Lexer.hs

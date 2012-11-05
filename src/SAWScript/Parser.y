@@ -1,8 +1,6 @@
 {
 
-module SAWScript.Parser ( parseLine, parseFile ) where
-
-import Data.List ( head )
+  module SAWScript.Parser where
 
 import qualified SAWScript.Token as T
 import SAWScript.Lexer
@@ -10,99 +8,143 @@ import SAWScript.AST
 
 }
 
-%name parseDecl  Decl
-%name parseDecls Decls
 %tokentype { T.Token AlexPosn }
-%error { parseError }
-%monad { Either String } { >>= } { return }
 
 %token
-'pattern'  { T.Pattern _ _      }
-'case'     { T.Keyword _ "case" }
-'of'       { T.Keyword _ "of"   }
-'='        { T.InfixOp _ "="    }
-'->'       { T.InfixOp _ "->"   }
-arrow_type { T.ArrowType _ _    }
-name       { T.Identifier _ _   }
-'('        { T.OutfixL _ "("    }
-')'        { T.OutfixR _ ")"    }
-'{'        { T.OutfixL _ "{"    }
-'}'        { T.OutfixR _ "}"    }
-';'        { T.InfixOp _ ";"    }
-':'        { T.InfixOp _ ":"    }
-'|'        { T.InfixOp _ "|"    }
-
+'import'    { T.Keyword _ "import"  }
+'as'        { T.Keyword _ "as"      }
+'let'       { T.Keyword _ "let"     }
+'and'       { T.Keyword _ "and"     }
+'fun'       { T.Keyword _ "fun"     }
+'in'        { T.Keyword _ "in"      }
+'type'      { T.Keyword _ "type"    }
+'do'        { T.Keyword _ "do"      }
+'integer'   { T.Keyword _ "integer" }
+'='         { T.Infix _ "="         }
+'->'        { T.Infix _ "->"        }
+';'         { T.Infix _ ";"         }
+','         { T.Infix _ ","         }
+':'         { T.Infix _ ":"         }
+'::'        { T.Infix _ "::"        }
+'('         { T.OutfixL _ "("       }
+')'         { T.OutfixR _ ")"       }
+' ['        { T.OutfixL _ "["       }
+']'         { T.OutfixR _ "]"       }
+'{'         { T.OutfixL _ "{"       }
+'}'         { T.OutfixR _ "}"       }
+'['         { T.Postfix _ '['       }
+'.'         { T.Postfix _ '.'       }
+bits        { T.Bitfield _ _        }
+string      { T.String _ _          }
+int         { T.Integer _ _         }
+name        { T.Identifier _ _      }
 
 %%
 
-Expr
-  : 'pattern' MaybeType          { Pattern (parsePattern (T.tokStr $1)) $2 }
-  | arrow_type Args '->' Expr MaybeType 
-                                 { Func (parseArrowType (T.tokStr $1)) $2 $4 $5}
-  | 'case' Expr 'of' Cases MaybeType   
-                                 { Switch $2 $4 $5 }
-  | '{' Decls '}' MaybeType      { DM $2 $4 }
-  | name MaybeType               { Var (T.tokStr $1) $2 }
-  | '(' Expr ')'                 { $2 }
-  | Expr Expr                    { App $1 $2 Nothing }
+Statement
+ : 'let' Declarations1  { Declarations $2   }
+ | name '::' Type       { ForwardDecl $1 $3 }
+ | name Exprs           { Command $1 $2     }
+ | 'type' name '=' Type { Typedef $2 $4     }
+ | 'import' Import      { $1                }
 
-Decl
-  : Expr          { (Nothing, $1)            }
-  | name '=' Expr { (Just (T.tokStr $1), $3) }
-  | arrow_type name Args MaybeType '=' Expr
-      { (Just (T.tokStr $2), Func (parseArrowType (T.tokStr $1)) $3 $6 $4) }
+Declaration
+ : name Args MaybeType '=' Expr { Declaration $1 $2 $5 $3 }
 
-Type
-  : name           { TypeVariable (T.tokStr $1)            }
-  | name '->' Type { Arrow (TypeVariable (T.tokStr $1)) $3 }
+Declarations1
+ : Declaration                     { [$1]  }
+ | Declaration 'and' Declarations1 { $1:$3 }
 
-Case
-  : Expr '->' Expr { ($1, $3) }
-
-Cases
-  : Case           { [$1] }
-  | Case '|' Cases { $1 : $3 }
-
-Decls
-  : {- empty -}    { []      }
-  | Decl           { [$1]    }
-  | Decl ';' Decls { $1 : $3 }
+Arg
+ : name                  { ($1, Nothing) }
+ | '(' name ':' Type ')' { ($2, Just $4) }
 
 Args
-  : name                       { [((T.tokStr $1), Nothing)] }
-  | name Args                  {  ((T.tokStr $1), Nothing) : $2 }
-  | '(' name ':' Type ')'      { [((T.tokStr $2), Just $4)] }
-  | '(' name ':' Type ')' Args {  ((T.tokStr $2), Just $4) : $6 }
+ : {- Nothing -} { [] }
+ | Args1         { $1 }
+
+Args1
+ : Arg       { [$1]  }
+ | Arg Args1 { $1:$2 }
+
+Import
+ : name                                 { Import $1 Nothing Nothing     }
+ | name '(' CommaSepNames ')'           { Import $1 (Just $3) Nothing   }
+ | name 'as' name                       { Import $1 Nothing (Just $3)   }
+ | name '(' CommaSepNames ')' 'as' name { Import $1 (Just $3) (Just $5) }
+
+Expr 
+ : UnsafeExpr { $1 }
+ | SafeExpr   { $1 }
+
+UnsafeExpr
+ : 'fun' Args MaybeType '->' Expr { Function $2 $5 $3         }
+ | SafeExpr Exprs1                { Application $1 $2 Nothing }
+ | 'let' Declarations1 'in' Expr  { LetBlock $2 $4            }
+
+SafeExpr
+ : bits   MaybeType               { Bitfield $1 $2               }
+ | string MaybeType               { Quote $1 $2                  }
+ | int    MaybeType               { Z (read $1) $2               }
+ | name   MaybeType               { Var $1 $2                    }
+ | Record MaybeType               { Record $1 $2                 }
+ | '(' Expr ')' MaybeType         { $2                           }
+ | ' [' CommaSepExprs ']'         { Array $2                     }
+ | 'do' '{' SemiSepStatements '}' { Procedure $3 Nothing         }
+ | SafeExpr '.' name              { Lookup $1 $3                 }
+ | SafeExpr '[' Expr ']'          { Index $1 $3                  }
+
+SemiSepStatements
+  : {- Nothing -}                   { []    }
+  | Statement ';' SemiSepStatements { $1:$3 }
+
+Type
+ : 'integer'     { Z' }
+ | name          { Var' $1 }
+ |  '[' int ']'  { Bitfield' $2 }
+ | ' [' int ']'  { Bitfield' $2 }
+ |  '[' Type ']' { Array' $2 Nothing }
+ | ' [' Type ']' { Bitfield' $2 Nothing }
 
 MaybeType
-  : {- empty -} { Nothing }
-  | ':' Type    { Just $2 }
+ : {- Nothing -} { Nothing }
+ | ':' Type      { Just $2 }
 
-{
+Exprs
+ : {- Nothing -} { [] }
+ | Exprs1        { $1 }
 
--- Additional Parsing
+Exprs1
+ : 'let' Args MaybeType '->' Expr { Function $2 $5 $3 }
+ | SafeExpr Exprs1                { $1:[$2]           }
 
--- Warning: Assumes input matching \'[0-1]*
-parsePattern :: String -> Pattern
-parsePattern ('\'':bits) = Literal (map (\c -> c == '1') bits)
+CommaSepExprs
+ : {- Nothing -}  { [] }
+ | CommaSepExprs1 { $1 }
 
-parseArrowType :: String -> ArrowType
-parseArrowType "let" = Let
-parseArrowType "fun" = Fun
-parseArrowType "inj" = Inj
-parseArrowType "sur" = Sur
-parseArrowType "iso" = Iso
+CommaSepExprs1
+ : Expr                    { [$1] }
+ | Expr ',' CommaSepExprs1 { $1:$3 }
 
--- Error Handling
+Record
+ : '{' CommaSepFields '}' { Record $2 }
 
-parseError tokens = Left ("Parse error: " ++ (show . head $ tokens))
+Field
+ : name ':' Expr   { ($1, $3) }
+ | string ':' Expr { ($1, $3) }
 
--- Toplevel Parse
+CommaSepFields
+ : {- Nothing -}   { [] }
+ | CommaSepFields1 { $1 }
 
-parseLine :: String -> Either String (Maybe String, Expr (Maybe SAWType))
-parseLine s = parseDecl . alexScanTokens $ s
+CommaSepFields1
+ : Field                     { [$1]  }
+ | Field ',' CommaSepFields1 { $1:$3 }
 
-parseFile :: FilePath -> Either String (Maybe String, Expr (Maybe SAWType))
-parseFile f = Right (Just f, DM [] Nothing) --TODO
+CommaSepNames
+  : {- Nothing -}  { [] }
+  | CommaSepNames1 { $1 }
 
-}
+CommaSepNames1 
+  : name                    { [name] }
+  | name ',' CommaSepNames1 { $1:$3  }

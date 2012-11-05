@@ -1,17 +1,12 @@
-module Main where
-
+--import SAWScript.Evaluator ( evaluate )
+--import SAWScript.AST       ( print )
 import System.Console.Haskeline
-import System.Exit
-
-import SAWScript.Parser   ( parseLine )
---import SAWScript.Evaluation ( evaluate )
---import SAWScript.AST        ( reflect )
 
 echo s = do outputStrLn s; return ()
 
 main :: IO ()
 main = do
-  putStrLn "SAWScript, Version 2.0.0, :? for help\n"
+  putStrLn "SAWScript, Version 2.0.1, :? for help\n"
   putStrLn "\n .oooooo..o       .o.    oooooo   oooooo     oooo "
   putStrLn "d8P'    `Y8      .888.    `888.    `888.     .8'  "
   putStrLn "Y88bo.          .8\"888.    `888.   .8888.   .8'   "
@@ -27,19 +22,17 @@ main = do
         case minput of
           Nothing      -> loop
           Just (":q")  -> do
-                            echo "Leaving SAWScript"
-                            return ()
+            echo "Leaving SAWScript"
+            return ()
           Just (':':s) -> do
-                            processDirective s
-                            loop
-          Just line    -> case parseLine line of
-                            Left error -> do echo error; loop
-                            Right (Just b, expr)  -> do
-                                                       echo (b++" = "++(show expr))
-                                                       loop
-                            Right (Nothing, expr) -> do
-                                                       echo (show expr)
-                                                       loop
+            processDirective s
+            loop
+          Just expr    -> do
+            --let ast = read 
+            --    val = evaluate ast
+            --echo . print $ val
+            outputStrLn $ expr ++ " :: <Expr>"--TODO: Replace this line with the above.
+            loop
 
 processDirective :: String -> InputT IO ()
 processDirective s = case s of
