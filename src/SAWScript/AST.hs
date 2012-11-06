@@ -13,7 +13,7 @@ data Statement a
   | Import Name (Maybe [Name]) (Maybe Name) deriving Show
 
 data Declaration a
-  = Declaration Name [(Name,a)] (Expr a) a deriving Show
+  = Declaration Name [(Name, a)] (Expr a) a deriving Show
 
 data Expr a
   = Bitfield    [Bool]                   a
@@ -21,12 +21,12 @@ data Expr a
   | Z           Integer                  a
   | Var         Name                     a
   | Record      [(Name, Expr a)]         a
-  | Function    [Name]   (Expr a)        a
-  | Application (Expr a) [Expr a]        a
+  | Function    [(Name, a)] (Expr a)     a
+  | Application (Expr a)    [Expr a]     a
   | Array       [Expr a]                 a
   | Procedure   [Statement a]            a
-  | Lookup      (Expr a) Name            a
-  | Index       (Expr a) (Expr a)        a
+  | Lookup      (Expr a)    Name         a
+  | Index       (Expr a)    (Expr a)     a
   | LetBlock    [Declaration a] (Expr a) deriving Show
 --  | Tuple       [Expr a]          a
 
