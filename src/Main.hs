@@ -1,6 +1,5 @@
---import SAWScript.Evaluator ( evaluate )
---import SAWScript.AST       ( print )
 import System.Console.Haskeline
+import SAWScript.Parser
 
 echo s = do outputStrLn s; return ()
 

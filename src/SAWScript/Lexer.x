@@ -24,7 +24,7 @@ $outfix_left   = [\(\[\{]
 $outfix_right  = [\)\]\}]
 
 
-@keyword      = "import" | "as" | "let" | "in" | "type" | "do"
+@keyword      = "import" | "as" | "let" | "and" | "fun" | "in" | "type" | "do" | "integer"
 @ws           = $white+
 @pattern      = \' $bit*
 @identifier   = $idents+
@@ -36,24 +36,10 @@ $outfix_right  = [\)\]\}]
 
 tokenize :-
 @ws            ;
-@pattern       { Pattern    }
 @keyword       { Keyword    }
 @identifier    { Identifier }
-$operator+     { InfixOp    }
+$operator+     { Infix      }
 $outfix_left   { OutfixL    }
 $outfix_right  { OutfixR    }
 $nws^ "." @identifier { Postfix }
 $nws^ "["      { Postfix }
-
-
-
-
-
-
-
-
-
-
-{
-
-}

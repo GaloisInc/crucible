@@ -10,3 +10,4 @@ Parser.hs : Parser.y Lexer.hs
 
 clean :
 	-rm *.o *.hi Parser.hs Lexer.hs
+	-rm parseout.txt
