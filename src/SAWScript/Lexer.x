@@ -53,10 +53,10 @@ tokenize :-
   @integer            { Integer     }
   @string             { String      }
   @infix              { Infix       }
-  $outfix_left        { OutfixL     }
-  $outfix_right       { OutfixR     }
   $not_white^"."      { Postfix     }
   $not_white^"["      { Postfix     }
+  $outfix_left        { OutfixL     }
+  $outfix_right       { OutfixR     }
 
 {
 

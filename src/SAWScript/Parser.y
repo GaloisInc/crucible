@@ -65,27 +65,34 @@ Arg :: { (Name, Maybe Type) }
  | '(' name ':' Type ')'                { ($2, Just $4) }
 
 Expr :: { Expr (Maybe Type) }
- : UnsafeExpr                           { $1 }
- | SafeExpr                             { $1 }
- | SafeExpr Expr                        { Application $1 $2 Nothing }
+ : Primitive   { $1 }
+ | Application { $1 }
 
-UnsafeExpr :: { Expr (Maybe Type) }
- : 'fun' Args MaybeType '->' Expr       { Function $2 $5 $3             }
+Primitive :: { Expr (Maybe Type) }
+ : UnsafePrimitive  { $1 }
+ | SafePrimitive    { $1 }
+
+Application :: { Expr (Maybe Type) }
+ : SafePrimitive Primitive   { Application $1 $2 Nothing }
+ | Application Primitive     { Application $1 $2 Nothing }
+
+UnsafePrimitive :: { Expr (Maybe Type) }
+ : 'fun' Args1 MaybeType '->' Expr      { uncurryFunction $2 $3 $5      }
  | 'let' Declarations1 'in' Expr        { LetBlock $2 $4                }
- | SafeExpr infixOp Expr                    
+ | SafePrimitive infixOp Expr                    
     { Application (Application (Var $2 Nothing ) $1 Nothing) $3 Nothing }
 
-SafeExpr :: { Expr (Maybe Type) }
- : bits   MaybeType                     { Bitfield (bitsOfString $1) $2 }
+SafePrimitive :: { Expr (Maybe Type) }
+ : bits   MaybeType                     { Array (bitsOfString $1) $2    }
  | string MaybeType                     { Quote $1 $2                   }
  | int    MaybeType                     { Z (read $1) $2                }
  | name   MaybeType                     { Var $1 $2                     }
- | '{' CommaSepFields '}' MaybeType     { Record $2 $4                  }
  | '(' Expr ')'                         { $2                            }
  | ' [' CommaSepExprs ']' MaybeType     { Array $2 $4                   }
+ | '{' CommaSepFields '}' MaybeType     { Record $2 $4                  }
  | 'do' '{' SemiSepStatements '}'       { Procedure $3 Nothing          }
- | SafeExpr '.' name MaybeType          { Lookup $1 $3 $4               }
- | SafeExpr '[' Expr ']' MaybeType      { Index $1 $3 $5                }
+ | SafePrimitive '.' name MaybeType     { Lookup $1 $3 $4               }
+ | SafePrimitive '[' Expr ']' MaybeType { Index $1 $3 $5                }
 
 Field :: { (Name, Expr (Maybe Type)) }
  : name ':' Expr                        { ($1, $3) }
@@ -94,8 +101,8 @@ Field :: { (Name, Expr (Maybe Type)) }
 Type :: { Type }
  : 'integer'                            { Z'                    }
  | name                                 { Var' $1               }
- |  '[' int ']'                         { Bitfield' (read $2) }
- | ' [' int ']'                         { Bitfield' (read $2) }
+ |  '[' int ']'                         { Array' Bit' (read $2) }
+ | ' [' int ']'                         { Array' Bit' (read $2) }
  |  '[' Type ']'                        { Array' $2 Nothing     }
  | ' [' Type ']'                        { Array' $2 Nothing     }
 
@@ -148,7 +155,11 @@ CommaSepNames1 :: { [Name] }
 parseError :: [T.Token a] -> b
 parseError _ = error "Parse error"
 
-bitsOfString :: String -> [Bool]
-bitsOfString = map (/='0')
+bitsOfString :: String -> [Expr (Maybe Type)]
+bitsOfString = (map (\b -> Bit b (Just Bit'))) . (map (/='0'))
+
+uncurryFunction :: [(Name, Maybe Type)] -> Maybe Type -> Expr (Maybe Type) -> Expr (Maybe Type)
+uncurryFunction [a]    mt e = Function a e mt
+uncurryFunction (a:as) mt e = Function a (uncurryFunction as mt e) Nothing
 
 }

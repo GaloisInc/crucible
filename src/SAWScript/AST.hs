@@ -16,24 +16,24 @@ data Declaration a
   = Declaration Name [(Name, a)] (Expr a) a deriving Show
 
 data Expr a
-  = Bitfield    [Bool]                   a
-  | Quote       String                   a
-  | Z           Integer                  a
-  | Var         Name                     a
-  | Record      [(Name, Expr a)]         a
-  | Function    [(Name, a)] (Expr a)     a
-  | Application (Expr a)    (Expr a)     a
-  | Array       [Expr a]                 a
-  | Procedure   [Statement a]            a
-  | Lookup      (Expr a)    Name         a
-  | Index       (Expr a)    (Expr a)     a
-  | LetBlock    [Declaration a] (Expr a) deriving Show
---  | Tuple       [Expr a]          a
+  = Bit         Bool                      a
+  | Quote       String                    a
+  | Z           Integer                   a
+  | Var         Name                      a
+  | Record      [(Name, Expr a)]          a
+  | Function    (Name, a)        (Expr a) a
+  | Application (Expr a)         (Expr a) a
+  | Array       [Expr a]                  a
+  | Procedure   [Statement a]             a
+  | Lookup      (Expr a)         Name     a
+  | Index       (Expr a)         (Expr a) a
+  | LetBlock    [Declaration a]  (Expr a)   deriving Show
+--  | Tuple       [Expr a]                a
 
 data Type 
-  = Z'
-  | Procedure'
-  | Bitfield'  Integer
+  = Bit'
+  | Z'
+  | Procedure' Type
   | Var'       String
   | Function'  [Type] Type
   | Array'     Type   (Maybe Integer)
