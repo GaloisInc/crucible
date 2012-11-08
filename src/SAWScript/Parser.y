@@ -36,6 +36,7 @@ import SAWScript.AST
 '}'                                     { T.OutfixR    _ "}"       }
 '['                                     { T.Postfix    _ "["       }
 '.'                                     { T.Postfix    _ "."       }
+infixOp                                 { T.Infix      _ $$        }
 bits                                    { T.Bitfield   _ $$        }
 string                                  { T.String     _ $$        }
 int                                     { T.Integer    _ $$        }
@@ -46,9 +47,9 @@ name                                    { T.Identifier _ $$        }
 Statement :: { Statement (Maybe Type) }
  : 'let' Declarations1                  { Declarations $2   }
  | name '::' Type                       { ForwardDecl $1 $3 }
- | name Exprs                           { Command $1 $2     }
  | 'type' name '=' Type                 { Typedef $2 $4     }
  | 'import' Import                      { $2                }
+ | Expr                                 { Command $1        }
 
 Declaration :: { Declaration (Maybe Type) }
  : name Args MaybeType '=' Expr         { Declaration $1 $2 $5 $3 }
@@ -66,18 +67,21 @@ Arg :: { (Name, Maybe Type) }
 Expr :: { Expr (Maybe Type) }
  : UnsafeExpr                           { $1 }
  | SafeExpr                             { $1 }
+ | SafeExpr Expr                        { Application $1 $2 Nothing }
 
 UnsafeExpr :: { Expr (Maybe Type) }
- : 'fun' Args MaybeType '->' Expr       { Function $2 $5 $3         }
- | 'let' Declarations1 'in' Expr        { LetBlock $2 $4            }
+ : 'fun' Args MaybeType '->' Expr       { Function $2 $5 $3             }
+ | 'let' Declarations1 'in' Expr        { LetBlock $2 $4                }
+ | SafeExpr infixOp Expr                    
+    { Application (Application (Var $2 Nothing ) $1 Nothing) $3 Nothing }
 
 SafeExpr :: { Expr (Maybe Type) }
  : bits   MaybeType                     { Bitfield (bitsOfString $1) $2 }
  | string MaybeType                     { Quote $1 $2                   }
- | int    MaybeType                     { Z (read $1) $2              }
+ | int    MaybeType                     { Z (read $1) $2                }
  | name   MaybeType                     { Var $1 $2                     }
  | '{' CommaSepFields '}' MaybeType     { Record $2 $4                  }
- | '(' Expr ')' MaybeType               { $2                            }
+ | '(' Expr ')'                         { $2                            }
  | ' [' CommaSepExprs ']' MaybeType     { Array $2 $4                   }
  | 'do' '{' SemiSepStatements '}'       { Procedure $3 Nothing          }
  | SafeExpr '.' name MaybeType          { Lookup $1 $3 $4               }
@@ -114,14 +118,6 @@ Args1 :: { [(Name, Maybe Type)] }
 SemiSepStatements :: { [Statement (Maybe Type)] }
  : {- Nothing -}                       { []    }
  | Statement ';' SemiSepStatements     { $1:$3 }
-
-Exprs :: { [Expr (Maybe Type)] }
- : {- Nothing -}                        { [] }
- | Exprs1                               { $1 }
-
-Exprs1 :: { [Expr (Maybe Type)] }
- : Expr                                 { [$1]    }
- | SafeExpr Exprs1                      { $1:$2   }
 
 CommaSepExprs :: { [Expr (Maybe Type)] }
  : {- Nothing -}                        { [] }

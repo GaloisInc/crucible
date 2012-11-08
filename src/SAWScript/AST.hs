@@ -8,7 +8,7 @@ type Name = String
 data Statement a
   = Declarations [Declaration a]
   | ForwardDecl Name Type
-  | Command Name [Expr a]
+  | Command (Expr a)
   | Typedef Name Type
   | Import Name (Maybe [Name]) (Maybe Name) deriving Show
 
@@ -22,7 +22,7 @@ data Expr a
   | Var         Name                     a
   | Record      [(Name, Expr a)]         a
   | Function    [(Name, a)] (Expr a)     a
-  | Application (Expr a)    [Expr a]     a
+  | Application (Expr a)    (Expr a)     a
   | Array       [Expr a]                 a
   | Procedure   [Statement a]            a
   | Lookup      (Expr a)    Name         a

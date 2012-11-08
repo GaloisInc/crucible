@@ -1,4 +1,5 @@
 import System.Console.Haskeline
+import SAWScript.Lexer
 import SAWScript.Parser
 
 echo s = do outputStrLn s; return ()
@@ -26,11 +27,11 @@ main = do
           Just (':':s) -> do
             processDirective s
             loop
-          Just expr    -> do
-            --let ast = read 
-            --    val = evaluate ast
-            --echo . print $ val
-            outputStrLn $ expr ++ " :: <Expr>"--TODO: Replace this line with the above.
+          Just str     -> do
+            let tokens = scan str
+            mapM_ (echo . show) tokens
+            let ast = parse tokens
+            echo . show $ ast
             loop
 
 processDirective :: String -> InputT IO ()
