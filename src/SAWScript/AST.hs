@@ -1,33 +1,35 @@
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE UndecidableInstances #-}
 
 module SAWScript.AST where
+
+import SAWScript.FixFunctor
 
 import Data.List
 import Text.PrettyPrint.HughesPJ
 import Control.Applicative
 
+-- Expr Level {{{
+
 data Module a = Module
   { declarations :: [TopStmt a]
   , main         :: [BlockStmt a]
   }
-  deriving (Eq,Show)
+  deriving Show
 
 data TopStmt a
   = Import      Name               (Maybe [Name])   (Maybe Name)
-  | TypeDef     Name               a
-  | TopTypeDecl Name               a
+  | TypeDef     Name               CType
+  | TopTypeDecl Name               CType
   | TopLet      [(Name,Expr a)]
-  deriving (Eq,Show)
+  deriving Show
 
 data BlockStmt a
   = Bind          (Maybe Name)     (Expr a)
-  | BlockTypeDecl Name             a
+  | BlockTypeDecl Name             CType
   | BlockLet      [(Name,Expr a)]
-  deriving (Eq,Show)
+  deriving Show
 
 data Expr a
   -- Constants
@@ -41,139 +43,122 @@ data Expr a
   | Record      [(Name, Expr a)]              a
   -- Accessors
   | Index       (Expr a)           (Expr a)   a
-  | Lookup      (Expr a)           Name       a
+  | Lookup      (Expr a)           (Expr a)   a
   -- LC
   | Var         Name                          a
   | Function    Name a             (Expr a)   a
   | Application (Expr a)           (Expr a)   a
   -- Sugar
   | LetBlock    [(Name,Expr a)]    (Expr a)
-  deriving (Eq,Show)
+  deriving Show
 
-data TypeF f
+type Name = String
+data Context = Context deriving (Eq,Show)
+
+-- }}}
+
+-- Type Level {{{
+
+data Type a
   -- Constants
   = Bit'
   | Z'
   | Quote'
   -- Structures
-  | Array'       (Mu TypeF f)          Int
-  | Block'       Context               (Mu TypeF f)
-  | Tuple'       [Mu TypeF f]
-  | Record'      [(Name,Mu TypeF f)]
+  | Array'       a          Int
+  | Block'       Context    a
+  | Tuple'       [a]
+  | Record'      [(Name,a)]
   -- LC
-  | Function'    (Mu TypeF f)          (Mu TypeF f)
+  | Function'    a          a
   | Syn          String
 
-instance Show (Mu TypeF Poly) where
-  show pt = case pt of
-    NoAnn   -> "NoAnn"
-    Annot t -> "(Annot " ++ show t ++ ")"
-    Poly n  -> "(Poly " ++ show n ++ ")"
+data Poly a = Poly Name
+instance Functor Poly where fmap f (Poly n) = Poly n
 
-instance Show (Mu TypeF Logic) where
-  show lt = case lt of
-    LVar i -> "(LVar " ++ show i ++ ")"
-    Term t -> "(Term " ++ show t ++ ")"
+data Logic a = LVar Int
+instance Functor Logic where fmap f (LVar i) = LVar i
 
-instance Show (Mu TypeF Id) where
-  show (Id t) = show t
+type MPType = Maybe (Mu (Type :+: Poly))
+type PType = Mu (Type :+: Poly)
+type LType = Mu (Type :+: Logic)
+type CType = Mu Type
 
-instance Show (Mu TypeF a) => Show (TypeF a) where
-  show t = case t of
-    Bit'          -> "Bit'"
-    Z'            -> "Z'"
-    Quote'        -> "Quote'"
-    Syn n         -> "(Syn " ++ n ++ ")"
-    Array' t l    -> "(Array' " ++ show t ++ " " ++ show l ++ ")"
-    Block' c t    -> "(Block' " ++ show c ++ " " ++ show t ++ ")"
-    Tuple' ts     -> "(Tuple' " ++ show ts ++ ")"
-    Record' fts   -> "(Record' " ++ show fts ++ ")"
-    Function' a t -> "(Function' " ++ show a ++ " " ++ show t ++ ")"
+instance Render Type where
+  render t = case t of
+    Bit'            -> "Bit"
+    Z'              -> "Z"
+    Quote'          -> "Quote"
+    Array' t l      -> "[" ++ show l ++ "]" ++ show t
+    Block' c t      -> show c ++ " " ++ show t
+    Tuple' ts       -> "(" ++ (intercalate ", " $ map show ts) ++ ")"
+    Record' fts     -> "{" ++ (intercalate ", " $ map (\(n,t)-> n ++ " :: " ++ show t) fts) ++ "}"
+    Function' at bt -> "(" ++ show at ++ " -> " ++ show bt ++ ")"
+    Syn n           -> n
 
-instance Eq (Mu TypeF Poly) where
- NoAnn      == NoAnn      = True
- (Annot t1) == (Annot t2) = t1 == t2
- (Poly n1)  == (Poly n2)  = n1 == n2
- _          == _          = False
+instance Render Poly where render (Poly n) = n
 
-instance Eq (Mu TypeF Logic) where
-  (LVar i1) == (LVar i2) = i1 == i2
-  (Term t1) == (Term t2) = t1 == t2
-  _         == _         = False
+instance Render Logic where render (LVar i) = "_." ++ show i
 
-instance Eq (Mu TypeF Id) where
-  (Id t1) == (Id t2) = t1 == t2
+-- }}}
 
-instance Eq (Mu TypeF a) => Eq (TypeF a) where
-  Syn n1          == Syn n2          = n1 == n2
-  Bit'            == Bit'            = True
-  Z'              == Z'              = True
-  Quote'          == Quote'          = True
-  Array' t1 l1    == Array' t2 l2    = True
-  Block' c1 t1    == Block' c2 t2    = c1 == c2 && t1 == t2
-  Tuple' ts1      == Tuple' ts2      = ts1 == ts2
-  Record' fts1    == Record' fts2    = fts1 == fts2
-  Function' a1 t1 == Function' a2 t2 = a1 == a2 && t1 == t2
-  _               == _               = False
+-- Functor instances {{{
 
-class FixFunctor (a :: (* -> *) -> *) where
-  fixmapM :: Monad m => (Mu a t -> m (Mu a f)) -> a t -> m (a f)
+instance Functor Module where
+  fmap f m = m { declarations = map (fmap f) $ declarations m
+               , main         = map (fmap f) $ main m
+               }
 
-instance FixFunctor TypeF where
-  fixmapM f t = case t of
-    Syn n         -> return $ Syn n
-    Bit'          -> return Bit'
-    Z'            -> return Z'
-    Quote'        -> return Quote'
-    Array' t l    -> do t' <- f t
-                        return (Array' t' l)
-    Block' c t    -> do t' <- f t
-                        return (Block' c t')
-    Tuple' ts     -> do ts' <- mapM f ts
-                        return (Tuple' ts')
-    Record' fts   -> let (ns,ts) = unzip fts in
-                       do ts' <- mapM f ts
-                          return (Record' $ zip ns ts')
-    Function' a t -> do a' <- f a
-                        t' <- f t
-                        return (Function' a' t')
+instance Functor TopStmt where
+  fmap f s = case s of
+    Import n mns mn -> Import n mns mn
+    TypeDef n t     -> TypeDef n t
+    TopTypeDecl n t -> TopTypeDecl n t
+    TopLet binds    -> let (ns,es) = unzip binds in
+                         TopLet $ zip ns $ map (fmap f) es
 
-data Context = Context deriving (Eq,Show)
+instance Functor BlockStmt where
+  fmap f s = case s of
+    Bind n e          -> Bind n $ fmap f e
+    BlockTypeDecl n t -> BlockTypeDecl n t
+    BlockLet binds    -> let (ns,es) = unzip binds in
+                           BlockLet $ zip ns $ map (fmap f) es
 
-type Name = String
+instance Functor Expr where
+  fmap f e = case e of
+    Bit b a                   -> Bit b $ f a
+    Quote s a                 -> Quote s $ f a
+    Z i a                     -> Z i $ f a
+    Array es a                -> Array (map (fmap f) es) $ f a
+    Block ss a                -> Block (map (fmap f) ss) $ f a
+    Tuple es a                -> Tuple (map (fmap f) es) $ f a
+    Record nes a              -> let (ns,es) = unzip nes in
+                                   Record (zip ns $ map (fmap f) es) $ f a
+    Index ar ix a             -> Index (fmap f ar) (fmap f ix) $ f a
+    Lookup rc fl a            -> Lookup (fmap f rc) (fmap f fl) $ f a
+    Var n a                   -> Var n $ f a
+    Function argn argt body a -> Function argn (f argt) (fmap f body) $ f a
+    Application fn v a        -> Application (fmap f fn) (fmap f v) $ f a
+    LetBlock binds body       -> let (ns,es) = unzip binds in
+                                   LetBlock (zip ns $ map (fmap f) es) (fmap f body)
 
-data Poly a
-  = NoAnn
-  | Annot a
-  | Poly Name
+instance Functor Type where
+  fmap f t = case t of
+    Bit'              -> Bit'
+    Z'                -> Z'
+    Quote'            -> Quote'
+    Array' t' l       -> Array' (f t') l
+    Block' c t'       -> Block' c (f t')
+    Tuple' ts'        -> Tuple' (map f ts')
+    Record' fts'      -> let (ns,ts') = unzip fts' in
+                           Record' (zip ns $ map f ts')
+    Function' at' bt' -> Function' (f at') (f bt')
+    Syn n             -> Syn n
 
-instance Functor Poly where
-  fmap f p = case p of
-    NoAnn   -> NoAnn
-    Annot a -> Annot $ f a
-    Poly n  -> Poly n
+-- }}}
 
-data Logic a
-  = LVar Int
-  | Term a
-
-instance Functor Logic where
-  fmap f l = case l of
-    LVar i -> LVar i
-    Term a -> Term $ f a
-
-newtype Id a = Id a
-
-instance Functor Id where
-  fmap f (Id a) = Id $ f a
-
-type Mu t f = f (t f)
-type PType = Mu TypeF Poly
-type LType = Mu TypeF Logic
-type Type  = Mu TypeF Id
-
-typeOf :: Expr a -> a
-typeOf e = case e of
+annotation :: Expr a -> a
+annotation e = case e of
   Bit _ t           -> t
   Quote _ t         -> t
   Z _ t             -> t
@@ -186,5 +171,41 @@ typeOf e = case e of
   Var _ t           -> t
   Function _ _ _ t  -> t
   Application _ _ t -> t
-  LetBlock _ e      -> typeOf e
+  LetBlock _ e      -> annotation e
 
+-- Operators {{{1
+
+poly :: (Poly :<: f) => String -> Mu f
+poly n = inject $ Poly n
+
+lVar :: (Logic :<: f) => Int -> Mu f
+lVar i = inject $ LVar i
+
+bit :: (Type :<: f) => Mu f
+bit = inject Bit'
+
+quote :: (Type :<: f) => Mu f
+quote = inject Quote'
+
+z :: (Type :<: f) => Mu f
+z = inject Z'
+
+array :: (Type :<: f) => Mu f -> Int -> Mu f
+array t l = inject $ Array' t l
+
+block :: (Type :<: f) => Context -> Mu f -> Mu f
+block c t = inject $ Block' c t
+
+tuple :: (Type :<: f) => [Mu f] -> Mu f
+tuple ts = inject $ Tuple' ts
+
+record :: (Type :<: f) => [(Name,Mu f)] -> Mu f
+record fts = inject $ Record' fts
+
+function :: (Type :<: f) => Mu f -> Mu f -> Mu f
+function at bt = inject $ Function' at bt
+
+syn :: (Type :<: f) => String -> Mu f
+syn n = inject $ Syn n
+
+-- }}}
