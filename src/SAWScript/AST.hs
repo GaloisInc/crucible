@@ -7,8 +7,8 @@ module SAWScript.AST where
 import SAWScript.FixFunctor
 
 import Data.List
-import Text.PrettyPrint.HughesPJ
 import Control.Applicative
+import Control.Monad
 
 -- Expr Level {{{
 
@@ -157,21 +157,25 @@ instance Functor Type where
 
 -- }}}
 
-annotation :: Expr a -> a
-annotation e = case e of
-  Bit _ t           -> t
-  Quote _ t         -> t
-  Z _ t             -> t
-  Array _ t         -> t
-  Block _ t         -> t
-  Tuple _ t         -> t
-  Record _ t        -> t
-  Index _ _ t       -> t
-  Lookup _ _ t      -> t
-  Var _ t           -> t
-  Function _ _ _ t  -> t
-  Application _ _ t -> t
-  LetBlock _ e      -> annotation e
+-- Equal Instances {{{
+
+instance Equal Type where
+  equal t1 t2 = case (t1,t2) of
+    (Bit',Bit')                               -> True
+    (Z',Z')                                   -> True
+    (Quote',Quote')                           -> True
+    (Array' t1' l1,Array' t2' l2)             -> t1' == t2' && l1 == l2
+    (Block' c1 t1',Block' c2 t2')             -> c1 == c2 && t1' == t2'
+    (Tuple' ts1',Tuple' ts2')                 -> ts1' == ts2'
+    (Record' fts1',Record' fts2')             -> fts1' == fts2'
+    (Function' at1' bt1',Function' at2' bt2') -> at1' == at2' && bt1' == bt2'
+    (Syn n1,Syn n2)                           -> n1 == n2
+    _                                         -> False
+
+instance Equal Logic where
+  equal (LVar x) (LVar y) = x == y
+
+-- }}}
 
 -- Operators {{{1
 
@@ -209,3 +213,20 @@ syn :: (Type :<: f) => String -> Mu f
 syn n = inject $ Syn n
 
 -- }}}
+
+annotation :: Expr a -> a
+annotation e = case e of
+  Bit _ t           -> t
+  Quote _ t         -> t
+  Z _ t             -> t
+  Array _ t         -> t
+  Block _ t         -> t
+  Tuple _ t         -> t
+  Record _ t        -> t
+  Index _ _ t       -> t
+  Lookup _ _ t      -> t
+  Var _ t           -> t
+  Function _ _ _ t  -> t
+  Application _ _ t -> t
+  LetBlock _ e      -> annotation e
+
