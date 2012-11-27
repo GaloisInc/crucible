@@ -43,10 +43,10 @@ data Expr a
   | Record      [(Name, Expr a)]              a
   -- Accessors
   | Index       (Expr a)           (Expr a)   a
-  | Lookup      (Expr a)           (Expr a)   a
+  | Lookup      (Expr a)           Name       a
   -- LC
   | Var         Name                          a
-  | Function    Name a             (Expr a)   a
+  | Function    Name     a         (Expr a)   a
   | Application (Expr a)           (Expr a)   a
   -- Sugar
   | LetBlock    [(Name,Expr a)]    (Expr a)
@@ -135,7 +135,7 @@ instance Functor Expr where
     Record nes a              -> let (ns,es) = unzip nes in
                                    Record (zip ns $ map (fmap f) es) $ f a
     Index ar ix a             -> Index (fmap f ar) (fmap f ix) $ f a
-    Lookup rc fl a            -> Lookup (fmap f rc) (fmap f fl) $ f a
+    Lookup rc fl a            -> Lookup (fmap f rc) fl $ f a
     Var n a                   -> Var n $ f a
     Function argn argt body a -> Function argn (f argt) (fmap f body) $ f a
     Application fn v a        -> Application (fmap f fn) (fmap f v) $ f a
