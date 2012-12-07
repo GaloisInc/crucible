@@ -77,7 +77,7 @@ data Expr a
   | Lookup      (Expr a)           Name       a
   -- LC
   | Var         Name                          a
-  | Function    Name a             (Expr a)   a
+  | Function    Name     a         (Expr a)   a
   | Application (Expr a)           (Expr a)   a
   -- Sugar
   | LetBlock    [(Name,Expr a)]    (Expr a)
@@ -124,7 +124,92 @@ data Type a
   | Syn          String
   deriving (Show,Functor,Foldable,Traversable)
 
--- Equal {{{
+data Poly a = Poly Name
+instance Functor Poly where fmap f (Poly n) = Poly n
+
+data Logic a = LVar Int
+instance Functor Logic where fmap f (LVar i) = LVar i
+
+type MPType = Maybe (Mu (Type :+: Poly))
+type PType = Mu (Type :+: Poly)
+type LType = Mu (Type :+: Logic)
+type CType = Mu Type
+
+instance Render Type where
+  render t = case t of
+    Bit'            -> "Bit"
+    Z'              -> "Z"
+    Quote'          -> "Quote"
+    Array' t l      -> "[" ++ show l ++ "]" ++ show t
+    Block' c t      -> show c ++ " " ++ show t
+    Tuple' ts       -> "(" ++ (intercalate ", " $ map show ts) ++ ")"
+    Record' fts     -> "{" ++ (intercalate ", " $ map (\(n,t)-> n ++ " :: " ++ show t) fts) ++ "}"
+    Function' at bt -> "(" ++ show at ++ " -> " ++ show bt ++ ")"
+    Syn n           -> n
+
+instance Render Poly where render (Poly n) = n
+
+instance Render Logic where render (LVar i) = "_." ++ show i
+
+-- }}}
+
+-- Functor instances {{{
+
+instance Functor Module where
+  fmap f m = m { declarations = map (fmap f) $ declarations m
+               , main         = map (fmap f) $ main m
+               }
+
+instance Functor TopStmt where
+  fmap f s = case s of
+    Import n mns mn -> Import n mns mn
+    TypeDef n t     -> TypeDef n t
+    TopTypeDecl n t -> TopTypeDecl n t
+    TopLet binds    -> let (ns,es) = unzip binds in
+                         TopLet $ zip ns $ map (fmap f) es
+
+instance Functor BlockStmt where
+  fmap f s = case s of
+    Bind n e          -> Bind n $ fmap f e
+    BlockTypeDecl n t -> BlockTypeDecl n t
+    BlockLet binds    -> let (ns,es) = unzip binds in
+                           BlockLet $ zip ns $ map (fmap f) es
+
+instance Functor Expr where
+  fmap f e = case e of
+    Bit b a                   -> Bit b $ f a
+    Quote s a                 -> Quote s $ f a
+    Z i a                     -> Z i $ f a
+    Array es a                -> Array (map (fmap f) es) $ f a
+    Block ss a                -> Block (map (fmap f) ss) $ f a
+    Tuple es a                -> Tuple (map (fmap f) es) $ f a
+    Record nes a              -> let (ns,es) = unzip nes in
+                                   Record (zip ns $ map (fmap f) es) $ f a
+    Index ar ix a             -> Index (fmap f ar) (fmap f ix) $ f a
+    Lookup rc fl a            -> Lookup (fmap f rc) fl $ f a
+    Var n a                   -> Var n $ f a
+    Function argn argt body a -> Function argn (f argt) (fmap f body) $ f a
+    Application fn v a        -> Application (fmap f fn) (fmap f v) $ f a
+    LetBlock binds body       -> let (ns,es) = unzip binds in
+                                   LetBlock (zip ns $ map (fmap f) es) (fmap f body)
+
+instance Functor Type where
+  fmap f t = case t of
+    Bit'              -> Bit'
+    Z'                -> Z'
+    Quote'            -> Quote'
+    Array' t' l       -> Array' (f t') l
+    Block' c t'       -> Block' c (f t')
+    Tuple' ts'        -> Tuple' (map f ts')
+    Record' fts'      -> let (ns,ts') = unzip fts' in
+                           Record' (zip ns $ map f ts')
+    Function' at' bt' -> Function' (f at') (f bt')
+    Syn n             -> Syn n
+
+-- }}}
+
+-- Equal Instances {{{
+
 instance Equal Type where
   equal t1 t2 = case (t1,t2) of
     (Bit',Bit')                               -> True
