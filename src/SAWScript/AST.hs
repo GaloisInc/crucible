@@ -21,16 +21,15 @@ type PType = Mu (Type :+: Poly)
 type LType = Mu (Type :+: Logic)
 type CType = Mu Type
 
+type Err = Either String
+
 -- Expr Level {{{
 
 data Module a = Module
   { declarations :: [TopStmt a]
-  , mainBlock    :: [BlockStmt Context a]
+  , mainBlock    :: [BlockStmt a]
   }
   deriving (Functor,Foldable,Traversable)
-
-instance Show a => Show (Module a) where
-  show (Module ds mb) = (intercalate "\n" $ map show ds) ++ "\n\n" ++ (intercalate "\n" $ map show mb)
 
 data TopStmt a
   = Import      Name               (Maybe [Name])   (Maybe Name)
@@ -39,28 +38,11 @@ data TopStmt a
   | TopLet      [(Name,Expr a)]
   deriving (Functor,Foldable,Traversable)
 
-instance Show a => Show (TopStmt a) where
-  show s = case s of
-    Import n ns qn   -> case qn of
-      Nothing -> "import " ++ n ++ maybe "" (\ns -> " (" ++ intercalate ", " ns ++ ")") ns
-      Just q  -> "import qualified " ++ n ++ maybe "" (\ns -> " (" ++ intercalate ", " ns ++ ")") ns ++ " as " ++ q
-    TypeDef n pt     -> "type " ++ n ++ " = " ++ show pt
-    TopTypeDecl n pt -> n ++ " :: " ++ show pt
-    TopLet nes       -> intercalate "\n" $ map (\(n,e) -> n ++ " = " ++ show e) nes
-
-data BlockStmt c a
-  = Bind          (Maybe Name)     c (Expr a)
+data BlockStmt a
+  = Bind          (Maybe Name)     Context (Expr a)
   | BlockTypeDecl Name             PType
   | BlockLet      [(Name,Expr a)]
   deriving (Functor,Foldable,Traversable)
-
-instance Show a => Show (BlockStmt Context a) where
-  show s = case s of
-    Bind mn c e        -> case mn of
-      Nothing -> show e
-      Just n  -> n ++ " <- " ++ show e
-    BlockTypeDecl n pt -> "let " ++ n ++ " :: " ++ show pt
-    BlockLet nes       -> "let " ++ (intercalate "; " $ map (\(n,e) -> n ++ " = " ++ show e) nes)
 
 data Expr a
   -- Constants
@@ -69,7 +51,7 @@ data Expr a
   | Z           Integer                       a
   -- Structures
   | Array       [Expr a]                      a
-  | Block       [BlockStmt Context a]         a
+  | Block       [BlockStmt a]                 a
   | Tuple       [Expr a]                      a
   | Record      [(Name, Expr a)]              a
   -- Accessors
@@ -82,6 +64,26 @@ data Expr a
   -- Sugar
   | LetBlock    [(Name,Expr a)]    (Expr a)
   deriving (Functor,Foldable,Traversable)
+
+instance Show a => Show (Module a) where
+  show (Module ds mb) = (intercalate "\n" $ map show ds) ++ "\n\n" ++ (intercalate "\n" $ map show mb)
+
+instance Show a => Show (TopStmt a) where
+  show s = case s of
+    Import n ns qn   -> case qn of
+      Nothing -> "import " ++ n ++ maybe "" (\ns -> " (" ++ intercalate ", " ns ++ ")") ns
+      Just q  -> "import qualified " ++ n ++ maybe "" (\ns -> " (" ++ intercalate ", " ns ++ ")") ns ++ " as " ++ q
+    TypeDef n pt     -> "type " ++ n ++ " = " ++ show pt
+    TopTypeDecl n pt -> n ++ " :: " ++ show pt
+    TopLet nes       -> intercalate "\n" $ map (\(n,e) -> n ++ " = " ++ show e) nes
+
+instance Show a => Show (BlockStmt a) where
+  show s = case s of
+    Bind mn c e        -> case mn of
+      Nothing -> show e
+      Just n  -> n ++ " <- " ++ show e
+    BlockTypeDecl n pt -> "let " ++ n ++ " :: " ++ show pt
+    BlockLet nes       -> "let " ++ (intercalate "; " $ map (\(n,e) -> n ++ " = " ++ show e) nes)
 
 instance Show a => Show (Expr a) where
   show e = case e of
@@ -124,88 +126,6 @@ data Type a
   | Syn          String
   deriving (Show,Functor,Foldable,Traversable)
 
-data Poly a = Poly Name
-instance Functor Poly where fmap f (Poly n) = Poly n
-
-data Logic a = LVar Int
-instance Functor Logic where fmap f (LVar i) = LVar i
-
-type MPType = Maybe (Mu (Type :+: Poly))
-type PType = Mu (Type :+: Poly)
-type LType = Mu (Type :+: Logic)
-type CType = Mu Type
-
-instance Render Type where
-  render t = case t of
-    Bit'            -> "Bit"
-    Z'              -> "Z"
-    Quote'          -> "Quote"
-    Array' t l      -> "[" ++ show l ++ "]" ++ show t
-    Block' c t      -> show c ++ " " ++ show t
-    Tuple' ts       -> "(" ++ (intercalate ", " $ map show ts) ++ ")"
-    Record' fts     -> "{" ++ (intercalate ", " $ map (\(n,t)-> n ++ " :: " ++ show t) fts) ++ "}"
-    Function' at bt -> "(" ++ show at ++ " -> " ++ show bt ++ ")"
-    Syn n           -> n
-
-instance Render Poly where render (Poly n) = n
-
-instance Render Logic where render (LVar i) = "_." ++ show i
-
--- }}}
-
--- Functor instances {{{
-
-instance Functor Module where
-  fmap f m = m { declarations = map (fmap f) $ declarations m
-               , main         = map (fmap f) $ main m
-               }
-
-instance Functor TopStmt where
-  fmap f s = case s of
-    Import n mns mn -> Import n mns mn
-    TypeDef n t     -> TypeDef n t
-    TopTypeDecl n t -> TopTypeDecl n t
-    TopLet binds    -> let (ns,es) = unzip binds in
-                         TopLet $ zip ns $ map (fmap f) es
-
-instance Functor BlockStmt where
-  fmap f s = case s of
-    Bind n e          -> Bind n $ fmap f e
-    BlockTypeDecl n t -> BlockTypeDecl n t
-    BlockLet binds    -> let (ns,es) = unzip binds in
-                           BlockLet $ zip ns $ map (fmap f) es
-
-instance Functor Expr where
-  fmap f e = case e of
-    Bit b a                   -> Bit b $ f a
-    Quote s a                 -> Quote s $ f a
-    Z i a                     -> Z i $ f a
-    Array es a                -> Array (map (fmap f) es) $ f a
-    Block ss a                -> Block (map (fmap f) ss) $ f a
-    Tuple es a                -> Tuple (map (fmap f) es) $ f a
-    Record nes a              -> let (ns,es) = unzip nes in
-                                   Record (zip ns $ map (fmap f) es) $ f a
-    Index ar ix a             -> Index (fmap f ar) (fmap f ix) $ f a
-    Lookup rc fl a            -> Lookup (fmap f rc) fl $ f a
-    Var n a                   -> Var n $ f a
-    Function argn argt body a -> Function argn (f argt) (fmap f body) $ f a
-    Application fn v a        -> Application (fmap f fn) (fmap f v) $ f a
-    LetBlock binds body       -> let (ns,es) = unzip binds in
-                                   LetBlock (zip ns $ map (fmap f) es) (fmap f body)
-
-instance Functor Type where
-  fmap f t = case t of
-    Bit'              -> Bit'
-    Z'                -> Z'
-    Quote'            -> Quote'
-    Array' t' l       -> Array' (f t') l
-    Block' c t'       -> Block' c (f t')
-    Tuple' ts'        -> Tuple' (map f ts')
-    Record' fts'      -> let (ns,ts') = unzip fts' in
-                           Record' (zip ns $ map f ts')
-    Function' at' bt' -> Function' (f at') (f bt')
-    Syn n             -> Syn n
-
 -- }}}
 
 -- Equal Instances {{{
@@ -242,12 +162,12 @@ instance Render Type where
 instance Uni Type where
   uni t1 t2 = case (t1,t2) of
     (Array' t1',Array' t2')                   -> unify t1' t2'
-    (Block' c1 t1',Block' c2 t2')             -> guard (c1 == c2) >> unify t1' t2'
+    (Block' c1 t1',Block' c2 t2')             -> assert (c1 == c2) ("Could not match contexts " ++ show c1 ++ " and " ++ show c2) >> unify t1' t2'
     (Tuple' ts1',Tuple' ts2')                 -> zipWithMP_ unify ts1' ts2'
     (Record' fts1',Record' fts2')             -> do conj [ disj [ unify x y | (nx,x) <- fts1', nx == ny ] | (ny,y) <- fts2' ]
                                                     conj [ disj [ unify y x | (ny,y) <- fts2', nx == ny ] | (nx,x) <- fts1' ]
     (Function' at1' bt1',Function' at2' bt2') -> unify at1' at2' >> unify bt1' bt2'
-    _                                         -> mzero
+    _                                         -> fail ("Type Mismatch: " ++ render t1 ++ " could not be unified with " ++ render t2)
 -- }}}
 
 -- Operators {{{
@@ -293,7 +213,7 @@ instance Equal Poly where
   equal (Poly n1) (Poly n2) = n1 == n2
 
 instance Uni Poly where
-  uni (Poly n1) (Poly n2) = guard (n1 == n2)
+  uni (Poly n1) (Poly n2) = fail ("Poly: " ++ show n1 ++ " =/= " ++ show n2)
 
 poly :: (Poly :<: f) => String -> Mu f
 poly n = inject $ Poly n
@@ -319,7 +239,7 @@ instance Decorated Expr where
     Application _ _ t -> t
     LetBlock _ e      -> decor e
 
-context :: BlockStmt c a -> Maybe c
+context :: BlockStmt a -> Maybe Context
 context s = case s of
   Bind _ c _ -> Just c
   _          -> Nothing
