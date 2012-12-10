@@ -16,10 +16,10 @@ import Data.List
 import Data.Foldable hiding (concat)
 import Data.Traversable
 
-type MPType = Maybe (Mu (Type :+: Poly))
-type PType = Mu (Type :+: Poly)
-type LType = Mu (Type :+: Logic)
-type CType = Mu Type
+type MPType = Maybe (Mu (I :+: Type :+: Poly))
+type PType = Mu (I :+: Type :+: Poly)
+type LType = Mu (I :+: Type :+: Logic)
+type CType = Mu (I :+: Type)
 
 type Err = Either String
 
@@ -117,7 +117,7 @@ data Type a
   | Z'
   | Quote'
   -- Structures
-  | Array'       a
+  | Array'       a          a
   | Block'       Context    a
   | Tuple'       [a]
   | Record'      [(Name,a)]
@@ -125,6 +125,17 @@ data Type a
   | Function'    a          a
   | Syn          String
   deriving (Show,Functor,Foldable,Traversable)
+
+data Type' 
+  = BitT
+  | ZT
+  | QuoteT
+  | ArrayT Type' Int
+  | BlockT Context Type'
+  | TupleT [Type']
+  | RecordT [(Name,Type')]
+  | FunctionT Type' Type'
+  deriving (Eq,Show)
 
 -- }}}
 
@@ -135,7 +146,7 @@ instance Equal Type where
     (Bit',Bit')                               -> True
     (Z',Z')                                   -> True
     (Quote',Quote')                           -> True
-    (Array' t1',Array' t2')                   -> t1' == t2'
+    (Array' t1' l1,Array' t2' l2)             -> l1 == l2 && t1' == t2'
     (Block' c1 t1',Block' c2 t2')             -> c1 == c2 && t1' == t2'
     (Tuple' ts1',Tuple' ts2')                 -> ts1' == ts2'
     (Record' fts1',Record' fts2')             -> fts1' == fts2'
@@ -150,7 +161,7 @@ instance Render Type where
     Bit'            -> "Bit"
     Z'              -> "Z"
     Quote'          -> "Quote"
-    Array' t        -> "[" ++ show t ++ "]"
+    Array' t l      -> "[" ++ show l ++ "]" ++ show t
     Block' c t      -> "(Block " ++ show c ++ " " ++ show t ++ ")"
     Tuple' ts       -> "(" ++ (intercalate ", " $ map show ts) ++ ")"
     Record' fts     -> "{" ++ (intercalate ", " $ map (\(n,t)-> n ++ " :: " ++ show t) fts) ++ "}"
@@ -161,7 +172,7 @@ instance Render Type where
 -- Uni {{{
 instance Uni Type where
   uni t1 t2 = case (t1,t2) of
-    (Array' t1',Array' t2')                   -> unify t1' t2'
+    (Array' t1' l1,Array' t2' l2)             -> unify l1 l2 >> unify t1' t2'
     (Block' c1 t1',Block' c2 t2')             -> assert (c1 == c2) ("Could not match contexts " ++ show c1 ++ " and " ++ show c2) >> unify t1' t2'
     (Tuple' ts1',Tuple' ts2')                 -> zipWithMP_ unify ts1' ts2'
     (Record' fts1',Record' fts2')             -> do conj [ disj [ unify x y | (nx,x) <- fts1', nx == ny ] | (ny,y) <- fts2' ]
@@ -181,8 +192,8 @@ quote = inject Quote'
 z :: (Type :<: f) => Mu f
 z = inject Z'
 
-array :: (Type :<: f) => Mu f ->Mu f
-array t = inject $ Array' t
+array :: (I :<: f, Type :<: f) => Mu f -> Mu f -> Mu f
+array t l = inject $ Array' t l
 
 block :: (Type :<: f) => Context -> Mu f -> Mu f
 block c t = inject $ Block' c t
@@ -200,6 +211,22 @@ syn :: (Type :<: f) => String -> Mu f
 syn n = inject $ Syn n
 
 -- }}}
+
+-- I {{{
+
+data I a = I Int deriving (Show,Functor,Foldable,Traversable)
+
+instance Equal I where
+  equal (I x) (I y) = x == y
+
+instance Render I where
+  render (I x) = show x
+
+instance Uni I where
+  uni (I x) (I y) = fail ("I: " ++ show x ++ " =/= " ++ show y)
+
+i :: (I :<: f) => Int -> Mu f
+i x = inject $ I x
 
 -- }}}
 
@@ -251,12 +278,12 @@ m1 = Module
   { declarations =
     [ Import "Foo" Nothing Nothing
     , TypeDef "Test" bit
-    , TopTypeDecl "map4" (function (function (poly "a") (poly "b")) (function (array (poly "a")) (array (poly "b"))))
-    , TopTypeDecl "a1" (array z)
+    , TopTypeDecl "map4" (function (function (poly "a") (poly "b")) (function (array (poly "a") (poly "m")) (array (poly "b") (poly "m"))))
+    , TopTypeDecl "a1" (array z (i 4))
     , TopTypeDecl "plus1" (function z z)
     ]
   , mainBlock = 
-    [ Bind Nothing Context (Application (Var "map4" Nothing) (Var "plus1" Nothing) Nothing)
+    [ Bind Nothing Context (Application (Var "map4" Nothing) (Var "plus1" Nothing) (Just $ function (array (poly "a") (i 3)) (array (poly "b") (i 3))))
     --[ Bind Nothing Context (Var "map4" Nothing)
     ]
   }
@@ -266,8 +293,8 @@ m1b = Module
   { declarations =
     [ Import "Foo" Nothing Nothing
     , TypeDef "Test" bit
-    , TopTypeDecl "map4" (function (function (poly "a") (poly "b")) (function (array (poly "a")) (array (poly "b"))))
-    , TopTypeDecl "a1" (array z)
+    , TopTypeDecl "map4" (function (function (poly "a") (poly "b")) (function (array (poly "a") (poly "m")) (array (poly "b") (poly "m"))))
+    , TopTypeDecl "a1" (array z (i 4))
     , TopTypeDecl "plus1" (function (syn "Test") (syn "Test"))
     ]
   , mainBlock = 
@@ -280,8 +307,8 @@ m1c = Module
   { declarations =
     [ Import "Foo" Nothing Nothing
     , TypeDef "Test" bit
-    , TopTypeDecl "map4" (function (function (poly "a") (poly "b")) (function (array (poly "a")) (array (poly "b"))))
-    , TopTypeDecl "a1" (array (syn "Test"))
+    , TopTypeDecl "map4" (function (function (poly "a") (poly "b")) (function (array (poly "a") (poly "m")) (array (poly "b") (poly "m"))))
+    , TopTypeDecl "a1" (array (syn "Test") (i 5))
     , TopTypeDecl "plus1" (function (syn "Test") (syn "Test"))
     ]
   , mainBlock = 
@@ -294,8 +321,8 @@ m2 = Module
   { declarations =
     [ Import "Foo" Nothing Nothing
     , TypeDef "Test" bit
-    , TopTypeDecl "map4" (function (function (poly "a") (poly "b")) (function (array (poly "a")) (array (poly "b"))))
-    , TopTypeDecl "a1" (array z)
+    , TopTypeDecl "map4" (function (function (poly "a") (poly "b")) (function (array (poly "a") (poly "m")) (array (poly "b") (poly "m"))))
+    , TopTypeDecl "a1" (array z (poly "n"))
     , TopTypeDecl "plus1" (function z z)
     ]
   , mainBlock = 
@@ -306,7 +333,7 @@ m2 = Module
 m2b :: Module MPType
 m2b = Module
   { declarations =
-    [ TopTypeDecl "map4" (function (function (poly "a") (poly "b")) (function (array (poly "a")) (array (poly "b"))))
+    [ TopTypeDecl "map4" (function (function (poly "a") (poly "b")) (function (array (poly "a") (poly "m")) (array (poly "b") (poly "m"))))
     ]
   , mainBlock = 
     [ Bind Nothing Context (Var "map4" (Just (function (poly "a") (poly "b"))))
@@ -337,8 +364,63 @@ m5 = Module
 
 m6 :: Module MPType
 m6 = Module
-  { declarations = [ TopTypeDecl "a" (function (function (poly "a") (poly "b")) (function (array (poly "a")) (array (poly "b")))) ]
+  { declarations =
+    [ TopTypeDecl "map4" (function (function (poly "a") (poly "b")) (function (array (poly "a") (poly "m")) (array (poly "b") (poly "m")))) ]
   , mainBlock = [ Bind Nothing Context (Var "a" Nothing) ]
+  }
+
+inferBit :: Module MPType
+inferBit = Module
+  { declarations = [ TopLet [("a",Bit True Nothing)] ]
+  , mainBlock    = [ Bind Nothing Context (Var "a" Nothing) ]
+  }
+
+inferQuote :: Module MPType
+inferQuote = Module
+  { declarations = [ TopLet [("a",Quote "foo" Nothing)] ]
+  , mainBlock    = [ Bind Nothing Context (Var "a" Nothing) ]
+  }
+
+inferZ :: Module MPType
+inferZ = Module
+  { declarations = [ TopLet [("a",Z 31337 Nothing)] ]
+  , mainBlock    = [ Bind Nothing Context (Var "a" Nothing) ]
+  }
+
+inferBlock :: Module MPType
+inferBlock = Module
+  { declarations = [ TopLet [("a",Block [ Bind Nothing Context (Bit True Nothing) ] Nothing)] ]
+  , mainBlock    = [ Bind Nothing Context (Var "a" Nothing) ]
+  }
+
+inferTuple :: Module MPType
+inferTuple = Module
+  { declarations = [ TopLet [("a",Tuple [Bit True Nothing, Quote "foo" Nothing, Z 31337 Nothing] Nothing)] ]
+  , mainBlock    = [ Bind Nothing Context (Var "a" Nothing) ]
+  }
+
+inferRecord1 :: Module MPType
+inferRecord1 = Module
+  { declarations = [ TopLet [("a",Record [("foo",Quote "foo" Nothing)] Nothing)] ]
+  , mainBlock    = [ Bind Nothing Context (Var "a" Nothing) ]
+  }
+
+inferRecord2 :: Module MPType
+inferRecord2 = Module
+  { declarations = [ TopLet [("a",Record [("foo",Quote "foo" Nothing),("bar",Z 42 Nothing)] Nothing)] ]
+  , mainBlock    = [ Bind Nothing Context (Var "a" Nothing) ]
+  }
+
+inferArray1 :: Module MPType
+inferArray1 = Module
+  { declarations = [ TopLet [("a",Array [Quote "foo" Nothing, Quote "bar" Nothing] Nothing)] ]
+  , mainBlock    = [ Bind Nothing Context (Var "a" Nothing) ]
+  }
+
+inferArray2 :: Module MPType
+inferArray2 = Module
+  { declarations = [ TopLet [("a",Array [Quote "foo" Nothing, Z 42 Nothing] Nothing)] ]
+  , mainBlock    = [ Bind Nothing Context (Var "a" Nothing) ]
   }
 
 -- }}}
