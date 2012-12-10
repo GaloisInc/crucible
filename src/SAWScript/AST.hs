@@ -46,7 +46,8 @@ data BlockStmt a
 
 data Expr a
   -- Constants
-  = Bit         Bool                          a
+  = Unit                                      a
+  | Bit         Bool                          a
   | Quote       String                        a
   | Z           Integer                       a
   -- Structures
@@ -113,7 +114,8 @@ data Context = Context deriving (Eq,Show)
 
 data Type a
   -- Constants
-  = Bit'
+  = Unit'
+  | Bit'
   | Z'
   | Quote'
   -- Structures
@@ -343,3 +345,18 @@ m6 = Module
 
 -- }}}
 
+updateAnnotation :: Expr a -> a -> Expr a
+updateAnnotation e t = case e of
+  Bit x _           -> Bit x t
+  Quote x _         -> Quote x t
+  Z x _             -> Z x t
+  Array x _         -> Array x t
+  Block x _         -> Block x t
+  Tuple x _         -> Tuple x t
+  Record x _        -> Record x t
+  Index x y _       -> Index x y t
+  Lookup x y _      -> Lookup x y t
+  Var x _           -> Var x t
+  Function x y z _  -> Function x y z t
+  Application x y _ -> Application x y t
+  LetBlock x e      -> LetBlock x (updateAnnotation e t)

@@ -12,9 +12,11 @@ import SAWScript.Token
 
 %wrapper "posn"
 
-@comment       = "/*" ([^\*]* ('*'[^\/])*)* "*/" | "//" .*
+$allChars      = [\x00-\x10ffff]
+@comment       = ("/*"   (($allChars # [\*]) | ("*" ($allChars # [\/])))*  "*/") | ("//" .*)
 
-@keyword       = "import" | "as" | "let" | "and" | "fun" | "in" | "type" | "do" | "integer"
+
+@keyword       = "()" | "import" | "as" | "let" | "and" | "fun" | "in" | "type" | "do" | "integer" | "string" | "bit"
 
 $ident_head    = [\_a-zA-Z]
 $ident_tail    = [\_a-zA-Z0-9\']
@@ -28,9 +30,11 @@ $base16        = [0-9a-fA-F]
 @hex_lit       = "0x" $base16*
 @integer       = $base10+
 
-$escape        = ["\\n]
+
+$escape        = ["\\n]                                    
+--"
 $not_escape    = ~$escape
-@string        = \" ($not_escape* (\\ $escape)*)* \"
+@string        = \" ([^\\]* (\\ $escape)*)* \"
 
 $symbol        = [\|\~\-\*\+\>\<\&\^\#\=\!\&\,\.\:\;]
 @infix         = $symbol+
@@ -40,6 +44,7 @@ $outfix_right  = [\)\]\}]
 
 $white         = [\ \t\n\f\v\r]
 $not_white     = ~$white
+
 
 
 tokenize :-
