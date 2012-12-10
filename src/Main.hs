@@ -1,6 +1,9 @@
 import System.Console.Haskeline
 import SAWScript.Lexer
 import SAWScript.Parser
+import System.IO
+import Control.Monad
+import Control.Monad.Trans.Class
 
 echo s = do outputStrLn s; return ()
 
@@ -28,16 +31,16 @@ main = do
             processDirective s
             loop
           Just str     -> do
-            let tokens = scan str
-            mapM_ (echo . show) tokens
-            let ast = parse tokens
-            echo . show $ ast
+            interpret str
             loop
 
 processDirective :: String -> InputT IO ()
-processDirective s = case s of
-  "h"       -> printHelp
-  "?"       -> printHelp
+processDirective s = case words s of
+  ["h"]     -> printHelp
+  ["?"]     -> printHelp
+  "l":files -> do
+    strings <- lift (load files)
+    mapM_ interpret strings
   otherwise -> do echo ("Unrecognized directive: ':"++s++"'."); return ()
 
 printHelp :: InputT IO ()
@@ -47,3 +50,14 @@ printHelp = do --TODO: Fill in directives as they are developed.
   echo " -- Commands for changing settings:\n"
   echo " -- Commands for displaying information:\n"
   return ()
+
+load :: [FilePath] -> IO [String]
+load = 
+  (mapM readFile)
+
+interpret :: String -> InputT IO ()
+interpret str = do
+  let tokens = scan str
+  mapM_ (echo . show) tokens
+  let ast = parse tokens
+  echo . show $ ast
