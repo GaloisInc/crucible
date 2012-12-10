@@ -6,6 +6,7 @@ import qualified SAWScript.Token as T
 import SAWScript.Lexer
 import SAWScript.AST
 import SAWScript.FixFunctor
+import Control.Applicative
 
 }
 
@@ -23,6 +24,9 @@ import SAWScript.FixFunctor
 'type'                                  { T.Keyword    _ "type"    }
 'do'                                    { T.Keyword    _ "do"      }
 'integer'                               { T.Keyword    _ "integer" }
+'string'                                { T.Keyword    _ "string"  }
+'bit'                                   { T.Keyword    _ "bit"     }
+unit                                    { T.Keyword    _ "()"      }
 '='                                     { T.Infix      _ "="       }
 '->'                                    { T.Infix      _ "->"      }
 ';'                                     { T.Infix      _ ";"       }
@@ -45,6 +49,10 @@ name                                    { T.Identifier _ $$        }
 
 %%
 
+TopStatements :: { [TopStmt MPType] }
+ : {- Nothing -}                  { []    }
+ | TopStatement ';' TopStatements { $1:$3 }
+
 TopStatement :: { TopStmt MPType }
  : 'let' Declarations1                  { TopLet $2         }
  | name '::' CType                      { TopTypeDecl $1 $3 }
@@ -58,38 +66,38 @@ BlockStatement :: { BlockStmt MPType }
  | 'let' Declarations1 { BlockLet $2         }
 
 Declaration :: { (Name, Expr MPType) }
- : name Args MaybeType '=' Expr         { ($1, uncurryFunction $2 $3 $5) }
+ : name Args '=' Expr                   { ($1, buildFunction $2 $4)       }
 
 Import :: { TopStmt MPType }
- : name                                 { Import $1 Nothing Nothing     }
- | name '(' CommaSepNames ')'           { Import $1 (Just $3) Nothing   }
- | name 'as' name                       { Import $1 Nothing (Just $3)   }
- | name '(' CommaSepNames ')' 'as' name { Import $1 (Just $3) (Just $6) }
+ : name                                 { Import $1 Nothing Nothing       }
+ | name '(' CommaSepNames ')'           { Import $1 (Just $3) Nothing     }
+ | name 'as' name                       { Import $1 Nothing (Just $3)     }
+ | name '(' CommaSepNames ')' 'as' name { Import $1 (Just $3) (Just $6)   }
 
 Arg :: { (Name, MPType) }
  : name                                 { ($1, Nothing) }
- | '(' name ':' PType ')'                { ($2, Just $4) }
+ | '(' name ':' PType ')'               { ($2, Just $4) }
 
 Expr :: { Expr MPType }
- : Primitive   { $1 }
- | Application { $1 }
+ : Exprs MaybeType { updateAnnotation (buildApplication $1) $2 }
+
+Exprs :: { [Expr MPType] }
+ : Primitive { [$1] }
+ | SafePrimitive Exprs { $1:$2 }
 
 Primitive :: { Expr MPType }
  : UnsafePrimitive  { $1 }
  | SafePrimitive    { $1 }
 
-Application :: { Expr MPType }
- : SafePrimitive Primitive   { Application $1 $2 Nothing }
- | Application Primitive     { Application $1 $2 Nothing }
-
 UnsafePrimitive :: { Expr MPType }
- : 'fun' Args1 MaybeType '->' Expr      { uncurryFunction $2 $3 $5      }
+ : 'fun' Args1 '->' Expr                { buildFunction $2 $4           }
  | 'let' Declarations1 'in' Expr        { LetBlock $2 $4                }
  | SafePrimitive infixOp Expr                    
     { Application (Application (Var $2 Nothing ) $1 Nothing) $3 Nothing }
 
 SafePrimitive :: { Expr MPType }
- : bits   MaybeType                     { Array (bitsOfString $1) $2    }
+ : unit   MaybeType                     { Unit $2                       }
+ | bits   MaybeType                     { Array (bitsOfString $1) $2    }
  | string MaybeType                     { Quote $1 $2                   }
  | int    MaybeType                     { Z (read $1) $2                }
  | name   MaybeType                     { Var $1 $2                     }
@@ -106,15 +114,28 @@ Field :: { (Name, Expr MPType) }
 
 CType :: { CType }
  : 'integer'                            { z                   }
+ | 'string'                             { quote               }
+ | 'bit'                                { bit                 }
  | name                                 { syn $1              }
  |  '[' int ']'                         { array bit (read $2) }
  | ' [' int ']'                         { array bit (read $2) }
  |  '[' int ']' CType                   { array $4  (read $2) }
+ | ' [' int ']' CType                   { array $4  (read $2) }
 PType :: { PType }
  : 'integer'                            { z                   }
+ | 'string'                             { quote               }
+ | 'bit'                                { bit                 }
  | name                                 { syn $1              }
  |  '[' int ']'                         { array bit (read $2) }
  | ' [' int ']'                         { array bit (read $2) }
+ |  '[' int ']' PType                   { array $4  (read $2) }
+ | ' [' int ']' PType                   { array $4  (read $2) }
+ | '(' CommaSepPTypes ')'               { tuple $2            }
+ | PType '->' PType                     { function $1 $3      }
+
+CommaSepPTypes :: { [PType] }
+ : {- Nothing -}                        { [] }
+ | PType ',' CommaSepPTypes             { $1:$3 }
 
 MaybeType :: { MPType }
  : {- Nothing -}                        { Nothing }
@@ -131,10 +152,6 @@ Args :: { [(Name, MPType)] }
 Args1 :: { [(Name, MPType)] }
  : Arg                                  { [$1]  }
  | Arg Args1                            { $1:$2 }
-
-SemiSepTopStmts :: { [TopStmt MPType] }
- : {- Nothing -}                        { [] }
- | TopStatement ';' SemiSepTopStmts     { $1:$3 }
 
 SemiSepBlockStmts :: { [BlockStmt MPType] }
  : {- Nothing -}                        { []    }
@@ -172,11 +189,15 @@ parseError _ = error "Parse error"
 bitsOfString :: String -> [Expr MPType]
 bitsOfString = (map (\b -> Bit b (Just bit))) . (map (/='0'))
 
--- 'FIXME: Insert the mt argument correctly
-uncurryFunction :: [(Name, MPType)] -> MPType -> Expr MPType -> Expr MPType
-uncurryFunction [(name, annot)] mt e    = 
-  Function name annot e Nothing
-uncurryFunction ((name, annot):as) mt e = 
-  Function name annot (uncurryFunction as mt e) Nothing
+buildFunction :: [(Name, MPType)] -> Expr MPType -> Expr MPType 
+buildFunction args e = 
+  let foldFunction (argumentName, maybeType) rhs = 
+        Function argumentName maybeType e (function <$> maybeType <*> (annotation rhs)) in
+  foldr foldFunction e args
 
+buildApplication :: [Expr MPType] -> Expr (MPType)
+buildApplication [e]    = e
+buildApplication (e:es) = 
+  let app' = buildApplication es in
+  Application e (app') (function <$> (annotation e) <*> (annotation app'))
 }
