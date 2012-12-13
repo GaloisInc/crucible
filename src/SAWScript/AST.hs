@@ -88,6 +88,7 @@ instance Show a => Show (BlockStmt a) where
 
 instance Show a => Show (Expr a) where
   show e = case e of
+    Unit mt             -> showMaybe mt $ "()"
     Bit b mt            -> showMaybe mt $ if b then "'1" else "'0"
     Quote s mt          -> showMaybe mt $ show s
     Z i mt              -> showMaybe mt $ show i
@@ -129,7 +130,8 @@ data Type a
   deriving (Show,Functor,Foldable,Traversable)
 
 data Type' 
-  = BitT
+  = UnitT
+  | BitT
   | ZT
   | QuoteT
   | ArrayT Type' Int
@@ -145,6 +147,7 @@ data Type'
 
 instance Equal Type where
   equal t1 t2 = case (t1,t2) of
+    (Unit',Unit')                             -> True
     (Bit',Bit')                               -> True
     (Z',Z')                                   -> True
     (Quote',Quote')                           -> True
@@ -160,6 +163,7 @@ instance Equal Type where
 -- Render {{{
 instance Render Type where
   render t = case t of
+    Unit'           -> "Unit"
     Bit'            -> "Bit"
     Z'              -> "Z"
     Quote'          -> "Quote"
@@ -184,6 +188,9 @@ instance Uni Type where
 -- }}}
 
 -- Operators {{{
+
+unit :: (Type :<: f) => Mu f
+unit = inject Unit'
 
 bit :: (Type :<: f) => Mu f
 bit = inject Bit'
