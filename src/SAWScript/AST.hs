@@ -147,6 +147,7 @@ data Type'
 
 instance Equal Type where
   equal t1 t2 = case (t1,t2) of
+    (Unit',Unit')                             -> True
     (Bit',Bit')                               -> True
     (Z',Z')                                   -> True
     (Quote',Quote')                           -> True
@@ -162,6 +163,7 @@ instance Equal Type where
 -- Render {{{
 instance Render Type where
   render t = case t of
+    Unit'           -> "Unit"
     Bit'            -> "Bit"
     Z'              -> "Z"
     Quote'          -> "Quote"

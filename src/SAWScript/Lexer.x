@@ -19,7 +19,7 @@ $allChars      = [\x00-\x10ffff]
 @keyword       = "()" | "import" | "as" | "let" | "and" | "fun" | "in" | "type" | "do" | "integer" | "string" | "bit"
 
 $ident_head    = [\_a-zA-Z]
-$ident_tail    = [\_a-zA-Z0-9\']
+$ident_tail    = [\_a-zA-Z0-9\'\.]
 @identifier    = $ident_head $ident_tail*
 
 $base2         = 0-1
