@@ -88,6 +88,7 @@ instance Show a => Show (BlockStmt a) where
 
 instance Show a => Show (Expr a) where
   show e = case e of
+    Unit mt             -> showMaybe mt $ "()"
     Bit b mt            -> showMaybe mt $ if b then "'1" else "'0"
     Quote s mt          -> showMaybe mt $ show s
     Z i mt              -> showMaybe mt $ show i
@@ -129,7 +130,8 @@ data Type a
   deriving (Show,Functor,Foldable,Traversable)
 
 data Type' 
-  = BitT
+  = UnitT
+  | BitT
   | ZT
   | QuoteT
   | ArrayT Type' Int
@@ -184,6 +186,9 @@ instance Uni Type where
 -- }}}
 
 -- Operators {{{
+
+unit :: (Type :<: f) => Mu f
+unit = inject Unit'
 
 bit :: (Type :<: f) => Mu f
 bit = inject Bit'
@@ -254,6 +259,7 @@ class Functor f => Decorated f where
 
 instance Decorated Expr where
   decor e = case e of
+    Unit t            -> t
     Bit _ t           -> t
     Quote _ t         -> t
     Z _ t             -> t
@@ -429,6 +435,7 @@ inferArray2 = Module
 
 updateAnnotation :: Expr a -> a -> Expr a
 updateAnnotation e t = case e of
+  Unit _            -> Unit t
   Bit x _           -> Bit x t
   Quote x _         -> Quote x t
   Z x _             -> Z x t
