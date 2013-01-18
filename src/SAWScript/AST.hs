@@ -16,10 +16,10 @@ import Data.List
 import Data.Foldable hiding (concat)
 import Data.Traversable
 
-type MPType = Maybe (Mu (I :+: Type :+: Poly))
-type PType = Mu (I :+: Type :+: Poly)
-type LType = Mu (I :+: Type :+: Logic)
-type CType = Mu (I :+: Type)
+type MPType = Maybe (Mu (I :+: TypeF :+: Poly))
+type PType = Mu (I :+: TypeF :+: Poly)
+type LType = Mu (I :+: TypeF :+: Logic)
+type CType = Mu (I :+: TypeF)
 
 type Err = Either String
 
@@ -111,9 +111,9 @@ data Context = Context deriving (Eq,Show)
 
 -- }}}
 
--- Type {{{
+-- TypeF {{{
 
-data Type a
+data TypeF a
   -- Constants
   = Unit'
   | Bit'
@@ -129,23 +129,23 @@ data Type a
   | Syn          String
   deriving (Show,Functor,Foldable,Traversable)
 
-data Type' 
+data Type 
   = UnitT
   | BitT
   | ZT
   | QuoteT
-  | ArrayT Type' Int
-  | BlockT Context Type'
-  | TupleT [Type']
-  | RecordT [(Name,Type')]
-  | FunctionT Type' Type'
+  | ArrayT Type Int
+  | BlockT Context Type
+  | TupleT [Type]
+  | RecordT [(Name,Type)]
+  | FunctionT Type Type
   deriving (Eq,Show)
 
 -- }}}
 
 -- Equal Instances {{{
 
-instance Equal Type where
+instance Equal TypeF where
   equal t1 t2 = case (t1,t2) of
     (Unit',Unit')                             -> True
     (Bit',Bit')                               -> True
@@ -161,7 +161,7 @@ instance Equal Type where
 -- }}}
 
 -- Render {{{
-instance Render Type where
+instance Render TypeF where
   render t = case t of
     Unit'           -> "Unit"
     Bit'            -> "Bit"
@@ -176,7 +176,7 @@ instance Render Type where
 -- }}}
 
 -- Uni {{{
-instance Uni Type where
+instance Uni TypeF where
   uni t1 t2 = case (t1,t2) of
     (Array' t1' l1,Array' t2' l2)             -> unify l1 l2 >> unify t1' t2'
     (Block' c1 t1',Block' c2 t2')             -> assert (c1 == c2) ("Could not match contexts " ++ show c1 ++ " and " ++ show c2) >> unify t1' t2'
@@ -184,39 +184,39 @@ instance Uni Type where
     (Record' fts1',Record' fts2')             -> do conj [ disj [ unify x y | (nx,x) <- fts1', nx == ny ] | (ny,y) <- fts2' ]
                                                     conj [ disj [ unify y x | (ny,y) <- fts2', nx == ny ] | (nx,x) <- fts1' ]
     (Function' at1' bt1',Function' at2' bt2') -> unify at1' at2' >> unify bt1' bt2'
-    _                                         -> fail ("Type Mismatch: " ++ render t1 ++ " could not be unified with " ++ render t2)
+    _                                         -> fail ("TypeF Mismatch: " ++ render t1 ++ " could not be unified with " ++ render t2)
 -- }}}
 
 -- Operators {{{
 
-unit :: (Type :<: f) => Mu f
+unit :: (TypeF :<: f) => Mu f
 unit = inject Unit'
 
-bit :: (Type :<: f) => Mu f
+bit :: (TypeF :<: f) => Mu f
 bit = inject Bit'
 
-quote :: (Type :<: f) => Mu f
+quote :: (TypeF :<: f) => Mu f
 quote = inject Quote'
 
-z :: (Type :<: f) => Mu f
+z :: (TypeF :<: f) => Mu f
 z = inject Z'
 
-array :: (I :<: f, Type :<: f) => Mu f -> Mu f -> Mu f
+array :: (I :<: f, TypeF :<: f) => Mu f -> Mu f -> Mu f
 array t l = inject $ Array' t l
 
-block :: (Type :<: f) => Context -> Mu f -> Mu f
+block :: (TypeF :<: f) => Context -> Mu f -> Mu f
 block c t = inject $ Block' c t
 
-tuple :: (Type :<: f) => [Mu f] -> Mu f
+tuple :: (TypeF :<: f) => [Mu f] -> Mu f
 tuple ts = inject $ Tuple' ts
 
-record :: (Type :<: f) => [(Name,Mu f)] -> Mu f
+record :: (TypeF :<: f) => [(Name,Mu f)] -> Mu f
 record fts = inject $ Record' fts
 
-function :: (Type :<: f) => Mu f -> Mu f -> Mu f
+function :: (TypeF :<: f) => Mu f -> Mu f -> Mu f
 function at bt = inject $ Function' at bt
 
-syn :: (Type :<: f) => String -> Mu f
+syn :: (TypeF :<: f) => String -> Mu f
 syn n = inject $ Syn n
 
 -- }}}
