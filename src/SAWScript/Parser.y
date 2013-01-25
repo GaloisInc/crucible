@@ -5,8 +5,10 @@ module SAWScript.Parser ( parse ) where
 import Data.List
 import qualified SAWScript.Token as T
 import SAWScript.Lexer
+import SAWScript.Compiler
 import SAWScript.AST
 import SAWScript.Unify
+import SAWScript.Lexer
 import Control.Applicative
 
 }
@@ -14,6 +16,7 @@ import Control.Applicative
 %name parse
 %error { parseError }
 %tokentype { T.Token AlexPosn }
+%monad { Err } { (>>=) } { return }
 
 %token
 'import'                                { T.Keyword    _ "import"  }
@@ -185,25 +188,32 @@ LeftBracket :: { () }
 
 {
 
-parseError :: [T.Token a] -> b
-parseError _ = error "Parse error"
+parseError :: [T.Token AlexPosn] -> Err b
+parseError toks = case toks of
+  []  -> fail "Parse error, but where?"
+  t:_ -> fail ("Parse error at line " ++ show ln ++ ", col " ++ show col)
+    where
+    AlexPn _ ln col = T.tokPos t
 
 bitsOfString :: String -> [Expr MPType]
-bitsOfString = (map (\b -> Bit b (Just bit))) . (map (/='0'))
+bitsOfString = map ((flip Bit $ Just bit) . (/= '0'))
 
 buildFunction :: [(Name, MPType)] -> Expr MPType -> Expr MPType 
-buildFunction args e = 
-  let foldFunction (argumentName, maybeType) rhs = 
-        Function argumentName maybeType e (function <$> maybeType <*> (decor rhs)) in
-  foldr foldFunction e args
+buildFunction args e = foldr foldFunction e args
+  where
+  foldFunction (argName,mType) rhs = Function argName mType e $
+    function <$> mType <*> decor rhs
 
 buildApplication :: [Expr MPType] -> Expr (MPType)
 buildApplication [e]    = e
-buildApplication (e:es) = 
-  let app' = buildApplication es in
-  Application e (app') (function <$> (decor e) <*> (decor app'))
+buildApplication (e:es) = Application e app' $
+  function <$> decor e <*> decor app'
+  where
+  app' = buildApplication es
 
 buildType :: [PType] -> PType
 buildType [t]    = t
 buildType (t:ts) = function t (buildType ts)
+
 }
+

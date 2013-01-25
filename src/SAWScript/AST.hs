@@ -21,8 +21,6 @@ type PType = Mu (I :+: TypeF :+: Poly)
 type LType = Mu (I :+: TypeF :+: Logic)
 type CType = Mu (I :+: TypeF)
 
-type Err = Either String
-
 -- Expr Level {{{
 
 data Module a = Module

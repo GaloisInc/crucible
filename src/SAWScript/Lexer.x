@@ -1,16 +1,22 @@
 {
 
-module SAWScript.Lexer (scan, AlexPosn) where
+module SAWScript.Lexer
+  ( AlexPosn(..)
+  , scan
+  ) where
+
+import SAWScript.Compiler
+import SAWScript.AST
+import SAWScript.Token
 
 import Numeric
 import Data.Char
-
-import SAWScript.Token
+import Data.List
 
 }
 
 
-%wrapper "posn"
+%wrapper "monad"
 
 $allChars      = [\x00-\x10ffff]
 @comment       = ("/*"   (($allChars # [\*]) | ("*" ($allChars # [\/])))*  "*/") | ("//" .*)
@@ -50,20 +56,25 @@ $not_white     = ~$white
 tokenize :-
   $white              ;
   @comment            ;
-  @keyword            { Keyword     }
-  @identifier         { Identifier  }
-  @bin_lit            { binToBinary }
-  @dec_lit            { decToBinary }
-  @hex_lit            { hexToBinary }
-  @integer            { Integer     }
-  @string             { String      }
-  @infix              { Infix       }
-  $not_white^"."      { Postfix     }
-  $not_white^"["      { Postfix     }
-  $outfix_left        { OutfixL     }
-  $outfix_right       { OutfixR     }
+  @keyword            { expr Keyword     }
+  @identifier         { expr Identifier  }
+  @bin_lit            { expr binToBinary }
+  @dec_lit            { expr decToBinary }
+  @hex_lit            { expr hexToBinary }
+  @integer            { expr Integer     }
+  @string             { expr String      }
+  @infix              { expr Infix       }
+  $not_white^"."      { expr Postfix     }
+  $not_white^"["      { expr Postfix     }
+  $outfix_left        { expr OutfixL     }
+  $outfix_right       { expr OutfixR     }
 
 {
+
+type Result = AlexAction (Token AlexPosn)
+
+expr :: (AlexPosn -> String -> Token AlexPosn) -> Result
+expr f (pos,_,_,str) scd = Alex $ \as -> Right $ (as,f pos str)
 
 binToBinary :: AlexPosn -> String -> Token AlexPosn
 binToBinary p s = Bitfield p (drop 2 s)
@@ -81,6 +92,19 @@ hexToBinary p s = Bitfield p (concat $ map (\c -> case c of {
   '8' -> "1000" ; '9' -> "1001" ; 'a' -> "1010" ; 'b' -> "1011";
   'c' -> "1100" ; 'd' -> "1101" ; 'e' -> "1110" ; 'f' -> "1111" }) (drop 2 s))
 
-scan = alexScanTokens
+alexEOF = return (EOF undefined "")
+
+scan :: Compiler String [Token AlexPosn]
+scan input = case runAlex input loop of
+  Left err  -> fail (intercalate "\n" [err ++ ":",input])
+  Right yay -> return yay
+  where
+  loop = do
+    tok <- alexMonadScan; 
+    case tok of
+      EOF {} -> return []
+      _ -> do rest <- loop
+              return (tok : rest)
+
 
 }
