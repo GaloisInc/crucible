@@ -29,15 +29,14 @@ import System.Posix.Files
 import System.FilePath.Posix
 
 main = do
-  run <- getArgs
-  fs <- filesToRun run <$> getTestFiles "../test"
+  fs <- filesToRun <$> getArgs <*> getTestFiles "../test"
   forM fs $ \f -> do
     putStrLn $ replicate 60 '*'
     putStrLn ("Testing file " ++ show f)
     contents <- readFile f
     runCompiler compileModule contents
 
--- | Filters files on a whitelist basis. If the filter set is null, allow all files through.
+-- | Filters files by whitelisted prefixes. If the filter set is null, allow all files through.
 filesToRun :: [String] -> [FilePath] -> [FilePath]
 filesToRun run = if null run
   then id
@@ -66,12 +65,12 @@ getTestFiles dir = do
   desiredFiles = filterM (fmap isRegularFile . getFileStatus) >=>
     return . filter ((== ".saw") . takeExtension)
 
--- | Wrapper around compiler function to pretty-print the result or error
+-- | Wrapper around compiler function to format the result or error
 runCompiler :: (Show b) => Compiler a b -> a -> IO ()
 runCompiler f a = do
   runE (f a)
-    (putStrLn . ("Error\n" ++) . indent 2)
-    (putStrLn . indent 2 . show)
+    (putStrLn . ("Error\n" ++) . indent 2)  -- failure
+    (putStrLn . indent 2 . show)            -- success
   putStrLn ""
 
 -- testing pre-parsed modules -------------------------------------------------
