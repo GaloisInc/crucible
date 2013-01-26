@@ -58,9 +58,9 @@ tokenize :-
   @comment            ;
   @keyword            { expr Keyword     }
   @identifier         { expr Identifier  }
-  @bin_lit            { expr binToBinary }
-  @dec_lit            { expr decToBinary }
-  @hex_lit            { expr hexToBinary }
+  @bin_lit            {      binToBinary }
+  @dec_lit            {      decToBinary }
+  @hex_lit            {      hexToBinary }
   @integer            { expr Integer     }
   @string             { expr String      }
   @infix              { expr Infix       }
@@ -71,28 +71,44 @@ tokenize :-
 
 {
 
-type Result = AlexAction (Token AlexPosn)
+type Action = AlexAction (Token AlexPosn)
 
-expr :: (AlexPosn -> String -> Token AlexPosn) -> Result
-expr f (pos,_,_,str) scd = Alex $ \as -> Right $ (as,f pos str)
+expr :: TokenClass -> Action
+expr tc (pos,_,_,str) len = return $ Token tc pos $ take len str
 
-binToBinary :: AlexPosn -> String -> Token AlexPosn
-binToBinary p s = Bitfield p (drop 2 s)
+binToBinary :: Action
+binToBinary (pos,_,_,str) len = return $ Token Bitfield pos $ drop 2 $ take len str
 
-decToBinary :: AlexPosn -> String -> Token AlexPosn
-decToBinary p s = 
-  let d = read $ drop 2 s
-      b = showIntAtBase 2 intToDigit d "" in
-  Bitfield p b
+decToBinary :: Action
+decToBinary (pos,_,_,str) len = return $ Token Bitfield pos b
+  where
+  d = read $ drop 2 $ take len str
+  b = showIntAtBase 2 intToDigit d ""
 
-hexToBinary :: AlexPosn -> String -> Token AlexPosn
-hexToBinary p s = Bitfield p (concat $ map (\c -> case c of {
-  '0' -> "0000" ; '1' -> "0001" ; '2' -> "0010" ; '3' -> "0011";
-  '4' -> "0100" ; '5' -> "0101" ; '6' -> "0110" ; '7' -> "0111";
-  '8' -> "1000" ; '9' -> "1001" ; 'a' -> "1010" ; 'b' -> "1011";
-  'c' -> "1100" ; 'd' -> "1101" ; 'e' -> "1110" ; 'f' -> "1111" }) (drop 2 s))
+hexToBinary :: Action
+hexToBinary (pos,_,_,str) len = return $ Token Bitfield pos $
+  concatMap (hexToBinBit . toLower) $ drop 2 $ take len str
+  where
+  hexToBinBit :: Char -> String
+  hexToBinBit c = case c of
+    '0' -> "0000" 
+    '1' -> "0001" 
+    '2' -> "0010" 
+    '3' -> "0011"
+    '4' -> "0100" 
+    '5' -> "0101" 
+    '6' -> "0110" 
+    '7' -> "0111"
+    '8' -> "1000" 
+    '9' -> "1001" 
+    'a' -> "1010" 
+    'b' -> "1011"
+    'c' -> "1100" 
+    'd' -> "1101" 
+    'e' -> "1110" 
+    'f' -> "1111"
 
-alexEOF = return (EOF undefined "")
+alexEOF = return (Token EOF undefined "")
 
 scan :: Compiler String [Token AlexPosn]
 scan input = case runAlex input loop of
@@ -100,11 +116,12 @@ scan input = case runAlex input loop of
   Right yay -> return yay
   where
   loop = do
-    tok <- alexMonadScan; 
-    case tok of
-      EOF {} -> return []
-      _ -> do rest <- loop
-              return (tok : rest)
+    tok <- alexMonadScan
+    if tokClass tok == EOF
+      then return []
+      else do
+        rest <- loop
+        return (tok : rest)
 
 
 }

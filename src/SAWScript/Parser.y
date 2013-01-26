@@ -3,53 +3,56 @@
 module SAWScript.Parser ( parse ) where
 
 import Data.List
-import qualified SAWScript.Token as T
+import SAWScript.Token
 import SAWScript.Lexer
 import SAWScript.Compiler
 import SAWScript.AST
 import SAWScript.Unify
 import SAWScript.Lexer
+
+import qualified Text.Show.Pretty as PP
+
 import Control.Applicative
 
 }
 
 %name parse
 %error { parseError }
-%tokentype { T.Token AlexPosn }
+%tokentype { Token AlexPosn }
 %monad { Err } { (>>=) } { return }
 
 %token
-'import'                                { T.Keyword    _ "import"  }
-'as'                                    { T.Keyword    _ "as"      }
-'let'                                   { T.Keyword    _ "let"     }
-'and'                                   { T.Keyword    _ "and"     }
-'fun'                                   { T.Keyword    _ "fun"     }
-'in'                                    { T.Keyword    _ "in"      }
-'type'                                  { T.Keyword    _ "type"    }
-'do'                                    { T.Keyword    _ "do"      }
-'integer'                               { T.Keyword    _ "integer" }
-'string'                                { T.Keyword    _ "string"  }
-'bit'                                   { T.Keyword    _ "bit"     }
-unit                                    { T.Keyword    _ "()"      }
-'='                                     { T.Infix      _ "="       }
-'->'                                    { T.Infix      _ "->"      }
-';'                                     { T.Infix      _ ";"       }
-','                                     { T.Infix      _ ","       }
-':'                                     { T.Infix      _ ":"       }
-'::'                                    { T.Infix      _ "::"      }
-'('                                     { T.OutfixL    _ "("       }
-')'                                     { T.OutfixR    _ ")"       }
-' ['                                    { T.OutfixL    _ "["       }
-']'                                     { T.OutfixR    _ "]"       }
-'{'                                     { T.OutfixL    _ "{"       }
-'}'                                     { T.OutfixR    _ "}"       }
-'['                                     { T.Postfix    _ "["       }
-'.'                                     { T.Postfix    _ "."       }
-infixOp                                 { T.Infix      _ $$        }
-bits                                    { T.Bitfield   _ $$        }
-string                                  { T.String     _ $$        }
-int                                     { T.Integer    _ $$        }
-name                                    { T.Identifier _ $$        }
+'import'                                { Token Keyword    _ "import"  }
+'as'                                    { Token Keyword    _ "as"      }
+'let'                                   { Token Keyword    _ "let"     }
+'and'                                   { Token Keyword    _ "and"     }
+'fun'                                   { Token Keyword    _ "fun"     }
+'in'                                    { Token Keyword    _ "in"      }
+'type'                                  { Token Keyword    _ "type"    }
+'do'                                    { Token Keyword    _ "do"      }
+'integer'                               { Token Keyword    _ "integer" }
+'string'                                { Token Keyword    _ "string"  }
+'bit'                                   { Token Keyword    _ "bit"     }
+unit                                    { Token Keyword    _ "()"      }
+'='                                     { Token Infix      _ "="       }
+'->'                                    { Token Infix      _ "->"      }
+';'                                     { Token Infix      _ ";"       }
+','                                     { Token Infix      _ ","       }
+':'                                     { Token Infix      _ ":"       }
+'::'                                    { Token Infix      _ "::"      }
+'('                                     { Token OutfixL    _ "("       }
+')'                                     { Token OutfixR    _ ")"       }
+' ['                                    { Token OutfixL    _ "["       }
+']'                                     { Token OutfixR    _ "]"       }
+'{'                                     { Token OutfixL    _ "{"       }
+'}'                                     { Token OutfixR    _ "}"       }
+'['                                     { Token Postfix    _ "["       }
+'.'                                     { Token Postfix    _ "."       }
+infixOp                                 { Token Infix      _ $$        }
+bits                                    { Token Bitfield   _ $$        }
+string                                  { Token String     _ $$        }
+int                                     { Token Integer    _ $$        }
+name                                    { Token Identifier _ $$        }
 
 %%
 
@@ -188,12 +191,15 @@ LeftBracket :: { () }
 
 {
 
-parseError :: [T.Token AlexPosn] -> Err b
+parseError :: [Token AlexPosn] -> Err b
 parseError toks = case toks of
-  []  -> fail "Parse error, but where?"
-  t:_ -> fail ("Parse error at line " ++ show ln ++ ", col " ++ show col)
+  []  -> parseFail "Parse error, but where?"
+  t:_ -> parseFail ("Parse error at line " ++ show ln ++ ", col " ++ show col)
     where
-    AlexPn _ ln col = T.tokPos t
+    AlexPn _ ln col = tokPos t
+  where
+  parseFail :: String -> Err b
+  parseFail = fail . (++ "\n" ++ PP.ppShow toks)
 
 bitsOfString :: String -> [Expr MPType]
 bitsOfString = map ((flip Bit $ Just bit) . (/= '0'))

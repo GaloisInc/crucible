@@ -9,5 +9,5 @@ Parser.hs : Parser.y Lexer.hs AST.hs
 	happy -o Parser.hs --info=parseout.txt Parser.y
 
 clean :
-	-rm *.o *.hi Parser.hs Lexer.hs
-	-rm parseout.txt
+	rm -f Parser.hs Lexer.hs *.{o,hi} Unify/*.{o,hi}
+	rm -f parseout.txt
