@@ -1,0 +1,193 @@
+/*
+Some open questions:
+  * What's a good syntax for binding? Many of these examples say something
+    like "... as foo", but we could also do "foo <- ...", or something
+    similar.
+  * Do we want to be able to create monadic abstractions and apply them?
+  * If so, can they be recursive?
+
+The syntax here is very tentative, and largely follows the style of
+existing SAWScript code. Feel free to suggest alternative approaches!
+
+Initial experiments with this language could be as an EDSL in
+Haskell, and commands like "import", "theorem", and "prove" could just
+be Haskell functions. This would mean that an external syntax could be
+implemented on top of a nice underlying interface.
+*/
+
+// Cryptol imports. (Type annotations unnecessary, but helpful documentation.)
+
+import cryptol "SHA384.cry" Ch as cryptol_Ch : ([64], [64], [64]) -> [64];
+
+import cryptol "SHA384.cry" Maj as cryptol_Maj : ([64], [64], [64]) -> [64];
+
+import cryptol "SHA384.cry" UpperSigma_0 as cryptol_Sum0 : [64] -> [64];
+
+import cryptol "SHA384.cry" UpperSigma_1 as cryptol_Sum1 : [64] -> [64];
+
+import cryptol "SHA384.cry" LowerSigma_0 as cryptol_Sigma0 : [64] -> [64];
+
+import cryptol "SHA384.cry" LowerSigma_1 as cryptol_Sigma1 : [64] -> [64];
+
+import java org.bouncycastle.crypto.digests.SHA384Digest.K as java_K : [80][64];
+
+import cryptol "SHA384.cry" block512
+  as cryptol_Block : ([8][64], [16][64]) -> [8][64];
+
+// We can import constants as well as functions.
+import cryptol "SHA384.cry" Ks512 as cryptol_K : [80][64];
+
+// Java imports. (Bouncy Castle)
+
+/* Pure methods, i.e. methods that just produce a return value as a
+function of their inputs, can be imported with minimum fuss. */
+import java org.bouncycastle.crypto.digests.SHA384Digest.Ch
+  pure as java_Ch : ([64], [64], [64]) -> [64];
+
+import java org.bouncycastle.crypto.digests.SHA384Digest.Maj
+  pure as java_Maj : ([64], [64], [64]) -> [64];
+
+import java org.bouncycastle.crypto.digests.SHA384Digest.Sum0
+  pure as java_Sum0 : [64] -> [64];
+
+import java org.bouncycastle.crypto.digests.SHA384Digest.Sum1
+  pure as java_Sum1 : [64] -> [64];
+
+import java org.bouncycastle.crypto.digests.SHA384Digest.Sigma0
+  pure as java_Sigma0 : [64] -> [64];
+
+import java org.bouncycastle.crypto.digests.SHA384Digest.Sigma1
+  pure as java_Sigma1 : [64] -> [64];
+
+/* TODO: how to deal with the various models that can be generated
+from different aliasing configurations? Something like mayAlias from
+older SAWScript could work, but would result in multiple models.
+Unless, of course, we have symbolic references...*/
+
+/* "import" takes a language name, a name of some construct within the
+language, and a block of configuration details. */
+import java org.bouncycastle.crypto.digests.SHA384Digest.processBlock {
+
+    /* Double colons indicate foreign language types, with the
+    specific language determined by context. Variables that need more
+    refined types (array sizes, subtypes) need to be declared. Other
+    variables take their statically-declared types. */
+
+    this.xBuf :: byte[8];
+    this.W :: long[80];
+
+    input this.byteCount1, this.byteCount2;
+    input this.H1, this.H2, this.H3, this.H4,
+          this.H5, this.H6, this.H7, this.H8;
+    input this.W;
+    /* What about this, as a way to structure the inputs?
+    input ( this.byteCount1, this.byteCount2
+          , [ this.H1, this.H2, this.H3, this.H4
+            , this.H5, this.H6. this.H7, this.H8
+            ]
+          , this.W
+          );
+    */
+
+    output this.byteCount1, this.byteCount2;
+    output this.H1, this.H2, this.H3, this.H4,
+           this.H5, this.H6, this.H7, this.H8;
+    output this.W;
+    output this.wOff; // OR: modify this.wOff;
+    /* Could use a structure similar to the input example. */
+
+} as java_Block : ([64], [64], [8][64], [80][64]) ->
+                  ([64], [64], [8][64], [80][64], [32]);
+
+
+import java org.bouncycastle.crypto.digests.SHA384Digest.reset {
+    output this.H1, this.H2, this.H3, this.H4,
+           this.H5, this.H6, this.H7, this.H8;
+    // Should these be 'output' or 'modify'? The former is more general.
+    modify this.byteCount1, this.byteCount2;
+    modify this.xBufOff, this.xBuf;
+    modify this.wOff, this.W;
+} as java_H : [8][64];
+
+
+// Other formats
+
+import aig "Sum0.aig" as aig_Sum0 : [64] -> [64];
+
+import btor "Sum0.btor" as btor_Sum0 : [64] -> [64];
+
+// LLVM imports (libgcrypt).
+
+// Sigma0 and Sigma1 are macros. TODO: what's the best way to deal with this?
+
+// Pure functions in LLVM are similar to Java.
+import llvm "sha512.bc" ROTR pure as llvm_ROTR : ([64], [64]) -> [64];
+
+import llvm "sha512.bc" Ch
+  pure as llvm_Ch : ([64], [64], [64]) -> [64];
+
+import llvm "sha512.bc" Maj
+  pure as llvm_Maj : ([64], [64], [64]) -> [64];
+
+import llvm "sha512.bc" Sum0 pure as llvm_Sum0 : [64] -> [64];
+
+import llvm "sha512.bc" Sum1 pure as llvm_Sum1 : [64] -> [64];
+
+import llvm "sha512.bc" transform {
+    data :: char[128];
+    input hd;
+    input data;
+    output data;
+} as llvm_Block : ([8][64], [128][8]) -> [128][8];
+
+import llvm "sha512.bc" transform.k as llvm_k : [80][64];
+
+// Theorems, properties, equivalences.
+
+// Don't strictly need to have all three of these, but it's illustrative.
+// Functions of compatible types can be asserted to be equal without
+// mentioning input or output variables.
+theorem llvm_cryptol_Ch: llvm_Ch == cryptol_Ch;
+theorem java_cryptol_Ch: java_Ch == cryptol_Ch;
+theorem java_llvm_Ch: java_Ch == llvm_Ch;
+
+theorem aig_btor_Sum0: aig_Sum0 == btor_sum0;
+
+/* TODO: want to be able to refer to counter-examples or satisfying
+assignments. Also want to be able to specify quantifiers. Both
+universal and existential quantification should be possible. Sean is
+very keen on QBF lately, and we'd like to be able to talk to QBF
+solvers. */
+
+// Proofs.
+prove llvm_cryptol_Ch using { rewrite; yices; };
+prove aig_btor_Sum0 using abc;
+
+// Exporting theorems ...
+export llvm_cryptol_Ch as dimacs "llvm_cryptol_Ch.cnf";
+
+// ... or models
+export llvm_Ch as aig "llvm_Ch.aig";
+
+// Rewriting models without immediately proving or exporting
+rewrite llvm_Ch to llvm_Ch';
+
+// Rewriting with specific options, such as choice of rewrite rules.
+
+// Rewrite only redundant "and" terms.
+rewrite llvm_Block to llvm_Block' using only and_idem;
+
+// Apply all rewrite rules, in-place, to llvm_Block';
+rewrite llvm_Block';
+
+// Rewrite redundant "and" and "or" terms.
+rewrite llvm_Transform to llvm_Transform' using {
+  disable all;
+  enable and_idem;
+  enable or_idem;
+};
+
+/* TODO: how should counter-examples/satisfying assignments be bound? The
+tricky bit is that they may or may not exist, so we either need a
+Maybe-like type, which we don't have, or conditional bindings, which
+may make other things tricky. */
