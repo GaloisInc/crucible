@@ -29,7 +29,7 @@ import System.Posix.Files
 import System.FilePath.Posix
 
 main :: IO ()
-main = mapM_ (runCompiler compileModule) =<< getArgs
+main = getArgs >>= mapM_ (readFile >=> runCompiler compileModule)
 
 -- | Full compiler pipeline, so far.
 compileModule :: Compiler String (Module Type)

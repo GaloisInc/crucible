@@ -16,7 +16,7 @@ import Control.Applicative
 
 }
 
-%name parse
+%name parse TopStatements
 %error { parseError }
 %tokentype { Token AlexPosn }
 %monad { Err } { (>>=) } { return }
