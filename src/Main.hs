@@ -28,19 +28,8 @@ import System.Directory
 import System.Posix.Files
 import System.FilePath.Posix
 
-main = do
-  fs <- filesToRun <$> getArgs <*> getTestFiles "../test"
-  forM fs $ \f -> do
-    putStrLn $ replicate 60 '*'
-    putStrLn ("Testing file " ++ show f)
-    contents <- readFile f
-    runCompiler compileModule contents
-
--- | Filters files by whitelisted prefixes. If the filter set is null, allow all files through.
-filesToRun :: [String] -> [FilePath] -> [FilePath]
-filesToRun run = if null run
-  then id
-  else filter (or . (isPrefixOf <$> run <*>) . pure . takeBaseName)
+main :: IO ()
+main = mapM_ (runCompiler compileModule) =<< getArgs
 
 -- | Full compiler pipeline, so far.
 compileModule :: Compiler String (Module Type)
@@ -54,6 +43,22 @@ parseModule = scan >=> parse >=> findMain
 typeModule :: Compiler (Module MPType) (Module Type)
 typeModule = resolveSyns >=> liftPoly >=> typeCheck >=> convertType
 
+-- | Wrapper around compiler function to format the result or error
+runCompiler :: (Show b) => Compiler a b -> a -> IO ()
+runCompiler f a = do
+  runE (f a)
+    (putStrLn . ("Error\n" ++) . indent 2)  -- failure
+    (putStrLn . indent 2 . show)            -- success
+  putStrLn ""
+
+-- testing external files -----------------------------------------------------
+
+-- | Filters files by whitelisted prefixes. If the filter set is null, allow all files through.
+filesToRun :: [String] -> [FilePath] -> [FilePath]
+filesToRun run = if null run
+  then id
+  else filter (or . (isPrefixOf <$> run <*>) . pure . takeBaseName)
+
 -- | Resolve the paths of all SAWScript files in directory
 getTestFiles :: FilePath -> IO [FilePath]
 getTestFiles dir = do
@@ -65,13 +70,14 @@ getTestFiles dir = do
   desiredFiles = filterM (fmap isRegularFile . getFileStatus) >=>
     return . filter ((== ".saw") . takeExtension)
 
--- | Wrapper around compiler function to format the result or error
-runCompiler :: (Show b) => Compiler a b -> a -> IO ()
-runCompiler f a = do
-  runE (f a)
-    (putStrLn . ("Error\n" ++) . indent 2)  -- failure
-    (putStrLn . indent 2 . show)            -- success
-  putStrLn ""
+testAllFiles :: IO ()
+testAllFiles = do
+  fs <- filesToRun <$> getArgs <*> getTestFiles "../test"
+  forM_ fs $ \f -> do
+    putStrLn $ replicate 60 '*'
+    putStrLn ("Testing file " ++ show f)
+    contents <- readFile f
+    runCompiler compileModule contents
 
 -- testing pre-parsed modules -------------------------------------------------
 
