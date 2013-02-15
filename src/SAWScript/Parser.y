@@ -62,14 +62,14 @@ TopStatements :: { [TopStmt MPType] }
 
 TopStatement :: { TopStmt MPType }
  : 'let' Declarations1                  { TopLet $2         }
- | name '::' Type                       { TopTypeDecl $1 $3 }
+ | name ':' Type                       { TopTypeDecl $1 $3 }
  | 'type' name '=' Type                 { TypeDef $2 $4     }
  | 'import' Import                      { $2                }
 
 BlockStatement :: { BlockStmt MPType }
  : Expression                           { Bind Nothing Context $1   }
  | name '=' Expression                  { Bind (Just $1) Context $3 }
- | name '::' Type                       { BlockTypeDecl $1 $3       }
+ | name ':' Type                       { BlockTypeDecl $1 $3       }
  | 'let' Declarations1                  { BlockLet $2               }
 
 Declaration :: { (Name, Expr MPType) }
@@ -117,8 +117,7 @@ SafeExpression :: { Expr MPType }
  | SafeExpression '[' Expression ']' MaybeType { Index $1 $3 $5                }
 
 Field :: { (Name, Expr MPType) }
- : name ':' Expression                  { ($1, $3) }
- | string ':' Expression                { ($1, $3) }
+ : name '=' Expression                  { ($1, $3) }
 
 MaybeType :: { MPType }
  : {- Nothing -}                        { Nothing }
