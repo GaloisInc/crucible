@@ -1,4 +1,4 @@
-
+{-# LANGUAGE CPP #-}
 module SAWScript.Compiler where
 
 import SAWScript.Unify (foldMuM)
@@ -7,6 +7,9 @@ import Control.Applicative
 import Control.Monad
 import Data.List (intercalate)
 import Data.Traversable
+#if __GLASGOW_HASKELL__ < 706
+import Prelude hiding (catch)
+#endif
 
 type Compiler a b = a -> Err b
 
