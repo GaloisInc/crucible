@@ -66,9 +66,10 @@ TopStatement :: { TopStmt MPType }
  | 'type' name '=' Type                 { TypeDef $2 $4     }
  | 'import' Import                      { $2                }
 
+-- TODO: allow other contexts to be used.
 BlockStatement :: { BlockStmt MPType }
- : Expression                           { Bind Nothing Context $1   }
- | name '=' Expression                  { Bind (Just $1) Context $3 }
+ : Expression                           { Bind Nothing TopLevelContext $1   }
+ | name '=' Expression                  { Bind (Just $1) TopLevelContext $3 }
  | name ':' Type                       { BlockTypeDecl $1 $3       }
  | 'let' Declarations1                  { BlockLet $2               }
 

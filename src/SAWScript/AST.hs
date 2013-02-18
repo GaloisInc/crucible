@@ -105,7 +105,13 @@ showMaybe :: Show a => a -> String -> String
 showMaybe t s = "(" ++ s ++ " :: " ++ show t ++ ")"
 
 type Name = String
-data Context = Context deriving (Eq,Show)
+data Context
+  = CryptolSetupContext
+  | JavaSetupContext
+  | LLVMSetupContext
+  | VerifyScriptContext
+  | TopLevelContext
+  deriving (Eq,Show)
 
 -- }}}
 
@@ -291,8 +297,8 @@ m1 = Module
     , TopTypeDecl "plus1" (function z z)
     ]
   , mainBlock = 
-    [ Bind Nothing Context (Application (Var "map4" Nothing) (Var "plus1" Nothing) (Just $ function (array (poly "a") (i 3)) (array (poly "b") (i 3))))
-    --[ Bind Nothing Context (Var "map4" Nothing)
+    [ Bind Nothing TopLevelContext (Application (Var "map4" Nothing) (Var "plus1" Nothing) (Just $ function (array (poly "a") (i 3)) (array (poly "b") (i 3))))
+    --[ Bind Nothing TopLevelContext (Var "map4" Nothing)
     ]
   }
 
@@ -306,7 +312,7 @@ m1b = Module
     , TopTypeDecl "plus1" (function (syn "Test") (syn "Test"))
     ]
   , mainBlock = 
-    [ Bind Nothing Context (Application (Var "map4" Nothing) (Var "plus1" Nothing) Nothing)
+    [ Bind Nothing TopLevelContext (Application (Var "map4" Nothing) (Var "plus1" Nothing) Nothing)
     ]
   }
 
@@ -320,7 +326,7 @@ m1c = Module
     , TopTypeDecl "plus1" (function (syn "Test") (syn "Test"))
     ]
   , mainBlock = 
-    [ Bind Nothing Context (Application (Application (Var "map4" Nothing) (Var "plus1" Nothing) Nothing) (Var "a1" Nothing) Nothing)
+    [ Bind Nothing TopLevelContext (Application (Application (Var "map4" Nothing) (Var "plus1" Nothing) Nothing) (Var "a1" Nothing) Nothing)
     ]
   }
 
@@ -334,7 +340,7 @@ m2 = Module
     , TopTypeDecl "plus1" (function z z)
     ]
   , mainBlock = 
-    [ Bind Nothing Context (Var "map4" (Just (function (poly "a") (poly "a"))))
+    [ Bind Nothing TopLevelContext (Var "map4" (Just (function (poly "a") (poly "a"))))
     ]
   }
 
@@ -344,21 +350,21 @@ m2b = Module
     [ TopTypeDecl "map4" (function (function (poly "a") (poly "b")) (function (array (poly "a") (poly "m")) (array (poly "b") (poly "m"))))
     ]
   , mainBlock = 
-    [ Bind Nothing Context (Var "map4" (Just (function (poly "a") (poly "b"))))
+    [ Bind Nothing TopLevelContext (Var "map4" (Just (function (poly "a") (poly "b"))))
     ]
   }
 
 m3 :: Module MPType
 m3 = Module
   { declarations = []
-  , mainBlock = [ Bind Nothing Context (Bit True Nothing) ]
+  , mainBlock = [ Bind Nothing TopLevelContext (Bit True Nothing) ]
   }
 
 m4 :: Module MPType
 m4 = Module
   { declarations = [ TopTypeDecl "a" bit ]
   , mainBlock =
-    [ Bind Nothing Context (Var "a" Nothing) ]
+    [ Bind Nothing TopLevelContext (Var "a" Nothing) ]
   }
 
 m5 :: Module MPType
@@ -366,7 +372,7 @@ m5 = Module
   { declarations =
     [ TopLet [("a", (Bit True Nothing))] ]
   , mainBlock =
-    [ Bind Nothing Context (Var "a" Nothing) 
+    [ Bind Nothing TopLevelContext (Var "a" Nothing) 
     ]
   }
 
@@ -374,61 +380,61 @@ m6 :: Module MPType
 m6 = Module
   { declarations =
     [ TopTypeDecl "map4" (function (function (poly "a") (poly "b")) (function (array (poly "a") (poly "m")) (array (poly "b") (poly "m")))) ]
-  , mainBlock = [ Bind Nothing Context (Var "a" Nothing) ]
+  , mainBlock = [ Bind Nothing TopLevelContext (Var "a" Nothing) ]
   }
 
 inferBit :: Module MPType
 inferBit = Module
   { declarations = [ TopLet [("a",Bit True Nothing)] ]
-  , mainBlock    = [ Bind Nothing Context (Var "a" Nothing) ]
+  , mainBlock    = [ Bind Nothing TopLevelContext (Var "a" Nothing) ]
   }
 
 inferQuote :: Module MPType
 inferQuote = Module
   { declarations = [ TopLet [("a",Quote "foo" Nothing)] ]
-  , mainBlock    = [ Bind Nothing Context (Var "a" Nothing) ]
+  , mainBlock    = [ Bind Nothing TopLevelContext (Var "a" Nothing) ]
   }
 
 inferZ :: Module MPType
 inferZ = Module
   { declarations = [ TopLet [("a",Z 31337 Nothing)] ]
-  , mainBlock    = [ Bind Nothing Context (Var "a" Nothing) ]
+  , mainBlock    = [ Bind Nothing TopLevelContext (Var "a" Nothing) ]
   }
 
 inferBlock :: Module MPType
 inferBlock = Module
-  { declarations = [ TopLet [("a",Block [ Bind Nothing Context (Bit True Nothing) ] Nothing)] ]
-  , mainBlock    = [ Bind Nothing Context (Var "a" Nothing) ]
+  { declarations = [ TopLet [("a",Block [ Bind Nothing TopLevelContext (Bit True Nothing) ] Nothing)] ]
+  , mainBlock    = [ Bind Nothing TopLevelContext (Var "a" Nothing) ]
   }
 
 inferTuple :: Module MPType
 inferTuple = Module
   { declarations = [ TopLet [("a",Tuple [Bit True Nothing, Quote "foo" Nothing, Z 31337 Nothing] Nothing)] ]
-  , mainBlock    = [ Bind Nothing Context (Var "a" Nothing) ]
+  , mainBlock    = [ Bind Nothing TopLevelContext (Var "a" Nothing) ]
   }
 
 inferRecord1 :: Module MPType
 inferRecord1 = Module
   { declarations = [ TopLet [("a",Record [("foo",Quote "foo" Nothing)] Nothing)] ]
-  , mainBlock    = [ Bind Nothing Context (Var "a" Nothing) ]
+  , mainBlock    = [ Bind Nothing TopLevelContext (Var "a" Nothing) ]
   }
 
 inferRecord2 :: Module MPType
 inferRecord2 = Module
   { declarations = [ TopLet [("a",Record [("foo",Quote "foo" Nothing),("bar",Z 42 Nothing)] Nothing)] ]
-  , mainBlock    = [ Bind Nothing Context (Var "a" Nothing) ]
+  , mainBlock    = [ Bind Nothing TopLevelContext (Var "a" Nothing) ]
   }
 
 inferArray1 :: Module MPType
 inferArray1 = Module
   { declarations = [ TopLet [("a",Array [Quote "foo" Nothing, Quote "bar" Nothing] Nothing)] ]
-  , mainBlock    = [ Bind Nothing Context (Var "a" Nothing) ]
+  , mainBlock    = [ Bind Nothing TopLevelContext (Var "a" Nothing) ]
   }
 
 inferArray2 :: Module MPType
 inferArray2 = Module
   { declarations = [ TopLet [("a",Array [Quote "foo" Nothing, Z 42 Nothing] Nothing)] ]
-  , mainBlock    = [ Bind Nothing Context (Var "a" Nothing) ]
+  , mainBlock    = [ Bind Nothing TopLevelContext (Var "a" Nothing) ]
   }
 
 -- }}}
