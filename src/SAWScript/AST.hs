@@ -23,9 +23,11 @@ type CType = Mu (I :+: TypeF)
 
 -- Expr Level {{{
 
-data Module a = Module
+type Module a = Module' a a
+
+data Module' a b = Module
   { declarations :: [TopStmt a]
-  , mainBlock    :: [BlockStmt a]
+  , mainBlock    :: [BlockStmt b]
   }
   deriving (Functor,Foldable,Traversable)
 
@@ -33,7 +35,7 @@ data TopStmt a
   = Import      Name               (Maybe [Name])   (Maybe Name)
   | TypeDef     Name               PType
   | TopTypeDecl Name               PType
-  | TopLet      [(Name,Expr a)]
+  | TopBind     Name               (Expr a)
   deriving (Functor,Foldable,Traversable)
 
 data BlockStmt a
@@ -64,7 +66,7 @@ data Expr a
   | LetBlock    [(Name,Expr a)]    (Expr a)
   deriving (Functor,Foldable,Traversable)
 
-instance Show a => Show (Module a) where
+instance (Show a,Show b) => Show (Module' a b) where
   show (Module ds mb) = (intercalate "\n" $ map show ds) ++ "\n\n" ++ (intercalate "\n" $ map show mb)
 
 instance Show a => Show (TopStmt a) where
@@ -74,7 +76,7 @@ instance Show a => Show (TopStmt a) where
       Just q  -> "import qualified " ++ n ++ maybe "" (\ns -> " (" ++ intercalate ", " ns ++ ")") ns ++ " as " ++ q
     TypeDef n pt     -> "type " ++ n ++ " = " ++ show pt
     TopTypeDecl n pt -> n ++ " :: " ++ show pt
-    TopLet nes       -> intercalate "\n" $ map (\(n,e) -> n ++ " = " ++ show e) nes
+    TopBind n e      -> n ++ " = " ++ show e
 
 instance Show a => Show (BlockStmt a) where
   show s = case s of
@@ -370,7 +372,7 @@ m4 = Module
 m5 :: Module MPType
 m5 = Module
   { declarations =
-    [ TopLet [("a", (Bit True Nothing))] ]
+    [ TopBind "a" (Bit True Nothing) ]
   , mainBlock =
     [ Bind Nothing TopLevelContext (Var "a" Nothing) 
     ]
@@ -385,55 +387,55 @@ m6 = Module
 
 inferBit :: Module MPType
 inferBit = Module
-  { declarations = [ TopLet [("a",Bit True Nothing)] ]
+  { declarations = [ TopBind "a" (Bit True Nothing) ]
   , mainBlock    = [ Bind Nothing TopLevelContext (Var "a" Nothing) ]
   }
 
 inferQuote :: Module MPType
 inferQuote = Module
-  { declarations = [ TopLet [("a",Quote "foo" Nothing)] ]
+  { declarations = [ TopBind "a" (Quote "foo" Nothing) ]
   , mainBlock    = [ Bind Nothing TopLevelContext (Var "a" Nothing) ]
   }
 
 inferZ :: Module MPType
 inferZ = Module
-  { declarations = [ TopLet [("a",Z 31337 Nothing)] ]
+  { declarations = [ TopBind "a" (Z 31337 Nothing) ]
   , mainBlock    = [ Bind Nothing TopLevelContext (Var "a" Nothing) ]
   }
 
 inferBlock :: Module MPType
 inferBlock = Module
-  { declarations = [ TopLet [("a",Block [ Bind Nothing TopLevelContext (Bit True Nothing) ] Nothing)] ]
+  { declarations = [ TopBind "a" (Block [ Bind Nothing TopLevelContext (Bit True Nothing) ] Nothing) ]
   , mainBlock    = [ Bind Nothing TopLevelContext (Var "a" Nothing) ]
   }
 
 inferTuple :: Module MPType
 inferTuple = Module
-  { declarations = [ TopLet [("a",Tuple [Bit True Nothing, Quote "foo" Nothing, Z 31337 Nothing] Nothing)] ]
+  { declarations = [ TopBind "a" (Tuple [Bit True Nothing, Quote "foo" Nothing, Z 31337 Nothing] Nothing) ]
   , mainBlock    = [ Bind Nothing TopLevelContext (Var "a" Nothing) ]
   }
 
 inferRecord1 :: Module MPType
 inferRecord1 = Module
-  { declarations = [ TopLet [("a",Record [("foo",Quote "foo" Nothing)] Nothing)] ]
+  { declarations = [ TopBind "a" (Record [("foo",Quote "foo" Nothing)] Nothing) ]
   , mainBlock    = [ Bind Nothing TopLevelContext (Var "a" Nothing) ]
   }
 
 inferRecord2 :: Module MPType
 inferRecord2 = Module
-  { declarations = [ TopLet [("a",Record [("foo",Quote "foo" Nothing),("bar",Z 42 Nothing)] Nothing)] ]
+  { declarations = [ TopBind "a" (Record [("foo",Quote "foo" Nothing),("bar",Z 42 Nothing)] Nothing) ]
   , mainBlock    = [ Bind Nothing TopLevelContext (Var "a" Nothing) ]
   }
 
 inferArray1 :: Module MPType
 inferArray1 = Module
-  { declarations = [ TopLet [("a",Array [Quote "foo" Nothing, Quote "bar" Nothing] Nothing)] ]
+  { declarations = [ TopBind "a" (Array [Quote "foo" Nothing, Quote "bar" Nothing] Nothing) ]
   , mainBlock    = [ Bind Nothing TopLevelContext (Var "a" Nothing) ]
   }
 
 inferArray2 :: Module MPType
 inferArray2 = Module
-  { declarations = [ TopLet [("a",Array [Quote "foo" Nothing, Z 42 Nothing] Nothing)] ]
+  { declarations = [ TopBind "a" (Array [Quote "foo" Nothing, Z 42 Nothing] Nothing) ]
   , mainBlock    = [ Bind Nothing TopLevelContext (Var "a" Nothing) ]
   }
 

@@ -11,6 +11,8 @@ import Data.Traversable
 import Prelude hiding (catch)
 #endif
 
+-- Compiler {{{
+
 type Compiler a b = a -> Err b
 
 type Err = E (IO ())
@@ -23,7 +25,7 @@ instance Functor (E r) where
 instance Monad (E r) where
   return a = E $ \ _  sc -> sc a
   m >>= k  = E $ \ fl sc ->
-    runE m fl $ \a ->
+    runE m fl $ \ a ->
       runE (k a) fl sc
   fail str = E $ \ fl _  -> fl str
 
@@ -46,4 +48,9 @@ m `catch` handler = E $ \ fl sc -> runE m (handler fl) sc
 compiler :: Show a => String -> Compiler a b -> Compiler a b
 compiler name comp input = catch (comp input) $ \fl err ->
   fl $ intercalate "\n" [name ++ ": " ++ err, "in:",show input]
+
+-- }}}
+
+-- Increment {{
+
 

@@ -32,7 +32,7 @@ main :: IO ()
 main = getArgs >>= mapM_ (readFile >=> runCompiler compileModule)
 
 -- | Full compiler pipeline, so far.
-compileModule :: Compiler String (Module Type)
+compileModule :: Compiler String (Module' LType Type)
 compileModule = parseModule >=> typeModule
 
 -- | Takes unlexed text to Module
@@ -40,7 +40,7 @@ parseModule :: Compiler String (Module MPType)
 parseModule = scan >=> parse >=> findMain
 
 -- | Takes module from untyped to fully typed
-typeModule :: Compiler (Module MPType) (Module Type)
+typeModule :: Compiler (Module MPType) (Module' LType Type)
 typeModule = resolveSyns >=> liftPoly >=> typeCheck >=> convertType
 
 -- | Wrapper around compiler function to format the result or error
