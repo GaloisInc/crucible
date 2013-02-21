@@ -13,7 +13,7 @@ import SAWScript.Unify
 import Control.Monad
 import Data.List
 
-import Data.Foldable hiding (concat)
+import Data.Foldable hiding (concat, elem)
 import Data.Traversable
 
 type MPType = Maybe (Mu (I :+: TypeF :+: Poly))
@@ -132,7 +132,7 @@ data TypeF a
   | Record'      [(Name,a)]
   -- LC
   | Function'    a          a
-  | Syn          String
+  | Syn          Name
   deriving (Show,Functor,Foldable,Traversable)
 
 data Type 
@@ -457,3 +457,13 @@ updateAnnotation e t = case e of
   Function x y z _  -> Function x y z t
   Application x y _ -> Application x y t
   LetBlock x e      -> LetBlock x (updateAnnotation e t)
+
+synToPoly :: [Name] -> PType -> PType
+synToPoly ns ty = case prj (out ty) of
+  Just (Array' ty1 ty2)      -> array (synToPoly ns ty1) (synToPoly ns ty2)
+  Just (Block' ctx ty1)      -> block ctx (synToPoly ns ty1)
+  Just (Tuple' tys)          -> tuple $ map (synToPoly ns) tys
+  Just (Record' flds)        -> record $ map (\(n, t) -> (n, synToPoly ns t)) flds
+  Just (Function' ty1 ty2)   -> function (synToPoly ns ty1) (synToPoly ns ty2)
+  Just (Syn n) | n `elem` ns -> poly n
+  _ -> ty

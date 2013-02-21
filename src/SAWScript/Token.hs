@@ -2,7 +2,7 @@ module SAWScript.Token where
 
 data TokenClass
   = Keyword
-  | Bitfield
+  | BitLiteral
   | String
   | Integer
   | Infix
