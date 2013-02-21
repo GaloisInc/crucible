@@ -21,8 +21,7 @@ import Data.List
 $allChars      = [\x00-\x10ffff]
 @comment       = ("/*"   (($allChars # [\*]) | ("*" ($allChars # [\/])))*  "*/") | ("//" .*)
 
-
-@keyword       = "()" | "import" | "as" | "let" | "and" | "fun" | "in" | "type" | "do" | "integer" | "string" | "bit"
+@keyword       = "import" | "and" | "as" | "let" | "fun" | "in" | "type" | "do"
 
 $ident_head    = [\_a-zA-Z]
 $ident_tail    = [\_a-zA-Z0-9\'\.]
@@ -35,7 +34,6 @@ $base16        = [0-9a-fA-F]
 @dec_lit       = "0a" $base10*
 @hex_lit       = "0x" $base16*
 @integer       = $base10+
-
 
 $escape        = ["\\n]                                    
 --"
@@ -77,16 +75,16 @@ expr :: TokenClass -> Action
 expr tc (pos,_,_,str) len = return $ Token tc pos $ take len str
 
 binToBinary :: Action
-binToBinary (pos,_,_,str) len = return $ Token Bitfield pos $ drop 2 $ take len str
+binToBinary (pos,_,_,str) len = return $ Token BitLiteral pos $ drop 2 $ take len str
 
 decToBinary :: Action
-decToBinary (pos,_,_,str) len = return $ Token Bitfield pos b
+decToBinary (pos,_,_,str) len = return $ Token BitLiteral pos b
   where
   d = read $ drop 2 $ take len str
   b = showIntAtBase 2 intToDigit d ""
 
 hexToBinary :: Action
-hexToBinary (pos,_,_,str) len = return $ Token Bitfield pos $
+hexToBinary (pos,_,_,str) len = return $ Token BitLiteral pos $
   concatMap (hexToBinBit . toLower) $ drop 2 $ take len str
   where
   hexToBinBit :: Char -> String

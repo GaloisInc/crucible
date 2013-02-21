@@ -23,17 +23,13 @@ import Control.Applicative
 
 %token
 'import'                                { Token Keyword    _ "import"  }
+'and'                                   { Token Keyword    _ "and"     }
 'as'                                    { Token Keyword    _ "as"      }
 'let'                                   { Token Keyword    _ "let"     }
-'and'                                   { Token Keyword    _ "and"     }
 'fun'                                   { Token Keyword    _ "fun"     }
 'in'                                    { Token Keyword    _ "in"      }
 'type'                                  { Token Keyword    _ "type"    }
 'do'                                    { Token Keyword    _ "do"      }
-'integer'                               { Token Keyword    _ "integer" }
-'string'                                { Token Keyword    _ "string"  }
-'bit'                                   { Token Keyword    _ "bit"     }
-unit                                    { Token Keyword    _ "()"      }
 '='                                     { Token Infix      _ "="       }
 '->'                                    { Token Infix      _ "->"      }
 ';'                                     { Token Infix      _ ";"       }
@@ -42,14 +38,13 @@ unit                                    { Token Keyword    _ "()"      }
 '::'                                    { Token Infix      _ "::"      }
 '('                                     { Token OutfixL    _ "("       }
 ')'                                     { Token OutfixR    _ ")"       }
-' ['                                    { Token OutfixL    _ "["       }
 ']'                                     { Token OutfixR    _ "]"       }
 '{'                                     { Token OutfixL    _ "{"       }
 '}'                                     { Token OutfixR    _ "}"       }
-'['                                     { Token Postfix    _ "["       }
+'['                                     { Token OutfixL    _ "["       }
 '.'                                     { Token Postfix    _ "."       }
 infixOp                                 { Token Infix      _ $$        }
-bits                                    { Token Bitfield   _ $$        }
+bits                                    { Token BitLiteral _ $$        }
 string                                  { Token String     _ $$        }
 int                                     { Token Integer    _ $$        }
 name                                    { Token Identifier _ $$        }
@@ -62,26 +57,25 @@ TopStatements :: { [TopStmt MPType] }
 
 TopStatement :: { TopStmt MPType }
  : 'let' Declarations1                  { TopLet $2         }
- | name ':' Type                       { TopTypeDecl $1 $3 }
+ | name ':' PolyType                    { TopTypeDecl $1 $3 }
  | 'type' name '=' Type                 { TypeDef $2 $4     }
  | 'import' Import                      { $2                }
 
 -- TODO: allow other contexts to be used.
-BlockStatement :: { BlockStmt MPType }
+BlockStmt :: { BlockStmt MPType }
  : Expression                           { Bind Nothing TopLevelContext $1   }
  | name '=' Expression                  { Bind (Just $1) TopLevelContext $3 }
- | name ':' Type                       { BlockTypeDecl $1 $3       }
+ | name ':' PolyType                    { BlockTypeDecl $1 $3       }
  | 'let' Declarations1                  { BlockLet $2               }
 
 Declaration :: { (Name, Expr MPType) }
- : name Args '=' Expression             { ($1, buildFunction $2 $4)                              }
- | name Args ':' Type '=' Expression    { ($1, updateAnnotation (buildFunction $2 $6) (Just $4)) }
+ : name Args '=' Expression             { ($1, buildFunction $2 $4)       }
 
 Import :: { TopStmt MPType }
  : name                                 { Import $1 Nothing Nothing       }
- | name '(' CommaSepNames ')'           { Import $1 (Just $3) Nothing     }
+ | name '(' sepBy(name, ',') ')'        { Import $1 (Just $3) Nothing     }
  | name 'as' name                       { Import $1 Nothing (Just $3)     }
- | name '(' CommaSepNames ')' 'as' name { Import $1 (Just $3) (Just $6)   }
+ | name '(' sepBy(name, ',') ')' 'as' name { Import $1 (Just $3) (Just $6)   }
 
 Arg :: { (Name, MPType) }
  : name                                 { ($1, Nothing) }
@@ -105,17 +99,17 @@ NakedExpression :: { Expr MPType }
     { Application (Application (Var $2 Nothing ) $1 Nothing) $3 Nothing }
 
 SafeExpression :: { Expr MPType }
- : unit   MaybeType                            { Unit $2                       }
- | bits   MaybeType                            { Array (bitsOfString $1) $2    }
- | string MaybeType                            { Quote $1 $2                   }
- | int    MaybeType                            { Z (read $1) $2                }
- | name   MaybeType                            { Var $1 $2                     }
- | '(' Expressions ')' MaybeType               { updateAnnotation (buildApplication $2) $4 }
- | ' [' CommaSepExprs ']' MaybeType            { Array $2 $4                   }
- | '{' CommaSepFields '}' MaybeType            { Record $2 $4                  }
- | 'do' '{' SemiSepBlockStmts '}' MaybeType    { Block $3 $5                   }
- | SafeExpression '.' name MaybeType           { Lookup $1 $3 $4               }
- | SafeExpression '[' Expression ']' MaybeType { Index $1 $3 $5                }
+ : '(' ')'                              { Unit Nothing                    }
+ | bits                                 { Array (bitsOfString $1) Nothing }
+ | string                               { Quote $1 Nothing                }
+ | int                                  { Z (read $1) Nothing             }
+ | name                                 { Var $1 Nothing                  }
+ | '(' Expressions ')'                  { buildApplication $2             }
+ | '[' CommaSepExprs ']'                { Array $2 Nothing                }
+ | '{' CommaSepFields '}'               { Record $2 Nothing               }
+ | 'do' '{' sepBy(BlockStmt, ';') '}'   { Block $3 Nothing                }
+ | SafeExpression '.' name              { Lookup $1 $3 Nothing            }
+ | SafeExpression ':' Type              { updateAnnotation $1 (Just $3)   }
 
 Field :: { (Name, Expr MPType) }
  : name '=' Expression                  { ($1, $3) }
@@ -124,29 +118,34 @@ MaybeType :: { MPType }
  : {- Nothing -}                        { Nothing }
  | ':' Type                             { Just $2 }
 
+Names :: { [Name] } 
+ : name                                 { [$1] }
+ | name ',' Names                       { $1:$3 }
+
+PolyType :: { PType }
+ : '{' Names '}' Type                   { synToPoly $2 $4         }
+ | Type                                 { $1                      }
+
 Type :: { PType }
  : BaseType                             { $1 }
  | BaseType '->' Type                   { function $1 $3 }
 
 BaseType :: { PType }
- : 'integer'                            { z                       }
- | 'string'                             { quote                   } 
- | 'bit'                                { bit                     }
- | name                                 { syn $1                  }
+ : name                                 { syn $1                  }
  | '(' TupledTypes ')'                  { $2                      }
- | LeftBracket int ']'                  { array bit (i $ read $2) }
- | LeftBracket int ']' BaseType         { array $4  (i $ read $2) }
+ | '[' int ']'                          { array bit (i $ read $2) }
+ | '[' int ']' BaseType                 { array $4  (i $ read $2) }
 
 TupledTypes :: { PType }
  : {- Nothing -}                        { unit }
  | CommaSepTypes1                       { if length $1 == 1 then head $1 else tuple $1 }
 
 CommaSepTypes1 :: { [PType] } 
- : Type                                 { $1:[] }
- | Type ',' CommaSepTypes1             { $1:$3 }
+ : Type                                 { [$1] }
+ | Type ',' CommaSepTypes1              { $1:$3 }
 
 Declarations1 :: { [(Name, Expr MPType)] }
- : Declaration                          { $1:[] }
+ : Declaration                          { [$1] }
  | Declaration 'and' Declarations1      { $1:$3 }
 
 Args :: { [(Name, MPType)] }
@@ -154,19 +153,21 @@ Args :: { [(Name, MPType)] }
  | Args1                                { $1 }
 
 Args1 :: { [(Name, MPType)] }
- : Arg                                  { $1:[] }
+ : Arg                                  { [$1] }
  | Arg Args1                            { $1:$2 }
 
+{-
 SemiSepBlockStmts :: { [BlockStmt MPType] }
  : {- Nothing -}                        { []    }
- | BlockStatement ';' SemiSepBlockStmts { $1:$3 }
+ | BlockStmt ';' SemiSepBlockStmts { $1:$3 }
+-}
 
 CommaSepExprs :: { [Expr MPType] }
  : {- Nothing -}                        { [] }
  | CommaSepExprs1                       { $1 }
 
 CommaSepExprs1 :: { [Expr MPType] }
- : Expression                           { $1:[] }
+ : Expression                           { [$1] }
  | Expression ',' CommaSepExprs1        { $1:$3 }
 
 CommaSepFields :: { [(Name, Expr MPType)] }
@@ -174,20 +175,60 @@ CommaSepFields :: { [(Name, Expr MPType)] }
  | CommaSepFields1                      { $1 }
 
 CommaSepFields1 :: { [(Name, Expr MPType)] }
- : Field                                { $1:[] }
+ : Field                                { [$1] }
  | Field ',' CommaSepFields1            { $1:$3 }
 
-CommaSepNames :: { [Name] }
-  : {- Nothing -}                       { [] }
-  | CommaSepNames1                      { $1 }
+-- Parameterized productions, most come directly from the Happy manual.
+fst(p, q)  : p q   { $1 }
+snd(p, q)  : p q   { $2 }
+both(p, q) : p q   { ($1, $2) }
 
-CommaSepNames1 :: { [Name] }
-  : name                                { $1:[] }
-  | name ',' CommaSepNames1             { $1:$3 }
+-- p bracketed with some delims o-c
+bracketed(o, p, c) : o p c { $2 }
 
-LeftBracket :: { () }
- :  '[' { () }
- | ' [' { () }
+-- p and q, connected by some connective c
+connected(p, c, q) : p c q { ($1, $3) }
+
+-- an optional p
+opt(p) : p            { Just $1 }
+       | {- empty -}  { Nothing }
+
+-- A reversed list of at least 1 p's
+rev_list1(p) : p              { [$1]    }
+             | rev_list1(p) p { $2 : $1 }
+
+-- A list of at least 1 p's
+list1(p) : rev_list1(p)   { reverse $1 }
+
+-- A potentially empty list of p's
+list(p) : {- empty -}    { [] }
+        | list1(p)       { $1 }
+
+-- A reversed list of at least 1 p's
+seprev_list(p,q) : seprev_list(p,q) p { $2 : $1 }
+                 | seprev_list(p,q) q { $1 }
+                 | {- empty -}    { [] }
+
+-- A potentially empty list of p's separated by zero or more qs (which are ignored).
+seplist(p,q) : seprev_list(p,q)  { reverse $1 }
+
+-- A list of at least one 1 p's, separated by q's
+sepBy1(p, q) : p list(snd(q, p)) { $1 : $2 }
+
+-- A list of 0 or more p's, separated by q's
+sepBy(p, q) : {- empty -}  { [] }
+            | sepBy1(p, q) { $1 }
+
+-- A list of at least one 1 p's, terminated by q's
+termBy1(p, q) : list1(fst(p, q)) { $1 }
+
+-- A list of 0 or more p's, terminated by q's
+termBy(p, q) : {- empty -}    { [] }
+             | termBy1(p, q)  { $1 }
+
+-- one or the other
+either(p, q) : p  { Left  $1 }
+             | q  { Right $1 }
 
 {
 
@@ -220,6 +261,5 @@ buildApplication (e:es) = Application e app' $
 buildType :: [PType] -> PType
 buildType [t]    = t
 buildType (t:ts) = function t (buildType ts)
-
 }
 
