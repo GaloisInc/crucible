@@ -106,7 +106,7 @@ hexToBinary (pos,_,_,str) len = return $ Token BitLiteral pos $
     'e' -> "1110" 
     'f' -> "1111"
 
-alexEOF = return (Token EOF undefined "")
+alexEOF = return (Token EOF (error "alexEOF") "")
 
 scan :: Compiler String [Token AlexPosn]
 scan input = case runAlex input loop of

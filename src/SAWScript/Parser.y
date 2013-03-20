@@ -1,6 +1,9 @@
 {
 
-module SAWScript.Parser ( parse ) where
+module SAWScript.Parser
+  ( parseModule
+  , parseBlockStmt
+  ) where
 
 import Data.List
 import SAWScript.Token
@@ -8,7 +11,6 @@ import SAWScript.Lexer
 import SAWScript.Compiler
 import SAWScript.AST
 import SAWScript.Unify
-import SAWScript.Lexer
 
 import qualified Text.Show.Pretty as PP
 
@@ -16,7 +18,8 @@ import Control.Applicative
 
 }
 
-%name parse TopStatements
+%name parseModule TopStmts
+%name parseBlockStmt BlockStmt
 %error { parseError }
 %tokentype { Token AlexPosn }
 %monad { Err } { (>>=) } { return }
@@ -51,15 +54,15 @@ name                                    { Token Identifier _ $$        }
 
 %%
 
-TopStatements :: { [TopStmt MPType] }
+TopStmts :: { [TopStmt MPType] }
  : {- Nothing -}                  { []    }
- | TopStatement ';' TopStatements { $1:$3 }
+ | TopStmt ';' TopStmts { $1:$3 }
 
-TopStatement :: { TopStmt MPType }
- : 'let' Declarations1                  { TopLet $2         }
- | name ':' PolyType                    { TopTypeDecl $1 $3 }
- | 'type' name '=' Type                 { TypeDef $2 $4     }
- | 'import' Import                      { $2                }
+TopStmt :: { TopStmt MPType }
+ : name ':' PolyType                    { TopTypeDecl $1 $3  }
+ | 'type' name '=' Type                 { TypeDef $2 $4      }
+ | 'import' Import                      { $2                 }
+ | Declaration                          { uncurry TopBind $1 }
 
 -- TODO: allow other contexts to be used.
 BlockStmt :: { BlockStmt MPType }
@@ -248,15 +251,17 @@ bitsOfString = map ((flip Bit $ Just bit) . (/= '0'))
 buildFunction :: [(Name, MPType)] -> Expr MPType -> Expr MPType 
 buildFunction args e = foldr foldFunction e args
   where
-  foldFunction (argName,mType) rhs = Function argName mType e $
+  foldFunction (argName,mType) rhs = Function argName mType rhs $
     function <$> mType <*> decor rhs
 
 buildApplication :: [Expr MPType] -> Expr (MPType)
-buildApplication [e]    = e
-buildApplication (e:es) = Application e app' $
-  function <$> decor e <*> decor app'
-  where
-  app' = buildApplication es
+buildApplication = foldl1 (\e body -> Application e body $
+  function <$> decor e <*> decor body)
+--buildApplication [e]    = e
+--buildApplication (e:es) = Application e app' $
+--  function <$> decor e <*> decor app'
+--  where
+--  app' = buildApplication es
 
 buildType :: [PType] -> PType
 buildType [t]    = t

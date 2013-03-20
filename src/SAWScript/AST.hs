@@ -6,15 +6,18 @@
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveTraversable #-}
 
+{-# LANGUAGE Rank2Types #-}
+
 module SAWScript.AST where
 
 import SAWScript.Unify
 
+import Control.Applicative
 import Control.Monad
 import Data.List
 
 import Data.Foldable hiding (concat, elem)
-import Data.Traversable
+import qualified Data.Traversable as T
 
 type MPType = Maybe (Mu (I :+: TypeF :+: Poly))
 type PType = Mu (I :+: TypeF :+: Poly)
@@ -27,22 +30,22 @@ type Module a = Module' a a
 
 data Module' a b = Module
   { declarations :: [TopStmt a]
-  , mainBlock    :: [BlockStmt b]
+  , mainBlock    :: Expr b --[BlockStmt a]
   }
-  deriving (Functor,Foldable,Traversable)
+  deriving (Eq,Functor,Foldable)
 
 data TopStmt a
   = Import      Name               (Maybe [Name])   (Maybe Name)
   | TypeDef     Name               PType
   | TopTypeDecl Name               PType
   | TopBind     Name               (Expr a)
-  deriving (Functor,Foldable,Traversable)
+  deriving (Eq,Functor,Foldable,T.Traversable)
 
 data BlockStmt a
   = Bind          (Maybe Name)     Context (Expr a)
   | BlockTypeDecl Name             PType
   | BlockLet      [(Name,Expr a)]
-  deriving (Functor,Foldable,Traversable)
+  deriving (Eq,Functor,Foldable,T.Traversable)
 
 data Expr a
   -- Constants
@@ -64,10 +67,10 @@ data Expr a
   | Application (Expr a)           (Expr a)   a
   -- Sugar
   | LetBlock    [(Name,Expr a)]    (Expr a)
-  deriving (Functor,Foldable,Traversable)
+  deriving (Eq,Functor,Foldable,T.Traversable)
 
-instance (Show a,Show b) => Show (Module' a b) where
-  show (Module ds mb) = (intercalate "\n" $ map show ds) ++ "\n\n" ++ (intercalate "\n" $ map show mb)
+instance (Show a, Show b) => Show (Module' a b) where
+  show (Module ds mn) = (intercalate "\n" $ map show ds) ++ "\n\n" ++ show mn --(intercalate "\n" $ map show mb)
 
 instance Show a => Show (TopStmt a) where
   show s = case s of
@@ -133,7 +136,7 @@ data TypeF a
   -- LC
   | Function'    a          a
   | Syn          Name
-  deriving (Show,Functor,Foldable,Traversable)
+  deriving (Show,Functor,Foldable,T.Traversable)
 
 data Type 
   = UnitT
@@ -190,7 +193,7 @@ instance Uni TypeF where
     (Record' fts1',Record' fts2')             -> do conj [ disj [ unify x y | (nx,x) <- fts1', nx == ny ] | (ny,y) <- fts2' ]
                                                     conj [ disj [ unify y x | (ny,y) <- fts2', nx == ny ] | (nx,x) <- fts1' ]
     (Function' at1' bt1',Function' at2' bt2') -> unify at1' at2' >> unify bt1' bt2'
-    _                                         -> fail ("TypeF Mismatch: " ++ render t1 ++ " could not be unified with " ++ render t2)
+    _                                         -> fail ("Type Mismatch: " ++ render t1 ++ " could not be unified with " ++ render t2)
 -- }}}
 
 -- Operators {{{
@@ -229,7 +232,7 @@ syn n = inject $ Syn n
 
 -- I {{{
 
-data I a = I Int deriving (Show,Functor,Foldable,Traversable)
+data I a = I Int deriving (Show,Functor,Foldable,T.Traversable)
 
 instance Equal I where
   equal (I x) (I y) = x == y
@@ -247,7 +250,7 @@ i x = inject $ I x
 
 -- Poly {{{
 
-data Poly a = Poly Name deriving (Show,Functor,Foldable,Traversable)
+data Poly a = Poly Name deriving (Show,Functor,Foldable,T.Traversable)
 
 instance Render Poly where render (Poly n) = n
 
@@ -287,6 +290,7 @@ context s = case s of
   Bind _ c _ -> Just c
   _          -> Nothing
 
+{-
 -- Tests {{{
 
 m1 :: Module MPType
@@ -440,6 +444,7 @@ inferArray2 = Module
   }
 
 -- }}}
+-}
 
 updateAnnotation :: Expr a -> a -> Expr a
 updateAnnotation e t = case e of

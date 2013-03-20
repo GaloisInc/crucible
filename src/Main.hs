@@ -32,15 +32,15 @@ main :: IO ()
 main = getArgs >>= mapM_ (readFile >=> runCompiler compileModule)
 
 -- | Full compiler pipeline, so far.
-compileModule :: Compiler String (Module' LType Type)
-compileModule = parseModule >=> typeModule
+compileModule :: Compiler String (Module' PType Type)
+compileModule = formModule >=> typeModule
 
 -- | Takes unlexed text to Module
-parseModule :: Compiler String (Module MPType)
-parseModule = scan >=> parse >=> findMain
+formModule :: Compiler String (Module MPType)
+formModule = scan >=> parseModule >=> findMain
 
 -- | Takes module from untyped to fully typed
-typeModule :: Compiler (Module MPType) (Module' LType Type)
+typeModule :: Compiler (Module MPType) (Module' PType Type)
 typeModule = resolveSyns >=> liftPoly >=> typeCheck >=> convertType
 
 -- | Wrapper around compiler function to format the result or error
@@ -81,6 +81,7 @@ testAllFiles = do
 
 -- testing pre-parsed modules -------------------------------------------------
 
+{-
 -- | A few hand written tests
 testAllModules :: IO ()
 testAllModules = forM_
@@ -101,6 +102,7 @@ testAllModules = forM_
   where
   labelModule :: String -> IO ()
   labelModule n = putStrLn (n ++ ":")
+-}
 
 indent :: Int -> String -> String
 indent n = unlines . map (replicate n ' ' ++) . lines
