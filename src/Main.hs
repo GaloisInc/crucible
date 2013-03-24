@@ -29,15 +29,15 @@ import System.Posix.Files
 import System.FilePath.Posix
 
 main :: IO ()
-main = getArgs >>= mapM_ (readFile >=> runCompiler compileModule)
+main = getArgs >>= mapM_ (\f -> readFile f >>= runCompiler (compileModule f))
 
 -- | Full compiler pipeline, so far.
-compileModule :: Compiler String (Module' PType Type)
-compileModule = formModule >=> typeModule
+compileModule :: FilePath -> Compiler String (Module' PType Type)
+compileModule f = formModule f >=> typeModule
 
 -- | Takes unlexed text to Module
-formModule :: Compiler String (Module MPType)
-formModule = scan >=> parseModule >=> findMain
+formModule :: FilePath -> Compiler String (Module MPType)
+formModule f = scan f >=> parseModule >=> findMain
 
 -- | Takes module from untyped to fully typed
 typeModule :: Compiler (Module MPType) (Module' PType Type)
@@ -77,7 +77,7 @@ testAllFiles = do
     putStrLn $ replicate 60 '*'
     putStrLn ("Testing file " ++ show f)
     contents <- readFile f
-    runCompiler compileModule contents
+    runCompiler (compileModule f) contents
 
 -- testing pre-parsed modules -------------------------------------------------
 

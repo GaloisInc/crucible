@@ -143,7 +143,7 @@ data Type
   | BitT
   | ZT
   | QuoteT
-  | ArrayT Type Int
+  | ArrayT Type Integer
   | BlockT Context Type
   | TupleT [Type]
   | RecordT [(Name,Type)]
@@ -232,7 +232,7 @@ syn n = inject $ Syn n
 
 -- I {{{
 
-data I a = I Int deriving (Show,Functor,Foldable,T.Traversable)
+data I a = I Integer deriving (Show,Functor,Foldable,T.Traversable)
 
 instance Equal I where
   equal (I x) (I y) = x == y
@@ -243,7 +243,7 @@ instance Render I where
 instance Uni I where
   uni (I x) (I y) = fail ("I: " ++ show x ++ " =/= " ++ show y)
 
-i :: (I :<: f) => Int -> Mu f
+i :: (I :<: f) => Integer -> Mu f
 i x = inject $ I x
 
 -- }}}

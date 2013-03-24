@@ -1,21 +1,21 @@
+{- |
+Module           : $Header$
+Description      :
+Stability        : provisional
+Point-of-contact : lerkok
+-}
+
+{-# LANGUAGE DeriveFunctor #-}
 module SAWScript.Token where
 
-data TokenClass
-  = Keyword
-  | BitLiteral
-  | String
-  | Integer
-  | Infix
-  | OutfixL
-  | OutfixR
-  | Postfix
-  | Identifier
-  | EOF
-  deriving (Eq,Show)
-
-data Token p = Token
-  { tokClass :: TokenClass
-  , tokPos   :: p
-  , tokStr   :: String
-  } deriving (Eq,Show)
-
+data Token p = TVar      { tokPos :: p, tokStr :: String                     }
+             | TLit      { tokPos :: p, tokStr :: String                     }
+             | TUnknown  { tokPos :: p, tokStr :: String                     }
+             | TPunct    { tokPos :: p, tokStr :: String                     }
+             | TReserved { tokPos :: p, tokStr :: String                     }
+             | TOp       { tokPos :: p, tokStr :: String                     }
+             | TNum      { tokPos :: p, tokStr :: String, tokNum :: Integer  }
+             | TCmntS    { tokPos :: p, tokStr :: String                     }
+             | TCmntE    { tokPos :: p, tokStr :: String                     }
+             | TEOF      { tokPos :: p, tokStr :: String                     }
+             deriving (Show, Functor)
