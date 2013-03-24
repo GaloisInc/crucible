@@ -37,7 +37,8 @@ compileModule f = formModule f >=> typeModule
 
 -- | Takes unlexed text to Module
 formModule :: FilePath -> Compiler String (Module MPType)
-formModule f = scan f >=> parseModule >=> findMain
+formModule f = scan f >=> parseModule >=> findMain mname
+  where mname = dropExtension (takeFileName f)
 
 -- | Takes module from untyped to fully typed
 typeModule :: Compiler (Module MPType) (Module' PType Type)

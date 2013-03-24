@@ -29,7 +29,8 @@ type CType = Mu (I :+: TypeF)
 type Module a = Module' a a
 
 data Module' a b = Module
-  { declarations :: [TopStmt a]
+  { modName      :: String
+  , declarations :: [TopStmt a]
   , mainBlock    :: Expr b --[BlockStmt a]
   }
   deriving (Eq,Functor,Foldable)
@@ -70,7 +71,10 @@ data Expr a
   deriving (Eq,Functor,Foldable,T.Traversable)
 
 instance (Show a, Show b) => Show (Module' a b) where
-  show (Module ds mn) = (intercalate "\n" $ map show ds) ++ "\n\n" ++ show mn --(intercalate "\n" $ map show mb)
+  show (Module mname ds mn) =
+    "module " ++ mname ++ "\n" ++
+    (intercalate "\n" $ map show ds) ++
+    "\n\n" ++ show mn --(intercalate "\n" $ map show mb)
 
 instance Show a => Show (TopStmt a) where
   show s = case s of
