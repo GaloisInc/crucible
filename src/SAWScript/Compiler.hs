@@ -8,6 +8,7 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.Trans.State
 import Data.List (intercalate)
+import qualified Data.Map as M
 import Data.Monoid
 import Data.Traversable
 #if __GLASGOW_HASKELL__ < 706
@@ -110,6 +111,10 @@ lookupType n = lookup n . teTypes . typeEnv
 lookupExpr :: Name -> Env a -> Maybe (Expr a)
 lookupExpr n = lookup n . eeExprs . exprEnv
 
-type Interpret t a b = a -> StateT (Env t) Err b
---type REPL = Interpret (BlockStmt MPType) ()
+data Env = Env
+  { sBinds :: M.Map Name (Expr PType)
+  , sTypes :: M.Map Name PType
+  }
+
+type Interpret s d t = BlockStmt t -> ReaderT s (StateT d Err) ()
 
