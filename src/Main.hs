@@ -1,6 +1,8 @@
 
 module Main where
 
+import qualified Verifier.SAW.TypedAST as SC
+
 import SAWScript.AST
 import SAWScript.Compiler
 
@@ -13,6 +15,8 @@ import SAWScript.ResolveSyns
 import SAWScript.LiftPoly
 import SAWScript.TypeCheck
 import SAWScript.ConvertType
+
+import SAWScript.ToSAWCore
 
 import Control.Arrow
 import Control.Applicative
@@ -29,7 +33,14 @@ import System.Posix.Files
 import System.FilePath.Posix
 
 main :: IO ()
-main = getArgs >>= mapM_ (\f -> readFile f >>= runCompiler (compileModule f))
+main =
+  getArgs >>= mapM_ (\f -> readFile f >>= runCompiler (translateFile f))
+
+-- TODO: type check then translate to SAWCore
+translateFile :: FilePath -> Compiler String SC.Module
+translateFile f s = do
+  m <- compileModule f s
+  either fail return $ translateModule m
 
 -- | Full compiler pipeline, so far.
 compileModule :: FilePath -> Compiler String (Module' PType Type)
