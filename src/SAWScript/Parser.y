@@ -11,6 +11,7 @@ import SAWScript.Lexer
 import SAWScript.Compiler
 import SAWScript.AST
 import SAWScript.Unify
+import SAWScript.Utils
 
 import qualified Text.Show.Pretty as PP
 
@@ -21,36 +22,78 @@ import Control.Applicative
 %name parseModule TopStmts
 %name parseBlockStmt BlockStmt
 %error { parseError }
-%tokentype { Token AlexPosn }
+%tokentype { Token Pos }
 %monad { Err } { (>>=) } { return }
 
 %token
-'import'                                { Token Keyword    _ "import"  }
-'and'                                   { Token Keyword    _ "and"     }
-'as'                                    { Token Keyword    _ "as"      }
-'let'                                   { Token Keyword    _ "let"     }
-'fun'                                   { Token Keyword    _ "fun"     }
-'in'                                    { Token Keyword    _ "in"      }
-'type'                                  { Token Keyword    _ "type"    }
-'do'                                    { Token Keyword    _ "do"      }
-'='                                     { Token Infix      _ "="       }
-'->'                                    { Token Infix      _ "->"      }
-';'                                     { Token Infix      _ ";"       }
-','                                     { Token Infix      _ ","       }
-':'                                     { Token Infix      _ ":"       }
-'::'                                    { Token Infix      _ "::"      }
-'('                                     { Token OutfixL    _ "("       }
-')'                                     { Token OutfixR    _ ")"       }
-']'                                     { Token OutfixR    _ "]"       }
-'{'                                     { Token OutfixL    _ "{"       }
-'}'                                     { Token OutfixR    _ "}"       }
-'['                                     { Token OutfixL    _ "["       }
-'.'                                     { Token Postfix    _ "."       }
-infixOp                                 { Token Infix      _ $$        }
-bits                                    { Token BitLiteral _ $$        }
-string                                  { Token String     _ $$        }
-int                                     { Token Integer    _ $$        }
-name                                    { Token Identifier _ $$        }
+  'import'       { TReserved _ "import"         }
+  'and'          { TReserved _ "and"            }
+  'as'           { TReserved _ "as"             }
+  'let'          { TReserved _ "let"            }
+  'fun'          { TReserved _ "fun"            }
+  'in'           { TReserved _ "in"             }
+  'type'         { TReserved _ "type"           }
+  'do'           { TReserved _ "do"             }
+  'if'           { TReserved _ "if"             }
+  'then'         { TReserved _ "then"           }
+  'else'         { TReserved _ "else"           }
+  ';'            { TPunct    _ ";"              }
+  '['            { TPunct    _ "["              }
+  ']'            { TPunct    _ "]"              }
+  '('            { TPunct    _ "("              }
+  ')'            { TPunct    _ ")"              }
+  '{'            { TPunct    _ "{"              }
+  '}'            { TPunct    _ "}"              }
+  ':'            { TPunct    _ ":"              }
+  '::'           { TPunct    _ "::"             }
+  ','            { TPunct    _ ","              }
+  '.'            { TPunct    _ "."              }
+  '='            { TPunct    _ "="              }
+  '->'           { TPunct    _ "->"             }
+  '<-'           { TPunct    _ "<-"             }
+  'not'          { TOp       _ "not"            }
+  '~'            { TOp       _ "~"              }
+  '-'            { TOp       _ "-"              }
+  '*'            { TOp       _ "*"              }
+  '+'            { TOp       _ "+"              }
+  '/'            { TOp       _ "/"              }
+  '%'            { TOp       _ "%"              }
+  '<<'           { TOp       _ "<<"             }
+  '>>'           { TOp       _ ">>"             }
+  '&'            { TOp       _ "&"              }
+  '^'            { TOp       _ "^"              }
+  '|'            { TOp       _ "|"              }
+  '#'            { TOp       _ "#"              }
+  '=='           { TOp       _ "=="             }
+  '!='           { TOp       _ "!="             }
+  '>='           { TOp       _ ">="             }
+  '>'            { TOp       _ ">"              }
+  '<='           { TOp       _ "<="             }
+  '<'            { TOp       _ "<"              }
+  '&&'           { TOp       _ "&&"             }
+  '||'           { TOp       _ "||"             }
+  '==>'          { TOp       _ "==>"            }
+  string         { TLit      _ $$               }
+  num            { TNum      _ _ $$             }
+  name           { TVar      _ $$               }
+
+%right 'else'
+%right '==>'
+%left '||'
+%left '&&'
+%nonassoc '>=' '>' '<=' '<'
+%nonassoc '==' '!='
+%right '#'
+%left '|'
+%left '^'
+%left '&'
+%left '<<' '>>'
+%left '+' '-'
+%left '*' '/' '%'
+%left ':'
+%left '['
+%left '.'
+%right '~'
 
 %%
 
@@ -59,26 +102,27 @@ TopStmts :: { [TopStmt MPType] }
  | TopStmt ';' TopStmts { $1:$3 }
 
 TopStmt :: { TopStmt MPType }
- : name ':' PolyType                    { TopTypeDecl $1 $3  }
+ : 'import' Import                      { $2                 }
+ | name ':' PolyType                    { TopTypeDecl $1 $3  }
  | 'type' name '=' Type                 { TypeDef $2 $4      }
- | 'import' Import                      { $2                 }
  | Declaration                          { uncurry TopBind $1 }
-
--- TODO: allow other contexts to be used.
-BlockStmt :: { BlockStmt MPType }
- : Expression                           { Bind Nothing TopLevelContext $1   }
- | name '=' Expression                  { Bind (Just $1) TopLevelContext $3 }
- | name ':' PolyType                    { BlockTypeDecl $1 $3       }
- | 'let' Declarations1                  { BlockLet $2               }
-
-Declaration :: { (Name, Expr MPType) }
- : name Args '=' Expression             { ($1, buildFunction $2 $4)       }
 
 Import :: { TopStmt MPType }
  : name                                 { Import $1 Nothing Nothing       }
  | name '(' sepBy(name, ',') ')'        { Import $1 (Just $3) Nothing     }
  | name 'as' name                       { Import $1 Nothing (Just $3)     }
  | name '(' sepBy(name, ',') ')' 'as' name { Import $1 (Just $3) (Just $6)   }
+
+
+-- TODO: allow other contexts to be used.
+BlockStmt :: { BlockStmt MPType }
+ : Expression                           { Bind Nothing TopLevelContext $1   }
+ | name '<-' Expression                 { Bind (Just $1) TopLevelContext $3 }
+ | name ':' PolyType                    { BlockTypeDecl $1 $3       }
+ | 'let' Declarations1                  { BlockLet $2               }
+
+Declaration :: { (Name, Expr MPType) }
+ : name Args '=' Expression             { ($1, buildFunction $2 $4)       }
 
 Arg :: { (Name, MPType) }
  : name                                 { ($1, Nothing) }
@@ -98,36 +142,61 @@ ExpressionPrimitive :: { Expr MPType }
 NakedExpression :: { Expr MPType }
  : 'fun' Args1 '->' Expression          { buildFunction $2 $4           }
  | 'let' Declarations1 'in' Expression  { LetBlock $2 $4                }
- | SafeExpression infixOp Expression                    
+ | SafeExpression InfixOp Expression                    
     { Application (Application (Var $2 Nothing ) $1 Nothing) $3 Nothing }
+
+InfixOp :: { Name }
+ : 'not'          { "not"                        }
+ | '~'            { "neg"                        }
+ | '-'            { "sub"                        }
+ | '*'            { "mul"                        }
+ | '+'            { "add"                        }
+ | '/'            { "div"                        }
+ | '%'            { "mod"                        }
+ | '<<'           { "shiftLeft"                  }
+ | '>>'           { "shiftRight"                 }
+ | '&'            { "bvAnd"                      }
+ | '^'            { "bvXor"                      }
+ | '|'            { "bvOr"                       }
+ | '#'            { "concat"                     }
+ | '=='           { "eq"                         }
+ | '!='           { "neq"                        }
+ | '>='           { "geq"                        }
+ | '>'            { "gt"                         }
+ | '<='           { "leq"                        }
+ | '<'            { "lt"                         }
+ | '&&'           { "and"                        }
+ | '||'           { "or"                         }
+ | '==>'          { "implies"                    }
 
 SafeExpression :: { Expr MPType }
  : '(' ')'                              { Unit Nothing                    }
- | bits                                 { Array (bitsOfString $1) Nothing }
  | string                               { Quote $1 Nothing                }
- | int                                  { Z (read $1) Nothing             }
+ | num                                  { Z $1 Nothing                    }
  | name                                 { Var $1 Nothing                  }
- | '(' Expressions ')'                  { buildApplication $2             }
+ | '(' CommaSepExprs ')'                { Tuple $2 Nothing                }
  | '[' CommaSepExprs ']'                { Array $2 Nothing                }
  | '{' CommaSepFields '}'               { Record $2 Nothing               }
- | 'do' '{' sepBy(BlockStmt, ';') '}'   { Block $3 Nothing                }
+ | 'do' '{' termBy(BlockStmt, ';') '}'  { Block $3 Nothing                }
  | SafeExpression '.' name              { Lookup $1 $3 Nothing            }
- | SafeExpression ':' Type              { updateAnnotation $1 (Just $3)   }
+ -- | SafeExpression ':' Type              { updateAnnotation $1 (Just $3)   }
 
 Field :: { (Name, Expr MPType) }
  : name '=' Expression                  { ($1, $3) }
 
+{-
 MaybeType :: { MPType }
  : {- Nothing -}                        { Nothing }
  | ':' Type                             { Just $2 }
+-}
 
 Names :: { [Name] } 
  : name                                 { [$1] }
  | name ',' Names                       { $1:$3 }
 
 PolyType :: { PType }
- : '{' Names '}' Type                   { synToPoly $2 $4         }
- | Type                                 { $1                      }
+ : Type                                 { $1                      }
+ -- | '{' Names '}' Type                   { synToPoly $2 $4         }
 
 Type :: { PType }
  : BaseType                             { $1 }
@@ -136,8 +205,8 @@ Type :: { PType }
 BaseType :: { PType }
  : name                                 { syn $1                  }
  | '(' TupledTypes ')'                  { $2                      }
- | '[' int ']'                          { array bit (i $ read $2) }
- | '[' int ']' BaseType                 { array $4  (i $ read $2) }
+ | '[' num ']'                          { array bit (i $2) }
+ | '[' num ']' BaseType                 { array $4  (i $2) }
 
 TupledTypes :: { PType }
  : {- Nothing -}                        { unit }
@@ -235,18 +304,18 @@ either(p, q) : p  { Left  $1 }
 
 {
 
-parseError :: [Token AlexPosn] -> Err b
+parseError :: [Token Pos] -> Err b
 parseError toks = case toks of
   []  -> parseFail "Parse error, but where?"
   t:_ -> parseFail ("Parse error at line " ++ show ln ++ ", col " ++ show col)
     where
-    AlexPn _ ln col = tokPos t
+    Pos _ ln col = tokPos t
   where
   parseFail :: String -> Err b
   parseFail = fail . (++ "\n" ++ PP.ppShow toks)
 
-bitsOfString :: String -> [Expr MPType]
-bitsOfString = map ((flip Bit $ Just bit) . (/= '0'))
+bitsOfString :: Token Pos -> [Expr MPType]
+bitsOfString = map ((flip Bit $ Just bit) . (/= '0')) . tokStr
 
 buildFunction :: [(Name, MPType)] -> Expr MPType -> Expr MPType 
 buildFunction args e = foldr foldFunction e args

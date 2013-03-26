@@ -29,7 +29,8 @@ type CType = Mu (I :+: TypeF)
 type Module a = Module' a a
 
 data Module' a b = Module
-  { declarations :: [TopStmt a]
+  { modName      :: String
+  , declarations :: [TopStmt a]
   , mainBlock    :: Expr b --[BlockStmt a]
   }
   deriving (Eq,Functor,Foldable)
@@ -70,7 +71,10 @@ data Expr a
   deriving (Eq,Functor,Foldable,T.Traversable)
 
 instance (Show a, Show b) => Show (Module' a b) where
-  show (Module ds mn) = (intercalate "\n" $ map show ds) ++ "\n\n" ++ show mn --(intercalate "\n" $ map show mb)
+  show (Module mname ds mn) =
+    "module " ++ mname ++ "\n" ++
+    (intercalate "\n" $ map show ds) ++
+    "\n\n" ++ show mn --(intercalate "\n" $ map show mb)
 
 instance Show a => Show (TopStmt a) where
   show s = case s of
@@ -143,7 +147,7 @@ data Type
   | BitT
   | ZT
   | QuoteT
-  | ArrayT Type Int
+  | ArrayT Type Integer
   | BlockT Context Type
   | TupleT [Type]
   | RecordT [(Name,Type)]
@@ -232,7 +236,7 @@ syn n = inject $ Syn n
 
 -- I {{{
 
-data I a = I Int deriving (Show,Functor,Foldable,T.Traversable)
+data I a = I Integer deriving (Show,Functor,Foldable,T.Traversable)
 
 instance Equal I where
   equal (I x) (I y) = x == y
@@ -243,7 +247,7 @@ instance Render I where
 instance Uni I where
   uni (I x) (I y) = fail ("I: " ++ show x ++ " =/= " ++ show y)
 
-i :: (I :<: f) => Int -> Mu f
+i :: (I :<: f) => Integer -> Mu f
 i x = inject $ I x
 
 -- }}}

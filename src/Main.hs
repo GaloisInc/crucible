@@ -1,6 +1,8 @@
 
 module Main where
 
+import qualified Verifier.SAW.TypedAST as SC
+
 import SAWScript.AST
 import SAWScript.Compiler
 
@@ -13,6 +15,8 @@ import SAWScript.ResolveSyns
 import SAWScript.LiftPoly
 import SAWScript.TypeCheck
 import SAWScript.ConvertType
+
+import SAWScript.ToSAWCore
 
 import Control.Arrow
 import Control.Applicative
@@ -29,15 +33,23 @@ import System.Posix.Files
 import System.FilePath.Posix
 
 main :: IO ()
-main = getArgs >>= mapM_ (readFile >=> runCompiler compileModule)
+main =
+  getArgs >>= mapM_ (\f -> readFile f >>= runCompiler (translateFile f))
+
+-- TODO: type check then translate to SAWCore
+translateFile :: FilePath -> Compiler String SC.Module
+translateFile f s = do
+  m <- compileModule f s
+  either fail return $ translateModule m
 
 -- | Full compiler pipeline, so far.
-compileModule :: Compiler String (Module' PType Type)
-compileModule = formModule >=> typeModule
+compileModule :: FilePath -> Compiler String (Module' PType Type)
+compileModule f = formModule f >=> typeModule
 
 -- | Takes unlexed text to Module
-formModule :: Compiler String (Module MPType)
-formModule = scan >=> parseModule >=> findMain
+formModule :: FilePath -> Compiler String (Module MPType)
+formModule f = scan f >=> parseModule >=> findMain mname
+  where mname = dropExtension (takeFileName f)
 
 -- | Takes module from untyped to fully typed
 typeModule :: Compiler (Module MPType) (Module' PType Type)
@@ -77,7 +89,7 @@ testAllFiles = do
     putStrLn $ replicate 60 '*'
     putStrLn ("Testing file " ++ show f)
     contents <- readFile f
-    runCompiler compileModule contents
+    runCompiler (compileModule f) contents
 
 -- testing pre-parsed modules -------------------------------------------------
 

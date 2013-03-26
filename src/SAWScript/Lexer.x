@@ -1,5 +1,5 @@
 {
-
+{-# LANGUAGE BangPatterns #-}
 module SAWScript.Lexer
   ( AlexPosn(..)
   , scan
@@ -8,6 +8,7 @@ module SAWScript.Lexer
 import SAWScript.Compiler
 import SAWScript.AST
 import SAWScript.Token
+import SAWScript.Utils
 
 import Numeric
 import Data.Char
@@ -16,110 +17,97 @@ import Data.List
 }
 
 
-%wrapper "monad"
+%wrapper "posn"
 
-$allChars      = [\x00-\x10ffff]
-@comment       = ("/*"   (($allChars # [\*]) | ("*" ($allChars # [\/])))*  "*/") | ("//" .*)
+$whitechar = [ \t\n\r\f\v]
+$special   = [\(\)\,\;\[\]\`\{\}]
+$digit     = 0-9
+$large     = [A-Z]
+$small     = [a-z]
+$alpha     = [$small $large]
+$symbol    = [\!\#\$\%\&\*\+\.\/\<\=\>\?\@\\\^\|\-\~] # [$special \_\:\"\']
+$graphic   = [$alpha $symbol $digit $special \:\"\'\_]
+$binit     = 0-1
+$octit     = 0-7
+$hexit     = [0-9 A-F a-f]
+$idchar    = [$alpha $digit \' \_]
+$symchar   = [$symbol \:]
+$nl        = [\n\r]
 
-@keyword       = "import" | "and" | "as" | "let" | "fun" | "in" | "type" | "do"
+@reservedid  = import|and|let|fun|in|type|do|if|then|else|as
+@punct       = "," | ";" | "(" | ")" | ":" | "::" | "[" | "]" | "<-" | "->"
+             | "=" | "{" | "}" | "."
+@reservedop  = "~"  | "-" | "*" | "+" | "/" | "%" | ">>" | "<<" | "|" | "&"
+             | "^" | "#"  | "==" | "!=" | ">=" | ">" | "<=" |"<" | "&&"
+             | "||" | "not" | "==>"
+@varid       = $alpha $idchar*
+@decimal     = $digit+
+@binary      = $binit+
+@octal       = $octit+
+@hexadecimal = $hexit+
+$cntrl       = [$large \@\[\\\]\^\_]
+@ascii       = \^ $cntrl | NUL | SOH | STX | ETX | EOT | ENQ | ACK
+             | BEL | BS | HT | LF | VT | FF | CR | SO | SI | DLE
+             | DC1 | DC2 | DC3 | DC4 | NAK | SYN | ETB | CAN | EM
+             | SUB | ESC | FS | GS | RS | US | SP | DEL
+$charesc     = [abfnrtv\\\"\'\&]
+@escape      = \\ ($charesc | @ascii | @decimal | o @octal | x @hexadecimal)
+@gap         = \\ $whitechar+ \\
+@string      = $graphic # [\"\\] | " " | @escape | @gap
+@num         = @decimal | 0[bB] @binary | 0[oO] @octal | 0[xX] @hexadecimal
 
-$ident_head    = [\_a-zA-Z]
-$ident_tail    = [\_a-zA-Z0-9\'\.]
-@identifier    = $ident_head $ident_tail*
+sawTokens :-
 
-$base2         = 0-1
-$base10        = 0-9
-$base16        = [0-9a-fA-F]
-@bin_lit       = "0b" $base2*
-@dec_lit       = "0a" $base10*
-@hex_lit       = "0x" $base16*
-@integer       = $base10+
-
-$escape        = ["\\n]                                    
---"
-$not_escape    = ~$escape
-@string        = \" ([^\\]* (\\ $escape)*)* \"
-
-$symbol        = [\|\~\-\*\+\>\<\&\^\#\=\!\&\,\.\:\;]
-@infix         = $symbol+
-
-$outfix_left   = [\(\[\{]
-$outfix_right  = [\)\]\}]
-
-$white         = [\ \t\n\f\v\r]
-$not_white     = ~$white
-
-
-
-tokenize :-
-  $white              ;
-  @comment            ;
-  @keyword            { expr Keyword     }
-  @identifier         { expr Identifier  }
-  @bin_lit            {      binToBinary }
-  @dec_lit            {      decToBinary }
-  @hex_lit            {      hexToBinary }
-  @integer            { expr Integer     }
-  @string             { expr String      }
-  @infix              { expr Infix       }
-  $not_white^"."      { expr Postfix     }
-  $not_white^"["      { expr Postfix     }
-  $outfix_left        { expr OutfixL     }
-  $outfix_right       { expr OutfixR     }
+$white+                          ;
+"\n"                             ;
+"//".*                           ;
+"/*"                             { cnst TCmntS        }
+"*/"                             { cnst TCmntE        }
+@reservedid                      { TReserved          }
+@punct                           { TPunct             }
+@reservedop                      { TOp                }
+@varid                           { TVar               }
+\" @string* \"                   { TLit `via'` read   }
+@decimal                         { TNum `via` read    }
+0[bB] @binary                    { TNum `via` readBin }
+0[oO] @octal                     { TNum `via` read    }
+0[xX] @hexadecimal               { TNum `via` read    }
+.                                { TUnknown           }
 
 {
 
-type Action = AlexAction (Token AlexPosn)
+cnst f p s   = f p s
+via  c g p s = c p s (g s)
+via' c g p s = c p (g s)
 
-expr :: TokenClass -> Action
-expr tc (pos,_,_,str) len = return $ Token tc pos $ take len str
+lexSAW :: FilePath -> String -> [Token Pos]
+lexSAW f = dropComments . map (fmap fixPos) . alexScanTokens
+  where fixPos (AlexPn _ l c) = Pos f l c
 
-binToBinary :: Action
-binToBinary (pos,_,_,str) len = return $ Token BitLiteral pos $ drop 2 $ take len str
+readBin :: String -> Integer
+readBin s = case readInt 2 isDigit cvt s' of
+              [(a, "")] -> a
+              _         -> error $ "Cannot read a binary number from: " ++ show s
+  where cvt c = ord c - ord '0'
+        isDigit = (`elem` "01")
+        s' | "0b" `isPrefixOf` s = drop 2 s
+           | "0B" `isPrefixOf` s = drop 2 s
+           | True                = s
 
-decToBinary :: Action
-decToBinary (pos,_,_,str) len = return $ Token BitLiteral pos b
-  where
-  d = read $ drop 2 $ take len str
-  b = showIntAtBase 2 intToDigit d ""
-
-hexToBinary :: Action
-hexToBinary (pos,_,_,str) len = return $ Token BitLiteral pos $
-  concatMap (hexToBinBit . toLower) $ drop 2 $ take len str
-  where
-  hexToBinBit :: Char -> String
-  hexToBinBit c = case c of
-    '0' -> "0000" 
-    '1' -> "0001" 
-    '2' -> "0010" 
-    '3' -> "0011"
-    '4' -> "0100" 
-    '5' -> "0101" 
-    '6' -> "0110" 
-    '7' -> "0111"
-    '8' -> "1000" 
-    '9' -> "1001" 
-    'a' -> "1010" 
-    'b' -> "1011"
-    'c' -> "1100" 
-    'd' -> "1101" 
-    'e' -> "1110" 
-    'f' -> "1111"
-
-alexEOF = return (Token EOF (error "alexEOF") "")
-
-scan :: Compiler String [Token AlexPosn]
-scan input = case runAlex input loop of
-  Left err  -> fail (intercalate "\n" [err ++ ":",input])
-  Right yay -> return yay
-  where
-  loop = do
-    tok <- alexMonadScan
-    if tokClass tok == EOF
-      then return []
-      else do
-        rest <- loop
-        return (tok : rest)
+dropComments :: [Token Pos] -> [Token Pos]
+dropComments = go 0
+  where go :: Int -> [Token Pos] -> [Token Pos]
+        go _  []                 = []
+        go !i (TCmntS _ _ : ts)  = go (i+1) ts
+        go !i (TCmntE _ _ : ts)
+         | i > 0                 = go (i-1) ts
+        go !i (t : ts)
+         | i /= 0                = go i ts
+         | True                  = t : go i ts
 
 
+alexEOF = (TEOF (error "alexEOF") "")
+
+scan :: FilePath -> Compiler String [Token Pos]
+scan f = return . lexSAW f
 }
