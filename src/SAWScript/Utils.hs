@@ -13,10 +13,11 @@ import Control.Monad.State
 import Control.DeepSeq(rnf, NFData(..))
 import Data.List(intercalate)
 import Data.Char(isSpace)
+import Data.Data
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
-import System.Console.CmdArgs(Data, Typeable)
+--import System.Console.CmdArgs(Data, Typeable)
 import System.Directory(makeRelativeToCurrentDirectory)
 import System.FilePath(makeRelative, isAbsolute, (</>), takeDirectory)
 import System.Time(TimeDiff(..), getClockTime, diffClockTimes, normalizeTimeDiff, toCalendarTime, formatCalendarTime)

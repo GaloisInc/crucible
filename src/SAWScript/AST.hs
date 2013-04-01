@@ -33,20 +33,20 @@ data Module' a b = Module
   , declarations :: [TopStmt a]
   , mainBlock    :: Expr b --[BlockStmt a]
   }
-  deriving (Eq,Functor,Foldable)
+  deriving (Eq,Show,Functor,Foldable)
 
 data TopStmt a
   = Import      Name               (Maybe [Name])   (Maybe Name)
   | TypeDef     Name               PType
   | TopTypeDecl Name               PType
   | TopBind     Name               (Expr a)
-  deriving (Eq,Functor,Foldable,T.Traversable)
+  deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
 data BlockStmt a
   = Bind          (Maybe Name)     Context (Expr a)
   | BlockTypeDecl Name             PType
   | BlockLet      [(Name,Expr a)]
-  deriving (Eq,Functor,Foldable,T.Traversable)
+  deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
 data Expr a
   -- Constants
@@ -68,14 +68,17 @@ data Expr a
   | Application (Expr a)           (Expr a)   a
   -- Sugar
   | LetBlock    [(Name,Expr a)]    (Expr a)
-  deriving (Eq,Functor,Foldable,T.Traversable)
+  deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
+{-
 instance (Show a, Show b) => Show (Module' a b) where
   show (Module mname ds mn) =
     "module " ++ mname ++ "\n" ++
     (intercalate "\n" $ map show ds) ++
     "\n\n" ++ show mn --(intercalate "\n" $ map show mb)
+-}
 
+{-
 instance Show a => Show (TopStmt a) where
   show s = case s of
     Import n ns qn   -> case qn of
@@ -84,7 +87,9 @@ instance Show a => Show (TopStmt a) where
     TypeDef n pt     -> "type " ++ n ++ " = " ++ show pt
     TopTypeDecl n pt -> n ++ " :: " ++ show pt
     TopBind n e      -> n ++ " = " ++ show e
+-}
 
+{-
 instance Show a => Show (BlockStmt a) where
   show s = case s of
     Bind mn c e        -> case mn of
@@ -92,7 +97,9 @@ instance Show a => Show (BlockStmt a) where
       Just n  -> n ++ " <- " ++ show e
     BlockTypeDecl n pt -> "let " ++ n ++ " :: " ++ show pt
     BlockLet nes       -> "let " ++ (intercalate "; " $ map (\(n,e) -> n ++ " = " ++ show e) nes)
+-}
 
+{-
 instance Show a => Show (Expr a) where
   show e = case e of
     Unit mt             -> showMaybe mt $ "()"
@@ -109,6 +116,7 @@ instance Show a => Show (Expr a) where
     Function an at b mt -> showMaybe mt $ "(\\" ++ an ++ " :: " ++ show at ++ " -> " ++ show b ++ ")"
     Application f v mt  -> showMaybe mt $ "(" ++ show f ++ " " ++ show v ++ ")"
     LetBlock nes b      -> "(let " ++ (intercalate "; " $ map (\(n,e) -> n ++ " = " ++ show e) nes) ++ " in " ++ show b ++ ")"
+-}
 
 showMaybe :: Show a => a -> String -> String
 showMaybe t s = "(" ++ s ++ " :: " ++ show t ++ ")"
@@ -174,6 +182,8 @@ instance Equal TypeF where
 -- }}}
 
 -- Render {{{
+
+{-
 instance Render TypeF where
   render t = case t of
     Unit'           -> "Unit"
@@ -186,6 +196,21 @@ instance Render TypeF where
     Record' fts     -> "{" ++ (intercalate ", " $ map (\(n,t)-> n ++ " :: " ++ show t) fts) ++ "}"
     Function' at bt -> "(" ++ show at ++ " -> " ++ show bt ++ ")"
     Syn n           -> n
+-}
+
+instance Render TypeF where
+  render t = case t of
+    Unit'           -> "Unit'"
+    Bit'            -> "Bit'"
+    Z'              -> "Z'"
+    Quote'          -> "Quote'"
+    Array' t l      -> "(Array' " ++ show t ++ " " ++ show l ++ ")"
+    Block' c t      -> "(Block' " ++ show c ++ " " ++ show t ++ ")"
+    Tuple' ts       -> "(Tuple' [" ++ (intercalate ", " $ map show ts) ++ "])"
+    Record' fts     -> "(Record' [" ++ (intercalate ", " $ map (\(n,t)-> n ++ " :: " ++ show t) fts) ++ "])"
+    Function' at bt -> "(Function' " ++ show at ++ " " ++ show bt ++ ")"
+    Syn n           -> "(Syn " ++ n ++ ")"
+
 -- }}}
 
 -- Uni {{{
@@ -269,25 +294,21 @@ poly n = inject $ Poly n
 
 -- }}}
 
-class Functor f => Decorated f where
-  decor :: f a -> a
-
-instance Decorated Expr where
-  decor e = case e of
-    Unit t            -> t
-    Bit _ t           -> t
-    Quote _ t         -> t
-    Z _ t             -> t
-    Array _ t         -> t
-    Block _ t         -> t
-    Tuple _ t         -> t
-    Record _ t        -> t
-    Index _ _ t       -> t
-    Lookup _ _ t      -> t
-    Var _ t           -> t
-    Function _ _ _ t  -> t
-    Application _ _ t -> t
-    LetBlock _ e      -> decor e
+typeOf e = case e of
+  Unit t            -> t
+  Bit _ t           -> t
+  Quote _ t         -> t
+  Z _ t             -> t
+  Array _ t         -> t
+  Block _ t         -> t
+  Tuple _ t         -> t
+  Record _ t        -> t
+  Index _ _ t       -> t
+  Lookup _ _ t      -> t
+  Var _ t           -> t
+  Function _ _ _ t  -> t
+  Application _ _ t -> t
+  LetBlock _ e      -> typeOf e
 
 context :: BlockStmt a -> Maybe Context
 context s = case s of

@@ -46,11 +46,17 @@ instance Alternative (E r) where
   empty = mzero
   (<|>) = mplus
 
-catch :: E r a -> ((String -> r) -> String -> r) -> E r a
-m `catch` handler = E $ \ fl sc -> runE m (handler fl) sc
+onFailure :: Compiler a b -> ((String -> IO ()) -> String -> IO ()) -> Compiler a b
+(pass `onFailure` handler) input = E $ \fl sc -> runE (pass input) (handler fl) sc
+
+onSuccess :: Compiler a b -> ((b -> IO ()) -> b -> IO ()) -> Compiler a b
+(pass `onSuccess` handler) input = E $ \fl sc -> runE (pass input) fl (handler sc)
+
+onFailureRes :: E r a -> ((String -> r) -> String -> r) -> E r a
+m `onFailureRes` handler = E $ \fl sc -> runE m (handler fl) sc
 
 compiler :: Show a => String -> Compiler a b -> Compiler a b
-compiler name comp input = catch (comp input) $ \fl err ->
+compiler name comp input = onFailureRes (comp input) $ \fl err ->
   fl $ intercalate "\n" [name ++ ": " ++ err, "in:",show input]
 
 -- }}}
@@ -111,10 +117,19 @@ lookupType n = lookup n . teTypes . typeEnv
 lookupExpr :: Name -> Env a -> Maybe (Expr a)
 lookupExpr n = lookup n . eeExprs . exprEnv
 
+{-
 data Env = Env
   { sBinds :: M.Map Name (Expr PType)
   , sTypes :: M.Map Name PType
   }
+-}
 
-type Interpret s d t = BlockStmt t -> ReaderT s (StateT d Err) ()
+--type Interpret s d t = BlockStmt t -> ReaderT s (StateT d Err) ()
+
+{-
+data Mod ds mn =
+  { modDecls :: M.Map Name (TopStmt ds)
+  , modMain  :: [BlockStmt mn]
+  } 
+-}
 

@@ -33,8 +33,7 @@ import System.Posix.Files
 import System.FilePath.Posix
 
 main :: IO ()
-main =
-  getArgs >>= mapM_ (\f -> readFile f >>= runCompiler (translateFile f))
+main = getArgs >>= mapM_ (\f -> readFile f >>= runCompiler (translateFile f))
 
 -- TODO: type check then translate to SAWCore
 translateFile :: FilePath -> Compiler String SC.Module

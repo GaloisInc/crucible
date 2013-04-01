@@ -321,14 +321,14 @@ buildFunction :: [(Name, MPType)] -> Expr MPType -> Expr MPType
 buildFunction args e = foldr foldFunction e args
   where
   foldFunction (argName,mType) rhs = Function argName mType rhs $
-    function <$> mType <*> decor rhs
+    function <$> mType <*> typeOf rhs
 
 buildApplication :: [Expr MPType] -> Expr (MPType)
 buildApplication = foldl1 (\e body -> Application e body $
-  function <$> decor e <*> decor body)
+  function <$> typeOf e <*> typeOf body)
 --buildApplication [e]    = e
 --buildApplication (e:es) = Application e app' $
---  function <$> decor e <*> decor app'
+--  function <$> typeOf e <*> typeOf app'
 --  where
 --  app' = buildApplication es
 
