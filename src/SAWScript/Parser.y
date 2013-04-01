@@ -37,6 +37,12 @@ import Control.Applicative
   'if'           { TReserved _ "if"             }
   'then'         { TReserved _ "then"           }
   'else'         { TReserved _ "else"           }
+  'CryptolSetup' { TReserved _ "CryptolSetup"   }
+  'JavaSetup'    { TReserved _ "JavaSetup"      }
+  'LLVMSetup'    { TReserved _ "LLVMSetup"      }
+  'ProofScript'  { TReserved _ "ProofScript"    }
+  'TopLevel'     { TReserved _ "TopLevel"       }
+  '()'           { TReserved _ "()"             }
   ';'            { TPunct    _ ";"              }
   '['            { TPunct    _ "["              }
   ']'            { TPunct    _ "]"              }
@@ -170,7 +176,7 @@ InfixOp :: { Name }
  | '==>'          { "implies"                    }
 
 SafeExpression :: { Expr MPType }
- : '(' ')'                              { Unit Nothing                    }
+ : '()'                                 { Unit Nothing                    }
  | string                               { Quote $1 Nothing                }
  | num                                  { Z $1 Nothing                    }
  | name                                 { Var $1 Nothing                  }
@@ -196,7 +202,7 @@ Names :: { [Name] }
 
 PolyType :: { PType }
  : Type                                 { $1                      }
- -- | '{' Names '}' Type                   { synToPoly $2 $4         }
+ | '{' Names '}' Type                   { synToPoly $2 $4         }
 
 Type :: { PType }
  : BaseType                             { $1 }
@@ -204,9 +210,21 @@ Type :: { PType }
 
 BaseType :: { PType }
  : name                                 { syn $1                  }
+ | Context BaseType                     { block $1 $2             }
+ | '()'                                 { unit                    }
+ | '(' Type ')'                         { $2                      }
  | '(' TupledTypes ')'                  { $2                      }
- | '[' num ']'                          { array bit (i $2) }
- | '[' num ']' BaseType                 { array $4  (i $2) }
+ | '[' name ']'                         { array bit (syn $2)      }
+ | '[' name ']' BaseType                { array $4  (syn $2)      }
+ | '[' num ']'                          { array bit (i $2)        }
+ | '[' num ']' BaseType                 { array $4  (i $2)        }
+
+Context :: { Context }
+ : 'CryptolSetup'                       { CryptolSetupContext     }
+ | 'JavaSetup'                          { JavaSetupContext        }
+ | 'LLVMSetup'                          { LLVMSetupContext        }
+ | 'ProofScript'                        { ProofScriptContext      }
+ | 'TopLevel'                           { TopLevelContext         }
 
 TupledTypes :: { PType }
  : {- Nothing -}                        { unit }

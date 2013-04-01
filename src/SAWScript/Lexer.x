@@ -35,6 +35,8 @@ $symchar   = [$symbol \:]
 $nl        = [\n\r]
 
 @reservedid  = import|and|let|fun|in|type|do|if|then|else|as
+             |CryptolSetup|JavaSetup|LLVMSetup
+             |ProofScript|TopLevel|"()"
 @punct       = "," | ";" | "(" | ")" | ":" | "::" | "[" | "]" | "<-" | "->"
              | "=" | "{" | "}" | "."
 @reservedop  = "~"  | "-" | "*" | "+" | "/" | "%" | ">>" | "<<" | "|" | "&"

@@ -126,7 +126,7 @@ data Context
   = CryptolSetupContext
   | JavaSetupContext
   | LLVMSetupContext
-  | VerifyScriptContext
+  | ProofScriptContext
   | TopLevelContext
   deriving (Eq,Show)
 
