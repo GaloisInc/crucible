@@ -30,7 +30,6 @@ import Control.Applicative
   'and'          { TReserved _ "and"            }
   'as'           { TReserved _ "as"             }
   'let'          { TReserved _ "let"            }
-  'fun'          { TReserved _ "fun"            }
   'in'           { TReserved _ "in"             }
   'type'         { TReserved _ "type"           }
   'do'           { TReserved _ "do"             }
@@ -51,9 +50,9 @@ import Control.Applicative
   '{'            { TPunct    _ "{"              }
   '}'            { TPunct    _ "}"              }
   ':'            { TPunct    _ ":"              }
-  '::'           { TPunct    _ "::"             }
   ','            { TPunct    _ ","              }
   '.'            { TPunct    _ "."              }
+  '\\'           { TPunct    _ "\\"             }
   '='            { TPunct    _ "="              }
   '->'           { TPunct    _ "->"             }
   '<-'           { TPunct    _ "<-"             }
@@ -69,6 +68,7 @@ import Control.Applicative
   '&'            { TOp       _ "&"              }
   '^'            { TOp       _ "^"              }
   '|'            { TOp       _ "|"              }
+  '@'            { TOp       _ "@"              }
   '#'            { TOp       _ "#"              }
   '=='           { TOp       _ "=="             }
   '!='           { TOp       _ "!="             }
@@ -104,8 +104,7 @@ import Control.Applicative
 %%
 
 TopStmts :: { [TopStmt MPType] }
- : {- Nothing -}                  { []    }
- | TopStmt ';' TopStmts { $1:$3 }
+ : termBy(TopStmt, ';')                 { $1 }
 
 TopStmt :: { TopStmt MPType }
  : 'import' Import                      { $2                 }
@@ -115,20 +114,18 @@ TopStmt :: { TopStmt MPType }
 
 Import :: { TopStmt MPType }
  : name                                 { Import $1 Nothing Nothing       }
- | name '(' sepBy(name, ',') ')'        { Import $1 (Just $3) Nothing     }
+ | name '(' commas(name) ')'            { Import $1 (Just $3) Nothing     }
  | name 'as' name                       { Import $1 Nothing (Just $3)     }
- | name '(' sepBy(name, ',') ')' 'as' name { Import $1 (Just $3) (Just $6)   }
+ | name '(' commas(name) ')' 'as' name  { Import $1 (Just $3) (Just $6)   }
 
-
--- TODO: allow other contexts to be used.
 BlockStmt :: { BlockStmt MPType }
  : Expression                           { Bind Nothing TopLevelContext $1   }
  | name '<-' Expression                 { Bind (Just $1) TopLevelContext $3 }
  | name ':' PolyType                    { BlockTypeDecl $1 $3       }
- | 'let' Declarations1                  { BlockLet $2               }
+ | 'let' sepBy1(Declaration, 'and')     { BlockLet $2               }
 
 Declaration :: { (Name, Expr MPType) }
- : name Args '=' Expression             { ($1, buildFunction $2 $4)       }
+ : name list(Arg) '=' Expression        { ($1, buildFunction $2 $4)       }
 
 Arg :: { (Name, MPType) }
  : name                                 { ($1, Nothing) }
@@ -146,8 +143,9 @@ ExpressionPrimitive :: { Expr MPType }
  | SafeExpression                       { $1 }
 
 NakedExpression :: { Expr MPType }
- : 'fun' Args1 '->' Expression          { buildFunction $2 $4           }
- | 'let' Declarations1 'in' Expression  { LetBlock $2 $4                }
+ : '\\' list1(Arg) '->' Expression      { buildFunction $2 $4           }
+ | 'let' sepBy1(Declaration, 'and') 'in' Expression
+    { LetBlock $2 $4   }
  | SafeExpression InfixOp Expression                    
     { Application (Application (Var $2 Nothing ) $1 Nothing) $3 Nothing }
 
@@ -164,6 +162,7 @@ InfixOp :: { Name }
  | '&'            { "bvAnd"                      }
  | '^'            { "bvXor"                      }
  | '|'            { "bvOr"                       }
+ | '@'            { "index"                      }
  | '#'            { "concat"                     }
  | '=='           { "eq"                         }
  | '!='           { "neq"                        }
@@ -180,21 +179,16 @@ SafeExpression :: { Expr MPType }
  | string                               { Quote $1 Nothing                }
  | num                                  { Z $1 Nothing                    }
  | name                                 { Var $1 Nothing                  }
- | '(' CommaSepExprs ')'                { Tuple $2 Nothing                }
- | '[' CommaSepExprs ']'                { Array $2 Nothing                }
- | '{' CommaSepFields '}'               { Record $2 Nothing               }
+ | '(' Expression ')'                   { $2                              }
+ | '(' commas2(Expression) ')'          { Tuple $2 Nothing                }
+ | '[' commas(Expression) ']'           { Array $2 Nothing                }
+ | '{' commas(Field) '}'                { Record $2 Nothing               }
  | 'do' '{' termBy(BlockStmt, ';') '}'  { Block $3 Nothing                }
  | SafeExpression '.' name              { Lookup $1 $3 Nothing            }
- -- | SafeExpression ':' Type              { updateAnnotation $1 (Just $3)   }
+ | '(' SafeExpression ':' Type ')'      { updateAnnotation $2 (Just $4)   }
 
 Field :: { (Name, Expr MPType) }
  : name '=' Expression                  { ($1, $3) }
-
-{-
-MaybeType :: { MPType }
- : {- Nothing -}                        { Nothing }
- | ':' Type                             { Just $2 }
--}
 
 Names :: { [Name] } 
  : name                                 { [$1] }
@@ -213,7 +207,7 @@ BaseType :: { PType }
  | Context BaseType                     { block $1 $2             }
  | '()'                                 { unit                    }
  | '(' Type ')'                         { $2                      }
- | '(' TupledTypes ')'                  { $2                      }
+ | '(' commas2(Type) ')'                { tuple $2                }
  | '[' name ']'                         { array bit (syn $2)      }
  | '[' name ']' BaseType                { array $4  (syn $2)      }
  | '[' num ']'                          { array bit (i $2)        }
@@ -225,48 +219,6 @@ Context :: { Context }
  | 'LLVMSetup'                          { LLVMSetupContext        }
  | 'ProofScript'                        { ProofScriptContext      }
  | 'TopLevel'                           { TopLevelContext         }
-
-TupledTypes :: { PType }
- : {- Nothing -}                        { unit }
- | CommaSepTypes1                       { if length $1 == 1 then head $1 else tuple $1 }
-
-CommaSepTypes1 :: { [PType] } 
- : Type                                 { [$1] }
- | Type ',' CommaSepTypes1              { $1:$3 }
-
-Declarations1 :: { [(Name, Expr MPType)] }
- : Declaration                          { [$1] }
- | Declaration 'and' Declarations1      { $1:$3 }
-
-Args :: { [(Name, MPType)] }
- : {- Nothing -}                        { [] }
- | Args1                                { $1 }
-
-Args1 :: { [(Name, MPType)] }
- : Arg                                  { [$1] }
- | Arg Args1                            { $1:$2 }
-
-{-
-SemiSepBlockStmts :: { [BlockStmt MPType] }
- : {- Nothing -}                        { []    }
- | BlockStmt ';' SemiSepBlockStmts { $1:$3 }
--}
-
-CommaSepExprs :: { [Expr MPType] }
- : {- Nothing -}                        { [] }
- | CommaSepExprs1                       { $1 }
-
-CommaSepExprs1 :: { [Expr MPType] }
- : Expression                           { [$1] }
- | Expression ',' CommaSepExprs1        { $1:$3 }
-
-CommaSepFields :: { [(Name, Expr MPType)] }
- : {- Nothing -}                        { [] }
- | CommaSepFields1                      { $1 }
-
-CommaSepFields1 :: { [(Name, Expr MPType)] }
- : Field                                { [$1] }
- | Field ',' CommaSepFields1            { $1:$3 }
 
 -- Parameterized productions, most come directly from the Happy manual.
 fst(p, q)  : p q   { $1 }
@@ -305,6 +257,8 @@ seplist(p,q) : seprev_list(p,q)  { reverse $1 }
 -- A list of at least one 1 p's, separated by q's
 sepBy1(p, q) : p list(snd(q, p)) { $1 : $2 }
 
+sepBy2(p, q) : p q sepBy1(p, q) { $1 : $3 }
+
 -- A list of 0 or more p's, separated by q's
 sepBy(p, q) : {- empty -}  { [] }
             | sepBy1(p, q) { $1 }
@@ -319,6 +273,9 @@ termBy(p, q) : {- empty -}    { [] }
 -- one or the other
 either(p, q) : p  { Left  $1 }
              | q  { Right $1 }
+
+commas(p) : sepBy1(p, ',') { $1 }
+commas2(p) : sepBy2(p, ',') { $1 }
 
 {
 
@@ -342,16 +299,11 @@ buildFunction args e = foldr foldFunction e args
     function <$> mType <*> typeOf rhs
 
 buildApplication :: [Expr MPType] -> Expr (MPType)
-buildApplication = foldl1 (\e body -> Application e body $
-  function <$> typeOf e <*> typeOf body)
---buildApplication [e]    = e
---buildApplication (e:es) = Application e app' $
---  function <$> typeOf e <*> typeOf app'
---  where
---  app' = buildApplication es
+buildApplication =
+  foldl1 (\e body -> Application e body $
+                     function <$> typeOf e <*> typeOf body)
 
 buildType :: [PType] -> PType
 buildType [t]    = t
 buildType (t:ts) = function t (buildType ts)
 }
-

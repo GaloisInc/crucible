@@ -31,17 +31,15 @@ $binit     = 0-1
 $octit     = 0-7
 $hexit     = [0-9 A-F a-f]
 $idchar    = [$alpha $digit \' \_]
-$symchar   = [$symbol \:]
-$nl        = [\n\r]
 
 @reservedid  = import|and|let|fun|in|type|do|if|then|else|as
              |CryptolSetup|JavaSetup|LLVMSetup
              |ProofScript|TopLevel|"()"
 @punct       = "," | ";" | "(" | ")" | ":" | "::" | "[" | "]" | "<-" | "->"
-             | "=" | "{" | "}" | "."
+             | "=" | "{" | "}" | "." | "\\"
 @reservedop  = "~"  | "-" | "*" | "+" | "/" | "%" | ">>" | "<<" | "|" | "&"
              | "^" | "#"  | "==" | "!=" | ">=" | ">" | "<=" |"<" | "&&"
-             | "||" | "not" | "==>"
+             | "||" | "not" | "==>" | "@"
 @varid       = $alpha $idchar*
 @decimal     = $digit+
 @binary      = $binit+
