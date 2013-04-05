@@ -114,9 +114,9 @@ TopStmt :: { TopStmt MPType }
 
 Import :: { TopStmt MPType }
  : name                                 { Import $1 Nothing Nothing       }
- | name '(' commas(name) ')'            { Import $1 (Just $3) Nothing     }
- | name 'as' name                       { Import $1 Nothing (Just $3)     }
- | name '(' commas(name) ')' 'as' name  { Import $1 (Just $3) (Just $6)   }
+ -- | name '(' commas(name) ')'            { Import $1 (Just $3) Nothing     }
+ -- | name 'as' name                       { Import $1 Nothing (Just $3)     }
+ -- | name '(' commas(name) ')' 'as' name  { Import $1 (Just $3) (Just $6)   }
 
 BlockStmt :: { BlockStmt MPType }
  : Expression                           { Bind Nothing TopLevelContext $1   }
