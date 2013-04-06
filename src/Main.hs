@@ -16,6 +16,9 @@ import SAWScript.LiftPoly
 import SAWScript.TypeCheck
 import SAWScript.ConvertType
 
+import SAWScript.Import
+import SAWScript.Options
+
 import SAWScript.ToSAWCore
 
 import Control.Arrow
@@ -27,13 +30,29 @@ import Data.List
 import Test.QuickCheck
 
 import System.IO
+import System.Console.GetOpt
 import System.Environment
 import System.Directory
 import System.Posix.Files
 import System.FilePath.Posix
 
 main :: IO ()
-main = getArgs >>= mapM_ (\f -> readFile f >>= runCompiler (translateFile f))
+main = do
+  argv <- getArgs
+  case getOpt Permute options argv of
+    (_, [], [])       -> putStrLn (usageInfo header options)
+    (opts, files, []) -> do
+      let opts' = foldl' (flip id) defaultOptions opts
+      opts'' <- processEnv opts'
+      processFiles opts'' files
+    (_, _, errs)      ->
+      hPutStrLn stderr (concat errs ++ usageInfo header options)
+  where header = "Usage: saw [OPTION...] files..."
+
+processFiles :: Options -> [FilePath] -> IO ()
+processFiles opts =
+  mapM_ (\f -> loadModule opts emptyLoadedModules f (handleMods f))
+    where handleMods f _ = putStrLn $ "Loaded " ++ f
 
 -- TODO: type check then translate to SAWCore
 translateFile :: FilePath -> Compiler String SC.Module
