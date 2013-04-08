@@ -2,6 +2,7 @@
 module Main where
 
 import qualified Verifier.SAW.TypedAST as SC
+import Verifier.SAW.Prelude (preludeModule)
 
 import SAWScript.AST
 import SAWScript.Compiler
@@ -58,7 +59,7 @@ processFiles opts =
 translateFile :: FilePath -> Compiler String SC.Module
 translateFile f s = do
   m <- compileModule f s
-  either fail return $ translateModule m
+  either fail return $ translateModule [preludeModule] m
 
 -- | Full compiler pipeline, so far.
 compileModule :: FilePath -> Compiler String (Module' PType Type)
