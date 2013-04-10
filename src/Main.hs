@@ -1,6 +1,7 @@
 
 module Main where
 
+import qualified Verifier.SAW.ParserUtils as SC
 import qualified Verifier.SAW.TypedAST as SC
 import Verifier.SAW.Prelude (preludeModule)
 
@@ -21,6 +22,7 @@ import SAWScript.Import
 import SAWScript.Options
 
 import SAWScript.ToSAWCore
+import SAWScript.Execution
 
 import Control.Arrow
 import Control.Applicative
@@ -51,9 +53,15 @@ main = do
   where header = "Usage: saw [OPTION...] files..."
 
 processFiles :: Options -> [FilePath] -> IO ()
-processFiles opts =
-  mapM_ (\f -> loadModule opts emptyLoadedModules f (handleMods f))
-    where handleMods f _ = putStrLn $ "Loaded " ++ f
+processFiles opts = mapM_ (processFile opts)
+
+processFile :: Options -> FilePath -> IO ()
+processFile opts file | takeExtensions file == ".core" = do
+  m <- SC.readModuleFromFile [preludeModule] file
+  execSAWCore m
+processFile opts file | takeExtensions file == ".saw" =
+  loadModule opts emptyLoadedModules file handleMods
+    where handleMods _ = putStrLn $ "Loaded " ++ file
 
 -- TODO: type check then translate to SAWCore
 translateFile :: FilePath -> Compiler String SC.Module
