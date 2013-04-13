@@ -1,4 +1,9 @@
 {
+{-# OPTIONS_GHC -fno-warn-name-shadowing     #-}
+{-# OPTIONS_GHC -fno-warn-unused-matches     #-}
+{-# OPTIONS_GHC -fno-warn-unused-binds       #-}
+{-# OPTIONS_GHC -fno-warn-name-shadowing     #-}
+{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 {-# LANGUAGE BangPatterns #-}
 module SAWScript.Lexer
   ( AlexPosn(..)
@@ -6,12 +11,10 @@ module SAWScript.Lexer
   ) where
 
 import SAWScript.Compiler
-import SAWScript.AST
 import SAWScript.Token
 import SAWScript.Utils
 
 import Numeric
-import Data.Char
 import Data.List
 
 }
