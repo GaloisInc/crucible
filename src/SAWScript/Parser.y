@@ -46,6 +46,9 @@ import Control.Applicative
   'LLVMSetup'    { TReserved _ "LLVMSetup"      }
   'ProofScript'  { TReserved _ "ProofScript"    }
   'TopLevel'     { TReserved _ "TopLevel"       }
+  'Bit'          { TReserved _ "Bit"            }
+  'Int'          { TReserved _ "Int"            }
+  'String'       { TReserved _ "String"         }
   '()'           { TReserved _ "()"             }
   ';'            { TPunct    _ ";"              }
   '['            { TPunct    _ "["              }
@@ -211,6 +214,9 @@ BaseType :: { PType }
  : name                                 { syn $1                  }
  | Context BaseType                     { block $1 $2             }
  | '()'                                 { unit                    }
+ | 'Bit'                                { bit                     }
+ | 'Int'                                { z                       }
+ | 'String'                             { quote                   }
  | '(' Type ')'                         { $2                      }
  | '(' commas2(Type) ')'                { tuple $2                }
  | '[' name ']'                         { array bit (syn $2)      }

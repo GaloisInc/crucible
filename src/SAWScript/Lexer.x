@@ -37,7 +37,7 @@ $idchar    = [$alpha $digit \' \_]
 
 @reservedid  = import|and|let|fun|in|type|do|if|then|else|as
              |CryptolSetup|JavaSetup|LLVMSetup
-             |ProofScript|TopLevel|"()"
+             |ProofScript|TopLevel|"()"|Int|String|Bit
 @punct       = "," | ";" | "(" | ")" | ":" | "::" | "[" | "]" | "<-" | "->"
              | "=" | "{" | "}" | "." | "\\"
 @reservedop  = "~"  | "-" | "*" | "+" | "/" | "%" | ">>" | "<<" | "|" | "&"
