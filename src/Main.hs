@@ -28,6 +28,7 @@ import Control.Arrow
 import Control.Applicative
 import Control.Exception
 import Control.Monad
+import qualified Data.Map as M
 import Data.Maybe
 import Data.List
 import Test.QuickCheck
@@ -59,9 +60,13 @@ processFile :: Options -> FilePath -> IO ()
 processFile opts file | takeExtensions file == ".core" = do
   m <- SC.readModuleFromFile [preludeModule] file
   execSAWCore m
-processFile opts file | takeExtensions file == ".saw" =
-  loadModule opts emptyLoadedModules file handleMods
-    where handleMods _ = putStrLn $ "Loaded " ++ file
+processFile opts file | takeExtensions file == ".saw" = do
+  text <- readFile file
+  runE (compileModule file text)
+    (putStrLn . ("Error\n" ++) . indent 2)  -- failure
+    (\_ -> putStrLn "Success.")
+  --loadModule opts emptyLoadedModules file handleMods
+
 
 -- TODO: type check then translate to SAWCore
 translateFile :: FilePath -> Compiler String SC.Module
