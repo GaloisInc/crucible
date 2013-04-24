@@ -3,6 +3,7 @@ module SAWScript.Import
   ( loadModule
   , findAndLoadModule
   , emptyLoadedModules
+  , LoadedModules(..)
   ) where
 
 import Control.Monad
