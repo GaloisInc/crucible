@@ -8,7 +8,7 @@ module SAWScript.TopLevel
   , readSBV
   , readSBVWith
   , writeAIG
-  , writeSMT
+  --, writeSMT
   ) where
 
 import Control.Applicative
@@ -28,7 +28,7 @@ import qualified Verifier.LLVM.Simulator as L
 
 import Verifier.SAW
 import Verifier.SAW.BitBlast
-import Verifier.SAW.Export.SmtLibTrans
+--import Verifier.SAW.Export.SmtLibTrans
 import Verifier.SAW.SBVParser
 
 import Verinf.Symbolic
@@ -75,12 +75,13 @@ writeAIG f t = do
   case mbterm of
     Nothing -> fail "Can't bitblast."
     Just bterm -> do
-      ls <- case bterm of
-              BNat _ -> fail "Won't convert literal number to AIG for now"
+      outs <- case bterm of
               BBool l -> return $ SV.singleton l
               BVector ls -> return ls
-      liftIO $ beWriteAigerV be f [ls]
+      ins <- liftIO $ beInputLits be
+      liftIO $ beWriteAigerV be f ins outs
 
+{-
 writeSMT :: FilePath -> Trm -> TopLevel ()
 writeSMT f t = do
   sc <- envSC <$> ask
@@ -96,6 +97,7 @@ writeSMT f t = do
         }
   (scr, _) <- liftIO $ translate transParams
   liftIO . writeFile f . show . pp $ scr
+-}
 
 -- | Extract a simple, pure model from the given symbol within the
 -- given bitcode file. This code creates fresh inputs for all
@@ -107,7 +109,8 @@ extractLLVM file func = do
   let dl = L.parseDataLayout $ LLVM.modDataLayout mdl
       mg = L.defaultMemGeom dl
       sym = L.Symbol func
-  (sbe, mem) <- liftIO $ L.createSAWBackend dl mg
+  be <- envBE <$> ask
+  (sbe, mem) <- liftIO $ L.createSAWBackend be dl mg
   cb <- liftIO $ L.mkCodebase sbe dl mdl
   case L.lookupDefine sym cb of
     Nothing -> fail $ "Bitcode file " ++ file ++
@@ -122,7 +125,7 @@ extractLLVM file func = do
         Just rv -> return rv
 
 freshArg :: (L.Ident, L.MemType)
-         -> L.Simulator (L.SAWBackend ()) IO (L.MemType, Trm)
+         -> L.Simulator (L.SAWBackend () Lit) IO (L.MemType, Trm)
 freshArg (_, ty@(L.IntType bw)) = do
   sbe <- gets L.symBE
   tm <- L.liftSBE $ L.freshInt sbe bw
