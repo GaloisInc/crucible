@@ -1,16 +1,12 @@
 {-# LANGUAGE CPP #-}
 module SAWScript.Compiler where
 
-import SAWScript.Unify (foldMuM)
 import SAWScript.AST
 
 import Control.Applicative
 import Control.Monad
-import Control.Monad.Trans.State
 import Data.List (intercalate)
-import qualified Data.Map as M
 import Data.Monoid
-import Data.Traversable
 #if __GLASGOW_HASKELL__ < 706
 import Prelude hiding (catch)
 #endif

@@ -1,7 +1,6 @@
 {-# LANGUAGE CPP #-}
 module SAWScript.Options where
 
-import Data.List.Split
 import System.Console.GetOpt
 import System.Environment
 import System.FilePath

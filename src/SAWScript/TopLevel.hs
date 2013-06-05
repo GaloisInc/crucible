@@ -15,9 +15,7 @@ import Control.Applicative
 import Control.Monad.Error
 import Control.Monad.Reader
 import Control.Monad.State
-import qualified Data.Set as Set
 import qualified Data.Vector.Storable as SV
-import SMTLib1
 
 import qualified Text.LLVM as LLVM
 import qualified Verifier.LLVM.AST as L

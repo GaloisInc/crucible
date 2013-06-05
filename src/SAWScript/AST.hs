@@ -12,8 +12,6 @@ module SAWScript.AST where
 
 import SAWScript.Unify
 
-import Control.Applicative
-import Control.Monad
 import Data.List
 
 import Data.Foldable hiding (concat, elem)
@@ -294,6 +292,7 @@ poly n = inject $ Poly n
 
 -- }}}
 
+typeOf :: Expr t -> t
 typeOf e = case e of
   Unit t            -> t
   Bit _ t           -> t
