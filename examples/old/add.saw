@@ -1,0 +1,7 @@
+add : [16] -> [16] -> [16];
+eq : [16] -> [16] -> [1];
+
+test_add : [16] -> [16] -> [1];
+test_add x y = eq (add x y) (add y x);
+
+main = do { return 0; };
