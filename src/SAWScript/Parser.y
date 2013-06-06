@@ -90,6 +90,7 @@ import Control.Applicative
   string         { TLit      _ $$               }
   num            { TNum      _ _ $$             }
   name           { TVar      _ $$               }
+  qname          { TQVar     _ _ $$             }
 
 %right 'else'
 %right '==>'
@@ -111,46 +112,46 @@ import Control.Applicative
 
 %%
 
-TopStmts :: { [TopStmt MPType] }
+TopStmts :: { [TopStmtSimple RawT] }
  : termBy(TopStmt, ';')                 { $1 }
 
-TopStmt :: { TopStmt MPType }
+TopStmt :: { TopStmtSimple RawT }
  : 'import' Import                      { $2                 }
  | name ':' PolyType                    { TopTypeDecl $1 $3  }
  | 'type' name '=' Type                 { TypeDef $2 $4      }
  | Declaration                          { uncurry TopBind $1 }
 
-Import :: { TopStmt MPType }
- : name                                 { Import $1 Nothing Nothing       }
+Import :: { TopStmtSimple RawT }
+ : qname                                   { Import (mkModuleName $1) Nothing Nothing       }
  -- | name '(' commas(name) ')'            { Import $1 (Just $3) Nothing     }
  -- | name 'as' name                       { Import $1 Nothing (Just $3)     }
  -- | name '(' commas(name) ')' 'as' name  { Import $1 (Just $3) (Just $6)   }
 
-BlockStmt :: { BlockStmt MPType }
- : Expression                           { Bind Nothing TopLevelContext $1   }
- | name '<-' Expression                 { Bind (Just $1) TopLevelContext $3 }
+BlockStmt :: { BlockStmtSimple RawT }
+ : Expression                           { Bind Nothing topLevelContext $1   }
+ | name '<-' Expression                 { Bind (Just $1) topLevelContext $3 }
  | name ':' PolyType                    { BlockTypeDecl $1 $3       }
  | 'let' sepBy1(Declaration, 'and')     { BlockLet $2               }
 
-Declaration :: { (Name, Expr MPType) }
+Declaration :: { (Name, ExprSimple RawT) }
  : name list(Arg) '=' Expression        { ($1, buildFunction $2 $4)       }
 
-Arg :: { (Name, MPType) }
+Arg :: { Bind RawT }
  : name                                 { ($1, Nothing) }
  | '(' name ':' Type ')'                { ($2, Just $4) }
 
-Expression :: { Expr MPType }
+Expression :: { ExprSimple RawT }
  : Expressions                          { buildApplication $1 }
 
-Expressions :: { [Expr MPType] }
+Expressions :: { [ExprSimple RawT] }
  : ExpressionPrimitive                  { [$1]  }
  | SafeExpression Expressions           { $1:$2 }
 
-ExpressionPrimitive :: { Expr MPType }
+ExpressionPrimitive :: { ExprSimple RawT }
  : NakedExpression                      { $1 }
  | SafeExpression                       { $1 }
 
-NakedExpression :: { Expr MPType }
+NakedExpression :: { ExprSimple RawT }
  : '\\' list1(Arg) '->' Expression      { buildFunction $2 $4           }
  | 'let' sepBy1(Declaration, 'and') 'in' Expression
     { LetBlock $2 $4   }
@@ -182,7 +183,7 @@ InfixOp :: { Name }
  | '||'           { "or"                         }
  | '==>'          { "implies"                    }
 
-SafeExpression :: { Expr MPType }
+SafeExpression :: { ExprSimple RawT }
  : '()'                                 { Unit Nothing                    }
  | string                               { Quote $1 Nothing                }
  | num                                  { Z $1 Nothing                    }
@@ -193,24 +194,24 @@ SafeExpression :: { Expr MPType }
  | '{' commas(Field) '}'                { Record $2 Nothing               }
  | 'do' '{' termBy(BlockStmt, ';') '}'  { Block $3 Nothing                }
  | SafeExpression '.' name              { Lookup $1 $3 Nothing            }
- | '(' SafeExpression ':' Type ')'      { updateAnnotation $2 (Just $4)   }
+ | '(' SafeExpression ':' Type ')'      { updateAnnotation (Just $4) $2   }
 
-Field :: { (Name, Expr MPType) }
+Field :: { (Name, ExprSimple RawT) }
  : name '=' Expression                  { ($1, $3) }
 
 Names :: { [Name] } 
  : name                                 { [$1] }
  | name ',' Names                       { $1:$3 }
 
-PolyType :: { PType }
+PolyType :: { RawSigT }
  : Type                                 { $1                      }
- | '{' Names '}' Type                   { synToPoly $2 $4         }
+ | '{' Names '}' Type                   { capturePVars $2 $4         }
 
-Type :: { PType }
+Type :: { RawSigT }
  : BaseType                             { $1 }
  | BaseType '->' Type                   { function $1 $3 }
 
-BaseType :: { PType }
+BaseType :: { RawSigT }
  : name                                 { syn $1                  }
  | Context BaseType                     { block $1 $2             }
  | '()'                                 { unit                    }
@@ -224,12 +225,12 @@ BaseType :: { PType }
  | '[' num ']'                          { array bit (i $2)        }
  | '[' num ']' BaseType                 { array $4  (i $2)        }
 
-Context :: { Context }
- : 'CryptolSetup'                       { CryptolSetupContext     }
- | 'JavaSetup'                          { JavaSetupContext        }
- | 'LLVMSetup'                          { LLVMSetupContext        }
- | 'ProofScript'                        { ProofScriptContext      }
- | 'TopLevel'                           { TopLevelContext         }
+Context :: { RawSigT }
+ : 'CryptolSetup'                       { cryptolSetupContext     }
+ | 'JavaSetup'                          { javaSetupContext        }
+ | 'LLVMSetup'                          { llvmSetupContext        }
+ | 'ProofScript'                        { proofScriptContext      }
+ | 'TopLevel'                           { topLevelContext         }
 
 -- Parameterized productions, most come directly from the Happy manual.
 fst(p, q)  : p q   { $1 }
@@ -300,21 +301,25 @@ parseError toks = case toks of
   parseFail :: String -> Err b
   parseFail = fail . (++ "\n" ++ PP.ppShow toks)
 
-bitsOfString :: Token Pos -> [Expr MPType]
+bitsOfString :: Token Pos -> [ExprSimple RawT]
 bitsOfString = map ((flip Bit $ Just bit) . (/= '0')) . tokStr
 
-buildFunction :: [(Name, MPType)] -> Expr MPType -> Expr MPType 
+buildFunction :: [(Name, RawT)] -> ExprSimple RawT -> ExprSimple RawT 
 buildFunction args e = foldr foldFunction e args
   where
   foldFunction (argName,mType) rhs = Function argName mType rhs $
     function <$> mType <*> typeOf rhs
 
-buildApplication :: [Expr MPType] -> Expr (MPType)
+buildApplication :: [ExprSimple RawT] -> ExprSimple RawT
 buildApplication =
   foldl1 (\e body -> Application e body $
                      function <$> typeOf e <*> typeOf body)
 
-buildType :: [PType] -> PType
+buildType :: [RawSigT] -> RawSigT
 buildType [t]    = t
 buildType (t:ts) = function t (buildType ts)
+
+mkModuleName :: ([String],String) -> ModuleName
+mkModuleName = uncurry ModuleName
+
 }

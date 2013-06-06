@@ -9,6 +9,7 @@ Point-of-contact : lerkok
 module SAWScript.Token where
 
 data Token p = TVar      { tokPos :: p, tokStr :: String                     }
+             | TQVar     { tokPos :: p, tokStr :: String, tokVars :: ([String],String) }
              | TLit      { tokPos :: p, tokStr :: String                     }
              | TUnknown  { tokPos :: p, tokStr :: String                     }
              | TPunct    { tokPos :: p, tokStr :: String                     }

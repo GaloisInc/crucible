@@ -27,12 +27,10 @@ type BaseT = I :+: ContextF :+: TypeF
 -- Names {{{
 
 type Name = String
-data ModuleName = ModuleName Name [Name] deriving (Eq,Ord,Show)
 
-data QName = QName
-  { qualModule :: ModuleName
-  , qualName   :: Name
-  }
+data ModuleName = ModuleName [Name] Name deriving (Eq,Ord,Show)
+
+data QName = QName ModuleName Name
 
 type Bind a = (Name,a)
 onBind :: (a -> b) -> Bind a -> Bind b
@@ -42,18 +40,32 @@ onBinds = map . onBind
 
 type Env a = M.Map Name a
 
+singletonEnv :: Name -> a -> Env a
+singletonEnv = M.singleton
+
+lookupEnv :: Name -> Env a -> Maybe a
+lookupEnv = M.lookup
+
+unionEnv :: Env a -> Env a -> Env a
+unionEnv = M.union
+
+emptyEnv :: Env a
+emptyEnv = M.empty
+
 -- }}}
 
 -- Module Level {{{
+
+type ModuleSimple = Module Name
 
 data Module refT exprT typeT = Module
   { moduleName         :: ModuleName
   , moduleExprEnv      :: Env (Expr refT typeT)
   , moduleTypeEnv      :: Env typeT
   , moduleDependencies :: Env ValidModule
-  }
+  } deriving (Eq,Show)
 
-type ValidModule = Module QName FinalT FinalT
+type ValidModule = Module Name Type Type
 
 -- }}}
 
@@ -65,8 +77,8 @@ type BlockStmtSimple = BlockStmt Name
 
 data TopStmt refT typeT
   = Import      ModuleName (Maybe [Name])    (Maybe Name)
-  | TypeDef     Name       FinalT
-  | TopTypeDecl Name       FinalT
+  | TypeDef     Name       RawSigT
+  | TopTypeDecl Name       RawSigT
   | TopBind     Name       (Expr refT typeT)
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
@@ -80,10 +92,10 @@ data Expr refT typeT
   | Array  [Expr refT typeT]         typeT
   | Block  [BlockStmt refT typeT]    typeT
   | Tuple  [Expr refT typeT]         typeT
-  | Record [Bind (Expr refT typeT)] typeT
+  | Record [Bind (Expr refT typeT)]  typeT
   -- Accessors
   | Index  (Expr refT typeT) (Expr refT typeT) typeT
-  | Lookup (Expr refT typeT) Name              typeT
+  | Lookup (Expr refT typeT) Name           typeT
   -- LC
   | Var         refT       typeT
   | Function    Name       typeT  (Expr refT typeT) typeT
@@ -93,8 +105,8 @@ data Expr refT typeT
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
 data BlockStmt refT typeT
-  = Bind          (Maybe Name)     typeT   (Expr refT typeT)
-  | BlockTypeDecl Name             FinalT
+  = Bind          (Maybe Name)     RawSigT   (Expr refT typeT)
+  | BlockTypeDecl Name             RawSigT
   | BlockLet      [(Name,Expr refT typeT)]
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
@@ -135,12 +147,20 @@ data Type
   | TupleT [Type]
   | RecordT [Bind Type]
   | FunctionT Type Type
+  | TypAbs [Name] Type
+  | TypVar Name
   deriving (Eq,Show)
 
 data Syn typeF = Syn Name
   deriving (Show,Functor,Foldable,T.Traversable)
 
-type Context = ContextF ()
+data Context
+  = CryptolSetup
+  | JavaSetup
+  | LLVMSetup
+  | ProofScript
+  | TopLevel
+  deriving (Eq,Show)
 
 data Poly typeT
   = PAbs [Name] typeT
@@ -268,7 +288,7 @@ block c t = inject $ BlockF c t
 tuple :: (TypeF :<: f) => [Mu f] -> Mu f
 tuple ts = inject $ TupleF ts
 
-record :: (TypeF :<: f) => [(Name,Mu f)] -> Mu f
+record :: (TypeF :<: f) => [Bind (Mu f)] -> Mu f
 record fts = inject $ RecordF fts
 
 function :: (TypeF :<: f) => Mu f -> Mu f -> Mu f
@@ -322,7 +342,7 @@ typeOf e = case e of
   Application _ _ t -> t
   LetBlock _ e'     -> typeOf e'
 
-context :: BlockStmt refT typeT -> Maybe typeT
+context :: BlockStmt refT typeT -> Maybe RawSigT
 context s = case s of
   Bind _ c _ -> Just c
   _          -> Nothing
