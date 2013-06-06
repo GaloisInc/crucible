@@ -37,8 +37,7 @@ import System.IO
 import System.Console.GetOpt
 import System.Environment
 import System.Directory
-import System.Posix.Files
-import System.FilePath.Posix
+import System.FilePath
 
 main :: IO ()
 main = do
@@ -104,6 +103,7 @@ filesToRun run = if null run
   else filter (or . (isPrefixOf <$> run <*>) . pure . takeBaseName)
 
 -- | Resolve the paths of all SAWScript files in directory
+{-
 getTestFiles :: FilePath -> IO [FilePath]
 getTestFiles dir = do
   allFiles <- map (dir </>) <$> getDirectoryContents dir
@@ -122,6 +122,7 @@ testAllFiles = do
     putStrLn ("Testing file " ++ show f)
     contents <- readFile f
     runCompiler (compileModule f) contents
+-}
 
 -- testing pre-parsed modules -------------------------------------------------
 
