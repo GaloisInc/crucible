@@ -1,0 +1,12 @@
+main = do {
+    java_ffs_ref <- extract_java "FFS" "ffs_ref" java_pure;
+    java_ffs_imp <- extract_java "FFS" "ffs_imp" java_pure;
+    c_ffs_ref <- extract_llvm "ffs.bc" "ffs_ref" llvm_pure;
+    c_ffs_imp <- extract_llvm "ffs.bc" "ffs_imp" llvm_pure;
+    java_res <- prove abc (equal java_ffs_ref java_ffs_imp);
+    c_res <- prove abc (equal c_ffs_ref c_ffs_imp);
+    mix_res <- prove abc (equal java_ffs_imp c_ffs_imp);
+    print java_res;
+    print c_res;
+    print mix_res;
+};

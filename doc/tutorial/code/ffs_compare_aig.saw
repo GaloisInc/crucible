@@ -1,0 +1,10 @@
+main = do {
+    java_ffs_ref <- load_aig "java_ffs_ref.aig";
+    java_ffs_imp <- load_aig "java_ffs_imp.aig";
+    c_ffs_ref <- load_aig "c_ffs_ref.aig";
+    c_ffs_imp <- load_aig "c_ffs_imp.aig";
+    java_res <- prove_equal abc java_ffs_ref java_ffs_imp;
+    c_res <- prove_equal abc c_ffs_ref c_ffs_imp;
+    print java_res;
+    print c_res;
+};
