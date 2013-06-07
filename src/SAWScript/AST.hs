@@ -16,8 +16,8 @@ import qualified Data.Traversable as T
 
 type RawT      = Maybe RawSigT
 type RawSigT   = Mu (Syn :+: Poly :+: BaseT)
-type ResolvedT = Maybe FinalT
-type FinalT    = Mu (Poly :+: BaseT)
+type ResolvedT = Maybe FullT
+type FullT    = Mu (Poly :+: BaseT)
 type TCheckT   = Mu (Logic :+: Poly :+: BaseT)
 
 type BaseT = I :+: ContextF :+: TypeF
@@ -60,7 +60,7 @@ type ModuleSimple = Module Name
 
 data Module refT exprT typeT = Module
   { moduleName         :: ModuleName
-  , moduleExprEnv      :: Env (Expr refT typeT)
+  , moduleExprEnv      :: Env (Expr refT exprT)
   , moduleTypeEnv      :: Env typeT
   , moduleDependencies :: Env ValidModule
   } deriving (Eq,Show)
@@ -254,7 +254,10 @@ instance Uni TypeF where
     _                                         -> fail ("Type Mismatch: " ++ render t1 ++ " could not be unified with " ++ render t2)
 
 instance Uni I where
-  uni (I x) (I y) = fail ("I: " ++ show x ++ " =/= " ++ show y)
+  uni (I x) (I y) = fail $ "I: " ++ show x ++ " =/= " ++ show y
+
+instance Uni ContextF where
+  uni c1 c2 = fail $ "Context: " ++ render c1 ++ " =/= " ++ render c2
 
 instance Uni Poly where
   uni p1 p2 = case (p1,p2) of
