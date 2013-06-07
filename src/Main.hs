@@ -18,7 +18,7 @@ import SAWScript.LiftPoly
 import SAWScript.TypeCheck
 import SAWScript.ConvertType
 
-import SAWScript.Import
+--import SAWScript.Import
 import SAWScript.Options
 
 import SAWScript.ToSAWCore
