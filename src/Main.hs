@@ -21,7 +21,7 @@ import SAWScript.ConvertType
 --import SAWScript.Import
 import SAWScript.Options
 
-import SAWScript.ToSAWCore
+--import SAWScript.ToSAWCore
 import SAWScript.Execution
 
 import Control.Arrow
