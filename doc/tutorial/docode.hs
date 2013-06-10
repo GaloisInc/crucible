@@ -12,7 +12,9 @@ interactIO act = do
 processCommand :: String -> IO String
 processCommand line =
   case words line of
-    ("$cmd":cmd:args) -> readProcess cmd args ""
+    ("$cmd":cmd:args) -> do
+      result <- readProcess cmd args ""
+      return $ unlines [ unwords ("#" : cmd : args) ] ++ result
     ["$include", "all", file] -> readFile file
     ["$include", range, file] ->
       do txt <- readFile file
