@@ -18,10 +18,10 @@ import SAWScript.LiftPoly
 import SAWScript.TypeCheck
 import SAWScript.ConvertType
 
-import SAWScript.Import
+--import SAWScript.Import
 import SAWScript.Options
 
-import SAWScript.ToSAWCore
+--import SAWScript.ToSAWCore
 import SAWScript.Execution
 
 import Control.Arrow
@@ -79,7 +79,7 @@ compileModule f = formModule f >=> typeModule
 
 -- | Takes unlexed text to Module
 formModule :: FilePath -> Compiler String (Module MPType)
-formModule f = scan f >=> parseModule >=> findMain mname
+formModule f = scan f >=> parseModule -- >=> findMain mname
   where mname = dropExtension (takeFileName f)
 
 -- | Takes module from untyped to fully typed

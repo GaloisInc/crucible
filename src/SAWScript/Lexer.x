@@ -14,6 +14,7 @@ import SAWScript.Compiler
 import SAWScript.Token
 import SAWScript.Utils
 
+import Control.Arrow (second)
 import Numeric
 import Data.List
 
@@ -44,6 +45,7 @@ $idchar    = [$alpha $digit \' \_]
              | "^" | "#"  | "==" | "!=" | ">=" | ">" | "<=" |"<" | "&&"
              | "||" | "not" | "==>" | "@"
 @varid       = $alpha $idchar*
+@qvarid      = @varid (\. @varid)+
 @decimal     = $digit+
 @binary      = $binit+
 @octal       = $octit+
@@ -75,6 +77,7 @@ $white+                          ;
 0[bB] @binary                    { TNum `via` readBin }
 0[oO] @octal                     { TNum `via` read    }
 0[xX] @hexadecimal               { TNum `via` read    }
+@qvarid                          { TQVar `via` readQVar }
 .                                { TUnknown           }
 
 {
@@ -86,6 +89,17 @@ via' c g p s = c p (g s)
 lexSAW :: FilePath -> String -> [Token Pos]
 lexSAW f = dropComments . map (fmap fixPos) . alexScanTokens
   where fixPos (AlexPn _ l c) = Pos f l c
+
+readQVar :: String -> ([String],String)
+readQVar s = case spanAll (== '.') s of
+    [] -> error "Attempt to read empty string as QVar"
+    ns -> (init ns,last ns)
+  where
+  spanAll p s = case s of
+    "" -> []
+    _  -> let (v,rest) = span1 p s in
+            v : spanAll p rest
+  span1 p = second (drop 1) . break p
 
 readBin :: String -> Integer
 readBin s = case readInt 2 isDigit cvt s' of

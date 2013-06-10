@@ -1,4 +1,4 @@
-int ffs_ref(int word) {
+int ffs1(int word) {
     int i = 0;
     if(!word)
         return 0;
@@ -8,7 +8,7 @@ int ffs_ref(int word) {
     return 0;
 }
 
-int ffs_imp(int i) {
+int ffs2(int i) {
     char n = 1;
     if (!(i & 0xffff)) { n += 16; i >>= 16; }
     if (!(i & 0x00ff)) { n += 8;  i >>= 8; }

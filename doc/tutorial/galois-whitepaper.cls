@@ -14,7 +14,6 @@
 \RequirePackage{graphicx}
 \RequirePackage[headheight=144pt,top=2in,left=1in,right=1in,bottom=1in]{geometry}
 \RequirePackage{lastpage}
-\RequirePackage{tweaklist} % used in personnel section.
 
 % Define fonts
 \if@xelatex
@@ -94,7 +93,7 @@
   \vspace{0.12in}
 }
 
-\lfoot{\sffamily\color{galoislightgray}\small\copyright{} 2012 Galois, Inc.}
+\lfoot{\sffamily\color{galoislightgray}\small\copyright{} 2013 Galois, Inc.}
 
 \rfoot{
   \sffamily \color{galoislightgray}\small
@@ -112,8 +111,8 @@
         {\large \textbf{}}\\
         \vspace{0.3in}
         \textbf{\sffamily \LARGE \@title}\\
-        \vspace{0.5in}
-        { \@author }\\
+        %\vspace{0.5in}
+        %{ \@author }\\
         \vspace{0.3in}
         {\large \@companyName }\\
         \vspace{0.025in}
