@@ -72,12 +72,26 @@ sawScriptPrims global = Map.fromList
   -- Term building
   , ("SAWScriptPrelude.termGlobal", toValue
       (termGlobal :: String -> SC s (SharedTerm s)))
+  , ("SAWScriptPrelude.termTrue", toValue (termTrue :: SC s (SharedTerm s)))
+  , ("SAWScriptPrelude.termFalse", toValue (termFalse :: SC s (SharedTerm s)))
   , ("SAWScriptPrelude.termNat", toValue
       (termNat :: Integer -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.termApp", toValue
-      (termApp :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
+  , ("SAWScriptPrelude.termVec", toValue
+      (termVec :: Integer -> SharedTerm s -> Vector (SharedTerm s) -> SC s (SharedTerm s)))
   , ("SAWScriptPrelude.termTuple", toValue
       (termTuple :: Integer -> Vector (SharedTerm s) -> SC s (SharedTerm s)))
+  , ("SAWScriptPrelude.termRecord", toValue
+      (termRecord :: Integer -> Vector (String, SharedTerm s) -> SC s (SharedTerm s)))
+  , ("SAWScriptPrelude.termSelect", toValue
+      (termSelect :: SharedTerm s -> String -> SC s (SharedTerm s)))
+  , ("SAWScriptPrelude.termLocalVar", toValue
+      (termLocalVar :: Integer -> SharedTerm s -> SC s (SharedTerm s)))
+  , ("SAWScriptPrelude.termGlobal", toValue
+      (termGlobal :: String -> SC s (SharedTerm s)))
+  , ("SAWScriptPrelude.termLambda", toValue
+      (termLambda :: String -> SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
+  , ("SAWScriptPrelude.termApp", toValue
+      (termApp :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
   -- Misc stuff
   , ("SAWScriptPrelude.print", toValue
       (myPrint :: () -> Value s -> SC s ()))
@@ -159,17 +173,42 @@ proveABC t = mkSC $ \sc -> withBE $ \be -> do
         BVector _ -> fail "Can't prove non-boolean term."
     (_, _) -> fail "Can't bitblast."
 
-termApp :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
-termApp t1 t2 = mkSC $ \sc -> scApply sc t1 t2
+-- Implementations of SharedTerm primitives
+
+termTrue :: SC s (SharedTerm s)
+termTrue = mkSC $ \sc -> scCtorApp sc "Prelude.True" []
+
+termFalse :: SC s (SharedTerm s)
+termFalse = mkSC $ \sc -> scCtorApp sc "Prelude.False" []
 
 termNat :: Integer -> SC s (SharedTerm s)
 termNat n = mkSC $ \sc -> scNat sc n
 
-termGlobal :: String -> SC s (SharedTerm s)
-termGlobal name = mkSC $ \sc -> scGlobalDef sc (parseIdent name)
+termVec :: Integer -> SharedTerm s -> Vector (SharedTerm s) -> SC s (SharedTerm s)
+termVec _ t v = mkSC $ \sc -> scVector sc t (V.toList v)
+
+-- TODO: termGet
 
 termTuple :: Integer -> Vector (SharedTerm s) -> SC s (SharedTerm s)
 termTuple _ tv = mkSC $ \sc -> scTuple sc (V.toList tv)
+
+termRecord :: Integer -> Vector (String, SharedTerm s) -> SC s (SharedTerm s)
+termRecord _ v = mkSC $ \sc -> scMkRecord sc (Map.fromList (V.toList v))
+
+termSelect :: SharedTerm s -> String -> SC s (SharedTerm s)
+termSelect t s = mkSC $ \sc -> scRecordSelect sc t s
+
+termLocalVar :: Integer -> SharedTerm s -> SC s (SharedTerm s)
+termLocalVar n t = mkSC $ \sc -> scLocalVar sc (fromInteger n) t
+
+termGlobal :: String -> SC s (SharedTerm s)
+termGlobal name = mkSC $ \sc -> scGlobalDef sc (parseIdent name)
+
+termLambda :: String -> SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
+termLambda s t1 t2 = mkSC $ \sc -> scLambda sc s t1 t2
+
+termApp :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
+termApp t1 t2 = mkSC $ \sc -> scApply sc t1 t2
 
 -- evaluate :: (a :: sort 0) -> Term -> a;
 evaluate :: (Ident -> Value s) -> () -> SharedTerm s -> Value s
