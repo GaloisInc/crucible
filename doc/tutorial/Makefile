@@ -9,11 +9,14 @@ AUX      = ${wildcard *.blg} ${wildcard *.bbl} ${wildcard *.aux} \
 PDFARGS   = -H tutorial-head.tex \
             -B tutorial-before.tex \
             -A tutorial-after.tex \
+	    --toc \
+	    --listings \
 	    -V documentclass:galois-whitepaper \
 	    -V fontsize:12 \
             --latex-engine=xelatex
 HTMLARGS  = --css doc.css \
             -B tutorial-before.html \
+	    --toc \
             --standalone \
             --self-contained
 
@@ -26,6 +29,10 @@ ${TARGET}.pdf: ${SRCS} Makefile
 
 ${TARGET}.html: ${SRCS} Makefile
 	pandoc ${HTMLARGS} -o $@ ${TARGET}.md
+
+# Pre-processing step. Right now, does nothing.
+${TARGET}.md: tutorial.md
+	cat $< > $@
 
 .PHONY: spellClean superClean clean quickSpell
 
