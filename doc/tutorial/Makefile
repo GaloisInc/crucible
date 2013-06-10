@@ -1,11 +1,16 @@
 TARGET   = sawScriptTutorial
 SRCS     = ${TARGET}.md ${wildcard *.bib} ${wildcard *.cls} ${wildcard *.sty} figures/sawScriptExecution.pdf
+CODE     = ${wildcard code/*.c} \
+           ${wildcard code/*.cry} \
+           ${wildcard code/*.java} \
+           ${wildcard code/*.saw}
 SPELLSRC = ${TARGET}.tex 
 NEWSPELL = ${TARGET}.SPELLNEW
 OLDSPELL = ${TARGET}.SPELLOLD
 SPELL    = aspell -t -l
 AUX      = ${wildcard *.blg} ${wildcard *.bbl} ${wildcard *.aux} \
-           ${wildcard *.eps} ${wildcard *.log} ${wildcard *.toc} 
+           ${wildcard *.eps} ${wildcard *.log} ${wildcard *.toc} \
+	   sawScriptTutorial.md
 PDFARGS   = -H tutorial-head.tex \
             -B tutorial-before.tex \
             -A tutorial-after.tex \
@@ -31,8 +36,10 @@ ${TARGET}.html: ${SRCS} Makefile
 	pandoc ${HTMLARGS} -o $@ ${TARGET}.md
 
 # Pre-processing step. Right now, does nothing.
-${TARGET}.md: tutorial.md
-	cat $< > $@
+${TARGET}.md: tutorial.md docode.hs ${CODE}
+	runhaskell docode.hs < $< > $@
+
+docode: ${TARGET}.md
 
 .PHONY: spellClean superClean clean quickSpell
 
@@ -43,7 +50,7 @@ clean:
 	rm -f ${AUX}
 
 superClean: clean
-	rm -f ${TARGET}.pdf ${TARGET}.html
+	rm -f ${TARGET}.pdf ${TARGET}.html ${TARGET}.md
 
 spellClean:
 	rm -f ${NEWSPELL} ${OLDSPELL}
