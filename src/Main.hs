@@ -57,7 +57,8 @@ processFiles opts = mapM_ (processFile opts)
 
 processFile :: Options -> FilePath -> IO ()
 processFile opts file | takeExtensions file == ".sawcore" = do
-  m <- SC.readModuleFromFile [preludeModule] file
+  sawScriptPrelude <- SC.readModuleFromFile [preludeModule] "examples/prelude.sawcore"
+  m <- SC.readModuleFromFile [preludeModule, sawScriptPrelude] file
   execSAWCore m
 processFile opts file | takeExtensions file == ".saw" = do
   text <- readFile file
