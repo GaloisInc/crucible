@@ -4,11 +4,6 @@ module SAWScript.TopLevel
   , TopLevel
   , runTopLevel
   , runTopLevel'
-  , extractLLVM
-  , readSBV
-  , readSBVWith
-  , writeAIG
-  --, writeSMT
   ) where
 
 import Control.Applicative
@@ -58,26 +53,6 @@ runTopLevel' a = do
     Left err -> fail err
     Right res -> return res
 
-readSBV :: FilePath -> TopLevel Trm
-readSBV = readSBVWith (\_ _ -> Nothing)
-
-readSBVWith :: (String -> Typ -> Maybe Trm) -> FilePath -> TopLevel Trm
-readSBVWith um f = do
-  sc <- envSC <$> ask
-  liftIO $ parseSBVPgm sc um =<< loadSBV f
-
-writeAIG :: FilePath -> Trm -> TopLevel ()
-writeAIG f t = do
-  be <- envBE <$> ask
-  mbterm <- liftIO $ bitBlast be t
-  case mbterm of
-    Nothing -> fail "Can't bitblast."
-    Just bterm -> do
-      outs <- case bterm of
-              BBool l -> return $ SV.singleton l
-              BVector ls -> return ls
-      ins <- liftIO $ beInputLits be
-      liftIO $ beWriteAigerV be f ins outs
 
 {-
 writeSMT :: FilePath -> Trm -> TopLevel ()
@@ -97,35 +72,3 @@ writeSMT f t = do
   liftIO . writeFile f . show . pp $ scr
 -}
 
--- | Extract a simple, pure model from the given symbol within the
--- given bitcode file. This code creates fresh inputs for all
--- arguments and returns a term representing the return value. Some
--- verifications will require more complex execution contexts.
-extractLLVM :: FilePath -> String -> TopLevel Trm
-extractLLVM file func = do
-  mdl <- liftIO $ L.loadModule file
-  let dl = L.parseDataLayout $ LLVM.modDataLayout mdl
-      mg = L.defaultMemGeom dl
-      sym = L.Symbol func
-  be <- envBE <$> ask
-  (sbe, mem) <- liftIO $ L.createSAWBackend be dl mg
-  cb <- liftIO $ L.mkCodebase sbe dl mdl
-  case L.lookupDefine sym cb of
-    Nothing -> fail $ "Bitcode file " ++ file ++
-                      " does not contain symbol " ++ func ++ "."
-    Just md -> liftIO $ L.runSimulator cb sbe mem L.defaultSEH Nothing $ do
-      setVerbosity 0
-      args <- mapM freshArg (L.sdArgs md)
-      L.callDefine_ sym (L.sdRetType md) args
-      mrv <- L.getProgramReturnValue
-      case mrv of
-        Nothing -> fail "No return value from simulated function."
-        Just rv -> return rv
-
-freshArg :: (L.Ident, L.MemType)
-         -> L.Simulator (L.SAWBackend () Lit) IO (L.MemType, Trm)
-freshArg (_, ty@(L.IntType bw)) = do
-  sbe <- gets L.symBE
-  tm <- L.liftSBE $ L.freshInt sbe bw
-  return (ty, tm)
-freshArg (_, _) = fail "Only integer arguments are supported for now."
