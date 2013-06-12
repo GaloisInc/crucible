@@ -12,11 +12,11 @@ import SAWScript.Token
 import SAWScript.Lexer
 import SAWScript.Parser
 
-import SAWScript.FindMain
+--import SAWScript.FindMain
 import SAWScript.ResolveSyns
 --import SAWScript.LiftPoly
 import SAWScript.RenameRefs
-import SAWScript.TypeCheck
+--import SAWScript.TypeCheck
 import SAWScript.ConvertType
 
 --import SAWScript.Import
@@ -58,16 +58,21 @@ processFiles opts = mapM_ (processFile opts)
 
 processFile :: Options -> FilePath -> IO ()
 processFile opts file | takeExtensions file == ".sawcore" = do
-  m <- SC.readModuleFromFile [preludeModule] file
+  sawScriptPrelude <- SC.readModuleFromFile [preludeModule] "examples/prelude.sawcore"
+  m <- SC.readModuleFromFile [preludeModule, sawScriptPrelude] file
   execSAWCore m
 processFile opts file | takeExtensions file == ".saw" = do
   text <- readFile file
+  putStrLn "SAWScript temporarily disabled"
+  {-
   runE (compileModule file text)
     (putStrLn . ("Error\n" ++) . indent 2)  -- failure
     (\_ -> putStrLn "Success.")
+    -}
   --loadModule opts emptyLoadedModules file handleMods
 
 
+{-
 -- TODO: type check then translate to SAWCore
 translateFile :: FilePath -> Compiler String SC.Module
 translateFile f s = do
@@ -98,10 +103,12 @@ runCompiler f a = do
 -- testing external files -----------------------------------------------------
 
 -- | Filters files by whitelisted prefixes. If the filter set is null, allow all files through.
+{-
 filesToRun :: [String] -> [FilePath] -> [FilePath]
 filesToRun run = if null run
   then id
   else filter (or . (isPrefixOf <$> run <*>) . pure . takeBaseName)
+-}
 
 -- | Resolve the paths of all SAWScript files in directory
 {-
