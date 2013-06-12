@@ -14,7 +14,8 @@ import SAWScript.Parser
 
 --import SAWScript.FindMain
 import SAWScript.ResolveSyns
-import SAWScript.LiftPoly
+--import SAWScript.LiftPoly
+import SAWScript.RenameRefs
 --import SAWScript.TypeCheck
 import SAWScript.ConvertType
 
@@ -89,8 +90,7 @@ formModule f = scan f >=> parseModule -- >=> findMain mname
 
 -- | Takes module from untyped to fully typed
 typeModule :: Compiler (Module MPType) (Module' PType Type)
-typeModule = resolveSyns >=> liftPoly >=> typeCheck >=> convertType
--}
+typeModule = resolveSyns >=> renameRefs >=> {- liftPoly >=> -} typeCheck >=> convertType
 
 -- | Wrapper around compiler function to format the result or error
 runCompiler :: (Show b) => Compiler a b -> a -> IO ()

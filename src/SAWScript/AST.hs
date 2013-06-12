@@ -17,7 +17,7 @@ import qualified Data.Traversable as T
 type RawT      = Maybe RawSigT
 type RawSigT   = Mu (Syn :+: Poly :+: BaseT)
 type ResolvedT = Maybe FullT
-type FullT    = Mu (Poly :+: BaseT)
+type FullT     = Mu (Poly :+: BaseT)
 type TCheckT   = Mu (Logic :+: Poly :+: BaseT)
 
 type BaseT = I :+: ContextF :+: TypeF
@@ -27,10 +27,32 @@ type BaseT = I :+: ContextF :+: TypeF
 -- Names {{{
 
 type Name = String
-
+-- dot separated names designating module heirarchy,
+--  and single name designating module name.
 data ModuleName = ModuleName [Name] Name deriving (Eq,Ord,Show)
 
-data QName = QName ModuleName Name
+-- some name, qualified with some dot separated names.
+--  compiler doesn't know what those names are yet.
+data UnresolvedName = UnresolvedName [Name] Name
+  deriving (Eq,Ord,Show)
+
+-- a name that has been resolved to a particular module.
+data ResolvedName
+  -- locally bound in the environment, ie. in a lambda.
+  = LocalName Name
+  -- a name bound at the top level of some module.
+  | TopLevelName ModuleName Name
+  deriving (Eq,Ord,Show)
+
+renderUnresolvedName :: UnresolvedName -> String
+renderUnresolvedName (UnresolvedName ns n) = show $ intercalate "." $
+  ns ++ [n]
+
+renderResolvedName :: ResolvedName -> String
+renderResolvedName rn = case rn of
+  TopLevelName (ModuleName ns mn) n -> show $ intercalate "."
+    (ns ++ [mn,n])
+  LocalName n                       -> n
 
 type Bind a = (Name,a)
 onBind :: (a -> b) -> Bind a -> Bind b
@@ -38,7 +60,8 @@ onBind f (n,a) = (n,f a)
 onBinds :: (a -> b) -> [Bind a] -> [Bind b]
 onBinds = map . onBind
 
-type Env a = M.Map Name a
+type Env a       = M.Map Name a
+type ModuleEnv a = M.Map ModuleName a
 
 singletonEnv :: Name -> a -> Env a
 singletonEnv = M.singleton
@@ -56,24 +79,27 @@ emptyEnv = M.empty
 
 -- Module Level {{{
 
-type ModuleSimple = Module Name
+type ModuleSimple = Module UnresolvedName
 
 data Module refT exprT typeT = Module
   { moduleName         :: ModuleName
   , moduleExprEnv      :: Env (Expr refT exprT)
   , moduleTypeEnv      :: Env typeT
-  , moduleDependencies :: Env ValidModule
+  , moduleDependencies :: ModuleEnv ValidModule
   } deriving (Eq,Show)
 
-type ValidModule = Module Name Type Type
+-- A fully type checked module.
+--  Exprs have resolved names, TCheckT types
+--  Types have ResolvedT (Nothing for abstract types, Just FullT for type synonyms)
+type ValidModule = Module ResolvedName TCheckT ResolvedT
 
 -- }}}
 
 -- Expr Level {{{
 
-type TopStmtSimple = TopStmt Name
-type ExprSimple = Expr Name
-type BlockStmtSimple = BlockStmt Name
+type TopStmtSimple   = TopStmt   UnresolvedName
+type ExprSimple      = Expr      UnresolvedName
+type BlockStmtSimple = BlockStmt UnresolvedName
 
 data TopStmt refT typeT
   = Import      ModuleName (Maybe [Name])    (Maybe Name)
