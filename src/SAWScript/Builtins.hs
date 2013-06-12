@@ -5,16 +5,15 @@
 module SAWScript.Builtins where
 
 import Control.Applicative
-import qualified Control.Exception as CE
+import Control.Lens
 import Control.Monad.State
 import Data.Bits
 import Data.Map ( Map )
 import qualified Data.Map as Map
-import Data.Typeable
 import Data.Vector ( Vector )
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
-import Text.PrettyPrint.HughesPJ
+import Text.PrettyPrint.Leijen hiding ((<$>))
 
 import Data.ABC.Internal.GIA
 
@@ -36,10 +35,13 @@ import Verifier.SAW.ParserUtils ( readModuleFromFile )
 import Verifier.SAW.Prelude
 import qualified Verifier.SAW.SBVParser as SBV
 import Verifier.SAW.SharedTerm
-import Verifier.SAW.TypedAST
+import Verifier.SAW.Rewriter
+import Verifier.SAW.TypedAST hiding (instantiateVarList)
 
 import qualified Verifier.SAW.Export.SMT.Version1 as SMT1
 import qualified Verifier.SAW.Export.SMT.Version2 as SMT2
+
+import SAWScript.Utils
 
 import qualified Verinf.Symbolic as BE
 import Verinf.Utils.LogMonad
@@ -85,6 +87,9 @@ sawScriptPrims global = Map.fromList
   , ("SAWScript.predNat", toValue (pred :: Integer -> Integer))
   , ("SAWScript.isZeroNat", toValue ((== 0) :: Integer -> Bool))
   , ("SAWScriptPrelude.p384_safe_product_path", toValue p384_safe_product_path)
+  , ("SAWScriptPrelude.add_comm_path", toValue add_comm_path)
+  , ("SAWScriptPrelude.p384_safe_product_aig_path", toValue p384_safe_product_aig_path)
+  , ("SAWScriptPrelude.p384_safe_product_smt_path", toValue p384_safe_product_smt_path)
   , ("SAWScriptPrelude.evaluate", toValue (evaluate global :: () -> SharedTerm s -> Value s))
   , ("Prelude.append", toValue
       (myAppend :: Int -> Int -> () -> Value s -> Value s -> Value s))
@@ -115,6 +120,14 @@ withBE act = do
   BE.beFree be
   return r
 
+{-
+unLambda :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
+unLambda sc (STApp _ (Lambda (PVar x _ _) ty tm)) = do
+  arg <- scFreshGlobal sc x ty
+  instantiateVar sc 0 arg tm >>= unLambda sc
+unLambda _ tm = return tm
+-}
+
 -- TODO: needs AIG -> SharedTerm function
 readAIG :: FilePath -> SC s (SharedTerm s)
 readAIG f =
@@ -124,9 +137,11 @@ readAIG f =
 
 writeAIG :: FilePath -> SharedTerm s -> SC s ()
 writeAIG f t = mkSC $ \sc -> withBE $ \be -> do
+  putStrLn (scPrettyTerm t)
   mbterm <- bitBlast be t
   case mbterm of
-    Nothing -> fail "Can't bitblast."
+    Nothing ->
+      fail $ "Can't bitblast term."
     Just bterm -> do
       outs <- case bterm of
               BBool l -> return $ SV.singleton l
@@ -134,18 +149,29 @@ writeAIG f t = mkSC $ \sc -> withBE $ \be -> do
       ins <- BE.beInputLits be
       BE.beWriteAigerV be f ins outs
 
+prepForExport :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
+prepForExport sc t = do
+  ss <- scSimpset sc []  [mkIdent (moduleName preludeModule) "get_single"] []
+  rewriteSharedTerm sc ss t
+
 writeSMTLib1 :: FilePath -> SharedTerm s -> SC s ()
 writeSMTLib1 f t = mkSC $ \sc -> do
   -- TODO: better benchmark name than "sawscript"?
+  t' <- prepForExport sc t
   let ws = SMT1.qf_aufbv_WriterState sc "sawscript"
-  cmd <- execStateT (SMT1.writeFormula t) ws
-  writeFile f (SMT1.render cmd)
+  ws' <- execStateT (SMT1.writeFormula t') ws
+  mapM_ (print . (text "WARNING:" <+>) . SMT1.ppWarning)
+        (map (fmap scPrettyTermDoc) (ws' ^. SMT1.warnings))
+  writeFile f (SMT1.render ws')
 
 writeSMTLib2 :: FilePath -> SharedTerm s -> SC s ()
 writeSMTLib2 f t = mkSC $ \sc -> do
+  t' <- prepForExport sc t
   let ws = SMT2.qf_aufbv_WriterState sc
-  cmd <- execStateT (SMT2.assert t) ws
-  writeFile f (SMT2.render cmd)
+  ws' <- execStateT (SMT2.assert t') ws
+  mapM_ (print . (text "WARNING:" <+>) . SMT2.ppWarning)
+        (map (fmap scPrettyTermDoc) (ws' ^. SMT2.warnings))
+  writeFile f (SMT2.render ws')
 
 proveABC :: SharedTerm s -> SC s ()
 proveABC t = mkSC $ \sc -> withBE $ \be -> do
@@ -177,8 +203,17 @@ evaluate global _ = evalSharedTerm global
 
 p384_safe_product_path :: String
 p384_safe_product_path = "examples/p384_safe_product.sbv"
+
+add_comm_path :: String
+add_comm_path = "examples/add_comm.sbv"
 -- (x, y) -> uext(x) * uext(y)
 -- ([384], [384]) -> [768]
+
+p384_safe_product_aig_path :: String
+p384_safe_product_aig_path = "examples/p384_safe_product.aig"
+
+p384_safe_product_smt_path :: String
+p384_safe_product_smt_path = "examples/p384_safe_product.smt"
 
 myPrint :: () -> Value s -> SC s ()
 myPrint _ v = mkSC $ const (print v)
@@ -224,14 +259,17 @@ freshLLVMArg (_, ty@(L.IntType bw)) = do
   return (ty, tm)
 freshLLVMArg (_, _) = fail "Only integer arguments are supported for now."
 
+fixPos :: Pos
+fixPos = PosInternal "FIXME"
+
 -- TODO: need configuration arguments for jars, classpath
 extractJava :: String -> String -> SC s (SharedTerm s)
 extractJava cname mname =  mkSC $ \sc -> do
   let jpaths' = undefined
       cpaths = undefined
   cb <- JSS.loadCodebase jpaths' cpaths
-  cls <- lookupClass cb cname
-  (_, meth) <- findMethod cb mname cls
+  cls <- lookupClass cb fixPos cname
+  (_, meth) <- findMethod cb fixPos mname cls
   JSS.withFreshBackend $ \sbe -> do
     let fl  = JSS.defaultSimFlags { JSS.alwaysBitBlastBranchTerms = True }
     JSS.runSimulator cb sbe JSS.defaultSEH (Just fl) $ do
@@ -251,47 +289,24 @@ freshJavaArg sbe JSS.IntType = liftIO (JSS.IValue <$> JSS.freshInt sbe)
 freshJavaArg sbe JSS.LongType = liftIO (JSS.LValue <$> JSS.freshLong sbe)
 freshJavaArg _ _ = fail "Only byte, int, and long arguments are supported for now."
 
--- ExecException {{{1
-
--- | Class of exceptions thrown by SBV parser.
-data ExecException = ExecException -- Pos          -- ^ Position
-                                   Doc          -- ^ Error message
-                                   String       -- ^ Resolution tip
-  deriving (Show, Typeable)
-
-instance CE.Exception ExecException
-
--- | Throw exec exception in a MonadIO.
-throwIOExecException :: MonadIO m => {- Pos -> -} Doc -> String -> m a
-throwIOExecException {- pos -} errorMsg resolution =
-  liftIO $ CE.throwIO (ExecException {- pos -} errorMsg resolution)
-
--- | Throw exec exception in a MonadIO.
-throwExecException :: {- Pos -> -} Doc -> String -> m a
-throwExecException {- pos -} errorMsg resolution =
-  CE.throw (ExecException {- pos -} errorMsg resolution)
-
-ftext :: String -> Doc
-ftext msg = fsep (map text $ words msg)
-
 -- Java lookup functions {{{1
 
 -- | Atempt to find class with given name, or throw ExecException if no class
 -- with that name exists.
-lookupClass :: JSS.Codebase -> {- Pos -> -} String -> IO JSS.Class
-lookupClass cb {- pos -} nm = do
+lookupClass :: JSS.Codebase -> Pos -> String -> IO JSS.Class
+lookupClass cb pos nm = do
   maybeCl <- JSS.tryLookupClass cb nm
   case maybeCl of
     Nothing -> do
      let msg = ftext ("The Java class " ++ JSS.slashesToDots nm ++ " could not be found.")
          res = "Please check that the --classpath and --jars options are set correctly."
-      in throwIOExecException {- pos -} msg res
+      in throwIOExecException pos msg res
     Just cl -> return cl
 
 -- | Returns method with given name in this class or one of its subclasses.
 -- Throws an ExecException if method could not be found or is ambiguous.
-findMethod :: JSS.Codebase -> {- Pos -> -} String -> JSS.Class -> IO (JSS.Class, JSS.Method)
-findMethod cb {- pos -} nm initClass = impl initClass
+findMethod :: JSS.Codebase -> Pos -> String -> JSS.Class -> IO (JSS.Class, JSS.Method)
+findMethod cb pos nm initClass = impl initClass
   where javaClassName = JSS.slashesToDots (JSS.className initClass)
         methodMatches m = JSS.methodName m == nm && not (JSS.methodIsAbstract m)
         impl cl =
@@ -302,12 +317,12 @@ findMethod cb {- pos -} nm initClass = impl initClass
                   let msg = ftext $ "Could not find method " ++ nm
                               ++ " in class " ++ javaClassName ++ "."
                       res = "Please check that the class and method are correct."
-                   in throwIOExecException {- pos -} msg res
+                   in throwIOExecException pos msg res
                 Just superName ->
-                  impl =<< lookupClass cb {- pos -} superName
+                  impl =<< lookupClass cb pos superName
             [method] -> return (cl,method)
             _ -> let msg = "The method " ++ nm ++ " in class " ++ javaClassName
                              ++ " is ambiguous.  SAWScript currently requires that "
                              ++ "method names are unique."
                      res = "Please rename the Java method so that it is unique."
-                  in throwIOExecException {- pos -} (ftext msg) res
+                  in throwIOExecException pos (ftext msg) res

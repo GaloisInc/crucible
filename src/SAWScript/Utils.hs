@@ -8,7 +8,7 @@ Point-of-contact : jhendrix, lerkok
 {-# LANGUAGE DeriveDataTypeable  #-}
 module SAWScript.Utils where
 
-import Control.Exception
+import Control.Exception as CE
 import Control.Monad.State
 import Control.DeepSeq(rnf, NFData(..))
 import Data.List(intercalate)
@@ -22,7 +22,7 @@ import System.Directory(makeRelativeToCurrentDirectory)
 import System.FilePath(makeRelative, isAbsolute, (</>), takeDirectory)
 import System.Time(TimeDiff(..), getClockTime, diffClockTimes, normalizeTimeDiff, toCalendarTime, formatCalendarTime)
 import System.Locale(defaultTimeLocale)
-import Text.PrettyPrint.HughesPJ
+import Text.PrettyPrint.Leijen hiding ((</>))
 import Numeric(showFFloat)
 
 data Pos = Pos !FilePath -- file
@@ -85,7 +85,7 @@ debugVerbose o = verboseAtLeast 10 o
 
 -- | Convert a string to a paragraph formatted document.
 ftext :: String -> Doc
-ftext msg = fsep (map text $ words msg)
+ftext msg = sep (map text $ words msg)
 
 -- | Insert multiple keys that map to the same value in a map.
 mapInsertKeys :: Ord k => [k] -> a -> Map k a -> Map k a
@@ -133,3 +133,4 @@ timeIt action = do
 getTimeStamp :: MonadIO m => m String
 getTimeStamp = do t <- liftIO (getClockTime >>= toCalendarTime)
                   return $ formatCalendarTime defaultTimeLocale "%l:%M:%S %p" t
+
