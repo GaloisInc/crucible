@@ -36,6 +36,7 @@ import Verifier.SAW.Evaluator
 import Verifier.SAW.Prelude
 import qualified Verifier.SAW.SBVParser as SBV
 import Verifier.SAW.SharedTerm
+import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
 import Verifier.SAW.TypedAST hiding (instantiateVarList)
 
@@ -80,12 +81,12 @@ sawScriptPrims opts global = Map.fromList
       (extractLLVM :: FilePath -> String -> SharedTerm s -> SC s (SharedTerm s)))
   , ("SAWScriptPrelude.extract_java", toValue
       (extractJava opts :: String -> String -> SharedTerm s -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.eq", toValue
-      (eqABC :: SharedTerm s -> SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
   , ("SAWScriptPrelude.prove", toValue
       (proveABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
   , ("SAWScriptPrelude.sat", toValue
       (satABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
+  , ("SAWScriptPrelude.equal", toValue
+      (equalPrim :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
   -- Term building
   , ("SAWScriptPrelude.termGlobal", toValue
       (termGlobal :: String -> SC s (SharedTerm s)))
@@ -216,27 +217,50 @@ writeSMTLib2 f t = mkSC $ \sc -> do
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
 satABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
-satABC _script t = mkSC $ \_sc -> withBE $ \be -> do
+satABC _script t = mkSC $ \sc -> withBE $ \be -> do
   mbterm <- bitBlast be t
   case (mbterm, BE.beCheckSat be) of
     (Just bterm, Just chk) -> do
       case bterm of
         BBool l -> do
-          _satRes <- chk l
-          return undefined -- TODO: do something with satRes!
+          satRes <- chk l
+          case satRes of
+            BE.UnSat -> scApplyPreludeFalse sc
+            BE.Sat _ -> scApplyPreludeTrue sc
+            _ -> fail "ABC returned Unknown for SAT query."
         _ -> fail "Can't prove non-boolean term."
     (_, _) -> fail "Can't bitblast."
+
+scNot :: SharedTerm s -> SC s (SharedTerm s)
+scNot t = mkSC $ \sc -> do appNot <- scApplyPreludeNot sc ; appNot t
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- validity using ABC.
 proveABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
 proveABC script t = do
-  t' <- mkSC $ \sc -> do appNot <- scApplyPreludeNot sc ; appNot t
-  satABC script t'
+  t' <- scNot t
+  r <- satABC script t'
+  scNot r
 
-eqABC :: SharedTerm s -> SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
-eqABC _script t1 t2 = mkSC $ \_sc -> withBE $ \be -> do
-  undefined -- TODO
+equal :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
+equal sc (STApp _ (Lambda (PVar x1 _ _) ty1 tm1)) (STApp _ (Lambda (PVar _ _ _) ty2 tm2)) = do
+  let Just n1 = asBitvectorType ty1
+  let Just n2 = asBitvectorType ty2
+  unless (n1 == n2) $ fail "Types have different sizes."
+  eqBody <- equal sc tm1 tm2
+  scLambda sc x1 ty1 eqBody
+equal sc tm1@(STApp _ (FTermF _)) tm2@(STApp _ (FTermF _)) = do
+  ty1 <- scTypeOf sc tm1
+  let Just n1 = asBitvectorType ty1
+  ty2 <- scTypeOf sc tm2
+  let Just n2 = asBitvectorType ty2
+  unless (n1 == n2) $ fail "Types have different sizes."
+  n1t <- scNat sc n1
+  scBvEq sc n1t tm1 tm2
+equal _ _ _ = fail "Incomparable terms."
+
+equalPrim :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
+equalPrim t1 t2 = mkSC $ \sc -> equal sc t1 t2
 
 -- Implementations of SharedTerm primitives
 
