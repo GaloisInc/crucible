@@ -100,10 +100,6 @@ sawScriptPrims global = Map.fromList
   , ("SAWScriptPrelude.bvNatIdent", toValue ("Prelude.bvNat" :: String))
   , ("SAWScript.predNat", toValue (pred :: Integer -> Integer))
   , ("SAWScript.isZeroNat", toValue ((== 0) :: Integer -> Bool))
-  , ("SAWScriptPrelude.p384_safe_product_path", toValue p384_safe_product_path)
-  , ("SAWScriptPrelude.add_comm_path", toValue add_comm_path)
-  , ("SAWScriptPrelude.p384_safe_product_aig_path", toValue p384_safe_product_aig_path)
-  , ("SAWScriptPrelude.p384_safe_product_smt_path", toValue p384_safe_product_smt_path)
   , ("SAWScriptPrelude.evaluate", toValue (evaluate global :: () -> SharedTerm s -> Value s))
   , ("Prelude.append", toValue
       (myAppend :: Int -> Int -> () -> Value s -> Value s -> Value s))
@@ -239,20 +235,6 @@ termApp t1 t2 = mkSC $ \sc -> scApply sc t1 t2
 -- evaluate :: (a :: sort 0) -> Term -> a;
 evaluate :: (Ident -> Value s) -> () -> SharedTerm s -> Value s
 evaluate global _ = evalSharedTerm global
-
-p384_safe_product_path :: String
-p384_safe_product_path = "examples/p384_safe_product.sbv"
-
-add_comm_path :: String
-add_comm_path = "examples/add_comm.sbv"
--- (x, y) -> uext(x) * uext(y)
--- ([384], [384]) -> [768]
-
-p384_safe_product_aig_path :: String
-p384_safe_product_aig_path = "examples/p384_safe_product.aig"
-
-p384_safe_product_smt_path :: String
-p384_safe_product_smt_path = "examples/p384_safe_product.smt"
 
 myPrint :: () -> Value s -> SC s ()
 myPrint _ v = mkSC $ const (print v)
