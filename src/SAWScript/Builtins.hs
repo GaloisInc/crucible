@@ -76,6 +76,16 @@ sawScriptPrims opts global = Map.fromList
       (writeSMTLib1 :: FilePath -> SharedTerm s -> SC s ()))
   , ("SAWScriptPrelude.writeSMTLib2", toValue
       (writeSMTLib2 :: FilePath -> SharedTerm s -> SC s ()))
+  , ("SAWScriptPrelude.extract_llvm", toValue
+      (extractLLVM :: FilePath -> String -> SharedTerm s -> SC s (SharedTerm s)))
+  , ("SAWScriptPrelude.extract_java", toValue
+      (extractJava opts :: String -> String -> SharedTerm s -> SC s (SharedTerm s)))
+  , ("SAWScriptPrelude.eq", toValue
+      (eqABC :: SharedTerm s -> SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
+  , ("SAWScriptPrelude.prove", toValue
+      (proveABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
+  , ("SAWScriptPrelude.sat", toValue
+      (satABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
   -- Term building
   , ("SAWScriptPrelude.termGlobal", toValue
       (termGlobal :: String -> SC s (SharedTerm s)))
@@ -205,24 +215,28 @@ writeSMTLib2 f t = mkSC $ \sc -> do
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
-satABC :: SharedTerm s -> SC s ()
-satABC t = mkSC $ \_sc -> withBE $ \be -> do
+satABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
+satABC _script t = mkSC $ \_sc -> withBE $ \be -> do
   mbterm <- bitBlast be t
   case (mbterm, BE.beCheckSat be) of
     (Just bterm, Just chk) -> do
       case bterm of
         BBool l -> do
           satRes <- chk l
-          return () -- TODO: do something with satRes!
+          return undefined -- TODO: do something with satRes!
         _ -> fail "Can't prove non-boolean term."
     (_, _) -> fail "Can't bitblast."
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- validity using ABC.
-proveABC :: SharedTerm s -> SC s ()
-proveABC t = do
+proveABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
+proveABC script t = do
   t' <- mkSC $ \sc -> do appNot <- scApplyPreludeNot sc ; appNot t
-  satABC t'
+  satABC script t'
+
+eqABC :: SharedTerm s -> SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
+eqABC _script t1 t2 = mkSC $ \_sc -> withBE $ \be -> do
+  undefined -- TODO
 
 -- Implementations of SharedTerm primitives
 
@@ -280,8 +294,8 @@ myAppend _ _ _ _ _ = error "Prelude.append: malformed arguments"
 -- verifications will require more complex execution contexts.
 --
 -- Note! The s and s' type variables in this signature are different.
-extractLLVM :: FilePath -> String -> SC s (SharedTerm s')
-extractLLVM file func = mkSC $ \_sc -> do
+extractLLVM :: FilePath -> String -> SharedTerm s -> SC s (SharedTerm s')
+extractLLVM file func _setup = mkSC $ \_sc -> do
   mdl <- L.loadModule file
   let dl = L.parseDataLayout $ LLVM.modDataLayout mdl
       mg = L.defaultMemGeom dl
@@ -335,8 +349,8 @@ freshLLVMArg (_, _) = fail "Only integer arguments are supported for now."
 fixPos :: Pos
 fixPos = PosInternal "FIXME"
 
-extractJava :: Options -> String -> String -> SC s (SharedTerm s)
-extractJava opts cname mname =  mkSC $ \sc -> do
+extractJava :: Options -> String -> String -> SharedTerm s -> SC s (SharedTerm s)
+extractJava opts cname mname _setup =  mkSC $ \sc -> do
   cb <- JSS.loadCodebase (jarList opts) (classPath opts)
   cls <- lookupClass cb fixPos cname
   (_, meth) <- findMethod cb fixPos mname cls
