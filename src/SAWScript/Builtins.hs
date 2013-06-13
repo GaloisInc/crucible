@@ -5,7 +5,9 @@
 module SAWScript.Builtins where
 
 import Control.Applicative
+import Control.Exception (bracket)
 import Control.Lens
+import Control.Monad.Error
 import Control.Monad.State
 import Data.Bits
 import Data.Map ( Map )
@@ -14,14 +16,14 @@ import Data.Vector ( Vector )
 import qualified Data.Vector as V
 import Text.PrettyPrint.Leijen hiding ((<$>))
 
-import Data.ABC.Internal.GIA
+import Verinf.Symbolic.Lit.ABC_GIA
 
 import qualified Text.LLVM as LLVM
 import qualified Verifier.LLVM.AST as L
 import qualified Verifier.LLVM.Backend as L
 import qualified Verifier.LLVM.Codebase as L
-import qualified Verifier.LLVM.SAWBackend as L
---import qualified Verifier.LLVM.BitBlastBackend as BB
+import qualified Verifier.LLVM.SAWBackend as LSAW
+--import qualified Verifier.LLVM.BitBlastBackend as LBit
 import qualified Verifier.LLVM.Simulator as L
 
 import qualified Verifier.Java.Codebase as JSS
@@ -30,7 +32,6 @@ import qualified Verifier.Java.WordBackend as JSS
 
 import Verifier.SAW.BitBlast
 import Verifier.SAW.Evaluator
-import Verifier.SAW.ParserUtils ( readModuleFromFile )
 import Verifier.SAW.Prelude
 import qualified Verifier.SAW.SBVParser as SBV
 import Verifier.SAW.SharedTerm
@@ -39,12 +40,15 @@ import Verifier.SAW.TypedAST hiding (instantiateVarList)
 
 import qualified Verifier.SAW.Export.SMT.Version1 as SMT1
 import qualified Verifier.SAW.Export.SMT.Version2 as SMT2
+import Verifier.SAW.Import.AIG
 
+import SAWScript.Options
 import SAWScript.Utils
 
 import qualified Verinf.Symbolic as BE
 import Verinf.Utils.LogMonad
 
+{-
 runTest :: IO ()
 runTest =
     do sawScriptModule <- readModuleFromFile [preludeModule] "examples/prelude.sawcore"
@@ -52,9 +56,10 @@ runTest =
        let global = evalGlobal sawScriptModule (allPrims global)
        let t = Term (FTermF (GlobalDef "SAWScriptPrelude.test"))
        runSC (fromValue (evalTerm global [] t :: Value s)) sc
+-}
 
-sawScriptPrims :: forall s. (Ident -> Value s) -> Map Ident (Value s)
-sawScriptPrims global = Map.fromList
+sawScriptPrims :: forall s. Options -> (Ident -> Value s) -> Map Ident (Value s)
+sawScriptPrims opts global = Map.fromList
   -- Key SAWScript functions
   [ ("SAWScriptPrelude.topBind", toValue
       (topBind :: () -> () -> SC s (Value s) -> (Value s -> SC s (Value s)) -> SC s (Value s)))
@@ -63,13 +68,23 @@ sawScriptPrims global = Map.fromList
   , ("SAWScriptPrelude.readSBV", toValue
       (readSBV :: FilePath -> SC s (SharedTerm s)))
   , ("SAWScriptPrelude.readAIG", toValue
-      (readAIG :: FilePath -> SC s (SharedTerm s)))
+      (readAIGPrim :: FilePath -> SC s (SharedTerm s)))
   , ("SAWScriptPrelude.writeAIG", toValue
       (writeAIG :: FilePath -> SharedTerm s -> SC s ()))
   , ("SAWScriptPrelude.writeSMTLib1", toValue
       (writeSMTLib1 :: FilePath -> SharedTerm s -> SC s ()))
   , ("SAWScriptPrelude.writeSMTLib2", toValue
       (writeSMTLib2 :: FilePath -> SharedTerm s -> SC s ()))
+  , ("SAWScriptPrelude.extract_llvm", toValue
+      (extractLLVM :: FilePath -> String -> SharedTerm s -> SC s (SharedTerm s)))
+  , ("SAWScriptPrelude.extract_java", toValue
+      (extractJava opts :: String -> String -> SharedTerm s -> SC s (SharedTerm s)))
+  , ("SAWScriptPrelude.eq", toValue
+      (eqABC :: SharedTerm s -> SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
+  , ("SAWScriptPrelude.prove", toValue
+      (proveABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
+  , ("SAWScriptPrelude.sat", toValue
+      (satABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
   -- Term building
   , ("SAWScriptPrelude.termGlobal", toValue
       (termGlobal :: String -> SC s (SharedTerm s)))
@@ -104,8 +119,8 @@ sawScriptPrims global = Map.fromList
       (myAppend :: Int -> Int -> () -> Value s -> Value s -> Value s))
   ]
 
-allPrims :: (Ident -> Value s) -> Map Ident (Value s)
-allPrims global = Map.union preludePrims (sawScriptPrims global)
+allPrims :: Options -> (Ident -> Value s) -> Map Ident (Value s)
+allPrims opts global = Map.union preludePrims (sawScriptPrims opts global)
 
 --topReturn :: (a :: sort 0) -> a -> TopLevel a;
 topReturn :: () -> Value s -> SC s (Value s)
@@ -123,9 +138,9 @@ readSBV path =
       SBV.parseSBVPgm sc (\_ _ -> Nothing) pgm
 
 withBE :: (BE.BitEngine BE.Lit -> IO a) -> IO a
-withBE action = do
+withBE f = do
   be <- BE.createBitEngine
-  r <- action be
+  r <- f be
   BE.beFree be
   return r
 
@@ -137,13 +152,32 @@ unLambda sc (STApp _ (Lambda (PVar x _ _) ty tm)) = do
 unLambda _ tm = return tm
 -}
 
--- TODO: needs AIG -> SharedTerm function
-readAIG :: FilePath -> SC s (SharedTerm s)
-readAIG f =
-    mkSC $ \_sc -> do
-      _n <- giaAigerRead f False False
-      fail "readAIG not yet implemented"
+-- | Read an AIG file representing a theorem or an arbitrary function
+-- and represent its contents as a @SharedTerm@ lambda term. This is
+-- inefficient but semantically correct.
+readAIGPrim :: FilePath -> SC s (SharedTerm s)
+readAIGPrim f = mkSC $ \sc -> do
+  et <- withReadAiger f $ \ntk -> do
+    outputLits <- networkOutputs ntk
+    inputLits <- networkInputs ntk
+    inType <- scBitvector sc (fromIntegral (SV.length inputLits))
+    outType <- scBitvector sc (fromIntegral (SV.length outputLits))
+    runErrorT $
+      translateNetwork sc ntk outputLits [("x", inType)] outType
+  case et of
+    Left err -> fail $ "Reading AIG failed: " ++ err
+    Right t -> return t
 
+-- | Apply some rewrite rules before exporting, to ensure that terms
+-- are within the language subset supported by formats such as SMT-Lib
+-- QF_AUFBV or AIG.
+prepForExport :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
+prepForExport sc t = do
+  ss <- scSimpset sc []  [mkIdent (moduleName preludeModule) "get_single"] []
+  rewriteSharedTerm sc ss t
+
+-- | Write a @SharedTerm@ representing a theorem or an arbitrary
+-- function to an AIG file.
 writeAIG :: FilePath -> SharedTerm s -> SC s ()
 writeAIG f t = mkSC $ \_sc -> withBE $ \be -> do
   putStrLn (scPrettyTerm t)
@@ -152,15 +186,11 @@ writeAIG f t = mkSC $ \_sc -> withBE $ \be -> do
     Nothing ->
       fail $ "Can't bitblast term."
     Just bterm -> do
-      let outs = flattenBValue bterm
       ins <- BE.beInputLits be
-      BE.beWriteAigerV be f ins outs
+      BE.beWriteAigerV be f ins (flattenBValue bterm)
 
-prepForExport :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
-prepForExport sc t = do
-  ss <- scSimpset sc []  [mkIdent (moduleName preludeModule) "get_single"] []
-  rewriteSharedTerm sc ss t
-
+-- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
+-- 1 file.
 writeSMTLib1 :: FilePath -> SharedTerm s -> SC s ()
 writeSMTLib1 f t = mkSC $ \sc -> do
   -- TODO: better benchmark name than "sawscript"?
@@ -171,6 +201,8 @@ writeSMTLib1 f t = mkSC $ \sc -> do
         (map (fmap scPrettyTermDoc) (ws' ^. SMT1.warnings))
   writeFile f (SMT1.render ws')
 
+-- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
+-- 2 file.
 writeSMTLib2 :: FilePath -> SharedTerm s -> SC s ()
 writeSMTLib2 f t = mkSC $ \sc -> do
   t' <- prepForExport sc t
@@ -180,17 +212,30 @@ writeSMTLib2 f t = mkSC $ \sc -> do
         (map (fmap scPrettyTermDoc) (ws' ^. SMT2.warnings))
   writeFile f (SMT2.render ws')
 
-proveABC :: SharedTerm s -> SC s ()
-proveABC t = mkSC $ \_sc -> withBE $ \be -> do
+-- | Bit-blast a @SharedTerm@ representing a theorem and check its
+-- satisfiability using ABC.
+satABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
+satABC _script t = mkSC $ \_sc -> withBE $ \be -> do
   mbterm <- bitBlast be t
   case (mbterm, BE.beCheckSat be) of
     (Just bterm, Just chk) -> do
       case bterm of
         BBool l -> do
           _satRes <- chk l
-          return () -- TODO: do something with satRes!
+          return undefined -- TODO: do something with satRes!
         _ -> fail "Can't prove non-boolean term."
     (_, _) -> fail "Can't bitblast."
+
+-- | Bit-blast a @SharedTerm@ representing a theorem and check its
+-- validity using ABC.
+proveABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
+proveABC script t = do
+  t' <- mkSC $ \sc -> do appNot <- scApplyPreludeNot sc ; appNot t
+  satABC script t'
+
+eqABC :: SharedTerm s -> SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
+eqABC _script t1 t2 = mkSC $ \_sc -> withBE $ \be -> do
+  undefined -- TODO
 
 -- Implementations of SharedTerm primitives
 
@@ -248,14 +293,14 @@ myAppend _ _ _ _ _ = error "Prelude.append: malformed arguments"
 -- verifications will require more complex execution contexts.
 --
 -- Note! The s and s' type variables in this signature are different.
-extractLLVM :: FilePath -> String -> SC s (SharedTerm s')
-extractLLVM file func = mkSC $ \_sc -> do
+extractLLVM :: FilePath -> String -> SharedTerm s -> SC s (SharedTerm s')
+extractLLVM file func _setup = mkSC $ \_sc -> do
   mdl <- L.loadModule file
   let dl = L.parseDataLayout $ LLVM.modDataLayout mdl
       mg = L.defaultMemGeom dl
       sym = L.Symbol func
   withBE $ \be -> do
-    (sbe, mem) <- L.createSAWBackend be dl mg
+    (sbe, mem) <- LSAW.createSAWBackend be dl mg
     cb <- L.mkCodebase sbe dl mdl
     case L.lookupDefine sym cb of
       Nothing -> fail $ "Bitcode file " ++ file ++
@@ -269,6 +314,29 @@ extractLLVM file func = mkSC $ \_sc -> do
           Nothing -> fail "No return value from simulated function."
           Just rv -> return rv
 
+{-
+extractLLVMBit :: FilePath -> String -> SC s (SharedTerm s')
+extractLLVMBit file func = mkSC $ \_sc -> do
+  mdl <- L.loadModule file
+  let dl = L.parseDataLayout $ LLVM.modDataLayout mdl
+      sym = L.Symbol func
+      mg = L.defaultMemGeom dl
+  withBE $ \be -> do
+    LBit.SBEPair sbe mem <- return $ LBit.createBuddyAll be dl mg
+    cb <- L.mkCodebase sbe dl mdl
+    case L.lookupDefine sym cb of
+      Nothing -> fail $ "Bitcode file " ++ file ++
+                        " does not contain symbol " ++ func ++ "."
+      Just md -> L.runSimulator cb sbe mem L.defaultSEH Nothing $ do
+        setVerbosity 0
+        args <- mapM freshLLVMArg (L.sdArgs md)
+        L.callDefine_ sym (L.sdRetType md) args
+        mrv <- L.getProgramReturnValue
+        case mrv of
+          Nothing -> fail "No return value from simulated function."
+          Just bt -> undefined
+-}
+
 freshLLVMArg :: Monad m =>
             (t, L.MemType) -> L.Simulator sbe m (L.MemType, L.SBETerm sbe)
 freshLLVMArg (_, ty@(L.IntType bw)) = do
@@ -280,20 +348,29 @@ freshLLVMArg (_, _) = fail "Only integer arguments are supported for now."
 fixPos :: Pos
 fixPos = PosInternal "FIXME"
 
--- TODO: need configuration arguments for jars, classpath
-extractJava :: String -> String -> SC s (SharedTerm s)
-extractJava cname mname =  mkSC $ \_sc -> do
-  let jpaths' = undefined
-      cpaths = undefined
-  cb <- JSS.loadCodebase jpaths' cpaths
+extractJava :: Options -> String -> String -> SharedTerm s -> SC s (SharedTerm s)
+extractJava opts cname mname _setup =  mkSC $ \sc -> do
+  cb <- JSS.loadCodebase (jarList opts) (classPath opts)
   cls <- lookupClass cb fixPos cname
   (_, meth) <- findMethod cb fixPos mname cls
-  JSS.withFreshBackend $ \sbe -> do
+  oc <- BE.mkOpCache
+  bracket BE.createBitEngine BE.beFree $ \be -> do
+    de <- BE.mkConstantFoldingDagEngine
+    sms <- JSS.mkSymbolicMonadState oc be de
     let fl  = JSS.defaultSimFlags { JSS.alwaysBitBlastBranchTerms = True }
+        sbe = JSS.symbolicBackend sms
     JSS.runSimulator cb sbe JSS.defaultSEH (Just fl) $ do
       args <- mapM (freshJavaArg sbe) (JSS.methodParameterTypes meth)
-      _rslt <- JSS.execStaticMethod cname (JSS.methodKey meth) args
-      undefined -- TODO: need to convert to SAWCore term
+      rslt <- JSS.execStaticMethod cname (JSS.methodKey meth) args
+      dt <- case rslt of
+              Nothing -> fail "No return value from JSS."
+              Just (JSS.IValue t) -> return t
+              Just (JSS.LValue t) -> return t
+              _ -> fail "Unimplemented result type from JSS."
+      et <- liftIO $ parseVerinfViaAIG sc de dt
+      case et of
+        Left err -> fail $ "Failed to extract Java model: " ++ err
+        Right t -> return t
 
 freshJavaArg :: MonadIO m =>
                 JSS.Backend sbe

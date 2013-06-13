@@ -60,7 +60,7 @@ processFile :: Options -> FilePath -> IO ()
 processFile opts file | takeExtensions file == ".sawcore" = do
   sawScriptPrelude <- SC.readModuleFromFile [preludeModule] "examples/prelude.sawcore"
   m <- SC.readModuleFromFile [preludeModule, sawScriptPrelude] file
-  execSAWCore m
+  execSAWCore opts m
 processFile opts file | takeExtensions file == ".saw" = do
   text <- readFile file
   putStrLn "SAWScript temporarily disabled"

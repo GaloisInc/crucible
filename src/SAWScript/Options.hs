@@ -7,20 +7,34 @@ import System.FilePath
 
 data Options = Options
   { importPath :: [FilePath]
+  , classPath  :: [FilePath]
+  , jarList    :: [FilePath]
   } deriving (Show)
 
 defaultOptions :: Options
-defaultOptions = Options { importPath = [] }
+defaultOptions = Options { importPath = [], classPath = ["."], jarList = [] }
 
 options :: [OptDescr (Options -> Options)]
 options =
   [ Option "h?" ["help"] (NoArg id) "Print this help message"
+  , Option "c" ["classpath"]
+    (ReqArg
+     (\p opts -> opts { classPath = classPath opts ++ splitSearchPath p })
+     "path"
+    )
+    pathDesc
   , Option "i" ["import-path"]
     (ReqArg
      (\p opts -> opts { importPath = importPath opts ++ splitSearchPath p })
      "path"
     )
-    importPathDesc
+    pathDesc
+  , Option "j" ["jars"]
+    (ReqArg
+     (\p opts -> opts { jarList = jarList opts ++ splitSearchPath p })
+     "path"
+    )
+    pathDesc
   ]
 
 processEnv :: Options -> IO Options
@@ -31,12 +45,12 @@ processEnv opts = do
             os { importPath = importPath os ++ splitSearchPath p }
           addOpt _ os = os
 
-importPathDesc, pathDelim :: String
+pathDesc, pathDelim :: String
 
 #ifdef mingw32_HOST_OS
-importPathDesc = "Semicolon-delimited list of import search directories"
+pathDesc = "Semicolon-delimited list of paths"
 pathDelim = ";"
 #else
-importPathDesc = "Colon-delimited list of import search directories"
+pathDesc = "Colon-delimited list of paths"
 pathDelim = ":"
 #endif
