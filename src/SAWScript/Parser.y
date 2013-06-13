@@ -156,7 +156,7 @@ NakedExpression :: { ExprSimple RawT }
  | 'let' sepBy1(Declaration, 'and') 'in' Expression
     { LetBlock $2 $4   }
  | SafeExpression InfixOp Expression                    
-    { Application (Application (Var $2 Nothing ) $1 Nothing) $3 Nothing }
+    { Application (Application (Var (local $2) Nothing ) $1 Nothing) $3 Nothing }
 
 InfixOp :: { Name }
  : 'not'          { "not"                        }
@@ -187,7 +187,7 @@ SafeExpression :: { ExprSimple RawT }
  : '()'                                 { Unit Nothing                    }
  | string                               { Quote $1 Nothing                }
  | num                                  { Z $1 Nothing                    }
- | name                                 { Var $1 Nothing                  }
+ | name                                 { Var (local $1) Nothing          }
  | '(' Expression ')'                   { $2                              }
  | '(' commas2(Expression) ')'          { Tuple $2 Nothing                }
  | '[' commas(Expression) ']'           { Array $2 Nothing                }
@@ -321,5 +321,8 @@ buildType (t:ts) = function t (buildType ts)
 
 mkModuleName :: ([String],String) -> ModuleName
 mkModuleName = uncurry ModuleName
+
+local :: String -> UnresolvedName
+local = UnresolvedName []
 
 }
