@@ -289,7 +289,7 @@ instance Uni Poly where
   uni p1 p2 = case (p1,p2) of
     (PVar n1,PVar n2)          -> fail ("Poly: " ++ show n1 ++ " =/= " ++ show n2)
     -- TODO: Alpha renaming? no, variable substitution.
-    (PAbs ns1 t1, PAbs ns2 t2) -> undefined
+    (PAbs _ns1 _t1, PAbs _ns2 _t2) -> undefined
     _ -> fail ("Type Mismatch: " ++ render p1 ++ " could not be unified with " ++ render p2)
 
 -- }}}
@@ -355,7 +355,7 @@ pAbs ns t = inject $ PAbs ns t
 -- Expr Accessors/Modifiers {{{
 
 typeOf :: Expr refT typeT -> typeT
-typeOf e = case e of
+typeOf expr = case expr of
   Unit t            -> t
   Bit _ t           -> t
   Quote _ t         -> t
@@ -377,7 +377,7 @@ context s = case s of
   _          -> Nothing
 
 updateAnnotation :: typeT -> Expr refT typeT -> Expr refT typeT
-updateAnnotation t e = case e of
+updateAnnotation t expr = case expr of
   Unit _            -> Unit t
   Bit x _           -> Bit x t
   Quote x _         -> Quote x t

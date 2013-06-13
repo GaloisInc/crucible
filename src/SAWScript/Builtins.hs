@@ -12,7 +12,6 @@ import Data.Map ( Map )
 import qualified Data.Map as Map
 import Data.Vector ( Vector )
 import qualified Data.Vector as V
-import qualified Data.Vector.Storable as SV
 import Text.PrettyPrint.Leijen hiding ((<$>))
 
 import Data.ABC.Internal.GIA
@@ -124,9 +123,9 @@ readSBV path =
       SBV.parseSBVPgm sc (\_ _ -> Nothing) pgm
 
 withBE :: (BE.BitEngine BE.Lit -> IO a) -> IO a
-withBE act = do
+withBE action = do
   be <- BE.createBitEngine
-  r <- act be
+  r <- action be
   BE.beFree be
   return r
 
@@ -141,21 +140,19 @@ unLambda _ tm = return tm
 -- TODO: needs AIG -> SharedTerm function
 readAIG :: FilePath -> SC s (SharedTerm s)
 readAIG f =
-    mkSC $ \sc -> do
-      n <- giaAigerRead f False False
+    mkSC $ \_sc -> do
+      _n <- giaAigerRead f False False
       fail "readAIG not yet implemented"
 
 writeAIG :: FilePath -> SharedTerm s -> SC s ()
-writeAIG f t = mkSC $ \sc -> withBE $ \be -> do
+writeAIG f t = mkSC $ \_sc -> withBE $ \be -> do
   putStrLn (scPrettyTerm t)
   mbterm <- bitBlast be t
   case mbterm of
     Nothing ->
       fail $ "Can't bitblast term."
     Just bterm -> do
-      outs <- case bterm of
-              BBool l -> return $ SV.singleton l
-              BVector ls -> return ls
+      let outs = flattenBValue bterm
       ins <- BE.beInputLits be
       BE.beWriteAigerV be f ins outs
 
@@ -184,15 +181,15 @@ writeSMTLib2 f t = mkSC $ \sc -> do
   writeFile f (SMT2.render ws')
 
 proveABC :: SharedTerm s -> SC s ()
-proveABC t = mkSC $ \sc -> withBE $ \be -> do
+proveABC t = mkSC $ \_sc -> withBE $ \be -> do
   mbterm <- bitBlast be t
   case (mbterm, BE.beCheckSat be) of
     (Just bterm, Just chk) -> do
       case bterm of
         BBool l -> do
-          satRes <- chk l
+          _satRes <- chk l
           return () -- TODO: do something with satRes!
-        BVector _ -> fail "Can't prove non-boolean term."
+        _ -> fail "Can't prove non-boolean term."
     (_, _) -> fail "Can't bitblast."
 
 -- Implementations of SharedTerm primitives
@@ -252,7 +249,7 @@ myAppend _ _ _ _ _ = error "Prelude.append: malformed arguments"
 --
 -- Note! The s and s' type variables in this signature are different.
 extractLLVM :: FilePath -> String -> SC s (SharedTerm s')
-extractLLVM file func = mkSC $ \sc -> do
+extractLLVM file func = mkSC $ \_sc -> do
   mdl <- L.loadModule file
   let dl = L.parseDataLayout $ LLVM.modDataLayout mdl
       mg = L.defaultMemGeom dl
@@ -285,7 +282,7 @@ fixPos = PosInternal "FIXME"
 
 -- TODO: need configuration arguments for jars, classpath
 extractJava :: String -> String -> SC s (SharedTerm s)
-extractJava cname mname =  mkSC $ \sc -> do
+extractJava cname mname =  mkSC $ \_sc -> do
   let jpaths' = undefined
       cpaths = undefined
   cb <- JSS.loadCodebase jpaths' cpaths
@@ -295,7 +292,7 @@ extractJava cname mname =  mkSC $ \sc -> do
     let fl  = JSS.defaultSimFlags { JSS.alwaysBitBlastBranchTerms = True }
     JSS.runSimulator cb sbe JSS.defaultSEH (Just fl) $ do
       args <- mapM (freshJavaArg sbe) (JSS.methodParameterTypes meth)
-      rslt <- JSS.execStaticMethod cname (JSS.methodKey meth) args
+      _rslt <- JSS.execStaticMethod cname (JSS.methodKey meth) args
       undefined -- TODO: need to convert to SAWCore term
 
 freshJavaArg :: MonadIO m =>
