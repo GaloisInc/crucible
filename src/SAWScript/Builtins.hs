@@ -181,9 +181,9 @@ prepForExport sc t = do
 -- | Write a @SharedTerm@ representing a theorem or an arbitrary
 -- function to an AIG file.
 writeAIG :: FilePath -> SharedTerm s -> SC s ()
-writeAIG f t = mkSC $ \_sc -> withBE $ \be -> do
-  putStrLn (scPrettyTerm t)
-  mbterm <- bitBlast be t
+writeAIG f t = mkSC $ \sc -> withBE $ \be -> do
+  t' <- prepForExport sc t
+  mbterm <- bitBlast be t'
   case mbterm of
     Left msg ->
       fail $ "Can't bitblast term: " ++ msg
