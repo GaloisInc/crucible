@@ -415,6 +415,62 @@ translateType typ = case translateTypeS typ of
   _ -> error "my brain exploded: translateType"
 
 
+exportType :: Type -> TI A.Type
+exportType ty =
+  case ty of
+    TyVar var ->
+      case var of
+        BoundVar name -> return $ A.TypVar name
+        FreeVar name  ->
+          error "Free type variable: bug/defailt to something."
+
+    TyRecord fs ->
+      do fs <- forM fs $ \(f,t) ->
+               do t1 <- exportType t
+                  return (f,t1)
+         return $ A.RecordT fs
+
+    TyCon ArrayCon [TyCon (NumCon l) [] ,e] ->
+      do t <- exportType e
+         return $ A.ArrayT t l
+
+    TyCon ArrayCon [_, e] ->
+      do recordError "Array type does not have a concrete length."
+         t <- exportType e
+         return $ A.ArrayT t 778 -- Just anything, really.
+
+    TyCon BlockCon [TyCon (ContextCon c) [], b] ->
+      do t <- exportType b
+         return $ A.BlockT c t
+
+    TyCon BlockCon [_,b] ->
+        do recordError "Block does not have a concrete context."
+           t <- exportType b
+           return (A.BlockT A.TopLevel t)
+
+    TyCon c ts ->
+      do ts1 <- mapM exportType ts
+         case (c, ts1) of
+           (TupleCon _, ts)  -> return $ A.TupleT ts
+           (FunCon,   [a,b]) -> return $ A.FunctionT a b
+           (StringCon, [])   -> return A.QuoteT
+           (BoolCon, [])     -> return A.BitT
+           (ZCon, [])        -> return A.ZT
+           (ContextCon c, _) ->
+              do recordError "Context type, outside block."
+                 return A.ZT  -- Just anything, really.
+
+           (NumCon n, _)    ->
+              do recordError "Numeric type not in array index."
+                 return A.ZT      -- Just anything, really.
+
+exportSchema :: Schema -> TI A.Type
+exportSchema (Forall xs t) =
+  case xs of
+    [] -> exportType t
+    _  -> A.TypAbs xs `fmap` exportType t
+
+
 -- }}}
 
 -- Type Inference {{{
