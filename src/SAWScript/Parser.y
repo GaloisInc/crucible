@@ -329,4 +329,7 @@ buildType (t:ts) = function t (buildType ts)
 mkModuleName :: ([String],String) -> ModuleName
 mkModuleName = uncurry ModuleName
 
+local :: String -> UnresolvedName
+local = UnresolvedName []
+
 }

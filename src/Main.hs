@@ -60,7 +60,7 @@ processFile :: Options -> FilePath -> IO ()
 processFile opts file | takeExtensions file == ".sawcore" = do
   sawScriptPrelude <- SC.readModuleFromFile [preludeModule] "examples/prelude.sawcore"
   m <- SC.readModuleFromFile [preludeModule, sawScriptPrelude] file
-  execSAWCore m
+  execSAWCore opts m
 processFile opts file | takeExtensions file == ".saw" = do
   text <- readFile file
   putStrLn "SAWScript temporarily disabled"
@@ -90,6 +90,7 @@ formModule f = scan f >=> parseModule -- >=> findMain mname
 -- | Takes module from untyped to fully typed
 typeModule :: Compiler (Module MPType) (Module' PType Type)
 typeModule = resolveSyns >=> renameRefs >=> {- liftPoly >=> -} typeCheck >=> convertType
+-}
 
 -- | Wrapper around compiler function to format the result or error
 runCompiler :: (Show b) => Compiler a b -> a -> IO ()

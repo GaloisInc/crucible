@@ -363,7 +363,7 @@ pAbs ns t = inject $ PAbs ns t
 -- Expr Accessors/Modifiers {{{
 
 typeOf :: Expr refT typeT -> typeT
-typeOf e = case e of
+typeOf expr = case expr of
   Unit t            -> t
   Bit _ t           -> t
   Quote _ t         -> t
@@ -385,7 +385,7 @@ context s = case s of
   _          -> Nothing
 
 updateAnnotation :: typeT -> Expr refT typeT -> Expr refT typeT
-updateAnnotation t e = case e of
+updateAnnotation t expr = case expr of
   Unit _            -> Unit t
   Bit x _           -> Bit x t
   Quote x _         -> Quote x t
