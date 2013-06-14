@@ -3,6 +3,7 @@
 
 module SAWScript.MGU where
 
+import           SAWScript.Unify.Fix(Mu(..),(:+:)(..))
 import qualified SAWScript.AST as A
 import qualified TestRenamer as SS
 import SAWScript.AST (Bind)
@@ -85,10 +86,14 @@ data BlockStmt
 
 tMono :: Type -> Schema
 tMono = Forall []
-  
+
+tForall :: [Name] -> Schema -> Schema
+tForall xs (Forall ys t) = Forall (xs ++ ys) t
+
 tTuple :: [Type] -> Type
 tTuple ts = TyCon (TupleCon $ fromIntegral $ length ts) ts
 
+tUnit :: Type
 tUnit = tTuple []
 
 tArray :: Type -> Type -> Type
@@ -111,6 +116,9 @@ tNum n = TyCon (NumCon $ toInteger n) []
 
 tBlock :: Type -> Type -> Type
 tBlock c t = TyCon BlockCon [c,t]
+
+tContext :: A.Context -> Type
+tContext c = TyCon (ContextCon c) []
 
 -- }}}
 
@@ -300,6 +308,36 @@ instance AppSubst Expr where
     Application f v    -> Application (appSubst s f) (appSubst s v)
     Let nes e          -> Let (appSubstBinds s nes) (appSubst s e)
 
+instance AppSubst ty => AppSubst (A.Expr names ty) where
+  appSubst s expr = case expr of
+    A.Unit t             -> A.Unit (appSubst s t)
+    A.Bit b t            -> A.Bit b (appSubst s t)
+    A.Quote str t        -> A.Quote str (appSubst s t)
+    A.Z i t              -> A.Z i (appSubst s t)
+
+    A.Array es t         -> A.Array  (appSubst s es) (appSubst s t)
+    A.Block bs t         -> A.Block  (appSubst s bs) (appSubst s t)
+    A.Tuple es t         -> A.Tuple  (appSubst s es) (appSubst s t)
+    A.Record nes t       -> A.Record (appSubstBinds s nes) (appSubst s t)
+
+    A.Index ar ix t -> A.Index (appSubst s ar) (appSubst s ix) (appSubst s t)
+    A.Lookup rec fld t   -> A.Lookup (appSubst s rec) fld (appSubst s t)
+    A.Var x t            -> A.Var x (appSubst s t)
+    A.Function x xt body t-> A.Function x (appSubst s xt) (appSubst s body) (appSubst s t)
+    A.Application f v t  -> A.Application (appSubst s f) (appSubst s v) (appSubst s t)
+
+    A.LetBlock nes e     -> A.LetBlock (appSubstBinds s nes) (appSubst s e)
+
+instance AppSubst ty => AppSubst (A.BlockStmt names ty) where
+  appSubst s bst = case bst of
+    A.Bind mn ctx e     -> A.Bind mn (appSubst s ctx) (appSubst s e)
+    A.BlockLet bs       -> A.BlockLet (appSubstBinds s bs)
+    A.BlockTypeDecl x t -> A.BlockTypeDecl x (appSubst s t)
+
+
+
+
+
 instance AppSubst BlockStmt where
   appSubst s bst = case bst of
     Bind mn ctx e -> Bind mn ctx e
@@ -344,116 +382,164 @@ translateField :: (a,A.Expr A.ResolvedName A.ResolvedT) -> (a,Expr)
 translateField (n,e) = (n,translateExpr e)
 
 translateTypeS :: A.FullT -> Schema
-translateTypeS = error "TODO: translateType"
+translateTypeS (In (Inl (A.I n)))   = tMono $ tNum n
+translateTypeS (In (Inr (Inl ctx))) = tMono $
+  case ctx of
+    A.CryptolSetupContext -> tContext $ A.CryptolSetup
+    A.JavaSetupContext    -> tContext $ A.JavaSetup
+    A.LLVMSetupContext    -> tContext $ A.LLVMSetup
+    A.ProofScriptContext  -> tContext $ A.ProofScript
+    A.TopLevelContext     -> tContext $ A.TopLevel
+
+translateTypeS (In (Inr (Inr ty))) =
+  case ty of
+    A.UnitF           -> tMono (tTuple [])
+    A.BitF            -> tMono tBool
+    A.ZF              -> tMono tZ
+    A.QuoteF          -> tMono tString
+
+    A.ArrayF tE tL    -> tMono $ tArray (translateType tL) (translateType tE)
+    A.BlockF tC tE    -> tMono $ tBlock (translateType tC) (translateType tE)
+    A.TupleF ts       -> tMono $ tTuple $ map translateType ts
+    A.RecordF fs      -> tMono $ TyRecord [ (f,translateType t) | (f,t) <- fs ]
+
+    A.FunctionF t1 t2 -> tMono $ tFun (translateType t1) (translateType t2)
+
+    A.PVar x          -> tMono $ TyVar (BoundVar x)
+    A.PAbs xs t       -> case translateTypeS t of
+                           Forall ys t1 -> Forall (xs ++ ys) t1
 
 translateType :: A.FullT -> Type
 translateType typ = case translateTypeS typ of
   Forall [] t -> t
   _ -> error "my brain exploded: translateType"
 
+
 -- }}}
 
 -- Type Inference {{{
 
-inferE :: Expr -> TI (Expr,Type)
+type OutExpr      = A.Expr      A.ResolvedName Schema
+type OutBlockStmt = A.BlockStmt A.ResolvedName Schema
+
+
+ret :: Monad m => (Schema -> a) -> Type -> m (a, Type)
+ret thing ty = return (thing (tMono ty), ty)
+
+inferE :: Expr -> TI (OutExpr,Type)
 inferE expr = case expr of
-  Unit     -> return (expr,tUnit)
-  Bit b    -> return (expr,tBool)
-  String s -> return (expr,tString)
-  Z i      -> return (expr,tZ)
+  Unit     -> ret A.Unit      tUnit
+  Bit b    -> ret (A.Bit b)   tBool
+  String s -> ret (A.Quote s) tString
+  Z i      -> ret (A.Z i)     tZ
 
   Array  [] -> do a <- newType
-                  let at = tArray (tNum (0 :: Int)) a
-                  return (TSig expr $ tMono at, at)
+                  ret (A.Array []) $ tArray (tNum (0 :: Int)) a
+
   Array (e:es) -> do (e',t) <- inferE e
                      es' <- mapM (`checkE` t) es
-                     let at = tArray (tNum $ length es + 1) t
-                     return (Array (e':es'),at)
+                     ret (A.Array (e':es')) $ tArray (tNum $ length es + 1) t
+
   Block bs -> do ctx <- newType
                  (bs',t') <- inferStmts ctx bs
-                 return (Block bs', tBlock ctx t')
+                 ret (A.Block bs') $ tBlock ctx t'
+
   Tuple  es -> do (es',ts) <- unzip `fmap` mapM inferE es
-                  return (Tuple es',tTuple ts)
+                  ret (A.Tuple es') $ tTuple ts
+
   Record nes -> do (nes',nts) <- unzip `fmap` mapM inferField nes
-                   return (Record nes', TyRecord nts)
+                   ret (A.Record nes') $ TyRecord nts
+
   Index ar ix -> do (ar',at) <- inferE ar
-                    ix' <- checkE ix tZ
-                    l <- newType
-                    t <- newType
+                    ix'      <- checkE ix tZ
+                    l        <- newType
+                    t        <- newType
                     unify (tArray l t) at
-                    return (Index ar' ix',t)
+                    ret (A.Index ar' ix') t
+
   TSig e (Forall [] t) -> do t' <- checkKind t
                              e' <- checkE e t'
-                             return (TSig e' $ tMono t', t')
+                             return (e', t')
+
   TSig e (Forall _ _) -> do recordError "TODO: TSig with Schema"
                             inferE e
+
+
   Function x Nothing body -> do a <- newType
                                 (body',t) <- bindSchema x (tMono a) $
                                                inferE body
-                                return (Function x (Just a) body', tFun a t)
+                                ret (A.Function x (tMono a) body') $ tFun a t
+
+
   Application f v -> do (v',fv) <- inferE v
                         t <- newType
                         let ft = tFun fv t
                         f' <- checkE f ft
-                        return (Application f' v',t)
-                        
+                        ret (A.Application f' v')  t
+
   Var x -> do t <- lookupVar x
-              return (Var x,t)
+              ret (A.Var x) t
+
+
   Let bs body -> inferDecls bs $ \bs' -> do
                    (body',t) <- inferE body
-                   return (Let bs' body',t)
+                   return (A.LetBlock bs' body', t)
   {-
   Lookup Expr Name
   -}
 
-checkE :: Expr -> Type -> TI Expr
+checkE :: Expr -> Type -> TI OutExpr
 checkE e t = do
   (e',t') <- inferE e
   unify t t'
   return e'
 
-inferField :: Bind Expr -> TI (Bind Expr,Bind Type)
+inferField :: Bind Expr -> TI (Bind OutExpr,Bind Type)
 inferField (n,e) = do
   (e',t) <- inferE e
   return ((n,e'),(n,t))
 
-inferDecls :: [Bind Expr] -> ([Bind Expr] -> TI a) -> TI a
+inferDecls :: [Bind Expr] -> ([Bind OutExpr] -> TI a) -> TI a
 inferDecls bs nextF = do
   (bs',ss) <- unzip `fmap` mapM inferDecl bs
   foldr (uncurry bindSchema) (nextF bs') ss
 
-inferStmts :: Type -> [BlockStmt] -> TI ([BlockStmt],Type)
+inferStmts :: Type -> [BlockStmt] -> TI ([OutBlockStmt],Type)
 inferStmts ctx [Bind Nothing mc e] = do
-  t <- newType
+  t  <- newType
   e' <- checkE e (tBlock ctx t)
   mc' <- case mc of
-    Nothing -> return Nothing
+    Nothing -> return (tMono ctx)
     Just t  -> do t' <- checkKind t
                   unify t ctx
-                  return $ Just t'
-  return ([Bind Nothing mc' e'],t)
+                  return (tMono t')
+  return ([A.Bind Nothing mc' e'],t)
+
 inferStmts _ [_] = do
   recordError "do block must end with expression"
   t <- newType
   return ([],t)
+
 inferStmts ctx (Bind mn mc e : more) = do
   t <- newType
   e' <- checkE e (tBlock ctx t)
   mc' <- case mc of
-    Nothing -> return Nothing
+    Nothing -> return (tMono ctx)
     Just t  -> do t' <- checkKind t
                   unify t ctx
-                  return $ Just t'
+                  return (tMono t')
   let f = case mn of
         Nothing -> id
         Just n  -> bindSchema n (tMono t)
   (more',t) <- f $ inferStmts ctx more
-  return (Bind mn mc' e' : more', t)
+
+  return (A.Bind mn mc' e' : more', t)
+
 inferStmts ctx (BlockLet bs : more) = inferDecls bs $ \bs' -> do
   (more',t) <- inferStmts ctx more
-  return (BlockLet bs' : more', t)
+  return (A.BlockLet bs' : more', t)
 
-inferDecl :: Bind Expr -> TI (Bind Expr,Bind Schema)
+inferDecl :: Bind Expr -> TI (Bind OutExpr,Bind Schema)
 inferDecl (n,e) = do
   (e',t) <- inferE e
   t' <- appSubstM t
@@ -462,12 +548,37 @@ inferDecl (n,e) = do
   let (ns,gvs) = unzip $ mapMaybe toBound $ S.toList $ fvt S.\\ fvs
   let s = listSubst gvs
   let sc = Forall ns $ appSubst s t'
-  return ((n,TSig (appSubst s e') sc),(n,sc))
+  return ((n,quant ns (appSubst s e')),(n,sc))
+
   where
   toBound :: TyVar -> Maybe (Name,(TyVar,Type))
   toBound v@(FreeVar i) = let nm = "a." ++ show i in
                                 Just (nm,(v,TyVar (BoundVar nm)))
   toBound _ = Nothing
+
+  quant :: [Name] -> OutExpr -> OutExpr
+  quant xs expr =
+    case expr of
+      A.Unit t              -> A.Unit (tForall xs t)
+      A.Bit b t             -> A.Bit b (tForall xs t)
+      A.Quote str t         -> A.Quote str (tForall xs t)
+      A.Z i t               -> A.Z i (tForall xs t)
+
+      A.Array es t          -> A.Array es (tForall xs t)
+      A.Block bs t          -> A.Block bs (tForall xs t)
+      A.Tuple es t          -> A.Tuple es (tForall xs t)
+      A.Record nes t        -> A.Record nes (tForall xs t)
+
+      A.Index ar ix t       -> A.Index ar ix (tForall xs t)
+      A.Lookup rec fld t    -> A.Lookup rec fld (tForall xs t)
+      A.Var x t             -> A.Var x (tForall xs t)
+      A.Function x xt body t-> A.Function x xt body (tForall xs t)
+      A.Application f v t   -> A.Application f v (tForall xs t)
+
+      A.LetBlock nes e      -> A.LetBlock nes (quant xs e)
+
+
+
 
 checkKind :: Type -> TI Type
 checkKind = return
@@ -489,7 +600,8 @@ typeCheck (A.Module nm ee te ds) = case runTI m of
   where
   m = typeCheckExprEnv ee
 
-typeCheckExprEnv :: A.Env (A.Expr A.ResolvedName A.ResolvedT) -> TI [Bind Expr]
+typeCheckExprEnv :: A.Env (A.Expr A.ResolvedName A.ResolvedT) ->
+                TI [Bind OutExpr]
 typeCheckExprEnv env = inferDecls nes return -- TEMPORARY
   where
   nes = [ (n,translateExpr e) | (n,e) <- M.assocs $ env ]
