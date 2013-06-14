@@ -15,10 +15,10 @@ import qualified Data.Traversable as T
 -- Intermediate Types {{{
 
 type RawT      = Maybe RawSigT
-type RawSigT   = Mu (Syn :+: Poly :+: BaseT)
+type RawSigT   = Mu (Syn :+: BaseT)
 type ResolvedT = Maybe FullT
-type FullT     = Mu (Poly :+: BaseT)
-type TCheckT   = Mu (Logic :+: Poly :+: BaseT)
+type FullT     = Mu BaseT
+type TCheckT   = Mu (Logic :+: BaseT)
 
 type BaseT = I :+: ContextF :+: TypeF
 
@@ -75,6 +75,9 @@ unionEnv = M.union
 emptyEnv :: Env a
 emptyEnv = M.empty
 
+insertEnv :: Name -> a -> Env a -> Env a
+insertEnv = M.insert
+
 -- }}}
 
 -- Module Level {{{
@@ -121,18 +124,19 @@ data Expr refT typeT
   | Record [Bind (Expr refT typeT)]  typeT
   -- Accessors
   | Index  (Expr refT typeT) (Expr refT typeT) typeT
-  | Lookup (Expr refT typeT) Name           typeT
+  | Lookup (Expr refT typeT) Name              typeT
   -- LC
-  | Var         refT       typeT
-  | Function    Name       typeT  (Expr refT typeT) typeT
+  | Var         refT  typeT
+  | Function    Name  typeT       (Expr refT typeT) typeT
   | Application (Expr refT typeT) (Expr refT typeT) typeT
   -- Sugar
   | LetBlock [Bind (Expr refT typeT)] (Expr refT typeT)
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
 data BlockStmt refT typeT
-  = Bind          (Maybe Name)     RawSigT   (Expr refT typeT)
-  | BlockTypeDecl Name             RawSigT
+ -- Bind          bind var         context   expr
+  = Bind          (Maybe Name)     typeT     (Expr refT typeT)
+  | BlockTypeDecl Name             typeT  
   | BlockLet      [(Name,Expr refT typeT)]
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
@@ -147,13 +151,21 @@ data TypeF typeT
   | ZF
   | QuoteF
   -- Structures
-  | ArrayF       typeT typeT
-  | BlockF       typeT typeT
-  | TupleF       [typeT]
-  | RecordF      [Bind typeT]
+  | ArrayF      typeT typeT
+  | BlockF      typeT typeT
+  | TupleF      [typeT]
+  | RecordF     [Bind typeT]
   -- LC
-  | FunctionF    typeT typeT
+  | FunctionF   typeT typeT
+  -- Poly
+  | PVar Name
+  | PAbs [Name] typeT
   deriving (Show,Functor,Foldable,T.Traversable)
+
+data TVar
+  = TVarFree Int
+  | TVarBound Name
+  deriving (Show)
 
 data ContextF typeT
   = CryptolSetupContext
@@ -188,11 +200,6 @@ data Context
   | TopLevel
   deriving (Eq,Show)
 
-data Poly typeT
-  = PAbs [Name] typeT
-  | PVar Name
-  deriving (Show,Functor,Foldable,T.Traversable)
-
 data I a = I Integer deriving (Show,Functor,Foldable,T.Traversable)
 
 -- }}}
@@ -210,23 +217,21 @@ instance Equal TypeF where
     (TupleF ts1,TupleF ts2)               -> ts1 == ts2
     (RecordF fts1,RecordF fts2)           -> fts1 == fts2
     (FunctionF at1 bt1,FunctionF at2 bt2) -> at1 == at2 && bt1 == bt2
+    (PVar n1,PVar n2)                     -> n1 == n2
+    (PAbs ns1 t1,PAbs ns2 t2)             -> ns1 == ns2 && t1 == t2
     _                                     -> False
 
 instance Equal I where
   equal (I x) (I y) = x == y
 
-instance Equal Poly where
-  equal (PVar n1) (PVar n2) = n1 == n2
-  equal (PAbs ns1 t1) (PAbs ns2 t2) = ns1 == ns2 && t1 == t2
-  equal _ _ = False
-
 instance Equal ContextF where
-  equal CryptolSetupContext CryptolSetupContext = True
-  equal JavaSetupContext    JavaSetupContext    = True
-  equal LLVMSetupContext    LLVMSetupContext    = True
-  equal ProofScriptContext  ProofScriptContext  = True
-  equal TopLevelContext     TopLevelContext     = True
-  equal _ _ = False
+  equal c1 c2 = case (c1,c2) of
+    (CryptolSetupContext , CryptolSetupContext) -> True
+    (JavaSetupContext    , JavaSetupContext   ) -> True
+    (LLVMSetupContext    , LLVMSetupContext   ) -> True
+    (ProofScriptContext  , ProofScriptContext ) -> True
+    (TopLevelContext     , TopLevelContext    ) -> True
+    _ -> False
 
 instance Equal Syn where
   equal (Syn n1) (Syn n2) = n1 == n2
@@ -246,6 +251,8 @@ instance Render TypeF where
     TupleF ts       -> "(TupleF [" ++ (intercalate ", " $ map show ts) ++ "])"
     RecordF fts     -> "(RecordF [" ++ (intercalate ", " $ map (\(n,bt)-> n ++ " :: " ++ show bt) fts) ++ "])"
     FunctionF at bt -> "(FunctionF " ++ show at ++ " " ++ show bt ++ ")"
+    PVar n          -> "(PVar " ++ show n ++ ")"
+    PAbs ns t       -> "(PAbs " ++ show ns ++ " " ++ show t ++ ")"
 
 instance Render I where
   render (I x) = "(I " ++ show x ++ ")"
@@ -260,11 +267,6 @@ instance Render ContextF where
 instance Render Syn where
   render (Syn n) = "(Syn " ++ show n ++ ")"
 
-instance Render Poly where
-  render p = case p of
-    PVar n    -> "(PVar " ++ show n ++ ")"
-    PAbs ns t -> "(PAbs " ++ show ns ++ " " ++ show t ++ ")"
-
 -- }}}
 
 -- Uni Instances {{{
@@ -272,11 +274,14 @@ instance Render Poly where
 instance Uni TypeF where
   uni t1 t2 = case (t1,t2) of
     (ArrayF at1 l1,ArrayF at2 l2)             -> unify l1 l2 >> unify at1 at2
-    (BlockF c1 bt1,BlockF c2 bt2)             -> assert (c1 == c2) ("Could not match contexts " ++ show c1 ++ " and " ++ show c2) >> unify bt1 bt2
+    (BlockF c1 bt1,BlockF c2 bt2)             -> unify c1 c2 >> unify bt1 bt2
     (TupleF ts1,TupleF ts2)                   -> zipWithMP_ unify ts1 ts2
     (RecordF fts1,RecordF fts2)               -> do conj [ disj [ unify x y | (nx,x) <- fts1, nx == ny ] | (ny,y) <- fts2 ]
                                                     conj [ disj [ unify y x | (ny,y) <- fts2, nx == ny ] | (nx,x) <- fts1 ]
     (FunctionF at1 bt1,FunctionF at2 bt2)     -> unify at1 at2 >> unify bt1 bt2
+    (PVar n1, PVar n2)                        -> fail ("Poly: " ++ show n1 ++ " =/= " ++ show n2)
+    -- TODO: Alpha renaming? no, variable substitution.
+    (PAbs ns1 t1, PAbs ns2 t2)                -> undefined
     _                                         -> fail ("Type Mismatch: " ++ render t1 ++ " could not be unified with " ++ render t2)
 
 instance Uni I where
@@ -284,13 +289,6 @@ instance Uni I where
 
 instance Uni ContextF where
   uni c1 c2 = fail $ "Context: " ++ render c1 ++ " =/= " ++ render c2
-
-instance Uni Poly where
-  uni p1 p2 = case (p1,p2) of
-    (PVar n1,PVar n2)          -> fail ("Poly: " ++ show n1 ++ " =/= " ++ show n2)
-    -- TODO: Alpha renaming? no, variable substitution.
-    (PAbs ns1 t1, PAbs ns2 t2) -> undefined
-    _ -> fail ("Type Mismatch: " ++ render p1 ++ " could not be unified with " ++ render p2)
 
 -- }}}
 
@@ -344,10 +342,10 @@ syn n = inject $ Syn n
 i :: (I :<: f) => Integer -> Mu f
 i x = inject $ I x
 
-pVar :: (Poly :<: f) => Name -> Mu f
+pVar :: (TypeF :<: f) => Name -> Mu f
 pVar n = inject $ PVar n
 
-pAbs :: (Poly :<: f) => [Name] -> Mu f -> Mu f
+pAbs :: (TypeF :<: f) => [Name] -> Mu f -> Mu f
 pAbs ns t = inject $ PAbs ns t
 
 -- }}}
@@ -371,7 +369,7 @@ typeOf e = case e of
   Application _ _ t -> t
   LetBlock _ e'     -> typeOf e'
 
-context :: BlockStmt refT typeT -> Maybe RawSigT
+context :: BlockStmt refT typeT -> Maybe typeT
 context s = case s of
   Bind _ c _ -> Just c
   _          -> Nothing
@@ -415,17 +413,13 @@ instance CapturePVars TypeF where
     TupleF tys        -> tuple $ map (capturePVars ns) tys
     RecordF flds      -> record $ onBinds (capturePVars ns) flds
     FunctionF ty1 ty2 -> function (capturePVars ns ty1) (capturePVars ns ty2)
+    PAbs ns' t        -> pAbs ns' $ capturePVars ns t
     _ -> inject t
 
 instance CapturePVars Syn where
   capturePVarsF ns (Syn n) = if n `elem` ns
     then pVar n
     else syn n
-
-instance CapturePVars Poly where
-  capturePVarsF ns p = case p of
-    PVar n    -> pVar n
-    PAbs ns' t -> pAbs ns' $ capturePVars ns t
 
 instance CapturePVars I where
   capturePVarsF _ = inject
