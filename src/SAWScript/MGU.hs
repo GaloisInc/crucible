@@ -3,6 +3,7 @@
 
 module SAWScript.MGU where
 
+import           SAWScript.Unify.Fix(Mu(..),(:+:)(..))
 import qualified SAWScript.AST as A
 import qualified TestRenamer as SS
 import SAWScript.AST (Bind)
@@ -111,6 +112,9 @@ tNum n = TyCon (NumCon $ toInteger n) []
 
 tBlock :: Type -> Type -> Type
 tBlock c t = TyCon BlockCon [c,t]
+
+tContext :: A.Context -> Type
+tContext c = TyCon (ContextCon c) []
 
 -- }}}
 
@@ -344,7 +348,34 @@ translateField :: (a,A.Expr A.ResolvedName A.ResolvedT) -> (a,Expr)
 translateField (n,e) = (n,translateExpr e)
 
 translateTypeS :: A.FullT -> Schema
-translateTypeS = error "TODO: translateType"
+translateTypeS (In (Inl (A.I n)))   = tMono $ tNum n
+translateTypeS (In (Inr (Inl ctx))) = tMono $
+  case ctx of
+    A.CryptolSetupContext -> tContext $ A.CryptolSetup
+    A.JavaSetupContext    -> tContext $ A.JavaSetup
+    A.LLVMSetupContext    -> tContext $ A.LLVMSetup
+    A.ProofScriptContext  -> tContext $ A.ProofScript
+    A.TopLevelContext     -> tContext $ A.TopLevel
+
+translateTypeS (In (Inr (Inr ty))) =
+  case ty of
+    A.UnitF           -> tMono (tTuple [])
+    A.BitF            -> tMono tBool
+    A.ZF              -> tMono tZ
+    A.QuoteF          -> tMono tString
+
+    A.ArrayF tE tL    -> tMono $ tArray (translateType tL) (translateType tE)
+    A.BlockF tC tE    -> tMono $ tBlock (translateType tC) (translateType tE)
+    A.TupleF ts       -> tMono $ tTuple $ map translateType ts
+    A.RecordF fs      -> tMono $ TyRecord [ (f,translateType t) | (f,t) <- fs ]
+
+    A.FunctionF t1 t2 -> tMono $ tFun (translateType t1) (translateType t2)
+
+    A.PVar x          -> tMono $ TyVar (BoundVar x)
+    A.PAbs xs t       -> case translateTypeS t of
+                           Forall ys t1 -> Forall (xs ++ ys) t1
+
+
 
 translateType :: A.FullT -> Type
 translateType typ = case translateTypeS typ of
