@@ -184,9 +184,9 @@ writeAIG f t = mkSC $ \_sc -> withBE $ \be -> do
   putStrLn (scPrettyTerm t)
   mbterm <- bitBlast be t
   case mbterm of
-    Nothing ->
-      fail $ "Can't bitblast term."
-    Just bterm -> do
+    Left msg ->
+      fail $ "Can't bitblast term: " ++ msg
+    Right bterm -> do
       ins <- BE.beInputLits be
       BE.beWriteAigerV be f ins (flattenBValue bterm)
 
@@ -219,7 +219,7 @@ satABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
 satABC _script t = mkSC $ \_sc -> withBE $ \be -> do
   mbterm <- bitBlast be t
   case (mbterm, BE.beCheckSat be) of
-    (Just bterm, Just chk) -> do
+    (Right bterm, Just chk) -> do
       case bterm of
         BBool l -> do
           _satRes <- chk l
