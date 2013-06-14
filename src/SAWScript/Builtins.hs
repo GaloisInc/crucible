@@ -67,15 +67,15 @@ sawScriptPrims opts global = Map.fromList
       (topBind :: () -> () -> SC s (Value s) -> (Value s -> SC s (Value s)) -> SC s (Value s)))
   , ("SAWScriptPrelude.topReturn", toValue
       (topReturn :: () -> Value s -> SC s (Value s)))
-  , ("SAWScriptPrelude.readSBV", toValue
+  , ("SAWScriptPrelude.read_sbv", toValue
       (readSBV :: FilePath -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.readAIG", toValue
+  , ("SAWScriptPrelude.read_aig", toValue
       (readAIGPrim :: FilePath -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.writeAIG", toValue
+  , ("SAWScriptPrelude.write_aig", toValue
       (writeAIG :: FilePath -> SharedTerm s -> SC s ()))
-  , ("SAWScriptPrelude.writeSMTLib1", toValue
+  , ("SAWScriptPrelude.write_smtlib1", toValue
       (writeSMTLib1 :: FilePath -> SharedTerm s -> SC s ()))
-  , ("SAWScriptPrelude.writeSMTLib2", toValue
+  , ("SAWScriptPrelude.write_smtlib2", toValue
       (writeSMTLib2 :: FilePath -> SharedTerm s -> SC s ()))
   , ("SAWScriptPrelude.extract_llvm", toValue
       (extractLLVM :: FilePath -> String -> SharedTerm s -> SC s (SharedTerm s)))
