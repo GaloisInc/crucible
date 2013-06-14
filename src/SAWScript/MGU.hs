@@ -246,6 +246,9 @@ bindSchema :: Name -> Schema -> TI a -> TI a
 bindSchema n s m = TI $ local (\ro -> ro { typeEnv = M.insert (A.LocalName n) s $ typeEnv ro })
   $ unTI m
 
+bindSchemas :: [(Name, Schema)] -> TI a -> TI a
+bindSchemas bs m = foldr (uncurry bindSchema) m bs
+
 lookupVar :: A.ResolvedName -> TI Type
 lookupVar n = do
   env <- TI $ asks typeEnv
@@ -576,7 +579,7 @@ inferField (n,e) = do
 inferDecls :: [Bind Expr] -> ([Bind OutExpr] -> TI a) -> TI a
 inferDecls bs nextF = do
   (bs',ss) <- unzip `fmap` mapM inferDecl bs
-  foldr (uncurry bindSchema) (nextF bs') ss
+  bindSchemas ss (nextF bs')
 
 inferStmts :: Type -> [BlockStmt] -> TI ([OutBlockStmt],Type)
 inferStmts ctx [Bind Nothing mc e] = do
@@ -616,13 +619,35 @@ inferStmts ctx (BlockLet bs : more) = inferDecls bs $ \bs' -> do
 inferDecl :: Bind Expr -> TI (Bind OutExpr,Bind Schema)
 inferDecl (n,e) = do
   (e',t) <- inferE e
-  t' <- appSubstM t
-  let fvt = freeVars t'
-  fvs <- freeVarsInEnv
-  let (ns,gvs) = unzip $ mapMaybe toBound $ S.toList $ fvt S.\\ fvs
-  let s = listSubst gvs
-  let sc = Forall ns $ appSubst s t'
-  return ((n,quant ns (appSubst s e')),(n,sc))
+  [(e1,s)] <- generalize [e'] [t]
+  return ( (n,e1), (n,s) )
+
+
+-- XXX: For now, no schema type signatures.
+inferRecDecls :: [Bind Expr] -> TI ([Bind OutExpr], [Bind Schema])
+inferRecDecls ds =
+  do let names = map fst ds
+     guessedTypes <- mapM (\_ -> newType) ds
+     (es,ts) <- unzip `fmap`
+                bindSchemas (zip names (map tMono guessedTypes))
+                            (mapM (inferE . snd) ds)
+     zipWithM unify ts guessedTypes
+     (es1,ss) <- unzip `fmap` generalize es ts
+     return (zip names es1, zip names ss)
+
+
+generalize :: [OutExpr] -> [Type] -> TI [(OutExpr,Schema)]
+generalize es0 ts0 =
+  do ts <- appSubstM ts0
+     es <- appSubstM es0
+
+     let cs = freeVars ts
+     withAsmps <- freeVarsInEnv
+     let (ns,gvs) = unzip $ mapMaybe toBound $ S.toList $ cs S.\\ withAsmps
+     let s = listSubst gvs
+         mk e t = (quant ns (appSubst s e), Forall ns t)
+
+     return $ zipWith mk es ts
 
   where
   toBound :: TyVar -> Maybe (Name,(TyVar,Type))
@@ -652,8 +677,18 @@ inferDecl (n,e) = do
       A.LetBlock nes e      -> A.LetBlock nes (quant xs e)
 
 
+-- Check a list of recursive groups, sorted by dependency.
+inferTopDecls :: [ [Bind Expr] ] -> TI [ [Bind OutExpr] ]
+inferTopDecls [] = return []
+inferTopDecls (ds : dss) =
+  do (ds1, ss) <- inferRecDecls ds
+     rest <- bindSchemas ss (inferTopDecls dss)
+     return (ds1 : rest)
 
 
+
+
+-- XXX: TODO
 checkKind :: Type -> TI Type
 checkKind = return
 
