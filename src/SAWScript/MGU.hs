@@ -484,9 +484,27 @@ inferE expr = case expr of
   Let bs body -> inferDecls bs $ \bs' -> do
                    (body',t) <- inferE body
                    return (A.LetBlock bs' body', t)
-  {-
-  Lookup Expr Name
-  -}
+
+  Lookup e n ->
+    do (e1,t) <- inferE e
+       t1 <- appSubstM t
+       elTy <- case t1 of
+                 TyRecord fs
+                    | Just t <- lookup n fs -> return t
+                    | otherwise ->
+                          do recordError $ unlines
+                                [ "Selecting a missing field."
+                                , "Field name: " ++ n
+                                ]
+                             newType
+                 _ -> do recordError $ unlines
+                            [ "We only support simple record lookup for now."
+                            , "Please add type signature on argument."
+                            ]
+                         newType
+       ret (A.Lookup e1 n) elTy
+
+
 
 checkE :: Expr -> Type -> TI OutExpr
 checkE e t = do
