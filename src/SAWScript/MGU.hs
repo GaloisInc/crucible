@@ -8,6 +8,9 @@ import qualified SAWScript.AST as A
 import qualified TestRenamer as SS
 import SAWScript.AST (Bind)
 
+import           Data.Graph.SCC(stronglyConnComp)
+import           Data.Graph (SCC(..))
+
 import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State
@@ -686,7 +689,54 @@ inferTopDecls (ds : dss) =
      return (ds1 : rest)
 
 
+-- Compute groups of recursive components
+computeSCCGroups :: A.ModuleName -> [ Bind Expr ] -> [ [Bind Expr] ]
+computeSCCGroups m bs = map forget $ mkScc $ map (defsDepsBind m) bs
+  where forget (CyclicSCC xs) = xs
+        forget (AcyclicSCC x) = [x]
 
+{- | Given a list of declarations, annoted with (i) the names that they
+ - define, and (ii) the names that they use, we compute a list of strongly
+ - connected components of the declarations.  The SCCs are in dependency order. -}
+mkScc :: [(a,[A.ResolvedName],[A.ResolvedName])] -> [SCC a]
+mkScc ents = stronglyConnComp $ zipWith mkGr keys ents
+  where
+  keys                    = [ 0 :: Integer .. ]
+
+  mkGr i (x,_,uses)       = (x,i,mapMaybe (`M.lookup` nodeMap) uses)
+
+  -- Maps names to node ids.
+  nodeMap                 = M.fromList $ concat $ zipWith mkNode keys ents
+  mkNode i (_,defs,_)     = [ (d,i) | d <- defs ]
+
+defsDepsBind :: A.ModuleName -> Bind Expr
+                        -> (Bind Expr, [A.ResolvedName], [A.ResolvedName])
+defsDepsBind m it@(x,e0) = (it, [ A.TopLevelName m x ], S.toList (uses e0))
+  where
+  -- we are only interested in top-level names
+  uses expr =
+    case expr of
+      Unit                -> S.empty
+      Bit _               -> S.empty
+      String _            -> S.empty
+      Z _                 -> S.empty
+      Array es            -> S.unions (map uses es)
+      Block bs            -> S.unions (map usesB bs)
+      Tuple es            -> S.unions (map uses es)
+      Record fs           -> S.unions (map (uses . snd) fs)
+      Index  e1 e2        -> S.union (uses e1) (uses e2)
+      Lookup e _          -> uses e
+      Var (A.LocalName _) -> S.empty
+      Var x               -> S.singleton x  -- This is what we look for
+      Function  _ _ e     -> uses e
+      Application e1 e2   -> S.union (uses e1) (uses e2)
+      Let bs e            -> S.unions (uses e : map (uses . snd) bs)
+      TSig e _            -> uses e
+
+  usesB bl =
+    case bl of
+      Bind _ _ e  -> uses e
+      BlockLet bs -> S.unions (map (uses . snd) bs)
 
 -- XXX: TODO
 checkKind :: Type -> TI Type
