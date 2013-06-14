@@ -37,6 +37,7 @@ import Control.Applicative
   'let'          { TReserved _ "let"            }
   'in'           { TReserved _ "in"             }
   'type'         { TReserved _ "type"           }
+  'abstract'     { TReserved _ "abstract"       }
   'do'           { TReserved _ "do"             }
   'if'           { TReserved _ "if"             }
   'then'         { TReserved _ "then"           }
@@ -119,6 +120,7 @@ TopStmt :: { TopStmtSimple RawT }
  : 'import' Import                      { $2                 }
  | name ':' PolyType                    { TopTypeDecl $1 $3  }
  | 'type' name '=' Type                 { TypeDef $2 $4      }
+ | 'abstract' name                      { AbsTypeDecl $1     }
  | Declaration                          { uncurry TopBind $1 }
 
 Import :: { TopStmtSimple RawT }

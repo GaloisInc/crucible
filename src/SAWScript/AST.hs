@@ -79,6 +79,9 @@ singletonEnv = M.singleton
 lookupEnv :: Name -> Env a -> Maybe a
 lookupEnv = M.lookup
 
+memberEnv :: Name -> Env a -> Bool
+memberEnv = M.member
+
 unionEnv :: Env a -> Env a -> Env a
 unionEnv = M.union
 
@@ -118,6 +121,7 @@ data TopStmt refT typeT
   = Import      ModuleName (Maybe [Name])    (Maybe Name)
   | TypeDef     Name       RawSigT
   | TopTypeDecl Name       RawSigT
+  | AbsTypeDecl Name
   | TopBind     Name       (Expr refT typeT)
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
