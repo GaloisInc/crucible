@@ -128,10 +128,10 @@ Import :: { TopStmtSimple RawT }
  -- | name '(' commas(name) ')' 'as' name  { Import $1 (Just $3) (Just $6)   }
 
 BlockStmt :: { BlockStmtSimple RawT }
- : Expression                           { Bind Nothing topLevelContext $1   }
- | name '<-' Expression                 { Bind (Just $1) topLevelContext $3 }
- | name ':' PolyType                    { BlockTypeDecl $1 $3       }
- | 'let' sepBy1(Declaration, 'and')     { BlockLet $2               }
+ : Expression                           { Bind Nothing   (Just topLevelContext) $1   }
+ | name '<-' Expression                 { Bind (Just $1) (Just topLevelContext) $3   }
+ | name ':' PolyType                    { BlockTypeDecl $1 (Just $3)                 }
+ | 'let' sepBy1(Declaration, 'and')     { BlockLet $2                                }
 
 Declaration :: { (Name, ExprSimple RawT) }
  : name list(Arg) '=' Expression        { ($1, buildFunction $2 $4)       }
@@ -156,7 +156,7 @@ NakedExpression :: { ExprSimple RawT }
  | 'let' sepBy1(Declaration, 'and') 'in' Expression
     { LetBlock $2 $4   }
  | SafeExpression InfixOp Expression                    
-    { Application (Application (Var $2 Nothing ) $1 Nothing) $3 Nothing }
+    { Application (Application (Var (unresolved $2) Nothing) $1 Nothing) $3 Nothing }
 
 InfixOp :: { Name }
  : 'not'          { "not"                        }
@@ -187,7 +187,8 @@ SafeExpression :: { ExprSimple RawT }
  : '()'                                 { Unit Nothing                    }
  | string                               { Quote $1 Nothing                }
  | num                                  { Z $1 Nothing                    }
- | name                                 { Var $1 Nothing                  }
+ | qname                                { Var (unresolvedQ $1) Nothing    }
+ | name                                 { Var (unresolved $1) Nothing     }
  | '(' Expression ')'                   { $2                              }
  | '(' commas2(Expression) ')'          { Tuple $2 Nothing                }
  | '[' commas(Expression) ']'           { Array $2 Nothing                }
@@ -290,6 +291,12 @@ commas(p) : sepBy1(p, ',') { $1 }
 commas2(p) : sepBy2(p, ',') { $1 }
 
 {
+
+unresolved :: Name -> UnresolvedName
+unresolved = UnresolvedName []
+
+unresolvedQ :: ([Name],Name) -> UnresolvedName
+unresolvedQ (ns,n) = UnresolvedName ns n
 
 parseError :: [Token Pos] -> Err b
 parseError toks = case toks of

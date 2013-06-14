@@ -1,9 +1,9 @@
 
 module Main where
 
-import qualified Verifier.SAW.ParserUtils as SC
-import qualified Verifier.SAW.TypedAST as SC
-import Verifier.SAW.Prelude (preludeModule)
+--import qualified Verifier.SAW.ParserUtils as SC
+--import qualified Verifier.SAW.TypedAST as SC
+--import Verifier.SAW.Prelude (preludeModule)
 
 import SAWScript.AST
 import SAWScript.Compiler
@@ -17,9 +17,9 @@ import SAWScript.ResolveSyns
 --import SAWScript.LiftPoly
 import SAWScript.RenameRefs
 --import SAWScript.TypeCheck
-import SAWScript.ConvertType
+--import SAWScript.ConvertType
 
---import SAWScript.Import
+import SAWScript.Import
 import SAWScript.Options
 
 --import SAWScript.ToSAWCore
@@ -69,10 +69,9 @@ processFile opts file | takeExtensions file == ".saw" = do
     (putStrLn . ("Error\n" ++) . indent 2)  -- failure
     (\_ -> putStrLn "Success.")
     -}
-  --loadModule opts emptyLoadedModules file handleMods
+  --loadAll opts file handleMods
 
 
-{-
 -- TODO: type check then translate to SAWCore
 translateFile :: FilePath -> Compiler String SC.Module
 translateFile f s = do

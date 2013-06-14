@@ -1,6 +1,7 @@
 {-# LANGUAGE CPP #-}
 module SAWScript.Import
-  ( loadModule
+  ( loadAll
+  , loadModule
   , findAndLoadModule
   , emptyLoadedModules
   , LoadedModules(..)
@@ -22,13 +23,13 @@ import System.FilePath
 
 data LoadedModules =
   LoadedModules {
-    modules :: Map Name [TopStmt MPType]
+    modules :: Map Name [TopStmtSimple RawT]
   }
 
 emptyLoadedModules :: LoadedModules
 emptyLoadedModules = LoadedModules { modules = Map.empty }
 
-formModule :: FilePath -> Compiler String [TopStmt MPType]
+formModule :: FilePath -> Compiler String [TopStmtSimple RawT]
 formModule f = scan f >=> parseModule
 
 findAndLoadModule :: Options -> LoadedModules -> Name -> (LoadedModules -> IO ())
@@ -38,6 +39,9 @@ findAndLoadModule opts ms name k = do
   case mfname of
     Nothing -> putStrLn $ "Can't find module " ++ name
     Just fname -> loadModule opts ms fname k
+
+loadAll :: Options -> FilePath -> (LoadedModules -> IO ())
+loadAll opts = loadModule opts emptyLoadedModules
 
 loadModule :: Options -> LoadedModules -> FilePath -> (LoadedModules -> IO ())
            -> IO ()
@@ -69,8 +73,8 @@ findFile paths fileName = search paths
              else search ds
 #endif
   
-getImport :: TopStmt a -> Maybe Name
-getImport (Import n _ _) = Just n
+getImport :: TopStmtSimple a -> Maybe Name
+getImport (Import mn _ _) = Just $ moduleNameFilePath mn
 getImport _ = Nothing
 
 indent :: Int -> String -> String

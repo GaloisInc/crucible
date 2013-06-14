@@ -44,15 +44,25 @@ data ResolvedName
   | TopLevelName ModuleName Name
   deriving (Eq,Ord,Show)
 
+renderDotSepName :: [Name] -> String
+renderDotSepName = show . intercalate "."
+
+renderSlashSepName :: [Name] -> String
+renderSlashSepName = intercalate "/"
+
+renderModuleName :: ModuleName -> String
+renderModuleName (ModuleName ns n) = renderDotSepName $ ns ++ [n]
+
+moduleNameFilePath :: ModuleName -> String
+moduleNameFilePath (ModuleName ns n) = renderSlashSepName $ ns ++ [n]
+
 renderUnresolvedName :: UnresolvedName -> String
-renderUnresolvedName (UnresolvedName ns n) = show $ intercalate "." $
-  ns ++ [n]
+renderUnresolvedName (UnresolvedName ns n) = renderDotSepName $ ns ++ [n]
 
 renderResolvedName :: ResolvedName -> String
 renderResolvedName rn = case rn of
-  TopLevelName (ModuleName ns mn) n -> show $ intercalate "."
-    (ns ++ [mn,n])
-  LocalName n                       -> n
+  TopLevelName (ModuleName ns mn) n -> renderDotSepName $ (ns ++ [mn,n])
+  LocalName n                       -> show n
 
 type Bind a = (Name,a)
 onBind :: (a -> b) -> Bind a -> Bind b
