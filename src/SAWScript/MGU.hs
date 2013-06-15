@@ -10,6 +10,7 @@ import SAWScript.AST (Bind)
 
 import           Data.Graph.SCC(stronglyConnComp)
 import           Data.Graph (SCC(..))
+import Control.Applicative
 
 import Control.Monad
 import Control.Monad.Reader
@@ -204,7 +205,8 @@ instance FreeVars Schema where
 
 -- TI Monad {{{
 
-newtype TI a = TI { unTI :: ReaderT RO (StateT RW Identity) a } deriving (Functor,Monad)
+newtype TI a = TI { unTI :: ReaderT RO (StateT RW Identity) a }
+                        deriving (Functor,Applicative,Monad)
 
 data RO = RO
   { typeEnv :: M.Map A.ResolvedName Schema
@@ -476,6 +478,45 @@ exportSchema (Forall xs t) =
     [] -> exportType t
     _  -> A.TypAbs xs `fmap` exportType t
 
+exportExpr :: OutExpr -> TI (A.Expr A.ResolvedName A.Type)
+exportExpr e0 =
+  do e1 <- appSubstM e0
+     go e1
+  where
+  go expr =
+    case expr of
+      A.Unit t           -> A.Unit      <$> exportSchema t
+      A.Bit b t          -> A.Bit b     <$> exportSchema t
+      A.Quote str t      -> A.Quote str <$> exportSchema t
+      A.Z i t            -> A.Z i       <$> exportSchema t
+
+      A.Array es t       -> A.Array <$> mapM go es  <*> exportSchema t
+      A.Block bs t       -> A.Block <$> mapM goB bs <*> exportSchema t
+      A.Tuple es t       -> A.Tuple <$> mapM go es  <*> exportSchema t
+      A.Record nes t     -> A.Record <$> mapM go2 nes <*> exportSchema t
+
+      A.Index ar ix t    -> A.Index <$> go ar <*> go ix <*> exportSchema t
+      A.Lookup rec fld t -> A.Lookup <$> go rec <*> pure fld <*> exportSchema t
+      A.Var x t          -> A.Var x <$> exportSchema t
+
+      A.Function x xt body t-> A.Function x <$> exportSchema xt
+                                            <*> go body <*> exportSchema t
+
+      A.Application f v t -> A.Application <$> go f <*> go v <*> exportSchema t
+      A.LetBlock nes e   -> A.LetBlock <$> mapM go2 nes <*> go e
+
+  go2 (x,e) = do e1 <- go e
+                 return (x,e1)
+
+  goB stm =
+    case stm of
+      A.Bind mn ctx e     -> A.Bind mn <$> exportSchema ctx <*> go e
+      A.BlockLet bs       -> A.BlockLet <$> mapM go2 bs
+      A.BlockTypeDecl x t -> A.BlockTypeDecl x <$> exportSchema t
+
+
+
+
 
 -- }}}
 
@@ -742,28 +783,35 @@ defsDepsBind m it@(x,e0) = (it, [ A.TopLevelName m x ], S.toList (uses e0))
 checkKind :: Type -> TI Type
 checkKind = return
 
+
+
 -- }}}
 
 -- Main interface {{{
-
--- TODO: incorporate into Compiler
-
-typeCheck :: A.Module A.ResolvedName A.ResolvedT A.ResolvedT -> IO () -- (A.Module A.ResolvedName A.Type)
-typeCheck (A.Module nm ee te ds) = case runTI m of
-  (a,s,[]) -> let a' = appSubstBinds s a in do
-    putStrLn "No errors"
-    print a'
-  (_,_,es) -> do
-    putStrLn "Bogus"
-    mapM_ putStrLn es
+checkModule ::            A.Module A.ResolvedName A.ResolvedT A.ResolvedT ->
+         Either [String] (A.Module A.ResolvedName A.Type      A.ResolvedT)
+checkModule m =
+  case errs of
+    [] -> Right m { A.moduleExprEnv = M.fromList res }
+    _  -> Left errs
   where
-  m = typeCheckExprEnv ee
+  initTs = []   -- XXX: Compute these from the other modules
 
-typeCheckExprEnv :: A.Env (A.Expr A.ResolvedName A.ResolvedT) ->
-                TI [Bind OutExpr]
-typeCheckExprEnv env = inferDecls nes return -- TEMPORARY
-  where
-  nes = [ (n,translateExpr e) | (n,e) <- M.assocs $ env ]
+  exportBinds dss = sequence [ do e1 <- exportExpr e
+                                  return (x,e1)
+                             | ds <- dss, (x,e) <- ds ]
+
+  (res,_,errs)  = runTI $ bindSchemas initTs
+                        $ exportBinds =<<
+                            ( inferTopDecls
+                            $ computeSCCGroups (A.moduleName m)
+                            $ M.toList
+                            $ fmap translateExpr
+                            $ A.moduleExprEnv m
+                            )
+
+
+
 
 runTI :: TI a -> (a,Subst,[String])
 runTI m = (a,subst rw, errors rw)
