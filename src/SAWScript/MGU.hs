@@ -5,7 +5,6 @@ module SAWScript.MGU where
 
 import           SAWScript.Unify.Fix(Mu(..),(:+:)(..))
 import qualified SAWScript.AST as A
-import qualified TestRenamer as SS
 import SAWScript.AST (Bind)
 
 import           Data.Graph.SCC(stronglyConnComp)
