@@ -625,6 +625,12 @@ inferDecls bs nextF = do
   bindSchemas ss (nextF bs')
 
 inferStmts :: Type -> [BlockStmt] -> TI ([OutBlockStmt],Type)
+
+inferStmts ctx [] = do
+  recordError "do block must include at least one expression"
+  t <- newType
+  return ([], t)
+
 inferStmts ctx [Bind Nothing mc e] = do
   t  <- newType
   e' <- checkE e (tBlock ctx t)
