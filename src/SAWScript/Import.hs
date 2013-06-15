@@ -40,7 +40,7 @@ findAndLoadModule opts ms name k = do
     Nothing -> putStrLn $ "Can't find module " ++ name
     Just fname -> loadModule opts ms fname k
 
-loadAll :: Options -> FilePath -> (LoadedModules -> IO ())
+loadAll :: Options -> FilePath -> (LoadedModules -> IO ()) -> IO ()
 loadAll opts = loadModule opts emptyLoadedModules
 
 loadModule :: Options -> LoadedModules -> FilePath -> (LoadedModules -> IO ())
