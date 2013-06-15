@@ -120,7 +120,7 @@ TopStmt :: { TopStmtSimple RawT }
  : 'import' Import                      { $2                 }
  | name ':' PolyType                    { TopTypeDecl $1 $3  }
  | 'type' name '=' Type                 { TypeDef $2 $4      }
- | 'abstract' name                      { AbsTypeDecl $1     }
+ | 'abstract' name                      { AbsTypeDecl $2     }
  | Declaration                          { uncurry TopBind $1 }
 
 Import :: { TopStmtSimple RawT }

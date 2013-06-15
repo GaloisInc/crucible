@@ -13,7 +13,7 @@ import SAWScript.Lexer
 import SAWScript.Parser
 
 --import SAWScript.FindMain
-import SAWScript.ResolveSyns
+--import SAWScript.ResolveSyns
 --import SAWScript.LiftPoly
 import SAWScript.RenameRefs
 --import SAWScript.TypeCheck
