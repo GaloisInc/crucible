@@ -8,6 +8,7 @@ import SAWScript.Unify
 
 import Data.List
 import qualified Data.Map as M
+import qualified Data.Set as S
 
 import Data.Foldable hiding (concat, elem)
 import qualified Data.Traversable as T
@@ -43,6 +44,18 @@ data ResolvedName
   -- a name bound at the top level of some module.
   | TopLevelName ModuleName Name
   deriving (Eq,Ord,Show)
+
+parseModuleName :: Name -> ModuleName
+parseModuleName nm = case ns of
+  [] -> error "ModuleName cannot be made from empty string"
+  _  -> ModuleName (init ns) (last ns)
+  where
+  ns = breakAll (== '.') nm
+
+breakAll :: (Char -> Bool) -> String -> [String]
+breakAll pr [] = []
+breakAll pr s  = let (ss,rest) = break pr s in
+  ss : breakAll pr (drop 1 rest)
 
 renderDotSepName :: [Name] -> String
 renderDotSepName = show . intercalate "."
@@ -101,7 +114,7 @@ data Module refT exprT typeT = Module
   { moduleName         :: ModuleName
   , moduleExprEnv      :: Env (Expr refT exprT)
   , moduleTypeEnv      :: Env typeT
-  , moduleDependencies :: ModuleEnv ValidModule
+  , moduleDependencies :: S.Set ModuleName
   } deriving (Eq,Show)
 
 -- A fully type checked module.

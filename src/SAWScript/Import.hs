@@ -1,7 +1,6 @@
 {-# LANGUAGE CPP #-}
 module SAWScript.Import
-  ( loadAll
-  , loadModule
+  ( loadModule
   , findAndLoadModule
   , emptyLoadedModules
   , LoadedModules(..)
@@ -23,8 +22,8 @@ import System.FilePath
 
 data LoadedModules =
   LoadedModules {
-    modules :: Map Name [TopStmtSimple RawT]
-  }
+    modules :: Map ModuleName [TopStmtSimple RawT]
+  } deriving (Show)
 
 emptyLoadedModules :: LoadedModules
 emptyLoadedModules = LoadedModules { modules = Map.empty }
@@ -40,14 +39,11 @@ findAndLoadModule opts ms name k = do
     Nothing -> putStrLn $ "Can't find module " ++ name
     Just fname -> loadModule opts ms fname k
 
-loadAll :: Options -> FilePath -> (LoadedModules -> IO ())
-loadAll opts = loadModule opts emptyLoadedModules
-
 loadModule :: Options -> LoadedModules -> FilePath -> (LoadedModules -> IO ())
            -> IO ()
 loadModule opts ms fname k = do
   ftext <- readFile fname
-  let name = dropExtension (takeFileName fname)
+  let name = parseModuleName $ dropExtension (takeFileName fname)
   runE (formModule fname ftext)
        (putStrLn . ("Error\n" ++) . indent 2)
        (\m -> loadRest
