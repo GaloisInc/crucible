@@ -46,20 +46,39 @@ processFile opts file | takeExtensions file == ".sawcore" = do
   m <- SC.readModuleFromFile [preludeModule, sawScriptPrelude] file
   execSAWCore opts m
 processFile opts file | takeExtensions file == ".saw" = do
-  loadAll opts file (mapM_ (processModule opts) . M.toList . modules)
+  loadModule opts emptyLoadedModules file $ \loadedModules -> do
+    let ns = M.keys $ modules loadedModules
+    forM_ ns $ processModule opts loadedModules
+  -- (mapM_ (processModule opts) . M.toList . modules)
 processFile _ file = putStrLn $ "Don't know how to handle file " ++ file
 
-processModule :: Options -> (Name, [TopStmtSimple RawT]) -> IO ()
-processModule opts (name, ss) =
-  -- TODO: pass in a renamer env derived from preludeEnv
-  runCompiler (buildModule >=> resolveSyns >=> renameRefs emptyEnv) im $ \m -> do
+processModule :: Options -> LoadedModules -> ModuleName -> IO ()
+processModule opts lms modName =
+  -- TODO: merge the two representations of the prelude into one
+  --  that both the renamer and the type checker can understand.
+  runCompiler (buildModule >=> resolveSyns >=> renameRefs preludeEnvRenamer) im $ \m -> do
     case checkModule preludeEnv m of
       Left errs -> mapM_ putStrLn errs
       Right cm ->
         case translateModule cm of
           Left err -> putStrLn err
           Right scm -> execSAWCore opts scm
-  where im = (ModuleName [] name, ss)
+  where im = (modName, lms)
+
+{-
+processModule :: Options -> (ModuleName, [TopStmtSimple RawT]) -> IO ()
+processModule opts (modName, ss) =
+  -- TODO: merge the two representations of the prelude into one
+  --  that both the renamer and the type checker can understand.
+  runCompiler (buildModule >=> resolveSyns >=> renameRefs preludeEnvRenamer) im $ \m -> do
+    case checkModule preludeEnv m of
+      Left errs -> mapM_ putStrLn errs
+      Right cm ->
+        case translateModule cm of
+          Left err -> putStrLn err
+          Right scm -> execSAWCore opts scm
+  where im = (modName, ss)
+-}
 
 -- | Wrapper around compiler function to format the result or error
 runCompiler :: (Show b) => Compiler a b -> a -> (b -> IO ()) -> IO ()

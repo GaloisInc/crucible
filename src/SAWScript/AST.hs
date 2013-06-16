@@ -114,7 +114,7 @@ data Module refT exprT typeT = Module
   { moduleName         :: ModuleName
   , moduleExprEnv      :: Env (Expr refT exprT)
   , moduleTypeEnv      :: Env typeT
-  , moduleDependencies :: S.Set ModuleName
+  , moduleDependencies :: ModuleEnv ValidModule
   } deriving (Eq,Show)
 
 -- A fully type checked module.

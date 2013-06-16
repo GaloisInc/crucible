@@ -22,7 +22,7 @@ import System.FilePath
 
 data LoadedModules =
   LoadedModules {
-    modules :: Map ModuleName [TopStmtSimple RawT]
+    modules :: ModuleEnv [TopStmtSimple RawT]
   } deriving (Show)
 
 emptyLoadedModules :: LoadedModules
