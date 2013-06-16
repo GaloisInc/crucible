@@ -46,16 +46,19 @@ processFile opts file | takeExtensions file == ".sawcore" = do
   m <- SC.readModuleFromFile [preludeModule, sawScriptPrelude] file
   execSAWCore opts m
 processFile opts file | takeExtensions file == ".saw" = do
-  loadAll opts file (mapM_ processModule . M.toList . modules)
+  loadAll opts file (mapM_ (processModule opts) . M.toList . modules)
 processFile _ file = putStrLn $ "Don't know how to handle file " ++ file
 
-processModule :: (Name, [TopStmtSimple RawT]) -> IO ()
-processModule (name, ss) =
-  -- TODO: pass in an env derived from preludeEnv
+processModule :: Options -> (Name, [TopStmtSimple RawT]) -> IO ()
+processModule opts (name, ss) =
+  -- TODO: pass in a renamer env derived from preludeEnv
   runCompiler (buildModule >=> resolveSyns >=> renameRefs emptyEnv) im $ \m -> do
     case checkModule preludeEnv m of
-      Left err -> mapM_ putStrLn err
-      Right cm -> print cm
+      Left errs -> mapM_ putStrLn errs
+      Right cm ->
+        case translateModule cm of
+          Left err -> putStrLn err
+          Right scm -> execSAWCore opts scm
   where im = (ModuleName [] name, ss)
 
 -- | Wrapper around compiler function to format the result or error

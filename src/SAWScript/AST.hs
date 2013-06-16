@@ -105,9 +105,9 @@ data Module refT exprT typeT = Module
   } deriving (Eq,Show)
 
 -- A fully type checked module.
---  Exprs have resolved names, TCheckT types
+--  Exprs have resolved names, resolved types
 --  Types have ResolvedT (Nothing for abstract types, Just FullT for type synonyms)
-type ValidModule = Module ResolvedName TCheckT ResolvedT
+type ValidModule = Module ResolvedName Type ResolvedT
 
 -- }}}
 
