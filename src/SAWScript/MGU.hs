@@ -5,7 +5,6 @@ module SAWScript.MGU where
 
 import           SAWScript.Unify.Fix(Mu(..),(:+:)(..))
 import qualified SAWScript.AST as A
-import qualified TestRenamer as SS
 import SAWScript.AST (Bind)
 
 import           Data.Graph.SCC(stronglyConnComp)
@@ -626,6 +625,12 @@ inferDecls bs nextF = do
   bindSchemas ss (nextF bs')
 
 inferStmts :: Type -> [BlockStmt] -> TI ([OutBlockStmt],Type)
+
+inferStmts ctx [] = do
+  recordError "do block must include at least one expression"
+  t <- newType
+  return ([], t)
+
 inferStmts ctx [Bind Nothing mc e] = do
   t  <- newType
   e' <- checkE e (tBlock ctx t)
@@ -788,14 +793,15 @@ checkKind = return
 -- }}}
 
 -- Main interface {{{
-checkModule ::            A.Module A.ResolvedName A.ResolvedT A.ResolvedT ->
+checkModule ::            [(Name, Schema)] -> -- Temporarily made a parameter for prelude
+                          A.Module A.ResolvedName A.ResolvedT A.ResolvedT ->
          Either [String] (A.Module A.ResolvedName A.Type      A.ResolvedT)
-checkModule m =
+checkModule initTs m =
   case errs of
     [] -> Right m { A.moduleExprEnv = M.fromList res }
     _  -> Left errs
   where
-  initTs = []   -- XXX: Compute these from the other modules
+  --initTs = []   -- XXX: Compute these from the other modules
 
   exportBinds dss = sequence [ do e1 <- exportExpr e
                                   return (x,e1)

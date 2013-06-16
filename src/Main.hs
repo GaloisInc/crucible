@@ -1,44 +1,28 @@
-
 module Main where
 
-import qualified Verifier.SAW.ParserUtils as SC
-import qualified Verifier.SAW.TypedAST as SC
-import Verifier.SAW.Prelude (preludeModule)
-
-import SAWScript.AST
-import SAWScript.Compiler
-
-import SAWScript.Token
-import SAWScript.Lexer
-import SAWScript.Parser
-
---import SAWScript.FindMain
---import SAWScript.ResolveSyns
---import SAWScript.LiftPoly
-import SAWScript.RenameRefs
---import SAWScript.TypeCheck
---import SAWScript.ConvertType
-
---import SAWScript.Import
-import SAWScript.Options
-
---import SAWScript.ToSAWCore
-import SAWScript.Execution
-
-import Control.Arrow
-import Control.Applicative
-import Control.Exception
 import Control.Monad
 import qualified Data.Map as M
-import Data.Maybe
 import Data.List
-import Test.QuickCheck
 
 import System.IO
 import System.Console.GetOpt
 import System.Environment
-import System.Directory
 import System.FilePath
+
+import qualified Verifier.SAW.ParserUtils as SC
+import Verifier.SAW.Prelude (preludeModule)
+
+import SAWScript.AST
+import SAWScript.BuildModule as BM
+import SAWScript.Compiler
+import SAWScript.Execution
+import SAWScript.Import
+import SAWScript.MGU (checkModule)
+import SAWScript.Options
+import SAWScript.Prelude
+import SAWScript.RenameRefs as RR
+import SAWScript.ResolveSyns
+import SAWScript.ToSAWCore
 
 main :: IO ()
 main = do
@@ -62,101 +46,27 @@ processFile opts file | takeExtensions file == ".sawcore" = do
   m <- SC.readModuleFromFile [preludeModule, sawScriptPrelude] file
   execSAWCore opts m
 processFile opts file | takeExtensions file == ".saw" = do
-  text <- readFile file
-  putStrLn "SAWScript temporarily disabled"
-  {-
-  runE (compileModule file text)
-    (putStrLn . ("Error\n" ++) . indent 2)  -- failure
-    (\_ -> putStrLn "Success.")
-    -}
-  --loadAll opts file handleMods
+  loadAll opts file (mapM_ (processModule opts) . M.toList . modules)
+processFile _ file = putStrLn $ "Don't know how to handle file " ++ file
 
-
-{-
--- TODO: type check then translate to SAWCore
-translateFile :: FilePath -> Compiler String SC.Module
-translateFile f s = do
-  m <- compileModule f s
-  either fail return $ translateModule [preludeModule] m
-
--- | Full compiler pipeline, so far.
-compileModule :: FilePath -> Compiler String (Module' PType Type)
-compileModule f = formModule f >=> typeModule
-
--- | Takes unlexed text to Module
-formModule :: FilePath -> Compiler String (Module MPType)
-formModule f = scan f >=> parseModule -- >=> findMain mname
-  where mname = dropExtension (takeFileName f)
-
--- | Takes module from untyped to fully typed
-typeModule :: Compiler (Module MPType) (Module' PType Type)
-typeModule = resolveSyns >=> renameRefs >=> {- liftPoly >=> -} typeCheck >=> convertType
--}
+processModule :: Options -> (Name, [TopStmtSimple RawT]) -> IO ()
+processModule opts (name, ss) =
+  -- TODO: pass in a renamer env derived from preludeEnv
+  runCompiler (buildModule >=> resolveSyns >=> renameRefs emptyEnv) im $ \m -> do
+    case checkModule preludeEnv m of
+      Left errs -> mapM_ putStrLn errs
+      Right cm ->
+        case translateModule cm of
+          Left err -> putStrLn err
+          Right scm -> execSAWCore opts scm
+  where im = (ModuleName [] name, ss)
 
 -- | Wrapper around compiler function to format the result or error
-runCompiler :: (Show b) => Compiler a b -> a -> IO ()
-runCompiler f a = do
+runCompiler :: (Show b) => Compiler a b -> a -> (b -> IO ()) -> IO ()
+runCompiler f a k = do
   runE (f a)
     (putStrLn . ("Error\n" ++) . indent 2)  -- failure
-    (putStrLn . indent 2 . show)            -- success
-  putStrLn ""
-
--- testing external files -----------------------------------------------------
-
--- | Filters files by whitelisted prefixes. If the filter set is null, allow all files through.
-{-
-filesToRun :: [String] -> [FilePath] -> [FilePath]
-filesToRun run = if null run
-  then id
-  else filter (or . (isPrefixOf <$> run <*>) . pure . takeBaseName)
--}
-
--- | Resolve the paths of all SAWScript files in directory
-{-
-getTestFiles :: FilePath -> IO [FilePath]
-getTestFiles dir = do
-  allFiles <- map (dir </>) <$> getDirectoryContents dir
-  fs <- desiredFiles allFiles
-  return fs
-  where
-  desiredFiles :: [FilePath] -> IO [FilePath]
-  desiredFiles = filterM (fmap isRegularFile . getFileStatus) >=>
-    return . filter ((== ".saw") . takeExtension)
-
-testAllFiles :: IO ()
-testAllFiles = do
-  fs <- filesToRun <$> getArgs <*> getTestFiles "../test"
-  forM_ fs $ \f -> do
-    putStrLn $ replicate 60 '*'
-    putStrLn ("Testing file " ++ show f)
-    contents <- readFile f
-    runCompiler (compileModule f) contents
--}
-
--- testing pre-parsed modules -------------------------------------------------
-
-{-
--- | A few hand written tests
-testAllModules :: IO ()
-testAllModules = forM_
-  [ ( "m1"       , m1  )
-  , ( "m1b"      , m1b )
-  , ( "m1c"      , m1c )
-  , ( "m2"       , m2  )
-  , ( "m2b"      , m2b )
-  , ( "m3"       , m3  )
-  , ( "m4"       , m4  )
-  , ( "m5"       , m5  )
-  , ( "m6"       , m6  )
-  , ( "inferBit" , inferBit )
-  ] $
-  (\(lab,mod) -> do
-     labelModule lab
-     runCompiler typeModule mod)
-  where
-  labelModule :: String -> IO ()
-  labelModule n = putStrLn (n ++ ":")
--}
+    k -- continuation
 
 indent :: Int -> String -> String
 indent n = unlines . map (replicate n ' ' ++) . lines
