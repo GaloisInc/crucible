@@ -19,6 +19,7 @@ import SAWScript.Execution
 import SAWScript.Import
 import SAWScript.MGU (checkModule)
 import SAWScript.Options
+import SAWScript.Prelude
 import SAWScript.RenameRefs as RR
 import SAWScript.ResolveSyns
 import SAWScript.ToSAWCore
@@ -50,8 +51,9 @@ processFile _ file = putStrLn $ "Don't know how to handle file " ++ file
 
 processModule :: (Name, [TopStmtSimple RawT]) -> IO ()
 processModule (name, ss) =
-  runCompiler (buildModule >=> resolveSyns >=> renameRefs) im $ \m -> do
-    case checkModule m of
+  -- TODO: pass in an env derived from preludeEnv
+  runCompiler (buildModule >=> resolveSyns >=> renameRefs emptyEnv) im $ \m -> do
+    case checkModule preludeEnv m of
       Left err -> mapM_ putStrLn err
       Right cm -> print cm
   where im = (ModuleName [] name, ss)
