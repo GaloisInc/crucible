@@ -56,7 +56,7 @@ processModule :: Options -> LoadedModules -> ModuleName -> IO ()
 processModule opts lms modName =
   -- TODO: merge the two representations of the prelude into one
   --  that both the renamer and the type checker can understand.
-  runCompiler (buildModule >=> resolveSyns >=> renameRefs preludeEnvRenamer) im $ \m -> do
+  runCompiler (buildModule >=> resolveSyns >=> renameRefs) im $ \m -> do
     case checkModule preludeEnv m of
       Left errs -> mapM_ putStrLn errs
       Right cm ->
