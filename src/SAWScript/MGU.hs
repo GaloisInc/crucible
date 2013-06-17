@@ -484,6 +484,12 @@ exportType ty =
               do recordError "Numeric type not in array index."
                  return A.ZT      -- Just anything, really.
 
+exportValidSchema :: Schema -> A.Type
+exportValidSchema s = case runTI bug (exportSchema s) of
+                        (a,_,_) -> a
+  where bug = error "exportValidSchema used the module name"
+
+
 exportSchema :: Schema -> TI A.Type
 exportSchema (Forall xs t) =
   case xs of
