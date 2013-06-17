@@ -694,7 +694,7 @@ generalize es0 ts0 =
      withAsmps <- freeVarsInEnv
      let (ns,gvs) = unzip $ mapMaybe toBound $ S.toList $ cs S.\\ withAsmps
      let s = listSubst gvs
-         mk e t = (quant ns (appSubst s e), Forall ns t)
+         mk e t = (quant ns (appSubst s e), Forall ns (appSubst s t))
 
      return $ zipWith mk es ts
 
