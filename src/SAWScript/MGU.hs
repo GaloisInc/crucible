@@ -209,10 +209,11 @@ newtype TI a = TI { unTI :: ReaderT RO (StateT RW Identity) a }
 
 data RO = RO
   { typeEnv :: M.Map A.ResolvedName Schema
+  , curMod  :: A.ModuleName
   }
 
-emptyRO :: RO
-emptyRO = RO M.empty
+emptyRO :: A.ModuleName -> RO
+emptyRO m = RO { typeEnv = M.empty, curMod = m }
 
 data RW = RW
   { nameGen :: Integer
@@ -246,12 +247,24 @@ unify t1 t2 = do
     Just s -> TI $ modify $ \rw -> rw { subst = s @@ subst rw }
     Nothing -> recordError $ "type mismatch: " ++ show t1 ++ " and " ++ show t2
 
-bindSchema :: Name -> Schema -> TI a -> TI a
-bindSchema n s m = TI $ local (\ro -> ro { typeEnv = M.insert (A.LocalName n) s $ typeEnv ro })
+bindSchema :: A.ResolvedName -> Schema -> TI a -> TI a
+bindSchema n s m = TI $ local (\ro -> ro { typeEnv = M.insert n s $ typeEnv ro })
   $ unTI m
 
-bindSchemas :: [(Name, Schema)] -> TI a -> TI a
+bindSchemas :: [(A.ResolvedName, Schema)] -> TI a -> TI a
 bindSchemas bs m = foldr (uncurry bindSchema) m bs
+
+bindTopSchemas :: [Bind Schema] -> TI a -> TI a
+bindTopSchemas ds k =
+  do m <- curModName
+     bindSchemas [ (A.TopLevelName m x, s) | (x,s) <- ds ] k
+
+bindLocalSchemas :: [Bind Schema] -> TI a -> TI a
+bindLocalSchemas ds k =
+  bindSchemas [ (A.LocalName x,s) | (x,s) <- ds ] k
+
+curModName :: TI A.ModuleName
+curModName = TI $ asks curMod
 
 lookupVar :: A.ResolvedName -> TI Type
 lookupVar n = do
@@ -568,7 +581,7 @@ inferE expr = case expr of
 
 
   Function x Nothing body -> do a <- newType
-                                (body',t) <- bindSchema x (tMono a) $
+                                (body',t) <- bindLocalSchemas [(x,tMono a)] $
                                                inferE body
                                 ret (A.Function x (tMono a) body') $ tFun a t
 
@@ -622,7 +635,7 @@ inferField (n,e) = do
 inferDecls :: [Bind Expr] -> ([Bind OutExpr] -> TI a) -> TI a
 inferDecls bs nextF = do
   (bs',ss) <- unzip `fmap` mapM inferDecl bs
-  bindSchemas ss (nextF bs')
+  bindLocalSchemas ss (nextF bs')
 
 inferStmts :: Type -> [BlockStmt] -> TI ([OutBlockStmt],Type)
 
@@ -656,7 +669,7 @@ inferStmts ctx (Bind mn mc e : more) = do
                   return (tMono t')
   let f = case mn of
         Nothing -> id
-        Just n  -> bindSchema n (tMono t)
+        Just n  -> bindSchema (A.LocalName n) (tMono t)
   (more',t) <- f $ inferStmts ctx more
 
   return (A.Bind mn mc' e' : more', t)
@@ -678,8 +691,8 @@ inferRecDecls ds =
   do let names = map fst ds
      guessedTypes <- mapM (\_ -> newType) ds
      (es,ts) <- unzip `fmap`
-                bindSchemas (zip names (map tMono guessedTypes))
-                            (mapM (inferE . snd) ds)
+                bindTopSchemas (zip names (map tMono guessedTypes))
+                               (mapM (inferE . snd) ds)
      zipWithM unify ts guessedTypes
      (es1,ss) <- unzip `fmap` generalize es ts
      return (zip names es1, zip names ss)
@@ -731,7 +744,7 @@ inferTopDecls :: [ [Bind Expr] ] -> TI [ [Bind OutExpr] ]
 inferTopDecls [] = return []
 inferTopDecls (ds : dss) =
   do (ds1, ss) <- inferRecDecls ds
-     rest <- bindSchemas ss (inferTopDecls dss)
+     rest <- bindTopSchemas ss (inferTopDecls dss)
      return (ds1 : rest)
 
 
@@ -793,7 +806,7 @@ checkKind = return
 -- }}}
 
 -- Main interface {{{
-checkModule ::            [(Name, Schema)] -> -- Temporarily made a parameter for prelude
+checkModule :: [(A.ResolvedName, Schema)] -> -- Temporarily made a parameter for prelude
                           A.Module A.ResolvedName A.ResolvedT A.ResolvedT ->
          Either [String] (A.Module A.ResolvedName A.Type      A.ResolvedT)
 checkModule initTs m =
@@ -807,7 +820,8 @@ checkModule initTs m =
                                   return (x,e1)
                              | ds <- dss, (x,e) <- ds ]
 
-  (res,_,errs)  = runTI $ bindSchemas initTs
+  (res,_,errs)  = runTI (A.moduleName m)
+                        $ bindSchemas initTs
                         $ exportBinds =<<
                             ( inferTopDecls
                             $ computeSCCGroups (A.moduleName m)
@@ -819,10 +833,10 @@ checkModule initTs m =
 
 
 
-runTI :: TI a -> (a,Subst,[String])
-runTI m = (a,subst rw, errors rw)
+runTI :: A.ModuleName -> TI a -> (a,Subst,[String])
+runTI mn m = (a,subst rw, errors rw)
   where
-  m' = runReaderT (unTI m) emptyRO
+  m' = runReaderT (unTI m) (emptyRO mn)
   (a,rw) = runState m' emptyRW
 
 -- }}}
