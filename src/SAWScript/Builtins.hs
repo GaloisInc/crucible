@@ -50,16 +50,6 @@ import SAWScript.Utils
 import qualified Verinf.Symbolic as BE
 import Verinf.Utils.LogMonad
 
-{-
-runTest :: IO ()
-runTest =
-    do sawScriptModule <- readModuleFromFile [preludeModule] "examples/prelude.sawcore"
-       (sc :: SharedContext s) <- mkSharedContext sawScriptModule
-       let global = evalGlobal sawScriptModule (allPrims global)
-       let t = Term (FTermF (GlobalDef "SAWScriptPrelude.test"))
-       runSC (fromValue (evalTerm global [] t :: Value s)) sc
--}
-
 sawScriptPrims :: forall s. Options -> (Ident -> Value s) -> Map Ident (Value s)
 sawScriptPrims opts global = Map.fromList
   -- Key SAWScript functions
