@@ -9,7 +9,7 @@ class FFS {
         return 0;
     }
 
-    static int ffs(int i) {
+    static int ffs_imp(int i) {
         byte n = 1;
         if ((i & 0xffff) == 0) { n += 16; i >>= 16; } else { n = n; }
         if ((i & 0x00ff) == 0) { n +=  8; i >>=  8; } else { n = n; }
