@@ -1,0 +1,5 @@
+main : TopLevel ();
+main = do {
+  t <- read_aig "Maj.aig";
+  print t;
+}
