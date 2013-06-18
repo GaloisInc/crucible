@@ -77,6 +77,8 @@ sawScriptPrims opts global = Map.fromList
       (satABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
   , ("SAWScriptPrelude.equal", toValue
       (equalPrim :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
+  , ("SAWScriptPrelude.negate", toValue
+      (scNegate :: SharedTerm s -> SC s (SharedTerm s)))
   -- Term building
   , ("SAWScriptPrelude.termGlobal", toValue
       (termGlobal :: String -> SC s (SharedTerm s)))
@@ -208,7 +210,8 @@ writeSMTLib2 f t = mkSC $ \sc -> do
 -- satisfiability using ABC.
 satABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
 satABC _script t = mkSC $ \sc -> withBE $ \be -> do
-  mbterm <- bitBlast be t
+  t' <- prepForExport sc t
+  mbterm <- bitBlast be t'
   case (mbterm, BE.beCheckSat be) of
     (Right bterm, Just chk) -> do
       case bterm of
@@ -221,16 +224,16 @@ satABC _script t = mkSC $ \sc -> withBE $ \be -> do
         _ -> fail "Can't prove non-boolean term."
     (_, _) -> fail "Can't bitblast."
 
-scNot :: SharedTerm s -> SC s (SharedTerm s)
-scNot t = mkSC $ \sc -> do appNot <- scApplyPreludeNot sc ; appNot t
+scNegate :: SharedTerm s -> SC s (SharedTerm s)
+scNegate t = mkSC $ \sc -> do appNot <- scApplyPreludeNot sc ; appNot t
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- validity using ABC.
 proveABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
 proveABC script t = do
-  t' <- scNot t
+  t' <- scNegate t
   r <- satABC script t'
-  scNot r
+  scNegate r
 
 equal :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
 equal sc (STApp _ (Lambda (PVar x1 _ _) ty1 tm1)) (STApp _ (Lambda (PVar _ _ _) ty2 tm2)) = do
@@ -375,6 +378,7 @@ extractJava opts cname mname _setup =  mkSC $ \sc -> do
     let fl  = JSS.defaultSimFlags { JSS.alwaysBitBlastBranchTerms = True }
         sbe = JSS.symbolicBackend sms
     JSS.runSimulator cb sbe JSS.defaultSEH (Just fl) $ do
+      setVerbosity 0
       args <- mapM (freshJavaArg sbe) (JSS.methodParameterTypes meth)
       rslt <- JSS.execStaticMethod cname (JSS.methodKey meth) args
       dt <- case rslt of
