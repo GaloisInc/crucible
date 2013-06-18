@@ -1,0 +1,13 @@
+main = do {
+  print "Extracting reference term";
+  ffs_ref <- java_extract "FFS" "ffs_ref" java_pure;
+
+  print "Extracting implementation term";
+  ffs_imp <- java_extract "FFS" "ffs_imp" java_pure;
+
+  print "Proving equivalence";
+  thm1 <- equal ffs_ref ffs_imp;
+  ffs_res <- prove abc thm1;
+  print ffs_res;
+  //write_smtlib1 "ffs_java.smt" thm1;
+};

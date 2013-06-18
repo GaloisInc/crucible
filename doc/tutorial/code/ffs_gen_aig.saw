@@ -1,10 +1,10 @@
 main = do {
-    //java_ffs_ref <- java_extract "FFS" "ffs_ref" java_pure;
-    //java_ffs_imp <- java_extract "FFS" "ffs_imp" java_pure;
+    java_ffs_ref <- java_extract "FFS" "ffs_ref" java_pure;
+    java_ffs_imp <- java_extract "FFS" "ffs_imp" java_pure;
     c_ffs_ref <- llvm_extract "ffs.bc" "ffs_ref" llvm_pure;
     c_ffs_imp <- llvm_extract "ffs.bc" "ffs_imp" llvm_pure;
-    //write_aig "java_ffs_ref.aig" java_ffs_ref;
-    //write_aig "java_ffs_imp.aig" java_ffs_imp;
+    write_aig "java_ffs_ref.aig" java_ffs_ref;
+    write_aig "java_ffs_imp.aig" java_ffs_imp;
     write_aig "c_ffs_ref.aig" c_ffs_ref;
     write_aig "c_ffs_imp.aig" c_ffs_imp;
 };

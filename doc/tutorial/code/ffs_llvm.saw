@@ -1,0 +1,23 @@
+main = do {
+  print "Extracting reference term";
+  ffs_ref <- llvm_extract "ffs.bc" "ffs_ref" llvm_pure;
+
+  print "Extracting implementation term";
+  ffs_imp <- llvm_extract "ffs.bc" "ffs_imp" llvm_pure;
+
+  print "Proving equivalence";
+  thm1 <- equal ffs_ref ffs_imp;
+  /*
+  print "====";
+  print ffs_ref;
+  print "====";
+  print ffs_imp;
+  print "====";
+  print thm1;
+  print "====";
+  */
+  ffs_res <- prove abc thm1;
+  print ffs_res;
+
+  //write_smtlib1 "ffs_llvm.smt" thm1;
+};
