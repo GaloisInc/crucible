@@ -417,6 +417,7 @@ translateTypeS (In (Inr (Inr ty))) =
     A.RecordF fs      -> tMono $ TyRecord [ (f,translateType t) | (f,t) <- fs ]
 
     A.FunctionF t1 t2 -> tMono $ tFun (translateType t1) (translateType t2)
+    A.AbstractF n     -> tMono $ TyCon (AbstractCon n) []
 
     A.PVar x          -> tMono $ TyVar (BoundVar x)
     A.PAbs xs t       -> case translateTypeS t of
@@ -433,28 +434,25 @@ exportType ty =
     TyVar var ->
       case var of
         BoundVar name -> A.TypVar name
-        FreeVar name  ->
+        FreeVar _name ->
           error "Free type variable: bug/default to something."
 
     TyRecord fs ->
       A.RecordT [ (x, exportType t) | (x, t) <- fs ]
 
-    TyCon ArrayCon [i ,e] ->
-      A.ArrayT (exportType e) (exportType i)
-
-    TyCon BlockCon [a, b] ->
-      A.BlockT (exportType a) (exportType b)
-
-    TyCon c ts ->
-      case (c, map exportType ts) of
-        (TupleCon _, ts)  -> A.TupleT ts
+    TyCon tc ts ->
+      case (tc, map exportType ts) of
+        (TupleCon _, ts') -> A.TupleT ts'
+        (ArrayCon, [i,e]) -> A.ArrayT e i -- argument order changes
         (FunCon,   [a,b]) -> A.FunctionT a b
         (StringCon, [])   -> A.QuoteT
         (BoolCon, [])     -> A.BitT
         (ZCon, [])        -> A.ZT
         (ContextCon c, _) -> A.ContextT c
-        (NumCon n, _)    ->  A.IntegerT n
+        (NumCon n, _)     -> A.IntegerT n
+        (BlockCon, [a,b]) -> A.BlockT a b
         (AbstractCon s, _) -> A.Abstract s
+        _                 -> error "exportType: malformed TyCon"
 
 exportSchema :: Schema -> A.Type
 exportSchema (Forall xs t) =
@@ -555,6 +553,7 @@ inferE expr = case expr of
                                 (body',t) <- bindLocalSchemas [(x,tMono a)] $
                                                inferE body
                                 ret (A.Function x (tMono a) body') $ tFun a t
+  Function _ (Just _) _ -> error "inferE (Function _ (Just _) _)"
 
 
   Application f v -> do (v',fv) <- inferE v
@@ -664,7 +663,7 @@ inferRecDecls ds =
      (es,ts) <- unzip `fmap`
                 bindTopSchemas (zip names (map tMono guessedTypes))
                                (mapM (inferE . snd) ds)
-     zipWithM unify ts guessedTypes
+     _ <- zipWithM unify ts guessedTypes
      (es1,ss) <- unzip `fmap` generalize es ts
      return (zip names es1, zip names ss)
 
