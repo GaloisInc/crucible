@@ -56,8 +56,7 @@ data Schema = Forall [Name] Type deriving (Show)
 
 data Expr
   -- Constants
-  = Unit
-  | Bit Bool
+  = Bit Bool
   | String String
   | Z Integer
   -- Structures
@@ -95,9 +94,6 @@ tForall xs (Forall ys t) = Forall (xs ++ ys) t
 
 tTuple :: [Type] -> Type
 tTuple ts = TyCon (TupleCon $ fromIntegral $ length ts) ts
-
-tUnit :: Type
-tUnit = tTuple []
 
 tArray :: Type -> Type -> Type
 tArray l t = TyCon ArrayCon [l,t]
@@ -313,7 +309,6 @@ instance AppSubst Expr where
   appSubst s expr = case expr of
     TSig e t           -> TSig (appSubst s e) (appSubst s t)
 
-    Unit               -> Unit
     Bit b              -> Bit b
     String str         -> String str
     Z i                -> Z i
@@ -330,7 +325,6 @@ instance AppSubst Expr where
 
 instance AppSubst ty => AppSubst (A.Expr names ty) where
   appSubst s expr = case expr of
-    A.Unit t             -> A.Unit (appSubst s t)
     A.Bit b t            -> A.Bit b (appSubst s t)
     A.Quote str t        -> A.Quote str (appSubst s t)
     A.Z i t              -> A.Z i (appSubst s t)
@@ -372,7 +366,6 @@ appSubstBinds s bs = [ (n,appSubst s a) | (n,a) <- bs ]
 
 translateExpr :: A.Expr A.ResolvedName A.ResolvedT -> Expr
 translateExpr expr = case expr of
-  A.Unit t               -> sig t $ Unit
   A.Bit b t              -> sig t $ Bit b
   A.Quote s t            -> sig t $ String s
   A.Z i t                -> sig t $ Z i
@@ -413,7 +406,6 @@ translateTypeS (In (Inr (Inl ctx))) = tMono $
 
 translateTypeS (In (Inr (Inr ty))) =
   case ty of
-    A.UnitF           -> tMono (tTuple [])
     A.BitF            -> tMono tBool
     A.ZF              -> tMono tZ
     A.QuoteF          -> tMono tString
@@ -549,7 +541,6 @@ ret thing ty = return (thing (tMono ty), ty)
 
 inferE :: Expr -> TI (OutExpr,Type)
 inferE expr = case expr of
-  Unit     -> ret A.Unit      tUnit
   Bit b    -> ret (A.Bit b)   tBool
   String s -> ret (A.Quote s) tString
   Z i      -> ret (A.Z i)     tZ
@@ -726,7 +717,6 @@ generalize es0 ts0 =
   quant :: [Name] -> OutExpr -> OutExpr
   quant xs expr =
     case expr of
-      A.Unit t              -> A.Unit (tForall xs t)
       A.Bit b t             -> A.Bit b (tForall xs t)
       A.Quote str t         -> A.Quote str (tForall xs t)
       A.Z i t               -> A.Z i (tForall xs t)
@@ -781,7 +771,6 @@ defsDepsBind m it@(x,e0) = (it, [ A.TopLevelName m x ], S.toList (uses e0))
   -- we are only interested in top-level names
   uses expr =
     case expr of
-      Unit                -> S.empty
       Bit _               -> S.empty
       String _            -> S.empty
       Z _                 -> S.empty

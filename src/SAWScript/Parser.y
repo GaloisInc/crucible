@@ -50,7 +50,6 @@ import Control.Applicative
   'Bit'          { TReserved _ "Bit"            }
   'Int'          { TReserved _ "Int"            }
   'String'       { TReserved _ "String"         }
-  '()'           { TReserved _ "()"             }
   ';'            { TPunct    _ ";"              }
   '['            { TPunct    _ "["              }
   ']'            { TPunct    _ "]"              }
@@ -186,7 +185,8 @@ InfixOp :: { Name }
  | '==>'          { "implies"                    }
 
 SafeExpression :: { ExprSimple RawT }
- : '()'                                 { Unit Nothing                    }
+ : '(' ')'                              { Tuple [] Nothing                }
+ | '[' ']'                              { Array [] Nothing                }
  | string                               { Quote $1 Nothing                }
  | num                                  { Z $1 Nothing                    }
  | qname                                { Var (unresolvedQ $1) Nothing    }
@@ -217,7 +217,7 @@ Type :: { RawSigT }
 BaseType :: { RawSigT }
  : name                                 { syn $1                  }
  | Context BaseType                     { block $1 $2             }
- | '()'                                 { unit                    }
+ | '(' ')'                              { tuple []                }
  | 'Bit'                                { bit                     }
  | 'Int'                                { z                       }
  | 'String'                             { quote                   }

@@ -140,8 +140,7 @@ data TopStmt refT typeT
 
 data Expr refT typeT
   -- Constants
-  = Unit         typeT
-  | Bit Bool     typeT
+  = Bit Bool     typeT
   | Quote String typeT
   | Z Integer    typeT
   -- Structures
@@ -173,8 +172,7 @@ data BlockStmt refT typeT
 
 data TypeF typeT
   -- Constants
-  = UnitF
-  | BitF
+  = BitF
   | ZF
   | QuoteF
   -- Structures
@@ -205,12 +203,13 @@ data ContextF typeT
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
 data Type 
-  = UnitT
-  | BitT
+  = BitT
   | ZT
   | QuoteT
-  | ArrayT Type Integer
-  | BlockT Context Type
+  | ContextT Context
+  | IntegerT Integer
+  | ArrayT Type Type
+  | BlockT Type Type
   | TupleT [Type]
   | RecordT [Bind Type]
   | FunctionT Type Type
@@ -238,7 +237,6 @@ data I a = I Integer deriving (Show,Functor,Foldable,T.Traversable)
 
 instance Equal TypeF where
   equal t1 t2 = case (t1,t2) of
-    (UnitF,UnitF)                         -> True
     (BitF,BitF)                           -> True
     (ZF,ZF)                               -> True
     (QuoteF,QuoteF)                       -> True
@@ -272,7 +270,6 @@ instance Equal Syn where
 
 instance Render TypeF where
   render t = case t of
-    UnitF           -> "UnitF"
     BitF            -> "BitF"
     ZF              -> "ZF"
     QuoteF          -> "QuoteF"
@@ -323,9 +320,6 @@ instance Uni ContextF where
 -- }}}
 
 -- Injection Operators {{{
-
-unit :: (TypeF :<: f) => Mu f
-unit = inject UnitF
 
 bit :: (TypeF :<: f) => Mu f
 bit = inject BitF
@@ -384,7 +378,6 @@ pAbs ns t = inject $ PAbs ns t
 
 typeOf :: Expr refT typeT -> typeT
 typeOf expr = case expr of
-  Unit t            -> t
   Bit _ t           -> t
   Quote _ t         -> t
   Z _ t             -> t
@@ -406,7 +399,6 @@ context s = case s of
 
 updateAnnotation :: typeT -> Expr refT typeT -> Expr refT typeT
 updateAnnotation t expr = case expr of
-  Unit _            -> Unit t
   Bit x _           -> Bit x t
   Quote x _         -> Quote x t
   Z x _             -> Z x t
