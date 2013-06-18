@@ -426,67 +426,39 @@ translateType typ = case translateTypeS typ of
   Forall [] t -> t
   _ -> error "my brain exploded: translateType"
 
-
-exportType :: Type -> TI A.Type
+exportType :: Type -> A.Type
 exportType ty =
   case ty of
     TyVar var ->
       case var of
-        BoundVar name -> return $ A.TypVar name
+        BoundVar name -> A.TypVar name
         FreeVar name  ->
-          error "Free type variable: bug/defailt to something."
+          error "Free type variable: bug/default to something."
 
     TyRecord fs ->
-      do fs <- forM fs $ \(f,t) ->
-               do t1 <- exportType t
-                  return (f,t1)
-         return $ A.RecordT fs
+      A.RecordT [ (x, exportType t) | (x, t) <- fs ]
 
-    TyCon ArrayCon [TyCon (NumCon l) [] ,e] ->
-      do t <- exportType e
-         return $ A.ArrayT t l
+    TyCon ArrayCon [i ,e] ->
+      A.ArrayT (exportType e) (exportType i)
 
-    TyCon ArrayCon [_, e] ->
-      do recordError "Array type does not have a concrete length."
-         t <- exportType e
-         return $ A.ArrayT t 778 -- Just anything, really.
-
-    TyCon BlockCon [TyCon (ContextCon c) [], b] ->
-      do t <- exportType b
-         return $ A.BlockT c t
-
-    TyCon BlockCon [_,b] ->
-        do recordError "Block does not have a concrete context."
-           t <- exportType b
-           return (A.BlockT A.TopLevel t)
+    TyCon BlockCon [a, b] ->
+      A.BlockT (exportType a) (exportType b)
 
     TyCon c ts ->
-      do ts1 <- mapM exportType ts
-         case (c, ts1) of
-           (TupleCon _, ts)  -> return $ A.TupleT ts
-           (FunCon,   [a,b]) -> return $ A.FunctionT a b
-           (StringCon, [])   -> return A.QuoteT
-           (BoolCon, [])     -> return A.BitT
-           (ZCon, [])        -> return A.ZT
-           (ContextCon c, _) ->
-              do recordError "Context type, outside block."
-                 return A.ZT  -- Just anything, really.
+      case (c, map exportType ts) of
+        (TupleCon _, ts)  -> A.TupleT ts
+        (FunCon,   [a,b]) -> A.FunctionT a b
+        (StringCon, [])   -> A.QuoteT
+        (BoolCon, [])     -> A.BitT
+        (ZCon, [])        -> A.ZT
+        (ContextCon c, _) -> A.ContextT c
+        (NumCon n, _)    ->  A.IntegerT n
 
-           (NumCon n, _)    ->
-              do recordError "Numeric type not in array index."
-                 return A.ZT      -- Just anything, really.
-
-exportValidSchema :: Schema -> A.Type
-exportValidSchema s = case runTI bug (exportSchema s) of
-                        (a,_,_) -> a
-  where bug = error "exportValidSchema used the module name"
-
-
-exportSchema :: Schema -> TI A.Type
+exportSchema :: Schema -> A.Type
 exportSchema (Forall xs t) =
   case xs of
     [] -> exportType t
-    _  -> A.TypAbs xs `fmap` exportType t
+    _  -> A.TypAbs xs $ exportType t
 
 exportExpr :: OutExpr -> TI (A.Expr A.ResolvedName A.Type)
 exportExpr e0 =
@@ -495,24 +467,23 @@ exportExpr e0 =
   where
   go expr =
     case expr of
-      A.Unit t           -> A.Unit      <$> exportSchema t
-      A.Bit b t          -> A.Bit b     <$> exportSchema t
-      A.Quote str t      -> A.Quote str <$> exportSchema t
-      A.Z i t            -> A.Z i       <$> exportSchema t
+      A.Bit b t          -> A.Bit b     <$> exportSchema' t
+      A.Quote str t      -> A.Quote str <$> exportSchema' t
+      A.Z i t            -> A.Z i       <$> exportSchema' t
 
-      A.Array es t       -> A.Array <$> mapM go es  <*> exportSchema t
-      A.Block bs t       -> A.Block <$> mapM goB bs <*> exportSchema t
-      A.Tuple es t       -> A.Tuple <$> mapM go es  <*> exportSchema t
-      A.Record nes t     -> A.Record <$> mapM go2 nes <*> exportSchema t
+      A.Array es t       -> A.Array <$> mapM go es  <*> exportSchema' t
+      A.Block bs t       -> A.Block <$> mapM goB bs <*> exportSchema' t
+      A.Tuple es t       -> A.Tuple <$> mapM go es  <*> exportSchema' t
+      A.Record nes t     -> A.Record <$> mapM go2 nes <*> exportSchema' t
 
-      A.Index ar ix t    -> A.Index <$> go ar <*> go ix <*> exportSchema t
-      A.Lookup rec fld t -> A.Lookup <$> go rec <*> pure fld <*> exportSchema t
-      A.Var x t          -> A.Var x <$> exportSchema t
+      A.Index ar ix t    -> A.Index <$> go ar <*> go ix <*> exportSchema' t
+      A.Lookup rec fld t -> A.Lookup <$> go rec <*> pure fld <*> exportSchema' t
+      A.Var x t          -> A.Var x <$> exportSchema' t
 
-      A.Function x xt body t-> A.Function x <$> exportSchema xt
-                                            <*> go body <*> exportSchema t
+      A.Function x xt body t-> A.Function x <$> exportSchema' xt
+                                            <*> go body <*> exportSchema' t
 
-      A.Application f v t -> A.Application <$> go f <*> go v <*> exportSchema t
+      A.Application f v t -> A.Application <$> go f <*> go v <*> exportSchema' t
       A.LetBlock nes e   -> A.LetBlock <$> mapM go2 nes <*> go e
 
   go2 (x,e) = do e1 <- go e
@@ -520,9 +491,10 @@ exportExpr e0 =
 
   goB stm =
     case stm of
-      A.Bind mn ctx e     -> A.Bind mn <$> exportSchema ctx <*> go e
+      A.Bind mn ctx e     -> A.Bind mn <$> exportSchema' ctx <*> go e
       A.BlockLet bs       -> A.BlockLet <$> mapM go2 bs
-      A.BlockTypeDecl x t -> A.BlockTypeDecl x <$> exportSchema t
+      A.BlockTypeDecl x t -> A.BlockTypeDecl x <$> exportSchema' t
+  exportSchema' = pure . exportSchema
 
 
 
