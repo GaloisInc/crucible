@@ -47,6 +47,8 @@ import Control.Applicative
   'LLVMSetup'    { TReserved _ "LLVMSetup"      }
   'ProofScript'  { TReserved _ "ProofScript"    }
   'TopLevel'     { TReserved _ "TopLevel"       }
+  'ProofResult'  { TReserved _ "ProofResult"    }
+  'Term'         { TReserved _ "Term"           }
   'Bit'          { TReserved _ "Bit"            }
   'Int'          { TReserved _ "Int"            }
   'String'       { TReserved _ "String"         }
@@ -221,6 +223,8 @@ BaseType :: { RawSigT }
  | 'Bit'                                { bit                     }
  | 'Int'                                { z                       }
  | 'String'                             { quote                   }
+ | 'ProofResult'                        { syn "ProofResult"       }
+ | 'Term'                               { syn "Term"              }
  | '(' Type ')'                         { $2                      }
  | '(' commas2(Type) ')'                { tuple $2                }
  | '[' name ']'                         { array bit (syn $2)      }

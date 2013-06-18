@@ -9,10 +9,17 @@ data Options = Options
   { importPath :: [FilePath]
   , classPath  :: [FilePath]
   , jarList    :: [FilePath]
+  , verbLevel  :: Int
   } deriving (Show)
 
 defaultOptions :: Options
-defaultOptions = Options { importPath = [], classPath = ["."], jarList = [] }
+defaultOptions
+  = Options {
+      importPath = []
+    , classPath = ["."]
+    , jarList = []
+    , verbLevel = 1
+    }
 
 options :: [OptDescr (Options -> Options)]
 options =
@@ -35,6 +42,12 @@ options =
      "path"
     )
     pathDesc
+  , Option "v" ["verbose"]
+    (ReqArg
+     (\v opts -> opts { verbLevel = read v })
+     "num"
+    )
+    "Set verbosity level"
   ]
 
 processEnv :: Options -> IO Options

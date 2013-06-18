@@ -48,6 +48,7 @@ data TyCon
  | NumCon Integer
  | BlockCon
  | ContextCon A.Context
+ | AbstractCon String
  deriving (Eq,Show) 
 
 data Schema = Forall [Name] Type deriving (Show)
@@ -453,6 +454,7 @@ exportType ty =
         (ZCon, [])        -> A.ZT
         (ContextCon c, _) -> A.ContextT c
         (NumCon n, _)    ->  A.IntegerT n
+        (AbstractCon s, _) -> A.Abstract s
 
 exportSchema :: Schema -> A.Type
 exportSchema (Forall xs t) =

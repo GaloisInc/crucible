@@ -67,9 +67,9 @@ sawScriptPrims opts global = Map.fromList
       (writeSMTLib1 :: FilePath -> SharedTerm s -> SC s ()))
   , ("SAWScriptPrelude.write_smtlib2", toValue
       (writeSMTLib2 :: FilePath -> SharedTerm s -> SC s ()))
-  , ("SAWScriptPrelude.extract_llvm", toValue
+  , ("SAWScriptPrelude.llvm_extract", toValue
       (extractLLVM :: FilePath -> String -> SharedTerm s -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.extract_java", toValue
+  , ("SAWScriptPrelude.java_extract", toValue
       (extractJava opts :: String -> String -> SharedTerm s -> SC s (SharedTerm s)))
   , ("SAWScriptPrelude.prove", toValue
       (proveABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))

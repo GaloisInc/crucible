@@ -42,13 +42,14 @@ processFiles opts = mapM_ (processFile opts)
 
 processFile :: Options -> FilePath -> IO ()
 processFile opts file | takeExtensions file == ".sawcore" = do
+  when (verbLevel opts > 0) $ putStrLn $ "Loading SAWCore file " ++ file
   m <- SC.readModuleFromFile [preludeModule, ssPreludeModule] file
   execSAWCore opts m
 processFile opts file | takeExtensions file == ".saw" = do
+  when (verbLevel opts > 0) $ putStrLn $ "Loading SAWScript file " ++ file
   loadModule opts emptyLoadedModules file $ \loadedModules -> do
     let ns = M.keys $ modules loadedModules
     forM_ ns $ processModule opts loadedModules
-  -- (mapM_ (processModule opts) . M.toList . modules)
 processFile _ file = putStrLn $ "Don't know how to handle file " ++ file
 
 processModule :: Options -> LoadedModules -> ModuleName -> IO ()
@@ -62,9 +63,11 @@ processModule opts lms modName =
         case translateModule cm of
           Left err -> putStrLn err
           Right scm -> do
-            print "== Translated module =="
-            print scm
-            print "== Execution results =="
+            when (verbLevel opts > 1) $ do
+              putStrLn ""
+              putStrLn "== Translated module =="
+              print scm
+              putStrLn "== Execution results =="
             execSAWCore opts scm
   where im = (modName, lms)
 
