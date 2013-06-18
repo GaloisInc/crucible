@@ -8,7 +8,6 @@ import SAWScript.Unify
 
 import Data.List
 import qualified Data.Map as M
-import qualified Data.Set as S
 
 import Data.Foldable hiding (concat, elem)
 import qualified Data.Traversable as T
@@ -53,7 +52,7 @@ parseModuleName nm = case ns of
   ns = breakAll (== '.') nm
 
 breakAll :: (Char -> Bool) -> String -> [String]
-breakAll pr [] = []
+breakAll _ [] = []
 breakAll pr s  = let (ss,rest) = break pr s in
   ss : breakAll pr (drop 1 rest)
 
@@ -236,7 +235,7 @@ data I a = I Integer deriving (Show,Functor,Foldable,T.Traversable)
 -- Equal Instances {{{
 
 instance Equal TypeF where
-  equal t1 t2 = case (t1,t2) of
+  equal ty1 ty2 = case (ty1,ty2) of
     (BitF,BitF)                           -> True
     (ZF,ZF)                               -> True
     (QuoteF,QuoteF)                       -> True
@@ -269,7 +268,7 @@ instance Equal Syn where
 -- Render Instances {{{
 
 instance Render TypeF where
-  render t = case t of
+  render ty = case ty of
     BitF            -> "BitF"
     ZF              -> "ZF"
     QuoteF          -> "QuoteF"
@@ -278,6 +277,7 @@ instance Render TypeF where
     TupleF ts       -> "(TupleF [" ++ (intercalate ", " $ map show ts) ++ "])"
     RecordF fts     -> "(RecordF [" ++ (intercalate ", " $ map (\(n,bt)-> n ++ " :: " ++ show bt) fts) ++ "])"
     FunctionF at bt -> "(FunctionF " ++ show at ++ " " ++ show bt ++ ")"
+    AbstractF n     -> "(AbstractF " ++ show n ++ ")"
     PVar n          -> "(PVar " ++ show n ++ ")"
     PAbs ns t       -> "(PAbs " ++ show ns ++ " " ++ show t ++ ")"
 
@@ -308,7 +308,7 @@ instance Uni TypeF where
     (FunctionF at1 bt1,FunctionF at2 bt2)     -> unify at1 at2 >> unify bt1 bt2
     (PVar n1, PVar n2)                        -> fail ("Poly: " ++ show n1 ++ " =/= " ++ show n2)
     -- TODO: Alpha renaming? no, variable substitution.
-    (PAbs ns1 t1, PAbs ns2 t2)                -> undefined
+    (PAbs ns1 ty1, PAbs ns2 ty2)              -> undefined ns1 ty1 ns2 ty2
     _                                         -> fail ("Type Mismatch: " ++ render t1 ++ " could not be unified with " ++ render t2)
 
 instance Uni I where
@@ -344,6 +344,9 @@ record fts = inject $ RecordF fts
 
 function :: (TypeF :<: f) => Mu f -> Mu f -> Mu f
 function at bt = inject $ FunctionF at bt
+
+abstract :: (TypeF :<: f) => Name -> Mu f
+abstract n = inject $ AbstractF n
 
 cryptolSetupContext :: (ContextF :<: f) => Mu f
 cryptolSetupContext = inject CryptolSetupContext
@@ -435,7 +438,7 @@ instance CapturePVars TypeF where
     TupleF tys        -> tuple $ map (capturePVars ns) tys
     RecordF flds      -> record $ onBinds (capturePVars ns) flds
     FunctionF ty1 ty2 -> function (capturePVars ns ty1) (capturePVars ns ty2)
-    PAbs ns' t        -> pAbs ns' $ capturePVars ns t
+    PAbs ns' ty       -> pAbs ns' $ capturePVars ns ty
     _ -> inject t
 
 instance CapturePVars Syn where
