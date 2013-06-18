@@ -345,6 +345,9 @@ record fts = inject $ RecordF fts
 function :: (TypeF :<: f) => Mu f -> Mu f -> Mu f
 function at bt = inject $ FunctionF at bt
 
+abstract :: (TypeF :<: f) => Name -> Mu f
+abstract n = inject $ AbstractF n
+
 cryptolSetupContext :: (ContextF :<: f) => Mu f
 cryptolSetupContext = inject CryptolSetupContext
 
