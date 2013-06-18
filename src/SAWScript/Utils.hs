@@ -85,7 +85,7 @@ debugVerbose o = verboseAtLeast 10 o
 
 -- | Convert a string to a paragraph formatted document.
 ftext :: String -> Doc
-ftext msg = sep (map text $ words msg)
+ftext msg = fillSep (map text $ words msg)
 
 -- | Insert multiple keys that map to the same value in a map.
 mapInsertKeys :: Ord k => [k] -> a -> Map k a -> Map k a
