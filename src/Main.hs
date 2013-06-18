@@ -42,7 +42,6 @@ processFiles opts = mapM_ (processFile opts)
 
 processFile :: Options -> FilePath -> IO ()
 processFile opts file | takeExtensions file == ".sawcore" = do
-  --sawScriptPrelude <- SC.readModuleFromFile [preludeModule] "examples/prelude.sawcore"
   m <- SC.readModuleFromFile [preludeModule, ssPreludeModule] file
   execSAWCore opts m
 processFile opts file | takeExtensions file == ".saw" = do
@@ -62,7 +61,11 @@ processModule opts lms modName =
       Right cm ->
         case translateModule cm of
           Left err -> putStrLn err
-          Right scm -> execSAWCore opts scm
+          Right scm -> do
+            print "== Translated module =="
+            print scm
+            print "== Execution results =="
+            execSAWCore opts scm
   where im = (modName, lms)
 
 {-
