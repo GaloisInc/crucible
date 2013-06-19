@@ -30,7 +30,7 @@ type Name = String
 
 data Type
   = TyCon TyCon [Type]
-  | TyRecord [Bind Type]
+  | TyRecord (M.Map Name Type)
   | TyVar TyVar
  deriving (Eq,Show) 
 
@@ -54,24 +54,13 @@ data TyCon
 
 data Schema = Forall [Name] Type deriving (Show)
 
-prettyTypeSig :: PP.Doc -> PP.Doc -> PP.Doc
-prettyTypeSig n t = n PP.<+> PP.char ':' PP.<+> t
-
-commaSep :: PP.Doc -> PP.Doc -> PP.Doc
-commaSep = ((PP.<+>) . (PP.<> PP.comma))
-
-commaSepAll :: [PP.Doc] -> PP.Doc
-commaSepAll ds = case ds of
-  [] -> PP.empty
-  _  -> foldl1 commaSep ds
-
 
 -- }}}
 
 -- Pretty Printer {{{
 
-prettyPrint :: PrettyPrint a => a -> String
-prettyPrint = show . pretty False
+pShow :: PrettyPrint a => a -> String
+pShow = show . pretty True
 
 class PrettyPrint p where
   -- Bool indicates whether term should be parenthesized, eg. if rendering is space separated.
@@ -84,28 +73,36 @@ instance PrettyPrint Schema where
 
 instance PrettyPrint Type where
   pretty par t@(TyCon tc ts) = case (tc,ts) of
+    (_,[])                 -> pretty par tc
     (TupleCon n,_)         -> PP.parens $ commaSepAll $ map (pretty False) ts
     (ArrayCon,[len,TyCon BoolCon []]) -> PP.brackets (pretty False len)
     (ArrayCon,[len,typ])   -> PP.brackets (pretty False len) PP.<> (pretty True typ)
     (FunCon,[f,v])         -> (if par then PP.parens else id) $
                                 pretty False f PP.<+> PP.text "->" PP.<+> pretty False v
-    (StringCon,[])         -> PP.text "String"
-    (BoolCon,[])           -> PP.text "Bit"
-    (ZCon,[])              -> PP.text "Int"
-    (NumCon n,[])          -> PP.integer n
     (BlockCon,[cxt,typ])   -> (if par then PP.parens else id) $
                                 pretty True cxt PP.<+> pretty True typ
-    (ContextCon cxt,[])    -> pretty False cxt
-    (AbstractCon n,[])     -> PP.text n
-    _ -> error $ "malformed TyCon: " ++ show t
+    _ -> error $ "malformed TyCon: " ++ pShow t
   pretty par (TyRecord fs) =
       PP.braces
     $ commaSepAll
     $ map (\(n,t) -> PP.text n `prettyTypeSig` pretty False t)
-      fs
+    $ M.toList fs
   pretty par (TyVar tv) = case tv of
     FreeVar n  -> PP.text "fv." PP.<> PP.integer n
     BoundVar n -> PP.text n
+
+instance PrettyPrint TyCon where
+  pretty par tc = case tc of
+    TupleCon n     -> PP.parens $ replicateDoc (n - 1) $ PP.char ','
+    ArrayCon       -> PP.parens $ PP.brackets $ PP.empty
+    FunCon         -> PP.parens $ PP.text "->"
+    StringCon      -> PP.text "String"
+    BoolCon        -> PP.text "Bit"
+    ZCon           -> PP.text "Int"
+    NumCon n       -> PP.integer n
+    BlockCon       -> PP.text "<Block>"
+    ContextCon cxt -> pretty par cxt
+    AbstractCon n  -> PP.text n
 
 instance PrettyPrint A.Context where
   pretty _ c = case c of
@@ -114,6 +111,22 @@ instance PrettyPrint A.Context where
     A.LLVMSetup    -> PP.text "LLVMSetup"
     A.ProofScript  -> PP.text "ProofScript"
     A.TopLevel     -> PP.text "TopLevel"
+
+replicateDoc :: Integer -> PP.Doc -> PP.Doc
+replicateDoc n d 
+  | n < 1 = PP.empty
+  | True  = d PP.<> replicateDoc (n-1) d
+
+prettyTypeSig :: PP.Doc -> PP.Doc -> PP.Doc
+prettyTypeSig n t = n PP.<+> PP.char ':' PP.<+> t
+
+commaSep :: PP.Doc -> PP.Doc -> PP.Doc
+commaSep = ((PP.<+>) . (PP.<> PP.comma))
+
+commaSepAll :: [PP.Doc] -> PP.Doc
+commaSepAll ds = case ds of
+  [] -> PP.empty
+  _  -> foldl1 commaSep ds
 
 -- Expr Level
 
@@ -126,7 +139,7 @@ data Expr
   | Array  [Expr]
   | Block  [BlockStmt]
   | Tuple  [Expr]
-  | Record [Bind Expr]
+  | Record (M.Map Name Expr)
   -- Accessors
   | Index  Expr Expr
   | Lookup Expr Name
@@ -182,6 +195,9 @@ tBlock c t = TyCon BlockCon [c,t]
 tContext :: A.Context -> Type
 tContext c = TyCon (ContextCon c) []
 
+tAbstract :: Name -> Type
+tAbstract n = TyCon (AbstractCon n) []
+
 -- }}}
 
 -- Subst {{{
@@ -206,22 +222,22 @@ listSubst = Subst . M.fromList
 
 -- mgu {{{
 
-failMGU :: String -> Either String Subst
+failMGU :: String -> Either String a
 failMGU = Left
+
+assert :: Bool -> String -> Either String ()
+assert b msg = unless b $ failMGU msg
 
 mgu :: Type -> Type -> Either String Subst
 mgu (TyVar tv) t2 = bindVar tv t2
 mgu t1 (TyVar tv) = bindVar tv t1
-mgu (TyRecord ts1) (TyRecord ts2) = do
-  guard (map fst ts1' == map fst ts2')
-  mgus (map snd ts1') (map snd ts2')
-  where
-  ts1' = sortBy (compare `on` fst) ts1
-  ts2' = sortBy (compare `on` fst) ts2
-mgu (TyCon tc1 ts1) (TyCon tc2 ts2) = do
-  guard (tc1 == tc2)
+mgu r1@(TyRecord ts1) r2@(TyRecord ts2) = do
+  assert (M.keys ts1 == M.keys ts2) $ "mismatched record fields: " ++ pShow r1 ++ " and " ++ pShow r2
+  mgus (M.elems ts1) (M.elems ts2)
+mgu t1@(TyCon tc1 ts1) t2@(TyCon tc2 ts2) = do
+  assert (tc1 == tc2) $ "mismatched type constructors: " ++ pShow tc1 ++ " and " ++ pShow tc2
   mgus ts1 ts2
-mgu t1 t2 = failMGU $ "type mismatch: " ++ show t1 ++ " and " ++ show t2
+mgu t1 t2 = failMGU $ "type mismatch: " ++ pShow t1 ++ " and " ++ pShow t2
 
 mgus :: [Type] -> [Type] -> Either String Subst
 mgus [] [] = return emptySubst
@@ -229,7 +245,7 @@ mgus (t1:ts1) (t2:ts2) = do
   s <- mgu t1 t2
   s' <- mgus (map (appSubst s) ts1) (map (appSubst s) ts2)
   return (s' @@ s)
-mgus ts1 ts2 = failMGU $ "type mismatch in constructor arity: " ++ show ts1 ++ " and " ++ show ts2
+mgus ts1 ts2 = failMGU $ "type mismatch in constructor arity"
 
 bindVar :: TyVar -> Type -> Either String Subst
 bindVar (FreeVar i) (TyVar (FreeVar j))
@@ -250,13 +266,16 @@ bindVar _ _ = failMGU "generality mismatch"
 class FreeVars t where
   freeVars :: t -> S.Set TyVar
 
+instance (Ord k, FreeVars a) => FreeVars (M.Map k a) where
+  freeVars = freeVars . M.elems
+
 instance (FreeVars a) => FreeVars [a] where
   freeVars = S.unions . map freeVars
 
 instance FreeVars Type where
   freeVars t = case t of
     TyCon tc ts -> freeVars ts
-    TyRecord nts  -> freeVars $ map snd nts
+    TyRecord fs -> freeVars fs
     TyVar tv    -> S.singleton tv
 
 instance FreeVars Schema where
@@ -308,7 +327,7 @@ unify t1 t2 = do
   case mgu t1' t2' of
     Right s -> TI $ modify $ \rw -> rw { subst = s @@ subst rw }
     Left e -> recordError $ unlines
-                [ "type mismatch: " ++ show t1 ++ " and " ++ show t2
+                [ "type mismatch: " ++ pShow t1 ++ " and " ++ pShow t2
                 , e
                 ]
 
@@ -366,7 +385,7 @@ instance (AppSubst t) => AppSubst (Maybe t) where
 instance AppSubst Type where
   appSubst s t = case t of
     TyCon tc ts -> TyCon tc $ appSubst s ts
-    TyRecord nts  -> TyRecord $ appSubstBinds s nts
+    TyRecord fs -> TyRecord $ appSubst s fs
     TyVar tv    -> case M.lookup tv $ unSubst s of
                      Just t' -> t'
                      Nothing -> t
@@ -384,7 +403,7 @@ instance AppSubst Expr where
     Array es           -> Array $ appSubst s es
     Block bs           -> Block $ appSubst s bs
     Tuple es           -> Tuple $ appSubst s es
-    Record nes         -> Record $ appSubstBinds s nes
+    Record fs          -> Record $ appSubst s fs
     Index ar ix        -> Index (appSubst s ar) (appSubst s ix)
     Lookup rec fld     -> Lookup (appSubst s rec) fld
     Var x              -> Var x
@@ -417,9 +436,8 @@ instance AppSubst ty => AppSubst (A.BlockStmt names ty) where
     A.BlockLet bs       -> A.BlockLet (appSubstBinds s bs)
     A.BlockTypeDecl x t -> A.BlockTypeDecl x (appSubst s t)
 
-
-
-
+instance (Ord k, AppSubst a) => AppSubst (M.Map k a) where
+  appSubst s = fmap (appSubst s)
 
 instance AppSubst BlockStmt where
   appSubst s bst = case bst of
@@ -441,7 +459,7 @@ translateExpr expr = case expr of
   A.Array es t           -> sig t $ Array $ map translateExpr es
   A.Block bs t           -> sig t $ Block $ map translateBStmt bs
   A.Tuple es t           -> sig t $ Tuple $ map translateExpr es
-  A.Record nes t         -> sig t $ Record $ map translateField nes
+  A.Record fs t          -> sig t $ Record $ M.fromList [ (n,translateExpr t) | (n,t) <- fs ]
   A.Index ar ix t        -> sig t $ Index (translateExpr ar) (translateExpr ix)
   A.Lookup rec fld t     -> sig t $ Lookup (translateExpr rec) fld
   A.Var x t              -> sig t $ Var x
@@ -482,10 +500,10 @@ translateTypeS (In (Inr (Inr ty))) =
     A.ArrayF tE tL    -> tMono $ tArray (translateType tL) (translateType tE)
     A.BlockF tC tE    -> tMono $ tBlock (translateType tC) (translateType tE)
     A.TupleF ts       -> tMono $ tTuple $ map translateType ts
-    A.RecordF fs      -> tMono $ TyRecord [ (f,translateType t) | (f,t) <- fs ]
+    A.RecordF fs      -> tMono $ TyRecord $ M.fromList [ (n,translateType t) | (n,t) <- fs ]
 
     A.FunctionF t1 t2 -> tMono $ tFun (translateType t1) (translateType t2)
-    A.AbstractF n     -> tMono $ TyCon (AbstractCon n) []
+    A.AbstractF n     -> tMono $ tAbstract n
 
     A.PVar x          -> tMono $ TyVar (BoundVar x)
     A.PAbs xs t       -> case translateTypeS t of
@@ -506,7 +524,7 @@ exportType ty =
           error "Free type variable: bug/default to something."
 
     TyRecord fs ->
-      A.RecordT [ (x, exportType t) | (x, t) <- fs ]
+      A.RecordT [ (x, exportType t) | (x, t) <- M.toList fs ]
 
     TyCon tc ts ->
       case (tc, map exportType ts) of
@@ -599,8 +617,8 @@ inferE expr = case expr of
   Tuple  es -> do (es',ts) <- unzip `fmap` mapM inferE es
                   ret (A.Tuple es') $ tTuple ts
 
-  Record nes -> do (nes',nts) <- unzip `fmap` mapM inferField nes
-                   ret (A.Record nes') $ TyRecord nts
+  Record fs -> do (nes',nts) <- unzip `fmap` mapM inferField (M.toList fs)
+                  ret (A.Record nes') $ TyRecord $ M.fromList nts
 
   Index ar ix -> do (ar',at) <- inferE ar
                     ix'      <- checkE ix tZ
@@ -643,7 +661,7 @@ inferE expr = case expr of
        t1 <- appSubstM t
        elTy <- case t1 of
                  TyRecord fs
-                    | Just t <- lookup n fs -> return t
+                    | Just t <- M.lookup n fs -> return t
                     | otherwise ->
                           do recordError $ unlines
                                 [ "Selecting a missing field."
@@ -818,7 +836,7 @@ defsDepsBind m it@(x,e0) = (it, [ A.TopLevelName m x ], S.toList (uses e0))
       Array es            -> S.unions (map uses es)
       Block bs            -> S.unions (map usesB bs)
       Tuple es            -> S.unions (map uses es)
-      Record fs           -> S.unions (map (uses . snd) fs)
+      Record fs           -> S.unions (map uses $ M.elems fs)
       Index  e1 e2        -> S.union (uses e1) (uses e2)
       Lookup e _          -> uses e
       Var (A.LocalName _) -> S.empty
