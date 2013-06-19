@@ -222,7 +222,8 @@ satABC _script t = mkSC $ \sc -> withBE $ \be -> do
             BE.Sat _ -> scApplyPreludeTrue sc
             _ -> fail "ABC returned Unknown for SAT query."
         _ -> fail "Can't prove non-boolean term."
-    (_, _) -> fail "Can't bitblast."
+    (_, Nothing) -> fail "Backend does not support SAT checking."
+    (Left err, _) -> fail $ "Can't bitblast: " ++ err
 
 scNegate :: SharedTerm s -> SC s (SharedTerm s)
 scNegate t = mkSC $ \sc -> do appNot <- scApplyPreludeNot sc ; appNot t

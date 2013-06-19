@@ -9,6 +9,7 @@ main = do {
     //print java_res;
 
     thm2 <- equal c_ffs_ref c_ffs_imp;
+    print thm2;
     //c_res <- prove abc thm2;
     //print c_res;
 
