@@ -131,6 +131,17 @@ Now we can do the proof both within and across languages:
 $include all code/ffs_compare.saw
 ```
 
+Using SMT-Lib Solvers
+=====================
+
+The examples presented so far have used the internal proof system
+provided by SAWScript, based primarily on a version of the ABC tool
+from UC Berkeley linked into the `saw` executable. However, other
+proof tools can be used, as well. The current version of SAWScript
+includes support for exporting models representing theorems as goals
+in the SMT-Lib language. These goals can then be solved using an
+external SMT solver such as Yices or CVC4.
+
 Future Enhancements
 ===================
 
