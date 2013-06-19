@@ -15,6 +15,4 @@ main = do {
     thm3 <- equal java_ffs_imp c_ffs_imp;
     mix_res <- prove abc thm3;
     print mix_res;
-    
-    print "Done.";
 };
