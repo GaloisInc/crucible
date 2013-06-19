@@ -9,5 +9,4 @@ main = do {
   thm1 <- equal ffs_ref ffs_imp;
   ffs_res <- prove abc thm1;
   print ffs_res;
-  //write_smtlib1 "ffs_java.smt" thm1;
 };

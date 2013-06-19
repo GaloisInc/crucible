@@ -1,15 +1,14 @@
 main = do {
-    //java_ffs_ref <- java_extract "FFS" "ffs_ref" java_pure;
-    //java_ffs_imp <- java_extract "FFS" "ffs_imp" java_pure;
+    java_ffs_ref <- java_extract "FFS" "ffs_ref" java_pure;
+    java_ffs_imp <- java_extract "FFS" "ffs_imp" java_pure;
     c_ffs_ref <- llvm_extract "ffs.bc" "ffs_ref" llvm_pure;
     c_ffs_imp <- llvm_extract "ffs.bc" "ffs_imp" llvm_pure;
 
-    //thm1 <- equal java_ffs_ref java_ffs_imp;
+    thm1 <- equal java_ffs_ref java_ffs_imp;
     //java_res <- prove abc thm1;
     //print java_res;
 
     thm2 <- equal c_ffs_ref c_ffs_imp;
-    print thm2;
     //c_res <- prove abc thm2;
     //print c_res;
 

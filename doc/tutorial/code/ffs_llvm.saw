@@ -7,17 +7,7 @@ main = do {
 
   print "Proving equivalence";
   thm1 <- equal ffs_ref ffs_imp;
-  /*
-  print "====";
-  print ffs_ref;
-  print "====";
-  print ffs_imp;
-  print "====";
-  print thm1;
-  print "====";
-  */
   ffs_res <- prove abc thm1;
   print ffs_res;
 
-  //write_smtlib1 "ffs_llvm.smt" thm1;
 };
