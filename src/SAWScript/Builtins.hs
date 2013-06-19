@@ -313,6 +313,7 @@ evaluate :: (Ident -> Value s) -> () -> SharedTerm s -> Value s
 evaluate global _ = evalSharedTerm global
 
 myPrint :: () -> Value s -> SC s ()
+myPrint _ (VString s) = mkSC $ const (putStrLn s)
 myPrint _ v = mkSC $ const (print v)
 
 -- append :: (m n :: Nat) -> (e :: sort 0) -> Vec m e -> Vec n e -> Vec (addNat m n) e;
