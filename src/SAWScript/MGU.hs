@@ -16,10 +16,11 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Identity
 import Data.Function (on)
-import Data.List (sortBy)
+import Data.List (sortBy,intercalate)
 import Data.Maybe (mapMaybe)
 import qualified Data.Map as M
 import qualified Data.Set as S
+import qualified Text.PrettyPrint.HughesPJ as PP
 
 -- Types {{{
 
@@ -52,6 +53,67 @@ data TyCon
  deriving (Eq,Show) 
 
 data Schema = Forall [Name] Type deriving (Show)
+
+prettyTypeSig :: PP.Doc -> PP.Doc -> PP.Doc
+prettyTypeSig n t = n PP.<+> PP.char ':' PP.<+> t
+
+commaSep :: PP.Doc -> PP.Doc -> PP.Doc
+commaSep = ((PP.<+>) . (PP.<> PP.comma))
+
+commaSepAll :: [PP.Doc] -> PP.Doc
+commaSepAll ds = case ds of
+  [] -> PP.empty
+  _  -> foldl1 commaSep ds
+
+
+-- }}}
+
+-- Pretty Printer {{{
+
+prettyPrint :: PrettyPrint a => a -> String
+prettyPrint = show . pretty False
+
+class PrettyPrint p where
+  -- Bool indicates whether term should be parenthesized, eg. if rendering is space separated.
+  pretty :: Bool -> p -> PP.Doc
+
+instance PrettyPrint Schema where
+  pretty _ (Forall ns t) = case ns of
+    [] -> pretty False t
+    _  -> PP.braces (commaSepAll $ map PP.text ns) PP.<+> pretty False t
+
+instance PrettyPrint Type where
+  pretty par t@(TyCon tc ts) = case (tc,ts) of
+    (TupleCon n,_)         -> PP.parens $ commaSepAll $ map (pretty False) ts
+    (ArrayCon,[len,TyCon BoolCon []]) -> PP.brackets (pretty False len)
+    (ArrayCon,[len,typ])   -> PP.brackets (pretty False len) PP.<> (pretty True typ)
+    (FunCon,[f,v])         -> (if par then PP.parens else id) $
+                                pretty False f PP.<+> PP.text "->" PP.<+> pretty False v
+    (StringCon,[])         -> PP.text "String"
+    (BoolCon,[])           -> PP.text "Bit"
+    (ZCon,[])              -> PP.text "Int"
+    (NumCon n,[])          -> PP.integer n
+    (BlockCon,[cxt,typ])   -> (if par then PP.parens else id) $
+                                pretty True cxt PP.<+> pretty True typ
+    (ContextCon cxt,[])    -> pretty False cxt
+    (AbstractCon n,[])     -> PP.text n
+    _ -> error $ "malformed TyCon: " ++ show t
+  pretty par (TyRecord fs) =
+      PP.braces
+    $ commaSepAll
+    $ map (\(n,t) -> PP.text n `prettyTypeSig` pretty False t)
+      fs
+  pretty par (TyVar tv) = case tv of
+    FreeVar n  -> PP.text "fv." PP.<> PP.integer n
+    BoundVar n -> PP.text n
+
+instance PrettyPrint A.Context where
+  pretty _ c = case c of
+    A.CryptolSetup -> PP.text "CryptolSetup"
+    A.JavaSetup    -> PP.text "JavaSetup"
+    A.LLVMSetup    -> PP.text "LLVMSetup"
+    A.ProofScript  -> PP.text "ProofScript"
+    A.TopLevel     -> PP.text "TopLevel"
 
 -- Expr Level
 
@@ -144,7 +206,10 @@ listSubst = Subst . M.fromList
 
 -- mgu {{{
 
-mgu :: Type -> Type -> Maybe Subst
+failMGU :: String -> Either String Subst
+failMGU = Left
+
+mgu :: Type -> Type -> Either String Subst
 mgu (TyVar tv) t2 = bindVar tv t2
 mgu t1 (TyVar tv) = bindVar tv t1
 mgu (TyRecord ts1) (TyRecord ts2) = do
@@ -156,27 +221,27 @@ mgu (TyRecord ts1) (TyRecord ts2) = do
 mgu (TyCon tc1 ts1) (TyCon tc2 ts2) = do
   guard (tc1 == tc2)
   mgus ts1 ts2
-mgu _ _ = fail "type mismatch"
+mgu t1 t2 = failMGU $ "type mismatch: " ++ show t1 ++ " and " ++ show t2
 
-mgus :: [Type] -> [Type] -> Maybe Subst
+mgus :: [Type] -> [Type] -> Either String Subst
 mgus [] [] = return emptySubst
 mgus (t1:ts1) (t2:ts2) = do
   s <- mgu t1 t2
   s' <- mgus (map (appSubst s) ts1) (map (appSubst s) ts2)
   return (s' @@ s)
-mgus _ _ = fail "type mismatch"
+mgus ts1 ts2 = failMGU $ "type mismatch in constructor arity: " ++ show ts1 ++ " and " ++ show ts2
 
-bindVar :: TyVar -> Type -> Maybe Subst
+bindVar :: TyVar -> Type -> Either String Subst
 bindVar (FreeVar i) (TyVar (FreeVar j))
   | i == j    = return emptySubst
 bindVar tv@(FreeVar _) t
-  | tv `S.member` freeVars t = fail "occurs check fails"
+  | tv `S.member` freeVars t = failMGU "occurs check failMGUs"
   | otherwise                = return $ singletonSubst tv t
 
 bindVar (BoundVar n) (TyVar (BoundVar m))
   | n == m  = return emptySubst
 
-bindVar _ _ = fail "generality mismatch"
+bindVar _ _ = failMGU "generality mismatch"
 
 -- }}}
 
@@ -241,8 +306,11 @@ unify t1 t2 = do
   t1' <- appSubstM t1
   t2' <- appSubstM t2
   case mgu t1' t2' of
-    Just s -> TI $ modify $ \rw -> rw { subst = s @@ subst rw }
-    Nothing -> recordError $ "type mismatch: " ++ show t1 ++ " and " ++ show t2
+    Right s -> TI $ modify $ \rw -> rw { subst = s @@ subst rw }
+    Left e -> recordError $ unlines
+                [ "type mismatch: " ++ show t1 ++ " and " ++ show t2
+                , e
+                ]
 
 bindSchema :: A.ResolvedName -> Schema -> TI a -> TI a
 bindSchema n s m = TI $ local (\ro -> ro { typeEnv = M.insert n s $ typeEnv ro })
