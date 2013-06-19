@@ -74,9 +74,9 @@ sawScriptPrims opts global = Map.fromList
   , ("SAWScriptPrelude.java_extract", toValue
       (extractJava opts :: String -> String -> SharedTerm s -> SC s (SharedTerm s)))
   , ("SAWScriptPrelude.prove", toValue
-      (proveABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
+      (provePrim :: SharedTerm s -> SharedTerm s -> SC s String))
   , ("SAWScriptPrelude.sat", toValue
-      (satABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
+      (satPrim :: SharedTerm s -> SharedTerm s -> SC s String))
   , ("SAWScriptPrelude.equal", toValue
       (equalPrim :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
   , ("SAWScriptPrelude.negate", toValue
@@ -232,11 +232,24 @@ scNegate t = mkSC $ \sc -> do appNot <- scApplyPreludeNot sc ; appNot t
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- validity using ABC.
-proveABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
-proveABC script t = do
+provePrim :: SharedTerm s -> SharedTerm s -> SC s String
+provePrim script t = do
   t' <- scNegate t
   r <- satABC script t'
-  scNegate r
+  return $
+    case asCtor r of
+      Just ("Prelude.True", []) -> "invalid"
+      Just ("Prelude.False", []) -> "valid"
+      _ -> "unknown"
+
+satPrim :: SharedTerm s -> SharedTerm s -> SC s String
+satPrim script t = do
+  r <- satABC script t
+  return $
+    case asCtor r of
+      Just ("Prelude.True", []) -> "sat"
+      Just ("Prelude.False", []) -> "unsat"
+      _ -> "unknown"
 
 equal :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
 equal sc (STApp _ (Lambda (PVar x1 _ _) ty1 tm1)) (STApp _ (Lambda (PVar _ _ _) ty2 tm2)) = do
