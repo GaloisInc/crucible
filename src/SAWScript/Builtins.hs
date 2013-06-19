@@ -264,14 +264,7 @@ equal sc tm1@(STApp _ (FTermF _)) tm2@(STApp _ (FTermF _)) = do
       (Just n1, Just n2) -> do
         unless (n1 == n2) $ fail "Types have different sizes."
         n1t <- scNat sc n1
-        putStrLn "==== Term 1"
-        print tm1
-        putStrLn "==== Term 2"
-        print tm2
-        tmEq <- scBvEq sc n1t tm1 tm2
-        putStrLn "==== Equality term"
-        print tmEq
-        return tmEq
+        scBvEq sc n1t tm1 tm2
       (_, _) ->
         fail $ "Incomparable non-lambda terms. Types are " ++
                show ty1 ++ " and " ++ show ty2
