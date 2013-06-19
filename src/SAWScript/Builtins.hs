@@ -344,7 +344,7 @@ extractLLVM file func _setup = mkSC $ \sc -> do
   let dl = L.parseDataLayout $ LLVM.modDataLayout mdl
       mg = L.defaultMemGeom dl
       sym = L.Symbol func
-  withBE $ \be -> do
+  t <- withBE $ \be -> do
     (sbe, mem) <- LSAW.createSAWBackend be dl mg
     cb <- L.mkCodebase sbe dl mdl
     case L.lookupDefine sym cb of
@@ -358,6 +358,7 @@ extractLLVM file func _setup = mkSC $ \sc -> do
         case mrv of
           Nothing -> fail "No return value from simulated function."
           Just rv -> return rv -- liftIO $ bindExts sc (map snd args) rv
+  scImport sc t
 
 bindExts :: SharedContext s
          -> [SharedTerm s]
