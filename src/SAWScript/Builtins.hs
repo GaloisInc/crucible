@@ -326,10 +326,8 @@ myAppend _ _ _ _ _ = error "Prelude.append: malformed arguments"
 -- given bitcode file. This code creates fresh inputs for all
 -- arguments and returns a term representing the return value. Some
 -- verifications will require more complex execution contexts.
---
--- Note! The s and s' type variables in this signature are different.
-extractLLVM :: FilePath -> String -> SharedTerm s -> SC s (SharedTerm s')
-extractLLVM file func _setup = mkSC $ \_sc -> do
+extractLLVM :: FilePath -> String -> SharedTerm s -> SC s (SharedTerm s)
+extractLLVM file func _setup = mkSC $ \sc -> do
   mdl <- L.loadModule file
   let dl = L.parseDataLayout $ LLVM.modDataLayout mdl
       mg = L.defaultMemGeom dl
@@ -347,7 +345,18 @@ extractLLVM file func _setup = mkSC $ \_sc -> do
         mrv <- L.getProgramReturnValue
         case mrv of
           Nothing -> fail "No return value from simulated function."
-          Just rv -> return rv
+          Just rv -> return rv -- liftIO $ bindExts sc (map snd args) rv
+
+bindExts :: SharedContext s
+         -> [SharedTerm s]
+         -> SharedTerm s
+         -> IO (SharedTerm s)
+bindExts sc args body = do
+  types <- mapM (scTypeOf sc) args
+  locals <- mapM (uncurry (scLocalVar sc)) ([0..] `zip` reverse types)
+  body' <- scInstantiateExt sc (Map.fromList ([0..] `zip` reverse locals)) body
+  scLambdaList sc (names `zip` args) body'
+    where names = map ('x':) (map show ([0..] :: [Int]))
 
 {-
 extractLLVMBit :: FilePath -> String -> SC s (SharedTerm s')
