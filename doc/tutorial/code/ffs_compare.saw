@@ -5,16 +5,16 @@ main = do {
     c_ffs_imp <- llvm_extract "ffs.bc" "ffs_imp" llvm_pure;
 
     thm1 <- equal java_ffs_ref java_ffs_imp;
-    //java_res <- prove abc thm1;
-    //print java_res;
+    java_res <- prove abc thm1;
+    print java_res;
 
     thm2 <- equal c_ffs_ref c_ffs_imp;
-    //c_res <- prove abc thm2;
-    //print c_res;
+    c_res <- prove abc thm2;
+    print c_res;
 
-    //thm3 <- equal java_ffs_imp c_ffs_imp;
-    //mix_res <- prove abc thm3;
-    //print mix_res;
+    thm3 <- equal java_ffs_imp c_ffs_imp;
+    mix_res <- prove abc thm3;
+    print mix_res;
     
     print "Done.";
 };
