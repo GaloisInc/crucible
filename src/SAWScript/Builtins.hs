@@ -17,6 +17,8 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import Text.PrettyPrint.Leijen hiding ((<$>))
 
+import qualified Language.JVM.Common as JP
+
 import Verinf.Symbolic.Lit.ABC_GIA
 
 import qualified Text.LLVM as LLVM
@@ -370,7 +372,8 @@ fixPos = PosInternal "FIXME"
 extractJava :: Options -> String -> String -> SharedTerm s -> SC s (SharedTerm s)
 extractJava opts cname mname _setup =  mkSC $ \sc -> do
   cb <- JSS.loadCodebase (jarList opts) (classPath opts)
-  cls <- lookupClass cb fixPos cname
+  let cname' = JP.dotsToSlashes cname
+  cls <- lookupClass cb fixPos cname'
   (_, meth) <- findMethod cb fixPos mname cls
   oc <- BE.mkOpCache
   bracket BE.createBitEngine BE.beFree $ \be -> do
@@ -381,7 +384,7 @@ extractJava opts cname mname _setup =  mkSC $ \sc -> do
     JSS.runSimulator cb sbe JSS.defaultSEH (Just fl) $ do
       setVerbosity 0
       args <- mapM (freshJavaArg sbe) (JSS.methodParameterTypes meth)
-      rslt <- JSS.execStaticMethod cname (JSS.methodKey meth) args
+      rslt <- JSS.execStaticMethod cname' (JSS.methodKey meth) args
       dt <- case rslt of
               Nothing -> fail "No return value from JSS."
               Just (JSS.IValue t) -> return t
@@ -407,7 +410,7 @@ freshJavaArg _ _ = fail "Only byte, int, and long arguments are supported for no
 -- Java lookup functions {{{1
 
 -- | Atempt to find class with given name, or throw ExecException if no class
--- with that name exists.
+-- with that name exists. Class name should be in slash-separated form.
 lookupClass :: JSS.Codebase -> Pos -> String -> IO JSS.Class
 lookupClass cb pos nm = do
   maybeCl <- JSS.tryLookupClass cb nm
