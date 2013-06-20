@@ -22,7 +22,7 @@ strip dist/build/saw/saw
 
 cp build/abcBridge/abc/copyright.txt           ${TARGET}/ABC_LICENSE
 cp doc/tutorial/sawScriptTutorial.pdf          ${TARGET}/tutorial
-cp -r doc/tutorial/code                        ${TARGET}/tutorial/code
+cp -r doc/tutorial/code                        ${TARGET}/tutorial
 cp dist/build/saw/saw                          ${TARGET}/bin
 
 if [ "${OS}" == "Windows_NT" ]; then
