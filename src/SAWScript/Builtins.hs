@@ -303,7 +303,7 @@ termTuple :: Integer -> Vector (SharedTerm s) -> SC s (SharedTerm s)
 termTuple _ tv = mkSC $ \sc -> scTuple sc (V.toList tv)
 
 termRecord :: Integer -> Vector (String, SharedTerm s) -> SC s (SharedTerm s)
-termRecord _ v = mkSC $ \sc -> scMkRecord sc (Map.fromList (V.toList v))
+termRecord _ v = mkSC $ \sc -> scRecord sc (Map.fromList (V.toList v))
 
 termSelect :: SharedTerm s -> String -> SC s (SharedTerm s)
 termSelect t s = mkSC $ \sc -> scRecordSelect sc t s
