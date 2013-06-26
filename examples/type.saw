@@ -2,7 +2,5 @@
 map : {a,b,m} (a -> b) -> [m]a -> [m]b;
 map = undefined;
 
-return = undefined;
-
 main = return 1;
 

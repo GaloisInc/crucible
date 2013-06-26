@@ -60,5 +60,5 @@ m `onFailureRes` handler = E $ \fl sc -> runE m (handler fl) sc
 
 compiler :: Show a => String -> Compiler a b -> Compiler a b
 compiler name comp input = onFailureRes (comp input) $ \fl err ->
-  fl $ intercalate "\n" [name ++ ": " ++ err, "in:",show input]
+  fl $ unlines [name ++ ": " ++ err, "in:",show input]
 
