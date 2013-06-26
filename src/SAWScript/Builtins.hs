@@ -12,6 +12,7 @@ import Control.Monad.State
 import Data.Bits
 import Data.Map ( Map )
 import qualified Data.Map as Map
+import Data.Maybe
 import Data.Vector ( Vector )
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
@@ -252,11 +253,17 @@ satPrim script t = do
       _ -> "unknown"
 
 equal :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-equal sc (STApp _ (Lambda (PVar x1 _ _) ty1 tm1)) (STApp _ (Lambda (PVar _ _ _) ty2 tm2)) = do
-  unless (ty1 == ty2) $
-    fail $ "Arguments have different types: " ++ show ty1 ++ " and " ++ show ty2
-  eqBody <- equal sc tm1 tm2
-  scLambda sc x1 ty1 eqBody
+equal sc (STApp _ (Lambda (PVar x1 _ _) ty1 tm1)) (STApp _ (Lambda (PVar _ _ _) ty2 tm2)) =
+  case (asBitvectorType ty1, asBitvectorType ty2) of
+    (Just n1, Just n2) -> do
+      unless (n1 == n2) $
+        fail $ "Arguments have different sizes: " ++
+               show n1 ++ " and " ++ show n2
+      eqBody <- equal sc tm1 tm2
+      scLambda sc x1 ty1 eqBody
+    (_, _) ->
+        fail $ "Incompatible function arguments. Types are " ++
+               show ty1 ++ " and " ++ show ty2
 equal sc tm1@(STApp _ (FTermF _)) tm2@(STApp _ (FTermF _)) = do
     ty1 <- scTypeOf sc tm1
     ty2 <- scTypeOf sc tm2
@@ -264,21 +271,14 @@ equal sc tm1@(STApp _ (FTermF _)) tm2@(STApp _ (FTermF _)) = do
       (Just n1, Just n2) -> do
         unless (n1 == n2) $ fail "Types have different sizes."
         n1t <- scNat sc n1
-        putStrLn "==== Term 1"
-        print tm1
-        putStrLn "==== Term 2"
-        print tm2
-        tmEq <- scBvEq sc n1t tm1 tm2
-        putStrLn "==== Equality term"
-        print tmEq
-        return tmEq
+        scBvEq sc n1t tm1 tm2
       (_, _) ->
-        fail $ "Incomparable non-lambda terms. Types are " ++
+        fail $ "Incompatible non-lambda terms. Types are " ++
                show ty1 ++ " and " ++ show ty2
 equal sc t1 t2 = do
   ty1 <- scTypeOf sc t1
   ty2 <- scTypeOf sc t2
-  fail $ "Incomparable terms. Types are " ++ show ty1 ++ " and " ++ show ty2
+  fail $ "Incompatible terms. Types are " ++ show ty1 ++ " and " ++ show ty2
 
 equalPrim :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
 equalPrim t1 t2 = mkSC $ \sc -> equal sc t1 t2
@@ -303,7 +303,7 @@ termTuple :: Integer -> Vector (SharedTerm s) -> SC s (SharedTerm s)
 termTuple _ tv = mkSC $ \sc -> scTuple sc (V.toList tv)
 
 termRecord :: Integer -> Vector (String, SharedTerm s) -> SC s (SharedTerm s)
-termRecord _ v = mkSC $ \sc -> scMkRecord sc (Map.fromList (V.toList v))
+termRecord _ v = mkSC $ \sc -> scRecord sc (Map.fromList (V.toList v))
 
 termSelect :: SharedTerm s -> String -> SC s (SharedTerm s)
 termSelect t s = mkSC $ \sc -> scRecordSelect sc t s
@@ -344,8 +344,8 @@ extractLLVM file func _setup = mkSC $ \sc -> do
   let dl = L.parseDataLayout $ LLVM.modDataLayout mdl
       mg = L.defaultMemGeom dl
       sym = L.Symbol func
-  t <- withBE $ \be -> do
-    (sbe, mem) <- LSAW.createSAWBackend be dl mg
+  withBE $ \be -> do
+    (sbe, mem, scLLVM) <- LSAW.createSAWBackend' be dl mg
     cb <- L.mkCodebase sbe dl mdl
     case L.lookupDefine sym cb of
       Nothing -> fail $ "Bitcode file " ++ file ++
@@ -357,8 +357,9 @@ extractLLVM file func _setup = mkSC $ \sc -> do
         mrv <- L.getProgramReturnValue
         case mrv of
           Nothing -> fail "No return value from simulated function."
-          Just rv -> return rv -- liftIO $ bindExts sc (map snd args) rv
-  scImport sc t
+          Just rv -> liftIO $ do
+            lamTm <- bindExts scLLVM (map snd args) rv
+            scImport sc lamTm
 
 bindExts :: SharedContext s
          -> [SharedTerm s]
@@ -366,10 +367,15 @@ bindExts :: SharedContext s
          -> IO (SharedTerm s)
 bindExts sc args body = do
   types <- mapM (scTypeOf sc) args
+  let is = mapMaybe extIdx args
+  unless (length types == length is) $
+    fail "argument isn't external input"
   locals <- mapM (uncurry (scLocalVar sc)) ([0..] `zip` reverse types)
-  body' <- scInstantiateExt sc (Map.fromList ([0..] `zip` reverse locals)) body
-  scLambdaList sc (names `zip` args) body'
+  body' <- scInstantiateExt sc (Map.fromList (is `zip` reverse locals)) body
+  scLambdaList sc (names `zip` types) body'
     where names = map ('x':) (map show ([0..] :: [Int]))
+          extIdx (STApp _ (FTermF (ExtCns ec))) = Just (ecVarIndex ec)
+          extIdx _ = Nothing
 
 {-
 extractLLVMBit :: FilePath -> String -> SC s (SharedTerm s')

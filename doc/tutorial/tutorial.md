@@ -86,9 +86,33 @@ $cmd clang -c -emit-llvm -o code/ffs.bc code/ffs.c
 Equivalence Proof
 -----------------
 
+We now show how to use SAWScript to prove the equivalence of the
+reference and implementation versions of the FFS algorithm.
+
+A SAWScript program is typically structured as a set of commands
+within a `main` function, potentially along with other functions
+defined to abstract over commonly-used combinations of commands.
+
+The following script is sufficient to automatically prove the
+equivalence of the `ffs_ref` and `ffs_imp` functions.
+
 ```
 $include all code/ffs_llvm.saw
 ```
+
+In this script, the `print` commands simply display text for the user.
+The `llvm_extract` command instructs the SAWScript interpreter to
+perform symbolic simulation of the given C function (e.g., `ffs_ref`)
+from a given bitcode file (e.g., `ffs.bc`), and return a term
+representing the semantics of the function. The final argument,
+`llvm_pure` indicates that the function to analyze is a "pure"
+function, which computes a scalar return value entirely as a function
+of its scalar parameters.
+
+The `equal` command then constructs a new term corresponding to the
+assertion of equality between two existing terms. The `prove` command
+can verify the validity of such an assertion. The `abc` parameter
+indicates what theorem prover to use.
 
 Cross-Language Proofs
 ---------------------
@@ -131,6 +155,45 @@ Now we can do the proof both within and across languages:
 $include all code/ffs_compare.saw
 ```
 
+Using SMT-Lib Solvers
+=====================
+
+The examples presented so far have used the internal proof system
+provided by SAWScript, based primarily on a version of the ABC tool
+from UC Berkeley linked into the `saw` executable. However, other
+proof tools can be used, as well. The current version of SAWScript
+includes support for exporting models representing theorems as goals
+in the SMT-Lib language. These goals can then be solved using an
+external SMT solver such as Yices or CVC4.
+
+Consider the following C file:
+
+```
+$include all code/double.c
+```
+
+In this trivial example, an integer can be doubled either using
+multiplication or shifting. The following SAWScript program verifies
+that the two are equivalent using both ABC, and by exporting an
+SMT-Lib theorem to be checked by an external solver.
+
+```
+$include all code/double.saw
+```
+
+The new primitives introduced here are `negate`, which constructs the
+logical negation of a term, and `write_smtlib1`, which writes a term
+as a proof obligation in SMT-Lib version 1 format. Because SMT solvers
+are satisfiability solvers, negating the input term allows us to
+interpret a result of "unsatisfiable" from the solver as an indication
+of the validity of the term.
+
+At the moment, SMT-Lib version 1 is best supported, though version 2
+is implemented for a smaller number of primitives. Writing SMT-Lib
+files tends to work well only with terms constructed from LLVM or SBV
+input files. The JVM simulator and AIG reading code construct terms
+including primitives that the SMT-Lib exporter doesn't yet support.
+
 Future Enhancements
 ===================
 
@@ -160,8 +223,3 @@ Improved Support for Manipulating Formal Models
   * Applying formal models directly to concrete arguments.
   * Applying formal models automatically to a large collection of
     randomly-generated concrete arguments.
-
-Summary
-=======
-
-TODO
