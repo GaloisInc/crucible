@@ -118,14 +118,15 @@ TopStmts :: { [TopStmtSimple RawT] }
  : termBy(TopStmt, ';')                 { $1 }
 
 TopStmt :: { TopStmtSimple RawT }
- -- : 'import' Import                      { $2                 }
- : name ':' PolyType                    { TopTypeDecl $1 $3  }
+ : 'import' Import                      { $2                 }
+ | name ':' PolyType                    { TopTypeDecl $1 $3  }
  | 'type' name '=' Type                 { TypeDef $2 $4      }
  | 'abstract' name                      { AbsTypeDecl $2     }
  | Declaration                          { uncurry TopBind $1 }
 
 Import :: { TopStmtSimple RawT }
- : qname                                   { Import (mkModuleName $1) Nothing Nothing       }
+ : qname                                   { Import (mkModuleName $1) Nothing Nothing      }
+ | name                                    { Import (mkModuleName ([],$1)) Nothing Nothing       }
  -- | name '(' commas(name) ')'            { Import $1 (Just $3) Nothing     }
  -- | name 'as' name                       { Import $1 Nothing (Just $3)     }
  -- | name '(' commas(name) ')' 'as' name  { Import $1 (Just $3) (Just $6)   }

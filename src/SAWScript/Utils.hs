@@ -96,6 +96,9 @@ mapInsertKeys keys val m = foldr (\i -> Map.insert i val) m keys
 mapLookupAny :: Ord k => [k] -> Map k a -> Maybe a
 mapLookupAny keys m = listToMaybe $ catMaybes $ map (\k -> Map.lookup k m) keys
 
+indent :: Int -> String -> String
+indent n = unlines . map (replicate n ' ' ++) . lines
+
 -- ExecException {{{1
 
 -- | Class of exceptions thrown by SBV parser.

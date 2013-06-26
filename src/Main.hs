@@ -1,7 +1,10 @@
 module Main where
 
+import Control.Applicative
 import Control.Monad
-import qualified Data.Map as M
+import qualified Data.Map      as M
+import qualified Data.Foldable as F
+import qualified Data.Set      as S
 import Data.List
 
 import System.IO
@@ -13,7 +16,7 @@ import qualified Verifier.SAW.ParserUtils as SC
 import Verifier.SAW.Prelude (preludeModule)
 
 import SAWScript.AST
-import SAWScript.BuildModule as BM
+import SAWScript.BuildModules as BM
 import SAWScript.Compiler
 import SAWScript.Execution
 import SAWScript.Import
@@ -29,70 +32,79 @@ main = do
   argv <- getArgs
   case getOpt Permute options argv of
     (_, [], [])       -> putStrLn (usageInfo header options)
-    (opts, files, []) -> do
+    (opts, file:_, []) -> do
       let opts' = foldl' (flip id) defaultOptions opts
       opts'' <- processEnv opts'
-      processFiles opts'' files
+      processFile opts'' file
     (_, _, errs)      ->
       hPutStrLn stderr (concat errs ++ usageInfo header options)
   where header = "Usage: saw [OPTION...] files..."
 
-processFiles :: Options -> [FilePath] -> IO ()
-processFiles opts = mapM_ (processFile opts)
+
 
 processFile :: Options -> FilePath -> IO ()
+
 processFile opts file | takeExtensions file == ".sawcore" = do
-  when (verbLevel opts > 0) $ putStrLn $ "Loading SAWCore file " ++ file
+  when (verbLevel opts > 0) $ putStrLn $ "Processing SAWCore file " ++ file
   m <- SC.readModuleFromFile [preludeModule, ssPreludeModule] file
   execSAWCore opts m
+
 processFile opts file | takeExtensions file == ".saw" = do
-  when (verbLevel opts > 0) $ putStrLn $ "Loading SAWScript file " ++ file
-  loadModule opts emptyLoadedModules file $ \loadedModules -> do
+  when (verbLevel opts > 0) $ putStrLn $ "Processing SAWScript file " ++ file
+  loadModule opts file emptyLoadedModules $ \loadedModules -> do
+    -- TODO: get ModuleName of entry point and pass it into:
+    --  processModule opts loadedModules ___
+    let modName = moduleNameFromPath file
+    processModule opts loadedModules modName
+    {-
     let ns = M.keys $ modules loadedModules
     forM_ ns $ processModule opts loadedModules
+    -}
+
 processFile _ file = putStrLn $ "Don't know how to handle file " ++ file
+
+
 
 processModule :: Options -> LoadedModules -> ModuleName -> IO ()
 processModule opts lms modName =
   -- TODO: merge the two representations of the prelude into one
   --  that both the renamer and the type checker can understand.
-  runCompiler (buildModule >=> resolveSyns >=> renameRefs) im $ \m -> do
-    case checkModule preludeEnv m of
-      Left errs -> mapM_ putStrLn errs
-      Right cm ->
-        case translateModule cm of
-          Left err -> putStrLn err
-          Right scm -> do
-            when (verbLevel opts > 1) $ do
-              putStrLn ""
-              putStrLn "== Translated module =="
-              print scm
-              putStrLn "== Execution results =="
-            execSAWCore opts scm
-  where im = (modName, lms)
+  runCompiler comp lms $ \m -> do
+    --let modName = mainModule lms
+    case translateModule m of
+      Left err -> putStrLn err
+      Right scm -> do
+        when (verbLevel opts > 1) $ do
+          putStrLn ""
+          putStrLn "== Translated module =="
+          print scm
+          putStrLn "== Execution results =="
+        execSAWCore opts scm
+  where
+  comp :: Compiler LoadedModules ValidModule
+  comp = buildModules                   >=>
+         F.foldrM checkModuleWithDeps M.empty >=> \cms ->
+         case M.lookup modName cms of
+           Just cm -> return cm
+           Nothing -> fail $ "Module " ++ show modName ++
+                             " not found in environment of checkedModules, for some strange reason"
 
-{-
-processModule :: Options -> (ModuleName, [TopStmtSimple RawT]) -> IO ()
-processModule opts (modName, ss) =
-  -- TODO: merge the two representations of the prelude into one
-  --  that both the renamer and the type checker can understand.
-  runCompiler (buildModule >=> resolveSyns >=> renameRefs preludeEnvRenamer) im $ \m -> do
-    case checkModule preludeEnv m of
-      Left errs -> mapM_ putStrLn errs
-      Right cm ->
-        case translateModule cm of
-          Left err -> putStrLn err
-          Right scm -> execSAWCore opts scm
-  where im = (modName, ss)
--}
 
--- | Wrapper around compiler function to format the result or error
-runCompiler :: (Show b) => Compiler a b -> a -> (b -> IO ()) -> IO ()
-runCompiler f a k = do
-  runE (f a)
-    (putStrLn . ("Error\n" ++) . indent 2)  -- failure
-    k -- continuation
 
-indent :: Int -> String -> String
-indent n = unlines . map (replicate n ' ' ++) . lines
+checkModuleWithDeps :: BM.ModuleParts (ExprSimple RawT)
+  -> M.Map ModuleName ValidModule
+  -> Err (M.Map ModuleName ValidModule)
+checkModuleWithDeps (BM.ModuleParts mn ee te ds) cms =
+  mod          >>=
+  resolveSyns  >>=
+  renameRefs   >>=
+  checkModule  preludeEnv >>= \cm -> return $ M.insert mn cm cms
+  where
+  deps :: Err (M.Map ModuleName ValidModule)
+  deps = fmap M.fromList $ forM (S.toList ds) $ \n ->
+           case M.lookup n cms of
+             Nothing -> fail $ "Tried to compile module " ++ show mn ++
+                               " before compiling its dependency, " ++ show n
+             Just m  -> return (n,m)
+  mod  = Module mn ee te <$> deps
 

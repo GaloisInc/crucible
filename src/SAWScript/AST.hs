@@ -11,6 +11,7 @@ import qualified Data.Map as M
 
 import Data.Foldable hiding (concat, elem)
 import qualified Data.Traversable as T
+import System.FilePath (joinPath,splitPath,dropExtension)
 
 -- Intermediate Types {{{
 
@@ -44,12 +45,19 @@ data ResolvedName
   | TopLevelName ModuleName Name
   deriving (Eq,Ord,Show)
 
-parseModuleName :: Name -> ModuleName
-parseModuleName nm = case ns of
+moduleNameFromString :: String -> ModuleName
+moduleNameFromString nm = case ns of
   [] -> error "ModuleName cannot be made from empty string"
   _  -> ModuleName (init ns) (last ns)
   where
   ns = breakAll (== '.') nm
+
+moduleNameFromPath :: FilePath -> ModuleName
+moduleNameFromPath fp = case ns of
+  [] -> error "ModuleName cannot be made from empty string"
+  _  -> ModuleName (init ns) (last ns)
+  where
+  ns = splitPath $ dropExtension fp
 
 breakAll :: (Char -> Bool) -> String -> [String]
 breakAll _ [] = []
@@ -57,10 +65,10 @@ breakAll pr s  = let (ss,rest) = break pr s in
   ss : breakAll pr (drop 1 rest)
 
 renderDotSepName :: [Name] -> String
-renderDotSepName = show . intercalate "."
+renderDotSepName = intercalate "."
 
 renderSlashSepName :: [Name] -> String
-renderSlashSepName = intercalate "/"
+renderSlashSepName = joinPath
 
 renderModuleName :: ModuleName -> String
 renderModuleName (ModuleName ns n) = renderDotSepName $ ns ++ [n]
@@ -117,7 +125,7 @@ data Module refT exprT typeT = Module
   } deriving (Eq,Show)
 
 -- A fully type checked module.
---  Exprs have resolved names, resolved types
+--  Exprs have resolved names, concrete types
 --  Types have ResolvedT (Nothing for abstract types, Just FullT for type synonyms)
 type ValidModule = Module ResolvedName Type ResolvedT
 

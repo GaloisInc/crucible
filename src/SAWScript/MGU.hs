@@ -6,6 +6,7 @@ module SAWScript.MGU where
 import           SAWScript.Unify.Fix(Mu(..),(:+:)(..))
 import qualified SAWScript.AST as A
 import SAWScript.AST (Bind)
+import SAWScript.Compiler
 
 import           Data.Graph.SCC(stronglyConnComp)
 import           Data.Graph (SCC(..))
@@ -860,6 +861,33 @@ checkKind = return
 -- }}}
 
 -- Main interface {{{
+
+checkModule :: [(A.ResolvedName, Schema)] ->
+               Compiler (A.Module A.ResolvedName A.ResolvedT A.ResolvedT)
+                        (A.Module A.ResolvedName A.Type A.ResolvedT)
+checkModule initTs = compiler "TypeCheck" go
+  where
+  go m = case errs of
+    [] -> return $ m { A.moduleExprEnv = M.fromList res }
+    _  -> fail $ unlines errs
+    where
+    --initTs = []   -- XXX: Compute these from the other modules
+
+    exportBinds dss = sequence [ do e1 <- exportExpr e
+                                    return (x,e1)
+                               | ds <- dss, (x,e) <- ds ]
+
+    (res,_,errs)  = runTI (A.moduleName m)
+                          $ bindSchemas initTs
+                          $ exportBinds =<<
+                              ( inferTopDecls
+                              $ computeSCCGroups (A.moduleName m)
+                              $ M.toList
+                              $ fmap translateExpr
+                              $ A.moduleExprEnv m
+                              )
+
+{-
 checkModule :: [(A.ResolvedName, Schema)] -> -- Temporarily made a parameter for prelude
                           A.Module A.ResolvedName A.ResolvedT A.ResolvedT ->
          Either [String] (A.Module A.ResolvedName A.Type      A.ResolvedT)
@@ -884,6 +912,7 @@ checkModule initTs m =
                             $ A.moduleExprEnv m
                             )
 
+-}
 
 
 

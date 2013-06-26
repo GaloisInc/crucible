@@ -8,6 +8,18 @@ import Data.List (intercalate)
 import Prelude hiding (catch)
 #endif
 
+import SAWScript.Utils
+
+-- | Wrapper around compiler function to format the result or error
+runCompiler :: (Show b) => Compiler a b -> a -> (b -> IO ()) -> IO ()
+runCompiler f a k = do
+  runE (f a)
+    reportError
+    k -- continuation
+
+reportError :: String -> IO ()
+reportError = putStrLn . ("Error\n" ++) . indent 2
+
 type Compiler a b = a -> Err b
 
 type Err = E (IO ())

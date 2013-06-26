@@ -20,38 +20,47 @@ import SAWScript.Parser
 import System.Directory
 import System.FilePath
 
-data LoadedModules =
-  LoadedModules {
-    modules :: ModuleEnv [TopStmtSimple RawT]
+loadModule :: Options -> FilePath -> LoadedModules
+  -> (LoadedModules -> IO ()) -> IO ()
+loadModule opts fname ms k = do
+  let mn = moduleNameFromPath $ dropExtension (takeFileName fname)
+  when (verbLevel opts > 0) $ putStrLn $ "Loading Module " ++ show (renderModuleName mn)
+  ftext <- readFile fname
+  runCompiler (formModule fname) ftext $ \m ->
+    loadRest (mapMaybe getImport m)
+             (ms { modules = Map.insert mn m (modules ms) })
+  where loadRest [] ms' = k ms' 
+        loadRest (imp:imps) ms' =
+          findAndLoadModule opts imp ms' (loadRest imps)
+
+
+
+data LoadedModules = LoadedModules
+  { modules    :: ModuleEnv [TopStmtSimple RawT]
   } deriving (Show)
 
 emptyLoadedModules :: LoadedModules
-emptyLoadedModules = LoadedModules { modules = Map.empty }
+emptyLoadedModules = LoadedModules Map.empty
+
+
 
 formModule :: FilePath -> Compiler String [TopStmtSimple RawT]
 formModule f = scan f >=> parseModule
 
-findAndLoadModule :: Options -> LoadedModules -> Name -> (LoadedModules -> IO ())
-                  -> IO ()
-findAndLoadModule opts ms name k = do
-  mfname <- findModule (importPath opts) name
+findAndLoadModule :: Options -> ModuleName -> LoadedModules
+  -> (LoadedModules -> IO ()) -> IO ()
+findAndLoadModule opts name ms k = do
+  let mn    = renderModuleName name
+  let fp    = moduleNameFilePath name <.> "saw"
+  let paths = importPath opts
+  mfname <- findFile paths fp
   case mfname of
-    Nothing -> putStrLn $ "Can't find module " ++ name
-    Just fname -> loadModule opts ms fname k
-
-loadModule :: Options -> LoadedModules -> FilePath -> (LoadedModules -> IO ())
-           -> IO ()
-loadModule opts ms fname k = do
-  ftext <- readFile fname
-  let name = parseModuleName $ dropExtension (takeFileName fname)
-  runE (formModule fname ftext)
-       (putStrLn . ("Error\n" ++) . indent 2)
-       (\m -> loadRest
-              (mapMaybe getImport m)
-              (ms { modules = Map.insert name m (modules ms) }))
-    where loadRest [] ms' = k ms' 
-          loadRest (imp:imps) ms' =
-            findAndLoadModule opts ms' imp (loadRest imps)
+    Nothing -> fail $ unlines $
+        [ "Couldn't find module " ++ show mn
+        , "  Searched for file: " ++ show fp
+        , "  In directories:"
+        ] ++ map ("    " ++) paths
+    Just fname -> loadModule opts fname ms k
 
 findModule :: [FilePath] -> Name -> IO (Maybe FilePath)
 findModule ps name = findFile ps (name <.> "saw")
@@ -69,9 +78,7 @@ findFile paths fileName = search paths
              else search ds
 #endif
   
-getImport :: TopStmtSimple a -> Maybe Name
-getImport (Import mn _ _) = Just $ moduleNameFilePath mn
+getImport :: TopStmtSimple a -> Maybe ModuleName
+getImport (Import mn _ _) = Just mn
 getImport _ = Nothing
 
-indent :: Int -> String -> String
-indent n = unlines . map (replicate n ' ' ++) . lines

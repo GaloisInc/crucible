@@ -15,7 +15,7 @@ data Options = Options
 defaultOptions :: Options
 defaultOptions
   = Options {
-      importPath = []
+      importPath = ["."]
     , classPath = ["."]
     , jarList = []
     , verbLevel = 1
