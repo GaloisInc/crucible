@@ -6,6 +6,7 @@ module SAWScript.MGU where
 import           SAWScript.Unify.Fix(Mu(..),(:+:)(..))
 import qualified SAWScript.AST as A
 import SAWScript.AST (Bind)
+import SAWScript.NewAST
 import SAWScript.Compiler
 
 import           Data.Graph.SCC(stronglyConnComp)
@@ -21,6 +22,7 @@ import Data.List (sortBy,intercalate)
 import Data.Maybe (mapMaybe)
 import qualified Data.Map as M
 import qualified Data.Set as S
+{-
 import qualified Text.PrettyPrint.HughesPJ as PP
 
 -- Types {{{
@@ -55,6 +57,36 @@ data TyCon
 
 data Schema = Forall [Name] Type deriving (Show)
 
+
+-- Expr Level
+
+data Expr
+  -- Constants
+  = Bit Bool
+  | String String
+  | Z Integer
+  -- Structures
+  | Array  [Expr]
+  | Block  [BlockStmt]
+  | Tuple  [Expr]
+  | Record (M.Map Name Expr)
+  -- Accessors
+  | Index  Expr Expr
+  | Lookup Expr Name
+  -- LC
+  | Var A.ResolvedName
+  | Function    Name (Maybe Type) Expr
+  | Application Expr Expr
+  -- Sugar
+  | Let [Bind Expr] Expr
+  | TSig Expr Schema
+  deriving (Show)
+
+data BlockStmt
+  = Bind          (Maybe Name) (Maybe Type) Expr
+  -- | BlockTypeDecl Name             typeT  
+  | BlockLet      [Bind Expr]
+  deriving (Show)
 
 -- }}}
 
@@ -129,36 +161,6 @@ commaSepAll ds = case ds of
   [] -> PP.empty
   _  -> foldl1 commaSep ds
 
--- Expr Level
-
-data Expr
-  -- Constants
-  = Bit Bool
-  | String String
-  | Z Integer
-  -- Structures
-  | Array  [Expr]
-  | Block  [BlockStmt]
-  | Tuple  [Expr]
-  | Record (M.Map Name Expr)
-  -- Accessors
-  | Index  Expr Expr
-  | Lookup Expr Name
-  -- LC
-  | Var A.ResolvedName
-  | Function    Name (Maybe Type) Expr
-  | Application Expr Expr
-  -- Sugar
-  | Let [Bind Expr] Expr
-  | TSig Expr Schema
-  deriving (Show)
-
-data BlockStmt
-  = Bind          (Maybe Name) (Maybe Type) Expr
-  -- | BlockTypeDecl Name             typeT  
-  | BlockLet      [Bind Expr]
-  deriving (Show)
-
 -- }}}
 
 -- Type Constructors {{{
@@ -200,6 +202,7 @@ tAbstract :: Name -> Type
 tAbstract n = TyCon (AbstractCon n) []
 
 -- }}}
+-}
 
 -- Subst {{{
 
@@ -886,34 +889,6 @@ checkModule initTs = compiler "TypeCheck" go
                               $ fmap translateExpr
                               $ A.moduleExprEnv m
                               )
-
-{-
-checkModule :: [(A.ResolvedName, Schema)] -> -- Temporarily made a parameter for prelude
-                          A.Module A.ResolvedName A.ResolvedT A.ResolvedT ->
-         Either [String] (A.Module A.ResolvedName A.Type      A.ResolvedT)
-checkModule initTs m =
-  case errs of
-    [] -> Right m { A.moduleExprEnv = M.fromList res }
-    _  -> Left errs
-  where
-  --initTs = []   -- XXX: Compute these from the other modules
-
-  exportBinds dss = sequence [ do e1 <- exportExpr e
-                                  return (x,e1)
-                             | ds <- dss, (x,e) <- ds ]
-
-  (res,_,errs)  = runTI (A.moduleName m)
-                        $ bindSchemas initTs
-                        $ exportBinds =<<
-                            ( inferTopDecls
-                            $ computeSCCGroups (A.moduleName m)
-                            $ M.toList
-                            $ fmap translateExpr
-                            $ A.moduleExprEnv m
-                            )
-
--}
-
 
 
 runTI :: A.ModuleName -> TI a -> (a,Subst,[String])

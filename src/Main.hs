@@ -52,14 +52,8 @@ processFile opts file | takeExtensions file == ".sawcore" = do
 processFile opts file | takeExtensions file == ".saw" = do
   when (verbLevel opts > 0) $ putStrLn $ "Processing SAWScript file " ++ file
   loadModule opts file emptyLoadedModules $ \loadedModules -> do
-    -- TODO: get ModuleName of entry point and pass it into:
-    --  processModule opts loadedModules ___
     let modName = moduleNameFromPath file
     processModule opts loadedModules modName
-    {-
-    let ns = M.keys $ modules loadedModules
-    forM_ ns $ processModule opts loadedModules
-    -}
 
 processFile _ file = putStrLn $ "Don't know how to handle file " ++ file
 
@@ -70,7 +64,6 @@ processModule opts lms modName =
   -- TODO: merge the two representations of the prelude into one
   --  that both the renamer and the type checker can understand.
   runCompiler comp lms $ \m -> do
-    --let modName = mainModule lms
     case translateModule m of
       Left err -> putStrLn err
       Right scm -> do
