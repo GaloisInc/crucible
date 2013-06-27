@@ -40,8 +40,8 @@ data Value s
   | VArray [Value s]
   | VTuple [Value s]
   | VRecord [SS.Bind (Value s)]
-  | VFun (Value s -> SC (Value s))
-  | VFunTerm (SharedTerm s -> SC (Value s))
+  | VFun (Value s -> Value s)
+  | VFunTerm (SharedTerm s -> Value s)
   | VFunBoth (Value s -> Maybe (SharedTerm s) -> SC (Value s))
   | VTerm (SharedTerm s)
   | VIO (IO (Value s))
@@ -84,11 +84,9 @@ evaluate t = importValue (SC.evalSharedTerm SC.preludeGlobal t)
 -- parameterize on a meaning function for globals?
 
 applyValue :: Value s -> Value s -> SC (Value s)
-applyValue (VFun f) (VTerm t) = f (evaluate t)
-applyValue (VFun f) x = f x
-applyValue (VFunPure f) (VTerm t) = return (f (evaluate t))
-applyValue (VFunPure f) x = return (f x)
-applyValue (VFunTerm f) (VTerm t) = f t
+applyValue (VFun f) (VTerm t) = return (f (evaluate t))
+applyValue (VFun f) x = return (f x)
+applyValue (VFunTerm f) (VTerm t) = return (f t)
 applyValue (VFunBoth f) (VTerm t) = f (evaluate t) (Just t)
 applyValue (VFunBoth f) x = f x Nothing
 applyValue (VTerm t) x = applyValue (evaluate t) x
@@ -99,13 +97,15 @@ thenValue (VIO m1) (VIO m2) = VIO (m1 >> m2)
 thenValue _ _ = error "thenValue"
 
 bindValue :: Value s -> Value s -> Value s
-bindValue (VIO m1) v2 = VIO $ m1 >>= applyValue v2
+bindValue (VIO m1) v2 = VIO $ do v1 <- m1
+                                 VIO m3 <- applyValue v2 v1
+                                 m3
 bindValue _ _ = error "bindValue"
 
 importValue :: SC.Value s -> Value s
 importValue val =
     case val of
-      SC.VFun f -> VFun (return . importValue . f . exportValue)
+      SC.VFun f -> VFun (importValue . f . exportValue)
       SC.VTrue -> VBool True
       SC.VFalse -> VBool False
       SC.VNat n -> VInteger n
@@ -132,7 +132,7 @@ exportValue val =
       VArray vs -> SC.VVector (fmap exportValue (V.fromList vs))
       VTuple vs -> SC.VTuple (fmap exportValue (V.fromList vs))
       VRecord bs -> SC.VRecord (fmap exportValue (M.fromList bs))
-      VFun {} -> error "exportValue VFun"
+      VFun f -> SC.VFun (exportValue . f . importValue)
       VFunTerm {} -> error "exportValue VFunTerm"
       VFunBoth {} -> error "exportValue VFunBoth"
       VTerm {} -> error "VTerm unsupported"
@@ -346,10 +346,10 @@ interpret sc vm tm expr =
                                      VFun f ->
                                          do v2 <- interpret sc vm tm e2
                                             -- TODO: evaluate v2 if it is a VTerm
-                                            f v2
+                                            return (f v2)
                                      VFunTerm f ->
                                          do t2 <- translateExpr sc tm M.empty e2
-                                            f t2
+                                            return (f t2)
                                      VFunBoth f ->
                                          do v2 <- interpret sc vm tm e2
                                             t2 <- if translatableExpr tm e2
