@@ -9,6 +9,7 @@ module SAWScript.Interpreter
   where
 
 import Control.Applicative
+import Data.List ( intersperse )
 import qualified Data.Map as M
 import Data.Map ( Map )
 import Data.Maybe ( fromMaybe )
@@ -43,6 +44,24 @@ data Value s
   | VFunBoth (Value s -> Maybe (SharedTerm s) -> SC (Value s))
   | VTerm (SharedTerm s)
   | VIO (IO (Value s))
+
+instance Show (Value s) where
+    showsPrec p v =
+      case v of
+        VBool True -> showString "True"
+        VBool False -> showString "False"
+        VString s -> shows s
+        VInteger n -> shows n
+        VWord w x -> showParen (p > 9) (shows x . showString "::[" . shows w . showString "]")
+        VArray vs -> showList vs
+        VTuple vs -> showParen True
+                     (foldr (.) id (intersperse (showString ",") (map shows vs)))
+        VRecord _ -> error "unimplemented: show VRecord" -- !(Map FieldName Value)
+        VFun {} -> showString "<<fun>>"
+        VFunTerm {} -> showString "<<fun-term>>"
+        VFunBoth {} -> showString "<<fun-both>>"
+        VTerm t -> showsPrec p t
+        VIO {} -> showString "<<IO>>"
 
 indexValue :: Value s -> Value s -> Value s
 indexValue (VArray vs) (VInteger x)
