@@ -10,6 +10,7 @@ module SAWScript.Interpreter
   where
 
 import Control.Applicative
+import Data.Char ( isAlphaNum )
 import Data.List ( intersperse )
 import qualified Data.Map as M
 import Data.Map ( Map )
@@ -299,7 +300,7 @@ translateExpr sc env tenv expr =
                                         let env'' = M.insert (SS.LocalName x) (Nothing, x') env'
                                         let tenv' = fmap (\(i, k) -> (i + 1, k)) tenv
                                         e' <- translateExpr sc env'' tenv' e
-                                        scLambda sc x a' e'
+                                        scLambda sc (filter isAlphaNum x) a' e'
       SS.Application f e        _ -> do f' <- translateExpr sc env tenv f
                                         e' <- translateExpr sc env tenv e
                                         scApply sc f' e'
