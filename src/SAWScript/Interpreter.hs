@@ -5,10 +5,13 @@
 
 module SAWScript.Interpreter
   ( interpret
+  , interpretModule
   )
   where
 
 import Control.Applicative
+import Data.Char ( isAlphaNum )
+import Data.List ( intersperse )
 import qualified Data.Map as M
 import Data.Map ( Map )
 import Data.Maybe ( fromMaybe )
@@ -38,11 +41,29 @@ data Value s
   | VArray [Value s]
   | VTuple [Value s]
   | VRecord [SS.Bind (Value s)]
-  | VFun (Value s -> SC (Value s))
-  | VFunTerm (SharedTerm s -> SC (Value s))
+  | VFun (Value s -> Value s)
+  | VFunTerm (SharedTerm s -> Value s)
   | VFunBoth (Value s -> Maybe (SharedTerm s) -> SC (Value s))
   | VTerm (SharedTerm s)
   | VIO (IO (Value s))
+
+instance Show (Value s) where
+    showsPrec p v =
+      case v of
+        VBool True -> showString "True"
+        VBool False -> showString "False"
+        VString s -> shows s
+        VInteger n -> shows n
+        VWord w x -> showParen (p > 9) (shows x . showString "::[" . shows w . showString "]")
+        VArray vs -> showList vs
+        VTuple vs -> showParen True
+                     (foldr (.) id (intersperse (showString ",") (map shows vs)))
+        VRecord _ -> error "unimplemented: show VRecord" -- !(Map FieldName Value)
+        VFun {} -> showString "<<fun>>"
+        VFunTerm {} -> showString "<<fun-term>>"
+        VFunBoth {} -> showString "<<fun-both>>"
+        VTerm t -> showsPrec p t
+        VIO {} -> showString "<<IO>>"
 
 indexValue :: Value s -> Value s -> Value s
 indexValue (VArray vs) (VInteger x)
@@ -58,29 +79,34 @@ lookupValue (VRecord bs) name =
       Just x -> x
 lookupValue _ _ = error "lookupValue"
 
+evaluate :: SharedTerm s -> Value s
+evaluate t = importValue (SC.evalSharedTerm SC.preludeGlobal t)
+-- FIXME: is SC.preludeGlobal always appropriate? Or should we
+-- parameterize on a meaning function for globals?
+
 applyValue :: Value s -> Value s -> SC (Value s)
-applyValue (VFun f) (VTerm t) = fail "FIXME: used term as value"
-applyValue (VFun f) x = f x
-applyValue (VFunTerm f) (VTerm t) = f t
-applyValue (VFunBoth f) (VTerm t) = f (error "FIXME: used term as value") (Just t)
+applyValue (VFun f) (VTerm t) = return (f (evaluate t))
+applyValue (VFun f) x = return (f x)
+applyValue (VFunTerm f) (VTerm t) = return (f t)
+applyValue (VFunBoth f) (VTerm t) = f (evaluate t) (Just t)
 applyValue (VFunBoth f) x = f x Nothing
-applyValue (VTerm t) x = fail "FIXME: applyValue VTerm unimplemented"
+applyValue (VTerm t) x = applyValue (evaluate t) x
 applyValue _ _ = fail "applyValue"
--- TODO: In cases where we have a VTerm but need a real value, we
--- should evaluate the term using the SAWCore evaluator.
 
 thenValue :: Value s -> Value s -> Value s
 thenValue (VIO m1) (VIO m2) = VIO (m1 >> m2)
 thenValue _ _ = error "thenValue"
 
 bindValue :: Value s -> Value s -> Value s
-bindValue (VIO m1) v2 = VIO $ m1 >>= applyValue v2
+bindValue (VIO m1) v2 = VIO $ do v1 <- m1
+                                 VIO m3 <- applyValue v2 v1
+                                 m3
 bindValue _ _ = error "bindValue"
 
 importValue :: SC.Value s -> Value s
 importValue val =
     case val of
-      SC.VFun f -> VFun (return . importValue . f . exportValue)
+      SC.VFun f -> VFun (importValue . f . exportValue)
       SC.VTrue -> VBool True
       SC.VFalse -> VBool False
       SC.VNat n -> VInteger n
@@ -107,7 +133,7 @@ exportValue val =
       VArray vs -> SC.VVector (fmap exportValue (V.fromList vs))
       VTuple vs -> SC.VTuple (fmap exportValue (V.fromList vs))
       VRecord bs -> SC.VRecord (fmap exportValue (M.fromList bs))
-      VFun {} -> error "exportValue VFun"
+      VFun f -> SC.VFun (exportValue . f . importValue)
       VFunTerm {} -> error "exportValue VFunTerm"
       VFunBoth {} -> error "exportValue VFunBoth"
       VTerm {} -> error "VTerm unsupported"
@@ -274,7 +300,7 @@ translateExpr sc env tenv expr =
                                         let env'' = M.insert (SS.LocalName x) (Nothing, x') env'
                                         let tenv' = fmap (\(i, k) -> (i + 1, k)) tenv
                                         e' <- translateExpr sc env'' tenv' e
-                                        scLambda sc x a' e'
+                                        scLambda sc (filter isAlphaNum x) a' e'
       SS.Application f e        _ -> do f' <- translateExpr sc env tenv f
                                         e' <- translateExpr sc env tenv e
                                         scApply sc f' e'
@@ -321,10 +347,10 @@ interpret sc vm tm expr =
                                      VFun f ->
                                          do v2 <- interpret sc vm tm e2
                                             -- TODO: evaluate v2 if it is a VTerm
-                                            f v2
+                                            return (f v2)
                                      VFunTerm f ->
                                          do t2 <- translateExpr sc tm M.empty e2
-                                            f t2
+                                            return (f t2)
                                      VFunBoth f ->
                                          do v2 <- interpret sc vm tm e2
                                             t2 <- if translatableExpr tm e2
@@ -362,3 +388,14 @@ interpretStmts sc vm tm stmts =
              return (v1 `bindValue` VFunBoth f)
       SS.BlockLet bs : ss -> interpret sc vm tm (SS.LetBlock bs (SS.Block ss undefined))
       SS.BlockTypeDecl {} : _ -> fail "BlockTypeDecl unsupported"
+
+-- | The initial version here simply interprets the binding for "main"
+-- (assuming there is one), ignoring everything else in the module.
+-- TODO: Support for multiple top-level mutually-recursive bindings.
+interpretModule
+    :: forall s. SharedContext s
+    -> Map SS.ResolvedName (Value s)
+    -> Map SS.ResolvedName (Maybe SS.Type, SharedTerm s)
+    -> SS.ValidModule -> SC (Value s)
+interpretModule sc venv env m = interpret sc venv env main
+    where main = (M.!) (SS.moduleExprEnv m) "main"
