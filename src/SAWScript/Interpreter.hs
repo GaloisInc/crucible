@@ -5,6 +5,7 @@
 
 module SAWScript.Interpreter
   ( interpret
+  , interpretModule
   )
   where
 
@@ -381,3 +382,14 @@ interpretStmts sc vm tm stmts =
              return (v1 `bindValue` VFunBoth f)
       SS.BlockLet bs : ss -> interpret sc vm tm (SS.LetBlock bs (SS.Block ss undefined))
       SS.BlockTypeDecl {} : _ -> fail "BlockTypeDecl unsupported"
+
+-- | The initial version here simply interprets the binding for "main"
+-- (assuming there is one), ignoring everything else in the module.
+-- TODO: Support for multiple top-level mutually-recursive bindings.
+interpretModule
+    :: forall s. SharedContext s
+    -> Map SS.ResolvedName (Value s)
+    -> Map SS.ResolvedName (Maybe SS.Type, SharedTerm s)
+    -> SS.ValidModule -> SC (Value s)
+interpretModule sc venv env m = interpret sc venv env main
+    where main = (M.!) (SS.moduleExprEnv m) "main"
