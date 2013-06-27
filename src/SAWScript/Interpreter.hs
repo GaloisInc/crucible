@@ -78,16 +78,21 @@ lookupValue (VRecord bs) name =
       Just x -> x
 lookupValue _ _ = error "lookupValue"
 
+evaluate :: SharedTerm s -> Value s
+evaluate t = importValue (SC.evalSharedTerm SC.preludeGlobal t)
+-- FIXME: is SC.preludeGlobal always appropriate? Or should we
+-- parameterize on a meaning function for globals?
+
 applyValue :: Value s -> Value s -> SC (Value s)
-applyValue (VFun f) (VTerm t) = fail "FIXME: used term as value"
+applyValue (VFun f) (VTerm t) = f (evaluate t)
 applyValue (VFun f) x = f x
+applyValue (VFunPure f) (VTerm t) = return (f (evaluate t))
+applyValue (VFunPure f) x = return (f x)
 applyValue (VFunTerm f) (VTerm t) = f t
-applyValue (VFunBoth f) (VTerm t) = f (error "FIXME: used term as value") (Just t)
+applyValue (VFunBoth f) (VTerm t) = f (evaluate t) (Just t)
 applyValue (VFunBoth f) x = f x Nothing
-applyValue (VTerm t) x = fail "FIXME: applyValue VTerm unimplemented"
+applyValue (VTerm t) x = applyValue (evaluate t) x
 applyValue _ _ = fail "applyValue"
--- TODO: In cases where we have a VTerm but need a real value, we
--- should evaluate the term using the SAWCore evaluator.
 
 thenValue :: Value s -> Value s -> Value s
 thenValue (VIO m1) (VIO m2) = VIO (m1 >> m2)
