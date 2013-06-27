@@ -19,7 +19,8 @@ import Control.Monad.State
 import Control.Monad.Identity
 import Data.Function (on)
 import Data.List (sortBy,intercalate)
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe,fromMaybe)
+import Data.Traversable (traverse)
 import qualified Data.Map as M
 import qualified Data.Set as S
 
@@ -77,10 +78,12 @@ bindVar tv@(FreeVar _) t
   | tv `S.member` freeVars t = failMGU "occurs check failMGUs"
   | otherwise                = return $ singletonSubst tv t
 
+bindVar tv@(BoundVar n) t@(TyVar (FreeVar i)) = return $ singletonSubst tv t
+
 bindVar (BoundVar n) (TyVar (BoundVar m))
   | n == m  = return emptySubst
 
-bindVar _ _ = failMGU "generality mismatch"
+bindVar e1 e2 = failMGU $ "generality mismatch: " ++ pShow e1 ++ " and " ++ pShow e2
 
 -- }}}
 
@@ -274,39 +277,41 @@ appSubstBinds s bs = [ (n,appSubst s a) | (n,a) <- bs ]
 
 -- Expr translation {{{
 
-translateExpr :: A.Expr A.ResolvedName A.ResolvedT -> Expr
+translateExpr :: A.Expr A.ResolvedName A.ResolvedT -> Err Expr
 translateExpr expr = case expr of
-  A.Bit b t              -> sig t $ Bit b
-  A.Quote s t            -> sig t $ String s
-  A.Z i t                -> sig t $ Z i
-  A.Array es t           -> sig t $ Array $ map translateExpr es
-  A.Block bs t           -> sig t $ Block $ map translateBStmt bs
-  A.Tuple es t           -> sig t $ Tuple $ map translateExpr es
-  A.Record fs t          -> sig t $ Record $ M.fromList [ (n,translateExpr t) | (n,t) <- fs ]
-  A.Index ar ix t        -> sig t $ Index (translateExpr ar) (translateExpr ix)
-  A.Lookup rec fld t     -> sig t $ Lookup (translateExpr rec) fld
-  A.Var x t              -> sig t $ Var x
-  A.Function x xt body t -> sig t $ Function x (translateType `fmap` xt) $
-                                      translateExpr body
-  A.Application f v t    -> sig t $ Application (translateExpr f) (translateExpr v)
-  A.LetBlock nes e       ->         Let (map translateField nes) (translateExpr e)
+  A.Bit b t              -> sig t $ (Bit b)
+  A.Quote s t            -> sig t $ (String s)
+  A.Z i t                -> sig t $ (Z i)
+  A.Array es t           -> sig t =<< (Array <$> mapM translateExpr es)
+  A.Block bs t           -> sig t =<< (Block <$> mapM translateBStmt bs)
+  A.Tuple es t           -> sig t =<< (Tuple <$> mapM translateExpr es)
+  A.Record fs t          -> sig t =<< (Record . M.fromList <$> mapM translateField fs)
+  A.Index ar ix t        -> sig t =<< (Index <$> translateExpr ar <*> translateExpr ix)
+  A.Lookup rec fld t     -> sig t =<< (Lookup <$> translateExpr rec <*> pure fld)
+  A.Var x t              -> sig t $ (Var x)
+  A.Function x xt body t -> sig t =<< (Function x <$> translateMType xt <*> translateExpr body)
+  A.Application f v t    -> sig t =<< (Application <$> translateExpr f <*> translateExpr v)
+  A.LetBlock nes e       ->         Let <$> mapM translateField nes <*> translateExpr e
   where
-  sig :: A.ResolvedT -> Expr -> Expr
-  sig Nothing e = e
-  sig (Just t) e = TSig e $ translateTypeS t
+  sig :: A.ResolvedT -> Expr -> Err Expr
+  sig Nothing e = return e
+  sig (Just t) e = TSig e <$> translateTypeS t
 
-translateBStmt :: A.BlockStmt A.ResolvedName A.ResolvedT -> BlockStmt
+translateBStmt :: A.BlockStmt A.ResolvedName A.ResolvedT -> Err BlockStmt
 translateBStmt bst = case bst of
-  A.Bind mn ctx e -> Bind mn (translateType `fmap` ctx) (translateExpr e)
-  A.BlockLet bs   -> BlockLet (map translateField bs)
+  A.Bind mn ctx e -> Bind mn <$> translateMType ctx <*> translateExpr e
+  A.BlockLet bs   -> BlockLet <$> mapM translateField bs
   --BlockTypeDecl Name             typeT  
 
-translateField :: (a,A.Expr A.ResolvedName A.ResolvedT) -> (a,Expr)
-translateField (n,e) = (n,translateExpr e)
+translateField :: (a,A.Expr A.ResolvedName A.ResolvedT) -> Err (a,Expr)
+translateField (n,e) = (,) <$> pure n <*> translateExpr e
 
-translateTypeS :: A.FullT -> Schema
-translateTypeS (In (Inl (A.I n)))   = tMono $ tNum n
-translateTypeS (In (Inr (Inl ctx))) = tMono $
+translateTypeField :: (a,A.FullT) -> Err (a,Type)
+translateTypeField (n,e) = (,) <$> pure n <*> translateType e
+
+translateTypeS :: A.FullT -> Err Schema
+translateTypeS (In (Inl (A.I n)))   = return $ tMono $ tNum n
+translateTypeS (In (Inr (Inl ctx))) = return $ tMono $
   case ctx of
     A.CryptolSetupContext -> tContext $ A.CryptolSetup
     A.JavaSetupContext    -> tContext $ A.JavaSetup
@@ -316,83 +321,94 @@ translateTypeS (In (Inr (Inl ctx))) = tMono $
 
 translateTypeS (In (Inr (Inr ty))) =
   case ty of
-    A.BitF            -> tMono tBool
-    A.ZF              -> tMono tZ
-    A.QuoteF          -> tMono tString
+    A.BitF            -> return $ tMono tBool
+    A.ZF              -> return $ tMono tZ
+    A.QuoteF          -> return $ tMono tString
 
-    A.ArrayF tE tL    -> tMono $ tArray (translateType tL) (translateType tE)
-    A.BlockF tC tE    -> tMono $ tBlock (translateType tC) (translateType tE)
-    A.TupleF ts       -> tMono $ tTuple $ map translateType ts
-    A.RecordF fs      -> tMono $ TyRecord $ M.fromList [ (n,translateType t) | (n,t) <- fs ]
+    A.ArrayF tE tL    -> tMono <$> (tArray <$> translateType tL <*> translateType tE)
+    A.BlockF tC tE    -> tMono <$> (tBlock <$> translateType tC <*> translateType tE)
+    A.TupleF ts       -> tMono <$> (tTuple <$> mapM translateType ts)
+    A.RecordF fs      -> tMono <$> TyRecord . M.fromList <$> mapM translateTypeField fs
 
-    A.FunctionF t1 t2 -> tMono $ tFun (translateType t1) (translateType t2)
-    A.AbstractF n     -> tMono $ tAbstract n
+    A.FunctionF t1 t2 -> tMono <$> (tFun <$> translateType t1 <*> translateType t2)
+    A.AbstractF n     -> return $ tMono $ tAbstract n
 
-    A.PVar x          -> tMono $ TyVar (BoundVar x)
-    A.PAbs xs t       -> case translateTypeS t of
-                           Forall ys t1 -> Forall (xs ++ ys) t1
+    A.PVar x          -> return $ tMono $ TyVar (BoundVar x)
+    A.PAbs xs t       -> do (Forall ys t1) <- translateTypeS t
+                            return $ Forall (xs ++ ys) t1
 
-translateType :: A.FullT -> Type
-translateType typ = case translateTypeS typ of
-  Forall [] t -> t
-  _ -> error "my brain exploded: translateType"
+translateMType :: Maybe A.FullT -> Err (Maybe Type)
+translateMType mt = case mt of
+  Just t  -> translateType t >>= return . Just
+  Nothing -> return Nothing
 
-exportType :: Type -> A.Type
+translateType :: A.FullT -> Err Type
+translateType typ = do t' <- translateTypeS typ
+                       case t' of
+                         Forall [] t -> return t
+                         s -> fail $ "can't translate schema to a monomorphic type: " ++ show s
+
+exportType :: Type -> Err A.Type
 exportType ty =
   case ty of
     TyVar var ->
       case var of
-        BoundVar name -> A.TypVar name
+        BoundVar name -> return $ A.TypVar name
         FreeVar _name ->
-          error "Free type variable: bug/default to something."
+          fail "Free type variable: bug/default to something."
 
-    TyRecord fs ->
-      A.RecordT [ (x, exportType t) | (x, t) <- M.toList fs ]
+    TyRecord fs -> A.RecordT <$> mapM exportField (M.toList fs)
 
-    TyCon tc ts ->
-      case (tc, map exportType ts) of
-        (TupleCon _, ts') -> A.TupleT ts'
-        (ArrayCon, [i,e]) -> A.ArrayT e i -- argument order changes
-        (FunCon,   [a,b]) -> A.FunctionT a b
-        (StringCon, [])   -> A.QuoteT
-        (BoolCon, [])     -> A.BitT
-        (ZCon, [])        -> A.ZT
-        (ContextCon c, _) -> A.ContextT c
-        (NumCon n, _)     -> A.IntegerT n
-        (BlockCon, [a,b]) -> A.BlockT a b
-        (AbstractCon s, _) -> A.Abstract s
-        _                 -> error "exportType: malformed TyCon"
+    TyCon tc ts -> do
+      mts <- mapM exportType ts
+      case (tc,mts) of
+        (TupleCon _, ts')  -> return $ A.TupleT ts'
+        (ArrayCon, [i,e])  -> return $ A.ArrayT e i -- argument order changes
+        (FunCon,   [a,b])  -> return $ A.FunctionT a b
+        (StringCon, [])    -> return $ A.QuoteT
+        (BoolCon, [])      -> return $ A.BitT
+        (ZCon, [])         -> return $ A.ZT
+        (ContextCon c, _)  -> return $ A.ContextT c
+        (NumCon n, _)      -> return $ A.IntegerT n
+        (BlockCon, [a,b])  -> return $ A.BlockT a b
+        (AbstractCon s, _) -> return $ A.Abstract s
+        _                  -> fail "exportType: malformed TyCon"
 
-exportSchema :: Schema -> A.Type
+exportField :: (a,Type) -> Err (a,A.Type)
+exportField (n,t) = (,) <$> pure n <*> exportType t
+
+exportSchema :: Schema -> Err A.Type
 exportSchema (Forall xs t) =
   case xs of
     [] -> exportType t
-    _  -> A.TypAbs xs $ exportType t
+    _  -> A.TypAbs xs <$> exportType t
 
-exportExpr :: OutExpr -> TI (A.Expr A.ResolvedName A.Type)
-exportExpr e0 =
+exportExpr :: OutExpr -> Err (A.Expr A.ResolvedName A.Type)
+exportExpr e0 = go e0
+{-
   do e1 <- appSubstM e0
      go e1
+     -}
   where
   go expr =
     case expr of
-      A.Bit b t          -> A.Bit b     <$> exportSchema' t
-      A.Quote str t      -> A.Quote str <$> exportSchema' t
-      A.Z i t            -> A.Z i       <$> exportSchema' t
+      A.Bit b t          -> A.Bit b     <$> exportSchema t
+      A.Quote str t      -> A.Quote str <$> exportSchema t
+      A.Z i t            -> A.Z i       <$> exportSchema t
 
-      A.Array es t       -> A.Array <$> mapM go es  <*> exportSchema' t
-      A.Block bs t       -> A.Block <$> mapM goB bs <*> exportSchema' t
-      A.Tuple es t       -> A.Tuple <$> mapM go es  <*> exportSchema' t
-      A.Record nes t     -> A.Record <$> mapM go2 nes <*> exportSchema' t
+      A.Array es t       -> A.Array <$> mapM go es  <*> exportSchema t
+      A.Block bs t       -> A.Block <$> mapM goB bs <*> exportSchema t
+      A.Tuple es t       -> A.Tuple <$> mapM go es  <*> exportSchema t
+      A.Record nes t     -> A.Record <$> mapM go2 nes <*> exportSchema t
 
-      A.Index ar ix t    -> A.Index <$> go ar <*> go ix <*> exportSchema' t
-      A.Lookup rec fld t -> A.Lookup <$> go rec <*> pure fld <*> exportSchema' t
-      A.Var x t          -> A.Var x <$> exportSchema' t
+      A.Index ar ix t    -> A.Index <$> go ar <*> go ix <*> exportSchema t
+      A.Lookup rec fld t -> A.Lookup <$> go rec <*> pure fld <*> exportSchema t
+      A.Var x t          -> A.Var x <$> exportSchema t
 
-      A.Function x xt body t-> A.Function x <$> exportSchema' xt
-                                            <*> go body <*> exportSchema' t
+      A.Function x xt body t-> A.Function x <$> exportSchema xt
+                                            <*> go body <*> exportSchema t
 
-      A.Application f v t -> A.Application <$> go f <*> go v <*> exportSchema' t
+      A.Application f v t -> A.Application <$> go f <*> go v <*> exportSchema t
       A.LetBlock nes e   -> A.LetBlock <$> mapM go2 nes <*> go e
 
   go2 (x,e) = do e1 <- go e
@@ -400,10 +416,9 @@ exportExpr e0 =
 
   goB stm =
     case stm of
-      A.Bind mn ctx e     -> A.Bind mn <$> exportSchema' ctx <*> go e
+      A.Bind mn ctx e     -> A.Bind mn <$> exportSchema ctx <*> go e
       A.BlockLet bs       -> A.BlockLet <$> mapM go2 bs
-      A.BlockTypeDecl x t -> A.BlockTypeDecl x <$> exportSchema' t
-  exportSchema' = pure . exportSchema
+      A.BlockTypeDecl x t -> A.BlockTypeDecl x <$> exportSchema t
 
 
 
@@ -458,12 +473,10 @@ inferE expr = case expr of
                             inferE e
 
 
-  Function x Nothing body -> do a <- newType
-                                (body',t) <- bindLocalSchemas [(x,tMono a)] $
-                                               inferE body
-                                ret (A.Function x (tMono a) body') $ tFun a t
-  Function _ (Just _) _ -> error "inferE (Function _ (Just _) _)"
-
+  Function x mt body -> do xt <- maybe newType return mt
+                           (body',t) <- bindLocalSchemas [(x,tMono xt)] $
+                                          inferE body
+                           ret (A.Function x (tMono xt) body') $ tFun xt t
 
   Application f v -> do (v',fv) <- inferE v
                         t <- newType
@@ -687,28 +700,27 @@ checkKind = return
 checkModule :: [(A.ResolvedName, Schema)] ->
                Compiler (A.Module A.ResolvedName A.ResolvedT A.ResolvedT)
                         (A.Module A.ResolvedName A.Type A.ResolvedT)
-checkModule initTs = compiler "TypeCheck" go
+checkModule initTs = compiler "TypeCheck" $ \m -> do
+  exprs <- traverse translateExpr $ A.moduleExprEnv m
+  let nes  = M.toList exprs
+  let sccs = computeSCCGroups (A.moduleName m) nes
+  let go = bindSchemas initTs $ inferTopDecls sccs
+  case evalTI (A.moduleName m) go of
+    Right bs  -> do res <- exportBinds bs
+                    return $ m { A.moduleExprEnv = M.fromList res }
+    Left errs -> fail $ unlines errs
   where
-  go m = case errs of
-    [] -> return $ m { A.moduleExprEnv = M.fromList res }
-    _  -> fail $ unlines errs
-    where
-    --initTs = []   -- XXX: Compute these from the other modules
+  --initTs = []   -- XXX: Compute these from the other modules
 
-    exportBinds dss = sequence [ do e1 <- exportExpr e
-                                    return (x,e1)
-                               | ds <- dss, (x,e) <- ds ]
+  exportBinds dss = sequence [ do e1 <- exportExpr e
+                                  return (x,e1)
+                             | ds <- dss, (x,e) <- ds ]
 
-    (res,_,errs)  = runTI (A.moduleName m)
-                          $ bindSchemas initTs
-                          $ exportBinds =<<
-                              ( inferTopDecls
-                              $ computeSCCGroups (A.moduleName m)
-                              $ M.toList
-                              $ fmap translateExpr
-                              $ A.moduleExprEnv m
-                              )
 
+evalTI :: A.ModuleName -> TI a -> Either [String] a
+evalTI mn m = case runTI mn m of
+  (res,_,[]) -> Right res
+  (_,_,errs) -> Left errs
 
 runTI :: A.ModuleName -> TI a -> (a,Subst,[String])
 runTI mn m = (a,subst rw, errors rw)

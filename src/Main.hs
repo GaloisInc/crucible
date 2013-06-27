@@ -63,24 +63,21 @@ processModule :: Options -> LoadedModules -> ModuleName -> IO ()
 processModule opts lms modName =
   -- TODO: merge the two representations of the prelude into one
   --  that both the renamer and the type checker can understand.
-  runCompiler comp lms $ \m -> do
-    case translateModule m of
-      Left err -> putStrLn err
-      Right scm -> do
-        when (verbLevel opts > 1) $ do
-          putStrLn ""
-          putStrLn "== Translated module =="
-          print scm
-          putStrLn "== Execution results =="
-        execSAWCore opts scm
+  runCompiler comp lms $ \scm -> do
+    when (verbLevel opts > 1) $ do
+      putStrLn ""
+      putStrLn "== Translated module =="
+      print scm
+      putStrLn "== Execution results =="
+    execSAWCore opts scm
   where
-  comp :: Compiler LoadedModules ValidModule
-  comp = buildModules                   >=>
-         F.foldrM checkModuleWithDeps M.empty >=> \cms ->
-         case M.lookup modName cms of
-           Just cm -> return cm
-           Nothing -> fail $ "Module " ++ show modName ++
-                             " not found in environment of checkedModules, for some strange reason"
+  comp =     buildModules
+         >=> F.foldrM checkModuleWithDeps M.empty
+         >=> (\cms -> case M.lookup modName cms of
+               Just cm -> return cm
+               Nothing -> fail $ "Module " ++ show modName ++
+                                 " not found in environment of checkedModules")
+         >=> translateModule
 
 
 

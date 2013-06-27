@@ -91,6 +91,7 @@ import Control.Applicative
   '==>'          { TOp       _ "==>"            }
   string         { TLit      _ $$               }
   num            { TNum      _ _ $$             }
+  bits           { TBits     _ _ $$             }
   name           { TVar      _ $$               }
   qname          { TQVar     _ _ $$             }
 
@@ -126,7 +127,7 @@ TopStmt :: { TopStmtSimple RawT }
 
 Import :: { TopStmtSimple RawT }
  : qname                                   { Import (mkModuleName $1) Nothing Nothing      }
- | name                                    { Import (mkModuleName ([],$1)) Nothing Nothing       }
+ | name                                    { Import (mkModuleName ([],$1)) Nothing Nothing }
  -- | name '(' commas(name) ')'            { Import $1 (Just $3) Nothing     }
  -- | name 'as' name                       { Import $1 Nothing (Just $3)     }
  -- | name '(' commas(name) ')' 'as' name  { Import $1 (Just $3) (Just $6)   }
@@ -192,6 +193,10 @@ SafeExpression :: { ExprSimple RawT }
  | '[' ']'                              { Array [] Nothing                }
  | string                               { Quote $1 Nothing                }
  | num                                  { Z $1 Nothing                    }
+ | bits                                 { Application
+                                            (Var (unresolved "bitSequence") Nothing)
+                                                 (Z $1 Nothing) 
+                                                 Nothing                  }
  | qname                                { Var (unresolvedQ $1) Nothing    }
  | name                                 { Var (unresolved $1) Nothing     }
  | '(' Expression ')'                   { $2                              }

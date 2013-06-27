@@ -66,19 +66,23 @@ sawTokens :-
 $white+                          ;
 "\n"                             ;
 "//".*                           ;
-"/*"                             { cnst TCmntS        }
-"*/"                             { cnst TCmntE        }
-@reservedid                      { TReserved          }
-@punct                           { TPunct             }
-@reservedop                      { TOp                }
-@varid                           { TVar               }
-\" @string* \"                   { TLit `via'` read   }
-@decimal                         { TNum `via` read    }
-0[bB] @binary                    { TNum `via` readBin }
-0[oO] @octal                     { TNum `via` read    }
-0[xX] @hexadecimal               { TNum `via` read    }
-@qvarid                          { TQVar `via` readQVar }
-.                                { TUnknown           }
+"/*"                             { cnst TCmntS           }
+"*/"                             { cnst TCmntE           }
+@reservedid                      { TReserved             }
+@punct                           { TPunct                }
+@reservedop                      { TOp                   }
+@varid                           { TVar                  }
+\" @string* \"                   { TLit  `via'` read     }
+@decimal                         { TBits `via`  read     }
+0[bB] @binary                    { TBits `via`  readBin  }
+0[oO] @octal                     { TBits `via`  read     }
+0[xX] @hexadecimal               { TBits `via`  read     }
+\' @decimal                      { TNum  `via`  (read    . drop 1) }
+\' 0[bB] @binary                 { TNum  `via`  (readBin . drop 1) }
+\' 0[oO] @octal                  { TNum  `via`  (read    . drop 1) }
+\' 0[xX] @hexadecimal            { TNum  `via`  (read    . drop 1) }
+@qvarid                          { TQVar `via`  readQVar }
+.                                { TUnknown              }
 
 {
 
