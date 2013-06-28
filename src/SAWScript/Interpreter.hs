@@ -1,4 +1,6 @@
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -6,10 +8,14 @@
 module SAWScript.Interpreter
   ( interpret
   , interpretModule
+  , interpretMain
+  , Value
+  , IsValue(..)
   )
   where
 
 import Control.Applicative
+import Control.Monad ( foldM )
 import Data.Char ( isAlphaNum )
 import Data.List ( intersperse )
 import qualified Data.Map as M
@@ -19,17 +25,18 @@ import Data.Traversable hiding ( mapM )
 import qualified Data.Vector as V
 
 import qualified SAWScript.AST as SS
+import SAWScript.Builtins hiding (evaluate)
+import SAWScript.Prelude
+import Verifier.SAW.Prelude (preludeModule)
+import qualified Verifier.SAW.Prim as Prim
+import qualified Verifier.SAW.SBVParser as SBV
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST hiding ( incVars )
 
 import qualified Verifier.SAW.Evaluator as SC
 
-type SC = IO -- ^ type SC indicates that IO is used only for term-building operations
 type Expression = SS.Expr SS.ResolvedName SS.Type
 type BlockStatement = SS.BlockStmt SS.ResolvedName SS.Type
-
-traverseSnd :: Applicative f => (b -> f c) -> (a, b) -> f (a, c)
-traverseSnd f (x, y) = (,) x <$> f y
 
 -- Values ----------------------------------------------------------------------
 
@@ -43,7 +50,9 @@ data Value s
   | VRecord [SS.Bind (Value s)]
   | VFun (Value s -> Value s)
   | VFunTerm (SharedTerm s -> Value s)
-  | VFunBoth (Value s -> Maybe (SharedTerm s) -> SC (Value s))
+  | VFunType (SS.Type -> Value s)
+  | VLambda (Value s -> Maybe (SharedTerm s) -> IO (Value s))
+  | VTLambda (SS.Type -> IO (Value s))
   | VTerm (SharedTerm s)
   | VIO (IO (Value s))
 
@@ -61,7 +70,9 @@ instance Show (Value s) where
         VRecord _ -> error "unimplemented: show VRecord" -- !(Map FieldName Value)
         VFun {} -> showString "<<fun>>"
         VFunTerm {} -> showString "<<fun-term>>"
-        VFunBoth {} -> showString "<<fun-both>>"
+        VFunType {} -> showString "<<fun-type>>"
+        VLambda {} -> showString "<<lambda>>"
+        VTLambda {} -> showString "<<polymorphic function>>"
         VTerm t -> showsPrec p t
         VIO {} -> showString "<<IO>>"
 
@@ -84,14 +95,19 @@ evaluate t = importValue (SC.evalSharedTerm SC.preludeGlobal t)
 -- FIXME: is SC.preludeGlobal always appropriate? Or should we
 -- parameterize on a meaning function for globals?
 
-applyValue :: Value s -> Value s -> SC (Value s)
+applyValue :: Value s -> Value s -> IO (Value s)
 applyValue (VFun f) (VTerm t) = return (f (evaluate t))
 applyValue (VFun f) x = return (f x)
 applyValue (VFunTerm f) (VTerm t) = return (f t)
-applyValue (VFunBoth f) (VTerm t) = f (evaluate t) (Just t)
-applyValue (VFunBoth f) x = f x Nothing
+applyValue (VLambda f) (VTerm t) = f (evaluate t) (Just t)
+applyValue (VLambda f) x = f x Nothing
 applyValue (VTerm t) x = applyValue (evaluate t) x
 applyValue _ _ = fail "applyValue"
+
+tapplyValue :: Value s -> SS.Type -> IO (Value s)
+tapplyValue (VFunType f) t = return (f t)
+tapplyValue (VTLambda f) t = f t
+tapplyValue v _ = return v
 
 thenValue :: Value s -> Value s -> Value s
 thenValue (VIO m1) (VIO m2) = VIO (m1 >> m2)
@@ -119,9 +135,9 @@ importValue val =
       SC.VFloat {} -> error "VFloat unsupported"
       SC.VDouble {} -> error "VDouble unsupported"
       SC.VType -> error "VType unsupported"
-      SC.VIO {} -> error "VIO unsupported"
-      SC.VTerm {} -> error "VTerm unsupported"
       SC.VSC {} -> error "VSC unsupported"
+      SC.VTerm {} -> error "VTerm unsupported"
+      SC.VIO {} -> error "VIO unsupported"
 
 exportValue :: Value s -> SC.Value s
 exportValue val =
@@ -135,9 +151,75 @@ exportValue val =
       VRecord bs -> SC.VRecord (fmap exportValue (M.fromList bs))
       VFun f -> SC.VFun (exportValue . f . importValue)
       VFunTerm {} -> error "exportValue VFunTerm"
-      VFunBoth {} -> error "exportValue VFunBoth"
+      VFunType {} -> error "exportValue VFunType"
+      VLambda {} -> error "exportValue VLambda"
+      VTLambda {} -> error "exportValue VTLambda"
       VTerm {} -> error "VTerm unsupported"
       VIO {} -> error "VIO unsupported"
+
+-- IsValue class ---------------------------------------------------------------
+
+-- | Used for encoding primitive operations in the Value type.
+class IsValue s a where
+    toValue :: a -> Value s
+    fromValue :: Value s -> a
+    funToValue :: (a -> Value s) -> Value s
+    funToValue f = VFun (\v -> f (fromValue v))
+    funFromValue :: Value s -> (a -> Value s)
+    funFromValue (VFun g) = \x -> g (toValue x)
+    funFromValue _        = error "fromValue (->)"
+
+instance IsValue s (Value s) where
+    toValue x = x
+    fromValue x = x
+
+instance (IsValue s a, IsValue s b) => IsValue s (a -> b) where
+    toValue f = funToValue (\x -> toValue (f x))
+    fromValue v = \x -> fromValue (funFromValue v x)
+
+instance IsValue s () where
+    toValue _ = VTuple []
+    fromValue _ = ()
+
+instance IsValue s a => IsValue s (IO a) where
+    toValue io = VIO (fmap toValue io)
+    fromValue (VIO io) = fmap fromValue io
+    fromValue _ = error "fromValue IO"
+
+instance IsValue s (SharedTerm s) where
+    toValue t = VTerm t
+    fromValue (VTerm t) = t
+    fromValue _ = error "fromValue SharedTerm"
+    funToValue f = VFunTerm f
+    funFromValue (VFunTerm f) = f
+    funFromValue _ = error "fromValue (->)"
+
+instance IsValue s SS.Type where
+    toValue _ = error "toValue Type"
+    fromValue _ = error "fromValue Type"
+    funToValue f = VFunType f
+    funFromValue (VFunType f) = f
+    funFromValue _ = error "fromValue (->)"
+
+instance IsValue s String where
+    toValue n = VString n
+    fromValue (VString n) = n
+    fromValue _ = error "fromValue String"
+
+instance IsValue s Integer where
+    toValue n = VInteger n
+    fromValue (VInteger n) = n
+    fromValue _ = error "fromValue Integer"
+
+instance IsValue s Prim.BitVector where
+    toValue (Prim.BV w x) = VWord w x
+    fromValue (VWord w x) = Prim.BV w x
+    fromValue _ = error "fromValue BitVector"
+
+instance IsValue s Bool where
+    toValue b = VBool b
+    fromValue (VBool b) = b
+    fromValue _ = error "fromValue Bool"
 
 -- Type matching ---------------------------------------------------------------
 
@@ -184,7 +266,7 @@ matchTypes (x : xs) (y : ys) = do
 
 data Kind = KStar | KSize
 
-translateKind :: SharedContext s -> Kind -> SC (SharedTerm s)
+translateKind :: SharedContext s -> Kind -> IO (SharedTerm s)
 translateKind sc KStar = scSort sc (mkSort 0)
 translateKind sc KSize = scNatType sc
 
@@ -209,7 +291,7 @@ translatableType ty =
 translateType
     :: SharedContext s
     -> Map SS.Name (Int, Kind)
-    -> SS.Type -> SC (SharedTerm s)
+    -> SS.Type -> IO (SharedTerm s)
 translateType sc tenv ty =
     case ty of
       SS.BitT          -> scBoolType sc
@@ -237,7 +319,7 @@ translateType sc tenv ty =
                                  t' <- translateType sc tenv' (SS.TypAbs xs t)
                                  scPi sc x k' t'
       SS.TypVar x      -> case M.lookup x tenv of
-                            Nothing -> fail $ "ToSAWCore: unbound type variable: " ++ x
+                            Nothing -> fail $ "translateType: unbound type variable: " ++ x
                             Just (i, k) -> do
                               k' <- translateKind sc k
                               scLocalVar sc i k'
@@ -261,132 +343,224 @@ translatableExpr env expr =
 
 translateExpr
     :: forall s. SharedContext s
-    -> Map SS.ResolvedName (Maybe SS.Type, SharedTerm s)
+    -> Map SS.ResolvedName SS.Type
+    -> Map SS.ResolvedName (SharedTerm s)
     -> Map SS.Name (Int, Kind)
-    -> Expression -> SC (SharedTerm s)
-translateExpr sc env tenv expr =
+    -> Expression -> IO (SharedTerm s)
+translateExpr sc tm sm km expr =
     case expr of
       SS.Bit b                  _ -> scBool sc b
       SS.Quote _                _ -> fail "translateExpr Quote"
       SS.Z z                    _ -> scNat sc z
-      SS.Array es (SS.ArrayT t _) -> do t' <- translateType sc tenv t
-                                        es' <- traverse (translateExpr sc env tenv) es
+      SS.Array es (SS.ArrayT t _) -> do t' <- translateType sc km t
+                                        es' <- traverse (translateExpr sc tm sm km) es
                                         scVector sc t' es'
       SS.Array {}                 -> fail "translateExpr: internal error"
       SS.Block _                _ -> fail "translateExpr Block"
-      SS.Tuple es               _ -> do es' <- traverse (translateExpr sc env tenv) es
+      SS.Tuple es               _ -> do es' <- traverse (translateExpr sc tm sm km) es
                                         scTuple sc es'
-      SS.Record bs              _ -> do bs' <- traverse (translateExpr sc env tenv) (M.fromList bs)
+      SS.Record bs              _ -> do bs' <- traverse (translateExpr sc tm sm km) (M.fromList bs)
                                         scRecord sc bs'
       SS.Index e i              _ -> do let SS.ArrayT t l = SS.typeOf e
-                                        l' <- translateType sc tenv l
-                                        t' <- translateType sc tenv t
-                                        e' <- translateExpr sc env tenv e
-                                        i' <- translateExpr sc env tenv i
+                                        l' <- translateType sc km l
+                                        t' <- translateType sc km t
+                                        e' <- translateExpr sc tm sm km e
+                                        i' <- translateExpr sc tm sm km i
                                         i'' <- return i' -- FIXME: add coercion from Nat to Fin w
                                         scGet sc l' t' e' i''
-      SS.Lookup e n             _ -> do e' <- translateExpr sc env tenv e
+      SS.Lookup e n             _ -> do e' <- translateExpr sc tm sm km e
                                         scRecordSelect sc e' n
-      SS.Var rname              t -> case M.lookup rname env of
+      SS.Var rname              t -> case M.lookup rname sm of
                                        Nothing -> fail $ "Unknown name: " ++ show rname
-                                       Just (Nothing, e') -> return e'
-                                       Just (Just polyty, e') ->
-                                           do let ts = typeInstantiation polyty t
-                                              ts' <- mapM (translateType sc tenv) ts
-                                              scApplyAll sc e' ts'
-      SS.Function x a e         _ -> do a' <- translateType sc tenv a
+                                       Just e' ->
+                                         case M.lookup rname tm of
+                                           Nothing -> return e'
+                                           Just polyty -> do
+                                             let ts = typeInstantiation polyty t
+                                             ts' <- mapM (translateType sc km) ts
+                                             scApplyAll sc e' ts'
+      SS.Function x a e         _ -> do a' <- translateType sc km a
                                         x' <- scLocalVar sc 0 a'
-                                        env' <- traverse (traverseSnd (incVars sc 0 1)) env
-                                        let env'' = M.insert (SS.LocalName x) (Nothing, x') env'
-                                        let tenv' = fmap (\(i, k) -> (i + 1, k)) tenv
-                                        e' <- translateExpr sc env'' tenv' e
+                                        sm' <- traverse (incVars sc 0 1) sm
+                                        let sm'' = M.insert (SS.LocalName x) x' sm'
+                                        let km' = fmap (\(i, k) -> (i + 1, k)) km
+                                        e' <- translateExpr sc tm sm'' km' e
                                         scLambda sc (filter isAlphaNum x) a' e'
-      SS.Application f e        _ -> do f' <- translateExpr sc env tenv f
-                                        e' <- translateExpr sc env tenv e
+      SS.Application f e        _ -> do f' <- translateExpr sc tm sm km f
+                                        e' <- translateExpr sc tm sm km e
                                         scApply sc f' e'
-      SS.LetBlock bs e            -> do let prep (x, y) = (SS.LocalName x, (Just (SS.typeOf y), y))
-                                        let m = M.fromList (map prep bs)
-                                        m' <- traverse (traverseSnd (translateExpr sc env tenv)) m
-                                        let env' = M.union m' env
-                                        translateExpr sc env' tenv e
+      SS.LetBlock bs e            -> do let m = M.fromList [ (SS.LocalName x, y) | (x, y) <- bs ]
+                                        let tm' = fmap SS.typeOf m
+                                        sm' <- traverse (translateExpr sc tm sm km) m
+                                        translateExpr sc (M.union tm' tm) (M.union sm' sm) km e
+
+-- | Toplevel SAWScript expressions may be polymorphic. Type
+-- abstractions do not show up explicitly in the Expr datatype, but
+-- they are represented in a top-level expression's type (using
+-- TypAbs). If present, these must be translated into SAWCore as
+-- explicit type abstractions.
+translatePolyExpr
+    :: forall s. SharedContext s
+    -> Map SS.ResolvedName SS.Type
+    -> Map SS.ResolvedName (SharedTerm s)
+    -> Expression -> IO (SharedTerm s)
+translatePolyExpr sc tm sm expr =
+    case SS.typeOf expr of
+      SS.TypAbs ns _ -> do
+        let km = M.fromList [ (n, (i, KStar))  | (n, i) <- zip (reverse ns) [0..] ]
+        -- FIXME: we assume all have kind KStar
+        s0 <- translateKind sc KStar
+        t <- translateExpr sc tm sm km expr
+        scLambdaList sc [ (filter isAlphaNum n, s0) | n <- ns ] t
+      _ -> translateExpr sc tm sm M.empty expr
+
+-- Type substitution -----------------------------------------------------------
+
+substType :: Map SS.Name SS.Type -> SS.Type -> SS.Type
+substType m ty =
+    case ty of
+      SS.BitT            -> ty
+      SS.ZT              -> ty
+      SS.QuoteT          -> ty
+      SS.ContextT _      -> ty
+      SS.IntegerT _      -> ty
+      SS.ArrayT t1 t2    -> SS.ArrayT (substType m t1) (substType m t2)
+      SS.BlockT t1 t2    -> SS.BlockT (substType m t1) (substType m t2)
+      SS.TupleT ts       -> SS.TupleT (map (substType m) ts)
+      SS.RecordT bs      -> SS.RecordT [ (n, substType m t) | (n, t) <- bs ]
+      SS.FunctionT t1 t2 -> SS.FunctionT (substType m t1) (substType m t2)
+      SS.Abstract _      -> ty
+      SS.TypAbs ns t     -> SS.TypAbs ns (substType (foldr M.delete m ns) t)
+      SS.TypVar n        -> case M.lookup n m of
+                              Nothing -> ty
+                              Just t -> t
+
+substTypeExpr :: Map SS.Name SS.Type -> Expression -> Expression
+substTypeExpr m expr =
+    case expr of
+      SS.Bit _             _ -> expr
+      SS.Quote _           _ -> expr
+      SS.Z _               _ -> expr
+      SS.Array es          t -> SS.Array (map (substTypeExpr m) es) (substType m t)
+      SS.Block stmts       t -> SS.Block (map (substTypeStmt m) stmts) (substType m t)
+      SS.Tuple es          t -> SS.Tuple (map (substTypeExpr m) es) (substType m t)
+      SS.Record bs         t -> SS.Record [ (n, substTypeExpr m e) | (n, e) <- bs ] (substType m t)
+      SS.Index e n         t -> SS.Index (substTypeExpr m e) (substTypeExpr m n) (substType m t)
+      SS.Lookup e x        t -> SS.Lookup (substTypeExpr m e) x (substType m t)
+      SS.Var x             t -> SS.Var x (substType m t)
+      SS.Function x a e    t -> SS.Function x (substType m a) (substTypeExpr m e) (substType m t)
+      SS.Application f e   t -> SS.Application (substTypeExpr m f) (substTypeExpr m e) (substType m t)
+      SS.LetBlock bs e -> SS.LetBlock [ (n, substTypeExpr m r) | (n, r) <- bs ] (substTypeExpr m e)
+
+substTypeStmt :: Map SS.Name SS.Type -> BlockStatement -> BlockStatement
+substTypeStmt m stmt =
+    case stmt of
+      SS.Bind x t e -> SS.Bind x (substType m t) (substTypeExpr m e)
+      SS.BlockTypeDecl n t -> SS.BlockTypeDecl n (substType m t)
+      SS.BlockLet bs -> SS.BlockLet [ (n, substTypeExpr m e) | (n, e) <- bs ]
 
 -- Interpretation of SAWScript -------------------------------------------------
 
 interpret
     :: forall s. SharedContext s
     -> Map SS.ResolvedName (Value s)
-    -> Map SS.ResolvedName (Maybe SS.Type, SharedTerm s)
-    -> Expression -> SC (Value s)
-interpret sc vm tm expr =
+    -> Map SS.ResolvedName SS.Type
+    -> Map SS.ResolvedName (SharedTerm s)
+    -> Expression -> IO (Value s)
+interpret sc vm tm sm expr =
     case expr of
       SS.Bit b             _ -> return $ VBool b
       SS.Quote s           _ -> return $ VString s
       SS.Z z               _ -> return $ VInteger z
-      SS.Array es          _ -> VArray <$> traverse (interpret sc vm tm) es
-      SS.Block stmts       _ -> interpretStmts sc vm tm stmts
-      SS.Tuple es          _ -> VTuple <$> traverse (interpret sc vm tm) es
-      SS.Record bs         _ -> VRecord <$> traverse (traverse (interpret sc vm tm)) bs
-      SS.Index e1 e2       _ -> do a <- interpret sc vm tm e1
-                                   i <- interpret sc vm tm e2
+      SS.Array es          _ -> VArray <$> traverse (interpret sc vm tm sm) es
+      SS.Block stmts       _ -> interpretStmts sc vm tm sm stmts
+      SS.Tuple es          _ -> VTuple <$> traverse (interpret sc vm tm sm) es
+      SS.Record bs         _ -> VRecord <$> traverse (traverse (interpret sc vm tm sm)) bs
+      SS.Index e1 e2       _ -> do a <- interpret sc vm tm sm e1
+                                   i <- interpret sc vm tm sm e2
                                    return (indexValue a i)
-      SS.Lookup e n        _ -> do a <- interpret sc vm tm e
+      SS.Lookup e n        _ -> do a <- interpret sc vm tm sm e
                                    return (lookupValue a n)
-      SS.Var rname         _ -> case M.lookup rname vm of
-                                  Nothing -> fail $ "unbound variable: " ++ show rname
-                                  Just v -> return v
+      SS.Var name          t -> case M.lookup name vm of
+                                  Nothing -> fail $ "unbound variable: " ++ SS.renderResolvedName name
+                                  Just v ->
+                                    case M.lookup name tm of
+                                      Nothing -> return v
+                                      Just polyty -> do
+                                        let ts = typeInstantiation polyty t
+                                        foldM tapplyValue v ts
       SS.Function x _ e    _ -> do let name = SS.LocalName x
-                                   let f v Nothing = interpret sc (M.insert name v vm) tm e
+                                   let f v Nothing = interpret sc (M.insert name v vm) tm sm e
                                        f v (Just t) = do
                                          let vm' = M.insert name v vm
-                                         let tm' = M.insert name (Nothing, t) tm
-                                         interpret sc vm' tm' e
-                                   return $ VFunBoth f
-      SS.Application e1 e2 _ -> do v1 <- interpret sc vm tm e1
+                                         let sm' = M.insert name t sm
+                                         interpret sc vm' tm sm' e
+                                   return $ VLambda f
+      SS.Application e1 e2 _ -> do v1 <- interpret sc vm tm sm e1
                                    -- TODO: evaluate v1 if it is a VTerm
                                    case v1 of
                                      VFun f ->
-                                         do v2 <- interpret sc vm tm e2
+                                         do v2 <- interpret sc vm tm sm e2
                                             -- TODO: evaluate v2 if it is a VTerm
                                             return (f v2)
                                      VFunTerm f ->
-                                         do t2 <- translateExpr sc tm M.empty e2
+                                         do t2 <- translateExpr sc tm sm M.empty e2
                                             return (f t2)
-                                     VFunBoth f ->
-                                         do v2 <- interpret sc vm tm e2
-                                            t2 <- if translatableExpr tm e2
-                                                  then Just <$> translateExpr sc tm M.empty e2
+                                     VLambda f ->
+                                         do v2 <- interpret sc vm tm sm e2
+                                            t2 <- if translatableExpr sm e2
+                                                  then Just <$> translateExpr sc tm sm M.empty e2
                                                   else return Nothing
                                             f v2 t2
                                      _ -> fail "interpret Application"
-      SS.LetBlock bs e       -> do let prep (x, y) = (SS.LocalName x, (Just (SS.typeOf y), y))
-                                   let m = M.fromList (map prep bs)
-                                   vs <- traverse (interpret sc vm tm . snd) m
-                                   ts <- traverse (traverseSnd (translateExpr sc tm M.empty)) m
-                                   interpret sc (M.union vs vm) (M.union ts tm) e
+      SS.LetBlock bs e       -> do let m = M.fromList [ (SS.LocalName x, y) | (x, y) <- bs ]
+                                   let tm' = fmap SS.typeOf m
+                                   vm' <- traverse (interpretPoly sc vm tm sm) m
+                                   sm' <- traverse (translatePolyExpr sc tm sm) m
+                                   interpret sc (M.union vm' vm) (M.union tm' tm) (M.union sm' sm) e
+
+interpretPoly
+    :: forall s. SharedContext s
+    -> Map SS.ResolvedName (Value s)
+    -> Map SS.ResolvedName SS.Type
+    -> Map SS.ResolvedName (SharedTerm s)
+    -> Expression -> IO (Value s)
+interpretPoly sc vm tm sm expr =
+    case SS.typeOf expr of
+      SS.TypAbs ns _ ->
+          let tlam x f m = return (VTLambda (\t -> f (M.insert x t m)))
+          in foldr tlam (\m -> interpret sc vm tm sm (substTypeExpr m expr)) ns M.empty
+      _ -> interpret sc vm tm sm expr
+{-
+    where
+      tlam :: SS.Name -> (Map SS.Name SS.Type -> IO (Value s)) -> Map SS.Name SS.Type -> IO (Value s)
+      tlam x f m = return (VTLambda (\t -> f (M.insert x t m)))
+-}
 
 interpretStmts
     :: forall s. SharedContext s
     -> Map SS.ResolvedName (Value s)
-    -> Map SS.ResolvedName (Maybe SS.Type, SharedTerm s)
-    -> [BlockStatement] -> SC (Value s)
-interpretStmts sc vm tm stmts =
+    -> Map SS.ResolvedName SS.Type
+    -> Map SS.ResolvedName (SharedTerm s)
+    -> [BlockStatement] -> IO (Value s)
+interpretStmts sc vm tm sm stmts =
     case stmts of
       [] -> fail "empty block"
-      [SS.Bind Nothing _ e] -> interpret sc vm tm e
+      [SS.Bind Nothing _ e] -> interpret sc vm tm sm e
       SS.Bind Nothing _ e : ss ->
-          do v1 <- interpret sc vm tm e
-             v2 <- interpretStmts sc vm tm ss
+          do v1 <- interpret sc vm tm sm e
+             v2 <- interpretStmts sc vm tm sm ss
              return (v1 `thenValue` v2)
       SS.Bind (Just x) _ e : ss ->
-          do v1 <- interpret sc vm tm e
+          do v1 <- interpret sc vm tm sm e
              let name = SS.LocalName x
-             let f v Nothing = interpretStmts sc (M.insert name v vm) tm ss
+             let f v Nothing = interpretStmts sc (M.insert name v vm) tm sm ss
                  f v (Just t) = do
                    let vm' = M.insert name v vm
-                   let tm' = M.insert name (Nothing, t) tm
-                   interpretStmts sc vm' tm' ss
-             return (v1 `bindValue` VFunBoth f)
-      SS.BlockLet bs : ss -> interpret sc vm tm (SS.LetBlock bs (SS.Block ss undefined))
+                   let sm' = M.insert name t sm
+                   interpretStmts sc vm' tm sm' ss
+             return (v1 `bindValue` VLambda f)
+      SS.BlockLet bs : ss -> interpret sc vm tm sm (SS.LetBlock bs (SS.Block ss undefined))
       SS.BlockTypeDecl {} : _ -> fail "BlockTypeDecl unsupported"
 
 -- | The initial version here simply interprets the binding for "main"
@@ -395,7 +569,60 @@ interpretStmts sc vm tm stmts =
 interpretModule
     :: forall s. SharedContext s
     -> Map SS.ResolvedName (Value s)
-    -> Map SS.ResolvedName (Maybe SS.Type, SharedTerm s)
-    -> SS.ValidModule -> SC (Value s)
-interpretModule sc venv env m = interpret sc venv env main
+    -> Map SS.ResolvedName SS.Type
+    -> Map SS.ResolvedName (SharedTerm s)
+    -> SS.ValidModule -> IO (Value s)
+interpretModule sc vm tm sm m = interpret sc vm tm sm main
     where main = (M.!) (SS.moduleExprEnv m) "main"
+
+-- | Interpret function 'main' using the default value environments.
+interpretMain :: SS.ValidModule -> IO ()
+interpretMain m =
+    do let mn = case SS.moduleName m of SS.ModuleName xs x -> mkModuleName (xs ++ [x])
+       let scm = insImport ssPreludeModule $
+                 insImport preludeModule $
+                 emptyModule mn
+       sc <- mkSharedContext scm
+       env <- coreEnv sc
+       v <- interpretModule sc (valueEnv sc) tyEnv env m
+       (fromValue v :: IO ())
+
+-- Primitives ------------------------------------------------------------------
+
+valueEnv :: forall s. SharedContext s -> M.Map SS.ResolvedName (Value s)
+valueEnv sc = M.fromList
+  [ (qualify "read_sbv", toValue read_sbv)
+  , (qualify "prove", toValue prove)
+  , (qualify "abc", toValue "abc")
+  , (qualify "print", toValue (print :: Value s -> IO ()))
+  , (qualify "print_type", toValue print_type)
+  , (qualify "print_term", toValue (print :: SharedTerm s -> IO ()))
+  , (qualify "bitSequence", toValue bitSequence)
+  ]
+  where
+    read_sbv :: String -> IO (SharedTerm s)
+    read_sbv path = SBV.loadSBV path >>= SBV.parseSBVPgm sc (\_ _ -> Nothing)
+    prove :: String -> SharedTerm s -> IO String
+    prove _ t = SC.runSC (provePrim undefined t) sc
+    print_type :: SharedTerm s -> IO ()
+    print_type t = scTypeOf sc t >>= print
+    bitSequence :: SS.Type -> Integer -> Prim.BitVector
+    bitSequence (SS.IntegerT w) x = Prim.BV (fromInteger w) x
+    bitSequence t x = error $ "bitSequence " ++ show (t, x)
+
+tyEnv :: M.Map SS.ResolvedName SS.Type
+tyEnv = M.fromList $
+  [ (qualify "bitSequence", bvNat)
+  ]
+  where
+    bvNat = SS.TypAbs ["n"] (SS.FunctionT SS.ZT (SS.ArrayT SS.BitT (SS.TypVar "n")))
+
+coreEnv :: SharedContext s -> IO (M.Map SS.ResolvedName (SharedTerm s))
+coreEnv sc = do
+  bvNat <- scGlobalDef sc (parseIdent "Prelude.bvNat")
+  return $ M.fromList $
+    [ (qualify "bitSequence", bvNat)
+    ]
+
+qualify :: String -> SS.ResolvedName
+qualify s = SS.TopLevelName (SS.ModuleName [] "Prelude") s

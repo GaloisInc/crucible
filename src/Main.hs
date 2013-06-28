@@ -20,12 +20,12 @@ import SAWScript.BuildModules as BM
 import SAWScript.Compiler
 import SAWScript.Execution
 import SAWScript.Import
+import SAWScript.Interpreter
 import SAWScript.MGU (checkModule)
 import SAWScript.Options
 import SAWScript.Prelude
 import SAWScript.RenameRefs as RR
 import SAWScript.ResolveSyns
-import SAWScript.ToSAWCore
 
 main :: IO ()
 main = do
@@ -63,13 +63,7 @@ processModule :: Options -> LoadedModules -> ModuleName -> IO ()
 processModule opts lms modName =
   -- TODO: merge the two representations of the prelude into one
   --  that both the renamer and the type checker can understand.
-  runCompiler comp lms $ \scm -> do
-    when (verbLevel opts > 1) $ do
-      putStrLn ""
-      putStrLn "== Translated module =="
-      print scm
-      putStrLn "== Execution results =="
-    execSAWCore opts scm
+  runCompiler comp lms interpretMain
   where
   comp =     buildModules
          >=> F.foldrM checkModuleWithDeps M.empty
@@ -77,8 +71,6 @@ processModule opts lms modName =
                Just cm -> return cm
                Nothing -> fail $ "Module " ++ show modName ++
                                  " not found in environment of checkedModules")
-         >=> translateModule
-
 
 
 checkModuleWithDeps :: BM.ModuleParts (ExprSimple RawT)
