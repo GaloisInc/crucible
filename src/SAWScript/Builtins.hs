@@ -353,7 +353,7 @@ extractLLVM file func _setup = mkSC $ \sc -> do
       Just md -> L.runSimulator cb sbe mem L.defaultSEH Nothing $ do
         setVerbosity 0
         args <- mapM freshLLVMArg (L.sdArgs md)
-        L.callDefine_ sym (L.sdRetType md) args
+        _ <- L.callDefine sym (L.sdRetType md) args
         mrv <- L.getProgramReturnValue
         case mrv of
           Nothing -> fail "No return value from simulated function."
