@@ -380,7 +380,7 @@ translateExpr sc tm sm km expr =
                                              ts' <- mapM (translateType sc km) ts
                                              scApplyAll sc e' ts'
       SS.Function x a e         _ -> do a' <- translateType sc km a
-                                        x' <- scLocalVar sc 0 a'
+                                        x' <- scLocalVar sc 0 =<< incVars sc 0 1 a'
                                         sm' <- traverse (incVars sc 0 1) sm
                                         let sm'' = M.insert (SS.LocalName x) x' sm'
                                         let km' = fmap (\(i, k) -> (i + 1, k)) km
