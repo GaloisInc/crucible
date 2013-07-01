@@ -605,8 +605,22 @@ valueEnv sc = M.fromList
   , (qualify "bitSequence", toValue bitSequence)
   ]
   where
-    read_sbv :: String -> IO (SharedTerm s)
-    read_sbv path = SBV.loadSBV path >>= SBV.parseSBVPgm sc (\_ _ -> Nothing)
+    read_sbv :: SS.Type -> String -> IO (SharedTerm s)
+    read_sbv ty path = do
+      pgm <- SBV.loadSBV path
+      let ty' = importTyp (SBV.typOf pgm)
+      if ty == ty'
+        then SBV.parseSBVPgm sc (\_ _ -> Nothing) pgm
+        else fail $ "read_sbv: expected " ++ show ty ++ ", found " ++ show ty'
+             -- TODO: use a pretty-printer instead of 'show'
+    importTyp :: SBV.Typ -> SS.Type
+    importTyp typ =
+        case typ of
+          SBV.TBool -> SS.BitT
+          SBV.TFun t1 t2 -> SS.FunctionT (importTyp t1) (importTyp t2)
+          SBV.TVec n t -> SS.ArrayT (importTyp t) (SS.IntegerT n)
+          SBV.TTuple ts -> SS.TupleT (map importTyp ts)
+          SBV.TRecord bs -> SS.RecordT [ (x, importTyp t) | (x, t) <- bs ]
     prove :: String -> SharedTerm s -> IO String
     prove _ t = SC.runSC (provePrim undefined t) sc
     print_type :: SharedTerm s -> IO ()
