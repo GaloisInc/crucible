@@ -21,6 +21,8 @@ import Data.List ( intersperse )
 import qualified Data.Map as M
 import Data.Map ( Map )
 import Data.Maybe ( fromMaybe )
+import qualified Data.Set as S
+import Data.Set ( Set )
 import Data.Traversable hiding ( mapM )
 import qualified Data.Vector as V
 
@@ -324,7 +326,7 @@ translateType sc tenv ty =
                               k' <- translateKind sc k
                               scLocalVar sc i k'
 
-translatableExpr :: Map SS.ResolvedName a -> Expression -> Bool
+translatableExpr :: Set SS.ResolvedName -> Expression -> Bool
 translatableExpr env expr =
     case expr of
       SS.Bit _             _ -> True
@@ -336,10 +338,12 @@ translatableExpr env expr =
       SS.Record bs         _ -> all (translatableExpr env . snd) bs
       SS.Index e n         _ -> translatableExpr env e && translatableExpr env n
       SS.Lookup e _        _ -> translatableExpr env e
-      SS.Var x             _ -> M.member x env
-      SS.Function _ t e    _ -> translatableType t && translatableExpr env e
+      SS.Var x             _ -> S.member x env
+      SS.Function x t e    _ -> translatableType t && translatableExpr env' e
+          where env' = S.insert (SS.LocalName x) env
       SS.Application f e   _ -> translatableExpr env f && translatableExpr env e
-      SS.LetBlock bs e       -> all (translatableExpr env . snd) bs && translatableExpr env e
+      SS.LetBlock bs e       -> all (translatableExpr env . snd) bs && translatableExpr env' e
+          where env' = foldr S.insert env [ SS.LocalName x | (x, _) <- bs ]
 
 translateExpr
     :: forall s. SharedContext s
@@ -508,7 +512,7 @@ interpret sc vm tm sm expr =
                                             return (f t2)
                                      VLambda f ->
                                          do v2 <- interpret sc vm tm sm e2
-                                            t2 <- if translatableExpr sm e2
+                                            t2 <- if translatableExpr (M.keysSet sm) e2
                                                   then Just <$> translateExpr sc tm sm M.empty e2
                                                   else return Nothing
                                             f v2 t2
