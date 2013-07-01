@@ -40,7 +40,7 @@ $idchar    = [$alpha $digit \' \_]
              |CryptolSetup|JavaSetup|LLVMSetup|ProofScript|TopLevel
              |Int|String|Bit|ProofResult|Term
 @punct       = "," | ";" | "(" | ")" | ":" | "::" | "[" | "]" | "<-" | "->"
-             | "=" | "{" | "}" | "." | "\\"
+             | "=" | "{" | "}" | "." | "\"
 @reservedop  = "~"  | "-" | "*" | "+" | "/" | "%" | ">>" | "<<" | "|" | "&"
              | "^" | "#"  | "==" | "!=" | ">=" | ">" | "<=" |"<" | "&&"
              | "||" | "==>" | "@"
