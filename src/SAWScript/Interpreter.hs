@@ -28,6 +28,7 @@ import qualified Data.Vector as V
 
 import qualified SAWScript.AST as SS
 import SAWScript.Builtins hiding (evaluate)
+import qualified SAWScript.NewAST as New
 import SAWScript.Prelude
 import Verifier.SAW.Prelude (preludeModule)
 import qualified Verifier.SAW.Prim as Prim
@@ -615,11 +616,30 @@ valueEnv sc = M.fromList
     bitSequence t x = error $ "bitSequence " ++ show (t, x)
 
 tyEnv :: M.Map SS.ResolvedName SS.Type
-tyEnv = M.fromList $
-  [ (qualify "bitSequence", bvNat)
-  ]
+tyEnv = fmap schema (M.fromList preludeEnv)
   where
-    bvNat = SS.TypAbs ["n"] (SS.FunctionT SS.ZT (SS.ArrayT SS.BitT (SS.TypVar "n")))
+    schema :: New.Schema -> SS.Type
+    schema (New.Forall ns t) = SS.TypAbs ns (go t)
+    go :: New.Type -> SS.Type
+    go ty =
+      case ty of
+        New.TyRecord m -> SS.RecordT [ (x, go t) | (x, t) <- M.assocs m ]
+        New.TyCon (New.TupleCon n) ts
+            | toInteger (length ts) == n  -> SS.TupleT (map go ts)
+        New.TyCon New.ArrayCon   [t1, t2] -> SS.ArrayT (go t2) (go t1) -- Note: order is swapped!
+        New.TyCon New.FunCon     [t1, t2] -> SS.FunctionT (go t1) (go t2)
+        New.TyCon New.StringCon  []       -> SS.QuoteT
+        New.TyCon New.BoolCon    []       -> SS.BitT
+        New.TyCon New.ZCon       []       -> SS.ZT
+        New.TyCon (New.NumCon n) []       -> SS.IntegerT n
+        New.TyCon New.BlockCon   [t1, t2] -> SS.BlockT (go t1) (go t2)
+        New.TyCon (New.ContextCon c) []   -> SS.ContextT c
+        New.TyCon (New.AbstractCon s) []  -> SS.Abstract s
+        New.TyVar (New.FreeVar i)         -> SS.TypVar (show i)
+        New.TyVar (New.BoundVar x)        -> SS.TypVar x
+        _ -> error "internal error: invalid type"
+-- FIXME: I should use MGU.exportSchema, but that can only be run in the IO monad.
+-- TODO: We should extract additional typing information from the imported modules
 
 coreEnv :: SharedContext s -> IO (M.Map SS.ResolvedName (SharedTerm s))
 coreEnv sc = do
