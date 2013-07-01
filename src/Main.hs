@@ -51,9 +51,13 @@ processFile opts file | takeExtensions file == ".sawcore" = do
 
 processFile opts file | takeExtensions file == ".saw" = do
   when (verbLevel opts > 0) $ putStrLn $ "Processing SAWScript file " ++ file
-  loadModule opts file emptyLoadedModules $ \loadedModules -> do
+  loadPrelude opts $ \lms -> do
+    processModule opts lms (ModuleName [] "Prelude")
+  {-
+  loadWithPrelude opts file $ \loadedModules -> do
     let modName = moduleNameFromPath file
     processModule opts loadedModules modName
+  -}
 
 processFile _ file = putStrLn $ "Don't know how to handle file " ++ file
 
@@ -88,7 +92,7 @@ checkModuleWithDeps (BM.ModuleParts mn ee te ds) cms =
   mod          >>=
   resolveSyns  >>=
   renameRefs   >>=
-  checkModule  preludeEnv >>= \cm -> return $ M.insert mn cm cms
+  checkModule {- preludeEnv -} >>= \cm -> return $ M.insert mn cm cms
   where
   deps :: Err (M.Map ModuleName ValidModule)
   deps = fmap M.fromList $ forM (S.toList ds) $ \n ->

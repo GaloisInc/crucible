@@ -8,6 +8,8 @@ import Data.List (intercalate)
 import Prelude hiding (catch)
 #endif
 
+import Text.Show.Pretty
+
 import SAWScript.Utils
 
 -- | Wrapper around compiler function to format the result or error
@@ -49,6 +51,9 @@ instance Alternative (E r) where
   empty = mzero
   (<|>) = mplus
 
+after :: IO () -> Compiler a b -> Compiler a b
+after m pass = pass `onFailure` (\f' s -> m >> f' s) `onSuccess` (\f' res -> m >> f' res)
+
 onFailure :: Compiler a b -> ((String -> IO ()) -> String -> IO ()) -> Compiler a b
 (pass `onFailure` handler) input = E $ \fl sc -> runE (pass input) (handler fl) sc
 
@@ -60,5 +65,5 @@ m `onFailureRes` handler = E $ \fl sc -> runE m (handler fl) sc
 
 compiler :: Show a => String -> Compiler a b -> Compiler a b
 compiler name comp input = onFailureRes (comp input) $ \fl err ->
-  fl $ unlines [name ++ ": " ++ err, "in:",show input]
+  fl $ unlines [name ++ ": " ++ err, "in:",ppShow input]
 

@@ -36,11 +36,11 @@ $octit     = 0-7
 $hexit     = [0-9 A-F a-f]
 $idchar    = [$alpha $digit \' \_]
 
-@reservedid  = import|and|let|fun|in|type|abstract|do|if|then|else|as
-             |CryptolSetup|JavaSetup|LLVMSetup|ProofScript|TopLevel
-             |Int|String|Bit|ProofResult|Term
+@reservedid  = import|and|let|fun|in|type|abstract|do|if|then|else|as|undefined
+             |prim|CryptolSetup|JavaSetup|LLVMSetup|ProofScript|TopLevel
+             |Int|String|Bit
 @punct       = "," | ";" | "(" | ")" | ":" | "::" | "[" | "]" | "<-" | "->"
-             | "=" | "{" | "}" | "." | "\\"
+             | "=" | "{" | "}" | "." | "\"
 @reservedop  = "~"  | "-" | "*" | "+" | "/" | "%" | ">>" | "<<" | "|" | "&"
              | "^" | "#"  | "==" | "!=" | ">=" | ">" | "<=" |"<" | "&&"
              | "||" | "not" | "==>" | "@"

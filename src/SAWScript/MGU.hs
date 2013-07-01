@@ -24,9 +24,11 @@ import Data.Traversable (traverse)
 import qualified Data.Map as M
 import qualified Data.Set as S
 
+import Debug.Trace
+
 -- Subst {{{
 
-newtype Subst = Subst { unSubst :: M.Map TyVar Type }
+newtype Subst = Subst { unSubst :: M.Map TyVar Type } deriving (Show)
 
 (@@) :: Subst -> Subst -> Subst
 s2@(Subst m2) @@ (Subst m1) = Subst $ m1' `M.union` m2
@@ -124,8 +126,8 @@ emptyRO m = RO { typeEnv = M.empty, curMod = m }
 
 data RW = RW
   { nameGen :: Integer
-  , subst :: Subst
-  , errors :: [String]
+  , subst   :: Subst
+  , errors  :: [String]
   }
 
 emptyRW :: RW
@@ -136,6 +138,10 @@ newType = do
   rw <- TI get
   TI $ put $ rw { nameGen = nameGen rw + 1 }
   return $ TyVar $ FreeVar $ nameGen rw
+
+freshInst :: Schema -> TI Type
+freshInst (Forall ns t) = do nts <- mapM (\n -> (,) <$> pure n <*> newType) ns
+                             return (instantiate nts t)
 
 appSubstM :: AppSubst t => t -> TI t
 appSubstM t = do
@@ -226,6 +232,7 @@ instance AppSubst Expr where
     Bit b              -> Bit b
     String str         -> String str
     Z i                -> Z i
+    Undefined          -> Undefined
     Array es           -> Array $ appSubst s es
     Block bs           -> Block $ appSubst s bs
     Tuple es           -> Tuple $ appSubst s es
@@ -242,6 +249,7 @@ instance AppSubst ty => AppSubst (A.Expr names ty) where
     A.Bit b t            -> A.Bit b (appSubst s t)
     A.Quote str t        -> A.Quote str (appSubst s t)
     A.Z i t              -> A.Z i (appSubst s t)
+    A.Undefined t        -> A.Undefined (appSubst s t)
 
     A.Array es t         -> A.Array  (appSubst s es) (appSubst s t)
     A.Block bs t         -> A.Block  (appSubst s bs) (appSubst s t)
@@ -275,6 +283,26 @@ appSubstBinds s bs = [ (n,appSubst s a) | (n,a) <- bs ]
 
 -- }}}
 
+-- Instantiate {{{
+
+class Instantiate t where
+  instantiate :: [(Name,Type)] -> t -> t
+
+instance (Instantiate a) => Instantiate (Maybe a) where
+  instantiate nts = fmap $ instantiate nts
+
+instance (Instantiate a) => Instantiate [a] where
+  instantiate nts = map $ instantiate nts
+
+instance Instantiate Type where
+  instantiate nts typ = case typ of
+    TyCon tc ts -> TyCon tc $ instantiate nts ts
+    TyRecord fs -> TyRecord $ fmap (instantiate nts) fs
+    TyVar (BoundVar n) -> maybe typ id $ lookup n nts
+    _ -> typ
+
+-- }}}
+
 -- Expr translation {{{
 
 translateExpr :: A.Expr A.ResolvedName A.ResolvedT -> Err Expr
@@ -282,6 +310,7 @@ translateExpr expr = case expr of
   A.Bit b t              -> sig t $ (Bit b)
   A.Quote s t            -> sig t $ (String s)
   A.Z i t                -> sig t $ (Z i)
+  A.Undefined t          -> sig t $ Undefined
   A.Array es t           -> sig t =<< (Array <$> mapM translateExpr es)
   A.Block bs t           -> sig t =<< (Block <$> mapM translateBStmt bs)
   A.Tuple es t           -> sig t =<< (Tuple <$> mapM translateExpr es)
@@ -348,7 +377,31 @@ translateType typ = do t' <- translateTypeS typ
                          Forall [] t -> return t
                          s -> fail $ "can't translate schema to a monomorphic type: " ++ show s
 
-exportType :: Type -> Err A.Type
+importTypeS :: A.Type -> Err Schema
+importTypeS typ = case typ of
+  A.TypAbs ns t -> Forall ns <$> importType t
+  _ -> Forall [] <$> importType typ
+
+importType :: A.Type -> Err Type
+importType typ = case typ of
+  A.BitT            -> return tBool
+  A.ZT              -> return tZ
+  A.QuoteT          -> return tString
+  A.ContextT cxt    -> return $ tContext cxt
+  A.IntegerT n      -> return $ tNum n
+  A.ArrayT l t      -> tArray <$> importType l <*> importType t
+  A.BlockT c t      -> tBlock <$> importType c <*> importType t
+  A.TupleT ts       -> tTuple <$> mapM importType ts
+  A.RecordT fs      -> TyRecord . M.fromList <$> mapM importField fs
+  A.FunctionT t1 t2 -> tFun <$> importType t1 <*> importType t2
+  A.Abstract n      -> return $ tAbstract n
+  A.TypAbs ns t     -> fail "can't translate polymorphic type"
+  A.TypVar n        -> return $ boundVar n
+
+importField :: (a,A.Type) -> Err (a,Type)
+importField (n,t) = (,) <$> pure n <*> importType t
+
+exportType :: Type -> TI A.Type
 exportType ty =
   case ty of
     TyVar var ->
@@ -374,27 +427,26 @@ exportType ty =
         (AbstractCon s, _) -> return $ A.Abstract s
         _                  -> fail "exportType: malformed TyCon"
 
-exportField :: (a,Type) -> Err (a,A.Type)
+exportField :: (a,Type) -> TI (a,A.Type)
 exportField (n,t) = (,) <$> pure n <*> exportType t
 
-exportSchema :: Schema -> Err A.Type
-exportSchema (Forall xs t) =
+exportSchema :: Schema -> TI A.Type
+exportSchema typ@(Forall xs t) = 
   case xs of
     [] -> exportType t
     _  -> A.TypAbs xs <$> exportType t
 
-exportExpr :: OutExpr -> Err (A.Expr A.ResolvedName A.Type)
-exportExpr e0 = go e0
-{-
+exportExpr :: OutExpr -> TI (A.Expr A.ResolvedName A.Type)
+exportExpr e0 = --go e0
   do e1 <- appSubstM e0
      go e1
-     -}
   where
   go expr =
     case expr of
       A.Bit b t          -> A.Bit b     <$> exportSchema t
       A.Quote str t      -> A.Quote str <$> exportSchema t
       A.Z i t            -> A.Z i       <$> exportSchema t
+      A.Undefined t      -> A.Undefined <$> exportSchema t
 
       A.Array es t       -> A.Array <$> mapM go es  <*> exportSchema t
       A.Block bs t       -> A.Block <$> mapM goB bs <*> exportSchema t
@@ -437,9 +489,11 @@ ret thing ty = return (thing (tMono ty), ty)
 
 inferE :: Expr -> TI (OutExpr,Type)
 inferE expr = case expr of
-  Bit b    -> ret (A.Bit b)   tBool
-  String s -> ret (A.Quote s) tString
-  Z i      -> ret (A.Z i)     tZ
+  Bit b     -> ret (A.Bit b)   tBool
+  String s  -> ret (A.Quote s) tString
+  Z i       -> ret (A.Z i)     tZ
+  Undefined -> do a <- newType
+                  ret (A.Undefined) a
 
   Array  [] -> do a <- newType
                   ret (A.Array []) $ tArray (tNum (0 :: Int)) a
@@ -465,12 +519,19 @@ inferE expr = case expr of
                     unify (tArray l t) at
                     ret (A.Index ar' ix') t
 
+  TSig e sc -> do t <- freshInst sc
+                  t' <- checkKind t
+                  (e',t'') <- inferE e
+                  unify t' t''
+                  return (e',t'')
+  {-
   TSig e (Forall [] t) -> do t' <- checkKind t
                              e' <- checkE e t'
                              return (e', t')
 
   TSig e (Forall _ _) -> do recordError "TODO: TSig with Schema"
                             inferE e
+  -}
 
 
   Function x mt body -> do xt <- maybe newType return mt
@@ -615,6 +676,7 @@ generalize es0 ts0 =
       A.Bit b t             -> A.Bit b (tForall xs t)
       A.Quote str t         -> A.Quote str (tForall xs t)
       A.Z i t               -> A.Z i (tForall xs t)
+      A.Undefined t         -> A.Undefined (tForall xs t)
 
       A.Array es t          -> A.Array es (tForall xs t)
       A.Block bs t          -> A.Block bs (tForall xs t)
@@ -669,6 +731,7 @@ defsDepsBind m it@(x,e0) = (it, [ A.TopLevelName m x ], S.toList (uses e0))
       Bit _               -> S.empty
       String _            -> S.empty
       Z _                 -> S.empty
+      Undefined           -> S.empty
       Array es            -> S.unions (map uses es)
       Block bs            -> S.unions (map usesB bs)
       Tuple es            -> S.unions (map uses es)
@@ -697,20 +760,25 @@ checkKind = return
 
 -- Main interface {{{
 
-checkModule :: [(A.ResolvedName, Schema)] ->
-               Compiler (A.Module A.ResolvedName A.ResolvedT A.ResolvedT)
-                        (A.Module A.ResolvedName A.Type A.ResolvedT)
-checkModule initTs = compiler "TypeCheck" $ \m -> do
+checkModule :: Compiler (A.Module (A.Expr A.ResolvedName A.ResolvedT) A.ResolvedT)
+                        (A.Module (A.Expr A.ResolvedName A.Type)      A.ResolvedT)
+checkModule = compiler "TypeCheck" $ \m -> do
+  initTs <- sequence
+    [ (,) <$> pure (A.TopLevelName mn n) <*> s
+    | (mn,dep) <- depMods m
+    , (n,e)    <- M.toList (A.moduleExprEnv dep)
+    , let t = A.typeOf e
+    , let s = importTypeS t
+    ]
   exprs <- traverse translateExpr $ A.moduleExprEnv m
   let nes  = M.toList exprs
   let sccs = computeSCCGroups (A.moduleName m) nes
-  let go = bindSchemas initTs $ inferTopDecls sccs
+  let go = bindSchemas initTs (inferTopDecls sccs >>= exportBinds)
   case evalTI (A.moduleName m) go of
-    Right bs  -> do res <- exportBinds bs
-                    return $ m { A.moduleExprEnv = M.fromList res }
+    Right res  -> return $ m { A.moduleExprEnv = M.fromList res }
     Left errs -> fail $ unlines errs
   where
-  --initTs = []   -- XXX: Compute these from the other modules
+  depMods = M.toList . A.moduleDependencies
 
   exportBinds dss = sequence [ do e1 <- exportExpr e
                                   return (x,e1)

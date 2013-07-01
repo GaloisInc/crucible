@@ -42,13 +42,13 @@ import Control.Applicative
   'if'           { TReserved _ "if"             }
   'then'         { TReserved _ "then"           }
   'else'         { TReserved _ "else"           }
+  'undefined'    { TReserved _ "undefined"      }
+  'prim'         { TReserved _ "prim"           }
   'CryptolSetup' { TReserved _ "CryptolSetup"   }
   'JavaSetup'    { TReserved _ "JavaSetup"      }
   'LLVMSetup'    { TReserved _ "LLVMSetup"      }
   'ProofScript'  { TReserved _ "ProofScript"    }
   'TopLevel'     { TReserved _ "TopLevel"       }
-  'ProofResult'  { TReserved _ "ProofResult"    }
-  'Term'         { TReserved _ "Term"           }
   'Bit'          { TReserved _ "Bit"            }
   'Int'          { TReserved _ "Int"            }
   'String'       { TReserved _ "String"         }
@@ -123,6 +123,7 @@ TopStmt :: { TopStmtSimple RawT }
  | name ':' PolyType                    { TopTypeDecl $1 $3  }
  | 'type' name '=' Type                 { TypeDef $2 $4      }
  | 'abstract' name                      { AbsTypeDecl $2     }
+ | 'prim' name ':' PolyType             { Prim $2 $4         }
  | Declaration                          { uncurry TopBind $1 }
 
 Import :: { TopStmtSimple RawT }
@@ -199,6 +200,7 @@ SafeExpression :: { ExprSimple RawT }
                                                  Nothing                  }
  | qname                                { Var (unresolvedQ $1) Nothing    }
  | name                                 { Var (unresolved $1) Nothing     }
+ | 'undefined'                          { Undefined Nothing               }
  | '(' Expression ')'                   { $2                              }
  | '(' commas2(Expression) ')'          { Tuple $2 Nothing                }
  | '[' commas(Expression) ']'           { Array $2 Nothing                }
@@ -216,7 +218,7 @@ Names :: { [Name] }
 
 PolyType :: { RawSigT }
  : Type                                 { $1                      }
- | '{' Names '}' Type                   { capturePVars $2 $4         }
+ | '{' Names '}' Type                   { pAbs $2 $ capturePVars $2 $4    }
 
 Type :: { RawSigT }
  : BaseType                             { $1 }
@@ -229,8 +231,6 @@ BaseType :: { RawSigT }
  | 'Bit'                                { bit                     }
  | 'Int'                                { z                       }
  | 'String'                             { quote                   }
- | 'ProofResult'                        { syn "ProofResult"       }
- | 'Term'                               { syn "Term"              }
  | '(' Type ')'                         { $2                      }
  | '(' commas2(Type) ')'                { tuple $2                }
  | '[' name ']'                         { array bit (syn $2)      }
@@ -244,6 +244,7 @@ Context :: { RawSigT }
  | 'LLVMSetup'                          { llvmSetupContext        }
  | 'ProofScript'                        { proofScriptContext      }
  | 'TopLevel'                           { topLevelContext         }
+ | name                                 { syn $1                  }
 
 -- Parameterized productions, most come directly from the Happy manual.
 fst(p, q)  : p q   { $1 }
@@ -312,8 +313,8 @@ unresolvedQ (ns,n) = UnresolvedName ns n
 
 parseError :: [Token Pos] -> Err b
 parseError toks = case toks of
-  []  -> parseFail "Parse error, but where?"
-  t:_ -> parseFail ("Parse error at line " ++ show ln ++ ", col " ++ show col)
+  []  -> fail "Parse error, but where?"
+  t:_ -> fail ("Parse error at line " ++ show ln ++ ", col " ++ show col)
     where
     Pos _ ln col = tokPos t
   where

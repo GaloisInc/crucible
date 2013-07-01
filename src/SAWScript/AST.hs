@@ -115,11 +115,9 @@ insertEnv = M.insert
 
 -- Module Level {{{
 
-type ModuleSimple = Module UnresolvedName
-
-data Module refT exprT typeT = Module
+data Module exprT typeT = Module
   { moduleName         :: ModuleName
-  , moduleExprEnv      :: Env (Expr refT exprT)
+  , moduleExprEnv      :: Env exprT
   , moduleTypeEnv      :: Env typeT
   , moduleDependencies :: ModuleEnv ValidModule
   } deriving (Eq,Show)
@@ -127,7 +125,7 @@ data Module refT exprT typeT = Module
 -- A fully type checked module.
 --  Exprs have resolved names, concrete types
 --  Types have ResolvedT (Nothing for abstract types, Just FullT for type synonyms)
-type ValidModule = Module ResolvedName Type ResolvedT
+type ValidModule = Module (Expr ResolvedName Type) ResolvedT
 
 -- }}}
 
@@ -143,6 +141,12 @@ data TopStmt refT typeT
   | TopTypeDecl Name       RawSigT
   | AbsTypeDecl Name
   | TopBind     Name       (Expr refT typeT)
+  | Prim        Name       RawSigT
+  deriving (Eq,Show,Functor,Foldable,T.Traversable)
+
+data Exprs refT typeT
+  = PrimExpr typeT
+  | Defined (Expr refT typeT)
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
 data Expr refT typeT
@@ -150,6 +154,7 @@ data Expr refT typeT
   = Bit Bool     typeT
   | Quote String typeT
   | Z Integer    typeT
+  | Undefined    typeT
   -- Structures
   | Array  [Expr refT typeT]         typeT
   | Block  [BlockStmt refT typeT]    typeT
@@ -392,6 +397,7 @@ typeOf expr = case expr of
   Bit _ t           -> t
   Quote _ t         -> t
   Z _ t             -> t
+  Undefined t       -> t
   Array _ t         -> t
   Block _ t         -> t
   Tuple _ t         -> t
@@ -413,6 +419,7 @@ updateAnnotation t expr = case expr of
   Bit x _           -> Bit x t
   Quote x _         -> Quote x t
   Z x _             -> Z x t
+  Undefined _       -> Undefined t
   Array x _         -> Array x t
   Block x _         -> Block x t
   Tuple x _         -> Tuple x t
@@ -429,7 +436,7 @@ updateAnnotation t expr = case expr of
 -- capturePVars {{{
 
 capturePVars :: [Name] -> RawSigT -> RawSigT
-capturePVars = foldMu . capturePVarsF
+capturePVars ns = foldMu (capturePVarsF ns)
 
 class (Functor f) => CapturePVars f where
   capturePVarsF :: [Name] -> f RawSigT -> RawSigT

@@ -249,6 +249,7 @@ translatableExpr env expr =
       SS.Quote _           _ -> False -- We could allow strings, but I don't think we need them.
       SS.Z _               _ -> True
       SS.Array es          t -> translatableType t && all (translatableExpr env) es
+      SS.Undefined         _ -> False -- REVIEW
       SS.Block _           _ -> False
       SS.Tuple es          _ -> all (translatableExpr env) es
       SS.Record bs         _ -> all (translatableExpr env . snd) bs
@@ -272,6 +273,7 @@ translateExpr sc env tenv expr =
       SS.Array es (SS.ArrayT t _) -> do t' <- translateType sc tenv t
                                         es' <- traverse (translateExpr sc env tenv) es
                                         scVector sc t' es'
+      SS.Undefined              _ -> fail "translateExpr: undefined"
       SS.Array {}                 -> fail "translateExpr: internal error"
       SS.Block _                _ -> fail "translateExpr Block"
       SS.Tuple es               _ -> do es' <- traverse (translateExpr sc env tenv) es
@@ -323,6 +325,7 @@ interpret sc vm tm expr =
       SS.Quote s           _ -> return $ VString s
       SS.Z z               _ -> return $ VInteger z
       SS.Array es          _ -> VArray <$> traverse (interpret sc vm tm) es
+      SS.Undefined         _ -> fail "interpret: undefined"
       SS.Block stmts       _ -> interpretStmts sc vm tm stmts
       SS.Tuple es          _ -> VTuple <$> traverse (interpret sc vm tm) es
       SS.Record bs         _ -> VRecord <$> traverse (traverse (interpret sc vm tm)) bs
