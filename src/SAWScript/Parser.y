@@ -90,7 +90,7 @@ import Control.Applicative
   '==>'          { TOp       _ "==>"            }
   string         { TLit      _ $$               }
   num            { TNum      _ _ $$             }
-  bits           { TBits     _ _ $$             }
+  qnum           { TQNum     _ _ $$             }
   name           { TVar      _ $$               }
   qname          { TQVar     _ _ $$             }
 
@@ -190,8 +190,8 @@ SafeExpression :: { ExprSimple RawT }
  : '(' ')'                              { Tuple [] Nothing                }
  | '[' ']'                              { Array [] Nothing                }
  | string                               { Quote $1 Nothing                }
- | num                                  { Z $1 Nothing                    }
- | bits                                 { Application
+ | qnum                                 { Z $1 Nothing                    }
+ | num                                  { Application
                                             (Var (unresolved "bitSequence") Nothing)
                                                  (Z $1 Nothing) 
                                                  Nothing                  }

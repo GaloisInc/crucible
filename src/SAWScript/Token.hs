@@ -16,7 +16,7 @@ data Token p = TVar      { tokPos :: p, tokStr :: String                        
              | TReserved { tokPos :: p, tokStr :: String                               }
              | TOp       { tokPos :: p, tokStr :: String                               }
              | TNum      { tokPos :: p, tokStr :: String, tokNum :: Integer            }
-             | TBits     { tokPos :: p, tokStr :: String, tokNum :: Integer            }
+             | TQNum     { tokPos :: p, tokStr :: String, tokNum :: Integer            }
              | TCmntS    { tokPos :: p, tokStr :: String                               }
              | TCmntE    { tokPos :: p, tokStr :: String                               }
              | TEOF      { tokPos :: p, tokStr :: String                               }
