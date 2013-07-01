@@ -597,8 +597,12 @@ interpretMain m =
 valueEnv :: forall s. SharedContext s -> M.Map SS.ResolvedName (Value s)
 valueEnv sc = M.fromList
   [ (qualify "read_sbv", toValue read_sbv)
+  , (qualify "read_aig", toValue read_aig)
+  , (qualify "write_aig", toValue write_aig)
+  , (qualify "llvm_extract", toValue llvm_extract)
+  , (qualify "llvm_pure", toValue "llvm_pure") -- FIXME: representing 'LLVMSetup ()' as 'String'
   , (qualify "prove", toValue prove)
-  , (qualify "abc", toValue "abc")
+  , (qualify "abc", toValue "abc") -- FIXME: representing 'ProofScript ProofResult' as 'String'
   , (qualify "print", toValue (print :: Value s -> IO ()))
   , (qualify "print_type", toValue print_type)
   , (qualify "print_term", toValue (print :: SharedTerm s -> IO ()))
@@ -621,6 +625,12 @@ valueEnv sc = M.fromList
           SBV.TVec n t -> SS.ArrayT (importTyp t) (SS.IntegerT n)
           SBV.TTuple ts -> SS.TupleT (map importTyp ts)
           SBV.TRecord bs -> SS.RecordT [ (x, importTyp t) | (x, t) <- bs ]
+    read_aig :: FilePath -> IO (SharedTerm s)
+    read_aig path = SC.runSC (readAIGPrim path) sc
+    write_aig :: FilePath -> SharedTerm s -> IO ()
+    write_aig path t = SC.runSC (writeAIG path t) sc
+    llvm_extract :: FilePath -> String -> () -> IO (SharedTerm s)
+    llvm_extract path func _ = SC.runSC (extractLLVM path func undefined) sc
     prove :: String -> SharedTerm s -> IO String
     prove _ t = SC.runSC (provePrim undefined t) sc
     print_type :: SharedTerm s -> IO ()
