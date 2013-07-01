@@ -66,7 +66,6 @@ import Control.Applicative
   '='            { TPunct    _ "="              }
   '->'           { TPunct    _ "->"             }
   '<-'           { TPunct    _ "<-"             }
-  'not'          { TOp       _ "not"            }
   '~'            { TOp       _ "~"              }
   '-'            { TOp       _ "-"              }
   '*'            { TOp       _ "*"              }
@@ -164,8 +163,7 @@ NakedExpression :: { ExprSimple RawT }
     { Application (Application (Var (unresolved $2) Nothing) $1 Nothing) $3 Nothing }
 
 InfixOp :: { Name }
- : 'not'          { "not"                        }
- | '~'            { "neg"                        }
+ : '~'            { "neg"                        }
  | '-'            { "sub"                        }
  | '*'            { "mul"                        }
  | '+'            { "add"                        }
