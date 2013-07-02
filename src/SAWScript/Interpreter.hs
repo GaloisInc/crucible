@@ -123,7 +123,7 @@ bindValue (VIO m1) v2 = VIO $ do v1 <- m1
                                  m3
 bindValue _ _ = error "bindValue"
 
-importValue :: SC.Value s -> Value s
+importValue :: SC.Value -> Value s
 importValue val =
     case val of
       SC.VFun f -> VFun (importValue . f . exportValue)
@@ -139,11 +139,8 @@ importValue val =
       SC.VFloat {} -> error "VFloat unsupported"
       SC.VDouble {} -> error "VDouble unsupported"
       SC.VType -> error "VType unsupported"
-      SC.VSC {} -> error "VSC unsupported"
-      SC.VTerm {} -> error "VTerm unsupported"
-      SC.VIO {} -> error "VIO unsupported"
 
-exportValue :: Value s -> SC.Value s
+exportValue :: Value s -> SC.Value
 exportValue val =
     case val of
       VBool b -> if b then SC.VTrue else SC.VFalse
