@@ -112,8 +112,6 @@ sawScriptPrims opts global = Map.fromList
   , ("SAWScript.predNat", toValue (pred :: Integer -> Integer))
   , ("SAWScript.isZeroNat", toValue ((== 0) :: Integer -> Bool))
   , ("SAWScriptPrelude.evaluate", toValue (evaluate global :: () -> SharedTerm s -> Value s))
-  , ("Prelude.append", toValue
-      (myAppend :: Int -> Int -> () -> Value s -> Value s -> Value s))
   ]
 
 allPrims :: Options -> (Ident -> Value s) -> Map Ident (Value s)
@@ -327,12 +325,6 @@ evaluate global _ = evalSharedTerm global
 myPrint :: () -> Value s -> SC s ()
 myPrint _ (VString s) = mkSC $ const (putStrLn s)
 myPrint _ v = mkSC $ const (print v)
-
--- append :: (m n :: Nat) -> (e :: sort 0) -> Vec m e -> Vec n e -> Vec (addNat m n) e;
-myAppend :: Int -> Int -> () -> Value s -> Value s -> Value s
-myAppend _ _ _ (VWord a x) (VWord b y) = VWord (a + b) (x .|. shiftL y b)
-myAppend _ _ _ (VVector xv) (VVector yv) = VVector ((V.++) xv yv)
-myAppend _ _ _ _ _ = error "Prelude.append: malformed arguments"
 
 -- | Extract a simple, pure model from the given symbol within the
 -- given bitcode file. This code creates fresh inputs for all
