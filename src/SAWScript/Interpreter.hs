@@ -33,7 +33,6 @@ import SAWScript.Options
 import SAWScript.Prelude
 import Verifier.SAW.Prelude (preludeModule)
 import qualified Verifier.SAW.Prim as Prim
-import qualified Verifier.SAW.SBVParser as SBV
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST hiding ( incVars )
 
@@ -595,53 +594,21 @@ interpretMain opts m =
 
 valueEnv :: forall s. Options -> SharedContext s -> M.Map SS.ResolvedName (Value s)
 valueEnv opts sc = M.fromList
-  [ (qualify "read_sbv", toValue read_sbv)
-  , (qualify "read_aig", toValue read_aig)
-  , (qualify "write_aig", toValue write_aig)
-  , (qualify "java_extract", toValue java_extract) -- FIXME: representing 'JavaSetup ()' as '()'
-  , (qualify "java_pure", toValue ()) -- FIXME: representing 'JavaSetup ()' as '()'
-  , (qualify "llvm_extract", toValue llvm_extract)
-  , (qualify "llvm_pure", toValue "llvm_pure") -- FIXME: representing 'LLVMSetup ()' as 'String'
-  , (qualify "prove", toValue prove)
-  , (qualify "abc", toValue "abc") -- FIXME: representing 'ProofScript ProofResult' as 'String'
-  , (qualify "print", toValue (print :: Value s -> IO ()))
-  , (qualify "print_type", toValue print_type)
-  , (qualify "print_term", toValue (print :: SharedTerm s -> IO ()))
-  , (qualify "bitSequence", toValue bitSequence)
-  , (qualify "not", toValue not)
+  [ (qualify "read_sbv"    , toValue $ readSBV sc)
+  , (qualify "read_aig"    , toValue $ readAIGPrim sc)
+  , (qualify "write_aig"   , toValue $ writeAIG sc)
+  , (qualify "java_extract", toValue $ extractJava sc opts)
+  , (qualify "java_pure"   , toValue ()) -- FIXME: representing 'JavaSetup ()' as '()'
+  , (qualify "llvm_extract", toValue $ extractLLVM sc)
+  , (qualify "llvm_pure"   , toValue "llvm_pure") -- FIXME: representing 'LLVMSetup ()' as 'String'
+  , (qualify "prove"       , toValue $ provePrim sc)
+  , (qualify "abc"         , toValue "abc") -- FIXME: representing 'ProofScript ProofResult' as 'String'
+  , (qualify "print"       , toValue (print :: Value s -> IO ()))
+  , (qualify "print_type"  , toValue $ print_type sc)
+  , (qualify "print_term"  , toValue (print :: SharedTerm s -> IO ()))
+  , (qualify "bitSequence" , toValue bitSequence)
+  , (qualify "not"         , toValue not)
   ]
-  where
-    read_sbv :: SS.Type -> String -> IO (SharedTerm s)
-    read_sbv ty path = do
-      pgm <- SBV.loadSBV path
-      let ty' = importTyp (SBV.typOf pgm)
-      if ty == ty'
-        then SBV.parseSBVPgm sc (\_ _ -> Nothing) pgm
-        else fail $ "read_sbv: expected " ++ show ty ++ ", found " ++ show ty'
-             -- TODO: use a pretty-printer instead of 'show'
-    importTyp :: SBV.Typ -> SS.Type
-    importTyp typ =
-        case typ of
-          SBV.TBool -> SS.BitT
-          SBV.TFun t1 t2 -> SS.FunctionT (importTyp t1) (importTyp t2)
-          SBV.TVec n t -> SS.ArrayT (importTyp t) (SS.IntegerT n)
-          SBV.TTuple ts -> SS.TupleT (map importTyp ts)
-          SBV.TRecord bs -> SS.RecordT [ (x, importTyp t) | (x, t) <- bs ]
-    read_aig :: FilePath -> IO (SharedTerm s)
-    read_aig path = SC.runSC (readAIGPrim path) sc
-    write_aig :: FilePath -> SharedTerm s -> IO ()
-    write_aig path t = SC.runSC (writeAIG path t) sc
-    java_extract :: String -> String -> () -> IO (SharedTerm s)
-    java_extract cname mname _ = SC.runSC (extractJava opts cname mname undefined) sc
-    llvm_extract :: FilePath -> String -> () -> IO (SharedTerm s)
-    llvm_extract path func _ = SC.runSC (extractLLVM path func undefined) sc
-    prove :: String -> SharedTerm s -> IO String
-    prove _ t = SC.runSC (provePrim undefined t) sc
-    print_type :: SharedTerm s -> IO ()
-    print_type t = scTypeOf sc t >>= print
-    bitSequence :: SS.Type -> Integer -> Prim.BitVector
-    bitSequence (SS.IntegerT w) x = Prim.BV (fromInteger w) x
-    bitSequence t x = error $ "bitSequence " ++ show (t, x)
 
 tyEnv :: M.Map SS.ResolvedName SS.Type
 tyEnv = fmap schema (M.fromList preludeEnv)

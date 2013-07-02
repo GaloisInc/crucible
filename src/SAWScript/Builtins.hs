@@ -37,6 +37,7 @@ import qualified Verifier.Java.WordBackend as JSS
 import Verifier.SAW.BitBlast
 import Verifier.SAW.Evaluator
 import Verifier.SAW.Prelude
+import qualified Verifier.SAW.Prim as Prim
 import qualified Verifier.SAW.SBVParser as SBV
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.Recognizer
@@ -47,6 +48,7 @@ import qualified Verifier.SAW.Export.SMT.Version1 as SMT1
 import qualified Verifier.SAW.Export.SMT.Version2 as SMT2
 import Verifier.SAW.Import.AIG
 
+import qualified SAWScript.AST as SS
 import SAWScript.Options
 import SAWScript.Utils
 
@@ -96,6 +98,11 @@ allPrims :: Options -> (Ident -> Value) -> Map Ident Value
 allPrims opts global = Map.union preludePrims (sawScriptPrims opts global)
 -}
 
+-- bitSequence :: {n} Integer -> [n]
+bitSequence :: SS.Type -> Integer -> Prim.BitVector
+bitSequence (SS.IntegerT w) x = Prim.BV (fromInteger w) x
+bitSequence t x = error $ "bitSequence " ++ show (t, x)
+
 --topReturn :: (a :: sort 0) -> a -> TopLevel a;
 topReturn :: () -> Value -> SC s Value
 topReturn _ = return
@@ -105,11 +112,23 @@ topBind :: () -> () -> SC s Value -> (Value -> SC s Value) -> SC s Value
 topBind _ _ = (>>=)
 
 -- TODO: Add argument for uninterpreted-function map
-readSBV :: FilePath -> SC s (SharedTerm s)
-readSBV path =
-    mkSC $ \sc -> do
-      pgm <- SBV.loadSBV path
-      SBV.parseSBVPgm sc (\_ _ -> Nothing) pgm
+readSBV :: SharedContext s -> SS.Type -> FilePath -> IO (SharedTerm s)
+readSBV sc ty path =
+    do pgm <- SBV.loadSBV path
+       let ty' = importTyp (SBV.typOf pgm)
+       when (ty /= ty') $
+            fail $ "read_sbv: expected " ++ show ty ++ ", found " ++ show ty'
+            -- TODO: use a pretty-printer instead of 'show'
+       SBV.parseSBVPgm sc (\_ _ -> Nothing) pgm
+    where
+      importTyp :: SBV.Typ -> SS.Type
+      importTyp typ =
+        case typ of
+          SBV.TBool -> SS.BitT
+          SBV.TFun t1 t2 -> SS.FunctionT (importTyp t1) (importTyp t2)
+          SBV.TVec n t -> SS.ArrayT (importTyp t) (SS.IntegerT n)
+          SBV.TTuple ts -> SS.TupleT (map importTyp ts)
+          SBV.TRecord bs -> SS.RecordT [ (x, importTyp t) | (x, t) <- bs ]
 
 withBE :: (BE.BitEngine BE.Lit -> IO a) -> IO a
 withBE f = do
@@ -129,8 +148,8 @@ unLambda _ tm = return tm
 -- | Read an AIG file representing a theorem or an arbitrary function
 -- and represent its contents as a @SharedTerm@ lambda term. This is
 -- inefficient but semantically correct.
-readAIGPrim :: FilePath -> SC s (SharedTerm s)
-readAIGPrim f = mkSC $ \sc -> do
+readAIGPrim :: SharedContext s -> FilePath -> IO (SharedTerm s)
+readAIGPrim sc f = do
   et <- withReadAiger f $ \ntk -> do
     outputLits <- networkOutputs ntk
     inputLits <- networkInputs ntk
@@ -152,8 +171,8 @@ prepForExport sc t = do
 
 -- | Write a @SharedTerm@ representing a theorem or an arbitrary
 -- function to an AIG file.
-writeAIG :: FilePath -> SharedTerm s -> SC s ()
-writeAIG f t = mkSC $ \sc -> withBE $ \be -> do
+writeAIG :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
+writeAIG sc f t = withBE $ \be -> do
   t' <- prepForExport sc t
   mbterm <- bitBlast be t'
   case mbterm of
@@ -186,10 +205,13 @@ writeSMTLib2 f t = mkSC $ \sc -> do
         (map (fmap scPrettyTermDoc) (ws' ^. SMT2.warnings))
   writeFile f (SMT2.render ws')
 
+type ProofScript a = a --FIXME
+type ProofResult = () --FIXME
+
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
-satABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
-satABC _script t = mkSC $ \sc -> withBE $ \be -> do
+satABC :: SharedContext s -> ProofScript ProofResult -> SharedTerm s -> IO (SharedTerm s)
+satABC sc _script t = withBE $ \be -> do
   t' <- prepForExport sc t
   mbterm <- bitBlast be t'
   case (mbterm, BE.beCheckSat be) of
@@ -205,24 +227,24 @@ satABC _script t = mkSC $ \sc -> withBE $ \be -> do
     (_, Nothing) -> fail "Backend does not support SAT checking."
     (Left err, _) -> fail $ "Can't bitblast: " ++ err
 
-scNegate :: SharedTerm s -> SC s (SharedTerm s)
-scNegate t = mkSC $ \sc -> do appNot <- scApplyPreludeNot sc ; appNot t
+scNegate :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
+scNegate sc t = do appNot <- scApplyPreludeNot sc ; appNot t
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- validity using ABC.
-provePrim :: SharedTerm s -> SharedTerm s -> SC s String
-provePrim script t = do
-  t' <- scNegate t
-  r <- satABC script t'
+provePrim :: SharedContext s -> ProofScript ProofResult -> SharedTerm s -> IO String
+provePrim sc script t = do
+  t' <- scNegate sc t
+  r <- satABC sc script t'
   return $
     case asCtor r of
       Just ("Prelude.True", []) -> "invalid"
       Just ("Prelude.False", []) -> "valid"
       _ -> "unknown"
 
-satPrim :: SharedTerm s -> SharedTerm s -> SC s String
-satPrim script t = do
-  r <- satABC script t
+satPrim :: SharedContext s -> ProofScript ProofResult -> SharedTerm s -> IO String
+satPrim sc script t = do
+  r <- satABC sc script t
   return $
     case asCtor r of
       Just ("Prelude.True", []) -> "sat"
@@ -268,12 +290,17 @@ myPrint :: () -> Value -> SC s ()
 myPrint _ (VString s) = mkSC $ const (putStrLn s)
 myPrint _ v = mkSC $ const (print v)
 
+print_type :: SharedContext s -> SharedTerm s -> IO ()
+print_type sc t = scTypeOf sc t >>= print
+
+type LLVMSetup a = a --FIXME
+
 -- | Extract a simple, pure model from the given symbol within the
 -- given bitcode file. This code creates fresh inputs for all
 -- arguments and returns a term representing the return value. Some
 -- verifications will require more complex execution contexts.
-extractLLVM :: FilePath -> String -> SharedTerm s -> SC s (SharedTerm s)
-extractLLVM file func _setup = mkSC $ \sc -> do
+extractLLVM :: SharedContext s -> FilePath -> String -> LLVMSetup () -> IO (SharedTerm s)
+extractLLVM sc file func _setup = do
   mdl <- L.loadModule file
   let dl = L.parseDataLayout $ LLVM.modDataLayout mdl
       mg = L.defaultMemGeom dl
@@ -345,8 +372,10 @@ freshLLVMArg (_, _) = fail "Only integer arguments are supported for now."
 fixPos :: Pos
 fixPos = PosInternal "FIXME"
 
-extractJava :: Options -> String -> String -> SharedTerm s -> SC s (SharedTerm s)
-extractJava opts cname mname _setup =  mkSC $ \sc -> do
+type JavaSetup a = a -- FIXME
+
+extractJava :: SharedContext s -> Options -> String -> String -> JavaSetup () -> IO (SharedTerm s)
+extractJava sc opts cname mname _setup = do
   cb <- JSS.loadCodebase (jarList opts) (classPath opts)
   let cname' = JP.dotsToSlashes cname
   cls <- lookupClass cb fixPos cname'
