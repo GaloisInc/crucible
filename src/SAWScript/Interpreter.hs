@@ -29,6 +29,7 @@ import qualified Data.Vector as V
 import qualified SAWScript.AST as SS
 import SAWScript.Builtins hiding (evaluate)
 import qualified SAWScript.NewAST as New
+import SAWScript.Options
 import SAWScript.Prelude
 import Verifier.SAW.Prelude (preludeModule)
 import qualified Verifier.SAW.Prim as Prim
@@ -581,23 +582,25 @@ interpretModule sc vm tm sm m = interpret sc vm tm sm main
     where main = (M.!) (SS.moduleExprEnv m) "main"
 
 -- | Interpret function 'main' using the default value environments.
-interpretMain :: SS.ValidModule -> IO ()
-interpretMain m =
+interpretMain :: Options -> SS.ValidModule -> IO ()
+interpretMain opts m =
     do let mn = case SS.moduleName m of SS.ModuleName xs x -> mkModuleName (xs ++ [x])
        let scm = insImport preludeModule $
                  emptyModule mn
        sc <- mkSharedContext scm
        env <- coreEnv sc
-       v <- interpretModule sc (valueEnv sc) tyEnv env m
+       v <- interpretModule sc (valueEnv opts sc) tyEnv env m
        (fromValue v :: IO ())
 
 -- Primitives ------------------------------------------------------------------
 
-valueEnv :: forall s. SharedContext s -> M.Map SS.ResolvedName (Value s)
-valueEnv sc = M.fromList
+valueEnv :: forall s. Options -> SharedContext s -> M.Map SS.ResolvedName (Value s)
+valueEnv opts sc = M.fromList
   [ (qualify "read_sbv", toValue read_sbv)
   , (qualify "read_aig", toValue read_aig)
   , (qualify "write_aig", toValue write_aig)
+  , (qualify "java_extract", toValue java_extract) -- FIXME: representing 'JavaSetup ()' as '()'
+  , (qualify "java_pure", toValue ()) -- FIXME: representing 'JavaSetup ()' as '()'
   , (qualify "llvm_extract", toValue llvm_extract)
   , (qualify "llvm_pure", toValue "llvm_pure") -- FIXME: representing 'LLVMSetup ()' as 'String'
   , (qualify "prove", toValue prove)
@@ -606,6 +609,7 @@ valueEnv sc = M.fromList
   , (qualify "print_type", toValue print_type)
   , (qualify "print_term", toValue (print :: SharedTerm s -> IO ()))
   , (qualify "bitSequence", toValue bitSequence)
+  , (qualify "not", toValue not)
   ]
   where
     read_sbv :: SS.Type -> String -> IO (SharedTerm s)
@@ -628,6 +632,8 @@ valueEnv sc = M.fromList
     read_aig path = SC.runSC (readAIGPrim path) sc
     write_aig :: FilePath -> SharedTerm s -> IO ()
     write_aig path t = SC.runSC (writeAIG path t) sc
+    java_extract :: String -> String -> () -> IO (SharedTerm s)
+    java_extract cname mname _ = SC.runSC (extractJava opts cname mname undefined) sc
     llvm_extract :: FilePath -> String -> () -> IO (SharedTerm s)
     llvm_extract path func _ = SC.runSC (extractLLVM path func undefined) sc
     prove :: String -> SharedTerm s -> IO String
@@ -667,8 +673,10 @@ tyEnv = fmap schema (M.fromList preludeEnv)
 coreEnv :: SharedContext s -> IO (M.Map SS.ResolvedName (SharedTerm s))
 coreEnv sc = do
   bvNat <- scGlobalDef sc (parseIdent "Prelude.bvNat")
+  not' <- scGlobalDef sc (parseIdent "Prelude.not")
   return $ M.fromList $
     [ (qualify "bitSequence", bvNat)
+    , (qualify "not", not')
     ]
 
 qualify :: String -> SS.ResolvedName

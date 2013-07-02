@@ -63,7 +63,7 @@ processModule :: Options -> LoadedModules -> ModuleName -> IO ()
 processModule opts lms modName =
   -- TODO: merge the two representations of the prelude into one
   --  that both the renamer and the type checker can understand.
-  runCompiler comp lms interpretMain
+  runCompiler comp lms (interpretMain opts)
   where
   comp =     buildModules
          >=> F.foldrM checkModuleWithDeps M.empty
