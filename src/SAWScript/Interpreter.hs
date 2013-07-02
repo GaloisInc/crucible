@@ -584,8 +584,7 @@ interpretModule sc vm tm sm m = interpret sc vm tm sm main
 interpretMain :: SS.ValidModule -> IO ()
 interpretMain m =
     do let mn = case SS.moduleName m of SS.ModuleName xs x -> mkModuleName (xs ++ [x])
-       let scm = insImport ssPreludeModule $
-                 insImport preludeModule $
+       let scm = insImport preludeModule $
                  emptyModule mn
        sc <- mkSharedContext scm
        env <- coreEnv sc
