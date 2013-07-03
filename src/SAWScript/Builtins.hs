@@ -184,8 +184,8 @@ writeAIG sc f t = withBE $ \be -> do
 
 -- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
 -- 1 file.
-writeSMTLib1 :: FilePath -> SharedTerm s -> SC s ()
-writeSMTLib1 f t = mkSC $ \sc -> do
+writeSMTLib1 :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
+writeSMTLib1 sc f t = do
   -- TODO: better benchmark name than "sawscript"?
   t' <- prepForExport sc t
   let ws = SMT1.qf_aufbv_WriterState sc "sawscript"
@@ -196,8 +196,8 @@ writeSMTLib1 f t = mkSC $ \sc -> do
 
 -- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
 -- 2 file.
-writeSMTLib2 :: FilePath -> SharedTerm s -> SC s ()
-writeSMTLib2 f t = mkSC $ \sc -> do
+writeSMTLib2 :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
+writeSMTLib2 sc f t = do
   t' <- prepForExport sc t
   let ws = SMT2.qf_aufbv_WriterState sc
   ws' <- execStateT (SMT2.assert t') ws
