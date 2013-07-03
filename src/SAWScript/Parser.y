@@ -134,7 +134,7 @@ Import :: { TopStmtSimple RawT }
 BlockStmt :: { BlockStmtSimple RawT }
  : Expression                           { Bind Nothing   (Just topLevelContext) $1   }
  | name '<-' Expression                 { Bind (Just $1) (Just topLevelContext) $3   }
- | name ':' PolyType                    { BlockTypeDecl $1 (Just $3)                 }
+-- | name ':' PolyType                    { BlockTypeDecl $1 (Just $3)                 }
  | 'let' sepBy1(Declaration, 'and')     { BlockLet $2                                }
 
 Declaration :: { (Name, ExprSimple RawT) }
@@ -145,22 +145,18 @@ Arg :: { Bind RawT }
  | '(' name ':' Type ')'                { ($2, Just $4) }
 
 Expression :: { ExprSimple RawT }
- : Expressions                          { buildApplication $1 }
+ : IExpr                                { $1 }
+ | IExpr ':' Type                       { updateAnnotation (Just $3) $1 }
+ | '\\' list1(Arg) '->' Expression      { buildFunction $2 $4 }
+ | 'let' sepBy1(Declaration, 'and')
+   'in' Expression                      { LetBlock $2 $4 }
 
-Expressions :: { [ExprSimple RawT] }
- : ExpressionPrimitive                  { [$1]  }
- | SafeExpression Expressions           { $1:$2 }
+IExpr :: { ExprSimple RawT }
+ : AExprs                               { $1 }
+ | IExpr InfixOp AExprs                 { binOp $1 $2 $3 }
 
-ExpressionPrimitive :: { ExprSimple RawT }
- : NakedExpression                      { $1 }
- | SafeExpression                       { $1 }
-
-NakedExpression :: { ExprSimple RawT }
- : '\\' list1(Arg) '->' Expression      { buildFunction $2 $4           }
- | 'let' sepBy1(Declaration, 'and') 'in' Expression
-    { LetBlock $2 $4   }
- | SafeExpression InfixOp Expression                    
-    { Application (Application (Var (unresolved $2) Nothing) $1 Nothing) $3 Nothing }
+AExprs :: { ExprSimple RawT }
+ : list1(AExpr)                         { buildApplication $1 }
 
 InfixOp :: { Name }
  : '~'            { "neg"                        }
@@ -186,7 +182,7 @@ InfixOp :: { Name }
  | '||'           { "or"                         }
  | '==>'          { "implies"                    }
 
-SafeExpression :: { ExprSimple RawT }
+AExpr :: { ExprSimple RawT }
  : '(' ')'                              { Tuple [] Nothing                }
  | '[' ']'                              { Array [] Nothing                }
  | string                               { Quote $1 Nothing                }
@@ -202,8 +198,7 @@ SafeExpression :: { ExprSimple RawT }
  | '[' commas(Expression) ']'           { Array $2 Nothing                }
  | '{' commas(Field) '}'                { Record $2 Nothing               }
  | 'do' '{' termBy(BlockStmt, ';') '}'  { Block $3 Nothing                }
- | SafeExpression '.' name              { Lookup $1 $3 Nothing            }
- | '(' SafeExpression ':' Type ')'      { updateAnnotation (Just $4) $2   }
+ | AExpr '.' name                       { Lookup $1 $3 Nothing            }
 
 Field :: { (Name, ExprSimple RawT) }
  : name '=' Expression                  { ($1, $3) }
@@ -331,6 +326,9 @@ buildApplication :: [ExprSimple RawT] -> ExprSimple RawT
 buildApplication =
   foldl1 (\e body -> Application e body $
                      function <$> typeOf e <*> typeOf body)
+
+binOp :: ExprSimple RawT -> Name -> ExprSimple RawT -> ExprSimple RawT
+binOp x op y = Application (Application (Var (unresolved op) Nothing) x Nothing) y Nothing
 
 buildType :: [RawSigT] -> RawSigT
 buildType [t]    = t
