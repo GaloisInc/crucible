@@ -611,6 +611,7 @@ valueEnv opts sc = M.fromList
   , (qualify "print_term"  , toValue (print :: SharedTerm s -> IO ()))
   , (qualify "bitSequence" , toValue bitSequence)
   , (qualify "not"         , toValue not)
+  , (qualify "and"         , toValue (&&))
   ]
 
 tyEnv :: M.Map SS.ResolvedName SS.Type
@@ -644,6 +645,7 @@ coreEnv sc =
   traverse (scGlobalDef sc . parseIdent) $ M.fromList $
     [ (qualify "bitSequence", "Prelude.bvNat")
     , (qualify "not"        , "Prelude.not")
+    , (qualify "and"        , "Prelude.and")
     ]
 
 qualify :: String -> SS.ResolvedName
