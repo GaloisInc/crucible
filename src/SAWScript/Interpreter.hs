@@ -640,12 +640,10 @@ tyEnv = fmap schema (M.fromList preludeEnv)
 -- TODO: We should extract additional typing information from the imported modules
 
 coreEnv :: SharedContext s -> IO (M.Map SS.ResolvedName (SharedTerm s))
-coreEnv sc = do
-  bvNat <- scGlobalDef sc (parseIdent "Prelude.bvNat")
-  not' <- scGlobalDef sc (parseIdent "Prelude.not")
-  return $ M.fromList $
-    [ (qualify "bitSequence", bvNat)
-    , (qualify "not", not')
+coreEnv sc =
+  traverse (scGlobalDef sc . parseIdent) $ M.fromList $
+    [ (qualify "bitSequence", "Prelude.bvNat")
+    , (qualify "not"        , "Prelude.not")
     ]
 
 qualify :: String -> SS.ResolvedName
