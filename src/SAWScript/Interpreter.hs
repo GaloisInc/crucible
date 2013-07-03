@@ -612,6 +612,7 @@ valueEnv opts sc = M.fromList
   , (qualify "bitSequence" , toValue bitSequence)
   , (qualify "not"         , toValue not)
   , (qualify "and"         , toValue (&&))
+  , (qualify "or"          , toValue (||))
   ]
 
 tyEnv :: M.Map SS.ResolvedName SS.Type
@@ -646,6 +647,7 @@ coreEnv sc =
     [ (qualify "bitSequence", "Prelude.bvNat")
     , (qualify "not"        , "Prelude.not")
     , (qualify "and"        , "Prelude.and")
+    , (qualify "or"         , "Prelude.or")
     ]
 
 qualify :: String -> SS.ResolvedName
