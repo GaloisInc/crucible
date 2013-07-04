@@ -486,7 +486,7 @@ interpret sc vm tm sm expr =
       SS.Lookup e n        _ -> do a <- interpret sc vm tm sm e
                                    return (lookupValue a n)
       SS.Var name          t -> case M.lookup name vm of
-                                  Nothing -> fail $ "unbound variable: " ++ SS.renderResolvedName name
+                                  Nothing -> evaluate <$> translateExpr sc tm sm M.empty expr
                                   Just v ->
                                     case M.lookup name tm of
                                       Nothing -> return v
@@ -609,10 +609,6 @@ valueEnv opts sc = M.fromList
   , (qualify "print"       , toValue (print :: Value s -> IO ()))
   , (qualify "print_type"  , toValue $ print_type sc)
   , (qualify "print_term"  , toValue (print :: SharedTerm s -> IO ()))
-  , (qualify "bitSequence" , toValue bitSequence)
-  , (qualify "not"         , toValue not)
-  , (qualify "and"         , toValue (&&))
-  , (qualify "or"          , toValue (||))
   ]
 
 tyEnv :: M.Map SS.ResolvedName SS.Type
