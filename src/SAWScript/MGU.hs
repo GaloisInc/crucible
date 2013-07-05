@@ -18,9 +18,7 @@ import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Identity
-import Data.Function (on)
-import Data.List (sortBy,intercalate)
-import Data.Maybe (mapMaybe,fromMaybe)
+import Data.Maybe (mapMaybe)
 import Data.Traversable (traverse)
 import qualified Data.Map as M
 import qualified Data.Set as S

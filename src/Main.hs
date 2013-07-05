@@ -12,9 +12,6 @@ import System.Console.GetOpt
 import System.Environment
 import System.FilePath
 
-import qualified Verifier.SAW.ParserUtils as SC
-import Verifier.SAW.Prelude (preludeModule)
-
 import SAWScript.AST
 import SAWScript.BuildModules as BM
 import SAWScript.Compiler
@@ -42,13 +39,6 @@ main = do
 
 
 processFile :: Options -> FilePath -> IO ()
-
-{-
-processFile opts file | takeExtensions file == ".sawcore" = do
-  when (verbLevel opts > 0) $ putStrLn $ "Processing SAWCore file " ++ file
-  m <- SC.readModuleFromFile [preludeModule, ssPreludeModule] file
-  execSAWCore opts m
--}
 
 processFile opts file | takeExtensions file == ".saw" = do
   when (verbLevel opts > 0) $ putStrLn $ "Processing SAWScript file " ++ file

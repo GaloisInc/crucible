@@ -9,12 +9,8 @@ import Control.Exception (bracket)
 import Control.Lens
 import Control.Monad.Error
 import Control.Monad.State
-import Data.Bits
-import Data.Map ( Map )
 import qualified Data.Map as Map
 import Data.Maybe
-import Data.Vector ( Vector )
-import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import Text.PrettyPrint.Leijen hiding ((<$>))
 
@@ -54,49 +50,6 @@ import SAWScript.Utils
 
 import qualified Verinf.Symbolic as BE
 import Verinf.Utils.LogMonad
-
-{-
-sawScriptPrims :: forall s. Options -> (Ident -> Value) -> Map Ident Value
-sawScriptPrims opts global = Map.fromList
-  -- Key SAWScript functions
-  [ ("SAWScriptPrelude.topBind", toValue
-      (topBind :: () -> () -> SC s Value -> (Value -> SC s Value) -> SC s Value))
-  , ("SAWScriptPrelude.topReturn", toValue
-      (topReturn :: () -> Value -> SC s Value))
-  , ("SAWScriptPrelude.read_sbv", toValue
-      (readSBV :: FilePath -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.read_aig", toValue
-      (readAIGPrim :: FilePath -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.write_aig", toValue
-      (writeAIG :: FilePath -> SharedTerm s -> SC s ()))
-  , ("SAWScriptPrelude.write_smtlib1", toValue
-      (writeSMTLib1 :: FilePath -> SharedTerm s -> SC s ()))
-  , ("SAWScriptPrelude.write_smtlib2", toValue
-      (writeSMTLib2 :: FilePath -> SharedTerm s -> SC s ()))
-  , ("SAWScriptPrelude.llvm_extract", toValue
-      (extractLLVM :: FilePath -> String -> SharedTerm s -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.java_extract", toValue
-      (extractJava opts :: String -> String -> SharedTerm s -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.prove", toValue
-      (provePrim :: SharedTerm s -> SharedTerm s -> SC s String))
-  , ("SAWScriptPrelude.sat", toValue
-      (satPrim :: SharedTerm s -> SharedTerm s -> SC s String))
-  , ("SAWScriptPrelude.equal", toValue
-      (equalPrim :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.negate", toValue
-      (scNegate :: SharedTerm s -> SC s (SharedTerm s)))
-  -- Misc stuff
-  , ("SAWScriptPrelude.print", toValue
-      (myPrint :: () -> Value -> SC s ()))
-  , ("SAWScriptPrelude.bvNatIdent", toValue ("Prelude.bvNat" :: String))
-  , ("SAWScript.predNat", toValue (pred :: Integer -> Integer))
-  , ("SAWScript.isZeroNat", toValue ((== 0) :: Integer -> Bool))
-  , ("SAWScriptPrelude.evaluate", toValue (evaluate global :: () -> SharedTerm s -> Value))
-  ]
-
-allPrims :: Options -> (Ident -> Value) -> Map Ident Value
-allPrims opts global = Map.union preludePrims (sawScriptPrims opts global)
--}
 
 -- bitSequence :: {n} Integer -> [n]
 bitSequence :: SS.Type -> Integer -> Prim.BitVector
