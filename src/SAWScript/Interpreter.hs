@@ -555,7 +555,7 @@ interpretStmts sc vm tm sm stmts =
           do v1 <- interpret sc vm tm sm e
              v2 <- interpretStmts sc vm tm sm ss
              return (v1 `thenValue` v2)
-      SS.Bind (Just x) _ e : ss ->
+      SS.Bind (Just (x, _)) _ e : ss ->
           do v1 <- interpret sc vm tm sm e
              let name = SS.LocalName x
              let f v Nothing = interpretStmts sc (M.insert name v vm) tm sm ss
