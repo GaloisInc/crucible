@@ -158,6 +158,9 @@ writeSMTLib2 sc f t = do
         (map (fmap scPrettyTermDoc) (ws' ^. SMT2.warnings))
   writeFile f (SMT2.render ws')
 
+writeCore :: FilePath -> SharedTerm s -> IO ()
+writeCore path t = writeFile path (scWriteExternal t)
+
 type ProofScript a = a --FIXME
 type ProofResult = () --FIXME
 

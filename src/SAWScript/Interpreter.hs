@@ -606,6 +606,7 @@ valueEnv opts sc = M.fromList
   , (qualify "abc"         , toValue "abc") -- FIXME: representing 'ProofScript ProofResult' as 'String'
   , (qualify "write_smtlib1", toValue $ writeSMTLib1 sc)
   , (qualify "write_smtlib2", toValue $ writeSMTLib2 sc)
+  , (qualify "write_core"   , toValue (writeCore :: FilePath -> SharedTerm s -> IO ()))
   , (qualify "print"       , toValue (print :: Value s -> IO ()))
   , (qualify "print_type"  , toValue $ print_type sc)
   , (qualify "print_term"  , toValue (print :: SharedTerm s -> IO ()))
