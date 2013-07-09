@@ -609,7 +609,7 @@ valueEnv opts sc = M.fromList
   , (qualify "write_core"   , toValue (writeCore :: FilePath -> SharedTerm s -> IO ()))
   , (qualify "print"       , toValue (print :: Value s -> IO ()))
   , (qualify "print_type"  , toValue $ print_type sc)
-  , (qualify "print_term"  , toValue (print :: SharedTerm s -> IO ()))
+  , (qualify "print_term"  , toValue ((putStrLn . scPrettyTerm) :: SharedTerm s -> IO ()))
   ]
 
 tyEnv :: M.Map SS.ResolvedName SS.Type
