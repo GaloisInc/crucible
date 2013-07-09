@@ -31,6 +31,7 @@ import qualified Verifier.Java.Simulator as JSS
 import qualified Verifier.Java.WordBackend as JSS
 
 import Verifier.SAW.BitBlast
+import Verifier.SAW.Conversion hiding (asCtor)
 import Verifier.SAW.Evaluator
 import Verifier.SAW.Prelude
 import qualified Verifier.SAW.Prim as Prim
@@ -206,6 +207,25 @@ satPrim sc script t = do
       Just ("Prelude.True", []) -> "sat"
       Just ("Prelude.False", []) -> "unsat"
       _ -> "unknown"
+
+-- TODO: Replace () with Simpset argument.
+rewritePrim :: SharedContext s -> () -> SharedTerm s -> IO (SharedTerm s)
+rewritePrim sc _ t = do
+  rs1 <- concat <$> traverse defRewrites defs
+  rs2 <- scEqsRewriteRules sc eqs
+  let simpset = addConvs procs (addRules (rs1 ++ rs2) emptySimpset)
+  rewriteSharedTerm sc simpset t
+  where
+    eqs = map (mkIdent preludeName)
+      ["get_single", "get_bvAnd", "get_bvOr", "get_bvXor", "get_bvNot",
+       "not_not", "get_slice", "bvAddZeroL", "bvAddZeroR"]
+    defs = map (mkIdent preludeName)
+      ["not", "and", "or", "xor", "boolEq", "ite", "addNat", "mulNat", "compareNat", "finSucc"]
+    procs = bvConversions ++ natConversions ++ finConversions ++ vecConversions
+    defRewrites ident =
+      case findDef (scModule sc) ident of
+        Nothing -> return []
+        Just def -> scDefRewriteRules sc def
 
 equal :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
 equal sc (STApp _ (Lambda (PVar x1 _ _) ty1 tm1)) (STApp _ (Lambda (PVar _ _ _) ty2 tm2)) =

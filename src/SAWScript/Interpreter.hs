@@ -603,6 +603,7 @@ valueEnv opts sc = M.fromList
   , (qualify "llvm_pure"   , toValue "llvm_pure") -- FIXME: representing 'LLVMSetup ()' as 'String'
   , (qualify "prove"       , toValue $ provePrim sc)
   , (qualify "sat"         , toValue $ satPrim sc)
+  , (qualify "rewrite"     , toValue $ rewritePrim sc)
   , (qualify "abc"         , toValue "abc") -- FIXME: representing 'ProofScript ProofResult' as 'String'
   , (qualify "write_smtlib1", toValue $ writeSMTLib1 sc)
   , (qualify "write_smtlib2", toValue $ writeSMTLib2 sc)
