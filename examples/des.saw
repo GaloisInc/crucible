@@ -1,0 +1,6 @@
+main = do {
+  (enc : ([64], [64]) -> [64]) <- read_sbv "des_enc.sbv";
+  (dec : ([64], [64]) -> [64]) <- read_sbv "des_dec.sbv";
+  let thm key msg = dec (key, enc (key, msg)) == msg;
+  prove abc thm;
+};
