@@ -646,7 +646,7 @@ coreEnv sc =
     , (qualify "not"        , "Prelude.not")
     , (qualify "and"        , "Prelude.and")
     , (qualify "or"         , "Prelude.or")
-    , (qualify "eq"         , "Prelude.bvEq")
+    , (qualify "eq"         , "Prelude.eq")
     ]
 
 qualify :: String -> SS.ResolvedName
