@@ -1,0 +1,8 @@
+main : TopLevel ();
+main = do {
+  (t : [8] -> Bit) <- read_sbv "add_comm.sbv";
+  print_term t;
+  write_core "add_comm.extcore" t;
+  (t2 : [8] -> Bit) <- read_core "add_comm.extcore";
+  print_term t2;
+};

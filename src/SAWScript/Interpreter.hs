@@ -608,6 +608,7 @@ valueEnv opts sc = M.fromList
   , (qualify "write_smtlib1", toValue $ writeSMTLib1 sc)
   , (qualify "write_smtlib2", toValue $ writeSMTLib2 sc)
   , (qualify "write_core"   , toValue (writeCore :: FilePath -> SharedTerm s -> IO ()))
+  , (qualify "read_core"    , toValue $ readCore sc)
   , (qualify "print"       , toValue (print :: Value s -> IO ()))
   , (qualify "print_type"  , toValue $ print_type sc)
   , (qualify "print_term"  , toValue ((putStrLn . scPrettyTerm) :: SharedTerm s -> IO ()))

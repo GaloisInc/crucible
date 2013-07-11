@@ -162,6 +162,9 @@ writeSMTLib2 sc f t = do
 writeCore :: FilePath -> SharedTerm s -> IO ()
 writeCore path t = writeFile path (scWriteExternal t)
 
+readCore :: SharedContext s -> FilePath -> IO (SharedTerm s)
+readCore sc path = scReadExternal sc =<< readFile path
+
 type ProofScript a = a --FIXME
 type ProofResult = () --FIXME
 
