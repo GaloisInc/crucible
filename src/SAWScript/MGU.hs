@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE TypeOperators #-}
 
 module SAWScript.MGU where
@@ -17,9 +18,7 @@ import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Identity
-import Data.Function (on)
-import Data.List (sortBy,intercalate)
-import Data.Maybe (mapMaybe,fromMaybe)
+import Data.Maybe (mapMaybe)
 import Data.Traversable (traverse)
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -266,7 +265,8 @@ instance AppSubst ty => AppSubst (A.Expr names ty) where
 
 instance AppSubst ty => AppSubst (A.BlockStmt names ty) where
   appSubst s bst = case bst of
-    A.Bind mn ctx e     -> A.Bind mn (appSubst s ctx) (appSubst s e)
+    A.Bind Nothing       ctx e -> A.Bind Nothing (appSubst s ctx) (appSubst s e)
+    A.Bind (Just (n, t)) ctx e -> A.Bind (Just (n, appSubst s t)) (appSubst s ctx) (appSubst s e)
     A.BlockLet bs       -> A.BlockLet (appSubstBinds s bs)
     A.BlockTypeDecl x t -> A.BlockTypeDecl x (appSubst s t)
 
@@ -275,7 +275,7 @@ instance (Ord k, AppSubst a) => AppSubst (M.Map k a) where
 
 instance AppSubst BlockStmt where
   appSubst s bst = case bst of
-    Bind mn ctx e -> Bind mn ctx e
+    Bind mn mt ctx e -> Bind mn mt ctx e
     BlockLet bs   -> BlockLet $ appSubstBinds s bs
 
 appSubstBinds :: (AppSubst a) => Subst -> [Bind a] -> [Bind a]
@@ -328,7 +328,9 @@ translateExpr expr = case expr of
 
 translateBStmt :: A.BlockStmt A.ResolvedName A.ResolvedT -> Err BlockStmt
 translateBStmt bst = case bst of
-  A.Bind mn ctx e -> Bind mn <$> translateMType ctx <*> translateExpr e
+  A.Bind Nothing       ctx e -> Bind Nothing Nothing <$> translateMType ctx <*> translateExpr e
+  A.Bind (Just (n, t)) ctx e -> Bind (Just n) <$> translateMType t
+                                <*> translateMType ctx <*> translateExpr e
   A.BlockLet bs   -> BlockLet <$> mapM translateField bs
   --BlockTypeDecl Name             typeT  
 
@@ -472,7 +474,8 @@ exportExpr e0 = --go e0
 
   goB stm =
     case stm of
-      A.Bind mn ctx e     -> A.Bind mn <$> exportSchema ctx <*> go e
+      A.Bind Nothing ctx e -> A.Bind Nothing <$> exportSchema ctx <*> go e
+      A.Bind (Just (n, t)) ctx e -> (\t -> A.Bind (Just (n, t))) <$> exportSchema t <*> exportSchema ctx <*> go e
       A.BlockLet bs       -> A.BlockLet <$> mapM go2 bs
       A.BlockTypeDecl x t -> A.BlockTypeDecl x <$> exportSchema t
 
@@ -601,7 +604,7 @@ inferStmts ctx [] = do
   t <- newType
   return ([], t)
 
-inferStmts ctx [Bind Nothing mc e] = do
+inferStmts ctx [Bind Nothing _ mc e] = do
   t  <- newType
   e' <- checkE e (tBlock ctx t)
   mc' <- case mc of
@@ -616,20 +619,23 @@ inferStmts _ [_] = do
   t <- newType
   return ([],t)
 
-inferStmts ctx (Bind mn mc e : more) = do
-  t <- newType
+inferStmts ctx (Bind mn mt mc e : more) = do
+  t <- maybe newType return mt
   e' <- checkE e (tBlock ctx t)
   mc' <- case mc of
     Nothing -> return (tMono ctx)
-    Just t  -> do t' <- checkKind t
-                  unify t ctx
-                  return (tMono t')
+    Just c  -> do c' <- checkKind c
+                  unify c ctx
+                  return (tMono c')
+  let mn' = case mn of
+        Nothing -> Nothing
+        Just n -> Just (n, tMono t)
   let f = case mn of
         Nothing -> id
         Just n  -> bindSchema (A.LocalName n) (tMono t)
   (more',t) <- f $ inferStmts ctx more
 
-  return (A.Bind mn mc' e' : more', t)
+  return (A.Bind mn' mc' e' : more', t)
 
 inferStmts ctx (BlockLet bs : more) = inferDecls bs $ \bs' -> do
   (more',t) <- inferStmts ctx more
@@ -751,7 +757,7 @@ defsDepsBind m it@(x,e0) = (it, [ A.TopLevelName m x ], S.toList (uses e0))
 
   usesB bl =
     case bl of
-      Bind _ _ e  -> uses e
+      Bind _ _ _ e -> uses e
       BlockLet bs -> S.unions (map (uses . snd) bs)
 
 -- XXX: TODO

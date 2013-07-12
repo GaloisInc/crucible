@@ -10,7 +10,6 @@ module SAWScript.Import
 
 import Control.Monad
 import qualified Data.Map as Map
-import Data.Map (Map)
 import Data.Maybe
 
 import SAWScript.AST

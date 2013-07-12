@@ -9,12 +9,8 @@ import Control.Exception (bracket)
 import Control.Lens
 import Control.Monad.Error
 import Control.Monad.State
-import Data.Bits
-import Data.Map ( Map )
 import qualified Data.Map as Map
 import Data.Maybe
-import Data.Vector ( Vector )
-import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import Text.PrettyPrint.Leijen hiding ((<$>))
 
@@ -35,8 +31,10 @@ import qualified Verifier.Java.Simulator as JSS
 import qualified Verifier.Java.WordBackend as JSS
 
 import Verifier.SAW.BitBlast
+import Verifier.SAW.Conversion hiding (asCtor)
 import Verifier.SAW.Evaluator
 import Verifier.SAW.Prelude
+import qualified Verifier.SAW.Prim as Prim
 import qualified Verifier.SAW.SBVParser as SBV
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.Recognizer
@@ -47,92 +45,44 @@ import qualified Verifier.SAW.Export.SMT.Version1 as SMT1
 import qualified Verifier.SAW.Export.SMT.Version2 as SMT2
 import Verifier.SAW.Import.AIG
 
+import qualified SAWScript.AST as SS
 import SAWScript.Options
 import SAWScript.Utils
 
 import qualified Verinf.Symbolic as BE
 import Verinf.Utils.LogMonad
 
-sawScriptPrims :: forall s. Options -> (Ident -> Value s) -> Map Ident (Value s)
-sawScriptPrims opts global = Map.fromList
-  -- Key SAWScript functions
-  [ ("SAWScriptPrelude.topBind", toValue
-      (topBind :: () -> () -> SC s (Value s) -> (Value s -> SC s (Value s)) -> SC s (Value s)))
-  , ("SAWScriptPrelude.topReturn", toValue
-      (topReturn :: () -> Value s -> SC s (Value s)))
-  , ("SAWScriptPrelude.read_sbv", toValue
-      (readSBV :: FilePath -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.read_aig", toValue
-      (readAIGPrim :: FilePath -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.write_aig", toValue
-      (writeAIG :: FilePath -> SharedTerm s -> SC s ()))
-  , ("SAWScriptPrelude.write_smtlib1", toValue
-      (writeSMTLib1 :: FilePath -> SharedTerm s -> SC s ()))
-  , ("SAWScriptPrelude.write_smtlib2", toValue
-      (writeSMTLib2 :: FilePath -> SharedTerm s -> SC s ()))
-  , ("SAWScriptPrelude.llvm_extract", toValue
-      (extractLLVM :: FilePath -> String -> SharedTerm s -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.java_extract", toValue
-      (extractJava opts :: String -> String -> SharedTerm s -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.prove", toValue
-      (provePrim :: SharedTerm s -> SharedTerm s -> SC s String))
-  , ("SAWScriptPrelude.sat", toValue
-      (satPrim :: SharedTerm s -> SharedTerm s -> SC s String))
-  , ("SAWScriptPrelude.equal", toValue
-      (equalPrim :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.negate", toValue
-      (scNegate :: SharedTerm s -> SC s (SharedTerm s)))
-  -- Term building
-  , ("SAWScriptPrelude.termGlobal", toValue
-      (termGlobal :: String -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.termTrue", toValue (termTrue :: SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.termFalse", toValue (termFalse :: SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.termNat", toValue
-      (termNat :: Integer -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.termVec", toValue
-      (termVec :: Integer -> SharedTerm s -> Vector (SharedTerm s) -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.termTuple", toValue
-      (termTuple :: Integer -> Vector (SharedTerm s) -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.termRecord", toValue
-      (termRecord :: Integer -> Vector (String, SharedTerm s) -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.termSelect", toValue
-      (termSelect :: SharedTerm s -> String -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.termLocalVar", toValue
-      (termLocalVar :: Integer -> SharedTerm s -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.termGlobal", toValue
-      (termGlobal :: String -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.termLambda", toValue
-      (termLambda :: String -> SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
-  , ("SAWScriptPrelude.termApp", toValue
-      (termApp :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)))
-  -- Misc stuff
-  , ("SAWScriptPrelude.print", toValue
-      (myPrint :: () -> Value s -> SC s ()))
-  , ("SAWScriptPrelude.bvNatIdent", toValue ("Prelude.bvNat" :: String))
-  , ("SAWScript.predNat", toValue (pred :: Integer -> Integer))
-  , ("SAWScript.isZeroNat", toValue ((== 0) :: Integer -> Bool))
-  , ("SAWScriptPrelude.evaluate", toValue (evaluate global :: () -> SharedTerm s -> Value s))
-  , ("Prelude.append", toValue
-      (myAppend :: Int -> Int -> () -> Value s -> Value s -> Value s))
-  ]
-
-allPrims :: Options -> (Ident -> Value s) -> Map Ident (Value s)
-allPrims opts global = Map.union preludePrims (sawScriptPrims opts global)
+-- bitSequence :: {n} Integer -> [n]
+bitSequence :: SS.Type -> Integer -> Prim.BitVector
+bitSequence (SS.IntegerT w) x = Prim.BV (fromInteger w) x
+bitSequence t x = error $ "bitSequence " ++ show (t, x)
 
 --topReturn :: (a :: sort 0) -> a -> TopLevel a;
-topReturn :: () -> Value s -> SC s (Value s)
+topReturn :: () -> Value -> SC s Value
 topReturn _ = return
 
 --topBind :: (a b :: sort 0) -> TopLevel a -> (a -> TopLevel b) -> TopLevel b;
-topBind :: () -> () -> SC s (Value s) -> (Value s -> SC s (Value s)) -> SC s (Value s)
+topBind :: () -> () -> SC s Value -> (Value -> SC s Value) -> SC s Value
 topBind _ _ = (>>=)
 
 -- TODO: Add argument for uninterpreted-function map
-readSBV :: FilePath -> SC s (SharedTerm s)
-readSBV path =
-    mkSC $ \sc -> do
-      pgm <- SBV.loadSBV path
-      SBV.parseSBVPgm sc (\_ _ -> Nothing) pgm
+readSBV :: SharedContext s -> SS.Type -> FilePath -> IO (SharedTerm s)
+readSBV sc ty path =
+    do pgm <- SBV.loadSBV path
+       let ty' = importTyp (SBV.typOf pgm)
+       when (ty /= ty') $
+            fail $ "read_sbv: expected " ++ show ty ++ ", found " ++ show ty'
+            -- TODO: use a pretty-printer instead of 'show'
+       SBV.parseSBVPgm sc (\_ _ -> Nothing) pgm
+    where
+      importTyp :: SBV.Typ -> SS.Type
+      importTyp typ =
+        case typ of
+          SBV.TBool -> SS.BitT
+          SBV.TFun t1 t2 -> SS.FunctionT (importTyp t1) (importTyp t2)
+          SBV.TVec n t -> SS.ArrayT (importTyp t) (SS.IntegerT n)
+          SBV.TTuple ts -> SS.TupleT (map importTyp ts)
+          SBV.TRecord bs -> SS.RecordT [ (x, importTyp t) | (x, t) <- bs ]
 
 withBE :: (BE.BitEngine BE.Lit -> IO a) -> IO a
 withBE f = do
@@ -152,8 +102,8 @@ unLambda _ tm = return tm
 -- | Read an AIG file representing a theorem or an arbitrary function
 -- and represent its contents as a @SharedTerm@ lambda term. This is
 -- inefficient but semantically correct.
-readAIGPrim :: FilePath -> SC s (SharedTerm s)
-readAIGPrim f = mkSC $ \sc -> do
+readAIGPrim :: SharedContext s -> FilePath -> IO (SharedTerm s)
+readAIGPrim sc f = do
   et <- withReadAiger f $ \ntk -> do
     outputLits <- networkOutputs ntk
     inputLits <- networkInputs ntk
@@ -175,8 +125,8 @@ prepForExport sc t = do
 
 -- | Write a @SharedTerm@ representing a theorem or an arbitrary
 -- function to an AIG file.
-writeAIG :: FilePath -> SharedTerm s -> SC s ()
-writeAIG f t = mkSC $ \sc -> withBE $ \be -> do
+writeAIG :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
+writeAIG sc f t = withBE $ \be -> do
   t' <- prepForExport sc t
   mbterm <- bitBlast be t'
   case mbterm of
@@ -188,8 +138,8 @@ writeAIG f t = mkSC $ \sc -> withBE $ \be -> do
 
 -- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
 -- 1 file.
-writeSMTLib1 :: FilePath -> SharedTerm s -> SC s ()
-writeSMTLib1 f t = mkSC $ \sc -> do
+writeSMTLib1 :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
+writeSMTLib1 sc f t = do
   -- TODO: better benchmark name than "sawscript"?
   t' <- prepForExport sc t
   let ws = SMT1.qf_aufbv_WriterState sc "sawscript"
@@ -200,8 +150,8 @@ writeSMTLib1 f t = mkSC $ \sc -> do
 
 -- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
 -- 2 file.
-writeSMTLib2 :: FilePath -> SharedTerm s -> SC s ()
-writeSMTLib2 f t = mkSC $ \sc -> do
+writeSMTLib2 :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
+writeSMTLib2 sc f t = do
   t' <- prepForExport sc t
   let ws = SMT2.qf_aufbv_WriterState sc
   ws' <- execStateT (SMT2.assert t') ws
@@ -209,10 +159,19 @@ writeSMTLib2 f t = mkSC $ \sc -> do
         (map (fmap scPrettyTermDoc) (ws' ^. SMT2.warnings))
   writeFile f (SMT2.render ws')
 
+writeCore :: FilePath -> SharedTerm s -> IO ()
+writeCore path t = writeFile path (scWriteExternal t)
+
+readCore :: SharedContext s -> FilePath -> IO (SharedTerm s)
+readCore sc path = scReadExternal sc =<< readFile path
+
+type ProofScript a = a --FIXME
+type ProofResult = () --FIXME
+
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
-satABC :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
-satABC _script t = mkSC $ \sc -> withBE $ \be -> do
+satABC :: SharedContext s -> ProofScript ProofResult -> SharedTerm s -> IO (SharedTerm s)
+satABC sc _script t = withBE $ \be -> do
   t' <- prepForExport sc t
   mbterm <- bitBlast be t'
   case (mbterm, BE.beCheckSat be) of
@@ -228,29 +187,48 @@ satABC _script t = mkSC $ \sc -> withBE $ \be -> do
     (_, Nothing) -> fail "Backend does not support SAT checking."
     (Left err, _) -> fail $ "Can't bitblast: " ++ err
 
-scNegate :: SharedTerm s -> SC s (SharedTerm s)
-scNegate t = mkSC $ \sc -> do appNot <- scApplyPreludeNot sc ; appNot t
+scNegate :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
+scNegate sc t = do appNot <- scApplyPreludeNot sc ; appNot t
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- validity using ABC.
-provePrim :: SharedTerm s -> SharedTerm s -> SC s String
-provePrim script t = do
-  t' <- scNegate t
-  r <- satABC script t'
+provePrim :: SharedContext s -> ProofScript ProofResult -> SharedTerm s -> IO String
+provePrim sc script t = do
+  t' <- scNegate sc t
+  r <- satABC sc script t'
   return $
     case asCtor r of
       Just ("Prelude.True", []) -> "invalid"
       Just ("Prelude.False", []) -> "valid"
       _ -> "unknown"
 
-satPrim :: SharedTerm s -> SharedTerm s -> SC s String
-satPrim script t = do
-  r <- satABC script t
+satPrim :: SharedContext s -> ProofScript ProofResult -> SharedTerm s -> IO String
+satPrim sc script t = do
+  r <- satABC sc script t
   return $
     case asCtor r of
       Just ("Prelude.True", []) -> "sat"
       Just ("Prelude.False", []) -> "unsat"
       _ -> "unknown"
+
+-- TODO: Replace () with Simpset argument.
+rewritePrim :: SharedContext s -> () -> SharedTerm s -> IO (SharedTerm s)
+rewritePrim sc _ t = do
+  rs1 <- concat <$> traverse defRewrites defs
+  rs2 <- scEqsRewriteRules sc eqs
+  let simpset = addConvs procs (addRules (rs1 ++ rs2) emptySimpset)
+  rewriteSharedTerm sc simpset t
+  where
+    eqs = map (mkIdent preludeName)
+      ["get_single", "get_bvAnd", "get_bvOr", "get_bvXor", "get_bvNot",
+       "not_not", "get_slice", "bvAddZeroL", "bvAddZeroR"]
+    defs = map (mkIdent preludeName)
+      ["not", "and", "or", "xor", "boolEq", "ite", "addNat", "mulNat", "compareNat", "finSucc"]
+    procs = bvConversions ++ natConversions ++ finConversions ++ vecConversions
+    defRewrites ident =
+      case findDef (scModule sc) ident of
+        Nothing -> return []
+        Just def -> scDefRewriteRules sc def
 
 equal :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
 equal sc (STApp _ (Lambda (PVar x1 _ _) ty1 tm1)) (STApp _ (Lambda (PVar _ _ _) ty2 tm2)) =
@@ -283,63 +261,25 @@ equal sc t1 t2 = do
 equalPrim :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
 equalPrim t1 t2 = mkSC $ \sc -> equal sc t1 t2
 
--- Implementations of SharedTerm primitives
-
-termTrue :: SC s (SharedTerm s)
-termTrue = mkSC $ \sc -> scCtorApp sc "Prelude.True" []
-
-termFalse :: SC s (SharedTerm s)
-termFalse = mkSC $ \sc -> scCtorApp sc "Prelude.False" []
-
-termNat :: Integer -> SC s (SharedTerm s)
-termNat n = mkSC $ \sc -> scNat sc n
-
-termVec :: Integer -> SharedTerm s -> Vector (SharedTerm s) -> SC s (SharedTerm s)
-termVec _ t v = mkSC $ \sc -> scVector sc t (V.toList v)
-
--- TODO: termGet
-
-termTuple :: Integer -> Vector (SharedTerm s) -> SC s (SharedTerm s)
-termTuple _ tv = mkSC $ \sc -> scTuple sc (V.toList tv)
-
-termRecord :: Integer -> Vector (String, SharedTerm s) -> SC s (SharedTerm s)
-termRecord _ v = mkSC $ \sc -> scRecord sc (Map.fromList (V.toList v))
-
-termSelect :: SharedTerm s -> String -> SC s (SharedTerm s)
-termSelect t s = mkSC $ \sc -> scRecordSelect sc t s
-
-termLocalVar :: Integer -> SharedTerm s -> SC s (SharedTerm s)
-termLocalVar n t = mkSC $ \sc -> scLocalVar sc (fromInteger n) t
-
-termGlobal :: String -> SC s (SharedTerm s)
-termGlobal name = mkSC $ \sc -> scGlobalDef sc (parseIdent name)
-
-termLambda :: String -> SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
-termLambda s t1 t2 = mkSC $ \sc -> scLambda sc s t1 t2
-
-termApp :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
-termApp t1 t2 = mkSC $ \sc -> scApply sc t1 t2
-
 -- evaluate :: (a :: sort 0) -> Term -> a;
-evaluate :: (Ident -> Value s) -> () -> SharedTerm s -> Value s
+evaluate :: (Ident -> Value) -> () -> SharedTerm s -> Value
 evaluate global _ = evalSharedTerm global
 
-myPrint :: () -> Value s -> SC s ()
+myPrint :: () -> Value -> SC s ()
 myPrint _ (VString s) = mkSC $ const (putStrLn s)
 myPrint _ v = mkSC $ const (print v)
 
--- append :: (m n :: Nat) -> (e :: sort 0) -> Vec m e -> Vec n e -> Vec (addNat m n) e;
-myAppend :: Int -> Int -> () -> Value s -> Value s -> Value s
-myAppend _ _ _ (VWord a x) (VWord b y) = VWord (a + b) (x .|. shiftL y b)
-myAppend _ _ _ (VVector xv) (VVector yv) = VVector ((V.++) xv yv)
-myAppend _ _ _ _ _ = error "Prelude.append: malformed arguments"
+print_type :: SharedContext s -> SharedTerm s -> IO ()
+print_type sc t = scTypeOf sc t >>= print
+
+type LLVMSetup a = a --FIXME
 
 -- | Extract a simple, pure model from the given symbol within the
 -- given bitcode file. This code creates fresh inputs for all
 -- arguments and returns a term representing the return value. Some
 -- verifications will require more complex execution contexts.
-extractLLVM :: FilePath -> String -> SharedTerm s -> SC s (SharedTerm s)
-extractLLVM file func _setup = mkSC $ \sc -> do
+extractLLVM :: SharedContext s -> FilePath -> String -> LLVMSetup () -> IO (SharedTerm s)
+extractLLVM sc file func _setup = do
   mdl <- L.loadModule file
   let dl = L.parseDataLayout $ LLVM.modDataLayout mdl
       mg = L.defaultMemGeom dl
@@ -353,7 +293,7 @@ extractLLVM file func _setup = mkSC $ \sc -> do
       Just md -> L.runSimulator cb sbe mem L.defaultSEH Nothing $ do
         setVerbosity 0
         args <- mapM freshLLVMArg (L.sdArgs md)
-        L.callDefine_ sym (L.sdRetType md) args
+        _ <- L.callDefine sym (L.sdRetType md) args
         mrv <- L.getProgramReturnValue
         case mrv of
           Nothing -> fail "No return value from simulated function."
@@ -411,8 +351,10 @@ freshLLVMArg (_, _) = fail "Only integer arguments are supported for now."
 fixPos :: Pos
 fixPos = PosInternal "FIXME"
 
-extractJava :: Options -> String -> String -> SharedTerm s -> SC s (SharedTerm s)
-extractJava opts cname mname _setup =  mkSC $ \sc -> do
+type JavaSetup a = a -- FIXME
+
+extractJava :: SharedContext s -> Options -> String -> String -> JavaSetup () -> IO (SharedTerm s)
+extractJava sc opts cname mname _setup = do
   cb <- JSS.loadCodebase (jarList opts) (classPath opts)
   let cname' = JP.dotsToSlashes cname
   cls <- lookupClass cb fixPos cname'

@@ -1,6 +1,15 @@
 main : TopLevel ();
 main = do {
-  t <- read_sbv "examples/add_comm.sbv";
-  t2 <- negate t;
+  (t : [8] -> Bit) <- read_sbv "add_comm.sbv";
+  let t2 x = not (t x);
+  print "Writing add_comm.aig";
   write_aig "add_comm.aig" t2;
+  print "Tests:";
+  print [t2 1, t2 2, t2 3, t2 4, t2 5];
+  print "Reading add_comm.aig";
+  t3 <- read_aig "add_comm.aig";
+  print "Type:";
+  print_type (t3 : [8] -> Bit); // FIXME: actually [8] -> [1]. Why?
+  print "Tests:";
+  print [t3 1, t3 2, t3 3, t3 4, t3 5];
 };

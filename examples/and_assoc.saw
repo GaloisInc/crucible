@@ -1,0 +1,5 @@
+main = do {
+  let and_assoc x y z = ((x && y) && z) == (x && (y && z));
+  result <- prove abc and_assoc;
+  print result;
+};

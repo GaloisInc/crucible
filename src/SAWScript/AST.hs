@@ -176,7 +176,7 @@ data Expr refT typeT
 
 data BlockStmt refT typeT
  -- Bind          bind var         context   expr
-  = Bind          (Maybe Name)     typeT     (Expr refT typeT)
+  = Bind          (Maybe (Bind typeT))     typeT     (Expr refT typeT)
   | BlockTypeDecl Name             typeT  
   | BlockLet      [(Name,Expr refT typeT)]
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
