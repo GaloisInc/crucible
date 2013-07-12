@@ -478,13 +478,13 @@ interpret sc vm tm sm expr =
       SS.Bit b             _ -> return $ VBool b
       SS.Quote s           _ -> return $ VString s
       SS.Z z               _ -> return $ VInteger z
-      SS.Array es          _ -> VArray <$> traverse (interpret sc vm tm) es
+      SS.Array es          _ -> VArray <$> traverse (interpret sc vm tm sm) es
       SS.Undefined         _ -> fail "interpret: undefined"
-      SS.Block stmts       _ -> interpretStmts sc vm tm stmts
-      SS.Tuple es          _ -> VTuple <$> traverse (interpret sc vm tm) es
-      SS.Record bs         _ -> VRecord <$> traverse (traverse (interpret sc vm tm)) bs
-      SS.Index e1 e2       _ -> do a <- interpret sc vm tm e1
-                                   i <- interpret sc vm tm e2
+      SS.Block stmts       _ -> interpretStmts sc vm tm sm stmts
+      SS.Tuple es          _ -> VTuple <$> traverse (interpret sc vm tm sm) es
+      SS.Record bs         _ -> VRecord <$> traverse (traverse (interpret sc vm tm sm)) bs
+      SS.Index e1 e2       _ -> do a <- interpret sc vm tm sm e1
+                                   i <- interpret sc vm tm sm e2
                                    return (indexValue a i)
       SS.Lookup e n        _ -> do a <- interpret sc vm tm sm e
                                    return (lookupValue a n)
