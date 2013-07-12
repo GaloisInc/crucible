@@ -23,14 +23,15 @@ import System.FilePath
 
 import Debug.Trace
 
+preludePath :: FilePath
+preludePath = "src/SAWScript/Prelude.saw"
+
 loadPrelude :: Options -> (LoadedModules -> IO ()) -> IO ()
 loadPrelude opts k = do
-  let preludePath = "/home/kcarter/work/Verifier/SAWScript/src/SAWScript/Prelude.saw"
   loadModule opts preludePath emptyLoadedModules k
 
 loadWithPrelude :: Options -> FilePath -> (LoadedModules -> IO ()) -> IO ()
 loadWithPrelude opts fname k = do
-  let preludePath = "/home/kcarter/work/Verifier/SAWScript/src/SAWScript/Prelude.saw"
   loadModule opts preludePath emptyLoadedModules $ \lms ->
     loadModule opts fname lms k
 
