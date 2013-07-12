@@ -24,7 +24,7 @@ import System.FilePath
 import Debug.Trace
 
 preludePath :: FilePath
-preludePath = "src/SAWScript/Prelude.saw"
+preludePath = "prelude/Prelude.saw"
 
 loadPrelude :: Options -> (LoadedModules -> IO ()) -> IO ()
 loadPrelude opts k = do

@@ -55,7 +55,8 @@ moduleNameFromString nm = case ns of
 moduleNameFromPath :: FilePath -> ModuleName
 moduleNameFromPath fp = case ns of
   [] -> error "ModuleName cannot be made from empty string"
-  _  -> ModuleName (init ns) (last ns)
+  -- _  -> ModuleName (init ns) (last ns)
+  _  -> ModuleName [] (last ns)
   where
   ns = splitPath $ dropExtension fp
 

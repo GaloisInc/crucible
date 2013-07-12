@@ -580,7 +580,9 @@ interpretModule
     -> Map SS.ResolvedName (SharedTerm s)
     -> SS.ValidModule -> IO (Value s)
 interpretModule sc vm tm sm m = interpret sc vm tm sm main
-    where main = (M.!) (SS.moduleExprEnv m) "main"
+    where main = case M.lookup "main" (SS.moduleExprEnv m) of
+                   Just mn -> mn
+                   Nothing -> error $ "No main in module " ++ show (SS.moduleName m)
 
 -- | Interpret function 'main' using the default value environments.
 interpretMain :: Options -> SS.ValidModule -> IO ()

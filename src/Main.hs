@@ -65,7 +65,8 @@ processModule opts lms modName =
          >=> (\cms -> case M.lookup modName cms of
                Just cm -> return cm
                Nothing -> fail $ "Module " ++ show modName ++
-                                 " not found in environment of checkedModules")
+                                 " not found in environment of checkedModules:" ++
+                                 show (M.keys cms))
 
 
 checkModuleWithDeps :: BM.ModuleParts (ExprSimple RawT)
