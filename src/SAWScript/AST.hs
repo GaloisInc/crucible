@@ -115,9 +115,10 @@ insertEnv = M.insert
 
 -- Module Level {{{
 
-data Module exprT typeT = Module
+data Module refT exprT typeT = Module
   { moduleName         :: ModuleName
-  , moduleExprEnv      :: Env exprT
+  , moduleExprEnv      :: Env (Expr refT exprT)
+  , modulePrimEnv      :: Env exprT
   , moduleTypeEnv      :: Env typeT
   , moduleDependencies :: ModuleEnv ValidModule
   } deriving (Eq,Show)
@@ -125,7 +126,7 @@ data Module exprT typeT = Module
 -- A fully type checked module.
 --  Exprs have resolved names, concrete types
 --  Types have ResolvedT (Nothing for abstract types, Just FullT for type synonyms)
-type ValidModule = Module (Expr ResolvedName Type) ResolvedT
+type ValidModule = Module ResolvedName Type ResolvedT
 
 -- }}}
 
@@ -141,13 +142,15 @@ data TopStmt refT typeT
   | TopTypeDecl Name       RawSigT
   | AbsTypeDecl Name
   | TopBind     Name       (Expr refT typeT)
-  | Prim        Name       RawSigT
+  | Prim        Name       RawT
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
+{-
 data Exprs refT typeT
   = PrimExpr typeT
   | Defined (Expr refT typeT)
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
+-}
 
 data Expr refT typeT
   -- Constants

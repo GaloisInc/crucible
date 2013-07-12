@@ -123,7 +123,7 @@ TopStmt :: { TopStmtSimple RawT }
  | name ':' PolyType                    { TopTypeDecl $1 $3  }
  | 'type' name '=' Type                 { TypeDef $2 $4      }
  | 'abstract' name                      { AbsTypeDecl $2     }
- | 'prim' name ':' PolyType             { Prim $2 $4         }
+ | 'prim' name ':' PolyType             { Prim $2 (Just $4)  }
  | Declaration                          { uncurry TopBind $1 }
 
 Import :: { TopStmtSimple RawT }
@@ -313,7 +313,7 @@ unresolvedQ (ns,n) = UnresolvedName ns n
 
 parseError :: [Token Pos] -> Err b
 parseError toks = case toks of
-  []  -> fail "Parse error, but where?"
+  []  -> fail "Parse error: unexpected end of file"
   t:_ -> fail ("Parse error at line " ++ show ln ++ ", col " ++ show col)
     where
     Pos _ ln col = tokPos t

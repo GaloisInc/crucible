@@ -338,6 +338,10 @@ translateField (n,e) = (,) <$> pure n <*> translateExpr e
 translateTypeField :: (a,A.FullT) -> Err (a,Type)
 translateTypeField (n,e) = (,) <$> pure n <*> translateType e
 
+translateMTypeS :: A.ResolvedT -> Err Schema
+translateMTypeS (Just t) = translateTypeS t
+translateMTypeS Nothing  = fail "Cannot translate type of prim, received Nothing"
+
 translateTypeS :: A.FullT -> Err Schema
 translateTypeS (In (Inl (A.I n)))   = return $ tMono $ tNum n
 translateTypeS (In (Inr (Inl ctx))) = return $ tMono $
@@ -760,25 +764,38 @@ checkKind = return
 
 -- Main interface {{{
 
-checkModule :: Compiler (A.Module (A.Expr A.ResolvedName A.ResolvedT) A.ResolvedT)
-                        (A.Module (A.Expr A.ResolvedName A.Type)      A.ResolvedT)
-checkModule = compiler "TypeCheck" $ \m -> do
-  initTs <- sequence
-    [ (,) <$> pure (A.TopLevelName mn n) <*> s
+checkModule :: -- [(A.ResolvedName,Schema)] ->
+               Compiler (A.Module A.ResolvedName A.ResolvedT A.ResolvedT)
+                        (A.Module A.ResolvedName A.Type      A.ResolvedT)
+checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
+  let modName = A.moduleName m
+  let eEnv    = A.moduleExprEnv m
+  exprs <- traverse translateExpr eEnv
+  initTs <- sequence $ concat
+    [ [ (,) <$> pure (A.TopLevelName mn n) <*> s
+      | (n,e) <- modExprs dep
+      , let s = importTypeS $ A.typeOf e
+      ] ++
+      [ (,) <$> pure (A.TopLevelName mn n) <*> importTypeS p
+      | (n,p) <- modPrims dep
+      ]
     | (mn,dep) <- depMods m
-    , (n,e)    <- M.toList (A.moduleExprEnv dep)
-    , let t = A.typeOf e
-    , let s = importTypeS t
     ]
-  exprs <- traverse translateExpr $ A.moduleExprEnv m
+  (primTs,prims) <- unzip <$> sequence [ (,) <$> ((,) <$> pure (A.TopLevelName modName n) <*> t')
+                                             <*> ((,) <$> pure n <*> t')
+                                       | (n,t) <- modPrims m
+                                       , let t' = translateMTypeS t
+                                       ]
   let nes  = M.toList exprs
-  let sccs = computeSCCGroups (A.moduleName m) nes
-  let go = bindSchemas initTs (inferTopDecls sccs >>= exportBinds)
+  let sccs = computeSCCGroups modName nes
+  let go = bindSchemas (initTs ++ primTs) ((,) <$> (inferTopDecls sccs >>= exportBinds) <*> traverse exportSchema (M.fromList prims) )
   case evalTI (A.moduleName m) go of
-    Right res  -> return $ m { A.moduleExprEnv = M.fromList res }
-    Left errs -> fail $ unlines errs
+    Right (exprRes,primRes) -> return $ m { A.moduleExprEnv = M.fromList exprRes , A.modulePrimEnv = primRes }
+    Left errs               -> fail $ unlines errs
   where
   depMods = M.toList . A.moduleDependencies
+  modExprs = M.toList . A.moduleExprEnv
+  modPrims = M.toList . A.modulePrimEnv
 
   exportBinds dss = sequence [ do e1 <- exportExpr e
                                   return (x,e1)
