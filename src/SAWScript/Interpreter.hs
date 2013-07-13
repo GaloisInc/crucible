@@ -650,8 +650,8 @@ coreEnv sc =
   traverse (scGlobalDef sc . parseIdent) $ M.fromList $
     [ (qualify "bitSequence", "Prelude.bvNat")
     , (qualify "not"        , "Prelude.not")
-    , (qualify "and"        , "Prelude.and")
-    , (qualify "or"         , "Prelude.or")
+    , (qualify "conj"       , "Prelude.and")
+    , (qualify "disj"       , "Prelude.or")
     , (qualify "eq"         , "Prelude.eq")
     ]
 

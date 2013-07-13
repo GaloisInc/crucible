@@ -179,8 +179,8 @@ InfixOp :: { Name }
  | '>'            { "gt"                         }
  | '<='           { "leq"                        }
  | '<'            { "lt"                         }
- | '&&'           { "and"                        }
- | '||'           { "or"                         }
+ | '&&'           { "conj"                       }
+ | '||'           { "disj"                       }
  | '==>'          { "implies"                    }
 
 AExpr :: { ExprSimple RawT }
