@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE RankNTypes #-}
 module SAWScript.Compiler where
 
 import Control.Applicative
@@ -15,7 +16,7 @@ import SAWScript.Utils
 -- | Wrapper around compiler function to format the result or error
 runCompiler :: (Show b) => Compiler a b -> a -> (b -> IO ()) -> IO ()
 runCompiler f a k = do
-  runE (f a)
+  runErr (f a)
     reportError
     k -- continuation
 
@@ -24,44 +25,42 @@ reportError = putStrLn . ("Error\n" ++) . indent 2
 
 type Compiler a b = a -> Err b
 
-type Err = E (IO ())
+newtype Err a = Err { runErr :: forall r. (String -> r) -> (a -> r) -> r }
 
-newtype E r a = E { runE :: (String -> r) -> (a -> r) -> r }
+instance Functor Err where
+  fmap f m = Err $ \ fl sc -> runErr m fl (sc . f)
 
-instance Functor (E r) where
-  fmap f m = E $ \ fl sc -> runE m fl (sc . f)
+instance Monad Err where
+  return a = Err $ \ _  sc -> sc a
+  m >>= k  = Err $ \ fl sc ->
+    runErr m fl $ \ a ->
+      runErr (k a) fl sc
+  fail str = Err $ \ fl _  -> fl str
 
-instance Monad (E r) where
-  return a = E $ \ _  sc -> sc a
-  m >>= k  = E $ \ fl sc ->
-    runE m fl $ \ a ->
-      runE (k a) fl sc
-  fail str = E $ \ fl _  -> fl str
-
-instance MonadPlus (E r) where
+instance MonadPlus Err where
   mzero = fail "mzero"
-  m1 `mplus` m2 = E $ \ fl sc ->
-    runE m1 (\err -> runE m2 (\err' -> fl (err ++ "\n" ++ err')) sc) sc
+  m1 `mplus` m2 = Err $ \ fl sc ->
+    runErr m1 (\err -> runErr m2 (\err' -> fl (err ++ "\n" ++ err')) sc) sc
 
-instance Applicative (E r) where
+instance Applicative Err where
   pure = return
   (<*>) = ap
 
-instance Alternative (E r) where
+instance Alternative Err where
   empty = mzero
   (<|>) = mplus
 
-after :: IO () -> Compiler a b -> Compiler a b
-after m pass = pass `onFailure` (\f' s -> m >> f' s) `onSuccess` (\f' res -> m >> f' res)
+--after :: IO () -> Compiler a b -> Compiler a b
+--after m pass = pass `onFailure` (\f' s -> m >> f' s) `onSuccess` (\f' res -> m >> f' res)
 
-onFailure :: Compiler a b -> ((String -> IO ()) -> String -> IO ()) -> Compiler a b
-(pass `onFailure` handler) input = E $ \fl sc -> runE (pass input) (handler fl) sc
+onFailure :: Compiler a b -> (forall r. (String -> r) -> String -> r) -> Compiler a b
+(pass `onFailure` handler) input = Err $ \fl sc -> runErr (pass input) (handler fl) sc
 
-onSuccess :: Compiler a b -> ((b -> IO ()) -> b -> IO ()) -> Compiler a b
-(pass `onSuccess` handler) input = E $ \fl sc -> runE (pass input) fl (handler sc)
+onSuccess :: Compiler a b -> (forall r. (b -> r) -> b -> r) -> Compiler a b
+(pass `onSuccess` handler) input = Err $ \fl sc -> runErr (pass input) fl (handler sc)
 
-onFailureRes :: E r a -> ((String -> r) -> String -> r) -> E r a
-m `onFailureRes` handler = E $ \fl sc -> runE m (handler fl) sc
+onFailureRes :: Err a -> (forall r. (String -> r) -> String -> r) -> Err a
+m `onFailureRes` handler = Err $ \fl sc -> runErr m (handler fl) sc
 
 compiler :: Show a => String -> Compiler a b -> Compiler a b
 compiler name comp input = onFailureRes (comp input) $ \fl err ->
