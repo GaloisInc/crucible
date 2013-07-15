@@ -395,7 +395,7 @@ importType typ = case typ of
   A.QuoteT          -> return tString
   A.ContextT cxt    -> return $ tContext cxt
   A.IntegerT n      -> return $ tNum n
-  A.ArrayT l t      -> tArray <$> importType l <*> importType t
+  A.ArrayT t l      -> tArray <$> importType l <*> importType t
   A.BlockT c t      -> tBlock <$> importType c <*> importType t
   A.TupleT ts       -> tTuple <$> mapM importType ts
   A.RecordT fs      -> TyRecord . M.fromList <$> mapM importField fs
