@@ -30,7 +30,6 @@ import qualified SAWScript.AST as SS
 import SAWScript.Builtins hiding (evaluate)
 import qualified SAWScript.NewAST as New
 import SAWScript.Options
-import SAWScript.Prelude
 import Verifier.SAW.Prelude (preludeModule)
 import qualified Verifier.SAW.Prim as Prim
 import Verifier.SAW.SharedTerm
@@ -650,8 +649,17 @@ interpretMain opts m =
                  emptyModule mn
        sc <- mkSharedContext scm
        env <- coreEnv sc
-       v <- interpretModule sc (valueEnv opts sc) tyEnv env m
+       v <- interpretModule sc (valueEnv opts sc) (transitivePrimEnv m) env m
        (fromValue v :: IO ())
+
+-- | Collects primitives from the module and all its transitive dependencies.
+transitivePrimEnv :: SS.ValidModule -> Map SS.ResolvedName SS.Type
+transitivePrimEnv m = M.unions (env : envs)
+  where
+    mn = SS.moduleName m
+    env = M.mapKeysMonotonic (SS.TopLevelName mn) (SS.modulePrimEnv m)
+    envs = map transitivePrimEnv (M.elems (SS.moduleDependencies m))
+
 
 -- Primitives ------------------------------------------------------------------
 
@@ -676,32 +684,6 @@ valueEnv opts sc = M.fromList
   , (qualify "print_type"  , toValue $ print_type sc)
   , (qualify "print_term"  , toValue ((putStrLn . scPrettyTerm) :: SharedTerm s -> IO ()))
   ]
-
-tyEnv :: M.Map SS.ResolvedName SS.Type
-tyEnv = fmap schema (M.fromList preludeEnv)
-  where
-    schema :: New.Schema -> SS.Type
-    schema (New.Forall ns t) = SS.TypAbs ns (go t)
-    go :: New.Type -> SS.Type
-    go ty =
-      case ty of
-        New.TyRecord m -> SS.RecordT [ (x, go t) | (x, t) <- M.assocs m ]
-        New.TyCon (New.TupleCon n) ts
-            | toInteger (length ts) == n  -> SS.TupleT (map go ts)
-        New.TyCon New.ArrayCon   [t1, t2] -> SS.ArrayT (go t2) (go t1) -- Note: order is swapped!
-        New.TyCon New.FunCon     [t1, t2] -> SS.FunctionT (go t1) (go t2)
-        New.TyCon New.StringCon  []       -> SS.QuoteT
-        New.TyCon New.BoolCon    []       -> SS.BitT
-        New.TyCon New.ZCon       []       -> SS.ZT
-        New.TyCon (New.NumCon n) []       -> SS.IntegerT n
-        New.TyCon New.BlockCon   [t1, t2] -> SS.BlockT (go t1) (go t2)
-        New.TyCon (New.ContextCon c) []   -> SS.ContextT c
-        New.TyCon (New.AbstractCon s) []  -> SS.Abstract s
-        New.TyVar (New.FreeVar i)         -> SS.TypVar (show i)
-        New.TyVar (New.BoundVar x)        -> SS.TypVar x
-        _ -> error "internal error: invalid type"
--- FIXME: I should use MGU.exportSchema, but that can only be run in the IO monad.
--- TODO: We should extract additional typing information from the imported modules
 
 coreEnv :: SharedContext s -> IO (M.Map SS.ResolvedName (SharedTerm s))
 coreEnv sc =
