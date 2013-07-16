@@ -326,6 +326,64 @@ translateType sc tenv ty =
                               k' <- translateKind sc k
                               scLocalVar sc i k'
 
+translatableType' :: New.Type -> Bool
+translatableType' ty =
+    case ty of
+      New.TyRecord m                -> all translatableType' (M.elems m)
+      New.TyCon (New.TupleCon _) ts -> all translatableType' ts
+      New.TyCon New.ArrayCon [l, t] -> translatableType' l && translatableType' t
+      New.TyCon New.FunCon [a, b]   -> translatableType' a && translatableType' b
+      New.TyCon New.BoolCon []      -> True
+      New.TyCon New.ZCon []         -> True
+      New.TyCon (New.NumCon _) []   -> True
+      New.TyVar (New.BoundVar _)    -> True
+      _                             -> False
+
+-- | Precondition: translatableType' ty
+translateType'
+    :: SharedContext s
+    -> Map SS.Name (Int, Kind)
+    -> New.Type -> IO (SharedTerm s)
+translateType' sc tenv ty =
+    case ty of
+      New.TyRecord tm               -> do tm' <- traverse (translateType' sc tenv) tm
+                                          scRecordType sc tm'
+      New.TyCon (New.TupleCon _) ts -> do ts' <- traverse (translateType' sc tenv) ts
+                                          scTupleType sc ts'
+      New.TyCon New.ArrayCon [n, t] -> do n' <- translateType' sc tenv n
+                                          t' <- translateType' sc tenv t
+                                          scVecType sc n' t'
+      New.TyCon New.FunCon [a, b]   -> do a' <- translateType' sc tenv a
+                                          b' <- translateType' sc tenv b
+                                          scFun sc a' b'
+      New.TyCon New.BoolCon []      -> scBoolType sc
+      New.TyCon New.ZCon []         -> scNatType sc
+      New.TyCon (New.NumCon n) []   -> scNat sc n
+      New.TyVar (New.BoundVar x)    -> case M.lookup x tenv of
+                                         Nothing -> fail $ "translateType: unbound type variable: " ++ x
+                                         Just (i, k) -> do
+                                           k' <- translateKind sc k
+                                           scLocalVar sc i k'
+      _                             -> fail "untranslatable type"
+
+translatableSchema :: New.Schema -> Bool
+translatableSchema (New.Forall _xs t) = translatableType' t
+
+translateSchema
+    :: SharedContext s
+    -> Map SS.Name (Int, Kind)
+    -> New.Schema -> IO (SharedTerm s)
+translateSchema sc tenv0 (New.Forall xs0 t) = go tenv0 xs0
+  where
+    go tenv [] = translateType' sc tenv t
+    go tenv (x : xs) = do
+      let inc (i, k) = (i + 1, k)
+      let k = KStar
+      let tenv' = M.insert x (0, k) (fmap inc tenv)
+      k' <- translateKind sc k
+      t' <- go tenv' xs
+      scPi sc x k' t'
+
 translatableExpr :: Set SS.ResolvedName -> Expression -> Bool
 translatableExpr env expr =
     case expr of
