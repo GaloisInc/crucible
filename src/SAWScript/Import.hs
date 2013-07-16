@@ -1,10 +1,11 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE QuasiQuotes #-}
 module SAWScript.Import
   ( loadWithPrelude
-  , loadPrelude
   , loadModule
   , findAndLoadModule
   , emptyLoadedModules
+  , preludeLoadedModules
   , LoadedModules(..)
   ) where
 
@@ -14,6 +15,7 @@ import Data.Maybe
 
 import SAWScript.AST
 import SAWScript.Compiler
+import SAWScript.FileQuote (litFile)
 import SAWScript.Lexer
 import SAWScript.Options
 import SAWScript.Parser
@@ -26,14 +28,17 @@ import Debug.Trace
 preludePath :: FilePath
 preludePath = "prelude/Prelude.saw"
 
-loadPrelude :: Options -> (LoadedModules -> IO ()) -> IO ()
-loadPrelude opts k = do
-  loadModule opts preludePath emptyLoadedModules k
+preludeLoadedModules :: LoadedModules
+preludeLoadedModules =
+  runErr (formModule preludePath [litFile|prelude/Prelude.saw|]) error
+         (\m -> ms { modules = Map.insert mn m (modules ms) })
+  where
+    ms = emptyLoadedModules
+    mn = moduleNameFromPath preludePath
 
 loadWithPrelude :: Options -> FilePath -> (LoadedModules -> IO ()) -> IO ()
 loadWithPrelude opts fname k = do
-  loadModule opts preludePath emptyLoadedModules $ \lms ->
-    loadModule opts fname lms k
+  loadModule opts fname preludeLoadedModules k
 
 loadModule :: Options -> FilePath -> LoadedModules
   -> (LoadedModules -> IO ()) -> IO ()
