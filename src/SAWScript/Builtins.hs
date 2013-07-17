@@ -54,7 +54,7 @@ import Verinf.Utils.LogMonad
 
 -- bitSequence :: {n} Integer -> [n]
 bitSequence :: SS.Type -> Integer -> Prim.BitVector
-bitSequence (SS.IntegerT w) x = Prim.BV (fromInteger w) x
+bitSequence (SS.TyCon (SS.NumCon w) []) x = Prim.BV (fromInteger w) x
 bitSequence t x = error $ "bitSequence " ++ show (t, x)
 
 --topReturn :: (a :: sort 0) -> a -> TopLevel a;
@@ -78,11 +78,11 @@ readSBV sc ty path =
       importTyp :: SBV.Typ -> SS.Type
       importTyp typ =
         case typ of
-          SBV.TBool -> SS.BitT
-          SBV.TFun t1 t2 -> SS.FunctionT (importTyp t1) (importTyp t2)
-          SBV.TVec n t -> SS.ArrayT (importTyp t) (SS.IntegerT n)
-          SBV.TTuple ts -> SS.TupleT (map importTyp ts)
-          SBV.TRecord bs -> SS.RecordT [ (x, importTyp t) | (x, t) <- bs ]
+          SBV.TBool -> SS.TyCon SS.BoolCon []
+          SBV.TFun t1 t2 -> SS.TyCon SS.FunCon [importTyp t1, importTyp t2]
+          SBV.TVec n t -> SS.TyCon SS.ArrayCon [SS.TyCon (SS.NumCon n) [], importTyp t]
+          SBV.TTuple ts -> SS.TyCon (SS.TupleCon (toInteger (length ts))) (map importTyp ts)
+          SBV.TRecord bs -> SS.TyRecord (fmap importTyp (Map.fromList bs))
 
 withBE :: (BE.BitEngine BE.Lit -> IO a) -> IO a
 withBE f = do

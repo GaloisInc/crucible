@@ -4,14 +4,15 @@
 
 module SAWScript.AST where
 
-import SAWScript.Unify
+import SAWScript.Unify hiding (pretty)
 
 import Data.List
 import qualified Data.Map as M
 
-import Data.Foldable hiding (concat, elem)
+import Data.Foldable (Foldable)
 import qualified Data.Traversable as T
 import System.FilePath (joinPath,splitPath,dropExtension)
+import qualified Text.PrettyPrint.HughesPJ as PP
 
 -- Intermediate Types {{{
 
@@ -127,7 +128,7 @@ data Module refT exprT typeT = Module
 -- A fully type checked module.
 --  Exprs have resolved names, concrete types
 --  Types have ResolvedT (Nothing for abstract types, Just FullT for type synonyms)
-type ValidModule = Module ResolvedName Type ResolvedT
+type ValidModule = Module ResolvedName Schema ResolvedT
 
 -- }}}
 
@@ -205,11 +206,6 @@ data TypeF typeT
   | PAbs [Name] typeT
   deriving (Show,Functor,Foldable,T.Traversable)
 
-data TVar
-  = TVarFree Int
-  | TVarBound Name
-  deriving (Show)
-
 data ContextF typeT
   = CryptolSetupContext
   | JavaSetupContext
@@ -217,22 +213,6 @@ data ContextF typeT
   | ProofScriptContext
   | TopLevelContext
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
-
-data Type 
-  = BitT
-  | ZT
-  | QuoteT
-  | ContextT Context
-  | IntegerT Integer
-  | ArrayT Type Type
-  | BlockT Type Type
-  | TupleT [Type]
-  | RecordT [Bind Type]
-  | FunctionT Type Type
-  | Abstract Name
-  | TypAbs [Name] Type
-  | TypVar Name
-  deriving (Eq,Show)
 
 data Syn typeF = Syn Name
   deriving (Show,Functor,Foldable,T.Traversable)
@@ -246,6 +226,151 @@ data Context
   deriving (Eq,Show)
 
 data I a = I Integer deriving (Show,Functor,Foldable,T.Traversable)
+
+data Type
+  = TyCon TyCon [Type]
+  | TyRecord (M.Map Name Type)
+  | TyVar TyVar
+ deriving (Eq,Show) 
+
+data TyVar
+  = FreeVar Integer
+  | BoundVar Name
+ deriving (Eq,Ord,Show) 
+
+data TyCon
+ = TupleCon Integer
+ | ArrayCon
+ | FunCon
+ | StringCon
+ | BoolCon
+ | ZCon
+ | NumCon Integer
+ | BlockCon
+ | ContextCon Context
+ | AbstractCon String
+ deriving (Eq,Show) 
+
+data Schema = Forall [Name] Type deriving (Eq, Show)
+
+-- }}}
+
+-- Pretty Printing {{{
+
+pShow :: PrettyPrint a => a -> String
+pShow = show . pretty True
+
+class PrettyPrint p where
+  -- Bool indicates whether term should be parenthesized, eg. if rendering is space separated.
+  pretty :: Bool -> p -> PP.Doc
+
+instance PrettyPrint Schema where
+  pretty _ (Forall ns t) = case ns of
+    [] -> pretty False t
+    _  -> PP.braces (commaSepAll $ map PP.text ns) PP.<+> pretty False t
+
+instance PrettyPrint Type where
+  pretty par t@(TyCon tc ts) = case (tc,ts) of
+    (_,[])                 -> pretty par tc
+    (TupleCon n,_)         -> PP.parens $ commaSepAll $ map (pretty False) ts
+    (ArrayCon,[len,TyCon BoolCon []]) -> PP.brackets (pretty False len)
+    (ArrayCon,[len,typ])   -> PP.brackets (pretty False len) PP.<> (pretty True typ)
+    (FunCon,[f,v])         -> (if par then PP.parens else id) $
+                                pretty False f PP.<+> PP.text "->" PP.<+> pretty False v
+    (BlockCon,[cxt,typ])   -> (if par then PP.parens else id) $
+                                pretty True cxt PP.<+> pretty True typ
+    _ -> error $ "malformed TyCon: " ++ pShow t
+  pretty par (TyRecord fs) =
+      PP.braces
+    $ commaSepAll
+    $ map (\(n,t) -> PP.text n `prettyTypeSig` pretty False t)
+    $ M.toList fs
+  pretty par (TyVar tv) = pretty par tv
+
+instance PrettyPrint TyVar where
+  pretty par tv = case tv of
+    FreeVar n  -> PP.text "fv." PP.<> PP.integer n
+    BoundVar n -> PP.text n
+
+instance PrettyPrint TyCon where
+  pretty par tc = case tc of
+    TupleCon n     -> PP.parens $ replicateDoc (n - 1) $ PP.char ','
+    ArrayCon       -> PP.parens $ PP.brackets $ PP.empty
+    FunCon         -> PP.parens $ PP.text "->"
+    StringCon      -> PP.text "String"
+    BoolCon        -> PP.text "Bit"
+    ZCon           -> PP.text "Int"
+    NumCon n       -> PP.integer n
+    BlockCon       -> PP.text "<Block>"
+    ContextCon cxt -> pretty par cxt
+    AbstractCon n  -> PP.text n
+
+instance PrettyPrint Context where
+  pretty _ c = case c of
+    CryptolSetup -> PP.text "CryptolSetup"
+    JavaSetup    -> PP.text "JavaSetup"
+    LLVMSetup    -> PP.text "LLVMSetup"
+    ProofScript  -> PP.text "ProofScript"
+    TopLevel     -> PP.text "TopLevel"
+
+replicateDoc :: Integer -> PP.Doc -> PP.Doc
+replicateDoc n d 
+  | n < 1 = PP.empty
+  | True  = d PP.<> replicateDoc (n-1) d
+
+prettyTypeSig :: PP.Doc -> PP.Doc -> PP.Doc
+prettyTypeSig n t = n PP.<+> PP.char ':' PP.<+> t
+
+commaSep :: PP.Doc -> PP.Doc -> PP.Doc
+commaSep = ((PP.<+>) . (PP.<> PP.comma))
+
+commaSepAll :: [PP.Doc] -> PP.Doc
+commaSepAll ds = case ds of
+  [] -> PP.empty
+  _  -> foldl1 commaSep ds
+
+-- }}}
+
+-- Type Constructors {{{
+
+tMono :: Type -> Schema
+tMono = Forall []
+
+tForall :: [Name] -> Schema -> Schema
+tForall xs (Forall ys t) = Forall (xs ++ ys) t
+
+tTuple :: [Type] -> Type
+tTuple ts = TyCon (TupleCon $ fromIntegral $ length ts) ts
+
+tArray :: Type -> Type -> Type
+tArray l t = TyCon ArrayCon [l,t]
+
+tFun :: Type -> Type -> Type
+tFun f v = TyCon FunCon [f,v]
+
+tString :: Type
+tString = TyCon StringCon []
+
+tBool :: Type
+tBool = TyCon BoolCon []
+
+tZ :: Type
+tZ = TyCon ZCon []
+
+tNum :: Integral a => a -> Type
+tNum n = TyCon (NumCon $ toInteger n) []
+
+tBlock :: Type -> Type -> Type
+tBlock c t = TyCon BlockCon [c,t]
+
+tContext :: Context -> Type
+tContext c = TyCon (ContextCon c) []
+
+tAbstract :: Name -> Type
+tAbstract n = TyCon (AbstractCon n) []
+
+boundVar :: Name -> Type
+boundVar n = TyVar (BoundVar n) 
 
 -- }}}
 

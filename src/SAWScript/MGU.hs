@@ -6,7 +6,7 @@ module SAWScript.MGU where
 
 import           SAWScript.Unify.Fix(Mu(..),(:+:)(..))
 import qualified SAWScript.AST as A
-import SAWScript.AST (Bind)
+import SAWScript.AST hiding (Expr(..), BlockStmt(..), Name)
 import SAWScript.NewAST
 import SAWScript.Compiler
 
@@ -383,66 +383,14 @@ translateType typ = do t' <- translateTypeS typ
                          Forall [] t -> return t
                          s -> fail $ "can't translate schema to a monomorphic type: " ++ show s
 
-importTypeS :: A.Type -> Err Schema
-importTypeS typ = case typ of
-  A.TypAbs ns t -> Forall ns <$> importType t
-  _ -> Forall [] <$> importType typ
 
-importType :: A.Type -> Err Type
-importType typ = case typ of
-  A.BitT            -> return tBool
-  A.ZT              -> return tZ
-  A.QuoteT          -> return tString
-  A.ContextT cxt    -> return $ tContext cxt
-  A.IntegerT n      -> return $ tNum n
-  A.ArrayT t l      -> tArray <$> importType l <*> importType t
-  A.BlockT c t      -> tBlock <$> importType c <*> importType t
-  A.TupleT ts       -> tTuple <$> mapM importType ts
-  A.RecordT fs      -> TyRecord . M.fromList <$> mapM importField fs
-  A.FunctionT t1 t2 -> tFun <$> importType t1 <*> importType t2
-  A.Abstract n      -> return $ tAbstract n
-  A.TypAbs ns t     -> fail "can't translate polymorphic type"
-  A.TypVar n        -> return $ boundVar n
+importTypeS :: Schema -> Err Schema
+importTypeS = return
 
-importField :: (a,A.Type) -> Err (a,Type)
-importField (n,t) = (,) <$> pure n <*> importType t
+exportSchema :: Schema -> TI Schema
+exportSchema = pure
 
-exportType :: Type -> TI A.Type
-exportType ty =
-  case ty of
-    TyVar var ->
-      case var of
-        BoundVar name -> return $ A.TypVar name
-        FreeVar _name ->
-          fail "Free type variable: bug/default to something."
-
-    TyRecord fs -> A.RecordT <$> mapM exportField (M.toList fs)
-
-    TyCon tc ts -> do
-      mts <- mapM exportType ts
-      case (tc,mts) of
-        (TupleCon _, ts')  -> return $ A.TupleT ts'
-        (ArrayCon, [i,e])  -> return $ A.ArrayT e i -- argument order changes
-        (FunCon,   [a,b])  -> return $ A.FunctionT a b
-        (StringCon, [])    -> return $ A.QuoteT
-        (BoolCon, [])      -> return $ A.BitT
-        (ZCon, [])         -> return $ A.ZT
-        (ContextCon c, _)  -> return $ A.ContextT c
-        (NumCon n, _)      -> return $ A.IntegerT n
-        (BlockCon, [a,b])  -> return $ A.BlockT a b
-        (AbstractCon s, _) -> return $ A.Abstract s
-        _                  -> fail "exportType: malformed TyCon"
-
-exportField :: (a,Type) -> TI (a,A.Type)
-exportField (n,t) = (,) <$> pure n <*> exportType t
-
-exportSchema :: Schema -> TI A.Type
-exportSchema typ@(Forall xs t) = 
-  case xs of
-    [] -> exportType t
-    _  -> A.TypAbs xs <$> exportType t
-
-exportExpr :: OutExpr -> TI (A.Expr A.ResolvedName A.Type)
+exportExpr :: OutExpr -> TI (A.Expr A.ResolvedName Schema)
 exportExpr e0 = --go e0
   do e1 <- appSubstM e0
      go e1
@@ -772,7 +720,7 @@ checkKind = return
 
 checkModule :: -- [(A.ResolvedName,Schema)] ->
                Compiler (A.Module A.ResolvedName A.ResolvedT A.ResolvedT)
-                        (A.Module A.ResolvedName A.Type      A.ResolvedT)
+                        (A.Module A.ResolvedName Schema      A.ResolvedT)
 checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
   let modName = A.moduleName m
   let eEnv    = A.moduleExprEnv m

@@ -28,7 +28,7 @@ import qualified Data.Vector as V
 
 import qualified SAWScript.AST as SS
 import SAWScript.Builtins hiding (evaluate)
-import qualified SAWScript.NewAST as New
+import qualified SAWScript.MGU as MGU
 import SAWScript.Options
 import Verifier.SAW.Prelude (preludeModule)
 import qualified Verifier.SAW.Prim as Prim
@@ -37,8 +37,8 @@ import Verifier.SAW.TypedAST hiding ( incVars )
 
 import qualified Verifier.SAW.Evaluator as SC
 
-type Expression = SS.Expr SS.ResolvedName SS.Type
-type BlockStatement = SS.BlockStmt SS.ResolvedName SS.Type
+type Expression = SS.Expr SS.ResolvedName SS.Schema
+type BlockStatement = SS.BlockStmt SS.ResolvedName SS.Schema
 
 -- Values ----------------------------------------------------------------------
 
@@ -228,28 +228,18 @@ instance IsValue s Bool where
 -- monomorphic type @monoty@, which must be an instance of it. The
 -- function returns a list of type variable instantiations, in the
 -- same order as the variables in the outermost TypAbs of @polyty@.
-typeInstantiation :: SS.Type -> SS.Type -> [SS.Type]
-typeInstantiation (SS.TypAbs xs t1) t2 =
+typeInstantiation :: SS.Schema -> SS.Type -> [SS.Type]
+typeInstantiation (SS.Forall xs t1) t2 =
   [ fromMaybe (error "unbound type variable") (M.lookup x m) | x <- xs ]
     where m = fromMaybe (error "matchType failed") (matchType t1 t2)
-typeInstantiation _ _ = []
 
 -- | @matchType pat ty@ returns a map of variable instantiations, if
--- @ty@ is an instance of @pat@. Both types must be first-order:
--- neither may contain @TypAbs@.
+-- @ty@ is an instance of @pat@.
 matchType :: SS.Type -> SS.Type -> Maybe (Map SS.Name SS.Type)
-matchType SS.BitT   SS.BitT   = Just M.empty
-matchType SS.ZT     SS.ZT     = Just M.empty
-matchType SS.QuoteT SS.QuoteT = Just M.empty
-matchType (SS.ContextT c1) (SS.ContextT c2) | c1 == c2 = Just M.empty
-matchType (SS.IntegerT n1) (SS.IntegerT n2) | n1 == n2 = Just M.empty
-matchType (SS.ArrayT t1 n1) (SS.ArrayT t2 n2) = matchTypes [n1, t1] [n2, t2]
-matchType (SS.BlockT c1 t1) (SS.BlockT c2 t2) = matchTypes [c1, t1] [c2, t2]
-matchType (SS.TupleT ts1) (SS.TupleT ts2) = matchTypes ts1 ts2
-matchType (SS.RecordT bs1) (SS.RecordT bs2)
-    | map fst bs1 == map fst bs2 = matchTypes (map snd bs1) (map snd bs2)
-matchType (SS.FunctionT a1 b1) (SS.FunctionT a2 b2) = matchTypes [a1, b1] [a2, b2]
-matchType (SS.TypVar x)    t2 = Just (M.singleton x t2)
+matchType (SS.TyCon c1 ts1) (SS.TyCon c2 ts2) | c1 == c2 = matchTypes ts1 ts2
+matchType (SS.TyRecord m1) (SS.TyRecord m2)
+    | M.keys m1 == M.keys m2 = matchTypes (M.elems m1) (M.elems m2)
+matchType (SS.TyVar (SS.BoundVar x)) t2 = Just (M.singleton x t2)
 matchType t1 t2 = error $ "matchType failed: " ++ show (t1, t2)
 
 matchTypes :: [SS.Type] -> [SS.Type] -> Maybe (Map SS.Name SS.Type)
@@ -274,19 +264,15 @@ translateKind sc KSize = scNatType sc
 translatableType :: SS.Type -> Bool
 translatableType ty =
     case ty of
-      SS.BitT          -> True
-      SS.ZT            -> True
-      SS.QuoteT        -> False
-      SS.ContextT _    -> False
-      SS.IntegerT _    -> True
-      SS.ArrayT t n    -> translatableType t && translatableType n
-      SS.BlockT _ _    -> False
-      SS.TupleT ts     -> all translatableType ts
-      SS.RecordT bs    -> all (translatableType . snd) bs
-      SS.FunctionT a b -> translatableType a && translatableType b
-      SS.Abstract _    -> False
-      SS.TypAbs _ t    -> translatableType t
-      SS.TypVar _      -> True
+      SS.TyRecord m               -> all translatableType (M.elems m)
+      SS.TyCon (SS.TupleCon _) ts -> all translatableType ts
+      SS.TyCon SS.ArrayCon [l, t] -> translatableType l && translatableType t
+      SS.TyCon SS.FunCon [a, b]   -> translatableType a && translatableType b
+      SS.TyCon SS.BoolCon []      -> True
+      SS.TyCon SS.ZCon []         -> True
+      SS.TyCon (SS.NumCon _) []   -> True
+      SS.TyVar (SS.BoundVar _)    -> True
+      _                           -> False
 
 -- | Precondition: translatableType ty
 translateType
@@ -295,86 +281,36 @@ translateType
     -> SS.Type -> IO (SharedTerm s)
 translateType sc tenv ty =
     case ty of
-      SS.BitT          -> scBoolType sc
-      SS.ZT            -> scNatType sc
-      SS.QuoteT        -> fail "translateType QuoteT"
-      SS.ContextT _    -> fail "translateType ContextT"
-      SS.IntegerT n    -> scNat sc n
-      SS.ArrayT t n    -> do n' <- translateType sc tenv n
-                             t' <- translateType sc tenv t
-                             scVecType sc n' t'
-      SS.BlockT _ _    -> fail "translateType BlockT"
-      SS.TupleT ts     -> do ts' <- traverse (translateType sc tenv) ts
-                             scTupleType sc ts'
-      SS.RecordT ts    -> do ts' <- traverse (translateType sc tenv) (M.fromList ts)
-                             scRecordType sc ts'
-      SS.FunctionT a b -> do a' <- translateType sc tenv a
-                             b' <- translateType sc tenv b
-                             scFun sc a' b'
-      SS.Abstract _    -> fail "translateType Abstract" -- FIXME: Should we make any exceptions?
-      SS.TypAbs [] t   -> translateType sc tenv t
-      SS.TypAbs (x : xs) t -> do let inc (i, k) = (i + 1, k)
-                                 let k = KStar
-                                 let tenv' = M.insert x (0, k) (fmap inc tenv)
-                                 k' <- translateKind sc k
-                                 t' <- translateType sc tenv' (SS.TypAbs xs t)
-                                 scPi sc x k' t'
-      SS.TypVar x      -> case M.lookup x tenv of
-                            Nothing -> fail $ "translateType: unbound type variable: " ++ x
-                            Just (i, k) -> do
-                              k' <- translateKind sc k
-                              scLocalVar sc i k'
+      SS.TyRecord tm              -> do tm' <- traverse (translateType sc tenv) tm
+                                        scRecordType sc tm'
+      SS.TyCon (SS.TupleCon _) ts -> do ts' <- traverse (translateType sc tenv) ts
+                                        scTupleType sc ts'
+      SS.TyCon SS.ArrayCon [n, t] -> do n' <- translateType sc tenv n
+                                        t' <- translateType sc tenv t
+                                        scVecType sc n' t'
+      SS.TyCon SS.FunCon [a, b]   -> do a' <- translateType sc tenv a
+                                        b' <- translateType sc tenv b
+                                        scFun sc a' b'
+      SS.TyCon SS.BoolCon []      -> scBoolType sc
+      SS.TyCon SS.ZCon []         -> scNatType sc
+      SS.TyCon (SS.NumCon n) []   -> scNat sc n
+      SS.TyVar (SS.BoundVar x)    -> case M.lookup x tenv of
+                                       Nothing -> fail $ "translateType: unbound type variable: " ++ x
+                                       Just (i, k) -> do
+                                         k' <- translateKind sc k
+                                         scLocalVar sc i k'
+      _                           -> fail "untranslatable type"
 
-translatableType' :: New.Type -> Bool
-translatableType' ty =
-    case ty of
-      New.TyRecord m                -> all translatableType' (M.elems m)
-      New.TyCon (New.TupleCon _) ts -> all translatableType' ts
-      New.TyCon New.ArrayCon [l, t] -> translatableType' l && translatableType' t
-      New.TyCon New.FunCon [a, b]   -> translatableType' a && translatableType' b
-      New.TyCon New.BoolCon []      -> True
-      New.TyCon New.ZCon []         -> True
-      New.TyCon (New.NumCon _) []   -> True
-      New.TyVar (New.BoundVar _)    -> True
-      _                             -> False
-
--- | Precondition: translatableType' ty
-translateType'
-    :: SharedContext s
-    -> Map SS.Name (Int, Kind)
-    -> New.Type -> IO (SharedTerm s)
-translateType' sc tenv ty =
-    case ty of
-      New.TyRecord tm               -> do tm' <- traverse (translateType' sc tenv) tm
-                                          scRecordType sc tm'
-      New.TyCon (New.TupleCon _) ts -> do ts' <- traverse (translateType' sc tenv) ts
-                                          scTupleType sc ts'
-      New.TyCon New.ArrayCon [n, t] -> do n' <- translateType' sc tenv n
-                                          t' <- translateType' sc tenv t
-                                          scVecType sc n' t'
-      New.TyCon New.FunCon [a, b]   -> do a' <- translateType' sc tenv a
-                                          b' <- translateType' sc tenv b
-                                          scFun sc a' b'
-      New.TyCon New.BoolCon []      -> scBoolType sc
-      New.TyCon New.ZCon []         -> scNatType sc
-      New.TyCon (New.NumCon n) []   -> scNat sc n
-      New.TyVar (New.BoundVar x)    -> case M.lookup x tenv of
-                                         Nothing -> fail $ "translateType: unbound type variable: " ++ x
-                                         Just (i, k) -> do
-                                           k' <- translateKind sc k
-                                           scLocalVar sc i k'
-      _                             -> fail "untranslatable type"
-
-translatableSchema :: New.Schema -> Bool
-translatableSchema (New.Forall _xs t) = translatableType' t
+translatableSchema :: SS.Schema -> Bool
+translatableSchema (SS.Forall _ t) = translatableType t
 
 translateSchema
     :: SharedContext s
     -> Map SS.Name (Int, Kind)
-    -> New.Schema -> IO (SharedTerm s)
-translateSchema sc tenv0 (New.Forall xs0 t) = go tenv0 xs0
+    -> SS.Schema -> IO (SharedTerm s)
+translateSchema sc tenv0 (SS.Forall xs0 t) = go tenv0 xs0
   where
-    go tenv [] = translateType' sc tenv t
+    go tenv [] = translateType sc tenv t
     go tenv (x : xs) = do
       let inc (i, k) = (i + 1, k)
       let k = KStar
@@ -389,15 +325,15 @@ translatableExpr env expr =
       SS.Bit _             _ -> True
       SS.Quote _           _ -> False -- We could allow strings, but I don't think we need them.
       SS.Z _               _ -> True
-      SS.Array es          t -> translatableType t && all (translatableExpr env) es
-      SS.Undefined         _ -> False -- REVIEW
+      SS.Array es          t -> translatableSchema t && all (translatableExpr env) es
+      SS.Undefined         _ -> False
       SS.Block _           _ -> False
       SS.Tuple es          _ -> all (translatableExpr env) es
       SS.Record bs         _ -> all (translatableExpr env . snd) bs
       SS.Index e n         _ -> translatableExpr env e && translatableExpr env n
       SS.Lookup e _        _ -> translatableExpr env e
       SS.Var x             _ -> S.member x env
-      SS.Function x t e    _ -> translatableType t && translatableExpr env' e
+      SS.Function x t e    _ -> translatableSchema t && translatableExpr env' e
           where env' = S.insert (SS.LocalName x) env
       SS.Application f e   _ -> translatableExpr env f && translatableExpr env e
       SS.LetBlock bs e       -> all (translatableExpr env . snd) bs && translatableExpr env' e
@@ -405,7 +341,7 @@ translatableExpr env expr =
 
 translateExpr
     :: forall s. SharedContext s
-    -> Map SS.ResolvedName SS.Type
+    -> Map SS.ResolvedName SS.Schema
     -> Map SS.ResolvedName (SharedTerm s)
     -> Map SS.Name (Int, Kind)
     -> Expression -> IO (SharedTerm s)
@@ -414,17 +350,17 @@ translateExpr sc tm sm km expr =
       SS.Bit b                  _ -> scBool sc b
       SS.Quote _                _ -> fail "translateExpr Quote"
       SS.Z z                    _ -> scNat sc z
-      SS.Array es (SS.ArrayT t _) -> do t' <- translateType sc km t
+      SS.Array es              ty -> do let (_, t) = destArrayT ty
+                                        t' <- translateType sc km t
                                         es' <- traverse (translateExpr sc tm sm km) es
                                         scVector sc t' es'
       SS.Undefined              _ -> fail "translateExpr: undefined"
-      SS.Array {}                 -> fail "translateExpr: internal error"
       SS.Block _                _ -> fail "translateExpr Block"
       SS.Tuple es               _ -> do es' <- traverse (translateExpr sc tm sm km) es
                                         scTuple sc es'
       SS.Record bs              _ -> do bs' <- traverse (translateExpr sc tm sm km) (M.fromList bs)
                                         scRecord sc bs'
-      SS.Index e i              _ -> do let SS.ArrayT t l = SS.typeOf e
+      SS.Index e i              _ -> do let (l, t) = destArrayT (SS.typeOf e)
                                         l' <- translateType sc km l
                                         t' <- translateType sc km t
                                         e' <- translateExpr sc tm sm km e
@@ -433,16 +369,16 @@ translateExpr sc tm sm km expr =
                                         scGet sc l' t' e' i''
       SS.Lookup e n             _ -> do e' <- translateExpr sc tm sm km e
                                         scRecordSelect sc e' n
-      SS.Var rname              t -> case M.lookup rname sm of
-                                       Nothing -> fail $ "Unknown name: " ++ show rname
+      SS.Var x (SS.Forall [] t)   -> case M.lookup x sm of
+                                       Nothing -> fail $ "Unknown name: " ++ show x
                                        Just e' ->
-                                         case M.lookup rname tm of
+                                         case M.lookup x tm of
                                            Nothing -> return e'
-                                           Just polyty -> do
-                                             let ts = typeInstantiation polyty t
+                                           Just schema -> do
+                                             let ts = typeInstantiation schema t
                                              ts' <- mapM (translateType sc km) ts
                                              scApplyAll sc e' ts'
-      SS.Function x a e         _ -> do a' <- translateType sc km a
+      SS.Function x a e         _ -> do a' <- translateSchema sc km a
                                         x' <- scLocalVar sc 0 =<< incVars sc 0 1 a'
                                         sm' <- traverse (incVars sc 0 1) sm
                                         let sm'' = M.insert (SS.LocalName x) x' sm'
@@ -456,6 +392,9 @@ translateExpr sc tm sm km expr =
                                         let tm' = fmap SS.typeOf m
                                         sm' <- traverse (translateExpr sc tm sm km) m
                                         translateExpr sc (M.union tm' tm) (M.union sm' sm) km e
+    where
+      destArrayT (SS.Forall [] (SS.TyCon SS.ArrayCon [l, t])) = (l, t)
+      destArrayT _ = error "translateExpr: internal error"
 
 -- | Toplevel SAWScript expressions may be polymorphic. Type
 -- abstractions do not show up explicitly in the Expr datatype, but
@@ -464,70 +403,33 @@ translateExpr sc tm sm km expr =
 -- explicit type abstractions.
 translatePolyExpr
     :: forall s. SharedContext s
-    -> Map SS.ResolvedName SS.Type
+    -> Map SS.ResolvedName SS.Schema
     -> Map SS.ResolvedName (SharedTerm s)
     -> Expression -> IO (SharedTerm s)
 translatePolyExpr sc tm sm expr =
     case SS.typeOf expr of
-      SS.TypAbs ns _ -> do
+      SS.Forall [] _ -> translateExpr sc tm sm M.empty expr
+      SS.Forall ns _ -> do
         let km = M.fromList [ (n, (i, KStar))  | (n, i) <- zip (reverse ns) [0..] ]
         -- FIXME: we assume all have kind KStar
         s0 <- translateKind sc KStar
         t <- translateExpr sc tm sm km expr
         scLambdaList sc [ (filter isAlphaNum n, s0) | n <- ns ] t
-      _ -> translateExpr sc tm sm M.empty expr
 
 -- Type substitution -----------------------------------------------------------
 
-substType :: Map SS.Name SS.Type -> SS.Type -> SS.Type
-substType m ty =
-    case ty of
-      SS.BitT            -> ty
-      SS.ZT              -> ty
-      SS.QuoteT          -> ty
-      SS.ContextT _      -> ty
-      SS.IntegerT _      -> ty
-      SS.ArrayT t1 t2    -> SS.ArrayT (substType m t1) (substType m t2)
-      SS.BlockT t1 t2    -> SS.BlockT (substType m t1) (substType m t2)
-      SS.TupleT ts       -> SS.TupleT (map (substType m) ts)
-      SS.RecordT bs      -> SS.RecordT [ (n, substType m t) | (n, t) <- bs ]
-      SS.FunctionT t1 t2 -> SS.FunctionT (substType m t1) (substType m t2)
-      SS.Abstract _      -> ty
-      SS.TypAbs ns t     -> SS.TypAbs ns (substType (foldr M.delete m ns) t)
-      SS.TypVar n        -> case M.lookup n m of
-                              Nothing -> ty
-                              Just t -> t
+toSubst :: Map SS.Name SS.Type -> MGU.Subst
+toSubst m = MGU.Subst (M.mapKeysMonotonic SS.BoundVar m)
 
 substTypeExpr :: Map SS.Name SS.Type -> Expression -> Expression
-substTypeExpr m expr =
-    case expr of
-      SS.Bit _             _ -> expr
-      SS.Quote _           _ -> expr
-      SS.Z _               _ -> expr
-      SS.Array es          t -> SS.Array (map (substTypeExpr m) es) (substType m t)
-      SS.Block stmts       t -> SS.Block (map (substTypeStmt m) stmts) (substType m t)
-      SS.Tuple es          t -> SS.Tuple (map (substTypeExpr m) es) (substType m t)
-      SS.Record bs         t -> SS.Record [ (n, substTypeExpr m e) | (n, e) <- bs ] (substType m t)
-      SS.Index e n         t -> SS.Index (substTypeExpr m e) (substTypeExpr m n) (substType m t)
-      SS.Lookup e x        t -> SS.Lookup (substTypeExpr m e) x (substType m t)
-      SS.Var x             t -> SS.Var x (substType m t)
-      SS.Function x a e    t -> SS.Function x (substType m a) (substTypeExpr m e) (substType m t)
-      SS.Application f e   t -> SS.Application (substTypeExpr m f) (substTypeExpr m e) (substType m t)
-      SS.LetBlock bs e -> SS.LetBlock [ (n, substTypeExpr m r) | (n, r) <- bs ] (substTypeExpr m e)
-
-substTypeStmt :: Map SS.Name SS.Type -> BlockStatement -> BlockStatement
-substTypeStmt m stmt =
-    case stmt of
-      SS.Bind x t e -> SS.Bind x (substType m t) (substTypeExpr m e)
-      SS.BlockTypeDecl n t -> SS.BlockTypeDecl n (substType m t)
-      SS.BlockLet bs -> SS.BlockLet [ (n, substTypeExpr m e) | (n, e) <- bs ]
+substTypeExpr m expr = MGU.appSubst (toSubst m) expr
 
 -- Interpretation of SAWScript -------------------------------------------------
 
 interpret
     :: forall s. SharedContext s
     -> Map SS.ResolvedName (Value s)
-    -> Map SS.ResolvedName SS.Type
+    -> Map SS.ResolvedName SS.Schema
     -> Map SS.ResolvedName (SharedTerm s)
     -> Expression -> IO (Value s)
 interpret sc vm tm sm expr =
@@ -545,13 +447,14 @@ interpret sc vm tm sm expr =
                                    return (indexValue a i)
       SS.Lookup e n        _ -> do a <- interpret sc vm tm sm e
                                    return (lookupValue a n)
-      SS.Var name          t -> case M.lookup name vm of
+      SS.Var x (SS.Forall [] t)
+                             -> case M.lookup x vm of
                                   Nothing -> evaluate <$> translateExpr sc tm sm M.empty expr
                                   Just v ->
-                                    case M.lookup name tm of
+                                    case M.lookup x tm of
                                       Nothing -> return v
-                                      Just polyty -> do
-                                        let ts = typeInstantiation polyty t
+                                      Just schema -> do
+                                        let ts = typeInstantiation schema t
                                         foldM tapplyValue v ts
       SS.Function x _ e    _ -> do let name = SS.LocalName x
                                    let f v Nothing = interpret sc (M.insert name v vm) tm sm e
@@ -586,25 +489,19 @@ interpret sc vm tm sm expr =
 interpretPoly
     :: forall s. SharedContext s
     -> Map SS.ResolvedName (Value s)
-    -> Map SS.ResolvedName SS.Type
+    -> Map SS.ResolvedName SS.Schema
     -> Map SS.ResolvedName (SharedTerm s)
     -> Expression -> IO (Value s)
 interpretPoly sc vm tm sm expr =
     case SS.typeOf expr of
-      SS.TypAbs ns _ ->
+      SS.Forall ns _ ->
           let tlam x f m = return (VTLambda (\t -> f (M.insert x t m)))
           in foldr tlam (\m -> interpret sc vm tm sm (substTypeExpr m expr)) ns M.empty
-      _ -> interpret sc vm tm sm expr
-{-
-    where
-      tlam :: SS.Name -> (Map SS.Name SS.Type -> IO (Value s)) -> Map SS.Name SS.Type -> IO (Value s)
-      tlam x f m = return (VTLambda (\t -> f (M.insert x t m)))
--}
 
 interpretStmts
     :: forall s. SharedContext s
     -> Map SS.ResolvedName (Value s)
-    -> Map SS.ResolvedName SS.Type
+    -> Map SS.ResolvedName SS.Schema
     -> Map SS.ResolvedName (SharedTerm s)
     -> [BlockStatement] -> IO (Value s)
 interpretStmts sc vm tm sm stmts =
@@ -633,7 +530,7 @@ interpretStmts sc vm tm sm stmts =
 interpretModule
     :: forall s. SharedContext s
     -> Map SS.ResolvedName (Value s)
-    -> Map SS.ResolvedName SS.Type
+    -> Map SS.ResolvedName SS.Schema
     -> Map SS.ResolvedName (SharedTerm s)
     -> SS.ValidModule -> IO (Value s)
 interpretModule sc vm tm sm m = interpret sc vm tm sm main
@@ -653,7 +550,7 @@ interpretMain opts m =
        (fromValue v :: IO ())
 
 -- | Collects primitives from the module and all its transitive dependencies.
-transitivePrimEnv :: SS.ValidModule -> Map SS.ResolvedName SS.Type
+transitivePrimEnv :: SS.ValidModule -> Map SS.ResolvedName SS.Schema
 transitivePrimEnv m = M.unions (env : envs)
   where
     mn = SS.moduleName m
