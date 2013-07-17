@@ -19,7 +19,6 @@ import SAWScript.Import
 import SAWScript.Interpreter
 import SAWScript.MGU (checkModule)
 import SAWScript.Options
-import SAWScript.Prelude
 import SAWScript.RenameRefs as RR
 import SAWScript.ResolveSyns
 
