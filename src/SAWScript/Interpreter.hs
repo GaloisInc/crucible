@@ -49,7 +49,7 @@ data Value s
   | VWord Int Integer
   | VArray [Value s]
   | VTuple [Value s]
-  | VRecord [SS.Bind (Value s)]
+  | VRecord (Map SS.Name (Value s))
   | VFun (Value s -> Value s)
   | VFunTerm (SharedTerm s -> Value s)
   | VFunType (SS.Type -> Value s)
@@ -86,8 +86,8 @@ indexValue (VArray vs) (VInteger x)
 indexValue _ _ = error "indexValue"
 
 lookupValue :: Value s -> String -> Value s
-lookupValue (VRecord bs) name =
-    case lookup name bs of
+lookupValue (VRecord vm) name =
+    case M.lookup name vm of
       Nothing -> error $ "no such record field: " ++ name
       Just x -> x
 lookupValue _ _ = error "lookupValue"
@@ -131,7 +131,7 @@ importValue val =
       SC.VWord w x -> VWord w x
       SC.VString s -> VString s -- FIXME: probably not needed
       SC.VTuple vs -> VTuple (V.toList (fmap importValue vs))
-      SC.VRecord m -> VRecord (M.toList (fmap importValue m))
+      SC.VRecord m -> VRecord (fmap importValue m)
       SC.VCtorApp "Prelude.False" _ -> VBool False
       SC.VCtorApp "Prelude.True" _ -> VBool True
       SC.VCtorApp {} -> error $ "VCtorApp unsupported: " ++ show val
@@ -149,7 +149,7 @@ exportValue val =
       VWord w x -> SC.VWord w x
       VArray vs -> SC.VVector (fmap exportValue (V.fromList vs))
       VTuple vs -> SC.VTuple (fmap exportValue (V.fromList vs))
-      VRecord bs -> SC.VRecord (fmap exportValue (M.fromList bs))
+      VRecord vm -> SC.VRecord (fmap exportValue vm)
       VFun f -> SC.VFun (exportValue . f . importValue)
       VFunTerm {} -> error "exportValue VFunTerm"
       VFunType {} -> error "exportValue VFunType"
@@ -441,7 +441,7 @@ interpret sc vm tm sm expr =
       SS.Undefined         _ -> fail "interpret: undefined"
       SS.Block stmts       _ -> interpretStmts sc vm tm sm stmts
       SS.Tuple es          _ -> VTuple <$> traverse (interpret sc vm tm sm) es
-      SS.Record bs         _ -> VRecord <$> traverse (traverse (interpret sc vm tm sm)) bs
+      SS.Record bs         _ -> VRecord <$> traverse (interpret sc vm tm sm) (M.fromList bs)
       SS.Index e1 e2       _ -> do a <- interpret sc vm tm sm e1
                                    i <- interpret sc vm tm sm e2
                                    return (indexValue a i)
