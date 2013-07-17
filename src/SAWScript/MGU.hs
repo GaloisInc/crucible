@@ -6,7 +6,7 @@ module SAWScript.MGU where
 
 import           SAWScript.Unify.Fix(Mu(..),(:+:)(..))
 import qualified SAWScript.AST as A
-import SAWScript.AST hiding (Expr(..), BlockStmt(..), Name)
+import SAWScript.AST hiding (Expr(..), BlockStmt(..), Name, i)
 import SAWScript.NewAST
 import SAWScript.Compiler
 
@@ -57,7 +57,7 @@ mgu t1 (TyVar tv) = bindVar tv t1
 mgu r1@(TyRecord ts1) r2@(TyRecord ts2) = do
   assert (M.keys ts1 == M.keys ts2) $ "mismatched record fields: " ++ pShow r1 ++ " and " ++ pShow r2
   mgus (M.elems ts1) (M.elems ts2)
-mgu t1@(TyCon tc1 ts1) t2@(TyCon tc2 ts2) = do
+mgu (TyCon tc1 ts1) (TyCon tc2 ts2) = do
   assert (tc1 == tc2) $ "mismatched type constructors: " ++ pShow tc1 ++ " and " ++ pShow tc2
   mgus ts1 ts2
 mgu t1 t2 = failMGU $ "type mismatch: " ++ pShow t1 ++ " and " ++ pShow t2
@@ -68,7 +68,7 @@ mgus (t1:ts1) (t2:ts2) = do
   s <- mgu t1 t2
   s' <- mgus (map (appSubst s) ts1) (map (appSubst s) ts2)
   return (s' @@ s)
-mgus ts1 ts2 = failMGU $ "type mismatch in constructor arity"
+mgus _ _ = failMGU $ "type mismatch in constructor arity"
 
 bindVar :: TyVar -> Type -> Either String Subst
 bindVar (FreeVar i) (TyVar (FreeVar j))
@@ -77,7 +77,7 @@ bindVar tv@(FreeVar _) t
   | tv `S.member` freeVars t = failMGU "occurs check failMGUs"
   | otherwise                = return $ singletonSubst tv t
 
-bindVar tv@(BoundVar n) t@(TyVar (FreeVar i)) = return $ singletonSubst tv t
+bindVar tv@(BoundVar _) t@(TyVar (FreeVar _)) = return $ singletonSubst tv t
 
 bindVar (BoundVar n) (TyVar (BoundVar m))
   | n == m  = return emptySubst
@@ -99,7 +99,7 @@ instance (FreeVars a) => FreeVars [a] where
 
 instance FreeVars Type where
   freeVars t = case t of
-    TyCon tc ts -> freeVars ts
+    TyCon _ ts  -> freeVars ts
     TyRecord fs -> freeVars fs
     TyVar tv    -> S.singleton tv
 
@@ -186,8 +186,8 @@ lookupVar n = do
     Nothing -> do recordError $ "unbound variable: " ++ show n
                   newType
     Just (Forall as t) -> do ats <- forM as $ \a ->
-                               do t <- newType
-                                  return (BoundVar a,t)
+                               do t' <- newType
+                                  return (BoundVar a,t')
                              let s = listSubst ats
                              return $ appSubst s t
 
@@ -695,7 +695,7 @@ defsDepsBind m it@(x,e0) = (it, [ A.TopLevelName m x ], S.toList (uses e0))
       Index  e1 e2        -> S.union (uses e1) (uses e2)
       Lookup e _          -> uses e
       Var (A.LocalName _) -> S.empty
-      Var x               -> S.singleton x  -- This is what we look for
+      Var name            -> S.singleton name  -- This is what we look for
       Function  _ _ e     -> uses e
       Application e1 e2   -> S.union (uses e1) (uses e2)
       Let bs e            -> S.unions (uses e : map (uses . snd) bs)

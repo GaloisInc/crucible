@@ -272,7 +272,7 @@ instance PrettyPrint Schema where
 instance PrettyPrint Type where
   pretty par t@(TyCon tc ts) = case (tc,ts) of
     (_,[])                 -> pretty par tc
-    (TupleCon n,_)         -> PP.parens $ commaSepAll $ map (pretty False) ts
+    (TupleCon _,_)         -> PP.parens $ commaSepAll $ map (pretty False) ts
     (ArrayCon,[len,TyCon BoolCon []]) -> PP.brackets (pretty False len)
     (ArrayCon,[len,typ])   -> PP.brackets (pretty False len) PP.<> (pretty True typ)
     (FunCon,[f,v])         -> (if par then PP.parens else id) $
@@ -280,7 +280,7 @@ instance PrettyPrint Type where
     (BlockCon,[cxt,typ])   -> (if par then PP.parens else id) $
                                 pretty True cxt PP.<+> pretty True typ
     _ -> error $ "malformed TyCon: " ++ pShow t
-  pretty par (TyRecord fs) =
+  pretty _par (TyRecord fs) =
       PP.braces
     $ commaSepAll
     $ map (\(n,t) -> PP.text n `prettyTypeSig` pretty False t)
@@ -288,7 +288,7 @@ instance PrettyPrint Type where
   pretty par (TyVar tv) = pretty par tv
 
 instance PrettyPrint TyVar where
-  pretty par tv = case tv of
+  pretty _par tv = case tv of
     FreeVar n  -> PP.text "fv." PP.<> PP.integer n
     BoundVar n -> PP.text n
 
