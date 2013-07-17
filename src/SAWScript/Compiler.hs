@@ -4,7 +4,6 @@ module SAWScript.Compiler where
 
 import Control.Applicative
 import Control.Monad
-import Data.List (intercalate)
 #if __GLASGOW_HASKELL__ < 706
 import Prelude hiding (catch)
 #endif

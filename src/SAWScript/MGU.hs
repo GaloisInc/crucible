@@ -23,8 +23,6 @@ import Data.Traversable (traverse)
 import qualified Data.Map as M
 import qualified Data.Set as S
 
-import Debug.Trace
-
 -- Subst {{{
 
 newtype Subst = Subst { unSubst :: M.Map TyVar Type } deriving (Show)

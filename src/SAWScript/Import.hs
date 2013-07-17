@@ -23,8 +23,6 @@ import SAWScript.Parser
 import System.Directory
 import System.FilePath
 
-import Debug.Trace
-
 preludePath :: FilePath
 preludePath = "prelude/Prelude.saw"
 
