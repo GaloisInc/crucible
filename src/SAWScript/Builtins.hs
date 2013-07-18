@@ -290,7 +290,7 @@ extractLLVM sc file func _setup = do
     case L.lookupDefine sym cb of
       Nothing -> fail $ "Bitcode file " ++ file ++
                         " does not contain symbol " ++ func ++ "."
-      Just md -> L.runSimulator cb sbe mem L.defaultSEH Nothing $ do
+      Just md -> L.runSimulator cb sbe mem Nothing $ do
         setVerbosity 0
         args <- mapM freshLLVMArg (L.sdArgs md)
         _ <- L.callDefine sym (L.sdRetType md) args
