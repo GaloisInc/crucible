@@ -385,49 +385,8 @@ translateType typ = do t' <- translateTypeS typ
 importTypeS :: Schema -> Err Schema
 importTypeS = return
 
-exportSchema :: Schema -> TI Schema
-exportSchema = pure
-
 exportExpr :: OutExpr -> TI (A.Expr A.ResolvedName Schema)
-exportExpr e0 = --go e0
-  do e1 <- appSubstM e0
-     go e1
-  where
-  go expr =
-    case expr of
-      A.Bit b t          -> A.Bit b     <$> exportSchema t
-      A.Quote str t      -> A.Quote str <$> exportSchema t
-      A.Z i t            -> A.Z i       <$> exportSchema t
-      A.Undefined t      -> A.Undefined <$> exportSchema t
-
-      A.Array es t       -> A.Array <$> mapM go es  <*> exportSchema t
-      A.Block bs t       -> A.Block <$> mapM goB bs <*> exportSchema t
-      A.Tuple es t       -> A.Tuple <$> mapM go es  <*> exportSchema t
-      A.Record nes t     -> A.Record <$> mapM go2 nes <*> exportSchema t
-
-      A.Index ar ix t    -> A.Index <$> go ar <*> go ix <*> exportSchema t
-      A.Lookup rec fld t -> A.Lookup <$> go rec <*> pure fld <*> exportSchema t
-      A.Var x t          -> A.Var x <$> exportSchema t
-
-      A.Function x xt body t-> A.Function x <$> exportSchema xt
-                                            <*> go body <*> exportSchema t
-
-      A.Application f v t -> A.Application <$> go f <*> go v <*> exportSchema t
-      A.LetBlock nes e   -> A.LetBlock <$> mapM go2 nes <*> go e
-
-  go2 (x,e) = do e1 <- go e
-                 return (x,e1)
-
-  goB stm =
-    case stm of
-      A.Bind Nothing ctx e -> A.Bind Nothing <$> exportSchema ctx <*> go e
-      A.Bind (Just (n, t)) ctx e -> (\t -> A.Bind (Just (n, t))) <$> exportSchema t <*> exportSchema ctx <*> go e
-      A.BlockLet bs       -> A.BlockLet <$> mapM go2 bs
-      A.BlockTypeDecl x t -> A.BlockTypeDecl x <$> exportSchema t
-
-
-
-
+exportExpr e0 = appSubstM e0
 
 -- }}}
 
@@ -740,7 +699,7 @@ checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
                                        ]
   let nes  = M.toList exprs
   let sccs = computeSCCGroups modName nes
-  let go = bindSchemas (initTs ++ primTs) ((,) <$> (inferTopDecls sccs >>= exportBinds) <*> traverse exportSchema (M.fromList prims) )
+  let go = bindSchemas (initTs ++ primTs) ((,) <$> (inferTopDecls sccs >>= exportBinds) <*> pure (M.fromList prims) )
   case evalTI (A.moduleName m) go of
     Right (exprRes,primRes) -> return $ m { A.moduleExprEnv = M.fromList exprRes , A.modulePrimEnv = primRes }
     Left errs               -> fail $ unlines errs
