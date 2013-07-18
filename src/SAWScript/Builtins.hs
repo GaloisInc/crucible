@@ -71,10 +71,11 @@ readSBV sc ty path =
     do pgm <- SBV.loadSBV path
        let ty' = importTyp (SBV.typOf pgm)
        when (ty /= ty') $
-            fail $ "read_sbv: expected " ++ show ty ++ ", found " ++ show ty'
-            -- TODO: use a pretty-printer instead of 'show'
+            fail $ "read_sbv: expected " ++ showTyp ty ++ ", found " ++ showTyp ty'
        SBV.parseSBVPgm sc (\_ _ -> Nothing) pgm
     where
+      showTyp :: SS.Type -> String
+      showTyp = show . SS.pretty False
       importTyp :: SBV.Typ -> SS.Type
       importTyp typ =
         case typ of
