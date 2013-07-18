@@ -1,12 +1,12 @@
 main = do {
   print "Extracting reference term";
-  ffs_ref <- llvm_extract "ffs.bc" "ffs_ref" llvm_pure;
+  (ffs_ref : [32] -> [32]) <- llvm_extract "ffs.bc" "ffs_ref" llvm_pure;
 
   print "Extracting implementation term";
-  ffs_imp <- llvm_extract "ffs.bc" "ffs_imp" llvm_pure;
+  (ffs_imp : [32] -> [32]) <- llvm_extract "ffs.bc" "ffs_imp" llvm_pure;
 
   print "Proving equivalence";
-  thm1 <- equal ffs_ref ffs_imp;
+  let thm1 x = ffs_ref x == ffs_imp x;
   ffs_res <- prove abc thm1;
   print ffs_res;
 

@@ -1,14 +1,14 @@
 main = do {
-    java_ffs_ref <- read_aig "java_ffs_ref.aig";
-    java_ffs_imp <- read_aig "java_ffs_imp.aig";
-    c_ffs_ref <- read_aig "c_ffs_ref.aig";
-    c_ffs_imp <- read_aig "c_ffs_imp.aig";
+    (java_ffs_ref : [32] -> [32]) <- read_aig "java_ffs_ref.aig";
+    (java_ffs_imp : [32] -> [32]) <- read_aig "java_ffs_imp.aig";
+    (c_ffs_ref : [32] -> [32]) <- read_aig "c_ffs_ref.aig";
+    (c_ffs_imp : [32] -> [32]) <- read_aig "c_ffs_imp.aig";
 
-    thm1 <- equal java_ffs_ref java_ffs_imp;
+    let thm1 x = java_ffs_ref x == java_ffs_imp x;
     java_res <- prove abc thm1;
     print java_res;
 
-    thm2 <- equal c_ffs_ref c_ffs_imp;
+    let thm2 x = c_ffs_ref x == c_ffs_imp x;
     c_res <- prove abc thm2;
     print c_res;
 };

@@ -1,9 +1,11 @@
 main = do {
-    double_imp <- llvm_extract "double.bc" "double_imp" llvm_pure;
-    double_ref <- llvm_extract "double.bc" "double_ref" llvm_pure;
-    eq <- equal double_ref double_imp;
-    r <- prove abc eq;
+    (double_imp : [32] -> [32]) <-
+       llvm_extract "double.bc" "double_imp" llvm_pure;
+    (double_ref : [32] -> [32]) <-
+       llvm_extract "double.bc" "double_ref" llvm_pure;
+    let thm x = double_ref x == double_imp x;
+    r <- prove abc thm;
     print r;
-    eq_neg <- negate eq;
-    write_smtlib1 "double.smt" eq_neg;
+    let thm_neg x = not (thm x);
+    write_smtlib1 "double.smt" thm_neg;
 };
