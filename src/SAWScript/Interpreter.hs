@@ -370,7 +370,7 @@ translateExpr sc tm sm km expr =
       SS.Lookup e n             _ -> do e' <- translateExpr sc tm sm km e
                                         scRecordSelect sc e' n
       SS.Var x (SS.Forall [] t)   -> case M.lookup x sm of
-                                       Nothing -> fail $ "Unknown name: " ++ show x
+                                       Nothing -> fail $ "Untranslatable: " ++ SS.renderResolvedName x
                                        Just e' ->
                                          case M.lookup x tm of
                                            Nothing -> return e'
@@ -406,7 +406,8 @@ translatePolyExpr
     -> Map SS.ResolvedName SS.Schema
     -> Map SS.ResolvedName (SharedTerm s)
     -> Expression -> IO (SharedTerm s)
-translatePolyExpr sc tm sm expr =
+translatePolyExpr sc tm sm expr
+  | translatableExpr (M.keysSet sm) expr =
     case SS.typeOf expr of
       SS.Forall [] _ -> translateExpr sc tm sm M.empty expr
       SS.Forall ns _ -> do
@@ -415,6 +416,7 @@ translatePolyExpr sc tm sm expr =
         s0 <- translateKind sc KStar
         t <- translateExpr sc tm sm km expr
         scLambdaList sc [ (filter isAlphaNum n, s0) | n <- ns ] t
+  | otherwise = return (error "Untranslatable expression")
 
 -- Type substitution -----------------------------------------------------------
 

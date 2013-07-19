@@ -6,5 +6,6 @@ main = do {
   print "Term:";
   print_term t;
   print "Tests:";
-  print [t 0, t 1, t 2, t 3, t 4, t 5, t 6, t 7];
+  let test f = print [f 0, f 1, f 2, f 3, f 4, f 5, f 6, f 7];
+  test t;
 };
