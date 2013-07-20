@@ -109,7 +109,7 @@ representing the semantics of the function. The final argument,
 function, which computes a scalar return value entirely as a function
 of its scalar parameters.
 
-The `equal` command then constructs a new term corresponding to the
+The `let` statement then constructs a new term corresponding to the
 assertion of equality between two existing terms. The `prove` command
 can verify the validity of such an assertion. The `abc` parameter
 indicates what theorem prover to use.
@@ -181,7 +181,7 @@ SMT-Lib theorem to be checked by an external solver.
 $include all code/double.saw
 ```
 
-The new primitives introduced here are `negate`, which constructs the
+The new primitives introduced here are `not`, which constructs the
 logical negation of a term, and `write_smtlib1`, which writes a term
 as a proof obligation in SMT-Lib version 1 format. Because SMT solvers
 are satisfiability solvers, negating the input term allows us to
@@ -220,6 +220,6 @@ Improved Support for Manipulating Formal Models
 -----------------------------------------------
 
   * Specifying and applying rewrite rules to simplify formal models.
-  * Applying formal models directly to concrete arguments.
+  * Applying formal models directly to concrete arguments. (Done)
   * Applying formal models automatically to a large collection of
     randomly-generated concrete arguments.
