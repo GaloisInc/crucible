@@ -1,0 +1,71 @@
+
+External Representation for Core Terms
+======================================
+
+```
+main = do {
+  let excluded_middle x = x || not x;
+  print_term excluded_middle;
+  write_core "excluded_middle.extcore" excluded_middle;
+};
+```
+
+The `print_term` command pretty prints the representation of
+`excluded_middle` as a term in the core language.
+
+```
+\(x1::Prelude.Bool) -> Prelude.or x1 (Prelude.not x1)
+```
+
+The `write_core` command outputs a file in a more easily
+computer-readable `extcore` format. (The format can then be read in by
+the `read_core` command.)
+
+```
+SAWCoreTerm 8
+1 Data Prelude.Bool
+2 Global Prelude.or
+3 Var 0 1
+4 App 2 3
+5 Global Prelude.not
+6 App 5 3
+7 App 4 6
+8 Lam x1 1 7
+```
+
+An `extcore` file encodes a single term of the core language by
+assigning a numeric index to each of its unique subterms.
+
+Each line in an `extcore` file consists of a sequence of tokens
+separated by whitespace. The tokens may be names (alphanumeric
+identifiers, possibly including dot-separated qualifiers), numeric
+indexes, or literals. The first line is a header containing the magic
+string `SAWCoreTerm` followed by the index of the final term.
+
+Each subsequent line defines a new term, following a standard format:
+First is the new index to be defined, then a keyword indicating what
+kind of term, and finally a sequence of tokens (the number and type of
+which determined by the keyword). Each line can refer to any
+previously defined index.
+
+```
+Lam <name> <index(type)> <index(body)>                  -- Function abstraction
+Pi <name> <index(argument type)> <index(result type)>   -- Function type
+Var <integer literal> <index(type)>                     -- Bound variable (de Bruijn indexed)
+Global <qualified name>                                 -- Toplevel constant
+App <index(function)> <index(argument)>                 -- Function application
+Tuple <index(component)>*                               -- Tuple value
+TupleT <index(type)>*                                   -- Tuple type
+TupleSel <index> <field number>                         -- Tuple component selector ("x.1")
+Record (<field name> <index(component)>)*               -- Record value
+RecordT (<field name> <index(type)>)*                   -- Record type
+RecordSel <index> <field name>                          -- Record component selector ("x.foo")
+Ctor <qualified name> <index(argument)>*                -- Data constructor value
+Data <qualified name> <index(type)>*                    -- Datatype
+Sort <integer literal>                                  -- Sort
+Nat <integer literal>                                   -- Non-negative integer literal
+Array <index(type)> <index(element)>*                   -- Array value (e.g. [1, 2, 3])
+Float <float literal>                                   -- Literal of type Float
+Double <double literal>                                 -- Literal of type Double
+String <string literal>                                 -- Literal of type String
+```
