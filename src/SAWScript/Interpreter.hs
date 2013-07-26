@@ -293,7 +293,7 @@ translateType sc tenv ty =
                                         scFun sc a' b'
       SS.TyCon SS.BoolCon []      -> scBoolType sc
       SS.TyCon SS.ZCon []         -> scNatType sc
-      SS.TyCon (SS.NumCon n) []   -> scNat sc n
+      SS.TyCon (SS.NumCon n) []   -> scNat sc (fromInteger n)
       SS.TyVar (SS.BoundVar x)    -> case M.lookup x tenv of
                                        Nothing -> fail $ "translateType: unbound type variable: " ++ x
                                        Just (i, k) -> do
@@ -349,7 +349,7 @@ translateExpr sc tm sm km expr =
     case expr of
       SS.Bit b                  _ -> scBool sc b
       SS.Quote _                _ -> fail "translateExpr Quote"
-      SS.Z z                    _ -> scNat sc z
+      SS.Z z                    _ -> scNat sc (fromInteger z)
       SS.Array es              ty -> do let (_, t) = destArrayT ty
                                         t' <- translateType sc km t
                                         es' <- traverse (translateExpr sc tm sm km) es
