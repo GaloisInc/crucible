@@ -1,6 +1,7 @@
+Introduction
+============
 
-External Representation for Core Terms
-======================================
+Consider the following example SAWScript program:
 
 ```
 main = do {
@@ -40,7 +41,8 @@ Each line in an `extcore` file consists of a sequence of tokens
 separated by whitespace. The tokens may be names (alphanumeric
 identifiers, possibly including dot-separated qualifiers), numeric
 indexes, or literals. The first line is a header containing the magic
-string `SAWCoreTerm` followed by the index of the final term.
+string `SAWCoreTerm` followed by the index of the final term (i.e.,
+the output term).
 
 Each subsequent line defines a new term, following a standard format:
 First is the new index to be defined, then a keyword indicating what
@@ -48,24 +50,113 @@ kind of term, and finally a sequence of tokens (the number and type of
 which determined by the keyword). Each line can refer to any
 previously defined index.
 
-```
-Lam <name> <index(type)> <index(body)>                  -- Function abstraction
-Pi <name> <index(argument type)> <index(result type)>   -- Function type
-Var <integer literal> <index(type)>                     -- Bound variable (de Bruijn indexed)
-Global <qualified name>                                 -- Toplevel constant
-App <index(function)> <index(argument)>                 -- Function application
-Tuple <index(component)>*                               -- Tuple value
-TupleT <index(type)>*                                   -- Tuple type
-TupleSel <index> <field number>                         -- Tuple component selector ("x.1")
-Record (<field name> <index(component)>)*               -- Record value
-RecordT (<field name> <index(type)>)*                   -- Record type
-RecordSel <index> <field name>                          -- Record component selector ("x.foo")
-Ctor <qualified name> <index(argument)>*                -- Data constructor value
-Data <qualified name> <index(type)>*                    -- Datatype
-Sort <integer literal>                                  -- Sort
-Nat <integer literal>                                   -- Non-negative integer literal
-Array <index(type)> <index(element)>*                   -- Array value (e.g. [1, 2, 3])
-Float <float literal>                                   -- Literal of type Float
-Double <double literal>                                 -- Literal of type Double
-String <string literal>                                 -- Literal of type String
-```
+Form                                                     Description
+-----------------------------------------------------    -----------
+`ExtCns <input number> <name> <index(type)>`             External input
+`Lam <name> <index(type)> <index(body)>`                 Function abstraction
+`Pi <name> <index(argument type)> <index(result type)>`  Function type
+`Var <integer literal> <index(type)>`                    Bound variable (de Bruijn indexed)
+`Global <qualified name>`                                Toplevel constant
+`App <index(function)> <index(argument)>`                Function application
+`Tuple <index(component)>*`                              Tuple value
+`TupleT <index(type)>*`                                  Tuple type
+`TupleSel <index> <field number>`                        Tuple component selector (`x.1`)
+`Record (<field name> <index(component)>)*`              Record value
+`RecordT (<field name> <index(type)>)*`                  Record type
+`RecordSel <index> <field name>`                         Record component selector (`x.foo`)
+`Ctor <qualified name> <index(argument)>*`               Data constructor value
+`Data <qualified name> <index(type)>*`                   Datatype
+`Sort <integer literal>`                                 Sort
+`Nat <integer literal>`                                  Non-negative integer literal
+`Array <index(type)> <index(element)>*`                  Array value (e.g. `[1, 2, 3]`)
+`Float <float literal>`                                  Literal of type Float
+`Double <double literal>`                                Literal of type Double
+`String <string literal>`                                Literal of type String
+
+The following sections describe each of these keywords in more detail.
+
+Inputs and Scalar Constants
+===========================
+
+The simplest terms in `extcore` refer to external inputs and constant
+values. Two types of external inputs exist.
+
+The `ExtCns` keyword indicates an input identified by index, with a
+declared type, and a name that exists primarily as a comment. Inputs
+of this type are most appropriate when thinking of the term as a
+representation of a circuit.
+
+The `Global` keyword indicates a global term identified by name. This
+keyword is primarily used to refer to built-in operators, such as
+prelude functions that operate on bit vectors.
+
+Constants can be written with one of the keywords `Nat`, `Float`,
+`Double`, or `String`, followed by the value of the constant. Bit
+vector constants can be created by applying the function described in
+the "Bit Vectors" section that converts a natural number to a bit
+vector. Later sections describe how to write aggregated or structured
+constants.
+
+Applications
+============
+
+App
+
+Booleans and Bit Vectors
+========================
+
+bv*
+
+Arrays, Tuples and Records
+==========================
+
+Array, Tuple, TupleT, TupleSel, Record, RecordT, RecordSel
+
+Custom Data Types
+=================
+
+TODO: describe Ctor, Data
+
+Function Abstractions
+=====================
+
+TODO: describe Lam, Var
+
+Dependent Types
+===============
+
+TODO: describe Pi, Sort
+
+Reference
+=========
+
+This section describes the built-in types, boolean functions, and bit
+vector functions defined in the SAWCore prelude. These types and
+functions will apppear in `extcore` files in the form
+`Prelude.<name>`, but are listed below in the form `<name>`, without
+the `Prelude` prefix, for brevity and readability.
+
+Prelude types:
+
+Name             Kind
+----             ----
+`Bool`           `Type`
+`bitvector`      `Nat -> Type`
+`Array`          `Type -> Type`
+
+Prelude boolean functions:
+
+Name             Type
+----             ----
+`and`            `Bool -> Bool -> Bool`
+`or`             `Bool -> Bool -> Bool`
+`not`            `Bool -> Bool`
+
+Prelude bit vector functions:
+
+Name             Type
+----             ----
+`bvAnd`          `(n:Nat) -> bitvector n -> bitvector n -> bitvector n`
+`bvOr`           `(n:Nat) -> bitvector n -> bitvector n -> bitvector n`
+`bvAdd`          `(n:Nat) -> bitvector n -> bitvector n -> bitvector n`
+`bvMul`          `(n:Nat) -> bitvector n -> bitvector n -> bitvector n`
