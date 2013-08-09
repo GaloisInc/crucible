@@ -188,8 +188,13 @@ satABC sc _script t = withBE $ \be -> do
     (_, Nothing) -> fail "Backend does not support SAT checking."
     (Left err, _) -> fail $ "Can't bitblast: " ++ err
 
+-- | Logically negate a term @t@, which must be a boolean term
+-- (possibly surrounded by one or more lambdas).
 scNegate :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
-scNegate sc t = do appNot <- scApplyPreludeNot sc ; appNot t
+scNegate sc t =
+  case asLambda t of
+    Just (s, ty, body) -> scLambda sc s ty =<< scNegate sc body
+    Nothing -> scNot sc t
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- validity using ABC.
