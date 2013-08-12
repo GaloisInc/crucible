@@ -301,95 +301,6 @@ instance Instantiate Type where
 
 -- }}}
 
--- Expr translation {{{
-
-translateExpr :: A.Expr A.ResolvedName A.ResolvedT -> Err Expr
-translateExpr expr = case expr of
-  A.Bit b t              -> sig t $ (Bit b)
-  A.Quote s t            -> sig t $ (String s)
-  A.Z i t                -> sig t $ (Z i)
-  A.Undefined t          -> sig t $ Undefined
-  A.Array es t           -> sig t =<< (Array <$> mapM translateExpr es)
-  A.Block bs t           -> sig t =<< (Block <$> mapM translateBStmt bs)
-  A.Tuple es t           -> sig t =<< (Tuple <$> mapM translateExpr es)
-  A.Record fs t          -> sig t =<< (Record . M.fromList <$> mapM translateField fs)
-  A.Index ar ix t        -> sig t =<< (Index <$> translateExpr ar <*> translateExpr ix)
-  A.Lookup rec fld t     -> sig t =<< (Lookup <$> translateExpr rec <*> pure fld)
-  A.Var x t              -> sig t $ (Var x)
-  A.Function x xt body t -> sig t =<< (Function x <$> translateMType xt <*> translateExpr body)
-  A.Application f v t    -> sig t =<< (Application <$> translateExpr f <*> translateExpr v)
-  A.LetBlock nes e       ->         Let <$> mapM translateField nes <*> translateExpr e
-  where
-  sig :: A.ResolvedT -> Expr -> Err Expr
-  sig Nothing e = return e
-  sig (Just t) e = TSig e <$> translateTypeS t
-
-translateBStmt :: A.BlockStmt A.ResolvedName A.ResolvedT -> Err BlockStmt
-translateBStmt bst = case bst of
-  A.Bind Nothing       ctx e -> Bind Nothing Nothing <$> translateMType ctx <*> translateExpr e
-  A.Bind (Just (n, t)) ctx e -> Bind (Just n) <$> translateMType t
-                                <*> translateMType ctx <*> translateExpr e
-  A.BlockLet bs   -> BlockLet <$> mapM translateField bs
-  --BlockTypeDecl Name             typeT  
-
-translateField :: (a,A.Expr A.ResolvedName A.ResolvedT) -> Err (a,Expr)
-translateField (n,e) = (,) <$> pure n <*> translateExpr e
-
-translateTypeField :: (a,A.FullT) -> Err (a,Type)
-translateTypeField (n,e) = (,) <$> pure n <*> translateType e
-
-translateMTypeS :: A.ResolvedT -> Err Schema
-translateMTypeS (Just t) = translateTypeS t
-translateMTypeS Nothing  = fail "Cannot translate type of prim, received Nothing"
-
-translateTypeS :: A.FullT -> Err Schema
-translateTypeS (In (Inl (A.I n)))   = return $ tMono $ tNum n
-translateTypeS (In (Inr (Inl ctx))) = return $ tMono $
-  case ctx of
-    A.CryptolSetupContext -> tContext $ A.CryptolSetup
-    A.JavaSetupContext    -> tContext $ A.JavaSetup
-    A.LLVMSetupContext    -> tContext $ A.LLVMSetup
-    A.ProofScriptContext  -> tContext $ A.ProofScript
-    A.TopLevelContext     -> tContext $ A.TopLevel
-
-translateTypeS (In (Inr (Inr ty))) =
-  case ty of
-    A.BitF            -> return $ tMono tBool
-    A.ZF              -> return $ tMono tZ
-    A.QuoteF          -> return $ tMono tString
-
-    A.ArrayF tE tL    -> tMono <$> (tArray <$> translateType tL <*> translateType tE)
-    A.BlockF tC tE    -> tMono <$> (tBlock <$> translateType tC <*> translateType tE)
-    A.TupleF ts       -> tMono <$> (tTuple <$> mapM translateType ts)
-    A.RecordF fs      -> tMono <$> TyRecord . M.fromList <$> mapM translateTypeField fs
-
-    A.FunctionF t1 t2 -> tMono <$> (tFun <$> translateType t1 <*> translateType t2)
-    A.AbstractF n     -> return $ tMono $ tAbstract n
-
-    A.PVar x          -> return $ tMono $ TyVar (BoundVar x)
-    A.PAbs xs t       -> do (Forall ys t1) <- translateTypeS t
-                            return $ Forall (xs ++ ys) t1
-
-translateMType :: Maybe A.FullT -> Err (Maybe Type)
-translateMType mt = case mt of
-  Just t  -> translateType t >>= return . Just
-  Nothing -> return Nothing
-
-translateType :: A.FullT -> Err Type
-translateType typ = do t' <- translateTypeS typ
-                       case t' of
-                         Forall [] t -> return t
-                         s -> fail $ "can't translate schema to a monomorphic type: " ++ show s
-
-
-importTypeS :: Schema -> Err Schema
-importTypeS = return
-
-exportExpr :: OutExpr -> TI (A.Expr A.ResolvedName Schema)
-exportExpr e0 = appSubstM e0
-
--- }}}
-
 -- Type Inference {{{
 
 type OutExpr      = A.Expr      A.ResolvedName Schema
@@ -712,6 +623,8 @@ checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
                                   return (x,e1)
                              | ds <- dss, (x,e) <- ds ]
 
+exportExpr :: OutExpr -> TI (A.Expr A.ResolvedName Schema)
+exportExpr e0 = appSubstM e0
 
 evalTI :: A.ModuleName -> TI a -> Either [String] a
 evalTI mn m = case runTI mn m of
