@@ -583,6 +583,7 @@ valueEnv opts sc = M.fromList
   , (qualify "print_type"  , toValue $ print_type sc)
   , (qualify "print_term"  , toValue ((putStrLn . scPrettyTerm) :: SharedTerm s -> IO ()))
   , (qualify "return"      , toValue (return :: Value s -> IO (Value s)))
+  , (qualify "define"      , toValue $ definePrim sc)
   ]
 
 coreEnv :: SharedContext s -> IO (M.Map SS.ResolvedName (SharedTerm s))

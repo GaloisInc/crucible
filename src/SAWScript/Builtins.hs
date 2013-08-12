@@ -65,6 +65,10 @@ topReturn _ = return
 topBind :: () -> () -> SC s Value -> (Value -> SC s Value) -> SC s Value
 topBind _ _ = (>>=)
 
+definePrim :: SharedContext s -> String -> SharedTerm s -> IO (SharedTerm s)
+definePrim sc name rhs = scConstant sc ident rhs
+  where ident = mkIdent (moduleName (scModule sc)) name
+
 -- TODO: Add argument for uninterpreted-function map
 readSBV :: SharedContext s -> SS.Type -> FilePath -> IO (SharedTerm s)
 readSBV sc ty path =
