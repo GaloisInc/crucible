@@ -100,27 +100,128 @@ constants.
 Applications
 ============
 
-App
+Computations in SAWCore are accomplished by applying operators (or any
+term of function type) to operands. Application is structured in
+"curried" form: each application node applies a node of function type
+to one argument. Functions that take multiple arguments require
+multiple application nodes. For example, to add two 8-bit bit vectors,
+we can use the following code:
+
+```
+1 Global Prelude.bitvector
+2 Nat 8
+3 App 1 2
+4 ExtCns 0 "x" 3
+5 ExtCns 1 "y" 3
+6 Global Prelude.bvAdd
+7 App 6 2
+8 App 7 4
+9 App 8 5
+```
+
+This snippet applies the builtin `bitvector` type to the natural
+number 8, to form the type of the input variables. These inputs are
+then declared on lines 4 and 5. Line 7 then applies the builtin
+`bvAdd` to the natural number 8 (to tell it the size of the following
+bit vectors). Finally, lines 8 and 9 continue the application to
+include the two input variables.
 
 Booleans and Bit Vectors
 ========================
 
-bv*
+The previous section gave an example of a bit vector operation. The
+SAWCore prelude contains a number of built-in operations on both bit
+vectors and booleans.
+
+Th `bvNat` function constructs a constant bit vector, of a given size,
+from the given natural number. Conversely, the `bvToNat` function
+takes a bit vector length, a vector of this length, and returns the
+corresponding natural number.
+
+The usual bit vector operators work on one or more bit vectors of a
+single vector size. These functions take a natural number as their
+first argument, indicating the size of the following bit vectors.
+
+There are a few exceptions to this general pattern. The unsigned bit
+vector shifting operations take a natural number as their second
+operand. All signed bit vector operations take a natural number one
+smaller than the size of their remaining arguments (to ensure that
+their arguments have non-zero size). The `bvAppend` operator takes two
+natural numbers, corresponding to the lengths of its two bit vector
+arguments, and returns a bit vector with length correponding to the
+sum of the lengths of its arguments.
+
+The complete collection of bit vector operations appears in the
+Reference section at the end of this document.
 
 Arrays, Tuples and Records
 ==========================
 
-Array, Tuple, TupleT, TupleSel, Record, RecordT, RecordSel
+SAWCore allows aggregation of arbitrary data types into composite
+types: arrays, tuples, and records. Arrays are collections, of known
+size, containing multiple values of the same type. Tuples contain a
+list of values that match, in order, a given list of types. Records
+are like tuples with named rather than numbered fields.
+
+For each of these composite forms, SAWCore includes constructs for
+building both types and values.
+
+To construct an array type, apply the builtin `prelude.Vec` to the
+desired size followed by the type of its elements. To construct an
+array value, use the keyword `Array` followed by the node index of its
+type, and then all of the node indices of its elements. Bit vectors in
+SAWCore are actually just arrays of boolean values.
+
+To construct a tuple type, use the `TupleT` keyword followed by the
+indices of the individual element types. To construct a tuple value,
+use the `Tuple` keyword followed by the indices of the individual
+element values. Finally, to select an element from a tuple value, use
+the `TupleSel` keyword followed by the index of the tuple value and
+then the element number to extract.
+
+Record types and values are like tuple types and values, except that
+each type or value index is preceded by a field name. Record field
+selection is identical to tuple element selection except that it uses
+a field name instead of an element index.
+
+Function Abstractions
+=====================
+
+SAWCore allows the creation of function abstractions. The construct
+`Lam <type> <body>` causes a function argument value of the given type
+to be bound within the term specified by the second argument.
+Functions with multiple arguments are constructed with multiple nested
+`Lam` nodes. Within the term, an argument can be accessed by the
+construct `Var <n> <type>` where an index of `0` corresponds to the
+variable bound by the most recent enclosing `Lam`, an index of `1`
+corresponds to the variable bound by a `Lam` one level removed, and so
+on. Function abstractions can allow code to be abstracted over
+different arguments, and applied multiple times in multiple contexts.
+They can also be used as an alternative to the `ExtCns` inputs
+described previously.
+
+As an example, the code presented earlier in the Application section,
+to add two 8-bit bit vector arguments, could be restructured to use
+`Lam` and `Var` as follows:
+
+```
+1 Global Prelude.bitvector
+2 Nat 8
+3 App 1 2
+4 Global Prelude.bvAdd
+5 App 4 2
+6 Var 0 3
+7 Var 1 3
+8 App 5 6
+9 App 8 7
+10 Lam x 3 9
+11 Lam x 3 10
+```
 
 Custom Data Types
 =================
 
 TODO: describe Ctor, Data
-
-Function Abstractions
-=====================
-
-TODO: describe Lam, Var
 
 Dependent Types
 ===============
@@ -130,7 +231,7 @@ TODO: describe Pi, Sort
 Reference
 =========
 
-This section describes the built-in types, boolean functions, and bit
+This section summarizes the built-in types, boolean functions, and bit
 vector functions defined in the SAWCore prelude. These types and
 functions will apppear in `extcore` files in the form
 `Prelude.<name>`, but are listed below in the form `<name>`, without
@@ -141,8 +242,10 @@ Prelude types:
 Name             Kind
 ----             ----
 `Bool`           `Type`
+`Nat`            `Type`
 `bitvector`      `Nat -> Type`
-`Array`          `Type -> Type`
+`Vec`            `Type -> Type`
+`String`         `Type`
 
 Prelude boolean functions:
 
@@ -150,13 +253,29 @@ Name             Type
 ----             ----
 `and`            `Bool -> Bool -> Bool`
 `or`             `Bool -> Bool -> Bool`
+`xor`            `Bool -> Bool -> Bool`
+`boolEq`         `Bool -> Bool -> Bool`
 `not`            `Bool -> Bool`
+`ite`            `(a:Type) -> Bool -> a -> a -> a`
 
 Prelude bit vector functions:
 
 Name             Type
 ----             ----
+`msb`            `(n:Nat) -> bitvector (n + 1) -> Bool`
+`bvNat`          `(n:Nat) -> Nat -> bitvector n`
+`bvToNat`        `(n:Nat) -> bitvector n -> Nat`
+`bvAdd`          `(n:Nat) -> bitvector n -> bitvector n -> bitvector n`
+`bvSub`          `(n:Nat) -> bitvector n -> bitvector n -> bitvector n`
+`bvMul`          `(n:Nat) -> bitvector n -> bitvector n -> bitvector n`
+`bvUDiv`         `(n:Nat) -> bitvector n -> bitvector n -> bitvector n`
+`bvURem`         `(n:Nat) -> bitvector n -> bitvector n -> bitvector n`
+`bvSDiv`         `(n:Nat) -> bitvector (n + 1) -> bitvector (n + 1) -> bitvector (n + 1)`
+`bvSRem`         `(n:Nat) -> bitvector (n + 1) -> bitvector (n + 1) -> bitvector (n + 1)`
 `bvAnd`          `(n:Nat) -> bitvector n -> bitvector n -> bitvector n`
 `bvOr`           `(n:Nat) -> bitvector n -> bitvector n -> bitvector n`
-`bvAdd`          `(n:Nat) -> bitvector n -> bitvector n -> bitvector n`
-`bvMul`          `(n:Nat) -> bitvector n -> bitvector n -> bitvector n`
+`bvXor`          `(n:Nat) -> bitvector n -> bitvector n -> bitvector n`
+`bvNot`          `(n:Nat) -> bitvector n -> bitvector n`
+`bvShl`          `(n:Nat) -> bitvector n -> Nat -> bitvector n`
+`bvShr`          `(n:Nat) -> bitvector n -> Nat -> bitvector n`
+`bvSShr`         `(n:Nat) -> bitvector (n + 1) -> bitvector n -> bitvector (n + 1)`
