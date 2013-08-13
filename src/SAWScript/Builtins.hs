@@ -194,7 +194,7 @@ scNegate :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
 scNegate sc t =
   case asLambda t of
     Just (s, ty, body) -> scLambda sc s ty =<< scNegate sc body
-    Nothing -> scNot sc t
+    Nothing -> scNegate sc t
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- validity using ABC.
