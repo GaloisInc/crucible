@@ -2,6 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE ViewPatterns #-}
 module SAWScript.Builtins where
 
 import Control.Applicative
@@ -170,13 +171,37 @@ writeCore path t = writeFile path (scWriteExternal t)
 readCore :: SharedContext s -> FilePath -> IO (SharedTerm s)
 readCore sc path = scReadExternal sc =<< readFile path
 
-type ProofScript a = a --FIXME
-type ProofResult = () --FIXME
+-- | A ProofGoal is a term of type Bool, possibly surrounded by one or
+-- more lambdas. The abstracted arguments are treated as if they are
+-- EXISTENTIALLY quantified, as in the statement of a SAT problem. For
+-- proofs of universals, we negate the proposition before running the
+-- proof script, and then re-negate the result afterward.
+type ProofGoal s = SharedTerm s
+
+--type ProofScript s a = ProofGoal s -> IO (a, ProofGoal s)
+type ProofScript s a = StateT (ProofGoal s) IO a
+type ProofResult = () -- FIXME: could use this type to return witnesses
+
+printGoal :: ProofScript s ()
+printGoal = StateT $ \goal -> do
+  putStrLn (scPrettyTerm goal)
+  return ((), goal)
+
+unfoldGoal :: SharedContext s -> [String] -> ProofScript s ()
+unfoldGoal sc names = StateT $ \goal -> do
+  let ids = map (mkIdent (moduleName (scModule sc))) names
+  goal' <- scUnfoldConstants sc ids goal
+  return ((), goal')
+
+simplifyGoal :: SharedContext s -> Simpset (SharedTerm s) -> ProofScript s ()
+simplifyGoal sc ss = StateT $ \goal -> do
+  goal' <- rewriteSharedTerm sc ss goal
+  return ((), goal')
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
-satABC :: SharedContext s -> ProofScript ProofResult -> SharedTerm s -> IO (SharedTerm s)
-satABC sc _script t = withBE $ \be -> do
+satABC :: SharedContext s -> ProofScript s ProofResult
+satABC sc = StateT $ \t -> withBE $ \be -> do
   t' <- prepForExport sc t
   mbterm <- bitBlast be t'
   case (mbterm, BE.beCheckSat be) of
@@ -185,8 +210,8 @@ satABC sc _script t = withBE $ \be -> do
         BBool l -> do
           satRes <- chk l
           case satRes of
-            BE.UnSat -> scApplyPreludeFalse sc
-            BE.Sat _ -> scApplyPreludeTrue sc
+            BE.UnSat -> (,) () <$> scApplyPreludeFalse sc
+            BE.Sat _ -> (,) () <$> scApplyPreludeTrue sc
             _ -> fail "ABC returned Unknown for SAT query."
         _ -> fail "Can't prove non-boolean term."
     (_, Nothing) -> fail "Backend does not support SAT checking."
@@ -202,19 +227,20 @@ scNegate sc t =
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- validity using ABC.
-provePrim :: SharedContext s -> ProofScript ProofResult -> SharedTerm s -> IO String
+provePrim :: SharedContext s -> ProofScript s ProofResult
+          -> SharedTerm s -> IO (Simpset (SharedTerm s))
 provePrim sc script t = do
   t' <- scNegate sc t
-  r <- satABC sc script t'
-  return $
-    case asCtor r of
-      Just ("Prelude.True", []) -> "invalid"
-      Just ("Prelude.False", []) -> "valid"
-      _ -> "unknown"
+  (_, r) <- runStateT script t'
+  case asCtor r of
+    Just ("Prelude.True", []) -> fail "prove: invalid"
+    Just ("Prelude.False", []) -> return $ addRule (ruleOfPred t) emptySimpset
+    _ -> fail "prove: unknown result"
 
-satPrim :: SharedContext s -> ProofScript ProofResult -> SharedTerm s -> IO String
-satPrim sc script t = do
-  r <- satABC sc script t
+-- | FIXME: change return type so that we can return the witnesses.
+satPrim :: SharedContext s -> ProofScript s ProofResult -> SharedTerm s -> IO String
+satPrim _sc script t = do
+  (_, r) <- runStateT script t
   return $
     case asCtor r of
       Just ("Prelude.True", []) -> "sat"
