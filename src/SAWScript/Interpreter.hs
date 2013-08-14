@@ -34,7 +34,7 @@ import qualified SAWScript.MGU as MGU
 import SAWScript.Options
 import Verifier.SAW.Prelude (preludeModule)
 import qualified Verifier.SAW.Prim as Prim
-import Verifier.SAW.Rewriter ( Simpset )
+import Verifier.SAW.Rewriter ( Simpset, emptySimpset )
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST hiding ( incVars )
 
@@ -598,6 +598,7 @@ valueEnv opts sc = M.fromList
   , (qualify "llvm_pure"   , toValue "llvm_pure") -- FIXME: representing 'LLVMSetup ()' as 'String'
   , (qualify "prove"       , toValue $ provePrim sc)
   , (qualify "sat"         , toValue $ satPrim sc)
+  , (qualify "empty_ss"    , toValue (emptySimpset :: Simpset (SharedTerm s)))
   , (qualify "rewrite"     , toValue $ rewritePrim sc)
   , (qualify "abc"         , toValue $ satABC sc)
   , (qualify "unfolding"   , toValue $ unfoldGoal sc)

@@ -19,6 +19,8 @@ main = do {
   let thm3 k1 k2 k3 msg = dec3 k1 k2 k3 (enc3 k1 k2 k3 msg) == msg;
   result3 <- prove (
     seq print_goal (
+    seq (simplify empty_ss) (
+    seq print_goal (
     seq (simplify dec_enc) (
     seq print_goal (
     seq (simplify enc_dec) (
@@ -26,13 +28,15 @@ main = do {
     seq (simplify dec_enc) (
     seq print_goal (
     abc
-    )))))))) thm3;
+    )))))))))) thm3;
   print result3;
 
   print "proving enc3_dec3...";
   let thm4 k1 k2 k3 msg = enc3 k1 k2 k3 (dec3 k1 k2 k3 msg) == msg;
   result4 <- prove (
     seq print_goal (
+    seq (simplify empty_ss) (
+    seq print_goal (
     seq (simplify enc_dec) (
     seq print_goal (
     seq (simplify dec_enc) (
@@ -40,6 +44,6 @@ main = do {
     seq (simplify enc_dec) (
     seq print_goal (
     abc
-    )))))))) thm4;
+    )))))))))) thm4;
   print result4;
 };
