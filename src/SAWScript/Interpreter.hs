@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -16,6 +17,7 @@ module SAWScript.Interpreter
 
 import Control.Applicative
 import Control.Monad ( foldM )
+import Control.Monad.State ( StateT(..) )
 import Data.Char ( isAlphaNum )
 import Data.List ( intersperse )
 import qualified Data.Map as M
@@ -32,6 +34,7 @@ import qualified SAWScript.MGU as MGU
 import SAWScript.Options
 import Verifier.SAW.Prelude (preludeModule)
 import qualified Verifier.SAW.Prim as Prim
+import Verifier.SAW.Rewriter ( Simpset, emptySimpset )
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST hiding ( incVars )
 
@@ -57,6 +60,7 @@ data Value s
   | VTLambda (SS.Type -> IO (Value s))
   | VTerm (SharedTerm s)
   | VIO (IO (Value s))
+  | VSimpset (Simpset (SharedTerm s))
 
 instance Show (Value s) where
     showsPrec p v =
@@ -77,6 +81,7 @@ instance Show (Value s) where
         VTLambda {} -> showString "<<polymorphic function>>"
         VTerm t -> showsPrec p t
         VIO {} -> showString "<<IO>>"
+        VSimpset {} -> showString "<<simpset>>"
 
 indexValue :: Value s -> Value s -> Value s
 indexValue (VArray vs) (VInteger x)
@@ -157,6 +162,7 @@ exportValue val =
       VTLambda {} -> error "exportValue VTLambda"
       VTerm {} -> error "VTerm unsupported"
       VIO {} -> error "VIO unsupported"
+      VSimpset {} -> error "VSimpset unsupported"
 
 -- IsValue class ---------------------------------------------------------------
 
@@ -182,10 +188,24 @@ instance IsValue s () where
     toValue _ = VTuple []
     fromValue _ = ()
 
+instance (IsValue s a, IsValue s b) => IsValue s (a, b) where
+    toValue (x, y) = VTuple [toValue x, toValue y]
+    fromValue (VTuple [x, y]) = (fromValue x, fromValue y)
+    fromValue _ = error "fromValue (,)"
+
+instance IsValue s a => IsValue s [a] where
+    toValue xs = VArray (map toValue xs)
+    fromValue (VArray xs) = map fromValue xs
+    fromValue _ = error "fromValue []"
+
 instance IsValue s a => IsValue s (IO a) where
     toValue io = VIO (fmap toValue io)
     fromValue (VIO io) = fmap fromValue io
     fromValue _ = error "fromValue IO"
+
+instance (IsValue s t, IsValue s a) => IsValue s (StateT t IO a) where
+    toValue (StateT m) = toValue m
+    fromValue v = StateT (fromValue v)
 
 instance IsValue s (SharedTerm s) where
     toValue t = VTerm t
@@ -221,6 +241,11 @@ instance IsValue s Bool where
     toValue b = VBool b
     fromValue (VBool b) = b
     fromValue _ = error "fromValue Bool"
+
+instance IsValue s (Simpset (SharedTerm s)) where
+    toValue ss = VSimpset ss
+    fromValue (VSimpset ss) = ss
+    fromValue _ = error "fromValue Simpset"
 
 -- Type matching ---------------------------------------------------------------
 
@@ -573,8 +598,12 @@ valueEnv opts sc = M.fromList
   , (qualify "llvm_pure"   , toValue "llvm_pure") -- FIXME: representing 'LLVMSetup ()' as 'String'
   , (qualify "prove"       , toValue $ provePrim sc)
   , (qualify "sat"         , toValue $ satPrim sc)
+  , (qualify "empty_ss"    , toValue (emptySimpset :: Simpset (SharedTerm s)))
   , (qualify "rewrite"     , toValue $ rewritePrim sc)
-  , (qualify "abc"         , toValue "abc") -- FIXME: representing 'ProofScript ProofResult' as 'String'
+  , (qualify "abc"         , toValue $ satABC sc)
+  , (qualify "unfolding"   , toValue $ unfoldGoal sc)
+  , (qualify "simplify"    , toValue $ simplifyGoal sc)
+  , (qualify "print_goal"  , toValue (printGoal :: ProofScript s ()))
   , (qualify "write_smtlib1", toValue $ writeSMTLib1 sc)
   , (qualify "write_smtlib2", toValue $ writeSMTLib2 sc)
   , (qualify "write_core"   , toValue (writeCore :: FilePath -> SharedTerm s -> IO ()))
@@ -582,7 +611,9 @@ valueEnv opts sc = M.fromList
   , (qualify "print"       , toValue (print :: Value s -> IO ()))
   , (qualify "print_type"  , toValue $ print_type sc)
   , (qualify "print_term"  , toValue ((putStrLn . scPrettyTerm) :: SharedTerm s -> IO ()))
-  , (qualify "return"      , toValue (return :: Value s -> IO (Value s)))
+  , (qualify "return"      , toValue (return :: Value s -> IO (Value s))) -- FIXME: make work for other monads
+  , (qualify "seq"        , toValue ((>>) :: ProofScript s (Value s) -> ProofScript s (Value s) -> ProofScript s (Value s))) -- FIXME: temporary
+  , (qualify "define"      , toValue $ definePrim sc)
   ]
 
 coreEnv :: SharedContext s -> IO (M.Map SS.ResolvedName (SharedTerm s))
