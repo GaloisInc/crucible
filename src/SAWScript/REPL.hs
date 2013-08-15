@@ -3,11 +3,10 @@ module SAWScript.REPL where
 import System.Console.Haskeline (InputT, runInputT)
 import qualified System.Console.Haskeline as Haskeline
 
+import SAWScript.AST (TopStmtSimple, RawT)
 import SAWScript.Compiler (Compiler, runCompiler)
 import SAWScript.Lexer (lexSAW)
-import SAWScript.Parser (parseTopStmt)
-import SAWScript.Token (Token)
-import SAWScript.Utils (Pos)
+import SAWScript.Parser (parseModule)
 
 run :: IO ()
 run = runInputT Haskeline.defaultSettings loop
@@ -16,12 +15,12 @@ run = runInputT Haskeline.defaultSettings loop
           line <- Haskeline.getInputLine "Prelude> "
           case line of
             Nothing -> return ()
-            Just instruction -> runCompiler evaluate instruction $ \r -> do
-              Haskeline.outputStrLn $ showResult r
+            Just instruction -> do
+              runCompiler evaluate instruction (Haskeline.outputStrLn . showResult)
               loop
 
-evaluate :: Compiler String [Token Pos]
-evaluate = return . lexSAW "<stdin>"
+evaluate :: Compiler String [TopStmtSimple RawT]
+evaluate = parseModule . lexSAW "<stdin>"
 
-showResult :: [Token Pos] -> String
+showResult :: (Show a) => a -> String
 showResult = show
