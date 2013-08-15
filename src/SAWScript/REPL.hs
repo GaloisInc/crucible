@@ -21,7 +21,7 @@ run = runInputT Haskeline.defaultSettings loop
               loop
 
 evaluate :: Compiler String [Token Pos]
-evaluate = return . lexSAW "stdin"
+evaluate = return . lexSAW "<stdin>"
 
 showResult :: [Token Pos] -> String
 showResult = show
