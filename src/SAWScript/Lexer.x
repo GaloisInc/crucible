@@ -8,6 +8,7 @@
 module SAWScript.Lexer
   ( AlexPosn(..)
   , scan
+  , lexSAW
   ) where
 
 import SAWScript.Compiler

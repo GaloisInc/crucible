@@ -21,19 +21,25 @@ import SAWScript.MGU (checkModule)
 import SAWScript.Options
 import SAWScript.RenameRefs as RR
 import SAWScript.ResolveSyns
+import qualified SAWScript.REPL as REPL
 
 main :: IO ()
 main = do
   argv <- getArgs
   case getOpt Permute options argv of
-    (_, [], [])       -> putStrLn (usageInfo header options)
-    (opts, file:_, []) -> do
+    (opts, files, []) -> do
       let opts' = foldl' (flip id) defaultOptions opts
       opts'' <- processEnv opts'
-      processFile opts'' file
+      case (runInteractively opts'', files) of
+        (True, []) -> REPL.run -- TODO: pass opts''
+        (False, file:_) -> processFile opts'' file
+        (True, _:_) ->
+          hPutStrLn stderr ("Unable to handle files in interactive mode"
+                            ++ usageInfo header options)
+        (False, []) -> putStrLn (usageInfo header options)
     (_, _, errs)      ->
       hPutStrLn stderr (concat errs ++ usageInfo header options)
-  where header = "Usage: saw [OPTION...] files..."
+  where header = "Usage: saw [OPTION...] [-I | files...]"
 
 
 
@@ -84,4 +90,3 @@ checkModuleWithDeps (BM.ModuleParts mn ee pe te ds) cms =
                                " before compiling its dependency, " ++ show n
              Just m  -> return (n,m)
   mod  = Module mn ee pe te <$> deps
-
