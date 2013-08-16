@@ -61,6 +61,7 @@ data Value s
   | VTerm (SharedTerm s)
   | VIO (IO (Value s))
   | VSimpset (Simpset (SharedTerm s))
+  | VTheorem (Theorem s)
 
 instance Show (Value s) where
     showsPrec p v =
@@ -82,6 +83,7 @@ instance Show (Value s) where
         VTerm t -> showsPrec p t
         VIO {} -> showString "<<IO>>"
         VSimpset {} -> showString "<<simpset>>"
+        VTheorem (Theorem t) -> showString "Theorem " . showParen True (showString (scPrettyTerm t))
 
 indexValue :: Value s -> Value s -> Value s
 indexValue (VArray vs) (VInteger x)
@@ -246,6 +248,11 @@ instance IsValue s (Simpset (SharedTerm s)) where
     toValue ss = VSimpset ss
     fromValue (VSimpset ss) = ss
     fromValue _ = error "fromValue Simpset"
+
+instance IsValue s (Theorem s) where
+    toValue t = VTheorem t
+    fromValue (VTheorem t) = t
+    fromValue _ = error "fromValue Theorem"
 
 -- Type matching ---------------------------------------------------------------
 
@@ -574,7 +581,9 @@ interpretMain opts m =
                  emptyModule mn
        sc <- mkSharedContext scm
        env <- coreEnv sc
-       v <- interpretModule sc (valueEnv opts sc) (transitivePrimEnv m) env m
+       ss <- basic_ss sc
+       let venv = M.insert (qualify "basic_ss") (toValue ss) (valueEnv opts sc)
+       v <- interpretModule sc venv (transitivePrimEnv m) env m
        (fromValue v :: IO ())
 
 -- | Collects primitives from the module and all its transitive dependencies.
@@ -600,6 +609,7 @@ valueEnv opts sc = M.fromList
   , (qualify "prove"       , toValue $ provePrim sc)
   , (qualify "sat"         , toValue $ satPrim sc)
   , (qualify "empty_ss"    , toValue (emptySimpset :: Simpset (SharedTerm s)))
+  , (qualify "addsimp"     , toValue $ addsimp sc)
   , (qualify "rewrite"     , toValue $ rewritePrim sc)
   , (qualify "abc"         , toValue $ satABC sc)
   , (qualify "unfolding"   , toValue $ unfoldGoal sc)
