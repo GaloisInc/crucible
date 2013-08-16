@@ -24,7 +24,7 @@ reportError = putStrLn . ("Error\n" ++) . indent 2
 
 type Compiler a b = a -> Err b
 
-newtype Err a = Err { runErr :: forall r. (String -> r) -> (a -> r) -> r }
+newtype Err a = Err { runErr :: forall r. (String -> IO r) -> (a -> IO r) -> IO r }
 
 instance Functor Err where
   fmap f m = Err $ \ fl sc -> runErr m fl (sc . f)
@@ -52,13 +52,13 @@ instance Alternative Err where
 --after :: IO () -> Compiler a b -> Compiler a b
 --after m pass = pass `onFailure` (\f' s -> m >> f' s) `onSuccess` (\f' res -> m >> f' res)
 
-onFailure :: Compiler a b -> (forall r. (String -> r) -> String -> r) -> Compiler a b
+onFailure :: Compiler a b -> (forall r. (String -> IO r) -> String -> IO r) -> Compiler a b
 (pass `onFailure` handler) input = Err $ \fl sc -> runErr (pass input) (handler fl) sc
 
-onSuccess :: Compiler a b -> (forall r. (b -> r) -> b -> r) -> Compiler a b
+onSuccess :: Compiler a b -> (forall r. (b -> IO r) -> b -> IO r) -> Compiler a b
 (pass `onSuccess` handler) input = Err $ \fl sc -> runErr (pass input) fl (handler sc)
 
-onFailureRes :: Err a -> (forall r. (String -> r) -> String -> r) -> Err a
+onFailureRes :: Err a -> (forall r. (String -> IO r) -> String -> IO r) -> Err a
 m `onFailureRes` handler = Err $ \fl sc -> runErr m (handler fl) sc
 
 compiler :: Show a => String -> Compiler a b -> Compiler a b
