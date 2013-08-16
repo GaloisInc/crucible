@@ -510,7 +510,8 @@ interpret sc vm tm sm expr =
       SS.LetBlock bs e       -> do let m = M.fromList [ (SS.LocalName x, y) | (x, y) <- bs ]
                                    let tm' = fmap SS.typeOf m
                                    vm' <- traverse (interpretPoly sc vm tm sm) m
-                                   sm' <- traverse (translatePolyExpr sc tm sm) m
+                                   sm' <- traverse (translatePolyExpr sc tm sm) $
+                                          M.filter (translatableExpr (M.keysSet sm)) m
                                    interpret sc (M.union vm' vm) (M.union tm' tm) (M.union sm' sm) e
 
 interpretPoly
