@@ -415,6 +415,9 @@ extractJava sc opts cname mname _setup = do
         Left err -> fail $ "Failed to extract Java model: " ++ err
         Right t -> return t
 
+verifyJava :: SharedContext s -> Options -> String -> String -> JavaSetup () -> IO (SharedTerm s)
+verifyJava _ _ _ _ _ = fail "java_verify not yet implemented"
+
 freshJavaArg :: MonadIO m =>
                 JSS.Backend sbe
              -> JSS.Type

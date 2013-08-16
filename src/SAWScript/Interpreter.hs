@@ -40,6 +40,9 @@ import Verifier.SAW.TypedAST hiding ( incVars )
 
 import qualified Verifier.SAW.Evaluator as SC
 
+import qualified Verifier.Java.SAWBackend as JavaSAW
+import qualified Verifier.LLVM.SAWBackend as LLVMSAW
+
 type Expression = SS.Expr SS.ResolvedName SS.Schema
 type BlockStatement = SS.BlockStmt SS.ResolvedName SS.Schema
 
@@ -97,19 +100,20 @@ lookupValue (VRecord vm) name =
       Just x -> x
 lookupValue _ _ = error "lookupValue"
 
-evaluate :: SharedTerm s -> Value s
-evaluate t = importValue (SC.evalSharedTerm SC.preludeGlobal t)
--- FIXME: is SC.preludeGlobal always appropriate? Or should we
+evaluate :: SharedContext s -> SharedTerm s -> Value s
+evaluate sc t = importValue (SC.evalSharedTerm eval t)
+  where eval = SC.evalGlobal (scModule sc) SC.preludePrims
+-- FIXME: is evalGlobal always appropriate? Or should we
 -- parameterize on a meaning function for globals?
 
-applyValue :: Value s -> Value s -> IO (Value s)
-applyValue (VFun f) (VTerm t) = return (f (evaluate t))
-applyValue (VFun f) x = return (f x)
-applyValue (VFunTerm f) (VTerm t) = return (f t)
-applyValue (VLambda f) (VTerm t) = f (evaluate t) (Just t)
-applyValue (VLambda f) x = f x Nothing
-applyValue (VTerm t) x = applyValue (evaluate t) x
-applyValue _ _ = fail "applyValue"
+applyValue :: SharedContext s -> Value s -> Value s -> IO (Value s)
+applyValue sc (VFun f) (VTerm t) = return (f (evaluate sc t))
+applyValue _  (VFun f) x = return (f x)
+applyValue _  (VFunTerm f) (VTerm t) = return (f t)
+applyValue sc (VLambda f) (VTerm t) = f (evaluate sc t) (Just t)
+applyValue _  (VLambda f) x = f x Nothing
+applyValue sc (VTerm t) x = applyValue sc (evaluate sc t) x
+applyValue _ _ _ = fail "applyValue"
 
 tapplyValue :: Value s -> SS.Type -> IO (Value s)
 tapplyValue (VFunType f) t = return (f t)
@@ -120,11 +124,11 @@ thenValue :: Value s -> Value s -> Value s
 thenValue (VIO m1) (VIO m2) = VIO (m1 >> m2)
 thenValue _ _ = error "thenValue"
 
-bindValue :: Value s -> Value s -> Value s
-bindValue (VIO m1) v2 = VIO $ do v1 <- m1
-                                 VIO m3 <- applyValue v2 v1
-                                 m3
-bindValue _ _ = error "bindValue"
+bindValue :: SharedContext s -> Value s -> Value s -> Value s
+bindValue sc (VIO m1) v2 = VIO $ do v1 <- m1
+                                    VIO m3 <- applyValue sc v2 v1
+                                    m3
+bindValue _ _ _ = error "bindValue"
 
 importValue :: SC.Value -> Value s
 importValue val =
@@ -476,7 +480,7 @@ interpret sc vm tm sm expr =
                                    return (lookupValue a n)
       SS.Var x (SS.Forall [] t)
                              -> case M.lookup x vm of
-                                  Nothing -> evaluate <$> translateExpr sc tm sm M.empty expr
+                                  Nothing -> evaluate sc <$> translateExpr sc tm sm M.empty expr
                                   Just v ->
                                     case M.lookup x tm of
                                       Nothing -> return v
@@ -491,11 +495,11 @@ interpret sc vm tm sm expr =
                                          interpret sc vm' tm sm' e
                                    return $ VLambda f
       SS.Application e1 e2 _ -> do v1 <- interpret sc vm tm sm e1
-                                   -- TODO: evaluate v1 if it is a VTerm
+                                   -- TODO: evaluate sc v1 if it is a VTerm
                                    case v1 of
                                      VFun f ->
                                          do v2 <- interpret sc vm tm sm e2
-                                            -- TODO: evaluate v2 if it is a VTerm
+                                            -- TODO: evaluate sc v2 if it is a VTerm
                                             return (f v2)
                                      VFunTerm f ->
                                          do t2 <- translateExpr sc tm sm M.empty e2
@@ -547,7 +551,7 @@ interpretStmts sc vm tm sm stmts =
                    let vm' = M.insert name v vm
                    let sm' = M.insert name t sm
                    interpretStmts sc vm' tm sm' ss
-             return (v1 `bindValue` VLambda f)
+             return (bindValue sc v1 (VLambda f))
       SS.BlockLet bs : ss -> interpret sc vm tm sm (SS.LetBlock bs (SS.Block ss undefined))
       SS.BlockTypeDecl {} : _ -> fail "BlockTypeDecl unsupported"
 
@@ -570,9 +574,12 @@ interpretMain :: Options -> SS.ValidModule -> IO ()
 interpretMain opts m =
     do let mn = case SS.moduleName m of SS.ModuleName xs x -> mkModuleName (xs ++ [x])
        let scm = insImport preludeModule $
+                 insImport LLVMSAW.llvmModule $
+                 insImport JavaSAW.javaModule $
                  emptyModule mn
        sc <- mkSharedContext scm
        env <- coreEnv sc
+       print env
        v <- interpretModule sc (valueEnv opts sc) (transitivePrimEnv m) env m
        (fromValue v :: IO ())
 
@@ -593,7 +600,10 @@ valueEnv opts sc = M.fromList
   , (qualify "read_aig"    , toValue $ readAIGPrim sc)
   , (qualify "write_aig"   , toValue $ writeAIG sc)
   , (qualify "java_extract", toValue $ extractJava sc opts)
-  , (qualify "java_pure"   , toValue ()) -- FIXME: representing 'JavaSetup ()' as '()'
+  , (qualify "java_verify" , toValue $ verifyJava sc opts)
+  , (qualify "java_modify" , toValue $ ()) -- FIXME
+  , (qualify "java_may_alias", toValue $ ()) -- FIXME
+  , (qualify "java_pure"   , toValue $ ()) -- FIXME
   , (qualify "llvm_extract", toValue $ extractLLVM sc)
   , (qualify "llvm_pure"   , toValue "llvm_pure") -- FIXME: representing 'LLVMSetup ()' as 'String'
   , (qualify "prove"       , toValue $ provePrim sc)
@@ -619,12 +629,24 @@ valueEnv opts sc = M.fromList
 coreEnv :: SharedContext s -> IO (M.Map SS.ResolvedName (SharedTerm s))
 coreEnv sc =
   traverse (scGlobalDef sc . parseIdent) $ M.fromList $
+    -- Pure things
     [ (qualify "bitSequence", "Prelude.bvNat")
     , (qualify "not"        , "Prelude.not")
     , (qualify "conj"       , "Prelude.and")
     , (qualify "disj"       , "Prelude.or")
     , (qualify "eq"         , "Prelude.eq")
     , (qualify "complement" , "Prelude.bvNot")
+    -- Java things (FIXME: move into Java module)
+    , (qualify "java_int"   , "Java.mkIntType")
+    -- , (qualify "java_array" , "Java.arrayType")
+    -- , (qualify "java_class" , "Java.classType")
+    -- , (qualify "java_var"   , "Java.varObject")
+    -- LLVM things (FIXME: move into LLVM module)
+    -- , (qualify "llvm_int"   , "LLVM.intType")
+    -- , (qualify "llvm_float" , "LLVM.floatType")
+    -- , (qualify "llvm_double", "LLVM.doubleType")
+    -- , (qualify "llvm_array" , "LLVM.arrayType")
+    -- , (qualify "llvm_var"   , "LLVM.varObject")
     ]
 
 qualify :: String -> SS.ResolvedName
