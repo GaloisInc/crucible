@@ -62,6 +62,7 @@ data Value s
   | VLambda (Value s -> Maybe (SharedTerm s) -> IO (Value s))
   | VTLambda (SS.Type -> IO (Value s))
   | VTerm (SharedTerm s)
+  | VCtorApp String [Value s]
   | VIO (IO (Value s))
   | VSimpset (Simpset (SharedTerm s))
 
@@ -83,6 +84,7 @@ instance Show (Value s) where
         VLambda {} -> showString "<<lambda>>"
         VTLambda {} -> showString "<<polymorphic function>>"
         VTerm t -> showsPrec p t
+        VCtorApp s vs -> showString s . showString " " . (foldr (.) id (map shows vs))
         VIO {} -> showString "<<IO>>"
         VSimpset {} -> showString "<<simpset>>"
 
@@ -143,7 +145,7 @@ importValue val =
       SC.VRecord m -> VRecord (fmap importValue m)
       SC.VCtorApp "Prelude.False" _ -> VBool False
       SC.VCtorApp "Prelude.True" _ -> VBool True
-      SC.VCtorApp {} -> error $ "VCtorApp unsupported: " ++ show val
+      SC.VCtorApp s vs -> VCtorApp s (V.toList (fmap importValue vs))
       SC.VVector vs -> VArray (V.toList (fmap importValue vs))
       SC.VFloat {} -> error "VFloat unsupported"
       SC.VDouble {} -> error "VDouble unsupported"
@@ -160,6 +162,7 @@ exportValue val =
       VTuple vs -> SC.VTuple (fmap exportValue (V.fromList vs))
       VRecord vm -> SC.VRecord (fmap exportValue vm)
       VFun f -> SC.VFun (exportValue . f . importValue)
+      VCtorApp s vs -> SC.VCtorApp s (fmap exportValue (V.fromList vs))
       VFunTerm {} -> error "exportValue VFunTerm"
       VFunType {} -> error "exportValue VFunType"
       VLambda {} -> error "exportValue VLambda"
