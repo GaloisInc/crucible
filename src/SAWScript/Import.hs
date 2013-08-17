@@ -1,8 +1,10 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module SAWScript.Import
   ( loadWithPrelude
-  , loadModule
+  , loadModuleFromFile
+  , loadModuleFromString
   , findAndLoadModule
   , emptyLoadedModules
   , preludeLoadedModules
@@ -10,6 +12,7 @@ module SAWScript.Import
   ) where
 
 import Control.Monad
+import Control.Monad.IO.Class (MonadIO(liftIO))
 import qualified Data.Map as Map
 import Data.Maybe
 
@@ -37,21 +40,33 @@ preludeLoadedModules =
 loadWithPrelude :: Options -> FilePath -> (LoadedModules -> IO ()) -> IO ()
 loadWithPrelude opts fname k = do
   loaded <- preludeLoadedModules
-  loadModule opts fname loaded k
+  loadModuleFromFile opts fname loaded k
 
-loadModule :: Options -> FilePath -> LoadedModules
-  -> (LoadedModules -> IO ()) -> IO ()
-loadModule opts fname ms k = do
+loadModuleFromFile :: (MonadIO io)
+                      => Options -> FilePath -> LoadedModules
+                      -> (LoadedModules -> io ()) -> io ()
+loadModuleFromFile opts fname ms k = do
   let mn = moduleNameFromPath $ dropExtension (takeFileName fname)
-  when (verbLevel opts > 0) $ putStrLn $ "Loading Module " ++ show (renderModuleName mn)
-  ftext <- readFile fname
-  runCompiler (formModule fname) ftext $ \m -> do
-    loadRest mn (mapMaybe getImport m)
+  when (verbLevel opts > 0) $ liftIO $ putStrLn $ "Loading Module " ++ show (renderModuleName mn)
+  ftext <- liftIO $ readFile fname
+  loadModuleFromString opts fname ftext ms k
+
+loadModuleFromString :: forall io. (MonadIO io)
+                        => Options
+                        -> String -- file name (used in, e.g., error messages)
+                        -> String -- file contents
+                        -> LoadedModules
+                        -> (LoadedModules -> io ())
+                        -> io ()
+loadModuleFromString opts fname ftext ms k = do
+  let mn = moduleNameFromPath $ dropExtension (takeFileName fname)
+  runCompiler (mapErrT liftIO . formModule fname) ftext $ \m -> do
+    loadRest (mapMaybe getImport m)
              (ms { modules = Map.insert mn m (modules ms) })
-  where loadRest mn [] ms' = do
-          k ms' 
-        loadRest mn (imp:imps) ms' = do
-          findAndLoadModule opts imp ms' (loadRest mn imps)
+  where loadRest :: [ModuleName] -> LoadedModules -> io ()
+        loadRest [] ms' = k ms' 
+        loadRest (imp:imps) ms' =
+          findAndLoadModule opts imp ms' (loadRest imps)
 
 
 
@@ -67,20 +82,21 @@ emptyLoadedModules = LoadedModules Map.empty
 formModule :: FilePath -> Compiler String [TopStmtSimple RawT]
 formModule f = scan f >=> parseModule
 
-findAndLoadModule :: Options -> ModuleName -> LoadedModules
-  -> (LoadedModules -> IO ()) -> IO ()
+findAndLoadModule :: (MonadIO io)
+                     => Options -> ModuleName -> LoadedModules
+                     -> (LoadedModules -> io ()) -> io ()
 findAndLoadModule opts name ms k = do
   let mn    = renderModuleName name
   let fp    = moduleNameFilePath name <.> "saw"
   let paths = importPath opts
-  mfname <- findFile paths fp
+  mfname <- liftIO $ findFile paths fp
   case mfname of
     Nothing -> fail $ unlines $
         [ "Couldn't find module " ++ show mn
         , "  Searched for file: " ++ show fp
         , "  In directories:"
         ] ++ map ("    " ++) paths
-    Just fname -> loadModule opts fname ms k
+    Just fname -> loadModuleFromFile opts fname ms k
 
 findModule :: [FilePath] -> Name -> IO (Maybe FilePath)
 findModule ps name = findFile ps (name <.> "saw")

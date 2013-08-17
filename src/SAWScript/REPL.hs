@@ -1,27 +1,35 @@
 module SAWScript.REPL where
 
+import Control.Monad.Trans.Class (lift)
 import Control.Monad.IO.Class (liftIO)
 import System.Console.Haskeline (InputT, runInputT)
 import qualified System.Console.Haskeline as Haskeline
 
 import SAWScript.AST (TopStmtSimple, RawT)
 import SAWScript.Compiler (runCompiler, ErrT, mapErrT)
-import SAWScript.Lexer (lexSAW)
-import SAWScript.Parser (parseModule)
+import SAWScript.Import (loadModuleFromString, preludeLoadedModules)
+import SAWScript.Options (Options)
 
-run :: IO ()
-run = runInputT Haskeline.defaultSettings loop
+run :: Options -> IO ()
+run options = runInputT Haskeline.defaultSettings loop
   where loop :: InputT IO ()
         loop = do
           line <- Haskeline.getInputLine "Prelude> "
           case line of
             Nothing -> return ()
             Just instruction -> do
-              runCompiler evaluate instruction (Haskeline.outputStrLn . showResult)
+              runCompiler (evaluateAndPrint options) instruction
+                (const $ return ())
               loop
 
-evaluate :: String -> ErrT (InputT IO) [TopStmtSimple RawT]
-evaluate = mapErrT liftIO . parseModule . lexSAW "<stdin>"
+evaluateAndPrint :: Options -> String -> ErrT (InputT IO) ()
+evaluateAndPrint options s = do
+  preexistingModules <- liftIO preludeLoadedModules
+  lift $ loadModuleFromString options "<stdin>" s preexistingModules $
+    \mods -> do
+      {- TODO: Actually do something useful here instead of just printing the
+      modules -}
+      Haskeline.outputStrLn $ showResult mods
 
 showResult :: (Show a) => a -> String
 showResult = show

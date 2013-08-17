@@ -31,7 +31,7 @@ main = do
       let opts' = foldl' (flip id) defaultOptions opts
       opts'' <- processEnv opts'
       case (runInteractively opts'', files) of
-        (True, []) -> REPL.run -- TODO: pass opts''
+        (True, []) -> REPL.run opts''
         (False, file:_) -> processFile opts'' file
         (True, _:_) ->
           hPutStrLn stderr ("Unable to handle files in interactive mode"
