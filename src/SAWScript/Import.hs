@@ -26,17 +26,18 @@ import System.FilePath
 preludePath :: FilePath
 preludePath = "prelude/Prelude.saw"
 
-preludeLoadedModules :: LoadedModules
+preludeLoadedModules :: IO LoadedModules
 preludeLoadedModules =
   runErr (formModule preludePath [litFile|prelude/Prelude.saw|]) error
-         (\m -> ms { modules = Map.insert mn m (modules ms) })
+         (\m -> return $ ms { modules = Map.insert mn m (modules ms) })
   where
     ms = emptyLoadedModules
     mn = moduleNameFromPath preludePath
 
 loadWithPrelude :: Options -> FilePath -> (LoadedModules -> IO ()) -> IO ()
 loadWithPrelude opts fname k = do
-  loadModule opts fname preludeLoadedModules k
+  loaded <- preludeLoadedModules
+  loadModule opts fname loaded k
 
 loadModule :: Options -> FilePath -> LoadedModules
   -> (LoadedModules -> IO ()) -> IO ()
@@ -45,11 +46,12 @@ loadModule opts fname ms k = do
   when (verbLevel opts > 0) $ putStrLn $ "Loading Module " ++ show (renderModuleName mn)
   ftext <- readFile fname
   runCompiler (formModule fname) ftext $ \m -> do
-    loadRest (mapMaybe getImport m)
+    loadRest mn (mapMaybe getImport m)
              (ms { modules = Map.insert mn m (modules ms) })
-  where loadRest [] ms' = k ms' 
-        loadRest (imp:imps) ms' =
-          findAndLoadModule opts imp ms' (loadRest imps)
+  where loadRest mn [] ms' = do
+          k ms' 
+        loadRest mn (imp:imps) ms' = do
+          findAndLoadModule opts imp ms' (loadRest mn imps)
 
 
 

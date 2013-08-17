@@ -78,10 +78,10 @@ checkModuleWithDeps :: BM.ModuleParts (ExprSimple RawT)
   -> M.Map ModuleName ValidModule
   -> Err (M.Map ModuleName ValidModule)
 checkModuleWithDeps (BM.ModuleParts mn ee pe te ds) cms =
-  mod         >>=
+  mod >>=
   resolveSyns >>=
   renameRefs  >>=
-  checkModule {- preludeEnv -} >>= \cm -> return $ M.insert mn cm cms
+  checkModule >>= \cm -> return $ M.insert mn cm cms
   where
   deps :: Err (M.Map ModuleName ValidModule)
   deps = fmap M.fromList $ forM (S.toList ds) $ \n ->
