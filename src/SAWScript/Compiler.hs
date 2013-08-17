@@ -1,9 +1,11 @@
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module SAWScript.Compiler where
 
 import Control.Applicative
 import Control.Monad
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Trans.Error (ErrorT, runErrorT)
 #if __GLASGOW_HASKELL__ < 706
 import Prelude hiding (catch)
 #endif
@@ -24,44 +26,21 @@ reportError = putStrLn . ("Error\n" ++) . indent 2
 
 type Compiler a b = a -> Err b
 
-newtype Err a = Err { runErr :: forall r. (String -> IO r) -> (a -> IO r) -> IO r }
+newtype Err b = Err { extractErrorT :: ErrorT String IO b }
+              deriving (Functor, Applicative, Alternative, Monad, MonadPlus,
+                        MonadIO)
 
-instance Functor Err where
-  fmap f m = Err $ \ fl sc -> runErr m fl (sc . f)
-
-instance Monad Err where
-  return a = Err $ \ _  sc -> sc a
-  m >>= k  = Err $ \ fl sc ->
-    runErr m fl $ \ a ->
-      runErr (k a) fl sc
-  fail str = Err $ \ fl _  -> fl str
-
-instance MonadPlus Err where
-  mzero = fail "mzero"
-  m1 `mplus` m2 = Err $ \ fl sc ->
-    runErr m1 (\err -> runErr m2 (\err' -> fl (err ++ "\n" ++ err')) sc) sc
-
-instance Applicative Err where
-  pure = return
-  (<*>) = ap
-
-instance Alternative Err where
-  empty = mzero
-  (<|>) = mplus
-
---after :: IO () -> Compiler a b -> Compiler a b
---after m pass = pass `onFailure` (\f' s -> m >> f' s) `onSuccess` (\f' res -> m >> f' res)
-
-onFailure :: Compiler a b -> (forall r. (String -> IO r) -> String -> IO r) -> Compiler a b
-(pass `onFailure` handler) input = Err $ \fl sc -> runErr (pass input) (handler fl) sc
-
-onSuccess :: Compiler a b -> (forall r. (b -> IO r) -> b -> IO r) -> Compiler a b
-(pass `onSuccess` handler) input = Err $ \fl sc -> runErr (pass input) fl (handler sc)
-
-onFailureRes :: Err a -> (forall r. (String -> IO r) -> String -> IO r) -> Err a
-m `onFailureRes` handler = Err $ \fl sc -> runErr m (handler fl) sc
+runErr :: Err a -> (String -> IO r) -> (a -> IO r) -> IO r
+runErr m fl sc = do
+  result <- runErrorT $ extractErrorT m
+  either fl sc result
 
 compiler :: Show a => String -> Compiler a b -> Compiler a b
-compiler name comp input = onFailureRes (comp input) $ \fl err ->
-  fl $ unlines [name ++ ": " ++ err, "in:",ppShow input]
-
+compiler name comp input = do
+  result <- liftIO $ runErrorT $ extractErrorT $ comp input
+  Err $ case result of
+    Left err -> fail $
+      unlines [ name ++ ": " ++ err
+              , "in:"
+              , ppShow input ]
+    Right r -> return r
