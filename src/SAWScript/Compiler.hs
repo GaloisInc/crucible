@@ -1,16 +1,14 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module SAWScript.Compiler where
+module SAWScript.Compiler ( Compiler, compiler, runCompiler
+                          , Err, runErr
+                          ) where
 
-import Control.Applicative
-import Control.Monad
+import Control.Applicative (Alternative, Applicative)
+import Control.Monad (MonadPlus)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Error (ErrorT, runErrorT)
-#if __GLASGOW_HASKELL__ < 706
-import Prelude hiding (catch)
-#endif
 
-import Text.Show.Pretty
+import Text.Show.Pretty (ppShow)
 
 import SAWScript.Utils
 
