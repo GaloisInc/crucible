@@ -45,6 +45,7 @@ module SAWScript.JavaExpr
   , ppActualType
   -- , tcActualType
   , MethodLocation (..)
+  , BehaviorDecl (..)
   ) where
 
 -- Imports {{{2
@@ -65,7 +66,9 @@ import Text.PrettyPrint.Leijen
 import Verinf.Symbolic
 import qualified Verifier.Java.Codebase as JSS
 
--- import qualified SAWScript.MethodAST as AST
+import Verifier.SAW.Evaluator
+import Verifier.SAW.SharedTerm
+
 import qualified SAWScript.CongruenceClosure as CC
 import SAWScript.TIMonad
 import SAWScript.Utils
@@ -74,6 +77,22 @@ data MethodLocation
    = PC Integer
    | LineOffset Integer
    | LineExact Integer
+  deriving (Show)
+
+data BehaviorDecl e
+  = VarDecl Pos [e] () -- JavaType -- FIXME
+    -- | Local binding within a method spec.
+  -- | MethodLet Pos String Expr
+  | MayAlias Pos [e]
+    -- | Assert a given precondition is true when method is called.
+  | AssertPred Pos e
+  | AssertImp Pos e e
+  | EnsureImp Pos e e
+  | Modify Pos [e]
+  | Return Pos e
+  -- | MethodIf Pos Expr BehaviorDecl
+  -- | MethodIfElse Pos Expr BehaviorDecl BehaviorDecl
+  | Block [BehaviorDecl e]
   deriving (Show)
 
 -- Typecheck DagType {{{1
@@ -106,12 +125,10 @@ tcT tp = (\oc -> tcType oc tp) <$> gets (opCache . globalBindings)
 -- Typechecking configuration {{{1
 
 -- | Context for resolving top level expressions.
-data GlobalBindings = GlobalBindings {
-         opCache       :: OpCache
-       , codeBase      :: JSS.Codebase
+data GlobalBindings s = GlobalBindings {
+         codeBase      :: JSS.Codebase
        , ssOpts        :: SSOpts
-       , opBindings    :: Map String OpDef
-       , constBindings :: Map String (CValue,DagType)
+       , constBindings :: Map String (Value, SharedTerm s)
        }
 
 data MethodInfo = MethodInfo {
@@ -122,17 +139,18 @@ data MethodInfo = MethodInfo {
        }
 
 -- | Context for resolving expressions at the top level or within a method.
-data TCConfig = TCC {
-         globalBindings :: GlobalBindings
-       , localBindings  :: Map String MixedExpr
+data TCConfig s = TCC {
+         globalBindings :: GlobalBindings s
+       , localBindings  :: Map String (MixedExpr s)
        , methodInfo     :: Maybe MethodInfo
        }
 
-mkGlobalTCConfig :: GlobalBindings -> Map String LogicExpr -> TCConfig
+mkGlobalTCConfig :: GlobalBindings s -> Map String (LogicExpr s) -> (TCConfig s)
 mkGlobalTCConfig globalBindings lb = do
   TCC { globalBindings
       , localBindings = Map.map LE lb
-      , methodInfo = Nothing }
+      , methodInfo = Nothing
+      }
 
 -- JavaExpr {{{1
 
@@ -204,35 +222,38 @@ tcValueOfExpr ast cfg = do
 
 -- | A type-checked expression which appears insider a global let binding,
 -- method declaration, or rule term.
-data LogicExpr
-   = Apply Op [LogicExpr]
+data LogicExpr s
+   = Apply Op [LogicExpr s]
    | IntLit Integer WidthExpr
-   | Cns CValue DagType
+   | Cns Value (SharedTerm s)
      -- | Refers to the logical value of a Java expression.  For scalars,
      -- this is the value of the scalar with the number of bits equal to
      -- the stack width.  For arrays, this is the value of the array.
      -- Other reference types are unsupported.
-   | JavaValue JavaExpr JavaActualType DagType
-   | Var String DagType
+   | JavaValue JavaExpr JavaActualType (SharedTerm s)
+   | Var String (SharedTerm s)
    deriving (Show)
 
 -- | Return type of a typed expression.
-typeOfLogicExpr :: LogicExpr -> DagType
+typeOfLogicExpr :: LogicExpr s -> SharedTerm s
+typeOfLogicExpr = undefined -- FIXME
+{-
 typeOfLogicExpr (Apply     op _) = opResultType op
 typeOfLogicExpr (IntLit    _ tp) = SymInt tp
 typeOfLogicExpr (Cns       _ tp) = tp
 typeOfLogicExpr (JavaValue _ _ tp) = tp
 typeOfLogicExpr (Var       _ tp) = tp
+-}
 
 -- | Return java expressions in logic expression.
-logicExprJavaExprs :: LogicExpr -> Set JavaExpr
+logicExprJavaExprs :: LogicExpr s -> Set JavaExpr
 logicExprJavaExprs = flip impl Set.empty
   where impl (Apply _ args) s = foldr impl s args
         impl (JavaValue e _ _) s = Set.insert e s
         impl _ s = s
 
 -- | Returns names of variables appearing in typedExpr.
-logicExprVarNames :: LogicExpr -> Set String
+logicExprVarNames :: LogicExpr s -> Set String
 logicExprVarNames = flip impl Set.empty
   where impl (Apply _ args) s = foldr impl s args
         impl (Var nm _) s = Set.insert nm s
@@ -241,23 +262,26 @@ logicExprVarNames = flip impl Set.empty
 -- | Evaluate a ground typed expression to a constant value.
 globalEval :: (String -> m r)
            -> TermSemantics m r
-           -> LogicExpr
+           -> LogicExpr s
            -> m r
 globalEval varFn ts expr = eval expr
   where --TODO: flag error if op is undefined.
+        eval = undefined -- FIXME
+        {-
         eval (Apply op args) = tsApplyOp ts op (V.map eval (V.fromList args))
         eval (IntLit i (widthConstant -> Just w)) = 
           tsIntConstant ts w i
         eval (IntLit _ w) =
           error $ "internal: globalEval given non-constant width expression "
                     ++ ppWidthExpr w "."
-        eval (Cns c tp) = tsConstant ts c tp
+        eval (Cns c tp) = tsConstant ts c tp -- FIXME
         eval (JavaValue _nm _ _tp) =
           error "internal: globalEval called with Java expression."
         eval (Var nm _tp) = varFn nm
+        -}
 
 -- | Internal utility for flipping arguments to binary logic expressions.
-flipBinOpArgs :: LogicExpr -> LogicExpr
+flipBinOpArgs :: LogicExpr s -> LogicExpr s
 flipBinOpArgs (Apply o [a, b]) = Apply o [b, a]
 flipBinOpArgs e = error $ "internal: flipBinOpArgs: received: " ++ show e
 
@@ -270,8 +294,8 @@ tcLogicExpr e cfg = runTI cfg (tcLE e)
 -- MixedExpr {{{1
 
 -- | A logic or Java expression.
-data MixedExpr
-  = LE LogicExpr
+data MixedExpr s
+  = LE (LogicExpr s)
   | JE JavaExpr
   deriving (Show)
 
@@ -346,13 +370,16 @@ jssTypeOfActual (ArrayInstance _ tp) = JSS.ArrayType tp
 jssTypeOfActual (PrimitiveType tp) = tp
 
 -- | Returns logical type of actual type if it is an array or primitive type.
-logicTypeOfActual :: JavaActualType -> Maybe DagType
+logicTypeOfActual :: JavaActualType -> Maybe (SharedTerm s)
+logicTypeOfActual = undefined -- FIXME
+{-
 logicTypeOfActual (ClassInstance _) = Nothing
 logicTypeOfActual (ArrayInstance l tp) = Just $
   SymArray (constantWidth (Wx l)) 
            (SymInt (constantWidth (Wx (JSS.stackWidth tp))))
 logicTypeOfActual (PrimitiveType tp) = Just $
   SymInt (constantWidth (Wx (JSS.stackWidth tp)))
+-}
 
 -- @isActualSubtype cb x y@ returns True if @x@ is a subtype of @y@.
 isActualSubtype :: JSS.Codebase -> JavaActualType -> JavaActualType -> IO Bool
@@ -389,13 +416,13 @@ tcActualType tp cfg = do
 -}
 -- SawTI {{{1
 
-type SawTI = TI IO TCConfig
+type SawTI s = TI IO (TCConfig s)
 
-debugTI :: String -> SawTI ()
+debugTI :: String -> SawTI s ()
 debugTI msg = do os <- gets (ssOpts . globalBindings)
                  liftIO $ debugVerbose os $ putStrLn msg
 
-getMethodInfo :: SawTI MethodInfo
+getMethodInfo :: SawTI s MethodInfo
 getMethodInfo = do
   maybeMI <- gets methodInfo
   case maybeMI of
@@ -404,7 +431,7 @@ getMethodInfo = do
     Just p -> return p
 
 -- | Check argument count matches expected length
-checkArgCount :: Pos -> String -> [a] -> Int -> SawTI ()
+checkArgCount :: Pos -> String -> [a] -> Int -> SawTI s ()
 checkArgCount pos nm (length -> foundOpCnt) expectedCnt = do
   unless (expectedCnt == foundOpCnt) $
     typeErr pos $ ftext $ "Incorrect number of arguments to \'" ++ nm ++ "\'.  "
@@ -425,6 +452,7 @@ tcJE astExpr = do
       in typeErr (AST.exprPos astExpr) msg
 -}
 
+{-
 checkedGetIntType :: Pos -> JSS.Type -> SawTI DagType
 checkedGetIntType pos javaType = do
   when (JSS.isRefType javaType) $ do
@@ -434,8 +462,9 @@ checkedGetIntType pos javaType = do
     let msg = "Encountered a Java expression denoting a floating point value where a logical expression is expected."
     typeErr pos (ftext msg)
   return $ SymInt (constantWidth (Wx (JSS.stackWidth javaType)))
+-}
 
-getActualType :: Pos -> JavaExpr -> SawTI JavaActualType
+getActualType :: Pos -> JavaExpr -> SawTI s JavaActualType
 getActualType p je = do
   mmi <- gets methodInfo
   case mmi of
@@ -467,7 +496,7 @@ tcLE ast = do
 -}
 
 -- | Verify that type is supported by SAWScript.
-checkIsSupportedType :: Pos -> JSS.Type -> SawTI ()
+checkIsSupportedType :: Pos -> JSS.Type -> SawTI s ()
 checkIsSupportedType pos tp =
   case tp of
     JSS.DoubleType -> throwFloatUnsupported
@@ -483,7 +512,7 @@ checkIsSupportedType pos tp =
           in typeErr pos (ftext msg)
 
 -- | Create a Java expression representing a local variable.
-mkLocalVariable :: Pos -> JSS.LocalVariableTableEntry -> SawTI JavaExpr
+mkLocalVariable :: Pos -> JSS.LocalVariableTableEntry -> SawTI s JavaExpr
 mkLocalVariable pos e = do
   let tp = JSS.localType e
   checkIsSupportedType pos tp
@@ -823,6 +852,7 @@ lift2WordCmp p nm opMaker l r = do
     (_       ,  _)         -> unexpected p ("First argument to operator '"  ++ nm ++ "'") "word" lt
 -}
 
+{-
 -- Only warn if the constant is beyond range for both signed/unsigned versions
 -- This is less precise than it can be, but less annoying too..
 warnRanges :: Pos -> DagType -> Integer -> Int -> SawTI ()
@@ -842,3 +872,5 @@ warnRanges pos tp i w'
         inRange (a, b) = i >= a && i <= b
         complain (a, b) ctx i' =    ftext ("In " ++ ctx ++ " context, range will be: [" ++ show a ++ ", " ++ show b ++ "]")
                                  <$$> ftext ("And the constant will assume the value " ++ show i')
+
+-}

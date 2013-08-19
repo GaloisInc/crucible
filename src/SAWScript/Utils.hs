@@ -25,6 +25,9 @@ import System.Locale(defaultTimeLocale)
 import Text.PrettyPrint.Leijen hiding ((</>))
 import Numeric(showFFloat)
 
+import qualified Verifier.Java.Codebase as JSS
+import qualified Verifier.Java.Simulator as JSS
+
 data Pos = Pos !FilePath -- file
                !Int      -- line
                !Int      -- col
@@ -137,3 +140,40 @@ getTimeStamp :: MonadIO m => m String
 getTimeStamp = do t <- liftIO (getClockTime >>= toCalendarTime)
                   return $ formatCalendarTime defaultTimeLocale "%l:%M:%S %p" t
 
+-- Java lookup functions {{{1
+
+-- | Atempt to find class with given name, or throw ExecException if no class
+-- with that name exists. Class name should be in slash-separated form.
+lookupClass :: JSS.Codebase -> Pos -> String -> IO JSS.Class
+lookupClass cb pos nm = do
+  maybeCl <- JSS.tryLookupClass cb nm
+  case maybeCl of
+    Nothing -> do
+     let msg = ftext ("The Java class " ++ JSS.slashesToDots nm ++ " could not be found.")
+         res = "Please check that the --classpath and --jars options are set correctly."
+      in throwIOExecException pos msg res
+    Just cl -> return cl
+
+-- | Returns method with given name in this class or one of its subclasses.
+-- Throws an ExecException if method could not be found or is ambiguous.
+findMethod :: JSS.Codebase -> Pos -> String -> JSS.Class -> IO (JSS.Class, JSS.Method)
+findMethod cb pos nm initClass = impl initClass
+  where javaClassName = JSS.slashesToDots (JSS.className initClass)
+        methodMatches m = JSS.methodName m == nm && not (JSS.methodIsAbstract m)
+        impl cl =
+          case filter methodMatches (JSS.classMethods cl) of
+            [] -> do
+              case JSS.superClass cl of
+                Nothing ->
+                  let msg = ftext $ "Could not find method " ++ nm
+                              ++ " in class " ++ javaClassName ++ "."
+                      res = "Please check that the class and method are correct."
+                   in throwIOExecException pos msg res
+                Just superName ->
+                  impl =<< lookupClass cb pos superName
+            [method] -> return (cl,method)
+            _ -> let msg = "The method " ++ nm ++ " in class " ++ javaClassName
+                             ++ " is ambiguous.  SAWScript currently requires that "
+                             ++ "method names are unique."
+                     res = "Please rename the Java method so that it is unique."
+                  in throwIOExecException pos (ftext msg) res

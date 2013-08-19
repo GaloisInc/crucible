@@ -12,7 +12,7 @@ import qualified Data.Map as M
 import Data.Foldable (Foldable)
 import qualified Data.Traversable as T
 import System.FilePath (joinPath,splitPath,dropExtension)
-import qualified Text.PrettyPrint.HughesPJ as PP
+import qualified Text.PrettyPrint.Leijen as PP
 
 -- Intermediate Types {{{
 
