@@ -25,11 +25,11 @@ run options = runInputT Haskeline.defaultSettings loop
 evaluateAndPrint :: Options -> String -> ErrT (InputT IO) ()
 evaluateAndPrint options s = do
   preexistingModules <- liftIO preludeLoadedModules
-  lift $ loadModuleFromString options "<stdin>" s preexistingModules $
+  loadModuleFromString options "<stdin>" s preexistingModules $
     \mods -> do
       {- TODO: Actually do something useful here instead of just printing the
       modules -}
-      Haskeline.outputStrLn $ showResult mods
+      lift $ Haskeline.outputStrLn $ showResult mods
 
 showResult :: (Show a) => a -> String
 showResult = show
