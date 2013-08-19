@@ -19,7 +19,6 @@ import Control.Applicative
 import Control.Monad ( foldM )
 import Control.Monad.IO.Class ( liftIO )
 import Control.Monad.State ( StateT(..) )
-import Data.Char ( isAlphaNum )
 import Data.List ( intersperse )
 import qualified Data.Map as M
 import Data.Map ( Map )
@@ -427,7 +426,7 @@ translateExpr sc tm sm km expr =
                                         let sm'' = M.insert (SS.LocalName x) x' sm'
                                         let km' = fmap (\(i, k) -> (i + 1, k)) km
                                         e' <- translateExpr sc tm sm'' km' e
-                                        scLambda sc (filter isAlphaNum x) a' e'
+                                        scLambda sc (takeWhile (/= '.') x) a' e'
       SS.Application f e        _ -> do f' <- translateExpr sc tm sm km f
                                         e' <- translateExpr sc tm sm km e
                                         scApply sc f' e'
@@ -458,7 +457,7 @@ translatePolyExpr sc tm sm expr
         -- FIXME: we assume all have kind KStar
         s0 <- translateKind sc KStar
         t <- translateExpr sc tm sm km expr
-        scLambdaList sc [ (filter isAlphaNum n, s0) | n <- ns ] t
+        scLambdaList sc [ (takeWhile (/= '.') n, s0) | n <- ns ] t
   | otherwise = return (error "Untranslatable expression")
 
 -- Type substitution -----------------------------------------------------------
