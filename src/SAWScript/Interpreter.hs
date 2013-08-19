@@ -17,6 +17,7 @@ module SAWScript.Interpreter
 
 import Control.Applicative
 import Control.Monad ( foldM )
+import Control.Monad.IO.Class ( liftIO )
 import Control.Monad.State ( StateT(..) )
 import Data.Char ( isAlphaNum )
 import Data.List ( intersperse )
@@ -60,7 +61,9 @@ data Value s
   | VTLambda (SS.Type -> IO (Value s))
   | VTerm (SharedTerm s)
   | VIO (IO (Value s))
+  | VProofScript (ProofScript s (Value s))
   | VSimpset (Simpset (SharedTerm s))
+  | VTheorem (Theorem s)
 
 instance Show (Value s) where
     showsPrec p v =
@@ -82,6 +85,7 @@ instance Show (Value s) where
         VTerm t -> showsPrec p t
         VIO {} -> showString "<<IO>>"
         VSimpset {} -> showString "<<simpset>>"
+        VTheorem (Theorem t) -> showString "Theorem " . showParen True (showString (scPrettyTerm t))
 
 indexValue :: Value s -> Value s -> Value s
 indexValue (VArray vs) (VInteger x)
@@ -118,12 +122,20 @@ tapplyValue v _ = return v
 
 thenValue :: Value s -> Value s -> Value s
 thenValue (VIO m1) (VIO m2) = VIO (m1 >> m2)
+thenValue (VProofScript m1) (VProofScript m2) = VProofScript (m1 >> m2)
 thenValue _ _ = error "thenValue"
 
 bindValue :: Value s -> Value s -> Value s
-bindValue (VIO m1) v2 = VIO $ do v1 <- m1
-                                 VIO m3 <- applyValue v2 v1
-                                 m3
+bindValue (VIO m1) v2 =
+  VIO $ do
+    v1 <- m1
+    VIO m3 <- applyValue v2 v1
+    m3
+bindValue (VProofScript m1) v2 =
+  VProofScript $ do
+    v1 <- m1
+    VProofScript m3 <- liftIO $ applyValue v2 v1
+    m3
 bindValue _ _ = error "bindValue"
 
 importValue :: SC.Value -> Value s
@@ -203,9 +215,10 @@ instance IsValue s a => IsValue s (IO a) where
     fromValue (VIO io) = fmap fromValue io
     fromValue _ = error "fromValue IO"
 
-instance (IsValue s t, IsValue s a) => IsValue s (StateT t IO a) where
-    toValue (StateT m) = toValue m
-    fromValue v = StateT (fromValue v)
+instance IsValue s a => IsValue s (StateT (SharedTerm s) IO a) where
+    toValue m = VProofScript (fmap toValue m)
+    fromValue (VProofScript m) = fmap fromValue m
+    fromValue _ = error "fromValue ProofScript"
 
 instance IsValue s (SharedTerm s) where
     toValue t = VTerm t
@@ -246,6 +259,11 @@ instance IsValue s (Simpset (SharedTerm s)) where
     toValue ss = VSimpset ss
     fromValue (VSimpset ss) = ss
     fromValue _ = error "fromValue Simpset"
+
+instance IsValue s (Theorem s) where
+    toValue t = VTheorem t
+    fromValue (VTheorem t) = t
+    fromValue _ = error "fromValue Theorem"
 
 -- Type matching ---------------------------------------------------------------
 
@@ -510,7 +528,8 @@ interpret sc vm tm sm expr =
       SS.LetBlock bs e       -> do let m = M.fromList [ (SS.LocalName x, y) | (x, y) <- bs ]
                                    let tm' = fmap SS.typeOf m
                                    vm' <- traverse (interpretPoly sc vm tm sm) m
-                                   sm' <- traverse (translatePolyExpr sc tm sm) m
+                                   sm' <- traverse (translatePolyExpr sc tm sm) $
+                                          M.filter (translatableExpr (M.keysSet sm)) m
                                    interpret sc (M.union vm' vm) (M.union tm' tm) (M.union sm' sm) e
 
 interpretPoly
@@ -573,7 +592,9 @@ interpretMain opts m =
                  emptyModule mn
        sc <- mkSharedContext scm
        env <- coreEnv sc
-       v <- interpretModule sc (valueEnv opts sc) (transitivePrimEnv m) env m
+       ss <- basic_ss sc
+       let venv = M.insert (qualify "basic_ss") (toValue ss) (valueEnv opts sc)
+       v <- interpretModule sc venv (transitivePrimEnv m) env m
        (fromValue v :: IO ())
 
 -- | Collects primitives from the module and all its transitive dependencies.
@@ -599,6 +620,7 @@ valueEnv opts sc = M.fromList
   , (qualify "prove"       , toValue $ provePrim sc)
   , (qualify "sat"         , toValue $ satPrim sc)
   , (qualify "empty_ss"    , toValue (emptySimpset :: Simpset (SharedTerm s)))
+  , (qualify "addsimp"     , toValue $ addsimp sc)
   , (qualify "rewrite"     , toValue $ rewritePrim sc)
   , (qualify "abc"         , toValue $ satABC sc)
   , (qualify "unfolding"   , toValue $ unfoldGoal sc)
