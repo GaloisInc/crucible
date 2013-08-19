@@ -1,17 +1,17 @@
 main = do {
-  (encr : ([64], [64]) -> [64]) <- read_sbv "des_enc.sbv";
-  (decr : ([64], [64]) -> [64]) <- read_sbv "des_dec.sbv";
-  enc <- define "enc" encr;
-  dec <- define "dec" decr;
+  let define_sbv name file = do { rhs <- read_sbv file; define name rhs; };
+
+  (enc : ([64], [64]) -> [64]) <- define_sbv "enc" "des_enc.sbv";
+  (dec : ([64], [64]) -> [64]) <- define_sbv "dec" "des_dec.sbv";
 
   print "proving dec_enc...";
   let prop1 key msg = dec (key, enc (key, msg)) == msg;
-  dec_enc <- prove (seq (unfolding ["enc", "dec"]) abc) prop1;
+  dec_enc <- prove do { unfolding ["enc", "dec"]; abc; } prop1;
   print dec_enc;
 
   print "proving enc_dec...";
   let prop2 key msg = enc (key, dec (key, msg)) == msg;
-  enc_dec <- prove (seq (unfolding ["enc", "dec"]) abc) prop2;
+  enc_dec <- prove do { unfolding ["enc", "dec"]; abc; } prop2;
   print enc_dec;
 
   let ss = addsimp dec_enc (addsimp enc_dec empty_ss);
@@ -21,19 +21,11 @@ main = do {
 
   print "proving dec3_enc3...";
   let prop3 k1 k2 k3 msg = dec3 k1 k2 k3 (enc3 k1 k2 k3 msg) == msg;
-  thm3 <- prove (
-    seq (simplify ss) (
-    seq print_goal (
-    abc
-    ))) prop3;
+  thm3 <- prove do { simplify ss; print_goal; abc; } prop3;
   print thm3;
 
   print "proving enc3_dec3...";
   let prop4 k1 k2 k3 msg = enc3 k1 k2 k3 (dec3 k1 k2 k3 msg) == msg;
-  thm4 <- prove (
-    seq (simplify ss) (
-    seq print_goal (
-    abc
-    ))) prop4;
+  thm4 <- prove do { simplify ss; print_goal; abc; } prop4;
   print thm4;
 };
