@@ -12,6 +12,7 @@ module SAWScript.Import
 import Control.Monad
 import qualified Data.Map as Map
 import Data.Maybe
+import qualified Text.PrettyPrint.HughesPJ as PP
 
 import SAWScript.AST
 import SAWScript.Compiler
@@ -58,6 +59,10 @@ loadModule opts fname ms k = do
 data LoadedModules = LoadedModules
   { modules    :: ModuleEnv [TopStmtSimple RawT]
   } deriving (Show)
+
+instance PrettyPrint LoadedModules where
+  pretty _ lm =
+    PP.brackets $ commaSepAll $ fmap (pretty False) $ Map.keys $ modules lm
 
 emptyLoadedModules :: LoadedModules
 emptyLoadedModules = LoadedModules Map.empty

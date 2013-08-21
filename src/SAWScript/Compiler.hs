@@ -10,8 +10,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Class (MonadTrans)
 import Control.Monad.Trans.Error (ErrorT, mapErrorT, runErrorT)
 
-import Text.Show.Pretty (ppShow)
-
+import SAWScript.AST (PrettyPrint, pShow)
 import SAWScript.Utils
 
 -- | Wrapper around compiler function to format the result or error
@@ -58,12 +57,12 @@ runErrT' = runErrorT . extractErrorT
 mapErrT :: (m (Either String a) -> n (Either String b)) -> ErrT m a -> ErrT n b
 mapErrT f = ErrT . mapErrorT f . extractErrorT
 
-compiler :: Show a => String -> Compiler a b -> Compiler a b
+compiler :: PrettyPrint a => String -> Compiler a b -> Compiler a b
 compiler name comp input = do
   result <- liftIO $ runErrorT $ extractErrorT $ comp input
   ErrT $ case result of
     Left err -> fail $
       unlines [ name ++ ": " ++ err
               , "in:"
-              , ppShow input ]
+              , pShow input ]
     Right r -> return r
