@@ -1,14 +1,14 @@
 module SAWScript.REPL where
 
+import Control.Monad ((=<<))
 import Control.Monad.IO.Class (liftIO)
 import System.Console.Haskeline (InputT, runInputT)
 import qualified System.Console.Haskeline as Haskeline
 
+import SAWScript.AST (BlockStmt, UnresolvedName, RawT)
 import SAWScript.Compiler (runCompiler, ErrT, mapErrT)
 import SAWScript.Lexer (scan)
-import SAWScript.Parser (parseTopStmt)
-import SAWScript.Token (Token)
-import SAWScript.Utils (Pos)
+import SAWScript.Parser (parseBlockStmt)
 
 run :: IO ()
 run = runInputT Haskeline.defaultSettings loop
@@ -17,12 +17,16 @@ run = runInputT Haskeline.defaultSettings loop
           line <- Haskeline.getInputLine "Prelude> "
           case line of
             Nothing -> return ()
-            Just instruction -> runCompiler evaluate instruction $ \r -> do
-              Haskeline.outputStrLn $ showResult r
+            Just instruction -> do
+              runCompiler evaluate instruction $ \r -> do
+                Haskeline.outputStrLn $ showResult r
               loop
 
-evaluate :: String -> ErrT (InputT IO) [Token Pos]
-evaluate = mapErrT liftIO . scan "<stdin>"
+evaluate :: String -> ErrT (InputT IO) (BlockStmt UnresolvedName RawT)
+evaluate line = do
+  tokens <- mapErrT liftIO $ scan "<stdin>" line
+  statement <- mapErrT liftIO $ parseBlockStmt tokens
+  return statement
 
-showResult :: [Token Pos] -> String
+showResult :: Show a => a -> String
 showResult = show
