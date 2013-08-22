@@ -10,6 +10,7 @@ import Control.Exception (bracket)
 import Control.Lens
 import Control.Monad.Error
 import Control.Monad.State
+import Control.Monad.Writer
 import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Vector.Storable as SV
@@ -47,6 +48,9 @@ import qualified Verifier.SAW.Export.SMT.Version2 as SMT2
 import Verifier.SAW.Import.AIG
 
 import qualified SAWScript.AST as SS
+import SAWScript.JavaExpr
+import SAWScript.MethodSpec
+import SAWScript.MethodSpecIR
 import SAWScript.Options
 import SAWScript.Utils
 
@@ -308,13 +312,14 @@ myPrint _ v = mkSC $ const (print v)
 print_type :: SharedContext s -> SharedTerm s -> IO ()
 print_type sc t = scTypeOf sc t >>= print
 
-type LLVMSetup a = a --FIXME
+type LLVMSetup s a = IO a
 
 -- | Extract a simple, pure model from the given symbol within the
 -- given bitcode file. This code creates fresh inputs for all
 -- arguments and returns a term representing the return value. Some
 -- verifications will require more complex execution contexts.
-extractLLVM :: SharedContext s -> FilePath -> String -> LLVMSetup () -> IO (SharedTerm s)
+extractLLVM :: SharedContext s -> FilePath -> String -> LLVMSetup s ()
+            -> IO (SharedTerm s)
 extractLLVM sc file func _setup = do
   mdl <- L.loadModule file
   let dl = L.parseDataLayout $ LLVM.modDataLayout mdl
@@ -387,9 +392,11 @@ freshLLVMArg (_, _) = fail "Only integer arguments are supported for now."
 fixPos :: Pos
 fixPos = PosInternal "FIXME"
 
-type JavaSetup a = a -- FIXME
+--type JavaSetup s a = WriterT [BehaviorDecl (SharedTerm s)] IO a
+type JavaSetup s a = IO a
 
-extractJava :: SharedContext s -> Options -> String -> String -> JavaSetup () -> IO (SharedTerm s)
+extractJava :: SharedContext s -> Options -> String -> String -> JavaSetup s ()
+            -> IO (SharedTerm s)
 extractJava sc opts cname mname _setup = do
   cb <- JSS.loadCodebase (jarList opts) (classPath opts)
   let cname' = JP.dotsToSlashes cname
@@ -415,8 +422,22 @@ extractJava sc opts cname mname _setup = do
         Left err -> fail $ "Failed to extract Java model: " ++ err
         Right t -> return t
 
-verifyJava :: SharedContext s -> Options -> String -> String -> JavaSetup () -> IO (SharedTerm s)
-verifyJava _ _ _ _ _ = fail "java_verify not yet implemented"
+verifyJava :: SharedContext s -> Options -> String -> String -> JavaSetup s ()
+           -> IO (SharedTerm s)
+verifyJava sc opts cname mname setup = do
+  cb <- JSS.loadCodebase (jarList opts) (classPath opts)
+  let cname' = JP.dotsToSlashes cname
+  cls <- lookupClass cb fixPos cname'
+  -- (_, cmds) <- runWriterT setup
+  let pos = undefined -- TODO
+      rules = undefined -- TODO
+      gb = GlobalBindings {
+             codeBase = cb
+           , gbOpts = opts
+           , constBindings = Map.empty -- TODO
+           }
+  msir <- resolveMethodSpecIR gb rules pos cls mname [] -- FIXME
+  fail "java_verify not yet finished"
 
 freshJavaArg :: MonadIO m =>
                 JSS.Backend sbe

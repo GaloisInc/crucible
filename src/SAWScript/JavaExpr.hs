@@ -71,6 +71,7 @@ import Verifier.SAW.SharedTerm
 
 import qualified SAWScript.CongruenceClosure as CC
 import SAWScript.TIMonad
+import SAWScript.Options
 import SAWScript.Utils
 
 data MethodLocation
@@ -127,7 +128,7 @@ tcT tp = (\oc -> tcType oc tp) <$> gets (opCache . globalBindings)
 -- | Context for resolving top level expressions.
 data GlobalBindings s = GlobalBindings {
          codeBase      :: JSS.Codebase
-       , ssOpts        :: SSOpts
+       , gbOpts        :: Options
        , constBindings :: Map String (Value, SharedTerm s)
        }
 
@@ -418,9 +419,11 @@ tcActualType tp cfg = do
 
 type SawTI s = TI IO (TCConfig s)
 
+{-
 debugTI :: String -> SawTI s ()
-debugTI msg = do os <- gets (ssOpts . globalBindings)
+debugTI msg = do os <- gets (gbOpts . globalBindings)
                  liftIO $ debugVerbose os $ putStrLn msg
+-}
 
 getMethodInfo :: SawTI s MethodInfo
 getMethodInfo = do
@@ -678,11 +681,11 @@ tcE (AST.ApplyExpr pos nm astArgs) = do
       let argTypes = map typeOfLogicExpr args
       case matchSubst (defTypes `zip` argTypes) of
         Nothing  -> do
-          debugTI $ show defTypes
-          debugTI $ show argTypes
+          --debugTI $ show defTypes
+          --debugTI $ show argTypes
           mismatchArgs pos ("in call to '" ++ nm ++ "'") argTypes defTypes
         Just sub -> do
-          debugTI $ "Making expression with operator " ++ opDefName opDef ++ " and substitution " ++  show sub
+          --debugTI $ "Making expression with operator " ++ opDefName opDef ++ " and substitution " ++  show sub
           return $ LE $ Apply (mkOp opDef sub) args
 tcE (AST.NotExpr      p l)   = lift1Bool     p "not" bNotOp        l
 tcE (AST.BitComplExpr p l)   = lift1Word     p "~"   iNotOp        l

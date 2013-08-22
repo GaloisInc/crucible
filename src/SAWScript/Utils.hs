@@ -67,25 +67,6 @@ instance Show Pos where
 
 data SSMode = Verify | Blif | CBlif deriving (Eq, Show, Data, Typeable)
 
-data SSOpts = SSOpts {
-         classpath  :: String
-       , jars       :: String
-       , verbose    :: Int
-       , simverbose :: Int
-       , dump       :: Bool
-       , entryPoint :: FilePath
-       , ssMode       :: SSMode
-       } deriving (Show, Data, Typeable)
-
-verboseAtLeast :: Int -> SSOpts -> IO () -> IO ()
-verboseAtLeast i o = when (verbose o >= i)
-
-notQuiet :: SSOpts -> IO () -> IO ()
-notQuiet o = verboseAtLeast 1 o
-
-debugVerbose :: SSOpts -> IO () -> IO ()
-debugVerbose o = verboseAtLeast 10 o
-
 -- | Convert a string to a paragraph formatted document.
 ftext :: String -> Doc
 ftext msg = fillSep (map text $ words msg)
