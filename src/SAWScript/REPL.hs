@@ -1,10 +1,11 @@
 module SAWScript.REPL where
 
+import Control.Monad.IO.Class (liftIO)
 import System.Console.Haskeline (InputT, runInputT)
 import qualified System.Console.Haskeline as Haskeline
 
-import SAWScript.Compiler (Compiler, runCompiler)
-import SAWScript.Lexer (lexSAW)
+import SAWScript.Compiler (runCompiler, ErrT, mapErrT)
+import SAWScript.Lexer (scan)
 import SAWScript.Parser (parseTopStmt)
 import SAWScript.Token (Token)
 import SAWScript.Utils (Pos)
@@ -20,8 +21,8 @@ run = runInputT Haskeline.defaultSettings loop
               Haskeline.outputStrLn $ showResult r
               loop
 
-evaluate :: Compiler String [Token Pos]
-evaluate = return . lexSAW "<stdin>"
+evaluate :: String -> ErrT (InputT IO) [Token Pos]
+evaluate = mapErrT liftIO . scan "<stdin>"
 
 showResult :: [Token Pos] -> String
 showResult = show
