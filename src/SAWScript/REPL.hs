@@ -13,32 +13,35 @@ import SAWScript.AST (ModuleName(ModuleName),
                       Expr(Block),
                       BlockStmt,
                       UnresolvedName, ResolvedName,
-                      RawT, ResolvedT, Schema)
+                      RawT, ResolvedT, Schema,
+                      Name)
 import SAWScript.BuildModules (buildModules)
-import SAWScript.Compiler (Compiler, runCompiler, compiler,
+import SAWScript.Compiler (runCompiler,
                            ErrT, mapErrT)
 import SAWScript.Import (preludeLoadedModules)
+import SAWScript.Interpreter (interpretEntry)
 import SAWScript.Lexer (scan)
 import SAWScript.MGU (checkModule)
+import SAWScript.Options (Options)
 import SAWScript.Parser (parseBlockStmt)
 import SAWScript.ProcessFile (checkModuleWithDeps)
 import SAWScript.RenameRefs (renameRefs)
 import SAWScript.ResolveSyns (resolveBlockStmtSyns)
 
-run :: IO ()
-run = runInputT Haskeline.defaultSettings loop
+run :: Options -> IO ()
+run opts = runInputT Haskeline.defaultSettings loop
   where loop :: InputT IO ()
         loop = do
           line <- Haskeline.getInputLine "Prelude> "
           case line of
             Nothing -> return ()
             Just instruction -> do
-              runCompiler evaluate instruction $ \r -> do
+              runCompiler (evaluate opts) instruction $ \r -> do
                 Haskeline.outputStrLn $ showResult r
               loop
 
-evaluate :: String -> ErrT (InputT IO) (BlockStmt ResolvedName Schema)
-evaluate line = do
+evaluate :: Options -> String -> ErrT (InputT IO) ()
+evaluate opts line = do
   -- Lex and parse.
   tokens <- mapErrT liftIO $ scan replFileName line
   ast :: BlockStmt UnresolvedName RawT
@@ -47,41 +50,39 @@ evaluate line = do
   REPL, so there never are any. -}
   synsResolved :: BlockStmt UnresolvedName ResolvedT
                <- mapErrT liftIO $ resolveBlockStmtSyns Map.empty ast
-  -- Rename references.
+  {- From here on, the compiler pipeline needs to carry around a lot of
+  metadata about the code it's compiling.  The metadata is related to the
+  module system, so instead of creating some extra data structure to hold the
+  metadata, the compiler pipeline simply zooms out and starts working at the
+  module granularity. -}
   modsInScope :: Map ModuleName ValidModule
-              <-
-    liftIO preludeLoadedModules >>=
-    mapErrT liftIO . buildModules >>=
-    mapErrT liftIO . foldrM checkModuleWithDeps Map.empty
-  renamed :: BlockStmt ResolvedName ResolvedT
-          <- mapErrT liftIO $ moduleOp modsInScope renameRefs synsResolved
+              <- liftIO preludeLoadedModules >>=
+                 mapErrT liftIO . buildModules >>=
+                 mapErrT liftIO . foldrM checkModuleWithDeps Map.empty
+  let synsResolved' :: Module UnresolvedName ResolvedT ResolvedT
+      synsResolved' = wrapBStmt modsInScope "it" synsResolved
+  -- Rename references.
+  renamed :: Module ResolvedName ResolvedT ResolvedT
+          <- mapErrT liftIO $ renameRefs synsResolved'
   -- Infer and check types.
-  checked :: BlockStmt ResolvedName Schema
-          <- mapErrT liftIO $ moduleOp modsInScope checkModule renamed
-  -- All done.
-  return checked
+  typechecked :: Module ResolvedName Schema ResolvedT
+              <- mapErrT liftIO $ checkModule renamed
+  -- Interpret the statement.
+  liftIO $ interpretEntry "it" opts typechecked
 
--- "Lowers" a module-level operation to work on single 'BlockStmt's.
-moduleOp :: Monad m
-            => Map ModuleName ValidModule -- ^ modules in scope
-            -> (Module refT ResolvedT ResolvedT
-                -> m (Module refT' exprT' typeT'))
-            -> (BlockStmt refT ResolvedT
-                -> m (BlockStmt refT' exprT'))
-moduleOp modsInScope f = \stmt -> do
-  resultMod <-
-    f $ Module { moduleName = replModuleName
-                 {- The expression environment simply maps @it@ to the
-                 statement.  Statements aren't expressions, so I wrap it up in
-                 a block (with an unspecified return type). -}
-               , moduleExprEnv = Map.singleton "it"
-                                               (Block [stmt] Nothing)
-               , modulePrimEnv = Map.empty -- no 'Prim's in the REPL
-               , moduleTypeEnv = Map.empty -- no type synonyms in the REPL
-               , moduleDependencies = modsInScope }
-  case Map.lookup "it" $ moduleExprEnv resultMod of
-    Just (Block [renamedStmt] _) -> return renamedStmt
-    _ -> fail "Unable to lower module operation to block level"
+wrapBStmt :: Map ModuleName ValidModule
+             -> Name
+             -> BlockStmt refT ResolvedT
+             -> Module refT ResolvedT ResolvedT
+wrapBStmt modsInScope stmtName stmt =
+  Module { moduleName = replModuleName
+           {- The expression environment simply maps @it@ to the statement.
+           Statements aren't expressions, so I wrap it up in a block (with an
+           unspecified return type). -}
+         , moduleExprEnv = Map.singleton stmtName (Block [stmt] Nothing)
+         , modulePrimEnv = Map.empty -- no 'Prim's in the REPL
+         , moduleTypeEnv = Map.empty -- no type synonyms in the REPL
+         , moduleDependencies = modsInScope }
 
 showResult :: Show a => a -> String
 showResult = show

@@ -8,8 +8,8 @@
 
 module SAWScript.Interpreter
   ( interpret
-  , interpretModule
   , interpretMain
+  , interpretEntry
   , Value
   , IsValue(..)
   )
@@ -570,23 +570,23 @@ interpretStmts sc vm tm sm stmts =
       SS.BlockLet bs : ss -> interpret sc vm tm sm (SS.LetBlock bs (SS.Block ss undefined))
       SS.BlockTypeDecl {} : _ -> fail "BlockTypeDecl unsupported"
 
--- | The initial version here simply interprets the binding for "main"
--- (assuming there is one), ignoring everything else in the module.
 -- TODO: Support for multiple top-level mutually-recursive bindings.
-interpretModule
-    :: forall s. SharedContext s
+interpretModuleAtEntry
+    :: forall s.
+       SS.Name -- ^ Entry point
+    -> SharedContext s
     -> Map SS.ResolvedName (Value s)
     -> Map SS.ResolvedName SS.Schema
     -> Map SS.ResolvedName (SharedTerm s)
     -> SS.ValidModule -> IO (Value s)
-interpretModule sc vm tm sm m = interpret sc vm tm sm main
-    where main = case M.lookup "main" (SS.moduleExprEnv m) of
+interpretModuleAtEntry entryName sc vm tm sm m = interpret sc vm tm sm entry
+    where entry = case M.lookup entryName (SS.moduleExprEnv m) of
                    Just mn -> mn
-                   Nothing -> error $ "No main in module " ++ show (SS.moduleName m)
+                   Nothing -> error $ "No " ++ entryName ++ " in module " ++ show (SS.moduleName m)
 
--- | Interpret function 'main' using the default value environments.
-interpretMain :: Options -> SS.ValidModule -> IO ()
-interpretMain opts m =
+-- | Interpret an expression using the default value environments.
+interpretEntry :: SS.Name -> Options -> SS.ValidModule -> IO ()
+interpretEntry entryName opts m =
     do let mn = case SS.moduleName m of SS.ModuleName xs x -> mkModuleName (xs ++ [x])
        let scm = insImport preludeModule $
                  emptyModule mn
@@ -594,8 +594,12 @@ interpretMain opts m =
        env <- coreEnv sc
        ss <- basic_ss sc
        let venv = M.insert (qualify "basic_ss") (toValue ss) (valueEnv opts sc)
-       v <- interpretModule sc venv (transitivePrimEnv m) env m
+       v <- interpretModuleAtEntry entryName sc venv (transitivePrimEnv m) env m
        (fromValue v :: IO ())
+
+-- | Interpret function 'main' using the default value environments.
+interpretMain :: Options -> SS.ValidModule -> IO ()
+interpretMain = interpretEntry "main"
 
 -- | Collects primitives from the module and all its transitive dependencies.
 transitivePrimEnv :: SS.ValidModule -> Map SS.ResolvedName SS.Schema
