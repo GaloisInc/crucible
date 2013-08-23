@@ -13,12 +13,13 @@ import SAWScript.AST (ModuleName(ModuleName),
                       Expr(Block),
                       BlockStmt,
                       UnresolvedName, ResolvedName,
-                      RawT, ResolvedT)
+                      RawT, ResolvedT, Schema)
 import SAWScript.BuildModules (buildModules)
 import SAWScript.Compiler (Compiler, runCompiler, compiler,
                            ErrT, mapErrT)
 import SAWScript.Import (preludeLoadedModules)
 import SAWScript.Lexer (scan)
+import SAWScript.MGU (checkModule)
 import SAWScript.Parser (parseBlockStmt)
 import SAWScript.ProcessFile (checkModuleWithDeps)
 import SAWScript.RenameRefs (renameRefs)
@@ -36,7 +37,7 @@ run = runInputT Haskeline.defaultSettings loop
                 Haskeline.outputStrLn $ showResult r
               loop
 
-evaluate :: String -> ErrT (InputT IO) (BlockStmt ResolvedName ResolvedT)
+evaluate :: String -> ErrT (InputT IO) (BlockStmt ResolvedName Schema)
 evaluate line = do
   -- Lex and parse.
   tokens <- mapErrT liftIO $ scan replFileName line
@@ -53,36 +54,34 @@ evaluate line = do
     mapErrT liftIO . buildModules >>=
     mapErrT liftIO . foldrM checkModuleWithDeps Map.empty
   renamed :: BlockStmt ResolvedName ResolvedT
-          <- mapErrT liftIO $ renameBStmtRefs modsInScope synsResolved
+          <- mapErrT liftIO $ moduleOp modsInScope renameRefs synsResolved
+  -- Infer and check types.
+  checked :: BlockStmt ResolvedName Schema
+          <- mapErrT liftIO $ moduleOp modsInScope checkModule renamed
   -- All done.
-  return renamed
+  return checked
 
--- Analogue of 'RenameRefs.renameRefs', but for a single 'BlockStmt'.
-renameBStmtRefs :: Map ModuleName ValidModule -- ^ modules in scope
-                   -> Compiler (BlockStmt UnresolvedName ResolvedT)
-                               (BlockStmt ResolvedName ResolvedT)
-renameBStmtRefs modsInScope = compiler "RenameBStmtRefs" $ \stmt -> do
-  {- Given the amount of metadata needed to perform a proper renaming, it seems
-  totally reasonable to couple the renamer with the SAWScript module system,
-  and indeed, this is the approach 'RenameRefs' takes.  This function collects
-  all the metadata about the single line we're trying to interpret and packages
-  them into a fake module for 'RenameRefs' to work on.  While this may seem
-  somewhat ugly, it's really not--even without the spurious module data
-  structure, I'd still need to collect all the metadata and pipe it along to
-  the renamer. -}
-  renamed <- renameRefs $
-             Module { moduleName = replModuleName
-                      {- The expression environment simply maps @it@ to the
-                      statement.  Statements aren't expressions, so I wrap it
-                      up in a block (with an unspecified return type). -}
-                    , moduleExprEnv = Map.singleton "it"
-                                                    (Block [stmt] Nothing)
-                    , modulePrimEnv = Map.empty -- no 'Prim's in the REPL
-                    , moduleTypeEnv = Map.empty -- no type synonyms in the REPL
-                    , moduleDependencies = modsInScope }
-  case Map.lookup "it" $ moduleExprEnv renamed of
+-- "Lowers" a module-level operation to work on single 'BlockStmt's.
+moduleOp :: Monad m
+            => Map ModuleName ValidModule -- ^ modules in scope
+            -> (Module refT ResolvedT ResolvedT
+                -> m (Module refT' exprT' typeT'))
+            -> (BlockStmt refT ResolvedT
+                -> m (BlockStmt refT' exprT'))
+moduleOp modsInScope f = \stmt -> do
+  resultMod <-
+    f $ Module { moduleName = replModuleName
+                 {- The expression environment simply maps @it@ to the
+                 statement.  Statements aren't expressions, so I wrap it up in
+                 a block (with an unspecified return type). -}
+               , moduleExprEnv = Map.singleton "it"
+                                               (Block [stmt] Nothing)
+               , modulePrimEnv = Map.empty -- no 'Prim's in the REPL
+               , moduleTypeEnv = Map.empty -- no type synonyms in the REPL
+               , moduleDependencies = modsInScope }
+  case Map.lookup "it" $ moduleExprEnv resultMod of
     Just (Block [renamedStmt] _) -> return renamedStmt
-    _ -> fail "Unable to rename references"
+    _ -> fail "Unable to lower module operation to block level"
 
 showResult :: Show a => a -> String
 showResult = show
