@@ -1,0 +1,11 @@
+twice f x = f (f x);
+
+ident x = x;
+
+main : TopLevel ();
+main = do {
+  print_term (twice ident : [8] -> [8]);
+  twice_id <- define "twice_id" (twice ident : [8] -> [8]);
+  print_term twice_id;
+  print (twice_id 5);
+};

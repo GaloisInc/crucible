@@ -19,6 +19,8 @@ import Control.Applicative
 import Control.Monad ( foldM )
 import Control.Monad.IO.Class ( liftIO )
 import Control.Monad.State ( StateT(..) )
+import Data.Graph.SCC ( stronglyConnComp )
+import Data.Graph ( SCC(..) )
 import Data.List ( intersperse )
 import qualified Data.Map as M
 import Data.Map ( Map )
@@ -569,32 +571,76 @@ interpretStmts sc vm tm sm stmts =
       SS.BlockLet bs : ss -> interpret sc vm tm sm (SS.LetBlock bs (SS.Block ss undefined))
       SS.BlockTypeDecl {} : _ -> fail "BlockTypeDecl unsupported"
 
--- | The initial version here simply interprets the binding for "main"
--- (assuming there is one), ignoring everything else in the module.
--- TODO: Support for multiple top-level mutually-recursive bindings.
+type REnv = Map SS.ResolvedName
+type InterpretEnv s = (REnv (Value s), REnv SS.Schema, REnv (SharedTerm s))
+
 interpretModule
     :: forall s. SharedContext s
-    -> Map SS.ResolvedName (Value s)
-    -> Map SS.ResolvedName SS.Schema
-    -> Map SS.ResolvedName (SharedTerm s)
-    -> SS.ValidModule -> IO (Value s)
-interpretModule sc vm tm sm m = interpret sc vm tm sm main
-    where main = case M.lookup "main" (SS.moduleExprEnv m) of
-                   Just mn -> mn
-                   Nothing -> error $ "No main in module " ++ show (SS.moduleName m)
+    -> InterpretEnv s -> SS.ValidModule -> IO (InterpretEnv s)
+interpretModule sc env m =
+    do let mn = SS.moduleName m
+       let graph = [ ((rname, e), rname, S.toList (exprDeps e))
+                   | (name, e) <- M.assocs (SS.moduleExprEnv m)
+                   , let rname = SS.TopLevelName mn name ]
+       let sccs = stronglyConnComp graph
+       foldM (interpretSCC sc) env sccs
+
+interpretSCC
+    :: forall s. SharedContext s
+    -> InterpretEnv s -> SCC (SS.ResolvedName, Expression) -> IO (InterpretEnv s)
+interpretSCC sc (vm, tm, sm) scc =
+    case scc of
+      CyclicSCC _nodes -> fail "Unimplemented: Recursive top level definitions"
+      AcyclicSCC (x, expr)
+        | translatableExpr (M.keysSet sm) expr ->
+            do s <- translatePolyExpr sc tm sm expr
+               let t = SS.typeOf expr
+               return (vm, M.insert x t tm, M.insert x s sm)
+        | otherwise ->
+            do v <- interpretPoly sc vm tm sm expr
+               let t = SS.typeOf expr
+               return (M.insert x v vm, M.insert x t tm, sm)
+
+exprDeps :: Expression -> Set SS.ResolvedName
+exprDeps expr =
+    case expr of
+      SS.Bit _             _ -> S.empty
+      SS.Quote _           _ -> S.empty
+      SS.Z _               _ -> S.empty
+      SS.Undefined         _ -> S.empty
+      SS.Array es          _ -> S.unions (map exprDeps es)
+      SS.Block stmts       _ -> S.unions (map stmtDeps stmts)
+      SS.Tuple es          _ -> S.unions (map exprDeps es)
+      SS.Record bs         _ -> S.unions (map (exprDeps . snd) bs)
+      SS.Index e1 e2       _ -> S.union (exprDeps e1) (exprDeps e2)
+      SS.Lookup e _        _ -> exprDeps e
+      SS.Var name          _ -> S.singleton name
+      SS.Function _ _ e    _ -> exprDeps e
+      SS.Application e1 e2 _ -> S.union (exprDeps e1) (exprDeps e2)
+      SS.LetBlock bs e       -> S.unions (exprDeps e : map (exprDeps . snd) bs)
+
+stmtDeps :: BlockStatement -> Set SS.ResolvedName
+stmtDeps stmt =
+    case stmt of
+      SS.Bind _ _ e        -> exprDeps e
+      SS.BlockTypeDecl _ _ -> S.empty
+      SS.BlockLet bs       -> S.unions (map (exprDeps . snd) bs)
 
 -- | Interpret function 'main' using the default value environments.
 interpretMain :: Options -> SS.ValidModule -> IO ()
 interpretMain opts m =
     do let mn = case SS.moduleName m of SS.ModuleName xs x -> mkModuleName (xs ++ [x])
-       let scm = insImport preludeModule $
-                 emptyModule mn
+       let scm = insImport preludeModule $ emptyModule mn
        sc <- mkSharedContext scm
-       env <- coreEnv sc
        ss <- basic_ss sc
-       let venv = M.insert (qualify "basic_ss") (toValue ss) (valueEnv opts sc)
-       v <- interpretModule sc venv (transitivePrimEnv m) env m
-       (fromValue v :: IO ())
+       let vm0 = M.insert (qualify "basic_ss") (toValue ss) (valueEnv opts sc)
+       let tm0 = transitivePrimEnv m
+       sm0 <- coreEnv sc
+       (vm, _tm, _sm) <- interpretModule sc (vm0, tm0, sm0) m
+       let mainName = SS.TopLevelName (SS.moduleName m) "main"
+       case M.lookup mainName vm of
+         Just v -> (fromValue v :: IO ())
+         Nothing -> fail $ "No main in module " ++ show (SS.moduleName m)
 
 -- | Collects primitives from the module and all its transitive dependencies.
 transitivePrimEnv :: SS.ValidModule -> Map SS.ResolvedName SS.Schema
