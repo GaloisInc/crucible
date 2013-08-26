@@ -19,7 +19,8 @@ import Control.Applicative
 import Control.Monad ( foldM )
 import Control.Monad.IO.Class ( liftIO )
 import Control.Monad.State ( StateT(..) )
-import Data.Char ( isAlphaNum )
+import Data.Graph.SCC ( stronglyConnComp )
+import Data.Graph ( SCC(..) )
 import Data.List ( intersperse )
 import qualified Data.Map as M
 import Data.Map ( Map )
@@ -427,7 +428,7 @@ translateExpr sc tm sm km expr =
                                         let sm'' = M.insert (SS.LocalName x) x' sm'
                                         let km' = fmap (\(i, k) -> (i + 1, k)) km
                                         e' <- translateExpr sc tm sm'' km' e
-                                        scLambda sc (filter isAlphaNum x) a' e'
+                                        scLambda sc (takeWhile (/= '.') x) a' e'
       SS.Application f e        _ -> do f' <- translateExpr sc tm sm km f
                                         e' <- translateExpr sc tm sm km e
                                         scApply sc f' e'
@@ -458,7 +459,7 @@ translatePolyExpr sc tm sm expr
         -- FIXME: we assume all have kind KStar
         s0 <- translateKind sc KStar
         t <- translateExpr sc tm sm km expr
-        scLambdaList sc [ (filter isAlphaNum n, s0) | n <- ns ] t
+        scLambdaList sc [ (takeWhile (/= '.') n, s0) | n <- ns ] t
   | otherwise = return (error "Untranslatable expression")
 
 -- Type substitution -----------------------------------------------------------
@@ -570,32 +571,76 @@ interpretStmts sc vm tm sm stmts =
       SS.BlockLet bs : ss -> interpret sc vm tm sm (SS.LetBlock bs (SS.Block ss undefined))
       SS.BlockTypeDecl {} : _ -> fail "BlockTypeDecl unsupported"
 
--- TODO: Support for multiple top-level mutually-recursive bindings.
-interpretModuleAtEntry
-    :: forall s.
-       SS.Name -- ^ Entry point
-    -> SharedContext s
-    -> Map SS.ResolvedName (Value s)
-    -> Map SS.ResolvedName SS.Schema
-    -> Map SS.ResolvedName (SharedTerm s)
-    -> SS.ValidModule -> IO (Value s)
-interpretModuleAtEntry entryName sc vm tm sm m = interpret sc vm tm sm entry
-    where entry = case M.lookup entryName (SS.moduleExprEnv m) of
-                   Just mn -> mn
-                   Nothing -> error $ "No " ++ entryName ++ " in module " ++ show (SS.moduleName m)
+type REnv = Map SS.ResolvedName
+type InterpretEnv s = (REnv (Value s), REnv SS.Schema, REnv (SharedTerm s))
+
+interpretModule
+    :: forall s. SharedContext s
+    -> InterpretEnv s -> SS.ValidModule -> IO (InterpretEnv s)
+interpretModule sc env m =
+    do let mn = SS.moduleName m
+       let graph = [ ((rname, e), rname, S.toList (exprDeps e))
+                   | (name, e) <- M.assocs (SS.moduleExprEnv m)
+                   , let rname = SS.TopLevelName mn name ]
+       let sccs = stronglyConnComp graph
+       foldM (interpretSCC sc) env sccs
+
+interpretSCC
+    :: forall s. SharedContext s
+    -> InterpretEnv s -> SCC (SS.ResolvedName, Expression) -> IO (InterpretEnv s)
+interpretSCC sc (vm, tm, sm) scc =
+    case scc of
+      CyclicSCC _nodes -> fail "Unimplemented: Recursive top level definitions"
+      AcyclicSCC (x, expr)
+        | translatableExpr (M.keysSet sm) expr ->
+            do s <- translatePolyExpr sc tm sm expr
+               let t = SS.typeOf expr
+               return (vm, M.insert x t tm, M.insert x s sm)
+        | otherwise ->
+            do v <- interpretPoly sc vm tm sm expr
+               let t = SS.typeOf expr
+               return (M.insert x v vm, M.insert x t tm, sm)
+
+exprDeps :: Expression -> Set SS.ResolvedName
+exprDeps expr =
+    case expr of
+      SS.Bit _             _ -> S.empty
+      SS.Quote _           _ -> S.empty
+      SS.Z _               _ -> S.empty
+      SS.Undefined         _ -> S.empty
+      SS.Array es          _ -> S.unions (map exprDeps es)
+      SS.Block stmts       _ -> S.unions (map stmtDeps stmts)
+      SS.Tuple es          _ -> S.unions (map exprDeps es)
+      SS.Record bs         _ -> S.unions (map (exprDeps . snd) bs)
+      SS.Index e1 e2       _ -> S.union (exprDeps e1) (exprDeps e2)
+      SS.Lookup e _        _ -> exprDeps e
+      SS.Var name          _ -> S.singleton name
+      SS.Function _ _ e    _ -> exprDeps e
+      SS.Application e1 e2 _ -> S.union (exprDeps e1) (exprDeps e2)
+      SS.LetBlock bs e       -> S.unions (exprDeps e : map (exprDeps . snd) bs)
+
+stmtDeps :: BlockStatement -> Set SS.ResolvedName
+stmtDeps stmt =
+    case stmt of
+      SS.Bind _ _ e        -> exprDeps e
+      SS.BlockTypeDecl _ _ -> S.empty
+      SS.BlockLet bs       -> S.unions (map (exprDeps . snd) bs)
 
 -- | Interpret an expression using the default value environments.
 interpretEntry :: SS.Name -> Options -> SS.ValidModule -> IO ()
 interpretEntry entryName opts m =
     do let mn = case SS.moduleName m of SS.ModuleName xs x -> mkModuleName (xs ++ [x])
-       let scm = insImport preludeModule $
-                 emptyModule mn
+       let scm = insImport preludeModule $ emptyModule mn
        sc <- mkSharedContext scm
-       env <- coreEnv sc
        ss <- basic_ss sc
-       let venv = M.insert (qualify "basic_ss") (toValue ss) (valueEnv opts sc)
-       v <- interpretModuleAtEntry entryName sc venv (transitivePrimEnv m) env m
-       (fromValue v :: IO ())
+       let vm0 = M.insert (qualify "basic_ss") (toValue ss) (valueEnv opts sc)
+       let tm0 = transitivePrimEnv m
+       sm0 <- coreEnv sc
+       (vm, _tm, _sm) <- interpretModule sc (vm0, tm0, sm0) m
+       let mainName = SS.TopLevelName (SS.moduleName m) entryName
+       case M.lookup mainName vm of
+         Just v -> (fromValue v :: IO ())
+         Nothing -> fail $ "No " ++ entryName ++ " in module " ++ show (SS.moduleName m)
 
 -- | Interpret function 'main' using the default value environments.
 interpretMain :: Options -> SS.ValidModule -> IO ()

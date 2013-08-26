@@ -1,8 +1,8 @@
-main = do {
-  let define_sbv name file = do { rhs <- read_sbv file; define name rhs; };
+define_from_sbv name file = do { rhs <- read_sbv file; define name rhs; };
 
-  (enc : ([64], [64]) -> [64]) <- define_sbv "enc" "des_enc.sbv";
-  (dec : ([64], [64]) -> [64]) <- define_sbv "dec" "des_dec.sbv";
+main = do {
+  (enc : ([64], [64]) -> [64]) <- define_from_sbv "enc" "des_enc.sbv";
+  (dec : ([64], [64]) -> [64]) <- define_from_sbv "dec" "des_dec.sbv";
 
   print "proving dec_enc...";
   let prop1 key msg = dec (key, enc (key, msg)) == msg;

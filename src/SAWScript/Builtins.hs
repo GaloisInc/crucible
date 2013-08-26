@@ -20,11 +20,9 @@ import qualified Language.JVM.Common as JP
 import Verinf.Symbolic.Lit.ABC_GIA
 
 import qualified Text.LLVM as LLVM
-import qualified Verifier.LLVM.AST as L
 import qualified Verifier.LLVM.Backend as L
 import qualified Verifier.LLVM.Codebase as L
-import qualified Verifier.LLVM.SAWBackend as LSAW
---import qualified Verifier.LLVM.BitBlastBackend as LBit
+import qualified Verifier.LLVM.Backend.SAW as LSAW
 import qualified Verifier.LLVM.Simulator as L
 
 import qualified Verifier.Java.Codebase as JSS
@@ -326,11 +324,11 @@ extractLLVM :: SharedContext s -> FilePath -> String -> LLVMSetup () -> IO (Shar
 extractLLVM sc file func _setup = do
   mdl <- L.loadModule file
   let dl = L.parseDataLayout $ LLVM.modDataLayout mdl
-      mg = L.defaultMemGeom dl
       sym = L.Symbol func
   withBE $ \be -> do
-    (sbe, mem, scLLVM) <- LSAW.createSAWBackend' be dl mg
-    cb <- L.mkCodebase sbe dl mdl
+    (sbe, mem, scLLVM) <- LSAW.createSAWBackend' be dl
+    (_warnings, cb) <- L.mkCodebase sbe dl mdl
+    -- TODO: Print warnings from codebase.
     case L.lookupDefine sym cb of
       Nothing -> fail $ "Bitcode file " ++ file ++
                         " does not contain symbol " ++ func ++ "."
