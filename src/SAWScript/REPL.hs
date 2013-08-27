@@ -22,7 +22,7 @@ import SAWScript.BuildModules (buildModules)
 import SAWScript.Compiler (runCompiler,
                            ErrT, mapErrT)
 import SAWScript.Import (preludeLoadedModules)
-import SAWScript.Interpreter (interpretEntry)
+import SAWScript.Interpreter (Value, interpretEntry)
 import SAWScript.Lexer (scan)
 import SAWScript.MGU (checkModule)
 import SAWScript.Options (Options)
@@ -53,7 +53,7 @@ replSettings = do
              Haskeline.defaultSettings
                { Haskeline.historyFile = Just (dataHome </> "repl_history") }
 
-evaluate :: Options -> String -> ErrT (InputT IO) ()
+evaluate :: Options -> String -> ErrT (InputT IO) (Value s)
 evaluate opts line = do
   -- Lex and parse.
   tokens <- mapErrT liftIO $ scan replFileName line

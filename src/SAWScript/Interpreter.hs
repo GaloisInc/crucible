@@ -627,7 +627,7 @@ stmtDeps stmt =
       SS.BlockLet bs       -> S.unions (map (exprDeps . snd) bs)
 
 -- | Interpret an expression using the default value environments.
-interpretEntry :: SS.Name -> Options -> SS.ValidModule -> IO ()
+interpretEntry :: SS.Name -> Options -> SS.ValidModule -> IO (Value s)
 interpretEntry entryName opts m =
     do let mn = case SS.moduleName m of SS.ModuleName xs x -> mkModuleName (xs ++ [x])
        let scm = insImport preludeModule $ emptyModule mn
@@ -639,12 +639,18 @@ interpretEntry entryName opts m =
        (vm, _tm, _sm) <- interpretModule sc (vm0, tm0, sm0) m
        let mainName = SS.TopLevelName (SS.moduleName m) entryName
        case M.lookup mainName vm of
-         Just v -> (fromValue v :: IO ())
+         Just (VIO v) ->
+           -- We've been asked to execute a 'TopLevel' action, so run it.
+           v
+         Just v ->
+           {- We've been asked to evaluate a pure value, so wrap it up in IO
+           and give it back. -}
+           return v
          Nothing -> fail $ "No " ++ entryName ++ " in module " ++ show (SS.moduleName m)
 
 -- | Interpret function 'main' using the default value environments.
 interpretMain :: Options -> SS.ValidModule -> IO ()
-interpretMain = interpretEntry "main"
+interpretMain opts m = fromValue <$> interpretEntry "main" opts m
 
 -- | Collects primitives from the module and all its transitive dependencies.
 transitivePrimEnv :: SS.ValidModule -> Map SS.ResolvedName SS.Schema
