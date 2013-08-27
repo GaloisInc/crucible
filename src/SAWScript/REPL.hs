@@ -14,10 +14,11 @@ import System.FilePath ((</>))
 import SAWScript.AST (ModuleName(ModuleName),
                       Module(..), ValidModule,
                       Expr(Block),
-                      BlockStmt,
+                      BlockStmt(Bind),
                       UnresolvedName, ResolvedName,
                       RawT, ResolvedT, Schema,
-                      Name)
+                      Name,
+                      topLevelContext)
 import SAWScript.BuildModules (buildModules)
 import SAWScript.Compiler (runCompiler,
                            ErrT, mapErrT)
@@ -59,10 +60,16 @@ evaluate opts line = do
   tokens <- mapErrT liftIO $ scan replFileName line
   ast :: BlockStmt UnresolvedName RawT
       <- mapErrT liftIO $ parseBlockStmt tokens
+  {- Set the context (i.e., the monad) for the statement.  For the REPL, this
+  will always be 'TopLevelContext'. -}
+  let ast' :: BlockStmt UnresolvedName RawT
+      ast' = case ast of
+        Bind maybeVar _ctx expr -> Bind maybeVar (Just topLevelContext) expr
+        stmt -> stmt
   {- Resolve type synonyms, abstract types, etc.  They're not supported by the
   REPL, so there never are any. -}
   synsResolved :: BlockStmt UnresolvedName ResolvedT
-               <- mapErrT liftIO $ resolveBlockStmtSyns Map.empty ast
+               <- mapErrT liftIO $ resolveBlockStmtSyns Map.empty ast'
   {- From here on, the compiler pipeline needs to carry around a lot of
   metadata about the code it's compiling.  The metadata is related to the
   module system, so instead of creating some extra data structure to hold the
