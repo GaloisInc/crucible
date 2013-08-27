@@ -654,8 +654,8 @@ coreEnv sc =
     , (qualify "java_long"  , "Java.mkLongType")
     , (qualify "java_float" , "Java.mkFloatType")
     , (qualify "java_double", "Java.mkDoubleType")
-    , (qualify "java_array" , "Java.arrayType")
-    , (qualify "java_class" , "Java.classType")
+    , (qualify "java_array" , "Java.mkArrayType")
+    , (qualify "java_class" , "Java.mkClassType")
     , (qualify "java_var"   , "Java.varObject")
     -- LLVM things
     -- , (qualify "llvm_int"   , "LLVM.intType")
