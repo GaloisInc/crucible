@@ -1,12 +1,15 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module SAWScript.REPL where
 
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Foldable (foldrM)
 import System.Console.Haskeline (InputT, runInputT)
 import qualified System.Console.Haskeline as Haskeline
+import System.Directory (createDirectoryIfMissing)
+import qualified System.Environment.XDG.BaseDir as XDG
+import System.FilePath ((</>))
 
 import SAWScript.AST (ModuleName(ModuleName),
                       Module(..), ValidModule,
@@ -29,7 +32,9 @@ import SAWScript.RenameRefs (renameRefs)
 import SAWScript.ResolveSyns (resolveBlockStmtSyns)
 
 run :: Options -> IO ()
-run opts = runInputT Haskeline.defaultSettings loop
+run opts = do
+  settings <- replSettings
+  runInputT settings loop
   where loop :: InputT IO ()
         loop = do
           line <- Haskeline.getInputLine "Prelude> "
@@ -39,6 +44,13 @@ run opts = runInputT Haskeline.defaultSettings loop
               runCompiler (evaluate opts) instruction $ \r -> do
                 Haskeline.outputStrLn $ showResult r
               loop
+
+replSettings :: MonadIO m => IO (Haskeline.Settings m)
+replSettings = do
+  dataHome <- XDG.getUserDataDir "sawscript"
+  createDirectoryIfMissing True dataHome
+  return $ Haskeline.defaultSettings
+             { Haskeline.historyFile = Just (dataHome </> "repl_history") }
 
 evaluate :: Options -> String -> ErrT (InputT IO) ()
 evaluate opts line = do
