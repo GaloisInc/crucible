@@ -18,6 +18,7 @@ module SAWScript.Interpreter
 import Control.Applicative
 import Control.Monad ( foldM )
 import Control.Monad.State ( StateT(..) )
+import Control.Monad.Writer ( WriterT(..) )
 import Data.Char ( isAlphaNum )
 import Data.List ( intersperse )
 import qualified Data.Map as M
@@ -213,6 +214,10 @@ instance IsValue s a => IsValue s (IO a) where
 instance (IsValue s t, IsValue s a) => IsValue s (StateT t IO a) where
     toValue (StateT m) = toValue m
     fromValue v = StateT (fromValue v)
+
+instance (IsValue s t, IsValue s a) => IsValue s (WriterT t IO a) where
+    toValue (WriterT m) = toValue m
+    fromValue v = WriterT (fromValue v)
 
 instance IsValue s (SharedTerm s) where
     toValue t = VTerm t
@@ -604,8 +609,9 @@ valueEnv opts sc = M.fromList
   , (qualify "write_aig"   , toValue $ writeAIG sc)
   , (qualify "java_extract", toValue $ extractJava sc opts)
   , (qualify "java_verify" , toValue $ verifyJava sc opts)
-  , (qualify "java_modify" , toValue $ ()) -- FIXME
-  , (qualify "java_may_alias", toValue $ ()) -- FIXME
+  , (qualify "java_var"    , toValue $ javaVar sc opts)
+  --, (qualify "java_modify" , toValue $ ()) -- FIXME
+  --, (qualify "java_may_alias", toValue $ ()) -- FIXME
   , (qualify "java_pure"   , toValue $ ()) -- FIXME
   , (qualify "llvm_extract", toValue $ extractLLVM sc)
   , (qualify "llvm_pure"   , toValue "llvm_pure") -- FIXME: representing 'LLVMSetup ()' as 'String'
@@ -639,12 +645,19 @@ coreEnv sc =
     , (qualify "disj"       , "Prelude.or")
     , (qualify "eq"         , "Prelude.eq")
     , (qualify "complement" , "Prelude.bvNot")
-    -- Java things (FIXME: move into Java module)
+    -- Java things
+    , (qualify "java_bool"  , "Java.mkBooleanType")
+    , (qualify "java_byte"  , "Java.mkByteType")
+    , (qualify "java_char"  , "Java.mkCharType")
+    , (qualify "java_short" , "Java.mkShortType")
     , (qualify "java_int"   , "Java.mkIntType")
-    -- , (qualify "java_array" , "Java.arrayType")
-    -- , (qualify "java_class" , "Java.classType")
-    -- , (qualify "java_var"   , "Java.varObject")
-    -- LLVM things (FIXME: move into LLVM module)
+    , (qualify "java_long"  , "Java.mkLongType")
+    , (qualify "java_float" , "Java.mkFloatType")
+    , (qualify "java_double", "Java.mkDoubleType")
+    , (qualify "java_array" , "Java.arrayType")
+    , (qualify "java_class" , "Java.classType")
+    , (qualify "java_var"   , "Java.varObject")
+    -- LLVM things
     -- , (qualify "llvm_int"   , "LLVM.intType")
     -- , (qualify "llvm_float" , "LLVM.floatType")
     -- , (qualify "llvm_double", "LLVM.doubleType")

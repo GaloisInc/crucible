@@ -439,6 +439,12 @@ verifyJava sc opts cname mname setup = do
   msir <- resolveMethodSpecIR gb rules pos cls mname [] -- FIXME
   fail "java_verify not yet finished"
 
+javaVar :: SharedContext s -> Options -> String -> SharedTerm s
+        -> JavaSetup s ()
+javaVar _ _ name t@(STApp _ (FTermF (CtorApp _ _))) =
+  fail $ "would declare " ++ name ++ " :: " ++ show t
+javaVar _ _ _ _ = fail "java_var called with invalid type argument"
+
 freshJavaArg :: MonadIO m =>
                 JSS.Backend sbe
              -> JSS.Type
