@@ -21,11 +21,9 @@ import qualified Language.JVM.Common as JP
 import Verinf.Symbolic.Lit.ABC_GIA
 
 import qualified Text.LLVM as LLVM
-import qualified Verifier.LLVM.AST as L
 import qualified Verifier.LLVM.Backend as L
 import qualified Verifier.LLVM.Codebase as L
-import qualified Verifier.LLVM.SAWBackend as LSAW
---import qualified Verifier.LLVM.BitBlastBackend as LBit
+import qualified Verifier.LLVM.Backend.SAW as LSAW
 import qualified Verifier.LLVM.Simulator as L
 
 import qualified Verifier.Java.Codebase as JSS
@@ -227,18 +225,22 @@ scNegate :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
 scNegate sc t =
   case asLambda t of
     Just (s, ty, body) -> scLambda sc s ty =<< scNegate sc body
-    Nothing -> scNegate sc t
+    Nothing -> scNot sc t
+
+-- | A theorem must contain a boolean term, possibly surrounded by one
+-- or more lambdas which are interpreted as universal quantifiers.
+data Theorem s = Theorem (SharedTerm s)
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- validity using ABC.
 provePrim :: SharedContext s -> ProofScript s ProofResult
-          -> SharedTerm s -> IO (Simpset (SharedTerm s))
+          -> SharedTerm s -> IO (Theorem s)
 provePrim sc script t = do
   t' <- scNegate sc t
   (_, r) <- runStateT script t'
   case asCtor r of
     Just ("Prelude.True", []) -> fail "prove: invalid"
-    Just ("Prelude.False", []) -> return $ addRule (ruleOfPred t) emptySimpset
+    Just ("Prelude.False", []) -> return (Theorem t)
     _ -> fail "prove: unknown result"
 
 -- | FIXME: change return type so that we can return the witnesses.
@@ -251,13 +253,17 @@ satPrim _sc script t = do
       Just ("Prelude.False", []) -> "unsat"
       _ -> "unknown"
 
--- TODO: Replace () with Simpset argument.
-rewritePrim :: SharedContext s -> () -> SharedTerm s -> IO (SharedTerm s)
-rewritePrim sc _ t = do
+rewritePrim :: SharedContext s -> Simpset (SharedTerm s) -> SharedTerm s -> IO (SharedTerm s)
+rewritePrim sc ss t = rewriteSharedTerm sc ss t
+
+addsimp :: SharedContext s -> Theorem s -> Simpset (SharedTerm s) -> Simpset (SharedTerm s)
+addsimp _sc (Theorem t) ss = addRule (ruleOfPred t) ss
+
+basic_ss :: SharedContext s -> IO (Simpset (SharedTerm s))
+basic_ss sc = do
   rs1 <- concat <$> traverse defRewrites defs
   rs2 <- scEqsRewriteRules sc eqs
-  let simpset = addConvs procs (addRules (rs1 ++ rs2) emptySimpset)
-  rewriteSharedTerm sc simpset t
+  return $ addConvs procs (addRules (rs1 ++ rs2) emptySimpset)
   where
     eqs = map (mkIdent preludeName)
       ["get_single", "get_bvAnd", "get_bvOr", "get_bvXor", "get_bvNot",
@@ -323,11 +329,11 @@ extractLLVM :: SharedContext s -> FilePath -> String -> LLVMSetup s ()
 extractLLVM sc file func _setup = do
   mdl <- L.loadModule file
   let dl = L.parseDataLayout $ LLVM.modDataLayout mdl
-      mg = L.defaultMemGeom dl
       sym = L.Symbol func
   withBE $ \be -> do
-    (sbe, mem, scLLVM) <- LSAW.createSAWBackend' be dl mg
-    cb <- L.mkCodebase sbe dl mdl
+    (sbe, mem, scLLVM) <- LSAW.createSAWBackend' be dl
+    (_warnings, cb) <- L.mkCodebase sbe dl mdl
+    -- TODO: Print warnings from codebase.
     case L.lookupDefine sym cb of
       Nothing -> fail $ "Bitcode file " ++ file ++
                         " does not contain symbol " ++ func ++ "."

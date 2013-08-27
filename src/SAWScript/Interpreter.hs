@@ -17,9 +17,12 @@ module SAWScript.Interpreter
 
 import Control.Applicative
 import Control.Monad ( foldM )
+import Control.Monad.IO.Class ( liftIO )
 import Control.Monad.State ( StateT(..) )
 import Control.Monad.Writer ( WriterT(..) )
 import Data.Char ( isAlphaNum )
+import Data.Graph.SCC ( stronglyConnComp )
+import Data.Graph ( SCC(..) )
 import Data.List ( intersperse )
 import qualified Data.Map as M
 import Data.Map ( Map )
@@ -42,7 +45,6 @@ import Verifier.SAW.TypedAST hiding ( incVars )
 import qualified Verifier.SAW.Evaluator as SC
 
 import qualified Verifier.Java.SAWBackend as JavaSAW
-import qualified Verifier.LLVM.SAWBackend as LLVMSAW
 
 type Expression = SS.Expr SS.ResolvedName SS.Schema
 type BlockStatement = SS.BlockStmt SS.ResolvedName SS.Schema
@@ -65,7 +67,9 @@ data Value s
   | VTerm (SharedTerm s)
   | VCtorApp String [Value s]
   | VIO (IO (Value s))
+  | VProofScript (ProofScript s (Value s))
   | VSimpset (Simpset (SharedTerm s))
+  | VTheorem (Theorem s)
 
 instance Show (Value s) where
     showsPrec p v =
@@ -88,6 +92,7 @@ instance Show (Value s) where
         VCtorApp s vs -> showString s . showString " " . (foldr (.) id (map shows vs))
         VIO {} -> showString "<<IO>>"
         VSimpset {} -> showString "<<simpset>>"
+        VTheorem (Theorem t) -> showString "Theorem " . showParen True (showString (scPrettyTerm t))
 
 indexValue :: Value s -> Value s -> Value s
 indexValue (VArray vs) (VInteger x)
@@ -125,12 +130,20 @@ tapplyValue v _ = return v
 
 thenValue :: Value s -> Value s -> Value s
 thenValue (VIO m1) (VIO m2) = VIO (m1 >> m2)
+thenValue (VProofScript m1) (VProofScript m2) = VProofScript (m1 >> m2)
 thenValue _ _ = error "thenValue"
 
 bindValue :: SharedContext s -> Value s -> Value s -> Value s
-bindValue sc (VIO m1) v2 = VIO $ do v1 <- m1
-                                    VIO m3 <- applyValue sc v2 v1
-                                    m3
+bindValue sc (VIO m1) v2 =
+  VIO $ do
+    v1 <- m1
+    VIO m3 <- applyValue sc v2 v1
+    m3
+bindValue sc (VProofScript m1) v2 =
+  VProofScript $ do
+    v1 <- m1
+    VProofScript m3 <- liftIO $ applyValue sc v2 v1
+    m3
 bindValue _ _ _ = error "bindValue"
 
 importValue :: SC.Value -> Value s
@@ -211,9 +224,10 @@ instance IsValue s a => IsValue s (IO a) where
     fromValue (VIO io) = fmap fromValue io
     fromValue _ = error "fromValue IO"
 
-instance (IsValue s t, IsValue s a) => IsValue s (StateT t IO a) where
-    toValue (StateT m) = toValue m
-    fromValue v = StateT (fromValue v)
+instance IsValue s a => IsValue s (StateT (SharedTerm s) IO a) where
+    toValue m = VProofScript (fmap toValue m)
+    fromValue (VProofScript m) = fmap fromValue m
+    fromValue _ = error "fromValue ProofScript"
 
 instance (IsValue s t, IsValue s a) => IsValue s (WriterT t IO a) where
     toValue (WriterT m) = toValue m
@@ -258,6 +272,11 @@ instance IsValue s (Simpset (SharedTerm s)) where
     toValue ss = VSimpset ss
     fromValue (VSimpset ss) = ss
     fromValue _ = error "fromValue Simpset"
+
+instance IsValue s (Theorem s) where
+    toValue t = VTheorem t
+    fromValue (VTheorem t) = t
+    fromValue _ = error "fromValue Theorem"
 
 -- Type matching ---------------------------------------------------------------
 
@@ -421,7 +440,7 @@ translateExpr sc tm sm km expr =
                                         let sm'' = M.insert (SS.LocalName x) x' sm'
                                         let km' = fmap (\(i, k) -> (i + 1, k)) km
                                         e' <- translateExpr sc tm sm'' km' e
-                                        scLambda sc (filter isAlphaNum x) a' e'
+                                        scLambda sc (takeWhile (/= '.') x) a' e'
       SS.Application f e        _ -> do f' <- translateExpr sc tm sm km f
                                         e' <- translateExpr sc tm sm km e
                                         scApply sc f' e'
@@ -452,7 +471,7 @@ translatePolyExpr sc tm sm expr
         -- FIXME: we assume all have kind KStar
         s0 <- translateKind sc KStar
         t <- translateExpr sc tm sm km expr
-        scLambdaList sc [ (filter isAlphaNum n, s0) | n <- ns ] t
+        scLambdaList sc [ (takeWhile (/= '.') n, s0) | n <- ns ] t
   | otherwise = return (error "Untranslatable expression")
 
 -- Type substitution -----------------------------------------------------------
@@ -522,7 +541,8 @@ interpret sc vm tm sm expr =
       SS.LetBlock bs e       -> do let m = M.fromList [ (SS.LocalName x, y) | (x, y) <- bs ]
                                    let tm' = fmap SS.typeOf m
                                    vm' <- traverse (interpretPoly sc vm tm sm) m
-                                   sm' <- traverse (translatePolyExpr sc tm sm) m
+                                   sm' <- traverse (translatePolyExpr sc tm sm) $
+                                          M.filter (translatableExpr (M.keysSet sm)) m
                                    interpret sc (M.union vm' vm) (M.union tm' tm) (M.union sm' sm) e
 
 interpretPoly
@@ -563,33 +583,76 @@ interpretStmts sc vm tm sm stmts =
       SS.BlockLet bs : ss -> interpret sc vm tm sm (SS.LetBlock bs (SS.Block ss undefined))
       SS.BlockTypeDecl {} : _ -> fail "BlockTypeDecl unsupported"
 
--- | The initial version here simply interprets the binding for "main"
--- (assuming there is one), ignoring everything else in the module.
--- TODO: Support for multiple top-level mutually-recursive bindings.
+type REnv = Map SS.ResolvedName
+type InterpretEnv s = (REnv (Value s), REnv SS.Schema, REnv (SharedTerm s))
+
 interpretModule
     :: forall s. SharedContext s
-    -> Map SS.ResolvedName (Value s)
-    -> Map SS.ResolvedName SS.Schema
-    -> Map SS.ResolvedName (SharedTerm s)
-    -> SS.ValidModule -> IO (Value s)
-interpretModule sc vm tm sm m = interpret sc vm tm sm main
-    where main = case M.lookup "main" (SS.moduleExprEnv m) of
-                   Just mn -> mn
-                   Nothing -> error $ "No main in module " ++ show (SS.moduleName m)
+    -> InterpretEnv s -> SS.ValidModule -> IO (InterpretEnv s)
+interpretModule sc env m =
+    do let mn = SS.moduleName m
+       let graph = [ ((rname, e), rname, S.toList (exprDeps e))
+                   | (name, e) <- M.assocs (SS.moduleExprEnv m)
+                   , let rname = SS.TopLevelName mn name ]
+       let sccs = stronglyConnComp graph
+       foldM (interpretSCC sc) env sccs
+
+interpretSCC
+    :: forall s. SharedContext s
+    -> InterpretEnv s -> SCC (SS.ResolvedName, Expression) -> IO (InterpretEnv s)
+interpretSCC sc (vm, tm, sm) scc =
+    case scc of
+      CyclicSCC _nodes -> fail "Unimplemented: Recursive top level definitions"
+      AcyclicSCC (x, expr)
+        | translatableExpr (M.keysSet sm) expr ->
+            do s <- translatePolyExpr sc tm sm expr
+               let t = SS.typeOf expr
+               return (vm, M.insert x t tm, M.insert x s sm)
+        | otherwise ->
+            do v <- interpretPoly sc vm tm sm expr
+               let t = SS.typeOf expr
+               return (M.insert x v vm, M.insert x t tm, sm)
+
+exprDeps :: Expression -> Set SS.ResolvedName
+exprDeps expr =
+    case expr of
+      SS.Bit _             _ -> S.empty
+      SS.Quote _           _ -> S.empty
+      SS.Z _               _ -> S.empty
+      SS.Undefined         _ -> S.empty
+      SS.Array es          _ -> S.unions (map exprDeps es)
+      SS.Block stmts       _ -> S.unions (map stmtDeps stmts)
+      SS.Tuple es          _ -> S.unions (map exprDeps es)
+      SS.Record bs         _ -> S.unions (map (exprDeps . snd) bs)
+      SS.Index e1 e2       _ -> S.union (exprDeps e1) (exprDeps e2)
+      SS.Lookup e _        _ -> exprDeps e
+      SS.Var name          _ -> S.singleton name
+      SS.Function _ _ e    _ -> exprDeps e
+      SS.Application e1 e2 _ -> S.union (exprDeps e1) (exprDeps e2)
+      SS.LetBlock bs e       -> S.unions (exprDeps e : map (exprDeps . snd) bs)
+
+stmtDeps :: BlockStatement -> Set SS.ResolvedName
+stmtDeps stmt =
+    case stmt of
+      SS.Bind _ _ e        -> exprDeps e
+      SS.BlockTypeDecl _ _ -> S.empty
+      SS.BlockLet bs       -> S.unions (map (exprDeps . snd) bs)
 
 -- | Interpret function 'main' using the default value environments.
 interpretMain :: Options -> SS.ValidModule -> IO ()
 interpretMain opts m =
     do let mn = case SS.moduleName m of SS.ModuleName xs x -> mkModuleName (xs ++ [x])
-       let scm = insImport preludeModule $
-                 insImport LLVMSAW.llvmModule $
-                 insImport JavaSAW.javaModule $
-                 emptyModule mn
+       let scm = insImport preludeModule $ emptyModule mn
        sc <- mkSharedContext scm
-       env <- coreEnv sc
-       print env
-       v <- interpretModule sc (valueEnv opts sc) (transitivePrimEnv m) env m
-       (fromValue v :: IO ())
+       ss <- basic_ss sc
+       let vm0 = M.insert (qualify "basic_ss") (toValue ss) (valueEnv opts sc)
+       let tm0 = transitivePrimEnv m
+       sm0 <- coreEnv sc
+       (vm, _tm, _sm) <- interpretModule sc (vm0, tm0, sm0) m
+       let mainName = SS.TopLevelName (SS.moduleName m) "main"
+       case M.lookup mainName vm of
+         Just v -> (fromValue v :: IO ())
+         Nothing -> fail $ "No main in module " ++ show (SS.moduleName m)
 
 -- | Collects primitives from the module and all its transitive dependencies.
 transitivePrimEnv :: SS.ValidModule -> Map SS.ResolvedName SS.Schema
@@ -618,6 +681,7 @@ valueEnv opts sc = M.fromList
   , (qualify "prove"       , toValue $ provePrim sc)
   , (qualify "sat"         , toValue $ satPrim sc)
   , (qualify "empty_ss"    , toValue (emptySimpset :: Simpset (SharedTerm s)))
+  , (qualify "addsimp"     , toValue $ addsimp sc)
   , (qualify "rewrite"     , toValue $ rewritePrim sc)
   , (qualify "abc"         , toValue $ satABC sc)
   , (qualify "unfolding"   , toValue $ unfoldGoal sc)

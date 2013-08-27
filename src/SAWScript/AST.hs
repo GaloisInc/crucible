@@ -313,6 +313,12 @@ instance PrettyPrint Context where
     ProofScript  -> PP.text "ProofScript"
     TopLevel     -> PP.text "TopLevel"
 
+instance PrettyPrint ModuleName where
+  pretty _ mn = PP.text (renderModuleName mn)
+
+instance PrettyPrint (Module refT exprT typeT) where
+  pretty par m = pretty par (moduleName m)
+
 replicateDoc :: Integer -> PP.Doc -> PP.Doc
 replicateDoc n d 
   | n < 1 = PP.empty
