@@ -49,8 +49,9 @@ replSettings :: MonadIO m => IO (Haskeline.Settings m)
 replSettings = do
   dataHome <- XDG.getUserDataDir "sawscript"
   createDirectoryIfMissing True dataHome
-  return $ Haskeline.defaultSettings
-             { Haskeline.historyFile = Just (dataHome </> "repl_history") }
+  return $ Haskeline.setComplete Haskeline.noCompletion $
+             Haskeline.defaultSettings
+               { Haskeline.historyFile = Just (dataHome </> "repl_history") }
 
 evaluate :: Options -> String -> ErrT (InputT IO) ()
 evaluate opts line = do
