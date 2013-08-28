@@ -10,7 +10,7 @@ module SAWScript.Interpreter
   ( interpret
   , interpretMain
   , interpretModuleAtEntry
-  , buildInterpretEnv
+  , InterpretEnv, buildInterpretEnv
   , Value
   , IsValue(..)
   )
@@ -573,7 +573,8 @@ interpretStmts sc vm tm sm stmts =
       SS.BlockTypeDecl {} : _ -> fail "BlockTypeDecl unsupported"
 
 type REnv = Map SS.ResolvedName
-type InterpretEnv s = (REnv (Value s), REnv SS.Schema, REnv (SharedTerm s))
+newtype InterpretEnv s =
+  InterpretEnv (REnv (Value s), REnv SS.Schema, REnv (SharedTerm s))
 
 interpretModule
     :: forall s. SharedContext s
@@ -589,18 +590,18 @@ interpretModule sc env m =
 interpretSCC
     :: forall s. SharedContext s
     -> InterpretEnv s -> SCC (SS.ResolvedName, Expression) -> IO (InterpretEnv s)
-interpretSCC sc (vm, tm, sm) scc =
+interpretSCC sc (InterpretEnv (vm, tm, sm)) scc =
     case scc of
       CyclicSCC _nodes -> fail "Unimplemented: Recursive top level definitions"
       AcyclicSCC (x, expr)
         | translatableExpr (M.keysSet sm) expr ->
             do s <- translatePolyExpr sc tm sm expr
                let t = SS.typeOf expr
-               return (vm, M.insert x t tm, M.insert x s sm)
+               return $ InterpretEnv (vm, M.insert x t tm, M.insert x s sm)
         | otherwise ->
             do v <- interpretPoly sc vm tm sm expr
                let t = SS.typeOf expr
-               return (M.insert x v vm, M.insert x t tm, sm)
+               return $ InterpretEnv (M.insert x v vm, M.insert x t tm, sm)
 
 exprDeps :: Expression -> Set SS.ResolvedName
 exprDeps expr =
@@ -633,7 +634,7 @@ interpretModuleAtEntry :: SS.Name
                           -> SS.ValidModule
                           -> IO (Value s, InterpretEnv s)
 interpretModuleAtEntry entryName sc env m =
-  do interpretEnv@(vm, _tm, _sm) <- interpretModule sc env m
+  do interpretEnv@(InterpretEnv (vm, _tm, _sm)) <- interpretModule sc env m
      let mainName = SS.TopLevelName (SS.moduleName m) entryName
      case M.lookup mainName vm of
        Just (VIO v) -> do
@@ -662,7 +663,7 @@ buildInterpretEnv opts m =
        let vm0 = M.insert (qualify "basic_ss") (toValue ss) (valueEnv opts sc)
        let tm0 = transitivePrimEnv m
        sm0 <- coreEnv sc
-       return (sc, (vm0, tm0, sm0))
+       return (sc, InterpretEnv (vm0, tm0, sm0))
 
 -- | Interpret function 'main' using the default value environments.
 interpretMain :: Options -> SS.ValidModule -> IO ()
