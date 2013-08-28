@@ -44,6 +44,8 @@ import qualified Verifier.SAW.Evaluator as SC
 
 type Expression = SS.Expr SS.ResolvedName SS.Schema
 type BlockStatement = SS.BlockStmt SS.ResolvedName SS.Schema
+type RNameMap = Map SS.ResolvedName
+type InterpretEnv s = (RNameMap (Value s), RNameMap SS.Schema, RNameMap (SharedTerm s))
 
 -- Values ----------------------------------------------------------------------
 
@@ -385,8 +387,8 @@ translatableExpr env expr =
 
 translateExpr
     :: forall s. SharedContext s
-    -> Map SS.ResolvedName SS.Schema
-    -> Map SS.ResolvedName (SharedTerm s)
+    -> RNameMap SS.Schema
+    -> RNameMap (SharedTerm s)
     -> Map SS.Name (Int, Kind)
     -> Expression -> IO (SharedTerm s)
 translateExpr sc tm sm km expr =
@@ -447,8 +449,8 @@ translateExpr sc tm sm km expr =
 -- explicit type abstractions.
 translatePolyExpr
     :: forall s. SharedContext s
-    -> Map SS.ResolvedName SS.Schema
-    -> Map SS.ResolvedName (SharedTerm s)
+    -> RNameMap SS.Schema
+    -> RNameMap (SharedTerm s)
     -> Expression -> IO (SharedTerm s)
 translatePolyExpr sc tm sm expr
   | translatableExpr (M.keysSet sm) expr =
@@ -474,24 +476,21 @@ substTypeExpr m expr = MGU.appSubst (toSubst m) expr
 
 interpret
     :: forall s. SharedContext s
-    -> Map SS.ResolvedName (Value s)
-    -> Map SS.ResolvedName SS.Schema
-    -> Map SS.ResolvedName (SharedTerm s)
-    -> Expression -> IO (Value s)
-interpret sc vm tm sm expr =
+    -> InterpretEnv s -> Expression -> IO (Value s)
+interpret sc env@(vm, tm, sm) expr =
     case expr of
       SS.Bit b             _ -> return $ VBool b
       SS.Quote s           _ -> return $ VString s
       SS.Z z               _ -> return $ VInteger z
-      SS.Array es          _ -> VArray <$> traverse (interpret sc vm tm sm) es
+      SS.Array es          _ -> VArray <$> traverse (interpret sc env) es
       SS.Undefined         _ -> fail "interpret: undefined"
-      SS.Block stmts       _ -> interpretStmts sc vm tm sm stmts
-      SS.Tuple es          _ -> VTuple <$> traverse (interpret sc vm tm sm) es
-      SS.Record bs         _ -> VRecord <$> traverse (interpret sc vm tm sm) (M.fromList bs)
-      SS.Index e1 e2       _ -> do a <- interpret sc vm tm sm e1
-                                   i <- interpret sc vm tm sm e2
+      SS.Block stmts       _ -> interpretStmts sc env stmts
+      SS.Tuple es          _ -> VTuple <$> traverse (interpret sc env) es
+      SS.Record bs         _ -> VRecord <$> traverse (interpret sc env) (M.fromList bs)
+      SS.Index e1 e2       _ -> do a <- interpret sc env e1
+                                   i <- interpret sc env e2
                                    return (indexValue a i)
-      SS.Lookup e n        _ -> do a <- interpret sc vm tm sm e
+      SS.Lookup e n        _ -> do a <- interpret sc env e
                                    return (lookupValue a n)
       SS.Var x (SS.Forall [] t)
                              -> case M.lookup x vm of
@@ -503,24 +502,24 @@ interpret sc vm tm sm expr =
                                         let ts = typeInstantiation schema t
                                         foldM tapplyValue v ts
       SS.Function x _ e    _ -> do let name = SS.LocalName x
-                                   let f v Nothing = interpret sc (M.insert name v vm) tm sm e
+                                   let f v Nothing = interpret sc (M.insert name v vm, tm, sm) e
                                        f v (Just t) = do
                                          let vm' = M.insert name v vm
                                          let sm' = M.insert name t sm
-                                         interpret sc vm' tm sm' e
+                                         interpret sc (vm', tm, sm') e
                                    return $ VLambda f
-      SS.Application e1 e2 _ -> do v1 <- interpret sc vm tm sm e1
+      SS.Application e1 e2 _ -> do v1 <- interpret sc env e1
                                    -- TODO: evaluate v1 if it is a VTerm
                                    case v1 of
                                      VFun f ->
-                                         do v2 <- interpret sc vm tm sm e2
+                                         do v2 <- interpret sc env e2
                                             -- TODO: evaluate v2 if it is a VTerm
                                             return (f v2)
                                      VFunTerm f ->
                                          do t2 <- translateExpr sc tm sm M.empty e2
                                             return (f t2)
                                      VLambda f ->
-                                         do v2 <- interpret sc vm tm sm e2
+                                         do v2 <- interpret sc env e2
                                             t2 <- if translatableExpr (M.keysSet sm) e2
                                                   then Just <$> translateExpr sc tm sm M.empty e2
                                                   else return Nothing
@@ -528,51 +527,42 @@ interpret sc vm tm sm expr =
                                      _ -> fail "interpret Application"
       SS.LetBlock bs e       -> do let m = M.fromList [ (SS.LocalName x, y) | (x, y) <- bs ]
                                    let tm' = fmap SS.typeOf m
-                                   vm' <- traverse (interpretPoly sc vm tm sm) m
+                                   vm' <- traverse (interpretPoly sc env) m
                                    sm' <- traverse (translatePolyExpr sc tm sm) $
                                           M.filter (translatableExpr (M.keysSet sm)) m
-                                   interpret sc (M.union vm' vm) (M.union tm' tm) (M.union sm' sm) e
+                                   interpret sc (M.union vm' vm, M.union tm' tm, M.union sm' sm) e
 
 interpretPoly
     :: forall s. SharedContext s
-    -> Map SS.ResolvedName (Value s)
-    -> Map SS.ResolvedName SS.Schema
-    -> Map SS.ResolvedName (SharedTerm s)
-    -> Expression -> IO (Value s)
-interpretPoly sc vm tm sm expr =
+    -> InterpretEnv s -> Expression -> IO (Value s)
+interpretPoly sc env expr =
     case SS.typeOf expr of
       SS.Forall ns _ ->
           let tlam x f m = return (VTLambda (\t -> f (M.insert x t m)))
-          in foldr tlam (\m -> interpret sc vm tm sm (substTypeExpr m expr)) ns M.empty
+          in foldr tlam (\m -> interpret sc env (substTypeExpr m expr)) ns M.empty
 
 interpretStmts
     :: forall s. SharedContext s
-    -> Map SS.ResolvedName (Value s)
-    -> Map SS.ResolvedName SS.Schema
-    -> Map SS.ResolvedName (SharedTerm s)
-    -> [BlockStatement] -> IO (Value s)
-interpretStmts sc vm tm sm stmts =
+    -> InterpretEnv s -> [BlockStatement] -> IO (Value s)
+interpretStmts sc env@(vm, tm, sm) stmts =
     case stmts of
       [] -> fail "empty block"
-      [SS.Bind Nothing _ e] -> interpret sc vm tm sm e
+      [SS.Bind Nothing _ e] -> interpret sc env e
       SS.Bind Nothing _ e : ss ->
-          do v1 <- interpret sc vm tm sm e
-             v2 <- interpretStmts sc vm tm sm ss
+          do v1 <- interpret sc env e
+             v2 <- interpretStmts sc env ss
              return (v1 `thenValue` v2)
       SS.Bind (Just (x, _)) _ e : ss ->
-          do v1 <- interpret sc vm tm sm e
+          do v1 <- interpret sc env e
              let name = SS.LocalName x
-             let f v Nothing = interpretStmts sc (M.insert name v vm) tm sm ss
+             let f v Nothing = interpretStmts sc (M.insert name v vm, tm, sm) ss
                  f v (Just t) = do
                    let vm' = M.insert name v vm
                    let sm' = M.insert name t sm
-                   interpretStmts sc vm' tm sm' ss
+                   interpretStmts sc (vm', tm, sm') ss
              return (v1 `bindValue` VLambda f)
-      SS.BlockLet bs : ss -> interpret sc vm tm sm (SS.LetBlock bs (SS.Block ss undefined))
+      SS.BlockLet bs : ss -> interpret sc env (SS.LetBlock bs (SS.Block ss undefined))
       SS.BlockTypeDecl {} : _ -> fail "BlockTypeDecl unsupported"
-
-type REnv = Map SS.ResolvedName
-type InterpretEnv s = (REnv (Value s), REnv SS.Schema, REnv (SharedTerm s))
 
 interpretModule
     :: forall s. SharedContext s
@@ -588,7 +578,7 @@ interpretModule sc env m =
 interpretSCC
     :: forall s. SharedContext s
     -> InterpretEnv s -> SCC (SS.ResolvedName, Expression) -> IO (InterpretEnv s)
-interpretSCC sc (vm, tm, sm) scc =
+interpretSCC sc env@(vm, tm, sm) scc =
     case scc of
       CyclicSCC _nodes -> fail "Unimplemented: Recursive top level definitions"
       AcyclicSCC (x, expr)
@@ -597,7 +587,7 @@ interpretSCC sc (vm, tm, sm) scc =
                let t = SS.typeOf expr
                return (vm, M.insert x t tm, M.insert x s sm)
         | otherwise ->
-            do v <- interpretPoly sc vm tm sm expr
+            do v <- interpretPoly sc env expr
                let t = SS.typeOf expr
                return (M.insert x v vm, M.insert x t tm, sm)
 
@@ -647,7 +637,7 @@ interpretMain :: Options -> SS.ValidModule -> IO ()
 interpretMain = interpretEntry "main"
 
 -- | Collects primitives from the module and all its transitive dependencies.
-transitivePrimEnv :: SS.ValidModule -> Map SS.ResolvedName SS.Schema
+transitivePrimEnv :: SS.ValidModule -> RNameMap SS.Schema
 transitivePrimEnv m = M.unions (env : envs)
   where
     mn = SS.moduleName m
@@ -657,7 +647,7 @@ transitivePrimEnv m = M.unions (env : envs)
 
 -- Primitives ------------------------------------------------------------------
 
-valueEnv :: forall s. Options -> SharedContext s -> M.Map SS.ResolvedName (Value s)
+valueEnv :: forall s. Options -> SharedContext s -> RNameMap (Value s)
 valueEnv opts sc = M.fromList
   [ (qualify "read_sbv"    , toValue $ readSBV sc)
   , (qualify "read_aig"    , toValue $ readAIGPrim sc)
@@ -687,7 +677,7 @@ valueEnv opts sc = M.fromList
   , (qualify "define"      , toValue $ definePrim sc)
   ]
 
-coreEnv :: SharedContext s -> IO (M.Map SS.ResolvedName (SharedTerm s))
+coreEnv :: SharedContext s -> IO (RNameMap (SharedTerm s))
 coreEnv sc =
   traverse (scGlobalDef sc . parseIdent) $ M.fromList $
     [ (qualify "bitSequence", "Prelude.bvNat")
