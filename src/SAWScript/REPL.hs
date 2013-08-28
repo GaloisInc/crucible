@@ -22,7 +22,7 @@ import SAWScript.AST (ModuleName(ModuleName),
                       topLevelContext)
 import SAWScript.BuildModules (buildModules)
 import SAWScript.Import (preludeLoadedModules)
-import SAWScript.Interpreter (Value, interpretEntry)
+import SAWScript.Interpreter (Value, buildInterpretEnv, interpretModuleAtEntry)
 import SAWScript.Lexer (scan)
 import SAWScript.MGU (checkModule)
 import SAWScript.Options (Options)
@@ -111,7 +111,10 @@ evaluate opts ast = do
   typechecked :: Module ResolvedName Schema ResolvedT
               <- REP.err $ checkModule renamed
   -- Interpret the statement.
-  REP.io $ interpretEntry "it" opts typechecked
+  (ctx, env) <- REP.io $ buildInterpretEnv opts typechecked
+  (result, env') <- REP.io $ interpretModuleAtEntry "it" ctx env typechecked
+  -- All done.
+  return result
 
 wrapBStmt :: Map ModuleName ValidModule
              -> Name

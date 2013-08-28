@@ -9,7 +9,8 @@
 module SAWScript.Interpreter
   ( interpret
   , interpretMain
-  , interpretEntry
+  , interpretModuleAtEntry
+  , buildInterpretEnv
   , Value
   , IsValue(..)
   )
@@ -626,9 +627,34 @@ stmtDeps stmt =
       SS.BlockTypeDecl _ _ -> S.empty
       SS.BlockLet bs       -> S.unions (map (exprDeps . snd) bs)
 
+interpretModuleAtEntry :: SS.Name
+                          -> SharedContext s
+                          -> InterpretEnv s
+                          -> SS.ValidModule
+                          -> IO (Value s, InterpretEnv s)
+interpretModuleAtEntry entryName sc env m =
+  do interpretEnv@(vm, _tm, _sm) <- interpretModule sc env m
+     let mainName = SS.TopLevelName (SS.moduleName m) entryName
+     case M.lookup mainName vm of
+       Just (VIO v) -> do
+         -- We've been asked to execute a 'TopLevel' action, so run it.
+         r <- v
+         return (r, interpretEnv)
+       Just v ->
+         {- We've been asked to evaluate a pure value, so wrap it up in IO
+         and give it back. -}
+         return (v, interpretEnv)
+       Nothing -> fail $ "No " ++ entryName ++ " in module " ++ show (SS.moduleName m)
+
 -- | Interpret an expression using the default value environments.
 interpretEntry :: SS.Name -> Options -> SS.ValidModule -> IO (Value s)
 interpretEntry entryName opts m =
+    do (sc, interpretEnv0) <- buildInterpretEnv opts m
+       (result, _interpretEnv) <- interpretModuleAtEntry entryName sc interpretEnv0 m
+       return result
+
+buildInterpretEnv:: Options -> SS.ValidModule -> IO (SharedContext s, InterpretEnv s)
+buildInterpretEnv opts m =
     do let mn = case SS.moduleName m of SS.ModuleName xs x -> mkModuleName (xs ++ [x])
        let scm = insImport preludeModule $ emptyModule mn
        sc <- mkSharedContext scm
@@ -636,17 +662,7 @@ interpretEntry entryName opts m =
        let vm0 = M.insert (qualify "basic_ss") (toValue ss) (valueEnv opts sc)
        let tm0 = transitivePrimEnv m
        sm0 <- coreEnv sc
-       (vm, _tm, _sm) <- interpretModule sc (vm0, tm0, sm0) m
-       let mainName = SS.TopLevelName (SS.moduleName m) entryName
-       case M.lookup mainName vm of
-         Just (VIO v) ->
-           -- We've been asked to execute a 'TopLevel' action, so run it.
-           v
-         Just v ->
-           {- We've been asked to evaluate a pure value, so wrap it up in IO
-           and give it back. -}
-           return v
-         Nothing -> fail $ "No " ++ entryName ++ " in module " ++ show (SS.moduleName m)
+       return (sc, (vm0, tm0, sm0))
 
 -- | Interpret function 'main' using the default value environments.
 interpretMain :: Options -> SS.ValidModule -> IO ()
