@@ -4,6 +4,7 @@ module SAWScript.REPL where
 import Prelude hiding (print, read)
 
 import Control.Monad.Trans (MonadIO)
+import Data.List (intercalate)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified System.Console.Haskeline as Haskeline
@@ -11,7 +12,7 @@ import System.Directory (createDirectoryIfMissing)
 import qualified System.Environment.XDG.BaseDir as XDG
 import System.FilePath ((</>))
 
-import SAWScript.AST (ModuleName,
+import SAWScript.AST (ModuleName, renderModuleName,
                       Module(..), ValidModule,
                       BlockStmt(Bind),
                       UnresolvedName, ResolvedName,
@@ -57,13 +58,20 @@ replSettings = do
 
 read :: REP s (BlockStmt UnresolvedName RawT)
 read = do
-  line <- REP.haskeline $ Haskeline.getInputLine "Prelude> "
+  promptString <- buildPromptString
+  line <- REP.haskeline $ Haskeline.getInputLine promptString
   case line of
     Nothing -> REP.successExit
     Just sawScriptStr -> do
       -- Lex and parse.
       tokens <- REP.err $ scan replFileName sawScriptStr
       REP.err $ parseBlockStmt tokens
+
+buildPromptString :: REP s String
+buildPromptString = do
+  modsInScope <- getModulesInScope
+  let moduleNames = map renderModuleName $ Map.keys modsInScope
+  return $ intercalate " " moduleNames ++ "> "
 
 
 ---------------------------------- Evaluate -----------------------------------
