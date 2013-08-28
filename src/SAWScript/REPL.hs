@@ -6,42 +6,39 @@ import Prelude hiding (print, read)
 import Control.Monad.Trans (MonadIO)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Foldable (foldrM)
 import qualified System.Console.Haskeline as Haskeline
 import System.Directory (createDirectoryIfMissing)
 import qualified System.Environment.XDG.BaseDir as XDG
 import System.FilePath ((</>))
 
-import SAWScript.AST (ModuleName(ModuleName),
+import SAWScript.AST (ModuleName,
                       Module(..), ValidModule,
-                      Expr(Block),
                       BlockStmt(Bind),
                       UnresolvedName, ResolvedName,
                       RawT, ResolvedT, Schema,
-                      Name,
                       topLevelContext)
-import SAWScript.BuildModules (buildModules)
-import SAWScript.Import (preludeLoadedModules)
-import SAWScript.Interpreter (Value, buildInterpretEnv, interpretModuleAtEntry)
+import SAWScript.Interpreter (Value, interpretModuleAtEntry)
 import SAWScript.Lexer (scan)
 import SAWScript.MGU (checkModule)
 import SAWScript.Options (Options)
 import SAWScript.Parser (parseBlockStmt)
-import SAWScript.ProcessFile (checkModuleWithDeps)
 import SAWScript.RenameRefs (renameRefs)
-import SAWScript.REPL.Monad (REPLState, emptyState,
+import SAWScript.REPL.GenerateModule (replFileName, wrapBStmt)
+import SAWScript.REPL.Monad (REPLState, withInitialState,
                              REP, runREP,
-                             REPResult(..))
+                             REPResult(..),
+                             getModulesInScope, getSharedContext, getEnvironment,
+                             putEnvironment)
 import qualified SAWScript.REPL.Monad as REP
 import SAWScript.ResolveSyns (resolveBlockStmtSyns)
 
 run :: Options -> IO ()
 run opts = do
   settings <- replSettings
-  loop settings emptyState
-  where loop :: Haskeline.Settings IO -> REPLState -> IO ()
+  withInitialState opts $ loop settings
+  where loop :: Haskeline.Settings IO -> REPLState s -> IO ()
         loop settings state = do
-          result <- runREP settings state (read >>= evaluate opts >>= print)
+          result <- runREP settings state (read >>= evaluate >>= print)
           case result of
             Success state' -> loop settings state'
             SuccessExit -> return ()
@@ -55,18 +52,10 @@ replSettings = do
              Haskeline.defaultSettings
                { Haskeline.historyFile = Just (dataHome </> "repl_history") }
 
--- The name of the REPL, as it should be reported in error messages
-replFileName :: String
-replFileName = "<stdin>"
-
--- The name of the REPL as a 'ModuleName'
-replModuleName :: ModuleName
-replModuleName = ModuleName [] replFileName
-
 
 ------------------------------------ Read -------------------------------------
 
-read :: REP (BlockStmt UnresolvedName RawT)
+read :: REP s (BlockStmt UnresolvedName RawT)
 read = do
   line <- REP.haskeline $ Haskeline.getInputLine "Prelude> "
   case line of
@@ -79,10 +68,9 @@ read = do
 
 ---------------------------------- Evaluate -----------------------------------
 
-evaluate :: Options
-            -> BlockStmt UnresolvedName RawT
-            -> REP (Value s)
-evaluate opts ast = do
+evaluate :: BlockStmt UnresolvedName RawT
+            -> REP s (Value s)
+evaluate ast = do
   {- Set the context (i.e., the monad) for the statement.  For the REPL, this
   will always be 'TopLevelContext'. -}
   let ast' :: BlockStmt UnresolvedName RawT
@@ -99,9 +87,7 @@ evaluate opts ast = do
   metadata, the compiler pipeline simply zooms out and starts working at the
   module granularity. -}
   modsInScope :: Map ModuleName ValidModule
-              <- REP.io    preludeLoadedModules >>=
-                 REP.err . buildModules >>=
-                 REP.err . foldrM checkModuleWithDeps Map.empty
+              <- getModulesInScope
   let synsResolved' :: Module UnresolvedName ResolvedT ResolvedT
       synsResolved' = wrapBStmt modsInScope "it" synsResolved
   -- Rename references.
@@ -111,27 +97,15 @@ evaluate opts ast = do
   typechecked :: Module ResolvedName Schema ResolvedT
               <- REP.err $ checkModule renamed
   -- Interpret the statement.
-  (ctx, env) <- REP.io $ buildInterpretEnv opts typechecked
+  ctx <- getSharedContext
+  env <- getEnvironment
   (result, env') <- REP.io $ interpretModuleAtEntry "it" ctx env typechecked
-  -- All done.
+  -- Update the environment and return the result.
+  putEnvironment env'
   return result
-
-wrapBStmt :: Map ModuleName ValidModule
-             -> Name
-             -> BlockStmt refT ResolvedT
-             -> Module refT ResolvedT ResolvedT
-wrapBStmt modsInScope stmtName stmt =
-  Module { moduleName = replModuleName
-           {- The expression environment simply maps @it@ to the statement.
-           Statements aren't expressions, so I wrap it up in a block (with an
-           unspecified return type). -}
-         , moduleExprEnv = Map.singleton stmtName (Block [stmt] Nothing)
-         , modulePrimEnv = Map.empty -- no 'Prim's in the REPL
-         , moduleTypeEnv = Map.empty -- no type synonyms in the REPL
-         , moduleDependencies = modsInScope }
 
 
 ------------------------------------ Print ------------------------------------
 
-print :: Show a => a -> REP ()
+print :: Show a => a -> REP s ()
 print = REP.haskeline . Haskeline.outputStrLn . show
