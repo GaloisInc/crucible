@@ -31,7 +31,7 @@ import SAWScript.REPL.Monad (REPLState, withInitialState,
                              getModulesInScope, getSharedContext, getEnvironment,
                              putEnvironment)
 import qualified SAWScript.REPL.Monad as REP
-import SAWScript.ResolveSyns (resolveBlockStmtSyns)
+import SAWScript.ResolveSyns (resolveSyns)
 
 run :: Options -> IO ()
 run opts = do
@@ -85,22 +85,19 @@ evaluate ast = do
       ast' = case ast of
         Bind maybeVar _ctx expr -> Bind maybeVar (Just topLevelContext) expr
         stmt -> stmt
-  {- Resolve type synonyms, abstract types, etc.  They're not supported by the
-  REPL, so there never are any. -}
-  synsResolved :: BlockStmt UnresolvedName ResolvedT
-               <- REP.err $ resolveBlockStmtSyns Map.empty ast'
-  {- From here on, the compiler pipeline needs to carry around a lot of
-  metadata about the code it's compiling.  The metadata is related to the
-  module system, so instead of creating some extra data structure to hold the
-  metadata, the compiler pipeline simply zooms out and starts working at the
-  module granularity. -}
+  {- The compiler pipeline is targeted at modules, so wrap up the statement in
+  a trivial module. -}
   modsInScope :: Map ModuleName ValidModule
               <- getModulesInScope
-  let synsResolved' :: Module UnresolvedName ResolvedT ResolvedT
-      synsResolved' = wrapBStmt modsInScope "it" synsResolved
+  let astModule :: Module UnresolvedName RawT RawT
+      astModule = wrapBStmt modsInScope "it" ast'
+  {- Resolve type synonyms, abstract types, etc.  They're not supported by the
+  REPL, so there never are any. -}
+  synsResolved :: Module UnresolvedName ResolvedT ResolvedT
+               <- REP.err $ resolveSyns astModule
   -- Rename references.
   renamed :: Module ResolvedName ResolvedT ResolvedT
-          <- REP.err $ renameRefs synsResolved'
+          <- REP.err $ renameRefs synsResolved
   -- Infer and check types.
   typechecked :: Module ResolvedName Schema ResolvedT
               <- REP.err $ checkModule renamed
