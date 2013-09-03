@@ -14,14 +14,20 @@ import SAWScript.AST (PrettyPrint, pShow)
 import SAWScript.Utils
 
 -- | Wrapper around compiler function to format the result or error
-runCompiler :: (Show b) => Compiler a b -> a -> (b -> IO ()) -> IO ()
+runCompiler :: (Show b, MonadIO io)
+               => (a -> ErrT io b) {- This is effectively a supertype of
+                  'Compiler a b'--it allows you to use any 'MonadIO', not just
+                  'IO' itself. -}
+               -> a
+               -> (b -> io ())
+               -> io ()
 runCompiler f a k = do
-  runErr (f a)
+  runErrT (f a)
     reportError
     k -- continuation
 
-reportError :: String -> IO ()
-reportError = putStrLn . ("Error\n" ++) . indent 2
+reportError :: (MonadIO io) => String -> io ()
+reportError = liftIO . putStrLn . ("Error\n" ++) . indent 2
 
 type Compiler a b = a -> Err b
 

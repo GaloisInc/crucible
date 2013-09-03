@@ -6,10 +6,11 @@ import System.Environment
 import System.FilePath
 
 data Options = Options
-  { importPath :: [FilePath]
-  , classPath  :: [FilePath]
-  , jarList    :: [FilePath]
-  , verbLevel  :: Int
+  { importPath       :: [FilePath]
+  , classPath        :: [FilePath]
+  , jarList          :: [FilePath]
+  , verbLevel        :: Int
+  , runInteractively :: Bool
   } deriving (Show)
 
 defaultOptions :: Options
@@ -19,6 +20,7 @@ defaultOptions
     , classPath = ["."]
     , jarList = []
     , verbLevel = 1
+    , runInteractively = False
     }
 
 options :: [OptDescr (Options -> Options)]
@@ -36,6 +38,10 @@ options =
      "path"
     )
     pathDesc
+  , Option "I" ["interactive"]
+    (NoArg
+     (\opts -> opts { runInteractively = True }))
+    "Run interactively (with a REPL)"
   , Option "j" ["jars"]
     (ReqArg
      (\p opts -> opts { jarList = jarList opts ++ splitSearchPath p })

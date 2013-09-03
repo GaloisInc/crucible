@@ -7,6 +7,7 @@
 {-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
 module SAWScript.Parser
   ( parseModule
+  , parseTopStmt
   , parseBlockStmt
   ) where
 
@@ -25,6 +26,7 @@ import Control.Applicative
 }
 
 %name parseModule TopStmts
+%name parseTopStmt TopStmt
 %name parseBlockStmt BlockStmt
 %error { parseError }
 %tokentype { Token Pos }

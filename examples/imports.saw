@@ -1,3 +1,4 @@
 
 import imports2;
 
+main = print "Done.";
