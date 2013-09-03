@@ -19,7 +19,6 @@ import Control.Applicative
 import Control.Monad ( foldM )
 import Control.Monad.IO.Class ( liftIO )
 import Control.Monad.State ( StateT(..) )
-import Control.Monad.Writer ( WriterT(..) )
 import Data.Graph.SCC ( stronglyConnComp )
 import Data.Graph ( SCC(..) )
 import Data.List ( intersperse )
@@ -33,6 +32,7 @@ import qualified Data.Vector as V
 
 import qualified SAWScript.AST as SS
 import SAWScript.Builtins hiding (evaluate)
+import SAWScript.MethodSpecIR
 import qualified SAWScript.MGU as MGU
 import SAWScript.Options
 import Verifier.SAW.Prelude (preludeModule)
@@ -71,6 +71,8 @@ data Value s
   | VProofScript (ProofScript s (Value s))
   | VSimpset (Simpset (SharedTerm s))
   | VTheorem (Theorem s)
+  | VJavaSetup (JavaSetup s (Value s))
+  -- | VJavaMethodSpec (MethodSpecIR s)
 
 instance Show (Value s) where
     showsPrec p v =
@@ -94,6 +96,8 @@ instance Show (Value s) where
         VIO {} -> showString "<<IO>>"
         VSimpset {} -> showString "<<simpset>>"
         VTheorem (Theorem t) -> showString "Theorem " . showParen True (showString (scPrettyTerm t))
+        VJavaSetup {} -> showString "<<Java Setup>>"
+        -- VJavaMethodSpec {} -> showString "<<Java MethodSpec>>"
 
 indexValue :: Value s -> Value s -> Value s
 indexValue (VArray vs) (VInteger x)
@@ -185,6 +189,8 @@ exportValue val =
       VTerm {} -> error "VTerm unsupported"
       VIO {} -> error "VIO unsupported"
       VSimpset {} -> error "VSimpset unsupported"
+      VJavaSetup {} -> error "VJavaSetup unsupported"
+      --VJavaMethodSpec {} -> error "VJavaMethodSpec unsupported"
 
 -- IsValue class ---------------------------------------------------------------
 
@@ -230,9 +236,10 @@ instance IsValue s a => IsValue s (StateT (SharedTerm s) IO a) where
     fromValue (VProofScript m) = fmap fromValue m
     fromValue _ = error "fromValue ProofScript"
 
-instance (IsValue s t, IsValue s a) => IsValue s (WriterT t IO a) where
-    toValue (WriterT m) = toValue m
-    fromValue v = WriterT (fromValue v)
+instance IsValue s a => IsValue s (StateT (MethodSpecIR s) IO a) where
+    toValue m = VJavaSetup (fmap toValue m)
+    fromValue (VJavaSetup m) = fmap fromValue m
+    fromValue _ = error "fromValue JavaSetup"
 
 instance IsValue s (SharedTerm s) where
     toValue t = VTerm t
@@ -278,6 +285,13 @@ instance IsValue s (Theorem s) where
     toValue t = VTheorem t
     fromValue (VTheorem t) = t
     fromValue _ = error "fromValue Theorem"
+
+{-
+instance IsValue s (MethodSpecIR s) where
+    toValue ms = VJavaMethodSpec ms
+    fromValue (VJavaMethodSpec ms) = ms
+    fromValue _ = error "fromValue Theorem"
+-}
 
 -- Type matching ---------------------------------------------------------------
 

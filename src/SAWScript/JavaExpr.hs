@@ -45,7 +45,7 @@ module SAWScript.JavaExpr
   , ppActualType
   -- , tcActualType
   , MethodLocation (..)
-  , BehaviorDecl (..)
+  -- , BehaviorDecl (..)
   ) where
 
 -- Imports {{{2
@@ -80,8 +80,9 @@ data MethodLocation
    | LineExact Integer
   deriving (Show)
 
+{-
 data BehaviorDecl e
-  = VarDecl Pos [e] () -- JavaType -- FIXME
+  = VarDecl Pos e e
     -- | Local binding within a method spec.
   -- | MethodLet Pos String Expr
   | MayAlias Pos [e]
@@ -95,6 +96,7 @@ data BehaviorDecl e
   -- | MethodIfElse Pos Expr BehaviorDecl BehaviorDecl
   | Block [BehaviorDecl e]
   deriving (Show)
+-}
 
 -- Typecheck DagType {{{1
 
@@ -223,6 +225,7 @@ tcValueOfExpr ast cfg = do
 
 -- | A type-checked expression which appears insider a global let binding,
 -- method declaration, or rule term.
+{-
 data LogicExpr s
    = Apply Op [LogicExpr s]
    | IntLit Integer WidthExpr
@@ -234,6 +237,9 @@ data LogicExpr s
    | JavaValue JavaExpr JavaActualType (SharedTerm s)
    | Var String (SharedTerm s)
    deriving (Show)
+-}
+
+type LogicExpr s = SharedTerm s
 
 -- | Return type of a typed expression.
 typeOfLogicExpr :: LogicExpr s -> SharedTerm s
@@ -248,17 +254,20 @@ typeOfLogicExpr (Var       _ tp) = tp
 
 -- | Return java expressions in logic expression.
 logicExprJavaExprs :: LogicExpr s -> Set JavaExpr
-logicExprJavaExprs = flip impl Set.empty
+logicExprJavaExprs = undefined --FIXME
+  {- flip impl Set.empty
   where impl (Apply _ args) s = foldr impl s args
         impl (JavaValue e _ _) s = Set.insert e s
         impl _ s = s
+        -}
 
 -- | Returns names of variables appearing in typedExpr.
 logicExprVarNames :: LogicExpr s -> Set String
-logicExprVarNames = flip impl Set.empty
+logicExprVarNames = undefined --FIXME
+  {- flip impl Set.empty
   where impl (Apply _ args) s = foldr impl s args
         impl (Var nm _) s = Set.insert nm s
-        impl _ s = s
+        impl _ s = s -}
 
 -- | Evaluate a ground typed expression to a constant value.
 globalEval :: (String -> m r)
@@ -283,8 +292,11 @@ globalEval varFn ts expr = eval expr
 
 -- | Internal utility for flipping arguments to binary logic expressions.
 flipBinOpArgs :: LogicExpr s -> LogicExpr s
+flipBinOpArgs e = undefined -- FIXME
+{-
 flipBinOpArgs (Apply o [a, b]) = Apply o [b, a]
 flipBinOpArgs e = error $ "internal: flipBinOpArgs: received: " ++ show e
+-}
 
 -- | Typecheck a logic expression.
 {-
@@ -650,7 +662,7 @@ tcE (AST.ApplyExpr p "valueOf" [jr]) = do
   case at of
     ArrayInstance l tp -> do
       let arrayTp = jssArrayDagType l tp
-      return $ LE $ JavaValue sje at arrayTp
+      return $ LE $ undefined -- JavaValue sje at arrayTp -- FIXME
     _  ->
       let msg = "The expression " ++ show sje ++ " does not refer to an array."
        in typeErrWithR p (ftext msg) ""

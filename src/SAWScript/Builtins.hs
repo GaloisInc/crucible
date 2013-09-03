@@ -13,6 +13,7 @@ import Control.Monad.State
 import Control.Monad.Writer
 import qualified Data.Map as Map
 import Data.Maybe
+import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import Text.PrettyPrint.Leijen hiding ((<$>))
 
@@ -398,8 +399,7 @@ freshLLVMArg (_, _) = fail "Only integer arguments are supported for now."
 fixPos :: Pos
 fixPos = PosInternal "FIXME"
 
---type JavaSetup s a = WriterT [BehaviorDecl (SharedTerm s)] IO a
-type JavaSetup s a = IO a
+type JavaSetup s a = StateT (MethodSpecIR s) IO a
 
 extractJava :: SharedContext s -> Options -> String -> String -> JavaSetup s ()
             -> IO (SharedTerm s)
@@ -442,20 +442,23 @@ verifyJava sc opts cname mname setup = do
            , gbOpts = opts
            , constBindings = Map.empty -- TODO
            }
+  -- _ <- runStateT setup undefined
   msir <- resolveMethodSpecIR gb rules pos cls mname [] -- FIXME
   fail "java_verify not yet finished"
 
 javaVar :: SharedContext s -> Options -> String -> SharedTerm s
         -> JavaSetup s ()
 javaVar _ _ name t@(STApp _ (FTermF (CtorApp _ _))) =
-  fail $ "would declare " ++ name ++ " :: " ++ show t
+  modify $ specAddVarDecl name t
 javaVar _ _ _ _ = fail "java_var called with invalid type argument"
 
-javaMayAlias :: SharedContext s -> Options -> String -> SharedTerm s
-        -> JavaSetup s ()
-javaMayAlias _ _ name t@(STApp _ (FTermF (ArrayValue _ es))) =
-  fail $ "would declare aliasing of " ++ show es
-javaMayAlias _ _ _ _ = fail "java_may_alias called with invalid type argument"
+javaMayAlias :: SharedContext s -> Options -> SharedTerm s
+             -> JavaSetup s ()
+javaMayAlias _ _ t@(STApp _ (FTermF (ArrayValue _ es))) = do
+  case sequence (map asStringLit (V.toList es)) of
+    Just names -> modify $ specAddAliasSet names
+    Nothing -> fail "non-string arguments passed to java_may_alias"
+javaMayAlias _ _ _ = fail "java_may_alias called with invalid type argument"
 
 freshJavaArg :: MonadIO m =>
                 JSS.Backend sbe
