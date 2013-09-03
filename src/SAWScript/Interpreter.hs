@@ -87,6 +87,7 @@ instance Show (Value s) where
         VTerm t -> showsPrec p t
         VIO {} -> showString "<<IO>>"
         VSimpset {} -> showString "<<simpset>>"
+        VProofScript {} -> showString "<<proof script>>"
         VTheorem (Theorem t) -> showString "Theorem " . showParen True (showString (scPrettyTerm t))
 
 indexValue :: Value s -> Value s -> Value s
