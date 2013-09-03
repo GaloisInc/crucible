@@ -451,6 +451,12 @@ javaVar _ _ name t@(STApp _ (FTermF (CtorApp _ _))) =
   fail $ "would declare " ++ name ++ " :: " ++ show t
 javaVar _ _ _ _ = fail "java_var called with invalid type argument"
 
+javaMayAlias :: SharedContext s -> Options -> String -> SharedTerm s
+        -> JavaSetup s ()
+javaMayAlias _ _ name t@(STApp _ (FTermF (ArrayValue _ es))) =
+  fail $ "would declare aliasing of " ++ show es
+javaMayAlias _ _ _ _ = fail "java_may_alias called with invalid type argument"
+
 freshJavaArg :: MonadIO m =>
                 JSS.Backend sbe
              -> JSS.Type

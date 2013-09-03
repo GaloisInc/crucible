@@ -20,7 +20,6 @@ import Control.Monad ( foldM )
 import Control.Monad.IO.Class ( liftIO )
 import Control.Monad.State ( StateT(..) )
 import Control.Monad.Writer ( WriterT(..) )
-import Data.Char ( isAlphaNum )
 import Data.Graph.SCC ( stronglyConnComp )
 import Data.Graph ( SCC(..) )
 import Data.List ( intersperse )
@@ -632,7 +631,10 @@ stmtDeps stmt =
 interpretEntry :: SS.Name -> Options -> SS.ValidModule -> IO ()
 interpretEntry entryName opts m =
     do let mn = case SS.moduleName m of SS.ModuleName xs x -> mkModuleName (xs ++ [x])
-       let scm = insImport preludeModule $ emptyModule mn
+       let scm = insImport preludeModule $
+                 insImport JavaSAW.javaModule $
+                 --insImport llvmModule $
+                 emptyModule mn
        sc <- mkSharedContext scm
        ss <- basic_ss sc
        let vm0 = M.insert (qualify "basic_ss") (toValue ss) (valueEnv opts sc)
@@ -666,10 +668,10 @@ valueEnv opts sc = M.fromList
   , (qualify "write_aig"   , toValue $ writeAIG sc)
   , (qualify "java_extract", toValue $ extractJava sc opts)
   , (qualify "java_verify" , toValue $ verifyJava sc opts)
-  , (qualify "java_var"    , toValue $ javaVar sc opts)
-  --, (qualify "java_modify" , toValue $ ()) -- FIXME
-  --, (qualify "java_may_alias", toValue $ ()) -- FIXME
   , (qualify "java_pure"   , toValue $ ()) -- FIXME
+  , (qualify "java_var"    , toValue $ javaVar sc opts)
+  , (qualify "java_may_alias", toValue $ javaMayAlias sc opts)
+  --, (qualify "java_modify" , toValue $ ()) -- FIXME
   , (qualify "llvm_extract", toValue $ extractLLVM sc)
   , (qualify "llvm_pure"   , toValue "llvm_pure") -- FIXME: representing 'LLVMSetup ()' as 'String'
   , (qualify "prove"       , toValue $ provePrim sc)
@@ -714,7 +716,6 @@ coreEnv sc =
     , (qualify "java_double", "Java.mkDoubleType")
     , (qualify "java_array" , "Java.mkArrayType")
     , (qualify "java_class" , "Java.mkClassType")
-    , (qualify "java_var"   , "Java.varObject")
     -- LLVM things
     -- , (qualify "llvm_int"   , "LLVM.intType")
     -- , (qualify "llvm_float" , "LLVM.floatType")
