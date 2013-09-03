@@ -152,9 +152,10 @@ importValue val =
       SC.VString s -> VString s -- FIXME: probably not needed
       SC.VTuple vs -> VTuple (V.toList (fmap importValue vs))
       SC.VRecord m -> VRecord (fmap importValue m)
-      SC.VCtorApp "Prelude.False" _ -> VBool False
-      SC.VCtorApp "Prelude.True" _ -> VBool True
-      SC.VCtorApp {} -> error $ "VCtorApp unsupported: " ++ show val
+      SC.VCtorApp ident _
+        | ident == parseIdent "Prelude.False" -> VBool False
+        | ident == parseIdent "Prelude.True" -> VBool True
+        | otherwise -> error $ "VCtorApp unsupported: " ++ show val
       SC.VVector vs -> VArray (V.toList (fmap importValue vs))
       SC.VFloat {} -> error "VFloat unsupported"
       SC.VDouble {} -> error "VDouble unsupported"
