@@ -72,7 +72,7 @@ data Value s
   | VSimpset (Simpset (SharedTerm s))
   | VTheorem (Theorem s)
   | VJavaSetup (JavaSetup s (Value s))
-  -- | VJavaMethodSpec (MethodSpecIR s)
+  | VJavaMethodSpec (MethodSpecIR s)
 
 instance Show (Value s) where
     showsPrec p v =
@@ -97,7 +97,7 @@ instance Show (Value s) where
         VSimpset {} -> showString "<<simpset>>"
         VTheorem (Theorem t) -> showString "Theorem " . showParen True (showString (scPrettyTerm t))
         VJavaSetup {} -> showString "<<Java Setup>>"
-        -- VJavaMethodSpec {} -> showString "<<Java MethodSpec>>"
+        VJavaMethodSpec {} -> showString "<<Java MethodSpec>>"
 
 indexValue :: Value s -> Value s -> Value s
 indexValue (VArray vs) (VInteger x)
@@ -190,7 +190,7 @@ exportValue val =
       VIO {} -> error "VIO unsupported"
       VSimpset {} -> error "VSimpset unsupported"
       VJavaSetup {} -> error "VJavaSetup unsupported"
-      --VJavaMethodSpec {} -> error "VJavaMethodSpec unsupported"
+      VJavaMethodSpec {} -> error "VJavaMethodSpec unsupported"
 
 -- IsValue class ---------------------------------------------------------------
 
@@ -286,12 +286,10 @@ instance IsValue s (Theorem s) where
     fromValue (VTheorem t) = t
     fromValue _ = error "fromValue Theorem"
 
-{-
 instance IsValue s (MethodSpecIR s) where
     toValue ms = VJavaMethodSpec ms
     fromValue (VJavaMethodSpec ms) = ms
     fromValue _ = error "fromValue Theorem"
--}
 
 -- Type matching ---------------------------------------------------------------
 

@@ -13,6 +13,7 @@ import Control.Monad.State
 import Control.Monad.Writer
 import qualified Data.Map as Map
 import Data.Maybe
+import qualified Data.Set as Set
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import Text.PrettyPrint.Leijen hiding ((<$>))
@@ -429,22 +430,23 @@ extractJava sc opts cname mname _setup = do
         Right t -> return t
 
 verifyJava :: SharedContext s -> Options -> String -> String -> JavaSetup s ()
-           -> IO (SharedTerm s)
+           -> IO (MethodSpecIR s)
 verifyJava sc opts cname mname setup = do
+  let pos = fixPos -- TODO
   cb <- JSS.loadCodebase (jarList opts) (classPath opts)
-  let cname' = JP.dotsToSlashes cname
-  cls <- lookupClass cb fixPos cname'
-  -- (_, cmds) <- runWriterT setup
-  let pos = undefined -- TODO
-      rules = undefined -- TODO
-      gb = GlobalBindings {
-             codeBase = cb
-           , gbOpts = opts
-           , constBindings = Map.empty -- TODO
+  (_, ms) <- runStateT setup =<< initMethodSpec pos cb cname mname
+  print ms
+  let vp = VerifyParams {
+             vpCode = cb
+           , vpContext = sc
+           , vpOpts = opts
+           , vpSpec = ms
+           , vpOver = [] -- TODO
+           , vpRules = [] -- TODO
+           , vpEnabledRules = Set.empty -- TODO
            }
-  -- _ <- runStateT setup undefined
-  msir <- resolveMethodSpecIR gb rules pos cls mname [] -- FIXME
-  fail "java_verify not yet finished"
+  validateMethodSpec vp (runValidation vp)
+  return ms
 
 javaVar :: SharedContext s -> Options -> String -> SharedTerm s
         -> JavaSetup s ()
