@@ -12,7 +12,7 @@ module SAWScript.Interpreter
   , interpretModuleAtEntry
   , InterpretEnv, interpretEnvValues, interpretEnvTypes, interpretEnvShared
   , buildInterpretEnv
-  , Value
+  , Value, isVUnit
   , IsValue(..)
   )
   where
@@ -72,6 +72,10 @@ data Value s
   | VProofScript (ProofScript s (Value s))
   | VSimpset (Simpset (SharedTerm s))
   | VTheorem (Theorem s)
+
+isVUnit :: Value s -> Bool
+isVUnit (VTuple []) = True
+isVUnit _ = False
 
 instance Show (Value s) where
     showsPrec p v =

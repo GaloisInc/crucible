@@ -21,7 +21,8 @@ import SAWScript.AST (ModuleName, renderModuleName,
                       RawT, ResolvedT, Schema, rewindSchema,
                       topLevelContext)
 import qualified SAWScript.AST as AST
-import SAWScript.Interpreter (Value, interpretModuleAtEntry,
+import SAWScript.Interpreter (Value, isVUnit,
+                              interpretModuleAtEntry,
                               interpretEnvValues, interpretEnvTypes)
 import SAWScript.Lexer (scan)
 import SAWScript.MGU (checkModule)
@@ -210,8 +211,10 @@ extractFromBlock _ = error "extractFromBlock: unknown construct"
 
 ------------------------------------ Print ------------------------------------
 
-print :: Show a => a -> REP s ()
-print = REP.haskeline . Haskeline.outputStrLn . show
+print :: Value s -> REP s ()
+print v
+  | isVUnit v = return ()
+  | otherwise = REP.haskeline $ Haskeline.outputStrLn $ show v
 
 
 ----------------------------------- Utility -----------------------------------
