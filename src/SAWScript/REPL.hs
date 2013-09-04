@@ -104,7 +104,7 @@ caveats:
      computations and use them to seed the name resolver and the typechecker;
      we also hang onto the results and use them to seed the interpreter. -}
 evaluate :: BlockStmt UnresolvedName RawT
-            -> REP s (Value s)
+            -> REP s (Maybe Name, Value s)
 evaluate ast = do
   -- Set the context (i.e., the monad) for the statement (point 1 above).
   let ast' :: BlockStmt UnresolvedName RawT
@@ -149,7 +149,7 @@ evaluate ast = do
   -- Update the environment and return the result.
   putEnvironment env'
   saveResult boundName result
-  return result
+  return (boundName, result)
 
 injectBoundExpressionTypes :: Module UnresolvedName ResolvedT ResolvedT
                               -> REP s (Module UnresolvedName ResolvedT ResolvedT)
@@ -211,8 +211,11 @@ extractFromBlock _ = error "extractFromBlock: unknown construct"
 
 ------------------------------------ Print ------------------------------------
 
-print :: Value s -> REP s ()
-print v
+print :: (Maybe a, Value s) -> REP s ()
+print (Just _, _) =
+  -- This value's being bound.  Don't print it.
+  return ()
+print (Nothing, v)
   | isVUnit v = return ()
   | otherwise = REP.haskeline $ Haskeline.outputStrLn $ show v
 
