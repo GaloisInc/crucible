@@ -1,5 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-module SAWScript.REPL where
+module SAWScript.REPL (run) where
 
 import Prelude hiding (print, read)
 
@@ -217,12 +217,6 @@ print = REP.haskeline . Haskeline.outputStrLn . show
 ----------------------------------- Utility -----------------------------------
 
 -- From 'Control.Lens.Combinators'.
-(&) :: a -> (a -> b) -> b
-a & f = f a
-infixl 1 &
-{-# INLINE (&) #-}
-
--- Also from 'Control.Lens.Combinators'.
 (<&>) :: Functor f => f a -> (a -> b) -> f b
 a <&> f = f <$> a
 infixl 1 <&>
