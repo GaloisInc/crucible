@@ -6,4 +6,6 @@ main = do {
     print r;
     let thm_neg x = not (thm x);
     write_smtlib1 "double.smt" thm_neg;
+
+    print "Done.";
 };

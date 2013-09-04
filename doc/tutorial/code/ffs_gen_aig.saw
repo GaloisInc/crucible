@@ -7,4 +7,6 @@ main = do {
     write_aig "java_ffs_imp.aig" java_ffs_imp;
     write_aig "c_ffs_ref.aig" c_ffs_ref;
     write_aig "c_ffs_imp.aig" c_ffs_imp;
+
+    print "Done.";
 };
