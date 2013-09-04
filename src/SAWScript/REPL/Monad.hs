@@ -1,11 +1,13 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module SAWScript.REPL.Monad ( REPLState, withInitialState
                             , REP, runREP
                             , REPResult(..), successExit, failure
-                            , getModulesInScope, getSharedContext, getEnvironment
-                            , putEnvironment
+                            , getModulesInScope, getNamesInScope, getSharedContext, getEnvironment
+                            , putNamesInScope, putEnvironment
+                            , modifyNamesInScope, modifyEnvironment
                             , io, haskeline, err) where
 
 import Prelude hiding (maybe)
@@ -17,10 +19,13 @@ import Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
 import Data.Foldable (foldrM)
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
 import System.Console.Haskeline (InputT, runInputT)
 import qualified System.Console.Haskeline as Haskeline
 
 import SAWScript.AST (ModuleName,
+                      Name,
                       ValidModule)
 import SAWScript.BuildModules (buildModules)
 import SAWScript.Compiler (ErrT, runErrT', mapErrT, runCompiler)
@@ -35,6 +40,7 @@ import Verifier.SAW (SharedContext)
 --------------------------------- REPL state ----------------------------------
 
 data REPLState s = REPLState { modulesInScope :: Map ModuleName ValidModule
+                             , namesInScope :: Set Name
                              , sharedContext :: SharedContext s
                              , environment :: InterpretEnv s
                              }
@@ -44,10 +50,11 @@ withInitialState opts f = do
   -- Build a prototype (empty) scratchpad module.
   preludeEtc <- preludeLoadedModules
   runCompiler buildModules preludeEtc $ \built ->
-    runCompiler (foldrM checkModuleWithDeps Map.empty) built $ \modulesInScope0 -> do
-      let scratchpadModule = Generate.scratchpad modulesInScope0
-      (sharedContext0, environment0) <- buildInterpretEnv opts scratchpadModule
-      f $ REPLState modulesInScope0 sharedContext0 environment0
+    runCompiler (foldrM checkModuleWithDeps Map.empty) built $ \modulesInScope -> do
+      let namesInScope = Set.empty
+      let scratchpadModule = Generate.scratchpad modulesInScope
+      (sharedContext, environment) <- buildInterpretEnv opts scratchpadModule
+      f $ REPLState { .. }
 
 
 -------------------------------- REPL results ---------------------------------
@@ -97,16 +104,28 @@ failure msg = REP $ lift $ lift $ fail msg
 getModulesInScope :: REP s (Map ModuleName ValidModule)
 getModulesInScope = state $ gets modulesInScope
 
+getNamesInScope :: REP s (Set Name)
+getNamesInScope = state $ gets namesInScope
+
 getSharedContext :: REP s (SharedContext s)
 getSharedContext = state $ gets sharedContext
 
 getEnvironment :: REP s (InterpretEnv s)
 getEnvironment = state $ gets environment
 
-putEnvironment :: InterpretEnv s -> REP s ()
-putEnvironment env' = state $ modify $ \current ->
-  current { environment = env' }
+putNamesInScope :: Set Name -> REP s ()
+putNamesInScope = modifyNamesInScope . const
 
+putEnvironment :: InterpretEnv s -> REP s ()
+putEnvironment = modifyEnvironment . const
+
+modifyNamesInScope :: (Set Name -> Set Name) -> REP s ()
+modifyNamesInScope f = state $ modify $ \current ->
+  current { namesInScope = f (namesInScope current) }
+
+modifyEnvironment :: (InterpretEnv s -> InterpretEnv s) -> REP s ()
+modifyEnvironment f = state $ modify $ \current ->
+  current { environment = f (environment current) }
 
 
 -- Lifting computations --
