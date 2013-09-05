@@ -19,6 +19,8 @@ module SAWScript.JavaExpr
   , JavaExpr
   , thisJavaExpr
   , ppJavaExpr
+  , parseJavaExpr
+  , exportJavaType
   , jssTypeOfJavaExpr
   , isRefJavaExpr
   -- , tcJavaExpr
@@ -56,6 +58,7 @@ import Control.Monad.Error (Error(..))
 import Control.Monad.Trans
 import Data.Int
 import Data.List (intercalate)
+import Data.List.Split
 import Data.Map(Map)
 import qualified Data.Map as Map
 import qualified Data.Vector as V
@@ -138,7 +141,7 @@ data MethodInfo = MethodInfo {
          miClass :: JSS.Class
        , miMethod :: JSS.Method
        , miPC :: JSS.PC
-       , miJavaExprType :: JavaExpr -> Maybe JavaActualType
+       , miJavaExprType :: JavaExpr -> Maybe JSS.Type
        }
 
 -- | Context for resolving expressions at the top level or within a method.
@@ -195,6 +198,19 @@ ppJavaExpr (CC.Term exprF) =
   case exprF of
     Local nm _ _ -> nm
     InstanceField r f -> ppJavaExpr r ++ "." ++ JSS.fieldIdName f
+
+parseJavaExpr :: String -> JavaExpr
+parseJavaExpr = parseParts . reverse . splitOn "."
+  where parseParts = undefined
+        -- TODO
+        {-
+        parseParts [] = error "empty Java expression"
+        parseParts [s] = Local s undefined undefined
+        parseParts (f:rest) = InstanceField (parseParts rest) undefined
+        -}
+
+exportJavaType :: SharedTerm s -> JSS.Type
+exportJavaType = undefined
 
 -- | Returns JSS Type of JavaExpr
 jssTypeOfJavaExpr :: JavaExpr -> JSS.Type
@@ -383,7 +399,7 @@ jssTypeOfActual (ArrayInstance _ tp) = JSS.ArrayType tp
 jssTypeOfActual (PrimitiveType tp) = tp
 
 -- | Returns logical type of actual type if it is an array or primitive type.
-logicTypeOfActual :: JavaActualType -> Maybe (SharedTerm s)
+logicTypeOfActual :: JSS.Type -> Maybe (SharedTerm s)
 logicTypeOfActual = undefined -- FIXME
 {-
 logicTypeOfActual (ClassInstance _) = Nothing
@@ -479,6 +495,7 @@ checkedGetIntType pos javaType = do
   return $ SymInt (constantWidth (Wx (JSS.stackWidth javaType)))
 -}
 
+{-
 getActualType :: Pos -> JavaExpr -> SawTI s JavaActualType
 getActualType p je = do
   mmi <- gets methodInfo
@@ -494,6 +511,7 @@ getActualType p je = do
               res = "Please explicitly declare Java expressions before referring to them."
            in typeErrWithR p (ftext msg) res
         Just at -> return at
+-}
 
 -- | Typecheck expression as a logic expression.
 {-

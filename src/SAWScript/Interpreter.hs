@@ -718,7 +718,7 @@ valueEnv opts sc = M.fromList
   , (qualify "java_may_alias", toValue $ javaMayAlias sc opts)
   --, (qualify "java_modify" , toValue $ ()) -- FIXME
   --, (qualify "java_ensure_eq" , toValue $ ()) -- FIXME
-  --, (qualify "java_return" , toValue $ ()) -- FIXME
+  , (qualify "java_return" , toValue $ javaReturn sc opts)
   --, (qualify "java_assert" , toValue $ ()) -- FIXME
   --, (qualify "java_assert_eq" , toValue $ ()) -- FIXME
   , (qualify "llvm_extract", toValue $ extractLLVM sc)

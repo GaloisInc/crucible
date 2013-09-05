@@ -435,7 +435,7 @@ verifyJava sc opts cname mname setup = do
   let pos = fixPos -- TODO
   cb <- JSS.loadCodebase (jarList opts) (classPath opts)
   (_, ms) <- runStateT setup =<< initMethodSpec pos cb cname mname
-  print ms
+  -- print ms
   let vp = VerifyParams {
              vpCode = cb
            , vpContext = sc
@@ -445,7 +445,7 @@ verifyJava sc opts cname mname setup = do
            , vpRules = [] -- TODO
            , vpEnabledRules = Set.empty -- TODO
            }
-  validateMethodSpec vp (runValidation vp)
+  -- validateMethodSpec vp (runValidation vp)
   return ms
 
 javaVar :: SharedContext s -> Options -> String -> SharedTerm s
@@ -461,6 +461,10 @@ javaMayAlias _ _ t@(STApp _ (FTermF (ArrayValue _ es))) = do
     Just names -> modify $ specAddAliasSet names
     Nothing -> fail "non-string arguments passed to java_may_alias"
 javaMayAlias _ _ _ = fail "java_may_alias called with invalid type argument"
+
+javaReturn :: SharedContext s -> Options -> SharedTerm s
+           -> JavaSetup s ()
+javaReturn _ _ v = modify $ specAddBehaviorCommand (Return (LE v))
 
 freshJavaArg :: MonadIO m =>
                 JSS.Backend sbe
