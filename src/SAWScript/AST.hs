@@ -568,6 +568,62 @@ updateAnnotation t expr = case expr of
 
 -- }}}
 
+-- Type conversion {{{
+
+{- 'SAWScript.MGU' handles the fairly complex process of inference and
+unification that converts 'ResolvedT' to 'Schema'.  Since 'Schema' is really a
+subtype of 'ResolvedT', going in the other direction is trivial.
+'rewindSchema' performs this trivial (but necessary) conversion, effectively
+rewinding a SAWScript type through one stage of the compiler pipeline.  Since
+it's intended to work on 'SAWScript.MGU' output, it makes a lot of assumptions
+about the precise format of the 'Schema'; failure to adhere to these
+assumptions yields an 'error' (hooray). -}
+
+rewindSchema :: Schema -> ResolvedT
+rewindSchema (Forall vars t) = Just $ if null vars
+                                      then rewindType t
+                                      else pAbs vars $ rewindType t
+
+{- I wish we could use 'Data.Data' and 'Data.Typeable' to make these assertions
+a bit nicer.  Too bad 'Data.Typeable' doesn't play nicely with 'Mu'.... -}
+rewindType :: Type -> FullT
+rewindType (TyCon BoolCon parameters) = rewindNullary "BoolCon" bit parameters
+rewindType (TyCon ZCon parameters) = rewindNullary "ZCon" z parameters
+rewindType (TyCon StringCon parameters)= rewindNullary "StringCon" quote parameters
+rewindType (TyCon (NumCon n) parameters) = rewindNullary "NumCon" (i n) parameters
+rewindType (TyCon (AbstractCon n) parameters) = rewindNullary "AbstractCon" (abstract n) parameters
+rewindType (TyCon (ContextCon ctx) parameters) = rewindNullary "context" (rewindContext ctx) parameters
+rewindType (TyCon ArrayCon parameters) = rewindBinary "ArrayCon" array parameters
+rewindType (TyCon BlockCon parameters) = rewindBinary "BlockCon" block parameters
+rewindType (TyCon FunCon parameters) = rewindBinary "FunCon" function parameters
+rewindType (TyCon (TupleCon _len) types) = tuple $ map rewindType types
+rewindType (TyRecord bindings) = record $ M.assocs $ M.map rewindType bindings
+rewindType (TyVar var) = case var of
+  BoundVar name -> pVar name
+  FreeVar name -> error "rewindType: FreeVar in Schema"
+
+rewindContext :: Context -> FullT
+rewindContext CryptolSetup = cryptolSetupContext
+rewindContext JavaSetup = javaSetupContext
+rewindContext LLVMSetup = llvmSetupContext
+rewindContext ProofScript = proofScriptContext
+rewindContext TopLevel = topLevelContext
+
+rewindNullary :: String -> FullT -> [a] -> FullT
+rewindNullary _name  con [] = con
+rewindNullary  name _con _  = error $ "rewindType: applied " ++ name
+
+rewindBinary :: String -> (FullT -> FullT -> FullT) -> [Type] -> FullT
+rewindBinary _name  con [a, b] = con (rewindType a) (rewindType b)
+rewindBinary  name _con parameters =
+  error $ "rewindType: "
+          ++ name
+          ++ " should have arity 2 but was applied to "
+          ++ show (length parameters)
+          ++ " arguments"
+
+-- }}}
+
 -- capturePVars {{{
 
 capturePVars :: [Name] -> RawSigT -> RawSigT

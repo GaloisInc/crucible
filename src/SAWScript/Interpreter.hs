@@ -9,8 +9,10 @@
 module SAWScript.Interpreter
   ( interpret
   , interpretMain
-  , interpretEntry
-  , Value
+  , interpretModuleAtEntry
+  , InterpretEnv, interpretEnvValues, interpretEnvTypes, interpretEnvShared
+  , buildInterpretEnv
+  , Value, isVUnit
   , IsValue(..)
   )
   where
@@ -48,7 +50,10 @@ import qualified Verifier.Java.SAWBackend as JavaSAW
 type Expression = SS.Expr SS.ResolvedName SS.Schema
 type BlockStatement = SS.BlockStmt SS.ResolvedName SS.Schema
 type RNameMap = Map SS.ResolvedName
-type InterpretEnv s = (RNameMap (Value s), RNameMap SS.Schema, RNameMap (SharedTerm s))
+data InterpretEnv s = InterpretEnv { interpretEnvValues :: RNameMap (Value s)
+                                   , interpretEnvTypes :: RNameMap SS.Schema
+                                   , interpretEnvShared :: RNameMap (SharedTerm s)
+                                   } deriving (Show)
 
 -- Values ----------------------------------------------------------------------
 
@@ -74,6 +79,10 @@ data Value s
   | VJavaSetup (JavaSetup s (Value s))
   | VJavaMethodSpec (MethodSpecIR s)
 
+isVUnit :: Value s -> Bool
+isVUnit (VTuple []) = True
+isVUnit _ = False
+
 instance Show (Value s) where
     showsPrec p v =
       case v of
@@ -95,6 +104,7 @@ instance Show (Value s) where
         VCtorApp s vs -> showString s . showString " " . (foldr (.) id (map shows vs))
         VIO {} -> showString "<<IO>>"
         VSimpset {} -> showString "<<simpset>>"
+        VProofScript {} -> showString "<<proof script>>"
         VTheorem (Theorem t) -> showString "Theorem " . showParen True (showString (scPrettyTerm t))
         VJavaSetup {} -> showString "<<Java Setup>>"
         VJavaMethodSpec {} -> showString "<<Java MethodSpec>>"
@@ -162,9 +172,11 @@ importValue val =
       SC.VString s -> VString s -- FIXME: probably not needed
       SC.VTuple vs -> VTuple (V.toList (fmap importValue vs))
       SC.VRecord m -> VRecord (fmap importValue m)
-      SC.VCtorApp "Prelude.False" _ -> VBool False
-      SC.VCtorApp "Prelude.True" _ -> VBool True
-      SC.VCtorApp s vs -> VCtorApp s (V.toList (fmap importValue vs))
+      SC.VCtorApp ident args
+        | ident == parseIdent "Prelude.False" -> VBool False
+        | ident == parseIdent "Prelude.True" -> VBool True
+        | otherwise ->
+          VCtorApp (show ident) (V.toList (fmap importValue args))
       SC.VVector vs -> VArray (V.toList (fmap importValue vs))
       SC.VFloat {} -> error "VFloat unsupported"
       SC.VDouble {} -> error "VDouble unsupported"
@@ -181,7 +193,7 @@ exportValue val =
       VTuple vs -> SC.VTuple (fmap exportValue (V.fromList vs))
       VRecord vm -> SC.VRecord (fmap exportValue vm)
       VFun f -> SC.VFun (exportValue . f . importValue)
-      VCtorApp s vs -> SC.VCtorApp s (fmap exportValue (V.fromList vs))
+      VCtorApp s vs -> SC.VCtorApp (parseIdent s) (fmap exportValue (V.fromList vs))
       VFunTerm {} -> error "exportValue VFunTerm"
       VFunType {} -> error "exportValue VFunType"
       VLambda {} -> error "exportValue VLambda"
@@ -500,7 +512,7 @@ substTypeExpr m expr = MGU.appSubst (toSubst m) expr
 interpret
     :: forall s. SharedContext s
     -> InterpretEnv s -> Expression -> IO (Value s)
-interpret sc env@(vm, tm, sm) expr =
+interpret sc env@(InterpretEnv vm tm sm) expr =
     case expr of
       SS.Bit b             _ -> return $ VBool b
       SS.Quote s           _ -> return $ VString s
@@ -525,11 +537,11 @@ interpret sc env@(vm, tm, sm) expr =
                                         let ts = typeInstantiation schema t
                                         foldM tapplyValue v ts
       SS.Function x _ e    _ -> do let name = SS.LocalName x
-                                   let f v Nothing = interpret sc (M.insert name v vm, tm, sm) e
+                                   let f v Nothing = interpret sc (InterpretEnv (M.insert name v vm) tm sm) e
                                        f v (Just t) = do
                                          let vm' = M.insert name v vm
                                          let sm' = M.insert name t sm
-                                         interpret sc (vm', tm, sm') e
+                                         interpret sc (InterpretEnv vm' tm sm') e
                                    return $ VLambda f
       SS.Application e1 e2 _ -> do v1 <- interpret sc env e1
                                    -- TODO: evaluate v1 if it is a VTerm
@@ -553,7 +565,7 @@ interpret sc env@(vm, tm, sm) expr =
                                    vm' <- traverse (interpretPoly sc env) m
                                    sm' <- traverse (translatePolyExpr sc tm sm) $
                                           M.filter (translatableExpr (M.keysSet sm)) m
-                                   interpret sc (M.union vm' vm, M.union tm' tm, M.union sm' sm) e
+                                   interpret sc (InterpretEnv (M.union vm' vm) (M.union tm' tm) (M.union sm' sm)) e
 
 interpretPoly
     :: forall s. SharedContext s
@@ -567,7 +579,7 @@ interpretPoly sc env expr =
 interpretStmts
     :: forall s. SharedContext s
     -> InterpretEnv s -> [BlockStatement] -> IO (Value s)
-interpretStmts sc env@(vm, tm, sm) stmts =
+interpretStmts sc env@(InterpretEnv vm tm sm) stmts =
     case stmts of
       [] -> fail "empty block"
       [SS.Bind Nothing _ e] -> interpret sc env e
@@ -578,11 +590,11 @@ interpretStmts sc env@(vm, tm, sm) stmts =
       SS.Bind (Just (x, _)) _ e : ss ->
           do v1 <- interpret sc env e
              let name = SS.LocalName x
-             let f v Nothing = interpretStmts sc (M.insert name v vm, tm, sm) ss
+             let f v Nothing = interpretStmts sc (InterpretEnv (M.insert name v vm) tm sm) ss
                  f v (Just t) = do
                    let vm' = M.insert name v vm
                    let sm' = M.insert name t sm
-                   interpretStmts sc (vm', tm, sm') ss
+                   interpretStmts sc (InterpretEnv vm' tm sm') ss
              return (bindValue sc v1 (VLambda f))
       SS.BlockLet bs : ss -> interpret sc env (SS.LetBlock bs (SS.Block ss undefined))
       SS.BlockTypeDecl {} : _ -> fail "BlockTypeDecl unsupported"
@@ -601,18 +613,18 @@ interpretModule sc env m =
 interpretSCC
     :: forall s. SharedContext s
     -> InterpretEnv s -> SCC (SS.ResolvedName, Expression) -> IO (InterpretEnv s)
-interpretSCC sc env@(vm, tm, sm) scc =
+interpretSCC sc env@(InterpretEnv vm tm sm) scc =
     case scc of
       CyclicSCC _nodes -> fail "Unimplemented: Recursive top level definitions"
       AcyclicSCC (x, expr)
         | translatableExpr (M.keysSet sm) expr ->
             do s <- translatePolyExpr sc tm sm expr
                let t = SS.typeOf expr
-               return (vm, M.insert x t tm, M.insert x s sm)
+               return $ InterpretEnv vm (M.insert x t tm) (M.insert x s sm)
         | otherwise ->
             do v <- interpretPoly sc env expr
                let t = SS.typeOf expr
-               return (M.insert x v vm, M.insert x t tm, sm)
+               return $ InterpretEnv (M.insert x v vm) (M.insert x t tm) sm
 
 exprDeps :: Expression -> Set SS.ResolvedName
 exprDeps expr =
@@ -639,9 +651,34 @@ stmtDeps stmt =
       SS.BlockTypeDecl _ _ -> S.empty
       SS.BlockLet bs       -> S.unions (map (exprDeps . snd) bs)
 
+interpretModuleAtEntry :: SS.Name
+                          -> SharedContext s
+                          -> InterpretEnv s
+                          -> SS.ValidModule
+                          -> IO (Value s, InterpretEnv s)
+interpretModuleAtEntry entryName sc env m =
+  do interpretEnv@(InterpretEnv vm _tm _sm) <- interpretModule sc env m
+     let mainName = SS.TopLevelName (SS.moduleName m) entryName
+     case M.lookup mainName vm of
+       Just (VIO v) -> do
+         -- We've been asked to execute a 'TopLevel' action, so run it.
+         r <- v
+         return (r, interpretEnv)
+       Just v ->
+         {- We've been asked to evaluate a pure value, so wrap it up in IO
+         and give it back. -}
+         return (v, interpretEnv)
+       Nothing -> fail $ "No " ++ entryName ++ " in module " ++ show (SS.moduleName m)
+
 -- | Interpret an expression using the default value environments.
-interpretEntry :: SS.Name -> Options -> SS.ValidModule -> IO ()
+interpretEntry :: SS.Name -> Options -> SS.ValidModule -> IO (Value s)
 interpretEntry entryName opts m =
+    do (sc, interpretEnv0) <- buildInterpretEnv opts m
+       (result, _interpretEnv) <- interpretModuleAtEntry entryName sc interpretEnv0 m
+       return result
+
+buildInterpretEnv:: Options -> SS.ValidModule -> IO (SharedContext s, InterpretEnv s)
+buildInterpretEnv opts m =
     do let mn = case SS.moduleName m of SS.ModuleName xs x -> mkModuleName (xs ++ [x])
        let scm = insImport preludeModule $
                  insImport JavaSAW.javaModule $
@@ -652,15 +689,11 @@ interpretEntry entryName opts m =
        let vm0 = M.insert (qualify "basic_ss") (toValue ss) (valueEnv opts sc)
        let tm0 = transitivePrimEnv m
        sm0 <- coreEnv sc
-       (vm, _tm, _sm) <- interpretModule sc (vm0, tm0, sm0) m
-       let mainName = SS.TopLevelName (SS.moduleName m) entryName
-       case M.lookup mainName vm of
-         Just v -> (fromValue v :: IO ())
-         Nothing -> fail $ "No " ++ entryName ++ " in module " ++ show (SS.moduleName m)
+       return (sc, InterpretEnv vm0 tm0 sm0)
 
 -- | Interpret function 'main' using the default value environments.
 interpretMain :: Options -> SS.ValidModule -> IO ()
-interpretMain = interpretEntry "main"
+interpretMain opts m = fromValue <$> interpretEntry "main" opts m
 
 -- | Collects primitives from the module and all its transitive dependencies.
 transitivePrimEnv :: SS.ValidModule -> RNameMap SS.Schema
@@ -684,6 +717,10 @@ valueEnv opts sc = M.fromList
   , (qualify "java_var"    , toValue $ javaVar sc opts)
   , (qualify "java_may_alias", toValue $ javaMayAlias sc opts)
   --, (qualify "java_modify" , toValue $ ()) -- FIXME
+  --, (qualify "java_ensure_eq" , toValue $ ()) -- FIXME
+  --, (qualify "java_return" , toValue $ ()) -- FIXME
+  --, (qualify "java_assert" , toValue $ ()) -- FIXME
+  --, (qualify "java_assert_eq" , toValue $ ()) -- FIXME
   , (qualify "llvm_extract", toValue $ extractLLVM sc)
   , (qualify "llvm_pure"   , toValue "llvm_pure") -- FIXME: representing 'LLVMSetup ()' as 'String'
   , (qualify "prove"       , toValue $ provePrim sc)
