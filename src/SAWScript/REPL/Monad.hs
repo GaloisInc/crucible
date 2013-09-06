@@ -28,6 +28,7 @@ import SAWScript.AST (ModuleName,
                       Name,
                       ValidModule)
 import SAWScript.BuildModules (buildModules)
+import SAWScript.Builtins (BuiltinContext(..))
 import SAWScript.Compiler (ErrT, runErrT', mapErrT, runCompiler)
 import SAWScript.Import (preludeLoadedModules)
 import SAWScript.Interpreter (InterpretEnv, buildInterpretEnv)
@@ -53,7 +54,8 @@ withInitialState opts f = do
     runCompiler (foldrM checkModuleWithDeps Map.empty) built $ \modulesInScope -> do
       let namesInScope = Set.empty
       let scratchpadModule = Generate.scratchpad modulesInScope
-      (sharedContext, environment) <- buildInterpretEnv opts scratchpadModule
+      (biContext, environment) <- buildInterpretEnv opts scratchpadModule
+      let sharedContext = biSharedContext biContext
       f $ REPLState { .. }
 
 

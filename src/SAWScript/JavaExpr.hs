@@ -19,8 +19,6 @@ module SAWScript.JavaExpr
   , JavaExpr
   , thisJavaExpr
   , ppJavaExpr
-  , parseJavaExpr
-  , exportJavaType
   , jssTypeOfJavaExpr
   , isRefJavaExpr
   -- , tcJavaExpr
@@ -58,7 +56,6 @@ import Control.Monad.Error (Error(..))
 import Control.Monad.Trans
 import Data.Int
 import Data.List (intercalate)
-import Data.List.Split
 import Data.Map(Map)
 import qualified Data.Map as Map
 import qualified Data.Vector as V
@@ -198,19 +195,6 @@ ppJavaExpr (CC.Term exprF) =
   case exprF of
     Local nm _ _ -> nm
     InstanceField r f -> ppJavaExpr r ++ "." ++ JSS.fieldIdName f
-
-parseJavaExpr :: String -> JavaExpr
-parseJavaExpr = parseParts . reverse . splitOn "."
-  where parseParts = undefined
-        -- TODO
-        {-
-        parseParts [] = error "empty Java expression"
-        parseParts [s] = Local s undefined undefined
-        parseParts (f:rest) = InstanceField (parseParts rest) undefined
-        -}
-
-exportJavaType :: SharedTerm s -> JSS.Type
-exportJavaType = undefined
 
 -- | Returns JSS Type of JavaExpr
 jssTypeOfJavaExpr :: JavaExpr -> JSS.Type

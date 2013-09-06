@@ -11,12 +11,14 @@ import Control.Lens
 import Control.Monad.Error
 import Control.Monad.State
 import Control.Monad.Writer
+import Data.List.Split
 import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Set as Set
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import Text.PrettyPrint.Leijen hiding ((<$>))
+import Text.Read (readMaybe)
 
 import qualified Language.JVM.Common as JP
 
@@ -48,14 +50,20 @@ import qualified Verifier.SAW.Export.SMT.Version2 as SMT2
 import Verifier.SAW.Import.AIG
 
 import qualified SAWScript.AST as SS
+import qualified SAWScript.CongruenceClosure as CC
 import SAWScript.JavaExpr
 import SAWScript.MethodSpec
 import SAWScript.MethodSpecIR
 import SAWScript.Options
 import SAWScript.Utils
+import qualified SAWScript.Value as SS
 
 import qualified Verinf.Symbolic as BE
 import Verinf.Utils.LogMonad
+
+data BuiltinContext s = BuiltinContext { biSharedContext :: SharedContext s
+                                       , biJavaCodebase  :: JSS.Codebase
+                                       }
 
 -- bitSequence :: {n} Integer -> [n]
 bitSequence :: SS.Type -> Integer -> Prim.BitVector
@@ -175,36 +183,25 @@ writeCore path t = writeFile path (scWriteExternal t)
 readCore :: SharedContext s -> FilePath -> IO (SharedTerm s)
 readCore sc path = scReadExternal sc =<< readFile path
 
--- | A ProofGoal is a term of type Bool, possibly surrounded by one or
--- more lambdas. The abstracted arguments are treated as if they are
--- EXISTENTIALLY quantified, as in the statement of a SAT problem. For
--- proofs of universals, we negate the proposition before running the
--- proof script, and then re-negate the result afterward.
-type ProofGoal s = SharedTerm s
-
---type ProofScript s a = ProofGoal s -> IO (a, ProofGoal s)
-type ProofScript s a = StateT (ProofGoal s) IO a
-type ProofResult = () -- FIXME: could use this type to return witnesses
-
-printGoal :: ProofScript s ()
+printGoal :: SS.ProofScript s ()
 printGoal = StateT $ \goal -> do
   putStrLn (scPrettyTerm goal)
   return ((), goal)
 
-unfoldGoal :: SharedContext s -> [String] -> ProofScript s ()
+unfoldGoal :: SharedContext s -> [String] -> SS.ProofScript s ()
 unfoldGoal sc names = StateT $ \goal -> do
   let ids = map (mkIdent (moduleName (scModule sc))) names
   goal' <- scUnfoldConstants sc ids goal
   return ((), goal')
 
-simplifyGoal :: SharedContext s -> Simpset (SharedTerm s) -> ProofScript s ()
+simplifyGoal :: SharedContext s -> Simpset (SharedTerm s) -> SS.ProofScript s ()
 simplifyGoal sc ss = StateT $ \goal -> do
   goal' <- rewriteSharedTerm sc ss goal
   return ((), goal')
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
-satABC :: SharedContext s -> ProofScript s ProofResult
+satABC :: SharedContext s -> SS.ProofScript s SS.ProofResult
 satABC sc = StateT $ \t -> withBE $ \be -> do
   t' <- prepForExport sc t
   mbterm <- bitBlast be t'
@@ -229,24 +226,21 @@ scNegate sc t =
     Just (s, ty, body) -> scLambda sc s ty =<< scNegate sc body
     Nothing -> scNot sc t
 
--- | A theorem must contain a boolean term, possibly surrounded by one
--- or more lambdas which are interpreted as universal quantifiers.
-data Theorem s = Theorem (SharedTerm s)
-
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- validity using ABC.
-provePrim :: SharedContext s -> ProofScript s ProofResult
-          -> SharedTerm s -> IO (Theorem s)
+provePrim :: SharedContext s -> SS.ProofScript s SS.ProofResult
+          -> SharedTerm s -> IO (SS.Theorem s)
 provePrim sc script t = do
   t' <- scNegate sc t
   (_, r) <- runStateT script t'
   case asCtor r of
     Just ("Prelude.True", []) -> fail "prove: invalid"
-    Just ("Prelude.False", []) -> return (Theorem t)
+    Just ("Prelude.False", []) -> return (SS.Theorem t)
     _ -> fail "prove: unknown result"
 
 -- | FIXME: change return type so that we can return the witnesses.
-satPrim :: SharedContext s -> ProofScript s ProofResult -> SharedTerm s -> IO String
+satPrim :: SharedContext s -> SS.ProofScript s SS.ProofResult -> SharedTerm s
+        -> IO String
 satPrim _sc script t = do
   (_, r) <- runStateT script t
   return $
@@ -258,8 +252,8 @@ satPrim _sc script t = do
 rewritePrim :: SharedContext s -> Simpset (SharedTerm s) -> SharedTerm s -> IO (SharedTerm s)
 rewritePrim sc ss t = rewriteSharedTerm sc ss t
 
-addsimp :: SharedContext s -> Theorem s -> Simpset (SharedTerm s) -> Simpset (SharedTerm s)
-addsimp _sc (Theorem t) ss = addRule (ruleOfPred t) ss
+addsimp :: SharedContext s -> SS.Theorem s -> Simpset (SharedTerm s) -> Simpset (SharedTerm s)
+addsimp _sc (SS.Theorem t) ss = addRule (ruleOfPred t) ss
 
 basic_ss :: SharedContext s -> IO (Simpset (SharedTerm s))
 basic_ss sc = do
@@ -400,13 +394,13 @@ freshLLVMArg (_, _) = fail "Only integer arguments are supported for now."
 fixPos :: Pos
 fixPos = PosInternal "FIXME"
 
-type JavaSetup s a = StateT (MethodSpecIR s) IO a
-
-extractJava :: SharedContext s -> Options -> String -> String -> JavaSetup s ()
+extractJava :: BuiltinContext s -> Options -> String -> String
+            -> SS.JavaSetup s ()
             -> IO (SharedTerm s)
-extractJava sc opts cname mname _setup = do
-  cb <- JSS.loadCodebase (jarList opts) (classPath opts)
+extractJava bic opts cname mname _setup = do
   let cname' = JP.dotsToSlashes cname
+      sc = biSharedContext bic
+      cb = biJavaCodebase bic
   cls <- lookupClass cb fixPos cname'
   (_, meth) <- findMethod cb fixPos mname cls
   oc <- BE.mkOpCache
@@ -429,11 +423,12 @@ extractJava sc opts cname mname _setup = do
         Left err -> fail $ "Failed to extract Java model: " ++ err
         Right t -> return t
 
-verifyJava :: SharedContext s -> Options -> String -> String -> JavaSetup s ()
+verifyJava :: BuiltinContext s -> Options -> String -> String -> SS.JavaSetup s ()
            -> IO (MethodSpecIR s)
-verifyJava sc opts cname mname setup = do
+verifyJava bic opts cname mname setup = do
   let pos = fixPos -- TODO
-  cb <- JSS.loadCodebase (jarList opts) (classPath opts)
+      sc = biSharedContext bic
+      cb = biJavaCodebase bic
   (_, ms) <- runStateT setup =<< initMethodSpec pos cb cname mname
   -- print ms
   let vp = VerifyParams {
@@ -448,22 +443,67 @@ verifyJava sc opts cname mname setup = do
   -- validateMethodSpec vp (runValidation vp)
   return ms
 
-javaVar :: SharedContext s -> Options -> String -> SharedTerm s
-        -> JavaSetup s ()
-javaVar _ _ name t@(STApp _ (FTermF (CtorApp _ _))) =
-  modify $ specAddVarDecl name t
+parseJavaExpr :: JSS.Codebase -> JSS.Class -> JSS.Method -> String
+              -> IO JavaExpr
+parseJavaExpr cb cls meth = parseParts . reverse . splitOn "."
+  where parseParts [] = fail "empty Java expression"
+        parseParts [s] =
+          case s of
+            "this" -> return (thisJavaExpr cls)
+            ('a':'r':'g':'s':'[':rest) -> do
+              let num = fst (break (==']') rest)
+              case readMaybe num of
+                Just (n :: Int) -> do
+                  let i = JSS.localIndexOfParameter meth n
+                      mlv = JSS.lookupLocalVariableByIdx meth 0 i
+                  case mlv of
+                    Nothing -> error $ "parameter doesn't exist: " ++ show n
+                    Just lv -> return (CC.Term (Local s i (JSS.localType lv)))
+                Nothing -> fail $ "bad Java expression syntax: " ++ s
+            _ -> do
+              let mlv = JSS.lookupLocalVariableByName meth 0 s
+              case mlv of
+                Nothing -> error $ "local doesn't exist: " ++ s
+                Just lv -> return (CC.Term (Local s i ty))
+                  where i = JSS.localIdx lv
+                        ty = JSS.localType lv
+        parseParts (f:rest) = do
+          e <- parseParts rest
+          let jt = jssTypeOfJavaExpr e
+              pos = fixPos -- TODO
+          fid <- findField cb pos jt f
+          return (CC.Term (InstanceField e fid))
+
+exportJavaType :: SS.Value s -> JSS.Type
+exportJavaType (SS.VCtorApp "Java.IntType" []) = JSS.IntType
+exportJavaType v = error $ "Can't translate to Java type: " ++ show v
+
+javaVar :: BuiltinContext s -> Options -> String -> SS.Value s
+        -> SS.JavaSetup s ()
+javaVar bic _ name t@(SS.VCtorApp _ _) = do
+  ms <- get
+  let cls = specMethodClass ms
+      meth = specMethod ms
+  exp <- liftIO $ parseJavaExpr (biJavaCodebase bic) cls meth name
+  ty <- return (exportJavaType t)
+  modify $ specAddVarDecl exp ty
 javaVar _ _ _ _ = fail "java_var called with invalid type argument"
 
-javaMayAlias :: SharedContext s -> Options -> SharedTerm s
-             -> JavaSetup s ()
-javaMayAlias _ _ t@(STApp _ (FTermF (ArrayValue _ es))) = do
+{-
+javaMayAlias :: BuiltinContext s -> Options -> SharedTerm s
+             -> SS.JavaSetup s ()
+javaMayAlias bic _ t@(STApp _ (FTermF (ArrayValue _ es))) = do
   case sequence (map asStringLit (V.toList es)) of
-    Just names -> modify $ specAddAliasSet names
+    Just names -> do
+      let cb = biJavaCodebase bic
+      exprs <- liftIO $ mapM (parseJavaExpr cb) names
+      modify $ specAddAliasSet exprs
     Nothing -> fail "non-string arguments passed to java_may_alias"
 javaMayAlias _ _ _ = fail "java_may_alias called with invalid type argument"
+-}
 
-javaReturn :: SharedContext s -> Options -> SharedTerm s
-           -> JavaSetup s ()
+javaReturn :: BuiltinContext s -> Options -> SharedTerm s
+           -> SS.JavaSetup s ()
 javaReturn _ _ v = modify $ specAddBehaviorCommand (Return (LE v))
 
 freshJavaArg :: MonadIO m =>
@@ -477,4 +517,3 @@ freshJavaArg sbe JSS.ByteType = liftIO (JSS.IValue <$> JSS.freshByte sbe)
 freshJavaArg sbe JSS.IntType = liftIO (JSS.IValue <$> JSS.freshInt sbe)
 freshJavaArg sbe JSS.LongType = liftIO (JSS.LValue <$> JSS.freshLong sbe)
 freshJavaArg _ _ = fail "Only byte, int, and long arguments are supported for now."
-
