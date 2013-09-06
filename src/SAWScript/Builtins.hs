@@ -111,8 +111,11 @@ readAIGPrim sc f = do
   et <- withReadAiger f $ \ntk -> do
     outputLits <- networkOutputs ntk
     inputLits <- networkInputs ntk
-    inType <- scBitvector sc (fromIntegral (SV.length inputLits))
-    outType <- scBitvector sc (fromIntegral (SV.length outputLits))
+    inLen <- scNat sc (fromIntegral (SV.length inputLits))
+    outLen <- scNat sc (fromIntegral (SV.length outputLits))
+    boolType <- scBoolType sc
+    inType <- scVecType sc inLen boolType
+    outType <- scVecType sc outLen boolType
     runErrorT $
       translateNetwork sc ntk outputLits [("x", inType)] outType
   case et of
