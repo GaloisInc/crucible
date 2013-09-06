@@ -10,12 +10,10 @@ import Control.Exception (bracket)
 import Control.Lens
 import Control.Monad.Error
 import Control.Monad.State
-import Control.Monad.Writer
 import Data.List.Split
 import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Set as Set
-import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import Text.PrettyPrint.Leijen hiding ((<$>))
 import Text.Read (readMaybe)
@@ -430,7 +428,7 @@ verifyJava bic opts cname mname setup = do
       sc = biSharedContext bic
       cb = biJavaCodebase bic
   (_, ms) <- runStateT setup =<< initMethodSpec pos cb cname mname
-  -- print ms
+  print ms
   let vp = VerifyParams {
              vpCode = cb
            , vpContext = sc
@@ -440,7 +438,7 @@ verifyJava bic opts cname mname setup = do
            , vpRules = [] -- TODO
            , vpEnabledRules = Set.empty -- TODO
            }
-  -- validateMethodSpec vp (runValidation vp)
+  validateMethodSpec vp (runValidation vp)
   return ms
 
 parseJavaExpr :: JSS.Codebase -> JSS.Class -> JSS.Method -> String
