@@ -475,8 +475,8 @@ parseJavaExpr cb cls meth = parseParts . reverse . splitOn "."
           fid <- findField cb pos jt f
           return (CC.Term (InstanceField e fid))
 
-exportJavaType :: SS.Value s -> JSS.Type
-exportJavaType (SS.VCtorApp "Java.IntType" []) = JSS.IntType
+exportJavaType :: SS.Value s -> JavaActualType
+exportJavaType (SS.VCtorApp "Java.IntType" []) = PrimitiveType JSS.IntType
 exportJavaType v = error $ "Can't translate to Java type: " ++ show v
 
 javaVar :: BuiltinContext s -> Options -> String -> SS.Value s

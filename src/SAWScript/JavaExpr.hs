@@ -25,24 +25,24 @@ module SAWScript.JavaExpr
   -- , tcValueOfExpr
     -- * Logic expressions
   , LogicExpr(..)
-  , typeOfLogicExpr
-  , logicExprVarNames
+  --, typeOfLogicExpr
+  --, logicExprVarNames
   , logicExprJavaExprs
-  , globalEval
+  --, globalEval
   -- , tcLogicExpr
     -- * Mixed expressions
   , MixedExpr(..)
   -- , tcMixedExpr
   -- * Java types
   -- , ppASTJavaType
-  -- , jssTypeOfASTJavaType
+  --, jssTypeOfASTJavaType
   -- * Actual type
   , JavaActualType(..)
-  , isActualRef
+  --, isActualRef
   , jssTypeOfActual
   , logicTypeOfActual
-  , isActualSubtype
-  , ppActualType
+  --, isActualSubtype
+  --, ppActualType
   -- , tcActualType
   , MethodLocation (..)
   -- , BehaviorDecl (..)
@@ -61,7 +61,7 @@ import qualified Data.Map as Map
 import qualified Data.Vector as V
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Text.PrettyPrint.Leijen
+import Text.PrettyPrint.Leijen hiding ((<$>))
 
 import Verinf.Symbolic
 import qualified Verifier.Java.Codebase as JSS
@@ -138,7 +138,7 @@ data MethodInfo = MethodInfo {
          miClass :: JSS.Class
        , miMethod :: JSS.Method
        , miPC :: JSS.PC
-       , miJavaExprType :: JavaExpr -> Maybe JSS.Type
+       , miJavaExprType :: JavaExpr -> Maybe JavaActualType
        }
 
 -- | Context for resolving expressions at the top level or within a method.
@@ -241,44 +241,38 @@ data LogicExpr s
 
 type LogicExpr s = SharedTerm s
 
--- | Return type of a typed expression.
-typeOfLogicExpr :: LogicExpr s -> SharedTerm s
-typeOfLogicExpr = undefined -- FIXME
 {-
-typeOfLogicExpr (Apply     op _) = opResultType op
-typeOfLogicExpr (IntLit    _ tp) = SymInt tp
-typeOfLogicExpr (Cns       _ tp) = tp
-typeOfLogicExpr (JavaValue _ _ tp) = tp
-typeOfLogicExpr (Var       _ tp) = tp
+-- | Return type of a typed expression.
+typeOfLogicExpr :: SharedContext s -> LogicExpr s -> IO (SharedTerm s)
+typeOfLogicExpr = scTypeOf
 -}
 
 -- | Return java expressions in logic expression.
 logicExprJavaExprs :: LogicExpr s -> Set JavaExpr
-logicExprJavaExprs = undefined --FIXME
+logicExprJavaExprs = error "logicExprJavaExprs" --FIXME
   {- flip impl Set.empty
   where impl (Apply _ args) s = foldr impl s args
         impl (JavaValue e _ _) s = Set.insert e s
         impl _ s = s
         -}
 
+{-
 -- | Returns names of variables appearing in typedExpr.
 logicExprVarNames :: LogicExpr s -> Set String
-logicExprVarNames = undefined --FIXME
-  {- flip impl Set.empty
+logicExprVarNames = flip impl Set.empty
   where impl (Apply _ args) s = foldr impl s args
         impl (Var nm _) s = Set.insert nm s
-        impl _ s = s -}
+        impl _ s = s
+-}
 
+        {-
 -- | Evaluate a ground typed expression to a constant value.
 globalEval :: (String -> m r)
            -> TermSemantics m r
            -> LogicExpr s
            -> m r
 globalEval varFn ts expr = eval expr
-  where --TODO: flag error if op is undefined.
-        eval = undefined -- FIXME
-        {-
-        eval (Apply op args) = tsApplyOp ts op (V.map eval (V.fromList args))
+  where eval (Apply op args) = tsApplyOp ts op (V.map eval (V.fromList args))
         eval (IntLit i (widthConstant -> Just w)) = 
           tsIntConstant ts w i
         eval (IntLit _ w) =
@@ -290,10 +284,9 @@ globalEval varFn ts expr = eval expr
         eval (Var nm _tp) = varFn nm
         -}
 
+{-
 -- | Internal utility for flipping arguments to binary logic expressions.
 flipBinOpArgs :: LogicExpr s -> LogicExpr s
-flipBinOpArgs e = undefined -- FIXME
-{-
 flipBinOpArgs (Apply o [a, b]) = Apply o [b, a]
 flipBinOpArgs e = error $ "internal: flipBinOpArgs: received: " ++ show e
 -}
@@ -383,16 +376,15 @@ jssTypeOfActual (ArrayInstance _ tp) = JSS.ArrayType tp
 jssTypeOfActual (PrimitiveType tp) = tp
 
 -- | Returns logical type of actual type if it is an array or primitive type.
-logicTypeOfActual :: JSS.Type -> Maybe (SharedTerm s)
-logicTypeOfActual = undefined -- FIXME
-{-
-logicTypeOfActual (ClassInstance _) = Nothing
-logicTypeOfActual (ArrayInstance l tp) = Just $
-  SymArray (constantWidth (Wx l)) 
-           (SymInt (constantWidth (Wx (JSS.stackWidth tp))))
-logicTypeOfActual (PrimitiveType tp) = Just $
-  SymInt (constantWidth (Wx (JSS.stackWidth tp)))
--}
+logicTypeOfActual :: SharedContext s -> JavaActualType
+                  -> IO (Maybe (SharedTerm s))
+logicTypeOfActual _ (ClassInstance _) = return Nothing
+logicTypeOfActual sc (ArrayInstance l tp) = do
+  elTy <- scBitvector sc (fromIntegral (JSS.stackWidth tp))
+  lTm <- scNat sc (fromIntegral l)
+  Just <$> scVecType sc lTm elTy
+logicTypeOfActual sc (PrimitiveType tp) = do
+  Just <$> scBitvector sc (fromIntegral (JSS.stackWidth tp))
 
 -- @isActualSubtype cb x y@ returns True if @x@ is a subtype of @y@.
 isActualSubtype :: JSS.Codebase -> JavaActualType -> JavaActualType -> IO Bool
@@ -664,7 +656,7 @@ tcE (AST.ApplyExpr p "valueOf" [jr]) = do
   case at of
     ArrayInstance l tp -> do
       let arrayTp = jssArrayDagType l tp
-      return $ LE $ undefined -- JavaValue sje at arrayTp -- FIXME
+      return $ LE $ JavaValue sje at arrayTp
     _  ->
       let msg = "The expression " ++ show sje ++ " does not refer to an array."
        in typeErrWithR p (ftext msg) ""
