@@ -151,7 +151,7 @@ translatableExpr :: Set SS.ResolvedName -> Expression -> Bool
 translatableExpr env expr =
     case expr of
       SS.Bit _             _ -> True
-      SS.Quote _           _ -> False -- We could allow strings, but I don't think we need them.
+      SS.Quote _           _ -> True
       SS.Z _               _ -> True
       SS.Array es          t -> translatableSchema t && all (translatableExpr env) es
       SS.Undefined         _ -> False
@@ -176,7 +176,7 @@ translateExpr
 translateExpr sc tm sm km expr =
     case expr of
       SS.Bit b                  _ -> scBool sc b
-      SS.Quote _                _ -> fail "translateExpr Quote"
+      SS.Quote s                _ -> scString sc s
       SS.Z z                    _ -> scNat sc (fromInteger z)
       SS.Array es              ty -> do let (_, t) = destArrayT ty
                                         t' <- translateType sc km t
