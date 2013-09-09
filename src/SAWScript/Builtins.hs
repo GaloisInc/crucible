@@ -11,6 +11,7 @@ import Control.Lens
 import Control.Monad.Error
 import Control.Monad.State
 import Data.List.Split
+import Data.IORef
 import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Set as Set
@@ -30,7 +31,7 @@ import qualified Verifier.LLVM.Simulator as L
 
 import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.Java.Simulator as JSS
-import qualified Verifier.Java.WordBackend as JSS
+import qualified Verifier.Java.SAWBackend as JSS2
 
 import Verifier.SAW.BitBlast
 import Verifier.SAW.Conversion hiding (asCtor)
@@ -404,12 +405,10 @@ extractJava bic opts cname mname _setup = do
       cb = biJavaCodebase bic
   cls <- lookupClass cb fixPos cname'
   (_, meth) <- findMethod cb fixPos mname cls
-  oc <- BE.mkOpCache
+  argsRef <- newIORef []
   bracket BE.createBitEngine BE.beFree $ \be -> do
-    de <- BE.mkConstantFoldingDagEngine
-    sms <- JSS.mkSymbolicMonadState oc be de
-    let fl  = JSS.defaultSimFlags { JSS.alwaysBitBlastBranchTerms = True }
-        sbe = JSS.symbolicBackend sms
+    let fl = JSS.defaultSimFlags { JSS.alwaysBitBlastBranchTerms = True }
+    sbe <- JSS2.sawBackend sc (Just argsRef) be
     JSS.runSimulator cb sbe JSS.defaultSEH (Just fl) $ do
       setVerbosity 0
       args <- mapM (freshJavaArg sbe) (JSS.methodParameterTypes meth)
@@ -419,10 +418,9 @@ extractJava bic opts cname mname _setup = do
               Just (JSS.IValue t) -> return t
               Just (JSS.LValue t) -> return t
               _ -> fail "Unimplemented result type from JSS."
-      et <- liftIO $ parseVerinfViaAIG sc de dt
-      case et of
-        Left err -> fail $ "Failed to extract Java model: " ++ err
-        Right t -> return t
+      liftIO $ do
+        argsRev <- readIORef argsRef
+        bindExts sc (reverse argsRev) dt
 
 verifyJava :: BuiltinContext s -> Options -> String -> String -> SS.JavaSetup s ()
            -> IO (MethodSpecIR s)
