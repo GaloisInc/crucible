@@ -382,7 +382,7 @@ extractLLVMBit file func = mkSC $ \_sc -> do
         mrv <- L.getProgramReturnValue
         case mrv of
           Nothing -> fail "No return value from simulated function."
-          Just bt -> undefined
+          Just bt -> fail "extractLLVMBit: not yet implemented"
 -}
 
 freshLLVMArg :: Monad m =>
