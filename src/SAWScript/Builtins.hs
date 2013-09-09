@@ -422,9 +422,11 @@ extractJava bic opts cname mname _setup = do
         argsRev <- readIORef argsRef
         bindExts sc (reverse argsRev) dt
 
-verifyJava :: BuiltinContext s -> Options -> String -> String -> SS.JavaSetup s ()
+verifyJava :: BuiltinContext s -> Options -> String -> String
+           -> [MethodSpecIR s]
+           -> SS.JavaSetup s ()
            -> IO (MethodSpecIR s)
-verifyJava bic opts cname mname setup = do
+verifyJava bic opts cname mname overrides setup = do
   let pos = fixPos -- TODO
       sc = biSharedContext bic
       cb = biJavaCodebase bic
@@ -435,7 +437,7 @@ verifyJava bic opts cname mname setup = do
            , vpContext = sc
            , vpOpts = opts
            , vpSpec = ms
-           , vpOver = [] -- TODO
+           , vpOver = overrides
            , vpRules = [] -- TODO
            , vpEnabledRules = Set.empty -- TODO
            }
