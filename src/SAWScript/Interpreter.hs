@@ -466,6 +466,7 @@ valueEnv opts bic = M.fromList
   [ (qualify "read_sbv"    , toValue $ readSBV sc)
   , (qualify "read_aig"    , toValue $ readAIGPrim sc)
   , (qualify "write_aig"   , toValue $ writeAIG sc)
+  -- Java stuff
   , (qualify "java_extract", toValue $ extractJava bic opts)
   , (qualify "java_verify" , toValue $ verifyJava bic opts)
   , (qualify "java_pure"   , toValue $ ()) -- FIXME
@@ -477,8 +478,19 @@ valueEnv opts bic = M.fromList
   , (qualify "java_modify" , toValue $ javaModify bic opts)
   , (qualify "java_return" , toValue $ javaReturn bic opts)
   , (qualify "java_verify_tactic" , toValue $ javaVerifyTactic bic opts)
+  -- LLVM stuff
   , (qualify "llvm_extract", toValue $ extractLLVM sc)
-  , (qualify "llvm_pure"   , toValue "llvm_pure") -- FIXME: representing 'LLVMSetup ()' as 'String'
+  , (qualify "llvm_verify" , toValue $ verifyLLVM bic opts)
+  , (qualify "llvm_pure"   , toValue $ ()) -- FIXME
+  , (qualify "llvm_var"    , toValue $ llvmVar bic opts)
+  --, (qualify "llvm_may_alias", toValue $ llvmMayAlias bic opts)
+  , (qualify "llvm_assert" , toValue $ llvmAssert bic opts)
+  , (qualify "llvm_assert_eq" , toValue $ llvmAssertEq bic opts)
+  , (qualify "llvm_ensure_eq" , toValue $ llvmEnsureEq bic opts)
+  , (qualify "llvm_modify" , toValue $ llvmModify bic opts)
+  , (qualify "llvm_return" , toValue $ llvmReturn bic opts)
+  , (qualify "llvm_verify_tactic" , toValue $ llvmVerifyTactic bic opts)
+  -- Generic stuff
   , (qualify "prove"       , toValue $ provePrim sc)
   , (qualify "sat"         , toValue $ satPrim sc)
   , (qualify "empty_ss"    , toValue (emptySimpset :: Simpset (SharedTerm s)))

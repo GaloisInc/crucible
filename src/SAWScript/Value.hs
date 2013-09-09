@@ -41,7 +41,9 @@ data Value s
   | VSimpset (Simpset (SharedTerm s))
   | VTheorem (Theorem s)
   | VJavaSetup (JavaSetup s (Value s))
+  | VLLVMSetup (LLVMSetup s (Value s))
   | VJavaMethodSpec (MethodSpecIR s)
+  | VLLVMMethodSpec (LLVMMethodSpecIR s)
 
 isVUnit :: Value s -> Bool
 isVUnit (VTuple []) = True
@@ -71,7 +73,9 @@ instance Show (Value s) where
         VProofScript {} -> showString "<<proof script>>"
         VTheorem (Theorem t) -> showString "Theorem " . showParen True (showString (scPrettyTerm t))
         VJavaSetup {} -> showString "<<Java Setup>>"
+        VLLVMSetup {} -> showString "<<LLVM Setup>>"
         VJavaMethodSpec {} -> showString "<<Java MethodSpec>>"
+        VLLVMMethodSpec {} -> showString "<<LLVM MethodSpec>>"
 
 indexValue :: Value s -> Value s -> Value s
 indexValue (VArray vs) (VInteger x)
@@ -111,6 +115,7 @@ thenValue :: Value s -> Value s -> Value s
 thenValue (VIO m1) (VIO m2) = VIO (m1 >> m2)
 thenValue (VProofScript m1) (VProofScript m2) = VProofScript (m1 >> m2)
 thenValue (VJavaSetup m1) (VJavaSetup m2) = VJavaSetup (m1 >> m2)
+thenValue (VLLVMSetup m1) (VLLVMSetup m2) = VLLVMSetup (m1 >> m2)
 thenValue _ _ = error "thenValue"
 
 bindValue :: SharedContext s -> Value s -> Value s -> Value s
@@ -128,6 +133,11 @@ bindValue sc (VJavaSetup m1) v2 =
   VJavaSetup $ do
     v1 <- m1
     VJavaSetup m3 <- liftIO $ applyValue sc v2 v1
+    m3
+bindValue sc (VLLVMSetup m1) v2 =
+  VLLVMSetup $ do
+    v1 <- m1
+    VLLVMSetup m3 <- liftIO $ applyValue sc v2 v1
     m3
 bindValue _ _ _ = error "bindValue"
 
@@ -174,7 +184,9 @@ exportValue val =
       VProofScript {} -> error "VProofScript unsupported"
       VTheorem {} -> error "VTheorem unsupported"
       VJavaSetup {} -> error "VJavaSetup unsupported"
+      VLLVMSetup {} -> error "VLLVMSetup unsupported"
       VJavaMethodSpec {} -> error "VJavaMethodSpec unsupported"
+      VLLVMMethodSpec {} -> error "VLLVMMethodSpec unsupported"
 
 -- IsValue class ---------------------------------------------------------------
 
@@ -225,6 +237,11 @@ instance IsValue s a => IsValue s (StateT (MethodSpecIR s) IO a) where
     fromValue (VJavaSetup m) = fmap fromValue m
     fromValue _ = error "fromValue JavaSetup"
 
+instance IsValue s a => IsValue s (StateT (LLVMMethodSpecIR s) IO a) where
+    toValue m = VLLVMSetup (fmap toValue m)
+    fromValue (VLLVMSetup m) = fmap fromValue m
+    fromValue _ = error "fromValue LLVMSetup"
+
 instance IsValue s (SharedTerm s) where
     toValue t = VTerm t
     fromValue (VTerm t) = t
@@ -273,7 +290,12 @@ instance IsValue s (Theorem s) where
 instance IsValue s (MethodSpecIR s) where
     toValue ms = VJavaMethodSpec ms
     fromValue (VJavaMethodSpec ms) = ms
-    fromValue _ = error "fromValue Theorem"
+    fromValue _ = error "fromValue JavaMethodSpec"
+
+instance IsValue s (LLVMMethodSpecIR s) where
+    toValue ms = VLLVMMethodSpec ms
+    fromValue (VLLVMMethodSpec ms) = ms
+    fromValue _ = error "fromValue LLVMMethodSpec"
 
 -- | A theorem must contain a boolean term, possibly surrounded by one
 -- or more lambdas which are interpreted as universal quantifiers.
@@ -291,3 +313,8 @@ type ProofScript s a = StateT (ProofGoal s) IO a
 type ProofResult = () -- FIXME: could use this type to return witnesses
 
 type JavaSetup s a = StateT (MethodSpecIR s) IO a
+
+-- FIXME: implement this
+data LLVMMethodSpecIR s = IO ()
+
+type LLVMSetup s a = StateT (LLVMMethodSpecIR s) IO a

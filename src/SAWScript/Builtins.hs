@@ -422,6 +422,18 @@ extractJava bic opts cname mname _setup = do
         argsRev <- readIORef argsRef
         bindExts sc (reverse argsRev) dt
 
+freshJavaArg :: MonadIO m =>
+                JSS.Backend sbe
+             -> JSS.Type
+             -> m (JSS.AtomicValue d f (JSS.SBETerm sbe) (JSS.SBETerm sbe) r)
+--freshJavaArg sbe JSS.BooleanType =
+freshJavaArg sbe JSS.ByteType = liftIO (JSS.IValue <$> JSS.freshByte sbe)
+--freshJavaArg sbe JSS.CharType =
+--freshJavaArg sbe JSS.ShortType =
+freshJavaArg sbe JSS.IntType = liftIO (JSS.IValue <$> JSS.freshInt sbe)
+freshJavaArg sbe JSS.LongType = liftIO (JSS.LValue <$> JSS.freshLong sbe)
+freshJavaArg _ _ = fail "Only byte, int, and long arguments are supported for now."
+
 verifyJava :: BuiltinContext s -> Options -> String -> String
            -> [MethodSpecIR s]
            -> SS.JavaSetup s ()
@@ -527,14 +539,36 @@ javaVerifyTactic :: BuiltinContext s -> Options -> SS.ProofScript s SS.ProofResu
                  -> SS.JavaSetup s ()
 javaVerifyTactic = fail "javaVerifyTactic"
 
-freshJavaArg :: MonadIO m =>
-                JSS.Backend sbe
-             -> JSS.Type
-             -> m (JSS.AtomicValue d f (JSS.SBETerm sbe) (JSS.SBETerm sbe) r)
---freshJavaArg sbe JSS.BooleanType =
-freshJavaArg sbe JSS.ByteType = liftIO (JSS.IValue <$> JSS.freshByte sbe)
---freshJavaArg sbe JSS.CharType =
---freshJavaArg sbe JSS.ShortType =
-freshJavaArg sbe JSS.IntType = liftIO (JSS.IValue <$> JSS.freshInt sbe)
-freshJavaArg sbe JSS.LongType = liftIO (JSS.LValue <$> JSS.freshLong sbe)
-freshJavaArg _ _ = fail "Only byte, int, and long arguments are supported for now."
+verifyLLVM :: BuiltinContext s -> Options -> String -> String
+           -> [SS.LLVMMethodSpecIR s]
+           -> SS.LLVMSetup s ()
+           -> IO (SS.LLVMMethodSpecIR s)
+verifyLLVM bic opts file func overrides setup = fail "verifyLLVM"
+
+llvmVar :: BuiltinContext s -> Options -> String -> SS.Value s
+        -> SS.LLVMSetup s ()
+llvmVar = fail "llvmVar"
+
+llvmAssert :: BuiltinContext s -> Options -> SharedTerm s
+           -> SS.LLVMSetup s ()
+llvmAssert = fail "llvmAssert"
+
+llvmAssertEq :: BuiltinContext s -> Options -> String -> SharedTerm s
+           -> SS.LLVMSetup s ()
+llvmAssertEq = fail "llvmAssertEq"
+
+llvmEnsureEq :: BuiltinContext s -> Options -> String -> SharedTerm s
+           -> SS.LLVMSetup s ()
+llvmEnsureEq = fail "llvmEnsureEq"
+
+llvmModify :: BuiltinContext s -> Options -> String
+           -> SS.LLVMSetup s ()
+llvmModify = fail "llvmEnsureEq"
+
+llvmReturn :: BuiltinContext s -> Options -> SharedTerm s
+           -> SS.LLVMSetup s ()
+llvmReturn _ _ v = fail "llvmReturn"
+
+llvmVerifyTactic :: BuiltinContext s -> Options -> SS.ProofScript s SS.ProofResult
+                 -> SS.LLVMSetup s ()
+llvmVerifyTactic = fail "llvmVerifyTactic"
