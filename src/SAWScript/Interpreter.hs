@@ -471,11 +471,12 @@ valueEnv opts bic = M.fromList
   , (qualify "java_pure"   , toValue $ ()) -- FIXME
   , (qualify "java_var"    , toValue $ javaVar bic opts)
   --, (qualify "java_may_alias", toValue $ javaMayAlias bic opts)
-  --, (qualify "java_modify" , toValue $ ()) -- FIXME
-  --, (qualify "java_ensure_eq" , toValue $ ()) -- FIXME
+  , (qualify "java_assert" , toValue $ javaAssert bic opts)
+  , (qualify "java_assert_eq" , toValue $ javaAssertEq bic opts)
+  , (qualify "java_ensure_eq" , toValue $ javaEnsureEq bic opts)
+  , (qualify "java_modify" , toValue $ javaModify bic opts)
   , (qualify "java_return" , toValue $ javaReturn bic opts)
-  --, (qualify "java_assert" , toValue $ ()) -- FIXME
-  --, (qualify "java_assert_eq" , toValue $ ()) -- FIXME
+  , (qualify "java_verify_tactic" , toValue $ javaVerifyTactic bic opts)
   , (qualify "llvm_extract", toValue $ extractLLVM sc)
   , (qualify "llvm_pure"   , toValue "llvm_pure") -- FIXME: representing 'LLVMSetup ()' as 'String'
   , (qualify "prove"       , toValue $ provePrim sc)

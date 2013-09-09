@@ -503,9 +503,29 @@ javaMayAlias bic _ t@(STApp _ (FTermF (ArrayValue _ es))) = do
 javaMayAlias _ _ _ = fail "java_may_alias called with invalid type argument"
 -}
 
+javaAssert :: BuiltinContext s -> Options -> SharedTerm s
+           -> SS.JavaSetup s ()
+javaAssert = fail "javaAssert"
+
+javaAssertEq :: BuiltinContext s -> Options -> String -> SharedTerm s
+           -> SS.JavaSetup s ()
+javaAssertEq = fail "javaAssertEq"
+
+javaEnsureEq :: BuiltinContext s -> Options -> String -> SharedTerm s
+           -> SS.JavaSetup s ()
+javaEnsureEq = fail "javaEnsureEq"
+
+javaModify :: BuiltinContext s -> Options -> String
+           -> SS.JavaSetup s ()
+javaModify = fail "javaEnsureEq"
+
 javaReturn :: BuiltinContext s -> Options -> SharedTerm s
            -> SS.JavaSetup s ()
 javaReturn _ _ v = modify $ specAddBehaviorCommand (Return (LE v))
+
+javaVerifyTactic :: BuiltinContext s -> Options -> SS.ProofScript s SS.ProofResult
+                 -> SS.JavaSetup s ()
+javaVerifyTactic = fail "javaVerifyTactic"
 
 freshJavaArg :: MonadIO m =>
                 JSS.Backend sbe
