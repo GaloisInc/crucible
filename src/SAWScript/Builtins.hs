@@ -447,8 +447,7 @@ verifyJava bic opts cname mname overrides setup = do
   let jsc = rewritingSharedContext sc0 ss
   be <- createBitEngine
   backend <- JSS2.sawBackend jsc Nothing be
-  (_, ms) <- runStateT setup =<< initMethodSpec pos cb cname mname
-  print ms
+  (_, ms) <- runStateT setup =<< initMethodSpec pos cb jsc cname mname
   let vp = VerifyParams {
              vpCode = cb
            , vpContext = jsc
@@ -516,11 +515,20 @@ javaVar bic _ name t@(SS.VCtorApp _ _) = do
   ms <- get
   let cls = specMethodClass ms
       meth = specMethod ms
+      jsc = specContext ms
   exp <- liftIO $ parseJavaExpr (biJavaCodebase bic) cls meth name
   ty <- return (exportJavaType t)
+  -- TODO: check Java types
   modify $ specAddVarDecl exp ty
-  -- TODO: create fresh input in the JSS context and record it associated with this name
-  -- Could return (fromJava name) for convenience? (within SAWScript context)
+  sty <- liftIO $ logicTypeOfActual jsc ty
+  case sty of
+    Just ty -> do
+      -- Record the global input variable associated with this Java
+      -- name string, for use in later occurrences of java_value.
+      inp <- liftIO $ scFreshGlobal jsc name ty
+      modify $ specAddVarInput name inp
+    Nothing -> return ()
+  -- TODO: Could return (java_value name) for convenience? (within SAWScript context)
 javaVar _ _ _ _ = fail "java_var called with invalid type argument"
 
 {-
@@ -556,7 +564,7 @@ javaAssertEq bic _ name t = do
   fail "javaAssertEq"
 
 javaEnsureEq :: BuiltinContext s -> Options -> String -> SharedTerm s
-           -> SS.JavaSetup s ()
+             -> SS.JavaSetup s ()
 javaEnsureEq bic _ name t = do
   ms <- get
   (exp, ty) <- liftIO $ getJavaExpr bic ms name
@@ -579,7 +587,8 @@ javaModify bic _ name = do
 
 javaReturn :: BuiltinContext s -> Options -> SharedTerm s
            -> SS.JavaSetup s ()
-javaReturn _ _ v = modify $ specAddBehaviorCommand (Return (LE v))
+javaReturn _ _ t =
+  modify $ specAddBehaviorCommand (Return (LE t))
 
 javaVerifyTactic :: BuiltinContext s -> Options -> SS.ProofScript s SS.ProofResult
                  -> SS.JavaSetup s ()
