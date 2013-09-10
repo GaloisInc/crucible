@@ -21,7 +21,8 @@ import Text.Read (readMaybe)
 
 import qualified Language.JVM.Common as JP
 
-import Verinf.Symbolic.Lit.ABC_GIA
+import Verinf.Symbolic.Lit.ABC
+import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
 
 import qualified Text.LLVM as LLVM
 import qualified Verifier.LLVM.Backend as L
@@ -122,8 +123,8 @@ unLambda _ tm = return tm
 readAIGPrim :: SharedContext s -> FilePath -> IO (SharedTerm s)
 readAIGPrim sc f = do
   et <- withReadAiger f $ \ntk -> do
-    outputLits <- networkOutputs ntk
-    inputLits <- networkInputs ntk
+    outputLits <- GIA.networkOutputs ntk
+    inputLits <- GIA.networkInputs ntk
     inLen <- scNat sc (fromIntegral (SV.length inputLits))
     outLen <- scNat sc (fromIntegral (SV.length outputLits))
     boolType <- scBoolType sc
@@ -440,20 +441,38 @@ verifyJava :: BuiltinContext s -> Options -> String -> String
            -> IO (MethodSpecIR s)
 verifyJava bic opts cname mname overrides setup = do
   let pos = fixPos -- TODO
-      sc = biSharedContext bic
       cb = biJavaCodebase bic
+  sc0 <- mkSharedContext preludeModule
+  ss <- basic_ss sc0
+  let jsc = rewritingSharedContext sc0 ss
+  be <- createBitEngine
+  backend <- JSS2.sawBackend jsc Nothing be
   (_, ms) <- runStateT setup =<< initMethodSpec pos cb cname mname
   print ms
   let vp = VerifyParams {
              vpCode = cb
-           , vpContext = sc
+           , vpContext = jsc
            , vpOpts = opts
            , vpSpec = ms
            , vpOver = overrides
            , vpRules = [] -- TODO
            , vpEnabledRules = Set.empty -- TODO
            }
-  validateMethodSpec vp (runValidation vp)
+  let verb = 4 -- verbose (vpOpts params) -- TODO
+  when (verb >= 2) $ putStrLn $ "Starting verification of " ++ specName ms
+  let configs = [ (bs, cl)
+                | bs <- {- concat $ Map.elems $ -} [specBehaviors ms]
+                , cl <- bsRefEquivClasses bs
+                ]
+  forM_ configs $ \(bs,cl) -> do
+    when (verb >= 3) $ do
+      putStrLn $ "Executing " ++ specName ms ++
+                 " at PC " ++ show (bsLoc bs) ++ "."
+    JSS.runDefSimulator cb backend $ do
+      esd <- initializeVerification jsc ms bs cl
+      res <- mkSpecVC jsc vp esd
+      liftIO $ (runValidation vp) jsc esd res
+  BE.beFree be
   return ms
 
 parseJavaExpr :: JSS.Codebase -> JSS.Class -> JSS.Method -> String
@@ -500,6 +519,8 @@ javaVar bic _ name t@(SS.VCtorApp _ _) = do
   exp <- liftIO $ parseJavaExpr (biJavaCodebase bic) cls meth name
   ty <- return (exportJavaType t)
   modify $ specAddVarDecl exp ty
+  -- TODO: create fresh input in the JSS context and record it associated with this name
+  -- Could return (fromJava name) for convenience? (within SAWScript context)
 javaVar _ _ _ _ = fail "java_var called with invalid type argument"
 
 {-
@@ -517,19 +538,44 @@ javaMayAlias _ _ _ = fail "java_may_alias called with invalid type argument"
 
 javaAssert :: BuiltinContext s -> Options -> SharedTerm s
            -> SS.JavaSetup s ()
-javaAssert = fail "javaAssert"
+javaAssert _ _ v = modify $ specAddBehaviorCommand (AssertPred fixPos v)
+
+getJavaExpr :: BuiltinContext s -> MethodSpecIR s -> String
+            -> IO (JavaExpr, JSS.Type)
+getJavaExpr bic ms name = do
+  let cls = specMethodClass ms
+      meth = specMethod ms
+  exp <- liftIO $ parseJavaExpr (biJavaCodebase bic) cls meth name
+  return (exp, jssTypeOfJavaExpr exp)
 
 javaAssertEq :: BuiltinContext s -> Options -> String -> SharedTerm s
            -> SS.JavaSetup s ()
-javaAssertEq = fail "javaAssertEq"
+javaAssertEq bic _ name t = do
+  ms <- get
+  (exp, ty) <- liftIO $ getJavaExpr bic ms name
+  fail "javaAssertEq"
 
 javaEnsureEq :: BuiltinContext s -> Options -> String -> SharedTerm s
            -> SS.JavaSetup s ()
-javaEnsureEq = fail "javaEnsureEq"
+javaEnsureEq bic _ name t = do
+  ms <- get
+  (exp, ty) <- liftIO $ getJavaExpr bic ms name
+  let cmd = case (CC.unTerm exp, ty) of
+              (_, JSS.ArrayType _) -> EnsureArray fixPos exp t
+              (InstanceField r f, _) -> EnsureInstanceField fixPos r f (LE t)
+              _ -> error "invalid java_ensure command"
+  modify $ specAddBehaviorCommand cmd
 
 javaModify :: BuiltinContext s -> Options -> String
            -> SS.JavaSetup s ()
-javaModify = fail "javaEnsureEq"
+javaModify bic _ name = do
+  ms <- get
+  (exp, ty) <- liftIO $ getJavaExpr bic ms name
+  let cmd = case (CC.unTerm exp, ty) of
+              (_, JSS.ArrayType _) -> ModifyArray exp undefined -- TODO
+              (InstanceField r f, _) -> ModifyInstanceField r f
+              _ -> error "invalid java_modify command"
+  modify $ specAddBehaviorCommand cmd
 
 javaReturn :: BuiltinContext s -> Options -> SharedTerm s
            -> SS.JavaSetup s ()
@@ -543,7 +589,20 @@ verifyLLVM :: BuiltinContext s -> Options -> String -> String
            -> [SS.LLVMMethodSpecIR s]
            -> SS.LLVMSetup s ()
            -> IO (SS.LLVMMethodSpecIR s)
-verifyLLVM bic opts file func overrides setup = fail "verifyLLVM"
+verifyLLVM bic opts file func overrides setup = do
+  let pos = fixPos -- TODO
+      sc = biSharedContext bic
+  mdl <- L.loadModule file
+  let dl = L.parseDataLayout $ LLVM.modDataLayout mdl
+      sym = L.Symbol func
+  withBE $ \be -> do
+    (sbe, mem, scLLVM) <- LSAW.createSAWBackend' be dl
+    (_warnings, cb) <- L.mkCodebase sbe dl mdl
+    (_, ms) <- runStateT setup =<< initLLVMMethodSpec pos cb mdl sym
+    fail "verifyLLVM"
+    return ms
+
+initLLVMMethodSpec = fail "initLLVMMethodSpec"
 
 llvmVar :: BuiltinContext s -> Options -> String -> SS.Value s
         -> SS.LLVMSetup s ()
