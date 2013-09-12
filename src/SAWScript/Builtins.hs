@@ -15,6 +15,7 @@ import Data.IORef
 import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Set as Set
+import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import Text.PrettyPrint.Leijen hiding ((<$>))
 import Text.Read (readMaybe)
@@ -275,34 +276,6 @@ basic_ss sc = do
         Nothing -> return []
         Just def -> scDefRewriteRules sc def
 
-equal :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-equal sc (STApp _ (Lambda (PVar x1 _ _) ty1 tm1)) (STApp _ (Lambda (PVar _ _ _) ty2 tm2)) =
-  case (asBitvectorType ty1, asBitvectorType ty2) of
-    (Just n1, Just n2) -> do
-      unless (n1 == n2) $
-        fail $ "Arguments have different sizes: " ++
-               show n1 ++ " and " ++ show n2
-      eqBody <- equal sc tm1 tm2
-      scLambda sc x1 ty1 eqBody
-    (_, _) ->
-        fail $ "Incompatible function arguments. Types are " ++
-               show ty1 ++ " and " ++ show ty2
-equal sc tm1@(STApp _ (FTermF _)) tm2@(STApp _ (FTermF _)) = do
-    ty1 <- scTypeOf sc tm1
-    ty2 <- scTypeOf sc tm2
-    case (asBitvectorType ty1, asBitvectorType ty2) of
-      (Just n1, Just n2) -> do
-        unless (n1 == n2) $ fail "Types have different sizes."
-        n1t <- scNat sc n1
-        scBvEq sc n1t tm1 tm2
-      (_, _) ->
-        fail $ "Incompatible non-lambda terms. Types are " ++
-               show ty1 ++ " and " ++ show ty2
-equal sc t1 t2 = do
-  ty1 <- scTypeOf sc t1
-  ty2 <- scTypeOf sc t2
-  fail $ "Incompatible terms. Types are " ++ show ty1 ++ " and " ++ show ty2
-
 equalPrim :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
 equalPrim t1 t2 = mkSC $ \sc -> equal sc t1 t2
 
@@ -447,13 +420,22 @@ verifyJava bic opts cname mname overrides setup = do
   let jsc = rewritingSharedContext sc0 ss
   be <- createBitEngine
   backend <- JSS2.sawBackend jsc Nothing be
-  (_, ms) <- runStateT setup =<< initMethodSpec pos cb jsc cname mname
+  ms0 <- initMethodSpec pos cb cname mname
+  let jsctx0 = SS.JavaSetupState {
+                 SS.jsSpec = ms0
+               , SS.jsContext = jsc
+               , SS.jsInputs = Map.empty
+               }
+  (_, jsctx) <- runStateT setup jsctx0
+  let ms = SS.jsSpec jsctx
+      m = SS.jsInputs jsctx
   let vp = VerifyParams {
              vpCode = cb
            , vpContext = jsc
            , vpOpts = opts
            , vpSpec = ms
            , vpOver = overrides
+           , vpJavaExprs = m
            , vpRules = [] -- TODO
            , vpEnabledRules = Set.empty -- TODO
            }
@@ -468,7 +450,7 @@ verifyJava bic opts cname mname overrides setup = do
       putStrLn $ "Executing " ++ specName ms ++
                  " at PC " ++ show (bsLoc bs) ++ "."
     JSS.runDefSimulator cb backend $ do
-      esd <- initializeVerification jsc ms bs cl
+      esd <- initializeVerification jsc m ms bs cl
       res <- mkSpecVC jsc vp esd
       liftIO $ (runValidation vp) jsc esd res
   BE.beFree be
@@ -505,29 +487,34 @@ parseJavaExpr cb cls meth = parseParts . reverse . splitOn "."
           fid <- findField cb pos jt f
           return (CC.Term (InstanceField e fid))
 
+exportJSSType :: SS.Value s -> JSS.Type
+exportJSSType (SS.VCtorApp "Java.IntType" []) = JSS.IntType
+exportJSSType (SS.VCtorApp "Java.Longype" []) = JSS.LongType
+exportJSSType (SS.VCtorApp "Java.ArrayType" [_, ety]) =
+  JSS.ArrayType (exportJSSType ety)
+exportJSSType v = error $ "Can't translate to Java type: " ++ show v
+
 exportJavaType :: SS.Value s -> JavaActualType
 exportJavaType (SS.VCtorApp "Java.IntType" []) = PrimitiveType JSS.IntType
+exportJavaType (SS.VCtorApp "Java.Longype" []) = PrimitiveType JSS.LongType
+exportJavaType (SS.VCtorApp "Java.ArrayType" [SS.VInteger n, ety]) =
+  ArrayInstance (fromIntegral n) (exportJSSType ety)
 exportJavaType v = error $ "Can't translate to Java type: " ++ show v
 
 javaVar :: BuiltinContext s -> Options -> String -> SS.Value s
         -> SS.JavaSetup s ()
 javaVar bic _ name t@(SS.VCtorApp _ _) = do
-  ms <- get
-  let cls = specMethodClass ms
+  jsState <- get
+  let ms = SS.jsSpec jsState
+      cls = specMethodClass ms
       meth = specMethod ms
-      jsc = specContext ms
+      jsc = SS.jsContext jsState
   exp <- liftIO $ parseJavaExpr (biJavaCodebase bic) cls meth name
   ty <- return (exportJavaType t)
   -- TODO: check Java types
-  modify $ specAddVarDecl exp ty
-  sty <- liftIO $ logicTypeOfActual jsc ty
-  case sty of
-    Just ty -> do
-      -- Record the global input variable associated with this Java
-      -- name string, for use in later occurrences of java_value.
-      inp <- liftIO $ scFreshGlobal jsc name ty
-      modify $ specAddVarInput name inp
-    Nothing -> return ()
+  modify $ \st -> st { SS.jsSpec = specAddVarDecl exp ty (SS.jsSpec st)
+                     , SS.jsInputs = Map.insert name exp (SS.jsInputs st)
+                     }
   -- TODO: Could return (java_value name) for convenience? (within SAWScript context)
 javaVar _ _ _ _ = fail "java_var called with invalid type argument"
 
@@ -546,49 +533,54 @@ javaMayAlias _ _ _ = fail "java_may_alias called with invalid type argument"
 
 javaAssert :: BuiltinContext s -> Options -> SharedTerm s
            -> SS.JavaSetup s ()
-javaAssert _ _ v = modify $ specAddBehaviorCommand (AssertPred fixPos v)
+javaAssert _ _ v =
+  modify $ \st ->
+    st { SS.jsSpec = specAddBehaviorCommand (AssertPred fixPos v) (SS.jsSpec st) }
 
-getJavaExpr :: BuiltinContext s -> MethodSpecIR s -> String
-            -> IO (JavaExpr, JSS.Type)
-getJavaExpr bic ms name = do
-  let cls = specMethodClass ms
-      meth = specMethod ms
-  exp <- liftIO $ parseJavaExpr (biJavaCodebase bic) cls meth name
-  return (exp, jssTypeOfJavaExpr exp)
+getJavaExpr :: Monad m =>
+               SS.JavaSetupState s -> String
+            -> m (JavaExpr, JSS.Type)
+getJavaExpr jsState name = do
+  case Map.lookup name (SS.jsInputs jsState) of
+    Just exp -> return (exp, jssTypeOfJavaExpr exp)
+    Nothing -> fail $ "Java name " ++ name ++ " has not been declared."
 
 javaAssertEq :: BuiltinContext s -> Options -> String -> SharedTerm s
            -> SS.JavaSetup s ()
 javaAssertEq bic _ name t = do
-  ms <- get
-  (exp, ty) <- liftIO $ getJavaExpr bic ms name
+  jsState <- get
+  (exp, ty) <- liftIO $ getJavaExpr jsState name
   fail "javaAssertEq"
 
 javaEnsureEq :: BuiltinContext s -> Options -> String -> SharedTerm s
              -> SS.JavaSetup s ()
 javaEnsureEq bic _ name t = do
-  ms <- get
-  (exp, ty) <- liftIO $ getJavaExpr bic ms name
+  jsState <- get
+  (exp, ty) <- liftIO $ getJavaExpr jsState name
   let cmd = case (CC.unTerm exp, ty) of
               (_, JSS.ArrayType _) -> EnsureArray fixPos exp t
               (InstanceField r f, _) -> EnsureInstanceField fixPos r f (LE t)
               _ -> error "invalid java_ensure command"
-  modify $ specAddBehaviorCommand cmd
+  modify $ \st -> st { SS.jsSpec = specAddBehaviorCommand cmd (SS.jsSpec st) }
 
 javaModify :: BuiltinContext s -> Options -> String
            -> SS.JavaSetup s ()
 javaModify bic _ name = do
-  ms <- get
-  (exp, ty) <- liftIO $ getJavaExpr bic ms name
-  let cmd = case (CC.unTerm exp, ty) of
-              (_, JSS.ArrayType _) -> ModifyArray exp undefined -- TODO
+  jsState <- get
+  (exp, _) <- liftIO $ getJavaExpr jsState name
+  let ms = SS.jsSpec jsState
+      mty = Map.lookup exp (bsActualTypeMap (specBehaviors ms))
+  let cmd = case (CC.unTerm exp, mty) of
+              (_, Just ty@(ArrayInstance _ _)) -> ModifyArray exp ty
               (InstanceField r f, _) -> ModifyInstanceField r f
               _ -> error "invalid java_modify command"
-  modify $ specAddBehaviorCommand cmd
+  modify $ \st -> st { SS.jsSpec = specAddBehaviorCommand cmd (SS.jsSpec st) }
 
 javaReturn :: BuiltinContext s -> Options -> SharedTerm s
            -> SS.JavaSetup s ()
 javaReturn _ _ t =
-  modify $ specAddBehaviorCommand (Return (LE t))
+  modify $ \st ->
+    st { SS.jsSpec = specAddBehaviorCommand (Return (LE t)) (SS.jsSpec st) }
 
 javaVerifyTactic :: BuiltinContext s -> Options -> SS.ProofScript s SS.ProofResult
                  -> SS.JavaSetup s ()

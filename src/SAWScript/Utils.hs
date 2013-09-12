@@ -1,3 +1,4 @@
+{-# LANGUAGE ViewPatterns #-}
 {- |
 Module           : $Header$
 Description      :
@@ -17,6 +18,7 @@ import Data.Data
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
+import qualified Data.Vector as V
 --import System.Console.CmdArgs(Data, Typeable)
 import System.Directory(makeRelativeToCurrentDirectory)
 import System.FilePath(makeRelative, isAbsolute, (</>), takeDirectory)
@@ -27,6 +29,11 @@ import Numeric(showFFloat)
 
 import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.Java.Simulator as JSS
+
+import Verifier.SAW.Prelude
+import Verifier.SAW.Recognizer
+import Verifier.SAW.SharedTerm
+import Verifier.SAW.TypedAST
 
 data Pos = Pos !FilePath -- file
                !Int      -- line
@@ -179,3 +186,47 @@ findField cb pos tp@(JSS.ClassType clName) nm = impl =<< lookupClass cb pos clNa
 findField _ pos _ _ =
   let msg = "Primitive types cannot be dereferenced."
    in throwIOExecException pos (ftext msg) ""
+
+equal :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
+equal sc (STApp _ (Lambda (PVar x1 _ _) ty1 tm1)) (STApp _ (Lambda (PVar _ _ _) ty2 tm2)) =
+  case (asBitvectorType ty1, asBitvectorType ty2) of
+    (Just n1, Just n2) -> do
+      unless (n1 == n2) $
+        fail $ "Arguments have different sizes: " ++
+               show n1 ++ " and " ++ show n2
+      eqBody <- equal sc tm1 tm2
+      scLambda sc x1 ty1 eqBody
+    (_, _) ->
+        fail $ "Incompatible function arguments. Types are " ++
+               show ty1 ++ " and " ++ show ty2
+equal sc tm1@(STApp _ (FTermF t1)) tm2@(STApp _ (FTermF t2)) = do
+    ty1 <- scTypeOf sc tm1
+    ty2 <- scTypeOf sc tm2
+    let asVecType = isVecType return
+    case (ty1, ty2) of
+      (asBitvectorType -> Just n1, asBitvectorType -> Just n2) -> do
+        unless (n1 == n2) $ fail "Bitvectors have different sizes."
+        n1t <- scNat sc n1
+        scBvEq sc n1t tm1 tm2
+      (asVecType -> Just (l1 :*: ety1), asVecType -> Just (l2 :*: ety2)) -> do
+        unless (l1 == l2) $ fail "Arrays have different sizes."
+        unless (ety1 == ety2) $ fail "Arrays have different element types."
+        case (t1, t2) of
+          (ArrayValue _ es1, ArrayValue _ es2) -> do
+            allEqual sc (zip (V.toList es1) (V.toList es2))
+          _ -> fail "Array typed expressions have non-array values."
+      (_, _) ->
+        fail $ "Incompatible non-lambda terms. Types are " ++
+               show ty1 ++ " and " ++ show ty2
+equal sc t1 t2 = do
+  ty1 <- scTypeOf sc t1
+  ty2 <- scTypeOf sc t2
+  fail $ "Incompatible terms. Types are " ++ show ty1 ++ " and " ++ show ty2
+
+allEqual :: SharedContext s -> [(SharedTerm s, SharedTerm s)] -> IO (SharedTerm s)
+allEqual sc [] = scApplyPreludeTrue sc
+allEqual sc ((t, t'):ts) = do
+  r <- allEqual sc ts
+  eq <- equal sc t t'
+  and <- scApplyPreludeAnd sc
+  and eq r

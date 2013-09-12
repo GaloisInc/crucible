@@ -11,6 +11,7 @@ import Data.Map ( Map )
 import qualified Data.Vector as V
 
 import qualified SAWScript.AST as SS
+import SAWScript.JavaExpr
 import SAWScript.MethodSpecIR
 import qualified Verifier.SAW.Prim as Prim
 import Verifier.SAW.Rewriter ( Simpset )
@@ -232,7 +233,7 @@ instance IsValue s a => IsValue s (StateT (SharedTerm s) IO a) where
     fromValue (VProofScript m) = fmap fromValue m
     fromValue _ = error "fromValue ProofScript"
 
-instance IsValue s a => IsValue s (StateT (MethodSpecIR s) IO a) where
+instance IsValue s a => IsValue s (StateT (JavaSetupState s) IO a) where
     toValue m = VJavaSetup (fmap toValue m)
     fromValue (VJavaSetup m) = fmap fromValue m
     fromValue _ = error "fromValue JavaSetup"
@@ -312,7 +313,14 @@ type ProofGoal s = SharedTerm s
 type ProofScript s a = StateT (ProofGoal s) IO a
 type ProofResult = () -- FIXME: could use this type to return witnesses
 
-type JavaSetup s a = StateT (MethodSpecIR s) IO a
+data JavaSetupState s
+  = JavaSetupState {
+      jsSpec :: MethodSpecIR s
+    , jsInputs :: Map String JavaExpr
+    , jsContext :: SharedContext s -- TODO: js instead of s?
+    }
+
+type JavaSetup s a = StateT (JavaSetupState s) IO a
 
 -- FIXME: implement this
 data LLVMMethodSpecIR s = IO ()
