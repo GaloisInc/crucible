@@ -150,7 +150,7 @@ importValue val =
       SC.VFalse -> VBool False
       SC.VNat n -> VInteger n
       SC.VWord w x -> VWord w x
-      SC.VString s -> VString s -- FIXME: probably not needed
+      SC.VString s -> VString s
       SC.VTuple vs -> VTuple (V.toList (fmap importValue vs))
       SC.VRecord m -> VRecord (fmap importValue m)
       SC.VCtorApp ident args
@@ -167,7 +167,7 @@ exportValue :: Value s -> SC.Value
 exportValue val =
     case val of
       VBool b -> if b then SC.VTrue else SC.VFalse
-      VString s -> SC.VString s -- FIXME: probably not needed
+      VString s -> SC.VString s
       VInteger n -> SC.VNat n
       VWord w x -> SC.VWord w x
       VArray vs -> SC.VVector (fmap exportValue (V.fromList vs))

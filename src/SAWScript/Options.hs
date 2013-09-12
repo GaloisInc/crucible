@@ -10,6 +10,7 @@ data Options = Options
   , classPath        :: [FilePath]
   , jarList          :: [FilePath]
   , verbLevel        :: Int
+  , simVerbose       :: Int
   , runInteractively :: Bool
   } deriving (Show)
 
@@ -20,6 +21,7 @@ defaultOptions
     , classPath = ["."]
     , jarList = []
     , verbLevel = 1
+    , simVerbose = 1
     , runInteractively = False
     }
 
@@ -48,6 +50,12 @@ options =
      "path"
     )
     pathDesc
+  , Option "d" ["sim-verbose"]
+    (ReqArg
+     (\v opts -> opts { simVerbose = read v })
+     "num"
+    )
+    "Set simulator verbosity level"
   , Option "v" ["verbose"]
     (ReqArg
      (\v opts -> opts { verbLevel = read v })

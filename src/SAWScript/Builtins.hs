@@ -436,10 +436,8 @@ verifyJava bic opts cname mname overrides setup = do
            , vpSpec = ms
            , vpOver = overrides
            , vpJavaExprs = m
-           , vpRules = [] -- TODO
-           , vpEnabledRules = Set.empty -- TODO
            }
-  let verb = 4 -- verbose (vpOpts params) -- TODO
+  let verb = simVerbose (vpOpts vp)
   when (verb >= 2) $ putStrLn $ "Starting verification of " ++ specName ms
   let configs = [ (bs, cl)
                 | bs <- {- concat $ Map.elems $ -} [specBehaviors ms]
@@ -452,7 +450,8 @@ verifyJava bic opts cname mname overrides setup = do
     JSS.runDefSimulator cb backend $ do
       esd <- initializeVerification jsc m ms bs cl
       res <- mkSpecVC jsc vp esd
-      liftIO $ (runValidation vp) jsc esd res
+      liftIO $ mapM_ (print . ppPathVC) res
+      --liftIO $ (runValidation vp) jsc esd res
   BE.beFree be
   return ms
 
@@ -511,7 +510,7 @@ javaVar bic _ name t@(SS.VCtorApp _ _) = do
       jsc = SS.jsContext jsState
   exp <- liftIO $ parseJavaExpr (biJavaCodebase bic) cls meth name
   ty <- return (exportJavaType t)
-  -- TODO: check Java types
+  -- TODO: check that exp and ty match
   modify $ \st -> st { SS.jsSpec = specAddVarDecl exp ty (SS.jsSpec st)
                      , SS.jsInputs = Map.insert name exp (SS.jsInputs st)
                      }
