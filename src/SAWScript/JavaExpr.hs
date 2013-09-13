@@ -7,101 +7,45 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE ViewPatterns   #-}
 module SAWScript.JavaExpr
-  ( -- * Typechecking configuration.
-    GlobalBindings(..)
-  , MethodInfo(..)
-  , TCConfig(..)
-  , mkGlobalTCConfig
-    -- * Java Expressions
-  , JavaExprF(..)
+  (-- * Java Expressions
+    JavaExprF(..)
   , JavaExpr
   , thisJavaExpr
   , ppJavaExpr
   , jssTypeOfJavaExpr
   , isRefJavaExpr
-  -- , tcJavaExpr
     -- * Logic expressions
-  , LogicExpr(..)
-  --, typeOfLogicExpr
-  --, logicExprVarNames
+  , LogicExpr
   , logicExprJavaExprs
-  --, globalEval
-  -- , tcLogicExpr
     -- * Mixed expressions
   , MixedExpr(..)
-  -- * Java types
-  -- , ppASTJavaType
-  --, jssTypeOfASTJavaType
-  -- * Actual type
+    -- * Actual type
   , JavaActualType(..)
-  --, isActualRef
   , jssTypeOfActual
+  , isActualRef
   , logicTypeOfActual
-  --, isActualSubtype
-  --, ppActualType
-  -- , tcActualType
+  , isActualSubtype
+  , ppActualType
   , MethodLocation (..)
-  -- , BehaviorDecl (..)
   ) where
 
 -- Imports {{{2
 
 import Control.Applicative ((<$>))
-import Control.Monad
 import Control.Monad.Error (Error(..))
-import Control.Monad.Trans
-import Data.Int
-import Data.List (intercalate)
-import Data.Map(Map)
-import qualified Data.Map as Map
-import qualified Data.Vector as V
 import Data.Set (Set)
 
 import qualified Verifier.Java.Codebase as JSS
 
-import Verifier.SAW.Evaluator
 import Verifier.SAW.SharedTerm
 
 import qualified SAWScript.CongruenceClosure as CC
-import SAWScript.TIMonad
-import SAWScript.Options
-import SAWScript.Utils
 
 data MethodLocation
    = PC Integer
    | LineOffset Integer
    | LineExact Integer
   deriving (Show)
-
--- Typechecking configuration {{{1
-
--- | Context for resolving top level expressions.
-data GlobalBindings s = GlobalBindings {
-         codeBase      :: JSS.Codebase
-       , gbOpts        :: Options
-       , constBindings :: Map String (Value, SharedTerm s)
-       }
-
-data MethodInfo = MethodInfo {
-         miClass :: JSS.Class
-       , miMethod :: JSS.Method
-       , miPC :: JSS.PC
-       , miJavaExprType :: JavaExpr -> Maybe JavaActualType
-       }
-
--- | Context for resolving expressions at the top level or within a method.
-data TCConfig s = TCC {
-         globalBindings :: GlobalBindings s
-       , localBindings  :: Map String (MixedExpr s)
-       , methodInfo     :: Maybe MethodInfo
-       }
-
-mkGlobalTCConfig :: GlobalBindings s -> Map String (LogicExpr s) -> (TCConfig s)
-mkGlobalTCConfig globalBindings lb = do
-  TCC { globalBindings
-      , localBindings = Map.map LE lb
-      , methodInfo = Nothing
-      }
 
 -- JavaExpr {{{1
 
@@ -183,25 +127,6 @@ logicExprVarNames = flip impl Set.empty
         impl _ s = s
 -}
 
-        {-
--- | Evaluate a ground typed expression to a constant value.
-globalEval :: (String -> m r)
-           -> TermSemantics m r
-           -> LogicExpr s
-           -> m r
-globalEval varFn ts expr = eval expr
-  where eval (Apply op args) = tsApplyOp ts op (V.map eval (V.fromList args))
-        eval (IntLit i (widthConstant -> Just w)) = 
-          tsIntConstant ts w i
-        eval (IntLit _ w) =
-          error $ "internal: globalEval given non-constant width expression "
-                    ++ ppWidthExpr w "."
-        eval (Cns c tp) = tsConstant ts c tp -- FIXME
-        eval (JavaValue _nm _ _tp) =
-          error "internal: globalEval called with Java expression."
-        eval (Var nm _tp) = varFn nm
-        -}
-
 -- MixedExpr {{{1
 
 -- | A logic or Java expression.
@@ -259,35 +184,10 @@ ppActualType (ClassInstance x) = JSS.slashesToDots (JSS.className x)
 ppActualType (ArrayInstance l tp) = show tp ++ "[" ++ show l ++ "]"
 ppActualType (PrimitiveType tp) = show tp
 
--- | Convert AST.JavaType into JavaActualType.
-{-
-tcActualType :: AST.JavaType -> TCConfig -> IO JavaActualType
-tcActualType (AST.ArrayType eltTp l) cfg = do
-  let pos = AST.javaTypePos eltTp
-  unless (0 <= l && toInteger l < toInteger (maxBound :: Int32)) $ do
-    let msg  = "Array length " ++ show l ++ " is invalid."
-    throwIOExecException pos (ftext msg) ""
-  let res = jssTypeOfASTJavaType eltTp
-  runTI cfg $ checkIsSupportedType pos (JSS.ArrayType res)
-  return $ ArrayInstance (fromIntegral l) res
-tcActualType (AST.RefType pos names) cfg = do
-  let cb = codeBase (globalBindings cfg)
-   in ClassInstance <$> lookupClass cb pos (intercalate "/" names)
-tcActualType tp cfg = do
-  let pos = AST.javaTypePos tp
-  let res = jssTypeOfASTJavaType tp
-  runTI cfg $ checkIsSupportedType pos res
-  return $ PrimitiveType res
--}
 -- SawTI {{{1
 
-type SawTI s = TI IO (TCConfig s)
-
 {-
-debugTI :: String -> SawTI s ()
-debugTI msg = do os <- gets (gbOpts . globalBindings)
-                 liftIO $ debugVerbose os $ putStrLn msg
--}
+type SawTI s = TI IO (TCConfig s)
 
 getMethodInfo :: SawTI s MethodInfo
 getMethodInfo = do
@@ -306,18 +206,6 @@ checkArgCount pos nm (length -> foundOpCnt) expectedCnt = do
                         ++ show foundOpCnt ++ " arguments were found."
 
 -- Core expression typechecking {{{1
-
-{-
-checkedGetIntType :: Pos -> JSS.Type -> SawTI DagType
-checkedGetIntType pos javaType = do
-  when (JSS.isRefType javaType) $ do
-    let msg = "Encountered a Java expression denoting a reference where a logical expression is expected."
-    typeErr pos (ftext msg)
-  when (JSS.isFloatType javaType) $ do
-    let msg = "Encountered a Java expression denoting a floating point value where a logical expression is expected."
-    typeErr pos (ftext msg)
-  return $ SymInt (constantWidth (Wx (JSS.stackWidth javaType)))
--}
 
 getActualType :: Pos -> JavaExpr -> SawTI s JavaActualType
 getActualType p je = do
@@ -357,3 +245,4 @@ mkLocalVariable pos e = do
   let tp = JSS.localType e
   checkIsSupportedType pos tp
   return $ CC.Term $ Local (JSS.localName e) (JSS.localIdx e) tp
+-}
