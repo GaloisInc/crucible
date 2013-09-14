@@ -32,6 +32,8 @@ import qualified SAWScript.AST as SS
 import SAWScript.Builtins hiding (evaluate)
 import qualified SAWScript.MGU as MGU
 import SAWScript.Options
+import SAWScript.Proof
+import SAWScript.Utils
 import SAWScript.Value
 import Verifier.SAW.Prelude (preludeModule)
 import Verifier.SAW.Rewriter ( Simpset, emptySimpset )
@@ -418,7 +420,7 @@ interpretModuleAtEntry entryName sc env m =
        Nothing -> fail $ "No " ++ entryName ++ " in module " ++ show (SS.moduleName m)
 
 -- | Interpret an expression using the default value environments.
-interpretEntry :: SS.Name -> Options -> SS.ValidModule -> IO (Value s)
+interpretEntry :: SS.Name -> Options -> SS.ValidModule -> IO (Value SAWCtx)
 interpretEntry entryName opts m =
     do (bic, interpretEnv0) <- buildInterpretEnv opts m
        let sc = biSharedContext bic
@@ -427,7 +429,7 @@ interpretEntry entryName opts m =
        return result
 
 buildInterpretEnv:: Options -> SS.ValidModule
-                 -> IO (BuiltinContext s, InterpretEnv s)
+                 -> IO (BuiltinContext, InterpretEnv SAWCtx)
 buildInterpretEnv opts m =
     do let mn = case SS.moduleName m of SS.ModuleName xs x -> mkModuleName (xs ++ [x])
        let scm = insImport preludeModule $
@@ -461,7 +463,7 @@ transitivePrimEnv m = M.unions (env : envs)
 
 -- Primitives ------------------------------------------------------------------
 
-valueEnv :: forall s. Options -> BuiltinContext s -> RNameMap (Value s)
+valueEnv :: Options -> BuiltinContext -> RNameMap (Value SAWCtx)
 valueEnv opts bic = M.fromList
   [ (qualify "read_sbv"    , toValue $ readSBV sc)
   , (qualify "read_aig"    , toValue $ readAIGPrim sc)
@@ -479,6 +481,7 @@ valueEnv opts bic = M.fromList
   , (qualify "java_return" , toValue $ javaReturn bic opts)
   , (qualify "java_verify_tactic" , toValue $ javaVerifyTactic bic opts)
   -- LLVM stuff
+  {-
   , (qualify "llvm_extract", toValue $ extractLLVM sc)
   , (qualify "llvm_verify" , toValue $ verifyLLVM bic opts)
   , (qualify "llvm_pure"   , toValue $ ()) -- FIXME
@@ -490,25 +493,28 @@ valueEnv opts bic = M.fromList
   , (qualify "llvm_modify" , toValue $ llvmModify bic opts)
   , (qualify "llvm_return" , toValue $ llvmReturn bic opts)
   , (qualify "llvm_verify_tactic" , toValue $ llvmVerifyTactic bic opts)
+  -}
   -- Generic stuff
   , (qualify "prove"       , toValue $ provePrim sc)
   , (qualify "sat"         , toValue $ satPrim sc)
-  , (qualify "empty_ss"    , toValue (emptySimpset :: Simpset (SharedTerm s)))
+  , (qualify "empty_ss"    , toValue (emptySimpset :: Simpset (SharedTerm SAWCtx)))
   , (qualify "addsimp"     , toValue $ addsimp sc)
   , (qualify "rewrite"     , toValue $ rewritePrim sc)
   , (qualify "abc"         , toValue $ satABC sc)
   , (qualify "unfolding"   , toValue $ unfoldGoal sc)
   , (qualify "simplify"    , toValue $ simplifyGoal sc)
-  , (qualify "print_goal"  , toValue (printGoal :: ProofScript s ()))
+  , (qualify "print_goal"  , toValue (printGoal :: ProofScript SAWCtx ()))
   , (qualify "write_smtlib1", toValue $ writeSMTLib1 sc)
   , (qualify "write_smtlib2", toValue $ writeSMTLib2 sc)
-  , (qualify "write_core"   , toValue (writeCore :: FilePath -> SharedTerm s -> IO ()))
+  , (qualify "write_core"   , toValue (writeCore :: FilePath -> SharedTerm SAWCtx -> IO ()))
   , (qualify "read_core"    , toValue $ readCore sc)
-  , (qualify "print"       , toValue (print :: Value s -> IO ()))
+  , (qualify "print"       , toValue (print :: Value SAWCtx -> IO ()))
   , (qualify "print_type"  , toValue $ print_type sc)
-  , (qualify "print_term"  , toValue ((putStrLn . scPrettyTerm) :: SharedTerm s -> IO ()))
-  , (qualify "return"      , toValue (return :: Value s -> IO (Value s))) -- FIXME: make work for other monads
-  , (qualify "seq"        , toValue ((>>) :: ProofScript s (Value s) -> ProofScript s (Value s) -> ProofScript s (Value s))) -- FIXME: temporary
+  , (qualify "print_term"  , toValue ((putStrLn . scPrettyTerm) :: SharedTerm SAWCtx -> IO ()))
+  , (qualify "return"      , toValue (return :: Value SAWCtx -> IO (Value SAWCtx))) -- FIXME: make work for other monads
+  , (qualify "seq"        , toValue ((>>) :: ProofScript SAWCtx (Value SAWCtx)
+                                          -> ProofScript SAWCtx (Value SAWCtx)
+                                          -> ProofScript SAWCtx (Value SAWCtx))) -- FIXME: temporary
   , (qualify "define"      , toValue $ definePrim sc)
   ] where sc = biSharedContext bic
 

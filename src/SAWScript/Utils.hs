@@ -1,4 +1,5 @@
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE EmptyDataDecls #-}
 {- |
 Module           : $Header$
 Description      :
@@ -32,8 +33,13 @@ import qualified Verifier.Java.Simulator as JSS
 
 import Verifier.SAW.Prelude
 import Verifier.SAW.Recognizer
+import Verifier.SAW.Rewriter
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST
+
+data SAWCtx
+data JSSCtx
+data LSSCtx
 
 data Pos = Pos !FilePath -- file
                !Int      -- line
@@ -221,7 +227,9 @@ equal sc tm1@(STApp _ (FTermF t1)) tm2@(STApp _ (FTermF t2)) = do
 equal sc t1 t2 = do
   ty1 <- scTypeOf sc t1
   ty2 <- scTypeOf sc t2
-  fail $ "Incompatible terms. Types are " ++ show ty1 ++ " and " ++ show ty2
+  fail $ "Incompatible terms.\n" ++
+         "Types are " ++ show ty1 ++ " and " ++ show ty2 ++ "\n" ++
+         "Terms are " ++ show t1 ++ " and " ++ show t2
 
 allEqual :: SharedContext s -> [(SharedTerm s, SharedTerm s)] -> IO (SharedTerm s)
 allEqual sc [] = scApplyPreludeTrue sc
@@ -230,3 +238,10 @@ allEqual sc ((t, t'):ts) = do
   eq <- equal sc t t'
   and <- scApplyPreludeAnd sc
   and eq r
+
+scRemoveBitvector :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
+scRemoveBitvector sc tm = do 
+  rules <- scDefRewriteRules sc def
+  tm' <- rewriteSharedTerm sc (addRules rules emptySimpset) tm
+  return tm'
+    where Just def = findDef (scModule sc) (parseIdent "Prelude.bitvector")

@@ -35,18 +35,19 @@ import SAWScript.Interpreter (InterpretEnv, buildInterpretEnv)
 import SAWScript.Options (Options)
 import SAWScript.ProcessFile (checkModuleWithDeps)
 import SAWScript.REPL.GenerateModule as Generate
+import SAWScript.Utils (SAWCtx)
 import Verifier.SAW (SharedContext)
 
 
 --------------------------------- REPL state ----------------------------------
 
-data REPLState s = REPLState { modulesInScope :: Map ModuleName ValidModule
-                             , namesInScope :: Set Name
-                             , sharedContext :: SharedContext s
-                             , environment :: InterpretEnv s
-                             }
+data REPLState = REPLState { modulesInScope :: Map ModuleName ValidModule
+                           , namesInScope :: Set Name
+                           , sharedContext :: SharedContext SAWCtx
+                           , environment :: InterpretEnv SAWCtx
+                           }
 
-withInitialState :: Options -> (REPLState s -> IO ()) -> IO ()
+withInitialState :: Options -> (REPLState -> IO ()) -> IO ()
 withInitialState opts f = do
   -- Build a prototype (empty) scratchpad module.
   preludeEtc <- preludeLoadedModules
@@ -61,27 +62,27 @@ withInitialState opts f = do
 
 -------------------------------- REPL results ---------------------------------
 
-data REPResult s = Success (REPLState s)
-                 | SuccessExit
-                 | Failure
+data REPResult = Success REPLState
+               | SuccessExit
+               | Failure
 
 
 -------------------------------- The REP monad --------------------------------
 
 {-| The 'REP' ("read-eval-print") monad encapsulates one iteration of the
 read-eval-print loop. -}
-newtype REP s a =
-  REP { extractInner :: MaybeT (StateT (REPLState s)
+newtype REP a =
+  REP { extractInner :: MaybeT (StateT (REPLState)
                                        (ErrT (InputT IO))) a }
   deriving (Functor, Applicative, Monad)
 
-runREP :: forall s a.
+runREP :: forall a.
           Haskeline.Settings IO
-          -> REPLState s
-          -> REP s a
-          -> IO (REPResult s)
+          -> REPLState
+          -> REP a
+          -> IO REPResult
 runREP haskelineSettings initialState computation = do
-  unwrapped :: Either String (Maybe a, REPLState s)
+  unwrapped :: Either String (Maybe a, REPLState)
             <- runInputT haskelineSettings .
                  runErrT' .
                    flip runStateT initialState .
@@ -97,35 +98,35 @@ runREP haskelineSettings initialState computation = do
 
 -- Monadic primitives --
 
-successExit :: REP s a
+successExit :: REP a
 successExit = maybe $ fail "Exiting" -- message should be ignored
 
-failure :: String -> REP s a
+failure :: String -> REP a
 failure msg = REP $ lift $ lift $ fail msg
 
-getModulesInScope :: REP s (Map ModuleName ValidModule)
+getModulesInScope :: REP (Map ModuleName ValidModule)
 getModulesInScope = state $ gets modulesInScope
 
-getNamesInScope :: REP s (Set Name)
+getNamesInScope :: REP (Set Name)
 getNamesInScope = state $ gets namesInScope
 
-getSharedContext :: REP s (SharedContext s)
+getSharedContext :: REP (SharedContext SAWCtx)
 getSharedContext = state $ gets sharedContext
 
-getEnvironment :: REP s (InterpretEnv s)
+getEnvironment :: REP (InterpretEnv SAWCtx)
 getEnvironment = state $ gets environment
 
-putNamesInScope :: Set Name -> REP s ()
+putNamesInScope :: Set Name -> REP ()
 putNamesInScope = modifyNamesInScope . const
 
-putEnvironment :: InterpretEnv s -> REP s ()
+putEnvironment :: InterpretEnv SAWCtx -> REP ()
 putEnvironment = modifyEnvironment . const
 
-modifyNamesInScope :: (Set Name -> Set Name) -> REP s ()
+modifyNamesInScope :: (Set Name -> Set Name) -> REP ()
 modifyNamesInScope f = state $ modify $ \current ->
   current { namesInScope = f (namesInScope current) }
 
-modifyEnvironment :: (InterpretEnv s -> InterpretEnv s) -> REP s ()
+modifyEnvironment :: (InterpretEnv SAWCtx -> InterpretEnv SAWCtx) -> REP ()
 modifyEnvironment f = state $ modify $ \current ->
   current { environment = f (environment current) }
 
@@ -134,17 +135,17 @@ modifyEnvironment f = state $ modify $ \current ->
 {- 'REP' isn't a monad transformer, but inner monads can still be lifted to
 it. -}
 
-io :: IO a -> REP s a
+io :: IO a -> REP a
 io = REP . lift . lift . lift . liftIO
 
-haskeline :: InputT IO a -> REP s a
+haskeline :: InputT IO a -> REP a
 haskeline = REP . lift . lift . lift
 
-err :: ErrT IO a -> REP s a
+err :: ErrT IO a -> REP a
 err = REP . lift . lift . mapErrT liftIO
 
-state :: StateT (REPLState s) (ErrT (InputT IO)) a -> REP s a
+state :: StateT REPLState (ErrT (InputT IO)) a -> REP a
 state = REP . lift
 
-maybe :: MaybeT (StateT (REPLState s) (ErrT (InputT IO))) a -> REP s a
+maybe :: MaybeT (StateT REPLState (ErrT (InputT IO))) a -> REP a
 maybe = REP

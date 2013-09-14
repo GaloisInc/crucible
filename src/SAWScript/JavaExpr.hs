@@ -6,6 +6,7 @@
 {-# LANGUAGE PatternGuards  #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE ViewPatterns   #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module SAWScript.JavaExpr
   (-- * Java Expressions
     JavaExprF(..)
@@ -17,6 +18,8 @@ module SAWScript.JavaExpr
     -- * Logic expressions
   , LogicExpr
   , logicExprJavaExprs
+  , useLogicExpr
+  , mkLogicExpr
     -- * Mixed expressions
   , MixedExpr(..)
     -- * Actual type
@@ -37,9 +40,11 @@ import Data.Set (Set)
 
 import qualified Verifier.Java.Codebase as JSS
 
+import Verifier.SAW.TypedAST
 import Verifier.SAW.SharedTerm
 
 import qualified SAWScript.CongruenceClosure as CC
+import SAWScript.Utils
 
 data MethodLocation
    = PC Integer
@@ -101,7 +106,14 @@ isRefJavaExpr = JSS.isRefType . jssTypeOfJavaExpr
 
 -- LogicExpr {{{1
 
-type LogicExpr s = SharedTerm s
+newtype LogicExpr = LogicExpr (SharedTerm SAWCtx)
+  deriving (Termlike, Show)
+
+mkLogicExpr :: SharedTerm SAWCtx -> LogicExpr
+mkLogicExpr = LogicExpr
+
+useLogicExpr :: SharedContext JSSCtx -> LogicExpr -> IO (SharedTerm JSSCtx)
+useLogicExpr sc (LogicExpr t) = scImport sc t
 
 {-
 -- | Return type of a typed expression.
@@ -110,7 +122,7 @@ typeOfLogicExpr = scTypeOf
 -}
 
 -- | Return java expressions in logic expression.
-logicExprJavaExprs :: LogicExpr s -> Set JavaExpr
+logicExprJavaExprs :: LogicExpr -> Set JavaExpr
 logicExprJavaExprs = error "logicExprJavaExprs" --FIXME
   {- flip impl Set.empty
   where impl (Apply _ args) s = foldr impl s args
@@ -120,7 +132,7 @@ logicExprJavaExprs = error "logicExprJavaExprs" --FIXME
 
 {-
 -- | Returns names of variables appearing in typedExpr.
-logicExprVarNames :: LogicExpr s -> Set String
+logicExprVarNames :: LogicExpr -> Set String
 logicExprVarNames = flip impl Set.empty
   where impl (Apply _ args) s = foldr impl s args
         impl (Var nm _) s = Set.insert nm s
@@ -130,8 +142,8 @@ logicExprVarNames = flip impl Set.empty
 -- MixedExpr {{{1
 
 -- | A logic or Java expression.
-data MixedExpr s
-  = LE (LogicExpr s)
+data MixedExpr
+  = LE LogicExpr
   | JE JavaExpr
   deriving (Show)
 

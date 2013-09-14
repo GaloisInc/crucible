@@ -10,6 +10,7 @@ import Control.Exception (bracket)
 import Control.Lens
 import Control.Monad.Error
 import Control.Monad.State
+import Data.List (sort)
 import Data.List.Split
 import Data.IORef
 import qualified Data.Map as Map
@@ -56,15 +57,16 @@ import SAWScript.JavaExpr
 import SAWScript.MethodSpec
 import SAWScript.MethodSpecIR
 import SAWScript.Options
+import SAWScript.Proof
 import SAWScript.Utils
 import qualified SAWScript.Value as SS
 
 import qualified Verinf.Symbolic as BE
 import Verinf.Utils.LogMonad
 
-data BuiltinContext s = BuiltinContext { biSharedContext :: SharedContext s
-                                       , biJavaCodebase  :: JSS.Codebase
-                                       }
+data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
+                                     , biJavaCodebase  :: JSS.Codebase
+                                     }
 
 -- bitSequence :: {n} Integer -> [n]
 bitSequence :: SS.Type -> Integer -> Prim.BitVector
@@ -109,14 +111,6 @@ withBE f = do
   r <- f be
   BE.beFree be
   return r
-
-{-
-unLambda :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
-unLambda sc (STApp _ (Lambda (PVar x _ _) ty tm)) = do
-  arg <- scFreshGlobal sc x ty
-  instantiateVar sc 0 arg tm >>= unLambda sc
-unLambda _ tm = return tm
--}
 
 -- | Read an AIG file representing a theorem or an arbitrary function
 -- and represent its contents as a @SharedTerm@ lambda term. This is
@@ -187,25 +181,25 @@ writeCore path t = writeFile path (scWriteExternal t)
 readCore :: SharedContext s -> FilePath -> IO (SharedTerm s)
 readCore sc path = scReadExternal sc =<< readFile path
 
-printGoal :: SS.ProofScript s ()
+printGoal :: ProofScript s ()
 printGoal = StateT $ \goal -> do
   putStrLn (scPrettyTerm goal)
   return ((), goal)
 
-unfoldGoal :: SharedContext s -> [String] -> SS.ProofScript s ()
+unfoldGoal :: SharedContext s -> [String] -> ProofScript s ()
 unfoldGoal sc names = StateT $ \goal -> do
   let ids = map (mkIdent (moduleName (scModule sc))) names
   goal' <- scUnfoldConstants sc ids goal
   return ((), goal')
 
-simplifyGoal :: SharedContext s -> Simpset (SharedTerm s) -> SS.ProofScript s ()
+simplifyGoal :: SharedContext s -> Simpset (SharedTerm s) -> ProofScript s ()
 simplifyGoal sc ss = StateT $ \goal -> do
   goal' <- rewriteSharedTerm sc ss goal
   return ((), goal')
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
-satABC :: SharedContext s -> SS.ProofScript s SS.ProofResult
+satABC :: SharedContext s -> ProofScript s ProofResult
 satABC sc = StateT $ \t -> withBE $ \be -> do
   t' <- prepForExport sc t
   mbterm <- bitBlast be t'
@@ -232,18 +226,18 @@ scNegate sc t =
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- validity using ABC.
-provePrim :: SharedContext s -> SS.ProofScript s SS.ProofResult
-          -> SharedTerm s -> IO (SS.Theorem s)
+provePrim :: SharedContext s -> ProofScript s ProofResult
+          -> SharedTerm s -> IO (Theorem s)
 provePrim sc script t = do
   t' <- scNegate sc t
   (_, r) <- runStateT script t'
   case asCtor r of
     Just ("Prelude.True", []) -> fail "prove: invalid"
-    Just ("Prelude.False", []) -> return (SS.Theorem t)
+    Just ("Prelude.False", []) -> return (Theorem t)
     _ -> fail "prove: unknown result"
 
 -- | FIXME: change return type so that we can return the witnesses.
-satPrim :: SharedContext s -> SS.ProofScript s SS.ProofResult -> SharedTerm s
+satPrim :: SharedContext s -> ProofScript s ProofResult -> SharedTerm s
         -> IO String
 satPrim _sc script t = do
   (_, r) <- runStateT script t
@@ -256,8 +250,8 @@ satPrim _sc script t = do
 rewritePrim :: SharedContext s -> Simpset (SharedTerm s) -> SharedTerm s -> IO (SharedTerm s)
 rewritePrim sc ss t = rewriteSharedTerm sc ss t
 
-addsimp :: SharedContext s -> SS.Theorem s -> Simpset (SharedTerm s) -> Simpset (SharedTerm s)
-addsimp _sc (SS.Theorem t) ss = addRule (ruleOfPred t) ss
+addsimp :: SharedContext s -> Theorem s -> Simpset (SharedTerm s) -> Simpset (SharedTerm s)
+addsimp _sc (Theorem t) ss = addRule (ruleOfPred t) ss
 
 basic_ss :: SharedContext s -> IO (Simpset (SharedTerm s))
 basic_ss sc = do
@@ -296,8 +290,8 @@ type LLVMSetup s a = IO a
 -- given bitcode file. This code creates fresh inputs for all
 -- arguments and returns a term representing the return value. Some
 -- verifications will require more complex execution contexts.
-extractLLVM :: SharedContext s -> FilePath -> String -> LLVMSetup s ()
-            -> IO (SharedTerm s)
+extractLLVM :: SharedContext SAWCtx -> FilePath -> String -> LLVMSetup s ()
+            -> IO (SharedTerm SAWCtx)
 extractLLVM sc file func _setup = do
   mdl <- L.loadModule file
   let dl = L.parseDataLayout $ LLVM.modDataLayout mdl
@@ -370,9 +364,9 @@ freshLLVMArg (_, _) = fail "Only integer arguments are supported for now."
 fixPos :: Pos
 fixPos = PosInternal "FIXME"
 
-extractJava :: BuiltinContext s -> Options -> String -> String
-            -> SS.JavaSetup s ()
-            -> IO (SharedTerm s)
+extractJava :: BuiltinContext -> Options -> String -> String
+            -> JavaSetup ()
+            -> IO (SharedTerm SAWCtx)
 extractJava bic opts cname mname _setup = do
   let cname' = JP.dotsToSlashes cname
       sc = biSharedContext bic
@@ -408,34 +402,31 @@ freshJavaArg sbe JSS.IntType = liftIO (JSS.IValue <$> JSS.freshInt sbe)
 freshJavaArg sbe JSS.LongType = liftIO (JSS.LValue <$> JSS.freshLong sbe)
 freshJavaArg _ _ = fail "Only byte, int, and long arguments are supported for now."
 
-verifyJava :: BuiltinContext s -> Options -> String -> String
-           -> [MethodSpecIR s]
-           -> SS.JavaSetup s ()
-           -> IO (MethodSpecIR s)
+verifyJava :: BuiltinContext -> Options -> String -> String
+           -> [MethodSpecIR]
+           -> JavaSetup ()
+           -> IO (MethodSpecIR)
 verifyJava bic opts cname mname overrides setup = do
   let pos = fixPos -- TODO
       cb = biJavaCodebase bic
   sc0 <- mkSharedContext preludeModule
   ss <- basic_ss sc0
-  let jsc = rewritingSharedContext sc0 ss
+  let (jsc :: SharedContext JSSCtx) = sc0 -- rewritingSharedContext sc0 ss
   be <- createBitEngine
   backend <- JSS2.sawBackend jsc Nothing be
   ms0 <- initMethodSpec pos cb cname mname
-  let jsctx0 = SS.JavaSetupState {
-                 SS.jsSpec = ms0
-               , SS.jsContext = jsc
-               , SS.jsInputs = Map.empty
+  let jsctx0 = JavaSetupState {
+                 jsSpec = ms0
+               , jsContext = jsc
                }
   (_, jsctx) <- runStateT setup jsctx0
-  let ms = SS.jsSpec jsctx
-      m = SS.jsInputs jsctx
+  let ms = jsSpec jsctx
   let vp = VerifyParams {
              vpCode = cb
            , vpContext = jsc
            , vpOpts = opts
            , vpSpec = ms
            , vpOver = overrides
-           , vpJavaExprs = m
            }
   let verb = simVerbose (vpOpts vp)
   when (verb >= 2) $ putStrLn $ "Starting verification of " ++ specName ms
@@ -448,10 +439,21 @@ verifyJava bic opts cname mname overrides setup = do
       putStrLn $ "Executing " ++ specName ms ++
                  " at PC " ++ show (bsLoc bs) ++ "."
     JSS.runDefSimulator cb backend $ do
-      esd <- initializeVerification jsc m ms bs cl
+      esd <- initializeVerification jsc ms bs cl
+      let isExtCns (STApp _ (FTermF (ExtCns e))) = True
+          isExtCns _ = False
+          initialExts =
+            sort . filter isExtCns . map snd . esdInitialAssignments $ esd
       res <- mkSpecVC jsc vp esd
-      liftIO $ mapM_ (print . ppPathVC) res
-      --liftIO $ (runValidation vp) jsc esd res
+      when (verb >= 3) $ liftIO $ do
+        putStrLn "Verifying the following:"
+        mapM_ (print . ppPathVC) res
+      let prover vs script g = do
+            glam <- bindExts jsc initialExts g
+            glam' <- scImport (biSharedContext bic) glam
+            Theorem thm <- provePrim (biSharedContext bic) script glam'
+            when (verb >= 3) $ putStrLn $ "Proved: " ++ show thm
+      liftIO $ runValidation prover vp jsc esd res
   BE.beFree be
   return ms
 
@@ -500,26 +502,23 @@ exportJavaType (SS.VCtorApp "Java.ArrayType" [SS.VInteger n, ety]) =
   ArrayInstance (fromIntegral n) (exportJSSType ety)
 exportJavaType v = error $ "Can't translate to Java type: " ++ show v
 
-javaVar :: BuiltinContext s -> Options -> String -> SS.Value s
-        -> SS.JavaSetup s ()
+javaVar :: BuiltinContext -> Options -> String -> SS.Value SAWCtx
+        -> JavaSetup ()
 javaVar bic _ name t@(SS.VCtorApp _ _) = do
   jsState <- get
-  let ms = SS.jsSpec jsState
+  let ms = jsSpec jsState
       cls = specMethodClass ms
       meth = specMethod ms
-      jsc = SS.jsContext jsState
   exp <- liftIO $ parseJavaExpr (biJavaCodebase bic) cls meth name
   ty <- return (exportJavaType t)
   -- TODO: check that exp and ty match
-  modify $ \st -> st { SS.jsSpec = specAddVarDecl exp ty (SS.jsSpec st)
-                     , SS.jsInputs = Map.insert name exp (SS.jsInputs st)
-                     }
+  modify $ \st -> st { jsSpec = specAddVarDecl name exp ty (jsSpec st) }
   -- TODO: Could return (java_value name) for convenience? (within SAWScript context)
 javaVar _ _ _ _ = fail "java_var called with invalid type argument"
 
 {-
-javaMayAlias :: BuiltinContext s -> Options -> SharedTerm s
-             -> SS.JavaSetup s ()
+javaMayAlias :: BuiltinContext -> Options -> SharedTerm SAWCtx
+             -> JavaSetup ()
 javaMayAlias bic _ t@(STApp _ (FTermF (ArrayValue _ es))) = do
   case sequence (map asStringLit (V.toList es)) of
     Just names -> do
@@ -530,62 +529,63 @@ javaMayAlias bic _ t@(STApp _ (FTermF (ArrayValue _ es))) = do
 javaMayAlias _ _ _ = fail "java_may_alias called with invalid type argument"
 -}
 
-javaAssert :: BuiltinContext s -> Options -> SharedTerm s
-           -> SS.JavaSetup s ()
+javaAssert :: BuiltinContext -> Options -> SharedTerm SAWCtx
+           -> JavaSetup ()
 javaAssert _ _ v =
   modify $ \st ->
-    st { SS.jsSpec = specAddBehaviorCommand (AssertPred fixPos v) (SS.jsSpec st) }
+    st { jsSpec = specAddBehaviorCommand (AssertPred fixPos (mkLogicExpr v)) (jsSpec st) }
 
 getJavaExpr :: Monad m =>
-               SS.JavaSetupState s -> String
+               MethodSpecIR -> String
             -> m (JavaExpr, JSS.Type)
-getJavaExpr jsState name = do
-  case Map.lookup name (SS.jsInputs jsState) of
+getJavaExpr ms name = do
+  case Map.lookup name (specJavaExprNames ms) of
     Just exp -> return (exp, jssTypeOfJavaExpr exp)
     Nothing -> fail $ "Java name " ++ name ++ " has not been declared."
 
-javaAssertEq :: BuiltinContext s -> Options -> String -> SharedTerm s
-           -> SS.JavaSetup s ()
+javaAssertEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
+           -> JavaSetup ()
 javaAssertEq bic _ name t = do
-  jsState <- get
-  (exp, ty) <- liftIO $ getJavaExpr jsState name
+  ms <- gets jsSpec
+  (exp, ty) <- liftIO $ getJavaExpr ms name
   fail "javaAssertEq"
 
-javaEnsureEq :: BuiltinContext s -> Options -> String -> SharedTerm s
-             -> SS.JavaSetup s ()
+javaEnsureEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
+             -> JavaSetup ()
 javaEnsureEq bic _ name t = do
-  jsState <- get
-  (exp, ty) <- liftIO $ getJavaExpr jsState name
+  ms <- gets jsSpec
+  (exp, ty) <- liftIO $ getJavaExpr ms name
   let cmd = case (CC.unTerm exp, ty) of
-              (_, JSS.ArrayType _) -> EnsureArray fixPos exp t
-              (InstanceField r f, _) -> EnsureInstanceField fixPos r f (LE t)
+              (_, JSS.ArrayType _) -> EnsureArray fixPos exp le
+              (InstanceField r f, _) -> EnsureInstanceField fixPos r f (LE le)
               _ -> error "invalid java_ensure command"
-  modify $ \st -> st { SS.jsSpec = specAddBehaviorCommand cmd (SS.jsSpec st) }
+      le = mkLogicExpr t
+  modify $ \st -> st { jsSpec = specAddBehaviorCommand cmd ms }
 
-javaModify :: BuiltinContext s -> Options -> String
-           -> SS.JavaSetup s ()
+javaModify :: BuiltinContext -> Options -> String
+           -> JavaSetup ()
 javaModify bic _ name = do
-  jsState <- get
-  (exp, _) <- liftIO $ getJavaExpr jsState name
-  let ms = SS.jsSpec jsState
-      mty = Map.lookup exp (bsActualTypeMap (specBehaviors ms))
+  ms <- gets jsSpec
+  (exp, _) <- liftIO $ getJavaExpr ms name
+  let mty = Map.lookup exp (bsActualTypeMap (specBehaviors ms))
   let cmd = case (CC.unTerm exp, mty) of
               (_, Just ty@(ArrayInstance _ _)) -> ModifyArray exp ty
               (InstanceField r f, _) -> ModifyInstanceField r f
               _ -> error "invalid java_modify command"
-  modify $ \st -> st { SS.jsSpec = specAddBehaviorCommand cmd (SS.jsSpec st) }
+  modify $ \st -> st { jsSpec = specAddBehaviorCommand cmd ms }
 
-javaReturn :: BuiltinContext s -> Options -> SharedTerm s
-           -> SS.JavaSetup s ()
+javaReturn :: BuiltinContext -> Options -> SharedTerm SAWCtx
+           -> JavaSetup ()
 javaReturn _ _ t =
   modify $ \st ->
-    st { SS.jsSpec = specAddBehaviorCommand (Return (LE t)) (SS.jsSpec st) }
+    st { jsSpec = specAddBehaviorCommand (Return (LE (mkLogicExpr t))) (jsSpec st) }
 
-javaVerifyTactic :: BuiltinContext s -> Options -> SS.ProofScript s SS.ProofResult
-                 -> SS.JavaSetup s ()
-javaVerifyTactic = fail "javaVerifyTactic"
+javaVerifyTactic :: BuiltinContext -> Options -> ProofScript SAWCtx ProofResult
+                 -> JavaSetup ()
+javaVerifyTactic _ _ script =
+  modify $ \st -> st { jsSpec = specSetVerifyTactic script (jsSpec st) }
 
-verifyLLVM :: BuiltinContext s -> Options -> String -> String
+verifyLLVM :: BuiltinContext -> Options -> String -> String
            -> [SS.LLVMMethodSpecIR s]
            -> SS.LLVMSetup s ()
            -> IO (SS.LLVMMethodSpecIR s)
@@ -604,30 +604,30 @@ verifyLLVM bic opts file func overrides setup = do
 
 initLLVMMethodSpec = fail "initLLVMMethodSpec"
 
-llvmVar :: BuiltinContext s -> Options -> String -> SS.Value s
+llvmVar :: BuiltinContext -> Options -> String -> SS.Value s
         -> SS.LLVMSetup s ()
 llvmVar = fail "llvmVar"
 
-llvmAssert :: BuiltinContext s -> Options -> SharedTerm s
+llvmAssert :: BuiltinContext -> Options -> SharedTerm s
            -> SS.LLVMSetup s ()
 llvmAssert = fail "llvmAssert"
 
-llvmAssertEq :: BuiltinContext s -> Options -> String -> SharedTerm s
+llvmAssertEq :: BuiltinContext -> Options -> String -> SharedTerm s
            -> SS.LLVMSetup s ()
 llvmAssertEq = fail "llvmAssertEq"
 
-llvmEnsureEq :: BuiltinContext s -> Options -> String -> SharedTerm s
+llvmEnsureEq :: BuiltinContext -> Options -> String -> SharedTerm s
            -> SS.LLVMSetup s ()
 llvmEnsureEq = fail "llvmEnsureEq"
 
-llvmModify :: BuiltinContext s -> Options -> String
+llvmModify :: BuiltinContext -> Options -> String
            -> SS.LLVMSetup s ()
 llvmModify = fail "llvmEnsureEq"
 
-llvmReturn :: BuiltinContext s -> Options -> SharedTerm s
+llvmReturn :: BuiltinContext -> Options -> SharedTerm s
            -> SS.LLVMSetup s ()
 llvmReturn _ _ v = fail "llvmReturn"
 
-llvmVerifyTactic :: BuiltinContext s -> Options -> SS.ProofScript s SS.ProofResult
+llvmVerifyTactic :: BuiltinContext -> Options -> ProofScript s ProofResult
                  -> SS.LLVMSetup s ()
 llvmVerifyTactic = fail "llvmVerifyTactic"

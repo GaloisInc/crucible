@@ -11,8 +11,9 @@ import Data.Map ( Map )
 import qualified Data.Vector as V
 
 import qualified SAWScript.AST as SS
-import SAWScript.JavaExpr
 import SAWScript.MethodSpecIR
+import SAWScript.Proof
+import SAWScript.Utils
 import qualified Verifier.SAW.Prim as Prim
 import Verifier.SAW.Rewriter ( Simpset )
 import Verifier.SAW.SharedTerm
@@ -41,9 +42,9 @@ data Value s
   | VProofScript (ProofScript s (Value s))
   | VSimpset (Simpset (SharedTerm s))
   | VTheorem (Theorem s)
-  | VJavaSetup (JavaSetup s (Value s))
+  | VJavaSetup (JavaSetup (Value s))
   | VLLVMSetup (LLVMSetup s (Value s))
-  | VJavaMethodSpec (MethodSpecIR s)
+  | VJavaMethodSpec MethodSpecIR
   | VLLVMMethodSpec (LLVMMethodSpecIR s)
 
 isVUnit :: Value s -> Bool
@@ -233,7 +234,7 @@ instance IsValue s a => IsValue s (StateT (SharedTerm s) IO a) where
     fromValue (VProofScript m) = fmap fromValue m
     fromValue _ = error "fromValue ProofScript"
 
-instance IsValue s a => IsValue s (StateT (JavaSetupState s) IO a) where
+instance (IsValue s a) => IsValue s (StateT JavaSetupState IO a) where
     toValue m = VJavaSetup (fmap toValue m)
     fromValue (VJavaSetup m) = fmap fromValue m
     fromValue _ = error "fromValue JavaSetup"
@@ -288,7 +289,7 @@ instance IsValue s (Theorem s) where
     fromValue (VTheorem t) = t
     fromValue _ = error "fromValue Theorem"
 
-instance IsValue s (MethodSpecIR s) where
+instance IsValue SAWCtx MethodSpecIR where
     toValue ms = VJavaMethodSpec ms
     fromValue (VJavaMethodSpec ms) = ms
     fromValue _ = error "fromValue JavaMethodSpec"
@@ -297,30 +298,6 @@ instance IsValue s (LLVMMethodSpecIR s) where
     toValue ms = VLLVMMethodSpec ms
     fromValue (VLLVMMethodSpec ms) = ms
     fromValue _ = error "fromValue LLVMMethodSpec"
-
--- | A theorem must contain a boolean term, possibly surrounded by one
--- or more lambdas which are interpreted as universal quantifiers.
-data Theorem s = Theorem (SharedTerm s)
-
--- | A ProofGoal is a term of type Bool, possibly surrounded by one or
--- more lambdas. The abstracted arguments are treated as if they are
--- EXISTENTIALLY quantified, as in the statement of a SAT problem. For
--- proofs of universals, we negate the proposition before running the
--- proof script, and then re-negate the result afterward.
-type ProofGoal s = SharedTerm s
-
---type ProofScript s a = ProofGoal s -> IO (a, ProofGoal s)
-type ProofScript s a = StateT (ProofGoal s) IO a
-type ProofResult = () -- FIXME: could use this type to return witnesses
-
-data JavaSetupState s
-  = JavaSetupState {
-      jsSpec :: MethodSpecIR s
-    , jsInputs :: Map String JavaExpr
-    , jsContext :: SharedContext s -- TODO: js instead of s?
-    }
-
-type JavaSetup s a = StateT (JavaSetupState s) IO a
 
 -- FIXME: implement this
 data LLVMMethodSpecIR s = IO ()

@@ -39,12 +39,13 @@ import SAWScript.REPL.Monad (REPLState, withInitialState,
                              modifyNamesInScope, modifyEnvironment)
 import qualified SAWScript.REPL.Monad as REP
 import SAWScript.ResolveSyns (resolveSyns)
+import SAWScript.Utils (SAWCtx)
 
 run :: Options -> IO ()
 run opts = do
   settings <- replSettings
   withInitialState opts $ loop settings
-  where loop :: Haskeline.Settings IO -> REPLState s -> IO ()
+  where loop :: Haskeline.Settings IO -> REPLState -> IO ()
         loop settings state = do
           result <- runREP settings state (read >>= evaluate >>= print)
           case result of
@@ -63,7 +64,7 @@ replSettings = do
 
 ------------------------------------ Read -------------------------------------
 
-read :: REP s (BlockStmt UnresolvedName RawT)
+read :: REP (BlockStmt UnresolvedName RawT)
 read = do
   promptString <- buildPromptString
   line <- REP.haskeline $ Haskeline.getInputLine promptString
@@ -74,7 +75,7 @@ read = do
       tokens <- REP.err $ scan replFileName sawScriptStr
       REP.err $ parseBlockStmt tokens
 
-buildPromptString :: REP s String
+buildPromptString :: REP String
 buildPromptString = do
   modsInScope <- getModulesInScope
   let moduleNames = map renderModuleName $ Map.keys modsInScope
@@ -104,7 +105,7 @@ caveats:
      computations and use them to seed the name resolver and the typechecker;
      we also hang onto the results and use them to seed the interpreter. -}
 evaluate :: BlockStmt UnresolvedName RawT
-            -> REP s (Maybe Name, Value s)
+            -> REP (Maybe Name, Value SAWCtx)
 evaluate ast = do
   -- Set the context (i.e., the monad) for the statement (point 1 above).
   let ast' :: BlockStmt UnresolvedName RawT
@@ -152,7 +153,7 @@ evaluate ast = do
   return (boundName, result)
 
 injectBoundExpressionTypes :: Module UnresolvedName ResolvedT ResolvedT
-                              -> REP s (Module UnresolvedName ResolvedT ResolvedT)
+                              -> REP (Module UnresolvedName ResolvedT ResolvedT)
 injectBoundExpressionTypes orig = do
   boundNames <- getNamesInScope
   boundNamesAndTypes :: Map Name ResolvedT
@@ -171,7 +172,7 @@ injectBoundExpressionTypes orig = do
           error "injectBoundExpressionTypes: bound LocalName"
         stripModuleName (TopLevelName _modName varName) = varName
 
-saveResult :: Maybe Name -> Value s -> REP s ()
+saveResult :: Maybe Name -> Value SAWCtx -> REP ()
 saveResult Nothing _ = return ()
 saveResult (Just name) result = do
   -- Record that 'name' is in scope.
@@ -211,7 +212,7 @@ extractFromBlock _ = error "extractFromBlock: unknown construct"
 
 ------------------------------------ Print ------------------------------------
 
-print :: (Maybe a, Value s) -> REP s ()
+print :: (Maybe a, Value SAWCtx) -> REP ()
 print (Just _, _) =
   -- This value's being bound.  Don't print it.
   return ()
