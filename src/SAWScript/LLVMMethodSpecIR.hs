@@ -122,12 +122,11 @@ data BehaviorCommand
      -- | Modify the LLVM expression to an arbitrary value.
      -- May point to integral type or array.
    | ModifyStructField LLVMExpr Int
-     -- | Modify the LLVM array to an arbitrary value.
-     -- May point to integral type or array.
+     -- | Modify an LLVM array to an arbitrary value. May point to
+     -- integral type or array.
    | ModifyArray LLVMExpr LLVMActualType
-     -- | Specifies value a function returns.
+     -- | Specifies return value for a function.
    | Return MixedExpr
-  -- deriving (Show)
 
 data BehaviorSpec = BS {
          -- | Program counter for spec.
@@ -142,7 +141,7 @@ data BehaviorSpec = BS {
        , bsLogicAssignments :: [(Pos, LLVMExpr, LogicExpr)]
          -- | Commands to execute in reverse order.
        , bsReversedCommands :: [BehaviorCommand]
-       } -- deriving (Show)
+       }
 
 -- | Returns list of all LLVM expressions that are not pointers.
 bsExprs :: BehaviorSpec -> [LLVMExpr]

@@ -200,13 +200,5 @@ logicTypeOfActual sc (PrimitiveType tp) = do
   Just <$> scBitvector sc (fromIntegral (JSS.stackWidth tp))
 -}
 
--- @isActualSubtype cb x y@ returns True if @x@ is a subtype of @y@.
--- TODO: does this make sense for LLVM?
-{-
-isActualSubtype :: LLVMActualType -> LLVMActualType -> Bool
-isActualSubtype (LSS.ArrayType _ ex) (LSS.PtrType (LSS.MemType ey)) = ex == ey
-isActualSubtype _ _ = False
--}
-
 ppActualType :: LLVMActualType -> Doc
 ppActualType = LSS.ppMemType

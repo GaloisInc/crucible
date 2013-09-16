@@ -24,7 +24,6 @@ module SAWScript.JavaExpr
   , jssTypeOfActual
   , isActualRef
   , logicTypeOfActual
-  , isActualSubtype
   , ppActualType
   , MethodLocation (..)
   ) where
@@ -179,14 +178,6 @@ logicTypeOfActual sc (ArrayInstance l tp) = do
   Just <$> scVecType sc lTm elTy
 logicTypeOfActual sc (PrimitiveType tp) = do
   Just <$> scBitvector sc (fromIntegral (JSS.stackWidth tp))
-
--- @isActualSubtype cb x y@ returns True if @x@ is a subtype of @y@.
-isActualSubtype :: JSS.Codebase -> JavaActualType -> JavaActualType -> IO Bool
-isActualSubtype cb (ArrayInstance lx ex) (ArrayInstance ly ey)
-  | lx == ly = JSS.isSubtype cb ex ey
-  | otherwise = return False
-isActualSubtype cb x y 
-  = JSS.isSubtype cb (jssTypeOfActual x) (jssTypeOfActual y)
 
 ppActualType :: JavaActualType -> String
 ppActualType (ClassInstance x) = JSS.slashesToDots (JSS.className x)

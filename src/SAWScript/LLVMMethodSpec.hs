@@ -76,32 +76,20 @@ type SpecPathState = LSS.Path SpecBackend
 type SpecLLVMValue = SharedTerm LSSCtx
 
 {-
-
 -- | Set value of bound to struct field in path state.
 setStructFieldValue :: JSS.Ref -> JSS.FieldId -> SpecJavaValue
                       -> SpecPathState -> SpecPathState
-setStructFieldValue r f v = undefined
+setStructFieldValue r f v =
   JSS.pathMemory . JSS.memInstanceFields %~ Map.insert (r, f) v
 
 -- | Set value bound to array in path state.
 -- Assumes value is an array with a ground length.
 setArrayValue :: JSS.Ref -> SharedTerm LSSCtx
               -> SpecPathState -> SpecPathState
-setArrayValue r v@(STApp _ (FTermF (ArrayValue _ vs))) = undefined
+setArrayValue r v@(STApp _ (FTermF (ArrayValue _ vs))) =
   JSS.pathMemory . JSS.memScalarArrays %~ Map.insert r (w, v)
     where w = fromIntegral $ V.length vs
 setArrayValue _ _ = error "internal: setArrayValue called with non-array value"
-
--- | Returns value constructor from node.
-mkJSSValue :: JSS.Type -> n -> JSS.Value n
-mkJSSValue JSS.BooleanType n = JSS.IValue n
-mkJSSValue JSS.ByteType    n = JSS.IValue n
-mkJSSValue JSS.CharType    n = JSS.IValue n
-mkJSSValue JSS.IntType     n = JSS.IValue n
-mkJSSValue JSS.LongType    n = JSS.LValue n
-mkJSSValue JSS.ShortType   n = JSS.IValue n
-mkJSSValue _ _ = error "internal: illegal type"
-
 -}
 -- | Add assumption for predicate to path state.
 addAssumption :: SharedContext LSSCtx -> SharedTerm LSSCtx -> SpecPathState -> IO SpecPathState
@@ -336,7 +324,7 @@ ocStep (ModifyInstanceField refExpr f) =
         w = fromIntegral $ JSS.stackWidth tp
     logicType <- liftIO $ scBitvector sc (fromInteger w)
     n <- liftIO $ scFreshGlobal sc "_" logicType
-    ocModifyResultState $ setInstanceFieldValue lhsRef f (mkJSSValue tp n)
+    ocModifyResultState $ setInstanceFieldValue lhsRef f n
 ocStep (ModifyArray refExpr ty) = do
   ocEval (evalJavaRefExpr refExpr) $ \ref -> do
     sc <- gets (ecContext . ocsEvalContext)
@@ -700,7 +688,7 @@ initializeVerification :: (MonadIO m, Functor m) =>
 initializeVerification sc ir bs ptrConfig = do
   let m = specLLVMExprNames ir
 {-
-  exprRefs <- mapM (JSS.genRef . TC.jssTypeOfActual . snd) refConfig
+  exprRefs <- mapM (JSS.genRef . TC.jssTypeOfActual . snd) ptrConfig
   let refAssignments = (map fst refConfig `zip` exprRefs)
       clName = JSS.className (specThisClass ir)
       --key = JSS.methodKey (specMethod ir)
@@ -713,10 +701,10 @@ initializeVerification sc ir bs ptrConfig = do
                                    Map.empty
                                    cs
   JSS.modifyCSM_ (return . pushFrame)
+-}
   -- TODO: add breakpoints once local specs exist
   --forM_ (Map.keys (specBehaviors ir)) $ JSS.addBreakpoint clName key
   -- TODO: set starting PC
--}
   initPS <- fromMaybe (error "initializeVerification") <$> LSS.getPath
   let initESG = ESGState { esContext = sc
                          , esDef = specFunction ir
@@ -735,14 +723,16 @@ initializeVerification sc ir bs ptrConfig = do
           forM_ refAssignments $ \(cl,r) ->
             forM_ cl $ \e -> esSetJavaValue e (JSS.RValue r)
           -- Set initial logic values.
-          lcs <- liftIO $ bsLogicClasses sc m bs refConfig
+-}
+          lcs <- liftIO $ bsLogicClasses sc m bs ptrConfig
           case lcs of
             Nothing ->
               let msg = "Unresolvable cyclic dependencies between assumptions."
                in throwIOExecException (specPos ir) (ftext msg) ""
+{-
             Just assignments -> mapM_ (\(l,t,r) -> esSetLogicValues sc l t r) assignments
-          -- Process commands
 -}
+          -- Process commands
           mapM esStep (bsCommands bs)
   let ps = esInitialPathState es
   -- TODO: JSS.modifyPathM_ (PP.text "initializeVerification") (\_ -> return ps)
@@ -887,18 +877,11 @@ generateVC ir esd (ps, endLoc, res) = do
     case res of
       Left oe -> pvcgFail (vcat (map (ftext . ppOverrideError) oe))
       Right maybeRetVal -> do
-{-
         -- Check return value
         case (maybeRetVal, esdReturnValue esd) of
           (Nothing,Nothing) -> return ()
-          (Just (JSS.IValue rv), Just (JSS.IValue srv)) ->
-            pvcgAssertEq "return value" rv srv
-          (Just (JSS.LValue rv), Just (JSS.LValue srv)) ->
-            pvcgAssertEq "return value" rv srv
-          (Just (JSS.RValue rv), Just (JSS.RValue srv)) ->
-            when (rv /= srv) $
-              pvcgFail $ ftext $ "Assigns unexpected return value."
-          _ ->  error "internal: The Java method has an unsupported return type."
+          (Just rv, Just srv) -> pvcgAssertEq "return value" rv srv
+{-
         -- Check static fields
         do forM_ (Map.toList $ ps ^. JSS.pathMemory . JSS.memStaticFields) $ \(f,_jvmVal) -> do
              let clName = JSS.slashesToDots (JSS.fieldIdClass f)
@@ -993,7 +976,6 @@ runValidation prover params sc esd results = do
                      , vsCounterexampleFn = cfn
                      , vsStaticErrors = pvcStaticErrors pvc
                      }
-        undefined
         if null (pvcStaticErrors pvc) then
          forM_ (pvcChecks pvc) $ \vc -> do
            let vs = mkVState (vcName vc) (vcCounterexample vc)
@@ -1031,10 +1013,5 @@ data VerifyState = VState {
        , vsCounterexampleFn :: CounterexampleFn
        , vsStaticErrors :: [Doc]
        }
-
-{-
-vsSharedContext :: VerifyState s -> SharedContext s
-vsSharedContext = ecContext . vsEvalContext
--}
 
 type Verbosity = Int
