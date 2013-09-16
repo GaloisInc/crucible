@@ -245,3 +245,17 @@ scRemoveBitvector sc tm = do
   tm' <- rewriteSharedTerm sc (addRules rules emptySimpset) tm
   return tm'
     where Just def = findDef (scModule sc) (parseIdent "Prelude.bitvector")
+
+scEq :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
+scEq sc x y = do
+  xty <- scTypeOf sc x
+  eqOp <- scApplyPreludeEq sc
+  res <- eqOp xty x y
+  return res
+
+scImplies :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
+scImplies sc x y = do
+  xNot <- scNot sc x
+  orOp <- scApplyPreludeOr sc
+  orOp xNot y
+
