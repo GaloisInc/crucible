@@ -54,8 +54,9 @@ import Verifier.SAW.Import.AIG
 import qualified SAWScript.AST as SS
 import qualified SAWScript.CongruenceClosure as CC
 import SAWScript.JavaExpr
-import SAWScript.MethodSpec
-import SAWScript.MethodSpecIR
+import SAWScript.JavaMethodSpec
+import SAWScript.JavaMethodSpecIR
+import SAWScript.LLVMMethodSpecIR (LLVMMethodSpecIR, LLVMSetup, lsSpec)
 import SAWScript.Options
 import SAWScript.Proof
 import SAWScript.Utils
@@ -284,13 +285,11 @@ myPrint _ v = mkSC $ const (print v)
 print_type :: SharedContext s -> SharedTerm s -> IO ()
 print_type sc t = scTypeOf sc t >>= print
 
-type LLVMSetup s a = IO a
-
 -- | Extract a simple, pure model from the given symbol within the
 -- given bitcode file. This code creates fresh inputs for all
 -- arguments and returns a term representing the return value. Some
 -- verifications will require more complex execution contexts.
-extractLLVM :: SharedContext SAWCtx -> FilePath -> String -> LLVMSetup s ()
+extractLLVM :: SharedContext SAWCtx -> FilePath -> String -> LLVMSetup ()
             -> IO (SharedTerm SAWCtx)
 extractLLVM sc file func _setup = do
   mdl <- L.loadModule file
@@ -403,9 +402,9 @@ freshJavaArg sbe JSS.LongType = liftIO (JSS.LValue <$> JSS.freshLong sbe)
 freshJavaArg _ _ = fail "Only byte, int, and long arguments are supported for now."
 
 verifyJava :: BuiltinContext -> Options -> String -> String
-           -> [MethodSpecIR]
+           -> [JavaMethodSpecIR]
            -> JavaSetup ()
-           -> IO (MethodSpecIR)
+           -> IO (JavaMethodSpecIR)
 verifyJava bic opts cname mname overrides setup = do
   let pos = fixPos -- TODO
       cb = biJavaCodebase bic
@@ -536,7 +535,7 @@ javaAssert _ _ v =
     st { jsSpec = specAddBehaviorCommand (AssertPred fixPos (mkLogicExpr v)) (jsSpec st) }
 
 getJavaExpr :: Monad m =>
-               MethodSpecIR -> String
+               JavaMethodSpecIR -> String
             -> m (JavaExpr, JSS.Type)
 getJavaExpr ms name = do
   case Map.lookup name (specJavaExprNames ms) of
@@ -586,9 +585,9 @@ javaVerifyTactic _ _ script =
   modify $ \st -> st { jsSpec = specSetVerifyTactic script (jsSpec st) }
 
 verifyLLVM :: BuiltinContext -> Options -> String -> String
-           -> [SS.LLVMMethodSpecIR s]
-           -> SS.LLVMSetup s ()
-           -> IO (SS.LLVMMethodSpecIR s)
+           -> [LLVMMethodSpecIR]
+           -> LLVMSetup ()
+           -> IO LLVMMethodSpecIR
 verifyLLVM bic opts file func overrides setup = do
   let pos = fixPos -- TODO
       sc = biSharedContext bic
@@ -598,36 +597,37 @@ verifyLLVM bic opts file func overrides setup = do
   withBE $ \be -> do
     (sbe, mem, scLLVM) <- LSAW.createSAWBackend' be dl
     (_warnings, cb) <- L.mkCodebase sbe dl mdl
-    (_, ms) <- runStateT setup =<< initLLVMMethodSpec pos cb mdl sym
+    (_, lsctx) <- runStateT setup =<< initLLVMMethodSpec pos cb mdl sym
+    let ms = lsSpec lsctx
     fail "verifyLLVM"
     return ms
 
 initLLVMMethodSpec = fail "initLLVMMethodSpec"
 
 llvmVar :: BuiltinContext -> Options -> String -> SS.Value s
-        -> SS.LLVMSetup s ()
+        -> LLVMSetup ()
 llvmVar = fail "llvmVar"
 
 llvmAssert :: BuiltinContext -> Options -> SharedTerm s
-           -> SS.LLVMSetup s ()
+           -> LLVMSetup ()
 llvmAssert = fail "llvmAssert"
 
 llvmAssertEq :: BuiltinContext -> Options -> String -> SharedTerm s
-           -> SS.LLVMSetup s ()
+           -> LLVMSetup ()
 llvmAssertEq = fail "llvmAssertEq"
 
 llvmEnsureEq :: BuiltinContext -> Options -> String -> SharedTerm s
-           -> SS.LLVMSetup s ()
+           -> LLVMSetup ()
 llvmEnsureEq = fail "llvmEnsureEq"
 
 llvmModify :: BuiltinContext -> Options -> String
-           -> SS.LLVMSetup s ()
+           -> LLVMSetup ()
 llvmModify = fail "llvmEnsureEq"
 
 llvmReturn :: BuiltinContext -> Options -> SharedTerm s
-           -> SS.LLVMSetup s ()
+           -> LLVMSetup ()
 llvmReturn _ _ v = fail "llvmReturn"
 
 llvmVerifyTactic :: BuiltinContext -> Options -> ProofScript s ProofResult
-                 -> SS.LLVMSetup s ()
+                 -> LLVMSetup ()
 llvmVerifyTactic = fail "llvmVerifyTactic"

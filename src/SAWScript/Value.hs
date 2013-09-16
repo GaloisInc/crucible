@@ -11,7 +11,8 @@ import Data.Map ( Map )
 import qualified Data.Vector as V
 
 import qualified SAWScript.AST as SS
-import SAWScript.MethodSpecIR
+import SAWScript.JavaMethodSpecIR
+import SAWScript.LLVMMethodSpecIR
 import SAWScript.Proof
 import SAWScript.Utils
 import qualified Verifier.SAW.Prim as Prim
@@ -43,9 +44,9 @@ data Value s
   | VSimpset (Simpset (SharedTerm s))
   | VTheorem (Theorem s)
   | VJavaSetup (JavaSetup (Value s))
-  | VLLVMSetup (LLVMSetup s (Value s))
-  | VJavaMethodSpec MethodSpecIR
-  | VLLVMMethodSpec (LLVMMethodSpecIR s)
+  | VLLVMSetup (LLVMSetup (Value s))
+  | VJavaMethodSpec JavaMethodSpecIR
+  | VLLVMMethodSpec LLVMMethodSpecIR
 
 isVUnit :: Value s -> Bool
 isVUnit (VTuple []) = True
@@ -239,7 +240,7 @@ instance (IsValue s a) => IsValue s (StateT JavaSetupState IO a) where
     fromValue (VJavaSetup m) = fmap fromValue m
     fromValue _ = error "fromValue JavaSetup"
 
-instance IsValue s a => IsValue s (StateT (LLVMMethodSpecIR s) IO a) where
+instance IsValue s a => IsValue s (StateT LLVMSetupState IO a) where
     toValue m = VLLVMSetup (fmap toValue m)
     fromValue (VLLVMSetup m) = fmap fromValue m
     fromValue _ = error "fromValue LLVMSetup"
@@ -289,17 +290,12 @@ instance IsValue s (Theorem s) where
     fromValue (VTheorem t) = t
     fromValue _ = error "fromValue Theorem"
 
-instance IsValue SAWCtx MethodSpecIR where
+instance IsValue SAWCtx JavaMethodSpecIR where
     toValue ms = VJavaMethodSpec ms
     fromValue (VJavaMethodSpec ms) = ms
     fromValue _ = error "fromValue JavaMethodSpec"
 
-instance IsValue s (LLVMMethodSpecIR s) where
+instance IsValue SAWCtx LLVMMethodSpecIR where
     toValue ms = VLLVMMethodSpec ms
     fromValue (VLLVMMethodSpec ms) = ms
     fromValue _ = error "fromValue LLVMMethodSpec"
-
--- FIXME: implement this
-data LLVMMethodSpecIR s = IO ()
-
-type LLVMSetup s a = StateT (LLVMMethodSpecIR s) IO a
