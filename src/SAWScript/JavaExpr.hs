@@ -2,10 +2,7 @@
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE PatternGuards  #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE ViewPatterns   #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module SAWScript.JavaExpr
   (-- * Java Expressions
@@ -195,66 +192,3 @@ ppActualType :: JavaActualType -> String
 ppActualType (ClassInstance x) = JSS.slashesToDots (JSS.className x)
 ppActualType (ArrayInstance l tp) = show tp ++ "[" ++ show l ++ "]"
 ppActualType (PrimitiveType tp) = show tp
-
--- SawTI {{{1
-
-{-
-type SawTI s = TI IO (TCConfig s)
-
-getMethodInfo :: SawTI s MethodInfo
-getMethodInfo = do
-  maybeMI <- gets methodInfo
-  case maybeMI of
-    Nothing -> error $ 
-      "internal: getMethodInfo called when parsing outside a method declaration"
-    Just p -> return p
-
--- | Check argument count matches expected length
-checkArgCount :: Pos -> String -> [a] -> Int -> SawTI s ()
-checkArgCount pos nm (length -> foundOpCnt) expectedCnt = do
-  unless (expectedCnt == foundOpCnt) $
-    typeErr pos $ ftext $ "Incorrect number of arguments to \'" ++ nm ++ "\'.  "
-                        ++ show expectedCnt ++ " arguments were expected, but "
-                        ++ show foundOpCnt ++ " arguments were found."
-
--- Core expression typechecking {{{1
-
-getActualType :: Pos -> JavaExpr -> SawTI s JavaActualType
-getActualType p je = do
-  mmi <- gets methodInfo
-  case mmi of
-    Nothing ->
-      let msg = "The Java value \'" ++ ppJavaExpr je ++ "\' appears in a global context."
-          res = "Java values may not be references outside method declarations."
-       in typeErrWithR p (ftext msg) res
-    Just mi -> do
-      case miJavaExprType mi je of
-        Nothing -> 
-          let msg = "The Java value \'" ++ ppJavaExpr je ++ "\' has not been declared."
-              res = "Please explicitly declare Java expressions before referring to them."
-           in typeErrWithR p (ftext msg) res
-        Just at -> return at
-
--- | Verify that type is supported by SAWScript.
-checkIsSupportedType :: Pos -> JSS.Type -> SawTI s ()
-checkIsSupportedType pos tp =
-  case tp of
-    JSS.DoubleType -> throwFloatUnsupported
-    JSS.FloatType  -> throwFloatUnsupported
-    JSS.ArrayType eltType -> do
-      when (JSS.isFloatType eltType) $ throwFloatUnsupported
-      when (JSS.isRefType eltType) $ do
-        let msg = "SAWScript does not support arrays of references."
-         in typeErr pos (ftext msg)
-    _ -> return ()
- where throwFloatUnsupported =
-         let msg = "SAWScript does not support floating point types."
-          in typeErr pos (ftext msg)
-
--- | Create a Java expression representing a local variable.
-mkLocalVariable :: Pos -> JSS.LocalVariableTableEntry -> SawTI s JavaExpr
-mkLocalVariable pos e = do
-  let tp = JSS.localType e
-  checkIsSupportedType pos tp
-  return $ CC.Term $ Local (JSS.localName e) (JSS.localIdx e) tp
--}
