@@ -55,28 +55,31 @@ data SymbolLocation
 -- LLVMExpr {{{1
 
 data LLVMExprF v
-  = Local String LSS.Ident LLVMActualType
-  | Global LSS.Ident LLVMActualType
+  = Arg Int LSS.Ident LLVMActualType
+  | Global LSS.Symbol LLVMActualType
   | StructField v String Int LLVMActualType
   deriving (Functor, CC.Foldable, CC.Traversable)
 
 instance CC.EqFoldable LLVMExprF where
-  fequal (Local _ i _)(Local _ j _) = i == j
+  fequal (Arg i _ _)(Arg j _ _) = i == j
   fequal (Global x _)(Global y _) = x == y
   fequal (StructField xr _ xi _) (StructField yr _ yi _) = xi == yi && (xr == yr)
   fequal _ _ = False
 
 instance CC.OrdFoldable LLVMExprF where
-  Local _ i _ `fcompare` Local _ i' _ = i `compare` i'
-  Local _ _ _ `fcompare` _           = LT
-  _           `fcompare` Local _ _ _ = GT
+  Arg i _ _ `fcompare` Arg i' _ _ = i `compare` i'
+  Arg _ _ _ `fcompare` _          = LT
+  _         `fcompare` Arg _ _ _  = GT
+  Global n _ `fcompare` Global n' _  = n `compare` n'
+  Global _ _ `fcompare` StructField _ _ _ _ = LT
+  StructField _ _ _ _ `fcompare` Global _ _ = GT
   StructField r1 _ f1 _ `fcompare` StructField r2 _ f2 _ =
         case r1 `compare` r2 of
           EQ -> f1 `compare` f2
           r  -> r
 
 instance CC.ShowFoldable LLVMExprF where
-  fshow (Local nm _ _) = nm
+  fshow (Arg _ nm _) = show nm
   fshow (Global nm _) = show nm
   fshow (StructField r f _ _) = show r ++ "." ++ f
 
@@ -90,14 +93,16 @@ instance Error LLVMExpr where
 ppLLVMExpr :: LLVMExpr -> Doc
 ppLLVMExpr (CC.Term exprF) =
   case exprF of
-    Local nm _ _ -> text nm
+    Arg _ nm _ -> text (show nm)
+    Global nm _ -> text (show nm)
     StructField r f _ _ -> ppLLVMExpr r <> char '.' <> text f
 
 -- | Returns LSS Type of LLVMExpr
 lssTypeOfLLVMExpr :: LLVMExpr -> LSS.MemType
 lssTypeOfLLVMExpr (CC.Term exprF) =
   case exprF of
-    Local _ _ tp      -> tp
+    Arg _ _ tp -> tp
+    Global _ tp -> tp
     StructField _ _ _ tp -> tp
 
 -- | Returns true if expression is a pointer.

@@ -44,6 +44,7 @@ import Verifier.SAW.TypedAST hiding ( incVars )
 
 import qualified Verifier.Java.Codebase as JCB
 import qualified Verifier.Java.SAWBackend as JavaSAW
+import qualified Verifier.LLVM.Backend.SAW as LLVMSAW
 
 type Expression = SS.Expr SS.ResolvedName SS.Schema
 type BlockStatement = SS.BlockStmt SS.ResolvedName SS.Schema
@@ -436,7 +437,7 @@ buildInterpretEnv opts m =
     do let mn = case SS.moduleName m of SS.ModuleName xs x -> mkModuleName (xs ++ [x])
        let scm = insImport preludeModule $
                  insImport JavaSAW.javaModule $
-                 --insImport llvmModule $
+                 insImport LLVMSAW.llvmModule $
                  emptyModule mn
        sc <- mkSharedContext scm
        ss <- basic_ss sc

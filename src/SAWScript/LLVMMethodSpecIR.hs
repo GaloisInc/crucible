@@ -20,6 +20,7 @@ module SAWScript.LLVMMethodSpecIR
   , LLVMMethodSpecIR
   , specName
   , specPos
+  , specCodebase
   , specFunction
   , specBehaviors
   , specValidationPlan
@@ -276,6 +277,7 @@ initLLVMMethodSpec pos cb symname = do
                   , bsReversedCommands = []
                   }
       initMS = MSIR { specPos = pos
+                    , specCodebase = cb
                     , specFunction = def
                     , specLLVMExprNames = Map.empty
                     , specBehaviors = initBS
@@ -295,6 +297,8 @@ data ValidationPlan
 
 data LLVMMethodSpecIR = MSIR {
     specPos :: Pos
+    -- | Codebase containing function to verify.
+  , specCodebase :: LSS.Codebase Backend
     -- | Function to verify.
   , specFunction :: LSS.SymDefine (SharedTerm LSSCtx)
     -- | Mapping from user-visible LLVM state names to LLVMExprs

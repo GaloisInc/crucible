@@ -5,27 +5,32 @@
 {-# LANGUAGE ViewPatterns #-}
 module SAWScript.LLVMBuiltins where
 
-import Control.Monad.Error
-import Control.Monad.State
+import Control.Monad.Error hiding (mapM)
+import Control.Monad.State hiding (mapM)
+import Data.List (sort)
+import Data.String
+import Text.PrettyPrint.Leijen
 
-import qualified Text.LLVM as LLVM
-import qualified Verifier.LLVM.Backend as L
-import qualified Verifier.LLVM.Codebase as L
-import qualified Verifier.LLVM.Backend.SAW as LSAW
-import qualified Verifier.LLVM.Simulator as L
+import Text.LLVM (modDataLayout)
+import Verifier.LLVM.Backend
+import Verifier.LLVM.Codebase hiding (Global)
+import Verifier.LLVM.Backend.SAW
+import Verifier.LLVM.Simulator
 
+import Verifier.SAW.TypedAST (FlatTermF(..))
 import Verifier.SAW.SharedTerm
 
+import SAWScript.CongruenceClosure hiding (mapM)
+import SAWScript.Builtins
 import SAWScript.LLVMExpr
 import SAWScript.LLVMMethodSpecIR
 import SAWScript.LLVMMethodSpec
-
-import SAWScript.Builtins
 import SAWScript.Options
 import SAWScript.Proof
 import SAWScript.Utils
 import SAWScript.Value
 
+import Verinf.Symbolic
 import Verinf.Utils.LogMonad
 
 -- | Extract a simple, pure model from the given symbol within the
@@ -35,56 +40,55 @@ import Verinf.Utils.LogMonad
 extractLLVM :: SharedContext SAWCtx -> FilePath -> String -> LLVMSetup ()
             -> IO (SharedTerm SAWCtx)
 extractLLVM sc file func _setup = do
-  mdl <- L.loadModule file
-  let dl = L.parseDataLayout $ LLVM.modDataLayout mdl
-      sym = L.Symbol func
+  mdl <- loadModule file
+  let dl = parseDataLayout $ modDataLayout mdl
+      sym = Symbol func
   withBE $ \be -> do
-    (sbe, mem, scLLVM) <- LSAW.createSAWBackend' be dl
-    (_warnings, cb) <- L.mkCodebase sbe dl mdl
+    (sbe, mem, scLLVM) <- createSAWBackend' be dl
+    (_warnings, cb) <- mkCodebase sbe dl mdl
     -- TODO: Print warnings from codebase.
-    case L.lookupDefine sym cb of
+    case lookupDefine sym cb of
       Nothing -> fail $ "Bitcode file " ++ file ++
                         " does not contain symbol " ++ func ++ "."
-      Just md -> L.runSimulator cb sbe mem Nothing $ do
+      Just md -> runSimulator cb sbe mem Nothing $ do
         setVerbosity 0
-        args <- mapM freshLLVMArg (L.sdArgs md)
-        _ <- L.callDefine sym (L.sdRetType md) args
-        mrv <- L.getProgramReturnValue
+        args <- mapM freshLLVMArg (sdArgs md)
+        _ <- callDefine sym (sdRetType md) args
+        mrv <- getProgramReturnValue
         case mrv of
           Nothing -> fail "No return value from simulated function."
           Just rv -> liftIO $ do
             lamTm <- bindExts scLLVM (map snd args) rv
             scImport sc lamTm
 
-
 {-
 extractLLVMBit :: FilePath -> String -> SC s (SharedTerm s')
 extractLLVMBit file func = mkSC $ \_sc -> do
-  mdl <- L.loadModule file
-  let dl = L.parseDataLayout $ LLVM.modDataLayout mdl
-      sym = L.Symbol func
-      mg = L.defaultMemGeom dl
+  mdl <- loadModule file
+  let dl = parseDataLayout $ modDataLayout mdl
+      sym = Symbol func
+      mg = defaultMemGeom dl
   withBE $ \be -> do
     LBit.SBEPair sbe mem <- return $ LBit.createBuddyAll be dl mg
-    cb <- L.mkCodebase sbe dl mdl
-    case L.lookupDefine sym cb of
+    cb <- mkCodebase sbe dl mdl
+    case lookupDefine sym cb of
       Nothing -> fail $ "Bitcode file " ++ file ++
                         " does not contain symbol " ++ func ++ "."
-      Just md -> L.runSimulator cb sbe mem L.defaultSEH Nothing $ do
+      Just md -> runSimulator cb sbe mem defaultSEH Nothing $ do
         setVerbosity 0
-        args <- mapM freshLLVMArg (L.sdArgs md)
-        L.callDefine_ sym (L.sdRetType md) args
-        mrv <- L.getProgramReturnValue
+        args <- mapM freshLLVMArg (sdArgs md)
+        callDefine_ sym (sdRetType md) args
+        mrv <- getProgramReturnValue
         case mrv of
           Nothing -> fail "No return value from simulated function."
           Just bt -> fail "extractLLVMBit: not yet implemented"
 -}
 
 freshLLVMArg :: Monad m =>
-            (t, L.MemType) -> L.Simulator sbe m (L.MemType, L.SBETerm sbe)
-freshLLVMArg (_, ty@(L.IntType bw)) = do
-  sbe <- gets L.symBE
-  tm <- L.liftSBE $ L.freshInt sbe bw
+            (t, MemType) -> Simulator sbe m (MemType, SBETerm sbe)
+freshLLVMArg (_, ty@(IntType bw)) = do
+  sbe <- gets symBE
+  tm <- liftSBE $ freshInt sbe bw
   return (ty, tm)
 freshLLVMArg (_, _) = fail "Only integer arguments are supported for now."
 
@@ -95,11 +99,11 @@ verifyLLVM :: BuiltinContext -> Options -> String -> String
 verifyLLVM bic opts file func overrides setup = do
   let pos = fixPos -- TODO
       sc = biSharedContext bic
-  mdl <- L.loadModule file
-  let dl = L.parseDataLayout $ LLVM.modDataLayout mdl
+  mdl <- loadModule file
+  let dl = parseDataLayout $ modDataLayout mdl
   withBE $ \be -> do
-    (sbe, mem, scLLVM) <- LSAW.createSAWBackend' be dl
-    (_warnings, cb) <- L.mkCodebase sbe dl mdl
+    (sbe, mem, scLLVM) <- createSAWBackend' be dl
+    (_warnings, cb) <- mkCodebase sbe dl mdl
     ms0 <- initLLVMMethodSpec pos cb func
     let lsctx0 = LLVMSetupState {
                     lsSpec = ms0
@@ -107,34 +111,82 @@ verifyLLVM bic opts file func overrides setup = do
                   }
     (_, lsctx) <- runStateT setup lsctx0
     let ms = lsSpec lsctx
-    fail "verifyLLVM"
+    let vp = VerifyParams { vpCode = cb
+                          , vpContext = scLLVM
+                          , vpOpts = opts
+                          , vpSpec = ms
+                          , vpOver = overrides
+                          }
+    let verb = simVerbose (vpOpts vp)
+    when (verb >= 2) $ putStrLn $ "Starting verification of " ++ show (specName ms)
+    let configs = [ (bs, cl)
+                  | bs <- {- concat $ Map.elems $ -} [specBehaviors ms]
+                  , cl <- bsRefEquivClasses bs
+                  ]
+        lssOpts = Nothing -- FIXME
+    forM_ configs $ \(bs,cl) -> do
+      when (verb >= 3) $ do
+        putStrLn $ "Executing " ++ show (specName ms)
+      runSimulator cb sbe mem lssOpts $ do
+        esd <- initializeVerification scLLVM ms bs cl
+        let isExtCns (STApp _ (FTermF (ExtCns e))) = True
+            isExtCns _ = False
+            initialExts =
+              sort . filter isExtCns . map snd . esdInitialAssignments $ esd
+        res <- mkSpecVC scLLVM vp esd
+        when (verb >= 3) $ liftIO $ do
+          putStrLn "Verifying the following:"
+          mapM_ (print . ppPathVC) res
+        let prover vs script g = do
+              glam <- bindExts scLLVM initialExts g
+              glam' <- scImport (biSharedContext bic) glam
+              Theorem thm <- provePrim (biSharedContext bic) script glam'
+              when (verb >= 3) $ putStrLn $ "Proved: " ++ show thm
+        liftIO $ runValidation prover vp scLLVM esd res
     return ms
 
 llvmPure :: LLVMSetup ()
 llvmPure = return ()
 
+exportLLVMType :: Value s -> MemType
+exportLLVMType (VCtorApp "LLVM.IntType" [VInteger n]) =
+  IntType (fromIntegral n)
+exportLLVMType (VCtorApp "LLVM.ArrayType" [VInteger n, ety]) =
+  ArrayType (fromIntegral n) (exportLLVMType ety)
+exportLLVMType v = error $ "exportLLVMType: Can't translate to LLVM type: " ++ show v
+
+parseLLVMExpr :: Codebase (SAWBackend LSSCtx Lit)
+              -> SymDefine (SharedTerm LSSCtx) -> String
+              -> IO LLVMExpr
+parseLLVMExpr cb fn name = do
+  let numArgs = zipWith (\(i, ty) n -> (i, (n, ty))) (sdArgs fn) [0..]
+      nid = fromString name
+  case lookup nid numArgs of
+    Just (n, ty) -> return (Term (Arg n nid ty))
+    Nothing -> case lookupSym (Symbol name) cb of
+                 Just (Left gb) -> return (Term (Global (globalSym gb) (globalType gb)))
+                 -- TODO: parse complex names
+                 _ -> fail $ "Can't parse variable name: " ++ name
+
 llvmVar :: BuiltinContext -> Options -> String -> Value SAWCtx
         -> LLVMSetup ()
 llvmVar bic _ name t@(VCtorApp _ _) = do
   lsState <- get
-  {-
   let ms = lsSpec lsState
-      sym = undefined
-  exp <- liftIO $ parseLLVMExpr (biLLVMCodebase bic) sym name
-  let lty = lssTypeOfJavaExpr exp
-      lty' = exportLSSType t
-      aty = exportLLVMType t
+      func = specFunction ms
+      cb = specCodebase ms
+  exp <- liftIO $ parseLLVMExpr cb func name
+  let lty = lssTypeOfLLVMExpr exp
+      lty' = exportLLVMType t
   when (lty /= lty') $ fail $ show $
     hsep [ text "WARNING: Declared type"
-         , text (show lty')
+         , ppActualType lty'
          , text "doesn't match actual type"
-         , text (show lty)
+         , ppActualType lty
          , text "for variable"
          , text name
          ]
-  -}
-  let (exp, aty) = undefined -- TODO
-  modify $ \st -> st { lsSpec = specAddVarDecl name exp aty (lsSpec st) }
+  modify $ \st -> st { lsSpec = specAddVarDecl name exp lty (lsSpec st) }
   -- TODO: Could return (llvm_value name) for convenience? (within SAWScript context)
 llvmVar _ _ _ _ = fail "llvm_var called with invalid type argument"
 
