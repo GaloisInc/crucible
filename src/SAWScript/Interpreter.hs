@@ -466,6 +466,10 @@ transitivePrimEnv m = M.unions (env : envs)
 
 -- Primitives ------------------------------------------------------------------
 
+print_value :: Value SAWCtx -> IO ()
+print_value (VString s) = putStrLn s
+print_value v = print v
+
 valueEnv :: Options -> BuiltinContext -> RNameMap (Value SAWCtx)
 valueEnv opts bic = M.fromList
   [ (qualify "read_sbv"    , toValue $ readSBV sc)
@@ -476,7 +480,7 @@ valueEnv opts bic = M.fromList
   , (qualify "java_verify" , toValue $ verifyJava bic opts)
   , (qualify "java_pure"   , toValue $ javaPure)
   , (qualify "java_var"    , toValue $ javaVar bic opts)
-  --, (qualify "java_may_alias", toValue $ javaMayAlias bic opts)
+  , (qualify "java_may_alias", toValue $ javaMayAlias bic opts)
   , (qualify "java_assert" , toValue $ javaAssert bic opts)
   , (qualify "java_assert_eq" , toValue $ javaAssertEq bic opts)
   , (qualify "java_ensure_eq" , toValue $ javaEnsureEq bic opts)
@@ -488,7 +492,7 @@ valueEnv opts bic = M.fromList
   , (qualify "llvm_verify" , toValue $ verifyLLVM bic opts)
   , (qualify "llvm_pure"   , toValue $ llvmPure)
   , (qualify "llvm_var"    , toValue $ llvmVar bic opts)
-  --, (qualify "llvm_may_alias", toValue $ llvmMayAlias bic opts)
+  , (qualify "llvm_may_alias", toValue $ llvmMayAlias bic opts)
   , (qualify "llvm_assert" , toValue $ llvmAssert bic opts)
   , (qualify "llvm_assert_eq" , toValue $ llvmAssertEq bic opts)
   , (qualify "llvm_ensure_eq" , toValue $ llvmEnsureEq bic opts)
@@ -509,7 +513,7 @@ valueEnv opts bic = M.fromList
   , (qualify "write_smtlib2", toValue $ writeSMTLib2 sc)
   , (qualify "write_core"   , toValue (writeCore :: FilePath -> SharedTerm SAWCtx -> IO ()))
   , (qualify "read_core"    , toValue $ readCore sc)
-  , (qualify "print"       , toValue (print :: Value SAWCtx -> IO ()))
+  , (qualify "print"       , toValue print_value)
   , (qualify "print_type"  , toValue $ print_type sc)
   , (qualify "print_term"  , toValue ((putStrLn . scPrettyTerm) :: SharedTerm SAWCtx -> IO ()))
   , (qualify "return"      , toValue (return :: Value SAWCtx -> IO (Value SAWCtx))) -- FIXME: make work for other monads

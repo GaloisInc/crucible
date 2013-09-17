@@ -130,6 +130,7 @@ verifyJava bic opts cname mname overrides setup = do
       let prover vs script g = do
             glam <- bindExts jsc initialExts g
             glam' <- scImport (biSharedContext bic) glam
+            when (verb >= 4) $ putStrLn $ "Trying to prove: " ++ show glam'
             Theorem thm <- provePrim (biSharedContext bic) script glam'
             when (verb >= 3) $ putStrLn $ "Proved: " ++ show thm
       liftIO $ runValidation prover vp jsc esd res
@@ -203,22 +204,22 @@ javaVar bic _ name t@(SS.VCtorApp _ _) = do
          , text "for variable"
          , text name
          ]
+  liftIO $ putStrLn $ "Adding variable " ++ name ++ " of type " ++ show aty
   modify $ \st -> st { jsSpec = specAddVarDecl name exp aty (jsSpec st) }
   -- TODO: Could return (java_value name) for convenience? (within SAWScript context)
 javaVar _ _ _ _ = fail "java_var called with invalid type argument"
 
-{-
-javaMayAlias :: BuiltinContext -> Options -> SharedTerm SAWCtx
+javaMayAlias :: BuiltinContext -> Options -> [String]
              -> JavaSetup ()
-javaMayAlias bic _ t@(STApp _ (FTermF (ArrayValue _ es))) = do
-  case sequence (map asStringLit (V.toList es)) of
-    Just names -> do
-      let cb = biJavaCodebase bic
-      exprs <- liftIO $ mapM (parseJavaExpr cb) names
-      modify $ specAddAliasSet exprs
-    Nothing -> fail "non-string arguments passed to java_may_alias"
+javaMayAlias bic _ exprs = do
+  jsState <- get
+  let cb = biJavaCodebase bic
+      ms = jsSpec jsState
+      cls = specMethodClass ms
+      meth = specMethod ms
+  exprs <- liftIO $ mapM (parseJavaExpr cb cls meth) exprs
+  modify $ \st -> st { jsSpec = specAddAliasSet exprs (jsSpec st) }
 javaMayAlias _ _ _ = fail "java_may_alias called with invalid type argument"
--}
 
 javaAssert :: BuiltinContext -> Options -> SharedTerm SAWCtx
            -> JavaSetup ()

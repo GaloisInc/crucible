@@ -190,6 +190,17 @@ llvmVar bic _ name t@(VCtorApp _ _) = do
   -- TODO: Could return (llvm_value name) for convenience? (within SAWScript context)
 llvmVar _ _ _ _ = fail "llvm_var called with invalid type argument"
 
+llvmMayAlias :: BuiltinContext -> Options -> [String]
+             -> LLVMSetup ()
+llvmMayAlias bic _ exprs = do
+  lsState <- get
+  let ms = lsSpec lsState
+      cb = specCodebase ms
+      func = specFunction ms
+  exprs <- liftIO $ mapM (parseLLVMExpr cb func) exprs
+  modify $ \st -> st { lsSpec = specAddAliasSet exprs (lsSpec st) }
+llvmMayAlias _ _ _ = fail "llvm_may_alias called with invalid type argument"
+
 llvmAssert :: BuiltinContext -> Options -> SharedTerm SAWCtx
            -> LLVMSetup ()
 llvmAssert _ _ v =

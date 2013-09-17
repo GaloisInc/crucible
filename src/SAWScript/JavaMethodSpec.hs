@@ -17,7 +17,6 @@ module SAWScript.JavaMethodSpec
   , SymbolicRunHandler
   , initializeVerification
   , runValidation
-  --, validateMethodSpec
   , mkSpecVC
   , ppPathVC
   , VerifyParams(..)
@@ -29,7 +28,6 @@ module SAWScript.JavaMethodSpec
 -- Imports {{{1
 
 import Control.Applicative hiding (empty)
---import Control.Exception (finally)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Cont
@@ -40,15 +38,10 @@ import Data.List (intercalate) -- foldl', intersperse)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
---import Data.Set (Set)
 import qualified Data.Set as Set
---import qualified Data.Vector.Storable as SV
 import qualified Data.Vector as V
 import Text.PrettyPrint.Leijen hiding ((<$>))
 import qualified Text.PrettyPrint.HughesPJ as PP
---import System.Directory(doesFileExist)
---import System.FilePath (splitExtension, addExtension)
---import System.IO
 
 import qualified SAWScript.CongruenceClosure as CC
 import qualified SAWScript.JavaExpr as TC
@@ -58,15 +51,8 @@ import SAWScript.JavaMethodSpecIR
 import SAWScript.Proof
 
 import qualified Verifier.Java.Simulator as JSS
---import qualified Verifier.Java.Common as JSS
 import qualified Data.JVM.Symbolic.AST as JSS
 import Verifier.Java.SAWBackend()
---import Verinf.Symbolic
---import qualified Verinf.Symbolic.BLIF as Blif
---import qualified Verinf.Symbolic.QuickCheck as QuickCheck
---import qualified Verinf.Symbolic.SmtLibTrans as SmtLib
---import qualified Verinf.Symbolic.SmtLibTrans2 as SmtLib2
---import qualified Verinf.Symbolic.Yices  as Yices
 import Verinf.Utils.LogMonad
 
 import Verifier.SAW.Evaluator
@@ -89,12 +75,14 @@ setInstanceFieldValue r f v =
 
 -- | Set value bound to array in path state.
 -- Assumes value is an array with a ground length.
-setArrayValue :: JSS.Ref -> SharedTerm JSSCtx
+setArrayValue :: JSS.Ref -> SharedTerm JSSCtx -> SharedTerm JSSCtx
               -> SpecPathState -> SpecPathState
-setArrayValue r v@(STApp _ (FTermF (ArrayValue _ vs))) =
-  JSS.pathMemory . JSS.memScalarArrays %~ Map.insert r (w, v)
-    where w = fromIntegral $ V.length vs
-setArrayValue _ _ = error "internal: setArrayValue called with non-array value"
+setArrayValue r (isVecType (const (return ())) -> Just (w :*: _)) v =
+  JSS.pathMemory . JSS.memScalarArrays %~ Map.insert r (n, v)
+    where n = fromIntegral w
+setArrayValue _ ty _ =
+  error $ "internal: setArrayValue called with value of non-array type: " ++
+          show (scPrettyTermDoc ty)
 
 -- | Returns value constructor from node.
 mkJSSValue :: JSS.Type -> n -> JSS.Value n
@@ -344,8 +332,10 @@ ocStep (EnsureInstanceField _pos refExpr f rhsExpr) = do
       ocModifyResultState $ setInstanceFieldValue lhsRef f value
 ocStep (EnsureArray _pos lhsExpr rhsExpr) = do
   ocEval (evalJavaRefExpr lhsExpr) $ \lhsRef ->
-    ocEval (evalLogicExpr   rhsExpr) $ \rhsVal ->
-      ocModifyResultState $ setArrayValue lhsRef rhsVal
+    ocEval (evalLogicExpr   rhsExpr) $ \rhsVal -> do
+      sc <- gets (ecContext . ocsEvalContext)
+      ty <- liftIO $ scTypeOf sc rhsVal
+      ocModifyResultState $ setArrayValue lhsRef ty rhsVal
 ocStep (ModifyInstanceField refExpr f) =
   ocEval (evalJavaRefExpr refExpr) $ \lhsRef -> do
     sc <- gets (ecContext . ocsEvalContext)
@@ -359,7 +349,8 @@ ocStep (ModifyArray refExpr ty) = do
     sc <- gets (ecContext . ocsEvalContext)
     mtp <- liftIO $ TC.logicTypeOfActual sc ty
     rhsVal <- maybe (fail "can't convert") (liftIO . scFreshGlobal sc "_") mtp
-    ocModifyResultState $ setArrayValue ref rhsVal
+    ty <- liftIO $ scTypeOf sc rhsVal
+    ocModifyResultState $ setArrayValue ref ty rhsVal
 ocStep (Return expr) = do
   ocEval (evalMixedExpr expr) $ \val ->
     modify $ \ocs -> ocs { ocsReturnValue = Just val }
@@ -615,6 +606,7 @@ esResolveLogicExprs :: SharedTerm JSSCtx -> [TC.LogicExpr]
 esResolveLogicExprs tp [] = do
   sc <- gets esContext
   -- Create input variable.
+  liftIO $ putStrLn $ "Creating global of type: " ++ show tp
   liftIO $ scFreshGlobal sc "_" tp
 esResolveLogicExprs _ (hrhs:rrhs) = do
   sc <- gets esContext
@@ -643,7 +635,7 @@ esSetLogicValues sc cl tp lrhs = do
        refs <- forM cl $ \expr -> do
                  JSS.RValue ref <- esEval $ evalJavaExpr expr
                  return ref
-       forM_ refs $ \r -> esModifyInitialPathState (setArrayValue r value)
+       forM_ refs $ \r -> esModifyInitialPathState (setArrayValue r ty value)
     (asBitvectorType -> Just 32) ->
        mapM_ (flip esSetJavaValue (JSS.IValue value)) cl
     (asBitvectorType -> Just 64) ->
@@ -725,6 +717,7 @@ initializeVerification :: JSS.MonadSim (SharedContext JSSCtx) m =>
                        -> RefEquivConfiguration
                        -> JSS.Simulator (SharedContext JSSCtx) m ExpectedStateDef
 initializeVerification sc ir bs refConfig = do
+  liftIO $ print (map fst refConfig)
   exprRefs <- mapM (JSS.genRef . TC.jssTypeOfActual . snd) refConfig
   let refAssignments = (map fst refConfig `zip` exprRefs)
       m = specJavaExprNames ir
@@ -734,7 +727,6 @@ initializeVerification sc ir bs refConfig = do
         where
           mcs' = JSS.pushCallFrame clName
                                    (specMethod ir)
-                                   -- FIXME: this is probably the cause of the empty operand stack
                                    JSS.entryBlock -- FIXME: not the right block
                                    Map.empty
                                    cs

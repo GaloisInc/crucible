@@ -26,7 +26,6 @@ module SAWScript.LLVMMethodSpec
 -- Imports {{{1
 
 import Control.Applicative hiding (empty)
---import Control.Exception (finally)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Cont
@@ -37,15 +36,10 @@ import Data.List (intercalate) -- foldl', intersperse)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
---import Data.Set (Set)
 import qualified Data.Set as Set
---import qualified Data.Vector.Storable as SV
 import qualified Data.Vector as V
 import Text.PrettyPrint.Leijen hiding ((<$>))
 import qualified Text.PrettyPrint.HughesPJ as PP
---import System.Directory(doesFileExist)
---import System.FilePath (splitExtension, addExtension)
---import System.IO
 
 import qualified SAWScript.CongruenceClosure as CC
 import qualified SAWScript.LLVMExpr as TC
@@ -54,10 +48,11 @@ import SAWScript.Utils
 import SAWScript.LLVMMethodSpecIR
 import SAWScript.Proof
 
-import qualified Verifier.LLVM.Simulator as LSS
-import qualified Verifier.LLVM.Simulator.Internals as LSS
-import qualified Verifier.LLVM.Codebase as LSS
-import qualified Verifier.LLVM.Codebase.AST as LSS
+import Verifier.LLVM.Simulator hiding (State)
+import Verifier.LLVM.Simulator.Internals hiding (State)
+import Verifier.LLVM.Codebase
+import Verifier.LLVM.Codebase.AST
+import Verifier.LLVM.Backend hiding (asBool)
 import Verifier.LLVM.Backend.SAW
 import Verinf.Symbolic (Lit)
 import Verinf.Utils.LogMonad
@@ -66,13 +61,13 @@ import Verifier.SAW.Evaluator
 import Verifier.SAW.Prelude
 import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
-import Verifier.SAW.SharedTerm
-import Verifier.SAW.TypedAST
+import Verifier.SAW.SharedTerm hiding (Ident)
+import Verifier.SAW.TypedAST hiding (Ident)
 
 -- LSS Utilities {{{1
 
 type SpecBackend = SAWBackend LSSCtx Lit
-type SpecPathState = LSS.Path SpecBackend
+type SpecPathState = Path SpecBackend
 type SpecLLVMValue = SharedTerm LSSCtx
 
 {-
@@ -90,19 +85,23 @@ setArrayValue r v@(STApp _ (FTermF (ArrayValue _ vs))) =
   JSS.pathMemory . JSS.memScalarArrays %~ Map.insert r (w, v)
     where w = fromIntegral $ V.length vs
 setArrayValue _ _ = error "internal: setArrayValue called with non-array value"
+
+setGlobalValue :: ... -> SpecPathState -> SpecPathState
+setGlobalValue =
 -}
+
 -- | Add assumption for predicate to path state.
 addAssumption :: SharedContext LSSCtx -> SharedTerm LSSCtx -> SpecPathState -> IO SpecPathState
 addAssumption sc x p = do
   andOp <- liftIO $ scApplyPreludeAnd sc
-  p & LSS.pathAssertions %%~ \a -> liftIO (andOp a x)
+  p & pathAssertions %%~ \a -> liftIO (andOp a x)
 
 -- | Add assertion for predicate to path state.
 addAssertion :: SharedContext LSSCtx -> SharedTerm LSSCtx -> SpecPathState -> IO SpecPathState
 addAssertion sc x p = do
   -- TODO: p becomes an additional VC in this case
   andOp <- liftIO $ scApplyPreludeAnd sc
-  p & LSS.pathAssertions %%~ \a -> liftIO (andOp a x)
+  p & pathAssertions %%~ \a -> liftIO (andOp a x)
 
 -- EvalContext {{{1
 
@@ -110,7 +109,7 @@ addAssertion sc x p = do
 data EvalContext
   = EvalContext {
       ecContext :: SharedContext LSSCtx
-    , ecRegs :: LSS.RegMap (SharedTerm LSSCtx)
+    , ecArgs :: [(Ident, SharedTerm LSSCtx)]
     , ecPathState :: SpecPathState
     , ecLLVMValues :: Map String (SharedTerm LSSCtx)
     }
@@ -119,7 +118,7 @@ evalContextFromPathState :: SharedContext LSSCtx -> SpecPathState -> EvalContext
 evalContextFromPathState sc ps
   = EvalContext {
       ecContext = sc
-    , ecRegs = (head (ps ^.. LSS.pathCallFrames)) ^. LSS.cfRegs
+    , ecArgs = cfArgValues (head (ps ^.. pathCallFrames))
     , ecPathState = ps
     , ecLLVMValues = Map.empty
     }
@@ -142,15 +141,16 @@ addLLVMValues m ec = do
 -- It does not assume that all the memory references in the
 -- LLVMEvalContext are initialized.
 evalLLVMExpr :: (Monad m) => TC.LLVMExpr -> EvalContext -> m SpecLLVMValue
-evalLLVMExpr expr ec = undefined
-  {- eval expr
+evalLLVMExpr expr ec = eval expr
   where eval e@(CC.Term app) =
           case app of
-            TC.Local _ idx _ ->
-              case Map.lookup idx (ecLocals ec) of
+            TC.Arg _ n _ ->
+              case lookup n (ecArgs ec) of
                 Just v -> return v
                 Nothing -> fail (show e) -- TODO
-            TC.InstanceField r f -> do
+            TC.Global n _ -> fail "globals not yet supported" -- TODO
+            TC.StructField e n i _ -> fail "struct fields not yet supported" -- TODO
+              {- do
               JSS.RValue ref <- eval r
               let ifields = (ecPathState ec) ^. JSS.pathMemory . JSS.memInstanceFields
               case Map.lookup (ref, f) ifields of
@@ -211,7 +211,7 @@ evalMixedExpr (TC.LLVME expr) ec = evalLLVMExpr expr ec
 
 -- | State for running the behavior specifications in a method override.
 data OCState = OCState {
-         ocsLoc :: LSS.SymBlockID
+         ocsLoc :: SymBlockID
        , ocsEvalContext :: !EvalContext
        , ocsResultState :: !SpecPathState
        , ocsReturnValue :: !(Maybe (SharedTerm LSSCtx))
@@ -237,13 +237,13 @@ ppOverrideError (SimException s)     = "Simulation exception: " ++ s ++ "."
 ppOverrideError Abort                = "Path was aborted."
 
 data OverrideResult
-   = SuccessfulRun SpecPathState (Maybe LSS.SymBlockID) (Maybe SpecLLVMValue)
+   = SuccessfulRun SpecPathState (Maybe SymBlockID) (Maybe SpecLLVMValue)
    | FalseAssumption
-   | FailedRun SpecPathState (Maybe LSS.SymBlockID) [OverrideError]
+   | FailedRun SpecPathState (Maybe SymBlockID) [OverrideError]
    -- deriving (Show)
 
 type RunResult = ( SpecPathState
-                 , Maybe LSS.SymBlockID
+                 , Maybe SymBlockID
                  , Either [OverrideError] (Maybe SpecLLVMValue)
                  )
 
@@ -392,23 +392,23 @@ execOverride :: (MonadIO m, Functor m) =>
                 SharedContext LSSCtx
              -> Pos
              -> LLVMMethodSpecIR
-             -> [(LSS.MemType, SpecLLVMValue)]
-             -> LSS.Simulator SpecBackend m SpecLLVMValue
+             -> [(MemType, SpecLLVMValue)]
+             -> Simulator SpecBackend m (Maybe (SharedTerm LSSCtx))
 execOverride sc pos ir args = do
   -- Execute behaviors.
-  initPS <- fromMaybe (error "no path during override") <$> LSS.getPath
+  initPS <- fromMaybe (error "no path during override") <$> getPath
   let bsl = specBehaviors ir -- Map.lookup entryBlock (specBehaviors ir) -- TODO
-  let method = specFunction ir
+  let func = specFunction ir
       m = specLLVMExprNames ir
   let ec0 = EvalContext { ecContext = sc
-                        , ecRegs = undefined args -- TODO
+                        , ecArgs = zip (map fst (sdArgs func)) (map snd args)
                         , ecPathState = initPS
                         , ecLLVMValues = Map.empty
                         }
   ec <- addLLVMValues m ec0
   -- Execute behavior.
   res <- liftIO . execBehavior [bsl] ec =<< 
-         (fromMaybe (error "no path during override") <$> LSS.getPath)
+         (fromMaybe (error "no path during override") <$> getPath)
   -- Create function for generation resume actions.
   case res of
     [(_, _, Left el)] -> do
@@ -420,17 +420,7 @@ execOverride sc pos ir args = do
                      ]
       -- TODO: turn this message into a proper exception
       fail (show msg)
-    [(_, _, Right mval)] -> undefined
-  {-
-      JSS.modifyPathM_ (PP.text "path result") $ \ps ->
-        return $
-        case (mval, ps ^. JSS.pathStack) of
-          (Just val, [])     -> ps & set JSS.pathRetVal (Just val)
-          (Just val, (f:fr)) -> ps & set JSS.pathStack  (f' : fr)
-            where f' = f & JSS.cfOpds %~ (val :)
-          (Nothing,  [])     -> ps & set JSS.pathRetVal Nothing
-          (Nothing,  _:_)    -> ps
--}
+    [(_, _, Right mval)] -> return mval
     [] -> fail "Zero paths returned from override execution."
     _  -> fail "More than one path returned from override execution."
 
@@ -439,33 +429,29 @@ overrideFromSpec :: (MonadIO m, Functor m) =>
                     SharedContext LSSCtx
                  -> Pos
                  -> LLVMMethodSpecIR
-                 -> LSS.Simulator SpecBackend m ()
+                 -> Simulator SpecBackend m ()
 overrideFromSpec sc pos ir = do
-  let sym = LSS.sdName (specFunction ir)
-      ovd = LSS.override (execOverride sc pos ir)
+  let sym = sdName (specFunction ir)
+      ovd = Override (\_ _ -> execOverride sc pos ir)
   -- TODO: check argument types?
-  LSS.tryRegisterOverride sym (const (Just ovd))
+  tryRegisterOverride sym (const (Just ovd))
 
 -- ExpectedStateDef {{{1
 
 -- | Describes expected result of computation.
 data ExpectedStateDef = ESD {
          -- | Location that we started from.
-         esdStartLoc :: LSS.SymBlockID
+         esdStartLoc :: SymBlockID
          -- | Initial path state (used for evaluating expressions in
          -- verification).
        , esdInitialPathState :: SpecPathState
          -- | Stores initial assignments.
        , esdInitialAssignments :: [(TC.LLVMExpr, SharedTerm LSSCtx)]
          -- | Map from references back to Java expressions denoting them.
-       --, esdRefExprMap :: Map JSS.Ref [TC.LLVMExpr]
+       -- , esdRefExprMap :: Map JSS.Ref [TC.LLVMExpr]
+       , esdMemory :: SAWMemory LSSCtx
          -- | Expected return value or Nothing if method returns void.
        , esdReturnValue :: Maybe (SharedTerm LSSCtx)
-         -- | Maps instance fields to expected value, or Nothing if value may
-         -- be arbitrary.
-       --, esdInstanceFields :: Map (JSS.Ref, JSS.FieldId) (Maybe (JSS.Value (SharedTerm LSSCtx)))
-         -- | Maps reference to expected node, or Nothing if value may be arbitrary.
-       --, esdArrays :: Map JSS.Ref (Maybe (Int32, SharedTerm LSSCtx))
        }
 
 {-
@@ -482,14 +468,13 @@ esdRefName ref esd =
 -- | State for running the behavior specifications in a method override.
 data ESGState = ESGState {
          esContext :: SharedContext LSSCtx
-       , esDef :: LSS.SymDefine (SharedTerm LSSCtx)
+       , esDef :: SymDefine (SharedTerm LSSCtx)
        , esLLVMExprs :: Map String TC.LLVMExpr
        -- , esExprRefMap :: Map TC.LLVMExpr JSS.Ref -- FIXME
        , esInitialAssignments :: [(TC.LLVMExpr, SharedTerm LSSCtx)]
        , esInitialPathState :: SpecPathState
+       , esMemory :: SAWMemory LSSCtx
        , esReturnValue :: Maybe SpecLLVMValue
-       -- , esInstanceFields :: Map (JSS.Ref, JSS.FieldId) (Maybe SpecJavaValue) -- FIXME
-       -- , esArrays :: Map JSS.Ref (Maybe (Int32, SharedTerm LSSCtx)) -- FIXME
        }
 
 -- | Monad used to execute statements in a behavior specification for a method
@@ -539,14 +524,17 @@ esAssertEq nm x y = do
   esAddEqAssertion sc nm x y
 esAssertEq _ _ _ = error "internal: esAssertEq given illegal arguments."
 
-{-
 -- | Set value in initial state.
-esSetJavaValue :: TC.JavaExpr -> SpecJavaValue -> ExpectedStateGenerator ()
-esSetJavaValue e@(CC.Term exprF) v = do
+esSetLLVMValue :: TC.LLVMExpr -> SpecLLVMValue -> ExpectedStateGenerator ()
+esSetLLVMValue e@(CC.Term exprF) v = do
   case exprF of
     -- TODO: the following is ugly, and doesn't make good use of lenses
-    TC.Local _ idx _ -> do
+    TC.Global name _ -> do
+      -- TODO
+      return ()
+    TC.Arg _ name _ -> do
       ps <- esGetInitialPathState
+{-
       let ls = case JSS.currentCallFrame ps of
                  Just cf -> cf ^. JSS.cfLocals
                  Nothing -> Map.empty
@@ -556,16 +544,20 @@ esSetJavaValue e@(CC.Term exprF) v = do
       case Map.lookup idx ls of
         Just oldValue -> esAssertEq (TC.ppJavaExpr e) oldValue v
         Nothing -> esPutInitialPathState ps'
+-}
+      return ()
     -- TODO: the following is ugly, and doesn't make good use of lenses
-    TC.InstanceField refExpr f -> do
+    TC.StructField refExpr f fi _ -> do
       -- Lookup refrence associated to refExpr
+      {- TODO
       Just ref <- Map.lookup refExpr <$> gets esExprRefMap
       ps <- esGetInitialPathState
       case Map.lookup (ref,f) (ps ^. JSS.pathMemory . JSS.memInstanceFields) of
         Just oldValue -> esAssertEq (TC.ppJavaExpr e) oldValue v
         Nothing -> esPutInitialPathState $
           (JSS.pathMemory . JSS.memInstanceFields %~ Map.insert (ref,f) v) ps
--}
+      -}
+      return ()
 
 esResolveLogicExprs :: SharedTerm LSSCtx -> [TC.LogicExpr]
                     -> ExpectedStateGenerator (SharedTerm LSSCtx)
@@ -595,19 +587,16 @@ esSetLogicValues sc cl tp lrhs = do
                          map (\e -> (e,value)) cl ++  esInitialAssignments es }
   ty <- liftIO $ scTypeOf sc value
   -- Update value.
-  case ty of
+  mapM_ (flip esSetLLVMValue value) cl -- TODO: different for arrays?
 {-
+  case ty of
     (isVecType (const (return ())) -> Just _) -> do
        refs <- forM cl $ \expr -> do
                  JSS.RValue ref <- esEval $ evalJavaExpr expr
                  return ref
        forM_ refs $ \r -> esModifyInitialPathState (setArrayValue r value)
-    (asBitvectorType -> Just 32) ->
-       mapM_ (flip esSetJavaValue (JSS.IValue value)) cl
-    (asBitvectorType -> Just 64) ->
-       mapM_ (flip esSetJavaValue (JSS.LValue value)) cl
--}
     _ -> error "internal: initializing LLVM values given bad rhs."
+-}
 
 esStep :: BehaviorCommand -> ExpectedStateGenerator ()
 esStep (AssertPred _ expr) = do
@@ -684,38 +673,39 @@ initializeVerification :: (MonadIO m, Functor m) =>
                        -> LLVMMethodSpecIR
                        -> BehaviorSpec
                        -> PtrEquivConfiguration
-                       -> LSS.Simulator SpecBackend m ExpectedStateDef
+                       -> Simulator SpecBackend m ExpectedStateDef
 initializeVerification sc ir bs ptrConfig = do
-  let m = specLLVMExprNames ir
+  let exprs = specLLVMExprNames ir
 {-
   exprRefs <- mapM (JSS.genRef . TC.jssTypeOfActual . snd) ptrConfig
   let refAssignments = (map fst refConfig `zip` exprRefs)
-      clName = JSS.className (specThisClass ir)
-      --key = JSS.methodKey (specMethod ir)
-      pushFrame cs = fromMaybe (error "internal: failed to push call frame") mcs'
-        where
-          mcs' = JSS.pushCallFrame clName
-                                   (specMethod ir)
-                                   -- FIXME: this is probably the cause of the empty operand stack
-                                   JSS.entryBlock -- FIXME: not the right block
-                                   Map.empty
-                                   cs
-  JSS.modifyCSM_ (return . pushFrame)
 -}
+  let args = undefined -- TODO!
+  Just cs <- use ctrlStk
+  sbe <- gets symBE
+  let m = cs^.currentPath^.pathMem
+  (c,m') <- liftSBE $ stackPushFrame sbe m
+  let cf = newCallFrame (specFunction ir) args
+  let cs' = cs & currentPath . pathStack %~ pushCallFrame cf Nothing
+               & currentPath . pathMem  .~ m'
+  ctrlStk ?= cs'
+  let fr = "Stack push frame failure: insufficient stack space"
+  processMemCond fr c
+
   -- TODO: add breakpoints once local specs exist
   --forM_ (Map.keys (specBehaviors ir)) $ JSS.addBreakpoint clName key
   -- TODO: set starting PC
-  initPS <- fromMaybe (error "initializeVerification") <$> LSS.getPath
+
+  initPS <- fromMaybe (error "initializeVerification") <$> getPath
   let initESG = ESGState { esContext = sc
                          , esDef = specFunction ir
-                         , esLLVMExprs = m
+                         , esLLVMExprs = exprs
                          -- , esExprRefMap = Map.fromList
                          --    [ (e, r) | (cl,r) <- refAssignments, e <- cl ]
                          , esInitialAssignments = []
                          , esInitialPathState = initPS
                          , esReturnValue = Nothing
-                         --, esInstanceFields = Map.empty
-                         --, esArrays = Map.empty
+                         , esMemory = undefined -- TODO
                          }
   es <- liftIO $ flip execStateT initESG $ do
 {-
@@ -724,14 +714,12 @@ initializeVerification sc ir bs ptrConfig = do
             forM_ cl $ \e -> esSetJavaValue e (JSS.RValue r)
           -- Set initial logic values.
 -}
-          lcs <- liftIO $ bsLogicClasses sc m bs ptrConfig
+          lcs <- liftIO $ bsLogicClasses sc exprs bs ptrConfig
           case lcs of
             Nothing ->
               let msg = "Unresolvable cyclic dependencies between assumptions."
                in throwIOExecException (specPos ir) (ftext msg) ""
-{-
             Just assignments -> mapM_ (\(l,t,r) -> esSetLogicValues sc l t r) assignments
--}
           -- Process commands
           mapM esStep (bsCommands bs)
   let ps = esInitialPathState es
@@ -743,21 +731,8 @@ initializeVerification sc ir bs ptrConfig = do
              , esdRefExprMap =
                   Map.fromList [ (r, cl) | (cl,r) <- refAssignments ]
 -}
+             , esdMemory = undefined -- TODO
              , esdReturnValue = esReturnValue es
-               -- Create esdArrays map while providing entry for unspecified
-               -- expressions.
-{-
-             , esdInstanceFields =
-                 Map.union (esInstanceFields es)
-                           (Map.map Just (ps ^. JSS.pathMemory . JSS.memInstanceFields))
--}
-               -- Create esdArrays map while providing entry for unspecified
-               -- expressions.
-{-
-             , esdArrays =
-                 Map.union (esArrays es)
-                           (Map.map Just (ps ^. JSS.pathMemory . JSS.memScalarArrays))
--}
              }
 
 -- MethodSpec verification {{{1
@@ -798,8 +773,8 @@ vcCounterexample (EqualityCheck nm lssNode specNode) evalFn =
 
 -- | Describes the verification result arising from one symbolic execution path.
 data PathVC = PathVC {
-          pvcStartLoc :: LSS.SymBlockID
-        , pvcEndLoc :: Maybe LSS.SymBlockID
+          pvcStartLoc :: SymBlockID
+        , pvcEndLoc :: Maybe SymBlockID
         , pvcInitialAssignments :: [(TC.LLVMExpr, SharedTerm LSSCtx)]
           -- | Assumptions on inputs.
         , pvcAssumptions :: SharedTerm LSSCtx
@@ -869,7 +844,7 @@ generateVC ir esd (ps, endLoc, res) = do
         PathVC { pvcInitialAssignments = esdInitialAssignments esd
                , pvcStartLoc = esdStartLoc esd
                , pvcEndLoc = endLoc
-               , pvcAssumptions = ps ^. LSS.pathAssertions
+               , pvcAssumptions = ps ^. pathAssertions
                , pvcStaticErrors = []
                , pvcChecks = []
                }
@@ -882,32 +857,6 @@ generateVC ir esd (ps, endLoc, res) = do
           (Nothing,Nothing) -> return ()
           (Just rv, Just srv) -> pvcgAssertEq "return value" rv srv
 {-
-        -- Check static fields
-        do forM_ (Map.toList $ ps ^. JSS.pathMemory . JSS.memStaticFields) $ \(f,_jvmVal) -> do
-             let clName = JSS.slashesToDots (JSS.fieldIdClass f)
-             let fName = clName ++ "." ++ JSS.fieldIdName f
-             pvcgFail $ ftext $ "Modifies the static field " ++ fName ++ "."
-        -- Check instance fields
-        forM_ (Map.toList (ps ^. JSS.pathMemory . JSS.memInstanceFields)) $ \((ref,f), jval) -> do
-          let fieldName = show (JSS.fieldIdName f)
-                            ++ " of " ++ esdRefName ref esd
-          case Map.lookup (ref,f) (esdInstanceFields esd) of
-            Nothing ->
-              pvcgFail $ ftext $ "Modifies the undefined field " ++ fieldName ++ "."
-            Just sval -> do
-              case (jval,sval) of
-                (_,Nothing) -> return ()
-                (jv, Just sv) | jv == sv -> return ()
-                (JSS.RValue jref, Just (JSS.RValue _)) ->
-                  pvcgFail $ ftext $
-                    "Assigns an unexpected value " ++ esdRefName jref esd
-                       ++ " to " ++ fieldName ++ "."
-                (JSS.IValue jvmNode, Just (JSS.IValue specNode)) ->
-                  pvcgAssertEq fieldName jvmNode specNode
-                (JSS.LValue jvmNode, Just (JSS.LValue specNode)) ->
-                  pvcgAssertEq fieldName jvmNode specNode
-                (_, Just _) ->
-                  error "internal: comparePathStates encountered illegal field type."
         -- Check value arrays
         forM_ (Map.toList (ps ^. JSS.pathMemory . JSS.memScalarArrays)) $ \(ref,(jlen,jval)) -> do
           case Map.lookup ref (esdArrays esd) of
@@ -921,15 +870,15 @@ generateVC ir esd (ps, endLoc, res) = do
           pvcgFail $ ftext "Modifies references arrays."
 -}
         -- Check assertions
-        pvcgAssert "final assertions" (ps ^. LSS.pathAssertions)
+        pvcgAssert "final assertions" (ps ^. pathAssertions)
 
 -- verifyMethodSpec and friends {{{2
 
-mkSpecVC :: (MonadIO m, Functor m, LSS.MonadException m) =>
+mkSpecVC :: (MonadIO m, Functor m, MonadException m) =>
             SharedContext LSSCtx
          -> VerifyParams
          -> ExpectedStateDef
-         -> LSS.Simulator SpecBackend m [PathVC]
+         -> Simulator SpecBackend m [PathVC]
 mkSpecVC sc params esd = do
   let ir = vpSpec params
   -- Log execution.
@@ -937,14 +886,14 @@ mkSpecVC sc params esd = do
   -- Add method spec overrides.
   mapM_ (overrideFromSpec sc (specPos ir)) (vpOver params)
   -- Execute code.
-  LSS.run
-  returnVal <- LSS.getProgramReturnValue
-  ps <- fromMaybe (error "no path in mkSpecVC") <$> LSS.getPath
+  run
+  returnVal <- getProgramReturnValue
+  ps <- fromMaybe (error "no path in mkSpecVC") <$> getPath
   -- TODO: handle exceptional or breakpoint terminations
   return $ map (generateVC ir esd) [(ps, Nothing, Right returnVal)]
 
 data VerifyParams = VerifyParams
-  { vpCode    :: LSS.Codebase (SAWBackend LSSCtx Lit)
+  { vpCode    :: Codebase (SAWBackend LSSCtx Lit)
   , vpContext :: SharedContext LSSCtx
   , vpOpts    :: Options
   , vpSpec    :: LLVMMethodSpecIR
@@ -963,7 +912,7 @@ runValidation prover params sc esd results = do
       ps = esdInitialPathState esd
   case specValidationPlan ir of
     Skip -> putStrLn $ "WARNING: skipping verification of " ++
-                       show (LSS.sdName (specFunction ir))
+                       show (sdName (specFunction ir))
     RunVerify script -> do
       forM_ results $ \pvc -> do
         let mkVState nm cfn =
@@ -1005,7 +954,7 @@ data VerifyState = VState {
        , vsMethodSpec :: LLVMMethodSpecIR
        , vsVerbosity :: Verbosity
          -- | Starting Block is used for checking VerifyAt commands.
-       -- , vsFromBlock :: LSS.SymBlockId
+       -- , vsFromBlock :: SymBlockId
          -- | Evaluation context used for parsing expressions during
          -- verification.
        , vsEvalContext :: EvalContext

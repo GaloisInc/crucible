@@ -357,13 +357,20 @@ specName ir =
      mName = JSS.methodName (specMethod ir)
   in JSS.slashesToDots clName ++ ('.' : mName)
 
+-- TODO: error if already declared
 specAddVarDecl :: String -> JavaExpr -> JavaActualType
                -> JavaMethodSpecIR -> JavaMethodSpecIR
 specAddVarDecl name expr jt ms = ms { specBehaviors = bs'
                                     , specJavaExprNames = ns' }
   where bs = specBehaviors ms
         bs' = bs { bsActualTypeMap =
-                     Map.insert expr jt (bsActualTypeMap bs) }
+                     Map.insert expr jt (bsActualTypeMap bs)
+                 , bsMustAliasSet =
+                     if JSS.isRefType (jssTypeOfJavaExpr expr) then
+                       CC.insertTerm expr (bsMustAliasSet bs)
+                     else
+                       bsMustAliasSet bs
+                 }
         ns' = Map.insert name expr (specJavaExprNames ms)
 
 specAddAliasSet :: [JavaExpr] -> JavaMethodSpecIR -> JavaMethodSpecIR

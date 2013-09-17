@@ -35,11 +35,12 @@ module SAWScript.LLVMExpr
 import Control.Applicative ((<$>))
 import Control.Monad.Error (Error(..))
 import Data.Set (Set)
-import Text.PrettyPrint.Leijen
+import Text.PrettyPrint.Leijen hiding ((<$>))
 
 import qualified Verifier.LLVM.Codebase as LSS
 import qualified Verifier.LLVM.Codebase.DataLayout as LSS
 
+import Verifier.SAW.Prelude
 import Verifier.SAW.TypedAST
 import Verifier.SAW.SharedTerm
 
@@ -197,16 +198,17 @@ lssTypeOfActual = id
 -- | Returns logical type of actual type if it is an array or primitive type.
 logicTypeOfActual :: SharedContext s -> LLVMActualType
                   -> IO (Maybe (SharedTerm s))
-logicTypeOfActual _ _ = undefined -- FIXME
-{-
-logicTypeOfActual _ (ClassInstance _) = return Nothing
-logicTypeOfActual sc (ArrayInstance l tp) = do
-  elTy <- scBitvector sc (fromIntegral (JSS.stackWidth tp))
-  lTm <- scNat sc (fromIntegral l)
-  Just <$> scVecType sc lTm elTy
-logicTypeOfActual sc (PrimitiveType tp) = do
-  Just <$> scBitvector sc (fromIntegral (JSS.stackWidth tp))
--}
+logicTypeOfActual sc (LSS.IntType w) = Just <$> scBitvector sc (fromIntegral w)
+logicTypeOfActual sc LSS.FloatType = Just <$> scPreludeFloat sc
+logicTypeOfActual sc LSS.DoubleType = Just <$> scPreludeDouble sc
+logicTypeOfActual sc (LSS.ArrayType n ty) = do
+  melTyp <- logicTypeOfActual sc ty
+  case melTyp of
+    Just elTyp -> do
+      lTm <- scNat sc (fromIntegral n)
+      Just <$> scVecType sc lTm elTyp
+    Nothing -> return Nothing
+logicTypeOfActual _ _ = return Nothing
 
 ppActualType :: LLVMActualType -> Doc
 ppActualType = LSS.ppMemType
