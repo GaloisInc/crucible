@@ -1,0 +1,14 @@
+setup : JavaSetup ();
+setup = do {
+    java_var "a" (java_array '10 java_int);
+    java_var "b" (java_array '10 java_int);
+    //java_ensure_eq "b" ((java_value "a") : [10][32]);
+    //java_verify_tactic abc;
+};
+
+main : TopLevel ();
+main = do {
+    ms <- java_verify "Arrays" "copy" [] setup;
+    print ms;
+    print "Done.";
+};

@@ -1,0 +1,23 @@
+setup : JavaSetup ();
+setup = do {
+    java_var "x" java_int;
+    java_var "y" java_int;
+    java_return ((java_value "x" + java_value "y") : [32]);
+    java_verify_tactic abc;
+};
+
+setup' : JavaSetup ();
+setup' = do {
+    java_var "x" java_int;
+    java_return ((java_value "x" + java_value "x") : [32]);
+    java_verify_tactic abc;
+};
+
+main : TopLevel ();
+main = do {
+    ms <- java_verify "Add" "add" [] setup;
+    ms' <- java_verify "Add" "dbl" [ms] setup';
+    //print ms;
+    //print ms';
+    print "Done.";
+};
