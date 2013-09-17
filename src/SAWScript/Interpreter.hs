@@ -30,6 +30,8 @@ import Data.Traversable hiding ( mapM )
 
 import qualified SAWScript.AST as SS
 import SAWScript.Builtins hiding (evaluate)
+import SAWScript.JavaBuiltins
+import SAWScript.LLVMBuiltins
 import qualified SAWScript.MGU as MGU
 import SAWScript.Options
 import SAWScript.Proof
@@ -471,7 +473,7 @@ valueEnv opts bic = M.fromList
   -- Java stuff
   , (qualify "java_extract", toValue $ extractJava bic opts)
   , (qualify "java_verify" , toValue $ verifyJava bic opts)
-  , (qualify "java_pure"   , toValue $ ()) -- FIXME
+  , (qualify "java_pure"   , toValue $ javaPure)
   , (qualify "java_var"    , toValue $ javaVar bic opts)
   --, (qualify "java_may_alias", toValue $ javaMayAlias bic opts)
   , (qualify "java_assert" , toValue $ javaAssert bic opts)
@@ -481,10 +483,9 @@ valueEnv opts bic = M.fromList
   , (qualify "java_return" , toValue $ javaReturn bic opts)
   , (qualify "java_verify_tactic" , toValue $ javaVerifyTactic bic opts)
   -- LLVM stuff
-  {-
   , (qualify "llvm_extract", toValue $ extractLLVM sc)
   , (qualify "llvm_verify" , toValue $ verifyLLVM bic opts)
-  , (qualify "llvm_pure"   , toValue $ ()) -- FIXME
+  , (qualify "llvm_pure"   , toValue $ llvmPure)
   , (qualify "llvm_var"    , toValue $ llvmVar bic opts)
   --, (qualify "llvm_may_alias", toValue $ llvmMayAlias bic opts)
   , (qualify "llvm_assert" , toValue $ llvmAssert bic opts)
@@ -493,7 +494,6 @@ valueEnv opts bic = M.fromList
   , (qualify "llvm_modify" , toValue $ llvmModify bic opts)
   , (qualify "llvm_return" , toValue $ llvmReturn bic opts)
   , (qualify "llvm_verify_tactic" , toValue $ llvmVerifyTactic bic opts)
-  -}
   -- Generic stuff
   , (qualify "prove"       , toValue $ provePrim sc)
   , (qualify "sat"         , toValue $ satPrim sc)
@@ -524,6 +524,8 @@ coreEnv sc =
     -- Pure things
     [ (qualify "bitSequence", "Prelude.bvNat")
     , (qualify "add"        , "Prelude.bvAdd")
+    , (qualify "sub"        , "Prelude.bvSub")
+    , (qualify "mul"        , "Prelude.bvMul")
     , (qualify "not"        , "Prelude.not")
     , (qualify "conj"       , "Prelude.and")
     , (qualify "disj"       , "Prelude.or")
@@ -542,11 +544,12 @@ coreEnv sc =
     , (qualify "java_class" , "Java.mkClassType")
     , (qualify "java_value" , "Java.mkValue")
     -- LLVM things
-    -- , (qualify "llvm_int"   , "LLVM.intType")
-    -- , (qualify "llvm_float" , "LLVM.floatType")
-    -- , (qualify "llvm_double", "LLVM.doubleType")
-    -- , (qualify "llvm_array" , "LLVM.arrayType")
-    -- , (qualify "llvm_var"   , "LLVM.varObject")
+    , (qualify "llvm_int"   , "LLVM.mkIntType")
+    , (qualify "llvm_float" , "LLVM.mkFloatType")
+    , (qualify "llvm_double", "LLVM.mkDoubleType")
+    , (qualify "llvm_ptr" ,   "LLVM.mkPtrType")
+    , (qualify "llvm_array" , "LLVM.mkArrayType")
+    , (qualify "llvm_value",  "LLVM.mkValue")
     ]
 
 qualify :: String -> SS.ResolvedName

@@ -6,7 +6,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StandaloneDeriving #-}
 module SAWScript.LLVMExpr
-  (-- * Java Expressions
+  (-- * LLVM Expressions
     LLVMExprF(..)
   , LLVMExpr
   , ppLLVMExpr
@@ -52,15 +52,17 @@ data SymbolLocation
    | LineExact Integer
   deriving (Show)
 
--- JavaExpr {{{1
+-- LLVMExpr {{{1
 
 data LLVMExprF v
   = Local String LSS.Ident LLVMActualType
+  | Global LSS.Ident LLVMActualType
   | StructField v String Int LLVMActualType
   deriving (Functor, CC.Foldable, CC.Traversable)
 
 instance CC.EqFoldable LLVMExprF where
   fequal (Local _ i _)(Local _ j _) = i == j
+  fequal (Global x _)(Global y _) = x == y
   fequal (StructField xr _ xi _) (StructField yr _ yi _) = xi == yi && (xr == yr)
   fequal _ _ = False
 
@@ -75,13 +77,14 @@ instance CC.OrdFoldable LLVMExprF where
 
 instance CC.ShowFoldable LLVMExprF where
   fshow (Local nm _ _) = nm
+  fshow (Global nm _) = show nm
   fshow (StructField r f _ _) = show r ++ "." ++ f
 
 -- | Typechecked LLVMExpr
 type LLVMExpr = CC.Term LLVMExprF
 
 instance Error LLVMExpr where
-  noMsg = error "noMsg called with TC.JavaExpr"
+  noMsg = error "noMsg called with TC.LLVMExpr"
 
 -- | Pretty print a LLVM expression.
 ppLLVMExpr :: LLVMExpr -> Doc
@@ -141,7 +144,7 @@ logicExprVarNames = flip impl Set.empty
 
 -- MixedExpr {{{1
 
--- | A logic or Java expression.
+-- | A logic or LLVM expression.
 data MixedExpr
   = LogicE LogicExpr
   | LLVME LLVMExpr
@@ -182,7 +185,7 @@ isActualPtr (LSS.PtrType _) = True
 isActualPtr (LSS.ArrayType _ _) = True
 isActualPtr _ = False
 
--- | Returns Java symbolic simulator type that actual type represents.
+-- | Returns LLVM symbolic simulator type that actual type represents.
 lssTypeOfActual :: LLVMActualType -> LSS.MemType
 lssTypeOfActual = id
 
