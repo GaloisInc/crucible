@@ -1,15 +1,15 @@
 setup : JavaSetup ();
 setup = do {
-    java_var "x" java_int;
-    java_var "y" java_int;
-    java_return ((java_value "x" + java_value "y") : [32]);
+    x <- java_var "x" java_int;
+    y <- java_var "y" java_int;
+    java_return ((x + y) : [32]);
     java_verify_tactic abc;
 };
 
 setup' : JavaSetup ();
 setup' = do {
-    java_var "x" java_int;
-    java_return ((java_value "x" + java_value "x") : [32]);
+    x <- java_var "x" java_int;
+    java_return (x + x : [32]);
     java_verify_tactic abc;
 };
 

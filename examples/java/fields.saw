@@ -1,16 +1,16 @@
 setx_spec : JavaSetup ();
 setx_spec = do {
-    java_var "newx" java_int;
+    newx <- java_var "newx" java_int;
     java_var "this.x" java_int;
-    java_ensure_eq "this.x" ((java_value "newx") : [32]);
+    java_ensure_eq "this.x" (newx : [32]);
     java_verify_tactic abc;
 };
 
 sety_spec : JavaSetup ();
 sety_spec = do {
-    java_var "newy" java_long;
+    newy <- java_var "newy" java_long;
     java_var "this.y" java_long;
-    java_ensure_eq "this.y" ((java_value "newy") : [64]);
+    java_ensure_eq "this.y" (newy : [64]);
     java_verify_tactic abc;
 };
 

@@ -186,7 +186,7 @@ javaPure :: JavaSetup ()
 javaPure = return ()
 
 javaVar :: BuiltinContext -> Options -> String -> SS.Value SAWCtx
-        -> JavaSetup ()
+        -> JavaSetup (SharedTerm SAWCtx)
 javaVar bic _ name t@(SS.VCtorApp _ _) = do
   jsState <- get
   let ms = jsSpec jsState
@@ -206,7 +206,9 @@ javaVar bic _ name t@(SS.VCtorApp _ _) = do
          ]
   liftIO $ putStrLn $ "Adding variable " ++ name ++ " of type " ++ show aty
   modify $ \st -> st { jsSpec = specAddVarDecl name exp aty (jsSpec st) }
-  -- TODO: Could return (java_value name) for convenience? (within SAWScript context)
+  let sc = biSharedContext bic
+  Just lty <- liftIO $ logicTypeOfActual sc aty
+  liftIO $ scJavaValue sc lty name
 javaVar _ _ _ _ = fail "java_var called with invalid type argument"
 
 javaMayAlias :: BuiltinContext -> Options -> [String]

@@ -169,7 +169,7 @@ parseLLVMExpr cb fn name = do
                  _ -> fail $ "Can't parse variable name: " ++ name
 
 llvmVar :: BuiltinContext -> Options -> String -> Value SAWCtx
-        -> LLVMSetup ()
+        -> LLVMSetup (SharedTerm SAWCtx)
 llvmVar bic _ name t@(VCtorApp _ _) = do
   lsState <- get
   let ms = lsSpec lsState
@@ -187,7 +187,9 @@ llvmVar bic _ name t@(VCtorApp _ _) = do
          , text name
          ]
   modify $ \st -> st { lsSpec = specAddVarDecl name exp lty (lsSpec st) }
-  -- TODO: Could return (llvm_value name) for convenience? (within SAWScript context)
+  let sc = biSharedContext bic
+  Just ty <- liftIO $ logicTypeOfActual sc lty
+  liftIO $ scLLVMValue sc ty name
 llvmVar _ _ _ _ = fail "llvm_var called with invalid type argument"
 
 llvmMayAlias :: BuiltinContext -> Options -> [String]

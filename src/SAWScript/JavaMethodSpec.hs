@@ -19,6 +19,7 @@ module SAWScript.JavaMethodSpec
   , runValidation
   , mkSpecVC
   , ppPathVC
+  , scJavaValue
   , VerifyParams(..)
   , VerifyState(..)
   , EvalContext(..)
@@ -176,11 +177,12 @@ evalJavaExprAsLogic expr ec = do
     JSS.LValue n -> return n
     _ -> error "internal: evalJavaExprAsExpr encountered illegal value."
 
-scJavaValue :: SharedContext JSSCtx -> SharedTerm JSSCtx -> String -> IO (SharedTerm JSSCtx)
+scJavaValue :: SharedContext s -> SharedTerm s -> String -> IO (SharedTerm s)
 scJavaValue sc ty name = do
   s <- scString sc name
+  ty' <- scRemoveBitvector sc ty
   mkValue <- scApplyJavaMkValue sc
-  mkValue ty s
+  mkValue ty' s
 
 -- | Evaluates a typed expression in the context of a particular state.
 evalLogicExpr :: TC.LogicExpr -> EvalContext -> ExprEvaluator (SharedTerm JSSCtx)
@@ -190,8 +192,7 @@ evalLogicExpr initExpr ec = liftIO $ do
   rules <- forM (Map.toList (ecJavaExprs ec)) $ \(name, expr) ->
              do lt <- evalJavaExprAsLogic expr ec
                 ty <- scTypeOf sc lt
-                ty' <- scRemoveBitvector sc ty
-                nt <- scJavaValue sc ty' name
+                nt <- scJavaValue sc ty name
                 return (ruleOfTerms nt lt)
   liftIO $ print rules
   let ss = addRules rules emptySimpset
@@ -430,7 +431,7 @@ execOverride sc pos ir mbThis args = do
   -- Check class initialization.
   checkClassesInitialized pos (specName ir) (specInitializedClasses ir)
   -- Execute behavior.
-  res <- liftIO . execBehavior [bsl] ec =<< JSS.getPath (PP.text "MethodSpec behavior")
+  res <- liftIO $ execBehavior [bsl] ec initPS
   -- Create function for generation resume actions.
   case res of
     [(_, _, Left el)] -> do
@@ -438,8 +439,8 @@ execOverride sc pos ir mbThis args = do
                 ++ intercalate "\n" (map ppOverrideError el)
       -- TODO: turn this message into a proper exception
       fail msg
-    [(_, _, Right mval)] ->
-      JSS.modifyPathM_ (PP.text "path result") $ \ps ->
+    [(ps, _, Right mval)] ->
+      JSS.modifyPathM_ (PP.text "path result") $ \_ ->
         return $
         case (mval, ps ^. JSS.pathStack) of
           (Just val, [])     -> ps & set JSS.pathRetVal (Just val)

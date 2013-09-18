@@ -1,8 +1,8 @@
 copy_setup : JavaSetup ();
 copy_setup = do {
-    java_var "a" (java_array '10 java_int);
+    a <- java_var "a" (java_array '10 java_int);
     java_var "b" (java_array '10 java_int);
-    java_ensure_eq "b" ((java_value "a") : [10][32]);
+    java_ensure_eq "b" (a : [10][32]);
     java_verify_tactic abc;
 };
 

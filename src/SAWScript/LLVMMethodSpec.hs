@@ -17,6 +17,7 @@ module SAWScript.LLVMMethodSpec
   , runValidation
   , mkSpecVC
   , ppPathVC
+  , scLLVMValue
   , VerifyParams(..)
   , VerifyState(..)
   , EvalContext(..)
@@ -181,11 +182,12 @@ evalLLVMExprAsLogic expr ec = do
     _ -> error "internal: evalJavaExprAsExpr encountered illegal value."
 -}
 
-scLLVMValue :: SharedContext LSSCtx -> SharedTerm LSSCtx -> String -> IO (SharedTerm LSSCtx)
+scLLVMValue :: SharedContext s -> SharedTerm s -> String -> IO (SharedTerm s)
 scLLVMValue sc ty name = do
   s <- scString sc name
+  ty' <- scRemoveBitvector sc ty
   mkValue <- scGlobalDef sc (parseIdent "LLVM.mkValue")
-  scApplyAll sc mkValue [ty, s]
+  scApplyAll sc mkValue [ty', s]
 
 -- | Evaluates a typed expression in the context of a particular state.
 evalLogicExpr :: TC.LogicExpr -> EvalContext -> ExprEvaluator (SharedTerm LSSCtx)
@@ -194,8 +196,7 @@ evalLogicExpr initExpr ec = liftIO $ do
   t <- TC.useLogicExpr sc initExpr
   rules <- forM (Map.toList (ecLLVMValues ec)) $ \(name, lt) ->
              do ty <- scTypeOf sc lt
-                ty' <- scRemoveBitvector sc ty
-                nt <- scLLVMValue sc ty' name
+                nt <- scLLVMValue sc ty name
                 return (ruleOfTerms nt lt)
   let ss = addRules rules emptySimpset
   rewriteSharedTerm sc ss t
