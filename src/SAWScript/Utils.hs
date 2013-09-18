@@ -205,7 +205,7 @@ equal sc (STApp _ (Lambda (PVar x1 _ _) ty1 tm1)) (STApp _ (Lambda (PVar _ _ _) 
     (_, _) ->
         fail $ "Incompatible function arguments. Types are " ++
                show ty1 ++ " and " ++ show ty2
-equal sc tm1@(STApp _ (FTermF t1)) tm2@(STApp _ (FTermF t2)) = do
+equal sc tm1 tm2 = do
     ty1 <- scTypeOf sc tm1
     ty2 <- scTypeOf sc tm2
     let asVecType = isVecType return
@@ -216,20 +216,20 @@ equal sc tm1@(STApp _ (FTermF t1)) tm2@(STApp _ (FTermF t2)) = do
         scBvEq sc n1t tm1 tm2
       (asVecType -> Just (l1 :*: ety1), asVecType -> Just (l2 :*: ety2)) -> do
         unless (l1 == l2) $ fail "Arrays have different sizes."
-        unless (ety1 == ety2) $ fail "Arrays have different element types."
-        case (t1, t2) of
-          (ArrayValue _ es1, ArrayValue _ es2) -> do
-            allEqual sc (zip (V.toList es1) (V.toList es2))
-          _ -> fail "Array typed expressions have non-array values."
+        getOp <- scApplyPreludeGet sc
+        eqs <- forM [0..l1-1] $ \i -> do
+                 it <- scNat sc i
+                 lt <- scNat sc l1
+                 ft <- scFinVal sc it lt
+                 et1 <- getOp lt ety1 tm1 ft
+                 et2 <- getOp lt ety1 tm2 ft
+                 equal sc et1 et2
+        andOp <- scApplyPreludeAnd sc
+        trueTm <- scBool sc True
+        foldM andOp trueTm eqs
       (_, _) ->
         fail $ "Incompatible non-lambda terms. Types are " ++
                show ty1 ++ " and " ++ show ty2
-equal sc t1 t2 = do
-  ty1 <- scTypeOf sc t1
-  ty2 <- scTypeOf sc t2
-  fail $ "Incompatible terms.\n" ++
-         "Types are " ++ show ty1 ++ " and " ++ show ty2 ++ "\n" ++
-         "Terms are " ++ show t1 ++ " and " ++ show t2
 
 allEqual :: SharedContext s -> [(SharedTerm s, SharedTerm s)] -> IO (SharedTerm s)
 allEqual sc [] = scApplyPreludeTrue sc
@@ -247,11 +247,11 @@ scRemoveBitvector sc tm = do
     where Just def = findDef (scModule sc) (parseIdent "Prelude.bitvector")
 
 scEq :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-scEq sc x y = do
+scEq sc x y = equal sc x y {- do
   xty <- scTypeOf sc x
   eqOp <- scApplyPreludeEq sc
   res <- eqOp xty x y
-  return res
+  return res -}
 
 scImplies :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
 scImplies sc x y = do

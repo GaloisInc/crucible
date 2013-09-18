@@ -675,12 +675,17 @@ initializeVerification :: (MonadIO m, Functor m) =>
                        -> PtrEquivConfiguration
                        -> Simulator SpecBackend m ExpectedStateDef
 initializeVerification sc ir bs ptrConfig = do
-  let exprs = specLLVMExprNames ir
 {-
-  exprRefs <- mapM (JSS.genRef . TC.jssTypeOfActual . snd) ptrConfig
-  let refAssignments = (map fst refConfig `zip` exprRefs)
+  exprPtrs <- mapM (LSS.genPtr . TC.lssTypeOfActual . snd) ptrConfig
+  let refAssignments = (map fst ptrConfig `zip` exprPtrs)
 -}
-  let args = undefined -- TODO!
+  let exprs = specLLVMExprNames ir
+      fn = specFunction ir
+      newArg (Ident nm, mty) = do
+        Just ty <- TC.logicTypeOfActual sc mty
+        scFreshGlobal sc nm ty
+  -- TODO: this doesn't account for aliasing between arguments
+  args <- liftIO $ mapM newArg (sdArgs fn)
   Just cs <- use ctrlStk
   sbe <- gets symBE
   let m = cs^.currentPath^.pathMem
@@ -692,13 +697,9 @@ initializeVerification sc ir bs ptrConfig = do
   let fr = "Stack push frame failure: insufficient stack space"
   processMemCond fr c
 
-  -- TODO: add breakpoints once local specs exist
-  --forM_ (Map.keys (specBehaviors ir)) $ JSS.addBreakpoint clName key
-  -- TODO: set starting PC
-
   initPS <- fromMaybe (error "initializeVerification") <$> getPath
   let initESG = ESGState { esContext = sc
-                         , esDef = specFunction ir
+                         , esDef = fn
                          , esLLVMExprs = exprs
                          -- , esExprRefMap = Map.fromList
                          --    [ (e, r) | (cl,r) <- refAssignments, e <- cl ]
@@ -711,9 +712,9 @@ initializeVerification sc ir bs ptrConfig = do
 {-
           -- Set references
           forM_ refAssignments $ \(cl,r) ->
-            forM_ cl $ \e -> esSetJavaValue e (JSS.RValue r)
-          -- Set initial logic values.
+            forM_ cl $ \e -> esSetLLVMValue e (JSS.RValue r)
 -}
+          -- Set initial logic values.
           lcs <- liftIO $ bsLogicClasses sc exprs bs ptrConfig
           case lcs of
             Nothing ->
@@ -722,7 +723,11 @@ initializeVerification sc ir bs ptrConfig = do
             Just assignments -> mapM_ (\(l,t,r) -> esSetLogicValues sc l t r) assignments
           -- Process commands
           mapM esStep (bsCommands bs)
-  let ps = esInitialPathState es
+
+  -- TODO: add breakpoints once local specs exist
+  -- TODO: set starting PC once we allow anything other than the initial PC
+
+  -- TODO: modify path to account for changes in es
   -- TODO: JSS.modifyPathM_ (PP.text "initializeVerification") (\_ -> return ps)
   return ESD { esdStartLoc = bsLoc bs
              , esdInitialPathState = esInitialPathState es

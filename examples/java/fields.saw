@@ -38,5 +38,5 @@ main = do {
     print ms_clearx;
     ms_cleary <- java_verify "Fields" "cleary" [] cleary_spec;
     print ms_cleary;
-    print "Done.";
+    print "Q.E.D.";
 };

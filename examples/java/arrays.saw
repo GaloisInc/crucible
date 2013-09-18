@@ -17,5 +17,5 @@ main : TopLevel ();
 main = do {
     ms <- java_verify "Arrays" "copy" [] copy_setup;
     ms' <- java_verify "Arrays" "clear" [] clear_setup;
-    print "Done.";
+    print "Q.E.D.";
 };

@@ -492,7 +492,7 @@ valueEnv opts bic = M.fromList
   , (qualify "llvm_verify" , toValue $ verifyLLVM bic opts)
   , (qualify "llvm_pure"   , toValue $ llvmPure)
   , (qualify "llvm_var"    , toValue $ llvmVar bic opts)
-  , (qualify "llvm_may_alias", toValue $ llvmMayAlias bic opts)
+  -- , (qualify "llvm_may_alias", toValue $ llvmMayAlias bic opts)
   , (qualify "llvm_assert" , toValue $ llvmAssert bic opts)
   , (qualify "llvm_assert_eq" , toValue $ llvmAssertEq bic opts)
   , (qualify "llvm_ensure_eq" , toValue $ llvmEnsureEq bic opts)
