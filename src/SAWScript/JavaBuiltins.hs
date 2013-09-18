@@ -22,7 +22,7 @@ import Verinf.Symbolic.Lit.ABC
 
 import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.Java.Simulator as JSS
-import qualified Verifier.Java.SAWBackend as JSS2
+import qualified Verifier.Java.SAWBackend as JSS
 
 import Verifier.SAW.Prelude
 import Verifier.SAW.SharedTerm
@@ -55,7 +55,7 @@ extractJava bic opts cname mname _setup = do
   argsRef <- newIORef []
   bracket BE.createBitEngine BE.beFree $ \be -> do
     let fl = JSS.defaultSimFlags { JSS.alwaysBitBlastBranchTerms = True }
-    sbe <- JSS2.sawBackend sc (Just argsRef) be
+    sbe <- JSS.sawBackend sc (Just argsRef) be
     JSS.runSimulator cb sbe JSS.defaultSEH (Just fl) $ do
       setVerbosity 0
       args <- mapM (freshJavaArg sbe) (JSS.methodParameterTypes meth)
@@ -88,11 +88,11 @@ verifyJava :: BuiltinContext -> Options -> String -> String
 verifyJava bic opts cname mname overrides setup = do
   let pos = fixPos -- TODO
       cb = biJavaCodebase bic
-  sc0 <- mkSharedContext preludeModule
+  sc0 <- mkSharedContext JSS.javaModule
   ss <- basic_ss sc0
   let (jsc :: SharedContext JSSCtx) = sc0 -- rewritingSharedContext sc0 ss
   be <- createBitEngine
-  backend <- JSS2.sawBackend jsc Nothing be
+  backend <- JSS.sawBackend jsc Nothing be
   ms0 <- initMethodSpec pos cb cname mname
   let jsctx0 = JavaSetupState {
                  jsSpec = ms0

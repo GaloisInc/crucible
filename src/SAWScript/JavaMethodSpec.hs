@@ -52,7 +52,7 @@ import SAWScript.Proof
 
 import qualified Verifier.Java.Simulator as JSS
 import qualified Data.JVM.Symbolic.AST as JSS
-import Verifier.Java.SAWBackend()
+import Verifier.Java.SAWBackend
 import Verinf.Utils.LogMonad
 
 import Verifier.SAW.Evaluator
@@ -61,6 +61,8 @@ import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST
+
+import Debug.Trace
 
 -- JSS Utilities {{{1
 
@@ -114,39 +116,24 @@ data EvalContext = EvalContext {
          ecContext :: SharedContext JSSCtx
        , ecLocals :: Map JSS.LocalVariableIndex SpecJavaValue
        , ecPathState :: SpecPathState
-       , ecJavaValues :: Map String (SharedTerm JSSCtx)
+       , ecJavaExprs :: Map String TC.JavaExpr
        }
 
-evalContextFromPathState :: SharedContext JSSCtx -> SpecPathState -> EvalContext
-evalContextFromPathState sc ps =
+evalContextFromPathState :: SharedContext JSSCtx -> Map String TC.JavaExpr -> SpecPathState -> EvalContext
+evalContextFromPathState sc m ps =
   let Just f = JSS.currentCallFrame ps
       localMap = f ^. JSS.cfLocals
   in EvalContext {
          ecContext = sc
        , ecLocals = localMap
        , ecPathState = ps
-       , ecJavaValues = Map.empty
+       , ecJavaExprs = m
        }
 
 type ExprEvaluator a = ErrorT TC.JavaExpr IO a
 
 runEval :: MonadIO m => ExprEvaluator b -> m (Either TC.JavaExpr b)
 runEval v = liftIO (runErrorT v)
-
-addJavaValues :: (Monad m) =>
-                 Map String TC.JavaExpr -> EvalContext
-              -> m EvalContext
-addJavaValues m ec = do
-  vs <- forM (Map.toList m) $
-          \(name, expr) -> do mv <- evalExpr expr
-                              maybe (return Nothing) (return . Just . (name,)) mv
-  return ec { ecJavaValues = Map.fromList (catMaybes vs) }
-    where evalExpr e = do
-            v <- evalJavaExpr e ec
-            case v of
-              JSS.IValue t -> return (Just t)
-              JSS.LValue t -> return (Just t)
-              _ -> return Nothing
 
 -- or undefined subexpression if not.
 -- N.B. This method assumes that the Java path state is well-formed, the
@@ -160,13 +147,13 @@ evalJavaExpr expr ec = eval expr
             TC.Local _ idx _ ->
               case Map.lookup idx (ecLocals ec) of
                 Just v -> return v
-                Nothing -> fail (show e) -- TODO
+                Nothing -> fail $ "evalJavaExpr: " ++ show e -- TODO
             TC.InstanceField r f -> do
               JSS.RValue ref <- eval r
               let ifields = (ecPathState ec) ^. JSS.pathMemory . JSS.memInstanceFields
               case Map.lookup (ref, f) ifields of
                 Just v -> return v
-                Nothing -> fail (show e) -- TODO
+                Nothing -> fail $ "evalJavaExpr: " ++ show e -- TODO
 
 evalJavaRefExpr :: TC.JavaExpr -> EvalContext -> ExprEvaluator JSS.Ref
 evalJavaRefExpr expr ec = do
@@ -175,14 +162,15 @@ evalJavaRefExpr expr ec = do
     JSS.RValue ref -> return ref
     _ -> error "internal: evalJavaRefExpr encountered illegal value."
 
-evalJavaExprAsLogic :: TC.JavaExpr -> EvalContext -> ExprEvaluator (SharedTerm JSSCtx)
+evalJavaExprAsLogic :: (Monad m) => TC.JavaExpr -> EvalContext -> m (SharedTerm JSSCtx)
 evalJavaExprAsLogic expr ec = do
   val <- evalJavaExpr expr ec
   case val of
     JSS.RValue r ->
       let arrs = (ecPathState ec) ^. JSS.pathMemory . JSS.memScalarArrays in
+      trace (show (arrs)) $
       case Map.lookup r arrs of
-        Nothing    -> throwError expr
+        Nothing    -> fail $ "evalJavaExprAsLogic: " ++ show expr ++ "(" ++ show val ++ ")"
         Just (_,n) -> return n
     JSS.IValue n -> return n
     JSS.LValue n -> return n
@@ -191,19 +179,21 @@ evalJavaExprAsLogic expr ec = do
 scJavaValue :: SharedContext JSSCtx -> SharedTerm JSSCtx -> String -> IO (SharedTerm JSSCtx)
 scJavaValue sc ty name = do
   s <- scString sc name
-  mkValue <- scGlobalDef sc (parseIdent "Java.mkValue")
-  scApplyAll sc mkValue [ty, s]
+  mkValue <- scApplyJavaMkValue sc
+  mkValue ty s
 
 -- | Evaluates a typed expression in the context of a particular state.
 evalLogicExpr :: TC.LogicExpr -> EvalContext -> ExprEvaluator (SharedTerm JSSCtx)
 evalLogicExpr initExpr ec = liftIO $ do
   let sc = ecContext ec
   t <- TC.useLogicExpr sc initExpr
-  rules <- forM (Map.toList (ecJavaValues ec)) $ \(name, lt) ->
-             do ty <- scTypeOf sc lt
+  rules <- forM (Map.toList (ecJavaExprs ec)) $ \(name, expr) ->
+             do lt <- evalJavaExprAsLogic expr ec
+                ty <- scTypeOf sc lt
                 ty' <- scRemoveBitvector sc ty
                 nt <- scJavaValue sc ty' name
                 return (ruleOfTerms nt lt)
+  liftIO $ print rules
   let ss = addRules rules emptySimpset
   rewriteSharedTerm sc ss t
 
@@ -349,8 +339,8 @@ ocStep (ModifyArray refExpr ty) = do
     sc <- gets (ecContext . ocsEvalContext)
     mtp <- liftIO $ TC.logicTypeOfActual sc ty
     rhsVal <- maybe (fail "can't convert") (liftIO . scFreshGlobal sc "_") mtp
-    ty <- liftIO $ scTypeOf sc rhsVal
-    ocModifyResultState $ setArrayValue ref ty rhsVal
+    lty <- liftIO $ scTypeOf sc rhsVal
+    ocModifyResultState $ setArrayValue ref lty rhsVal
 ocStep (Return expr) = do
   ocEval (evalMixedExpr expr) $ \val ->
     modify $ \ocs -> ocs { ocsReturnValue = Just val }
@@ -429,15 +419,14 @@ execOverride sc pos ir mbThis args = do
   let method = specMethod ir
       argLocals = map (JSS.localIndexOfParameter method) [0..] `zip` args
       m = specJavaExprNames ir
-  let ec0 = EvalContext { ecContext = sc
-                        , ecLocals =  Map.fromList $
-                             case mbThis of
-                               Just th -> (0, JSS.RValue th) : argLocals
-                               Nothing -> argLocals
-                        , ecPathState = initPS
-                        , ecJavaValues = Map.empty
-                        }
-  ec <- addJavaValues m ec0
+  let ec = EvalContext { ecContext = sc
+                       , ecLocals =  Map.fromList $
+                           case mbThis of
+                             Just th -> (0, JSS.RValue th) : argLocals
+                             Nothing -> argLocals
+                       , ecPathState = initPS
+                       , ecJavaExprs = m
+                       }
   -- Check class initialization.
   checkClassesInitialized pos (specName ir) (specInitializedClasses ir)
   -- Execute behavior.
@@ -487,6 +476,7 @@ data ExpectedStateDef = ESD {
          -- | Initial path state (used for evaluating expressions in
          -- verification).
        , esdInitialPathState :: SpecPathState
+       , esdJavaExprs :: Map String TC.JavaExpr
          -- | Stores initial assignments.
        , esdInitialAssignments :: [(TC.JavaExpr, SharedTerm JSSCtx)]
          -- | Map from references back to Java expressions denoting them.
@@ -531,8 +521,7 @@ esEval fn = do
   sc <- gets esContext
   m <- gets esJavaExprs 
   initPS <- gets esInitialPathState
-  let ec0 = evalContextFromPathState sc initPS
-  ec <- addJavaValues m ec0
+  let ec = evalContextFromPathState sc m initPS
   res <- runEval (fn ec)
   case res of
     Left expr -> fail $ "internal: esEval given " ++ show expr ++ "."
@@ -578,6 +567,7 @@ esAssertEq _ _ _ = error "internal: esAssertEq given illegal arguments."
 -- | Set value in initial state.
 esSetJavaValue :: TC.JavaExpr -> SpecJavaValue -> ExpectedStateGenerator ()
 esSetJavaValue e@(CC.Term exprF) v = do
+  liftIO $ putStrLn $ "Setting Java value for " ++ show e
   case exprF of
     -- TODO: the following is ugly, and doesn't make good use of lenses
     TC.Local _ idx _ -> do
@@ -588,6 +578,7 @@ esSetJavaValue e@(CC.Term exprF) v = do
           ps' = (JSS.pathStack %~ updateLocals) ps
           updateLocals (f:r) = (JSS.cfLocals %~ Map.insert idx v) f : r
           updateLocals [] = error "internal: esSetJavaValue of local with empty call stack"
+      liftIO $ putStrLn $ "Local " ++ show idx ++ " with stack " ++ show ls
       case Map.lookup idx ls of
         Just oldValue -> esAssertEq (TC.ppJavaExpr e) oldValue v
         Nothing -> esPutInitialPathState ps'
@@ -610,6 +601,7 @@ esResolveLogicExprs tp [] = do
   liftIO $ scFreshGlobal sc "_" tp
 esResolveLogicExprs _ (hrhs:rrhs) = do
   sc <- gets esContext
+  liftIO $ putStrLn $ "Evaluating " ++ show hrhs
   t <- esEval $ evalLogicExpr hrhs
   -- Add assumptions for other equivalent expressions.
   forM_ rrhs $ \rhsExpr -> do
@@ -623,6 +615,7 @@ esSetLogicValues :: SharedContext JSSCtx -> [TC.JavaExpr] -> SharedTerm JSSCtx
                  -> [TC.LogicExpr]
                  -> ExpectedStateGenerator ()
 esSetLogicValues sc cl tp lrhs = do
+  liftIO $ putStrLn $ "Setting logic values for: " ++ show cl
   -- Get value of rhs.
   value <- esResolveLogicExprs tp lrhs
   -- Update Initial assignments.
@@ -688,12 +681,15 @@ esStep (ModifyInstanceField refExpr f) = do
 esStep (EnsureArray _pos lhsExpr rhsExpr) = do
   -- Evaluate expressions.
   ref    <- esEval $ evalJavaRefExpr lhsExpr
+  liftIO $ print rhsExpr
   value  <- esEval $ evalLogicExpr rhsExpr
+  liftIO $ print value
   -- Get dag engine
   sc <- gets esContext
-  let l = case value of
-            (STApp _ (FTermF (ArrayValue _ vs))) -> fromIntegral (V.length vs)
-            _ -> error "internal: right hand side of array ensure clause isn't an array"
+  ty <- liftIO $ scTypeOf sc value
+  let l = case ty of
+            (isVecType (const (return ())) -> Just (w :*: _)) -> fromIntegral w
+            _ -> error "internal: right hand side of array ensure clause has non-array type."
   -- Check if array has already been assigned value.
   aMap <- gets esArrays
   case Map.lookup ref aMap of
@@ -717,7 +713,6 @@ initializeVerification :: JSS.MonadSim (SharedContext JSSCtx) m =>
                        -> RefEquivConfiguration
                        -> JSS.Simulator (SharedContext JSSCtx) m ExpectedStateDef
 initializeVerification sc ir bs refConfig = do
-  liftIO $ print (map fst refConfig)
   exprRefs <- mapM (JSS.genRef . TC.jssTypeOfActual . snd) refConfig
   let refAssignments = (map fst refConfig `zip` exprRefs)
       m = specJavaExprNames ir
@@ -730,6 +725,7 @@ initializeVerification sc ir bs refConfig = do
                                    JSS.entryBlock -- FIXME: not the right block
                                    Map.empty
                                    cs
+  liftIO $ print refAssignments
   JSS.modifyCSM_ (return . pushFrame)
   let updateInitializedClasses mem =
         foldr (flip JSS.setInitializationStatus JSS.Initialized)
@@ -752,11 +748,14 @@ initializeVerification sc ir bs refConfig = do
                          , esInstanceFields = Map.empty
                          , esArrays = Map.empty
                          }
+  liftIO $ putStrLn "Starting to initialize state."
   es <- liftIO $ flip execStateT initESG $ do
           -- Set references
+          liftIO $ putStrLn "Setting references."
           forM_ refAssignments $ \(cl,r) ->
             forM_ cl $ \e -> esSetJavaValue e (JSS.RValue r)
           -- Set initial logic values.
+          liftIO $ putStrLn "Setting logic values."
           lcs <- liftIO $ bsLogicClasses sc m bs refConfig
           case lcs of
             Nothing ->
@@ -764,12 +763,14 @@ initializeVerification sc ir bs refConfig = do
                in throwIOExecException (specPos ir) (ftext msg) ""
             Just assignments -> mapM_ (\(l,t,r) -> esSetLogicValues sc l t r) assignments
           -- Process commands
+          liftIO $ putStrLn "Running commands."
           mapM esStep (bsCommands bs)
   let ps = esInitialPathState es
   JSS.modifyPathM_ (PP.text "initializeVerification") (\_ -> return ps)
   return ESD { esdStartLoc = bsLoc bs
              , esdInitialPathState = esInitialPathState es
              , esdInitialAssignments = reverse (esInitialAssignments es)
+             , esdJavaExprs = m
              , esdRefExprMap =
                   Map.fromList [ (r, cl) | (cl,r) <- refAssignments ]
              , esdReturnValue = esReturnValue es
@@ -1030,11 +1031,12 @@ runValidation prover params sc esd results = do
                      , vsMethodSpec = ir
                      , vsVerbosity = verb
                      -- , vsFromBlock = esdStartLoc esd
-                     , vsEvalContext = evalContextFromPathState sc ps
+                     , vsEvalContext = evalContextFromPathState sc m ps
                      , vsInitialAssignments = pvcInitialAssignments pvc
                      , vsCounterexampleFn = cfn
                      , vsStaticErrors = pvcStaticErrors pvc
                      }
+            m = esdJavaExprs esd
         if null (pvcStaticErrors pvc) then
          forM_ (pvcChecks pvc) $ \vc -> do
            let vs = mkVState (vcName vc) (vcCounterexample vc)
