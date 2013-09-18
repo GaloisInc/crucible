@@ -242,7 +242,8 @@ javaAssertEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
 javaAssertEq bic _ name t = do
   ms <- gets jsSpec
   (exp, ty) <- liftIO $ getJavaExpr ms name
-  fail "javaAssertEq"
+  modify $ \st ->
+    st { jsSpec = specAddLogicAssignment fixPos exp (mkLogicExpr t) ms }
 
 javaEnsureEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
              -> JavaSetup ()

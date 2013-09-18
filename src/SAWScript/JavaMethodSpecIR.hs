@@ -26,6 +26,7 @@ module SAWScript.JavaMethodSpecIR
   , specValidationPlan
   , specAddBehaviorCommand
   , specAddVarDecl
+  , specAddLogicAssignment
   , specAddAliasSet
   , specSetVerifyTactic
   , specJavaExprNames
@@ -205,7 +206,7 @@ asJavaExpr _ _ = Nothing
 
 bsLogicEqs :: Map String JavaExpr -> BehaviorSpec -> [(JavaExpr, JavaExpr)]
 bsLogicEqs m bs =
-  [ (lhs,rhs') | (_,lhs,rhs) <- bsLogicAssignments bs
+  [ (lhs,rhs') | (_, lhs,rhs) <- bsLogicAssignments bs
                , let Just rhs' = asJavaExpr m rhs]
 
 -- | Returns logic assignments to equivance class.
@@ -214,7 +215,7 @@ bsAssignmentsForClass :: Map String JavaExpr -> BehaviorSpec -> JavaExprEquivCla
 bsAssignmentsForClass m bs cl = res 
   where s = Set.fromList cl
         res = [ rhs 
-              | (_,lhs,rhs) <- bsLogicAssignments bs
+              | (_, lhs,rhs) <- bsLogicAssignments bs
               , Set.member lhs s
               , not (isJust (asJavaExpr m rhs)) ]
 
@@ -242,6 +243,7 @@ bsLogicClasses sc m bs cfg = do
                           Just tp -> return (Just (cl, tp))
                           Nothing -> return Nothing
                       Nothing -> return Nothing
+  print $ "Logic classes: " ++ show logicClasses
   let v = V.fromList logicClasses
       -- Create nodes.
       grNodes = [0..] `zip` logicClasses
@@ -372,6 +374,13 @@ specAddVarDecl name expr jt ms = ms { specBehaviors = bs'
                        bsMustAliasSet bs
                  }
         ns' = Map.insert name expr (specJavaExprNames ms)
+
+specAddLogicAssignment :: Pos -> JavaExpr -> LogicExpr
+                       -> JavaMethodSpecIR -> JavaMethodSpecIR
+specAddLogicAssignment pos expr t ms = ms { specBehaviors = bs' }
+  where bs = specBehaviors ms
+        las = bsLogicAssignments bs
+        bs' = bs { bsLogicAssignments = (pos, expr, t) : las }
 
 specAddAliasSet :: [JavaExpr] -> JavaMethodSpecIR -> JavaMethodSpecIR
 specAddAliasSet exprs ms = ms { specBehaviors = bs' }
