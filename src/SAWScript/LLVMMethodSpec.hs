@@ -71,38 +71,37 @@ type SpecBackend = SAWBackend LSSCtx Lit
 type SpecPathState = Path SpecBackend
 type SpecLLVMValue = SharedTerm LSSCtx
 
-{-
--- | Set value of bound to struct field in path state.
-setStructFieldValue :: JSS.Ref -> JSS.FieldId -> SpecJavaValue
-                      -> SpecPathState -> SpecPathState
-setStructFieldValue r f v =
-  JSS.pathMemory . JSS.memInstanceFields %~ Map.insert (r, f) v
+storePathState :: SBE SpecBackend
+               -> SharedTerm LSSCtx
+               -> MemType
+               -> SharedTerm LSSCtx 
+               -> SpecPathState
+               -> IO SpecPathState
+storePathState sbe dst tp val ps = do
+  (c, m') <- sbeRunIO sbe (memStore sbe (ps ^. pathMem) dst tp val 0)
+  ps' <- addAssertion sbe c ps
+  return (ps' & pathMem .~ m')
 
--- | Set value bound to array in path state.
--- Assumes value is an array with a ground length.
-setArrayValue :: JSS.Ref -> SharedTerm LSSCtx
-              -> SpecPathState -> SpecPathState
-setArrayValue r v@(STApp _ (FTermF (ArrayValue _ vs))) =
-  JSS.pathMemory . JSS.memScalarArrays %~ Map.insert r (w, v)
-    where w = fromIntegral $ V.length vs
-setArrayValue _ _ = error "internal: setArrayValue called with non-array value"
-
-setGlobalValue :: ... -> SpecPathState -> SpecPathState
-setGlobalValue =
--}
+loadPathState :: SBE SpecBackend
+              -> SharedTerm LSSCtx
+              -> MemType
+              -> SpecPathState
+              -> IO (SpecPathState, SharedTerm LSSCtx)
+loadPathState sbe src tp ps = do
+  (c, v) <- sbeRunIO sbe (memLoad sbe (ps ^. pathMem) tp src 0)
+  ps' <- addAssertion sbe c ps
+  return (ps', v)
 
 -- | Add assumption for predicate to path state.
-addAssumption :: SharedContext LSSCtx -> SharedTerm LSSCtx -> SpecPathState -> IO SpecPathState
-addAssumption sc x p = do
-  andOp <- liftIO $ scApplyPreludeAnd sc
-  p & pathAssertions %%~ \a -> liftIO (andOp a x)
+addAssumption :: SBE SpecBackend -> SharedTerm LSSCtx -> SpecPathState -> IO SpecPathState
+addAssumption sbe x p = do
+  p & pathAssertions %%~ \a -> liftIO (sbeRunIO sbe (applyAnd sbe a x))
 
 -- | Add assertion for predicate to path state.
-addAssertion :: SharedContext LSSCtx -> SharedTerm LSSCtx -> SpecPathState -> IO SpecPathState
-addAssertion sc x p = do
+addAssertion :: SBE SpecBackend -> SharedTerm LSSCtx -> SpecPathState -> IO SpecPathState
+addAssertion sbe x p = do
   -- TODO: p becomes an additional VC in this case
-  andOp <- liftIO $ scApplyPreludeAnd sc
-  p & pathAssertions %%~ \a -> liftIO (andOp a x)
+  p & pathAssertions %%~ \a -> liftIO (sbeRunIO sbe (applyAnd sbe a x))
 
 -- EvalContext {{{1
 
@@ -110,6 +109,7 @@ addAssertion sc x p = do
 data EvalContext
   = EvalContext {
       ecContext :: SharedContext LSSCtx
+    , ecBackend :: SBE SpecBackend
     , ecArgs :: [(Ident, SharedTerm LSSCtx)]
     , ecPathState :: SpecPathState
     , ecLLVMExprs :: Map String TC.LLVMExpr
@@ -117,11 +117,13 @@ data EvalContext
 
 evalContextFromPathState :: Map String TC.LLVMExpr
                          -> SharedContext LSSCtx
+                         -> SBE SpecBackend
                          -> SpecPathState
                          -> EvalContext
-evalContextFromPathState m sc ps
+evalContextFromPathState m sc sbe ps
   = EvalContext {
       ecContext = sc
+    , ecBackend = sbe
     , ecArgs = cfArgValues (head (ps ^.. pathCallFrames))
     , ecPathState = ps
     , ecLLVMExprs = m
@@ -135,7 +137,7 @@ runEval v = liftIO (runErrorT v)
 -- N.B. This method assumes that the LLVM path state is well-formed.
 -- It does not assume that all the memory references in the
 -- LLVMEvalContext are initialized.
-evalLLVMExpr :: (Monad m) => TC.LLVMExpr -> EvalContext -> m SpecLLVMValue
+evalLLVMExpr :: TC.LLVMExpr -> EvalContext -> IO SpecLLVMValue
 evalLLVMExpr expr ec = eval expr
   where eval e@(CC.Term app) =
           case app of
@@ -143,8 +145,12 @@ evalLLVMExpr expr ec = eval expr
               case lookup n (ecArgs ec) of
                 Just v -> return v
                 Nothing -> fail (show e) -- TODO
-            TC.Global n _ -> fail "globals not yet supported" -- TODO
-            TC.Deref e _ -> fail "deref not yet supported"
+            TC.Global n _ -> do
+              fail "globals not yet implemented"
+            TC.Deref e tp -> do
+              addr <- evalLLVMExpr e ec 
+              loadPathState (ecBackend ec) addr tp (ecPathState ec)
+              fail "deref not yet supported"
             TC.StructField e n i _ -> fail "struct fields not yet supported" -- TODO
               {- do
               JSS.RValue ref <- eval r
@@ -201,7 +207,7 @@ evalLogicExpr initExpr ec = liftIO $ do
 evalMixedExpr :: TC.MixedExpr -> EvalContext
               -> ExprEvaluator SpecLLVMValue
 evalMixedExpr (TC.LogicE expr) ec = evalLogicExpr expr ec
-evalMixedExpr (TC.LLVME expr) ec = evalLLVMExpr expr ec
+evalMixedExpr (TC.LLVME expr) ec = liftIO $ evalLLVMExpr expr ec
 
 -- Method specification overrides {{{1
 -- OverrideComputation definition {{{2
@@ -286,11 +292,11 @@ ocModifyResultStateIO fn = do
 -- | Add assumption for predicate.
 ocAssert :: Pos -> String -> SharedTerm LSSCtx -> OverrideComputation ()
 ocAssert p _nm x = do
-  sc <- (ecContext . ocsEvalContext) <$> get
+  sbe <- (ecBackend . ocsEvalContext) <$> get
   case asBool x of
     Just True -> return ()
     Just False -> ocError (FalseAssertion p)
-    _ -> ocModifyResultStateIO (addAssertion sc x)
+    _ -> ocModifyResultStateIO (addAssertion sbe x)
 
 -- ocStep {{{2
 
@@ -299,12 +305,12 @@ ocStep (AssertPred pos expr) =
   ocEval (evalLogicExpr expr) $ \p ->
     ocAssert pos "Override predicate" p
 ocStep (AssumePred expr) = do
-  sc <- gets (ecContext . ocsEvalContext)
+  sbe <- gets (ecBackend . ocsEvalContext)
   ocEval (evalLogicExpr expr) $ \v ->
     case asBool v of
       Just True -> return ()
       Just False -> ocAssumeFailed
-      _ -> ocModifyResultStateIO $ addAssumption sc v
+      _ -> ocModifyResultStateIO $ addAssumption sbe v
 {-
 ocStep (EnsureScalar _pos lhsExpr rhsExpr) = do
   ocEval (evalLLVMExpr lhsExpr) $ \lhsRef ->
@@ -396,7 +402,9 @@ execOverride sc pos ir args = do
   let bsl = specBehavior ir
   let func = specFunction ir
       m = specLLVMExprNames ir
+  sbe <- gets symBE
   let ec = EvalContext { ecContext = sc
+                       , ecBackend = sbe
                        , ecArgs = zip (map fst (sdArgs func)) (map snd args)
                        , ecPathState = initPS
                        , ecLLVMExprs = specLLVMExprNames ir
@@ -436,12 +444,12 @@ data ExpectedStateDef = ESD {
          esdStartLoc :: SymBlockID
          -- | Initial path state (used for evaluating expressions in
          -- verification).
+       , esdBackend :: SBE SpecBackend
        , esdInitialPathState :: SpecPathState
          -- | Stores initial assignments.
        , esdInitialAssignments :: [(TC.LLVMExpr, SharedTerm LSSCtx)]
          -- | Map from references back to Java expressions denoting them.
        -- , esdRefExprMap :: Map JSS.Ref [TC.LLVMExpr]
-       , esdMemory :: SAWMemory LSSCtx
          -- | Expected return value or Nothing if method returns void.
        , esdReturnValue :: Maybe (SharedTerm LSSCtx)
        }
@@ -460,12 +468,12 @@ esdRefName ref esd =
 -- | State for running the behavior specifications in a method override.
 data ESGState = ESGState {
          esContext :: SharedContext LSSCtx
+       , esBackend :: SBE SpecBackend
        , esDef :: SymDefine (SharedTerm LSSCtx)
        , esLLVMExprs :: Map String TC.LLVMExpr
        -- , esExprRefMap :: Map TC.LLVMExpr JSS.Ref -- FIXME
        , esInitialAssignments :: [(TC.LLVMExpr, SharedTerm LSSCtx)]
        , esInitialPathState :: SpecPathState
-       , esMemory :: SAWMemory LSSCtx
        , esReturnValue :: Maybe SpecLLVMValue
        }
 
@@ -477,8 +485,9 @@ esEval :: (EvalContext -> ExprEvaluator b) -> ExpectedStateGenerator b
 esEval fn = do
   sc <- gets esContext
   m <- gets esLLVMExprs 
+  sbe <- gets esBackend
   initPS <- gets esInitialPathState
-  let ec = evalContextFromPathState m sc initPS
+  let ec = evalContextFromPathState m sc sbe initPS
   res <- runEval (fn ec)
   case res of
     Left expr -> fail $ "internal: esEval given " ++ show expr ++ "."
@@ -501,18 +510,19 @@ esModifyInitialPathStateIO fn =
   do s0 <- esGetInitialPathState
      esPutInitialPathState =<< liftIO (fn s0)
 
-esAddEqAssertion :: SharedContext LSSCtx -> String -> SharedTerm LSSCtx -> SharedTerm LSSCtx
+esAddEqAssertion :: SBE SpecBackend -> String -> SharedTerm LSSCtx -> SharedTerm LSSCtx
                  -> ExpectedStateGenerator ()
-esAddEqAssertion sc _nm x y =
-  do prop <- liftIO (scEq sc x y)
-     esModifyInitialPathStateIO (addAssertion sc prop)
+esAddEqAssertion sbe _nm x y =
+  do sc <- gets esContext
+     prop <- liftIO (scEq sc x y)
+     esModifyInitialPathStateIO (addAssertion sbe prop)
 
 -- | Assert that two terms are equal.
 esAssertEq :: String -> SpecLLVMValue -> SpecLLVMValue
            -> ExpectedStateGenerator ()
 esAssertEq nm x y = do
-  sc <- gets esContext
-  esAddEqAssertion sc nm x y
+  sbe <- gets esBackend
+  esAddEqAssertion sbe nm x y
 esAssertEq _ _ _ = error "internal: esAssertEq given illegal arguments."
 
 -- | Set value in initial state.
@@ -520,35 +530,19 @@ esSetLLVMValue :: TC.LLVMExpr -> SpecLLVMValue -> ExpectedStateGenerator ()
 esSetLLVMValue e@(CC.Term exprF) v = do
   case exprF of
     -- TODO: the following is ugly, and doesn't make good use of lenses
-    TC.Global name _ -> do
-      -- TODO
-      return ()
-    TC.Arg _ name _ -> do
-      ps <- esGetInitialPathState
-{-
-      let ls = case JSS.currentCallFrame ps of
-                 Just cf -> cf ^. JSS.cfLocals
-                 Nothing -> Map.empty
-          ps' = (JSS.pathStack %~ updateLocals) ps
-          updateLocals (f:r) = (JSS.cfLocals %~ Map.insert idx v) f : r
-          updateLocals [] = error "internal: esSetJavaValue of local with empty call stack"
-      case Map.lookup idx ls of
-        Just oldValue -> esAssertEq (TC.ppJavaExpr e) oldValue v
-        Nothing -> esPutInitialPathState ps'
--}
-      return ()
+    TC.Global _ _ -> fail "Can't set the value of globals."
+    TC.Arg _ name _ -> fail "Can't set the value of arguments."
+    TC.Deref addrExp tp -> do
+      assgns <- gets esInitialAssignments
+      sbe <- gets esBackend
+      case lookup addrExp assgns of
+        Just addr -> do
+          ps <- esGetInitialPathState
+          ps' <- liftIO $ storePathState sbe addr tp v ps
+          esPutInitialPathState ps'
+        Nothing -> fail "internal: esSetLLVMValue on address not assigned a value"
     -- TODO: the following is ugly, and doesn't make good use of lenses
-    TC.StructField refExpr f fi _ -> do
-      -- Lookup refrence associated to refExpr
-      {- TODO
-      Just ref <- Map.lookup refExpr <$> gets esExprRefMap
-      ps <- esGetInitialPathState
-      case Map.lookup (ref,f) (ps ^. JSS.pathMemory . JSS.memInstanceFields) of
-        Just oldValue -> esAssertEq (TC.ppJavaExpr e) oldValue v
-        Nothing -> esPutInitialPathState $
-          (JSS.pathMemory . JSS.memInstanceFields %~ Map.insert (ref,f) v) ps
-      -}
-      return ()
+    TC.StructField refExpr f fi _ -> fail "Can't set the value of structure fields."
 
 esResolveLogicExprs :: SharedTerm LSSCtx -> [TC.LogicExpr]
                     -> ExpectedStateGenerator (SharedTerm LSSCtx)
@@ -558,12 +552,13 @@ esResolveLogicExprs tp [] = do
   liftIO $ scFreshGlobal sc "_" tp
 esResolveLogicExprs _ (hrhs:rrhs) = do
   sc <- gets esContext
+  sbe <- gets esBackend
   t <- esEval $ evalLogicExpr hrhs
   -- Add assumptions for other equivalent expressions.
   forM_ rrhs $ \rhsExpr -> do
     rhs <- esEval $ evalLogicExpr rhsExpr
     esModifyInitialPathStateIO $ \s0 -> do prop <- scEq sc t rhs
-                                           addAssumption sc prop s0
+                                           addAssumption sbe prop s0
   -- Return value.
   return t
 
@@ -591,13 +586,13 @@ esSetLogicValues sc cl tp lrhs = do
 
 esStep :: BehaviorCommand -> ExpectedStateGenerator ()
 esStep (AssertPred _ expr) = do
-  sc <- gets esContext
+  sbe <- gets esBackend
   v <- esEval $ evalLogicExpr expr
-  esModifyInitialPathStateIO $ addAssumption sc v
+  esModifyInitialPathStateIO $ addAssumption sbe v
 esStep (AssumePred expr) = do
-  sc <- gets esContext
+  sbe <- gets esBackend
   v <- esEval $ evalLogicExpr expr
-  esModifyInitialPathStateIO $ addAssumption sc v
+  esModifyInitialPathStateIO $ addAssumption sbe v
 esStep (Return expr) = do
   v <- esEval $ evalMixedExpr expr
   modify $ \es -> es { esReturnValue = Just v }
@@ -672,12 +667,14 @@ initializeVerification sc ir = do
         Just ty <- TC.logicTypeOfActual sc mty
         tm <- scFreshGlobal sc nm ty
         return (mty, tm)
+  sbe <- gets symBE
   args <- liftIO $ mapM newArg (sdArgs fn)
   let rreg =  (,Ident "__sawscript_result") <$> sdRetType fn
   callDefine' False (sdName (specFunction ir)) rreg args
 
   initPS <- fromMaybe (error "initializeVerification") <$> getPath
   let initESG = ESGState { esContext = sc
+                         , esBackend = sbe
                          , esDef = fn
                          , esLLVMExprs = exprs
                          -- , esExprRefMap = Map.fromList
@@ -685,7 +682,6 @@ initializeVerification sc ir = do
                          , esInitialAssignments = []
                          , esInitialPathState = initPS
                          , esReturnValue = Nothing
-                         , esMemory = undefined -- TODO
                          }
   es <- liftIO $ flip execStateT initESG $ do
 {-
@@ -709,13 +705,13 @@ initializeVerification sc ir = do
   ctrlStk ?= (cs & currentPath .~ esInitialPathState es)
 
   return ESD { esdStartLoc = bsLoc bs
+             , esdBackend = sbe
              , esdInitialPathState = esInitialPathState es
              , esdInitialAssignments = reverse (esInitialAssignments es)
 {-
              , esdRefExprMap =
                   Map.fromList [ (r, cl) | (cl,r) <- refAssignments ]
 -}
-             , esdMemory = undefined -- TODO
              , esdReturnValue = esReturnValue es
              }
 
@@ -895,6 +891,7 @@ runValidation prover params sc esd results = do
       verb = verbLevel (vpOpts params)
       ps = esdInitialPathState esd
       m = specLLVMExprNames ir
+      sbe = esdBackend esd
   case specValidationPlan ir of
     Skip -> putStrLn $ "WARNING: skipping verification of " ++
                        show (sdName (specFunction ir))
@@ -905,7 +902,7 @@ runValidation prover params sc esd results = do
                      , vsMethodSpec = ir
                      , vsVerbosity = verb
                      -- , vsFromBlock = esdStartLoc esd
-                     , vsEvalContext = evalContextFromPathState m sc ps
+                     , vsEvalContext = evalContextFromPathState m sc sbe ps
                      , vsInitialAssignments = pvcInitialAssignments pvc
                      , vsCounterexampleFn = cfn
                      , vsStaticErrors = pvcStaticErrors pvc

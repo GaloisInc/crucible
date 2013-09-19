@@ -109,16 +109,11 @@ data BehaviorCommand
    = AssertPred Pos LogicExpr
      -- | An assumption made in a conditional behavior specification.
    | AssumePred LogicExpr
-     -- | Assign an LLVM expression the value given by the mixed expression.
-   | EnsureScalar Pos LLVMExpr MixedExpr
-     -- | Assign array value of LLVM expression the value given by the rhs.
-   | EnsureArray Pos LLVMExpr LogicExpr
-     -- | Modify the LLVM expression to an arbitrary value.
-     -- May point to integral type or array.
-   | ModifyScalar LLVMExpr
-     -- | Modify an LLVM array to an arbitrary value. May point to
+     -- | Assign an LLVM variables the value given by the mixed expression.
+   | Ensure Pos LLVMExpr MixedExpr
+     -- | Modify an LLVM variables to an arbitrary expression.
      -- integral type or array.
-   | ModifyArray LLVMExpr LLVMActualType
+   | Modify LLVMExpr LLVMActualType
      -- | Specifies return value for a function.
    | Return MixedExpr
 
