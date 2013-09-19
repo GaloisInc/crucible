@@ -63,8 +63,6 @@ import Verifier.SAW.Rewriter
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST
 
-import Debug.Trace
-
 -- JSS Utilities {{{1
 
 type SpecPathState = JSS.Path (SharedContext JSSCtx)
@@ -169,7 +167,6 @@ evalJavaExprAsLogic expr ec = do
   case val of
     JSS.RValue r ->
       let arrs = (ecPathState ec) ^. JSS.pathMemory . JSS.memScalarArrays in
-      trace (show (arrs)) $
       case Map.lookup r arrs of
         Nothing    -> fail $ "evalJavaExprAsLogic: " ++ show expr ++ "(" ++ show val ++ ")"
         Just (_,n) -> return n
@@ -194,7 +191,7 @@ evalLogicExpr initExpr ec = liftIO $ do
                 ty <- scTypeOf sc lt
                 nt <- scJavaValue sc ty name
                 return (ruleOfTerms nt lt)
-  liftIO $ print rules
+  -- liftIO $ print rules
   let ss = addRules rules emptySimpset
   rewriteSharedTerm sc ss t
 
@@ -568,7 +565,7 @@ esAssertEq _ _ _ = error "internal: esAssertEq given illegal arguments."
 -- | Set value in initial state.
 esSetJavaValue :: TC.JavaExpr -> SpecJavaValue -> ExpectedStateGenerator ()
 esSetJavaValue e@(CC.Term exprF) v = do
-  liftIO $ putStrLn $ "Setting Java value for " ++ show e
+  -- liftIO $ putStrLn $ "Setting Java value for " ++ show e
   case exprF of
     -- TODO: the following is ugly, and doesn't make good use of lenses
     TC.Local _ idx _ -> do
@@ -579,7 +576,7 @@ esSetJavaValue e@(CC.Term exprF) v = do
           ps' = (JSS.pathStack %~ updateLocals) ps
           updateLocals (f:r) = (JSS.cfLocals %~ Map.insert idx v) f : r
           updateLocals [] = error "internal: esSetJavaValue of local with empty call stack"
-      liftIO $ putStrLn $ "Local " ++ show idx ++ " with stack " ++ show ls
+      -- liftIO $ putStrLn $ "Local " ++ show idx ++ " with stack " ++ show ls
       case Map.lookup idx ls of
         Just oldValue -> esAssertEq (TC.ppJavaExpr e) oldValue v
         Nothing -> esPutInitialPathState ps'
@@ -598,11 +595,11 @@ esResolveLogicExprs :: SharedTerm JSSCtx -> [TC.LogicExpr]
 esResolveLogicExprs tp [] = do
   sc <- gets esContext
   -- Create input variable.
-  liftIO $ putStrLn $ "Creating global of type: " ++ show tp
+  -- liftIO $ putStrLn $ "Creating global of type: " ++ show tp
   liftIO $ scFreshGlobal sc "_" tp
 esResolveLogicExprs _ (hrhs:rrhs) = do
   sc <- gets esContext
-  liftIO $ putStrLn $ "Evaluating " ++ show hrhs
+  -- liftIO $ putStrLn $ "Evaluating " ++ show hrhs
   t <- esEval $ evalLogicExpr hrhs
   -- Add assumptions for other equivalent expressions.
   forM_ rrhs $ \rhsExpr -> do
@@ -616,7 +613,7 @@ esSetLogicValues :: SharedContext JSSCtx -> [TC.JavaExpr] -> SharedTerm JSSCtx
                  -> [TC.LogicExpr]
                  -> ExpectedStateGenerator ()
 esSetLogicValues sc cl tp lrhs = do
-  liftIO $ putStrLn $ "Setting logic values for: " ++ show cl
+  -- liftIO $ putStrLn $ "Setting logic values for: " ++ show cl
   -- Get value of rhs.
   value <- esResolveLogicExprs tp lrhs
   -- Update Initial assignments.
@@ -682,9 +679,7 @@ esStep (ModifyInstanceField refExpr f) = do
 esStep (EnsureArray _pos lhsExpr rhsExpr) = do
   -- Evaluate expressions.
   ref    <- esEval $ evalJavaRefExpr lhsExpr
-  liftIO $ print rhsExpr
   value  <- esEval $ evalLogicExpr rhsExpr
-  liftIO $ print value
   -- Get dag engine
   sc <- gets esContext
   ty <- liftIO $ scTypeOf sc value
@@ -726,7 +721,7 @@ initializeVerification sc ir bs refConfig = do
                                    JSS.entryBlock -- FIXME: not the right block
                                    Map.empty
                                    cs
-  liftIO $ print refAssignments
+  -- liftIO $ print refAssignments
   JSS.modifyCSM_ (return . pushFrame)
   let updateInitializedClasses mem =
         foldr (flip JSS.setInitializationStatus JSS.Initialized)
@@ -749,14 +744,14 @@ initializeVerification sc ir bs refConfig = do
                          , esInstanceFields = Map.empty
                          , esArrays = Map.empty
                          }
-  liftIO $ putStrLn "Starting to initialize state."
+  -- liftIO $ putStrLn "Starting to initialize state."
   es <- liftIO $ flip execStateT initESG $ do
           -- Set references
-          liftIO $ putStrLn "Setting references."
+          -- liftIO $ putStrLn "Setting references."
           forM_ refAssignments $ \(cl,r) ->
             forM_ cl $ \e -> esSetJavaValue e (JSS.RValue r)
           -- Set initial logic values.
-          liftIO $ putStrLn "Setting logic values."
+          -- liftIO $ putStrLn "Setting logic values."
           lcs <- liftIO $ bsLogicClasses sc m bs refConfig
           case lcs of
             Nothing ->
@@ -764,7 +759,7 @@ initializeVerification sc ir bs refConfig = do
                in throwIOExecException (specPos ir) (ftext msg) ""
             Just assignments -> mapM_ (\(l,t,r) -> esSetLogicValues sc l t r) assignments
           -- Process commands
-          liftIO $ putStrLn "Running commands."
+          -- liftIO $ putStrLn "Running commands."
           mapM esStep (bsCommands bs)
   let ps = esInitialPathState es
   JSS.modifyPathM_ (PP.text "initializeVerification") (\_ -> return ps)

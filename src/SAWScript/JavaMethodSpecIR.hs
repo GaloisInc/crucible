@@ -243,7 +243,6 @@ bsLogicClasses sc m bs cfg = do
                           Just tp -> return (Just (cl, tp))
                           Nothing -> return Nothing
                       Nothing -> return Nothing
-  print $ "Logic classes: " ++ show logicClasses
   let v = V.fromList logicClasses
       -- Create nodes.
       grNodes = [0..] `zip` logicClasses

@@ -31,12 +31,8 @@ cleary_spec = do {
 main : TopLevel ();
 main = do {
     ms_setx <- java_verify "Fields" "setx" [] setx_spec;
-    print ms_setx;
     ms_sety <- java_verify "Fields" "sety" [] sety_spec;
-    print ms_sety;
     ms_clearx <- java_verify "Fields" "clearx" [] clearx_spec;
-    print ms_clearx;
     ms_cleary <- java_verify "Fields" "cleary" [] cleary_spec;
-    print ms_cleary;
     print "Q.E.D.";
 };
