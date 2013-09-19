@@ -22,11 +22,10 @@ module SAWScript.LLVMMethodSpecIR
   , specPos
   , specCodebase
   , specFunction
-  , specBehaviors
+  , specBehavior
   , specValidationPlan
   , specAddBehaviorCommand
   , specAddVarDecl
-  , specAddAliasSet
   , specSetVerifyTactic
   , specLLVMExprNames
   , initLLVMMethodSpec
@@ -34,18 +33,10 @@ module SAWScript.LLVMMethodSpecIR
   , BehaviorSpec
   , bsLoc
   , bsPtrExprs
-  , bsMayAliasSet
-  , PtrEquivConfiguration
-  , bsRefEquivClasses
   , bsActualTypeMap
   , bsLogicAssignments
-  , bsLogicClasses
   , BehaviorCommand(..)
   , bsCommands
-    -- * Equivalence classes for references.
-  , LLVMExprEquivClass
-  , ppLLVMExprEquivClass
-    -- * Validation plan
   , ValidationPlan(..)
   ) where
 
@@ -95,6 +86,7 @@ type LLVMSetup a = StateT LLVMSetupState IO a
 -- | Maps LLVM expressions for references to actual type.
 type ExprActualTypeMap = Map LLVMExpr LLVMActualType
 
+{-
 -- Alias definitions {{{1
 
 type LLVMExprEquivClass = [LLVMExpr]
@@ -104,6 +96,7 @@ ppLLVMExprEquivClass :: LLVMExprEquivClass -> Doc
 ppLLVMExprEquivClass [] = error "internal: ppLLVMExprEquivClass"
 ppLLVMExprEquivClass [expr] = ppLLVMExpr expr
 ppLLVMExprEquivClass cl = list (map ppLLVMExpr (sort cl))
+-}
 
 -- BehaviorSpec {{{1
 
@@ -117,12 +110,12 @@ data BehaviorCommand
      -- | An assumption made in a conditional behavior specification.
    | AssumePred LogicExpr
      -- | Assign an LLVM expression the value given by the mixed expression.
-   | EnsureStructField Pos LLVMExpr Int MixedExpr
+   | EnsureScalar Pos LLVMExpr MixedExpr
      -- | Assign array value of LLVM expression the value given by the rhs.
    | EnsureArray Pos LLVMExpr LogicExpr
      -- | Modify the LLVM expression to an arbitrary value.
      -- May point to integral type or array.
-   | ModifyStructField LLVMExpr Int
+   | ModifyScalar LLVMExpr
      -- | Modify an LLVM array to an arbitrary value. May point to
      -- integral type or array.
    | ModifyArray LLVMExpr LLVMActualType
@@ -135,9 +128,11 @@ data BehaviorSpec = BS {
          -- | Maps all expressions seen along path to actual type.
        , bsActualTypeMap :: ExprActualTypeMap
          -- | Stores which LLVM expressions must alias each other.
+{-
        , bsMustAliasSet :: CCSet LLVMExprF
          -- | May alias relation between LLVM expressions.
        , bsMayAliasClasses :: [[LLVMExpr]]
+-}
          -- | Equations 
        , bsLogicAssignments :: [(Pos, LLVMExpr, LogicExpr)]
          -- | Commands to execute in reverse order.
@@ -152,6 +147,7 @@ bsExprs bs = Map.keys (bsActualTypeMap bs)
 bsPtrExprs :: BehaviorSpec -> [LLVMExpr]
 bsPtrExprs bs = filter isPtrLLVMExpr (bsExprs bs)
 
+{-
 bsMayAliasSet :: BehaviorSpec -> CCSet LLVMExprF
 bsMayAliasSet bs =
   CC.foldr CC.insertEquivalenceClass
@@ -251,6 +247,7 @@ bsLogicClasses sc m bs cfg = do
                        | [n] <- components
                        , let (cl,at) = v V.! n ]
              else Nothing
+-}
 
 -- Command utilities {{{2
 
@@ -271,8 +268,10 @@ initLLVMMethodSpec pos cb symname = do
       Just def = LSS.lookupDefine sym cb
   let initBS = BS { bsLoc = LSS.sdEntry def
                   , bsActualTypeMap = Map.empty
+{-
                   , bsMustAliasSet = CC.empty
                   , bsMayAliasClasses = []
+-}
                   , bsLogicAssignments = []
                   , bsReversedCommands = []
                   }
@@ -280,7 +279,7 @@ initLLVMMethodSpec pos cb symname = do
                     , specCodebase = cb
                     , specFunction = def
                     , specLLVMExprNames = Map.empty
-                    , specBehaviors = initBS
+                    , specBehavior = initBS
                     , specValidationPlan = Skip
                     }
   return initMS
@@ -303,35 +302,37 @@ data LLVMMethodSpecIR = MSIR {
   , specFunction :: LSS.SymDefine (SharedTerm LSSCtx)
     -- | Mapping from user-visible LLVM state names to LLVMExprs
   , specLLVMExprNames :: Map String LLVMExpr
-    -- | Behavior specifications for method at different PC values.
-    -- A list is used because the behavior may depend on the inputs.
-  , specBehaviors :: BehaviorSpec  -- Map JSS.Breakpoint [BehaviorSpec]
+    -- | Behavior specification for method.
+  , specBehavior :: BehaviorSpec
     -- | Describes how the method is expected to be validated.
   , specValidationPlan :: ValidationPlan
   }
 
--- | Return user printable name of method spec (currently the class + method name).
+-- | Return user printable name of method spec (currently the class +
+-- method name).
 specName :: LLVMMethodSpecIR -> Doc
 specName = LSS.ppSymbol . LSS.sdName . specFunction
 
 specAddVarDecl :: String -> LLVMExpr -> LLVMActualType
                -> LLVMMethodSpecIR -> LLVMMethodSpecIR
-specAddVarDecl name expr lt ms = ms { specBehaviors = bs'
+specAddVarDecl name expr lt ms = ms { specBehavior = bs'
                                     , specLLVMExprNames = ns' }
-  where bs = specBehaviors ms
+  where bs = specBehavior ms
         bs' = bs { bsActualTypeMap =
                      Map.insert expr lt (bsActualTypeMap bs) }
         ns' = Map.insert name expr (specLLVMExprNames ms)
 
+{-
 specAddAliasSet :: [LLVMExpr] -> LLVMMethodSpecIR -> LLVMMethodSpecIR
-specAddAliasSet exprs ms = ms { specBehaviors = bs' }
-  where bs = specBehaviors ms
+specAddAliasSet exprs ms = ms { specBehavior = bs' }
+  where bs = specBehavior ms
         bs' = bs { bsMayAliasClasses = exprs : bsMayAliasClasses bs }
+-}
 
 specAddBehaviorCommand :: BehaviorCommand
                        -> LLVMMethodSpecIR -> LLVMMethodSpecIR
 specAddBehaviorCommand bc ms =
-  ms { specBehaviors = bsAddCommand bc (specBehaviors ms) }
+  ms { specBehavior = bsAddCommand bc (specBehavior ms) }
 
 specSetVerifyTactic :: ProofScript SAWCtx ProofResult
                     -> LLVMMethodSpecIR -> LLVMMethodSpecIR

@@ -8,8 +8,10 @@ module SAWScript.LLVMBuiltins where
 import Control.Monad.Error hiding (mapM)
 import Control.Monad.State hiding (mapM)
 import Data.List (sort)
+import Data.List.Split
 import Data.String
 import Text.PrettyPrint.Leijen
+import Text.Read (readMaybe)
 
 import Text.LLVM (modDataLayout)
 import Verifier.LLVM.Backend
@@ -119,21 +121,24 @@ verifyLLVM bic opts file func overrides setup = do
                           }
     let verb = simVerbose (vpOpts vp)
     when (verb >= 2) $ putStrLn $ "Starting verification of " ++ show (specName ms)
+    {-
     let configs = [ (bs, cl)
                   | bs <- {- concat $ Map.elems $ -} [specBehaviors ms]
                   , cl <- bsRefEquivClasses bs
-                  ]
-        lssOpts = Nothing -- FIXME
-    forM_ configs $ \(bs,cl) -> do
+                  ] -}
+    let lssOpts = Nothing -- FIXME
+    do
+    -- forM_ configs $ \(bs,cl) -> do
       when (verb >= 3) $ do
         putStrLn $ "Executing " ++ show (specName ms)
       runSimulator cb sbe mem lssOpts $ do
-        esd <- initializeVerification scLLVM ms bs cl
+        esd <- initializeVerification scLLVM ms
         let isExtCns (STApp _ (FTermF (ExtCns e))) = True
             isExtCns _ = False
             initialExts =
               sort . filter isExtCns . map snd . esdInitialAssignments $ esd
         res <- mkSpecVC scLLVM vp esd
+        liftIO $ mapM_ (print . ppPathVC) res
         when (verb >= 3) $ liftIO $ do
           putStrLn "Verifying the following:"
           mapM_ (print . ppPathVC) res
@@ -148,25 +153,47 @@ verifyLLVM bic opts file func overrides setup = do
 llvmPure :: LLVMSetup ()
 llvmPure = return ()
 
+parseLLVMExpr :: Codebase (SAWBackend LSSCtx Lit)
+              -> SymDefine (SharedTerm LSSCtx)
+              -> String
+              -> IO LLVMExpr
+parseLLVMExpr cb fn = parseParts . reverse . splitOn "."
+  where parseParts [] = fail "empty LLVM expression"
+        parseParts [s] =
+          case s of
+            ('*':rest) -> do
+              e <- parseParts [rest]
+              undefined
+            ('a':'r':'g':'s':'[':rest) -> do
+              let num = fst (break (==']') rest)
+              case readMaybe num of
+                Just (n :: Int) -> undefined
+                Nothing -> fail $ "bad LLVM expression syntax: " ++ s
+            _ -> do
+              let numArgs = zipWith (\(i, ty) n -> (i, (n, ty)))
+                                    (sdArgs fn)
+                                    [0..]
+                  nid = fromString s
+              case lookup nid numArgs of
+                Just (n, ty) -> return (Term (Arg n nid ty))
+                Nothing ->
+                  case lookupSym (Symbol s) cb of
+                    Just (Left gb) ->
+                      return (Term (Global (globalSym gb) (globalType gb)))
+                    _ -> fail $ "Can't parse variable name: " ++ s
+        parseParts (f:rest) = do
+          e <- parseParts rest
+          let lt = lssTypeOfLLVMExpr e
+              pos = fixPos -- TODO
+          undefined
+
 exportLLVMType :: Value s -> MemType
 exportLLVMType (VCtorApp "LLVM.IntType" [VInteger n]) =
   IntType (fromIntegral n)
 exportLLVMType (VCtorApp "LLVM.ArrayType" [VInteger n, ety]) =
   ArrayType (fromIntegral n) (exportLLVMType ety)
-exportLLVMType v = error $ "exportLLVMType: Can't translate to LLVM type: " ++ show v
-
-parseLLVMExpr :: Codebase (SAWBackend LSSCtx Lit)
-              -> SymDefine (SharedTerm LSSCtx) -> String
-              -> IO LLVMExpr
-parseLLVMExpr cb fn name = do
-  let numArgs = zipWith (\(i, ty) n -> (i, (n, ty))) (sdArgs fn) [0..]
-      nid = fromString name
-  case lookup nid numArgs of
-    Just (n, ty) -> return (Term (Arg n nid ty))
-    Nothing -> case lookupSym (Symbol name) cb of
-                 Just (Left gb) -> return (Term (Global (globalSym gb) (globalType gb)))
-                 -- TODO: parse complex names
-                 _ -> fail $ "Can't parse variable name: " ++ name
+exportLLVMType v =
+  error $ "exportLLVMType: Can't translate to LLVM type: " ++ show v
 
 llvmVar :: BuiltinContext -> Options -> String -> Value SAWCtx
         -> LLVMSetup (SharedTerm SAWCtx)
@@ -192,6 +219,7 @@ llvmVar bic _ name t@(VCtorApp _ _) = do
   liftIO $ scLLVMValue sc ty name
 llvmVar _ _ _ _ = fail "llvm_var called with invalid type argument"
 
+{-
 llvmMayAlias :: BuiltinContext -> Options -> [String]
              -> LLVMSetup ()
 llvmMayAlias bic _ exprs = do
@@ -201,7 +229,7 @@ llvmMayAlias bic _ exprs = do
       func = specFunction ms
   exprs <- liftIO $ mapM (parseLLVMExpr cb func) exprs
   modify $ \st -> st { lsSpec = specAddAliasSet exprs (lsSpec st) }
-llvmMayAlias _ _ _ = fail "llvm_may_alias called with invalid type argument"
+-}
 
 llvmAssert :: BuiltinContext -> Options -> SharedTerm SAWCtx
            -> LLVMSetup ()

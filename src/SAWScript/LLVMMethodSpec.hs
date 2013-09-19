@@ -112,31 +112,25 @@ data EvalContext
       ecContext :: SharedContext LSSCtx
     , ecArgs :: [(Ident, SharedTerm LSSCtx)]
     , ecPathState :: SpecPathState
-    , ecLLVMValues :: Map String (SharedTerm LSSCtx)
+    , ecLLVMExprs :: Map String TC.LLVMExpr
     }
 
-evalContextFromPathState :: SharedContext LSSCtx -> SpecPathState -> EvalContext
-evalContextFromPathState sc ps
+evalContextFromPathState :: Map String TC.LLVMExpr
+                         -> SharedContext LSSCtx
+                         -> SpecPathState
+                         -> EvalContext
+evalContextFromPathState m sc ps
   = EvalContext {
       ecContext = sc
     , ecArgs = cfArgValues (head (ps ^.. pathCallFrames))
     , ecPathState = ps
-    , ecLLVMValues = Map.empty
+    , ecLLVMExprs = m
     }
 
 type ExprEvaluator a = ErrorT TC.LLVMExpr IO a
 
 runEval :: MonadIO m => ExprEvaluator b -> m (Either TC.LLVMExpr b)
 runEval v = liftIO (runErrorT v)
-
-addLLVMValues :: (Monad m) =>
-                 Map String TC.LLVMExpr -> EvalContext
-              -> m EvalContext
-addLLVMValues m ec = do
-  vs <- forM (Map.toList m) $
-          \(name, expr) -> do v <- evalLLVMExpr expr ec
-                              return (name, v)
-  return ec { ecLLVMValues = Map.fromList vs }
 
 -- N.B. This method assumes that the LLVM path state is well-formed.
 -- It does not assume that all the memory references in the
@@ -150,6 +144,7 @@ evalLLVMExpr expr ec = eval expr
                 Just v -> return v
                 Nothing -> fail (show e) -- TODO
             TC.Global n _ -> fail "globals not yet supported" -- TODO
+            TC.Deref e _ -> fail "deref not yet supported"
             TC.StructField e n i _ -> fail "struct fields not yet supported" -- TODO
               {- do
               JSS.RValue ref <- eval r
@@ -194,8 +189,9 @@ evalLogicExpr :: TC.LogicExpr -> EvalContext -> ExprEvaluator (SharedTerm LSSCtx
 evalLogicExpr initExpr ec = liftIO $ do
   let sc = ecContext ec
   t <- TC.useLogicExpr sc initExpr
-  rules <- forM (Map.toList (ecLLVMValues ec)) $ \(name, lt) ->
-             do ty <- scTypeOf sc lt
+  rules <- forM (Map.toList (ecLLVMExprs ec)) $ \(name, expr) ->
+             do lt <- evalLLVMExpr expr ec
+                ty <- scTypeOf sc lt
                 nt <- scLLVMValue sc ty name
                 return (ruleOfTerms nt lt)
   let ss = addRules rules emptySimpset
@@ -310,16 +306,16 @@ ocStep (AssumePred expr) = do
       Just False -> ocAssumeFailed
       _ -> ocModifyResultStateIO $ addAssumption sc v
 {-
-ocStep (EnsureInstanceField _pos refExpr f rhsExpr) = do
-  ocEval (evalJavaRefExpr refExpr) $ \lhsRef ->
+ocStep (EnsureScalar _pos lhsExpr rhsExpr) = do
+  ocEval (evalLLVMExpr lhsExpr) $ \lhsRef ->
     ocEval (evalMixedExpr rhsExpr) $ \value ->
-      ocModifyResultState $ setInstanceFieldValue lhsRef f value
+      undefined
 ocStep (EnsureArray _pos lhsExpr rhsExpr) = do
-  ocEval (evalJavaRefExpr lhsExpr) $ \lhsRef ->
+  ocEval (evalLLVMRefExpr lhsExpr) $ \lhsTerm ->
     ocEval (evalLogicExpr   rhsExpr) $ \rhsVal ->
       ocModifyResultState $ setArrayValue lhsRef rhsVal
-ocStep (ModifyInstanceField refExpr f) =
-  ocEval (evalJavaRefExpr refExpr) $ \lhsRef -> do
+ocStep (ModifyScalar lhsExpr) =
+  ocEval (evalJavaExpr lhsExpr) $ \lhsTerm -> do
     sc <- gets (ecContext . ocsEvalContext)
     let tp = JSS.fieldIdType f
         w = fromIntegral $ JSS.stackWidth tp
@@ -396,21 +392,16 @@ execOverride :: (MonadIO m, Functor m) =>
              -> [(MemType, SpecLLVMValue)]
              -> Simulator SpecBackend m (Maybe (SharedTerm LSSCtx))
 execOverride sc pos ir args = do
-  -- Execute behaviors.
   initPS <- fromMaybe (error "no path during override") <$> getPath
-  let bsl = specBehaviors ir -- Map.lookup entryBlock (specBehaviors ir) -- TODO
+  let bsl = specBehavior ir
   let func = specFunction ir
       m = specLLVMExprNames ir
-  let ec0 = EvalContext { ecContext = sc
-                        , ecArgs = zip (map fst (sdArgs func)) (map snd args)
-                        , ecPathState = initPS
-                        , ecLLVMValues = Map.empty
-                        }
-  ec <- addLLVMValues m ec0
-  -- Execute behavior.
-  res <- liftIO . execBehavior [bsl] ec =<< 
-         (fromMaybe (error "no path during override") <$> getPath)
-  -- Create function for generation resume actions.
+  let ec = EvalContext { ecContext = sc
+                       , ecArgs = zip (map fst (sdArgs func)) (map snd args)
+                       , ecPathState = initPS
+                       , ecLLVMExprs = specLLVMExprNames ir
+                       }
+  res <- liftIO $ execBehavior [bsl] ec initPS
   case res of
     [(_, _, Left el)] -> do
       let msg = vcat [ hcat [ text "Unsatisified assertions in "
@@ -487,8 +478,7 @@ esEval fn = do
   sc <- gets esContext
   m <- gets esLLVMExprs 
   initPS <- gets esInitialPathState
-  let ec0 = evalContextFromPathState sc initPS
-  ec <- addLLVMValues m ec0
+  let ec = evalContextFromPathState m sc initPS
   res <- runEval (fn ec)
   case res of
     Left expr -> fail $ "internal: esEval given " ++ show expr ++ "."
@@ -669,34 +659,22 @@ esStep (ModifyArray refExpr _) = do
     put es { esArrays = Map.insert ref Nothing (esArrays es) }
 -}
 
+-- TODO: this doesn't support aliasing
 initializeVerification :: (MonadIO m, Functor m) =>
                           SharedContext LSSCtx
                        -> LLVMMethodSpecIR
-                       -> BehaviorSpec
-                       -> PtrEquivConfiguration
                        -> Simulator SpecBackend m ExpectedStateDef
-initializeVerification sc ir bs ptrConfig = do
-{-
-  exprPtrs <- mapM (LSS.genPtr . TC.lssTypeOfActual . snd) ptrConfig
-  let refAssignments = (map fst ptrConfig `zip` exprPtrs)
--}
+initializeVerification sc ir = do
   let exprs = specLLVMExprNames ir
+      bs = specBehavior ir
       fn = specFunction ir
       newArg (Ident nm, mty) = do
         Just ty <- TC.logicTypeOfActual sc mty
-        scFreshGlobal sc nm ty
-  -- TODO: this doesn't account for aliasing between arguments
+        tm <- scFreshGlobal sc nm ty
+        return (mty, tm)
   args <- liftIO $ mapM newArg (sdArgs fn)
-  Just cs <- use ctrlStk
-  sbe <- gets symBE
-  let m = cs^.currentPath^.pathMem
-  (c,m') <- liftSBE $ stackPushFrame sbe m
-  let cf = newCallFrame (specFunction ir) args
-  let cs' = cs & currentPath . pathStack %~ pushCallFrame cf Nothing
-               & currentPath . pathMem  .~ m'
-  ctrlStk ?= cs'
-  let fr = "Stack push frame failure: insufficient stack space"
-  processMemCond fr c
+  let rreg =  (,Ident "__sawscript_result") <$> sdRetType fn
+  callDefine' False (sdName (specFunction ir)) rreg args
 
   initPS <- fromMaybe (error "initializeVerification") <$> getPath
   let initESG = ESGState { esContext = sc
@@ -715,6 +693,7 @@ initializeVerification sc ir bs ptrConfig = do
           forM_ refAssignments $ \(cl,r) ->
             forM_ cl $ \e -> esSetLLVMValue e (JSS.RValue r)
 -}
+{-
           -- Set initial logic values.
           lcs <- liftIO $ bsLogicClasses sc exprs bs ptrConfig
           case lcs of
@@ -722,14 +701,13 @@ initializeVerification sc ir bs ptrConfig = do
               let msg = "Unresolvable cyclic dependencies between assumptions."
                in throwIOExecException (specPos ir) (ftext msg) ""
             Just assignments -> mapM_ (\(l,t,r) -> esSetLogicValues sc l t r) assignments
+-}
           -- Process commands
           mapM esStep (bsCommands bs)
 
-  -- TODO: add breakpoints once local specs exist
-  -- TODO: set starting PC once we allow anything other than the initial PC
+  Just cs <- use ctrlStk
+  ctrlStk ?= (cs & currentPath .~ esInitialPathState es)
 
-  -- TODO: modify path to account for changes in es
-  -- TODO: JSS.modifyPathM_ (PP.text "initializeVerification") (\_ -> return ps)
   return ESD { esdStartLoc = bsLoc bs
              , esdInitialPathState = esInitialPathState es
              , esdInitialAssignments = reverse (esInitialAssignments es)
@@ -916,6 +894,7 @@ runValidation prover params sc esd results = do
   let ir = vpSpec params
       verb = verbLevel (vpOpts params)
       ps = esdInitialPathState esd
+      m = specLLVMExprNames ir
   case specValidationPlan ir of
     Skip -> putStrLn $ "WARNING: skipping verification of " ++
                        show (sdName (specFunction ir))
@@ -926,7 +905,7 @@ runValidation prover params sc esd results = do
                      , vsMethodSpec = ir
                      , vsVerbosity = verb
                      -- , vsFromBlock = esdStartLoc esd
-                     , vsEvalContext = evalContextFromPathState sc ps
+                     , vsEvalContext = evalContextFromPathState m sc ps
                      , vsInitialAssignments = pvcInitialAssignments pvc
                      , vsCounterexampleFn = cfn
                      , vsStaticErrors = pvcStaticErrors pvc

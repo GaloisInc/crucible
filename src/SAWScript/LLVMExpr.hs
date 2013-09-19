@@ -14,13 +14,13 @@ module SAWScript.LLVMExpr
   , isPtrLLVMExpr
     -- * Logic expressions
   , LogicExpr
-  , logicExprLLVMExprs
+  -- , logicExprLLVMExprs
   , useLogicExpr
   , mkLogicExpr
     -- * Mixed expressions
   , MixedExpr(..)
     -- * Actual type
-  , LLVMActualType(..)
+  , LLVMActualType
   , lssTypeOfActual
   , isActualPtr
   , isPrimitiveType
@@ -34,11 +34,10 @@ module SAWScript.LLVMExpr
 
 import Control.Applicative ((<$>))
 import Control.Monad.Error (Error(..))
-import Data.Set (Set)
+-- import Data.Set (Set)
 import Text.PrettyPrint.Leijen hiding ((<$>))
 
 import qualified Verifier.LLVM.Codebase as LSS
-import qualified Verifier.LLVM.Codebase.DataLayout as LSS
 
 import Verifier.SAW.Prelude
 import Verifier.SAW.TypedAST
@@ -58,22 +57,27 @@ data SymbolLocation
 data LLVMExprF v
   = Arg Int LSS.Ident LLVMActualType
   | Global LSS.Symbol LLVMActualType
+  | Deref v LLVMActualType
   | StructField v String Int LLVMActualType
   deriving (Functor, CC.Foldable, CC.Traversable)
 
 instance CC.EqFoldable LLVMExprF where
   fequal (Arg i _ _)(Arg j _ _) = i == j
   fequal (Global x _)(Global y _) = x == y
+  fequal (Deref e _) (Deref e' _) = e == e'
   fequal (StructField xr _ xi _) (StructField yr _ yi _) = xi == yi && (xr == yr)
   fequal _ _ = False
 
 instance CC.OrdFoldable LLVMExprF where
-  Arg i _ _ `fcompare` Arg i' _ _ = i `compare` i'
-  Arg _ _ _ `fcompare` _          = LT
-  _         `fcompare` Arg _ _ _  = GT
+  Arg i _ _  `fcompare` Arg i' _ _   = i `compare` i'
+  Arg _ _ _  `fcompare` _            = LT
+  _          `fcompare` Arg _ _ _    = GT
   Global n _ `fcompare` Global n' _  = n `compare` n'
-  Global _ _ `fcompare` StructField _ _ _ _ = LT
-  StructField _ _ _ _ `fcompare` Global _ _ = GT
+  Global _ _ `fcompare` _            = LT
+  _          `fcompare` Global _ _   = GT
+  Deref e _  `fcompare` Deref e' _   = e `compare` e'
+  Deref _ _  `fcompare` _            = LT
+  _          `fcompare` Deref _ _    = GT
   StructField r1 _ f1 _ `fcompare` StructField r2 _ f2 _ =
         case r1 `compare` r2 of
           EQ -> f1 `compare` f2
@@ -82,6 +86,7 @@ instance CC.OrdFoldable LLVMExprF where
 instance CC.ShowFoldable LLVMExprF where
   fshow (Arg _ nm _) = show nm
   fshow (Global nm _) = show nm
+  fshow (Deref e _) = "*(" ++ show e ++ ")"
   fshow (StructField r f _ _) = show r ++ "." ++ f
 
 -- | Typechecked LLVMExpr
@@ -96,6 +101,7 @@ ppLLVMExpr (CC.Term exprF) =
   case exprF of
     Arg _ nm _ -> text (show nm)
     Global nm _ -> text (show nm)
+    Deref e _ -> char '*' <> parens (ppLLVMExpr e)
     StructField r f _ _ -> ppLLVMExpr r <> char '.' <> text f
 
 -- | Returns LSS Type of LLVMExpr
@@ -104,6 +110,7 @@ lssTypeOfLLVMExpr (CC.Term exprF) =
   case exprF of
     Arg _ _ tp -> tp
     Global _ tp -> tp
+    Deref _ tp -> tp
     StructField _ _ _ tp -> tp
 
 -- | Returns true if expression is a pointer.
@@ -130,14 +137,14 @@ typeOfLogicExpr :: SharedContext s -> LogicExpr s -> IO (SharedTerm s)
 typeOfLogicExpr = scTypeOf
 -}
 
+{-
 -- | Return java expressions in logic expression.
 logicExprLLVMExprs :: LogicExpr -> Set LLVMExpr
-logicExprLLVMExprs = error "logicExprLLVMExprs" --FIXME
-  {- flip impl Set.empty
+logicExprLLVMExprs = flip impl Set.empty
   where impl (Apply _ args) s = foldr impl s args
         impl (JavaValue e _ _) s = Set.insert e s
         impl _ s = s
-        -}
+-}
 
 {-
 -- | Returns names of variables appearing in typedExpr.
