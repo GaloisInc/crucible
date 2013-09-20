@@ -54,6 +54,8 @@ data SymbolLocation
 
 -- LLVMExpr {{{1
 
+-- NB: the types listed in each of these should be the type of the
+-- entire expression. So "Deref v tp" means "*v has type tp".
 data LLVMExprF v
   = Arg Int LSS.Ident LLVMActualType
   | Global LSS.Symbol LLVMActualType

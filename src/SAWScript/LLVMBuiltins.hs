@@ -9,6 +9,7 @@ import Control.Monad.Error hiding (mapM)
 import Control.Monad.State hiding (mapM)
 import Data.List (sort)
 import Data.List.Split
+import qualified Data.Map as Map
 import Data.String
 import Text.PrettyPrint.Leijen
 import Text.Read (readMaybe)
@@ -106,8 +107,8 @@ verifyLLVM bic opts file func overrides setup = do
   withBE $ \be -> do
     (sbe, mem, scLLVM) <- createSAWBackend' be dl
     (_warnings, cb) <- mkCodebase sbe dl mdl
-    ms0 <- initLLVMMethodSpec pos cb func
-    let lsctx0 = LLVMSetupState {
+    let ms0 = initLLVMMethodSpec pos cb func
+        lsctx0 = LLVMSetupState {
                     lsSpec = ms0
                   , lsContext = scLLVM
                   }
@@ -187,6 +188,14 @@ parseLLVMExpr cb fn = parseParts . reverse . splitOn "."
               pos = fixPos -- TODO
           undefined
 
+getLLVMExpr :: Monad m =>
+               LLVMMethodSpecIR -> String
+            -> m (LLVMExpr, MemType)
+getLLVMExpr ms name = do
+  case Map.lookup name (specLLVMExprNames ms) of
+    Just exp -> return (exp, lssTypeOfLLVMExpr exp)
+    Nothing -> fail $ "LLVM name " ++ name ++ " has not been declared."
+
 exportLLVMType :: Value s -> MemType
 exportLLVMType (VCtorApp "LLVM.IntType" [VInteger n]) =
   IntType (fromIntegral n)
@@ -197,12 +206,13 @@ exportLLVMType v =
 
 llvmVar :: BuiltinContext -> Options -> String -> Value SAWCtx
         -> LLVMSetup (SharedTerm SAWCtx)
-llvmVar bic _ name t@(VCtorApp _ _) = do
+llvmVar bic _ name t = do
   lsState <- get
   let ms = lsSpec lsState
       func = specFunction ms
       cb = specCodebase ms
-  exp <- liftIO $ parseLLVMExpr cb func name
+      Just funcDef = lookupDefine func cb
+  exp <- liftIO $ parseLLVMExpr cb funcDef name
   let lty = lssTypeOfLLVMExpr exp
       lty' = exportLLVMType t
   when (lty /= lty') $ fail $ show $
@@ -213,11 +223,10 @@ llvmVar bic _ name t@(VCtorApp _ _) = do
          , text "for variable"
          , text name
          ]
-  modify $ \st -> st { lsSpec = specAddVarDecl name exp lty (lsSpec st) }
+  modify $ \st -> st { lsSpec = specAddVarDecl fixPos name exp lty (lsSpec st) }
   let sc = biSharedContext bic
   Just ty <- liftIO $ logicTypeOfActual sc lty
   liftIO $ scLLVMValue sc ty name
-llvmVar _ _ _ _ = fail "llvm_var called with invalid type argument"
 
 {-
 llvmMayAlias :: BuiltinContext -> Options -> [String]
@@ -239,8 +248,12 @@ llvmAssert _ _ v =
            specAddBehaviorCommand (AssertPred fixPos (mkLogicExpr v)) (lsSpec st) }
 
 llvmAssertEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
-           -> LLVMSetup ()
-llvmAssertEq = fail "llvmAssertEq"
+             -> LLVMSetup ()
+llvmAssertEq bic _ name t = do
+  ms <- gets lsSpec
+  (exp, ty) <- liftIO $ getLLVMExpr ms name
+  modify $ \st ->
+    st { lsSpec = specAddLogicAssignment fixPos exp (mkLogicExpr t) ms }
 
 llvmEnsureEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
            -> LLVMSetup ()
@@ -248,7 +261,7 @@ llvmEnsureEq = fail "llvmEnsureEq"
 
 llvmModify :: BuiltinContext -> Options -> String
            -> LLVMSetup ()
-llvmModify = fail "llvmEnsureEq"
+llvmModify = fail "llvmModify"
 
 llvmReturn :: BuiltinContext -> Options -> SharedTerm SAWCtx
            -> LLVMSetup ()

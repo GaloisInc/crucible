@@ -26,6 +26,7 @@ module SAWScript.LLVMMethodSpecIR
   , specValidationPlan
   , specAddBehaviorCommand
   , specAddVarDecl
+  , specAddLogicAssignment
   , specSetVerifyTactic
   , specLLVMExprNames
   , initLLVMMethodSpec
@@ -128,8 +129,8 @@ data BehaviorSpec = BS {
          -- | May alias relation between LLVM expressions.
        , bsMayAliasClasses :: [[LLVMExpr]]
 -}
-         -- | Equations 
-       , bsLogicAssignments :: [(Pos, LLVMExpr, LogicExpr)]
+         -- | Equations
+       , bsLogicAssignments :: Map LLVMExpr (Maybe LogicExpr)
          -- | Commands to execute in reverse order.
        , bsReversedCommands :: [BehaviorCommand]
        }
@@ -257,27 +258,27 @@ bsAddCommand bc bs =
 type Backend = SAWBackend LSSCtx L.Lit
 
 initLLVMMethodSpec :: Pos -> LSS.Codebase Backend -> String
-                   -> IO LLVMMethodSpecIR
-initLLVMMethodSpec pos cb symname = do
+                   -> LLVMMethodSpecIR
+initLLVMMethodSpec pos cb symname =
   let sym = fromString symname
       Just def = LSS.lookupDefine sym cb
-  let initBS = BS { bsLoc = LSS.sdEntry def
+      initBS = BS { bsLoc = LSS.sdEntry def
                   , bsActualTypeMap = Map.empty
 {-
                   , bsMustAliasSet = CC.empty
                   , bsMayAliasClasses = []
 -}
-                  , bsLogicAssignments = []
+                  , bsLogicAssignments = Map.empty
                   , bsReversedCommands = []
                   }
       initMS = MSIR { specPos = pos
                     , specCodebase = cb
-                    , specFunction = def
+                    , specFunction = sym
                     , specLLVMExprNames = Map.empty
                     , specBehavior = initBS
                     , specValidationPlan = Skip
                     }
-  return initMS
+  in initMS
 
 -- resolveValidationPlan {{{1
 
@@ -294,7 +295,7 @@ data LLVMMethodSpecIR = MSIR {
     -- | Codebase containing function to verify.
   , specCodebase :: LSS.Codebase Backend
     -- | Function to verify.
-  , specFunction :: LSS.SymDefine (SharedTerm LSSCtx)
+  , specFunction :: LSS.Symbol
     -- | Mapping from user-visible LLVM state names to LLVMExprs
   , specLLVMExprNames :: Map String LLVMExpr
     -- | Behavior specification for method.
@@ -306,16 +307,28 @@ data LLVMMethodSpecIR = MSIR {
 -- | Return user printable name of method spec (currently the class +
 -- method name).
 specName :: LLVMMethodSpecIR -> Doc
-specName = LSS.ppSymbol . LSS.sdName . specFunction
+specName = LSS.ppSymbol . specFunction
 
-specAddVarDecl :: String -> LLVMExpr -> LLVMActualType
+specAddVarDecl :: Pos -> String -> LLVMExpr -> LLVMActualType
                -> LLVMMethodSpecIR -> LLVMMethodSpecIR
-specAddVarDecl name expr lt ms = ms { specBehavior = bs'
-                                    , specLLVMExprNames = ns' }
+specAddVarDecl pos name expr lt ms = ms { specBehavior = bs'
+                                        , specLLVMExprNames = ns' }
   where bs = specBehavior ms
+        las = bsLogicAssignments bs
         bs' = bs { bsActualTypeMap =
-                     Map.insert expr lt (bsActualTypeMap bs) }
+                     Map.insert expr lt (bsActualTypeMap bs)
+                 , bsLogicAssignments =
+                     Map.insert expr Nothing las
+                 }
         ns' = Map.insert name expr (specLLVMExprNames ms)
+
+specAddLogicAssignment :: Pos -> LLVMExpr -> LogicExpr
+                       -> LLVMMethodSpecIR -> LLVMMethodSpecIR
+specAddLogicAssignment pos expr t ms = ms { specBehavior = bs' }
+  where bs = specBehavior ms
+        las = bsLogicAssignments bs
+        bs' = bs { bsLogicAssignments =
+                     Map.insert expr (Just t) las }
 
 {-
 specAddAliasSet :: [LLVMExpr] -> LLVMMethodSpecIR -> LLVMMethodSpecIR

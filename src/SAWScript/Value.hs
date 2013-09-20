@@ -47,6 +47,8 @@ data Value s
   | VLLVMSetup (LLVMSetup (Value s))
   | VJavaMethodSpec JavaMethodSpecIR
   | VLLVMMethodSpec LLVMMethodSpecIR
+  -- | VAIG (BitEngine Lit) (V.Vector Lit) (V.Vector Lit)
+
 
 isVUnit :: Value s -> Bool
 isVUnit (VTuple []) = True
@@ -107,11 +109,13 @@ applyValue _  (VFunTerm f) (VTerm t) = return (f t)
 applyValue sc (VLambda f) (VTerm t) = f (evaluate sc t) (Just t)
 applyValue _  (VLambda f) x = f x Nothing
 applyValue sc (VTerm t) x = applyValue sc (evaluate sc t) x
+-- applyValue sc (VAIG be ins outs) x = undefined
 applyValue _ _ _ = fail "applyValue"
 
 tapplyValue :: Value s -> SS.Type -> IO (Value s)
 tapplyValue (VFunType f) t = return (f t)
 tapplyValue (VTLambda f) t = f t
+-- tapplyValue (VAIG be ins outs) t = undefined
 tapplyValue v _ = return v
 
 thenValue :: Value s -> Value s -> Value s
@@ -190,6 +194,7 @@ exportValue val =
       VLLVMSetup {} -> error "VLLVMSetup unsupported"
       VJavaMethodSpec {} -> error "VJavaMethodSpec unsupported"
       VLLVMMethodSpec {} -> error "VLLVMMethodSpec unsupported"
+      -- VAIG {} -> error "VAIG unsupported" -- TODO: could be implemented
 
 -- IsValue class ---------------------------------------------------------------
 
