@@ -70,7 +70,7 @@ type SpecLLVMValue = SharedTerm LSSCtx
 storePathState :: SBE SpecBackend
                -> SharedTerm LSSCtx
                -> MemType
-               -> SharedTerm LSSCtx 
+               -> SharedTerm LSSCtx
                -> SpecPathState
                -> IO SpecPathState
 storePathState sbe dst tp val ps = do
@@ -155,6 +155,8 @@ type ExprEvaluator a = ErrorT TC.LLVMExpr IO a
 runEval :: MonadIO m => ExprEvaluator b -> m (Either TC.LLVMExpr b)
 runEval v = liftIO (runErrorT v)
 
+-- | Evaluate an LLVM expression, and return its value (r-value) as an
+-- internal term.
 evalLLVMExpr :: TC.LLVMExpr -> EvalContext -> ExprEvaluator SpecLLVMValue
 evalLLVMExpr expr ec = eval expr
   where eval e@(CC.Term app) =
@@ -172,17 +174,19 @@ evalLLVMExpr expr ec = eval expr
         sbe = ecBackend ec
         ps = ecPathState ec
 
+-- | Evaluate an LLVM expression, and return the location it describes
+-- (l-value) as an internal term.
 evalLLVMRefExpr :: TC.LLVMExpr -> EvalContext -> ExprEvaluator SpecLLVMValue
 evalLLVMRefExpr expr ec = eval expr
   where eval e@(CC.Term app) =
           case app of
             TC.Arg _ n _ -> fail "evalLLVMRefExpr: applied to argument"
-            TC.Global n tp -> do
+            TC.Global n _ -> do
               case Map.lookup n gm of
                 Just addr -> return addr
                 Nothing -> fail $ "evalLLVMRefExpr: global " ++ show n ++ " not found"
-            TC.Deref e tp -> evalLLVMExpr e ec
-            TC.StructField e n i _ -> fail "struct fields not yet supported" -- TODO
+            TC.Deref e _ -> evalLLVMExpr e ec
+            TC.StructField _ _ _ _ -> fail "struct fields not yet supported" -- TODO
         gm = ecGlobalMap ec
 
 evalDerefLLVMExpr :: TC.LLVMExpr -> EvalContext -> ExprEvaluator (SharedTerm LSSCtx)
@@ -194,6 +198,7 @@ evalDerefLLVMExpr expr ec = do
     PtrType _ -> fail "Pointer to weird type."
     _ -> return val
 
+-- | Build the application of LLVM.mkValue to the given string.
 scLLVMValue :: SharedContext s -> SharedTerm s -> String -> IO (SharedTerm s)
 scLLVMValue sc ty name = do
   s <- scString sc name
@@ -201,7 +206,7 @@ scLLVMValue sc ty name = do
   mkValue <- scGlobalDef sc (parseIdent "LLVM.mkValue")
   scApplyAll sc mkValue [ty', s]
 
--- | Evaluates a typed expression in the context of a particular state.
+-- | Evaluate a typed expression in the context of a particular state.
 evalLogicExpr :: TC.LogicExpr -> EvalContext -> ExprEvaluator SpecLLVMValue
 evalLogicExpr initExpr ec = do
   let sc = ecContext ec
@@ -315,12 +320,20 @@ ocStep (AssumePred expr) = do
       Just False -> ocAssumeFailed
       _ -> ocModifyResultStateIO $ addAssumption sbe v
 ocStep (Ensure _pos lhsExpr rhsExpr) = do
-  ocEval (evalLLVMExpr lhsExpr) $ \lhsRef ->
-    ocEval (evalMixedExpr rhsExpr) $ \value ->
-      undefined
-ocStep (Modify lhsExpr tp) =
-  ocEval (evalLLVMExpr lhsExpr) $ \lhsTerm -> do
-    undefined
+  sbe <- gets (ecBackend . ocsEvalContext)
+  ocEval (evalLLVMRefExpr lhsExpr) $ \lhsRef ->
+    ocEval (evalMixedExpr rhsExpr) $ \value -> do
+      let tp = TC.lssTypeOfLLVMExpr lhsExpr
+      ocModifyResultStateIO $
+        storePathState sbe lhsRef tp value
+ocStep (Modify lhsExpr tp) = do
+  sbe <- gets (ecBackend . ocsEvalContext)
+  sc <- gets (ecContext . ocsEvalContext)
+  ocEval (evalLLVMRefExpr lhsExpr) $ \lhsRef -> do
+    Just lty <- liftIO $ TC.logicTypeOfActual sc tp
+    value <- liftIO $ scFreshGlobal sc "_" lty
+    ocModifyResultStateIO $
+      storePathState sbe lhsRef tp value
 ocStep (Return expr) = do
   ocEval (evalMixedExpr expr) $ \val ->
     modify $ \ocs -> ocs { ocsReturnValue = Just val }
@@ -559,12 +572,20 @@ esStep (Return expr) = do
   v <- esEval $ evalMixedExpr expr
   modify $ \es -> es { esReturnValue = Just v }
 esStep (Ensure _pos lhsExpr rhsExpr) = do
+  sbe <- gets esBackend
   ref    <- esEval $ evalLLVMRefExpr lhsExpr
   value  <- esEval $ evalMixedExpr rhsExpr
-  undefined
+  let tp = TC.lssTypeOfLLVMExpr lhsExpr
+  esModifyInitialPathStateIO $
+    storePathState sbe ref tp value
 esStep (Modify lhsExpr tp) = do
+  sbe <- gets esBackend
+  sc <- gets esContext
   ref <- esEval $ evalLLVMRefExpr lhsExpr
-  undefined
+  Just lty <- liftIO $ TC.logicTypeOfActual sc tp
+  value <- liftIO $ scFreshGlobal sc "_" lty
+  esModifyInitialPathStateIO $
+    storePathState sbe ref tp value
 
 -- | Initialize verification of a given 'LLVMMethodSpecIR'. The design
 -- principles for now include:
