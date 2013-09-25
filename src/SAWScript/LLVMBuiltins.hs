@@ -127,19 +127,19 @@ verifyLLVM bic opts file func overrides setup = do
                   | bs <- {- concat $ Map.elems $ -} [specBehaviors ms]
                   , cl <- bsRefEquivClasses bs
                   ] -}
-    let lssOpts = Nothing -- FIXME
+    let lopts = Nothing -- FIXME
     do
     -- forM_ configs $ \(bs,cl) -> do
       when (verb >= 3) $ do
         putStrLn $ "Executing " ++ show (specName ms)
-      runSimulator cb sbe mem lssOpts $ do
+      runSimulator cb sbe mem lopts $ do
+        setVerbosity verb
         esd <- initializeVerification scLLVM ms
         let isExtCns (STApp _ (FTermF (ExtCns e))) = True
             isExtCns _ = False
             initialExts =
               sort . filter isExtCns . map snd . esdInitialAssignments $ esd
         res <- mkSpecVC scLLVM vp esd
-        liftIO $ mapM_ (print . ppPathVC) res
         when (verb >= 3) $ liftIO $ do
           putStrLn "Verifying the following:"
           mapM_ (print . ppPathVC) res
@@ -149,6 +149,10 @@ verifyLLVM bic opts file func overrides setup = do
               Theorem thm <- provePrim (biSharedContext bic) script glam'
               when (verb >= 3) $ putStrLn $ "Proved: " ++ show thm
         liftIO $ runValidation prover vp scLLVM esd res
+    let overrideText = case overrides of
+                         [] -> ""
+                         irs -> " (overriding " ++ show (map specFunction irs) ++ ")"
+    putStrLn $ "Successfully verified " ++ show func ++ overrideText
     return ms
 
 llvmPure :: LLVMSetup ()
@@ -164,12 +168,16 @@ parseLLVMExpr cb fn = parseParts . reverse . splitOn "."
           case s of
             ('*':rest) -> do
               e <- parseParts [rest]
-              undefined
+              case lssTypeOfLLVMExpr e of
+                PtrType (MemType ty) -> return (Term (Deref e ty))
+                _ -> fail "attempting to apply * operation to non-pointer"
+            {-
             ('a':'r':'g':'s':'[':rest) -> do
               let num = fst (break (==']') rest)
               case readMaybe num of
                 Just (n :: Int) -> undefined
                 Nothing -> fail $ "bad LLVM expression syntax: " ++ s
+            -}
             _ -> do
               let numArgs = zipWith (\(i, ty) n -> (i, (n, ty)))
                                     (sdArgs fn)
@@ -182,18 +190,18 @@ parseLLVMExpr cb fn = parseParts . reverse . splitOn "."
                     Just (Left gb) ->
                       return (Term (Global (globalSym gb) (globalType gb)))
                     _ -> fail $ "Can't parse variable name: " ++ s
-        parseParts (f:rest) = do
+        parseParts (f:rest) = fail "struct fields not yet supported" {- do
           e <- parseParts rest
           let lt = lssTypeOfLLVMExpr e
               pos = fixPos -- TODO
-          undefined
+          -}
 
 getLLVMExpr :: Monad m =>
                LLVMMethodSpecIR -> String
             -> m (LLVMExpr, MemType)
 getLLVMExpr ms name = do
   case Map.lookup name (specLLVMExprNames ms) of
-    Just exp -> return (exp, lssTypeOfLLVMExpr exp)
+    Just expr -> return (expr, lssTypeOfLLVMExpr expr)
     Nothing -> fail $ "LLVM name " ++ name ++ " has not been declared."
 
 exportLLVMType :: Value s -> MemType
@@ -201,6 +209,8 @@ exportLLVMType (VCtorApp "LLVM.IntType" [VInteger n]) =
   IntType (fromIntegral n)
 exportLLVMType (VCtorApp "LLVM.ArrayType" [VInteger n, ety]) =
   ArrayType (fromIntegral n) (exportLLVMType ety)
+exportLLVMType (VCtorApp "LLVM.PtrType" [VInteger n]) =
+  PtrType (MemType (IntType 8)) -- Character pointer, to start.
 exportLLVMType v =
   error $ "exportLLVMType: Can't translate to LLVM type: " ++ show v
 
@@ -212,21 +222,37 @@ llvmVar bic _ name t = do
       func = specFunction ms
       cb = specCodebase ms
       Just funcDef = lookupDefine func cb
-  exp <- liftIO $ parseLLVMExpr cb funcDef name
-  let lty = lssTypeOfLLVMExpr exp
-      lty' = exportLLVMType t
-  when (lty /= lty') $ fail $ show $
-    hsep [ text "WARNING: Declared type"
-         , ppActualType lty'
-         , text "doesn't match actual type"
-         , ppActualType lty
-         , text "for variable"
-         , text name
-         ]
-  modify $ \st -> st { lsSpec = specAddVarDecl fixPos name exp lty (lsSpec st) }
+  expr <- liftIO $ parseLLVMExpr cb funcDef name
+  let lty = exportLLVMType t
+      expr' = updateLLVMExprType expr lty
+  modify $ \st -> st { lsSpec = specAddVarDecl fixPos name expr' lty (lsSpec st) }
   let sc = biSharedContext bic
   Just ty <- liftIO $ logicTypeOfActual sc lty
   liftIO $ scLLVMValue sc ty name
+
+llvmPtr :: BuiltinContext -> Options -> String -> Value SAWCtx
+        -> LLVMSetup (SharedTerm SAWCtx)
+llvmPtr bic _ name t = do
+  lsState <- get
+  let ms = lsSpec lsState
+      func = specFunction ms
+      cb = specCodebase ms
+      Just funcDef = lookupDefine func cb
+  expr <- liftIO $ parseLLVMExpr cb funcDef name
+  let lty = exportLLVMType t
+      pty = PtrType (MemType lty)
+      expr' = updateLLVMExprType expr pty
+      dexpr = Term (Deref expr' lty)
+      dname = '*':name
+  modify $ \st -> st { lsSpec = specAddVarDecl fixPos dname dexpr lty $
+                                specAddVarDecl fixPos name expr' pty (lsSpec st) }
+  let sc = biSharedContext bic
+  Just dty <- liftIO $ logicTypeOfActual sc lty
+  liftIO $ scLLVMValue sc dty dname
+
+llvmDeref :: BuiltinContext -> Options -> Value SAWCtx
+          -> LLVMSetup (SharedTerm SAWCtx)
+llvmDeref bic _ t = fail "llvm_deref not yet implemented"
 
 {-
 llvmMayAlias :: BuiltinContext -> Options -> [String]
@@ -251,17 +277,27 @@ llvmAssertEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
              -> LLVMSetup ()
 llvmAssertEq bic _ name t = do
   ms <- gets lsSpec
-  (exp, ty) <- liftIO $ getLLVMExpr ms name
+  (expr, ty) <- liftIO $ getLLVMExpr ms name
   modify $ \st ->
-    st { lsSpec = specAddLogicAssignment fixPos exp (mkLogicExpr t) ms }
+    st { lsSpec = specAddLogicAssignment fixPos expr (mkLogicExpr t) ms }
 
 llvmEnsureEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
-           -> LLVMSetup ()
-llvmEnsureEq = fail "llvmEnsureEq"
+             -> LLVMSetup ()
+llvmEnsureEq _ _ name t = do
+  ms <- gets lsSpec
+  (expr, _) <- liftIO $ getLLVMExpr ms name
+  modify $ \st ->
+    st { lsSpec =
+           specAddBehaviorCommand (Ensure fixPos expr (LogicE (mkLogicExpr t))) (lsSpec st) }
 
 llvmModify :: BuiltinContext -> Options -> String
            -> LLVMSetup ()
-llvmModify = fail "llvmModify"
+llvmModify _ _ name = error "llvm_modify not implemented" {- do
+  ms <- gets lsSpec
+  (expr, ty) <- liftIO $ getLLVMExpr ms name
+  modify $ \st ->
+    st { lsSpec =
+           specAddBehaviorCommand (Modify expr ty) (lsSpec st) } -}
 
 llvmReturn :: BuiltinContext -> Options -> SharedTerm SAWCtx
            -> LLVMSetup ()

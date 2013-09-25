@@ -135,6 +135,11 @@ verifyJava bic opts cname mname overrides setup = do
             when (verb >= 3) $ putStrLn $ "Proved: " ++ show thm
       liftIO $ runValidation prover vp jsc esd res
   BE.beFree be
+  let overrideText = case overrides of
+                       [] -> ""
+                       irs -> " (overriding " ++ show (map specName irs) ++ ")"
+      specName ir = JSS.className (specMethodClass ir) ++ "." ++ JSS.methodName (specMethod ir)
+  putStrLn $ "Successfully verified " ++ specName ms ++ overrideText
   return ms
 
 parseJavaExpr :: JSS.Codebase -> JSS.Class -> JSS.Method -> String

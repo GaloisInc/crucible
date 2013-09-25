@@ -491,6 +491,7 @@ valueEnv opts bic = M.fromList
   , (qualify "llvm_extract", toValue $ extractLLVM sc)
   , (qualify "llvm_verify" , toValue $ verifyLLVM bic opts)
   , (qualify "llvm_pure"   , toValue $ llvmPure)
+  , (qualify "llvm_ptr"    , toValue $ llvmPtr bic opts)
   , (qualify "llvm_var"    , toValue $ llvmVar bic opts)
   -- , (qualify "llvm_may_alias", toValue $ llvmMayAlias bic opts)
   , (qualify "llvm_assert" , toValue $ llvmAssert bic opts)
@@ -552,7 +553,6 @@ coreEnv sc =
     , (qualify "llvm_int"   , "LLVM.mkIntType")
     , (qualify "llvm_float" , "LLVM.mkFloatType")
     , (qualify "llvm_double", "LLVM.mkDoubleType")
-    , (qualify "llvm_ptr" ,   "LLVM.mkPtrType")
     , (qualify "llvm_array" , "LLVM.mkArrayType")
     , (qualify "llvm_value",  "LLVM.mkValue")
     ]

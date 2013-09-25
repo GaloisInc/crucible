@@ -33,6 +33,7 @@ module SAWScript.LLVMMethodSpecIR
     -- * Method behavior.
   , BehaviorSpec
   , bsLoc
+  , bsExprs
   , bsPtrExprs
   , bsActualTypeMap
   , bsLogicAssignments
@@ -123,12 +124,6 @@ data BehaviorSpec = BS {
          bsLoc :: LSS.SymBlockID
          -- | Maps all expressions seen along path to actual type.
        , bsActualTypeMap :: ExprActualTypeMap
-         -- | Stores which LLVM expressions must alias each other.
-{-
-       , bsMustAliasSet :: CCSet LLVMExprF
-         -- | May alias relation between LLVM expressions.
-       , bsMayAliasClasses :: [[LLVMExpr]]
--}
          -- | Equations
        , bsLogicAssignments :: Map LLVMExpr (Maybe LogicExpr)
          -- | Commands to execute in reverse order.
@@ -264,10 +259,6 @@ initLLVMMethodSpec pos cb symname =
       Just def = LSS.lookupDefine sym cb
       initBS = BS { bsLoc = LSS.sdEntry def
                   , bsActualTypeMap = Map.empty
-{-
-                  , bsMustAliasSet = CC.empty
-                  , bsMayAliasClasses = []
--}
                   , bsLogicAssignments = Map.empty
                   , bsReversedCommands = []
                   }

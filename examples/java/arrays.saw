@@ -25,5 +25,5 @@ main = do {
     copy_ms <- java_verify "Arrays" "copy" [] copy_setup;
     clear_ms <- java_verify "Arrays" "clear" [] clear_setup;
     comp_ms <- java_verify "Arrays" "comp" [clear_ms] comp_setup;
-    print "Q.E.D.";
+    print "Done.";
 };

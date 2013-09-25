@@ -19,5 +19,5 @@ main = do {
     ms' <- java_verify "Add" "dbl" [ms] setup';
     //print ms;
     //print ms';
-    print "Q.E.D.";
+    print "Done.";
 };

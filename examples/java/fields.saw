@@ -34,5 +34,5 @@ main = do {
     ms_sety <- java_verify "Fields" "sety" [] sety_spec;
     ms_clearx <- java_verify "Fields" "clearx" [] clearx_spec;
     ms_cleary <- java_verify "Fields" "cleary" [] cleary_spec;
-    print "Q.E.D.";
+    print "Done.";
 };

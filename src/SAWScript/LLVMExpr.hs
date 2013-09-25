@@ -11,6 +11,7 @@ module SAWScript.LLVMExpr
   , LLVMExpr
   , ppLLVMExpr
   , lssTypeOfLLVMExpr
+  , updateLLVMExprType
   , isPtrLLVMExpr
     -- * Logic expressions
   , LogicExpr
@@ -115,6 +116,14 @@ lssTypeOfLLVMExpr (CC.Term exprF) =
     Deref _ tp -> tp
     StructField _ _ _ tp -> tp
 
+updateLLVMExprType :: LLVMExpr -> LSS.MemType -> LLVMExpr
+updateLLVMExprType (CC.Term exprF) tp = CC.Term $
+  case exprF of
+    Arg i n _ -> Arg i n tp
+    Global n _ -> Global n tp
+    Deref e _ -> Deref e tp
+    StructField r f i _ -> StructField r f i tp
+
 -- | Returns true if expression is a pointer.
 isPtrLLVMExpr :: LLVMExpr -> Bool
 isPtrLLVMExpr e =
@@ -217,6 +226,9 @@ logicTypeOfActual sc (LSS.ArrayType n ty) = do
       lTm <- scNat sc (fromIntegral n)
       Just <$> scVecType sc lTm elTyp
     Nothing -> return Nothing
+logicTypeOfActual sc (LSS.PtrType _) =
+  -- TODO: this is hardcoded to 32-bit pointers
+  Just <$> scBitvector sc (4 * 8)
 logicTypeOfActual _ _ = return Nothing
 
 ppActualType :: LLVMActualType -> Doc
