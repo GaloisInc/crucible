@@ -543,7 +543,7 @@ createLogicValue cb sbe sc ps (PtrType (MemType mtp)) _ = do
       sz = memTypeSize dl mtp
       w = ptrBitwidth dl
   let m = ps ^. pathMem
-  szTm <- scNat sc (fromIntegral sz)
+  szTm <- scBvConst sc (fromIntegral w) (fromIntegral sz)
   rslt <- sbeRunIO sbe (heapAlloc sbe m mtp w szTm 0)
   case rslt of
     AError msg -> fail msg

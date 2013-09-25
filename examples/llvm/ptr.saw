@@ -6,18 +6,16 @@ add_setup = do {
     llvm_verify_tactic abc;
 };
 
-/*
 clear_setup : LLVMSetup ();
 clear_setup = do {
-    a <- llvm_ptr "a" (llvm_array '10 llvm_int));
+    a <- llvm_ptr "a" (llvm_array '10 (llvm_int '32));
     llvm_ensure_eq a ([0, 0, 0, 0, 0, 0, 0, 0, 0, 0] : [10][32]);
     llvm_verify_tactic abc;
 };
-*/
 
 main : TopLevel ();
 main = do {
     add_ms <- llvm_verify "ptr.bc" "add" [] add_setup;
-    //add_ms <- llvm_verify "ptr.bc" "clear" [] add_setup;
+    clear_ms <- llvm_verify "ptr.bc" "clear" [] clear_setup;
     print "Done.";
 };

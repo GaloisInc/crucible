@@ -20,8 +20,9 @@ import Verifier.LLVM.Codebase hiding (Global)
 import Verifier.LLVM.Backend.SAW
 import Verifier.LLVM.Simulator
 
-import Verifier.SAW.TypedAST (FlatTermF(..))
+import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm
+import Verifier.SAW.TypedAST (FlatTermF(..), Termlike)
 
 import SAWScript.CongruenceClosure hiding (mapM)
 import SAWScript.Builtins
@@ -281,14 +282,24 @@ llvmAssertEq bic _ name t = do
   modify $ \st ->
     st { lsSpec = specAddLogicAssignment fixPos expr (mkLogicExpr t) ms }
 
-llvmEnsureEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
+asLLVMValue :: (Monad f, Termlike t) => Recognizer f t String
+asLLVMValue t =
+  case asApplyAll t of
+    (asGlobalDef -> Just "LLVM.mkValue", [_, st]) -> do
+      s <- asStringLit st
+      return s
+    _ -> fail "not an instance of LLVM.mkValue"
+
+
+llvmEnsureEq :: BuiltinContext -> Options -> SharedTerm SAWCtx -> SharedTerm SAWCtx
              -> LLVMSetup ()
-llvmEnsureEq _ _ name t = do
+llvmEnsureEq _ _ (asLLVMValue -> Just name) t = do
   ms <- gets lsSpec
   (expr, _) <- liftIO $ getLLVMExpr ms name
   modify $ \st ->
     st { lsSpec =
            specAddBehaviorCommand (Ensure fixPos expr (LogicE (mkLogicExpr t))) (lsSpec st) }
+llvmEnsureEq _ _ _ _ = fail "invalid right-hand side of llvm_ensure_eq"
 
 llvmModify :: BuiltinContext -> Options -> String
            -> LLVMSetup ()
