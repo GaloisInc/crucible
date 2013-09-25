@@ -1,0 +1,21 @@
+add_setup : LLVMSetup ();
+add_setup = do {
+    x <- llvm_var "x" (llvm_int '32);
+    y <- llvm_var "y" (llvm_int '32);
+    llvm_return (x + y : [32]);
+    llvm_verify_tactic abc;
+};
+
+dbl_setup : LLVMSetup ();
+dbl_setup = do {
+    x <- llvm_var "x" (llvm_int '32);
+    llvm_return (x + x : [32]);
+    llvm_verify_tactic abc;
+};
+
+main : TopLevel ();
+main = do {
+    add_ms <- llvm_verify "basic.bc" "add" [] add_setup;
+    llvm_verify "basic.bc" "dbl" [add_ms] dbl_setup;
+    print "Done.";
+};
