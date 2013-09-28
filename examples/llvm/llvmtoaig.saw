@@ -1,0 +1,8 @@
+main : TopLevel ();
+main = do {
+  (t : [32] -> [32]) <- llvm_extract "double.bc" "f" llvm_pure;
+  print "Type:";
+  print_type t;
+  print "Writing llvm_f.aig";
+  write_aig "llvm_f.aig" t;
+};

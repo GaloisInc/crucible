@@ -1,0 +1,95 @@
+type JavaObject = ();
+type JavaType = ();
+type JavaVerifyResult = Bit;
+type JavaOverride = String;
+type JavaCounterExample = String;
+
+/* NB: eventually the "java_" prefix will be removed, and qualified
+ * module imports will be supported. */
+
+/* A VerifyResult encodes either a statement of what it proved, or a
+ * counterexample. These work like the method specs in the first version
+ * of SAWScript.
+ */
+prim java_verify : String -> JavaSetup () -> TopLevel JavaVerifyResult;
+
+/* Extract pure models from suitably well-structured programs. We assume
+ * that these are well-typed, and check at runtime.
+ */
+//java_extract : {a} String -> JavaSetup () -> TopLevel a;
+//Present in Prelude.saw with two String arguments
+
+/* Set up symbolic simulation for a pure function from fixed-size arguments
+ * to fixed-size return value.
+ */
+//java_pure : JavaSetup ();
+//Present in Prelude.saw
+
+/* A successful proof about a method can be used to override calls to
+ * the method. The requirement to provide verification results serves
+ * two purposes:
+ *   - it tells the simulator how to provide inputs and interpret outputs
+ *   - it ensures soundness by only allowing overrides that are proven correct
+ */
+prim java_override : [JavaVerifyResult] -> JavaSetup ();
+
+/* We can uninterpret particular names along with overrides. Is this
+ * the right approach? For Cryptol, uninterpreting is the only form of
+ * overriding. For Java, it can complement overriding by causing
+ * portions of the overriding model to be left uninterpreted.
+ */
+prim java_uninterpret : {n} [n]String -> JavaSetup ();
+
+/* State that the current function returns the given value. We assume,
+ * again, that the argument is of the right type, and check at runtime.
+ */
+prim java_return : {a} a -> JavaSetup ();
+
+/* Declare that the particular expression is an output, for model
+ * extraction.
+ */
+prim java_output : {a} a -> JavaSetup ();
+
+/* Declare that the particular expression is an input, for model
+ * extraction.
+ */
+prim java_input : {a} a -> JavaSetup ();
+
+/* Assert a particular starting condition. */
+prim java_assert : Bit -> JavaSetup ();
+
+/* Assign the given value to the given object before execution. */
+prim java_assume_equal : {a} JavaObject -> a -> JavaSetup();
+
+/* Ensure that the given object is assigned the given value on
+ * termination.
+ */
+prim java_ensure_equal : {a} JavaObject -> a -> JavaSetup ();
+
+/* State that a particular object is modified with an arbitrary value.  */
+prim java_modify : JavaObject -> JavaSetup ();
+
+/* And in the Java world. */
+prim java_var : String -> JavaType -> JavaObject;
+prim java_arg : Int -> JavaType -> JavaObject;
+prim java_field : JavaObject -> String -> JavaObject;
+
+/* And Java types. */
+prim java_class : String -> JavaType;
+prim java_array : Int -> JavaType -> JavaType;
+prim java_byte : JavaType;
+prim java_char : JavaType;
+prim java_int : JavaType;
+prim java_long : JavaType;
+
+prim java_may_alias : [JavaObject] -> JavaSetup ();
+
+/* This allows us to project from a Java value into a native value.
+ * We assume that these are well-typed, and check at runtime.
+ */
+prim from_java : {a} JavaObject -> a;
+
+prim java_verify_result : {a} JavaVerifyResult
+                        -> (JavaOverride -> a)
+                        -> (JavaCounterExample -> a)
+                        -> a;

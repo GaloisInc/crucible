@@ -1,0 +1,102 @@
+type LLVMObject = ();
+type LLVMType = ();
+type LLVMVerifyResult = Bit;
+type LLVMOverride = String;
+type LLVMCounterExample = String;
+
+/* We start by declaring the types of some primitive functions. */
+
+/* A VerifyResult encodes either a statement of what it proved, or a
+ * counterexample. These work like the method specs in the first version
+ * of SAWScript.
+ */
+prim llvm_verify : String -> String -> LLVMSetup () -> TopLevel LLVMVerifyResult;
+
+/* Extract pure models from suitably well-structured programs. We assume
+ * that these are well-typed, and check at runtime.
+ */
+//llvm_extract : {a} String -> String -> LLVMSetup () -> TopLevel a;
+//Present in Prelude.saw
+
+
+/* Set up symbolic simulation for a pure function from fixed-size arguments
+ * to fixed-size return value.
+ */
+//llvm_pure : LLVMSetup ();
+//Present in Prelude.saw
+
+/* A successful proof about a method can be used to override calls to
+ * the method. The requirement to provide verification results serves
+ * two purposes:
+ *   - it tells the simulator how to provide inputs and interpret outputs
+ *   - it ensures soundness by only allowing overrides that are proven correct
+ */
+prim llvm_override : [LLVMVerifyResult] -> LLVMSetup ();
+
+/* We can uninterpret particular names along with overrides. Is this
+ * the right approach? For Cryptol, uninterpreting is the only form of
+ * overriding. For LLVM, it can complement overriding by causing
+ * portions of the overriding model to be left uninterpreted.
+ */
+prim llvm_uninterpret : {n} [n]String -> LLVMSetup ();
+
+/* State that the current function returns the given value. We assume,
+ * again, that the argument is of the right type, and check at runtime.
+ */
+prim llvm_return : {a} a -> LLVMSetup ();
+
+/* Declare that the particular expression is an output, for model
+ * extraction.
+ */
+prim llvm_output : {a} a -> LLVMSetup ();
+
+/* Declare that the particular expression is an input, for model
+ * extraction.
+ */
+prim llvm_input : {a} a -> LLVMSetup ();
+
+/* Assert a particular starting condition. */
+prim llvm_assert : Bit -> LLVMSetup ();
+
+/* Assign the given value to the given object before execution. */
+prim llvm_assume_equal : {a} LLVMObject -> a -> LLVMSetup ();
+
+/* Ensure that the given object is assigned the given value on
+ * termination.
+ */
+prim llvm_ensure_equal : {a} LLVMObject -> a -> LLVMSetup ();
+
+prim llvm_ensure : Bit -> LLVMSetup ();
+
+/* State that a particular object is modified with an arbitrary value.  */
+prim llvm_modify : LLVMObject -> LLVMSetup ();
+
+/* These work in the context of an implicit goal. */
+
+/* These allow us to refer to objects in the LLVM world. */
+prim llvm_var : String -> LLVMType -> LLVMObject;
+prim llvm_arg : Int -> LLVMType -> LLVMObject;
+prim llvm_field : LLVMObject -> String -> LLVMObject;
+prim llvm_deref : LLVMObject -> LLVMObject;
+
+/* And LLVM types. */
+prim llvm_struct : String -> LLVMType;
+prim llvm_ptr : LLVMType -> LLVMType;
+prim llvm_int : Int -> LLVMType; /* An LLVM integer with the given number of bits. */
+prim llvm_array : Int -> LLVMType -> LLVMType;
+
+
+prim llvm_may_alias : [LLVMObject] -> LLVMSetup ();
+
+/* This allows us to project from an LLVM value into a native value.
+ * We assume that these are well-typed, and check at runtime.
+ */
+prim from_llvm : {a} LLVMObject -> a;
+prim llvm_from : {a} LLVMObject -> a;
+
+prim llvm_verify_result : {a} LLVMVerifyResult
+                   -> (LLVMOverride -> a)
+                   -> (LLVMCounterExample -> a)
+                   -> a;
+
+prim show_result : LLVMVerifyResult -> TopLevel ();
