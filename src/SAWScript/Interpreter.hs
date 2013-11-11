@@ -38,7 +38,7 @@ import SAWScript.Proof
 import SAWScript.Utils
 import SAWScript.Value
 import Verifier.SAW.Prelude (preludeModule)
-import Verifier.SAW.Rewriter ( Simpset, emptySimpset )
+import Verifier.SAW.Rewriter ( Simpset, emptySimpset, rewritingSharedContext )
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST hiding ( incVars )
 

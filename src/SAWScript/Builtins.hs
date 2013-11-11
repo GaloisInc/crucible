@@ -113,7 +113,13 @@ readAIGPrim sc f = do
 -- QF_AUFBV or AIG.
 prepForExport :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
 prepForExport sc t = do
-  ss <- scSimpset sc []  [mkIdent (moduleName preludeModule) "get_single"] []
+  let eqs = map (mkIdent preludeName)
+            [ "eq_Bool", "eq_Nat", "eq_Fin", "eq_bitvector", "eq_Vec" ]
+      defs = map (mkIdent preludeName)
+             [ "get_single", "finEq", "equalNat" ]
+  rs1 <- concat <$> traverse (defRewrites sc) defs
+  rs2 <- scEqsRewriteRules sc eqs
+  let ss = addRules (rs1 ++ rs2) emptySimpset
   rewriteSharedTerm sc ss t
 
 -- | Write a @SharedTerm@ representing a theorem or an arbitrary
@@ -232,7 +238,7 @@ addsimp _sc (Theorem t) ss = addRule (ruleOfPred t) ss
 
 basic_ss :: SharedContext s -> IO (Simpset (SharedTerm s))
 basic_ss sc = do
-  rs1 <- concat <$> traverse defRewrites defs
+  rs1 <- concat <$> traverse (defRewrites sc) defs
   rs2 <- scEqsRewriteRules sc eqs
   return $ addConvs procs (addRules (rs1 ++ rs2) emptySimpset)
   where
@@ -242,7 +248,9 @@ basic_ss sc = do
     defs = map (mkIdent preludeName)
       ["not", "and", "or", "xor", "boolEq", "ite", "addNat", "mulNat", "compareNat", "finSucc"]
     procs = bvConversions ++ natConversions ++ finConversions ++ vecConversions
-    defRewrites ident =
+
+defRewrites :: SharedContext s -> Ident -> IO [RewriteRule (SharedTerm s)]
+defRewrites sc ident =
       case findDef (scModule sc) ident of
         Nothing -> return []
         Just def -> scDefRewriteRules sc def
