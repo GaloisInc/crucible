@@ -32,7 +32,7 @@ import Control.Applicative hiding (empty)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Cont
-import Control.Monad.Error (ErrorT, runErrorT, throwError, MonadError)
+import Control.Monad.Error (ErrorT, runErrorT)
 import Control.Monad.State
 import Data.Int
 import Data.List (intercalate) -- foldl', intersperse)
@@ -40,7 +40,6 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Set as Set
-import qualified Data.Vector as V
 import Text.PrettyPrint.Leijen hiding ((<$>))
 import qualified Text.PrettyPrint.HughesPJ as PP
 
@@ -61,7 +60,6 @@ import Verifier.SAW.Prelude
 import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
 import Verifier.SAW.SharedTerm
-import Verifier.SAW.TypedAST
 
 -- JSS Utilities {{{1
 
@@ -202,13 +200,21 @@ evalMixedExpr (TC.LE expr) ec = do
   n <- evalLogicExpr expr ec
   let sc = ecContext ec
   ty <- liftIO $ scTypeOf sc n
-  case asBitvectorType ty of
-    Just 32 -> return (JSS.IValue n)
-    Just 64 -> return (JSS.LValue n)
-    Just _ -> error "internal: bitvector of unsupported size passed to evalMixedExpr"
-    Nothing -> error "internal: non-bitvector expression passed to evalMixedExpr"
+  case (asBitvectorType ty, asBoolType ty) of
+    (Just 32, _) -> return (JSS.IValue n)
+    (Just 64, _) -> return (JSS.LValue n)
+    (Just _, _) -> error "internal: bitvector of unsupported size passed to evalMixedExpr"
+    (Nothing, Just _) -> do
+      b <- liftIO $ do
+        boolTy <- scBoolType sc
+        false <- scBool sc False
+        scVector sc boolTy (reverse (n : replicate 31 false))
+      return (JSS.IValue b)
+    (Nothing, Nothing) ->
+      error $
+      "internal: unsupported expression passed to evalMixedExpr: " ++
+      show ty
 evalMixedExpr (TC.JE expr) ec = evalJavaExpr expr ec
-
 
 -- Method specification overrides {{{1
 -- OverrideComputation definition {{{2
