@@ -113,10 +113,8 @@ readAIGPrim sc f = do
 -- QF_AUFBV or AIG.
 prepForExport :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
 prepForExport sc t = do
-  let eqs = map (mkIdent preludeName)
-            [ "eq_Bool", "eq_Nat", "eq_Fin", "eq_bitvector", "eq_Vec" ]
-      defs = map (mkIdent preludeName)
-             [ "get_single", "finEq", "equalNat" ]
+  let eqs = map (mkIdent preludeName) [ "eq_Bool" ]
+      defs = map (mkIdent preludeName) [ "get_single" ]
   rs1 <- concat <$> traverse (defRewrites sc) defs
   rs2 <- scEqsRewriteRules sc eqs
   let ss = addRules (rs1 ++ rs2) emptySimpset
