@@ -712,7 +712,7 @@ initializeVerification sc ir bs refConfig = do
   exprRefs <- mapM (JSS.genRef . TC.jssTypeOfActual . snd) refConfig
   let refAssignments = (map fst refConfig `zip` exprRefs)
       m = specJavaExprNames ir
-      clName = JSS.className (specThisClass ir)
+      clName = JSS.className (specMethodClass ir)
       --key = JSS.methodKey (specMethod ir)
       pushFrame cs = fromMaybe (error "internal: failed to push call frame") mcs'
         where

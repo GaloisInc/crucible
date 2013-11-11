@@ -278,7 +278,7 @@ initMethodSpec pos cb cname mname = do
   thisClass <- lookupClass cb pos cname'
   (methodClass,method) <- findMethod cb pos mname thisClass
   superClasses <- JSS.supers cb thisClass
-  let this = thisJavaExpr methodClass
+  let this = thisJavaExpr thisClass
       initTypeMap | JSS.methodIsStatic method = Map.empty
                   | otherwise = Map.singleton this (ClassInstance methodClass)
       initBS = BS { bsLoc = JSS.BreakEntry
