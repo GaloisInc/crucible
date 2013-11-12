@@ -208,7 +208,7 @@ evalMixedExpr (TC.LE expr) ec = do
       b <- liftIO $ do
         boolTy <- scBoolType sc
         false <- scBool sc False
-        scVector sc boolTy (reverse (n : replicate 31 false))
+        scVector sc boolTy (n : replicate 31 false)
       return (JSS.IValue b)
     (Nothing, Nothing) ->
       error $
