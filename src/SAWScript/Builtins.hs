@@ -197,6 +197,16 @@ satABC sc = StateT $ \t -> withBE $ \be -> do
     (_, Nothing) -> fail "Backend does not support SAT checking."
     (Left err, _) -> fail $ "Can't bitblast: " ++ err
 
+satAIG :: SharedContext s -> FilePath -> ProofScript s ProofResult
+satAIG sc path = StateT $ \t -> do
+  writeAIG sc path t
+  (,) () <$> scApplyPreludeFalse sc
+
+satExtCore :: SharedContext s -> FilePath -> ProofScript s ProofResult
+satExtCore sc path = StateT $ \t -> do
+  writeCore path t
+  (,) () <$> scApplyPreludeFalse sc
+
 -- | Logically negate a term @t@, which must be a boolean term
 -- (possibly surrounded by one or more lambdas).
 scNegate :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
