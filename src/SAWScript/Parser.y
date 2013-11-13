@@ -171,8 +171,8 @@ InfixOp :: { Name }
  | '+'            { "bvAdd"                      }
  | '/'            { "bvDiv"                      }
  | '%'            { "bvMod"                      }
- | '<<'           { "shiftLeft"                  }
- | '>>'           { "shiftRight"                 }
+ | '<<'           { "bvShl"                      }
+ | '>>'           { "bvShr"                      }
  | '&'            { "bvAnd"                      }
  | '^'            { "bvXor"                      }
  | '|'            { "bvOr"                       }

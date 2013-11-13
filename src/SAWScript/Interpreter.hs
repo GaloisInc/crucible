@@ -544,6 +544,8 @@ coreEnv sc =
     , (qualify "bvXor"      , "Prelude.bvXor")
     , (qualify "bvOr"       , "Prelude.bvOr")
     , (qualify "bvAnd"      , "Prelude.bvAnd")
+    , (qualify "bvShl"      , "Prelude.bvShl")
+    , (qualify "bvShr"      , "Prelude.bvShr")
     -- Java things
     , (qualify "java_bool"  , "Java.mkBooleanType")
     , (qualify "java_byte"  , "Java.mkByteType")
