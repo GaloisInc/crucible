@@ -207,6 +207,16 @@ satExtCore sc path = StateT $ \t -> do
   writeCore path t
   (,) () <$> scApplyPreludeFalse sc
 
+satSMTLib1 :: SharedContext s -> FilePath -> ProofScript s ProofResult
+satSMTLib1 sc path = StateT $ \t -> do
+  writeSMTLib1 sc path t
+  (,) () <$> scApplyPreludeFalse sc
+
+satSMTLib2 :: SharedContext s -> FilePath -> ProofScript s ProofResult
+satSMTLib2 sc path = StateT $ \t -> do
+  writeSMTLib2 sc path t
+  (,) () <$> scApplyPreludeFalse sc
+
 -- | Logically negate a term @t@, which must be a boolean term
 -- (possibly surrounded by one or more lambdas).
 scNegate :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)

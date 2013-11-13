@@ -509,6 +509,8 @@ valueEnv opts bic = M.fromList
   , (qualify "abc"         , toValue $ satABC sc)
   , (qualify "offline_aig" , toValue $ satAIG sc)
   , (qualify "offline_extcore" , toValue $ satExtCore sc)
+  , (qualify "offline_smtlib1" , toValue $ satSMTLib1 sc)
+  , (qualify "offline_smtlib2" , toValue $ satSMTLib2 sc)
   , (qualify "unfolding"   , toValue $ unfoldGoal sc)
   , (qualify "simplify"    , toValue $ simplifyGoal sc)
   , (qualify "print_goal"  , toValue (printGoal :: ProofScript SAWCtx ()))
