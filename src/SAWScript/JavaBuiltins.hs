@@ -13,6 +13,7 @@ import Data.List (sort)
 import Data.List.Split
 import Data.IORef
 import qualified Data.Map as Map
+import qualified Data.Vector as V
 import Text.PrettyPrint.Leijen hiding ((<$>))
 import Text.Read (readMaybe)
 
@@ -25,6 +26,7 @@ import qualified Verifier.Java.Simulator as JSS
 import qualified Verifier.Java.SAWBackend as JSS
 
 import Verifier.SAW.Prelude
+import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST hiding (instantiateVarList)
 
@@ -155,8 +157,17 @@ parseJavaExpr cb cls meth = parseParts . reverse . splitOn "."
                 Just (n :: Int) -> do
                   let i = JSS.localIndexOfParameter meth n
                       mlv = JSS.lookupLocalVariableByIdx meth 0 i
+                      paramTypes = V.fromList .
+                                   JSS.methodKeyParameterTypes .
+                                   JSS.methodKey $
+                                   meth
                   case mlv of
-                    Nothing -> error $ "parameter doesn't exist: " ++ show n
+                    Nothing
+                      | n < V.length paramTypes ->
+                        return (CC.Term (Local s i (paramTypes V.! (fromIntegral n))))
+                      | otherwise -> error $
+                                     "local variable index " ++ show i ++
+                                     " for parameter " ++ show n ++ " doesn't exist"
                     Just lv -> return (CC.Term (Local s i (JSS.localType lv)))
                 Nothing -> fail $ "bad Java expression syntax: " ++ s
             _ -> do
@@ -178,14 +189,19 @@ exportJSSType (SS.VCtorApp "Java.IntType" []) = JSS.IntType
 exportJSSType (SS.VCtorApp "Java.LongType" []) = JSS.LongType
 exportJSSType (SS.VCtorApp "Java.ArrayType" [_, ety]) =
   JSS.ArrayType (exportJSSType ety)
+exportJSSType (SS.VCtorApp "Java.ClassType" [SS.VString name]) =
+  JSS.ClassType (JP.dotsToSlashes name)
 exportJSSType v = error $ "exportJSSType: Can't translate to Java type: " ++ show v
 
-exportJavaType :: SS.Value s -> JavaActualType
-exportJavaType (SS.VCtorApp "Java.IntType" []) = PrimitiveType JSS.IntType
-exportJavaType (SS.VCtorApp "Java.LongType" []) = PrimitiveType JSS.LongType
-exportJavaType (SS.VCtorApp "Java.ArrayType" [SS.VInteger n, ety]) =
-  ArrayInstance (fromIntegral n) (exportJSSType ety)
-exportJavaType v = error $ "exportJavaType: Can't translate to Java type: " ++ show v
+exportJavaType :: JSS.Codebase -> SS.Value s -> IO JavaActualType
+exportJavaType _ (SS.VCtorApp "Java.IntType" []) = return $ PrimitiveType JSS.IntType
+exportJavaType _ (SS.VCtorApp "Java.LongType" []) = return $ PrimitiveType JSS.LongType
+exportJavaType _ (SS.VCtorApp "Java.ArrayType" [SS.VInteger n, ety]) =
+  return $ ArrayInstance (fromIntegral n) (exportJSSType ety)
+exportJavaType cb (SS.VCtorApp "Java.ClassType" [SS.VString name]) = do
+  cls <- lookupClass cb fixPos (JP.dotsToSlashes name)
+  return (ClassInstance  cls)
+exportJavaType _ v = error $ "exportJavaType: Can't translate to Java type: " ++ show v
 
 javaPure :: JavaSetup ()
 javaPure = return ()
@@ -195,12 +211,13 @@ javaVar :: BuiltinContext -> Options -> String -> SS.Value SAWCtx
 javaVar bic _ name t@(SS.VCtorApp _ _) = do
   jsState <- get
   let ms = jsSpec jsState
+      cb = biJavaCodebase bic
       cls = specMethodClass ms
       meth = specMethod ms
   exp <- liftIO $ parseJavaExpr (biJavaCodebase bic) cls meth name
   let jty = jssTypeOfJavaExpr exp
       jty' = exportJSSType t
-      aty = exportJavaType t
+  aty <- liftIO $ exportJavaType cb t
   when (jty /= jty') $ fail $ show $
     hsep [ text "WARNING: Declared type"
          , text (show (JP.ppType jty')) -- TODO: change pretty-printer
