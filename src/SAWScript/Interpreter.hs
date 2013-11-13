@@ -533,14 +533,17 @@ coreEnv sc =
   traverse (scGlobalDef sc . parseIdent) $ M.fromList $
     -- Pure things
     [ (qualify "bitSequence", "Prelude.bvNat")
-    , (qualify "add"        , "Prelude.bvAdd")
-    , (qualify "sub"        , "Prelude.bvSub")
-    , (qualify "mul"        , "Prelude.bvMul")
+    , (qualify "bvAdd"      , "Prelude.bvAdd")
+    , (qualify "bvSub"      , "Prelude.bvSub")
+    , (qualify "bvMul"      , "Prelude.bvMul")
     , (qualify "not"        , "Prelude.not")
     , (qualify "conj"       , "Prelude.and")
     , (qualify "disj"       , "Prelude.or")
     , (qualify "eq"         , "Prelude.eq")
-    , (qualify "complement" , "Prelude.bvNot")
+    , (qualify "bvNot"      , "Prelude.bvNot")
+    , (qualify "bvXor"      , "Prelude.bvXor")
+    , (qualify "bvOr"       , "Prelude.bvOr")
+    , (qualify "bvAnd"      , "Prelude.bvAnd")
     -- Java things
     , (qualify "java_bool"  , "Java.mkBooleanType")
     , (qualify "java_byte"  , "Java.mkByteType")

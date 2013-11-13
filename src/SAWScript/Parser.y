@@ -157,17 +157,20 @@ Expression :: { ExprSimple RawT }
 IExpr :: { ExprSimple RawT }
  : AExprs                               { $1 }
  | IExpr InfixOp AExprs                 { binOp $1 $2 $3 }
+ | PrefixOp AExprs                      { unOp $1 $2 }
 
 AExprs :: { ExprSimple RawT }
  : list1(AExpr)                         { buildApplication $1 }
 
+PrefixOp :: { Name }
+ : '~'            { "bvNot"                      }
+
 InfixOp :: { Name }
- : '~'            { "neg"                        }
- | '-'            { "sub"                        }
- | '*'            { "mul"                        }
- | '+'            { "add"                        }
- | '/'            { "div"                        }
- | '%'            { "mod"                        }
+ : '-'            { "bvSub"                      }
+ | '*'            { "bvMul"                      }
+ | '+'            { "bvAdd"                      }
+ | '/'            { "bvDiv"                      }
+ | '%'            { "bvMod"                      }
  | '<<'           { "shiftLeft"                  }
  | '>>'           { "shiftRight"                 }
  | '&'            { "bvAnd"                      }
@@ -332,6 +335,9 @@ buildApplication =
 
 binOp :: ExprSimple RawT -> Name -> ExprSimple RawT -> ExprSimple RawT
 binOp x op y = Application (Application (Var (unresolved op) Nothing) x Nothing) y Nothing
+
+unOp :: Name -> ExprSimple RawT -> ExprSimple RawT
+unOp op x = Application (Var (unresolved op) Nothing) x Nothing
 
 buildType :: [RawSigT] -> RawSigT
 buildType [t]    = t
