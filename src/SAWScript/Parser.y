@@ -180,10 +180,10 @@ InfixOp :: { Name }
  | '#'            { "concat"                     }
  | '=='           { "eq"                         }
  | '!='           { "neq"                        }
- | '>='           { "geq"                        }
- | '>'            { "gt"                         }
- | '<='           { "leq"                        }
- | '<'            { "lt"                         }
+ | '>='           { "bvuge"                      }
+ | '>'            { "bvugt"                      }
+ | '<='           { "bvule"                      }
+ | '<'            { "bvult"                      }
  | '&&'           { "conj"                       }
  | '||'           { "disj"                       }
  | '==>'          { "implies"                    }

@@ -548,6 +548,10 @@ coreEnv sc =
     , (qualify "bvAnd"      , "Prelude.bvAnd")
     , (qualify "bvShl"      , "Prelude.bvShl")
     , (qualify "bvShr"      , "Prelude.bvShr")
+    , (qualify "bvule"      , "Prelude.bvule")
+    , (qualify "bvult"      , "Prelude.bvult")
+    , (qualify "bvuge"      , "Prelude.bvuge")
+    , (qualify "bvugt"      , "Prelude.bvugt")
     -- Java things
     , (qualify "java_bool"  , "Java.mkBooleanType")
     , (qualify "java_byte"  , "Java.mkByteType")
@@ -560,6 +564,8 @@ coreEnv sc =
     , (qualify "java_array" , "Java.mkArrayType")
     , (qualify "java_class" , "Java.mkClassType")
     , (qualify "java_value" , "Java.mkValue")
+    , (qualify "ec_join"    , "Java.ecJoin")
+    , (qualify "ec_split"   , "Java.ecSplit")
     -- LLVM things
     , (qualify "llvm_int"   , "LLVM.mkIntType")
     , (qualify "llvm_float" , "LLVM.mkFloatType")
