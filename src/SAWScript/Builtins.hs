@@ -17,6 +17,7 @@ import Text.PrettyPrint.Leijen hiding ((<$>))
 import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
 
 import qualified Verifier.Java.Codebase as JSS
+import Verifier.Java.SAWBackend (javaModule)
 import qualified Verifier.LLVM.Codebase as LSS
 
 import Verifier.SAW.BitBlast
@@ -115,6 +116,9 @@ prepForExport :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
 prepForExport sc t = do
   let eqs = map (mkIdent preludeName) [ "eq_Bool" ]
       defs = map (mkIdent preludeName) [ "get_single" ]
+             ++
+             map (mkIdent (moduleName javaModule))
+                 [ "ecJoin", "ecSplit" ]
   rs1 <- concat <$> traverse (defRewrites sc) defs
   rs2 <- scEqsRewriteRules sc eqs
   let ss = addRules (rs1 ++ rs2) emptySimpset
