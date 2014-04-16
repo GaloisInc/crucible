@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-REPODIR="src.galois.com:/srv/git"
+REPODIR=${REPODIR:="src.galois.com:/srv/git"}
 REPOS="abcBridge jvm-parser llvm-pretty"
 PKGS="Java LLVM SAWCore Verinf"
 
