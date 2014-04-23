@@ -567,6 +567,7 @@ coreEnv sc =
     , (qualify "java_value" , "Java.mkValue")
     , (qualify "ec_join"    , "Java.ecJoin")
     , (qualify "ec_split"   , "Java.ecSplit")
+    , (qualify "ec_extend"  , "Java.ecExtend")
     -- LLVM things
     , (qualify "llvm_int"   , "LLVM.mkIntType")
     , (qualify "llvm_float" , "LLVM.mkFloatType")

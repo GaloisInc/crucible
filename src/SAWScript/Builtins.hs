@@ -118,7 +118,7 @@ prepForExport sc t = do
       defs = map (mkIdent preludeName) [ "get_single" ]
              ++
              map (mkIdent (moduleName javaModule))
-                 [ "ecJoin", "ecSplit" ]
+                 [ "ecJoin", "ecSplit", "ecExtend" ]
   rs1 <- concat <$> traverse (defRewrites sc) defs
   rs2 <- scEqsRewriteRules sc eqs
   let ss = addRules (rs1 ++ rs2) emptySimpset
