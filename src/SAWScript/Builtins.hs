@@ -303,7 +303,7 @@ bindExts sc args body = do
   let is = mapMaybe extIdx args
   unless (length types == length is) $
     fail "argument isn't external input"
-  locals <- mapM (uncurry (scLocalVar sc)) ([0..] `zip` reverse types)
+  locals <- mapM (scLocalVar sc . fst) ([0..] `zip` reverse types)
   body' <- scInstantiateExt sc (Map.fromList (is `zip` reverse locals)) body
   scLambdaList sc (names `zip` types) body'
     where names = map ('x':) (map show ([0..] :: [Int]))

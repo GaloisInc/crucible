@@ -129,9 +129,8 @@ translateType sc tenv ty =
       SS.TyCon (SS.NumCon n) []   -> scNat sc (fromInteger n)
       SS.TyVar (SS.BoundVar x)    -> case M.lookup x tenv of
                                        Nothing -> fail $ "translateType: unbound type variable: " ++ x
-                                       Just (i, k) -> do
-                                         k' <- translateKind sc k
-                                         scLocalVar sc i k'
+                                       Just (i, _k) -> do
+                                         scLocalVar sc i
       _                           -> fail $ "untranslatable type: " ++ show ty
 
 translatableSchema :: SS.Schema -> Bool
@@ -212,7 +211,7 @@ translateExpr sc tm sm km expr =
                                              ts' <- mapM (translateType sc km) ts
                                              scApplyAll sc e' ts'
       SS.Function x a e         _ -> do a' <- translateSchema sc km a
-                                        x' <- scLocalVar sc 0 =<< incVars sc 0 1 a'
+                                        x' <- scLocalVar sc 0
                                         sm' <- traverse (incVars sc 0 1) sm
                                         let sm'' = M.insert (SS.LocalName x) x' sm'
                                         let km' = fmap (\(i, k) -> (i + 1, k)) km
