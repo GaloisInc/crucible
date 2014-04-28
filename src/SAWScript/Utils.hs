@@ -194,7 +194,7 @@ findField _ pos _ _ =
    in throwIOExecException pos (ftext msg) ""
 
 equal :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-equal sc (STApp _ (Lambda (PVar x1 _ _) ty1 tm1)) (STApp _ (Lambda (PVar _ _ _) ty2 tm2)) =
+equal sc (STApp _ (Lambda x1 ty1 tm1)) (STApp _ (Lambda _ ty2 tm2)) =
   case (asBitvectorType ty1, asBitvectorType ty2) of
     (Just n1, Just n2) -> do
       unless (n1 == n2) $
