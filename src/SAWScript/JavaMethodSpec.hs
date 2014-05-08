@@ -52,7 +52,7 @@ import SAWScript.Proof
 
 import qualified Verifier.Java.Simulator as JSS
 import qualified Data.JVM.Symbolic.AST as JSS
-import Verifier.Java.SAWBackend
+import Verifier.Java.SAWBackend hiding (basic_ss)
 import Verinf.Utils.LogMonad
 
 import Verifier.SAW.Evaluator
@@ -190,7 +190,8 @@ evalLogicExpr initExpr ec = liftIO $ do
                 nt <- scJavaValue sc ty name
                 return (ruleOfTerms nt lt)
   -- liftIO $ print rules
-  let ss = addRules rules emptySimpset
+  basics <- basic_ss sc
+  let ss = addRules rules basics
   rewriteSharedTerm sc ss t
 
 -- | Return Java value associated with mixed expression.
@@ -200,7 +201,9 @@ evalMixedExpr (TC.LE expr) ec = do
   n <- evalLogicExpr expr ec
   let sc = ecContext ec
   ty <- liftIO $ scTypeOf sc n
-  case (asBitvectorType ty, asBoolType ty) of
+  ss <- liftIO $ basic_ss sc
+  ty' <- liftIO $ rewriteSharedTerm sc ss ty
+  case (asBitvectorType ty', asBoolType ty') of
     (Just 32, _) -> return (JSS.IValue n)
     (Just 64, _) -> return (JSS.LValue n)
     (Just _, _) -> error "internal: bitvector of unsupported size passed to evalMixedExpr"
@@ -213,7 +216,7 @@ evalMixedExpr (TC.LE expr) ec = do
     (Nothing, Nothing) ->
       error $
       "internal: unsupported expression passed to evalMixedExpr: " ++
-      show ty
+      show ty'
 evalMixedExpr (TC.JE expr) ec = evalJavaExpr expr ec
 
 -- Method specification overrides {{{1
