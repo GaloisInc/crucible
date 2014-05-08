@@ -10,6 +10,7 @@ Point-of-contact : jhendrix, lerkok
 {-# LANGUAGE DeriveDataTypeable  #-}
 module SAWScript.Utils where
 
+import Control.Applicative
 import Control.Exception as CE
 import Control.Monad.State
 import Control.DeepSeq(rnf, NFData(..))
@@ -19,18 +20,20 @@ import Data.Data
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
+import Data.Traversable (traverse)
 import qualified Data.Vector as V
 --import System.Console.CmdArgs(Data, Typeable)
 import System.Directory(makeRelativeToCurrentDirectory)
 import System.FilePath(makeRelative, isAbsolute, (</>), takeDirectory)
 import System.Time(TimeDiff(..), getClockTime, diffClockTimes, normalizeTimeDiff, toCalendarTime, formatCalendarTime)
 import System.Locale(defaultTimeLocale)
-import Text.PrettyPrint.Leijen hiding ((</>))
+import Text.PrettyPrint.Leijen hiding ((</>), (<$>))
 import Numeric(showFFloat)
 
 import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.Java.Simulator as JSS
 
+import Verifier.SAW.Conversion
 import Verifier.SAW.Prelude
 import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
@@ -208,8 +211,11 @@ equal sc (STApp _ (Lambda x1 ty1 tm1)) (STApp _ (Lambda _ ty2 tm2)) =
 equal sc tm1 tm2 = do
     ty1 <- scTypeOf sc tm1
     ty2 <- scTypeOf sc tm2
+    ss <- basic_ss sc
+    ty1' <- rewriteSharedTerm sc ss ty1
+    ty2' <- rewriteSharedTerm sc ss ty2
     let asVecType = isVecType return
-    case (ty1, ty2) of
+    case (ty1', ty2') of
       (asBitvectorType -> Just n1, asBitvectorType -> Just n2) -> do
         unless (n1 == n2) $ fail "Bitvectors have different sizes."
         n1t <- scNat sc n1
@@ -229,7 +235,7 @@ equal sc tm1 tm2 = do
         foldM andOp trueTm eqs
       (_, _) ->
         fail $ "Incompatible non-lambda terms. Types are " ++
-               show ty1 ++ " and " ++ show ty2
+               show ty1' ++ " and " ++ show ty2'
 
 allEqual :: SharedContext s -> [(SharedTerm s, SharedTerm s)] -> IO (SharedTerm s)
 allEqual sc [] = scApplyPreludeTrue sc
@@ -259,3 +265,24 @@ scImplies sc x y = do
   orOp <- scApplyPreludeOr sc
   orOp xNot y
 
+defRewrites :: SharedContext s -> Ident -> IO [RewriteRule (SharedTerm s)]
+defRewrites sc ident =
+      case findDef (scModule sc) ident of
+        Nothing -> return []
+        Just def -> scDefRewriteRules sc def
+
+basic_ss :: SharedContext s -> IO (Simpset (SharedTerm s))
+basic_ss sc = do
+  rs1 <- concat <$> traverse (defRewrites sc) defs
+  rs2 <- scEqsRewriteRules sc eqs
+  return $ addConvs procs (addRules (rs1 ++ rs2) emptySimpset)
+  where
+    eqs = map (mkIdent preludeName)
+      ["get_single", "get_bvAnd", "get_bvOr", "get_bvXor", "get_bvNot",
+       "not_not", "get_slice", "bvAddZeroL", "bvAddZeroR", "ite_eq"]
+    defs = map (mkIdent preludeName)
+      [ "not", "and", "or", "xor", "boolEq", "ite", "addNat", "mulNat"
+      , "compareNat", "finSucc", "finFront", "equalNat", "mkFinVal"
+      , "bitvector"
+      ]
+    procs = bvConversions ++ natConversions ++ finConversions ++ vecConversions
