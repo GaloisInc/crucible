@@ -280,7 +280,7 @@ initMethodSpec pos cb cname mname = do
   superClasses <- JSS.supers cb thisClass
   let this = thisJavaExpr thisClass
       initTypeMap | JSS.methodIsStatic method = Map.empty
-                  | otherwise = Map.singleton this (ClassInstance methodClass)
+                  | otherwise = Map.singleton this (ClassInstance thisClass)
       initBS = BS { bsLoc = JSS.BreakEntry
                   , bsActualTypeMap = initTypeMap
                   , bsMustAliasSet =
