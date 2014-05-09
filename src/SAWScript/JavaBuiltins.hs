@@ -116,7 +116,7 @@ verifyJava bic opts cname mname overrides setup = do
                 , cl <- bsRefEquivClasses bs
                 ]
   forM_ configs $ \(bs,cl) -> do
-    when (verb >= 3) $ do
+    when (verb >= 2) $ do
       putStrLn $ "Executing " ++ specName ms ++
                  " at PC " ++ show (bsLoc bs) ++ "."
     JSS.runDefSimulator cb backend $ do
@@ -126,15 +126,15 @@ verifyJava bic opts cname mname overrides setup = do
           initialExts =
             sort . filter isExtCns . map snd . esdInitialAssignments $ esd
       res <- mkSpecVC jsc vp esd
-      when (verb >= 3) $ liftIO $ do
+      when (verb >= 5) $ liftIO $ do
         putStrLn "Verifying the following:"
         mapM_ (print . ppPathVC) res
       let prover vs script g = do
             glam <- bindExts jsc initialExts g
             glam' <- scImport (biSharedContext bic) glam
-            when (verb >= 4) $ putStrLn $ "Trying to prove: " ++ show glam'
+            when (verb >= 6) $ putStrLn $ "Trying to prove: " ++ show glam'
             Theorem thm <- provePrim (biSharedContext bic) script glam'
-            when (verb >= 3) $ putStrLn $ "Proved: " ++ show thm
+            when (verb >= 5) $ putStrLn $ "Proved: " ++ show thm
       liftIO $ runValidation prover vp jsc esd res
   BE.beFree be
   let overrideText = case overrides of

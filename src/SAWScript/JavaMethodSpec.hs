@@ -721,11 +721,10 @@ initializeVerification sc ir bs refConfig = do
   exprRefs <- mapM (JSS.genRef . TC.jssTypeOfActual . snd) refConfig
   let refAssignments = (map fst refConfig `zip` exprRefs)
       m = specJavaExprNames ir
-      clName = JSS.className (specMethodClass ir)
       --key = JSS.methodKey (specMethod ir)
       pushFrame cs = fromMaybe (error "internal: failed to push call frame") mcs'
         where
-          mcs' = JSS.pushCallFrame clName
+          mcs' = JSS.pushCallFrame (JSS.className (specMethodClass ir))
                                    (specMethod ir)
                                    JSS.entryBlock -- FIXME: not the right block
                                    Map.empty
@@ -977,10 +976,14 @@ mkSpecVC :: JSS.MonadSim (SharedContext JSSCtx) m =>
          -> JSS.Simulator (SharedContext JSSCtx) m [PathVC]
 mkSpecVC sc params esd = do
   let ir = vpSpec params
+      vrb = simVerbose (vpOpts params)
+      ovds = vpOver params
   -- Log execution.
-  setVerbosity (simVerbose (vpOpts params))
+  setVerbosity vrb
   -- Add method spec overrides.
-  mapM_ (overrideFromSpec sc (specPos ir)) (vpOver params)
+  when (vrb >= 2) $ liftIO $
+       putStrLn $ "Overriding: " ++ show (map specName ovds)
+  mapM_ (overrideFromSpec sc (specPos ir)) ovds
   -- Execute code.
   JSS.run
   returnVal <- JSS.getProgramReturnValue
@@ -1046,7 +1049,7 @@ runValidation prover params sc esd results = do
          forM_ (pvcChecks pvc) $ \vc -> do
            let vs = mkVState (vcName vc) (vcCounterexample vc)
            g <- scImplies sc (pvcAssumptions pvc) =<< vcGoal sc vc
-           when (verb >= 4) $ do
+           when (verb >= 5) $ do
              putStrLn $ "Checking " ++ vcName vc ++ " (" ++ show g ++ ")"
            prover vs script g
         else do
@@ -1059,7 +1062,7 @@ runValidation prover params sc esd results = do
           let vs = mkVState vsName (\_ -> return $ vcat (pvcStaticErrors pvc))
           false <- scBool sc False
           g <- scImplies sc (pvcAssumptions pvc) false
-          when (verb >= 4) $ do
+          when (verb >= 5) $ do
             putStrLn $ "Checking " ++ vsName
             print $ pvcStaticErrors pvc
             putStrLn $ "Calling prover to disprove " ++
