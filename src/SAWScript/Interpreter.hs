@@ -30,6 +30,7 @@ import Data.Traversable hiding ( mapM )
 
 import qualified SAWScript.AST as SS
 import SAWScript.Builtins hiding (evaluate)
+import SAWScript.CryptolBuiltins
 import SAWScript.JavaBuiltins
 import SAWScript.LLVMBuiltins
 import qualified SAWScript.MGU as MGU
@@ -474,6 +475,8 @@ valueEnv opts bic = M.fromList
   [ (qualify "read_sbv"    , toValue $ readSBV sc)
   , (qualify "read_aig"    , toValue $ readAIGPrim sc)
   , (qualify "write_aig"   , toValue $ writeAIG sc)
+  -- Cryptol stuff
+  , (qualify "cryptol_extract", toValue $ extractCryptol sc)
   -- Java stuff
   , (qualify "java_extract", toValue $ extractJava bic opts)
   , (qualify "java_verify" , toValue $ verifyJava bic opts)
