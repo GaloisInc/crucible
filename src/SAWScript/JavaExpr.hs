@@ -4,10 +4,12 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ViewPatterns #-}
 module SAWScript.JavaExpr
   (-- * Java Expressions
     JavaExprF(..)
   , JavaExpr
+  , asJavaExpr
   , thisJavaExpr
   , ppJavaExpr
   , jssTypeOfJavaExpr
@@ -33,11 +35,15 @@ module SAWScript.JavaExpr
 import Control.Applicative ((<$>))
 import Control.Monad.Error (Error(..))
 import Data.Set (Set)
+import qualified Data.Set as Set
+import Data.Map (Map)
+import qualified Data.Map as Map
 
 import qualified Verifier.Java.Codebase as JSS
 
-import Verifier.SAW.TypedAST
+import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm
+import Verifier.SAW.TypedAST
 
 import qualified SAWScript.CongruenceClosure as CC
 import SAWScript.Utils
@@ -89,6 +95,13 @@ ppJavaExpr (CC.Term exprF) =
     Local nm _ _ -> nm
     InstanceField r f -> ppJavaExpr r ++ "." ++ JSS.fieldIdName f
 
+asJavaExpr :: Map String JavaExpr -> LogicExpr -> Maybe JavaExpr
+asJavaExpr m (asCtor -> Just (i, [e])) =
+  case e of
+    (asStringLit -> Just s) | i == parseIdent "Java.mkValue" -> Map.lookup s m
+    _ -> Nothing
+asJavaExpr _ e = Nothing
+
 -- | Returns JSS Type of JavaExpr
 jssTypeOfJavaExpr :: JavaExpr -> JSS.Type
 jssTypeOfJavaExpr (CC.Term exprF) =
@@ -118,13 +131,9 @@ typeOfLogicExpr = scTypeOf
 -}
 
 -- | Return java expressions in logic expression.
-logicExprJavaExprs :: LogicExpr -> Set JavaExpr
-logicExprJavaExprs = error "logicExprJavaExprs" --FIXME
-  {- flip impl Set.empty
-  where impl (Apply _ args) s = foldr impl s args
-        impl (JavaValue e _ _) s = Set.insert e s
-        impl _ s = s
-        -}
+logicExprJavaExprs :: Map String JavaExpr -> LogicExpr -> Set JavaExpr
+logicExprJavaExprs m (LogicExpr (STApp i tf)) = CC.foldMap impl tf
+  where impl = maybe Set.empty Set.singleton . asJavaExpr m . LogicExpr
 
 {-
 -- | Returns names of variables appearing in typedExpr.

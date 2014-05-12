@@ -232,7 +232,6 @@ javaVar bic _ name t@(SS.VCtorApp _ _) = do
   liftIO $ scJavaValue sc lty name
 javaVar _ _ _ _ = fail "java_var called with invalid type argument"
 
-{-
 javaMayAlias :: BuiltinContext -> Options -> [String]
              -> JavaSetup ()
 javaMayAlias bic _ exprs = do
@@ -243,7 +242,6 @@ javaMayAlias bic _ exprs = do
       meth = specMethod ms
   exprs <- liftIO $ mapM (parseJavaExpr cb cls meth) exprs
   modify $ \st -> st { jsSpec = specAddAliasSet exprs (jsSpec st) }
--}
 
 javaAssert :: BuiltinContext -> Options -> SharedTerm SAWCtx
            -> JavaSetup ()
