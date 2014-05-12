@@ -919,6 +919,8 @@ generateVC ir esd (ps, endLoc, res) = do
           (Just (JSS.RValue rv), Just (JSS.RValue srv)) ->
             when (rv /= srv) $
               pvcgFail $ ftext $ "Assigns unexpected return value."
+          (Just _, Nothing) ->
+            pvcgFail $ ftext $ "Missing return spec for method returning a value."
           _ ->  error "internal: The Java method has an unsupported return type."
         -- Check initialization
         do let sinits = Set.fromList (specInitializedClasses ir)
