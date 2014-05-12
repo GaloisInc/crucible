@@ -66,6 +66,8 @@ import Verifier.SAW.SharedTerm
 type SpecPathState = JSS.Path (SharedContext JSSCtx)
 type SpecJavaValue = JSS.Value (SharedTerm JSSCtx)
 
+type Verbosity = Int
+
 -- | Set value of bound to instance field in path state.
 setInstanceFieldValue :: JSS.Ref -> JSS.FieldId -> SpecJavaValue
                       -> SpecPathState -> SpecPathState
@@ -999,26 +1001,6 @@ data VerifyParams = VerifyParams
   , vpOver    :: [JavaMethodSpecIR]
   }
 
-{-
-writeToNewFile :: FilePath -- ^ Base file name
-               -> String -- ^ Default extension
-               -> (Handle -> IO ())
-               -> IO FilePath
--- Warning: Contains race conition between checking if file exists and
--- writing.
-writeToNewFile path defaultExt m =
-  case splitExtension path of
-    (base,"") -> impl base (0::Integer) defaultExt
-    (base,ext) -> impl base (0::Integer) ext
- where impl base cnt ext = do
-          let nm = addExtension (base ++ ('.' : show cnt)) ext
-          b <- doesFileExist nm
-          if b then
-            impl base (cnt + 1) ext
-          else
-            withFile nm WriteMode m >> return nm
--}
-
 type SymbolicRunHandler =
   SharedContext JSSCtx -> ExpectedStateDef -> [PathVC] -> IO ()
 type Prover =
@@ -1082,94 +1064,3 @@ data VerifyState = VState {
        , vsCounterexampleFn :: CounterexampleFn
        , vsStaticErrors :: [Doc]
        }
-
-{-
-vsSharedContext :: VerifyState s -> SharedContext s
-vsSharedContext = ecContext . vsEvalContext
--}
-
--- testRandom {{{2
-
-type Verbosity = Int
-
-{-
-testRandom :: SharedContext s -> Verbosity
-           -> JavaMethodSpecIR s -> Int -> Maybe Int -> PathVC s -> IO ()
-testRandom de v ir test_num lim pvc = return ()
-    do when (v >= 3) $
-         putStrLn $ "Generating random tests: " ++ specName ir
-       (passed,run) <- loop 0 0
-       when (passed < test_num) $
-         let m = text "Quickcheck: Failed to generate enough good inputs."
-                $$ nest 2 (vcat [ text "Attempts:" <+> int run
-                                , text "Passed:" <+> int passed
-                                , text "Goal:" <+> int test_num
-                                ])
-         in throwIOExecException (specPos ir) m ""
-  where
-  loop run passed | passed >= test_num      = return (passed,run)
-  loop run passed | Just l <- lim, run >= l = return (passed,run)
-  loop run passed = loop (run + 1) =<< testOne passed
-
-  testOne passed = do
-    vs   <- V.mapM QuickCheck.pickRandom =<< deInputTypes de
-    eval <- concreteEvalFn vs
-    badAsmp <- isViolated eval (pvcAssumptions pvc)
-    if badAsmp then do
-      return passed
-    else do 
-      when (v >= 4) $
-        JSS.dbugM $ "Begin concrete DAG eval on random test case for all goals ("
-                            ++ show (length $ pvcChecks pvc) ++ ")."
-      forM_ (pvcChecks pvc) $ \goal -> do
-        bad_goal <- isInvalid eval goal
-        when (v >= 4) $ JSS.dbugM "End concrete DAG eval for one VC check."
-        when bad_goal $ do
-          (_vs1,goal1) <- QuickCheck.minimizeCounterExample
-                            isCounterExample (V.toList vs) goal
-          txt <- msg eval goal1
-          throwIOExecException (specPos ir) txt ""
-      return $! passed + 1
-
-  isCounterExample vs =
-    do eval    <- concreteEvalFn (V.fromList vs)
-       badAsmps <- isViolated eval (pvcAssumptions pvc)
-       if badAsmps
-         then return Nothing
-         else findM (isInvalid eval) (pvcChecks pvc)
-
-  isViolated eval goal = (not . toBool) <$> (eval goal)
-  isInvalid eval vcc   = isViolated eval =<< vcGoal de vcc
-
-  msg eval g =
-    do what_happened <-
-         case g of
-           EqualityCheck n x y ->
-              do val_y <- eval y
-                 val_x <- eval x
-                 return (text "Unexpected value for:" <+> text n
-                         $$ nest 2 (text "Expected:" <+> ppCValueD Mixfix val_y)
-                         $$ text "Found:"    <+> ppCValueD Mixfix val_x)
-           AssertionCheck nm _ -> return (text ("Invalid " ++ nm))
-
-       args <- mapM (ppInput eval) (pvcInitialAssignments pvc)
-
-       return (
-         text "Random testing found a counter example:"
-         $$ nest 2 (vcat
-            [ text "Method:" <+> text (specName ir)
-            , what_happened
-            , text "Arguments:" $$ nest 2 (vcat args)
-            ])
-         )
-
-  ppInput eval (expr, n) =
-    do val <- eval n
-       return $ text (ppJavaExpr expr) <+> text "=" <+> ppCValueD Mixfix val
-
-  toBool (CBool b) = b
-  toBool value = error $ unlines [ "Internal error in 'testRandom':"
-                                 , "  Expected: boolean value"
-                                 , "  Result:   " ++ ppCValue Mixfix value ""
-                                 ]
--}
