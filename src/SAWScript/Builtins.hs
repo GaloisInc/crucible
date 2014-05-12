@@ -114,11 +114,11 @@ readAIGPrim sc f = do
 -- QF_AUFBV or AIG.
 prepForExport :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
 prepForExport sc t = do
-  let eqs = map (mkIdent preludeName) [ "eq_Bool" ]
-      defs = map (mkIdent preludeName) [ "get_single" ]
-             ++
-             map (mkIdent (moduleName javaModule))
-                 [ "ecJoin", "ecSplit", "ecExtend", "longExtend" ]
+  let eqs = map (mkIdent preludeName) [ "eq_Bool", "get_single" ]
+      defs = map (mkIdent (moduleName javaModule))
+                 [ "ecJoin", "ecJoin768", "ecSplit", "ecSplit768"
+                 , "ecExtend", "longExtend"
+                 ]
   rs1 <- concat <$> traverse (defRewrites sc) defs
   rs2 <- scEqsRewriteRules sc eqs
   basics <- basic_ss sc

@@ -568,7 +568,9 @@ coreEnv sc =
     , (qualify "java_class" , "Java.mkClassType")
     , (qualify "java_value" , "Java.mkValue")
     , (qualify "ec_join"    , "Java.ecJoin")
+    , (qualify "ec_join768" , "Java.ecJoin768")
     , (qualify "ec_split"   , "Java.ecSplit")
+    , (qualify "ec_split768", "Java.ecSplit768")
     , (qualify "ec_extend"  , "Java.ecExtend")
     , (qualify "long_extend", "Java.longExtend")
     -- LLVM things
