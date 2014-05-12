@@ -185,6 +185,7 @@ parseJavaExpr cb cls meth = parseParts . reverse . splitOn "."
           return (CC.Term (InstanceField e fid))
 
 exportJSSType :: SS.Value s -> JSS.Type
+exportJSSType (SS.VCtorApp "Java.BooleanType" []) = JSS.BooleanType
 exportJSSType (SS.VCtorApp "Java.IntType" []) = JSS.IntType
 exportJSSType (SS.VCtorApp "Java.LongType" []) = JSS.LongType
 exportJSSType (SS.VCtorApp "Java.ArrayType" [_, ety]) =
@@ -194,6 +195,8 @@ exportJSSType (SS.VCtorApp "Java.ClassType" [SS.VString name]) =
 exportJSSType v = error $ "exportJSSType: Can't translate to Java type: " ++ show v
 
 exportJavaType :: JSS.Codebase -> SS.Value s -> IO JavaActualType
+exportJavaType _ (SS.VCtorApp "Java.BooleanType" []) =
+  return $ PrimitiveType JSS.BooleanType
 exportJavaType _ (SS.VCtorApp "Java.IntType" []) = return $ PrimitiveType JSS.IntType
 exportJavaType _ (SS.VCtorApp "Java.LongType" []) = return $ PrimitiveType JSS.LongType
 exportJavaType _ (SS.VCtorApp "Java.ArrayType" [SS.VInteger n, ety]) =
