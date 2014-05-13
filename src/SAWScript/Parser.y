@@ -94,7 +94,6 @@ import Control.Applicative
   num            { TNum      _ _ $$             }
   qnum           { TQNum     _ _ $$             }
   name           { TVar      _ $$               }
-  qname          { TQVar     _ _ $$             }
 
 %right 'else'
 %right '==>'
@@ -128,8 +127,8 @@ TopStmt :: { TopStmtSimple RawT }
  | Declaration                          { uncurry TopBind $1 }
 
 Import :: { TopStmtSimple RawT }
- : qname                                   { Import (mkModuleName $1) Nothing Nothing      }
- | name                                    { Import (mkModuleName ([],$1)) Nothing Nothing }
+ : name                                    { Import (mkModuleName ([],$1)) Nothing Nothing }
+-- | qname                                   { Import (mkModuleName $1) Nothing Nothing      }
  -- | name '(' commas(name) ')'            { Import $1 (Just $3) Nothing     }
  -- | name 'as' name                       { Import $1 Nothing (Just $3)     }
  -- | name '(' commas(name) ')' 'as' name  { Import $1 (Just $3) (Just $6)   }
@@ -197,7 +196,7 @@ AExpr :: { ExprSimple RawT }
                                             (Var (unresolved "bitSequence") Nothing)
                                                  (Z $1 Nothing) 
                                                  Nothing                  }
- | qname                                { Var (unresolvedQ $1) Nothing    }
+ -- | qname                                { Var (unresolvedQ $1) Nothing    }
  | name                                 { Var (unresolved $1) Nothing     }
  | 'undefined'                          { Undefined Nothing               }
  | '(' Expression ')'                   { $2                              }
