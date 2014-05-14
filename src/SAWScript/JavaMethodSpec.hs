@@ -1046,9 +1046,10 @@ runValidation prover params sc esd results = do
           let vs = mkVState vsName (\_ -> return $ vcat (pvcStaticErrors pvc))
           false <- scBool sc False
           g <- scImplies sc (pvcAssumptions pvc) false
-          when (verb >= 5) $ do
+          when (verb >= 2) $ do
             putStrLn $ "Checking " ++ vsName
             print $ pvcStaticErrors pvc
+          when (verb >= 5) $ do
             putStrLn $ "Calling prover to disprove " ++
                      scPrettyTerm (pvcAssumptions pvc)
           prover vs script g
