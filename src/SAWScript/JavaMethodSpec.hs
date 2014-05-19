@@ -1033,8 +1033,10 @@ runValidation prover params sc esd results = do
          forM_ (pvcChecks pvc) $ \vc -> do
            let vs = mkVState (vcName vc) (vcCounterexample vc)
            g <- scImplies sc (pvcAssumptions pvc) =<< vcGoal sc vc
-           when (verb >= 5) $ do
-             putStrLn $ "Checking " ++ vcName vc ++ " (" ++ show g ++ ")"
+           when (verb >= 2) $ do
+             putStr $ "Checking " ++ vcName vc
+             when (verb >= 5) $ putStr $ " (" ++ show g ++ ")"
+             putStrLn ""
            prover vs script g
         else do
           let vsName = "an invalid path " {-
