@@ -222,6 +222,9 @@ Type :: { RawSigT }
  : BaseType                             { $1 }
  | BaseType '->' Type                   { function $1 $3 }
 
+FieldType :: { Bind RawSigT }
+  : name ':' BaseType                   { ($1, $3)                }
+
 BaseType :: { RawSigT }
  : name                                 { syn $1                  }
  | Context BaseType                     { block $1 $2             }
@@ -235,6 +238,7 @@ BaseType :: { RawSigT }
  | '[' name ']' BaseType                { array $4  (syn $2)      }
  | '[' num ']'                          { array bit (i $2)        }
  | '[' num ']' BaseType                 { array $4  (i $2)        }
+ | '{' commas(FieldType) '}'            { record $2               }
 
 Context :: { RawSigT }
  : 'CryptolSetup'                       { cryptolSetupContext     }

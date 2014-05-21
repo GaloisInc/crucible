@@ -118,10 +118,11 @@ prepForExport sc t = do
       defs = map (mkIdent preludeName) [ "get_single" ]
              ++
              map (mkIdent (moduleName javaModule))
-                 [ "ecJoin", "ecSplit", "ecExtend" ]
+                 [ "ecJoin", "ecSplit", "ecExtend", "longExtend" ]
   rs1 <- concat <$> traverse (defRewrites sc) defs
   rs2 <- scEqsRewriteRules sc eqs
-  let ss = addRules (rs1 ++ rs2) emptySimpset
+  basics <- basic_ss sc
+  let ss = addRules (rs1 ++ rs2) basics
   rewriteSharedTerm sc ss t
 
 -- | Write a @SharedTerm@ representing a theorem or an arbitrary
@@ -257,25 +258,6 @@ rewritePrim sc ss t = rewriteSharedTerm sc ss t
 
 addsimp :: SharedContext s -> Theorem s -> Simpset (SharedTerm s) -> Simpset (SharedTerm s)
 addsimp _sc (Theorem t) ss = addRule (ruleOfPred t) ss
-
-basic_ss :: SharedContext s -> IO (Simpset (SharedTerm s))
-basic_ss sc = do
-  rs1 <- concat <$> traverse (defRewrites sc) defs
-  rs2 <- scEqsRewriteRules sc eqs
-  return $ addConvs procs (addRules (rs1 ++ rs2) emptySimpset)
-  where
-    eqs = map (mkIdent preludeName)
-      ["get_single", "get_bvAnd", "get_bvOr", "get_bvXor", "get_bvNot",
-       "not_not", "get_slice", "bvAddZeroL", "bvAddZeroR"]
-    defs = map (mkIdent preludeName)
-      ["not", "and", "or", "xor", "boolEq", "ite", "addNat", "mulNat", "compareNat", "finSucc"]
-    procs = bvConversions ++ natConversions ++ finConversions ++ vecConversions
-
-defRewrites :: SharedContext s -> Ident -> IO [RewriteRule (SharedTerm s)]
-defRewrites sc ident =
-      case findDef (scModule sc) ident of
-        Nothing -> return []
-        Just def -> scDefRewriteRules sc def
 
 equalPrim :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
 equalPrim t1 t2 = mkSC $ \sc -> equal sc t1 t2

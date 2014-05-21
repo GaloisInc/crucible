@@ -2,7 +2,7 @@
 set -e
 
 REPODIR=${REPODIR:="src.galois.com:/srv/git"}
-REPOS="abcBridge jvm-parser llvm-pretty"
+REPOS="abcBridge jvm-parser llvm-pretty Aiger"
 PKGS="Java LLVM SAWCore Verinf"
 
 if [ ! -e ./deps ] ; then
