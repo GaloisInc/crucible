@@ -18,10 +18,8 @@ import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
 
 import qualified Verifier.Java.Codebase as JSS
 import Verifier.Java.SAWBackend (javaModule)
-import qualified Verifier.LLVM.Codebase as LSS
 
 import Verifier.SAW.BitBlast
-import Verifier.SAW.Conversion hiding (asCtor)
 import Verifier.SAW.Evaluator
 import Verifier.SAW.Prelude
 import qualified Verifier.SAW.Prim as Prim
@@ -191,6 +189,10 @@ simplifyGoal sc ss = StateT $ \goal -> do
 satABC :: SharedContext s -> ProofScript s ProofResult
 satABC sc = StateT $ \t -> withBE $ \be -> do
   t' <- prepForExport sc t
+  let (args, _) = asLambdaList t'
+      argNames = map fst args
+      argTys = map snd args
+  shapes <- mapM parseShape argTys
   mbterm <- bitBlast be t'
   case (mbterm, BE.beCheckSat be) of
     (Right bterm, Just chk) -> do
@@ -199,7 +201,13 @@ satABC sc = StateT $ \t -> withBE $ \be -> do
           satRes <- chk l
           case satRes of
             BE.UnSat -> (,) () <$> scApplyPreludeFalse sc
-            BE.Sat _ -> (,) () <$> scApplyPreludeTrue sc
+            BE.Sat cex -> do
+              case liftCounterExamples shapes (SV.toList cex) of
+                Left err -> fail $ "Can't parse counterexample: " ++ err
+                Right bvs -> fail . unlines $
+                             "Proof failed with counterexample: " :
+                             map show (zip argNames bvs)
+              (,) () <$> scApplyPreludeTrue sc
             _ -> fail "ABC returned Unknown for SAT query."
         _ -> fail "Can't prove non-boolean term."
     (_, Nothing) -> fail "Backend does not support SAT checking."
