@@ -24,6 +24,7 @@ cp deps/abcBridge/abc/copyright.txt           ${TARGET}/ABC_LICENSE
 cp build/bin/*                                ${TARGET}/bin
 cp doc/extcore.txt                            ${TARGET}/doc
 cp doc/tutorial/tutorial.*                    ${TARGET}/doc
+cp -r doc/tutorial/code                       ${TARGET}/doc
 rm -f build/bin/long-test
 rm -f build/bin/ppsh
 
