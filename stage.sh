@@ -6,24 +6,27 @@ TARGET=saw-alpha-${DATE}
 NM=`uname`
 
 mkdir -p ${TARGET}/bin
-mkdir -p ${TARGET}/tutorial
+mkdir -p ${TARGET}/doc
 
 if [ "${OS}" == "Windows_NT" ]; then
   EXEDIR=windows
 elif [ "${NM}" == "Darwin" ]; then
-  EXEDIR=macosx  
+  EXEDIR=macosx
 else
   EXEDIR=linux
 fi
 
 echo Staging ...
 
-strip dist/build/saw/saw
+strip build/bin/*
 
-cp build/abcBridge/abc/copyright.txt           ${TARGET}/ABC_LICENSE
-cp doc/tutorial/sawScriptTutorial.pdf          ${TARGET}/tutorial
-cp -r doc/tutorial/code                        ${TARGET}/tutorial
-cp dist/build/saw/saw*                         ${TARGET}/bin
+cp deps/abcBridge/abc/copyright.txt           ${TARGET}/ABC_LICENSE
+cp build/bin/*                                ${TARGET}/bin
+cp doc/extcore.txt                            ${TARGET}/doc
+cp doc/tutorial/tutorial.*                    ${TARGET}/doc
+cp -r doc/tutorial/code                       ${TARGET}/doc
+rm -f build/bin/long-test
+rm -f build/bin/ppsh
 
 if [ "${OS}" == "Windows_NT" ]; then
   zip -r ${TARGET}-${EXEDIR}.zip ${TARGET}
