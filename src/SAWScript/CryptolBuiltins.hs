@@ -6,13 +6,14 @@ import Verifier.SAW
 import qualified Cryptol.ModuleSystem as M
 import qualified Cryptol.ModuleSystem.Env as M
 import Cryptol.TypeCheck.AST
+import Cryptol.Utils.PP
 
 import qualified Data.Map as Map
 
 extractCryptol :: SharedContext s -> FilePath -> String -> IO (SharedTerm s)
 extractCryptol sc filepath name = do
   (result, warnings) <- M.loadModuleByPath filepath
-  mapM_ print warnings
+  mapM_ (print . pp) warnings
   (m, modEnv) <-
     case result of
       Left err -> fail (show err)
