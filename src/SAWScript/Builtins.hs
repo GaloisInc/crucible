@@ -29,6 +29,7 @@ import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
 import Verifier.SAW.TypedAST hiding (instantiateVarList)
 
+import qualified Verifier.SAW.Export.Yices as Y
 import qualified Verifier.SAW.Export.SMT.Version1 as SMT1
 import qualified Verifier.SAW.Export.SMT.Version2 as SMT2
 import Verifier.SAW.Import.AIG
@@ -208,10 +209,27 @@ satABC sc = StateT $ \t -> withBE $ \be -> do
                              "Proof failed with counterexample: " :
                              map show (zip argNames bvs)
               (,) () <$> scApplyPreludeTrue sc
-            _ -> fail "ABC returned Unknown for SAT query."
+            BE.Unknown -> fail "ABC returned Unknown for SAT query."
         _ -> fail "Can't prove non-boolean term."
     (_, Nothing) -> fail "Backend does not support SAT checking."
     (Left err, _) -> fail $ "Can't bitblast: " ++ err
+
+satYices :: SharedContext s -> ProofScript s ProofResult
+satYices sc = StateT $ \t -> withBE $ \be -> do
+  t' <- prepForExport sc t
+  let (args, _) = asLambdaList t'
+      argNames = map fst args
+      argTys = map snd args
+  shapes <- mapM parseShape argTys
+  let ws = SMT1.qf_aufbv_WriterState sc "sawscript"
+  ws' <- execStateT (SMT1.writeFormula t') ws
+  mapM_ (print . (text "WARNING:" <+>) . SMT1.ppWarning)
+        (map (fmap scPrettyTermDoc) (ws' ^. SMT1.warnings))
+  res <- Y.yices Nothing (SMT1.smtScript ws')
+  case res of
+    Y.YUnsat -> (,) () <$> scApplyPreludeFalse sc
+    Y.YSat _ -> (,) () <$> scApplyPreludeTrue sc -- TODO: counter-example
+    Y.YUnknown -> fail "ABC returned Unknown for SAT query."
 
 satAIG :: SharedContext s -> FilePath -> ProofScript s ProofResult
 satAIG sc path = StateT $ \t -> do
@@ -271,7 +289,7 @@ addsimp :: SharedContext s -> Theorem s -> Simpset (SharedTerm s) -> Simpset (Sh
 addsimp _sc (Theorem t) ss = addRule (ruleOfPred t) ss
 
 equalPrim :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
-equalPrim t1 t2 = mkSC $ \sc -> equal sc t1 t2
+equalPrim t1 t2 = mkSC $ \sc -> equal sc [] t1 t2
 
 -- evaluate :: (a :: sort 0) -> Term -> a;
 evaluate :: (Ident -> Value) -> () -> SharedTerm s -> Value
