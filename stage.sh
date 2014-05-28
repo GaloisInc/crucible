@@ -25,8 +25,11 @@ cp build/bin/*                                ${TARGET}/bin
 cp doc/extcore.txt                            ${TARGET}/doc
 cp doc/tutorial/tutorial.*                    ${TARGET}/doc
 cp -r doc/tutorial/code                       ${TARGET}/doc
-rm -f build/bin/long-test
-rm -f build/bin/ppsh
+cp -r ../Examples/ecdsa                       ${TARGET}/ecdsa
+rm -f build/bin/long-test*
+rm -f build/bin/ppsh*
+rm -f build/bin/cryptol*
+rm -rf ${TARGET}/ecdsa/cryptol-2-spec
 
 if [ "${OS}" == "Windows_NT" ]; then
   zip -r ${TARGET}-${EXEDIR}.zip ${TARGET}
