@@ -542,6 +542,7 @@ coreEnv sc =
     , (qualify "disj"       , "Prelude.or")
     , (qualify "ite"        , "Prelude.ite")
     , (qualify "eq"         , "Prelude.eq")
+    , (qualify "bvEq"       , "Prelude.bvEq")
     , (qualify "bvNot"      , "Prelude.bvNot")
     , (qualify "bvXor"      , "Prelude.bvXor")
     , (qualify "bvOr"       , "Prelude.bvOr")
