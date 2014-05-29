@@ -65,7 +65,11 @@ instance Show (Value s) where
         VArray vs -> showList vs
         VTuple vs -> showParen True
                      (foldr (.) id (intersperse (showString ",") (map shows vs)))
-        VRecord _ -> error "unimplemented: show VRecord" -- !(Map FieldName Value)
+        VRecord m -> showString "{" .
+                     (foldr (.) id (intersperse (showString ",")
+                                   (map showFld (M.toList m)))) .
+                     showString "}"
+                       where showFld (n, v) = shows n . showString "=" . shows v
         VFun {} -> showString "<<fun>>"
         VFunTerm {} -> showString "<<fun-term>>"
         VFunType {} -> showString "<<fun-type>>"
