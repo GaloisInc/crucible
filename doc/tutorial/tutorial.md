@@ -194,23 +194,63 @@ files tends to work well only with terms constructed from LLVM or SBV
 input files. The JVM simulator and AIG reading code construct terms
 including primitives that the SMT-Lib exporter doesn't yet support.
 
+Compositional Proofs
+====================
+
+The examples shown so far treat programs as monolithic entities. A Java
+method or C function, along with all of its callees, is translated into
+a single mathematical model  SAWScript also has support for more
+compositional proofs, as well as proofs about functions that use heap
+data structures.
+
+As a simple example of compositional reasoning, consider the following
+Java code.
+
+````
+$include all code/Add.java
+````
+
+Here, the `add` function computes the sum of its arguments. The `dbl`
+function then calls `add` to double its argument. While it would be easy
+to prove that `dbl` doubles its argument by following the call to `add`,
+it's also possible in SAWScript to prove something about `add` first,
+and then use the results of that proof in the proof of `dbl`, as in the
+following SAWScript code.
+
+````
+$include all code/java_add.saw
+````
+
+In this example, the definitions of `setup` and `setup'` provide extra
+information about how to configure the symbolic simulator when analyzing
+Java code. In this case, the setup blocks provide explicit descriptions
+of the implicit configuration used by `java_extract`. The `java_var`
+commands instruct the simulator to create fresh symbolic inputs to
+correspond to the Java variables `x` and `y`. Then, the `java_return`
+commands indicate the expected return value of the each method, in terms
+of existing models (which can be written inline).
+
+Finally, the `java_verify_tactic` command indicates what method to use
+to prove that the Java methods do indeed return the expected value. In
+this case, we use ABC.
+
+To make use of these setup blocks, the `java_verify` command analyzes
+the method corresponding to the class and method name provided, using
+the setup block passed in as a parameter. It then returns an object that
+describes the proof it has just performed. This object can be passed
+into later instances of `java_verify` to indicate that calls to the
+analyzed method do not need to be followed, and the previous proof about
+that method can be used instead of re-analyzing it.
+
 Future Enhancements
 ===================
-
-Improved Symbolic Simulation Control
-------------------------------------
-
-  * More sophisticated control over the symbolic simulation process,
-    allowing a wider range of functions from imperative languages to
-    be translated into formal models.
-  * Support for compositional verification.
 
 Improved Integration with External Proof Tools
 ----------------------------------------------
 
   * More complete SMT-Lib export support.
-  * Support for automatic invocation of SMT solvers and interpretation
-    of their output.
+  * Support for automatic invocation of SMT solvers other than Yices, and
+    interpretation of their output.
   * Support for generation of (Q)DIMACS CNF and QBF files, for use
     with SAT and QBF solvers.
   * Support for automatic invocation of SAT and QBF solvers, and
@@ -219,7 +259,5 @@ Improved Integration with External Proof Tools
 Improved Support for Manipulating Formal Models
 -----------------------------------------------
 
-  * Specifying and applying rewrite rules to simplify formal models.
-  * Applying formal models directly to concrete arguments. (Done)
   * Applying formal models automatically to a large collection of
     randomly-generated concrete arguments.
