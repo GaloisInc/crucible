@@ -1,6 +1,10 @@
 SAW?=../../bin/saw
+SAWS=$(wildcard *.saw)
+OUTS=$(SAWS:.saw=.out)
 
 all: FFS.class ffs.bc double.bc
+
+run: all ${OUTS}
 
 %.bc: %.c
 	clang -emit-llvm -c $< -o $@
