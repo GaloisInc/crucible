@@ -3,7 +3,7 @@ SAWS=$(wildcard *.saw)
 OUTS=$(SAWS:.saw=.out)
 JAVA_CLASSES=/System/Library/Java/JavaVirtualMachines/1.6.0.jdk/Contents/Classes/classes.jar
 
-all: FFS.class ffs.bc double.bc
+all: FFS.class ffs.bc double.bc Add.class
 
 run: all ${OUTS}
 
