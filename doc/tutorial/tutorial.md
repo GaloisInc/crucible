@@ -168,7 +168,7 @@ external SMT solver such as Yices or CVC4.
 
 Consider the following C file:
 
-```
+``` {.c}
 $include all code/double.c
 ```
 
@@ -206,9 +206,9 @@ data structures.
 As a simple example of compositional reasoning, consider the following
 Java code.
 
-````
+``` {.java}
 $include all code/Add.java
-````
+```
 
 Here, the `add` function computes the sum of its arguments. The `dbl`
 function then calls `add` to double its argument. While it would be easy

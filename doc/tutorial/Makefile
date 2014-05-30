@@ -1,4 +1,4 @@
-TARGET   = tutorial
+TARGET   = sawScriptTutorial
 SRCS     = ${TARGET}.md ${wildcard *.bib} ${wildcard *.cls} ${wildcard *.sty} figures/sawScriptExecution.pdf
 CODE     = ${wildcard code/*.c} \
            ${wildcard code/*.cry} \
