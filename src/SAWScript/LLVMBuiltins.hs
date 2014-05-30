@@ -159,7 +159,7 @@ verifyLLVM bic opts file func overrides setup = do
 llvmPure :: LLVMSetup ()
 llvmPure = return ()
 
-parseLLVMExpr :: Codebase (SAWBackend LSSCtx Lit)
+parseLLVMExpr :: Codebase (SAWBackend LSSCtx)
               -> SymDefine (SharedTerm LSSCtx)
               -> String
               -> IO LLVMExpr

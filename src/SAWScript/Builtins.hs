@@ -1,7 +1,8 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns #-}
 module SAWScript.Builtins where
 
@@ -14,14 +15,11 @@ import Data.Maybe
 import qualified Data.Vector.Storable as SV
 import Text.PrettyPrint.Leijen hiding ((<$>))
 
-import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
 
 import qualified Verifier.Java.Codebase as JSS
 import Verifier.Java.SAWBackend (javaModule)
-import qualified Verifier.LLVM.Codebase as LSS
 
 import Verifier.SAW.BitBlast
-import Verifier.SAW.Conversion hiding (asCtor)
 import Verifier.SAW.Evaluator
 import Verifier.SAW.Prelude
 import qualified Verifier.SAW.Prim as Prim
@@ -40,7 +38,10 @@ import qualified SAWScript.AST as SS
 import SAWScript.Proof
 import SAWScript.Utils
 
-import qualified Verinf.Symbolic as BE
+import qualified Data.ABC as ABC
+import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
+
+--import qualified Verinf.Symbolic as BE
 
 data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
                                      , biJavaCodebase  :: JSS.Codebase
@@ -83,12 +84,9 @@ readSBV sc ty path =
           SBV.TTuple ts -> SS.TyCon (SS.TupleCon (toInteger (length ts))) (map importTyp ts)
           SBV.TRecord bs -> SS.TyRecord (fmap importTyp (Map.fromList bs))
 
-withBE :: (BE.BitEngine BE.Lit -> IO a) -> IO a
+withBE :: (forall s . ABC.GIA s -> IO a) -> IO a
 withBE f = do
-  be <- BE.createBitEngine
-  r <- f be
-  BE.beFree be
-  return r
+  ABC.withNewGraph ABC.giaNetwork f
 
 -- | Read an AIG file representing a theorem or an arbitrary function
 -- and represent its contents as a @SharedTerm@ lambda term. This is
@@ -135,8 +133,7 @@ writeAIG sc f t = withBE $ \be -> do
     Left msg ->
       fail $ "Can't bitblast term: " ++ msg
     Right bterm -> do
-      ins <- BE.beInputLits be
-      BE.beWriteAigerV be f ins (flattenBValue bterm)
+      ABC.writeAiger f (ABC.Network be (ABC.bvToList (flattenBValue bterm)))
 
 -- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
 -- 1 file.
@@ -189,18 +186,16 @@ satABC :: SharedContext s -> ProofScript s ProofResult
 satABC sc = StateT $ \t -> withBE $ \be -> do
   t' <- prepForExport sc t
   mbterm <- bitBlast be t'
-  case (mbterm, BE.beCheckSat be) of
-    (Right bterm, Just chk) -> do
+  case mbterm of
+    Right bterm -> do
       case bterm of
         BBool l -> do
-          satRes <- chk l
+          satRes <- ABC.checkSat be l
           case satRes of
-            BE.UnSat -> (,) () <$> scApplyPreludeFalse sc
-            BE.Sat _ -> (,) () <$> scApplyPreludeTrue sc
-            _ -> fail "ABC returned Unknown for SAT query."
+            ABC.Unsat -> (,) () <$> scApplyPreludeFalse sc
+            ABC.Sat _ -> (,) () <$> scApplyPreludeTrue sc
         _ -> fail "Can't prove non-boolean term."
-    (_, Nothing) -> fail "Backend does not support SAT checking."
-    (Left err, _) -> fail $ "Can't bitblast: " ++ err
+    Left err -> fail $ "Can't bitblast: " ++ err
 
 satAIG :: SharedContext s -> FilePath -> ProofScript s ProofResult
 satAIG sc path = StateT $ \t -> do

@@ -30,6 +30,7 @@ import Control.Monad
 import Control.Monad.Cont
 import Control.Monad.Error (ErrorT, runErrorT, MonadError) -- , throwError)
 import Control.Monad.State
+import qualified Data.ABC as ABC
 import Data.List (sortBy)
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -59,7 +60,7 @@ import Verifier.SAW.Rewriter
 import Verifier.SAW.SharedTerm hiding (Ident)
 import Verifier.SAW.TypedAST hiding (Ident)
 
-type SpecBackend = SAWBackend LSSCtx Lit
+type SpecBackend = SAWBackend LSSCtx
 type SpecPathState = Path SpecBackend
 type SpecLLVMValue = SharedTerm LSSCtx
 
@@ -874,7 +875,7 @@ mkSpecVC sc params esd = do
   mapM (generateVC sc ir esd) [(ps, Nothing, Right returnVal)]
 
 data VerifyParams = VerifyParams
-  { vpCode    :: Codebase (SAWBackend LSSCtx Lit)
+  { vpCode    :: Codebase (SAWBackend LSSCtx)
   , vpContext :: SharedContext LSSCtx
   , vpOpts    :: Options
   , vpSpec    :: LLVMMethodSpecIR

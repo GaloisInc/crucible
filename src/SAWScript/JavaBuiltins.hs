@@ -9,6 +9,7 @@ import Control.Applicative
 import Control.Exception (bracket)
 import Control.Monad.Error
 import Control.Monad.State
+import qualified Data.ABC as ABC
 import Data.List (sort)
 import Data.List.Split
 import Data.IORef
@@ -55,7 +56,7 @@ extractJava bic opts cname mname _setup = do
   cls <- lookupClass cb fixPos cname'
   (_, meth) <- findMethod cb fixPos mname cls
   argsRef <- newIORef []
-  bracket BE.createBitEngine BE.beFree $ \be -> do
+  ABC.withNewGraph ABC.giaNetwork $ \be -> do
     let fl = JSS.defaultSimFlags { JSS.alwaysBitBlastBranchTerms = True }
     sbe <- JSS.sawBackend sc (Just argsRef) be
     JSS.runSimulator cb sbe JSS.defaultSEH (Just fl) $ do
@@ -93,7 +94,7 @@ verifyJava bic opts cname mname overrides setup = do
   sc0 <- mkSharedContext JSS.javaModule
   ss <- basic_ss sc0
   let (jsc :: SharedContext JSSCtx) = sc0 -- rewritingSharedContext sc0 ss
-  be <- createBitEngine
+  ABC.SomeGraph be <- ABC.newGraph ABC.giaNetwork
   backend <- JSS.sawBackend jsc Nothing be
   ms0 <- initMethodSpec pos cb cname mname
   let jsctx0 = JavaSetupState {
@@ -136,7 +137,6 @@ verifyJava bic opts cname mname overrides setup = do
             Theorem thm <- provePrim (biSharedContext bic) script glam'
             when (verb >= 3) $ putStrLn $ "Proved: " ++ show thm
       liftIO $ runValidation prover vp jsc esd res
-  BE.beFree be
   let overrideText = case overrides of
                        [] -> ""
                        irs -> " (overriding " ++ show (map specName irs) ++ ")"
