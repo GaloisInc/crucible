@@ -3,12 +3,14 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE TupleSections #-}
 module SAWScript.Builtins where
 
 import Control.Applicative
 import Control.Lens
 import Control.Monad.Error
 import Control.Monad.State
+import Data.Either (partitionEithers)
 import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Vector.Storable as SV
@@ -204,11 +206,12 @@ satABC sc = StateT $ \t -> withBE $ \be -> do
           case satRes of
             BE.UnSat -> (,) () <$> scApplyPreludeFalse sc
             BE.Sat cex -> do
-              case liftCounterExamples shapes (SV.toList cex) of
+              r <- liftCexBB sc shapes cex
+              case r of
                 Left err -> fail $ "Can't parse counterexample: " ++ err
-                Right bvs -> fail . unlines $
+                Right tms -> fail . unlines $
                              "Proof failed with counterexample: " :
-                             map show (zip argNames bvs)
+                             map show (zip argNames tms)
               (,) () <$> scApplyPreludeTrue sc
             BE.Unknown -> fail "ABC returned Unknown for SAT query."
         _ -> fail "Can't prove non-boolean term."
@@ -229,7 +232,14 @@ satYices sc = StateT $ \t -> withBE $ \be -> do
   res <- Y.yices Nothing (SMT1.smtScript ws')
   case res of
     Y.YUnsat -> (,) () <$> scApplyPreludeFalse sc
-    Y.YSat _ -> (,) () <$> scApplyPreludeTrue sc -- TODO: counter-example
+    Y.YSat m -> do
+      r <- liftCexMapYices sc m
+      case r of
+        Left err -> fail $ "Can't parse counterexample: " ++ err
+        Right tms -> fail . unlines $
+                     "Proof failed with counterexample: " :
+                     map show tms
+      (,) () <$> scApplyPreludeTrue sc -- TODO: counter-example
     Y.YUnknown -> fail "ABC returned Unknown for SAT query."
 
 satAIG :: SharedContext s -> FilePath -> ProofScript s ProofResult
@@ -252,6 +262,35 @@ satSMTLib2 sc path = StateT $ \t -> do
   writeSMTLib2 sc path t
   (,) () <$> scApplyPreludeFalse sc
 
+liftCexBB :: SharedContext s -> [BShape] -> SV.Vector Bool
+          -> IO (Either String [SharedTerm s])
+liftCexBB sc shapes bs =
+  case liftCounterExamples shapes (SV.toList bs) of
+    Left err -> return (Left err)
+    Right bvals -> do
+      ts <- mapM (scSharedTerm sc . liftConcreteBValue) bvals
+      return (Right ts)
+
+liftCexYices :: SharedContext s -> Y.YVal
+             -> IO (Either String (SharedTerm s))
+liftCexYices sc yv =
+  case yv of
+    Y.YVar "true" -> Right <$> scBool sc True
+    Y.YVar "false" -> Right <$> scBool sc False
+    Y.YVal bv ->
+      Right <$> scBvConst sc (fromIntegral (Y.width bv)) (Y.val bv)
+    _ -> return $ Left $
+         "Can't translate non-bitvector Yices value: " ++ show yv
+
+liftCexMapYices :: SharedContext s -> Map.Map String Y.YVal
+             -> IO (Either String [(String, SharedTerm s)])
+liftCexMapYices sc m = do
+  let (ns, vs) = unzip (Map.toList m)
+  (errs, tms) <- partitionEithers <$> mapM (liftCexYices sc) vs
+  return $ case errs of
+    [] -> Right $ zip ns tms
+    _ -> Left $ unlines errs
+
 -- | Logically negate a term @t@, which must be a boolean term
 -- (possibly surrounded by one or more lambdas).
 scNegate :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
@@ -260,8 +299,8 @@ scNegate sc t =
     Just (s, ty, body) -> scLambda sc s ty =<< scNegate sc body
     Nothing -> scNot sc t
 
--- | Bit-blast a @SharedTerm@ representing a theorem and check its
--- validity using ABC.
+-- | Translate a @SharedTerm@ representing a theorem for input to the
+-- given validity-checking script and attempt to prove it.
 provePrim :: SharedContext s -> ProofScript s ProofResult
           -> SharedTerm s -> IO (Theorem s)
 provePrim sc script t = do
