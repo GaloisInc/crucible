@@ -291,9 +291,9 @@ asLLVMValue t =
     _ -> fail "not an instance of LLVM.mkValue"
 
 
-llvmEnsureEq :: BuiltinContext -> Options -> SharedTerm SAWCtx -> SharedTerm SAWCtx
+llvmEnsureEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
              -> LLVMSetup ()
-llvmEnsureEq _ _ (asLLVMValue -> Just name) t = do
+llvmEnsureEq _ _ name t = do
   ms <- gets lsSpec
   (expr, _) <- liftIO $ getLLVMExpr ms name
   modify $ \st ->
