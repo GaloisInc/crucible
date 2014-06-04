@@ -213,7 +213,8 @@ evalMixedExpr (TC.LE expr) ec = do
       b <- liftIO $ do
         boolTy <- scBoolType sc
         false <- scBool sc False
-        scVector sc boolTy (n : replicate 31 false)
+        -- TODO: fix this to work in a different way. This is endian-specific.
+        scVector sc boolTy (replicate 31 false ++ [n])
       return (JSS.IValue b)
     (Nothing, Nothing) ->
       error $
