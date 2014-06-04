@@ -123,7 +123,9 @@ prepForExport sc t = do
       defs = map (mkIdent (moduleName javaModule))
                  [ "ecJoin", "ecJoin768", "ecSplit", "ecSplit768"
                  , "ecExtend", "longExtend"
-                 ]
+                 ] ++
+             map (mkIdent preludeName)
+                 [ "splitLittleEndian", "joinLittleEndian" ]
   rs1 <- concat <$> traverse (defRewrites sc) defs
   rs2 <- scEqsRewriteRules sc eqs
   basics <- basic_ss sc
