@@ -1,7 +1,8 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TupleSections #-}
 module SAWScript.Builtins where
@@ -16,7 +17,6 @@ import Data.Maybe
 import qualified Data.Vector.Storable as SV
 import Text.PrettyPrint.Leijen hiding ((<$>))
 
-import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
 
 import qualified Verifier.Java.Codebase as JSS
 import Verifier.Java.SAWBackend (javaModule)
@@ -41,7 +41,10 @@ import qualified SAWScript.AST as SS
 import SAWScript.Proof
 import SAWScript.Utils
 
-import qualified Verinf.Symbolic as BE
+import qualified Data.ABC as ABC
+import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
+
+--import qualified Verinf.Symbolic as BE
 
 data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
                                      , biJavaCodebase  :: JSS.Codebase
@@ -84,12 +87,9 @@ readSBV sc ty path =
           SBV.TTuple ts -> SS.TyCon (SS.TupleCon (toInteger (length ts))) (map importTyp ts)
           SBV.TRecord bs -> SS.TyRecord (fmap importTyp (Map.fromList bs))
 
-withBE :: (BE.BitEngine BE.Lit -> IO a) -> IO a
+withBE :: (forall s . ABC.GIA s -> IO a) -> IO a
 withBE f = do
-  be <- BE.createBitEngine
-  r <- f be
-  BE.beFree be
-  return r
+  ABC.withNewGraph ABC.giaNetwork f
 
 -- | Read an AIG file representing a theorem or an arbitrary function
 -- and represent its contents as a @SharedTerm@ lambda term. This is
@@ -140,8 +140,7 @@ writeAIG sc f t = withBE $ \be -> do
     Left msg ->
       fail $ "Can't bitblast term: " ++ msg
     Right bterm -> do
-      ins <- BE.beInputLits be
-      BE.beWriteAigerV be f ins (flattenBValue bterm)
+      ABC.writeAiger f (ABC.Network be (ABC.bvToList (flattenBValue bterm)))
 
 -- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
 -- 1 file.
@@ -198,14 +197,14 @@ satABC sc = StateT $ \t -> withBE $ \be -> do
       argTys = map snd args
   shapes <- mapM parseShape argTys
   mbterm <- bitBlast be t'
-  case (mbterm, BE.beCheckSat be) of
-    (Right bterm, Just chk) -> do
+  case mbterm of
+    Right bterm -> do
       case bterm of
         BBool l -> do
-          satRes <- chk l
+          satRes <- ABC.checkSat be l
           case satRes of
-            BE.UnSat -> (,) () <$> scApplyPreludeFalse sc
-            BE.Sat cex -> do
+            ABC.Unsat -> (,) () <$> scApplyPreludeFalse sc
+            ABC.Sat cex -> do
               r <- liftCexBB sc shapes cex
               case r of
                 Left err -> fail $ "Can't parse counterexample: " ++ err
@@ -213,10 +212,8 @@ satABC sc = StateT $ \t -> withBE $ \be -> do
                              "Proof failed with counterexample: " :
                              map show (zip argNames tms)
               (,) () <$> scApplyPreludeTrue sc
-            BE.Unknown -> fail "ABC returned Unknown for SAT query."
         _ -> fail "Can't prove non-boolean term."
-    (_, Nothing) -> fail "Backend does not support SAT checking."
-    (Left err, _) -> fail $ "Can't bitblast: " ++ err
+    Left err -> fail $ "Can't bitblast: " ++ err
 
 satYices :: SharedContext s -> ProofScript s ProofResult
 satYices sc = StateT $ \t -> withBE $ \be -> do
@@ -262,10 +259,10 @@ satSMTLib2 sc path = StateT $ \t -> do
   writeSMTLib2 sc path t
   (,) () <$> scApplyPreludeFalse sc
 
-liftCexBB :: SharedContext s -> [BShape] -> SV.Vector Bool
+liftCexBB :: SharedContext s -> [BShape] -> [Bool]
           -> IO (Either String [SharedTerm s])
 liftCexBB sc shapes bs =
-  case liftCounterExamples shapes (SV.toList bs) of
+  case liftCounterExamples shapes bs of
     Left err -> return (Left err)
     Right bvals -> do
       ts <- mapM (scSharedTerm sc . liftConcreteBValue) bvals
