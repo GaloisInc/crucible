@@ -561,6 +561,7 @@ coreEnv sc =
     , (qualify "get"        , "Prelude.get")
     , (qualify "set"        , "Prelude.set")
     , (qualify "finval"     , "Prelude.mkFinVal")
+    , (qualify "reverse"    , "Prelude.reverse")
     -- Java things
     , (qualify "java_bool"  , "Java.mkBooleanType")
     , (qualify "java_byte"  , "Java.mkByteType")
