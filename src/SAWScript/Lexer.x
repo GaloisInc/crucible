@@ -46,7 +46,6 @@ $idchar    = [$alpha $digit \' \_]
              | "^" | "#"  | "==" | "!=" | ">=" | ">" | "<=" |"<" | "&&"
              | "||" | "==>" | "@"
 @varid       = $alpha $idchar*
-@qvarid      = @varid (\. @varid)+
 @decimal     = $digit+
 @binary      = $binit+
 @octal       = $octit+
@@ -82,7 +81,6 @@ $white+                          ;
 \' 0[bB] @binary                 { TQNum `via`  (readBin . drop 1) }
 \' 0[oO] @octal                  { TQNum `via`  (read    . drop 1) }
 \' 0[xX] @hexadecimal            { TQNum `via`  (read    . drop 1) }
-@qvarid                          { TQVar `via`  readQVar }
 .                                { TUnknown              }
 
 {

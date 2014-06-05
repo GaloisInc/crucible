@@ -21,12 +21,17 @@ echo Staging ...
 strip build/bin/*
 
 cp deps/abcBridge/abc/copyright.txt           ${TARGET}/ABC_LICENSE
-cp build/bin/*                                ${TARGET}/bin
+cp build/bin/bcdump                           ${TARGET}/bin
+cp build/bin/extcore-info                     ${TARGET}/bin
+cp build/bin/jss                              ${TARGET}/bin
+cp build/bin/llvm-disasm                      ${TARGET}/bin
+cp build/bin/lss                              ${TARGET}/bin
+cp build/bin/saw                              ${TARGET}/bin
 cp doc/extcore.txt                            ${TARGET}/doc
-cp doc/tutorial/tutorial.*                    ${TARGET}/doc
+cp doc/tutorial/sawScriptTutorial.pdf         ${TARGET}/doc
 cp -r doc/tutorial/code                       ${TARGET}/doc
-rm -f build/bin/long-test
-rm -f build/bin/ppsh
+cp -r ../Examples/ecdsa                       ${TARGET}/ecdsa
+rm -rf ${TARGET}/ecdsa/cryptol-2-spec
 
 if [ "${OS}" == "Windows_NT" ]; then
   zip -r ${TARGET}-${EXEDIR}.zip ${TARGET}

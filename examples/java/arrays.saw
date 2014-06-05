@@ -6,24 +6,24 @@ copy_setup = do {
     java_verify_tactic abc;
 };
 
-clear_setup : JavaSetup ();
-clear_setup = do {
+unit_setup : JavaSetup ();
+unit_setup = do {
     java_var "a" (java_array '10 java_int);
-    java_ensure_eq "a" ([0, 0, 0, 0, 0, 0, 0, 0, 0, 0] : [10][32]);
+    java_ensure_eq "a" ([1, 0, 0, 0, 0, 0, 0, 0, 0, 0] : [10][32]);
     java_verify_tactic abc;
 };
 
 comp_setup : JavaSetup ();
 comp_setup = do {
     java_var "a" (java_array '10 java_int);
-    java_ensure_eq "a" ([0, 0, 0, 0, 0, 0, 0, 0, 0, 0] : [10][32]);
+    java_ensure_eq "a" ([1, 0, 0, 0, 0, 0, 0, 0, 0, 0] : [10][32]);
     java_verify_tactic abc;
 };
 
 main : TopLevel ();
 main = do {
     copy_ms <- java_verify "Arrays" "copy" [] copy_setup;
-    clear_ms <- java_verify "Arrays" "clear" [] clear_setup;
-    comp_ms <- java_verify "Arrays" "comp" [clear_ms] comp_setup;
+    unit_ms <- java_verify "Arrays" "unit" [] unit_setup;
+    comp_ms <- java_verify "Arrays" "comp" [unit_ms] comp_setup;
     print "Done.";
 };

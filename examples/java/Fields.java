@@ -10,11 +10,11 @@ class Fields {
         this.y = newy;
     }
 
-    void clearx() {
-        this.x = 0;
+    void unitx() {
+        this.x = 1;
     }
 
-    void cleary() {
-        this.y = 0;
+    void unity() {
+        this.y = 1;
     }
 }

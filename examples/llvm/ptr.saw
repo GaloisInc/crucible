@@ -9,7 +9,7 @@ add_setup = do {
 clear_setup : LLVMSetup ();
 clear_setup = do {
     a <- llvm_ptr "a" (llvm_array '10 (llvm_int '32));
-    llvm_ensure_eq a ([0, 0, 0, 0, 0, 0, 0, 0, 0, 0] : [10][32]);
+    llvm_ensure_eq "*a" ([0, 0, 0, 0, 0, 0, 0, 0, 0, 0] : [10][32]);
     llvm_verify_tactic abc;
 };
 

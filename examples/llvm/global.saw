@@ -1,7 +1,7 @@
 clear_setup : LLVMSetup ();
 clear_setup = do {
     g <- llvm_var "g" (llvm_int '32);
-    llvm_ensure_eq g (0 : [32]);
+    llvm_ensure_eq "g" (0 : [32]);
     llvm_verify_tactic abc;
 };
 
@@ -9,7 +9,7 @@ set_setup : LLVMSetup ();
 set_setup = do {
     x <- llvm_var "x" (llvm_int '32);
     g <- llvm_var "g" (llvm_int '32);
-    llvm_ensure_eq g (x : [32]);
+    llvm_ensure_eq "g" (x : [32]);
     llvm_verify_tactic abc;
 };
 

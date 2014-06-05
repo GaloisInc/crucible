@@ -1,27 +1,27 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE TupleSections #-}
 module SAWScript.Builtins where
 
 import Control.Applicative
 import Control.Lens
 import Control.Monad.Error
 import Control.Monad.State
+import Data.Either (partitionEithers)
 import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Vector.Storable as SV
 import Text.PrettyPrint.Leijen hiding ((<$>))
 
-import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
 
 import qualified Verifier.Java.Codebase as JSS
 import Verifier.Java.SAWBackend (javaModule)
-import qualified Verifier.LLVM.Codebase as LSS
 
 import Verifier.SAW.BitBlast
-import Verifier.SAW.Conversion hiding (asCtor)
 import Verifier.SAW.Evaluator
 import Verifier.SAW.Prelude
 import qualified Verifier.SAW.Prim as Prim
@@ -31,6 +31,7 @@ import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
 import Verifier.SAW.TypedAST hiding (instantiateVarList)
 
+import qualified Verifier.SAW.Export.Yices as Y
 import qualified Verifier.SAW.Export.SMT.Version1 as SMT1
 import qualified Verifier.SAW.Export.SMT.Version2 as SMT2
 import Verifier.SAW.Import.AIG
@@ -40,7 +41,10 @@ import qualified SAWScript.AST as SS
 import SAWScript.Proof
 import SAWScript.Utils
 
-import qualified Verinf.Symbolic as BE
+import qualified Data.ABC as ABC
+import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
+
+--import qualified Verinf.Symbolic as BE
 
 data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
                                      , biJavaCodebase  :: JSS.Codebase
@@ -83,12 +87,9 @@ readSBV sc ty path =
           SBV.TTuple ts -> SS.TyCon (SS.TupleCon (toInteger (length ts))) (map importTyp ts)
           SBV.TRecord bs -> SS.TyRecord (fmap importTyp (Map.fromList bs))
 
-withBE :: (BE.BitEngine BE.Lit -> IO a) -> IO a
+withBE :: (forall s . ABC.GIA s -> IO a) -> IO a
 withBE f = do
-  be <- BE.createBitEngine
-  r <- f be
-  BE.beFree be
-  return r
+  ABC.withNewGraph ABC.giaNetwork f
 
 -- | Read an AIG file representing a theorem or an arbitrary function
 -- and represent its contents as a @SharedTerm@ lambda term. This is
@@ -114,11 +115,17 @@ readAIGPrim sc f = do
 -- QF_AUFBV or AIG.
 prepForExport :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
 prepForExport sc t = do
-  let eqs = map (mkIdent preludeName) [ "eq_Bool" ]
-      defs = map (mkIdent preludeName) [ "get_single" ]
-             ++
-             map (mkIdent (moduleName javaModule))
-                 [ "ecJoin", "ecSplit", "ecExtend", "longExtend" ]
+  let eqs = map (mkIdent preludeName) [ "eq_Bool"
+                                      , "get_single"
+                                      , "bvNat_bvToNat"
+                                      , "equalNat_bv"
+                                      ]
+      defs = map (mkIdent (moduleName javaModule))
+                 [ "ecJoin", "ecJoin768", "ecSplit", "ecSplit768"
+                 , "ecExtend", "longExtend"
+                 ] ++
+             map (mkIdent preludeName)
+                 [ "splitLittleEndian", "joinLittleEndian" ]
   rs1 <- concat <$> traverse (defRewrites sc) defs
   rs2 <- scEqsRewriteRules sc eqs
   basics <- basic_ss sc
@@ -135,8 +142,7 @@ writeAIG sc f t = withBE $ \be -> do
     Left msg ->
       fail $ "Can't bitblast term: " ++ msg
     Right bterm -> do
-      ins <- BE.beInputLits be
-      BE.beWriteAigerV be f ins (flattenBValue bterm)
+      ABC.writeAiger f (ABC.Network be (ABC.bvToList (flattenBValue bterm)))
 
 -- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
 -- 1 file.
@@ -188,19 +194,52 @@ simplifyGoal sc ss = StateT $ \goal -> do
 satABC :: SharedContext s -> ProofScript s ProofResult
 satABC sc = StateT $ \t -> withBE $ \be -> do
   t' <- prepForExport sc t
+  let (args, _) = asLambdaList t'
+      argNames = map fst args
+      argTys = map snd args
+  shapes <- mapM parseShape argTys
   mbterm <- bitBlast be t'
-  case (mbterm, BE.beCheckSat be) of
-    (Right bterm, Just chk) -> do
+  case mbterm of
+    Right bterm -> do
       case bterm of
         BBool l -> do
-          satRes <- chk l
+          satRes <- ABC.checkSat be l
           case satRes of
-            BE.UnSat -> (,) () <$> scApplyPreludeFalse sc
-            BE.Sat _ -> (,) () <$> scApplyPreludeTrue sc
-            _ -> fail "ABC returned Unknown for SAT query."
+            ABC.Unsat -> (,) () <$> scApplyPreludeFalse sc
+            ABC.Sat cex -> do
+              r <- liftCexBB sc shapes cex
+              case r of
+                Left err -> fail $ "Can't parse counterexample: " ++ err
+                Right tms -> fail . unlines $
+                             "Proof failed with counterexample: " :
+                             map show (zip argNames tms)
+              (,) () <$> scApplyPreludeTrue sc
         _ -> fail "Can't prove non-boolean term."
-    (_, Nothing) -> fail "Backend does not support SAT checking."
-    (Left err, _) -> fail $ "Can't bitblast: " ++ err
+    Left err -> fail $ "Can't bitblast: " ++ err
+
+satYices :: SharedContext s -> ProofScript s ProofResult
+satYices sc = StateT $ \t -> withBE $ \be -> do
+  t' <- prepForExport sc t
+  let (args, _) = asLambdaList t'
+      argNames = map fst args
+      argTys = map snd args
+  shapes <- mapM parseShape argTys
+  let ws = SMT1.qf_aufbv_WriterState sc "sawscript"
+  ws' <- execStateT (SMT1.writeFormula t') ws
+  mapM_ (print . (text "WARNING:" <+>) . SMT1.ppWarning)
+        (map (fmap scPrettyTermDoc) (ws' ^. SMT1.warnings))
+  res <- Y.yices Nothing (SMT1.smtScript ws')
+  case res of
+    Y.YUnsat -> (,) () <$> scApplyPreludeFalse sc
+    Y.YSat m -> do
+      r <- liftCexMapYices sc m
+      case r of
+        Left err -> fail $ "Can't parse counterexample: " ++ err
+        Right tms -> fail . unlines $
+                     "Proof failed with counterexample: " :
+                     map show tms
+      (,) () <$> scApplyPreludeTrue sc -- TODO: counter-example
+    Y.YUnknown -> fail "ABC returned Unknown for SAT query."
 
 satAIG :: SharedContext s -> FilePath -> ProofScript s ProofResult
 satAIG sc path = StateT $ \t -> do
@@ -222,6 +261,35 @@ satSMTLib2 sc path = StateT $ \t -> do
   writeSMTLib2 sc path t
   (,) () <$> scApplyPreludeFalse sc
 
+liftCexBB :: SharedContext s -> [BShape] -> [Bool]
+          -> IO (Either String [SharedTerm s])
+liftCexBB sc shapes bs =
+  case liftCounterExamples shapes bs of
+    Left err -> return (Left err)
+    Right bvals -> do
+      ts <- mapM (scSharedTerm sc . liftConcreteBValue) bvals
+      return (Right ts)
+
+liftCexYices :: SharedContext s -> Y.YVal
+             -> IO (Either String (SharedTerm s))
+liftCexYices sc yv =
+  case yv of
+    Y.YVar "true" -> Right <$> scBool sc True
+    Y.YVar "false" -> Right <$> scBool sc False
+    Y.YVal bv ->
+      Right <$> scBvConst sc (fromIntegral (Y.width bv)) (Y.val bv)
+    _ -> return $ Left $
+         "Can't translate non-bitvector Yices value: " ++ show yv
+
+liftCexMapYices :: SharedContext s -> Map.Map String Y.YVal
+             -> IO (Either String [(String, SharedTerm s)])
+liftCexMapYices sc m = do
+  let (ns, vs) = unzip (Map.toList m)
+  (errs, tms) <- partitionEithers <$> mapM (liftCexYices sc) vs
+  return $ case errs of
+    [] -> Right $ zip ns tms
+    _ -> Left $ unlines errs
+
 -- | Logically negate a term @t@, which must be a boolean term
 -- (possibly surrounded by one or more lambdas).
 scNegate :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
@@ -230,8 +298,8 @@ scNegate sc t =
     Just (s, ty, body) -> scLambda sc s ty =<< scNegate sc body
     Nothing -> scNot sc t
 
--- | Bit-blast a @SharedTerm@ representing a theorem and check its
--- validity using ABC.
+-- | Translate a @SharedTerm@ representing a theorem for input to the
+-- given validity-checking script and attempt to prove it.
 provePrim :: SharedContext s -> ProofScript s ProofResult
           -> SharedTerm s -> IO (Theorem s)
 provePrim sc script t = do
@@ -260,7 +328,7 @@ addsimp :: SharedContext s -> Theorem s -> Simpset (SharedTerm s) -> Simpset (Sh
 addsimp _sc (Theorem t) ss = addRule (ruleOfPred t) ss
 
 equalPrim :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
-equalPrim t1 t2 = mkSC $ \sc -> equal sc t1 t2
+equalPrim t1 t2 = mkSC $ \sc -> equal sc [] t1 t2
 
 -- evaluate :: (a :: sort 0) -> Term -> a;
 evaluate :: (Ident -> Value) -> () -> SharedTerm s -> Value

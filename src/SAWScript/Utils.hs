@@ -199,21 +199,21 @@ findField _ pos _ _ =
   let msg = "Primitive types cannot be dereferenced."
    in throwIOExecException pos (ftext msg) ""
 
-equal :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-equal sc (STApp _ (Lambda x1 ty1 tm1)) (STApp _ (Lambda _ ty2 tm2)) =
+equal :: SharedContext s -> [SharedTerm s] -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
+equal sc ctx (STApp _ (Lambda x1 ty1 tm1)) (STApp _ (Lambda _ ty2 tm2)) =
   case (asBitvectorType ty1, asBitvectorType ty2) of
     (Just n1, Just n2) -> do
       unless (n1 == n2) $
         fail $ "Arguments have different sizes: " ++
                show n1 ++ " and " ++ show n2
-      eqBody <- equal sc tm1 tm2
+      eqBody <- equal sc [ty1] tm1 tm2
       scLambda sc x1 ty1 eqBody
     (_, _) ->
         fail $ "Incompatible function arguments. Types are " ++
                show ty1 ++ " and " ++ show ty2
-equal sc tm1 tm2 = do
-    ty1 <- scTypeOf sc tm1
-    ty2 <- scTypeOf sc tm2
+equal sc ctx tm1 tm2 = do
+    ty1 <- scTypeOf' sc ctx tm1
+    ty2 <- scTypeOf' sc ctx tm2
     ss <- basic_ss sc
     ty1' <- rewriteSharedTerm sc ss ty1
     ty2' <- rewriteSharedTerm sc ss ty2
@@ -232,7 +232,7 @@ equal sc tm1 tm2 = do
                  ft <- scFinVal sc it lt
                  et1 <- getOp lt ety1 tm1 ft
                  et2 <- getOp lt ety1 tm2 ft
-                 equal sc et1 et2
+                 equal sc ctx et1 et2
         andOp <- scApplyPreludeAnd sc
         trueTm <- scBool sc True
         foldM andOp trueTm eqs
@@ -244,7 +244,7 @@ allEqual :: SharedContext s -> [(SharedTerm s, SharedTerm s)] -> IO (SharedTerm 
 allEqual sc [] = scApplyPreludeTrue sc
 allEqual sc ((t, t'):ts) = do
   r <- allEqual sc ts
-  eq <- equal sc t t'
+  eq <- equal sc [] t t'
   and <- scApplyPreludeAnd sc
   and eq r
 
@@ -256,7 +256,7 @@ scRemoveBitvector sc tm = do
     where Just def = findDef (scModule sc) (parseIdent "Prelude.bitvector")
 
 scEq :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-scEq sc x y = equal sc x y {- do
+scEq sc x y = equal sc [] x y {- do
   xty <- scTypeOf sc x
   eqOp <- scApplyPreludeEq sc
   res <- eqOp xty x y
