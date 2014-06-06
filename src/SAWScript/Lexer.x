@@ -38,7 +38,8 @@ $hexit     = [0-9 A-F a-f]
 $idchar    = [$alpha $digit \' \_]
 
 @reservedid  = import|and|let|fun|in|type|abstract|do|if|then|else|as|undefined
-             |prim|CryptolSetup|JavaSetup|LLVMSetup|ProofScript|TopLevel
+             |prim|CryptolSetup|JavaSetup|LLVMSetup
+             |ProofScript|ProofResult|SatResult|TopLevel
              |Int|String|Bit
 @punct       = "," | ";" | "(" | ")" | ":" | "::" | "[" | "]" | "<-" | "->"
              | "=" | "{" | "}" | "." | "\"

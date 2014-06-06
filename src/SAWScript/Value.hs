@@ -47,8 +47,9 @@ data Value s
   | VLLVMSetup (LLVMSetup (Value s))
   | VJavaMethodSpec JavaMethodSpecIR
   | VLLVMMethodSpec LLVMMethodSpecIR
+  | VSatResult (SatResult s)
+  | VProofResult (ProofResult s)
   -- | VAIG (BitEngine Lit) (V.Vector Lit) (V.Vector Lit)
-
 
 isVUnit :: Value s -> Bool
 isVUnit (VTuple []) = True
@@ -85,6 +86,8 @@ instance Show (Value s) where
         VLLVMSetup {} -> showString "<<LLVM Setup>>"
         VJavaMethodSpec {} -> showString "<<Java MethodSpec>>"
         VLLVMMethodSpec {} -> showString "<<LLVM MethodSpec>>"
+        -- TODO: VProofResult
+        -- TODO: VSatResult
 
 indexValue :: Value s -> Value s -> Value s
 indexValue (VArray vs) (VInteger x)
@@ -172,6 +175,8 @@ importValue val =
       SC.VFloat {} -> error "VFloat unsupported"
       SC.VDouble {} -> error "VDouble unsupported"
       SC.VType -> error "VType unsupported"
+      -- TODO: ProofResult
+      -- TODO: SatResult
 
 exportValue :: Value s -> SC.Value
 exportValue val =
@@ -198,6 +203,8 @@ exportValue val =
       VLLVMSetup {} -> error "VLLVMSetup unsupported"
       VJavaMethodSpec {} -> error "VJavaMethodSpec unsupported"
       VLLVMMethodSpec {} -> error "VLLVMMethodSpec unsupported"
+      -- TODO: ProofResult
+      -- TODO: SatResult
       -- VAIG {} -> error "VAIG unsupported" -- TODO: could be implemented
 
 -- IsValue class ---------------------------------------------------------------
@@ -308,3 +315,13 @@ instance IsValue SAWCtx LLVMMethodSpecIR where
     toValue ms = VLLVMMethodSpec ms
     fromValue (VLLVMMethodSpec ms) = ms
     fromValue _ = error "fromValue LLVMMethodSpec"
+
+instance IsValue s (ProofResult s) where
+   toValue r = VProofResult r
+   fromValue (VProofResult r) = r
+   fromValue _ = error "fromValue ProofResult"
+
+instance IsValue s (SatResult s) where
+   toValue r = VSatResult r
+   fromValue (VSatResult r) = r
+   fromValue _ = error "fromValue SatResult"

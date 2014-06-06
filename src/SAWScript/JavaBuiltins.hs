@@ -132,10 +132,12 @@ verifyJava bic opts cname mname overrides setup = do
         mapM_ (print . ppPathVC) res
       let prover vs script g = do
             glam <- bindExts jsc initialExts g
-            glam' <- scImport (biSharedContext bic) glam
+            let bsc = biSharedContext bic
+            glam' <- scNegate bsc =<< scImport bsc glam
             when (verb >= 6) $ putStrLn $ "Trying to prove: " ++ show glam'
-            Theorem thm <- provePrim (biSharedContext bic) script glam'
-            when (verb >= 5) $ putStrLn $ "Proved: " ++ show thm
+            (r, _) <- runStateT script glam'
+            -- TODO: catch counterexamples!
+            when (verb >= 5) $ putStrLn $ "Proved: " ++ show r
       liftIO $ runValidation prover vp jsc esd res
   let overrideText = case overrides of
                        [] -> ""
@@ -298,7 +300,7 @@ javaReturn _ _ t =
   modify $ \st ->
     st { jsSpec = specAddBehaviorCommand (Return (LE (mkLogicExpr t))) (jsSpec st) }
 
-javaVerifyTactic :: BuiltinContext -> Options -> ProofScript SAWCtx ProofResult
+javaVerifyTactic :: BuiltinContext -> Options -> ProofScript SAWCtx ()
                  -> JavaSetup ()
 javaVerifyTactic _ _ script =
   modify $ \st -> st { jsSpec = specSetVerifyTactic script (jsSpec st) }

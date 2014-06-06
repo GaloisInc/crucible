@@ -324,7 +324,7 @@ data ValidationPlan
   = Skip
   -- | QuickCheck Integer (Maybe Integer)
   -- | GenBlif (Maybe FilePath)
-  | RunVerify (ProofScript SAWCtx ProofResult)
+  | RunVerify (ProofScript SAWCtx ())
 
 -- JavaMethodSpecIR {{{1
 
@@ -389,6 +389,6 @@ specAddBehaviorCommand :: BehaviorCommand
 specAddBehaviorCommand bc ms =
   ms { specBehaviors = bsAddCommand bc (specBehaviors ms) }
 
-specSetVerifyTactic :: ProofScript SAWCtx ProofResult
+specSetVerifyTactic :: ProofScript SAWCtx ()
                     -> JavaMethodSpecIR -> JavaMethodSpecIR
 specSetVerifyTactic script ms = ms { specValidationPlan = RunVerify script }

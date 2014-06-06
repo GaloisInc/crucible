@@ -1007,7 +1007,7 @@ data VerifyParams = VerifyParams
 type SymbolicRunHandler =
   SharedContext JSSCtx -> ExpectedStateDef -> [PathVC] -> IO ()
 type Prover =
-  VerifyState -> ProofScript SAWCtx ProofResult -> SharedTerm JSSCtx -> IO ()
+  VerifyState -> ProofScript SAWCtx () -> SharedTerm JSSCtx -> IO ()
 
 runValidation :: Prover -> VerifyParams -> SymbolicRunHandler
 runValidation prover params sc esd results = do

@@ -50,6 +50,8 @@ import Control.Applicative
   'JavaSetup'    { TReserved _ "JavaSetup"      }
   'LLVMSetup'    { TReserved _ "LLVMSetup"      }
   'ProofScript'  { TReserved _ "ProofScript"    }
+  'ProofResult'  { TReserved _ "ProofResult"    }
+  'SatResult'    { TReserved _ "SatResult"      }
   'TopLevel'     { TReserved _ "TopLevel"       }
   'Bit'          { TReserved _ "Bit"            }
   'Int'          { TReserved _ "Int"            }
@@ -244,6 +246,8 @@ Context :: { RawSigT }
  | 'JavaSetup'                          { javaSetupContext        }
  | 'LLVMSetup'                          { llvmSetupContext        }
  | 'ProofScript'                        { proofScriptContext      }
+ | 'ProofResult'                        { proofResultContext      }
+ | 'SatResult'                          { satResultContext        }
  | 'TopLevel'                           { topLevelContext         }
  | name                                 { syn $1                  }
 

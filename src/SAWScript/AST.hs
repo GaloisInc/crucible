@@ -211,6 +211,8 @@ data ContextF typeT
   | JavaSetupContext
   | LLVMSetupContext
   | ProofScriptContext
+  | ProofResultContext
+  | SatResultContext
   | TopLevelContext
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
@@ -222,6 +224,8 @@ data Context
   | JavaSetup
   | LLVMSetup
   | ProofScript
+  | ProofResult
+  | SatResult
   | TopLevel
   deriving (Eq,Show)
 
@@ -311,6 +315,8 @@ instance PrettyPrint Context where
     JavaSetup    -> PP.text "JavaSetup"
     LLVMSetup    -> PP.text "LLVMSetup"
     ProofScript  -> PP.text "ProofScript"
+    ProofResult  -> PP.text "ProofResult"
+    SatResult    -> PP.text "SatResult"
     TopLevel     -> PP.text "TopLevel"
 
 instance PrettyPrint ModuleName where
@@ -405,6 +411,8 @@ instance Equal ContextF where
     (JavaSetupContext    , JavaSetupContext   ) -> True
     (LLVMSetupContext    , LLVMSetupContext   ) -> True
     (ProofScriptContext  , ProofScriptContext ) -> True
+    (ProofResultContext  , ProofResultContext ) -> True
+    (SatResultContext    , SatResultContext   ) -> True
     (TopLevelContext     , TopLevelContext    ) -> True
     _ -> False
 
@@ -437,6 +445,8 @@ instance Render ContextF where
   render JavaSetupContext    = "JavaSetupContext"
   render LLVMSetupContext    = "LLVMSetupContext"
   render ProofScriptContext  = "ProofScriptContext"
+  render ProofResultContext  = "ProofResultContext"
+  render SatResultContext    = "SatResultContext"
   render TopLevelContext     = "TopLevelContext"
 
 instance Render Syn where
@@ -507,6 +517,12 @@ llvmSetupContext = inject LLVMSetupContext
 
 proofScriptContext  :: (ContextF :<: f) => Mu f
 proofScriptContext = inject ProofScriptContext
+
+proofResultContext  :: (ContextF :<: f) => Mu f
+proofResultContext = inject ProofResultContext
+
+satResultContext  :: (ContextF :<: f) => Mu f
+satResultContext = inject SatResultContext
 
 topLevelContext     :: (ContextF :<: f) => Mu f
 topLevelContext = inject TopLevelContext
@@ -607,6 +623,8 @@ rewindContext CryptolSetup = cryptolSetupContext
 rewindContext JavaSetup = javaSetupContext
 rewindContext LLVMSetup = llvmSetupContext
 rewindContext ProofScript = proofScriptContext
+rewindContext ProofResult = proofResultContext
+rewindContext SatResult = satResultContext
 rewindContext TopLevel = topLevelContext
 
 rewindNullary :: String -> FullT -> [a] -> FullT

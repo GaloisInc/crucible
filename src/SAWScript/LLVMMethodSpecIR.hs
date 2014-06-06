@@ -278,7 +278,7 @@ initLLVMMethodSpec pos cb symname =
 -- should stay there.
 data ValidationPlan
   = Skip
-  | RunVerify (ProofScript SAWCtx ProofResult)
+  | RunVerify (ProofScript SAWCtx ())
 
 -- MethodSpecIR {{{1
 
@@ -334,6 +334,6 @@ specAddBehaviorCommand :: BehaviorCommand
 specAddBehaviorCommand bc ms =
   ms { specBehavior = bsAddCommand bc (specBehavior ms) }
 
-specSetVerifyTactic :: ProofScript SAWCtx ProofResult
+specSetVerifyTactic :: ProofScript SAWCtx ()
                     -> LLVMMethodSpecIR -> LLVMMethodSpecIR
 specSetVerifyTactic script ms = ms { specValidationPlan = RunVerify script }

@@ -146,9 +146,11 @@ verifyLLVM bic opts file func overrides setup = do
           mapM_ (print . ppPathVC) res
         let prover vs script g = do
               glam <- bindExts scLLVM initialExts g
-              glam' <- scImport (biSharedContext bic) glam
-              Theorem thm <- provePrim (biSharedContext bic) script glam'
-              when (verb >= 3) $ putStrLn $ "Proved: " ++ show thm
+              let bsc = biSharedContext bic
+              glam' <- scNegate bsc =<< scImport bsc glam
+              (r, _) <- runStateT script glam'
+              -- TODO: catch counterexamples!
+              when (verb >= 5) $ putStrLn $ "Proved: " ++ show r
         liftIO $ runValidation prover vp scLLVM esd res
     let overrideText = case overrides of
                          [] -> ""
@@ -316,7 +318,7 @@ llvmReturn _ _ t =
   modify $ \st ->
     st { lsSpec = specAddBehaviorCommand (Return (LogicE (mkLogicExpr t))) (lsSpec st) }
 
-llvmVerifyTactic :: BuiltinContext -> Options -> ProofScript SAWCtx ProofResult
+llvmVerifyTactic :: BuiltinContext -> Options -> ProofScript SAWCtx ()
                  -> LLVMSetup ()
 llvmVerifyTactic _ _ script =
   modify $ \st -> st { lsSpec = specSetVerifyTactic script (lsSpec st) }

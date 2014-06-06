@@ -885,7 +885,7 @@ data VerifyParams = VerifyParams
 type SymbolicRunHandler =
   SharedContext LSSCtx -> ExpectedStateDef -> [PathVC] -> IO ()
 type Prover =
-  VerifyState -> ProofScript SAWCtx ProofResult -> SharedTerm LSSCtx -> IO ()
+  VerifyState -> ProofScript SAWCtx () -> SharedTerm LSSCtx -> IO ()
 
 runValidation :: Prover -> VerifyParams -> SymbolicRunHandler
 runValidation prover params sc esd results = do
