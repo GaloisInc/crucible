@@ -514,6 +514,7 @@ valueEnv opts bic = M.fromList
   , (qualify "rewrite"     , toValue $ rewritePrim sc)
   , (qualify "abc"         , toValue $ satABC sc)
   , (qualify "abc2"        , toValue $ satABC' sc)
+  , (qualify "sbv"         , toValue $ satSBV sc)
   , (qualify "offline_aig" , toValue $ satAIG sc)
   , (qualify "offline_extcore" , toValue $ satExtCore sc)
   , (qualify "offline_smtlib1" , toValue $ satSMTLib1 sc)

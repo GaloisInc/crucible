@@ -45,7 +45,7 @@ import qualified Verinf.Symbolic as BE
 
 import Data.ABC (aigNetwork)
 import qualified Data.AIG as AIG
-
+import Data.SBV.Bridge.Boolector (sat, modelExists)
 
 data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
                                      , biJavaCodebase  :: JSS.Codebase
@@ -221,6 +221,16 @@ satABC' sc = StateT $ \t -> AIG.withNewGraph aigNetwork $ \be -> do
     AIG.Sat _ -> do putStrLn "SAT"
                     (,) () <$> scApplyPreludeTrue sc
     _ -> fail "ABC returned Unknown for SAT query."
+
+-- | Bit-blast a @SharedTerm@ representing a theorem and check its
+-- satisfiability using SBV. (Currently ignores satisfying assignments.)
+satSBV :: SharedContext s -> ProofScript s ProofResult
+satSBV sc = StateT $ \t -> do
+  m <- sat $ sbvSolve sc t
+  print m
+  if modelExists m
+    then putStrLn "SAT" >> (,) () <$> scApplyPreludeTrue sc
+    else putStrLn "UNSAT" >> (,) () <$> scApplyPreludeFalse sc
 
 satAIG :: SharedContext s -> FilePath -> ProofScript s ProofResult
 satAIG sc path = StateT $ \t -> do
