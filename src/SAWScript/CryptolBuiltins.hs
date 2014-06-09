@@ -2,15 +2,10 @@ module SAWScript.CryptolBuiltins where
 
 import Control.Applicative
 import Control.Monad.State
-import Data.Traversable
 
 import qualified Verifier.SAW.Cryptol as C
 import Verifier.SAW
-import Verifier.SAW.Cryptol.Prelude (cryptolModule)
 import Verifier.SAW.Prelude
-import Verifier.SAW.SharedTerm
-import Verifier.SAW.TypedAST
-import Verifier.SAW.Rewriter
 
 import qualified Cryptol.ModuleSystem as M
 import qualified Cryptol.ModuleSystem.Env as M
@@ -23,7 +18,6 @@ import qualified Verifier.SAW.Simulator.BitBlast as BBSim
 import qualified Verinf.Symbolic as BE
 
 import SAWScript.Proof
-import SAWScript.Utils
 import SAWScript.Builtins (withBE)
 
 extractCryptol :: SharedContext s -> FilePath -> String -> IO (SharedTerm s)
@@ -47,14 +41,10 @@ extractCryptol sc filepath name = do
 -- satisfiability using ABC. (Currently ignores satisfying assignments.)
 satABC' :: SharedContext s -> ProofScript s ProofResult
 satABC' sc = StateT $ \t -> withBE $ \be -> do
-  let idents = map (mkIdent (moduleName cryptolModule)) ["ty", "seq"]
-  rs <- concat <$> traverse (defRewrites sc) idents
-  let ss = addRules rs emptySimpset
-  t' <- rewriteSharedTerm sc ss t
   case BE.beCheckSat be of
     Nothing -> fail "Backend does not support SAT checking."
     Just chk -> do
-      lit <- BBSim.bitBlast be sc t'
+      lit <- BBSim.bitBlast be sc t
       satRes <- chk lit
       case satRes of
         BE.UnSat -> (,) () <$> scApplyPreludeFalse sc
