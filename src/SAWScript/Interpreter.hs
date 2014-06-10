@@ -523,6 +523,7 @@ valueEnv opts bic = M.fromList
   , (qualify "print"       , toValue print_value)
   , (qualify "print_type"  , toValue $ print_type sc)
   , (qualify "print_term"  , toValue ((putStrLn . scPrettyTerm) :: SharedTerm SAWCtx -> IO ()))
+  , (qualify "show_term"   , toValue (scPrettyTerm :: SharedTerm SAWCtx -> String))
   , (qualify "return"      , toValue (return :: Value SAWCtx -> IO (Value SAWCtx))) -- FIXME: make work for other monads
     {-
   , (qualify "seq"        , toValue ((>>) :: ProofScript SAWCtx (Value SAWCtx)
@@ -530,6 +531,8 @@ valueEnv opts bic = M.fromList
                                           -> ProofScript SAWCtx (Value SAWCtx))) -- FIXME: temporary
     -}
   , (qualify "define"      , toValue $ definePrim sc)
+  , (qualify "caseProofResult", toValue $ caseProofResultPrim sc)
+  , (qualify "caseSatResult", toValue $ caseSatResultPrim sc)
   ] where sc = biSharedContext bic
 
 coreEnv :: SharedContext s -> IO (RNameMap (SharedTerm s))

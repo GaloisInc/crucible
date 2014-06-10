@@ -40,6 +40,7 @@ import qualified SAWScript.AST as SS
 
 import SAWScript.Proof
 import SAWScript.Utils
+import qualified SAWScript.Value as SV
 
 import qualified Data.ABC as ABC
 import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
@@ -210,10 +211,11 @@ satABC sc = StateT $ \t -> withBE $ \be -> do
               r <- liftCexBB sc shapes cex
               case r of
                 Left err -> fail $ "Can't parse counterexample: " ++ err
-                Right tms -> fail . unlines $
-                             "Proof failed with counterexample: " :
-                             map show (zip argNames tms)
-              (Sat undefined,) <$> scApplyPreludeTrue sc -- TODO
+                Right [tm] -> (Sat tm,) <$> scApplyPreludeTrue sc
+                Right tms ->
+                  fail . unlines $
+                  "Proof failed with multi-argument counterexample: " :
+                  map show (zip argNames tms)
         _ -> fail "Can't prove non-boolean term."
     Left err -> fail $ "Can't bitblast: " ++ err
 
@@ -235,10 +237,11 @@ satYices sc = StateT $ \t -> withBE $ \be -> do
       r <- liftCexMapYices sc m
       case r of
         Left err -> fail $ "Can't parse counterexample: " ++ err
-        Right tms -> fail . unlines $
-                     "Proof failed with counterexample: " :
-                     map show tms
-      (Sat undefined,) <$> scApplyPreludeTrue sc -- TODO: counter-example
+        Right [(_n, tm)] -> (Sat tm,) <$> scApplyPreludeTrue sc
+        Right tms ->
+          fail . unlines $
+          "Proof failed with multi-argument counterexample: " :
+          map show (zip argNames tms)
     Y.YUnknown -> fail "ABC returned Unknown for SAT query."
 
 satAIG :: SharedContext s -> FilePath -> ProofScript s (SatResult s)
@@ -352,3 +355,32 @@ bindExts sc args body = do
     where names = map ('x':) (map show ([0..] :: [Int]))
           extIdx (STApp _ (FTermF (ExtCns ec))) = Just (ecVarIndex ec)
           extIdx _ = Nothing
+
+caseProofResultPrim :: SharedContext s -> ProofResult s
+                    -> SV.Value s -> SV.Value s
+                    -> IO (SV.Value s)
+caseProofResultPrim sc pr vValid vInvalid = do
+  case pr of
+    Valid -> return vValid
+    Invalid t ->
+      case vInvalid of
+        SV.VFunTerm f -> return (f t)
+        SV.VLambda f -> f (SV.evaluate sc t) Nothing
+        SV.VFun f -> return (f (SV.evaluate sc t))
+        _ -> fail $ "Invalid case of caseProofResultPrim isn't a function: " ++
+                    show vInvalid
+
+
+caseSatResultPrim :: SharedContext s -> SatResult s
+                  -> SV.Value s -> SV.Value s
+                  -> IO (SV.Value s)
+caseSatResultPrim sc sr vUnsat vSat = do
+  case sr of
+    Unsat -> return vUnsat
+    Sat t ->
+      case vSat of
+        SV.VFunTerm f -> return (f t)
+        SV.VLambda f -> f (SV.evaluate sc t) Nothing
+        SV.VFun f -> return (f (SV.evaluate sc t))
+        _ -> fail $ "Sat case of caseSatResultPrim isn't a function: " ++
+                    show vSat

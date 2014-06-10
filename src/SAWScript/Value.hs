@@ -86,8 +86,10 @@ instance Show (Value s) where
         VLLVMSetup {} -> showString "<<LLVM Setup>>"
         VJavaMethodSpec {} -> showString "<<Java MethodSpec>>"
         VLLVMMethodSpec {} -> showString "<<LLVM MethodSpec>>"
-        -- TODO: VProofResult
-        -- TODO: VSatResult
+        VProofResult Valid -> showString "Valid"
+        VProofResult (Invalid t) -> showString "Invalid: " . shows t
+        VSatResult Unsat -> showString "Unsat"
+        VSatResult (Sat t) -> showString "Sat: " . shows t
 
 indexValue :: Value s -> Value s -> Value s
 indexValue (VArray vs) (VInteger x)
