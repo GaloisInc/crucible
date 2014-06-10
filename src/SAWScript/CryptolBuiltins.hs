@@ -47,6 +47,8 @@ satABC' sc = StateT $ \t -> withBE $ \be -> do
       lit <- BBSim.bitBlast be sc t
       satRes <- chk lit
       case satRes of
-        BE.UnSat -> (,) () <$> scApplyPreludeFalse sc
-        BE.Sat _ -> (,) () <$> scApplyPreludeTrue sc
+        BE.UnSat -> do putStrLn "UNSAT"
+                       (,) () <$> scApplyPreludeFalse sc
+        BE.Sat _ -> do putStrLn "SAT"
+                       (,) () <$> scApplyPreludeTrue sc
         _ -> fail "ABC returned Unknown for SAT query."
