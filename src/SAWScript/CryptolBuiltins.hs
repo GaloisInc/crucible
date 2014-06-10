@@ -9,10 +9,9 @@ import Verifier.SAW.Prelude
 
 import qualified Cryptol.ModuleSystem as M
 import qualified Cryptol.ModuleSystem.Env as M
-import Cryptol.TypeCheck.AST
+import qualified Cryptol.Parser as P
+import qualified Cryptol.TypeCheck.AST as T
 import Cryptol.Utils.PP
-
-import qualified Data.Map as Map
 
 import qualified Verifier.SAW.Simulator.BitBlast as BBSim
 import qualified Verinf.Symbolic as BE
@@ -21,20 +20,26 @@ import SAWScript.Proof
 import SAWScript.Builtins (withBE)
 
 extractCryptol :: SharedContext s -> FilePath -> String -> IO (SharedTerm s)
-extractCryptol sc filepath name = do
+extractCryptol sc filepath input = do
   (result, warnings) <- M.loadModuleByPath filepath
   mapM_ (print . pp) warnings
-  (m, modEnv) <-
+  (_m, modEnv) <-
     case result of
-      Left err -> fail (show err)
+      Left err -> fail (show (pp err))
       Right x -> return x
-  let declGroups = concatMap mDecls (M.loadedModules modEnv)
+  let declGroups = concatMap T.mDecls (M.loadedModules modEnv)
   env <- C.importDeclGroups sc C.emptyEnv declGroups
-  let env' = C.envE env
-  let qname = QName (Just (mName m)) (Name name)
-  case Map.lookup qname env' of
-    Nothing -> fail "Name not found in this module"
-    Just t -> return t
+  pexpr <-
+    case P.parseExpr input of
+      Left err -> fail (show (pp err))
+      Right x -> return x
+  (exprResult, exprWarnings) <- M.checkExpr pexpr modEnv
+  mapM_ (print . pp) exprWarnings
+  ((expr, _schema), _modEnv') <-
+    case exprResult of
+      Left err -> fail (show (pp err))
+      Right x -> return x
+  C.importExpr sc env expr
 
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
