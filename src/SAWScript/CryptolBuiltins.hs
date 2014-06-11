@@ -1,11 +1,7 @@
 module SAWScript.CryptolBuiltins where
 
-import Control.Applicative
-import Control.Monad.State
-
 import qualified Verifier.SAW.Cryptol as C
 import Verifier.SAW
-import Verifier.SAW.Prelude
 
 import qualified Cryptol.ModuleSystem as M
 import qualified Cryptol.ModuleSystem.Env as M
