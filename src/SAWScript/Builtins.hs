@@ -210,7 +210,9 @@ satABC' sc = StateT $ \t -> withBE $ \be -> do
   case BE.beCheckSat be of
     Nothing -> fail "Backend does not support SAT checking."
     Just chk -> do
+      putStrLn "Simulating..."
       lit <- BBSim.bitBlast be sc t
+      putStrLn "Checking..."
       satRes <- chk lit
       case satRes of
         BE.UnSat -> do putStrLn "UNSAT"
