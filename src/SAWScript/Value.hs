@@ -21,6 +21,7 @@ import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST hiding ( incVars )
 
 import qualified Verifier.SAW.Evaluator as SC
+import qualified Cryptol.ModuleSystem as Cry
 
 -- Values ----------------------------------------------------------------------
 
@@ -47,6 +48,7 @@ data Value s
   | VLLVMSetup (LLVMSetup (Value s))
   | VJavaMethodSpec JavaMethodSpecIR
   | VLLVMMethodSpec LLVMMethodSpecIR
+  | VCryptolModuleEnv Cry.ModuleEnv
   -- | VAIG (BitEngine Lit) (V.Vector Lit) (V.Vector Lit)
 
 
@@ -81,6 +83,7 @@ instance Show (Value s) where
         VLLVMSetup {} -> showString "<<LLVM Setup>>"
         VJavaMethodSpec {} -> showString "<<Java MethodSpec>>"
         VLLVMMethodSpec {} -> showString "<<LLVM MethodSpec>>"
+        VCryptolModuleEnv {} -> showString "<<Cryptol ModuleEnv>>"
 
 indexValue :: Value s -> Value s -> Value s
 indexValue (VArray vs) (VInteger x)
@@ -194,6 +197,7 @@ exportValue val =
       VLLVMSetup {} -> error "VLLVMSetup unsupported"
       VJavaMethodSpec {} -> error "VJavaMethodSpec unsupported"
       VLLVMMethodSpec {} -> error "VLLVMMethodSpec unsupported"
+      VCryptolModuleEnv {} -> error "CryptolModuleEnv unsupported"
       -- VAIG {} -> error "VAIG unsupported" -- TODO: could be implemented
 
 -- IsValue class ---------------------------------------------------------------
@@ -304,3 +308,8 @@ instance IsValue SAWCtx LLVMMethodSpecIR where
     toValue ms = VLLVMMethodSpec ms
     fromValue (VLLVMMethodSpec ms) = ms
     fromValue _ = error "fromValue LLVMMethodSpec"
+
+instance IsValue s Cry.ModuleEnv where
+    toValue me = VCryptolModuleEnv me
+    fromValue (VCryptolModuleEnv me) = me
+    fromValue _ = error "fromValue CryptolModuleEnv"

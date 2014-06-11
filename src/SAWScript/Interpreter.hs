@@ -479,6 +479,7 @@ valueEnv opts bic = M.fromList
   , (qualify "read_aig"    , toValue $ readAIGPrim sc)
   , (qualify "write_aig"   , toValue $ writeAIG sc)
   -- Cryptol stuff
+  , (qualify "cryptol_module", toValue $ loadCryptol)
   , (qualify "cryptol_extract", toValue $ extractCryptol sc)
   -- Java stuff
   , (qualify "java_extract", toValue $ extractJava bic opts)
