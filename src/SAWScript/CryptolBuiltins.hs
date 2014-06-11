@@ -13,12 +13,6 @@ import qualified Cryptol.Parser as P
 import qualified Cryptol.TypeCheck.AST as T
 import Cryptol.Utils.PP
 
-import qualified Verifier.SAW.Simulator.BitBlast as BBSim
-import qualified Verinf.Symbolic as BE
-
-import SAWScript.Proof
-import SAWScript.Builtins (withBE)
-
 loadCryptol :: FilePath -> IO M.ModuleEnv
 loadCryptol filepath = do
   (result, warnings) <- M.loadModuleByPath filepath
@@ -44,20 +38,3 @@ extractCryptol sc modEnv input = do
       Left err -> fail (show (pp err))
       Right x -> return x
   C.importExpr sc env expr
-
-
--- | Bit-blast a @SharedTerm@ representing a theorem and check its
--- satisfiability using ABC. (Currently ignores satisfying assignments.)
-satABC' :: SharedContext s -> ProofScript s ProofResult
-satABC' sc = StateT $ \t -> withBE $ \be -> do
-  case BE.beCheckSat be of
-    Nothing -> fail "Backend does not support SAT checking."
-    Just chk -> do
-      lit <- BBSim.bitBlast be sc t
-      satRes <- chk lit
-      case satRes of
-        BE.UnSat -> do putStrLn "UNSAT"
-                       (,) () <$> scApplyPreludeFalse sc
-        BE.Sat _ -> do putStrLn "SAT"
-                       (,) () <$> scApplyPreludeTrue sc
-        _ -> fail "ABC returned Unknown for SAT query."

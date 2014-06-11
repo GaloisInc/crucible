@@ -40,6 +40,7 @@ import qualified SAWScript.AST as SS
 import SAWScript.Proof
 import SAWScript.Utils
 
+import qualified Verifier.SAW.Simulator.BitBlast as BBSim
 import qualified Verinf.Symbolic as BE
 
 data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
@@ -201,6 +202,22 @@ satABC sc = StateT $ \t -> withBE $ \be -> do
         _ -> fail "Can't prove non-boolean term."
     (_, Nothing) -> fail "Backend does not support SAT checking."
     (Left err, _) -> fail $ "Can't bitblast: " ++ err
+
+-- | Bit-blast a @SharedTerm@ representing a theorem and check its
+-- satisfiability using ABC. (Currently ignores satisfying assignments.)
+satABC' :: SharedContext s -> ProofScript s ProofResult
+satABC' sc = StateT $ \t -> withBE $ \be -> do
+  case BE.beCheckSat be of
+    Nothing -> fail "Backend does not support SAT checking."
+    Just chk -> do
+      lit <- BBSim.bitBlast be sc t
+      satRes <- chk lit
+      case satRes of
+        BE.UnSat -> do putStrLn "UNSAT"
+                       (,) () <$> scApplyPreludeFalse sc
+        BE.Sat _ -> do putStrLn "SAT"
+                       (,) () <$> scApplyPreludeTrue sc
+        _ -> fail "ABC returned Unknown for SAT query."
 
 satAIG :: SharedContext s -> FilePath -> ProofScript s ProofResult
 satAIG sc path = StateT $ \t -> do
