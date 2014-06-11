@@ -192,7 +192,7 @@ simplifyGoal sc ss = StateT $ \goal -> do
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
-satABC :: SharedContext s -> ProofScript s (SatResult s)
+satABC :: SharedContext s -> ProofScript s (SV.SatResult s)
 satABC sc = StateT $ \t -> withBE $ \be -> do
   t' <- prepForExport sc t
   let (args, _) = asLambdaList t'
@@ -206,12 +206,13 @@ satABC sc = StateT $ \t -> withBE $ \be -> do
         BBool l -> do
           satRes <- ABC.checkSat be l
           case satRes of
-            ABC.Unsat -> (Unsat,) <$> scApplyPreludeFalse sc
+            ABC.Unsat -> (SV.Unsat,) <$> scApplyPreludeFalse sc
             ABC.Sat cex -> do
               r <- liftCexBB sc shapes cex
               case r of
                 Left err -> fail $ "Can't parse counterexample: " ++ err
-                Right [tm] -> (Sat tm,) <$> scApplyPreludeTrue sc
+                Right [tm] -> (SV.Sat (SV.evaluate sc tm),) <$>
+                              scApplyPreludeTrue sc
                 Right tms ->
                   fail . unlines $
                   "Proof failed with multi-argument counterexample: " :
@@ -219,7 +220,7 @@ satABC sc = StateT $ \t -> withBE $ \be -> do
         _ -> fail "Can't prove non-boolean term."
     Left err -> fail $ "Can't bitblast: " ++ err
 
-satYices :: SharedContext s -> ProofScript s (SatResult s)
+satYices :: SharedContext s -> ProofScript s (SV.SatResult s)
 satYices sc = StateT $ \t -> withBE $ \be -> do
   t' <- prepForExport sc t
   let (args, _) = asLambdaList t'
@@ -232,37 +233,38 @@ satYices sc = StateT $ \t -> withBE $ \be -> do
         (map (fmap scPrettyTermDoc) (ws' ^. SMT1.warnings))
   res <- Y.yices Nothing (SMT1.smtScript ws')
   case res of
-    Y.YUnsat -> (Unsat,) <$> scApplyPreludeFalse sc
+    Y.YUnsat -> (SV.Unsat,) <$> scApplyPreludeFalse sc
     Y.YSat m -> do
       r <- liftCexMapYices sc m
       case r of
         Left err -> fail $ "Can't parse counterexample: " ++ err
-        Right [(_n, tm)] -> (Sat tm,) <$> scApplyPreludeTrue sc
+        Right [(_n, tm)] -> (SV.Sat (SV.evaluate sc tm),) <$>
+                            scApplyPreludeTrue sc
         Right tms ->
           fail . unlines $
           "Proof failed with multi-argument counterexample: " :
           map show (zip argNames tms)
     Y.YUnknown -> fail "ABC returned Unknown for SAT query."
 
-satAIG :: SharedContext s -> FilePath -> ProofScript s (SatResult s)
+satAIG :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
 satAIG sc path = StateT $ \t -> do
   writeAIG sc path t
-  (Unsat,) <$> scApplyPreludeFalse sc
+  (SV.Unsat,) <$> scApplyPreludeFalse sc
 
-satExtCore :: SharedContext s -> FilePath -> ProofScript s (SatResult s)
+satExtCore :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
 satExtCore sc path = StateT $ \t -> do
   writeCore path t
-  (Unsat,) <$> scApplyPreludeFalse sc
+  (SV.Unsat,) <$> scApplyPreludeFalse sc
 
-satSMTLib1 :: SharedContext s -> FilePath -> ProofScript s (SatResult s)
+satSMTLib1 :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
 satSMTLib1 sc path = StateT $ \t -> do
   writeSMTLib1 sc path t
-  (Unsat,) <$> scApplyPreludeFalse sc
+  (SV.Unsat,) <$> scApplyPreludeFalse sc
 
-satSMTLib2 :: SharedContext s -> FilePath -> ProofScript s (SatResult s)
+satSMTLib2 :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
 satSMTLib2 sc path = StateT $ \t -> do
   writeSMTLib2 sc path t
-  (Unsat,) <$> scApplyPreludeFalse sc
+  (SV.Unsat,) <$> scApplyPreludeFalse sc
 
 liftCexBB :: SharedContext s -> [BShape] -> [Bool]
           -> IO (Either String [SharedTerm s])
@@ -303,16 +305,16 @@ scNegate sc t =
 
 -- | Translate a @SharedTerm@ representing a theorem for input to the
 -- given validity-checking script and attempt to prove it.
-provePrim :: SharedContext s -> ProofScript s (SatResult s)
-          -> SharedTerm s -> IO (ProofResult s)
+provePrim :: SharedContext s -> ProofScript s (SV.SatResult s)
+          -> SharedTerm s -> IO (SV.ProofResult s)
 provePrim sc script t = do
   t' <- scNegate sc t
   (r, _) <- runStateT script t'
-  return (flipSatResult r)
+  return (SV.flipSatResult r)
 
 -- | FIXME: change return type so that we can return the witnesses.
-satPrim :: SharedContext s -> ProofScript s (SatResult s) -> SharedTerm s
-        -> IO (SatResult s)
+satPrim :: SharedContext s -> ProofScript s (SV.SatResult s) -> SharedTerm s
+        -> IO (SV.SatResult s)
 satPrim _sc script t = do
   (r, _) <- runStateT script t
   return r

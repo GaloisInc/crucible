@@ -51,6 +51,20 @@ data Value s
   | VProofResult (ProofResult s)
   -- | VAIG (BitEngine Lit) (V.Vector Lit) (V.Vector Lit)
 
+data ProofResult s
+  = Valid
+  | Invalid (Value s)
+    deriving (Show)
+
+data SatResult s
+  = Unsat
+  | Sat (Value s)
+    deriving (Show)
+
+flipSatResult :: SatResult s -> ProofResult s
+flipSatResult Unsat = Valid
+flipSatResult (Sat t) = Invalid t
+
 isVUnit :: Value s -> Bool
 isVUnit (VTuple []) = True
 isVUnit _ = False
@@ -171,14 +185,22 @@ importValue val =
       SC.VCtorApp ident args
         | ident == parseIdent "Prelude.False" -> VBool False
         | ident == parseIdent "Prelude.True" -> VBool True
+        | ident == parseIdent "Prelude.Valid" -> VProofResult Valid
+        | ident == parseIdent "Prelude.Invalid" ->
+          case V.toList args of
+            [x] -> VProofResult (Invalid (importValue x))
+            _ -> error "Prelude.Invalid applied to wrong number of arguments"
+        | ident == parseIdent "Prelude.Sat" ->
+          case V.toList args of
+            [x] -> VSatResult (Sat (importValue x))
+            _ -> error "Prelude.Sat applied to wrong number of arguments"
+        | ident == parseIdent "Prelude.Unsat" -> VSatResult Unsat
         | otherwise ->
           VCtorApp (show ident) (V.toList (fmap importValue args))
       SC.VVector vs -> VArray (V.toList (fmap importValue vs))
       SC.VFloat {} -> error "VFloat unsupported"
       SC.VDouble {} -> error "VDouble unsupported"
       SC.VType -> error "VType unsupported"
-      -- TODO: ProofResult
-      -- TODO: SatResult
 
 exportValue :: Value s -> SC.Value
 exportValue val =
@@ -205,8 +227,14 @@ exportValue val =
       VLLVMSetup {} -> error "VLLVMSetup unsupported"
       VJavaMethodSpec {} -> error "VJavaMethodSpec unsupported"
       VLLVMMethodSpec {} -> error "VLLVMMethodSpec unsupported"
-      -- TODO: ProofResult
-      -- TODO: SatResult
+      VProofResult Valid ->
+        SC.VCtorApp (parseIdent "Prelude.Valid") V.empty
+      VProofResult (Invalid x) ->
+        SC.VCtorApp (parseIdent "Prelude.Invalid") (V.fromList [exportValue x])
+      VSatResult Unsat ->
+        SC.VCtorApp (parseIdent "Prelude.Unsat") V.empty
+      VSatResult (Sat x) ->
+        SC.VCtorApp (parseIdent "Prelude.Sat") (V.fromList [exportValue x])
       -- VAIG {} -> error "VAIG unsupported" -- TODO: could be implemented
 
 -- IsValue class ---------------------------------------------------------------

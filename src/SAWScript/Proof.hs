@@ -16,16 +16,3 @@ type ProofGoal s = SharedTerm s
 
 type ProofScript s a = StateT (ProofGoal s) IO a
 
-data ProofResult s
-  = Valid
-  | Invalid (SharedTerm s)
-    deriving (Show)
-
-data SatResult s
-  = Unsat
-  | Sat (SharedTerm s)
-    deriving (Show)
-
-flipSatResult :: SatResult s -> ProofResult s
-flipSatResult Unsat = Valid
-flipSatResult (Sat t) = Invalid t

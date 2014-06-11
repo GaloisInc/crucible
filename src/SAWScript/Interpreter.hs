@@ -37,7 +37,7 @@ import SAWScript.Options
 import SAWScript.Proof
 import SAWScript.Utils
 import SAWScript.Value
-import Verifier.SAW.Prelude (preludeModule)
+import Verifier.SAW.Prelude (preludeModule, preludeStringIdent)
 import Verifier.SAW.Rewriter ( Simpset, emptySimpset, rewritingSharedContext )
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST hiding ( incVars )
@@ -127,6 +127,8 @@ translateType sc tenv ty =
       SS.TyCon SS.BoolCon []      -> scBoolType sc
       SS.TyCon SS.ZCon []         -> scNatType sc
       SS.TyCon (SS.NumCon n) []   -> scNat sc (fromInteger n)
+      SS.TyCon SS.StringCon []    ->
+        scFlatTermF sc (DataTypeApp preludeStringIdent [])
       SS.TyVar (SS.BoundVar x)    -> case M.lookup x tenv of
                                        Nothing -> fail $ "translateType: unbound type variable: " ++ x
                                        Just (i, _k) -> do
@@ -531,8 +533,6 @@ valueEnv opts bic = M.fromList
                                           -> ProofScript SAWCtx (Value SAWCtx))) -- FIXME: temporary
     -}
   , (qualify "define"      , toValue $ definePrim sc)
-  , (qualify "caseProofResult", toValue $ caseProofResultPrim sc)
-  , (qualify "caseSatResult", toValue $ caseSatResultPrim sc)
   ] where sc = biSharedContext bic
 
 coreEnv :: SharedContext s -> IO (RNameMap (SharedTerm s))
@@ -591,6 +591,8 @@ coreEnv sc =
     , (qualify "llvm_double", "LLVM.mkDoubleType")
     , (qualify "llvm_array" , "LLVM.mkArrayType")
     , (qualify "llvm_value",  "LLVM.mkValue")
+    , (qualify "caseProofResult", "Prelude.caseProofResult")
+    , (qualify "caseSatResult", "Prelude.caseSatResult")
     ]
 
 qualify :: String -> SS.ResolvedName
