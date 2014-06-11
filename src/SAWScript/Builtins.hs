@@ -358,31 +358,29 @@ bindExts sc args body = do
           extIdx (STApp _ (FTermF (ExtCns ec))) = Just (ecVarIndex ec)
           extIdx _ = Nothing
 
-caseProofResultPrim :: SharedContext s -> ProofResult s
+toValueCase :: (SV.IsValue s b) =>
+               SharedContext s
+            -> (SharedContext s -> b -> SV.Value s -> SV.Value s -> IO (SV.Value s))
+            -> SV.Value s
+toValueCase sc prim =
+  SV.VFun $ \b ->
+  SV.VFun $ \v1 ->
+  SV.VLambda $ \v2 _ ->
+  prim sc (SV.fromValue b) v1 v2
+
+caseProofResultPrim :: SharedContext s -> SV.ProofResult s
                     -> SV.Value s -> SV.Value s
                     -> IO (SV.Value s)
 caseProofResultPrim sc pr vValid vInvalid = do
   case pr of
-    Valid -> return vValid
-    Invalid t ->
-      case vInvalid of
-        SV.VFunTerm f -> return (f t)
-        SV.VLambda f -> f (SV.evaluate sc t) Nothing
-        SV.VFun f -> return (f (SV.evaluate sc t))
-        _ -> fail $ "Invalid case of caseProofResultPrim isn't a function: " ++
-                    show vInvalid
+    SV.Valid -> return vValid
+    SV.Invalid v -> SV.applyValue sc vInvalid v
 
 
-caseSatResultPrim :: SharedContext s -> SatResult s
+caseSatResultPrim :: SharedContext s -> SV.SatResult s
                   -> SV.Value s -> SV.Value s
                   -> IO (SV.Value s)
 caseSatResultPrim sc sr vUnsat vSat = do
   case sr of
-    Unsat -> return vUnsat
-    Sat t ->
-      case vSat of
-        SV.VFunTerm f -> return (f t)
-        SV.VLambda f -> f (SV.evaluate sc t) Nothing
-        SV.VFun f -> return (f (SV.evaluate sc t))
-        _ -> fail $ "Sat case of caseSatResultPrim isn't a function: " ++
-                    show vSat
+    SV.Unsat -> return vUnsat
+    SV.Sat v -> SV.applyValue sc vSat v

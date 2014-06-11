@@ -533,6 +533,8 @@ valueEnv opts bic = M.fromList
                                           -> ProofScript SAWCtx (Value SAWCtx))) -- FIXME: temporary
     -}
   , (qualify "define"      , toValue $ definePrim sc)
+  , (qualify "caseSatResult", toValueCase sc caseSatResultPrim)
+  , (qualify "caseProofResult", toValueCase sc caseProofResultPrim)
   ] where sc = biSharedContext bic
 
 coreEnv :: SharedContext s -> IO (RNameMap (SharedTerm s))
@@ -591,8 +593,6 @@ coreEnv sc =
     , (qualify "llvm_double", "LLVM.mkDoubleType")
     , (qualify "llvm_array" , "LLVM.mkArrayType")
     , (qualify "llvm_value",  "LLVM.mkValue")
-    , (qualify "caseProofResult", "Prelude.caseProofResult")
-    , (qualify "caseSatResult", "Prelude.caseSatResult")
     ]
 
 qualify :: String -> SS.ResolvedName

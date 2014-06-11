@@ -185,16 +185,6 @@ importValue val =
       SC.VCtorApp ident args
         | ident == parseIdent "Prelude.False" -> VBool False
         | ident == parseIdent "Prelude.True" -> VBool True
-        | ident == parseIdent "Prelude.Valid" -> VProofResult Valid
-        | ident == parseIdent "Prelude.Invalid" ->
-          case V.toList args of
-            [x] -> VProofResult (Invalid (importValue x))
-            _ -> error "Prelude.Invalid applied to wrong number of arguments"
-        | ident == parseIdent "Prelude.Sat" ->
-          case V.toList args of
-            [x] -> VSatResult (Sat (importValue x))
-            _ -> error "Prelude.Sat applied to wrong number of arguments"
-        | ident == parseIdent "Prelude.Unsat" -> VSatResult Unsat
         | otherwise ->
           VCtorApp (show ident) (V.toList (fmap importValue args))
       SC.VVector vs -> VArray (V.toList (fmap importValue vs))
@@ -227,14 +217,8 @@ exportValue val =
       VLLVMSetup {} -> error "VLLVMSetup unsupported"
       VJavaMethodSpec {} -> error "VJavaMethodSpec unsupported"
       VLLVMMethodSpec {} -> error "VLLVMMethodSpec unsupported"
-      VProofResult Valid ->
-        SC.VCtorApp (parseIdent "Prelude.Valid") V.empty
-      VProofResult (Invalid x) ->
-        SC.VCtorApp (parseIdent "Prelude.Invalid") (V.fromList [exportValue x])
-      VSatResult Unsat ->
-        SC.VCtorApp (parseIdent "Prelude.Unsat") V.empty
-      VSatResult (Sat x) ->
-        SC.VCtorApp (parseIdent "Prelude.Sat") (V.fromList [exportValue x])
+      VProofResult {} -> error "VProofResult unsupported"
+      VSatResult {} -> error "VSatResult unsupported"
       -- VAIG {} -> error "VAIG unsupported" -- TODO: could be implemented
 
 -- IsValue class ---------------------------------------------------------------
