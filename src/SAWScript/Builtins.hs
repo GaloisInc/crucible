@@ -11,6 +11,7 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad.Error
 import Control.Monad.State
+import Data.Bits
 import Data.Either (partitionEithers)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -213,10 +214,11 @@ satABC sc = StateT $ \t -> withBE $ \be -> do
                 Left err -> fail $ "Can't parse counterexample: " ++ err
                 Right [tm] -> (SV.Sat (SV.evaluate sc tm),) <$>
                               scApplyPreludeTrue sc
-                Right tms ->
+                Right tms -> do
+                  let vs = map (SV.evaluate sc) tms
                   fail . unlines $
-                  "Proof failed with multi-argument counterexample: " :
-                  map show (zip argNames tms)
+                    "Proof failed with multi-argument counterexample: " :
+                    map show (zip argNames vs)
         _ -> fail "Can't prove non-boolean term."
     Left err -> fail $ "Can't bitblast: " ++ err
 

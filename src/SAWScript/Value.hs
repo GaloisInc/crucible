@@ -69,6 +69,16 @@ isVUnit :: Value s -> Bool
 isVUnit (VTuple []) = True
 isVUnit _ = False
 
+bitsToWord :: [Bool] -> Value s
+bitsToWord bs = VWord (length bs) (SC.bvToInteger (V.fromList bs))
+
+arrayToWord :: [Value s] -> Value s
+arrayToWord = bitsToWord . map fromValue
+
+isBool :: Value s -> Bool
+isBool (VBool _) = True
+isBool _ = False
+
 instance Show (Value s) where
     showsPrec p v =
       case v of
@@ -77,7 +87,8 @@ instance Show (Value s) where
         VString s -> shows s
         VInteger n -> shows n
         VWord w x -> showParen (p > 9) (shows x . showString "::[" . shows w . showString "]")
-        VArray vs -> showList vs
+        VArray vs | all isBool vs -> shows (arrayToWord vs)
+                  | otherwise -> showList vs
         VTuple vs -> showParen True
                      (foldr (.) id (intersperse (showString ",") (map shows vs)))
         VRecord m -> showString "{" .
