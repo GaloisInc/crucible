@@ -168,6 +168,7 @@ data Expr refT typeT
   -- Accessors
   | Index  (Expr refT typeT) (Expr refT typeT) typeT
   | Lookup (Expr refT typeT) Name              typeT
+  | TLookup (Expr refT typeT) Integer          typeT
   -- LC
   | Var         refT  typeT
   | Function    Name  typeT       (Expr refT typeT) typeT
@@ -555,6 +556,7 @@ typeOf expr = case expr of
   Record _ t        -> t
   Index _ _ t       -> t
   Lookup _ _ t      -> t
+  TLookup _ _ t     -> t
   Var _ t           -> t
   Function _ _ _ t  -> t
   Application _ _ t -> t
@@ -577,6 +579,7 @@ updateAnnotation t expr = case expr of
   Record x _        -> Record x t
   Index x y _       -> Index x y t
   Lookup x y _      -> Lookup x y t
+  TLookup x y _     -> TLookup x y t
   Var x _           -> Var x t
   Function a at b _ -> Function a at b t
   Application f v _ -> Application f v t
@@ -616,7 +619,7 @@ rewindType (TyCon (TupleCon _len) types) = tuple $ map rewindType types
 rewindType (TyRecord bindings) = record $ M.assocs $ M.map rewindType bindings
 rewindType (TyVar var) = case var of
   BoundVar name -> pVar name
-  FreeVar name -> error "rewindType: FreeVar in Schema"
+  FreeVar name -> error $ "rewindType: FreeVar in Schema: " ++ show name
 
 rewindContext :: Context -> FullT
 rewindContext CryptolSetup = cryptolSetupContext

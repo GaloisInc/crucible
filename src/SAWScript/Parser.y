@@ -207,6 +207,7 @@ AExpr :: { ExprSimple RawT }
  | '{' commas(Field) '}'                { Record $2 Nothing               }
  | 'do' '{' termBy(BlockStmt, ';') '}'  { Block $3 Nothing                }
  | AExpr '.' name                       { Lookup $1 $3 Nothing            }
+ | AExpr '.' num                        { TLookup $1 $3 Nothing           }
 
 Field :: { (Name, ExprSimple RawT) }
  : name '=' Expression                  { ($1, $3) }

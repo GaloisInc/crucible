@@ -119,6 +119,12 @@ lookupValue (VRecord vm) name =
       Just x -> x
 lookupValue _ _ = error "lookupValue"
 
+tupleLookupValue :: Value s -> Integer -> Value s
+tupleLookupValue (VTuple vs) i
+  | fromIntegral i <= length vs = vs !! (fromIntegral i - 1)
+  | otherwise = error $ "no such tuple index: " ++ show i
+tupleLookupValue _ _ = error "tupleLookupValue"
+
 evaluate :: SharedContext s -> SharedTerm s -> Value s
 evaluate sc t = importValue (SC.evalSharedTerm eval t)
   where eval = SC.evalGlobal (scModule sc) SC.preludePrims

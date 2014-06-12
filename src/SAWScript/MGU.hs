@@ -236,6 +236,7 @@ instance AppSubst Expr where
     Record fs          -> Record $ appSubst s fs
     Index ar ix        -> Index (appSubst s ar) (appSubst s ix)
     Lookup rec fld     -> Lookup (appSubst s rec) fld
+    TLookup tpl idx    -> TLookup (appSubst s tpl) idx
     Var x              -> Var x
     Function x xt body -> Function x (appSubst s xt) (appSubst s body)
     Application f v    -> Application (appSubst s f) (appSubst s v)
@@ -255,6 +256,7 @@ instance AppSubst ty => AppSubst (A.Expr names ty) where
 
     A.Index ar ix t -> A.Index (appSubst s ar) (appSubst s ix) (appSubst s t)
     A.Lookup rec fld t   -> A.Lookup (appSubst s rec) fld (appSubst s t)
+    A.TLookup tpl idx t  -> A.TLookup (appSubst s tpl) idx (appSubst s t)
     A.Var x t            -> A.Var x (appSubst s t)
     A.Function x xt body t-> A.Function x (appSubst s xt) (appSubst s body) (appSubst s t)
     A.Application f v t  -> A.Application (appSubst s f) (appSubst s v) (appSubst s t)
@@ -394,6 +396,26 @@ inferE expr = case expr of
                             ]
                          newType
        ret (A.Lookup e1 n) elTy
+  TLookup e i ->
+    do (e1,t) <- inferE e
+       t1 <- appSubstM t
+       elTy <- case t1 of
+                 TyCon (TupleCon n) tys
+                   | i <= n -> return (tys !! (fromIntegral i - 1))
+                   | otherwise ->
+                          do recordError $ unlines
+                                [ "Tuple index out of bounds."
+                                , "Given index " ++ show i ++
+                                  " is greater than tuple size of " ++
+                                  show n
+                                ]
+                             newType
+                 _ -> do recordError $ unlines
+                            [ "We only support simple tuple lookup for now."
+                            , "Please add type signature on argument."
+                            ]
+                         newType
+       ret (A.TLookup e1 i) elTy
 
 
 
@@ -511,6 +533,7 @@ generalize es0 ts0 =
 
       A.Index ar ix t       -> A.Index ar ix (tForall xs t)
       A.Lookup rec fld t    -> A.Lookup rec fld (tForall xs t)
+      A.TLookup tpl idx t   -> A.TLookup tpl idx (tForall xs t)
       A.Var x t             -> A.Var x (tForall xs t)
       A.Function x xt body t-> A.Function x xt body (tForall xs t)
       A.Application f v t   -> A.Application f v (tForall xs t)
@@ -564,6 +587,7 @@ defsDepsBind m it@(x,e0) = (it, [ A.TopLevelName m x ], S.toList (uses e0))
       Record fs           -> S.unions (map uses $ M.elems fs)
       Index  e1 e2        -> S.union (uses e1) (uses e2)
       Lookup e _          -> uses e
+      TLookup e _         -> uses e
       Var (A.LocalName _) -> S.empty
       Var name            -> S.singleton name  -- This is what we look for
       Function  _ _ e     -> uses e

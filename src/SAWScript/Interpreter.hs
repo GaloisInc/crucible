@@ -166,6 +166,7 @@ translatableExpr env expr =
       SS.Record bs         _ -> all (translatableExpr env . snd) bs
       SS.Index e n         _ -> translatableExpr env e && translatableExpr env n
       SS.Lookup e _        _ -> translatableExpr env e
+      SS.TLookup e _       _ -> translatableExpr env e
       SS.Var x             _ -> S.member x env
       SS.Function x t e    _ -> translatableSchema t && translatableExpr env' e
           where env' = S.insert (SS.LocalName x) env
@@ -203,6 +204,8 @@ translateExpr sc tm sm km expr =
                                         scGet sc l' t' e' i''
       SS.Lookup e n             _ -> do e' <- translateExpr sc tm sm km e
                                         scRecordSelect sc e' n
+      SS.TLookup e i            _ -> do e' <- translateExpr sc tm sm km e
+                                        scTupleSelector sc e' (fromIntegral i)
       SS.Var x (SS.Forall [] t)   -> case M.lookup x sm of
                                        Nothing -> fail $ "Untranslatable: " ++ SS.renderResolvedName x
                                        Just e' ->
@@ -280,6 +283,8 @@ interpret sc env@(InterpretEnv vm tm sm) expr =
                                    return (indexValue a i)
       SS.Lookup e n        _ -> do a <- interpret sc env e
                                    return (lookupValue a n)
+      SS.TLookup e i       _ -> do a <- interpret sc env e
+                                   return (tupleLookupValue a i)
       SS.Var x (SS.Forall [] t)
                              -> case M.lookup x vm of
                                   Nothing -> evaluate sc <$> translateExpr sc tm sm M.empty expr
@@ -392,6 +397,7 @@ exprDeps expr =
       SS.Record bs         _ -> S.unions (map (exprDeps . snd) bs)
       SS.Index e1 e2       _ -> S.union (exprDeps e1) (exprDeps e2)
       SS.Lookup e _        _ -> exprDeps e
+      SS.TLookup e _       _ -> exprDeps e
       SS.Var name          _ -> S.singleton name
       SS.Function _ _ e    _ -> exprDeps e
       SS.Application e1 e2 _ -> S.union (exprDeps e1) (exprDeps e2)

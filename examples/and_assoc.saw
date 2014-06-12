@@ -1,5 +1,7 @@
+and_assoc (t : (Bit, Bit, Bit)) =
+  ((t.1 && t.2) && t.3) == (t.1 && (t.2 && t.3));
+
 main = do {
-  let and_assoc x y z = ((x && y) && z) == (x && (y && z));
   result <- prove abc and_assoc;
   print result;
 };
