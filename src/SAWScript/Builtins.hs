@@ -384,3 +384,21 @@ caseSatResultPrim sc sr vUnsat vSat = do
   case sr of
     SV.Unsat -> return vUnsat
     SV.Sat v -> SV.applyValue sc vSat v
+
+-- TODO: this works, but is far too verbose. Let's figure out how to
+-- specify it more concisely.
+truncPrim :: SharedContext s -> Integer -> SV.Value s
+truncPrim sc n =
+  SV.VLambda $ \v _ ->
+    case v of
+      SV.VTerm t -> do
+        bvTrunc <- scApplyPreludeBvTrunc sc
+        ty <- scTypeOf sc t
+        case asBitvectorType ty of
+          Just m -> do
+            dt <- scNat sc (m - fromIntegral n)
+            nt <- scNat sc (fromIntegral n)
+            SV.VTerm <$> bvTrunc dt nt t
+          Nothing -> fail "trunc applied to non-bitvector"
+      SV.VWord w v -> return (SV.VWord (fromIntegral n) (v .&. (2^n - 1)))
+      _ ->  fail $ "trunc applied to non-term: " ++ show v
