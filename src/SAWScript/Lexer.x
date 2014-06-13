@@ -38,7 +38,8 @@ $hexit     = [0-9 A-F a-f]
 $idchar    = [$alpha $digit \' \_]
 
 @reservedid  = import|and|let|fun|in|type|abstract|do|if|then|else|as|undefined
-             |prim|CryptolSetup|JavaSetup|LLVMSetup|ProofScript|TopLevel
+             |prim|CryptolSetup|JavaSetup|LLVMSetup
+             |ProofScript|ProofResult|SatResult|TopLevel
              |Int|String|Bit
 @punct       = "," | ";" | "(" | ")" | ":" | "::" | "[" | "]" | "<-" | "->"
              | "=" | "{" | "}" | "." | "\"
@@ -46,7 +47,6 @@ $idchar    = [$alpha $digit \' \_]
              | "^" | "#"  | "==" | "!=" | ">=" | ">" | "<=" |"<" | "&&"
              | "||" | "==>" | "@"
 @varid       = $alpha $idchar*
-@qvarid      = @varid (\. @varid)+
 @decimal     = $digit+
 @binary      = $binit+
 @octal       = $octit+
@@ -82,7 +82,6 @@ $white+                          ;
 \' 0[bB] @binary                 { TQNum `via`  (readBin . drop 1) }
 \' 0[oO] @octal                  { TQNum `via`  (read    . drop 1) }
 \' 0[xX] @hexadecimal            { TQNum `via`  (read    . drop 1) }
-@qvarid                          { TQVar `via`  readQVar }
 .                                { TUnknown              }
 
 {

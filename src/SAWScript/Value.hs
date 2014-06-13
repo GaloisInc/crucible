@@ -49,12 +49,37 @@ data Value s
   | VJavaMethodSpec JavaMethodSpecIR
   | VLLVMMethodSpec LLVMMethodSpecIR
   | VCryptolModuleEnv Cry.ModuleEnv
+  | VSatResult (SatResult s)
+  | VProofResult (ProofResult s)
   -- | VAIG (BitEngine Lit) (V.Vector Lit) (V.Vector Lit)
 
+data ProofResult s
+  = Valid
+  | Invalid (Value s)
+    deriving (Show)
+
+data SatResult s
+  = Unsat
+  | Sat (Value s)
+    deriving (Show)
+
+flipSatResult :: SatResult s -> ProofResult s
+flipSatResult Unsat = Valid
+flipSatResult (Sat t) = Invalid t
 
 isVUnit :: Value s -> Bool
 isVUnit (VTuple []) = True
 isVUnit _ = False
+
+bitsToWord :: [Bool] -> Value s
+bitsToWord bs = VWord (length bs) (SC.bvToInteger (V.fromList bs))
+
+arrayToWord :: [Value s] -> Value s
+arrayToWord = bitsToWord . map fromValue
+
+isBool :: Value s -> Bool
+isBool (VBool _) = True
+isBool _ = False
 
 instance Show (Value s) where
     showsPrec p v =
@@ -64,10 +89,15 @@ instance Show (Value s) where
         VString s -> shows s
         VInteger n -> shows n
         VWord w x -> showParen (p > 9) (shows x . showString "::[" . shows w . showString "]")
-        VArray vs -> showList vs
+        VArray vs | all isBool vs -> shows (arrayToWord vs)
+                  | otherwise -> showList vs
         VTuple vs -> showParen True
                      (foldr (.) id (intersperse (showString ",") (map shows vs)))
-        VRecord _ -> error "unimplemented: show VRecord" -- !(Map FieldName Value)
+        VRecord m -> showString "{" .
+                     (foldr (.) id (intersperse (showString ",")
+                                   (map showFld (M.toList m)))) .
+                     showString "}"
+                       where showFld (n, v) = shows n . showString "=" . shows v
         VFun {} -> showString "<<fun>>"
         VFunTerm {} -> showString "<<fun-term>>"
         VFunType {} -> showString "<<fun-type>>"
@@ -84,6 +114,10 @@ instance Show (Value s) where
         VJavaMethodSpec {} -> showString "<<Java MethodSpec>>"
         VLLVMMethodSpec {} -> showString "<<LLVM MethodSpec>>"
         VCryptolModuleEnv {} -> showString "<<Cryptol ModuleEnv>>"
+        VProofResult Valid -> showString "Valid"
+        VProofResult (Invalid t) -> showString "Invalid: " . shows t
+        VSatResult Unsat -> showString "Unsat"
+        VSatResult (Sat t) -> showString "Sat: " . shows t
 
 indexValue :: Value s -> Value s -> Value s
 indexValue (VArray vs) (VInteger x)
@@ -98,6 +132,12 @@ lookupValue (VRecord vm) name =
       Nothing -> error $ "no such record field: " ++ name
       Just x -> x
 lookupValue _ _ = error "lookupValue"
+
+tupleLookupValue :: Value s -> Integer -> Value s
+tupleLookupValue (VTuple vs) i
+  | fromIntegral i <= length vs = vs !! (fromIntegral i - 1)
+  | otherwise = error $ "no such tuple index: " ++ show i
+tupleLookupValue _ _ = error "tupleLookupValue"
 
 evaluate :: SharedContext s -> SharedTerm s -> Value s
 evaluate sc t = importValue (SC.evalSharedTerm eval t)
@@ -198,6 +238,8 @@ exportValue val =
       VJavaMethodSpec {} -> error "VJavaMethodSpec unsupported"
       VLLVMMethodSpec {} -> error "VLLVMMethodSpec unsupported"
       VCryptolModuleEnv {} -> error "CryptolModuleEnv unsupported"
+      VProofResult {} -> error "VProofResult unsupported"
+      VSatResult {} -> error "VSatResult unsupported"
       -- VAIG {} -> error "VAIG unsupported" -- TODO: could be implemented
 
 -- IsValue class ---------------------------------------------------------------
@@ -313,3 +355,13 @@ instance IsValue s Cry.ModuleEnv where
     toValue me = VCryptolModuleEnv me
     fromValue (VCryptolModuleEnv me) = me
     fromValue _ = error "fromValue CryptolModuleEnv"
+
+instance IsValue s (ProofResult s) where
+   toValue r = VProofResult r
+   fromValue (VProofResult r) = r
+   fromValue _ = error "fromValue ProofResult"
+
+instance IsValue s (SatResult s) where
+   toValue r = VSatResult r
+   fromValue (VSatResult r) = r
+   fromValue _ = error "fromValue SatResult"

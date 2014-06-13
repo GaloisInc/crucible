@@ -9,6 +9,7 @@ import Control.Applicative
 import Control.Exception (bracket)
 import Control.Monad.Error
 import Control.Monad.State
+import qualified Data.ABC as ABC
 import Data.List (sort)
 import Data.List.Split
 import Data.IORef
@@ -55,7 +56,7 @@ extractJava bic opts cname mname _setup = do
   cls <- lookupClass cb fixPos cname'
   (_, meth) <- findMethod cb fixPos mname cls
   argsRef <- newIORef []
-  bracket BE.createBitEngine BE.beFree $ \be -> do
+  ABC.withNewGraph ABC.giaNetwork $ \be -> do
     let fl = JSS.defaultSimFlags { JSS.alwaysBitBlastBranchTerms = True }
     sbe <- JSS.sawBackend sc (Just argsRef) be
     JSS.runSimulator cb sbe JSS.defaultSEH (Just fl) $ do
@@ -93,7 +94,7 @@ verifyJava bic opts cname mname overrides setup = do
   sc0 <- mkSharedContext JSS.javaModule
   ss <- basic_ss sc0
   let (jsc :: SharedContext JSSCtx) = sc0 -- rewritingSharedContext sc0 ss
-  be <- createBitEngine
+  ABC.SomeGraph be <- ABC.newGraph ABC.giaNetwork
   backend <- JSS.sawBackend jsc Nothing be
   ms0 <- initMethodSpec pos cb cname mname
   let jsctx0 = JavaSetupState {
@@ -116,7 +117,7 @@ verifyJava bic opts cname mname overrides setup = do
                 , cl <- bsRefEquivClasses bs
                 ]
   forM_ configs $ \(bs,cl) -> do
-    when (verb >= 3) $ do
+    when (verb >= 2) $ do
       putStrLn $ "Executing " ++ specName ms ++
                  " at PC " ++ show (bsLoc bs) ++ "."
     JSS.runDefSimulator cb backend $ do
@@ -126,17 +127,18 @@ verifyJava bic opts cname mname overrides setup = do
           initialExts =
             sort . filter isExtCns . map snd . esdInitialAssignments $ esd
       res <- mkSpecVC jsc vp esd
-      when (verb >= 3) $ liftIO $ do
+      when (verb >= 5) $ liftIO $ do
         putStrLn "Verifying the following:"
         mapM_ (print . ppPathVC) res
       let prover vs script g = do
             glam <- bindExts jsc initialExts g
-            glam' <- scImport (biSharedContext bic) glam
-            when (verb >= 4) $ putStrLn $ "Trying to prove: " ++ show glam'
-            Theorem thm <- provePrim (biSharedContext bic) script glam'
-            when (verb >= 3) $ putStrLn $ "Proved: " ++ show thm
+            let bsc = biSharedContext bic
+            glam' <- scNegate bsc =<< scImport bsc glam
+            when (verb >= 6) $ putStrLn $ "Trying to prove: " ++ show glam'
+            (r, _) <- runStateT script glam'
+            -- TODO: catch counterexamples!
+            when (verb >= 5) $ putStrLn $ "Proved: " ++ show r
       liftIO $ runValidation prover vp jsc esd res
-  BE.beFree be
   let overrideText = case overrides of
                        [] -> ""
                        irs -> " (overriding " ++ show (map specName irs) ++ ")"
@@ -185,6 +187,7 @@ parseJavaExpr cb cls meth = parseParts . reverse . splitOn "."
           return (CC.Term (InstanceField e fid))
 
 exportJSSType :: SS.Value s -> JSS.Type
+exportJSSType (SS.VCtorApp "Java.BooleanType" []) = JSS.BooleanType
 exportJSSType (SS.VCtorApp "Java.IntType" []) = JSS.IntType
 exportJSSType (SS.VCtorApp "Java.LongType" []) = JSS.LongType
 exportJSSType (SS.VCtorApp "Java.ArrayType" [_, ety]) =
@@ -194,6 +197,8 @@ exportJSSType (SS.VCtorApp "Java.ClassType" [SS.VString name]) =
 exportJSSType v = error $ "exportJSSType: Can't translate to Java type: " ++ show v
 
 exportJavaType :: JSS.Codebase -> SS.Value s -> IO JavaActualType
+exportJavaType _ (SS.VCtorApp "Java.BooleanType" []) =
+  return $ PrimitiveType JSS.BooleanType
 exportJavaType _ (SS.VCtorApp "Java.IntType" []) = return $ PrimitiveType JSS.IntType
 exportJavaType _ (SS.VCtorApp "Java.LongType" []) = return $ PrimitiveType JSS.LongType
 exportJavaType _ (SS.VCtorApp "Java.ArrayType" [SS.VInteger n, ety]) =
@@ -232,7 +237,6 @@ javaVar bic _ name t@(SS.VCtorApp _ _) = do
   liftIO $ scJavaValue sc lty name
 javaVar _ _ _ _ = fail "java_var called with invalid type argument"
 
-{-
 javaMayAlias :: BuiltinContext -> Options -> [String]
              -> JavaSetup ()
 javaMayAlias bic _ exprs = do
@@ -243,7 +247,6 @@ javaMayAlias bic _ exprs = do
       meth = specMethod ms
   exprs <- liftIO $ mapM (parseJavaExpr cb cls meth) exprs
   modify $ \st -> st { jsSpec = specAddAliasSet exprs (jsSpec st) }
--}
 
 javaAssert :: BuiltinContext -> Options -> SharedTerm SAWCtx
            -> JavaSetup ()
@@ -297,7 +300,7 @@ javaReturn _ _ t =
   modify $ \st ->
     st { jsSpec = specAddBehaviorCommand (Return (LE (mkLogicExpr t))) (jsSpec st) }
 
-javaVerifyTactic :: BuiltinContext -> Options -> ProofScript SAWCtx ProofResult
+javaVerifyTactic :: BuiltinContext -> Options -> ProofScript SAWCtx ()
                  -> JavaSetup ()
 javaVerifyTactic _ _ script =
   modify $ \st -> st { jsSpec = specSetVerifyTactic script (jsSpec st) }

@@ -14,6 +14,5 @@ data Theorem s = Theorem (SharedTerm s)
 -- proof script, and then re-negate the result afterward.
 type ProofGoal s = SharedTerm s
 
---type ProofScript s a = ProofGoal s -> IO (a, ProofGoal s)
 type ProofScript s a = StateT (ProofGoal s) IO a
-type ProofResult = () -- FIXME: could use this type to return witnesses
+

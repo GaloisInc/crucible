@@ -38,7 +38,7 @@ import SAWScript.Options
 import SAWScript.Proof
 import SAWScript.Utils
 import SAWScript.Value
-import Verifier.SAW.Prelude (preludeModule)
+import Verifier.SAW.Prelude (preludeModule, preludeStringIdent)
 import Verifier.SAW.Rewriter ( Simpset, emptySimpset, rewritingSharedContext )
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST hiding ( incVars )
@@ -130,6 +130,8 @@ translateType sc tenv ty =
       SS.TyCon SS.BoolCon []      -> scBoolType sc
       SS.TyCon SS.ZCon []         -> scNatType sc
       SS.TyCon (SS.NumCon n) []   -> scNat sc (fromInteger n)
+      SS.TyCon SS.StringCon []    ->
+        scFlatTermF sc (DataTypeApp preludeStringIdent [])
       SS.TyVar (SS.BoundVar x)    -> case M.lookup x tenv of
                                        Nothing -> fail $ "translateType: unbound type variable: " ++ x
                                        Just (i, _k) -> do
@@ -167,6 +169,7 @@ translatableExpr env expr =
       SS.Record bs         _ -> all (translatableExpr env . snd) bs
       SS.Index e n         _ -> translatableExpr env e && translatableExpr env n
       SS.Lookup e _        _ -> translatableExpr env e
+      SS.TLookup e _       _ -> translatableExpr env e
       SS.Var x             _ -> S.member x env
       SS.Function x t e    _ -> translatableSchema t && translatableExpr env' e
           where env' = S.insert (SS.LocalName x) env
@@ -204,6 +207,8 @@ translateExpr sc tm sm km expr =
                                         scGet sc l' t' e' i''
       SS.Lookup e n             _ -> do e' <- translateExpr sc tm sm km e
                                         scRecordSelect sc e' n
+      SS.TLookup e i            _ -> do e' <- translateExpr sc tm sm km e
+                                        scTupleSelector sc e' (fromIntegral i)
       SS.Var x (SS.Forall [] t)   -> case M.lookup x sm of
                                        Nothing -> fail $ "Untranslatable: " ++ SS.renderResolvedName x
                                        Just e' ->
@@ -281,6 +286,8 @@ interpret sc env@(InterpretEnv vm tm sm) expr =
                                    return (indexValue a i)
       SS.Lookup e n        _ -> do a <- interpret sc env e
                                    return (lookupValue a n)
+      SS.TLookup e i       _ -> do a <- interpret sc env e
+                                   return (tupleLookupValue a i)
       SS.Var x (SS.Forall [] t)
                              -> case M.lookup x vm of
                                   Nothing -> evaluate sc <$> translateExpr sc tm sm M.empty expr
@@ -393,6 +400,7 @@ exprDeps expr =
       SS.Record bs         _ -> S.unions (map (exprDeps . snd) bs)
       SS.Index e1 e2       _ -> S.union (exprDeps e1) (exprDeps e2)
       SS.Lookup e _        _ -> exprDeps e
+      SS.TLookup e _       _ -> exprDeps e
       SS.Var name          _ -> S.singleton name
       SS.Function _ _ e    _ -> exprDeps e
       SS.Application e1 e2 _ -> S.union (exprDeps e1) (exprDeps e2)
@@ -486,9 +494,9 @@ valueEnv opts bic = M.fromList
   , (qualify "java_verify" , toValue $ verifyJava bic opts)
   , (qualify "java_pure"   , toValue $ javaPure)
   , (qualify "java_var"    , toValue $ javaVar bic opts)
-  -- , (qualify "java_may_alias", toValue $ javaMayAlias bic opts)
+  , (qualify "java_may_alias", toValue $ javaMayAlias bic opts)
   , (qualify "java_assert" , toValue $ javaAssert bic opts)
-  , (qualify "java_assert_eq" , toValue $ javaAssertEq bic opts)
+  --, (qualify "java_assert_eq" , toValue $ javaAssertEq bic opts)
   , (qualify "java_ensure_eq" , toValue $ javaEnsureEq bic opts)
   , (qualify "java_modify" , toValue $ javaModify bic opts)
   , (qualify "java_return" , toValue $ javaReturn bic opts)
@@ -501,7 +509,7 @@ valueEnv opts bic = M.fromList
   , (qualify "llvm_var"    , toValue $ llvmVar bic opts)
   -- , (qualify "llvm_may_alias", toValue $ llvmMayAlias bic opts)
   , (qualify "llvm_assert" , toValue $ llvmAssert bic opts)
-  , (qualify "llvm_assert_eq" , toValue $ llvmAssertEq bic opts)
+  --, (qualify "llvm_assert_eq" , toValue $ llvmAssertEq bic opts)
   , (qualify "llvm_ensure_eq" , toValue $ llvmEnsureEq bic opts)
   , (qualify "llvm_modify" , toValue $ llvmModify bic opts)
   , (qualify "llvm_return" , toValue $ llvmReturn bic opts)
@@ -514,6 +522,7 @@ valueEnv opts bic = M.fromList
   , (qualify "rewrite"     , toValue $ rewritePrim sc)
   , (qualify "abc"         , toValue $ satABC sc)
   , (qualify "abc2"        , toValue $ satABC' sc)
+  , (qualify "yices"       , toValue $ satYices sc)
   , (qualify "offline_aig" , toValue $ satAIG sc)
   , (qualify "offline_extcore" , toValue $ satExtCore sc)
   , (qualify "offline_smtlib1" , toValue $ satSMTLib1 sc)
@@ -530,11 +539,17 @@ valueEnv opts bic = M.fromList
   , (qualify "print"       , toValue print_value)
   , (qualify "print_type"  , toValue $ print_type sc)
   , (qualify "print_term"  , toValue ((putStrLn . scPrettyTerm) :: SharedTerm SAWCtx -> IO ()))
+  , (qualify "show_term"   , toValue (scPrettyTerm :: SharedTerm SAWCtx -> String))
   , (qualify "return"      , toValue (return :: Value SAWCtx -> IO (Value SAWCtx))) -- FIXME: make work for other monads
+    {-
   , (qualify "seq"        , toValue ((>>) :: ProofScript SAWCtx (Value SAWCtx)
                                           -> ProofScript SAWCtx (Value SAWCtx)
                                           -> ProofScript SAWCtx (Value SAWCtx))) -- FIXME: temporary
+    -}
   , (qualify "define"      , toValue $ definePrim sc)
+  , (qualify "caseSatResult", toValueCase sc caseSatResultPrim)
+  , (qualify "caseProofResult", toValueCase sc caseProofResultPrim)
+  , (qualify "trunc"       , toValue $ truncPrim sc)
   ] where sc = biSharedContext bic
 
 coreEnv :: SharedContext s -> IO (RNameMap (SharedTerm s))
@@ -550,6 +565,7 @@ coreEnv sc =
     , (qualify "disj"       , "Prelude.or")
     , (qualify "ite"        , "Prelude.ite")
     , (qualify "eq"         , "Prelude.eq")
+    , (qualify "bvEq"       , "Prelude.bvEq")
     , (qualify "bvNot"      , "Prelude.bvNot")
     , (qualify "bvXor"      , "Prelude.bvXor")
     , (qualify "bvOr"       , "Prelude.bvOr")
@@ -560,9 +576,14 @@ coreEnv sc =
     , (qualify "bvult"      , "Prelude.bvult")
     , (qualify "bvuge"      , "Prelude.bvuge")
     , (qualify "bvugt"      , "Prelude.bvugt")
+    , (qualify "bvsle"      , "Prelude.bvsle")
+    , (qualify "bvslt"      , "Prelude.bvslt")
+    , (qualify "bvsge"      , "Prelude.bvsge")
+    , (qualify "bvsgt"      , "Prelude.bvsgt")
     , (qualify "get"        , "Prelude.get")
     , (qualify "set"        , "Prelude.set")
     , (qualify "finval"     , "Prelude.mkFinVal")
+    , (qualify "reverse"    , "Prelude.reverse")
     -- Java things
     , (qualify "java_bool"  , "Java.mkBooleanType")
     , (qualify "java_byte"  , "Java.mkByteType")
@@ -576,7 +597,9 @@ coreEnv sc =
     , (qualify "java_class" , "Java.mkClassType")
     , (qualify "java_value" , "Java.mkValue")
     , (qualify "ec_join"    , "Java.ecJoin")
+    , (qualify "ec_join768" , "Java.ecJoin768")
     , (qualify "ec_split"   , "Java.ecSplit")
+    , (qualify "ec_split768", "Java.ecSplit768")
     , (qualify "ec_extend"  , "Java.ecExtend")
     , (qualify "long_extend", "Java.longExtend")
     -- LLVM things

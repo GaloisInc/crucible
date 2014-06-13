@@ -47,6 +47,7 @@ module SAWScript.LLVMMethodSpecIR
 import Control.Applicative
 import Control.Monad
 import Control.Monad.State
+import qualified Data.ABC as ABC
 import Data.Graph.Inductive (scc, Gr, mkGraph)
 import Data.List (sort)
 import Data.Map (Map)
@@ -250,7 +251,7 @@ bsAddCommand :: BehaviorCommand -> BehaviorSpec -> BehaviorSpec
 bsAddCommand bc bs =
   bs { bsReversedCommands = bc : bsReversedCommands bs }
 
-type Backend = SAWBackend LSSCtx L.Lit
+type Backend = SAWBackend LSSCtx
 
 initLLVMMethodSpec :: Pos -> LSS.Codebase Backend -> String
                    -> LLVMMethodSpecIR
@@ -277,7 +278,7 @@ initLLVMMethodSpec pos cb symname =
 -- should stay there.
 data ValidationPlan
   = Skip
-  | RunVerify (ProofScript SAWCtx ProofResult)
+  | RunVerify (ProofScript SAWCtx ())
 
 -- MethodSpecIR {{{1
 
@@ -333,6 +334,6 @@ specAddBehaviorCommand :: BehaviorCommand
 specAddBehaviorCommand bc ms =
   ms { specBehavior = bsAddCommand bc (specBehavior ms) }
 
-specSetVerifyTactic :: ProofScript SAWCtx ProofResult
+specSetVerifyTactic :: ProofScript SAWCtx ()
                     -> LLVMMethodSpecIR -> LLVMMethodSpecIR
 specSetVerifyTactic script ms = ms { specValidationPlan = RunVerify script }

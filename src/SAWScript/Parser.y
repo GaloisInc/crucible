@@ -50,6 +50,8 @@ import Control.Applicative
   'JavaSetup'    { TReserved _ "JavaSetup"      }
   'LLVMSetup'    { TReserved _ "LLVMSetup"      }
   'ProofScript'  { TReserved _ "ProofScript"    }
+  'ProofResult'  { TReserved _ "ProofResult"    }
+  'SatResult'    { TReserved _ "SatResult"      }
   'TopLevel'     { TReserved _ "TopLevel"       }
   'Bit'          { TReserved _ "Bit"            }
   'Int'          { TReserved _ "Int"            }
@@ -94,7 +96,6 @@ import Control.Applicative
   num            { TNum      _ _ $$             }
   qnum           { TQNum     _ _ $$             }
   name           { TVar      _ $$               }
-  qname          { TQVar     _ _ $$             }
 
 %right 'else'
 %right '==>'
@@ -128,8 +129,8 @@ TopStmt :: { TopStmtSimple RawT }
  | Declaration                          { uncurry TopBind $1 }
 
 Import :: { TopStmtSimple RawT }
- : qname                                   { Import (mkModuleName $1) Nothing Nothing      }
- | name                                    { Import (mkModuleName ([],$1)) Nothing Nothing }
+ : name                                    { Import (mkModuleName ([],$1)) Nothing Nothing }
+-- | qname                                   { Import (mkModuleName $1) Nothing Nothing      }
  -- | name '(' commas(name) ')'            { Import $1 (Just $3) Nothing     }
  -- | name 'as' name                       { Import $1 Nothing (Just $3)     }
  -- | name '(' commas(name) ')' 'as' name  { Import $1 (Just $3) (Just $6)   }
@@ -197,7 +198,7 @@ AExpr :: { ExprSimple RawT }
                                             (Var (unresolved "bitSequence") Nothing)
                                                  (Z $1 Nothing) 
                                                  Nothing                  }
- | qname                                { Var (unresolvedQ $1) Nothing    }
+ -- | qname                                { Var (unresolvedQ $1) Nothing    }
  | name                                 { Var (unresolved $1) Nothing     }
  | 'undefined'                          { Undefined Nothing               }
  | '(' Expression ')'                   { $2                              }
@@ -206,6 +207,7 @@ AExpr :: { ExprSimple RawT }
  | '{' commas(Field) '}'                { Record $2 Nothing               }
  | 'do' '{' termBy(BlockStmt, ';') '}'  { Block $3 Nothing                }
  | AExpr '.' name                       { Lookup $1 $3 Nothing            }
+ | AExpr '.' num                        { TLookup $1 $3 Nothing           }
 
 Field :: { (Name, ExprSimple RawT) }
  : name '=' Expression                  { ($1, $3) }
@@ -245,6 +247,8 @@ Context :: { RawSigT }
  | 'JavaSetup'                          { javaSetupContext        }
  | 'LLVMSetup'                          { llvmSetupContext        }
  | 'ProofScript'                        { proofScriptContext      }
+ | 'ProofResult'                        { proofResultContext      }
+ | 'SatResult'                          { satResultContext        }
  | 'TopLevel'                           { topLevelContext         }
  | name                                 { syn $1                  }
 

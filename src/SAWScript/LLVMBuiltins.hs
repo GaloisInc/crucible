@@ -146,9 +146,11 @@ verifyLLVM bic opts file func overrides setup = do
           mapM_ (print . ppPathVC) res
         let prover vs script g = do
               glam <- bindExts scLLVM initialExts g
-              glam' <- scImport (biSharedContext bic) glam
-              Theorem thm <- provePrim (biSharedContext bic) script glam'
-              when (verb >= 3) $ putStrLn $ "Proved: " ++ show thm
+              let bsc = biSharedContext bic
+              glam' <- scNegate bsc =<< scImport bsc glam
+              (r, _) <- runStateT script glam'
+              -- TODO: catch counterexamples!
+              when (verb >= 5) $ putStrLn $ "Proved: " ++ show r
         liftIO $ runValidation prover vp scLLVM esd res
     let overrideText = case overrides of
                          [] -> ""
@@ -159,7 +161,7 @@ verifyLLVM bic opts file func overrides setup = do
 llvmPure :: LLVMSetup ()
 llvmPure = return ()
 
-parseLLVMExpr :: Codebase (SAWBackend LSSCtx Lit)
+parseLLVMExpr :: Codebase (SAWBackend LSSCtx)
               -> SymDefine (SharedTerm LSSCtx)
               -> String
               -> IO LLVMExpr
@@ -291,9 +293,9 @@ asLLVMValue t =
     _ -> fail "not an instance of LLVM.mkValue"
 
 
-llvmEnsureEq :: BuiltinContext -> Options -> SharedTerm SAWCtx -> SharedTerm SAWCtx
+llvmEnsureEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
              -> LLVMSetup ()
-llvmEnsureEq _ _ (asLLVMValue -> Just name) t = do
+llvmEnsureEq _ _ name t = do
   ms <- gets lsSpec
   (expr, _) <- liftIO $ getLLVMExpr ms name
   modify $ \st ->
@@ -316,7 +318,7 @@ llvmReturn _ _ t =
   modify $ \st ->
     st { lsSpec = specAddBehaviorCommand (Return (LogicE (mkLogicExpr t))) (lsSpec st) }
 
-llvmVerifyTactic :: BuiltinContext -> Options -> ProofScript SAWCtx ProofResult
+llvmVerifyTactic :: BuiltinContext -> Options -> ProofScript SAWCtx ()
                  -> LLVMSetup ()
 llvmVerifyTactic _ _ script =
   modify $ \st -> st { lsSpec = specSetVerifyTactic script (lsSpec st) }
