@@ -88,7 +88,7 @@ instance Show (Value s) where
         VBool False -> showString "False"
         VString s -> shows s
         VInteger n -> shows n
-        VWord w x -> showParen (p > 9) (shows x . showString "::[" . shows w . showString "]")
+        VWord w x -> showParen (p > 9) (shows x . showString ":[" . shows w . showString "]")
         VArray vs | all isBool vs -> shows (arrayToWord vs)
                   | otherwise -> showList vs
         VTuple vs -> showParen True
