@@ -43,6 +43,10 @@ import SAWScript.Utils
 import qualified Verifier.SAW.Simulator.BitBlast as BBSim
 import qualified Verinf.Symbolic as BE
 
+import Data.ABC (aigNetwork)
+import qualified Data.AIG as AIG
+
+
 data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
                                      , biJavaCodebase  :: JSS.Codebase
                                      }
@@ -206,20 +210,17 @@ satABC sc = StateT $ \t -> withBE $ \be -> do
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC. (Currently ignores satisfying assignments.)
 satABC' :: SharedContext s -> ProofScript s ProofResult
-satABC' sc = StateT $ \t -> withBE $ \be -> do
-  case BE.beCheckSat be of
-    Nothing -> fail "Backend does not support SAT checking."
-    Just chk -> do
-      putStrLn "Simulating..."
-      lit <- BBSim.bitBlast be sc t
-      putStrLn "Checking..."
-      satRes <- chk lit
-      case satRes of
-        BE.UnSat -> do putStrLn "UNSAT"
-                       (,) () <$> scApplyPreludeFalse sc
-        BE.Sat _ -> do putStrLn "SAT"
-                       (,) () <$> scApplyPreludeTrue sc
-        _ -> fail "ABC returned Unknown for SAT query."
+satABC' sc = StateT $ \t -> AIG.withNewGraph aigNetwork $ \be -> do
+  putStrLn "Simulating..."
+  lit <- BBSim.bitBlast be sc t
+  putStrLn "Checking..."
+  satRes <- AIG.checkSat be lit
+  case satRes of
+    AIG.Unsat -> do putStrLn "UNSAT"
+                    (,) () <$> scApplyPreludeFalse sc
+    AIG.Sat _ -> do putStrLn "SAT"
+                    (,) () <$> scApplyPreludeTrue sc
+    _ -> fail "ABC returned Unknown for SAT query."
 
 satAIG :: SharedContext s -> FilePath -> ProofScript s ProofResult
 satAIG sc path = StateT $ \t -> do
