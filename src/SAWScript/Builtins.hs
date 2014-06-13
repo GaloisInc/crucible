@@ -21,6 +21,7 @@ import Text.PrettyPrint.Leijen hiding ((<$>))
 
 import qualified Verifier.Java.Codebase as JSS
 import Verifier.Java.SAWBackend (javaModule)
+import Verifier.LLVM.Backend.SAW (llvmModule)
 
 import Verifier.SAW.BitBlast
 import Verifier.SAW.Evaluator
@@ -133,6 +134,8 @@ prepForExport sc t = do
                  [ "ecJoin", "ecJoin768", "ecSplit", "ecSplit768"
                  , "ecExtend", "longExtend"
                  ] ++
+             map (mkIdent (moduleName llvmModule))
+                 [ "trunc31" ] ++
              map (mkIdent preludeName)
                  [ "splitLittleEndian", "joinLittleEndian" ]
   rs1 <- concat <$> traverse (defRewrites sc) defs
@@ -428,21 +431,3 @@ caseSatResultPrim sc sr vUnsat vSat = do
   case sr of
     SV.Unsat -> return vUnsat
     SV.Sat v -> SV.applyValue sc vSat v
-
--- TODO: this works, but is far too verbose. Let's figure out how to
--- specify it more concisely.
-truncPrim :: SharedContext s -> Integer -> SV.Value s
-truncPrim sc n =
-  SV.VLambda $ \v _ ->
-    case v of
-      SV.VTerm t -> do
-        bvTrunc <- scApplyPreludeBvTrunc sc
-        ty <- scTypeOf sc t
-        case asBitvectorType ty of
-          Just m -> do
-            dt <- scNat sc (m - fromIntegral n)
-            nt <- scNat sc (fromIntegral n)
-            SV.VTerm <$> bvTrunc dt nt t
-          Nothing -> fail "trunc applied to non-bitvector"
-      SV.VWord w v -> return (SV.VWord (fromIntegral n) (v .&. (2^n - 1)))
-      _ ->  fail $ "trunc applied to non-term: " ++ show v

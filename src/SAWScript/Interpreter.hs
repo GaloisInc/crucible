@@ -549,7 +549,6 @@ valueEnv opts bic = M.fromList
   , (qualify "define"      , toValue $ definePrim sc)
   , (qualify "caseSatResult", toValueCase sc caseSatResultPrim)
   , (qualify "caseProofResult", toValueCase sc caseProofResultPrim)
-  , (qualify "trunc"       , toValue $ truncPrim sc)
   ] where sc = biSharedContext bic
 
 coreEnv :: SharedContext s -> IO (RNameMap (SharedTerm s))
@@ -608,6 +607,7 @@ coreEnv sc =
     , (qualify "llvm_double", "LLVM.mkDoubleType")
     , (qualify "llvm_array" , "LLVM.mkArrayType")
     , (qualify "llvm_value",  "LLVM.mkValue")
+    , (qualify "trunc31"    , "LLVM.trunc31")
     ]
 
 qualify :: String -> SS.ResolvedName
