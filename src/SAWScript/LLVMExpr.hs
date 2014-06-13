@@ -134,7 +134,7 @@ isPtrLLVMExpr e =
 -- LogicExpr {{{1
 
 newtype LogicExpr = LogicExpr (SharedTerm SAWCtx)
-  deriving (Termlike, Show)
+  deriving (Show)
 
 mkLogicExpr :: SharedTerm SAWCtx -> LogicExpr
 mkLogicExpr = LogicExpr

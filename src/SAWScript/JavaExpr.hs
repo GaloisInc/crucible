@@ -96,11 +96,14 @@ ppJavaExpr (CC.Term exprF) =
     InstanceField r f -> ppJavaExpr r ++ "." ++ JSS.fieldIdName f
 
 asJavaExpr :: Map String JavaExpr -> LogicExpr -> Maybe JavaExpr
-asJavaExpr m (asCtor -> Just (i, [e])) =
+asJavaExpr m (LogicExpr t) = asJavaExpr' m t
+
+asJavaExpr' :: Map String JavaExpr -> SharedTerm SAWCtx -> Maybe JavaExpr
+asJavaExpr' m (asCtor -> Just (i, [e])) =
   case e of
     (asStringLit -> Just s) | i == parseIdent "Java.mkValue" -> Map.lookup s m
     _ -> Nothing
-asJavaExpr _ e = Nothing
+asJavaExpr' _ e = Nothing
 
 -- | Returns JSS Type of JavaExpr
 jssTypeOfJavaExpr :: JavaExpr -> JSS.Type
@@ -116,7 +119,7 @@ isRefJavaExpr = JSS.isRefType . jssTypeOfJavaExpr
 -- LogicExpr {{{1
 
 newtype LogicExpr = LogicExpr (SharedTerm SAWCtx)
-  deriving (Termlike, Show)
+  deriving (Show)
 
 mkLogicExpr :: SharedTerm SAWCtx -> LogicExpr
 mkLogicExpr = LogicExpr
@@ -132,8 +135,11 @@ typeOfLogicExpr = scTypeOf
 
 -- | Return java expressions in logic expression.
 logicExprJavaExprs :: Map String JavaExpr -> LogicExpr -> Set JavaExpr
-logicExprJavaExprs m (LogicExpr (STApp i tf)) = CC.foldMap impl tf
-  where impl = maybe Set.empty Set.singleton . asJavaExpr m . LogicExpr
+logicExprJavaExprs m (LogicExpr t) = logicExprJavaExprs' m t
+
+logicExprJavaExprs' :: Map String JavaExpr -> SharedTerm SAWCtx -> Set JavaExpr
+logicExprJavaExprs' m (STApp i tf) = CC.foldMap impl tf
+  where impl = maybe Set.empty Set.singleton . asJavaExpr' m
 
 {-
 -- | Returns names of variables appearing in typedExpr.
