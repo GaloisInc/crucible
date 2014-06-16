@@ -48,8 +48,6 @@ import qualified Verifier.SAW.Simulator.BitBlast as BBSim
 import qualified Data.ABC as ABC
 import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
 
---import qualified Verinf.Symbolic as BE
-
 import Data.ABC (aigNetwork)
 import qualified Data.AIG as AIG
 

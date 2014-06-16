@@ -57,7 +57,6 @@ module SAWScript.JavaMethodSpecIR
 
 import Control.Applicative
 import Control.Monad
---import Control.Monad.Reader
 import Control.Monad.State
 import Data.Graph.Inductive (scc, Gr, mkGraph)
 import Data.List (intercalate, sort)
@@ -66,15 +65,10 @@ import qualified Data.Map as Map
 import Data.Maybe (isJust, catMaybes, fromJust)
 import qualified Data.Set as Set
 import qualified Data.Vector as V
---import Text.PrettyPrint.Leijen hiding ((<$>))
 import qualified Language.JVM.Common as JP
-
---import Verinf.Symbolic
 
 import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.Java.Common as JSS
---import qualified Verifier.LLVM.Codebase as LSS
---import qualified Data.JVM.Symbolic.AST as JSS
 
 import Verifier.SAW.SharedTerm
 
