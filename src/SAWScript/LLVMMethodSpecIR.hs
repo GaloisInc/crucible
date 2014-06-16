@@ -35,8 +35,7 @@ module SAWScript.LLVMMethodSpecIR
   , bsLoc
   , bsExprs
   , bsPtrExprs
-  , bsActualTypeMap
-  , bsLogicAssignments
+  , bsExprDecls
   , BehaviorCommand(..)
   , bsCommands
   , ValidationPlan(..)
@@ -84,11 +83,6 @@ data LLVMSetupState
 
 type LLVMSetup a = StateT LLVMSetupState IO a
 
--- ExprActualTypeMap {{{1
-
--- | Maps LLVM expressions for references to actual type.
-type ExprActualTypeMap = Map LLVMExpr LLVMActualType
-
 {-
 -- Alias definitions {{{1
 
@@ -123,17 +117,15 @@ data BehaviorCommand
 data BehaviorSpec = BS {
          -- | Program counter for spec.
          bsLoc :: LSS.SymBlockID
-         -- | Maps all expressions seen along path to actual type.
-       , bsActualTypeMap :: ExprActualTypeMap
-         -- | Equations
-       , bsLogicAssignments :: Map LLVMExpr (Maybe LogicExpr)
+         -- | Declared LLVM expressions, with types and maybe initial values.
+       , bsExprDecls :: Map LLVMExpr (LLVMActualType, Maybe LogicExpr)
          -- | Commands to execute in reverse order.
        , bsReversedCommands :: [BehaviorCommand]
        }
 
 -- | Returns list of all LLVM expressions that are not pointers.
 bsExprs :: BehaviorSpec -> [LLVMExpr]
-bsExprs bs = Map.keys (bsActualTypeMap bs)
+bsExprs bs = Map.keys (bsExprDecls bs)
 
 -- | Returns list of all LLVM expressions that are pointers.
 bsPtrExprs :: BehaviorSpec -> [LLVMExpr]
@@ -259,8 +251,7 @@ initLLVMMethodSpec pos cb symname =
   let sym = fromString symname
       Just def = LSS.lookupDefine sym cb
       initBS = BS { bsLoc = LSS.sdEntry def
-                  , bsActualTypeMap = Map.empty
-                  , bsLogicAssignments = Map.empty
+                  , bsExprDecls = Map.empty
                   , bsReversedCommands = []
                   }
       initMS = MSIR { specPos = pos
@@ -289,7 +280,7 @@ data LLVMMethodSpecIR = MSIR {
     -- | Function to verify.
   , specFunction :: LSS.Symbol
     -- | Mapping from user-visible LLVM state names to LLVMExprs
-  , specLLVMExprNames :: Map String LLVMExpr
+  , specLLVMExprNames :: Map String (LLVMActualType, LLVMExpr)
     -- | Behavior specification for method.
   , specBehavior :: BehaviorSpec
     -- | Describes how the method is expected to be validated.
@@ -306,21 +297,24 @@ specAddVarDecl :: Pos -> String -> LLVMExpr -> LLVMActualType
 specAddVarDecl pos name expr lt ms = ms { specBehavior = bs'
                                         , specLLVMExprNames = ns' }
   where bs = specBehavior ms
-        las = bsLogicAssignments bs
-        bs' = bs { bsActualTypeMap =
-                     Map.insert expr lt (bsActualTypeMap bs)
-                 , bsLogicAssignments =
-                     Map.insert expr Nothing las
+        bs' = bs { bsExprDecls =
+                     Map.insert expr (lt, Nothing) (bsExprDecls bs)
                  }
-        ns' = Map.insert name expr (specLLVMExprNames ms)
+        ns' = Map.insert name (lt, expr) (specLLVMExprNames ms)
 
+-- TODO: fix up error handling for this function
 specAddLogicAssignment :: Pos -> LLVMExpr -> LogicExpr
                        -> LLVMMethodSpecIR -> LLVMMethodSpecIR
 specAddLogicAssignment pos expr t ms = ms { specBehavior = bs' }
   where bs = specBehavior ms
-        las = bsLogicAssignments bs
-        bs' = bs { bsLogicAssignments =
-                     Map.insert expr (Just t) las }
+        eds = bsExprDecls bs
+        eds' = case Map.lookup expr eds of
+                 Just (at, Nothing) -> Map.insert expr (at, Just t) eds
+                 Just (_, Just _) ->
+                   error $ "assignment already given for " ++ show expr
+                 Nothing ->
+                   error $ "assignment for undeclared variable " ++ show expr
+        bs' = bs { bsExprDecls = eds' }
 
 {-
 specAddAliasSet :: [LLVMExpr] -> LLVMMethodSpecIR -> LLVMMethodSpecIR

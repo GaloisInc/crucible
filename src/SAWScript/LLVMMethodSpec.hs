@@ -129,10 +129,10 @@ data EvalContext
     , ecGlobalMap :: GlobalMap SpecBackend
     , ecArgs :: [(Ident, SharedTerm LSSCtx)]
     , ecPathState :: SpecPathState
-    , ecLLVMExprs :: Map String TC.LLVMExpr
+    , ecLLVMExprs :: Map String (TC.LLVMActualType, TC.LLVMExpr)
     }
 
-evalContextFromPathState :: Map String TC.LLVMExpr
+evalContextFromPathState :: Map String (TC.LLVMActualType, TC.LLVMExpr)
                          -> SharedContext LSSCtx
                          -> SBE SpecBackend
                          -> GlobalMap SpecBackend
@@ -204,17 +204,21 @@ scLLVMValue sc ty name = do
   s <- scString sc name
   ty' <- scRemoveBitvector sc ty
   mkValue <- scGlobalDef sc (parseIdent "LLVM.mkValue")
-  scApplyAll sc mkValue [ty', s]
+  nt <- scApplyAll sc mkValue [ty', s]
+  putStrLn $ "Constructing: " ++ show nt
+  return nt
 
 -- | Evaluate a typed expression in the context of a particular state.
 evalLogicExpr :: (MonadIO m) => TC.LogicExpr -> EvalContext -> m SpecLLVMValue
 evalLogicExpr initExpr ec = do
   let sc = ecContext ec
   t <- liftIO $ TC.useLogicExpr sc initExpr
-  rules <- forM (Map.toList (ecLLVMExprs ec)) $ \(name, expr) ->
+  rules <- forM (Map.toList (ecLLVMExprs ec)) $ \(name, (at, expr)) ->
              do lt <- evalLLVMExpr expr ec
-                ty <- liftIO $ scTypeOf sc lt
+                 -- TODO: error handling!
+                Just ty <- liftIO $ TC.logicTypeOfActual sc at
                 nt <- liftIO $ scLLVMValue sc ty name
+                liftIO $ putStrLn $ "Using: " ++ show nt
                 return (ruleOfTerms nt lt)
   let ss = addRules rules emptySimpset
   liftIO $ rewriteSharedTerm sc ss t
@@ -365,7 +369,7 @@ execBehavior bsl ec ps = do
     flip evalStateT initOCS $ flip runContT resCont $ do
        let sc = ecContext ec
        -- Verify the initial logic assignments
-       forM_ (Map.toList (bsLogicAssignments bs)) $ \(lhs, mrhs) ->
+       forM_ (Map.toList (bsExprDecls bs)) $ \(lhs, (_ty, mrhs)) ->
          case mrhs of
            Just rhs -> do
              ocEval (evalDerefLLVMExpr lhs) $ \lhsVal ->
@@ -449,7 +453,7 @@ data ESGState = ESGState {
          esContext :: SharedContext LSSCtx
        , esBackend :: SBE SpecBackend
        , esGlobalMap :: GlobalMap SpecBackend
-       , esLLVMExprs :: Map String TC.LLVMExpr
+       , esLLVMExprs :: Map String (TC.LLVMActualType, TC.LLVMExpr)
        , esInitialAssignments :: [(TC.LLVMExpr, SpecLLVMValue)]
        , esInitialPathState :: SpecPathState
        , esReturnValue :: Maybe SpecLLVMValue
@@ -635,7 +639,8 @@ initializeVerification sc ir = do
       isArgAssgn (CC.Term (TC.Arg _ _ _), _) = True
       isArgAssgn _ = False
       isPtrAssgn (e, _) = TC.isPtrLLVMExpr e
-      assignments = Map.toList (bsLogicAssignments bs)
+      assignments = map getAssign $ Map.toList (bsExprDecls bs)
+      getAssign (e, (_, v)) = (e, v)
       argAssignments = filter isArgAssgn assignments
       ptrAssignments = filter isPtrAssgn assignments
       otherAssignments =
@@ -685,13 +690,13 @@ initializeVerification sc ir = do
   es <- liftIO $ flip execStateT initESG $ do
     -- Allocate space for all pointers that aren't directly parameters.
     forM_ ptrAssignments $ \(expr, v) -> do
-      let Just mtp = Map.lookup expr (bsActualTypeMap bs)
+      let Just (mtp, _) = Map.lookup expr (bsExprDecls bs)
       esSetLogicValue cb sc expr mtp v
     -- Set initial logic values for everything except arguments and
     -- pointers, including values pointed to by pointers from directly
     -- above, and fields of structures from anywhere.
     forM_ otherAssignments $ \(expr, v) -> do
-      let Just mtp = Map.lookup expr (bsActualTypeMap bs)
+      let Just (mtp, _) = Map.lookup expr (bsExprDecls bs)
       esSetLogicValue cb sc expr mtp v
     -- Process commands
     mapM esStep (bsCommands bs)

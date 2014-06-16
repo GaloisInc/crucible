@@ -204,7 +204,8 @@ getLLVMExpr :: Monad m =>
             -> m (LLVMExpr, MemType)
 getLLVMExpr ms name = do
   case Map.lookup name (specLLVMExprNames ms) of
-    Just expr -> return (expr, lssTypeOfLLVMExpr expr)
+    -- TODO: maybe compute type differently?
+    Just (_, expr) -> return (expr, lssTypeOfLLVMExpr expr)
     Nothing -> fail $ "LLVM name " ++ name ++ " has not been declared."
 
 exportLLVMType :: Value s -> MemType
