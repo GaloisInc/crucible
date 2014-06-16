@@ -4,7 +4,6 @@
 
 module SAWScript.MGU where
 
-import           SAWScript.Unify.Fix(Mu(..),(:+:)(..))
 import qualified SAWScript.AST as A
 import SAWScript.AST hiding (Expr(..), BlockStmt(..), Name, i)
 import SAWScript.NewAST
@@ -383,7 +382,7 @@ inferE expr = case expr of
        t1 <- appSubstM t
        elTy <- case t1 of
                  TyRecord fs
-                    | Just t <- M.lookup n fs -> return t
+                    | Just ty <- M.lookup n fs -> return ty
                     | otherwise ->
                           do recordError $ unlines
                                 [ "Selecting a missing field."
@@ -437,7 +436,7 @@ inferDecls bs nextF = do
 
 inferStmts :: Type -> [BlockStmt] -> TI ([OutBlockStmt],Type)
 
-inferStmts ctx [] = do
+inferStmts _ctx [] = do
   recordError "do block must include at least one expression"
   t <- newType
   return ([], t)
@@ -447,9 +446,9 @@ inferStmts ctx [Bind Nothing _ mc e] = do
   e' <- checkE e (tBlock ctx t)
   mc' <- case mc of
     Nothing -> return (tMono ctx)
-    Just t  -> do t' <- checkKind t
-                  unify t ctx
-                  return (tMono t')
+    Just ty  -> do ty' <- checkKind ty
+                   unify ty ctx -- TODO: should this be ty'?
+                   return (tMono ty')
   return ([A.Bind Nothing mc' e'],t)
 
 inferStmts _ [_] = do
@@ -471,9 +470,9 @@ inferStmts ctx (Bind mn mt mc e : more) = do
   let f = case mn of
         Nothing -> id
         Just n  -> bindSchema (A.LocalName n) (tMono t)
-  (more',t) <- f $ inferStmts ctx more
+  (more',t') <- f $ inferStmts ctx more
 
-  return (A.Bind mn' mc' e' : more', t)
+  return (A.Bind mn' mc' e' : more', t')
 
 inferStmts ctx (BlockLet bs : more) = inferDecls bs $ \bs' -> do
   (more',t) <- inferStmts ctx more

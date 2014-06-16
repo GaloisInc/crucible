@@ -21,8 +21,6 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
 import Data.Traversable (traverse)
-import qualified Data.Vector as V
---import System.Console.CmdArgs(Data, Typeable)
 import System.Directory(makeRelativeToCurrentDirectory)
 import System.FilePath(makeRelative, isAbsolute, (</>), takeDirectory)
 import System.Time(TimeDiff(..), getClockTime, diffClockTimes, normalizeTimeDiff, toCalendarTime, formatCalendarTime)
@@ -31,7 +29,6 @@ import Text.PrettyPrint.Leijen hiding ((</>), (<$>))
 import Numeric(showFFloat)
 
 import qualified Verifier.Java.Codebase as JSS
-import qualified Verifier.Java.Simulator as JSS
 
 import Verifier.SAW.Conversion
 import Verifier.SAW.Prelude
@@ -200,7 +197,7 @@ findField _ pos _ _ =
    in throwIOExecException pos (ftext msg) ""
 
 equal :: SharedContext s -> [SharedTerm s] -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-equal sc ctx (STApp _ (Lambda x1 ty1 tm1)) (STApp _ (Lambda _ ty2 tm2)) =
+equal sc _ctx (STApp _ (Lambda x1 ty1 tm1)) (STApp _ (Lambda _ ty2 tm2)) =
   case (asBitvectorType ty1, asBitvectorType ty2) of
     (Just n1, Just n2) -> do
       unless (n1 == n2) $
@@ -217,14 +214,14 @@ equal sc ctx tm1 tm2 = do
     ss <- basic_ss sc
     ty1' <- rewriteSharedTerm sc ss ty1
     ty2' <- rewriteSharedTerm sc ss ty2
-    let asVecType = isVecType return
     case (ty1', ty2') of
       (asBitvectorType -> Just n1, asBitvectorType -> Just n2) -> do
         unless (n1 == n2) $ fail "Bitvectors have different sizes."
         n1t <- scNat sc n1
         scBvEq sc n1t tm1 tm2
-      (asVecType -> Just (l1 :*: ety1), asVecType -> Just (l2 :*: ety2)) -> do
+      (asVecType -> Just (l1 :*: ety1), asVecType -> Just (l2 :*: _ety2)) -> do
         unless (l1 == l2) $ fail "Arrays have different sizes."
+        -- TODO: check that ety1 == ety2?
         getOp <- scApplyPreludeGet sc
         eqs <- forM [0..l1-1] $ \i -> do
                  it <- scNat sc i
@@ -245,8 +242,8 @@ allEqual sc [] = scApplyPreludeTrue sc
 allEqual sc ((t, t'):ts) = do
   r <- allEqual sc ts
   eq <- equal sc [] t t'
-  and <- scApplyPreludeAnd sc
-  and eq r
+  andFn <- scApplyPreludeAnd sc
+  andFn eq r
 
 scRemoveBitvector :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
 scRemoveBitvector sc tm = do 

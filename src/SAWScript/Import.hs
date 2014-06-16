@@ -49,7 +49,7 @@ loadModule opts fname ms k = do
   runCompiler (formModule fname) ftext $ \m -> do
     loadRest mn (mapMaybe getImport m)
              (ms { modules = Map.insert mn m (modules ms) })
-  where loadRest mn [] ms' = do
+  where loadRest _mn [] ms' = do
           k ms' 
         loadRest mn (imp:imps) ms' = do
           findAndLoadModule opts imp ms' (loadRest mn imps)
@@ -86,9 +86,6 @@ findAndLoadModule opts name ms k = do
         , "  In directories:"
         ] ++ map ("    " ++) paths
     Just fname -> loadModule opts fname ms k
-
-findModule :: [FilePath] -> Name -> IO (Maybe FilePath)
-findModule ps name = findFile ps (name <.> "saw")
 
 #if __GLASGOW_HASKELL__ < 706
 findFile :: [FilePath] -> String -> IO (Maybe FilePath)

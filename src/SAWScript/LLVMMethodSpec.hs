@@ -28,9 +28,8 @@ import Control.Applicative hiding (empty)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Cont
-import Control.Monad.Error (ErrorT, runErrorT, MonadError) -- , throwError)
+import Control.Monad.Error
 import Control.Monad.State
-import qualified Data.ABC as ABC
 import Data.List (sortBy)
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -50,7 +49,6 @@ import Verifier.LLVM.Codebase
 -- import Verifier.LLVM.Codebase.AST
 import Verifier.LLVM.Backend hiding (asBool)
 import Verifier.LLVM.Backend.SAW
-import Verinf.Symbolic (Lit)
 import Verinf.Utils.LogMonad
 
 import Verifier.SAW.Evaluator
@@ -212,10 +210,10 @@ evalLogicExpr :: (MonadIO m) => TC.LogicExpr -> EvalContext -> m SpecLLVMValue
 evalLogicExpr initExpr ec = do
   let sc = ecContext ec
   t <- liftIO $ TC.useLogicExpr sc initExpr
-  rules <- forM (Map.toList (ecLLVMExprs ec)) $ \(name, (at, expr)) ->
+  rules <- forM (Map.toList (ecLLVMExprs ec)) $ \(name, (aty, expr)) ->
              do lt <- evalLLVMExpr expr ec
                  -- TODO: error handling!
-                Just ty <- liftIO $ TC.logicTypeOfActual sc at
+                Just ty <- liftIO $ TC.logicTypeOfActual sc aty
                 nt <- liftIO $ scLLVMValue sc ty name
                 return (ruleOfTerms nt lt)
   let ss = addRules rules emptySimpset
@@ -384,7 +382,7 @@ execOverride :: (MonadIO m, Functor m) =>
              -> LLVMMethodSpecIR
              -> [(MemType, SpecLLVMValue)]
              -> Simulator SpecBackend m (Maybe (SharedTerm LSSCtx))
-execOverride sc pos ir args = do
+execOverride sc _pos ir args = do
   initPS <- fromMaybe (error "no path during override") <$> getPath
   let bsl = specBehavior ir
   let func = specFunction ir
@@ -539,7 +537,7 @@ createLogicValue :: Codebase SpecBackend
                  -> MemType
                  -> Maybe TC.LogicExpr
                  -> IO (SpecLLVMValue, SpecPathState)
-createLogicValue cb _ sc _ (PtrType _) (Just _) =
+createLogicValue _ _ _ _ (PtrType _) (Just _) =
   fail "Pointer variables cannot be given initial values."
 createLogicValue cb sbe sc ps (PtrType (MemType mtp)) _ = do
   let dl = cbDataLayout cb
@@ -558,7 +556,9 @@ createLogicValue cb sbe sc ps (PtrType (MemType mtp)) _ = do
           v <- scFreshGlobal sc "_" ty
           ps'' <- storePathState sbe addr mtp v ps'
           return (addr, ps'')
-createLogicValue cb _ sc ps mtp mrhs = do
+        Nothing ->
+          fail "Can't translate actual type to logic type."
+createLogicValue _ _ sc ps mtp mrhs = do
   mbltp <- TC.logicTypeOfActual sc mtp
   -- Get value of rhs.
   tm <- case (mrhs, mbltp) of
@@ -580,6 +580,7 @@ esSetLogicValue cb sc expr mtp mrhs = do
   ps <- gets esInitialPathState
   -- Create the value to associate with this LLVM expression: either
   -- an assigned value or a fresh input.
+  -- TODO: don't discard ps'!
   (value, ps') <- liftIO $ createLogicValue cb sbe sc ps mtp mrhs
   -- Update the initial assignments in the expected state.
   modify $ \es -> es { esInitialAssignments =
@@ -654,8 +655,9 @@ initializeVerification sc ir = do
   -- until later to initialize the fields.
   argAssignments' <- forM argAssignments $ \(expr, mle) ->
     case (expr, mle) of
-      (CC.Term (TC.Arg i _ ty), Just _) -> fail "argument assignments not allowed"
-      (CC.Term (TC.Arg i _ ty), Nothing) -> do
+      (CC.Term (TC.Arg _ _ _), Just _) ->
+        fail "argument assignments not allowed"
+      (CC.Term (TC.Arg _ _ ty), Nothing) -> do
         ps <- fromMaybe (error "initializeVerification") <$> getPath
         (tm, ps') <- liftIO $ createLogicValue cb sbe sc ps ty mle
         setPS ps'

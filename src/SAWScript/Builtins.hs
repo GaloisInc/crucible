@@ -11,7 +11,6 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad.Error
 import Control.Monad.State
-import Data.Bits
 import Data.Either (partitionEithers)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -45,7 +44,6 @@ import SAWScript.Utils
 import qualified SAWScript.Value as SV
 
 import qualified Verifier.SAW.Simulator.BitBlast as BBSim
-import qualified Verinf.Symbolic as BE
 
 import qualified Data.ABC as ABC
 import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
@@ -259,7 +257,6 @@ satABC' sc = StateT $ \t -> AIG.withNewGraph aigNetwork $ \be -> do
           fail . unlines $
             "Proof failed with multi-argument counterexample: " :
             map show vs
-    _ -> fail "ABC returned Unknown for SAT query."
   where
     convert :: BBSim.BShape -> BShape --FIXME: temporary
     convert BBSim.BoolShape = BoolShape
@@ -268,12 +265,10 @@ satABC' sc = StateT $ \t -> AIG.withNewGraph aigNetwork $ \be -> do
     convert (BBSim.RecShape xm) = RecShape (fmap convert xm)
 
 satYices :: SharedContext s -> ProofScript s (SV.SatResult s)
-satYices sc = StateT $ \t -> withBE $ \be -> do
+satYices sc = StateT $ \t -> do
   t' <- prepForExport sc t
   let (args, _) = asLambdaList t'
       argNames = map fst args
-      argTys = map snd args
-  shapes <- mapM parseShape argTys
   let ws = SMT1.qf_aufbv_WriterState sc "sawscript"
   ws' <- execStateT (SMT1.writeFormula t') ws
   mapM_ (print . (text "WARNING:" <+>) . SMT1.ppWarning)

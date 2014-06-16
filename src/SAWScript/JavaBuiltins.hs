@@ -6,7 +6,6 @@
 module SAWScript.JavaBuiltins where
 
 import Control.Applicative
-import Control.Exception (bracket)
 import Control.Monad.Error
 import Control.Monad.State
 import qualified Data.ABC as ABC
@@ -20,14 +19,10 @@ import Text.Read (readMaybe)
 
 import qualified Language.JVM.Common as JP
 
-import Verinf.Symbolic.Lit.ABC
-
 import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.Java.Simulator as JSS
 import qualified Verifier.Java.SAWBackend as JSS
 
-import Verifier.SAW.Prelude
-import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST hiding (instantiateVarList)
 
@@ -43,13 +38,12 @@ import SAWScript.Proof
 import SAWScript.Utils
 import qualified SAWScript.Value as SS
 
-import qualified Verinf.Symbolic as BE
 import Verinf.Utils.LogMonad
 
 extractJava :: BuiltinContext -> Options -> String -> String
             -> JavaSetup ()
             -> IO (SharedTerm SAWCtx)
-extractJava bic opts cname mname _setup = do
+extractJava bic _opts cname mname _setup = do
   let cname' = JP.dotsToSlashes cname
       sc = biSharedContext bic
       cb = biJavaCodebase bic
@@ -92,7 +86,7 @@ verifyJava bic opts cname mname overrides setup = do
   let pos = fixPos -- TODO
       cb = biJavaCodebase bic
   sc0 <- mkSharedContext JSS.javaModule
-  ss <- basic_ss sc0
+  -- ss <- basic_ss sc0
   let (jsc :: SharedContext JSSCtx) = sc0 -- rewritingSharedContext sc0 ss
   ABC.SomeGraph be <- ABC.newGraph ABC.giaNetwork
   backend <- JSS.sawBackend jsc Nothing be
@@ -122,7 +116,7 @@ verifyJava bic opts cname mname overrides setup = do
                  " at PC " ++ show (bsLoc bs) ++ "."
     JSS.runDefSimulator cb backend $ do
       esd <- initializeVerification jsc ms bs cl
-      let isExtCns (STApp _ (FTermF (ExtCns e))) = True
+      let isExtCns (STApp _ (FTermF (ExtCns _))) = True
           isExtCns _ = False
           initialExts =
             sort . filter isExtCns . map snd . esdInitialAssignments $ esd
@@ -139,10 +133,11 @@ verifyJava bic opts cname mname overrides setup = do
             -- TODO: catch counterexamples!
             when (verb >= 5) $ putStrLn $ "Proved: " ++ show r
       liftIO $ runValidation prover vp jsc esd res
-  let overrideText = case overrides of
-                       [] -> ""
-                       irs -> " (overriding " ++ show (map specName irs) ++ ")"
-      specName ir = JSS.className (specMethodClass ir) ++ "." ++ JSS.methodName (specMethod ir)
+  let overrideText =
+        case overrides of
+          [] -> ""
+          irs -> " (overriding " ++ show (map renderName irs) ++ ")"
+      renderName ir = JSS.className (specMethodClass ir) ++ "." ++ JSS.methodName (specMethod ir)
   putStrLn $ "Successfully verified " ++ specName ms ++ overrideText
   return ms
 
@@ -219,8 +214,8 @@ javaVar bic _ name t@(SS.VCtorApp _ _) = do
       cb = biJavaCodebase bic
       cls = specMethodClass ms
       meth = specMethod ms
-  exp <- liftIO $ parseJavaExpr (biJavaCodebase bic) cls meth name
-  let jty = jssTypeOfJavaExpr exp
+  expr <- liftIO $ parseJavaExpr (biJavaCodebase bic) cls meth name
+  let jty = jssTypeOfJavaExpr expr
       jty' = exportJSSType t
   aty <- liftIO $ exportJavaType cb t
   when (jty /= jty') $ fail $ show $
@@ -231,7 +226,7 @@ javaVar bic _ name t@(SS.VCtorApp _ _) = do
          , text "for variable"
          , text name
          ]
-  modify $ \st -> st { jsSpec = specAddVarDecl name exp aty (jsSpec st) }
+  modify $ \st -> st { jsSpec = specAddVarDecl name expr aty (jsSpec st) }
   let sc = biSharedContext bic
   Just lty <- liftIO $ logicTypeOfActual sc aty
   liftIO $ scJavaValue sc lty name
@@ -245,8 +240,8 @@ javaMayAlias bic _ exprs = do
       ms = jsSpec jsState
       cls = specMethodClass ms
       meth = specMethod ms
-  exprs <- liftIO $ mapM (parseJavaExpr cb cls meth) exprs
-  modify $ \st -> st { jsSpec = specAddAliasSet exprs (jsSpec st) }
+  exprList <- liftIO $ mapM (parseJavaExpr cb cls meth) exprs
+  modify $ \st -> st { jsSpec = specAddAliasSet exprList (jsSpec st) }
 
 javaAssert :: BuiltinContext -> Options -> SharedTerm SAWCtx
            -> JavaSetup ()
@@ -259,24 +254,24 @@ getJavaExpr :: Monad m =>
             -> m (JavaExpr, JSS.Type)
 getJavaExpr ms name = do
   case Map.lookup name (specJavaExprNames ms) of
-    Just exp -> return (exp, jssTypeOfJavaExpr exp)
+    Just expr -> return (expr, jssTypeOfJavaExpr expr)
     Nothing -> fail $ "Java name " ++ name ++ " has not been declared."
 
 javaAssertEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
            -> JavaSetup ()
-javaAssertEq bic _ name t = do
+javaAssertEq _bic _ name t = do
   ms <- gets jsSpec
-  (exp, ty) <- liftIO $ getJavaExpr ms name
+  (expr, _) <- liftIO $ getJavaExpr ms name
   modify $ \st ->
-    st { jsSpec = specAddLogicAssignment fixPos exp (mkLogicExpr t) ms }
+    st { jsSpec = specAddLogicAssignment fixPos expr (mkLogicExpr t) ms }
 
 javaEnsureEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
              -> JavaSetup ()
-javaEnsureEq bic _ name t = do
+javaEnsureEq _bic _ name t = do
   ms <- gets jsSpec
-  (exp, ty) <- liftIO $ getJavaExpr ms name
-  let cmd = case (CC.unTerm exp, ty) of
-              (_, JSS.ArrayType _) -> EnsureArray fixPos exp le
+  (expr, ty) <- liftIO $ getJavaExpr ms name
+  let cmd = case (CC.unTerm expr, ty) of
+              (_, JSS.ArrayType _) -> EnsureArray fixPos expr le
               (InstanceField r f, _) -> EnsureInstanceField fixPos r f (LE le)
               _ -> error "invalid java_ensure command"
       le = mkLogicExpr t
@@ -284,12 +279,12 @@ javaEnsureEq bic _ name t = do
 
 javaModify :: BuiltinContext -> Options -> String
            -> JavaSetup ()
-javaModify bic _ name = do
+javaModify _bic _ name = do
   ms <- gets jsSpec
-  (exp, _) <- liftIO $ getJavaExpr ms name
-  let mty = Map.lookup exp (bsActualTypeMap (specBehaviors ms))
-  let cmd = case (CC.unTerm exp, mty) of
-              (_, Just ty@(ArrayInstance _ _)) -> ModifyArray exp ty
+  (expr, _) <- liftIO $ getJavaExpr ms name
+  let mty = Map.lookup expr (bsActualTypeMap (specBehaviors ms))
+  let cmd = case (CC.unTerm expr, mty) of
+              (_, Just ty@(ArrayInstance _ _)) -> ModifyArray expr ty
               (InstanceField r f, _) -> ModifyInstanceField r f
               _ -> error "invalid java_modify command"
   modify $ \st -> st { jsSpec = specAddBehaviorCommand cmd ms }

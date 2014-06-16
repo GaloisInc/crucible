@@ -43,32 +43,17 @@ module SAWScript.LLVMMethodSpecIR
 
 -- Imports {{{1
 
-import Control.Applicative
-import Control.Monad
 import Control.Monad.State
-import qualified Data.ABC as ABC
-import Data.Graph.Inductive (scc, Gr, mkGraph)
-import Data.List (sort)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe (isJust, catMaybes)
-import Data.Set (Set)
-import qualified Data.Set as Set
 import Data.String
-import qualified Data.Vector as V
 import Text.PrettyPrint.Leijen hiding ((<$>))
 
 import qualified Verifier.LLVM.Codebase as LSS
 import Verifier.LLVM.Backend.SAW
 
-import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm
-import Verifier.SAW.TypedAST
 
-import Verinf.Symbolic as L
-
-import qualified SAWScript.CongruenceClosure as CC
-import SAWScript.CongruenceClosure (CCSet)
 import SAWScript.LLVMExpr
 import SAWScript.Utils
 import SAWScript.Proof
@@ -294,7 +279,7 @@ specName = LSS.ppSymbol . specFunction
 
 specAddVarDecl :: Pos -> String -> LLVMExpr -> LLVMActualType
                -> LLVMMethodSpecIR -> LLVMMethodSpecIR
-specAddVarDecl pos name expr lt ms = ms { specBehavior = bs'
+specAddVarDecl _pos name expr lt ms = ms { specBehavior = bs'
                                         , specLLVMExprNames = ns' }
   where bs = specBehavior ms
         bs' = bs { bsExprDecls =
@@ -305,7 +290,7 @@ specAddVarDecl pos name expr lt ms = ms { specBehavior = bs'
 -- TODO: fix up error handling for this function
 specAddLogicAssignment :: Pos -> LLVMExpr -> LogicExpr
                        -> LLVMMethodSpecIR -> LLVMMethodSpecIR
-specAddLogicAssignment pos expr t ms = ms { specBehavior = bs' }
+specAddLogicAssignment _pos expr t ms = ms { specBehavior = bs' }
   where bs = specBehavior ms
         eds = bsExprDecls bs
         eds' = case Map.lookup expr eds of

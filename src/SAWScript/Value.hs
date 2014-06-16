@@ -97,7 +97,8 @@ instance Show (Value s) where
                      (foldr (.) id (intersperse (showString ",")
                                    (map showFld (M.toList m)))) .
                      showString "}"
-                       where showFld (n, v) = shows n . showString "=" . shows v
+                       where showFld (n, fv) =
+                               shows n . showString "=" . shows fv
         VFun {} -> showString "<<fun>>"
         VFunTerm {} -> showString "<<fun-term>>"
         VFunType {} -> showString "<<fun-type>>"

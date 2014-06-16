@@ -103,7 +103,7 @@ asJavaExpr' m (asCtor -> Just (i, [e])) =
   case e of
     (asStringLit -> Just s) | i == parseIdent "Java.mkValue" -> Map.lookup s m
     _ -> Nothing
-asJavaExpr' _ e = Nothing
+asJavaExpr' _ _ = Nothing
 
 -- | Returns JSS Type of JavaExpr
 jssTypeOfJavaExpr :: JavaExpr -> JSS.Type
@@ -138,7 +138,7 @@ logicExprJavaExprs :: Map String JavaExpr -> LogicExpr -> Set JavaExpr
 logicExprJavaExprs m (LogicExpr t) = logicExprJavaExprs' m t
 
 logicExprJavaExprs' :: Map String JavaExpr -> SharedTerm SAWCtx -> Set JavaExpr
-logicExprJavaExprs' m (STApp i tf) = CC.foldMap impl tf
+logicExprJavaExprs' m (STApp _ tf) = CC.foldMap impl tf
   where impl = maybe Set.empty Set.singleton . asJavaExpr' m
 
 {-

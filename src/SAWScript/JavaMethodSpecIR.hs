@@ -64,7 +64,6 @@ import Data.List (intercalate, sort)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (isJust, catMaybes, fromJust)
-import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Vector as V
 --import Text.PrettyPrint.Leijen hiding ((<$>))
@@ -77,17 +76,13 @@ import qualified Verifier.Java.Common as JSS
 --import qualified Verifier.LLVM.Codebase as LSS
 --import qualified Data.JVM.Symbolic.AST as JSS
 
-import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm
-import Verifier.SAW.TypedAST
 
 import qualified SAWScript.CongruenceClosure as CC
 import SAWScript.CongruenceClosure (CCSet)
 import SAWScript.JavaExpr
 import SAWScript.Utils
 import SAWScript.Proof
-
-import Debug.Trace
 
 -- Integration with SAWScript
 

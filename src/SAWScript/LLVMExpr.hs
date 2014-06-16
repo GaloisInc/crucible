@@ -5,6 +5,7 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module SAWScript.LLVMExpr
   (-- * LLVM Expressions
     LLVMExprF(..)
@@ -41,7 +42,6 @@ import Text.PrettyPrint.Leijen hiding ((<$>))
 import qualified Verifier.LLVM.Codebase as LSS
 
 import Verifier.SAW.Prelude
-import Verifier.SAW.TypedAST
 import Verifier.SAW.SharedTerm
 
 import qualified SAWScript.CongruenceClosure as CC

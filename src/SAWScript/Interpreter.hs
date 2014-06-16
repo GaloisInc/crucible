@@ -39,7 +39,7 @@ import SAWScript.Proof
 import SAWScript.Utils
 import SAWScript.Value
 import Verifier.SAW.Prelude (preludeModule, preludeStringIdent)
-import Verifier.SAW.Rewriter ( Simpset, emptySimpset, rewritingSharedContext )
+import Verifier.SAW.Rewriter ( Simpset, emptySimpset )
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST hiding ( incVars )
 
@@ -218,6 +218,8 @@ translateExpr sc tm sm km expr =
                                              let ts = typeInstantiation schema t
                                              ts' <- mapM (translateType sc km) ts
                                              scApplyAll sc e' ts'
+      SS.Var x (SS.Forall _ _)    ->
+        fail $ "Untranslatable: " ++ SS.renderResolvedName x
       SS.Function x a e         _ -> do a' <- translateSchema sc km a
                                         x' <- scLocalVar sc 0
                                         sm' <- traverse (incVars sc 0 1) sm
@@ -297,6 +299,8 @@ interpret sc env@(InterpretEnv vm tm sm) expr =
                                       Just schema -> do
                                         let ts = typeInstantiation schema t
                                         foldM tapplyValue v ts
+      SS.Var x (SS.Forall _ _) ->
+        fail $ "Can't interpret: " ++ SS.renderResolvedName x
       SS.Function x _ e    _ -> do let name = SS.LocalName x
                                    let f v Nothing = interpret sc (InterpretEnv (M.insert name v vm) tm sm) e
                                        f v (Just t) = do

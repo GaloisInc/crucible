@@ -11,8 +11,6 @@ import Data.List (sort)
 import Data.List.Split
 import qualified Data.Map as Map
 import Data.String
-import Text.PrettyPrint.Leijen
-import Text.Read (readMaybe)
 
 import Text.LLVM (modDataLayout)
 import Verifier.LLVM.Backend
@@ -34,7 +32,6 @@ import SAWScript.Proof
 import SAWScript.Utils
 import SAWScript.Value
 
-import Verinf.Symbolic
 import Verinf.Utils.LogMonad
 
 -- | Extract a simple, pure model from the given symbol within the
@@ -102,7 +99,6 @@ verifyLLVM :: BuiltinContext -> Options -> String -> String
            -> IO LLVMMethodSpecIR
 verifyLLVM bic opts file func overrides setup = do
   let pos = fixPos -- TODO
-      sc = biSharedContext bic
   mdl <- loadModule file
   let dl = parseDataLayout $ modDataLayout mdl
   withBE $ \be -> do
@@ -136,7 +132,7 @@ verifyLLVM bic opts file func overrides setup = do
       runSimulator cb sbe mem lopts $ do
         setVerbosity verb
         esd <- initializeVerification scLLVM ms
-        let isExtCns (STApp _ (FTermF (ExtCns e))) = True
+        let isExtCns (STApp _ (FTermF (ExtCns _))) = True
             isExtCns _ = False
             initialExts =
               sort . filter isExtCns . map snd . esdInitialAssignments $ esd
@@ -256,7 +252,7 @@ llvmPtr bic _ name t = do
 
 llvmDeref :: BuiltinContext -> Options -> Value SAWCtx
           -> LLVMSetup (SharedTerm SAWCtx)
-llvmDeref bic _ t = fail "llvm_deref not yet implemented"
+llvmDeref _bic _ _t = fail "llvm_deref not yet implemented"
 
 {-
 llvmMayAlias :: BuiltinContext -> Options -> [String]
@@ -279,9 +275,9 @@ llvmAssert _ _ v =
 
 llvmAssertEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
              -> LLVMSetup ()
-llvmAssertEq bic _ name t = do
+llvmAssertEq _bic _ name t = do
   ms <- gets lsSpec
-  (expr, ty) <- liftIO $ getLLVMExpr ms name
+  (expr, _) <- liftIO $ getLLVMExpr ms name
   modify $ \st ->
     st { lsSpec = specAddLogicAssignment fixPos expr (mkLogicExpr t) ms }
 
@@ -302,7 +298,6 @@ llvmEnsureEq _ _ name t = do
   modify $ \st ->
     st { lsSpec =
            specAddBehaviorCommand (Ensure fixPos expr (LogicE (mkLogicExpr t))) (lsSpec st) }
-llvmEnsureEq _ _ _ _ = fail "invalid right-hand side of llvm_ensure_eq"
 
 llvmModify :: BuiltinContext -> Options -> String
            -> LLVMSetup ()
