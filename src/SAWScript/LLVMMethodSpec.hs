@@ -205,7 +205,6 @@ scLLVMValue sc ty name = do
   ty' <- scRemoveBitvector sc ty
   mkValue <- scGlobalDef sc (parseIdent "LLVM.mkValue")
   nt <- scApplyAll sc mkValue [ty', s]
-  putStrLn $ "Constructing: " ++ show nt
   return nt
 
 -- | Evaluate a typed expression in the context of a particular state.
@@ -218,7 +217,6 @@ evalLogicExpr initExpr ec = do
                  -- TODO: error handling!
                 Just ty <- liftIO $ TC.logicTypeOfActual sc at
                 nt <- liftIO $ scLLVMValue sc ty name
-                liftIO $ putStrLn $ "Using: " ++ show nt
                 return (ruleOfTerms nt lt)
   let ss = addRules rules emptySimpset
   liftIO $ rewriteSharedTerm sc ss t
@@ -854,10 +852,9 @@ generateVC sc ir esd (ps, endLoc, res) = do
             expectedValue <- runEval (evalLLVMExpr e expectedContext)
             actualValue <- runEval (evalLLVMExpr e actualContext)
             case (expectedValue, actualValue) of
-              (Right ev, Right av) -> pvcgAssertEq "expr" av ev
-              (Left e, _) -> fail $ show e
-              (_, Left e) -> fail $ show e
-
+              (Right ev, Right av) -> pvcgAssertEq (show e) av ev
+              (Left err, _) -> fail $ show err
+              (_, Left err) -> fail $ show err
         -- Check assertions
         pvcgAssert "final assertions" (ps ^. pathAssertions)
 
@@ -919,8 +916,10 @@ runValidation prover params sc esd results = do
          forM_ (pvcChecks pvc) $ \vc -> do
            let vs = mkVState (vcName vc) (vcCounterexample vc)
            g <- scImplies sc (pvcAssumptions pvc) =<< vcGoal sc vc
-           when (verb >= 4) $ do
-             putStrLn $ "Checking " ++ vcName vc ++ " (" ++ show g ++ ")"
+           when (verb >= 3) $ do
+             putStr $ "Checking " ++ vcName vc
+             when (verb >= 4) $ putStr $ " (" ++ show g ++ ")"
+             putStrLn ""
            prover vs script g
         else do
           let vsName = "an invalid path"

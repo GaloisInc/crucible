@@ -30,6 +30,7 @@ import Data.Traversable hiding ( mapM )
 
 import qualified SAWScript.AST as SS
 import SAWScript.Builtins hiding (evaluate)
+import SAWScript.CryptolBuiltins
 import SAWScript.JavaBuiltins
 import SAWScript.LLVMBuiltins
 import qualified SAWScript.MGU as MGU
@@ -45,6 +46,8 @@ import Verifier.SAW.TypedAST hiding ( incVars )
 import qualified Verifier.Java.Codebase as JCB
 import qualified Verifier.Java.SAWBackend as JavaSAW
 import qualified Verifier.LLVM.Backend.SAW as LLVMSAW
+
+import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 
 type Expression = SS.Expr SS.ResolvedName SS.Schema
 type BlockStatement = SS.BlockStmt SS.ResolvedName SS.Schema
@@ -445,6 +448,7 @@ buildInterpretEnv opts m =
        let scm = insImport preludeModule $
                  insImport JavaSAW.javaModule $
                  insImport LLVMSAW.llvmModule $
+                 insImport CryptolSAW.cryptolModule $
                  emptyModule mn
        sc <- mkSharedContext scm
        ss <- basic_ss sc
@@ -482,6 +486,9 @@ valueEnv opts bic = M.fromList
   [ (qualify "read_sbv"    , toValue $ readSBV sc)
   , (qualify "read_aig"    , toValue $ readAIGPrim sc)
   , (qualify "write_aig"   , toValue $ writeAIG sc)
+  -- Cryptol stuff
+  , (qualify "cryptol_module", toValue $ loadCryptol)
+  , (qualify "cryptol_extract", toValue $ extractCryptol sc)
   -- Java stuff
   , (qualify "java_extract", toValue $ extractJava bic opts)
   , (qualify "java_verify" , toValue $ verifyJava bic opts)
@@ -514,6 +521,7 @@ valueEnv opts bic = M.fromList
   , (qualify "addsimp"     , toValue $ addsimp sc)
   , (qualify "rewrite"     , toValue $ rewritePrim sc)
   , (qualify "abc"         , toValue $ satABC sc)
+  , (qualify "abc2"        , toValue $ satABC' sc)
   , (qualify "yices"       , toValue $ satYices sc)
   , (qualify "offline_aig" , toValue $ satAIG sc)
   , (qualify "offline_extcore" , toValue $ satExtCore sc)
@@ -541,7 +549,6 @@ valueEnv opts bic = M.fromList
   , (qualify "define"      , toValue $ definePrim sc)
   , (qualify "caseSatResult", toValueCase sc caseSatResultPrim)
   , (qualify "caseProofResult", toValueCase sc caseProofResultPrim)
-  , (qualify "trunc"       , toValue $ truncPrim sc)
   ] where sc = biSharedContext bic
 
 coreEnv :: SharedContext s -> IO (RNameMap (SharedTerm s))
@@ -600,6 +607,7 @@ coreEnv sc =
     , (qualify "llvm_double", "LLVM.mkDoubleType")
     , (qualify "llvm_array" , "LLVM.mkArrayType")
     , (qualify "llvm_value",  "LLVM.mkValue")
+    , (qualify "trunc31"    , "LLVM.trunc31")
     ]
 
 qualify :: String -> SS.ResolvedName

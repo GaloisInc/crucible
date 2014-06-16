@@ -21,6 +21,7 @@ import Text.PrettyPrint.Leijen hiding ((<$>))
 
 import qualified Verifier.Java.Codebase as JSS
 import Verifier.Java.SAWBackend (javaModule)
+import Verifier.LLVM.Backend.SAW (llvmModule)
 
 import Verifier.SAW.BitBlast
 import Verifier.SAW.Evaluator
@@ -43,10 +44,17 @@ import SAWScript.Proof
 import SAWScript.Utils
 import qualified SAWScript.Value as SV
 
+import qualified Verifier.SAW.Simulator.BitBlast as BBSim
+import qualified Verinf.Symbolic as BE
+
 import qualified Data.ABC as ABC
 import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
 
 --import qualified Verinf.Symbolic as BE
+
+import Data.ABC (aigNetwork)
+import qualified Data.AIG as AIG
+
 
 data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
                                      , biJavaCodebase  :: JSS.Codebase
@@ -126,6 +134,8 @@ prepForExport sc t = do
                  [ "ecJoin", "ecJoin768", "ecSplit", "ecSplit768"
                  , "ecExtend", "longExtend"
                  ] ++
+             map (mkIdent (moduleName llvmModule))
+                 [ "trunc31" ] ++
              map (mkIdent preludeName)
                  [ "splitLittleEndian", "joinLittleEndian" ]
   rs1 <- concat <$> traverse (defRewrites sc) defs
@@ -221,6 +231,41 @@ satABC sc = StateT $ \t -> withBE $ \be -> do
                     map show (zip argNames vs)
         _ -> fail "Can't prove non-boolean term."
     Left err -> fail $ "Can't bitblast: " ++ err
+
+-- | Bit-blast a @SharedTerm@ representing a theorem and check its
+-- satisfiability using ABC. (Currently ignores satisfying assignments.)
+satABC' :: SharedContext s -> ProofScript s (SV.SatResult s)
+satABC' sc = StateT $ \t -> AIG.withNewGraph aigNetwork $ \be -> do
+  putStrLn "Simulating..."
+  lit <- BBSim.bitBlast be sc t
+  putStrLn "Checking..."
+  satRes <- AIG.checkSat be lit
+  case satRes of
+    AIG.Unsat -> do
+      putStrLn "UNSAT"
+      (,) SV.Unsat <$> scApplyPreludeFalse sc
+    AIG.Sat cex -> do
+      putStrLn "SAT"
+      ty <- scTypeOf sc t
+      argTys <- BBSim.asPredType sc ty
+      shapes <- mapM (BBSim.parseShape sc) argTys
+      r <- liftCexBB sc (map convert shapes) cex
+      case r of
+        Left err -> fail $ "Can't parse counterexample: " ++ err
+        Right [tm] -> (SV.Sat (SV.evaluate sc tm),) <$>
+                      scApplyPreludeTrue sc
+        Right tms -> do
+          let vs = map (SV.evaluate sc) tms
+          fail . unlines $
+            "Proof failed with multi-argument counterexample: " :
+            map show vs
+    _ -> fail "ABC returned Unknown for SAT query."
+  where
+    convert :: BBSim.BShape -> BShape --FIXME: temporary
+    convert BBSim.BoolShape = BoolShape
+    convert (BBSim.VecShape n x) = VecShape n (convert x)
+    convert (BBSim.TupleShape xs) = TupleShape (map convert xs)
+    convert (BBSim.RecShape xm) = RecShape (fmap convert xm)
 
 satYices :: SharedContext s -> ProofScript s (SV.SatResult s)
 satYices sc = StateT $ \t -> withBE $ \be -> do
@@ -386,21 +431,3 @@ caseSatResultPrim sc sr vUnsat vSat = do
   case sr of
     SV.Unsat -> return vUnsat
     SV.Sat v -> SV.applyValue sc vSat v
-
--- TODO: this works, but is far too verbose. Let's figure out how to
--- specify it more concisely.
-truncPrim :: SharedContext s -> Integer -> SV.Value s
-truncPrim sc n =
-  SV.VLambda $ \v _ ->
-    case v of
-      SV.VTerm t -> do
-        bvTrunc <- scApplyPreludeBvTrunc sc
-        ty <- scTypeOf sc t
-        case asBitvectorType ty of
-          Just m -> do
-            dt <- scNat sc (m - fromIntegral n)
-            nt <- scNat sc (fromIntegral n)
-            SV.VTerm <$> bvTrunc dt nt t
-          Nothing -> fail "trunc applied to non-bitvector"
-      SV.VWord w v -> return (SV.VWord (fromIntegral n) (v .&. (2^n - 1)))
-      _ ->  fail $ "trunc applied to non-term: " ++ show v

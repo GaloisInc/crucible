@@ -21,6 +21,7 @@ import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST hiding ( incVars )
 
 import qualified Verifier.SAW.Evaluator as SC
+import qualified Cryptol.ModuleSystem as Cry
 
 -- Values ----------------------------------------------------------------------
 
@@ -47,6 +48,7 @@ data Value s
   | VLLVMSetup (LLVMSetup (Value s))
   | VJavaMethodSpec JavaMethodSpecIR
   | VLLVMMethodSpec LLVMMethodSpecIR
+  | VCryptolModuleEnv Cry.ModuleEnv
   | VSatResult (SatResult s)
   | VProofResult (ProofResult s)
   -- | VAIG (BitEngine Lit) (V.Vector Lit) (V.Vector Lit)
@@ -86,7 +88,7 @@ instance Show (Value s) where
         VBool False -> showString "False"
         VString s -> shows s
         VInteger n -> shows n
-        VWord w x -> showParen (p > 9) (shows x . showString "::[" . shows w . showString "]")
+        VWord w x -> showParen (p > 9) (shows x . showString ":[" . shows w . showString "]")
         VArray vs | all isBool vs -> shows (arrayToWord vs)
                   | otherwise -> showList vs
         VTuple vs -> showParen True
@@ -111,6 +113,7 @@ instance Show (Value s) where
         VLLVMSetup {} -> showString "<<LLVM Setup>>"
         VJavaMethodSpec {} -> showString "<<Java MethodSpec>>"
         VLLVMMethodSpec {} -> showString "<<LLVM MethodSpec>>"
+        VCryptolModuleEnv {} -> showString "<<Cryptol ModuleEnv>>"
         VProofResult Valid -> showString "Valid"
         VProofResult (Invalid t) -> showString "Invalid: " . shows t
         VSatResult Unsat -> showString "Unsat"
@@ -234,6 +237,7 @@ exportValue val =
       VLLVMSetup {} -> error "VLLVMSetup unsupported"
       VJavaMethodSpec {} -> error "VJavaMethodSpec unsupported"
       VLLVMMethodSpec {} -> error "VLLVMMethodSpec unsupported"
+      VCryptolModuleEnv {} -> error "CryptolModuleEnv unsupported"
       VProofResult {} -> error "VProofResult unsupported"
       VSatResult {} -> error "VSatResult unsupported"
       -- VAIG {} -> error "VAIG unsupported" -- TODO: could be implemented
@@ -346,6 +350,11 @@ instance IsValue SAWCtx LLVMMethodSpecIR where
     toValue ms = VLLVMMethodSpec ms
     fromValue (VLLVMMethodSpec ms) = ms
     fromValue _ = error "fromValue LLVMMethodSpec"
+
+instance IsValue s Cry.ModuleEnv where
+    toValue me = VCryptolModuleEnv me
+    fromValue (VCryptolModuleEnv me) = me
+    fromValue _ = error "fromValue CryptolModuleEnv"
 
 instance IsValue s (ProofResult s) where
    toValue r = VProofResult r

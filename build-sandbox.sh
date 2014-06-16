@@ -3,7 +3,8 @@ set -e
 
 REPODIR=${REPODIR:="src.galois.com:/srv/git"}
 REPOS="aig abcBridge jvm-parser llvm-pretty Aiger"
-PKGS="Verinf SAWCore Java LLVM"
+PKGS="Verinf SAWCore Java LLVM Cryptol"
+GITHUB_REPOS="cryptol"
 
 cabal_flags="--reinstall --force-reinstalls"
 test_flags="--enable-tests --run-tests --disable-library-coverage"
@@ -36,11 +37,20 @@ for repo in ${REPOS} ; do
   fi
 done
 
+for repo in ${GITHUB_REPOS} ; do
+  if [ ! -e ./deps/${repo} ] ; then
+    git clone https://github.com/GaloisInc/${repo}.git ./deps/${repo}
+  fi
+  if [ "${dopull}" == "true" ] ; then
+    (cd ./deps/${repo} && git checkout master && git pull)
+  fi
+done
+
 if [ ! -e ./build ] ; then
   cabal sandbox --sandbox=./build init
 fi
 
-for repo in ${REPOS} ; do
+for repo in ${REPOS} ${GITHUB_REPOS} ; do
   cabal sandbox add-source deps/${repo}
   if [ "${dotests}" == "true" ] ; then
     cabal install ${repo} ${cabal_flags}
