@@ -342,13 +342,15 @@ ocStep (ModifyInstanceField refExpr f) =
     let tp = JSS.fieldIdType f
         w = fromIntegral $ JSS.stackWidth tp
     logicType <- liftIO $ scBitvector sc (fromInteger w)
-    n <- liftIO $ scFreshGlobal sc "_" logicType
+    n <- liftIO $ scFreshGlobal sc (TC.ppJavaExpr refExpr) logicType
     ocModifyResultState $ setInstanceFieldValue lhsRef f (mkJSSValue tp n)
 ocStep (ModifyArray refExpr ty) = do
   ocEval (evalJavaRefExpr refExpr) $ \ref -> do
     sc <- gets (ecContext . ocsEvalContext)
     mtp <- liftIO $ TC.logicTypeOfActual sc ty
-    rhsVal <- maybe (fail "can't convert") (liftIO . scFreshGlobal sc "_") mtp
+    rhsVal <- maybe (fail "can't convert")
+                    (liftIO . scFreshGlobal sc (TC.ppJavaExpr refExpr))
+                    mtp
     lty <- liftIO $ scTypeOf sc rhsVal
     ocModifyResultState $ setArrayValue ref lty rhsVal
 ocStep (Return expr) = do
@@ -602,14 +604,14 @@ esSetJavaValue e@(CC.Term exprF) v = do
         Nothing -> esPutInitialPathState $
           (JSS.pathMemory . JSS.memInstanceFields %~ Map.insert (ref,f) v) ps
 
-esResolveLogicExprs :: SharedTerm JSSCtx -> [TC.LogicExpr]
+esResolveLogicExprs :: TC.JavaExpr -> SharedTerm JSSCtx -> [TC.LogicExpr]
                     -> ExpectedStateGenerator (SharedTerm JSSCtx)
-esResolveLogicExprs tp [] = do
+esResolveLogicExprs e tp [] = do
   sc <- gets esContext
   -- Create input variable.
   -- liftIO $ putStrLn $ "Creating global of type: " ++ show tp
-  liftIO $ scFreshGlobal sc "_" tp
-esResolveLogicExprs _ (hrhs:rrhs) = do
+  liftIO $ scFreshGlobal sc (TC.ppJavaExpr e) tp
+esResolveLogicExprs _ _ (hrhs:rrhs) = do
   sc <- gets esContext
   -- liftIO $ putStrLn $ "Evaluating " ++ show hrhs
   t <- esEval $ evalLogicExpr hrhs
@@ -624,10 +626,11 @@ esResolveLogicExprs _ (hrhs:rrhs) = do
 esSetLogicValues :: SharedContext JSSCtx -> [TC.JavaExpr] -> SharedTerm JSSCtx
                  -> [TC.LogicExpr]
                  -> ExpectedStateGenerator ()
-esSetLogicValues sc cl tp lrhs = do
+esSetLogicValues sc [] tp lrhs = fail "empty class passed to esSetLogicValues"
+esSetLogicValues sc cl@(e:_) tp lrhs = do
   -- liftIO $ putStrLn $ "Setting logic values for: " ++ show cl
   -- Get value of rhs.
-  value <- esResolveLogicExprs tp lrhs
+  value <- esResolveLogicExprs e tp lrhs
   -- Update Initial assignments.
   modify $ \es -> es { esInitialAssignments =
                          map (\e -> (e,value)) cl ++  esInitialAssignments es }
