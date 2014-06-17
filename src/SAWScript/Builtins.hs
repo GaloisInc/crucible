@@ -133,7 +133,7 @@ prepForExport sc t = do
              map (mkIdent (moduleName llvmModule))
                  [ "trunc31" ] ++
              map (mkIdent preludeName)
-                 [ "splitLittleEndian", "joinLittleEndian" ]
+                 [ "splitLittleEndian", "joinLittleEndian", "finEq" ]
   rs1 <- concat <$> traverse (defRewrites sc) defs
   rs2 <- scEqsRewriteRules sc eqs
   basics <- basic_ss sc
