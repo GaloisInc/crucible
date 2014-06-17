@@ -334,7 +334,7 @@ ocStep (Modify lhsExpr tp) = do
   sc <- gets (ecContext . ocsEvalContext)
   ocEval (evalLLVMRefExpr lhsExpr) $ \lhsRef -> do
     Just lty <- liftIO $ TC.logicTypeOfActual sc tp
-    value <- liftIO $ scFreshGlobal sc "_" lty
+    value <- liftIO $ scFreshGlobal sc (show (TC.ppLLVMExpr lhsExpr)) lty
     ocModifyResultStateIO $
       storePathState sbe lhsRef tp value
 ocStep (Return expr) = do
@@ -533,13 +533,14 @@ esSetLLVMValue (CC.Term exprF) v = do
 createLogicValue :: Codebase SpecBackend
                  -> SBE SpecBackend
                  -> SharedContext LSSCtx
+                 -> TC.LLVMExpr
                  -> SpecPathState
                  -> MemType
                  -> Maybe TC.LogicExpr
                  -> IO (SpecLLVMValue, SpecPathState)
-createLogicValue _ _ _ _ (PtrType _) (Just _) =
+createLogicValue _ _ _ _ _ (PtrType _) (Just _) =
   fail "Pointer variables cannot be given initial values."
-createLogicValue cb sbe sc ps (PtrType (MemType mtp)) _ = do
+createLogicValue cb sbe sc expr ps (PtrType (MemType mtp)) _ = do
   let dl = cbDataLayout cb
       sz = memTypeSize dl mtp
       w = ptrBitwidth dl
@@ -553,17 +554,17 @@ createLogicValue cb sbe sc ps (PtrType (MemType mtp)) _ = do
       mbltp <- TC.logicTypeOfActual sc mtp
       case mbltp of
         Just ty -> do
-          v <- scFreshGlobal sc "_" ty
+          v <- scFreshGlobal sc (show (TC.ppLLVMExpr expr)) ty
           ps'' <- storePathState sbe addr mtp v ps'
           return (addr, ps'')
         Nothing ->
           fail "Can't translate actual type to logic type."
-createLogicValue _ _ sc ps mtp mrhs = do
+createLogicValue _ _ sc expr ps mtp mrhs = do
   mbltp <- TC.logicTypeOfActual sc mtp
   -- Get value of rhs.
   tm <- case (mrhs, mbltp) of
           (Just v, _) -> TC.useLogicExpr sc v
-          (Nothing, Just tp) -> scFreshGlobal sc "_" tp
+          (Nothing, Just tp) -> scFreshGlobal sc (show (TC.ppLLVMExpr expr)) tp
           (Nothing, Nothing) -> fail "Can't calculate type for fresh input."
   return (tm, ps)
 
@@ -581,7 +582,7 @@ esSetLogicValue cb sc expr mtp mrhs = do
   -- Create the value to associate with this LLVM expression: either
   -- an assigned value or a fresh input.
   -- TODO: don't discard ps'!
-  (value, ps') <- liftIO $ createLogicValue cb sbe sc ps mtp mrhs
+  (value, ps') <- liftIO $ createLogicValue cb sbe sc expr ps mtp mrhs
   -- Update the initial assignments in the expected state.
   modify $ \es -> es { esInitialAssignments =
                          (expr, value) : esInitialAssignments es }
@@ -612,7 +613,7 @@ esStep (Modify lhsExpr tp) = do
   sc <- gets esContext
   ref <- esEval $ evalLLVMRefExpr lhsExpr
   Just lty <- liftIO $ TC.logicTypeOfActual sc tp
-  value <- liftIO $ scFreshGlobal sc "_" lty
+  value <- liftIO $ scFreshGlobal sc (show (TC.ppLLVMExpr lhsExpr)) lty
   esModifyInitialPathStateIO $
     storePathState sbe ref tp value
 
@@ -659,7 +660,7 @@ initializeVerification sc ir = do
         fail "argument assignments not allowed"
       (CC.Term (TC.Arg _ _ ty), Nothing) -> do
         ps <- fromMaybe (error "initializeVerification") <$> getPath
-        (tm, ps') <- liftIO $ createLogicValue cb sbe sc ps ty mle
+        (tm, ps') <- liftIO $ createLogicValue cb sbe sc expr ps ty mle
         setPS ps'
         return (Just (expr, tm))
       _ -> return Nothing

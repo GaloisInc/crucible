@@ -389,14 +389,16 @@ bindExts :: SharedContext s
 bindExts sc args body = do
   types <- mapM (scTypeOf sc) args
   let is = mapMaybe extIdx args
-  unless (length types == length is) $
+      names = mapMaybe extName args
+  unless (length types == length is && length types == length names) $
     fail "argument isn't external input"
   locals <- mapM (scLocalVar sc . fst) ([0..] `zip` reverse types)
   body' <- scInstantiateExt sc (Map.fromList (is `zip` reverse locals)) body
   scLambdaList sc (names `zip` types) body'
-    where names = map ('x':) (map show ([0..] :: [Int]))
-          extIdx (STApp _ (FTermF (ExtCns ec))) = Just (ecVarIndex ec)
+    where extIdx (STApp _ (FTermF (ExtCns ec))) = Just (ecVarIndex ec)
           extIdx _ = Nothing
+          extName (STApp _ (FTermF (ExtCns ec))) = Just (ecName ec)
+          extName _ = Nothing
 
 toValueCase :: (SV.IsValue s b) =>
                SharedContext s
