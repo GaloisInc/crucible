@@ -183,24 +183,25 @@ readCore sc path = scReadExternal sc =<< readFile path
 
 printGoal :: ProofScript s ()
 printGoal = StateT $ \goal -> do
-  putStrLn (scPrettyTerm goal)
+  putStrLn (scPrettyTerm (goalTerm goal))
   return ((), goal)
 
 unfoldGoal :: SharedContext s -> [String] -> ProofScript s ()
 unfoldGoal sc names = StateT $ \goal -> do
   let ids = map (mkIdent (moduleName (scModule sc))) names
-  goal' <- scUnfoldConstants sc ids goal
-  return ((), goal')
+  goalTerm' <- scUnfoldConstants sc ids (goalTerm goal)
+  return ((), goal { goalTerm = goalTerm' })
 
 simplifyGoal :: SharedContext s -> Simpset (SharedTerm s) -> ProofScript s ()
 simplifyGoal sc ss = StateT $ \goal -> do
-  goal' <- rewriteSharedTerm sc ss goal
-  return ((), goal')
+  goalTerm' <- rewriteSharedTerm sc ss (goalTerm goal)
+  return ((), goal { goalTerm = goalTerm' })
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
 satABC :: SharedContext s -> ProofScript s (SV.SatResult s)
-satABC sc = StateT $ \t -> withBE $ \be -> do
+satABC sc = StateT $ \g -> withBE $ \be -> do
+  let t = goalTerm g
   t' <- prepForExport sc t
   let (args, _) = asLambdaList t'
       argNames = map fst args
@@ -213,13 +214,16 @@ satABC sc = StateT $ \t -> withBE $ \be -> do
         BBool l -> do
           satRes <- ABC.checkSat be l
           case satRes of
-            ABC.Unsat -> (SV.Unsat,) <$> scApplyPreludeFalse sc
+            ABC.Unsat -> do
+              ft <- scApplyPreludeFalse sc
+              return (SV.Unsat, g { goalTerm = ft })
             ABC.Sat cex -> do
               r <- liftCexBB sc shapes cex
               case r of
                 Left err -> fail $ "Can't parse counterexample: " ++ err
-                Right [tm] -> (SV.Sat (SV.evaluate sc tm),) <$>
-                              scApplyPreludeTrue sc
+                Right [tm] -> do
+                  tt <- scApplyPreludeTrue sc
+                  return (SV.Sat (SV.evaluate sc tm), g { goalTerm = tt })
                 Right tms -> do
                   let vs = map (SV.evaluate sc) tms
                   fail . unlines $
@@ -231,25 +235,33 @@ satABC sc = StateT $ \t -> withBE $ \be -> do
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC. (Currently ignores satisfying assignments.)
 satABC' :: SharedContext s -> ProofScript s (SV.SatResult s)
-satABC' sc = StateT $ \t -> AIG.withNewGraph aigNetwork $ \be -> do
+satABC' sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
+  let t = goalTerm g
+      eqs = map (mkIdent preludeName) [ "eq_Vec", "eq_Fin", "eq_Bool" ]
+  rs <- scEqsRewriteRules sc eqs
+  basics <- basic_ss sc
+  let ss = addRules rs basics
+  t' <- rewriteSharedTerm sc ss t
   putStrLn "Simulating..."
-  lit <- BBSim.bitBlast be sc t
+  lit <- BBSim.bitBlast be sc t'
   putStrLn "Checking..."
   satRes <- AIG.checkSat be lit
   case satRes of
     AIG.Unsat -> do
       putStrLn "UNSAT"
-      (,) SV.Unsat <$> scApplyPreludeFalse sc
+      ft <- scApplyPreludeFalse sc
+      return (SV.Unsat, g { goalTerm = ft })
     AIG.Sat cex -> do
       putStrLn "SAT"
-      ty <- scTypeOf sc t
+      ty <- scTypeOf sc t'
       argTys <- BBSim.asPredType sc ty
       shapes <- mapM (BBSim.parseShape sc) argTys
       r <- liftCexBB sc (map convert shapes) cex
       case r of
         Left err -> fail $ "Can't parse counterexample: " ++ err
-        Right [tm] -> (SV.Sat (SV.evaluate sc tm),) <$>
-                      scApplyPreludeTrue sc
+        Right [tm] -> do
+          tt <- scApplyPreludeTrue sc
+          return (SV.Sat (SV.evaluate sc tm), g { goalTerm = tt })
         Right tms -> do
           let vs = map (SV.evaluate sc) tms
           fail . unlines $
@@ -263,7 +275,8 @@ satABC' sc = StateT $ \t -> AIG.withNewGraph aigNetwork $ \be -> do
     convert (BBSim.RecShape xm) = RecShape (fmap convert xm)
 
 satYices :: SharedContext s -> ProofScript s (SV.SatResult s)
-satYices sc = StateT $ \t -> do
+satYices sc = StateT $ \g -> do
+  let t = goalTerm g
   t' <- prepForExport sc t
   let (args, _) = asLambdaList t'
       argNames = map fst args
@@ -273,13 +286,16 @@ satYices sc = StateT $ \t -> do
         (map (fmap scPrettyTermDoc) (ws' ^. SMT1.warnings))
   res <- Y.yices Nothing (SMT1.smtScript ws')
   case res of
-    Y.YUnsat -> (SV.Unsat,) <$> scApplyPreludeFalse sc
+    Y.YUnsat -> do
+      ft <- scApplyPreludeFalse sc
+      return (SV.Unsat, g { goalTerm = ft })
     Y.YSat m -> do
       r <- liftCexMapYices sc m
       case r of
         Left err -> fail $ "Can't parse counterexample: " ++ err
-        Right [(_n, tm)] -> (SV.Sat (SV.evaluate sc tm),) <$>
-                            scApplyPreludeTrue sc
+        Right [(_n, tm)] -> do
+          tt <- scApplyPreludeTrue sc
+          return (SV.Sat (SV.evaluate sc tm), g { goalTerm = tt })
         Right tms ->
           fail . unlines $
           "Proof failed with multi-argument counterexample: " :
@@ -287,24 +303,28 @@ satYices sc = StateT $ \t -> do
     Y.YUnknown -> fail "ABC returned Unknown for SAT query."
 
 satAIG :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
-satAIG sc path = StateT $ \t -> do
-  writeAIG sc path t
-  (SV.Unsat,) <$> scApplyPreludeFalse sc
+satAIG sc path = StateT $ \g -> do
+  writeAIG sc ((path ++ goalName g) ++ ".aig") (goalTerm g)
+  ft <- liftIO $ scApplyPreludeFalse sc
+  return (SV.Unsat, g { goalTerm = ft })
 
 satExtCore :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
-satExtCore sc path = StateT $ \t -> do
-  writeCore path t
-  (SV.Unsat,) <$> scApplyPreludeFalse sc
+satExtCore sc path = StateT $ \g -> do
+  writeCore ((path ++ goalName g) ++ ".extcore") (goalTerm g)
+  ft <- liftIO $ scApplyPreludeFalse sc
+  return (SV.Unsat, g { goalTerm = ft })
 
 satSMTLib1 :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
-satSMTLib1 sc path = StateT $ \t -> do
-  writeSMTLib1 sc path t
-  (SV.Unsat,) <$> scApplyPreludeFalse sc
+satSMTLib1 sc path = StateT $ \g -> do
+  writeSMTLib1 sc ((path ++ goalName g) ++ ".smt") (goalTerm g)
+  ft <- liftIO $ scApplyPreludeFalse sc
+  return (SV.Unsat, g { goalTerm = ft })
 
 satSMTLib2 :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
-satSMTLib2 sc path = StateT $ \t -> do
-  writeSMTLib2 sc path t
-  (SV.Unsat,) <$> scApplyPreludeFalse sc
+satSMTLib2 sc path = StateT $ \g -> do
+  writeSMTLib2 sc ((path ++ goalName g) ++ ".smt2") (goalTerm g)
+  ft <- liftIO $ scApplyPreludeFalse sc
+  return (SV.Unsat, g { goalTerm = ft })
 
 liftCexBB :: SharedContext s -> [BShape] -> [Bool]
           -> IO (Either String [SharedTerm s])
@@ -349,14 +369,14 @@ provePrim :: SharedContext s -> ProofScript s (SV.SatResult s)
           -> SharedTerm s -> IO (SV.ProofResult s)
 provePrim sc script t = do
   t' <- scNegate sc t
-  (r, _) <- runStateT script t'
+  (r, _) <- runStateT script (ProofGoal "prove" t')
   return (SV.flipSatResult r)
 
 -- | FIXME: change return type so that we can return the witnesses.
 satPrim :: SharedContext s -> ProofScript s (SV.SatResult s) -> SharedTerm s
         -> IO (SV.SatResult s)
 satPrim _sc script t = do
-  (r, _) <- runStateT script t
+  (r, _) <- runStateT script (ProofGoal "sat" t)
   return r
 
 rewritePrim :: SharedContext s -> Simpset (SharedTerm s) -> SharedTerm s -> IO (SharedTerm s)

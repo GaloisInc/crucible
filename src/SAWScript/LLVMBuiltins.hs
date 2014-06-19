@@ -144,7 +144,7 @@ verifyLLVM bic opts file func overrides setup = do
               glam <- bindExts scLLVM initialExts g
               let bsc = biSharedContext bic
               glam' <- scNegate bsc =<< scImport bsc glam
-              (r, _) <- runStateT script glam'
+              (r, _) <- runStateT script (ProofGoal (vsVCName vs) glam')
               -- TODO: catch counterexamples!
               when (verb >= 5) $ putStrLn $ "Proved: " ++ show r
         liftIO $ runValidation prover vp scLLVM esd res

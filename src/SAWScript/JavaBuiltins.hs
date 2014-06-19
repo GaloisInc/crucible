@@ -129,7 +129,7 @@ verifyJava bic opts cname mname overrides setup = do
             let bsc = biSharedContext bic
             glam' <- scNegate bsc =<< scImport bsc glam
             when (verb >= 6) $ putStrLn $ "Trying to prove: " ++ show glam'
-            (r, _) <- runStateT script glam'
+            (r, _) <- runStateT script (ProofGoal (vsVCName vs) glam')
             -- TODO: catch counterexamples!
             when (verb >= 5) $ putStrLn $ "Proved: " ++ show r
       liftIO $ runValidation prover vp jsc esd res

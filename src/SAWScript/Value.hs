@@ -282,7 +282,7 @@ instance IsValue s a => IsValue s (IO a) where
     fromValue (VIO io) = fmap fromValue io
     fromValue _ = error "fromValue IO"
 
-instance IsValue s a => IsValue s (StateT (SharedTerm s) IO a) where
+instance IsValue s a => IsValue s (StateT (ProofGoal s) IO a) where
     toValue m = VProofScript (fmap toValue m)
     fromValue (VProofScript m) = fmap fromValue m
     fromValue _ = error "fromValue ProofScript"

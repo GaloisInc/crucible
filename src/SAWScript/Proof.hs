@@ -12,7 +12,11 @@ data Theorem s = Theorem (SharedTerm s)
 -- EXISTENTIALLY quantified, as in the statement of a SAT problem. For
 -- proofs of universals, we negate the proposition before running the
 -- proof script, and then re-negate the result afterward.
-type ProofGoal s = SharedTerm s
+data ProofGoal s =
+  ProofGoal {
+    goalName :: String
+  , goalTerm :: SharedTerm s
+  }
 
 type ProofScript s a = StateT (ProofGoal s) IO a
 
