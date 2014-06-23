@@ -434,6 +434,8 @@ data ExpectedStateDef = ESD {
        , esdInitialPathState :: SpecPathState
          -- | Stores initial assignments.
        , esdInitialAssignments :: [(TC.LLVMExpr, SpecLLVMValue)]
+         -- | Expected effects in the form (location, value).
+       , esdExpectedValues :: [(TC.LLVMExpr, SpecLLVMValue, MemType, SpecLLVMValue)]
          -- | Expected return value or Nothing if method returns void.
        , esdReturnValue :: Maybe SpecLLVMValue
        }
@@ -452,6 +454,7 @@ data ESGState = ESGState {
        , esLLVMExprs :: Map String (TC.LLVMActualType, TC.LLVMExpr)
        , esInitialAssignments :: [(TC.LLVMExpr, SpecLLVMValue)]
        , esInitialPathState :: SpecPathState
+       , esExpectedValues :: [(TC.LLVMExpr, SpecLLVMValue, MemType, SpecLLVMValue)]
        , esReturnValue :: Maybe SpecLLVMValue
        }
 
@@ -471,6 +474,14 @@ esEval fn = do
   case res of
     Left expr -> fail $ "internal: esEval given " ++ show expr ++ "."
     Right v   -> return v
+
+esAddExpectedValue :: TC.LLVMExpr
+                   -> SpecLLVMValue
+                   -> TC.LLVMActualType
+                   -> SpecLLVMValue
+                   -> ExpectedStateGenerator ()
+esAddExpectedValue e ref tp value =
+  modify (\s -> s { esExpectedValues = (e, ref, tp, value) : esExpectedValues s })
 
 esGetInitialPathState :: ExpectedStateGenerator SpecPathState
 esGetInitialPathState = gets esInitialPathState
@@ -602,20 +613,18 @@ esStep (Return expr) = do
   v <- esEval $ evalMixedExpr expr
   modify $ \es -> es { esReturnValue = Just v }
 esStep (Ensure _pos lhsExpr rhsExpr) = do
-  sbe <- gets esBackend
+  -- sbe <- gets esBackend
   ref    <- esEval $ evalLLVMRefExpr lhsExpr
   value  <- esEval $ evalMixedExpr rhsExpr
   let tp = TC.lssTypeOfLLVMExpr lhsExpr
-  esModifyInitialPathStateIO $
-    storePathState sbe ref tp value
+  esAddExpectedValue lhsExpr ref tp value
 esStep (Modify lhsExpr tp) = do
-  sbe <- gets esBackend
+  -- sbe <- gets esBackend
   sc <- gets esContext
   ref <- esEval $ evalLLVMRefExpr lhsExpr
   Just lty <- liftIO $ TC.logicTypeOfActual sc tp
   value <- liftIO $ scFreshGlobal sc (show (TC.ppLLVMExpr lhsExpr)) lty
-  esModifyInitialPathStateIO $
-    storePathState sbe ref tp value
+  esAddExpectedValue lhsExpr ref tp value
 
 -- | Initialize verification of a given 'LLVMMethodSpecIR'. The design
 -- principles for now include:
@@ -685,6 +694,7 @@ initializeVerification sc ir = do
                          , esLLVMExprs = exprs
                          , esInitialAssignments = argAssignments''
                          , esInitialPathState = initPS
+                         , esExpectedValues = []
                          , esReturnValue = Nothing
                          }
 
@@ -710,6 +720,7 @@ initializeVerification sc ir = do
              , esdGlobalMap = gm
              , esdInitialPathState = esInitialPathState es
              , esdInitialAssignments = reverse (esInitialAssignments es)
+             , esdExpectedValues = esExpectedValues es
              , esdReturnValue = esReturnValue es
              }
 
@@ -814,7 +825,7 @@ generateVC :: (MonadIO m) =>
            -> ExpectedStateDef -- ^ What is expected
            -> RunResult -- ^ Results of symbolic execution.
            -> Simulator SpecBackend m PathVC
-generateVC sc ir esd (ps, endLoc, res) = do
+generateVC _sc _ir esd (ps, endLoc, res) = do
   let initState  =
         PathVC { pvcInitialAssignments = esdInitialAssignments esd
                , pvcStartLoc = esdStartLoc esd
@@ -834,30 +845,12 @@ generateVC sc ir esd (ps, endLoc, res) = do
           (Just _, Nothing) -> fail "simulator returned value when not expected"
           (Nothing, Just _) -> fail "simulator did not return value when expected"
 
-        -- For all expressions mentioned in the spec, check that they
-        -- have the same value in the expected and actual states.
-        forM_ (bsExprs (specBehavior ir)) $ \e -> case e of
-          (CC.Term (TC.Arg _ _ _)) -> return () -- Don't need to compare values of arguments
-          _ -> do
-            let sbe = esdBackend esd
-                eps = esdInitialPathState esd
-                m = specLLVMExprNames ir
-                gm = esdGlobalMap esd
-                expectedContext = evalContextFromPathState m sc sbe gm eps
-                actualContext =
-                  EvalContext { ecContext = sc
-                              , ecBackend = sbe
-                              , ecGlobalMap = gm
-                              , ecArgs = esdArgs esd
-                              , ecPathState = ps
-                              , ecLLVMExprs = m
-                              }
-            expectedValue <- runEval (evalLLVMExpr e expectedContext)
-            actualValue <- runEval (evalLLVMExpr e actualContext)
-            case (expectedValue, actualValue) of
-              (Right ev, Right av) -> pvcgAssertEq (show e) av ev
-              (Left err, _) -> fail $ show err
-              (_, Left err) -> fail $ show err
+        -- Check that expected state modifications have occurred.
+        -- TODO: extend this to check that nothing else has changed.
+        forM_ (esdExpectedValues esd) $ \(e, lhs, tp, rhs) -> do
+          finalValue <- liftIO $ loadPathState (esdBackend esd) lhs tp ps
+          pvcgAssertEq (show e) finalValue rhs
+
         -- Check assertions
         pvcgAssert "final assertions" (ps ^. pathAssertions)
 
