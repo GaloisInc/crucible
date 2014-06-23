@@ -117,7 +117,7 @@ verifyLLVM bic opts file func overrides setup = do
                           , vpSpec = ms
                           , vpOver = overrides
                           }
-    let verb = simVerbose (vpOpts vp)
+    let verb = verbLevel (vpOpts vp)
     when (verb >= 2) $ putStrLn $ "Starting verification of " ++ show (specName ms)
     {-
     let configs = [ (bs, cl)
