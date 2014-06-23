@@ -2,6 +2,6 @@ and_assoc (t : (Bit, Bit, Bit)) =
   ((t.1 && t.2) && t.3) == (t.1 && (t.2 && t.3));
 
 main = do {
-  result <- prove abc and_assoc;
+  result <- prove abc2 and_assoc;
   print result;
 };
