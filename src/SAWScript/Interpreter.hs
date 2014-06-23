@@ -520,7 +520,9 @@ valueEnv opts bic = M.fromList
   , (qualify "llvm_verify_tactic" , toValue $ llvmVerifyTactic bic opts)
   -- Generic stuff
   , (qualify "prove"       , toValue $ provePrim sc)
+  , (qualify "prove_print" , toValue $ provePrintPrim sc)
   , (qualify "sat"         , toValue $ satPrim sc)
+  , (qualify "sat_print"   , toValue $ satPrintPrim sc)
   , (qualify "empty_ss"    , toValue (emptySimpset :: Simpset (SharedTerm SAWCtx)))
   , (qualify "addsimp"     , toValue $ addsimp sc)
   , (qualify "rewrite"     , toValue $ rewritePrim sc)

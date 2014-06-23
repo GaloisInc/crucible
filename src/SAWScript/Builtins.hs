@@ -367,12 +367,26 @@ provePrim sc script t = do
   (r, _) <- runStateT script (ProofGoal "prove" t')
   return (SV.flipSatResult r)
 
--- | FIXME: change return type so that we can return the witnesses.
+provePrintPrim :: SharedContext s -> ProofScript s (SV.SatResult s)
+               -> SharedTerm s -> IO (Theorem s)
+provePrintPrim sc script t = do
+  t' <- scNegate sc t
+  (r, _) <- runStateT script (ProofGoal "prove" t')
+  case r of
+    SV.Unsat -> putStrLn "Valid" >> return (Theorem t)
+    _ -> fail (show (SV.flipSatResult r))
+
 satPrim :: SharedContext s -> ProofScript s (SV.SatResult s) -> SharedTerm s
         -> IO (SV.SatResult s)
 satPrim _sc script t = do
   (r, _) <- runStateT script (ProofGoal "sat" t)
   return r
+
+satPrintPrim :: SharedContext s -> ProofScript s (SV.SatResult s)
+             -> SharedTerm s -> IO ()
+satPrintPrim _sc script t = do
+  (r, _) <- runStateT script (ProofGoal "sat" t)
+  print r
 
 rewritePrim :: SharedContext s -> Simpset (SharedTerm s) -> SharedTerm s -> IO (SharedTerm s)
 rewritePrim sc ss t = rewriteSharedTerm sc ss t
