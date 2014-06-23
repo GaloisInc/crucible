@@ -219,16 +219,14 @@ satABC sc = StateT $ \g -> withBE $ \be -> do
               return (SV.Unsat, g { goalTerm = ft })
             ABC.Sat cex -> do
               r <- liftCexBB sc shapes cex
+              tt <- scApplyPreludeTrue sc
               case r of
                 Left err -> fail $ "Can't parse counterexample: " ++ err
-                Right [tm] -> do
-                  tt <- scApplyPreludeTrue sc
+                Right [tm] ->
                   return (SV.Sat (SV.evaluate sc tm), g { goalTerm = tt })
                 Right tms -> do
                   let vs = map (SV.evaluate sc) tms
-                  fail . unlines $
-                    "Proof failed with multi-argument counterexample: " :
-                    map show (zip argNames vs)
+                  return (SV.SatMulti (zip argNames vs), g { goalTerm = tt })
         _ -> fail "Can't prove non-boolean term."
     Left err -> fail $ "Can't bitblast: " ++ err
 
@@ -242,6 +240,8 @@ satABC' sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
   basics <- basic_ss sc
   let ss = addRules rs basics
   t' <- rewriteSharedTerm sc ss t
+  let (args, _) = asLambdaList t'
+      argNames = map fst args
   putStrLn "Simulating..."
   lit <- BBSim.bitBlast be sc t'
   putStrLn "Checking..."
@@ -257,16 +257,14 @@ satABC' sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
       argTys <- BBSim.asPredType sc ty
       shapes <- mapM (BBSim.parseShape sc) argTys
       r <- liftCexBB sc (map convert shapes) cex
+      tt <- scApplyPreludeTrue sc
       case r of
         Left err -> fail $ "Can't parse counterexample: " ++ err
-        Right [tm] -> do
-          tt <- scApplyPreludeTrue sc
+        Right [tm] ->
           return (SV.Sat (SV.evaluate sc tm), g { goalTerm = tt })
         Right tms -> do
           let vs = map (SV.evaluate sc) tms
-          fail . unlines $
-            "Proof failed with multi-argument counterexample: " :
-            map show vs
+          return (SV.SatMulti (zip argNames vs), g { goalTerm = tt })
   where
     convert :: BBSim.BShape -> BShape --FIXME: temporary
     convert BBSim.BoolShape = BoolShape
@@ -278,8 +276,6 @@ satYices :: SharedContext s -> ProofScript s (SV.SatResult s)
 satYices sc = StateT $ \g -> do
   let t = goalTerm g
   t' <- prepForExport sc t
-  let (args, _) = asLambdaList t'
-      argNames = map fst args
   let ws = SMT1.qf_aufbv_WriterState sc "sawscript"
   ws' <- execStateT (SMT1.writeFormula t') ws
   mapM_ (print . (text "WARNING:" <+>) . SMT1.ppWarning)
@@ -291,15 +287,14 @@ satYices sc = StateT $ \g -> do
       return (SV.Unsat, g { goalTerm = ft })
     Y.YSat m -> do
       r <- liftCexMapYices sc m
+      tt <- scApplyPreludeTrue sc
       case r of
         Left err -> fail $ "Can't parse counterexample: " ++ err
         Right [(_n, tm)] -> do
-          tt <- scApplyPreludeTrue sc
           return (SV.Sat (SV.evaluate sc tm), g { goalTerm = tt })
-        Right tms ->
-          fail . unlines $
-          "Proof failed with multi-argument counterexample: " :
-          map show (zip argNames tms)
+        Right tms -> do
+          let vs = map (\(n, v) -> (n, SV.evaluate sc v)) tms
+          return (SV.SatMulti vs, g { goalTerm = tt })
     Y.YUnknown -> fail "ABC returned Unknown for SAT query."
 
 satAIG :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
@@ -437,6 +432,7 @@ caseProofResultPrim sc pr vValid vInvalid = do
   case pr of
     SV.Valid -> return vValid
     SV.Invalid v -> SV.applyValue sc vInvalid v
+    SV.InvalidMulti _ -> fail $ "multi-value counter-example"
 
 
 caseSatResultPrim :: SharedContext s -> SV.SatResult s
@@ -446,3 +442,4 @@ caseSatResultPrim sc sr vUnsat vSat = do
   case sr of
     SV.Unsat -> return vUnsat
     SV.Sat v -> SV.applyValue sc vSat v
+    SV.SatMulti _ -> fail $ "multi-value satisfying assignment"

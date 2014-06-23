@@ -12,10 +12,8 @@ Point-of-contact : jhendrix, atomb
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module SAWScript.JavaMethodSpecIR 
-  ( JavaSetup
-  , JavaSetupState(..)
-    -- * MethodSpec record
-  , JavaMethodSpecIR
+  (-- * MethodSpec record
+    JavaMethodSpecIR
   , specName
   , specPos
   , specThisClass
@@ -23,12 +21,10 @@ module SAWScript.JavaMethodSpecIR
   , specMethodClass
   , specInitializedClasses
   , specBehaviors
-  , specValidationPlan
   , specAddBehaviorCommand
   , specAddVarDecl
   , specAddLogicAssignment
   , specAddAliasSet
-  , specSetVerifyTactic
   , specJavaExprNames
   , initMethodSpec
   --, resolveMethodSpecIR
@@ -48,16 +44,12 @@ module SAWScript.JavaMethodSpecIR
     -- * Equivalence classes for references.
   , JavaExprEquivClass
   , ppJavaExprEquivClass
-    -- * Validation plan
-  , VerifyCommand(..)
-  , ValidationPlan(..)
   ) where
 
 -- Imports {{{1
 
 import Control.Applicative
 import Control.Monad
-import Control.Monad.State
 import Data.Graph.Inductive (scc, Gr, mkGraph)
 import Data.List (intercalate, sort)
 import Data.Map (Map)
@@ -76,17 +68,6 @@ import qualified SAWScript.CongruenceClosure as CC
 import SAWScript.CongruenceClosure (CCSet)
 import SAWScript.JavaExpr
 import SAWScript.Utils
-import SAWScript.Proof
-
--- Integration with SAWScript
-
-data JavaSetupState
-  = JavaSetupState {
-      jsSpec :: JavaMethodSpecIR
-    , jsContext :: SharedContext JSSCtx
-    }
-
-type JavaSetup a = StateT JavaSetupState IO a
 
 -- ExprActualTypeMap {{{1
 
@@ -287,33 +268,8 @@ initMethodSpec pos cb cname mname = do
                     , specInitializedClasses =
                         map JSS.className superClasses
                     , specBehaviors = initBS
-                    , specValidationPlan = Skip
                     }
   return initMS
-
--- resolveValidationPlan {{{1
-
--- | Commands issued to verify method.
-data VerifyCommand
-   = Rewrite
-   | ABC
-   | SmtLib (Maybe Int) (Maybe String) -- version, file
-   | Yices (Maybe Int)
-   -- | Expand Pos Op [LogicExpr s] (SharedTerm s)
-    -- | Enable use of a rule or extern definition.
-   | VerifyEnable String
-     -- | Disable use of a rule or extern definition.
-   | VerifyDisable String
-   | VerifyAt JSS.PC [VerifyCommand]
- deriving (Show)
-
--- The ProofScript in RunVerify is in the SAWScript context, and
--- should stay there.
-data ValidationPlan
-  = Skip
-  -- | QuickCheck Integer (Maybe Integer)
-  -- | GenBlif (Maybe FilePath)
-  | RunVerify (ProofScript SAWCtx ())
 
 -- JavaMethodSpecIR {{{1
 
@@ -334,8 +290,6 @@ data JavaMethodSpecIR = MSIR {
     -- | Behavior specifications for method at different PC values.
     -- A list is used because the behavior may depend on the inputs.
   , specBehaviors :: BehaviorSpec  -- Map JSS.Breakpoint [BehaviorSpec]
-    -- | Describes how the method is expected to be validated.
-  , specValidationPlan :: ValidationPlan
   }
 
 -- | Return user printable name of method spec (currently the class + method name).
@@ -377,7 +331,3 @@ specAddBehaviorCommand :: BehaviorCommand
                        -> JavaMethodSpecIR -> JavaMethodSpecIR
 specAddBehaviorCommand bc ms =
   ms { specBehaviors = bsAddCommand bc (specBehaviors ms) }
-
-specSetVerifyTactic :: ProofScript SAWCtx ()
-                    -> JavaMethodSpecIR -> JavaMethodSpecIR
-specSetVerifyTactic script ms = ms { specValidationPlan = RunVerify script }

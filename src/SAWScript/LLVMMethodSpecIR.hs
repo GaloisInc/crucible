@@ -14,20 +14,16 @@ Point-of-contact : atomb
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module SAWScript.LLVMMethodSpecIR 
-  ( LLVMSetup
-  , LLVMSetupState(..)
-    -- * MethodSpec record
-  , LLVMMethodSpecIR
+  ( -- * MethodSpec record
+    LLVMMethodSpecIR
   , specName
   , specPos
   , specCodebase
   , specFunction
   , specBehavior
-  , specValidationPlan
   , specAddBehaviorCommand
   , specAddVarDecl
   , specAddLogicAssignment
-  , specSetVerifyTactic
   , specLLVMExprNames
   , initLLVMMethodSpec
     -- * Method behavior.
@@ -38,7 +34,6 @@ module SAWScript.LLVMMethodSpecIR
   , bsExprDecls
   , BehaviorCommand(..)
   , bsCommands
-  , ValidationPlan(..)
   ) where
 
 -- Imports {{{1
@@ -56,17 +51,6 @@ import Verifier.SAW.SharedTerm
 
 import SAWScript.LLVMExpr
 import SAWScript.Utils
-import SAWScript.Proof
-
--- Integration with SAWScript
-
-data LLVMSetupState
-  = LLVMSetupState {
-      lsSpec :: LLVMMethodSpecIR
-    , lsContext :: SharedContext LSSCtx
-    }
-
-type LLVMSetup a = StateT LLVMSetupState IO a
 
 {-
 -- Alias definitions {{{1
@@ -244,17 +228,8 @@ initLLVMMethodSpec pos cb symname =
                     , specFunction = sym
                     , specLLVMExprNames = Map.empty
                     , specBehavior = initBS
-                    , specValidationPlan = Skip
                     }
   in initMS
-
--- resolveValidationPlan {{{1
-
--- The ProofScript in RunVerify is in the SAWScript context, and
--- should stay there.
-data ValidationPlan
-  = Skip
-  | RunVerify (ProofScript SAWCtx ())
 
 -- MethodSpecIR {{{1
 
@@ -268,8 +243,6 @@ data LLVMMethodSpecIR = MSIR {
   , specLLVMExprNames :: Map String (LLVMActualType, LLVMExpr)
     -- | Behavior specification for method.
   , specBehavior :: BehaviorSpec
-    -- | Describes how the method is expected to be validated.
-  , specValidationPlan :: ValidationPlan
   }
 
 -- | Return user printable name of method spec (currently the class +
@@ -312,7 +285,3 @@ specAddBehaviorCommand :: BehaviorCommand
                        -> LLVMMethodSpecIR -> LLVMMethodSpecIR
 specAddBehaviorCommand bc ms =
   ms { specBehavior = bsAddCommand bc (specBehavior ms) }
-
-specSetVerifyTactic :: ProofScript SAWCtx ()
-                    -> LLVMMethodSpecIR -> LLVMMethodSpecIR
-specSetVerifyTactic script ms = ms { specValidationPlan = RunVerify script }

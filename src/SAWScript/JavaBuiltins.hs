@@ -36,7 +36,7 @@ import SAWScript.Builtins
 import SAWScript.Options
 import SAWScript.Proof
 import SAWScript.Utils
-import qualified SAWScript.Value as SS
+import SAWScript.Value as SS
 
 import Verinf.Utils.LogMonad
 
@@ -94,6 +94,7 @@ verifyJava bic opts cname mname overrides setup = do
   let jsctx0 = JavaSetupState {
                  jsSpec = ms0
                , jsContext = jsc
+               , jsTactic = Skip
                }
   (_, jsctx) <- runStateT setup jsctx0
   let ms = jsSpec jsctx
@@ -105,6 +106,12 @@ verifyJava bic opts cname mname overrides setup = do
            , vpOver = overrides
            }
   let verb = simVerbose (vpOpts vp)
+      overrideText =
+        case overrides of
+          [] -> ""
+          irs -> " (overriding " ++ show (map renderName irs) ++ ")"
+      renderName ir = JSS.className (specMethodClass ir) ++ "." ++
+                      JSS.methodName (specMethod ir)
   when (verb >= 2) $ putStrLn $ "Starting verification of " ++ specName ms
   let configs = [ (bs, cl)
                 | bs <- {- concat $ Map.elems $ -} [specBehaviors ms]
@@ -124,20 +131,30 @@ verifyJava bic opts cname mname overrides setup = do
       when (verb >= 5) $ liftIO $ do
         putStrLn "Verifying the following:"
         mapM_ (print . ppPathVC) res
-      let prover vs script g = do
+      let prover script vs g = do
             glam <- bindExts jsc initialExts g
             let bsc = biSharedContext bic
             glam' <- scNegate bsc =<< scImport bsc glam
             when (verb >= 6) $ putStrLn $ "Trying to prove: " ++ show glam'
             (r, _) <- runStateT script (ProofGoal (vsVCName vs) glam')
-            -- TODO: catch counterexamples!
-            when (verb >= 5) $ putStrLn $ "Proved: " ++ show r
-      liftIO $ runValidation prover vp jsc esd res
-  let overrideText =
-        case overrides of
-          [] -> ""
-          irs -> " (overriding " ++ show (map renderName irs) ++ ")"
-      renderName ir = JSS.className (specMethodClass ir) ++ "." ++ JSS.methodName (specMethod ir)
+            case r of
+              SS.Unsat -> when (verb >= 3) $ putStrLn "Valid."
+              SS.Sat val -> do
+                putStrLn $ "When verifying " ++ specName ms ++ ":"
+                putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
+                putStrLn $ "Counterexample: " ++ show val
+                fail "Proof failed."
+              SS.SatMulti vals -> do
+                putStrLn $ "When verifying " ++ specName ms ++ ":"
+                putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
+                putStrLn $ "Counterexample:"
+                mapM_ (\(n, v) -> putStrLn ("  " ++ n ++ ": " ++ show v)) vals
+                fail "Proof failed."
+      case jsTactic jsctx of
+        Skip -> liftIO $ putStrLn $
+          "WARNING: skipping verification of " ++ show (specName ms)
+        RunVerify script ->
+          liftIO $ runValidation (prover script) vp jsc esd res
   putStrLn $ "Successfully verified " ++ specName ms ++ overrideText
   return ms
 
@@ -295,7 +312,8 @@ javaReturn _ _ t =
   modify $ \st ->
     st { jsSpec = specAddBehaviorCommand (Return (LE (mkLogicExpr t))) (jsSpec st) }
 
-javaVerifyTactic :: BuiltinContext -> Options -> ProofScript SAWCtx ()
+javaVerifyTactic :: BuiltinContext -> Options
+                 -> ProofScript SAWCtx (SatResult SAWCtx)
                  -> JavaSetup ()
 javaVerifyTactic _ _ script =
-  modify $ \st -> st { jsSpec = specSetVerifyTactic script (jsSpec st) }
+  modify $ \st -> st { jsTactic = RunVerify script }

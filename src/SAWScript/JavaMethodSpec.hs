@@ -7,13 +7,10 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TupleSections #-}
 module SAWScript.JavaMethodSpec
-  ( VerifyCommand
-  , ValidationPlan(..)
-  , JavaMethodSpecIR
+  ( JavaMethodSpecIR
   , specMethod
   , specName
   , specMethodClass
-  , specValidationPlan
   , SymbolicRunHandler
   , initializeVerification
   , runValidation
@@ -48,7 +45,6 @@ import qualified SAWScript.JavaExpr as TC
 import SAWScript.Options
 import SAWScript.Utils
 import SAWScript.JavaMethodSpecIR
-import SAWScript.Proof
 
 import qualified Verifier.Java.Simulator as JSS
 import qualified Data.JVM.Symbolic.AST as JSS
@@ -626,11 +622,11 @@ esResolveLogicExprs _ _ (hrhs:rrhs) = do
 esSetLogicValues :: SharedContext JSSCtx -> [TC.JavaExpr] -> SharedTerm JSSCtx
                  -> [TC.LogicExpr]
                  -> ExpectedStateGenerator ()
-esSetLogicValues sc [] tp lrhs = fail "empty class passed to esSetLogicValues"
-esSetLogicValues sc cl@(e:_) tp lrhs = do
+esSetLogicValues _ [] _ _ = fail "empty class passed to esSetLogicValues"
+esSetLogicValues sc cl@(rep:_) tp lrhs = do
   -- liftIO $ putStrLn $ "Setting logic values for: " ++ show cl
   -- Get value of rhs.
-  value <- esResolveLogicExprs e tp lrhs
+  value <- esResolveLogicExprs rep tp lrhs
   -- Update Initial assignments.
   modify $ \es -> es { esInitialAssignments =
                          map (\e -> (e,value)) cl ++  esInitialAssignments es }
@@ -1010,55 +1006,51 @@ data VerifyParams = VerifyParams
 type SymbolicRunHandler =
   SharedContext JSSCtx -> ExpectedStateDef -> [PathVC] -> IO ()
 type Prover =
-  VerifyState -> ProofScript SAWCtx () -> SharedTerm JSSCtx -> IO ()
+  VerifyState -> SharedTerm JSSCtx -> IO ()
 
 runValidation :: Prover -> VerifyParams -> SymbolicRunHandler
 runValidation prover params sc esd results = do
   let ir = vpSpec params
       verb = verbLevel (vpOpts params)
       ps = esdInitialPathState esd
-  case specValidationPlan ir of
-    Skip -> putStrLn $ "WARNING: skipping verification of " ++
-                       JSS.methodName (specMethod ir)
-    RunVerify script -> do
-      forM_ results $ \pvc -> do
-        let mkVState nm cfn =
-              VState { vsVCName = nm
-                     , vsMethodSpec = ir
-                     , vsVerbosity = verb
-                     -- , vsFromBlock = esdStartLoc esd
-                     , vsEvalContext = evalContextFromPathState sc m ps
-                     , vsInitialAssignments = pvcInitialAssignments pvc
-                     , vsCounterexampleFn = cfn
-                     , vsStaticErrors = pvcStaticErrors pvc
-                     }
-            m = esdJavaExprs esd
-        if null (pvcStaticErrors pvc) then
-         forM_ (pvcChecks pvc) $ \vc -> do
-           let vs = mkVState (vcName vc) (vcCounterexample vc)
-           g <- scImplies sc (pvcAssumptions pvc) =<< vcGoal sc vc
-           when (verb >= 2) $ do
-             putStr $ "Checking " ++ vcName vc
-             when (verb >= 5) $ putStr $ " (" ++ show g ++ ")"
-             putStrLn ""
-           prover vs script g
-        else do
-          let vsName = "an invalid path " {-
-                         ++ (case esdStartLoc esd of
-                               0 -> ""
-                               block -> " from " ++ show loc)
-                         ++ maybe "" (\loc -> " to " ++ show loc)
-                                  (pvcEndLoc pvc) -}
-          let vs = mkVState vsName (\_ -> return $ vcat (pvcStaticErrors pvc))
-          false <- scBool sc False
-          g <- scImplies sc (pvcAssumptions pvc) false
-          when (verb >= 2) $ do
-            putStrLn $ "Checking " ++ vsName
-            print $ pvcStaticErrors pvc
-          when (verb >= 5) $ do
-            putStrLn $ "Calling prover to disprove " ++
-                     scPrettyTerm (pvcAssumptions pvc)
-          prover vs script g
+  forM_ results $ \pvc -> do
+    let mkVState nm cfn =
+          VState { vsVCName = nm
+                 , vsMethodSpec = ir
+                 , vsVerbosity = verb
+                 -- , vsFromBlock = esdStartLoc esd
+                 , vsEvalContext = evalContextFromPathState sc m ps
+                 , vsInitialAssignments = pvcInitialAssignments pvc
+                 , vsCounterexampleFn = cfn
+                 , vsStaticErrors = pvcStaticErrors pvc
+                 }
+        m = esdJavaExprs esd
+    if null (pvcStaticErrors pvc) then
+     forM_ (pvcChecks pvc) $ \vc -> do
+       let vs = mkVState (vcName vc) (vcCounterexample vc)
+       g <- scImplies sc (pvcAssumptions pvc) =<< vcGoal sc vc
+       when (verb >= 2) $ do
+         putStr $ "Checking " ++ vcName vc
+         when (verb >= 5) $ putStr $ " (" ++ show g ++ ")"
+         putStrLn ""
+       prover vs g
+    else do
+      let vsName = "an invalid path " {-
+                     ++ (case esdStartLoc esd of
+                           0 -> ""
+                           block -> " from " ++ show loc)
+                     ++ maybe "" (\loc -> " to " ++ show loc)
+                              (pvcEndLoc pvc) -}
+      let vs = mkVState vsName (\_ -> return $ vcat (pvcStaticErrors pvc))
+      false <- scBool sc False
+      g <- scImplies sc (pvcAssumptions pvc) false
+      when (verb >= 2) $ do
+        putStrLn $ "Checking " ++ vsName
+        print $ pvcStaticErrors pvc
+      when (verb >= 5) $ do
+        putStrLn $ "Calling prover to disprove " ++
+                 scPrettyTerm (pvcAssumptions pvc)
+      prover vs g
 
 data VerifyState = VState {
          vsVCName :: String

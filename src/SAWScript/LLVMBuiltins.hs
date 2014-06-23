@@ -30,7 +30,7 @@ import SAWScript.LLVMMethodSpec
 import SAWScript.Options
 import SAWScript.Proof
 import SAWScript.Utils
-import SAWScript.Value
+import SAWScript.Value as SV
 
 import Verinf.Utils.LogMonad
 
@@ -93,6 +93,7 @@ freshLLVMArg (_, ty@(IntType bw)) = do
   return (ty, tm)
 freshLLVMArg (_, _) = fail "Only integer arguments are supported for now."
 
+
 verifyLLVM :: BuiltinContext -> Options -> String -> String
            -> [LLVMMethodSpecIR]
            -> LLVMSetup ()
@@ -107,6 +108,7 @@ verifyLLVM bic opts file func overrides setup = do
     let ms0 = initLLVMMethodSpec pos cb func
         lsctx0 = LLVMSetupState {
                     lsSpec = ms0
+                  , lsTactic = Skip
                   , lsContext = scLLVM
                   }
     (_, lsctx) <- runStateT setup lsctx0
@@ -118,6 +120,10 @@ verifyLLVM bic opts file func overrides setup = do
                           , vpOver = overrides
                           }
     let verb = verbLevel (vpOpts vp)
+    let overrideText =
+          case overrides of
+            [] -> ""
+            irs -> " (overriding " ++ show (map specFunction irs) ++ ")"
     when (verb >= 2) $ putStrLn $ "Starting verification of " ++ show (specName ms)
     {-
     let configs = [ (bs, cl)
@@ -140,18 +146,34 @@ verifyLLVM bic opts file func overrides setup = do
         when (verb >= 3) $ liftIO $ do
           putStrLn "Verifying the following:"
           mapM_ (print . ppPathVC) res
-        let prover vs script g = do
+        let prover :: ProofScript SAWCtx (SV.SatResult SAWCtx)
+                   -> VerifyState
+                   -> SharedTerm LSSCtx
+                   -> IO ()
+            prover script vs g = do
               glam <- bindExts scLLVM initialExts g
               let bsc = biSharedContext bic
               glam' <- scNegate bsc =<< scImport bsc glam
               (r, _) <- runStateT script (ProofGoal (vsVCName vs) glam')
-              -- TODO: catch counterexamples!
-              when (verb >= 5) $ putStrLn $ "Proved: " ++ show r
-        liftIO $ runValidation prover vp scLLVM esd res
-    let overrideText = case overrides of
-                         [] -> ""
-                         irs -> " (overriding " ++ show (map specFunction irs) ++ ")"
-    putStrLn $ "Successfully verified " ++ show func ++ overrideText
+              case r of
+                SV.Unsat -> when (verb >= 3) $ putStrLn "Valid."
+                SV.Sat val -> do
+                  putStrLn $ "When verifying " ++ show (specName ms) ++ ":"
+                  putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
+                  putStrLn $ "Counterexample: " ++ show val
+                  fail "Proof failed."
+                SV.SatMulti vals -> do
+                  putStrLn $ "When verifying " ++ show (specName ms) ++ ":"
+                  putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
+                  putStrLn $ "Counterexample:"
+                  mapM_ (\(n, v) -> putStrLn ("  " ++ n ++ ": " ++ show v)) vals
+                  fail "Proof failed."
+        case lsTactic lsctx of
+          Skip -> liftIO $ putStrLn $
+            "WARNING: skipping verification of " ++ show (specName ms)
+          RunVerify script ->
+            liftIO $ runValidation (prover script) vp scLLVM esd res
+    putStrLn $ "Successfully verified " ++ show (specName ms) ++ overrideText
     return ms
 
 llvmPure :: LLVMSetup ()
@@ -314,7 +336,8 @@ llvmReturn _ _ t =
   modify $ \st ->
     st { lsSpec = specAddBehaviorCommand (Return (LogicE (mkLogicExpr t))) (lsSpec st) }
 
-llvmVerifyTactic :: BuiltinContext -> Options -> ProofScript SAWCtx ()
+llvmVerifyTactic :: BuiltinContext -> Options
+                 -> ProofScript SAWCtx (SV.SatResult SAWCtx)
                  -> LLVMSetup ()
 llvmVerifyTactic _ _ script =
-  modify $ \st -> st { lsSpec = specSetVerifyTactic script (lsSpec st) }
+  modify $ \st -> st { lsTactic = RunVerify script }

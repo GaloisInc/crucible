@@ -7,11 +7,9 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TupleSections #-}
 module SAWScript.LLVMMethodSpec
-  ( ValidationPlan(..)
-  , LLVMMethodSpecIR
+  ( LLVMMethodSpecIR
   , specFunction
   , specName
-  , specValidationPlan
   , SymbolicRunHandler
   , initializeVerification
   , runValidation
@@ -882,8 +880,7 @@ data VerifyParams = VerifyParams
 
 type SymbolicRunHandler =
   SharedContext LSSCtx -> ExpectedStateDef -> [PathVC] -> IO ()
-type Prover =
-  VerifyState -> ProofScript SAWCtx () -> SharedTerm LSSCtx -> IO ()
+type Prover = VerifyState -> SharedTerm LSSCtx -> IO ()
 
 runValidation :: Prover -> VerifyParams -> SymbolicRunHandler
 runValidation prover params sc esd results = do
@@ -893,41 +890,38 @@ runValidation prover params sc esd results = do
       m = specLLVMExprNames ir
       sbe = esdBackend esd
       gm = esdGlobalMap esd
-  case specValidationPlan ir of
-    Skip -> putStrLn $ "WARNING: skipping verification of " ++
-                       show (specFunction ir)
-    RunVerify script -> do
-      forM_ results $ \pvc -> do
-        let mkVState nm cfn =
-              VState { vsVCName = nm
-                     , vsMethodSpec = ir
-                     , vsVerbosity = verb
-                     -- , vsFromBlock = esdStartLoc esd
-                     , vsEvalContext = evalContextFromPathState m sc sbe gm ps
-                     , vsInitialAssignments = pvcInitialAssignments pvc
-                     , vsCounterexampleFn = cfn
-                     , vsStaticErrors = pvcStaticErrors pvc
-                     }
-        if null (pvcStaticErrors pvc) then
-         forM_ (pvcChecks pvc) $ \vc -> do
-           let vs = mkVState (vcName vc) (vcCounterexample vc)
-           g <- scImplies sc (pvcAssumptions pvc) =<< vcGoal sc vc
-           when (verb >= 3) $ do
-             putStr $ "Checking " ++ vcName vc
-             when (verb >= 4) $ putStr $ " (" ++ show g ++ ")"
-             putStrLn ""
-           prover vs script g
-        else do
-          let vsName = "an invalid path"
-          let vs = mkVState vsName (\_ -> return $ vcat (pvcStaticErrors pvc))
-          false <- scBool sc False
-          g <- scImplies sc (pvcAssumptions pvc) false
-          when (verb >= 4) $ do
-            putStrLn $ "Checking " ++ vsName
-            print $ pvcStaticErrors pvc
-            putStrLn $ "Calling prover to disprove " ++
-                     scPrettyTerm (pvcAssumptions pvc)
-          prover vs script g
+
+  forM_ results $ \pvc -> do
+    let mkVState nm cfn =
+          VState { vsVCName = nm
+                 , vsMethodSpec = ir
+                 , vsVerbosity = verb
+                 -- , vsFromBlock = esdStartLoc esd
+                 , vsEvalContext = evalContextFromPathState m sc sbe gm ps
+                 , vsInitialAssignments = pvcInitialAssignments pvc
+                 , vsCounterexampleFn = cfn
+                 , vsStaticErrors = pvcStaticErrors pvc
+                 }
+    if null (pvcStaticErrors pvc) then
+      forM_ (pvcChecks pvc) $ \vc -> do
+        let vs = mkVState (vcName vc) (vcCounterexample vc)
+        g <- scImplies sc (pvcAssumptions pvc) =<< vcGoal sc vc
+        when (verb >= 3) $ do
+          putStr $ "Checking " ++ vcName vc
+          when (verb >= 4) $ putStr $ " (" ++ show g ++ ")"
+          putStrLn ""
+        prover vs g
+    else do
+      let vsName = "an invalid path"
+      let vs = mkVState vsName (\_ -> return $ vcat (pvcStaticErrors pvc))
+      false <- scBool sc False
+      g <- scImplies sc (pvcAssumptions pvc) false
+      when (verb >= 4) $ do
+        putStrLn $ "Checking " ++ vsName
+        print $ pvcStaticErrors pvc
+        putStrLn $ "Calling prover to disprove " ++
+                 scPrettyTerm (pvcAssumptions pvc)
+      prover vs g
 
 data VerifyState = VState {
          vsVCName :: String

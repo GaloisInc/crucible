@@ -11,8 +11,8 @@ import Data.Map ( Map )
 import qualified Data.Vector as V
 
 import qualified SAWScript.AST as SS
-import SAWScript.JavaMethodSpecIR
-import SAWScript.LLVMMethodSpecIR
+import qualified SAWScript.JavaMethodSpecIR as JIR
+import qualified SAWScript.LLVMMethodSpecIR as LIR
 import SAWScript.Proof
 import SAWScript.Utils
 import qualified Verifier.SAW.Prim as Prim
@@ -46,8 +46,8 @@ data Value s
   | VTheorem (Theorem s)
   | VJavaSetup (JavaSetup (Value s))
   | VLLVMSetup (LLVMSetup (Value s))
-  | VJavaMethodSpec JavaMethodSpecIR
-  | VLLVMMethodSpec LLVMMethodSpecIR
+  | VJavaMethodSpec JIR.JavaMethodSpecIR
+  | VLLVMMethodSpec LIR.LLVMMethodSpecIR
   | VCryptolModuleEnv Cry.ModuleEnv
   | VSatResult (SatResult s)
   | VProofResult (ProofResult s)
@@ -56,16 +56,19 @@ data Value s
 data ProofResult s
   = Valid
   | Invalid (Value s)
+  | InvalidMulti [(String, Value s)]
     deriving (Show)
 
 data SatResult s
   = Unsat
   | Sat (Value s)
+  | SatMulti [(String, Value s)]
     deriving (Show)
 
 flipSatResult :: SatResult s -> ProofResult s
 flipSatResult Unsat = Valid
 flipSatResult (Sat t) = Invalid t
+flipSatResult (SatMulti t) = InvalidMulti t
 
 isVUnit :: Value s -> Bool
 isVUnit (VTuple []) = True
@@ -117,8 +120,10 @@ instance Show (Value s) where
         VCryptolModuleEnv {} -> showString "<<Cryptol ModuleEnv>>"
         VProofResult Valid -> showString "Valid"
         VProofResult (Invalid t) -> showString "Invalid: " . shows t
+        VProofResult (InvalidMulti ts) -> showString "Invalid: " . shows ts
         VSatResult Unsat -> showString "Unsat"
         VSatResult (Sat t) -> showString "Sat: " . shows t
+        VSatResult (SatMulti ts) -> showString "Sat: " . shows ts
 
 indexValue :: Value s -> Value s -> Value s
 indexValue (VArray vs) (VInteger x)
@@ -243,6 +248,30 @@ exportValue val =
       VSatResult {} -> error "VSatResult unsupported"
       -- VAIG {} -> error "VAIG unsupported" -- TODO: could be implemented
 
+-- The ProofScript in RunVerify is in the SAWScript context, and
+-- should stay there.
+data ValidationPlan
+  = Skip
+  | RunVerify (ProofScript SAWCtx (SatResult SAWCtx))
+
+data JavaSetupState
+  = JavaSetupState {
+      jsSpec :: JIR.JavaMethodSpecIR
+    , jsContext :: SharedContext JSSCtx
+    , jsTactic :: ValidationPlan
+    }
+
+type JavaSetup a = StateT JavaSetupState IO a
+
+data LLVMSetupState
+  = LLVMSetupState {
+      lsSpec :: LIR.LLVMMethodSpecIR
+    , lsContext :: SharedContext LSSCtx
+    , lsTactic :: ValidationPlan
+    }
+
+type LLVMSetup a = StateT LLVMSetupState IO a
+
 -- IsValue class ---------------------------------------------------------------
 
 -- | Used for encoding primitive operations in the Value type.
@@ -342,12 +371,12 @@ instance IsValue s (Theorem s) where
     fromValue (VTheorem t) = t
     fromValue _ = error "fromValue Theorem"
 
-instance IsValue SAWCtx JavaMethodSpecIR where
+instance IsValue SAWCtx JIR.JavaMethodSpecIR where
     toValue ms = VJavaMethodSpec ms
     fromValue (VJavaMethodSpec ms) = ms
     fromValue _ = error "fromValue JavaMethodSpec"
 
-instance IsValue SAWCtx LLVMMethodSpecIR where
+instance IsValue SAWCtx LIR.LLVMMethodSpecIR where
     toValue ms = VLLVMMethodSpec ms
     fromValue (VLLVMMethodSpec ms) = ms
     fromValue _ = error "fromValue LLVMMethodSpec"
@@ -360,7 +389,7 @@ instance IsValue s Cry.ModuleEnv where
 instance IsValue s (ProofResult s) where
    toValue r = VProofResult r
    fromValue (VProofResult r) = r
-   fromValue _ = error "fromValue ProofResult"
+   fromValue v = error $ "fromValue ProofResult: " ++ show v
 
 instance IsValue s (SatResult s) where
    toValue r = VSatResult r
