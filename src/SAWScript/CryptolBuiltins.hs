@@ -29,8 +29,9 @@ extractCryptol sc modEnv input = do
       Right x -> return x
   (exprResult, exprWarnings) <- M.checkExpr pexpr modEnv
   mapM_ (print . pp) exprWarnings
-  ((expr, _schema), _modEnv') <-
+  ((expr, schema), _modEnv') <-
     case exprResult of
       Left err -> fail (show (pp err))
       Right x -> return x
+  putStrLn $ "Extracting expression of type " ++ show (pp schema)
   C.importExpr sc env expr
