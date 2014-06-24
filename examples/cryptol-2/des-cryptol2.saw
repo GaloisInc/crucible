@@ -1,0 +1,7 @@
+main = do {
+    m <- cryptol_module "DES.cry";
+    (enc : [64] -> [64] -> [64]) <- cryptol_extract m "DES.encrypt";
+    (dec : [64] -> [64] -> [64]) <- cryptol_extract m "DES.decrypt";
+    let thm key msg = dec key (enc key msg) == msg;
+    prove_print abc2 thm;
+};
