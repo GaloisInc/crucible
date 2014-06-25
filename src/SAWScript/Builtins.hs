@@ -41,6 +41,7 @@ import SAWScript.Proof
 import SAWScript.Utils
 
 import qualified Verifier.SAW.Simulator.BitBlast as BBSim
+import Verifier.SAW.Simulator.SBV
 import qualified Verinf.Symbolic as BE
 
 import Data.ABC (aigNetwork)
