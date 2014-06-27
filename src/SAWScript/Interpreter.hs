@@ -543,6 +543,7 @@ valueEnv opts bic = M.fromList
   , (qualify "write_smtlib2", toValue $ writeSMTLib2 sc)
   , (qualify "write_core"   , toValue (writeCore :: FilePath -> SharedTerm SAWCtx -> IO ()))
   , (qualify "read_core"    , toValue $ readCore sc)
+  , (qualify "term"         , toValue (id :: Value SAWCtx -> Value SAWCtx))
   , (qualify "term_size"    , toValue (scSharedSize :: SharedTerm SAWCtx -> Integer))
   , (qualify "term_tree_size", toValue (scTreeSize :: SharedTerm SAWCtx -> Integer))
   , (qualify "print"       , toValue print_value)
