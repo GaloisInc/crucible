@@ -181,6 +181,16 @@ writeCore path t = writeFile path (scWriteExternal t)
 readCore :: SharedContext s -> FilePath -> IO (SharedTerm s)
 readCore sc path = scReadExternal sc =<< readFile path
 
+assumeValid :: ProofScript s (SV.ProofResult s)
+assumeValid = StateT $ \goal -> do
+  putStrLn $ "WARNING: assuming goal " ++ goalName goal ++ " is valid"
+  return (SV.Valid, goal)
+
+assumeUnsat :: ProofScript s (SV.SatResult s)
+assumeUnsat = StateT $ \goal -> do
+  putStrLn $ "WARNING: assuming goal " ++ goalName goal ++ " is unsat"
+  return (SV.Unsat, goal)
+
 printGoal :: ProofScript s ()
 printGoal = StateT $ \goal -> do
   putStrLn (scPrettyTerm (goalTerm goal))
