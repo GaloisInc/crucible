@@ -525,6 +525,7 @@ valueEnv opts bic = M.fromList
   , (qualify "sat_print"   , toValue $ satPrintPrim sc)
   , (qualify "empty_ss"    , toValue (emptySimpset :: Simpset (SharedTerm SAWCtx)))
   , (qualify "addsimp"     , toValue $ addsimp sc)
+  , (qualify "addsimp'"    , toValue $ addsimp' sc)
   , (qualify "rewrite"     , toValue $ rewritePrim sc)
   , (qualify "assume_valid", toValue (assumeValid :: ProofScript SAWCtx (ProofResult SAWCtx)))
   , (qualify "assume_unsat", toValue (assumeUnsat :: ProofScript SAWCtx (SatResult SAWCtx)))
