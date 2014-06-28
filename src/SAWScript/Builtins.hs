@@ -46,7 +46,12 @@ import qualified Verinf.Symbolic as BE
 
 import Data.ABC (aigNetwork)
 import qualified Data.AIG as AIG
-import Data.SBV.Bridge.Boolector (sat, modelExists)
+import qualified Data.SBV.Bridge.Boolector as Boolector
+import qualified Data.SBV.Bridge.Z3 as Z3
+import qualified Data.SBV.Bridge.CVC4 as CVC4
+import qualified Data.SBV.Bridge.Yices as Yices
+import qualified Data.SBV.Bridge.MathSAT as MathSAT
+import Data.SBV (modelExists, satWith, SMTConfig)
 
 data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
                                      , biJavaCodebase  :: JSS.Codebase
@@ -225,13 +230,28 @@ satABC' sc = StateT $ \t -> AIG.withNewGraph aigNetwork $ \be -> do
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using SBV. (Currently ignores satisfying assignments.)
-satSBV :: SharedContext s -> ProofScript s ProofResult
-satSBV sc = StateT $ \t -> do
-  m <- sat $ sbvSolve sc t
+satSBV :: SMTConfig -> SharedContext s -> ProofScript s ProofResult
+satSBV conf sc = StateT $ \t -> do
+  m <- satWith conf $ sbvSolve sc t
   print m
   if modelExists m
     then putStrLn "SAT" >> (,) () <$> scApplyPreludeTrue sc
     else putStrLn "UNSAT" >> (,) () <$> scApplyPreludeFalse sc
+
+satYices :: SharedContext s -> ProofScript s ProofResult
+satYices = satSBV Yices.sbvCurrentSolver
+
+satBoolector :: SharedContext s -> ProofScript s ProofResult
+satBoolector = satSBV Boolector.sbvCurrentSolver
+
+satZ3 :: SharedContext s -> ProofScript s ProofResult
+satZ3 = satSBV Z3.sbvCurrentSolver
+
+satCVC4 :: SharedContext s -> ProofScript s ProofResult
+satCVC4 = satSBV CVC4.sbvCurrentSolver
+
+satMathSAT :: SharedContext s -> ProofScript s ProofResult
+satMathSAT = satSBV MathSAT.sbvCurrentSolver
 
 satAIG :: SharedContext s -> FilePath -> ProofScript s ProofResult
 satAIG sc path = StateT $ \t -> do
