@@ -241,7 +241,7 @@ satABC sc = StateT $ \g -> withBE $ \be -> do
     Left err -> fail $ "Can't bitblast: " ++ err
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
--- satisfiability using ABC. (Currently ignores satisfying assignments.)
+-- satisfiability using ABC.
 satABC' :: SharedContext s -> ProofScript s (SV.SatResult s)
 satABC' sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
   let t = goalTerm g
@@ -253,7 +253,7 @@ satABC' sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
   let (args, _) = asLambdaList t'
       argNames = map fst args
   putStrLn "Simulating..."
-  lit <- BBSim.bitBlast be sc t'
+  (shapes, lit) <- BBSim.bitBlast be sc t'
   putStrLn "Checking..."
   satRes <- AIG.checkSat be lit
   case satRes of
@@ -263,9 +263,6 @@ satABC' sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
       return (SV.Unsat, g { goalTerm = ft })
     AIG.Sat cex -> do
       putStrLn "SAT"
-      ty <- scTypeOf sc t'
-      argTys <- BBSim.asPredType sc ty
-      shapes <- mapM (BBSim.parseShape sc) argTys
       r <- liftCexBB sc (map convert shapes) cex
       tt <- scApplyPreludeTrue sc
       case r of
