@@ -95,7 +95,7 @@ import Control.Applicative
   string         { TLit      _ $$               }
   num            { TNum      _ _ $$             }
   qnum           { TQNum     _ _ $$             }
-  name           { TVar      _ $$               }
+  name           { TVar      _ _                }
 
 %right 'else'
 %right '==>'
@@ -122,14 +122,14 @@ TopStmts :: { [TopStmtSimple RawT] }
 
 TopStmt :: { TopStmtSimple RawT }
  : 'import' Import                      { $2                 }
- | name ':' PolyType                    { TopTypeDecl $1 $3  }
- | 'type' name '=' Type                 { TypeDef $2 $4      }
- | 'abstract' name                      { AbsTypeDecl $2     }
- | 'prim' name ':' PolyType             { Prim $2 (Just $4)  }
+ | name ':' PolyType                    { TopTypeDecl (toLName $1) $3  }
+ | 'type' name '=' Type                 { TypeDef (toLName $2) $4      }
+ | 'abstract' name                      { AbsTypeDecl (toLName $2)     }
+ | 'prim' name ':' PolyType             { Prim (toLName $2) (Just $4)  }
  | Declaration                          { uncurry TopBind $1 }
 
 Import :: { TopStmtSimple RawT }
- : name                                    { Import (mkModuleName ([],$1)) Nothing Nothing }
+ : name                                    { Import (mkModuleName ([], tokStr $1)) Nothing Nothing }
 -- | qname                                   { Import (mkModuleName $1) Nothing Nothing      }
  -- | name '(' commas(name) ')'            { Import $1 (Just $3) Nothing     }
  -- | name 'as' name                       { Import $1 Nothing (Just $3)     }
@@ -139,21 +139,21 @@ BlockStmt :: { BlockStmtSimple RawT }
  : Expression                           { Bind Nothing   Nothing $1   }
  | Arg '<-' Expression                  { Bind (Just $1) Nothing $3   }
 -- | name ':' PolyType                    { BlockTypeDecl $1 (Just $3)                 }
- | 'let' sepBy1(Declaration, 'and')     { BlockLet $2                                }
+ | 'let' sepBy1(Declaration, 'and')     { BlockLet (map toNameDec $2)                  }
 
-Declaration :: { (Name, ExprSimple RawT) }
- : name list(Arg) '=' Expression        { ($1, buildFunction $2 $4)       }
+Declaration :: { (LName, ExprSimple RawT) }
+ : name list(Arg) '=' Expression        { (toLName $1, buildFunction $2 $4)       }
 
 Arg :: { Bind RawT }
- : name                                 { ($1, Nothing) }
- | '(' name ':' Type ')'                { ($2, Just $4) }
+ : name                                 { (tokStr $1, Nothing) }
+ | '(' name ':' Type ')'                { (tokStr $2, Just $4) }
 
 Expression :: { ExprSimple RawT }
  : IExpr                                { $1 }
  | IExpr ':' Type                       { updateAnnotation (Just $3) $1 }
  | '\\' list1(Arg) '->' Expression      { buildFunction $2 $4 }
  | 'let' sepBy1(Declaration, 'and')
-   'in' Expression                      { LetBlock $2 $4 }
+   'in' Expression                      { LetBlock (map toNameDec $2) $4 }
 
 IExpr :: { ExprSimple RawT }
  : AExprs                               { $1 }
@@ -199,22 +199,22 @@ AExpr :: { ExprSimple RawT }
                                                  (Z $1 Nothing) 
                                                  Nothing                  }
  -- | qname                                { Var (unresolvedQ $1) Nothing    }
- | name                                 { Var (unresolved $1) Nothing     }
+ | name                                 { Var (unresolved (tokStr $1)) Nothing     }
  | 'undefined'                          { Undefined Nothing               }
  | '(' Expression ')'                   { $2                              }
  | '(' commas2(Expression) ')'          { Tuple $2 Nothing                }
  | '[' commas(Expression) ']'           { Array $2 Nothing                }
  | '{' commas(Field) '}'                { Record $2 Nothing               }
  | 'do' '{' termBy(BlockStmt, ';') '}'  { Block $3 Nothing                }
- | AExpr '.' name                       { Lookup $1 $3 Nothing            }
+ | AExpr '.' name                       { Lookup $1 (tokStr $3) Nothing   }
  | AExpr '.' num                        { TLookup $1 $3 Nothing           }
 
 Field :: { (Name, ExprSimple RawT) }
- : name '=' Expression                  { ($1, $3) }
+ : name '=' Expression                  { (tokStr $1, $3) }
 
 Names :: { [Name] } 
- : name                                 { [$1] }
- | name ',' Names                       { $1:$3 }
+ : name                                 { [tokStr $1] }
+ | name ',' Names                       { tokStr $1:$3 }
 
 PolyType :: { RawSigT }
  : Type                                 { $1                      }
@@ -225,10 +225,10 @@ Type :: { RawSigT }
  | BaseType '->' Type                   { function $1 $3 }
 
 FieldType :: { Bind RawSigT }
-  : name ':' BaseType                   { ($1, $3)                }
+  : name ':' BaseType                   { (tokStr $1, $3)                }
 
 BaseType :: { RawSigT }
- : name                                 { syn $1                  }
+ : name                                 { syn (tokStr $1)         }
  | Context BaseType                     { block $1 $2             }
  | '(' ')'                              { tuple []                }
  | 'Bit'                                { bit                     }
@@ -236,8 +236,8 @@ BaseType :: { RawSigT }
  | 'String'                             { quote                   }
  | '(' Type ')'                         { $2                      }
  | '(' commas2(Type) ')'                { tuple $2                }
- | '[' name ']'                         { array bit (syn $2)      }
- | '[' name ']' BaseType                { array $4  (syn $2)      }
+ | '[' name ']'                         { array bit (syn (tokStr $2)) }
+ | '[' name ']' BaseType                { array $4  (syn (tokStr $2))      }
  | '[' num ']'                          { array bit (i $2)        }
  | '[' num ']' BaseType                 { array $4  (i $2)        }
  | '{' commas(FieldType) '}'            { record $2               }
@@ -250,7 +250,7 @@ Context :: { RawSigT }
  | 'ProofResult'                        { proofResultContext      }
  | 'SatResult'                          { satResultContext        }
  | 'TopLevel'                           { topLevelContext         }
- | name                                 { syn $1                  }
+ | name                                 { syn (tokStr $1)         }
 
 -- Parameterized productions, most come directly from the Happy manual.
 fst(p, q)  : p q   { $1 }

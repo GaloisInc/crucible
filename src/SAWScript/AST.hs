@@ -5,9 +5,12 @@
 module SAWScript.AST where
 
 import SAWScript.Unify hiding (pretty)
+import SAWScript.Token
+import SAWScript.Utils
 
 import Data.List
 import qualified Data.Map as M
+import Control.Arrow
 
 import Data.Foldable (Foldable)
 import qualified Data.Traversable as T
@@ -134,17 +137,25 @@ type ValidModule = Module ResolvedName Schema ResolvedT
 
 -- Expr Level {{{
 
+data LName = LName {getName :: Name, getPos :: Pos} deriving (Show, Eq)
+
+toLName :: Token Pos -> LName
+toLName p = LName (tokStr p) (tokPos p)
+
+toNameDec :: (LName, a) -> (Name, a)
+toNameDec = first getName 
+
 type TopStmtSimple   = TopStmt   UnresolvedName
 type ExprSimple      = Expr      UnresolvedName
 type BlockStmtSimple = BlockStmt UnresolvedName
 
 data TopStmt refT typeT
   = Import      ModuleName (Maybe [Name])    (Maybe Name)
-  | TypeDef     Name       RawSigT
-  | TopTypeDecl Name       RawSigT
-  | AbsTypeDecl Name
-  | TopBind     Name       (Expr refT typeT)
-  | Prim        Name       RawT
+  | TypeDef     LName       RawSigT
+  | TopTypeDecl LName       RawSigT
+  | AbsTypeDecl LName
+  | TopBind     LName       (Expr refT typeT)
+  | Prim        LName       RawT
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
 {-
