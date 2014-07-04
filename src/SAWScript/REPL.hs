@@ -17,7 +17,7 @@ import System.FilePath ((</>))
 import SAWScript.AST (ModuleName, renderModuleName,
                       Module(..), ValidModule,
                       BlockStmt(Bind),
-                      Name, UnresolvedName, ResolvedName(..),
+                      Name, LName(..), UnresolvedName, ResolvedName(..),
                       RawT, ResolvedT, Schema, rewindSchema,
                       topLevelContext)
 import qualified SAWScript.AST as AST
@@ -39,7 +39,7 @@ import SAWScript.REPL.Monad (REPLState, withInitialState,
                              modifyNamesInScope, modifyEnvironment)
 import qualified SAWScript.REPL.Monad as REP
 import SAWScript.ResolveSyns (resolveSyns)
-import SAWScript.Utils (SAWCtx)
+import SAWScript.Utils (SAWCtx, Pos(..))
 
 run :: Options -> IO ()
 run opts = do
@@ -156,21 +156,21 @@ injectBoundExpressionTypes :: Module UnresolvedName ResolvedT ResolvedT
                               -> REP (Module UnresolvedName ResolvedT ResolvedT)
 injectBoundExpressionTypes orig = do
   boundNames <- getNamesInScope
-  boundNamesAndTypes :: Map Name ResolvedT
+  boundNamesAndTypes :: Map LName ResolvedT
                      <-
     getEnvironment <&>
     interpretEnvTypes <&>
     Map.filterWithKey (\name _type ->
-                        Set.member (stripModuleName name) boundNames) <&>
+                        Set.member (getName $ stripModuleName name) boundNames) <&>
     Map.mapKeysMonotonic stripModuleName <&>
     Map.map rewindSchema
   -- Inject the types.
   return $ orig { modulePrimEnv =
                     Map.union boundNamesAndTypes (modulePrimEnv orig) }
-  where stripModuleName :: ResolvedName -> Name
+  where stripModuleName :: ResolvedName -> LName
         stripModuleName (LocalName _) =
           error "injectBoundExpressionTypes: bound LocalName"
-        stripModuleName (TopLevelName _modName varName) = varName
+        stripModuleName (TopLevelName _modName varName) = LName varName PosREPL
 
 saveResult :: Maybe Name -> Value SAWCtx -> REP ()
 saveResult Nothing _ = return ()

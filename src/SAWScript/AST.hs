@@ -90,12 +90,14 @@ renderResolvedName rn = case rn of
   LocalName n                       -> show n
 
 type Bind a = (Name,a)
+type LBind a = (LName, a)
 onBind :: (a -> b) -> Bind a -> Bind b
 onBind f (n,a) = (n,f a)
 onBinds :: (a -> b) -> [Bind a] -> [Bind b]
 onBinds = map . onBind
 
 type Env a       = M.Map Name a
+type LEnv a      = M.Map LName a
 type ModuleEnv a = M.Map ModuleName a
 
 singletonEnv :: Name -> a -> Env a
@@ -103,6 +105,9 @@ singletonEnv = M.singleton
 
 lookupEnv :: Name -> Env a -> Maybe a
 lookupEnv = M.lookup
+
+lookupLEnv :: LName -> LEnv a -> Maybe a
+lookupLEnv = M.lookup
 
 memberEnv :: Name -> Env a -> Bool
 memberEnv = M.member
@@ -122,9 +127,9 @@ insertEnv = M.insert
 
 data Module refT exprT typeT = Module
   { moduleName         :: ModuleName
-  , moduleExprEnv      :: Env (Expr refT exprT)
-  , modulePrimEnv      :: Env exprT
-  , moduleTypeEnv      :: Env typeT
+  , moduleExprEnv      :: LEnv (Expr refT exprT)
+  , modulePrimEnv      :: LEnv exprT
+  , moduleTypeEnv      :: LEnv typeT
   , moduleDependencies :: ModuleEnv ValidModule
   } deriving (Eq,Show)
 
@@ -137,7 +142,13 @@ type ValidModule = Module ResolvedName Schema ResolvedT
 
 -- Expr Level {{{
 
-data LName = LName {getName :: Name, getPos :: Pos} deriving (Show, Eq)
+data LName = LName {getName :: Name, getPos :: Pos} deriving Show
+
+instance Eq LName where
+  a == b = getName a == getName b
+
+instance Ord LName where
+  compare a b = compare (getName a) (getName b)
 
 toLName :: Token Pos -> LName
 toLName p = LName (tokStr p) (tokPos p)
@@ -228,7 +239,7 @@ data ContextF typeT
   | TopLevelContext
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
-data Syn typeF = Syn Name
+data Syn typeF = Syn LName
   deriving (Show,Functor,Foldable,T.Traversable)
 
 data Context
@@ -539,7 +550,7 @@ satResultContext = inject SatResultContext
 topLevelContext     :: (ContextF :<: f) => Mu f
 topLevelContext = inject TopLevelContext
 
-syn :: (Syn :<: f) => String -> Mu f
+syn :: (Syn :<: f) => LName -> Mu f
 syn n = inject $ Syn n
 
 i :: (I :<: f) => Integer -> Mu f
@@ -680,8 +691,8 @@ instance CapturePVars TypeF where
     _ -> inject t
 
 instance CapturePVars Syn where
-  capturePVarsF ns (Syn n) = if n `elem` ns
-    then pVar n
+  capturePVarsF ns (Syn n) = if getName n `elem` ns
+    then pVar (getName n)
     else syn n
 
 instance CapturePVars I where

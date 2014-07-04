@@ -166,10 +166,10 @@ bindSchema n s m = TI $ local (\ro -> ro { typeEnv = M.insert n s $ typeEnv ro }
 bindSchemas :: [(A.ResolvedName, Schema)] -> TI a -> TI a
 bindSchemas bs m = foldr (uncurry bindSchema) m bs
 
-bindTopSchemas :: [Bind Schema] -> TI a -> TI a
+bindTopSchemas :: [LBind Schema] -> TI a -> TI a
 bindTopSchemas ds k =
   do m <- curModName
-     bindSchemas [ (A.TopLevelName m x, s) | (x,s) <- ds ] k
+     bindSchemas [ (A.TopLevelName m (getName x), s) | (x,s) <- ds ] k
 
 bindLocalSchemas :: [Bind Schema] -> TI a -> TI a
 bindLocalSchemas ds k =
@@ -486,7 +486,7 @@ inferDecl (n,e) = do
 
 
 -- XXX: For now, no schema type signatures.
-inferRecDecls :: [Bind Expr] -> TI ([Bind OutExpr], [Bind Schema])
+inferRecDecls :: [LBind Expr] -> TI ([LBind OutExpr], [LBind Schema])
 inferRecDecls ds =
   do let names = map fst ds
      guessedTypes <- mapM (\_ -> newType) ds
@@ -541,7 +541,7 @@ generalize es0 ts0 =
 
 
 -- Check a list of recursive groups, sorted by dependency.
-inferTopDecls :: [ [Bind Expr] ] -> TI [ [Bind OutExpr] ]
+inferTopDecls :: [ [LBind Expr] ] -> TI [ [LBind OutExpr] ]
 inferTopDecls [] = return []
 inferTopDecls (ds : dss) =
   do (ds1, ss) <- inferRecDecls ds
@@ -550,7 +550,7 @@ inferTopDecls (ds : dss) =
 
 
 -- Compute groups of recursive components
-computeSCCGroups :: A.ModuleName -> [ Bind Expr ] -> [ [Bind Expr] ]
+computeSCCGroups :: A.ModuleName -> [ LBind Expr ] -> [ [LBind Expr] ]
 computeSCCGroups m bs = map forget $ mkScc $ map (defsDepsBind m) bs
   where forget (CyclicSCC xs) = xs
         forget (AcyclicSCC x) = [x]
@@ -569,9 +569,9 @@ mkScc ents = stronglyConnComp $ zipWith mkGr keys ents
   nodeMap                 = M.fromList $ concat $ zipWith mkNode keys ents
   mkNode i (_,defs,_)     = [ (d,i) | d <- defs ]
 
-defsDepsBind :: A.ModuleName -> Bind Expr
-                        -> (Bind Expr, [A.ResolvedName], [A.ResolvedName])
-defsDepsBind m it@(x,e0) = (it, [ A.TopLevelName m x ], S.toList (uses e0))
+defsDepsBind :: A.ModuleName -> LBind Expr
+                        -> (LBind Expr, [A.ResolvedName], [A.ResolvedName])
+defsDepsBind m it@(x,e0) = (it, [ A.TopLevelName m (getName x) ], S.toList (uses e0))
   where
   -- we are only interested in top-level names
   uses expr =
@@ -617,16 +617,16 @@ checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
   let eEnv    = A.moduleExprEnv m
   exprs <- traverse translateExpr eEnv
   initTs <- sequence $ concat
-    [ [ (,) <$> pure (A.TopLevelName mn n) <*> s
+    [ [ (,) <$> pure (A.TopLevelName mn (getName n)) <*> s
       | (n,e) <- modExprs dep
       , let s = importTypeS $ A.typeOf e
       ] ++
-      [ (,) <$> pure (A.TopLevelName mn n) <*> importTypeS p
+      [ (,) <$> pure (A.TopLevelName mn (getName n)) <*> importTypeS p
       | (n,p) <- modPrims dep
       ]
     | (mn,dep) <- depMods m
     ]
-  (primTs,prims) <- unzip <$> sequence [ (,) <$> ((,) <$> pure (A.TopLevelName modName n) <*> t')
+  (primTs,prims) <- unzip <$> sequence [ (,) <$> ((,) <$> pure (A.TopLevelName modName (getName n)) <*> t')
                                              <*> ((,) <$> pure n <*> t')
                                        | (n,t) <- modPrims m
                                        , let t' = translateMTypeS t

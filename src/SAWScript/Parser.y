@@ -228,7 +228,7 @@ FieldType :: { Bind RawSigT }
   : name ':' BaseType                   { (tokStr $1, $3)                }
 
 BaseType :: { RawSigT }
- : name                                 { syn (tokStr $1)         }
+ : name                                 { syn (toLName $1)        }
  | Context BaseType                     { block $1 $2             }
  | '(' ')'                              { tuple []                }
  | 'Bit'                                { bit                     }
@@ -236,8 +236,8 @@ BaseType :: { RawSigT }
  | 'String'                             { quote                   }
  | '(' Type ')'                         { $2                      }
  | '(' commas2(Type) ')'                { tuple $2                }
- | '[' name ']'                         { array bit (syn (tokStr $2)) }
- | '[' name ']' BaseType                { array $4  (syn (tokStr $2))      }
+ | '[' name ']'                         { array bit (syn (toLName $2)) }
+ | '[' name ']' BaseType                { array $4  (syn (toLName $2))      }
  | '[' num ']'                          { array bit (i $2)        }
  | '[' num ']' BaseType                 { array $4  (i $2)        }
  | '{' commas(FieldType) '}'            { record $2               }
@@ -250,7 +250,7 @@ Context :: { RawSigT }
  | 'ProofResult'                        { proofResultContext      }
  | 'SatResult'                          { satResultContext        }
  | 'TopLevel'                           { topLevelContext         }
- | name                                 { syn (tokStr $1)         }
+ | name                                 { syn (toLName $1)         }
 
 -- Parameterized productions, most come directly from the Happy manual.
 fst(p, q)  : p q   { $1 }
