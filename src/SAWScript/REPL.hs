@@ -17,7 +17,8 @@ import System.FilePath ((</>))
 import SAWScript.AST (ModuleName, renderModuleName,
                       Module(..), ValidModule,
                       BlockStmt(Bind),
-                      Name, LName(..), UnresolvedName, ResolvedName(..),
+                      Name, LName, Located(..), UnresolvedName,
+                      ResolvedName(..),
                       RawT, ResolvedT, Schema, rewindSchema,
                       topLevelContext)
 import qualified SAWScript.AST as AST
@@ -161,7 +162,7 @@ injectBoundExpressionTypes orig = do
     getEnvironment <&>
     interpretEnvTypes <&>
     Map.filterWithKey (\name _type ->
-                        Set.member (getName $ stripModuleName name) boundNames) <&>
+                        Set.member (getVal $ stripModuleName name) boundNames) <&>
     Map.mapKeysMonotonic stripModuleName <&>
     Map.map rewindSchema
   -- Inject the types.
@@ -170,7 +171,7 @@ injectBoundExpressionTypes orig = do
   where stripModuleName :: ResolvedName -> LName
         stripModuleName (LocalName _) =
           error "injectBoundExpressionTypes: bound LocalName"
-        stripModuleName (TopLevelName _modName varName) = LName varName PosREPL
+        stripModuleName (TopLevelName _modName varName) = Located varName PosREPL
 
 saveResult :: Maybe Name -> Value SAWCtx -> REP ()
 saveResult Nothing _ = return ()

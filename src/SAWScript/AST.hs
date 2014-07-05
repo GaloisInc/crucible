@@ -142,19 +142,20 @@ type ValidModule = Module ResolvedName Schema ResolvedT
 
 -- Expr Level {{{
 
-data LName = LName {getName :: Name, getPos :: Pos} deriving Show
+data Located a = Located { getVal :: a, getPos :: Pos } deriving Show
+type LName = Located Name
 
-instance Eq LName where
-  a == b = getName a == getName b
+instance Eq a => Eq (Located a) where
+  a == b = getVal a == getVal b
 
-instance Ord LName where
-  compare a b = compare (getName a) (getName b)
+instance Ord a => Ord (Located a) where
+  compare a b = compare (getVal a) (getVal b)
 
 toLName :: Token Pos -> LName
-toLName p = LName (tokStr p) (tokPos p)
+toLName p = Located (tokStr p) (tokPos p)
 
 toNameDec :: (LName, a) -> (Name, a)
-toNameDec = first getName 
+toNameDec = first getVal 
 
 type TopStmtSimple   = TopStmt   UnresolvedName
 type ExprSimple      = Expr      UnresolvedName
@@ -691,8 +692,8 @@ instance CapturePVars TypeF where
     _ -> inject t
 
 instance CapturePVars Syn where
-  capturePVarsF ns (Syn n) = if getName n `elem` ns
-    then pVar (getName n)
+  capturePVarsF ns (Syn n) = if getVal n `elem` ns
+    then pVar (getVal n)
     else syn n
 
 instance CapturePVars I where

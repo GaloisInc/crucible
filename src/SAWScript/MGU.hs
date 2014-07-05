@@ -169,7 +169,7 @@ bindSchemas bs m = foldr (uncurry bindSchema) m bs
 bindTopSchemas :: [LBind Schema] -> TI a -> TI a
 bindTopSchemas ds k =
   do m <- curModName
-     bindSchemas [ (A.TopLevelName m (getName x), s) | (x,s) <- ds ] k
+     bindSchemas [ (A.TopLevelName m (getVal x), s) | (x,s) <- ds ] k
 
 bindLocalSchemas :: [Bind Schema] -> TI a -> TI a
 bindLocalSchemas ds k =
@@ -571,7 +571,7 @@ mkScc ents = stronglyConnComp $ zipWith mkGr keys ents
 
 defsDepsBind :: A.ModuleName -> LBind Expr
                         -> (LBind Expr, [A.ResolvedName], [A.ResolvedName])
-defsDepsBind m it@(x,e0) = (it, [ A.TopLevelName m (getName x) ], S.toList (uses e0))
+defsDepsBind m it@(x,e0) = (it, [ A.TopLevelName m (getVal x) ], S.toList (uses e0))
   where
   -- we are only interested in top-level names
   uses expr =
@@ -617,16 +617,16 @@ checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
   let eEnv    = A.moduleExprEnv m
   exprs <- traverse translateExpr eEnv
   initTs <- sequence $ concat
-    [ [ (,) <$> pure (A.TopLevelName mn (getName n)) <*> s
+    [ [ (,) <$> pure (A.TopLevelName mn (getVal n)) <*> s
       | (n,e) <- modExprs dep
       , let s = importTypeS $ A.typeOf e
       ] ++
-      [ (,) <$> pure (A.TopLevelName mn (getName n)) <*> importTypeS p
+      [ (,) <$> pure (A.TopLevelName mn (getVal n)) <*> importTypeS p
       | (n,p) <- modPrims dep
       ]
     | (mn,dep) <- depMods m
     ]
-  (primTs,prims) <- unzip <$> sequence [ (,) <$> ((,) <$> pure (A.TopLevelName modName (getName n)) <*> t')
+  (primTs,prims) <- unzip <$> sequence [ (,) <$> ((,) <$> pure (A.TopLevelName modName (getVal n)) <*> t')
                                              <*> ((,) <$> pure n <*> t')
                                        | (n,t) <- modPrims m
                                        , let t' = translateMTypeS t
