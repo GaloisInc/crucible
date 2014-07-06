@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ViewPatterns #-}
 module SAWScript.REPL (run) where
 
 import Prelude hiding (print, read)
@@ -123,7 +124,7 @@ evaluate ast = do
       withoutBinding :: BlockStmt UnresolvedName RawT
       (boundName, withoutBinding) =
         case ast' of
-          Bind (Just (varName, _)) ctx expr -> (Just varName,
+          Bind (Just (getVal -> varName, _)) ctx expr -> (Just varName,
                                                 Bind Nothing ctx expr)
           _ -> (Nothing, ast')
   {- The compiler pipeline is targeted at modules, so wrap up the statement in
@@ -168,10 +169,10 @@ injectBoundExpressionTypes orig = do
   -- Inject the types.
   return $ orig { modulePrimEnv =
                     Map.union boundNamesAndTypes (modulePrimEnv orig) }
-  where stripModuleName :: ResolvedName -> LName
-        stripModuleName (LocalName _) =
+  where stripModuleName :: Located ResolvedName -> LName
+        stripModuleName (getVal -> (LocalName _)) =
           error "injectBoundExpressionTypes: bound LocalName"
-        stripModuleName (TopLevelName _modName varName) = Located varName PosREPL
+        stripModuleName (getVal -> (TopLevelName _modName varName)) = Located varName PosREPL
 
 saveResult :: Maybe Name -> Value SAWCtx -> REP ()
 saveResult Nothing _ = return ()
@@ -179,8 +180,8 @@ saveResult (Just name) result = do
   -- Record that 'name' is in scope.
   modifyNamesInScope $ Set.insert name
   -- Save the type of 'it'.
-  let itsName = TopLevelName replModuleName "it"
-      itsName' = TopLevelName replModuleName name
+  let itsName = Located (TopLevelName replModuleName "it") PosREPL
+      itsName' = Located (TopLevelName replModuleName name) PosREPL
   modifyEnvironment $ \env ->
     let typeEnv = interpretEnvTypes env in
     let typeEnv' =

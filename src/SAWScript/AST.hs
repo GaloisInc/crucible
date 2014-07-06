@@ -142,7 +142,8 @@ type ValidModule = Module ResolvedName Schema ResolvedT
 
 -- Expr Level {{{
 
-data Located a = Located { getVal :: a, getPos :: Pos } deriving Show
+data Located a = Located { getVal :: a, getPos :: Pos } deriving (Functor, Show)
+
 type LName = Located Name
 
 instance Eq a => Eq (Located a) where
@@ -155,7 +156,7 @@ toLName :: Token Pos -> LName
 toLName p = Located (tokStr p) (tokPos p)
 
 toNameDec :: (LName, a) -> (Name, a)
-toNameDec = first getVal 
+toNameDec = first getVal
 
 type TopStmtSimple   = TopStmt   UnresolvedName
 type ExprSimple      = Expr      UnresolvedName
@@ -194,17 +195,17 @@ data Expr refT typeT
   | TLookup (Expr refT typeT) Integer          typeT
   -- LC
   | Var         refT  typeT
-  | Function    Name  typeT       (Expr refT typeT) typeT
+  | Function    LName  typeT       (Expr refT typeT) typeT
   | Application (Expr refT typeT) (Expr refT typeT) typeT
   -- Sugar
-  | LetBlock [Bind (Expr refT typeT)] (Expr refT typeT)
+  | LetBlock [LBind (Expr refT typeT)] (Expr refT typeT)
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
 data BlockStmt refT typeT
  -- Bind          bind var         context   expr
-  = Bind          (Maybe (Bind typeT))     typeT     (Expr refT typeT)
-  | BlockTypeDecl Name             typeT  
-  | BlockLet      [(Name,Expr refT typeT)]
+  = Bind          (Maybe (LBind typeT))     typeT     (Expr refT typeT)
+  | BlockTypeDecl Name             typeT
+  | BlockLet      [(LName,Expr refT typeT)]
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
 -- }}}
@@ -259,12 +260,12 @@ data Type
   = TyCon TyCon [Type]
   | TyRecord (M.Map Name Type)
   | TyVar TyVar
- deriving (Eq,Show) 
+ deriving (Eq,Show)
 
 data TyVar
   = FreeVar Integer
   | BoundVar Name
- deriving (Eq,Ord,Show) 
+ deriving (Eq,Ord,Show)
 
 data TyCon
  = TupleCon Integer
@@ -277,7 +278,7 @@ data TyCon
  | BlockCon
  | ContextCon Context
  | AbstractCon String
- deriving (Eq,Show) 
+ deriving (Eq,Show)
 
 data Schema = Forall [Name] Type deriving (Eq, Show)
 
@@ -350,7 +351,7 @@ instance PrettyPrint (Module refT exprT typeT) where
   pretty par m = pretty par (moduleName m)
 
 replicateDoc :: Integer -> PP.Doc -> PP.Doc
-replicateDoc n d 
+replicateDoc n d
   | n < 1 = PP.empty
   | True  = d PP.<> replicateDoc (n-1) d
 
@@ -406,7 +407,7 @@ tAbstract :: Name -> Type
 tAbstract n = TyCon (AbstractCon n) []
 
 boundVar :: Name -> Type
-boundVar n = TyVar (BoundVar n) 
+boundVar n = TyVar (BoundVar n)
 
 -- }}}
 
@@ -678,7 +679,7 @@ class (Functor f) => CapturePVars f where
 
 instance (CapturePVars f, CapturePVars g) => CapturePVars (f :+: g) where
   capturePVarsF ns t = case t of
-    Inl e -> capturePVarsF ns e 
+    Inl e -> capturePVarsF ns e
     Inr e -> capturePVarsF ns e
 
 instance CapturePVars TypeF where
@@ -703,4 +704,3 @@ instance CapturePVars ContextF where
   capturePVarsF _ = inject
 
 -- }}}
-

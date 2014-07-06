@@ -139,21 +139,21 @@ BlockStmt :: { BlockStmtSimple RawT }
  : Expression                           { Bind Nothing   Nothing $1   }
  | Arg '<-' Expression                  { Bind (Just $1) Nothing $3   }
 -- | name ':' PolyType                    { BlockTypeDecl $1 (Just $3)                 }
- | 'let' sepBy1(Declaration, 'and')     { BlockLet (map toNameDec $2)                  }
+ | 'let' sepBy1(Declaration, 'and')     { BlockLet $2                  }
 
 Declaration :: { (LName, ExprSimple RawT) }
  : name list(Arg) '=' Expression        { (toLName $1, buildFunction $2 $4)       }
 
-Arg :: { Bind RawT }
- : name                                 { (tokStr $1, Nothing) }
- | '(' name ':' Type ')'                { (tokStr $2, Just $4) }
+Arg :: { LBind RawT }
+ : name                                 { (toLName $1, Nothing) }
+ | '(' name ':' Type ')'                { (toLName $2, Just $4) }
 
 Expression :: { ExprSimple RawT }
  : IExpr                                { $1 }
  | IExpr ':' Type                       { updateAnnotation (Just $3) $1 }
  | '\\' list1(Arg) '->' Expression      { buildFunction $2 $4 }
  | 'let' sepBy1(Declaration, 'and')
-   'in' Expression                      { LetBlock (map toNameDec $2) $4 }
+   'in' Expression                      { LetBlock $2 $4 }
 
 IExpr :: { ExprSimple RawT }
  : AExprs                               { $1 }
@@ -196,7 +196,7 @@ AExpr :: { ExprSimple RawT }
  | qnum                                 { Z $1 Nothing                    }
  | num                                  { Application
                                             (Var (unresolved "bitSequence") Nothing)
-                                                 (Z $1 Nothing) 
+                                                 (Z $1 Nothing)
                                                  Nothing                  }
  -- | qname                                { Var (unresolvedQ $1) Nothing    }
  | name                                 { Var (unresolved (tokStr $1)) Nothing     }
@@ -212,7 +212,7 @@ AExpr :: { ExprSimple RawT }
 Field :: { (Name, ExprSimple RawT) }
  : name '=' Expression                  { (tokStr $1, $3) }
 
-Names :: { [Name] } 
+Names :: { [Name] }
  : name                                 { [tokStr $1] }
  | name ',' Names                       { tokStr $1:$3 }
 
@@ -330,7 +330,7 @@ parseError toks = case toks of
 bitsOfString :: Token Pos -> [ExprSimple RawT]
 bitsOfString = map ((flip Bit $ Just bit) . (/= '0')) . tokStr
 
-buildFunction :: [(Name, RawT)] -> ExprSimple RawT -> ExprSimple RawT 
+buildFunction :: [(LName, RawT)] -> ExprSimple RawT -> ExprSimple RawT
 buildFunction args e = foldr foldFunction e args
   where
   foldFunction (argName,mType) rhs = Function argName mType rhs $

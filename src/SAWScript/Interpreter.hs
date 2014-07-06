@@ -29,6 +29,7 @@ import Data.Set ( Set )
 import Data.Traversable hiding ( mapM )
 
 import qualified SAWScript.AST as SS
+import SAWScript.AST (Located(..))
 import SAWScript.Builtins hiding (evaluate)
 import SAWScript.CryptolBuiltins
 import SAWScript.JavaBuiltins
@@ -51,7 +52,7 @@ import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 
 type Expression = SS.Expr SS.ResolvedName SS.Schema
 type BlockStatement = SS.BlockStmt SS.ResolvedName SS.Schema
-type RNameMap = Map SS.ResolvedName
+type RNameMap = Map (Located SS.ResolvedName)
 data InterpretEnv s = InterpretEnv { interpretEnvValues :: RNameMap (Value s)
                                    , interpretEnvTypes :: RNameMap SS.Schema
                                    , interpretEnvShared :: RNameMap (SharedTerm s)
@@ -113,7 +114,7 @@ translatableType ty =
 -- | Precondition: translatableType ty
 translateType
     :: SharedContext s
-    -> Map SS.Name (Int, Kind)
+    -> Map (Located SS.Name) (Int, Kind)
     -> SS.Type -> IO (SharedTerm s)
 translateType sc tenv ty =
     case ty of
@@ -132,7 +133,7 @@ translateType sc tenv ty =
       SS.TyCon (SS.NumCon n) []   -> scNat sc (fromInteger n)
       SS.TyCon SS.StringCon []    ->
         scFlatTermF sc (DataTypeApp preludeStringIdent [])
-      SS.TyVar (SS.BoundVar x)    -> case M.lookup x tenv of
+      SS.TyVar (SS.BoundVar x)    -> case M.lookup (SS.Located x PosTemp) tenv of
                                        Nothing -> fail $ "translateType: unbound type variable: " ++ x
                                        Just (i, _k) -> do
                                          scLocalVar sc i
@@ -143,7 +144,7 @@ translatableSchema (SS.Forall _ t) = translatableType t
 
 translateSchema
     :: SharedContext s
-    -> Map SS.Name (Int, Kind)
+    -> Map (Located SS.Name) (Int, Kind)
     -> SS.Schema -> IO (SharedTerm s)
 translateSchema sc tenv0 (SS.Forall xs0 t) = go tenv0 xs0
   where
@@ -151,12 +152,12 @@ translateSchema sc tenv0 (SS.Forall xs0 t) = go tenv0 xs0
     go tenv (x : xs) = do
       let inc (i, k) = (i + 1, k)
       let k = KStar
-      let tenv' = M.insert x (0, k) (fmap inc tenv)
+      let tenv' = M.insert (SS.Located x PosTemp) (0, k) (fmap inc tenv)
       k' <- translateKind sc k
       t' <- go tenv' xs
       scPi sc x k' t'
 
-translatableExpr :: Set SS.ResolvedName -> Expression -> Bool
+translatableExpr :: Set (Located SS.ResolvedName) -> Expression -> Bool
 translatableExpr env expr =
     case expr of
       SS.Bit _             _ -> True
@@ -170,18 +171,19 @@ translatableExpr env expr =
       SS.Index e n         _ -> translatableExpr env e && translatableExpr env n
       SS.Lookup e _        _ -> translatableExpr env e
       SS.TLookup e _       _ -> translatableExpr env e
-      SS.Var x             _ -> S.member x env
+      SS.Var x             _ -> S.member (SS.Located x PosTemp) env
       SS.Function x t e    _ -> translatableSchema t && translatableExpr env' e
-          where env' = S.insert (SS.LocalName x) env
+          where env' = S.insert (fmap SS.LocalName x) env
       SS.Application f e   _ -> translatableExpr env f && translatableExpr env e
       SS.LetBlock bs e       -> all (translatableExpr env . snd) bs && translatableExpr env' e
-          where env' = foldr S.insert env [ SS.LocalName x | (x, _) <- bs ]
+          where env' = foldr S.insert env [ SS.Located (SS.LocalName (SS.getVal x)) (SS.getPos x)
+                                            | (x, _) <- bs ]
 
 translateExpr
     :: forall s. SharedContext s
     -> RNameMap SS.Schema
     -> RNameMap (SharedTerm s)
-    -> Map SS.Name (Int, Kind)
+    -> Map (Located SS.Name) (Int, Kind)
     -> Expression -> IO (SharedTerm s)
 translateExpr sc tm sm km expr =
     case expr of
@@ -209,10 +211,10 @@ translateExpr sc tm sm km expr =
                                         scRecordSelect sc e' n
       SS.TLookup e i            _ -> do e' <- translateExpr sc tm sm km e
                                         scTupleSelector sc e' (fromIntegral i)
-      SS.Var x (SS.Forall [] t)   -> case M.lookup x sm of
+      SS.Var x (SS.Forall [] t)   -> case M.lookup (SS.Located x PosTemp) sm of
                                        Nothing -> fail $ "Untranslatable: " ++ SS.renderResolvedName x
                                        Just e' ->
-                                         case M.lookup x tm of
+                                         case M.lookup (SS.Located x PosTemp) tm of
                                            Nothing -> return e'
                                            Just schema -> do
                                              let ts = typeInstantiation schema t
@@ -220,17 +222,17 @@ translateExpr sc tm sm km expr =
                                              scApplyAll sc e' ts'
       SS.Var x (SS.Forall _ _)    ->
         fail $ "Untranslatable: " ++ SS.renderResolvedName x
-      SS.Function x a e         _ -> do a' <- translateSchema sc km a
-                                        x' <- scLocalVar sc 0
-                                        sm' <- traverse (incVars sc 0 1) sm
-                                        let sm'' = M.insert (SS.LocalName x) x' sm'
-                                        let km' = fmap (\(i, k) -> (i + 1, k)) km
-                                        e' <- translateExpr sc tm sm'' km' e
-                                        scLambda sc (takeWhile (/= '.') x) a' e'
+      SS.Function x a e _ -> do a' <- translateSchema sc km a
+                                x' <- scLocalVar sc 0
+                                sm' <- traverse (incVars sc 0 1) sm
+                                let sm'' = M.insert (fmap SS.LocalName x) x' sm'
+                                let km' = fmap (\(i, k) -> (i + 1, k)) km
+                                e' <- translateExpr sc tm sm'' km' e
+                                scLambda sc (takeWhile (/= '.') (SS.getVal x)) a' e'
       SS.Application f e        _ -> do f' <- translateExpr sc tm sm km f
                                         e' <- translateExpr sc tm sm km e
                                         scApply sc f' e'
-      SS.LetBlock bs e            -> do let m = M.fromList [ (SS.LocalName x, y) | (x, y) <- bs ]
+      SS.LetBlock bs e            -> do let m = M.fromList [ (SS.Located (SS.LocalName $ SS.getVal x) (SS.getPos x), y) | (x, y) <- bs ]
                                         let tm' = fmap SS.typeOf m
                                         sm' <- traverse (translateExpr sc tm sm km) m
                                         translateExpr sc (M.union tm' tm) (M.union sm' sm) km e
@@ -253,7 +255,7 @@ translatePolyExpr sc tm sm expr
     case SS.typeOf expr of
       SS.Forall [] _ -> translateExpr sc tm sm M.empty expr
       SS.Forall ns _ -> do
-        let km = M.fromList [ (n, (i, KStar))  | (n, i) <- zip (reverse ns) [0..] ]
+        let km = M.fromList [ (Located n PosTemp, (i, KStar))  | (n, i) <- zip (reverse ns) [0..] ]
         -- FIXME: we assume all have kind KStar
         s0 <- translateKind sc KStar
         t <- translateExpr sc tm sm km expr
@@ -291,17 +293,17 @@ interpret sc env@(InterpretEnv vm tm sm) expr =
       SS.TLookup e i       _ -> do a <- interpret sc env e
                                    return (tupleLookupValue a i)
       SS.Var x (SS.Forall [] t)
-                             -> case M.lookup x vm of
+                             -> case M.lookup (Located x PosTemp) vm of
                                   Nothing -> evaluate sc <$> translateExpr sc tm sm M.empty expr
                                   Just v ->
-                                    case M.lookup x tm of
+                                    case M.lookup (Located x PosTemp) tm of
                                       Nothing -> return v
                                       Just schema -> do
                                         let ts = typeInstantiation schema t
                                         foldM tapplyValue v ts
       SS.Var x (SS.Forall _ _) ->
         fail $ "Can't interpret: " ++ SS.renderResolvedName x
-      SS.Function x _ e    _ -> do let name = SS.LocalName x
+      SS.Function x _ e    _ -> do let name = fmap SS.LocalName x
                                    let f v Nothing = interpret sc (InterpretEnv (M.insert name v vm) tm sm) e
                                        f v (Just t) = do
                                          let vm' = M.insert name v vm
@@ -325,7 +327,7 @@ interpret sc env@(InterpretEnv vm tm sm) expr =
                                                   else return Nothing
                                             f v2 t2
                                      _ -> fail "interpret Application"
-      SS.LetBlock bs e       -> do let m = M.fromList [ (SS.LocalName x, y) | (x, y) <- bs ]
+      SS.LetBlock bs e       -> do let m = M.fromList [ (Located (SS.LocalName $ getVal x) (getPos x), y) | (x, y) <- bs ]
                                    let tm' = fmap SS.typeOf m
                                    vm' <- traverse (interpretPoly sc env) m
                                    sm' <- traverse (translatePolyExpr sc tm sm) $
@@ -354,7 +356,7 @@ interpretStmts sc env@(InterpretEnv vm tm sm) stmts =
              return (v1 `thenValue` v2)
       SS.Bind (Just (x, _)) _ e : ss ->
           do v1 <- interpret sc env e
-             let name = SS.LocalName x
+             let name = fmap SS.LocalName x
              let f v Nothing = interpretStmts sc (InterpretEnv (M.insert name v vm) tm sm) ss
                  f v (Just t) = do
                    let vm' = M.insert name v vm
@@ -369,7 +371,7 @@ interpretModule
     -> InterpretEnv s -> SS.ValidModule -> IO (InterpretEnv s)
 interpretModule sc env m =
     do let mn = SS.moduleName m
-       let graph = [ ((rname, e), rname, S.toList (exprDeps e))
+       let graph = [ ((Located rname (SS.getPos name), e), rname, S.toList (exprDeps e))
                    | (name, e) <- M.assocs (SS.moduleExprEnv m)
                    , let rname = SS.TopLevelName mn (SS.getVal name) ]
        let sccs = stronglyConnComp graph
@@ -377,7 +379,7 @@ interpretModule sc env m =
 
 interpretSCC
     :: forall s. SharedContext s
-    -> InterpretEnv s -> SCC (SS.ResolvedName, Expression) -> IO (InterpretEnv s)
+    -> InterpretEnv s -> SCC (Located SS.ResolvedName, Expression) -> IO (InterpretEnv s)
 interpretSCC sc env@(InterpretEnv vm tm sm) scc =
     case scc of
       CyclicSCC _nodes -> fail "Unimplemented: Recursive top level definitions"
@@ -424,7 +426,7 @@ interpretModuleAtEntry :: SS.Name
                           -> IO (Value s, InterpretEnv s)
 interpretModuleAtEntry entryName sc env m =
   do interpretEnv@(InterpretEnv vm _tm _sm) <- interpretModule sc env m
-     let mainName = SS.TopLevelName (SS.moduleName m) entryName
+     let mainName = Located (SS.TopLevelName (SS.moduleName m) entryName) PosTemp
      case M.lookup mainName vm of
        Just (VIO v) -> do
          -- We've been asked to execute a 'TopLevel' action, so run it.
@@ -475,7 +477,7 @@ transitivePrimEnv :: SS.ValidModule -> RNameMap SS.Schema
 transitivePrimEnv m = M.unions (env : envs)
   where
     mn = SS.moduleName m
-    env = M.mapKeysMonotonic (SS.TopLevelName mn . SS.getVal) (SS.modulePrimEnv m)
+    env = M.mapKeysMonotonic (\x-> Located (SS.TopLevelName mn (SS.getVal x)) (SS.getPos x)) (SS.modulePrimEnv m)
     envs = map transitivePrimEnv (M.elems (SS.moduleDependencies m))
 
 
@@ -620,5 +622,5 @@ coreEnv sc =
     , (qualify "trunc31"    , "LLVM.trunc31")
     ]
 
-qualify :: String -> SS.ResolvedName
-qualify s = SS.TopLevelName (SS.ModuleName [] "Prelude") s
+qualify :: String -> Located SS.ResolvedName
+qualify s = Located (SS.TopLevelName (SS.ModuleName [] "Prelude") s) PosTemp

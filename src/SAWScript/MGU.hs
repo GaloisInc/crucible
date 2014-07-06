@@ -8,12 +8,14 @@ import qualified SAWScript.AST as A
 import SAWScript.AST hiding (Expr(..), BlockStmt(..), Name, i)
 import SAWScript.NewAST
 import SAWScript.Compiler
+import SAWScript.Utils
 
 import           Data.Graph.SCC(stronglyConnComp)
 import           Data.Graph (SCC(..))
 import Control.Applicative
 
 import Control.Monad
+import Control.Arrow
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Identity
@@ -113,7 +115,7 @@ newtype TI a = TI { unTI :: ReaderT RO (StateT RW Identity) a }
                         deriving (Functor,Applicative,Monad)
 
 data RO = RO
-  { typeEnv :: M.Map A.ResolvedName Schema
+  { typeEnv :: M.Map (Located A.ResolvedName) Schema
   , curMod  :: A.ModuleName
   }
 
@@ -159,26 +161,26 @@ unify t1 t2 = do
                 , e
                 ]
 
-bindSchema :: A.ResolvedName -> Schema -> TI a -> TI a
+bindSchema :: Located A.ResolvedName -> Schema -> TI a -> TI a
 bindSchema n s m = TI $ local (\ro -> ro { typeEnv = M.insert n s $ typeEnv ro })
   $ unTI m
 
-bindSchemas :: [(A.ResolvedName, Schema)] -> TI a -> TI a
+bindSchemas :: [(Located A.ResolvedName, Schema)] -> TI a -> TI a
 bindSchemas bs m = foldr (uncurry bindSchema) m bs
 
 bindTopSchemas :: [LBind Schema] -> TI a -> TI a
 bindTopSchemas ds k =
   do m <- curModName
-     bindSchemas [ (A.TopLevelName m (getVal x), s) | (x,s) <- ds ] k
+     bindSchemas [ (Located (A.TopLevelName m (getVal x)) (getPos x), s) | (x,s) <- ds ] k
 
-bindLocalSchemas :: [Bind Schema] -> TI a -> TI a
+bindLocalSchemas :: [LBind Schema] -> TI a -> TI a
 bindLocalSchemas ds k =
-  bindSchemas [ (A.LocalName x,s) | (x,s) <- ds ] k
+  bindSchemas [ (Located (A.LocalName (getVal x)) (getPos x),s) | (x,s) <- ds ] k
 
 curModName :: TI A.ModuleName
 curModName = TI $ asks curMod
 
-lookupVar :: A.ResolvedName -> TI Type
+lookupVar :: Located A.ResolvedName -> TI Type
 lookupVar n = do
   env <- TI $ asks typeEnv
   case M.lookup n env of
@@ -277,7 +279,7 @@ instance AppSubst BlockStmt where
     Bind mn mt ctx e -> Bind mn mt ctx e
     BlockLet bs   -> BlockLet $ appSubstBinds s bs
 
-appSubstBinds :: (AppSubst a) => Subst -> [Bind a] -> [Bind a]
+appSubstBinds :: (AppSubst a) => Subst -> [(n,a)] -> [(n,a)]
 appSubstBinds s bs = [ (n,appSubst s a) | (n,a) <- bs ]
 
 -- }}}
@@ -359,9 +361,9 @@ inferE expr = case expr of
 
 
   Function x mt body -> do xt <- maybe newType return mt
-                           (body',t) <- bindLocalSchemas [(x,tMono xt)] $
+                           (body',t) <- bindLocalSchemas [(Located x PosTemp,tMono xt)] $
                                           inferE body
-                           ret (A.Function x (tMono xt) body') $ tFun xt t
+                           ret (A.Function (Located x PosTemp) (tMono xt) body') $ tFun xt t
 
   Application f v -> do (v',fv) <- inferE v
                         t <- newType
@@ -369,11 +371,11 @@ inferE expr = case expr of
                         f' <- checkE f ft
                         ret (A.Application f' v')  t
 
-  Var x -> do t <- lookupVar x
+  Var x -> do t <- lookupVar (Located x PosTemp)
               ret (A.Var x) t
 
 
-  Let bs body -> inferDecls bs $ \bs' -> do
+  Let bs body -> inferDecls (map (first $ flip Located PosTemp) bs) $ \bs' -> do
                    (body',t) <- inferE body
                    return (A.LetBlock bs' body', t)
 
@@ -429,7 +431,7 @@ inferField (n,e) = do
   (e',t) <- inferE e
   return ((n,e'),(n,t))
 
-inferDecls :: [Bind Expr] -> ([Bind OutExpr] -> TI a) -> TI a
+inferDecls :: [LBind Expr] -> ([LBind OutExpr] -> TI a) -> TI a
 inferDecls bs nextF = do
   (bs',ss) <- unzip `fmap` mapM inferDecl bs
   bindLocalSchemas ss (nextF bs')
@@ -466,19 +468,19 @@ inferStmts ctx (Bind mn mt mc e : more) = do
                   return (tMono c')
   let mn' = case mn of
         Nothing -> Nothing
-        Just n -> Just (n, tMono t)
+        Just n -> Just (Located n PosTemp, tMono t)
   let f = case mn of
         Nothing -> id
-        Just n  -> bindSchema (A.LocalName n) (tMono t)
+        Just n  -> bindSchema (Located (A.LocalName n) PosTemp) (tMono t)
   (more',t') <- f $ inferStmts ctx more
 
   return (A.Bind mn' mc' e' : more', t')
 
-inferStmts ctx (BlockLet bs : more) = inferDecls bs $ \bs' -> do
+inferStmts ctx (BlockLet bs : more) = inferDecls (map (first $ flip Located PosTemp) bs) $ \bs' -> do
   (more',t) <- inferStmts ctx more
   return (A.BlockLet bs' : more', t)
 
-inferDecl :: Bind Expr -> TI (Bind OutExpr,Bind Schema)
+inferDecl :: LBind Expr -> TI (LBind OutExpr,LBind Schema)
 inferDecl (n,e) = do
   (e',t) <- inferE e
   [(e1,s)] <- generalize [e'] [t]
@@ -617,16 +619,17 @@ checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
   let eEnv    = A.moduleExprEnv m
   exprs <- traverse translateExpr eEnv
   initTs <- sequence $ concat
-    [ [ (,) <$> pure (A.TopLevelName mn (getVal n)) <*> s
+    [ [ (,) <$> pure (Located (A.TopLevelName mn (getVal n)) (getPos n)) <*> s
       | (n,e) <- modExprs dep
       , let s = importTypeS $ A.typeOf e
       ] ++
-      [ (,) <$> pure (A.TopLevelName mn (getVal n)) <*> importTypeS p
+      [ (,) <$> pure (Located (A.TopLevelName mn (getVal n)) (getPos n)) <*> importTypeS p
       | (n,p) <- modPrims dep
       ]
     | (mn,dep) <- depMods m
     ]
-  (primTs,prims) <- unzip <$> sequence [ (,) <$> ((,) <$> pure (A.TopLevelName modName (getVal n)) <*> t')
+  (primTs,prims) <- unzip <$> sequence [ (,) <$> ((,) <$>
+    pure (Located (A.TopLevelName modName (getVal n)) (getPos n)) <*> t')
                                              <*> ((,) <$> pure n <*> t')
                                        | (n,t) <- modPrims m
                                        , let t' = translateMTypeS t
@@ -661,4 +664,3 @@ runTI mn m = (a,subst rw, errors rw)
   (a,rw) = runState m' emptyRW
 
 -- }}}
-
