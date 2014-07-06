@@ -114,7 +114,7 @@ translatableType ty =
 -- | Precondition: translatableType ty
 translateType
     :: SharedContext s
-    -> Map (Located SS.Name) (Int, Kind)
+    -> Map SS.Name (Int, Kind)
     -> SS.Type -> IO (SharedTerm s)
 translateType sc tenv ty =
     case ty of
@@ -133,7 +133,7 @@ translateType sc tenv ty =
       SS.TyCon (SS.NumCon n) []   -> scNat sc (fromInteger n)
       SS.TyCon SS.StringCon []    ->
         scFlatTermF sc (DataTypeApp preludeStringIdent [])
-      SS.TyVar (SS.BoundVar x)    -> case M.lookup (SS.Located x PosTemp) tenv of
+      SS.TyVar (SS.BoundVar x)    -> case M.lookup x tenv of
                                        Nothing -> fail $ "translateType: unbound type variable: " ++ x
                                        Just (i, _k) -> do
                                          scLocalVar sc i
@@ -144,7 +144,7 @@ translatableSchema (SS.Forall _ t) = translatableType t
 
 translateSchema
     :: SharedContext s
-    -> Map (Located SS.Name) (Int, Kind)
+    -> Map SS.Name (Int, Kind)
     -> SS.Schema -> IO (SharedTerm s)
 translateSchema sc tenv0 (SS.Forall xs0 t) = go tenv0 xs0
   where
@@ -152,7 +152,7 @@ translateSchema sc tenv0 (SS.Forall xs0 t) = go tenv0 xs0
     go tenv (x : xs) = do
       let inc (i, k) = (i + 1, k)
       let k = KStar
-      let tenv' = M.insert (SS.Located x PosTemp) (0, k) (fmap inc tenv)
+      let tenv' = M.insert x (0, k) (fmap inc tenv)
       k' <- translateKind sc k
       t' <- go tenv' xs
       scPi sc x k' t'
@@ -183,7 +183,7 @@ translateExpr
     :: forall s. SharedContext s
     -> RNameMap SS.Schema
     -> RNameMap (SharedTerm s)
-    -> Map (Located SS.Name) (Int, Kind)
+    -> Map SS.Name (Int, Kind)
     -> Expression -> IO (SharedTerm s)
 translateExpr sc tm sm km expr =
     case expr of
@@ -255,7 +255,7 @@ translatePolyExpr sc tm sm expr
     case SS.typeOf expr of
       SS.Forall [] _ -> translateExpr sc tm sm M.empty expr
       SS.Forall ns _ -> do
-        let km = M.fromList [ (Located n PosTemp, (i, KStar))  | (n, i) <- zip (reverse ns) [0..] ]
+        let km = M.fromList [ (n, (i, KStar))  | (n, i) <- zip (reverse ns) [0..] ]
         -- FIXME: we assume all have kind KStar
         s0 <- translateKind sc KStar
         t <- translateExpr sc tm sm km expr
