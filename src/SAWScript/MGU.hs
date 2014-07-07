@@ -14,7 +14,6 @@ import SAWScript.Compiler
 import           Data.Graph.SCC(stronglyConnComp)
 import           Data.Graph (SCC(..))
 import Control.Applicative
-import Control.Arrow
 
 import Control.Monad
 import Control.Monad.Reader
@@ -24,9 +23,6 @@ import Data.Maybe (mapMaybe)
 import Data.Traversable (traverse)
 import qualified Data.Map as M
 import qualified Data.Set as S
-
-locStr :: Maybe LName -> String
-locStr = maybe (" fuck") ((" at " ++ ) . show)
 
 -- Subst {{{
 
@@ -56,40 +52,40 @@ failMGU = Left
 assert :: Bool -> String -> Either String ()
 assert b msg = unless b $ failMGU msg
 
-mgu :: Maybe LName -> Type -> Type -> Either String Subst
+mgu :: LName -> Type -> Type -> Either String Subst
 mgu m (TyVar tv) t2 = bindVar m tv t2
 mgu m t1 (TyVar tv) = bindVar m tv t1
 mgu m r1@(TyRecord ts1) r2@(TyRecord ts2) = do
   assert (M.keys ts1 == M.keys ts2) $
-    "mismatched record fields: " ++ pShow r1 ++ " and " ++ pShow r2 ++ locStr m
+    "mismatched record fields: " ++ pShow r1 ++ " and " ++ pShow r2 ++ " at " ++ show m
   mgus m (M.elems ts1) (M.elems ts2)
 mgu m (TyCon tc1 ts1) (TyCon tc2 ts2) = do
   assert (tc1 == tc2) $
-    "mismatched type constructors: " ++ pShow tc1 ++ " and " ++ pShow tc2 ++ locStr m
+    "mismatched type constructors: " ++ pShow tc1 ++ " and " ++ pShow tc2 ++ " at " ++ show m
   mgus m ts1 ts2
-mgu m t1 t2 = failMGU $ "type mismatch: " ++ pShow t1 ++ " and " ++ pShow t2 ++ locStr m
+mgu m t1 t2 = failMGU $ "type mismatch: " ++ pShow t1 ++ " and " ++ pShow t2 ++ " at " ++ show m
 
-mgus :: Maybe LName -> [Type] -> [Type] -> Either String Subst
-mgus m [] [] = return emptySubst
+mgus :: LName -> [Type] -> [Type] -> Either String Subst
+mgus _ [] [] = return emptySubst
 mgus m (t1:ts1) (t2:ts2) = do
   s <- mgu m t1 t2
   s' <- mgus m (map (appSubst s) ts1) (map (appSubst s) ts2)
   return (s' @@ s)
-mgus m _ _ = failMGU $ "type mismatch in constructor arity" ++ locStr m
+mgus m _ _ = failMGU $ "type mismatch in constructor arity at" ++ show m
 
-bindVar :: Maybe LName -> TyVar -> Type -> Either String Subst
+bindVar :: LName -> TyVar -> Type -> Either String Subst
 bindVar _ (FreeVar i) (TyVar (FreeVar j))
   | i == j    = return emptySubst
 bindVar m tv@(FreeVar _) t
-  | tv `S.member` freeVars t = failMGU ("occurs check failMGUs " ++ locStr m)
+  | tv `S.member` freeVars t = failMGU ("occurs check failMGUs " ++ " at " ++ show m)
   | otherwise                = return $ singletonSubst tv t
 
-bindVar m tv@(BoundVar _) t@(TyVar (FreeVar _)) = return $ singletonSubst tv t
+bindVar _ tv@(BoundVar _) t@(TyVar (FreeVar _)) = return $ singletonSubst tv t
 
 bindVar _ (BoundVar n) (TyVar (BoundVar m))
   | n == m  = return emptySubst
 
-bindVar m e1 e2 = failMGU $ "generality mismatch: " ++ pShow e1 ++ " and " ++ pShow e2 ++ locStr m
+bindVar m e1 e2 = failMGU $ "generality mismatch: " ++ pShow e1 ++ " and " ++ pShow e2 ++ " at " ++ show m
 
 -- }}}
 
@@ -156,7 +152,7 @@ recordError :: String -> TI ()
 recordError err = TI $ modify $ \rw ->
   rw { errors = err : errors rw }
 
-unify :: Maybe LName -> Type -> Type -> TI ()
+unify :: LName -> Type -> Type -> TI ()
 unify m t1 t2 = do
   t1' <- appSubstM t1
   t2' <- appSubstM t2
@@ -164,7 +160,7 @@ unify m t1 t2 = do
     Right s -> TI $ modify $ \rw -> rw { subst = s @@ subst rw }
     Left e -> recordError $ unlines
                 [ "type mismatch: " ++ pShow t1 ++ " and " ++ pShow t2
-                , locStr m
+                , " at " ++ show m
                 , e
                 ]
 
@@ -320,7 +316,7 @@ type OutBlockStmt = A.BlockStmt A.ResolvedName Schema
 ret :: Monad m => (Schema -> a) -> Type -> m (a, Type)
 ret thing ty = return (thing (tMono ty), ty)
 
-inferE :: (Maybe LName, Expr) -> TI (OutExpr,Type)
+inferE :: (LName, Expr) -> TI (OutExpr,Type)
 inferE (ln, expr) = case expr of
   Bit b     -> ret (A.Bit b)   tBool
   String s  -> ret (A.Quote s) tString
@@ -427,13 +423,13 @@ inferE (ln, expr) = case expr of
 
 
 
-checkE :: Maybe LName -> Expr -> Type -> TI OutExpr
+checkE :: LName -> Expr -> Type -> TI OutExpr
 checkE m e t = do
   (e',t') <- inferE (m,e)
   unify m t t'
   return e'
 
-inferField :: Maybe LName -> Bind Expr -> TI (Bind OutExpr,Bind Type)
+inferField :: LName -> Bind Expr -> TI (Bind OutExpr,Bind Type)
 inferField m (n,e) = do
   (e',t) <- inferE (m,e)
   return ((n,e'),(n,t))
@@ -443,10 +439,10 @@ inferDecls bs nextF = do
   (bs',ss) <- unzip `fmap` mapM inferDecl bs
   bindLocalSchemas ss (nextF bs')
 
-inferStmts :: Maybe LName -> Type -> [BlockStmt] -> TI ([OutBlockStmt],Type)
+inferStmts :: LName -> Type -> [BlockStmt] -> TI ([OutBlockStmt],Type)
 
 inferStmts m _ctx [] = do
-  recordError ("do block must include at least one expression" ++ locStr m)
+  recordError ("do block must include at least one expression at " ++ show m)
   t <- newType
   return ([], t)
 
@@ -461,13 +457,13 @@ inferStmts m ctx [Bind Nothing _ mc e] = do
   return ([A.Bind Nothing mc' e'],t)
 
 inferStmts m _ [_] = do
-  recordError ("do block must end with expression" ++ locStr m)
+  recordError ("do block must end with expression at " ++ show m)
   t <- newType
   return ([],t)
 
 inferStmts m ctx (Bind mn mt mc e : more) = do
   t <- maybe newType return mt
-  e' <- checkE (mplus mn m) e (tBlock ctx t)
+  e' <- checkE m e (tBlock ctx t)
   mc' <- case mc of
     Nothing -> return (tMono ctx)
     Just c  -> do c' <- checkKind c
@@ -489,7 +485,7 @@ inferStmts m ctx (BlockLet bs : more) = inferDecls bs $ \bs' -> do
 
 inferDecl :: LBind Expr -> TI (LBind OutExpr,LBind Schema)
 inferDecl (n,e) = do
-  (e',t) <- inferE (Just n, e)
+  (e',t) <- inferE (n, e)
   [(e1,s)] <- generalize [e'] [t]
   return ( (n,e1), (n,s) )
 
@@ -501,8 +497,8 @@ inferRecDecls ds =
      guessedTypes <- mapM (\_ -> newType) ds
      (es,ts) <- unzip `fmap`
                 bindTopSchemas (zip names (map tMono guessedTypes))
-                               (mapM inferE (map (first Just) ds))
-     _ <- sequence $ zipWith3 unify (map Just names) ts guessedTypes
+                               (mapM inferE ds)
+     _ <- sequence $ zipWith3 unify names ts guessedTypes
      (es1,ss) <- unzip `fmap` generalize es ts
      return (zip names es1, zip names ss)
 
