@@ -49,7 +49,6 @@ data Pos = Pos !FilePath -- file
                !Int      -- col
          | PosInternal String
          | PosREPL
-         | PosTemp
   deriving (Eq)
 
 endPos :: FilePath -> Pos
@@ -68,13 +67,11 @@ posRelativeToCurrentDirectory :: Pos -> IO Pos
 posRelativeToCurrentDirectory (Pos f l c)     = makeRelativeToCurrentDirectory f >>= \f' -> return (Pos f' l c)
 posRelativeToCurrentDirectory (PosInternal s) = return $ PosInternal s
 posRelativeToCurrentDirectory PosREPL = return PosREPL
-posRelativeToCurrentDirectory PosTemp = return PosTemp
 
 posRelativeTo :: FilePath -> Pos -> Pos
 posRelativeTo d (Pos f l c)     = Pos (makeRelative d f) l c
 posRelativeTo _ (PosInternal s) = PosInternal s
 posRelativeTo _ PosREPL = PosREPL
-posRelativeTo _ PosTemp = PosTemp
 
 routePathThroughPos :: Pos -> FilePath -> FilePath
 routePathThroughPos (Pos f _ _) fp
@@ -87,7 +84,6 @@ instance Show Pos where
   show (Pos f l c)     = show f ++ ":" ++ show l ++ ":" ++ show c
   show (PosInternal s) = "[internal:" ++ s ++ "]"
   show PosREPL = "REPL"
-  show PosTemp = "location unimplemented"
 
 data SSMode = Verify | Blif | CBlif deriving (Eq, Show, Data, Typeable)
 
@@ -254,7 +250,7 @@ allEqual sc ((t, t'):ts) = do
   andFn eq r
 
 scRemoveBitvector :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
-scRemoveBitvector sc tm = do 
+scRemoveBitvector sc tm = do
   rules <- scDefRewriteRules sc def
   tm' <- rewriteSharedTerm sc (addRules rules emptySimpset) tm
   return tm'

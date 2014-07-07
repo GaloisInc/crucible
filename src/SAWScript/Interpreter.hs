@@ -623,4 +623,4 @@ coreEnv sc =
     ]
 
 qualify :: String -> Located SS.ResolvedName
-qualify s = Located (SS.TopLevelName (SS.ModuleName [] "Prelude") s) PosTemp
+qualify s = Located (SS.TopLevelName (SS.ModuleName [] "Prelude") s) (PosInternal "coreEnv")
