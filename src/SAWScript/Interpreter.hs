@@ -426,7 +426,7 @@ interpretModuleAtEntry :: SS.Name
                           -> IO (Value s, InterpretEnv s)
 interpretModuleAtEntry entryName sc env m =
   do interpretEnv@(InterpretEnv vm _tm _sm) <- interpretModule sc env m
-     let mainName = Located (SS.TopLevelName (SS.moduleName m) entryName) PosTemp
+     let mainName = Located (SS.TopLevelName (SS.moduleName m) entryName) (PosInternal "entry")
      case M.lookup mainName vm of
        Just (VIO v) -> do
          -- We've been asked to execute a 'TopLevel' action, so run it.
