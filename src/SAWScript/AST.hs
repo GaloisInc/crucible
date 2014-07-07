@@ -143,7 +143,9 @@ type ValidModule = Module ResolvedName Schema ResolvedT
 
 -- Expr Level {{{
 
-data Located a = Located { getVal :: a, getPos :: Pos } deriving (Functor, Show, Foldable, Traversable)
+data Located a = Located { getVal :: a, getPos :: Pos } deriving (Functor, Foldable, Traversable)
+instance Show a => Show (Located a) where
+  show (Located v p) = show v ++ " (" ++ show p ++ ")"
 
 type LName = Located Name
 

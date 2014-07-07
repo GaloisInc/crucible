@@ -2,6 +2,7 @@
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE TupleSections #-}
 
 module SAWScript.MGU where
 
@@ -13,6 +14,7 @@ import SAWScript.Compiler
 import           Data.Graph.SCC(stronglyConnComp)
 import           Data.Graph (SCC(..))
 import Control.Applicative
+import Control.Arrow
 
 import Control.Monad
 import Control.Monad.Reader
@@ -22,6 +24,9 @@ import Data.Maybe (mapMaybe)
 import Data.Traversable (traverse)
 import qualified Data.Map as M
 import qualified Data.Set as S
+
+locStr :: Maybe LName -> String
+locStr = maybe (" fuck") ((" at " ++ ) . show)
 
 -- Subst {{{
 
@@ -51,38 +56,40 @@ failMGU = Left
 assert :: Bool -> String -> Either String ()
 assert b msg = unless b $ failMGU msg
 
-mgu :: Type -> Type -> Either String Subst
-mgu (TyVar tv) t2 = bindVar tv t2
-mgu t1 (TyVar tv) = bindVar tv t1
-mgu r1@(TyRecord ts1) r2@(TyRecord ts2) = do
-  assert (M.keys ts1 == M.keys ts2) $ "mismatched record fields: " ++ pShow r1 ++ " and " ++ pShow r2
-  mgus (M.elems ts1) (M.elems ts2)
-mgu (TyCon tc1 ts1) (TyCon tc2 ts2) = do
-  assert (tc1 == tc2) $ "mismatched type constructors: " ++ pShow tc1 ++ " and " ++ pShow tc2
-  mgus ts1 ts2
-mgu t1 t2 = failMGU $ "type mismatch: " ++ pShow t1 ++ " and " ++ pShow t2
+mgu :: Maybe LName -> Type -> Type -> Either String Subst
+mgu m (TyVar tv) t2 = bindVar m tv t2
+mgu m t1 (TyVar tv) = bindVar m tv t1
+mgu m r1@(TyRecord ts1) r2@(TyRecord ts2) = do
+  assert (M.keys ts1 == M.keys ts2) $
+    "mismatched record fields: " ++ pShow r1 ++ " and " ++ pShow r2 ++ locStr m
+  mgus m (M.elems ts1) (M.elems ts2)
+mgu m (TyCon tc1 ts1) (TyCon tc2 ts2) = do
+  assert (tc1 == tc2) $
+    "mismatched type constructors: " ++ pShow tc1 ++ " and " ++ pShow tc2 ++ locStr m
+  mgus m ts1 ts2
+mgu m t1 t2 = failMGU $ "type mismatch: " ++ pShow t1 ++ " and " ++ pShow t2 ++ locStr m
 
-mgus :: [Type] -> [Type] -> Either String Subst
-mgus [] [] = return emptySubst
-mgus (t1:ts1) (t2:ts2) = do
-  s <- mgu t1 t2
-  s' <- mgus (map (appSubst s) ts1) (map (appSubst s) ts2)
+mgus :: Maybe LName -> [Type] -> [Type] -> Either String Subst
+mgus m [] [] = return emptySubst
+mgus m (t1:ts1) (t2:ts2) = do
+  s <- mgu m t1 t2
+  s' <- mgus m (map (appSubst s) ts1) (map (appSubst s) ts2)
   return (s' @@ s)
-mgus _ _ = failMGU $ "type mismatch in constructor arity"
+mgus m _ _ = failMGU $ "type mismatch in constructor arity" ++ locStr m
 
-bindVar :: TyVar -> Type -> Either String Subst
-bindVar (FreeVar i) (TyVar (FreeVar j))
+bindVar :: Maybe LName -> TyVar -> Type -> Either String Subst
+bindVar _ (FreeVar i) (TyVar (FreeVar j))
   | i == j    = return emptySubst
-bindVar tv@(FreeVar _) t
-  | tv `S.member` freeVars t = failMGU "occurs check failMGUs"
+bindVar m tv@(FreeVar _) t
+  | tv `S.member` freeVars t = failMGU ("occurs check failMGUs " ++ locStr m)
   | otherwise                = return $ singletonSubst tv t
 
-bindVar tv@(BoundVar _) t@(TyVar (FreeVar _)) = return $ singletonSubst tv t
+bindVar m tv@(BoundVar _) t@(TyVar (FreeVar _)) = return $ singletonSubst tv t
 
-bindVar (BoundVar n) (TyVar (BoundVar m))
+bindVar _ (BoundVar n) (TyVar (BoundVar m))
   | n == m  = return emptySubst
 
-bindVar e1 e2 = failMGU $ "generality mismatch: " ++ pShow e1 ++ " and " ++ pShow e2
+bindVar m e1 e2 = failMGU $ "generality mismatch: " ++ pShow e1 ++ " and " ++ pShow e2 ++ locStr m
 
 -- }}}
 
@@ -149,14 +156,15 @@ recordError :: String -> TI ()
 recordError err = TI $ modify $ \rw ->
   rw { errors = err : errors rw }
 
-unify :: Type -> Type -> TI ()
-unify t1 t2 = do
+unify :: Maybe LName -> Type -> Type -> TI ()
+unify m t1 t2 = do
   t1' <- appSubstM t1
   t2' <- appSubstM t2
-  case mgu t1' t2' of
+  case mgu m t1' t2' of
     Right s -> TI $ modify $ \rw -> rw { subst = s @@ subst rw }
     Left e -> recordError $ unlines
                 [ "type mismatch: " ++ pShow t1 ++ " and " ++ pShow t2
+                , locStr m
                 , e
                 ]
 
@@ -312,8 +320,8 @@ type OutBlockStmt = A.BlockStmt A.ResolvedName Schema
 ret :: Monad m => (Schema -> a) -> Type -> m (a, Type)
 ret thing ty = return (thing (tMono ty), ty)
 
-inferE :: Expr -> TI (OutExpr,Type)
-inferE expr = case expr of
+inferE :: (Maybe LName, Expr) -> TI (OutExpr,Type)
+inferE (ln, expr) = case expr of
   Bit b     -> ret (A.Bit b)   tBool
   String s  -> ret (A.Quote s) tString
   Z i       -> ret (A.Z i)     tZ
@@ -323,31 +331,31 @@ inferE expr = case expr of
   Array  [] -> do a <- newType
                   ret (A.Array []) $ tArray (tNum (0 :: Int)) a
 
-  Array (e:es) -> do (e',t) <- inferE e
-                     es' <- mapM (`checkE` t) es
+  Array (e:es) -> do (e',t) <- inferE (ln, e)
+                     es' <- mapM (flip (checkE ln) t) es
                      ret (A.Array (e':es')) $ tArray (tNum $ length es + 1) t
 
   Block bs -> do ctx <- newType
-                 (bs',t') <- inferStmts ctx bs
+                 (bs',t') <- inferStmts ln ctx bs
                  ret (A.Block bs') $ tBlock ctx t'
 
-  Tuple  es -> do (es',ts) <- unzip `fmap` mapM inferE es
+  Tuple  es -> do (es',ts) <- unzip `fmap` mapM (inferE . (ln,)) es
                   ret (A.Tuple es') $ tTuple ts
 
-  Record fs -> do (nes',nts) <- unzip `fmap` mapM inferField (M.toList fs)
+  Record fs -> do (nes',nts) <- unzip `fmap` mapM (inferField ln) (M.toList fs)
                   ret (A.Record nes') $ TyRecord $ M.fromList nts
 
-  Index ar ix -> do (ar',at) <- inferE ar
-                    ix'      <- checkE ix tZ
+  Index ar ix -> do (ar',at) <- inferE (ln,ar)
+                    ix'      <- checkE ln ix tZ
                     l        <- newType
                     t        <- newType
-                    unify (tArray l t) at
+                    unify ln (tArray l t) at
                     ret (A.Index ar' ix') t
 
   TSig e sc -> do t <- freshInst sc
                   t' <- checkKind t
-                  (e',t'') <- inferE e
-                  unify t' t''
+                  (e',t'') <- inferE (ln,e)
+                  unify ln t' t''
                   return (e',t'')
   {-
   TSig e (Forall [] t) -> do t' <- checkKind t
@@ -361,13 +369,13 @@ inferE expr = case expr of
 
   Function x mt body -> do xt <- maybe newType return mt
                            (body',t) <- bindLocalSchemas [(x,tMono xt)] $
-                                          inferE body
+                                          inferE (ln,body)
                            ret (A.Function x (tMono xt) body') $ tFun xt t
 
-  Application f v -> do (v',fv) <- inferE v
+  Application f v -> do (v',fv) <- inferE (ln,v)
                         t <- newType
                         let ft = tFun fv t
-                        f' <- checkE f ft
+                        f' <- checkE ln f ft
                         ret (A.Application f' v')  t
 
   Var x -> do t <- lookupVar x
@@ -375,11 +383,11 @@ inferE expr = case expr of
 
 
   Let bs body -> inferDecls bs $ \bs' -> do
-                   (body',t) <- inferE body
+                   (body',t) <- inferE (ln, body)
                    return (A.LetBlock bs' body', t)
 
   Lookup e n ->
-    do (e1,t) <- inferE e
+    do (e1,t) <- inferE (ln, e)
        t1 <- appSubstM t
        elTy <- case t1 of
                  TyRecord fs
@@ -397,7 +405,7 @@ inferE expr = case expr of
                          newType
        ret (A.Lookup e1 n) elTy
   TLookup e i ->
-    do (e1,t) <- inferE e
+    do (e1,t) <- inferE (ln,e)
        t1 <- appSubstM t
        elTy <- case t1 of
                  TyCon (TupleCon n) tys
@@ -419,15 +427,15 @@ inferE expr = case expr of
 
 
 
-checkE :: Expr -> Type -> TI OutExpr
-checkE e t = do
-  (e',t') <- inferE e
-  unify t t'
+checkE :: Maybe LName -> Expr -> Type -> TI OutExpr
+checkE m e t = do
+  (e',t') <- inferE (m,e)
+  unify m t t'
   return e'
 
-inferField :: Bind Expr -> TI (Bind OutExpr,Bind Type)
-inferField (n,e) = do
-  (e',t) <- inferE e
+inferField :: Maybe LName -> Bind Expr -> TI (Bind OutExpr,Bind Type)
+inferField m (n,e) = do
+  (e',t) <- inferE (m,e)
   return ((n,e'),(n,t))
 
 inferDecls :: [LBind Expr] -> ([LBind OutExpr] -> TI a) -> TI a
@@ -435,35 +443,35 @@ inferDecls bs nextF = do
   (bs',ss) <- unzip `fmap` mapM inferDecl bs
   bindLocalSchemas ss (nextF bs')
 
-inferStmts :: Type -> [BlockStmt] -> TI ([OutBlockStmt],Type)
+inferStmts :: Maybe LName -> Type -> [BlockStmt] -> TI ([OutBlockStmt],Type)
 
-inferStmts _ctx [] = do
-  recordError "do block must include at least one expression"
+inferStmts m _ctx [] = do
+  recordError ("do block must include at least one expression" ++ locStr m)
   t <- newType
   return ([], t)
 
-inferStmts ctx [Bind Nothing _ mc e] = do
+inferStmts m ctx [Bind Nothing _ mc e] = do
   t  <- newType
-  e' <- checkE e (tBlock ctx t)
+  e' <- checkE m e (tBlock ctx t)
   mc' <- case mc of
     Nothing -> return (tMono ctx)
     Just ty  -> do ty' <- checkKind ty
-                   unify ty ctx -- TODO: should this be ty'?
+                   unify m ty ctx -- TODO: should this be ty'?
                    return (tMono ty')
   return ([A.Bind Nothing mc' e'],t)
 
-inferStmts _ [_] = do
-  recordError "do block must end with expression"
+inferStmts m _ [_] = do
+  recordError ("do block must end with expression" ++ locStr m)
   t <- newType
   return ([],t)
 
-inferStmts ctx (Bind mn mt mc e : more) = do
+inferStmts m ctx (Bind mn mt mc e : more) = do
   t <- maybe newType return mt
-  e' <- checkE e (tBlock ctx t)
+  e' <- checkE (mplus mn m) e (tBlock ctx t)
   mc' <- case mc of
     Nothing -> return (tMono ctx)
     Just c  -> do c' <- checkKind c
-                  unify c ctx
+                  unify m c ctx
                   return (tMono c')
   let mn' = case mn of
         Nothing -> Nothing
@@ -471,17 +479,17 @@ inferStmts ctx (Bind mn mt mc e : more) = do
   let f = case mn of
         Nothing -> id
         Just n  -> bindSchema (fmap A.LocalName n) (tMono t)
-  (more',t') <- f $ inferStmts ctx more
+  (more',t') <- f $ inferStmts m ctx more
 
   return (A.Bind mn' mc' e' : more', t')
 
-inferStmts ctx (BlockLet bs : more) = inferDecls bs $ \bs' -> do
-  (more',t) <- inferStmts ctx more
+inferStmts m ctx (BlockLet bs : more) = inferDecls bs $ \bs' -> do
+  (more',t) <- inferStmts m ctx more
   return (A.BlockLet bs' : more', t)
 
 inferDecl :: LBind Expr -> TI (LBind OutExpr,LBind Schema)
 inferDecl (n,e) = do
-  (e',t) <- inferE e
+  (e',t) <- inferE (Just n, e)
   [(e1,s)] <- generalize [e'] [t]
   return ( (n,e1), (n,s) )
 
@@ -493,8 +501,8 @@ inferRecDecls ds =
      guessedTypes <- mapM (\_ -> newType) ds
      (es,ts) <- unzip `fmap`
                 bindTopSchemas (zip names (map tMono guessedTypes))
-                               (mapM (inferE . snd) ds)
-     _ <- zipWithM unify ts guessedTypes
+                               (mapM inferE (map (first Just) ds))
+     _ <- sequence $ zipWith3 unify (map Just names) ts guessedTypes
      (es1,ss) <- unzip `fmap` generalize es ts
      return (zip names es1, zip names ss)
 
