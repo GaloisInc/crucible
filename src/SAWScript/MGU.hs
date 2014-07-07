@@ -1,6 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module SAWScript.MGU where
 
@@ -8,14 +9,12 @@ import qualified SAWScript.AST as A
 import SAWScript.AST hiding (Expr(..), BlockStmt(..), Name, i)
 import SAWScript.NewAST
 import SAWScript.Compiler
-import SAWScript.Utils
 
 import           Data.Graph.SCC(stronglyConnComp)
 import           Data.Graph (SCC(..))
 import Control.Applicative
 
 import Control.Monad
-import Control.Arrow
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Identity
@@ -361,9 +360,9 @@ inferE expr = case expr of
 
 
   Function x mt body -> do xt <- maybe newType return mt
-                           (body',t) <- bindLocalSchemas [(Located x PosTemp,tMono xt)] $
+                           (body',t) <- bindLocalSchemas [(x,tMono xt)] $
                                           inferE body
-                           ret (A.Function (Located x PosTemp) (tMono xt) body') $ tFun xt t
+                           ret (A.Function x (tMono xt) body') $ tFun xt t
 
   Application f v -> do (v',fv) <- inferE v
                         t <- newType
@@ -371,11 +370,11 @@ inferE expr = case expr of
                         f' <- checkE f ft
                         ret (A.Application f' v')  t
 
-  Var x -> do t <- lookupVar (Located x PosTemp)
-              ret (A.Var (Located x PosTemp)) t
+  Var x -> do t <- lookupVar x
+              ret (A.Var x) t
 
 
-  Let bs body -> inferDecls (map (first $ flip Located PosTemp) bs) $ \bs' -> do
+  Let bs body -> inferDecls bs $ \bs' -> do
                    (body',t) <- inferE body
                    return (A.LetBlock bs' body', t)
 
@@ -468,15 +467,15 @@ inferStmts ctx (Bind mn mt mc e : more) = do
                   return (tMono c')
   let mn' = case mn of
         Nothing -> Nothing
-        Just n -> Just (Located n PosTemp, tMono t)
+        Just n -> Just (n, tMono t)
   let f = case mn of
         Nothing -> id
-        Just n  -> bindSchema (Located (A.LocalName n) PosTemp) (tMono t)
+        Just n  -> bindSchema (fmap A.LocalName n) (tMono t)
   (more',t') <- f $ inferStmts ctx more
 
   return (A.Bind mn' mc' e' : more', t')
 
-inferStmts ctx (BlockLet bs : more) = inferDecls (map (first $ flip Located PosTemp) bs) $ \bs' -> do
+inferStmts ctx (BlockLet bs : more) = inferDecls bs $ \bs' -> do
   (more',t) <- inferStmts ctx more
   return (A.BlockLet bs' : more', t)
 
@@ -589,8 +588,8 @@ defsDepsBind m it@(x,e0) = (it, [ A.TopLevelName m (getVal x) ], S.toList (uses 
       Index  e1 e2        -> S.union (uses e1) (uses e2)
       Lookup e _          -> uses e
       TLookup e _         -> uses e
-      Var (A.LocalName _) -> S.empty
-      Var name            -> S.singleton name  -- This is what we look for
+      Var (getVal -> A.LocalName _) -> S.empty
+      Var name            -> S.singleton (getVal name)  -- This is what we look for
       Function  _ _ e     -> uses e
       Application e1 e2   -> S.union (uses e1) (uses e2)
       Let bs e            -> S.unions (uses e : map (uses . snd) bs)
