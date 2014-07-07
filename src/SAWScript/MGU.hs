@@ -372,7 +372,7 @@ inferE expr = case expr of
                         ret (A.Application f' v')  t
 
   Var x -> do t <- lookupVar (Located x PosTemp)
-              ret (A.Var x) t
+              ret (A.Var (Located x PosTemp)) t
 
 
   Let bs body -> inferDecls (map (first $ flip Located PosTemp) bs) $ \bs' -> do

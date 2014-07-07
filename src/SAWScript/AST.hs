@@ -14,6 +14,7 @@ import Control.Arrow
 
 import Data.Foldable (Foldable)
 import qualified Data.Traversable as T
+import Data.Traversable (Traversable)
 import System.FilePath (joinPath,splitPath,dropExtension)
 import qualified Text.PrettyPrint.Leijen as PP
 
@@ -142,7 +143,7 @@ type ValidModule = Module ResolvedName Schema ResolvedT
 
 -- Expr Level {{{
 
-data Located a = Located { getVal :: a, getPos :: Pos } deriving (Functor, Show)
+data Located a = Located { getVal :: a, getPos :: Pos } deriving (Functor, Show, Foldable, Traversable)
 
 type LName = Located Name
 
@@ -194,7 +195,7 @@ data Expr refT typeT
   | Lookup (Expr refT typeT) Name              typeT
   | TLookup (Expr refT typeT) Integer          typeT
   -- LC
-  | Var         refT  typeT
+  | Var         (Located refT)  typeT
   | Function    LName  typeT       (Expr refT typeT) typeT
   | Application (Expr refT typeT) (Expr refT typeT) typeT
   -- Sugar

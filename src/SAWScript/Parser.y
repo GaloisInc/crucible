@@ -163,31 +163,31 @@ IExpr :: { ExprSimple RawT }
 AExprs :: { ExprSimple RawT }
  : list1(AExpr)                         { buildApplication $1 }
 
-PrefixOp :: { Name }
- : '~'            { "bvNot"                      }
+PrefixOp :: { LName }
+ : '~'            { Located "bvNot"   (tokPos $1)                   }
 
-InfixOp :: { Name }
- : '-'            { "bvSub"                      }
- | '*'            { "bvMul"                      }
- | '+'            { "bvAdd"                      }
- | '/'            { "bvDiv"                      }
- | '%'            { "bvMod"                      }
- | '<<'           { "bvShl"                      }
- | '>>'           { "bvShr"                      }
- | '&'            { "bvAnd"                      }
- | '^'            { "bvXor"                      }
- | '|'            { "bvOr"                       }
- | '@'            { "index"                      }
- | '#'            { "concat"                     }
- | '=='           { "eq"                         }
- | '!='           { "neq"                        }
- | '>='           { "bvuge"                      }
- | '>'            { "bvugt"                      }
- | '<='           { "bvule"                      }
- | '<'            { "bvult"                      }
- | '&&'           { "conj"                       }
- | '||'           { "disj"                       }
- | '==>'          { "implies"                    }
+InfixOp :: { LName }
+ : '-'            { Located "bvSub"    (tokPos $1)                  }
+ | '*'            { Located "bvMul"    (tokPos $1)                  }
+ | '+'            { Located "bvAdd"    (tokPos $1)                  }
+ | '/'            { Located "bvDiv"    (tokPos $1)                  }
+ | '%'            { Located "bvMod"    (tokPos $1)                  }
+ | '<<'           { Located "bvShl"    (tokPos $1)                  }
+ | '>>'           { Located "bvShr"    (tokPos $1)                  }
+ | '&'            { Located "bvAnd"    (tokPos $1)                  }
+ | '^'            { Located "bvXor"    (tokPos $1)                  }
+ | '|'            { Located "bvOr"     (tokPos $1)                  }
+ | '@'            { Located "index"    (tokPos $1)                  }
+ | '#'            { Located "concat"   (tokPos $1)                  }
+ | '=='           { Located "eq"       (tokPos $1)                  }
+ | '!='           { Located "neq"      (tokPos $1)                  }
+ | '>='           { Located "bvuge"    (tokPos $1)                  }
+ | '>'            { Located "bvugt"    (tokPos $1)                  }
+ | '<='           { Located "bvule"    (tokPos $1)                  }
+ | '<'            { Located "bvult"    (tokPos $1)                  }
+ | '&&'           { Located "conj"     (tokPos $1)                  }
+ | '||'           { Located "disj"     (tokPos $1)                  }
+ | '==>'          { Located "implies"  (tokPos $1)                  }
 
 AExpr :: { ExprSimple RawT }
  : '(' ')'                              { Tuple [] Nothing                }
@@ -195,11 +195,11 @@ AExpr :: { ExprSimple RawT }
  | string                               { Quote $1 Nothing                }
  | qnum                                 { Z $1 Nothing                    }
  | num                                  { Application
-                                            (Var (unresolved "bitSequence") Nothing)
+                                            (Var (Located (unresolved "bitSequence") (PosInternal "parseNum")) Nothing)
                                                  (Z $1 Nothing)
                                                  Nothing                  }
  -- | qname                                { Var (unresolvedQ $1) Nothing    }
- | name                                 { Var (unresolved (tokStr $1)) Nothing     }
+ | name                                 { Var (Located (unresolved (tokStr $1)) (tokPos $1)) Nothing     }
  | 'undefined'                          { Undefined Nothing               }
  | '(' Expression ')'                   { $2                              }
  | '(' commas2(Expression) ')'          { Tuple $2 Nothing                }
@@ -341,11 +341,14 @@ buildApplication =
   foldl1 (\e body -> Application e body $
                      function <$> typeOf e <*> typeOf body)
 
-binOp :: ExprSimple RawT -> Name -> ExprSimple RawT -> ExprSimple RawT
-binOp x op y = Application (Application (Var (unresolved op) Nothing) x Nothing) y Nothing
+binOp :: ExprSimple RawT -> LName -> ExprSimple RawT -> ExprSimple RawT
+binOp x op y = Application
+  (Application
+    (Var (Located (unresolved $ getVal op) (getPos op)) Nothing)
+    x Nothing) y Nothing
 
-unOp :: Name -> ExprSimple RawT -> ExprSimple RawT
-unOp op x = Application (Var (unresolved op) Nothing) x Nothing
+unOp :: LName -> ExprSimple RawT -> ExprSimple RawT
+unOp op x = Application (Var (Located (unresolved $ getVal op) (getPos op)) Nothing) x Nothing
 
 buildType :: [RawSigT] -> RawSigT
 buildType [t]    = t

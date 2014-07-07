@@ -171,7 +171,7 @@ translatableExpr env expr =
       SS.Index e n         _ -> translatableExpr env e && translatableExpr env n
       SS.Lookup e _        _ -> translatableExpr env e
       SS.TLookup e _       _ -> translatableExpr env e
-      SS.Var x             _ -> S.member (SS.Located x PosTemp) env
+      SS.Var x             _ -> S.member x env
       SS.Function x t e    _ -> translatableSchema t && translatableExpr env' e
           where env' = S.insert (fmap SS.LocalName x) env
       SS.Application f e   _ -> translatableExpr env f && translatableExpr env e
@@ -211,17 +211,17 @@ translateExpr sc tm sm km expr =
                                         scRecordSelect sc e' n
       SS.TLookup e i            _ -> do e' <- translateExpr sc tm sm km e
                                         scTupleSelector sc e' (fromIntegral i)
-      SS.Var x (SS.Forall [] t)   -> case M.lookup (SS.Located x PosTemp) sm of
-                                       Nothing -> fail $ "Untranslatable: " ++ SS.renderResolvedName x
+      SS.Var x (SS.Forall [] t)   -> case M.lookup x sm of
+                                       Nothing -> fail $ "Untranslatable: " ++ SS.renderResolvedName (SS.getVal x)
                                        Just e' ->
-                                         case M.lookup (SS.Located x PosTemp) tm of
+                                         case M.lookup x tm of
                                            Nothing -> return e'
                                            Just schema -> do
                                              let ts = typeInstantiation schema t
                                              ts' <- mapM (translateType sc km) ts
                                              scApplyAll sc e' ts'
       SS.Var x (SS.Forall _ _)    ->
-        fail $ "Untranslatable: " ++ SS.renderResolvedName x
+        fail $ "Untranslatable: " ++ SS.renderResolvedName (SS.getVal x)
       SS.Function x a e _ -> do a' <- translateSchema sc km a
                                 x' <- scLocalVar sc 0
                                 sm' <- traverse (incVars sc 0 1) sm
@@ -293,16 +293,16 @@ interpret sc env@(InterpretEnv vm tm sm) expr =
       SS.TLookup e i       _ -> do a <- interpret sc env e
                                    return (tupleLookupValue a i)
       SS.Var x (SS.Forall [] t)
-                             -> case M.lookup (Located x PosTemp) vm of
+                             -> case M.lookup x vm of
                                   Nothing -> evaluate sc <$> translateExpr sc tm sm M.empty expr
                                   Just v ->
-                                    case M.lookup (Located x PosTemp) tm of
+                                    case M.lookup x tm of
                                       Nothing -> return v
                                       Just schema -> do
                                         let ts = typeInstantiation schema t
                                         foldM tapplyValue v ts
       SS.Var x (SS.Forall _ _) ->
-        fail $ "Can't interpret: " ++ SS.renderResolvedName x
+        fail $ "Can't interpret: " ++ SS.renderResolvedName (SS.getVal x)
       SS.Function x _ e    _ -> do let name = fmap SS.LocalName x
                                    let f v Nothing = interpret sc (InterpretEnv (M.insert name v vm) tm sm) e
                                        f v (Just t) = do
@@ -407,7 +407,7 @@ exprDeps expr =
       SS.Index e1 e2       _ -> S.union (exprDeps e1) (exprDeps e2)
       SS.Lookup e _        _ -> exprDeps e
       SS.TLookup e _       _ -> exprDeps e
-      SS.Var name          _ -> S.singleton name
+      SS.Var name          _ -> S.singleton (SS.getVal name)
       SS.Function _ _ e    _ -> exprDeps e
       SS.Application e1 e2 _ -> S.union (exprDeps e1) (exprDeps e2)
       SS.LetBlock bs e       -> S.unions (exprDeps e : map (exprDeps . snd) bs)
