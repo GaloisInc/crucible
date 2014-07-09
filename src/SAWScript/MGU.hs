@@ -57,11 +57,11 @@ mgu m (TyVar tv) t2 = bindVar m tv t2
 mgu m t1 (TyVar tv) = bindVar m tv t1
 mgu m r1@(TyRecord ts1) r2@(TyRecord ts2) = do
   assert (M.keys ts1 == M.keys ts2) $
-    "mismatched record fields: " ++ pShow r1 ++ " and " ++ pShow r2 ++ " at " ++ show m
+    "mismatched record fields: " ++ pShow r1 ++ " and " ++ pShow r2
   mgus m (M.elems ts1) (M.elems ts2)
 mgu m (TyCon tc1 ts1) (TyCon tc2 ts2) = do
   assert (tc1 == tc2) $
-    "mismatched type constructors: " ++ pShow tc1 ++ " and " ++ pShow tc2 ++ " at " ++ show m
+    "mismatched type constructors: " ++ pShow tc1 ++ " and " ++ pShow tc2
   mgus m ts1 ts2
 mgu m t1 t2 = failMGU $ "type mismatch: " ++ pShow t1 ++ " and " ++ pShow t2 ++ " at " ++ show m
 
