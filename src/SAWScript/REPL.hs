@@ -172,7 +172,7 @@ injectBoundExpressionTypes orig = do
   where stripModuleName :: Located ResolvedName -> LName
         stripModuleName (getVal -> (LocalName _)) =
           error "injectBoundExpressionTypes: bound LocalName"
-        stripModuleName (getVal -> (TopLevelName _modName varName)) = Located varName PosREPL
+        stripModuleName (getVal -> (TopLevelName _modName varName)) = Located varName varName PosREPL
 
 saveResult :: Maybe Name -> Value SAWCtx -> REP ()
 saveResult Nothing _ = return ()
@@ -180,8 +180,8 @@ saveResult (Just name) result = do
   -- Record that 'name' is in scope.
   modifyNamesInScope $ Set.insert name
   -- Save the type of 'it'.
-  let itsName = Located (TopLevelName replModuleName "it") PosREPL
-      itsName' = Located (TopLevelName replModuleName name) PosREPL
+  let itsName = Located (TopLevelName replModuleName "it") "it" PosREPL
+      itsName' = Located (TopLevelName replModuleName name) "it" PosREPL
   modifyEnvironment $ \env ->
     let typeEnv = interpretEnvTypes env in
     let typeEnv' =

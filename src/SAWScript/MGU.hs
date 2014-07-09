@@ -174,11 +174,11 @@ bindSchemas bs m = foldr (uncurry bindSchema) m bs
 bindTopSchemas :: [LBind Schema] -> TI a -> TI a
 bindTopSchemas ds k =
   do m <- curModName
-     bindSchemas [ (Located (A.TopLevelName m (getVal x)) (getPos x), s) | (x,s) <- ds ] k
+     bindSchemas [ (Located (A.TopLevelName m (getVal x)) (getOrig x) (getPos x), s) | (x,s) <- ds ] k
 
 bindLocalSchemas :: [LBind Schema] -> TI a -> TI a
 bindLocalSchemas ds k =
-  bindSchemas [ (Located (A.LocalName (getVal x)) (getPos x),s) | (x,s) <- ds ] k
+  bindSchemas [ (Located (A.LocalName (getVal x)) (getOrig x) (getPos x),s) | (x,s) <- ds ] k
 
 curModName :: TI A.ModuleName
 curModName = TI $ asks curMod
@@ -622,17 +622,17 @@ checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
   let eEnv    = A.moduleExprEnv m
   exprs <- traverse translateExpr eEnv
   initTs <- sequence $ concat
-    [ [ (,) <$> pure (Located (A.TopLevelName mn (getVal n)) (getPos n)) <*> s
+    [ [ (,) <$> pure (Located (A.TopLevelName mn (getVal n)) (getOrig n) (getPos n)) <*> s
       | (n,e) <- modExprs dep
       , let s = importTypeS $ A.typeOf e
       ] ++
-      [ (,) <$> pure (Located (A.TopLevelName mn (getVal n)) (getPos n)) <*> importTypeS p
+      [ (,) <$> pure (Located (A.TopLevelName mn (getVal n)) (getOrig n) (getPos n)) <*> importTypeS p
       | (n,p) <- modPrims dep
       ]
     | (mn,dep) <- depMods m
     ]
   (primTs,prims) <- unzip <$> sequence [ (,) <$> ((,) <$>
-    pure (Located (A.TopLevelName modName (getVal n)) (getPos n)) <*> t')
+    pure (Located (A.TopLevelName modName (getVal n)) (getOrig n) (getPos n)) <*> t')
                                              <*> ((,) <$> pure n <*> t')
                                        | (n,t) <- modPrims m
                                        , let t' = translateMTypeS t

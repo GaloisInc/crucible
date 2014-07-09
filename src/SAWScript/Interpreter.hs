@@ -176,7 +176,7 @@ translatableExpr env expr =
           where env' = S.insert (fmap SS.LocalName x) env
       SS.Application f e   _ -> translatableExpr env f && translatableExpr env e
       SS.LetBlock bs e       -> all (translatableExpr env . snd) bs && translatableExpr env' e
-          where env' = foldr S.insert env [ SS.Located (SS.LocalName (SS.getVal x)) (SS.getPos x)
+          where env' = foldr S.insert env [ SS.Located (SS.LocalName (SS.getVal x)) (SS.getOrig x) (SS.getPos x)
                                             | (x, _) <- bs ]
 
 translateExpr
@@ -232,7 +232,7 @@ translateExpr sc tm sm km expr =
       SS.Application f e        _ -> do f' <- translateExpr sc tm sm km f
                                         e' <- translateExpr sc tm sm km e
                                         scApply sc f' e'
-      SS.LetBlock bs e            -> do let m = M.fromList [ (SS.Located (SS.LocalName $ SS.getVal x) (SS.getPos x), y) | (x, y) <- bs ]
+      SS.LetBlock bs e            -> do let m = M.fromList [ (SS.Located (SS.LocalName $ SS.getVal x) (SS.getOrig x) (SS.getPos x), y) | (x, y) <- bs ]
                                         let tm' = fmap SS.typeOf m
                                         sm' <- traverse (translateExpr sc tm sm km) m
                                         translateExpr sc (M.union tm' tm) (M.union sm' sm) km e
@@ -327,7 +327,7 @@ interpret sc env@(InterpretEnv vm tm sm) expr =
                                                   else return Nothing
                                             f v2 t2
                                      _ -> fail "interpret Application"
-      SS.LetBlock bs e       -> do let m = M.fromList [ (Located (SS.LocalName $ getVal x) (getPos x), y) | (x, y) <- bs ]
+      SS.LetBlock bs e       -> do let m = M.fromList [ (Located (SS.LocalName $ getVal x) (getOrig x) (getPos x), y) | (x, y) <- bs ]
                                    let tm' = fmap SS.typeOf m
                                    vm' <- traverse (interpretPoly sc env) m
                                    sm' <- traverse (translatePolyExpr sc tm sm) $
@@ -371,7 +371,7 @@ interpretModule
     -> InterpretEnv s -> SS.ValidModule -> IO (InterpretEnv s)
 interpretModule sc env m =
     do let mn = SS.moduleName m
-       let graph = [ ((Located rname (SS.getPos name), e), rname, S.toList (exprDeps e))
+       let graph = [ ((Located rname (SS.getOrig name) (SS.getPos name), e), rname, S.toList (exprDeps e))
                    | (name, e) <- M.assocs (SS.moduleExprEnv m)
                    , let rname = SS.TopLevelName mn (SS.getVal name) ]
        let sccs = stronglyConnComp graph
@@ -426,7 +426,7 @@ interpretModuleAtEntry :: SS.Name
                           -> IO (Value s, InterpretEnv s)
 interpretModuleAtEntry entryName sc env m =
   do interpretEnv@(InterpretEnv vm _tm _sm) <- interpretModule sc env m
-     let mainName = Located (SS.TopLevelName (SS.moduleName m) entryName) (PosInternal "entry")
+     let mainName = Located (SS.TopLevelName (SS.moduleName m) entryName) entryName (PosInternal "entry")
      case M.lookup mainName vm of
        Just (VIO v) -> do
          -- We've been asked to execute a 'TopLevel' action, so run it.
@@ -477,7 +477,7 @@ transitivePrimEnv :: SS.ValidModule -> RNameMap SS.Schema
 transitivePrimEnv m = M.unions (env : envs)
   where
     mn = SS.moduleName m
-    env = M.mapKeysMonotonic (\x-> Located (SS.TopLevelName mn (SS.getVal x)) (SS.getPos x)) (SS.modulePrimEnv m)
+    env = M.mapKeysMonotonic (\x-> Located (SS.TopLevelName mn (SS.getVal x)) (SS.getOrig x) (SS.getPos x)) (SS.modulePrimEnv m)
     envs = map transitivePrimEnv (M.elems (SS.moduleDependencies m))
 
 
@@ -623,4 +623,4 @@ coreEnv sc =
     ]
 
 qualify :: String -> Located SS.ResolvedName
-qualify s = Located (SS.TopLevelName (SS.ModuleName [] "Prelude") s) (PosInternal "coreEnv")
+qualify s = Located (SS.TopLevelName (SS.ModuleName [] "Prelude") s) s (PosInternal "coreEnv")
