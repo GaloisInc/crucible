@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ViewPatterns #-}
 module SAWScript.REPL (run) where
 
 import Prelude hiding (print, read)
@@ -17,7 +18,8 @@ import System.FilePath ((</>))
 import SAWScript.AST (ModuleName, renderModuleName,
                       Module(..), ValidModule,
                       BlockStmt(Bind),
-                      Name, UnresolvedName, ResolvedName(..),
+                      Name, LName, Located(..), UnresolvedName,
+                      ResolvedName(..),
                       RawT, ResolvedT, Schema, rewindSchema,
                       topLevelContext)
 import qualified SAWScript.AST as AST
@@ -39,7 +41,7 @@ import SAWScript.REPL.Monad (REPLState, withInitialState,
                              modifyNamesInScope, modifyEnvironment)
 import qualified SAWScript.REPL.Monad as REP
 import SAWScript.ResolveSyns (resolveSyns)
-import SAWScript.Utils (SAWCtx)
+import SAWScript.Utils (SAWCtx, Pos(..))
 
 run :: Options -> IO ()
 run opts = do
@@ -122,7 +124,7 @@ evaluate ast = do
       withoutBinding :: BlockStmt UnresolvedName RawT
       (boundName, withoutBinding) =
         case ast' of
-          Bind (Just (varName, _)) ctx expr -> (Just varName,
+          Bind (Just (getVal -> varName, _)) ctx expr -> (Just varName,
                                                 Bind Nothing ctx expr)
           _ -> (Nothing, ast')
   {- The compiler pipeline is targeted at modules, so wrap up the statement in
@@ -156,21 +158,21 @@ injectBoundExpressionTypes :: Module UnresolvedName ResolvedT ResolvedT
                               -> REP (Module UnresolvedName ResolvedT ResolvedT)
 injectBoundExpressionTypes orig = do
   boundNames <- getNamesInScope
-  boundNamesAndTypes :: Map Name ResolvedT
+  boundNamesAndTypes :: Map LName ResolvedT
                      <-
     getEnvironment <&>
     interpretEnvTypes <&>
     Map.filterWithKey (\name _type ->
-                        Set.member (stripModuleName name) boundNames) <&>
+                        Set.member (getVal $ stripModuleName name) boundNames) <&>
     Map.mapKeysMonotonic stripModuleName <&>
     Map.map rewindSchema
   -- Inject the types.
   return $ orig { modulePrimEnv =
                     Map.union boundNamesAndTypes (modulePrimEnv orig) }
-  where stripModuleName :: ResolvedName -> Name
-        stripModuleName (LocalName _) =
+  where stripModuleName :: Located ResolvedName -> LName
+        stripModuleName (getVal -> (LocalName _)) =
           error "injectBoundExpressionTypes: bound LocalName"
-        stripModuleName (TopLevelName _modName varName) = varName
+        stripModuleName (getVal -> (TopLevelName _modName varName)) = Located varName varName PosREPL
 
 saveResult :: Maybe Name -> Value SAWCtx -> REP ()
 saveResult Nothing _ = return ()
@@ -178,8 +180,8 @@ saveResult (Just name) result = do
   -- Record that 'name' is in scope.
   modifyNamesInScope $ Set.insert name
   -- Save the type of 'it'.
-  let itsName = TopLevelName replModuleName "it"
-      itsName' = TopLevelName replModuleName name
+  let itsName = Located (TopLevelName replModuleName "it") "it" PosREPL
+      itsName' = Located (TopLevelName replModuleName name) "it" PosREPL
   modifyEnvironment $ \env ->
     let typeEnv = interpretEnvTypes env in
     let typeEnv' =
