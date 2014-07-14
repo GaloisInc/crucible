@@ -7,11 +7,9 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TupleSections #-}
 module SAWScript.LLVMMethodSpec
-  ( ValidationPlan(..)
-  , LLVMMethodSpecIR
+  ( LLVMMethodSpecIR
   , specFunction
   , specName
-  , specValidationPlan
   , SymbolicRunHandler
   , initializeVerification
   , runValidation
@@ -28,7 +26,7 @@ import Control.Applicative hiding (empty)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Cont
-import Control.Monad.Error (ErrorT, runErrorT, MonadError) -- , throwError)
+import Control.Monad.Error
 import Control.Monad.State
 import Data.List (sortBy)
 import Data.Map (Map)
@@ -49,7 +47,6 @@ import Verifier.LLVM.Codebase
 -- import Verifier.LLVM.Codebase.AST
 import Verifier.LLVM.Backend hiding (asBool)
 import Verifier.LLVM.Backend.SAW
-import Verinf.Symbolic (Lit)
 import Verinf.Utils.LogMonad
 
 import Verifier.SAW.Evaluator
@@ -59,7 +56,7 @@ import Verifier.SAW.Rewriter
 import Verifier.SAW.SharedTerm hiding (Ident)
 import Verifier.SAW.TypedAST hiding (Ident)
 
-type SpecBackend = SAWBackend LSSCtx Lit
+type SpecBackend = SAWBackend LSSCtx
 type SpecPathState = Path SpecBackend
 type SpecLLVMValue = SharedTerm LSSCtx
 
@@ -128,10 +125,10 @@ data EvalContext
     , ecGlobalMap :: GlobalMap SpecBackend
     , ecArgs :: [(Ident, SharedTerm LSSCtx)]
     , ecPathState :: SpecPathState
-    , ecLLVMExprs :: Map String TC.LLVMExpr
+    , ecLLVMExprs :: Map String (TC.LLVMActualType, TC.LLVMExpr)
     }
 
-evalContextFromPathState :: Map String TC.LLVMExpr
+evalContextFromPathState :: Map String (TC.LLVMActualType, TC.LLVMExpr)
                          -> SharedContext LSSCtx
                          -> SBE SpecBackend
                          -> GlobalMap SpecBackend
@@ -203,16 +200,18 @@ scLLVMValue sc ty name = do
   s <- scString sc name
   ty' <- scRemoveBitvector sc ty
   mkValue <- scGlobalDef sc (parseIdent "LLVM.mkValue")
-  scApplyAll sc mkValue [ty', s]
+  nt <- scApplyAll sc mkValue [ty', s]
+  return nt
 
 -- | Evaluate a typed expression in the context of a particular state.
 evalLogicExpr :: (MonadIO m) => TC.LogicExpr -> EvalContext -> m SpecLLVMValue
 evalLogicExpr initExpr ec = do
   let sc = ecContext ec
   t <- liftIO $ TC.useLogicExpr sc initExpr
-  rules <- forM (Map.toList (ecLLVMExprs ec)) $ \(name, expr) ->
+  rules <- forM (Map.toList (ecLLVMExprs ec)) $ \(name, (aty, expr)) ->
              do lt <- evalLLVMExpr expr ec
-                ty <- liftIO $ scTypeOf sc lt
+                 -- TODO: error handling!
+                Just ty <- liftIO $ TC.logicTypeOfActual sc aty
                 nt <- liftIO $ scLLVMValue sc ty name
                 return (ruleOfTerms nt lt)
   let ss = addRules rules emptySimpset
@@ -333,7 +332,7 @@ ocStep (Modify lhsExpr tp) = do
   sc <- gets (ecContext . ocsEvalContext)
   ocEval (evalLLVMRefExpr lhsExpr) $ \lhsRef -> do
     Just lty <- liftIO $ TC.logicTypeOfActual sc tp
-    value <- liftIO $ scFreshGlobal sc "_" lty
+    value <- liftIO $ scFreshGlobal sc (show (TC.ppLLVMExpr lhsExpr)) lty
     ocModifyResultStateIO $
       storePathState sbe lhsRef tp value
 ocStep (Return expr) = do
@@ -364,7 +363,7 @@ execBehavior bsl ec ps = do
     flip evalStateT initOCS $ flip runContT resCont $ do
        let sc = ecContext ec
        -- Verify the initial logic assignments
-       forM_ (Map.toList (bsLogicAssignments bs)) $ \(lhs, mrhs) ->
+       forM_ (Map.toList (bsExprDecls bs)) $ \(lhs, (_ty, mrhs)) ->
          case mrhs of
            Just rhs -> do
              ocEval (evalDerefLLVMExpr lhs) $ \lhsVal ->
@@ -381,7 +380,7 @@ execOverride :: (MonadIO m, Functor m) =>
              -> LLVMMethodSpecIR
              -> [(MemType, SpecLLVMValue)]
              -> Simulator SpecBackend m (Maybe (SharedTerm LSSCtx))
-execOverride sc pos ir args = do
+execOverride sc _pos ir args = do
   initPS <- fromMaybe (error "no path during override") <$> getPath
   let bsl = specBehavior ir
   let func = specFunction ir
@@ -433,6 +432,8 @@ data ExpectedStateDef = ESD {
        , esdInitialPathState :: SpecPathState
          -- | Stores initial assignments.
        , esdInitialAssignments :: [(TC.LLVMExpr, SpecLLVMValue)]
+         -- | Expected effects in the form (location, value).
+       , esdExpectedValues :: [(TC.LLVMExpr, SpecLLVMValue, MemType, SpecLLVMValue)]
          -- | Expected return value or Nothing if method returns void.
        , esdReturnValue :: Maybe SpecLLVMValue
        }
@@ -448,9 +449,10 @@ data ESGState = ESGState {
          esContext :: SharedContext LSSCtx
        , esBackend :: SBE SpecBackend
        , esGlobalMap :: GlobalMap SpecBackend
-       , esLLVMExprs :: Map String TC.LLVMExpr
+       , esLLVMExprs :: Map String (TC.LLVMActualType, TC.LLVMExpr)
        , esInitialAssignments :: [(TC.LLVMExpr, SpecLLVMValue)]
        , esInitialPathState :: SpecPathState
+       , esExpectedValues :: [(TC.LLVMExpr, SpecLLVMValue, MemType, SpecLLVMValue)]
        , esReturnValue :: Maybe SpecLLVMValue
        }
 
@@ -470,6 +472,14 @@ esEval fn = do
   case res of
     Left expr -> fail $ "internal: esEval given " ++ show expr ++ "."
     Right v   -> return v
+
+esAddExpectedValue :: TC.LLVMExpr
+                   -> SpecLLVMValue
+                   -> TC.LLVMActualType
+                   -> SpecLLVMValue
+                   -> ExpectedStateGenerator ()
+esAddExpectedValue e ref tp value =
+  modify (\s -> s { esExpectedValues = (e, ref, tp, value) : esExpectedValues s })
 
 esGetInitialPathState :: ExpectedStateGenerator SpecPathState
 esGetInitialPathState = gets esInitialPathState
@@ -532,13 +542,14 @@ esSetLLVMValue (CC.Term exprF) v = do
 createLogicValue :: Codebase SpecBackend
                  -> SBE SpecBackend
                  -> SharedContext LSSCtx
+                 -> TC.LLVMExpr
                  -> SpecPathState
                  -> MemType
                  -> Maybe TC.LogicExpr
                  -> IO (SpecLLVMValue, SpecPathState)
-createLogicValue cb _ sc _ (PtrType _) (Just _) =
+createLogicValue _ _ _ _ _ (PtrType _) (Just _) =
   fail "Pointer variables cannot be given initial values."
-createLogicValue cb sbe sc ps (PtrType (MemType mtp)) _ = do
+createLogicValue cb sbe sc expr ps (PtrType (MemType mtp)) _ = do
   let dl = cbDataLayout cb
       sz = memTypeSize dl mtp
       w = ptrBitwidth dl
@@ -552,15 +563,17 @@ createLogicValue cb sbe sc ps (PtrType (MemType mtp)) _ = do
       mbltp <- TC.logicTypeOfActual sc mtp
       case mbltp of
         Just ty -> do
-          v <- scFreshGlobal sc "_" ty
+          v <- scFreshGlobal sc (show (TC.ppLLVMExpr expr)) ty
           ps'' <- storePathState sbe addr mtp v ps'
           return (addr, ps'')
-createLogicValue cb _ sc ps mtp mrhs = do
+        Nothing ->
+          fail "Can't translate actual type to logic type."
+createLogicValue _ _ sc expr ps mtp mrhs = do
   mbltp <- TC.logicTypeOfActual sc mtp
   -- Get value of rhs.
   tm <- case (mrhs, mbltp) of
           (Just v, _) -> TC.useLogicExpr sc v
-          (Nothing, Just tp) -> scFreshGlobal sc "_" tp
+          (Nothing, Just tp) -> scFreshGlobal sc (show (TC.ppLLVMExpr expr)) tp
           (Nothing, Nothing) -> fail "Can't calculate type for fresh input."
   return (tm, ps)
 
@@ -577,7 +590,8 @@ esSetLogicValue cb sc expr mtp mrhs = do
   ps <- gets esInitialPathState
   -- Create the value to associate with this LLVM expression: either
   -- an assigned value or a fresh input.
-  (value, ps') <- liftIO $ createLogicValue cb sbe sc ps mtp mrhs
+  -- TODO: don't discard ps'!
+  (value, ps') <- liftIO $ createLogicValue cb sbe sc expr ps mtp mrhs
   -- Update the initial assignments in the expected state.
   modify $ \es -> es { esInitialAssignments =
                          (expr, value) : esInitialAssignments es }
@@ -597,20 +611,18 @@ esStep (Return expr) = do
   v <- esEval $ evalMixedExpr expr
   modify $ \es -> es { esReturnValue = Just v }
 esStep (Ensure _pos lhsExpr rhsExpr) = do
-  sbe <- gets esBackend
+  -- sbe <- gets esBackend
   ref    <- esEval $ evalLLVMRefExpr lhsExpr
   value  <- esEval $ evalMixedExpr rhsExpr
   let tp = TC.lssTypeOfLLVMExpr lhsExpr
-  esModifyInitialPathStateIO $
-    storePathState sbe ref tp value
+  esAddExpectedValue lhsExpr ref tp value
 esStep (Modify lhsExpr tp) = do
-  sbe <- gets esBackend
+  -- sbe <- gets esBackend
   sc <- gets esContext
   ref <- esEval $ evalLLVMRefExpr lhsExpr
   Just lty <- liftIO $ TC.logicTypeOfActual sc tp
-  value <- liftIO $ scFreshGlobal sc "_" lty
-  esModifyInitialPathStateIO $
-    storePathState sbe ref tp value
+  value <- liftIO $ scFreshGlobal sc (show (TC.ppLLVMExpr lhsExpr)) lty
+  esAddExpectedValue lhsExpr ref tp value
 
 -- | Initialize verification of a given 'LLVMMethodSpecIR'. The design
 -- principles for now include:
@@ -634,7 +646,8 @@ initializeVerification sc ir = do
       isArgAssgn (CC.Term (TC.Arg _ _ _), _) = True
       isArgAssgn _ = False
       isPtrAssgn (e, _) = TC.isPtrLLVMExpr e
-      assignments = Map.toList (bsLogicAssignments bs)
+      assignments = map getAssign $ Map.toList (bsExprDecls bs)
+      getAssign (e, (_, v)) = (e, v)
       argAssignments = filter isArgAssgn assignments
       ptrAssignments = filter isPtrAssgn assignments
       otherAssignments =
@@ -650,10 +663,11 @@ initializeVerification sc ir = do
   -- until later to initialize the fields.
   argAssignments' <- forM argAssignments $ \(expr, mle) ->
     case (expr, mle) of
-      (CC.Term (TC.Arg i _ ty), Just _) -> fail "argument assignments not allowed"
-      (CC.Term (TC.Arg i _ ty), Nothing) -> do
+      (CC.Term (TC.Arg _ _ _), Just _) ->
+        fail "argument assignments not allowed"
+      (CC.Term (TC.Arg _ _ ty), Nothing) -> do
         ps <- fromMaybe (error "initializeVerification") <$> getPath
-        (tm, ps') <- liftIO $ createLogicValue cb sbe sc ps ty mle
+        (tm, ps') <- liftIO $ createLogicValue cb sbe sc expr ps ty mle
         setPS ps'
         return (Just (expr, tm))
       _ -> return Nothing
@@ -678,19 +692,20 @@ initializeVerification sc ir = do
                          , esLLVMExprs = exprs
                          , esInitialAssignments = argAssignments''
                          , esInitialPathState = initPS
+                         , esExpectedValues = []
                          , esReturnValue = Nothing
                          }
 
   es <- liftIO $ flip execStateT initESG $ do
     -- Allocate space for all pointers that aren't directly parameters.
     forM_ ptrAssignments $ \(expr, v) -> do
-      let Just mtp = Map.lookup expr (bsActualTypeMap bs)
+      let Just (mtp, _) = Map.lookup expr (bsExprDecls bs)
       esSetLogicValue cb sc expr mtp v
     -- Set initial logic values for everything except arguments and
     -- pointers, including values pointed to by pointers from directly
     -- above, and fields of structures from anywhere.
     forM_ otherAssignments $ \(expr, v) -> do
-      let Just mtp = Map.lookup expr (bsActualTypeMap bs)
+      let Just (mtp, _) = Map.lookup expr (bsExprDecls bs)
       esSetLogicValue cb sc expr mtp v
     -- Process commands
     mapM esStep (bsCommands bs)
@@ -703,6 +718,7 @@ initializeVerification sc ir = do
              , esdGlobalMap = gm
              , esdInitialPathState = esInitialPathState es
              , esdInitialAssignments = reverse (esInitialAssignments es)
+             , esdExpectedValues = esExpectedValues es
              , esdReturnValue = esReturnValue es
              }
 
@@ -807,7 +823,7 @@ generateVC :: (MonadIO m) =>
            -> ExpectedStateDef -- ^ What is expected
            -> RunResult -- ^ Results of symbolic execution.
            -> Simulator SpecBackend m PathVC
-generateVC sc ir esd (ps, endLoc, res) = do
+generateVC _sc _ir esd (ps, endLoc, res) = do
   let initState  =
         PathVC { pvcInitialAssignments = esdInitialAssignments esd
                , pvcStartLoc = esdStartLoc esd
@@ -827,30 +843,11 @@ generateVC sc ir esd (ps, endLoc, res) = do
           (Just _, Nothing) -> fail "simulator returned value when not expected"
           (Nothing, Just _) -> fail "simulator did not return value when expected"
 
-        -- For all expressions mentioned in the spec, check that they
-        -- have the same value in the expected and actual states.
-        forM_ (bsExprs (specBehavior ir)) $ \e -> case e of
-          (CC.Term (TC.Arg _ _ _)) -> return () -- Don't need to compare values of arguments
-          _ -> do
-            let sbe = esdBackend esd
-                eps = esdInitialPathState esd
-                m = specLLVMExprNames ir
-                gm = esdGlobalMap esd
-                expectedContext = evalContextFromPathState m sc sbe gm eps
-                actualContext =
-                  EvalContext { ecContext = sc
-                              , ecBackend = sbe
-                              , ecGlobalMap = gm
-                              , ecArgs = esdArgs esd
-                              , ecPathState = ps
-                              , ecLLVMExprs = m
-                              }
-            expectedValue <- runEval (evalLLVMExpr e expectedContext)
-            actualValue <- runEval (evalLLVMExpr e actualContext)
-            case (expectedValue, actualValue) of
-              (Right ev, Right av) -> pvcgAssertEq "expr" av ev
-              (Left e, _) -> fail $ show e
-              (_, Left e) -> fail $ show e
+        -- Check that expected state modifications have occurred.
+        -- TODO: extend this to check that nothing else has changed.
+        forM_ (esdExpectedValues esd) $ \(e, lhs, tp, rhs) -> do
+          finalValue <- liftIO $ loadPathState (esdBackend esd) lhs tp ps
+          pvcgAssertEq (show e) finalValue rhs
 
         -- Check assertions
         pvcgAssert "final assertions" (ps ^. pathAssertions)
@@ -874,7 +871,7 @@ mkSpecVC sc params esd = do
   mapM (generateVC sc ir esd) [(ps, Nothing, Right returnVal)]
 
 data VerifyParams = VerifyParams
-  { vpCode    :: Codebase (SAWBackend LSSCtx Lit)
+  { vpCode    :: Codebase (SAWBackend LSSCtx)
   , vpContext :: SharedContext LSSCtx
   , vpOpts    :: Options
   , vpSpec    :: LLVMMethodSpecIR
@@ -883,8 +880,7 @@ data VerifyParams = VerifyParams
 
 type SymbolicRunHandler =
   SharedContext LSSCtx -> ExpectedStateDef -> [PathVC] -> IO ()
-type Prover =
-  VerifyState -> ProofScript SAWCtx ProofResult -> SharedTerm LSSCtx -> IO ()
+type Prover = VerifyState -> SharedTerm LSSCtx -> IO ()
 
 runValidation :: Prover -> VerifyParams -> SymbolicRunHandler
 runValidation prover params sc esd results = do
@@ -894,39 +890,38 @@ runValidation prover params sc esd results = do
       m = specLLVMExprNames ir
       sbe = esdBackend esd
       gm = esdGlobalMap esd
-  case specValidationPlan ir of
-    Skip -> putStrLn $ "WARNING: skipping verification of " ++
-                       show (specFunction ir)
-    RunVerify script -> do
-      forM_ results $ \pvc -> do
-        let mkVState nm cfn =
-              VState { vsVCName = nm
-                     , vsMethodSpec = ir
-                     , vsVerbosity = verb
-                     -- , vsFromBlock = esdStartLoc esd
-                     , vsEvalContext = evalContextFromPathState m sc sbe gm ps
-                     , vsInitialAssignments = pvcInitialAssignments pvc
-                     , vsCounterexampleFn = cfn
-                     , vsStaticErrors = pvcStaticErrors pvc
-                     }
-        if null (pvcStaticErrors pvc) then
-         forM_ (pvcChecks pvc) $ \vc -> do
-           let vs = mkVState (vcName vc) (vcCounterexample vc)
-           g <- scImplies sc (pvcAssumptions pvc) =<< vcGoal sc vc
-           when (verb >= 4) $ do
-             putStrLn $ "Checking " ++ vcName vc ++ " (" ++ show g ++ ")"
-           prover vs script g
-        else do
-          let vsName = "an invalid path"
-          let vs = mkVState vsName (\_ -> return $ vcat (pvcStaticErrors pvc))
-          false <- scBool sc False
-          g <- scImplies sc (pvcAssumptions pvc) false
-          when (verb >= 4) $ do
-            putStrLn $ "Checking " ++ vsName
-            print $ pvcStaticErrors pvc
-            putStrLn $ "Calling prover to disprove " ++
-                     scPrettyTerm (pvcAssumptions pvc)
-          prover vs script g
+
+  forM_ results $ \pvc -> do
+    let mkVState nm cfn =
+          VState { vsVCName = nm
+                 , vsMethodSpec = ir
+                 , vsVerbosity = verb
+                 -- , vsFromBlock = esdStartLoc esd
+                 , vsEvalContext = evalContextFromPathState m sc sbe gm ps
+                 , vsInitialAssignments = pvcInitialAssignments pvc
+                 , vsCounterexampleFn = cfn
+                 , vsStaticErrors = pvcStaticErrors pvc
+                 }
+    if null (pvcStaticErrors pvc) then
+      forM_ (pvcChecks pvc) $ \vc -> do
+        let vs = mkVState (vcName vc) (vcCounterexample vc)
+        g <- scImplies sc (pvcAssumptions pvc) =<< vcGoal sc vc
+        when (verb >= 3) $ do
+          putStr $ "Checking " ++ vcName vc
+          when (verb >= 4) $ putStr $ " (" ++ show g ++ ")"
+          putStrLn ""
+        prover vs g
+    else do
+      let vsName = "an invalid path"
+      let vs = mkVState vsName (\_ -> return $ vcat (pvcStaticErrors pvc))
+      false <- scBool sc False
+      g <- scImplies sc (pvcAssumptions pvc) false
+      when (verb >= 4) $ do
+        putStrLn $ "Checking " ++ vsName
+        print $ pvcStaticErrors pvc
+        putStrLn $ "Calling prover to disprove " ++
+                 scPrettyTerm (pvcAssumptions pvc)
+      prover vs g
 
 data VerifyState = VState {
          vsVCName :: String

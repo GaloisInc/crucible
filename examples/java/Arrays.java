@@ -1,6 +1,7 @@
 class Arrays {
-    void clear(int a[]) {
+    void unit(int a[]) {
         for(int i = 0; i < a.length; i++) a[i] = 0;
+        a[0] = 1;
     }
 
     void copy(int a[], int b[]) {
@@ -8,6 +9,6 @@ class Arrays {
     }
 
     void comp(int a[]) {
-        clear(a);
+        unit(a);
     }
 }

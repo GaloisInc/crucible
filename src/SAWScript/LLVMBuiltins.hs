@@ -11,8 +11,6 @@ import Data.List (sort)
 import Data.List.Split
 import qualified Data.Map as Map
 import Data.String
-import Text.PrettyPrint.Leijen
-import Text.Read (readMaybe)
 
 import Text.LLVM (modDataLayout)
 import Verifier.LLVM.Backend
@@ -32,9 +30,8 @@ import SAWScript.LLVMMethodSpec
 import SAWScript.Options
 import SAWScript.Proof
 import SAWScript.Utils
-import SAWScript.Value
+import SAWScript.Value as SV
 
-import Verinf.Symbolic
 import Verinf.Utils.LogMonad
 
 -- | Extract a simple, pure model from the given symbol within the
@@ -96,13 +93,13 @@ freshLLVMArg (_, ty@(IntType bw)) = do
   return (ty, tm)
 freshLLVMArg (_, _) = fail "Only integer arguments are supported for now."
 
+
 verifyLLVM :: BuiltinContext -> Options -> String -> String
            -> [LLVMMethodSpecIR]
            -> LLVMSetup ()
            -> IO LLVMMethodSpecIR
 verifyLLVM bic opts file func overrides setup = do
   let pos = fixPos -- TODO
-      sc = biSharedContext bic
   mdl <- loadModule file
   let dl = parseDataLayout $ modDataLayout mdl
   withBE $ \be -> do
@@ -111,6 +108,7 @@ verifyLLVM bic opts file func overrides setup = do
     let ms0 = initLLVMMethodSpec pos cb func
         lsctx0 = LLVMSetupState {
                     lsSpec = ms0
+                  , lsTactic = Skip
                   , lsContext = scLLVM
                   }
     (_, lsctx) <- runStateT setup lsctx0
@@ -121,7 +119,11 @@ verifyLLVM bic opts file func overrides setup = do
                           , vpSpec = ms
                           , vpOver = overrides
                           }
-    let verb = simVerbose (vpOpts vp)
+    let verb = verbLevel (vpOpts vp)
+    let overrideText =
+          case overrides of
+            [] -> ""
+            irs -> " (overriding " ++ show (map specFunction irs) ++ ")"
     when (verb >= 2) $ putStrLn $ "Starting verification of " ++ show (specName ms)
     {-
     let configs = [ (bs, cl)
@@ -136,7 +138,7 @@ verifyLLVM bic opts file func overrides setup = do
       runSimulator cb sbe mem lopts $ do
         setVerbosity verb
         esd <- initializeVerification scLLVM ms
-        let isExtCns (STApp _ (FTermF (ExtCns e))) = True
+        let isExtCns (STApp _ (FTermF (ExtCns _))) = True
             isExtCns _ = False
             initialExts =
               sort . filter isExtCns . map snd . esdInitialAssignments $ esd
@@ -144,22 +146,40 @@ verifyLLVM bic opts file func overrides setup = do
         when (verb >= 3) $ liftIO $ do
           putStrLn "Verifying the following:"
           mapM_ (print . ppPathVC) res
-        let prover vs script g = do
+        let prover :: ProofScript SAWCtx (SV.SatResult SAWCtx)
+                   -> VerifyState
+                   -> SharedTerm LSSCtx
+                   -> IO ()
+            prover script vs g = do
               glam <- bindExts scLLVM initialExts g
-              glam' <- scImport (biSharedContext bic) glam
-              Theorem thm <- provePrim (biSharedContext bic) script glam'
-              when (verb >= 3) $ putStrLn $ "Proved: " ++ show thm
-        liftIO $ runValidation prover vp scLLVM esd res
-    let overrideText = case overrides of
-                         [] -> ""
-                         irs -> " (overriding " ++ show (map specFunction irs) ++ ")"
-    putStrLn $ "Successfully verified " ++ show func ++ overrideText
+              let bsc = biSharedContext bic
+              glam' <- scNegate bsc =<< scImport bsc glam
+              (r, _) <- runStateT script (ProofGoal (vsVCName vs) glam')
+              case r of
+                SV.Unsat -> when (verb >= 3) $ putStrLn "Valid."
+                SV.Sat val -> do
+                  putStrLn $ "When verifying " ++ show (specName ms) ++ ":"
+                  putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
+                  putStrLn $ "Counterexample: " ++ show val
+                  fail "Proof failed."
+                SV.SatMulti vals -> do
+                  putStrLn $ "When verifying " ++ show (specName ms) ++ ":"
+                  putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
+                  putStrLn $ "Counterexample:"
+                  mapM_ (\(n, v) -> putStrLn ("  " ++ n ++ ": " ++ show v)) vals
+                  fail "Proof failed."
+        case lsTactic lsctx of
+          Skip -> liftIO $ putStrLn $
+            "WARNING: skipping verification of " ++ show (specName ms)
+          RunVerify script ->
+            liftIO $ runValidation (prover script) vp scLLVM esd res
+    putStrLn $ "Successfully verified " ++ show (specName ms) ++ overrideText
     return ms
 
 llvmPure :: LLVMSetup ()
 llvmPure = return ()
 
-parseLLVMExpr :: Codebase (SAWBackend LSSCtx Lit)
+parseLLVMExpr :: Codebase (SAWBackend LSSCtx)
               -> SymDefine (SharedTerm LSSCtx)
               -> String
               -> IO LLVMExpr
@@ -202,7 +222,8 @@ getLLVMExpr :: Monad m =>
             -> m (LLVMExpr, MemType)
 getLLVMExpr ms name = do
   case Map.lookup name (specLLVMExprNames ms) of
-    Just expr -> return (expr, lssTypeOfLLVMExpr expr)
+    -- TODO: maybe compute type differently?
+    Just (_, expr) -> return (expr, lssTypeOfLLVMExpr expr)
     Nothing -> fail $ "LLVM name " ++ name ++ " has not been declared."
 
 exportLLVMType :: Value s -> MemType
@@ -253,7 +274,7 @@ llvmPtr bic _ name t = do
 
 llvmDeref :: BuiltinContext -> Options -> Value SAWCtx
           -> LLVMSetup (SharedTerm SAWCtx)
-llvmDeref bic _ t = fail "llvm_deref not yet implemented"
+llvmDeref _bic _ _t = fail "llvm_deref not yet implemented"
 
 {-
 llvmMayAlias :: BuiltinContext -> Options -> [String]
@@ -276,9 +297,9 @@ llvmAssert _ _ v =
 
 llvmAssertEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
              -> LLVMSetup ()
-llvmAssertEq bic _ name t = do
+llvmAssertEq _bic _ name t = do
   ms <- gets lsSpec
-  (expr, ty) <- liftIO $ getLLVMExpr ms name
+  (expr, _) <- liftIO $ getLLVMExpr ms name
   modify $ \st ->
     st { lsSpec = specAddLogicAssignment fixPos expr (mkLogicExpr t) ms }
 
@@ -291,15 +312,14 @@ asLLVMValue t =
     _ -> fail "not an instance of LLVM.mkValue"
 
 
-llvmEnsureEq :: BuiltinContext -> Options -> SharedTerm SAWCtx -> SharedTerm SAWCtx
+llvmEnsureEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
              -> LLVMSetup ()
-llvmEnsureEq _ _ (asLLVMValue -> Just name) t = do
+llvmEnsureEq _ _ name t = do
   ms <- gets lsSpec
   (expr, _) <- liftIO $ getLLVMExpr ms name
   modify $ \st ->
     st { lsSpec =
            specAddBehaviorCommand (Ensure fixPos expr (LogicE (mkLogicExpr t))) (lsSpec st) }
-llvmEnsureEq _ _ _ _ = fail "invalid right-hand side of llvm_ensure_eq"
 
 llvmModify :: BuiltinContext -> Options -> String
            -> LLVMSetup ()
@@ -316,7 +336,8 @@ llvmReturn _ _ t =
   modify $ \st ->
     st { lsSpec = specAddBehaviorCommand (Return (LogicE (mkLogicExpr t))) (lsSpec st) }
 
-llvmVerifyTactic :: BuiltinContext -> Options -> ProofScript SAWCtx ProofResult
+llvmVerifyTactic :: BuiltinContext -> Options
+                 -> ProofScript SAWCtx (SV.SatResult SAWCtx)
                  -> LLVMSetup ()
 llvmVerifyTactic _ _ script =
-  modify $ \st -> st { lsSpec = specSetVerifyTactic script (lsSpec st) }
+  modify $ \st -> st { lsTactic = RunVerify script }

@@ -1,0 +1,10 @@
+f : [8] -> Bit;
+f x = (x + x) == (1 * x);
+
+main = do {
+  (r : ProofResult [8]) <- prove abc f;
+  caseProofResult r
+    (print "Q.E.D.")
+    (\(v : [8]) -> do { print "Oops." ; print v; print (f v); });
+  print "Done.";
+};

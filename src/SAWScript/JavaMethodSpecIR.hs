@@ -12,10 +12,8 @@ Point-of-contact : jhendrix, atomb
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module SAWScript.JavaMethodSpecIR 
-  ( JavaSetup
-  , JavaSetupState(..)
-    -- * MethodSpec record
-  , JavaMethodSpecIR
+  (-- * MethodSpec record
+    JavaMethodSpecIR
   , specName
   , specPos
   , specThisClass
@@ -23,12 +21,10 @@ module SAWScript.JavaMethodSpecIR
   , specMethodClass
   , specInitializedClasses
   , specBehaviors
-  , specValidationPlan
   , specAddBehaviorCommand
   , specAddVarDecl
   , specAddLogicAssignment
   , specAddAliasSet
-  , specSetVerifyTactic
   , specJavaExprNames
   , initMethodSpec
   --, resolveMethodSpecIR
@@ -48,54 +44,30 @@ module SAWScript.JavaMethodSpecIR
     -- * Equivalence classes for references.
   , JavaExprEquivClass
   , ppJavaExprEquivClass
-    -- * Validation plan
-  , VerifyCommand(..)
-  , ValidationPlan(..)
   ) where
 
 -- Imports {{{1
 
 import Control.Applicative
 import Control.Monad
---import Control.Monad.Reader
-import Control.Monad.State
 import Data.Graph.Inductive (scc, Gr, mkGraph)
 import Data.List (intercalate, sort)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe (isJust, catMaybes)
-import Data.Set (Set)
+import Data.Maybe (isJust, catMaybes, fromJust)
 import qualified Data.Set as Set
 import qualified Data.Vector as V
---import Text.PrettyPrint.Leijen hiding ((<$>))
 import qualified Language.JVM.Common as JP
-
---import Verinf.Symbolic
 
 import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.Java.Common as JSS
---import qualified Verifier.LLVM.Codebase as LSS
---import qualified Data.JVM.Symbolic.AST as JSS
 
-import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm
-import Verifier.SAW.TypedAST
 
 import qualified SAWScript.CongruenceClosure as CC
 import SAWScript.CongruenceClosure (CCSet)
 import SAWScript.JavaExpr
 import SAWScript.Utils
-import SAWScript.Proof
-
--- Integration with SAWScript
-
-data JavaSetupState
-  = JavaSetupState {
-      jsSpec :: JavaMethodSpecIR
-    , jsContext :: SharedContext JSSCtx
-    }
-
-type JavaSetup a = StateT JavaSetupState IO a
 
 -- ExprActualTypeMap {{{1
 
@@ -197,17 +169,13 @@ bsPrimitiveExprs :: BehaviorSpec -> [JavaExpr]
 bsPrimitiveExprs bs =
   [ e | (e, PrimitiveType _) <- Map.toList (bsActualTypeMap bs) ]
  
-asJavaExpr :: Map String JavaExpr -> LogicExpr -> Maybe JavaExpr
-asJavaExpr m (asCtor -> Just (i, [e])) =
-  case e of
-    (asStringLit -> Just s) | i == parseIdent "Java.mkValue" -> Map.lookup s m
-    _ -> Nothing
-asJavaExpr _ _ = Nothing
-
 bsLogicEqs :: Map String JavaExpr -> BehaviorSpec -> [(JavaExpr, JavaExpr)]
 bsLogicEqs m bs =
-  [ (lhs,rhs') | (_, lhs,rhs) <- bsLogicAssignments bs
-               , let Just rhs' = asJavaExpr m rhs]
+  [ (lhs, fromJust rhs') |
+    (_, lhs, rhs) <- bsLogicAssignments bs
+  , let rhs' = asJavaExpr m rhs
+  , isJust rhs'
+  ]
 
 -- | Returns logic assignments to equivance class.
 bsAssignmentsForClass :: Map String JavaExpr -> BehaviorSpec -> JavaExprEquivClass
@@ -250,7 +218,7 @@ bsLogicClasses sc m bs cfg = do
       exprNodeMap = Map.fromList [ (e,n) | (n,(cl,_)) <- grNodes, e <- cl ]
       grEdges = [ (s,t,()) | (t,(cl,_)) <- grNodes
                            , src:_ <- [bsAssignmentsForClass m bs cl]
-                           , se <- Set.toList (logicExprJavaExprs src)
+                           , se <- Set.toList (logicExprJavaExprs m src)
                            , let Just s = Map.lookup se exprNodeMap ]
       -- Compute strongly connected components.
       components = scc (mkGraph grNodes grEdges :: Gr (JavaExprEquivClass, SharedTerm s) ())
@@ -280,7 +248,7 @@ initMethodSpec pos cb cname mname = do
   superClasses <- JSS.supers cb thisClass
   let this = thisJavaExpr thisClass
       initTypeMap | JSS.methodIsStatic method = Map.empty
-                  | otherwise = Map.singleton this (ClassInstance methodClass)
+                  | otherwise = Map.singleton this (ClassInstance thisClass)
       initBS = BS { bsLoc = JSS.BreakEntry
                   , bsActualTypeMap = initTypeMap
                   , bsMustAliasSet =
@@ -300,33 +268,8 @@ initMethodSpec pos cb cname mname = do
                     , specInitializedClasses =
                         map JSS.className superClasses
                     , specBehaviors = initBS
-                    , specValidationPlan = Skip
                     }
   return initMS
-
--- resolveValidationPlan {{{1
-
--- | Commands issued to verify method.
-data VerifyCommand
-   = Rewrite
-   | ABC
-   | SmtLib (Maybe Int) (Maybe String) -- version, file
-   | Yices (Maybe Int)
-   -- | Expand Pos Op [LogicExpr s] (SharedTerm s)
-    -- | Enable use of a rule or extern definition.
-   | VerifyEnable String
-     -- | Disable use of a rule or extern definition.
-   | VerifyDisable String
-   | VerifyAt JSS.PC [VerifyCommand]
- deriving (Show)
-
--- The ProofScript in RunVerify is in the SAWScript context, and
--- should stay there.
-data ValidationPlan
-  = Skip
-  -- | QuickCheck Integer (Maybe Integer)
-  -- | GenBlif (Maybe FilePath)
-  | RunVerify (ProofScript SAWCtx ProofResult)
 
 -- JavaMethodSpecIR {{{1
 
@@ -347,8 +290,6 @@ data JavaMethodSpecIR = MSIR {
     -- | Behavior specifications for method at different PC values.
     -- A list is used because the behavior may depend on the inputs.
   , specBehaviors :: BehaviorSpec  -- Map JSS.Breakpoint [BehaviorSpec]
-    -- | Describes how the method is expected to be validated.
-  , specValidationPlan :: ValidationPlan
   }
 
 -- | Return user printable name of method spec (currently the class + method name).
@@ -390,7 +331,3 @@ specAddBehaviorCommand :: BehaviorCommand
                        -> JavaMethodSpecIR -> JavaMethodSpecIR
 specAddBehaviorCommand bc ms =
   ms { specBehaviors = bsAddCommand bc (specBehaviors ms) }
-
-specSetVerifyTactic :: ProofScript SAWCtx ProofResult
-                    -> JavaMethodSpecIR -> JavaMethodSpecIR
-specSetVerifyTactic script ms = ms { specValidationPlan = RunVerify script }

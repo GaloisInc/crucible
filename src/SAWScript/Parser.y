@@ -50,6 +50,8 @@ import Control.Applicative
   'JavaSetup'    { TReserved _ "JavaSetup"      }
   'LLVMSetup'    { TReserved _ "LLVMSetup"      }
   'ProofScript'  { TReserved _ "ProofScript"    }
+  'ProofResult'  { TReserved _ "ProofResult"    }
+  'SatResult'    { TReserved _ "SatResult"      }
   'TopLevel'     { TReserved _ "TopLevel"       }
   'Bit'          { TReserved _ "Bit"            }
   'Int'          { TReserved _ "Int"            }
@@ -93,8 +95,7 @@ import Control.Applicative
   string         { TLit      _ $$               }
   num            { TNum      _ _ $$             }
   qnum           { TQNum     _ _ $$             }
-  name           { TVar      _ $$               }
-  qname          { TQVar     _ _ $$             }
+  name           { TVar      _ _                }
 
 %right 'else'
 %right '==>'
@@ -121,15 +122,15 @@ TopStmts :: { [TopStmtSimple RawT] }
 
 TopStmt :: { TopStmtSimple RawT }
  : 'import' Import                      { $2                 }
- | name ':' PolyType                    { TopTypeDecl $1 $3  }
- | 'type' name '=' Type                 { TypeDef $2 $4      }
- | 'abstract' name                      { AbsTypeDecl $2     }
- | 'prim' name ':' PolyType             { Prim $2 (Just $4)  }
+ | name ':' PolyType                    { TopTypeDecl (toLName $1) $3  }
+ | 'type' name '=' Type                 { TypeDef (toLName $2) $4      }
+ | 'abstract' name                      { AbsTypeDecl (toLName $2)     }
+ | 'prim' name ':' PolyType             { Prim (toLName $2) (Just $4)  }
  | Declaration                          { uncurry TopBind $1 }
 
 Import :: { TopStmtSimple RawT }
- : qname                                   { Import (mkModuleName $1) Nothing Nothing      }
- | name                                    { Import (mkModuleName ([],$1)) Nothing Nothing }
+ : name                                    { Import (mkModuleName ([], tokStr $1)) Nothing Nothing }
+-- | qname                                   { Import (mkModuleName $1) Nothing Nothing      }
  -- | name '(' commas(name) ')'            { Import $1 (Just $3) Nothing     }
  -- | name 'as' name                       { Import $1 Nothing (Just $3)     }
  -- | name '(' commas(name) ')' 'as' name  { Import $1 (Just $3) (Just $6)   }
@@ -138,14 +139,14 @@ BlockStmt :: { BlockStmtSimple RawT }
  : Expression                           { Bind Nothing   Nothing $1   }
  | Arg '<-' Expression                  { Bind (Just $1) Nothing $3   }
 -- | name ':' PolyType                    { BlockTypeDecl $1 (Just $3)                 }
- | 'let' sepBy1(Declaration, 'and')     { BlockLet $2                                }
+ | 'let' sepBy1(Declaration, 'and')     { BlockLet $2                  }
 
-Declaration :: { (Name, ExprSimple RawT) }
- : name list(Arg) '=' Expression        { ($1, buildFunction $2 $4)       }
+Declaration :: { (LName, ExprSimple RawT) }
+ : name list(Arg) '=' Expression        { (toLName $1, buildFunction $2 $4)       }
 
-Arg :: { Bind RawT }
- : name                                 { ($1, Nothing) }
- | '(' name ':' Type ')'                { ($2, Just $4) }
+Arg :: { LBind RawT }
+ : name                                 { (toLName $1, Nothing) }
+ | '(' name ':' Type ')'                { (toLName $2, Just $4) }
 
 Expression :: { ExprSimple RawT }
  : IExpr                                { $1 }
@@ -162,31 +163,31 @@ IExpr :: { ExprSimple RawT }
 AExprs :: { ExprSimple RawT }
  : list1(AExpr)                         { buildApplication $1 }
 
-PrefixOp :: { Name }
- : '~'            { "bvNot"                      }
+PrefixOp :: { LName }
+ : '~'            { Located "bvNot" "bvNot"  (tokPos $1)                   }
 
-InfixOp :: { Name }
- : '-'            { "bvSub"                      }
- | '*'            { "bvMul"                      }
- | '+'            { "bvAdd"                      }
- | '/'            { "bvDiv"                      }
- | '%'            { "bvMod"                      }
- | '<<'           { "bvShl"                      }
- | '>>'           { "bvShr"                      }
- | '&'            { "bvAnd"                      }
- | '^'            { "bvXor"                      }
- | '|'            { "bvOr"                       }
- | '@'            { "index"                      }
- | '#'            { "concat"                     }
- | '=='           { "eq"                         }
- | '!='           { "neq"                        }
- | '>='           { "bvuge"                      }
- | '>'            { "bvugt"                      }
- | '<='           { "bvule"                      }
- | '<'            { "bvult"                      }
- | '&&'           { "conj"                       }
- | '||'           { "disj"                       }
- | '==>'          { "implies"                    }
+InfixOp :: { LName }
+ : '-'            { Located "bvSub" "bvSub"     (tokPos $1)                  }
+ | '*'            { Located "bvMul" "bvMul"     (tokPos $1)                  }
+ | '+'            { Located "bvAdd" "bvAdd"     (tokPos $1)                  }
+ | '/'            { Located "bvDiv" "bvDiv"     (tokPos $1)                  }
+ | '%'            { Located "bvMod" "bvMod"     (tokPos $1)                  }
+ | '<<'           { Located "bvShl" "bvShl"     (tokPos $1)                  }
+ | '>>'           { Located "bvShr" "bvShr"     (tokPos $1)                  }
+ | '&'            { Located "bvAnd" "bvAnd"     (tokPos $1)                  }
+ | '^'            { Located "bvXor" "bvXor"     (tokPos $1)                  }
+ | '|'            { Located "bvOr" "bvOr"      (tokPos $1)                  }
+ | '@'            { Located "index" "index"     (tokPos $1)                  }
+ | '#'            { Located "concat" "concat"    (tokPos $1)                  }
+ | '=='           { Located "eq" "eq"        (tokPos $1)                  }
+ | '!='           { Located "neq" "neq"       (tokPos $1)                  }
+ | '>='           { Located "bvuge" "bvuge"     (tokPos $1)                  }
+ | '>'            { Located "bvugt" "bvugt"     (tokPos $1)                  }
+ | '<='           { Located "bvule" "bvule"     (tokPos $1)                  }
+ | '<'            { Located "bvult" "bvult"     (tokPos $1)                  }
+ | '&&'           { Located "conj" "conj"      (tokPos $1)                  }
+ | '||'           { Located "disj" "disj"      (tokPos $1)                  }
+ | '==>'          { Located "implies" "implies"   (tokPos $1)                  }
 
 AExpr :: { ExprSimple RawT }
  : '(' ')'                              { Tuple [] Nothing                }
@@ -194,25 +195,26 @@ AExpr :: { ExprSimple RawT }
  | string                               { Quote $1 Nothing                }
  | qnum                                 { Z $1 Nothing                    }
  | num                                  { Application
-                                            (Var (unresolved "bitSequence") Nothing)
-                                                 (Z $1 Nothing) 
+                                            (Var (Located (unresolved "bitSequence") (show $1) (PosInternal "parseNum")) Nothing)
+                                                 (Z $1 Nothing)
                                                  Nothing                  }
- | qname                                { Var (unresolvedQ $1) Nothing    }
- | name                                 { Var (unresolved $1) Nothing     }
+ -- | qname                                { Var (unresolvedQ $1) Nothing    }
+ | name                                 { Var (Located (unresolved (tokStr $1)) (tokStr $1) (tokPos $1)) Nothing     }
  | 'undefined'                          { Undefined Nothing               }
  | '(' Expression ')'                   { $2                              }
  | '(' commas2(Expression) ')'          { Tuple $2 Nothing                }
  | '[' commas(Expression) ']'           { Array $2 Nothing                }
  | '{' commas(Field) '}'                { Record $2 Nothing               }
  | 'do' '{' termBy(BlockStmt, ';') '}'  { Block $3 Nothing                }
- | AExpr '.' name                       { Lookup $1 $3 Nothing            }
+ | AExpr '.' name                       { Lookup $1 (tokStr $3) Nothing   }
+ | AExpr '.' num                        { TLookup $1 $3 Nothing           }
 
 Field :: { (Name, ExprSimple RawT) }
- : name '=' Expression                  { ($1, $3) }
+ : name '=' Expression                  { (tokStr $1, $3) }
 
-Names :: { [Name] } 
- : name                                 { [$1] }
- | name ',' Names                       { $1:$3 }
+Names :: { [Name] }
+ : name                                 { [tokStr $1] }
+ | name ',' Names                       { tokStr $1:$3 }
 
 PolyType :: { RawSigT }
  : Type                                 { $1                      }
@@ -223,10 +225,10 @@ Type :: { RawSigT }
  | BaseType '->' Type                   { function $1 $3 }
 
 FieldType :: { Bind RawSigT }
-  : name ':' BaseType                   { ($1, $3)                }
+  : name ':' BaseType                   { (tokStr $1, $3)                }
 
 BaseType :: { RawSigT }
- : name                                 { syn $1                  }
+ : name                                 { syn (toLName $1)        }
  | Context BaseType                     { block $1 $2             }
  | '(' ')'                              { tuple []                }
  | 'Bit'                                { bit                     }
@@ -234,8 +236,8 @@ BaseType :: { RawSigT }
  | 'String'                             { quote                   }
  | '(' Type ')'                         { $2                      }
  | '(' commas2(Type) ')'                { tuple $2                }
- | '[' name ']'                         { array bit (syn $2)      }
- | '[' name ']' BaseType                { array $4  (syn $2)      }
+ | '[' name ']'                         { array bit (syn (toLName $2)) }
+ | '[' name ']' BaseType                { array $4  (syn (toLName $2))      }
  | '[' num ']'                          { array bit (i $2)        }
  | '[' num ']' BaseType                 { array $4  (i $2)        }
  | '{' commas(FieldType) '}'            { record $2               }
@@ -245,8 +247,10 @@ Context :: { RawSigT }
  | 'JavaSetup'                          { javaSetupContext        }
  | 'LLVMSetup'                          { llvmSetupContext        }
  | 'ProofScript'                        { proofScriptContext      }
+ | 'ProofResult'                        { proofResultContext      }
+ | 'SatResult'                          { satResultContext        }
  | 'TopLevel'                           { topLevelContext         }
- | name                                 { syn $1                  }
+ | name                                 { syn (toLName $1)         }
 
 -- Parameterized productions, most come directly from the Happy manual.
 fst(p, q)  : p q   { $1 }
@@ -326,7 +330,7 @@ parseError toks = case toks of
 bitsOfString :: Token Pos -> [ExprSimple RawT]
 bitsOfString = map ((flip Bit $ Just bit) . (/= '0')) . tokStr
 
-buildFunction :: [(Name, RawT)] -> ExprSimple RawT -> ExprSimple RawT 
+buildFunction :: [(LName, RawT)] -> ExprSimple RawT -> ExprSimple RawT
 buildFunction args e = foldr foldFunction e args
   where
   foldFunction (argName,mType) rhs = Function argName mType rhs $
@@ -337,11 +341,14 @@ buildApplication =
   foldl1 (\e body -> Application e body $
                      function <$> typeOf e <*> typeOf body)
 
-binOp :: ExprSimple RawT -> Name -> ExprSimple RawT -> ExprSimple RawT
-binOp x op y = Application (Application (Var (unresolved op) Nothing) x Nothing) y Nothing
+binOp :: ExprSimple RawT -> LName -> ExprSimple RawT -> ExprSimple RawT
+binOp x op y = Application
+  (Application
+    (Var (Located (unresolved $ getVal op) (getVal op) (getPos op)) Nothing)
+    x Nothing) y Nothing
 
-unOp :: Name -> ExprSimple RawT -> ExprSimple RawT
-unOp op x = Application (Var (unresolved op) Nothing) x Nothing
+unOp :: LName -> ExprSimple RawT -> ExprSimple RawT
+unOp op x = Application (Var (Located (unresolved $ getVal op) (getVal op) (getPos op)) Nothing) x Nothing
 
 buildType :: [RawSigT] -> RawSigT
 buildType [t]    = t

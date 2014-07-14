@@ -11,8 +11,8 @@ import Data.Map ( Map )
 import qualified Data.Vector as V
 
 import qualified SAWScript.AST as SS
-import SAWScript.JavaMethodSpecIR
-import SAWScript.LLVMMethodSpecIR
+import qualified SAWScript.JavaMethodSpecIR as JIR
+import qualified SAWScript.LLVMMethodSpecIR as LIR
 import SAWScript.Proof
 import SAWScript.Utils
 import qualified Verifier.SAW.Prim as Prim
@@ -46,15 +46,43 @@ data Value s
   | VTheorem (Theorem s)
   | VJavaSetup (JavaSetup (Value s))
   | VLLVMSetup (LLVMSetup (Value s))
-  | VJavaMethodSpec JavaMethodSpecIR
-  | VLLVMMethodSpec LLVMMethodSpecIR
+  | VJavaMethodSpec JIR.JavaMethodSpecIR
+  | VLLVMMethodSpec LIR.LLVMMethodSpecIR
   | VCryptolModuleEnv Cry.ModuleEnv
+  | VSatResult (SatResult s)
+  | VProofResult (ProofResult s)
   -- | VAIG (BitEngine Lit) (V.Vector Lit) (V.Vector Lit)
 
+data ProofResult s
+  = Valid
+  | Invalid (Value s)
+  | InvalidMulti [(String, Value s)]
+    deriving (Show)
+
+data SatResult s
+  = Unsat
+  | Sat (Value s)
+  | SatMulti [(String, Value s)]
+    deriving (Show)
+
+flipSatResult :: SatResult s -> ProofResult s
+flipSatResult Unsat = Valid
+flipSatResult (Sat t) = Invalid t
+flipSatResult (SatMulti t) = InvalidMulti t
 
 isVUnit :: Value s -> Bool
 isVUnit (VTuple []) = True
 isVUnit _ = False
+
+bitsToWord :: [Bool] -> Value s
+bitsToWord bs = VWord (length bs) (SC.bvToInteger (V.fromList bs))
+
+arrayToWord :: [Value s] -> Value s
+arrayToWord = bitsToWord . map fromValue
+
+isBool :: Value s -> Bool
+isBool (VBool _) = True
+isBool _ = False
 
 instance Show (Value s) where
     showsPrec p v =
@@ -63,11 +91,17 @@ instance Show (Value s) where
         VBool False -> showString "False"
         VString s -> shows s
         VInteger n -> shows n
-        VWord w x -> showParen (p > 9) (shows x . showString "::[" . shows w . showString "]")
-        VArray vs -> showList vs
+        VWord w x -> showParen (p > 9) (shows x . showString ":[" . shows w . showString "]")
+        VArray vs | all isBool vs -> shows (arrayToWord vs)
+                  | otherwise -> showList vs
         VTuple vs -> showParen True
                      (foldr (.) id (intersperse (showString ",") (map shows vs)))
-        VRecord _ -> error "unimplemented: show VRecord" -- !(Map FieldName Value)
+        VRecord m -> showString "{" .
+                     (foldr (.) id (intersperse (showString ",")
+                                   (map showFld (M.toList m)))) .
+                     showString "}"
+                       where showFld (n, fv) =
+                               shows n . showString "=" . shows fv
         VFun {} -> showString "<<fun>>"
         VFunTerm {} -> showString "<<fun-term>>"
         VFunType {} -> showString "<<fun-type>>"
@@ -84,6 +118,12 @@ instance Show (Value s) where
         VJavaMethodSpec {} -> showString "<<Java MethodSpec>>"
         VLLVMMethodSpec {} -> showString "<<LLVM MethodSpec>>"
         VCryptolModuleEnv {} -> showString "<<Cryptol ModuleEnv>>"
+        VProofResult Valid -> showString "Valid"
+        VProofResult (Invalid t) -> showString "Invalid: " . shows t
+        VProofResult (InvalidMulti ts) -> showString "Invalid: " . shows ts
+        VSatResult Unsat -> showString "Unsat"
+        VSatResult (Sat t) -> showString "Sat: " . shows t
+        VSatResult (SatMulti ts) -> showString "Sat: " . shows ts
 
 indexValue :: Value s -> Value s -> Value s
 indexValue (VArray vs) (VInteger x)
@@ -98,6 +138,12 @@ lookupValue (VRecord vm) name =
       Nothing -> error $ "no such record field: " ++ name
       Just x -> x
 lookupValue _ _ = error "lookupValue"
+
+tupleLookupValue :: Value s -> Integer -> Value s
+tupleLookupValue (VTuple vs) i
+  | fromIntegral i <= length vs = vs !! (fromIntegral i - 1)
+  | otherwise = error $ "no such tuple index: " ++ show i
+tupleLookupValue _ _ = error "tupleLookupValue"
 
 evaluate :: SharedContext s -> SharedTerm s -> Value s
 evaluate sc t = importValue (SC.evalSharedTerm eval t)
@@ -198,7 +244,33 @@ exportValue val =
       VJavaMethodSpec {} -> error "VJavaMethodSpec unsupported"
       VLLVMMethodSpec {} -> error "VLLVMMethodSpec unsupported"
       VCryptolModuleEnv {} -> error "CryptolModuleEnv unsupported"
+      VProofResult {} -> error "VProofResult unsupported"
+      VSatResult {} -> error "VSatResult unsupported"
       -- VAIG {} -> error "VAIG unsupported" -- TODO: could be implemented
+
+-- The ProofScript in RunVerify is in the SAWScript context, and
+-- should stay there.
+data ValidationPlan
+  = Skip
+  | RunVerify (ProofScript SAWCtx (SatResult SAWCtx))
+
+data JavaSetupState
+  = JavaSetupState {
+      jsSpec :: JIR.JavaMethodSpecIR
+    , jsContext :: SharedContext JSSCtx
+    , jsTactic :: ValidationPlan
+    }
+
+type JavaSetup a = StateT JavaSetupState IO a
+
+data LLVMSetupState
+  = LLVMSetupState {
+      lsSpec :: LIR.LLVMMethodSpecIR
+    , lsContext :: SharedContext LSSCtx
+    , lsTactic :: ValidationPlan
+    }
+
+type LLVMSetup a = StateT LLVMSetupState IO a
 
 -- IsValue class ---------------------------------------------------------------
 
@@ -239,7 +311,7 @@ instance IsValue s a => IsValue s (IO a) where
     fromValue (VIO io) = fmap fromValue io
     fromValue _ = error "fromValue IO"
 
-instance IsValue s a => IsValue s (StateT (SharedTerm s) IO a) where
+instance IsValue s a => IsValue s (StateT (ProofGoal s) IO a) where
     toValue m = VProofScript (fmap toValue m)
     fromValue (VProofScript m) = fmap fromValue m
     fromValue _ = error "fromValue ProofScript"
@@ -299,12 +371,12 @@ instance IsValue s (Theorem s) where
     fromValue (VTheorem t) = t
     fromValue _ = error "fromValue Theorem"
 
-instance IsValue SAWCtx JavaMethodSpecIR where
+instance IsValue SAWCtx JIR.JavaMethodSpecIR where
     toValue ms = VJavaMethodSpec ms
     fromValue (VJavaMethodSpec ms) = ms
     fromValue _ = error "fromValue JavaMethodSpec"
 
-instance IsValue SAWCtx LLVMMethodSpecIR where
+instance IsValue SAWCtx LIR.LLVMMethodSpecIR where
     toValue ms = VLLVMMethodSpec ms
     fromValue (VLLVMMethodSpec ms) = ms
     fromValue _ = error "fromValue LLVMMethodSpec"
@@ -313,3 +385,13 @@ instance IsValue s Cry.ModuleEnv where
     toValue me = VCryptolModuleEnv me
     fromValue (VCryptolModuleEnv me) = me
     fromValue _ = error "fromValue CryptolModuleEnv"
+
+instance IsValue s (ProofResult s) where
+   toValue r = VProofResult r
+   fromValue (VProofResult r) = r
+   fromValue v = error $ "fromValue ProofResult: " ++ show v
+
+instance IsValue s (SatResult s) where
+   toValue r = VSatResult r
+   fromValue (VSatResult r) = r
+   fromValue _ = error "fromValue SatResult"

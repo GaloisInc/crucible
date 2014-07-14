@@ -29,6 +29,7 @@ import Data.Set ( Set )
 import Data.Traversable hiding ( mapM )
 
 import qualified SAWScript.AST as SS
+import SAWScript.AST (Located(..))
 import SAWScript.Builtins hiding (evaluate)
 import SAWScript.CryptolBuiltins
 import SAWScript.JavaBuiltins
@@ -38,8 +39,8 @@ import SAWScript.Options
 import SAWScript.Proof
 import SAWScript.Utils
 import SAWScript.Value
-import Verifier.SAW.Prelude (preludeModule)
-import Verifier.SAW.Rewriter ( Simpset, emptySimpset, rewritingSharedContext )
+import Verifier.SAW.Prelude (preludeModule, preludeStringIdent)
+import Verifier.SAW.Rewriter ( Simpset, emptySimpset )
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST hiding ( incVars )
 
@@ -51,7 +52,7 @@ import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 
 type Expression = SS.Expr SS.ResolvedName SS.Schema
 type BlockStatement = SS.BlockStmt SS.ResolvedName SS.Schema
-type RNameMap = Map SS.ResolvedName
+type RNameMap = Map (Located SS.ResolvedName)
 data InterpretEnv s = InterpretEnv { interpretEnvValues :: RNameMap (Value s)
                                    , interpretEnvTypes :: RNameMap SS.Schema
                                    , interpretEnvShared :: RNameMap (SharedTerm s)
@@ -130,6 +131,8 @@ translateType sc tenv ty =
       SS.TyCon SS.BoolCon []      -> scBoolType sc
       SS.TyCon SS.ZCon []         -> scNatType sc
       SS.TyCon (SS.NumCon n) []   -> scNat sc (fromInteger n)
+      SS.TyCon SS.StringCon []    ->
+        scFlatTermF sc (DataTypeApp preludeStringIdent [])
       SS.TyVar (SS.BoundVar x)    -> case M.lookup x tenv of
                                        Nothing -> fail $ "translateType: unbound type variable: " ++ x
                                        Just (i, _k) -> do
@@ -154,7 +157,7 @@ translateSchema sc tenv0 (SS.Forall xs0 t) = go tenv0 xs0
       t' <- go tenv' xs
       scPi sc x k' t'
 
-translatableExpr :: Set SS.ResolvedName -> Expression -> Bool
+translatableExpr :: Set (Located SS.ResolvedName) -> Expression -> Bool
 translatableExpr env expr =
     case expr of
       SS.Bit _             _ -> True
@@ -167,12 +170,14 @@ translatableExpr env expr =
       SS.Record bs         _ -> all (translatableExpr env . snd) bs
       SS.Index e n         _ -> translatableExpr env e && translatableExpr env n
       SS.Lookup e _        _ -> translatableExpr env e
+      SS.TLookup e _       _ -> translatableExpr env e
       SS.Var x             _ -> S.member x env
       SS.Function x t e    _ -> translatableSchema t && translatableExpr env' e
-          where env' = S.insert (SS.LocalName x) env
+          where env' = S.insert (fmap SS.LocalName x) env
       SS.Application f e   _ -> translatableExpr env f && translatableExpr env e
       SS.LetBlock bs e       -> all (translatableExpr env . snd) bs && translatableExpr env' e
-          where env' = foldr S.insert env [ SS.LocalName x | (x, _) <- bs ]
+          where env' = foldr S.insert env [ SS.Located (SS.LocalName (SS.getVal x)) (SS.getOrig x) (SS.getPos x)
+                                            | (x, _) <- bs ]
 
 translateExpr
     :: forall s. SharedContext s
@@ -204,8 +209,10 @@ translateExpr sc tm sm km expr =
                                         scGet sc l' t' e' i''
       SS.Lookup e n             _ -> do e' <- translateExpr sc tm sm km e
                                         scRecordSelect sc e' n
+      SS.TLookup e i            _ -> do e' <- translateExpr sc tm sm km e
+                                        scTupleSelector sc e' (fromIntegral i)
       SS.Var x (SS.Forall [] t)   -> case M.lookup x sm of
-                                       Nothing -> fail $ "Untranslatable: " ++ SS.renderResolvedName x
+                                       Nothing -> fail $ "Untranslatable: " ++ SS.renderResolvedName (SS.getVal x)
                                        Just e' ->
                                          case M.lookup x tm of
                                            Nothing -> return e'
@@ -213,17 +220,19 @@ translateExpr sc tm sm km expr =
                                              let ts = typeInstantiation schema t
                                              ts' <- mapM (translateType sc km) ts
                                              scApplyAll sc e' ts'
-      SS.Function x a e         _ -> do a' <- translateSchema sc km a
-                                        x' <- scLocalVar sc 0
-                                        sm' <- traverse (incVars sc 0 1) sm
-                                        let sm'' = M.insert (SS.LocalName x) x' sm'
-                                        let km' = fmap (\(i, k) -> (i + 1, k)) km
-                                        e' <- translateExpr sc tm sm'' km' e
-                                        scLambda sc (takeWhile (/= '.') x) a' e'
+      SS.Var x (SS.Forall _ _)    ->
+        fail $ "Untranslatable: " ++ SS.renderResolvedName (SS.getVal x)
+      SS.Function x a e _ -> do a' <- translateSchema sc km a
+                                x' <- scLocalVar sc 0
+                                sm' <- traverse (incVars sc 0 1) sm
+                                let sm'' = M.insert (fmap SS.LocalName x) x' sm'
+                                let km' = fmap (\(i, k) -> (i + 1, k)) km
+                                e' <- translateExpr sc tm sm'' km' e
+                                scLambda sc (takeWhile (/= '.') (SS.getVal x)) a' e'
       SS.Application f e        _ -> do f' <- translateExpr sc tm sm km f
                                         e' <- translateExpr sc tm sm km e
                                         scApply sc f' e'
-      SS.LetBlock bs e            -> do let m = M.fromList [ (SS.LocalName x, y) | (x, y) <- bs ]
+      SS.LetBlock bs e            -> do let m = M.fromList [ (SS.Located (SS.LocalName $ SS.getVal x) (SS.getOrig x) (SS.getPos x), y) | (x, y) <- bs ]
                                         let tm' = fmap SS.typeOf m
                                         sm' <- traverse (translateExpr sc tm sm km) m
                                         translateExpr sc (M.union tm' tm) (M.union sm' sm) km e
@@ -281,6 +290,8 @@ interpret sc env@(InterpretEnv vm tm sm) expr =
                                    return (indexValue a i)
       SS.Lookup e n        _ -> do a <- interpret sc env e
                                    return (lookupValue a n)
+      SS.TLookup e i       _ -> do a <- interpret sc env e
+                                   return (tupleLookupValue a i)
       SS.Var x (SS.Forall [] t)
                              -> case M.lookup x vm of
                                   Nothing -> evaluate sc <$> translateExpr sc tm sm M.empty expr
@@ -290,7 +301,9 @@ interpret sc env@(InterpretEnv vm tm sm) expr =
                                       Just schema -> do
                                         let ts = typeInstantiation schema t
                                         foldM tapplyValue v ts
-      SS.Function x _ e    _ -> do let name = SS.LocalName x
+      SS.Var x (SS.Forall _ _) ->
+        fail $ "Can't interpret: " ++ SS.renderResolvedName (SS.getVal x)
+      SS.Function x _ e    _ -> do let name = fmap SS.LocalName x
                                    let f v Nothing = interpret sc (InterpretEnv (M.insert name v vm) tm sm) e
                                        f v (Just t) = do
                                          let vm' = M.insert name v vm
@@ -314,7 +327,7 @@ interpret sc env@(InterpretEnv vm tm sm) expr =
                                                   else return Nothing
                                             f v2 t2
                                      _ -> fail "interpret Application"
-      SS.LetBlock bs e       -> do let m = M.fromList [ (SS.LocalName x, y) | (x, y) <- bs ]
+      SS.LetBlock bs e       -> do let m = M.fromList [ (Located (SS.LocalName $ getVal x) (getOrig x) (getPos x), y) | (x, y) <- bs ]
                                    let tm' = fmap SS.typeOf m
                                    vm' <- traverse (interpretPoly sc env) m
                                    sm' <- traverse (translatePolyExpr sc tm sm) $
@@ -343,7 +356,7 @@ interpretStmts sc env@(InterpretEnv vm tm sm) stmts =
              return (v1 `thenValue` v2)
       SS.Bind (Just (x, _)) _ e : ss ->
           do v1 <- interpret sc env e
-             let name = SS.LocalName x
+             let name = fmap SS.LocalName x
              let f v Nothing = interpretStmts sc (InterpretEnv (M.insert name v vm) tm sm) ss
                  f v (Just t) = do
                    let vm' = M.insert name v vm
@@ -358,15 +371,15 @@ interpretModule
     -> InterpretEnv s -> SS.ValidModule -> IO (InterpretEnv s)
 interpretModule sc env m =
     do let mn = SS.moduleName m
-       let graph = [ ((rname, e), rname, S.toList (exprDeps e))
+       let graph = [ ((Located rname (SS.getOrig name) (SS.getPos name), e), rname, S.toList (exprDeps e))
                    | (name, e) <- M.assocs (SS.moduleExprEnv m)
-                   , let rname = SS.TopLevelName mn name ]
+                   , let rname = SS.TopLevelName mn (SS.getVal name) ]
        let sccs = stronglyConnComp graph
        foldM (interpretSCC sc) env sccs
 
 interpretSCC
     :: forall s. SharedContext s
-    -> InterpretEnv s -> SCC (SS.ResolvedName, Expression) -> IO (InterpretEnv s)
+    -> InterpretEnv s -> SCC (Located SS.ResolvedName, Expression) -> IO (InterpretEnv s)
 interpretSCC sc env@(InterpretEnv vm tm sm) scc =
     case scc of
       CyclicSCC _nodes -> fail "Unimplemented: Recursive top level definitions"
@@ -393,7 +406,8 @@ exprDeps expr =
       SS.Record bs         _ -> S.unions (map (exprDeps . snd) bs)
       SS.Index e1 e2       _ -> S.union (exprDeps e1) (exprDeps e2)
       SS.Lookup e _        _ -> exprDeps e
-      SS.Var name          _ -> S.singleton name
+      SS.TLookup e _       _ -> exprDeps e
+      SS.Var name          _ -> S.singleton (SS.getVal name)
       SS.Function _ _ e    _ -> exprDeps e
       SS.Application e1 e2 _ -> S.union (exprDeps e1) (exprDeps e2)
       SS.LetBlock bs e       -> S.unions (exprDeps e : map (exprDeps . snd) bs)
@@ -412,7 +426,7 @@ interpretModuleAtEntry :: SS.Name
                           -> IO (Value s, InterpretEnv s)
 interpretModuleAtEntry entryName sc env m =
   do interpretEnv@(InterpretEnv vm _tm _sm) <- interpretModule sc env m
-     let mainName = SS.TopLevelName (SS.moduleName m) entryName
+     let mainName = Located (SS.TopLevelName (SS.moduleName m) entryName) entryName (PosInternal "entry")
      case M.lookup mainName vm of
        Just (VIO v) -> do
          -- We've been asked to execute a 'TopLevel' action, so run it.
@@ -463,7 +477,7 @@ transitivePrimEnv :: SS.ValidModule -> RNameMap SS.Schema
 transitivePrimEnv m = M.unions (env : envs)
   where
     mn = SS.moduleName m
-    env = M.mapKeysMonotonic (SS.TopLevelName mn) (SS.modulePrimEnv m)
+    env = M.mapKeysMonotonic (\x-> Located (SS.TopLevelName mn (SS.getVal x)) (SS.getOrig x) (SS.getPos x)) (SS.modulePrimEnv m)
     envs = map transitivePrimEnv (M.elems (SS.moduleDependencies m))
 
 
@@ -486,9 +500,9 @@ valueEnv opts bic = M.fromList
   , (qualify "java_verify" , toValue $ verifyJava bic opts)
   , (qualify "java_pure"   , toValue $ javaPure)
   , (qualify "java_var"    , toValue $ javaVar bic opts)
-  -- , (qualify "java_may_alias", toValue $ javaMayAlias bic opts)
+  , (qualify "java_may_alias", toValue $ javaMayAlias bic opts)
   , (qualify "java_assert" , toValue $ javaAssert bic opts)
-  , (qualify "java_assert_eq" , toValue $ javaAssertEq bic opts)
+  --, (qualify "java_assert_eq" , toValue $ javaAssertEq bic opts)
   , (qualify "java_ensure_eq" , toValue $ javaEnsureEq bic opts)
   , (qualify "java_modify" , toValue $ javaModify bic opts)
   , (qualify "java_return" , toValue $ javaReturn bic opts)
@@ -501,17 +515,22 @@ valueEnv opts bic = M.fromList
   , (qualify "llvm_var"    , toValue $ llvmVar bic opts)
   -- , (qualify "llvm_may_alias", toValue $ llvmMayAlias bic opts)
   , (qualify "llvm_assert" , toValue $ llvmAssert bic opts)
-  , (qualify "llvm_assert_eq" , toValue $ llvmAssertEq bic opts)
+  --, (qualify "llvm_assert_eq" , toValue $ llvmAssertEq bic opts)
   , (qualify "llvm_ensure_eq" , toValue $ llvmEnsureEq bic opts)
   , (qualify "llvm_modify" , toValue $ llvmModify bic opts)
   , (qualify "llvm_return" , toValue $ llvmReturn bic opts)
   , (qualify "llvm_verify_tactic" , toValue $ llvmVerifyTactic bic opts)
   -- Generic stuff
   , (qualify "prove"       , toValue $ provePrim sc)
+  , (qualify "prove_print" , toValue $ provePrintPrim sc)
   , (qualify "sat"         , toValue $ satPrim sc)
+  , (qualify "sat_print"   , toValue $ satPrintPrim sc)
   , (qualify "empty_ss"    , toValue (emptySimpset :: Simpset (SharedTerm SAWCtx)))
   , (qualify "addsimp"     , toValue $ addsimp sc)
+  , (qualify "addsimp'"    , toValue $ addsimp' sc)
   , (qualify "rewrite"     , toValue $ rewritePrim sc)
+  , (qualify "assume_valid", toValue (assumeValid :: ProofScript SAWCtx (ProofResult SAWCtx)))
+  , (qualify "assume_unsat", toValue (assumeUnsat :: ProofScript SAWCtx (SatResult SAWCtx)))
   , (qualify "abc"         , toValue $ satABC sc)
   , (qualify "abc2"        , toValue $ satABC' sc)
   , (qualify "yices"       , toValue $ satYices sc)
@@ -530,16 +549,22 @@ valueEnv opts bic = M.fromList
   , (qualify "write_smtlib2", toValue $ writeSMTLib2 sc)
   , (qualify "write_core"   , toValue (writeCore :: FilePath -> SharedTerm SAWCtx -> IO ()))
   , (qualify "read_core"    , toValue $ readCore sc)
+  , (qualify "term"         , toValue (id :: Value SAWCtx -> Value SAWCtx))
   , (qualify "term_size"    , toValue (scSharedSize :: SharedTerm SAWCtx -> Integer))
   , (qualify "term_tree_size", toValue (scTreeSize :: SharedTerm SAWCtx -> Integer))
   , (qualify "print"       , toValue print_value)
   , (qualify "print_type"  , toValue $ print_type sc)
   , (qualify "print_term"  , toValue ((putStrLn . scPrettyTerm) :: SharedTerm SAWCtx -> IO ()))
+  , (qualify "show_term"   , toValue (scPrettyTerm :: SharedTerm SAWCtx -> String))
   , (qualify "return"      , toValue (return :: Value SAWCtx -> IO (Value SAWCtx))) -- FIXME: make work for other monads
+    {-
   , (qualify "seq"        , toValue ((>>) :: ProofScript SAWCtx (Value SAWCtx)
                                           -> ProofScript SAWCtx (Value SAWCtx)
                                           -> ProofScript SAWCtx (Value SAWCtx))) -- FIXME: temporary
+    -}
   , (qualify "define"      , toValue $ definePrim sc)
+  , (qualify "caseSatResult", toValueCase sc caseSatResultPrim)
+  , (qualify "caseProofResult", toValueCase sc caseProofResultPrim)
   ] where sc = biSharedContext bic
 
 coreEnv :: SharedContext s -> IO (RNameMap (SharedTerm s))
@@ -555,6 +580,7 @@ coreEnv sc =
     , (qualify "disj"       , "Prelude.or")
     , (qualify "ite"        , "Prelude.ite")
     , (qualify "eq"         , "Prelude.eq")
+    , (qualify "bvEq"       , "Prelude.bvEq")
     , (qualify "bvNot"      , "Prelude.bvNot")
     , (qualify "bvXor"      , "Prelude.bvXor")
     , (qualify "bvOr"       , "Prelude.bvOr")
@@ -565,9 +591,14 @@ coreEnv sc =
     , (qualify "bvult"      , "Prelude.bvult")
     , (qualify "bvuge"      , "Prelude.bvuge")
     , (qualify "bvugt"      , "Prelude.bvugt")
+    , (qualify "bvsle"      , "Prelude.bvsle")
+    , (qualify "bvslt"      , "Prelude.bvslt")
+    , (qualify "bvsge"      , "Prelude.bvsge")
+    , (qualify "bvsgt"      , "Prelude.bvsgt")
     , (qualify "get"        , "Prelude.get")
     , (qualify "set"        , "Prelude.set")
     , (qualify "finval"     , "Prelude.mkFinVal")
+    , (qualify "reverse"    , "Prelude.reverse")
     -- Java things
     , (qualify "java_bool"  , "Java.mkBooleanType")
     , (qualify "java_byte"  , "Java.mkByteType")
@@ -581,7 +612,9 @@ coreEnv sc =
     , (qualify "java_class" , "Java.mkClassType")
     , (qualify "java_value" , "Java.mkValue")
     , (qualify "ec_join"    , "Java.ecJoin")
+    , (qualify "ec_join768" , "Java.ecJoin768")
     , (qualify "ec_split"   , "Java.ecSplit")
+    , (qualify "ec_split768", "Java.ecSplit768")
     , (qualify "ec_extend"  , "Java.ecExtend")
     , (qualify "long_extend", "Java.longExtend")
     -- LLVM things
@@ -590,7 +623,8 @@ coreEnv sc =
     , (qualify "llvm_double", "LLVM.mkDoubleType")
     , (qualify "llvm_array" , "LLVM.mkArrayType")
     , (qualify "llvm_value",  "LLVM.mkValue")
+    , (qualify "trunc31"    , "LLVM.trunc31")
     ]
 
-qualify :: String -> SS.ResolvedName
-qualify s = SS.TopLevelName (SS.ModuleName [] "Prelude") s
+qualify :: String -> Located SS.ResolvedName
+qualify s = Located (SS.TopLevelName (SS.ModuleName [] "Prelude") s) s (PosInternal "coreEnv")

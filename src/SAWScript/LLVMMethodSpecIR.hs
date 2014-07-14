@@ -14,20 +14,16 @@ Point-of-contact : atomb
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module SAWScript.LLVMMethodSpecIR 
-  ( LLVMSetup
-  , LLVMSetupState(..)
-    -- * MethodSpec record
-  , LLVMMethodSpecIR
+  ( -- * MethodSpec record
+    LLVMMethodSpecIR
   , specName
   , specPos
   , specCodebase
   , specFunction
   , specBehavior
-  , specValidationPlan
   , specAddBehaviorCommand
   , specAddVarDecl
   , specAddLogicAssignment
-  , specSetVerifyTactic
   , specLLVMExprNames
   , initLLVMMethodSpec
     -- * Method behavior.
@@ -35,58 +31,26 @@ module SAWScript.LLVMMethodSpecIR
   , bsLoc
   , bsExprs
   , bsPtrExprs
-  , bsActualTypeMap
-  , bsLogicAssignments
+  , bsExprDecls
   , BehaviorCommand(..)
   , bsCommands
-  , ValidationPlan(..)
   ) where
 
 -- Imports {{{1
 
-import Control.Applicative
-import Control.Monad
 import Control.Monad.State
-import Data.Graph.Inductive (scc, Gr, mkGraph)
-import Data.List (sort)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe (isJust, catMaybes)
-import Data.Set (Set)
-import qualified Data.Set as Set
 import Data.String
-import qualified Data.Vector as V
 import Text.PrettyPrint.Leijen hiding ((<$>))
 
 import qualified Verifier.LLVM.Codebase as LSS
 import Verifier.LLVM.Backend.SAW
 
-import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm
-import Verifier.SAW.TypedAST
 
-import Verinf.Symbolic as L
-
-import qualified SAWScript.CongruenceClosure as CC
-import SAWScript.CongruenceClosure (CCSet)
 import SAWScript.LLVMExpr
 import SAWScript.Utils
-import SAWScript.Proof
-
--- Integration with SAWScript
-
-data LLVMSetupState
-  = LLVMSetupState {
-      lsSpec :: LLVMMethodSpecIR
-    , lsContext :: SharedContext LSSCtx
-    }
-
-type LLVMSetup a = StateT LLVMSetupState IO a
-
--- ExprActualTypeMap {{{1
-
--- | Maps LLVM expressions for references to actual type.
-type ExprActualTypeMap = Map LLVMExpr LLVMActualType
 
 {-
 -- Alias definitions {{{1
@@ -122,17 +86,15 @@ data BehaviorCommand
 data BehaviorSpec = BS {
          -- | Program counter for spec.
          bsLoc :: LSS.SymBlockID
-         -- | Maps all expressions seen along path to actual type.
-       , bsActualTypeMap :: ExprActualTypeMap
-         -- | Equations
-       , bsLogicAssignments :: Map LLVMExpr (Maybe LogicExpr)
+         -- | Declared LLVM expressions, with types and maybe initial values.
+       , bsExprDecls :: Map LLVMExpr (LLVMActualType, Maybe LogicExpr)
          -- | Commands to execute in reverse order.
        , bsReversedCommands :: [BehaviorCommand]
        }
 
 -- | Returns list of all LLVM expressions that are not pointers.
 bsExprs :: BehaviorSpec -> [LLVMExpr]
-bsExprs bs = Map.keys (bsActualTypeMap bs)
+bsExprs bs = Map.keys (bsExprDecls bs)
 
 -- | Returns list of all LLVM expressions that are pointers.
 bsPtrExprs :: BehaviorSpec -> [LLVMExpr]
@@ -250,7 +212,7 @@ bsAddCommand :: BehaviorCommand -> BehaviorSpec -> BehaviorSpec
 bsAddCommand bc bs =
   bs { bsReversedCommands = bc : bsReversedCommands bs }
 
-type Backend = SAWBackend LSSCtx L.Lit
+type Backend = SAWBackend LSSCtx
 
 initLLVMMethodSpec :: Pos -> LSS.Codebase Backend -> String
                    -> LLVMMethodSpecIR
@@ -258,8 +220,7 @@ initLLVMMethodSpec pos cb symname =
   let sym = fromString symname
       Just def = LSS.lookupDefine sym cb
       initBS = BS { bsLoc = LSS.sdEntry def
-                  , bsActualTypeMap = Map.empty
-                  , bsLogicAssignments = Map.empty
+                  , bsExprDecls = Map.empty
                   , bsReversedCommands = []
                   }
       initMS = MSIR { specPos = pos
@@ -267,17 +228,8 @@ initLLVMMethodSpec pos cb symname =
                     , specFunction = sym
                     , specLLVMExprNames = Map.empty
                     , specBehavior = initBS
-                    , specValidationPlan = Skip
                     }
   in initMS
-
--- resolveValidationPlan {{{1
-
--- The ProofScript in RunVerify is in the SAWScript context, and
--- should stay there.
-data ValidationPlan
-  = Skip
-  | RunVerify (ProofScript SAWCtx ProofResult)
 
 -- MethodSpecIR {{{1
 
@@ -288,11 +240,9 @@ data LLVMMethodSpecIR = MSIR {
     -- | Function to verify.
   , specFunction :: LSS.Symbol
     -- | Mapping from user-visible LLVM state names to LLVMExprs
-  , specLLVMExprNames :: Map String LLVMExpr
+  , specLLVMExprNames :: Map String (LLVMActualType, LLVMExpr)
     -- | Behavior specification for method.
   , specBehavior :: BehaviorSpec
-    -- | Describes how the method is expected to be validated.
-  , specValidationPlan :: ValidationPlan
   }
 
 -- | Return user printable name of method spec (currently the class +
@@ -302,24 +252,27 @@ specName = LSS.ppSymbol . specFunction
 
 specAddVarDecl :: Pos -> String -> LLVMExpr -> LLVMActualType
                -> LLVMMethodSpecIR -> LLVMMethodSpecIR
-specAddVarDecl pos name expr lt ms = ms { specBehavior = bs'
+specAddVarDecl _pos name expr lt ms = ms { specBehavior = bs'
                                         , specLLVMExprNames = ns' }
   where bs = specBehavior ms
-        las = bsLogicAssignments bs
-        bs' = bs { bsActualTypeMap =
-                     Map.insert expr lt (bsActualTypeMap bs)
-                 , bsLogicAssignments =
-                     Map.insert expr Nothing las
+        bs' = bs { bsExprDecls =
+                     Map.insert expr (lt, Nothing) (bsExprDecls bs)
                  }
-        ns' = Map.insert name expr (specLLVMExprNames ms)
+        ns' = Map.insert name (lt, expr) (specLLVMExprNames ms)
 
+-- TODO: fix up error handling for this function
 specAddLogicAssignment :: Pos -> LLVMExpr -> LogicExpr
                        -> LLVMMethodSpecIR -> LLVMMethodSpecIR
-specAddLogicAssignment pos expr t ms = ms { specBehavior = bs' }
+specAddLogicAssignment _pos expr t ms = ms { specBehavior = bs' }
   where bs = specBehavior ms
-        las = bsLogicAssignments bs
-        bs' = bs { bsLogicAssignments =
-                     Map.insert expr (Just t) las }
+        eds = bsExprDecls bs
+        eds' = case Map.lookup expr eds of
+                 Just (at, Nothing) -> Map.insert expr (at, Just t) eds
+                 Just (_, Just _) ->
+                   error $ "assignment already given for " ++ show expr
+                 Nothing ->
+                   error $ "assignment for undeclared variable " ++ show expr
+        bs' = bs { bsExprDecls = eds' }
 
 {-
 specAddAliasSet :: [LLVMExpr] -> LLVMMethodSpecIR -> LLVMMethodSpecIR
@@ -332,7 +285,3 @@ specAddBehaviorCommand :: BehaviorCommand
                        -> LLVMMethodSpecIR -> LLVMMethodSpecIR
 specAddBehaviorCommand bc ms =
   ms { specBehavior = bsAddCommand bc (specBehavior ms) }
-
-specSetVerifyTactic :: ProofScript SAWCtx ProofResult
-                    -> LLVMMethodSpecIR -> LLVMMethodSpecIR
-specSetVerifyTactic script ms = ms { specValidationPlan = RunVerify script }

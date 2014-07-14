@@ -14,17 +14,17 @@ sety_spec = do {
     java_verify_tactic abc;
 };
 
-clearx_spec : JavaSetup ();
-clearx_spec = do {
+unitx_spec : JavaSetup ();
+unitx_spec = do {
     java_var "this.x" java_int;
-    java_ensure_eq "this.x" (0 : [32]);
+    java_ensure_eq "this.x" (1 : [32]);
     java_verify_tactic abc;
 };
 
-cleary_spec : JavaSetup ();
-cleary_spec = do {
+unity_spec : JavaSetup ();
+unity_spec = do {
     java_var "this.y" java_long;
-    java_ensure_eq "this.y" (0 : [64]);
+    java_ensure_eq "this.y" (1 : [64]);
     java_verify_tactic abc;
 };
 
@@ -32,7 +32,7 @@ main : TopLevel ();
 main = do {
     ms_setx <- java_verify "Fields" "setx" [] setx_spec;
     ms_sety <- java_verify "Fields" "sety" [] sety_spec;
-    ms_clearx <- java_verify "Fields" "clearx" [] clearx_spec;
-    ms_cleary <- java_verify "Fields" "cleary" [] cleary_spec;
+    ms_unitx <- java_verify "Fields" "unitx" [] unitx_spec;
+    ms_unity <- java_verify "Fields" "unity" [] unity_spec;
     print "Done.";
 };
