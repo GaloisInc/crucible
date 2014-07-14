@@ -48,6 +48,7 @@ data Pos = Pos !FilePath -- file
                !Int      -- line
                !Int      -- col
          | PosInternal String
+         | PosREPL
   deriving (Eq)
 
 endPos :: FilePath -> Pos
@@ -65,21 +66,24 @@ fmtPoss ps m = "[" ++ intercalate ",\n " (map show ps) ++ "]:\n" ++ m'
 posRelativeToCurrentDirectory :: Pos -> IO Pos
 posRelativeToCurrentDirectory (Pos f l c)     = makeRelativeToCurrentDirectory f >>= \f' -> return (Pos f' l c)
 posRelativeToCurrentDirectory (PosInternal s) = return $ PosInternal s
+posRelativeToCurrentDirectory PosREPL = return PosREPL
 
 posRelativeTo :: FilePath -> Pos -> Pos
 posRelativeTo d (Pos f l c)     = Pos (makeRelative d f) l c
 posRelativeTo _ (PosInternal s) = PosInternal s
+posRelativeTo _ PosREPL = PosREPL
 
 routePathThroughPos :: Pos -> FilePath -> FilePath
 routePathThroughPos (Pos f _ _) fp
   | isAbsolute fp = fp
   | True          = takeDirectory f </> fp
-routePathThroughPos (PosInternal _) fp = fp
+routePathThroughPos _ fp = fp
 
 instance Show Pos where
-  show (Pos f 0 0)     = show f ++ ":end-of-file"
-  show (Pos f l c)     = show f ++ ":" ++ show l ++ ":" ++ show c
+  show (Pos f 0 0)     = f ++ ":end-of-file"
+  show (Pos f l c)     = f ++ ":" ++ show l ++ ":" ++ show c
   show (PosInternal s) = "[internal:" ++ s ++ "]"
+  show PosREPL = "REPL"
 
 data SSMode = Verify | Blif | CBlif deriving (Eq, Show, Data, Typeable)
 
@@ -246,7 +250,7 @@ allEqual sc ((t, t'):ts) = do
   andFn eq r
 
 scRemoveBitvector :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
-scRemoveBitvector sc tm = do 
+scRemoveBitvector sc tm = do
   rules <- scDefRewriteRules sc def
   tm' <- rewriteSharedTerm sc (addRules rules emptySimpset) tm
   return tm'

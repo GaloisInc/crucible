@@ -5,12 +5,16 @@
 module SAWScript.AST where
 
 import SAWScript.Unify hiding (pretty)
+import SAWScript.Token
+import SAWScript.Utils
 
 import Data.List
 import qualified Data.Map as M
+import Control.Arrow
 
 import Data.Foldable (Foldable)
 import qualified Data.Traversable as T
+import Data.Traversable (Traversable)
 import System.FilePath (joinPath,splitPath,dropExtension)
 import qualified Text.PrettyPrint.Leijen as PP
 
@@ -87,12 +91,14 @@ renderResolvedName rn = case rn of
   LocalName n                       -> show n
 
 type Bind a = (Name,a)
+type LBind a = (LName, a)
 onBind :: (a -> b) -> Bind a -> Bind b
 onBind f (n,a) = (n,f a)
 onBinds :: (a -> b) -> [Bind a] -> [Bind b]
 onBinds = map . onBind
 
 type Env a       = M.Map Name a
+type LEnv a      = M.Map LName a
 type ModuleEnv a = M.Map ModuleName a
 
 singletonEnv :: Name -> a -> Env a
@@ -100,6 +106,9 @@ singletonEnv = M.singleton
 
 lookupEnv :: Name -> Env a -> Maybe a
 lookupEnv = M.lookup
+
+lookupLEnv :: LName -> LEnv a -> Maybe a
+lookupLEnv = M.lookup
 
 memberEnv :: Name -> Env a -> Bool
 memberEnv = M.member
@@ -119,9 +128,9 @@ insertEnv = M.insert
 
 data Module refT exprT typeT = Module
   { moduleName         :: ModuleName
-  , moduleExprEnv      :: Env (Expr refT exprT)
-  , modulePrimEnv      :: Env exprT
-  , moduleTypeEnv      :: Env typeT
+  , moduleExprEnv      :: LEnv (Expr refT exprT)
+  , modulePrimEnv      :: LEnv exprT
+  , moduleTypeEnv      :: LEnv typeT
   , moduleDependencies :: ModuleEnv ValidModule
   } deriving (Eq,Show)
 
@@ -134,17 +143,35 @@ type ValidModule = Module ResolvedName Schema ResolvedT
 
 -- Expr Level {{{
 
+data Located a = Located { getVal :: a, getOrig :: Name, getPos :: Pos } deriving (Functor, Foldable, Traversable)
+instance Show (Located a) where
+  show (Located _ v p) = show v ++ " (" ++ show p ++ ")"
+
+type LName = Located Name
+
+instance Eq a => Eq (Located a) where
+  a == b = getVal a == getVal b
+
+instance Ord a => Ord (Located a) where
+  compare a b = compare (getVal a) (getVal b)
+
+toLName :: Token Pos -> LName
+toLName p = Located (tokStr p) (tokStr p) (tokPos p)
+
+toNameDec :: (LName, a) -> (Name, a)
+toNameDec = first getVal
+
 type TopStmtSimple   = TopStmt   UnresolvedName
 type ExprSimple      = Expr      UnresolvedName
 type BlockStmtSimple = BlockStmt UnresolvedName
 
 data TopStmt refT typeT
   = Import      ModuleName (Maybe [Name])    (Maybe Name)
-  | TypeDef     Name       RawSigT
-  | TopTypeDecl Name       RawSigT
-  | AbsTypeDecl Name
-  | TopBind     Name       (Expr refT typeT)
-  | Prim        Name       RawT
+  | TypeDef     LName       RawSigT
+  | TopTypeDecl LName       RawSigT
+  | AbsTypeDecl LName
+  | TopBind     LName       (Expr refT typeT)
+  | Prim        LName       RawT
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
 {-
@@ -170,18 +197,18 @@ data Expr refT typeT
   | Lookup (Expr refT typeT) Name              typeT
   | TLookup (Expr refT typeT) Integer          typeT
   -- LC
-  | Var         refT  typeT
-  | Function    Name  typeT       (Expr refT typeT) typeT
+  | Var         (Located refT)  typeT
+  | Function    LName  typeT       (Expr refT typeT) typeT
   | Application (Expr refT typeT) (Expr refT typeT) typeT
   -- Sugar
-  | LetBlock [Bind (Expr refT typeT)] (Expr refT typeT)
+  | LetBlock [LBind (Expr refT typeT)] (Expr refT typeT)
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
 data BlockStmt refT typeT
  -- Bind          bind var         context   expr
-  = Bind          (Maybe (Bind typeT))     typeT     (Expr refT typeT)
-  | BlockTypeDecl Name             typeT  
-  | BlockLet      [(Name,Expr refT typeT)]
+  = Bind          (Maybe (LBind typeT))     typeT     (Expr refT typeT)
+  | BlockTypeDecl Name             typeT
+  | BlockLet      [(LName,Expr refT typeT)]
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
 -- }}}
@@ -217,7 +244,7 @@ data ContextF typeT
   | TopLevelContext
   deriving (Eq,Show,Functor,Foldable,T.Traversable)
 
-data Syn typeF = Syn Name
+data Syn typeF = Syn LName
   deriving (Show,Functor,Foldable,T.Traversable)
 
 data Context
@@ -236,12 +263,12 @@ data Type
   = TyCon TyCon [Type]
   | TyRecord (M.Map Name Type)
   | TyVar TyVar
- deriving (Eq,Show) 
+ deriving (Eq,Show)
 
 data TyVar
   = FreeVar Integer
   | BoundVar Name
- deriving (Eq,Ord,Show) 
+ deriving (Eq,Ord,Show)
 
 data TyCon
  = TupleCon Integer
@@ -254,7 +281,7 @@ data TyCon
  | BlockCon
  | ContextCon Context
  | AbstractCon String
- deriving (Eq,Show) 
+ deriving (Eq,Show)
 
 data Schema = Forall [Name] Type deriving (Eq, Show)
 
@@ -327,7 +354,7 @@ instance PrettyPrint (Module refT exprT typeT) where
   pretty par m = pretty par (moduleName m)
 
 replicateDoc :: Integer -> PP.Doc -> PP.Doc
-replicateDoc n d 
+replicateDoc n d
   | n < 1 = PP.empty
   | True  = d PP.<> replicateDoc (n-1) d
 
@@ -383,7 +410,7 @@ tAbstract :: Name -> Type
 tAbstract n = TyCon (AbstractCon n) []
 
 boundVar :: Name -> Type
-boundVar n = TyVar (BoundVar n) 
+boundVar n = TyVar (BoundVar n)
 
 -- }}}
 
@@ -528,7 +555,7 @@ satResultContext = inject SatResultContext
 topLevelContext     :: (ContextF :<: f) => Mu f
 topLevelContext = inject TopLevelContext
 
-syn :: (Syn :<: f) => String -> Mu f
+syn :: (Syn :<: f) => LName -> Mu f
 syn n = inject $ Syn n
 
 i :: (I :<: f) => Integer -> Mu f
@@ -655,7 +682,7 @@ class (Functor f) => CapturePVars f where
 
 instance (CapturePVars f, CapturePVars g) => CapturePVars (f :+: g) where
   capturePVarsF ns t = case t of
-    Inl e -> capturePVarsF ns e 
+    Inl e -> capturePVarsF ns e
     Inr e -> capturePVarsF ns e
 
 instance CapturePVars TypeF where
@@ -669,8 +696,8 @@ instance CapturePVars TypeF where
     _ -> inject t
 
 instance CapturePVars Syn where
-  capturePVarsF ns (Syn n) = if n `elem` ns
-    then pVar n
+  capturePVarsF ns (Syn n) = if getVal n `elem` ns
+    then pVar (getVal n)
     else syn n
 
 instance CapturePVars I where
@@ -680,4 +707,3 @@ instance CapturePVars ContextF where
   capturePVarsF _ = inject
 
 -- }}}
-
