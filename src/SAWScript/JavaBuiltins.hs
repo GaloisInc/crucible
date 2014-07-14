@@ -23,6 +23,7 @@ import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.Java.Simulator as JSS
 import qualified Verifier.Java.SAWBackend as JSS
 
+import qualified Verifier.SAW.Evaluator as EV
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST hiding (instantiateVarList)
 
@@ -132,6 +133,7 @@ verifyJava bic opts cname mname overrides setup = do
         putStrLn "Verifying the following:"
         mapM_ (print . ppPathVC) res
       let prover script vs g = do
+            -- scTypeCheck jsc g
             glam <- bindExts jsc initialExts g
             let bsc = biSharedContext bic
             glam' <- scNegate bsc =<< scImport bsc glam
@@ -143,12 +145,14 @@ verifyJava bic opts cname mname overrides setup = do
                 putStrLn $ "When verifying " ++ specName ms ++ ":"
                 putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
                 putStrLn $ "Counterexample: " ++ show val
+                showCexResults jsc vs [val]
                 fail "Proof failed."
               SS.SatMulti vals -> do
                 putStrLn $ "When verifying " ++ specName ms ++ ":"
                 putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
                 putStrLn $ "Counterexample:"
                 mapM_ (\(n, v) -> putStrLn ("  " ++ n ++ ": " ++ show v)) vals
+                showCexResults jsc vs (map snd vals)
                 fail "Proof failed."
       case jsTactic jsctx of
         Skip -> liftIO $ putStrLn $
@@ -157,6 +161,24 @@ verifyJava bic opts cname mname overrides setup = do
           liftIO $ runValidation (prover script) vp jsc esd res
   putStrLn $ "Successfully verified " ++ specName ms ++ overrideText
   return ms
+
+showCexResults :: SharedContext JSSCtx -> VerifyState -> [Value SAWCtx]
+               -> IO ()
+showCexResults sc vs vals =
+  vsCounterexampleFn vs (cexEvalFn sc vals) >>= print
+
+-- | Apply the given SharedTerm to the given values, and evaluate to a
+-- final value.
+cexEvalFn :: SharedContext JSSCtx -> [Value SAWCtx] -> SharedTerm JSSCtx
+          -> IO EV.Value
+cexEvalFn sc args tm = do
+  args' <- mapM (SS.exportSharedTerm sc) args
+  let argMap = Map.fromList (zip [0..] args')
+      eval = EV.evalGlobal (scModule sc) EV.preludePrims
+  tm' <- scInstantiateExt sc argMap tm
+  --ty <- scTypeCheck sc tm'
+  --putStrLn $ "Type of cex eval term: " ++ show ty
+  return $ EV.evalSharedTerm eval tm'
 
 parseJavaExpr :: JSS.Codebase -> JSS.Class -> JSS.Method -> String
               -> IO JavaExpr
