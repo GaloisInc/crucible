@@ -252,17 +252,17 @@ satABC' sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
   t' <- rewriteSharedTerm sc ss t
   let (args, _) = asLambdaList t'
       argNames = map fst args
-  putStrLn "Simulating..."
+  -- putStrLn "Simulating..."
   (shapes, lit) <- BBSim.bitBlast be sc t'
-  putStrLn "Checking..."
+  -- putStrLn "Checking..."
   satRes <- AIG.checkSat be lit
   case satRes of
     AIG.Unsat -> do
-      putStrLn "UNSAT"
+      -- putStrLn "UNSAT"
       ft <- scApplyPreludeFalse sc
       return (SV.Unsat, g { goalTerm = ft })
     AIG.Sat cex -> do
-      putStrLn "SAT"
+      -- putStrLn "SAT"
       r <- liftCexBB sc (map convert shapes) cex
       tt <- scApplyPreludeTrue sc
       case r of
