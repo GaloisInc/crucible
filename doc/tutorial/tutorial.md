@@ -6,15 +6,15 @@
 Introduction
 ============
 
-The SAWScript language is a special-purpose programming language
-developed by Galois to help orchestrate and track the results of the
-large collection of proof tools necessary for analysis and
-verification of complex software artifacts.
+SAWScript is a special-purpose programming language developed by
+Galois to help orchestrate and track the results of the large
+collection of proof tools necessary for analysis and verification of
+complex software artifacts.
 
 The language adopts the functional paradigm, and largely follows the
-structure of many other functional languages, with some special
-features specifically targeted at the coordination of verification
-tasks.
+structure of many other typed functional languages, with some special
+features specifically targeted at the coordination of verification and
+analysis tasks.
 
 This tutorial introduces the details of the language by walking
 through several examples, and showing how simple verification tasks
@@ -188,12 +188,6 @@ are satisfiability solvers, negating the input term allows us to
 interpret a result of "unsatisfiable" from the solver as an indication
 of the validity of the term.
 
-At the moment, SMT-Lib version 1 is best supported, though version 2
-is implemented for a smaller number of primitives. Writing SMT-Lib
-files tends to work well only with terms constructed from LLVM or SBV
-input files. The JVM simulator and AIG reading code construct terms
-including primitives that the SMT-Lib exporter doesn't yet support.
-
 Compositional Proofs
 ====================
 
@@ -261,3 +255,127 @@ Improved Support for Manipulating Formal Models
 
   * Applying formal models automatically to a large collection of
     randomly-generated concrete arguments.
+
+Reference
+=========
+
+Importing External Models
+-------------------------
+
+`read_aig`
+`read_sbv`
+`read_core`
+
+Exporting SAWCore Models
+------------------------
+
+`write_aig`
+`write_smtlib1`
+`write_smtlib2`
+`write_core`
+
+Constructing Model Terms
+------------------------
+
+```
+reverse            : {n, a} [n]a -> [n]a;
+
+eq                 : {a} a -> a -> Bit;
+ite                : {a} Bit -> a -> a -> a;
+
+not                : Bit -> Bit;
+conj               : Bit -> Bit -> Bit;
+disj               : Bit -> Bit -> Bit;
+
+get                : {n, a} [n]a -> Fin -> a;
+set                : {n, a} [n]a -> Fin -> a -> [n]a;
+
+bvEq               : {n} [n] -> [n] -> Bit;
+bvNot              : {n} [n] -> [n];
+bvAdd              : {n} [n] -> [n] -> [n];
+bvSub              : {n} [n] -> [n] -> [n];
+bvMul              : {n} [n] -> [n] -> [n];
+bvAnd              : {n} [n] -> [n] -> [n];
+bvOr               : {n} [n] -> [n] -> [n];
+bvXor              : {n} [n] -> [n] -> [n];
+bvShl              : {n} [n] -> Int -> [n];
+bvShr              : {n} [n] -> Int -> [n];
+
+bvuge              : {n} [n] -> [n] -> Bit;
+bvugt              : {n} [n] -> [n] -> Bit;
+bvule              : {n} [n] -> [n] -> Bit;
+bvult              : {n} [n] -> [n] -> Bit;
+bvsge              : {n} [n] -> [n] -> Bit;
+bvsgt              : {n} [n] -> [n] -> Bit;
+bvsle              : {n} [n] -> [n] -> Bit;
+bvslt              : {n} [n] -> [n] -> Bit;
+
+finval             : Int -> Int -> Fin;
+
+join               : {m, n, o, a} [m][n]a -> [o]a;
+split              : {m, n, o, a} [m]a -> [n][o]a;
+trunc              : {m, n} Int -> [m] -> [n];
+sext               : {m, n} Int -> [m] -> [n];
+uext               : {m, n} Int -> [m] -> [n];
+```
+
+Running Provers
+---------------
+
+`prove`
+`prove_print`
+`sat`
+`sat_print`
+
+`caseProofResult`
+`caseSatResult`
+
+`simplify`
+`print_goal`
+`unfolding`
+
+`abc`
+`yices`
+
+TODO: implement the following
+`cnf_solver`
+`qbf_solver`
+`smtlib1_solver`
+`smtlib2_solver`
+
+Extracting Models from Programs
+-------------------------------
+
+**Cryptol**
+
+`cryptol_module`
+`cryptol_extract`
+
+**Java**
+
+**LLVM**
+
+**Extra Proof Tactics**
+
+`offline_aig`
+`offline_smtlib1`
+`offline_smtlib2`
+`offline_extcore`
+
+Transforming Models
+-------------------
+
+`rewrite`
+`empty_ss`
+`basic_ss`
+`addsimp`
+
+Miscellaneous
+-------------
+
+`print`
+`print_term`
+`print_type`
+`show_term`
+`term_size`
+`term_tree_size`
