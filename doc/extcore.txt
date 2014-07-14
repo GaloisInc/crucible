@@ -15,7 +15,7 @@ The `print_term` command pretty prints the representation of
 `excluded_middle` as a term in the core language.
 
 ```
-\(x1::Prelude.Bool) -> Prelude.or x1 (Prelude.not x1)
+\(x::Prelude.Bool) -> Prelude.or x (Prelude.not x)
 ```
 
 The `write_core` command outputs a file in a more easily
@@ -26,12 +26,12 @@ the `read_core` command.)
 SAWCoreTerm 8
 1 Data Prelude.Bool
 2 Global Prelude.or
-3 Var 0 1
+3 Var 0
 4 App 2 3
 5 Global Prelude.not
 6 App 5 3
 7 App 4 6
-8 Lam x1 1 7
+8 Lam x 1 7
 ```
 
 An `extcore` file encodes a single term of the core language by
@@ -49,6 +49,10 @@ First is the new index to be defined, then a keyword indicating what
 kind of term, and finally a sequence of tokens (the number and type of
 which determined by the keyword). Each line can refer to any
 previously defined index.
+
+In the following table, angle brackets enclose descriptions of each
+argument. Parentheses and asterisks are used to describe patterns of
+valid arguments, and will not show up in files.
 
 Form                                                     Description
 -----------------------------------------------------    -----------
@@ -69,9 +73,9 @@ Form                                                     Description
 `Sort <integer literal>`                                 Sort
 `Nat <integer literal>`                                  Non-negative integer literal
 `Array <index(type)> <index(element)>*`                  Array value (e.g. `[1, 2, 3]`)
-`Float <float literal>`                                  Literal of type Float
-`Double <double literal>`                                Literal of type Double
-`String <string literal>`                                Literal of type String
+`Float <float literal>`                                  Literal of type `Float`
+`Double <double literal>`                                Literal of type `Double`
+`String <string literal>`                                Literal of type `String`
 
 The following sections describe each of these keywords in more detail.
 
@@ -221,7 +225,43 @@ to add two 8-bit bit vector arguments, could be restructured to use
 Custom Data Types
 =================
 
-TODO: describe Ctor, Data
+Several built-in data types, such as records and tuples, have
+dedicated syntax within the language. Other data types, however,
+including vectors and booleans, are defined as a set of type
+constructors and data constructors.
+
+Type constructors, including `Vec` and `Bool`, take zero or more
+arguments inline (i.e., they are not applied with the `App` form), and
+create a node corresponding to a data type. The `Bool` type
+constructor takes no arguments, while the `Vec` constructor takes two,
+a natural number representing its size followed by the type index of
+its elements.
+
+To create a value of a type specified by one of these type
+constructors, apply one of the zero or more data constructors
+associated with the type. Each data constructor may take zero or more
+arguments.
+
+Boolean values (corresponding to type constructor `Bool`) can be
+constructed with the two data constructors `True` and `False`, both of
+which take zero arguments.
+
+Values of vector type can be constructed in two ways. The built-in form
+`Array` takes a type index (corresponding to the element type) as its
+first argument, followed by a sequence of element expression indices.
+
+Alternatively, vector values can be constructed piece-by-piece using
+the two data constructors:
+
+  * `EmptyVec` which takes a type as an argument and produces a vector
+    with zero elements of that type, and
+
+  * `ConsVec` which takes a type, a value, a size, and an existing
+    vector of that given size, and produces a new vector of size one
+    larger, with the given element value at the beginning.
+
+Other type and data constructors exist in the SAWCore prelude, but
+they rarely occur in terms exported for analysis by third-party tools.
 
 Dependent Types
 ===============
@@ -239,12 +279,12 @@ the `Prelude` prefix, for brevity and readability.
 
 Prelude types:
 
-Name             Kind
-----             ----
+Name             Kind               Comments
+----             ----               --------
 `Bool`           `Type`
 `Nat`            `Type`
-`bitvector`      `Nat -> Type`
-`Vec`            `Type -> Type`
+`bitvector`      `Nat -> Type`      Abbreviation for `Vec n Bool`
+`Vec`            `Nat -> Type -> Type`
 `String`         `Type`
 
 Prelude boolean functions:
