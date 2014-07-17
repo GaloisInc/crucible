@@ -1,10 +1,13 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverlappingInstances #-}
+{-# LANGUAGE TupleSections #-}
 module SAWScript.Value where
 
+import Control.Applicative
 import Control.Monad.IO.Class ( liftIO )
 import Control.Monad.State ( StateT(..) )
+import Data.Bits
 import Data.List ( intersperse )
 import qualified Data.Map as M
 import Data.Map ( Map )
@@ -247,6 +250,47 @@ exportValue val =
       VProofResult {} -> error "VProofResult unsupported"
       VSatResult {} -> error "VSatResult unsupported"
       -- VAIG {} -> error "VAIG unsupported" -- TODO: could be implemented
+
+exportSharedTerm :: SharedContext s -> Value s' -> IO (SharedTerm s)
+exportSharedTerm sc val =
+    case val of
+      VBool b -> scBool sc b
+      VString s -> scString sc s
+      VInteger n -> scNat sc (fromIntegral n)
+      VWord w x -> do
+        let v = V.generate w (\i -> fromValue (toValue (testBit x (w - 1 - i))))
+        bt <- scBoolType sc
+        tms <- mapM (scBool sc) (V.toList v)
+        scVector sc bt tms
+      VArray [] -> error "exportSharedTerm (VArray [])"
+      VArray vs@(v:_) -> do
+        t <- exportSharedTerm sc v
+        ty <- scTypeOf sc t
+        scVector sc ty =<< mapM (exportSharedTerm sc) vs
+      VTuple vs -> scTuple sc =<< mapM (exportSharedTerm sc) vs
+      VRecord vm -> do
+        vm' <- mapM (\(n, v) -> (n,) <$> exportSharedTerm sc v) (M.toList vm)
+        scRecord sc (M.fromList vm')
+      VCtorApp s vs ->
+        scCtorApp sc (parseIdent s) =<< mapM (exportSharedTerm sc) vs
+      VFun f -> error "exportSharedTerm VFun"
+      VFunTerm {} -> error "exportSharedTerm VFunTerm"
+      VFunType {} -> error "exportSharedTerm VFunType"
+      VLambda {} -> error "exportSharedTerm VLambda"
+      VTLambda {} -> error "exportSharedTerm VTLambda"
+      VTerm {} -> error "exportSharedTerm VTerm"
+      VIO {} -> error "exportSharedTerm VIO"
+      VSimpset {} -> error "exportSharedTerm VSimpset"
+      VProofScript {} -> error "exportSharedTerm VProofScript"
+      VTheorem {} -> error "exportSharedTerm VTheorem"
+      VJavaSetup {} -> error "exportSharedTerm VJavaSetup"
+      VLLVMSetup {} -> error "exportSharedTerm VLLVMSetup"
+      VJavaMethodSpec {} -> error "exportSharedTerm VJavaMethodSpec"
+      VLLVMMethodSpec {} -> error "exportSharedTerm VLLVMMethodSpec"
+      VCryptolModuleEnv {} -> error "exportSharedTerm CryptolModuleEnv"
+      VProofResult {} -> error "exportSharedTerm VProofResult"
+      VSatResult {} -> error "exportSharedTerm VSatResult"
+      -- VAIG {} -> error "exportSharedTerm VAIG" -- TODO: could be implemented
 
 -- The ProofScript in RunVerify is in the SAWScript context, and
 -- should stay there.

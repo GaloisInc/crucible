@@ -176,18 +176,18 @@ InfixOp :: { LName }
  | '>>'           { Located "bvShr" "bvShr"     (tokPos $1)                  }
  | '&'            { Located "bvAnd" "bvAnd"     (tokPos $1)                  }
  | '^'            { Located "bvXor" "bvXor"     (tokPos $1)                  }
- | '|'            { Located "bvOr" "bvOr"      (tokPos $1)                  }
- | '@'            { Located "index" "index"     (tokPos $1)                  }
- | '#'            { Located "concat" "concat"    (tokPos $1)                  }
- | '=='           { Located "eq" "eq"        (tokPos $1)                  }
- | '!='           { Located "neq" "neq"       (tokPos $1)                  }
+ | '|'            { Located "bvOr"  "bvOr"      (tokPos $1)                  }
+ | '@'            { Located "bvAt"  "bvAt"      (tokPos $1)                  }
+ | '#'            { Located "concat" "concat"   (tokPos $1)                  }
+ | '=='           { Located "eq"    "eq"        (tokPos $1)                  }
+ | '!='           { Located "neq"   "neq"       (tokPos $1)                  }
  | '>='           { Located "bvuge" "bvuge"     (tokPos $1)                  }
  | '>'            { Located "bvugt" "bvugt"     (tokPos $1)                  }
  | '<='           { Located "bvule" "bvule"     (tokPos $1)                  }
  | '<'            { Located "bvult" "bvult"     (tokPos $1)                  }
- | '&&'           { Located "conj" "conj"      (tokPos $1)                  }
- | '||'           { Located "disj" "disj"      (tokPos $1)                  }
- | '==>'          { Located "implies" "implies"   (tokPos $1)                  }
+ | '&&'           { Located "conj" "conj"       (tokPos $1)                  }
+ | '||'           { Located "disj" "disj"       (tokPos $1)                  }
+ | '==>'          { Located "implies" "implies" (tokPos $1)                  }
 
 AExpr :: { ExprSimple RawT }
  : '(' ')'                              { Tuple [] Nothing                }

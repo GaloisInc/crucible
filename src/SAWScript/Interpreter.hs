@@ -595,9 +595,8 @@ coreEnv sc =
     , (qualify "bvslt"      , "Prelude.bvslt")
     , (qualify "bvsge"      , "Prelude.bvsge")
     , (qualify "bvsgt"      , "Prelude.bvsgt")
-    , (qualify "get"        , "Prelude.get")
-    , (qualify "set"        , "Prelude.set")
-    , (qualify "finval"     , "Prelude.mkFinVal")
+    , (qualify "bvAt"       , "Prelude.bvAt")
+    , (qualify "bvUpd"      , "Prelude.bvUpd")
     , (qualify "reverse"    , "Prelude.reverse")
     -- Java things
     , (qualify "java_bool"  , "Java.mkBooleanType")
