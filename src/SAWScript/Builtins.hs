@@ -23,7 +23,7 @@ import Verifier.Java.SAWBackend (javaModule)
 import Verifier.LLVM.Backend.SAW (llvmModule)
 
 import Verifier.SAW.BitBlast
-import Verifier.SAW.Evaluator
+import Verifier.SAW.Evaluator hiding (applyAll)
 import Verifier.SAW.Prelude
 import qualified Verifier.SAW.Prim as Prim
 import qualified Verifier.SAW.SBVParser as SBV
@@ -44,6 +44,7 @@ import SAWScript.Utils
 import qualified SAWScript.Value as SV
 
 import qualified Verifier.SAW.Simulator.BitBlast as BBSim
+import Verifier.SAW.Simulator.Value (applyAll)
 
 import qualified Data.ABC as ABC
 import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
@@ -140,17 +141,32 @@ prepForExport sc t = do
   let ss = addRules (rs1 ++ rs2) basics
   rewriteSharedTerm sc ss t
 
+-- TODO: this belongs elsewhere
+asAIGType :: SharedContext s -> SharedTerm s -> IO [SharedTerm s]
+asAIGType sc t = do
+  t' <- scWhnf sc t
+  case t' of
+    (asPi -> Just (_, t1, t2)) -> (t1 :) <$> asAIGType sc t2
+    (asBoolType -> Just ())    -> return []
+    (asVecType -> Just _)      -> return []
+    (asTupleType -> Just _)    -> return []
+    (asRecordType -> Just _)   -> return []
+    _                          -> fail $ "invalid AIG type: " ++ show t'
+
 -- | Write a @SharedTerm@ representing a theorem or an arbitrary
 -- function to an AIG file.
 writeAIG :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
 writeAIG sc f t = withBE $ \be -> do
-  t' <- prepForExport sc t
-  mbterm <- bitBlast be t'
-  case mbterm of
-    Left msg ->
-      fail $ "Can't bitblast term: " ++ msg
-    Right bterm -> do
-      ABC.writeAiger f (ABC.Network be (ABC.bvToList (flattenBValue bterm)))
+  -- TODO: the following sequence should probably go into BitBlast
+  ty <- scTypeOf sc t
+  argTs <- asAIGType sc ty
+  shapes <- traverse (BBSim.parseShape sc) argTs
+  vars <- traverse (BBSim.newVars' be) shapes
+  bval <- BBSim.bitBlastBasic be (scModule sc) t
+  bval' <- applyAll bval vars
+  ls <- BBSim.flattenBValue bval'
+  ABC.writeAiger f (ABC.Network be (ABC.bvToList ls))
+  return ()
 
 -- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
 -- 1 file.
