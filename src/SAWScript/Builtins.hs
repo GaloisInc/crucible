@@ -209,8 +209,8 @@ simplifyGoal sc ss = StateT $ \goal -> do
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
-satABC :: SharedContext s -> ProofScript s (SV.SatResult s)
-satABC sc = StateT $ \g -> withBE $ \be -> do
+satABCold :: SharedContext s -> ProofScript s (SV.SatResult s)
+satABCold sc = StateT $ \g -> withBE $ \be -> do
   let t = goalTerm g
   t' <- prepForExport sc t
   let (args, _) = asLambdaList t'
@@ -242,8 +242,8 @@ satABC sc = StateT $ \g -> withBE $ \be -> do
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
-satABC' :: SharedContext s -> ProofScript s (SV.SatResult s)
-satABC' sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
+satABC :: SharedContext s -> ProofScript s (SV.SatResult s)
+satABC sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
   let t = goalTerm g
       eqs = map (mkIdent preludeName) [ "eq_Vec", "eq_Fin", "eq_Bool" ]
   rs <- scEqsRewriteRules sc eqs
