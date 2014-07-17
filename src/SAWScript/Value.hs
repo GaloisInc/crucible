@@ -16,6 +16,9 @@ import qualified Data.Vector as V
 import qualified SAWScript.AST as SS
 import qualified SAWScript.JavaMethodSpecIR as JIR
 import qualified SAWScript.LLVMMethodSpecIR as LIR
+import qualified Verifier.Java.Codebase as JSS
+import qualified Verifier.LLVM.Codebase as LSS
+import qualified Verifier.LLVM.Backend.SAW as LSS
 import SAWScript.Proof
 import SAWScript.Utils
 import qualified Verifier.SAW.Prim as Prim
@@ -52,6 +55,8 @@ data Value s
   | VJavaMethodSpec JIR.JavaMethodSpecIR
   | VLLVMMethodSpec LIR.LLVMMethodSpecIR
   | VCryptolModuleEnv Cry.ModuleEnv
+  | VJavaClass JSS.Class
+  | VLLVMMethod (LSS.Codebase (LSS.SAWBackend SAWCtx))
   | VSatResult (SatResult s)
   | VProofResult (ProofResult s)
   -- | VAIG (BitEngine Lit) (V.Vector Lit) (V.Vector Lit)
