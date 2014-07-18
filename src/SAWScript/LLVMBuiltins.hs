@@ -35,8 +35,8 @@ import SAWScript.Value as SV
 
 import Verinf.Utils.LogMonad
 
-loadLLVMModule :: FilePath -> IO (Value SAWCtx)
-loadLLVMModule file = (VLLVMModule . LLVMModule file) <$> loadModule file
+loadLLVMModule :: FilePath -> IO LLVMModule
+loadLLVMModule file = LLVMModule file <$> loadModule file
 
 -- | Extract a simple, pure model from the given symbol within the
 -- given bitcode file. This code creates fresh inputs for all
