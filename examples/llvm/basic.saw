@@ -15,7 +15,8 @@ dbl_setup = do {
 
 main : TopLevel ();
 main = do {
-    add_ms <- llvm_verify "basic.bc" "add" [] add_setup;
-    llvm_verify "basic.bc" "dbl" [add_ms] dbl_setup;
+    m <- llvm_load_module "basic.bc";
+    add_ms <- llvm_verify m "add" [] add_setup;
+    llvm_verify m "dbl" [add_ms] dbl_setup;
     print "Done.";
 };
