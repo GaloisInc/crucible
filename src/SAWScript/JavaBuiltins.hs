@@ -41,14 +41,19 @@ import SAWScript.Value as SS
 
 import Verinf.Utils.LogMonad
 
-extractJava :: BuiltinContext -> Options -> String -> String
-            -> JavaSetup ()
-            -> IO (SharedTerm SAWCtx)
-extractJava bic _opts cname mname _setup = do
+loadJavaClass :: BuiltinContext -> String -> IO JSS.Class
+loadJavaClass bic cname = do
   let cname' = JP.dotsToSlashes cname
       sc = biSharedContext bic
       cb = biJavaCodebase bic
-  cls <- lookupClass cb fixPos cname'
+  lookupClass cb fixPos cname'
+
+extractJava :: BuiltinContext -> Options -> JSS.Class -> String
+            -> JavaSetup ()
+            -> IO (SharedTerm SAWCtx)
+extractJava bic _opts cls mname _setup = do
+  let sc = biSharedContext bic
+      cb = biJavaCodebase bic
   (_, meth) <- findMethod cb fixPos mname cls
   argsRef <- newIORef []
   ABC.withNewGraph ABC.giaNetwork $ \be -> do
@@ -57,7 +62,7 @@ extractJava bic _opts cname mname _setup = do
     JSS.runSimulator cb sbe JSS.defaultSEH (Just fl) $ do
       setVerbosity 0
       args <- mapM (freshJavaArg sbe) (JSS.methodParameterTypes meth)
-      rslt <- JSS.execStaticMethod cname' (JSS.methodKey meth) args
+      rslt <- JSS.execStaticMethod (JSS.className cls) (JSS.methodKey meth) args
       dt <- case rslt of
               Nothing -> fail "No return value from JSS."
               Just (JSS.IValue t) -> return t
@@ -79,11 +84,11 @@ freshJavaArg sbe JSS.IntType = liftIO (JSS.IValue <$> JSS.freshInt sbe)
 freshJavaArg sbe JSS.LongType = liftIO (JSS.LValue <$> JSS.freshLong sbe)
 freshJavaArg _ _ = fail "Only byte, int, and long arguments are supported for now."
 
-verifyJava :: BuiltinContext -> Options -> String -> String
+verifyJava :: BuiltinContext -> Options -> JSS.Class -> String
            -> [JavaMethodSpecIR]
            -> JavaSetup ()
            -> IO (JavaMethodSpecIR)
-verifyJava bic opts cname mname overrides setup = do
+verifyJava bic opts cls mname overrides setup = do
   let pos = fixPos -- TODO
       cb = biJavaCodebase bic
   sc0 <- mkSharedContext JSS.javaModule
@@ -91,7 +96,7 @@ verifyJava bic opts cname mname overrides setup = do
   let (jsc :: SharedContext JSSCtx) = sc0 -- rewritingSharedContext sc0 ss
   ABC.SomeGraph be <- ABC.newGraph ABC.giaNetwork
   backend <- JSS.sawBackend jsc Nothing be
-  ms0 <- initMethodSpec pos cb cname mname
+  ms0 <- initMethodSpec pos cb cls mname
   let jsctx0 = JavaSetupState {
                  jsSpec = ms0
                , jsContext = jsc
