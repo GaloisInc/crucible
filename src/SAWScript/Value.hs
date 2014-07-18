@@ -12,13 +12,12 @@ import Data.List ( intersperse )
 import qualified Data.Map as M
 import Data.Map ( Map )
 import qualified Data.Vector as V
+import qualified Text.LLVM as L
 
 import qualified SAWScript.AST as SS
 import qualified SAWScript.JavaMethodSpecIR as JIR
 import qualified SAWScript.LLVMMethodSpecIR as LIR
 import qualified Verifier.Java.Codebase as JSS
-import qualified Verifier.LLVM.Codebase as LSS
-import qualified Verifier.LLVM.Backend.SAW as LSS
 import SAWScript.Proof
 import SAWScript.Utils
 import qualified Verifier.SAW.Prim as Prim
@@ -56,10 +55,16 @@ data Value s
   | VLLVMMethodSpec LIR.LLVMMethodSpecIR
   | VCryptolModuleEnv Cry.ModuleEnv
   | VJavaClass JSS.Class
-  | VLLVMMethod (LSS.Codebase (LSS.SAWBackend SAWCtx))
+  | VLLVMModule LLVMModule
   | VSatResult (SatResult s)
   | VProofResult (ProofResult s)
   -- | VAIG (BitEngine Lit) (V.Vector Lit) (V.Vector Lit)
+
+data LLVMModule =
+  LLVMModule
+  { modName :: String
+  , modMod :: L.Module
+  }
 
 data ProofResult s
   = Valid
@@ -126,6 +131,8 @@ instance Show (Value s) where
         VJavaMethodSpec {} -> showString "<<Java MethodSpec>>"
         VLLVMMethodSpec {} -> showString "<<LLVM MethodSpec>>"
         VCryptolModuleEnv {} -> showString "<<Cryptol ModuleEnv>>"
+        VLLVMModule {} -> showString "<<LLVM Module>>"
+        VJavaClass {} -> showString "<<Java Class>>"
         VProofResult Valid -> showString "Valid"
         VProofResult (Invalid t) -> showString "Invalid: " . shows t
         VProofResult (InvalidMulti ts) -> showString "Invalid: " . shows ts
@@ -252,6 +259,8 @@ exportValue val =
       VJavaMethodSpec {} -> error "VJavaMethodSpec unsupported"
       VLLVMMethodSpec {} -> error "VLLVMMethodSpec unsupported"
       VCryptolModuleEnv {} -> error "CryptolModuleEnv unsupported"
+      VJavaClass {} -> error "JavaClass unsupported"
+      VLLVMModule {} -> error "LLVMModule unsupported"
       VProofResult {} -> error "VProofResult unsupported"
       VSatResult {} -> error "VSatResult unsupported"
       -- VAIG {} -> error "VAIG unsupported" -- TODO: could be implemented
@@ -278,7 +287,7 @@ exportSharedTerm sc val =
         scRecord sc (M.fromList vm')
       VCtorApp s vs ->
         scCtorApp sc (parseIdent s) =<< mapM (exportSharedTerm sc) vs
-      VFun f -> error "exportSharedTerm VFun"
+      VFun {} -> error "exportSharedTerm VFun" -- TODO: should we handle this?
       VFunTerm {} -> error "exportSharedTerm VFunTerm"
       VFunType {} -> error "exportSharedTerm VFunType"
       VLambda {} -> error "exportSharedTerm VLambda"
@@ -293,6 +302,8 @@ exportSharedTerm sc val =
       VJavaMethodSpec {} -> error "exportSharedTerm VJavaMethodSpec"
       VLLVMMethodSpec {} -> error "exportSharedTerm VLLVMMethodSpec"
       VCryptolModuleEnv {} -> error "exportSharedTerm CryptolModuleEnv"
+      VJavaClass {} -> error "exportSharedTerm JavaClass"
+      VLLVMModule {} -> error "exportSharedTerm LLVMModule"
       VProofResult {} -> error "exportSharedTerm VProofResult"
       VSatResult {} -> error "exportSharedTerm VSatResult"
       -- VAIG {} -> error "exportSharedTerm VAIG" -- TODO: could be implemented
@@ -434,6 +445,16 @@ instance IsValue s Cry.ModuleEnv where
     toValue me = VCryptolModuleEnv me
     fromValue (VCryptolModuleEnv me) = me
     fromValue _ = error "fromValue CryptolModuleEnv"
+
+instance IsValue s JSS.Class where
+    toValue c = VJavaClass c
+    fromValue (VJavaClass c) = c
+    fromValue _ = error "fromValue JavaClass"
+
+instance IsValue s LLVMModule where
+    toValue m = VLLVMModule m
+    fromValue (VLLVMModule m) = m
+    fromValue _ = error "fromValue LLVMModule"
 
 instance IsValue s (ProofResult s) where
    toValue r = VProofResult r

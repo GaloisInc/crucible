@@ -5,6 +5,7 @@
 {-# LANGUAGE ViewPatterns #-}
 module SAWScript.LLVMBuiltins where
 
+import Control.Applicative
 import Control.Monad.Error hiding (mapM)
 import Control.Monad.State hiding (mapM)
 import Data.List (sort)
@@ -34,14 +35,16 @@ import SAWScript.Value as SV
 
 import Verinf.Utils.LogMonad
 
+loadLLVMModule :: FilePath -> IO (Value SAWCtx)
+loadLLVMModule file = (VLLVMModule . LLVMModule file) <$> loadModule file
+
 -- | Extract a simple, pure model from the given symbol within the
 -- given bitcode file. This code creates fresh inputs for all
 -- arguments and returns a term representing the return value. Some
 -- verifications will require more complex execution contexts.
-extractLLVM :: SharedContext SAWCtx -> FilePath -> String -> LLVMSetup ()
+extractLLVM :: SharedContext SAWCtx -> LLVMModule -> String -> LLVMSetup ()
             -> IO (SharedTerm SAWCtx)
-extractLLVM sc file func _setup = do
-  mdl <- loadModule file
+extractLLVM sc (LLVMModule file mdl) func _setup = do
   let dl = parseDataLayout $ modDataLayout mdl
       sym = Symbol func
   withBE $ \be -> do
@@ -94,14 +97,13 @@ freshLLVMArg (_, ty@(IntType bw)) = do
 freshLLVMArg (_, _) = fail "Only integer arguments are supported for now."
 
 
-verifyLLVM :: BuiltinContext -> Options -> String -> String
+verifyLLVM :: BuiltinContext -> Options -> LLVMModule -> String
            -> [LLVMMethodSpecIR]
            -> LLVMSetup ()
            -> IO LLVMMethodSpecIR
-verifyLLVM bic opts file func overrides setup = do
+verifyLLVM bic opts (LLVMModule file mdl) func overrides setup = do
   let pos = fixPos -- TODO
-  mdl <- loadModule file
-  let dl = parseDataLayout $ modDataLayout mdl
+      dl = parseDataLayout $ modDataLayout mdl
   withBE $ \be -> do
     (sbe, mem, scLLVM) <- createSAWBackend' be dl
     (_warnings, cb) <- mkCodebase sbe dl mdl

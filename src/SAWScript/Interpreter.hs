@@ -508,6 +508,7 @@ valueEnv opts bic = M.fromList
   , (qualify "java_return" , toValue $ javaReturn bic opts)
   , (qualify "java_verify_tactic" , toValue $ javaVerifyTactic bic opts)
   -- LLVM stuff
+  , (qualify "llvm_load_module", toValue loadLLVMModule)
   , (qualify "llvm_extract", toValue $ extractLLVM sc)
   , (qualify "llvm_verify" , toValue $ verifyLLVM bic opts)
   , (qualify "llvm_pure"   , toValue $ llvmPure)
