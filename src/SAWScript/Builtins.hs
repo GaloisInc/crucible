@@ -267,11 +267,11 @@ satABC' sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
   satRes <- AIG.checkSat be lit
   case satRes of
     AIG.Unsat -> do
-      -- putStrLn "UNSAT"
+      putStrLn "UNSAT"
       ft <- scApplyPreludeFalse sc
       return (SV.Unsat, g { goalTerm = ft })
     AIG.Sat cex -> do
-      -- putStrLn "SAT"
+      putStrLn "SAT"
       r <- liftCexBB sc (map convert shapes) cex
       tt <- scApplyPreludeTrue sc
       case r of
@@ -329,9 +329,10 @@ satSBV conf sc = StateT $ \g -> do
   (labels, lit) <- SBVSim.sbvSolve sc t'
   putStrLn "Checking..."
   m <- satWith conf lit
-  -- print m
+  print m
   if modelExists m
     then do
+      putStrLn "SAT"
       tt <- scApplyPreludeTrue sc
       return (getLabels labels m (SBV.getModelDictionary m) argNames, g {goalTerm = tt})
     else do
