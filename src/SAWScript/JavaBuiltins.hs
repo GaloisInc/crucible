@@ -5,13 +5,14 @@
 {-# LANGUAGE ViewPatterns #-}
 module SAWScript.JavaBuiltins where
 
-import Control.Applicative
+import Control.Applicative hiding (empty)
 import Control.Monad.Error
 import Control.Monad.State
 import qualified Data.ABC as ABC
 import Data.List (sort)
 import Data.List.Split
 import Data.IORef
+import Data.Maybe
 import qualified Data.Map as Map
 import qualified Data.Vector as V
 import Text.PrettyPrint.Leijen hiding ((<$>))
@@ -47,6 +48,64 @@ loadJavaClass bic cname = do
       sc = biSharedContext bic
       cb = biJavaCodebase bic
   lookupClass cb fixPos cname'
+
+browseJavaClass :: JSS.Class -> IO ()
+browseJavaClass = print . prettyClass
+
+prettyClass :: JSS.Class -> Doc
+prettyClass cls = vcat $
+  [ empty
+  , text "Class name:" <+> text (JSS.className cls) <+>
+    parens (commas attrs)
+  , text "Superclass:" <+> text (fromMaybe "none" (JSS.superClass cls))
+  , empty
+  ] ++
+  (if null (JSS.classInterfaces cls)
+      then []
+      else [ text "Interfaces:"
+           , indent 2 (vcat (map text (JSS.classInterfaces cls)))
+           , empty
+           ]) ++
+  [ text "Fields:"
+  , indent 2 (vcat (map ppField (JSS.classFields cls)))
+  , empty
+  , text "Methods:"
+  , indent 2 (vcat (map ppMethod (JSS.classMethods cls)))
+  , empty
+  ]
+  where attrs = concat
+          [ if JSS.classIsPublic cls then [text "public"] else []
+          , if JSS.classIsFinal cls then [text "final"] else []
+          , if JSS.classHasSuperAttribute cls then [text "super"] else []
+          , if JSS.classIsInterface cls then [text "interface"] else []
+          , if JSS.classIsAbstract cls then [text "abstract"] else []
+          ]
+
+ppField :: JSS.Field -> Doc
+ppField f = hsep $
+  [ text (show (JSS.fieldVisibility f)) ] ++
+  attrs ++
+  [ text (show (JP.ppType (JSS.fieldType f))) -- TODO: Ick. Different PPs.
+  , text (JSS.fieldName f)
+  ]
+  where attrs = concat
+          [ if JSS.fieldIsStatic f then [text "static"] else []
+          , if JSS.fieldIsFinal f then [text "final"] else []
+          , if JSS.fieldIsVolatile f then [text "volatile"] else []
+          , if JSS.fieldIsTransient f then [text "transient"] else []
+          ]
+
+ppMethod :: JSS.Method -> Doc
+ppMethod m =
+  hsep [ maybe (text "void") ppType ret
+       , text name
+       , (parens . commas . map ppType) params
+       ]
+  where (JSS.MethodKey name params ret) = JSS.methodKey m
+        ppType = text . show . JP.ppType -- TODO: Ick.
+
+commas :: [Doc] -> Doc
+commas = sep . punctuate comma
 
 extractJava :: BuiltinContext -> Options -> JSS.Class -> String
             -> JavaSetup ()

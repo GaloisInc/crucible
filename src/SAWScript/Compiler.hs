@@ -26,6 +26,9 @@ runCompiler f a k = do
     reportError
     k -- continuation
 
+indent :: Int -> String -> String
+indent n = unlines . map (replicate n ' ' ++) . lines
+
 reportError :: (MonadIO io) => String -> io ()
 reportError = liftIO . putStrLn . ("Error\n" ++) . indent 2
 
