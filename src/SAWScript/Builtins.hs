@@ -50,6 +50,7 @@ import qualified Data.ABC as ABC
 import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
 
 import Data.ABC (aigNetwork)
+import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
 
 
@@ -153,20 +154,35 @@ asAIGType sc t = do
     (asRecordType -> Just _)   -> return []
     _                          -> fail $ "invalid AIG type: " ++ show t'
 
--- | Write a @SharedTerm@ representing a theorem or an arbitrary
--- function to an AIG file.
-writeAIG :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
-writeAIG sc f t = withBE $ \be -> do
-  -- TODO: the following sequence should probably go into BitBlast
+-- TODO: the following sequence should probably go into BitBlast
+bitBlastTerm :: AIG.IsAIG l g =>
+                g s
+             -> SharedContext t -> SharedTerm t -> IO (BBSim.LitVector (l s))
+bitBlastTerm be sc t = do
   ty <- scTypeOf sc t
   argTs <- asAIGType sc ty
   shapes <- traverse (BBSim.parseShape sc) argTs
   vars <- traverse (BBSim.newVars' be) shapes
   bval <- BBSim.bitBlastBasic be (scModule sc) t
   bval' <- applyAll bval vars
-  ls <- BBSim.flattenBValue bval'
+  BBSim.flattenBValue bval'
+
+-- | Write a @SharedTerm@ representing a theorem or an arbitrary
+-- function to an AIG file.
+writeAIG :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
+writeAIG sc f t = withBE $ \be -> do
+  ls <- bitBlastTerm be sc t
   ABC.writeAiger f (ABC.Network be (ABC.bvToList ls))
   return ()
+
+writeCNF :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
+writeCNF sc f t = withBE $ \be -> do
+  ls <- bitBlastTerm be sc t
+  case AIG.bvToList ls of
+    [l] -> do
+      _ <- GIA.writeCNF be l f
+      return ()
+    _ -> fail "writeCNF: non-boolean term"
 
 -- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
 -- 1 file.
