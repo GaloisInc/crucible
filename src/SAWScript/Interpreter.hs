@@ -498,6 +498,7 @@ valueEnv opts bic = M.fromList
   , (qualify "cryptol_extract", toValue $ extractCryptol sc)
   -- Java stuff
   , (qualify "java_load_class", toValue $ loadJavaClass bic)
+  , (qualify "java_browse_class", toValue browseJavaClass)
   , (qualify "java_extract", toValue $ extractJava bic opts)
   , (qualify "java_verify" , toValue $ verifyJava bic opts)
   , (qualify "java_pure"   , toValue $ javaPure)
