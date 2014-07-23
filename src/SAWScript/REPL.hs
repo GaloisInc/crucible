@@ -31,6 +31,7 @@ import SAWScript.MGU (checkModule)
 import SAWScript.Options (Options)
 import SAWScript.Parser (parseBlockStmt)
 import SAWScript.RenameRefs (renameRefs)
+import SAWScript.REPL.Logo (displayLogo)
 import SAWScript.REPL.GenerateModule (replFileName, replModuleName, wrapBStmt)
 import SAWScript.REPL.Monad (REPLState, withInitialState,
                              REP, runREP,
@@ -43,9 +44,11 @@ import qualified SAWScript.REPL.Monad as REP
 import SAWScript.ResolveSyns (resolveSyns)
 import SAWScript.Utils (SAWCtx, Pos(..))
 
+-- | Main function
 run :: Options -> IO ()
 run opts = do
   settings <- replSettings
+  displayLogo True
   withInitialState opts $ loop settings
   where loop :: Haskeline.Settings IO -> REPLState -> IO ()
         loop settings state = do
