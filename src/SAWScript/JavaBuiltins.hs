@@ -252,7 +252,10 @@ parseJavaExpr cb cls meth estr = do
         parseParts [] = fail "empty Java expression"
         parseParts [s] =
           case s of
-            "this" -> return (thisJavaExpr cls)
+            "this" | JSS.methodIsStatic meth ->
+                     fail $ "Can't use 'this' in static method " ++
+                            JSS.methodName meth
+                   | otherwise -> return (thisJavaExpr cls)
             ('a':'r':'g':'s':'[':rest) -> do
               let num = fst (break (==']') rest)
               case readMaybe num of
