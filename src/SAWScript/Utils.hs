@@ -221,7 +221,8 @@ equal sc ctx tm1 tm2 = do
         n1t <- scNat sc n1
         scBvEq sc n1t tm1 tm2
       (asVecType -> Just (l1 :*: ety1), asVecType -> Just (l2 :*: _ety2)) -> do
-        unless (l1 == l2) $ fail "Arrays have different sizes."
+        unless (l1 == l2) $ fail $ "Arrays have different sizes: " ++
+                                   show l1 ++ " and " ++ show l2
         -- TODO: check that ety1 == ety2?
         getOp <- scApplyPreludeGet sc
         eqs <- forM [0..l1-1] $ \i -> do
