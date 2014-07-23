@@ -40,6 +40,7 @@ import qualified Data.Set as Set
 import Text.PrettyPrint.Leijen hiding ((<$>))
 import qualified Text.PrettyPrint.HughesPJ as PP
 
+import Language.JVM.Common (ppFldId)
 import qualified SAWScript.CongruenceClosure as CC
 import qualified SAWScript.JavaExpr as TC
 import SAWScript.Options
@@ -69,6 +70,12 @@ setInstanceFieldValue :: JSS.Ref -> JSS.FieldId -> SpecJavaValue
                       -> SpecPathState -> SpecPathState
 setInstanceFieldValue r f v =
   JSS.pathMemory . JSS.memInstanceFields %~ Map.insert (r, f) v
+
+-- | Set value of bound to static field in path state.
+setStaticFieldValue :: JSS.FieldId -> SpecJavaValue
+                    -> SpecPathState -> SpecPathState
+setStaticFieldValue f v =
+  JSS.pathMemory . JSS.memStaticFields %~ Map.insert f v
 
 -- | Set value bound to array in path state.
 -- Assumes value is an array with a ground length.
@@ -147,6 +154,11 @@ evalJavaExpr expr ec = eval expr
               JSS.RValue ref <- eval r
               let ifields = (ecPathState ec) ^. JSS.pathMemory . JSS.memInstanceFields
               case Map.lookup (ref, f) ifields of
+                Just v -> return v
+                Nothing -> fail $ "evalJavaExpr: " ++ show e -- TODO
+            TC.StaticField f -> do
+              let sfields = (ecPathState ec) ^. JSS.pathMemory . JSS.memStaticFields
+              case Map.lookup f sfields of
                 Just v -> return v
                 Nothing -> fail $ "evalJavaExpr: " ++ show e -- TODO
 
@@ -326,6 +338,9 @@ ocStep (EnsureInstanceField _pos refExpr f rhsExpr) = do
   ocEval (evalJavaRefExpr refExpr) $ \lhsRef ->
     ocEval (evalMixedExpr rhsExpr) $ \value ->
       ocModifyResultState $ setInstanceFieldValue lhsRef f value
+ocStep (EnsureStaticField _pos f rhsExpr) = do
+  ocEval (evalMixedExpr rhsExpr) $ \value ->
+    ocModifyResultState $ setStaticFieldValue f value
 ocStep (EnsureArray _pos lhsExpr rhsExpr) = do
   ocEval (evalJavaRefExpr lhsExpr) $ \lhsRef ->
     ocEval (evalLogicExpr   rhsExpr) $ \rhsVal -> do
@@ -340,6 +355,13 @@ ocStep (ModifyInstanceField refExpr f) =
     logicType <- liftIO $ scBitvector sc (fromInteger w)
     n <- liftIO $ scFreshGlobal sc (TC.ppJavaExpr refExpr) logicType
     ocModifyResultState $ setInstanceFieldValue lhsRef f (mkJSSValue tp n)
+ocStep (ModifyStaticField f) = do
+  sc <- gets (ecContext . ocsEvalContext)
+  let tp = JSS.fieldIdType f
+      w = fromIntegral $ JSS.stackWidth tp
+  logicType <- liftIO $ scBitvector sc (fromInteger w)
+  n <- liftIO $ scFreshGlobal sc (ppFldId f) logicType
+  ocModifyResultState $ setStaticFieldValue f (mkJSSValue tp n)
 ocStep (ModifyArray refExpr ty) = do
   ocEval (evalJavaRefExpr refExpr) $ \ref -> do
     sc <- gets (ecContext . ocsEvalContext)
@@ -494,6 +516,9 @@ data ExpectedStateDef = ESD {
          -- | Maps instance fields to expected value, or Nothing if value may
          -- be arbitrary.
        , esdInstanceFields :: Map (JSS.Ref, JSS.FieldId) (Maybe (JSS.Value (SharedTerm JSSCtx)))
+         -- | Maps static fields to expected value, or Nothing if value may
+         -- be arbitrary.
+       , esdStaticFields :: Map JSS.FieldId (Maybe (JSS.Value (SharedTerm JSSCtx)))
          -- | Maps reference to expected node, or Nothing if value may be arbitrary.
        , esdArrays :: Map JSS.Ref (Maybe (Int32, SharedTerm JSSCtx))
        }
@@ -517,6 +542,7 @@ data ESGState = ESGState {
        , esInitialPathState :: SpecPathState
        , esReturnValue :: Maybe SpecJavaValue
        , esInstanceFields :: Map (JSS.Ref, JSS.FieldId) (Maybe SpecJavaValue)
+       , esStaticFields :: Map JSS.FieldId (Maybe SpecJavaValue)
        , esArrays :: Map JSS.Ref (Maybe (Int32, SharedTerm JSSCtx))
        }
 
@@ -599,6 +625,12 @@ esSetJavaValue e@(CC.Term exprF) v = do
         Just oldValue -> esAssertEq (TC.ppJavaExpr e) oldValue v
         Nothing -> esPutInitialPathState $
           (JSS.pathMemory . JSS.memInstanceFields %~ Map.insert (ref,f) v) ps
+    TC.StaticField f -> do
+      ps <- esGetInitialPathState
+      case Map.lookup f (ps ^. JSS.pathMemory . JSS.memStaticFields) of
+        Just oldValue -> esAssertEq (TC.ppJavaExpr e) oldValue v
+        Nothing -> esPutInitialPathState $
+          (JSS.pathMemory . JSS.memStaticFields %~ Map.insert f v) ps
 
 esResolveLogicExprs :: TC.JavaExpr -> SharedTerm JSSCtx -> [TC.LogicExpr]
                     -> ExpectedStateGenerator (SharedTerm JSSCtx)
@@ -680,6 +712,25 @@ esStep (EnsureInstanceField _pos refExpr f rhsExpr) = do
   -- Define instance field post condition.
   modify $ \es ->
     es { esInstanceFields = Map.insert (ref,f) (Just value) (esInstanceFields es) }
+esStep (EnsureStaticField _pos f rhsExpr) = do
+  value <- esEval $ evalMixedExpr rhsExpr
+  -- Get dag engine
+  sc <- gets esContext
+  -- Check that instance field is already defined, if so add an equality check for that.
+  sfMap <- gets esStaticFields
+  case (Map.lookup f sfMap, value) of
+    (Nothing, _) -> return ()
+    (Just Nothing, _) -> return ()
+    (Just (Just (JSS.RValue prev)), JSS.RValue new)
+      | prev == new -> return ()
+    (Just (Just (JSS.IValue prev)), JSS.IValue new) ->
+       esAddEqAssertion sc (ppFldId f) prev new
+    (Just (Just (JSS.LValue prev)), JSS.LValue new) ->
+       esAddEqAssertion sc (ppFldId f) prev new
+    -- TODO: See if we can give better error message here.
+    -- Perhaps this just ends up meaning that we need to verify the assumptions in this
+    -- behavior are inconsistent.
+    _ -> error "internal: Incompatible values assigned to static field."
 esStep (ModifyInstanceField refExpr f) = do
   -- Evaluate expressions.
   ref <- esEval $ evalJavaRefExpr refExpr
@@ -687,6 +738,11 @@ esStep (ModifyInstanceField refExpr f) = do
   -- Add postcondition if value has not been assigned.
   when (Map.notMember (ref, f) (esInstanceFields es)) $ do
     put es { esInstanceFields = Map.insert (ref,f) Nothing (esInstanceFields es) }
+esStep (ModifyStaticField f) = do
+  es <- get
+  -- Add postcondition if value has not been assigned.
+  when (Map.notMember f (esStaticFields es)) $ do
+    put es { esStaticFields = Map.insert f Nothing (esStaticFields es) }
 esStep (EnsureArray _pos lhsExpr rhsExpr) = do
   -- Evaluate expressions.
   ref    <- esEval $ evalJavaRefExpr lhsExpr
@@ -752,6 +808,7 @@ initializeVerification sc ir bs refConfig = do
                          , esInitialPathState = initPS
                          , esReturnValue = Nothing
                          , esInstanceFields = Map.empty
+                         , esStaticFields = Map.empty
                          , esArrays = Map.empty
                          }
   -- liftIO $ putStrLn "Starting to initialize state."
@@ -785,6 +842,9 @@ initializeVerification sc ir bs refConfig = do
              , esdInstanceFields =
                  Map.union (esInstanceFields es)
                            (Map.map Just (ps ^. JSS.pathMemory . JSS.memInstanceFields))
+             , esdStaticFields =
+                 Map.union (esStaticFields es)
+                           (Map.map Just (ps ^. JSS.pathMemory . JSS.memStaticFields))
                -- Create esdArrays map while providing entry for unspecified
                -- expressions.
              , esdArrays =
@@ -929,10 +989,26 @@ generateVC ir esd (ps, endLoc, res) = do
                pvcgFail $ ftext $
                  "Initializes extra class " ++ JSS.slashesToDots cl ++ "."
         -- Check static fields
-        do forM_ (Map.toList $ ps ^. JSS.pathMemory . JSS.memStaticFields) $ \(f,_jvmVal) -> do
-             let clName = JSS.slashesToDots (JSS.fieldIdClass f)
-             let fName = clName ++ "." ++ JSS.fieldIdName f
-             pvcgFail $ ftext $ "Modifies the static field " ++ fName ++ "."
+        forM_ (Map.toList $ ps ^. JSS.pathMemory . JSS.memStaticFields) $ \(f,jval) -> do
+          let fieldName = show (JSS.fieldIdName f)
+                            ++ " of class " ++ (JSS.fieldIdClass f)
+          case Map.lookup f (esdStaticFields esd) of
+            Nothing ->
+              pvcgFail $ ftext $ "Modifies the undefined static field " ++ fieldName ++ "."
+            Just sval -> do
+              case (jval,sval) of
+                (_,Nothing) -> return ()
+                (jv, Just sv) | jv == sv -> return ()
+                (JSS.RValue jref, Just (JSS.RValue _)) ->
+                  pvcgFail $ ftext $
+                    "Assigns an unexpected value " ++ esdRefName jref esd
+                       ++ " to " ++ fieldName ++ "."
+                (JSS.IValue jvmNode, Just (JSS.IValue specNode)) ->
+                  pvcgAssertEq fieldName jvmNode specNode
+                (JSS.LValue jvmNode, Just (JSS.LValue specNode)) ->
+                  pvcgAssertEq fieldName jvmNode specNode
+                (_, Just _) ->
+                  error "internal: comparePathStates encountered illegal field type."
         -- Check instance fields
         forM_ (Map.toList (ps ^. JSS.pathMemory . JSS.memInstanceFields)) $ \((ref,f), jval) -> do
           let fieldName = show (JSS.fieldIdName f)

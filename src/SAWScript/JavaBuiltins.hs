@@ -205,19 +205,8 @@ verifyJava bic opts cls mname overrides setup = do
             (r, _) <- runStateT script (ProofGoal (vsVCName vs) glam')
             case r of
               SS.Unsat -> when (verb >= 3) $ putStrLn "Valid."
-              SS.Sat val -> do
-                putStrLn $ "When verifying " ++ specName ms ++ ":"
-                putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
-                putStrLn $ "Counterexample: " ++ show val
-                showCexResults jsc vs [val]
-                fail "Proof failed."
-              SS.SatMulti vals -> do
-                putStrLn $ "When verifying " ++ specName ms ++ ":"
-                putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
-                putStrLn $ "Counterexample:"
-                mapM_ (\(n, v) -> putStrLn ("  " ++ n ++ ": " ++ show v)) vals
-                showCexResults jsc vs (map snd vals)
-                fail "Proof failed."
+              SS.Sat val -> showCexResults jsc ms vs [("x", val)] -- TODO: replace x with something
+              SS.SatMulti vals -> showCexResults jsc ms vs vals
       case jsTactic jsctx of
         Skip -> liftIO $ putStrLn $
           "WARNING: skipping verification of " ++ show (specName ms)
@@ -226,10 +215,18 @@ verifyJava bic opts cls mname overrides setup = do
   putStrLn $ "Successfully verified " ++ specName ms ++ overrideText
   return ms
 
-showCexResults :: SharedContext JSSCtx -> VerifyState -> [Value SAWCtx]
+showCexResults :: SharedContext JSSCtx
+               -> JavaMethodSpecIR
+               -> VerifyState
+               -> [(String, Value SAWCtx)]
                -> IO ()
-showCexResults sc vs vals =
-  vsCounterexampleFn vs (cexEvalFn sc vals) >>= print
+showCexResults sc ms vs vals = do
+  putStrLn $ "When verifying " ++ specName ms ++ ":"
+  putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
+  putStrLn $ "Counterexample: "
+  mapM_ (\(n, v) -> putStrLn ("  " ++ n ++ ": " ++ show v)) vals
+  vsCounterexampleFn vs (cexEvalFn sc (map snd vals)) >>= print
+  fail "Proof failed."
 
 -- | Apply the given SharedTerm to the given values, and evaluate to a
 -- final value.
@@ -246,8 +243,13 @@ cexEvalFn sc args tm = do
 
 parseJavaExpr :: JSS.Codebase -> JSS.Class -> JSS.Method -> String
               -> IO JavaExpr
-parseJavaExpr cb cls meth = parseParts . reverse . splitOn "."
-  where parseParts [] = fail "empty Java expression"
+parseJavaExpr cb cls meth estr = do
+  sr <- parseStaticParts parts
+  case sr of
+    Just e -> return e
+    Nothing -> parseParts (reverse parts)
+  where parseParts :: [String] -> IO JavaExpr
+        parseParts [] = fail "empty Java expression"
         parseParts [s] =
           case s of
             "this" -> return (thisJavaExpr cls)
@@ -265,7 +267,7 @@ parseJavaExpr cb cls meth = parseParts . reverse . splitOn "."
                     Nothing
                       | n < V.length paramTypes ->
                         return (CC.Term (Local s i (paramTypes V.! (fromIntegral n))))
-                      | otherwise -> error $
+                      | otherwise -> fail $
                                      "local variable index " ++ show i ++
                                      " for parameter " ++ show n ++ " doesn't exist"
                     Just lv -> return (CC.Term (Local s i (JSS.localType lv)))
@@ -273,7 +275,7 @@ parseJavaExpr cb cls meth = parseParts . reverse . splitOn "."
             _ -> do
               let mlv = JSS.lookupLocalVariableByName meth 0 s
               case mlv of
-                Nothing -> error $ "local doesn't exist: " ++ s
+                Nothing -> fail $ "local doesn't exist: " ++ s
                 Just lv -> return (CC.Term (Local s i ty))
                   where i = JSS.localIdx lv
                         ty = JSS.localType lv
@@ -283,6 +285,19 @@ parseJavaExpr cb cls meth = parseParts . reverse . splitOn "."
               pos = fixPos -- TODO
           fid <- findField cb pos jt f
           return (CC.Term (InstanceField e fid))
+        parseStaticParts [cname, fname] = do
+          mc <- JSS.tryLookupClass cb cname
+          case mc of
+            Just c ->
+              case filter ((== fname) . JSS.fieldName) (JSS.classFields c) of
+                [f] -> return (Just 
+                               (CC.Term 
+                                (StaticField
+                                 (JSS.FieldId cname fname (JSS.fieldType f)))))
+                _ -> return Nothing
+            Nothing -> return Nothing
+        parseStaticParts _ = return Nothing
+        parts = splitOn "." estr
 
 exportJSSType :: SS.Value s -> JSS.Type
 exportJSSType (SS.VCtorApp "Java.BooleanType" []) = JSS.BooleanType
@@ -376,6 +391,7 @@ javaEnsureEq _bic _ name t = do
   let cmd = case (CC.unTerm expr, ty) of
               (_, JSS.ArrayType _) -> EnsureArray fixPos expr le
               (InstanceField r f, _) -> EnsureInstanceField fixPos r f (LE le)
+              (StaticField f, _) -> EnsureStaticField fixPos f (LE le)
               _ -> error "invalid java_ensure command"
       le = mkLogicExpr t
   modify $ \st -> st { jsSpec = specAddBehaviorCommand cmd ms }
@@ -389,6 +405,7 @@ javaModify _bic _ name = do
   let cmd = case (CC.unTerm expr, mty) of
               (_, Just ty@(ArrayInstance _ _)) -> ModifyArray expr ty
               (InstanceField r f, _) -> ModifyInstanceField r f
+              (StaticField f, _) -> ModifyStaticField f
               _ -> error "invalid java_modify command"
   modify $ \st -> st { jsSpec = specAddBehaviorCommand cmd ms }
 

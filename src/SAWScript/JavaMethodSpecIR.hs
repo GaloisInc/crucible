@@ -96,11 +96,15 @@ data BehaviorCommand
    | AssumePred LogicExpr
      -- | Assign Java expression the value given by the mixed expression.
    | EnsureInstanceField Pos JavaExpr JSS.FieldId MixedExpr
+     -- | Assign static Java field the value given by the mixed expression.
+   | EnsureStaticField Pos JSS.FieldId MixedExpr
      -- | Assign array value of Java expression the value given by the rhs.
    | EnsureArray Pos JavaExpr LogicExpr
      -- | Modify the Java expression to an arbitrary value.
      -- May point to integral type or array.
    | ModifyInstanceField JavaExpr JSS.FieldId
+     -- | Modify the Java static field to an arbitrary value.
+   | ModifyStaticField JSS.FieldId
      -- | Modify the Java array to an arbitrary value.
      -- May point to integral type or array.
    | ModifyArray JavaExpr JavaActualType
