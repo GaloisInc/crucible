@@ -601,7 +601,7 @@ esSetLogicValue cb sc expr mtp mrhs = do
 esStep :: BehaviorCommand -> ExpectedStateGenerator ()
 esStep (AssertPred _ expr) = do
   sbe <- gets esBackend
-  v <- undefined -- esEval $ evalLogicExpr expr
+  v <- esEval $ evalLogicExpr expr
   esModifyInitialPathStateIO $ addAssumption sbe v
 esStep (AssumePred expr) = do
   sbe <- gets esBackend
