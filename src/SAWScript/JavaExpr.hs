@@ -39,6 +39,8 @@ import qualified Data.Set as Set
 import Data.Map (Map)
 import qualified Data.Map as Map
 
+import Language.JVM.Common (ppFldId)
+
 import qualified Verifier.Java.Codebase as JSS
 
 import Verifier.SAW.Recognizer
@@ -59,11 +61,13 @@ data MethodLocation
 data JavaExprF v
   = Local String JSS.LocalVariableIndex JSS.Type
   | InstanceField v JSS.FieldId
+  | StaticField JSS.FieldId
   deriving (Functor, CC.Foldable, CC.Traversable)
 
 instance CC.EqFoldable JavaExprF where
   fequal (Local _ i _)(Local _ j _) = i == j
   fequal (InstanceField xr xf) (InstanceField yr yf) = xf == yf && (xr == yr)
+  fequal (StaticField xf) (StaticField yf) = xf == yf
   fequal _ _ = False
 
 instance CC.OrdFoldable JavaExprF where
@@ -74,10 +78,14 @@ instance CC.OrdFoldable JavaExprF where
         case r1 `compare` r2 of
           EQ -> f1 `compare` f2
           r  -> r
+  StaticField f1 `fcompare` StaticField f2 = f1 `compare` f2
+  StaticField _ `fcompare` _ = GT
+  _ `fcompare` StaticField _ = LT
 
 instance CC.ShowFoldable JavaExprF where
   fshow (Local nm _ _) = nm
   fshow (InstanceField r f) = show r ++ "." ++ JSS.fieldIdName f
+  fshow (StaticField f) = ppFldId f
 
 -- | Typechecked JavaExpr
 type JavaExpr = CC.Term JavaExprF
@@ -94,6 +102,7 @@ ppJavaExpr (CC.Term exprF) =
   case exprF of
     Local nm _ _ -> nm
     InstanceField r f -> ppJavaExpr r ++ "." ++ JSS.fieldIdName f
+    StaticField f -> ppFldId f
 
 asJavaExpr :: Map String JavaExpr -> LogicExpr -> Maybe JavaExpr
 asJavaExpr m (LogicExpr t) = asJavaExpr' m t
@@ -111,6 +120,7 @@ jssTypeOfJavaExpr (CC.Term exprF) =
   case exprF of
     Local _ _ tp      -> tp
     InstanceField _ f -> JSS.fieldIdType f
+    StaticField f -> JSS.fieldIdType f
 
 -- | Returns true if expression is a Boolean.
 isRefJavaExpr :: JavaExpr -> Bool

@@ -5,16 +5,27 @@
 {-# LANGUAGE ViewPatterns #-}
 module SAWScript.LLVMBuiltins where
 
+import Control.Applicative
 import Control.Monad.Error hiding (mapM)
 import Control.Monad.State hiding (mapM)
 import Data.List (sort)
 import Data.List.Split
 import qualified Data.Map as Map
 import Data.String
+import Text.PrettyPrint.HughesPJ
 
-import Text.LLVM (modDataLayout)
+import Text.LLVM ( modTypes, modGlobals, modDeclares, modDefines, modDataLayout
+                 , defName, defRetType, defVarArgs, defArgs, defAttrs
+                 , funLinkage, funGC
+                 , globalAttrs, globalSym, globalType
+                 , ppType, ppGC, ppArgList,  ppLinkage, ppTyped,  ppTypeDecl
+                 , ppDeclare, ppGlobalAttrs, ppMaybe, ppSymbol, ppIdent
+                 )
 import Verifier.LLVM.Backend
-import Verifier.LLVM.Codebase hiding (Global)
+import Verifier.LLVM.Codebase hiding ( Global, ppSymbol, ppType, ppIdent
+                                     , globalSym, globalType
+                                     )
+import qualified Verifier.LLVM.Codebase as CB
 import Verifier.LLVM.Backend.SAW
 import Verifier.LLVM.Simulator
 
@@ -34,14 +45,44 @@ import SAWScript.Value as SV
 
 import Verinf.Utils.LogMonad
 
+loadLLVMModule :: FilePath -> IO LLVMModule
+loadLLVMModule file = LLVMModule file <$> loadModule file
+
+browseLLVMModule :: LLVMModule -> IO ()
+browseLLVMModule (LLVMModule name m) = do
+  putStrLn ("Module: " ++ name)
+  putStrLn "Types:"
+  showParts ppTypeDecl (modTypes m)
+  putStrLn ""
+  putStrLn "Globals:"
+  showParts ppGlobal' (modGlobals m)
+  putStrLn ""
+  putStrLn "External references:"
+  showParts ppDeclare (modDeclares m)
+  putStrLn ""
+  putStrLn "Definitions:"
+  showParts ppDefine' (modDefines m)
+  putStrLn ""
+    where
+      showParts pp xs = mapM_ (print . nest 2 . pp) xs
+      ppGlobal' g =
+        ppSymbol (globalSym g) <+> char '=' <+>
+        ppGlobalAttrs (globalAttrs g) <+>
+        ppType (globalType g)
+      ppDefine' d =
+        ppMaybe ppLinkage (funLinkage (defAttrs d)) <+>
+        ppType (defRetType d) <+>
+        ppSymbol (defName d) <>
+          ppArgList (defVarArgs d) (map (ppTyped ppIdent) (defArgs d)) <+>
+        ppMaybe (\gc -> text "gc" <+> ppGC gc) (funGC (defAttrs d))
+
 -- | Extract a simple, pure model from the given symbol within the
 -- given bitcode file. This code creates fresh inputs for all
 -- arguments and returns a term representing the return value. Some
 -- verifications will require more complex execution contexts.
-extractLLVM :: SharedContext SAWCtx -> FilePath -> String -> LLVMSetup ()
+extractLLVM :: SharedContext SAWCtx -> LLVMModule -> String -> LLVMSetup ()
             -> IO (SharedTerm SAWCtx)
-extractLLVM sc file func _setup = do
-  mdl <- loadModule file
+extractLLVM sc (LLVMModule file mdl) func _setup = do
   let dl = parseDataLayout $ modDataLayout mdl
       sym = Symbol func
   withBE $ \be -> do
@@ -94,14 +135,13 @@ freshLLVMArg (_, ty@(IntType bw)) = do
 freshLLVMArg (_, _) = fail "Only integer arguments are supported for now."
 
 
-verifyLLVM :: BuiltinContext -> Options -> String -> String
+verifyLLVM :: BuiltinContext -> Options -> LLVMModule -> String
            -> [LLVMMethodSpecIR]
            -> LLVMSetup ()
            -> IO LLVMMethodSpecIR
-verifyLLVM bic opts file func overrides setup = do
+verifyLLVM bic opts (LLVMModule file mdl) func overrides setup = do
   let pos = fixPos -- TODO
-  mdl <- loadModule file
-  let dl = parseDataLayout $ modDataLayout mdl
+      dl = parseDataLayout $ modDataLayout mdl
   withBE $ \be -> do
     (sbe, mem, scLLVM) <- createSAWBackend' be dl
     (_warnings, cb) <- mkCodebase sbe dl mdl
@@ -209,7 +249,7 @@ parseLLVMExpr cb fn = parseParts . reverse . splitOn "."
                 Nothing ->
                   case lookupSym (Symbol s) cb of
                     Just (Left gb) ->
-                      return (Term (Global (globalSym gb) (globalType gb)))
+                      return (Term (Global (CB.globalSym gb) (CB.globalType gb)))
                     _ -> fail $ "Can't parse variable name: " ++ s
         parseParts (f:rest) = fail "struct fields not yet supported" {- do
           e <- parseParts rest

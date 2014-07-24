@@ -57,7 +57,6 @@ import qualified Data.Map as Map
 import Data.Maybe (isJust, catMaybes, fromJust)
 import qualified Data.Set as Set
 import qualified Data.Vector as V
-import qualified Language.JVM.Common as JP
 
 import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.Java.Common as JSS
@@ -97,11 +96,15 @@ data BehaviorCommand
    | AssumePred LogicExpr
      -- | Assign Java expression the value given by the mixed expression.
    | EnsureInstanceField Pos JavaExpr JSS.FieldId MixedExpr
+     -- | Assign static Java field the value given by the mixed expression.
+   | EnsureStaticField Pos JSS.FieldId MixedExpr
      -- | Assign array value of Java expression the value given by the rhs.
    | EnsureArray Pos JavaExpr LogicExpr
      -- | Modify the Java expression to an arbitrary value.
      -- May point to integral type or array.
    | ModifyInstanceField JavaExpr JSS.FieldId
+     -- | Modify the Java static field to an arbitrary value.
+   | ModifyStaticField JSS.FieldId
      -- | Modify the Java array to an arbitrary value.
      -- May point to integral type or array.
    | ModifyArray JavaExpr JavaActualType
@@ -239,11 +242,9 @@ bsAddCommand bc bs =
   bs { bsReversedCommands = bc : bsReversedCommands bs }
 
 initMethodSpec :: Pos -> JSS.Codebase
-               -> String -> String
+               -> JSS.Class -> String
                -> IO JavaMethodSpecIR
-initMethodSpec pos cb cname mname = do
-  let cname' = JP.dotsToSlashes cname
-  thisClass <- lookupClass cb pos cname'
+initMethodSpec pos cb thisClass mname = do
   (methodClass,method) <- findMethod cb pos mname thisClass
   superClasses <- JSS.supers cb thisClass
   let this = thisJavaExpr thisClass

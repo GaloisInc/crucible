@@ -96,7 +96,7 @@ instance CC.ShowFoldable LLVMExprF where
 type LLVMExpr = CC.Term LLVMExprF
 
 instance Error LLVMExpr where
-  noMsg = error "noMsg called with TC.LLVMExpr"
+  strMsg s = error $ "TC.LLVMExpr error: " ++ show s
 
 -- | Pretty print a LLVM expression.
 ppLLVMExpr :: LLVMExpr -> Doc
