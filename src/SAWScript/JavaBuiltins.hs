@@ -275,13 +275,16 @@ parseJavaExpr cb cls meth estr = do
                                      " for parameter " ++ show n ++ " doesn't exist"
                     Just lv -> return (CC.Term (Local s i (JSS.localType lv)))
                 Nothing -> fail $ "bad Java expression syntax: " ++ s
-            _ -> do
-              let mlv = JSS.lookupLocalVariableByName meth 0 s
-              case mlv of
-                Nothing -> fail $ "local doesn't exist: " ++ s
-                Just lv -> return (CC.Term (Local s i ty))
-                  where i = JSS.localIdx lv
-                        ty = JSS.localType lv
+            _ | JSS.hasDebugInfo meth -> do
+                  let mlv = JSS.lookupLocalVariableByName meth 0 s
+                  case mlv of
+                    Nothing -> fail $ "local doesn't exist: " ++ s
+                    Just lv -> return (CC.Term (Local s i ty))
+                      where i = JSS.localIdx lv
+                            ty = JSS.localType lv
+              | otherwise ->
+                  fail $ "variable " ++ s ++
+                         " referenced by name, but no debug info available"
         parseParts (f:rest) = do
           e <- parseParts rest
           let jt = jssTypeOfJavaExpr e
