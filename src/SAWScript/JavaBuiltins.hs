@@ -9,7 +9,7 @@ import Control.Applicative hiding (empty)
 import Control.Monad.Error
 import Control.Monad.State
 import qualified Data.ABC as ABC
-import Data.List (sort)
+import Data.List (sort, intercalate)
 import Data.List.Split
 import Data.IORef
 import Data.Maybe
@@ -247,7 +247,7 @@ parseJavaExpr cb cls meth estr = do
   sr <- parseStaticParts parts
   case sr of
     Just e -> return e
-    Nothing -> parseParts (reverse parts)
+    Nothing -> parseParts parts
   where parseParts :: [String] -> IO JavaExpr
         parseParts [] = fail "empty Java expression"
         parseParts [s] =
@@ -288,7 +288,8 @@ parseJavaExpr cb cls meth estr = do
               pos = fixPos -- TODO
           fid <- findField cb pos jt f
           return (CC.Term (InstanceField e fid))
-        parseStaticParts [cname, fname] = do
+        parseStaticParts (fname:rest) = do
+          let cname = intercalate "/" (reverse rest)
           mc <- JSS.tryLookupClass cb cname
           case mc of
             Just c ->
@@ -300,7 +301,7 @@ parseJavaExpr cb cls meth estr = do
                 _ -> return Nothing
             Nothing -> return Nothing
         parseStaticParts _ = return Nothing
-        parts = splitOn "." estr
+        parts = reverse (splitOn "." estr)
 
 exportJSSType :: SS.Value s -> JSS.Type
 exportJSSType (SS.VCtorApp "Java.BooleanType" []) = JSS.BooleanType
