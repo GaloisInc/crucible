@@ -13,6 +13,7 @@ import Data.List.Split
 import qualified Data.Map as Map
 import Data.String
 import Text.PrettyPrint.HughesPJ
+import Text.Read (readMaybe)
 
 import Text.LLVM ( modTypes, modGlobals, modDeclares, modDefines, modDataLayout
                  , defName, defRetType, defVarArgs, defArgs, defAttrs
@@ -224,38 +225,39 @@ parseLLVMExpr :: Codebase (SAWBackend LSSCtx)
               -> String
               -> IO LLVMExpr
 parseLLVMExpr cb fn = parseParts . reverse . splitOn "."
-  where parseParts [] = fail "empty LLVM expression"
+  where parseParts [] = fail "Empty LLVM expression"
         parseParts [s] =
           case s of
             ('*':rest) -> do
               e <- parseParts [rest]
               case lssTypeOfLLVMExpr e of
                 PtrType (MemType ty) -> return (Term (Deref e ty))
-                _ -> fail "attempting to apply * operation to non-pointer"
-            {-
+                _ -> fail "Attempting to apply * operation to non-pointer"
             ('a':'r':'g':'s':'[':rest) -> do
               let num = fst (break (==']') rest)
               case readMaybe num of
-                Just (n :: Int) -> undefined
-                Nothing -> fail $ "bad LLVM expression syntax: " ++ s
-            -}
+                Just (n :: Int)
+                  | n < length numArgs ->
+                    let (i, ty) = args !! n in return (Term (Arg n i ty))
+                  | otherwise ->
+                    fail $ "Argument index too large: " ++ show n
+                Nothing -> fail $ "Bad LLVM expression syntax: " ++ s
             _ -> do
-              let numArgs = zipWith (\(i, ty) n -> (i, (n, ty)))
-                                    (sdArgs fn)
-                                    [0..]
-                  nid = fromString s
+              let nid = fromString s
               case lookup nid numArgs of
                 Just (n, ty) -> return (Term (Arg n nid ty))
                 Nothing ->
                   case lookupSym (Symbol s) cb of
                     Just (Left gb) ->
                       return (Term (Global (CB.globalSym gb) (CB.globalType gb)))
-                    _ -> fail $ "Can't parse variable name: " ++ s
+                    _ -> fail $ "Unknown variable: " ++ s
         parseParts (f:rest) = fail "struct fields not yet supported" {- do
           e <- parseParts rest
           let lt = lssTypeOfLLVMExpr e
               pos = fixPos -- TODO
           -}
+        args = sdArgs fn
+        numArgs = zipWith (\(i, ty) n -> (i, (n, ty))) args [0..]
 
 getLLVMExpr :: Monad m =>
                LLVMMethodSpecIR -> String
