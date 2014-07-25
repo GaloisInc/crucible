@@ -15,8 +15,9 @@ setup' = do {
 
 main : TopLevel ();
 main = do {
-    ms <- java_verify "Add" "add" [] setup;
-    ms' <- java_verify "Add" "dbl" [ms] setup';
+    c <- java_load_class "Add";
+    ms <- java_verify c "add" [] setup;
+    ms' <- java_verify c "dbl" [ms] setup';
     //print ms;
     //print ms';
     print "Done.";

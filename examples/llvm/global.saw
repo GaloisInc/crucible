@@ -15,7 +15,8 @@ set_setup = do {
 
 main : TopLevel ();
 main = do {
-    llvm_verify "global.bc" "clear" [] clear_setup;
-    llvm_verify "global.bc" "set" [] set_setup;
+    m <- llvm_load_module "global.bc";
+    llvm_verify m "clear" [] clear_setup;
+    llvm_verify m "set" [] set_setup;
     print "Done.";
 };

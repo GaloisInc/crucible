@@ -5,13 +5,14 @@
 {-# LANGUAGE ViewPatterns #-}
 module SAWScript.JavaBuiltins where
 
-import Control.Applicative
+import Control.Applicative hiding (empty)
 import Control.Monad.Error
 import Control.Monad.State
 import qualified Data.ABC as ABC
-import Data.List (sort)
+import Data.List (sort, intercalate)
 import Data.List.Split
 import Data.IORef
+import Data.Maybe
 import qualified Data.Map as Map
 import qualified Data.Vector as V
 import Text.PrettyPrint.Leijen hiding ((<$>))
@@ -41,14 +42,77 @@ import SAWScript.Value as SS
 
 import Verinf.Utils.LogMonad
 
-extractJava :: BuiltinContext -> Options -> String -> String
-            -> JavaSetup ()
-            -> IO (SharedTerm SAWCtx)
-extractJava bic _opts cname mname _setup = do
+loadJavaClass :: BuiltinContext -> String -> IO JSS.Class
+loadJavaClass bic cname = do
   let cname' = JP.dotsToSlashes cname
       sc = biSharedContext bic
       cb = biJavaCodebase bic
-  cls <- lookupClass cb fixPos cname'
+  lookupClass cb fixPos cname'
+
+browseJavaClass :: JSS.Class -> IO ()
+browseJavaClass = print . prettyClass
+
+prettyClass :: JSS.Class -> Doc
+prettyClass cls = vcat $
+  [ empty
+  , text "Class name:" <+> text (JSS.className cls) <+>
+    parens (commas attrs)
+  , text "Superclass:" <+> text (fromMaybe "none" (JSS.superClass cls))
+  , empty
+  ] ++
+  (if null (JSS.classInterfaces cls)
+      then []
+      else [ text "Interfaces:"
+           , indent 2 (vcat (map text (JSS.classInterfaces cls)))
+           , empty
+           ]) ++
+  [ text "Fields:"
+  , indent 2 (vcat (map ppField (JSS.classFields cls)))
+  , empty
+  , text "Methods:"
+  , indent 2 (vcat (map ppMethod (JSS.classMethods cls)))
+  , empty
+  ]
+  where attrs = concat
+          [ if JSS.classIsPublic cls then [text "public"] else []
+          , if JSS.classIsFinal cls then [text "final"] else []
+          , if JSS.classHasSuperAttribute cls then [text "super"] else []
+          , if JSS.classIsInterface cls then [text "interface"] else []
+          , if JSS.classIsAbstract cls then [text "abstract"] else []
+          ]
+
+ppField :: JSS.Field -> Doc
+ppField f = hsep $
+  [ text (show (JSS.fieldVisibility f)) ] ++
+  attrs ++
+  [ text (show (JP.ppType (JSS.fieldType f))) -- TODO: Ick. Different PPs.
+  , text (JSS.fieldName f)
+  ]
+  where attrs = concat
+          [ if JSS.fieldIsStatic f then [text "static"] else []
+          , if JSS.fieldIsFinal f then [text "final"] else []
+          , if JSS.fieldIsVolatile f then [text "volatile"] else []
+          , if JSS.fieldIsTransient f then [text "transient"] else []
+          ]
+
+ppMethod :: JSS.Method -> Doc
+ppMethod m =
+  hsep [ maybe (text "void") ppType ret
+       , text name
+       , (parens . commas . map ppType) params
+       ]
+  where (JSS.MethodKey name params ret) = JSS.methodKey m
+        ppType = text . show . JP.ppType -- TODO: Ick.
+
+commas :: [Doc] -> Doc
+commas = sep . punctuate comma
+
+extractJava :: BuiltinContext -> Options -> JSS.Class -> String
+            -> JavaSetup ()
+            -> IO (SharedTerm SAWCtx)
+extractJava bic _opts cls mname _setup = do
+  let sc = biSharedContext bic
+      cb = biJavaCodebase bic
   (_, meth) <- findMethod cb fixPos mname cls
   argsRef <- newIORef []
   ABC.withNewGraph ABC.giaNetwork $ \be -> do
@@ -57,7 +121,7 @@ extractJava bic _opts cname mname _setup = do
     JSS.runSimulator cb sbe JSS.defaultSEH (Just fl) $ do
       setVerbosity 0
       args <- mapM (freshJavaArg sbe) (JSS.methodParameterTypes meth)
-      rslt <- JSS.execStaticMethod cname' (JSS.methodKey meth) args
+      rslt <- JSS.execStaticMethod (JSS.className cls) (JSS.methodKey meth) args
       dt <- case rslt of
               Nothing -> fail "No return value from JSS."
               Just (JSS.IValue t) -> return t
@@ -79,11 +143,11 @@ freshJavaArg sbe JSS.IntType = liftIO (JSS.IValue <$> JSS.freshInt sbe)
 freshJavaArg sbe JSS.LongType = liftIO (JSS.LValue <$> JSS.freshLong sbe)
 freshJavaArg _ _ = fail "Only byte, int, and long arguments are supported for now."
 
-verifyJava :: BuiltinContext -> Options -> String -> String
+verifyJava :: BuiltinContext -> Options -> JSS.Class -> String
            -> [JavaMethodSpecIR]
            -> JavaSetup ()
            -> IO (JavaMethodSpecIR)
-verifyJava bic opts cname mname overrides setup = do
+verifyJava bic opts cls mname overrides setup = do
   let pos = fixPos -- TODO
       cb = biJavaCodebase bic
   sc0 <- mkSharedContext JSS.javaModule
@@ -91,7 +155,7 @@ verifyJava bic opts cname mname overrides setup = do
   let (jsc :: SharedContext JSSCtx) = sc0 -- rewritingSharedContext sc0 ss
   ABC.SomeGraph be <- ABC.newGraph ABC.giaNetwork
   backend <- JSS.sawBackend jsc Nothing be
-  ms0 <- initMethodSpec pos cb cname mname
+  ms0 <- initMethodSpec pos cb cls mname
   let jsctx0 = JavaSetupState {
                  jsSpec = ms0
                , jsContext = jsc
@@ -141,19 +205,8 @@ verifyJava bic opts cname mname overrides setup = do
             (r, _) <- runStateT script (ProofGoal (vsVCName vs) glam')
             case r of
               SS.Unsat -> when (verb >= 3) $ putStrLn "Valid."
-              SS.Sat val -> do
-                putStrLn $ "When verifying " ++ specName ms ++ ":"
-                putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
-                putStrLn $ "Counterexample: " ++ show val
-                showCexResults jsc vs [val]
-                fail "Proof failed."
-              SS.SatMulti vals -> do
-                putStrLn $ "When verifying " ++ specName ms ++ ":"
-                putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
-                putStrLn $ "Counterexample:"
-                mapM_ (\(n, v) -> putStrLn ("  " ++ n ++ ": " ++ show v)) vals
-                showCexResults jsc vs (map snd vals)
-                fail "Proof failed."
+              SS.Sat val -> showCexResults jsc ms vs [("x", val)] -- TODO: replace x with something
+              SS.SatMulti vals -> showCexResults jsc ms vs vals
       case jsTactic jsctx of
         Skip -> liftIO $ putStrLn $
           "WARNING: skipping verification of " ++ show (specName ms)
@@ -162,10 +215,18 @@ verifyJava bic opts cname mname overrides setup = do
   putStrLn $ "Successfully verified " ++ specName ms ++ overrideText
   return ms
 
-showCexResults :: SharedContext JSSCtx -> VerifyState -> [Value SAWCtx]
+showCexResults :: SharedContext JSSCtx
+               -> JavaMethodSpecIR
+               -> VerifyState
+               -> [(String, Value SAWCtx)]
                -> IO ()
-showCexResults sc vs vals =
-  vsCounterexampleFn vs (cexEvalFn sc vals) >>= print
+showCexResults sc ms vs vals = do
+  putStrLn $ "When verifying " ++ specName ms ++ ":"
+  putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
+  putStrLn $ "Counterexample: "
+  mapM_ (\(n, v) -> putStrLn ("  " ++ n ++ ": " ++ show v)) vals
+  vsCounterexampleFn vs (cexEvalFn sc (map snd vals)) >>= print
+  fail "Proof failed."
 
 -- | Apply the given SharedTerm to the given values, and evaluate to a
 -- final value.
@@ -182,11 +243,19 @@ cexEvalFn sc args tm = do
 
 parseJavaExpr :: JSS.Codebase -> JSS.Class -> JSS.Method -> String
               -> IO JavaExpr
-parseJavaExpr cb cls meth = parseParts . reverse . splitOn "."
-  where parseParts [] = fail "empty Java expression"
+parseJavaExpr cb cls meth estr = do
+  sr <- parseStaticParts parts
+  case sr of
+    Just e -> return e
+    Nothing -> parseParts parts
+  where parseParts :: [String] -> IO JavaExpr
+        parseParts [] = fail "empty Java expression"
         parseParts [s] =
           case s of
-            "this" -> return (thisJavaExpr cls)
+            "this" | JSS.methodIsStatic meth ->
+                     fail $ "Can't use 'this' in static method " ++
+                            JSS.methodName meth
+                   | otherwise -> return (thisJavaExpr cls)
             ('a':'r':'g':'s':'[':rest) -> do
               let num = fst (break (==']') rest)
               case readMaybe num of
@@ -201,7 +270,7 @@ parseJavaExpr cb cls meth = parseParts . reverse . splitOn "."
                     Nothing
                       | n < V.length paramTypes ->
                         return (CC.Term (Local s i (paramTypes V.! (fromIntegral n))))
-                      | otherwise -> error $
+                      | otherwise -> fail $
                                      "local variable index " ++ show i ++
                                      " for parameter " ++ show n ++ " doesn't exist"
                     Just lv -> return (CC.Term (Local s i (JSS.localType lv)))
@@ -209,7 +278,7 @@ parseJavaExpr cb cls meth = parseParts . reverse . splitOn "."
             _ -> do
               let mlv = JSS.lookupLocalVariableByName meth 0 s
               case mlv of
-                Nothing -> error $ "local doesn't exist: " ++ s
+                Nothing -> fail $ "local doesn't exist: " ++ s
                 Just lv -> return (CC.Term (Local s i ty))
                   where i = JSS.localIdx lv
                         ty = JSS.localType lv
@@ -219,28 +288,55 @@ parseJavaExpr cb cls meth = parseParts . reverse . splitOn "."
               pos = fixPos -- TODO
           fid <- findField cb pos jt f
           return (CC.Term (InstanceField e fid))
+        parseStaticParts (fname:rest) = do
+          let cname = intercalate "/" (reverse rest)
+          mc <- JSS.tryLookupClass cb cname
+          case mc of
+            Just c ->
+              case filter ((== fname) . JSS.fieldName) (JSS.classFields c) of
+                [f] -> return (Just 
+                               (CC.Term 
+                                (StaticField
+                                 (JSS.FieldId cname fname (JSS.fieldType f)))))
+                _ -> return Nothing
+            Nothing -> return Nothing
+        parseStaticParts _ = return Nothing
+        parts = reverse (splitOn "." estr)
 
 exportJSSType :: SS.Value s -> JSS.Type
 exportJSSType (SS.VCtorApp "Java.BooleanType" []) = JSS.BooleanType
+exportJSSType (SS.VCtorApp "Java.ByteType" []) = JSS.ByteType
+exportJSSType (SS.VCtorApp "Java.CharType" []) = JSS.CharType
+exportJSSType (SS.VCtorApp "Java.ShortType" []) = JSS.ShortType
 exportJSSType (SS.VCtorApp "Java.IntType" []) = JSS.IntType
 exportJSSType (SS.VCtorApp "Java.LongType" []) = JSS.LongType
 exportJSSType (SS.VCtorApp "Java.ArrayType" [_, ety]) =
   JSS.ArrayType (exportJSSType ety)
 exportJSSType (SS.VCtorApp "Java.ClassType" [SS.VString name]) =
   JSS.ClassType (JP.dotsToSlashes name)
-exportJSSType v = error $ "exportJSSType: Can't translate to Java type: " ++ show v
+exportJSSType v =
+  error $ "exportJSSType: Can't translate to Java type: " ++ show v
 
 exportJavaType :: JSS.Codebase -> SS.Value s -> IO JavaActualType
 exportJavaType _ (SS.VCtorApp "Java.BooleanType" []) =
   return $ PrimitiveType JSS.BooleanType
-exportJavaType _ (SS.VCtorApp "Java.IntType" []) = return $ PrimitiveType JSS.IntType
-exportJavaType _ (SS.VCtorApp "Java.LongType" []) = return $ PrimitiveType JSS.LongType
+exportJavaType _ (SS.VCtorApp "Java.ByteType" []) =
+  return $ PrimitiveType JSS.ByteType
+exportJavaType _ (SS.VCtorApp "Java.CharType" []) =
+  return $ PrimitiveType JSS.CharType
+exportJavaType _ (SS.VCtorApp "Java.ShortType" []) =
+  return $ PrimitiveType JSS.ShortType
+exportJavaType _ (SS.VCtorApp "Java.IntType" []) =
+  return $ PrimitiveType JSS.IntType
+exportJavaType _ (SS.VCtorApp "Java.LongType" []) =
+  return $ PrimitiveType JSS.LongType
 exportJavaType _ (SS.VCtorApp "Java.ArrayType" [SS.VInteger n, ety]) =
   return $ ArrayInstance (fromIntegral n) (exportJSSType ety)
 exportJavaType cb (SS.VCtorApp "Java.ClassType" [SS.VString name]) = do
   cls <- lookupClass cb fixPos (JP.dotsToSlashes name)
   return (ClassInstance  cls)
-exportJavaType _ v = error $ "exportJavaType: Can't translate to Java type: " ++ show v
+exportJavaType _ v =
+  error $ "exportJavaType: Can't translate to Java type: " ++ show v
 
 javaPure :: JavaSetup ()
 javaPure = return ()
@@ -312,6 +408,7 @@ javaEnsureEq _bic _ name t = do
   let cmd = case (CC.unTerm expr, ty) of
               (_, JSS.ArrayType _) -> EnsureArray fixPos expr le
               (InstanceField r f, _) -> EnsureInstanceField fixPos r f (LE le)
+              (StaticField f, _) -> EnsureStaticField fixPos f (LE le)
               _ -> error "invalid java_ensure command"
       le = mkLogicExpr t
   modify $ \st -> st { jsSpec = specAddBehaviorCommand cmd ms }
@@ -325,6 +422,7 @@ javaModify _bic _ name = do
   let cmd = case (CC.unTerm expr, mty) of
               (_, Just ty@(ArrayInstance _ _)) -> ModifyArray expr ty
               (InstanceField r f, _) -> ModifyInstanceField r f
+              (StaticField f, _) -> ModifyStaticField f
               _ -> error "invalid java_modify command"
   modify $ \st -> st { jsSpec = specAddBehaviorCommand cmd ms }
 

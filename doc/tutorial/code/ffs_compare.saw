@@ -4,14 +4,24 @@ main = do {
     (c_ffs_ref : [32] -> [32]) <- llvm_extract "ffs.bc" "ffs_ref" llvm_pure;
     (c_ffs_imp : [32] -> [32]) <- llvm_extract "ffs.bc" "ffs_imp" llvm_pure;
 
+    m <- cryptol_module "ffs.cry";
+    (cry_ffs_imp : [32] -> [32]) <- cryptol_extract m "ffs_imp";
+
+    print "java ref <-> java imp";
     let thm1 x = java_ffs_ref x == java_ffs_imp x;
-    prove abc thm1;
+    prove_print abc thm1;
 
+    print "c ref <-> c imp";
     let thm2 x = c_ffs_ref x == c_ffs_imp x;
-    prove abc thm2;
+    prove_print abc thm2;
 
+    print "java imp <-> c imp";
     let thm3 x = java_ffs_imp x ==  c_ffs_imp x;
-    prove abc thm3;
+    prove_print abc thm3;
+
+    print "cryptol imp <-> c imp";
+    let thm4 x = cry_ffs_imp x ==  c_ffs_imp x;
+    prove_print abc thm4;
 
     print "Done.";
 };

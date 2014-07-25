@@ -7,4 +7,7 @@ get_setup = do {
     java_verify_tactic abc;
 };
 
-main = java_verify "Get" "get" [] get_setup;
+main = do {
+    c <- java_load_class "Get";
+    java_verify c "get" [] get_setup;
+};

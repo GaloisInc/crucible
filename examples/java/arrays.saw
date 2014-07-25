@@ -22,8 +22,9 @@ comp_setup = do {
 
 main : TopLevel ();
 main = do {
-    copy_ms <- java_verify "Arrays" "copy" [] copy_setup;
-    unit_ms <- java_verify "Arrays" "unit" [] unit_setup;
-    comp_ms <- java_verify "Arrays" "comp" [unit_ms] comp_setup;
+    c <- java_load_class "Arrays";
+    copy_ms <- java_verify c "copy" [] copy_setup;
+    unit_ms <- java_verify c "unit" [] unit_setup;
+    comp_ms <- java_verify c "comp" [unit_ms] comp_setup;
     print "Done.";
 };

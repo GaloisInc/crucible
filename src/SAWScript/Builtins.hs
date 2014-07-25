@@ -24,7 +24,7 @@ import Verifier.Java.SAWBackend (javaModule)
 import Verifier.LLVM.Backend.SAW (llvmModule)
 
 import Verifier.SAW.BitBlast
-import Verifier.SAW.Evaluator
+import Verifier.SAW.Evaluator hiding (applyAll)
 import Verifier.SAW.Prelude
 import qualified Verifier.SAW.Prim as Prim
 import qualified Verifier.SAW.SBVParser as SBV
@@ -46,6 +46,8 @@ import qualified SAWScript.Value as SV
 
 import qualified Verifier.SAW.Simulator.BitBlast as BBSim
 import qualified Verifier.SAW.Simulator.SBV as SBVSim
+import Verifier.SAW.Simulator.Value (applyAll)
+
 import qualified Data.ABC as ABC
 import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
 
@@ -53,6 +55,7 @@ import qualified Data.SBV as SBV
 import Data.SBV.Internals
 
 import Data.ABC (aigNetwork)
+import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
 import qualified Data.SBV.Bridge.Boolector as Boolector
 import qualified Data.SBV.Bridge.Z3 as Z3
@@ -149,17 +152,47 @@ prepForExport sc t = do
   let ss = addRules (rs1 ++ rs2) basics
   rewriteSharedTerm sc ss t
 
+-- TODO: this belongs elsewhere
+asAIGType :: SharedContext s -> SharedTerm s -> IO [SharedTerm s]
+asAIGType sc t = do
+  t' <- scWhnf sc t
+  case t' of
+    (asPi -> Just (_, t1, t2)) -> (t1 :) <$> asAIGType sc t2
+    (asBoolType -> Just ())    -> return []
+    (asVecType -> Just _)      -> return []
+    (asTupleType -> Just _)    -> return []
+    (asRecordType -> Just _)   -> return []
+    _                          -> fail $ "invalid AIG type: " ++ show t'
+
+-- TODO: the following sequence should probably go into BitBlast
+bitBlastTerm :: AIG.IsAIG l g =>
+                g s
+             -> SharedContext t -> SharedTerm t -> IO (BBSim.LitVector (l s))
+bitBlastTerm be sc t = do
+  ty <- scTypeOf sc t
+  argTs <- asAIGType sc ty
+  shapes <- traverse (BBSim.parseShape sc) argTs
+  vars <- traverse (BBSim.newVars' be) shapes
+  bval <- BBSim.bitBlastBasic be (scModule sc) t
+  bval' <- applyAll bval vars
+  BBSim.flattenBValue bval'
+
 -- | Write a @SharedTerm@ representing a theorem or an arbitrary
 -- function to an AIG file.
 writeAIG :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
 writeAIG sc f t = withBE $ \be -> do
-  t' <- prepForExport sc t
-  mbterm <- bitBlast be t'
-  case mbterm of
-    Left msg ->
-      fail $ "Can't bitblast term: " ++ msg
-    Right bterm -> do
-      ABC.writeAiger f (ABC.Network be (ABC.bvToList (flattenBValue bterm)))
+  ls <- bitBlastTerm be sc t
+  ABC.writeAiger f (ABC.Network be (ABC.bvToList ls))
+  return ()
+
+writeCNF :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
+writeCNF sc f t = withBE $ \be -> do
+  ls <- bitBlastTerm be sc t
+  case AIG.bvToList ls of
+    [l] -> do
+      _ <- GIA.writeCNF be l f
+      return ()
+    _ -> fail "writeCNF: non-boolean term"
 
 -- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
 -- 1 file.
@@ -218,8 +251,8 @@ simplifyGoal sc ss = StateT $ \goal -> do
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
-satABC :: SharedContext s -> ProofScript s (SV.SatResult s)
-satABC sc = StateT $ \g -> withBE $ \be -> do
+satABCold :: SharedContext s -> ProofScript s (SV.SatResult s)
+satABCold sc = StateT $ \g -> withBE $ \be -> do
   let t = goalTerm g
   t' <- prepForExport sc t
   let (args, _) = asLambdaList t'
@@ -251,8 +284,8 @@ satABC sc = StateT $ \g -> withBE $ \be -> do
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
-satABC' :: SharedContext s -> ProofScript s (SV.SatResult s)
-satABC' sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
+satABC :: SharedContext s -> ProofScript s (SV.SatResult s)
+satABC sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
   let t = goalTerm g
       eqs = map (mkIdent preludeName) [ "eq_Vec", "eq_Fin", "eq_Bool" ]
   rs <- scEqsRewriteRules sc eqs

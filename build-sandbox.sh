@@ -49,7 +49,7 @@ done
 
 for repo in ${GITHUB_REPOS} ; do
   if [ ! -e ./deps/${repo} ] ; then
-    git clone https://github.com/GaloisInc/${repo}.git ./deps/${repo}
+    git clone git://github.com/GaloisInc/${repo}.git ./deps/${repo}
   fi
   if [ "${dopull}" == "true" ] ; then
     (cd ./deps/${repo} && git checkout master && git pull)

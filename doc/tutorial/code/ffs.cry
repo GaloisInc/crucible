@@ -1,0 +1,17 @@
+// return the index of the first non-zero bit (big-endian bit order)
+ffs_ref: [32] -> [32]
+ffs_ref x = ixs!0 where
+    ixs = [0] # [ if (x && (1 << i)) != 0 then (i+1) else prev
+                | prev <- ixs
+                | i <- [31, 30 .. 0]:[32][32]
+                ]
+
+ffs_imp: [32] -> [32]
+ffs_imp i = if (i'''' > 0) then (n'''' + ((i'''' + 1) && 1)) else 0 where
+    n = 1
+    (n', i') =       if (zero==(i && 0x0000ffff))    then (n + 16, i >> 16) else (n, i)
+    (n'', i'') =     if (zero==(i' && 0x000000ff))   then (n' + 8, i' >> 8) else (n', i')
+    (n''', i''') =   if (zero==(i'' && 0x0000000f))  then (n'' + 4, i'' >> 4) else (n'',i'')
+    (n'''', i'''') = if (zero==(i''' && 0x00000003)) then (n''' + 2, i''' >> 2) else (n''', i''')
+
+property ffs_correct x = ffs_ref x == ffs_imp x

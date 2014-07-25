@@ -492,10 +492,13 @@ valueEnv opts bic = M.fromList
   [ (qualify "read_sbv"    , toValue $ readSBV sc)
   , (qualify "read_aig"    , toValue $ readAIGPrim sc)
   , (qualify "write_aig"   , toValue $ writeAIG sc)
+  , (qualify "write_cnf"   , toValue $ writeCNF sc)
   -- Cryptol stuff
   , (qualify "cryptol_module", toValue $ loadCryptol)
   , (qualify "cryptol_extract", toValue $ extractCryptol sc)
   -- Java stuff
+  , (qualify "java_load_class", toValue $ loadJavaClass bic)
+  , (qualify "java_browse_class", toValue browseJavaClass)
   , (qualify "java_extract", toValue $ extractJava bic opts)
   , (qualify "java_verify" , toValue $ verifyJava bic opts)
   , (qualify "java_pure"   , toValue $ javaPure)
@@ -508,6 +511,8 @@ valueEnv opts bic = M.fromList
   , (qualify "java_return" , toValue $ javaReturn bic opts)
   , (qualify "java_verify_tactic" , toValue $ javaVerifyTactic bic opts)
   -- LLVM stuff
+  , (qualify "llvm_load_module", toValue loadLLVMModule)
+  , (qualify "llvm_browse_module", toValue browseLLVMModule)
   , (qualify "llvm_extract", toValue $ extractLLVM sc)
   , (qualify "llvm_verify" , toValue $ verifyLLVM bic opts)
   , (qualify "llvm_pure"   , toValue $ llvmPure)
@@ -531,8 +536,8 @@ valueEnv opts bic = M.fromList
   , (qualify "rewrite"     , toValue $ rewritePrim sc)
   , (qualify "assume_valid", toValue (assumeValid :: ProofScript SAWCtx (ProofResult SAWCtx)))
   , (qualify "assume_unsat", toValue (assumeUnsat :: ProofScript SAWCtx (SatResult SAWCtx)))
+  , (qualify "abc_old"     , toValue $ satABCold sc)
   , (qualify "abc"         , toValue $ satABC sc)
-  , (qualify "abc2"        , toValue $ satABC' sc)
   , (qualify "yices"       , toValue $ satYices sc)
   , (qualify "boolector"   , toValue $ satBoolector sc)
   , (qualify "cvc4"        , toValue $ satCVC4 sc)
