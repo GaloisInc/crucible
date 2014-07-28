@@ -9,7 +9,7 @@ import Control.Applicative hiding (empty)
 import Control.Monad.Error
 import Control.Monad.State
 import qualified Data.ABC as ABC
-import Data.List (intercalate)
+import Data.List (sort, intercalate)
 import Data.List.Split
 import Data.IORef
 import Data.Maybe
@@ -271,8 +271,8 @@ parseJavaExpr cb cls meth estr = do
               pos = fixPos -- TODO
           fid <- findField cb pos jt f
           return (CC.Term (InstanceField e fid))
-        parseStaticParts (fname:cnames) = do
-          let cname = intercalate "/" (reverse cnames)
+        parseStaticParts (fname:rest) = do
+          let cname = intercalate "/" (reverse rest)
           mc <- JSS.tryLookupClass cb cname
           case mc of
             Just c ->
@@ -288,25 +288,38 @@ parseJavaExpr cb cls meth estr = do
 
 exportJSSType :: SS.Value s -> JSS.Type
 exportJSSType (SS.VCtorApp "Java.BooleanType" []) = JSS.BooleanType
+exportJSSType (SS.VCtorApp "Java.ByteType" []) = JSS.ByteType
+exportJSSType (SS.VCtorApp "Java.CharType" []) = JSS.CharType
+exportJSSType (SS.VCtorApp "Java.ShortType" []) = JSS.ShortType
 exportJSSType (SS.VCtorApp "Java.IntType" []) = JSS.IntType
 exportJSSType (SS.VCtorApp "Java.LongType" []) = JSS.LongType
 exportJSSType (SS.VCtorApp "Java.ArrayType" [_, ety]) =
   JSS.ArrayType (exportJSSType ety)
 exportJSSType (SS.VCtorApp "Java.ClassType" [SS.VString name]) =
   JSS.ClassType (JP.dotsToSlashes name)
-exportJSSType v = error $ "exportJSSType: Can't translate to Java type: " ++ show v
+exportJSSType v =
+  error $ "exportJSSType: Can't translate to Java type: " ++ show v
 
 exportJavaType :: JSS.Codebase -> SS.Value s -> IO JavaActualType
 exportJavaType _ (SS.VCtorApp "Java.BooleanType" []) =
   return $ PrimitiveType JSS.BooleanType
-exportJavaType _ (SS.VCtorApp "Java.IntType" []) = return $ PrimitiveType JSS.IntType
-exportJavaType _ (SS.VCtorApp "Java.LongType" []) = return $ PrimitiveType JSS.LongType
+exportJavaType _ (SS.VCtorApp "Java.ByteType" []) =
+  return $ PrimitiveType JSS.ByteType
+exportJavaType _ (SS.VCtorApp "Java.CharType" []) =
+  return $ PrimitiveType JSS.CharType
+exportJavaType _ (SS.VCtorApp "Java.ShortType" []) =
+  return $ PrimitiveType JSS.ShortType
+exportJavaType _ (SS.VCtorApp "Java.IntType" []) =
+  return $ PrimitiveType JSS.IntType
+exportJavaType _ (SS.VCtorApp "Java.LongType" []) =
+  return $ PrimitiveType JSS.LongType
 exportJavaType _ (SS.VCtorApp "Java.ArrayType" [SS.VInteger n, ety]) =
   return $ ArrayInstance (fromIntegral n) (exportJSSType ety)
 exportJavaType cb (SS.VCtorApp "Java.ClassType" [SS.VString name]) = do
   cls <- lookupClass cb fixPos (JP.dotsToSlashes name)
   return (ClassInstance  cls)
-exportJavaType _ v = error $ "exportJavaType: Can't translate to Java type: " ++ show v
+exportJavaType _ v =
+  error $ "exportJavaType: Can't translate to Java type: " ++ show v
 
 javaPure :: JavaSetup ()
 javaPure = return ()

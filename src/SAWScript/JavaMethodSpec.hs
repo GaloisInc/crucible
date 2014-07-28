@@ -731,6 +731,8 @@ esStep (EnsureStaticField _pos f rhsExpr) = do
     -- Perhaps this just ends up meaning that we need to verify the assumptions in this
     -- behavior are inconsistent.
     _ -> error "internal: Incompatible values assigned to static field."
+  modify $ \es ->
+    es { esStaticFields = Map.insert f (Just value) (esStaticFields es) }
 esStep (ModifyInstanceField refExpr f) = do
   -- Evaluate expressions.
   ref <- esEval $ evalJavaRefExpr refExpr
