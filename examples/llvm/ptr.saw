@@ -15,7 +15,8 @@ clear_setup = do {
 
 main : TopLevel ();
 main = do {
-    add_ms <- llvm_verify "ptr.bc" "add" [] add_setup;
-    clear_ms <- llvm_verify "ptr.bc" "clear" [] clear_setup;
+    m <- llvm_load_module "ptr.bc";
+    add_ms <- llvm_verify m "add" [] add_setup;
+    clear_ms <- llvm_verify m "clear" [] clear_setup;
     print "Done.";
 };

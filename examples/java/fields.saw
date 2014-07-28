@@ -30,9 +30,10 @@ unity_spec = do {
 
 main : TopLevel ();
 main = do {
-    ms_setx <- java_verify "Fields" "setx" [] setx_spec;
-    ms_sety <- java_verify "Fields" "sety" [] sety_spec;
-    ms_unitx <- java_verify "Fields" "unitx" [] unitx_spec;
-    ms_unity <- java_verify "Fields" "unity" [] unity_spec;
+    c <- java_load_class "Fields";
+    ms_setx <- java_verify c "setx" [] setx_spec;
+    ms_sety <- java_verify c "sety" [] sety_spec;
+    ms_unitx <- java_verify c "unitx" [] unitx_spec;
+    ms_unity <- java_verify c "unity" [] unity_spec;
     print "Done.";
 };
