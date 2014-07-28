@@ -540,6 +540,7 @@ valueEnv opts bic = M.fromList
   , (qualify "abc"         , toValue $ satABC sc)
   , (qualify "yices"       , toValue $ satYices sc)
   , (qualify "offline_aig" , toValue $ satAIG sc)
+  , (qualify "offline_cnf" , toValue $ satCNF sc)
   , (qualify "offline_extcore" , toValue $ satExtCore sc)
   , (qualify "offline_smtlib1" , toValue $ satSMTLib1 sc)
   , (qualify "offline_smtlib2" , toValue $ satSMTLib2 sc)

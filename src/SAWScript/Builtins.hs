@@ -12,9 +12,12 @@ import Control.Lens
 import Control.Monad.Error
 import Control.Monad.State
 import Data.Either (partitionEithers)
+import Data.List (isPrefixOf)
 import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Vector.Storable as SV
+import System.Exit
+import System.Process
 import Text.PrettyPrint.Leijen hiding ((<$>))
 
 
@@ -295,7 +298,7 @@ satABC sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
       return (SV.Unsat, g { goalTerm = ft })
     AIG.Sat cex -> do
       -- putStrLn "SAT"
-      r <- liftCexBB sc (map convert shapes) cex
+      r <- liftCexBB sc (map convertShape shapes) cex
       tt <- scApplyPreludeTrue sc
       case r of
         Left err -> fail $ "Can't parse counterexample: " ++ err
@@ -304,12 +307,12 @@ satABC sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
         Right tms -> do
           let vs = map (SV.evaluate sc) tms
           return (SV.SatMulti (zip argNames vs), g { goalTerm = tt })
-  where
-    convert :: BBSim.BShape -> BShape --FIXME: temporary
-    convert BBSim.BoolShape = BoolShape
-    convert (BBSim.VecShape n x) = VecShape n (convert x)
-    convert (BBSim.TupleShape xs) = TupleShape (map convert xs)
-    convert (BBSim.RecShape xm) = RecShape (fmap convert xm)
+
+convertShape :: BBSim.BShape -> BShape --FIXME: temporary
+convertShape BBSim.BoolShape = BoolShape
+convertShape (BBSim.VecShape n x) = VecShape n (convertShape x)
+convertShape (BBSim.TupleShape xs) = TupleShape (map convertShape xs)
+convertShape (BBSim.RecShape xm) = RecShape (fmap convertShape xm)
 
 satYices :: SharedContext s -> ProofScript s (SV.SatResult s)
 satYices sc = StateT $ \g -> do
@@ -336,9 +339,54 @@ satYices sc = StateT $ \g -> do
           return (SV.SatMulti vs, g { goalTerm = tt })
     Y.YUnknown -> fail "ABC returned Unknown for SAT query."
 
+satExternalCNF :: SharedContext s -> String -> [String]
+               -> ProofScript s (SV.SatResult s)
+satExternalCNF sc execName args = StateT $ \g -> withBE $ \be -> do
+  let cnfName = goalName g ++ ".cnf" 
+      args' = map replaceFileName args
+      replaceFileName "%f" = cnfName
+      replaceFileName a = a
+      t = goalTerm g
+      argNames = map fst (fst (asLambdaList t))
+  (shapes, l) <- BBSim.bitBlast be sc t
+  varMap <- GIA.writeCNF be l cnfName
+  (ec, out, err) <- readProcessWithExitCode execName args' ""
+  case ec of
+    ExitSuccess -> do
+      unless (null err) $
+        print $ "Standard error from SAT solver: " ++ err
+      let ls = lines out
+          sls = filter ("s " `isPrefixOf`) ls
+          vls = filter ("v " `isPrefixOf`) ls
+      case (sls, vls) of
+        (["s SATISFIABLE"], _) -> do
+          let vs = concatMap (tail . words) vls
+              vs' = undefined -- TODO: remap output
+          r <- liftCexBB sc (map convertShape shapes) vs'
+          tt <- scApplyPreludeTrue sc
+          case r of
+            Left err -> fail $ "Can't parse counterexample: " ++ err
+            Right [tm] ->
+              return (SV.Sat (SV.evaluate sc tm), g { goalTerm = tt })
+            Right tms -> do
+              let vs = map (SV.evaluate sc) tms
+              return (SV.SatMulti (zip argNames vs), g { goalTerm = tt })
+        (["s UNSATISFIABLE"], []) -> do
+          ft <- scApplyPreludeFalse sc
+          return (SV.Unsat, g { goalTerm = ft })
+        _ -> fail $ "Unexpected result from SAT solver:\n" ++ out
+    ExitFailure n ->
+      fail $ "SAT solver failed with exit code " ++ show n
+
 satAIG :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
 satAIG sc path = StateT $ \g -> do
   writeAIG sc ((path ++ goalName g) ++ ".aig") (goalTerm g)
+  ft <- liftIO $ scApplyPreludeFalse sc
+  return (SV.Unsat, g { goalTerm = ft })
+
+satCNF :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
+satCNF sc path = StateT $ \g -> do
+  writeCNF sc ((path ++ goalName g) ++ ".cnf") (goalTerm g)
   ft <- liftIO $ scApplyPreludeFalse sc
   return (SV.Unsat, g { goalTerm = ft })
 
