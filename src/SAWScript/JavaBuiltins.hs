@@ -224,19 +224,6 @@ showCexResults sc ms vs vals = do
   vsCounterexampleFn vs (cexEvalFn sc (map snd vals)) >>= print
   fail "Proof failed."
 
--- | Apply the given SharedTerm to the given values, and evaluate to a
--- final value.
-cexEvalFn :: SharedContext JSSCtx -> [Value SAWCtx] -> SharedTerm JSSCtx
-          -> IO EV.Value
-cexEvalFn sc args tm = do
-  args' <- mapM (SS.exportSharedTerm sc) args
-  let argMap = Map.fromList (zip [0..] args')
-      eval = EV.evalGlobal (scModule sc) EV.preludePrims
-  tm' <- scInstantiateExt sc argMap tm
-  --ty <- scTypeCheck sc tm'
-  --putStrLn $ "Type of cex eval term: " ++ show ty
-  return $ EV.evalSharedTerm eval tm'
-
 parseJavaExpr :: JSS.Codebase -> JSS.Class -> JSS.Method -> String
               -> IO JavaExpr
 parseJavaExpr cb cls meth estr = do

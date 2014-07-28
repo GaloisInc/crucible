@@ -194,17 +194,8 @@ verifyLLVM bic opts (LLVMModule file mdl) func overrides setup = do
               (r, _) <- runStateT script (ProofGoal (vsVCName vs) glam')
               case r of
                 SV.Unsat -> when (verb >= 3) $ putStrLn "Valid."
-                SV.Sat val -> do
-                  putStrLn $ "When verifying " ++ show (specName ms) ++ ":"
-                  putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
-                  putStrLn $ "Counterexample: " ++ show val
-                  fail "Proof failed."
-                SV.SatMulti vals -> do
-                  putStrLn $ "When verifying " ++ show (specName ms) ++ ":"
-                  putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
-                  putStrLn $ "Counterexample:"
-                  mapM_ (\(n, v) -> putStrLn ("  " ++ n ++ ": " ++ show v)) vals
-                  fail "Proof failed."
+                SV.Sat val ->  showCexResults scLLVM ms vs [("x", val)] -- TODO: replace x with something
+                SV.SatMulti vals -> showCexResults scLLVM ms vs vals
         case lsTactic lsctx of
           Skip -> liftIO $ putStrLn $
             "WARNING: skipping verification of " ++ show (specName ms)
@@ -212,6 +203,19 @@ verifyLLVM bic opts (LLVMModule file mdl) func overrides setup = do
             liftIO $ runValidation (prover script) vp scLLVM esd res
     putStrLn $ "Successfully verified " ++ show (specName ms) ++ overrideText
     return ms
+
+showCexResults :: SharedContext LSSCtx
+               -> LLVMMethodSpecIR
+               -> VerifyState
+               -> [(String, Value SAWCtx)]
+               -> IO ()
+showCexResults sc ms vs vals = do
+  putStrLn $ "When verifying " ++ show (specName ms) ++ ":"
+  putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
+  putStrLn $ "Counterexample: "
+  mapM_ (\(n, v) -> putStrLn ("  " ++ n ++ ": " ++ show v)) vals
+  vsCounterexampleFn vs (cexEvalFn sc (map snd vals)) >>= print
+  fail "Proof failed."
 
 llvmPure :: LLVMSetup ()
 llvmPure = return ()

@@ -12,9 +12,11 @@ import Control.Lens
 import Control.Monad.Error
 import Control.Monad.State
 import Data.Either (partitionEithers)
+import Data.Foldable (foldl')
 import Data.List (isPrefixOf)
 import qualified Data.Map as Map
 import Data.Maybe
+import qualified Data.Set as Set
 import qualified Data.Vector.Storable as SV
 import System.Exit
 import System.Process
@@ -530,6 +532,19 @@ bindAllExts sc body@(STApp _ tf) = do
             (Set.insert idx is, Set.insert t a)
           getExtCns (is, a) (STApp idx tf) =
             foldl' getExtCns (Set.insert idx is, a) tf
+
+-- | Apply the given SharedTerm to the given values, and evaluate to a
+-- final value.
+cexEvalFn :: SharedContext s -> [SV.Value SAWCtx] -> SharedTerm s
+          -> IO Value
+cexEvalFn sc args tm = do
+  args' <- mapM (SV.exportSharedTerm sc) args
+  let argMap = Map.fromList (zip [0..] args')
+      eval = evalGlobal (scModule sc) preludePrims
+  tm' <- scInstantiateExt sc argMap tm
+  --ty <- scTypeCheck sc tm'
+  --putStrLn $ "Type of cex eval term: " ++ show ty
+  return $ evalSharedTerm eval tm'
 
 toValueCase :: (SV.IsValue s b) =>
                SharedContext s
