@@ -179,10 +179,6 @@ verifyLLVM bic opts (LLVMModule file mdl) func overrides setup = do
       runSimulator cb sbe mem lopts $ do
         setVerbosity verb
         esd <- initializeVerification scLLVM ms
-        let isExtCns (STApp _ (FTermF (ExtCns _))) = True
-            isExtCns _ = False
-            initialExts =
-              sort . filter isExtCns . map snd . esdInitialAssignments $ esd
         res <- mkSpecVC scLLVM vp esd
         when (verb >= 3) $ liftIO $ do
           putStrLn "Verifying the following:"
@@ -192,7 +188,7 @@ verifyLLVM bic opts (LLVMModule file mdl) func overrides setup = do
                    -> SharedTerm LSSCtx
                    -> IO ()
             prover script vs g = do
-              glam <- bindExts scLLVM initialExts g
+              glam <- bindAllExts scLLVM g
               let bsc = biSharedContext bic
               glam' <- scNegate bsc =<< scImport bsc glam
               (r, _) <- runStateT script (ProofGoal (vsVCName vs) glam')

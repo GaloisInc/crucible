@@ -188,17 +188,13 @@ verifyJava bic opts cls mname overrides setup = do
                  " at PC " ++ show (bsLoc bs) ++ "."
     JSS.runDefSimulator cb backend $ do
       esd <- initializeVerification jsc ms bs cl
-      let isExtCns (STApp _ (FTermF (ExtCns _))) = True
-          isExtCns _ = False
-          initialExts =
-            sort . filter isExtCns . map snd . esdInitialAssignments $ esd
       res <- mkSpecVC jsc vp esd
       when (verb >= 5) $ liftIO $ do
         putStrLn "Verifying the following:"
         mapM_ (print . ppPathVC) res
       let prover script vs g = do
             -- scTypeCheck jsc g
-            glam <- bindExts jsc initialExts g
+            glam <- bindAllExts jsc g
             let bsc = biSharedContext bic
             glam' <- scNegate bsc =<< scImport bsc glam
             when (verb >= 6) $ putStrLn $ "Trying to prove: " ++ show glam'

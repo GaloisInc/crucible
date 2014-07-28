@@ -519,6 +519,18 @@ bindExts sc args body = do
           extName (STApp _ (FTermF (ExtCns ec))) = Just (ecName ec)
           extName _ = Nothing
 
+bindAllExts :: SharedContext s
+            -> SharedTerm s
+            -> IO (SharedTerm s)
+bindAllExts sc body@(STApp _ tf) = do
+  bindExts sc (Set.toAscList args) body
+    where args = snd $ foldl' getExtCns (Set.empty, Set.empty) tf
+          getExtCns (is, a) (STApp idx _) | Set.member idx is = (is, a)
+          getExtCns (is, a) t@(STApp idx (FTermF (ExtCns _))) =
+            (Set.insert idx is, Set.insert t a)
+          getExtCns (is, a) (STApp idx tf) =
+            foldl' getExtCns (Set.insert idx is, a) tf
+
 toValueCase :: (SV.IsValue s b) =>
                SharedContext s
             -> (SharedContext s -> b -> SV.Value s -> SV.Value s -> IO (SV.Value s))
