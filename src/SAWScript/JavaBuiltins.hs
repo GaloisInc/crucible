@@ -9,7 +9,6 @@ import Control.Applicative hiding (empty)
 import Control.Monad.Error
 import Control.Monad.State
 import qualified Data.ABC as ABC
-import Data.List (sort)
 import Data.List.Split
 import Data.IORef
 import Data.Maybe
@@ -24,9 +23,7 @@ import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.Java.Simulator as JSS
 import qualified Verifier.Java.SAWBackend as JSS
 
-import qualified Verifier.SAW.Evaluator as EV
 import Verifier.SAW.SharedTerm
-import Verifier.SAW.TypedAST hiding (instantiateVarList)
 
 import qualified SAWScript.CongruenceClosure as CC
 
@@ -45,7 +42,6 @@ import Verinf.Utils.LogMonad
 loadJavaClass :: BuiltinContext -> String -> IO JSS.Class
 loadJavaClass bic cname = do
   let cname' = JP.dotsToSlashes cname
-      sc = biSharedContext bic
       cb = biJavaCodebase bic
   lookupClass cb fixPos cname'
 

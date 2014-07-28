@@ -8,7 +8,6 @@ module SAWScript.LLVMBuiltins where
 import Control.Applicative
 import Control.Monad.Error hiding (mapM)
 import Control.Monad.State hiding (mapM)
-import Data.List (sort)
 import Data.List.Split
 import qualified Data.Map as Map
 import Data.String
@@ -23,7 +22,7 @@ import Text.LLVM ( modTypes, modGlobals, modDeclares, modDefines, modDataLayout
                  , ppDeclare, ppGlobalAttrs, ppMaybe, ppSymbol, ppIdent
                  )
 import Verifier.LLVM.Backend
-import Verifier.LLVM.Codebase hiding ( Global, ppSymbol, ppType, ppIdent
+import Verifier.LLVM.Codebase hiding ( Global, ppSymbol, ppIdent
                                      , globalSym, globalType
                                      )
 import qualified Verifier.LLVM.Codebase as CB
@@ -32,7 +31,7 @@ import Verifier.LLVM.Simulator
 
 import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm
-import Verifier.SAW.TypedAST (FlatTermF(..), Termlike)
+import Verifier.SAW.TypedAST (Termlike)
 
 import SAWScript.CongruenceClosure hiding (mapM)
 import SAWScript.Builtins
