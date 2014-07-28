@@ -33,9 +33,13 @@ import SAWScript.Parser (parseBlockStmt)
 import SAWScript.RenameRefs (renameRefs)
 import SAWScript.REPL.Logo (displayLogo)
 import SAWScript.REPL.GenerateModule (replFileName, replModuleName, wrapBStmt)
+import SAWScript.REPL.Haskeline (repl)
 import SAWScript.REPL.Monad (REPLState, withInitialState,
+                             REPL,
+{-
                              REP, runREP,
                              REPResult(..),
+-}
                              getModulesInScope, getNamesInScope,
                                getSharedContext, getEnvironment,
                              putEnvironment,
@@ -47,8 +51,11 @@ import SAWScript.Utils (SAWCtx, Pos(..))
 -- | Main function
 run :: Options -> IO ()
 run opts = do
-  settings <- replSettings
+  -- settings <- replSettings
   displayLogo True
+  withInitialState opts $ \initialState -> do
+    repl Nothing (return ())
+{-
   withInitialState opts $ loop settings
   where loop :: Haskeline.Settings IO -> REPLState -> IO ()
         loop settings state = do
@@ -57,6 +64,7 @@ run opts = do
             Success state' -> loop settings state'
             SuccessExit -> return ()
             Failure -> loop settings state
+-}
 
 replSettings :: MonadIO m => IO (Haskeline.Settings m)
 replSettings = do
@@ -69,6 +77,7 @@ replSettings = do
 
 ------------------------------------ Read -------------------------------------
 
+{-
 read :: REP (BlockStmt UnresolvedName RawT)
 read = do
   promptString <- buildPromptString
@@ -85,6 +94,7 @@ buildPromptString = do
   modsInScope <- getModulesInScope
   let moduleNames = map renderModuleName $ Map.keys modsInScope
   return $ intercalate " " moduleNames ++ "> "
+-}
 
 
 ---------------------------------- Evaluate -----------------------------------
@@ -110,7 +120,7 @@ caveats:
      computations and use them to seed the name resolver and the typechecker;
      we also hang onto the results and use them to seed the interpreter. -}
 evaluate :: BlockStmt UnresolvedName RawT
-            -> REP (Maybe Name, Value SAWCtx)
+            -> REPL (Maybe Name, Value SAWCtx)
 evaluate ast = do
   -- Set the context (i.e., the monad) for the statement (point 1 above).
   let ast' :: BlockStmt UnresolvedName RawT
@@ -158,7 +168,7 @@ evaluate ast = do
   return (boundName, result)
 
 injectBoundExpressionTypes :: Module UnresolvedName ResolvedT ResolvedT
-                              -> REP (Module UnresolvedName ResolvedT ResolvedT)
+                              -> REPL (Module UnresolvedName ResolvedT ResolvedT)
 injectBoundExpressionTypes orig = do
   boundNames <- getNamesInScope
   boundNamesAndTypes :: Map LName ResolvedT
@@ -177,7 +187,7 @@ injectBoundExpressionTypes orig = do
           error "injectBoundExpressionTypes: bound LocalName"
         stripModuleName (getVal -> (TopLevelName _modName varName)) = Located varName varName PosREPL
 
-saveResult :: Maybe Name -> Value SAWCtx -> REP ()
+saveResult :: Maybe Name -> Value SAWCtx -> REPL ()
 saveResult Nothing _ = return ()
 saveResult (Just name) result = do
   -- Record that 'name' is in scope.
@@ -217,13 +227,13 @@ extractFromBlock _ = error "extractFromBlock: unknown construct"
 
 ------------------------------------ Print ------------------------------------
 
-print :: (Maybe a, Value SAWCtx) -> REP ()
+print :: (Maybe a, Value SAWCtx) -> REPL ()
 print (Just _, _) =
   -- This value's being bound.  Don't print it.
   return ()
 print (Nothing, v)
   | isVUnit v = return ()
-  | otherwise = REP.haskeline $ Haskeline.outputStrLn $ show v
+  | otherwise = REP.io $ putStrLn $ show v
 
 
 ----------------------------------- Utility -----------------------------------
