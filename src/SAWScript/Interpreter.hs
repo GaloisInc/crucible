@@ -539,6 +539,7 @@ valueEnv opts bic = M.fromList
   , (qualify "abc_old"     , toValue $ satABCold sc)
   , (qualify "abc"         , toValue $ satABC sc)
   , (qualify "yices"       , toValue $ satYices sc)
+  , (qualify "external_cnf_solver", toValue $ satExternalCNF sc)
   , (qualify "offline_aig" , toValue $ satAIG sc)
   , (qualify "offline_cnf" , toValue $ satCNF sc)
   , (qualify "offline_extcore" , toValue $ satExtCore sc)

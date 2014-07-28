@@ -352,33 +352,33 @@ satExternalCNF sc execName args = StateT $ \g -> withBE $ \be -> do
       argNames = map fst (fst (asLambdaList t))
   (shapes, l) <- BBSim.bitBlast be sc t
   varMap <- GIA.writeCNF be l cnfName
-  (ec, out, err) <- readProcessWithExitCode execName args' ""
-  case ec of
-    ExitSuccess -> do
-      unless (null err) $
-        print $ "Standard error from SAT solver: " ++ err
-      let ls = lines out
-          sls = filter ("s " `isPrefixOf`) ls
-          vls = filter ("v " `isPrefixOf`) ls
-      case (sls, vls) of
-        (["s SATISFIABLE"], _) -> do
-          let vs = concatMap (tail . words) vls
-              vs' = undefined -- TODO: remap output
-          r <- liftCexBB sc (map convertShape shapes) vs'
-          tt <- scApplyPreludeTrue sc
-          case r of
-            Left err -> fail $ "Can't parse counterexample: " ++ err
-            Right [tm] ->
-              return (SV.Sat (SV.evaluate sc tm), g { goalTerm = tt })
-            Right tms -> do
-              let vs = map (SV.evaluate sc) tms
-              return (SV.SatMulti (zip argNames vs), g { goalTerm = tt })
-        (["s UNSATISFIABLE"], []) -> do
-          ft <- scApplyPreludeFalse sc
-          return (SV.Unsat, g { goalTerm = ft })
-        _ -> fail $ "Unexpected result from SAT solver:\n" ++ out
-    ExitFailure n ->
-      fail $ "SAT solver failed with exit code " ++ show n
+  (_ec, out, err) <- readProcessWithExitCode execName args' ""
+  unless (null err) $
+    print $ "Standard error from SAT solver: " ++ err
+  let ls = lines out
+      sls = filter ("s " `isPrefixOf`) ls
+      vls = filter ("v " `isPrefixOf`) ls
+  case (sls, vls) of
+    (["s SATISFIABLE"], _) -> do
+      let vs :: [Int]
+          vs = concatMap (map read . tail . words) vls
+          varToPair n | n < 0 = (n, False)
+                      | otherwise = (n, True)
+          assgnMap = Map.fromList (map varToPair vs)
+          val = map (\v -> Map.findWithDefault False v assgnMap) varMap
+      r <- liftCexBB sc (map convertShape shapes) val
+      tt <- scApplyPreludeTrue sc
+      case r of
+        Left msg -> fail $ "Can't parse counterexample: " ++ msg
+        Right [tm] ->
+          return (SV.Sat (SV.evaluate sc tm), g { goalTerm = tt })
+        Right tms -> do
+          let vals = map (SV.evaluate sc) tms
+          return (SV.SatMulti (zip argNames vals), g { goalTerm = tt })
+    (["s UNSATISFIABLE"], []) -> do
+      ft <- scApplyPreludeFalse sc
+      return (SV.Unsat, g { goalTerm = ft })
+    _ -> fail $ "Unexpected result from SAT solver:\n" ++ out
 
 satAIG :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
 satAIG sc path = StateT $ \g -> do
@@ -530,8 +530,8 @@ bindAllExts sc body@(STApp _ tf) = do
           getExtCns (is, a) (STApp idx _) | Set.member idx is = (is, a)
           getExtCns (is, a) t@(STApp idx (FTermF (ExtCns _))) =
             (Set.insert idx is, Set.insert t a)
-          getExtCns (is, a) (STApp idx tf) =
-            foldl' getExtCns (Set.insert idx is, a) tf
+          getExtCns (is, a) (STApp idx tf') =
+            foldl' getExtCns (Set.insert idx is, a) tf'
 
 -- | Apply the given SharedTerm to the given values, and evaluate to a
 -- final value.
