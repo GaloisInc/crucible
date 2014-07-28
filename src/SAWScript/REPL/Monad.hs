@@ -201,27 +201,28 @@ data RW = RW
   }
 
 -- | Initial, empty environment.
-defaultRW :: Bool -> IO RW
-defaultRW isBatch = do
+defaultRW :: Bool -> Options -> IO RW
+defaultRW isBatch opts = do
   env <- M.initialModuleEnv
+  rstate <- getInitialState opts
   return RW
     { eLoadedMod  = Nothing
     , eContinue   = True
     , eIsBatch    = isBatch
     , eModuleEnv  = env
     , eUserEnv    = mkUserEnv userOptions
-    , eREPLState  = error "FIXME: eREPLState"
+    , eREPLState  = rstate
     }
 
 -- | Build up the prompt for the REPL.
 mkPrompt :: RW -> String
 mkPrompt rw
   | eIsBatch rw = ""
-  | otherwise   = maybe "cryptol" pretty (lName =<< eLoadedMod rw) ++ "> "
+  | otherwise   = maybe "sawscript" pretty (lName =<< eLoadedMod rw) ++ "> "
 
 mkTitle :: RW -> String
 mkTitle rw = maybe "" (\ m -> pretty m ++ " - ") (lName =<< eLoadedMod rw)
-          ++ "cryptol"
+          ++ "sawscript"
 
 
 -- REPL Monad ------------------------------------------------------------------
@@ -230,9 +231,9 @@ mkTitle rw = maybe "" (\ m -> pretty m ++ " - ") (lName =<< eLoadedMod rw)
 newtype REPL a = REPL { unREPL :: IORef RW -> IO a }
 
 -- | Run a REPL action with a fresh environment.
-runREPL :: Bool -> REPL a -> IO a
-runREPL isBatch m = do
-  ref <- newIORef =<< defaultRW isBatch
+runREPL :: Bool -> Options -> REPL a -> IO a
+runREPL isBatch opts m = do
+  ref <- newIORef =<< defaultRW isBatch opts
   unREPL m ref
 
 instance Functor REPL where

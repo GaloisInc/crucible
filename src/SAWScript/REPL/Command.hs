@@ -7,6 +7,8 @@
 -- Portability :  portable
 
 {-# LANGUAGE CPP, PatternGuards, FlexibleContexts #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ViewPatterns #-}
 module SAWScript.REPL.Command (
     -- * Commands
     Command(..), CommandDescr(..), CommandBody(..)
@@ -62,11 +64,37 @@ import System.Exit (ExitCode(ExitSuccess))
 --import qualified System.Process as Process(runCommand)
 import System.FilePath((</>), isPathSeparator)
 import System.Directory(getHomeDirectory,setCurrentDirectory,doesDirectoryExist)
+import Data.Map (Map)
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import qualified Data.IntMap as IntMap
 import System.IO(hFlush,stdout)
 --import System.Random(newStdGen)
 import Numeric (showFFloat)
+
+-- SAWScript imports
+import qualified SAWScript.AST as SS
+    (ModuleName, {-renderModuleName,-}
+     Module(..), ValidModule,
+     BlockStmt(Bind),
+     Name, LName, Located(..), UnresolvedName,
+     ResolvedName(..),
+     RawT, ResolvedT,
+     Context(..), Schema(..), Type(..), TyCon(..), rewindSchema,
+     topLevelContext)
+import SAWScript.Interpreter
+    (Value, isVUnit,
+     interpretModuleAtEntry,
+     InterpretEnv(..),
+     interpretEnvValues, interpretEnvTypes)
+import qualified SAWScript.Lexer (scan)
+import qualified SAWScript.MGU (checkModule)
+import qualified SAWScript.Parser (parseBlockStmt)
+import qualified SAWScript.RenameRefs (renameRefs)
+import qualified SAWScript.ResolveSyns (resolveSyns)
+import SAWScript.REPL.GenerateModule (replFileName, replModuleName, wrapBStmt)
+import SAWScript.Utils (SAWCtx, Pos(..))
+
 
 #if __GLASGOW_HASKELL__ < 706
 import Control.Monad (liftM)
@@ -152,6 +180,8 @@ nbCommandList  =
     "check the type of an expression"
   , CommandDescr ":browse" (ExprTypeArg browseCmd)
     "display the current environment"
+  , CommandDescr ":eval" (ExprArg evalCmd)
+    "evaluate an expression and print the result"
   , CommandDescr ":help"   (ExprArg helpCmd)
     "display a brief description about a built-in operator"
   , CommandDescr ":set" (OptionArg setOptionCmd)
@@ -543,6 +573,138 @@ cdCmd f | null f = io $ putStrLn $ "[error] :cd requires a path argument"
     then io $ setCurrentDirectory f
     else raise $ DirectoryNotFound f
 
+-- SAWScript commands ----------------------------------------------------------
+
+{- Evaluation is fairly straightforward; however, there are a few important
+caveats:
+
+  1. 'return' is type-polymorphic.  This means that 'return "foo"' will produce
+     a type-polymorphic function 'm -> m String', for any monad 'm'.  It also
+     means that if you type 'return "foo"' into a naively-written interpreter,
+     you won't see 'foo'!  The solution is to force each statement that comes
+     into the REPL to have type 'TopLevel t' ('TopLevel' is the SAWScript
+     version of 'IO').  This gets done as soon as the statement is parsed.
+
+  2. Handling binding variables to values is somewhat tricky.  When you're
+     allowed to bind variables in the REPL, you're basically working in the
+     context of a partially evaluated module: all the results of all the old
+     computations are in scope, and you're allowed to add new computations that
+     depend on them.  It's insufficient to merely hang onto the AST for the
+     old computations, as that could cause them to be evaluated multiple times;
+     it could also cause their type to be inferred differently several times,
+     which is bad.  Instead, we hang onto the inferred types of previous
+     computations and use them to seed the name resolver and the typechecker;
+     we also hang onto the results and use them to seed the interpreter. -}
+sawScriptCmd :: String -> REPL ()
+sawScriptCmd str = do
+  tokens <- err $ SAWScript.Lexer.scan replFileName str
+  ast <- err $ SAWScript.Parser.parseBlockStmt tokens
+  -- Set the context (i.e., the monad) for the statement (point 1 above).
+  let ast' :: SS.BlockStmt SS.UnresolvedName SS.RawT
+      ast' = case ast of
+        SS.Bind maybeVar _ctx expr -> SS.Bind maybeVar (Just SS.topLevelContext) expr
+        stmt -> stmt
+  {- Remember, we're trying to present the illusion that you're working
+  inside an ever-expanding 'do' block.  In actuality, though, only on
+  statement is ever being evaluated at a time, and some statements we'd like to
+  allow (namely, 'foo <- bar') aren't legal as single statements in 'do'
+  blocks.  Hence, if we're being asked to bind 'foo <- bar', save the name
+  'foo' and evaluate 'bar'.  (We'll bind it manually to 'foo' later.) -}
+  let boundName :: Maybe SS.Name
+      withoutBinding :: SS.BlockStmt SS.UnresolvedName SS.RawT
+      (boundName, withoutBinding) =
+        case ast' of
+          SS.Bind (Just (SS.getVal -> varName, _)) ctx expr -> (Just varName,
+                                                SS.Bind Nothing ctx expr)
+          _ -> (Nothing, ast')
+  {- The compiler pipeline is targeted at modules, so wrap up the statement in
+  a trivial module. -}
+  modsInScope :: Map SS.ModuleName SS.ValidModule
+              <- getModulesInScope
+  let astModule :: SS.Module SS.UnresolvedName SS.RawT SS.RawT
+      astModule = wrapBStmt modsInScope "it" withoutBinding
+  {- Resolve type synonyms, abstract types, etc.  They're not supported by the
+  REPL, so there never are any. -}
+  synsResolved :: SS.Module SS.UnresolvedName SS.ResolvedT SS.ResolvedT
+               <- err $ SAWScript.ResolveSyns.resolveSyns astModule
+  -- Add the types of previously evaluated and named expressions.
+  synsResolved' <- injectBoundExpressionTypes synsResolved
+  -- Rename references.
+  renamed :: SS.Module SS.ResolvedName SS.ResolvedT SS.ResolvedT
+          <- err $ SAWScript.RenameRefs.renameRefs synsResolved'
+  -- Infer and check types.
+  typechecked :: SS.Module SS.ResolvedName SS.Schema SS.ResolvedT
+              <- err $ SAWScript.MGU.checkModule renamed
+  -- Interpret the statement.
+  ctx <- getSharedContext
+  env <- getEnvironment
+  (result, env') <- io $ interpretModuleAtEntry "it" ctx env typechecked
+  -- Update the environment and return the result.
+  putEnvironment env'
+  saveResult boundName result
+  case boundName of
+    Nothing | not (isVUnit result) -> io $ print result
+    _                              -> return ()
+
+
+injectBoundExpressionTypes :: SS.Module SS.UnresolvedName SS.ResolvedT SS.ResolvedT
+                              -> REPL (SS.Module SS.UnresolvedName SS.ResolvedT SS.ResolvedT)
+injectBoundExpressionTypes orig = do
+  boundNames <- getNamesInScope
+  boundNamesAndTypes :: Map SS.LName SS.ResolvedT
+                     <-
+    getEnvironment <&>
+    interpretEnvTypes <&>
+    Map.filterWithKey (\name _type ->
+                        Set.member (SS.getVal $ stripModuleName name) boundNames) <&>
+    Map.mapKeysMonotonic stripModuleName <&>
+    Map.map SS.rewindSchema
+  -- Inject the types.
+  return $ orig { SS.modulePrimEnv =
+                    Map.union boundNamesAndTypes (SS.modulePrimEnv orig) }
+  where stripModuleName :: SS.Located SS.ResolvedName -> SS.LName
+        stripModuleName (SS.getVal -> (SS.LocalName _)) =
+          error "injectBoundExpressionTypes: bound LocalName"
+        stripModuleName (SS.getVal -> (SS.TopLevelName _modName varName)) = SS.Located varName varName PosREPL
+
+saveResult :: Maybe SS.Name -> Value SAWCtx -> REPL ()
+saveResult Nothing _ = return ()
+saveResult (Just name) result = do
+  -- Record that 'name' is in scope.
+  modifyNamesInScope $ Set.insert name
+  -- Save the type of 'it'.
+  let itsName = SS.Located (SS.TopLevelName replModuleName "it") "it" PosREPL
+      itsName' = SS.Located (SS.TopLevelName replModuleName name) "it" PosREPL
+  modifyEnvironment $ \env ->
+    let typeEnv = interpretEnvTypes env in
+    let typeEnv' =
+          case Map.lookup itsName typeEnv of
+            Nothing -> error "evaluate: could not find most recent expression"
+            Just itsType ->
+              Map.insert itsName' (extractFromBlock itsType) typeEnv
+    in env { interpretEnvTypes = typeEnv' }
+  -- Save the value of 'it'.
+  modifyEnvironment $ \env ->
+    let valueEnv = interpretEnvValues env in
+    let valueEnv' =
+          case Map.lookup itsName valueEnv of
+            Nothing -> error "evaluate: could not find most recent expression"
+            Just _itsValue ->
+              Map.insert itsName' result valueEnv
+    in env { interpretEnvValues = valueEnv' }
+
+extractFromBlock :: SS.Schema -> SS.Schema
+extractFromBlock (SS.Forall [] (SS.TyCon SS.BlockCon [ctx, inner]))
+  | ctx == (SS.TyCon (SS.ContextCon SS.TopLevel) []) = SS.Forall [] inner
+  | otherwise = error "extractFromBlock: not a TopLevel expression"
+extractFromBlock (SS.Forall (_:_) _) =
+  {- TODO: Support polymorphism.  Polymorphism in the interpreter is actually
+  rather difficult, as doing stuff in the interpreter might very well cause
+  other values to become more constrained. -}
+  error "extractFromBlock: polymorphism not yet supported"
+extractFromBlock _ = error "extractFromBlock: unknown construct"
+
+
 -- C-c Handlings ---------------------------------------------------------------
 
 -- XXX this should probably do something a bit more specific.
@@ -699,7 +861,7 @@ parseCommand findCmd line = do
 
     [] -> case uncons cmd of
       Just (':',_) -> Just (Unknown cmd)
-      Just _       -> Just (Command (evalCmd line))
+      Just _       -> Just (Command (sawScriptCmd line))
       _            -> Nothing
 
     cs -> Just (Ambiguous cmd (map cName cs))
@@ -710,3 +872,11 @@ parseCommand findCmd line = do
       '~' : c : more | isPathSeparator c -> do dir <- io getHomeDirectory
                                                return (dir </> more)
       _ -> return path
+
+----------------------------------- Utility -----------------------------------
+
+-- From 'Control.Lens.Combinators'.
+(<&>) :: Functor f => f a -> (a -> b) -> f b
+a <&> f = fmap f a
+infixl 1 <&>
+{-# INLINE (<&>) #-}

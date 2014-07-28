@@ -26,16 +26,18 @@ import qualified Control.Monad.IO.Class as MTL
 import qualified Control.Monad.Trans.Class as MTL
 import qualified Control.Exception as X
 
+import SAWScript.Options (Options)
+
 
 -- | Haskeline-specific repl implementation.
 --
 -- XXX this needs to handle Ctrl-C, which at the moment will just cause
 -- haskeline to exit.  See the function 'withInterrupt' for more info on how to
 -- handle this.
-repl :: Maybe FilePath -> REPL () -> IO ()
-repl mbBatch begin =
+repl :: Maybe FilePath -> Options -> REPL () -> IO ()
+repl mbBatch opts begin =
   do settings <- setHistoryFile replSettings
-     runREPL isBatch (runInputTBehavior style settings body)
+     runREPL isBatch opts (runInputTBehavior style settings body)
   where
   body = withInterrupt $ do
     MTL.lift begin
