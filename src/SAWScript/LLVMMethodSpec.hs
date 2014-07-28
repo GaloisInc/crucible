@@ -682,7 +682,10 @@ initializeVerification sc ir = do
 
   gm <- use globalTerms
   let rreg =  (,Ident "__sawscript_result") <$> sdRetType fnDef
-      cmpFst (i, _) (i', _) = i `compare` i'
+      cmpFst (i, _) (i', _) = 
+        case i `compare` i' of
+          EQ -> fail $ "Argument " ++ show i ++ " declared multiple times."
+          r -> r
   callDefine' False fn rreg (map snd (sortBy cmpFst (catMaybes args)))
 
   initPS <- fromMaybe (error "initializeVerification") <$> getPath
