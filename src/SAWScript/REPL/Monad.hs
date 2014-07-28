@@ -16,10 +16,11 @@ module SAWScript.REPL.Monad (
   , raise
   , stop
   , catch
+  , catchFail
 
     -- ** Errors
   , REPLException(..)
-  ,rethrowEvalError
+  , rethrowEvalError
 
     -- ** Environment
   , getModuleEnv, setModuleEnv
@@ -71,6 +72,7 @@ import Data.Typeable (Typeable)
 import System.Console.ANSI (setTitle)
 import qualified Control.Exception as X
 import qualified Data.Map as Map
+import System.IO.Error (isUserError, ioeGetErrorString)
 
 --------------------
 {-
@@ -294,6 +296,14 @@ raise exn = io (X.throwIO exn)
 
 catch :: REPL a -> (REPLException -> REPL a) -> REPL a
 catch m k = REPL (\ ref -> unREPL m ref `X.catch` \ e -> unREPL (k e) ref)
+
+-- | Similar to 'catch' above, but catches generic IO exceptions from 'fail'.
+catchFail :: REPL a -> (String -> REPL a) -> REPL a
+catchFail m k = REPL (\ ref -> X.catchJust sel (unREPL m ref) (\s -> unREPL (k s) ref))
+  where
+    sel :: X.IOException -> Maybe String
+    sel e | isUserError e = Just (ioeGetErrorString e)
+          | otherwise     = Nothing
 
 rethrowEvalError :: IO a -> IO a
 rethrowEvalError m = run `X.catch` rethrow

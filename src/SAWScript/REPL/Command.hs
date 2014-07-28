@@ -237,8 +237,10 @@ runCommand :: Command -> REPL ()
 runCommand c = case c of
 
   Command cmd -> cmd `SAWScript.REPL.Monad.catch` handler
+                     `SAWScript.REPL.Monad.catchFail` handler2
     where
     handler re = io (putStrLn "" >> print (pp re))
+    handler2 s = io (putStrLn "" >> putStrLn s)
 
   Unknown cmd -> io (putStrLn ("Unknown command: " ++ cmd))
 
