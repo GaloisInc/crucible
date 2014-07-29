@@ -5,10 +5,10 @@ main = do {
     (c_ffs_imp : [32] -> [32]) <- read_aig "c_ffs_imp.aig";
 
     let thm1 x = java_ffs_ref x == java_ffs_imp x;
-    prove abc thm1;
+    prove_print abc thm1;
 
     let thm2 x = c_ffs_ref x == c_ffs_imp x;
-    prove abc thm2;
+    prove_print abc thm2;
 
     print "Done.";
 };

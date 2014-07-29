@@ -8,6 +8,6 @@ main = do {
 
   print "Proving equivalence";
   let thm1 x = ffs_ref x == ffs_imp x;
-  prove abc thm1;
+  prove_print abc thm1;
   print "Done.";
 };
