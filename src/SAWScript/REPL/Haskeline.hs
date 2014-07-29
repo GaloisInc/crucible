@@ -77,7 +77,7 @@ repl mbBatch opts begin =
 -- | Try to set the history file.
 setHistoryFile :: Settings REPL -> IO (Settings REPL)
 setHistoryFile ss =
-  do dir <- getAppUserDataDirectory "cryptol"
+  do dir <- getAppUserDataDirectory "saw"
      createDirectoryIfMissing True dir
      return ss { historyFile = Just (dir </> "history") }
    `X.catch` \(SomeException {}) -> return ss
