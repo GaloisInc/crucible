@@ -216,7 +216,9 @@ evalMixedExpr (TC.LE expr) ec = do
   case (asBitvectorType ty', asBoolType ty') of
     (Just 32, _) -> return (JSS.IValue n)
     (Just 64, _) -> return (JSS.LValue n)
-    (Just _, _) -> error "internal: bitvector of unsupported size passed to evalMixedExpr"
+    (Just n, _) ->
+      error $ "internal: bitvector of unsupported size " ++ show n ++
+              " passed to evalMixedExpr"
     (Nothing, Just _) -> do
       b <- liftIO $ do
         boolTy <- scBoolType sc
