@@ -81,7 +81,9 @@ import qualified SAWScript.AST as SS
      ResolvedName(..),
      RawT, ResolvedT,
      Context(..), Schema(..), Type(..), TyCon(..), rewindSchema,
-     topLevelContext)
+     block,
+     topLevelContext,
+     updateAnnotation)
 import SAWScript.Interpreter
     (Value, isVUnit,
      interpretModuleAtEntry,
@@ -616,8 +618,9 @@ sawScriptCmd str = do
       withoutBinding :: SS.BlockStmt SS.UnresolvedName SS.RawT
       (boundName, withoutBinding) =
         case ast' of
-          SS.Bind (Just (SS.getVal -> varName, _)) ctx expr -> (Just varName,
-                                                SS.Bind Nothing ctx expr)
+          SS.Bind (Just (SS.getVal -> varName, ty)) ctx expr
+            -> let ty' = fmap (SS.block SS.topLevelContext) ty
+               in (Just varName, SS.Bind Nothing ctx (SS.updateAnnotation ty' expr))
           _ -> (Nothing, ast')
   {- The compiler pipeline is targeted at modules, so wrap up the statement in
   a trivial module. -}
