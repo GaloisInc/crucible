@@ -361,8 +361,8 @@ satExternalCNF sc execName args = StateT $ \g -> withBE $ \be -> do
   case (sls, vls) of
     (["s SATISFIABLE"], _) -> do
       let vs :: [Int]
-          vs = concatMap (map read . tail . words) vls
-          varToPair n | n < 0 = (n, False)
+          vs = concatMap (filter (/= 0) . map read . tail . words) vls
+          varToPair n | n < 0 = (-n, False)
                       | otherwise = (n, True)
           assgnMap = Map.fromList (map varToPair vs)
           val = map (\v -> Map.findWithDefault False v assgnMap) varMap
