@@ -20,11 +20,14 @@ import Text.Read (readMaybe)
 
 import qualified Language.JVM.Common as JP
 
+import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
+
 import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.Java.Simulator as JSS
 import qualified Verifier.Java.SAWBackend as JSS
 
 import Verifier.SAW.SharedTerm
+import Verifier.SAW.TypedAST
 
 import qualified SAWScript.CongruenceClosure as CC
 
@@ -147,7 +150,9 @@ verifyJava :: BuiltinContext -> Options -> JSS.Class -> String
 verifyJava bic opts cls mname overrides setup = do
   let pos = fixPos -- TODO
       cb = biJavaCodebase bic
-  sc0 <- mkSharedContext JSS.javaModule
+      imps = [CryptolSAW.cryptolModule]
+      vjavaModule = foldr insImport JSS.javaModule imps
+  sc0 <- mkSharedContext vjavaModule
   -- ss <- basic_ss sc0
   let (jsc :: SharedContext JSSCtx) = sc0 -- rewritingSharedContext sc0 ss
   ABC.SomeGraph be <- ABC.newGraph ABC.giaNetwork
@@ -277,8 +282,8 @@ parseJavaExpr cb cls meth estr = do
           case mc of
             Just c ->
               case filter ((== fname) . JSS.fieldName) (JSS.classFields c) of
-                [f] -> return (Just 
-                               (CC.Term 
+                [f] -> return (Just
+                               (CC.Term
                                 (StaticField
                                  (JSS.FieldId cname fname (JSS.fieldType f)))))
                 _ -> return Nothing
