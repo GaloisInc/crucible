@@ -21,6 +21,7 @@ import qualified Data.Vector.Storable as SV
 import System.Exit
 import System.Process
 import Text.PrettyPrint.Leijen hiding ((<$>))
+import Text.Read
 
 
 import qualified Verifier.Java.Codebase as JSS
@@ -341,6 +342,18 @@ satYices sc = StateT $ \g -> do
           return (SV.SatMulti vs, g { goalTerm = tt })
     Y.YUnknown -> fail "ABC returned Unknown for SAT query."
 
+parseDimacsSolution :: [Int]    -- ^ The list of CNF variables to return
+                    -> [String] -- ^ The value lines from the solver
+                    -> [Bool]
+parseDimacsSolution vars ls = map lkup vars
+  where
+    vs :: [Int]
+    vs = concatMap (filter (/= 0) . mapMaybe readMaybe . tail . words) ls
+    varToPair n | n < 0 = (-n, False)
+                | otherwise = (n, True)
+    assgnMap = Map.fromList (map varToPair vs)
+    lkup v = Map.findWithDefault False v assgnMap
+
 satExternalCNF :: SharedContext s -> String -> [String]
                -> ProofScript s (SV.SatResult s)
 satExternalCNF sc execName args = StateT $ \g -> withBE $ \be -> do
@@ -351,7 +364,7 @@ satExternalCNF sc execName args = StateT $ \g -> withBE $ \be -> do
       t = goalTerm g
       argNames = map fst (fst (asLambdaList t))
   (shapes, l) <- BBSim.bitBlast be sc t
-  varMap <- GIA.writeCNF be l cnfName
+  vars <- GIA.writeCNF be l cnfName
   (_ec, out, err) <- readProcessWithExitCode execName args' ""
   unless (null err) $
     print $ "Standard error from SAT solver: " ++ err
@@ -360,13 +373,8 @@ satExternalCNF sc execName args = StateT $ \g -> withBE $ \be -> do
       vls = filter ("v " `isPrefixOf`) ls
   case (sls, vls) of
     (["s SATISFIABLE"], _) -> do
-      let vs :: [Int]
-          vs = concatMap (filter (/= 0) . map read . tail . words) vls
-          varToPair n | n < 0 = (-n, False)
-                      | otherwise = (n, True)
-          assgnMap = Map.fromList (map varToPair vs)
-          val = map (\v -> Map.findWithDefault False v assgnMap) varMap
-      r <- liftCexBB sc (map convertShape shapes) val
+      let bs = parseDimacsSolution vars vls
+      r <- liftCexBB sc (map convertShape shapes) bs
       tt <- scApplyPreludeTrue sc
       case r of
         Left msg -> fail $ "Can't parse counterexample: " ++ msg
@@ -380,35 +388,35 @@ satExternalCNF sc execName args = StateT $ \g -> withBE $ \be -> do
       return (SV.Unsat, g { goalTerm = ft })
     _ -> fail $ "Unexpected result from SAT solver:\n" ++ out
 
-satAIG :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
-satAIG sc path = StateT $ \g -> do
-  writeAIG sc ((path ++ goalName g) ++ ".aig") (goalTerm g)
-  ft <- liftIO $ scApplyPreludeFalse sc
+unsatResult :: SharedContext s -> ProofGoal s
+            -> IO (SV.SatResult s, ProofGoal s)
+unsatResult sc g = do
+  ft <- scApplyPreludeFalse sc
   return (SV.Unsat, g { goalTerm = ft })
+
+satWithExporter :: (SharedContext s -> FilePath -> SharedTerm s -> IO ())
+                -> SharedContext s
+                -> String
+                -> String
+                -> ProofScript s (SV.SatResult s)
+satWithExporter exporter sc path ext = StateT $ \g -> do
+  exporter sc ((path ++ goalName g) ++ ext) (goalTerm g)
+  unsatResult sc g
+
+satAIG :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
+satAIG sc path = satWithExporter writeAIG sc path ".aig"
 
 satCNF :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
-satCNF sc path = StateT $ \g -> do
-  writeCNF sc ((path ++ goalName g) ++ ".cnf") (goalTerm g)
-  ft <- liftIO $ scApplyPreludeFalse sc
-  return (SV.Unsat, g { goalTerm = ft })
+satCNF sc path = satWithExporter writeCNF sc path ".cnf"
 
 satExtCore :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
-satExtCore sc path = StateT $ \g -> do
-  writeCore ((path ++ goalName g) ++ ".extcore") (goalTerm g)
-  ft <- liftIO $ scApplyPreludeFalse sc
-  return (SV.Unsat, g { goalTerm = ft })
+satExtCore sc path = satWithExporter (const writeCore) sc path ".extcore"
 
 satSMTLib1 :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
-satSMTLib1 sc path = StateT $ \g -> do
-  writeSMTLib1 sc ((path ++ goalName g) ++ ".smt") (goalTerm g)
-  ft <- liftIO $ scApplyPreludeFalse sc
-  return (SV.Unsat, g { goalTerm = ft })
+satSMTLib1 sc path = satWithExporter writeSMTLib1 sc path ".smt"
 
 satSMTLib2 :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
-satSMTLib2 sc path = StateT $ \g -> do
-  writeSMTLib2 sc ((path ++ goalName g) ++ ".smt2") (goalTerm g)
-  ft <- liftIO $ scApplyPreludeFalse sc
-  return (SV.Unsat, g { goalTerm = ft })
+satSMTLib2 sc path = satWithExporter writeSMTLib2 sc path ".smt2"
 
 liftCexBB :: SharedContext s -> [BShape] -> [Bool]
           -> IO (Either String [SharedTerm s])
