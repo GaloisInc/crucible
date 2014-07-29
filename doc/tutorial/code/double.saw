@@ -1,6 +1,7 @@
 main = do {
-    (double_imp : [32] -> [32]) <- llvm_extract "double.bc" "double_imp" llvm_pure;
-    (double_ref : [32] -> [32]) <- llvm_extract "double.bc" "double_ref" llvm_pure;
+    l <- llvm_load_module "double.bc";
+    (double_imp : [32] -> [32]) <- llvm_extract l "double_imp" llvm_pure;
+    (double_ref : [32] -> [32]) <- llvm_extract l "double_ref" llvm_pure;
     let thm x = double_ref x == double_imp x;
     r <- prove abc thm;
     print r;
