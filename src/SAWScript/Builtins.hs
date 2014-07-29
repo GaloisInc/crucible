@@ -18,7 +18,8 @@ import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Set as Set
 import qualified Data.Vector.Storable as SV
-import System.Exit
+import System.Directory
+import System.IO
 import System.Process
 import Text.PrettyPrint.Leijen hiding ((<$>))
 import Text.Read
@@ -358,16 +359,19 @@ satExternalCNF :: SharedContext s -> String -> [String]
                -> ProofScript s (SV.SatResult s)
 satExternalCNF sc execName args = StateT $ \g -> withBE $ \be -> do
   let cnfName = goalName g ++ ".cnf" 
-      args' = map replaceFileName args
-      replaceFileName "%f" = cnfName
-      replaceFileName a = a
       t = goalTerm g
       argNames = map fst (fst (asLambdaList t))
+  (path, fh) <- openTempFile "." cnfName
+  hClose fh -- Yuck. TODO: allow writeCNF et al. to work on handles.
+  let args' = map replaceFileName args
+      replaceFileName "%f" = path
+      replaceFileName a = a
   (shapes, l) <- BBSim.bitBlast be sc t
-  vars <- GIA.writeCNF be l cnfName
+  vars <- GIA.writeCNF be l path
   (_ec, out, err) <- readProcessWithExitCode execName args' ""
+  removeFile path
   unless (null err) $
-    print $ "Standard error from SAT solver: " ++ err
+    print $ unlines ["Standard error from SAT solver:", err]
   let ls = lines out
       sls = filter ("s " `isPrefixOf`) ls
       vls = filter ("v " `isPrefixOf`) ls
