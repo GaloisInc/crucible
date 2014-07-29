@@ -14,6 +14,8 @@ import Data.String
 import Text.PrettyPrint.HughesPJ
 import Text.Read (readMaybe)
 
+import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
+
 import Text.LLVM ( modTypes, modGlobals, modDeclares, modDefines, modDataLayout
                  , defName, defRetType, defVarArgs, defArgs, defAttrs
                  , funLinkage, funGC
@@ -86,7 +88,7 @@ extractLLVM sc (LLVMModule file mdl) func _setup = do
   let dl = parseDataLayout $ modDataLayout mdl
       sym = Symbol func
   withBE $ \be -> do
-    (sbe, mem, scLLVM) <- createSAWBackend' be dl
+    (sbe, mem, scLLVM) <- createSAWBackend' be dl []
     (_warnings, cb) <- mkCodebase sbe dl mdl
     -- TODO: Print warnings from codebase.
     case lookupDefine sym cb of
@@ -143,7 +145,7 @@ verifyLLVM bic opts (LLVMModule file mdl) func overrides setup = do
   let pos = fixPos -- TODO
       dl = parseDataLayout $ modDataLayout mdl
   withBE $ \be -> do
-    (sbe, mem, scLLVM) <- createSAWBackend' be dl
+    (sbe, mem, scLLVM) <- createSAWBackend' be dl [CryptolSAW.cryptolModule]
     (_warnings, cb) <- mkCodebase sbe dl mdl
     let ms0 = initLLVMMethodSpec pos cb func
         lsctx0 = LLVMSetupState {
