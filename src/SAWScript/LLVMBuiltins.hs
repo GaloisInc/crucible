@@ -286,7 +286,9 @@ llvmVar bic _ name t = do
   let ms = lsSpec lsState
       func = specFunction ms
       cb = specCodebase ms
-      Just funcDef = lookupDefine func cb
+  funcDef <- case lookupDefine func cb of
+               Just fd -> return fd
+               Nothing -> fail $ "Function " ++ show func ++ " not found."
   expr <- liftIO $ parseLLVMExpr cb funcDef name
   let lty = exportLLVMType t
       expr' = updateLLVMExprType expr lty
