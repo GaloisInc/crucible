@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 
 DATE=`date "+%Y-%m-%d"`
 TARGET=saw-alpha-${DATE}
@@ -34,7 +35,7 @@ cp -r ../Examples/ecdsa                       ${TARGET}/ecdsa
 rm -rf ${TARGET}/ecdsa/cryptol-2-spec
 
 if [ "${OS}" == "Windows_NT" ]; then
-  zip -r ${TARGET}-${EXEDIR}.zip ${TARGET}
+  7za.exe a -tzip ${TARGET}-${EXEDIR}.zip -r ${TARGET}
   echo "Release package is ${TARGET}-${EXEDIR}.zip"
 else
   tar cvfz ${TARGET}-${EXEDIR}.tar.gz ${TARGET}

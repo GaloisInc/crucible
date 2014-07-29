@@ -20,13 +20,14 @@ import Text.Read (readMaybe)
 
 import qualified Language.JVM.Common as JP
 
+import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
+
 import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.Java.Simulator as JSS
 import qualified Verifier.Java.SAWBackend as JSS
 
-import qualified Verifier.SAW.Evaluator as EV
 import Verifier.SAW.SharedTerm
-import Verifier.SAW.TypedAST hiding (instantiateVarList)
+import Verifier.SAW.TypedAST
 
 import qualified SAWScript.CongruenceClosure as CC
 
@@ -45,7 +46,6 @@ import Verinf.Utils.LogMonad
 loadJavaClass :: BuiltinContext -> String -> IO JSS.Class
 loadJavaClass bic cname = do
   let cname' = JP.dotsToSlashes cname
-      sc = biSharedContext bic
       cb = biJavaCodebase bic
   lookupClass cb fixPos cname'
 
@@ -150,7 +150,9 @@ verifyJava :: BuiltinContext -> Options -> JSS.Class -> String
 verifyJava bic opts cls mname overrides setup = do
   let pos = fixPos -- TODO
       cb = biJavaCodebase bic
-  sc0 <- mkSharedContext JSS.javaModule
+      imps = [CryptolSAW.cryptolModule]
+      vjavaModule = foldr insImport JSS.javaModule imps
+  sc0 <- mkSharedContext vjavaModule
   -- ss <- basic_ss sc0
   let (jsc :: SharedContext JSSCtx) = sc0 -- rewritingSharedContext sc0 ss
   ABC.SomeGraph be <- ABC.newGraph ABC.giaNetwork
@@ -188,17 +190,13 @@ verifyJava bic opts cls mname overrides setup = do
                  " at PC " ++ show (bsLoc bs) ++ "."
     JSS.runDefSimulator cb backend $ do
       esd <- initializeVerification jsc ms bs cl
-      let isExtCns (STApp _ (FTermF (ExtCns _))) = True
-          isExtCns _ = False
-          initialExts =
-            sort . filter isExtCns . map snd . esdInitialAssignments $ esd
       res <- mkSpecVC jsc vp esd
       when (verb >= 5) $ liftIO $ do
         putStrLn "Verifying the following:"
         mapM_ (print . ppPathVC) res
       let prover script vs g = do
             -- scTypeCheck jsc g
-            glam <- bindExts jsc initialExts g
+            glam <- bindAllExts jsc g
             let bsc = biSharedContext bic
             glam' <- scNegate bsc =<< scImport bsc glam
             when (verb >= 6) $ putStrLn $ "Trying to prove: " ++ show glam'
@@ -227,19 +225,6 @@ showCexResults sc ms vs vals = do
   mapM_ (\(n, v) -> putStrLn ("  " ++ n ++ ": " ++ show v)) vals
   vsCounterexampleFn vs (cexEvalFn sc (map snd vals)) >>= print
   fail "Proof failed."
-
--- | Apply the given SharedTerm to the given values, and evaluate to a
--- final value.
-cexEvalFn :: SharedContext JSSCtx -> [Value SAWCtx] -> SharedTerm JSSCtx
-          -> IO EV.Value
-cexEvalFn sc args tm = do
-  args' <- mapM (SS.exportSharedTerm sc) args
-  let argMap = Map.fromList (zip [0..] args')
-      eval = EV.evalGlobal (scModule sc) EV.preludePrims
-  tm' <- scInstantiateExt sc argMap tm
-  --ty <- scTypeCheck sc tm'
-  --putStrLn $ "Type of cex eval term: " ++ show ty
-  return $ EV.evalSharedTerm eval tm'
 
 parseJavaExpr :: JSS.Codebase -> JSS.Class -> JSS.Method -> String
               -> IO JavaExpr
@@ -275,13 +260,16 @@ parseJavaExpr cb cls meth estr = do
                                      " for parameter " ++ show n ++ " doesn't exist"
                     Just lv -> return (CC.Term (Local s i (JSS.localType lv)))
                 Nothing -> fail $ "bad Java expression syntax: " ++ s
-            _ -> do
-              let mlv = JSS.lookupLocalVariableByName meth 0 s
-              case mlv of
-                Nothing -> fail $ "local doesn't exist: " ++ s
-                Just lv -> return (CC.Term (Local s i ty))
-                  where i = JSS.localIdx lv
-                        ty = JSS.localType lv
+            _ | JSS.hasDebugInfo meth -> do
+                  let mlv = JSS.lookupLocalVariableByName meth 0 s
+                  case mlv of
+                    Nothing -> fail $ "local doesn't exist: " ++ s
+                    Just lv -> return (CC.Term (Local s i ty))
+                      where i = JSS.localIdx lv
+                            ty = JSS.localType lv
+              | otherwise ->
+                  fail $ "variable " ++ s ++
+                         " referenced by name, but no debug info available"
         parseParts (f:rest) = do
           e <- parseParts rest
           let jt = jssTypeOfJavaExpr e
@@ -294,8 +282,8 @@ parseJavaExpr cb cls meth estr = do
           case mc of
             Just c ->
               case filter ((== fname) . JSS.fieldName) (JSS.classFields c) of
-                [f] -> return (Just 
-                               (CC.Term 
+                [f] -> return (Just
+                               (CC.Term
                                 (StaticField
                                  (JSS.FieldId cname fname (JSS.fieldType f)))))
                 _ -> return Nothing

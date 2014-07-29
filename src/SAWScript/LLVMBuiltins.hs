@@ -8,11 +8,13 @@ module SAWScript.LLVMBuiltins where
 import Control.Applicative
 import Control.Monad.Error hiding (mapM)
 import Control.Monad.State hiding (mapM)
-import Data.List (sort)
 import Data.List.Split
 import qualified Data.Map as Map
 import Data.String
 import Text.PrettyPrint.HughesPJ
+import Text.Read (readMaybe)
+
+import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 
 import Text.LLVM ( modTypes, modGlobals, modDeclares, modDefines, modDataLayout
                  , defName, defRetType, defVarArgs, defArgs, defAttrs
@@ -22,7 +24,7 @@ import Text.LLVM ( modTypes, modGlobals, modDeclares, modDefines, modDataLayout
                  , ppDeclare, ppGlobalAttrs, ppMaybe, ppSymbol, ppIdent
                  )
 import Verifier.LLVM.Backend
-import Verifier.LLVM.Codebase hiding ( Global, ppSymbol, ppType, ppIdent
+import Verifier.LLVM.Codebase hiding ( Global, ppSymbol, ppIdent
                                      , globalSym, globalType
                                      )
 import qualified Verifier.LLVM.Codebase as CB
@@ -31,7 +33,7 @@ import Verifier.LLVM.Simulator
 
 import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm
-import Verifier.SAW.TypedAST (FlatTermF(..), Termlike)
+import Verifier.SAW.TypedAST (Termlike)
 
 import SAWScript.CongruenceClosure hiding (mapM)
 import SAWScript.Builtins
@@ -86,7 +88,7 @@ extractLLVM sc (LLVMModule file mdl) func _setup = do
   let dl = parseDataLayout $ modDataLayout mdl
       sym = Symbol func
   withBE $ \be -> do
-    (sbe, mem, scLLVM) <- createSAWBackend' be dl
+    (sbe, mem, scLLVM) <- createSAWBackend' be dl []
     (_warnings, cb) <- mkCodebase sbe dl mdl
     -- TODO: Print warnings from codebase.
     case lookupDefine sym cb of
@@ -143,7 +145,7 @@ verifyLLVM bic opts (LLVMModule file mdl) func overrides setup = do
   let pos = fixPos -- TODO
       dl = parseDataLayout $ modDataLayout mdl
   withBE $ \be -> do
-    (sbe, mem, scLLVM) <- createSAWBackend' be dl
+    (sbe, mem, scLLVM) <- createSAWBackend' be dl [CryptolSAW.cryptolModule]
     (_warnings, cb) <- mkCodebase sbe dl mdl
     let ms0 = initLLVMMethodSpec pos cb func
         lsctx0 = LLVMSetupState {
@@ -178,10 +180,6 @@ verifyLLVM bic opts (LLVMModule file mdl) func overrides setup = do
       runSimulator cb sbe mem lopts $ do
         setVerbosity verb
         esd <- initializeVerification scLLVM ms
-        let isExtCns (STApp _ (FTermF (ExtCns _))) = True
-            isExtCns _ = False
-            initialExts =
-              sort . filter isExtCns . map snd . esdInitialAssignments $ esd
         res <- mkSpecVC scLLVM vp esd
         when (verb >= 3) $ liftIO $ do
           putStrLn "Verifying the following:"
@@ -191,23 +189,14 @@ verifyLLVM bic opts (LLVMModule file mdl) func overrides setup = do
                    -> SharedTerm LSSCtx
                    -> IO ()
             prover script vs g = do
-              glam <- bindExts scLLVM initialExts g
+              glam <- bindAllExts scLLVM g
               let bsc = biSharedContext bic
               glam' <- scNegate bsc =<< scImport bsc glam
               (r, _) <- runStateT script (ProofGoal (vsVCName vs) glam')
               case r of
                 SV.Unsat -> when (verb >= 3) $ putStrLn "Valid."
-                SV.Sat val -> do
-                  putStrLn $ "When verifying " ++ show (specName ms) ++ ":"
-                  putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
-                  putStrLn $ "Counterexample: " ++ show val
-                  fail "Proof failed."
-                SV.SatMulti vals -> do
-                  putStrLn $ "When verifying " ++ show (specName ms) ++ ":"
-                  putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
-                  putStrLn $ "Counterexample:"
-                  mapM_ (\(n, v) -> putStrLn ("  " ++ n ++ ": " ++ show v)) vals
-                  fail "Proof failed."
+                SV.Sat val ->  showCexResults scLLVM ms vs [("x", val)] -- TODO: replace x with something
+                SV.SatMulti vals -> showCexResults scLLVM ms vs vals
         case lsTactic lsctx of
           Skip -> liftIO $ putStrLn $
             "WARNING: skipping verification of " ++ show (specName ms)
@@ -215,6 +204,19 @@ verifyLLVM bic opts (LLVMModule file mdl) func overrides setup = do
             liftIO $ runValidation (prover script) vp scLLVM esd res
     putStrLn $ "Successfully verified " ++ show (specName ms) ++ overrideText
     return ms
+
+showCexResults :: SharedContext LSSCtx
+               -> LLVMMethodSpecIR
+               -> VerifyState
+               -> [(String, Value SAWCtx)]
+               -> IO ()
+showCexResults sc ms vs vals = do
+  putStrLn $ "When verifying " ++ show (specName ms) ++ ":"
+  putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
+  putStrLn $ "Counterexample: "
+  mapM_ (\(n, v) -> putStrLn ("  " ++ n ++ ": " ++ show v)) vals
+  vsCounterexampleFn vs (cexEvalFn sc (map snd vals)) >>= print
+  fail "Proof failed."
 
 llvmPure :: LLVMSetup ()
 llvmPure = return ()
@@ -224,38 +226,39 @@ parseLLVMExpr :: Codebase (SAWBackend LSSCtx)
               -> String
               -> IO LLVMExpr
 parseLLVMExpr cb fn = parseParts . reverse . splitOn "."
-  where parseParts [] = fail "empty LLVM expression"
+  where parseParts [] = fail "Empty LLVM expression"
         parseParts [s] =
           case s of
             ('*':rest) -> do
               e <- parseParts [rest]
               case lssTypeOfLLVMExpr e of
                 PtrType (MemType ty) -> return (Term (Deref e ty))
-                _ -> fail "attempting to apply * operation to non-pointer"
-            {-
+                _ -> fail "Attempting to apply * operation to non-pointer"
             ('a':'r':'g':'s':'[':rest) -> do
               let num = fst (break (==']') rest)
               case readMaybe num of
-                Just (n :: Int) -> undefined
-                Nothing -> fail $ "bad LLVM expression syntax: " ++ s
-            -}
+                Just (n :: Int)
+                  | n < length numArgs ->
+                    let (i, ty) = args !! n in return (Term (Arg n i ty))
+                  | otherwise ->
+                    fail $ "Argument index too large: " ++ show n
+                Nothing -> fail $ "Bad LLVM expression syntax: " ++ s
             _ -> do
-              let numArgs = zipWith (\(i, ty) n -> (i, (n, ty)))
-                                    (sdArgs fn)
-                                    [0..]
-                  nid = fromString s
+              let nid = fromString s
               case lookup nid numArgs of
                 Just (n, ty) -> return (Term (Arg n nid ty))
                 Nothing ->
                   case lookupSym (Symbol s) cb of
                     Just (Left gb) ->
                       return (Term (Global (CB.globalSym gb) (CB.globalType gb)))
-                    _ -> fail $ "Can't parse variable name: " ++ s
+                    _ -> fail $ "Unknown variable: " ++ s
         parseParts (f:rest) = fail "struct fields not yet supported" {- do
           e <- parseParts rest
           let lt = lssTypeOfLLVMExpr e
               pos = fixPos -- TODO
           -}
+        args = sdArgs fn
+        numArgs = zipWith (\(i, ty) n -> (i, (n, ty))) args [0..]
 
 getLLVMExpr :: Monad m =>
                LLVMMethodSpecIR -> String
@@ -283,7 +286,9 @@ llvmVar bic _ name t = do
   let ms = lsSpec lsState
       func = specFunction ms
       cb = specCodebase ms
-      Just funcDef = lookupDefine func cb
+  funcDef <- case lookupDefine func cb of
+               Just fd -> return fd
+               Nothing -> fail $ "Function " ++ show func ++ " not found."
   expr <- liftIO $ parseLLVMExpr cb funcDef name
   let lty = exportLLVMType t
       expr' = updateLLVMExprType expr lty

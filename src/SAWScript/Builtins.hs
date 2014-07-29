@@ -12,10 +12,17 @@ import Control.Lens
 import Control.Monad.Error
 import Control.Monad.State
 import Data.Either (partitionEithers)
+import Data.Foldable (foldl')
+import Data.List (isPrefixOf)
 import qualified Data.Map as Map
 import Data.Maybe
+import qualified Data.Set as Set
 import qualified Data.Vector.Storable as SV
+import System.Directory
+import System.IO
+import System.Process
 import Text.PrettyPrint.Leijen hiding ((<$>))
+import Text.Read
 
 
 import qualified Verifier.Java.Codebase as JSS
@@ -295,7 +302,7 @@ satABC sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
       return (SV.Unsat, g { goalTerm = ft })
     AIG.Sat cex -> do
       -- putStrLn "SAT"
-      r <- liftCexBB sc (map convert shapes) cex
+      r <- liftCexBB sc (map convertShape shapes) cex
       tt <- scApplyPreludeTrue sc
       case r of
         Left err -> fail $ "Can't parse counterexample: " ++ err
@@ -304,12 +311,12 @@ satABC sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
         Right tms -> do
           let vs = map (SV.evaluate sc) tms
           return (SV.SatMulti (zip argNames vs), g { goalTerm = tt })
-  where
-    convert :: BBSim.BShape -> BShape --FIXME: temporary
-    convert BBSim.BoolShape = BoolShape
-    convert (BBSim.VecShape n x) = VecShape n (convert x)
-    convert (BBSim.TupleShape xs) = TupleShape (map convert xs)
-    convert (BBSim.RecShape xm) = RecShape (fmap convert xm)
+
+convertShape :: BBSim.BShape -> BShape --FIXME: temporary
+convertShape BBSim.BoolShape = BoolShape
+convertShape (BBSim.VecShape n x) = VecShape n (convertShape x)
+convertShape (BBSim.TupleShape xs) = TupleShape (map convertShape xs)
+convertShape (BBSim.RecShape xm) = RecShape (fmap convertShape xm)
 
 satYices :: SharedContext s -> ProofScript s (SV.SatResult s)
 satYices sc = StateT $ \g -> do
@@ -336,29 +343,84 @@ satYices sc = StateT $ \g -> do
           return (SV.SatMulti vs, g { goalTerm = tt })
     Y.YUnknown -> fail "ABC returned Unknown for SAT query."
 
-satAIG :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
-satAIG sc path = StateT $ \g -> do
-  writeAIG sc ((path ++ goalName g) ++ ".aig") (goalTerm g)
-  ft <- liftIO $ scApplyPreludeFalse sc
+parseDimacsSolution :: [Int]    -- ^ The list of CNF variables to return
+                    -> [String] -- ^ The value lines from the solver
+                    -> [Bool]
+parseDimacsSolution vars ls = map lkup vars
+  where
+    vs :: [Int]
+    vs = concatMap (filter (/= 0) . mapMaybe readMaybe . tail . words) ls
+    varToPair n | n < 0 = (-n, False)
+                | otherwise = (n, True)
+    assgnMap = Map.fromList (map varToPair vs)
+    lkup v = Map.findWithDefault False v assgnMap
+
+satExternalCNF :: SharedContext s -> String -> [String]
+               -> ProofScript s (SV.SatResult s)
+satExternalCNF sc execName args = StateT $ \g -> withBE $ \be -> do
+  let cnfName = goalName g ++ ".cnf" 
+      t = goalTerm g
+      argNames = map fst (fst (asLambdaList t))
+  (path, fh) <- openTempFile "." cnfName
+  hClose fh -- Yuck. TODO: allow writeCNF et al. to work on handles.
+  let args' = map replaceFileName args
+      replaceFileName "%f" = path
+      replaceFileName a = a
+  (shapes, l) <- BBSim.bitBlast be sc t
+  vars <- GIA.writeCNF be l path
+  (_ec, out, err) <- readProcessWithExitCode execName args' ""
+  removeFile path
+  unless (null err) $
+    print $ unlines ["Standard error from SAT solver:", err]
+  let ls = lines out
+      sls = filter ("s " `isPrefixOf`) ls
+      vls = filter ("v " `isPrefixOf`) ls
+  case (sls, vls) of
+    (["s SATISFIABLE"], _) -> do
+      let bs = parseDimacsSolution vars vls
+      r <- liftCexBB sc (map convertShape shapes) bs
+      tt <- scApplyPreludeTrue sc
+      case r of
+        Left msg -> fail $ "Can't parse counterexample: " ++ msg
+        Right [tm] ->
+          return (SV.Sat (SV.evaluate sc tm), g { goalTerm = tt })
+        Right tms -> do
+          let vals = map (SV.evaluate sc) tms
+          return (SV.SatMulti (zip argNames vals), g { goalTerm = tt })
+    (["s UNSATISFIABLE"], []) -> do
+      ft <- scApplyPreludeFalse sc
+      return (SV.Unsat, g { goalTerm = ft })
+    _ -> fail $ "Unexpected result from SAT solver:\n" ++ out
+
+unsatResult :: SharedContext s -> ProofGoal s
+            -> IO (SV.SatResult s, ProofGoal s)
+unsatResult sc g = do
+  ft <- scApplyPreludeFalse sc
   return (SV.Unsat, g { goalTerm = ft })
+
+satWithExporter :: (SharedContext s -> FilePath -> SharedTerm s -> IO ())
+                -> SharedContext s
+                -> String
+                -> String
+                -> ProofScript s (SV.SatResult s)
+satWithExporter exporter sc path ext = StateT $ \g -> do
+  exporter sc ((path ++ goalName g) ++ ext) (goalTerm g)
+  unsatResult sc g
+
+satAIG :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
+satAIG sc path = satWithExporter writeAIG sc path ".aig"
+
+satCNF :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
+satCNF sc path = satWithExporter writeCNF sc path ".cnf"
 
 satExtCore :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
-satExtCore sc path = StateT $ \g -> do
-  writeCore ((path ++ goalName g) ++ ".extcore") (goalTerm g)
-  ft <- liftIO $ scApplyPreludeFalse sc
-  return (SV.Unsat, g { goalTerm = ft })
+satExtCore sc path = satWithExporter (const writeCore) sc path ".extcore"
 
 satSMTLib1 :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
-satSMTLib1 sc path = StateT $ \g -> do
-  writeSMTLib1 sc ((path ++ goalName g) ++ ".smt") (goalTerm g)
-  ft <- liftIO $ scApplyPreludeFalse sc
-  return (SV.Unsat, g { goalTerm = ft })
+satSMTLib1 sc path = satWithExporter writeSMTLib1 sc path ".smt"
 
 satSMTLib2 :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
-satSMTLib2 sc path = StateT $ \g -> do
-  writeSMTLib2 sc ((path ++ goalName g) ++ ".smt2") (goalTerm g)
-  ft <- liftIO $ scApplyPreludeFalse sc
-  return (SV.Unsat, g { goalTerm = ft })
+satSMTLib2 sc path = satWithExporter writeSMTLib2 sc path ".smt2"
 
 liftCexBB :: SharedContext s -> [BShape] -> [Bool]
           -> IO (Either String [SharedTerm s])
@@ -470,6 +532,31 @@ bindExts sc args body = do
           extIdx _ = Nothing
           extName (STApp _ (FTermF (ExtCns ec))) = Just (ecName ec)
           extName _ = Nothing
+
+bindAllExts :: SharedContext s
+            -> SharedTerm s
+            -> IO (SharedTerm s)
+bindAllExts sc body@(STApp _ tf) = do
+  bindExts sc (Set.toAscList args) body
+    where args = snd $ foldl' getExtCns (Set.empty, Set.empty) tf
+          getExtCns (is, a) (STApp idx _) | Set.member idx is = (is, a)
+          getExtCns (is, a) t@(STApp idx (FTermF (ExtCns _))) =
+            (Set.insert idx is, Set.insert t a)
+          getExtCns (is, a) (STApp idx tf') =
+            foldl' getExtCns (Set.insert idx is, a) tf'
+
+-- | Apply the given SharedTerm to the given values, and evaluate to a
+-- final value.
+cexEvalFn :: SharedContext s -> [SV.Value SAWCtx] -> SharedTerm s
+          -> IO Value
+cexEvalFn sc args tm = do
+  args' <- mapM (SV.exportSharedTerm sc) args
+  let argMap = Map.fromList (zip [0..] args')
+      eval = evalGlobal (scModule sc) preludePrims
+  tm' <- scInstantiateExt sc argMap tm
+  --ty <- scTypeCheck sc tm'
+  --putStrLn $ "Type of cex eval term: " ++ show ty
+  return $ evalSharedTerm eval tm'
 
 toValueCase :: (SV.IsValue s b) =>
                SharedContext s

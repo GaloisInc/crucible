@@ -221,7 +221,7 @@ data TypeF typeT
   | ZF
   | QuoteF
   -- Structures
-  | ArrayF      typeT typeT
+  | ArrayF      typeT typeT  -- ^ length, element type
   | BlockF      typeT typeT
   | TupleF      [typeT]
   | RecordF     [Bind typeT]
@@ -421,7 +421,7 @@ instance Equal TypeF where
     (BitF,BitF)                           -> True
     (ZF,ZF)                               -> True
     (QuoteF,QuoteF)                       -> True
-    (ArrayF at1 l1,ArrayF at2 l2)         -> l1 == l2 && at1 == at2
+    (ArrayF l1 at1,ArrayF l2 at2)         -> l1 == l2 && at1 == at2
     (BlockF c1 bt1,BlockF c2 bt2)         -> c1 == c2 && bt1 == bt2
     (TupleF ts1,TupleF ts2)               -> ts1 == ts2
     (RecordF fts1,RecordF fts2)           -> fts1 == fts2
@@ -456,7 +456,7 @@ instance Render TypeF where
     BitF            -> "BitF"
     ZF              -> "ZF"
     QuoteF          -> "QuoteF"
-    ArrayF at l     -> "(ArrayF " ++ show at ++ " " ++ show l ++ ")"
+    ArrayF l at     -> "(ArrayF " ++ show l ++ " " ++ show at ++ ")"
     BlockF c bt     -> "(BlockF " ++ show c ++ " " ++ show bt ++ ")"
     TupleF ts       -> "(TupleF [" ++ (intercalate ", " $ map show ts) ++ "])"
     RecordF fts     -> "(RecordF [" ++ (intercalate ", " $ map (\(n,bt)-> n ++ " :: " ++ show bt) fts) ++ "])"
@@ -486,7 +486,7 @@ instance Render Syn where
 
 instance Uni TypeF where
   uni t1 t2 = case (t1,t2) of
-    (ArrayF at1 l1,ArrayF at2 l2)             -> unify l1 l2 >> unify at1 at2
+    (ArrayF l1 at1,ArrayF l2 at2)             -> unify l1 l2 >> unify at1 at2
     (BlockF c1 bt1,BlockF c2 bt2)             -> unify c1 c2 >> unify bt1 bt2
     (TupleF ts1,TupleF ts2)                   -> zipWithMP_ unify ts1 ts2
     (RecordF fts1,RecordF fts2)               -> do conj [ disj [ unify x y | (nx,x) <- fts1, nx == ny ] | (ny,y) <- fts2 ]
@@ -517,7 +517,7 @@ z :: (TypeF :<: f) => Mu f
 z = inject ZF
 
 array :: (I :<: f, TypeF :<: f) => Mu f -> Mu f -> Mu f
-array t l = inject $ ArrayF t l
+array l t = inject $ ArrayF l t
 
 block :: (ContextF :<: f, TypeF :<: f) => Mu f -> Mu f -> Mu f
 block c t = inject $ BlockF c t

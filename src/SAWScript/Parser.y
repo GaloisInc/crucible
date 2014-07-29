@@ -236,10 +236,10 @@ BaseType :: { RawSigT }
  | 'String'                             { quote                   }
  | '(' Type ')'                         { $2                      }
  | '(' commas2(Type) ')'                { tuple $2                }
- | '[' name ']'                         { array bit (syn (toLName $2)) }
- | '[' name ']' BaseType                { array $4  (syn (toLName $2))      }
- | '[' num ']'                          { array bit (i $2)        }
- | '[' num ']' BaseType                 { array $4  (i $2)        }
+ | '[' name ']'                         { array (syn (toLName $2)) bit }
+ | '[' name ']' BaseType                { array (syn (toLName $2)) $4  }
+ | '[' num ']'                          { array (i $2) bit        }
+ | '[' num ']' BaseType                 { array (i $2) $4         }
  | '{' commas(FieldType) '}'            { record $2               }
 
 Context :: { RawSigT }
