@@ -263,11 +263,6 @@ the two data constructors:
 Other type and data constructors exist in the SAWCore prelude, but
 they rarely occur in terms exported for analysis by third-party tools.
 
-Dependent Types
-===============
-
-TODO: describe Pi, Sort
-
 Reference
 =========
 
