@@ -1,4 +1,4 @@
-% **SawScript**
+% **SAWScript**
 % Galois, Inc. | 421 SW 6th Avenue, Suite 300 | Portland, OR 97204
 
 \newpage
@@ -38,10 +38,11 @@ starts out at zero, and we keep track of a mask initialized to have
 the least signficant bit set. On each iteration, we increment the
 index, and shift the mask to the left. Then we can use a bitwise "and"
 operation to test the bit at the index indicated by the index
-variable. The following C code uses this approach.
+variable. The following C code (which is also in the `code/ffs.c` file
+accompanying this tutorial) uses this approach.
 
 ``` {.c}
-$include 1-9 code/ffs.c
+$include 9-17 code/ffs.c
 ```
 
 This implementation is relatively straightforward, and a proficient C
@@ -54,12 +55,12 @@ backward branches.
 Optimized Implementation
 ------------------------
 
-An alternative implementation, taken by the following program, treats
-the bits of the input word in chunks, allowing sequences of zero bits
-to be skipped over more quickly.
+An alternative implementation, taken by the following program (also in
+`code/ffs.c`), treats the bits of the input word in chunks, allowing
+sequences of zero bits to be skipped over more quickly.
 
 ``` {.c}
-$include 11-18 code/ffs.c
+$include 19-26 code/ffs.c
 ```
 
 However, this code is much less obvious than the previous
@@ -79,9 +80,15 @@ programs are originally written in a higher-level language such as C,
 as in our example. Therefore, the C code must be translated to LLVM,
 using something like the following command:
 
-```
-$cmd clang -c -emit-llvm -o code/ffs.bc code/ffs.c
-```
+    # clang -c -emit-llvm -o ffs.bc ffs.c
+
+This command, and following command examples in this tutorial, can be
+run from the `code` directory accompanying the tutorial document. A
+`Makefile` also exists in that directory, providing quick shortcuts
+for tasks like this. For instance, we can get the same effect as the
+previous command by doing:
+
+    # make ffs.bc
 
 Equivalence Proof
 -----------------
@@ -93,8 +100,9 @@ A SAWScript program is typically structured as a set of commands
 within a `main` function, potentially along with other functions
 defined to abstract over commonly-used combinations of commands.
 
-The following script is sufficient to automatically prove the
-equivalence of the `ffs_ref` and `ffs_imp` functions.
+The following script (in `code/ffs_llvm.saw`) is sufficient to
+automatically prove the equivalence of the `ffs_ref` and `ffs_imp`
+functions.
 
 ```
 $include all code/ffs_llvm.saw
@@ -110,9 +118,14 @@ function, which computes a scalar return value entirely as a function
 of its scalar parameters.
 
 The `let` statement then constructs a new term corresponding to the
-assertion of equality between two existing terms. The `prove` command
-can verify the validity of such an assertion. The `abc` parameter
-indicates what theorem prover to use.
+assertion of equality between two existing terms. The `prove_print`
+command can verify the validity of such an assertion, and print out
+the results of verification. The `abc` parameter indicates what
+theorem prover to use.
+
+If the `saw` executable is in your PATH, you can run the script above with
+
+    # saw ffs_llvm.saw
 
 Cross-Language Proofs
 ---------------------
@@ -120,7 +133,8 @@ Cross-Language Proofs
 We can implement the FFS algorithm in Java with code almost identical
 to the C version.
 
-The reference version uses a loop, like the C version:
+The reference version (in `code/FFS.java`) uses a loop, like the C
+version:
 
 ``` {.java}
 $include 2-10 code/FFS.java
@@ -145,9 +159,7 @@ language.
 
 First, we compile the Java code to a JVM class file.
 
-```
-$cmd javac -g code/FFS.java
-```
+    # javac -g FFS.java
 
 Now we can do the proof both within and across languages:
 
@@ -182,20 +194,49 @@ $include all code/double.saw
 ```
 
 The new primitives introduced here are `not`, which constructs the
-logical negation of a term, and `write_smtlib1`, which writes a term
-as a proof obligation in SMT-Lib version 1 format. Because SMT solvers
-are satisfiability solvers, negating the input term allows us to
-interpret a result of "unsatisfiable" from the solver as an indication
-of the validity of the term.
+logical negation of a term, `write_smtlib1`, which writes a term as a
+proof obligation in SMT-Lib version 1 format, and `yices`, which
+combines the effect of `write_smtlib1` with an automated invocation of
+the Yices SMT solver. Because SMT solvers are satisfiability solvers,
+negating the input term allows us to interpret a result of
+"unsatisfiable" from the solver as an indication of the validity of
+the term. The `prove` primitive does this automatically, but for
+flexibility the `write_smtlib1` primitive passes the given term
+through unchanged, because it might be used for either satisfiability
+or validity checking.
+
+External SAT Solvers
+====================
+
+In addition to the `abc` and `yices` proof tactics used above,
+SAWScript can also invoke external SAT solvers that support the DIMACS
+CNF format for problem and solution descriptions, using the
+`external_cnf_solver` tactic. For example, you can use `picosat` to
+prove the theorem `thm`, with the following commands:
+
+    let picosat = external_cnf_solver "picosat" ["%f"];
+    prove_print picosat thm;
+
+The use of `let` is simply a convenient abbreviation. The following
+would be equivalent:
+
+    prove_print (external_cnf_solver "picosat" ["%f"]) thm;
+
+The first argument to `external_cnf_solver` is the name of the
+executable. It can be a fully-qualified name, or simply the bare
+executable name if it's in your PATH. The second argument is an array
+of command-line arguments to the solver. Any occurrence of `%f` is
+replaced with the name of the temporary file containing the CNF
+representation of the term you're proving.
 
 Compositional Proofs
 ====================
 
-The examples shown so far treat programs as monolithic entities. A Java
-method or C function, along with all of its callees, is translated into
-a single mathematical model  SAWScript also has support for more
-compositional proofs, as well as proofs about functions that use heap
-data structures.
+The examples shown so far treat programs as monolithic entities. A
+Java method or C function, along with all of its callees, is
+translated into a single mathematical model. SAWScript also has
+support for more compositional proofs, as well as proofs about
+functions that use heap data structures.
 
 As a simple example of compositional reasoning, consider the following
 Java code.
@@ -236,25 +277,27 @@ into later instances of `java_verify` to indicate that calls to the
 analyzed method do not need to be followed, and the previous proof about
 that method can be used instead of re-analyzing it.
 
-Future Enhancements
-===================
+Interactive Interpreter
+=======================
 
-Improved Integration with External Proof Tools
-----------------------------------------------
+The examples so far have used SAWScript in batch mode on complete
+script files. It also has an interactive Read-Eval-Print Loop (REPL)
+which can be convenient for experimentation. To start the REPL, run
+SAWScript with the `-I` flag:
 
-  * More complete SMT-Lib export support.
-  * Support for automatic invocation of SMT solvers other than Yices, and
-    interpretation of their output.
-  * Support for generation of (Q)DIMACS CNF and QBF files, for use
-    with SAT and QBF solvers.
-  * Support for automatic invocation of SAT and QBF solvers, and
-    interpretation of their output.
+    # saw -I
 
-Improved Support for Manipulating Formal Models
------------------------------------------------
+The REPL can evaluate any command that would appear in the `main`
+function of a standalone script, as well as a few special commands
+that start with a colon:
 
-  * Applying formal models automatically to a large collection of
-    randomly-generated concrete arguments.
+    :env   display the current sawscript environment
+    :?     display a brief description about a built-in operator
+    :help  display a brief description about a built-in operator
+    :quit  exit the REPL
+    :cd    set the current working directory
+
+<!---
 
 Reference
 =========
@@ -379,3 +422,5 @@ Miscellaneous
 `show_term`
 `term_size`
 `term_tree_size`
+
+-->
