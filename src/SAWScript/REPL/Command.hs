@@ -182,18 +182,24 @@ nbCommands  = foldl insert emptyTrie nbCommandList
 -- | A subset of commands safe for Notebook execution
 nbCommandList :: [CommandDescr]
 nbCommandList  =
-  [ CommandDescr ":type"   (ExprArg typeOfCmd)
+  [ CommandDescr ":env" (ExprTypeArg envCmd)
+    "display the current sawscript environment"
+  {-
+  , CommandDescr ":type"   (ExprArg typeOfCmd)
     "check the type of an expression"
   , CommandDescr ":browse" (ExprTypeArg browseCmd)
     "display the current environment"
-  , CommandDescr ":env" (ExprTypeArg envCmd)
-    "display the current sawscript environment"
   , CommandDescr ":eval" (ExprArg evalCmd)
     "evaluate an expression and print the result"
+  -}
+  , CommandDescr ":?"      (ExprArg helpCmd)
+    "display a brief description about a built-in operator"
   , CommandDescr ":help"   (ExprArg helpCmd)
     "display a brief description about a built-in operator"
+  {-
   , CommandDescr ":set" (OptionArg setOptionCmd)
     "set an environmental option (:set on its own displays current values)"
+  -}
   ]
 
 commandList :: [CommandDescr]
@@ -201,11 +207,11 @@ commandList  =
   nbCommandList ++
   [ CommandDescr ":quit"   (NoArg quitCmd)
     "exit the REPL"
+{-
   , CommandDescr ":load"   (FilenameArg loadCmd)
     "load a module"
   , CommandDescr ":reload" (NoArg reloadCmd)
     "reload the currently loaded module"
-{-
   , CommandDescr ":edit"   (FilenameArg editCmd)
     "edit the currently loaded module"
   , CommandDescr ":!" (ShellArg runShellCmd)
@@ -213,18 +219,16 @@ commandList  =
 -}
   , CommandDescr ":cd" (FilenameArg cdCmd)
     "set the current working directory"
+{-
   , CommandDescr ":module" (FilenameArg moduleCmd)
     "load a module"
 
-{-
   , CommandDescr ":check" (ExprArg qcCmd)
     "use random testing to check that the argument always returns true"
--}
   , CommandDescr ":prove" (ExprArg proveCmd)
     "use an external solver to prove that the argument always returns true"
   , CommandDescr ":sat" (ExprArg satCmd)
     "use a solver to find a satisfying assignment for which the argument returns true"
-{-
   , CommandDescr ":debug_specialize" (ExprArg specializeCmd)
     "do type specialization on a closed expression"
 -}
