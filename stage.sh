@@ -32,6 +32,7 @@ cp doc/extcore.txt                            ${TARGET}/doc
 cp doc/tutorial/sawScriptTutorial.pdf         ${TARGET}/doc
 cp -r doc/tutorial/code                       ${TARGET}/doc
 cp -r ../Examples/ecdsa                       ${TARGET}/ecdsa
+cp -r ../Examples/zuc                         ${TARGET}/zuc
 rm -rf ${TARGET}/ecdsa/cryptol-2-spec
 
 if [ "${OS}" == "Windows_NT" ]; then

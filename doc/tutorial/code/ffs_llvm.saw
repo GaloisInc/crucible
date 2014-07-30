@@ -7,7 +7,7 @@ main = do {
   (ffs_imp : [32] -> [32]) <- llvm_extract l "ffs_imp" llvm_pure;
 
   print "Extracting buggy term";
-  (ffs_bug : [32] -> [32]) <- llvm_extract l "ffs_imp" llvm_pure;
+  (ffs_bug : [32] -> [32]) <- llvm_extract l "ffs_bug" llvm_pure;
 
   print "Proving equivalence";
   let thm1 x = ffs_ref x == ffs_imp x;
@@ -15,8 +15,8 @@ main = do {
   print result;
 
   print "Finding bug";
-  let thm2 x = ffs_ref x == ffs_bug x;
-  result <- prove abc thm2;
+  let thm2 x = not (ffs_ref x == ffs_bug x);
+  result <- sat abc thm2;
   print result;
 
   print "Done.";
