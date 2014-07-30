@@ -77,6 +77,7 @@ import Numeric (showFFloat)
 -- SAWScript imports
 import qualified SAWScript.AST as SS
     (ModuleName, {-renderModuleName,-}
+     renderResolvedName, pShow,
      Module(..), ValidModule,
      BlockStmt(Bind),
      Name, LName, Located(..), UnresolvedName,
@@ -185,6 +186,8 @@ nbCommandList  =
     "check the type of an expression"
   , CommandDescr ":browse" (ExprTypeArg browseCmd)
     "display the current environment"
+  , CommandDescr ":env" (ExprTypeArg envCmd)
+    "display the current sawscript environment"
   , CommandDescr ":eval" (ExprArg evalCmd)
     "evaluate an expression and print the result"
   , CommandDescr ":help"   (ExprArg helpCmd)
@@ -474,6 +477,19 @@ loadCmd path
 quitCmd :: REPL ()
 quitCmd  = stop
 
+
+envCmd :: String -> REPL ()
+envCmd _pfx = do
+  env <- getEnvironment
+  let showLName = SS.renderResolvedName . SS.getVal
+{-
+  io $ putStrLn "\nTerms:\n"
+  io $ sequence_ [ putStrLn (showLName x ++ " = " ++ show v) | (x, v) <- Map.assocs (interpretEnvShared env) ]
+  io $ putStrLn "\nValues:\n"
+  io $ sequence_ [ putStrLn (showLName x ++ " = " ++ show v) | (x, v) <- Map.assocs (interpretEnvValues env) ]
+  io $ putStrLn "\nTypes:\n"
+-}
+  io $ sequence_ [ putStrLn (showLName x ++ " : " ++ SS.pShow v) | (x, v) <- Map.assocs (interpretEnvTypes env) ]
 
 browseCmd :: String -> REPL ()
 browseCmd pfx = do
