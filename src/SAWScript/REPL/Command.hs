@@ -30,6 +30,8 @@ module SAWScript.REPL.Command (
   , moduleCmdResult
   ) where
 
+import Verifier.SAW.SharedTerm (SharedContext)
+
 import SAWScript.REPL.Monad
 import SAWScript.REPL.Trie
 
@@ -94,6 +96,7 @@ import qualified SAWScript.MGU (checkModule)
 import qualified SAWScript.Parser (parseBlockStmt)
 import qualified SAWScript.RenameRefs (renameRefs)
 import qualified SAWScript.ResolveSyns (resolveSyns)
+import qualified SAWScript.Value (Value(VTerm), evaluate)
 import SAWScript.REPL.GenerateModule (replFileName, replModuleName, wrapBStmt)
 import SAWScript.Utils (SAWCtx, Pos(..))
 
@@ -641,12 +644,12 @@ sawScriptCmd str = do
   typechecked :: SS.Module SS.ResolvedName SS.Schema SS.ResolvedT
               <- err $ SAWScript.MGU.checkModule renamed
   -- Interpret the statement.
-  ctx <- getSharedContext
+  sc <- getSharedContext
   env <- getEnvironment
-  (result, env') <- io $ interpretModuleAtEntry "it" ctx env typechecked
+  (result, env') <- io $ interpretModuleAtEntry "it" sc env typechecked
   -- Update the environment and return the result.
   putEnvironment env'
-  saveResult boundName result
+  saveResult sc boundName result
   case boundName of
     Nothing | not (isVUnit result) -> io $ print result
     _                              -> return ()
@@ -672,31 +675,35 @@ injectBoundExpressionTypes orig = do
           error "injectBoundExpressionTypes: bound LocalName"
         stripModuleName (SS.getVal -> (SS.TopLevelName _modName varName)) = SS.Located varName varName PosREPL
 
-saveResult :: Maybe SS.Name -> Value SAWCtx -> REPL ()
-saveResult Nothing _ = return ()
-saveResult (Just name) result = do
+saveResult :: SharedContext SAWCtx -> Maybe SS.Name -> Value SAWCtx -> REPL ()
+saveResult _ Nothing _ = return ()
+saveResult sc (Just name) result = do
   -- Record that 'name' is in scope.
   modifyNamesInScope $ Set.insert name
   -- Save the type of 'it'.
   let itsName = SS.Located (SS.TopLevelName replModuleName "it") "it" PosREPL
       itsName' = SS.Located (SS.TopLevelName replModuleName name) "it" PosREPL
-  modifyEnvironment $ \env ->
-    let typeEnv = interpretEnvTypes env in
-    let typeEnv' =
-          case Map.lookup itsName typeEnv of
-            Nothing -> error "evaluate: could not find most recent expression"
-            Just itsType ->
-              Map.insert itsName' (extractFromBlock itsType) typeEnv
-    in env { interpretEnvTypes = typeEnv' }
-  -- Save the value of 'it'.
-  modifyEnvironment $ \env ->
-    let valueEnv = interpretEnvValues env in
-    let valueEnv' =
-          case Map.lookup itsName valueEnv of
-            Nothing -> error "evaluate: could not find most recent expression"
-            Just _itsValue ->
-              Map.insert itsName' result valueEnv
-    in env { interpretEnvValues = valueEnv' }
+  env <- getEnvironment
+  let typeEnv = interpretEnvTypes env
+  let valueEnv = interpretEnvValues env
+  let sharedEnv = interpretEnvShared env
+  let typeEnv' =
+        case Map.lookup itsName typeEnv of
+          Nothing -> error "evaluate: could not find most recent expression"
+          Just itsType ->
+            Map.insert itsName' (extractFromBlock itsType) typeEnv
+  let (valueEnv', sharedEnv') =
+        case result of
+          SAWScript.Value.VTerm t ->
+            (Map.insert itsName' (SAWScript.Value.evaluate sc t) valueEnv,
+             Map.insert itsName' t sharedEnv)
+          _ ->
+            (Map.insert itsName' result valueEnv, sharedEnv)
+
+  putEnvironment $ env
+    { interpretEnvValues = valueEnv'
+    , interpretEnvTypes  = typeEnv'
+    , interpretEnvShared = sharedEnv' }
 
 extractFromBlock :: SS.Schema -> SS.Schema
 extractFromBlock (SS.Forall [] (SS.TyCon SS.BlockCon [ctx, inner]))
