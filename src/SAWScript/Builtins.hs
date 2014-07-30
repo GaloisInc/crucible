@@ -111,6 +111,8 @@ withBE f = do
 -- inefficient but semantically correct.
 readAIGPrim :: SharedContext s -> FilePath -> IO (SharedTerm s)
 readAIGPrim sc f = do
+  exists <- doesFileExist f
+  unless exists $ fail $ "AIG file " ++ f ++ " not found."
   et <- withReadAiger f $ \ntk -> do
     outputLits <- GIA.networkOutputs ntk
     inputLits <- GIA.networkInputs ntk
