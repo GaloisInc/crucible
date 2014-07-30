@@ -10,8 +10,5 @@ main = do {
     let thm_neg x = not (thm x);
     write_smtlib1 "double.smt" thm_neg;
 
-    r <- prove yices thm;
-    print r;
-
     print "Done.";
 };
