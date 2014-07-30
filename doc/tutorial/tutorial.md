@@ -161,11 +161,17 @@ First, we compile the Java code to a JVM class file.
 
     # javac -g FFS.java
 
-Now we can do the proof both within and across languages:
+Now we can do the proof both within and across languages (from
+`code/ffs_compare.saw`):
 
 ```
 $include all code/ffs_compare.saw
 ```
+
+We can run this with the `-j` flag to tell it where to find the Java
+standard libraries:
+
+    # saw -j <path to rt.jar or classes.jar from JDK> ffs_compare.saw
 
 Using SMT-Lib Solvers
 =====================
@@ -185,25 +191,24 @@ $include all code/double.c
 ```
 
 In this trivial example, an integer can be doubled either using
-multiplication or shifting. The following SAWScript program verifies
-that the two are equivalent using both ABC, and by exporting an
-SMT-Lib theorem to be checked by an external solver.
+multiplication or shifting. The following SAWScript program
+(`code/double.saw`) verifies that the two are equivalent using both
+ABC, and by exporting an SMT-Lib theorem to be checked by an external
+solver.
 
 ```
 $include all code/double.saw
 ```
 
 The new primitives introduced here are `not`, which constructs the
-logical negation of a term, `write_smtlib1`, which writes a term as a
-proof obligation in SMT-Lib version 1 format, and `yices`, which
-combines the effect of `write_smtlib1` with an automated invocation of
-the Yices SMT solver. Because SMT solvers are satisfiability solvers,
-negating the input term allows us to interpret a result of
-"unsatisfiable" from the solver as an indication of the validity of
-the term. The `prove` primitive does this automatically, but for
-flexibility the `write_smtlib1` primitive passes the given term
-through unchanged, because it might be used for either satisfiability
-or validity checking.
+logical negation of a term, `write_smtlib1`, and which writes a term
+as a proof obligation in SMT-Lib version 1 format, Because SMT solvers
+are satisfiability solvers, negating the input term allows us to
+interpret a result of "unsatisfiable" from the solver as an indication
+of the validity of the term. The `prove` primitive does this
+automatically, but for flexibility the `write_smtlib1` primitive
+passes the given term through unchanged, because it might be used for
+either satisfiability or validity checking.
 
 The SMT-Lib export capabilities in SAWScript are currently based on a
 somewhat outdated implementation, and don't support the full range of
@@ -259,11 +264,15 @@ function then calls `add` to double its argument. While it would be easy
 to prove that `dbl` doubles its argument by following the call to `add`,
 it's also possible in SAWScript to prove something about `add` first,
 and then use the results of that proof in the proof of `dbl`, as in the
-following SAWScript code.
+following SAWScript code (`code/java_add.saw`).
 
 ````
 $include all code/java_add.saw
 ````
+
+This can be run as follows:
+
+    # saw -j <path to rt.jar or classes.jar from JDK> java_add.saw
 
 In this example, the definitions of `setup` and `setup'` provide extra
 information about how to configure the symbolic simulator when analyzing
@@ -305,6 +314,63 @@ that start with a colon:
     :help  display a brief description about a built-in operator
     :quit  exit the REPL
     :cd    set the current working directory
+
+Other Examples
+==============
+
+The `code` directory contains a few additional examples not mentioned
+so far. These remaining examples don't cover significant new material,
+but help fill in some extra use cases that are similar, but not
+identical to those already covered.
+
+Java Equivalence Checking
+-------------------------
+
+The previous examples showed comparison between two different LLVM
+implementations, and cross-language comparisons between Cryptol, Java,
+and LLVM. The script in `code/ffs_java.saw` compares two different
+Java implementations, instead.
+
+````
+$include all code/ffs_java.saw
+````
+
+As with previous Java examples, this one needs to be run with the `-j`
+flag to tell the interpreter where to find the Java standard
+libraries.
+
+    # saw -j <path to rt.jar or classes.jar from JDK> ffs_java.saw
+
+AIG Export and Import
+---------------------
+
+Most of the previous examples have used the `abc` tactic to discharge
+theorems. This tactic works by translating the given term to
+And-Inverter Graph (AIG) format, transforming the graph in various
+ways, and then sending using a SAT solver to complete the proof.
+
+Alternatively, the `write_aig` command can be used to write an AIG
+directly to a file, for later processing by external tools, as shown
+in `code/ffs_gen_aig.saw`.
+
+````
+$include all code/ffs_gen_aig.saw
+````
+
+Conversely, the `read_aig` command can construct an internal term from
+an existing AIG file, as shown in `code/ffs_compare_aig.saw`.
+
+````
+$include all code/ffs_compare_aig.saw
+````
+
+Both of these scripts can be run by `saw` with no arguments (though
+the latter must be run second, because it uses files generated by the
+former):
+
+    # saw ffs_gen_aig.saw
+
+    # saw ffs_compare_aig.saw
 
 <!---
 
