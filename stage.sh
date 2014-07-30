@@ -8,6 +8,7 @@ NM=`uname`
 
 mkdir -p ${TARGET}/bin
 mkdir -p ${TARGET}/doc
+mkdir -p ${TARGET}/lib
 
 if [ "${OS}" == "Windows_NT" ]; then
   EXEDIR=windows
@@ -31,6 +32,7 @@ cp build/bin/saw                              ${TARGET}/bin
 cp doc/extcore.txt                            ${TARGET}/doc
 cp doc/tutorial/sawScriptTutorial.pdf         ${TARGET}/doc
 cp -r doc/tutorial/code                       ${TARGET}/doc
+cp deps/cryptol/lib/Cryptol.cry               ${TARGET}/lib
 cp -r ../Examples/ecdsa                       ${TARGET}/ecdsa
 cp -r ../Examples/zuc                         ${TARGET}/zuc
 rm -rf ${TARGET}/ecdsa/cryptol-2-spec
