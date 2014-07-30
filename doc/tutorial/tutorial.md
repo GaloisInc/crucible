@@ -205,6 +205,11 @@ flexibility the `write_smtlib1` primitive passes the given term
 through unchanged, because it might be used for either satisfiability
 or validity checking.
 
+The SMT-Lib export capabilities in SAWScript are currently based on a
+somewhat outdated implementation, and don't support the full range of
+operations that the `abc` tactic support. This will improve in the
+near future.
+
 External SAT Solvers
 ====================
 
@@ -228,6 +233,10 @@ executable name if it's in your PATH. The second argument is an array
 of command-line arguments to the solver. Any occurrence of `%f` is
 replaced with the name of the temporary file containing the CNF
 representation of the term you're proving.
+
+The `external_cnf_solver` tactic is based on the same underlying
+infrastructure as the `abc` tactic, and is generally capable of
+proving the same variety of theorems.
 
 Compositional Proofs
 ====================
