@@ -45,6 +45,7 @@ module SAWScript.REPL.Monad (
     -- ** SAWScript stuff
   , REPLState, withInitialState
   , getModulesInScope, getNamesInScope, getSharedContext, getEnvironment
+  , getSAWScriptNames
   , putNamesInScope, putEnvironment
   , modifyNamesInScope, modifyEnvironment
   , err
@@ -95,14 +96,16 @@ import System.Console.Haskeline (InputT, runInputT)
 import qualified System.Console.Haskeline as Haskeline
 -}
 
-import SAWScript.AST (ModuleName,
+import SAWScript.AST (Located(getVal),
+                      ModuleName,
                       Name,
+                      ResolvedName(..),
                       ValidModule)
 import SAWScript.BuildModules (buildModules)
 import SAWScript.Builtins (BuiltinContext(..))
 import SAWScript.Compiler (ErrT, runErrT', mapErrT, runCompiler)
 import SAWScript.Import (preludeLoadedModules)
-import SAWScript.Interpreter (InterpretEnv, buildInterpretEnv)
+import SAWScript.Interpreter (InterpretEnv, buildInterpretEnv, interpretEnvTypes)
 import SAWScript.Options (Options)
 import SAWScript.ProcessFile (checkModuleWithDeps)
 import SAWScript.REPL.GenerateModule as Generate
@@ -179,6 +182,17 @@ modifyNamesInScope f = modifyREPLState $ \current ->
 modifyEnvironment :: (InterpretEnv SAWCtx -> InterpretEnv SAWCtx) -> REPL ()
 modifyEnvironment f = modifyREPLState $ \current ->
   current { environment = f (environment current) }
+
+-- | Get visible variable names for Haskeline completion.
+getSAWScriptNames :: REPL [String]
+getSAWScriptNames = do
+  env <- getEnvironment
+  let rnames = Map.keys (interpretEnvTypes env)
+  return (map (stem . getVal) rnames)
+  where
+    stem :: ResolvedName -> String
+    stem (LocalName n) = n
+    stem (TopLevelName _ n) = n
 
 -- Lifting computations --
 

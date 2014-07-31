@@ -121,7 +121,7 @@ cryptolCommand cursor@(l,r)
       cmds ->
         return (l, [ cmdComp l' c | c <- cmds ])
 
-  | otherwise = completeExpr cursor
+  | otherwise = completeSAWScript cursor
   where
   l' = sanitize (reverse l)
 
@@ -156,6 +156,14 @@ completeExpr (l,_) = do
 completeType :: CompletionFunc REPL
 completeType (l,_) = do
   ns <- getTypeNames
+  let n    = reverse l
+      vars = filter (n `isPrefixOf`) ns
+  return (l,map (nameComp n) vars)
+
+-- | Complete a name from the sawscript environment.
+completeSAWScript :: CompletionFunc REPL
+completeSAWScript (l,_) = do
+  ns <- getSAWScriptNames
   let n    = reverse l
       vars = filter (n `isPrefixOf`) ns
   return (l,map (nameComp n) vars)
