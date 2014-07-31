@@ -315,6 +315,52 @@ that start with a colon:
     :quit  exit the REPL
     :cd    set the current working directory
 
+As an example of the sort of interactive use that the REPL allows,
+consider the file `code/NQueens.cry`, which provides an Cryptol
+specification of the problem of placing a specific number of queens on
+a chess board in such a way that none of them threaten any of the
+others.
+
+````
+$include 21-56 code/NQueens.cry
+````
+
+This example gives us the opportunity to use the satisfiability
+checking capabilities of SAWScript on a problem other than
+equivalence verification.
+
+First, we can load a model of the `nQueens` term from the Cryptol file.
+
+    # saw -I
+       ___  __ _ _ _ _
+      / __|/ _' | | | |
+      \__ \ (_| | | | |
+      |___/\__,_|\_,_/
+
+    sawscript> m <- cryptol_module "NQueens.cry"
+    Loading module Cryptol
+    Loading module Main
+    sawscript> (nq8 : [8][3] -> Bit) <- cryptol_extract m "nQueens : Solution 8"
+    Extracting expression of type Main::Solution 8
+
+Once we've extracted this model, we can try it on a specific
+configuration to see if it satisfies the property that none of the
+queens threaten any of the others.
+
+    sawscript> print (nq8 [0,1,2,3,4,5,6,7])
+    False
+
+This particular configuration didn't work, but we can use the
+satisfiability checking tools to automatically find one that does.
+
+    sawscript> sat_print abc nq8
+    Sat [3:[3],1:[3],6:[3],2:[3],5:[3],7:[3],4:[3],0:[3]]
+
+And, finally, we can double-check that this is indeed a valid solution.
+
+    sawscript> print (nq8 [3,1,6,2,5,7,4,0])
+    True
+
 Other Examples
 ==============
 
