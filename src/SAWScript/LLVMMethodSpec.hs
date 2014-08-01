@@ -40,6 +40,7 @@ import SAWScript.Options
 import SAWScript.Utils
 import SAWScript.LLVMMethodSpecIR
 import SAWScript.Proof
+import SAWScript.VerificationCheck
 
 import Verifier.LLVM.Simulator hiding (State)
 import Verifier.LLVM.Simulator.Internals hiding (State)
@@ -725,36 +726,6 @@ initializeVerification sc ir = do
              , esdReturnValue = esReturnValue es
              }
 
-data VerificationCheck
-  = AssertionCheck String (SharedTerm LSSCtx) -- ^ Name of assertion.
-  -- | Check that equalitassertion is true.
-  | EqualityCheck String -- ^ Name of value to compare
-                  (SharedTerm LSSCtx) -- ^ Value returned by JVM symbolic simulator.
-                  (SharedTerm LSSCtx) -- ^ Expected value in Spec.
-  -- deriving (Eq, Ord, Show)
-
-vcName :: VerificationCheck -> String
-vcName (AssertionCheck nm _) = nm
-vcName (EqualityCheck nm _ _) = nm
-
--- | Returns goal that one needs to prove.
-vcGoal :: SharedContext LSSCtx -> VerificationCheck -> IO (SharedTerm LSSCtx)
-vcGoal _ (AssertionCheck _ n) = return n
-vcGoal sc (EqualityCheck _ x y) = scEq sc x y
-
-type CounterexampleFn = (SharedTerm LSSCtx -> IO Value) -> IO Doc
-
--- | Returns documentation for check that fails.
-vcCounterexample :: VerificationCheck -> CounterexampleFn
-vcCounterexample (AssertionCheck nm n) _ =
-  return $ text ("Assertion " ++ nm ++ " is unsatisfied:") <+> scPrettyTermDoc n
-vcCounterexample (EqualityCheck nm lssNode specNode) evalFn =
-  do ln <- evalFn lssNode
-     sn <- evalFn specNode
-     return (text nm <$$>
-        nest 2 (text $ "Encountered: " ++ show ln) <$$>
-        nest 2 (text $ "Expected:    " ++ show sn))
-
 -- | Describes the verification result arising from one symbolic execution path.
 data PathVC = PathVC {
           pvcStartLoc :: SymBlockID
@@ -765,7 +736,7 @@ data PathVC = PathVC {
           -- | Static errors found in path.
         , pvcStaticErrors :: [Doc]
           -- | What to verify for this result.
-        , pvcChecks :: [VerificationCheck]
+        , pvcChecks :: [VerificationCheck LSSCtx]
         }
 
 ppPathVC :: PathVC -> Doc
@@ -790,16 +761,6 @@ ppPathVC pvc =
                                        , text ":="
                                        , scPrettyTermDoc tm
                                        ]
-        ppCheck (AssertionCheck nm tm) =
-          hsep [ text (nm ++ ":")
-               , scPrettyTermDoc tm
-               ]
-        ppCheck (EqualityCheck nm tm tm') =
-          hsep [ text (nm ++ ":")
-               , scPrettyTermDoc tm
-               , text ":="
-               , scPrettyTermDoc tm'
-               ]
 
 type PathVCGenerator m = StateT PathVC (Simulator SpecBackend m)
 
@@ -936,7 +897,7 @@ data VerifyState = VState {
          -- verification.
        , vsEvalContext :: EvalContext
        , vsInitialAssignments :: [(TC.LLVMExpr, SharedTerm LSSCtx)]
-       , vsCounterexampleFn :: CounterexampleFn
+       , vsCounterexampleFn :: CounterexampleFn LSSCtx
        , vsStaticErrors :: [Doc]
        }
 
