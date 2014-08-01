@@ -26,7 +26,6 @@ import Verifier.SAW.BitBlast
 import Verifier.SAW.Evaluator hiding (applyAll)
 import Verifier.SAW.Prelude
 import qualified Verifier.SAW.Prim as Prim
-import qualified Verifier.SAW.SBVParser as SBV
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
@@ -35,7 +34,9 @@ import Verifier.SAW.TypedAST hiding (instantiateVarList)
 import qualified Verifier.SAW.Export.Yices as Y
 import qualified Verifier.SAW.Export.SMT.Version1 as SMT1
 import qualified Verifier.SAW.Export.SMT.Version2 as SMT2
-import Verifier.SAW.Import.AIG
+
+import qualified SAWScript.SBVParser as SBV
+import SAWScript.ImportAIG
 
 import qualified SAWScript.AST as SS
 
