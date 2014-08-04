@@ -90,27 +90,6 @@ matchTypes (x : xs) (y : ys) = do
   if compatible then Just (M.union m1 m2) else Nothing
 
 
--- Nested Tuples ---------------------------------------------------------------
-
-scNestedTupleType :: SharedContext s -> [SharedTerm s] -> IO (SharedTerm s)
-scNestedTupleType sc [] = scTupleType sc []
-scNestedTupleType sc (x : xs) =
-  do y <- scNestedTupleType sc xs
-     scTupleType sc [x, y]
-
-scNestedTuple :: SharedContext s -> [SharedTerm s] -> IO (SharedTerm s)
-scNestedTuple sc [] = scTuple sc []
-scNestedTuple sc (x : xs) =
-  do y <- scNestedTuple sc xs
-     scTuple sc [x, y]
-
--- | 1-based indexing
-scNestedSelector :: SharedContext s -> Int -> SharedTerm s -> IO (SharedTerm s)
-scNestedSelector sc i t
-  | i <= 1    = scTupleSelector sc t 1
-  | otherwise = scTupleSelector sc t 2 >>= scNestedSelector sc (i - 1)
-
-
 -- Translation to SAWCore ------------------------------------------------------
 
 data Kind = KStar | KSize
