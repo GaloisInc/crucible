@@ -9,6 +9,7 @@ main = do {
     (c_ffs_imp : [32] -> [32]) <- llvm_extract l "ffs_imp" llvm_pure;
 
     m <- cryptol_module "ffs.cry";
+    (cry_ffs_ref : [32] -> [32]) <- cryptol_extract m "ffs_ref";
     (cry_ffs_imp : [32] -> [32]) <- cryptol_extract m "ffs_imp";
 
     print "java ref <-> java imp";
@@ -26,6 +27,10 @@ main = do {
     print "cryptol imp <-> c imp";
     let thm4 x = cry_ffs_imp x ==  c_ffs_imp x;
     prove_print abc thm4;
+
+    print "cryptol imp <-> cryptol ref";
+    let thm5 x = cry_ffs_imp x ==  cry_ffs_ref x;
+    prove_print abc thm5;
 
     print "Done.";
 };
