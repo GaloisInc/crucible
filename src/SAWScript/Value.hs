@@ -2,6 +2,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ViewPatterns #-}
 module SAWScript.Value where
 
 import Control.Applicative
@@ -212,6 +213,8 @@ bindValue sc (VLLVMSetup m1) v2 =
     m3
 bindValue _ _ _ = error "bindValue"
 
+-- TODO: this should take the SAWScript type as a parameter, and
+-- reconstruct tuples and records as appropriate.
 importValue :: SC.Value -> Value s
 importValue val =
     case val of
@@ -221,6 +224,8 @@ importValue val =
       SC.VNat n -> VInteger n
       SC.VWord w x -> VWord w x
       SC.VString s -> VString s
+      SC.VTuple (V.toList -> [x, y]) -> vCons (importValue x) (importValue y)
+      SC.VTuple (V.toList -> []) -> VTuple []
       SC.VTuple vs -> VTuple (V.toList (fmap importValue vs))
       SC.VRecord m -> VRecord (fmap importValue m)
       SC.VCtorApp ident args
@@ -232,6 +237,9 @@ importValue val =
       SC.VFloat {} -> error "VFloat unsupported"
       SC.VDouble {} -> error "VDouble unsupported"
       SC.VType -> error "VType unsupported"
+  where
+    vCons v1 (VTuple vs) = VTuple (v1 : vs)
+    vCons v1 v2 = VTuple [v1, v2]
 
 exportValue :: Value s -> SC.Value
 exportValue val =
@@ -241,8 +249,8 @@ exportValue val =
       VInteger n -> SC.VNat n
       VWord w x -> SC.VWord w x
       VArray vs -> SC.VVector (fmap exportValue (V.fromList vs))
-      VTuple vs -> SC.VTuple (fmap exportValue (V.fromList vs))
-      VRecord vm -> SC.VRecord (fmap exportValue vm)
+      VTuple vs -> exportVTuple (map exportValue vs)
+      VRecord vm -> exportVTuple (map exportValue (M.elems vm))
       VFun f -> SC.VFun (exportValue . f . importValue)
       VCtorApp s vs -> SC.VCtorApp (parseIdent s) (fmap exportValue (V.fromList vs))
       VFunTerm {} -> error "exportValue VFunTerm"
@@ -264,6 +272,10 @@ exportValue val =
       VProofResult {} -> error "VProofResult unsupported"
       VSatResult {} -> error "VSatResult unsupported"
       -- VAIG {} -> error "VAIG unsupported" -- TODO: could be implemented
+
+exportVTuple :: [SC.Value] -> SC.Value
+exportVTuple [] = SC.VTuple (V.fromList [])
+exportVTuple (x : xs) = SC.VTuple (V.fromList [x, exportVTuple xs])
 
 exportSharedTerm :: SharedContext s -> Value s' -> IO (SharedTerm s)
 exportSharedTerm sc val =

@@ -90,6 +90,27 @@ matchTypes (x : xs) (y : ys) = do
   if compatible then Just (M.union m1 m2) else Nothing
 
 
+-- Nested Tuples ---------------------------------------------------------------
+
+scNestedTupleType :: SharedContext s -> [SharedTerm s] -> IO (SharedTerm s)
+scNestedTupleType sc [] = scTupleType sc []
+scNestedTupleType sc (x : xs) =
+  do y <- scNestedTupleType sc xs
+     scTupleType sc [x, y]
+
+scNestedTuple :: SharedContext s -> [SharedTerm s] -> IO (SharedTerm s)
+scNestedTuple sc [] = scTuple sc []
+scNestedTuple sc (x : xs) =
+  do y <- scNestedTuple sc xs
+     scTuple sc [x, y]
+
+-- | 1-based indexing
+scNestedSelector :: SharedContext s -> Int -> SharedTerm s -> IO (SharedTerm s)
+scNestedSelector sc i t
+  | i <= 1    = scTupleSelector sc t 1
+  | otherwise = scTupleSelector sc t 2 >>= scNestedSelector sc (i - 1)
+
+
 -- Translation to SAWCore ------------------------------------------------------
 
 data Kind = KStar | KSize
@@ -119,9 +140,9 @@ translateType
 translateType sc tenv ty =
     case ty of
       SS.TyRecord tm              -> do tm' <- traverse (translateType sc tenv) tm
-                                        scRecordType sc tm'
+                                        scNestedTupleType sc (M.elems tm')
       SS.TyCon (SS.TupleCon _) ts -> do ts' <- traverse (translateType sc tenv) ts
-                                        scTupleType sc ts'
+                                        scNestedTupleType sc ts'
       SS.TyCon SS.ArrayCon [n, t] -> do n' <- translateType sc tenv n
                                         t' <- translateType sc tenv t
                                         scVecType sc n' t'
@@ -197,9 +218,9 @@ translateExpr sc tm sm km expr =
       SS.Undefined              _ -> fail "translateExpr: undefined"
       SS.Block _                _ -> fail "translateExpr Block"
       SS.Tuple es               _ -> do es' <- traverse (translateExpr sc tm sm km) es
-                                        scTuple sc es'
+                                        scNestedTuple sc es'
       SS.Record bs              _ -> do bs' <- traverse (translateExpr sc tm sm km) (M.fromList bs)
-                                        scRecord sc bs'
+                                        scNestedTuple sc (M.elems bs')
       SS.Index e i              _ -> do let (l, t) = destArrayT (SS.typeOf e)
                                         l' <- translateType sc km l
                                         t' <- translateType sc km t
@@ -208,9 +229,9 @@ translateExpr sc tm sm km expr =
                                         i'' <- return i' -- FIXME: add coercion from Nat to Fin w
                                         scGet sc l' t' e' i''
       SS.Lookup e n             _ -> do e' <- translateExpr sc tm sm km e
-                                        scRecordSelect sc e' n
+                                        scRecordSelect sc e' n -- FIXME
       SS.TLookup e i            _ -> do e' <- translateExpr sc tm sm km e
-                                        scTupleSelector sc e' (fromIntegral i)
+                                        scNestedSelector sc (fromIntegral i) e'
       SS.Var x (SS.Forall [] t)   -> case M.lookup x sm of
                                        Nothing -> fail $ "Untranslatable: " ++ SS.renderResolvedName (SS.getVal x)
                                        Just e' ->
