@@ -13,9 +13,10 @@ import Control.Monad.Error
 import Control.Monad.State
 import Data.Either (partitionEithers)
 import Data.Foldable (foldl')
-import Data.List (isPrefixOf)
+import Data.List (isPrefixOf, sortBy)
 import qualified Data.Map as Map
 import Data.Maybe
+import Data.Ord
 import qualified Data.Set as Set
 import qualified Data.Vector.Storable as SV
 import System.Directory
@@ -530,20 +531,29 @@ bindExts sc args body = do
   locals <- mapM (scLocalVar sc . fst) ([0..] `zip` reverse types)
   body' <- scInstantiateExt sc (Map.fromList (is `zip` reverse locals)) body
   scLambdaList sc (names `zip` types) body'
-    where extIdx (STApp _ (FTermF (ExtCns ec))) = Just (ecVarIndex ec)
-          extIdx _ = Nothing
-          extName (STApp _ (FTermF (ExtCns ec))) = Just (ecName ec)
-          extName _ = Nothing
+
+extIdx :: SharedTerm s -> Maybe VarIndex
+extIdx (STApp _ (FTermF (ExtCns ec))) = Just (ecVarIndex ec)
+extIdx _ = Nothing
+
+extName :: SharedTerm s -> Maybe String
+extName (STApp _ (FTermF (ExtCns ec))) = Just (ecName ec)
+extName _ = Nothing
 
 bindAllExts :: SharedContext s
             -> SharedTerm s
             -> IO (SharedTerm s)
-bindAllExts sc body@(STApp _ tf) = do
-  bindExts sc (Set.toAscList args) body
-    where args = snd $ foldl' getExtCns (Set.empty, Set.empty) tf
+bindAllExts sc body = bindExts sc (getAllExts body) body
+
+-- | Return a list of all ExtCns subterms in the given term, sorted by
+-- index.
+getAllExts :: SharedTerm s -> [SharedTerm s]
+getAllExts t@(STApp _ tf) = sortBy (comparing extIdx) $ Set.toList args
+    where (seen, exts) = getExtCns (Set.empty, Set.empty) t
+          args = snd $ foldl' getExtCns (seen, exts) tf
           getExtCns (is, a) (STApp idx _) | Set.member idx is = (is, a)
-          getExtCns (is, a) t@(STApp idx (FTermF (ExtCns _))) =
-            (Set.insert idx is, Set.insert t a)
+          getExtCns (is, a) t'@(STApp idx (FTermF (ExtCns _))) =
+            (Set.insert idx is, Set.insert t' a)
           getExtCns (is, a) (STApp idx tf') =
             foldl' getExtCns (Set.insert idx is, a) tf'
 
@@ -552,8 +562,13 @@ bindAllExts sc body@(STApp _ tf) = do
 cexEvalFn :: SharedContext s -> [SV.Value SAWCtx] -> SharedTerm s
           -> IO Value
 cexEvalFn sc args tm = do
+  -- NB: there may be more args than exts, and this is ok. One side of
+  -- an equality may have more free variables than the other,
+  -- particularly in the case where there is a counter-example.
+  let exts = getAllExts tm
   args' <- mapM (SV.exportSharedTerm sc) args
-  let argMap = Map.fromList (zip [0..] args')
+  let is = mapMaybe extIdx exts
+      argMap = Map.fromList (zip is args')
       eval = evalGlobal (scModule sc) preludePrims
   tm' <- scInstantiateExt sc argMap tm
   --ty <- scTypeCheck sc tm'
