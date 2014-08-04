@@ -1,13 +1,23 @@
 main = do {
   print "Extracting reference term";
-  (ffs_ref : [32] -> [32]) <- llvm_extract "ffs.bc" "ffs_ref" llvm_pure;
+  l <- llvm_load_module "ffs.bc";
+  (ffs_ref : [32] -> [32]) <- llvm_extract l "ffs_ref" llvm_pure;
 
   print "Extracting implementation term";
-  (ffs_imp : [32] -> [32]) <- llvm_extract "ffs.bc" "ffs_imp" llvm_pure;
+  (ffs_imp : [32] -> [32]) <- llvm_extract l "ffs_imp" llvm_pure;
+
+  print "Extracting buggy term";
+  (ffs_bug : [32] -> [32]) <- llvm_extract l "ffs_bug" llvm_pure;
 
   print "Proving equivalence";
   let thm1 x = ffs_ref x == ffs_imp x;
-  prove abc thm1;
+  result <- prove abc thm1;
+  print result;
+
+  print "Finding bug";
+  let thm2 x = not (ffs_ref x == ffs_bug x);
+  result <- sat abc thm2;
+  print result;
 
   print "Done.";
 };

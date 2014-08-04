@@ -1,7 +1,7 @@
 SAW?=../../bin/saw
 SAWS=$(wildcard *.saw)
 OUTS=$(SAWS:.saw=.out)
-JAVA_CLASSES=/System/Library/Java/JavaVirtualMachines/1.6.0.jdk/Contents/Classes/classes.jar
+JAVA_CLASSES=`(java -verbose 2>&1) | grep Opened | head -1 | cut -d ' ' -f 2 | cut -d ']' -f 1`
 
 all: FFS.class ffs.bc double.bc Add.class
 

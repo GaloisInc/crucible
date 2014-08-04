@@ -93,7 +93,7 @@
   \vspace{0.12in}
 }
 
-\lfoot{\sffamily\color{galoislightgray}\small\copyright{} 2013 Galois, Inc.}
+\lfoot{\sffamily\color{galoislightgray}\small\copyright{} 2014 Galois, Inc.}
 
 \rfoot{
   \sffamily \color{galoislightgray}\small

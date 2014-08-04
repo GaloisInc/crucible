@@ -9,6 +9,17 @@ import qualified Cryptol.Parser as P
 import qualified Cryptol.TypeCheck.AST as T
 import Cryptol.Utils.PP
 
+typeNoUser :: T.Type -> T.Type
+typeNoUser t =
+  case t of
+    T.TCon tc ts   -> T.TCon tc (map typeNoUser ts)
+    T.TVar {}      -> t
+    T.TUser _ _ ty -> typeNoUser ty
+    T.TRec fields  -> T.TRec [ (n, typeNoUser ty) | (n, ty) <- fields ]
+
+schemaNoUser :: T.Schema -> T.Schema
+schemaNoUser (T.Forall params props ty) = T.Forall params props (typeNoUser ty)
+
 loadCryptol :: FilePath -> IO M.ModuleEnv
 loadCryptol filepath = do
   (result, warnings) <- M.loadModuleByPath filepath
@@ -33,5 +44,5 @@ extractCryptol sc modEnv input = do
     case exprResult of
       Left err -> fail (show (pp err))
       Right x -> return x
-  putStrLn $ "Extracting expression of type " ++ show (pp schema)
+  putStrLn $ "Extracting expression of type " ++ show (pp (schemaNoUser schema))
   C.importExpr sc env expr
