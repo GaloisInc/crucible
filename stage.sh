@@ -22,7 +22,7 @@ echo Staging ...
 
 strip build/bin/*
 
-cp deps/abcBridge/abc/copyright.txt           ${TARGET}/ABC_LICENSE
+cp deps/abcBridge/abc-build/copyright.txt     ${TARGET}/ABC_LICENSE
 cp build/bin/bcdump                           ${TARGET}/bin
 cp build/bin/extcore-info                     ${TARGET}/bin
 cp build/bin/jss                              ${TARGET}/bin
