@@ -43,7 +43,7 @@ module SAWScript.REPL.Monad (
   , userOptions
 
     -- ** SAWScript stuff
-  , REPLState, withInitialState
+  , REPLState, getInitialState
   , getModulesInScope, getNamesInScope, getSharedContext, getEnvironment
   , getSAWScriptNames
   , putNamesInScope, putEnvironment
@@ -103,7 +103,7 @@ import SAWScript.AST (Located(getVal),
                       ValidModule)
 import SAWScript.BuildModules (buildModules)
 import SAWScript.Builtins (BuiltinContext(..))
-import SAWScript.Compiler (ErrT, runErrT', mapErrT, runCompiler)
+import SAWScript.Compiler (ErrT, runErr, runErrT, mapErrT, runCompiler)
 import SAWScript.Import (preludeLoadedModules)
 import SAWScript.Interpreter (InterpretEnv, buildInterpretEnv, interpretEnvTypes)
 import SAWScript.Options (Options)
@@ -121,25 +121,20 @@ data REPLState = REPLState { modulesInScope :: Map ModuleName ValidModule
                            , environment :: InterpretEnv SAWCtx
                            }
 
--- FIXME! Get rid of all the continuation-passing nonsense below and
--- use ordinary monadic types. We will need to change runCompiler first.
 getInitialState :: Options -> IO REPLState
 getInitialState opts = do
-  ref <- newIORef undefined
-  withInitialState opts (writeIORef ref)
-  readIORef ref
-
-withInitialState :: Options -> (REPLState -> IO ()) -> IO ()
-withInitialState opts f = do
-  -- Build a prototype (empty) scratchpad module.
   preludeEtc <- preludeLoadedModules
-  runCompiler buildModules preludeEtc $ \built ->
-    runCompiler (foldrM checkModuleWithDeps Map.empty) built $ \modulesInScope -> do
+  result <- runErr $ do
+              built <- buildModules preludeEtc
+              foldrM checkModuleWithDeps Map.empty built
+  case result of
+    Left msg -> fail msg
+    Right modulesInScope -> do
       let namesInScope = Set.empty
       let scratchpadModule = Generate.scratchpad modulesInScope
       (biContext, environment) <- buildInterpretEnv opts scratchpadModule
       let sharedContext = biSharedContext biContext
-      f $ REPLState modulesInScope namesInScope sharedContext environment
+      return $ REPLState modulesInScope namesInScope sharedContext environment
 
 -- Monadic primitives --
 
@@ -197,7 +192,7 @@ getSAWScriptNames = do
 -- Lifting computations --
 
 err :: ErrT IO a -> REPL a
-err m = io $ runErrT' m >>= either fail return
+err m = io $ runErrT m >>= either fail return
 
 -- REPL Environment ------------------------------------------------------------
 

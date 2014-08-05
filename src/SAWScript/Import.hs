@@ -28,9 +28,11 @@ preludePath :: FilePath
 preludePath = "prelude/Prelude.saw"
 
 preludeLoadedModules :: IO LoadedModules
-preludeLoadedModules =
-  runErr (formModule preludePath [litFile|prelude/Prelude.saw|]) error
-         (\m -> return $ ms { modules = Map.insert mn m (modules ms) })
+preludeLoadedModules = do
+  result <- runErr (formModule preludePath [litFile|prelude/Prelude.saw|])
+  case result of
+    Left msg -> fail msg
+    Right m  -> return $ ms { modules = Map.insert mn m (modules ms) }
   where
     ms = emptyLoadedModules
     mn = moduleNameFromPath preludePath
