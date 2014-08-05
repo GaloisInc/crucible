@@ -1,7 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module SAWScript.Compiler ( Compiler, compiler, runCompiler
-                          , Err, runErr, runErr'
-                          , ErrT, runErrT, runErrT', mapErrT
+                          , Err, runErr
+                          , ErrT, runErrT, mapErrT
                           ) where
 
 import Control.Applicative (Alternative, Applicative)
@@ -22,9 +22,10 @@ runCompiler :: (Show b, MonadIO io)
                -> (b -> io ())
                -> io ()
 runCompiler f a k = do
-  runErrT (f a)
-    reportError
-    k -- continuation
+  result <- runErrT (f a)
+  case result of
+    Left msg -> reportError msg
+    Right b  -> k b
 
 indent :: Int -> String -> String
 indent n = unlines . map (replicate n ' ' ++) . lines
@@ -44,24 +45,11 @@ newtype ErrT m b = ErrT { extractErrorT :: ErrorT String m b }
                  deriving (Functor, Applicative, Alternative, Monad, MonadPlus,
                            MonadIO, MonadTrans)
 
-{-| 'runErr' uses continuation-passing style for backward compatibility. -}
--- TODO: Get rid of this.
-runErr :: Err a -> (String -> IO r) -> (a -> IO r) -> IO r
+runErr :: Err a -> IO (Either String a)
 runErr = runErrT
 
-runErr' :: Err a -> IO (Either String a)
-runErr' = runErrT'
-
-{-| 'runErrT' uses continuation-passing style to present a interface uniform
-with 'runErr'. -}
--- TODO: Once 'runErr' has been eliminated, replace this with 'runErrT''.
-runErrT :: (Monad m) => ErrT m a -> (String -> m r) -> (a -> m r) -> m r
-runErrT m fl sc = do
-  result <- runErrT' m
-  either fl sc result
-
-runErrT' :: (Monad m) => ErrT m a -> m (Either String a)
-runErrT' = runErrorT . extractErrorT
+runErrT :: (Monad m) => ErrT m a -> m (Either String a)
+runErrT = runErrorT . extractErrorT
 
 mapErrT :: (m (Either String a) -> n (Either String b)) -> ErrT m a -> ErrT n b
 mapErrT f = ErrT . mapErrorT f . extractErrorT
