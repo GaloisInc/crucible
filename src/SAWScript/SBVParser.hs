@@ -228,11 +228,11 @@ scTyp sc (TVec n t) =
        scVecType sc ntm ty
 scTyp sc (TTuple as) =
     do ts <- mapM (scTyp sc) as
-       scTupleType sc ts
+       scNestedTupleType sc ts
 scTyp sc (TRecord fields) =
     do let (names, as) = unzip fields
-       ts <-mapM (scTyp sc) as
-       scRecordType sc (Map.fromList (zip names ts))
+       ts <- mapM (scTyp sc) as
+       scNestedTupleType sc ts
 
 -- | projects all the components out of the input term
 -- TODO: rename to splitInput?
@@ -241,7 +241,7 @@ splitInputs _sc TBool x =
     do t <- error "Bool -> bitvector 1" x
        return [t]
 splitInputs sc (TTuple ts) x =
-    do xs <- mapM (scTupleSelector sc x) [1 .. length ts]
+    do xs <- mapM (\i -> scNestedSelector sc i x) [1 .. length ts]
        yss <- sequence (zipWith (splitInputs sc) ts xs)
        return (concat yss)
 splitInputs _ (TVec _ TBool) x = return [x]
@@ -282,7 +282,7 @@ combineOutputs sc ty xs0 =
              lift (scBv1ToBool sc x)
       go (TTuple ts) =
           do xs <- mapM go ts
-             lift (scTuple sc xs)
+             lift (scNestedTuple sc xs)
       go (TVec _ TBool) = pop
       go (TVec n t) =
           do xs <- replicateM (fromIntegral n) (go t)

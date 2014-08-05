@@ -2,6 +2,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ViewPatterns #-}
 module SAWScript.Value where
 
 import Control.Applicative
@@ -97,48 +98,81 @@ isBool :: Value s -> Bool
 isBool (VBool _) = True
 isBool _ = False
 
+data PPOpts = PPOpts
+  { ppOptsAnnotate :: Bool
+  }
+
+defaultPPOpts :: PPOpts
+defaultPPOpts = PPOpts False
+
+commaSep :: [ShowS] -> ShowS
+commaSep ss = foldr (.) id (intersperse (showString ",") ss)
+
+showBrackets :: ShowS -> ShowS
+showBrackets s = showString "[" . s . showString "]"
+
+showBraces :: ShowS -> ShowS
+showBraces s = showString "{" . s . showString "}"
+
+showsPrecValue :: PPOpts -> Int -> Maybe SS.Type -> Value s -> ShowS
+showsPrecValue opts p mty v =
+  case v of
+    VBool True -> showString "True"
+    VBool False -> showString "False"
+    VString s -> shows s
+    VInteger n -> shows n
+    VWord w x
+      | ppOptsAnnotate opts -> showParen (p > 9) (shows x . showString ":[" . shows w . showString "]")
+      | otherwise           -> shows x
+    VArray vs
+      | all isBool vs -> shows (arrayToWord vs)
+      | otherwise -> showBrackets $ commaSep $ map (showsPrecValue opts 0 mty') vs
+                       where mty' = case mty of
+                                      Just (SS.TyCon SS.ArrayCon [_, ty']) -> Just ty'
+                                      _ -> Nothing
+    VTuple vs -> case mty of
+                   Just (SS.TyRecord tm) | M.size tm == length vs
+                     -> showsPrecValue opts p mty (VRecord (M.fromList (zip (M.keys tm) vs)))
+                   Just (SS.TyCon (SS.TupleCon _) ts) | length ts == length vs
+                     -> showParen True $ commaSep $ zipWith (showsPrecValue opts 0) (map Just ts) vs
+                   _ -> showParen True $ commaSep $ map (showsPrecValue opts 0 Nothing) vs
+    VRecord m -> showBraces $ commaSep $ zipWith showFld mtys (M.toList m)
+                   where
+                     showFld mty' (n, fv) =
+                       showString n . showString "=" . showsPrecValue opts 0 mty' fv
+                     mtys =
+                       case mty of
+                         Just (SS.TyRecord tm) | M.keys m == M.keys tm
+                           -> map Just (M.elems tm)
+                         _ -> replicate (M.size m) Nothing
+
+    VFun {} -> showString "<<fun>>"
+    VFunTerm {} -> showString "<<fun-term>>"
+    VFunType {} -> showString "<<fun-type>>"
+    VLambda {} -> showString "<<lambda>>"
+    VTLambda {} -> showString "<<polymorphic function>>"
+    VTerm t -> showsPrec p t
+    VCtorApp s vs -> showString s . showString " " . (foldr (.) id (map shows vs))
+    VIO {} -> showString "<<IO>>"
+    VSimpset {} -> showString "<<simpset>>"
+    VProofScript {} -> showString "<<proof script>>"
+    VTheorem (Theorem t) -> showString "Theorem " . showParen True (showString (scPrettyTerm t))
+    VJavaSetup {} -> showString "<<Java Setup>>"
+    VLLVMSetup {} -> showString "<<LLVM Setup>>"
+    VJavaMethodSpec {} -> showString "<<Java MethodSpec>>"
+    VLLVMMethodSpec {} -> showString "<<LLVM MethodSpec>>"
+    VCryptolModuleEnv {} -> showString "<<Cryptol ModuleEnv>>"
+    VLLVMModule {} -> showString "<<LLVM Module>>"
+    VJavaClass {} -> showString "<<Java Class>>"
+    VProofResult Valid -> showString "Valid"
+    VProofResult (Invalid t) -> showString "Invalid: " . shows t
+    VProofResult (InvalidMulti ts) -> showString "Invalid: " . shows ts
+    VSatResult Unsat -> showString "Unsat"
+    VSatResult (Sat t) -> showString "Sat: " . shows t
+    VSatResult (SatMulti ts) -> showString "Sat: " . shows ts
+
 instance Show (Value s) where
-    showsPrec p v =
-      case v of
-        VBool True -> showString "True"
-        VBool False -> showString "False"
-        VString s -> shows s
-        VInteger n -> shows n
-        VWord w x -> showParen (p > 9) (shows x . showString ":[" . shows w . showString "]")
-        VArray vs | all isBool vs -> shows (arrayToWord vs)
-                  | otherwise -> showList vs
-        VTuple vs -> showParen True
-                     (foldr (.) id (intersperse (showString ",") (map shows vs)))
-        VRecord m -> showString "{" .
-                     (foldr (.) id (intersperse (showString ",")
-                                   (map showFld (M.toList m)))) .
-                     showString "}"
-                       where showFld (n, fv) =
-                               shows n . showString "=" . shows fv
-        VFun {} -> showString "<<fun>>"
-        VFunTerm {} -> showString "<<fun-term>>"
-        VFunType {} -> showString "<<fun-type>>"
-        VLambda {} -> showString "<<lambda>>"
-        VTLambda {} -> showString "<<polymorphic function>>"
-        VTerm t -> showsPrec p t
-        VCtorApp s vs -> showString s . showString " " . (foldr (.) id (map shows vs))
-        VIO {} -> showString "<<IO>>"
-        VSimpset {} -> showString "<<simpset>>"
-        VProofScript {} -> showString "<<proof script>>"
-        VTheorem (Theorem t) -> showString "Theorem " . showParen True (showString (scPrettyTerm t))
-        VJavaSetup {} -> showString "<<Java Setup>>"
-        VLLVMSetup {} -> showString "<<LLVM Setup>>"
-        VJavaMethodSpec {} -> showString "<<Java MethodSpec>>"
-        VLLVMMethodSpec {} -> showString "<<LLVM MethodSpec>>"
-        VCryptolModuleEnv {} -> showString "<<Cryptol ModuleEnv>>"
-        VLLVMModule {} -> showString "<<LLVM Module>>"
-        VJavaClass {} -> showString "<<Java Class>>"
-        VProofResult Valid -> showString "Valid"
-        VProofResult (Invalid t) -> showString "Invalid: " . shows t
-        VProofResult (InvalidMulti ts) -> showString "Invalid: " . shows ts
-        VSatResult Unsat -> showString "Unsat"
-        VSatResult (Sat t) -> showString "Sat: " . shows t
-        VSatResult (SatMulti ts) -> showString "Sat: " . shows ts
+    showsPrec p v = showsPrecValue defaultPPOpts p Nothing v
 
 indexValue :: Value s -> Value s -> Value s
 indexValue (VArray vs) (VInteger x)
@@ -212,6 +246,8 @@ bindValue sc (VLLVMSetup m1) v2 =
     m3
 bindValue _ _ _ = error "bindValue"
 
+-- TODO: this should take the SAWScript type as a parameter, and
+-- reconstruct tuples and records as appropriate.
 importValue :: SC.Value -> Value s
 importValue val =
     case val of
@@ -221,6 +257,8 @@ importValue val =
       SC.VNat n -> VInteger n
       SC.VWord w x -> VWord w x
       SC.VString s -> VString s
+      SC.VTuple (V.toList -> [x, y]) -> vCons (importValue x) (importValue y)
+      SC.VTuple (V.toList -> []) -> VTuple []
       SC.VTuple vs -> VTuple (V.toList (fmap importValue vs))
       SC.VRecord m -> VRecord (fmap importValue m)
       SC.VCtorApp ident args
@@ -232,6 +270,9 @@ importValue val =
       SC.VFloat {} -> error "VFloat unsupported"
       SC.VDouble {} -> error "VDouble unsupported"
       SC.VType -> error "VType unsupported"
+  where
+    vCons v1 (VTuple vs) = VTuple (v1 : vs)
+    vCons v1 v2 = VTuple [v1, v2]
 
 exportValue :: Value s -> SC.Value
 exportValue val =
@@ -241,8 +282,8 @@ exportValue val =
       VInteger n -> SC.VNat n
       VWord w x -> SC.VWord w x
       VArray vs -> SC.VVector (fmap exportValue (V.fromList vs))
-      VTuple vs -> SC.VTuple (fmap exportValue (V.fromList vs))
-      VRecord vm -> SC.VRecord (fmap exportValue vm)
+      VTuple vs -> exportVTuple (map exportValue vs)
+      VRecord vm -> exportVTuple (map exportValue (M.elems vm))
       VFun f -> SC.VFun (exportValue . f . importValue)
       VCtorApp s vs -> SC.VCtorApp (parseIdent s) (fmap exportValue (V.fromList vs))
       VFunTerm {} -> error "exportValue VFunTerm"
@@ -264,6 +305,10 @@ exportValue val =
       VProofResult {} -> error "VProofResult unsupported"
       VSatResult {} -> error "VSatResult unsupported"
       -- VAIG {} -> error "VAIG unsupported" -- TODO: could be implemented
+
+exportVTuple :: [SC.Value] -> SC.Value
+exportVTuple [] = SC.VTuple (V.fromList [])
+exportVTuple (x : xs) = SC.VTuple (V.fromList [x, exportVTuple xs])
 
 exportSharedTerm :: SharedContext s -> Value s' -> IO (SharedTerm s)
 exportSharedTerm sc val =

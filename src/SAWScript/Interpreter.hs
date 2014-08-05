@@ -119,9 +119,9 @@ translateType
 translateType sc tenv ty =
     case ty of
       SS.TyRecord tm              -> do tm' <- traverse (translateType sc tenv) tm
-                                        scRecordType sc tm'
+                                        scNestedTupleType sc (M.elems tm')
       SS.TyCon (SS.TupleCon _) ts -> do ts' <- traverse (translateType sc tenv) ts
-                                        scTupleType sc ts'
+                                        scNestedTupleType sc ts'
       SS.TyCon SS.ArrayCon [n, t] -> do n' <- translateType sc tenv n
                                         t' <- translateType sc tenv t
                                         scVecType sc n' t'
@@ -197,9 +197,9 @@ translateExpr sc tm sm km expr =
       SS.Undefined              _ -> fail "translateExpr: undefined"
       SS.Block _                _ -> fail "translateExpr Block"
       SS.Tuple es               _ -> do es' <- traverse (translateExpr sc tm sm km) es
-                                        scTuple sc es'
+                                        scNestedTuple sc es'
       SS.Record bs              _ -> do bs' <- traverse (translateExpr sc tm sm km) (M.fromList bs)
-                                        scRecord sc bs'
+                                        scNestedTuple sc (M.elems bs')
       SS.Index e i              _ -> do let (l, t) = destArrayT (SS.typeOf e)
                                         l' <- translateType sc km l
                                         t' <- translateType sc km t
@@ -208,9 +208,9 @@ translateExpr sc tm sm km expr =
                                         i'' <- return i' -- FIXME: add coercion from Nat to Fin w
                                         scGet sc l' t' e' i''
       SS.Lookup e n             _ -> do e' <- translateExpr sc tm sm km e
-                                        scRecordSelect sc e' n
+                                        scRecordSelect sc e' n -- FIXME
       SS.TLookup e i            _ -> do e' <- translateExpr sc tm sm km e
-                                        scTupleSelector sc e' (fromIntegral i)
+                                        scNestedSelector sc (fromIntegral i) e'
       SS.Var x (SS.Forall [] t)   -> case M.lookup x sm of
                                        Nothing -> fail $ "Untranslatable: " ++ SS.renderResolvedName (SS.getVal x)
                                        Just e' ->
@@ -483,9 +483,9 @@ transitivePrimEnv m = M.unions (env : envs)
 
 -- Primitives ------------------------------------------------------------------
 
-print_value :: Value SAWCtx -> IO ()
-print_value (VString s) = putStrLn s
-print_value v = print v
+print_value :: SS.Type -> Value SAWCtx -> IO ()
+print_value _t (VString s) = putStrLn s
+print_value t v = putStrLn (showsPrecValue defaultPPOpts 0 (Just t) v "")
 
 valueEnv :: Options -> BuiltinContext -> RNameMap (Value SAWCtx)
 valueEnv opts bic = M.fromList
