@@ -483,9 +483,9 @@ transitivePrimEnv m = M.unions (env : envs)
 
 -- Primitives ------------------------------------------------------------------
 
-print_value :: Value SAWCtx -> IO ()
-print_value (VString s) = putStrLn s
-print_value v = print v
+print_value :: SS.Type -> Value SAWCtx -> IO ()
+print_value _t (VString s) = putStrLn s
+print_value t v = putStrLn (showsPrecValue defaultPPOpts 0 (Just t) v "")
 
 valueEnv :: Options -> BuiltinContext -> RNameMap (Value SAWCtx)
 valueEnv opts bic = M.fromList
