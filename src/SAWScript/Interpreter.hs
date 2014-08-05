@@ -503,6 +503,7 @@ valueEnv opts bic = M.fromList
   , (qualify "java_verify" , toValue $ verifyJava bic opts)
   , (qualify "java_pure"   , toValue $ javaPure)
   , (qualify "java_var"    , toValue $ javaVar bic opts)
+  , (qualify "java_class_var", toValue $ javaClassVar bic opts)
   , (qualify "java_may_alias", toValue $ javaMayAlias bic opts)
   , (qualify "java_assert" , toValue $ javaAssert bic opts)
   --, (qualify "java_assert_eq" , toValue $ javaAssertEq bic opts)

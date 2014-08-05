@@ -194,7 +194,8 @@ evalLogicExpr :: TC.LogicExpr -> EvalContext -> ExprEvaluator (SharedTerm JSSCtx
 evalLogicExpr initExpr ec = liftIO $ do
   let sc = ecContext ec
   t <- TC.useLogicExpr sc initExpr
-  rules <- forM (Map.toList (ecJavaExprs ec)) $ \(name, expr) ->
+  let exprs = filter (not . TC.isClassJavaExpr . snd) . Map.toList . ecJavaExprs
+  rules <- forM (exprs ec) $ \(name, expr) ->
              do lt <- evalJavaExprAsLogic expr ec
                 ty <- scTypeOf sc lt
                 nt <- scJavaValue sc ty name
