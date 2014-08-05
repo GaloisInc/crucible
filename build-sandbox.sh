@@ -2,9 +2,9 @@
 set -e
 
 REPODIR=${REPODIR:="src.galois.com:/srv/git"}
-REPOS="aig abcBridge jvm-parser llvm-pretty Aiger"
+REPOS="jvm-parser llvm-pretty Aiger"
 PKGS="Verinf SAWCore Java LLVM Cryptol"
-GITHUB_REPOS="cryptol"
+GITHUB_REPOS="cryptol aig abcBridge"
 
 cabal_flags="--reinstall --force-reinstalls"
 test_flags="--enable-tests --run-tests --disable-library-coverage"
@@ -55,6 +55,8 @@ for repo in ${GITHUB_REPOS} ; do
     (cd ./deps/${repo} && git checkout master && git pull)
   fi
 done
+
+(cd deps/cryptol && make)
 
 for repo in ${REPOS} ${GITHUB_REPOS} ; do
   cabal sandbox add-source deps/${repo}
