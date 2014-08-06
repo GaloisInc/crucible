@@ -39,14 +39,19 @@ import qualified Cryptol.ModuleSystem as M
 import qualified Cryptol.ModuleSystem.Base as M (preludeName)
 
 import qualified Cryptol.Eval.Value as E
+import qualified Cryptol.ModuleSystem.Renamer as R
 import qualified Cryptol.Testing.Random  as TestR
 import qualified Cryptol.Testing.Exhaust as TestX
+import qualified Cryptol.Parser
 import Cryptol.Parser
     (parseExprWith,ParseError(),Config(..),defaultConfig,parseModName)
+import qualified Cryptol.Parser.NoPat
 import Cryptol.Parser.Position (emptyRange,getLoc)
+import qualified Cryptol.TypeCheck
 import qualified Cryptol.TypeCheck.AST as T
 import qualified Cryptol.TypeCheck.Subst as T
 import qualified Cryptol.TypeCheck.InferTypes as T
+import qualified Cryptol.TypeCheck.Monad
 import Cryptol.TypeCheck.PP (dump,ppWithNames)
 import Cryptol.TypeCheck.Defaulting(defaultExpr)
 import Cryptol.Utils.PP
@@ -100,6 +105,8 @@ import qualified SAWScript.ResolveSyns (resolveSyns)
 import qualified SAWScript.Value (Value(VTerm), evaluate)
 import SAWScript.REPL.GenerateModule (replFileName, replModuleName, wrapBStmt)
 import SAWScript.Utils (SAWCtx, Pos(..))
+
+import qualified Verifier.SAW.Cryptol
 
 
 #if __GLASGOW_HASKELL__ < 706
@@ -189,9 +196,9 @@ nbCommandList  =
     "check the type of an expression"
   , CommandDescr ":browse" (ExprTypeArg browseCmd)
     "display the current environment"
+  -}
   , CommandDescr ":eval" (ExprArg evalCmd)
     "evaluate an expression and print the result"
-  -}
   , CommandDescr ":?"      (ExprArg helpCmd)
     "display a brief description about a built-in operator"
   , CommandDescr ":help"   (ExprArg helpCmd)
@@ -274,9 +281,63 @@ getPPValOpts =
 
 evalCmd :: String -> REPL ()
 evalCmd str = do
+  -- Parse
+  pexpr <-
+    case Cryptol.Parser.parseExpr str of
+      Left err -> fail (show (pp err))
+      Right x -> return x
+
+  -- Remove patterns
+  let (npe, errs) = Cryptol.Parser.NoPat.removePatterns pexpr
+  unless (null errs) (fail (show errs))
+
+  -- Rename
+  modEnv <- getModuleEnv
+  let focusedIfaceDecls = M.focusedEnv modEnv
+  let (res, _warnings) = R.runRenamer (R.namingEnv focusedIfaceDecls) (R.rename npe)
+  re <- case res of
+          Right r   -> return r
+          Left errs -> fail (show errs)
+
+  -- Typecheck
+  inferInput <- getInferInput
+  let range = fromMaybe emptyRange (getLoc re)
+  out <- io (Cryptol.TypeCheck.tcExpr re inferInput)
+  (expr, schema) <-
+    case out of
+      Cryptol.TypeCheck.Monad.InferOK _warns seeds o ->
+        do setNameSeeds seeds
+           --typeCheckWarnings warns
+           return o
+      Cryptol.TypeCheck.Monad.InferFailed _warns errs ->
+        do fail (show errs)
+{-
+      do typeCheckWarnings warns
+         typeCheckingFailed errs
+-}
+
+  -- Translate
+  rw <- getRW
+  sc <- getSharedContext
+  inferInput <- getInferInput
+  termEnv <- getTermEnv
+  let cryEnv = Verifier.SAW.Cryptol.Env
+        { Verifier.SAW.Cryptol.envT = Map.empty
+        , Verifier.SAW.Cryptol.envE = fmap (\t -> (t, 0)) termEnv
+        , Verifier.SAW.Cryptol.envP = Map.empty
+        , Verifier.SAW.Cryptol.envC = Cryptol.TypeCheck.Monad.inpVars inferInput
+        }
+  sharedterm <- io $ Verifier.SAW.Cryptol.importExpr sc cryEnv expr
+
+  -- Evaluate and print
+  let val = SAWScript.Value.evaluate sc sharedterm
+  io $ rethrowEvalError $ print val
+
+{-
   (val,_ty) <- replEvalExpr str
   ppOpts <- getPPValOpts
   io $ rethrowEvalError $ print $ pp $ E.WithBase ppOpts val
+-}
 
 {-
 qcCmd :: String -> REPL ()

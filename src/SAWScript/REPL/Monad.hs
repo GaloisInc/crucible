@@ -35,6 +35,10 @@ module SAWScript.REPL.Monad (
   , shouldContinue
   , unlessBatch
   , setREPLTitle
+  , getInferInput
+  , getTermEnv
+  , setNameSeeds
+  , getRW
 
     -- ** Config Options
   , EnvVal(..)
@@ -58,9 +62,14 @@ import Cryptol.Prims.Types(typeOf)
 import Cryptol.Prims.Syntax(ECon(..),ppPrefix)
 import Cryptol.Eval (EvalError)
 import qualified Cryptol.ModuleSystem as M
+import qualified Cryptol.ModuleSystem.Base as MB (genInferInput)
+import qualified Cryptol.ModuleSystem.Env as ME (loadedModules, qualifiedEnv)
+import qualified Cryptol.ModuleSystem.Monad as MM (runModuleM)
 import Cryptol.Parser (ParseError,ppError)
 import Cryptol.Parser.NoInclude (IncludeError,ppIncludeError)
 import Cryptol.Parser.NoPat (Error)
+import Cryptol.Parser.Position (emptyRange)
+import Cryptol.TypeCheck (InferInput(..), NameSeeds)
 import qualified Cryptol.TypeCheck.AST as T
 import Cryptol.Utils.PP
 import Cryptol.Utils.Panic (panic)
@@ -69,11 +78,15 @@ import qualified Cryptol.Parser.AST as P
 import Control.Monad (unless,when)
 import Data.IORef (IORef, newIORef, readIORef, modifyIORef, writeIORef)
 import Data.List (isPrefixOf)
+import Data.Traversable
 import Data.Typeable (Typeable)
 import System.Console.ANSI (setTitle)
 import qualified Control.Exception as X
 import qualified Data.Map as Map
 import System.IO.Error (isUserError, ioeGetErrorString)
+
+import Verifier.SAW.SharedTerm (SharedTerm, incVars)
+import qualified Verifier.SAW.Cryptol as C
 
 --------------------
 {-
@@ -206,23 +219,48 @@ data RW = RW
   { eLoadedMod  :: Maybe LoadedModule
   , eContinue   :: Bool
   , eIsBatch    :: Bool
-  , eModuleEnv  :: M.ModuleEnv
+  , eModuleEnv  :: M.ModuleEnv -- ^ TODO: remove this, and replace with more appropriate representations
   , eUserEnv    :: UserEnv
   , eREPLState  :: REPLState -- ^ SAWScript-specific stuff
+
+  --, eNameSeeds  :: NameSeeds -- ^ Internal state of type checker
+  , eInferInput :: InferInput
+  , eTermEnv    :: Map T.QName (SharedTerm SAWCtx) -- ^ SAWCore terms for names in scope
+  --, eVarTypes   :: Map T.QName T.Schema            -- ^ Cryptol types of names in scope
+  -- Might need tsyns and newtypes as well. Or we could just use data InferInput.
+
+  -- ^ TODO: perhaps the last two fields should be lifted with
+  -- IO/Thunk so that they can be translated/evaluated lazily. On the
+  -- other hand: Translation should be pretty fast, so we can do it
+  -- upon import. Furthermore, the SAWCore evaluator is a pure
+  -- function, so we can apply it lazily.
   }
 
 -- | Initial, empty environment.
 defaultRW :: Bool -> Options -> IO RW
 defaultRW isBatch opts = do
-  env <- M.initialModuleEnv
   rstate <- getInitialState opts
+  modEnv <- M.initialModuleEnv
+  let qualIfaceDecls = ME.qualifiedEnv modEnv
+  -- | TODO: refactor "genInferInput" into a pure function; it cannot fail and only depends on NameSeeds of modEnv.
+  (Right (inferInput, _modEnv'), _warnings) <-
+    MM.runModuleM modEnv $ MB.genInferInput emptyRange qualIfaceDecls
+
+  -- Generate SAWCore translations for all values in scope
+  let declGroups = concatMap T.mDecls (ME.loadedModules modEnv)
+  let sc = sharedContext rstate
+  cryEnv <- C.importDeclGroups sc C.emptyEnv declGroups
+  termEnv <- traverse (\(t, j) -> incVars sc 0 j t) (C.envE cryEnv)
+
   return RW
     { eLoadedMod  = Nothing
     , eContinue   = True
     , eIsBatch    = isBatch
-    , eModuleEnv  = env
+    , eModuleEnv  = modEnv
     , eUserEnv    = mkUserEnv userOptions
     , eREPLState  = rstate
+    , eInferInput = inferInput
+    , eTermEnv    = termEnv
     }
 
 -- | Build up the prompt for the REPL.
@@ -422,6 +460,15 @@ getModuleEnv  = eModuleEnv `fmap` getRW
 
 setModuleEnv :: M.ModuleEnv -> REPL ()
 setModuleEnv me = modifyRW_ (\rw -> rw { eModuleEnv = me })
+
+getInferInput :: REPL InferInput
+getInferInput = fmap eInferInput getRW
+
+getTermEnv :: REPL (Map T.QName (SharedTerm SAWCtx))
+getTermEnv = fmap eTermEnv getRW
+
+setNameSeeds :: NameSeeds -> REPL ()
+setNameSeeds ns = modifyRW_ $ \rw -> rw { eInferInput = (eInferInput rw) { inpNameSeeds = ns } }
 
 
 -- User Environment Interaction ------------------------------------------------
