@@ -17,6 +17,7 @@ import Data.List (isPrefixOf)
 import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Set as Set
+import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import System.Directory
 import System.IO
@@ -29,6 +30,7 @@ import qualified Verifier.Java.Codebase as JSS
 import Verifier.Java.SAWBackend (javaModule)
 import Verifier.LLVM.Backend.SAW (llvmModule)
 
+import Verifier.SAW.Constant
 import Verifier.SAW.BitBlast
 import Verifier.SAW.Evaluator hiding (applyAll)
 import Verifier.SAW.Prelude
@@ -52,15 +54,24 @@ import SAWScript.Utils
 import qualified SAWScript.Value as SV
 
 import qualified Verifier.SAW.Simulator.BitBlast as BBSim
+import qualified Verifier.SAW.Simulator.SBV as SBVSim
 import Verifier.SAW.Simulator.Value (applyAll)
 
 import qualified Data.ABC as ABC
 import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
 
+import qualified Data.SBV as SBV
+import Data.SBV.Internals
+
 import Data.ABC (aigNetwork)
 import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
-
+import qualified Data.SBV.Bridge.Boolector as Boolector
+import qualified Data.SBV.Bridge.Z3 as Z3
+import qualified Data.SBV.Bridge.CVC4 as CVC4
+import qualified Data.SBV.Bridge.Yices as Yices
+import qualified Data.SBV.Bridge.MathSAT as MathSAT
+import Data.SBV (modelExists, satWith, SMTConfig)
 
 data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
                                      , biJavaCodebase  :: JSS.Codebase
@@ -300,7 +311,7 @@ satABC sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
   satRes <- AIG.checkSat be lit
   case satRes of
     AIG.Unsat -> do
-      -- putStrLn "UNSAT"
+      putStrLn "UNSAT"
       ft <- scApplyPreludeFalse sc
       return (SV.Unsat, g { goalTerm = ft })
     AIG.Sat cex -> do
@@ -399,7 +410,58 @@ unsatResult :: SharedContext s -> ProofGoal s
             -> IO (SV.SatResult s, ProofGoal s)
 unsatResult sc g = do
   ft <- scApplyPreludeFalse sc
-  return (SV.Unsat, g { goalTerm = ft })
+  return (SV.Unsat, g { goalTerm = ft })  
+
+-- | Bit-blast a @SharedTerm@ representing a theorem and check its
+-- satisfiability using SBV. (Currently ignores satisfying assignments.)
+satSBV :: SMTConfig -> SharedContext s -> ProofScript s (SV.SatResult s)
+satSBV conf sc = StateT $ \g -> do
+  let t = goalTerm g
+      eqs = map (mkIdent preludeName) [ "eq_Vec", "eq_Fin", "eq_Bool" ]
+  rs <- scEqsRewriteRules sc eqs
+  basics <- basic_ss sc
+  let ss = addRules rs basics
+  t' <- rewriteSharedTerm sc ss t
+  let (args, _) = asLambdaList t'
+      argNames = map fst args
+  putStrLn "Simulating..."
+  (labels, lit) <- SBVSim.sbvSolve sc t'
+  putStrLn "Checking..."
+  m <- satWith conf lit
+  -- print m
+  if modelExists m
+    then do
+      -- putStrLn "SAT"
+      tt <- scApplyPreludeTrue sc
+      return (getLabels labels m (SBV.getModelDictionary m) argNames, g {goalTerm = tt})
+    else do
+      -- putStrLn "UNSAT"
+      ft <- scApplyPreludeFalse sc
+      return (SV.Unsat, g { goalTerm = ft })
+
+getLabels :: [SBVSim.Labeler] -> SBV.SatResult -> Map.Map String CW -> [String] -> SV.SatResult s
+getLabels ls m d argNames =
+  case fmap getLabel ls of
+    [x] -> SV.Sat x
+    xs -> SV.SatMulti (zip argNames xs)
+  where
+    getLabel (SBVSim.BoolLabel s) = SV.VBool . fromJust $ SBV.getModelValue s m
+    getLabel (SBVSim.WordLabel s) = d Map.! s &
+      (\(KBounded _ n)-> SV.VWord n) . SBV.cwKind <*> (\(CWInteger i)-> i) . SBV.cwVal
+    getLabel (SBVSim.VecLabel xs) = SV.VArray $ fmap getLabel (V.toList xs)
+    getLabel (SBVSim.TupleLabel xs) = SV.VTuple $ fmap getLabel (V.toList xs)
+    getLabel (SBVSim.RecLabel xs) = SV.VRecord $ fmap getLabel xs
+
+satBoolector :: SharedContext s -> ProofScript s (SV.SatResult s)
+satBoolector = satSBV Boolector.sbvCurrentSolver
+satZ3 :: SharedContext s -> ProofScript s (SV.SatResult s)
+satZ3 = satSBV Z3.sbvCurrentSolver
+
+satCVC4 :: SharedContext s -> ProofScript s (SV.SatResult s)
+satCVC4 = satSBV CVC4.sbvCurrentSolver
+
+satMathSAT :: SharedContext s -> ProofScript s (SV.SatResult s)
+satMathSAT = satSBV MathSAT.sbvCurrentSolver
 
 satWithExporter :: (SharedContext s -> FilePath -> SharedTerm s -> IO ())
                 -> SharedContext s
