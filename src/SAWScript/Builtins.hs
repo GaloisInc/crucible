@@ -23,6 +23,7 @@ import qualified Verifier.Java.Codebase as JSS
 import Verifier.Java.SAWBackend (javaModule)
 import Verifier.LLVM.Backend.SAW (llvmModule)
 
+import Verifier.SAW.Constant
 import Verifier.SAW.BitBlast
 import Verifier.SAW.Evaluator hiding (applyAll)
 import Verifier.SAW.Prelude
