@@ -56,7 +56,7 @@ for repo in ${GITHUB_REPOS} ; do
   fi
 done
 
-(cd deps/cryptol && make)
+(cd deps/cryptol && sh configure)
 
 for repo in ${REPOS} ${GITHUB_REPOS} ; do
   cabal sandbox add-source deps/${repo}
