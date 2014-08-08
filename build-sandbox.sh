@@ -2,9 +2,9 @@
 set -e
 
 REPODIR=${REPODIR:="src.galois.com:/srv/git"}
-REPOS="jvm-parser llvm-pretty Aiger"
+REPOS="llvm-pretty Aiger"
 PKGS="Verinf SAWCore Java LLVM Cryptol"
-GITHUB_REPOS="cryptol aig abcBridge"
+GITHUB_REPOS="cryptol aig abcBridge jvm-parser"
 
 cabal_flags="--reinstall --force-reinstalls"
 test_flags="--enable-tests --run-tests --disable-library-coverage"
