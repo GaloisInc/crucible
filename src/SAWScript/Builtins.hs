@@ -311,7 +311,7 @@ satABC sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
   satRes <- AIG.checkSat be lit
   case satRes of
     AIG.Unsat -> do
-      putStrLn "UNSAT"
+      -- putStrLn "UNSAT"
       ft <- scApplyPreludeFalse sc
       return (SV.Unsat, g { goalTerm = ft })
     AIG.Sat cex -> do
