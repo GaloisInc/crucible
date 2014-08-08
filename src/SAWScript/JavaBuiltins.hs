@@ -329,9 +329,9 @@ exportJavaType _ v =
 javaPure :: JavaSetup ()
 javaPure = return ()
 
-javaVar :: BuiltinContext -> Options -> String -> SS.Value SAWCtx
-        -> JavaSetup (SharedTerm SAWCtx)
-javaVar bic _ name t@(SS.VCtorApp _ _) = do
+typeJavaExpr :: BuiltinContext -> String -> SS.Value s
+             -> JavaSetup (JavaExpr, JavaActualType)
+typeJavaExpr bic name ty = do
   jsState <- get
   let ms = jsSpec jsState
       cb = biJavaCodebase bic
@@ -339,16 +339,33 @@ javaVar bic _ name t@(SS.VCtorApp _ _) = do
       meth = specMethod ms
   expr <- liftIO $ parseJavaExpr (biJavaCodebase bic) cls meth name
   let jty = jssTypeOfJavaExpr expr
-      jty' = exportJSSType t
-  aty <- liftIO $ exportJavaType cb t
-  when (jty /= jty') $ fail $ show $
+      jty' = exportJSSType ty
+  liftIO $ checkEqualTypes jty jty' name
+  aty <- liftIO $ exportJavaType cb ty
+  return (expr, aty)
+
+checkEqualTypes :: JSS.Type -> JSS.Type -> String -> IO ()
+checkEqualTypes declared actual name =
+  when (declared /= actual) $ fail $ show $
     hsep [ text "WARNING: Declared type"
-         , text (show (JP.ppType jty')) -- TODO: change pretty-printer
+         , text (show (JP.ppType declared)) -- TODO: change pretty-printer
          , text "doesn't match actual type"
-         , text (show (JP.ppType jty)) -- TODO: change pretty-printer
+         , text (show (JP.ppType actual)) -- TODO: change pretty-printer
          , text "for variable"
          , text name
          ]
+
+javaClassVar :: BuiltinContext -> Options -> String -> SS.Value SAWCtx
+             -> JavaSetup ()
+javaClassVar bic _ name t@(SS.VCtorApp _ _) = do
+  (expr, aty) <- typeJavaExpr bic name t
+  modify $ \st -> st { jsSpec = specAddVarDecl name expr aty (jsSpec st) }
+javaClassVar _ _ _ _ = fail "java_class_var called with invalid type argument"
+
+javaVar :: BuiltinContext -> Options -> String -> SS.Value SAWCtx
+        -> JavaSetup (SharedTerm SAWCtx)
+javaVar bic _ name t@(SS.VCtorApp _ _) = do
+  (expr, aty) <- typeJavaExpr bic name t
   modify $ \st -> st { jsSpec = specAddVarDecl name expr aty (jsSpec st) }
   let sc = biSharedContext bic
   Just lty <- liftIO $ logicTypeOfActual sc aty
