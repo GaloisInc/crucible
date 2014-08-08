@@ -333,6 +333,7 @@ convertShape (BBSim.VecShape n x) = VecShape n (convertShape x)
 convertShape (BBSim.TupleShape xs) = TupleShape (map convertShape xs)
 convertShape (BBSim.RecShape xm) = RecShape (fmap convertShape xm)
 
+{-
 satYices :: SharedContext s -> ProofScript s (SV.SatResult s)
 satYices sc = StateT $ \g -> do
   let t = goalTerm g
@@ -357,6 +358,7 @@ satYices sc = StateT $ \g -> do
           let vs = map (\(n, v) -> (n, SV.evaluate sc v)) tms
           return (SV.SatMulti vs, g { goalTerm = tt })
     Y.YUnknown -> fail "ABC returned Unknown for SAT query."
+-}
 
 parseDimacsSolution :: [Int]    -- ^ The list of CNF variables to return
                     -> [String] -- ^ The value lines from the solver
@@ -455,6 +457,7 @@ getLabels ls m d argNames =
 
 satBoolector :: SharedContext s -> ProofScript s (SV.SatResult s)
 satBoolector = satSBV Boolector.sbvCurrentSolver
+
 satZ3 :: SharedContext s -> ProofScript s (SV.SatResult s)
 satZ3 = satSBV Z3.sbvCurrentSolver
 
@@ -463,6 +466,9 @@ satCVC4 = satSBV CVC4.sbvCurrentSolver
 
 satMathSAT :: SharedContext s -> ProofScript s (SV.SatResult s)
 satMathSAT = satSBV MathSAT.sbvCurrentSolver
+
+satYices :: SharedContext s -> ProofScript s (SV.SatResult s)
+satYices = satSBV Yices.sbvCurrentSolver
 
 satWithExporter :: (SharedContext s -> FilePath -> SharedTerm s -> IO ())
                 -> SharedContext s
