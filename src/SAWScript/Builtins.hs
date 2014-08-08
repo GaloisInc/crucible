@@ -427,9 +427,9 @@ satSBV conf sc = StateT $ \g -> do
   t' <- rewriteSharedTerm sc ss t
   let (args, _) = asLambdaList t'
       argNames = map fst args
-  putStrLn "Simulating..."
+  --putStrLn "Simulating..."
   (labels, lit) <- SBVSim.sbvSolve sc t'
-  putStrLn "Checking..."
+  --putStrLn "Checking..."
   m <- satWith conf lit
   -- print m
   if modelExists m
