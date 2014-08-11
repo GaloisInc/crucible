@@ -18,7 +18,7 @@ module SAWScript.REPL.Command (
   , findCommand
   , findNbCommand
 
-  , moduleCmd, loadCmd, loadPrelude
+  -- , moduleCmd, loadCmd, loadPrelude
 
     -- Misc utilities
   , handleCtrlC
@@ -26,8 +26,8 @@ module SAWScript.REPL.Command (
 
     -- To support Notebook interface (might need to refactor)
   , replParse
-  , liftModuleCmd
-  , moduleCmdResult
+  --, liftModuleCmd
+  --, moduleCmdResult
   ) where
 
 import Verifier.SAW.SharedTerm (SharedContext)
@@ -37,6 +37,7 @@ import SAWScript.REPL.Trie
 
 import qualified Cryptol.ModuleSystem as M
 import qualified Cryptol.ModuleSystem.Base as M (preludeName)
+import qualified Cryptol.ModuleSystem.Monad as M (ImportSource(..))
 
 import qualified Cryptol.Eval.Value as E
 import qualified Cryptol.ModuleSystem.NamingEnv as MN
@@ -192,12 +193,10 @@ nbCommandList :: [CommandDescr]
 nbCommandList  =
   [ CommandDescr ":env" (ExprTypeArg envCmd)
     "display the current sawscript environment"
-  {-
   , CommandDescr ":type"   (ExprArg typeOfCmd)
     "check the type of an expression"
   , CommandDescr ":browse" (ExprTypeArg browseCmd)
     "display the current environment"
-  -}
   , CommandDescr ":eval" (ExprArg evalCmd)
     "evaluate an expression and print the result"
   , CommandDescr ":?"      (ExprArg helpCmd)
@@ -280,42 +279,43 @@ getPPValOpts =
                      , E.useInfLength = infLength
                      }
 
--- | TODO: replace all uses of 'fail' with 'throw'.
-evalCmd :: String -> REPL ()
-evalCmd str = do
-  -- Parse
-  pexpr <-
-    case Cryptol.Parser.parseExpr str of
-      Left err -> fail (show (pp err))
-      Right x -> return x
+interactiveSource :: M.ImportSource
+interactiveSource = M.FromModule (P.ModName ["<interactive>"])
+
+replCheckExpr :: P.Expr -> REPL (T.Expr, T.Schema)
+replCheckExpr pexpr = do
 
   -- Remove patterns
   let (npe, errs) = Cryptol.Parser.NoPat.removePatterns pexpr
-  unless (null errs) (fail (show errs))
+  unless (null errs) $ raise (NoPatError errs)
 
   -- Rename
   nameEnv <- getNamingEnv
   let (res, _warnings) = R.runRenamer nameEnv (R.rename npe)
   re <- case res of
           Right r   -> return r
-          Left errs -> fail (show errs)
+          Left errs -> raise (ModuleSystemError (M.RenamerErrors interactiveSource errs))
 
   -- Typecheck
   inferInput <- getInferInput
   let range = fromMaybe emptyRange (getLoc re)
   out <- io (Cryptol.TypeCheck.tcExpr re inferInput)
-  (expr, schema) <-
-    case out of
-      Cryptol.TypeCheck.Monad.InferOK _warns seeds o ->
-        do setNameSeeds seeds
-           --typeCheckWarnings warns
-           return o
-      Cryptol.TypeCheck.Monad.InferFailed _warns errs ->
-        do fail (show errs)
+  case out of
+    Cryptol.TypeCheck.Monad.InferOK _warns seeds o ->
+      do setNameSeeds seeds
+         --typeCheckWarnings warns
+         return o
+    Cryptol.TypeCheck.Monad.InferFailed _warns errs ->
+      do raise (ModuleSystemError (M.TypeCheckingFailed interactiveSource errs))
 {-
       do typeCheckWarnings warns
          typeCheckingFailed errs
 -}
+
+evalCmd :: String -> REPL ()
+evalCmd str = do
+  pexpr <- replParseExpr str
+  (expr, schema) <- replCheckExpr pexpr
 
   -- Translate
   sc <- getSharedContext
@@ -425,6 +425,7 @@ qcCmd str =
                    return False
 -}
 
+{-
 proveCmd :: String -> REPL ()
 proveCmd str = do
   parseExpr <- replParseExpr str
@@ -457,18 +458,7 @@ satCmd str = do
     Right (Just vs) -> io $ print $ hsep (doc : docs) <+> text "= True"
                          where doc = ppPrec 3 parseExpr -- function application has precedence 3
                                docs = map (pp . E.WithBase ppOpts) vs
-
-specializeCmd :: String -> REPL ()
-specializeCmd str = do
-  parseExpr <- replParseExpr str
-  (expr, schema) <- replCheckExpr parseExpr
-  spexpr <- replSpecExpr expr
-  io $ putStrLn  "Expression type:"
-  io $ print    $ pp schema
-  io $ putStrLn  "Original expression:"
-  io $ putStrLn $ dump expr
-  io $ putStrLn  "Specialized expression:"
-  io $ putStrLn $ dump spexpr
+-}
 
 typeOfCmd :: String -> REPL ()
 typeOfCmd str = do
@@ -480,12 +470,14 @@ typeOfCmd str = do
   whenDebug (io (putStrLn (dump def)))
   io $ print $ pp expr <+> text ":" <+> pp sig
 
+{-
 reloadCmd :: REPL ()
 reloadCmd  = do
   mb <- getLoadedMod
   case mb of
     Just m  -> loadCmd (lPath m)
     Nothing -> return ()
+-}
 
 {-
 editCmd :: String -> REPL ()
@@ -512,6 +504,7 @@ editCmd path
         Just _  -> return ()
 -}
 
+{-
 moduleCmd :: String -> REPL ()
 moduleCmd modString
   | null modString = return ()
@@ -538,6 +531,7 @@ loadCmd path
         { lName = Just (T.mName m)
         , lPath = path
         }
+-}
 
 quitCmd :: REPL ()
 quitCmd  = stop
@@ -847,9 +841,7 @@ replParseExpr = replParse $ parseExprWith interactiveConfig
 interactiveConfig :: Config
 interactiveConfig = defaultConfig { cfgSource = "<interactive>" }
 
-liftModuleCmd :: M.ModuleCmd a -> REPL a
-liftModuleCmd cmd = moduleCmdResult =<< io . cmd =<< getModuleEnv
-
+{-
 moduleCmdResult :: M.ModuleRes a -> REPL a
 moduleCmdResult (res,ws0) = do
   EnvBool yes <- getUser "warnDefaulting"
@@ -868,9 +860,6 @@ moduleCmdResult (res,ws0) = do
   case res of
     Right (a,me') -> setModuleEnv me' >> return a
     Left err      -> raise (ModuleSystemError err)
-
-replCheckExpr :: P.Expr -> REPL (T.Expr,T.Schema)
-replCheckExpr e = liftModuleCmd $ M.checkExpr e
 
 replSpecExpr :: T.Expr -> REPL T.Expr
 replSpecExpr e = liftModuleCmd $ S.specialize e
@@ -896,6 +885,7 @@ replEvalExpr str =
   where
   warnDefault ns (x,t) =
         print $ text "Assuming" <+> ppWithNames ns x <+> text "=" <+> pp t
+-}
 
 {-
 replEdit :: String -> REPL Bool

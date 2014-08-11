@@ -23,7 +23,6 @@ module SAWScript.REPL.Monad (
   , rethrowEvalError
 
     -- ** Environment
-  , getModuleEnv, setModuleEnv
   , getTSyns, getNewtypes, getVars
   , whenDebug
   , getExprNames
@@ -222,17 +221,12 @@ data RW = RW
   { eLoadedMod  :: Maybe LoadedModule
   , eContinue   :: Bool
   , eIsBatch    :: Bool
-  , eModuleEnv  :: M.ModuleEnv -- ^ TODO: remove this, and replace with more appropriate representations
-  , eUserEnv    :: UserEnv
+  , eUserEnv    :: UserEnv   -- ^ User-configured settings from :set commands
   , eREPLState  :: REPLState -- ^ SAWScript-specific stuff
 
-  --, eNameSeeds  :: NameSeeds -- ^ Internal state of type checker
-  , eInferInput :: InferInput
-  , eNamingEnv  :: NamingEnv
+  , eInferInput :: InferInput -- ^ Context for the Cryptol typechecker
+  , eNamingEnv  :: NamingEnv  -- ^ Context for the Cryptol renamer
   , eTermEnv    :: Map T.QName (SharedTerm SAWCtx) -- ^ SAWCore terms for names in scope
-  --, eVarTypes   :: Map T.QName T.Schema            -- ^ Cryptol types of names in scope
-  -- Might need tsyns and newtypes as well. Or we could just use data InferInput.
-
   }
 
 -- | Initial, empty environment.
@@ -256,7 +250,6 @@ defaultRW isBatch opts = do
     { eLoadedMod  = Nothing
     , eContinue   = True
     , eIsBatch    = isBatch
-    , eModuleEnv  = modEnv
     , eUserEnv    = mkUserEnv userOptions
     , eREPLState  = rstate
     , eInferInput = inferInput
@@ -418,22 +411,16 @@ keepOne src as = case as of
   _   -> panic ("REPL: " ++ src) ["name clash in interface file"]
 
 getVars :: REPL (Map.Map P.QName M.IfaceDecl)
-getVars  = do
-  me <- getModuleEnv
-  let decls = M.focusedEnv me
-  return (keepOne "getVars" `fmap` M.ifDecls decls)
+getVars = do
+  vars <- inpVars `fmap` getInferInput
+  let f qname schema = M.IfaceDecl qname schema []
+  return (Map.mapWithKey f vars)
 
 getTSyns :: REPL (Map.Map P.QName T.TySyn)
-getTSyns  = do
-  me <- getModuleEnv
-  let decls = M.focusedEnv me
-  return (keepOne "getTSyns" `fmap` M.ifTySyns decls)
+getTSyns  = inpTSyns `fmap` getInferInput
 
 getNewtypes :: REPL (Map.Map P.QName T.Newtype)
-getNewtypes = do
-  me <- getModuleEnv
-  let decls = M.focusedEnv me
-  return (keepOne "getNewtypes" `fmap` M.ifNewtypes decls)
+getNewtypes = inpNewtypes `fmap` getInferInput
 
 -- | Get visible variable names.
 getExprNames :: REPL [String]
@@ -455,12 +442,6 @@ getPropertyNames =
 
 getName :: P.QName -> String
 getName  = show . pp
-
-getModuleEnv :: REPL M.ModuleEnv
-getModuleEnv  = eModuleEnv `fmap` getRW
-
-setModuleEnv :: M.ModuleEnv -> REPL ()
-setModuleEnv me = modifyRW_ (\rw -> rw { eModuleEnv = me })
 
 getInferInput :: REPL InferInput
 getInferInput = fmap eInferInput getRW
