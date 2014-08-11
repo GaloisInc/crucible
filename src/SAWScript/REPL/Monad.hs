@@ -35,9 +35,11 @@ module SAWScript.REPL.Monad (
   , shouldContinue
   , unlessBatch
   , setREPLTitle
-  , getInferInput
-  , getTermEnv
+  , getInferInput, modifyInferInput, setInferInput
+  , getTermEnv, modifyTermEnv, setTermEnv
+  , getInpVars, modifyInpVars, setInpVars
   , setNameSeeds
+  , getNamingEnv, modifyNamingEnv, setNamingEnv
   , getRW
 
     -- ** Config Options
@@ -65,6 +67,7 @@ import qualified Cryptol.ModuleSystem as M
 import qualified Cryptol.ModuleSystem.Base as MB (genInferInput)
 import qualified Cryptol.ModuleSystem.Env as ME (loadedModules, qualifiedEnv)
 import qualified Cryptol.ModuleSystem.Monad as MM (runModuleM)
+import Cryptol.ModuleSystem.NamingEnv (NamingEnv, namingEnv)
 import Cryptol.Parser (ParseError,ppError)
 import Cryptol.Parser.NoInclude (IncludeError,ppIncludeError)
 import Cryptol.Parser.NoPat (Error)
@@ -225,15 +228,11 @@ data RW = RW
 
   --, eNameSeeds  :: NameSeeds -- ^ Internal state of type checker
   , eInferInput :: InferInput
+  , eNamingEnv  :: NamingEnv
   , eTermEnv    :: Map T.QName (SharedTerm SAWCtx) -- ^ SAWCore terms for names in scope
   --, eVarTypes   :: Map T.QName T.Schema            -- ^ Cryptol types of names in scope
   -- Might need tsyns and newtypes as well. Or we could just use data InferInput.
 
-  -- ^ TODO: perhaps the last two fields should be lifted with
-  -- IO/Thunk so that they can be translated/evaluated lazily. On the
-  -- other hand: Translation should be pretty fast, so we can do it
-  -- upon import. Furthermore, the SAWCore evaluator is a pure
-  -- function, so we can apply it lazily.
   }
 
 -- | Initial, empty environment.
@@ -251,6 +250,7 @@ defaultRW isBatch opts = do
   let sc = sharedContext rstate
   cryEnv <- C.importDeclGroups sc C.emptyEnv declGroups
   termEnv <- traverse (\(t, j) -> incVars sc 0 j t) (C.envE cryEnv)
+  let nameEnv = namingEnv (M.focusedEnv modEnv)
 
   return RW
     { eLoadedMod  = Nothing
@@ -260,6 +260,7 @@ defaultRW isBatch opts = do
     , eUserEnv    = mkUserEnv userOptions
     , eREPLState  = rstate
     , eInferInput = inferInput
+    , eNamingEnv  = nameEnv
     , eTermEnv    = termEnv
     }
 
@@ -464,11 +465,41 @@ setModuleEnv me = modifyRW_ (\rw -> rw { eModuleEnv = me })
 getInferInput :: REPL InferInput
 getInferInput = fmap eInferInput getRW
 
+modifyInferInput :: (InferInput -> InferInput) -> REPL ()
+modifyInferInput f = modifyRW_ $ \rw -> rw { eInferInput = f (eInferInput rw) }
+
+setInferInput :: InferInput -> REPL ()
+setInferInput inp = modifyInferInput (const inp)
+
 getTermEnv :: REPL (Map T.QName (SharedTerm SAWCtx))
 getTermEnv = fmap eTermEnv getRW
 
+modifyTermEnv :: (Map T.QName (SharedTerm SAWCtx) -> Map T.QName (SharedTerm SAWCtx)) -> REPL ()
+modifyTermEnv f = modifyRW_ $ \rw -> rw { eTermEnv = f (eTermEnv rw) }
+
+setTermEnv :: Map T.QName (SharedTerm SAWCtx) -> REPL ()
+setTermEnv x = modifyTermEnv (const x)
+
 setNameSeeds :: NameSeeds -> REPL ()
-setNameSeeds ns = modifyRW_ $ \rw -> rw { eInferInput = (eInferInput rw) { inpNameSeeds = ns } }
+setNameSeeds ns = modifyInferInput $ \inp -> inp { inpNameSeeds = ns }
+
+getInpVars :: REPL (Map T.QName T.Schema)
+getInpVars = fmap inpVars getInferInput
+
+modifyInpVars :: (Map T.QName T.Schema -> Map T.QName T.Schema) -> REPL ()
+modifyInpVars f = modifyInferInput $ \inp -> inp { inpVars = f (inpVars inp) }
+
+setInpVars :: Map T.QName T.Schema -> REPL ()
+setInpVars x = modifyInpVars (const x)
+
+getNamingEnv :: REPL NamingEnv
+getNamingEnv = fmap eNamingEnv getRW
+
+modifyNamingEnv :: (NamingEnv -> NamingEnv) -> REPL ()
+modifyNamingEnv f = modifyRW_ $ \rw -> rw { eNamingEnv = f (eNamingEnv rw) }
+
+setNamingEnv :: NamingEnv -> REPL ()
+setNamingEnv x = modifyNamingEnv (const x)
 
 
 -- User Environment Interaction ------------------------------------------------

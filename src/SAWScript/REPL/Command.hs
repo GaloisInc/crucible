@@ -39,6 +39,7 @@ import qualified Cryptol.ModuleSystem as M
 import qualified Cryptol.ModuleSystem.Base as M (preludeName)
 
 import qualified Cryptol.Eval.Value as E
+import qualified Cryptol.ModuleSystem.NamingEnv as MN
 import qualified Cryptol.ModuleSystem.Renamer as R
 import qualified Cryptol.Testing.Random  as TestR
 import qualified Cryptol.Testing.Exhaust as TestX
@@ -279,6 +280,7 @@ getPPValOpts =
                      , E.useInfLength = infLength
                      }
 
+-- | TODO: replace all uses of 'fail' with 'throw'.
 evalCmd :: String -> REPL ()
 evalCmd str = do
   -- Parse
@@ -292,9 +294,8 @@ evalCmd str = do
   unless (null errs) (fail (show errs))
 
   -- Rename
-  modEnv <- getModuleEnv
-  let focusedIfaceDecls = M.focusedEnv modEnv
-  let (res, _warnings) = R.runRenamer (R.namingEnv focusedIfaceDecls) (R.rename npe)
+  nameEnv <- getNamingEnv
+  let (res, _warnings) = R.runRenamer nameEnv (R.rename npe)
   re <- case res of
           Right r   -> return r
           Left errs -> fail (show errs)
@@ -317,15 +318,14 @@ evalCmd str = do
 -}
 
   -- Translate
-  rw <- getRW
   sc <- getSharedContext
-  inferInput <- getInferInput
+  inpVars <- getInpVars
   termEnv <- getTermEnv
   let cryEnv = Verifier.SAW.Cryptol.Env
         { Verifier.SAW.Cryptol.envT = Map.empty
         , Verifier.SAW.Cryptol.envE = fmap (\t -> (t, 0)) termEnv
         , Verifier.SAW.Cryptol.envP = Map.empty
-        , Verifier.SAW.Cryptol.envC = Cryptol.TypeCheck.Monad.inpVars inferInput
+        , Verifier.SAW.Cryptol.envC = inpVars
         }
   sharedterm <- io $ Verifier.SAW.Cryptol.importExpr sc cryEnv expr
 
@@ -775,7 +775,7 @@ saveResult sc (Just name) result = do
             Map.insert itsName' (extractFromBlock itsType) typeEnv
   let (valueEnv', sharedEnv') =
         case result of
-          SAWScript.Value.VTerm t ->
+          SAWScript.Value.VTerm _ t ->
             (Map.insert itsName' (SAWScript.Value.evaluate sc t) valueEnv,
              Map.insert itsName' t sharedEnv)
           _ ->
@@ -785,6 +785,21 @@ saveResult sc (Just name) result = do
     { interpretEnvValues = valueEnv'
     , interpretEnvTypes  = typeEnv'
     , interpretEnvShared = sharedEnv' }
+
+  case result of
+    SAWScript.Value.VTerm (Just s) t
+      -> do io $ putStrLn $ "Binding SAWCore term: " ++ show name
+            let qname = convertName name
+            let lname = P.Located emptyRange qname
+            modifyNamingEnv (MN.shadowing (MN.singletonE qname (MN.EFromBind lname)))
+            modifyInpVars (Map.insert qname s)
+            modifyTermEnv (Map.insert qname t)
+    SAWScript.Value.VTerm Nothing t
+      -> do io $ putStrLn $ "SAWCore term (no type info): " ++ show name
+    _ -> return ()
+
+convertName :: SS.Name -> T.QName
+convertName n = T.QName Nothing (T.Name n)
 
 extractFromBlock :: SS.Schema -> SS.Schema
 extractFromBlock (SS.Forall [] (SS.TyCon SS.BlockCon [ctx, inner]))

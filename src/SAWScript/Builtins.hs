@@ -61,6 +61,7 @@ import Data.ABC (aigNetwork)
 import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
 
+import qualified Cryptol.TypeCheck.AST as C
 
 data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
                                      , biJavaCodebase  :: JSS.Codebase
@@ -84,16 +85,19 @@ definePrim sc name rhs = scConstant sc ident rhs
   where ident = mkIdent (moduleName (scModule sc)) name
 
 -- TODO: Add argument for uninterpreted-function map
-readSBV :: SharedContext s -> SS.Type -> FilePath -> IO (SharedTerm s)
+readSBV :: SharedContext s -> SS.Type -> FilePath -> IO (SV.TypedTerm s)
 readSBV sc ty path =
     do pgm <- SBV.loadSBV path
        let ty' = importTyp (SBV.typOf pgm)
        when (ty /= ty') $
             fail $ "read_sbv: expected " ++ showTyp ty ++ ", found " ++ showTyp ty'
-       SBV.parseSBVPgm sc (\_ _ -> Nothing) pgm
+       let schema = C.Forall [] [] (toCType (SBV.typOf pgm))
+       trm <- SBV.parseSBVPgm sc (\_ _ -> Nothing) pgm
+       return (SV.TypedTerm schema trm)
     where
       showTyp :: SS.Type -> String
       showTyp = show . SS.pretty False
+
       importTyp :: SBV.Typ -> SS.Type
       importTyp typ =
         case typ of
@@ -102,6 +106,15 @@ readSBV sc ty path =
           SBV.TVec n t -> SS.TyCon SS.ArrayCon [SS.TyCon (SS.NumCon n) [], importTyp t]
           SBV.TTuple ts -> SS.TyCon (SS.TupleCon (toInteger (length ts))) (map importTyp ts)
           SBV.TRecord bs -> SS.TyRecord (fmap importTyp (Map.fromList bs))
+
+      toCType :: SBV.Typ -> C.Type
+      toCType typ =
+        case typ of
+          SBV.TBool      -> C.tBit
+          SBV.TFun t1 t2 -> C.tFun (toCType t1) (toCType t2)
+          SBV.TVec n t   -> C.tSeq (C.tNum n) (toCType t)
+          SBV.TTuple ts  -> C.tTuple (map toCType ts)
+          SBV.TRecord bs -> C.tRec [ (C.Name n, toCType t) | (n, t) <- bs ]
 
 withBE :: (forall s . ABC.GIA s -> IO a) -> IO a
 withBE f = do

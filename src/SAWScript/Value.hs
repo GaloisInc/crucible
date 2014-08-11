@@ -28,6 +28,7 @@ import Verifier.SAW.TypedAST hiding ( incVars )
 
 import qualified Verifier.SAW.Evaluator as SC
 import qualified Cryptol.ModuleSystem as Cry
+import qualified Cryptol.TypeCheck.AST as C
 
 -- Values ----------------------------------------------------------------------
 
@@ -44,7 +45,7 @@ data Value s
   | VFunType (SS.Type -> Value s)
   | VLambda (Value s -> Maybe (SharedTerm s) -> IO (Value s))
   | VTLambda (SS.Type -> IO (Value s))
-  | VTerm (SharedTerm s)
+  | VTerm (Maybe C.Schema) (SharedTerm s)
   | VCtorApp String [Value s]
   | VIO (IO (Value s))
   | VProofScript (ProofScript s (Value s))
@@ -151,7 +152,7 @@ showsPrecValue opts p mty v =
     VFunType {} -> showString "<<fun-type>>"
     VLambda {} -> showString "<<lambda>>"
     VTLambda {} -> showString "<<polymorphic function>>"
-    VTerm t -> showsPrec p t
+    VTerm _ t -> showsPrec p t
     VCtorApp s vs -> showString s . showString " " . (foldr (.) id (map shows vs))
     VIO {} -> showString "<<IO>>"
     VSimpset {} -> showString "<<simpset>>"
@@ -201,12 +202,12 @@ evaluate sc t = importValue (SC.evalSharedTerm eval t)
 -- parameterize on a meaning function for globals?
 
 applyValue :: SharedContext s -> Value s -> Value s -> IO (Value s)
-applyValue sc (VFun f) (VTerm t) = return (f (evaluate sc t))
+applyValue sc (VFun f) (VTerm _ t) = return (f (evaluate sc t))
 applyValue _  (VFun f) x = return (f x)
-applyValue _  (VFunTerm f) (VTerm t) = return (f t)
-applyValue sc (VLambda f) (VTerm t) = f (evaluate sc t) (Just t)
+applyValue _  (VFunTerm f) (VTerm _ t) = return (f t)
+applyValue sc (VLambda f) (VTerm _ t) = f (evaluate sc t) (Just t)
 applyValue _  (VLambda f) x = f x Nothing
-applyValue sc (VTerm t) x = applyValue sc (evaluate sc t) x
+applyValue sc (VTerm _ t) x = applyValue sc (evaluate sc t) x
 -- applyValue sc (VAIG be ins outs) x = undefined
 applyValue _ _ _ = fail "applyValue"
 
@@ -377,6 +378,8 @@ data LLVMSetupState
 
 type LLVMSetup a = StateT LLVMSetupState IO a
 
+data TypedTerm s = TypedTerm C.Schema (SharedTerm s)
+
 -- IsValue class ---------------------------------------------------------------
 
 -- | Used for encoding primitive operations in the Value type.
@@ -431,9 +434,14 @@ instance IsValue s a => IsValue s (StateT LLVMSetupState IO a) where
     fromValue (VLLVMSetup m) = fmap fromValue m
     fromValue _ = error "fromValue LLVMSetup"
 
+instance IsValue s (TypedTerm s) where
+    toValue (TypedTerm s t) = VTerm (Just s) t
+    fromValue (VTerm (Just s) t) = TypedTerm s t
+    fromValue _ = error "fromValue TypedTerm"
+
 instance IsValue s (SharedTerm s) where
-    toValue t = VTerm t
-    fromValue (VTerm t) = t
+    toValue t = VTerm Nothing t
+    fromValue (VTerm _ t) = t
     fromValue _ = error "fromValue SharedTerm"
     funToValue f = VFunTerm f
     funFromValue (VFunTerm f) = f
