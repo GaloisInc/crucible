@@ -30,7 +30,9 @@ module SAWScript.REPL.Command (
   --, moduleCmdResult
   ) where
 
-import Verifier.SAW.SharedTerm (SharedContext)
+import Verifier.SAW.SharedTerm (SharedContext, SharedTerm)
+import qualified Verifier.SAW.Recognizer (asLambdaList)
+import qualified Verifier.SAW.Simulator.BitBlast as BBSim
 
 import SAWScript.REPL.Monad
 import SAWScript.REPL.Trie
@@ -99,6 +101,7 @@ import SAWScript.Interpreter
      interpretModuleAtEntry,
      InterpretEnv(..),
      interpretEnvValues, interpretEnvTypes)
+import qualified SAWScript.Builtins (liftCexBB, convertShape)
 import qualified SAWScript.Lexer (scan)
 import qualified SAWScript.MGU (checkModule)
 import qualified SAWScript.Parser (parseBlockStmt)
@@ -109,6 +112,9 @@ import SAWScript.REPL.GenerateModule (replFileName, replModuleName, wrapBStmt)
 import SAWScript.Utils (SAWCtx, Pos(..))
 
 import qualified Verifier.SAW.Cryptol
+
+import Data.ABC (aigNetwork)
+import qualified Data.AIG as AIG
 
 
 #if __GLASGOW_HASKELL__ < 706
@@ -234,8 +240,10 @@ commandList  =
     "use random testing to check that the argument always returns true"
   , CommandDescr ":prove" (ExprArg proveCmd)
     "use an external solver to prove that the argument always returns true"
+-}
   , CommandDescr ":sat" (ExprArg satCmd)
     "use a solver to find a satisfying assignment for which the argument returns true"
+{-
   , CommandDescr ":debug_specialize" (ExprArg specializeCmd)
     "do type specialization on a closed expression"
 -}
@@ -283,22 +291,10 @@ evalCmd :: String -> REPL ()
 evalCmd str = do
   pexpr <- replParseExpr str
   (expr, schema) <- replCheckExpr pexpr
-
-  -- Translate
-  sc <- getSharedContext
-  inpVars <- getExtraTypes
-  -- ^ FIXME: get all other names and types from ModuleEnv too
-  --inpVars <- getInpVars
-  termEnv <- getTermEnv
-  let cryEnv = Verifier.SAW.Cryptol.Env
-        { Verifier.SAW.Cryptol.envT = Map.empty
-        , Verifier.SAW.Cryptol.envE = fmap (\t -> (t, 0)) termEnv
-        , Verifier.SAW.Cryptol.envP = Map.empty
-        , Verifier.SAW.Cryptol.envC = inpVars
-        }
-  sharedterm <- io $ Verifier.SAW.Cryptol.importExpr sc cryEnv expr
+  sharedterm <- replTranslateExpr expr
 
   -- Evaluate and print
+  sc <- getSharedContext
   let val = SAWScript.Value.evaluate sc sharedterm
   io $ rethrowEvalError $ print val
 
@@ -411,11 +407,38 @@ proveCmd str = do
     Right (Just vs) -> io $ print $ hsep (doc : docs) <+> text "= False"
                          where doc = ppPrec 3 parseExpr -- function application has precedence 3
                                docs = map (pp . E.WithBase ppOpts) vs
+-}
 
+-- | Prove satisfiability with ABC.
 satCmd :: String -> REPL ()
 satCmd str = do
   parseExpr <- replParseExpr str
   (expr, schema) <- replCheckExpr parseExpr
+  t <- replTranslateExpr expr
+  sc <- getSharedContext
+  io $ printSat sc t
+
+printSat :: SharedContext s -> SharedTerm s -> IO ()
+printSat sc t = AIG.withNewGraph aigNetwork $ \be -> do
+  let (args, _) = Verifier.SAW.Recognizer.asLambdaList t
+      argNames = map fst args
+  putStrLn "Simulating..."
+  (shapes, lit) <- BBSim.bitBlast be sc t
+  putStrLn "Checking..."
+  satRes <- AIG.checkSat be lit
+  case satRes of
+    AIG.Unsat -> do
+      putStrLn "Unsatisfiable."
+    AIG.Sat cex -> do
+      r <- SAWScript.Builtins.liftCexBB sc (map SAWScript.Builtins.convertShape shapes) cex
+      case r of
+        Left err -> fail $ "Can't parse counterexample: " ++ err
+        Right [tm] ->
+          print (SAWScript.Value.evaluate sc tm)
+        Right tms -> do
+          let vs = map (SAWScript.Value.evaluate sc) tms
+          mapM_ print (zip argNames vs)
+{-
   EnvString proverName <- getUser "prover"
   EnvBool iteSolver <- getUser "iteSolver"
   EnvBool verbose <- getUser "debug"
@@ -814,7 +837,13 @@ replParseExpr :: String -> REPL P.Expr
 replParseExpr = replParse $ parseExprWith interactiveConfig
 
 interactiveConfig :: Config
-interactiveConfig = defaultConfig { cfgSource = "<interactive>" }
+interactiveConfig = Cryptol.Parser.defaultConfig { cfgSource = "<interactive>" }
+
+liftModuleM :: MM.ModuleM a -> REPL a
+liftModuleM m = liftModuleCmd $ \env -> MM.runModuleM env m
+
+liftModuleCmd :: M.ModuleCmd a -> REPL a
+liftModuleCmd cmd = moduleCmdResult =<< io . cmd =<< getModuleEnv
 
 moduleCmdResult :: M.ModuleRes a -> REPL a
 moduleCmdResult (res,ws0) = do
@@ -871,6 +900,24 @@ checkExpr names types e = do
       do MM.typeCheckWarnings warns
          MM.typeCheckingFailed errs
 
+replTranslateExpr :: T.Expr -> REPL (SharedTerm SAWCtx)
+replTranslateExpr expr = do
+  typeEnv0 <- liftModuleM $ do ifaceDecls <- MM.getQualifiedEnv
+                               input <- MB.genInferInput emptyRange ifaceDecls
+                               return (Cryptol.TypeCheck.Monad.inpVars input)
+  typeEnv1 <- getExtraTypes
+  let typeEnv = Map.union typeEnv1 typeEnv0
+
+  termEnv <- getTermEnv
+  let cryEnv = Verifier.SAW.Cryptol.Env
+        { Verifier.SAW.Cryptol.envT = Map.empty
+        , Verifier.SAW.Cryptol.envE = fmap (\t -> (t, 0)) termEnv
+        , Verifier.SAW.Cryptol.envP = Map.empty
+        , Verifier.SAW.Cryptol.envC = typeEnv
+        }
+
+  sc <- getSharedContext
+  io $ Verifier.SAW.Cryptol.importExpr sc cryEnv expr
 
 {-
 replEvalExpr :: String -> REPL (E.Value, T.Type)
