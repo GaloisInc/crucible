@@ -23,6 +23,7 @@ module SAWScript.REPL.Monad (
   , rethrowEvalError
 
     -- ** Environment
+  , getModuleEnv, setModuleEnv
   , getTSyns, getNewtypes, getVars
   , whenDebug
   , getExprNames
@@ -34,11 +35,9 @@ module SAWScript.REPL.Monad (
   , shouldContinue
   , unlessBatch
   , setREPLTitle
-  , getInferInput, modifyInferInput, setInferInput
-  , getTermEnv, modifyTermEnv, setTermEnv
-  , getInpVars, modifyInpVars, setInpVars
-  , setNameSeeds
-  , getNamingEnv, modifyNamingEnv, setNamingEnv
+  , getTermEnv, modifyTermEnv, setTermEnv, genTermEnv
+  , getExtraTypes, modifyExtraTypes, setExtraTypes
+  , getExtraNames, modifyExtraNames, setExtraNames
   , getRW
 
     -- ** Config Options
@@ -80,6 +79,7 @@ import qualified Cryptol.Parser.AST as P
 import Control.Monad (unless,when)
 import Data.IORef (IORef, newIORef, readIORef, modifyIORef, writeIORef)
 import Data.List (isPrefixOf)
+import Data.Monoid
 import Data.Traversable
 import Data.Typeable (Typeable)
 import System.Console.ANSI (setTitle)
@@ -221,12 +221,13 @@ data RW = RW
   { eLoadedMod  :: Maybe LoadedModule
   , eContinue   :: Bool
   , eIsBatch    :: Bool
-  , eUserEnv    :: UserEnv   -- ^ User-configured settings from :set commands
-  , eREPLState  :: REPLState -- ^ SAWScript-specific stuff
+  , eModuleEnv  :: M.ModuleEnv -- ^ Imported modules, and state for the ModuleM monad
+  , eUserEnv    :: UserEnv     -- ^ User-configured settings from :set commands
+  , eREPLState  :: REPLState   -- ^ SAWScript-specific stuff
 
-  , eInferInput :: InferInput -- ^ Context for the Cryptol typechecker
-  , eNamingEnv  :: NamingEnv  -- ^ Context for the Cryptol renamer
-  , eTermEnv    :: Map T.QName (SharedTerm SAWCtx) -- ^ SAWCore terms for names in scope
+  , eExtraNames :: NamingEnv  -- ^ Context for the Cryptol renamer
+  , eExtraTypes :: Map T.QName T.Schema            -- ^ Cryptol types for extra names in scope
+  , eTermEnv    :: Map T.QName (SharedTerm SAWCtx) -- ^ SAWCore terms for *all* names in scope
   }
 
 -- | Initial, empty environment.
@@ -234,28 +235,27 @@ defaultRW :: Bool -> Options -> IO RW
 defaultRW isBatch opts = do
   rstate <- getInitialState opts
   modEnv <- M.initialModuleEnv
-  let qualIfaceDecls = ME.qualifiedEnv modEnv
-  -- | TODO: refactor "genInferInput" into a pure function; it cannot fail and only depends on NameSeeds of modEnv.
-  (Right (inferInput, _modEnv'), _warnings) <-
-    MM.runModuleM modEnv $ MB.genInferInput emptyRange qualIfaceDecls
 
   -- Generate SAWCore translations for all values in scope
-  let declGroups = concatMap T.mDecls (ME.loadedModules modEnv)
   let sc = sharedContext rstate
-  cryEnv <- C.importDeclGroups sc C.emptyEnv declGroups
-  termEnv <- traverse (\(t, j) -> incVars sc 0 j t) (C.envE cryEnv)
-  let nameEnv = namingEnv (M.focusedEnv modEnv)
+  termEnv <- genTermEnv sc modEnv
 
   return RW
     { eLoadedMod  = Nothing
     , eContinue   = True
     , eIsBatch    = isBatch
+    , eModuleEnv  = modEnv
     , eUserEnv    = mkUserEnv userOptions
     , eREPLState  = rstate
-    , eInferInput = inferInput
-    , eNamingEnv  = nameEnv
+    , eExtraNames = mempty
+    , eExtraTypes = Map.empty
     , eTermEnv    = termEnv
     }
+
+genTermEnv sc modEnv = do
+  let declGroups = concatMap T.mDecls (ME.loadedModules modEnv)
+  cryEnv <- C.importDeclGroups sc C.emptyEnv declGroups
+  traverse (\(t, j) -> incVars sc 0 j t) (C.envE cryEnv)
 
 -- | Build up the prompt for the REPL.
 mkPrompt :: RW -> String
@@ -411,16 +411,25 @@ keepOne src as = case as of
   _   -> panic ("REPL: " ++ src) ["name clash in interface file"]
 
 getVars :: REPL (Map.Map P.QName M.IfaceDecl)
-getVars = do
-  vars <- inpVars `fmap` getInferInput
-  let f qname schema = M.IfaceDecl qname schema []
-  return (Map.mapWithKey f vars)
+getVars  = do
+  me <- getModuleEnv
+  let decls = M.focusedEnv me
+  let vars1 = keepOne "getVars" `fmap` M.ifDecls decls
+  extras <- getExtraTypes
+  let vars2 = Map.mapWithKey (\q s -> M.IfaceDecl q s []) extras
+  return (Map.union vars1 vars2)
 
 getTSyns :: REPL (Map.Map P.QName T.TySyn)
-getTSyns  = inpTSyns `fmap` getInferInput
+getTSyns  = do
+  me <- getModuleEnv
+  let decls = M.focusedEnv me
+  return (keepOne "getTSyns" `fmap` M.ifTySyns decls)
 
 getNewtypes :: REPL (Map.Map P.QName T.Newtype)
-getNewtypes = inpNewtypes `fmap` getInferInput
+getNewtypes = do
+  me <- getModuleEnv
+  let decls = M.focusedEnv me
+  return (keepOne "getNewtypes" `fmap` M.ifNewtypes decls)
 
 -- | Get visible variable names.
 getExprNames :: REPL [String]
@@ -443,15 +452,6 @@ getPropertyNames =
 getName :: P.QName -> String
 getName  = show . pp
 
-getInferInput :: REPL InferInput
-getInferInput = fmap eInferInput getRW
-
-modifyInferInput :: (InferInput -> InferInput) -> REPL ()
-modifyInferInput f = modifyRW_ $ \rw -> rw { eInferInput = f (eInferInput rw) }
-
-setInferInput :: InferInput -> REPL ()
-setInferInput inp = modifyInferInput (const inp)
-
 getTermEnv :: REPL (Map T.QName (SharedTerm SAWCtx))
 getTermEnv = fmap eTermEnv getRW
 
@@ -461,27 +461,29 @@ modifyTermEnv f = modifyRW_ $ \rw -> rw { eTermEnv = f (eTermEnv rw) }
 setTermEnv :: Map T.QName (SharedTerm SAWCtx) -> REPL ()
 setTermEnv x = modifyTermEnv (const x)
 
-setNameSeeds :: NameSeeds -> REPL ()
-setNameSeeds ns = modifyInferInput $ \inp -> inp { inpNameSeeds = ns }
+getExtraTypes :: REPL (Map T.QName T.Schema)
+getExtraTypes = fmap eExtraTypes getRW
 
-getInpVars :: REPL (Map T.QName T.Schema)
-getInpVars = fmap inpVars getInferInput
+modifyExtraTypes :: (Map T.QName T.Schema -> Map T.QName T.Schema) -> REPL ()
+modifyExtraTypes f = modifyRW_ $ \rw -> rw { eExtraTypes = f (eExtraTypes rw) }
 
-modifyInpVars :: (Map T.QName T.Schema -> Map T.QName T.Schema) -> REPL ()
-modifyInpVars f = modifyInferInput $ \inp -> inp { inpVars = f (inpVars inp) }
+setExtraTypes :: Map T.QName T.Schema -> REPL ()
+setExtraTypes x = modifyExtraTypes (const x)
 
-setInpVars :: Map T.QName T.Schema -> REPL ()
-setInpVars x = modifyInpVars (const x)
+getExtraNames :: REPL NamingEnv
+getExtraNames = fmap eExtraNames getRW
 
-getNamingEnv :: REPL NamingEnv
-getNamingEnv = fmap eNamingEnv getRW
+modifyExtraNames :: (NamingEnv -> NamingEnv) -> REPL ()
+modifyExtraNames f = modifyRW_ $ \rw -> rw { eExtraNames = f (eExtraNames rw) }
 
-modifyNamingEnv :: (NamingEnv -> NamingEnv) -> REPL ()
-modifyNamingEnv f = modifyRW_ $ \rw -> rw { eNamingEnv = f (eNamingEnv rw) }
+setExtraNames :: NamingEnv -> REPL ()
+setExtraNames x = modifyExtraNames (const x)
 
-setNamingEnv :: NamingEnv -> REPL ()
-setNamingEnv x = modifyNamingEnv (const x)
+getModuleEnv :: REPL M.ModuleEnv
+getModuleEnv  = eModuleEnv `fmap` getRW
 
+setModuleEnv :: M.ModuleEnv -> REPL ()
+setModuleEnv me = modifyRW_ (\rw -> rw { eModuleEnv = me })
 
 -- User Environment Interaction ------------------------------------------------
 

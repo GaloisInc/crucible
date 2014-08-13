@@ -36,8 +36,8 @@ import SAWScript.REPL.Monad
 import SAWScript.REPL.Trie
 
 import qualified Cryptol.ModuleSystem as M
-import qualified Cryptol.ModuleSystem.Base as M (preludeName)
-import qualified Cryptol.ModuleSystem.Monad as M (ImportSource(..))
+import qualified Cryptol.ModuleSystem.Base as MB
+import qualified Cryptol.ModuleSystem.Monad as MM
 
 import qualified Cryptol.Eval.Value as E
 import qualified Cryptol.ModuleSystem.NamingEnv as MN
@@ -214,9 +214,9 @@ commandList  =
   nbCommandList ++
   [ CommandDescr ":quit"   (NoArg quitCmd)
     "exit the REPL"
-{-
   , CommandDescr ":load"   (FilenameArg loadCmd)
     "load a module"
+{-
   , CommandDescr ":reload" (NoArg reloadCmd)
     "reload the currently loaded module"
   , CommandDescr ":edit"   (FilenameArg editCmd)
@@ -279,39 +279,6 @@ getPPValOpts =
                      , E.useInfLength = infLength
                      }
 
-interactiveSource :: M.ImportSource
-interactiveSource = M.FromModule (P.ModName ["<interactive>"])
-
-replCheckExpr :: P.Expr -> REPL (T.Expr, T.Schema)
-replCheckExpr pexpr = do
-
-  -- Remove patterns
-  let (npe, errs) = Cryptol.Parser.NoPat.removePatterns pexpr
-  unless (null errs) $ raise (NoPatError errs)
-
-  -- Rename
-  nameEnv <- getNamingEnv
-  let (res, _warnings) = R.runRenamer nameEnv (R.rename npe)
-  re <- case res of
-          Right r   -> return r
-          Left errs -> raise (ModuleSystemError (M.RenamerErrors interactiveSource errs))
-
-  -- Typecheck
-  inferInput <- getInferInput
-  let range = fromMaybe emptyRange (getLoc re)
-  out <- io (Cryptol.TypeCheck.tcExpr re inferInput)
-  case out of
-    Cryptol.TypeCheck.Monad.InferOK _warns seeds o ->
-      do setNameSeeds seeds
-         --typeCheckWarnings warns
-         return o
-    Cryptol.TypeCheck.Monad.InferFailed _warns errs ->
-      do raise (ModuleSystemError (M.TypeCheckingFailed interactiveSource errs))
-{-
-      do typeCheckWarnings warns
-         typeCheckingFailed errs
--}
-
 evalCmd :: String -> REPL ()
 evalCmd str = do
   pexpr <- replParseExpr str
@@ -319,7 +286,9 @@ evalCmd str = do
 
   -- Translate
   sc <- getSharedContext
-  inpVars <- getInpVars
+  inpVars <- getExtraTypes
+  -- ^ FIXME: get all other names and types from ModuleEnv too
+  --inpVars <- getInpVars
   termEnv <- getTermEnv
   let cryEnv = Verifier.SAW.Cryptol.Env
         { Verifier.SAW.Cryptol.envT = Map.empty
@@ -514,7 +483,8 @@ moduleCmd modString
         Nothing -> io $ putStrLn "Invalid module name."
 
 loadPrelude :: REPL ()
-loadPrelude  = moduleCmd $ show $ pp M.preludeName
+loadPrelude  = moduleCmd $ show $ pp MB.preludeName
+-}
 
 loadCmd :: FilePath -> REPL ()
 loadCmd path
@@ -531,7 +501,12 @@ loadCmd path
         { lName = Just (T.mName m)
         , lPath = path
         }
--}
+
+      sc <- getSharedContext
+      modEnv <- getModuleEnv
+      oldTermEnv <- getTermEnv
+      newTermEnv <- io (genTermEnv sc modEnv)
+      setTermEnv (Map.union newTermEnv oldTermEnv)
 
 quitCmd :: REPL ()
 quitCmd  = stop
@@ -785,8 +760,8 @@ saveResult sc (Just name) result = do
       -> do io $ putStrLn $ "Binding SAWCore term: " ++ show name
             let qname = convertName name
             let lname = P.Located emptyRange qname
-            modifyNamingEnv (MN.shadowing (MN.singletonE qname (MN.EFromBind lname)))
-            modifyInpVars (Map.insert qname s)
+            modifyExtraNames (MN.shadowing (MN.singletonE qname (MN.EFromBind lname)))
+            modifyExtraTypes (Map.insert qname s)
             modifyTermEnv (Map.insert qname t)
     SAWScript.Value.VTerm Nothing t
       -> do io $ putStrLn $ "SAWCore term (no type info): " ++ show name
@@ -841,7 +816,6 @@ replParseExpr = replParse $ parseExprWith interactiveConfig
 interactiveConfig :: Config
 interactiveConfig = defaultConfig { cfgSource = "<interactive>" }
 
-{-
 moduleCmdResult :: M.ModuleRes a -> REPL a
 moduleCmdResult (res,ws0) = do
   EnvBool yes <- getUser "warnDefaulting"
@@ -861,9 +835,44 @@ moduleCmdResult (res,ws0) = do
     Right (a,me') -> setModuleEnv me' >> return a
     Left err      -> raise (ModuleSystemError err)
 
-replSpecExpr :: T.Expr -> REPL T.Expr
-replSpecExpr e = liftModuleCmd $ S.specialize e
+replCheckExpr :: P.Expr -> REPL (T.Expr, T.Schema)
+replCheckExpr e = do
+  names <- getExtraNames
+  types <- getExtraTypes
+  liftModuleM $ MM.interactive (checkExpr names types e)
 
+-- | Typecheck a single expression in an augmented context. (adapted from ModuleSystem.Base)
+checkExpr :: R.NamingEnv -> Map T.QName T.Schema -> P.Expr -> MM.ModuleM (T.Expr, T.Schema)
+checkExpr names types e = do
+  -- | Eliminate patterns
+  npe <- MB.noPat e
+
+  -- | Resolve names
+  ifaceDecls1 <- MM.getFocusedEnv -- What exactly does this do?
+  let nameEnv = names `R.shadowing` R.namingEnv ifaceDecls1
+  re <- MB.rename nameEnv npe
+
+  -- | Check types
+  ifaceDecls2 <- MM.getQualifiedEnv
+  let range = fromMaybe emptyRange (getLoc re)
+  input0 <- MB.genInferInput range ifaceDecls2
+  let input = input0 { Cryptol.TypeCheck.Monad.inpVars = Map.union types (Cryptol.TypeCheck.Monad.inpVars input0) }
+
+  out <- MM.io (Cryptol.TypeCheck.tcExpr re input)
+
+  case out of
+
+    Cryptol.TypeCheck.Monad.InferOK warns seeds o ->
+      do MM.setNameSeeds seeds
+         MM.typeCheckWarnings warns
+         return o
+
+    Cryptol.TypeCheck.Monad.InferFailed warns errs ->
+      do MM.typeCheckWarnings warns
+         MM.typeCheckingFailed errs
+
+
+{-
 replEvalExpr :: String -> REPL (E.Value, T.Type)
 replEvalExpr str =
   do expr      <- replParseExpr str
