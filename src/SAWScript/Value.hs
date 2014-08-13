@@ -12,6 +12,7 @@ import Data.Bits
 import Data.List ( intersperse )
 import qualified Data.Map as M
 import Data.Map ( Map )
+import Data.Traversable ( traverse )
 import qualified Data.Vector as V
 import qualified Text.LLVM as L
 
@@ -22,6 +23,7 @@ import qualified Verifier.Java.Codebase as JSS
 import SAWScript.Proof
 import SAWScript.Utils
 import qualified Verifier.SAW.Prim as Prim
+import qualified Verifier.SAW.Recognizer as R
 import Verifier.SAW.Rewriter ( Simpset )
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST hiding ( incVars )
@@ -379,6 +381,29 @@ data LLVMSetupState
 type LLVMSetup a = StateT LLVMSetupState IO a
 
 data TypedTerm s = TypedTerm C.Schema (SharedTerm s)
+
+mkTypedTerm :: SharedContext s -> SharedTerm s -> IO (TypedTerm s)
+mkTypedTerm sc trm = do
+  ty <- scTypeOf sc trm
+  ct <- scCryptolType sc ty
+  return $ TypedTerm (C.Forall [] [] ct) trm
+
+scCryptolType :: SharedContext s -> SharedTerm s -> IO C.Type
+scCryptolType sc t = do
+  t' <- scWhnf sc t
+  case t' of
+    (R.asPi -> Just (_, t1, t2))
+      -> C.tFun <$> scCryptolType sc t1 <*> scCryptolType sc t2
+    (R.asBoolType -> Just ())
+      -> return C.tBit
+    (R.isVecType return -> Just (n R.:*: tp))
+      -> C.tSeq (C.tNum n) <$> scCryptolType sc tp
+    (R.asTupleType -> Just ts)
+      -> C.tTuple <$> traverse (scCryptolType sc) ts
+    (R.asRecordType -> Just tm)
+       -> do tm' <- traverse (scCryptolType sc) tm
+             return $ C.tRec [ (C.Name n, ct) | (n, ct) <- M.assocs tm' ]
+    _ -> fail $ "scCryptolType: unsupported type" ++ show t'
 
 -- IsValue class ---------------------------------------------------------------
 

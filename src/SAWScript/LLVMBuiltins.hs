@@ -83,7 +83,7 @@ browseLLVMModule (LLVMModule name m) = do
 -- arguments and returns a term representing the return value. Some
 -- verifications will require more complex execution contexts.
 extractLLVM :: SharedContext SAWCtx -> LLVMModule -> String -> LLVMSetup ()
-            -> IO (SharedTerm SAWCtx)
+            -> IO (SV.TypedTerm SAWCtx)
 extractLLVM sc (LLVMModule file mdl) func _setup = do
   let dl = parseDataLayout $ modDataLayout mdl
       sym = Symbol func
@@ -103,7 +103,7 @@ extractLLVM sc (LLVMModule file mdl) func _setup = do
           Nothing -> fail "No return value from simulated function."
           Just rv -> liftIO $ do
             lamTm <- bindExts scLLVM (map snd args) rv
-            scImport sc lamTm
+            scImport sc lamTm >>= SV.mkTypedTerm sc
 
 {-
 extractLLVMBit :: FilePath -> String -> SC s (SharedTerm s')
