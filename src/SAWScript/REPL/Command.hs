@@ -40,6 +40,7 @@ import SAWScript.REPL.Trie
 import qualified Cryptol.ModuleSystem as M
 import qualified Cryptol.ModuleSystem.Base as MB
 import qualified Cryptol.ModuleSystem.Monad as MM
+import qualified Cryptol.ModuleSystem.Env as ME
 
 import qualified Cryptol.Eval.Value as E
 import qualified Cryptol.ModuleSystem.NamingEnv as MN
@@ -70,6 +71,7 @@ import Data.Char (isSpace,isPunctuation,isSymbol)
 import Data.Function (on)
 import Data.List (intercalate,isPrefixOf)
 import Data.Maybe (fromMaybe,mapMaybe)
+import Data.Monoid
 import System.Exit (ExitCode(ExitSuccess))
 --import System.Process (shell,createProcess,waitForProcess)
 --import qualified System.Process as Process(runCommand)
@@ -222,6 +224,8 @@ commandList  =
     "exit the REPL"
   , CommandDescr ":load"   (FilenameArg loadCmd)
     "load a module"
+  , CommandDescr ":add"    (FilenameArg addCmd)
+    "load an additional module"
 {-
   , CommandDescr ":reload" (NoArg reloadCmd)
     "reload the currently loaded module"
@@ -513,18 +517,27 @@ loadCmd :: FilePath -> REPL ()
 loadCmd path
   | null path = return ()
   | otherwise = do
-      setLoadedMod LoadedModule
-        { lName = Nothing
-        , lPath = path
-        }
-
       m <- moduleCmdResult =<< io (M.loadModuleByPath path)
       whenDebug (io (putStrLn (dump m)))
-      setLoadedMod LoadedModule
-        { lName = Just (T.mName m)
-        , lPath = path
-        }
+      setTargetMods [(T.mName m, path)]
 
+      sc <- getSharedContext
+      modEnv <- getModuleEnv
+      oldTermEnv <- getTermEnv
+      newTermEnv <- io (genTermEnv sc modEnv)
+      setTermEnv (Map.union newTermEnv oldTermEnv)
+
+addCmd :: FilePath -> REPL ()
+addCmd path
+  | null path = return ()
+  | otherwise = do
+      m <- liftModuleM (MB.loadModuleByPath path)
+      liftModuleM (MM.setFocusedModule (T.mName m))
+      whenDebug (io (putStrLn (dump m)))
+      addTargetMod (T.mName m, path)
+
+      -- | Regenerate SharedTerm environment. TODO: preserve old
+      -- values, only translate decls from new module.
       sc <- getSharedContext
       modEnv <- getModuleEnv
       oldTermEnv <- getTermEnv
@@ -866,29 +879,30 @@ moduleCmdResult (res,ws0) = do
 
 replCheckExpr :: P.Expr -> REPL (T.Expr, T.Schema)
 replCheckExpr e = do
-  names <- getExtraNames
+  names <- replNamingEnv
   types <- getExtraTypes
   liftModuleM $ MM.interactive (checkExpr names types e)
 
 -- | Typecheck a single expression in an augmented context. (adapted from ModuleSystem.Base)
 checkExpr :: R.NamingEnv -> Map T.QName T.Schema -> P.Expr -> MM.ModuleM (T.Expr, T.Schema)
-checkExpr names types e = do
+checkExpr nameEnv types e = do
   -- | Eliminate patterns
   npe <- MB.noPat e
 
   -- | Resolve names
-  ifaceDecls1 <- MM.getFocusedEnv -- What exactly does this do?
-  let nameEnv = names `R.shadowing` R.namingEnv ifaceDecls1
   re <- MB.rename nameEnv npe
 
   -- | Check types
-  ifaceDecls2 <- MM.getQualifiedEnv
+  ifDecls <- getAllIfaceDecls `fmap` MM.getModuleEnv
   let range = fromMaybe emptyRange (getLoc re)
-  input0 <- MB.genInferInput range ifaceDecls2
+  input0 <- MB.genInferInput range ifDecls
   let input = input0 { Cryptol.TypeCheck.Monad.inpVars = Map.union types (Cryptol.TypeCheck.Monad.inpVars input0) }
 
   out <- MM.io (Cryptol.TypeCheck.tcExpr re input)
+  runInferOutput out
 
+runInferOutput :: Cryptol.TypeCheck.Monad.InferOutput a -> MM.ModuleM a
+runInferOutput out =
   case out of
 
     Cryptol.TypeCheck.Monad.InferOK warns seeds o ->
@@ -899,6 +913,23 @@ checkExpr names types e = do
     Cryptol.TypeCheck.Monad.InferFailed warns errs ->
       do MM.typeCheckWarnings warns
          MM.typeCheckingFailed errs
+
+replNamingEnv :: REPL R.NamingEnv
+replNamingEnv = do
+  names <- getExtraNames
+  mods <- getTargetMods
+  envs <- liftModuleM $ mapM (getModuleNamingEnv . fst) mods
+  return (names `R.shadowing` mconcat envs)
+
+getModuleNamingEnv :: P.ModName -> MM.ModuleM R.NamingEnv
+getModuleNamingEnv mn = do
+  -- FIXME HACK; should replace/rewrite getFocusedEnv instead, and get rid of meFocusedModule
+  MM.setFocusedModule mn
+  R.namingEnv `fmap` MM.getFocusedEnv
+
+getAllIfaceDecls :: ME.ModuleEnv -> M.IfaceDecls
+getAllIfaceDecls me = mconcat (map (both . ME.lmInterface) (ME.getLoadedModules (ME.meLoadedModules me)))
+  where both ifc = M.ifPublic ifc `mappend` M.ifPrivate ifc
 
 replTranslateExpr :: T.Expr -> REPL (SharedTerm SAWCtx)
 replTranslateExpr expr = do

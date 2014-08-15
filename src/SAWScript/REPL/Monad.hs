@@ -29,7 +29,7 @@ module SAWScript.REPL.Monad (
   , getExprNames
   , getTypeNames
   , getPropertyNames
-  , LoadedModule(..), getLoadedMod, setLoadedMod
+  , getTargetMods, setTargetMods, addTargetMod
   , builtIns
   , getPrompt
   , shouldContinue
@@ -211,14 +211,9 @@ err m = io $ runErrT m >>= either fail return
 
 -- REPL Environment ------------------------------------------------------------
 
-data LoadedModule = LoadedModule
-  { lName :: Maybe P.ModName -- ^ Focused module
-  , lPath :: FilePath        -- ^ Focused file
-  }
-
 -- REPL RW Environment.
 data RW = RW
-  { eLoadedMod  :: Maybe LoadedModule
+  { eTargetMods :: [(P.ModName, FilePath)] -- ^ Which modules to load after a :reload command
   , eContinue   :: Bool
   , eIsBatch    :: Bool
   , eModuleEnv  :: M.ModuleEnv -- ^ Imported modules, and state for the ModuleM monad
@@ -241,7 +236,7 @@ defaultRW isBatch opts = do
   termEnv <- genTermEnv sc modEnv
 
   return RW
-    { eLoadedMod  = Nothing
+    { eTargetMods = []
     , eContinue   = True
     , eIsBatch    = isBatch
     , eModuleEnv  = modEnv
@@ -260,12 +255,14 @@ genTermEnv sc modEnv = do
 -- | Build up the prompt for the REPL.
 mkPrompt :: RW -> String
 mkPrompt rw
-  | eIsBatch rw = ""
-  | otherwise   = maybe "sawscript" pretty (lName =<< eLoadedMod rw) ++ "> "
+  | eIsBatch rw           = ""
+  | null (eTargetMods rw) = "sawscript> "
+  | otherwise             = unwords (map (pretty . fst) (eTargetMods rw)) ++ "> "
 
 mkTitle :: RW -> String
-mkTitle rw = maybe "" (\ m -> pretty m ++ " - ") (lName =<< eLoadedMod rw)
-          ++ "sawscript"
+mkTitle rw
+  | null (eTargetMods rw) = "sawscript"
+  | otherwise             = unwords (map (pretty . fst) (eTargetMods rw)) ++ " - sawscript"
 
 
 -- REPL Monad ------------------------------------------------------------------
@@ -376,13 +373,18 @@ getPrompt  = mkPrompt `fmap` getRW
 
 -- | Set the name of the currently focused file, edited by @:e@ and loaded via
 -- @:r@.
-setLoadedMod :: LoadedModule -> REPL ()
-setLoadedMod n = do
-  modifyRW_ (\ rw -> rw { eLoadedMod = Just n })
+setTargetMods :: [(P.ModName, FilePath)] -> REPL ()
+setTargetMods mods = do
+  modifyRW_ (\ rw -> rw { eTargetMods = mods })
   setREPLTitle
 
-getLoadedMod :: REPL (Maybe LoadedModule)
-getLoadedMod  = eLoadedMod `fmap` getRW
+getTargetMods :: REPL [(P.ModName, FilePath)]
+getTargetMods  = eTargetMods `fmap` getRW
+
+addTargetMod :: (P.ModName, FilePath) -> REPL ()
+addTargetMod m = do
+  modifyRW_ (\ rw -> rw { eTargetMods = m : eTargetMods rw })
+  setREPLTitle
 
 shouldContinue :: REPL Bool
 shouldContinue  = eContinue `fmap` getRW
