@@ -527,6 +527,7 @@ valueEnv opts bic = M.fromList
   , (qualify "llvm_return" , toValue $ llvmReturn bic opts)
   , (qualify "llvm_verify_tactic" , toValue $ llvmVerifyTactic bic opts)
   -- Generic stuff
+  , (qualify "check_term"  , toValue $ (scTypeCheck sc :: SharedTerm SAWCtx -> IO (SharedTerm SAWCtx)))
   , (qualify "prove"       , toValue $ provePrim sc)
   , (qualify "prove_print" , toValue $ provePrintPrim sc)
   , (qualify "sat"         , toValue $ satPrim sc)
