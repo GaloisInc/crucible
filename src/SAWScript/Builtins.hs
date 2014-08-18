@@ -164,42 +164,17 @@ prepForExport sc t = do
   let ss = addRules (rs1 ++ rs2) basics
   rewriteSharedTerm sc ss t
 
--- TODO: this belongs elsewhere
-asAIGType :: SharedContext s -> SharedTerm s -> IO [SharedTerm s]
-asAIGType sc t = do
-  t' <- scWhnf sc t
-  case t' of
-    (asPi -> Just (_, t1, t2)) -> (t1 :) <$> asAIGType sc t2
-    (asBoolType -> Just ())    -> return []
-    (asVecType -> Just _)      -> return []
-    (asTupleType -> Just _)    -> return []
-    (asRecordType -> Just _)   -> return []
-    _                          -> fail $ "invalid AIG type: " ++ show t'
-
--- TODO: the following sequence should probably go into BitBlast
-bitBlastTerm :: AIG.IsAIG l g =>
-                g s
-             -> SharedContext t -> SharedTerm t -> IO (BBSim.LitVector (l s))
-bitBlastTerm be sc t = do
-  ty <- scTypeOf sc t
-  argTs <- asAIGType sc ty
-  shapes <- traverse (BBSim.parseShape sc) argTs
-  vars <- traverse (BBSim.newVars' be) shapes
-  bval <- BBSim.bitBlastBasic be (scModule sc) t
-  bval' <- applyAll bval vars
-  BBSim.flattenBValue bval'
-
 -- | Write a @SharedTerm@ representing a theorem or an arbitrary
 -- function to an AIG file.
 writeAIG :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
 writeAIG sc f t = withBE $ \be -> do
-  ls <- bitBlastTerm be sc t
+  ls <- BBSim.bitBlastTerm be sc t
   ABC.writeAiger f (ABC.Network be (ABC.bvToList ls))
   return ()
 
 writeCNF :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
 writeCNF sc f t = withBE $ \be -> do
-  ls <- bitBlastTerm be sc t
+  ls <- BBSim.bitBlastTerm be sc t
   case AIG.bvToList ls of
     [l] -> do
       _ <- GIA.writeCNF be l f
