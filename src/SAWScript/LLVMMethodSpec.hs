@@ -48,7 +48,6 @@ import Verifier.LLVM.Codebase
 -- import Verifier.LLVM.Codebase.AST
 import Verifier.LLVM.Backend hiding (asBool)
 import Verifier.LLVM.Backend.SAW
-import Verinf.Utils.LogMonad
 
 import Verifier.SAW.Evaluator
 -- import Verifier.SAW.Prelude

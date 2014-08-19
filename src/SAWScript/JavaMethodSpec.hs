@@ -51,7 +51,6 @@ import SAWScript.VerificationCheck
 import qualified Verifier.Java.Simulator as JSS
 import qualified Data.JVM.Symbolic.AST as JSS
 import Verifier.Java.SAWBackend hiding (basic_ss)
-import Verinf.Utils.LogMonad
 
 import Verifier.SAW.Prelude
 import Verifier.SAW.Recognizer
@@ -1022,7 +1021,7 @@ mkSpecVC sc params esd = do
       vrb = simVerbose (vpOpts params)
       ovds = vpOver params
   -- Log execution.
-  setVerbosity vrb
+  JSS.setVerbosity vrb
   -- Add method spec overrides.
   when (vrb >= 2) $ liftIO $
        putStrLn $ "Overriding: " ++ show (map specName ovds)
