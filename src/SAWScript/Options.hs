@@ -72,7 +72,7 @@ options =
 processEnv :: Options -> IO Options
 processEnv opts = do
   curEnv <- getEnvironment
-  jars <- findJDKJar
+  jars <- if any isCoreJar (jarList opts) then return [] else findJDKJar
   return $ foldr addOpt (opts { jarList = jars ++ jarList opts }) curEnv
     where addOpt ("SAW_IMPORT_PATH", p) os =
             os { importPath = importPath os ++ splitSearchPath p }
@@ -85,9 +85,11 @@ findJDKJar = do
                     const (return (ExitFailure 1, "", ""))
   let jars = filter isCoreJar . words . removeBrackets
       removeBrackets = filter (not . (`elem` "[]"))
-      isCoreJar w = "rt.jar" `isSuffixOf` w ||
-                    "classes.jar" `isSuffixOf` w
   return . Set.toList . Set.fromList . jars $ out
+
+isCoreJar :: FilePath -> Bool
+isCoreJar w = "rt.jar" `isSuffixOf` w ||
+              "classes.jar" `isSuffixOf` w
 
 pathDesc, pathDelim :: String
 
