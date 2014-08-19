@@ -1,8 +1,6 @@
 #!/bin/bash
 set -e
 
-REPODIR=${REPODIR:="src.galois.com:/srv/git"}
-REPOS=""
 PKGS="Verinf SAWCore Java LLVM Cryptol"
 GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser"
 
@@ -38,15 +36,6 @@ if [ "${dotests}" == "true" ] ; then
   done
 fi
 
-for repo in ${REPOS} ; do
-  if [ ! -e ./deps/${repo} ] ; then
-    git clone ${REPODIR}/${repo}.git ./deps/${repo}
-  fi
-  if [ "${dopull}" == "true" ] ; then
-    (cd ./deps/${repo} && git checkout master && git pull)
-  fi
-done
-
 for repo in ${GITHUB_REPOS} ; do
   if [ ! -e ./deps/${repo} ] ; then
     git clone https://github.com/GaloisInc/${repo}.git ./deps/${repo}
@@ -58,7 +47,7 @@ done
 
 (cd deps/cryptol && sh configure)
 
-for repo in ${REPOS} ${GITHUB_REPOS} ; do
+for repo in ${GITHUB_REPOS} ; do
   cabal sandbox add-source deps/${repo}
   if [ "${dotests}" == "true" ] ; then
     cabal install --force ${repo} ${cabal_flags}
