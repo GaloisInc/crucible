@@ -3,6 +3,7 @@ set -e
 
 PKGS="Verinf SAWCore Java LLVM Cryptol"
 GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser"
+PROGRAMS="alex happy c2hs"
 
 cabal_flags="--reinstall --force-reinstalls"
 test_flags="--enable-tests --run-tests --disable-library-coverage"
@@ -28,7 +29,14 @@ if [ ! -e ./deps ] ; then
   mkdir deps
 fi
 
+PWD=`pwd`
+PATH=${PWD}/${sandbox_dir}/bin:$PATH
+
 cabal sandbox --sandbox=${sandbox_dir} init
+
+for prog in ${PROGRAMS} ; do
+  if [ -z `which $prog` ] ; then cabal install $prog ; fi
+done
 
 if [ "${dotests}" == "true" ] ; then
   for pkg in sawScript cryptol-verifier llvm-verifier jvm-verifier saw-core Verinf ; do
