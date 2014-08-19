@@ -96,8 +96,8 @@ definePrim sc name rhs = scConstant sc ident rhs
 
 type Uninterp s = (String, SharedTerm s)
 
-sbvUndefined :: SharedContext s -> String -> SharedTerm s -> IO (Uninterp s)
-sbvUndefined _ s t = return (s, t)
+sbvUninterpreted :: SharedContext s -> String -> SharedTerm s -> IO (Uninterp s)
+sbvUninterpreted _ s t = return (s, t)
 
 readSBV :: SharedContext s -> SS.Type -> FilePath -> [Uninterp s] -> IO (SharedTerm s)
 readSBV sc ty path unintlst =
