@@ -489,10 +489,11 @@ print_value t v = putStrLn (showsPrecValue defaultPPOpts 0 (Just t) v "")
 
 valueEnv :: Options -> BuiltinContext -> RNameMap (Value SAWCtx)
 valueEnv opts bic = M.fromList
-  [ (qualify "read_sbv"    , toValue $ readSBV sc)
-  , (qualify "read_aig"    , toValue $ readAIGPrim sc)
-  , (qualify "write_aig"   , toValue $ writeAIG sc)
-  , (qualify "write_cnf"   , toValue $ writeCNF sc)
+  [ (qualify "sbv_undefined", toValue $ sbvUndefined sc)
+  , (qualify "read_sbv"     , toValue $ readSBV sc)
+  , (qualify "read_aig"     , toValue $ readAIGPrim sc)
+  , (qualify "write_aig"    , toValue $ writeAIG sc)
+  , (qualify "write_cnf"    , toValue $ writeCNF sc)
   -- Cryptol stuff
   , (qualify "cryptol_module", toValue $ loadCryptol)
   , (qualify "cryptol_extract", toValue $ extractCryptol sc)

@@ -32,6 +32,7 @@ import Verifier.Java.SAWBackend (javaModule)
 import Verifier.LLVM.Backend.SAW (llvmModule)
 
 import Verifier.SAW.Constant
+import Verifier.SAW.ExternalFormat
 import Verifier.SAW.BitBlast
 import Verifier.SAW.Evaluator hiding (applyAll)
 import Verifier.SAW.Prelude
@@ -93,15 +94,20 @@ definePrim :: SharedContext s -> String -> SharedTerm s -> IO (SharedTerm s)
 definePrim sc name rhs = scConstant sc ident rhs
   where ident = mkIdent (moduleName (scModule sc)) name
 
--- TODO: Add argument for uninterpreted-function map
-readSBV :: SharedContext s -> SS.Type -> FilePath -> IO (SharedTerm s)
-readSBV sc ty path =
+type Uninterp s = (String, SharedTerm s)
+
+sbvUndefined :: SharedContext s -> String -> SharedTerm s -> IO (Uninterp s)
+sbvUndefined _ s t = return (s, t)
+
+readSBV :: SharedContext s -> SS.Type -> FilePath -> [Uninterp s] -> IO (SharedTerm s)
+readSBV sc ty path unintlst =
     do pgm <- SBV.loadSBV path
        let ty' = importTyp (SBV.typOf pgm)
        when (ty /= ty') $
             fail $ "read_sbv: expected " ++ showTyp ty ++ ", found " ++ showTyp ty'
-       SBV.parseSBVPgm sc (\_ _ -> Nothing) pgm
+       SBV.parseSBVPgm sc (\s _ -> Map.lookup s unintmap) pgm
     where
+      unintmap = Map.fromList unintlst
       showTyp :: SS.Type -> String
       showTyp = show . SS.pretty False
       importTyp :: SBV.Typ -> SS.Type
