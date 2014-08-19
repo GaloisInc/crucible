@@ -41,7 +41,6 @@ import SAWScript.Proof
 import SAWScript.Utils
 import SAWScript.Value as SS
 
-import Verinf.Utils.LogMonad
 
 loadJavaClass :: BuiltinContext -> String -> IO JSS.Class
 loadJavaClass bic cname = do
@@ -119,7 +118,7 @@ extractJava bic _opts cls mname _setup = do
     let fl = JSS.defaultSimFlags { JSS.alwaysBitBlastBranchTerms = True }
     sbe <- JSS.sawBackend sc (Just argsRef) be
     JSS.runSimulator cb sbe JSS.defaultSEH (Just fl) $ do
-      setVerbosity 0
+      JSS.setVerbosity 0
       args <- mapM (freshJavaArg sbe) (JSS.methodParameterTypes meth)
       rslt <- JSS.execStaticMethod (JSS.className cls) (JSS.methodKey meth) args
       dt <- case rslt of
