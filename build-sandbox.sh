@@ -2,7 +2,7 @@
 set -e
 
 REPODIR=${REPODIR:="src.galois.com:/srv/git"}
-REPOS="Aiger"
+REPOS=""
 PKGS="Verinf SAWCore Java LLVM Cryptol"
 GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser"
 
