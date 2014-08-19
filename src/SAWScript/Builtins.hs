@@ -32,6 +32,7 @@ import Verifier.Java.SAWBackend (javaModule)
 import Verifier.LLVM.Backend.SAW (llvmModule)
 
 import Verifier.SAW.Constant
+import Verifier.SAW.ExternalFormat
 import Verifier.SAW.BitBlast
 import Verifier.SAW.Evaluator hiding (applyAll)
 import Verifier.SAW.Prelude
