@@ -44,6 +44,7 @@ import SAWScript.Options
 import SAWScript.Proof
 import SAWScript.Utils
 import SAWScript.Value as SV
+import qualified Verifier.SAW.Evaluator as SC
 
 import Verinf.Utils.LogMonad
 
@@ -208,7 +209,7 @@ verifyLLVM bic opts (LLVMModule file mdl) func overrides setup = do
 showCexResults :: SharedContext LSSCtx
                -> LLVMMethodSpecIR
                -> VerifyState
-               -> [(String, Value SAWCtx)]
+               -> [(String, SC.Value)]
                -> IO ()
 showCexResults sc ms vs vals = do
   putStrLn $ "When verifying " ++ show (specName ms) ++ ":"

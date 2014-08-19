@@ -50,12 +50,11 @@ import Control.Applicative
   'JavaSetup'    { TReserved _ "JavaSetup"      }
   'LLVMSetup'    { TReserved _ "LLVMSetup"      }
   'ProofScript'  { TReserved _ "ProofScript"    }
-  'ProofResult'  { TReserved _ "ProofResult"    }
-  'SatResult'    { TReserved _ "SatResult"      }
   'TopLevel'     { TReserved _ "TopLevel"       }
   'Bit'          { TReserved _ "Bit"            }
   'Int'          { TReserved _ "Int"            }
   'String'       { TReserved _ "String"         }
+  'Term'         { TReserved _ "Term"           }
   ';'            { TPunct    _ ";"              }
   '['            { TPunct    _ "["              }
   ']'            { TPunct    _ "]"              }
@@ -70,50 +69,15 @@ import Control.Applicative
   '='            { TPunct    _ "="              }
   '->'           { TPunct    _ "->"             }
   '<-'           { TPunct    _ "<-"             }
-  '~'            { TOp       _ "~"              }
-  '-'            { TOp       _ "-"              }
-  '*'            { TOp       _ "*"              }
-  '+'            { TOp       _ "+"              }
-  '/'            { TOp       _ "/"              }
-  '%'            { TOp       _ "%"              }
-  '<<'           { TOp       _ "<<"             }
-  '>>'           { TOp       _ ">>"             }
-  '&'            { TOp       _ "&"              }
-  '^'            { TOp       _ "^"              }
-  '|'            { TOp       _ "|"              }
-  '@'            { TOp       _ "@"              }
-  '#'            { TOp       _ "#"              }
-  '=='           { TOp       _ "=="             }
-  '!='           { TOp       _ "!="             }
-  '>='           { TOp       _ ">="             }
-  '>'            { TOp       _ ">"              }
-  '<='           { TOp       _ "<="             }
-  '<'            { TOp       _ "<"              }
-  '&&'           { TOp       _ "&&"             }
-  '||'           { TOp       _ "||"             }
-  '==>'          { TOp       _ "==>"            }
   string         { TLit      _ $$               }
+  code           { TCode     _ $$               }
   num            { TNum      _ _ $$             }
-  qnum           { TQNum     _ _ $$             }
   name           { TVar      _ _                }
 
 %right 'else'
-%right '==>'
-%left '||'
-%left '&&'
-%nonassoc '>=' '>' '<=' '<'
-%nonassoc '==' '!='
-%right '#'
-%left '|'
-%left '^'
-%left '&'
-%left '<<' '>>'
-%left '+' '-'
-%left '*' '/' '%'
 %left ':'
 %left '['
 %left '.'
-%right '~'
 
 %%
 
@@ -157,47 +121,16 @@ Expression :: { ExprSimple RawT }
 
 IExpr :: { ExprSimple RawT }
  : AExprs                               { $1 }
- | IExpr InfixOp AExprs                 { binOp $1 $2 $3 }
- | PrefixOp AExprs                      { unOp $1 $2 }
 
 AExprs :: { ExprSimple RawT }
  : list1(AExpr)                         { buildApplication $1 }
-
-PrefixOp :: { LName }
- : '~'            { Located "bvNot" "bvNot"  (tokPos $1)                   }
-
-InfixOp :: { LName }
- : '-'            { Located "bvSub" "bvSub"     (tokPos $1)                  }
- | '*'            { Located "bvMul" "bvMul"     (tokPos $1)                  }
- | '+'            { Located "bvAdd" "bvAdd"     (tokPos $1)                  }
- | '/'            { Located "bvDiv" "bvDiv"     (tokPos $1)                  }
- | '%'            { Located "bvMod" "bvMod"     (tokPos $1)                  }
- | '<<'           { Located "bvShl" "bvShl"     (tokPos $1)                  }
- | '>>'           { Located "bvShr" "bvShr"     (tokPos $1)                  }
- | '&'            { Located "bvAnd" "bvAnd"     (tokPos $1)                  }
- | '^'            { Located "bvXor" "bvXor"     (tokPos $1)                  }
- | '|'            { Located "bvOr"  "bvOr"      (tokPos $1)                  }
- | '@'            { Located "bvAt"  "bvAt"      (tokPos $1)                  }
- | '#'            { Located "concat" "concat"   (tokPos $1)                  }
- | '=='           { Located "eq"    "eq"        (tokPos $1)                  }
- | '!='           { Located "neq"   "neq"       (tokPos $1)                  }
- | '>='           { Located "bvuge" "bvuge"     (tokPos $1)                  }
- | '>'            { Located "bvugt" "bvugt"     (tokPos $1)                  }
- | '<='           { Located "bvule" "bvule"     (tokPos $1)                  }
- | '<'            { Located "bvult" "bvult"     (tokPos $1)                  }
- | '&&'           { Located "conj" "conj"       (tokPos $1)                  }
- | '||'           { Located "disj" "disj"       (tokPos $1)                  }
- | '==>'          { Located "implies" "implies" (tokPos $1)                  }
 
 AExpr :: { ExprSimple RawT }
  : '(' ')'                              { Tuple [] Nothing                }
  | '[' ']'                              { Array [] Nothing                }
  | string                               { Quote $1 Nothing                }
- | qnum                                 { Z $1 Nothing                    }
- | num                                  { Application
-                                            (Var (Located (unresolved "bitSequence") (show $1) (PosInternal "parseNum")) Nothing)
-                                                 (Z $1 Nothing)
-                                                 Nothing                  }
+ | code                                 { Code $1 Nothing                 }
+ | num                                  { Z $1 Nothing                    }
  -- | qname                                { Var (unresolvedQ $1) Nothing    }
  | name                                 { Var (Located (unresolved (tokStr $1)) (tokStr $1) (tokPos $1)) Nothing     }
  | 'undefined'                          { Undefined Nothing               }
@@ -234,6 +167,7 @@ BaseType :: { RawSigT }
  | 'Bit'                                { bit                     }
  | 'Int'                                { z                       }
  | 'String'                             { quote                   }
+ | 'Term'                               { term                    }
  | '(' Type ')'                         { $2                      }
  | '(' commas2(Type) ')'                { tuple $2                }
  | '[' name ']'                         { array (syn (toLName $2)) bit }
@@ -247,8 +181,6 @@ Context :: { RawSigT }
  | 'JavaSetup'                          { javaSetupContext        }
  | 'LLVMSetup'                          { llvmSetupContext        }
  | 'ProofScript'                        { proofScriptContext      }
- | 'ProofResult'                        { proofResultContext      }
- | 'SatResult'                          { satResultContext        }
  | 'TopLevel'                           { topLevelContext         }
  | name                                 { syn (toLName $1)         }
 

@@ -101,8 +101,7 @@ import qualified SAWScript.AST as SS
 import SAWScript.Interpreter
     (Value, isVUnit,
      interpretModuleAtEntry,
-     InterpretEnv(..),
-     interpretEnvValues, interpretEnvTypes)
+     InterpretEnv(..))
 import qualified SAWScript.Builtins (liftCexBB, convertShape)
 import qualified SAWScript.Lexer (scan)
 import qualified SAWScript.MGU (checkModule)
@@ -748,7 +747,7 @@ injectBoundExpressionTypes orig = do
   boundNamesAndTypes :: Map SS.LName SS.ResolvedT
                      <-
     getEnvironment <&>
-    interpretEnvTypes <&>
+    ieTypes <&>
     Map.filterWithKey (\name _type ->
                         Set.member (SS.getVal $ stripModuleName name) boundNames) <&>
     Map.mapKeysMonotonic stripModuleName <&>
@@ -770,26 +769,18 @@ saveResult sc (Just name) result = do
   let itsName = SS.Located (SS.TopLevelName replModuleName "it") "it" PosREPL
       itsName' = SS.Located (SS.TopLevelName replModuleName name) "it" PosREPL
   env <- getEnvironment
-  let typeEnv = interpretEnvTypes env
-  let valueEnv = interpretEnvValues env
-  let sharedEnv = interpretEnvShared env
+  let typeEnv = ieTypes env
+  let valueEnv = ieValues env
   let typeEnv' =
         case Map.lookup itsName typeEnv of
           Nothing -> error "evaluate: could not find most recent expression"
           Just itsType ->
             Map.insert itsName' (extractFromBlock itsType) typeEnv
-  let (valueEnv', sharedEnv') =
-        case result of
-          SAWScript.Value.VTerm _ t ->
-            (Map.insert itsName' (SAWScript.Value.evaluate sc t) valueEnv,
-             Map.insert itsName' t sharedEnv)
-          _ ->
-            (Map.insert itsName' result valueEnv, sharedEnv)
+  let valueEnv' = Map.insert itsName' result valueEnv
 
   putEnvironment $ env
-    { interpretEnvValues = valueEnv'
-    , interpretEnvTypes  = typeEnv'
-    , interpretEnvShared = sharedEnv' }
+    { ieValues = valueEnv'
+    , ieTypes  = typeEnv' }
 
   case result of
     SAWScript.Value.VTerm (Just s) t

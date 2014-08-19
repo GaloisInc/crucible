@@ -120,7 +120,7 @@ import SAWScript.BuildModules (buildModules)
 import SAWScript.Builtins (BuiltinContext(..))
 import SAWScript.Compiler (ErrT, runErr, runErrT, mapErrT, runCompiler)
 import SAWScript.Import (preludeLoadedModules)
-import SAWScript.Interpreter (InterpretEnv, buildInterpretEnv, interpretEnvTypes)
+import SAWScript.Interpreter (InterpretEnv(..), buildInterpretEnv)
 import SAWScript.Options (Options)
 import SAWScript.ProcessFile (checkModuleWithDeps)
 import SAWScript.REPL.GenerateModule as Generate
@@ -197,7 +197,7 @@ modifyEnvironment f = modifyREPLState $ \current ->
 getSAWScriptNames :: REPL [String]
 getSAWScriptNames = do
   env <- getEnvironment
-  let rnames = Map.keys (interpretEnvTypes env)
+  let rnames = Map.keys (ieValues env)
   return (map (stem . getVal) rnames)
   where
     stem :: ResolvedName -> String

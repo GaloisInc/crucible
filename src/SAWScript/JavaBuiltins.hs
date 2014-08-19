@@ -40,6 +40,7 @@ import SAWScript.Options
 import SAWScript.Proof
 import SAWScript.Utils
 import SAWScript.Value as SS
+import qualified Verifier.SAW.Evaluator as SC
 
 import Verinf.Utils.LogMonad
 
@@ -216,7 +217,7 @@ verifyJava bic opts cls mname overrides setup = do
 showCexResults :: SharedContext JSSCtx
                -> JavaMethodSpecIR
                -> VerifyState
-               -> [(String, Value SAWCtx)]
+               -> [(String, SC.Value)]
                -> IO ()
 showCexResults sc ms vs vals = do
   putStrLn $ "When verifying " ++ specName ms ++ ":"

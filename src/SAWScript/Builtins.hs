@@ -563,10 +563,10 @@ bindAllExts sc body@(STApp _ tf) = do
 
 -- | Apply the given SharedTerm to the given values, and evaluate to a
 -- final value.
-cexEvalFn :: SharedContext s -> [SV.Value SAWCtx] -> SharedTerm s
+cexEvalFn :: SharedContext s -> [Value] -> SharedTerm s
           -> IO Value
 cexEvalFn sc args tm = do
-  args' <- mapM (SV.exportSharedTerm sc) args
+  args' <- mapM (scValue sc) args
   let argMap = Map.fromList (zip [0..] args')
       eval = evalGlobal (scModule sc) preludePrims
   tm' <- scInstantiateExt sc argMap tm
@@ -574,14 +574,14 @@ cexEvalFn sc args tm = do
   --putStrLn $ "Type of cex eval term: " ++ show ty
   return $ evalSharedTerm eval tm'
 
-toValueCase :: (SV.IsValue s b) =>
+toValueCase :: (SV.FromValue s b) =>
                SharedContext s
             -> (SharedContext s -> b -> SV.Value s -> SV.Value s -> IO (SV.Value s))
             -> SV.Value s
 toValueCase sc prim =
-  SV.VFun $ \b ->
-  SV.VFun $ \v1 ->
-  SV.VLambda $ \v2 _ ->
+  SV.VLambda $ \b -> return $
+  SV.VLambda $ \v1 -> return $
+  SV.VLambda $ \v2 ->
   prim sc (SV.fromValue b) v1 v2
 
 caseProofResultPrim :: SharedContext s -> SV.ProofResult s
@@ -590,7 +590,7 @@ caseProofResultPrim :: SharedContext s -> SV.ProofResult s
 caseProofResultPrim sc pr vValid vInvalid = do
   case pr of
     SV.Valid -> return vValid
-    SV.Invalid v -> SV.applyValue sc vInvalid v
+    SV.Invalid v -> SV.applyValue sc vInvalid (SV.VCoreValue v)
     SV.InvalidMulti _ -> fail $ "multi-value counter-example"
 
 
@@ -600,5 +600,5 @@ caseSatResultPrim :: SharedContext s -> SV.SatResult s
 caseSatResultPrim sc sr vUnsat vSat = do
   case sr of
     SV.Unsat -> return vUnsat
-    SV.Sat v -> SV.applyValue sc vSat v
+    SV.Sat v -> SV.applyValue sc vSat (SV.VCoreValue v)
     SV.SatMulti _ -> fail $ "multi-value satisfying assignment"
