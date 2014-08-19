@@ -489,7 +489,7 @@ print_value t v = putStrLn (showsPrecValue defaultPPOpts 0 (Just t) v "")
 
 valueEnv :: Options -> BuiltinContext -> RNameMap (Value SAWCtx)
 valueEnv opts bic = M.fromList
-  [ (qualify "sbv_undefined", toValue $ sbvUndefined sc)
+  [ (qualify "sbv_uninterpreted", toValue $ sbvUninterpreted sc)
   , (qualify "read_sbv"     , toValue $ readSBV sc)
   , (qualify "read_aig"     , toValue $ readAIGPrim sc)
   , (qualify "write_aig"    , toValue $ writeAIG sc)
