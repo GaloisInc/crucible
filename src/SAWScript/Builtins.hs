@@ -59,8 +59,6 @@ import qualified Verifier.SAW.Simulator.SBV as SBVSim
 import Verifier.SAW.Simulator.Value (applyAll)
 
 import qualified Data.ABC as ABC
-import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
-
 import qualified Data.SBV as SBV
 import Data.SBV.Internals
 
@@ -126,16 +124,7 @@ readAIGPrim :: SharedContext s -> FilePath -> IO (SharedTerm s)
 readAIGPrim sc f = do
   exists <- doesFileExist f
   unless exists $ fail $ "AIG file " ++ f ++ " not found."
-  et <- withReadAiger f $ \ntk -> do
-    outputLits <- GIA.networkOutputs ntk
-    inputLits <- GIA.networkInputs ntk
-    inLen <- scNat sc (fromIntegral (SV.length inputLits))
-    outLen <- scNat sc (fromIntegral (SV.length outputLits))
-    boolType <- scBoolType sc
-    inType <- scVecType sc inLen boolType
-    outType <- scVecType sc outLen boolType
-    runErrorT $
-      translateNetwork sc ntk outputLits [("x", inType)] outType
+  et <- readAIG' sc f
   case et of
     Left err -> fail $ "Reading AIG failed: " ++ err
     Right t -> return t

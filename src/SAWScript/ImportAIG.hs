@@ -4,8 +4,7 @@
 {-# LANGUAGE ViewPatterns #-}
 module SAWScript.ImportAIG
   ( readAIG
-  , translateNetwork
-  , withReadAiger
+  , readAIG'
   ) where
 
 import Control.Applicative
@@ -14,10 +13,11 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Error
 import Control.Monad.State.Strict
-import Verinf.Symbolic.Lit.ABC_GIA
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import Text.PrettyPrint.Leijen hiding ((<$>))
+
+import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
 
 import Verifier.SAW.Prelude
 import Verifier.SAW.Recognizer
@@ -73,10 +73,10 @@ parseAIGResultType _ _ = fail "Could not parse AIG output type."
 
 -- |
 networkAsSharedTerms
-    :: Network
+    :: GIA.Network
     -> SharedContext s
     -> V.Vector (SharedTerm s) -- ^ Input terms for AIG
-    -> V.Vector Lit -- ^ Outputs
+    -> V.Vector GIA.Lit -- ^ Outputs
     -> IO (V.Vector (SharedTerm s))
 networkAsSharedTerms ntk sc inputTerms outputLits = do
   -- Get evaluator
@@ -86,17 +86,17 @@ networkAsSharedTerms ntk sc inputTerms outputLits = do
   scImp <- scApplyPreludeImplies sc
   scFalse <- scApplyPreludeFalse sc
   -- | Left means negated, Right means not negated.
-  let viewFn (AndLit (Right x) (Right y)) = Right <$> scAnd x y
-      viewFn (AndLit (Left  x) (Left  y)) = Left  <$> scOr x y
-      viewFn (AndLit (Left  x) (Right y)) = Left  <$> scImp y x
-      viewFn (AndLit (Right x) (Left  y)) = Left  <$> scImp x y
-      viewFn (NotLit (Right x)) = return $ Left  x
-      viewFn (NotLit (Left  x)) = return $ Right x
-      viewFn (InputLit i) = return $ Right $ inputTerms V.! i
-      viewFn FalseLit = return $ Right scFalse
+  let viewFn (GIA.AndLit (Right x) (Right y)) = Right <$> scAnd x y
+      viewFn (GIA.AndLit (Left  x) (Left  y)) = Left  <$> scOr x y
+      viewFn (GIA.AndLit (Left  x) (Right y)) = Left  <$> scImp y x
+      viewFn (GIA.AndLit (Right x) (Left  y)) = Left  <$> scImp x y
+      viewFn (GIA.NotLit (Right x)) = return $ Left  x
+      viewFn (GIA.NotLit (Left  x)) = return $ Right x
+      viewFn (GIA.InputLit i) = return $ Right $ inputTerms V.! i
+      viewFn GIA.FalseLit = return $ Right scFalse
   let neg (Left  x) = scNot x
       neg (Right x) = return x
-  evalFn <- litEvaluator ntk viewFn
+  evalFn <- GIA.litEvaluator ntk viewFn
   traverse evalFn outputLits >>= traverse neg
 
 -- | Create vector for each input literal from expected types.
@@ -115,17 +115,17 @@ bitblastVarsAsInputLits sc args = do
     zipWithM_ (bitblastSharedTerm sc) inputs args
 
 withReadAiger :: FilePath
-              -> (Network -> IO (Either String a))
+              -> (GIA.Network -> IO (Either String a))
               -> IO (Either String a)
 withReadAiger path action = do
-  mntk <- readAiger path
+  mntk <- GIA.readAiger path
   case mntk of
     Nothing -> return $ Left $ "Could not read AIG file " ++ show path ++ "."
-    Just ntk -> finally (action ntk) (freeNetwork ntk)
+    Just ntk -> finally (action ntk) (GIA.freeNetwork ntk)
 
 translateNetwork :: SharedContext s -- ^ Context to build in term.
-                 -> Network -- ^ Network to bitblast
-                 -> SV.Vector Lit -- ^ Outputs for network.
+                 -> GIA.Network -- ^ Network to bitblast
+                 -> SV.Vector GIA.Lit -- ^ Outputs for network.
                  -> [(String, SharedTerm s)] -- ^ Expected types
                  -> SharedTerm s -- ^ Expected output type.
                  -> ErrorT String IO (SharedTerm s)
@@ -134,7 +134,7 @@ translateNetwork sc ntk outputLits args resultType = do
   inputTerms <- bitblastVarsAsInputLits sc (snd <$> args)
   -- Check number of inputs to network matches expected inputs.
   do let expectedInputCount = V.length inputTerms
-     aigCount <- liftIO $ networkInputCount ntk
+     aigCount <- liftIO $ GIA.networkInputCount ntk
      unless (expectedInputCount == aigCount) $ do
        fail $ "AIG has " ++ show aigCount
                  ++ " inputs, while expected type has "
@@ -158,7 +158,22 @@ readAIG :: forall s
 readAIG sc path aigType =
   withReadAiger path $ \ntk -> do
     --putStrLn "Network outputs"
-    outputLits <- networkOutputs ntk
+    outputLits <- GIA.networkOutputs ntk
     let (args,resultType) = asPiList aigType
     runErrorT $
       translateNetwork sc ntk outputLits args resultType
+
+-- | FIXME? (RWD) Do we need this function? Why do we
+--   use this instead of readAIG above?
+readAIG' :: SharedContext s -> FilePath -> IO (Either String (SharedTerm s))
+readAIG' sc f =
+  withReadAiger f $ \ntk -> do
+    outputLits <- GIA.networkOutputs ntk
+    inputLits <- GIA.networkInputs ntk
+    inLen <- scNat sc (fromIntegral (SV.length inputLits))
+    outLen <- scNat sc (fromIntegral (SV.length outputLits))
+    boolType <- scBoolType sc
+    inType <- scVecType sc inLen boolType
+    outType <- scVecType sc outLen boolType
+    runErrorT $
+      translateNetwork sc ntk outputLits [("x", inType)] outType
