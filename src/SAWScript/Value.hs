@@ -59,6 +59,7 @@ data Value s
   | VLLVMModule LLVMModule
   | VSatResult (SatResult s)
   | VProofResult (ProofResult s)
+  | VUninterp (Uninterp s)
   -- | VAIG (BitEngine Lit) (V.Vector Lit) (V.Vector Lit)
 
 data LLVMModule =
@@ -170,6 +171,7 @@ showsPrecValue opts p mty v =
     VSatResult Unsat -> showString "Unsat"
     VSatResult (Sat t) -> showString "Sat: " . shows t
     VSatResult (SatMulti ts) -> showString "Sat: " . shows ts
+    VUninterp u -> showString "Uninterp: " . shows u
 
 instance Show (Value s) where
     showsPrec p v = showsPrecValue defaultPPOpts p Nothing v
@@ -304,6 +306,7 @@ exportValue val =
       VLLVMModule {} -> error "LLVMModule unsupported"
       VProofResult {} -> error "VProofResult unsupported"
       VSatResult {} -> error "VSatResult unsupported"
+      VUninterp {} -> error "VUninterp unsupported"
       -- VAIG {} -> error "VAIG unsupported" -- TODO: could be implemented
 
 exportVTuple :: [SC.Value] -> SC.Value
@@ -351,6 +354,7 @@ exportSharedTerm sc val =
       VLLVMModule {} -> error "exportSharedTerm LLVMModule"
       VProofResult {} -> error "exportSharedTerm VProofResult"
       VSatResult {} -> error "exportSharedTerm VSatResult"
+      VUninterp {} -> error "exportSharedTerm VUninterp"
       -- VAIG {} -> error "exportSharedTerm VAIG" -- TODO: could be implemented
 
 -- The ProofScript in RunVerify is in the SAWScript context, and
@@ -490,6 +494,11 @@ instance IsValue s Cry.ModuleEnv where
     toValue me = VCryptolModuleEnv me
     fromValue (VCryptolModuleEnv me) = me
     fromValue _ = error "fromValue CryptolModuleEnv"
+
+instance IsValue s (Uninterp s) where
+    toValue me = VUninterp me
+    fromValue (VUninterp me) = me
+    fromValue _ = error "fromValue Uninterp"
 
 instance IsValue s JSS.Class where
     toValue c = VJavaClass c
