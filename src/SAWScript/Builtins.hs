@@ -80,8 +80,8 @@ topReturn _ = return
 topBind :: () -> () -> SC s Value -> (Value -> SC s Value) -> SC s Value
 topBind _ _ = (>>=)
 
-definePrim :: SharedContext s -> String -> SharedTerm s -> IO (SharedTerm s)
-definePrim sc name rhs = scConstant sc ident rhs
+definePrim :: SharedContext s -> String -> SV.TypedTerm s -> IO (SV.TypedTerm s)
+definePrim sc name (SV.TypedTerm schema rhs) = SV.TypedTerm schema <$> scConstant sc ident rhs
   where ident = mkIdent (moduleName (scModule sc)) name
 
 -- TODO: Add argument for uninterpreted-function map
