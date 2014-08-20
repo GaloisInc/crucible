@@ -174,11 +174,11 @@ parseTypedTerm sc env input = do
   pexpr <- ioParseExpr input
 
   -- | Eliminate patterns
-  (npe, _) <- liftModuleM modEnv (MB.noPat pexpr)
+  (npe, _) <- liftModuleM modEnv (MM.interactive (MB.noPat pexpr))
 
   -- | Resolve names
   nameEnv <- getNamingEnv env
-  (re, _) <- liftModuleM modEnv (MB.rename nameEnv npe)
+  (re, _) <- liftModuleM modEnv (MM.interactive (MB.rename nameEnv npe))
 
   -- | Infer types
   let ifDecls = getAllIfaceDecls modEnv
