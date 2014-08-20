@@ -96,10 +96,8 @@ definePrim :: SharedContext s -> String -> SharedTerm s -> IO (SharedTerm s)
 definePrim sc name rhs = scConstant sc ident rhs
   where ident = mkIdent (moduleName (scModule sc)) name
 
-type Uninterp s = (String, SharedTerm s)
-
 sbvUninterpreted :: SharedContext s -> String -> SharedTerm s -> IO (Uninterp s)
-sbvUninterpreted _ s t = return (s, t)
+sbvUninterpreted _ s t = return $ Uninterp (s, t)
 
 readSBV :: SharedContext s -> SS.Type -> FilePath -> [Uninterp s] -> IO (SharedTerm s)
 readSBV sc ty path unintlst =
@@ -109,7 +107,7 @@ readSBV sc ty path unintlst =
             fail $ "read_sbv: expected " ++ showTyp ty ++ ", found " ++ showTyp ty'
        SBV.parseSBVPgm sc (\s _ -> Map.lookup s unintmap) pgm
     where
-      unintmap = Map.fromList unintlst
+      unintmap = Map.fromList $ map getUninterp unintlst
       showTyp :: SS.Type -> String
       showTyp = show . SS.pretty False
       importTyp :: SBV.Typ -> SS.Type
