@@ -494,10 +494,10 @@ rewritePrim :: SharedContext s -> Simpset (SharedTerm s) -> SharedTerm s -> IO (
 rewritePrim sc ss t = rewriteSharedTerm sc ss t
 
 addsimp :: SharedContext s -> Theorem s -> Simpset (SharedTerm s) -> Simpset (SharedTerm s)
-addsimp _sc (Theorem t) ss = addRule (ruleOfPred t) ss
+addsimp _sc (Theorem t) ss = addRule (ruleOfProp t) ss
 
 addsimp' :: SharedContext s -> SharedTerm s -> Simpset (SharedTerm s) -> Simpset (SharedTerm s)
-addsimp' _sc t ss = addRule (ruleOfPred t) ss
+addsimp' _sc t ss = addRule (ruleOfProp t) ss
 
 equalPrim :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
 equalPrim t1 t2 = mkSC $ \sc -> equal sc [] t1 t2
