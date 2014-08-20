@@ -313,10 +313,8 @@ transitivePrimEnv m = Map.unions (env : envs)
 -- Primitives ------------------------------------------------------------------
 
 print_value :: SS.Type -> Value SAWCtx -> IO ()
-print_value _t (VString s) = do putStrLn "Printing a string:"
-                                putStrLn s
-print_value t v = do
-  putStrLn "Printing a value:"
+print_value _t (VString s) = putStrLn s
+print_value t v =
   putStrLn (showsPrecValue defaultPPOpts 0 (Just t) v "")
 
 valueEnv :: Options -> BuiltinContext -> RNameMap (Value SAWCtx)
