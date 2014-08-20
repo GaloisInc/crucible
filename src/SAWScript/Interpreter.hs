@@ -51,6 +51,8 @@ import qualified Verifier.LLVM.Backend.SAW as LLVMSAW
 
 import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 
+import qualified Cryptol.TypeCheck.AST as T
+
 type Expression = SS.Expr SS.ResolvedName SS.Schema
 type BlockStatement = SS.BlockStmt SS.ResolvedName SS.Schema
 type RNameMap = Map (Located SS.ResolvedName)
@@ -62,6 +64,18 @@ data InterpretEnv s = InterpretEnv
   , ieTypes   :: RNameMap SS.Schema
   , ieCryptol :: CEnv.CryptolEnv s
   }
+
+extendEnv :: SS.LName -> SS.Schema -> Value s -> InterpretEnv s -> InterpretEnv s
+extendEnv x t v (InterpretEnv vm tm ce) = InterpretEnv vm' tm' ce'
+  where
+    name = fmap SS.LocalName x
+    qname = T.QName Nothing (T.Name (getOrig x))
+    vm' = Map.insert name v vm
+    tm' = Map.insert name t tm
+    ce' = case v of
+            VTerm (Just schema) trm
+              -> CEnv.bindTypedTerm (qname, TypedTerm schema trm) ce
+            _ -> ce
 
 -- Type matching ---------------------------------------------------------------
 
@@ -142,21 +156,18 @@ interpret sc env@(InterpretEnv vm tm ce) expr =
                                   Nothing -> fail $ "unknown variable: " ++ SS.renderResolvedName (SS.getVal x)
                                   Just v -> return v
 -}
-      SS.Function x t e    _ -> do let name = fmap SS.LocalName x
-                                   let tm' = Map.insert name t tm
-                                   let ce' = ce -- FIXME
-                                   let f v = interpret sc (InterpretEnv (Map.insert name v vm) tm' ce') e
+      SS.Function x t e    _ -> do let f v = interpret sc (extendEnv x t v env) e
                                    return $ VLambda f
       SS.Application e1 e2 _ -> do v1 <- interpret sc env e1
                                    v2 <- interpret sc env e2
                                    case v1 of
                                      VLambda f -> f v2
                                      _ -> fail $ "interpret Application: " ++ show v1
-      SS.LetBlock bs e       -> do let m = Map.fromList [ (Located (SS.LocalName $ getVal x) (getOrig x) (getPos x), y) | (x, y) <- bs ]
-                                   vm' <- traverse (interpretPoly sc env) m
-                                   let tm' = fmap SS.typeOf m
-                                   let ce' = ce -- FIXME
-                                   interpret sc (InterpretEnv (Map.union vm' vm) (Map.union tm' tm) ce') e
+      SS.LetBlock bs e       -> do let f env0 (x, rhs) = do v <- interpretPoly sc env0 rhs
+                                                            let t = SS.typeOf rhs
+                                                            return (extendEnv x t v env0)
+                                   env' <- foldM f env bs
+                                   interpret sc env' e
 
 interpretPoly
     :: forall s. SharedContext s
@@ -178,11 +189,9 @@ interpretStmts sc env@(InterpretEnv vm tm ce) stmts =
           do v1 <- interpret sc env e
              v2 <- interpretStmts sc env ss
              return (v1 `thenValue` v2)
-      SS.Bind (Just (x, _)) _ e : ss ->
+      SS.Bind (Just (x, t)) _ e : ss ->
           do v1 <- interpret sc env e
-             let name = fmap SS.LocalName x
-             let ce' = ce -- FIXME
-             let f v = interpretStmts sc (InterpretEnv (Map.insert name v vm) tm ce') ss -- FIXME: update type map 'tm'
+             let f v = interpretStmts sc (extendEnv x t v env) ss
              return (bindValue sc v1 (VLambda f))
       SS.BlockLet bs : ss -> interpret sc env (SS.LetBlock bs (SS.Block ss undefined))
       SS.BlockTypeDecl {} : _ -> fail "BlockTypeDecl unsupported"
