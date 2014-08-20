@@ -85,28 +85,13 @@ definePrim sc name (SV.TypedTerm schema rhs) = SV.TypedTerm schema <$> scConstan
   where ident = mkIdent (moduleName (scModule sc)) name
 
 -- TODO: Add argument for uninterpreted-function map
-readSBV :: SharedContext s -> SS.Type -> FilePath -> IO (SV.TypedTerm s)
-readSBV sc ty path =
+readSBV :: SharedContext s -> FilePath -> IO (SV.TypedTerm s)
+readSBV sc path =
     do pgm <- SBV.loadSBV path
-       let ty' = importTyp (SBV.typOf pgm)
-       when (ty /= ty') $
-            fail $ "read_sbv: expected " ++ showTyp ty ++ ", found " ++ showTyp ty'
        let schema = C.Forall [] [] (toCType (SBV.typOf pgm))
        trm <- SBV.parseSBVPgm sc (\_ _ -> Nothing) pgm
        return (SV.TypedTerm schema trm)
     where
-      showTyp :: SS.Type -> String
-      showTyp = show . SS.pretty False
-
-      importTyp :: SBV.Typ -> SS.Type
-      importTyp typ =
-        case typ of
-          SBV.TBool -> SS.TyCon SS.BoolCon []
-          SBV.TFun t1 t2 -> SS.TyCon SS.FunCon [importTyp t1, importTyp t2]
-          SBV.TVec n t -> SS.TyCon SS.ArrayCon [SS.TyCon (SS.NumCon n) [], importTyp t]
-          SBV.TTuple ts -> SS.TyCon (SS.TupleCon (toInteger (length ts))) (map importTyp ts)
-          SBV.TRecord bs -> SS.TyRecord (fmap importTyp (Map.fromList bs))
-
       toCType :: SBV.Typ -> C.Type
       toCType typ =
         case typ of
