@@ -312,9 +312,10 @@ transitivePrimEnv m = Map.unions (env : envs)
 
 -- Primitives ------------------------------------------------------------------
 
-print_value :: SS.Type -> Value SAWCtx -> IO ()
-print_value _t (VString s) = putStrLn s
-print_value t v =
+print_value :: SharedContext SAWCtx -> SS.Type -> Value SAWCtx -> IO ()
+print_value _sc _t (VString s) = putStrLn s
+print_value  sc _t (VTerm _ trm) = print (evaluate sc trm)
+print_value _sc  t v =
   putStrLn (showsPrecValue defaultPPOpts 0 (Just t) v "")
 
 valueEnv :: Options -> BuiltinContext -> RNameMap (Value SAWCtx)
@@ -387,7 +388,7 @@ valueEnv opts bic = Map.fromList
   , (qualify "term"         , toValue (id :: Value SAWCtx -> Value SAWCtx))
   , (qualify "term_size"    , toValue (scSharedSize :: SharedTerm SAWCtx -> Integer))
   , (qualify "term_tree_size", toValue (scTreeSize :: SharedTerm SAWCtx -> Integer))
-  , (qualify "print"       , toValue print_value)
+  , (qualify "print"       , toValue $ print_value sc)
   , (qualify "print_type"  , toValue $ print_type sc)
   , (qualify "print_term"  , toValue ((putStrLn . scPrettyTerm) :: SharedTerm SAWCtx -> IO ()))
   , (qualify "show_term"   , toValue (scPrettyTerm :: SharedTerm SAWCtx -> String))
