@@ -16,7 +16,6 @@ module SAWScript.JavaMethodSpec
   , runValidation
   , mkSpecVC
   , ppPathVC
-  , scJavaValue
   , VerifyParams(..)
   , VerifyState(..)
   , EvalContext(..)
@@ -181,28 +180,19 @@ evalJavaExprAsLogic expr ec = do
     JSS.LValue n -> return n
     _ -> error "internal: evalJavaExprAsExpr encountered illegal value."
 
-scJavaValue :: SharedContext s -> SharedTerm s -> String -> IO (SharedTerm s)
-scJavaValue sc ty name = do
-  s <- scString sc name
-  ty' <- scRemoveBitvector sc ty
-  mkValue <- scApplyJavaMkValue sc
-  mkValue ty' s
-
 -- | Evaluates a typed expression in the context of a particular state.
 evalLogicExpr :: TC.LogicExpr -> EvalContext -> ExprEvaluator (SharedTerm JSSCtx)
 evalLogicExpr initExpr ec = liftIO $ do
   let sc = ecContext ec
-  t <- TC.useLogicExpr sc initExpr
-  let exprs = filter (not . TC.isClassJavaExpr . snd) . Map.toList . ecJavaExprs
-  rules <- forM (exprs ec) $ \(name, expr) ->
-             do lt <- evalJavaExprAsLogic expr ec
-                ty <- scTypeOf sc lt
-                nt <- scJavaValue sc ty name
-                return (ruleOfTerms nt lt)
-  -- liftIO $ print rules
-  basics <- basic_ss sc
-  let ss = addRules rules basics
-  rewriteSharedTerm sc ss t
+      getExprs =
+        filter (not . TC.isClassJavaExpr . snd) . Map.toList . ecJavaExprs
+      exprs = getExprs ec
+  args <- forM exprs $ \(name, expr) -> do
+    t <- evalJavaExprAsLogic expr ec
+    return (expr, t)
+  let argMap = Map.fromList args
+      argTerms = mapMaybe (\k -> Map.lookup k argMap) (TC.logicExprJavaExprs initExpr)
+  TC.useLogicExpr sc initExpr argTerms
 
 -- | Return Java value associated with mixed expression.
 evalMixedExpr :: TC.MixedExpr -> EvalContext
@@ -231,6 +221,11 @@ evalMixedExpr (TC.LE expr) ec = do
       "internal: unsupported expression passed to evalMixedExpr: " ++
       show ty'
 evalMixedExpr (TC.JE expr) ec = evalJavaExpr expr ec
+
+evalMixedExprAsLogic :: TC.MixedExpr -> EvalContext
+                     -> ExprEvaluator (SharedTerm JSSCtx)
+evalMixedExprAsLogic (TC.LE expr) = evalLogicExpr expr
+evalMixedExprAsLogic (TC.JE expr) = evalJavaExprAsLogic expr
 
 -- Method specification overrides {{{1
 -- OverrideComputation definition {{{2
@@ -345,7 +340,7 @@ ocStep (EnsureStaticField _pos f rhsExpr) = do
     ocModifyResultState $ setStaticFieldValue f value
 ocStep (EnsureArray _pos lhsExpr rhsExpr) = do
   ocEval (evalJavaRefExpr lhsExpr) $ \lhsRef ->
-    ocEval (evalLogicExpr   rhsExpr) $ \rhsVal -> do
+    ocEval (evalMixedExprAsLogic rhsExpr) $ \rhsVal -> do
       sc <- gets (ecContext . ocsEvalContext)
       ty <- liftIO $ scTypeOf sc rhsVal
       ocModifyResultState $ setArrayValue lhsRef ty rhsVal
@@ -419,7 +414,7 @@ execBehavior bsl ec ps = do
        -- Verify the initial logic assignments
        forM_ (bsLogicAssignments bs) $ \(pos, lhs, rhs) -> do
          ocEval (evalJavaExprAsLogic lhs) $ \lhsVal ->
-           ocEval (evalLogicExpr rhs) $ \rhsVal ->
+           ocEval (evalMixedExprAsLogic rhs) $ \rhsVal ->
              ocAssert pos "Override value assertion"
                 =<< liftIO (scEq sc lhsVal rhsVal)
        -- Execute statements.
@@ -750,7 +745,7 @@ esStep (ModifyStaticField f) = do
 esStep (EnsureArray _pos lhsExpr rhsExpr) = do
   -- Evaluate expressions.
   ref    <- esEval $ evalJavaRefExpr lhsExpr
-  value  <- esEval $ evalLogicExpr rhsExpr
+  value  <- esEval $ evalMixedExprAsLogic rhsExpr
   -- Get dag engine
   sc <- gets esContext
   ty <- liftIO $ scTypeOf sc value

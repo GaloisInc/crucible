@@ -26,6 +26,7 @@ module SAWScript.JavaMethodSpecIR
   , specAddLogicAssignment
   , specAddAliasSet
   , specJavaExprNames
+  , specActualTypeMap
   , initMethodSpec
   --, resolveMethodSpecIR
     -- * Method behavior.
@@ -99,7 +100,7 @@ data BehaviorCommand
      -- | Assign static Java field the value given by the mixed expression.
    | EnsureStaticField Pos JSS.FieldId MixedExpr
      -- | Assign array value of Java expression the value given by the rhs.
-   | EnsureArray Pos JavaExpr LogicExpr
+   | EnsureArray Pos JavaExpr MixedExpr
      -- | Modify the Java expression to an arbitrary value.
      -- May point to integral type or array.
    | ModifyInstanceField JavaExpr JSS.FieldId
@@ -121,8 +122,8 @@ data BehaviorSpec = BS {
        , bsMustAliasSet :: CCSet JavaExprF
          -- | May alias relation between Java expressions.
        , bsMayAliasClasses :: [[JavaExpr]]
-         -- | Equations 
-       , bsLogicAssignments :: [(Pos, JavaExpr, LogicExpr)]
+         -- | Equations
+       , bsLogicAssignments :: [(Pos, JavaExpr, MixedExpr)]
          -- | Commands to execute in reverse order.
        , bsReversedCommands :: [BehaviorCommand]
        } deriving (Show)
@@ -172,23 +173,19 @@ bsPrimitiveExprs :: BehaviorSpec -> [JavaExpr]
 bsPrimitiveExprs bs =
   [ e | (e, PrimitiveType _) <- Map.toList (bsActualTypeMap bs) ]
  
-bsLogicEqs :: Map String JavaExpr -> BehaviorSpec -> [(JavaExpr, JavaExpr)]
-bsLogicEqs m bs =
-  [ (lhs, fromJust rhs') |
-    (_, lhs, rhs) <- bsLogicAssignments bs
-  , let rhs' = asJavaExpr m rhs
-  , isJust rhs'
-  ]
+bsLogicEqs :: BehaviorSpec -> [(JavaExpr, JavaExpr)]
+bsLogicEqs bs =
+  [ (lhs, rhs) | (_, lhs, JE rhs) <- bsLogicAssignments bs ]
 
 -- | Returns logic assignments to equivance class.
-bsAssignmentsForClass :: Map String JavaExpr -> BehaviorSpec -> JavaExprEquivClass
+bsAssignmentsForClass ::  BehaviorSpec -> JavaExprEquivClass
                       -> [LogicExpr]
-bsAssignmentsForClass m bs cl = res 
+bsAssignmentsForClass bs cl = res 
   where s = Set.fromList cl
         res = [ rhs 
-              | (_, lhs,rhs) <- bsLogicAssignments bs
+              | (_, lhs, LE rhs) <- bsLogicAssignments bs
               , Set.member lhs s
-              , not (isJust (asJavaExpr m rhs)) ]
+              ]
 
 -- | Retuns ordering of Java expressions to corresponding logic value.
 bsLogicClasses :: forall s.
@@ -200,7 +197,7 @@ bsLogicClasses :: forall s.
 bsLogicClasses sc m bs cfg = do
   let allClasses = CC.toList
                    -- Add logic equations.
-                   $ flip (foldr (uncurry CC.insertEquation)) (bsLogicEqs m bs)
+                   $ flip (foldr (uncurry CC.insertEquation)) (bsLogicEqs bs)
                    -- Add primitive expression.
                    $ flip (foldr CC.insertTerm) (bsPrimitiveExprs bs)
                    -- Create initial set with references.
@@ -220,13 +217,13 @@ bsLogicClasses sc m bs cfg = do
       -- Create edges
       exprNodeMap = Map.fromList [ (e,n) | (n,(cl,_)) <- grNodes, e <- cl ]
       grEdges = [ (s,t,()) | (t,(cl,_)) <- grNodes
-                           , src:_ <- [bsAssignmentsForClass m bs cl]
-                           , se <- Set.toList (logicExprJavaExprs m src)
+                           , src:_ <- [bsAssignmentsForClass bs cl]
+                           , se <- logicExprJavaExprs src
                            , let Just s = Map.lookup se exprNodeMap ]
       -- Compute strongly connected components.
       components = scc (mkGraph grNodes grEdges :: Gr (JavaExprEquivClass, SharedTerm s) ())
   return $ if all (\l -> length l == 1) components
-             then Just [ (cl, at, bsAssignmentsForClass m bs cl)
+             then Just [ (cl, at, bsAssignmentsForClass bs cl)
                        | [n] <- components
                        , let (cl,at) = v V.! n ]
              else Nothing
@@ -316,7 +313,7 @@ specAddVarDecl name expr jt ms = ms { specBehaviors = bs'
                  }
         ns' = Map.insert name expr (specJavaExprNames ms)
 
-specAddLogicAssignment :: Pos -> JavaExpr -> LogicExpr
+specAddLogicAssignment :: Pos -> JavaExpr -> MixedExpr
                        -> JavaMethodSpecIR -> JavaMethodSpecIR
 specAddLogicAssignment pos expr t ms = ms { specBehaviors = bs' }
   where bs = specBehaviors ms
@@ -332,3 +329,6 @@ specAddBehaviorCommand :: BehaviorCommand
                        -> JavaMethodSpecIR -> JavaMethodSpecIR
 specAddBehaviorCommand bc ms =
   ms { specBehaviors = bsAddCommand bc (specBehaviors ms) }
+
+specActualTypeMap :: JavaMethodSpecIR -> Map JavaExpr JavaActualType
+specActualTypeMap = bsActualTypeMap . specBehaviors

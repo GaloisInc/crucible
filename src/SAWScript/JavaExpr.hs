@@ -5,11 +5,11 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
 module SAWScript.JavaExpr
   (-- * Java Expressions
     JavaExprF(..)
   , JavaExpr
-  , asJavaExpr
   , thisJavaExpr
   , ppJavaExpr
   , jssTypeOfJavaExpr
@@ -19,7 +19,8 @@ module SAWScript.JavaExpr
   , LogicExpr
   , logicExprJavaExprs
   , useLogicExpr
-  , mkLogicExpr
+  , mkMixedExpr
+  , scJavaValue
     -- * Mixed expressions
   , MixedExpr(..)
     -- * Actual type
@@ -33,18 +34,23 @@ module SAWScript.JavaExpr
 
 -- Imports {{{2
 
-import Control.Applicative ((<$>))
+import Control.Applicative
+import Control.Monad
 import Control.Monad.Error (Error(..))
+import Data.Foldable
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Maybe
 
 import Language.JVM.Common (ppFldId)
 
 import qualified Verifier.Java.Codebase as JSS
+import Verifier.Java.SAWBackend hiding (basic_ss)
 
 import Verifier.SAW.Recognizer
+import Verifier.SAW.Rewriter
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST
 
@@ -105,15 +111,11 @@ ppJavaExpr (CC.Term exprF) =
     InstanceField r f -> ppJavaExpr r ++ "." ++ JSS.fieldIdName f
     StaticField f -> ppFldId f
 
-asJavaExpr :: Map String JavaExpr -> LogicExpr -> Maybe JavaExpr
-asJavaExpr m (LogicExpr t) = asJavaExpr' m t
-
-asJavaExpr' :: Map String JavaExpr -> SharedTerm SAWCtx -> Maybe JavaExpr
-asJavaExpr' m (asCtor -> Just (i, [e])) =
-  case e of
-    (asStringLit -> Just s) | i == parseIdent "Java.mkValue" -> Map.lookup s m
+asJavaExpr :: SharedTerm SAWCtx -> Maybe String
+asJavaExpr t =
+  case asApplyAll t of
+    (asGlobalDef -> Just "Java.mkValue", [_, asStringLit -> s]) -> s
     _ -> Nothing
-asJavaExpr' _ _ = Nothing
 
 -- | Returns JSS Type of JavaExpr
 jssTypeOfJavaExpr :: JavaExpr -> JSS.Type
@@ -133,28 +135,79 @@ isClassJavaExpr = isClassType . jssTypeOfJavaExpr
 
 -- LogicExpr {{{1
 
-newtype LogicExpr = LogicExpr (SharedTerm SAWCtx)
+data LogicExpr =
+  LogicExpr { -- | A term, possibly function type, which does _not_
+              -- contain any @Java.mkValue@ subexpressions.
+              leTerm :: SharedTerm SAWCtx
+              -- | The Java expressions, if any, that the term should
+              -- be applied to
+            , leJavaArgs :: [JavaExpr]
+            }
   deriving (Show)
 
-mkLogicExpr :: SharedTerm SAWCtx -> LogicExpr
-mkLogicExpr = LogicExpr
+scJavaValue :: SharedContext s -> SharedTerm s -> String -> IO (SharedTerm s)
+scJavaValue sc ty name = do
+  s <- scString sc name
+  ty' <- scRemoveBitvector sc ty
+  mkValue <- scGlobalDef sc (parseIdent "Java.mkValue")
+  scApplyAll sc mkValue [ty', s]
 
-useLogicExpr :: SharedContext JSSCtx -> LogicExpr -> IO (SharedTerm JSSCtx)
-useLogicExpr sc (LogicExpr t) = scImport sc t
+mkMixedExpr :: Map String JavaExpr
+            -> Map JavaExpr JavaActualType
+            -> SharedContext SAWCtx
+            -> SharedTerm SAWCtx
+            -> IO MixedExpr
+mkMixedExpr m _ _ (asJavaExpr -> Just s) =
+  case Map.lookup s m of
+    Nothing -> fail $ "Java expression not found: " ++ s
+    Just je -> return (JE je)
+mkMixedExpr m tys sc t = do
+  let javaExprNames = Set.toList (termJavaExprs t)
+      findWithMsg msg k m = maybe (fail msg) return (Map.lookup k m)
+  -- print javaExprNames
+  localVars <- mapM (scLocalVar sc) $ reverse [0..length javaExprNames - 1]
+  r <- forM (zip javaExprNames localVars) $ \(name, var) -> do
+    jexp <- findWithMsg ("Unknown Java expression: " ++ name) name m
+    aty <- findWithMsg ("No type for Java expression: " ++ name) jexp tys
+    mlty <- logicTypeOfActual sc aty
+    case mlty of
+      Just lty -> do
+        jval <- scJavaValue sc lty name
+        -- print $ "Rule: " ++ show jval ++ " -> " ++ show var
+        return (jexp, (name, lty), ruleOfTerms jval var)
+      Nothing -> fail $ "Can't convert actual type to logic type: " ++ show aty
+  let (javaExprs, args, rules) = unzip3 r
+  basics <- basic_ss sc
+  let ss = addRules rules basics
+  t' <- rewriteSharedTerm sc ss t
+  le <- LogicExpr <$> scLambdaList sc args t' <*> pure javaExprs
+  return (LE le)
+
+-- | Return java expressions in logic expression.
+logicExprJavaExprs :: LogicExpr -> [JavaExpr]
+logicExprJavaExprs = leJavaArgs
+
+termJavaExprs :: SharedTerm SAWCtx -> Set String
+termJavaExprs = snd . impl (Set.empty, Set.empty)
+  where impl a@(seen, exprs) t@(STApp idx tf)
+          | Set.member idx seen = a
+          | otherwise =
+            case asJavaExpr t of
+              Just s -> (Set.insert idx seen, Set.insert s exprs)
+              Nothing -> foldl' impl (Set.insert idx seen, exprs) tf
+
+useLogicExpr :: SharedContext JSSCtx -> LogicExpr -> [SharedTerm JSSCtx]
+             -> IO (SharedTerm JSSCtx)
+useLogicExpr sc (LogicExpr t _) args = do
+  -- TODO: check that args are the right type
+  t' <- scImport sc t
+  scApplyAll sc t' args
 
 {-
 -- | Return type of a typed expression.
 typeOfLogicExpr :: SharedContext s -> LogicExpr s -> IO (SharedTerm s)
 typeOfLogicExpr = scTypeOf
 -}
-
--- | Return java expressions in logic expression.
-logicExprJavaExprs :: Map String JavaExpr -> LogicExpr -> Set JavaExpr
-logicExprJavaExprs m (LogicExpr t) = logicExprJavaExprs' m t
-
-logicExprJavaExprs' :: Map String JavaExpr -> SharedTerm SAWCtx -> Set JavaExpr
-logicExprJavaExprs' m (STApp _ tf) = CC.foldMap impl tf
-  where impl = maybe Set.empty Set.singleton . asJavaExpr' m
 
 {-
 -- | Returns names of variables appearing in typedExpr.

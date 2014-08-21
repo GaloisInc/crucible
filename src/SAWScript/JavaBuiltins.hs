@@ -384,9 +384,19 @@ javaMayAlias bic _ exprs = do
 
 javaAssert :: BuiltinContext -> Options -> SharedTerm SAWCtx
            -> JavaSetup ()
-javaAssert _ _ v =
-  modify $ \st ->
-    st { jsSpec = specAddBehaviorCommand (AssertPred fixPos (mkLogicExpr v)) (jsSpec st) }
+javaAssert bic _ v = do
+  --liftIO $ print "javaAssert"
+  ms <- gets jsSpec
+  let m = specJavaExprNames ms
+      atm = specActualTypeMap ms
+  let sc = biSharedContext bic
+  me <- liftIO $ mkMixedExpr m atm sc v
+  case me of
+    LE le ->
+      modify $ \st ->
+        st { jsSpec =
+               specAddBehaviorCommand (AssertPred fixPos le) (jsSpec st) }
+    JE je -> fail "Used java_assert with Java expression"
 
 getJavaExpr :: Monad m =>
                JavaMethodSpecIR -> String
@@ -398,28 +408,40 @@ getJavaExpr ms name = do
 
 javaAssertEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
            -> JavaSetup ()
-javaAssertEq _bic _ name t = do
+javaAssertEq bic _ name t = do
+  --liftIO $ print "javaAssertEq"
   ms <- gets jsSpec
+  let m = specJavaExprNames ms
+      atm = specActualTypeMap ms
+  let sc = biSharedContext bic
   (expr, _) <- liftIO $ getJavaExpr ms name
+  me <- liftIO $ mkMixedExpr m atm sc t
   modify $ \st ->
-    st { jsSpec = specAddLogicAssignment fixPos expr (mkLogicExpr t) ms }
+    st { jsSpec = specAddLogicAssignment fixPos expr me ms }
 
 javaEnsureEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
              -> JavaSetup ()
-javaEnsureEq _bic _ name t = do
+javaEnsureEq bic _ name t = do
+  --liftIO $ print "javaEnsureEq"
   ms <- gets jsSpec
   (expr, ty) <- liftIO $ getJavaExpr ms name
+  let m = specJavaExprNames ms
+      atm = specActualTypeMap ms
+  let sc = biSharedContext bic
+  --liftIO $ putStrLn "Making MixedExpr"
+  me <- liftIO $ mkMixedExpr m atm sc t
+  --liftIO $ putStrLn "Done making MixedExpr"
   let cmd = case (CC.unTerm expr, ty) of
-              (_, JSS.ArrayType _) -> EnsureArray fixPos expr le
-              (InstanceField r f, _) -> EnsureInstanceField fixPos r f (LE le)
-              (StaticField f, _) -> EnsureStaticField fixPos f (LE le)
+              (_, JSS.ArrayType _) -> EnsureArray fixPos expr me
+              (InstanceField r f, _) -> EnsureInstanceField fixPos r f me
+              (StaticField f, _) -> EnsureStaticField fixPos f me
               _ -> error "invalid java_ensure command"
-      le = mkLogicExpr t
   modify $ \st -> st { jsSpec = specAddBehaviorCommand cmd ms }
 
 javaModify :: BuiltinContext -> Options -> String
            -> JavaSetup ()
 javaModify _bic _ name = do
+  --liftIO $ print "javaModify"
   ms <- gets jsSpec
   (expr, _) <- liftIO $ getJavaExpr ms name
   let mty = Map.lookup expr (bsActualTypeMap (specBehaviors ms))
@@ -432,9 +454,15 @@ javaModify _bic _ name = do
 
 javaReturn :: BuiltinContext -> Options -> SharedTerm SAWCtx
            -> JavaSetup ()
-javaReturn _ _ t =
+javaReturn bic _ t = do
+  --liftIO $ print "javaReturn"
+  ms <- gets jsSpec
+  let m = specJavaExprNames ms
+      atm = specActualTypeMap ms
+  let sc = biSharedContext bic
+  me <- liftIO $ mkMixedExpr m atm sc t
   modify $ \st ->
-    st { jsSpec = specAddBehaviorCommand (Return (LE (mkLogicExpr t))) (jsSpec st) }
+    st { jsSpec = specAddBehaviorCommand (Return me) (jsSpec st) }
 
 javaVerifyTactic :: BuiltinContext -> Options
                  -> ProofScript SAWCtx (SatResult SAWCtx)
