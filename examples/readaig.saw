@@ -1,8 +1,10 @@
 main : TopLevel ();
 main = do {
-  (t : [8] -> Bit) <- read_aig "add_comm.aig";
+  t <- read_aig "add_comm.aig";
   print "Value:";
   print t;
+  print "Type:";
+  print_type t;
   print "Term:";
   print_term t;
 };

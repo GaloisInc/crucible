@@ -1,7 +1,6 @@
 
 i : Int;
-i = '1;
+i = 1;
 
-x : {n} [n];
-x = 0xffffff;
-
+x : Term;
+x = {{ 0xffffff }};

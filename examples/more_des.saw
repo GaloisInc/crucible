@@ -1,19 +1,19 @@
 main = do {
-  (enc : ([64], [64]) -> [64]) <- read_sbv "des_enc.sbv";
-  (dec : ([64], [64]) -> [64]) <- read_sbv "des_dec.sbv";
+  enc <- read_sbv "des_enc.sbv";
+  dec <- read_sbv "des_dec.sbv";
 
-  let thm key msg = dec (key, enc (key, msg)) == msg;
+  let thm = {{ \key msg -> dec (key, enc (key, msg)) == msg }};
   prove_print abc thm;
 
-  let weak_key = (0x0101010101010101 : [64]);
-  let thm2 msg = enc (weak_key, enc (weak_key, msg)) == msg;
+  let weak_key = {{ 0x0101010101010101 : [64] }};
+  let thm2 = {{ \msg -> enc (weak_key, enc (weak_key, msg)) == msg }};
   prove_print abc thm2;
 
-  let k1 = (0x011F011F010E010E : [64]);
-  let k2 = (0x1F011F010E010E01 : [64]);
-  let thm3 msg = enc (k1, enc (k2, msg)) == msg;
+  let k1 = {{ 0x011F011F010E010E : [64] }};
+  let k2 = {{ 0x1F011F010E010E01 : [64] }};
+  let thm3 = {{ \msg -> enc (k1, enc (k2, msg)) == msg }};
   prove_print abc thm3;
 
-  let thm4 key msg = bvNot (enc (key, msg)) == enc (bvNot key, bvNot msg);
+  let thm4 = {{ \key msg -> ~ (enc (key, msg)) == enc (~ key, ~ msg) }};
   prove_print abc thm4;
 };
