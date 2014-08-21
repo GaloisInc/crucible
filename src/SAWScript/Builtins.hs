@@ -108,7 +108,7 @@ withBE f = do
 -- | Read an AIG file representing a theorem or an arbitrary function
 -- and represent its contents as a @SharedTerm@ lambda term. This is
 -- inefficient but semantically correct.
-readAIGPrim :: SharedContext s -> FilePath -> IO (SharedTerm s)
+readAIGPrim :: SharedContext s -> FilePath -> IO (SV.TypedTerm s)
 readAIGPrim sc f = do
   exists <- doesFileExist f
   unless exists $ fail $ "AIG file " ++ f ++ " not found."
@@ -124,7 +124,7 @@ readAIGPrim sc f = do
       translateNetwork sc ntk outputLits [("x", inType)] outType
   case et of
     Left err -> fail $ "Reading AIG failed: " ++ err
-    Right t -> return t
+    Right t -> SV.mkTypedTerm sc t
 
 -- | Apply some rewrite rules before exporting, to ensure that terms
 -- are within the language subset supported by formats such as SMT-Lib
@@ -218,8 +218,8 @@ writeSMTLib2 sc f t = do
 writeCore :: FilePath -> SharedTerm s -> IO ()
 writeCore path t = writeFile path (scWriteExternal t)
 
-readCore :: SharedContext s -> FilePath -> IO (SharedTerm s)
-readCore sc path = scReadExternal sc =<< readFile path
+readCore :: SharedContext s -> FilePath -> IO (SV.TypedTerm s)
+readCore sc path = SV.mkTypedTerm sc =<< scReadExternal sc =<< readFile path
 
 assumeValid :: ProofScript s (SV.ProofResult s)
 assumeValid = StateT $ \goal -> do
