@@ -112,7 +112,8 @@ parseSBVExpr sc unint nodes size (SBV.SBVApp operator sbvs) =
              t <- case unint name typ of
                Just t -> return t
                Nothing ->
-                   do -- putStrLn ("WARNING: unknown uninterpreted function " ++ show (name, typ, size))
+                   do putStrLn ("WARNING: unknown uninterpreted function " ++ show (name, typ, size))
+                      putStrLn ("Using Prelude." ++ name)
                       scGlobalDef sc (mkIdent preludeName name)
              (_inSizes, args) <- liftM unzip $ mapM (parseSBV sc nodes) sbvs
              let (TFun inTyp outTyp) = typ
