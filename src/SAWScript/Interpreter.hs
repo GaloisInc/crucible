@@ -201,9 +201,9 @@ interpretModule
     -> InterpretEnv s -> SS.ValidModule -> IO (InterpretEnv s)
 interpretModule sc env m =
     do let mn = SS.moduleName m
-       let graph = [ ((Located rname (SS.getOrig name) (SS.getPos name), e), rname, S.toList (exprDeps e))
+       let graph = [ ((name', e), SS.getVal name', S.toList (exprDeps e))
                    | (name, e) <- Map.assocs (SS.moduleExprEnv m)
-                   , let rname = SS.TopLevelName mn (SS.getVal name) ]
+                   , let name' = fmap (SS.TopLevelName mn) name ]
        let sccs = stronglyConnComp graph
        foldM (interpretSCC sc) env sccs
 
@@ -306,7 +306,7 @@ transitivePrimEnv :: SS.ValidModule -> RNameMap SS.Schema
 transitivePrimEnv m = Map.unions (env : envs)
   where
     mn = SS.moduleName m
-    env = Map.mapKeysMonotonic (\x-> Located (SS.TopLevelName mn (SS.getVal x)) (SS.getOrig x) (SS.getPos x)) (SS.modulePrimEnv m)
+    env = Map.mapKeysMonotonic (fmap (SS.TopLevelName mn)) (SS.modulePrimEnv m)
     envs = map transitivePrimEnv (Map.elems (SS.moduleDependencies m))
 
 
