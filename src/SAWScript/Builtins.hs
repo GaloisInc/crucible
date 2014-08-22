@@ -128,7 +128,7 @@ readAIGPrim :: SharedContext s -> FilePath -> IO (SharedTerm s)
 readAIGPrim sc f = do
   exists <- doesFileExist f
   unless exists $ fail $ "AIG file " ++ f ++ " not found."
-  et <- readAIG' sc f
+  et <- readAIG sc f
   case et of
     Left err -> fail $ "Reading AIG failed: " ++ err
     Right t -> return t
