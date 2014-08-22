@@ -33,7 +33,7 @@ import Verifier.LLVM.Backend.SAW (llvmModule)
 
 import Verifier.SAW.Constant
 import Verifier.SAW.ExternalFormat
-import Verifier.SAW.BitBlast
+import qualified Verifier.SAW.BitBlast as Old
 import Verifier.SAW.Evaluator hiding (applyAll)
 import Verifier.SAW.Prelude
 import qualified Verifier.SAW.Prim as Prim
@@ -250,12 +250,12 @@ satABCold sc = StateT $ \g -> withBE $ \be -> do
   let (args, _) = asLambdaList t'
       argNames = map fst args
       argTys = map snd args
-  shapes <- mapM parseShape argTys
-  mbterm <- bitBlast be t'
+  shapes <- mapM Old.parseShape argTys
+  mbterm <- Old.bitBlast be t'
   case mbterm of
     Right bterm -> do
       case bterm of
-        BBool l -> do
+        Old.BBool l -> do
           satRes <- ABC.checkSat be l
           case satRes of
             ABC.Unsat -> do
@@ -302,11 +302,11 @@ satABC sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
           let vs = map (SV.evaluate sc) tms
           return (SV.SatMulti (zip argNames vs), g { goalTerm = tt })
 
-convertShape :: BBSim.BShape -> BShape --FIXME: temporary
-convertShape BBSim.BoolShape = BoolShape
-convertShape (BBSim.VecShape n x) = VecShape n (convertShape x)
-convertShape (BBSim.TupleShape xs) = TupleShape (map convertShape xs)
-convertShape (BBSim.RecShape xm) = RecShape (fmap convertShape xm)
+convertShape :: BBSim.BShape -> Old.BShape --FIXME: temporary
+convertShape BBSim.BoolShape = Old.BoolShape
+convertShape (BBSim.VecShape n x) = Old.VecShape n (convertShape x)
+convertShape (BBSim.TupleShape xs) = Old.TupleShape (map convertShape xs)
+convertShape (BBSim.RecShape xm) = Old.RecShape (fmap convertShape xm)
 
 {-
 satYices :: SharedContext s -> ProofScript s (SV.SatResult s)
@@ -470,13 +470,13 @@ satSMTLib1 sc path = satWithExporter writeSMTLib1 sc path ".smt"
 satSMTLib2 :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
 satSMTLib2 sc path = satWithExporter writeSMTLib2 sc path ".smt2"
 
-liftCexBB :: SharedContext s -> [BShape] -> [Bool]
+liftCexBB :: SharedContext s -> [Old.BShape] -> [Bool]
           -> IO (Either String [SharedTerm s])
 liftCexBB sc shapes bs =
-  case liftCounterExamples shapes bs of
+  case Old.liftCounterExamples shapes bs of
     Left err -> return (Left err)
     Right bvals -> do
-      ts <- mapM (scSharedTerm sc . liftConcreteBValue) bvals
+      ts <- mapM (scSharedTerm sc . Old.liftConcreteBValue) bvals
       return (Right ts)
 
 liftCexYices :: SharedContext s -> Y.YVal
