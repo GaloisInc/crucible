@@ -243,10 +243,8 @@ commandList  =
     "use random testing to check that the argument always returns true"
   , CommandDescr ":prove" (ExprArg proveCmd)
     "use an external solver to prove that the argument always returns true"
--}
   , CommandDescr ":sat" (ExprArg satCmd)
     "use a solver to find a satisfying assignment for which the argument returns true"
-{-
   , CommandDescr ":debug_specialize" (ExprArg specializeCmd)
     "do type specialization on a closed expression"
 -}
@@ -393,68 +391,6 @@ qcCmd str =
                    return False
 -}
 
-{-
-proveCmd :: String -> REPL ()
-proveCmd str = do
-  parseExpr <- replParseExpr str
-  (expr, schema) <- replCheckExpr parseExpr
-  -- spexpr <- replSpecExpr expr
-  EnvString proverName <- getUser "prover"
-  EnvBool iteSolver <- getUser "iteSolver"
-  EnvBool verbose <- getUser "debug"
-  result <- liftModuleCmd $ Cryptol.Symbolic.prove (proverName, iteSolver, verbose) (expr, schema)
-  ppOpts <- getPPValOpts
-  case result of
-    Left msg        -> io $ putStrLn msg
-    Right Nothing   -> io $ putStrLn "Q.E.D."
-    Right (Just vs) -> io $ print $ hsep (doc : docs) <+> text "= False"
-                         where doc = ppPrec 3 parseExpr -- function application has precedence 3
-                               docs = map (pp . E.WithBase ppOpts) vs
--}
-
--- | Prove satisfiability with ABC.
-satCmd :: String -> REPL ()
-satCmd str = do
-  parseExpr <- replParseExpr str
-  (expr, schema) <- replCheckExpr parseExpr
-  t <- replTranslateExpr expr
-  sc <- getSharedContext
-  io $ printSat sc t
-
-printSat :: SharedContext s -> SharedTerm s -> IO ()
-printSat sc t = AIG.withNewGraph aigNetwork $ \be -> do
-  let (args, _) = Verifier.SAW.Recognizer.asLambdaList t
-      argNames = map fst args
-  putStrLn "Simulating..."
-  (shapes, lit) <- BBSim.bitBlast be sc t
-  putStrLn "Checking..."
-  satRes <- AIG.checkSat be lit
-  case satRes of
-    AIG.Unsat -> do
-      putStrLn "Unsatisfiable."
-    AIG.Sat cex -> do
-      r <- SAWScript.Builtins.liftCexBB sc (map SAWScript.Builtins.convertShape shapes) cex
-      case r of
-        Left err -> fail $ "Can't parse counterexample: " ++ err
-        Right [tm] ->
-          print (SAWScript.Value.evaluate sc tm)
-        Right tms -> do
-          let vs = map (SAWScript.Value.evaluate sc) tms
-          mapM_ print (zip argNames vs)
-{-
-  EnvString proverName <- getUser "prover"
-  EnvBool iteSolver <- getUser "iteSolver"
-  EnvBool verbose <- getUser "debug"
-  result <- liftModuleCmd $ Cryptol.Symbolic.sat (proverName, iteSolver, verbose) (expr, schema)
-  ppOpts <- getPPValOpts
-  case result of
-    Left msg        -> io $ putStrLn msg
-    Right Nothing   -> io $ putStrLn "Unsatisfiable."
-    Right (Just vs) -> io $ print $ hsep (doc : docs) <+> text "= True"
-                         where doc = ppPrec 3 parseExpr -- function application has precedence 3
-                               docs = map (pp . E.WithBase ppOpts) vs
--}
-
 typeOfCmd :: String -> REPL ()
 typeOfCmd str = do
   expr      <- replParseExpr str
@@ -558,7 +494,7 @@ envCmd _pfx = do
   io $ sequence_ [ putStrLn (showLName x ++ " = " ++ show v) | (x, v) <- Map.assocs (interpretEnvValues env) ]
   io $ putStrLn "\nTypes:\n"
 -}
-  io $ sequence_ [ putStrLn (showLName x ++ " : " ++ SS.pShow v) | (x, v) <- Map.assocs (interpretEnvTypes env) ]
+  io $ sequence_ [ putStrLn (showLName x ++ " : " ++ SS.pShow v) | (x, v) <- Map.assocs (ieTypes env) ]
 
 browseCmd :: String -> REPL ()
 browseCmd pfx = do

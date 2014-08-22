@@ -14,6 +14,7 @@ module SAWScript.JavaExpr
   , ppJavaExpr
   , jssTypeOfJavaExpr
   , isRefJavaExpr
+  , isClassJavaExpr
     -- * Logic expressions
   , LogicExpr
   , logicExprJavaExprs
@@ -122,9 +123,13 @@ jssTypeOfJavaExpr (CC.Term exprF) =
     InstanceField _ f -> JSS.fieldIdType f
     StaticField f -> JSS.fieldIdType f
 
--- | Returns true if expression is a Boolean.
 isRefJavaExpr :: JavaExpr -> Bool
 isRefJavaExpr = JSS.isRefType . jssTypeOfJavaExpr
+
+isClassJavaExpr :: JavaExpr -> Bool
+isClassJavaExpr = isClassType . jssTypeOfJavaExpr
+  where isClassType (JSS.ClassType _) = True
+        isClassType _ = False
 
 -- LogicExpr {{{1
 

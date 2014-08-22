@@ -1,6 +1,6 @@
 main = do {
-  enc <- read_sbv "des_enc.sbv";
-  dec <- read_sbv "des_dec.sbv";
+  enc <- read_sbv "des_enc.sbv" [];
+  dec <- read_sbv "des_dec.sbv" [];
   let thm = {{ \key msg -> dec (key, enc (key, msg)) == msg }};
   prove_print abc thm;
 };

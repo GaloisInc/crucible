@@ -1,4 +1,4 @@
-define_from_sbv name file = do { rhs <- read_sbv file; define name rhs; };
+define_from_sbv name file = do { rhs <- read_sbv file []; define name rhs; };
 
 main = do {
   enc <- define_from_sbv "enc" "des_enc.sbv";

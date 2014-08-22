@@ -46,8 +46,6 @@ import SAWScript.Utils
 import SAWScript.Value as SV
 import qualified Verifier.SAW.Evaluator as SC
 
-import Verinf.Utils.LogMonad
-
 loadLLVMModule :: FilePath -> IO LLVMModule
 loadLLVMModule file = LLVMModule file <$> loadModule file
 

@@ -320,7 +320,8 @@ print_value _sc  t v =
 
 valueEnv :: Options -> BuiltinContext -> RNameMap (Value SAWCtx)
 valueEnv opts bic = Map.fromList
-  [ (qualify "read_sbv"    , toValue $ readSBV sc)
+  [ (qualify "sbv_uninterpreted", toValue $ sbvUninterpreted sc)
+  , (qualify "read_sbv"    , toValue $ readSBV sc)
   , (qualify "read_aig"    , toValue $ readAIGPrim sc)
   , (qualify "write_aig"   , toValue $ writeAIG sc)
   , (qualify "write_cnf"   , toValue $ writeCNF sc)
@@ -336,6 +337,7 @@ valueEnv opts bic = Map.fromList
   , (qualify "java_verify" , toValue $ verifyJava bic opts)
   , (qualify "java_pure"   , toValue $ javaPure)
   , (qualify "java_var"    , toValue $ javaVar bic opts)
+  , (qualify "java_class_var", toValue $ javaClassVar bic opts)
   , (qualify "java_may_alias", toValue $ javaMayAlias bic opts)
   , (qualify "java_assert" , toValue $ javaAssert bic opts)
   --, (qualify "java_assert_eq" , toValue $ javaAssertEq bic opts)
@@ -359,6 +361,7 @@ valueEnv opts bic = Map.fromList
   , (qualify "llvm_return" , toValue $ llvmReturn bic opts)
   , (qualify "llvm_verify_tactic" , toValue $ llvmVerifyTactic bic opts)
   -- Generic stuff
+  , (qualify "check_term"  , toValue $ (scTypeCheck sc :: SharedTerm SAWCtx -> IO (SharedTerm SAWCtx)))
   , (qualify "prove"       , toValue $ provePrim sc)
   , (qualify "prove_print" , toValue $ provePrintPrim sc)
   , (qualify "sat"         , toValue $ satPrim sc)
@@ -373,6 +376,10 @@ valueEnv opts bic = Map.fromList
   , (qualify "abc"         , toValue $ satABC sc)
   , (qualify "yices"       , toValue $ satYices sc)
   , (qualify "external_cnf_solver", toValue $ satExternalCNF sc)
+  , (qualify "boolector"   , toValue $ satBoolector sc)
+  , (qualify "cvc4"        , toValue $ satCVC4 sc)
+  , (qualify "mathsat"     , toValue $ satMathSAT sc)
+  , (qualify "z3"          , toValue $ satZ3 sc)
   , (qualify "offline_aig" , toValue $ satAIG sc)
   , (qualify "offline_cnf" , toValue $ satCNF sc)
   , (qualify "offline_extcore" , toValue $ satExtCore sc)

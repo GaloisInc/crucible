@@ -56,6 +56,7 @@ data Value s
   | VSatResult (SatResult s)
   | VProofResult (ProofResult s)
   | VCoreValue SC.Value
+  | VUninterp (Uninterp s)
   -- | VAIG (BitEngine Lit) (V.Vector Lit) (V.Vector Lit)
 
 data LLVMModule =
@@ -164,6 +165,7 @@ showsPrecValue opts p mty v =
     VSatResult (Sat t) -> showString "Sat: " . shows t
     VSatResult (SatMulti ts) -> showString "Sat: " . shows ts
     VCoreValue cv -> showsPrec p cv
+    VUninterp u -> showString "Uninterp: " . shows u
 
 instance Show (Value s) where
     showsPrec p v = showsPrecValue defaultPPOpts p Nothing v
@@ -424,6 +426,13 @@ instance IsValue SAWCtx LIR.LLVMMethodSpecIR where
 instance FromValue SAWCtx LIR.LLVMMethodSpecIR where
     fromValue (VLLVMMethodSpec ms) = ms
     fromValue _ = error "fromValue LLVMMethodSpec"
+
+instance IsValue s (Uninterp s) where
+    toValue me = VUninterp me
+
+instance FromValue s (Uninterp s) where
+    fromValue (VUninterp me) = me
+    fromValue _ = error "fromValue Uninterp"
 
 instance IsValue s JSS.Class where
     toValue c = VJavaClass c

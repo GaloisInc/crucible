@@ -1,6 +1,6 @@
 main : TopLevel ();
 main = do {
-  (t : [8] -> Bit) <- read_sbv "add_comm.sbv";
+  (t : [8] -> Bit) <- read_sbv "add_comm.sbv" [];
   print "Value:";
   print t;
   print "Term:";

@@ -13,10 +13,12 @@ import Control.Monad.Error
 import Control.Monad.State
 import Data.Either (partitionEithers)
 import Data.Foldable (foldl')
-import Data.List (isPrefixOf)
+import Data.List (isPrefixOf, sortBy)
 import qualified Data.Map as Map
 import Data.Maybe
+import Data.Ord
 import qualified Data.Set as Set
+import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import System.Directory
 import System.IO
@@ -29,6 +31,8 @@ import qualified Verifier.Java.Codebase as JSS
 import Verifier.Java.SAWBackend (javaModule)
 import Verifier.LLVM.Backend.SAW (llvmModule)
 
+import Verifier.SAW.Constant
+import Verifier.SAW.ExternalFormat
 import Verifier.SAW.BitBlast
 import Verifier.SAW.Evaluator hiding (applyAll)
 import Verifier.SAW.Prelude
@@ -52,16 +56,27 @@ import SAWScript.Utils
 import qualified SAWScript.Value as SV
 
 import qualified Verifier.SAW.Simulator.BitBlast as BBSim
+import qualified Verifier.SAW.Simulator.SBV as SBVSim
 import Verifier.SAW.Simulator.Value (applyAll)
 
 import qualified Data.ABC as ABC
 import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
+
+import qualified Data.SBV as SBV
+import Data.SBV.Internals
 
 import Data.ABC (aigNetwork)
 import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
 
 import qualified Cryptol.TypeCheck.AST as C
+
+import qualified Data.SBV.Bridge.Boolector as Boolector
+import qualified Data.SBV.Bridge.Z3 as Z3
+import qualified Data.SBV.Bridge.CVC4 as CVC4
+import qualified Data.SBV.Bridge.Yices as Yices
+import qualified Data.SBV.Bridge.MathSAT as MathSAT
+import Data.SBV (modelExists, satWith, SMTConfig)
 
 data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
                                      , biJavaCodebase  :: JSS.Codebase
@@ -84,14 +99,18 @@ definePrim :: SharedContext s -> String -> SV.TypedTerm s -> IO (SV.TypedTerm s)
 definePrim sc name (SV.TypedTerm schema rhs) = SV.TypedTerm schema <$> scConstant sc ident rhs
   where ident = mkIdent (moduleName (scModule sc)) name
 
--- TODO: Add argument for uninterpreted-function map
-readSBV :: SharedContext s -> FilePath -> IO (SV.TypedTerm s)
-readSBV sc path =
+sbvUninterpreted :: SharedContext s -> String -> SharedTerm s -> IO (Uninterp s)
+sbvUninterpreted _ s t = return $ Uninterp (s, t)
+
+readSBV :: SharedContext s -> FilePath -> [Uninterp s] -> IO (SV.TypedTerm s)
+readSBV sc path unintlst =
     do pgm <- SBV.loadSBV path
        let schema = C.Forall [] [] (toCType (SBV.typOf pgm))
-       trm <- SBV.parseSBVPgm sc (\_ _ -> Nothing) pgm
+       trm <- SBV.parseSBVPgm sc (\s _ -> Map.lookup s unintmap) pgm
        return (SV.TypedTerm schema trm)
     where
+      unintmap = Map.fromList $ map getUninterp unintlst
+
       toCType :: SBV.Typ -> C.Type
       toCType typ =
         case typ of
@@ -150,42 +169,17 @@ prepForExport sc t = do
   let ss = addRules (rs1 ++ rs2) basics
   rewriteSharedTerm sc ss t
 
--- TODO: this belongs elsewhere
-asAIGType :: SharedContext s -> SharedTerm s -> IO [SharedTerm s]
-asAIGType sc t = do
-  t' <- scWhnf sc t
-  case t' of
-    (asPi -> Just (_, t1, t2)) -> (t1 :) <$> asAIGType sc t2
-    (asBoolType -> Just ())    -> return []
-    (asVecType -> Just _)      -> return []
-    (asTupleType -> Just _)    -> return []
-    (asRecordType -> Just _)   -> return []
-    _                          -> fail $ "invalid AIG type: " ++ show t'
-
--- TODO: the following sequence should probably go into BitBlast
-bitBlastTerm :: AIG.IsAIG l g =>
-                g s
-             -> SharedContext t -> SharedTerm t -> IO (BBSim.LitVector (l s))
-bitBlastTerm be sc t = do
-  ty <- scTypeOf sc t
-  argTs <- asAIGType sc ty
-  shapes <- traverse (BBSim.parseShape sc) argTs
-  vars <- traverse (BBSim.newVars' be) shapes
-  bval <- BBSim.bitBlastBasic be (scModule sc) t
-  bval' <- applyAll bval vars
-  BBSim.flattenBValue bval'
-
 -- | Write a @SharedTerm@ representing a theorem or an arbitrary
 -- function to an AIG file.
 writeAIG :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
 writeAIG sc f t = withBE $ \be -> do
-  ls <- bitBlastTerm be sc t
+  ls <- BBSim.bitBlastTerm be sc t
   ABC.writeAiger f (ABC.Network be (ABC.bvToList ls))
   return ()
 
 writeCNF :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
 writeCNF sc f t = withBE $ \be -> do
-  ls <- bitBlastTerm be sc t
+  ls <- BBSim.bitBlastTerm be sc t
   case AIG.bvToList ls of
     [l] -> do
       _ <- GIA.writeCNF be l f
@@ -319,6 +313,7 @@ convertShape (BBSim.VecShape n x) = VecShape n (convertShape x)
 convertShape (BBSim.TupleShape xs) = TupleShape (map convertShape xs)
 convertShape (BBSim.RecShape xm) = RecShape (fmap convertShape xm)
 
+{-
 satYices :: SharedContext s -> ProofScript s (SV.SatResult s)
 satYices sc = StateT $ \g -> do
   let t = goalTerm g
@@ -343,6 +338,7 @@ satYices sc = StateT $ \g -> do
           let vs = map (\(n, v) -> (n, SV.evaluate sc v)) tms
           return (SV.SatMulti vs, g { goalTerm = tt })
     Y.YUnknown -> fail "ABC returned Unknown for SAT query."
+-}
 
 parseDimacsSolution :: [Int]    -- ^ The list of CNF variables to return
                     -> [String] -- ^ The value lines from the solver
@@ -397,7 +393,63 @@ unsatResult :: SharedContext s -> ProofGoal s
             -> IO (SV.SatResult s, ProofGoal s)
 unsatResult sc g = do
   ft <- scApplyPreludeFalse sc
-  return (SV.Unsat, g { goalTerm = ft })
+  return (SV.Unsat, g { goalTerm = ft })  
+
+-- | Bit-blast a @SharedTerm@ representing a theorem and check its
+-- satisfiability using SBV. (Currently ignores satisfying assignments.)
+satSBV :: SMTConfig -> SharedContext s -> ProofScript s (SV.SatResult s)
+satSBV conf sc = StateT $ \g -> do
+  let t = goalTerm g
+      eqs = map (mkIdent preludeName) [ "eq_Vec", "eq_Fin", "eq_Bool" ]
+  rs <- scEqsRewriteRules sc eqs
+  basics <- basic_ss sc
+  let ss = addRules rs basics
+  t' <- rewriteSharedTerm sc ss t
+  let (args, _) = asLambdaList t'
+      argNames = map fst args
+  --putStrLn "Simulating..."
+  (labels, lit) <- SBVSim.sbvSolve sc t'
+  --putStrLn "Checking..."
+  m <- satWith conf lit
+  -- print m
+  if modelExists m
+    then do
+      -- putStrLn "SAT"
+      tt <- scApplyPreludeTrue sc
+      return (getLabels labels m (SBV.getModelDictionary m) argNames, g {goalTerm = tt})
+    else do
+      -- putStrLn "UNSAT"
+      ft <- scApplyPreludeFalse sc
+      return (SV.Unsat, g { goalTerm = ft })
+
+getLabels :: [SBVSim.Labeler] -> SBV.SatResult -> Map.Map String CW -> [String] -> SV.SatResult s
+getLabels ls m d argNames =
+  case fmap getLabel ls of
+    [x] -> SV.Sat x
+    xs -> SV.SatMulti (zip argNames xs)
+  where
+    getLabel :: SBVSim.Labeler -> Value
+    getLabel (SBVSim.BoolLabel s) = (toValue :: Bool -> Value) . fromJust $ SBV.getModelValue s m
+    getLabel (SBVSim.WordLabel s) = d Map.! s &
+      (\(KBounded _ n)-> VWord n) . SBV.cwKind <*> (\(CWInteger i)-> i) . SBV.cwVal
+    getLabel (SBVSim.VecLabel xs) = VVector . V.fromList $ fmap getLabel (V.toList xs)
+    getLabel (SBVSim.TupleLabel xs) = VTuple . V.fromList $ fmap getLabel (V.toList xs)
+    getLabel (SBVSim.RecLabel xs) = VRecord $ fmap getLabel xs
+
+satBoolector :: SharedContext s -> ProofScript s (SV.SatResult s)
+satBoolector = satSBV Boolector.sbvCurrentSolver
+
+satZ3 :: SharedContext s -> ProofScript s (SV.SatResult s)
+satZ3 = satSBV Z3.sbvCurrentSolver
+
+satCVC4 :: SharedContext s -> ProofScript s (SV.SatResult s)
+satCVC4 = satSBV CVC4.sbvCurrentSolver
+
+satMathSAT :: SharedContext s -> ProofScript s (SV.SatResult s)
+satMathSAT = satSBV MathSAT.sbvCurrentSolver
+
+satYices :: SharedContext s -> ProofScript s (SV.SatResult s)
+satYices = satSBV Yices.sbvCurrentSolver
 
 satWithExporter :: (SharedContext s -> FilePath -> SharedTerm s -> IO ())
                 -> SharedContext s
@@ -529,20 +581,29 @@ bindExts sc args body = do
   locals <- mapM (scLocalVar sc . fst) ([0..] `zip` reverse types)
   body' <- scInstantiateExt sc (Map.fromList (is `zip` reverse locals)) body
   scLambdaList sc (names `zip` types) body'
-    where extIdx (STApp _ (FTermF (ExtCns ec))) = Just (ecVarIndex ec)
-          extIdx _ = Nothing
-          extName (STApp _ (FTermF (ExtCns ec))) = Just (ecName ec)
-          extName _ = Nothing
+
+extIdx :: SharedTerm s -> Maybe VarIndex
+extIdx (STApp _ (FTermF (ExtCns ec))) = Just (ecVarIndex ec)
+extIdx _ = Nothing
+
+extName :: SharedTerm s -> Maybe String
+extName (STApp _ (FTermF (ExtCns ec))) = Just (ecName ec)
+extName _ = Nothing
 
 bindAllExts :: SharedContext s
             -> SharedTerm s
             -> IO (SharedTerm s)
-bindAllExts sc body@(STApp _ tf) = do
-  bindExts sc (Set.toAscList args) body
-    where args = snd $ foldl' getExtCns (Set.empty, Set.empty) tf
+bindAllExts sc body = bindExts sc (getAllExts body) body
+
+-- | Return a list of all ExtCns subterms in the given term, sorted by
+-- index.
+getAllExts :: SharedTerm s -> [SharedTerm s]
+getAllExts t@(STApp _ tf) = sortBy (comparing extIdx) $ Set.toList args
+    where (seen, exts) = getExtCns (Set.empty, Set.empty) t
+          args = snd $ foldl' getExtCns (seen, exts) tf
           getExtCns (is, a) (STApp idx _) | Set.member idx is = (is, a)
-          getExtCns (is, a) t@(STApp idx (FTermF (ExtCns _))) =
-            (Set.insert idx is, Set.insert t a)
+          getExtCns (is, a) t'@(STApp idx (FTermF (ExtCns _))) =
+            (Set.insert idx is, Set.insert t' a)
           getExtCns (is, a) (STApp idx tf') =
             foldl' getExtCns (Set.insert idx is, a) tf'
 
@@ -551,8 +612,13 @@ bindAllExts sc body@(STApp _ tf) = do
 cexEvalFn :: SharedContext s -> [Value] -> SharedTerm s
           -> IO Value
 cexEvalFn sc args tm = do
+  -- NB: there may be more args than exts, and this is ok. One side of
+  -- an equality may have more free variables than the other,
+  -- particularly in the case where there is a counter-example.
+  let exts = getAllExts tm
   args' <- mapM (scValue sc) args
-  let argMap = Map.fromList (zip [0..] args')
+  let is = mapMaybe extIdx exts
+      argMap = Map.fromList (zip is args')
       eval = evalGlobal (scModule sc) preludePrims
   tm' <- scInstantiateExt sc argMap tm
   --ty <- scTypeCheck sc tm'

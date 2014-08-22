@@ -46,13 +46,12 @@ import qualified SAWScript.JavaExpr as TC
 import SAWScript.Options
 import SAWScript.Utils
 import SAWScript.JavaMethodSpecIR
+import SAWScript.VerificationCheck
 
 import qualified Verifier.Java.Simulator as JSS
 import qualified Data.JVM.Symbolic.AST as JSS
 import Verifier.Java.SAWBackend hiding (basic_ss)
-import Verinf.Utils.LogMonad
 
-import Verifier.SAW.Evaluator
 import Verifier.SAW.Prelude
 import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
@@ -194,7 +193,8 @@ evalLogicExpr :: TC.LogicExpr -> EvalContext -> ExprEvaluator (SharedTerm JSSCtx
 evalLogicExpr initExpr ec = liftIO $ do
   let sc = ecContext ec
   t <- TC.useLogicExpr sc initExpr
-  rules <- forM (Map.toList (ecJavaExprs ec)) $ \(name, expr) ->
+  let exprs = filter (not . TC.isClassJavaExpr . snd) . Map.toList . ecJavaExprs
+  rules <- forM (exprs ec) $ \(name, expr) ->
              do lt <- evalJavaExprAsLogic expr ec
                 ty <- scTypeOf sc lt
                 nt <- scJavaValue sc ty name
@@ -858,38 +858,6 @@ initializeVerification sc ir bs refConfig = do
 
 -- MethodSpec verification {{{1
 
--- VerificationCheck {{{2
-
-data VerificationCheck
-  = AssertionCheck String (SharedTerm JSSCtx) -- ^ Name of assertion.
-  -- | Check that equalitassertion is true.
-  | EqualityCheck String -- ^ Name of value to compare
-                  (SharedTerm JSSCtx) -- ^ Value returned by JVM symbolic simulator.
-                  (SharedTerm JSSCtx) -- ^ Expected value in Spec.
-  -- deriving (Eq, Ord, Show)
-
-vcName :: VerificationCheck -> String
-vcName (AssertionCheck nm _) = nm
-vcName (EqualityCheck nm _ _) = nm
-
--- | Returns goal that one needs to prove.
-vcGoal :: SharedContext JSSCtx -> VerificationCheck -> IO (SharedTerm JSSCtx)
-vcGoal _ (AssertionCheck _ n) = return n
-vcGoal sc (EqualityCheck _ x y) = scEq sc x y
-
-type CounterexampleFn = (SharedTerm JSSCtx -> IO Value) -> IO Doc
-
--- | Returns documentation for check that fails.
-vcCounterexample :: VerificationCheck -> CounterexampleFn
-vcCounterexample (AssertionCheck nm n) _ =
-  return $ text ("Assertion " ++ nm ++ " is unsatisfied:") <+> scPrettyTermDoc n
-vcCounterexample (EqualityCheck nm jvmNode specNode) evalFn =
-  do jn <- evalFn jvmNode
-     sn <- evalFn specNode
-     return (text nm <$$>
-        nest 2 (text $ "Encountered: " ++ show jn) <$$>
-        nest 2 (text $ "Expected:    " ++ show sn))
-
 -- PathVC {{{2
 
 -- | Describes the verification result arising from one symbolic execution path.
@@ -902,7 +870,7 @@ data PathVC = PathVC {
           -- | Static errors found in path.
         , pvcStaticErrors :: [Doc]
           -- | What to verify for this result.
-        , pvcChecks :: [VerificationCheck]
+        , pvcChecks :: [VerificationCheck JSSCtx]
         }
 
 ppPathVC :: PathVC -> Doc
@@ -927,16 +895,6 @@ ppPathVC pvc =
                                        , text ":="
                                        , scPrettyTermDoc tm
                                        ]
-        ppCheck (AssertionCheck nm tm) =
-          hsep [ text (nm ++ ":")
-               , scPrettyTermDoc tm
-               ]
-        ppCheck (EqualityCheck nm tm tm') =
-          hsep [ text (nm ++ ":")
-               , scPrettyTermDoc tm
-               , text ":="
-               , scPrettyTermDoc tm'
-               ]
 
 type PathVCGenerator = State PathVC
 
@@ -1063,7 +1021,7 @@ mkSpecVC sc params esd = do
       vrb = simVerbose (vpOpts params)
       ovds = vpOver params
   -- Log execution.
-  setVerbosity vrb
+  JSS.setVerbosity vrb
   -- Add method spec overrides.
   when (vrb >= 2) $ liftIO $
        putStrLn $ "Overriding: " ++ show (map specName ovds)
@@ -1142,6 +1100,6 @@ data VerifyState = VState {
          -- verification.
        , vsEvalContext :: EvalContext
        , vsInitialAssignments :: [(TC.JavaExpr, SharedTerm JSSCtx)]
-       , vsCounterexampleFn :: CounterexampleFn
+       , vsCounterexampleFn :: CounterexampleFn JSSCtx
        , vsStaticErrors :: [Doc]
        }
