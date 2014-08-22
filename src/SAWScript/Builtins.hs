@@ -279,15 +279,10 @@ satABCold sc = StateT $ \g -> withBE $ \be -> do
 satABC :: SharedContext s -> ProofScript s (SV.SatResult s)
 satABC sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
   let t = goalTerm g
-      eqs = map (mkIdent preludeName) [ "eq_Vec", "eq_Fin", "eq_Bool" ]
-  rs <- scEqsRewriteRules sc eqs
-  basics <- basic_ss sc
-  let ss = addRules rs basics
-  t' <- rewriteSharedTerm sc ss t
-  let (args, _) = asLambdaList t'
+  let (args, _) = asLambdaList t
       argNames = map fst args
   -- putStrLn "Simulating..."
-  (shapes, lit) <- BBSim.bitBlast be sc t'
+  (shapes, lit) <- BBSim.bitBlast be sc t
   -- putStrLn "Checking..."
   satRes <- AIG.checkSat be lit
   case satRes of
