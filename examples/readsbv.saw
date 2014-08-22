@@ -1,6 +1,6 @@
 main : TopLevel ();
 main = do {
-  (t : [8] -> Bit) <- read_sbv "add_comm.sbv" [];
+  t <- read_sbv "add_comm.sbv" [];
   print "Value:";
   print t;
   print "Term:";
@@ -10,6 +10,6 @@ main = do {
   print "Tree size:";
   print (term_tree_size t);
   print "Tests:";
-  let test f = print [f 0, f 1, f 2, f 3, f 4, f 5, f 6, f 7];
+  let test f = print {{ [f 0, f 1, f 2, f 3, f 4, f 5, f 6, f 7] }};
   test t;
 };

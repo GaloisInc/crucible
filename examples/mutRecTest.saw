@@ -1,11 +1,11 @@
 main = do {
-  m <- cryptol_module "mutRecTest.cry";
-  (f: [8] -> [32]) <- cryptol_extract m "streamFibs";
-  (g: [8] -> [32]) <- cryptol_extract m "streamFibsAlt";
-  (h: [8] -> [32]) <- cryptol_extract m "recFibs";
-  (i: [8] -> [32]) <- cryptol_extract m "recFibs2";
+  let {{ import mutRecTest }}; // FIXME: implement this
+  let f = {{ streamFibs    : [8] -> [32] }};
+  let g = {{ streamFibsAlt : [8] -> [32] }};
+  let h = {{ recFibs       : [8] -> [32] }};
+  let i = {{ recFibs2      : [8] -> [32] }};
 
-  let thm1 x = f x == g x;
+  let thm1 = {{ \x -> f x == g x }};
   prove_print abc thm1;
 
   // FIXME, this makes the simulator crash the stack
