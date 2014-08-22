@@ -565,6 +565,9 @@ myPrint _ v = mkSC $ const (print v)
 print_type :: SharedContext s -> SharedTerm s -> IO ()
 print_type sc t = scTypeOf sc t >>= print
 
+check_term :: SharedContext s -> SharedTerm s -> IO ()
+check_term sc t = scTypeCheck sc t >>= print
+
 fixPos :: Pos
 fixPos = PosInternal "FIXME"
 
