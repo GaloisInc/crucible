@@ -57,7 +57,6 @@ data Value s
   | VLLVMModule LLVMModule
   | VSatResult SatResult
   | VProofResult ProofResult
-  | VCoreValue SC.Value
   | VUninterp (Uninterp s)
   -- | VAIG (BitEngine Lit) (V.Vector Lit) (V.Vector Lit)
 
@@ -166,7 +165,6 @@ showsPrecValue opts p mty v =
     VSatResult Unsat -> showString "Unsat"
     VSatResult (Sat t) -> showString "Sat: " . shows t
     VSatResult (SatMulti ts) -> showString "Sat: " . shows ts
-    VCoreValue cv -> showsPrec p cv
     VUninterp u -> showString "Uninterp: " . shows u
 
 instance Show (Value s) where
