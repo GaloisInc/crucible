@@ -102,7 +102,6 @@ import SAWScript.Interpreter
     (Value, isVUnit,
      interpretModuleAtEntry,
      InterpretEnv(..))
-import qualified SAWScript.Builtins (liftCexBB, convertShape)
 import qualified SAWScript.Lexer (scan)
 import qualified SAWScript.MGU (checkModule)
 import qualified SAWScript.Parser (parseBlockStmt)

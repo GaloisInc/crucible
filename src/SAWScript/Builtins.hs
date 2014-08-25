@@ -291,7 +291,7 @@ satABC sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
       return (SV.Unsat, g { goalTerm = ft })
     AIG.Sat cex -> do
       -- putStrLn "SAT"
-      let r = liftCexBB (map convertShape shapes) cex
+      let r = liftCexBB shapes cex
       tt <- scApplyPreludeTrue sc
       case r of
         Left err -> fail $ "Can't parse counterexample: " ++ err
@@ -299,12 +299,6 @@ satABC sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
           return (SV.Sat v, g { goalTerm = tt })
         Right vs -> do
           return (SV.SatMulti (zip argNames vs), g { goalTerm = tt })
-
-convertShape :: BBSim.BShape -> Old.BShape --FIXME: temporary
-convertShape BBSim.BoolShape = Old.BoolShape
-convertShape (BBSim.VecShape n x) = Old.VecShape n (convertShape x)
-convertShape (BBSim.TupleShape xs) = Old.TupleShape (map convertShape xs)
-convertShape (BBSim.RecShape xm) = Old.RecShape (fmap convertShape xm)
 
 {-
 satYices :: SharedContext s -> ProofScript s SV.SatResult
@@ -368,7 +362,7 @@ satExternalCNF sc execName args = StateT $ \g -> withBE $ \be -> do
   case (sls, vls) of
     (["s SATISFIABLE"], _) -> do
       let bs = parseDimacsSolution vars vls
-      let r = liftCexBB (map convertShape shapes) bs
+      let r = liftCexBB shapes bs
       tt <- scApplyPreludeTrue sc
       case r of
         Left msg -> fail $ "Can't parse counterexample: " ++ msg
@@ -468,8 +462,7 @@ satSMTLib1 sc path = satWithExporter writeSMTLib1 sc path ".smt"
 satSMTLib2 :: SharedContext s -> FilePath -> ProofScript s SV.SatResult
 satSMTLib2 sc path = satWithExporter writeSMTLib2 sc path ".smt2"
 
--- TODO: completely get rid of BShape/BValue types in favor of FiniteType/FiniteValue
-liftCexBB :: [Old.BShape] -> [Bool] -> Either String [FiniteValue]
+liftCexBB :: [FiniteType] -> [Bool] -> Either String [FiniteValue]
 liftCexBB shapes bs =
   case Old.liftCounterExamples shapes bs of
     Left err -> Left err
@@ -482,18 +475,9 @@ convertOldBValue bval =
     Old.BBool b    -> FVBit b
     -- | FIXME: this fails for vectors of length 0
     Old.BVector vv -> FVVec t (map convertOldBValue (V.toList vv))
-      where t = convertOldBShape (Old.getShape (V.head vv))
+      where t = Old.getShape (V.head vv)
     Old.BTuple vs  -> FVTuple (map convertOldBValue vs)
     Old.BRecord vm -> FVRec (fmap convertOldBValue vm)
-
--- | FIXME: temporary
-convertOldBShape :: Old.BShape -> FiniteType
-convertOldBShape shape =
-  case shape of
-    Old.BoolShape     -> FTBit
-    Old.VecShape n t  -> FTVec n (convertOldBShape t)
-    Old.TupleShape ts -> FTTuple (map convertOldBShape ts)
-    Old.RecShape tm   -> FTRec (fmap convertOldBShape tm)
 
 liftCexYices :: SharedContext s -> Y.YVal
              -> IO (Either String (SharedTerm s))
