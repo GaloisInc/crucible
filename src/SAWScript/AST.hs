@@ -122,6 +122,9 @@ emptyEnv = Map.empty
 insertEnv :: Name -> a -> Env a -> Env a
 insertEnv = Map.insert
 
+unionsLEnv :: [LEnv a] -> LEnv a
+unionsLEnv = M.unions
+
 -- }}}
 
 -- Module Level {{{
