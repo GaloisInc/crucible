@@ -215,12 +215,12 @@ writeCore path t = writeFile path (scWriteExternal t)
 readCore :: SharedContext s -> FilePath -> IO (SV.TypedTerm s)
 readCore sc path = SV.mkTypedTerm sc =<< scReadExternal sc =<< readFile path
 
-assumeValid :: ProofScript s (SV.ProofResult s)
+assumeValid :: ProofScript s SV.ProofResult
 assumeValid = StateT $ \goal -> do
   putStrLn $ "WARNING: assuming goal " ++ goalName goal ++ " is valid"
   return (SV.Valid, goal)
 
-assumeUnsat :: ProofScript s (SV.SatResult s)
+assumeUnsat :: ProofScript s SV.SatResult
 assumeUnsat = StateT $ \goal -> do
   putStrLn $ "WARNING: assuming goal " ++ goalName goal ++ " is unsat"
   return (SV.Unsat, goal)
@@ -243,7 +243,7 @@ simplifyGoal sc ss = StateT $ \goal -> do
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
-satABCold :: SharedContext s -> ProofScript s (SV.SatResult s)
+satABCold :: SharedContext s -> ProofScript s SV.SatResult
 satABCold sc = StateT $ \g -> withBE $ \be -> do
   let t = goalTerm g
   t' <- prepForExport sc t
@@ -275,7 +275,7 @@ satABCold sc = StateT $ \g -> withBE $ \be -> do
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
-satABC :: SharedContext s -> ProofScript s (SV.SatResult s)
+satABC :: SharedContext s -> ProofScript s SV.SatResult
 satABC sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
   let t = goalTerm g
   let (args, _) = asLambdaList t
@@ -307,7 +307,7 @@ convertShape (BBSim.TupleShape xs) = Old.TupleShape (map convertShape xs)
 convertShape (BBSim.RecShape xm) = Old.RecShape (fmap convertShape xm)
 
 {-
-satYices :: SharedContext s -> ProofScript s (SV.SatResult s)
+satYices :: SharedContext s -> ProofScript s SV.SatResult
 satYices sc = StateT $ \g -> do
   let t = goalTerm g
   t' <- prepForExport sc t
@@ -346,7 +346,7 @@ parseDimacsSolution vars ls = map lkup vars
     lkup v = Map.findWithDefault False v assgnMap
 
 satExternalCNF :: SharedContext s -> String -> [String]
-               -> ProofScript s (SV.SatResult s)
+               -> ProofScript s SV.SatResult
 satExternalCNF sc execName args = StateT $ \g -> withBE $ \be -> do
   let cnfName = goalName g ++ ".cnf" 
       t = goalTerm g
@@ -382,14 +382,14 @@ satExternalCNF sc execName args = StateT $ \g -> withBE $ \be -> do
     _ -> fail $ "Unexpected result from SAT solver:\n" ++ out
 
 unsatResult :: SharedContext s -> ProofGoal s
-            -> IO (SV.SatResult s, ProofGoal s)
+            -> IO (SV.SatResult, ProofGoal s)
 unsatResult sc g = do
   ft <- scApplyPreludeFalse sc
   return (SV.Unsat, g { goalTerm = ft })  
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using SBV. (Currently ignores satisfying assignments.)
-satSBV :: SMTConfig -> SharedContext s -> ProofScript s (SV.SatResult s)
+satSBV :: SMTConfig -> SharedContext s -> ProofScript s SV.SatResult
 satSBV conf sc = StateT $ \g -> do
   let t = goalTerm g
       eqs = map (mkIdent preludeName) [ "eq_Vec", "eq_Fin", "eq_Bool" ]
@@ -414,7 +414,7 @@ satSBV conf sc = StateT $ \g -> do
       ft <- scApplyPreludeFalse sc
       return (SV.Unsat, g { goalTerm = ft })
 
-getLabels :: [SBVSim.Labeler] -> SBV.SatResult -> Map.Map String CW -> [String] -> SV.SatResult s
+getLabels :: [SBVSim.Labeler] -> SBV.SatResult -> Map.Map String CW -> [String] -> SV.SatResult
 getLabels ls m d argNames =
   case fmap getLabel ls of
     [x] -> SV.Sat x
@@ -429,43 +429,43 @@ getLabels ls m d argNames =
     getLabel (SBVSim.TupleLabel xs) = FVTuple $ map getLabel (V.toList xs)
     getLabel (SBVSim.RecLabel xs) = FVRec $ fmap getLabel xs
 
-satBoolector :: SharedContext s -> ProofScript s (SV.SatResult s)
+satBoolector :: SharedContext s -> ProofScript s SV.SatResult
 satBoolector = satSBV Boolector.sbvCurrentSolver
 
-satZ3 :: SharedContext s -> ProofScript s (SV.SatResult s)
+satZ3 :: SharedContext s -> ProofScript s SV.SatResult
 satZ3 = satSBV Z3.sbvCurrentSolver
 
-satCVC4 :: SharedContext s -> ProofScript s (SV.SatResult s)
+satCVC4 :: SharedContext s -> ProofScript s SV.SatResult
 satCVC4 = satSBV CVC4.sbvCurrentSolver
 
-satMathSAT :: SharedContext s -> ProofScript s (SV.SatResult s)
+satMathSAT :: SharedContext s -> ProofScript s SV.SatResult
 satMathSAT = satSBV MathSAT.sbvCurrentSolver
 
-satYices :: SharedContext s -> ProofScript s (SV.SatResult s)
+satYices :: SharedContext s -> ProofScript s SV.SatResult
 satYices = satSBV Yices.sbvCurrentSolver
 
 satWithExporter :: (SharedContext s -> FilePath -> SharedTerm s -> IO ())
                 -> SharedContext s
                 -> String
                 -> String
-                -> ProofScript s (SV.SatResult s)
+                -> ProofScript s SV.SatResult
 satWithExporter exporter sc path ext = StateT $ \g -> do
   exporter sc ((path ++ goalName g) ++ ext) (goalTerm g)
   unsatResult sc g
 
-satAIG :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
+satAIG :: SharedContext s -> FilePath -> ProofScript s SV.SatResult
 satAIG sc path = satWithExporter writeAIG sc path ".aig"
 
-satCNF :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
+satCNF :: SharedContext s -> FilePath -> ProofScript s SV.SatResult
 satCNF sc path = satWithExporter writeCNF sc path ".cnf"
 
-satExtCore :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
+satExtCore :: SharedContext s -> FilePath -> ProofScript s SV.SatResult
 satExtCore sc path = satWithExporter (const writeCore) sc path ".extcore"
 
-satSMTLib1 :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
+satSMTLib1 :: SharedContext s -> FilePath -> ProofScript s SV.SatResult
 satSMTLib1 sc path = satWithExporter writeSMTLib1 sc path ".smt"
 
-satSMTLib2 :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
+satSMTLib2 :: SharedContext s -> FilePath -> ProofScript s SV.SatResult
 satSMTLib2 sc path = satWithExporter writeSMTLib2 sc path ".smt2"
 
 -- TODO: completely get rid of BShape/BValue types in favor of FiniteType/FiniteValue
@@ -525,14 +525,14 @@ scNegate sc t =
 
 -- | Translate a @SharedTerm@ representing a theorem for input to the
 -- given validity-checking script and attempt to prove it.
-provePrim :: SharedContext s -> ProofScript s (SV.SatResult s)
-          -> SharedTerm s -> IO (SV.ProofResult s)
+provePrim :: SharedContext s -> ProofScript s SV.SatResult
+          -> SharedTerm s -> IO SV.ProofResult
 provePrim sc script t = do
   t' <- scNegate sc t
   (r, _) <- runStateT script (ProofGoal "prove" t')
   return (SV.flipSatResult r)
 
-provePrintPrim :: SharedContext s -> ProofScript s (SV.SatResult s)
+provePrintPrim :: SharedContext s -> ProofScript s SV.SatResult
                -> SharedTerm s -> IO (Theorem s)
 provePrintPrim sc script t = do
   t' <- scNegate sc t
@@ -541,13 +541,13 @@ provePrintPrim sc script t = do
     SV.Unsat -> putStrLn "Valid" >> return (Theorem t)
     _ -> fail (show (SV.flipSatResult r))
 
-satPrim :: SharedContext s -> ProofScript s (SV.SatResult s) -> SharedTerm s
-        -> IO (SV.SatResult s)
+satPrim :: SharedContext s -> ProofScript s SV.SatResult -> SharedTerm s
+        -> IO SV.SatResult
 satPrim _sc script t = do
   (r, _) <- runStateT script (ProofGoal "sat" t)
   return r
 
-satPrintPrim :: SharedContext s -> ProofScript s (SV.SatResult s)
+satPrintPrim :: SharedContext s -> ProofScript s SV.SatResult
              -> SharedTerm s -> IO ()
 satPrintPrim _sc script t = do
   (r, _) <- runStateT script (ProofGoal "sat" t)
@@ -649,7 +649,7 @@ toValueCase sc prim =
   SV.VLambda $ \v2 ->
   prim sc (SV.fromValue b) v1 v2
 
-caseProofResultPrim :: SharedContext s -> SV.ProofResult s
+caseProofResultPrim :: SharedContext s -> SV.ProofResult
                     -> SV.Value s -> SV.Value s
                     -> IO (SV.Value s)
 caseProofResultPrim sc pr vValid vInvalid = do
@@ -659,7 +659,7 @@ caseProofResultPrim sc pr vValid vInvalid = do
                        SV.applyValue sc vInvalid (SV.toValue t)
     SV.InvalidMulti _ -> fail $ "multi-value counter-example"
 
-caseSatResultPrim :: SharedContext s -> SV.SatResult s
+caseSatResultPrim :: SharedContext s -> SV.SatResult
                   -> SV.Value s -> SV.Value s
                   -> IO (SV.Value s)
 caseSatResultPrim sc sr vUnsat vSat = do

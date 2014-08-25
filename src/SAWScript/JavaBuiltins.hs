@@ -438,7 +438,7 @@ javaReturn _ _ t =
     st { jsSpec = specAddBehaviorCommand (Return (LE (mkLogicExpr t))) (jsSpec st) }
 
 javaVerifyTactic :: BuiltinContext -> Options
-                 -> ProofScript SAWCtx (SatResult SAWCtx)
+                 -> ProofScript SAWCtx SatResult
                  -> JavaSetup ()
 javaVerifyTactic _ _ script =
   modify $ \st -> st { jsTactic = RunVerify script }

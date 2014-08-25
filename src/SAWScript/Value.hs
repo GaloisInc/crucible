@@ -55,8 +55,8 @@ data Value s
   | VLLVMMethodSpec LIR.LLVMMethodSpecIR
   | VJavaClass JSS.Class
   | VLLVMModule LLVMModule
-  | VSatResult (SatResult s)
-  | VProofResult (ProofResult s)
+  | VSatResult SatResult
+  | VProofResult ProofResult
   | VCoreValue SC.Value
   | VUninterp (Uninterp s)
   -- | VAIG (BitEngine Lit) (V.Vector Lit) (V.Vector Lit)
@@ -67,19 +67,19 @@ data LLVMModule =
   , modMod :: L.Module
   }
 
-data ProofResult s
+data ProofResult
   = Valid
   | Invalid FiniteValue
   | InvalidMulti [(String, FiniteValue)]
     deriving (Show)
 
-data SatResult s
+data SatResult
   = Unsat
   | Sat FiniteValue
   | SatMulti [(String, FiniteValue)]
     deriving (Show)
 
-flipSatResult :: SatResult s -> ProofResult s
+flipSatResult :: SatResult -> ProofResult
 flipSatResult Unsat = Valid
 flipSatResult (Sat t) = Invalid t
 flipSatResult (SatMulti t) = InvalidMulti t
@@ -242,7 +242,7 @@ bindValue _ _ _ = error "bindValue"
 -- should stay there.
 data ValidationPlan
   = Skip
-  | RunVerify (ProofScript SAWCtx (SatResult SAWCtx))
+  | RunVerify (ProofScript SAWCtx SatResult)
 
 data JavaSetupState
   = JavaSetupState {
@@ -450,16 +450,16 @@ instance FromValue s LLVMModule where
     fromValue (VLLVMModule m) = m
     fromValue _ = error "fromValue LLVMModule"
 
-instance IsValue s (ProofResult s) where
+instance IsValue s ProofResult where
    toValue r = VProofResult r
 
-instance FromValue s (ProofResult s) where
+instance FromValue s ProofResult where
    fromValue (VProofResult r) = r
    fromValue v = error $ "fromValue ProofResult: " ++ show v
 
-instance IsValue s (SatResult s) where
+instance IsValue s SatResult where
    toValue r = VSatResult r
 
-instance FromValue s (SatResult s) where
+instance FromValue s SatResult where
    fromValue (VSatResult r) = r
    fromValue _ = error "fromValue SatResult"

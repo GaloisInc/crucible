@@ -184,7 +184,7 @@ verifyLLVM bic opts (LLVMModule file mdl) func overrides setup = do
         when (verb >= 3) $ liftIO $ do
           putStrLn "Verifying the following:"
           mapM_ (print . ppPathVC) res
-        let prover :: ProofScript SAWCtx (SV.SatResult SAWCtx)
+        let prover :: ProofScript SAWCtx SV.SatResult
                    -> VerifyState
                    -> SharedTerm LSSCtx
                    -> IO ()
@@ -382,7 +382,7 @@ llvmReturn _ _ t =
     st { lsSpec = specAddBehaviorCommand (Return (LogicE (mkLogicExpr t))) (lsSpec st) }
 
 llvmVerifyTactic :: BuiltinContext -> Options
-                 -> ProofScript SAWCtx (SV.SatResult SAWCtx)
+                 -> ProofScript SAWCtx SV.SatResult
                  -> LLVMSetup ()
 llvmVerifyTactic _ _ script =
   modify $ \st -> st { lsTactic = RunVerify script }
