@@ -34,6 +34,7 @@ import Verifier.LLVM.Backend.SAW (llvmModule)
 import Verifier.SAW.Constant
 import Verifier.SAW.ExternalFormat
 import qualified Verifier.SAW.BitBlast as Old
+import Verifier.SAW.FiniteValue (FiniteType(..), FiniteValue(..), scFiniteValue)
 import Verifier.SAW.Evaluator hiding (applyAll)
 import Verifier.SAW.Prelude
 import qualified Verifier.SAW.Prim as Prim
@@ -57,7 +58,6 @@ import qualified SAWScript.Value as SV
 
 import qualified Verifier.SAW.Simulator.BitBlast as BBSim
 import qualified Verifier.SAW.Simulator.SBV as SBVSim
-import Verifier.SAW.Simulator.Value (applyAll)
 
 import qualified Data.ABC as ABC
 import qualified Verinf.Symbolic.Lit.ABC_GIA as GIA
@@ -262,14 +262,13 @@ satABCold sc = StateT $ \g -> withBE $ \be -> do
               ft <- scApplyPreludeFalse sc
               return (SV.Unsat, g { goalTerm = ft })
             ABC.Sat cex -> do
-              r <- liftCexBB sc shapes cex
+              let r = liftCexBB shapes cex
               tt <- scApplyPreludeTrue sc
               case r of
                 Left err -> fail $ "Can't parse counterexample: " ++ err
-                Right [tm] ->
-                  return (SV.Sat (SV.evaluate sc tm), g { goalTerm = tt })
-                Right tms -> do
-                  let vs = map (SV.evaluate sc) tms
+                Right [v] ->
+                  return (SV.Sat v, g { goalTerm = tt })
+                Right vs -> do
                   return (SV.SatMulti (zip argNames vs), g { goalTerm = tt })
         _ -> fail "Can't prove non-boolean term."
     Left err -> fail $ "Can't bitblast: " ++ err
@@ -292,14 +291,13 @@ satABC sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
       return (SV.Unsat, g { goalTerm = ft })
     AIG.Sat cex -> do
       -- putStrLn "SAT"
-      r <- liftCexBB sc (map convertShape shapes) cex
+      let r = liftCexBB (map convertShape shapes) cex
       tt <- scApplyPreludeTrue sc
       case r of
         Left err -> fail $ "Can't parse counterexample: " ++ err
-        Right [tm] ->
-          return (SV.Sat (SV.evaluate sc tm), g { goalTerm = tt })
-        Right tms -> do
-          let vs = map (SV.evaluate sc) tms
+        Right [v] ->
+          return (SV.Sat v, g { goalTerm = tt })
+        Right vs -> do
           return (SV.SatMulti (zip argNames vs), g { goalTerm = tt })
 
 convertShape :: BBSim.BShape -> Old.BShape --FIXME: temporary
@@ -370,15 +368,14 @@ satExternalCNF sc execName args = StateT $ \g -> withBE $ \be -> do
   case (sls, vls) of
     (["s SATISFIABLE"], _) -> do
       let bs = parseDimacsSolution vars vls
-      r <- liftCexBB sc (map convertShape shapes) bs
+      let r = liftCexBB (map convertShape shapes) bs
       tt <- scApplyPreludeTrue sc
       case r of
         Left msg -> fail $ "Can't parse counterexample: " ++ msg
-        Right [tm] ->
-          return (SV.Sat (SV.evaluate sc tm), g { goalTerm = tt })
-        Right tms -> do
-          let vals = map (SV.evaluate sc) tms
-          return (SV.SatMulti (zip argNames vals), g { goalTerm = tt })
+        Right [v] ->
+          return (SV.Sat v, g { goalTerm = tt })
+        Right vs -> do
+          return (SV.SatMulti (zip argNames vs), g { goalTerm = tt })
     (["s UNSATISFIABLE"], []) -> do
       ft <- scApplyPreludeFalse sc
       return (SV.Unsat, g { goalTerm = ft })
@@ -423,13 +420,14 @@ getLabels ls m d argNames =
     [x] -> SV.Sat x
     xs -> SV.SatMulti (zip argNames xs)
   where
-    getLabel :: SBVSim.Labeler -> Value
-    getLabel (SBVSim.BoolLabel s) = (toValue :: Bool -> Value) . fromJust $ SBV.getModelValue s m
+    getLabel :: SBVSim.Labeler -> FiniteValue
+    getLabel (SBVSim.BoolLabel s) = FVBit . fromJust $ SBV.getModelValue s m
     getLabel (SBVSim.WordLabel s) = d Map.! s &
-      (\(KBounded _ n)-> VWord n) . SBV.cwKind <*> (\(CWInteger i)-> i) . SBV.cwVal
-    getLabel (SBVSim.VecLabel xs) = VVector . V.fromList $ fmap getLabel (V.toList xs)
-    getLabel (SBVSim.TupleLabel xs) = VTuple . V.fromList $ fmap getLabel (V.toList xs)
-    getLabel (SBVSim.RecLabel xs) = VRecord $ fmap getLabel xs
+      (\(KBounded _ n)-> FVWord (fromIntegral n)) . SBV.cwKind <*> (\(CWInteger i)-> i) . SBV.cwVal
+    getLabel (SBVSim.VecLabel xs) = FVVec t $ map getLabel (V.toList xs)
+      where t = error "FIXME getLabel VecLabel"
+    getLabel (SBVSim.TupleLabel xs) = FVTuple $ map getLabel (V.toList xs)
+    getLabel (SBVSim.RecLabel xs) = FVRec $ fmap getLabel xs
 
 satBoolector :: SharedContext s -> ProofScript s (SV.SatResult s)
 satBoolector = satSBV Boolector.sbvCurrentSolver
@@ -470,14 +468,32 @@ satSMTLib1 sc path = satWithExporter writeSMTLib1 sc path ".smt"
 satSMTLib2 :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
 satSMTLib2 sc path = satWithExporter writeSMTLib2 sc path ".smt2"
 
-liftCexBB :: SharedContext s -> [Old.BShape] -> [Bool]
-          -> IO (Either String [SharedTerm s])
-liftCexBB sc shapes bs =
+-- TODO: completely get rid of BShape/BValue types in favor of FiniteType/FiniteValue
+liftCexBB :: [Old.BShape] -> [Bool] -> Either String [FiniteValue]
+liftCexBB shapes bs =
   case Old.liftCounterExamples shapes bs of
-    Left err -> return (Left err)
-    Right bvals -> do
-      ts <- mapM (scSharedTerm sc . Old.liftConcreteBValue) bvals
-      return (Right ts)
+    Left err -> Left err
+    Right bvals -> Right (map convertOldBValue bvals)
+
+-- | FIXME: temporary
+convertOldBValue :: Old.BValue Bool -> FiniteValue
+convertOldBValue bval =
+  case bval of
+    Old.BBool b    -> FVBit b
+    -- | FIXME: this fails for vectors of length 0
+    Old.BVector vv -> FVVec t (map convertOldBValue (V.toList vv))
+      where t = convertOldBShape (Old.getShape (V.head vv))
+    Old.BTuple vs  -> FVTuple (map convertOldBValue vs)
+    Old.BRecord vm -> FVRec (fmap convertOldBValue vm)
+
+-- | FIXME: temporary
+convertOldBShape :: Old.BShape -> FiniteType
+convertOldBShape shape =
+  case shape of
+    Old.BoolShape     -> FTBit
+    Old.VecShape n t  -> FTVec n (convertOldBShape t)
+    Old.TupleShape ts -> FTTuple (map convertOldBShape ts)
+    Old.RecShape tm   -> FTRec (fmap convertOldBShape tm)
 
 liftCexYices :: SharedContext s -> Y.YVal
              -> IO (Either String (SharedTerm s))
@@ -607,14 +623,14 @@ getAllExts t@(STApp _ tf) = sortBy (comparing extIdx) $ Set.toList args
 
 -- | Apply the given SharedTerm to the given values, and evaluate to a
 -- final value.
-cexEvalFn :: SharedContext s -> [Value] -> SharedTerm s
+cexEvalFn :: SharedContext s -> [FiniteValue] -> SharedTerm s
           -> IO Value
 cexEvalFn sc args tm = do
   -- NB: there may be more args than exts, and this is ok. One side of
   -- an equality may have more free variables than the other,
   -- particularly in the case where there is a counter-example.
   let exts = getAllExts tm
-  args' <- mapM (scValue sc) args
+  args' <- mapM (scFiniteValue sc) args
   let is = mapMaybe extIdx exts
       argMap = Map.fromList (zip is args')
       eval = evalGlobal (scModule sc) preludePrims
@@ -639,9 +655,9 @@ caseProofResultPrim :: SharedContext s -> SV.ProofResult s
 caseProofResultPrim sc pr vValid vInvalid = do
   case pr of
     SV.Valid -> return vValid
-    SV.Invalid v -> SV.applyValue sc vInvalid (SV.VCoreValue v)
+    SV.Invalid v -> do t <- SV.mkTypedTerm sc =<< scFiniteValue sc v
+                       SV.applyValue sc vInvalid (SV.toValue t)
     SV.InvalidMulti _ -> fail $ "multi-value counter-example"
-
 
 caseSatResultPrim :: SharedContext s -> SV.SatResult s
                   -> SV.Value s -> SV.Value s
@@ -649,5 +665,6 @@ caseSatResultPrim :: SharedContext s -> SV.SatResult s
 caseSatResultPrim sc sr vUnsat vSat = do
   case sr of
     SV.Unsat -> return vUnsat
-    SV.Sat v -> SV.applyValue sc vSat (SV.VCoreValue v)
+    SV.Sat v -> do t <- SV.mkTypedTerm sc =<< scFiniteValue sc v
+                   SV.applyValue sc vSat (SV.toValue t)
     SV.SatMulti _ -> fail $ "multi-value satisfying assignment"

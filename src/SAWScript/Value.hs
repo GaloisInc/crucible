@@ -21,6 +21,8 @@ import qualified SAWScript.LLVMMethodSpecIR as LIR
 import qualified Verifier.Java.Codebase as JSS
 import SAWScript.Proof
 import SAWScript.Utils
+
+import Verifier.SAW.FiniteValue
 import qualified Verifier.SAW.Prim as Prim
 import qualified Verifier.SAW.Recognizer as R
 import Verifier.SAW.Rewriter ( Simpset )
@@ -67,14 +69,14 @@ data LLVMModule =
 
 data ProofResult s
   = Valid
-  | Invalid SC.Value
-  | InvalidMulti [(String, SC.Value)]
+  | Invalid FiniteValue
+  | InvalidMulti [(String, FiniteValue)]
     deriving (Show)
 
 data SatResult s
   = Unsat
-  | Sat SC.Value
-  | SatMulti [(String, SC.Value)]
+  | Sat FiniteValue
+  | SatMulti [(String, FiniteValue)]
     deriving (Show)
 
 flipSatResult :: SatResult s -> ProofResult s

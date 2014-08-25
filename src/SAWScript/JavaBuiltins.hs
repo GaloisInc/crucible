@@ -26,6 +26,7 @@ import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.Java.Simulator as JSS
 import qualified Verifier.Java.SAWBackend as JSS
 
+import Verifier.SAW.FiniteValue
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST
 
@@ -40,7 +41,6 @@ import SAWScript.Options
 import SAWScript.Proof
 import SAWScript.Utils
 import SAWScript.Value as SS
-import qualified Verifier.SAW.Evaluator as SC
 
 
 loadJavaClass :: BuiltinContext -> String -> IO JSS.Class
@@ -216,7 +216,7 @@ verifyJava bic opts cls mname overrides setup = do
 showCexResults :: SharedContext JSSCtx
                -> JavaMethodSpecIR
                -> VerifyState
-               -> [(String, SC.Value)]
+               -> [(String, FiniteValue)]
                -> IO ()
 showCexResults sc ms vs vals = do
   putStrLn $ "When verifying " ++ specName ms ++ ":"

@@ -31,6 +31,7 @@ import qualified Verifier.LLVM.Codebase as CB
 import Verifier.LLVM.Backend.SAW
 import Verifier.LLVM.Simulator
 
+import Verifier.SAW.FiniteValue
 import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST (Termlike)
@@ -207,7 +208,7 @@ verifyLLVM bic opts (LLVMModule file mdl) func overrides setup = do
 showCexResults :: SharedContext LSSCtx
                -> LLVMMethodSpecIR
                -> VerifyState
-               -> [(String, SC.Value)]
+               -> [(String, FiniteValue)]
                -> IO ()
 showCexResults sc ms vs vals = do
   putStrLn $ "When verifying " ++ show (specName ms) ++ ":"
