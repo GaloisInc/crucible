@@ -216,8 +216,15 @@ interpretSCC sc env@(InterpretEnv vm tm ce) scc =
       AcyclicSCC (x, expr) ->
             do v <- interpretPoly sc env expr
                let t = SS.typeOf expr
-               let ce' = ce -- FIXME
-               return $ InterpretEnv (Map.insert x v vm) (Map.insert x t tm) ce'
+               let qname = T.QName Nothing (T.Name (getOrig x))
+               let vm' = Map.insert x v vm
+               let tm' = Map.insert x t tm
+               ce' <- case v of
+                           VTerm (Just schema) trm
+                             -> do putStrLn $ "Binding top-level term: " ++ show qname
+                                   return $ CEnv.bindTypedTerm (qname, TypedTerm schema trm) ce
+                           _ -> return ce
+               return $ InterpretEnv vm' tm' ce'
 
 exprDeps :: Expression -> Set SS.ResolvedName
 exprDeps expr =
