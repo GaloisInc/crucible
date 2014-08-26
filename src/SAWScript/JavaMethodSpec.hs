@@ -639,6 +639,7 @@ esResolveLogicExprs e tp [] = do
   sc <- gets esContext
   -- Create input variable.
   -- liftIO $ putStrLn $ "Creating global of type: " ++ show tp
+  -- TODO: look e up in map, instead
   liftIO $ scFreshGlobal sc (TC.ppJavaExpr e) tp
 esResolveLogicExprs _ _ (hrhs:rrhs) = do
   sc <- gets esContext
