@@ -537,8 +537,10 @@ satPrintPrim _sc script t = do
   (r, _) <- runStateT script (ProofGoal "sat" t)
   print r
 
-rewritePrim :: SharedContext s -> Simpset (SharedTerm s) -> SharedTerm s -> IO (SharedTerm s)
-rewritePrim sc ss t = rewriteSharedTerm sc ss t
+rewritePrim :: SharedContext s -> Simpset (SharedTerm s) -> SV.TypedTerm s -> IO (SV.TypedTerm s)
+rewritePrim sc ss (SV.TypedTerm schema t) = do
+  t' <- rewriteSharedTerm sc ss t
+  return (SV.TypedTerm schema t')
 
 addsimp :: SharedContext s -> Theorem s -> Simpset (SharedTerm s) -> Simpset (SharedTerm s)
 addsimp _sc (Theorem t) ss = addRule (ruleOfProp t) ss
