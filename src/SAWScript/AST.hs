@@ -9,11 +9,11 @@ import SAWScript.Token
 import SAWScript.Utils
 
 import Data.List
-import qualified Data.Map as M
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Control.Arrow
 
 import Data.Foldable (Foldable)
-import qualified Data.Traversable as T
 import Data.Traversable (Traversable)
 import System.FilePath (joinPath,splitPath,dropExtension)
 import qualified Text.PrettyPrint.Leijen as PP
@@ -97,30 +97,30 @@ onBind f (n,a) = (n,f a)
 onBinds :: (a -> b) -> [Bind a] -> [Bind b]
 onBinds = map . onBind
 
-type Env a       = M.Map Name a
-type LEnv a      = M.Map LName a
-type ModuleEnv a = M.Map ModuleName a
+type Env a       = Map Name a
+type LEnv a      = Map LName a
+type ModuleEnv a = Map ModuleName a
 
 singletonEnv :: Name -> a -> Env a
-singletonEnv = M.singleton
+singletonEnv = Map.singleton
 
 lookupEnv :: Name -> Env a -> Maybe a
-lookupEnv = M.lookup
+lookupEnv = Map.lookup
 
 lookupLEnv :: LName -> LEnv a -> Maybe a
-lookupLEnv = M.lookup
+lookupLEnv = Map.lookup
 
 memberEnv :: Name -> Env a -> Bool
-memberEnv = M.member
+memberEnv = Map.member
 
 unionEnv :: Env a -> Env a -> Env a
-unionEnv = M.union
+unionEnv = Map.union
 
 emptyEnv :: Env a
-emptyEnv = M.empty
+emptyEnv = Map.empty
 
 insertEnv :: Name -> a -> Env a -> Env a
-insertEnv = M.insert
+insertEnv = Map.insert
 
 -- }}}
 
@@ -172,13 +172,13 @@ data TopStmt refT typeT
   | AbsTypeDecl LName
   | TopBind     LName       (Expr refT typeT)
   | Prim        LName       RawT
-  deriving (Eq,Show,Functor,Foldable,T.Traversable)
+  deriving (Eq,Show,Functor,Foldable,Traversable)
 
 {-
 data Exprs refT typeT
   = PrimExpr typeT
   | Defined (Expr refT typeT)
-  deriving (Eq,Show,Functor,Foldable,T.Traversable)
+  deriving (Eq,Show,Functor,Foldable,Traversable)
 -}
 
 data Expr refT typeT
@@ -203,14 +203,14 @@ data Expr refT typeT
   | Application (Expr refT typeT) (Expr refT typeT) typeT
   -- Sugar
   | LetBlock [LBind (Expr refT typeT)] (Expr refT typeT)
-  deriving (Eq,Show,Functor,Foldable,T.Traversable)
+  deriving (Eq,Show,Functor,Foldable,Traversable)
 
 data BlockStmt refT typeT
  -- Bind          bind var         context   expr
   = Bind          (Maybe (LBind typeT))     typeT     (Expr refT typeT)
   | BlockTypeDecl Name             typeT
   | BlockLet      [(LName,Expr refT typeT)]
-  deriving (Eq,Show,Functor,Foldable,T.Traversable)
+  deriving (Eq,Show,Functor,Foldable,Traversable)
 
 -- }}}
 
@@ -234,7 +234,7 @@ data TypeF typeT
   -- Poly
   | PVar Name
   | PAbs [Name] typeT
-  deriving (Show,Functor,Foldable,T.Traversable)
+  deriving (Show,Functor,Foldable,Traversable)
 
 data ContextF typeT
   = CryptolSetupContext
@@ -242,10 +242,10 @@ data ContextF typeT
   | LLVMSetupContext
   | ProofScriptContext
   | TopLevelContext
-  deriving (Eq,Show,Functor,Foldable,T.Traversable)
+  deriving (Eq,Show,Functor,Foldable,Traversable)
 
 data Syn typeF = Syn LName
-  deriving (Show,Functor,Foldable,T.Traversable)
+  deriving (Show,Functor,Foldable,Traversable)
 
 data Context
   = CryptolSetup
@@ -255,11 +255,11 @@ data Context
   | TopLevel
   deriving (Eq,Show)
 
-data I a = I Integer deriving (Show,Functor,Foldable,T.Traversable)
+data I a = I Integer deriving (Show,Functor,Foldable,Traversable)
 
 data Type
   = TyCon TyCon [Type]
-  | TyRecord (M.Map Name Type)
+  | TyRecord (Map Name Type)
   | TyVar TyVar
  deriving (Eq,Show)
 
@@ -315,7 +315,7 @@ instance PrettyPrint Type where
       PP.braces
     $ commaSepAll
     $ map (\(n,t) -> PP.text n `prettyTypeSig` pretty False t)
-    $ M.toList fs
+    $ Map.toList fs
   pretty par (TyVar tv) = pretty par tv
 
 instance PrettyPrint TyVar where
@@ -642,7 +642,7 @@ rewindType (TyCon ArrayCon parameters) = rewindBinary "ArrayCon" array parameter
 rewindType (TyCon BlockCon parameters) = rewindBinary "BlockCon" block parameters
 rewindType (TyCon FunCon parameters) = rewindBinary "FunCon" function parameters
 rewindType (TyCon (TupleCon _len) types) = tuple $ map rewindType types
-rewindType (TyRecord bindings) = record $ M.assocs $ M.map rewindType bindings
+rewindType (TyRecord bindings) = record $ Map.assocs $ Map.map rewindType bindings
 rewindType (TyVar var) = case var of
   BoundVar name -> pVar name
   FreeVar name -> error $ "rewindType: FreeVar in Schema: " ++ show name
