@@ -201,11 +201,13 @@ interpretModule
     -> InterpretEnv s -> SS.ValidModule -> IO (InterpretEnv s)
 interpretModule sc env m =
     do let mn = SS.moduleName m
+       cenv' <- foldM (CEnv.importModule sc) (ieCryptol env) (SS.moduleCryDeps m)
+       let env' = env { ieCryptol = cenv' }
        let graph = [ ((name', e), SS.getVal name', S.toList (exprDeps e))
                    | (name, e) <- Map.assocs (SS.moduleExprEnv m)
                    , let name' = fmap (SS.TopLevelName mn) name ]
        let sccs = stronglyConnComp graph
-       foldM (interpretSCC sc) env sccs
+       foldM (interpretSCC sc) env' sccs
 
 interpretSCC
     :: forall s. SharedContext s

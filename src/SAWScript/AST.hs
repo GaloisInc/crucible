@@ -132,6 +132,7 @@ data Module refT exprT typeT = Module
   , modulePrimEnv      :: LEnv exprT
   , moduleTypeEnv      :: LEnv typeT
   , moduleDependencies :: ModuleEnv ValidModule
+  , moduleCryDeps      :: [FilePath]
   } deriving (Eq,Show)
 
 -- A fully type checked module.
@@ -166,12 +167,13 @@ type ExprSimple      = Expr      UnresolvedName
 type BlockStmtSimple = BlockStmt UnresolvedName
 
 data TopStmt refT typeT
-  = Import      ModuleName (Maybe [Name])    (Maybe Name)
-  | TypeDef     LName       RawSigT
-  | TopTypeDecl LName       RawSigT
-  | AbsTypeDecl LName
-  | TopBind     LName       (Expr refT typeT)
-  | Prim        LName       RawT
+  = Import      ModuleName (Maybe [Name])    (Maybe Name)   -- ^ import <module> [(<names>)] [as <name>]
+  | TypeDef     LName       RawSigT                         -- ^ type <name> = <type>
+  | TopTypeDecl LName       RawSigT                         -- ^ <name> : <type>
+  | AbsTypeDecl LName                                       -- ^ abstract <name>
+  | TopBind     LName       (Expr refT typeT)               -- ^ <name> = <expr>
+  | Prim        LName       RawT                            -- ^ prim <name> : <type>
+  | ImportCry   FilePath                                    -- ^ import "filepath.cry"
   deriving (Eq,Show,Functor,Foldable,Traversable)
 
 {-
