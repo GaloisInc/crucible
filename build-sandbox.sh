@@ -11,11 +11,6 @@ dotests="false"
 dopull="false"
 sandbox_dir=build
 
-# disable pthreads on windows
-if [ "${OS}" == "Windows_NT" ]; then
-  cabal_flags="${cabal_flags} --flags -enable-pthreads"
-fi
-
 while getopts "tp" opt; do
   case $opt in
     t)
@@ -63,7 +58,11 @@ done
 
 for repo in ${GITHUB_REPOS} ; do
   cabal sandbox add-source deps/${repo}
-  if [ "${dotests}" == "true" ] ; then
+
+  # Be sure abcBridge builds with pthreads diabled on Windows
+  if [ ("${OS}" == "Windows_NT") && ("${repo}" == "abcBridge") ]; then
+    cabal install --force abcBridge ${cabal_flags} -f-enable-pthreads
+  elif [ "${dotests}" == "true" ] ; then
     cabal install --force ${repo} ${cabal_flags}
   fi
 done
