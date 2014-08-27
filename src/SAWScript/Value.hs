@@ -19,6 +19,7 @@ import qualified SAWScript.AST as SS
 import qualified SAWScript.JavaMethodSpecIR as JIR
 import qualified SAWScript.LLVMMethodSpecIR as LIR
 import qualified Verifier.Java.Codebase as JSS
+import qualified Verifier.LLVM.Codebase as LSS
 import SAWScript.Proof
 import SAWScript.Utils
 
@@ -53,6 +54,7 @@ data Value s
   | VLLVMSetup (LLVMSetup (Value s))
   | VJavaMethodSpec JIR.JavaMethodSpecIR
   | VLLVMMethodSpec LIR.LLVMMethodSpecIR
+  | VLLVMType LSS.MemType
   | VJavaClass JSS.Class
   | VLLVMModule LLVMModule
   | VSatResult SatResult
@@ -157,6 +159,7 @@ showsPrecValue opts p mty v =
     VLLVMSetup {} -> showString "<<LLVM Setup>>"
     VJavaMethodSpec {} -> showString "<<Java MethodSpec>>"
     VLLVMMethodSpec {} -> showString "<<LLVM MethodSpec>>"
+    VLLVMType t -> showString (show (LSS.ppMemType t))
     VLLVMModule {} -> showString "<<LLVM Module>>"
     VJavaClass {} -> showString "<<Java Class>>"
     VProofResult Valid -> showString "Valid"
@@ -385,6 +388,15 @@ instance FromValue s Integer where
     fromValue (VInteger n) = n
     fromValue _ = error "fromValue Integer"
 
+instance IsValue s Int where
+    toValue n = VInteger (toInteger n)
+
+instance FromValue s Int where
+    fromValue (VInteger n)
+      | toInteger (minBound :: Int) <= n &&
+        toInteger (maxBound :: Int) >= n = fromIntegral n
+    fromValue _ = error "fromValue Int"
+
 instance IsValue s Prim.BitVector where
     toValue (Prim.BV w x) = VWord w x
 
@@ -426,6 +438,13 @@ instance IsValue SAWCtx LIR.LLVMMethodSpecIR where
 instance FromValue SAWCtx LIR.LLVMMethodSpecIR where
     fromValue (VLLVMMethodSpec ms) = ms
     fromValue _ = error "fromValue LLVMMethodSpec"
+
+instance IsValue SAWCtx LSS.MemType where
+    toValue t = VLLVMType t
+
+instance FromValue SAWCtx LSS.MemType where
+    fromValue (VLLVMType t) = t
+    fromValue _ = error "fromValue LLVMType"
 
 instance IsValue s (Uninterp s) where
     toValue me = VUninterp me

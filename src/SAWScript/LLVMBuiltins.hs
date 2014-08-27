@@ -269,19 +269,21 @@ getLLVMExpr ms name = do
     Just (_, expr) -> return (expr, lssTypeOfLLVMExpr expr)
     Nothing -> fail $ "LLVM name " ++ name ++ " has not been declared."
 
-exportLLVMType :: Value s -> MemType
-exportLLVMType (VCtorApp "LLVM.IntType" [VInteger n]) =
-  IntType (fromIntegral n)
-exportLLVMType (VCtorApp "LLVM.ArrayType" [VInteger n, ety]) =
-  ArrayType (fromIntegral n) (exportLLVMType ety)
-exportLLVMType (VCtorApp "LLVM.PtrType" [VInteger n]) =
-  PtrType (MemType (IntType 8)) -- Character pointer, to start.
-exportLLVMType v =
-  error $ "exportLLVMType: Can't translate to LLVM type: " ++ show v
+llvmInt :: Int -> MemType
+llvmInt n = IntType n
 
-llvmVar :: BuiltinContext -> Options -> String -> Value SAWCtx
-        -> LLVMSetup (SharedTerm SAWCtx)
-llvmVar bic _ name t = do
+llvmFloat :: MemType
+llvmFloat = FloatType
+
+llvmDouble :: MemType
+llvmDouble = DoubleType
+
+llvmArray :: Int -> MemType -> MemType
+llvmArray n t = ArrayType n t
+
+llvmVar :: BuiltinContext -> Options -> String -> MemType
+        -> LLVMSetup (SV.TypedTerm SAWCtx)
+llvmVar bic _ name lty = do
   lsState <- get
   let ms = lsSpec lsState
       func = specFunction ms
@@ -290,24 +292,22 @@ llvmVar bic _ name t = do
                Just fd -> return fd
                Nothing -> fail $ "Function " ++ show func ++ " not found."
   expr <- liftIO $ parseLLVMExpr cb funcDef name
-  let lty = exportLLVMType t
-      expr' = updateLLVMExprType expr lty
+  let expr' = updateLLVMExprType expr lty
   modify $ \st -> st { lsSpec = specAddVarDecl fixPos name expr' lty (lsSpec st) }
   let sc = biSharedContext bic
   Just ty <- liftIO $ logicTypeOfActual sc lty
-  liftIO $ scLLVMValue sc ty name
+  liftIO $ scLLVMValue sc ty name >>= SV.mkTypedTerm sc
 
-llvmPtr :: BuiltinContext -> Options -> String -> Value SAWCtx
-        -> LLVMSetup (SharedTerm SAWCtx)
-llvmPtr bic _ name t = do
+llvmPtr :: BuiltinContext -> Options -> String -> MemType
+        -> LLVMSetup (SV.TypedTerm SAWCtx)
+llvmPtr bic _ name lty = do
   lsState <- get
   let ms = lsSpec lsState
       func = specFunction ms
       cb = specCodebase ms
       Just funcDef = lookupDefine func cb
   expr <- liftIO $ parseLLVMExpr cb funcDef name
-  let lty = exportLLVMType t
-      pty = PtrType (MemType lty)
+  let pty = PtrType (MemType lty)
       expr' = updateLLVMExprType expr pty
       dexpr = Term (Deref expr' lty)
       dname = '*':name
@@ -315,7 +315,7 @@ llvmPtr bic _ name t = do
                                 specAddVarDecl fixPos name expr' pty (lsSpec st) }
   let sc = biSharedContext bic
   Just dty <- liftIO $ logicTypeOfActual sc lty
-  liftIO $ scLLVMValue sc dty dname
+  liftIO $ scLLVMValue sc dty dname >>= SV.mkTypedTerm sc
 
 llvmDeref :: BuiltinContext -> Options -> Value SAWCtx
           -> LLVMSetup (SharedTerm SAWCtx)

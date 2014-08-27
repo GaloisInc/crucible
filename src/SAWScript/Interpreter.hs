@@ -369,6 +369,10 @@ valueEnv opts bic = Map.fromList
   , (qualify "llvm_modify" , toValue $ llvmModify bic opts)
   , (qualify "llvm_return" , toValue $ llvmReturn bic opts)
   , (qualify "llvm_verify_tactic" , toValue $ llvmVerifyTactic bic opts)
+  , (qualify "llvm_int"    , toValue llvmInt)
+  , (qualify "llvm_float"  , toValue llvmFloat)
+  , (qualify "llvm_double" , toValue llvmDouble)
+  , (qualify "llvm_array"  , toValue llvmArray)
   -- Generic stuff
   , (qualify "check_term"  , toValue $ check_term sc)
   , (qualify "prove"       , toValue $ provePrim sc)
