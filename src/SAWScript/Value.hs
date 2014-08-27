@@ -54,6 +54,7 @@ data Value s
   | VLLVMSetup (LLVMSetup (Value s))
   | VJavaMethodSpec JIR.JavaMethodSpecIR
   | VLLVMMethodSpec LIR.LLVMMethodSpecIR
+  | VJavaType JSS.Type
   | VLLVMType LSS.MemType
   | VJavaClass JSS.Class
   | VLLVMModule LLVMModule
@@ -159,6 +160,7 @@ showsPrecValue opts p mty v =
     VLLVMSetup {} -> showString "<<LLVM Setup>>"
     VJavaMethodSpec {} -> showString "<<Java MethodSpec>>"
     VLLVMMethodSpec {} -> showString "<<LLVM MethodSpec>>"
+    VJavaType {} -> showString "<<Java type>>"
     VLLVMType t -> showString (show (LSS.ppMemType t))
     VLLVMModule {} -> showString "<<LLVM Module>>"
     VJavaClass {} -> showString "<<Java Class>>"
@@ -438,6 +440,13 @@ instance IsValue SAWCtx LIR.LLVMMethodSpecIR where
 instance FromValue SAWCtx LIR.LLVMMethodSpecIR where
     fromValue (VLLVMMethodSpec ms) = ms
     fromValue _ = error "fromValue LLVMMethodSpec"
+
+instance IsValue SAWCtx JSS.Type where
+    toValue t = VJavaType t
+
+instance FromValue SAWCtx JSS.Type where
+    fromValue (VJavaType t) = t
+    fromValue _ = error "fromValue JavaType"
 
 instance IsValue SAWCtx LSS.MemType where
     toValue t = VLLVMType t

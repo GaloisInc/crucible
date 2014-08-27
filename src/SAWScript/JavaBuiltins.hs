@@ -291,47 +291,69 @@ parseJavaExpr cb cls meth estr = do
         parseStaticParts _ = return Nothing
         parts = reverse (splitOn "." estr)
 
-exportJSSType :: SS.Value s -> JSS.Type
-exportJSSType (SS.VCtorApp "Java.BooleanType" []) = JSS.BooleanType
-exportJSSType (SS.VCtorApp "Java.ByteType" []) = JSS.ByteType
-exportJSSType (SS.VCtorApp "Java.CharType" []) = JSS.CharType
-exportJSSType (SS.VCtorApp "Java.ShortType" []) = JSS.ShortType
-exportJSSType (SS.VCtorApp "Java.IntType" []) = JSS.IntType
-exportJSSType (SS.VCtorApp "Java.LongType" []) = JSS.LongType
-exportJSSType (SS.VCtorApp "Java.ArrayType" [_, ety]) =
-  JSS.ArrayType (exportJSSType ety)
-exportJSSType (SS.VCtorApp "Java.ClassType" [SS.VString name]) =
-  JSS.ClassType (JP.dotsToSlashes name)
-exportJSSType v =
-  error $ "exportJSSType: Can't translate to Java type: " ++ show v
+-- FIXME: Is JSS.Type the right type to use to model SAWScript type
+-- "JavaType"? It is almost right, except it does not preserve array
+-- lengths.
 
-exportJavaType :: JSS.Codebase -> SS.Value s -> IO JavaActualType
-exportJavaType _ (SS.VCtorApp "Java.BooleanType" []) =
+javaBool :: JSS.Type
+javaBool = JSS.BooleanType
+
+javaByte :: JSS.Type
+javaByte = JSS.ByteType
+
+javaChar :: JSS.Type
+javaChar = JSS.CharType
+
+javaShort :: JSS.Type
+javaShort = JSS.ShortType
+
+javaInt :: JSS.Type
+javaInt = JSS.IntType
+
+javaLong :: JSS.Type
+javaLong = JSS.LongType
+
+javaFloat :: JSS.Type
+javaFloat = JSS.FloatType
+
+javaDouble :: JSS.Type
+javaDouble = JSS.DoubleType
+
+javaArray :: Int -> JSS.Type -> JSS.Type
+javaArray _ t = JSS.ArrayType t
+
+javaClass :: String -> JSS.Type
+javaClass name = JSS.ClassType (JP.dotsToSlashes name)
+
+exportJavaType :: JSS.Codebase -> JSS.Type -> IO JavaActualType
+exportJavaType _ JSS.BooleanType =
   return $ PrimitiveType JSS.BooleanType
-exportJavaType _ (SS.VCtorApp "Java.ByteType" []) =
+exportJavaType _ JSS.ByteType =
   return $ PrimitiveType JSS.ByteType
-exportJavaType _ (SS.VCtorApp "Java.CharType" []) =
+exportJavaType _ JSS.CharType =
   return $ PrimitiveType JSS.CharType
-exportJavaType _ (SS.VCtorApp "Java.ShortType" []) =
+exportJavaType _ JSS.ShortType =
   return $ PrimitiveType JSS.ShortType
-exportJavaType _ (SS.VCtorApp "Java.IntType" []) =
+exportJavaType _ JSS.IntType =
   return $ PrimitiveType JSS.IntType
-exportJavaType _ (SS.VCtorApp "Java.LongType" []) =
+exportJavaType _ JSS.LongType =
   return $ PrimitiveType JSS.LongType
-exportJavaType _ (SS.VCtorApp "Java.ArrayType" [SS.VInteger n, ety]) =
-  return $ ArrayInstance (fromIntegral n) (exportJSSType ety)
-exportJavaType cb (SS.VCtorApp "Java.ClassType" [SS.VString name]) = do
-  cls <- lookupClass cb fixPos (JP.dotsToSlashes name)
-  return (ClassInstance  cls)
+exportJavaType _ (JSS.ArrayType t) =
+  return $ PrimitiveType (JSS.ArrayType t)
+  -- return $ ArrayInstance (fromIntegral n) (exportJSSType ety)
+  -- ^ FIXME: JSS.Type does not encode array length
+exportJavaType cb (JSS.ClassType name) = do
+  cls <- lookupClass cb fixPos name
+  return (ClassInstance cls)
 exportJavaType _ v =
   error $ "exportJavaType: Can't translate to Java type: " ++ show v
 
 javaPure :: JavaSetup ()
 javaPure = return ()
 
-typeJavaExpr :: BuiltinContext -> String -> SS.Value s
+typeJavaExpr :: BuiltinContext -> String -> JSS.Type
              -> JavaSetup (JavaExpr, JavaActualType)
-typeJavaExpr bic name ty = do
+typeJavaExpr bic name jty' = do
   jsState <- get
   let ms = jsSpec jsState
       cb = biJavaCodebase bic
@@ -339,9 +361,8 @@ typeJavaExpr bic name ty = do
       meth = specMethod ms
   expr <- liftIO $ parseJavaExpr (biJavaCodebase bic) cls meth name
   let jty = jssTypeOfJavaExpr expr
-      jty' = exportJSSType ty
   liftIO $ checkEqualTypes jty jty' name
-  aty <- liftIO $ exportJavaType cb ty
+  aty <- liftIO $ exportJavaType cb jty'
   return (expr, aty)
 
 checkEqualTypes :: JSS.Type -> JSS.Type -> String -> IO ()
@@ -355,21 +376,21 @@ checkEqualTypes declared actual name =
          , text name
          ]
 
-javaClassVar :: BuiltinContext -> Options -> String -> SS.Value SAWCtx
+javaClassVar :: BuiltinContext -> Options -> String -> JSS.Type
              -> JavaSetup ()
-javaClassVar bic _ name t@(SS.VCtorApp _ _) = do
+javaClassVar bic _ name t = do
   (expr, aty) <- typeJavaExpr bic name t
   modify $ \st -> st { jsSpec = specAddVarDecl name expr aty (jsSpec st) }
 javaClassVar _ _ _ _ = fail "java_class_var called with invalid type argument"
 
-javaVar :: BuiltinContext -> Options -> String -> SS.Value SAWCtx
-        -> JavaSetup (SharedTerm SAWCtx)
-javaVar bic _ name t@(SS.VCtorApp _ _) = do
+javaVar :: BuiltinContext -> Options -> String -> JSS.Type
+        -> JavaSetup (SS.TypedTerm SAWCtx)
+javaVar bic _ name t = do
   (expr, aty) <- typeJavaExpr bic name t
   modify $ \st -> st { jsSpec = specAddVarDecl name expr aty (jsSpec st) }
   let sc = biSharedContext bic
   Just lty <- liftIO $ logicTypeOfActual sc aty
-  liftIO $ scJavaValue sc lty name
+  liftIO $ scJavaValue sc lty name >>= SS.mkTypedTerm sc
 javaVar _ _ _ _ = fail "java_var called with invalid type argument"
 
 javaMayAlias :: BuiltinContext -> Options -> [String]
