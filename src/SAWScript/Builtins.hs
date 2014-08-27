@@ -34,7 +34,7 @@ import Verifier.LLVM.Backend.SAW (llvmModule)
 import Verifier.SAW.Constant
 import Verifier.SAW.ExternalFormat
 import qualified Verifier.SAW.BitBlast as Old
-import Verifier.SAW.FiniteValue (FiniteType(..), FiniteValue(..), scFiniteValue)
+import Verifier.SAW.FiniteValue (FiniteType(..), FiniteValue(..), scFiniteValue, fvVec)
 import Verifier.SAW.Evaluator hiding (applyAll)
 import Verifier.SAW.Prelude
 import qualified Verifier.SAW.Prim as Prim
@@ -418,7 +418,7 @@ getLabels ls m d argNames =
     getLabel (SBVSim.BoolLabel s) = FVBit . fromJust $ SBV.getModelValue s m
     getLabel (SBVSim.WordLabel s) = d Map.! s &
       (\(KBounded _ n)-> FVWord (fromIntegral n)) . SBV.cwKind <*> (\(CWInteger i)-> i) . SBV.cwVal
-    getLabel (SBVSim.VecLabel xs) = FVVec t $ map getLabel (V.toList xs)
+    getLabel (SBVSim.VecLabel xs) = fvVec t $ map getLabel (V.toList xs)
       where t = error "FIXME getLabel VecLabel"
     getLabel (SBVSim.TupleLabel xs) = FVTuple $ map getLabel (V.toList xs)
     getLabel (SBVSim.RecLabel xs) = FVRec $ fmap getLabel xs
@@ -474,7 +474,7 @@ convertOldBValue bval =
   case bval of
     Old.BBool b    -> FVBit b
     -- | FIXME: this fails for vectors of length 0
-    Old.BVector vv -> FVVec t (map convertOldBValue (V.toList vv))
+    Old.BVector vv -> fvVec t (map convertOldBValue (V.toList vv))
       where t = Old.getShape (V.head vv)
     Old.BTuple vs  -> FVTuple (map convertOldBValue vs)
     Old.BRecord vm -> FVRec (fmap convertOldBValue vm)
