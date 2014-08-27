@@ -10,6 +10,12 @@ test_flags="--enable-tests --run-tests --disable-library-coverage"
 dotests="false"
 dopull="false"
 sandbox_dir=build
+
+# disable pthreads on windows
+if [ "${OS}" == "Windows_NT" ]; then
+  cabal_flags="${cabal_flags} --flags -enable-pthreads"
+fi
+
 while getopts "tp" opt; do
   case $opt in
     t)
