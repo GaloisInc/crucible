@@ -60,7 +60,7 @@ for repo in ${GITHUB_REPOS} ; do
   cabal sandbox add-source deps/${repo}
 
   # Be sure abcBridge builds with pthreads diabled on Windows
-  if [ ("${OS}" == "Windows_NT") && ("${repo}" == "abcBridge") ]; then
+  if [ "${OS}" == "Windows_NT" -a "${repo}" == "abcBridge" ]; then
     cabal install --force abcBridge ${cabal_flags} -f-enable-pthreads
   elif [ "${dotests}" == "true" ] ; then
     cabal install --force ${repo} ${cabal_flags}
