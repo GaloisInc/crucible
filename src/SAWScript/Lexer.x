@@ -61,8 +61,7 @@ $charesc     = [abfnrtv\\\"\'\&]
 @escape      = \\ ($charesc | @ascii | @decimal | o @octal | x @hexadecimal)
 @gap         = \\ $whitechar+ \\
 @string      = $graphic # [\"\\] | " " | @escape | @gap
-@codeaa      = $codechar # \} | \} ($codechar # \})
-@code        = $codechar # [\{\}]
+@code        = ($codechar # \}) | \} ($codechar # \})
 @num         = @decimal | 0[bB] @binary | 0[oO] @octal | 0[xX] @hexadecimal
 
 sawTokens :-
