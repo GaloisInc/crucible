@@ -20,6 +20,7 @@ import qualified SAWScript.JavaMethodSpecIR as JIR
 import qualified SAWScript.LLVMMethodSpecIR as LIR
 import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.LLVM.Codebase as LSS
+import SAWScript.JavaExpr (JavaType(..))
 import SAWScript.Proof
 import SAWScript.Utils
 
@@ -54,7 +55,7 @@ data Value s
   | VLLVMSetup (LLVMSetup (Value s))
   | VJavaMethodSpec JIR.JavaMethodSpecIR
   | VLLVMMethodSpec LIR.LLVMMethodSpecIR
-  | VJavaType JSS.Type
+  | VJavaType JavaType
   | VLLVMType LSS.MemType
   | VJavaClass JSS.Class
   | VLLVMModule LLVMModule
@@ -441,10 +442,10 @@ instance FromValue SAWCtx LIR.LLVMMethodSpecIR where
     fromValue (VLLVMMethodSpec ms) = ms
     fromValue _ = error "fromValue LLVMMethodSpec"
 
-instance IsValue SAWCtx JSS.Type where
+instance IsValue SAWCtx JavaType where
     toValue t = VJavaType t
 
-instance FromValue SAWCtx JSS.Type where
+instance FromValue SAWCtx JavaType where
     fromValue (VJavaType t) = t
     fromValue _ = error "fromValue JavaType"
 

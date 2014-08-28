@@ -291,69 +291,71 @@ parseJavaExpr cb cls meth estr = do
         parseStaticParts _ = return Nothing
         parts = reverse (splitOn "." estr)
 
--- FIXME: Is JSS.Type the right type to use to model SAWScript type
--- "JavaType"? It is almost right, except it does not preserve array
--- lengths.
+javaBool :: JavaType
+javaBool = JavaBoolean
 
-javaBool :: JSS.Type
-javaBool = JSS.BooleanType
+javaByte :: JavaType
+javaByte = JavaByte
 
-javaByte :: JSS.Type
-javaByte = JSS.ByteType
+javaChar :: JavaType
+javaChar = JavaChar
 
-javaChar :: JSS.Type
-javaChar = JSS.CharType
+javaShort :: JavaType
+javaShort = JavaShort
 
-javaShort :: JSS.Type
-javaShort = JSS.ShortType
+javaInt :: JavaType
+javaInt = JavaInt
 
-javaInt :: JSS.Type
-javaInt = JSS.IntType
+javaLong :: JavaType
+javaLong = JavaLong
 
-javaLong :: JSS.Type
-javaLong = JSS.LongType
+javaFloat :: JavaType
+javaFloat = JavaFloat
 
-javaFloat :: JSS.Type
-javaFloat = JSS.FloatType
+javaDouble :: JavaType
+javaDouble = JavaDouble
 
-javaDouble :: JSS.Type
-javaDouble = JSS.DoubleType
+javaArray :: Int -> JavaType -> JavaType
+javaArray n t = JavaArray n t
 
-javaArray :: Int -> JSS.Type -> JSS.Type
-javaArray _ t = JSS.ArrayType t
+javaClass :: String -> JavaType
+javaClass name = JavaClass name
 
-javaClass :: String -> JSS.Type
-javaClass name = JSS.ClassType (JP.dotsToSlashes name)
+exportJSSType :: JavaType -> JSS.Type
+exportJSSType jty =
+  case jty of
+    JavaBoolean     -> JSS.BooleanType
+    JavaByte        -> JSS.ByteType
+    JavaChar        -> JSS.CharType
+    JavaShort       -> JSS.ShortType
+    JavaInt         -> JSS.IntType
+    JavaLong        -> JSS.LongType
+    JavaFloat       -> error "exportJSSType: Can't translate float type"
+    JavaDouble      -> error "exportJSSType: Can't translate double type"
+    JavaArray _ ety -> JSS.ArrayType (exportJSSType ety)
+    JavaClass name  -> JSS.ClassType (JP.dotsToSlashes name)
 
-exportJavaType :: JSS.Codebase -> JSS.Type -> IO JavaActualType
-exportJavaType _ JSS.BooleanType =
-  return $ PrimitiveType JSS.BooleanType
-exportJavaType _ JSS.ByteType =
-  return $ PrimitiveType JSS.ByteType
-exportJavaType _ JSS.CharType =
-  return $ PrimitiveType JSS.CharType
-exportJavaType _ JSS.ShortType =
-  return $ PrimitiveType JSS.ShortType
-exportJavaType _ JSS.IntType =
-  return $ PrimitiveType JSS.IntType
-exportJavaType _ JSS.LongType =
-  return $ PrimitiveType JSS.LongType
-exportJavaType _ (JSS.ArrayType t) =
-  return $ PrimitiveType (JSS.ArrayType t)
-  -- return $ ArrayInstance (fromIntegral n) (exportJSSType ety)
-  -- ^ FIXME: JSS.Type does not encode array length
-exportJavaType cb (JSS.ClassType name) = do
-  cls <- lookupClass cb fixPos name
-  return (ClassInstance cls)
-exportJavaType _ v =
-  error $ "exportJavaType: Can't translate to Java type: " ++ show v
+exportJavaType :: JSS.Codebase -> JavaType -> IO JavaActualType
+exportJavaType cb jty =
+  case jty of
+    JavaBoolean     -> return $ PrimitiveType JSS.BooleanType
+    JavaByte        -> return $ PrimitiveType JSS.ByteType
+    JavaChar        -> return $ PrimitiveType JSS.CharType
+    JavaShort       -> return $ PrimitiveType JSS.ShortType
+    JavaInt         -> return $ PrimitiveType JSS.IntType
+    JavaLong        -> return $ PrimitiveType JSS.LongType
+    JavaFloat       -> error "exportJavaType: Can't translate float type"
+    JavaDouble      -> error "exportJavaType: Can't translate double type"
+    JavaArray n t   -> return $ ArrayInstance (fromIntegral n) (exportJSSType t)
+    JavaClass name  -> do cls <- lookupClass cb fixPos name
+                          return (ClassInstance cls)
 
 javaPure :: JavaSetup ()
 javaPure = return ()
 
-typeJavaExpr :: BuiltinContext -> String -> JSS.Type
+typeJavaExpr :: BuiltinContext -> String -> JavaType
              -> JavaSetup (JavaExpr, JavaActualType)
-typeJavaExpr bic name jty' = do
+typeJavaExpr bic name ty = do
   jsState <- get
   let ms = jsSpec jsState
       cb = biJavaCodebase bic
@@ -361,8 +363,9 @@ typeJavaExpr bic name jty' = do
       meth = specMethod ms
   expr <- liftIO $ parseJavaExpr (biJavaCodebase bic) cls meth name
   let jty = jssTypeOfJavaExpr expr
+      jty' = exportJSSType ty
   liftIO $ checkEqualTypes jty jty' name
-  aty <- liftIO $ exportJavaType cb jty'
+  aty <- liftIO $ exportJavaType cb ty
   return (expr, aty)
 
 checkEqualTypes :: JSS.Type -> JSS.Type -> String -> IO ()
@@ -376,14 +379,14 @@ checkEqualTypes declared actual name =
          , text name
          ]
 
-javaClassVar :: BuiltinContext -> Options -> String -> JSS.Type
+javaClassVar :: BuiltinContext -> Options -> String -> JavaType
              -> JavaSetup ()
 javaClassVar bic _ name t = do
   (expr, aty) <- typeJavaExpr bic name t
   modify $ \st -> st { jsSpec = specAddVarDecl name expr aty (jsSpec st) }
 javaClassVar _ _ _ _ = fail "java_class_var called with invalid type argument"
 
-javaVar :: BuiltinContext -> Options -> String -> JSS.Type
+javaVar :: BuiltinContext -> Options -> String -> JavaType
         -> JavaSetup (SS.TypedTerm SAWCtx)
 javaVar bic _ name t = do
   (expr, aty) <- typeJavaExpr bic name t

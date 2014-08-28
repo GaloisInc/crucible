@@ -29,6 +29,7 @@ module SAWScript.JavaExpr
   , logicTypeOfActual
   , ppActualType
   , MethodLocation (..)
+  , JavaType(..)
   ) where
 
 -- Imports {{{2
@@ -213,3 +214,19 @@ ppActualType :: JavaActualType -> String
 ppActualType (ClassInstance x) = JSS.slashesToDots (JSS.className x)
 ppActualType (ArrayInstance l tp) = show tp ++ "[" ++ show l ++ "]"
 ppActualType (PrimitiveType tp) = show tp
+
+-- JavaType {{{1
+
+-- | Adapted from type 'JavaType' in Java.sawcore.
+data JavaType
+  = JavaBoolean
+  | JavaByte
+  | JavaChar
+  | JavaShort
+  | JavaInt
+  | JavaLong
+  | JavaFloat
+  | JavaDouble
+  | JavaArray Int JavaType
+  | JavaClass String
+  deriving Eq
