@@ -57,6 +57,8 @@ import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
 import Verifier.SAW.SharedTerm
 
+import Verifier.SAW.Cryptol (scCryptolEq)
+
 -- JSS Utilities {{{1
 
 type SpecPathState = JSS.Path (SharedContext JSSCtx)
@@ -648,7 +650,7 @@ esResolveLogicExprs _ _ (hrhs:rrhs) = do
   -- Add assumptions for other equivalent expressions.
   forM_ rrhs $ \rhsExpr -> do
     rhs <- esEval $ evalLogicExpr rhsExpr
-    esModifyInitialPathStateIO $ \s0 -> do prop <- scEq sc t rhs
+    esModifyInitialPathStateIO $ \s0 -> do prop <- scCryptolEq sc t rhs
                                            addAssumption sc prop s0
   -- Return value.
   return t

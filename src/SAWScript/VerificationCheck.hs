@@ -5,6 +5,7 @@ import Verifier.SAW.SharedTerm
 import Text.PrettyPrint.Leijen
 
 import SAWScript.Utils
+import Verifier.SAW.Cryptol (scCryptolEq)
 
 data VerificationCheck s
   = AssertionCheck String         -- ^ Name of assertion.
@@ -21,7 +22,7 @@ vcName (EqualityCheck nm _ _) = nm
 -- | Returns goal that one needs to prove.
 vcGoal :: SharedContext s -> VerificationCheck s -> IO (SharedTerm s)
 vcGoal _ (AssertionCheck _ n) = return n
-vcGoal sc (EqualityCheck _ x y) = scEq sc x y
+vcGoal sc (EqualityCheck _ x y) = scCryptolEq sc x y
 
 type CounterexampleFn s = (SharedTerm s -> IO Value) -> IO Doc
 
