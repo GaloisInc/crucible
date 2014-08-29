@@ -199,7 +199,6 @@ verifyJava bic opts cls mname overrides setup = do
         putStrLn "Verifying the following:"
         mapM_ (print . ppPathVC) res
       let prover script vs g = do
-            checkBoolean jsc g
             glam <- bindAllExts jsc g
             let bsc = biSharedContext bic
             glam' <- scNegate bsc =<< scImport bsc glam

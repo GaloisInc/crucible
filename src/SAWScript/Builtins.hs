@@ -278,7 +278,7 @@ checkBoolean sc t = do
 satABC :: SharedContext s -> ProofScript s SV.SatResult
 satABC sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
   let t = goalTerm g
-  checkBoolean sc t
+  --checkBoolean sc t
   let (args, _) = asLambdaList t
       argNames = map fst args
   -- putStrLn "Simulating..."
