@@ -451,8 +451,9 @@ javaAssert bic _ v = do
       atm = specActualTypeMap ms
   let sc = biSharedContext bic
   ty <- liftIO $ scTypeCheck sc v
-  unless (asBoolType ty == Just ()) $
-    fail $ "java_assert passed expression of non-boolean type: " ++ show ty
+  ty' <- liftIO $ scWhnf sc ty
+  unless (asBoolType ty' == Just ()) $
+    fail $ "java_assert passed expression of non-boolean type: " ++ show ty'
   me <- liftIO $ mkMixedExpr m atm sc v
   case me of
     LE le ->
