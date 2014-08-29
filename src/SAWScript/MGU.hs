@@ -174,11 +174,11 @@ bindSchemas bs m = foldr (uncurry bindSchema) m bs
 bindTopSchemas :: [LBind Schema] -> TI a -> TI a
 bindTopSchemas ds k =
   do m <- curModName
-     bindSchemas [ (Located (A.TopLevelName m (getVal x)) (getOrig x) (getPos x), s) | (x,s) <- ds ] k
+     bindSchemas [ (fmap (A.TopLevelName m) x, s) | (x, s) <- ds ] k
 
 bindLocalSchemas :: [LBind Schema] -> TI a -> TI a
 bindLocalSchemas ds k =
-  bindSchemas [ (Located (A.LocalName (getVal x)) (getOrig x) (getPos x),s) | (x,s) <- ds ] k
+  bindSchemas [ (fmap A.LocalName x, s) | (x, s) <- ds ] k
 
 curModName :: TI A.ModuleName
 curModName = TI $ asks curMod
@@ -234,6 +234,7 @@ instance AppSubst Expr where
     String str         -> String str
     Z i                -> Z i
     Undefined          -> Undefined
+    Code _             -> expr
     Array es           -> Array $ appSubst s es
     Block bs           -> Block $ appSubst s bs
     Tuple es           -> Tuple $ appSubst s es
@@ -252,6 +253,7 @@ instance AppSubst ty => AppSubst (A.Expr names ty) where
     A.Quote str t        -> A.Quote str (appSubst s t)
     A.Z i t              -> A.Z i (appSubst s t)
     A.Undefined t        -> A.Undefined (appSubst s t)
+    A.Code str t         -> A.Code str (appSubst s t)
 
     A.Array es t         -> A.Array  (appSubst s es) (appSubst s t)
     A.Block bs t         -> A.Block  (appSubst s bs) (appSubst s t)
@@ -323,6 +325,7 @@ inferE (ln, expr) = case expr of
   Z i       -> ret (A.Z i)     tZ
   Undefined -> do a <- newType
                   ret (A.Undefined) a
+  Code s    -> ret (A.Code s) tTerm
 
   Array  [] -> do a <- newType
                   ret (A.Array []) $ tArray (tNum (0 :: Int)) a
@@ -529,6 +532,7 @@ generalize es0 ts0 =
       A.Quote str t         -> A.Quote str (tForall xs t)
       A.Z i t               -> A.Z i (tForall xs t)
       A.Undefined t         -> A.Undefined (tForall xs t)
+      A.Code str t          -> A.Code str (tForall xs t)
 
       A.Array es t          -> A.Array es (tForall xs t)
       A.Block bs t          -> A.Block bs (tForall xs t)
@@ -585,6 +589,7 @@ defsDepsBind m it@(x,e0) = (it, [ A.TopLevelName m (getVal x) ], S.toList (uses 
       String _            -> S.empty
       Z _                 -> S.empty
       Undefined           -> S.empty
+      Code _              -> S.empty
       Array es            -> S.unions (map uses es)
       Block bs            -> S.unions (map usesB bs)
       Tuple es            -> S.unions (map uses es)
@@ -622,17 +627,17 @@ checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
   let eEnv    = A.moduleExprEnv m
   exprs <- traverse translateExpr eEnv
   initTs <- sequence $ concat
-    [ [ (,) <$> pure (Located (A.TopLevelName mn (getVal n)) (getOrig n) (getPos n)) <*> s
+    [ [ (,) <$> pure (fmap (A.TopLevelName mn) n) <*> s
       | (n,e) <- modExprs dep
       , let s = importTypeS $ A.typeOf e
       ] ++
-      [ (,) <$> pure (Located (A.TopLevelName mn (getVal n)) (getOrig n) (getPos n)) <*> importTypeS p
+      [ (,) <$> pure (fmap (A.TopLevelName mn) n) <*> importTypeS p
       | (n,p) <- modPrims dep
       ]
     | (mn,dep) <- depMods m
     ]
   (primTs,prims) <- unzip <$> sequence [ (,) <$> ((,) <$>
-    pure (Located (A.TopLevelName modName (getVal n)) (getOrig n) (getPos n)) <*> t')
+    pure (fmap (A.TopLevelName modName) n) <*> t')
                                              <*> ((,) <$> pure n <*> t')
                                        | (n,t) <- modPrims m
                                        , let t' = translateMTypeS t

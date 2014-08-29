@@ -31,6 +31,7 @@ import qualified Verifier.LLVM.Codebase as CB
 import Verifier.LLVM.Backend.SAW
 import Verifier.LLVM.Simulator
 
+import Verifier.SAW.FiniteValue
 import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST (Termlike)
@@ -44,6 +45,7 @@ import SAWScript.Options
 import SAWScript.Proof
 import SAWScript.Utils
 import SAWScript.Value as SV
+import qualified Verifier.SAW.Evaluator as SC
 
 loadLLVMModule :: FilePath -> IO LLVMModule
 loadLLVMModule file = LLVMModule file <$> loadModule file
@@ -81,7 +83,7 @@ browseLLVMModule (LLVMModule name m) = do
 -- arguments and returns a term representing the return value. Some
 -- verifications will require more complex execution contexts.
 extractLLVM :: SharedContext SAWCtx -> LLVMModule -> String -> LLVMSetup ()
-            -> IO (SharedTerm SAWCtx)
+            -> IO (SV.TypedTerm SAWCtx)
 extractLLVM sc (LLVMModule file mdl) func _setup = do
   let dl = parseDataLayout $ modDataLayout mdl
       sym = Symbol func
@@ -101,7 +103,7 @@ extractLLVM sc (LLVMModule file mdl) func _setup = do
           Nothing -> fail "No return value from simulated function."
           Just rv -> liftIO $ do
             lamTm <- bindExts scLLVM (map snd args) rv
-            scImport sc lamTm
+            scImport sc lamTm >>= SV.mkTypedTerm sc
 
 {-
 extractLLVMBit :: FilePath -> String -> SC s (SharedTerm s')
@@ -182,7 +184,7 @@ verifyLLVM bic opts (LLVMModule file mdl) func overrides setup = do
         when (verb >= 3) $ liftIO $ do
           putStrLn "Verifying the following:"
           mapM_ (print . ppPathVC) res
-        let prover :: ProofScript SAWCtx (SV.SatResult SAWCtx)
+        let prover :: ProofScript SAWCtx SV.SatResult
                    -> VerifyState
                    -> SharedTerm LSSCtx
                    -> IO ()
@@ -206,7 +208,7 @@ verifyLLVM bic opts (LLVMModule file mdl) func overrides setup = do
 showCexResults :: SharedContext LSSCtx
                -> LLVMMethodSpecIR
                -> VerifyState
-               -> [(String, Value SAWCtx)]
+               -> [(String, FiniteValue)]
                -> IO ()
 showCexResults sc ms vs vals = do
   putStrLn $ "When verifying " ++ show (specName ms) ++ ":"
@@ -267,19 +269,21 @@ getLLVMExpr ms name = do
     Just (_, expr) -> return (expr, lssTypeOfLLVMExpr expr)
     Nothing -> fail $ "LLVM name " ++ name ++ " has not been declared."
 
-exportLLVMType :: Value s -> MemType
-exportLLVMType (VCtorApp "LLVM.IntType" [VInteger n]) =
-  IntType (fromIntegral n)
-exportLLVMType (VCtorApp "LLVM.ArrayType" [VInteger n, ety]) =
-  ArrayType (fromIntegral n) (exportLLVMType ety)
-exportLLVMType (VCtorApp "LLVM.PtrType" [VInteger n]) =
-  PtrType (MemType (IntType 8)) -- Character pointer, to start.
-exportLLVMType v =
-  error $ "exportLLVMType: Can't translate to LLVM type: " ++ show v
+llvmInt :: Int -> MemType
+llvmInt n = IntType n
 
-llvmVar :: BuiltinContext -> Options -> String -> Value SAWCtx
-        -> LLVMSetup (SharedTerm SAWCtx)
-llvmVar bic _ name t = do
+llvmFloat :: MemType
+llvmFloat = FloatType
+
+llvmDouble :: MemType
+llvmDouble = DoubleType
+
+llvmArray :: Int -> MemType -> MemType
+llvmArray n t = ArrayType n t
+
+llvmVar :: BuiltinContext -> Options -> String -> MemType
+        -> LLVMSetup (SV.TypedTerm SAWCtx)
+llvmVar bic _ name lty = do
   lsState <- get
   let ms = lsSpec lsState
       func = specFunction ms
@@ -288,24 +292,22 @@ llvmVar bic _ name t = do
                Just fd -> return fd
                Nothing -> fail $ "Function " ++ show func ++ " not found."
   expr <- liftIO $ parseLLVMExpr cb funcDef name
-  let lty = exportLLVMType t
-      expr' = updateLLVMExprType expr lty
+  let expr' = updateLLVMExprType expr lty
   modify $ \st -> st { lsSpec = specAddVarDecl fixPos name expr' lty (lsSpec st) }
   let sc = biSharedContext bic
   Just ty <- liftIO $ logicTypeOfActual sc lty
-  liftIO $ scLLVMValue sc ty name
+  liftIO $ scLLVMValue sc ty name >>= SV.mkTypedTerm sc
 
-llvmPtr :: BuiltinContext -> Options -> String -> Value SAWCtx
-        -> LLVMSetup (SharedTerm SAWCtx)
-llvmPtr bic _ name t = do
+llvmPtr :: BuiltinContext -> Options -> String -> MemType
+        -> LLVMSetup (SV.TypedTerm SAWCtx)
+llvmPtr bic _ name lty = do
   lsState <- get
   let ms = lsSpec lsState
       func = specFunction ms
       cb = specCodebase ms
       Just funcDef = lookupDefine func cb
   expr <- liftIO $ parseLLVMExpr cb funcDef name
-  let lty = exportLLVMType t
-      pty = PtrType (MemType lty)
+  let pty = PtrType (MemType lty)
       expr' = updateLLVMExprType expr pty
       dexpr = Term (Deref expr' lty)
       dname = '*':name
@@ -313,7 +315,7 @@ llvmPtr bic _ name t = do
                                 specAddVarDecl fixPos name expr' pty (lsSpec st) }
   let sc = biSharedContext bic
   Just dty <- liftIO $ logicTypeOfActual sc lty
-  liftIO $ scLLVMValue sc dty dname
+  liftIO $ scLLVMValue sc dty dname >>= SV.mkTypedTerm sc
 
 llvmDeref :: BuiltinContext -> Options -> Value SAWCtx
           -> LLVMSetup (SharedTerm SAWCtx)
@@ -380,7 +382,7 @@ llvmReturn _ _ t =
     st { lsSpec = specAddBehaviorCommand (Return (LogicE (mkLogicExpr t))) (lsSpec st) }
 
 llvmVerifyTactic :: BuiltinContext -> Options
-                 -> ProofScript SAWCtx (SV.SatResult SAWCtx)
+                 -> ProofScript SAWCtx SV.SatResult
                  -> LLVMSetup ()
 llvmVerifyTactic _ _ script =
   modify $ \st -> st { lsTactic = RunVerify script }

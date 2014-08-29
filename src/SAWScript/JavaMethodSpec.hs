@@ -56,6 +56,8 @@ import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
 import Verifier.SAW.SharedTerm
 
+import Verifier.SAW.Cryptol (scCryptolEq)
+
 -- JSS Utilities {{{1
 
 type SpecPathState = JSS.Path (SharedContext JSSCtx)
@@ -342,7 +344,8 @@ ocStep (EnsureArray _pos lhsExpr rhsExpr) = do
   ocEval (evalJavaRefExpr lhsExpr) $ \lhsRef ->
     ocEval (evalMixedExprAsLogic rhsExpr) $ \rhsVal -> do
       sc <- gets (ecContext . ocsEvalContext)
-      ty <- liftIO $ scTypeOf sc rhsVal
+      ss <- liftIO $ basic_ss sc
+      ty <- liftIO $ scTypeOf sc rhsVal >>= rewriteSharedTerm sc ss
       ocModifyResultState $ setArrayValue lhsRef ty rhsVal
 ocStep (ModifyInstanceField refExpr f) =
   ocEval (evalJavaRefExpr refExpr) $ \lhsRef -> do
@@ -366,7 +369,8 @@ ocStep (ModifyArray refExpr ty) = do
     rhsVal <- maybe (fail "can't convert")
                     (liftIO . scFreshGlobal sc (TC.ppJavaExpr refExpr))
                     mtp
-    lty <- liftIO $ scTypeOf sc rhsVal
+    ss <- liftIO $ basic_ss sc
+    lty <- liftIO $ scTypeOf sc rhsVal >>= rewriteSharedTerm sc ss
     ocModifyResultState $ setArrayValue ref lty rhsVal
 ocStep (Return expr) = do
   ocEval (evalMixedExpr expr) $ \val ->
@@ -643,7 +647,7 @@ esResolveLogicExprs _ _ (hrhs:rrhs) = do
   -- Add assumptions for other equivalent expressions.
   forM_ rrhs $ \rhsExpr -> do
     rhs <- esEval $ evalLogicExpr rhsExpr
-    esModifyInitialPathStateIO $ \s0 -> do prop <- scEq sc t rhs
+    esModifyInitialPathStateIO $ \s0 -> do prop <- scCryptolEq sc t rhs
                                            addAssumption sc prop s0
   -- Return value.
   return t
@@ -748,7 +752,8 @@ esStep (EnsureArray _pos lhsExpr rhsExpr) = do
   value  <- esEval $ evalMixedExprAsLogic rhsExpr
   -- Get dag engine
   sc <- gets esContext
-  ty <- liftIO $ scTypeOf sc value
+  ss <- liftIO $ basic_ss sc
+  ty <- liftIO $ scTypeOf sc value >>= rewriteSharedTerm sc ss
   let l = case ty of
             (isVecType (const (return ())) -> Just (w :*: _)) -> fromIntegral w
             _ -> error "internal: right hand side of array ensure clause has non-array type."
@@ -1064,7 +1069,7 @@ runValidation prover params sc esd results = do
        g <- scImplies sc (pvcAssumptions pvc) =<< vcGoal sc vc
        when (verb >= 2) $ do
          putStr $ "Checking " ++ vcName vc
-         when (verb >= 5) $ putStr $ " (" ++ show g ++ ")"
+         when (verb >= 5) $ putStr $ " (" ++ scPrettyTerm g ++ ")"
          putStrLn ""
        prover vs g
     else do

@@ -8,10 +8,10 @@ module SAWScript.Value where
 import Control.Applicative
 import Control.Monad.IO.Class ( liftIO )
 import Control.Monad.State ( StateT(..) )
-import Data.Bits
 import Data.List ( intersperse )
 import qualified Data.Map as M
 import Data.Map ( Map )
+import Data.Traversable ( traverse )
 import qualified Data.Vector as V
 import qualified Text.LLVM as L
 
@@ -19,15 +19,20 @@ import qualified SAWScript.AST as SS
 import qualified SAWScript.JavaMethodSpecIR as JIR
 import qualified SAWScript.LLVMMethodSpecIR as LIR
 import qualified Verifier.Java.Codebase as JSS
+import qualified Verifier.LLVM.Codebase as LSS
+import SAWScript.JavaExpr (JavaType(..))
 import SAWScript.Proof
 import SAWScript.Utils
+
+import Verifier.SAW.FiniteValue
 import qualified Verifier.SAW.Prim as Prim
 import Verifier.SAW.Rewriter ( Simpset )
 import Verifier.SAW.SharedTerm
-import Verifier.SAW.TypedAST hiding ( incVars )
+
+import Verifier.SAW.Cryptol (scCryptolType)
 
 import qualified Verifier.SAW.Evaluator as SC
-import qualified Cryptol.ModuleSystem as Cry
+import qualified Cryptol.TypeCheck.AST as C
 
 -- Values ----------------------------------------------------------------------
 
@@ -39,12 +44,9 @@ data Value s
   | VArray [Value s]
   | VTuple [Value s]
   | VRecord (Map SS.Name (Value s))
-  | VFun (Value s -> Value s)
-  | VFunTerm (SharedTerm s -> Value s)
-  | VFunType (SS.Type -> Value s)
-  | VLambda (Value s -> Maybe (SharedTerm s) -> IO (Value s))
+  | VLambda (Value s -> IO (Value s))
   | VTLambda (SS.Type -> IO (Value s))
-  | VTerm (SharedTerm s)
+  | VTerm (Maybe C.Schema) (SharedTerm s) -- TODO: remove the Maybe
   | VCtorApp String [Value s]
   | VIO (IO (Value s))
   | VProofScript (ProofScript s (Value s))
@@ -54,11 +56,12 @@ data Value s
   | VLLVMSetup (LLVMSetup (Value s))
   | VJavaMethodSpec JIR.JavaMethodSpecIR
   | VLLVMMethodSpec LIR.LLVMMethodSpecIR
-  | VCryptolModuleEnv Cry.ModuleEnv
+  | VJavaType JavaType
+  | VLLVMType LSS.MemType
   | VJavaClass JSS.Class
   | VLLVMModule LLVMModule
-  | VSatResult (SatResult s)
-  | VProofResult (ProofResult s)
+  | VSatResult SatResult
+  | VProofResult ProofResult
   | VUninterp (Uninterp s)
   -- | VAIG (BitEngine Lit) (V.Vector Lit) (V.Vector Lit)
 
@@ -68,19 +71,19 @@ data LLVMModule =
   , modMod :: L.Module
   }
 
-data ProofResult s
+data ProofResult
   = Valid
-  | Invalid (Value s)
-  | InvalidMulti [(String, Value s)]
+  | Invalid FiniteValue
+  | InvalidMulti [(String, FiniteValue)]
     deriving (Show)
 
-data SatResult s
+data SatResult
   = Unsat
-  | Sat (Value s)
-  | SatMulti [(String, Value s)]
+  | Sat FiniteValue
+  | SatMulti [(String, FiniteValue)]
     deriving (Show)
 
-flipSatResult :: SatResult s -> ProofResult s
+flipSatResult :: SatResult -> ProofResult
 flipSatResult Unsat = Valid
 flipSatResult (Sat t) = Invalid t
 flipSatResult (SatMulti t) = InvalidMulti t
@@ -147,12 +150,9 @@ showsPrecValue opts p mty v =
                            -> map Just (M.elems tm)
                          _ -> replicate (M.size m) Nothing
 
-    VFun {} -> showString "<<fun>>"
-    VFunTerm {} -> showString "<<fun-term>>"
-    VFunType {} -> showString "<<fun-type>>"
-    VLambda {} -> showString "<<lambda>>"
+    VLambda {} -> showString "<<function>>"
     VTLambda {} -> showString "<<polymorphic function>>"
-    VTerm t -> showsPrec p t
+    VTerm _ t -> showsPrec p t
     VCtorApp s vs -> showString s . showString " " . (foldr (.) id (map shows vs))
     VIO {} -> showString "<<IO>>"
     VSimpset {} -> showString "<<simpset>>"
@@ -162,7 +162,8 @@ showsPrecValue opts p mty v =
     VLLVMSetup {} -> showString "<<LLVM Setup>>"
     VJavaMethodSpec {} -> showString "<<Java MethodSpec>>"
     VLLVMMethodSpec {} -> showString "<<LLVM MethodSpec>>"
-    VCryptolModuleEnv {} -> showString "<<Cryptol ModuleEnv>>"
+    VJavaType {} -> showString "<<Java type>>"
+    VLLVMType t -> showString (show (LSS.ppMemType t))
     VLLVMModule {} -> showString "<<LLVM Module>>"
     VJavaClass {} -> showString "<<Java Class>>"
     VProofResult Valid -> showString "Valid"
@@ -196,24 +197,18 @@ tupleLookupValue (VTuple vs) i
   | otherwise = error $ "no such tuple index: " ++ show i
 tupleLookupValue _ _ = error "tupleLookupValue"
 
-evaluate :: SharedContext s -> SharedTerm s -> Value s
-evaluate sc t = importValue (SC.evalSharedTerm eval t)
+evaluate :: SharedContext s -> SharedTerm s -> SC.Value
+evaluate sc t = SC.evalSharedTerm eval t
   where eval = SC.evalGlobal (scModule sc) SC.preludePrims
 -- FIXME: is evalGlobal always appropriate? Or should we
 -- parameterize on a meaning function for globals?
 
 applyValue :: SharedContext s -> Value s -> Value s -> IO (Value s)
-applyValue sc (VFun f) (VTerm t) = return (f (evaluate sc t))
-applyValue _  (VFun f) x = return (f x)
-applyValue _  (VFunTerm f) (VTerm t) = return (f t)
-applyValue sc (VLambda f) (VTerm t) = f (evaluate sc t) (Just t)
-applyValue _  (VLambda f) x = f x Nothing
-applyValue sc (VTerm t) x = applyValue sc (evaluate sc t) x
+applyValue _ (VLambda f) x = f x
 -- applyValue sc (VAIG be ins outs) x = undefined
 applyValue _ _ _ = fail "applyValue"
 
 tapplyValue :: Value s -> SS.Type -> IO (Value s)
-tapplyValue (VFunType f) t = return (f t)
 tapplyValue (VTLambda f) t = f t
 -- tapplyValue (VAIG be ins outs) t = undefined
 tapplyValue v _ = return v
@@ -248,120 +243,11 @@ bindValue sc (VLLVMSetup m1) v2 =
     m3
 bindValue _ _ _ = error "bindValue"
 
--- TODO: this should take the SAWScript type as a parameter, and
--- reconstruct tuples and records as appropriate.
-importValue :: SC.Value -> Value s
-importValue val =
-    case val of
-      SC.VFun f -> VFun (importValue . f . exportValue)
-      SC.VTrue -> VBool True
-      SC.VFalse -> VBool False
-      SC.VNat n -> VInteger n
-      SC.VWord w x -> VWord w x
-      SC.VString s -> VString s
-      SC.VTuple (V.toList -> [x, y]) -> vCons (importValue x) (importValue y)
-      SC.VTuple (V.toList -> []) -> VTuple []
-      SC.VTuple vs -> VTuple (V.toList (fmap importValue vs))
-      SC.VRecord m -> VRecord (fmap importValue m)
-      SC.VCtorApp ident args
-        | ident == parseIdent "Prelude.False" -> VBool False
-        | ident == parseIdent "Prelude.True" -> VBool True
-        | otherwise ->
-          VCtorApp (show ident) (V.toList (fmap importValue args))
-      SC.VVector vs -> VArray (V.toList (fmap importValue vs))
-      SC.VFloat {} -> error "VFloat unsupported"
-      SC.VDouble {} -> error "VDouble unsupported"
-      SC.VType -> error "VType unsupported"
-  where
-    vCons v1 (VTuple vs) = VTuple (v1 : vs)
-    vCons v1 v2 = VTuple [v1, v2]
-
-exportValue :: Value s -> SC.Value
-exportValue val =
-    case val of
-      VBool b -> if b then SC.VTrue else SC.VFalse
-      VString s -> SC.VString s
-      VInteger n -> SC.VNat n
-      VWord w x -> SC.VWord w x
-      VArray vs -> SC.VVector (fmap exportValue (V.fromList vs))
-      VTuple vs -> exportVTuple (map exportValue vs)
-      VRecord vm -> exportVTuple (map exportValue (M.elems vm))
-      VFun f -> SC.VFun (exportValue . f . importValue)
-      VCtorApp s vs -> SC.VCtorApp (parseIdent s) (fmap exportValue (V.fromList vs))
-      VFunTerm {} -> error "exportValue VFunTerm"
-      VFunType {} -> error "exportValue VFunType"
-      VLambda {} -> error "exportValue VLambda"
-      VTLambda {} -> error "exportValue VTLambda"
-      VTerm {} -> error "VTerm unsupported"
-      VIO {} -> error "VIO unsupported"
-      VSimpset {} -> error "VSimpset unsupported"
-      VProofScript {} -> error "VProofScript unsupported"
-      VTheorem {} -> error "VTheorem unsupported"
-      VJavaSetup {} -> error "VJavaSetup unsupported"
-      VLLVMSetup {} -> error "VLLVMSetup unsupported"
-      VJavaMethodSpec {} -> error "VJavaMethodSpec unsupported"
-      VLLVMMethodSpec {} -> error "VLLVMMethodSpec unsupported"
-      VCryptolModuleEnv {} -> error "CryptolModuleEnv unsupported"
-      VJavaClass {} -> error "JavaClass unsupported"
-      VLLVMModule {} -> error "LLVMModule unsupported"
-      VProofResult {} -> error "VProofResult unsupported"
-      VSatResult {} -> error "VSatResult unsupported"
-      VUninterp {} -> error "VUninterp unsupported"
-      -- VAIG {} -> error "VAIG unsupported" -- TODO: could be implemented
-
-exportVTuple :: [SC.Value] -> SC.Value
-exportVTuple [] = SC.VTuple (V.fromList [])
-exportVTuple (x : xs) = SC.VTuple (V.fromList [x, exportVTuple xs])
-
-exportSharedTerm :: SharedContext s -> Value s' -> IO (SharedTerm s)
-exportSharedTerm sc val =
-    case val of
-      VBool b -> scBool sc b
-      VString s -> scString sc s
-      VInteger n -> scNat sc (fromIntegral n)
-      VWord w x -> do
-        let v = V.generate w (\i -> fromValue (toValue (testBit x (w - 1 - i))))
-        bt <- scBoolType sc
-        tms <- mapM (scBool sc) (V.toList v)
-        scVector sc bt tms
-      VArray [] -> error "exportSharedTerm (VArray [])"
-      VArray vs@(v:_) -> do
-        t <- exportSharedTerm sc v
-        ty <- scTypeOf sc t
-        scVector sc ty =<< mapM (exportSharedTerm sc) vs
-      VTuple vs -> scTuple sc =<< mapM (exportSharedTerm sc) vs
-      VRecord vm -> do
-        vm' <- mapM (\(n, v) -> (n,) <$> exportSharedTerm sc v) (M.toList vm)
-        scRecord sc (M.fromList vm')
-      VCtorApp s vs ->
-        scCtorApp sc (parseIdent s) =<< mapM (exportSharedTerm sc) vs
-      VFun {} -> error "exportSharedTerm VFun" -- TODO: should we handle this?
-      VFunTerm {} -> error "exportSharedTerm VFunTerm"
-      VFunType {} -> error "exportSharedTerm VFunType"
-      VLambda {} -> error "exportSharedTerm VLambda"
-      VTLambda {} -> error "exportSharedTerm VTLambda"
-      VTerm {} -> error "exportSharedTerm VTerm"
-      VIO {} -> error "exportSharedTerm VIO"
-      VSimpset {} -> error "exportSharedTerm VSimpset"
-      VProofScript {} -> error "exportSharedTerm VProofScript"
-      VTheorem {} -> error "exportSharedTerm VTheorem"
-      VJavaSetup {} -> error "exportSharedTerm VJavaSetup"
-      VLLVMSetup {} -> error "exportSharedTerm VLLVMSetup"
-      VJavaMethodSpec {} -> error "exportSharedTerm VJavaMethodSpec"
-      VLLVMMethodSpec {} -> error "exportSharedTerm VLLVMMethodSpec"
-      VCryptolModuleEnv {} -> error "exportSharedTerm CryptolModuleEnv"
-      VJavaClass {} -> error "exportSharedTerm JavaClass"
-      VLLVMModule {} -> error "exportSharedTerm LLVMModule"
-      VProofResult {} -> error "exportSharedTerm VProofResult"
-      VSatResult {} -> error "exportSharedTerm VSatResult"
-      VUninterp {} -> error "exportSharedTerm VUninterp"
-      -- VAIG {} -> error "exportSharedTerm VAIG" -- TODO: could be implemented
-
 -- The ProofScript in RunVerify is in the SAWScript context, and
 -- should stay there.
 data ValidationPlan
   = Skip
-  | RunVerify (ProofScript SAWCtx (SatResult SAWCtx))
+  | RunVerify (ProofScript SAWCtx SatResult)
 
 data JavaSetupState
   = JavaSetupState {
@@ -381,141 +267,210 @@ data LLVMSetupState
 
 type LLVMSetup a = StateT LLVMSetupState IO a
 
+data TypedTerm s = TypedTerm C.Schema (SharedTerm s)
+
+mkTypedTerm :: SharedContext s -> SharedTerm s -> IO (TypedTerm s)
+mkTypedTerm sc trm = do
+  ty <- scTypeOf sc trm
+  ct <- scCryptolType sc ty
+  return $ TypedTerm (C.Forall [] [] ct) trm
+
 -- IsValue class ---------------------------------------------------------------
 
 -- | Used for encoding primitive operations in the Value type.
 class IsValue s a where
     toValue :: a -> Value s
+
+class FromValue s a where
     fromValue :: Value s -> a
     funToValue :: (a -> Value s) -> Value s
-    funToValue f = VFun (\v -> f (fromValue v))
-    funFromValue :: Value s -> (a -> Value s)
-    funFromValue (VFun g) = \x -> g (toValue x)
-    funFromValue _        = error "fromValue (->)"
+    funToValue f = VLambda (\v -> return (f (fromValue v)))
+
+instance (FromValue s a, IsValue s b) => IsValue s (a -> b) where
+    toValue f = funToValue (\x -> toValue (f x))
+
+instance FromValue s (Value s) where
+    fromValue x = x
 
 instance IsValue s (Value s) where
     toValue x = x
-    fromValue x = x
-
-instance (IsValue s a, IsValue s b) => IsValue s (a -> b) where
-    toValue f = funToValue (\x -> toValue (f x))
-    fromValue v = \x -> fromValue (funFromValue v x)
 
 instance IsValue s () where
     toValue _ = VTuple []
+
+instance FromValue s () where
     fromValue _ = ()
 
 instance (IsValue s a, IsValue s b) => IsValue s (a, b) where
     toValue (x, y) = VTuple [toValue x, toValue y]
+
+instance (FromValue s a, FromValue s b) => FromValue s (a, b) where
     fromValue (VTuple [x, y]) = (fromValue x, fromValue y)
     fromValue _ = error "fromValue (,)"
 
 instance IsValue s a => IsValue s [a] where
     toValue xs = VArray (map toValue xs)
+
+instance FromValue s a => FromValue s [a] where
     fromValue (VArray xs) = map fromValue xs
     fromValue _ = error "fromValue []"
 
 instance IsValue s a => IsValue s (IO a) where
     toValue io = VIO (fmap toValue io)
+
+instance FromValue s a => FromValue s (IO a) where
     fromValue (VIO io) = fmap fromValue io
     fromValue _ = error "fromValue IO"
 
 instance IsValue s a => IsValue s (StateT (ProofGoal s) IO a) where
     toValue m = VProofScript (fmap toValue m)
+
+instance FromValue s a => FromValue s (StateT (ProofGoal s) IO a) where
     fromValue (VProofScript m) = fmap fromValue m
     fromValue _ = error "fromValue ProofScript"
 
-instance (IsValue s a) => IsValue s (StateT JavaSetupState IO a) where
+instance IsValue s a => IsValue s (StateT JavaSetupState IO a) where
     toValue m = VJavaSetup (fmap toValue m)
+
+instance FromValue s a => FromValue s (StateT JavaSetupState IO a) where
     fromValue (VJavaSetup m) = fmap fromValue m
     fromValue _ = error "fromValue JavaSetup"
 
 instance IsValue s a => IsValue s (StateT LLVMSetupState IO a) where
     toValue m = VLLVMSetup (fmap toValue m)
+
+instance FromValue s a => FromValue s (StateT LLVMSetupState IO a) where
     fromValue (VLLVMSetup m) = fmap fromValue m
     fromValue _ = error "fromValue LLVMSetup"
 
-instance IsValue s (SharedTerm s) where
-    toValue t = VTerm t
-    fromValue (VTerm t) = t
-    fromValue _ = error "fromValue SharedTerm"
-    funToValue f = VFunTerm f
-    funFromValue (VFunTerm f) = f
-    funFromValue _ = error "fromValue (->)"
+instance IsValue s (TypedTerm s) where
+    toValue (TypedTerm s t) = VTerm (Just s) t
 
-instance IsValue s SS.Type where
-    toValue _ = error "toValue Type"
+instance FromValue s (TypedTerm s) where
+    fromValue (VTerm (Just s) t) = TypedTerm s t
+    fromValue _ = error "fromValue TypedTerm"
+
+instance IsValue s (SharedTerm s) where
+    toValue t = VTerm Nothing t
+
+instance FromValue s (SharedTerm s) where
+    fromValue (VTerm _ t) = t
+    fromValue _ = error "fromValue SharedTerm"
+
+instance FromValue s SS.Type where
     fromValue _ = error "fromValue Type"
-    funToValue f = VFunType f
-    funFromValue (VFunType f) = f
-    funFromValue _ = error "fromValue (->)"
+    funToValue f = VTLambda (\t -> return (f t))
 
 instance IsValue s String where
     toValue n = VString n
+
+instance FromValue s String where
     fromValue (VString n) = n
     fromValue _ = error "fromValue String"
 
 instance IsValue s Integer where
     toValue n = VInteger n
+
+instance FromValue s Integer where
     fromValue (VInteger n) = n
     fromValue _ = error "fromValue Integer"
 
+instance IsValue s Int where
+    toValue n = VInteger (toInteger n)
+
+instance FromValue s Int where
+    fromValue (VInteger n)
+      | toInteger (minBound :: Int) <= n &&
+        toInteger (maxBound :: Int) >= n = fromIntegral n
+    fromValue _ = error "fromValue Int"
+
 instance IsValue s Prim.BitVector where
     toValue (Prim.BV w x) = VWord w x
+
+instance FromValue s Prim.BitVector where
     fromValue (VWord w x) = Prim.BV w x
     fromValue _ = error "fromValue BitVector"
 
 instance IsValue s Bool where
     toValue b = VBool b
+
+instance FromValue s Bool where
     fromValue (VBool b) = b
     fromValue _ = error "fromValue Bool"
 
 instance IsValue s (Simpset (SharedTerm s)) where
     toValue ss = VSimpset ss
+
+instance FromValue s (Simpset (SharedTerm s)) where
     fromValue (VSimpset ss) = ss
     fromValue _ = error "fromValue Simpset"
 
 instance IsValue s (Theorem s) where
     toValue t = VTheorem t
+
+instance FromValue s (Theorem s) where
     fromValue (VTheorem t) = t
     fromValue _ = error "fromValue Theorem"
 
 instance IsValue SAWCtx JIR.JavaMethodSpecIR where
     toValue ms = VJavaMethodSpec ms
+
+instance FromValue SAWCtx JIR.JavaMethodSpecIR where
     fromValue (VJavaMethodSpec ms) = ms
     fromValue _ = error "fromValue JavaMethodSpec"
 
 instance IsValue SAWCtx LIR.LLVMMethodSpecIR where
     toValue ms = VLLVMMethodSpec ms
+
+instance FromValue SAWCtx LIR.LLVMMethodSpecIR where
     fromValue (VLLVMMethodSpec ms) = ms
     fromValue _ = error "fromValue LLVMMethodSpec"
 
-instance IsValue s Cry.ModuleEnv where
-    toValue me = VCryptolModuleEnv me
-    fromValue (VCryptolModuleEnv me) = me
-    fromValue _ = error "fromValue CryptolModuleEnv"
+instance IsValue SAWCtx JavaType where
+    toValue t = VJavaType t
+
+instance FromValue SAWCtx JavaType where
+    fromValue (VJavaType t) = t
+    fromValue _ = error "fromValue JavaType"
+
+instance IsValue SAWCtx LSS.MemType where
+    toValue t = VLLVMType t
+
+instance FromValue SAWCtx LSS.MemType where
+    fromValue (VLLVMType t) = t
+    fromValue _ = error "fromValue LLVMType"
 
 instance IsValue s (Uninterp s) where
     toValue me = VUninterp me
+
+instance FromValue s (Uninterp s) where
     fromValue (VUninterp me) = me
     fromValue _ = error "fromValue Uninterp"
 
 instance IsValue s JSS.Class where
     toValue c = VJavaClass c
+
+instance FromValue s JSS.Class where
     fromValue (VJavaClass c) = c
     fromValue _ = error "fromValue JavaClass"
 
 instance IsValue s LLVMModule where
     toValue m = VLLVMModule m
+
+instance FromValue s LLVMModule where
     fromValue (VLLVMModule m) = m
     fromValue _ = error "fromValue LLVMModule"
 
-instance IsValue s (ProofResult s) where
+instance IsValue s ProofResult where
    toValue r = VProofResult r
+
+instance FromValue s ProofResult where
    fromValue (VProofResult r) = r
    fromValue v = error $ "fromValue ProofResult: " ++ show v
 
-instance IsValue s (SatResult s) where
+instance IsValue s SatResult where
    toValue r = VSatResult r
+
+instance FromValue s SatResult where
    fromValue (VSatResult r) = r
    fromValue _ = error "fromValue SatResult"

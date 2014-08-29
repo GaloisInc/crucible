@@ -29,12 +29,16 @@ module SAWScript.REPL.Monad (
   , getExprNames
   , getTypeNames
   , getPropertyNames
-  , LoadedModule(..), getLoadedMod, setLoadedMod
+  , getTargetMods, setTargetMods, addTargetMod
   , builtIns
   , getPrompt
   , shouldContinue
   , unlessBatch
   , setREPLTitle
+  , getTermEnv, modifyTermEnv, setTermEnv, genTermEnv
+  , getExtraTypes, modifyExtraTypes, setExtraTypes
+  , getExtraNames, modifyExtraNames, setExtraNames
+  , getRW
 
     -- ** Config Options
   , EnvVal(..)
@@ -58,9 +62,15 @@ import Cryptol.Prims.Types(typeOf)
 import Cryptol.Prims.Syntax(ECon(..),ppPrefix)
 import Cryptol.Eval (EvalError)
 import qualified Cryptol.ModuleSystem as M
+import qualified Cryptol.ModuleSystem.Base as MB (genInferInput)
+import qualified Cryptol.ModuleSystem.Env as ME (loadedModules, qualifiedEnv)
+import qualified Cryptol.ModuleSystem.Monad as MM (runModuleM)
+import Cryptol.ModuleSystem.NamingEnv (NamingEnv, namingEnv)
 import Cryptol.Parser (ParseError,ppError)
 import Cryptol.Parser.NoInclude (IncludeError,ppIncludeError)
 import Cryptol.Parser.NoPat (Error)
+import Cryptol.Parser.Position (emptyRange)
+import Cryptol.TypeCheck (InferInput(..), NameSeeds)
 import qualified Cryptol.TypeCheck.AST as T
 import Cryptol.Utils.PP
 import Cryptol.Utils.Panic (panic)
@@ -69,11 +79,16 @@ import qualified Cryptol.Parser.AST as P
 import Control.Monad (unless,when)
 import Data.IORef (IORef, newIORef, readIORef, modifyIORef, writeIORef)
 import Data.List (isPrefixOf)
+import Data.Monoid
+import Data.Traversable
 import Data.Typeable (Typeable)
 import System.Console.ANSI (setTitle)
 import qualified Control.Exception as X
 import qualified Data.Map as Map
 import System.IO.Error (isUserError, ioeGetErrorString)
+
+import Verifier.SAW.SharedTerm (SharedTerm, incVars)
+import qualified Verifier.SAW.Cryptol as C
 
 --------------------
 {-
@@ -105,7 +120,7 @@ import SAWScript.BuildModules (buildModules)
 import SAWScript.Builtins (BuiltinContext(..))
 import SAWScript.Compiler (ErrT, runErr, runErrT, mapErrT, runCompiler)
 import SAWScript.Import (preludeLoadedModules)
-import SAWScript.Interpreter (InterpretEnv, buildInterpretEnv, interpretEnvTypes)
+import SAWScript.Interpreter (InterpretEnv(..), buildInterpretEnv)
 import SAWScript.Options (Options)
 import SAWScript.ProcessFile (checkModuleWithDeps)
 import SAWScript.REPL.GenerateModule as Generate
@@ -182,7 +197,7 @@ modifyEnvironment f = modifyREPLState $ \current ->
 getSAWScriptNames :: REPL [String]
 getSAWScriptNames = do
   env <- getEnvironment
-  let rnames = Map.keys (interpretEnvTypes env)
+  let rnames = Map.keys (ieValues env)
   return (map (stem . getVal) rnames)
   where
     stem :: ResolvedName -> String
@@ -196,44 +211,58 @@ err m = io $ runErrT m >>= either fail return
 
 -- REPL Environment ------------------------------------------------------------
 
-data LoadedModule = LoadedModule
-  { lName :: Maybe P.ModName -- ^ Focused module
-  , lPath :: FilePath        -- ^ Focused file
-  }
-
 -- REPL RW Environment.
 data RW = RW
-  { eLoadedMod  :: Maybe LoadedModule
+  { eTargetMods :: [(P.ModName, FilePath)] -- ^ Which modules to load after a :reload command
   , eContinue   :: Bool
   , eIsBatch    :: Bool
-  , eModuleEnv  :: M.ModuleEnv
-  , eUserEnv    :: UserEnv
-  , eREPLState  :: REPLState -- ^ SAWScript-specific stuff
+  , eModuleEnv  :: M.ModuleEnv -- ^ Imported modules, and state for the ModuleM monad
+  , eUserEnv    :: UserEnv     -- ^ User-configured settings from :set commands
+  , eREPLState  :: REPLState   -- ^ SAWScript-specific stuff
+
+  , eExtraNames :: NamingEnv  -- ^ Context for the Cryptol renamer
+  , eExtraTypes :: Map T.QName T.Schema            -- ^ Cryptol types for extra names in scope
+  , eTermEnv    :: Map T.QName (SharedTerm SAWCtx) -- ^ SAWCore terms for *all* names in scope
   }
 
 -- | Initial, empty environment.
 defaultRW :: Bool -> Options -> IO RW
 defaultRW isBatch opts = do
-  env <- M.initialModuleEnv
   rstate <- getInitialState opts
+  modEnv <- M.initialModuleEnv
+
+  -- Generate SAWCore translations for all values in scope
+  let sc = sharedContext rstate
+  termEnv <- genTermEnv sc modEnv
+
   return RW
-    { eLoadedMod  = Nothing
+    { eTargetMods = []
     , eContinue   = True
     , eIsBatch    = isBatch
-    , eModuleEnv  = env
+    , eModuleEnv  = modEnv
     , eUserEnv    = mkUserEnv userOptions
     , eREPLState  = rstate
+    , eExtraNames = mempty
+    , eExtraTypes = Map.empty
+    , eTermEnv    = termEnv
     }
+
+genTermEnv sc modEnv = do
+  let declGroups = concatMap T.mDecls (ME.loadedModules modEnv)
+  cryEnv <- C.importDeclGroups sc C.emptyEnv declGroups
+  traverse (\(t, j) -> incVars sc 0 j t) (C.envE cryEnv)
 
 -- | Build up the prompt for the REPL.
 mkPrompt :: RW -> String
 mkPrompt rw
-  | eIsBatch rw = ""
-  | otherwise   = maybe "sawscript" pretty (lName =<< eLoadedMod rw) ++ "> "
+  | eIsBatch rw           = ""
+  | null (eTargetMods rw) = "sawscript> "
+  | otherwise             = unwords (map (pretty . fst) (eTargetMods rw)) ++ "> "
 
 mkTitle :: RW -> String
-mkTitle rw = maybe "" (\ m -> pretty m ++ " - ") (lName =<< eLoadedMod rw)
-          ++ "sawscript"
+mkTitle rw
+  | null (eTargetMods rw) = "sawscript"
+  | otherwise             = unwords (map (pretty . fst) (eTargetMods rw)) ++ " - sawscript"
 
 
 -- REPL Monad ------------------------------------------------------------------
@@ -344,13 +373,18 @@ getPrompt  = mkPrompt `fmap` getRW
 
 -- | Set the name of the currently focused file, edited by @:e@ and loaded via
 -- @:r@.
-setLoadedMod :: LoadedModule -> REPL ()
-setLoadedMod n = do
-  modifyRW_ (\ rw -> rw { eLoadedMod = Just n })
+setTargetMods :: [(P.ModName, FilePath)] -> REPL ()
+setTargetMods mods = do
+  modifyRW_ (\ rw -> rw { eTargetMods = mods })
   setREPLTitle
 
-getLoadedMod :: REPL (Maybe LoadedModule)
-getLoadedMod  = eLoadedMod `fmap` getRW
+getTargetMods :: REPL [(P.ModName, FilePath)]
+getTargetMods  = eTargetMods `fmap` getRW
+
+addTargetMod :: (P.ModName, FilePath) -> REPL ()
+addTargetMod m = do
+  modifyRW_ (\ rw -> rw { eTargetMods = m : eTargetMods rw })
+  setREPLTitle
 
 shouldContinue :: REPL Bool
 shouldContinue  = eContinue `fmap` getRW
@@ -382,7 +416,10 @@ getVars :: REPL (Map.Map P.QName M.IfaceDecl)
 getVars  = do
   me <- getModuleEnv
   let decls = M.focusedEnv me
-  return (keepOne "getVars" `fmap` M.ifDecls decls)
+  let vars1 = keepOne "getVars" `fmap` M.ifDecls decls
+  extras <- getExtraTypes
+  let vars2 = Map.mapWithKey (\q s -> M.IfaceDecl q s []) extras
+  return (Map.union vars1 vars2)
 
 getTSyns :: REPL (Map.Map P.QName T.TySyn)
 getTSyns  = do
@@ -417,12 +454,38 @@ getPropertyNames =
 getName :: P.QName -> String
 getName  = show . pp
 
+getTermEnv :: REPL (Map T.QName (SharedTerm SAWCtx))
+getTermEnv = fmap eTermEnv getRW
+
+modifyTermEnv :: (Map T.QName (SharedTerm SAWCtx) -> Map T.QName (SharedTerm SAWCtx)) -> REPL ()
+modifyTermEnv f = modifyRW_ $ \rw -> rw { eTermEnv = f (eTermEnv rw) }
+
+setTermEnv :: Map T.QName (SharedTerm SAWCtx) -> REPL ()
+setTermEnv x = modifyTermEnv (const x)
+
+getExtraTypes :: REPL (Map T.QName T.Schema)
+getExtraTypes = fmap eExtraTypes getRW
+
+modifyExtraTypes :: (Map T.QName T.Schema -> Map T.QName T.Schema) -> REPL ()
+modifyExtraTypes f = modifyRW_ $ \rw -> rw { eExtraTypes = f (eExtraTypes rw) }
+
+setExtraTypes :: Map T.QName T.Schema -> REPL ()
+setExtraTypes x = modifyExtraTypes (const x)
+
+getExtraNames :: REPL NamingEnv
+getExtraNames = fmap eExtraNames getRW
+
+modifyExtraNames :: (NamingEnv -> NamingEnv) -> REPL ()
+modifyExtraNames f = modifyRW_ $ \rw -> rw { eExtraNames = f (eExtraNames rw) }
+
+setExtraNames :: NamingEnv -> REPL ()
+setExtraNames x = modifyExtraNames (const x)
+
 getModuleEnv :: REPL M.ModuleEnv
 getModuleEnv  = eModuleEnv `fmap` getRW
 
 setModuleEnv :: M.ModuleEnv -> REPL ()
 setModuleEnv me = modifyRW_ (\rw -> rw { eModuleEnv = me })
-
 
 -- User Environment Interaction ------------------------------------------------
 

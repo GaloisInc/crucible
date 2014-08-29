@@ -29,6 +29,7 @@ import qualified Verifier.Java.SAWBackend as JSS
 
 import Verifier.SAW.Evaluator
 import Verifier.SAW.Recognizer
+import Verifier.SAW.FiniteValue
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST
 
@@ -221,7 +222,7 @@ verifyJava bic opts cls mname overrides setup = do
 showCexResults :: SharedContext JSSCtx
                -> JavaMethodSpecIR
                -> VerifyState
-               -> [(String, SS.Value SAWCtx)]
+               -> [(String, FiniteValue)]
                -> IO ()
 showCexResults sc ms vs vals = do
   putStrLn $ "When verifying " ++ specName ms ++ ":"
@@ -296,40 +297,64 @@ parseJavaExpr cb cls meth estr = do
         parseStaticParts _ = return Nothing
         parts = reverse (splitOn "." estr)
 
-exportJSSType :: SS.Value s -> JSS.Type
-exportJSSType (SS.VCtorApp "Java.BooleanType" []) = JSS.BooleanType
-exportJSSType (SS.VCtorApp "Java.ByteType" []) = JSS.ByteType
-exportJSSType (SS.VCtorApp "Java.CharType" []) = JSS.CharType
-exportJSSType (SS.VCtorApp "Java.ShortType" []) = JSS.ShortType
-exportJSSType (SS.VCtorApp "Java.IntType" []) = JSS.IntType
-exportJSSType (SS.VCtorApp "Java.LongType" []) = JSS.LongType
-exportJSSType (SS.VCtorApp "Java.ArrayType" [_, ety]) =
-  JSS.ArrayType (exportJSSType ety)
-exportJSSType (SS.VCtorApp "Java.ClassType" [SS.VString name]) =
-  JSS.ClassType (JP.dotsToSlashes name)
-exportJSSType v =
-  error $ "exportJSSType: Can't translate to Java type: " ++ show v
+javaBool :: JavaType
+javaBool = JavaBoolean
 
-exportJavaType :: JSS.Codebase -> SS.Value s -> IO JavaActualType
-exportJavaType _ (SS.VCtorApp "Java.BooleanType" []) =
-  return $ PrimitiveType JSS.BooleanType
-exportJavaType _ (SS.VCtorApp "Java.ByteType" []) =
-  return $ PrimitiveType JSS.ByteType
-exportJavaType _ (SS.VCtorApp "Java.CharType" []) =
-  return $ PrimitiveType JSS.CharType
-exportJavaType _ (SS.VCtorApp "Java.ShortType" []) =
-  return $ PrimitiveType JSS.ShortType
-exportJavaType _ (SS.VCtorApp "Java.IntType" []) =
-  return $ PrimitiveType JSS.IntType
-exportJavaType _ (SS.VCtorApp "Java.LongType" []) =
-  return $ PrimitiveType JSS.LongType
-exportJavaType _ (SS.VCtorApp "Java.ArrayType" [SS.VInteger n, ety]) =
-  return $ ArrayInstance (fromIntegral n) (exportJSSType ety)
-exportJavaType cb (SS.VCtorApp "Java.ClassType" [SS.VString name]) = do
-  cls <- lookupClass cb fixPos (JP.dotsToSlashes name)
-  return (ClassInstance  cls)
-exportJavaType _ v =
-  error $ "exportJavaType: Can't translate to Java type: " ++ show v
+javaByte :: JavaType
+javaByte = JavaByte
+
+javaChar :: JavaType
+javaChar = JavaChar
+
+javaShort :: JavaType
+javaShort = JavaShort
+
+javaInt :: JavaType
+javaInt = JavaInt
+
+javaLong :: JavaType
+javaLong = JavaLong
+
+javaFloat :: JavaType
+javaFloat = JavaFloat
+
+javaDouble :: JavaType
+javaDouble = JavaDouble
+
+javaArray :: Int -> JavaType -> JavaType
+javaArray n t = JavaArray n t
+
+javaClass :: String -> JavaType
+javaClass name = JavaClass name
+
+exportJSSType :: JavaType -> JSS.Type
+exportJSSType jty =
+  case jty of
+    JavaBoolean     -> JSS.BooleanType
+    JavaByte        -> JSS.ByteType
+    JavaChar        -> JSS.CharType
+    JavaShort       -> JSS.ShortType
+    JavaInt         -> JSS.IntType
+    JavaLong        -> JSS.LongType
+    JavaFloat       -> error "exportJSSType: Can't translate float type"
+    JavaDouble      -> error "exportJSSType: Can't translate double type"
+    JavaArray _ ety -> JSS.ArrayType (exportJSSType ety)
+    JavaClass name  -> JSS.ClassType (JP.dotsToSlashes name)
+
+exportJavaType :: JSS.Codebase -> JavaType -> IO JavaActualType
+exportJavaType cb jty =
+  case jty of
+    JavaBoolean     -> return $ PrimitiveType JSS.BooleanType
+    JavaByte        -> return $ PrimitiveType JSS.ByteType
+    JavaChar        -> return $ PrimitiveType JSS.CharType
+    JavaShort       -> return $ PrimitiveType JSS.ShortType
+    JavaInt         -> return $ PrimitiveType JSS.IntType
+    JavaLong        -> return $ PrimitiveType JSS.LongType
+    JavaFloat       -> error "exportJavaType: Can't translate float type"
+    JavaDouble      -> error "exportJavaType: Can't translate double type"
+    JavaArray n t   -> return $ ArrayInstance (fromIntegral n) (exportJSSType t)
+    JavaClass name  -> do cls <- lookupClass cb fixPos name
+                          return (ClassInstance cls)
 
 checkCompatibleExpr :: SharedContext s -> JavaExpr -> SharedTerm s
                     -> JavaSetup ()
@@ -362,7 +387,7 @@ checkCompatibleType sc at t = do
 javaPure :: JavaSetup ()
 javaPure = return ()
 
-typeJavaExpr :: BuiltinContext -> String -> SS.Value s
+typeJavaExpr :: BuiltinContext -> String -> JavaType
              -> JavaSetup (JavaExpr, JavaActualType)
 typeJavaExpr bic name ty = do
   jsState <- get
@@ -388,21 +413,21 @@ checkEqualTypes declared actual name =
          , text name
          ]
 
-javaClassVar :: BuiltinContext -> Options -> String -> SS.Value SAWCtx
+javaClassVar :: BuiltinContext -> Options -> String -> JavaType
              -> JavaSetup ()
-javaClassVar bic _ name t@(SS.VCtorApp _ _) = do
+javaClassVar bic _ name t = do
   (expr, aty) <- typeJavaExpr bic name t
   modify $ \st -> st { jsSpec = specAddVarDecl name expr aty (jsSpec st) }
 javaClassVar _ _ _ _ = fail "java_class_var called with invalid type argument"
 
-javaVar :: BuiltinContext -> Options -> String -> SS.Value SAWCtx
-        -> JavaSetup (SharedTerm SAWCtx)
-javaVar bic _ name t@(SS.VCtorApp _ _) = do
+javaVar :: BuiltinContext -> Options -> String -> JavaType
+        -> JavaSetup (SS.TypedTerm SAWCtx)
+javaVar bic _ name t = do
   (expr, aty) <- typeJavaExpr bic name t
   modify $ \st -> st { jsSpec = specAddVarDecl name expr aty (jsSpec st) }
   let sc = biSharedContext bic
   Just lty <- liftIO $ logicTypeOfActual sc aty
-  liftIO $ scJavaValue sc lty name
+  liftIO $ scJavaValue sc lty name >>= SS.mkTypedTerm sc
 javaVar _ _ _ _ = fail "java_var called with invalid type argument"
 
 javaMayAlias :: BuiltinContext -> Options -> [String]
@@ -510,7 +535,7 @@ javaReturn bic _ t = do
     st { jsSpec = specAddBehaviorCommand (Return me) (jsSpec st) }
 
 javaVerifyTactic :: BuiltinContext -> Options
-                 -> ProofScript SAWCtx (SatResult SAWCtx)
+                 -> ProofScript SAWCtx SatResult
                  -> JavaSetup ()
 javaVerifyTactic _ _ script =
   modify $ \st -> st { jsTactic = RunVerify script }

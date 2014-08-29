@@ -9,11 +9,11 @@ import SAWScript.Token
 import SAWScript.Utils
 
 import Data.List
-import qualified Data.Map as M
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Control.Arrow
 
 import Data.Foldable (Foldable)
-import qualified Data.Traversable as T
 import Data.Traversable (Traversable)
 import System.FilePath (joinPath,splitPath,dropExtension)
 import qualified Text.PrettyPrint.Leijen as PP
@@ -97,30 +97,30 @@ onBind f (n,a) = (n,f a)
 onBinds :: (a -> b) -> [Bind a] -> [Bind b]
 onBinds = map . onBind
 
-type Env a       = M.Map Name a
-type LEnv a      = M.Map LName a
-type ModuleEnv a = M.Map ModuleName a
+type Env a       = Map Name a
+type LEnv a      = Map LName a
+type ModuleEnv a = Map ModuleName a
 
 singletonEnv :: Name -> a -> Env a
-singletonEnv = M.singleton
+singletonEnv = Map.singleton
 
 lookupEnv :: Name -> Env a -> Maybe a
-lookupEnv = M.lookup
+lookupEnv = Map.lookup
 
 lookupLEnv :: LName -> LEnv a -> Maybe a
-lookupLEnv = M.lookup
+lookupLEnv = Map.lookup
 
 memberEnv :: Name -> Env a -> Bool
-memberEnv = M.member
+memberEnv = Map.member
 
 unionEnv :: Env a -> Env a -> Env a
-unionEnv = M.union
+unionEnv = Map.union
 
 emptyEnv :: Env a
-emptyEnv = M.empty
+emptyEnv = Map.empty
 
 insertEnv :: Name -> a -> Env a -> Env a
-insertEnv = M.insert
+insertEnv = Map.insert
 
 -- }}}
 
@@ -132,6 +132,7 @@ data Module refT exprT typeT = Module
   , modulePrimEnv      :: LEnv exprT
   , moduleTypeEnv      :: LEnv typeT
   , moduleDependencies :: ModuleEnv ValidModule
+  , moduleCryDeps      :: [FilePath]
   } deriving (Eq,Show)
 
 -- A fully type checked module.
@@ -166,19 +167,20 @@ type ExprSimple      = Expr      UnresolvedName
 type BlockStmtSimple = BlockStmt UnresolvedName
 
 data TopStmt refT typeT
-  = Import      ModuleName (Maybe [Name])    (Maybe Name)
-  | TypeDef     LName       RawSigT
-  | TopTypeDecl LName       RawSigT
-  | AbsTypeDecl LName
-  | TopBind     LName       (Expr refT typeT)
-  | Prim        LName       RawT
-  deriving (Eq,Show,Functor,Foldable,T.Traversable)
+  = Import      ModuleName (Maybe [Name])    (Maybe Name)   -- ^ import <module> [(<names>)] [as <name>]
+  | TypeDef     LName       RawSigT                         -- ^ type <name> = <type>
+  | TopTypeDecl LName       RawSigT                         -- ^ <name> : <type>
+  | AbsTypeDecl LName                                       -- ^ abstract <name>
+  | TopBind     LName       (Expr refT typeT)               -- ^ <name> = <expr>
+  | Prim        LName       RawT                            -- ^ prim <name> : <type>
+  | ImportCry   FilePath                                    -- ^ import "filepath.cry"
+  deriving (Eq,Show,Functor,Foldable,Traversable)
 
 {-
 data Exprs refT typeT
   = PrimExpr typeT
   | Defined (Expr refT typeT)
-  deriving (Eq,Show,Functor,Foldable,T.Traversable)
+  deriving (Eq,Show,Functor,Foldable,Traversable)
 -}
 
 data Expr refT typeT
@@ -187,6 +189,7 @@ data Expr refT typeT
   | Quote String typeT
   | Z Integer    typeT
   | Undefined    typeT
+  | Code String  typeT
   -- Structures
   | Array  [Expr refT typeT]         typeT
   | Block  [BlockStmt refT typeT]    typeT
@@ -202,14 +205,14 @@ data Expr refT typeT
   | Application (Expr refT typeT) (Expr refT typeT) typeT
   -- Sugar
   | LetBlock [LBind (Expr refT typeT)] (Expr refT typeT)
-  deriving (Eq,Show,Functor,Foldable,T.Traversable)
+  deriving (Eq,Show,Functor,Foldable,Traversable)
 
 data BlockStmt refT typeT
  -- Bind          bind var         context   expr
   = Bind          (Maybe (LBind typeT))     typeT     (Expr refT typeT)
   | BlockTypeDecl Name             typeT
   | BlockLet      [(LName,Expr refT typeT)]
-  deriving (Eq,Show,Functor,Foldable,T.Traversable)
+  deriving (Eq,Show,Functor,Foldable,Traversable)
 
 -- }}}
 
@@ -220,6 +223,7 @@ data TypeF typeT
   = BitF
   | ZF
   | QuoteF
+  | TermF
   -- Structures
   | ArrayF      typeT typeT  -- ^ length, element type
   | BlockF      typeT typeT
@@ -232,36 +236,32 @@ data TypeF typeT
   -- Poly
   | PVar Name
   | PAbs [Name] typeT
-  deriving (Show,Functor,Foldable,T.Traversable)
+  deriving (Show,Functor,Foldable,Traversable)
 
 data ContextF typeT
   = CryptolSetupContext
   | JavaSetupContext
   | LLVMSetupContext
   | ProofScriptContext
-  | ProofResultContext
-  | SatResultContext
   | TopLevelContext
-  deriving (Eq,Show,Functor,Foldable,T.Traversable)
+  deriving (Eq,Show,Functor,Foldable,Traversable)
 
 data Syn typeF = Syn LName
-  deriving (Show,Functor,Foldable,T.Traversable)
+  deriving (Show,Functor,Foldable,Traversable)
 
 data Context
   = CryptolSetup
   | JavaSetup
   | LLVMSetup
   | ProofScript
-  | ProofResult
-  | SatResult
   | TopLevel
   deriving (Eq,Show)
 
-data I a = I Integer deriving (Show,Functor,Foldable,T.Traversable)
+data I a = I Integer deriving (Show,Functor,Foldable,Traversable)
 
 data Type
   = TyCon TyCon [Type]
-  | TyRecord (M.Map Name Type)
+  | TyRecord (Map Name Type)
   | TyVar TyVar
  deriving (Eq,Show)
 
@@ -275,6 +275,7 @@ data TyCon
  | ArrayCon
  | FunCon
  | StringCon
+ | TermCon
  | BoolCon
  | ZCon
  | NumCon Integer
@@ -316,7 +317,7 @@ instance PrettyPrint Type where
       PP.braces
     $ commaSepAll
     $ map (\(n,t) -> PP.text n `prettyTypeSig` pretty False t)
-    $ M.toList fs
+    $ Map.toList fs
   pretty par (TyVar tv) = pretty par tv
 
 instance PrettyPrint TyVar where
@@ -330,6 +331,7 @@ instance PrettyPrint TyCon where
     ArrayCon       -> PP.parens $ PP.brackets $ PP.empty
     FunCon         -> PP.parens $ PP.text "->"
     StringCon      -> PP.text "String"
+    TermCon        -> PP.text "Term"
     BoolCon        -> PP.text "Bit"
     ZCon           -> PP.text "Int"
     NumCon n       -> PP.integer n
@@ -343,8 +345,6 @@ instance PrettyPrint Context where
     JavaSetup    -> PP.text "JavaSetup"
     LLVMSetup    -> PP.text "LLVMSetup"
     ProofScript  -> PP.text "ProofScript"
-    ProofResult  -> PP.text "ProofResult"
-    SatResult    -> PP.text "SatResult"
     TopLevel     -> PP.text "TopLevel"
 
 instance PrettyPrint ModuleName where
@@ -391,6 +391,9 @@ tFun f v = TyCon FunCon [f,v]
 tString :: Type
 tString = TyCon StringCon []
 
+tTerm :: Type
+tTerm = TyCon TermCon []
+
 tBool :: Type
 tBool = TyCon BoolCon []
 
@@ -421,6 +424,7 @@ instance Equal TypeF where
     (BitF,BitF)                           -> True
     (ZF,ZF)                               -> True
     (QuoteF,QuoteF)                       -> True
+    (TermF,TermF)                         -> True
     (ArrayF l1 at1,ArrayF l2 at2)         -> l1 == l2 && at1 == at2
     (BlockF c1 bt1,BlockF c2 bt2)         -> c1 == c2 && bt1 == bt2
     (TupleF ts1,TupleF ts2)               -> ts1 == ts2
@@ -439,8 +443,6 @@ instance Equal ContextF where
     (JavaSetupContext    , JavaSetupContext   ) -> True
     (LLVMSetupContext    , LLVMSetupContext   ) -> True
     (ProofScriptContext  , ProofScriptContext ) -> True
-    (ProofResultContext  , ProofResultContext ) -> True
-    (SatResultContext    , SatResultContext   ) -> True
     (TopLevelContext     , TopLevelContext    ) -> True
     _ -> False
 
@@ -456,6 +458,7 @@ instance Render TypeF where
     BitF            -> "BitF"
     ZF              -> "ZF"
     QuoteF          -> "QuoteF"
+    TermF           -> "TermF"
     ArrayF l at     -> "(ArrayF " ++ show l ++ " " ++ show at ++ ")"
     BlockF c bt     -> "(BlockF " ++ show c ++ " " ++ show bt ++ ")"
     TupleF ts       -> "(TupleF [" ++ (intercalate ", " $ map show ts) ++ "])"
@@ -473,8 +476,6 @@ instance Render ContextF where
   render JavaSetupContext    = "JavaSetupContext"
   render LLVMSetupContext    = "LLVMSetupContext"
   render ProofScriptContext  = "ProofScriptContext"
-  render ProofResultContext  = "ProofResultContext"
-  render SatResultContext    = "SatResultContext"
   render TopLevelContext     = "TopLevelContext"
 
 instance Render Syn where
@@ -513,6 +514,9 @@ bit = inject BitF
 quote :: (TypeF :<: f) => Mu f
 quote = inject QuoteF
 
+term :: (TypeF :<: f) => Mu f
+term = inject TermF
+
 z :: (TypeF :<: f) => Mu f
 z = inject ZF
 
@@ -546,12 +550,6 @@ llvmSetupContext = inject LLVMSetupContext
 proofScriptContext  :: (ContextF :<: f) => Mu f
 proofScriptContext = inject ProofScriptContext
 
-proofResultContext  :: (ContextF :<: f) => Mu f
-proofResultContext = inject ProofResultContext
-
-satResultContext  :: (ContextF :<: f) => Mu f
-satResultContext = inject SatResultContext
-
 topLevelContext     :: (ContextF :<: f) => Mu f
 topLevelContext = inject TopLevelContext
 
@@ -577,6 +575,7 @@ typeOf expr = case expr of
   Quote _ t         -> t
   Z _ t             -> t
   Undefined t       -> t
+  Code _ t          -> t
   Array _ t         -> t
   Block _ t         -> t
   Tuple _ t         -> t
@@ -600,6 +599,7 @@ updateAnnotation t expr = case expr of
   Quote x _         -> Quote x t
   Z x _             -> Z x t
   Undefined _       -> Undefined t
+  Code x _          -> Code x t
   Array x _         -> Array x t
   Block x _         -> Block x t
   Tuple x _         -> Tuple x t
@@ -636,6 +636,7 @@ rewindType :: Type -> FullT
 rewindType (TyCon BoolCon parameters) = rewindNullary "BoolCon" bit parameters
 rewindType (TyCon ZCon parameters) = rewindNullary "ZCon" z parameters
 rewindType (TyCon StringCon parameters)= rewindNullary "StringCon" quote parameters
+rewindType (TyCon TermCon parameters)= rewindNullary "TermCon" quote parameters
 rewindType (TyCon (NumCon n) parameters) = rewindNullary "NumCon" (i n) parameters
 rewindType (TyCon (AbstractCon n) parameters) = rewindNullary "AbstractCon" (abstract n) parameters
 rewindType (TyCon (ContextCon ctx) parameters) = rewindNullary "context" (rewindContext ctx) parameters
@@ -643,7 +644,7 @@ rewindType (TyCon ArrayCon parameters) = rewindBinary "ArrayCon" array parameter
 rewindType (TyCon BlockCon parameters) = rewindBinary "BlockCon" block parameters
 rewindType (TyCon FunCon parameters) = rewindBinary "FunCon" function parameters
 rewindType (TyCon (TupleCon _len) types) = tuple $ map rewindType types
-rewindType (TyRecord bindings) = record $ M.assocs $ M.map rewindType bindings
+rewindType (TyRecord bindings) = record $ Map.assocs $ Map.map rewindType bindings
 rewindType (TyVar var) = case var of
   BoundVar name -> pVar name
   FreeVar name -> error $ "rewindType: FreeVar in Schema: " ++ show name
@@ -653,8 +654,6 @@ rewindContext CryptolSetup = cryptolSetupContext
 rewindContext JavaSetup = javaSetupContext
 rewindContext LLVMSetup = llvmSetupContext
 rewindContext ProofScript = proofScriptContext
-rewindContext ProofResult = proofResultContext
-rewindContext SatResult = satResultContext
 rewindContext TopLevel = topLevelContext
 
 rewindNullary :: String -> FullT -> [a] -> FullT

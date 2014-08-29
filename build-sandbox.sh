@@ -10,6 +10,7 @@ test_flags="--enable-tests --run-tests --disable-library-coverage"
 dotests="false"
 dopull="false"
 sandbox_dir=build
+
 while getopts "tp" opt; do
   case $opt in
     t)
@@ -57,7 +58,11 @@ done
 
 for repo in ${GITHUB_REPOS} ; do
   cabal sandbox add-source deps/${repo}
-  if [ "${dotests}" == "true" ] ; then
+
+  # Be sure abcBridge builds with pthreads diabled on Windows
+  if [ "${OS}" == "Windows_NT" -a "${repo}" == "abcBridge" ]; then
+    cabal install --force abcBridge ${cabal_flags} -f-enable-pthreads
+  elif [ "${dotests}" == "true" ] ; then
     cabal install --force ${repo} ${cabal_flags}
   fi
 done

@@ -16,7 +16,7 @@ import qualified Data.Map as Map
 
 import Verifier.SAW.TypedAST
 import Verifier.SAW.SharedTerm
-import qualified Verinf.SBV.Model as SBV
+import qualified SAWScript.SBVModel as SBV
 
 type NodeCache s = Map SBV.NodeId (SharedTerm s)
 
@@ -258,10 +258,16 @@ splitInputs sc (TVec n t) x =
        return (concat yss)
 splitInputs _ (TFun _ _) _ = error "splitInputs TFun: not a first-order type"
 splitInputs sc (TRecord fields) x =
+  splitInputs sc (TTuple (map snd fields)) x
+  -- ^ Currently the Cryptol->SAWCore translation maps
+  -- records to nested tuples, so we need to use the same
+  -- representation here. (This may change in the future.)
+{-
     do let (names, ts) = unzip fields
        xs <- mapM (scRecordSelect sc x) names
        yss <- sequence (zipWith (splitInputs sc) ts xs)
        return (concat yss)
+-}
 
 ----------------------------------------------------------------------
 
@@ -290,9 +296,15 @@ combineOutputs sc ty xs0 =
              ety <- lift (scTyp sc t)
              lift (scVector sc ety xs)
       go (TRecord fields) =
+          go (TTuple (map snd fields))
+             -- ^ Currently the Cryptol->SAWCore translation maps
+             -- records to nested tuples, so we need to use the same
+             -- representation here. (This may change in the future.)
+{-
           do let (names, ts) = unzip fields
              xs <- mapM go ts
              lift (scRecord sc (Map.fromList (zip names xs)))
+-}
       go (TFun _ _) =
           fail "combineOutputs: not a first-order type"
 

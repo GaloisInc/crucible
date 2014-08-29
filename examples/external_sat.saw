@@ -1,5 +1,5 @@
 main = do {
-    let thm x = (bvEq (x:[8]) 3);
+    let thm = {{ \x -> (x : [8]) == 3 }};
     let picosat = external_cnf_solver "picosat" ["%f"];
     sat_print abc thm;
     sat_print picosat thm;

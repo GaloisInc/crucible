@@ -1,27 +1,30 @@
-define_from_sbv name file = do { rhs <- read_sbv file; define name rhs; };
+define_from_sbv name file = do { rhs <- read_sbv file []; define name rhs; };
 
 main = do {
-  (enc : ([64], [64]) -> [64]) <- define_from_sbv "enc" "des_enc.sbv";
-  (dec : ([64], [64]) -> [64]) <- define_from_sbv "dec" "des_dec.sbv";
+  enc <- define_from_sbv "enc" "des_enc.sbv";
+  dec <- define_from_sbv "dec" "des_dec.sbv";
 
   print "proving dec_enc...";
-  let prop1 key msg = dec (key, enc (key, msg)) == msg;
+  let prop1 = {{ \key msg -> dec (key, enc (key, msg)) == msg }};
   dec_enc <- prove_print do { unfolding ["enc", "dec"]; abc; } prop1;
 
   print "proving enc_dec...";
-  let prop2 key msg = enc (key, dec (key, msg)) == msg;
+  let prop2 = {{ \key msg -> enc (key, dec (key, msg)) == msg }};
   enc_dec <- prove_print do { unfolding ["enc", "dec"]; abc; } prop2;
+
+  print enc_dec;
 
   let ss = addsimp dec_enc (addsimp enc_dec empty_ss);
 
-  let enc3 k1 k2 k3 msg = enc (k3, (dec (k2, enc (k1, msg))));
-  let dec3 k1 k2 k3 msg = dec (k1, (enc (k2, dec (k3, msg))));
+  let enc3 = {{ \k1 k2 k3 msg -> enc (k3, (dec (k2, enc (k1, msg)))) }};
+  let dec3 = {{ \k1 k2 k3 msg -> dec (k1, (enc (k2, dec (k3, msg)))) }};
 
   print "proving dec3_enc3...";
-  let prop3 k1 k2 k3 msg = dec3 k1 k2 k3 (enc3 k1 k2 k3 msg) == msg;
+  let prop3 = {{ \k1 k2 k3 msg -> dec3 k1 k2 k3 (enc3 k1 k2 k3 msg) == msg }};
   prove_print do { simplify ss; print_goal; abc; } prop3;
 
   print "proving enc3_dec3...";
-  let prop4 k1 k2 k3 msg = enc3 k1 k2 k3 (dec3 k1 k2 k3 msg) == msg;
+  let prop4 = {{ \k1 k2 k3 msg -> enc3 k1 k2 k3 (dec3 k1 k2 k3 msg) == msg }};
   prove_print do { simplify ss; print_goal; abc; } prop4;
+
 };

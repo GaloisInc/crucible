@@ -24,7 +24,7 @@ import Data.List
 
 %wrapper "posn"
 
-$whitechar = [ \t\n\r\f\v]
+$whitechar = [\ \t\n\r\f\v]
 $special   = [\(\)\,\;\[\]\`\{\}]
 $digit     = 0-9
 $large     = [A-Z]
@@ -36,11 +36,12 @@ $binit     = 0-1
 $octit     = 0-7
 $hexit     = [0-9 A-F a-f]
 $idchar    = [$alpha $digit \' \_]
+$codechar  = [$graphic $whitechar]
 
 @reservedid  = import|and|let|fun|in|type|abstract|do|if|then|else|as|undefined
              |prim|CryptolSetup|JavaSetup|LLVMSetup
-             |ProofScript|ProofResult|SatResult|TopLevel
-             |Int|String|Bit
+             |ProofScript|TopLevel
+             |Int|String|Term|Bit
 @punct       = "," | ";" | "(" | ")" | ":" | "::" | "[" | "]" | "<-" | "->"
              | "=" | "{" | "}" | "." | "\"
 @reservedop  = "~"  | "-" | "*" | "+" | "/" | "%" | ">>" | "<<" | "|" | "&"
@@ -60,6 +61,7 @@ $charesc     = [abfnrtv\\\"\'\&]
 @escape      = \\ ($charesc | @ascii | @decimal | o @octal | x @hexadecimal)
 @gap         = \\ $whitechar+ \\
 @string      = $graphic # [\"\\] | " " | @escape | @gap
+@code        = ($codechar # \}) | \} ($codechar # \})
 @num         = @decimal | 0[bB] @binary | 0[oO] @octal | 0[xX] @hexadecimal
 
 sawTokens :-
@@ -74,14 +76,11 @@ $white+                          ;
 @reservedop                      { TOp                   }
 @varid                           { TVar                  }
 \" @string* \"                   { TLit  `via'` read     }
+\{\{ @code* \}\}                 { TCode `via'` readCode }
 @decimal                         { TNum  `via`  read     }
 0[bB] @binary                    { TNum  `via`  readBin  }
 0[oO] @octal                     { TNum  `via`  read     }
 0[xX] @hexadecimal               { TNum  `via`  read     }
-\' @decimal                      { TQNum `via`  (read    . drop 1) }
-\' 0[bB] @binary                 { TQNum `via`  (readBin . drop 1) }
-\' 0[oO] @octal                  { TQNum `via`  (read    . drop 1) }
-\' 0[xX] @hexadecimal            { TQNum `via`  (read    . drop 1) }
 .                                { TUnknown              }
 
 {
@@ -93,6 +92,9 @@ via' c g p s = c p (g s)
 lexSAW :: FilePath -> String -> [Token Pos]
 lexSAW f = dropComments . map (fmap fixPos) . alexScanTokens
   where fixPos (AlexPn _ l c) = Pos f l c
+
+readCode :: String -> String
+readCode = reverse . drop 2 . reverse . drop 2
 
 readQVar :: String -> ([String],String)
 readQVar s = case spanAll (== '.') s of

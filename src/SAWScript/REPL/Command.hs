@@ -18,7 +18,7 @@ module SAWScript.REPL.Command (
   , findCommand
   , findNbCommand
 
-  , moduleCmd, loadCmd, loadPrelude
+  -- , moduleCmd, loadCmd, loadPrelude
 
     -- Misc utilities
   , handleCtrlC
@@ -26,27 +26,37 @@ module SAWScript.REPL.Command (
 
     -- To support Notebook interface (might need to refactor)
   , replParse
-  , liftModuleCmd
-  , moduleCmdResult
+  --, liftModuleCmd
+  --, moduleCmdResult
   ) where
 
-import Verifier.SAW.SharedTerm (SharedContext)
+import Verifier.SAW.SharedTerm (SharedContext, SharedTerm)
+import qualified Verifier.SAW.Recognizer (asLambdaList)
+import qualified Verifier.SAW.Simulator.BitBlast as BBSim
 
 import SAWScript.REPL.Monad
 import SAWScript.REPL.Trie
 
 import qualified Cryptol.ModuleSystem as M
-import qualified Cryptol.ModuleSystem.Base as M (preludeName)
+import qualified Cryptol.ModuleSystem.Base as MB
+import qualified Cryptol.ModuleSystem.Monad as MM
+import qualified Cryptol.ModuleSystem.Env as ME
 
 import qualified Cryptol.Eval.Value as E
+import qualified Cryptol.ModuleSystem.NamingEnv as MN
+import qualified Cryptol.ModuleSystem.Renamer as R
 import qualified Cryptol.Testing.Random  as TestR
 import qualified Cryptol.Testing.Exhaust as TestX
+import qualified Cryptol.Parser
 import Cryptol.Parser
     (parseExprWith,ParseError(),Config(..),defaultConfig,parseModName)
+import qualified Cryptol.Parser.NoPat
 import Cryptol.Parser.Position (emptyRange,getLoc)
+import qualified Cryptol.TypeCheck
 import qualified Cryptol.TypeCheck.AST as T
 import qualified Cryptol.TypeCheck.Subst as T
 import qualified Cryptol.TypeCheck.InferTypes as T
+import qualified Cryptol.TypeCheck.Monad
 import Cryptol.TypeCheck.PP (dump,ppWithNames)
 import Cryptol.TypeCheck.Defaulting(defaultExpr)
 import Cryptol.Utils.PP
@@ -61,6 +71,7 @@ import Data.Char (isSpace,isPunctuation,isSymbol)
 import Data.Function (on)
 import Data.List (intercalate,isPrefixOf)
 import Data.Maybe (fromMaybe,mapMaybe)
+import Data.Monoid
 import System.Exit (ExitCode(ExitSuccess))
 --import System.Process (shell,createProcess,waitForProcess)
 --import qualified System.Process as Process(runCommand)
@@ -90,8 +101,7 @@ import qualified SAWScript.AST as SS
 import SAWScript.Interpreter
     (Value, isVUnit,
      interpretModuleAtEntry,
-     InterpretEnv(..),
-     interpretEnvValues, interpretEnvTypes)
+     InterpretEnv(..))
 import qualified SAWScript.Lexer (scan)
 import qualified SAWScript.MGU (checkModule)
 import qualified SAWScript.Parser (parseBlockStmt)
@@ -100,6 +110,11 @@ import qualified SAWScript.ResolveSyns (resolveSyns)
 import qualified SAWScript.Value (Value(VTerm), evaluate)
 import SAWScript.REPL.GenerateModule (replFileName, replModuleName, wrapBStmt)
 import SAWScript.Utils (SAWCtx, Pos(..))
+
+import qualified Verifier.SAW.Cryptol
+
+import Data.ABC (aigNetwork)
+import qualified Data.AIG as AIG
 
 
 #if __GLASGOW_HASKELL__ < 706
@@ -184,14 +199,12 @@ nbCommandList :: [CommandDescr]
 nbCommandList  =
   [ CommandDescr ":env" (ExprTypeArg envCmd)
     "display the current sawscript environment"
-  {-
   , CommandDescr ":type"   (ExprArg typeOfCmd)
     "check the type of an expression"
   , CommandDescr ":browse" (ExprTypeArg browseCmd)
     "display the current environment"
   , CommandDescr ":eval" (ExprArg evalCmd)
     "evaluate an expression and print the result"
-  -}
   , CommandDescr ":?"      (ExprArg helpCmd)
     "display a brief description about a built-in operator"
   , CommandDescr ":help"   (ExprArg helpCmd)
@@ -207,9 +220,11 @@ commandList  =
   nbCommandList ++
   [ CommandDescr ":quit"   (NoArg quitCmd)
     "exit the REPL"
-{-
   , CommandDescr ":load"   (FilenameArg loadCmd)
     "load a module"
+  , CommandDescr ":add"    (FilenameArg addCmd)
+    "load an additional module"
+{-
   , CommandDescr ":reload" (NoArg reloadCmd)
     "reload the currently loaded module"
   , CommandDescr ":edit"   (FilenameArg editCmd)
@@ -274,9 +289,20 @@ getPPValOpts =
 
 evalCmd :: String -> REPL ()
 evalCmd str = do
+  pexpr <- replParseExpr str
+  (expr, schema) <- replCheckExpr pexpr
+  sharedterm <- replTranslateExpr expr
+
+  -- Evaluate and print
+  sc <- getSharedContext
+  let val = SAWScript.Value.evaluate sc sharedterm
+  io $ rethrowEvalError $ print val
+
+{-
   (val,_ty) <- replEvalExpr str
   ppOpts <- getPPValOpts
   io $ rethrowEvalError $ print $ pp $ E.WithBase ppOpts val
+-}
 
 {-
 qcCmd :: String -> REPL ()
@@ -364,51 +390,6 @@ qcCmd str =
                    return False
 -}
 
-proveCmd :: String -> REPL ()
-proveCmd str = do
-  parseExpr <- replParseExpr str
-  (expr, schema) <- replCheckExpr parseExpr
-  -- spexpr <- replSpecExpr expr
-  EnvString proverName <- getUser "prover"
-  EnvBool iteSolver <- getUser "iteSolver"
-  EnvBool verbose <- getUser "debug"
-  result <- liftModuleCmd $ Cryptol.Symbolic.prove (proverName, iteSolver, verbose) (expr, schema)
-  ppOpts <- getPPValOpts
-  case result of
-    Left msg        -> io $ putStrLn msg
-    Right Nothing   -> io $ putStrLn "Q.E.D."
-    Right (Just vs) -> io $ print $ hsep (doc : docs) <+> text "= False"
-                         where doc = ppPrec 3 parseExpr -- function application has precedence 3
-                               docs = map (pp . E.WithBase ppOpts) vs
-
-satCmd :: String -> REPL ()
-satCmd str = do
-  parseExpr <- replParseExpr str
-  (expr, schema) <- replCheckExpr parseExpr
-  EnvString proverName <- getUser "prover"
-  EnvBool iteSolver <- getUser "iteSolver"
-  EnvBool verbose <- getUser "debug"
-  result <- liftModuleCmd $ Cryptol.Symbolic.sat (proverName, iteSolver, verbose) (expr, schema)
-  ppOpts <- getPPValOpts
-  case result of
-    Left msg        -> io $ putStrLn msg
-    Right Nothing   -> io $ putStrLn "Unsatisfiable."
-    Right (Just vs) -> io $ print $ hsep (doc : docs) <+> text "= True"
-                         where doc = ppPrec 3 parseExpr -- function application has precedence 3
-                               docs = map (pp . E.WithBase ppOpts) vs
-
-specializeCmd :: String -> REPL ()
-specializeCmd str = do
-  parseExpr <- replParseExpr str
-  (expr, schema) <- replCheckExpr parseExpr
-  spexpr <- replSpecExpr expr
-  io $ putStrLn  "Expression type:"
-  io $ print    $ pp schema
-  io $ putStrLn  "Original expression:"
-  io $ putStrLn $ dump expr
-  io $ putStrLn  "Specialized expression:"
-  io $ putStrLn $ dump spexpr
-
 typeOfCmd :: String -> REPL ()
 typeOfCmd str = do
   expr      <- replParseExpr str
@@ -419,12 +400,14 @@ typeOfCmd str = do
   whenDebug (io (putStrLn (dump def)))
   io $ print $ pp expr <+> text ":" <+> pp sig
 
+{-
 reloadCmd :: REPL ()
 reloadCmd  = do
   mb <- getLoadedMod
   case mb of
     Just m  -> loadCmd (lPath m)
     Nothing -> return ()
+-}
 
 {-
 editCmd :: String -> REPL ()
@@ -451,6 +434,7 @@ editCmd path
         Just _  -> return ()
 -}
 
+{-
 moduleCmd :: String -> REPL ()
 moduleCmd modString
   | null modString = return ()
@@ -460,23 +444,39 @@ moduleCmd modString
         Nothing -> io $ putStrLn "Invalid module name."
 
 loadPrelude :: REPL ()
-loadPrelude  = moduleCmd $ show $ pp M.preludeName
+loadPrelude  = moduleCmd $ show $ pp MB.preludeName
+-}
 
 loadCmd :: FilePath -> REPL ()
 loadCmd path
   | null path = return ()
   | otherwise = do
-      setLoadedMod LoadedModule
-        { lName = Nothing
-        , lPath = path
-        }
-
       m <- moduleCmdResult =<< io (M.loadModuleByPath path)
       whenDebug (io (putStrLn (dump m)))
-      setLoadedMod LoadedModule
-        { lName = Just (T.mName m)
-        , lPath = path
-        }
+      setTargetMods [(T.mName m, path)]
+
+      sc <- getSharedContext
+      modEnv <- getModuleEnv
+      oldTermEnv <- getTermEnv
+      newTermEnv <- io (genTermEnv sc modEnv)
+      setTermEnv (Map.union newTermEnv oldTermEnv)
+
+addCmd :: FilePath -> REPL ()
+addCmd path
+  | null path = return ()
+  | otherwise = do
+      m <- liftModuleM (MB.loadModuleByPath path)
+      liftModuleM (MM.setFocusedModule (T.mName m))
+      whenDebug (io (putStrLn (dump m)))
+      addTargetMod (T.mName m, path)
+
+      -- | Regenerate SharedTerm environment. TODO: preserve old
+      -- values, only translate decls from new module.
+      sc <- getSharedContext
+      modEnv <- getModuleEnv
+      oldTermEnv <- getTermEnv
+      newTermEnv <- io (genTermEnv sc modEnv)
+      setTermEnv (Map.union newTermEnv oldTermEnv)
 
 quitCmd :: REPL ()
 quitCmd  = stop
@@ -493,7 +493,7 @@ envCmd _pfx = do
   io $ sequence_ [ putStrLn (showLName x ++ " = " ++ show v) | (x, v) <- Map.assocs (interpretEnvValues env) ]
   io $ putStrLn "\nTypes:\n"
 -}
-  io $ sequence_ [ putStrLn (showLName x ++ " : " ++ SS.pShow v) | (x, v) <- Map.assocs (interpretEnvTypes env) ]
+  io $ sequence_ [ putStrLn (showLName x ++ " : " ++ SS.pShow v) | (x, v) <- Map.assocs (ieTypes env) ]
 
 browseCmd :: String -> REPL ()
 browseCmd pfx = do
@@ -682,7 +682,7 @@ injectBoundExpressionTypes orig = do
   boundNamesAndTypes :: Map SS.LName SS.ResolvedT
                      <-
     getEnvironment <&>
-    interpretEnvTypes <&>
+    ieTypes <&>
     Map.filterWithKey (\name _type ->
                         Set.member (SS.getVal $ stripModuleName name) boundNames) <&>
     Map.mapKeysMonotonic stripModuleName <&>
@@ -704,26 +704,33 @@ saveResult sc (Just name) result = do
   let itsName = SS.Located (SS.TopLevelName replModuleName "it") "it" PosREPL
       itsName' = SS.Located (SS.TopLevelName replModuleName name) "it" PosREPL
   env <- getEnvironment
-  let typeEnv = interpretEnvTypes env
-  let valueEnv = interpretEnvValues env
-  let sharedEnv = interpretEnvShared env
+  let typeEnv = ieTypes env
+  let valueEnv = ieValues env
   let typeEnv' =
         case Map.lookup itsName typeEnv of
           Nothing -> error "evaluate: could not find most recent expression"
           Just itsType ->
             Map.insert itsName' (extractFromBlock itsType) typeEnv
-  let (valueEnv', sharedEnv') =
-        case result of
-          SAWScript.Value.VTerm t ->
-            (Map.insert itsName' (SAWScript.Value.evaluate sc t) valueEnv,
-             Map.insert itsName' t sharedEnv)
-          _ ->
-            (Map.insert itsName' result valueEnv, sharedEnv)
+  let valueEnv' = Map.insert itsName' result valueEnv
 
   putEnvironment $ env
-    { interpretEnvValues = valueEnv'
-    , interpretEnvTypes  = typeEnv'
-    , interpretEnvShared = sharedEnv' }
+    { ieValues = valueEnv'
+    , ieTypes  = typeEnv' }
+
+  case result of
+    SAWScript.Value.VTerm (Just s) t
+      -> do io $ putStrLn $ "Binding SAWCore term: " ++ show name
+            let qname = convertName name
+            let lname = P.Located emptyRange qname
+            modifyExtraNames (MN.shadowing (MN.singletonE qname (MN.EFromBind lname)))
+            modifyExtraTypes (Map.insert qname s)
+            modifyTermEnv (Map.insert qname t)
+    SAWScript.Value.VTerm Nothing t
+      -> do io $ putStrLn $ "SAWCore term (no type info): " ++ show name
+    _ -> return ()
+
+convertName :: SS.Name -> T.QName
+convertName n = T.QName Nothing (T.Name n)
 
 extractFromBlock :: SS.Schema -> SS.Schema
 extractFromBlock (SS.Forall [] (SS.TyCon SS.BlockCon [ctx, inner]))
@@ -769,7 +776,10 @@ replParseExpr :: String -> REPL P.Expr
 replParseExpr = replParse $ parseExprWith interactiveConfig
 
 interactiveConfig :: Config
-interactiveConfig = defaultConfig { cfgSource = "<interactive>" }
+interactiveConfig = Cryptol.Parser.defaultConfig { cfgSource = "<interactive>" }
+
+liftModuleM :: MM.ModuleM a -> REPL a
+liftModuleM m = liftModuleCmd $ \env -> MM.runModuleM env m
 
 liftModuleCmd :: M.ModuleCmd a -> REPL a
 liftModuleCmd cmd = moduleCmdResult =<< io . cmd =<< getModuleEnv
@@ -793,12 +803,80 @@ moduleCmdResult (res,ws0) = do
     Right (a,me') -> setModuleEnv me' >> return a
     Left err      -> raise (ModuleSystemError err)
 
-replCheckExpr :: P.Expr -> REPL (T.Expr,T.Schema)
-replCheckExpr e = liftModuleCmd $ M.checkExpr e
+replCheckExpr :: P.Expr -> REPL (T.Expr, T.Schema)
+replCheckExpr e = do
+  names <- replNamingEnv
+  types <- getExtraTypes
+  liftModuleM $ MM.interactive (checkExpr names types e)
 
-replSpecExpr :: T.Expr -> REPL T.Expr
-replSpecExpr e = liftModuleCmd $ S.specialize e
+-- | Typecheck a single expression in an augmented context. (adapted from ModuleSystem.Base)
+checkExpr :: R.NamingEnv -> Map T.QName T.Schema -> P.Expr -> MM.ModuleM (T.Expr, T.Schema)
+checkExpr nameEnv types e = do
+  -- | Eliminate patterns
+  npe <- MB.noPat e
 
+  -- | Resolve names
+  re <- MB.rename nameEnv npe
+
+  -- | Check types
+  ifDecls <- getAllIfaceDecls `fmap` MM.getModuleEnv
+  let range = fromMaybe emptyRange (getLoc re)
+  input0 <- MB.genInferInput range ifDecls
+  let input = input0 { Cryptol.TypeCheck.Monad.inpVars = Map.union types (Cryptol.TypeCheck.Monad.inpVars input0) }
+
+  out <- MM.io (Cryptol.TypeCheck.tcExpr re input)
+  runInferOutput out
+
+runInferOutput :: Cryptol.TypeCheck.Monad.InferOutput a -> MM.ModuleM a
+runInferOutput out =
+  case out of
+
+    Cryptol.TypeCheck.Monad.InferOK warns seeds o ->
+      do MM.setNameSeeds seeds
+         MM.typeCheckWarnings warns
+         return o
+
+    Cryptol.TypeCheck.Monad.InferFailed warns errs ->
+      do MM.typeCheckWarnings warns
+         MM.typeCheckingFailed errs
+
+replNamingEnv :: REPL R.NamingEnv
+replNamingEnv = do
+  names <- getExtraNames
+  mods <- getTargetMods
+  envs <- liftModuleM $ mapM (getModuleNamingEnv . fst) mods
+  return (names `R.shadowing` mconcat envs)
+
+getModuleNamingEnv :: P.ModName -> MM.ModuleM R.NamingEnv
+getModuleNamingEnv mn = do
+  -- FIXME HACK; should replace/rewrite getFocusedEnv instead, and get rid of meFocusedModule
+  MM.setFocusedModule mn
+  R.namingEnv `fmap` MM.getFocusedEnv
+
+getAllIfaceDecls :: ME.ModuleEnv -> M.IfaceDecls
+getAllIfaceDecls me = mconcat (map (both . ME.lmInterface) (ME.getLoadedModules (ME.meLoadedModules me)))
+  where both ifc = M.ifPublic ifc `mappend` M.ifPrivate ifc
+
+replTranslateExpr :: T.Expr -> REPL (SharedTerm SAWCtx)
+replTranslateExpr expr = do
+  typeEnv0 <- liftModuleM $ do ifaceDecls <- MM.getQualifiedEnv
+                               input <- MB.genInferInput emptyRange ifaceDecls
+                               return (Cryptol.TypeCheck.Monad.inpVars input)
+  typeEnv1 <- getExtraTypes
+  let typeEnv = Map.union typeEnv1 typeEnv0
+
+  termEnv <- getTermEnv
+  let cryEnv = Verifier.SAW.Cryptol.Env
+        { Verifier.SAW.Cryptol.envT = Map.empty
+        , Verifier.SAW.Cryptol.envE = fmap (\t -> (t, 0)) termEnv
+        , Verifier.SAW.Cryptol.envP = Map.empty
+        , Verifier.SAW.Cryptol.envC = typeEnv
+        }
+
+  sc <- getSharedContext
+  io $ Verifier.SAW.Cryptol.importExpr sc cryEnv expr
+
+{-
 replEvalExpr :: String -> REPL (E.Value, T.Type)
 replEvalExpr str =
   do expr      <- replParseExpr str
@@ -820,6 +898,7 @@ replEvalExpr str =
   where
   warnDefault ns (x,t) =
         print $ text "Assuming" <+> ppWithNames ns x <+> text "=" <+> pp t
+-}
 
 {-
 replEdit :: String -> REPL Bool
