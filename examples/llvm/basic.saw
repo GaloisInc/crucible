@@ -1,15 +1,15 @@
 add_setup : LLVMSetup ();
 add_setup = do {
-    x <- llvm_var "x" (llvm_int '32);
-    y <- llvm_var "y" (llvm_int '32);
-    llvm_return (x + y : [32]);
+    x <- llvm_var "x" (llvm_int 32);
+    y <- llvm_var "y" (llvm_int 32);
+    llvm_return {{ x + y : [32] }};
     llvm_verify_tactic abc;
 };
 
 dbl_setup : LLVMSetup ();
 dbl_setup = do {
-    x <- llvm_var "x" (llvm_int '32);
-    llvm_return (x + x : [32]);
+    x <- llvm_var "x" (llvm_int 32);
+    llvm_return {{ x + x : [32] }};
     llvm_verify_tactic abc;
 };
 
