@@ -27,6 +27,8 @@ import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.Java.Simulator as JSS
 import qualified Verifier.Java.SAWBackend as JSS
 
+import Verifier.SAW.Evaluator
+import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST
 
@@ -196,7 +198,7 @@ verifyJava bic opts cls mname overrides setup = do
         putStrLn "Verifying the following:"
         mapM_ (print . ppPathVC) res
       let prover script vs g = do
-            -- scTypeCheck jsc g
+            checkBoolean jsc g
             glam <- bindAllExts jsc g
             let bsc = biSharedContext bic
             glam' <- scNegate bsc =<< scImport bsc glam
@@ -219,7 +221,7 @@ verifyJava bic opts cls mname overrides setup = do
 showCexResults :: SharedContext JSSCtx
                -> JavaMethodSpecIR
                -> VerifyState
-               -> [(String, Value SAWCtx)]
+               -> [(String, SS.Value SAWCtx)]
                -> IO ()
 showCexResults sc ms vs vals = do
   putStrLn $ "When verifying " ++ specName ms ++ ":"
@@ -329,6 +331,34 @@ exportJavaType cb (SS.VCtorApp "Java.ClassType" [SS.VString name]) = do
 exportJavaType _ v =
   error $ "exportJavaType: Can't translate to Java type: " ++ show v
 
+checkCompatibleExpr :: SharedContext s -> JavaExpr -> SharedTerm s
+                    -> JavaSetup ()
+checkCompatibleExpr sc expr t = do
+  jsState <- get
+  let atm = specActualTypeMap (jsSpec jsState)
+  liftIO $ case Map.lookup expr atm of
+    Nothing -> fail $ "No type found for Java expression: " ++ show expr
+    Just at -> liftIO $ checkCompatibleType sc at t
+
+checkCompatibleType :: SharedContext s -> JavaActualType -> SharedTerm s
+                     -> IO ()
+checkCompatibleType sc at t = do
+  mlt <- logicTypeOfActual sc at
+  case mlt of
+    Nothing ->
+      fail $ "Type is not translatable: " ++ show at
+    Just lt -> do
+      ty <- scTypeCheck sc t
+      lt' <- scWhnf sc lt
+      ty' <- scWhnf sc ty
+      -- TODO: we can't really compare types until we have a more
+      -- flexible evaluator
+      unless (lt' == ty') $ return () {- fail $
+        unlines [ "Incompatible type:"
+                , "  Expected: " ++ show lt'
+                , "  Got:" ++ show ty'
+                ] -}
+
 javaPure :: JavaSetup ()
 javaPure = return ()
 
@@ -384,6 +414,7 @@ javaMayAlias bic _ exprs = do
       cls = specMethodClass ms
       meth = specMethod ms
   exprList <- liftIO $ mapM (parseJavaExpr cb cls meth) exprs
+  -- TODO: check that all expressions exist and have the same type
   modify $ \st -> st { jsSpec = specAddAliasSet exprList (jsSpec st) }
 
 javaAssert :: BuiltinContext -> Options -> SharedTerm SAWCtx
@@ -394,6 +425,9 @@ javaAssert bic _ v = do
   let m = specJavaExprNames ms
       atm = specActualTypeMap ms
   let sc = biSharedContext bic
+  ty <- liftIO $ scTypeCheck sc v
+  unless (asBoolType ty == Just ()) $
+    fail $ "java_assert passed expression of non-boolean type: " ++ show ty
   me <- liftIO $ mkMixedExpr m atm sc v
   case me of
     LE le ->
@@ -419,6 +453,7 @@ javaAssertEq bic _ name t = do
       atm = specActualTypeMap ms
   let sc = biSharedContext bic
   (expr, _) <- liftIO $ getJavaExpr ms name
+  checkCompatibleExpr sc expr t
   me <- liftIO $ mkMixedExpr m atm sc t
   modify $ \st ->
     st { jsSpec = specAddLogicAssignment fixPos expr me ms }
@@ -433,6 +468,7 @@ javaEnsureEq bic _ name t = do
       atm = specActualTypeMap ms
   let sc = biSharedContext bic
   --liftIO $ putStrLn "Making MixedExpr"
+  checkCompatibleExpr sc expr t
   me <- liftIO $ mkMixedExpr m atm sc t
   --liftIO $ putStrLn "Done making MixedExpr"
   let cmd = case (CC.unTerm expr, ty) of
@@ -463,6 +499,11 @@ javaReturn bic _ t = do
   ms <- gets jsSpec
   let m = specJavaExprNames ms
       atm = specActualTypeMap ms
+      -- TODO: check that given expression is compatible with return type
+      {-
+      rtype = methodKeyReturnType . methodKey . specMethod $ ms
+      rt = toActualType rtype
+      -}
   let sc = biSharedContext bic
   me <- liftIO $ mkMixedExpr m atm sc t
   modify $ \st ->

@@ -199,9 +199,10 @@ termJavaExprs = snd . impl (Set.empty, Set.empty)
 useLogicExpr :: SharedContext JSSCtx -> LogicExpr -> [SharedTerm JSSCtx]
              -> IO (SharedTerm JSSCtx)
 useLogicExpr sc (LogicExpr t _) args = do
-  -- TODO: check that args are the right type
   t' <- scImport sc t
-  scApplyAll sc t' args
+  t'' <- scApplyAll sc t' args
+  _ty <- scTypeCheck sc t''
+  return t''
 
 {-
 -- | Return type of a typed expression.

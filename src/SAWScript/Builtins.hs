@@ -273,12 +273,24 @@ satABCold sc = StateT $ \g -> withBE $ \be -> do
         _ -> fail "Can't prove non-boolean term."
     Left err -> fail $ "Can't bitblast: " ++ err
 
+returnsBool :: SharedTerm s -> Bool
+returnsBool ((asBoolType . snd . asPiList) -> Just ()) = True
+returnsBool _ = False
+
+checkBoolean :: SharedContext s -> SharedTerm s -> IO ()
+checkBoolean sc t = do
+  ty <- scTypeCheck sc t
+  unless (returnsBool ty) $
+    fail $ "Attempting to prove a term that returns a non-boolean type: " ++
+           show ty
+
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
 satABC :: SharedContext s -> ProofScript s (SV.SatResult s)
 satABC sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
   let t = goalTerm g
       eqs = map (mkIdent preludeName) [ "eq_Vec", "eq_Fin", "eq_Bool" ]
+  checkBoolean sc t
   rs <- scEqsRewriteRules sc eqs
   basics <- basic_ss sc
   let ss = addRules rs basics
@@ -357,6 +369,7 @@ satExternalCNF sc execName args = StateT $ \g -> withBE $ \be -> do
   let cnfName = goalName g ++ ".cnf" 
       t = goalTerm g
       argNames = map fst (fst (asLambdaList t))
+  checkBoolean sc t
   (path, fh) <- openTempFile "." cnfName
   hClose fh -- Yuck. TODO: allow writeCNF et al. to work on handles.
   let args' = map replaceFileName args
@@ -400,6 +413,7 @@ satSBV :: SMTConfig -> SharedContext s -> ProofScript s (SV.SatResult s)
 satSBV conf sc = StateT $ \g -> do
   let t = goalTerm g
       eqs = map (mkIdent preludeName) [ "eq_Vec", "eq_Fin", "eq_Bool" ]
+  checkBoolean sc t
   rs <- scEqsRewriteRules sc eqs
   basics <- basic_ss sc
   let ss = addRules rs basics
@@ -455,7 +469,9 @@ satWithExporter :: (SharedContext s -> FilePath -> SharedTerm s -> IO ())
                 -> String
                 -> ProofScript s (SV.SatResult s)
 satWithExporter exporter sc path ext = StateT $ \g -> do
-  exporter sc ((path ++ goalName g) ++ ext) (goalTerm g)
+  let t = goalTerm g
+  checkBoolean sc t
+  exporter sc ((path ++ goalName g) ++ ext) t
   unsatResult sc g
 
 satAIG :: SharedContext s -> FilePath -> ProofScript s (SV.SatResult s)
@@ -578,7 +594,9 @@ bindExts sc args body = do
     fail "argument isn't external input"
   locals <- mapM (scLocalVar sc . fst) ([0..] `zip` reverse types)
   body' <- scInstantiateExt sc (Map.fromList (is `zip` reverse locals)) body
-  scLambdaList sc (names `zip` types) body'
+  t <- scLambdaList sc (names `zip` types) body'
+  scTypeCheck sc t
+  return t
 
 extIdx :: SharedTerm s -> Maybe VarIndex
 extIdx (STApp _ (FTermF (ExtCns ec))) = Just (ecVarIndex ec)
@@ -619,7 +637,7 @@ cexEvalFn sc args tm = do
       argMap = Map.fromList (zip is args')
       eval = evalGlobal (scModule sc) preludePrims
   tm' <- scInstantiateExt sc argMap tm
-  --ty <- scTypeCheck sc tm'
+  _ty <- scTypeCheck sc tm'
   --putStrLn $ "Type of cex eval term: " ++ show ty
   return $ evalSharedTerm eval tm'
 
