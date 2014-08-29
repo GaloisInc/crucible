@@ -1074,7 +1074,7 @@ runValidation prover params sc esd results = do
        g <- scImplies sc (pvcAssumptions pvc) =<< vcGoal sc vc
        when (verb >= 2) $ do
          putStr $ "Checking " ++ vcName vc
-         when (verb >= 5) $ putStr $ " (" ++ show g ++ ")"
+         when (verb >= 5) $ putStr $ " (" ++ scPrettyTerm g ++ ")"
          putStrLn ""
        prover vs g
     else do
