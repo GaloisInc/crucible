@@ -275,7 +275,7 @@ defRewrites sc ident =
 
 basic_ss :: SharedContext s -> IO (Simpset (SharedTerm s))
 basic_ss sc = do
-  rs1 <- concat <$> traverse (defRewrites sc) defs
+  rs1 <- concat <$> traverse (defRewrites sc) (defs ++ defs')
   rs2 <- scEqsRewriteRules sc eqs
   return $ addConvs procs (addRules (rs1 ++ rs2) emptySimpset)
   where
@@ -287,4 +287,5 @@ basic_ss sc = do
       , "compareNat", "finSucc", "finFront", "equalNat", "mkFinVal"
       , "bitvector"
       ]
+    defs' = map (mkIdent (mkModuleName ["Cryptol"])) ["ty", "seq"]
     procs = bvConversions ++ natConversions ++ finConversions ++ vecConversions
