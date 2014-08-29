@@ -3,9 +3,8 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
 module SAWScript.ImportAIG
-  ( readAIG
-  , translateNetwork
-  , withReadAiger
+  ( readAIGexpect
+  , readAIG
   ) where
 
 import Control.Applicative
@@ -14,10 +13,12 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Error
 import Control.Monad.State.Strict
-import Verinf.Symbolic.Lit.ABC_GIA
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import Text.PrettyPrint.Leijen hiding ((<$>))
+
+import qualified Data.AIG as AIG
+import qualified Data.ABC.GIA as ABC
 
 import Verifier.SAW.Prelude
 import Verifier.SAW.Recognizer
@@ -73,31 +74,37 @@ parseAIGResultType _ _ = fail "Could not parse AIG output type."
 
 -- |
 networkAsSharedTerms
-    :: Network
+    :: AIG.IsAIG l g
+    => g x
     -> SharedContext s
     -> V.Vector (SharedTerm s) -- ^ Input terms for AIG
-    -> V.Vector Lit -- ^ Outputs
+    -> V.Vector (l x) -- ^ Outputs
     -> IO (V.Vector (SharedTerm s))
 networkAsSharedTerms ntk sc inputTerms outputLits = do
   -- Get evaluator
   scNot <- scApplyPreludeNot sc
   scAnd <- scApplyPreludeAnd sc
   scOr <- scApplyPreludeOr sc
-  scImp <- scApplyPreludeImplies sc
+  scImpl <- scApplyPreludeImplies sc
   scFalse <- scApplyPreludeFalse sc
-  -- | Left means negated, Right means not negated.
-  let viewFn (AndLit (Right x) (Right y)) = Right <$> scAnd x y
-      viewFn (AndLit (Left  x) (Left  y)) = Left  <$> scOr x y
-      viewFn (AndLit (Left  x) (Right y)) = Left  <$> scImp y x
-      viewFn (AndLit (Right x) (Left  y)) = Left  <$> scImp x y
-      viewFn (NotLit (Right x)) = return $ Left  x
-      viewFn (NotLit (Left  x)) = return $ Right x
-      viewFn (InputLit i) = return $ Right $ inputTerms V.! i
-      viewFn FalseLit = return $ Right scFalse
-  let neg (Left  x) = scNot x
-      neg (Right x) = return x
-  evalFn <- litEvaluator ntk viewFn
-  traverse evalFn outputLits >>= traverse neg
+
+  -- Left is nonnegated, Right is negated
+  let viewAnd inj _ (Left x)  (Left y)  = fmap inj $ scAnd x y
+      viewAnd _ inj (Left x)  (Right y) = fmap inj $ scImpl x y
+      viewAnd _ inj (Right x) (Left y)  = fmap inj $ scImpl y x
+      viewAnd _ inj (Right x) (Right y) = fmap inj $ scOr x y
+
+  let viewFinish (Left x)  = return x
+      viewFinish (Right x) = scNot x
+
+  let viewFn (AIG.And x y)    = viewAnd Left  Right x y
+      viewFn (AIG.NotAnd x y) = viewAnd Right Left  x y
+      viewFn (AIG.Input i)    = return (Left (inputTerms V.! i))
+      viewFn (AIG.NotInput i) = return (Right (inputTerms V.! i))
+      viewFn (AIG.FalseLit)   = return (Left scFalse)
+      viewFn (AIG.TrueLit)    = return (Right scFalse)
+  evalFn <- AIG.abstractEvaluateAIG ntk viewFn
+  traverse (viewFinish <=< evalFn) outputLits
 
 -- | Create vector for each input literal from expected types.
 bitblastVarsAsInputLits :: forall s
@@ -115,17 +122,18 @@ bitblastVarsAsInputLits sc args = do
     zipWithM_ (bitblastSharedTerm sc) inputs args
 
 withReadAiger :: FilePath
-              -> (Network -> IO (Either String a))
+              -> (forall g l. ABC.IsAIG l g => AIG.Network l g -> IO (Either String a))
               -> IO (Either String a)
 withReadAiger path action = do
-  mntk <- readAiger path
-  case mntk of
-    Nothing -> return $ Left $ "Could not read AIG file " ++ show path ++ "."
-    Just ntk -> finally (action ntk) (freeNetwork ntk)
+   mntk <- try (AIG.aigerNetwork ABC.proxy path)
+   case mntk of
+      Left e -> return (Left (show (e :: IOException)))
+      Right ntk -> action ntk
 
-translateNetwork :: SharedContext s -- ^ Context to build in term.
-                 -> Network -- ^ Network to bitblast
-                 -> SV.Vector Lit -- ^ Outputs for network.
+translateNetwork :: AIG.IsAIG l g
+                 => SharedContext s -- ^ Context to build in term.
+                 -> g x             -- ^ Network to bitblast
+                 -> [l x]           -- ^ Outputs for network.
                  -> [(String, SharedTerm s)] -- ^ Expected types
                  -> SharedTerm s -- ^ Expected output type.
                  -> ErrorT String IO (SharedTerm s)
@@ -134,7 +142,7 @@ translateNetwork sc ntk outputLits args resultType = do
   inputTerms <- bitblastVarsAsInputLits sc (snd <$> args)
   -- Check number of inputs to network matches expected inputs.
   do let expectedInputCount = V.length inputTerms
-     aigCount <- liftIO $ networkInputCount ntk
+     aigCount <- liftIO $ AIG.inputCount ntk
      unless (expectedInputCount == aigCount) $ do
        fail $ "AIG has " ++ show aigCount
                  ++ " inputs, while expected type has "
@@ -142,7 +150,7 @@ translateNetwork sc ntk outputLits args resultType = do
   --lift $ putStrLn "Output vars"
   -- Get outputs as SAWCore terms.
   outputVars <- liftIO $
-    networkAsSharedTerms ntk sc inputTerms (V.fromList (SV.toList outputLits))
+    networkAsSharedTerms ntk sc inputTerms (V.fromList outputLits)
   --lift $ putStrLn "Type parser"
    -- Join output lits into result type.
   (res,rargs) <- runTypeParser outputVars $ parseAIGResultType sc resultType
@@ -150,15 +158,27 @@ translateNetwork sc ntk outputLits args resultType = do
     fail "AIG contains more outputs than expected."
   lift $ scLambdaList sc args res
 
-readAIG :: forall s
+readAIGexpect
+        :: forall s
          . SharedContext s -- ^ Context to build in term.
         -> FilePath        -- ^ Path to AIG
         -> SharedTerm s    -- ^ Expected type of term.
         -> IO (Either String (SharedTerm s))
-readAIG sc path aigType =
-  withReadAiger path $ \ntk -> do
+readAIGexpect sc path aigType =
+  withReadAiger path $ \(AIG.Network ntk outputLits) -> do
     --putStrLn "Network outputs"
-    outputLits <- networkOutputs ntk
     let (args,resultType) = asPiList aigType
     runErrorT $
       translateNetwork sc ntk outputLits args resultType
+
+readAIG :: SharedContext s -> FilePath -> IO (Either String (SharedTerm s))
+readAIG sc f =
+  withReadAiger f $ \(AIG.Network ntk outputLits) -> do
+    inputs <- AIG.inputCount ntk
+    inLen <- scNat sc (fromIntegral inputs)
+    outLen <- scNat sc (fromIntegral (length outputLits))
+    boolType <- scBoolType sc
+    inType <- scVecType sc inLen boolType
+    outType <- scVecType sc outLen boolType
+    runErrorT $
+      translateNetwork sc ntk outputLits [("x", inType)] outType

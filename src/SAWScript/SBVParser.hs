@@ -16,7 +16,7 @@ import qualified Data.Map as Map
 
 import Verifier.SAW.TypedAST
 import Verifier.SAW.SharedTerm
-import qualified Verinf.SBV.Model as SBV
+import qualified SAWScript.SBVModel as SBV
 
 type NodeCache s = Map SBV.NodeId (SharedTerm s)
 
