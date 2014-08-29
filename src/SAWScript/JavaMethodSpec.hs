@@ -349,7 +349,8 @@ ocStep (EnsureArray _pos lhsExpr rhsExpr) = do
   ocEval (evalJavaRefExpr lhsExpr) $ \lhsRef ->
     ocEval (evalLogicExpr   rhsExpr) $ \rhsVal -> do
       sc <- gets (ecContext . ocsEvalContext)
-      ty <- liftIO $ scTypeOf sc rhsVal
+      ss <- liftIO $ basic_ss sc
+      ty <- liftIO $ scTypeOf sc rhsVal >>= rewriteSharedTerm sc ss
       ocModifyResultState $ setArrayValue lhsRef ty rhsVal
 ocStep (ModifyInstanceField refExpr f) =
   ocEval (evalJavaRefExpr refExpr) $ \lhsRef -> do
@@ -373,7 +374,8 @@ ocStep (ModifyArray refExpr ty) = do
     rhsVal <- maybe (fail "can't convert")
                     (liftIO . scFreshGlobal sc (TC.ppJavaExpr refExpr))
                     mtp
-    lty <- liftIO $ scTypeOf sc rhsVal
+    ss <- liftIO $ basic_ss sc
+    lty <- liftIO $ scTypeOf sc rhsVal >>= rewriteSharedTerm sc ss
     ocModifyResultState $ setArrayValue ref lty rhsVal
 ocStep (Return expr) = do
   ocEval (evalMixedExpr expr) $ \val ->
@@ -755,7 +757,8 @@ esStep (EnsureArray _pos lhsExpr rhsExpr) = do
   value  <- esEval $ evalLogicExpr rhsExpr
   -- Get dag engine
   sc <- gets esContext
-  ty <- liftIO $ scTypeOf sc value
+  ss <- liftIO $ basic_ss sc
+  ty <- liftIO $ scTypeOf sc value >>= rewriteSharedTerm sc ss
   let l = case ty of
             (isVecType (const (return ())) -> Just (w :*: _)) -> fromIntegral w
             _ -> error "internal: right hand side of array ensure clause has non-array type."
