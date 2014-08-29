@@ -1,9 +1,9 @@
 get_setup = do {
-    java_var "a" (java_array '4 java_int);
-    (j:[32]) <- java_var "j" java_int;
-    java_assert ((bvsle 0 j) && (bvsle j 3));
+    java_var "a" (java_array 4 java_int);
+    j <- java_var "j" java_int;
+    java_assert {{ 0 <= (j : [32]) && j <= 3 }};
     java_modify "a";
-    java_return j;
+    java_return {{ j }};
     java_verify_tactic abc;
 };
 

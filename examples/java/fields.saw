@@ -2,7 +2,7 @@ setx_spec : JavaSetup ();
 setx_spec = do {
     newx <- java_var "newx" java_int;
     java_var "this.x" java_int;
-    java_ensure_eq "this.x" (newx : [32]);
+    java_ensure_eq "this.x" {{ newx : [32] }};
     java_verify_tactic abc;
 };
 
@@ -10,21 +10,21 @@ sety_spec : JavaSetup ();
 sety_spec = do {
     newy <- java_var "newy" java_long;
     java_var "this.y" java_long;
-    java_ensure_eq "this.y" (newy : [64]);
+    java_ensure_eq "this.y" {{ newy : [64] }};
     java_verify_tactic abc;
 };
 
 unitx_spec : JavaSetup ();
 unitx_spec = do {
     java_var "this.x" java_int;
-    java_ensure_eq "this.x" (1 : [32]);
+    java_ensure_eq "this.x" {{ 1 : [32] }};
     java_verify_tactic abc;
 };
 
 unity_spec : JavaSetup ();
 unity_spec = do {
     java_var "this.y" java_long;
-    java_ensure_eq "this.y" (1 : [64]);
+    java_ensure_eq "this.y" {{ 1 : [64] }};
     java_verify_tactic abc;
 };
 

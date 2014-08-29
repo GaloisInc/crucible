@@ -1,7 +1,7 @@
 main : TopLevel ();
 main = do {
   c <- java_load_class "Double";
-  (t : [32] -> [32]) <- java_extract c "f" java_pure;
+  t <- java_extract c "f" java_pure;
   print_term t;
   write_aig "java_f.aig" t;
 };

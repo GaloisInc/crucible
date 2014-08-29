@@ -2,14 +2,14 @@ setup : JavaSetup ();
 setup = do {
     x <- java_var "x" java_int;
     y <- java_var "y" java_int;
-    java_return ((x + y) : [32]);
+    java_return {{ x + y : [32] }};
     java_verify_tactic abc;
 };
 
 setup' : JavaSetup ();
 setup' = do {
     x <- java_var "x" java_int;
-    java_return (x + x : [32]);
+    java_return {{ x + x : [32] }};
     java_verify_tactic abc;
 };
 
