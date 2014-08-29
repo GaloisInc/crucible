@@ -20,12 +20,15 @@ import Data.Data
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
+import Data.Ratio
+import Data.Time.Clock
 import Data.Traversable (traverse)
 import System.Directory(makeRelativeToCurrentDirectory)
 import System.FilePath(makeRelative, isAbsolute, (</>), takeDirectory)
 import System.Time(TimeDiff(..), getClockTime, diffClockTimes, normalizeTimeDiff, toCalendarTime, formatCalendarTime)
 import System.Locale(defaultTimeLocale)
 import Text.PrettyPrint.Leijen hiding ((</>), (<$>))
+import Text.Printf
 import Numeric(showFFloat)
 
 import qualified Verifier.Java.Codebase as JSS
@@ -137,6 +140,12 @@ timeIt action = do
 getTimeStamp :: MonadIO m => m String
 getTimeStamp = do t <- liftIO (getClockTime >>= toCalendarTime)
                   return $ formatCalendarTime defaultTimeLocale "%l:%M:%S %p" t
+
+showDuration :: NominalDiffTime -> String
+showDuration n = printf "%02d:%s" m (show s)
+  where s = n - (fromIntegral m * 60)
+        m :: Int
+        m = floor ((toRational n) * (1 % 60))
 
 -- Java lookup functions {{{1
 

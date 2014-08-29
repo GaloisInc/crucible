@@ -14,6 +14,7 @@ import Data.List.Split
 import Data.IORef
 import Data.Maybe
 import qualified Data.Map as Map
+import Data.Time.Clock
 import qualified Data.Vector as V
 import Text.PrettyPrint.Leijen hiding ((<$>))
 import Text.Read (readMaybe)
@@ -147,6 +148,7 @@ verifyJava :: BuiltinContext -> Options -> JSS.Class -> String
            -> JavaSetup ()
            -> IO (JavaMethodSpecIR)
 verifyJava bic opts cls mname overrides setup = do
+  startTime <- getCurrentTime
   let pos = fixPos -- TODO
       cb = biJavaCodebase bic
       imps = [CryptolSAW.cryptolModule]
@@ -209,7 +211,9 @@ verifyJava bic opts cls mname overrides setup = do
           "WARNING: skipping verification of " ++ show (specName ms)
         RunVerify script ->
           liftIO $ runValidation (prover script) vp jsc esd res
-  putStrLn $ "Successfully verified " ++ specName ms ++ overrideText
+  endTime <- getCurrentTime
+  putStrLn $ "Successfully verified " ++ specName ms ++ overrideText ++
+             " (" ++ showDuration (diffUTCTime endTime startTime) ++ ")"
   return ms
 
 showCexResults :: SharedContext JSSCtx
