@@ -11,8 +11,6 @@ import SAWScript.AST hiding (Expr(..), BlockStmt(..), Name, i)
 import SAWScript.NewAST
 import SAWScript.Compiler
 
-import           Data.Graph.SCC(stronglyConnComp)
-import           Data.Graph (SCC(..))
 import Control.Applicative
 
 import Control.Monad
@@ -560,54 +558,8 @@ inferTopDecls (ds : dss) =
 
 -- Compute groups of recursive components
 computeSCCGroups :: A.ModuleName -> [ LBind Expr ] -> [ [LBind Expr] ]
-computeSCCGroups m bs = map forget $ mkScc $ map (defsDepsBind m) bs
-  where forget (CyclicSCC xs) = xs
-        forget (AcyclicSCC x) = [x]
-
-{- | Given a list of declarations, annoted with (i) the names that they
- - define, and (ii) the names that they use, we compute a list of strongly
- - connected components of the declarations.  The SCCs are in dependency order. -}
-mkScc :: [(a,[A.ResolvedName],[A.ResolvedName])] -> [SCC a]
-mkScc ents = stronglyConnComp $ zipWith mkGr keys ents
-  where
-  keys                    = [ 0 :: Integer .. ]
-
-  mkGr i (x,_,uses)       = (x,i,mapMaybe (`M.lookup` nodeMap) uses)
-
-  -- Maps names to node ids.
-  nodeMap                 = M.fromList $ concat $ zipWith mkNode keys ents
-  mkNode i (_,defs,_)     = [ (d,i) | d <- defs ]
-
-defsDepsBind :: A.ModuleName -> LBind Expr
-                        -> (LBind Expr, [A.ResolvedName], [A.ResolvedName])
-defsDepsBind m it@(x,e0) = (it, [ A.TopLevelName m (getVal x) ], S.toList (uses e0))
-  where
-  -- we are only interested in top-level names
-  uses expr =
-    case expr of
-      Bit _               -> S.empty
-      String _            -> S.empty
-      Z _                 -> S.empty
-      Undefined           -> S.empty
-      Code _              -> S.empty
-      Array es            -> S.unions (map uses es)
-      Block bs            -> S.unions (map usesB bs)
-      Tuple es            -> S.unions (map uses es)
-      Record fs           -> S.unions (map uses $ M.elems fs)
-      Index  e1 e2        -> S.union (uses e1) (uses e2)
-      Lookup e _          -> uses e
-      TLookup e _         -> uses e
-      Var (getVal -> A.LocalName _) -> S.empty
-      Var name            -> S.singleton (getVal name)  -- This is what we look for
-      Function  _ _ e     -> uses e
-      Application e1 e2   -> S.union (uses e1) (uses e2)
-      Let bs e            -> S.unions (uses e : map (uses . snd) bs)
-      TSig e _            -> uses e
-
-  usesB bl =
-    case bl of
-      Bind _ _ _ e -> uses e
-      BlockLet bs -> S.unions (map (uses . snd) bs)
+computeSCCGroups _ = map (: [])
+-- ^ FIXME: remove
 
 -- XXX: TODO
 checkKind :: Type -> TI Type
@@ -625,7 +577,7 @@ checkModule :: -- [(A.ResolvedName,Schema)] ->
 checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
   let modName = A.moduleName m
   let eEnv    = A.moduleExprEnv m
-  exprs <- traverse translateExpr eEnv
+  exprs <- traverse (traverse translateExpr) eEnv
   initTs <- sequence $ concat
     [ [ (,) <$> pure (fmap (A.TopLevelName mn) n) <*> s
       | (n,e) <- modExprs dep
@@ -642,15 +594,15 @@ checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
                                        | (n,t) <- modPrims m
                                        , let t' = translateMTypeS t
                                        ]
-  let nes  = M.toList exprs
+  let nes  = exprs
   let sccs = computeSCCGroups modName nes
   let go = bindSchemas (initTs ++ primTs) ((,) <$> (inferTopDecls sccs >>= exportBinds) <*> pure (M.fromList prims) )
   case evalTI (A.moduleName m) go of
-    Right (exprRes,primRes) -> return $ m { A.moduleExprEnv = M.fromList exprRes , A.modulePrimEnv = primRes }
+    Right (exprRes,primRes) -> return $ m { A.moduleExprEnv = exprRes , A.modulePrimEnv = primRes }
     Left errs               -> fail $ unlines errs
   where
   depMods = M.toList . A.moduleDependencies
-  modExprs = M.toList . A.moduleExprEnv
+  modExprs = A.moduleExprEnv
   modPrims = M.toList . A.modulePrimEnv
 
   exportBinds dss = sequence [ do e1 <- exportExpr e
