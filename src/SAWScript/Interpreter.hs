@@ -203,19 +203,13 @@ interpretModule sc env m =
     do let mn = SS.moduleName m
        cenv' <- foldM (CEnv.importModule sc) (ieCryptol env) (SS.moduleCryDeps m)
        let env' = env { ieCryptol = cenv' }
-       let graph = [ ((name', e), SS.getVal name', S.toList (exprDeps e))
-                   | (name, e) <- Map.assocs (SS.moduleExprEnv m)
-                   , let name' = fmap (SS.TopLevelName mn) name ]
-       let sccs = stronglyConnComp graph
+       let sccs = [ (fmap (SS.TopLevelName mn) name, e) | (name, e) <- SS.moduleExprEnv m ]
        foldM (interpretSCC sc) env' sccs
 
 interpretSCC
     :: forall s. SharedContext s
-    -> InterpretEnv s -> SCC (Located SS.ResolvedName, Expression) -> IO (InterpretEnv s)
-interpretSCC sc env@(InterpretEnv vm tm ce) scc =
-    case scc of
-      CyclicSCC _nodes -> fail "Unimplemented: Recursive top level definitions"
-      AcyclicSCC (x, expr) ->
+    -> InterpretEnv s -> (Located SS.ResolvedName, Expression) -> IO (InterpretEnv s)
+interpretSCC sc env@(InterpretEnv vm tm ce) (x, expr) =
             do v <- interpretPoly sc env expr
                let t = SS.typeOf expr
                let qname = T.QName Nothing (T.Name (getOrig x))
@@ -225,7 +219,8 @@ interpretSCC sc env@(InterpretEnv vm tm ce) scc =
                            VTerm (Just schema) trm
                              -> do putStrLn $ "Binding top-level term: " ++ show qname
                                    return $ CEnv.bindTypedTerm (qname, TypedTerm schema trm) ce
-                           _ -> return ce
+                           _ -> do putStrLn $ "Binding top-level value: " ++ show qname
+                                   return ce
                return $ InterpretEnv vm' tm' ce'
 
 exprDeps :: Expression -> Set SS.ResolvedName

@@ -131,7 +131,7 @@ unionsLEnv = Map.unions
 
 data Module refT exprT typeT = Module
   { moduleName         :: ModuleName
-  , moduleExprEnv      :: LEnv (Expr refT exprT)
+  , moduleExprEnv      :: [(LName, Expr refT exprT)]
   , modulePrimEnv      :: LEnv exprT
   , moduleTypeEnv      :: LEnv typeT
   , moduleDependencies :: ModuleEnv ValidModule
@@ -192,7 +192,7 @@ data Expr refT typeT
   | Quote String typeT
   | Z Integer    typeT
   | Undefined    typeT
-  | Code String  typeT
+  | Code (Located String) typeT
   -- Structures
   | Array  [Expr refT typeT]         typeT
   | Block  [BlockStmt refT typeT]    typeT
