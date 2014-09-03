@@ -498,7 +498,7 @@ instance Uni TypeF where
     (FunctionF at1 bt1,FunctionF at2 bt2)     -> unify at1 at2 >> unify bt1 bt2
     (PVar n1, PVar n2)                        -> fail ("Poly: " ++ show n1 ++ " =/= " ++ show n2)
     -- TODO: Alpha renaming? no, variable substitution.
-    (PAbs ns1 ty1, PAbs ns2 ty2)              -> undefined ns1 ty1 ns2 ty2
+    -- (PAbs ns1 ty1, PAbs ns2 ty2)              -> undefined ns1 ty1 ns2 ty2
     _                                         -> fail ("Type Mismatch: " ++ render t1 ++ " could not be unified with " ++ render t2)
 
 instance Uni I where
