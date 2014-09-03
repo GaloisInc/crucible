@@ -70,7 +70,7 @@ import Control.Applicative
   '->'           { TPunct    _ "->"             }
   '<-'           { TPunct    _ "<-"             }
   string         { TLit      _ $$               }
-  code           { TCode     _ $$               }
+  code           { TCode     _ _                }
   num            { TNum      _ _ $$             }
   name           { TVar      _ _                }
 
@@ -130,7 +130,7 @@ AExpr :: { ExprSimple RawT }
  : '(' ')'                              { Tuple [] Nothing                }
  | '[' ']'                              { Array [] Nothing                }
  | string                               { Quote $1 Nothing                }
- | code                                 { Code $1 Nothing                 }
+ | code                                 { Code (Located (tokStr $1) (tokStr $1) (tokPos $1)) Nothing }
  | num                                  { Z $1 Nothing                    }
  -- | qname                                { Var (unresolvedQ $1) Nothing    }
  | name                                 { Var (Located (unresolved (tokStr $1)) (tokStr $1) (tokPos $1)) Nothing     }

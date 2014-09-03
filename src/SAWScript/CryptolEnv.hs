@@ -37,6 +37,8 @@ import Cryptol.Utils.PP
 
 --import SAWScript.REPL.Monad (REPLException(..))
 import SAWScript.Value
+import SAWScript.Utils (Pos(..))
+import SAWScript.AST (Located(getVal, getPos))
 
 --------------------------------------------------------------------------------
 
@@ -68,16 +70,23 @@ initCryptolEnv sc = do
 
 -- Parse -----------------------------------------------------------------------
 
-ioParseExpr :: String -> IO P.Expr
-ioParseExpr = ioParse $ P.parseExprWith sawscriptConfig
+ioParseExpr :: Located String -> IO P.Expr
+ioParseExpr lstr = ioParseResult (P.parseExprWith cfg str)
+  where
+    (file, line, col) =
+      case getPos lstr of
+        Pos f l c     -> (f, l, c)
+        PosInternal s -> (s, 1, 1)
+        PosREPL       -> ("<interactive>", 1, 1)
+    cfg = P.defaultConfig { P.cfgSource = file }
+    str = concat [ replicate (line - 1) '\n'
+                 , replicate (col - 1 + 2) ' ' -- ^ add 2 to compensate for dropped "{{"
+                 , getVal lstr ]
 
-ioParse :: (String -> Either P.ParseError a) -> String -> IO a
-ioParse parse str = case parse str of
+ioParseResult :: Either P.ParseError a -> IO a
+ioParseResult res = case res of
   Right a -> return a
   Left e  -> fail $ "Parse error: " ++ show e -- X.throwIO (ParseError e)
-
-sawscriptConfig :: P.Config
-sawscriptConfig = P.defaultConfig { P.cfgSource = "<sawscript>" }
 
 -- Rename ----------------------------------------------------------------------
 
@@ -166,7 +175,7 @@ bindTypedTerm (qname, TypedTerm schema trm) env =
 
 --------------------------------------------------------------------------------
 
-parseTypedTerm :: SharedContext s -> CryptolEnv s -> String -> IO (TypedTerm s)
+parseTypedTerm :: SharedContext s -> CryptolEnv s -> Located String -> IO (TypedTerm s)
 parseTypedTerm sc env input = do
   let modEnv = eModuleEnv env
 

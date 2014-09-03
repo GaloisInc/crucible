@@ -189,7 +189,7 @@ data Expr refT typeT
   | Quote String typeT
   | Z Integer    typeT
   | Undefined    typeT
-  | Code String  typeT
+  | Code (Located String) typeT
   -- Structures
   | Array  [Expr refT typeT]         typeT
   | Block  [BlockStmt refT typeT]    typeT
