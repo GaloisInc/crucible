@@ -105,6 +105,7 @@ BlockStmt :: { BlockStmtSimple RawT }
  | Arg '<-' Expression                  { Bind (Just $1) Nothing $3   }
 -- | name ':' PolyType                    { BlockTypeDecl $1 (Just $3)                 }
  | 'let' sepBy1(Declaration, 'and')     { BlockLet $2                  }
+ | 'let' code                           { BlockCode (Located (tokStr $2) (tokStr $2) (tokPos $2)) }
 
 Declaration :: { (LName, ExprSimple RawT) }
  : name list(Arg) '=' Expression        { (toLName $1, buildFunction $2 $4)       }

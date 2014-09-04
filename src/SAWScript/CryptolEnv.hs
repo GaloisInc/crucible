@@ -4,6 +4,7 @@ module SAWScript.CryptolEnv
   , importModule
   , bindTypedTerm
   , parseTypedTerm
+  , parseDecls
   )
   where
 
@@ -71,7 +72,13 @@ initCryptolEnv sc = do
 -- Parse -----------------------------------------------------------------------
 
 ioParseExpr :: Located String -> IO P.Expr
-ioParseExpr lstr = ioParseResult (P.parseExprWith cfg str)
+ioParseExpr = ioParseGeneric P.parseExprWith
+
+ioParseDecls :: Located String -> IO [P.Decl]
+ioParseDecls = ioParseGeneric P.parseDeclsWith
+
+ioParseGeneric :: (P.Config -> String -> Either P.ParseError a) -> Located String -> IO a
+ioParseGeneric parse lstr = ioParseResult (parse cfg str)
   where
     (file, line, col) =
       case getPos lstr of
@@ -141,6 +148,33 @@ translateExpr sc env expr = do
         }
   C.importExpr sc cryEnv expr
 
+translateDeclGroups :: SharedContext s -> CryptolEnv s -> [T.DeclGroup] -> IO (CryptolEnv s)
+translateDeclGroups sc env dgs = do
+  let modEnv = eModuleEnv env
+  let ifaceDecls = getAllIfaceDecls modEnv
+  (types, _) <- liftModuleM modEnv $
+                TM.inpVars `fmap` MB.genInferInput P.emptyRange ifaceDecls
+  let types' = Map.union (eExtraTypes env) types
+  let terms = eTermEnv env
+  let cryEnv = C.Env
+        { C.envT = Map.empty
+        , C.envE = fmap (\t -> (t, 0)) terms
+        , C.envP = Map.empty
+        , C.envC = types'
+        }
+  cryEnv' <- C.importDeclGroups sc cryEnv dgs
+  termEnv' <- traverse (\(t, j) -> incVars sc 0 j t) (C.envE cryEnv')
+
+  let decls = concatMap T.groupDecls dgs
+  let qnames = map T.dName decls
+  let newTypes = Map.fromList [ (T.dName d, T.dSignature d) | d <- decls ]
+  let addName qn = MR.shadowing (MN.singletonE qn (MN.EFromBind (P.Located P.emptyRange qn)))
+  return env
+        { eExtraNames = foldr addName (eExtraNames env) qnames
+        , eExtraTypes = Map.union (eExtraTypes env) newTypes
+        , eTermEnv = termEnv'
+        }
+
 -- | Translate all declarations in all loaded modules to SAWCore terms
 genTermEnv :: SharedContext s -> ME.ModuleEnv -> IO (Map T.QName (SharedTerm s))
 genTermEnv sc modEnv = do
@@ -202,6 +236,33 @@ parseTypedTerm sc env input = do
   -- | Translate
   trm <- translateExpr sc env' expr
   return (TypedTerm schema trm)
+
+parseDecls :: SharedContext s -> CryptolEnv s -> Located String -> IO (CryptolEnv s)
+parseDecls sc env input = do
+  let modEnv = eModuleEnv env
+
+  -- | Parse
+  decls <- ioParseDecls input
+
+  -- | Eliminate patterns
+  (npdecls, _) <- liftModuleM modEnv (MM.interactive (MB.noPat decls))
+
+  -- | Resolve names
+  nameEnv <- MR.shadowing (MR.namingEnv npdecls) `fmap` getNamingEnv env
+  (rdecls, _) <- liftModuleM modEnv (MM.interactive (MB.rename nameEnv npdecls))
+
+  -- | Infer types
+  let ifDecls = getAllIfaceDecls modEnv
+  let range = fromMaybe P.emptyRange (P.getLoc rdecls)
+  (tcEnv, _) <- liftModuleM modEnv $ MB.genInferInput range ifDecls
+  let tcEnv' = tcEnv { TM.inpVars = Map.union (eExtraTypes env) (TM.inpVars tcEnv) }
+
+  out <- T.tcDecls rdecls tcEnv'
+  (dgs, modEnv') <- liftModuleM modEnv (runInferOutput out)
+  let env' = env { eModuleEnv = modEnv' }
+
+  -- | Translate
+  translateDeclGroups sc env' dgs
 
 ------------------------------------------------------------
 

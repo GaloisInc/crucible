@@ -195,6 +195,9 @@ interpretStmts sc env@(InterpretEnv vm tm ce) stmts =
              return (bindValue sc v1 (VLambda f))
       SS.BlockLet bs : ss -> interpret sc env (SS.LetBlock bs (SS.Block ss undefined))
       SS.BlockTypeDecl {} : _ -> fail "BlockTypeDecl unsupported"
+      SS.BlockCode s : ss ->
+          do ce' <- CEnv.parseDecls sc ce s
+             interpretStmts sc (InterpretEnv vm tm ce') ss
 
 interpretModule
     :: forall s. SharedContext s

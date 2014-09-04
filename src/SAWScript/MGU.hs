@@ -273,6 +273,7 @@ instance AppSubst ty => AppSubst (A.BlockStmt names ty) where
     A.Bind (Just (n, t)) ctx e -> A.Bind (Just (n, appSubst s t)) (appSubst s ctx) (appSubst s e)
     A.BlockLet bs       -> A.BlockLet (appSubstBinds s bs)
     A.BlockTypeDecl x t -> A.BlockTypeDecl x (appSubst s t)
+    A.BlockCode str     -> A.BlockCode str
 
 instance (Ord k, AppSubst a) => AppSubst (M.Map k a) where
   appSubst s = fmap (appSubst s)
@@ -281,6 +282,7 @@ instance AppSubst BlockStmt where
   appSubst s bst = case bst of
     Bind mn mt ctx e -> Bind mn mt ctx e
     BlockLet bs   -> BlockLet $ appSubstBinds s bs
+    BlockCode str -> BlockCode str
 
 appSubstBinds :: (AppSubst a) => Subst -> [(n,a)] -> [(n,a)]
 appSubstBinds s bs = [ (n,appSubst s a) | (n,a) <- bs ]
@@ -483,6 +485,10 @@ inferStmts m ctx (Bind mn mt mc e : more) = do
 inferStmts m ctx (BlockLet bs : more) = inferDecls bs $ \bs' -> do
   (more',t) <- inferStmts m ctx more
   return (A.BlockLet bs' : more', t)
+
+inferStmts m ctx (BlockCode s : more) = do
+  (more',t) <- inferStmts m ctx more
+  return (A.BlockCode s : more', t)
 
 inferDecl :: LBind Expr -> TI (LBind OutExpr,LBind Schema)
 inferDecl (n,e) = do
