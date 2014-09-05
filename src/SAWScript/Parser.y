@@ -105,7 +105,7 @@ BlockStmt :: { BlockStmtSimple RawT }
  | Arg '<-' Expression                  { Bind (Just $1) Nothing $3   }
 -- | name ':' PolyType                    { BlockTypeDecl $1 (Just $3)                 }
  | 'let' sepBy1(Declaration, 'and')     { BlockLet $2                  }
- | 'let' code                           { BlockCode (Located (tokStr $2) (tokStr $2) (tokPos $2)) }
+ | 'let' Code                           { BlockCode $2                 }
 
 Declaration :: { (LName, ExprSimple RawT) }
  : name list(Arg) '=' Expression        { (toLName $1, buildFunction $2 $4)       }
@@ -131,7 +131,7 @@ AExpr :: { ExprSimple RawT }
  : '(' ')'                              { Tuple [] Nothing                }
  | '[' ']'                              { Array [] Nothing                }
  | string                               { Quote $1 Nothing                }
- | code                                 { Code (Located (tokStr $1) (tokStr $1) (tokPos $1)) Nothing }
+ | Code                                 { Code $1 Nothing                 }
  | num                                  { Z $1 Nothing                    }
  -- | qname                                { Var (unresolvedQ $1) Nothing    }
  | name                                 { Var (Located (unresolved (tokStr $1)) (tokStr $1) (tokPos $1)) Nothing     }
@@ -143,6 +143,9 @@ AExpr :: { ExprSimple RawT }
  | 'do' '{' termBy(BlockStmt, ';') '}'  { Block $3 Nothing                }
  | AExpr '.' name                       { Lookup $1 (tokStr $3) Nothing   }
  | AExpr '.' num                        { TLookup $1 $3 Nothing           }
+
+Code :: { Located String }
+ : code                                 { Located (tokStr $1) (tokStr $1) (tokPos $1) }
 
 Field :: { (Name, ExprSimple RawT) }
  : name '=' Expression                  { (tokStr $1, $3) }
