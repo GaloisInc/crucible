@@ -69,10 +69,8 @@ instance PrettyPrint LoadedModules where
 emptyLoadedModules :: LoadedModules
 emptyLoadedModules = LoadedModules Map.empty
 
-
-
 formModule :: FilePath -> Compiler String [TopStmtSimple RawT]
-formModule f = scan f >=> parseModule
+formModule f = scan f >=> liftParser parseModule
 
 findAndLoadModule :: Options -> ModuleName -> LoadedModules
   -> (LoadedModules -> IO ()) -> IO ()

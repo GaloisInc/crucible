@@ -11,7 +11,6 @@ module SAWScript.Lexer
   , lexSAW
   ) where
 
-import SAWScript.Compiler
 import SAWScript.Token
 import SAWScript.Utils
 
@@ -131,6 +130,6 @@ dropComments = go 0
 
 alexEOF = (TEOF (error "alexEOF") "")
 
-scan :: FilePath -> Compiler String [Token Pos]
+scan :: Monad m => FilePath -> String -> m [Token Pos]
 scan f = return . lexSAW f
 }

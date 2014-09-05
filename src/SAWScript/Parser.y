@@ -9,12 +9,12 @@ module SAWScript.Parser
   ( parseModule
   , parseTopStmt
   , parseBlockStmt
+  , ParseError(..)
   ) where
 
 import Data.List
 import SAWScript.Token
 import SAWScript.Lexer
-import SAWScript.Compiler
 import SAWScript.AST
 import SAWScript.Unify
 import SAWScript.Utils
@@ -30,7 +30,7 @@ import Control.Applicative
 %name parseBlockStmt BlockStmt
 %error { parseError }
 %tokentype { Token Pos }
-%monad { Err } { (>>=) } { return }
+%monad { Either ParseError }
 
 %token
   'import'       { TReserved _ "import"         }
@@ -248,21 +248,27 @@ commas2(p) : sepBy2(p, ',') { $1 }
 
 {
 
+data ParseError
+  = UnexpectedEOF
+  | UnexpectedToken (Token Pos)
+
+instance Show ParseError where
+  show e =
+    case e of
+      UnexpectedEOF     -> "Parse error: unexpected end of file"
+      UnexpectedToken t -> "Parse error at line " ++ show ln ++ ", col " ++ show col
+        where Pos _ ln col = tokPos t
+
 unresolved :: Name -> UnresolvedName
 unresolved = UnresolvedName []
 
 unresolvedQ :: ([Name],Name) -> UnresolvedName
 unresolvedQ (ns,n) = UnresolvedName ns n
 
-parseError :: [Token Pos] -> Err b
+parseError :: [Token Pos] -> Either ParseError b
 parseError toks = case toks of
-  []  -> fail "Parse error: unexpected end of file"
-  t:_ -> fail ("Parse error at line " ++ show ln ++ ", col " ++ show col)
-    where
-    Pos _ ln col = tokPos t
-  where
-  parseFail :: String -> Err b
-  parseFail = fail . (++ "\n" ++ PP.ppShow toks)
+  []    -> Left UnexpectedEOF
+  t : _ -> Left (UnexpectedToken t)
 
 bitsOfString :: Token Pos -> [ExprSimple RawT]
 bitsOfString = map ((flip Bit $ Just bit) . (/= '0')) . tokStr

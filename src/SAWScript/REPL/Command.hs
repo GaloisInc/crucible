@@ -98,6 +98,7 @@ import qualified SAWScript.AST as SS
      block,
      topLevelContext,
      updateAnnotation)
+import SAWScript.Compiler (liftParser)
 import SAWScript.Interpreter
     (Value, isVUnit,
      interpretModuleAtEntry,
@@ -625,7 +626,7 @@ caveats:
 sawScriptCmd :: String -> REPL ()
 sawScriptCmd str = do
   tokens <- err $ SAWScript.Lexer.scan replFileName str
-  ast <- err $ SAWScript.Parser.parseBlockStmt tokens
+  ast <- err $ liftParser SAWScript.Parser.parseBlockStmt tokens
   -- Set the context (i.e., the monad) for the statement (point 1 above).
   let ast' :: SS.BlockStmt SS.UnresolvedName SS.RawT
       ast' = case ast of

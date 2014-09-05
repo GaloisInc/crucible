@@ -2,6 +2,7 @@
 module SAWScript.Compiler ( Compiler, compiler, runCompiler
                           , Err, runErr
                           , ErrT, runErrT, mapErrT
+                          , liftParser
                           ) where
 
 import Control.Applicative (Alternative, Applicative)
@@ -11,6 +12,7 @@ import Control.Monad.Trans.Class (MonadTrans)
 import Control.Monad.Trans.Error (ErrorT, mapErrorT, runErrorT)
 
 import SAWScript.AST (PrettyPrint, pShow)
+import SAWScript.Parser (ParseError)
 import SAWScript.Utils
 
 -- | Wrapper around compiler function to format the result or error
@@ -63,3 +65,9 @@ compiler name comp input = do
               , "in:"
               , pShow input ]
     Right r -> return r
+
+liftParser :: (a -> Either ParseError b) -> Compiler a b
+liftParser p x =
+  case p x of
+    Left err  -> fail (show err)
+    Right res -> return res
