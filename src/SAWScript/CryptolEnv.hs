@@ -53,16 +53,22 @@ data CryptolEnv s = CryptolEnv
 
 -- Initialize ------------------------------------------------------------------
 
--- FIXME: this should import the Cryptol prelude by default
 initCryptolEnv :: SharedContext s -> IO (CryptolEnv s)
 initCryptolEnv sc = do
-  modEnv <- M.initialModuleEnv
+  modEnv0 <- M.initialModuleEnv
+
+  -- Load Cryptol prelude
+  (preludePath, modEnv) <-
+    liftModuleM modEnv0 $ do
+      path <- MB.findModule MB.preludeName
+      MB.loadModuleByPath path
+      return path
 
   -- Generate SAWCore translations for all values in scope
   termEnv <- genTermEnv sc modEnv
 
   return CryptolEnv
-    { eTargetMods = []
+    { eTargetMods = [(MB.preludeName, preludePath)]
     , eModuleEnv  = modEnv
     , eExtraNames = mempty
     , eExtraTypes = Map.empty
