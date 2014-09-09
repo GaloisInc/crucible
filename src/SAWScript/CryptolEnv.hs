@@ -93,7 +93,7 @@ ioParseGeneric parse lstr = ioParseResult (parse cfg str)
 ioParseResult :: Either P.ParseError a -> IO a
 ioParseResult res = case res of
   Right a -> return a
-  Left e  -> fail $ "Parse error: " ++ show e -- X.throwIO (ParseError e)
+  Left e  -> fail $ "Cryptol parse error:\n" ++ show (P.ppError e) -- X.throwIO (ParseError e)
 
 -- Rename ----------------------------------------------------------------------
 
@@ -274,4 +274,4 @@ moduleCmdResult (res, ws) = do
   mapM_ (print . pp) ws
   case res of
     Right (a, me) -> return (a, me)
-    Left err      -> fail $ "Module system error: " ++ show err -- X.throwIO (ModuleSystemError err)
+    Left err      -> fail $ "Cryptol error:\n" ++ show (pp err) -- X.throwIO (ModuleSystemError err)
