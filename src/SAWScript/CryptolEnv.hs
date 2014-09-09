@@ -230,7 +230,7 @@ parseTypedTerm sc env input = do
   let tcEnv' = tcEnv { TM.inpVars = Map.union (eExtraTypes env) (TM.inpVars tcEnv) }
 
   out <- T.tcExpr re tcEnv'
-  ((expr, schema), modEnv') <- liftModuleM modEnv (runInferOutput out)
+  ((expr, schema), modEnv') <- liftModuleM modEnv (MM.interactive (runInferOutput out))
   let env' = env { eModuleEnv = modEnv' }
 
   -- | Translate
