@@ -3,6 +3,7 @@ module SAWScript.CryptolEnv
   , initCryptolEnv
   , importModule
   , bindTypedTerm
+  , bindInteger
   , parseTypedTerm
   , parseDecls
   )
@@ -48,6 +49,7 @@ data CryptolEnv s = CryptolEnv
   , eModuleEnv  :: ME.ModuleEnv               -- ^ Imported modules, and state for the ModuleM monad
   , eExtraNames :: MR.NamingEnv               -- ^ Context for the Cryptol renamer
   , eExtraTypes :: Map T.QName T.Schema       -- ^ Cryptol types for extra names in scope
+  , eExtraTSyns :: Map T.QName T.TySyn        -- ^ Extra Cryptol type synonyms in scope
   , eTermEnv    :: Map T.QName (SharedTerm s) -- ^ SAWCore terms for *all* names in scope
   }
 
@@ -72,6 +74,7 @@ initCryptolEnv sc = do
     , eModuleEnv  = modEnv
     , eExtraNames = mempty
     , eExtraTypes = Map.empty
+    , eExtraTSyns = Map.empty
     , eTermEnv    = termEnv
     }
 
@@ -213,6 +216,15 @@ bindTypedTerm (qname, TypedTerm schema trm) env =
   where
     ename = MN.EFromBind (P.Located P.emptyRange qname)
 
+bindInteger :: (T.QName, Integer) -> CryptolEnv s -> CryptolEnv s
+bindInteger (qname, n) env =
+  env { eExtraNames = MR.shadowing (MN.singletonT qname tname) (eExtraNames env)
+      , eExtraTSyns = Map.insert qname tysyn (eExtraTSyns env)
+      }
+  where
+    tname = MN.TFromSyn (P.Located P.emptyRange qname)
+    tysyn = T.TySyn qname [] [] (T.tNum n)
+
 --------------------------------------------------------------------------------
 
 parseTypedTerm :: SharedContext s -> CryptolEnv s -> Located String -> IO (TypedTerm s)
@@ -233,7 +245,9 @@ parseTypedTerm sc env input = do
   let ifDecls = getAllIfaceDecls modEnv
   let range = fromMaybe P.emptyRange (P.getLoc re)
   (tcEnv, _) <- liftModuleM modEnv $ MB.genInferInput range ifDecls
-  let tcEnv' = tcEnv { TM.inpVars = Map.union (eExtraTypes env) (TM.inpVars tcEnv) }
+  let tcEnv' = tcEnv { TM.inpVars = Map.union (eExtraTypes env) (TM.inpVars tcEnv)
+                     , TM.inpTSyns = Map.union (eExtraTSyns env) (TM.inpTSyns tcEnv)
+                     }
 
   out <- T.tcExpr re tcEnv'
   ((expr, schema), modEnv') <- liftModuleM modEnv (MM.interactive (runInferOutput out))

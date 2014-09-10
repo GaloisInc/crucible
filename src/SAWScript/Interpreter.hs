@@ -75,6 +75,8 @@ extendEnv x t v (InterpretEnv vm tm ce) = InterpretEnv vm' tm' ce'
     ce' = case v of
             VTerm (Just schema) trm
               -> CEnv.bindTypedTerm (qname, TypedTerm schema trm) ce
+            VInteger n
+              -> CEnv.bindInteger (qname, n) ce
             _ -> ce
 
 -- Type matching ---------------------------------------------------------------
