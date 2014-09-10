@@ -422,7 +422,7 @@ valueEnv opts bic = Map.fromList
   , (qualify "print_type"  , toValue $ print_type sc)
   , (qualify "print_term"  , toValue ((putStrLn . scPrettyTerm) :: SharedTerm SAWCtx -> IO ()))
   , (qualify "show_term"   , toValue (scPrettyTerm :: SharedTerm SAWCtx -> String))
-  , (qualify "return"      , toValue (return :: Value SAWCtx -> IO (Value SAWCtx))) -- FIXME: make work for other monads
+  , (qualify "return"      , toValue (returnValue :: SS.Type -> Value SAWCtx -> Value SAWCtx))
     {-
   , (qualify "seq"        , toValue ((>>) :: ProofScript SAWCtx (Value SAWCtx)
                                           -> ProofScript SAWCtx (Value SAWCtx)

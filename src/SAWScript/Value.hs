@@ -243,6 +243,16 @@ bindValue sc (VLLVMSetup m1) v2 =
     m3
 bindValue _ _ _ = error "bindValue"
 
+returnValue :: SS.Type -> Value s -> Value s
+returnValue (SS.TyCon (SS.ContextCon c) []) x =
+  case c of
+    SS.CryptolSetup -> error "returnValue CryptolSetup"
+    SS.JavaSetup    -> VJavaSetup (return x)
+    SS.LLVMSetup    -> VLLVMSetup (return x)
+    SS.ProofScript  -> VProofScript (return x)
+    SS.TopLevel     -> VIO (return x)
+returnValue _ _ = error "returnValue"
+
 -- The ProofScript in RunVerify is in the SAWScript context, and
 -- should stay there.
 data ValidationPlan
