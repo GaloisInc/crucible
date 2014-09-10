@@ -423,6 +423,7 @@ valueEnv opts bic = Map.fromList
   , (qualify "print_term"  , toValue ((putStrLn . scPrettyTerm) :: SharedTerm SAWCtx -> IO ()))
   , (qualify "show_term"   , toValue (scPrettyTerm :: SharedTerm SAWCtx -> String))
   , (qualify "return"      , toValue (returnValue :: SS.Type -> Value SAWCtx -> Value SAWCtx))
+  , (qualify "for"         , toValue $ forValue sc)
     {-
   , (qualify "seq"        , toValue ((>>) :: ProofScript SAWCtx (Value SAWCtx)
                                           -> ProofScript SAWCtx (Value SAWCtx)
