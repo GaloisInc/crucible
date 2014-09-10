@@ -1,5 +1,5 @@
 
-map : {a,b,m} (a -> b) -> [m]a -> [m]b;
+map : {a,b} (a -> b) -> [a] -> [b];
 map = undefined;
 
 main = return 1;

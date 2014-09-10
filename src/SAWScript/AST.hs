@@ -229,7 +229,7 @@ data TypeF typeT
   | QuoteF
   | TermF
   -- Structures
-  | ArrayF      typeT typeT  -- ^ length, element type
+  | ArrayF      typeT
   | BlockF      typeT typeT
   | TupleF      [typeT]
   | RecordF     [Bind typeT]
@@ -386,8 +386,8 @@ tForall xs (Forall ys t) = Forall (xs ++ ys) t
 tTuple :: [Type] -> Type
 tTuple ts = TyCon (TupleCon $ fromIntegral $ length ts) ts
 
-tArray :: Type -> Type -> Type
-tArray l t = TyCon ArrayCon [l,t]
+tArray :: Type -> Type
+tArray t = TyCon ArrayCon [t]
 
 tFun :: Type -> Type -> Type
 tFun f v = TyCon FunCon [f,v]
@@ -429,7 +429,7 @@ instance Equal TypeF where
     (ZF,ZF)                               -> True
     (QuoteF,QuoteF)                       -> True
     (TermF,TermF)                         -> True
-    (ArrayF l1 at1,ArrayF l2 at2)         -> l1 == l2 && at1 == at2
+    (ArrayF at1,ArrayF at2)               -> at1 == at2
     (BlockF c1 bt1,BlockF c2 bt2)         -> c1 == c2 && bt1 == bt2
     (TupleF ts1,TupleF ts2)               -> ts1 == ts2
     (RecordF fts1,RecordF fts2)           -> fts1 == fts2
@@ -463,7 +463,7 @@ instance Render TypeF where
     ZF              -> "ZF"
     QuoteF          -> "QuoteF"
     TermF           -> "TermF"
-    ArrayF l at     -> "(ArrayF " ++ show l ++ " " ++ show at ++ ")"
+    ArrayF at       -> "(ArrayF " ++ show at ++ ")"
     BlockF c bt     -> "(BlockF " ++ show c ++ " " ++ show bt ++ ")"
     TupleF ts       -> "(TupleF [" ++ (intercalate ", " $ map show ts) ++ "])"
     RecordF fts     -> "(RecordF [" ++ (intercalate ", " $ map (\(n,bt)-> n ++ " :: " ++ show bt) fts) ++ "])"
@@ -491,7 +491,7 @@ instance Render Syn where
 
 instance Uni TypeF where
   uni t1 t2 = case (t1,t2) of
-    (ArrayF l1 at1,ArrayF l2 at2)             -> unify l1 l2 >> unify at1 at2
+    (ArrayF at1,ArrayF at2)                   -> unify at1 at2
     (BlockF c1 bt1,BlockF c2 bt2)             -> unify c1 c2 >> unify bt1 bt2
     (TupleF ts1,TupleF ts2)                   -> zipWithMP_ unify ts1 ts2
     (RecordF fts1,RecordF fts2)               -> do conj [ disj [ unify x y | (nx,x) <- fts1, nx == ny ] | (ny,y) <- fts2 ]
@@ -524,8 +524,8 @@ term = inject TermF
 z :: (TypeF :<: f) => Mu f
 z = inject ZF
 
-array :: (I :<: f, TypeF :<: f) => Mu f -> Mu f -> Mu f
-array l t = inject $ ArrayF l t
+array :: (I :<: f, TypeF :<: f) => Mu f -> Mu f
+array t = inject $ ArrayF t
 
 block :: (ContextF :<: f, TypeF :<: f) => Mu f -> Mu f -> Mu f
 block c t = inject $ BlockF c t
@@ -644,7 +644,7 @@ rewindType (TyCon TermCon parameters)= rewindNullary "TermCon" quote parameters
 rewindType (TyCon (NumCon n) parameters) = rewindNullary "NumCon" (i n) parameters
 rewindType (TyCon (AbstractCon n) parameters) = rewindNullary "AbstractCon" (abstract n) parameters
 rewindType (TyCon (ContextCon ctx) parameters) = rewindNullary "context" (rewindContext ctx) parameters
-rewindType (TyCon ArrayCon parameters) = rewindBinary "ArrayCon" array parameters
+rewindType (TyCon ArrayCon parameters) = rewindUnary "ArrayCon" array parameters
 rewindType (TyCon BlockCon parameters) = rewindBinary "BlockCon" block parameters
 rewindType (TyCon FunCon parameters) = rewindBinary "FunCon" function parameters
 rewindType (TyCon (TupleCon _len) types) = tuple $ map rewindType types
@@ -663,6 +663,15 @@ rewindContext TopLevel = topLevelContext
 rewindNullary :: String -> FullT -> [a] -> FullT
 rewindNullary _name  con [] = con
 rewindNullary  name _con _  = error $ "rewindType: applied " ++ name
+
+rewindUnary :: String -> (FullT -> FullT) -> [Type] -> FullT
+rewindUnary _name  con [a] = con (rewindType a)
+rewindUnary  name _con parameters =
+  error $ "rewindType: "
+          ++ name
+          ++ " should have arity 1 but was applied to "
+          ++ show (length parameters)
+          ++ " arguments"
 
 rewindBinary :: String -> (FullT -> FullT -> FullT) -> [Type] -> FullT
 rewindBinary _name  con [a, b] = con (rewindType a) (rewindType b)
@@ -690,7 +699,7 @@ instance (CapturePVars f, CapturePVars g) => CapturePVars (f :+: g) where
 
 instance CapturePVars TypeF where
   capturePVarsF ns t = case t of
-    ArrayF ty1 ty2    -> array (capturePVars ns ty1) (capturePVars ns ty2)
+    ArrayF ty1        -> array (capturePVars ns ty1)
     BlockF ctx ty1    -> block ctx (capturePVars ns ty1)
     TupleF tys        -> tuple $ map (capturePVars ns) tys
     RecordF flds      -> record $ onBinds (capturePVars ns) flds

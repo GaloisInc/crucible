@@ -328,11 +328,11 @@ inferE (ln, expr) = case expr of
   Code s    -> ret (A.Code s) tTerm
 
   Array  [] -> do a <- newType
-                  ret (A.Array []) $ tArray (tNum (0 :: Int)) a
+                  ret (A.Array []) $ tArray a
 
   Array (e:es) -> do (e',t) <- inferE (ln, e)
                      es' <- mapM (flip (checkE ln) t) es
-                     ret (A.Array (e':es')) $ tArray (tNum $ length es + 1) t
+                     ret (A.Array (e':es')) $ tArray t
 
   Block bs -> do ctx <- newType
                  (bs',t') <- inferStmts ln ctx bs
@@ -346,9 +346,8 @@ inferE (ln, expr) = case expr of
 
   Index ar ix -> do (ar',at) <- inferE (ln,ar)
                     ix'      <- checkE ln ix tZ
-                    l        <- newType
                     t        <- newType
-                    unify ln (tArray l t) at
+                    unify ln (tArray t) at
                     ret (A.Index ar' ix') t
 
   TSig e sc -> do t <- freshInst sc

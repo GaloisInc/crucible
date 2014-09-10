@@ -175,10 +175,7 @@ BaseType :: { RawSigT }
  | 'Term'                               { term                    }
  | '(' Type ')'                         { $2                      }
  | '(' commas2(Type) ')'                { tuple $2                }
- | '[' name ']'                         { array (syn (toLName $2)) bit }
- | '[' name ']' BaseType                { array (syn (toLName $2)) $4  }
- | '[' num ']'                          { array (i $2) bit        }
- | '[' num ']' BaseType                 { array (i $2) $4         }
+ | '[' Type ']'                         { array $2                }
  | '{' commas(FieldType) '}'            { record $2               }
 
 Context :: { RawSigT }
