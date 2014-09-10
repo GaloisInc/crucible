@@ -6,7 +6,8 @@ GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser
 PROGRAMS="alex happy c2hs"
 
 cabal_flags="--reinstall --force-reinstalls"
-test_flags="--enable-tests --run-tests --disable-library-coverage"
+#test_flags="--enable-tests --run-tests --disable-library-coverage"
+test_flags="--enable-tests --disable-library-coverage"
 dotests="false"
 dopull="false"
 sandbox_dir=build
