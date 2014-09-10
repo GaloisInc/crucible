@@ -243,6 +243,30 @@ bindValue sc (VLLVMSetup m1) v2 =
     m3
 bindValue _ _ _ = error "bindValue"
 
+returnValue :: SS.Type -> Value s -> Value s
+returnValue (SS.TyCon (SS.ContextCon c) []) x =
+  case c of
+    SS.CryptolSetup -> error "returnValue CryptolSetup"
+    SS.JavaSetup    -> VJavaSetup (return x)
+    SS.LLVMSetup    -> VLLVMSetup (return x)
+    SS.ProofScript  -> VProofScript (return x)
+    SS.TopLevel     -> VIO (return x)
+returnValue _ _ = error "returnValue"
+
+forValue :: SharedContext s -> SS.Type -> [Value s] -> Value s -> Value s
+forValue sc (SS.TyCon (SS.ContextCon c) []) xs f =
+  case c of
+    SS.CryptolSetup -> error "forValue CryptolSetup"
+    SS.JavaSetup    -> VJavaSetup (VArray `fmap` mapM g xs)
+                         where g x = do VJavaSetup m <- liftIO $ applyValue sc f x; m
+    SS.LLVMSetup    -> VLLVMSetup (VArray `fmap` mapM g xs)
+                         where g x = do VLLVMSetup m <- liftIO $ applyValue sc f x; m
+    SS.ProofScript  -> VProofScript (VArray `fmap` mapM g xs)
+                         where g x = do VProofScript m <- liftIO $ applyValue sc f x; m
+    SS.TopLevel     -> VIO (VArray `fmap` mapM g xs)
+                         where g x = do VIO m <- applyValue sc f x; m
+forValue _ _ _ _ = error "forValue"
+
 -- The ProofScript in RunVerify is in the SAWScript context, and
 -- should stay there.
 data ValidationPlan
