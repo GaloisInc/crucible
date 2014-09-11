@@ -6,8 +6,6 @@ GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser
 PROGRAMS="alex happy c2hs"
 
 cabal_flags="--reinstall --force-reinstalls"
-#test_flags="--enable-tests --run-tests --disable-library-coverage"
-test_flags="--enable-tests --disable-library-coverage"
 dotests="false"
 dopull="false"
 sandbox_dir=build
@@ -15,7 +13,6 @@ sandbox_dir=build
 while getopts "tp" opt; do
   case $opt in
     t)
-      cabal_flags="${cabal_flags} ${test_flags}"
       dotests="true"
       sandbox_dir=build-tests
       ;;
@@ -33,6 +30,7 @@ fi
 
 PWD=`pwd`
 PATH=${PWD}/${sandbox_dir}/bin:$PATH
+sandbox_dir=${PWD}/${sandbox_dir}
 
 cabal sandbox --sandbox=${sandbox_dir} init
 
@@ -63,16 +61,24 @@ for repo in ${GITHUB_REPOS} ; do
   # Be sure abcBridge builds with pthreads diabled on Windows
   if [ "${OS}" == "Windows_NT" -a "${repo}" == "abcBridge" ]; then
     cabal install --force abcBridge ${cabal_flags} -f-enable-pthreads
-  elif [ "${dotests}" == "true" ] ; then
-    cabal install --force ${repo} ${cabal_flags}
   fi
 done
 
 for pkg in ${PKGS} ; do
   cabal sandbox add-source ../${pkg}
-  if [ "${dotests}" == "true" ] ; then
-    cabal install --force ../${pkg} ${cabal_flags}
-  fi
 done
 
-cabal install ${cabal_flags}
+if [ "${dotests}" == "true" ] ; then
+  for pkg in ${PKGS}; do
+      (cd ../${pkg} &&
+         cabal sandbox init --sandbox=${sandbox_dir} &&
+	 cabal install --enable-tests --only-dependencies &&
+         cabal configure --enable-tests &&
+	 (cabal test -v --only --test-option=--xml=../${pkg}-test-results.xml --test-option=--timeout=60s || true))
+  done
+
+else
+
+  cabal install ${cabal_flags}
+
+fi
