@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-PKGS="Verinf SAWCore Java LLVM Cryptol"
+PKGS="Verinf SAWCore Cryptol Java LLVM"
 GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser"
 PROGRAMS="alex happy c2hs"
 
