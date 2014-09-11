@@ -70,11 +70,17 @@ done
 
 if [ "${dotests}" == "true" ] ; then
   for pkg in ${PKGS}; do
-      (cd ../${pkg} &&
+    test_flags="--only --test-option=--xml=../${pkg}-test-results.xml --test-option=--timeout=60s"
+
+    if [ ! "${QC_TESTS}" == "" ]; then
+        test_flags="${test_flags} --test-option=--quickcheck-tests=${QC_TESTS}"
+    fi
+
+    (cd ../${pkg} &&
          cabal sandbox init --sandbox=${sandbox_dir} &&
 	 cabal install --enable-tests --only-dependencies &&
          cabal configure --enable-tests &&
-	 (cabal test -v --only --test-option=--xml=../${pkg}-test-results.xml --test-option=--timeout=60s || true))
+	 (cabal test ${test_flags} || true))
   done
 
 else
