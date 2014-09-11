@@ -69,6 +69,7 @@ for pkg in ${PKGS} ; do
 done
 
 if [ "${dotests}" == "true" ] ; then
+  cd ..
   for pkg in ${PKGS}; do
     test_flags="--only --test-option=--xml=../${pkg}-test-results.xml --test-option=--timeout=60s"
 
@@ -76,11 +77,15 @@ if [ "${dotests}" == "true" ] ; then
         test_flags="${test_flags} --test-option=--quickcheck-tests=${QC_TESTS}"
     fi
 
-    (cd ../${pkg} &&
+    (cd ${pkg} &&
          cabal sandbox init --sandbox=${sandbox_dir} &&
 	 cabal install --enable-tests --only-dependencies &&
          cabal configure --enable-tests &&
 	 (cabal test ${test_flags} || true))
+  done
+
+  for i in *-test-results.xml; do
+      xsltproc jenkins-junit-munge.xsl $i > jenkins-${i}
   done
 
 else
