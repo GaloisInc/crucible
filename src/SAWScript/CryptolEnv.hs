@@ -31,6 +31,7 @@ import qualified Cryptol.TypeCheck.Monad as TM
 import qualified Cryptol.ModuleSystem as M
 import qualified Cryptol.ModuleSystem.Base as MB
 import qualified Cryptol.ModuleSystem.Env as ME
+import qualified Cryptol.ModuleSystem.Interface as MI
 import qualified Cryptol.ModuleSystem.Monad as MM
 import qualified Cryptol.ModuleSystem.NamingEnv as MN
 import qualified Cryptol.ModuleSystem.Renamer as MR
@@ -46,6 +47,8 @@ import SAWScript.AST (Located(getVal, getPos))
 
 data CryptolEnv s = CryptolEnv
   { eTargetMods :: [(P.ModName, FilePath)]    -- ^ Which modules to use for naming environment
+  -- ^ TODO: remove eTargetMods; eImports should supersede it.
+  , eImports    :: [P.Import]                 -- ^ Declarations of imported Cryptol modules
   , eModuleEnv  :: ME.ModuleEnv               -- ^ Imported modules, and state for the ModuleM monad
   , eExtraNames :: MR.NamingEnv               -- ^ Context for the Cryptol renamer
   , eExtraTypes :: Map T.QName T.Schema       -- ^ Cryptol types for extra names in scope
@@ -63,7 +66,7 @@ initCryptolEnv sc = do
   (preludePath, modEnv) <-
     liftModuleM modEnv0 $ do
       path <- MB.findModule MB.preludeName
-      MB.loadModuleByPath path
+      _ <- MB.loadModuleByPath path
       return path
 
   -- Generate SAWCore translations for all values in scope
@@ -71,6 +74,7 @@ initCryptolEnv sc = do
 
   return CryptolEnv
     { eTargetMods = [(MB.preludeName, preludePath)]
+    , eImports    = [P.Import MB.preludeName Nothing Nothing]
     , eModuleEnv  = modEnv
     , eExtraNames = mempty
     , eExtraTypes = Map.empty
@@ -106,19 +110,13 @@ ioParseResult res = case res of
 
 -- Rename ----------------------------------------------------------------------
 
-getNamingEnv :: CryptolEnv s -> IO MR.NamingEnv
-getNamingEnv env = do
-  let modEnv = eModuleEnv env
-  let names = eExtraNames env
-  let mods = eTargetMods env
-  (envs, _) <- liftModuleM modEnv $ traverse (getModuleNamingEnv . fst) mods
-  return (names `MR.shadowing` mconcat envs)
-
-getModuleNamingEnv :: P.ModName -> MM.ModuleM MR.NamingEnv
-getModuleNamingEnv mn = do
-  -- FIXME HACK; should replace/rewrite getFocusedEnv instead, and get rid of meFocusedModule
-  MM.setFocusedModule mn
-  MR.namingEnv `fmap` MM.getFocusedEnv
+getNamingEnv :: CryptolEnv s -> MR.NamingEnv
+getNamingEnv env = eExtraNames env `MR.shadowing` MR.namingEnv iface
+  where
+    iface = mconcat $ fromMaybe [] $ traverse loadImport (eImports env)
+    loadImport i = do
+      lm <- ME.lookupModule (T.iModule i) (eModuleEnv env)
+      return (MI.ifPublic (MI.interpImport i (ME.lmInterface lm)))
 
 getAllIfaceDecls :: ME.ModuleEnv -> M.IfaceDecls
 getAllIfaceDecls me = mconcat (map (both . ME.lmInterface) (ME.getLoadedModules (ME.meLoadedModules me)))
@@ -204,6 +202,7 @@ importModule sc env path = do
   newTermEnv <- genTermEnv sc modEnv'
 
   return env { eTargetMods = (T.mName m, path) : eTargetMods env
+             , eImports = P.Import (T.mName m) Nothing Nothing : eImports env
              , eModuleEnv = modEnv'
              , eTermEnv = Map.union newTermEnv oldTermEnv }
 
@@ -238,7 +237,7 @@ parseTypedTerm sc env input = do
   (npe, _) <- liftModuleM modEnv (MM.interactive (MB.noPat pexpr))
 
   -- | Resolve names
-  nameEnv <- getNamingEnv env
+  let nameEnv = getNamingEnv env
   (re, _) <- liftModuleM modEnv (MM.interactive (MB.rename nameEnv npe))
 
   -- | Infer types
@@ -268,7 +267,7 @@ parseDecls sc env input = do
   (npdecls, _) <- liftModuleM modEnv (MM.interactive (MB.noPat decls))
 
   -- | Resolve names
-  nameEnv <- MR.shadowing (MR.namingEnv npdecls) `fmap` getNamingEnv env
+  let nameEnv = MR.namingEnv npdecls `MR.shadowing` getNamingEnv env
   (rdecls, _) <- liftModuleM modEnv (MM.interactive (MB.rename nameEnv npdecls))
 
   -- | Infer types
