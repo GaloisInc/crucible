@@ -46,9 +46,7 @@ import SAWScript.AST (Located(getVal, getPos))
 --------------------------------------------------------------------------------
 
 data CryptolEnv s = CryptolEnv
-  { eTargetMods :: [(P.ModName, FilePath)]    -- ^ Which modules to use for naming environment
-  -- ^ TODO: remove eTargetMods; eImports should supersede it.
-  , eImports    :: [P.Import]                 -- ^ Declarations of imported Cryptol modules
+  { eImports    :: [P.Import]                 -- ^ Declarations of imported Cryptol modules
   , eModuleEnv  :: ME.ModuleEnv               -- ^ Imported modules, and state for the ModuleM monad
   , eExtraNames :: MR.NamingEnv               -- ^ Context for the Cryptol renamer
   , eExtraTypes :: Map T.QName T.Schema       -- ^ Cryptol types for extra names in scope
@@ -63,18 +61,16 @@ initCryptolEnv sc = do
   modEnv0 <- M.initialModuleEnv
 
   -- Load Cryptol prelude
-  (preludePath, modEnv) <-
+  (_, modEnv) <-
     liftModuleM modEnv0 $ do
       path <- MB.findModule MB.preludeName
-      _ <- MB.loadModuleByPath path
-      return path
+      MB.loadModuleByPath path
 
   -- Generate SAWCore translations for all values in scope
   termEnv <- genTermEnv sc modEnv
 
   return CryptolEnv
-    { eTargetMods = [(MB.preludeName, preludePath)]
-    , eImports    = [P.Import MB.preludeName Nothing Nothing]
+    { eImports    = [P.Import MB.preludeName Nothing Nothing]
     , eModuleEnv  = modEnv
     , eExtraNames = mempty
     , eExtraTypes = Map.empty
@@ -201,8 +197,7 @@ importModule sc env path = do
   let oldTermEnv = eTermEnv env
   newTermEnv <- genTermEnv sc modEnv'
 
-  return env { eTargetMods = (T.mName m, path) : eTargetMods env
-             , eImports = P.Import (T.mName m) Nothing Nothing : eImports env
+  return env { eImports = P.Import (T.mName m) Nothing Nothing : eImports env
              , eModuleEnv = modEnv'
              , eTermEnv = Map.union newTermEnv oldTermEnv }
 
