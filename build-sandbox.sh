@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-PKGS="Verinf SAWCore Cryptol Java LLVM"
+PKGS="Verinf SAWCore Cryptol Java LLVM SAWScript"
 GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser"
 PROGRAMS="alex happy c2hs"
 
@@ -70,8 +70,9 @@ done
 
 if [ "${dotests}" == "true" ] ; then
   cd ..
+
   for pkg in ${PKGS}; do
-    test_flags="--only --test-option=--xml=../${pkg}-test-results.xml --test-option=--timeout=60s"
+    test_flags="--test-option=--xml=../${pkg}-test-results.xml --test-option=--timeout=60s"
 
     if [ ! "${QC_TESTS}" == "" ]; then
         test_flags="${test_flags} --test-option=--quickcheck-tests=${QC_TESTS}"
@@ -79,9 +80,10 @@ if [ "${dotests}" == "true" ] ; then
 
     (cd ${pkg} &&
          cabal sandbox init --sandbox=${sandbox_dir} &&
-	 cabal install --enable-tests --only-dependencies &&
+	 cabal install --enable-tests &&
          cabal configure --enable-tests &&
-	 (cabal test ${test_flags} || true))
+         cabal build --only &&
+	 (cabal test --only ${test_flags} || true))
   done
 
   for i in *-test-results.xml; do
