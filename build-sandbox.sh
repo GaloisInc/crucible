@@ -4,6 +4,7 @@ set -e
 PKGS="Verinf SAWCore Cryptol Java LLVM SAWScript"
 GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser"
 PROGRAMS="alex happy c2hs"
+TESTABLE="SAWCore Java LLVM"
 
 cabal_flags="--reinstall --force-reinstalls"
 dotests="false"
@@ -71,7 +72,7 @@ done
 if [ "${dotests}" == "true" ] ; then
   cd ..
 
-  for pkg in ${PKGS}; do
+  for pkg in ${TESTABLE}; do
     test_flags="--test-option=--xml=../${pkg}-test-results.xml --test-option=--timeout=60s"
 
     if [ ! "${QC_TESTS}" == "" ]; then
@@ -84,10 +85,13 @@ if [ "${dotests}" == "true" ] ; then
          cabal configure --enable-tests &&
          cabal build --only &&
 	 (cabal test --only ${test_flags} || true))
-  done
 
-  for i in *-test-results.xml; do
-      xsltproc jenkins-junit-munge.xsl $i > jenkins-${i}
+    if [ -e ${pkg}-test-results.xml ]; then
+      xsltproc jenkins-junit-munge.xsl ${pkg}-test-results.xml > jenkins-${pkg}-test-results.xml
+    else
+      echo "Missing test results: ${pkg}-test-results.xml"
+      exit 1
+    fi
   done
 
 else
