@@ -1,5 +1,5 @@
 module SAWScript.CryptolEnv
-  ( CryptolEnv
+  ( CryptolEnv(..)
   , initCryptolEnv
   , importModule
   , bindTypedTerm

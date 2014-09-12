@@ -23,6 +23,7 @@ module SAWScript.REPL.Monad (
   , rethrowEvalError
 
     -- ** Environment
+  , getCryptolEnv, modifyCryptolEnv, setCryptolEnv
   , getModuleEnv, setModuleEnv
   , getTSyns, getNewtypes, getVars
   , whenDebug
@@ -35,7 +36,7 @@ module SAWScript.REPL.Monad (
   , shouldContinue
   , unlessBatch
   , setREPLTitle
-  , getTermEnv, modifyTermEnv, setTermEnv, genTermEnv
+  , getTermEnv, modifyTermEnv, setTermEnv
   , getExtraTypes, modifyExtraTypes, setExtraTypes
   , getExtraNames, modifyExtraNames, setExtraNames
   , getRW
@@ -62,15 +63,10 @@ import Cryptol.Prims.Types(typeOf)
 import Cryptol.Prims.Syntax(ECon(..),ppPrefix)
 import Cryptol.Eval (EvalError)
 import qualified Cryptol.ModuleSystem as M
-import qualified Cryptol.ModuleSystem.Base as MB (genInferInput)
-import qualified Cryptol.ModuleSystem.Env as ME (loadedModules, qualifiedEnv)
-import qualified Cryptol.ModuleSystem.Monad as MM (runModuleM)
 import Cryptol.ModuleSystem.NamingEnv (NamingEnv, namingEnv)
 import Cryptol.Parser (ParseError,ppError)
 import Cryptol.Parser.NoInclude (IncludeError,ppIncludeError)
 import Cryptol.Parser.NoPat (Error)
-import Cryptol.Parser.Position (emptyRange)
-import Cryptol.TypeCheck (InferInput(..), NameSeeds)
 import qualified Cryptol.TypeCheck.AST as T
 import Cryptol.Utils.PP
 import Cryptol.Utils.Panic (panic)
@@ -79,7 +75,6 @@ import qualified Cryptol.Parser.AST as P
 import Control.Monad (unless,when)
 import Data.IORef (IORef, newIORef, readIORef, modifyIORef, writeIORef)
 import Data.List (isPrefixOf)
-import Data.Monoid
 import Data.Traversable
 import Data.Typeable (Typeable)
 import System.Console.ANSI (setTitle)
@@ -87,7 +82,7 @@ import qualified Control.Exception as X
 import qualified Data.Map as Map
 import System.IO.Error (isUserError, ioeGetErrorString)
 
-import Verifier.SAW.SharedTerm (SharedTerm, incVars)
+import Verifier.SAW.SharedTerm (SharedTerm)
 import qualified Verifier.SAW.Cryptol as C
 
 --------------------
@@ -119,6 +114,7 @@ import SAWScript.AST (Located(getVal),
 import SAWScript.BuildModules (buildModules)
 import SAWScript.Builtins (BuiltinContext(..))
 import SAWScript.Compiler (ErrT, runErr, runErrT, mapErrT, runCompiler)
+import SAWScript.CryptolEnv
 import SAWScript.Import (preludeLoadedModules)
 import SAWScript.Interpreter (InterpretEnv(..), buildInterpretEnv)
 import SAWScript.Options (Options)
@@ -216,41 +212,26 @@ data RW = RW
   { eTargetMods :: [(P.ModName, FilePath)] -- ^ Which modules to load after a :reload command
   , eContinue   :: Bool
   , eIsBatch    :: Bool
-  , eModuleEnv  :: M.ModuleEnv -- ^ Imported modules, and state for the ModuleM monad
   , eUserEnv    :: UserEnv     -- ^ User-configured settings from :set commands
   , eREPLState  :: REPLState   -- ^ SAWScript-specific stuff
-
-  , eExtraNames :: NamingEnv  -- ^ Context for the Cryptol renamer
-  , eExtraTypes :: Map T.QName T.Schema            -- ^ Cryptol types for extra names in scope
-  , eTermEnv    :: Map T.QName (SharedTerm SAWCtx) -- ^ SAWCore terms for *all* names in scope
+  , eCryptolEnv :: CryptolEnv SAWCtx
   }
 
 -- | Initial, empty environment.
 defaultRW :: Bool -> Options -> IO RW
 defaultRW isBatch opts = do
   rstate <- getInitialState opts
-  modEnv <- M.initialModuleEnv
-
-  -- Generate SAWCore translations for all values in scope
   let sc = sharedContext rstate
-  termEnv <- genTermEnv sc modEnv
+  cryEnv <- initCryptolEnv sc
 
   return RW
     { eTargetMods = []
     , eContinue   = True
     , eIsBatch    = isBatch
-    , eModuleEnv  = modEnv
     , eUserEnv    = mkUserEnv userOptions
     , eREPLState  = rstate
-    , eExtraNames = mempty
-    , eExtraTypes = Map.empty
-    , eTermEnv    = termEnv
+    , eCryptolEnv = cryEnv
     }
-
-genTermEnv sc modEnv = do
-  let declGroups = concatMap T.mDecls (ME.loadedModules modEnv)
-  cryEnv <- C.importDeclGroups sc C.emptyEnv declGroups
-  traverse (\(t, j) -> incVars sc 0 j t) (C.envE cryEnv)
 
 -- | Build up the prompt for the REPL.
 mkPrompt :: RW -> String
@@ -455,37 +436,46 @@ getName :: P.QName -> String
 getName  = show . pp
 
 getTermEnv :: REPL (Map T.QName (SharedTerm SAWCtx))
-getTermEnv = fmap eTermEnv getRW
+getTermEnv = fmap eTermEnv getCryptolEnv
 
 modifyTermEnv :: (Map T.QName (SharedTerm SAWCtx) -> Map T.QName (SharedTerm SAWCtx)) -> REPL ()
-modifyTermEnv f = modifyRW_ $ \rw -> rw { eTermEnv = f (eTermEnv rw) }
+modifyTermEnv f = modifyCryptolEnv $ \ce -> ce { eTermEnv = f (eTermEnv ce) }
 
 setTermEnv :: Map T.QName (SharedTerm SAWCtx) -> REPL ()
 setTermEnv x = modifyTermEnv (const x)
 
 getExtraTypes :: REPL (Map T.QName T.Schema)
-getExtraTypes = fmap eExtraTypes getRW
+getExtraTypes = fmap eExtraTypes getCryptolEnv
 
 modifyExtraTypes :: (Map T.QName T.Schema -> Map T.QName T.Schema) -> REPL ()
-modifyExtraTypes f = modifyRW_ $ \rw -> rw { eExtraTypes = f (eExtraTypes rw) }
+modifyExtraTypes f = modifyCryptolEnv $ \ce -> ce { eExtraTypes = f (eExtraTypes ce) }
 
 setExtraTypes :: Map T.QName T.Schema -> REPL ()
 setExtraTypes x = modifyExtraTypes (const x)
 
 getExtraNames :: REPL NamingEnv
-getExtraNames = fmap eExtraNames getRW
+getExtraNames = fmap eExtraNames getCryptolEnv
 
 modifyExtraNames :: (NamingEnv -> NamingEnv) -> REPL ()
-modifyExtraNames f = modifyRW_ $ \rw -> rw { eExtraNames = f (eExtraNames rw) }
+modifyExtraNames f = modifyCryptolEnv $ \ce -> ce { eExtraNames = f (eExtraNames ce) }
 
 setExtraNames :: NamingEnv -> REPL ()
 setExtraNames x = modifyExtraNames (const x)
 
 getModuleEnv :: REPL M.ModuleEnv
-getModuleEnv  = eModuleEnv `fmap` getRW
+getModuleEnv  = eModuleEnv `fmap` getCryptolEnv
 
 setModuleEnv :: M.ModuleEnv -> REPL ()
-setModuleEnv me = modifyRW_ (\rw -> rw { eModuleEnv = me })
+setModuleEnv me = modifyCryptolEnv (\ce -> ce { eModuleEnv = me })
+
+getCryptolEnv :: REPL (CryptolEnv SAWCtx)
+getCryptolEnv = eCryptolEnv `fmap` getRW
+
+modifyCryptolEnv :: (CryptolEnv SAWCtx -> CryptolEnv SAWCtx) -> REPL ()
+modifyCryptolEnv f = modifyRW_ (\rw -> rw { eCryptolEnv = f (eCryptolEnv rw) })
+
+setCryptolEnv :: CryptolEnv SAWCtx -> REPL ()
+setCryptolEnv x = modifyCryptolEnv (const x)
 
 -- User Environment Interaction ------------------------------------------------
 
