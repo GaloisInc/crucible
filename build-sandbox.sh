@@ -80,7 +80,7 @@ if [ "${dotests}" == "true" ] ; then
 
     (cd ${pkg} &&
          cabal sandbox init --sandbox=${sandbox_dir} &&
-	 cabal install --enable-tests &&
+	 cabal install --enable-tests --only-dependencies &&
          cabal configure --enable-tests &&
          cabal build --only &&
 	 (cabal test --only ${test_flags} || true))
