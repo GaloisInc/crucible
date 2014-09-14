@@ -19,19 +19,14 @@ module SAWScript.Interpreter
 
 import Control.Applicative
 import Control.Monad ( foldM )
-import Data.Graph.SCC ( stronglyConnComp )
-import Data.Graph ( SCC(..) )
 import qualified Data.Map as Map
 import Data.Map ( Map )
 import Data.Maybe ( fromMaybe )
-import qualified Data.Set as S
-import Data.Set ( Set )
 import Data.Traversable hiding ( mapM )
 
 import qualified SAWScript.AST as SS
 import SAWScript.AST (Located(..))
 import SAWScript.Builtins hiding (evaluate)
-import SAWScript.CryptolBuiltins
 import qualified SAWScript.CryptolEnv as CEnv
 import SAWScript.JavaBuiltins
 import SAWScript.LLVMBuiltins
@@ -40,7 +35,7 @@ import SAWScript.Options
 import SAWScript.Proof
 import SAWScript.Utils
 import SAWScript.Value
-import Verifier.SAW.Prelude (preludeModule, preludeStringIdent)
+import Verifier.SAW.Prelude (preludeModule)
 import Verifier.SAW.Rewriter ( Simpset, emptySimpset )
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST hiding ( incVars )
@@ -227,33 +222,6 @@ interpretSCC sc env@(InterpretEnv vm tm ce) (x, expr) =
                            _ -> do putStrLn $ "Binding top-level value: " ++ show qname
                                    return ce
                return $ InterpretEnv vm' tm' ce'
-
-exprDeps :: Expression -> Set SS.ResolvedName
-exprDeps expr =
-    case expr of
-      SS.Bit _             _ -> S.empty
-      SS.Quote _           _ -> S.empty
-      SS.Z _               _ -> S.empty
-      SS.Undefined         _ -> S.empty
-      SS.Code _            _ -> S.empty  -- Is this right? Or should we look for occurrences of variables?
-      SS.Array es          _ -> S.unions (map exprDeps es)
-      SS.Block stmts       _ -> S.unions (map stmtDeps stmts)
-      SS.Tuple es          _ -> S.unions (map exprDeps es)
-      SS.Record bs         _ -> S.unions (map (exprDeps . snd) bs)
-      SS.Index e1 e2       _ -> S.union (exprDeps e1) (exprDeps e2)
-      SS.Lookup e _        _ -> exprDeps e
-      SS.TLookup e _       _ -> exprDeps e
-      SS.Var name          _ -> S.singleton (SS.getVal name)
-      SS.Function _ _ e    _ -> exprDeps e
-      SS.Application e1 e2 _ -> S.union (exprDeps e1) (exprDeps e2)
-      SS.LetBlock bs e       -> S.unions (exprDeps e : map (exprDeps . snd) bs)
-
-stmtDeps :: BlockStatement -> Set SS.ResolvedName
-stmtDeps stmt =
-    case stmt of
-      SS.Bind _ _ e        -> exprDeps e
-      SS.BlockTypeDecl _ _ -> S.empty
-      SS.BlockLet bs       -> S.unions (map (exprDeps . snd) bs)
 
 interpretModuleAtEntry :: SS.Name
                           -> SharedContext s
