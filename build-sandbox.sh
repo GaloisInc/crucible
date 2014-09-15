@@ -31,7 +31,6 @@ fi
 
 PWD=`pwd`
 PATH=${PWD}/${sandbox_dir}/bin:$PATH
-sandbox_dir=${PWD}/${sandbox_dir}
 
 cabal sandbox --sandbox=${sandbox_dir} init
 
@@ -80,7 +79,7 @@ if [ "${dotests}" == "true" ] ; then
     fi
 
     (cd ${pkg} &&
-         cabal sandbox init --sandbox=${sandbox_dir} &&
+         cabal sandbox init --sandbox="../SAWScript/${sandbox_dir}" &&
 	 cabal install --enable-tests --only-dependencies &&
          cabal configure --enable-tests &&
          cabal build --only &&
