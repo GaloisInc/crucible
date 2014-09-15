@@ -340,10 +340,10 @@ parseDimacsSolution vars ls = map lkup vars
     assgnMap = Map.fromList (map varToPair vs)
     lkup v = Map.findWithDefault False v assgnMap
 
-satExternalCNF :: SharedContext s -> String -> [String]
-               -> ProofScript s SV.SatResult
-satExternalCNF sc execName args = StateT $ \g -> withBE $ \be -> do
-  let cnfName = goalName g ++ ".cnf" 
+satExternal :: Bool -> SharedContext s -> String -> [String]
+            -> ProofScript s SV.SatResult
+satExternal doCNF sc execName args = StateT $ \g -> withBE $ \be -> do
+  let cnfName = goalName g ++ ".cnf"
       t = goalTerm g
       argNames = map fst (fst (asLambdaList t))
   checkBoolean sc t
@@ -353,7 +353,7 @@ satExternalCNF sc execName args = StateT $ \g -> withBE $ \be -> do
       replaceFileName "%f" = path
       replaceFileName a = a
   (shapes, l) <- BBSim.bitBlast be sc t
-  vars <- GIA.writeCNF be l path
+  vars <- (if doCNF then GIA.writeCNF else writeAIGWithMapping) be l path
   (_ec, out, err) <- readProcessWithExitCode execName args' ""
   removeFile path
   unless (null err) $
@@ -377,11 +377,17 @@ satExternalCNF sc execName args = StateT $ \g -> withBE $ \be -> do
       return (SV.Unsat, g { goalTerm = ft })
     _ -> fail $ "Unexpected result from SAT solver:\n" ++ out
 
+writeAIGWithMapping :: GIA.GIA s -> GIA.Lit s -> FilePath -> IO [Int]
+writeAIGWithMapping be l path = do
+  nins <- GIA.inputCount be
+  ABC.writeAiger path (ABC.Network be [l])
+  return [1..nins]
+
 unsatResult :: SharedContext s -> ProofGoal s
             -> IO (SV.SatResult, ProofGoal s)
 unsatResult sc g = do
   ft <- scApplyPreludeFalse sc
-  return (SV.Unsat, g { goalTerm = ft })  
+  return (SV.Unsat, g { goalTerm = ft })
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using SBV. (Currently ignores satisfying assignments.)
