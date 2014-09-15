@@ -1,13 +1,12 @@
 #!/bin/bash
 set -e
 
-PKGS="Verinf SAWCore Cryptol Java LLVM"
+PKGS="Verinf SAWCore Cryptol Java LLVM SAWScript"
 GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser"
 PROGRAMS="alex happy c2hs"
+TESTABLE="SAWCore Java LLVM"
 
 cabal_flags="--reinstall --force-reinstalls"
-#test_flags="--enable-tests --run-tests --disable-library-coverage"
-test_flags="--enable-tests --disable-library-coverage"
 dotests="false"
 dopull="false"
 sandbox_dir=build
@@ -15,7 +14,6 @@ sandbox_dir=build
 while getopts "tp" opt; do
   case $opt in
     t)
-      cabal_flags="${cabal_flags} ${test_flags}"
       dotests="true"
       sandbox_dir=build-tests
       ;;
@@ -33,6 +31,7 @@ fi
 
 PWD=`pwd`
 PATH=${PWD}/${sandbox_dir}/bin:$PATH
+sandbox_dir=${PWD}/${sandbox_dir}
 
 cabal sandbox --sandbox=${sandbox_dir} init
 
@@ -63,16 +62,40 @@ for repo in ${GITHUB_REPOS} ; do
   # Be sure abcBridge builds with pthreads diabled on Windows
   if [ "${OS}" == "Windows_NT" -a "${repo}" == "abcBridge" ]; then
     cabal install --force abcBridge ${cabal_flags} -f-enable-pthreads
-  elif [ "${dotests}" == "true" ] ; then
-    cabal install --force ${repo} ${cabal_flags}
   fi
 done
 
 for pkg in ${PKGS} ; do
   cabal sandbox add-source ../${pkg}
-  if [ "${dotests}" == "true" ] ; then
-    cabal install --force ../${pkg} ${cabal_flags}
-  fi
 done
 
-cabal install ${cabal_flags}
+if [ "${dotests}" == "true" ] ; then
+  cd ..
+
+  for pkg in ${TESTABLE}; do
+    test_flags="--test-option=--xml=../${pkg}-test-results.xml --test-option=--timeout=60s"
+
+    if [ ! "${QC_TESTS}" == "" ]; then
+        test_flags="${test_flags} --test-option=--quickcheck-tests=${QC_TESTS}"
+    fi
+
+    (cd ${pkg} &&
+         cabal sandbox init --sandbox=${sandbox_dir} &&
+	 cabal install --enable-tests --only-dependencies &&
+         cabal configure --enable-tests &&
+         cabal build --only &&
+	 (cabal test --only ${test_flags} || true))
+
+    if [ -e ${pkg}-test-results.xml ]; then
+      xsltproc jenkins-junit-munge.xsl ${pkg}-test-results.xml > jenkins-${pkg}-test-results.xml
+    else
+      echo "Missing test results: ${pkg}-test-results.xml"
+      exit 1
+    fi
+  done
+
+else
+
+  cabal install ${cabal_flags}
+
+fi
