@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-PKGS="Verinf SAWCore Cryptol Java LLVM SAWScript"
+PKGS="SAWCore Cryptol Java LLVM SAWScript"
 GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser"
 PROGRAMS="alex happy c2hs"
 TESTABLE="SAWCore Java LLVM"
@@ -39,7 +39,7 @@ for prog in ${PROGRAMS} ; do
 done
 
 if [ "${dotests}" == "true" ] ; then
-  for pkg in sawScript cryptol-verifier llvm-verifier jvm-verifier saw-core Verinf ; do
+  for pkg in sawScript cryptol-verifier llvm-verifier jvm-verifier saw-core ; do
     cabal sandbox hc-pkg unregister $pkg || true
   done
 fi
