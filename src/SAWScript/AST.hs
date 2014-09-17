@@ -171,7 +171,6 @@ type BlockStmtSimple = BlockStmt UnresolvedName
 
 data TopStmt refT typeT
   = Import      ModuleName (Maybe [Name])    (Maybe Name)   -- ^ import <module> [(<names>)] [as <name>]
-  | TypeDef     LName       RawSigT                         -- ^ type <name> = <type>
   | TopTypeDecl LName       RawSigT                         -- ^ <name> : <type>
   | AbsTypeDecl LName                                       -- ^ abstract <name>
   | TopBind     LName       (Expr refT typeT)               -- ^ <name> = <expr>

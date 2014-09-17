@@ -88,7 +88,6 @@ TopStmt :: { TopStmtSimple RawT }
  : 'import' Import                      { $2                 }
  | 'import' string                      { ImportCry $2                 }
  | name ':' PolyType                    { TopTypeDecl (toLName $1) $3  }
- | 'type' name '=' Type                 { TypeDef (toLName $2) $4      }
  | 'abstract' name                      { AbsTypeDecl (toLName $2)     }
  | 'prim' name ':' PolyType             { Prim (toLName $2) (Just $4)  }
  | Declaration                          { uncurry TopBind $1 }
