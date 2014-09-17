@@ -133,7 +133,6 @@ data Module refT exprT typeT = Module
   { moduleName         :: ModuleName
   , moduleExprEnv      :: [(LName, Expr refT exprT)]
   , modulePrimEnv      :: LEnv exprT
-  , moduleTypeEnv      :: LEnv typeT
   , moduleDependencies :: ModuleEnv ValidModule
   , moduleCryDeps      :: [FilePath]
   } deriving (Eq,Show)
