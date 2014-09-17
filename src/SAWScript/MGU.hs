@@ -272,7 +272,6 @@ instance AppSubst ty => AppSubst (A.BlockStmt names ty) where
     A.Bind Nothing       ctx e -> A.Bind Nothing (appSubst s ctx) (appSubst s e)
     A.Bind (Just (n, t)) ctx e -> A.Bind (Just (n, appSubst s t)) (appSubst s ctx) (appSubst s e)
     A.BlockLet bs       -> A.BlockLet (appSubstBinds s bs)
-    A.BlockTypeDecl x t -> A.BlockTypeDecl x (appSubst s t)
     A.BlockCode str     -> A.BlockCode str
 
 instance (Ord k, AppSubst a) => AppSubst (M.Map k a) where

@@ -213,7 +213,6 @@ data Expr refT typeT
 data BlockStmt refT typeT
  -- Bind          bind var         context   expr
   = Bind          (Maybe (LBind typeT))     typeT     (Expr refT typeT)
-  | BlockTypeDecl Name             typeT
   | BlockLet      [(LName,Expr refT typeT)]
   | BlockCode     (Located String)
   deriving (Eq,Show,Functor,Foldable,Traversable)

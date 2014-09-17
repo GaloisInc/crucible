@@ -103,7 +103,6 @@ Import :: { TopStmtSimple RawT }
 BlockStmt :: { BlockStmtSimple RawT }
  : Expression                           { Bind Nothing   Nothing $1   }
  | Arg '<-' Expression                  { Bind (Just $1) Nothing $3   }
--- | name ':' PolyType                    { BlockTypeDecl $1 (Just $3)                 }
  | 'let' sepBy1(Declaration, 'and')     { BlockLet $2                  }
  | 'let' Code                           { BlockCode $2                 }
 
