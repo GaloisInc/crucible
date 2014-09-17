@@ -41,6 +41,12 @@ $codechar  = [$graphic $whitechar]
              |prim|CryptolSetup|JavaSetup|LLVMSetup
              |ProofScript|TopLevel
              |Int|String|Term|Bit
+             |Simpset|Theorem
+             |JavaType|JavaMethodSpec|JavaClass
+             |LLVMType|LLVMMethodSpec|LLVMModule
+             |Uninterp
+             |ProofResult|SatResult
+
 @punct       = "," | ";" | "(" | ")" | ":" | "::" | "[" | "]" | "<-" | "->"
              | "=" | "{" | "}" | "." | "\"
 @reservedop  = "~"  | "-" | "*" | "+" | "/" | "%" | ">>" | "<<" | "|" | "&"

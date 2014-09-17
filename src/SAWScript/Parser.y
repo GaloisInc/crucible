@@ -55,6 +55,17 @@ import Control.Applicative
   'Int'          { TReserved _ "Int"            }
   'String'       { TReserved _ "String"         }
   'Term'         { TReserved _ "Term"           }
+  'Simpset'        { TReserved _ "Simpset"        }
+  'Theorem'        { TReserved _ "Theorem"        }
+  'JavaType'       { TReserved _ "JavaType"       }
+  'JavaMethodSpec' { TReserved _ "JavaMethodSpec" }
+  'JavaClass'      { TReserved _ "JavaClass"      }
+  'LLVMType'       { TReserved _ "LLVMType"       }
+  'LLVMMethodSpec' { TReserved _ "LLVMMethodSpec" }
+  'LLVMModule'     { TReserved _ "LLVMModule"     }
+  'Uninterp'       { TReserved _ "Uninterp"       }
+  'ProofResult'    { TReserved _ "ProofResult"    }
+  'SatResult'      { TReserved _ "SatResult"      }
   ';'            { TPunct    _ ";"              }
   '['            { TPunct    _ "["              }
   ']'            { TPunct    _ "]"              }
@@ -171,6 +182,17 @@ BaseType :: { RawSigT }
  | 'Int'                                { z                       }
  | 'String'                             { quote                   }
  | 'Term'                               { term                    }
+ | 'Simpset'                            { abstract "Simpset"      }
+ | 'Theorem'                            { abstract "Theorem"      }
+ | 'JavaType'                           { abstract "JavaType"     }
+ | 'JavaMethodSpec'                     { abstract "JavaMethodSpec" }
+ | 'JavaClass'                          { abstract "JavaClass"    }
+ | 'LLVMType'                           { abstract "LLVMType"     }
+ | 'LLVMMethodSpec'                     { abstract "LLVMMethodSpec" }
+ | 'LLVMModule'                         { abstract "LLVMModule"   }
+ | 'Uninterp'                           { abstract "Uninterp"     }
+ | 'ProofResult'                        { abstract "ProofResult"  }
+ | 'SatResult'                          { abstract "SatResult"    }
  | '(' Type ')'                         { $2                      }
  | '(' commas2(Type) ')'                { tuple $2                }
  | '[' Type ']'                         { array $2                }
