@@ -172,7 +172,6 @@ type BlockStmtSimple = BlockStmt UnresolvedName
 data TopStmt refT typeT
   = Import      ModuleName (Maybe [Name])    (Maybe Name)   -- ^ import <module> [(<names>)] [as <name>]
   | TopTypeDecl LName       RawSigT                         -- ^ <name> : <type>
-  | AbsTypeDecl LName                                       -- ^ abstract <name>
   | TopBind     LName       (Expr refT typeT)               -- ^ <name> = <expr>
   | Prim        LName       RawT                            -- ^ prim <name> : <type>
   | ImportCry   FilePath                                    -- ^ import "filepath.cry"
