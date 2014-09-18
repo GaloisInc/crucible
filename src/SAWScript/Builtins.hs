@@ -80,11 +80,6 @@ data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
                                      , biJavaCodebase  :: JSS.Codebase
                                      }
 
--- bitSequence :: {n} Integer -> [n]
-bitSequence :: SS.Type -> Integer -> Prim.BitVector
-bitSequence (SS.TyCon (SS.NumCon w) []) x = Prim.BV (fromInteger w) x
-bitSequence t x = error $ "bitSequence " ++ show (t, x)
-
 --topReturn :: (a :: sort 0) -> a -> TopLevel a;
 topReturn :: () -> Value -> SC s Value
 topReturn _ = return
