@@ -35,7 +35,7 @@ preludeLoadedModules = do
     Right m  -> return $ ms { modules = Map.insert mn m (modules ms) }
   where
     ms = emptyLoadedModules
-    mn = moduleNameFromPath preludePath
+    mn = moduleNameFromString "Prelude"
 
 loadWithPrelude :: Options -> FilePath -> (LoadedModules -> IO ()) -> IO ()
 loadWithPrelude opts fname k = do
