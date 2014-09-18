@@ -103,7 +103,6 @@ TopStmt :: { TopStmtSimple RawT }
 
 Import :: { TopStmtSimple RawT }
  : name                                    { Import (mkModuleName ([], tokStr $1)) Nothing Nothing }
--- | qname                                   { Import (mkModuleName $1) Nothing Nothing      }
  -- | name '(' commas(name) ')'            { Import $1 (Just $3) Nothing     }
  -- | name 'as' name                       { Import $1 Nothing (Just $3)     }
  -- | name '(' commas(name) ')' 'as' name  { Import $1 (Just $3) (Just $6)   }
@@ -140,7 +139,6 @@ AExpr :: { ExprSimple RawT }
  | string                               { Quote $1 Nothing                }
  | Code                                 { Code $1 Nothing                 }
  | num                                  { Z $1 Nothing                    }
- -- | qname                                { Var (unresolvedQ $1) Nothing    }
  | name                                 { Var (Located (unresolved (tokStr $1)) (tokStr $1) (tokPos $1)) Nothing     }
  | 'undefined'                          { Undefined Nothing               }
  | '(' Expression ')'                   { $2                              }
@@ -275,10 +273,7 @@ instance Show ParseError where
         where Pos _ ln col = tokPos t
 
 unresolved :: Name -> UnresolvedName
-unresolved = UnresolvedName []
-
-unresolvedQ :: ([Name],Name) -> UnresolvedName
-unresolvedQ (ns,n) = UnresolvedName ns n
+unresolved = UnresolvedName
 
 parseError :: [Token Pos] -> Either ParseError b
 parseError toks = case toks of
@@ -316,6 +311,6 @@ mkModuleName :: ([String],String) -> ModuleName
 mkModuleName = uncurry ModuleName
 
 local :: String -> UnresolvedName
-local = UnresolvedName []
+local = UnresolvedName
 
 }

@@ -101,17 +101,6 @@ lexSAW f = dropComments . map (fmap fixPos) . alexScanTokens
 readCode :: String -> String
 readCode = reverse . drop 2 . reverse . drop 2
 
-readQVar :: String -> ([String],String)
-readQVar s = case spanAll (== '.') s of
-    [] -> error "Attempt to read empty string as QVar"
-    ns -> (init ns,last ns)
-  where
-  spanAll p s = case s of
-    "" -> []
-    _  -> let (v,rest) = span1 p s in
-            v : spanAll p rest
-  span1 p = second (drop 1) . break p
-
 readBin :: String -> Integer
 readBin s = case readInt 2 isDigit cvt s' of
               [(a, "")] -> a

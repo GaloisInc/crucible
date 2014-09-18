@@ -39,7 +39,7 @@ data ModuleName = ModuleName [Name] Name deriving (Eq,Ord,Show)
 
 -- some name, qualified with some dot separated names.
 --  compiler doesn't know what those names are yet.
-data UnresolvedName = UnresolvedName [Name] Name
+newtype UnresolvedName = UnresolvedName Name
   deriving (Eq,Ord,Show)
 
 -- a name that has been resolved to a particular module.
@@ -83,7 +83,7 @@ moduleNameFilePath :: ModuleName -> String
 moduleNameFilePath (ModuleName ns n) = renderSlashSepName $ ns ++ [n]
 
 renderUnresolvedName :: UnresolvedName -> String
-renderUnresolvedName (UnresolvedName ns n) = renderDotSepName $ ns ++ [n]
+renderUnresolvedName (UnresolvedName n) = n
 
 renderResolvedName :: ResolvedName -> String
 renderResolvedName rn = case rn of
