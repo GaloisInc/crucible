@@ -4,7 +4,8 @@
 
 module SAWScript.AST where
 
-import SAWScript.Unify hiding (pretty)
+import SAWScript.Unify.Fix hiding (pretty)
+
 import SAWScript.Token
 import SAWScript.Utils
 
@@ -24,7 +25,6 @@ type RawT      = Maybe RawSigT
 type RawSigT   = Mu (Syn :+: BaseT)
 type ResolvedT = Maybe FullT
 type FullT     = Mu BaseT
-type TCheckT   = Mu (Logic :+: BaseT)
 
 type BaseT = ContextF :+: TypeF
 
@@ -450,26 +450,6 @@ instance Render ContextF where
 
 instance Render Syn where
   render (Syn n) = "(Syn " ++ show n ++ ")"
-
--- }}}
-
--- Uni Instances {{{
-
-instance Uni TypeF where
-  uni t1 t2 = case (t1,t2) of
-    (ArrayF at1,ArrayF at2)                   -> unify at1 at2
-    (BlockF c1 bt1,BlockF c2 bt2)             -> unify c1 c2 >> unify bt1 bt2
-    (TupleF ts1,TupleF ts2)                   -> zipWithMP_ unify ts1 ts2
-    (RecordF fts1,RecordF fts2)               -> do conj [ disj [ unify x y | (nx,x) <- fts1, nx == ny ] | (ny,y) <- fts2 ]
-                                                    conj [ disj [ unify y x | (ny,y) <- fts2, nx == ny ] | (nx,x) <- fts1 ]
-    (FunctionF at1 bt1,FunctionF at2 bt2)     -> unify at1 at2 >> unify bt1 bt2
-    (PVar n1, PVar n2)                        -> fail ("Poly: " ++ show n1 ++ " =/= " ++ show n2)
-    -- TODO: Alpha renaming? no, variable substitution.
-    -- (PAbs ns1 ty1, PAbs ns2 ty2)              -> undefined ns1 ty1 ns2 ty2
-    _                                         -> fail ("Type Mismatch: " ++ render t1 ++ " could not be unified with " ++ render t2)
-
-instance Uni ContextF where
-  uni c1 c2 = fail $ "Context: " ++ render c1 ++ " =/= " ++ render c2
 
 -- }}}
 
