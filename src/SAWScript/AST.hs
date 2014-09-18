@@ -15,7 +15,7 @@ import Control.Arrow
 
 import Data.Foldable (Foldable)
 import Data.Traversable (Traversable)
-import System.FilePath (joinPath,splitPath,dropExtension)
+import System.FilePath (dropExtension)
 import qualified Text.PrettyPrint.Leijen as PP
 
 -- Intermediate Types {{{
@@ -35,7 +35,7 @@ type BaseT = I :+: ContextF :+: TypeF
 type Name = String
 -- dot separated names designating module heirarchy,
 --  and single name designating module name.
-data ModuleName = ModuleName [Name] Name deriving (Eq,Ord,Show)
+newtype ModuleName = ModuleName Name deriving (Eq,Ord,Show)
 
 -- some name, qualified with some dot separated names.
 --  compiler doesn't know what those names are yet.
@@ -51,44 +51,27 @@ data ResolvedName
   deriving (Eq,Ord,Show)
 
 moduleNameFromString :: String -> ModuleName
-moduleNameFromString nm = case ns of
-  [] -> error "ModuleName cannot be made from empty string"
-  _  -> ModuleName (init ns) (last ns)
-  where
-  ns = breakAll (== '.') nm
+moduleNameFromString nm = ModuleName nm
 
 moduleNameFromPath :: FilePath -> ModuleName
-moduleNameFromPath fp = case ns of
-  [] -> error "ModuleName cannot be made from empty string"
-  -- _  -> ModuleName (init ns) (last ns)
-  _  -> ModuleName [] (last ns)
-  where
-  ns = splitPath $ dropExtension fp
-
-breakAll :: (Char -> Bool) -> String -> [String]
-breakAll _ [] = []
-breakAll pr s  = let (ss,rest) = break pr s in
-  ss : breakAll pr (drop 1 rest)
+moduleNameFromPath fp = ModuleName (dropExtension fp)
 
 renderDotSepName :: [Name] -> String
 renderDotSepName = intercalate "."
 
-renderSlashSepName :: [Name] -> String
-renderSlashSepName = joinPath
-
 renderModuleName :: ModuleName -> String
-renderModuleName (ModuleName ns n) = renderDotSepName $ ns ++ [n]
+renderModuleName (ModuleName n) = n
 
 moduleNameFilePath :: ModuleName -> String
-moduleNameFilePath (ModuleName ns n) = renderSlashSepName $ ns ++ [n]
+moduleNameFilePath (ModuleName n) = n
 
 renderUnresolvedName :: UnresolvedName -> String
 renderUnresolvedName (UnresolvedName n) = n
 
 renderResolvedName :: ResolvedName -> String
 renderResolvedName rn = case rn of
-  TopLevelName (ModuleName ns mn) n -> renderDotSepName $ (ns ++ [mn,n])
-  LocalName n                       -> show n
+  TopLevelName (ModuleName mn) n -> renderDotSepName $ [mn,n]
+  LocalName n                    -> show n
 
 type Bind a = (Name,a)
 type LBind a = (LName, a)

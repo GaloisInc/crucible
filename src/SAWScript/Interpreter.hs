@@ -255,7 +255,7 @@ interpretEntry entryName opts m =
 buildInterpretEnv :: Options -> SS.ValidModule
                   -> IO (BuiltinContext, InterpretEnv SAWCtx)
 buildInterpretEnv opts m =
-    do let mn = case SS.moduleName m of SS.ModuleName xs x -> mkModuleName (xs ++ [x])
+    do let mn = case SS.moduleName m of SS.ModuleName x -> mkModuleName [x]
        let scm = insImport preludeModule $
                  insImport JavaSAW.javaModule $
                  insImport LLVMSAW.llvmModule $
@@ -403,4 +403,4 @@ valueEnv opts bic = Map.fromList
   ] where sc = biSharedContext bic
 
 qualify :: String -> Located SS.ResolvedName
-qualify s = Located (SS.TopLevelName (SS.ModuleName [] "Prelude") s) s (PosInternal "coreEnv")
+qualify s = Located (SS.TopLevelName (SS.ModuleName "Prelude") s) s (PosInternal "coreEnv")

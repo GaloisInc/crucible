@@ -102,7 +102,7 @@ TopStmt :: { TopStmtSimple RawT }
  | Declaration                          { uncurry TopBind $1 }
 
 Import :: { TopStmtSimple RawT }
- : name                                    { Import (mkModuleName ([], tokStr $1)) Nothing Nothing }
+ : name                                    { Import (mkModuleName (tokStr $1)) Nothing Nothing }
  -- | name '(' commas(name) ')'            { Import $1 (Just $3) Nothing     }
  -- | name 'as' name                       { Import $1 Nothing (Just $3)     }
  -- | name '(' commas(name) ')' 'as' name  { Import $1 (Just $3) (Just $6)   }
@@ -307,8 +307,8 @@ buildType :: [RawSigT] -> RawSigT
 buildType [t]    = t
 buildType (t:ts) = function t (buildType ts)
 
-mkModuleName :: ([String],String) -> ModuleName
-mkModuleName = uncurry ModuleName
+mkModuleName :: String -> ModuleName
+mkModuleName = ModuleName
 
 local :: String -> UnresolvedName
 local = UnresolvedName
