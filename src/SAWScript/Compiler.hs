@@ -33,7 +33,8 @@ indent :: Int -> String -> String
 indent n = unlines . map (replicate n ' ' ++) . lines
 
 reportError :: (MonadIO io) => String -> io ()
-reportError = liftIO . putStrLn . ("Error\n" ++) . indent 2
+reportError = fail . ("Error\n" ++) . indent 2
+--reportError = liftIO . putStrLn . ("Error\n" ++) . indent 2
 
 type Compiler a b = a -> Err b
 
