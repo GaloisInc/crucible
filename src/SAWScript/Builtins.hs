@@ -405,19 +405,22 @@ satSBV conf sc = StateT $ \g -> do
   --putStrLn "Simulating..."
   (labels, lit) <- SBVSim.sbvSolve sc t'
   --putStrLn "Checking..."
-  m <- satWith conf lit
+  SBV.SatResult r <- satWith conf lit
   -- print m
-  if modelExists m
-    then do
+  case r of
+    SBV.Satisfiable {} -> do
       -- putStrLn "SAT"
       tt <- scApplyPreludeTrue sc
-      return (getLabels labels m (SBV.getModelDictionary m) argNames, g {goalTerm = tt})
-    else do
+      return (getLabels labels r (SBV.getModelDictionary r) argNames, g {goalTerm = tt})
+    SBV.Unsatisfiable {} -> do
       -- putStrLn "UNSAT"
       ft <- scApplyPreludeFalse sc
       return (SV.Unsat, g { goalTerm = ft })
+    SBV.Unknown {} -> fail "Prover returned Unknown"
+    SBV.ProofError _ ls -> fail . unlines $ "Prover returned error: " : ls
+    SBV.TimeOut {} -> fail "Prover timed out"
 
-getLabels :: [SBVSim.Labeler] -> SBV.SatResult -> Map.Map String CW -> [String] -> SV.SatResult
+getLabels :: [SBVSim.Labeler] -> SBV.SMTResult -> Map.Map String CW -> [String] -> SV.SatResult
 getLabels ls m d argNames =
   case fmap getLabel ls of
     [x] -> SV.Sat x
