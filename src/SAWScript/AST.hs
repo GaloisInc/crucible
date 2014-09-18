@@ -112,10 +112,10 @@ unionsLEnv = Map.unions
 
 -- Module Level {{{
 
-data Module refT exprT typeT = Module
+data Module refT typeT = Module
   { moduleName         :: ModuleName
-  , moduleExprEnv      :: [(LName, Expr refT exprT)]
-  , modulePrimEnv      :: LEnv exprT
+  , moduleExprEnv      :: [(LName, Expr refT typeT)]
+  , modulePrimEnv      :: LEnv typeT
   , moduleDependencies :: ModuleEnv ValidModule
   , moduleCryDeps      :: [FilePath]
   } deriving (Eq,Show)
@@ -123,7 +123,7 @@ data Module refT exprT typeT = Module
 -- A fully type checked module.
 --  Exprs have resolved names, concrete types
 --  Types have ResolvedT (Nothing for abstract types, Just FullT for type synonyms)
-type ValidModule = Module ResolvedName Schema ResolvedT
+type ValidModule = Module ResolvedName Schema
 
 -- }}}
 
@@ -333,7 +333,7 @@ instance PrettyPrint Context where
 instance PrettyPrint ModuleName where
   pretty _ mn = PP.text (renderModuleName mn)
 
-instance PrettyPrint (Module refT exprT typeT) where
+instance PrettyPrint (Module refT typeT) where
   pretty par m = pretty par (moduleName m)
 
 replicateDoc :: Integer -> PP.Doc -> PP.Doc

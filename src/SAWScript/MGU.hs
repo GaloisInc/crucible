@@ -576,8 +576,8 @@ checkKind = return
 -- Main interface {{{
 
 checkModule :: -- [(A.ResolvedName,Schema)] ->
-               Compiler (A.Module A.ResolvedName A.ResolvedT A.ResolvedT)
-                        (A.Module A.ResolvedName Schema      A.ResolvedT)
+               Compiler (A.Module A.ResolvedName A.ResolvedT)
+                        (A.Module A.ResolvedName Schema     )
 checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
   let modName = A.moduleName m
   let eEnv    = A.moduleExprEnv m

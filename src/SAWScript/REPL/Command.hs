@@ -644,19 +644,19 @@ sawScriptCmd str = do
   a trivial module. -}
   modsInScope :: Map SS.ModuleName SS.ValidModule
               <- getModulesInScope
-  let astModule :: SS.Module SS.UnresolvedName SS.RawT SS.RawT
+  let astModule :: SS.Module SS.UnresolvedName SS.RawT
       astModule = wrapBStmt modsInScope "it" withoutBinding
   {- Resolve type synonyms, abstract types, etc.  They're not supported by the
   REPL, so there never are any. -}
-  synsResolved :: SS.Module SS.UnresolvedName SS.ResolvedT SS.ResolvedT
+  synsResolved :: SS.Module SS.UnresolvedName SS.ResolvedT
                <- err $ SAWScript.ResolveSyns.resolveSyns astModule
   -- Add the types of previously evaluated and named expressions.
   synsResolved' <- injectBoundExpressionTypes synsResolved
   -- Rename references.
-  renamed :: SS.Module SS.ResolvedName SS.ResolvedT SS.ResolvedT
+  renamed :: SS.Module SS.ResolvedName SS.ResolvedT
           <- err $ SAWScript.RenameRefs.renameRefs synsResolved'
   -- Infer and check types.
-  typechecked :: SS.Module SS.ResolvedName SS.Schema SS.ResolvedT
+  typechecked :: SS.Module SS.ResolvedName SS.Schema
               <- err $ SAWScript.MGU.checkModule renamed
   -- Interpret the statement.
   sc <- getSharedContext
@@ -670,8 +670,8 @@ sawScriptCmd str = do
     _                              -> return ()
 
 
-injectBoundExpressionTypes :: SS.Module SS.UnresolvedName SS.ResolvedT SS.ResolvedT
-                              -> REPL (SS.Module SS.UnresolvedName SS.ResolvedT SS.ResolvedT)
+injectBoundExpressionTypes :: SS.Module SS.UnresolvedName SS.ResolvedT
+                              -> REPL (SS.Module SS.UnresolvedName SS.ResolvedT)
 injectBoundExpressionTypes orig = do
   boundNames <- getNamesInScope
   boundNamesAndTypes :: Map SS.LName SS.ResolvedT
