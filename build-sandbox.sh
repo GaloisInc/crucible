@@ -6,7 +6,17 @@ GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser
 PROGRAMS="alex happy c2hs"
 TESTABLE="SAWCore Java LLVM"
 
-cabal_flags="--reinstall --force-reinstalls"
+cabal_flags="--force-reinstalls"
+cabal_conf_flags=""
+
+# we have to disable library stripping on recent cabal-install versions
+# to work around a bug (?) in the 32bit binutils on our install of CentOS5
+if [[ ("${label}" == "saw-centos5-32") && ("${HASKELL_RUNTIME}" == "GHC783") ]]; then
+  cabal_conf_flags="--disable-library-stripping"
+fi
+
+cabal_flags="${cabal_flags} ${cabal_conf_flags}"
+
 dotests="false"
 dopull="false"
 sandbox_dir=build
@@ -41,9 +51,9 @@ cabal sandbox --sandbox=${sandbox_dir} init
 # always build them if the '-f' option was given
 for prog in ${PROGRAMS} ; do
   if [ ${force_utils} == "true" ]; then
-    cabal install $prog
+    cabal install ${cabal_flags} $prog
   else
-    (which $prog && $prog --version) || cabal install $prog
+    (which $prog && $prog --version) || cabal install ${cabal_flags} $prog
   fi
 done
 
@@ -89,8 +99,8 @@ if [ "${dotests}" == "true" ] ; then
 
     (cd ${pkg} &&
          cabal sandbox init --sandbox="../SAWScript/${sandbox_dir}" &&
-         cabal install --enable-tests --force-reinstalls --only-dependencies &&
-         cabal configure --enable-tests &&
+         cabal install ${cabal_flags} --enable-tests --only-dependencies &&
+         cabal configure --enable-tests ${cabal_conf_flags} &&
          cabal build --only &&
          (cabal test --only ${test_flags} || true))
 
@@ -104,6 +114,6 @@ if [ "${dotests}" == "true" ] ; then
 
 else
 
-  cabal install ${cabal_flags}
+  cabal install --reinstall ${cabal_flags}
 
 fi
