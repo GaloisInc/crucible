@@ -8,12 +8,6 @@ TESTABLE="SAWCore Java LLVM"
 
 cabal_flags="--force-reinstalls"
 
-# we have to disable library stripping on recent cabal-install versions
-# to work around a bug (?) in the 32bit binutils on our install of CentOS5
-if [[ ("${label}" == "saw-centos5-32") && ("${HASKELL_RUNTIME}" == "GHC783") ]]; then
-  echo "library-stripping: False" > cabal.config
-fi
-
 dotests="false"
 dopull="false"
 sandbox_dir=build
@@ -43,6 +37,15 @@ PWD=`pwd`
 PATH=${PWD}/${sandbox_dir}/bin:$PATH
 
 cabal sandbox --sandbox=${sandbox_dir} init
+
+# we have to disable library stripping on recent cabal-install versions
+# to work around a bug (?) in the 32bit binutils on our install of CentOS5
+if [[ ("${label}" == "saw-centos5-32") && ("${HASKELL_RUNTIME}" == "GHC783") ]]; then
+  # make sure the cabal _library_ we have installed understands the option we need
+  cabal install "Cabal >= 1.20"
+  echo "library-stripping: False" > cabal.config
+fi
+
 
 # use cabal to install the build-time depencencies we need
 # always build them if the '-f' option was given
