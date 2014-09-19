@@ -93,7 +93,6 @@ import qualified SAWScript.AST as SS
      BlockStmt(Bind),
      Name, LName, Located(..),
      ResolvedName(..),
-     RawT, ResolvedT,
      Context(..), Schema(..), Type(..), TyCon(..),
      tMono, tBlock, tContext,
      updateAnnotation)
@@ -620,10 +619,10 @@ sawScriptCmd str = do
   tokens <- err $ SAWScript.Lexer.scan replFileName str
   ast <- err $ liftParser SAWScript.Parser.parseBlockStmt tokens
   -- Set the context (i.e., the monad) for the statement (point 1 above).
-  let ast' :: SS.BlockStmt SS.RawT
+  let ast' :: SS.BlockStmt
       ast' = case ast of
-        SS.Bind maybeVar _ctx expr -> SS.Bind maybeVar ctx' expr
-            where ctx' = Just (SS.tMono (SS.tContext SS.TopLevel))
+        SS.Bind maybeVar mt _ctx expr -> SS.Bind maybeVar mt ctx' expr
+            where ctx' = Just (SS.tContext SS.TopLevel)
         stmt -> stmt
   {- Remember, we're trying to present the illusion that you're working
   inside an ever-expanding 'do' block.  In actuality, though, only on
@@ -633,26 +632,26 @@ sawScriptCmd str = do
   'foo' and evaluate 'bar'.  (We'll bind it manually to 'foo' later.) -}
   let mapSchema f (SS.Forall xs t) = SS.Forall xs (f t)
   let boundName :: Maybe SS.Name
-      withoutBinding :: SS.BlockStmt SS.RawT
+      withoutBinding :: SS.BlockStmt
       (boundName, withoutBinding) =
         case ast' of
-          SS.Bind (Just (SS.getVal -> varName, ty)) ctx expr
-            -> let ty' = fmap (mapSchema (SS.tBlock (SS.tContext SS.TopLevel))) ty
-               in (Just varName, SS.Bind Nothing ctx (SS.updateAnnotation ty' expr))
+          SS.Bind (Just (SS.getVal -> varName)) (Just ty) ctx expr
+            -> let ty' = SS.tMono (SS.tBlock (SS.tContext SS.TopLevel) ty)
+               in (Just varName, SS.Bind Nothing (Just ty) ctx (SS.updateAnnotation ty' expr))
           _ -> (Nothing, ast')
   {- The compiler pipeline is targeted at modules, so wrap up the statement in
   a trivial module. -}
   modsInScope :: Map SS.ModuleName SS.ValidModule
               <- getModulesInScope
-  let astModule :: SS.Module SS.RawT
+  let astModule :: SS.Module
       astModule = wrapBStmt modsInScope "it" withoutBinding
   -- Add the types of previously evaluated and named expressions.
   astModule' <- injectBoundExpressionTypes astModule
   -- Rename references.
-  renamed :: SS.Module SS.ResolvedT
+  renamed :: SS.Module
           <- err $ SAWScript.RenameRefs.renameRefs astModule'
   -- Infer and check types.
-  typechecked :: SS.Module SS.Schema
+  typechecked :: SS.Module
               <- err $ SAWScript.MGU.checkModule renamed
   -- Interpret the statement.
   sc <- getSharedContext
@@ -666,18 +665,16 @@ sawScriptCmd str = do
     _                              -> return ()
 
 
-injectBoundExpressionTypes :: SS.Module SS.ResolvedT
-                              -> REPL (SS.Module SS.ResolvedT)
+injectBoundExpressionTypes :: SS.Module -> REPL SS.Module
 injectBoundExpressionTypes orig = do
   boundNames <- getNamesInScope
-  boundNamesAndTypes :: Map SS.LName SS.ResolvedT
+  boundNamesAndTypes :: Map SS.LName SS.Schema
                      <-
     getEnvironment <&>
     ieTypes <&>
     Map.filterWithKey (\name _type ->
                         Set.member (SS.getVal $ stripModuleName name) boundNames) <&>
-    Map.mapKeysMonotonic stripModuleName <&>
-    fmap Just
+    Map.mapKeysMonotonic stripModuleName
   -- Inject the types.
   return $ orig { SS.modulePrimEnv =
                     Map.union boundNamesAndTypes (SS.modulePrimEnv orig) }
