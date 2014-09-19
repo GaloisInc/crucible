@@ -16,7 +16,7 @@ import Data.List
 import SAWScript.Token
 import SAWScript.Lexer
 import SAWScript.AST
-import SAWScript.Unify
+import SAWScript.Unify.Fix
 import SAWScript.Utils
 
 import qualified Text.Show.Pretty as PP

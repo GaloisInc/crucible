@@ -7,7 +7,7 @@
 module SAWScript.MGU where
 
 import qualified SAWScript.AST as A
-import SAWScript.AST hiding (Expr(..), BlockStmt(..), Name, i)
+import SAWScript.AST hiding (Expr(..), BlockStmt(..), Name)
 import SAWScript.NewAST
 import SAWScript.Compiler
 

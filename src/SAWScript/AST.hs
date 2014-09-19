@@ -4,7 +4,8 @@
 
 module SAWScript.AST where
 
-import SAWScript.Unify hiding (pretty)
+import SAWScript.Unify.Fix hiding (pretty)
+
 import SAWScript.Token
 import SAWScript.Utils
 
@@ -24,9 +25,8 @@ type RawT      = Maybe RawSigT
 type RawSigT   = Mu (Syn :+: BaseT)
 type ResolvedT = Maybe FullT
 type FullT     = Mu BaseT
-type TCheckT   = Mu (Logic :+: BaseT)
 
-type BaseT = I :+: ContextF :+: TypeF
+type BaseT = ContextF :+: TypeF
 
 -- }}}
 
@@ -240,8 +240,6 @@ data Context
   | TopLevel
   deriving (Eq,Show)
 
-data I a = I Integer deriving (Show,Functor,Foldable,Traversable)
-
 data Type
   = TyCon TyCon [Type]
   | TyRecord (Map Name Type)
@@ -261,7 +259,6 @@ data TyCon
  | TermCon
  | BoolCon
  | ZCon
- | NumCon Integer
  | BlockCon
  | ContextCon Context
  | AbstractCon String
@@ -317,7 +314,6 @@ instance PrettyPrint TyCon where
     TermCon        -> PP.text "Term"
     BoolCon        -> PP.text "Bit"
     ZCon           -> PP.text "Int"
-    NumCon n       -> PP.integer n
     BlockCon       -> PP.text "<Block>"
     ContextCon cxt -> pretty par cxt
     AbstractCon n  -> PP.text n
@@ -383,9 +379,6 @@ tBool = TyCon BoolCon []
 tZ :: Type
 tZ = TyCon ZCon []
 
-tNum :: Integral a => a -> Type
-tNum n = TyCon (NumCon $ toInteger n) []
-
 tBlock :: Type -> Type -> Type
 tBlock c t = TyCon BlockCon [c,t]
 
@@ -416,9 +409,6 @@ instance Equal TypeF where
     (PVar n1,PVar n2)                     -> n1 == n2
     (PAbs ns1 t1,PAbs ns2 t2)             -> ns1 == ns2 && t1 == t2
     _                                     -> False
-
-instance Equal I where
-  equal (I x) (I y) = x == y
 
 instance Equal ContextF where
   equal c1 c2 = case (c1,c2) of
@@ -451,9 +441,6 @@ instance Render TypeF where
     PVar n          -> "(PVar " ++ show n ++ ")"
     PAbs ns t       -> "(PAbs " ++ show ns ++ " " ++ show t ++ ")"
 
-instance Render I where
-  render (I x) = "(I " ++ show x ++ ")"
-
 instance Render ContextF where
   render CryptolSetupContext = "CryptolSetupContext"
   render JavaSetupContext    = "JavaSetupContext"
@@ -463,29 +450,6 @@ instance Render ContextF where
 
 instance Render Syn where
   render (Syn n) = "(Syn " ++ show n ++ ")"
-
--- }}}
-
--- Uni Instances {{{
-
-instance Uni TypeF where
-  uni t1 t2 = case (t1,t2) of
-    (ArrayF at1,ArrayF at2)                   -> unify at1 at2
-    (BlockF c1 bt1,BlockF c2 bt2)             -> unify c1 c2 >> unify bt1 bt2
-    (TupleF ts1,TupleF ts2)                   -> zipWithMP_ unify ts1 ts2
-    (RecordF fts1,RecordF fts2)               -> do conj [ disj [ unify x y | (nx,x) <- fts1, nx == ny ] | (ny,y) <- fts2 ]
-                                                    conj [ disj [ unify y x | (ny,y) <- fts2, nx == ny ] | (nx,x) <- fts1 ]
-    (FunctionF at1 bt1,FunctionF at2 bt2)     -> unify at1 at2 >> unify bt1 bt2
-    (PVar n1, PVar n2)                        -> fail ("Poly: " ++ show n1 ++ " =/= " ++ show n2)
-    -- TODO: Alpha renaming? no, variable substitution.
-    -- (PAbs ns1 ty1, PAbs ns2 ty2)              -> undefined ns1 ty1 ns2 ty2
-    _                                         -> fail ("Type Mismatch: " ++ render t1 ++ " could not be unified with " ++ render t2)
-
-instance Uni I where
-  uni (I x) (I y) = fail $ "I: " ++ show x ++ " =/= " ++ show y
-
-instance Uni ContextF where
-  uni c1 c2 = fail $ "Context: " ++ render c1 ++ " =/= " ++ render c2
 
 -- }}}
 
@@ -503,7 +467,7 @@ term = inject TermF
 z :: (TypeF :<: f) => Mu f
 z = inject ZF
 
-array :: (I :<: f, TypeF :<: f) => Mu f -> Mu f
+array :: (TypeF :<: f) => Mu f -> Mu f
 array t = inject $ ArrayF t
 
 block :: (ContextF :<: f, TypeF :<: f) => Mu f -> Mu f -> Mu f
@@ -538,9 +502,6 @@ topLevelContext = inject TopLevelContext
 
 syn :: (Syn :<: f) => LName -> Mu f
 syn n = inject $ Syn n
-
-i :: (I :<: f) => Integer -> Mu f
-i x = inject $ I x
 
 pVar :: (TypeF :<: f) => Name -> Mu f
 pVar n = inject $ PVar n
@@ -620,7 +581,6 @@ rewindType (TyCon BoolCon parameters) = rewindNullary "BoolCon" bit parameters
 rewindType (TyCon ZCon parameters) = rewindNullary "ZCon" z parameters
 rewindType (TyCon StringCon parameters)= rewindNullary "StringCon" quote parameters
 rewindType (TyCon TermCon parameters)= rewindNullary "TermCon" quote parameters
-rewindType (TyCon (NumCon n) parameters) = rewindNullary "NumCon" (i n) parameters
 rewindType (TyCon (AbstractCon n) parameters) = rewindNullary "AbstractCon" (abstract n) parameters
 rewindType (TyCon (ContextCon ctx) parameters) = rewindNullary "context" (rewindContext ctx) parameters
 rewindType (TyCon ArrayCon parameters) = rewindUnary "ArrayCon" array parameters
@@ -690,9 +650,6 @@ instance CapturePVars Syn where
   capturePVarsF ns (Syn n) = if getVal n `elem` ns
     then pVar (getVal n)
     else syn n
-
-instance CapturePVars I where
-  capturePVarsF _ = inject
 
 instance CapturePVars ContextF where
   capturePVarsF _ = inject
