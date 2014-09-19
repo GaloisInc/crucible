@@ -94,9 +94,8 @@ import qualified SAWScript.AST as SS
      Name, LName, Located(..), UnresolvedName,
      ResolvedName(..),
      RawT, ResolvedT,
-     Context(..), Schema(..), Type(..), TyCon(..), rewindSchema,
-     block,
-     topLevelContext,
+     Context(..), Schema(..), Type(..), TyCon(..),
+     tMono, tBlock, tContext,
      updateAnnotation)
 import qualified SAWScript.CryptolEnv as CEnv
 import SAWScript.Compiler (liftParser)
@@ -108,7 +107,6 @@ import qualified SAWScript.Lexer (scan)
 import qualified SAWScript.MGU (checkModule)
 import qualified SAWScript.Parser (parseBlockStmt)
 import qualified SAWScript.RenameRefs (renameRefs)
-import qualified SAWScript.ResolveSyns (resolveSyns)
 import qualified SAWScript.Value (Value(VTerm, VInteger), evaluate)
 import SAWScript.Value (TypedTerm(..))
 import SAWScript.REPL.GenerateModule (replFileName, replModuleName, wrapBStmt)
@@ -624,7 +622,8 @@ sawScriptCmd str = do
   -- Set the context (i.e., the monad) for the statement (point 1 above).
   let ast' :: SS.BlockStmt SS.UnresolvedName SS.RawT
       ast' = case ast of
-        SS.Bind maybeVar _ctx expr -> SS.Bind maybeVar (Just SS.topLevelContext) expr
+        SS.Bind maybeVar _ctx expr -> SS.Bind maybeVar ctx' expr
+            where ctx' = Just (SS.tMono (SS.tContext SS.TopLevel))
         stmt -> stmt
   {- Remember, we're trying to present the illusion that you're working
   inside an ever-expanding 'do' block.  In actuality, though, only on
@@ -632,12 +631,13 @@ sawScriptCmd str = do
   allow (namely, 'foo <- bar') aren't legal as single statements in 'do'
   blocks.  Hence, if we're being asked to bind 'foo <- bar', save the name
   'foo' and evaluate 'bar'.  (We'll bind it manually to 'foo' later.) -}
+  let mapSchema f (SS.Forall xs t) = SS.Forall xs (f t)
   let boundName :: Maybe SS.Name
       withoutBinding :: SS.BlockStmt SS.UnresolvedName SS.RawT
       (boundName, withoutBinding) =
         case ast' of
           SS.Bind (Just (SS.getVal -> varName, ty)) ctx expr
-            -> let ty' = fmap (SS.block SS.topLevelContext) ty
+            -> let ty' = fmap (mapSchema (SS.tBlock (SS.tContext SS.TopLevel))) ty
                in (Just varName, SS.Bind Nothing ctx (SS.updateAnnotation ty' expr))
           _ -> (Nothing, ast')
   {- The compiler pipeline is targeted at modules, so wrap up the statement in
@@ -646,15 +646,11 @@ sawScriptCmd str = do
               <- getModulesInScope
   let astModule :: SS.Module SS.UnresolvedName SS.RawT
       astModule = wrapBStmt modsInScope "it" withoutBinding
-  {- Resolve type synonyms, abstract types, etc.  They're not supported by the
-  REPL, so there never are any. -}
-  synsResolved :: SS.Module SS.UnresolvedName SS.ResolvedT
-               <- err $ SAWScript.ResolveSyns.resolveSyns astModule
   -- Add the types of previously evaluated and named expressions.
-  synsResolved' <- injectBoundExpressionTypes synsResolved
+  astModule' <- injectBoundExpressionTypes astModule
   -- Rename references.
   renamed :: SS.Module SS.ResolvedName SS.ResolvedT
-          <- err $ SAWScript.RenameRefs.renameRefs synsResolved'
+          <- err $ SAWScript.RenameRefs.renameRefs astModule'
   -- Infer and check types.
   typechecked :: SS.Module SS.ResolvedName SS.Schema
               <- err $ SAWScript.MGU.checkModule renamed
@@ -681,7 +677,7 @@ injectBoundExpressionTypes orig = do
     Map.filterWithKey (\name _type ->
                         Set.member (SS.getVal $ stripModuleName name) boundNames) <&>
     Map.mapKeysMonotonic stripModuleName <&>
-    Map.map SS.rewindSchema
+    fmap Just
   -- Inject the types.
   return $ orig { SS.modulePrimEnv =
                     Map.union boundNamesAndTypes (SS.modulePrimEnv orig) }

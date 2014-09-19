@@ -16,7 +16,6 @@ import Data.List
 import SAWScript.Token
 import SAWScript.Lexer
 import SAWScript.AST
-import SAWScript.Unify.Fix
 import SAWScript.Utils
 
 import qualified Text.Show.Pretty as PP
@@ -118,11 +117,11 @@ Declaration :: { (LName, ExprSimple RawT) }
 
 Arg :: { LBind RawT }
  : name                                 { (toLName $1, Nothing) }
- | '(' name ':' Type ')'                { (toLName $2, Just $4) }
+ | '(' name ':' Type ')'                { (toLName $2, Just (tMono $4)) }
 
 Expression :: { ExprSimple RawT }
  : IExpr                                { $1 }
- | IExpr ':' Type                       { updateAnnotation (Just $3) $1 }
+ | IExpr ':' Type                       { updateAnnotation (Just (tMono $3)) $1 }
  | '\\' list1(Arg) '->' Expression      { buildFunction $2 $4 }
  | 'let' sepBy1(Declaration, 'and')
    'in' Expression                      { LetBlock $2 $4 }
@@ -159,48 +158,48 @@ Names :: { [Name] }
  : name                                 { [tokStr $1] }
  | name ',' Names                       { tokStr $1:$3 }
 
-PolyType :: { RawSigT }
- : Type                                 { $1                      }
- | '{' Names '}' Type                   { pAbs $2 $ capturePVars $2 $4    }
+PolyType :: { Schema }
+ : Type                                 { tMono $1                }
+ | '{' Names '}' Type                   { Forall $2 $4            }
 
-Type :: { RawSigT }
- : BaseType                             { $1 }
- | BaseType '->' Type                   { function $1 $3 }
+Type :: { Type }
+ : BaseType                             { $1                      }
+ | BaseType '->' Type                   { tFun $1 $3              }
 
-FieldType :: { Bind RawSigT }
-  : name ':' BaseType                   { (tokStr $1, $3)                }
+FieldType :: { Bind Type }
+  : name ':' BaseType                   { (tokStr $1, $3)         }
 
-BaseType :: { RawSigT }
- : name                                 { syn (toLName $1)        }
- | Context BaseType                     { block $1 $2             }
- | '(' ')'                              { tuple []                }
- | 'Bit'                                { bit                     }
- | 'Int'                                { z                       }
- | 'String'                             { quote                   }
- | 'Term'                               { term                    }
- | 'Simpset'                            { abstract "Simpset"      }
- | 'Theorem'                            { abstract "Theorem"      }
- | 'JavaType'                           { abstract "JavaType"     }
- | 'JavaMethodSpec'                     { abstract "JavaMethodSpec" }
- | 'JavaClass'                          { abstract "JavaClass"    }
- | 'LLVMType'                           { abstract "LLVMType"     }
- | 'LLVMMethodSpec'                     { abstract "LLVMMethodSpec" }
- | 'LLVMModule'                         { abstract "LLVMModule"   }
- | 'Uninterp'                           { abstract "Uninterp"     }
- | 'ProofResult'                        { abstract "ProofResult"  }
- | 'SatResult'                          { abstract "SatResult"    }
+BaseType :: { Type }
+ : name                                 { boundVar (tokStr $1)    }
+ | Context BaseType                     { tBlock $1 $2            }
+ | '(' ')'                              { tTuple []               }
+ | 'Bit'                                { tBool                   }
+ | 'Int'                                { tZ                      }
+ | 'String'                             { tString                 }
+ | 'Term'                               { tTerm                   }
+ | 'Simpset'                            { tAbstract "Simpset"     }
+ | 'Theorem'                            { tAbstract "Theorem"     }
+ | 'JavaType'                           { tAbstract "JavaType"    }
+ | 'JavaMethodSpec'                     { tAbstract "JavaMethodSpec" }
+ | 'JavaClass'                          { tAbstract "JavaClass"   }
+ | 'LLVMType'                           { tAbstract "LLVMType"    }
+ | 'LLVMMethodSpec'                     { tAbstract "LLVMMethodSpec" }
+ | 'LLVMModule'                         { tAbstract "LLVMModule"  }
+ | 'Uninterp'                           { tAbstract "Uninterp"    }
+ | 'ProofResult'                        { tAbstract "ProofResult" }
+ | 'SatResult'                          { tAbstract "SatResult"   }
  | '(' Type ')'                         { $2                      }
- | '(' commas2(Type) ')'                { tuple $2                }
- | '[' Type ']'                         { array $2                }
- | '{' commas(FieldType) '}'            { record $2               }
+ | '(' commas2(Type) ')'                { tTuple $2               }
+ | '[' Type ']'                         { tArray $2               }
+ | '{' commas(FieldType) '}'            { tRecord $2              }
 
-Context :: { RawSigT }
- : 'CryptolSetup'                       { cryptolSetupContext     }
- | 'JavaSetup'                          { javaSetupContext        }
- | 'LLVMSetup'                          { llvmSetupContext        }
- | 'ProofScript'                        { proofScriptContext      }
- | 'TopLevel'                           { topLevelContext         }
- | name                                 { syn (toLName $1)         }
+Context :: { Type }
+ : 'CryptolSetup'                       { tContext CryptolSetup   }
+ | 'JavaSetup'                          { tContext JavaSetup      }
+ | 'LLVMSetup'                          { tContext LLVMSetup      }
+ | 'ProofScript'                        { tContext ProofScript    }
+ | 'TopLevel'                           { tContext TopLevel       }
+ | name                                 { boundVar (tokStr $1)    }
 
 -- Parameterized productions, most come directly from the Happy manual.
 fst(p, q)  : p q   { $1 }
@@ -283,13 +282,14 @@ parseError toks = case toks of
 buildFunction :: [(LName, RawT)] -> ExprSimple RawT -> ExprSimple RawT
 buildFunction args e = foldr foldFunction e args
   where
-  foldFunction (argName,mType) rhs = Function argName mType rhs $
-    function <$> mType <*> typeOf rhs
+  foldFunction (argName, mType) rhs = Function argName mType rhs mFunTy
+    where
+    mFunTy = case (mType, typeOf rhs) of
+      (Just (Forall [] t1), Just (Forall [] t2)) -> Just (tMono (tFun t1 t2))
+      _ -> Nothing
 
 buildApplication :: [ExprSimple RawT] -> ExprSimple RawT
-buildApplication =
-  foldl1 (\e body -> Application e body $
-                     function <$> typeOf e <*> typeOf body)
+buildApplication = foldl1 (\e body -> Application e body Nothing)
 
 mkModuleName :: String -> ModuleName
 mkModuleName = ModuleName
