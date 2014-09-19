@@ -5,14 +5,11 @@
 {-# LANGUAGE ViewPatterns #-}
 module SAWScript.Value where
 
-import Control.Applicative
 import Control.Monad.IO.Class ( liftIO )
 import Control.Monad.State ( StateT(..) )
 import Data.List ( intersperse )
 import qualified Data.Map as M
 import Data.Map ( Map )
-import Data.Traversable ( traverse )
-import qualified Data.Vector as V
 import qualified Text.LLVM as L
 
 import qualified SAWScript.AST as SS
@@ -25,7 +22,6 @@ import SAWScript.Proof
 import SAWScript.Utils
 
 import Verifier.SAW.FiniteValue
-import qualified Verifier.SAW.Prim as Prim
 import Verifier.SAW.Rewriter ( Simpset )
 import Verifier.SAW.SharedTerm
 
@@ -40,14 +36,12 @@ data Value s
   = VBool Bool
   | VString String
   | VInteger Integer
-  | VWord Int Integer
   | VArray [Value s]
   | VTuple [Value s]
   | VRecord (Map SS.Name (Value s))
   | VLambda (Value s -> IO (Value s))
   | VTLambda (SS.Type -> IO (Value s))
   | VTerm (Maybe C.Schema) (SharedTerm s) -- TODO: remove the Maybe
-  | VCtorApp String [Value s]
   | VIO (IO (Value s))
   | VProofScript (ProofScript s (Value s))
   | VSimpset (Simpset (SharedTerm s))
@@ -92,16 +86,6 @@ isVUnit :: Value s -> Bool
 isVUnit (VTuple []) = True
 isVUnit _ = False
 
-bitsToWord :: [Bool] -> Value s
-bitsToWord bs = VWord (length bs) (SC.bvToInteger (V.fromList bs))
-
-arrayToWord :: [Value s] -> Value s
-arrayToWord = bitsToWord . map fromValue
-
-isBool :: Value s -> Bool
-isBool (VBool _) = True
-isBool _ = False
-
 data PPOpts = PPOpts
   { ppOptsAnnotate :: Bool
   }
@@ -125,12 +109,7 @@ showsPrecValue opts p mty v =
     VBool False -> showString "False"
     VString s -> shows s
     VInteger n -> shows n
-    VWord w x
-      | ppOptsAnnotate opts -> showParen (p > 9) (shows x . showString ":[" . shows w . showString "]")
-      | otherwise           -> shows x
-    VArray vs
-      | all isBool vs -> shows (arrayToWord vs)
-      | otherwise -> showBrackets $ commaSep $ map (showsPrecValue opts 0 mty') vs
+    VArray vs -> showBrackets $ commaSep $ map (showsPrecValue opts 0 mty') vs
                        where mty' = case mty of
                                       Just (SS.TyCon SS.ArrayCon [_, ty']) -> Just ty'
                                       _ -> Nothing
@@ -153,7 +132,6 @@ showsPrecValue opts p mty v =
     VLambda {} -> showString "<<function>>"
     VTLambda {} -> showString "<<polymorphic function>>"
     VTerm _ t -> showsPrec p t
-    VCtorApp s vs -> showString s . showString " " . (foldr (.) id (map shows vs))
     VIO {} -> showString "<<IO>>"
     VSimpset {} -> showString "<<simpset>>"
     VProofScript {} -> showString "<<proof script>>"
@@ -407,13 +385,6 @@ instance FromValue s Int where
       | toInteger (minBound :: Int) <= n &&
         toInteger (maxBound :: Int) >= n = fromIntegral n
     fromValue _ = error "fromValue Int"
-
-instance IsValue s Prim.BitVector where
-    toValue (Prim.BV w x) = VWord w x
-
-instance FromValue s Prim.BitVector where
-    fromValue (VWord w x) = Prim.BV w x
-    fromValue _ = error "fromValue BitVector"
 
 instance IsValue s Bool where
     toValue b = VBool b
