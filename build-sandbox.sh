@@ -34,8 +34,9 @@ PATH=${PWD}/${sandbox_dir}/bin:$PATH
 
 cabal sandbox --sandbox=${sandbox_dir} init
 
+# use cabal to install the build-time depencencies we need
 for prog in ${PROGRAMS} ; do
-  if [ -z `which $prog` ] ; then cabal install $prog ; fi
+  cabal exec $prog -- --version || cabal install $prog
 done
 
 if [ "${dotests}" == "true" ] ; then
