@@ -280,9 +280,6 @@ parseError toks = case toks of
   []    -> Left UnexpectedEOF
   t : _ -> Left (UnexpectedToken t)
 
-bitsOfString :: Token Pos -> [ExprSimple RawT]
-bitsOfString = map ((flip Bit $ Just bit) . (/= '0')) . tokStr
-
 buildFunction :: [(LName, RawT)] -> ExprSimple RawT -> ExprSimple RawT
 buildFunction args e = foldr foldFunction e args
   where
@@ -293,19 +290,6 @@ buildApplication :: [ExprSimple RawT] -> ExprSimple RawT
 buildApplication =
   foldl1 (\e body -> Application e body $
                      function <$> typeOf e <*> typeOf body)
-
-binOp :: ExprSimple RawT -> LName -> ExprSimple RawT -> ExprSimple RawT
-binOp x op y = Application
-  (Application
-    (Var (Located (unresolved $ getVal op) (getVal op) (getPos op)) Nothing)
-    x Nothing) y Nothing
-
-unOp :: LName -> ExprSimple RawT -> ExprSimple RawT
-unOp op x = Application (Var (Located (unresolved $ getVal op) (getVal op) (getPos op)) Nothing) x Nothing
-
-buildType :: [RawSigT] -> RawSigT
-buildType [t]    = t
-buildType (t:ts) = function t (buildType ts)
 
 mkModuleName :: String -> ModuleName
 mkModuleName = ModuleName
