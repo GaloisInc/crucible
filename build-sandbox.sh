@@ -7,15 +7,12 @@ PROGRAMS="alex happy c2hs"
 TESTABLE="SAWCore Java LLVM"
 
 cabal_flags="--force-reinstalls"
-cabal_conf_flags=""
 
 # we have to disable library stripping on recent cabal-install versions
 # to work around a bug (?) in the 32bit binutils on our install of CentOS5
 if [[ ("${label}" == "saw-centos5-32") && ("${HASKELL_RUNTIME}" == "GHC783") ]]; then
-  cabal_conf_flags="--disable-library-stripping"
+  echo "library-stripping: False" > cabal.config
 fi
-
-cabal_flags="${cabal_flags} ${cabal_conf_flags}"
 
 dotests="false"
 dopull="false"
@@ -100,7 +97,7 @@ if [ "${dotests}" == "true" ] ; then
     (cd ${pkg} &&
          cabal sandbox init --sandbox="../SAWScript/${sandbox_dir}" &&
          cabal install ${cabal_flags} --enable-tests --only-dependencies &&
-         cabal configure --enable-tests ${cabal_conf_flags} &&
+         cabal configure --enable-tests &&
          cabal build --only &&
          (cabal test --only ${test_flags} || true))
 
