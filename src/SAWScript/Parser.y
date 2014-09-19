@@ -13,6 +13,7 @@ module SAWScript.Parser
   ) where
 
 import Data.List
+import qualified Data.Map as Map (fromList)
 import SAWScript.Token
 import SAWScript.Lexer
 import SAWScript.AST
@@ -90,68 +91,68 @@ import Control.Applicative
 
 %%
 
-TopStmts :: { [TopStmt RawT] }
+TopStmts :: { [TopStmt] }
  : termBy(TopStmt, ';')                 { $1 }
 
-TopStmt :: { TopStmt RawT }
+TopStmt :: { TopStmt }
  : 'import' Import                      { $2                 }
  | 'import' string                      { ImportCry $2                 }
  | name ':' PolyType                    { TopTypeDecl (toLName $1) $3  }
- | 'prim' name ':' PolyType             { Prim (toLName $2) (Just $4)  }
+ | 'prim' name ':' PolyType             { Prim (toLName $2) $4         }
  | Declaration                          { uncurry TopBind $1 }
 
-Import :: { TopStmt RawT }
+Import :: { TopStmt }
  : name                                    { Import (mkModuleName (tokStr $1)) Nothing Nothing }
  -- | name '(' commas(name) ')'            { Import $1 (Just $3) Nothing     }
  -- | name 'as' name                       { Import $1 Nothing (Just $3)     }
  -- | name '(' commas(name) ')' 'as' name  { Import $1 (Just $3) (Just $6)   }
 
-BlockStmt :: { BlockStmt RawT }
- : Expression                           { Bind Nothing   Nothing $1   }
- | Arg '<-' Expression                  { Bind (Just $1) Nothing $3   }
+BlockStmt :: { BlockStmt }
+ : Expression                           { Bind Nothing Nothing Nothing $1   }
+ | Arg '<-' Expression                  { Bind (Just (fst $1)) (snd $1) Nothing $3 }
  | 'let' sepBy1(Declaration, 'and')     { BlockLet $2                  }
  | 'let' Code                           { BlockCode $2                 }
 
-Declaration :: { (LName, Expr RawT) }
+Declaration :: { (LName, Expr) }
  : name list(Arg) '=' Expression        { (toLName $1, buildFunction $2 $4)       }
 
-Arg :: { LBind RawT }
+Arg :: { (LName, Maybe Type) }
  : name                                 { (toLName $1, Nothing) }
- | '(' name ':' Type ')'                { (toLName $2, Just (tMono $4)) }
+ | '(' name ':' Type ')'                { (toLName $2, Just $4) }
 
-Expression :: { Expr RawT }
+Expression :: { Expr }
  : IExpr                                { $1 }
- | IExpr ':' Type                       { updateAnnotation (Just (tMono $3)) $1 }
+ | IExpr ':' Type                       { updateAnnotation (tMono $3) $1 }
  | '\\' list1(Arg) '->' Expression      { buildFunction $2 $4 }
  | 'let' sepBy1(Declaration, 'and')
-   'in' Expression                      { LetBlock $2 $4 }
+   'in' Expression                      { Let $2 $4 }
 
-IExpr :: { Expr RawT }
+IExpr :: { Expr }
  : AExprs                               { $1 }
 
-AExprs :: { Expr RawT }
+AExprs :: { Expr }
  : list1(AExpr)                         { buildApplication $1 }
 
-AExpr :: { Expr RawT }
- : '(' ')'                              { Tuple [] Nothing                }
- | '[' ']'                              { Array [] Nothing                }
- | string                               { Quote $1 Nothing                }
- | Code                                 { Code $1 Nothing                 }
- | num                                  { Z $1 Nothing                    }
- | name                                 { Var (Located (unresolved (tokStr $1)) (tokStr $1) (tokPos $1)) Nothing     }
- | 'undefined'                          { Undefined Nothing               }
- | '(' Expression ')'                   { $2                              }
- | '(' commas2(Expression) ')'          { Tuple $2 Nothing                }
- | '[' commas(Expression) ']'           { Array $2 Nothing                }
- | '{' commas(Field) '}'                { Record $2 Nothing               }
- | 'do' '{' termBy(BlockStmt, ';') '}'  { Block $3 Nothing                }
- | AExpr '.' name                       { Lookup $1 (tokStr $3) Nothing   }
- | AExpr '.' num                        { TLookup $1 $3 Nothing           }
+AExpr :: { Expr }
+ : '(' ')'                              { Tuple []                }
+ | '[' ']'                              { Array []                }
+ | string                               { String $1               }
+ | Code                                 { Code $1                 }
+ | num                                  { Z $1                    }
+ | name                                 { Var (Located (unresolved (tokStr $1)) (tokStr $1) (tokPos $1))     }
+ | 'undefined'                          { Undefined               }
+ | '(' Expression ')'                   { $2                      }
+ | '(' commas2(Expression) ')'          { Tuple $2                }
+ | '[' commas(Expression) ']'           { Array $2                }
+ | '{' commas(Field) '}'                { Record (Map.fromList $2) }
+ | 'do' '{' termBy(BlockStmt, ';') '}'  { Block $3                }
+ | AExpr '.' name                       { Lookup $1 (tokStr $3)   }
+ | AExpr '.' num                        { TLookup $1 $3           }
 
 Code :: { Located String }
  : code                                 { Located (tokStr $1) (tokStr $1) (tokPos $1) }
 
-Field :: { (Name, Expr RawT) }
+Field :: { (Name, Expr) }
  : name '=' Expression                  { (tokStr $1, $3) }
 
 Names :: { [Name] }
@@ -279,17 +280,13 @@ parseError toks = case toks of
   []    -> Left UnexpectedEOF
   t : _ -> Left (UnexpectedToken t)
 
-buildFunction :: [(LName, RawT)] -> Expr RawT -> Expr RawT
+buildFunction :: [(LName, Maybe Type)] -> Expr -> Expr
 buildFunction args e = foldr foldFunction e args
   where
-  foldFunction (argName, mType) rhs = Function argName mType rhs mFunTy
-    where
-    mFunTy = case (mType, typeOf rhs) of
-      (Just (Forall [] t1), Just (Forall [] t2)) -> Just (tMono (tFun t1 t2))
-      _ -> Nothing
+  foldFunction (argName, mType) rhs = Function argName mType rhs
 
-buildApplication :: [Expr RawT] -> Expr RawT
-buildApplication = foldl1 (\e body -> Application e body Nothing)
+buildApplication :: [Expr] -> Expr
+buildApplication = foldl1 (\e body -> Application e body)
 
 mkModuleName :: String -> ModuleName
 mkModuleName = ModuleName

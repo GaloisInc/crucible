@@ -17,15 +17,6 @@ import Data.Traversable (Traversable)
 import System.FilePath (dropExtension)
 import qualified Text.PrettyPrint.Leijen as PP
 
--- Intermediate Types {{{
-
-type RawT      = Maybe Schema
-type RawSigT   = Schema
-type ResolvedT = Maybe Schema
-type FullT     = Schema
-
--- }}}
-
 -- Names {{{
 
 type Name = String
@@ -100,10 +91,10 @@ unionsLEnv = Map.unions
 
 -- Module Level {{{
 
-data Module typeT = Module
+data Module = Module
   { moduleName         :: ModuleName
-  , moduleExprEnv      :: [(LName, Expr typeT)]
-  , modulePrimEnv      :: LEnv typeT
+  , moduleExprEnv      :: [(LName, Expr)]
+  , modulePrimEnv      :: LEnv Schema
   , moduleDependencies :: ModuleEnv ValidModule
   , moduleCryDeps      :: [FilePath]
   } deriving (Eq,Show)
@@ -111,7 +102,7 @@ data Module typeT = Module
 -- A fully type checked module.
 --  Exprs have resolved names, concrete types
 --  Types have ResolvedT (Nothing for abstract types, Just FullT for type synonyms)
-type ValidModule = Module Schema
+type ValidModule = Module
 
 -- }}}
 
@@ -135,44 +126,44 @@ toLName p = Located (tokStr p) (tokStr p) (tokPos p)
 toNameDec :: (LName, a) -> (Name, a)
 toNameDec = first getVal
 
-data TopStmt typeT
+data TopStmt
   = Import      ModuleName (Maybe [Name])    (Maybe Name)   -- ^ import <module> [(<names>)] [as <name>]
   | TopTypeDecl LName       Schema                          -- ^ <name> : <type>
-  | TopBind     LName       (Expr typeT)                    -- ^ <name> = <expr>
-  | Prim        LName       RawT                            -- ^ prim <name> : <type>
+  | TopBind     LName       Expr                            -- ^ <name> = <expr>
+  | Prim        LName       Schema                          -- ^ prim <name> : <type>
   | ImportCry   FilePath                                    -- ^ import "filepath.cry"
-  deriving (Eq,Show,Functor,Foldable,Traversable)
+  deriving (Eq, Show)
 
-data Expr typeT
+data Expr
   -- Constants
-  = Bit Bool     typeT
-  | Quote String typeT
-  | Z Integer    typeT
-  | Undefined    typeT
-  | Code (Located String) typeT
+  = Bit Bool
+  | String String
+  | Z Integer
+  | Undefined
+  | Code (Located String)
   -- Structures
-  | Array  [Expr typeT]         typeT
-  | Block  [BlockStmt typeT]    typeT
-  | Tuple  [Expr typeT]         typeT
-  | Record [Bind (Expr typeT)]  typeT
+  | Array  [Expr]
+  | Block  [BlockStmt]
+  | Tuple  [Expr]
+  | Record (Map Name Expr)
   -- Accessors
-  | Index  (Expr typeT) (Expr typeT) typeT
-  | Lookup (Expr typeT) Name              typeT
-  | TLookup (Expr typeT) Integer          typeT
+  | Index  Expr Expr
+  | Lookup Expr Name
+  | TLookup Expr Integer
   -- LC
-  | Var         (Located ResolvedName)  typeT
-  | Function    LName  typeT       (Expr typeT) typeT
-  | Application (Expr typeT) (Expr typeT) typeT
+  | Var (Located ResolvedName)
+  | Function    LName (Maybe Type) Expr
+  | Application Expr Expr
   -- Sugar
-  | LetBlock [LBind (Expr typeT)] (Expr typeT)
-  deriving (Eq,Show,Functor,Foldable,Traversable)
+  | Let [LBind Expr] Expr
+  | TSig Expr Schema
+  deriving (Eq, Show)
 
-data BlockStmt typeT
- -- Bind          bind var         context   expr
-  = Bind          (Maybe (LBind typeT))     typeT     (Expr typeT)
-  | BlockLet      [(LName,Expr typeT)]
+data BlockStmt
+  = Bind          (Maybe LName) (Maybe Type) (Maybe Type) Expr
+  | BlockLet      [LBind Expr]
   | BlockCode     (Located String)
-  deriving (Eq,Show,Functor,Foldable,Traversable)
+  deriving (Eq, Show)
 
 -- }}}
 
@@ -275,7 +266,7 @@ instance PrettyPrint Context where
 instance PrettyPrint ModuleName where
   pretty _ mn = PP.text (renderModuleName mn)
 
-instance PrettyPrint (Module typeT) where
+instance PrettyPrint Module where
   pretty par m = pretty par (moduleName m)
 
 replicateDoc :: Integer -> PP.Doc -> PP.Doc
@@ -344,47 +335,16 @@ boundVar n = TyVar (BoundVar n)
 
 -- Expr Accessors/Modifiers {{{
 
-typeOf :: Expr typeT -> typeT
-typeOf expr = case expr of
-  Bit _ t           -> t
-  Quote _ t         -> t
-  Z _ t             -> t
-  Undefined t       -> t
-  Code _ t          -> t
-  Array _ t         -> t
-  Block _ t         -> t
-  Tuple _ t         -> t
-  Record _ t        -> t
-  Index _ _ t       -> t
-  Lookup _ _ t      -> t
-  TLookup _ _ t     -> t
-  Var _ t           -> t
-  Function _ _ _ t  -> t
-  Application _ _ t -> t
-  LetBlock _ e'     -> typeOf e'
+typeOf :: Expr -> Maybe Schema
+typeOf (TSig _ s) = Just s
+typeOf _ = Nothing
 
-context :: BlockStmt typeT -> Maybe typeT
+context :: BlockStmt -> Maybe Type
 context s = case s of
-  Bind _ c _ -> Just c
-  _          -> Nothing
+  Bind _ _ c _ -> c
+  _            -> Nothing
 
-updateAnnotation :: typeT -> Expr typeT -> Expr typeT
-updateAnnotation t expr = case expr of
-  Bit x _           -> Bit x t
-  Quote x _         -> Quote x t
-  Z x _             -> Z x t
-  Undefined _       -> Undefined t
-  Code x _          -> Code x t
-  Array x _         -> Array x t
-  Block x _         -> Block x t
-  Tuple x _         -> Tuple x t
-  Record x _        -> Record x t
-  Index x y _       -> Index x y t
-  Lookup x y _      -> Lookup x y t
-  TLookup x y _     -> TLookup x y t
-  Var x _           -> Var x t
-  Function a at b _ -> Function a at b t
-  Application f v _ -> Application f v t
-  LetBlock bs e'    -> LetBlock bs (updateAnnotation t e')
+updateAnnotation :: Schema -> Expr -> Expr
+updateAnnotation s e = TSig e s
 
 -- }}}

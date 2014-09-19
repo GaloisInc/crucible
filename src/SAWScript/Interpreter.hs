@@ -48,8 +48,8 @@ import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 
 import qualified Cryptol.TypeCheck.AST as T
 
-type Expression = SS.Expr SS.Schema
-type BlockStatement = SS.BlockStmt SS.Schema
+type Expression = SS.Expr
+type BlockStatement = SS.BlockStmt
 type RNameMap = Map (Located SS.ResolvedName)
 
 -- Environment -----------------------------------------------------------------
@@ -60,13 +60,15 @@ data InterpretEnv s = InterpretEnv
   , ieCryptol :: CEnv.CryptolEnv s
   }
 
-extendEnv :: SS.LName -> SS.Schema -> Value s -> InterpretEnv s -> InterpretEnv s
-extendEnv x t v (InterpretEnv vm tm ce) = InterpretEnv vm' tm' ce'
+extendEnv :: SS.LName -> Maybe SS.Schema -> Value s -> InterpretEnv s -> InterpretEnv s
+extendEnv x mt v (InterpretEnv vm tm ce) = InterpretEnv vm' tm' ce'
   where
     name = fmap SS.LocalName x
     qname = T.QName Nothing (T.Name (getOrig x))
     vm' = Map.insert name v vm
-    tm' = Map.insert name t tm
+    tm' = case mt of
+            Just t -> Map.insert name t tm
+            Nothing -> tm
     ce' = case v of
             VTerm (Just schema) trm
               -> CEnv.bindTypedTerm (qname, TypedTerm schema trm) ce
@@ -120,23 +122,23 @@ interpret
     -> InterpretEnv s -> Expression -> IO (Value s)
 interpret sc env@(InterpretEnv vm tm ce) expr =
     case expr of
-      SS.Bit b             _ -> return $ VBool b
-      SS.Quote s           _ -> return $ VString s
-      SS.Z z               _ -> return $ VInteger z
-      SS.Undefined         _ -> fail "interpret: undefined"
-      SS.Code str          _ -> toValue `fmap` CEnv.parseTypedTerm sc ce str
-      SS.Array es          _ -> VArray <$> traverse (interpret sc env) es
-      SS.Block stmts       _ -> interpretStmts sc env stmts
-      SS.Tuple es          _ -> VTuple <$> traverse (interpret sc env) es
-      SS.Record bs         _ -> VRecord <$> traverse (interpret sc env) (Map.fromList bs)
-      SS.Index e1 e2       _ -> do a <- interpret sc env e1
+      SS.Bit b               -> return $ VBool b
+      SS.String s            -> return $ VString s
+      SS.Z z                 -> return $ VInteger z
+      SS.Undefined           -> fail "interpret: undefined"
+      SS.Code str            -> toValue `fmap` CEnv.parseTypedTerm sc ce str
+      SS.Array es            -> VArray <$> traverse (interpret sc env) es
+      SS.Block stmts         -> interpretStmts sc env stmts
+      SS.Tuple es            -> VTuple <$> traverse (interpret sc env) es
+      SS.Record bs           -> VRecord <$> traverse (interpret sc env) bs
+      SS.Index e1 e2         -> do a <- interpret sc env e1
                                    i <- interpret sc env e2
                                    return (indexValue a i)
-      SS.Lookup e n        _ -> do a <- interpret sc env e
+      SS.Lookup e n          -> do a <- interpret sc env e
                                    return (lookupValue a n)
-      SS.TLookup e i       _ -> do a <- interpret sc env e
+      SS.TLookup e i         -> do a <- interpret sc env e
                                    return (tupleLookupValue a i)
-      SS.Var x (SS.Forall [] t)
+      SS.TSig (SS.Var x) (SS.Forall [] t)
                              -> case Map.lookup x vm of
                                   Nothing -> fail $ "unknown variable: " ++ SS.renderResolvedName (SS.getVal x)
                                   --evaluate sc <$> translateExpr sc tm sm Map.empty expr
@@ -146,21 +148,20 @@ interpret sc env@(InterpretEnv vm tm ce) expr =
                                       Just schema -> do
                                         let ts = typeInstantiation schema t
                                         foldM tapplyValue v ts
-      SS.Var x (SS.Forall _ _) ->
+      SS.TSig (SS.Var x) (SS.Forall _ _) ->
         fail $ "Can't interpret: " ++ SS.renderResolvedName (SS.getVal x)
-{-
-      SS.Var x             _ -> case Map.lookup x vm of
+      SS.TSig e _            -> interpret sc env e
+      SS.Var x               -> case Map.lookup x vm of
                                   Nothing -> fail $ "unknown variable: " ++ SS.renderResolvedName (SS.getVal x)
                                   Just v -> return v
--}
-      SS.Function x t e    _ -> do let f v = interpret sc (extendEnv x t v env) e
+      SS.Function x t e      -> do let f v = interpret sc (extendEnv x (fmap SS.tMono t) v env) e
                                    return $ VLambda f
-      SS.Application e1 e2 _ -> do v1 <- interpret sc env e1
+      SS.Application e1 e2   -> do v1 <- interpret sc env e1
                                    v2 <- interpret sc env e2
                                    case v1 of
                                      VLambda f -> f v2
                                      _ -> fail $ "interpret Application: " ++ show v1
-      SS.LetBlock bs e       -> do let f env0 (x, rhs) = do v <- interpretPoly sc env0 rhs
+      SS.Let bs e            -> do let f env0 (x, rhs) = do v <- interpretPoly sc env0 rhs
                                                             let t = SS.typeOf rhs
                                                             return (extendEnv x t v env0)
                                    env' <- foldM f env bs
@@ -171,9 +172,10 @@ interpretPoly
     -> InterpretEnv s -> Expression -> IO (Value s)
 interpretPoly sc env expr =
     case SS.typeOf expr of
-      SS.Forall ns _ ->
+      Just (SS.Forall ns _) ->
           let tlam x f m = return (VTLambda (\t -> f (Map.insert x t m)))
           in foldr tlam (\m -> interpret sc env (substTypeExpr m expr)) ns Map.empty
+      Nothing -> interpret sc env expr
 
 interpretStmts
     :: forall s. SharedContext s
@@ -181,16 +183,16 @@ interpretStmts
 interpretStmts sc env@(InterpretEnv vm tm ce) stmts =
     case stmts of
       [] -> fail "empty block"
-      [SS.Bind Nothing _ e] -> interpret sc env e
-      SS.Bind Nothing _ e : ss ->
+      [SS.Bind Nothing _ _ e] -> interpret sc env e
+      SS.Bind Nothing _ _ e : ss ->
           do v1 <- interpret sc env e
              v2 <- interpretStmts sc env ss
              return (v1 `thenValue` v2)
-      SS.Bind (Just (x, t)) _ e : ss ->
+      SS.Bind (Just x) mt _ e : ss ->
           do v1 <- interpret sc env e
-             let f v = interpretStmts sc (extendEnv x t v env) ss
+             let f v = interpretStmts sc (extendEnv x (fmap SS.tMono mt) v env) ss
              return (bindValue sc v1 (VLambda f))
-      SS.BlockLet bs : ss -> interpret sc env (SS.LetBlock bs (SS.Block ss undefined))
+      SS.BlockLet bs : ss -> interpret sc env (SS.Let bs (SS.Block ss))
       SS.BlockCode s : ss ->
           do ce' <- CEnv.parseDecls sc ce s
              interpretStmts sc (InterpretEnv vm tm ce') ss
@@ -210,10 +212,11 @@ interpretSCC
     -> InterpretEnv s -> (Located SS.ResolvedName, Expression) -> IO (InterpretEnv s)
 interpretSCC sc env@(InterpretEnv vm tm ce) (x, expr) =
             do v <- interpretPoly sc env expr
-               let t = SS.typeOf expr
                let qname = T.QName Nothing (T.Name (getOrig x))
                let vm' = Map.insert x v vm
-               let tm' = Map.insert x t tm
+               let tm' = case SS.typeOf expr of
+                           Just t -> Map.insert x t tm
+                           Nothing -> tm
                ce' <- case v of
                            VTerm (Just schema) trm
                              -> do putStrLn $ "Binding top-level term: " ++ show qname

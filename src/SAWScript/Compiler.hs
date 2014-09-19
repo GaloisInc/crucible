@@ -13,7 +13,6 @@ import Control.Monad.Trans.Error (ErrorT, mapErrorT, runErrorT)
 
 import SAWScript.AST (PrettyPrint, pShow)
 import SAWScript.Parser (ParseError)
-import SAWScript.Utils
 
 -- | Wrapper around compiler function to format the result or error
 runCompiler :: (Show b, MonadIO io)
