@@ -59,7 +59,7 @@ loadModule opts fname ms k = do
 
 
 data LoadedModules = LoadedModules
-  { modules    :: ModuleEnv [TopStmtSimple RawT]
+  { modules    :: ModuleEnv [TopStmt RawT]
   } deriving (Show)
 
 instance PrettyPrint LoadedModules where
@@ -69,7 +69,7 @@ instance PrettyPrint LoadedModules where
 emptyLoadedModules :: LoadedModules
 emptyLoadedModules = LoadedModules Map.empty
 
-formModule :: FilePath -> Compiler String [TopStmtSimple RawT]
+formModule :: FilePath -> Compiler String [TopStmt RawT]
 formModule f = scan f >=> liftParser parseModule
 
 findAndLoadModule :: Options -> ModuleName -> LoadedModules
@@ -100,7 +100,7 @@ findFile paths fileName = search paths
              else search ds
 #endif
   
-getImport :: TopStmtSimple a -> Maybe ModuleName
+getImport :: TopStmt a -> Maybe ModuleName
 getImport (Import mn _ _) = Just mn
 getImport _ = Nothing
 

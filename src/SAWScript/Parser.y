@@ -90,49 +90,49 @@ import Control.Applicative
 
 %%
 
-TopStmts :: { [TopStmtSimple RawT] }
+TopStmts :: { [TopStmt RawT] }
  : termBy(TopStmt, ';')                 { $1 }
 
-TopStmt :: { TopStmtSimple RawT }
+TopStmt :: { TopStmt RawT }
  : 'import' Import                      { $2                 }
  | 'import' string                      { ImportCry $2                 }
  | name ':' PolyType                    { TopTypeDecl (toLName $1) $3  }
  | 'prim' name ':' PolyType             { Prim (toLName $2) (Just $4)  }
  | Declaration                          { uncurry TopBind $1 }
 
-Import :: { TopStmtSimple RawT }
+Import :: { TopStmt RawT }
  : name                                    { Import (mkModuleName (tokStr $1)) Nothing Nothing }
  -- | name '(' commas(name) ')'            { Import $1 (Just $3) Nothing     }
  -- | name 'as' name                       { Import $1 Nothing (Just $3)     }
  -- | name '(' commas(name) ')' 'as' name  { Import $1 (Just $3) (Just $6)   }
 
-BlockStmt :: { BlockStmtSimple RawT }
+BlockStmt :: { BlockStmt RawT }
  : Expression                           { Bind Nothing   Nothing $1   }
  | Arg '<-' Expression                  { Bind (Just $1) Nothing $3   }
  | 'let' sepBy1(Declaration, 'and')     { BlockLet $2                  }
  | 'let' Code                           { BlockCode $2                 }
 
-Declaration :: { (LName, ExprSimple RawT) }
+Declaration :: { (LName, Expr RawT) }
  : name list(Arg) '=' Expression        { (toLName $1, buildFunction $2 $4)       }
 
 Arg :: { LBind RawT }
  : name                                 { (toLName $1, Nothing) }
  | '(' name ':' Type ')'                { (toLName $2, Just (tMono $4)) }
 
-Expression :: { ExprSimple RawT }
+Expression :: { Expr RawT }
  : IExpr                                { $1 }
  | IExpr ':' Type                       { updateAnnotation (Just (tMono $3)) $1 }
  | '\\' list1(Arg) '->' Expression      { buildFunction $2 $4 }
  | 'let' sepBy1(Declaration, 'and')
    'in' Expression                      { LetBlock $2 $4 }
 
-IExpr :: { ExprSimple RawT }
+IExpr :: { Expr RawT }
  : AExprs                               { $1 }
 
-AExprs :: { ExprSimple RawT }
+AExprs :: { Expr RawT }
  : list1(AExpr)                         { buildApplication $1 }
 
-AExpr :: { ExprSimple RawT }
+AExpr :: { Expr RawT }
  : '(' ')'                              { Tuple [] Nothing                }
  | '[' ']'                              { Array [] Nothing                }
  | string                               { Quote $1 Nothing                }
@@ -151,7 +151,7 @@ AExpr :: { ExprSimple RawT }
 Code :: { Located String }
  : code                                 { Located (tokStr $1) (tokStr $1) (tokPos $1) }
 
-Field :: { (Name, ExprSimple RawT) }
+Field :: { (Name, Expr RawT) }
  : name '=' Expression                  { (tokStr $1, $3) }
 
 Names :: { [Name] }
@@ -271,15 +271,15 @@ instance Show ParseError where
       UnexpectedToken t -> "Parse error at line " ++ show ln ++ ", col " ++ show col
         where Pos _ ln col = tokPos t
 
-unresolved :: Name -> UnresolvedName
-unresolved = UnresolvedName
+unresolved :: Name -> ResolvedName
+unresolved = LocalName
 
 parseError :: [Token Pos] -> Either ParseError b
 parseError toks = case toks of
   []    -> Left UnexpectedEOF
   t : _ -> Left (UnexpectedToken t)
 
-buildFunction :: [(LName, RawT)] -> ExprSimple RawT -> ExprSimple RawT
+buildFunction :: [(LName, RawT)] -> Expr RawT -> Expr RawT
 buildFunction args e = foldr foldFunction e args
   where
   foldFunction (argName, mType) rhs = Function argName mType rhs mFunTy
@@ -288,13 +288,13 @@ buildFunction args e = foldr foldFunction e args
       (Just (Forall [] t1), Just (Forall [] t2)) -> Just (tMono (tFun t1 t2))
       _ -> Nothing
 
-buildApplication :: [ExprSimple RawT] -> ExprSimple RawT
+buildApplication :: [Expr RawT] -> Expr RawT
 buildApplication = foldl1 (\e body -> Application e body Nothing)
 
 mkModuleName :: String -> ModuleName
 mkModuleName = ModuleName
 
-local :: String -> UnresolvedName
-local = UnresolvedName
+local :: String -> ResolvedName
+local = LocalName
 
 }

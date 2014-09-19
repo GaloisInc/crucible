@@ -245,7 +245,7 @@ instance AppSubst Expr where
     Application f v    -> Application (appSubst s f) (appSubst s v)
     Let nes e          -> Let (appSubstBinds s nes) (appSubst s e)
 
-instance AppSubst ty => AppSubst (A.Expr names ty) where
+instance AppSubst ty => AppSubst (A.Expr ty) where
   appSubst s expr = case expr of
     A.Bit b t            -> A.Bit b (appSubst s t)
     A.Quote str t        -> A.Quote str (appSubst s t)
@@ -267,7 +267,7 @@ instance AppSubst ty => AppSubst (A.Expr names ty) where
 
     A.LetBlock nes e     -> A.LetBlock (appSubstBinds s nes) (appSubst s e)
 
-instance AppSubst ty => AppSubst (A.BlockStmt names ty) where
+instance AppSubst ty => AppSubst (A.BlockStmt ty) where
   appSubst s bst = case bst of
     A.Bind Nothing       ctx e -> A.Bind Nothing (appSubst s ctx) (appSubst s e)
     A.Bind (Just (n, t)) ctx e -> A.Bind (Just (n, appSubst s t)) (appSubst s ctx) (appSubst s e)
@@ -310,8 +310,8 @@ instance Instantiate Type where
 
 -- Type Inference {{{
 
-type OutExpr      = A.Expr      A.ResolvedName Schema
-type OutBlockStmt = A.BlockStmt A.ResolvedName Schema
+type OutExpr      = A.Expr      Schema
+type OutBlockStmt = A.BlockStmt Schema
 
 
 ret :: Monad m => (Schema -> a) -> Type -> m (a, Type)
@@ -576,8 +576,8 @@ checkKind = return
 -- Main interface {{{
 
 checkModule :: -- [(A.ResolvedName,Schema)] ->
-               Compiler (A.Module A.ResolvedName A.ResolvedT)
-                        (A.Module A.ResolvedName Schema     )
+               Compiler (A.Module A.ResolvedT)
+                        (A.Module Schema     )
 checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
   let modName = A.moduleName m
   let eEnv    = A.moduleExprEnv m
@@ -613,7 +613,7 @@ checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
                                   return (x,e1)
                              | ds <- dss, (x,e) <- ds ]
 
-exportExpr :: OutExpr -> TI (A.Expr A.ResolvedName Schema)
+exportExpr :: OutExpr -> TI (A.Expr Schema)
 exportExpr e0 = appSubstM e0
 
 evalTI :: A.ModuleName -> TI a -> Either [String] a

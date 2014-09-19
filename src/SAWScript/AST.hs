@@ -33,11 +33,6 @@ type Name = String
 --  and single name designating module name.
 newtype ModuleName = ModuleName Name deriving (Eq,Ord,Show)
 
--- some name, qualified with some dot separated names.
---  compiler doesn't know what those names are yet.
-newtype UnresolvedName = UnresolvedName Name
-  deriving (Eq,Ord,Show)
-
 -- a name that has been resolved to a particular module.
 data ResolvedName
   -- locally bound in the environment, ie. in a lambda.
@@ -60,9 +55,6 @@ renderModuleName (ModuleName n) = n
 
 moduleNameFilePath :: ModuleName -> String
 moduleNameFilePath (ModuleName n) = n
-
-renderUnresolvedName :: UnresolvedName -> String
-renderUnresolvedName (UnresolvedName n) = n
 
 renderResolvedName :: ResolvedName -> String
 renderResolvedName rn = case rn of
@@ -108,9 +100,9 @@ unionsLEnv = Map.unions
 
 -- Module Level {{{
 
-data Module refT typeT = Module
+data Module typeT = Module
   { moduleName         :: ModuleName
-  , moduleExprEnv      :: [(LName, Expr refT typeT)]
+  , moduleExprEnv      :: [(LName, Expr typeT)]
   , modulePrimEnv      :: LEnv typeT
   , moduleDependencies :: ModuleEnv ValidModule
   , moduleCryDeps      :: [FilePath]
@@ -119,7 +111,7 @@ data Module refT typeT = Module
 -- A fully type checked module.
 --  Exprs have resolved names, concrete types
 --  Types have ResolvedT (Nothing for abstract types, Just FullT for type synonyms)
-type ValidModule = Module ResolvedName Schema
+type ValidModule = Module Schema
 
 -- }}}
 
@@ -143,26 +135,15 @@ toLName p = Located (tokStr p) (tokStr p) (tokPos p)
 toNameDec :: (LName, a) -> (Name, a)
 toNameDec = first getVal
 
-type TopStmtSimple   = TopStmt   UnresolvedName
-type ExprSimple      = Expr      UnresolvedName
-type BlockStmtSimple = BlockStmt UnresolvedName
-
-data TopStmt refT typeT
+data TopStmt typeT
   = Import      ModuleName (Maybe [Name])    (Maybe Name)   -- ^ import <module> [(<names>)] [as <name>]
   | TopTypeDecl LName       Schema                          -- ^ <name> : <type>
-  | TopBind     LName       (Expr refT typeT)               -- ^ <name> = <expr>
+  | TopBind     LName       (Expr typeT)                    -- ^ <name> = <expr>
   | Prim        LName       RawT                            -- ^ prim <name> : <type>
   | ImportCry   FilePath                                    -- ^ import "filepath.cry"
   deriving (Eq,Show,Functor,Foldable,Traversable)
 
-{-
-data Exprs refT typeT
-  = PrimExpr typeT
-  | Defined (Expr refT typeT)
-  deriving (Eq,Show,Functor,Foldable,Traversable)
--}
-
-data Expr refT typeT
+data Expr typeT
   -- Constants
   = Bit Bool     typeT
   | Quote String typeT
@@ -170,26 +151,26 @@ data Expr refT typeT
   | Undefined    typeT
   | Code (Located String) typeT
   -- Structures
-  | Array  [Expr refT typeT]         typeT
-  | Block  [BlockStmt refT typeT]    typeT
-  | Tuple  [Expr refT typeT]         typeT
-  | Record [Bind (Expr refT typeT)]  typeT
+  | Array  [Expr typeT]         typeT
+  | Block  [BlockStmt typeT]    typeT
+  | Tuple  [Expr typeT]         typeT
+  | Record [Bind (Expr typeT)]  typeT
   -- Accessors
-  | Index  (Expr refT typeT) (Expr refT typeT) typeT
-  | Lookup (Expr refT typeT) Name              typeT
-  | TLookup (Expr refT typeT) Integer          typeT
+  | Index  (Expr typeT) (Expr typeT) typeT
+  | Lookup (Expr typeT) Name              typeT
+  | TLookup (Expr typeT) Integer          typeT
   -- LC
-  | Var         (Located refT)  typeT
-  | Function    LName  typeT       (Expr refT typeT) typeT
-  | Application (Expr refT typeT) (Expr refT typeT) typeT
+  | Var         (Located ResolvedName)  typeT
+  | Function    LName  typeT       (Expr typeT) typeT
+  | Application (Expr typeT) (Expr typeT) typeT
   -- Sugar
-  | LetBlock [LBind (Expr refT typeT)] (Expr refT typeT)
+  | LetBlock [LBind (Expr typeT)] (Expr typeT)
   deriving (Eq,Show,Functor,Foldable,Traversable)
 
-data BlockStmt refT typeT
+data BlockStmt typeT
  -- Bind          bind var         context   expr
-  = Bind          (Maybe (LBind typeT))     typeT     (Expr refT typeT)
-  | BlockLet      [(LName,Expr refT typeT)]
+  = Bind          (Maybe (LBind typeT))     typeT     (Expr typeT)
+  | BlockLet      [(LName,Expr typeT)]
   | BlockCode     (Located String)
   deriving (Eq,Show,Functor,Foldable,Traversable)
 
@@ -294,7 +275,7 @@ instance PrettyPrint Context where
 instance PrettyPrint ModuleName where
   pretty _ mn = PP.text (renderModuleName mn)
 
-instance PrettyPrint (Module refT typeT) where
+instance PrettyPrint (Module typeT) where
   pretty par m = pretty par (moduleName m)
 
 replicateDoc :: Integer -> PP.Doc -> PP.Doc
@@ -363,7 +344,7 @@ boundVar n = TyVar (BoundVar n)
 
 -- Expr Accessors/Modifiers {{{
 
-typeOf :: Expr refT typeT -> typeT
+typeOf :: Expr typeT -> typeT
 typeOf expr = case expr of
   Bit _ t           -> t
   Quote _ t         -> t
@@ -382,12 +363,12 @@ typeOf expr = case expr of
   Application _ _ t -> t
   LetBlock _ e'     -> typeOf e'
 
-context :: BlockStmt refT typeT -> Maybe typeT
+context :: BlockStmt typeT -> Maybe typeT
 context s = case s of
   Bind _ c _ -> Just c
   _          -> Nothing
 
-updateAnnotation :: typeT -> Expr refT typeT -> Expr refT typeT
+updateAnnotation :: typeT -> Expr typeT -> Expr typeT
 updateAnnotation t expr = case expr of
   Bit x _           -> Bit x t
   Quote x _         -> Quote x t

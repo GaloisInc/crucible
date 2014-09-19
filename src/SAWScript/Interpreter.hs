@@ -48,8 +48,8 @@ import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 
 import qualified Cryptol.TypeCheck.AST as T
 
-type Expression = SS.Expr SS.ResolvedName SS.Schema
-type BlockStatement = SS.BlockStmt SS.ResolvedName SS.Schema
+type Expression = SS.Expr SS.Schema
+type BlockStatement = SS.BlockStmt SS.Schema
 type RNameMap = Map (Located SS.ResolvedName)
 
 -- Environment -----------------------------------------------------------------

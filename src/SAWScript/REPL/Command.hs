@@ -91,7 +91,7 @@ import qualified SAWScript.AST as SS
      renderResolvedName, pShow,
      Module(..), ValidModule,
      BlockStmt(Bind),
-     Name, LName, Located(..), UnresolvedName,
+     Name, LName, Located(..),
      ResolvedName(..),
      RawT, ResolvedT,
      Context(..), Schema(..), Type(..), TyCon(..),
@@ -620,7 +620,7 @@ sawScriptCmd str = do
   tokens <- err $ SAWScript.Lexer.scan replFileName str
   ast <- err $ liftParser SAWScript.Parser.parseBlockStmt tokens
   -- Set the context (i.e., the monad) for the statement (point 1 above).
-  let ast' :: SS.BlockStmt SS.UnresolvedName SS.RawT
+  let ast' :: SS.BlockStmt SS.RawT
       ast' = case ast of
         SS.Bind maybeVar _ctx expr -> SS.Bind maybeVar ctx' expr
             where ctx' = Just (SS.tMono (SS.tContext SS.TopLevel))
@@ -633,7 +633,7 @@ sawScriptCmd str = do
   'foo' and evaluate 'bar'.  (We'll bind it manually to 'foo' later.) -}
   let mapSchema f (SS.Forall xs t) = SS.Forall xs (f t)
   let boundName :: Maybe SS.Name
-      withoutBinding :: SS.BlockStmt SS.UnresolvedName SS.RawT
+      withoutBinding :: SS.BlockStmt SS.RawT
       (boundName, withoutBinding) =
         case ast' of
           SS.Bind (Just (SS.getVal -> varName, ty)) ctx expr
@@ -644,15 +644,15 @@ sawScriptCmd str = do
   a trivial module. -}
   modsInScope :: Map SS.ModuleName SS.ValidModule
               <- getModulesInScope
-  let astModule :: SS.Module SS.UnresolvedName SS.RawT
+  let astModule :: SS.Module SS.RawT
       astModule = wrapBStmt modsInScope "it" withoutBinding
   -- Add the types of previously evaluated and named expressions.
   astModule' <- injectBoundExpressionTypes astModule
   -- Rename references.
-  renamed :: SS.Module SS.ResolvedName SS.ResolvedT
+  renamed :: SS.Module SS.ResolvedT
           <- err $ SAWScript.RenameRefs.renameRefs astModule'
   -- Infer and check types.
-  typechecked :: SS.Module SS.ResolvedName SS.Schema
+  typechecked :: SS.Module SS.Schema
               <- err $ SAWScript.MGU.checkModule renamed
   -- Interpret the statement.
   sc <- getSharedContext
@@ -666,8 +666,8 @@ sawScriptCmd str = do
     _                              -> return ()
 
 
-injectBoundExpressionTypes :: SS.Module SS.UnresolvedName SS.ResolvedT
-                              -> REPL (SS.Module SS.UnresolvedName SS.ResolvedT)
+injectBoundExpressionTypes :: SS.Module SS.ResolvedT
+                              -> REPL (SS.Module SS.ResolvedT)
 injectBoundExpressionTypes orig = do
   boundNames <- getNamesInScope
   boundNamesAndTypes :: Map SS.LName SS.ResolvedT
