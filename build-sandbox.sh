@@ -11,11 +11,14 @@ dotests="false"
 dopull="false"
 sandbox_dir=build
 
-while getopts "tp" opt; do
+while getopts "tpf" opt; do
   case $opt in
     t)
       dotests="true"
       sandbox_dir=build-tests
+      ;;
+    f)
+      force_utils="true"
       ;;
     p) dopull="true" ;;
     \?)
@@ -35,8 +38,13 @@ PATH=${PWD}/${sandbox_dir}/bin:$PATH
 cabal sandbox --sandbox=${sandbox_dir} init
 
 # use cabal to install the build-time depencencies we need
+# always build them if the '-f' option was given
 for prog in ${PROGRAMS} ; do
-  (which $prog && $prog --version) || cabal instal $prog
+  if [ ${force_utils} == "true" ]; then
+    cabal install $prog
+  else
+    (which $prog && $prog --version) || cabal install $prog
+  fi
 done
 
 if [ "${dotests}" == "true" ] ; then
