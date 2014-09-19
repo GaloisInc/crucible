@@ -36,7 +36,7 @@ cabal sandbox --sandbox=${sandbox_dir} init
 
 # use cabal to install the build-time depencencies we need
 for prog in ${PROGRAMS} ; do
-  cabal exec $prog -- --version || cabal install $prog
+  (which $prog && $prog --version) || cabal instal $prog
 done
 
 if [ "${dotests}" == "true" ] ; then
