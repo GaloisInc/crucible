@@ -89,10 +89,10 @@ if [ "${dotests}" == "true" ] ; then
 
     (cd ${pkg} &&
          cabal sandbox init --sandbox="../SAWScript/${sandbox_dir}" &&
-	 cabal install --enable-tests --only-dependencies &&
+         cabal install --enable-tests --force-reinstalls --only-dependencies &&
          cabal configure --enable-tests &&
          cabal build --only &&
-	 (cabal test --only ${test_flags} || true))
+         (cabal test --only ${test_flags} || true))
 
     if [ -e ${pkg}-test-results.xml ]; then
       xsltproc jenkins-junit-munge.xsl ${pkg}-test-results.xml > jenkins-${pkg}-test-results.xml
