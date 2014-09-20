@@ -139,7 +139,7 @@ AExpr :: { Expr }
  | string                               { String $1               }
  | Code                                 { Code $1                 }
  | num                                  { Z $1                    }
- | name                                 { Var (Located (unresolved (tokStr $1)) (tokStr $1) (tokPos $1))     }
+ | name                                 { Var (Located (unresolved (tokStr $1)) (tokStr $1) (tokPos $1)) []  }
  | 'undefined'                          { Undefined               }
  | '(' Expression ')'                   { $2                      }
  | '(' commas2(Expression) ')'          { Tuple $2                }

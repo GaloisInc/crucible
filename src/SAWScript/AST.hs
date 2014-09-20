@@ -151,7 +151,7 @@ data Expr
   | Lookup Expr Name
   | TLookup Expr Integer
   -- LC
-  | Var (Located ResolvedName)
+  | Var (Located ResolvedName) [Type] -- ^ Polymorphic var applied to type arguments
   | Function    LName (Maybe Type) Expr
   | Application Expr Expr
   -- Sugar

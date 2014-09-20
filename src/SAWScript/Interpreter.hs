@@ -76,37 +76,6 @@ extendEnv x mt v (InterpretEnv vm tm ce) = InterpretEnv vm' tm' ce'
               -> CEnv.bindInteger (qname, n) ce
             _ -> ce
 
--- Type matching ---------------------------------------------------------------
-
--- | Matches a (possibly) polymorphic type @polyty@ against a
--- monomorphic type @monoty@, which must be an instance of it. The
--- function returns a list of type variable instantiations, in the
--- same order as the variables in the outermost TypAbs of @polyty@.
-typeInstantiation :: SS.Schema -> SS.Type -> [SS.Type]
-typeInstantiation (SS.Forall xs t1) t2 =
-  [ fromMaybe (error "unbound type variable") (Map.lookup x m) | x <- xs ]
-    where m = fromMaybe (error "matchType failed") (matchType t1 t2)
-
--- | @matchType pat ty@ returns a map of variable instantiations, if
--- @ty@ is an instance of @pat@.
-matchType :: SS.Type -> SS.Type -> Maybe (Map SS.Name SS.Type)
-matchType (SS.TyCon c1 ts1) (SS.TyCon c2 ts2) | c1 == c2 = matchTypes ts1 ts2
-matchType (SS.TyRecord m1) (SS.TyRecord m2)
-    | Map.keys m1 == Map.keys m2 = matchTypes (Map.elems m1) (Map.elems m2)
-matchType (SS.TyVar (SS.BoundVar x)) t2 = Just (Map.singleton x t2)
-matchType t1 t2 = error $ "matchType failed: " ++ show (t1, t2)
-
-matchTypes :: [SS.Type] -> [SS.Type] -> Maybe (Map SS.Name SS.Type)
-matchTypes [] [] = Just Map.empty
-matchTypes [] (_ : _) = Nothing
-matchTypes (_ : _) [] = Nothing
-matchTypes (x : xs) (y : ys) = do
-  m1 <- matchType x y
-  m2 <- matchTypes xs ys
-  let compatible = and (Map.elems (Map.intersectionWith (==) m1 m2))
-  if compatible then Just (Map.union m1 m2) else Nothing
-
-
 -- Type substitution -----------------------------------------------------------
 
 toSubst :: Map SS.Name SS.Type -> MGU.Subst
@@ -138,22 +107,11 @@ interpret sc env@(InterpretEnv vm tm ce) expr =
                                    return (lookupValue a n)
       SS.TLookup e i         -> do a <- interpret sc env e
                                    return (tupleLookupValue a i)
-      SS.TSig (SS.Var x) (SS.Forall [] t)
-                             -> case Map.lookup x vm of
+      SS.Var x ts            -> case Map.lookup x vm of
                                   Nothing -> fail $ "unknown variable: " ++ SS.renderResolvedName (SS.getVal x)
                                   --evaluate sc <$> translateExpr sc tm sm Map.empty expr
-                                  Just v ->
-                                    case Map.lookup x tm of
-                                      Nothing -> return v
-                                      Just schema -> do
-                                        let ts = typeInstantiation schema t
-                                        foldM tapplyValue v ts
-      SS.TSig (SS.Var x) (SS.Forall _ _) ->
-        fail $ "Can't interpret: " ++ SS.renderResolvedName (SS.getVal x)
-      SS.TSig e _            -> interpret sc env e
-      SS.Var x               -> case Map.lookup x vm of
-                                  Nothing -> fail $ "unknown variable: " ++ SS.renderResolvedName (SS.getVal x)
-                                  Just v -> return v
+                                  Just v -> foldM tapplyValue v ts
+
       SS.Function x t e      -> do let f v = interpret sc (extendEnv x (fmap SS.tMono t) v env) e
                                    return $ VLambda f
       SS.Application e1 e2   -> do v1 <- interpret sc env e1
@@ -166,6 +124,7 @@ interpret sc env@(InterpretEnv vm tm ce) expr =
                                                             return (extendEnv x t v env0)
                                    env' <- foldM f env bs
                                    interpret sc env' e
+      SS.TSig e _            -> interpret sc env e
 
 interpretPoly
     :: forall s. SharedContext s
