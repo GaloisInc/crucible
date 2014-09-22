@@ -50,7 +50,7 @@ fi
 # use cabal to install the build-time depencencies we need
 # always build them if the '-f' option was given
 for prog in ${PROGRAMS} ; do
-  if [ ${force_utils} == "true" ]; then
+  if [ "${force_utils}" == "true" ]; then
     cabal install ${cabal_flags} $prog
   else
     (which $prog && $prog --version) || cabal install ${cabal_flags} $prog
