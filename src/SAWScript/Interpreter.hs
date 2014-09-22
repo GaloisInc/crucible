@@ -47,15 +47,11 @@ import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 
 import qualified Cryptol.TypeCheck.AST as T
 
-type Expression = SS.Expr
-type BlockStatement = SS.BlockStmt
-type RNameMap = Map (Located SS.Name)
-
 -- Environment -----------------------------------------------------------------
 
 data InterpretEnv s = InterpretEnv
-  { ieValues  :: RNameMap (Value s)
-  , ieTypes   :: RNameMap SS.Schema
+  { ieValues  :: Map SS.LName (Value s)
+  , ieTypes   :: Map SS.LName SS.Schema
   , ieCryptol :: CEnv.CryptolEnv s
   }
 
@@ -80,14 +76,14 @@ extendEnv x mt v (InterpretEnv vm tm ce) = InterpretEnv vm' tm' ce'
 toSubst :: Map SS.Name SS.Type -> MGU.Subst
 toSubst m = MGU.Subst (Map.mapKeysMonotonic SS.BoundVar m)
 
-substTypeExpr :: Map SS.Name SS.Type -> Expression -> Expression
+substTypeExpr :: Map SS.Name SS.Type -> SS.Expr -> SS.Expr
 substTypeExpr m expr = MGU.appSubst (toSubst m) expr
 
 -- Interpretation of SAWScript -------------------------------------------------
 
 interpret
     :: forall s. SharedContext s
-    -> InterpretEnv s -> Expression -> IO (Value s)
+    -> InterpretEnv s -> SS.Expr -> IO (Value s)
 interpret sc env@(InterpretEnv vm _tm ce) expr =
     case expr of
       SS.Bit b               -> return $ VBool b
@@ -127,7 +123,7 @@ interpret sc env@(InterpretEnv vm _tm ce) expr =
 
 interpretPoly
     :: forall s. SharedContext s
-    -> InterpretEnv s -> Expression -> IO (Value s)
+    -> InterpretEnv s -> SS.Expr -> IO (Value s)
 interpretPoly sc env expr =
     case SS.typeOf expr of
       Just (SS.Forall ns _) ->
@@ -137,7 +133,7 @@ interpretPoly sc env expr =
 
 interpretStmts
     :: forall s. SharedContext s
-    -> InterpretEnv s -> [BlockStatement] -> IO (Value s)
+    -> InterpretEnv s -> [SS.BlockStmt] -> IO (Value s)
 interpretStmts sc env@(InterpretEnv vm tm ce) stmts =
     case stmts of
       [] -> fail "empty block"
@@ -166,7 +162,7 @@ interpretModule sc env m =
 
 interpretSCC
     :: forall s. SharedContext s
-    -> InterpretEnv s -> (Located SS.Name, Expression) -> IO (InterpretEnv s)
+    -> InterpretEnv s -> (Located SS.Name, SS.Expr) -> IO (InterpretEnv s)
 interpretSCC sc env@(InterpretEnv vm tm ce) (x, expr) =
             do v <- interpretPoly sc env expr
                let qname = T.QName Nothing (T.Name (getOrig x))
@@ -238,7 +234,7 @@ interpretMain :: Options -> SS.ValidModule -> IO ()
 interpretMain opts m = fromValue <$> interpretEntry "main" opts m
 
 -- | Collects primitives from the module and all its transitive dependencies.
-transitivePrimEnv :: SS.ValidModule -> RNameMap SS.Schema
+transitivePrimEnv :: SS.ValidModule -> Map SS.LName SS.Schema
 transitivePrimEnv m = Map.unions (env : envs)
   where
     env = SS.modulePrimEnv m
@@ -253,7 +249,7 @@ print_value  sc _t (VTerm _ trm) = print (evaluate sc trm)
 print_value _sc  t v =
   putStrLn (showsPrecValue defaultPPOpts 0 (Just t) v "")
 
-valueEnv :: Options -> BuiltinContext -> RNameMap (Value SAWCtx)
+valueEnv :: Options -> BuiltinContext -> Map SS.LName (Value SAWCtx)
 valueEnv opts bic = Map.fromList
   [ (qualify "sbv_uninterpreted", toValue $ sbvUninterpreted sc)
   , (qualify "read_sbv"    , toValue $ readSBV sc)
