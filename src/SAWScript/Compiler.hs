@@ -1,7 +1,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module SAWScript.Compiler ( Compiler, compiler, runCompiler
+module SAWScript.Compiler ( Compiler, compiler
                           , Err, runErr
                           , ErrT, runErrT, mapErrT
+                          , reportErrT
                           , liftParser
                           ) where
 
@@ -14,24 +15,18 @@ import Control.Monad.Trans.Error (ErrorT, mapErrorT, runErrorT)
 import SAWScript.AST (PrettyPrint, pShow)
 import SAWScript.Parser (ParseError)
 
--- | Wrapper around compiler function to format the result or error
-runCompiler :: (Show b, MonadIO io)
-               => (a -> ErrT io b) {- This is effectively a supertype of
-                  'Compiler a b'--it allows you to use any 'MonadIO', not just
-                  'IO' itself. -}
-               -> a
-               -> (b -> io ())
-               -> io ()
-runCompiler f a k = do
-  result <- runErrT (f a)
+-- | Run an ErrT computation; fail with a formatted message upon error.
+reportErrT :: (MonadIO io, Show a) => ErrT io a -> io a
+reportErrT m = do
+  result <- runErrT m
   case result of
     Left msg -> reportError msg
-    Right b  -> k b
+    Right b  -> return b
 
 indent :: Int -> String -> String
 indent n = unlines . map (replicate n ' ' ++) . lines
 
-reportError :: (MonadIO io) => String -> io ()
+reportError :: (MonadIO io) => String -> io a
 reportError = fail . ("Error\n" ++) . indent 2
 --reportError = liftIO . putStrLn . ("Error\n" ++) . indent 2
 
