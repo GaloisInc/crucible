@@ -6,8 +6,6 @@ GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser
 PROGRAMS="alex happy c2hs"
 TESTABLE="SAWCore Java LLVM"
 
-cabal_flags="--force-reinstalls"
-
 dotests="false"
 dopull="false"
 sandbox_dir=build
@@ -51,9 +49,9 @@ fi
 # always build them if the '-f' option was given
 for prog in ${PROGRAMS} ; do
   if [ "${force_utils}" == "true" ]; then
-    cabal install ${cabal_flags} $prog
+    cabal install $prog
   else
-    (which $prog && $prog --version) || cabal install ${cabal_flags} $prog
+    (which $prog && $prog --version) || cabal install $prog
   fi
 done
 
@@ -79,7 +77,7 @@ for repo in ${GITHUB_REPOS} ; do
 
   # Be sure abcBridge builds with pthreads diabled on Windows
   if [ "${OS}" == "Windows_NT" -a "${repo}" == "abcBridge" ]; then
-    cabal install --force abcBridge ${cabal_flags} -f-enable-pthreads
+    cabal install --force abcBridge -f-enable-pthreads
   fi
 done
 
@@ -99,7 +97,7 @@ if [ "${dotests}" == "true" ] ; then
 
     (cd ${pkg} &&
          cabal sandbox init --sandbox="../SAWScript/${sandbox_dir}" &&
-         cabal install ${cabal_flags} --enable-tests --only-dependencies &&
+         cabal install --enable-tests --only-dependencies &&
          cabal configure --enable-tests &&
          cabal build --only &&
          (cabal test --only ${test_flags} || true))
@@ -114,6 +112,6 @@ if [ "${dotests}" == "true" ] ; then
 
 else
 
-  cabal install --reinstall ${cabal_flags}
+  cabal install --reinstall --force-reinstalls
 
 fi
