@@ -113,7 +113,7 @@ newtype TI a = TI { unTI :: ReaderT RO (StateT RW Identity) a }
                         deriving (Functor,Applicative,Monad)
 
 data RO = RO
-  { typeEnv :: M.Map (Located ResolvedName) Schema
+  { typeEnv :: M.Map (Located Name) Schema
   , curMod  :: ModuleName
   }
 
@@ -160,26 +160,25 @@ unify m t1 t2 = do
                 , e
                 ]
 
-bindSchema :: Located ResolvedName -> Schema -> TI a -> TI a
+bindSchema :: Located Name -> Schema -> TI a -> TI a
 bindSchema n s m = TI $ local (\ro -> ro { typeEnv = M.insert n s $ typeEnv ro })
   $ unTI m
 
-bindSchemas :: [(Located ResolvedName, Schema)] -> TI a -> TI a
+bindSchemas :: [(Located Name, Schema)] -> TI a -> TI a
 bindSchemas bs m = foldr (uncurry bindSchema) m bs
 
+-- deprecated
 bindTopSchemas :: [LBind Schema] -> TI a -> TI a
-bindTopSchemas ds k =
-  do m <- curModName
-     bindSchemas [ (fmap (TopLevelName m) x, s) | (x, s) <- ds ] k
+bindTopSchemas ds k = bindSchemas ds k
 
+-- deprecated
 bindLocalSchemas :: [LBind Schema] -> TI a -> TI a
-bindLocalSchemas ds k =
-  bindSchemas [ (fmap LocalName x, s) | (x, s) <- ds ] k
+bindLocalSchemas ds k = bindSchemas ds k
 
 curModName :: TI ModuleName
 curModName = TI $ asks curMod
 
-lookupVar :: Located ResolvedName -> TI Type
+lookupVar :: Located Name -> TI Type
 lookupVar n = do
   env <- TI $ asks typeEnv
   case M.lookup n env of
@@ -444,7 +443,7 @@ inferStmts m ctx (Bind mn mt mc e : more) = do
                   return c'
   let f = case mn of
         Nothing -> id
-        Just n  -> bindSchema (fmap LocalName n) (tMono t)
+        Just n  -> bindSchema n (tMono t)
   (more',t') <- f $ inferStmts m ctx more
 
   return (Bind mn (Just t') (Just mc') e' : more', t')
@@ -526,16 +525,14 @@ checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
   let modName = moduleName m
   let exprs   = moduleExprEnv m
   let initTs  = concat
-       [ [ (fmap (TopLevelName mn) n, s)
+       [ [ (n, s)
          | (n,e) <- modExprs dep
          , Just s <- [typeOf e]
          ] ++
-         [ (fmap (TopLevelName mn) n, p)
-         | (n,p) <- modPrims dep
-         ]
-       | (mn,dep) <- depMods m
+         modPrims dep
+       | (_mn,dep) <- depMods m
        ]
-  let (primTs,prims) = unzip [ ((fmap (TopLevelName modName) n, t), (n, t))
+  let (primTs,prims) = unzip [ ((n, t), (n, t))
                              | (n, t) <- modPrims m ]
   let nes  = exprs
   let sccs = computeSCCGroups modName nes

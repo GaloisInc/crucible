@@ -24,14 +24,6 @@ type Name = String
 --  and single name designating module name.
 newtype ModuleName = ModuleName Name deriving (Eq,Ord,Show)
 
--- a name that has been resolved to a particular module.
-data ResolvedName
-  -- locally bound in the environment, ie. in a lambda.
-  = LocalName Name
-  -- a name bound at the top level of some module.
-  | TopLevelName ModuleName Name
-  deriving (Eq,Ord,Show)
-
 moduleNameFromString :: String -> ModuleName
 moduleNameFromString nm = ModuleName nm
 
@@ -46,11 +38,6 @@ renderModuleName (ModuleName n) = n
 
 moduleNameFilePath :: ModuleName -> String
 moduleNameFilePath (ModuleName n) = n
-
-renderResolvedName :: ResolvedName -> String
-renderResolvedName rn = case rn of
-  TopLevelName (ModuleName mn) n -> renderDotSepName $ [mn,n]
-  LocalName n                    -> show n
 
 type Bind a = (Name,a)
 type LBind a = (LName, a)
@@ -151,7 +138,7 @@ data Expr
   | Lookup Expr Name
   | TLookup Expr Integer
   -- LC
-  | Var (Located ResolvedName) [Type] -- ^ Polymorphic var applied to type arguments
+  | Var (Located Name) [Type] -- ^ Polymorphic var applied to type arguments
   | Function    LName (Maybe Type) Expr
   | Application Expr Expr
   -- Sugar

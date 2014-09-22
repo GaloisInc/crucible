@@ -107,7 +107,6 @@ import qualified System.Console.Haskeline as Haskeline
 import SAWScript.AST (Located(getVal),
                       ModuleName,
                       Name,
-                      ResolvedName(..),
                       ValidModule)
 import SAWScript.BuildModules (buildModules)
 import SAWScript.Builtins (BuiltinContext(..))
@@ -192,11 +191,7 @@ getSAWScriptNames :: REPL [String]
 getSAWScriptNames = do
   env <- getEnvironment
   let rnames = Map.keys (ieValues env)
-  return (map (stem . getVal) rnames)
-  where
-    stem :: ResolvedName -> String
-    stem (LocalName n) = n
-    stem (TopLevelName _ n) = n
+  return (map getVal rnames)
 
 -- Lifting computations --
 

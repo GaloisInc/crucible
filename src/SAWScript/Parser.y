@@ -139,7 +139,7 @@ AExpr :: { Expr }
  | string                               { String $1               }
  | Code                                 { Code $1                 }
  | num                                  { Z $1                    }
- | name                                 { Var (Located (unresolved (tokStr $1)) (tokStr $1) (tokPos $1)) []  }
+ | name                                 { Var (Located (tokStr $1) (tokStr $1) (tokPos $1)) []  }
  | 'undefined'                          { Undefined               }
  | '(' Expression ')'                   { $2                      }
  | '(' commas2(Expression) ')'          { Tuple $2                }
@@ -272,9 +272,6 @@ instance Show ParseError where
       UnexpectedToken t -> "Parse error at line " ++ show ln ++ ", col " ++ show col
         where Pos _ ln col = tokPos t
 
-unresolved :: Name -> ResolvedName
-unresolved = LocalName
-
 parseError :: [Token Pos] -> Either ParseError b
 parseError toks = case toks of
   []    -> Left UnexpectedEOF
@@ -290,8 +287,5 @@ buildApplication = foldl1 (\e body -> Application e body)
 
 mkModuleName :: String -> ModuleName
 mkModuleName = ModuleName
-
-local :: String -> ResolvedName
-local = LocalName
 
 }
