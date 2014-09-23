@@ -44,6 +44,23 @@ if [[ ("${label}" == "saw-centos5-32") && ("${HASKELL_RUNTIME}" == "GHC783") ]];
   echo "library-stripping: False" > cabal.config
 fi
 
+if [ "${dotests}" == "true" ] ; then
+  for pkg in sawScript cryptol-verifier llvm-verifier jvm-verifier saw-core ; do
+    cabal sandbox hc-pkg unregister $pkg || true
+  done
+fi
+
+# prepopulate some packages to try to prevent reinstalls later
+cabal install "transformers >= 0.4"
+cabal install "QuickCheck >= 2.7.6"
+
+# prepopulate additional packages when in testing mode
+if [ "${dotests}" == "true" ] ; then
+  cabal install "tasty"
+  cabal install "tasty-quickcheck"
+  cabal install "tasty-hunit"
+  cabal install "tasty-ant-xml"
+fi
 
 # use cabal to install the build-time depencencies we need
 # always build them if the '-f' option was given
@@ -54,20 +71,6 @@ for prog in ${PROGRAMS} ; do
     (which $prog && $prog --version) || cabal install $prog
   fi
 done
-
-if [ "${dotests}" == "true" ] ; then
-  for pkg in sawScript cryptol-verifier llvm-verifier jvm-verifier saw-core ; do
-    cabal sandbox hc-pkg unregister $pkg || true
-  done
-
-  # prepopulate some packages to try to prevent reinstalls later
-  cabal install "transformers >= 0.4"
-  cabal install "QuickCheck >= 2.7.6"
-  cabal install "tasty"
-  cabal install "tasty-quickcheck"
-  cabal install "tasty-hunit"
-  cabal install "tasty-ant-xml"
-fi
 
 for repo in ${GITHUB_REPOS} ; do
   if [ ! -e ./deps/${repo} ] ; then
