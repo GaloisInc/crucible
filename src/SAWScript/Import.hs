@@ -37,24 +37,21 @@ preludeLoadedModules = do
     ms = emptyLoadedModules
     mn = moduleNameFromString "Prelude"
 
-loadWithPrelude :: Options -> FilePath -> (LoadedModules -> IO ()) -> IO ()
-loadWithPrelude opts fname k = do
+loadWithPrelude :: Options -> FilePath -> IO LoadedModules
+loadWithPrelude opts fname = do
   loaded <- preludeLoadedModules
-  loadModule opts fname loaded k
+  loadModule opts fname loaded
 
-loadModule :: Options -> FilePath -> LoadedModules
-  -> (LoadedModules -> IO ()) -> IO ()
-loadModule opts fname ms k = do
+loadModule :: Options -> FilePath -> LoadedModules -> IO LoadedModules
+loadModule opts fname ms = do
   let mn = moduleNameFromPath $ dropExtension (takeFileName fname)
   when (verbLevel opts > 0) $ putStrLn $ "Loading Module " ++ show (renderModuleName mn)
   ftext <- readFile fname
-  runCompiler (formModule fname) ftext $ \m -> do
-    loadRest mn (mapMaybe getImport m)
-             (ms { modules = Map.insert mn m (modules ms) })
-  where loadRest _mn [] ms' = do
-          k ms' 
-        loadRest mn (imp:imps) ms' = do
-          findAndLoadModule opts imp ms' (loadRest mn imps)
+  m <- reportErrT (formModule fname ftext)
+  loadRest mn (mapMaybe getImport m) (ms { modules = Map.insert mn m (modules ms) })
+  where loadRest _mn [] ms' = return ms'
+        loadRest mn (imp:imps) ms' =
+          findAndLoadModule opts imp ms' >>= loadRest mn imps
 
 
 
@@ -72,9 +69,8 @@ emptyLoadedModules = LoadedModules Map.empty
 formModule :: FilePath -> Compiler String [TopStmt]
 formModule f = scan f >=> liftParser parseModule
 
-findAndLoadModule :: Options -> ModuleName -> LoadedModules
-  -> (LoadedModules -> IO ()) -> IO ()
-findAndLoadModule opts name ms k = do
+findAndLoadModule :: Options -> ModuleName -> LoadedModules -> IO LoadedModules
+findAndLoadModule opts name ms = do
   let mn    = renderModuleName name
   let fp    = moduleNameFilePath name <.> "saw"
   let paths = importPath opts
@@ -85,7 +81,7 @@ findAndLoadModule opts name ms k = do
         , "  Searched for file: " ++ show fp
         , "  In directories:"
         ] ++ map ("    " ++) paths
-    Just fname -> loadModule opts fname ms k
+    Just fname -> loadModule opts fname ms
 
 #if __GLASGOW_HASKELL__ < 706
 findFile :: [FilePath] -> String -> IO (Maybe FilePath)

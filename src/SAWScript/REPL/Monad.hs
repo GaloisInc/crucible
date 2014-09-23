@@ -63,7 +63,7 @@ import Cryptol.Prims.Types(typeOf)
 import Cryptol.Prims.Syntax(ECon(..),ppPrefix)
 import Cryptol.Eval (EvalError)
 import qualified Cryptol.ModuleSystem as M
-import Cryptol.ModuleSystem.NamingEnv (NamingEnv, namingEnv)
+import Cryptol.ModuleSystem.NamingEnv (NamingEnv)
 import Cryptol.Parser (ParseError,ppError)
 import Cryptol.Parser.NoInclude (IncludeError,ppIncludeError)
 import Cryptol.Parser.NoPat (Error)
@@ -73,9 +73,8 @@ import Cryptol.Utils.Panic (panic)
 import qualified Cryptol.Parser.AST as P
 
 import Control.Monad (unless,when)
-import Data.IORef (IORef, newIORef, readIORef, modifyIORef, writeIORef)
+import Data.IORef (IORef, newIORef, readIORef, modifyIORef)
 import Data.List (isPrefixOf)
-import Data.Traversable
 import Data.Typeable (Typeable)
 import System.Console.ANSI (setTitle)
 import qualified Control.Exception as X
@@ -83,7 +82,6 @@ import qualified Data.Map as Map
 import System.IO.Error (isUserError, ioeGetErrorString)
 
 import Verifier.SAW.SharedTerm (SharedTerm)
-import qualified Verifier.SAW.Cryptol as C
 
 --------------------
 {-
@@ -109,11 +107,10 @@ import qualified System.Console.Haskeline as Haskeline
 import SAWScript.AST (Located(getVal),
                       ModuleName,
                       Name,
-                      ResolvedName(..),
                       ValidModule)
 import SAWScript.BuildModules (buildModules)
 import SAWScript.Builtins (BuiltinContext(..))
-import SAWScript.Compiler (ErrT, runErr, runErrT, mapErrT, runCompiler)
+import SAWScript.Compiler (ErrT, runErr, runErrT)
 import SAWScript.CryptolEnv
 import SAWScript.Import (preludeLoadedModules)
 import SAWScript.Interpreter (InterpretEnv(..), buildInterpretEnv)
@@ -194,11 +191,7 @@ getSAWScriptNames :: REPL [String]
 getSAWScriptNames = do
   env <- getEnvironment
   let rnames = Map.keys (ieValues env)
-  return (map (stem . getVal) rnames)
-  where
-    stem :: ResolvedName -> String
-    stem (LocalName n) = n
-    stem (TopLevelName _ n) = n
+  return (map getVal rnames)
 
 -- Lifting computations --
 

@@ -21,7 +21,6 @@ import Control.Applicative
 import Control.Monad ( foldM )
 import qualified Data.Map as Map
 import Data.Map ( Map )
-import Data.Maybe ( fromMaybe )
 import Data.Traversable hiding ( mapM )
 
 import qualified SAWScript.AST as SS
@@ -48,22 +47,18 @@ import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 
 import qualified Cryptol.TypeCheck.AST as T
 
-type Expression = SS.Expr
-type BlockStatement = SS.BlockStmt
-type RNameMap = Map (Located SS.ResolvedName)
-
 -- Environment -----------------------------------------------------------------
 
 data InterpretEnv s = InterpretEnv
-  { ieValues  :: RNameMap (Value s)
-  , ieTypes   :: RNameMap SS.Schema
+  { ieValues  :: Map SS.LName (Value s)
+  , ieTypes   :: Map SS.LName SS.Schema
   , ieCryptol :: CEnv.CryptolEnv s
   }
 
 extendEnv :: SS.LName -> Maybe SS.Schema -> Value s -> InterpretEnv s -> InterpretEnv s
 extendEnv x mt v (InterpretEnv vm tm ce) = InterpretEnv vm' tm' ce'
   where
-    name = fmap SS.LocalName x
+    name = x
     qname = T.QName Nothing (T.Name (getOrig x))
     vm' = Map.insert name v vm
     tm' = case mt of
@@ -81,15 +76,15 @@ extendEnv x mt v (InterpretEnv vm tm ce) = InterpretEnv vm' tm' ce'
 toSubst :: Map SS.Name SS.Type -> MGU.Subst
 toSubst m = MGU.Subst (Map.mapKeysMonotonic SS.BoundVar m)
 
-substTypeExpr :: Map SS.Name SS.Type -> Expression -> Expression
+substTypeExpr :: Map SS.Name SS.Type -> SS.Expr -> SS.Expr
 substTypeExpr m expr = MGU.appSubst (toSubst m) expr
 
 -- Interpretation of SAWScript -------------------------------------------------
 
 interpret
     :: forall s. SharedContext s
-    -> InterpretEnv s -> Expression -> IO (Value s)
-interpret sc env@(InterpretEnv vm tm ce) expr =
+    -> InterpretEnv s -> SS.Expr -> IO (Value s)
+interpret sc env@(InterpretEnv vm _tm ce) expr =
     case expr of
       SS.Bit b               -> return $ VBool b
       SS.String s            -> return $ VString s
@@ -108,7 +103,7 @@ interpret sc env@(InterpretEnv vm tm ce) expr =
       SS.TLookup e i         -> do a <- interpret sc env e
                                    return (tupleLookupValue a i)
       SS.Var x ts            -> case Map.lookup x vm of
-                                  Nothing -> fail $ "unknown variable: " ++ SS.renderResolvedName (SS.getVal x)
+                                  Nothing -> fail $ "unknown variable: " ++ SS.getVal x
                                   --evaluate sc <$> translateExpr sc tm sm Map.empty expr
                                   Just v -> foldM tapplyValue v ts
 
@@ -128,7 +123,7 @@ interpret sc env@(InterpretEnv vm tm ce) expr =
 
 interpretPoly
     :: forall s. SharedContext s
-    -> InterpretEnv s -> Expression -> IO (Value s)
+    -> InterpretEnv s -> SS.Expr -> IO (Value s)
 interpretPoly sc env expr =
     case SS.typeOf expr of
       Just (SS.Forall ns _) ->
@@ -138,7 +133,7 @@ interpretPoly sc env expr =
 
 interpretStmts
     :: forall s. SharedContext s
-    -> InterpretEnv s -> [BlockStatement] -> IO (Value s)
+    -> InterpretEnv s -> [SS.BlockStmt] -> IO (Value s)
 interpretStmts sc env@(InterpretEnv vm tm ce) stmts =
     case stmts of
       [] -> fail "empty block"
@@ -160,15 +155,14 @@ interpretModule
     :: forall s. SharedContext s
     -> InterpretEnv s -> SS.ValidModule -> IO (InterpretEnv s)
 interpretModule sc env m =
-    do let mn = SS.moduleName m
-       cenv' <- foldM (CEnv.importModule sc) (ieCryptol env) (SS.moduleCryDeps m)
+    do cenv' <- foldM (CEnv.importModule sc) (ieCryptol env) (SS.moduleCryDeps m)
        let env' = env { ieCryptol = cenv' }
-       let sccs = [ (fmap (SS.TopLevelName mn) name, e) | (name, e) <- SS.moduleExprEnv m ]
+       let sccs = SS.moduleExprEnv m
        foldM (interpretSCC sc) env' sccs
 
 interpretSCC
     :: forall s. SharedContext s
-    -> InterpretEnv s -> (Located SS.ResolvedName, Expression) -> IO (InterpretEnv s)
+    -> InterpretEnv s -> (Located SS.Name, SS.Expr) -> IO (InterpretEnv s)
 interpretSCC sc env@(InterpretEnv vm tm ce) (x, expr) =
             do v <- interpretPoly sc env expr
                let qname = T.QName Nothing (T.Name (getOrig x))
@@ -191,7 +185,7 @@ interpretModuleAtEntry :: SS.Name
                           -> IO (Value s, InterpretEnv s)
 interpretModuleAtEntry entryName sc env m =
   do interpretEnv@(InterpretEnv vm _tm _ce) <- interpretModule sc env m
-     let mainName = Located (SS.TopLevelName (SS.moduleName m) entryName) entryName (PosInternal "entry")
+     let mainName = Located entryName entryName (PosInternal "entry")
      case Map.lookup mainName vm of
        Just (VIO v) -> do
          --putStrLn "We've been asked to execute a 'TopLevel' action, so run it."
@@ -240,11 +234,10 @@ interpretMain :: Options -> SS.ValidModule -> IO ()
 interpretMain opts m = fromValue <$> interpretEntry "main" opts m
 
 -- | Collects primitives from the module and all its transitive dependencies.
-transitivePrimEnv :: SS.ValidModule -> RNameMap SS.Schema
+transitivePrimEnv :: SS.ValidModule -> Map SS.LName SS.Schema
 transitivePrimEnv m = Map.unions (env : envs)
   where
-    mn = SS.moduleName m
-    env = Map.mapKeysMonotonic (fmap (SS.TopLevelName mn)) (SS.modulePrimEnv m)
+    env = SS.modulePrimEnv m
     envs = map transitivePrimEnv (Map.elems (SS.moduleDependencies m))
 
 
@@ -256,7 +249,7 @@ print_value  sc _t (VTerm _ trm) = print (evaluate sc trm)
 print_value _sc  t v =
   putStrLn (showsPrecValue defaultPPOpts 0 (Just t) v "")
 
-valueEnv :: Options -> BuiltinContext -> RNameMap (Value SAWCtx)
+valueEnv :: Options -> BuiltinContext -> Map SS.LName (Value SAWCtx)
 valueEnv opts bic = Map.fromList
   [ (qualify "sbv_uninterpreted", toValue $ sbvUninterpreted sc)
   , (qualify "read_sbv"    , toValue $ readSBV sc)
@@ -364,5 +357,5 @@ valueEnv opts bic = Map.fromList
   , (qualify "caseProofResult", toValueCase sc caseProofResultPrim)
   ] where sc = biSharedContext bic
 
-qualify :: String -> Located SS.ResolvedName
-qualify s = Located (SS.TopLevelName (SS.ModuleName "Prelude") s) s (PosInternal "coreEnv")
+qualify :: String -> Located SS.Name
+qualify s = Located s s (PosInternal "coreEnv")

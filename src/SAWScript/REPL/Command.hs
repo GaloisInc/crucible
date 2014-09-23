@@ -88,11 +88,10 @@ import Numeric (showFFloat)
 -- SAWScript imports
 import qualified SAWScript.AST as SS
     (ModuleName, {-renderModuleName,-}
-     renderResolvedName, pShow,
+     pShow,
      Module(..), ValidModule,
      BlockStmt(Bind),
      Name, LName, Located(..),
-     ResolvedName(..),
      Context(..), Schema(..), Type(..), TyCon(..),
      tMono, tBlock, tContext,
      updateAnnotation)
@@ -477,7 +476,7 @@ quitCmd  = stop
 envCmd :: String -> REPL ()
 envCmd _pfx = do
   env <- getEnvironment
-  let showLName = SS.renderResolvedName . SS.getVal
+  let showLName = SS.getVal
 {-
   io $ putStrLn "\nTerms:\n"
   io $ sequence_ [ putStrLn (showLName x ++ " = " ++ show v) | (x, v) <- Map.assocs (interpretEnvShared env) ]
@@ -673,15 +672,10 @@ injectBoundExpressionTypes orig = do
     getEnvironment <&>
     ieTypes <&>
     Map.filterWithKey (\name _type ->
-                        Set.member (SS.getVal $ stripModuleName name) boundNames) <&>
-    Map.mapKeysMonotonic stripModuleName
+                        Set.member (SS.getVal name) boundNames)
   -- Inject the types.
   return $ orig { SS.modulePrimEnv =
                     Map.union boundNamesAndTypes (SS.modulePrimEnv orig) }
-  where stripModuleName :: SS.Located SS.ResolvedName -> SS.LName
-        stripModuleName (SS.getVal -> (SS.LocalName _)) =
-          error "injectBoundExpressionTypes: bound LocalName"
-        stripModuleName (SS.getVal -> (SS.TopLevelName _modName varName)) = SS.Located varName varName PosREPL
 
 saveResult :: SharedContext SAWCtx -> Maybe SS.Name -> Value SAWCtx -> REPL ()
 saveResult _ Nothing _ = return ()
@@ -689,8 +683,8 @@ saveResult sc (Just name) result = do
   -- Record that 'name' is in scope.
   modifyNamesInScope $ Set.insert name
   -- Save the type of 'it'.
-  let itsName = SS.Located (SS.TopLevelName replModuleName "it") "it" PosREPL
-      itsName' = SS.Located (SS.TopLevelName replModuleName name) "it" PosREPL
+  let itsName = SS.Located "it" "it" PosREPL
+      itsName' = SS.Located name "it" PosREPL
   env <- getEnvironment
   let typeEnv = ieTypes env
   let valueEnv = ieValues env
