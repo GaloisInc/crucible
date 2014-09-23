@@ -59,6 +59,14 @@ if [ "${dotests}" == "true" ] ; then
   for pkg in sawScript cryptol-verifier llvm-verifier jvm-verifier saw-core ; do
     cabal sandbox hc-pkg unregister $pkg || true
   done
+
+  # prepopulate some packages to try to prevent reinstalls later
+  cabal install "transformers >= 0.4"
+  cabal install "QuickCheck >= 2.7.6"
+  cabal install "tasty"
+  cabal install "tasty-quickcheck"
+  cabal install "tasty-hunit"
+  cabal install "tasty-ant-xml"
 fi
 
 for repo in ${GITHUB_REPOS} ; do
