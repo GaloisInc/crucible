@@ -99,8 +99,12 @@ done
 if [ "${dotests}" == "true" ] ; then
   cd ..
 
+  if [ -z ${TEST_TIMEOUT} ]; then
+    TEST_TIMEOUT="60s"
+  fi
+
   for pkg in ${TESTABLE}; do
-    test_flags="--test-option=--xml=../${pkg}-test-results.xml --test-option=--timeout=60s"
+    test_flags="--test-option=--xml=../${pkg}-test-results.xml --test-option=--timeout=${TEST_TIMEOUT}"
 
     if [ ! "${QC_TESTS}" == "" ]; then
         test_flags="${test_flags} --test-option=--quickcheck-tests=${QC_TESTS}"
