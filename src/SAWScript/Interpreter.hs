@@ -81,7 +81,7 @@ interpret sc env@(InterpretEnv vm _tm ce) expr =
       SS.Bit b               -> return $ VBool b
       SS.String s            -> return $ VString s
       SS.Z z                 -> return $ VInteger z
-      SS.Undefined           -> fail "interpret: undefined"
+      SS.Undefined           -> return $ error "interpret: undefined"
       SS.Code str            -> toValue `fmap` CEnv.parseTypedTerm sc ce str
       SS.Array es            -> VArray <$> traverse (interpret sc env) es
       SS.Block stmts         -> interpretStmts sc env stmts
