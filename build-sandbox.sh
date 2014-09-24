@@ -34,7 +34,9 @@ fi
 PWD=`pwd`
 PATH=${PWD}/${sandbox_dir}/bin:$PATH
 
-cabal sandbox --sandbox=${sandbox_dir} init
+if [ ! -e ${sandbox_dir} ] ; then
+  cabal sandbox --sandbox=${sandbox_dir} init
+fi
 
 # we have to disable library stripping on recent cabal-install versions
 # to work around a bug (?) in the 32bit binutils on our install of CentOS5
