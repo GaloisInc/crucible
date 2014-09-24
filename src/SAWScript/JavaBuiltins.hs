@@ -27,7 +27,6 @@ import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.Java.Simulator as JSS
 import qualified Verifier.Java.SAWBackend as JSS
 
-import Verifier.SAW.Evaluator
 import Verifier.SAW.Recognizer
 import Verifier.SAW.FiniteValue
 import Verifier.SAW.SharedTerm

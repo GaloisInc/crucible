@@ -10,7 +10,7 @@ module SAWScript.SBVParser
   ) where
 
 import Control.Monad.State
-import Data.List (intercalate, genericIndex)
+import Data.List (intercalate)
 import Data.Map (Map)
 import qualified Data.Map as Map
 

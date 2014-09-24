@@ -19,7 +19,6 @@ import Data.Maybe
 import Data.Ord
 import qualified Data.Set as Set
 import qualified Data.Vector as V
-import qualified Data.Vector.Storable as SV
 import System.Directory
 import System.IO
 import System.Process
@@ -37,7 +36,6 @@ import qualified Verifier.SAW.BitBlast as Old
 import Verifier.SAW.FiniteValue (FiniteType(..), FiniteValue(..), scFiniteValue, fvVec)
 import Verifier.SAW.Evaluator hiding (applyAll)
 import Verifier.SAW.Prelude
-import qualified Verifier.SAW.Prim as Prim
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
@@ -49,8 +47,6 @@ import qualified Verifier.SAW.Export.SMT.Version2 as SMT2
 
 import qualified SAWScript.SBVParser as SBV
 import SAWScript.ImportAIG
-
-import qualified SAWScript.AST as SS
 
 import SAWScript.Proof
 import SAWScript.Utils
@@ -74,7 +70,7 @@ import qualified Data.SBV.Bridge.Z3 as Z3
 import qualified Data.SBV.Bridge.CVC4 as CVC4
 import qualified Data.SBV.Bridge.Yices as Yices
 import qualified Data.SBV.Bridge.MathSAT as MathSAT
-import Data.SBV (modelExists, satWith, SMTConfig)
+import Data.SBV (satWith, SMTConfig)
 
 data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
                                      , biJavaCodebase  :: JSS.Codebase

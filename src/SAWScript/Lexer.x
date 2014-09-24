@@ -14,7 +14,6 @@ module SAWScript.Lexer
 import SAWScript.Token
 import SAWScript.Utils
 
-import Control.Arrow (second)
 import Numeric
 import Data.List
 

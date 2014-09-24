@@ -39,18 +39,14 @@ import qualified SAWScript.LLVMExpr as TC
 import SAWScript.Options
 import SAWScript.Utils
 import SAWScript.LLVMMethodSpecIR
-import SAWScript.Proof
 import SAWScript.VerificationCheck
 
 import Verifier.LLVM.Simulator hiding (State)
 import Verifier.LLVM.Simulator.Internals hiding (State)
 import Verifier.LLVM.Codebase
--- import Verifier.LLVM.Codebase.AST
 import Verifier.LLVM.Backend hiding (asBool)
 import Verifier.LLVM.Backend.SAW
 
-import Verifier.SAW.Evaluator
--- import Verifier.SAW.Prelude
 import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
 import Verifier.SAW.SharedTerm hiding (Ident)

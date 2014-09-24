@@ -1,9 +1,5 @@
 module SAWScript.REPL.Logo where
 
-import SAWScript.REPL.Monad
---import Paths_cryptol (version)
-
---import Cryptol.Version (commitShortHash)
 --import Data.Version (showVersion)
 import System.Console.ANSI
 

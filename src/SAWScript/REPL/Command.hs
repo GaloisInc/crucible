@@ -30,9 +30,7 @@ module SAWScript.REPL.Command (
   --, moduleCmdResult
   ) where
 
-import Verifier.SAW.SharedTerm (SharedContext, SharedTerm)
-import qualified Verifier.SAW.Recognizer (asLambdaList)
-import qualified Verifier.SAW.Simulator.BitBlast as BBSim
+import Verifier.SAW.SharedTerm (SharedContext)
 
 import SAWScript.REPL.Monad
 import SAWScript.REPL.Trie
@@ -43,36 +41,26 @@ import qualified Cryptol.ModuleSystem.Monad as MM
 import qualified Cryptol.ModuleSystem.Env as ME
 
 import qualified Cryptol.Eval.Value as E
-import qualified Cryptol.ModuleSystem.NamingEnv as MN
 import qualified Cryptol.ModuleSystem.Renamer as R
-import qualified Cryptol.Testing.Random  as TestR
-import qualified Cryptol.Testing.Exhaust as TestX
+--import qualified Cryptol.Testing.Random  as TestR
+--import qualified Cryptol.Testing.Exhaust as TestX
 import qualified Cryptol.Parser
 import Cryptol.Parser
-    (parseExprWith,ParseError(),Config(..),defaultConfig,parseModName)
-import qualified Cryptol.Parser.NoPat
+    (parseExprWith,ParseError(),Config(..))
 import Cryptol.Parser.Position (emptyRange,getLoc)
 import qualified Cryptol.TypeCheck
 import qualified Cryptol.TypeCheck.AST as T
-import qualified Cryptol.TypeCheck.Subst as T
-import qualified Cryptol.TypeCheck.InferTypes as T
 import qualified Cryptol.TypeCheck.Monad
-import Cryptol.TypeCheck.PP (dump,ppWithNames)
-import Cryptol.TypeCheck.Defaulting(defaultExpr)
 import Cryptol.Utils.PP
-import Cryptol.Utils.Panic(panic)
 import qualified Cryptol.Parser.AST as P
 import Cryptol.Prims.Doc(helpDoc)
-import qualified Cryptol.Transform.Specialize as S
-import qualified Cryptol.Symbolic
 
-import Control.Monad (guard,unless,forM_,when)
+import Control.Monad (guard, unless, when)
 import Data.Char (isSpace,isPunctuation,isSymbol)
 import Data.Function (on)
 import Data.List (intercalate,isPrefixOf)
-import Data.Maybe (fromMaybe,mapMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Monoid
-import System.Exit (ExitCode(ExitSuccess))
 --import System.Process (shell,createProcess,waitForProcess)
 --import qualified System.Process as Process(runCommand)
 import System.FilePath((</>), isPathSeparator)
@@ -80,10 +68,7 @@ import System.Directory(getHomeDirectory,setCurrentDirectory,doesDirectoryExist)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import qualified Data.IntMap as IntMap
-import System.IO(hFlush,stdout)
 --import System.Random(newStdGen)
-import Numeric (showFFloat)
 
 -- SAWScript imports
 import qualified SAWScript.AST as SS
@@ -107,13 +92,8 @@ import qualified SAWScript.Parser (parseBlockStmt)
 import qualified SAWScript.RenameRefs (renameRefs)
 import qualified SAWScript.Value (Value(VTerm, VInteger), evaluate)
 import SAWScript.Value (TypedTerm(..))
-import SAWScript.REPL.GenerateModule (replFileName, replModuleName, wrapBStmt)
+import SAWScript.REPL.GenerateModule (replFileName, wrapBStmt)
 import SAWScript.Utils (SAWCtx, Pos(..))
-
-import qualified Verifier.SAW.Cryptol
-
-import Data.ABC (aigNetwork)
-import qualified Data.AIG as AIG
 
 
 #if __GLASGOW_HASKELL__ < 706

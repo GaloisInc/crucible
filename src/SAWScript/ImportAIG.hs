@@ -14,7 +14,6 @@ import Control.Monad
 import Control.Monad.Error
 import Control.Monad.State.Strict
 import qualified Data.Vector as V
-import qualified Data.Vector.Storable as SV
 import Text.PrettyPrint.Leijen hiding ((<$>))
 
 import qualified Data.AIG as AIG

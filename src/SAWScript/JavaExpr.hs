@@ -43,7 +43,6 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe
 
 import Language.JVM.Common (ppFldId)
 

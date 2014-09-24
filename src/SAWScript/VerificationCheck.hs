@@ -4,7 +4,6 @@ import Verifier.SAW.Evaluator
 import Verifier.SAW.SharedTerm
 import Text.PrettyPrint.Leijen
 
-import SAWScript.Utils
 import Verifier.SAW.Cryptol (scCryptolEq)
 
 data VerificationCheck s

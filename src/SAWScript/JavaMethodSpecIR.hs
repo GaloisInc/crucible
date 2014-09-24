@@ -55,7 +55,7 @@ import Data.Graph.Inductive (scc, Gr, mkGraph)
 import Data.List (intercalate, sort)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe (isJust, catMaybes, fromJust)
+import Data.Maybe (catMaybes)
 import qualified Data.Set as Set
 import qualified Data.Vector as V
 

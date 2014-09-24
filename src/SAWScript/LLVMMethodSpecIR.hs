@@ -38,7 +38,6 @@ module SAWScript.LLVMMethodSpecIR
 
 -- Imports {{{1
 
-import Control.Monad.State
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.String
@@ -46,8 +45,6 @@ import Text.PrettyPrint.Leijen hiding ((<$>))
 
 import qualified Verifier.LLVM.Codebase as LSS
 import Verifier.LLVM.Backend.SAW
-
-import Verifier.SAW.SharedTerm
 
 import SAWScript.LLVMExpr
 import SAWScript.Utils
