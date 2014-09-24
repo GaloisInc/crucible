@@ -142,7 +142,7 @@ interpretStmts sc env@(InterpretEnv vm tm ce) stmts =
       SS.Bind (Just x) mt _ e : ss ->
           do v1 <- interpret sc env e
              let f v = interpretStmts sc (extendEnv x (fmap SS.tMono mt) v env) ss
-             return (bindValue sc v1 (VLambda f))
+             return (bindValue v1 (VLambda f))
       SS.BlockLet bs : ss -> interpret sc env (SS.Let bs (SS.Block ss))
       SS.BlockCode s : ss ->
           do ce' <- CEnv.parseDecls sc ce s

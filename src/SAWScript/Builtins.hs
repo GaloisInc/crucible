@@ -649,7 +649,7 @@ caseProofResultPrim sc pr vValid vInvalid = do
   case pr of
     SV.Valid -> return vValid
     SV.Invalid v -> do t <- SV.mkTypedTerm sc =<< scFiniteValue sc v
-                       SV.applyValue sc vInvalid (SV.toValue t)
+                       SV.applyValue vInvalid (SV.toValue t)
     SV.InvalidMulti _ -> fail $ "multi-value counter-example"
 
 caseSatResultPrim :: SharedContext s -> SV.SatResult
@@ -659,5 +659,5 @@ caseSatResultPrim sc sr vUnsat vSat = do
   case sr of
     SV.Unsat -> return vUnsat
     SV.Sat v -> do t <- SV.mkTypedTerm sc =<< scFiniteValue sc v
-                   SV.applyValue sc vSat (SV.toValue t)
+                   SV.applyValue vSat (SV.toValue t)
     SV.SatMulti _ -> fail $ "multi-value satisfying assignment"

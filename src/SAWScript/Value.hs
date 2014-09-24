@@ -168,10 +168,9 @@ evaluate sc t = SC.evalSharedTerm eval t
 -- FIXME: is evalGlobal always appropriate? Or should we
 -- parameterize on a meaning function for globals?
 
-applyValue :: SharedContext s -> Value s -> Value s -> IO (Value s)
-applyValue _ (VLambda f) x = f x
--- applyValue sc (VAIG be ins outs) x = undefined
-applyValue _ _ _ = fail "applyValue"
+applyValue :: Value s -> Value s -> IO (Value s)
+applyValue (VLambda f) x = f x
+applyValue _ _ = fail "applyValue"
 
 tapplyValue :: Value s -> SS.Type -> IO (Value s)
 tapplyValue (VTLambda f) t = f t
@@ -185,28 +184,28 @@ thenValue (VJavaSetup m1) (VJavaSetup m2) = VJavaSetup (m1 >> m2)
 thenValue (VLLVMSetup m1) (VLLVMSetup m2) = VLLVMSetup (m1 >> m2)
 thenValue _ _ = error "thenValue"
 
-bindValue :: SharedContext s -> Value s -> Value s -> Value s
-bindValue sc (VIO m1) v2 =
+bindValue :: Value s -> Value s -> Value s
+bindValue (VIO m1) v2 =
   VIO $ do
     v1 <- m1
-    VIO m3 <- applyValue sc v2 v1
+    VIO m3 <- applyValue v2 v1
     m3
-bindValue sc (VProofScript m1) v2 =
+bindValue (VProofScript m1) v2 =
   VProofScript $ do
     v1 <- m1
-    VProofScript m3 <- liftIO $ applyValue sc v2 v1
+    VProofScript m3 <- liftIO $ applyValue v2 v1
     m3
-bindValue sc (VJavaSetup m1) v2 =
+bindValue (VJavaSetup m1) v2 =
   VJavaSetup $ do
     v1 <- m1
-    VJavaSetup m3 <- liftIO $ applyValue sc v2 v1
+    VJavaSetup m3 <- liftIO $ applyValue v2 v1
     m3
-bindValue sc (VLLVMSetup m1) v2 =
+bindValue (VLLVMSetup m1) v2 =
   VLLVMSetup $ do
     v1 <- m1
-    VLLVMSetup m3 <- liftIO $ applyValue sc v2 v1
+    VLLVMSetup m3 <- liftIO $ applyValue v2 v1
     m3
-bindValue _ _ _ = error "bindValue"
+bindValue _ _ = error "bindValue"
 
 returnValue :: SS.Type -> Value s -> Value s
 returnValue (SS.TyCon (SS.ContextCon c) []) x =
@@ -223,13 +222,13 @@ forValue sc (SS.TyCon (SS.ContextCon c) []) xs f =
   case c of
     SS.CryptolSetup -> error "forValue CryptolSetup"
     SS.JavaSetup    -> VJavaSetup (VArray `fmap` mapM g xs)
-                         where g x = do VJavaSetup m <- liftIO $ applyValue sc f x; m
+                         where g x = do VJavaSetup m <- liftIO $ applyValue f x; m
     SS.LLVMSetup    -> VLLVMSetup (VArray `fmap` mapM g xs)
-                         where g x = do VLLVMSetup m <- liftIO $ applyValue sc f x; m
+                         where g x = do VLLVMSetup m <- liftIO $ applyValue f x; m
     SS.ProofScript  -> VProofScript (VArray `fmap` mapM g xs)
-                         where g x = do VProofScript m <- liftIO $ applyValue sc f x; m
+                         where g x = do VProofScript m <- liftIO $ applyValue f x; m
     SS.TopLevel     -> VIO (VArray `fmap` mapM g xs)
-                         where g x = do VIO m <- applyValue sc f x; m
+                         where g x = do VIO m <- applyValue f x; m
 forValue _ _ _ _ = error "forValue"
 
 -- The ProofScript in RunVerify is in the SAWScript context, and
