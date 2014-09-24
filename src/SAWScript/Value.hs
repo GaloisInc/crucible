@@ -102,32 +102,19 @@ showBrackets s = showString "[" . s . showString "]"
 showBraces :: ShowS -> ShowS
 showBraces s = showString "{" . s . showString "}"
 
-showsPrecValue :: PPOpts -> Int -> Maybe SS.Type -> Value s -> ShowS
-showsPrecValue opts p mty v =
+showsPrecValue :: PPOpts -> Int -> Value s -> ShowS
+showsPrecValue opts p v =
   case v of
     VBool True -> showString "True"
     VBool False -> showString "False"
     VString s -> shows s
     VInteger n -> shows n
-    VArray vs -> showBrackets $ commaSep $ map (showsPrecValue opts 0 mty') vs
-                       where mty' = case mty of
-                                      Just (SS.TyCon SS.ArrayCon [_, ty']) -> Just ty'
-                                      _ -> Nothing
-    VTuple vs -> case mty of
-                   Just (SS.TyRecord tm) | M.size tm == length vs
-                     -> showsPrecValue opts p mty (VRecord (M.fromList (zip (M.keys tm) vs)))
-                   Just (SS.TyCon (SS.TupleCon _) ts) | length ts == length vs
-                     -> showParen True $ commaSep $ zipWith (showsPrecValue opts 0) (map Just ts) vs
-                   _ -> showParen True $ commaSep $ map (showsPrecValue opts 0 Nothing) vs
-    VRecord m -> showBraces $ commaSep $ zipWith showFld mtys (M.toList m)
+    VArray vs -> showBrackets $ commaSep $ map (showsPrecValue opts 0) vs
+    VTuple vs -> showParen True $ commaSep $ map (showsPrecValue opts 0) vs
+    VRecord m -> showBraces $ commaSep $ map showFld (M.toList m)
                    where
-                     showFld mty' (n, fv) =
-                       showString n . showString "=" . showsPrecValue opts 0 mty' fv
-                     mtys =
-                       case mty of
-                         Just (SS.TyRecord tm) | M.keys m == M.keys tm
-                           -> map Just (M.elems tm)
-                         _ -> replicate (M.size m) Nothing
+                     showFld (n, fv) =
+                       showString n . showString "=" . showsPrecValue opts 0 fv
 
     VLambda {} -> showString "<<function>>"
     VTLambda {} -> showString "<<polymorphic function>>"
@@ -153,7 +140,7 @@ showsPrecValue opts p mty v =
     VUninterp u -> showString "Uninterp: " . shows u
 
 instance Show (Value s) where
-    showsPrec p v = showsPrecValue defaultPPOpts p Nothing v
+    showsPrec p v = showsPrecValue defaultPPOpts p v
 
 indexValue :: Value s -> Value s -> Value s
 indexValue (VArray vs) (VInteger x)

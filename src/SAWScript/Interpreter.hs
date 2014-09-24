@@ -222,11 +222,10 @@ transitivePrimEnv m = Map.unions (env : envs)
 
 -- Primitives ------------------------------------------------------------------
 
-print_value :: SharedContext SAWCtx -> SS.Type -> Value SAWCtx -> IO ()
-print_value _sc _t (VString s) = putStrLn s
-print_value  sc _t (VTerm _ trm) = print (evaluate sc trm)
-print_value _sc  t v =
-  putStrLn (showsPrecValue defaultPPOpts 0 (Just t) v "")
+print_value :: SharedContext SAWCtx -> Value SAWCtx -> IO ()
+print_value _sc (VString s) = putStrLn s
+print_value  sc (VTerm _ trm) = print (evaluate sc trm)
+print_value _sc v = putStrLn (showsPrecValue defaultPPOpts 0 v "")
 
 valueEnv :: Options -> BuiltinContext -> Map SS.LName (Value SAWCtx)
 valueEnv opts bic = Map.fromList
