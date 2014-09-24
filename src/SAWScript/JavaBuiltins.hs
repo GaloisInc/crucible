@@ -391,7 +391,7 @@ typeJavaExpr bic name ty = do
   jsState <- get
   let ms = jsSpec jsState
       cb = biJavaCodebase bic
-      cls = specMethodClass ms
+      cls = specThisClass ms
       meth = specMethod ms
   expr <- liftIO $ parseJavaExpr (biJavaCodebase bic) cls meth name
   let jty = jssTypeOfJavaExpr expr
@@ -434,7 +434,7 @@ javaMayAlias bic _ exprs = do
   jsState <- get
   let cb = biJavaCodebase bic
       ms = jsSpec jsState
-      cls = specMethodClass ms
+      cls = specThisClass ms
       meth = specMethod ms
   exprList <- liftIO $ mapM (parseJavaExpr cb cls meth) exprs
   -- TODO: check that all expressions exist and have the same type
