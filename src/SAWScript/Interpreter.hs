@@ -71,14 +71,6 @@ extendEnv x mt v (InterpretEnv vm tm ce) = InterpretEnv vm' tm' ce'
               -> CEnv.bindInteger (qname, n) ce
             _ -> ce
 
--- Type substitution -----------------------------------------------------------
-
-toSubst :: Map SS.Name SS.Type -> MGU.Subst
-toSubst m = MGU.Subst (Map.mapKeysMonotonic SS.BoundVar m)
-
-substTypeExpr :: Map SS.Name SS.Type -> SS.Expr -> SS.Expr
-substTypeExpr m expr = MGU.appSubst (toSubst m) expr
-
 -- Interpretation of SAWScript -------------------------------------------------
 
 interpret
@@ -102,10 +94,9 @@ interpret sc env@(InterpretEnv vm _tm ce) expr =
                                    return (lookupValue a n)
       SS.TLookup e i         -> do a <- interpret sc env e
                                    return (tupleLookupValue a i)
-      SS.Var x ts            -> case Map.lookup x vm of
+      SS.Var x               -> case Map.lookup x vm of
                                   Nothing -> fail $ "unknown variable: " ++ SS.getVal x
-                                  --evaluate sc <$> translateExpr sc tm sm Map.empty expr
-                                  Just v -> foldM tapplyValue v ts
+                                  Just v -> return v
 
       SS.Function x t e      -> do let f v = interpret sc (extendEnv x (fmap SS.tMono t) v env) e
                                    return $ VLambda f
@@ -120,12 +111,7 @@ interpret sc env@(InterpretEnv vm _tm ce) expr =
 
 interpretDecl :: SharedContext s -> InterpretEnv s -> SS.Decl -> IO (InterpretEnv s)
 interpretDecl sc env (SS.Decl n mt expr) = do
-  v <-
-    case mt of
-      Just (SS.Forall ns _) ->
-          let tlam x f m = return (VTLambda (\t -> f (Map.insert x t m)))
-          in foldr tlam (\m -> interpret sc env (substTypeExpr m expr)) ns Map.empty
-      Nothing -> interpret sc env expr
+  v <- interpret sc env expr
   return (extendEnv n mt v env)
 
 interpretStmts
@@ -142,7 +128,7 @@ interpretStmts sc env@(InterpretEnv vm tm ce) stmts =
       SS.Bind (Just x) mt _ e : ss ->
           do v1 <- interpret sc env e
              let f v = interpretStmts sc (extendEnv x (fmap SS.tMono mt) v env) ss
-             return (bindValue v1 (VLambda f))
+             bindValue v1 (VLambda f)
       SS.BlockLet bs : ss -> interpret sc env (SS.Let bs (SS.Block ss))
       SS.BlockCode s : ss ->
           do ce' <- CEnv.parseDecls sc ce s
@@ -234,11 +220,6 @@ valueEnv opts bic = Map.fromList
   , (qualify "read_aig"    , toValue $ readAIGPrim sc)
   , (qualify "write_aig"   , toValue $ writeAIG sc)
   , (qualify "write_cnf"   , toValue $ writeCNF sc)
-  -- Cryptol stuff
-{-BH
-  , (qualify "cryptol_module", toValue $ loadCryptol)
-  , (qualify "cryptol_extract", toValue $ extractCryptol sc)
--}
   -- Java stuff
   , (qualify "java_load_class", toValue $ loadJavaClass bic)
   , (qualify "java_browse_class", toValue browseJavaClass)
@@ -323,8 +304,8 @@ valueEnv opts bic = Map.fromList
   , (qualify "print_type"  , toValue $ print_type sc)
   , (qualify "print_term"  , toValue ((putStrLn . scPrettyTerm) :: SharedTerm SAWCtx -> IO ()))
   , (qualify "show_term"   , toValue (scPrettyTerm :: SharedTerm SAWCtx -> String))
-  , (qualify "return"      , toValue (returnValue :: SS.Type -> Value SAWCtx -> Value SAWCtx))
-  , (qualify "for"         , toValue $ forValue sc)
+  , (qualify "return"      , toValue (VReturn :: Value SAWCtx -> Value SAWCtx))
+  , (qualify "for"         , toValue $ \xs -> VLambda (forValue xs) :: Value SAWCtx)
     {-
   , (qualify "seq"        , toValue ((>>) :: ProofScript SAWCtx (Value SAWCtx)
                                           -> ProofScript SAWCtx (Value SAWCtx)

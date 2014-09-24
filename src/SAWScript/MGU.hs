@@ -244,7 +244,7 @@ instance AppSubst Expr where
     Index ar ix        -> Index (appSubst s ar) (appSubst s ix)
     Lookup rec fld     -> Lookup (appSubst s rec) fld
     TLookup tpl idx    -> TLookup (appSubst s tpl) idx
-    Var x ts           -> Var x (appSubst s ts)
+    Var x              -> Var x
     Function x xt body -> Function x (appSubst s xt) (appSubst s body)
     Application f v    -> Application (appSubst s f) (appSubst s v)
     Let ds e           -> Let (appSubst s ds) (appSubst s e)
@@ -347,15 +347,15 @@ inferE (ln, expr) = case expr of
                         f' <- checkE ln f ft
                         return (Application f' v', t)
 
-  Var x _ -> do env <- TI $ asks typeEnv
+  Var x   -> do env <- TI $ asks typeEnv
                 case M.lookup x env of
                   Nothing -> do
                     recordError $ "unbound variable: " ++ show x
                     t <- newType
-                    return (Var x [], t)
+                    return (Var x, t)
                   Just (Forall as t) -> do
                     ts <- mapM (const newType) as
-                    return (Var x ts, instantiate (zip as ts) t)
+                    return (Var x, instantiate (zip as ts) t)
 
   Let bs body -> inferDecls bs $ \bs' -> do
                    (body',t) <- inferE (ln, body)

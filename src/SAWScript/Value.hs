@@ -40,8 +40,8 @@ data Value s
   | VTuple [Value s]
   | VRecord (Map SS.Name (Value s))
   | VLambda (Value s -> IO (Value s))
-  | VTLambda (SS.Type -> IO (Value s))
   | VTerm (Maybe C.Schema) (SharedTerm s) -- TODO: remove the Maybe
+  | VReturn (Value s) -- Returned value in unspecified monad
   | VIO (IO (Value s))
   | VProofScript (ProofScript s (Value s))
   | VSimpset (Simpset (SharedTerm s))
@@ -117,8 +117,8 @@ showsPrecValue opts p v =
                        showString n . showString "=" . showsPrecValue opts 0 fv
 
     VLambda {} -> showString "<<function>>"
-    VTLambda {} -> showString "<<polymorphic function>>"
     VTerm _ t -> showsPrec p t
+    VReturn {} -> showString "<<monadic>>"
     VIO {} -> showString "<<IO>>"
     VSimpset {} -> showString "<<simpset>>"
     VProofScript {} -> showString "<<proof script>>"
@@ -172,64 +172,46 @@ applyValue :: Value s -> Value s -> IO (Value s)
 applyValue (VLambda f) x = f x
 applyValue _ _ = fail "applyValue"
 
-tapplyValue :: Value s -> SS.Type -> IO (Value s)
-tapplyValue (VTLambda f) t = f t
--- tapplyValue (VAIG be ins outs) t = undefined
-tapplyValue v _ = return v
-
 thenValue :: Value s -> Value s -> Value s
-thenValue (VIO m1) (VIO m2) = VIO (m1 >> m2)
-thenValue (VProofScript m1) (VProofScript m2) = VProofScript (m1 >> m2)
-thenValue (VJavaSetup m1) (VJavaSetup m2) = VJavaSetup (m1 >> m2)
-thenValue (VLLVMSetup m1) (VLLVMSetup m2) = VLLVMSetup (m1 >> m2)
+thenValue (VReturn _)       v2 = v2
+thenValue (VIO m1)          v2 = VIO          (m1 >> fromValue v2)
+thenValue (VProofScript m1) v2 = VProofScript (m1 >> fromValue v2)
+thenValue (VJavaSetup m1)   v2 = VJavaSetup   (m1 >> fromValue v2)
+thenValue (VLLVMSetup m1)   v2 = VLLVMSetup   (m1 >> fromValue v2)
 thenValue _ _ = error "thenValue"
 
-bindValue :: Value s -> Value s -> Value s
-bindValue (VIO m1) v2 =
+bindValue :: Value s -> Value s -> IO (Value s)
+bindValue (VReturn v1) v2 = applyValue v2 v1
+bindValue (VIO m1) v2 = return $
   VIO $ do
     v1 <- m1
-    VIO m3 <- applyValue v2 v1
-    m3
-bindValue (VProofScript m1) v2 =
+    v3 <- applyValue v2 v1
+    fromValue v3
+bindValue (VProofScript m1) v2 = return $
   VProofScript $ do
     v1 <- m1
-    VProofScript m3 <- liftIO $ applyValue v2 v1
-    m3
-bindValue (VJavaSetup m1) v2 =
+    v3 <- liftIO $ applyValue v2 v1
+    fromValue v3
+bindValue (VJavaSetup m1) v2 = return $
   VJavaSetup $ do
     v1 <- m1
-    VJavaSetup m3 <- liftIO $ applyValue v2 v1
-    m3
-bindValue (VLLVMSetup m1) v2 =
+    v3 <- liftIO $ applyValue v2 v1
+    fromValue v3
+bindValue (VLLVMSetup m1) v2 = return $
   VLLVMSetup $ do
     v1 <- m1
-    VLLVMSetup m3 <- liftIO $ applyValue v2 v1
-    m3
+    v3 <- liftIO $ applyValue v2 v1
+    fromValue v3
 bindValue _ _ = error "bindValue"
 
-returnValue :: SS.Type -> Value s -> Value s
-returnValue (SS.TyCon (SS.ContextCon c) []) x =
-  case c of
-    SS.CryptolSetup -> error "returnValue CryptolSetup"
-    SS.JavaSetup    -> VJavaSetup (return x)
-    SS.LLVMSetup    -> VLLVMSetup (return x)
-    SS.ProofScript  -> VProofScript (return x)
-    SS.TopLevel     -> VIO (return x)
-returnValue _ _ = error "returnValue"
-
-forValue :: SharedContext s -> SS.Type -> [Value s] -> Value s -> Value s
-forValue sc (SS.TyCon (SS.ContextCon c) []) xs f =
-  case c of
-    SS.CryptolSetup -> error "forValue CryptolSetup"
-    SS.JavaSetup    -> VJavaSetup (VArray `fmap` mapM g xs)
-                         where g x = do VJavaSetup m <- liftIO $ applyValue f x; m
-    SS.LLVMSetup    -> VLLVMSetup (VArray `fmap` mapM g xs)
-                         where g x = do VLLVMSetup m <- liftIO $ applyValue f x; m
-    SS.ProofScript  -> VProofScript (VArray `fmap` mapM g xs)
-                         where g x = do VProofScript m <- liftIO $ applyValue f x; m
-    SS.TopLevel     -> VIO (VArray `fmap` mapM g xs)
-                         where g x = do VIO m <- applyValue f x; m
-forValue _ _ _ _ = error "forValue"
+forValue :: [Value s] -> Value s -> IO (Value s)
+forValue [] _ = return $ VReturn (VArray [])
+forValue (x : xs) f =
+  do m1 <- applyValue f x
+     m2 <- forValue xs f
+     bindValue m1 (VLambda $ \v1 ->
+       bindValue m2 (VLambda $ \v2 ->
+         return $ VReturn (VArray (v1 : fromValue v2))))
 
 -- The ProofScript in RunVerify is in the SAWScript context, and
 -- should stay there.
@@ -271,11 +253,9 @@ class IsValue s a where
 
 class FromValue s a where
     fromValue :: Value s -> a
-    funToValue :: (a -> Value s) -> Value s
-    funToValue f = VLambda (\v -> return (f (fromValue v)))
 
 instance (FromValue s a, IsValue s b) => IsValue s (a -> b) where
-    toValue f = funToValue (\x -> toValue (f x))
+    toValue f = VLambda (\v -> return (toValue (f (fromValue v))))
 
 instance FromValue s (Value s) where
     fromValue x = x
@@ -308,6 +288,7 @@ instance IsValue s a => IsValue s (IO a) where
 
 instance FromValue s a => FromValue s (IO a) where
     fromValue (VIO io) = fmap fromValue io
+    fromValue (VReturn v) = return (fromValue v)
     fromValue _ = error "fromValue IO"
 
 instance IsValue s a => IsValue s (StateT (ProofGoal s) IO a) where
@@ -315,6 +296,7 @@ instance IsValue s a => IsValue s (StateT (ProofGoal s) IO a) where
 
 instance FromValue s a => FromValue s (StateT (ProofGoal s) IO a) where
     fromValue (VProofScript m) = fmap fromValue m
+    fromValue (VReturn v) = return (fromValue v)
     fromValue _ = error "fromValue ProofScript"
 
 instance IsValue s a => IsValue s (StateT JavaSetupState IO a) where
@@ -322,6 +304,7 @@ instance IsValue s a => IsValue s (StateT JavaSetupState IO a) where
 
 instance FromValue s a => FromValue s (StateT JavaSetupState IO a) where
     fromValue (VJavaSetup m) = fmap fromValue m
+    fromValue (VReturn v) = return (fromValue v)
     fromValue _ = error "fromValue JavaSetup"
 
 instance IsValue s a => IsValue s (StateT LLVMSetupState IO a) where
@@ -329,6 +312,7 @@ instance IsValue s a => IsValue s (StateT LLVMSetupState IO a) where
 
 instance FromValue s a => FromValue s (StateT LLVMSetupState IO a) where
     fromValue (VLLVMSetup m) = fmap fromValue m
+    fromValue (VReturn v) = return (fromValue v)
     fromValue _ = error "fromValue LLVMSetup"
 
 instance IsValue s (TypedTerm s) where
@@ -344,10 +328,6 @@ instance IsValue s (SharedTerm s) where
 instance FromValue s (SharedTerm s) where
     fromValue (VTerm _ t) = t
     fromValue _ = error "fromValue SharedTerm"
-
-instance FromValue s SS.Type where
-    fromValue _ = error "fromValue Type"
-    funToValue f = VTLambda (\t -> return (f t))
 
 instance IsValue s String where
     toValue n = VString n
