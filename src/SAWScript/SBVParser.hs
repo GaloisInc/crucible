@@ -1,5 +1,6 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module SAWScript.SBVParser
   ( loadSBV
@@ -54,10 +55,10 @@ parseSBVExpr sc unint nodes size (SBV.SBVApp operator sbvs) =
                    cond <- scBv1ToBool sc arg1
                    scIte sc s cond arg2 arg3
             _ -> fail "parseSBVExpr: wrong number of arguments for if-then-else"
-      SBV.BVShl -> shiftop scBvShl sbvs
-      SBV.BVShr -> shiftop scBvShr sbvs
-      SBV.BVRol -> shiftop (error "bvRol") sbvs
-      SBV.BVRor -> shiftop (error "bvRor") sbvs
+      SBV.BVShl -> shiftop scBvShiftL sbvs
+      SBV.BVShr -> shiftop scBvShiftR sbvs
+      SBV.BVRol -> shiftop scBvRotateL sbvs
+      SBV.BVRor -> shiftop scBvRotateR sbvs
       SBV.BVExt hi lo | lo >= 0 && hi >= lo ->
           case sbvs of
             [sbv1] ->
@@ -148,9 +149,14 @@ parseSBVExpr sc unint nodes size (SBV.SBVApp operator sbvs) =
              unless (size1 == size) (fail "parseSBVExpr shiftop: size mismatch")
              s1 <- scNat sc size1
              s2 <- scNat sc size2
-             amt <- scGlobalApply sc (mkIdent preludeName "bvToNat") [s2, arg2]
-             scMkOp sc s1 arg1 amt
+             c <- scBool sc False
+             boolTy <- scBoolType sc
+             scMkOp sc s1 boolTy s2 c arg1 arg2
       shiftop _ _ = fail "parseSBVExpr: wrong number of arguments for binop"
+      scBvShiftL sc n ty w c v amt = scGlobalApply sc "Prelude.bvShiftL" [n, ty, w, c, v, amt]
+      scBvShiftR sc n ty w c v amt = scGlobalApply sc "Prelude.bvShiftR" [n, ty, w, c, v, amt]
+      scBvRotateL sc n ty w _ v amt = scGlobalApply sc "Prelude.bvRotateL" [n, ty, w, v, amt]
+      scBvRotateR sc n ty w _ v amt = scGlobalApply sc "Prelude.bvRotateR" [n, ty, w, v, amt]
 
 ----------------------------------------------------------------------
 
