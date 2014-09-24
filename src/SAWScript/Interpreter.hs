@@ -114,22 +114,19 @@ interpret sc env@(InterpretEnv vm _tm ce) expr =
                                    case v1 of
                                      VLambda f -> f v2
                                      _ -> fail $ "interpret Application: " ++ show v1
-      SS.Let bs e            -> do let f env0 (x, rhs) = do v <- interpretPoly sc env0 rhs
-                                                            let t = SS.typeOf rhs
-                                                            return (extendEnv x t v env0)
-                                   env' <- foldM f env bs
+      SS.Let ds e            -> do env' <- foldM (interpretDecl sc) env ds
                                    interpret sc env' e
       SS.TSig e _            -> interpret sc env e
 
-interpretPoly
-    :: forall s. SharedContext s
-    -> InterpretEnv s -> SS.Expr -> IO (Value s)
-interpretPoly sc env expr =
-    case SS.typeOf expr of
+interpretDecl :: SharedContext s -> InterpretEnv s -> SS.Decl -> IO (InterpretEnv s)
+interpretDecl sc env (SS.Decl n mt expr) = do
+  v <-
+    case mt of
       Just (SS.Forall ns _) ->
           let tlam x f m = return (VTLambda (\t -> f (Map.insert x t m)))
           in foldr tlam (\m -> interpret sc env (substTypeExpr m expr)) ns Map.empty
       Nothing -> interpret sc env expr
+  return (extendEnv n mt v env)
 
 interpretStmts
     :: forall s. SharedContext s
@@ -157,26 +154,8 @@ interpretModule
 interpretModule sc env m =
     do cenv' <- foldM (CEnv.importModule sc) (ieCryptol env) (SS.moduleCryDeps m)
        let env' = env { ieCryptol = cenv' }
-       let sccs = SS.moduleExprEnv m
-       foldM (interpretSCC sc) env' sccs
-
-interpretSCC
-    :: forall s. SharedContext s
-    -> InterpretEnv s -> (Located SS.Name, SS.Expr) -> IO (InterpretEnv s)
-interpretSCC sc env@(InterpretEnv vm tm ce) (x, expr) =
-            do v <- interpretPoly sc env expr
-               let qname = T.QName Nothing (T.Name (getOrig x))
-               let vm' = Map.insert x v vm
-               let tm' = case SS.typeOf expr of
-                           Just t -> Map.insert x t tm
-                           Nothing -> tm
-               ce' <- case v of
-                           VTerm (Just schema) trm
-                             -> do putStrLn $ "Binding top-level term: " ++ show qname
-                                   return $ CEnv.bindTypedTerm (qname, TypedTerm schema trm) ce
-                           _ -> do putStrLn $ "Binding top-level value: " ++ show qname
-                                   return ce
-               return $ InterpretEnv vm' tm' ce'
+       let decls = SS.moduleExprEnv m
+       foldM (interpretDecl sc) env' decls
 
 interpretModuleAtEntry :: SS.Name
                           -> SharedContext s

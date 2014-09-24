@@ -167,6 +167,13 @@ bindSchema n s m = TI $ local (\ro -> ro { typeEnv = M.insert n s $ typeEnv ro }
 bindSchemas :: [(Located Name, Schema)] -> TI a -> TI a
 bindSchemas bs m = foldr (uncurry bindSchema) m bs
 
+bindDecl :: Decl -> TI a -> TI a
+bindDecl (Decl _ Nothing _) m = m
+bindDecl (Decl n (Just s) _) m = bindSchema n s m
+
+bindDecls :: [Decl] -> TI a -> TI a
+bindDecls ds m = foldr bindDecl m ds
+
 -- deprecated
 bindTopSchemas :: [LBind Schema] -> TI a -> TI a
 bindTopSchemas ds k = bindSchemas ds k
@@ -240,7 +247,7 @@ instance AppSubst Expr where
     Var x ts           -> Var x (appSubst s ts)
     Function x xt body -> Function x (appSubst s xt) (appSubst s body)
     Application f v    -> Application (appSubst s f) (appSubst s v)
-    Let nes e          -> Let (appSubstBinds s nes) (appSubst s e)
+    Let ds e           -> Let (appSubst s ds) (appSubst s e)
 
 instance (Ord k, AppSubst a) => AppSubst (M.Map k a) where
   appSubst s = fmap (appSubst s)
@@ -248,11 +255,11 @@ instance (Ord k, AppSubst a) => AppSubst (M.Map k a) where
 instance AppSubst BlockStmt where
   appSubst s bst = case bst of
     Bind mn mt ctx e -> Bind mn mt ctx e
-    BlockLet bs   -> BlockLet $ appSubstBinds s bs
+    BlockLet ds   -> BlockLet (appSubst s ds)
     BlockCode str -> BlockCode str
 
-appSubstBinds :: (AppSubst a) => Subst -> [(n,a)] -> [(n,a)]
-appSubstBinds s bs = [ (n,appSubst s a) | (n,a) <- bs ]
+instance AppSubst Decl where
+  appSubst s (Decl n mt e) = Decl n (appSubst s mt) (appSubst s e)
 
 -- }}}
 
@@ -406,10 +413,10 @@ inferField m (n,e) = do
   (e',t) <- inferE (m,e)
   return ((n,e'),(n,t))
 
-inferDecls :: [LBind Expr] -> ([LBind OutExpr] -> TI a) -> TI a
-inferDecls bs nextF = do
-  (bs',ss) <- unzip `fmap` mapM inferDecl bs
-  bindLocalSchemas ss (nextF bs')
+inferDecls :: [Decl] -> ([Decl] -> TI a) -> TI a
+inferDecls ds nextF = do
+  ds' <- mapM inferDecl ds
+  bindDecls ds' (nextF ds')
 
 inferStmts :: LName -> Type -> [BlockStmt] -> TI ([OutBlockStmt],Type)
 
@@ -456,24 +463,26 @@ inferStmts m ctx (BlockCode s : more) = do
   (more',t) <- inferStmts m ctx more
   return (BlockCode s : more', t)
 
-inferDecl :: LBind Expr -> TI (LBind OutExpr,LBind Schema)
-inferDecl (n,e) = do
+-- | FIXME: If the Decl has a schema annotation, then match it against
+-- the inferred type afterwards.
+inferDecl :: Decl -> TI Decl
+inferDecl (Decl n _ e) = do
   (e',t) <- inferE (n, e)
   [(e1,s)] <- generalize [e'] [t]
-  return ( (n,e1), (n,s) )
+  return (Decl n (Just s) e1)
 
 
 -- XXX: For now, no schema type signatures.
-inferRecDecls :: [LBind Expr] -> TI ([LBind OutExpr], [LBind Schema])
+inferRecDecls :: [Decl] -> TI [Decl]
 inferRecDecls ds =
-  do let names = map fst ds
+  do let names = map dName ds
      guessedTypes <- mapM (\_ -> newType) ds
      (es,ts) <- unzip `fmap`
                 bindTopSchemas (zip names (map tMono guessedTypes))
-                               (mapM inferE ds)
+                               (mapM inferE [ (n, e) | Decl n _ e <- ds ])
      _ <- sequence $ zipWith3 unify names ts guessedTypes
      (es1,ss) <- unzip `fmap` generalize es ts
-     return (zip names es1, zip names ss)
+     return [ Decl n (Just s) e | (n, s, e) <- zip3 names ss es1 ]
 
 
 generalize :: [OutExpr] -> [Type] -> TI [(OutExpr,Schema)]
@@ -497,16 +506,16 @@ generalize es0 ts0 =
   toBound _ = Nothing
 
 -- Check a list of recursive groups, sorted by dependency.
-inferTopDecls :: [ [LBind Expr] ] -> TI [ [LBind OutExpr] ]
+inferTopDecls :: [[Decl]] -> TI [[Decl]]
 inferTopDecls [] = return []
 inferTopDecls (ds : dss) =
-  do (ds1, ss) <- inferRecDecls ds
-     rest <- bindTopSchemas ss (inferTopDecls dss)
+  do ds1 <- inferRecDecls ds
+     rest <- bindDecls ds1 (inferTopDecls dss)
      return (ds1 : rest)
 
 
 -- Compute groups of recursive components
-computeSCCGroups :: A.ModuleName -> [ LBind Expr ] -> [ [LBind Expr] ]
+computeSCCGroups :: A.ModuleName -> [Decl] -> [[Decl]]
 computeSCCGroups _ = map (: [])
 -- ^ FIXME: remove
 
@@ -523,20 +532,15 @@ checkKind = return
 checkModule :: Compiler Module Module
 checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
   let modName = moduleName m
-  let exprs   = moduleExprEnv m
+  let decls   = moduleExprEnv m
   let initTs  = concat
-       [ [ (n, s)
-         | (n,e) <- modExprs dep
-         , Just s <- [typeOf e]
-         ] ++
-         modPrims dep
+       [ [ (n, s) | (Decl n (Just s) _) <- modExprs dep ] ++ modPrims dep
        | (_mn,dep) <- depMods m
        ]
   let (primTs,prims) = unzip [ ((n, t), (n, t))
                              | (n, t) <- modPrims m ]
-  let nes  = exprs
-  let sccs = computeSCCGroups modName nes
-  let go = bindSchemas (initTs ++ primTs) ((,) <$> (inferTopDecls sccs >>= exportBinds) <*> pure (M.fromList prims) )
+  let sccs = computeSCCGroups modName decls
+  let go = bindSchemas (initTs ++ primTs) ((,) <$> (inferTopDecls sccs >>= exportDecls) <*> pure (M.fromList prims) )
   case evalTI (moduleName m) go of
     Right (exprRes,primRes) -> return $ m { moduleExprEnv = exprRes , modulePrimEnv = primRes }
     Left errs               -> fail $ unlines errs
@@ -545,12 +549,7 @@ checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
   modExprs = moduleExprEnv
   modPrims = M.toList . modulePrimEnv
 
-  exportBinds dss = sequence [ do e1 <- exportExpr e
-                                  return (x,e1)
-                             | ds <- dss, (x,e) <- ds ]
-
-exportExpr :: OutExpr -> TI Expr
-exportExpr e0 = appSubstM e0
+  exportDecls dss = sequence [ appSubstM d | ds <- dss, d <- ds ]
 
 evalTI :: ModuleName -> TI a -> Either [String] a
 evalTI mn m = case runTI mn m of

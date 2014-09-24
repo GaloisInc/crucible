@@ -80,7 +80,7 @@ unionsLEnv = Map.unions
 
 data Module = Module
   { moduleName         :: ModuleName
-  , moduleExprEnv      :: [(LName, Expr)]
+  , moduleExprEnv      :: [Decl]
   , modulePrimEnv      :: LEnv Schema
   , moduleDependencies :: ModuleEnv ValidModule
   , moduleCryDeps      :: [FilePath]
@@ -116,7 +116,7 @@ toNameDec = first getVal
 data TopStmt
   = Import      ModuleName (Maybe [Name])    (Maybe Name)   -- ^ import <module> [(<names>)] [as <name>]
   | TopTypeDecl LName       Schema                          -- ^ <name> : <type>
-  | TopBind     LName       Expr                            -- ^ <name> = <expr>
+  | TopBind     Decl                                        -- ^ <name> = <expr>
   | Prim        LName       Schema                          -- ^ prim <name> : <type>
   | ImportCry   FilePath                                    -- ^ import "filepath.cry"
   deriving (Eq, Show)
@@ -142,14 +142,18 @@ data Expr
   | Function    LName (Maybe Type) Expr
   | Application Expr Expr
   -- Sugar
-  | Let [LBind Expr] Expr
+  | Let [Decl] Expr
   | TSig Expr Schema
   deriving (Eq, Show)
 
 data BlockStmt
   = Bind          (Maybe LName) (Maybe Type) (Maybe Type) Expr
-  | BlockLet      [LBind Expr]
+  | BlockLet      [Decl]
   | BlockCode     (Located String)
+  deriving (Eq, Show)
+
+data Decl
+  = Decl { dName :: LName, dType :: Maybe Schema, dDef :: Expr }
   deriving (Eq, Show)
 
 -- }}}
@@ -321,10 +325,6 @@ boundVar n = TyVar (BoundVar n)
 -- }}}
 
 -- Expr Accessors/Modifiers {{{
-
-typeOf :: Expr -> Maybe Schema
-typeOf (TSig _ s) = Just s
-typeOf _ = Nothing
 
 context :: BlockStmt -> Maybe Type
 context s = case s of
