@@ -155,7 +155,7 @@ unify m t1 t2 = do
   case mgu m t1' t2' of
     Right s -> TI $ modify $ \rw -> rw { subst = s @@ subst rw }
     Left e -> recordError $ unlines
-                [ "type mismatch: " ++ pShow t1 ++ " and " ++ pShow t2
+                [ "type mismatch: " ++ pShow t1' ++ " and " ++ pShow t2'
                 , " at " ++ show m
                 , e
                 ]
