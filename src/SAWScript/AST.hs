@@ -214,13 +214,12 @@ instance PrettyPrint Type where
   pretty par t@(TyCon tc ts) = case (tc,ts) of
     (_,[])                 -> pretty par tc
     (TupleCon _,_)         -> PP.parens $ commaSepAll $ map (pretty False) ts
-    (ArrayCon,[len,TyCon BoolCon []]) -> PP.brackets (pretty False len)
-    (ArrayCon,[len,typ])   -> PP.brackets (pretty False len) PP.<> (pretty True typ)
+    (ArrayCon,[typ])       -> PP.brackets (pretty False typ)
     (FunCon,[f,v])         -> (if par then PP.parens else id) $
                                 pretty False f PP.<+> PP.text "->" PP.<+> pretty False v
     (BlockCon,[cxt,typ])   -> (if par then PP.parens else id) $
                                 pretty True cxt PP.<+> pretty True typ
-    _ -> error $ "malformed TyCon: " ++ pShow t
+    _ -> error $ "malformed TyCon: " ++ show t
   pretty _par (TyRecord fs) =
       PP.braces
     $ commaSepAll
