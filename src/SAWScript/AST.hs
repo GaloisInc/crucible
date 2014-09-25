@@ -143,7 +143,7 @@ data Expr
   | Application Expr Expr
   -- Sugar
   | Let [Decl] Expr
-  | TSig Expr Schema
+  | TSig Expr Type
   deriving (Eq, Show)
 
 data BlockStmt
@@ -330,8 +330,5 @@ context :: BlockStmt -> Maybe Type
 context s = case s of
   Bind _ _ c _ -> c
   _            -> Nothing
-
-updateAnnotation :: Schema -> Expr -> Expr
-updateAnnotation s e = TSig e s
 
 -- }}}

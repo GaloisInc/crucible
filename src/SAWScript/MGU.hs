@@ -321,8 +321,7 @@ inferE (ln, expr) = case expr of
                     unify ln (tArray t) at
                     return (Index ar' ix', t)
 
-  TSig e sc -> do t <- freshInst sc
-                  t' <- checkKind t
+  TSig e t  -> do t' <- checkKind t
                   (e',t'') <- inferE (ln,e)
                   unify ln t' t''
                   return (e',t'')
@@ -494,8 +493,7 @@ generalize es0 ts0 =
      withAsmps <- freeVarsInEnv
      let (ns,gvs) = unzip $ mapMaybe toBound $ S.toList $ cs S.\\ withAsmps
      let s = listSubst gvs
-         mk e t = (updateAnnotation t' (appSubst s e), t')
-            where t' = Forall ns (appSubst s t)
+         mk e t = (appSubst s e, Forall ns (appSubst s t))
 
      return $ zipWith mk es ts
 

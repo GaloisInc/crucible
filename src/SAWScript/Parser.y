@@ -122,7 +122,7 @@ Arg :: { (LName, Maybe Type) }
 
 Expression :: { Expr }
  : IExpr                                { $1 }
- | IExpr ':' Type                       { updateAnnotation (tMono $3) $1 }
+ | IExpr ':' Type                       { TSig $1 $3          }
  | '\\' list1(Arg) '->' Expression      { buildFunction $2 $4 }
  | 'let' sepBy1(Declaration, 'and')
    'in' Expression                      { Let $2 $4 }

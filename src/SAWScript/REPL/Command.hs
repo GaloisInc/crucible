@@ -75,11 +75,10 @@ import qualified SAWScript.AST as SS
     (ModuleName, {-renderModuleName,-}
      pShow,
      Module(..), ValidModule,
-     BlockStmt(Bind),
+     Expr(TSig), BlockStmt(Bind),
      Name, LName, Located(..),
      Context(..), Schema(..), Type(..), TyCon(..),
-     tMono, tBlock, tContext,
-     updateAnnotation)
+     tMono, tBlock, tContext)
 import qualified SAWScript.CryptolEnv as CEnv
 import SAWScript.Compiler (liftParser)
 import SAWScript.Interpreter
@@ -615,8 +614,8 @@ sawScriptCmd str = do
       (boundName, withoutBinding) =
         case ast' of
           SS.Bind (Just (SS.getVal -> varName)) (Just ty) ctx expr
-            -> let ty' = SS.tMono (SS.tBlock (SS.tContext SS.TopLevel) ty)
-               in (Just varName, SS.Bind Nothing (Just ty) ctx (SS.updateAnnotation ty' expr))
+            -> let ty' = SS.tBlock (SS.tContext SS.TopLevel) ty
+               in (Just varName, SS.Bind Nothing (Just ty) ctx (SS.TSig expr ty'))
           _ -> (Nothing, ast')
   {- The compiler pipeline is targeted at modules, so wrap up the statement in
   a trivial module. -}
