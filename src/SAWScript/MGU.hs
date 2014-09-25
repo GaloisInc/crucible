@@ -231,20 +231,19 @@ instance AppSubst Schema where
 instance AppSubst Expr where
   appSubst s expr = case expr of
     TSig e t           -> TSig (appSubst s e) (appSubst s t)
-
-    Bit b              -> Bit b
-    String str         -> String str
-    Z i                -> Z i
-    Undefined          -> Undefined
+    Bit _              -> expr
+    String _           -> expr
+    Z _                -> expr
+    Undefined          -> expr
     Code _             -> expr
-    Array es           -> Array $ appSubst s es
-    Block bs           -> Block $ appSubst s bs
-    Tuple es           -> Tuple $ appSubst s es
-    Record fs          -> Record $ appSubst s fs
+    Array es           -> Array (appSubst s es)
+    Block bs           -> Block (appSubst s bs)
+    Tuple es           -> Tuple (appSubst s es)
+    Record fs          -> Record (appSubst s fs)
     Index ar ix        -> Index (appSubst s ar) (appSubst s ix)
     Lookup rec fld     -> Lookup (appSubst s rec) fld
     TLookup tpl idx    -> TLookup (appSubst s tpl) idx
-    Var x              -> Var x
+    Var _              -> expr
     Function x xt body -> Function x (appSubst s xt) (appSubst s body)
     Application f v    -> Application (appSubst s f) (appSubst s v)
     Let ds e           -> Let (appSubst s ds) (appSubst s e)
@@ -266,13 +265,13 @@ instance AppSubst Decl where
 -- Instantiate {{{
 
 class Instantiate t where
-  instantiate :: [(Name,Type)] -> t -> t
+  instantiate :: [(Name, Type)] -> t -> t
 
 instance (Instantiate a) => Instantiate (Maybe a) where
-  instantiate nts = fmap $ instantiate nts
+  instantiate nts = fmap (instantiate nts)
 
 instance (Instantiate a) => Instantiate [a] where
-  instantiate nts = map $ instantiate nts
+  instantiate nts = map (instantiate nts)
 
 instance Instantiate Type where
   instantiate nts typ = case typ of

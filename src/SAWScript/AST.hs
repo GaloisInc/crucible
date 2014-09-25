@@ -180,19 +180,20 @@ data TyVar
  deriving (Eq,Ord,Show)
 
 data TyCon
- = TupleCon Integer
- | ArrayCon
- | FunCon
- | StringCon
- | TermCon
- | BoolCon
- | ZCon
- | BlockCon
- | ContextCon Context
- | AbstractCon String
- deriving (Eq,Show)
+  = TupleCon Integer
+  | ArrayCon
+  | FunCon
+  | StringCon
+  | TermCon
+  | BoolCon
+  | ZCon
+  | BlockCon
+  | ContextCon Context
+  | AbstractCon String
+  deriving (Eq, Show)
 
-data Schema = Forall [Name] Type deriving (Eq, Show)
+data Schema = Forall [Name] Type
+  deriving (Eq, Show)
 
 -- }}}
 
