@@ -29,7 +29,6 @@ import SAWScript.Builtins hiding (evaluate)
 import qualified SAWScript.CryptolEnv as CEnv
 import SAWScript.JavaBuiltins
 import SAWScript.LLVMBuiltins
-import qualified SAWScript.MGU as MGU
 import SAWScript.Options
 import SAWScript.Proof
 import SAWScript.Utils
