@@ -97,9 +97,6 @@ instance CC.ShowFoldable JavaExprF where
 -- | Typechecked JavaExpr
 type JavaExpr = CC.Term JavaExprF
 
-instance Error JavaExpr where
-  noMsg = error "noMsg called with TC.JavaExpr"
-
 thisJavaExpr :: JSS.Class -> JavaExpr
 thisJavaExpr cl = CC.Term (Local "this" 0 (JSS.ClassType (JSS.className cl)))
 
