@@ -171,13 +171,12 @@ data Context
 data Type
   = TyCon TyCon [Type]
   | TyRecord (Map Name Type)
-  | TyVar TyVar
- deriving (Eq,Show)
+  | TyBoundVar Name
+  | TyUnifyVar TypeIndex       -- ^ For internal typechecker use only
+  | TySkolemVar Name TypeIndex -- ^ For internal typechecker use only
+  deriving (Eq,Show)
 
-data TyVar
-  = FreeVar Integer
-  | BoundVar Name
- deriving (Eq,Ord,Show)
+type TypeIndex = Integer
 
 data TyCon
   = TupleCon Integer
@@ -227,12 +226,9 @@ instance PrettyPrint Type where
     $ commaSepAll
     $ map (\(n,t) -> PP.text n `prettyTypeSig` pretty False t)
     $ Map.toList fs
-  pretty par (TyVar tv) = pretty par tv
-
-instance PrettyPrint TyVar where
-  pretty _par tv = case tv of
-    FreeVar n  -> PP.text "fv." PP.<> PP.integer n
-    BoundVar n -> PP.text n
+  pretty _par (TyUnifyVar i)    = PP.text "t." PP.<> PP.integer i
+  pretty _par (TySkolemVar n i) = PP.text n PP.<> PP.integer i
+  pretty _par (TyBoundVar n)    = PP.text n
 
 instance PrettyPrint TyCon where
   pretty par tc = case tc of
@@ -321,7 +317,7 @@ tAbstract :: Name -> Type
 tAbstract n = TyCon (AbstractCon n) []
 
 boundVar :: Name -> Type
-boundVar n = TyVar (BoundVar n)
+boundVar n = TyBoundVar n
 
 -- }}}
 

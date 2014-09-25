@@ -16,13 +16,12 @@ import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Identity
-import Data.Maybe (mapMaybe)
 import qualified Data.Map as M
 import qualified Data.Set as S
 
 -- Subst {{{
 
-newtype Subst = Subst { unSubst :: M.Map TyVar Type } deriving (Show)
+newtype Subst = Subst { unSubst :: M.Map TypeIndex Type } deriving (Show)
 
 (@@) :: Subst -> Subst -> Subst
 s2@(Subst m2) @@ (Subst m1) = Subst $ m1' `M.union` m2
@@ -32,15 +31,15 @@ s2@(Subst m2) @@ (Subst m1) = Subst $ m1' `M.union` m2
 emptySubst :: Subst
 emptySubst = Subst M.empty
 
-singletonSubst :: TyVar -> Type -> Subst
+singletonSubst :: TypeIndex -> Type -> Subst
 singletonSubst tv t = Subst $ M.singleton tv t
 
-listSubst :: [(TyVar,Type)] -> Subst
+listSubst :: [(TypeIndex, Type)] -> Subst
 listSubst = Subst . M.fromList
 
 -- }}}
 
--- mgu {{{
+-- Most General Unifier {{{
 
 failMGU :: String -> Either String a
 failMGU = Left
@@ -49,8 +48,8 @@ assert :: Bool -> String -> Either String ()
 assert b msg = unless b $ failMGU msg
 
 mgu :: LName -> Type -> Type -> Either String Subst
-mgu m (TyVar tv) t2 = bindVar m tv t2
-mgu m t1 (TyVar tv) = bindVar m tv t1
+mgu m (TyUnifyVar i) t2 = bindVar m i t2
+mgu m t1 (TyUnifyVar i) = bindVar m i t1
 mgu m r1@(TyRecord ts1) r2@(TyRecord ts2) = do
   assert (M.keys ts1 == M.keys ts2) $
     "mismatched record fields: " ++ pShow r1 ++ " and " ++ pShow r2
@@ -69,41 +68,35 @@ mgus m (t1:ts1) (t2:ts2) = do
   return (s' @@ s)
 mgus m _ _ = failMGU $ "type mismatch in constructor arity at" ++ show m
 
-bindVar :: LName -> TyVar -> Type -> Either String Subst
-bindVar _ (FreeVar i) (TyVar (FreeVar j))
-  | i == j    = return emptySubst
-bindVar m tv@(FreeVar _) t
-  | tv `S.member` freeVars t = failMGU ("occurs check failMGUs " ++ " at " ++ show m)
-  | otherwise                = return $ singletonSubst tv t
-
-bindVar _ tv@(BoundVar _) t@(TyVar (FreeVar _)) = return $ singletonSubst tv t
-
-bindVar _ (BoundVar n) (TyVar (BoundVar m))
-  | n == m  = return emptySubst
-
-bindVar m e1 e2 = failMGU $ "generality mismatch: " ++ pShow e1 ++ " and " ++ pShow e2 ++ " at " ++ show m
+bindVar :: LName -> TypeIndex -> Type -> Either String Subst
+bindVar m i t
+  | t == TyUnifyVar i        = return emptySubst
+  | i `S.member` unifyVars t = failMGU ("occurs check failMGUs " ++ " at " ++ show m) -- FIXME: error message
+  | otherwise                = return (singletonSubst i t)
 
 -- }}}
 
--- FreeVars {{{
+-- UnifyVars {{{
 
-class FreeVars t where
-  freeVars :: t -> S.Set TyVar
+class UnifyVars t where
+  unifyVars :: t -> S.Set TypeIndex
 
-instance (Ord k, FreeVars a) => FreeVars (M.Map k a) where
-  freeVars = freeVars . M.elems
+instance (Ord k, UnifyVars a) => UnifyVars (M.Map k a) where
+  unifyVars = unifyVars . M.elems
 
-instance (FreeVars a) => FreeVars [a] where
-  freeVars = S.unions . map freeVars
+instance (UnifyVars a) => UnifyVars [a] where
+  unifyVars = S.unions . map unifyVars
 
-instance FreeVars Type where
-  freeVars t = case t of
-    TyCon _ ts  -> freeVars ts
-    TyRecord fs -> freeVars fs
-    TyVar tv    -> S.singleton tv
+instance UnifyVars Type where
+  unifyVars t = case t of
+    TyCon _ ts      -> unifyVars ts
+    TyRecord tm     -> unifyVars tm
+    TyBoundVar _    -> S.empty
+    TyUnifyVar i    -> S.singleton i
+    TySkolemVar _ _ -> S.empty
 
-instance FreeVars Schema where
-  freeVars (Forall ns t) = freeVars t S.\\ (S.fromList $ map BoundVar ns)
+instance UnifyVars Schema where
+  unifyVars (Forall _ t) = unifyVars t
 
 -- }}}
 
@@ -121,7 +114,7 @@ emptyRO :: ModuleName -> RO
 emptyRO m = RO { typeEnv = M.empty, curMod = m }
 
 data RW = RW
-  { nameGen :: Integer
+  { nameGen :: TypeIndex
   , subst   :: Subst
   , errors  :: [String]
   }
@@ -129,15 +122,27 @@ data RW = RW
 emptyRW :: RW
 emptyRW = RW 0 emptySubst []
 
-newType :: TI Type
-newType = do
+newTypeIndex :: TI TypeIndex
+newTypeIndex = do
   rw <- TI get
   TI $ put $ rw { nameGen = nameGen rw + 1 }
-  return $ TyVar $ FreeVar $ nameGen rw
+  return $ nameGen rw
+
+newType :: TI Type
+newType = TyUnifyVar <$> newTypeIndex
 
 freshInst :: Schema -> TI Type
-freshInst (Forall ns t) = do nts <- mapM (\n -> (,) <$> pure n <*> newType) ns
-                             return (instantiate nts t)
+freshInst (Forall ns t) = do
+  nts <- mapM (\n -> (,) n <$> newType) ns
+  return (instantiate nts t)
+
+skolemType :: Name -> TI Type
+skolemType n = TySkolemVar n <$> newTypeIndex
+
+skolemInst :: Schema -> TI Type
+skolemInst (Forall ns t) = do
+  nts <- mapM (\n -> (,) n <$> skolemType n) ns
+  return (instantiate nts t)
 
 appSubstM :: AppSubst t => t -> TI t
 appSubstM t = do
@@ -174,14 +179,6 @@ bindDecl (Decl n (Just s) _) m = bindSchema n s m
 bindDecls :: [Decl] -> TI a -> TI a
 bindDecls ds m = foldr bindDecl m ds
 
--- deprecated
-bindTopSchemas :: [LBind Schema] -> TI a -> TI a
-bindTopSchemas ds k = bindSchemas ds k
-
--- deprecated
-bindLocalSchemas :: [LBind Schema] -> TI a -> TI a
-bindLocalSchemas ds k = bindSchemas ds k
-
 curModName :: TI ModuleName
 curModName = TI $ asks curMod
 
@@ -191,18 +188,14 @@ lookupVar n = do
   case M.lookup n env of
     Nothing -> do recordError $ "unbound variable: " ++ show n
                   newType
-    Just (Forall as t) -> do ats <- forM as $ \a ->
-                               do t' <- newType
-                                  return (BoundVar a,t')
-                             let s = listSubst ats
-                             return $ appSubst s t
+    Just schema -> freshInst schema
 
-freeVarsInEnv :: TI (S.Set TyVar)
-freeVarsInEnv = do
+unifyVarsInEnv :: TI (S.Set TypeIndex)
+unifyVarsInEnv = do
   env <- TI $ asks typeEnv
   let ss = M.elems env
   ss' <- mapM appSubstM ss
-  return $ freeVars ss'
+  return $ unifyVars ss'
 
 -- }}}
 
@@ -219,14 +212,16 @@ instance (AppSubst t) => AppSubst (Maybe t) where
 
 instance AppSubst Type where
   appSubst s t = case t of
-    TyCon tc ts -> TyCon tc $ appSubst s ts
-    TyRecord fs -> TyRecord $ appSubst s fs
-    TyVar tv    -> case M.lookup tv $ unSubst s of
-                     Just t' -> t'
-                     Nothing -> t
+    TyCon tc ts     -> TyCon tc (appSubst s ts)
+    TyRecord fs     -> TyRecord (appSubst s fs)
+    TyBoundVar _    -> t
+    TyUnifyVar i    -> case M.lookup i (unSubst s) of
+                         Just t' -> t'
+                         Nothing -> t
+    TySkolemVar _ _ -> t
 
 instance AppSubst Schema where
-  appSubst s (Forall ns t) = Forall ns $ appSubst s t
+  appSubst s (Forall ns t) = Forall ns (appSubst s t)
 
 instance AppSubst Expr where
   appSubst s expr = case expr of
@@ -274,11 +269,12 @@ instance (Instantiate a) => Instantiate [a] where
   instantiate nts = map (instantiate nts)
 
 instance Instantiate Type where
-  instantiate nts typ = case typ of
-    TyCon tc ts -> TyCon tc $ instantiate nts ts
-    TyRecord fs -> TyRecord $ fmap (instantiate nts) fs
-    TyVar (BoundVar n) -> maybe typ id $ lookup n nts
-    _ -> typ
+  instantiate nts ty = case ty of
+    TyCon tc ts     -> TyCon tc (instantiate nts ts)
+    TyRecord fs     -> TyRecord (fmap (instantiate nts) fs)
+    TyBoundVar n    -> maybe ty id (lookup n nts)
+    TyUnifyVar _    -> ty
+    TySkolemVar _ _ -> ty
 
 -- }}}
 
@@ -335,8 +331,7 @@ inferE (ln, expr) = case expr of
 
 
   Function x mt body -> do xt <- maybe newType return mt
-                           (body',t) <- bindLocalSchemas [(x,tMono xt)] $
-                                          inferE (ln,body)
+                           (body',t) <- bindSchema x (tMono xt) $ inferE (ln, body)
                            return (Function x (Just xt) body', tFun xt t)
 
   Application f v -> do (v',fv) <- inferE (ln,v)
@@ -461,24 +456,30 @@ inferStmts m ctx (BlockCode s : more) = do
   (more',t) <- inferStmts m ctx more
   return (BlockCode s : more', t)
 
--- | FIXME: If the Decl has a schema annotation, then match it against
--- the inferred type afterwards.
 inferDecl :: Decl -> TI Decl
-inferDecl (Decl n _ e) = do
+inferDecl (Decl n Nothing e) = do
   (e',t) <- inferE (n, e)
   [(e1,s)] <- generalize [e'] [t]
   return (Decl n (Just s) e1)
+
+inferDecl (Decl n (Just s) e) = do
+  (e', t) <- inferE (n, e)
+  t' <- skolemInst s
+  unify n t t'
+  -- FIXME: make sure the skolem variables didn't "leak" into the surrounding context
+  return (Decl n (Just s) e')
 
 
 -- XXX: For now, no schema type signatures.
 inferRecDecls :: [Decl] -> TI [Decl]
 inferRecDecls ds =
   do let names = map dName ds
-     guessedTypes <- mapM (\_ -> newType) ds
+     guessedSchemas <- mapM (maybe (tMono <$> newType) return . dType) ds
      (es,ts) <- unzip `fmap`
-                bindTopSchemas (zip names (map tMono guessedTypes))
-                               (mapM inferE [ (n, e) | Decl n _ e <- ds ])
-     _ <- sequence $ zipWith3 unify names ts guessedTypes
+                bindSchemas (zip names guessedSchemas)
+                            (mapM inferE [ (n, e) | Decl n _ e <- ds ])
+     guessedTypes <- mapM skolemInst guessedSchemas
+     sequence_ $ zipWith3 unify names ts guessedTypes
      (es1,ss) <- unzip `fmap` generalize es ts
      return [ Decl n (Just s) e | (n, s, e) <- zip3 names ss es1 ]
 
@@ -488,19 +489,13 @@ generalize es0 ts0 =
   do ts <- appSubstM ts0
      es <- appSubstM es0
 
-     let cs = freeVars ts
-     withAsmps <- freeVarsInEnv
-     let (ns,gvs) = unzip $ mapMaybe toBound $ S.toList $ cs S.\\ withAsmps
-     let s = listSubst gvs
-         mk e t = (appSubst s e, Forall ns (appSubst s t))
+     withAsmps <- unifyVarsInEnv
+     let is = S.toList (unifyVars ts S.\\ withAsmps)
+     let ns = [ "a." ++ show i | i <- is ]
+     let s = listSubst (zip is (map TyBoundVar ns))
+     let mk e t = (appSubst s e, Forall ns (appSubst s t))
 
      return $ zipWith mk es ts
-
-  where
-  toBound :: TyVar -> Maybe (Name,(TyVar,Type))
-  toBound v@(FreeVar i) = let nm = "a." ++ show i in
-                                Just (nm,(v,TyVar (BoundVar nm)))
-  toBound _ = Nothing
 
 -- Check a list of recursive groups, sorted by dependency.
 inferTopDecls :: [[Decl]] -> TI [[Decl]]
