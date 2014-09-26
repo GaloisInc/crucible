@@ -256,7 +256,8 @@ instance PrettyPrint Context where
     TopLevel     -> PP.text "TopLevel"
 
 instance PrettyPrint ModuleName where
-  pretty _ mn = PP.text (renderModuleName mn)
+  pretty _ mn = PP.text "module" PP.<+>
+                PP.squotes (PP.text (renderModuleName mn))
 
 instance PrettyPrint Module where
   pretty par m = pretty par (moduleName m)

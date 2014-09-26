@@ -1,5 +1,6 @@
 module Main where
 
+import Control.Exception
 import Data.List
 
 import System.IO
@@ -21,7 +22,11 @@ main = do
       'SAWScript.ProcessFile', and a REPL, defined in 'SAWScript.REPL'. -}
       case (runInteractively opts'', files) of
         (True, []) -> REPL.run opts''
-        (False, file:_) -> processFile opts'' file
+        (False, [file]) -> processFile opts'' file
+                           `catch`
+                           (\(ErrorCall msg) -> hPutStr stderr msg)
+        (False, _:_) ->
+          hPutStrLn stderr "Running multiple files not yet supported."
         (True, _:_) ->
           hPutStrLn stderr ("Unable to handle files in interactive mode"
                             ++ usageInfo header options)

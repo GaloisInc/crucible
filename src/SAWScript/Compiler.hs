@@ -27,7 +27,7 @@ indent :: Int -> String -> String
 indent n = unlines . map (replicate n ' ' ++) . lines
 
 reportError :: (MonadIO io) => String -> io a
-reportError = fail . ("Error\n" ++) . indent 2
+reportError = error . ("Error\n" ++) . indent 2
 --reportError = liftIO . putStrLn . ("Error\n" ++) . indent 2
 
 type Compiler a b = a -> Err b
@@ -55,10 +55,7 @@ compiler :: PrettyPrint a => String -> Compiler a b -> Compiler a b
 compiler name comp input = do
   result <- liftIO $ runErrorT $ extractErrorT $ comp input
   ErrT $ case result of
-    Left err -> fail $
-      unlines [ name ++ ": " ++ err
-              , "in:"
-              , pShow input ]
+    Left err -> fail $ err ++ " in " ++ pShow input
     Right r -> return r
 
 liftParser :: (a -> Either ParseError b) -> Compiler a b
