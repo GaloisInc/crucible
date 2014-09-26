@@ -28,7 +28,7 @@ import Control.Applicative hiding (empty)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Cont
-import Control.Monad.Error (ErrorT, runErrorT)
+import Control.Monad.Error (Error(..), ErrorT, runErrorT, throwError)
 import Control.Monad.State
 import Data.Int
 import Data.List (intercalate) -- foldl', intersperse)
@@ -79,14 +79,10 @@ setStaticFieldValue f v =
 
 -- | Set value bound to array in path state.
 -- Assumes value is an array with a ground length.
-setArrayValue :: JSS.Ref -> SharedTerm JSSCtx -> SharedTerm JSSCtx
+setArrayValue :: JSS.Ref -> Int32 -> SharedTerm JSSCtx
               -> SpecPathState -> SpecPathState
-setArrayValue r (isVecType (const (return ())) -> Just (w :*: _)) v =
+setArrayValue r n v =
   JSS.pathMemory . JSS.memScalarArrays %~ Map.insert r (n, v)
-    where n = fromIntegral w
-setArrayValue _ ty _ =
-  error $ "internal: setArrayValue called with value of non-array type: " ++
-          show (scPrettyTermDoc ty)
 
 -- | Returns value constructor from node.
 mkJSSValue :: JSS.Type -> n -> JSS.Value n
@@ -132,9 +128,31 @@ evalContextFromPathState sc m ps =
        , ecJavaExprs = m
        }
 
-type ExprEvaluator a = ErrorT TC.JavaExpr IO a
+data ExprEvalError
+  = EvalExprUndefined TC.JavaExpr
+  | EvalExprBadJavaType String TC.JavaExpr
+  | EvalExprBadLogicType String String
+  | EvalExprUnknownArray TC.JavaExpr
+  | EvalExprUnknownLocal JSS.LocalVariableIndex TC.JavaExpr
+  | EvalExprUnknownField JSS.FieldId TC.JavaExpr
+  | EvalExprOther String
 
-runEval :: MonadIO m => ExprEvaluator b -> m (Either TC.JavaExpr b)
+evalErrExpr :: ExprEvalError -> TC.JavaExpr
+evalErrExpr (EvalExprUndefined e) = e
+evalErrExpr (EvalExprUnknownArray e) = e
+evalErrExpr (EvalExprUnknownLocal _ e) = e
+evalErrExpr (EvalExprUnknownField _ e) = e
+evalErrExpr (EvalExprBadJavaType _ _) = error "evalErrExpr: EvalExprBadJavaType"
+evalErrExpr (EvalExprBadLogicType _ _) = error "evalErrExpr: EvalExprBadLogicType"
+evalErrExpr (EvalExprOther _) = error "evalErrExpr: EvalExprOther"
+
+instance Error ExprEvalError where
+  strMsg = EvalExprOther
+  noMsg = EvalExprOther "empty ExprEvalError"
+
+type ExprEvaluator a = ErrorT ExprEvalError IO a
+
+runEval :: MonadIO m => ExprEvaluator b -> m (Either ExprEvalError b)
 runEval v = liftIO (runErrorT v)
 
 -- or undefined subexpression if not.
@@ -142,59 +160,59 @@ runEval v = liftIO (runErrorT v)
 -- the JavaExpression syntactically referes to the correct type of method
 -- (static versus instance), and correct well-typed arguments.  It does
 -- not assume that all the instanceFields in the JavaEvalContext are initialized.
-evalJavaExpr :: (Monad m) => TC.JavaExpr -> EvalContext -> m SpecJavaValue
+evalJavaExpr :: TC.JavaExpr -> EvalContext -> ExprEvaluator SpecJavaValue
 evalJavaExpr expr ec = eval expr
-  where eval e@(CC.Term app) =
+  where eval (CC.Term app) =
           case app of
             TC.Local _ idx _ ->
               case Map.lookup idx (ecLocals ec) of
                 Just v -> return v
-                Nothing -> fail $ "evalJavaExpr: " ++ show e -- TODO
+                Nothing -> throwError $ EvalExprUnknownLocal idx expr
             TC.InstanceField r f -> do
               JSS.RValue ref <- eval r
               let ifields = (ecPathState ec) ^. JSS.pathMemory . JSS.memInstanceFields
               case Map.lookup (ref, f) ifields of
                 Just v -> return v
-                Nothing -> fail $ "evalJavaExpr: " ++ show e -- TODO
+                Nothing -> throwError $ EvalExprUnknownField f expr
             TC.StaticField f -> do
               let sfields = (ecPathState ec) ^. JSS.pathMemory . JSS.memStaticFields
               case Map.lookup f sfields of
                 Just v -> return v
-                Nothing -> fail $ "evalJavaExpr: " ++ show e -- TODO
+                Nothing -> throwError $ EvalExprUnknownField f expr
 
 evalJavaRefExpr :: TC.JavaExpr -> EvalContext -> ExprEvaluator JSS.Ref
 evalJavaRefExpr expr ec = do
   val <- evalJavaExpr expr ec
   case val of
     JSS.RValue ref -> return ref
-    _ -> error "internal: evalJavaRefExpr encountered illegal value."
+    _ -> throwError $ EvalExprBadJavaType "evalJavaRefExpr" expr
 
-evalJavaExprAsLogic :: (Monad m) => TC.JavaExpr -> EvalContext -> m (SharedTerm JSSCtx)
+evalJavaExprAsLogic :: TC.JavaExpr -> EvalContext -> ExprEvaluator (SharedTerm JSSCtx)
 evalJavaExprAsLogic expr ec = do
   val <- evalJavaExpr expr ec
   case val of
     JSS.RValue r ->
       let arrs = (ecPathState ec) ^. JSS.pathMemory . JSS.memScalarArrays in
       case Map.lookup r arrs of
-        Nothing    -> fail $ "evalJavaExprAsLogic: " ++ show expr ++ "(" ++ show val ++ ")"
+        Nothing    -> throwError $ EvalExprUnknownArray expr
         Just (_,n) -> return n
     JSS.IValue n -> return n
     JSS.LValue n -> return n
-    _ -> error "internal: evalJavaExprAsExpr encountered illegal value."
+    _ -> throwError $ EvalExprBadJavaType "evalJavaExprAsLogic" expr
 
 -- | Evaluates a typed expression in the context of a particular state.
 evalLogicExpr :: TC.LogicExpr -> EvalContext -> ExprEvaluator (SharedTerm JSSCtx)
-evalLogicExpr initExpr ec = liftIO $ do
+evalLogicExpr initExpr ec = do
   let sc = ecContext ec
       getExprs =
         filter (not . TC.isClassJavaExpr . snd) . Map.toList . ecJavaExprs
       exprs = getExprs ec
-  args <- forM exprs $ \(name, expr) -> do
+  args <- forM exprs $ \(_name, expr) -> do
     t <- evalJavaExprAsLogic expr ec
     return (expr, t)
   let argMap = Map.fromList args
       argTerms = mapMaybe (\k -> Map.lookup k argMap) (TC.logicExprJavaExprs initExpr)
-  TC.useLogicExpr sc initExpr argTerms
+  liftIO $ TC.useLogicExpr sc initExpr argTerms
 
 -- | Return Java value associated with mixed expression.
 evalMixedExpr :: TC.MixedExpr -> EvalContext
@@ -208,9 +226,7 @@ evalMixedExpr (TC.LE expr) ec = do
   case (asBitvectorType ty', asBoolType ty') of
     (Just 32, _) -> return (JSS.IValue n)
     (Just 64, _) -> return (JSS.LValue n)
-    (Just n, _) ->
-      error $ "internal: bitvector of unsupported size " ++ show n ++
-              " passed to evalMixedExpr"
+    (Just _, _) -> throwError (EvalExprBadLogicType "evalMixedExpr" (show ty'))
     (Nothing, Just _) -> do
       b <- liftIO $ do
         boolTy <- scBoolType sc
@@ -219,9 +235,7 @@ evalMixedExpr (TC.LE expr) ec = do
         scVector sc boolTy (replicate 31 false ++ [n])
       return (JSS.IValue b)
     (Nothing, Nothing) ->
-      error $
-      "internal: unsupported expression passed to evalMixedExpr: " ++
-      show ty'
+      throwError (EvalExprBadLogicType "evalMixedExpr" (show ty'))
 evalMixedExpr (TC.JE expr) ec = evalJavaExpr expr ec
 
 evalMixedExprAsLogic :: TC.MixedExpr -> EvalContext
@@ -247,6 +261,7 @@ data OverrideError
    | AliasingInputs !TC.JavaExpr !TC.JavaExpr
    | JavaException JSS.Ref
    | SimException String
+   | InvalidType String
    | Abort
    deriving (Show)
 
@@ -259,6 +274,7 @@ ppOverrideError (AliasingInputs x y) =
     ++ " point to the same reference, but are not allowed to alias each other."
 ppOverrideError (JavaException _)    = "A Java exception was thrown."
 ppOverrideError (SimException s)     = "Simulation exception: " ++ s ++ "."
+ppOverrideError (InvalidType ty)     = "Invalid type in modify clause: " ++ show ty
 ppOverrideError Abort                = "Path was aborted."
 
 data OverrideResult
@@ -295,7 +311,7 @@ ocEval fn m = do
   ec <- gets ocsEvalContext
   res <- runEval (fn ec)
   case res of
-    Left expr -> ocError $ UndefinedExpr expr
+    Left err -> ocError $ UndefinedExpr (evalErrExpr err)
     Right v   -> m v
 
 -- Modify result state
@@ -346,7 +362,10 @@ ocStep (EnsureArray _pos lhsExpr rhsExpr) = do
       sc <- gets (ecContext . ocsEvalContext)
       ss <- liftIO $ basic_ss sc
       ty <- liftIO $ scTypeOf sc rhsVal >>= rewriteSharedTerm sc ss
-      ocModifyResultState $ setArrayValue lhsRef ty rhsVal
+      case ty of
+        (isVecType (const (return ())) -> Just (n :*: _)) ->
+          ocModifyResultState $ setArrayValue lhsRef (fromIntegral n) rhsVal
+        _ -> ocError (InvalidType (show ty))
 ocStep (ModifyInstanceField refExpr f) =
   ocEval (evalJavaRefExpr refExpr) $ \lhsRef -> do
     sc <- gets (ecContext . ocsEvalContext)
@@ -366,12 +385,16 @@ ocStep (ModifyArray refExpr ty) = do
   ocEval (evalJavaRefExpr refExpr) $ \ref -> do
     sc <- gets (ecContext . ocsEvalContext)
     mtp <- liftIO $ TC.logicTypeOfActual sc ty
-    rhsVal <- maybe (fail "can't convert")
-                    (liftIO . scFreshGlobal sc (TC.ppJavaExpr refExpr))
-                    mtp
-    ss <- liftIO $ basic_ss sc
-    lty <- liftIO $ scTypeOf sc rhsVal >>= rewriteSharedTerm sc ss
-    ocModifyResultState $ setArrayValue ref lty rhsVal
+    case mtp of
+      Nothing -> ocError (InvalidType (show ty))
+      Just tp -> do
+        rhsVal <- liftIO $ scFreshGlobal sc (TC.ppJavaExpr refExpr) tp
+        ss <- liftIO $ basic_ss sc
+        lty <- liftIO $ scTypeOf sc rhsVal >>= rewriteSharedTerm sc ss
+        case lty of
+          (isVecType (const (return ())) -> Just (n :*: _)) ->
+            ocModifyResultState $ setArrayValue ref (fromIntegral n) rhsVal
+          _ -> ocError (InvalidType (show ty))
 ocStep (Return expr) = do
   ocEval (evalMixedExpr expr) $ \val ->
     modify $ \ocs -> ocs { ocsReturnValue = Just val }
@@ -467,7 +490,6 @@ execOverride sc pos ir mbThis args = do
     [(_, _, Left el)] -> do
       let msg = "Unsatisified assertions in " ++ specName ir ++ ":\n"
                 ++ intercalate "\n" (map ppOverrideError el)
-      -- TODO: turn this message into a proper exception
       fail msg
     [(ps, _, Right mval)] ->
       JSS.modifyPathM_ (PP.text "path result") $ \_ ->
@@ -545,6 +567,7 @@ data ESGState = ESGState {
        , esInstanceFields :: Map (JSS.Ref, JSS.FieldId) (Maybe SpecJavaValue)
        , esStaticFields :: Map JSS.FieldId (Maybe SpecJavaValue)
        , esArrays :: Map JSS.Ref (Maybe (Int32, SharedTerm JSSCtx))
+       , esErrors :: [String]
        }
 
 -- | Monad used to execute statements in a behavior specification for a method
@@ -554,13 +577,16 @@ type ExpectedStateGenerator = StateT ESGState IO
 esEval :: (EvalContext -> ExprEvaluator b) -> ExpectedStateGenerator b
 esEval fn = do
   sc <- gets esContext
-  m <- gets esJavaExprs 
+  m <- gets esJavaExprs
   initPS <- gets esInitialPathState
   let ec = evalContextFromPathState sc m initPS
   res <- runEval (fn ec)
   case res of
-    Left expr -> fail $ "internal: esEval given " ++ show expr ++ "."
+    Left expr -> error "internal: esEval failed to evaluate expression"
     Right v   -> return v
+
+esError :: String -> ExpectedStateGenerator ()
+esError err = modify $ \es -> es { esErrors = err : esErrors es }
 
 esGetInitialPathState :: ExpectedStateGenerator SpecPathState
 esGetInitialPathState = gets esInitialPathState
@@ -590,14 +616,14 @@ esAssertEq :: String -> SpecJavaValue -> SpecJavaValue
            -> ExpectedStateGenerator ()
 esAssertEq nm (JSS.RValue x) (JSS.RValue y) = do
   when (x /= y) $
-    error $ "internal: Asserted different references for " ++ nm ++ " are equal."
+    esError $ "internal: Asserted different references for " ++ nm ++ " are equal."
 esAssertEq nm (JSS.IValue x) (JSS.IValue y) = do
   sc <- gets esContext
   esAddEqAssertion sc nm x y
 esAssertEq nm (JSS.LValue x) (JSS.LValue y) = do
   sc <- gets esContext
   esAddEqAssertion sc nm x y
-esAssertEq _ _ _ = error "internal: esAssertEq given illegal arguments."
+esAssertEq _ _ _ = esError "internal: esAssertEq given illegal arguments."
 
 -- | Set value in initial state.
 esSetJavaValue :: TC.JavaExpr -> SpecJavaValue -> ExpectedStateGenerator ()
@@ -612,7 +638,8 @@ esSetJavaValue e@(CC.Term exprF) v = do
                  Nothing -> Map.empty
           ps' = (JSS.pathStack %~ updateLocals) ps
           updateLocals (f:r) = (JSS.cfLocals %~ Map.insert idx v) f : r
-          updateLocals [] = error "internal: esSetJavaValue of local with empty call stack"
+          updateLocals [] =
+            error "internal: esSetJavaValue of local with empty call stack"
       -- liftIO $ putStrLn $ "Local " ++ show idx ++ " with stack " ++ show ls
       case Map.lookup idx ls of
         Just oldValue -> esAssertEq (TC.ppJavaExpr e) oldValue v
@@ -656,7 +683,7 @@ esResolveLogicExprs _ _ (hrhs:rrhs) = do
 esSetLogicValues :: SharedContext JSSCtx -> [TC.JavaExpr] -> SharedTerm JSSCtx
                  -> [TC.LogicExpr]
                  -> ExpectedStateGenerator ()
-esSetLogicValues _ [] _ _ = fail "empty class passed to esSetLogicValues"
+esSetLogicValues _ [] _ _ = esError "empty class passed to esSetLogicValues"
 esSetLogicValues sc cl@(rep:_) tp lrhs = do
   -- liftIO $ putStrLn $ "Setting logic values for: " ++ show cl
   -- Get value of rhs.
@@ -667,16 +694,17 @@ esSetLogicValues sc cl@(rep:_) tp lrhs = do
   ty <- liftIO $ scTypeOf sc value
   -- Update value.
   case ty of
-    (isVecType (const (return ())) -> Just _) -> do
+    (isVecType (const (return ())) -> Just (n :*: _)) -> do
        refs <- forM cl $ \expr -> do
                  JSS.RValue ref <- esEval $ evalJavaExpr expr
                  return ref
-       forM_ refs $ \r -> esModifyInitialPathState (setArrayValue r ty value)
+       forM_ refs $
+         \r -> esModifyInitialPathState (setArrayValue r (fromIntegral n) value)
     (asBitvectorType -> Just 32) ->
        mapM_ (flip esSetJavaValue (JSS.IValue value)) cl
     (asBitvectorType -> Just 64) ->
        mapM_ (flip esSetJavaValue (JSS.LValue value)) cl
-    _ -> error "internal: initializing Java values given bad rhs."
+    _ -> esError "internal: initializing Java values given bad rhs."
 
 esStep :: BehaviorCommand -> ExpectedStateGenerator ()
 esStep (AssertPred _ expr) = do
@@ -710,7 +738,7 @@ esStep (EnsureInstanceField _pos refExpr f rhsExpr) = do
     -- TODO: See if we can give better error message here.
     -- Perhaps this just ends up meaning that we need to verify the assumptions in this
     -- behavior are inconsistent.
-    _ -> error "internal: Incompatible values assigned to instance field."
+    _ -> esError "internal: Incompatible values assigned to instance field."
   -- Define instance field post condition.
   modify $ \es ->
     es { esInstanceFields = Map.insert (ref,f) (Just value) (esInstanceFields es) }
@@ -732,7 +760,7 @@ esStep (EnsureStaticField _pos f rhsExpr) = do
     -- TODO: See if we can give better error message here.
     -- Perhaps this just ends up meaning that we need to verify the assumptions in this
     -- behavior are inconsistent.
-    _ -> error "internal: Incompatible values assigned to static field."
+    _ -> esError "internal: Incompatible values assigned to static field."
   modify $ \es ->
     es { esStaticFields = Map.insert f (Just value) (esStaticFields es) }
 esStep (ModifyInstanceField refExpr f) = do
@@ -755,18 +783,19 @@ esStep (EnsureArray _pos lhsExpr rhsExpr) = do
   sc <- gets esContext
   ss <- liftIO $ basic_ss sc
   ty <- liftIO $ scTypeOf sc value >>= rewriteSharedTerm sc ss
-  let l = case ty of
-            (isVecType (const (return ())) -> Just (w :*: _)) -> fromIntegral w
-            _ -> error "internal: right hand side of array ensure clause has non-array type."
-  -- Check if array has already been assigned value.
-  aMap <- gets esArrays
-  case Map.lookup ref aMap of
-    Just (Just (oldLen, prev))
-      | l /= fromIntegral oldLen -> error "internal: array changed size."
-      | otherwise -> esAddEqAssertion sc (show lhsExpr) prev value
-    _ -> return ()
-  -- Define instance field post condition.
-  modify $ \es -> es { esArrays = Map.insert ref (Just (l, value)) (esArrays es) }
+  case ty of
+    (isVecType (const (return ())) -> Just (w :*: _)) -> do
+      let l = fromIntegral w
+      -- Check if array has already been assigned value.
+      aMap <- gets esArrays
+      case Map.lookup ref aMap of
+        Just (Just (oldLen, prev))
+          | l /= fromIntegral oldLen -> esError "internal: array changed size."
+          | otherwise -> esAddEqAssertion sc (show lhsExpr) prev value
+        _ -> return ()
+      -- Define instance field post condition.
+      modify $ \es -> es { esArrays = Map.insert ref (Just (l, value)) (esArrays es) }
+    _ -> esError "internal: right hand side of array ensure clause has non-array type."
 esStep (ModifyArray refExpr _) = do
   ref <- esEval $ evalJavaRefExpr refExpr
   es <- get
@@ -815,6 +844,7 @@ initializeVerification sc ir bs refConfig = do
                          , esInstanceFields = Map.empty
                          , esStaticFields = Map.empty
                          , esArrays = Map.empty
+                         , esErrors = []
                          }
   -- liftIO $ putStrLn "Starting to initialize state."
   es <- liftIO $ flip execStateT initESG $ do
@@ -834,6 +864,10 @@ initializeVerification sc ir bs refConfig = do
           -- liftIO $ putStrLn "Running commands."
           mapM esStep (bsCommands bs)
   let ps = esInitialPathState es
+      errs = esErrors es
+      indent = (' ' :) . (' ' :)
+  unless (null errs) $ fail . unlines $
+    "Errors while initializing verification:" : map indent errs
   JSS.modifyPathM_ (PP.text "initializeVerification") (\_ -> return ps)
   return ESD { esdStartLoc = bsLoc bs
              , esdInitialPathState = esInitialPathState es
@@ -892,7 +926,7 @@ ppPathVC pvc =
          text "Checks:" :
          map ppCheck (pvcChecks pvc)
        ]
-  where ppAssignment (expr, tm) = hsep [ text (TC.ppJavaExpr expr) 
+  where ppAssignment (expr, tm) = hsep [ text (TC.ppJavaExpr expr)
                                        , text ":="
                                        , scPrettyTermDoc tm
                                        ]
@@ -915,7 +949,7 @@ pvcgFail msg =
 -- generateVC {{{2
 
 -- | Compare result with expected state.
-generateVC :: JavaMethodSpecIR 
+generateVC :: JavaMethodSpecIR
            -> ExpectedStateDef -- ^ What is expected
            -> RunResult -- ^ Results of symbolic execution.
            -> PathVC -- ^ Proof oblications
@@ -944,7 +978,8 @@ generateVC ir esd (ps, endLoc, res) = do
               pvcgFail $ ftext $ "Assigns unexpected return value."
           (Just _, Nothing) ->
             pvcgFail $ ftext $ "Missing return spec for method returning a value."
-          _ ->  error "internal: The Java method has an unsupported return type."
+          _ ->  pvcgFail $ ftext $
+                "internal: The Java method has an unsupported return type."
         -- Check initialization
         do let sinits = Set.fromList (specInitializedClasses ir)
            forM_ (Map.keys (ps ^. JSS.pathMemory . JSS.memInitialization)) $ \cl -> do
@@ -971,7 +1006,8 @@ generateVC ir esd (ps, endLoc, res) = do
                 (JSS.LValue jvmNode, Just (JSS.LValue specNode)) ->
                   pvcgAssertEq fieldName jvmNode specNode
                 (_, Just _) ->
-                  error "internal: comparePathStates encountered illegal field type."
+                  pvcgFail $
+                  ftext "internal: comparePathStates encountered illegal field type."
         -- Check instance fields
         forM_ (Map.toList (ps ^. JSS.pathMemory . JSS.memInstanceFields)) $ \((ref,f), jval) -> do
           let fieldName = show (JSS.fieldIdName f)
@@ -991,8 +1027,8 @@ generateVC ir esd (ps, endLoc, res) = do
                   pvcgAssertEq fieldName jvmNode specNode
                 (JSS.LValue jvmNode, Just (JSS.LValue specNode)) ->
                   pvcgAssertEq fieldName jvmNode specNode
-                (_, Just _) ->
-                  error "internal: comparePathStates encountered illegal field type."
+                (_, Just _) -> pvcgFail $
+                  ftext "internal: comparePathStates encountered illegal field type."
         -- Check value arrays
         forM_ (Map.toList (ps ^. JSS.pathMemory . JSS.memScalarArrays)) $ \(ref,(jlen,jval)) -> do
           case Map.lookup ref (esdArrays esd) of
