@@ -37,6 +37,7 @@ import Control.Applicative
   'and'          { TReserved _ "and"            }
   'as'           { TReserved _ "as"             }
   'let'          { TReserved _ "let"            }
+  'rec'          { TReserved _ "rec"            }
   'in'           { TReserved _ "in"             }
   'type'         { TReserved _ "type"           }
   'do'           { TReserved _ "do"             }
@@ -110,7 +111,8 @@ Import :: { TopStmt }
 BlockStmt :: { BlockStmt }
  : Expression                           { Bind Nothing Nothing Nothing $1   }
  | Arg '<-' Expression                  { Bind (Just (fst $1)) (snd $1) Nothing $3 }
- | 'let' sepBy1(Declaration, 'and')     { BlockLet $2                  }
+ | 'rec' sepBy1(Declaration, 'and')     { BlockLet (Recursive $2)                  }
+ | 'let' Declaration                    { BlockLet (NonRecursive $2)               }
  | 'let' Code                           { BlockCode $2                 }
 
 Declaration :: { Decl }
@@ -124,8 +126,9 @@ Expression :: { Expr }
  : IExpr                                { $1 }
  | IExpr ':' Type                       { TSig $1 $3          }
  | '\\' list1(Arg) '->' Expression      { buildFunction $2 $4 }
- | 'let' sepBy1(Declaration, 'and')
-   'in' Expression                      { Let $2 $4 }
+ | 'let' Declaration 'in' Expression    { Let (NonRecursive $2) $4 }
+ | 'rec' sepBy1(Declaration, 'and')
+   'in' Expression                      { Let (Recursive $2) $4 }
 
 IExpr :: { Expr }
  : AExprs                               { $1 }

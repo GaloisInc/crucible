@@ -36,7 +36,7 @@ $hexit     = [0-9 A-F a-f]
 $idchar    = [$alpha $digit \' \_]
 $codechar  = [$graphic $whitechar]
 
-@reservedid  = import|and|let|fun|in|do|if|then|else|as|undefined
+@reservedid  = import|and|let|rec|fun|in|do|if|then|else|as|undefined
              |prim|CryptolSetup|JavaSetup|LLVMSetup
              |ProofScript|TopLevel
              |Int|String|Term|Bit

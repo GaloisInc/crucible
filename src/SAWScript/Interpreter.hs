@@ -70,6 +70,16 @@ extendEnv x mt v (InterpretEnv vm tm ce) = InterpretEnv vm' tm' ce'
               -> CEnv.bindInteger (qname, n) ce
             _ -> ce
 
+-- | Variation that does not force the value argument: it assumes it
+-- is not a term or int.
+extendEnv' :: SS.LName -> Maybe SS.Schema -> Value s -> InterpretEnv s -> InterpretEnv s
+extendEnv' x mt v (InterpretEnv vm tm ce) = InterpretEnv vm' tm' ce
+  where
+    vm' = Map.insert x v vm
+    tm' = case mt of
+            Just t -> Map.insert x t tm
+            Nothing -> tm
+
 -- Interpretation of SAWScript -------------------------------------------------
 
 interpret
@@ -104,7 +114,7 @@ interpret sc env@(InterpretEnv vm _tm ce) expr =
                                    case v1 of
                                      VLambda f -> f v2
                                      _ -> fail $ "interpret Application: " ++ show v1
-      SS.Let ds e            -> do env' <- foldM (interpretDecl sc) env ds
+      SS.Let dg e            -> do env' <- interpretDeclGroup sc env dg
                                    interpret sc env' e
       SS.TSig e _            -> interpret sc env e
 
@@ -112,6 +122,20 @@ interpretDecl :: SharedContext s -> InterpretEnv s -> SS.Decl -> IO (InterpretEn
 interpretDecl sc env (SS.Decl n mt expr) = do
   v <- interpret sc env expr
   return (extendEnv n mt v env)
+
+interpretFunction :: SharedContext s -> InterpretEnv s -> SS.Expr -> Value s
+interpretFunction sc env expr =
+    case expr of
+      SS.Function x t e -> VLambda f
+        where f v = interpret sc (extendEnv x (fmap SS.tMono t) v env) e
+      SS.TSig e _ -> interpretFunction sc env e
+      _ -> error "interpretFunction: not a function"
+
+interpretDeclGroup :: SharedContext s -> InterpretEnv s -> SS.DeclGroup -> IO (InterpretEnv s)
+interpretDeclGroup sc env (SS.NonRecursive d) =
+  interpretDecl sc env d
+interpretDeclGroup sc env (SS.Recursive ds) = return env'
+  where env' = foldr ($) env [ extendEnv' n mty (interpretFunction sc env' e) | SS.Decl n mty e <- ds ]
 
 interpretStmts
     :: forall s. SharedContext s

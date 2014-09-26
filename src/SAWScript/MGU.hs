@@ -181,6 +181,10 @@ bindDecl (Decl n (Just s) _) m = bindSchema n s m
 bindDecls :: [Decl] -> TI a -> TI a
 bindDecls ds m = foldr bindDecl m ds
 
+bindDeclGroup :: DeclGroup -> TI a -> TI a
+bindDeclGroup (NonRecursive d) m = bindDecl d m
+bindDeclGroup (Recursive ds) m = foldr bindDecl m ds
+
 curModName :: TI ModuleName
 curModName = TI $ asks curMod
 
@@ -243,7 +247,7 @@ instance AppSubst Expr where
     Var _              -> expr
     Function x xt body -> Function x (appSubst s xt) (appSubst s body)
     Application f v    -> Application (appSubst s f) (appSubst s v)
-    Let ds e           -> Let (appSubst s ds) (appSubst s e)
+    Let dg e           -> Let (appSubst s dg) (appSubst s e)
 
 instance (Ord k, AppSubst a) => AppSubst (M.Map k a) where
   appSubst s = fmap (appSubst s)
@@ -251,8 +255,12 @@ instance (Ord k, AppSubst a) => AppSubst (M.Map k a) where
 instance AppSubst BlockStmt where
   appSubst s bst = case bst of
     Bind mn mt ctx e -> Bind mn mt ctx e
-    BlockLet ds   -> BlockLet (appSubst s ds)
+    BlockLet dg   -> BlockLet (appSubst s dg)
     BlockCode str -> BlockCode str
+
+instance AppSubst DeclGroup where
+  appSubst s (Recursive ds) = Recursive (appSubst s ds)
+  appSubst s (NonRecursive d) = NonRecursive (appSubst s d)
 
 instance AppSubst Decl where
   appSubst s (Decl n mt e) = Decl n (appSubst s mt) (appSubst s e)
@@ -352,9 +360,9 @@ inferE (ln, expr) = case expr of
                     ts <- mapM (const newType) as
                     return (Var x, instantiate (zip as ts) t)
 
-  Let bs body -> inferDecls bs $ \bs' -> do
-                   (body',t) <- inferE (ln, body)
-                   return (Let bs' body', t)
+  Let dg body -> do dg' <- inferDeclGroup dg
+                    (body', t) <- bindDeclGroup dg' (inferE (ln, body))
+                    return (Let dg' body', t)
 
   Lookup e n ->
     do (e1,t) <- inferE (ln, e)
@@ -413,6 +421,15 @@ inferDecls ds nextF = do
   ds' <- mapM inferDecl ds
   bindDecls ds' (nextF ds')
 
+inferDeclGroup :: DeclGroup -> TI DeclGroup
+inferDeclGroup (NonRecursive d) = do 
+  d' <- inferDecl d
+  return (NonRecursive d')
+
+inferDeclGroup (Recursive ds) = do
+  ds' <- inferRecDecls ds
+  return (Recursive ds')
+
 inferStmts :: LName -> Type -> [BlockStmt] -> TI ([OutBlockStmt],Type)
 
 inferStmts m _ctx [] = do
@@ -450,9 +467,10 @@ inferStmts m ctx (Bind mn mt mc e : more) = do
 
   return (Bind mn (Just t') (Just mc') e' : more', t')
 
-inferStmts m ctx (BlockLet bs : more) = inferDecls bs $ \bs' -> do
-  (more',t) <- inferStmts m ctx more
-  return (BlockLet bs' : more', t)
+inferStmts m ctx (BlockLet dg : more) = do
+  dg' <- inferDeclGroup dg
+  (more', t) <- bindDeclGroup dg' (inferStmts m ctx more)
+  return (BlockLet dg' : more', t)
 
 inferStmts m ctx (BlockCode s : more) = do
   (more',t) <- inferStmts m ctx more

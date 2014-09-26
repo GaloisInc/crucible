@@ -142,14 +142,19 @@ data Expr
   | Function    LName (Maybe Type) Expr
   | Application Expr Expr
   -- Sugar
-  | Let [Decl] Expr
+  | Let DeclGroup Expr
   | TSig Expr Type
   deriving (Eq, Show)
 
 data BlockStmt
   = Bind          (Maybe LName) (Maybe Type) (Maybe Type) Expr
-  | BlockLet      [Decl]
+  | BlockLet      DeclGroup
   | BlockCode     (Located String)
+  deriving (Eq, Show)
+
+data DeclGroup
+  = Recursive [Decl]
+  | NonRecursive Decl
   deriving (Eq, Show)
 
 data Decl
