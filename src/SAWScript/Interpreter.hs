@@ -146,8 +146,7 @@ interpretStmts sc env@(InterpretEnv vm tm ce) stmts =
       [SS.Bind Nothing _ _ e] -> interpret sc env e
       SS.Bind Nothing _ _ e : ss ->
           do v1 <- interpret sc env e
-             v2 <- interpretStmts sc env ss
-             return (v1 `thenValue` v2)
+             return $ VBind v1 $ VLambda $ const $ interpretStmts sc env ss
       SS.Bind (Just x) mt _ e : ss ->
           do v1 <- interpret sc env e
              let f v = interpretStmts sc (extendEnv x (fmap SS.tMono mt) v env) ss
@@ -175,16 +174,11 @@ interpretModuleAtEntry entryName sc env m =
   do interpretEnv@(InterpretEnv vm _tm _ce) <- interpretModule sc env m
      let mainName = Located entryName entryName (PosInternal "entry")
      case Map.lookup mainName vm of
-       Just (VIO v) -> do
+       Just v -> do
          --putStrLn "We've been asked to execute a 'TopLevel' action, so run it."
          -- We've been asked to execute a 'TopLevel' action, so run it.
-         r <- v
+         r <- fromValue v
          return (r, interpretEnv)
-       Just v -> do
-         --putStrLn "We've been asked to evaluate a pure value, so wrap it up in IO and give it back."
-         {- We've been asked to evaluate a pure value, so wrap it up in IO
-         and give it back. -}
-         return (v, interpretEnv)
        Nothing -> fail $ "No " ++ entryName ++ " in module " ++ show (SS.moduleName m)
 
 -- | Interpret an expression using the default value environments.
