@@ -590,11 +590,11 @@ bindExts sc args body = do
   return t
 
 extIdx :: SharedTerm s -> Maybe VarIndex
-extIdx (STApp _ (FTermF (ExtCns ec))) = Just (ecVarIndex ec)
+extIdx (unwrapTermF -> FTermF (ExtCns ec)) = Just (ecVarIndex ec)
 extIdx _ = Nothing
 
 extName :: SharedTerm s -> Maybe String
-extName (STApp _ (FTermF (ExtCns ec))) = Just (ecName ec)
+extName (unwrapTermF -> FTermF (ExtCns ec)) = Just (ecName ec)
 extName _ = Nothing
 
 bindAllExts :: SharedContext s
@@ -605,14 +605,19 @@ bindAllExts sc body = bindExts sc (getAllExts body) body
 -- | Return a list of all ExtCns subterms in the given term, sorted by
 -- index.
 getAllExts :: SharedTerm s -> [SharedTerm s]
-getAllExts t@(STApp _ tf) = sortBy (comparing extIdx) $ Set.toList args
+getAllExts t = sortBy (comparing extIdx) $ Set.toList args
     where (seen, exts) = getExtCns (Set.empty, Set.empty) t
+          tf = unwrapTermF t
           args = snd $ foldl' getExtCns (seen, exts) tf
           getExtCns (is, a) (STApp idx _) | Set.member idx is = (is, a)
           getExtCns (is, a) t'@(STApp idx (FTermF (ExtCns _))) =
             (Set.insert idx is, Set.insert t' a)
+          getExtCns (is, a) t'@(Unshared (FTermF (ExtCns _))) =
+            (is, Set.insert t' a)
           getExtCns (is, a) (STApp idx tf') =
             foldl' getExtCns (Set.insert idx is, a) tf'
+          getExtCns (is, a) (Unshared tf') =
+            foldl' getExtCns (is, a) tf'
 
 -- | Apply the given SharedTerm to the given values, and evaluate to a
 -- final value.
