@@ -8,7 +8,7 @@ main = do {
     print r;
 
     let thm_neg = {{ \x -> ~(thm x) }};
-    offline_smtlib1 "double.smt" thm_neg;
+    write_smtlib1 "double.smt" thm_neg;
 
     print "Done.";
 };
