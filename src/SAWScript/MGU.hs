@@ -58,7 +58,7 @@ mgu m (TyCon tc1 ts1) (TyCon tc2 ts2) = do
   assert (tc1 == tc2) $
     "mismatched type constructors: " ++ pShow tc1 ++ " and " ++ pShow tc2
   mgus m ts1 ts2
-mgu m (TySkolemVar a i) (TySkolemVar b j)
+mgu _ (TySkolemVar a i) (TySkolemVar b j)
   | (a, i) == (b, j) = return emptySubst
 mgu m t1 t2 = failMGU $ "type mismatch: " ++ pShow t1 ++ " and " ++ pShow t2 ++ " at " ++ show m
 
@@ -109,11 +109,10 @@ newtype TI a = TI { unTI :: ReaderT RO (StateT RW Identity) a }
 
 data RO = RO
   { typeEnv :: M.Map (Located Name) Schema
-  , curMod  :: ModuleName
   }
 
-emptyRO :: ModuleName -> RO
-emptyRO m = RO { typeEnv = M.empty, curMod = m }
+emptyRO :: RO
+emptyRO = RO { typeEnv = M.empty }
 
 data RW = RW
   { nameGen :: TypeIndex
@@ -184,9 +183,6 @@ bindDecls ds m = foldr bindDecl m ds
 bindDeclGroup :: DeclGroup -> TI a -> TI a
 bindDeclGroup (NonRecursive d) m = bindDecl d m
 bindDeclGroup (Recursive ds) m = foldr bindDecl m ds
-
-curModName :: TI ModuleName
-curModName = TI $ asks curMod
 
 lookupVar :: Located Name -> TI Type
 lookupVar n = do
@@ -553,7 +549,7 @@ checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
                              | (n, t) <- modPrims m ]
   let sccs = computeSCCGroups modName decls
   let go = bindSchemas (initTs ++ primTs) ((,) <$> (inferTopDecls sccs >>= exportDecls) <*> pure (M.fromList prims) )
-  case evalTI (moduleName m) go of
+  case evalTI go of
     Right (exprRes,primRes) -> return $ m { moduleExprEnv = exprRes , modulePrimEnv = primRes }
     Left errs               -> fail $ unlines errs
   where
@@ -563,15 +559,15 @@ checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
 
   exportDecls dss = sequence [ appSubstM d | ds <- dss, d <- ds ]
 
-evalTI :: ModuleName -> TI a -> Either [String] a
-evalTI mn m = case runTI mn m of
+evalTI :: TI a -> Either [String] a
+evalTI m = case runTI m of
   (res,_,[]) -> Right res
   (_,_,errs) -> Left errs
 
-runTI :: ModuleName -> TI a -> (a,Subst,[String])
-runTI mn m = (a,subst rw, errors rw)
+runTI :: TI a -> (a, Subst, [String])
+runTI m = (a, subst rw, errors rw)
   where
-  m' = runReaderT (unTI m) (emptyRO mn)
+  m' = runReaderT (unTI m) emptyRO
   (a,rw) = runState m' emptyRW
 
 -- }}}
