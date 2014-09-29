@@ -35,7 +35,7 @@ Reference Implementation
 
 One simple implementation take the form of a loop in which the index
 starts out at zero, and we keep track of a mask initialized to have
-the least signficant bit set. On each iteration, we increment the
+the least significant bit set. On each iteration, we increment the
 index, and shift the mask to the left. Then we can use a bitwise "and"
 operation to test the bit at the index indicated by the index
 variable. The following C code (which is also in the `code/ffs.c` file
