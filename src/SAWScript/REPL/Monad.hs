@@ -132,7 +132,6 @@ data RW = RW
   , namesInScope :: Set Name
   , sharedContext :: SharedContext SAWCtx
   , environment :: InterpretEnv SAWCtx
-  , eCryptolEnv :: CryptolEnv SAWCtx
   }
 
 -- | Initial, empty environment.
@@ -149,7 +148,6 @@ defaultRW isBatch opts = do
   let scratchpadModule = Generate.scratchpad modules
   (biContext, ienv) <- buildInterpretEnv opts scratchpadModule
   let sc = biSharedContext biContext
-  cryEnv <- initCryptolEnv sc
 
   return RW
     { eTargetMods = []
@@ -160,7 +158,6 @@ defaultRW isBatch opts = do
     , namesInScope = Set.empty
     , sharedContext = sc
     , environment = ienv
-    , eCryptolEnv = cryEnv
     }
 
 -- | Build up the prompt for the REPL.
@@ -399,10 +396,10 @@ setModuleEnv :: M.ModuleEnv -> REPL ()
 setModuleEnv me = modifyCryptolEnv (\ce -> ce { eModuleEnv = me })
 
 getCryptolEnv :: REPL (CryptolEnv SAWCtx)
-getCryptolEnv = eCryptolEnv `fmap` getRW
+getCryptolEnv = ieCryptol `fmap` getEnvironment
 
 modifyCryptolEnv :: (CryptolEnv SAWCtx -> CryptolEnv SAWCtx) -> REPL ()
-modifyCryptolEnv f = modifyRW_ (\rw -> rw { eCryptolEnv = f (eCryptolEnv rw) })
+modifyCryptolEnv f = modifyEnvironment (\ie -> ie { ieCryptol = f (ieCryptol ie) })
 
 setCryptolEnv :: CryptolEnv SAWCtx -> REPL ()
 setCryptolEnv x = modifyCryptolEnv (const x)
