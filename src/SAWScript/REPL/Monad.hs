@@ -48,7 +48,6 @@ module SAWScript.REPL.Monad (
   , userOptions
 
     -- ** SAWScript stuff
-  , REPLState, getInitialState
   , getModulesInScope, getNamesInScope, getSharedContext, getEnvironment
   , getSAWScriptNames
   , putNamesInScope, putEnvironment
@@ -121,83 +120,6 @@ import SAWScript.Utils (SAWCtx)
 import Verifier.SAW (SharedContext)
 
 
---------------------------------- REPL state ----------------------------------
-
-data REPLState = REPLState { modulesInScope :: Map ModuleName ValidModule
-                           , namesInScope :: Set Name
-                           , sharedContext :: SharedContext SAWCtx
-                           , environment :: InterpretEnv SAWCtx
-                           }
-
-getInitialState :: Options -> IO REPLState
-getInitialState opts = do
-  preludeEtc <- preludeLoadedModules
-  result <- runErr $ do
-              built <- buildModules preludeEtc
-              foldrM checkModuleWithDeps Map.empty built
-  case result of
-    Left msg -> fail msg
-    Right modulesInScope -> do
-      let namesInScope = Set.empty
-      let scratchpadModule = Generate.scratchpad modulesInScope
-      (biContext, environment) <- buildInterpretEnv opts scratchpadModule
-      let sharedContext = biSharedContext biContext
-      return $ REPLState modulesInScope namesInScope sharedContext environment
-
--- Monadic primitives --
-
-{-
-successExit :: REP a
-successExit = maybe $ fail "Exiting" -- message should be ignored
-
-failure :: String -> REP a
-failure msg = REP $ lift $ lift $ fail msg
--}
-
-getREPLState :: REPL REPLState
-getREPLState = fmap eREPLState getRW
-
-modifyREPLState :: (REPLState -> REPLState) -> REPL ()
-modifyREPLState f = modifyRW_ $ \rw -> rw { eREPLState = f (eREPLState rw) }
-
-getModulesInScope :: REPL (Map ModuleName ValidModule)
-getModulesInScope = fmap modulesInScope getREPLState
-
-getNamesInScope :: REPL (Set Name)
-getNamesInScope = fmap namesInScope getREPLState
-
-getSharedContext :: REPL (SharedContext SAWCtx)
-getSharedContext = fmap sharedContext getREPLState
-
-getEnvironment :: REPL (InterpretEnv SAWCtx)
-getEnvironment = fmap environment getREPLState
-
-putNamesInScope :: Set Name -> REPL ()
-putNamesInScope = modifyNamesInScope . const
-
-putEnvironment :: InterpretEnv SAWCtx -> REPL ()
-putEnvironment = modifyEnvironment . const
-
-modifyNamesInScope :: (Set Name -> Set Name) -> REPL ()
-modifyNamesInScope f = modifyREPLState $ \current ->
-  current { namesInScope = f (namesInScope current) }
-
-modifyEnvironment :: (InterpretEnv SAWCtx -> InterpretEnv SAWCtx) -> REPL ()
-modifyEnvironment f = modifyREPLState $ \current ->
-  current { environment = f (environment current) }
-
--- | Get visible variable names for Haskeline completion.
-getSAWScriptNames :: REPL [String]
-getSAWScriptNames = do
-  env <- getEnvironment
-  let rnames = Map.keys (ieValues env)
-  return (map getVal rnames)
-
--- Lifting computations --
-
-err :: ErrT IO a -> REPL a
-err m = io $ runErrT m >>= either fail return
-
 -- REPL Environment ------------------------------------------------------------
 
 -- REPL RW Environment.
@@ -206,15 +128,27 @@ data RW = RW
   , eContinue   :: Bool
   , eIsBatch    :: Bool
   , eUserEnv    :: UserEnv     -- ^ User-configured settings from :set commands
-  , eREPLState  :: REPLState   -- ^ SAWScript-specific stuff
+  , modulesInScope :: Map ModuleName ValidModule
+  , namesInScope :: Set Name
+  , sharedContext :: SharedContext SAWCtx
+  , environment :: InterpretEnv SAWCtx
   , eCryptolEnv :: CryptolEnv SAWCtx
   }
 
 -- | Initial, empty environment.
 defaultRW :: Bool -> Options -> IO RW
 defaultRW isBatch opts = do
-  rstate <- getInitialState opts
-  let sc = sharedContext rstate
+  preludeEtc <- preludeLoadedModules
+  result <- runErr $ do
+              built <- buildModules preludeEtc
+              foldrM checkModuleWithDeps Map.empty built
+  modules <- case result of
+               Left msg -> fail msg
+               Right ms -> return ms
+
+  let scratchpadModule = Generate.scratchpad modules
+  (biContext, ienv) <- buildInterpretEnv opts scratchpadModule
+  let sc = biSharedContext biContext
   cryEnv <- initCryptolEnv sc
 
   return RW
@@ -222,7 +156,10 @@ defaultRW isBatch opts = do
     , eContinue   = True
     , eIsBatch    = isBatch
     , eUserEnv    = mkUserEnv userOptions
-    , eREPLState  = rstate
+    , modulesInScope = modules
+    , namesInScope = Set.empty
+    , sharedContext = sc
+    , environment = ienv
     , eCryptolEnv = cryEnv
     }
 
@@ -469,6 +406,44 @@ modifyCryptolEnv f = modifyRW_ (\rw -> rw { eCryptolEnv = f (eCryptolEnv rw) })
 
 setCryptolEnv :: CryptolEnv SAWCtx -> REPL ()
 setCryptolEnv x = modifyCryptolEnv (const x)
+
+getModulesInScope :: REPL (Map ModuleName ValidModule)
+getModulesInScope = fmap modulesInScope getRW
+
+getNamesInScope :: REPL (Set Name)
+getNamesInScope = fmap namesInScope getRW
+
+getSharedContext :: REPL (SharedContext SAWCtx)
+getSharedContext = fmap sharedContext getRW
+
+getEnvironment :: REPL (InterpretEnv SAWCtx)
+getEnvironment = fmap environment getRW
+
+putNamesInScope :: Set Name -> REPL ()
+putNamesInScope = modifyNamesInScope . const
+
+putEnvironment :: InterpretEnv SAWCtx -> REPL ()
+putEnvironment = modifyEnvironment . const
+
+modifyNamesInScope :: (Set Name -> Set Name) -> REPL ()
+modifyNamesInScope f = modifyRW_ $ \current ->
+  current { namesInScope = f (namesInScope current) }
+
+modifyEnvironment :: (InterpretEnv SAWCtx -> InterpretEnv SAWCtx) -> REPL ()
+modifyEnvironment f = modifyRW_ $ \current ->
+  current { environment = f (environment current) }
+
+-- | Get visible variable names for Haskeline completion.
+getSAWScriptNames :: REPL [String]
+getSAWScriptNames = do
+  env <- getEnvironment
+  let rnames = Map.keys (ieValues env)
+  return (map getVal rnames)
+
+-- Lifting computations --
+
+err :: ErrT IO a -> REPL a
+err m = io $ runErrT m >>= either fail return
 
 -- User Environment Interaction ------------------------------------------------
 
