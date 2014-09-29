@@ -40,7 +40,7 @@ data Value s
   | VTuple [Value s]
   | VRecord (Map SS.Name (Value s))
   | VLambda (Value s -> IO (Value s))
-  | VTerm (Maybe C.Schema) (SharedTerm s) -- TODO: remove the Maybe
+  | VTerm C.Schema (SharedTerm s)
   | VReturn (Value s) -- Returned value in unspecified monad
   | VBind (Value s) (Value s) -- Monadic bind in unspecified monad
   | VIO (IO (Value s))
@@ -308,14 +308,11 @@ instance FromValue s a => FromValue s (StateT LLVMSetupState IO a) where
     fromValue _ = error "fromValue LLVMSetup"
 
 instance IsValue s (TypedTerm s) where
-    toValue (TypedTerm s t) = VTerm (Just s) t
+    toValue (TypedTerm s t) = VTerm s t
 
 instance FromValue s (TypedTerm s) where
-    fromValue (VTerm (Just s) t) = TypedTerm s t
+    fromValue (VTerm s t) = TypedTerm s t
     fromValue _ = error "fromValue TypedTerm"
-
-instance IsValue s (SharedTerm s) where
-    toValue t = VTerm Nothing t
 
 instance FromValue s (SharedTerm s) where
     fromValue (VTerm _ t) = t

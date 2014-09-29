@@ -64,7 +64,7 @@ extendEnv x mt v (InterpretEnv vm tm ce) = InterpretEnv vm' tm' ce'
             Just t -> Map.insert name t tm
             Nothing -> tm
     ce' = case v of
-            VTerm (Just schema) trm
+            VTerm schema trm
               -> CEnv.bindTypedTerm (qname, TypedTerm schema trm) ce
             VInteger n
               -> CEnv.bindInteger (qname, n) ce

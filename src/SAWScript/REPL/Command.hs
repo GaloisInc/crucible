@@ -679,12 +679,10 @@ saveResult sc (Just name) result = do
     , ieTypes  = typeEnv' }
 
   case result of
-    SAWScript.Value.VTerm (Just s) t
+    SAWScript.Value.VTerm s t
       -> do io $ putStrLn $ "Binding SAWCore term: " ++ show name
             let qname = convertName name
             modifyCryptolEnv (CEnv.bindTypedTerm (qname, TypedTerm s t))
-    SAWScript.Value.VTerm Nothing t
-      -> do io $ putStrLn $ "SAWCore term (no type info): " ++ show name
     SAWScript.Value.VInteger n
       -> do io $ putStrLn $ "Binding SAWCore integer: " ++ show name
             let qname = convertName name
