@@ -111,7 +111,7 @@ commas = sep . punctuate comma
 
 extractJava :: BuiltinContext -> Options -> JSS.Class -> String
             -> JavaSetup ()
-            -> IO (SharedTerm SAWCtx)
+            -> IO (TypedTerm SAWCtx)
 extractJava bic _opts cls mname _setup = do
   let sc = biSharedContext bic
       cb = biJavaCodebase bic
@@ -131,7 +131,7 @@ extractJava bic _opts cls mname _setup = do
               _ -> fail "Unimplemented result type from JSS."
       liftIO $ do
         argsRev <- readIORef argsRef
-        bindExts sc (reverse argsRev) dt
+        bindExts sc (reverse argsRev) dt >>= mkTypedTerm sc
 
 freshJavaArg :: MonadIO m =>
                 JSS.Backend sbe
