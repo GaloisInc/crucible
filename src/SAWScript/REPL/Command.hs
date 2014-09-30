@@ -72,29 +72,26 @@ import qualified Data.Set as Set
 
 -- SAWScript imports
 import qualified SAWScript.AST as SS
-    (ModuleName, {-renderModuleName,-}
-     pShow,
-     Module(..), ValidModule,
-     Expr(TSig), BlockStmt(..), Decl(..), DeclGroup(..),
-     Name, LName, Located(..),
+    (pShow,
+     Expr(TSig, Block), BlockStmt(..), Decl(..), DeclGroup(..),
+     LName, Located(..),
      Context(..), Schema(..), Type(..), TyCon(..),
      tMono, tBlock, tContext)
 import qualified SAWScript.CryptolEnv as CEnv
 import SAWScript.Compiler (liftParser)
 import SAWScript.Interpreter
-    (Value, isVUnit,
-     interpretModuleAtEntry,
+    (isVUnit,
+     extendEnv,
+     interpret,
      interpretDeclGroup,
      InterpretEnv(..))
 import qualified SAWScript.Lexer (scan)
 import qualified SAWScript.MGU as MGU
-import qualified SAWScript.MGU (checkModule)
 import qualified SAWScript.Parser (parseBlockStmt)
-import qualified SAWScript.RenameRefs (renameRefs)
-import qualified SAWScript.Value (Value(VTerm, VInteger), evaluate)
+import qualified SAWScript.Value (evaluate, fromValue)
 import SAWScript.Value (TypedTerm(..))
-import SAWScript.REPL.GenerateModule (replFileName, wrapBStmt)
-import SAWScript.Utils (SAWCtx, Pos(..))
+import SAWScript.REPL.GenerateModule (replFileName)
+import SAWScript.Utils (Pos(..))
 
 
 #if __GLASGOW_HASKELL__ < 706
@@ -632,114 +629,36 @@ processBlockImport path
       setCryptolEnv cenv'
 
 processBlockBind :: Maybe SS.LName -> Maybe SS.Type -> Maybe SS.Type -> SS.Expr -> REPL ()
-processBlockBind mx mt mc expr = do
-  let ast = SS.Bind mx mt mc expr
-  -- Set the context (i.e., the monad) for the statement (point 1 above).
-  let ast' :: SS.BlockStmt
-      ast' = case ast of
-        SS.Bind maybeVar mt _ctx expr -> SS.Bind maybeVar mt ctx' expr
-            where ctx' = Just (SS.tContext SS.TopLevel)
-        stmt -> stmt
-  {- Remember, we're trying to present the illusion that you're working
-  inside an ever-expanding 'do' block.  In actuality, though, only on
-  statement is ever being evaluated at a time, and some statements we'd like to
-  allow (namely, 'foo <- bar') aren't legal as single statements in 'do'
-  blocks.  Hence, if we're being asked to bind 'foo <- bar', save the name
-  'foo' and evaluate 'bar'.  (We'll bind it manually to 'foo' later.) -}
-  let mapSchema f (SS.Forall xs t) = SS.Forall xs (f t)
-  let boundName :: Maybe SS.Name
-      withoutBinding :: SS.BlockStmt
-      (boundName, withoutBinding) =
-        case ast' of
-          SS.Bind (Just (SS.getVal -> varName)) (Just ty) ctx expr
-            -> let ty' = SS.tBlock (SS.tContext SS.TopLevel) ty
-               in (Just varName, SS.Bind Nothing (Just ty) ctx (SS.TSig expr ty'))
-          _ -> (Nothing, ast')
-  {- The compiler pipeline is targeted at modules, so wrap up the statement in
-  a trivial module. -}
-  modsInScope :: Map SS.ModuleName SS.ValidModule
-              <- getModulesInScope
-  let astModule :: SS.Module
-      astModule = wrapBStmt modsInScope "it" withoutBinding
-  -- Add the types of previously evaluated and named expressions.
-  astModule' <- injectBoundExpressionTypes astModule
-  -- Rename references.
-  renamed :: SS.Module
-          <- err $ SAWScript.RenameRefs.renameRefs astModule'
-  -- Infer and check types.
-  typechecked :: SS.Module
-              <- err $ SAWScript.MGU.checkModule renamed
-  -- Interpret the statement.
+processBlockBind mx mt _mc expr = do
+  let it = SS.Located "it" "it" PosREPL
+  let lname = maybe it id mx
+  let ctx = SS.tContext SS.TopLevel
+  let expr' = case mt of
+                Nothing -> expr
+                Just t -> SS.TSig expr (SS.tBlock ctx t)
+  let decl = SS.Decl lname Nothing (SS.Block [SS.Bind Nothing Nothing (Just ctx) expr'])
+
+  ie <- getEnvironment
   sc <- getSharedContext
-  env <- getEnvironment
-  (result, env') <- io $ interpretModuleAtEntry "it" sc env typechecked
-  -- Update the environment and return the result.
-  putEnvironment env'
-  saveResult sc boundName result
-  case boundName of
+  SS.Decl _ (Just schema) expr'' <- err $ MGU.checkDecl (ieTypes ie) decl
+  ty <- case schema of
+          SS.Forall [] t ->
+            case t of
+              SS.TyCon SS.BlockCon [c, t'] | c == ctx -> return t'
+              _ -> io $ fail $ "Not a TopLevel monadic type: " ++ SS.pShow t
+          _ -> io $ fail $ "Not a monomorphic type: " ++ SS.pShow schema
+
+  val <- io $ interpret sc ie expr''
+  -- | Run the resulting IO action.
+  result <- io $ SAWScript.Value.fromValue val
+
+  let ie' = extendEnv lname (Just (SS.tMono ty)) result ie
+  putEnvironment ie'
+
+  -- | Print non-unit result if it was not bound to a variable
+  case mx of
     Nothing | not (isVUnit result) -> io $ print result
     _                              -> return ()
-
-
-injectBoundExpressionTypes :: SS.Module -> REPL SS.Module
-injectBoundExpressionTypes orig = do
-  boundNames <- getNamesInScope
-  boundNamesAndTypes :: Map SS.LName SS.Schema
-                     <-
-    getEnvironment <&>
-    ieTypes <&>
-    Map.filterWithKey (\name _type ->
-                        Set.member (SS.getVal name) boundNames)
-  -- Inject the types.
-  return $ orig { SS.modulePrimEnv =
-                    Map.union boundNamesAndTypes (SS.modulePrimEnv orig) }
-
-saveResult :: SharedContext SAWCtx -> Maybe SS.Name -> Value SAWCtx -> REPL ()
-saveResult _ Nothing _ = return ()
-saveResult sc (Just name) result = do
-  -- Record that 'name' is in scope.
-  modifyNamesInScope $ Set.insert name
-  -- Save the type of 'it'.
-  let itsName = SS.Located "it" "it" PosREPL
-      itsName' = SS.Located name "it" PosREPL
-  env <- getEnvironment
-  let typeEnv = ieTypes env
-  let valueEnv = ieValues env
-  let typeEnv' =
-        case Map.lookup itsName typeEnv of
-          Nothing -> error "evaluate: could not find most recent expression"
-          Just itsType ->
-            Map.insert itsName' (extractFromBlock itsType) typeEnv
-  let valueEnv' = Map.insert itsName' result valueEnv
-
-  putEnvironment $ env
-    { ieValues = valueEnv'
-    , ieTypes  = typeEnv' }
-
-  case result of
-    SAWScript.Value.VTerm s t
-      -> do io $ putStrLn $ "Binding SAWCore term: " ++ show name
-            let qname = convertName name
-            modifyCryptolEnv (CEnv.bindTypedTerm (qname, TypedTerm s t))
-    SAWScript.Value.VInteger n
-      -> do io $ putStrLn $ "Binding SAWCore integer: " ++ show name
-            let qname = convertName name
-            modifyCryptolEnv (CEnv.bindInteger (qname, n))
-    _ -> return ()
-
-convertName :: SS.Name -> T.QName
-convertName n = T.QName Nothing (T.Name n)
-
-extractFromBlock :: SS.Schema -> SS.Schema
-extractFromBlock (SS.Forall [] (SS.TyCon SS.BlockCon [ctx, inner]))
-  | ctx == (SS.TyCon (SS.ContextCon SS.TopLevel) []) = SS.Forall [] inner
-  | otherwise = error "extractFromBlock: not a TopLevel expression"
-extractFromBlock (SS.Forall (_:_) _) =
-  {- TODO: Support polymorphism.  Polymorphism in the interpreter is actually
-  rather difficult, as doing stuff in the interpreter might very well cause
-  other values to become more constrained. -}
-  error "extractFromBlock: polymorphism not yet supported"
-extractFromBlock _ = error "extractFromBlock: unknown construct"
 
 
 -- C-c Handlings ---------------------------------------------------------------
@@ -900,11 +819,3 @@ parseCommand findCmd line = do
       '~' : c : more | isPathSeparator c -> do dir <- io getHomeDirectory
                                                return (dir </> more)
       _ -> return path
-
------------------------------------ Utility -----------------------------------
-
--- From 'Control.Lens.Combinators'.
-(<&>) :: Functor f => f a -> (a -> b) -> f b
-a <&> f = fmap f a
-infixl 1 <&>
-{-# INLINE (<&>) #-}

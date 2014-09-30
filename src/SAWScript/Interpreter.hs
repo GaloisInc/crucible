@@ -13,6 +13,7 @@ module SAWScript.Interpreter
   , interpretModuleAtEntry
   , InterpretEnv(..)
   , buildInterpretEnv
+  , extendEnv
   , Value, isVUnit
   , IsValue(..)
   )

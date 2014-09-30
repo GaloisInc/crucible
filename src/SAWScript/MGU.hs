@@ -561,9 +561,15 @@ checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
   exportDecls dss = sequence [ appSubstM d | ds <- dss, d <- ds ]
 
 checkDeclGroup :: Map LName Schema -> DeclGroup -> Err DeclGroup
-checkDeclGroup env dg = do
+checkDeclGroup env dg =
   case evalTIWithEnv env (inferDeclGroup dg) of
     Right dg' -> return dg'
+    Left errs -> fail (unlines errs)
+
+checkDecl :: Map LName Schema -> Decl -> Err Decl
+checkDecl env decl =
+  case evalTIWithEnv env (inferDecl decl) of
+    Right decl' -> return decl'
     Left errs -> fail (unlines errs)
 
 evalTI :: TI a -> Either [String] a
