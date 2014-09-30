@@ -16,6 +16,7 @@ import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Identity
+import Data.Map (Map)
 import qualified Data.Map as M
 import qualified Data.Set as S
 
@@ -559,15 +560,27 @@ checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
 
   exportDecls dss = sequence [ appSubstM d | ds <- dss, d <- ds ]
 
+checkDeclGroup :: Map LName Schema -> DeclGroup -> Err DeclGroup
+checkDeclGroup env dg = do
+  case evalTIWithEnv env (inferDeclGroup dg) of
+    Right dg' -> return dg'
+    Left errs -> fail (unlines errs)
+
 evalTI :: TI a -> Either [String] a
-evalTI m = case runTI m of
+evalTI = evalTIWithEnv M.empty
+
+evalTIWithEnv :: Map LName Schema -> TI a -> Either [String] a
+evalTIWithEnv env m = case runTIWithEnv env m of
   (res,_,[]) -> Right res
   (_,_,errs) -> Left errs
 
 runTI :: TI a -> (a, Subst, [String])
-runTI m = (a, subst rw, errors rw)
+runTI = runTIWithEnv M.empty
+
+runTIWithEnv :: Map LName Schema -> TI a -> (a, Subst, [String])
+runTIWithEnv env m = (a, subst rw, errors rw)
   where
-  m' = runReaderT (unTI m) emptyRO
+  m' = runReaderT (unTI m) (RO env)
   (a,rw) = runState m' emptyRW
 
 -- }}}
