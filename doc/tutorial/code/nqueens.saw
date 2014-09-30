@@ -1,0 +1,8 @@
+import "NQueens.cry";
+main = do {
+  print {{ nQueens [0,1,2,3,4,5,6,7] }};
+
+  sat_print abc {{ nQueens`{8} }};
+
+  print {{ nQueens [3,1,6,2,5,7,4,0] }};
+};

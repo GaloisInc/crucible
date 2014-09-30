@@ -35,7 +35,7 @@ Reference Implementation
 
 One simple implementation take the form of a loop in which the index
 starts out at zero, and we keep track of a mask initialized to have
-the least signficant bit set. On each iteration, we increment the
+the least significant bit set. On each iteration, we increment the
 index, and shift the mask to the left. Then we can use a bitwise "and"
 operation to test the bit at the index indicated by the index
 variable. The following C code (which is also in the `code/ffs.c` file
@@ -200,15 +200,16 @@ solver.
 $include all code/double.saw
 ```
 
-The new primitives introduced here are `not`, which constructs the
-logical negation of a term, `write_smtlib1`, and which writes a term
-as a proof obligation in SMT-Lib version 1 format, Because SMT solvers
-are satisfiability solvers, negating the input term allows us to
-interpret a result of "unsatisfiable" from the solver as an indication
-of the validity of the term. The `prove` primitive does this
-automatically, but for flexibility the `write_smtlib1` primitive
-passes the given term through unchanged, because it might be used for
-either satisfiability or validity checking.
+The new primitives introduced here are the tilde operator, `~`, which
+constructs the logical negation of a term, and `write_smtlib1`, which
+writes a term as a proof obligation in SMT-Lib version 1 format.
+Because SMT solvers are satisfiability solvers, negating the input
+term allows us to interpret a result of "unsatisfiable" from the
+solver as an indication of the validity of the term. The `prove`
+primitive does this automatically, but for flexibility the
+`write_smtlib1` primitive passes the given term through unchanged,
+because it might be used for either satisfiability or validity
+checking.
 
 The SMT-Lib export capabilities in SAWScript are currently based on a
 somewhat outdated implementation, and don't support the full range of
@@ -295,6 +296,13 @@ into later instances of `java_verify` to indicate that calls to the
 analyzed method do not need to be followed, and the previous proof about
 that method can be used instead of re-analyzing it.
 
+
+<!---
+- The interactive interpreter is currently undergoing extensive revision.
+- When these changes settle down, this section should be uncommented
+- and brought up-to-date.
+
+
 Interactive Interpreter
 =======================
 
@@ -360,6 +368,8 @@ And, finally, we can double-check that this is indeed a valid solution.
 
     sawscript> print (nq8 [3,1,6,2,5,7,4,0])
     True
+
+-->
 
 Other Examples
 ==============
