@@ -75,7 +75,7 @@ import qualified SAWScript.AST as SS
     (ModuleName, {-renderModuleName,-}
      pShow,
      Module(..), ValidModule,
-     Expr(TSig), BlockStmt(Bind),
+     Expr(TSig), BlockStmt(..), Decl(..), DeclGroup(..),
      Name, LName, Located(..),
      Context(..), Schema(..), Type(..), TyCon(..),
      tMono, tBlock, tContext)
@@ -84,8 +84,10 @@ import SAWScript.Compiler (liftParser)
 import SAWScript.Interpreter
     (Value, isVUnit,
      interpretModuleAtEntry,
+     interpretDeclGroup,
      InterpretEnv(..))
 import qualified SAWScript.Lexer (scan)
+import qualified SAWScript.MGU as MGU
 import qualified SAWScript.MGU (checkModule)
 import qualified SAWScript.Parser (parseBlockStmt)
 import qualified SAWScript.RenameRefs (renameRefs)
@@ -596,6 +598,32 @@ sawScriptCmd :: String -> REPL ()
 sawScriptCmd str = do
   tokens <- err $ SAWScript.Lexer.scan replFileName str
   ast <- err $ liftParser SAWScript.Parser.parseBlockStmt tokens
+  case ast of
+    SS.Bind mx mt mc expr -> processBlockBind mx mt mc expr
+    SS.BlockLet dg        -> processBlockLet dg
+    SS.BlockCode lc       -> processBlockCode lc
+
+processBlockLet :: SS.DeclGroup -> REPL ()
+processBlockLet dg = do
+  ie <- getEnvironment
+  dg' <- err $ MGU.checkDeclGroup (ieTypes ie) dg
+  sc <- getSharedContext
+  ie' <- io $ interpretDeclGroup sc ie dg'
+  putEnvironment ie'
+  let decls = case dg' of SS.NonRecursive d -> [d]
+                          SS.Recursive ds -> ds
+  modifyNamesInScope $ Set.union (Set.fromList (map (SS.getVal . SS.dName) decls))
+
+processBlockCode :: SS.Located String -> REPL ()
+processBlockCode lc = do
+  sc <- getSharedContext
+  ce <- getCryptolEnv
+  ce' <- io $ CEnv.parseDecls sc ce lc
+  setCryptolEnv ce'
+
+processBlockBind :: Maybe SS.LName -> Maybe SS.Type -> Maybe SS.Type -> SS.Expr -> REPL ()
+processBlockBind mx mt mc expr = do
+  let ast = SS.Bind mx mt mc expr
   -- Set the context (i.e., the monad) for the statement (point 1 above).
   let ast' :: SS.BlockStmt
       ast' = case ast of

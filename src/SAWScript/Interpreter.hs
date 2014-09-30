@@ -8,6 +8,7 @@
 
 module SAWScript.Interpreter
   ( interpret
+  , interpretDeclGroup
   , interpretMain
   , interpretModuleAtEntry
   , InterpretEnv(..)
