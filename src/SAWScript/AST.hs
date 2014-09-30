@@ -20,24 +20,14 @@ import qualified Text.PrettyPrint.Leijen as PP
 -- Names {{{
 
 type Name = String
--- dot separated names designating module heirarchy,
---  and single name designating module name.
-newtype ModuleName = ModuleName Name deriving (Eq,Ord,Show)
 
-moduleNameFromString :: String -> ModuleName
-moduleNameFromString nm = ModuleName nm
+type ModuleName = Name
 
 moduleNameFromPath :: FilePath -> ModuleName
-moduleNameFromPath fp = ModuleName (dropExtension fp)
+moduleNameFromPath fp = dropExtension fp
 
 renderDotSepName :: [Name] -> String
 renderDotSepName = intercalate "."
-
-renderModuleName :: ModuleName -> String
-renderModuleName (ModuleName n) = n
-
-moduleNameFilePath :: ModuleName -> String
-moduleNameFilePath (ModuleName n) = n
 
 type Bind a = (Name,a)
 type LBind a = (LName, a)
@@ -256,12 +246,12 @@ instance PrettyPrint Context where
     ProofScript  -> PP.text "ProofScript"
     TopLevel     -> PP.text "TopLevel"
 
-instance PrettyPrint ModuleName where
-  pretty _ mn = PP.text "module" PP.<+>
-                PP.squotes (PP.text (renderModuleName mn))
+prettyModuleName :: ModuleName -> PP.Doc
+prettyModuleName mn = PP.text "module" PP.<+>
+                      PP.squotes (PP.text mn)
 
 instance PrettyPrint Module where
-  pretty par m = pretty par (moduleName m)
+  pretty _ m = prettyModuleName (moduleName m)
 
 replicateDoc :: Integer -> PP.Doc -> PP.Doc
 replicateDoc n d

@@ -35,7 +35,7 @@ preludeLoadedModules = do
     Right m  -> return $ ms { modules = Map.insert mn m (modules ms) }
   where
     ms = emptyLoadedModules
-    mn = moduleNameFromString "Prelude"
+    mn = "Prelude"
 
 loadWithPrelude :: Options -> FilePath -> IO LoadedModules
 loadWithPrelude opts fname = do
@@ -45,7 +45,7 @@ loadWithPrelude opts fname = do
 loadModule :: Options -> FilePath -> LoadedModules -> IO LoadedModules
 loadModule opts fname ms = do
   let mn = moduleNameFromPath $ dropExtension (takeFileName fname)
-  when (verbLevel opts > 0) $ putStrLn $ "Loading Module " ++ show (renderModuleName mn)
+  when (verbLevel opts > 0) $ putStrLn $ "Loading Module " ++ show mn
   ftext <- readFile fname
   m <- reportErrT (formModule fname ftext)
   loadRest mn (mapMaybe getImport m) (ms { modules = Map.insert mn m (modules ms) })
@@ -61,7 +61,7 @@ data LoadedModules = LoadedModules
 
 instance PrettyPrint LoadedModules where
   pretty _ lm =
-    PP.brackets $ commaSepAll $ fmap (pretty False) $ Map.keys $ modules lm
+    PP.brackets $ commaSepAll $ fmap prettyModuleName $ Map.keys $ modules lm
 
 emptyLoadedModules :: LoadedModules
 emptyLoadedModules = LoadedModules Map.empty
@@ -71,8 +71,8 @@ formModule f = scan f >=> liftParser parseModule
 
 findAndLoadModule :: Options -> ModuleName -> LoadedModules -> IO LoadedModules
 findAndLoadModule opts name ms = do
-  let mn    = renderModuleName name
-  let fp    = moduleNameFilePath name <.> "saw"
+  let mn    = name
+  let fp    = name <.> "saw"
   let paths = importPath opts
   mfname <- findFile paths fp
   case mfname of

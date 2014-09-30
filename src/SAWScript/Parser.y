@@ -103,7 +103,7 @@ TopStmt :: { TopStmt }
  | Declaration                          { TopBind $1 }
 
 Import :: { TopStmt }
- : name                                    { Import (mkModuleName (tokStr $1)) Nothing Nothing }
+ : name                                    { Import (tokStr $1) Nothing Nothing }
  -- | name '(' commas(name) ')'            { Import $1 (Just $3) Nothing     }
  -- | name 'as' name                       { Import $1 Nothing (Just $3)     }
  -- | name '(' commas(name) ')' 'as' name  { Import $1 (Just $3) (Just $6)   }
@@ -288,8 +288,5 @@ buildFunction args e = foldr foldFunction e args
 
 buildApplication :: [Expr] -> Expr
 buildApplication = foldl1 (\e body -> Application e body)
-
-mkModuleName :: String -> ModuleName
-mkModuleName = ModuleName
 
 }

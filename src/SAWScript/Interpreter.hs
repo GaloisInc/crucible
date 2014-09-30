@@ -195,7 +195,7 @@ interpretEntry entryName opts m =
 buildInterpretEnv :: Options -> SS.ValidModule
                   -> IO (BuiltinContext, InterpretEnv SAWCtx)
 buildInterpretEnv opts m =
-    do let mn = case SS.moduleName m of SS.ModuleName x -> mkModuleName [x]
+    do let mn = mkModuleName [SS.moduleName m]
        let scm = insImport preludeModule $
                  insImport JavaSAW.javaModule $
                  insImport LLVMSAW.llvmModule $
