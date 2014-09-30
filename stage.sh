@@ -37,7 +37,7 @@ cp -r ../Examples/ecdsa                       ${TARGET}/ecdsa
 cp -r ../Examples/zuc                         ${TARGET}/zuc
 rm -rf ${TARGET}/ecdsa/cryptol-2-spec
 
-if [ "${OS}" == "Windows_NT" ]; then
+if [ "${label}" == "Chair" ]; then
   7za.exe a -tzip ${TARGET}-${EXEDIR}.zip -r ${TARGET}
   echo "Release package is ${TARGET}-${EXEDIR}.zip"
 else
