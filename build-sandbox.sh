@@ -40,11 +40,9 @@ fi
 
 # we have to disable library stripping on recent cabal-install versions
 # to work around a bug (?) in the 32bit binutils on our install of CentOS5
-if [[ ("${label}" == "saw-centos5-32") && ("${HASKELL_RUNTIME}" == "GHC783") ]]; then
-  # make sure the cabal _library_ we have installed understands the option we need
-  cabal install "Cabal >= 1.20"
-  echo "library-stripping: False" > cabal.config
-fi
+# make sure the cabal _library_ we have installed understands the option we need
+cabal install "Cabal >= 1.20"
+echo "library-stripping: False" > cabal.config
 
 if [ "${dotests}" == "true" ] ; then
   for pkg in sawScript cryptol-verifier llvm-verifier jvm-verifier saw-core ; do
