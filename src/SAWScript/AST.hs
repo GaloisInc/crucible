@@ -150,6 +150,7 @@ data BlockStmt
   = Bind          (Maybe LName) (Maybe Type) (Maybe Type) Expr
   | BlockLet      DeclGroup
   | BlockCode     (Located String)
+  | BlockImport   FilePath
   deriving (Eq, Show)
 
 data DeclGroup

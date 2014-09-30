@@ -114,6 +114,7 @@ BlockStmt :: { BlockStmt }
  | 'rec' sepBy1(Declaration, 'and')     { BlockLet (Recursive $2)                  }
  | 'let' Declaration                    { BlockLet (NonRecursive $2)               }
  | 'let' Code                           { BlockCode $2                 }
+ | 'import' string                      { BlockImport $2               }
 
 Declaration :: { Decl }
  : name list(Arg) '=' Expression        { Decl (toLName $1) Nothing (buildFunction $2 $4) }

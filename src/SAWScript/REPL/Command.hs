@@ -602,6 +602,7 @@ sawScriptCmd str = do
     SS.Bind mx mt mc expr -> processBlockBind mx mt mc expr
     SS.BlockLet dg        -> processBlockLet dg
     SS.BlockCode lc       -> processBlockCode lc
+    SS.BlockImport path   -> processBlockImport path
 
 processBlockLet :: SS.DeclGroup -> REPL ()
 processBlockLet dg = do
@@ -620,6 +621,15 @@ processBlockCode lc = do
   ce <- getCryptolEnv
   ce' <- io $ CEnv.parseDecls sc ce lc
   setCryptolEnv ce'
+
+processBlockImport :: FilePath -> REPL ()
+processBlockImport path
+  | null path = return ()
+  | otherwise = do
+      sc <- getSharedContext
+      cenv <- getCryptolEnv
+      cenv' <- io (CEnv.importModule sc cenv path)
+      setCryptolEnv cenv'
 
 processBlockBind :: Maybe SS.LName -> Maybe SS.Type -> Maybe SS.Type -> SS.Expr -> REPL ()
 processBlockBind mx mt mc expr = do
