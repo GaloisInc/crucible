@@ -131,7 +131,7 @@ data RW = RW
   , modulesInScope :: Map ModuleName ValidModule
   , namesInScope :: Set Name
   , sharedContext :: SharedContext SAWCtx
-  , environment :: InterpretEnv SAWCtx
+  , environment :: InterpretEnv
   }
 
 -- | Initial, empty environment.
@@ -413,20 +413,20 @@ getNamesInScope = fmap namesInScope getRW
 getSharedContext :: REPL (SharedContext SAWCtx)
 getSharedContext = fmap sharedContext getRW
 
-getEnvironment :: REPL (InterpretEnv SAWCtx)
+getEnvironment :: REPL InterpretEnv
 getEnvironment = fmap environment getRW
 
 putNamesInScope :: Set Name -> REPL ()
 putNamesInScope = modifyNamesInScope . const
 
-putEnvironment :: InterpretEnv SAWCtx -> REPL ()
+putEnvironment :: InterpretEnv -> REPL ()
 putEnvironment = modifyEnvironment . const
 
 modifyNamesInScope :: (Set Name -> Set Name) -> REPL ()
 modifyNamesInScope f = modifyRW_ $ \current ->
   current { namesInScope = f (namesInScope current) }
 
-modifyEnvironment :: (InterpretEnv SAWCtx -> InterpretEnv SAWCtx) -> REPL ()
+modifyEnvironment :: (InterpretEnv -> InterpretEnv) -> REPL ()
 modifyEnvironment f = modifyRW_ $ \current ->
   current { environment = f (environment current) }
 

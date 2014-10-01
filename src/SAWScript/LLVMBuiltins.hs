@@ -316,7 +316,7 @@ llvmPtr bic _ name lty = do
   Just dty <- liftIO $ logicTypeOfActual sc lty
   liftIO $ scLLVMValue sc dty dname >>= SV.mkTypedTerm sc
 
-llvmDeref :: BuiltinContext -> Options -> Value SAWCtx
+llvmDeref :: BuiltinContext -> Options -> Value
           -> LLVMSetup (SharedTerm SAWCtx)
 llvmDeref _bic _ _t = fail "llvm_deref not yet implemented"
 

@@ -637,19 +637,19 @@ cexEvalFn sc args tm = do
   --putStrLn $ "Type of cex eval term: " ++ show ty
   return $ evalSharedTerm eval tm'
 
-toValueCase :: (SV.FromValue s b) =>
-               SharedContext s
-            -> (SharedContext s -> b -> SV.Value s -> SV.Value s -> IO (SV.Value s))
-            -> SV.Value s
+toValueCase :: (SV.FromValue b) =>
+               SharedContext SAWCtx
+            -> (SharedContext SAWCtx -> b -> SV.Value -> SV.Value -> IO SV.Value)
+            -> SV.Value
 toValueCase sc prim =
   SV.VLambda $ \b -> return $
   SV.VLambda $ \v1 -> return $
   SV.VLambda $ \v2 ->
   prim sc (SV.fromValue b) v1 v2
 
-caseProofResultPrim :: SharedContext s -> SV.ProofResult
-                    -> SV.Value s -> SV.Value s
-                    -> IO (SV.Value s)
+caseProofResultPrim :: SharedContext SAWCtx -> SV.ProofResult
+                    -> SV.Value -> SV.Value
+                    -> IO SV.Value
 caseProofResultPrim sc pr vValid vInvalid = do
   case pr of
     SV.Valid -> return vValid
@@ -657,9 +657,9 @@ caseProofResultPrim sc pr vValid vInvalid = do
                        SV.applyValue vInvalid (SV.toValue t)
     SV.InvalidMulti _ -> fail $ "multi-value counter-example"
 
-caseSatResultPrim :: SharedContext s -> SV.SatResult
-                  -> SV.Value s -> SV.Value s
-                  -> IO (SV.Value s)
+caseSatResultPrim :: SharedContext SAWCtx -> SV.SatResult
+                  -> SV.Value -> SV.Value
+                  -> IO SV.Value
 caseSatResultPrim sc sr vUnsat vSat = do
   case sr of
     SV.Unsat -> return vUnsat

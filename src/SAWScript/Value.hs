@@ -32,23 +32,23 @@ import qualified Cryptol.TypeCheck.AST as C
 
 -- Values ----------------------------------------------------------------------
 
-data Value s
+data Value
   = VBool Bool
   | VString String
   | VInteger Integer
-  | VArray [Value s]
-  | VTuple [Value s]
-  | VRecord (Map SS.Name (Value s))
-  | VLambda (Value s -> IO (Value s))
-  | VTerm C.Schema (SharedTerm s)
-  | VReturn (Value s) -- Returned value in unspecified monad
-  | VBind (Value s) (Value s) -- Monadic bind in unspecified monad
-  | VIO (IO (Value s))
-  | VProofScript (ProofScript s (Value s))
-  | VSimpset (Simpset (SharedTerm s))
-  | VTheorem (Theorem s)
-  | VJavaSetup (JavaSetup (Value s))
-  | VLLVMSetup (LLVMSetup (Value s))
+  | VArray [Value]
+  | VTuple [Value]
+  | VRecord (Map SS.Name Value)
+  | VLambda (Value -> IO Value)
+  | VTerm C.Schema (SharedTerm SAWCtx)
+  | VReturn Value -- Returned value in unspecified monad
+  | VBind Value Value -- Monadic bind in unspecified monad
+  | VIO (IO Value)
+  | VProofScript (ProofScript SAWCtx Value)
+  | VSimpset (Simpset (SharedTerm SAWCtx))
+  | VTheorem (Theorem SAWCtx)
+  | VJavaSetup (JavaSetup Value)
+  | VLLVMSetup (LLVMSetup Value)
   | VJavaMethodSpec JIR.JavaMethodSpecIR
   | VLLVMMethodSpec LIR.LLVMMethodSpecIR
   | VJavaType JavaType
@@ -57,7 +57,7 @@ data Value s
   | VLLVMModule LLVMModule
   | VSatResult SatResult
   | VProofResult ProofResult
-  | VUninterp (Uninterp s)
+  | VUninterp (Uninterp SAWCtx)
   -- | VAIG (BitEngine Lit) (V.Vector Lit) (V.Vector Lit)
 
 data LLVMModule =
@@ -83,7 +83,7 @@ flipSatResult Unsat = Valid
 flipSatResult (Sat t) = Invalid t
 flipSatResult (SatMulti t) = InvalidMulti t
 
-isVUnit :: Value s -> Bool
+isVUnit :: Value -> Bool
 isVUnit (VTuple []) = True
 isVUnit _ = False
 
@@ -103,7 +103,7 @@ showBrackets s = showString "[" . s . showString "]"
 showBraces :: ShowS -> ShowS
 showBraces s = showString "{" . s . showString "}"
 
-showsPrecValue :: PPOpts -> Int -> Value s -> ShowS
+showsPrecValue :: PPOpts -> Int -> Value -> ShowS
 showsPrecValue opts p v =
   case v of
     VBool True -> showString "True"
@@ -141,24 +141,24 @@ showsPrecValue opts p v =
     VSatResult (SatMulti ts) -> showString "Sat: " . shows ts
     VUninterp u -> showString "Uninterp: " . shows u
 
-instance Show (Value s) where
+instance Show Value where
     showsPrec p v = showsPrecValue defaultPPOpts p v
 
-indexValue :: Value s -> Value s -> Value s
+indexValue :: Value -> Value -> Value
 indexValue (VArray vs) (VInteger x)
     | i < length vs = vs !! i
     | otherwise = error "array index out of bounds"
     where i = fromInteger x
 indexValue _ _ = error "indexValue"
 
-lookupValue :: Value s -> String -> Value s
+lookupValue :: Value -> String -> Value
 lookupValue (VRecord vm) name =
     case M.lookup name vm of
       Nothing -> error $ "no such record field: " ++ name
       Just x -> x
 lookupValue _ _ = error "lookupValue"
 
-tupleLookupValue :: Value s -> Integer -> Value s
+tupleLookupValue :: Value -> Integer -> Value
 tupleLookupValue (VTuple vs) i
   | fromIntegral i <= length vs = vs !! (fromIntegral i - 1)
   | otherwise = error $ "no such tuple index: " ++ show i
@@ -170,17 +170,17 @@ evaluate sc t = SC.evalSharedTerm eval t
 -- FIXME: is evalGlobal always appropriate? Or should we
 -- parameterize on a meaning function for globals?
 
-applyValue :: Value s -> Value s -> IO (Value s)
+applyValue :: Value -> Value -> IO Value
 applyValue (VLambda f) x = f x
 applyValue _ _ = fail "applyValue"
 
-thenValue :: Value s -> Value s -> Value s
+thenValue :: Value -> Value -> Value
 thenValue v1 v2 = VBind v1 (VLambda (const (return v2)))
 
-bindValue :: Value s -> Value s -> IO (Value s)
+bindValue :: Value -> Value -> IO Value
 bindValue v1 v2 = return (VBind v1 v2)
 
-forValue :: [Value s] -> Value s -> IO (Value s)
+forValue :: [Value] -> Value -> IO Value
 forValue [] _ = return $ VReturn (VArray [])
 forValue (x : xs) f =
   do m1 <- applyValue f x
@@ -224,45 +224,45 @@ mkTypedTerm sc trm = do
 -- IsValue class ---------------------------------------------------------------
 
 -- | Used for encoding primitive operations in the Value type.
-class IsValue s a where
-    toValue :: a -> Value s
+class IsValue a where
+    toValue :: a -> Value
 
-class FromValue s a where
-    fromValue :: Value s -> a
+class FromValue a where
+    fromValue :: Value -> a
 
-instance (FromValue s a, IsValue s b) => IsValue s (a -> b) where
+instance (FromValue a, IsValue b) => IsValue (a -> b) where
     toValue f = VLambda (\v -> return (toValue (f (fromValue v))))
 
-instance FromValue s (Value s) where
+instance FromValue Value where
     fromValue x = x
 
-instance IsValue s (Value s) where
+instance IsValue Value where
     toValue x = x
 
-instance IsValue s () where
+instance IsValue () where
     toValue _ = VTuple []
 
-instance FromValue s () where
+instance FromValue () where
     fromValue _ = ()
 
-instance (IsValue s a, IsValue s b) => IsValue s (a, b) where
+instance (IsValue a, IsValue b) => IsValue (a, b) where
     toValue (x, y) = VTuple [toValue x, toValue y]
 
-instance (FromValue s a, FromValue s b) => FromValue s (a, b) where
+instance (FromValue a, FromValue b) => FromValue (a, b) where
     fromValue (VTuple [x, y]) = (fromValue x, fromValue y)
     fromValue _ = error "fromValue (,)"
 
-instance IsValue s a => IsValue s [a] where
+instance IsValue a => IsValue [a] where
     toValue xs = VArray (map toValue xs)
 
-instance FromValue s a => FromValue s [a] where
+instance FromValue a => FromValue [a] where
     fromValue (VArray xs) = map fromValue xs
     fromValue _ = error "fromValue []"
 
-instance IsValue s a => IsValue s (IO a) where
+instance IsValue a => IsValue (IO a) where
     toValue io = VIO (fmap toValue io)
 
-instance FromValue s a => FromValue s (IO a) where
+instance FromValue a => FromValue (IO a) where
     fromValue (VIO io) = fmap fromValue io
     fromValue (VReturn v) = return (fromValue v)
     fromValue (VBind m1 v2) = do
@@ -271,10 +271,10 @@ instance FromValue s a => FromValue s (IO a) where
       fromValue m2
     fromValue _ = error "fromValue IO"
 
-instance IsValue s a => IsValue s (StateT (ProofGoal s) IO a) where
+instance IsValue a => IsValue (StateT (ProofGoal SAWCtx) IO a) where
     toValue m = VProofScript (fmap toValue m)
 
-instance FromValue s a => FromValue s (StateT (ProofGoal s) IO a) where
+instance FromValue a => FromValue (StateT (ProofGoal SAWCtx) IO a) where
     fromValue (VProofScript m) = fmap fromValue m
     fromValue (VReturn v) = return (fromValue v)
     fromValue (VBind m1 v2) = do
@@ -283,10 +283,10 @@ instance FromValue s a => FromValue s (StateT (ProofGoal s) IO a) where
       fromValue m2
     fromValue _ = error "fromValue ProofScript"
 
-instance IsValue s a => IsValue s (StateT JavaSetupState IO a) where
+instance IsValue a => IsValue (StateT JavaSetupState IO a) where
     toValue m = VJavaSetup (fmap toValue m)
 
-instance FromValue s a => FromValue s (StateT JavaSetupState IO a) where
+instance FromValue a => FromValue (StateT JavaSetupState IO a) where
     fromValue (VJavaSetup m) = fmap fromValue m
     fromValue (VReturn v) = return (fromValue v)
     fromValue (VBind m1 v2) = do
@@ -295,10 +295,10 @@ instance FromValue s a => FromValue s (StateT JavaSetupState IO a) where
       fromValue m2
     fromValue _ = error "fromValue JavaSetup"
 
-instance IsValue s a => IsValue s (StateT LLVMSetupState IO a) where
+instance IsValue a => IsValue (StateT LLVMSetupState IO a) where
     toValue m = VLLVMSetup (fmap toValue m)
 
-instance FromValue s a => FromValue s (StateT LLVMSetupState IO a) where
+instance FromValue a => FromValue (StateT LLVMSetupState IO a) where
     fromValue (VLLVMSetup m) = fmap fromValue m
     fromValue (VReturn v) = return (fromValue v)
     fromValue (VBind m1 v2) = do
@@ -307,120 +307,120 @@ instance FromValue s a => FromValue s (StateT LLVMSetupState IO a) where
       fromValue m2
     fromValue _ = error "fromValue LLVMSetup"
 
-instance IsValue s (TypedTerm s) where
+instance IsValue (TypedTerm SAWCtx) where
     toValue (TypedTerm s t) = VTerm s t
 
-instance FromValue s (TypedTerm s) where
+instance FromValue (TypedTerm SAWCtx) where
     fromValue (VTerm s t) = TypedTerm s t
     fromValue _ = error "fromValue TypedTerm"
 
-instance FromValue s (SharedTerm s) where
+instance FromValue (SharedTerm SAWCtx) where
     fromValue (VTerm _ t) = t
     fromValue _ = error "fromValue SharedTerm"
 
-instance IsValue s String where
+instance IsValue String where
     toValue n = VString n
 
-instance FromValue s String where
+instance FromValue String where
     fromValue (VString n) = n
     fromValue _ = error "fromValue String"
 
-instance IsValue s Integer where
+instance IsValue Integer where
     toValue n = VInteger n
 
-instance FromValue s Integer where
+instance FromValue Integer where
     fromValue (VInteger n) = n
     fromValue _ = error "fromValue Integer"
 
-instance IsValue s Int where
+instance IsValue Int where
     toValue n = VInteger (toInteger n)
 
-instance FromValue s Int where
+instance FromValue Int where
     fromValue (VInteger n)
       | toInteger (minBound :: Int) <= n &&
         toInteger (maxBound :: Int) >= n = fromIntegral n
     fromValue _ = error "fromValue Int"
 
-instance IsValue s Bool where
+instance IsValue Bool where
     toValue b = VBool b
 
-instance FromValue s Bool where
+instance FromValue Bool where
     fromValue (VBool b) = b
     fromValue _ = error "fromValue Bool"
 
-instance IsValue s (Simpset (SharedTerm s)) where
+instance IsValue (Simpset (SharedTerm SAWCtx)) where
     toValue ss = VSimpset ss
 
-instance FromValue s (Simpset (SharedTerm s)) where
+instance FromValue (Simpset (SharedTerm SAWCtx)) where
     fromValue (VSimpset ss) = ss
     fromValue _ = error "fromValue Simpset"
 
-instance IsValue s (Theorem s) where
+instance IsValue (Theorem SAWCtx) where
     toValue t = VTheorem t
 
-instance FromValue s (Theorem s) where
+instance FromValue (Theorem SAWCtx) where
     fromValue (VTheorem t) = t
     fromValue _ = error "fromValue Theorem"
 
-instance IsValue SAWCtx JIR.JavaMethodSpecIR where
+instance IsValue JIR.JavaMethodSpecIR where
     toValue ms = VJavaMethodSpec ms
 
-instance FromValue SAWCtx JIR.JavaMethodSpecIR where
+instance FromValue JIR.JavaMethodSpecIR where
     fromValue (VJavaMethodSpec ms) = ms
     fromValue _ = error "fromValue JavaMethodSpec"
 
-instance IsValue SAWCtx LIR.LLVMMethodSpecIR where
+instance IsValue LIR.LLVMMethodSpecIR where
     toValue ms = VLLVMMethodSpec ms
 
-instance FromValue SAWCtx LIR.LLVMMethodSpecIR where
+instance FromValue LIR.LLVMMethodSpecIR where
     fromValue (VLLVMMethodSpec ms) = ms
     fromValue _ = error "fromValue LLVMMethodSpec"
 
-instance IsValue SAWCtx JavaType where
+instance IsValue JavaType where
     toValue t = VJavaType t
 
-instance FromValue SAWCtx JavaType where
+instance FromValue JavaType where
     fromValue (VJavaType t) = t
     fromValue _ = error "fromValue JavaType"
 
-instance IsValue SAWCtx LSS.MemType where
+instance IsValue LSS.MemType where
     toValue t = VLLVMType t
 
-instance FromValue SAWCtx LSS.MemType where
+instance FromValue LSS.MemType where
     fromValue (VLLVMType t) = t
     fromValue _ = error "fromValue LLVMType"
 
-instance IsValue s (Uninterp s) where
+instance IsValue (Uninterp SAWCtx) where
     toValue me = VUninterp me
 
-instance FromValue s (Uninterp s) where
+instance FromValue (Uninterp SAWCtx) where
     fromValue (VUninterp me) = me
     fromValue _ = error "fromValue Uninterp"
 
-instance IsValue s JSS.Class where
+instance IsValue JSS.Class where
     toValue c = VJavaClass c
 
-instance FromValue s JSS.Class where
+instance FromValue JSS.Class where
     fromValue (VJavaClass c) = c
     fromValue _ = error "fromValue JavaClass"
 
-instance IsValue s LLVMModule where
+instance IsValue LLVMModule where
     toValue m = VLLVMModule m
 
-instance FromValue s LLVMModule where
+instance FromValue LLVMModule where
     fromValue (VLLVMModule m) = m
     fromValue _ = error "fromValue LLVMModule"
 
-instance IsValue s ProofResult where
+instance IsValue ProofResult where
    toValue r = VProofResult r
 
-instance FromValue s ProofResult where
+instance FromValue ProofResult where
    fromValue (VProofResult r) = r
    fromValue v = error $ "fromValue ProofResult: " ++ show v
 
-instance IsValue s SatResult where
+instance IsValue SatResult where
    toValue r = VSatResult r
 
-instance FromValue s SatResult where
+instance FromValue SatResult where
    fromValue (VSatResult r) = r
    fromValue _ = error "fromValue SatResult"

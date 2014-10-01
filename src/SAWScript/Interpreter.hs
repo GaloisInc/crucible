@@ -54,13 +54,13 @@ import qualified Cryptol.TypeCheck.AST as T
 
 -- Environment -----------------------------------------------------------------
 
-data InterpretEnv s = InterpretEnv
-  { ieValues  :: Map SS.LName (Value s)
+data InterpretEnv = InterpretEnv
+  { ieValues  :: Map SS.LName Value
   , ieTypes   :: Map SS.LName SS.Schema
-  , ieCryptol :: CEnv.CryptolEnv s
+  , ieCryptol :: CEnv.CryptolEnv SAWCtx
   }
 
-extendEnv :: SS.LName -> Maybe SS.Schema -> Value s -> InterpretEnv s -> InterpretEnv s
+extendEnv :: SS.LName -> Maybe SS.Schema -> Value -> InterpretEnv -> InterpretEnv
 extendEnv x mt v (InterpretEnv vm tm ce) = InterpretEnv vm' tm' ce'
   where
     name = x
@@ -78,7 +78,7 @@ extendEnv x mt v (InterpretEnv vm tm ce) = InterpretEnv vm' tm' ce'
 
 -- | Variation that does not force the value argument: it assumes it
 -- is not a term or int.
-extendEnv' :: SS.LName -> Maybe SS.Schema -> Value s -> InterpretEnv s -> InterpretEnv s
+extendEnv' :: SS.LName -> Maybe SS.Schema -> Value -> InterpretEnv -> InterpretEnv
 extendEnv' x mt v (InterpretEnv vm tm ce) = InterpretEnv vm' tm' ce
   where
     vm' = Map.insert x v vm
@@ -88,9 +88,7 @@ extendEnv' x mt v (InterpretEnv vm tm ce) = InterpretEnv vm' tm' ce
 
 -- Interpretation of SAWScript -------------------------------------------------
 
-interpret
-    :: forall s. SharedContext s
-    -> InterpretEnv s -> SS.Expr -> IO (Value s)
+interpret :: SharedContext SAWCtx -> InterpretEnv -> SS.Expr -> IO Value
 interpret sc env@(InterpretEnv vm _tm ce) expr =
     case expr of
       SS.Bit b               -> return $ VBool b
@@ -124,12 +122,12 @@ interpret sc env@(InterpretEnv vm _tm ce) expr =
                                    interpret sc env' e
       SS.TSig e _            -> interpret sc env e
 
-interpretDecl :: SharedContext s -> InterpretEnv s -> SS.Decl -> IO (InterpretEnv s)
+interpretDecl :: SharedContext SAWCtx -> InterpretEnv -> SS.Decl -> IO InterpretEnv
 interpretDecl sc env (SS.Decl n mt expr) = do
   v <- interpret sc env expr
   return (extendEnv n mt v env)
 
-interpretFunction :: SharedContext s -> InterpretEnv s -> SS.Expr -> Value s
+interpretFunction :: SharedContext SAWCtx -> InterpretEnv -> SS.Expr -> Value
 interpretFunction sc env expr =
     case expr of
       SS.Function x t e -> VLambda f
@@ -137,15 +135,13 @@ interpretFunction sc env expr =
       SS.TSig e _ -> interpretFunction sc env e
       _ -> error "interpretFunction: not a function"
 
-interpretDeclGroup :: SharedContext s -> InterpretEnv s -> SS.DeclGroup -> IO (InterpretEnv s)
+interpretDeclGroup :: SharedContext SAWCtx -> InterpretEnv -> SS.DeclGroup -> IO InterpretEnv
 interpretDeclGroup sc env (SS.NonRecursive d) =
   interpretDecl sc env d
 interpretDeclGroup sc env (SS.Recursive ds) = return env'
   where env' = foldr ($) env [ extendEnv' n mty (interpretFunction sc env' e) | SS.Decl n mty e <- ds ]
 
-interpretStmts
-    :: forall s. SharedContext s
-    -> InterpretEnv s -> [SS.BlockStmt] -> IO (Value s)
+interpretStmts :: SharedContext SAWCtx -> InterpretEnv -> [SS.BlockStmt] -> IO Value
 interpretStmts sc env@(InterpretEnv vm tm ce) stmts =
     case stmts of
       [] -> fail "empty block"
@@ -163,8 +159,8 @@ interpretStmts sc env@(InterpretEnv vm tm ce) stmts =
              interpretStmts sc (InterpretEnv vm tm ce') ss
 
 interpretModule
-    :: forall s. SharedContext s
-    -> InterpretEnv s -> SS.ValidModule -> IO (InterpretEnv s)
+    :: SharedContext SAWCtx
+    -> InterpretEnv -> SS.ValidModule -> IO InterpretEnv
 interpretModule sc env m =
     do cenv' <- foldM (CEnv.importModule sc) (ieCryptol env) (SS.moduleCryDeps m)
        let env' = env { ieCryptol = cenv' }
@@ -172,10 +168,10 @@ interpretModule sc env m =
        foldM (interpretDecl sc) env' decls
 
 interpretModuleAtEntry :: SS.Name
-                          -> SharedContext s
-                          -> InterpretEnv s
+                          -> SharedContext SAWCtx
+                          -> InterpretEnv
                           -> SS.ValidModule
-                          -> IO (Value s, InterpretEnv s)
+                          -> IO (Value, InterpretEnv)
 interpretModuleAtEntry entryName sc env m =
   do interpretEnv@(InterpretEnv vm _tm _ce) <- interpretModule sc env m
      let mainName = Located entryName entryName (PosInternal "entry")
@@ -188,7 +184,7 @@ interpretModuleAtEntry entryName sc env m =
        Nothing -> fail $ "No " ++ entryName ++ " in module " ++ show (SS.moduleName m)
 
 -- | Interpret an expression using the default value environments.
-interpretEntry :: SS.Name -> Options -> SS.ValidModule -> IO (Value SAWCtx)
+interpretEntry :: SS.Name -> Options -> SS.ValidModule -> IO Value
 interpretEntry entryName opts m =
     do (bic, interpretEnv0) <- buildInterpretEnv opts m
        let sc = biSharedContext bic
@@ -196,8 +192,7 @@ interpretEntry entryName opts m =
          interpretModuleAtEntry entryName sc interpretEnv0 m
        return result
 
-buildInterpretEnv :: Options -> SS.ValidModule
-                  -> IO (BuiltinContext, InterpretEnv SAWCtx)
+buildInterpretEnv :: Options -> SS.ValidModule -> IO (BuiltinContext, InterpretEnv)
 buildInterpretEnv opts m =
     do let mn = mkModuleName [SS.moduleName m]
        let scm = insImport preludeModule $
@@ -224,7 +219,7 @@ interpretMain opts m = fromValue <$> interpretEntry "main" opts m
 
 -- Primitives ------------------------------------------------------------------
 
-print_value :: SharedContext SAWCtx -> Value SAWCtx -> IO ()
+print_value :: SharedContext SAWCtx -> Value -> IO ()
 print_value _sc (VString s) = putStrLn s
 print_value  sc (VTerm _ trm) = print (evaluate sc trm)
 print_value _sc v = putStrLn (showsPrecValue defaultPPOpts 0 v "")
@@ -235,10 +230,10 @@ readSchema str =
     Left err -> error (show err)
     Right schema -> schema
 
-primitives :: Map SS.LName (SS.Schema, Options -> BuiltinContext -> Value SAWCtx)
+primitives :: Map SS.LName (SS.Schema, Options -> BuiltinContext -> Value)
 primitives = Map.fromList
-  [ prim "return"              "{m, a} a -> m a"                      $ pureVal (VReturn :: Value SAWCtx -> Value SAWCtx)
-  , prim "for"                 "{m, a, b} [a] -> (a -> m b) -> m [b]" $ pureVal (\xs -> VLambda (forValue xs) :: Value SAWCtx)
+  [ prim "return"              "{m, a} a -> m a"                      $ pureVal VReturn
+  , prim "for"                 "{m, a, b} [a] -> (a -> m b) -> m [b]" $ pureVal (VLambda . forValue)
   , prim "define"              "String -> Term -> TopLevel Term"      $ scVal definePrim
   , prim "print"               "{a} a -> TopLevel ()"                 $ scVal print_value
   , prim "print_term"          "Term -> TopLevel ()"                  $ pureVal ((putStrLn . scPrettyTerm) :: SharedTerm SAWCtx -> IO ())
@@ -347,21 +342,21 @@ primitives = Map.fromList
     prim :: forall a. String -> String -> a -> (SS.LName, (SS.Schema, a))
     prim s1 s2 v = (qualify s1, (readSchema s2, v))
 
-    pureVal :: forall t. IsValue SAWCtx t => t -> Options -> BuiltinContext -> Value SAWCtx
+    pureVal :: forall t. IsValue t => t -> Options -> BuiltinContext -> Value
     pureVal x _ _ = toValue x
 
-    scVal :: forall t. IsValue SAWCtx t =>
-             (SharedContext SAWCtx -> t) -> Options -> BuiltinContext -> Value SAWCtx
+    scVal :: forall t. IsValue t =>
+             (SharedContext SAWCtx -> t) -> Options -> BuiltinContext -> Value
     scVal f _ bic = toValue (f (biSharedContext bic))
 
-    bicVal :: forall t. IsValue SAWCtx t =>
-              (BuiltinContext -> Options -> t) -> Options -> BuiltinContext -> Value SAWCtx
+    bicVal :: forall t. IsValue t =>
+              (BuiltinContext -> Options -> t) -> Options -> BuiltinContext -> Value
     bicVal f opts bic = toValue (f bic opts)
 
 primTypeEnv :: Map SS.LName SS.Schema
 primTypeEnv = fmap fst primitives
 
-valueEnv :: Options -> BuiltinContext -> Map SS.LName (Value SAWCtx)
+valueEnv :: Options -> BuiltinContext -> Map SS.LName Value
 valueEnv opts bic = fmap f primitives
   where f (_, v) = v opts bic
 
