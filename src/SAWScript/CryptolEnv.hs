@@ -41,7 +41,7 @@ import Cryptol.Utils.PP
 --import SAWScript.REPL.Monad (REPLException(..))
 import SAWScript.Value
 import SAWScript.Utils (Pos(..))
-import SAWScript.AST (Located(getVal, getPos))
+import SAWScript.AST (Located(getVal, getPos), Import(..))
 
 --------------------------------------------------------------------------------
 
@@ -187,9 +187,12 @@ genTermEnv sc modEnv = do
 
 --------------------------------------------------------------------------------
 
-importModule :: SharedContext s -> CryptolEnv s -> FilePath -> IO (CryptolEnv s)
-importModule sc env path = do
+importModule :: SharedContext s -> CryptolEnv s -> Import -> IO (CryptolEnv s)
+importModule sc env imp = do
   let modEnv = eModuleEnv env
+  path <- case iModule imp of
+            Left path -> return path
+            Right mn -> fst `fmap` liftModuleM modEnv (MB.findModule mn)
   (m, modEnv') <- liftModuleM modEnv (MB.loadModuleByPath path)
 
   -- | Regenerate SharedTerm environment. TODO: preserve old
@@ -197,7 +200,7 @@ importModule sc env path = do
   let oldTermEnv = eTermEnv env
   newTermEnv <- genTermEnv sc modEnv'
 
-  return env { eImports = P.Import (T.mName m) Nothing Nothing : eImports env
+  return env { eImports = P.Import (T.mName m) (iAs imp) (iSpec imp) : eImports env
              , eModuleEnv = modEnv'
              , eTermEnv = Map.union newTermEnv oldTermEnv }
 

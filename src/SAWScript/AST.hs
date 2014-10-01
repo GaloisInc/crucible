@@ -17,6 +17,8 @@ import Data.Traversable (Traversable)
 import System.FilePath (dropExtension)
 import qualified Text.PrettyPrint.Leijen as PP
 
+import qualified Cryptol.Parser.AST as P (ImportSpec, ModName)
+
 -- Names {{{
 
 type Name = String
@@ -72,7 +74,7 @@ data Module = Module
   { moduleName         :: ModuleName
   , moduleExprEnv      :: [Decl]
   , moduleDependencies :: ModuleEnv ValidModule
-  , moduleCryDeps      :: [FilePath]
+  , moduleCryDeps      :: [Import]
   } deriving (Eq,Show)
 
 -- A fully type checked module.
@@ -104,10 +106,16 @@ toNameDec = first getVal
 
 data TopStmt
   = TopImport   ModuleName    -- ^ import <module>
-  | TopTypeDecl LName       Schema                          -- ^ <name> : <type>
-  | TopBind     Decl                                        -- ^ <name> = <expr>
-  | ImportCry   FilePath                                    -- ^ import "filepath.cry"
+  | TopTypeDecl LName Schema  -- ^ <name> : <type>
+  | TopBind     Decl          -- ^ <name> = <expr>
+  | ImportCry   Import        -- ^ import "filepath.cry" [as <name>] [(<names>)]
   deriving (Eq, Show)
+
+data Import = Import
+  { iModule    :: Either FilePath P.ModName
+  , iAs        :: Maybe P.ModName
+  , iSpec      :: Maybe P.ImportSpec
+  } deriving (Eq, Show)
 
 data Expr
   -- Constants
@@ -138,7 +146,7 @@ data BlockStmt
   = Bind          (Maybe LName) (Maybe Type) (Maybe Type) Expr
   | BlockLet      DeclGroup
   | BlockCode     (Located String)
-  | BlockImport   FilePath
+  | BlockImport   Import
   deriving (Eq, Show)
 
 data DeclGroup

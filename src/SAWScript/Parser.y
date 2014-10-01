@@ -20,6 +20,8 @@ import SAWScript.Lexer
 import SAWScript.AST
 import SAWScript.Utils
 
+import qualified Cryptol.Parser.AST as P
+
 import qualified Text.Show.Pretty as PP
 
 import Control.Applicative
@@ -38,6 +40,7 @@ import Control.Applicative
   'import'       { TReserved _ "import"         }
   'and'          { TReserved _ "and"            }
   'as'           { TReserved _ "as"             }
+  'hiding'       { TReserved _ "hiding"         }
   'let'          { TReserved _ "let"            }
   'rec'          { TReserved _ "rec"            }
   'in'           { TReserved _ "in"             }
@@ -98,10 +101,22 @@ TopStmts :: { [TopStmt] }
 
 TopStmt :: { TopStmt }
  : 'import' name                        { TopImport (tokStr $1) }
- | 'import' string                      { ImportCry $2                 }
+ | 'import' Import                      { ImportCry $2                 }
  | name ':' PolyType                    { TopTypeDecl (toLName $1) $3  }
  | Declaration                          { TopBind $1 }
 
+Import :: { Import }
+ : string mbAs mbImportSpec             { Import (Left $1) $2 $3 }
+ -- TODO: allow imports by module name instead of path
+
+mbAs :: { Maybe P.ModName }
+ : 'as' name                            { Just (P.ModName [tokStr $2]) }
+ | {- empty -}                          { Nothing }
+
+mbImportSpec :: { Maybe P.ImportSpec }
+ : '(' list(name) ')'                   { Just $ P.Only   [ P.Name (tokStr n) | n <- $2 ] }
+ | 'hiding' '(' list(name) ')'          { Just $ P.Hiding [ P.Name (tokStr n) | n <- $3 ] }
+ | {- empty -}                          { Nothing }
 
 BlockStmt :: { BlockStmt }
  : Expression                           { Bind Nothing Nothing Nothing $1   }
@@ -109,7 +124,7 @@ BlockStmt :: { BlockStmt }
  | 'rec' sepBy1(Declaration, 'and')     { BlockLet (Recursive $2)                  }
  | 'let' Declaration                    { BlockLet (NonRecursive $2)               }
  | 'let' Code                           { BlockCode $2                 }
- | 'import' string                      { BlockImport $2               }
+ | 'import' Import                      { BlockImport $2               }
 
 Declaration :: { Decl }
  : name list(Arg) '=' Expression        { Decl (toLName $1) Nothing (buildFunction $2 $4) }

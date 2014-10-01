@@ -73,6 +73,7 @@ import qualified Data.Set as Set
 -- SAWScript imports
 import qualified SAWScript.AST as SS
     (pShow,
+     Import(..),
      Expr(TSig, Block), BlockStmt(..), Decl(..), DeclGroup(..),
      LName, Located(..),
      Context(..), Schema(..), Type(..), TyCon(..),
@@ -433,7 +434,7 @@ loadCmd path
   | otherwise = do
       sc <- getSharedContext
       cenv <- getCryptolEnv
-      cenv' <- io (CEnv.importModule sc cenv path)
+      cenv' <- io (CEnv.importModule sc cenv (SS.Import (Left path) Nothing Nothing))
       setCryptolEnv cenv'
       --whenDebug (io (putStrLn (dump m)))
 
@@ -443,7 +444,7 @@ addCmd path
   | otherwise = do
       sc <- getSharedContext
       cenv <- getCryptolEnv
-      cenv' <- io (CEnv.importModule sc cenv path)
+      cenv' <- io (CEnv.importModule sc cenv (SS.Import (Left path) Nothing Nothing))
       setCryptolEnv cenv'
       --whenDebug (io (putStrLn (dump m)))
 
@@ -599,7 +600,7 @@ sawScriptCmd str = do
     SS.Bind mx mt mc expr -> processBlockBind mx mt mc expr
     SS.BlockLet dg        -> processBlockLet dg
     SS.BlockCode lc       -> processBlockCode lc
-    SS.BlockImport path   -> processBlockImport path
+    SS.BlockImport imp    -> processBlockImport imp
 
 processBlockLet :: SS.DeclGroup -> REPL ()
 processBlockLet dg = do
@@ -616,14 +617,12 @@ processBlockCode lc = do
   ce' <- io $ CEnv.parseDecls sc ce lc
   setCryptolEnv ce'
 
-processBlockImport :: FilePath -> REPL ()
-processBlockImport path
-  | null path = return ()
-  | otherwise = do
-      sc <- getSharedContext
-      cenv <- getCryptolEnv
-      cenv' <- io (CEnv.importModule sc cenv path)
-      setCryptolEnv cenv'
+processBlockImport :: SS.Import -> REPL ()
+processBlockImport imp = do
+  sc <- getSharedContext
+  cenv <- getCryptolEnv
+  cenv' <- io (CEnv.importModule sc cenv imp)
+  setCryptolEnv cenv'
 
 processBlockBind :: Maybe SS.LName -> Maybe SS.Type -> Maybe SS.Type -> SS.Expr -> REPL ()
 processBlockBind mx mt _mc expr = do
