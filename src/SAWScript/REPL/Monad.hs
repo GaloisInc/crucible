@@ -48,10 +48,9 @@ module SAWScript.REPL.Monad (
   , userOptions
 
     -- ** SAWScript stuff
-  , getModulesInScope, getNamesInScope, getSharedContext, getEnvironment
+  , getModulesInScope, getSharedContext
+  , getEnvironment, modifyEnvironment, putEnvironment
   , getSAWScriptNames
-  , putNamesInScope, putEnvironment
-  , modifyNamesInScope, modifyEnvironment
   , err
 
   ) where
@@ -129,7 +128,6 @@ data RW = RW
   , eIsBatch    :: Bool
   , eUserEnv    :: UserEnv     -- ^ User-configured settings from :set commands
   , modulesInScope :: Map ModuleName ValidModule
-  , namesInScope :: Set Name
   , sharedContext :: SharedContext SAWCtx
   , environment :: InterpretEnv
   }
@@ -155,7 +153,6 @@ defaultRW isBatch opts = do
     , eIsBatch    = isBatch
     , eUserEnv    = mkUserEnv userOptions
     , modulesInScope = modules
-    , namesInScope = Set.empty
     , sharedContext = sc
     , environment = ienv
     }
@@ -407,24 +404,14 @@ setCryptolEnv x = modifyCryptolEnv (const x)
 getModulesInScope :: REPL (Map ModuleName ValidModule)
 getModulesInScope = fmap modulesInScope getRW
 
-getNamesInScope :: REPL (Set Name)
-getNamesInScope = fmap namesInScope getRW
-
 getSharedContext :: REPL (SharedContext SAWCtx)
 getSharedContext = fmap sharedContext getRW
 
 getEnvironment :: REPL InterpretEnv
 getEnvironment = fmap environment getRW
 
-putNamesInScope :: Set Name -> REPL ()
-putNamesInScope = modifyNamesInScope . const
-
 putEnvironment :: InterpretEnv -> REPL ()
 putEnvironment = modifyEnvironment . const
-
-modifyNamesInScope :: (Set Name -> Set Name) -> REPL ()
-modifyNamesInScope f = modifyRW_ $ \current ->
-  current { namesInScope = f (namesInScope current) }
 
 modifyEnvironment :: (InterpretEnv -> InterpretEnv) -> REPL ()
 modifyEnvironment f = modifyRW_ $ \current ->

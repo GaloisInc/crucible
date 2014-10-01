@@ -608,9 +608,6 @@ processBlockLet dg = do
   sc <- getSharedContext
   ie' <- io $ interpretDeclGroup sc ie dg'
   putEnvironment ie'
-  let decls = case dg' of SS.NonRecursive d -> [d]
-                          SS.Recursive ds -> ds
-  modifyNamesInScope $ Set.union (Set.fromList (map (SS.getVal . SS.dName) decls))
 
 processBlockCode :: SS.Located String -> REPL ()
 processBlockCode lc = do
