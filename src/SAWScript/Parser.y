@@ -97,16 +97,11 @@ TopStmts :: { [TopStmt] }
  : termBy(TopStmt, ';')                 { $1 }
 
 TopStmt :: { TopStmt }
- : 'import' Import                      { $2                 }
+ : 'import' name                        { TopImport (tokStr $1) }
  | 'import' string                      { ImportCry $2                 }
  | name ':' PolyType                    { TopTypeDecl (toLName $1) $3  }
  | Declaration                          { TopBind $1 }
 
-Import :: { TopStmt }
- : name                                    { Import (tokStr $1) Nothing Nothing }
- -- | name '(' commas(name) ')'            { Import $1 (Just $3) Nothing     }
- -- | name 'as' name                       { Import $1 Nothing (Just $3)     }
- -- | name '(' commas(name) ')' 'as' name  { Import $1 (Just $3) (Just $6)   }
 
 BlockStmt :: { BlockStmt }
  : Expression                           { Bind Nothing Nothing Nothing $1   }

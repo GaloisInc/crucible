@@ -97,6 +97,6 @@ findFile paths fileName = search paths
 #endif
   
 getImport :: TopStmt -> Maybe ModuleName
-getImport (Import mn _ _) = Just mn
+getImport (TopImport mn) = Just mn
 getImport _ = Nothing
 

@@ -103,7 +103,7 @@ toNameDec :: (LName, a) -> (Name, a)
 toNameDec = first getVal
 
 data TopStmt
-  = Import      ModuleName (Maybe [Name])    (Maybe Name)   -- ^ import <module> [(<names>)] [as <name>]
+  = TopImport   ModuleName    -- ^ import <module>
   | TopTypeDecl LName       Schema                          -- ^ <name> : <type>
   | TopBind     Decl                                        -- ^ <name> = <expr>
   | ImportCry   FilePath                                    -- ^ import "filepath.cry"
