@@ -9,6 +9,7 @@ module SAWScript.Parser
   ( parseModule
   , parseTopStmt
   , parseBlockStmt
+  , parseSchema
   , ParseError(..)
   ) where
 
@@ -28,6 +29,7 @@ import Control.Applicative
 %name parseModule TopStmts
 %name parseTopStmt TopStmt
 %name parseBlockStmt BlockStmt
+%name parseSchema PolyType
 %error { parseError }
 %tokentype { Token Pos }
 %monad { Either ParseError }

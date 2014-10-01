@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -32,6 +33,8 @@ import qualified SAWScript.CryptolEnv as CEnv
 import SAWScript.JavaBuiltins
 import SAWScript.LLVMBuiltins
 import SAWScript.Options
+import SAWScript.Lexer (lexSAW)
+import SAWScript.Parser (parseSchema)
 import SAWScript.Proof
 import SAWScript.Utils
 import SAWScript.Value
@@ -209,20 +212,13 @@ buildInterpretEnv opts m =
                  , biJavaCodebase = jcb
                  }
        let vm0 = Map.insert (qualify "basic_ss") (toValue ss) (valueEnv opts bic)
-       let tm0 = transitivePrimEnv m
+       let tm0 = Map.insert (qualify "basic_ss") (readSchema "Simpset") typeEnv
        ce0 <- CEnv.initCryptolEnv sc
        return (bic, InterpretEnv vm0 tm0 ce0)
 
 -- | Interpret function 'main' using the default value environments.
 interpretMain :: Options -> SS.ValidModule -> IO ()
 interpretMain opts m = fromValue <$> interpretEntry "main" opts m
-
--- | Collects primitives from the module and all its transitive dependencies.
-transitivePrimEnv :: SS.ValidModule -> Map SS.LName SS.Schema
-transitivePrimEnv m = Map.unions (env : envs)
-  where
-    env = SS.modulePrimEnv m
-    envs = map transitivePrimEnv (Map.elems (SS.moduleDependencies m))
 
 
 -- Primitives ------------------------------------------------------------------
@@ -232,108 +228,141 @@ print_value _sc (VString s) = putStrLn s
 print_value  sc (VTerm _ trm) = print (evaluate sc trm)
 print_value _sc v = putStrLn (showsPrecValue defaultPPOpts 0 v "")
 
-valueEnv :: Options -> BuiltinContext -> Map SS.LName (Value SAWCtx)
-valueEnv opts bic = Map.fromList
-  [ (qualify "sbv_uninterpreted", toValue $ sbvUninterpreted sc)
-  , (qualify "read_sbv"    , toValue $ readSBV sc)
-  , (qualify "read_aig"    , toValue $ readAIGPrim sc)
-  , (qualify "write_aig"   , toValue $ writeAIG sc)
-  , (qualify "write_cnf"   , toValue $ writeCNF sc)
+readSchema :: String -> SS.Schema
+readSchema str =
+  case parseSchema (lexSAW "internal" str) of
+    Left err -> error (show err)
+    Right schema -> schema
+
+primitives :: Map SS.LName (SS.Schema, Options -> BuiltinContext -> Value SAWCtx)
+primitives = Map.fromList
+  [ prim "return"              "{m, a} a -> m a"                      $ pureVal (VReturn :: Value SAWCtx -> Value SAWCtx)
+  , prim "for"                 "{m, a, b} [a] -> (a -> m b) -> m [b]" $ pureVal (\xs -> VLambda (forValue xs) :: Value SAWCtx)
+  , prim "define"              "String -> Term -> TopLevel Term"      $ scVal definePrim
+  , prim "print"               "{a} a -> TopLevel ()"                 $ scVal print_value
+  , prim "print_term"          "Term -> TopLevel ()"                  $ pureVal ((putStrLn . scPrettyTerm) :: SharedTerm SAWCtx -> IO ())
+  , prim "print_type"          "Term -> TopLevel ()"                  $ scVal print_type
+  , prim "show_term"           "Term -> String"                       $ pureVal (scPrettyTerm :: SharedTerm SAWCtx -> String)
+  , prim "check_term"          "Term -> TopLevel ()"                  $ scVal check_term
+  , prim "term_size"           "Term -> Int"                          $ pureVal (scSharedSize :: SharedTerm SAWCtx -> Integer)
+  , prim "term_tree_size"      "Term -> Int"                          $ pureVal (scTreeSize :: SharedTerm SAWCtx -> Integer)
+
+  , prim "sbv_uninterpreted"   "String -> Term -> TopLevel Uninterp"   $ scVal sbvUninterpreted
+  , prim "read_sbv"            "String -> [Uninterp] -> TopLevel Term" $ scVal readSBV
+  , prim "read_aig"            "String -> TopLevel Term"               $ scVal readAIGPrim
+  , prim "read_core"           "String -> TopLevel Term"               $ scVal readCore
+  , prim "write_aig"           "String -> Term -> TopLevel ()"         $ scVal writeAIG
+  , prim "write_cnf"           "String -> Term -> TopLevel ()"         $ scVal writeCNF
+  , prim "write_smtlib1"       "String -> Term -> TopLevel ()"         $ scVal writeSMTLib1
+  , prim "write_smtlib2"       "String -> Term -> TopLevel ()"         $ scVal writeSMTLib2
+  , prim "write_core"          "String -> Term -> TopLevel ()"         $ pureVal (writeCore :: FilePath -> SharedTerm SAWCtx -> IO ())
+
+  , prim "prove"               "{b} ProofScript b -> Term -> TopLevel ProofResult" $ scVal provePrim
+  , prim "prove_print"         "{b} ProofScript b -> Term -> TopLevel Theorem"     $ scVal provePrintPrim
+  , prim "sat"                 "{b} ProofScript b -> Term -> TopLevel SatResult"   $ scVal satPrim
+  , prim "sat_print"           "{b} ProofScript b -> Term -> TopLevel ()"          $ scVal satPrintPrim
+
+  , prim "unfolding"           "[String] -> ProofScript ()"  $ scVal unfoldGoal
+  , prim "simplify"            "Simpset -> ProofScript ()"   $ scVal simplifyGoal
+  , prim "print_goal"          "ProofScript ()"              $ pureVal (printGoal :: ProofScript SAWCtx ())
+  , prim "assume_valid"        "ProofScript ProofResult"     $ pureVal (assumeValid :: ProofScript SAWCtx ProofResult)
+  , prim "assume_unsat"        "ProofScript SatResult"       $ pureVal (assumeUnsat :: ProofScript SAWCtx SatResult)
+  , prim "abc"                 "{a} ProofScript a"           $ scVal satABC
+  , prim "boolector"           "{a} ProofScript a"           $ scVal satBoolector
+  , prim "cvc4"                "{a} ProofScript a"           $ scVal satCVC4
+  , prim "z3"                  "{a} ProofScript a"           $ scVal satZ3
+  , prim "mathsat"             "{a} ProofScript a"           $ scVal satMathSAT
+  , prim "abc_old"             "{a} ProofScript a"           $ scVal satABCold
+  , prim "yices"               "{a} ProofScript a"           $ scVal satYices
+  , prim "offline_aig"         "{a} String -> ProofScript a" $ scVal satAIG
+  , prim "offline_cnf"         "{a} String -> ProofScript a" $ scVal satCNF
+  , prim "offline_extcore"     "{a} String -> ProofScript a" $ scVal satExtCore
+  , prim "offline_smtlib1"     "{a} String -> ProofScript a" $ scVal satSMTLib1
+  , prim "offline_smtlib2"     "{a} String -> ProofScript a" $ scVal satSMTLib2
+
+  , prim "external_cnf_solver" "{a} String -> [String] -> ProofScript a" $ scVal (satExternal True)
+  , prim "external_aig_solver" "{a} String -> [String] -> ProofScript a" $ scVal (satExternal False)
+
+  , prim "empty_ss"            "Simpset"                          $ pureVal (emptySimpset :: Simpset (SharedTerm SAWCtx))
+  --, prim "basic_ss"            "Simpset"                          $
+  , prim "addsimp"             "Theorem -> Simpset -> Simpset"    $ scVal addsimp
+  , prim "addsimp'"            "{a} a -> Simpset -> Simpset"      $ scVal addsimp'
+  , prim "rewrite"             "Simpset -> Term -> TopLevel Term" $ scVal rewritePrim
   -- Java stuff
-  , (qualify "java_load_class", toValue $ loadJavaClass bic)
-  , (qualify "java_browse_class", toValue browseJavaClass)
-  , (qualify "java_extract", toValue $ extractJava bic opts)
-  , (qualify "java_verify" , toValue $ verifyJava bic opts)
-  , (qualify "java_pure"   , toValue $ javaPure)
-  , (qualify "java_var"    , toValue $ javaVar bic opts)
-  , (qualify "java_class_var", toValue $ javaClassVar bic opts)
-  , (qualify "java_may_alias", toValue $ javaMayAlias bic opts)
-  , (qualify "java_assert" , toValue $ javaAssert bic opts)
-  --, (qualify "java_assert_eq" , toValue $ javaAssertEq bic opts)
-  , (qualify "java_ensure_eq" , toValue $ javaEnsureEq bic opts)
-  , (qualify "java_modify" , toValue $ javaModify bic opts)
-  , (qualify "java_return" , toValue $ javaReturn bic opts)
-  , (qualify "java_verify_tactic" , toValue $ javaVerifyTactic bic opts)
-  , (qualify "java_bool"   , toValue javaBool)
-  , (qualify "java_byte"   , toValue javaByte)
-  , (qualify "java_char"   , toValue javaChar)
-  , (qualify "java_short"  , toValue javaShort)
-  , (qualify "java_int"    , toValue javaInt)
-  , (qualify "java_long"   , toValue javaLong)
-  , (qualify "java_float"  , toValue javaFloat)
-  , (qualify "java_double" , toValue javaDouble)
-  , (qualify "java_array"  , toValue javaArray)
-  , (qualify "java_class"  , toValue javaClass)
-  -- LLVM stuff
-  , (qualify "llvm_load_module", toValue loadLLVMModule)
-  , (qualify "llvm_browse_module", toValue browseLLVMModule)
-  , (qualify "llvm_extract", toValue $ extractLLVM sc)
-  , (qualify "llvm_verify" , toValue $ verifyLLVM bic opts)
-  , (qualify "llvm_pure"   , toValue $ llvmPure)
-  , (qualify "llvm_ptr"    , toValue $ llvmPtr bic opts)
-  , (qualify "llvm_var"    , toValue $ llvmVar bic opts)
-  -- , (qualify "llvm_may_alias", toValue $ llvmMayAlias bic opts)
-  , (qualify "llvm_assert" , toValue $ llvmAssert bic opts)
-  --, (qualify "llvm_assert_eq" , toValue $ llvmAssertEq bic opts)
-  , (qualify "llvm_ensure_eq" , toValue $ llvmEnsureEq bic opts)
-  , (qualify "llvm_modify" , toValue $ llvmModify bic opts)
-  , (qualify "llvm_return" , toValue $ llvmReturn bic opts)
-  , (qualify "llvm_verify_tactic" , toValue $ llvmVerifyTactic bic opts)
-  , (qualify "llvm_int"    , toValue llvmInt)
-  , (qualify "llvm_float"  , toValue llvmFloat)
-  , (qualify "llvm_double" , toValue llvmDouble)
-  , (qualify "llvm_array"  , toValue llvmArray)
-  -- Generic stuff
-  , (qualify "check_term"  , toValue $ check_term sc)
-  , (qualify "prove"       , toValue $ provePrim sc)
-  , (qualify "prove_print" , toValue $ provePrintPrim sc)
-  , (qualify "sat"         , toValue $ satPrim sc)
-  , (qualify "sat_print"   , toValue $ satPrintPrim sc)
-  , (qualify "empty_ss"    , toValue (emptySimpset :: Simpset (SharedTerm SAWCtx)))
-  , (qualify "addsimp"     , toValue $ addsimp sc)
-  , (qualify "addsimp'"    , toValue $ addsimp' sc)
-  , (qualify "rewrite"     , toValue $ rewritePrim sc)
-  , (qualify "assume_valid", toValue (assumeValid :: ProofScript SAWCtx ProofResult))
-  , (qualify "assume_unsat", toValue (assumeUnsat :: ProofScript SAWCtx SatResult))
-  , (qualify "abc_old"     , toValue $ satABCold sc)
-  , (qualify "abc"         , toValue $ satABC sc)
-  , (qualify "yices"       , toValue $ satYices sc)
-  , (qualify "external_cnf_solver", toValue $ satExternal True sc)
-  , (qualify "external_aig_solver", toValue $ satExternal False sc)
-  , (qualify "boolector"   , toValue $ satBoolector sc)
-  , (qualify "cvc4"        , toValue $ satCVC4 sc)
-  , (qualify "mathsat"     , toValue $ satMathSAT sc)
-  , (qualify "z3"          , toValue $ satZ3 sc)
-  , (qualify "offline_aig" , toValue $ satAIG sc)
-  , (qualify "offline_cnf" , toValue $ satCNF sc)
-  , (qualify "offline_extcore" , toValue $ satExtCore sc)
-  , (qualify "offline_smtlib1" , toValue $ satSMTLib1 sc)
-  , (qualify "offline_smtlib2" , toValue $ satSMTLib2 sc)
-  , (qualify "unfolding"   , toValue $ unfoldGoal sc)
-  , (qualify "simplify"    , toValue $ simplifyGoal sc)
-  , (qualify "print_goal"  , toValue (printGoal :: ProofScript SAWCtx ()))
-  , (qualify "write_smtlib1", toValue $ writeSMTLib1 sc)
-  , (qualify "write_smtlib2", toValue $ writeSMTLib2 sc)
-  , (qualify "write_core"   , toValue (writeCore :: FilePath -> SharedTerm SAWCtx -> IO ()))
-  , (qualify "read_core"    , toValue $ readCore sc)
-  , (qualify "term"         , toValue (id :: Value SAWCtx -> Value SAWCtx))
-  , (qualify "term_size"    , toValue (scSharedSize :: SharedTerm SAWCtx -> Integer))
-  , (qualify "term_tree_size", toValue (scTreeSize :: SharedTerm SAWCtx -> Integer))
-  , (qualify "print"       , toValue $ print_value sc)
-  , (qualify "print_type"  , toValue $ print_type sc)
-  , (qualify "print_term"  , toValue ((putStrLn . scPrettyTerm) :: SharedTerm SAWCtx -> IO ()))
-  , (qualify "show_term"   , toValue (scPrettyTerm :: SharedTerm SAWCtx -> String))
-  , (qualify "return"      , toValue (VReturn :: Value SAWCtx -> Value SAWCtx))
-  , (qualify "for"         , toValue $ \xs -> VLambda (forValue xs) :: Value SAWCtx)
-    {-
-  , (qualify "seq"        , toValue ((>>) :: ProofScript SAWCtx (Value SAWCtx)
-                                          -> ProofScript SAWCtx (Value SAWCtx)
-                                          -> ProofScript SAWCtx (Value SAWCtx))) -- FIXME: temporary
-    -}
-  , (qualify "define"      , toValue $ definePrim sc)
-  , (qualify "caseSatResult", toValueCase sc caseSatResultPrim)
-  , (qualify "caseProofResult", toValueCase sc caseProofResultPrim)
-  ] where sc = biSharedContext bic
+  , prim "java_bool"           "JavaType"                    $ pureVal javaBool
+  , prim "java_byte"           "JavaType"                    $ pureVal javaByte
+  , prim "java_char"           "JavaType"                    $ pureVal javaChar
+  , prim "java_short"          "JavaType"                    $ pureVal javaShort
+  , prim "java_int"            "JavaType"                    $ pureVal javaInt
+  , prim "java_long"           "JavaType"                    $ pureVal javaLong
+  , prim "java_float"          "JavaType"                    $ pureVal javaFloat
+  , prim "java_double"         "JavaType"                    $ pureVal javaDouble
+  , prim "java_array"          "Int -> JavaType -> JavaType" $ pureVal javaArray
+  , prim "java_class"          "String -> JavaType"          $ pureVal javaClass
+  --, prim "java_value"          "{a} String -> a"
+  , prim "java_var"            "String -> JavaType -> JavaSetup Term"  $ bicVal javaVar
+  , prim "java_class_var"      "{a} String -> JavaType -> JavaSetup a" $ bicVal javaClassVar
+  , prim "java_may_alias"      "[String] -> JavaSetup ()"              $ bicVal javaMayAlias
+  , prim "java_assert"         "Term -> JavaSetup ()"                  $ bicVal javaAssert
+  --, prim "java_assert_eq"      "{a} String -> a -> JavaSetup ()"       $ bicVal javaAssertEq
+  , prim "java_ensure_eq"      "String -> Term -> JavaSetup ()"        $ bicVal javaEnsureEq
+  , prim "java_modify"         "String -> JavaSetup ()"                $ bicVal javaModify
+  , prim "java_return"         "Term -> JavaSetup ()"                  $ bicVal javaReturn
+  , prim "java_verify_tactic"  "{a} ProofScript a -> JavaSetup ()"     $ bicVal javaVerifyTactic
+  , prim "java_pure"           "JavaSetup ()"                          $ pureVal javaPure
+  , prim "java_load_class"     "String -> TopLevel JavaClass"          $ bicVal (const . loadJavaClass)
+  , prim "java_browse_class"   "JavaClass -> TopLevel ()"              $ pureVal browseJavaClass
+  --, prim "java_class_info"     "JavaClass -> TopLevel ()"
+  , prim "java_extract"        "{a} JavaClass -> String -> JavaSetup () -> TopLevel a"
+                                                                       $ bicVal extractJava
+  , prim "java_verify"         "JavaClass -> String -> [JavaMethodSpec] -> JavaSetup () -> TopLevel JavaMethodSpec"
+                                                                       $ bicVal verifyJava
+
+  , prim "llvm_int"            "Int -> LLVMType"                      $ pureVal llvmInt
+  , prim "llvm_float"          "LLVMType"                             $ pureVal llvmFloat
+  , prim "llvm_double"         "LLVMType"                             $ pureVal llvmDouble
+  , prim "llvm_array"          "Int -> LLVMType -> LLVMType"          $ pureVal llvmArray
+  --, prim "llvm_value"          "{a} String -> a"                      $ 
+  , prim "llvm_var"            "String -> LLVMType -> LLVMSetup Term" $ bicVal llvmVar
+  , prim "llvm_ptr"            "String -> LLVMType -> LLVMSetup Term" $ bicVal llvmPtr
+  --, prim "llvm_may_alias"      "[String] -> LLVMSetup ()" $ bicVal llvmMayAlias
+  , prim "llvm_assert"         "Term -> LLVMSetup ()"                 $ bicVal llvmAssert
+  --, prim "llvm_assert_eq"      "{a} String -> a -> LLVMSetup ()"      $ bicVal llvmAssertEq
+  , prim "llvm_ensure_eq"      "String -> Term -> LLVMSetup ()"       $ bicVal llvmEnsureEq
+  , prim "llvm_modify"         "String -> LLVMSetup ()"               $ bicVal llvmModify
+  , prim "llvm_return"         "Term -> LLVMSetup ()"                 $ bicVal llvmReturn
+  , prim "llvm_verify_tactic"  "{a} ProofScript a -> LLVMSetup ()"    $ bicVal llvmVerifyTactic
+  , prim "llvm_pure"           "LLVMSetup ()"                         $ pureVal llvmPure
+  , prim "llvm_load_module"    "String -> TopLevel LLVMModule"        $ pureVal loadLLVMModule
+  , prim "llvm_browse_module"  "LLVMModule -> TopLevel ()"            $ pureVal browseLLVMModule
+  --, prim "llvm_module_info"    "LLVMModule -> TopLevel ()"            $ 
+  , prim "llvm_extract"        "LLVMModule -> String -> LLVMSetup () -> TopLevel Term" $ scVal extractLLVM
+  , prim "llvm_verify"         "LLVMModule -> String -> [LLVMMethodSpec] -> LLVMSetup () -> TopLevel LLVMMethodSpec" $ bicVal verifyLLVM
+
+  , prim "caseSatResult"       "{b} SatResult -> b -> (Term -> b) -> b"   $ \_ bic -> toValueCase (biSharedContext bic) caseSatResultPrim
+  , prim "caseProofResult"     "{b} ProofResult -> b -> (Term -> b) -> b" $ \_ bic -> toValueCase (biSharedContext bic) caseProofResultPrim
+  ]
+  where
+    prim :: forall a. String -> String -> a -> (SS.LName, (SS.Schema, a))
+    prim s1 s2 v = (qualify s1, (readSchema s2, v))
+
+    pureVal :: forall t. IsValue SAWCtx t => t -> Options -> BuiltinContext -> Value SAWCtx
+    pureVal x _ _ = toValue x
+
+    scVal :: forall t. IsValue SAWCtx t =>
+             (SharedContext SAWCtx -> t) -> Options -> BuiltinContext -> Value SAWCtx
+    scVal f _ bic = toValue (f (biSharedContext bic))
+
+    bicVal :: forall t. IsValue SAWCtx t =>
+              (BuiltinContext -> Options -> t) -> Options -> BuiltinContext -> Value SAWCtx
+    bicVal f opts bic = toValue (f bic opts)
+
+typeEnv :: Map SS.LName SS.Schema
+typeEnv = fmap fst primitives
+
+valueEnv :: Options -> BuiltinContext -> Map SS.LName (Value SAWCtx)
+valueEnv opts bic = fmap f primitives
+  where f (_, v) = v opts bic
 
 qualify :: String -> Located SS.Name
 qualify s = Located s s (PosInternal "coreEnv")
