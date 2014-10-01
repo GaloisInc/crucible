@@ -194,6 +194,11 @@ lookupVar n = do
                   newType
     Just schema -> freshInst schema
 
+-- FIXME: This function may miss type variables that occur in the type
+-- of a binding that has been shadowed by another value with the same
+-- name. This could potentially cause a run-time type error if the
+-- type of a local function gets generalized too much. We can probably
+-- wait to fix it until someone finds a sawscript program that breaks.
 unifyVarsInEnv :: TI (S.Set TypeIndex)
 unifyVarsInEnv = do
   env <- TI $ asks typeEnv
