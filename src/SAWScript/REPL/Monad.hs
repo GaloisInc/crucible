@@ -48,7 +48,7 @@ module SAWScript.REPL.Monad (
   , userOptions
 
     -- ** SAWScript stuff
-  , getModulesInScope, getSharedContext
+  , getSharedContext
   , getEnvironment, modifyEnvironment, putEnvironment
   , getSAWScriptNames
   , err
@@ -127,7 +127,6 @@ data RW = RW
   , eContinue   :: Bool
   , eIsBatch    :: Bool
   , eUserEnv    :: UserEnv     -- ^ User-configured settings from :set commands
-  , modulesInScope :: Map ModuleName ValidModule
   , sharedContext :: SharedContext SAWCtx
   , environment :: InterpretEnv
   }
@@ -152,7 +151,6 @@ defaultRW isBatch opts = do
     , eContinue   = True
     , eIsBatch    = isBatch
     , eUserEnv    = mkUserEnv userOptions
-    , modulesInScope = modules
     , sharedContext = sc
     , environment = ienv
     }
@@ -400,9 +398,6 @@ modifyCryptolEnv f = modifyEnvironment (\ie -> ie { ieCryptol = f (ieCryptol ie)
 
 setCryptolEnv :: CryptolEnv SAWCtx -> REPL ()
 setCryptolEnv x = modifyCryptolEnv (const x)
-
-getModulesInScope :: REPL (Map ModuleName ValidModule)
-getModulesInScope = fmap modulesInScope getRW
 
 getSharedContext :: REPL (SharedContext SAWCtx)
 getSharedContext = fmap sharedContext getRW
