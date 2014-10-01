@@ -17,6 +17,7 @@ module SAWScript.Interpreter
   , extendEnv
   , Value, isVUnit
   , IsValue(..)
+  , primTypeEnv
   )
   where
 
@@ -212,7 +213,7 @@ buildInterpretEnv opts m =
                  , biJavaCodebase = jcb
                  }
        let vm0 = Map.insert (qualify "basic_ss") (toValue ss) (valueEnv opts bic)
-       let tm0 = Map.insert (qualify "basic_ss") (readSchema "Simpset") typeEnv
+       let tm0 = Map.insert (qualify "basic_ss") (readSchema "Simpset") primTypeEnv
        ce0 <- CEnv.initCryptolEnv sc
        return (bic, InterpretEnv vm0 tm0 ce0)
 
@@ -357,8 +358,8 @@ primitives = Map.fromList
               (BuiltinContext -> Options -> t) -> Options -> BuiltinContext -> Value SAWCtx
     bicVal f opts bic = toValue (f bic opts)
 
-typeEnv :: Map SS.LName SS.Schema
-typeEnv = fmap fst primitives
+primTypeEnv :: Map SS.LName SS.Schema
+primTypeEnv = fmap fst primitives
 
 valueEnv :: Options -> BuiltinContext -> Map SS.LName (Value SAWCtx)
 valueEnv opts bic = fmap f primitives

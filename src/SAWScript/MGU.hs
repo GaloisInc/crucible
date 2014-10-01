@@ -9,6 +9,7 @@ module SAWScript.MGU where
 import qualified SAWScript.AST as A
 import SAWScript.AST
 import SAWScript.Compiler
+import SAWScript.Interpreter (primTypeEnv) -- FIXME: temporary
 
 import Control.Applicative
 
@@ -538,25 +539,21 @@ checkKind = return
 
 -- Main interface {{{
 
+-- | deprecated
 checkModule :: Compiler Module Module
 checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
   let modName = moduleName m
   let decls   = moduleExprEnv m
-  let initTs  = concat
-       [ [ (n, s) | (Decl n (Just s) _) <- modExprs dep ] ++ modPrims dep
-       | (_mn,dep) <- depMods m
-       ]
-  let (primTs,prims) = unzip [ ((n, t), (n, t))
-                             | (n, t) <- modPrims m ]
+  let initTs  = [ (n, s) | (_mn, dep) <- depMods m, (Decl n (Just s) _) <- modExprs dep ]
+  let primTs  = M.toList SAWScript.Interpreter.primTypeEnv
   let sccs = computeSCCGroups modName decls
-  let go = bindSchemas (initTs ++ primTs) ((,) <$> (inferTopDecls sccs >>= exportDecls) <*> pure (M.fromList prims) )
+  let go = bindSchemas (initTs ++ primTs) (inferTopDecls sccs >>= exportDecls)
   case evalTI go of
-    Right (exprRes,primRes) -> return $ m { moduleExprEnv = exprRes , modulePrimEnv = primRes }
-    Left errs               -> fail $ unlines errs
+    Right exprRes -> return $ m { moduleExprEnv = exprRes }
+    Left errs     -> fail $ unlines errs
   where
   depMods = M.toList . moduleDependencies
   modExprs = moduleExprEnv
-  modPrims = M.toList . modulePrimEnv
 
   exportDecls dss = sequence [ appSubstM d | ds <- dss, d <- ds ]
 

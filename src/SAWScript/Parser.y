@@ -47,7 +47,6 @@ import Control.Applicative
   'then'         { TReserved _ "then"           }
   'else'         { TReserved _ "else"           }
   'undefined'    { TReserved _ "undefined"      }
-  'prim'         { TReserved _ "prim"           }
   'CryptolSetup' { TReserved _ "CryptolSetup"   }
   'JavaSetup'    { TReserved _ "JavaSetup"      }
   'LLVMSetup'    { TReserved _ "LLVMSetup"      }
@@ -101,7 +100,6 @@ TopStmt :: { TopStmt }
  : 'import' Import                      { $2                 }
  | 'import' string                      { ImportCry $2                 }
  | name ':' PolyType                    { TopTypeDecl (toLName $1) $3  }
- | 'prim' name ':' PolyType             { Prim (toLName $2) $4         }
  | Declaration                          { TopBind $1 }
 
 Import :: { TopStmt }

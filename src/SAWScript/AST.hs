@@ -71,7 +71,6 @@ unionsLEnv = Map.unions
 data Module = Module
   { moduleName         :: ModuleName
   , moduleExprEnv      :: [Decl]
-  , modulePrimEnv      :: LEnv Schema
   , moduleDependencies :: ModuleEnv ValidModule
   , moduleCryDeps      :: [FilePath]
   } deriving (Eq,Show)
@@ -107,7 +106,6 @@ data TopStmt
   = Import      ModuleName (Maybe [Name])    (Maybe Name)   -- ^ import <module> [(<names>)] [as <name>]
   | TopTypeDecl LName       Schema                          -- ^ <name> : <type>
   | TopBind     Decl                                        -- ^ <name> = <expr>
-  | Prim        LName       Schema                          -- ^ prim <name> : <type>
   | ImportCry   FilePath                                    -- ^ import "filepath.cry"
   deriving (Eq, Show)
 
