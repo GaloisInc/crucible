@@ -16,6 +16,9 @@ import Data.Maybe (fromMaybe)
 import Data.Monoid
 import Data.Traversable
 
+import System.Environment.Executable(splitExecutablePath)
+import System.FilePath ((</>), normalise, joinPath, splitPath)
+
 import Verifier.SAW.SharedTerm (SharedContext, SharedTerm, incVars)
 
 import qualified Verifier.SAW.Cryptol as C
@@ -60,9 +63,15 @@ initCryptolEnv :: SharedContext s -> IO (CryptolEnv s)
 initCryptolEnv sc = do
   modEnv0 <- M.initialModuleEnv
 
+  -- Set the Cryptol include path (TODO: we may want to do this differently)
+  (binDir, _) <- splitExecutablePath
+  let instDir = normalise . joinPath . init . splitPath $ binDir
+  let modEnv = modEnv0 { ME.meSearchPath =
+                           (instDir </> "lib") : ME.meSearchPath modEnv0 }
+
   -- Load Cryptol prelude
   (_, modEnv) <-
-    liftModuleM modEnv0 $ do
+    liftModuleM modEnv $ do
       path <- MB.findModule MB.preludeName
       MB.loadModuleByPath path
 
