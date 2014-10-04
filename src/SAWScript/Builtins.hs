@@ -59,7 +59,7 @@ import qualified Data.ABC as ABC
 import qualified Data.SBV as SBV
 import Data.SBV.Internals
 
-import Data.ABC (aigNetwork)
+import Data.ABC (giaNetwork)
 import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
 
@@ -267,7 +267,7 @@ checkBoolean sc t = do
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
 satABC :: SharedContext s -> ProofScript s SV.SatResult
-satABC sc = StateT $ \g -> AIG.withNewGraph aigNetwork $ \be -> do
+satABC sc = StateT $ \g -> AIG.withNewGraph giaNetwork $ \be -> do
   let t = goalTerm g
   --checkBoolean sc t
   let (args, _) = asLambdaList t
