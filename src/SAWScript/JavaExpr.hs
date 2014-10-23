@@ -198,7 +198,7 @@ useLogicExpr :: SharedContext JSSCtx -> LogicExpr -> [SharedTerm JSSCtx]
 useLogicExpr sc (LogicExpr t _) args = do
   t' <- scImport sc t
   t'' <- scApplyAll sc t' args
-  -- _ty <- scTypeCheck sc t''
+  -- _ty <- scTypeCheckError sc t''
   return t''
 
 {-

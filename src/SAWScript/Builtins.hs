@@ -259,7 +259,7 @@ returnsBool _ = False
 
 checkBoolean :: SharedContext s -> SharedTerm s -> IO ()
 checkBoolean sc t = do
-  ty <- scTypeCheck sc t
+  ty <- scTypeCheckError sc t
   unless (returnsBool ty) $
     fail $ "Attempting to prove a term that returns a non-boolean type: " ++
            show ty
@@ -568,7 +568,7 @@ print_type :: SharedContext s -> SharedTerm s -> IO ()
 print_type sc t = scTypeOf sc t >>= print
 
 check_term :: SharedContext s -> SharedTerm s -> IO ()
-check_term sc t = scTypeCheck sc t >>= print
+check_term sc t = scTypeCheckError sc t >>= print
 
 fixPos :: Pos
 fixPos = PosInternal "FIXME"
@@ -586,7 +586,7 @@ bindExts sc args body = do
   locals <- mapM (scLocalVar sc . fst) ([0..] `zip` reverse types)
   body' <- scInstantiateExt sc (Map.fromList (is `zip` reverse locals)) body
   t <- scLambdaList sc (names `zip` types) body'
-  scTypeCheck sc t
+  scTypeCheckError sc t
   return t
 
 extIdx :: SharedTerm s -> Maybe VarIndex
@@ -633,7 +633,7 @@ cexEvalFn sc args tm = do
       argMap = Map.fromList (zip is args')
       eval = evalGlobal (scModule sc) preludePrims
   tm' <- scInstantiateExt sc argMap tm
-  _ty <- scTypeCheck sc tm'
+  _ty <- scTypeCheckError sc tm'
   --putStrLn $ "Type of cex eval term: " ++ show ty
   return $ evalSharedTerm eval tm'
 

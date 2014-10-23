@@ -371,7 +371,7 @@ checkCompatibleType sc at t = do
     Nothing ->
       fail $ "Type is not translatable: " ++ show at
     Just lt -> do
-      ty <- scTypeCheck sc t
+      ty <- scTypeCheckError sc t
       lt' <- scWhnf sc lt
       ty' <- scWhnf sc ty
       -- TODO: we can't really compare types until we have a more
@@ -448,7 +448,7 @@ javaAssert bic _ v = do
   let m = specJavaExprNames ms
       atm = specActualTypeMap ms
   let sc = biSharedContext bic
-  ty <- liftIO $ scTypeCheck sc v
+  ty <- liftIO $ scTypeCheckError sc v
   ty' <- liftIO $ scWhnf sc ty
   unless (asBoolType ty' == Just ()) $
     fail $ "java_assert passed expression of non-boolean type: " ++ show ty'
