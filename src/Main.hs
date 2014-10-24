@@ -3,6 +3,7 @@ module Main where
 import Control.Exception
 import Data.List
 
+import System.Exit
 import System.IO
 import System.Console.GetOpt
 import System.Environment
@@ -24,13 +25,11 @@ main = do
         (True, []) -> REPL.run opts''
         (False, [file]) -> processFile opts'' file
                            `catch`
-                           (\(ErrorCall msg) -> hPutStr stderr msg)
-        (False, _:_) ->
-          hPutStrLn stderr "Running multiple files not yet supported."
-        (True, _:_) ->
-          hPutStrLn stderr ("Unable to handle files in interactive mode"
+                           (\(ErrorCall msg) -> err msg)
+        (False, _:_) -> err "Running multiple files not yet supported."
+        (True, _:_) -> err ("Unable to handle files in interactive mode"
                             ++ usageInfo header options)
         (False, []) -> putStrLn (usageInfo header options)
-    (_, _, errs)      ->
-      hPutStrLn stderr (concat errs ++ usageInfo header options)
+    (_, _, errs)      -> err (concat errs ++ usageInfo header options)
   where header = "Usage: saw [OPTION...] [-I | files...]"
+        err msg = hPutStrLn stderr msg >> exitFailure
