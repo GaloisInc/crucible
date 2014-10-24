@@ -370,13 +370,13 @@ checkCompatibleType sc at t = do
   case mlt of
     Nothing ->
       fail $ "Type is not translatable: " ++ show at
-    Just lt -> do
+    Just lt -> return () {- do
       ty <- scTypeCheckError sc t
       lt' <- scWhnf sc lt
       ty' <- scWhnf sc ty
       -- TODO: we can't really compare types until we have a more
       -- flexible evaluator
-      unless (lt' == ty') $ return () {- fail $
+      unless (lt' == ty') $ fail $
         unlines [ "Incompatible type:"
                 , "  Expected: " ++ show lt'
                 , "  Got:" ++ show ty'

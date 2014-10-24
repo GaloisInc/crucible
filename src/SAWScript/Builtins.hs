@@ -586,7 +586,7 @@ bindExts sc args body = do
   locals <- mapM (scLocalVar sc . fst) ([0..] `zip` reverse types)
   body' <- scInstantiateExt sc (Map.fromList (is `zip` reverse locals)) body
   t <- scLambdaList sc (names `zip` types) body'
-  scTypeCheckError sc t
+  --scTypeCheckError sc t
   return t
 
 extIdx :: SharedTerm s -> Maybe VarIndex
@@ -633,7 +633,7 @@ cexEvalFn sc args tm = do
       argMap = Map.fromList (zip is args')
       eval = evalGlobal (scModule sc) preludePrims
   tm' <- scInstantiateExt sc argMap tm
-  _ty <- scTypeCheckError sc tm'
+  -- _ty <- scTypeCheckError sc tm'
   --putStrLn $ "Type of cex eval term: " ++ show ty
   return $ evalSharedTerm eval tm'
 
