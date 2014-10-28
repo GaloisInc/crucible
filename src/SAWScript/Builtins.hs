@@ -586,9 +586,7 @@ bindExts sc args body = do
     fail "argument isn't external input"
   locals <- mapM (scLocalVar sc . fst) ([0..] `zip` reverse types)
   body' <- scInstantiateExt sc (Map.fromList (is `zip` reverse locals)) body
-  t <- scLambdaList sc (names `zip` types) body'
-  --scTypeCheckError sc t
-  return t
+  scLambdaList sc (names `zip` types) body'
 
 extIdx :: SharedTerm s -> Maybe VarIndex
 extIdx (unwrapTermF -> FTermF (ExtCns ec)) = Just (ecVarIndex ec)
