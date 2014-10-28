@@ -36,6 +36,7 @@ import qualified Verifier.SAW.BitBlast as Old
 import Verifier.SAW.FiniteValue (FiniteType(..), FiniteValue(..), scFiniteValue, fvVec)
 import Verifier.SAW.Evaluator hiding (applyAll)
 import Verifier.SAW.Prelude
+import Verifier.SAW.SCTypeCheck
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter

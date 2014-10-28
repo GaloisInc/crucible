@@ -6,6 +6,7 @@
 module SAWScript.JavaBuiltins where
 
 import Control.Applicative hiding (empty)
+import Control.Lens
 import Control.Monad.Error
 import Control.Monad.State
 import qualified Data.ABC as ABC
@@ -29,6 +30,7 @@ import qualified Verifier.Java.SAWBackend as JSS
 
 import Verifier.SAW.Recognizer
 import Verifier.SAW.FiniteValue
+import Verifier.SAW.SCTypeCheck
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST
 
