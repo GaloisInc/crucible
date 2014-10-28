@@ -6,7 +6,7 @@
 module SAWScript.JavaBuiltins where
 
 import Control.Applicative hiding (empty)
-import Control.Lens
+import Control.Lens hiding (at, parts)
 import Control.Monad.Error
 import Control.Monad.State
 import qualified Data.ABC as ABC
@@ -203,6 +203,17 @@ verifyJava bic opts cls mname overrides setup = do
             glam <- bindAllExts jsc g
             let bsc = biSharedContext bic
             glam' <- scNegate bsc =<< scImport bsc glam
+            when (verb >= 2) $ putStrLn "Type checking goal..."
+            tcr <- scTypeCheck bsc glam'
+            case tcr of
+              Left msg -> do
+                       putStr $ unlines
+                                [ "Ill-typed goal constructed."
+                                -- , "Goal: " ++ show glam'
+                                , "Type error: " ++ msg
+                                ]
+              Right _ -> return ()
+            when (verb >= 2) $ putStrLn "Done."
             when (verb >= 6) $ putStrLn $ "Trying to prove: " ++ show glam'
             (r, _) <- runStateT script (ProofGoal (vsVCName vs) glam')
             case r of
