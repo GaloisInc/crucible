@@ -39,8 +39,10 @@ import SAWScript.Parser (parseSchema)
 import SAWScript.Proof
 import SAWScript.Utils
 import SAWScript.Value
+import Verifier.SAW.Conversion
 import Verifier.SAW.Prelude (preludeModule)
-import Verifier.SAW.Rewriter ( Simpset, emptySimpset )
+import Verifier.SAW.Rewriter ( Simpset, emptySimpset, rewritingSharedContext
+                             , addConvs )
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST hiding ( incVars )
 
@@ -200,7 +202,8 @@ buildInterpretEnv opts m =
                  insImport LLVMSAW.llvmModule $
                  insImport CryptolSAW.cryptolModule $
                  emptyModule mn
-       sc <- mkSharedContext scm
+           convSS = addConvs natConversions emptySimpset
+       sc <- (flip rewritingSharedContext convSS) <$> mkSharedContext scm
        ss <- basic_ss sc
        jcb <- JCB.loadCodebase (jarList opts) (classPath opts)
        let bic = BuiltinContext {
