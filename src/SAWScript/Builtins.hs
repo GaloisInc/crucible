@@ -97,6 +97,10 @@ readSBV sc path unintlst =
     do pgm <- SBV.loadSBV path
        let schema = C.Forall [] [] (toCType (SBV.typOf pgm))
        trm <- SBV.parseSBVPgm sc (\s _ -> Map.lookup s unintmap) pgm
+       tcr <- scTypeCheck sc trm
+       case tcr of
+         Left msg -> putStrLn $ "Type error reading " ++ path ++ ":" ++ msg
+         Right _ -> return () -- TODO: check that it matches 'schema'?
        return (SV.TypedTerm schema trm)
     where
       unintmap = Map.fromList $ map getUninterp unintlst
@@ -570,6 +574,9 @@ print_type sc t = scTypeOf sc t >>= print
 
 check_term :: SharedContext s -> SharedTerm s -> IO ()
 check_term sc t = scTypeCheckError sc t >>= print
+
+checkTypedTerm :: SharedContext s -> SV.TypedTerm s -> IO ()
+checkTypedTerm sc (SV.TypedTerm _schema t) = scTypeCheckError sc t >>= print
 
 fixPos :: Pos
 fixPos = PosInternal "FIXME"
