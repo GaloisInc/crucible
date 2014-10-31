@@ -137,12 +137,12 @@ freshJavaArg :: MonadIO m =>
                 JSS.Backend sbe
              -> JSS.Type
              -> m (JSS.AtomicValue d f (JSS.SBETerm sbe) (JSS.SBETerm sbe) r)
---freshJavaArg sbe JSS.BooleanType =
-freshJavaArg sbe JSS.ByteType = liftIO (JSS.IValue <$> JSS.freshByte sbe)
---freshJavaArg sbe JSS.CharType =
---freshJavaArg sbe JSS.ShortType =
-freshJavaArg sbe JSS.IntType = liftIO (JSS.IValue <$> JSS.freshInt sbe)
-freshJavaArg sbe JSS.LongType = liftIO (JSS.LValue <$> JSS.freshLong sbe)
+freshJavaArg sbe JSS.BooleanType = liftIO (JSS.IValue <$> JSS.freshBool sbe)
+freshJavaArg sbe JSS.ByteType    = liftIO (JSS.IValue <$> JSS.freshByte sbe)
+freshJavaArg sbe JSS.CharType    = liftIO (JSS.IValue <$> JSS.freshChar sbe)
+freshJavaArg sbe JSS.ShortType   = liftIO (JSS.IValue <$> JSS.freshShort sbe)
+freshJavaArg sbe JSS.IntType     = liftIO (JSS.IValue <$> JSS.freshInt sbe)
+freshJavaArg sbe JSS.LongType    = liftIO (JSS.LValue <$> JSS.freshLong sbe)
 freshJavaArg _ _ = fail "Only byte, int, and long arguments are supported for now."
 
 verifyJava :: BuiltinContext -> Options -> JSS.Class -> String
