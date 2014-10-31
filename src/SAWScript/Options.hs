@@ -16,7 +16,9 @@ data Options = Options
   , jarList          :: [FilePath]
   , verbLevel        :: Int
   , simVerbose       :: Int
+  , extraChecks      :: Bool
   , runInteractively :: Bool
+  , showHelp         :: Bool
   } deriving (Show)
 
 defaultOptions :: Options
@@ -27,12 +29,16 @@ defaultOptions
     , jarList = []
     , verbLevel = 1
     , simVerbose = 1
+    , extraChecks = False
     , runInteractively = False
+    , showHelp = False
     }
 
 options :: [OptDescr (Options -> Options)]
 options =
-  [ Option "h?" ["help"] (NoArg id) "Print this help message"
+  [ Option "h?" ["help"]
+    (NoArg (\opts -> opts { showHelp = True }))
+    "Print this help message"
   , Option "c" ["classpath"]
     (ReqArg
      (\p opts -> opts { classPath = classPath opts ++ splitSearchPath p })
@@ -45,6 +51,10 @@ options =
      "path"
     )
     pathDesc
+  , Option "t" ["extra-type-checking"]
+    (NoArg
+     (\opts -> opts { extraChecks = True }))
+    "Perform extra type checking of intermediate values"
   , Option "I" ["interactive"]
     (NoArg
      (\opts -> opts { runInteractively = True }))

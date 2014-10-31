@@ -202,15 +202,16 @@ verifyJava bic opts cls mname overrides setup = do
             let bsc = biSharedContext bic
             glam' <- scNegate bsc =<< scImport bsc glam
             when (verb >= 2) $ putStrLn "Type checking goal..."
-            tcr <- scTypeCheck bsc glam'
-            case tcr of
-              Left msg -> do
-                       putStr $ unlines
-                                [ "Ill-typed goal constructed."
-                                -- , "Goal: " ++ show glam'
-                                , "Type error: " ++ msg
-                                ]
-              Right _ -> return ()
+            when (extraChecks opts) $ do
+              tcr <- scTypeCheck bsc glam'
+              case tcr of
+                Left msg -> do
+                         putStr $ unlines
+                                  [ "Ill-typed goal constructed."
+                                  -- , "Goal: " ++ show glam'
+                                  , "Type error: " ++ msg
+                                  ]
+                Right _ -> return ()
             when (verb >= 2) $ putStrLn "Done."
             when (verb >= 6) $ putStrLn $ "Trying to prove: " ++ show glam'
             (r, _) <- runStateT script (ProofGoal (vsVCName vs) glam')
@@ -427,7 +428,6 @@ javaClassVar :: BuiltinContext -> Options -> String -> JavaType
 javaClassVar bic _ name t = do
   (expr, aty) <- typeJavaExpr bic name t
   modify $ \st -> st { jsSpec = specAddVarDecl name expr aty (jsSpec st) }
-javaClassVar _ _ _ _ = fail "java_class_var called with invalid type argument"
 
 javaVar :: BuiltinContext -> Options -> String -> JavaType
         -> JavaSetup (SS.TypedTerm SAWCtx)
@@ -437,7 +437,6 @@ javaVar bic _ name t = do
   let sc = biSharedContext bic
   Just lty <- liftIO $ logicTypeOfActual sc aty
   liftIO $ scJavaValue sc lty name >>= SS.mkTypedTerm sc
-javaVar _ _ _ _ = fail "java_var called with invalid type argument"
 
 javaMayAlias :: BuiltinContext -> Options -> [String]
              -> JavaSetup ()

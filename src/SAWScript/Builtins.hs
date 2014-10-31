@@ -91,15 +91,17 @@ definePrim sc name (SV.TypedTerm schema rhs) = SV.TypedTerm schema <$> scConstan
 sbvUninterpreted :: SharedContext s -> String -> SharedTerm s -> IO (Uninterp s)
 sbvUninterpreted _ s t = return $ Uninterp (s, t)
 
-readSBV :: SharedContext s -> FilePath -> [Uninterp s] -> IO (SV.TypedTerm s)
-readSBV sc path unintlst =
-    do pgm <- SBV.loadSBV path
+readSBV :: BuiltinContext -> Options -> FilePath -> [Uninterp SAWCtx] -> IO (SV.TypedTerm SAWCtx)
+readSBV bic opts path unintlst =
+    do let sc = biSharedContext bic
+       pgm <- SBV.loadSBV path
        let schema = C.Forall [] [] (toCType (SBV.typOf pgm))
        trm <- SBV.parseSBVPgm sc (\s _ -> Map.lookup s unintmap) pgm
-       tcr <- scTypeCheck sc trm
-       case tcr of
-         Left msg -> putStrLn $ "Type error reading " ++ path ++ ":" ++ msg
-         Right _ -> return () -- TODO: check that it matches 'schema'?
+       when (extraChecks opts) $ do
+         tcr <- scTypeCheck sc trm
+         case tcr of
+           Left msg -> putStrLn $ "Type error reading " ++ path ++ ":" ++ msg
+           Right _ -> return () -- TODO: check that it matches 'schema'?
        return (SV.TypedTerm schema trm)
     where
       unintmap = Map.fromList $ map getUninterp unintlst

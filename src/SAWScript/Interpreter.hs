@@ -290,7 +290,7 @@ primitives = Map.fromList
     [ "TODO" ]
 
   , prim "read_sbv"            "String -> [Uninterp] -> TopLevel Term"
-    (scVal readSBV)
+    (bicVal readSBV)
     [ "TODO" ]
 
   , prim "read_aig"            "String -> TopLevel Term"
