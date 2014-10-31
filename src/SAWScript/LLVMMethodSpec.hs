@@ -26,7 +26,7 @@ import Control.Applicative hiding (empty)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Cont
-import Control.Monad.Error
+import Control.Monad.Except
 import Control.Monad.State
 import Data.List (sortBy)
 import Data.Map (Map)
@@ -142,10 +142,10 @@ evalContextFromPathState m sc sbe gm ps
     , ecLLVMExprs = m
     }
 
-type ExprEvaluator a = ErrorT TC.LLVMExpr IO a
+type ExprEvaluator a = ExceptT TC.LLVMExpr IO a
 
 runEval :: MonadIO m => ExprEvaluator b -> m (Either TC.LLVMExpr b)
-runEval v = liftIO (runErrorT v)
+runEval v = liftIO (runExceptT v)
 
 -- | Evaluate an LLVM expression, and return its value (r-value) as an
 -- internal term.

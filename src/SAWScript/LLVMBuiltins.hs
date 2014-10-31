@@ -6,7 +6,6 @@
 module SAWScript.LLVMBuiltins where
 
 import Control.Applicative
-import Control.Monad.Error hiding (mapM)
 import Control.Monad.State hiding (mapM)
 import Data.List.Split
 import qualified Data.Map as Map

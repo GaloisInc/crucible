@@ -95,17 +95,17 @@ import Data.Map (Map)
 {-
 import qualified Data.Map as Map
 -}
-import Data.Set (Set)
-import qualified Data.Set as Set
+--import Data.Set (Set)
+--import qualified Data.Set as Set
 {-
 import System.Console.Haskeline (InputT, runInputT)
 import qualified System.Console.Haskeline as Haskeline
 -}
 
-import SAWScript.AST (Located(getVal),
+import SAWScript.AST (Located(getVal) {- ,
                       ModuleName,
                       Name,
-                      ValidModule)
+                      ValidModule -} )
 import SAWScript.BuildModules (buildModules)
 import SAWScript.Builtins (BuiltinContext(..))
 import SAWScript.Compiler (ErrT, runErr, runErrT)

@@ -6,8 +6,6 @@
 module SAWScript.JavaBuiltins where
 
 import Control.Applicative hiding (empty)
-import Control.Lens hiding (at, parts)
-import Control.Monad.Error
 import Control.Monad.State
 import qualified Data.ABC as ABC
 import Data.List (sort, intercalate)

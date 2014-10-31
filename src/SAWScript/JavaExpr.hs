@@ -37,7 +37,6 @@ module SAWScript.JavaExpr
 
 import Control.Applicative
 import Control.Monad
-import Control.Monad.Error (Error(..))
 import Data.Foldable
 import Data.Set (Set)
 import qualified Data.Set as Set

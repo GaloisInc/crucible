@@ -30,7 +30,7 @@ module SAWScript.REPL.Command (
   --, moduleCmdResult
   ) where
 
-import Verifier.SAW.SharedTerm (SharedContext)
+--import Verifier.SAW.SharedTerm (SharedContext)
 
 import SAWScript.REPL.Monad
 import SAWScript.REPL.Trie
@@ -67,7 +67,7 @@ import System.FilePath((</>), isPathSeparator)
 import System.Directory(getHomeDirectory,setCurrentDirectory,doesDirectoryExist)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import qualified Data.Set as Set
+--import qualified Data.Set as Set
 --import System.Random(newStdGen)
 
 -- SAWScript imports
@@ -97,6 +97,7 @@ import SAWScript.REPL.GenerateModule (replFileName)
 import SAWScript.Utils (Pos(..))
 
 
+{-
 #if __GLASGOW_HASKELL__ < 706
 import Control.Monad (liftM)
 import qualified Text.ParserCombinators.ReadP as P
@@ -127,6 +128,7 @@ readMaybe s = case readEither s of
 #else
 import System.Environment (lookupEnv)
 #endif
+-}
 
 -- Commands --------------------------------------------------------------------
 

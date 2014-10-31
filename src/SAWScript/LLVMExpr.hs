@@ -35,7 +35,6 @@ module SAWScript.LLVMExpr
 -- Imports {{{2
 
 import Control.Applicative ((<$>))
-import Control.Monad.Error (Error(..))
 -- import Data.Set (Set)
 import Text.PrettyPrint.Leijen hiding ((<$>))
 
@@ -94,9 +93,6 @@ instance CC.ShowFoldable LLVMExprF where
 
 -- | Typechecked LLVMExpr
 type LLVMExpr = CC.Term LLVMExprF
-
-instance Error LLVMExpr where
-  strMsg s = error $ "TC.LLVMExpr error: " ++ show s
 
 -- | Pretty print a LLVM expression.
 ppLLVMExpr :: LLVMExpr -> Doc

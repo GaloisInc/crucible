@@ -11,7 +11,7 @@ import Control.Applicative
 import Control.Exception
 import Control.Lens
 import Control.Monad
-import Control.Monad.Error
+import Control.Monad.Except
 import Control.Monad.State.Strict
 import qualified Data.Vector as V
 import Text.PrettyPrint.Leijen hiding ((<$>))
@@ -23,11 +23,11 @@ import Verifier.SAW.Prelude
 import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm
 
-type TypeParser s = StateT (V.Vector (SharedTerm s)) (ErrorT String IO)
+type TypeParser s = StateT (V.Vector (SharedTerm s)) (ExceptT String IO)
 
 runTypeParser :: V.Vector (SharedTerm s)
               -> TypeParser s a
-              -> ErrorT String IO (a, V.Vector (SharedTerm s))
+              -> ExceptT String IO (a, V.Vector (SharedTerm s))
 runTypeParser v m = runStateT m v
 
 bitblastSharedTerm :: SharedContext s
@@ -44,7 +44,7 @@ bitblastSharedTerm sc v (asBitvectorType -> Just w) = do
     V.generateM (fromIntegral w) $ \i -> do
       getFn wt boolType v =<< scFinConst sc (fromIntegral i) w
   modify (V.++ inputs)
-bitblastSharedTerm _ _ tp = fail $ show $
+bitblastSharedTerm _ _ tp = throwError $ show $
   text "Could not parse AIG input type:" <$$>
   indent 2 (scPrettyTermDoc tp)
 
@@ -54,21 +54,21 @@ parseAIGResultType :: SharedContext s
 parseAIGResultType _ (asBoolType -> Just ()) = do
   outputs <- get
   when (V.length outputs == 0) $ do
-    fail "Not enough output bits for Bool result."
+    throwError "Not enough output bits for Bool result."
   put (V.drop 1 outputs)
   -- Return remaining as a vector.
   return (outputs V.! 0)
 parseAIGResultType sc (asBitvectorType -> Just w) = do
   outputs <- get
   when (fromIntegral (V.length outputs) < w) $ do
-    fail "Not enough output bits for type."
+    throwError "Not enough output bits for type."
   let (base,remaining) = V.splitAt (fromIntegral w) outputs
   put remaining
   -- Return remaining as a vector.
   liftIO $ do
     boolType <- scPreludeBool sc
     scVector sc boolType (V.toList base)
-parseAIGResultType _ _ = fail "Could not parse AIG output type."
+parseAIGResultType _ _ = throwError "Could not parse AIG output type."
 
 
 -- |
@@ -109,7 +109,7 @@ networkAsSharedTerms ntk sc inputTerms outputLits = do
 bitblastVarsAsInputLits :: forall s
                        . SharedContext s
                       -> [SharedTerm s]
-                      -> ErrorT String IO (V.Vector (SharedTerm s))
+                      -> ExceptT String IO (V.Vector (SharedTerm s))
 bitblastVarsAsInputLits sc args = do
   let n = length args
   let mkLocalVar :: Int -> SharedTerm s -> IO (SharedTerm s)
@@ -135,7 +135,7 @@ translateNetwork :: AIG.IsAIG l g
                  -> [l x]           -- ^ Outputs for network.
                  -> [(String, SharedTerm s)] -- ^ Expected types
                  -> SharedTerm s -- ^ Expected output type.
-                 -> ErrorT String IO (SharedTerm s)
+                 -> ExceptT String IO (SharedTerm s)
 translateNetwork sc ntk outputLits args resultType = do
   --lift $ putStrLn "inputTerms"
   inputTerms <- bitblastVarsAsInputLits sc (snd <$> args)
@@ -143,7 +143,7 @@ translateNetwork sc ntk outputLits args resultType = do
   do let expectedInputCount = V.length inputTerms
      aigCount <- liftIO $ AIG.inputCount ntk
      unless (expectedInputCount == aigCount) $ do
-       fail $ "AIG has " ++ show aigCount
+       throwError $ "AIG has " ++ show aigCount
                  ++ " inputs, while expected type has "
                  ++ show expectedInputCount ++ " inputs."
   --lift $ putStrLn "Output vars"
@@ -154,7 +154,7 @@ translateNetwork sc ntk outputLits args resultType = do
    -- Join output lits into result type.
   (res,rargs) <- runTypeParser outputVars $ parseAIGResultType sc resultType
   unless (V.null rargs) $
-    fail "AIG contains more outputs than expected."
+    throwError "AIG contains more outputs than expected."
   lift $ scLambdaList sc args res
 
 readAIGexpect
@@ -167,7 +167,7 @@ readAIGexpect sc path aigType =
   withReadAiger path $ \(AIG.Network ntk outputLits) -> do
     --putStrLn "Network outputs"
     let (args,resultType) = asPiList aigType
-    runErrorT $
+    runExceptT $
       translateNetwork sc ntk outputLits args resultType
 
 readAIG :: SharedContext s -> FilePath -> IO (Either String (SharedTerm s))
@@ -179,5 +179,5 @@ readAIG sc f =
     boolType <- scBoolType sc
     inType <- scVecType sc inLen boolType
     outType <- scVecType sc outLen boolType
-    runErrorT $
+    runExceptT $
       translateNetwork sc ntk outputLits [("x", inType)] outType

@@ -28,7 +28,7 @@ import Control.Applicative hiding (empty)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Cont
-import Control.Monad.Error (Error(..), ErrorT, runErrorT, throwError)
+import Control.Monad.Except
 import Control.Monad.State
 import Data.Int
 import Data.List (intercalate) -- foldl', intersperse)
@@ -146,14 +146,10 @@ evalErrExpr (EvalExprBadJavaType _ _) = error "evalErrExpr: EvalExprBadJavaType"
 evalErrExpr (EvalExprBadLogicType _ _) = error "evalErrExpr: EvalExprBadLogicType"
 evalErrExpr (EvalExprOther _) = error "evalErrExpr: EvalExprOther"
 
-instance Error ExprEvalError where
-  strMsg = EvalExprOther
-  noMsg = EvalExprOther "empty ExprEvalError"
-
-type ExprEvaluator a = ErrorT ExprEvalError IO a
+type ExprEvaluator a = ExceptT ExprEvalError IO a
 
 runEval :: MonadIO m => ExprEvaluator b -> m (Either ExprEvalError b)
-runEval v = liftIO (runErrorT v)
+runEval v = liftIO (runExceptT v)
 
 -- or undefined subexpression if not.
 -- N.B. This method assumes that the Java path state is well-formed, the
