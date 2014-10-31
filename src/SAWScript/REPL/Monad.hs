@@ -70,7 +70,8 @@ import Cryptol.Utils.PP
 import Cryptol.Utils.Panic (panic)
 import qualified Cryptol.Parser.AST as P
 
-import Control.Monad (unless,when)
+import Control.Applicative (Applicative(..), pure, (<*>))
+import Control.Monad (unless,when,ap)
 import Data.IORef (IORef, newIORef, readIORef, modifyIORef)
 import Data.List (isPrefixOf)
 import Data.Typeable (Typeable)
@@ -192,6 +193,11 @@ instance Monad REPL where
     x <- unREPL m ref
     unREPL (f x) ref
 
+instance Applicative REPL where
+  {-# INLINE pure #-}
+  pure = return
+  {-# INLINE (<*>) #-}
+  (<*>) = ap
 
 -- Exceptions ------------------------------------------------------------------
 
@@ -452,15 +458,15 @@ setUser name val = case lookupTrie name userOptions of
   where
   setUserOpt opt = case optDefault opt of
     EnvString _
-      | Just err <- optCheck opt (EnvString val)
-        -> io (putStrLn err)
+      | Just e <- optCheck opt (EnvString val)
+        -> io (putStrLn e)
       | otherwise
         -> writeEnv (EnvString val)
 
     EnvNum _ -> case reads val of
       [(x,_)]
-        | Just err <- optCheck opt (EnvNum x)
-          -> io (putStrLn err)
+        | Just e <- optCheck opt (EnvNum x)
+          -> io (putStrLn e)
         | otherwise
           -> writeEnv (EnvNum x)
 
