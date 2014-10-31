@@ -85,6 +85,8 @@ import SAWScript.Interpreter
      extendEnv,
      interpret,
      interpretDeclGroup,
+     primDocEnv,
+     primTypeEnv,
      InterpretEnv(..))
 import qualified SAWScript.Lexer (scan)
 import qualified SAWScript.MGU as MGU
@@ -371,15 +373,19 @@ qcCmd str =
 typeOfCmd :: String -> REPL ()
 typeOfCmd str = do
   let str' = SS.Located str str PosREPL
-  sc <- getSharedContext
-  cenv <- getCryptolEnv
-  TypedTerm schema _ <- io (CEnv.parseTypedTerm sc cenv str')
-  -- ^ TODO: export functions to let us get the expr
+  txt <- case Map.lookup str' primTypeEnv of
+           Just ty -> return (text (SS.pShow ty))
+           Nothing -> do
+             sc <- getSharedContext
+             cenv <- getCryptolEnv
+             TypedTerm schema _ <- io (CEnv.parseTypedTerm sc cenv str')
+             -- ^ TODO: export functions to let us get the expr
 
-  -- XXX need more warnings from the module system
-  --io (mapM_ printWarning ws)
-  --io $ print $ pp expr <+> text ":" <+> pp sig
-  io $ print $ text ":" <+> pp schema
+             -- XXX need more warnings from the module system
+             --io (mapM_ printWarning ws)
+             --io $ print $ pp expr <+> text ":" <+> pp sig
+             return (pp schema)
+  io $ print $ text str <+> text ":" <+> txt
 
 {-
 reloadCmd :: REPL ()
@@ -548,6 +554,8 @@ setOptionCmd str
 helpCmd :: String -> REPL ()
 helpCmd cmd
   | null cmd = io (mapM_ putStrLn (genHelp commandList))
+  | Just d <- Map.lookup cmd primDocEnv =
+                io $ putStr d
   | Just (ec,_) <- lookup cmd builtIns =
                 io $ print $ helpDoc ec
   | otherwise = do io $ putStrLn $ "// No documentation is available."
@@ -648,7 +656,7 @@ processBlockBind mx mt _mc expr = do
   -- | Run the resulting IO action.
   result <- io $ SAWScript.Value.fromValue val
 
-  let ie' = extendEnv lname (Just (SS.tMono ty)) result ie
+  let ie' = extendEnv lname (Just (SS.tMono ty)) Nothing result ie
   putEnvironment ie'
 
   -- | Print non-unit result if it was not bound to a variable
