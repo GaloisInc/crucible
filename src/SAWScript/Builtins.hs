@@ -10,7 +10,7 @@ module SAWScript.Builtins where
 import Control.Applicative
 import Control.Lens
 import Control.Monad.State
-import Data.Either (partitionEithers)
+-- import Data.Either (partitionEithers)
 import Data.Foldable (foldl')
 import Data.List (isPrefixOf, sortBy)
 import qualified Data.Map as Map
@@ -21,18 +21,19 @@ import qualified Data.Vector as V
 import System.Directory
 import System.IO
 import System.Process
-import Text.PrettyPrint.Leijen hiding ((<$>))
+-- import Text.PrettyPrint.Leijen hiding ((<$>))
 import Text.Read
 
 
 import qualified Verifier.Java.Codebase as JSS
-import Verifier.Java.SAWBackend (javaModule)
-import Verifier.LLVM.Backend.SAW (llvmModule)
+-- import Verifier.Java.SAWBackend (javaModule)
+-- import Verifier.LLVM.Backend.SAW (llvmModule)
 
 import Verifier.SAW.Constant
 import Verifier.SAW.ExternalFormat
-import qualified Verifier.SAW.BitBlast as Old
-import Verifier.SAW.FiniteValue (FiniteType(..), FiniteValue(..), scFiniteValue, fvVec)
+import Verifier.SAW.FiniteValue ( FiniteType(..), FiniteValue(..)
+                                , scFiniteValue, fvVec, readFiniteValues
+                                )
 import Verifier.SAW.Evaluator hiding (applyAll)
 import Verifier.SAW.Prelude
 import Verifier.SAW.SCTypeCheck
@@ -41,13 +42,10 @@ import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
 import Verifier.SAW.TypedAST hiding (instantiateVarList)
 
-import qualified Verifier.SAW.Export.Yices as Y
-import qualified Verifier.SAW.Export.SMT.Version1 as SMT1
-import qualified Verifier.SAW.Export.SMT.Version2 as SMT2
-
 import qualified SAWScript.SBVParser as SBV
 import SAWScript.ImportAIG
 
+import SAWScript.Options
 import SAWScript.Proof
 import SAWScript.Utils
 import qualified SAWScript.Value as SV
@@ -70,7 +68,7 @@ import qualified Data.SBV.Bridge.Z3 as Z3
 import qualified Data.SBV.Bridge.CVC4 as CVC4
 import qualified Data.SBV.Bridge.Yices as Yices
 import qualified Data.SBV.Bridge.MathSAT as MathSAT
-import Data.SBV (satWith, SMTConfig)
+import Data.SBV (satWith, SMTConfig, Predicate, compileToSMTLib)
 
 data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
                                      , biJavaCodebase  :: JSS.Codebase
@@ -131,6 +129,7 @@ readAIGPrim sc f = do
     Left err -> fail $ "Reading AIG failed: " ++ err
     Right t -> SV.mkTypedTerm sc t
 
+{-
 -- | Apply some rewrite rules before exporting, to ensure that terms
 -- are within the language subset supported by formats such as SMT-Lib
 -- QF_AUFBV or AIG.
@@ -154,6 +153,7 @@ prepForExport sc t = do
   basics <- basic_ss sc
   let ss = addRules (rs1 ++ rs2) basics
   rewriteSharedTerm sc ss t
+-}
 
 -- | Write a @SharedTerm@ representing a theorem or an arbitrary
 -- function to an AIG file.
@@ -176,24 +176,17 @@ writeCNF sc f t = withBE $ \be -> do
 -- 1 file.
 writeSMTLib1 :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
 writeSMTLib1 sc f t = do
-  -- TODO: better benchmark name than "sawscript"?
-  t' <- prepForExport sc t
-  let ws = SMT1.qf_aufbv_WriterState sc "sawscript"
-  ws' <- execStateT (SMT1.writeFormula t') ws
-  mapM_ (print . (text "WARNING:" <+>) . SMT1.ppWarning)
-        (map (fmap scPrettyTermDoc) (ws' ^. SMT1.warnings))
-  writeFile f (SMT1.render ws')
+  (_, _, l) <- prepSBV sc t
+  txt <- compileToSMTLib False True l
+  writeFile f txt
 
 -- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
 -- 2 file.
 writeSMTLib2 :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
 writeSMTLib2 sc f t = do
-  t' <- prepForExport sc t
-  let ws = SMT2.qf_aufbv_WriterState sc
-  ws' <- execStateT (SMT2.assert t') ws
-  mapM_ (print . (text "WARNING:" <+>) . SMT2.ppWarning)
-        (map (fmap scPrettyTermDoc) (ws' ^. SMT2.warnings))
-  writeFile f (SMT2.render ws')
+  (_, _, l) <- prepSBV sc t
+  txt <- compileToSMTLib True True l
+  writeFile f txt
 
 writeCore :: FilePath -> SharedTerm s -> IO ()
 writeCore path t = writeFile path (scWriteExternal t)
@@ -229,6 +222,7 @@ simplifyGoal sc ss = StateT $ \goal -> do
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
+{-
 satABCold :: SharedContext s -> ProofScript s SV.SatResult
 satABCold sc = StateT $ \g -> withBE $ \be -> do
   let t = goalTerm g
@@ -258,6 +252,7 @@ satABCold sc = StateT $ \g -> withBE $ \be -> do
                   return (SV.SatMulti (zip argNames vs), g { goalTerm = tt })
         _ -> fail "Can't prove non-boolean term."
     Left err -> fail $ "Can't bitblast: " ++ err
+-}
 
 returnsBool :: SharedTerm s -> Bool
 returnsBool ((asBoolType . snd . asPiList) -> Just ()) = True
@@ -275,7 +270,7 @@ checkBoolean sc t = do
 satABC :: SharedContext s -> ProofScript s SV.SatResult
 satABC sc = StateT $ \g -> AIG.withNewGraph giaNetwork $ \be -> do
   let t = goalTerm g
-  --checkBoolean sc t
+  checkBoolean sc t
   let (args, _) = asLambdaList t
       argNames = map fst args
   -- putStrLn "Simulating..."
@@ -297,33 +292,7 @@ satABC sc = StateT $ \g -> AIG.withNewGraph giaNetwork $ \be -> do
           return (SV.Sat v, g { goalTerm = tt })
         Right vs -> do
           return (SV.SatMulti (zip argNames vs), g { goalTerm = tt })
-
-{-
-satYices :: SharedContext s -> ProofScript s SV.SatResult
-satYices sc = StateT $ \g -> do
-  let t = goalTerm g
-  t' <- prepForExport sc t
-  let ws = SMT1.qf_aufbv_WriterState sc "sawscript"
-  ws' <- execStateT (SMT1.writeFormula t') ws
-  mapM_ (print . (text "WARNING:" <+>) . SMT1.ppWarning)
-        (map (fmap scPrettyTermDoc) (ws' ^. SMT1.warnings))
-  res <- Y.yices Nothing (SMT1.smtScript ws')
-  case res of
-    Y.YUnsat -> do
-      ft <- scApplyPreludeFalse sc
-      return (SV.Unsat, g { goalTerm = ft })
-    Y.YSat m -> do
-      r <- liftCexMapYices sc m
-      tt <- scApplyPreludeTrue sc
-      case r of
-        Left err -> fail $ "Can't parse counterexample: " ++ err
-        Right [(_n, tm)] -> do
-          return (SV.Sat (SV.evaluate sc tm), g { goalTerm = tt })
-        Right tms -> do
-          let vs = map (\(n, v) -> (n, SV.evaluate sc v)) tms
-          return (SV.SatMulti vs, g { goalTerm = tt })
-    Y.YUnknown -> fail "ABC returned Unknown for SAT query."
--}
+    AIG.SatUnknown -> fail "Unknown result from ABC"
 
 parseDimacsSolution :: [Int]    -- ^ The list of CNF variables to return
                     -> [String] -- ^ The value lines from the solver
@@ -386,31 +355,30 @@ unsatResult sc g = do
   ft <- scApplyPreludeFalse sc
   return (SV.Unsat, g { goalTerm = ft })
 
+prepSBV :: SharedContext s -> SharedTerm s
+        -> IO (SharedTerm s, [SBVSim.Labeler], Predicate)
+prepSBV sc t = do
+  let eqs = map (mkIdent preludeName) [ "eq_Vec", "eq_Fin", "eq_Bool" ]
+  checkBoolean sc t
+  rs <- scEqsRewriteRules sc eqs
+  ss <- addRules rs <$> basic_ss sc
+  t' <- rewriteSharedTerm sc ss t
+  (labels, lit) <- SBVSim.sbvSolve sc t'
+  return (t', labels, lit)
+
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using SBV. (Currently ignores satisfying assignments.)
 satSBV :: SMTConfig -> SharedContext s -> ProofScript s SV.SatResult
 satSBV conf sc = StateT $ \g -> do
-  let t = goalTerm g
-      eqs = map (mkIdent preludeName) [ "eq_Vec", "eq_Fin", "eq_Bool" ]
-  checkBoolean sc t
-  rs <- scEqsRewriteRules sc eqs
-  basics <- basic_ss sc
-  let ss = addRules rs basics
-  t' <- rewriteSharedTerm sc ss t
+  (t', labels, lit) <- prepSBV sc (goalTerm g)
   let (args, _) = asLambdaList t'
       argNames = map fst args
-  --putStrLn "Simulating..."
-  (labels, lit) <- SBVSim.sbvSolve sc t'
-  --putStrLn "Checking..."
   SBV.SatResult r <- satWith conf lit
-  -- print m
   case r of
     SBV.Satisfiable {} -> do
-      -- putStrLn "SAT"
       tt <- scApplyPreludeTrue sc
       return (getLabels labels r (SBV.getModelDictionary r) argNames, g {goalTerm = tt})
     SBV.Unsatisfiable {} -> do
-      -- putStrLn "UNSAT"
       ft <- scApplyPreludeFalse sc
       return (SV.Unsat, g { goalTerm = ft })
     SBV.Unknown {} -> fail "Prover returned Unknown"
@@ -474,41 +442,10 @@ satSMTLib2 :: SharedContext s -> FilePath -> ProofScript s SV.SatResult
 satSMTLib2 sc path = satWithExporter writeSMTLib2 sc path ".smt2"
 
 liftCexBB :: [FiniteType] -> [Bool] -> Either String [FiniteValue]
-liftCexBB shapes bs =
-  case Old.liftCounterExamples shapes bs of
-    Left err -> Left err
-    Right bvals -> Right (map convertOldBValue bvals)
-
--- | FIXME: temporary
-convertOldBValue :: Old.BValue Bool -> FiniteValue
-convertOldBValue bval =
-  case bval of
-    Old.BBool b    -> FVBit b
-    -- | FIXME: this fails for vectors of length 0
-    Old.BVector vv -> fvVec t (map convertOldBValue (V.toList vv))
-      where t = Old.getShape (V.head vv)
-    Old.BTuple vs  -> FVTuple (map convertOldBValue vs)
-    Old.BRecord vm -> FVRec (fmap convertOldBValue vm)
-
-liftCexYices :: SharedContext s -> Y.YVal
-             -> IO (Either String (SharedTerm s))
-liftCexYices sc yv =
-  case yv of
-    Y.YVar "true" -> Right <$> scBool sc True
-    Y.YVar "false" -> Right <$> scBool sc False
-    Y.YVal bv ->
-      Right <$> scBvConst sc (fromIntegral (Y.width bv)) (Y.val bv)
-    _ -> return $ Left $
-         "Can't translate non-bitvector Yices value: " ++ show yv
-
-liftCexMapYices :: SharedContext s -> Map.Map String Y.YVal
-             -> IO (Either String [(String, SharedTerm s)])
-liftCexMapYices sc m = do
-  let (ns, vs) = unzip (Map.toList m)
-  (errs, tms) <- partitionEithers <$> mapM (liftCexYices sc) vs
-  return $ case errs of
-    [] -> Right $ zip ns tms
-    _ -> Left $ unlines errs
+liftCexBB tys bs =
+  case readFiniteValues tys bs of
+    Nothing -> Left "Failed to lift counterexample"
+    Just fvs -> Right fvs
 
 -- | Logically negate a term @t@, which must be a boolean term
 -- (possibly surrounded by one or more lambdas).

@@ -379,9 +379,11 @@ primitives = Map.fromList
     (scVal satMathSAT)
     [ "TODO" ]
 
+{-
   , prim "abc_old"             "{a} ProofScript a"
     (scVal satABCold)
     [ "TODO" ]
+-}
 
   , prim "yices"               "{a} ProofScript a"
     (scVal satYices)
