@@ -98,7 +98,9 @@ readSBV bic opts path unintlst =
        when (extraChecks opts) $ do
          tcr <- scTypeCheck sc trm
          case tcr of
-           Left msg -> putStrLn $ "Type error reading " ++ path ++ ":" ++ msg
+           Left err ->
+             putStr $ unlines $
+             ("Type error reading " ++ path ++ ":") : prettyTCError err
            Right _ -> return () -- TODO: check that it matches 'schema'?
        return (SV.TypedTerm schema trm)
     where

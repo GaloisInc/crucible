@@ -205,12 +205,9 @@ verifyJava bic opts cls mname overrides setup = do
             when (extraChecks opts) $ do
               tcr <- scTypeCheck bsc glam'
               case tcr of
-                Left msg -> do
-                         putStr $ unlines
-                                  [ "Ill-typed goal constructed."
-                                  -- , "Goal: " ++ show glam'
-                                  , "Type error: " ++ msg
-                                  ]
+                Left err -> do
+                  putStr $ unlines $
+                    "Ill-typed goal constructed." : prettyTCError err
                 Right _ -> return ()
             when (verb >= 2) $ putStrLn "Done."
             when (verb >= 6) $ putStrLn $ "Trying to prove: " ++ show glam'
