@@ -304,7 +304,10 @@ primitives = Map.fromList
 
   , prim "write_aig"           "String -> Term -> TopLevel ()"
     (scVal writeAIG)
-    [ "TODO" ]
+    [ "Write out a representation of a term in binary AIGER format. The"
+    , "term must be representable as a function from a finite number of"
+    , "bits to a finite number of bits."
+    ]
 
   , prim "write_cnf"           "String -> Term -> TopLevel ()"
     (scVal writeCNF)
