@@ -290,6 +290,10 @@ primitives = Map.fromList
     (scVal sbvUninterpreted)
     [ "TODO" ]
 
+  , prim "read_bytes"          "String -> TopLevel Term"
+    (scVal readBytes)
+    [ "Read binary file as a value of type [n][8]" ]
+
   , prim "read_sbv"            "String -> [Uninterp] -> TopLevel Term"
     (bicVal readSBV)
     [ "TODO" ]

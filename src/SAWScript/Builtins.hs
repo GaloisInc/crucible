@@ -10,6 +10,8 @@ module SAWScript.Builtins where
 import Control.Applicative
 import Control.Lens
 import Control.Monad.State
+import Data.Bits
+import qualified Data.ByteString.Lazy as BS
 -- import Data.Either (partitionEithers)
 import Data.Foldable (foldl')
 import Data.List (isPrefixOf, sortBy)
@@ -18,6 +20,7 @@ import Data.Maybe
 import Data.Ord
 import qualified Data.Set as Set
 import qualified Data.Vector as V
+import Data.Word
 import System.Directory
 import System.IO
 import System.Process
@@ -88,6 +91,17 @@ definePrim sc name (SV.TypedTerm schema rhs) = SV.TypedTerm schema <$> scConstan
 
 sbvUninterpreted :: SharedContext s -> String -> SharedTerm s -> IO (Uninterp s)
 sbvUninterpreted _ s t = return $ Uninterp (s, t)
+
+readBytes :: SharedContext SAWCtx -> FilePath -> IO (SV.TypedTerm SAWCtx)
+readBytes sc path = do
+  content <- BS.readFile path
+  let len = BS.length content
+  let bytes = BS.unpack content
+  e <- scBitvector sc 8
+  xs <- mapM (scBvConst sc 8 . toInteger) bytes
+  trm <- scVector sc e xs
+  let schema = C.Forall [] [] (C.tSeq (C.tNum len) (C.tSeq (C.tNum 8) C.tBit))
+  return (SV.TypedTerm schema trm)  
 
 readSBV :: BuiltinContext -> Options -> FilePath -> [Uninterp SAWCtx] -> IO (SV.TypedTerm SAWCtx)
 readSBV bic opts path unintlst =
