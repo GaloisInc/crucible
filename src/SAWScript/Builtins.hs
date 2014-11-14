@@ -36,6 +36,7 @@ import Verifier.SAW.Constant
 import Verifier.SAW.ExternalFormat
 import Verifier.SAW.FiniteValue ( FiniteType(..), FiniteValue(..)
                                 , scFiniteValue, fvVec, readFiniteValues
+                                , finiteTypeOf
                                 )
 import Verifier.SAW.Evaluator hiding (applyAll)
 import Verifier.SAW.Prelude
@@ -413,8 +414,11 @@ getLabels ls m d argNames =
     getLabel (SBVSim.BoolLabel s) = FVBit . fromJust $ SBV.getModelValue s m
     getLabel (SBVSim.WordLabel s) = d Map.! s &
       (\(KBounded _ n)-> FVWord (fromIntegral n)) . SBV.cwKind <*> (\(CWInteger i)-> i) . SBV.cwVal
-    getLabel (SBVSim.VecLabel xs) = fvVec t $ map getLabel (V.toList xs)
-      where t = error "FIXME getLabel VecLabel"
+    getLabel (SBVSim.VecLabel xs)
+      | V.null xs = error "getLabel of empty vector"
+      | otherwise = fvVec t vs
+      where vs = map getLabel (V.toList xs)
+            t = finiteTypeOf (head vs)
     getLabel (SBVSim.TupleLabel xs) = FVTuple $ map getLabel (V.toList xs)
     getLabel (SBVSim.RecLabel xs) = FVRec $ fmap getLabel xs
 
