@@ -92,8 +92,8 @@ import qualified SAWScript.Lexer (scan)
 import qualified SAWScript.MGU as MGU
 import qualified SAWScript.Parser (parseBlockStmt)
 import qualified SAWScript.Value (evaluate, fromValue)
-import SAWScript.Value (TypedTerm(..))
 import SAWScript.REPL.GenerateModule (replFileName)
+import SAWScript.TypedTerm
 import SAWScript.Utils (Pos(..))
 
 

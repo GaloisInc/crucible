@@ -19,13 +19,12 @@ import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.LLVM.Codebase as LSS
 import SAWScript.JavaExpr (JavaType(..))
 import SAWScript.Proof
+import SAWScript.TypedTerm
 import SAWScript.Utils
 
 import Verifier.SAW.FiniteValue
 import Verifier.SAW.Rewriter ( Simpset )
 import Verifier.SAW.SharedTerm
-
-import Verifier.SAW.Cryptol (scCryptolType)
 
 import qualified Verifier.SAW.Evaluator as SC
 import qualified Cryptol.TypeCheck.AST as C
@@ -212,14 +211,6 @@ data LLVMSetupState
     }
 
 type LLVMSetup a = StateT LLVMSetupState IO a
-
-data TypedTerm s = TypedTerm C.Schema (SharedTerm s)
-
-mkTypedTerm :: SharedContext s -> SharedTerm s -> IO (TypedTerm s)
-mkTypedTerm sc trm = do
-  ty <- scTypeOf sc trm
-  ct <- scCryptolType sc ty
-  return $ TypedTerm (C.Forall [] [] ct) trm
 
 -- IsValue class ---------------------------------------------------------------
 

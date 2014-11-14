@@ -41,6 +41,7 @@ import SAWScript.JavaMethodSpecIR
 import SAWScript.Builtins
 import SAWScript.Options
 import SAWScript.Proof
+import SAWScript.TypedTerm
 import SAWScript.Utils
 import SAWScript.Value as SS
 
@@ -427,13 +428,13 @@ javaClassVar bic _ name t = do
   modify $ \st -> st { jsSpec = specAddVarDecl name expr aty (jsSpec st) }
 
 javaVar :: BuiltinContext -> Options -> String -> JavaType
-        -> JavaSetup (SS.TypedTerm SAWCtx)
+        -> JavaSetup (TypedTerm SAWCtx)
 javaVar bic _ name t = do
   (expr, aty) <- typeJavaExpr bic name t
   modify $ \st -> st { jsSpec = specAddVarDecl name expr aty (jsSpec st) }
   let sc = biSharedContext bic
   Just lty <- liftIO $ logicTypeOfActual sc aty
-  liftIO $ scJavaValue sc lty name >>= SS.mkTypedTerm sc
+  liftIO $ scJavaValue sc lty name >>= mkTypedTerm sc
 
 javaMayAlias :: BuiltinContext -> Options -> [String]
              -> JavaSetup ()

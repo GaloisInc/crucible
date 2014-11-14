@@ -42,6 +42,7 @@ import SAWScript.LLVMMethodSpecIR
 import SAWScript.LLVMMethodSpec
 import SAWScript.Options
 import SAWScript.Proof
+import SAWScript.TypedTerm
 import SAWScript.Utils
 import SAWScript.Value as SV
 
@@ -81,7 +82,7 @@ browseLLVMModule (LLVMModule name m) = do
 -- arguments and returns a term representing the return value. Some
 -- verifications will require more complex execution contexts.
 extractLLVM :: SharedContext SAWCtx -> LLVMModule -> String -> LLVMSetup ()
-            -> IO (SV.TypedTerm SAWCtx)
+            -> IO (TypedTerm SAWCtx)
 extractLLVM sc (LLVMModule file mdl) func _setup = do
   let dl = parseDataLayout $ modDataLayout mdl
       sym = Symbol func
@@ -101,7 +102,7 @@ extractLLVM sc (LLVMModule file mdl) func _setup = do
           Nothing -> fail "No return value from simulated function."
           Just rv -> liftIO $ do
             lamTm <- bindExts scLLVM (map snd args) rv
-            scImport sc lamTm >>= SV.mkTypedTerm sc
+            scImport sc lamTm >>= mkTypedTerm sc
 
 {-
 extractLLVMBit :: FilePath -> String -> SC s (SharedTerm s')
@@ -280,7 +281,7 @@ llvmArray :: Int -> MemType -> MemType
 llvmArray n t = ArrayType n t
 
 llvmVar :: BuiltinContext -> Options -> String -> MemType
-        -> LLVMSetup (SV.TypedTerm SAWCtx)
+        -> LLVMSetup (TypedTerm SAWCtx)
 llvmVar bic _ name lty = do
   lsState <- get
   let ms = lsSpec lsState
@@ -294,10 +295,10 @@ llvmVar bic _ name lty = do
   modify $ \st -> st { lsSpec = specAddVarDecl fixPos name expr' lty (lsSpec st) }
   let sc = biSharedContext bic
   Just ty <- liftIO $ logicTypeOfActual sc lty
-  liftIO $ scLLVMValue sc ty name >>= SV.mkTypedTerm sc
+  liftIO $ scLLVMValue sc ty name >>= mkTypedTerm sc
 
 llvmPtr :: BuiltinContext -> Options -> String -> MemType
-        -> LLVMSetup (SV.TypedTerm SAWCtx)
+        -> LLVMSetup (TypedTerm SAWCtx)
 llvmPtr bic _ name lty = do
   lsState <- get
   let ms = lsSpec lsState
@@ -313,7 +314,7 @@ llvmPtr bic _ name lty = do
                                 specAddVarDecl fixPos name expr' pty (lsSpec st) }
   let sc = biSharedContext bic
   Just dty <- liftIO $ logicTypeOfActual sc lty
-  liftIO $ scLLVMValue sc dty dname >>= SV.mkTypedTerm sc
+  liftIO $ scLLVMValue sc dty dname >>= mkTypedTerm sc
 
 llvmDeref :: BuiltinContext -> Options -> Value
           -> LLVMSetup (SharedTerm SAWCtx)

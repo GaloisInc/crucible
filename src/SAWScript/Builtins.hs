@@ -50,6 +50,7 @@ import SAWScript.ImportAIG
 
 import SAWScript.Options
 import SAWScript.Proof
+import SAWScript.TypedTerm
 import SAWScript.Utils
 import qualified SAWScript.Value as SV
 
@@ -86,14 +87,14 @@ topReturn _ = return
 topBind :: () -> () -> SC s Value -> (Value -> SC s Value) -> SC s Value
 topBind _ _ = (>>=)
 
-definePrim :: SharedContext s -> String -> SV.TypedTerm s -> IO (SV.TypedTerm s)
-definePrim sc name (SV.TypedTerm schema rhs) = SV.TypedTerm schema <$> scConstant sc ident rhs
+definePrim :: SharedContext s -> String -> TypedTerm s -> IO (TypedTerm s)
+definePrim sc name (TypedTerm schema rhs) = TypedTerm schema <$> scConstant sc ident rhs
   where ident = mkIdent (moduleName (scModule sc)) name
 
 sbvUninterpreted :: SharedContext s -> String -> SharedTerm s -> IO (Uninterp s)
 sbvUninterpreted _ s t = return $ Uninterp (s, t)
 
-readBytes :: SharedContext SAWCtx -> FilePath -> IO (SV.TypedTerm SAWCtx)
+readBytes :: SharedContext SAWCtx -> FilePath -> IO (TypedTerm SAWCtx)
 readBytes sc path = do
   content <- BS.readFile path
   let len = BS.length content
@@ -102,9 +103,9 @@ readBytes sc path = do
   xs <- mapM (scBvConst sc 8 . toInteger) bytes
   trm <- scVector sc e xs
   let schema = C.Forall [] [] (C.tSeq (C.tNum len) (C.tSeq (C.tNum 8) C.tBit))
-  return (SV.TypedTerm schema trm)  
+  return (TypedTerm schema trm)
 
-readSBV :: BuiltinContext -> Options -> FilePath -> [Uninterp SAWCtx] -> IO (SV.TypedTerm SAWCtx)
+readSBV :: BuiltinContext -> Options -> FilePath -> [Uninterp SAWCtx] -> IO (TypedTerm SAWCtx)
 readSBV bic opts path unintlst =
     do let sc = biSharedContext bic
        pgm <- SBV.loadSBV path
@@ -117,7 +118,7 @@ readSBV bic opts path unintlst =
              putStr $ unlines $
              ("Type error reading " ++ path ++ ":") : prettyTCError err
            Right _ -> return () -- TODO: check that it matches 'schema'?
-       return (SV.TypedTerm schema trm)
+       return (TypedTerm schema trm)
     where
       unintmap = Map.fromList $ map getUninterp unintlst
 
@@ -137,14 +138,14 @@ withBE f = do
 -- | Read an AIG file representing a theorem or an arbitrary function
 -- and represent its contents as a @SharedTerm@ lambda term. This is
 -- inefficient but semantically correct.
-readAIGPrim :: SharedContext s -> FilePath -> IO (SV.TypedTerm s)
+readAIGPrim :: SharedContext s -> FilePath -> IO (TypedTerm s)
 readAIGPrim sc f = do
   exists <- doesFileExist f
   unless exists $ fail $ "AIG file " ++ f ++ " not found."
   et <- readAIG sc f
   case et of
     Left err -> fail $ "Reading AIG failed: " ++ err
-    Right t -> SV.mkTypedTerm sc t
+    Right t -> mkTypedTerm sc t
 
 {-
 -- | Apply some rewrite rules before exporting, to ensure that terms
@@ -208,8 +209,8 @@ writeSMTLib2 sc f t = do
 writeCore :: FilePath -> SharedTerm s -> IO ()
 writeCore path t = writeFile path (scWriteExternal t)
 
-readCore :: SharedContext s -> FilePath -> IO (SV.TypedTerm s)
-readCore sc path = SV.mkTypedTerm sc =<< scReadExternal sc =<< readFile path
+readCore :: SharedContext s -> FilePath -> IO (TypedTerm s)
+readCore sc path = mkTypedTerm sc =<< scReadExternal sc =<< readFile path
 
 assumeValid :: ProofScript s SV.ProofResult
 assumeValid = StateT $ \goal -> do
@@ -506,10 +507,10 @@ cryptolSimpset :: SharedContext s -> IO (Simpset (SharedTerm s))
 cryptolSimpset sc = scSimpset sc cryptolDefs [] []
   where cryptolDefs = moduleDefs CryptolSAW.cryptolModule
 
-rewritePrim :: SharedContext s -> Simpset (SharedTerm s) -> SV.TypedTerm s -> IO (SV.TypedTerm s)
-rewritePrim sc ss (SV.TypedTerm schema t) = do
+rewritePrim :: SharedContext s -> Simpset (SharedTerm s) -> TypedTerm s -> IO (TypedTerm s)
+rewritePrim sc ss (TypedTerm schema t) = do
   t' <- rewriteSharedTerm sc ss t
-  return (SV.TypedTerm schema t')
+  return (TypedTerm schema t')
 
 addsimp :: SharedContext s -> Theorem s -> Simpset (SharedTerm s) -> Simpset (SharedTerm s)
 addsimp _sc (Theorem t) ss = addRule (ruleOfProp t) ss
@@ -534,8 +535,8 @@ print_type sc t = scTypeOf sc t >>= print
 check_term :: SharedContext s -> SharedTerm s -> IO ()
 check_term sc t = scTypeCheckError sc t >>= print
 
-checkTypedTerm :: SharedContext s -> SV.TypedTerm s -> IO ()
-checkTypedTerm sc (SV.TypedTerm _schema t) = scTypeCheckError sc t >>= print
+checkTypedTerm :: SharedContext s -> TypedTerm s -> IO ()
+checkTypedTerm sc (TypedTerm _schema t) = scTypeCheckError sc t >>= print
 
 fixPos :: Pos
 fixPos = PosInternal "FIXME"
@@ -618,7 +619,7 @@ caseProofResultPrim :: SharedContext SAWCtx -> SV.ProofResult
 caseProofResultPrim sc pr vValid vInvalid = do
   case pr of
     SV.Valid -> return vValid
-    SV.Invalid v -> do t <- SV.mkTypedTerm sc =<< scFiniteValue sc v
+    SV.Invalid v -> do t <- mkTypedTerm sc =<< scFiniteValue sc v
                        SV.applyValue vInvalid (SV.toValue t)
     SV.InvalidMulti _ -> fail $ "multi-value counter-example"
 
@@ -628,6 +629,6 @@ caseSatResultPrim :: SharedContext SAWCtx -> SV.SatResult
 caseSatResultPrim sc sr vUnsat vSat = do
   case sr of
     SV.Unsat -> return vUnsat
-    SV.Sat v -> do t <- SV.mkTypedTerm sc =<< scFiniteValue sc v
+    SV.Sat v -> do t <- mkTypedTerm sc =<< scFiniteValue sc v
                    SV.applyValue vSat (SV.toValue t)
     SV.SatMulti _ -> fail $ "multi-value satisfying assignment"

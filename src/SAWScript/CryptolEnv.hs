@@ -42,7 +42,7 @@ import qualified Cryptol.ModuleSystem.Renamer as MR
 import Cryptol.Utils.PP
 
 --import SAWScript.REPL.Monad (REPLException(..))
-import SAWScript.Value
+import SAWScript.TypedTerm
 import SAWScript.Utils (Pos(..))
 import SAWScript.AST (Located(getVal, getPos), Import(..))
 

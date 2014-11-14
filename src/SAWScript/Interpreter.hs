@@ -38,6 +38,7 @@ import SAWScript.Options
 import SAWScript.Lexer (lexSAW)
 import SAWScript.Parser (parseSchema)
 import SAWScript.Proof
+import SAWScript.TypedTerm
 import SAWScript.Utils
 import SAWScript.Value
 import Verifier.SAW.Conversion
