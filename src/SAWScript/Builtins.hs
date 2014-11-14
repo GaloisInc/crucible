@@ -53,6 +53,7 @@ import SAWScript.Proof
 import SAWScript.Utils
 import qualified SAWScript.Value as SV
 
+import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 import qualified Verifier.SAW.Simulator.BitBlast as BBSim
 import qualified Verifier.SAW.Simulator.SBV as SBVSim
 
@@ -500,6 +501,10 @@ satPrintPrim :: SharedContext s -> ProofScript s SV.SatResult
 satPrintPrim _sc script t = do
   (r, _) <- runStateT script (ProofGoal "sat" t)
   print r
+
+cryptolSimpset :: SharedContext s -> IO (Simpset (SharedTerm s))
+cryptolSimpset sc = scSimpset sc cryptolDefs [] []
+  where cryptolDefs = moduleDefs CryptolSAW.cryptolModule
 
 rewritePrim :: SharedContext s -> Simpset (SharedTerm s) -> SV.TypedTerm s -> IO (SV.TypedTerm s)
 rewritePrim sc ss (SV.TypedTerm schema t) = do

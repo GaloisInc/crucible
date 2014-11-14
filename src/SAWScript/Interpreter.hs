@@ -429,6 +429,10 @@ primitives = Map.fromList
     (pureVal (emptySimpset :: Simpset (SharedTerm SAWCtx)))
     [ "TODO" ]
 
+  , prim "cryptol_ss"          "TopLevel Simpset"
+    (scVal cryptolSimpset)
+    [ "TODO" ]
+
   --, prim "basic_ss"            "Simpset"
 
   , prim "addsimp"             "Theorem -> Simpset -> Simpset"
