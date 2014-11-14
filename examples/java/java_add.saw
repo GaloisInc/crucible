@@ -1,24 +1,23 @@
-setup : JavaSetup ();
-setup = do {
+setup : Term -> JavaSetup ();
+setup add = do {
     x <- java_var "x" java_int;
     y <- java_var "y" java_int;
-    java_return {{ x + y : [32] }};
-    java_verify_tactic abc;
+    java_return {{ add x y }};
+    java_verify_tactic (do { unfolding ["add"]; yices; });
 };
 
-setup' : JavaSetup ();
-setup' = do {
+setup' : Term -> JavaSetup ();
+setup' add = do {
     x <- java_var "x" java_int;
-    java_return {{ x + x : [32] }};
-    java_verify_tactic abc;
+    java_return {{ add x x }};
+    java_verify_tactic yices;
 };
 
 main : TopLevel ();
 main = do {
     c <- java_load_class "Add";
-    ms <- java_verify c "add" [] setup;
-    ms' <- java_verify c "dbl" [ms] setup';
-    //print ms;
-    //print ms';
+    add <- define "add" {{ \x y -> (x : [32]) + y }};
+    ms <- java_verify c "add" [] (setup add);
+    ms' <- java_verify c "dbl" [ms] (setup' add);
     print "Done.";
 };
