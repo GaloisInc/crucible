@@ -202,15 +202,14 @@ verifyJava bic opts cls mname overrides setup = do
             glam <- bindAllExts jsc g
             let bsc = biSharedContext bic
             glam' <- scNegate bsc =<< scImport bsc glam
-            when (verb >= 2) $ putStrLn "Type checking goal..."
             when (extraChecks opts) $ do
+              when (verb >= 2) $ putStrLn "Type checking goal..."
               tcr <- scTypeCheck bsc glam'
               case tcr of
                 Left err -> do
                   putStr $ unlines $
                     "Ill-typed goal constructed." : prettyTCError err
-                Right _ -> return ()
-            when (verb >= 2) $ putStrLn "Done."
+                Right _ -> when (verb >= 2) $ putStrLn "Done."
             when (verb >= 6) $ putStrLn $ "Trying to prove: " ++ show glam'
             (r, _) <- runStateT script (ProofGoal (vsVCName vs) glam')
             case r of
