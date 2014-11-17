@@ -244,9 +244,7 @@ scTyp sc (TRecord fields) =
 -- | projects all the components out of the input term
 -- TODO: rename to splitInput?
 splitInputs :: SharedContext s -> Typ -> SharedTerm s -> IO [SharedTerm s]
-splitInputs _sc TBool x =
-    do t <- error "Bool -> bitvector 1" x
-       return [t]
+splitInputs _sc TBool x = return [x]
 splitInputs sc (TTuple ts) x =
     do xs <- mapM (\i -> scNestedSelector sc i x) [1 .. length ts]
        yss <- sequence (zipWith (splitInputs sc) ts xs)
@@ -254,12 +252,9 @@ splitInputs sc (TTuple ts) x =
 splitInputs _ (TVec _ TBool) x = return [x]
 splitInputs sc (TVec n t) x =
     do nt <- scNat sc (fromIntegral n)
-       idxs <- mapM (\i -> do
-                       it <- scNat sc (fromIntegral i)
-                       rt <- scNat sc (fromIntegral (n - i))
-                       scFinVal sc it rt) [0 .. (n - 1)]
+       idxs <- mapM (scNat sc . fromIntegral) [0 .. (n - 1)]
        ty <- scTyp sc t
-       xs <- mapM (scGet sc nt ty x) idxs
+       xs <- mapM (scAt sc nt ty x) idxs
        yss <- mapM (splitInputs sc t) xs
        return (concat yss)
 splitInputs _ (TFun _ _) _ = error "splitInputs TFun: not a first-order type"
@@ -342,7 +337,7 @@ parseSBVPgm sc unint (SBV.SBVPgm (_version, irtype, revcmds, _vcs, _warnings, _u
 -- New SharedContext operations; should eventually move to SharedTerm.hs.
 
 -- | bv1ToBool :: bitvector 1 -> Bool
--- bv1ToBool x = get 1 Bool x (FinVal 0 0)
+-- bv1ToBool x = bvAt 1 Bool 1 x (bv 1 0)
 scBv1ToBool :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
 scBv1ToBool sc x =
     do n0 <- scNat sc 0
