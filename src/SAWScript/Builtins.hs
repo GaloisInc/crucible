@@ -603,8 +603,6 @@ cexEvalFn sc args tm = do
       argMap = Map.fromList (zip is args')
       eval = evalGlobal (scModule sc) preludePrims
   tm' <- scInstantiateExt sc argMap tm
-  -- _ty <- scTypeCheckError sc tm'
-  --putStrLn $ "Type of cex eval term: " ++ show ty
   return $ evalSharedTerm eval tm'
 
 toValueCase :: (SV.FromValue b) =>
