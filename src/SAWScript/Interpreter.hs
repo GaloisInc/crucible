@@ -434,6 +434,10 @@ primitives = Map.fromList
     (scVal cryptolSimpset)
     [ "TODO" ]
 
+  , prim "add_prelude_eqs"     "[String] -> Simpset -> TopLevel Simpset"
+    (scVal addPreludeEqs)
+    [ "TODO" ]
+
   --, prim "basic_ss"            "Simpset"
 
   , prim "addsimp"             "Theorem -> Simpset -> Simpset"

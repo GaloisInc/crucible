@@ -511,6 +511,13 @@ cryptolSimpset :: SharedContext s -> IO (Simpset (SharedTerm s))
 cryptolSimpset sc = scSimpset sc cryptolDefs [] []
   where cryptolDefs = moduleDefs CryptolSAW.cryptolModule
 
+addPreludeEqs :: SharedContext s -> [String] -> Simpset (SharedTerm s)
+              -> IO (Simpset (SharedTerm s))
+addPreludeEqs sc names ss = do
+  eqRules <- mapM (scEqRewriteRule sc) (map qualify names)
+  return (addRules eqRules ss)
+    where qualify = mkIdent (mkModuleName ["Prelude"])
+
 rewritePrim :: SharedContext s -> Simpset (SharedTerm s) -> TypedTerm s -> IO (TypedTerm s)
 rewritePrim sc ss (TypedTerm schema t) = do
   t' <- rewriteSharedTerm sc ss t
