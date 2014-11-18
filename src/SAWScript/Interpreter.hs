@@ -70,6 +70,7 @@ extendEnv x mt md v (InterpretEnv vm tm dm ce) = InterpretEnv vm' tm' dm' ce'
   where
     name = x
     qname = T.QName Nothing (T.Name (getOrig x))
+    modName = T.ModName [getOrig x]
     vm' = Map.insert name v vm
     tm' = maybe tm (\t -> Map.insert name t tm) mt
     dm' = maybe dm (\d -> Map.insert (getVal name) d dm) md
@@ -78,6 +79,8 @@ extendEnv x mt md v (InterpretEnv vm tm dm ce) = InterpretEnv vm' tm' dm' ce'
               -> CEnv.bindTypedTerm (qname, TypedTerm schema trm) ce
             VInteger n
               -> CEnv.bindInteger (qname, n) ce
+            VCryptolModule m
+              -> CEnv.bindCryptolModule (modName, m) ce
             _ -> ce
 
 -- | Variation that does not force the value argument: it assumes it
@@ -446,6 +449,14 @@ primitives = Map.fromList
 
   , prim "rewrite"             "Simpset -> Term -> TopLevel Term"
     (scVal rewritePrim)
+    [ "TODO" ]
+
+  , prim "cryptol_load"        "String -> TopLevel CryptolModule"
+    (scVal CEnv.loadCryptolModule)
+    [ "TODO" ]
+
+  , prim "cryptol_extract"     "CryptolModule -> String -> TopLevel Term"
+    (pureVal (CEnv.lookupCryptolModule :: CryptolModule SAWCtx -> String -> IO (TypedTerm SAWCtx)))
     [ "TODO" ]
 
   -- Java stuff

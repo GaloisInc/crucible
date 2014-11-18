@@ -41,6 +41,7 @@ $codechar  = [$graphic $whitechar]
              |ProofScript|TopLevel
              |Int|String|Term|Bit
              |Simpset|Theorem
+             |CryptolModule
              |JavaType|JavaMethodSpec|JavaClass
              |LLVMType|LLVMMethodSpec|LLVMModule
              |Uninterp
