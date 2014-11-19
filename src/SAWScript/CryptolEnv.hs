@@ -1,6 +1,9 @@
 module SAWScript.CryptolEnv
   ( CryptolEnv(..)
   , initCryptolEnv
+  , loadCryptolModule
+  , bindCryptolModule
+  , lookupCryptolModule
   , importModule
   , bindTypedTerm
   , bindInteger
@@ -12,6 +15,7 @@ module SAWScript.CryptolEnv
 --import qualified Control.Exception as X
 import Data.Map (Map)
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Data.Maybe (fromMaybe)
 import Data.Monoid
 import Data.Traversable
@@ -193,6 +197,45 @@ genTermEnv sc modEnv = do
   let declGroups = concatMap T.mDecls (ME.loadedModules modEnv)
   cryEnv <- C.importDeclGroups sc C.emptyEnv declGroups
   traverse (\(t, j) -> incVars sc 0 j t) (C.envE cryEnv)
+
+--------------------------------------------------------------------------------
+
+loadCryptolModule :: SharedContext s -> FilePath -> IO (CryptolModule s)
+loadCryptolModule sc path = do
+  (result, warnings) <- M.loadModuleByPath path
+  mapM_ (print . pp) warnings
+  (m, modEnv) <-
+    case result of
+      Left err -> fail (show (pp err))
+      Right x -> return x
+  let ifaceDecls = getAllIfaceDecls modEnv
+  (types, _) <- liftModuleM modEnv $
+                TM.inpVars `fmap` MB.genInferInput P.emptyRange ifaceDecls
+  terms <- genTermEnv sc modEnv
+  let qnames = P.eBinds (T.mExports m) -- :: Set T.QName
+  let tm' = Map.mapKeysMonotonic P.unqual $
+            Map.filterWithKey (\k _ -> Set.member k qnames) $
+            Map.intersectionWith TypedTerm types terms
+  return (CryptolModule tm')
+
+bindCryptolModule :: (T.ModName, CryptolModule s) -> CryptolEnv s -> CryptolEnv s
+bindCryptolModule (modName, CryptolModule tm) env =
+  env { eExtraNames = foldr addName (eExtraNames env) (Map.keys tm)
+      , eExtraTypes = Map.union (fmap (\(TypedTerm s _) -> s) tm') (eExtraTypes env)
+      , eTermEnv    = Map.union (fmap (\(TypedTerm _ t) -> t) tm') (eTermEnv env)
+      }
+  where
+    tm' = Map.mapKeysMonotonic (P.mkQual modName) tm
+    addName name = MN.shadowing (MN.singletonE qname ename)
+      where
+        qname = P.QName (Just modName) name
+        ename = MN.EFromBind (P.Located P.emptyRange qname)
+
+lookupCryptolModule :: CryptolModule s -> String -> IO (TypedTerm s)
+lookupCryptolModule (CryptolModule tm) name =
+  case Map.lookup (P.Name name) tm of
+    Nothing -> fail $ "Binding not found: " ++ name
+    Just t -> return t
 
 --------------------------------------------------------------------------------
 

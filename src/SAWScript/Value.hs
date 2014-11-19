@@ -52,6 +52,7 @@ data Value
   | VLLVMMethodSpec LIR.LLVMMethodSpecIR
   | VJavaType JavaType
   | VLLVMType LSS.MemType
+  | VCryptolModule (CryptolModule SAWCtx)
   | VJavaClass JSS.Class
   | VLLVMModule LLVMModule
   | VSatResult SatResult
@@ -130,6 +131,7 @@ showsPrecValue opts p v =
     VLLVMMethodSpec {} -> showString "<<LLVM MethodSpec>>"
     VJavaType {} -> showString "<<Java type>>"
     VLLVMType t -> showString (show (LSS.ppMemType t))
+    VCryptolModule {} -> showString "<<Cryptol Module>>" -- TODO: print list of bindings
     VLLVMModule {} -> showString "<<LLVM Module>>"
     VJavaClass {} -> showString "<<Java Class>>"
     VProofResult Valid -> showString "Valid"
@@ -387,6 +389,13 @@ instance IsValue (Uninterp SAWCtx) where
 instance FromValue (Uninterp SAWCtx) where
     fromValue (VUninterp me) = me
     fromValue _ = error "fromValue Uninterp"
+
+instance IsValue (CryptolModule SAWCtx) where
+    toValue m = VCryptolModule m
+
+instance FromValue (CryptolModule SAWCtx) where
+    fromValue (VCryptolModule m) = m
+    fromValue _ = error "fromValue ModuleEnv"
 
 instance IsValue JSS.Class where
     toValue c = VJavaClass c

@@ -9,6 +9,8 @@ import qualified Cryptol.Parser as P
 import qualified Cryptol.TypeCheck.AST as T
 import Cryptol.Utils.PP
 
+import SAWScript.TypedTerm
+
 typeNoUser :: T.Type -> T.Type
 typeNoUser t =
   case t of
@@ -30,7 +32,7 @@ loadCryptol filepath = do
       Right x -> return x
   return modEnv
 
-extractCryptol :: SharedContext s -> M.ModuleEnv -> String -> IO (SharedTerm s)
+extractCryptol :: SharedContext s -> M.ModuleEnv -> String -> IO (TypedTerm s)
 extractCryptol sc modEnv input = do
   let declGroups = concatMap T.mDecls (M.loadedModules modEnv)
   env <- C.importDeclGroups sc C.emptyEnv declGroups
@@ -44,5 +46,5 @@ extractCryptol sc modEnv input = do
     case exprResult of
       Left err -> fail (show (pp err))
       Right x -> return x
-  putStrLn $ "Extracting expression of type " ++ show (pp (schemaNoUser schema))
-  C.importExpr sc env expr
+  t <- C.importExpr sc env expr
+  return $ TypedTerm (schemaNoUser schema) t

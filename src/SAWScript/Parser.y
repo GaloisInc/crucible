@@ -61,6 +61,7 @@ import Control.Applicative
   'Term'         { TReserved _ "Term"           }
   'Simpset'        { TReserved _ "Simpset"        }
   'Theorem'        { TReserved _ "Theorem"        }
+  'CryptolModule'  { TReserved _ "CryptolModule"  }
   'JavaType'       { TReserved _ "JavaType"       }
   'JavaMethodSpec' { TReserved _ "JavaMethodSpec" }
   'JavaClass'      { TReserved _ "JavaClass"      }
@@ -194,6 +195,7 @@ BaseType :: { Type }
  | 'Term'                               { tTerm                   }
  | 'Simpset'                            { tAbstract "Simpset"     }
  | 'Theorem'                            { tAbstract "Theorem"     }
+ | 'CryptolModule'                      { tAbstract "CryptolModule" }
  | 'JavaType'                           { tAbstract "JavaType"    }
  | 'JavaMethodSpec'                     { tAbstract "JavaMethodSpec" }
  | 'JavaClass'                          { tAbstract "JavaClass"   }

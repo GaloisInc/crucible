@@ -52,9 +52,12 @@ import qualified Verifier.Java.Codebase as JCB
 import qualified Verifier.Java.SAWBackend as JavaSAW
 import qualified Verifier.LLVM.Backend.SAW as LLVMSAW
 
+import qualified Verifier.SAW.Cryptol as Cryptol
 import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 
 import qualified Cryptol.TypeCheck.AST as T
+import Cryptol.TypeCheck.Defaulting (defaultExpr)
+import Cryptol.Parser.Position (emptyRange)
 
 -- Environment -----------------------------------------------------------------
 
@@ -70,6 +73,7 @@ extendEnv x mt md v (InterpretEnv vm tm dm ce) = InterpretEnv vm' tm' dm' ce'
   where
     name = x
     qname = T.QName Nothing (T.Name (getOrig x))
+    modName = T.ModName [getOrig x]
     vm' = Map.insert name v vm
     tm' = maybe tm (\t -> Map.insert name t tm) mt
     dm' = maybe dm (\d -> Map.insert (getVal name) d dm) md
@@ -78,6 +82,8 @@ extendEnv x mt md v (InterpretEnv vm tm dm ce) = InterpretEnv vm' tm' dm' ce'
               -> CEnv.bindTypedTerm (qname, TypedTerm schema trm) ce
             VInteger n
               -> CEnv.bindInteger (qname, n) ce
+            VCryptolModule m
+              -> CEnv.bindCryptolModule (modName, m) ce
             _ -> ce
 
 -- | Variation that does not force the value argument: it assumes it
@@ -227,8 +233,25 @@ interpretMain opts m = fromValue <$> interpretEntry "main" opts m
 
 print_value :: SharedContext SAWCtx -> Value -> IO ()
 print_value _sc (VString s) = putStrLn s
-print_value  sc (VTerm _ trm) = print (evaluate sc trm)
+print_value  sc (VTerm schema trm) = do
+  trm' <- defaultTypedTerm sc (TypedTerm schema trm)
+  print (evaluate sc trm')
 print_value _sc v = putStrLn (showsPrecValue defaultPPOpts 0 v "")
+
+defaultTypedTerm :: SharedContext s -> TypedTerm s -> IO (SharedTerm s)
+defaultTypedTerm sc (TypedTerm schema trm) =
+  case inst of
+    Nothing -> return trm
+    Just tys -> do
+      -- TODO: print instantiations
+      xs <- mapM (Cryptol.importType sc Cryptol.emptyEnv) tys
+      let tm = Map.fromList [ (T.tpUnique tp, (t, 0)) | (tp, t) <- zip (T.sVars schema) xs ]
+      let env = Cryptol.emptyEnv { Cryptol.envT = tm }
+      ys <- mapM (Cryptol.proveProp sc env) (T.sProps schema)
+      scApplyAll sc trm (xs ++ ys)
+  where
+    inst = do (soln, _) <- defaultExpr emptyRange undefined schema
+              mapM (`lookup` soln) (T.sVars schema)
 
 readSchema :: String -> SS.Schema
 readSchema str =
@@ -450,6 +473,14 @@ primitives = Map.fromList
 
   , prim "rewrite"             "Simpset -> Term -> TopLevel Term"
     (scVal rewritePrim)
+    [ "TODO" ]
+
+  , prim "cryptol_load"        "String -> TopLevel CryptolModule"
+    (scVal CEnv.loadCryptolModule)
+    [ "TODO" ]
+
+  , prim "cryptol_extract"     "CryptolModule -> String -> TopLevel Term"
+    (pureVal (CEnv.lookupCryptolModule :: CryptolModule SAWCtx -> String -> IO (TypedTerm SAWCtx)))
     [ "TODO" ]
 
   -- Java stuff
