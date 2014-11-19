@@ -110,7 +110,7 @@ data BehaviorCommand
      -- May point to integral type or array.
    | ModifyArray JavaExpr JavaActualType
      -- | Specifies value method returns.
-   | Return MixedExpr
+   | ReturnValue MixedExpr
   deriving (Show)
 
 data BehaviorSpec = BS {

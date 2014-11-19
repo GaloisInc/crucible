@@ -391,7 +391,7 @@ ocStep (ModifyArray refExpr ty) = do
           (isVecType (const (return ())) -> Just (n :*: _)) ->
             ocModifyResultState $ setArrayValue ref (fromIntegral n) rhsVal
           _ -> ocError (InvalidType (show ty))
-ocStep (Return expr) = do
+ocStep (ReturnValue expr) = do
   ocEval (evalMixedExpr expr) $ \val ->
     modify $ \ocs -> ocs { ocsReturnValue = Just val }
 
@@ -711,7 +711,7 @@ esStep (AssumePred expr) = do
   sc <- gets esContext
   v <- esEval $ evalLogicExpr expr
   esModifyInitialPathStateIO $ addAssumption sc v
-esStep (Return expr) = do
+esStep (ReturnValue expr) = do
   v <- esEval $ evalMixedExpr expr
   modify $ \es -> es { esReturnValue = Just v }
 esStep (EnsureInstanceField _pos refExpr f rhsExpr) = do
