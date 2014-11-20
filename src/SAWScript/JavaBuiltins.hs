@@ -48,10 +48,8 @@ import SAWScript.Value as SS
 
 
 loadJavaClass :: BuiltinContext -> String -> IO Class
-loadJavaClass bic cname = do
-  let cname' = dotsToSlashes cname
-      cb = biJavaCodebase bic
-  lookupClass cb fixPos cname'
+loadJavaClass bic =
+  lookupClass (biJavaCodebase bic) fixPos . dotsToSlashes
 
 browseJavaClass :: Class -> IO ()
 browseJavaClass = print . prettyClass
@@ -114,9 +112,8 @@ commas = sep . punctuate comma
 extractJava :: BuiltinContext -> Options -> Class -> String
             -> JavaSetup ()
             -> IO (TypedTerm SAWCtx)
-extractJava bic _opts cls mname setup = do
-  let sc = biSharedContext bic
-      cb = biJavaCodebase bic
+extractJava bic opts cls mname setup = do
+  let cb = biJavaCodebase bic
       pos = fixPos
   argsRef <- newIORef []
   (jsc, sbe) <- createSAWBackend (Just argsRef)
@@ -124,7 +121,7 @@ extractJava bic _opts cls mname setup = do
   let fl = defaultSimFlags { alwaysBitBlastBranchTerms = True }
       meth = specMethod (jsSpec setupRes)
   runSimulator cb sbe defaultSEH (Just fl) $ do
-    setVerbosity 0
+    setVerbosity (simVerbose opts)
     args <- mapM (freshJavaArg sbe) (methodParameterTypes meth)
     rslt <- execStaticMethod (className cls) (methodKey meth) args
     dt <- case rslt of
@@ -133,6 +130,7 @@ extractJava bic _opts cls mname setup = do
             Just (LValue t) -> return t
             _ -> fail "Unimplemented result type from "
     liftIO $ do
+      let sc = biSharedContext bic
       argBinds <- reverse <$> readIORef argsRef
       bindExts jsc argBinds dt >>= scImport sc >>= mkTypedTerm sc
 
@@ -216,7 +214,7 @@ verifyJava bic opts cls mname overrides setup = do
            , vpSpec = ms
            , vpOver = overrides
            }
-  let verb = simVerbose (vpOpts vp)
+  let verb = simVerbose opts
       overrideText =
         case overrides of
           [] -> ""
