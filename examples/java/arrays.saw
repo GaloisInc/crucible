@@ -13,6 +13,18 @@ unit_setup = do {
     java_verify_tactic abc;
 };
 
+sum_setup : JavaSetup ();
+sum_setup = do {
+    a <- java_var "a" (java_array 10 java_int);
+    // Silly way to write it, but works as a test.
+    java_return {{ (a@0) + (a@1) + (a@2) + (a@3) + (a@4) +
+                   (a@5) + (a@6) + (a@7) + (a@8) + (a@9)  }};
+    java_verify_tactic abc;
+};
+
+sum_setup' : JavaSetup ();
+sum_setup' = do { java_var "a" (java_array 10 java_int); return (); };
+
 comp_setup : JavaSetup ();
 comp_setup = do {
     java_var "a" (java_array 10 java_int);
@@ -25,6 +37,12 @@ main = do {
     c <- java_load_class "Arrays";
     copy_ms <- java_verify c "copy" [] copy_setup;
     unit_ms <- java_verify c "unit" [] unit_setup;
+    sum_ms <- java_verify c "sum" [] sum_setup;
     comp_ms <- java_verify c "comp" [unit_ms] comp_setup;
+    print "Extracting model of sum, which has type:";
+    sum_tm <- java_extract c "sum" sum_setup';
+    check_term sum_tm;
+    print "Running model on ten 1 inputs:";
+    print {{ sum_tm 1 1 1 1 1 1 1 1 1 1 }};
     print "Done.";
 };

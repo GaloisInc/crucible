@@ -109,6 +109,24 @@ prettyMethod m =
 commas :: [Doc] -> Doc
 commas = sep . punctuate comma
 
+getActualArgTypes :: JavaSetupState -> Either String [JavaActualType]
+getActualArgTypes s = mapM getActualType declaredTypes
+  where
+    declaredTypes = zip [0..] (methodParameterTypes meth)
+    ir = jsSpec s
+    meth = specMethod ir
+    getActualType (n, ty) = do
+      let i = localIndexOfParameter meth n
+          atys = [ aty | (CC.Term (Local _ i' _), aty) <-
+                         Map.toList (specActualTypeMap ir), i == i' ]
+      case atys of
+        [] | isPrimitiveType ty -> Right (PrimitiveType ty)
+           | otherwise ->
+             Left $ "No declared type for non-scalar parameter " ++ show n
+        [aty] -> Right aty
+        _ -> Left $ "More than one actual type given for parameter " ++ show n
+
+
 extractJava :: BuiltinContext -> Options -> Class -> String
             -> JavaSetup ()
             -> IO (TypedTerm SAWCtx)
@@ -122,8 +140,14 @@ extractJava bic opts cls mname setup = do
       meth = specMethod (jsSpec setupRes)
   runSimulator cb sbe defaultSEH (Just fl) $ do
     setVerbosity (simVerbose opts)
-    args <- mapM (freshJavaArg sbe) (methodParameterTypes meth)
-    rslt <- execStaticMethod (className cls) (methodKey meth) args
+    argTypes <- either fail return (getActualArgTypes setupRes)
+    args <- mapM freshJavaVal argTypes
+    -- TODO: support initializing other state elements
+    rslt <- case methodIsStatic meth of
+              True -> execStaticMethod (className cls) (methodKey meth) args
+              False -> do
+                RValue this <- freshJavaVal (ClassInstance cls)
+                execInstanceMethod (className cls) (methodKey meth) this args
     dt <- case rslt of
             Nothing -> fail "No return value from "
             Just (IValue t) -> return t
@@ -132,6 +156,7 @@ extractJava bic opts cls mname setup = do
     liftIO $ do
       let sc = biSharedContext bic
       argBinds <- reverse <$> readIORef argsRef
+      -- TODO: group argBinds according to the declared types
       bindExts jsc argBinds dt >>= scImport sc >>= mkTypedTerm sc
 
 freshJavaArg :: MonadIO m =>
@@ -146,6 +171,9 @@ freshJavaArg sbe IntType     = liftIO (IValue <$> freshInt sbe)
 freshJavaArg sbe LongType    = liftIO (LValue <$> freshLong sbe)
 freshJavaArg _ ty = fail $ "Unsupported argument type: " ++ show ty
 
+-- TODO: specialize to SAWCore terms, and use SAWCore's fresh value
+-- creation?
+-- TODO: adapt to use local variables, instead?
 freshJavaVal :: MonadSim sbe m =>
                 JavaActualType -> Simulator sbe m (JSS.Value (SBETerm sbe))
 freshJavaVal (PrimitiveType ty) = do
@@ -159,6 +187,8 @@ freshJavaVal (PrimitiveType ty) = do
     _ -> fail $ "Can't create fresh primitive value of type " ++ show ty
 freshJavaVal (ArrayInstance n ty) = do
   elts <- replicateM n (freshJavaVal (PrimitiveType ty))
+  -- TODO: create a fresh array and fill the array below with
+  -- selections of its elements?
   let getLVal (LValue t) = Just t
       getLVal _ = Nothing
       getIVal (IValue t) = Just t
@@ -168,8 +198,14 @@ freshJavaVal (ArrayInstance n ty) = do
     _ | isIValue ty ->
         RValue <$> newIntArray (ArrayType ty) (mapMaybe getIVal elts)
     _ -> fail $ "Can't create array with element type " ++ show ty
-freshJavaVal (ClassInstance c) =
-  fail $ "Can't create fresh instance of class " ++ className c
+-- TODO: allow input declarations to specialize types of fields
+freshJavaVal (ClassInstance c) = do
+  r <- createInstance (className c) Nothing
+  forM_ (classFields c) $ \f -> do
+    let ty = fieldType f
+    v <- freshJavaVal (PrimitiveType ty)
+    setInstanceFieldValue r (FieldId (className c) (fieldName f) ty) v
+  return (RValue r)
 
 createSAWBackend :: Maybe (IORef [SharedTerm JSSCtx])
                  -> IO (SharedContext JSSCtx, Backend (SharedContext JSSCtx))
