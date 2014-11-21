@@ -134,7 +134,7 @@ extractJava bic opts cls mname setup = do
   let cb = biJavaCodebase bic
       pos = fixPos
   argsRef <- newIORef []
-  (jsc, sbe) <- createSAWBackend (Just argsRef)
+  (jsc, sbe) <- createSAWBackend (biSharedContext bic) (Just argsRef)
   setupRes <- runJavaSetup pos cb cls mname jsc setup
   let fl = defaultSimFlags { alwaysBitBlastBranchTerms = True }
       meth = specMethod (jsSpec setupRes)
@@ -157,7 +157,7 @@ extractJava bic opts cls mname setup = do
       let sc = biSharedContext bic
       argBinds <- reverse <$> readIORef argsRef
       -- TODO: group argBinds according to the declared types
-      bindExts jsc argBinds dt >>= scImport sc >>= mkTypedTerm sc
+      bindExts jsc argBinds dt {- >>= scImport sc -}  >>= mkTypedTerm sc
 
 freshJavaArg :: MonadIO m =>
                 Backend sbe
@@ -207,20 +207,23 @@ freshJavaVal (ClassInstance c) = do
     setInstanceFieldValue r (FieldId (className c) (fieldName f) ty) v
   return (RValue r)
 
-createSAWBackend :: Maybe (IORef [SharedTerm JSSCtx])
-                 -> IO (SharedContext JSSCtx, Backend (SharedContext JSSCtx))
-createSAWBackend argsRef = do
+createSAWBackend :: SharedContext s
+                 -> Maybe (IORef [SharedTerm s])
+                 -> IO (SharedContext s, Backend (SharedContext s))
+createSAWBackend jsc argsRef = do
+  {-
   let imps = [CryptolSAW.cryptolModule]
       vjavaModule = foldr insImport javaModule imps
   sc0 <- mkSharedContext vjavaModule
   -- ss <- basic_ss sc0
   let (jsc :: SharedContext JSSCtx) = sc0 -- rewritingSharedContext sc0 ss
+  -}
   -- TODO: should we refactor to use withNewGraph?
   ABC.SomeGraph be <- ABC.newGraph ABC.giaNetwork
   sbe <- sawBackend jsc argsRef be
   return (jsc, sbe)
 
-runJavaSetup :: Pos -> Codebase -> Class -> String -> SharedContext JSSCtx
+runJavaSetup :: Pos -> Codebase -> Class -> String -> SharedContext SAWCtx
              -> StateT JavaSetupState IO a
              -> IO JavaSetupState
 runJavaSetup pos cb cls mname jsc setup = do
@@ -240,7 +243,8 @@ verifyJava bic opts cls mname overrides setup = do
   startTime <- getCurrentTime
   let pos = fixPos -- TODO
       cb = biJavaCodebase bic
-  (jsc, sbe) <- createSAWBackend Nothing
+      bsc = biSharedContext bic
+  (jsc, sbe) <- createSAWBackend bsc Nothing
   setupRes <- runJavaSetup pos cb cls mname jsc setup
   let ms = jsSpec setupRes
   let vp = VerifyParams {
@@ -274,8 +278,7 @@ verifyJava bic opts cls mname overrides setup = do
         mapM_ (print . ppPathVC) res
       let prover script vs g = do
             glam <- bindAllExts jsc g
-            let bsc = biSharedContext bic
-            glam' <- scNegate bsc =<< scImport bsc glam
+            glam' <- scNegate bsc {- =<< scImport bsc -} glam
             when (extraChecks opts) $ do
               when (verb >= 2) $ putStrLn "Type checking goal..."
               tcr <- scTypeCheck bsc glam'
@@ -300,7 +303,7 @@ verifyJava bic opts cls mname overrides setup = do
              " (" ++ showDuration (diffUTCTime endTime startTime) ++ ")"
   return ms
 
-showCexResults :: SharedContext JSSCtx
+showCexResults :: SharedContext SAWCtx
                -> JavaMethodSpecIR
                -> VerifyState
                -> [(String, FiniteValue)]

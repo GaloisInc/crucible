@@ -199,7 +199,7 @@ data ValidationPlan
 data JavaSetupState
   = JavaSetupState {
       jsSpec :: JIR.JavaMethodSpecIR
-    , jsContext :: SharedContext JSSCtx
+    , jsContext :: SharedContext SAWCtx
     , jsTactic :: ValidationPlan
     }
 

@@ -192,10 +192,10 @@ termJavaExprs = snd . impl (Set.empty, Set.empty)
               Just s -> (Set.insert idx seen, Set.insert s exprs)
               Nothing -> foldl' impl (Set.insert idx seen, exprs) tf
 
-useLogicExpr :: SharedContext JSSCtx -> LogicExpr -> [SharedTerm JSSCtx]
-             -> IO (SharedTerm JSSCtx)
+useLogicExpr :: SharedContext SAWCtx -> LogicExpr -> [SharedTerm SAWCtx]
+             -> IO (SharedTerm SAWCtx)
 useLogicExpr sc (LogicExpr t _) args = do
-  t' <- scImport sc t
+  t' <- return t -- scImport sc t
   t'' <- scApplyAll sc t' args
   -- _ty <- scTypeCheckError sc t''
   return t''

@@ -60,8 +60,8 @@ import Verifier.SAW.Cryptol (scCryptolEq)
 
 -- JSS Utilities {{{1
 
-type SpecPathState = JSS.Path (SharedContext JSSCtx)
-type SpecJavaValue = JSS.Value (SharedTerm JSSCtx)
+type SpecPathState = JSS.Path (SharedContext SAWCtx)
+type SpecJavaValue = JSS.Value (SharedTerm SAWCtx)
 
 type Verbosity = Int
 
@@ -79,7 +79,7 @@ setStaticFieldValue f v =
 
 -- | Set value bound to array in path state.
 -- Assumes value is an array with a ground length.
-setArrayValue :: JSS.Ref -> Int32 -> SharedTerm JSSCtx
+setArrayValue :: JSS.Ref -> Int32 -> SharedTerm SAWCtx
               -> SpecPathState -> SpecPathState
 setArrayValue r n v =
   JSS.pathMemory . JSS.memScalarArrays %~ Map.insert r (n, v)
@@ -95,13 +95,13 @@ mkJSSValue JSS.ShortType   n = JSS.IValue n
 mkJSSValue _ _ = error "internal: illegal type"
 
 -- | Add assumption for predicate to path state.
-addAssumption :: SharedContext JSSCtx -> SharedTerm JSSCtx -> SpecPathState -> IO SpecPathState
+addAssumption :: SharedContext SAWCtx -> SharedTerm SAWCtx -> SpecPathState -> IO SpecPathState
 addAssumption sc x p = do
   andOp <- liftIO $ scApplyPreludeAnd sc
   p & JSS.pathAssertions %%~ \a -> liftIO (andOp a x)
 
 -- | Add assertion for predicate to path state.
-addAssertion :: SharedContext JSSCtx -> SharedTerm JSSCtx -> SpecPathState -> IO SpecPathState
+addAssertion :: SharedContext SAWCtx -> SharedTerm SAWCtx -> SpecPathState -> IO SpecPathState
 addAssertion sc x p = do
   -- TODO: p becomes an additional VC in this case
   andOp <- liftIO $ scApplyPreludeAnd sc
@@ -111,13 +111,13 @@ addAssertion sc x p = do
 
 -- | Contextual information needed to evaluate expressions.
 data EvalContext = EvalContext {
-         ecContext :: SharedContext JSSCtx
+         ecContext :: SharedContext SAWCtx
        , ecLocals :: Map JSS.LocalVariableIndex SpecJavaValue
        , ecPathState :: SpecPathState
        , ecJavaExprs :: Map String TC.JavaExpr
        }
 
-evalContextFromPathState :: SharedContext JSSCtx -> Map String TC.JavaExpr -> SpecPathState -> EvalContext
+evalContextFromPathState :: SharedContext SAWCtx -> Map String TC.JavaExpr -> SpecPathState -> EvalContext
 evalContextFromPathState sc m ps =
   let Just f = JSS.currentCallFrame ps
       localMap = f ^. JSS.cfLocals
@@ -183,7 +183,7 @@ evalJavaRefExpr expr ec = do
     JSS.RValue ref -> return ref
     _ -> throwError $ EvalExprBadJavaType "evalJavaRefExpr" expr
 
-evalJavaExprAsLogic :: TC.JavaExpr -> EvalContext -> ExprEvaluator (SharedTerm JSSCtx)
+evalJavaExprAsLogic :: TC.JavaExpr -> EvalContext -> ExprEvaluator (SharedTerm SAWCtx)
 evalJavaExprAsLogic expr ec = do
   val <- evalJavaExpr expr ec
   case val of
@@ -197,7 +197,7 @@ evalJavaExprAsLogic expr ec = do
     _ -> throwError $ EvalExprBadJavaType "evalJavaExprAsLogic" expr
 
 -- | Evaluates a typed expression in the context of a particular state.
-evalLogicExpr :: TC.LogicExpr -> EvalContext -> ExprEvaluator (SharedTerm JSSCtx)
+evalLogicExpr :: TC.LogicExpr -> EvalContext -> ExprEvaluator (SharedTerm SAWCtx)
 evalLogicExpr initExpr ec = do
   let sc = ecContext ec
       getExprs =
@@ -235,7 +235,7 @@ evalMixedExpr (TC.LE expr) ec = do
 evalMixedExpr (TC.JE expr) ec = evalJavaExpr expr ec
 
 evalMixedExprAsLogic :: TC.MixedExpr -> EvalContext
-                     -> ExprEvaluator (SharedTerm JSSCtx)
+                     -> ExprEvaluator (SharedTerm SAWCtx)
 evalMixedExprAsLogic (TC.LE expr) = evalLogicExpr expr
 evalMixedExprAsLogic (TC.JE expr) = evalJavaExprAsLogic expr
 
@@ -274,12 +274,12 @@ ppOverrideError (InvalidType ty)     = "Invalid type in modify clause: " ++ show
 ppOverrideError Abort                = "Path was aborted."
 
 data OverrideResult
-   = SuccessfulRun (JSS.Path (SharedContext JSSCtx)) (Maybe JSS.Breakpoint) (Maybe SpecJavaValue)
+   = SuccessfulRun (JSS.Path (SharedContext SAWCtx)) (Maybe JSS.Breakpoint) (Maybe SpecJavaValue)
    | FalseAssumption
-   | FailedRun (JSS.Path (SharedContext JSSCtx)) (Maybe JSS.Breakpoint) [OverrideError]
+   | FailedRun (JSS.Path (SharedContext SAWCtx)) (Maybe JSS.Breakpoint) [OverrideError]
    -- deriving (Show)
 
-type RunResult = ( JSS.Path (SharedContext JSSCtx)
+type RunResult = ( JSS.Path (SharedContext SAWCtx)
                  , Maybe JSS.Breakpoint
                  , Either [OverrideError] (Maybe SpecJavaValue)
                  )
@@ -324,7 +324,7 @@ ocModifyResultStateIO fn = do
   put $! bcs { ocsResultState = new }
 
 -- | Add assumption for predicate.
-ocAssert :: Pos -> String -> SharedTerm JSSCtx -> OverrideComputation ()
+ocAssert :: Pos -> String -> SharedTerm SAWCtx -> OverrideComputation ()
 ocAssert p _nm x = do
   sc <- (ecContext . ocsEvalContext) <$> get
   case asBool x of
@@ -443,8 +443,8 @@ execBehavior bsl ec ps = do
        -- Execute statements.
        mapM_ ocStep (bsCommands bs)
 
-checkClassesInitialized :: JSS.MonadSim (SharedContext JSSCtx) m =>
-                           Pos -> String -> [String] -> JSS.Simulator (SharedContext JSSCtx) m ()
+checkClassesInitialized :: JSS.MonadSim (SharedContext SAWCtx) m =>
+                           Pos -> String -> [String] -> JSS.Simulator (SharedContext SAWCtx) m ()
 checkClassesInitialized pos nm requiredClasses = do
   forM_ requiredClasses $ \c -> do
     mem <- JSS.getMem (PP.text "checkClassesInitialized")
@@ -455,13 +455,13 @@ checkClassesInitialized pos nm requiredClasses = do
                   ++ "currently support methods that initialize new classes."
        in throwIOExecException pos (ftext msg) ""
 
-execOverride :: JSS.MonadSim (SharedContext JSSCtx) m
-             => SharedContext JSSCtx
+execOverride :: JSS.MonadSim (SharedContext SAWCtx) m
+             => SharedContext SAWCtx
              -> Pos
              -> JavaMethodSpecIR
              -> Maybe JSS.Ref
-             -> [JSS.Value (SharedTerm JSSCtx)]
-             -> JSS.Simulator (SharedContext JSSCtx) m ()
+             -> [JSS.Value (SharedTerm SAWCtx)]
+             -> JSS.Simulator (SharedContext SAWCtx) m ()
 execOverride sc pos ir mbThis args = do
   -- Execute behaviors.
   initPS <- JSS.getPath (PP.text "MethodSpec override")
@@ -500,11 +500,11 @@ execOverride sc pos ir mbThis args = do
     _  -> fail "More than one path returned from override execution."
 
 -- | Add a method override for the given method to the simulator.
-overrideFromSpec :: JSS.MonadSim (SharedContext JSSCtx) m =>
-                    SharedContext JSSCtx
+overrideFromSpec :: JSS.MonadSim (SharedContext SAWCtx) m =>
+                    SharedContext SAWCtx
                  -> Pos
                  -> JavaMethodSpecIR
-                 -> JSS.Simulator (SharedContext JSSCtx) m ()
+                 -> JSS.Simulator (SharedContext SAWCtx) m ()
 overrideFromSpec de pos ir
   | JSS.methodIsStatic method =
       JSS.overrideStaticMethod cName key $ \args ->
@@ -527,19 +527,19 @@ data ExpectedStateDef = ESD {
        , esdInitialPathState :: SpecPathState
        , esdJavaExprs :: Map String TC.JavaExpr
          -- | Stores initial assignments.
-       , esdInitialAssignments :: [(TC.JavaExpr, SharedTerm JSSCtx)]
+       , esdInitialAssignments :: [(TC.JavaExpr, SharedTerm SAWCtx)]
          -- | Map from references back to Java expressions denoting them.
        , esdRefExprMap :: Map JSS.Ref [TC.JavaExpr]
          -- | Expected return value or Nothing if method returns void.
-       , esdReturnValue :: Maybe (JSS.Value (SharedTerm JSSCtx))
+       , esdReturnValue :: Maybe (JSS.Value (SharedTerm SAWCtx))
          -- | Maps instance fields to expected value, or Nothing if value may
          -- be arbitrary.
-       , esdInstanceFields :: Map (JSS.Ref, JSS.FieldId) (Maybe (JSS.Value (SharedTerm JSSCtx)))
+       , esdInstanceFields :: Map (JSS.Ref, JSS.FieldId) (Maybe (JSS.Value (SharedTerm SAWCtx)))
          -- | Maps static fields to expected value, or Nothing if value may
          -- be arbitrary.
-       , esdStaticFields :: Map JSS.FieldId (Maybe (JSS.Value (SharedTerm JSSCtx)))
+       , esdStaticFields :: Map JSS.FieldId (Maybe (JSS.Value (SharedTerm SAWCtx)))
          -- | Maps reference to expected node, or Nothing if value may be arbitrary.
-       , esdArrays :: Map JSS.Ref (Maybe (Int32, SharedTerm JSSCtx))
+       , esdArrays :: Map JSS.Ref (Maybe (Int32, SharedTerm SAWCtx))
        }
 
 esdRefName :: JSS.Ref -> ExpectedStateDef -> String
@@ -553,16 +553,16 @@ esdRefName ref esd =
 
 -- | State for running the behavior specifications in a method override.
 data ESGState = ESGState {
-         esContext :: SharedContext JSSCtx
+         esContext :: SharedContext SAWCtx
        , esMethod :: JSS.Method
        , esJavaExprs :: Map String TC.JavaExpr
        , esExprRefMap :: Map TC.JavaExpr JSS.Ref
-       , esInitialAssignments :: [(TC.JavaExpr, SharedTerm JSSCtx)]
+       , esInitialAssignments :: [(TC.JavaExpr, SharedTerm SAWCtx)]
        , esInitialPathState :: SpecPathState
        , esReturnValue :: Maybe SpecJavaValue
        , esInstanceFields :: Map (JSS.Ref, JSS.FieldId) (Maybe SpecJavaValue)
        , esStaticFields :: Map JSS.FieldId (Maybe SpecJavaValue)
-       , esArrays :: Map JSS.Ref (Maybe (Int32, SharedTerm JSSCtx))
+       , esArrays :: Map JSS.Ref (Maybe (Int32, SharedTerm SAWCtx))
        , esErrors :: [String]
        }
 
@@ -601,7 +601,7 @@ esModifyInitialPathStateIO fn =
   do s0 <- esGetInitialPathState
      esPutInitialPathState =<< liftIO (fn s0)
 
-esAddEqAssertion :: SharedContext JSSCtx -> String -> SharedTerm JSSCtx -> SharedTerm JSSCtx
+esAddEqAssertion :: SharedContext SAWCtx -> String -> SharedTerm SAWCtx -> SharedTerm SAWCtx
                  -> ExpectedStateGenerator ()
 esAddEqAssertion sc _nm x y =
   do prop <- liftIO (scEq sc x y)
@@ -656,8 +656,8 @@ esSetJavaValue e@(CC.Term exprF) v = do
         Nothing -> esPutInitialPathState $
           (JSS.pathMemory . JSS.memStaticFields %~ Map.insert f v) ps
 
-esResolveLogicExprs :: TC.JavaExpr -> SharedTerm JSSCtx -> [TC.LogicExpr]
-                    -> ExpectedStateGenerator (SharedTerm JSSCtx)
+esResolveLogicExprs :: TC.JavaExpr -> SharedTerm SAWCtx -> [TC.LogicExpr]
+                    -> ExpectedStateGenerator (SharedTerm SAWCtx)
 esResolveLogicExprs e tp [] = do
   sc <- gets esContext
   -- Create input variable.
@@ -676,7 +676,7 @@ esResolveLogicExprs _ _ (hrhs:rrhs) = do
   -- Return value.
   return t
 
-esSetLogicValues :: SharedContext JSSCtx -> [TC.JavaExpr] -> SharedTerm JSSCtx
+esSetLogicValues :: SharedContext SAWCtx -> [TC.JavaExpr] -> SharedTerm SAWCtx
                  -> [TC.LogicExpr]
                  -> ExpectedStateGenerator ()
 esSetLogicValues _ [] _ _ = esError "empty class passed to esSetLogicValues"
@@ -799,12 +799,12 @@ esStep (ModifyArray refExpr _) = do
   when (Map.notMember ref (esArrays es)) $ do
     put es { esArrays = Map.insert ref Nothing (esArrays es) }
 
-initializeVerification :: JSS.MonadSim (SharedContext JSSCtx) m =>
-                          SharedContext JSSCtx
+initializeVerification :: JSS.MonadSim (SharedContext SAWCtx) m =>
+                          SharedContext SAWCtx
                        -> JavaMethodSpecIR
                        -> BehaviorSpec
                        -> RefEquivConfiguration
-                       -> JSS.Simulator (SharedContext JSSCtx) m ExpectedStateDef
+                       -> JSS.Simulator (SharedContext SAWCtx) m ExpectedStateDef
 initializeVerification sc ir bs refConfig = do
   exprRefs <- mapM (JSS.genRef . TC.jssTypeOfActual . snd) refConfig
   let refAssignments = (map fst refConfig `zip` exprRefs)
@@ -895,13 +895,13 @@ initializeVerification sc ir bs refConfig = do
 data PathVC = PathVC {
           pvcStartLoc :: JSS.Breakpoint
         , pvcEndLoc :: Maybe JSS.Breakpoint
-        , pvcInitialAssignments :: [(TC.JavaExpr, SharedTerm JSSCtx)]
+        , pvcInitialAssignments :: [(TC.JavaExpr, SharedTerm SAWCtx)]
           -- | Assumptions on inputs.
-        , pvcAssumptions :: SharedTerm JSSCtx
+        , pvcAssumptions :: SharedTerm SAWCtx
           -- | Static errors found in path.
         , pvcStaticErrors :: [Doc]
           -- | What to verify for this result.
-        , pvcChecks :: [VerificationCheck JSSCtx]
+        , pvcChecks :: [VerificationCheck SAWCtx]
         }
 
 ppPathVC :: PathVC -> Doc
@@ -930,11 +930,11 @@ ppPathVC pvc =
 type PathVCGenerator = State PathVC
 
 -- | Add verification condition to list.
-pvcgAssertEq :: String -> SharedTerm JSSCtx -> SharedTerm JSSCtx -> PathVCGenerator ()
+pvcgAssertEq :: String -> SharedTerm SAWCtx -> SharedTerm SAWCtx -> PathVCGenerator ()
 pvcgAssertEq name jv sv  =
   modify $ \pvc -> pvc { pvcChecks = EqualityCheck name jv sv : pvcChecks pvc }
 
-pvcgAssert :: String -> SharedTerm JSSCtx -> PathVCGenerator ()
+pvcgAssert :: String -> SharedTerm SAWCtx -> PathVCGenerator ()
 pvcgAssert nm v =
   modify $ \pvc -> pvc { pvcChecks = AssertionCheck nm v : pvcChecks pvc }
 
@@ -1044,11 +1044,11 @@ generateVC ir esd (ps, endLoc, res) = do
 
 -- verifyMethodSpec and friends {{{2
 
-mkSpecVC :: JSS.MonadSim (SharedContext JSSCtx) m =>
-            SharedContext JSSCtx
+mkSpecVC :: JSS.MonadSim (SharedContext SAWCtx) m =>
+            SharedContext SAWCtx
          -> VerifyParams
          -> ExpectedStateDef
-         -> JSS.Simulator (SharedContext JSSCtx) m [PathVC]
+         -> JSS.Simulator (SharedContext SAWCtx) m [PathVC]
 mkSpecVC sc params esd = do
   let ir = vpSpec params
       vrb = simVerbose (vpOpts params)
@@ -1068,16 +1068,16 @@ mkSpecVC sc params esd = do
 
 data VerifyParams = VerifyParams
   { vpCode    :: JSS.Codebase
-  , vpContext :: SharedContext JSSCtx
+  , vpContext :: SharedContext SAWCtx
   , vpOpts    :: Options
   , vpSpec    :: JavaMethodSpecIR
   , vpOver    :: [JavaMethodSpecIR]
   }
 
 type SymbolicRunHandler =
-  SharedContext JSSCtx -> ExpectedStateDef -> [PathVC] -> IO ()
+  SharedContext SAWCtx -> ExpectedStateDef -> [PathVC] -> IO ()
 type Prover =
-  VerifyState -> SharedTerm JSSCtx -> IO ()
+  VerifyState -> SharedTerm SAWCtx -> IO ()
 
 runValidation :: Prover -> VerifyParams -> SymbolicRunHandler
 runValidation prover params sc esd results = do
@@ -1132,7 +1132,7 @@ data VerifyState = VState {
          -- | Evaluation context used for parsing expressions during
          -- verification.
        , vsEvalContext :: EvalContext
-       , vsInitialAssignments :: [(TC.JavaExpr, SharedTerm JSSCtx)]
-       , vsCounterexampleFn :: CounterexampleFn JSSCtx
+       , vsInitialAssignments :: [(TC.JavaExpr, SharedTerm SAWCtx)]
+       , vsCounterexampleFn :: CounterexampleFn SAWCtx
        , vsStaticErrors :: [Doc]
        }
