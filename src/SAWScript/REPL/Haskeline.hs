@@ -16,7 +16,7 @@ import SAWScript.REPL.Monad
 import SAWScript.REPL.Trie
 
 import Control.Monad (when)
-import Data.Char (isSpace)
+import Data.Char (isAlphaNum, isSpace)
 import Data.Function (on)
 import Data.List (isPrefixOf,sortBy)
 import System.Console.Haskeline
@@ -160,13 +160,39 @@ completeType (l,_) = do
       vars = filter (n `isPrefixOf`) ns
   return (l,map (nameComp n) vars)
 
+data LexerMode = ModeNormal | ModeCryptol | ModeQuote
+
+lexerMode :: String -> LexerMode
+lexerMode = normal
+  where
+    normal [] = ModeNormal
+    normal ('{' : '{' : s) = cryptol s
+    normal ('\"' : s) = quote s
+    normal (_ : s) = normal s
+
+    cryptol [] = ModeCryptol
+    cryptol ('}' : '}' : s) = normal s
+    cryptol (_ : s) = cryptol s
+
+    quote [] = ModeQuote
+    quote ('\"' : s) = normal s
+    quote (_ : s) = quote s
+
+isIdentChar :: Char -> Bool
+isIdentChar c = isAlphaNum c || c `elem` "_\'"
+
 -- | Complete a name from the sawscript environment.
 completeSAWScript :: CompletionFunc REPL
-completeSAWScript (l,_) = do
-  ns <- getSAWScriptNames
-  let n    = reverse l
-      vars = filter (n `isPrefixOf`) ns
-  return (l,map (nameComp n) vars)
+completeSAWScript cursor@(l, _) = do
+  ns1 <- getSAWScriptNames
+  ns2 <- getExprNames
+  let n = reverse (takeWhile isIdentChar l)
+      s = reverse (takeWhile (/= '\"') l)
+      nameComps prefix ns = map (nameComp prefix) (filter (prefix `isPrefixOf`) ns)
+  case lexerMode (reverse l) of
+    ModeNormal  -> return (l, nameComps n ns1)
+    ModeCryptol -> return (l, nameComps n ns2)
+    ModeQuote   -> completeFilename cursor
 
 -- | Generate a completion from a prefix and a name.
 nameComp :: String -> String -> Completion
