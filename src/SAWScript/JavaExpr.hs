@@ -185,12 +185,19 @@ logicExprJavaExprs = leJavaArgs
 
 termJavaExprs :: SharedTerm SAWCtx -> Set String
 termJavaExprs = snd . impl (Set.empty, Set.empty)
-  where impl a@(seen, exprs) t@(STApp idx tf)
-          | Set.member idx seen = a
-          | otherwise =
-            case asJavaExpr t of
-              Just s -> (Set.insert idx seen, Set.insert s exprs)
-              Nothing -> foldl' impl (Set.insert idx seen, exprs) tf
+  where impl a@(seen, exprs) t =
+          case alreadySeen of
+            Nothing -> a
+            Just seen' ->
+              case asJavaExpr t of
+                Just s -> (seen', Set.insert s exprs)
+                Nothing -> foldl' impl (seen', exprs) (unwrapTermF t)
+          where
+            alreadySeen = case t of
+              STApp idx _
+                | Set.member idx seen -> Nothing
+                | otherwise           -> Just (Set.insert idx seen)
+              Unshared _              -> Just seen
 
 useLogicExpr :: SharedContext SAWCtx -> LogicExpr -> [SharedTerm SAWCtx]
              -> IO (SharedTerm SAWCtx)
