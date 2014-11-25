@@ -1,7 +1,6 @@
 module SAWScript.TypedTerm where
 
 import Data.Map (Map)
-import qualified Data.Map as Map
 
 import qualified Cryptol.TypeCheck.AST as C
 

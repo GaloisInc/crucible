@@ -36,21 +36,10 @@ import SAWScript.REPL.Monad
 import SAWScript.REPL.Trie
 
 import qualified Cryptol.ModuleSystem as M
-import qualified Cryptol.ModuleSystem.Base as MB
-import qualified Cryptol.ModuleSystem.Monad as MM
-import qualified Cryptol.ModuleSystem.Env as ME
 
 import qualified Cryptol.Eval.Value as E
-import qualified Cryptol.ModuleSystem.Renamer as R
---import qualified Cryptol.Testing.Random  as TestR
---import qualified Cryptol.Testing.Exhaust as TestX
-import qualified Cryptol.Parser
-import Cryptol.Parser
-    (parseExprWith,ParseError(),Config(..))
-import Cryptol.Parser.Position (emptyRange,getLoc)
-import qualified Cryptol.TypeCheck
+import Cryptol.Parser (ParseError())
 import qualified Cryptol.TypeCheck.AST as T
-import qualified Cryptol.TypeCheck.Monad
 import Cryptol.Utils.PP
 import qualified Cryptol.Parser.AST as P
 import Cryptol.Prims.Doc(helpDoc)
@@ -59,16 +48,9 @@ import Control.Monad (guard, unless, when)
 import Data.Char (isSpace,isPunctuation,isSymbol)
 import Data.Function (on)
 import Data.List (intercalate,isPrefixOf)
-import Data.Maybe (fromMaybe)
-import Data.Monoid
---import System.Process (shell,createProcess,waitForProcess)
---import qualified System.Process as Process(runCommand)
 import System.FilePath((</>), isPathSeparator)
 import System.Directory(getHomeDirectory,setCurrentDirectory,doesDirectoryExist)
-import Data.Map (Map)
 import qualified Data.Map as Map
---import qualified Data.Set as Set
---import System.Random(newStdGen)
 
 -- SAWScript imports
 import qualified SAWScript.AST as SS
@@ -259,8 +241,8 @@ runCommand c = case c of
 
 
 -- Get the setting we should use for displaying values.
-getPPValOpts :: REPL E.PPOpts
-getPPValOpts =
+_getPPValOpts :: REPL E.PPOpts
+_getPPValOpts =
   do EnvNum base      <- getUser "base"
      EnvBool ascii    <- getUser "ascii"
      EnvNum infLength <- getUser "infLength"
@@ -274,7 +256,7 @@ evalCmd str = do
   let str' = SS.Located str str PosREPL
   sc <- getSharedContext
   cenv <- getCryptolEnv
-  TypedTerm schema sharedterm <- io (CEnv.parseTypedTerm sc cenv str')
+  TypedTerm _schema sharedterm <- io (CEnv.parseTypedTerm sc cenv str')
 
   -- Evaluate and print
   let val = SAWScript.Value.evaluate sc sharedterm
@@ -528,8 +510,8 @@ browseVars pfx = do
 
 
 
-setOptionCmd :: String -> REPL ()
-setOptionCmd str
+_setOptionCmd :: String -> REPL ()
+_setOptionCmd str
   | Just value <- mbValue = setUser key value
   | null key              = mapM_ (describe . optName) (leaves userOptions)
   | otherwise             = describe key
@@ -694,64 +676,6 @@ replParse :: (String -> Either ParseError a) -> String -> REPL a
 replParse parse str = case parse str of
   Right a -> return a
   Left e  -> raise (ParseError e)
-
-replParseExpr :: String -> REPL P.Expr
-replParseExpr = replParse $ parseExprWith interactiveConfig
-
-interactiveConfig :: Config
-interactiveConfig = Cryptol.Parser.defaultConfig { cfgSource = "<interactive>" }
-
--- | Typecheck a single expression in an augmented context. (adapted from ModuleSystem.Base)
-checkExpr :: R.NamingEnv -> Map T.QName T.Schema -> P.Expr -> MM.ModuleM (T.Expr, T.Schema)
-checkExpr nameEnv types e = do
-  -- | Eliminate patterns
-  npe <- MB.noPat e
-
-  -- | Resolve names
-  re <- MB.rename nameEnv npe
-
-  -- | Check types
-  ifDecls <- getAllIfaceDecls `fmap` MM.getModuleEnv
-  let range = fromMaybe emptyRange (getLoc re)
-  input0 <- MB.genInferInput range ifDecls
-  let input = input0 { Cryptol.TypeCheck.Monad.inpVars = Map.union types (Cryptol.TypeCheck.Monad.inpVars input0) }
-
-  out <- MM.io (Cryptol.TypeCheck.tcExpr re input)
-  runInferOutput out
-
-runInferOutput :: Cryptol.TypeCheck.Monad.InferOutput a -> MM.ModuleM a
-runInferOutput out =
-  case out of
-
-    Cryptol.TypeCheck.Monad.InferOK warns seeds o ->
-      do MM.setNameSeeds seeds
-         MM.typeCheckWarnings warns
-         return o
-
-    Cryptol.TypeCheck.Monad.InferFailed warns errs ->
-      do MM.typeCheckWarnings warns
-         MM.typeCheckingFailed errs
-
-getModuleNamingEnv :: P.ModName -> MM.ModuleM R.NamingEnv
-getModuleNamingEnv mn = do
-  -- FIXME HACK; should replace/rewrite getFocusedEnv instead, and get rid of meFocusedModule
-  MM.setFocusedModule mn
-  R.namingEnv `fmap` MM.getFocusedEnv
-
-getAllIfaceDecls :: ME.ModuleEnv -> M.IfaceDecls
-getAllIfaceDecls me = mconcat (map (both . ME.lmInterface) (ME.getLoadedModules (ME.meLoadedModules me)))
-  where both ifc = M.ifPublic ifc `mappend` M.ifPrivate ifc
-
-{-
-replEdit :: String -> REPL Bool
-replEdit file = do
-  mb <- io (lookupEnv "EDITOR")
-  let editor = fromMaybe "vim" mb
-  io $ do
-    (_,_,_,ph) <- createProcess (shell (unwords [editor, file]))
-    exit       <- waitForProcess ph
-    return (exit == ExitSuccess)
--}
 
 type CommandMap = Trie CommandDescr
 

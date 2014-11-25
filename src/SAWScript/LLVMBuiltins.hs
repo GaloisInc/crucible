@@ -140,7 +140,7 @@ verifyLLVM :: BuiltinContext -> Options -> LLVMModule -> String
            -> [LLVMMethodSpecIR]
            -> LLVMSetup ()
            -> IO LLVMMethodSpecIR
-verifyLLVM bic opts (LLVMModule file mdl) func overrides setup = do
+verifyLLVM bic opts (LLVMModule _file mdl) func overrides setup = do
   let pos = fixPos -- TODO
       dl = parseDataLayout $ modDataLayout mdl
   withBE $ \be -> do
@@ -251,7 +251,7 @@ parseLLVMExpr cb fn = parseParts . reverse . splitOn "."
                     Just (Left gb) ->
                       return (Term (Global (CB.globalSym gb) (CB.globalType gb)))
                     _ -> fail $ "Unknown variable: " ++ s
-        parseParts (f:rest) = fail "struct fields not yet supported" {- do
+        parseParts (_f:_rest) = fail "struct fields not yet supported" {- do
           e <- parseParts rest
           let lt = lssTypeOfLLVMExpr e
               pos = fixPos -- TODO
@@ -367,7 +367,7 @@ llvmEnsureEq _ _ name t = do
 
 llvmModify :: BuiltinContext -> Options -> String
            -> LLVMSetup ()
-llvmModify _ _ name = error "llvm_modify not implemented" {- do
+llvmModify _ _ _name = error "llvm_modify not implemented" {- do
   ms <- gets lsSpec
   (expr, ty) <- liftIO $ getLLVMExpr ms name
   modify $ \st ->

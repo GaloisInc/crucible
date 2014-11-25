@@ -194,7 +194,7 @@ bsLogicClasses :: forall s.
                -> BehaviorSpec
                -> RefEquivConfiguration
                -> IO (Maybe [(JavaExprEquivClass, SharedTerm s, [LogicExpr])])
-bsLogicClasses sc m bs cfg = do
+bsLogicClasses sc _m bs cfg = do
   let allClasses = CC.toList
                    -- Add logic equations.
                    $ flip (foldr (uncurry CC.insertEquation)) (bsLogicEqs bs)

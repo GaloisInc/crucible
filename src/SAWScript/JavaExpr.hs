@@ -134,7 +134,7 @@ isClassJavaExpr = isClassType . jssTypeOfJavaExpr
 data LogicExpr =
   LogicExpr { -- | A term, possibly function type, which does _not_
               -- contain any @Java.mkValue@ subexpressions.
-              leTerm :: SharedTerm SAWCtx
+              _leTerm :: SharedTerm SAWCtx
               -- | The Java expressions, if any, that the term should
               -- be applied to
             , leJavaArgs :: [JavaExpr]
@@ -159,7 +159,7 @@ mkMixedExpr m _ _ (asJavaExpr -> Just s) =
     Just je -> return (JE je)
 mkMixedExpr m tys sc t = do
   let javaExprNames = Set.toList (termJavaExprs t)
-      findWithMsg msg k m = maybe (fail msg) return (Map.lookup k m)
+      findWithMsg msg k m' = maybe (fail msg) return (Map.lookup k m')
   -- print javaExprNames
   localVars <- mapM (scLocalVar sc) $ reverse [0..length javaExprNames - 1]
   r <- forM (zip javaExprNames localVars) $ \(name, var) -> do

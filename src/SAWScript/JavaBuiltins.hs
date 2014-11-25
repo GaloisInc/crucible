@@ -21,8 +21,6 @@ import Text.Read (readMaybe)
 
 import Language.JVM.Common
 
-import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
-
 import Verifier.Java.Codebase hiding (lookupClass)
 import Verifier.Java.Simulator as JSS hiding (lookupClass)
 import Verifier.Java.SAWBackend
@@ -31,7 +29,6 @@ import Verifier.SAW.Recognizer
 import Verifier.SAW.FiniteValue
 import Verifier.SAW.SCTypeCheck
 import Verifier.SAW.SharedTerm
-import Verifier.SAW.TypedAST
 
 import qualified SAWScript.CongruenceClosure as CC
 

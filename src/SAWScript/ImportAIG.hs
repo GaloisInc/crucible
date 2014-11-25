@@ -21,7 +21,7 @@ import qualified Data.ABC.GIA as ABC
 
 import Verifier.SAW.Prelude
 import Verifier.SAW.Recognizer
-import Verifier.SAW.SharedTerm
+import Verifier.SAW.SharedTerm hiding (scNot)
 
 type TypeParser s = StateT (V.Vector (SharedTerm s)) (ExceptT String IO)
 

@@ -10,7 +10,6 @@ module SAWScript.Builtins where
 import Control.Applicative
 import Control.Lens
 import Control.Monad.State
-import Data.Bits
 import qualified Data.ByteString.Lazy as BS
 -- import Data.Either (partitionEithers)
 import Data.Foldable (foldl')
@@ -20,7 +19,6 @@ import Data.Maybe
 import Data.Ord
 import qualified Data.Set as Set
 import qualified Data.Vector as V
-import Data.Word
 import System.Directory
 import System.IO
 import System.Process
@@ -103,7 +101,7 @@ readBytes sc path = do
   e <- scBitvector sc 8
   xs <- mapM (scBvConst sc 8 . toInteger) bytes
   trm <- scVector sc e xs
-  let schema = C.Forall [] [] (C.tSeq (C.tNum len) (C.tSeq (C.tNum 8) C.tBit))
+  let schema = C.Forall [] [] (C.tSeq (C.tNum len) (C.tSeq (C.tNum (8::Int)) C.tBit))
   return (TypedTerm schema trm)
 
 readSBV :: BuiltinContext -> Options -> FilePath -> [Uninterp SAWCtx] -> IO (TypedTerm SAWCtx)

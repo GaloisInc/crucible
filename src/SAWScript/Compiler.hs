@@ -52,7 +52,7 @@ mapErrT :: (m (Either String a) -> n (Either String b)) -> ErrT m a -> ErrT n b
 mapErrT f = ErrT . mapExceptT f . extractExceptT
 
 compiler :: PrettyPrint a => String -> Compiler a b -> Compiler a b
-compiler name comp input = do
+compiler _name comp input = do
   result <- liftIO $ runExceptT $ extractExceptT $ comp input
   ErrT $ case result of
     Left err -> fail $ err ++ " in " ++ pShow input

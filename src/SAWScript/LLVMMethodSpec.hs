@@ -64,7 +64,7 @@ storePathState :: SBE SpecBackend
                -> IO SpecPathState
 storePathState sbe dst tp val ps = do
   (c, m') <- sbeRunIO sbe (memStore sbe (ps ^. pathMem) dst tp val 0)
-  ps' <- addAssertion sbe c ps
+  _ps' <- addAssertion sbe c ps
   -- FIXME: don't discard ps'!
   return (ps & pathMem .~ m')
 
@@ -75,7 +75,7 @@ loadPathState :: SBE SpecBackend
               -> IO SpecLLVMValue
 loadPathState sbe src tp ps = do
   (c, v) <- sbeRunIO sbe (memLoad sbe (ps ^. pathMem) tp src 0)
-  ps' <- addAssertion sbe c ps
+  _ps' <- addAssertion sbe c ps
   -- FIXME: don't discard ps'!
   return v
 
@@ -434,8 +434,8 @@ data ExpectedStateDef = ESD {
        , esdReturnValue :: Maybe SpecLLVMValue
        }
 
-esdArgs :: ExpectedStateDef -> [(Ident, SpecLLVMValue)]
-esdArgs = mapMaybe getArg . esdInitialAssignments
+_esdArgs :: ExpectedStateDef -> [(Ident, SpecLLVMValue)]
+_esdArgs = mapMaybe getArg . esdInitialAssignments
   where
     getArg (CC.Term (TC.Arg _ nm _), v) = Just (nm, v)
     getArg _ = Nothing
@@ -587,7 +587,7 @@ esSetLogicValue cb sc expr mtp mrhs = do
   -- Create the value to associate with this LLVM expression: either
   -- an assigned value or a fresh input.
   -- TODO: don't discard ps'!
-  (value, ps') <- liftIO $ createLogicValue cb sbe sc expr ps mtp mrhs
+  (value, _ps') <- liftIO $ createLogicValue cb sbe sc expr ps mtp mrhs
   -- Update the initial assignments in the expected state.
   modify $ \es -> es { esInitialAssignments =
                          (expr, value) : esInitialAssignments es }

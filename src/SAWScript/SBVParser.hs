@@ -151,12 +151,12 @@ parseSBVExpr sc unint nodes size (SBV.SBVApp operator sbvs) =
              s2 <- scNat sc size2
              c <- scBool sc False
              boolTy <- scBoolType sc
-             scMkOp sc s1 boolTy s2 c arg1 arg2
+             scMkOp s1 boolTy s2 c arg1 arg2
       shiftop _ _ = fail "parseSBVExpr: wrong number of arguments for binop"
-      scBvShiftL sc n ty w c v amt = scGlobalApply sc "Prelude.bvShiftL" [n, ty, w, c, v, amt]
-      scBvShiftR sc n ty w c v amt = scGlobalApply sc "Prelude.bvShiftR" [n, ty, w, c, v, amt]
-      scBvRotateL sc n ty w _ v amt = scGlobalApply sc "Prelude.bvRotateL" [n, ty, w, v, amt]
-      scBvRotateR sc n ty w _ v amt = scGlobalApply sc "Prelude.bvRotateR" [n, ty, w, v, amt]
+      scBvShiftL n ty w c v amt = scGlobalApply sc "Prelude.bvShiftL" [n, ty, w, c, v, amt]
+      scBvShiftR n ty w c v amt = scGlobalApply sc "Prelude.bvShiftR" [n, ty, w, c, v, amt]
+      scBvRotateL n ty w _ v amt = scGlobalApply sc "Prelude.bvRotateL" [n, ty, w, v, amt]
+      scBvRotateR n ty w _ v amt = scGlobalApply sc "Prelude.bvRotateR" [n, ty, w, v, amt]
 
 ----------------------------------------------------------------------
 
@@ -237,7 +237,7 @@ scTyp sc (TTuple as) =
     do ts <- mapM (scTyp sc) as
        scNestedTupleType sc ts
 scTyp sc (TRecord fields) =
-    do let (names, as) = unzip fields
+    do let (_names, as) = unzip fields
        ts <- mapM (scTyp sc) as
        scNestedTupleType sc ts
 

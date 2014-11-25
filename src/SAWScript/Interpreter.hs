@@ -73,7 +73,7 @@ extendEnv x mt md v (InterpretEnv vm tm dm ce) = InterpretEnv vm' tm' dm' ce'
   where
     name = x
     qname = T.QName Nothing (T.Name (getOrig x))
-    modName = T.ModName [getOrig x]
+    modname = T.ModName [getOrig x]
     vm' = Map.insert name v vm
     tm' = maybe tm (\t -> Map.insert name t tm) mt
     dm' = maybe dm (\d -> Map.insert (getVal name) d dm) md
@@ -83,7 +83,7 @@ extendEnv x mt md v (InterpretEnv vm tm dm ce) = InterpretEnv vm' tm' dm' ce'
             VInteger n
               -> CEnv.bindInteger (qname, n) ce
             VCryptolModule m
-              -> CEnv.bindCryptolModule (modName, m) ce
+              -> CEnv.bindCryptolModule (modname, m) ce
             _ -> ce
 
 -- | Variation that does not force the value argument: it assumes it
@@ -167,6 +167,8 @@ interpretStmts sc env@(InterpretEnv vm tm dm ce) stmts =
       SS.BlockCode s : ss ->
           do ce' <- CEnv.parseDecls sc ce s
              interpretStmts sc (InterpretEnv vm tm dm ce') ss
+      SS.BlockImport _ : _ ->
+          do fail "block import unimplemented"
 
 interpretModule
     :: SharedContext SAWCtx

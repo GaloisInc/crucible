@@ -187,7 +187,6 @@ completeSAWScript cursor@(l, _) = do
   ns1 <- getSAWScriptNames
   ns2 <- getExprNames
   let n = reverse (takeWhile isIdentChar l)
-      s = reverse (takeWhile (/= '\"') l)
       nameComps prefix ns = map (nameComp prefix) (filter (prefix `isPrefixOf`) ns)
   case lexerMode (reverse l) of
     ModeNormal  -> return (l, nameComps n ns1)

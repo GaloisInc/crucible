@@ -260,6 +260,7 @@ instance AppSubst BlockStmt where
     Bind mn mt ctx e -> Bind mn mt ctx e
     BlockLet dg   -> BlockLet (appSubst s dg)
     BlockCode str -> BlockCode str
+    BlockImport imp -> BlockImport imp
 
 instance AppSubst DeclGroup where
   appSubst s (Recursive ds) = Recursive (appSubst s ds)
@@ -478,6 +479,10 @@ inferStmts m ctx (BlockLet dg : more) = do
 inferStmts m ctx (BlockCode s : more) = do
   (more',t) <- inferStmts m ctx more
   return (BlockCode s : more', t)
+
+inferStmts m ctx (BlockImport imp : more) = do
+  (more', t) <- inferStmts m ctx more
+  return (BlockImport imp : more', t)
 
 inferDecl :: Decl -> TI Decl
 inferDecl (Decl n Nothing e) = do

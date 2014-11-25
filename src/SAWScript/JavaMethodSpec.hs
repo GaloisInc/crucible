@@ -578,7 +578,7 @@ esEval fn = do
   let ec = evalContextFromPathState sc m initPS
   res <- runEval (fn ec)
   case res of
-    Left expr -> error "internal: esEval failed to evaluate expression"
+    Left _expr -> error "internal: esEval failed to evaluate expression"
     Right v   -> return v
 
 esError :: String -> ExpectedStateGenerator ()
@@ -861,9 +861,9 @@ initializeVerification sc ir bs refConfig = do
           mapM esStep (bsCommands bs)
   let ps = esInitialPathState es
       errs = esErrors es
-      indent = (' ' :) . (' ' :)
+      indent2 = (' ' :) . (' ' :)
   unless (null errs) $ fail . unlines $
-    "Errors while initializing verification:" : map indent errs
+    "Errors while initializing verification:" : map indent2 errs
   JSS.modifyPathM_ (PP.text "initializeVerification") (\_ -> return ps)
   return ESD { esdStartLoc = bsLoc bs
              , esdInitialPathState = esInitialPathState es

@@ -70,12 +70,12 @@ initCryptolEnv sc = do
   -- Set the Cryptol include path (TODO: we may want to do this differently)
   (binDir, _) <- splitExecutablePath
   let instDir = normalise . joinPath . init . splitPath $ binDir
-  let modEnv = modEnv0 { ME.meSearchPath =
+  let modEnv1 = modEnv0 { ME.meSearchPath =
                            (instDir </> "lib") : ME.meSearchPath modEnv0 }
 
   -- Load Cryptol prelude
   (_, modEnv) <-
-    liftModuleM modEnv $ do
+    liftModuleM modEnv1 $ do
       path <- MB.findModule MB.preludeName
       MB.loadModuleByPath path
 
