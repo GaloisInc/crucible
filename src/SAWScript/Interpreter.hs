@@ -173,7 +173,8 @@ interpretModule
     -> InterpretEnv -> SS.ValidModule -> IO InterpretEnv
 interpretModule sc env m =
     do cenv' <- foldM (CEnv.importModule sc) (ieCryptol env) (SS.moduleCryDeps m)
-       let env' = env { ieCryptol = cenv' }
+       cenv'' <- foldM (CEnv.parseDecls sc) cenv' (SS.moduleCryDecls m)
+       let env' = env { ieCryptol = cenv'' }
        let decls = SS.moduleExprEnv m
        foldM (interpretDecl sc) env' decls
 

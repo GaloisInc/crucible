@@ -75,6 +75,7 @@ data Module = Module
   , moduleExprEnv      :: [Decl]
   , moduleDependencies :: ModuleEnv ValidModule
   , moduleCryDeps      :: [Import]
+  , moduleCryDecls     :: [Located String]
   } deriving (Eq,Show)
 
 -- A fully type checked module.
@@ -109,6 +110,7 @@ data TopStmt
   | TopTypeDecl LName Schema  -- ^ <name> : <type>
   | TopBind     Decl          -- ^ <name> = <expr>
   | ImportCry   Import        -- ^ import "filepath.cry" [as <name>] [(<names>)]
+  | TopCode (Located String)  -- ^ let {{ <cryptol decls> }}
   deriving (Eq, Show)
 
 data Import = Import

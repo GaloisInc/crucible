@@ -105,6 +105,7 @@ TopStmt :: { TopStmt }
  | 'import' Import                      { ImportCry $2                 }
  | name ':' PolyType                    { TopTypeDecl (toLName $1) $3  }
  | Declaration                          { TopBind $1 }
+ | 'let' Code                           { TopCode $2 }
 
 Import :: { Import }
  : string mbAs mbImportSpec             { Import (Left $1) $2 $3 }
