@@ -111,7 +111,7 @@ import SAWScript.BuildModules (buildModules)
 import SAWScript.Builtins (BuiltinContext(..))
 import SAWScript.Compiler (ErrT, runErr, runErrT)
 import SAWScript.CryptolEnv
-import SAWScript.Import (preludeLoadedModules)
+import SAWScript.Import (emptyLoadedModules)
 import SAWScript.Interpreter (InterpretEnv(..), buildInterpretEnv)
 import SAWScript.Options (Options)
 import SAWScript.ProcessFile (checkModuleWithDeps)
@@ -135,9 +135,8 @@ data RW = RW
 -- | Initial, empty environment.
 defaultRW :: Bool -> Options -> IO RW
 defaultRW isBatch opts = do
-  preludeEtc <- preludeLoadedModules
   result <- runErr $ do
-              built <- buildModules preludeEtc
+              built <- buildModules emptyLoadedModules
               foldrM checkModuleWithDeps Map.empty built
   modules <- case result of
                Left msg -> fail msg

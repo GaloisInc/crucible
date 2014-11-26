@@ -1,11 +1,9 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE QuasiQuotes #-}
 module SAWScript.Import
-  ( loadWithPrelude
-  , loadModule
+  ( loadModule
   , findAndLoadModule
   , emptyLoadedModules
-  , preludeLoadedModules
   , LoadedModules(..)
   ) where
 
@@ -16,31 +14,12 @@ import qualified Text.PrettyPrint.Leijen as PP
 
 import SAWScript.AST
 import SAWScript.Compiler
-import SAWScript.FileQuote (litFile)
 import SAWScript.Lexer
 import SAWScript.Options
 import SAWScript.Parser
 
 import System.Directory
 import System.FilePath
-
-preludePath :: FilePath
-preludePath = "prelude/Prelude.saw"
-
-preludeLoadedModules :: IO LoadedModules
-preludeLoadedModules = do
-  result <- runErr (formModule preludePath [litFile|prelude/Prelude.saw|])
-  case result of
-    Left msg -> fail msg
-    Right m  -> return $ ms { modules = Map.insert mn m (modules ms) }
-  where
-    ms = emptyLoadedModules
-    mn = "Prelude"
-
-loadWithPrelude :: Options -> FilePath -> IO LoadedModules
-loadWithPrelude opts fname = do
-  loaded <- preludeLoadedModules
-  loadModule opts fname loaded
 
 loadModule :: Options -> FilePath -> LoadedModules -> IO LoadedModules
 loadModule opts fname ms = do
