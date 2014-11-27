@@ -34,7 +34,6 @@ logo useColor =
   slen      = length ls `div` 3
   (ws,rest) = splitAt slen ls
   (vs,ds)   = splitAt slen rest
-  lineLen   = length (head ls)
 
 displayLogo :: Bool -> IO ()
 displayLogo useColor = mapM_ putStrLn (logo useColor)
