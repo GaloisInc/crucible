@@ -223,19 +223,21 @@ assumeUnsat = StateT $ \goal -> do
 
 printGoal :: ProofScript s ()
 printGoal = StateT $ \goal -> do
-  putStrLn (scPrettyTerm (goalTerm goal))
+  putStrLn (scPrettyTerm (ttTerm (goalTerm goal)))
   return ((), goal)
 
 unfoldGoal :: SharedContext s -> [String] -> ProofScript s ()
 unfoldGoal sc names = StateT $ \goal -> do
   let ids = map (mkIdent (moduleName (scModule sc))) names
-  goalTerm' <- scUnfoldConstants sc ids (goalTerm goal)
-  return ((), goal { goalTerm = goalTerm' })
+  let TypedTerm schema trm = goalTerm goal
+  trm' <- scUnfoldConstants sc ids trm
+  return ((), goal { goalTerm = TypedTerm schema trm' })
 
 simplifyGoal :: SharedContext s -> Simpset (SharedTerm s) -> ProofScript s ()
 simplifyGoal sc ss = StateT $ \goal -> do
-  goalTerm' <- rewriteSharedTerm sc ss (goalTerm goal)
-  return ((), goal { goalTerm = goalTerm' })
+  let TypedTerm schema trm = goalTerm goal
+  trm' <- rewriteSharedTerm sc ss trm
+  return ((), goal { goalTerm = TypedTerm schema trm' })
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
@@ -286,7 +288,7 @@ checkBoolean sc t = do
 -- satisfiability using ABC.
 satABC :: SharedContext s -> ProofScript s SV.SatResult
 satABC sc = StateT $ \g -> AIG.withNewGraph giaNetwork $ \be -> do
-  let t = goalTerm g
+  let TypedTerm schema t = goalTerm g
   checkBoolean sc t
   let (args, _) = asLambdaList t
       argNames = map fst args
@@ -298,7 +300,7 @@ satABC sc = StateT $ \g -> AIG.withNewGraph giaNetwork $ \be -> do
     AIG.Unsat -> do
       -- putStrLn "UNSAT"
       ft <- scApplyPreludeFalse sc
-      return (SV.Unsat, g { goalTerm = ft })
+      return (SV.Unsat, g { goalTerm = TypedTerm schema ft })
     AIG.Sat cex -> do
       -- putStrLn "SAT"
       let r = liftCexBB shapes cex
@@ -306,9 +308,9 @@ satABC sc = StateT $ \g -> AIG.withNewGraph giaNetwork $ \be -> do
       case r of
         Left err -> fail $ "Can't parse counterexample: " ++ err
         Right [v] ->
-          return (SV.Sat v, g { goalTerm = tt })
+          return (SV.Sat v, g { goalTerm = TypedTerm schema tt })
         Right vs -> do
-          return (SV.SatMulti (zip argNames vs), g { goalTerm = tt })
+          return (SV.SatMulti (zip argNames vs), g { goalTerm = TypedTerm schema tt })
     AIG.SatUnknown -> fail "Unknown result from ABC"
 
 parseDimacsSolution :: [Int]    -- ^ The list of CNF variables to return
@@ -327,7 +329,7 @@ satExternal :: Bool -> SharedContext s -> String -> [String]
             -> ProofScript s SV.SatResult
 satExternal doCNF sc execName args = StateT $ \g -> withBE $ \be -> do
   let cnfName = goalName g ++ ".cnf"
-      t = goalTerm g
+      TypedTerm schema t = goalTerm g
       argNames = map fst (fst (asLambdaList t))
   checkBoolean sc t
   (path, fh) <- openTempFile "." cnfName
@@ -352,12 +354,12 @@ satExternal doCNF sc execName args = StateT $ \g -> withBE $ \be -> do
       case r of
         Left msg -> fail $ "Can't parse counterexample: " ++ msg
         Right [v] ->
-          return (SV.Sat v, g { goalTerm = tt })
+          return (SV.Sat v, g { goalTerm = TypedTerm schema tt })
         Right vs -> do
-          return (SV.SatMulti (zip argNames vs), g { goalTerm = tt })
+          return (SV.SatMulti (zip argNames vs), g { goalTerm = TypedTerm schema tt })
     (["s UNSATISFIABLE"], []) -> do
       ft <- scApplyPreludeFalse sc
-      return (SV.Unsat, g { goalTerm = ft })
+      return (SV.Unsat, g { goalTerm = TypedTerm schema ft })
     _ -> fail $ "Unexpected result from SAT solver:\n" ++ out
 
 writeAIGWithMapping :: GIA.GIA s -> GIA.Lit s -> FilePath -> IO [Int]
@@ -369,8 +371,9 @@ writeAIGWithMapping be l path = do
 unsatResult :: SharedContext s -> ProofGoal s
             -> IO (SV.SatResult, ProofGoal s)
 unsatResult sc g = do
+  let schema = C.Forall [] [] C.tBit
   ft <- scApplyPreludeFalse sc
-  return (SV.Unsat, g { goalTerm = ft })
+  return (SV.Unsat, g { goalTerm = TypedTerm schema ft })
 
 prepSBV :: SharedContext s -> SharedTerm s
         -> IO (SharedTerm s, [SBVSim.Labeler], Predicate)
@@ -387,17 +390,19 @@ prepSBV sc t = do
 -- satisfiability using SBV. (Currently ignores satisfying assignments.)
 satSBV :: SMTConfig -> SharedContext s -> ProofScript s SV.SatResult
 satSBV conf sc = StateT $ \g -> do
-  (t', labels, lit) <- prepSBV sc (goalTerm g)
+  (t', labels, lit) <- prepSBV sc (ttTerm (goalTerm g))
   let (args, _) = asLambdaList t'
       argNames = map fst args
   SBV.SatResult r <- satWith conf lit
   case r of
     SBV.Satisfiable {} -> do
+      let schema = C.Forall [] [] C.tBit
       tt <- scApplyPreludeTrue sc
-      return (getLabels labels r (SBV.getModelDictionary r) argNames, g {goalTerm = tt})
+      return (getLabels labels r (SBV.getModelDictionary r) argNames, g {goalTerm = TypedTerm schema tt})
     SBV.Unsatisfiable {} -> do
+      let schema = C.Forall [] [] C.tBit
       ft <- scApplyPreludeFalse sc
-      return (SV.Unsat, g { goalTerm = ft })
+      return (SV.Unsat, g { goalTerm = TypedTerm schema ft })
     SBV.Unknown {} -> fail "Prover returned Unknown"
     SBV.ProofError _ ls -> fail . unlines $ "Prover returned error: " : ls
     SBV.TimeOut {} -> fail "Prover timed out"
@@ -441,7 +446,7 @@ satWithExporter :: (SharedContext s -> FilePath -> SharedTerm s -> IO ())
                 -> String
                 -> ProofScript s SV.SatResult
 satWithExporter exporter sc path ext = StateT $ \g -> do
-  let t = goalTerm g
+  let t = ttTerm (goalTerm g)
   checkBoolean sc t
   exporter sc ((path ++ goalName g) ++ ext) t
   unsatResult sc g
@@ -478,29 +483,29 @@ scNegate sc t =
 -- | Translate a @SharedTerm@ representing a theorem for input to the
 -- given validity-checking script and attempt to prove it.
 provePrim :: SharedContext s -> ProofScript s SV.SatResult
-          -> SharedTerm s -> IO SV.ProofResult
-provePrim sc script t = do
-  t' <- scNegate sc t
-  (r, _) <- runStateT script (ProofGoal "prove" t')
+          -> TypedTerm s -> IO SV.ProofResult
+provePrim sc script (TypedTerm schema t) = do
+  t' <- scNegate sc t -- ^ FIXME: appropriate negation based on schema
+  (r, _) <- runStateT script (ProofGoal "prove" (TypedTerm schema t'))
   return (SV.flipSatResult r)
 
 provePrintPrim :: SharedContext s -> ProofScript s SV.SatResult
-               -> SharedTerm s -> IO (Theorem s)
-provePrintPrim sc script t = do
+               -> TypedTerm s -> IO (Theorem s)
+provePrintPrim sc script tt@(TypedTerm schema t) = do
   t' <- scNegate sc t
-  (r, _) <- runStateT script (ProofGoal "prove" t')
+  (r, _) <- runStateT script (ProofGoal "prove" (TypedTerm schema t'))
   case r of
-    SV.Unsat -> putStrLn "Valid" >> return (Theorem t)
+    SV.Unsat -> putStrLn "Valid" >> return (Theorem tt)
     _ -> fail (show (SV.flipSatResult r))
 
-satPrim :: SharedContext s -> ProofScript s SV.SatResult -> SharedTerm s
+satPrim :: SharedContext s -> ProofScript s SV.SatResult -> TypedTerm s
         -> IO SV.SatResult
 satPrim _sc script t = do
   (r, _) <- runStateT script (ProofGoal "sat" t)
   return r
 
 satPrintPrim :: SharedContext s -> ProofScript s SV.SatResult
-             -> SharedTerm s -> IO ()
+             -> TypedTerm s -> IO ()
 satPrintPrim _sc script t = do
   (r, _) <- runStateT script (ProofGoal "sat" t)
   print r
@@ -522,7 +527,7 @@ rewritePrim sc ss (TypedTerm schema t) = do
   return (TypedTerm schema t')
 
 addsimp :: SharedContext s -> Theorem s -> Simpset (SharedTerm s) -> Simpset (SharedTerm s)
-addsimp _sc (Theorem t) ss = addRule (ruleOfProp t) ss
+addsimp _sc (Theorem t) ss = addRule (ruleOfProp (ttTerm t)) ss
 
 addsimp' :: SharedContext s -> SharedTerm s -> Simpset (SharedTerm s) -> Simpset (SharedTerm s)
 addsimp' _sc t ss = addRule (ruleOfProp t) ss

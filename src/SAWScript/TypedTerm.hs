@@ -13,7 +13,11 @@ import Verifier.SAW.SharedTerm
 shared term paired with a Cryptol type schema. The Cryptol type is
 used for type inference/checking of inline Cryptol expressions. -}
 
-data TypedTerm s = TypedTerm C.Schema (SharedTerm s)
+data TypedTerm s =
+  TypedTerm
+  { ttSchema :: C.Schema
+  , ttTerm :: SharedTerm s
+  }
 
 mkTypedTerm :: SharedContext s -> SharedTerm s -> IO (TypedTerm s)
 mkTypedTerm sc trm = do

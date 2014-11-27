@@ -124,7 +124,7 @@ showsPrecValue opts p v =
     VIO {} -> showString "<<IO>>"
     VSimpset {} -> showString "<<simpset>>"
     VProofScript {} -> showString "<<proof script>>"
-    VTheorem (Theorem t) -> showString "Theorem " . showParen True (showString (scPrettyTerm t))
+    VTheorem (Theorem t) -> showString "Theorem " . showParen True (showString (scPrettyTerm (ttTerm t)))
     VJavaSetup {} -> showString "<<Java Setup>>"
     VLLVMSetup {} -> showString "<<LLVM Setup>>"
     VJavaMethodSpec {} -> showString "<<Java MethodSpec>>"

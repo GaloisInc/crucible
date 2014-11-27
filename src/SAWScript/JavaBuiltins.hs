@@ -275,6 +275,7 @@ verifyJava bic opts cls mname overrides setup = do
         mapM_ (print . ppPathVC) res
       let prover script vs g = do
             glam <- bindAllExts jsc g
+            TypedTerm schema _ <- mkTypedTerm jsc glam
             glam' <- scNegate bsc {- =<< scImport bsc -} glam
             when (extraChecks opts) $ do
               when (verb >= 2) $ putStrLn "Type checking goal..."
@@ -285,7 +286,7 @@ verifyJava bic opts cls mname overrides setup = do
                     "Ill-typed goal constructed." : prettyTCError err
                 Right _ -> when (verb >= 2) $ putStrLn "Done."
             when (verb >= 6) $ putStrLn $ "Trying to prove: " ++ show glam'
-            (r, _) <- runStateT script (ProofGoal (vsVCName vs) glam')
+            (r, _) <- runStateT script (ProofGoal (vsVCName vs) (TypedTerm schema glam'))
             case r of
               SS.Unsat -> when (verb >= 3) $ putStrLn "Valid."
               SS.Sat val -> showCexResults jsc ms vs [("x", val)] -- TODO: replace x with something

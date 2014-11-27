@@ -1,11 +1,11 @@
 module SAWScript.Proof where
 
 import Control.Monad.State
-import Verifier.SAW.SharedTerm
+import SAWScript.TypedTerm
 
 -- | A theorem must contain a boolean term, possibly surrounded by one
 -- or more lambdas which are interpreted as universal quantifiers.
-data Theorem s = Theorem (SharedTerm s)
+data Theorem s = Theorem (TypedTerm s)
 
 -- | A ProofGoal is a term of type Bool, possibly surrounded by one or
 -- more lambdas. The abstracted arguments are treated as if they are
@@ -15,7 +15,7 @@ data Theorem s = Theorem (SharedTerm s)
 data ProofGoal s =
   ProofGoal {
     goalName :: String
-  , goalTerm :: SharedTerm s
+  , goalTerm :: TypedTerm s
   }
 
 type ProofScript s a = StateT (ProofGoal s) IO a
