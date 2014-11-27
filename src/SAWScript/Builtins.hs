@@ -66,6 +66,7 @@ import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
 
 import qualified Cryptol.TypeCheck.AST as C
+import Cryptol.Utils.PP (pretty)
 
 import qualified Data.SBV.Bridge.Boolector as Boolector
 import qualified Data.SBV.Bridge.Z3 as Z3
@@ -284,12 +285,23 @@ checkBoolean sc t = do
     fail $ "Attempting to prove a term that returns a non-boolean type: " ++
            show ty
 
+checkBooleanType :: C.Type -> IO ()
+checkBooleanType (C.tIsBit -> True) = return ()
+checkBooleanType (C.tIsFun -> Just (_, ty')) = checkBooleanType ty'
+checkBooleanType ty =
+  fail $ "Attempting to prove a term that returns a non-boolean type: " ++ pretty ty
+
+checkBooleanSchema :: C.Schema -> IO ()
+checkBooleanSchema (C.Forall [] [] t) = checkBooleanType t
+checkBooleanSchema s =
+  fail $ "Attempting to prove a term with polymorphic type: " ++ pretty s
+
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
 satABC :: SharedContext s -> ProofScript s SV.SatResult
 satABC sc = StateT $ \g -> AIG.withNewGraph giaNetwork $ \be -> do
   let TypedTerm schema t = goalTerm g
-  checkBoolean sc t
+  checkBooleanSchema schema
   let (args, _) = asLambdaList t
       argNames = map fst args
   -- putStrLn "Simulating..."
