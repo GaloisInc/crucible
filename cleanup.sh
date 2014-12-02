@@ -9,7 +9,6 @@
 (cd ../Java && cabal clean)
 (cd ../LLVM && cabal clean)
 (cd ../SAWCore && cabal clean)
-(cd ../Verinf && cabal clean)
 cabal clean
 rm -rf build
 rm -rf build-test
