@@ -82,8 +82,8 @@ options =
 processEnv :: Options -> IO Options
 processEnv opts = do
   curEnv <- getEnvironment
-  jars <- if any isCoreJar (jarList opts) then return [] else findJDKJar
-  return $ foldr addOpt (opts { jarList = jars ++ jarList opts }) curEnv
+  --jars <- if any isCoreJar (jarList opts) then return [] else findJDKJar
+  return $ foldr addOpt (opts { jarList = {- jars ++ -} jarList opts }) curEnv
     where addOpt ("SAW_IMPORT_PATH", p) os =
             os { importPath = importPath os ++ splitSearchPath p }
           addOpt _ os = os
