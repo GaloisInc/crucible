@@ -281,9 +281,9 @@ verifyJava bic opts cls mname overrides setup = do
               when (verb >= 2) $ putStrLn "Type checking goal..."
               tcr <- scTypeCheck bsc glam'
               case tcr of
-                Left err -> do
+                Left e -> do
                   putStr $ unlines $
-                    "Ill-typed goal constructed." : prettyTCError err
+                    "Ill-typed goal constructed." : prettyTCError e
                 Right _ -> when (verb >= 2) $ putStrLn "Done."
             when (verb >= 6) $ putStrLn $ "Trying to prove: " ++ show glam'
             (r, _) <- runStateT script (ProofGoal (vsVCName vs) (TypedTerm schema glam'))
