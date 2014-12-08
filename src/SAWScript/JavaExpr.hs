@@ -28,6 +28,7 @@ module SAWScript.JavaExpr
   , jssTypeOfActual
   , isActualRef
   , logicTypeOfActual
+  , typeOfLogicExpr
   , ppActualType
   , MethodLocation (..)
   , JavaType(..)
@@ -201,26 +202,11 @@ termJavaExprs = snd . impl (Set.empty, Set.empty)
 
 useLogicExpr :: SharedContext SAWCtx -> LogicExpr -> [SharedTerm SAWCtx]
              -> IO (SharedTerm SAWCtx)
-useLogicExpr sc (LogicExpr t _) args = do
-  t' <- return t -- scImport sc t
-  t'' <- scApplyAll sc t' args
-  -- _ty <- scTypeCheckError sc t''
-  return t''
+useLogicExpr sc (LogicExpr t _) args = scApplyAll sc t args
 
-{-
 -- | Return type of a typed expression.
-typeOfLogicExpr :: SharedContext s -> LogicExpr s -> IO (SharedTerm s)
-typeOfLogicExpr = scTypeOf
--}
-
-{-
--- | Returns names of variables appearing in typedExpr.
-logicExprVarNames :: LogicExpr -> Set String
-logicExprVarNames = flip impl Set.empty
-  where impl (Apply _ args) s = foldr impl s args
-        impl (Var nm _) s = Set.insert nm s
-        impl _ s = s
--}
+typeOfLogicExpr :: SharedContext SAWCtx -> LogicExpr -> IO (SharedTerm SAWCtx)
+typeOfLogicExpr sc (LogicExpr t _) = scTypeOf sc t
 
 -- MixedExpr {{{1
 
