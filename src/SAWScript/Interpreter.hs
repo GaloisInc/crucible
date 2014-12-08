@@ -214,7 +214,13 @@ buildInterpretEnv opts m =
                  insImport CryptolSAW.cryptolModule $
                  emptyModule mn
        sc0 <- mkSharedContext scm
-       simps <- scSimpset sc0 [] [] natConversions
+       let convs = natConversions
+                   ++ bvConversions
+                   ++ vecConversions
+                   ++ [ remove_ident_coerce
+                      , remove_ident_unsafeCoerce
+                      ]
+       simps <- scSimpset sc0 [] [] convs
        let sc = rewritingSharedContext sc0 simps
        ss <- basic_ss sc
        jcb <- JCB.loadCodebase (jarList opts) (classPath opts)
