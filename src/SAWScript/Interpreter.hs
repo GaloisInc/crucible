@@ -330,6 +330,14 @@ primitives = Map.fromList
     (pureVal (scTreeSize :: SharedTerm SAWCtx -> Integer))
     [ "TODO" ]
 
+  , prim "abstract_symbolic"   "Term -> TopLevel Term"
+    (scVal abstractSymbolicPrim)
+    [ "TODO" ]
+
+  , prim "fresh_bitvector"     "String -> Int -> TopLevel Term"
+    (scVal freshBitvectorPrim)
+    [ "TODO" ]
+
 
   , prim "sbv_uninterpreted"   "String -> Term -> TopLevel Uninterp"
     (scVal sbvUninterpreted)

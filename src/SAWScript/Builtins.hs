@@ -589,6 +589,16 @@ extName :: SharedTerm s -> Maybe String
 extName (unwrapTermF -> FTermF (ExtCns ec)) = Just (ecName ec)
 extName _ = Nothing
 
+freshBitvectorPrim :: SharedContext s -> String -> Int -> IO (TypedTerm s)
+freshBitvectorPrim sc x n = do
+  ty <- scBitvector sc (fromIntegral n)
+  tm <- scFreshGlobal sc x ty
+  mkTypedTerm sc tm
+
+abstractSymbolicPrim :: SharedContext s -> TypedTerm s -> IO (TypedTerm s)
+abstractSymbolicPrim sc (TypedTerm _ t) =
+  mkTypedTerm sc =<< bindAllExts sc t
+
 bindAllExts :: SharedContext s
             -> SharedTerm s
             -> IO (SharedTerm s)
