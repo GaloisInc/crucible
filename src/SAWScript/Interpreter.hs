@@ -371,7 +371,7 @@ primitives = Map.fromList
     [ "TODO" ]
 
   , prim "write_core"          "String -> Term -> TopLevel ()"
-    (pureVal (writeCore :: FilePath -> SharedTerm SAWCtx -> IO ()))
+    (pureVal (writeCore :: FilePath -> TypedTerm SAWCtx -> IO ()))
     [ "TODO" ]
 
 

@@ -175,15 +175,15 @@ prepForExport sc t = do
 
 -- | Write a @SharedTerm@ representing a theorem or an arbitrary
 -- function to an AIG file.
-writeAIG :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
+writeAIG :: SharedContext s -> FilePath -> TypedTerm s -> IO ()
 writeAIG sc f t = withBE $ \be -> do
-  ls <- BBSim.bitBlastTerm be sc t
+  ls <- BBSim.bitBlastTerm be sc (ttTerm t)
   ABC.writeAiger f (ABC.Network be (ABC.bvToList ls))
   return ()
 
-writeCNF :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
+writeCNF :: SharedContext s -> FilePath -> TypedTerm s -> IO ()
 writeCNF sc f t = withBE $ \be -> do
-  ls <- BBSim.bitBlastTerm be sc t
+  ls <- BBSim.bitBlastTerm be sc (ttTerm t)
   case AIG.bvToList ls of
     [l] -> do
       _ <- GIA.writeCNF be l f
@@ -192,7 +192,7 @@ writeCNF sc f t = withBE $ \be -> do
 
 -- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
 -- 1 file.
-writeSMTLib1 :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
+writeSMTLib1 :: SharedContext s -> FilePath -> TypedTerm s -> IO ()
 writeSMTLib1 sc f t = do
   (_, _, l) <- prepSBV sc t
   txt <- compileToSMTLib False True l
@@ -200,14 +200,14 @@ writeSMTLib1 sc f t = do
 
 -- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
 -- 2 file.
-writeSMTLib2 :: SharedContext s -> FilePath -> SharedTerm s -> IO ()
+writeSMTLib2 :: SharedContext s -> FilePath -> TypedTerm s -> IO ()
 writeSMTLib2 sc f t = do
   (_, _, l) <- prepSBV sc t
   txt <- compileToSMTLib True True l
   writeFile f txt
 
-writeCore :: FilePath -> SharedTerm s -> IO ()
-writeCore path t = writeFile path (scWriteExternal t)
+writeCore :: FilePath -> TypedTerm s -> IO ()
+writeCore path t = writeFile path (scWriteExternal (ttTerm t))
 
 readCore :: SharedContext s -> FilePath -> IO (TypedTerm s)
 readCore sc path = mkTypedTerm sc =<< scReadExternal sc =<< readFile path
@@ -387,11 +387,11 @@ unsatResult sc g = do
   ft <- scApplyPreludeFalse sc
   return (SV.Unsat, g { goalTerm = TypedTerm schema ft })
 
-prepSBV :: SharedContext s -> SharedTerm s
+prepSBV :: SharedContext s -> TypedTerm s
         -> IO (SharedTerm s, [SBVSim.Labeler], Predicate)
-prepSBV sc t = do
+prepSBV sc (TypedTerm schema t) = do
   let eqs = map (mkIdent preludeName) [ "eq_Vec", "eq_Fin", "eq_Bool" ]
-  checkBoolean sc t
+  checkBooleanSchema schema
   rs <- scEqsRewriteRules sc eqs
   ss <- addRules rs <$> basic_ss sc
   t' <- rewriteSharedTerm sc ss t
@@ -402,7 +402,7 @@ prepSBV sc t = do
 -- satisfiability using SBV. (Currently ignores satisfying assignments.)
 satSBV :: SMTConfig -> SharedContext s -> ProofScript s SV.SatResult
 satSBV conf sc = StateT $ \g -> do
-  (t', labels, lit) <- prepSBV sc (ttTerm (goalTerm g))
+  (t', labels, lit) <- prepSBV sc (goalTerm g)
   let (args, _) = asLambdaList t'
       argNames = map fst args
   SBV.SatResult r <- satWith conf lit
@@ -452,14 +452,14 @@ satMathSAT = satSBV MathSAT.sbvCurrentSolver
 satYices :: SharedContext s -> ProofScript s SV.SatResult
 satYices = satSBV Yices.sbvCurrentSolver
 
-satWithExporter :: (SharedContext s -> FilePath -> SharedTerm s -> IO ())
+satWithExporter :: (SharedContext s -> FilePath -> TypedTerm s -> IO ())
                 -> SharedContext s
                 -> String
                 -> String
                 -> ProofScript s SV.SatResult
 satWithExporter exporter sc path ext = StateT $ \g -> do
-  let t = ttTerm (goalTerm g)
-  checkBoolean sc t
+  let t = goalTerm g
+  checkBooleanSchema (ttSchema t)
   exporter sc ((path ++ goalName g) ++ ext) t
   unsatResult sc g
 
