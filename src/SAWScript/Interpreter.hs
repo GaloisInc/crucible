@@ -24,6 +24,7 @@ module SAWScript.Interpreter
 
 import Control.Applicative
 import Control.Monad ( foldM )
+import qualified Data.IntMap as IntMap
 import qualified Data.Map as Map
 import Data.Map ( Map )
 import Data.Traversable hiding ( mapM )
@@ -57,7 +58,9 @@ import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 
 import qualified Cryptol.TypeCheck.AST as T
 import Cryptol.TypeCheck.Defaulting (defaultExpr)
+import Cryptol.TypeCheck.PP (ppWithNames)
 import Cryptol.Parser.Position (emptyRange)
+import Cryptol.Utils.PP
 
 -- Environment -----------------------------------------------------------------
 
@@ -252,7 +255,9 @@ defaultTypedTerm sc (TypedTerm schema trm) =
   case inst of
     Nothing -> return trm
     Just tys -> do
-      -- TODO: print instantiations
+      let vars = T.sVars schema
+      let nms = T.addTNames vars IntMap.empty
+      mapM_ (warnDefault nms) (zip vars tys)
       xs <- mapM (Cryptol.importType sc Cryptol.emptyEnv) tys
       let tm = Map.fromList [ (T.tpUnique tp, (t, 0)) | (tp, t) <- zip (T.sVars schema) xs ]
       let env = Cryptol.emptyEnv { Cryptol.envT = tm }
@@ -261,6 +266,8 @@ defaultTypedTerm sc (TypedTerm schema trm) =
   where
     inst = do (soln, _) <- defaultExpr emptyRange undefined schema
               mapM (`lookup` soln) (T.sVars schema)
+    warnDefault ns (x,t) =
+      print $ text "Assuming" <+> ppWithNames ns x <+> text "=" <+> pp t
 
 readSchema :: String -> SS.Schema
 readSchema str =
