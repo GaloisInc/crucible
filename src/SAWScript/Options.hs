@@ -1,14 +1,9 @@
 {-# LANGUAGE CPP #-}
 module SAWScript.Options where
 
-import Data.List(isSuffixOf)
-import qualified Data.Set as Set
 import System.Console.GetOpt
 import System.Environment
-import System.Exit
 import System.FilePath
-import System.IO.Error
-import System.Process
 
 data Options = Options
   { importPath       :: [FilePath]
@@ -82,24 +77,11 @@ options =
 processEnv :: Options -> IO Options
 processEnv opts = do
   curEnv <- getEnvironment
-  --jars <- if any isCoreJar (jarList opts) then return [] else findJDKJar
-  return $ foldr addOpt (opts { jarList = {- jars ++ -} jarList opts }) curEnv
+  return $ foldr addOpt opts curEnv
     where addOpt ("SAW_IMPORT_PATH", p) os =
             os { importPath = importPath os ++ splitSearchPath p }
+          addOpt ("SAW_JDK_JAR", p) os = os { jarList = p : jarList opts }
           addOpt _ os = os
-
-findJDKJar :: IO [FilePath]
-findJDKJar = do
-  (_, out, _err) <- readProcessWithExitCode "java" ["-verbose"] ""
-                    `catchIOError`
-                    const (return (ExitFailure 1, "", ""))
-  let jars = filter isCoreJar . words . removeBrackets
-      removeBrackets = filter (not . (`elem` "[]"))
-  return . Set.toList . Set.fromList . jars $ out
-
-isCoreJar :: FilePath -> Bool
-isCoreJar w = "rt.jar" `isSuffixOf` w ||
-              "classes.jar" `isSuffixOf` w
 
 pathDesc, pathDelim :: String
 
