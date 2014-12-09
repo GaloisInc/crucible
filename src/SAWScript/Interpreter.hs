@@ -78,8 +78,8 @@ extendEnv x mt md v (InterpretEnv vm tm dm ce) = InterpretEnv vm' tm' dm' ce'
     tm' = maybe tm (\t -> Map.insert name t tm) mt
     dm' = maybe dm (\d -> Map.insert (getVal name) d dm) md
     ce' = case v of
-            VTerm schema trm
-              -> CEnv.bindTypedTerm (qname, TypedTerm schema trm) ce
+            VTerm t
+              -> CEnv.bindTypedTerm (qname, t) ce
             VInteger n
               -> CEnv.bindInteger (qname, n) ce
             VCryptolModule m
@@ -242,8 +242,8 @@ interpretMain opts m = fromValue <$> interpretEntry "main" opts m
 
 print_value :: SharedContext SAWCtx -> Value -> IO ()
 print_value _sc (VString s) = putStrLn s
-print_value  sc (VTerm schema trm) = do
-  trm' <- defaultTypedTerm sc (TypedTerm schema trm)
+print_value  sc (VTerm t) = do
+  trm' <- defaultTypedTerm sc t
   print (evaluate sc trm')
 print_value _sc v = putStrLn (showsPrecValue defaultPPOpts 0 v "")
 

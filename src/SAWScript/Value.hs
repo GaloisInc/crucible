@@ -27,7 +27,6 @@ import Verifier.SAW.Rewriter ( Simpset )
 import Verifier.SAW.SharedTerm
 
 import qualified Verifier.SAW.Evaluator as SC
-import qualified Cryptol.TypeCheck.AST as C
 
 -- Values ----------------------------------------------------------------------
 
@@ -39,7 +38,7 @@ data Value
   | VTuple [Value]
   | VRecord (Map SS.Name Value)
   | VLambda (Value -> IO Value)
-  | VTerm C.Schema (SharedTerm SAWCtx)
+  | VTerm (TypedTerm SAWCtx)
   | VReturn Value -- Returned value in unspecified monad
   | VBind Value Value -- Monadic bind in unspecified monad
   | VIO (IO Value)
@@ -118,7 +117,7 @@ showsPrecValue opts p v =
                        showString n . showString "=" . showsPrecValue opts 0 fv
 
     VLambda {} -> showString "<<function>>"
-    VTerm _ t -> showsPrec p t
+    VTerm t -> showsPrec p (ttTerm t)
     VReturn {} -> showString "<<monadic>>"
     VBind {} -> showString "<<monadic>>"
     VIO {} -> showString "<<IO>>"
@@ -301,14 +300,14 @@ instance FromValue a => FromValue (StateT LLVMSetupState IO a) where
     fromValue _ = error "fromValue LLVMSetup"
 
 instance IsValue (TypedTerm SAWCtx) where
-    toValue (TypedTerm s t) = VTerm s t
+    toValue t = VTerm t
 
 instance FromValue (TypedTerm SAWCtx) where
-    fromValue (VTerm s t) = TypedTerm s t
+    fromValue (VTerm t) = t
     fromValue _ = error "fromValue TypedTerm"
 
 instance FromValue (SharedTerm SAWCtx) where
-    fromValue (VTerm _ t) = t
+    fromValue (VTerm t) = ttTerm t
     fromValue _ = error "fromValue SharedTerm"
 
 instance IsValue String where
