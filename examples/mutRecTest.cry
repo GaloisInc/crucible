@@ -1,6 +1,6 @@
 // Test cases for mutually-recursive cryptol definitions
 
-// Classic stream-equation version of the Fibonocci numbers
+// Classic stream-equation version of the Fibonacci numbers
 // broken out into two mutually recursive streams to test
 // mutual recursion translation into SAWCore
 streamFibs : [8] -> [32]
@@ -10,17 +10,17 @@ streamFibs x = fibs0@x
                              | b <- fibs1
                      ]
 
-// Single-stream Fibonocci numbers
+// Single-stream Fibonacci numbers
 streamFibsAlt : [8] -> [32]
 streamFibsAlt x = fibs@x
    where fibs = [0,1]#[ a + b | a <- fibs
                               | b <- drop`{1} fibs
                       ]
 
-// recursive reference implementation of the Fibonocci numbers
+// recursive reference implementation of the Fibonacci numbers
 recFibs : [8] -> [32]
 recFibs n = if n > 1  then recFibs (n-1) + recFibs (n-2) else zx n
-   
+
 // zero extend
 zx : {a, b} (fin a, fin b) => [b] -> [a+b]
 zx m = zero#m
