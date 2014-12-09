@@ -8,7 +8,6 @@ module SAWScript.JavaBuiltins where
 
 import Control.Applicative hiding (empty)
 import Control.Monad.State
-import qualified Data.ABC as ABC
 import Data.List (intercalate)
 import Data.List.Split
 import Data.IORef
@@ -130,31 +129,32 @@ extractJava :: BuiltinContext -> Options -> Class -> String
 extractJava bic opts cls mname setup = do
   let cb = biJavaCodebase bic
       pos = fixPos
+      jsc = biSharedContext bic
   argsRef <- newIORef []
-  (jsc, sbe) <- createSAWBackend (biSharedContext bic) (Just argsRef)
-  setupRes <- runJavaSetup pos cb cls mname jsc setup
-  let fl = defaultSimFlags { alwaysBitBlastBranchTerms = True }
-      meth = specMethod (jsSpec setupRes)
-  runSimulator cb sbe defaultSEH (Just fl) $ do
-    setVerbosity (simVerbose opts)
-    argTypes <- either fail return (getActualArgTypes setupRes)
-    args <- mapM freshJavaVal argTypes
-    -- TODO: support initializing other state elements
-    rslt <- case methodIsStatic meth of
-              True -> execStaticMethod (className cls) (methodKey meth) args
-              False -> do
-                RValue this <- freshJavaVal (ClassInstance cls)
-                execInstanceMethod (className cls) (methodKey meth) this args
-    dt <- case rslt of
-            Nothing -> fail "No return value from "
-            Just (IValue t) -> return t
-            Just (LValue t) -> return t
-            _ -> fail "Unimplemented result type from "
-    liftIO $ do
-      let sc = biSharedContext bic
-      argBinds <- reverse <$> readIORef argsRef
-      -- TODO: group argBinds according to the declared types
-      bindExts jsc argBinds dt {- >>= scImport sc -}  >>= mkTypedTerm sc
+  withSAWBackend jsc (Just argsRef) $ \sbe -> do
+    setupRes <- runJavaSetup pos cb cls mname jsc setup
+    let fl = defaultSimFlags { alwaysBitBlastBranchTerms = True }
+        meth = specMethod (jsSpec setupRes)
+    runSimulator cb sbe defaultSEH (Just fl) $ do
+      setVerbosity (simVerbose opts)
+      argTypes <- either fail return (getActualArgTypes setupRes)
+      args <- mapM freshJavaVal argTypes
+      -- TODO: support initializing other state elements
+      rslt <- case methodIsStatic meth of
+                True -> execStaticMethod (className cls) (methodKey meth) args
+                False -> do
+                  RValue this <- freshJavaVal (ClassInstance cls)
+                  execInstanceMethod (className cls) (methodKey meth) this args
+      dt <- case rslt of
+              Nothing -> fail "No return value from "
+              Just (IValue t) -> return t
+              Just (LValue t) -> return t
+              _ -> fail "Unimplemented result type from "
+      liftIO $ do
+        let sc = biSharedContext bic
+        argBinds <- reverse <$> readIORef argsRef
+        -- TODO: group argBinds according to the declared types
+        bindExts jsc argBinds dt >>= mkTypedTerm sc
 
 freshJavaArg :: MonadIO m =>
                 Backend sbe
@@ -204,21 +204,13 @@ freshJavaVal (ClassInstance c) = do
     setInstanceFieldValue r (FieldId (className c) (fieldName f) ty) v
   return (RValue r)
 
-createSAWBackend :: SharedContext s
-                 -> Maybe (IORef [SharedTerm s])
-                 -> IO (SharedContext s, Backend (SharedContext s))
-createSAWBackend jsc argsRef = do
-  {-
-  let imps = [CryptolSAW.cryptolModule]
-      vjavaModule = foldr insImport javaModule imps
-  sc0 <- mkSharedContext vjavaModule
-  -- ss <- basic_ss sc0
-  let (jsc :: SharedContext JSSCtx) = sc0 -- rewritingSharedContext sc0 ss
-  -}
-  -- TODO: should we refactor to use withNewGraph?
-  ABC.SomeGraph be <- ABC.newGraph ABC.giaNetwork
+withSAWBackend :: SharedContext s
+               -> Maybe (IORef [SharedTerm s])
+               -> (Backend (SharedContext s) -> IO a)
+               -> IO a
+withSAWBackend jsc argsRef a = withBE $ \be -> do
   sbe <- sawBackend jsc argsRef be
-  return (jsc, sbe)
+  a sbe
 
 runJavaSetup :: Pos -> Codebase -> Class -> String -> SharedContext SAWCtx
              -> StateT JavaSetupState IO a
@@ -241,7 +233,7 @@ verifyJava bic opts cls mname overrides setup = do
   let pos = fixPos -- TODO
       cb = biJavaCodebase bic
       bsc = biSharedContext bic
-  (jsc, sbe) <- createSAWBackend bsc Nothing
+      jsc = bsc
   setupRes <- runJavaSetup pos cb cls mname jsc setup
   let ms = jsSpec setupRes
   let vp = VerifyParams {
@@ -263,7 +255,7 @@ verifyJava bic opts cls mname overrides setup = do
                 | bs <- {- concat $ Map.elems $ -} [specBehaviors ms]
                 , cl <- bsRefEquivClasses bs
                 ]
-  forM_ configs $ \(bs,cl) -> do
+  forM_ configs $ \(bs,cl) -> withSAWBackend jsc Nothing $ \sbe -> do
     when (verb >= 2) $ do
       putStrLn $ "Executing " ++ specName ms ++
                  " at PC " ++ show (bsLoc bs) ++ "."
@@ -276,12 +268,12 @@ verifyJava bic opts cls mname overrides setup = do
       let prover script vs g = do
             glam <- bindAllExts jsc g
             TypedTerm schema _ <- mkTypedTerm jsc glam
-            glam' <- scNegate bsc {- =<< scImport bsc -} glam
+            glam' <- scNegate bsc glam
             when (extraChecks opts) $ do
               when (verb >= 2) $ putStrLn "Type checking goal..."
               tcr <- scTypeCheck bsc glam'
               case tcr of
-                Left e -> do
+                Left e ->
                   putStr $ unlines $
                     "Ill-typed goal constructed." : prettyTCError e
                 Right _ -> when (verb >= 2) $ putStrLn "Done."
