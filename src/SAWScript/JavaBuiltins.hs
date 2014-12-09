@@ -183,6 +183,7 @@ freshJavaVal (PrimitiveType ty) = do
     LongType    -> withSBE $ \sbe -> LValue <$> freshLong sbe
     _ -> fail $ "Can't create fresh primitive value of type " ++ show ty
 freshJavaVal (ArrayInstance n ty) = do
+  -- TODO: use SAWCore fresh values to avoid the getLVal/getIVal functions?
   elts <- replicateM n (freshJavaVal (PrimitiveType ty))
   -- TODO: create a fresh array and fill the array below with
   -- selections of its elements?
@@ -208,9 +209,8 @@ withSAWBackend :: SharedContext s
                -> Maybe (IORef [SharedTerm s])
                -> (Backend (SharedContext s) -> IO a)
                -> IO a
-withSAWBackend jsc argsRef a = withBE $ \be -> do
-  sbe <- sawBackend jsc argsRef be
-  a sbe
+withSAWBackend jsc argsRef a =
+  withBE $ \be -> sawBackend jsc argsRef be >>= a
 
 runJavaSetup :: Pos -> Codebase -> Class -> String -> SharedContext SAWCtx
              -> StateT JavaSetupState IO a
@@ -236,30 +236,31 @@ verifyJava bic opts cls mname overrides setup = do
       jsc = bsc
   setupRes <- runJavaSetup pos cb cls mname jsc setup
   let ms = jsSpec setupRes
-  let vp = VerifyParams {
+      vp = VerifyParams {
              vpCode = cb
            , vpContext = jsc
            , vpOpts = opts
            , vpSpec = ms
            , vpOver = overrides
            }
-  let verb = simVerbose opts
+      verb = simVerbose opts
       overrideText =
         case overrides of
           [] -> ""
           irs -> " (overriding " ++ show (map renderName irs) ++ ")"
       renderName ir = className (specMethodClass ir) ++ "." ++
                       methodName (specMethod ir)
-  when (verb >= 2) $ putStrLn $ "Starting verification of " ++ specName ms
-  let configs = [ (bs, cl)
+      configs = [ (bs, cl)
                 | bs <- {- concat $ Map.elems $ -} [specBehaviors ms]
                 , cl <- bsRefEquivClasses bs
                 ]
+  when (verb >= 2) $ putStrLn $ "Starting verification of " ++ specName ms
   forM_ configs $ \(bs,cl) -> withSAWBackend jsc Nothing $ \sbe -> do
     when (verb >= 2) $ do
       putStrLn $ "Executing " ++ specName ms ++
                  " at PC " ++ show (bsLoc bs) ++ "."
     runDefSimulator cb sbe $ do
+      setVerbosity (simVerbose opts)
       esd <- initializeVerification jsc ms bs cl
       res <- mkSpecVC jsc vp esd
       when (verb >= 5) $ liftIO $ do
@@ -269,19 +270,12 @@ verifyJava bic opts cls mname overrides setup = do
             glam <- bindAllExts jsc g
             TypedTerm schema _ <- mkTypedTerm jsc glam
             glam' <- scNegate bsc glam
-            when (extraChecks opts) $ do
-              when (verb >= 2) $ putStrLn "Type checking goal..."
-              tcr <- scTypeCheck bsc glam'
-              case tcr of
-                Left e ->
-                  putStr $ unlines $
-                    "Ill-typed goal constructed." : prettyTCError e
-                Right _ -> when (verb >= 2) $ putStrLn "Done."
-            when (verb >= 6) $ putStrLn $ "Trying to prove: " ++ show glam'
+            doExtraChecks opts bsc glam'
             (r, _) <- runStateT script (ProofGoal (vsVCName vs) (TypedTerm schema glam'))
             case r of
               SS.Unsat -> when (verb >= 3) $ putStrLn "Valid."
-              SS.Sat val -> showCexResults jsc ms vs [("x", val)] -- TODO: replace x with something
+              -- TODO: replace x with something
+              SS.Sat val -> showCexResults jsc ms vs [("x", val)]
               SS.SatMulti vals -> showCexResults jsc ms vs vals
       case jsTactic setupRes of
         Skip -> liftIO $ putStrLn $
@@ -292,6 +286,18 @@ verifyJava bic opts cls mname overrides setup = do
   putStrLn $ "Successfully verified " ++ specName ms ++ overrideText ++
              " (" ++ showDuration (diffUTCTime endTime startTime) ++ ")"
   return ms
+
+doExtraChecks :: Options -> SharedContext s -> SharedTerm s -> IO ()
+doExtraChecks opts bsc t = do
+  let verb = simVerbose opts
+  when (extraChecks opts) $ do
+    when (verb >= 2) $ putStrLn "Type checking goal..."
+    tcr <- scTypeCheck bsc t
+    case tcr of
+      Left e -> putStr $ unlines $
+                "Ill-typed goal constructed." : prettyTCError e
+      Right _ -> when (verb >= 2) $ putStrLn "Done."
+  when (verb >= 6) $ putStrLn $ "Trying to prove: " ++ show t
 
 showCexResults :: SharedContext SAWCtx
                -> JavaMethodSpecIR
@@ -309,7 +315,7 @@ showCexResults sc ms vs vals = do
 parseJavaExpr :: Codebase -> Class -> Method -> String
               -> IO JavaExpr
 parseJavaExpr cb cls meth estr = do
-  sr <- parseStaticParts parts
+  sr <- parseStaticParts cb parts
   case sr of
     Just e -> return e
     Nothing -> parseParts parts
@@ -335,9 +341,9 @@ parseJavaExpr cb cls meth estr = do
                     Nothing
                       | n < V.length paramTypes ->
                         return (CC.Term (Local s i (paramTypes V.! (fromIntegral n))))
-                      | otherwise -> fail $
-                                     "local variable index " ++ show i ++
-                                     " for parameter " ++ show n ++ " doesn't exist"
+                      | otherwise ->
+                        fail $ "local variable index " ++ show i ++
+                               " for parameter " ++ show n ++ " doesn't exist"
                     Just lv -> return (CC.Term (Local s i (localType lv)))
                 Nothing -> fail $ "bad Java expression syntax: " ++ s
             _ | hasDebugInfo meth -> do
@@ -356,20 +362,20 @@ parseJavaExpr cb cls meth estr = do
               pos = fixPos -- TODO
           fid <- findField cb pos jt f
           return (CC.Term (InstanceField e fid))
-        parseStaticParts (fname:rest) = do
-          let cname = intercalate "/" (reverse rest)
-          mc <- tryLookupClass cb cname
-          case mc of
-            Just c ->
-              case filter ((== fname) . fieldName) (classFields c) of
-                [f] -> return (Just
-                               (CC.Term
-                                (StaticField
-                                 (FieldId cname fname (fieldType f)))))
-                _ -> return Nothing
-            Nothing -> return Nothing
-        parseStaticParts _ = return Nothing
         parts = reverse (splitOn "." estr)
+
+parseStaticParts :: Codebase -> [String] -> IO (Maybe JavaExpr)
+parseStaticParts cb (fname:rest) = do
+  let cname = intercalate "/" (reverse rest)
+  mc <- tryLookupClass cb cname
+  case mc of
+    Just c ->
+      case filter ((== fname) . fieldName) (classFields c) of
+        [f] -> return (Just (CC.Term fld))
+          where fld =  StaticField (FieldId cname fname (fieldType f))
+        _ -> return Nothing
+    Nothing -> return Nothing
+parseStaticParts _ _ = return Nothing
 
 javaBool :: JavaType
 javaBool = JavaBoolean
@@ -401,21 +407,21 @@ javaArray n t = JavaArray n t
 javaClass :: String -> JavaType
 javaClass name = JavaClass name
 
-exportJSSType :: JavaType -> Type
+exportJSSType :: JavaType -> JavaSetup Type
 exportJSSType jty =
   case jty of
-    JavaBoolean     -> BooleanType
-    JavaByte        -> ByteType
-    JavaChar        -> CharType
-    JavaShort       -> ShortType
-    JavaInt         -> IntType
-    JavaLong        -> LongType
-    JavaFloat       -> error "exportJSSType: Can't translate float type"
-    JavaDouble      -> error "exportJSSType: Can't translate double type"
-    JavaArray _ ety -> ArrayType (exportJSSType ety)
-    JavaClass name  -> ClassType (dotsToSlashes name)
+    JavaBoolean     -> return BooleanType
+    JavaByte        -> return ByteType
+    JavaChar        -> return CharType
+    JavaShort       -> return ShortType
+    JavaInt         -> return IntType
+    JavaLong        -> return LongType
+    JavaFloat       -> fail "exportJSSType: Can't translate float type"
+    JavaDouble      -> fail "exportJSSType: Can't translate double type"
+    JavaArray _ ety -> ArrayType <$> exportJSSType ety
+    JavaClass name  -> return $ ClassType (dotsToSlashes name)
 
-exportJavaType :: Codebase -> JavaType -> IO JavaActualType
+exportJavaType :: Codebase -> JavaType -> JavaSetup JavaActualType
 exportJavaType cb jty =
   case jty of
     JavaBoolean     -> return $ PrimitiveType BooleanType
@@ -424,10 +430,10 @@ exportJavaType cb jty =
     JavaShort       -> return $ PrimitiveType ShortType
     JavaInt         -> return $ PrimitiveType IntType
     JavaLong        -> return $ PrimitiveType LongType
-    JavaFloat       -> error "exportJavaType: Can't translate float type"
-    JavaDouble      -> error "exportJavaType: Can't translate double type"
-    JavaArray n t   -> return $ ArrayInstance (fromIntegral n) (exportJSSType t)
-    JavaClass name  -> do cls <- lookupClass cb fixPos name
+    JavaFloat       -> fail "exportJavaType: Can't translate float type"
+    JavaDouble      -> fail "exportJavaType: Can't translate double type"
+    JavaArray n t   -> ArrayInstance (fromIntegral n) <$> exportJSSType t
+    JavaClass name  -> do cls <- liftIO $ lookupClass cb fixPos name
                           return (ClassInstance cls)
 
 checkCompatibleExpr :: SharedContext s -> String -> JavaExpr -> SharedTerm s
@@ -474,9 +480,9 @@ typeJavaExpr bic name ty = do
       meth = specMethod ms
   expr <- liftIO $ parseJavaExpr (biJavaCodebase bic) cls meth name
   let jty = jssTypeOfJavaExpr expr
-      jty' = exportJSSType ty
+  jty' <- exportJSSType ty
   liftIO $ checkEqualTypes jty jty' name
-  aty <- liftIO $ exportJavaType cb ty
+  aty <- exportJavaType cb ty
   return (expr, aty)
 
 checkEqualTypes :: Type -> Type -> String -> IO ()
@@ -490,20 +496,24 @@ checkEqualTypes declared actual name =
          , text name
          ]
 
+modifySpec :: (JavaMethodSpecIR -> JavaMethodSpecIR) -> JavaSetup ()
+modifySpec f = modify $ \st -> st { jsSpec = f (jsSpec st) }
+
 javaClassVar :: BuiltinContext -> Options -> String -> JavaType
              -> JavaSetup ()
 javaClassVar bic _ name t = do
   (expr, aty) <- typeJavaExpr bic name t
-  modify $ \st -> st { jsSpec = specAddVarDecl name expr aty (jsSpec st) }
+  modifySpec (specAddVarDecl name expr aty)
 
 javaVar :: BuiltinContext -> Options -> String -> JavaType
         -> JavaSetup (TypedTerm SAWCtx)
 javaVar bic _ name t = do
   (expr, aty) <- typeJavaExpr bic name t
-  modify $ \st -> st { jsSpec = specAddVarDecl name expr aty (jsSpec st) }
+  modifySpec (specAddVarDecl name expr aty)
   let sc = biSharedContext bic
-  Just lty <- liftIO $ logicTypeOfActual sc aty
-  liftIO $ scJavaValue sc lty name >>= mkTypedTerm sc
+  liftIO $ do
+    Just lty <- logicTypeOfActual sc aty
+    scJavaValue sc lty name >>= mkTypedTerm sc
 
 javaMayAlias :: BuiltinContext -> Options -> [String]
              -> JavaSetup ()
@@ -515,7 +525,7 @@ javaMayAlias bic _ exprs = do
       meth = specMethod ms
   exprList <- liftIO $ mapM (parseJavaExpr cb cls meth) exprs
   -- TODO: check that all expressions exist and have the same type
-  modify $ \st -> st { jsSpec = specAddAliasSet exprList (jsSpec st) }
+  modifySpec (specAddAliasSet exprList)
 
 javaAssert :: BuiltinContext -> Options -> SharedTerm SAWCtx
            -> JavaSetup ()
@@ -531,10 +541,7 @@ javaAssert bic _ v = do
     fail $ "java_assert passed expression of non-boolean type: " ++ show ty'
   me <- liftIO $ mkMixedExpr m atm sc v
   case me of
-    LE le ->
-      modify $ \st ->
-        st { jsSpec =
-               specAddBehaviorCommand (AssertPred fixPos le) (jsSpec st) }
+    LE le -> modifySpec (specAddBehaviorCommand (AssertPred fixPos le))
     JE je -> fail $ "Used java_assert with Java expression: " ++ show je
 
 getJavaExpr :: Monad m =>
@@ -556,8 +563,7 @@ javaAssertEq bic _ name t = do
   (expr, _) <- liftIO $ getJavaExpr ms name
   checkCompatibleExpr sc "java_assert_eq" expr t
   me <- liftIO $ mkMixedExpr m atm sc t
-  modify $ \st ->
-    st { jsSpec = specAddLogicAssignment fixPos expr me ms }
+  modifySpec (specAddLogicAssignment fixPos expr me)
 
 javaEnsureEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
              -> JavaSetup ()
@@ -577,7 +583,7 @@ javaEnsureEq bic _ name t = do
               (InstanceField r f, _) -> EnsureInstanceField fixPos r f me
               (StaticField f, _) -> EnsureStaticField fixPos f me
               _ -> error "invalid java_ensure command"
-  modify $ \st -> st { jsSpec = specAddBehaviorCommand cmd ms }
+  modifySpec (specAddBehaviorCommand cmd)
 
 javaModify :: BuiltinContext -> Options -> String
            -> JavaSetup ()
@@ -591,7 +597,7 @@ javaModify _bic _ name = do
               (InstanceField r f, _) -> ModifyInstanceField r f
               (StaticField f, _) -> ModifyStaticField f
               _ -> error "invalid java_modify command"
-  modify $ \st -> st { jsSpec = specAddBehaviorCommand cmd ms }
+  modifySpec (specAddBehaviorCommand cmd)
 
 javaReturn :: BuiltinContext -> Options -> SharedTerm SAWCtx
            -> JavaSetup ()
@@ -600,14 +606,9 @@ javaReturn bic _ t = do
   ms <- gets jsSpec
   let m = specJavaExprNames ms
       atm = specActualTypeMap ms
-      -- TODO: check that given expression is compatible with return type
-      {-
-      rtype = methodKeyReturnType . methodKey . specMethod $ ms
-      rt = toActualType rtype
-      -}
+  -- TODO: check that types are compatible
   me <- liftIO $ mkMixedExpr m atm (biSharedContext bic) t
-  modify $ \st ->
-    st { jsSpec = specAddBehaviorCommand (ReturnValue me) (jsSpec st) }
+  modifySpec (specAddBehaviorCommand (ReturnValue me))
 
 javaVerifyTactic :: BuiltinContext -> Options
                  -> ProofScript SAWCtx SatResult
