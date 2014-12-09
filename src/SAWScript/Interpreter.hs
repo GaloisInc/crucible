@@ -62,6 +62,7 @@ import Cryptol.TypeCheck.PP (ppWithNames)
 import Cryptol.TypeCheck.Subst (apSubst, listSubst)
 import Cryptol.Parser.Position (emptyRange)
 import Cryptol.Utils.PP
+import qualified Cryptol.Eval.Value as V (defaultPPOpts, ppValue)
 
 -- Environment -----------------------------------------------------------------
 
@@ -248,7 +249,7 @@ print_value :: SharedContext SAWCtx -> Value -> IO ()
 print_value _sc (VString s) = putStrLn s
 print_value  sc (VTerm t) = do
   t' <- defaultTypedTerm sc t
-  print (evaluate sc (ttTerm t'))
+  print $ V.ppValue V.defaultPPOpts (evaluateTypedTerm sc t')
 print_value _sc v = putStrLn (showsPrecValue defaultPPOpts 0 v "")
 
 defaultTypedTerm :: SharedContext s -> TypedTerm s -> IO (TypedTerm s)

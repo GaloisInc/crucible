@@ -27,6 +27,8 @@ import Verifier.SAW.Rewriter ( Simpset )
 import Verifier.SAW.SharedTerm
 
 import qualified Verifier.SAW.Evaluator as SC
+import qualified Cryptol.Eval.Value as C
+import Verifier.SAW.Cryptol (exportValueWithSchema)
 
 -- Values ----------------------------------------------------------------------
 
@@ -169,6 +171,10 @@ evaluate sc t = SC.evalSharedTerm eval t
   where eval = SC.evalGlobal (scModule sc) SC.preludePrims
 -- FIXME: is evalGlobal always appropriate? Or should we
 -- parameterize on a meaning function for globals?
+
+evaluateTypedTerm :: SharedContext s -> TypedTerm s -> C.Value
+evaluateTypedTerm sc (TypedTerm schema trm) =
+  exportValueWithSchema schema (evaluate sc trm)
 
 applyValue :: Value -> Value -> IO Value
 applyValue (VLambda f) x = f x
