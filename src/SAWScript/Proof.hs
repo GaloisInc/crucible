@@ -7,14 +7,17 @@ import SAWScript.TypedTerm
 -- or more lambdas which are interpreted as universal quantifiers.
 data Theorem s = Theorem (TypedTerm s)
 
--- | A ProofGoal is a term of type Bool, possibly surrounded by one or
--- more lambdas. The abstracted arguments are treated as if they are
--- EXISTENTIALLY quantified, as in the statement of a SAT problem. For
--- proofs of universals, we negate the proposition before running the
--- proof script, and then re-negate the result afterward.
+data Quantification = Existential | Universal
+  deriving Eq
+
+-- | A ProofGoal is a term of type Bool, or a function of any arity
+-- with a boolean result type. The abstracted arguments are treated as
+-- either existentially or universally quantified, according to the
+-- indicated quantification.
 data ProofGoal s =
-  ProofGoal {
-    goalName :: String
+  ProofGoal
+  { goalQuant :: Quantification
+  , goalName :: String
   , goalTerm :: TypedTerm s
   }
 

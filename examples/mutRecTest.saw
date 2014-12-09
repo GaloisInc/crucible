@@ -5,7 +5,7 @@ main = do {
   let {{ h = recFibs       : [8] -> [32] }};
   let {{ i = recFibs2      : [8] -> [32] }};
 
-  let thm1 = {{ \x -> f x == g x }};
+  let thm1 = {{ f === g }};
   prove_print abc thm1;
 
   // FIXME, this makes the simulator crash the stack

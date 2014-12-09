@@ -189,10 +189,10 @@ verifyLLVM bic opts (LLVMModule _file mdl) func overrides setup = do
                    -> IO ()
             prover script vs g = do
               glam <- bindAllExts scLLVM g
-              TypedTerm schema _ <- mkTypedTerm scLLVM glam
               let bsc = biSharedContext bic
-              glam' <- scNegate bsc =<< scImport bsc glam
-              (r, _) <- runStateT script (ProofGoal (vsVCName vs) (TypedTerm schema glam'))
+              glam' <- scImport bsc glam
+              tt <- mkTypedTerm bsc glam'
+              r <- evalStateT script (ProofGoal Universal (vsVCName vs) tt)
               case r of
                 SV.Unsat -> when (verb >= 3) $ putStrLn "Valid."
                 SV.Sat val ->  showCexResults scLLVM ms vs [("x", val)] -- TODO: replace x with something

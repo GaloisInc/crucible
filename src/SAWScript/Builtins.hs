@@ -305,7 +305,10 @@ satABC sc = StateT $ \g -> AIG.withNewGraph giaNetwork $ \be -> do
   let (args, _) = asLambdaList t
       argNames = map fst args
   -- putStrLn "Simulating..."
-  (shapes, lit) <- BBSim.bitBlast be sc t
+  (shapes, lit0) <- BBSim.bitBlast be sc t
+  let lit = case goalQuant g of
+        Existential -> lit0
+        Universal -> AIG.not lit0
   -- putStrLn "Checking..."
   satRes <- AIG.checkSat be lit
   case satRes of
@@ -349,7 +352,10 @@ satExternal doCNF sc execName args = StateT $ \g -> withBE $ \be -> do
   let args' = map replaceFileName args
       replaceFileName "%f" = path
       replaceFileName a = a
-  (shapes, l) <- BBSim.bitBlast be sc t
+  (shapes, l0) <- BBSim.bitBlast be sc t
+  let l = case goalQuant g of
+        Existential -> l0
+        Universal -> AIG.not l0
   vars <- (if doCNF then GIA.writeCNF else writeAIGWithMapping) be l path
   (_ec, out, err) <- readProcessWithExitCode execName args' ""
   removeFile path
@@ -402,7 +408,10 @@ prepSBV sc (TypedTerm schema t) = do
 -- satisfiability using SBV. (Currently ignores satisfying assignments.)
 satSBV :: SMTConfig -> SharedContext s -> ProofScript s SV.SatResult
 satSBV conf sc = StateT $ \g -> do
-  (t', labels, lit) <- prepSBV sc (goalTerm g)
+  (t', labels, lit0) <- prepSBV sc (goalTerm g)
+  let lit = case goalQuant g of
+        Existential -> lit0
+        Universal -> liftM SBV.bnot lit0
   let (args, _) = asLambdaList t'
       argNames = map fst args
   SBV.SatResult r <- satWith conf lit
@@ -458,6 +467,8 @@ satWithExporter :: (SharedContext s -> FilePath -> TypedTerm s -> IO ())
                 -> String
                 -> ProofScript s SV.SatResult
 satWithExporter exporter sc path ext = StateT $ \g -> do
+  when (goalQuant g == Universal)
+    (fail "satWithExporter: Universal quantification unimplemented")
   let t = goalTerm g
   checkBooleanSchema (ttSchema t)
   exporter sc ((path ++ goalName g) ++ ext) t
@@ -484,42 +495,34 @@ liftCexBB tys bs =
     Nothing -> Left "Failed to lift counterexample"
     Just fvs -> Right fvs
 
--- | Logically negate a term @t@, which must be a boolean term
--- (possibly surrounded by one or more lambdas).
-scNegate :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
-scNegate sc t =
-  case asLambda t of
-    Just (s, ty, body) -> scLambda sc s ty =<< scNegate sc body
-    Nothing -> scNot sc t
-
 -- | Translate a @SharedTerm@ representing a theorem for input to the
 -- given validity-checking script and attempt to prove it.
 provePrim :: SharedContext s -> ProofScript s SV.SatResult
           -> TypedTerm s -> IO SV.ProofResult
-provePrim sc script (TypedTerm schema t) = do
-  t' <- scNegate sc t -- ^ FIXME: appropriate negation based on schema
-  (r, _) <- runStateT script (ProofGoal "prove" (TypedTerm schema t'))
+provePrim _sc script t = do
+  checkBooleanSchema (ttSchema t)
+  r <- evalStateT script (ProofGoal Universal "prove" t)
   return (SV.flipSatResult r)
 
 provePrintPrim :: SharedContext s -> ProofScript s SV.SatResult
                -> TypedTerm s -> IO (Theorem s)
-provePrintPrim sc script tt@(TypedTerm schema t) = do
-  t' <- scNegate sc t
-  (r, _) <- runStateT script (ProofGoal "prove" (TypedTerm schema t'))
+provePrintPrim _sc script t = do
+  checkBooleanSchema (ttSchema t)
+  r <- evalStateT script (ProofGoal Universal "prove" t)
   case r of
-    SV.Unsat -> putStrLn "Valid" >> return (Theorem tt)
+    SV.Unsat -> putStrLn "Valid" >> return (Theorem t)
     _ -> fail (show (SV.flipSatResult r))
 
 satPrim :: SharedContext s -> ProofScript s SV.SatResult -> TypedTerm s
         -> IO SV.SatResult
 satPrim _sc script t = do
-  (r, _) <- runStateT script (ProofGoal "sat" t)
-  return r
+  checkBooleanSchema (ttSchema t)
+  evalStateT script (ProofGoal Existential "sat" t)
 
 satPrintPrim :: SharedContext s -> ProofScript s SV.SatResult
              -> TypedTerm s -> IO ()
 satPrintPrim _sc script t = do
-  (r, _) <- runStateT script (ProofGoal "sat" t)
+  r <- evalStateT script (ProofGoal Existential "sat" t)
   print r
 
 cryptolSimpset :: SharedContext s -> IO (Simpset (SharedTerm s))
