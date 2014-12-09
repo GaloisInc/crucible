@@ -59,6 +59,7 @@ import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 import qualified Cryptol.TypeCheck.AST as T
 import Cryptol.TypeCheck.Defaulting (defaultExpr)
 import Cryptol.TypeCheck.PP (ppWithNames)
+import Cryptol.TypeCheck.Subst (apSubst, listSubst)
 import Cryptol.Parser.Position (emptyRange)
 import Cryptol.Utils.PP
 
@@ -246,14 +247,14 @@ interpretMain opts m = fromValue <$> interpretEntry "main" opts m
 print_value :: SharedContext SAWCtx -> Value -> IO ()
 print_value _sc (VString s) = putStrLn s
 print_value  sc (VTerm t) = do
-  trm' <- defaultTypedTerm sc t
-  print (evaluate sc trm')
+  t' <- defaultTypedTerm sc t
+  print (evaluate sc (ttTerm t'))
 print_value _sc v = putStrLn (showsPrecValue defaultPPOpts 0 v "")
 
-defaultTypedTerm :: SharedContext s -> TypedTerm s -> IO (SharedTerm s)
+defaultTypedTerm :: SharedContext s -> TypedTerm s -> IO (TypedTerm s)
 defaultTypedTerm sc (TypedTerm schema trm) =
   case inst of
-    Nothing -> return trm
+    Nothing -> return (TypedTerm schema trm)
     Just tys -> do
       let vars = T.sVars schema
       let nms = T.addTNames vars IntMap.empty
@@ -262,7 +263,10 @@ defaultTypedTerm sc (TypedTerm schema trm) =
       let tm = Map.fromList [ (T.tpUnique tp, (t, 0)) | (tp, t) <- zip (T.sVars schema) xs ]
       let env = Cryptol.emptyEnv { Cryptol.envT = tm }
       ys <- mapM (Cryptol.proveProp sc env) (T.sProps schema)
-      scApplyAll sc trm (xs ++ ys)
+      trm' <- scApplyAll sc trm (xs ++ ys)
+      let su = listSubst (zip (map T.tpVar vars) tys)
+      let schema' = T.Forall [] [] (apSubst su (T.sType schema))
+      return (TypedTerm schema' trm')
   where
     inst = do (soln, _) <- defaultExpr emptyRange undefined schema
               mapM (`lookup` soln) (T.sVars schema)
