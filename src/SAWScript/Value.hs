@@ -19,6 +19,7 @@ import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.LLVM.Codebase as LSS
 import SAWScript.JavaExpr (JavaType(..))
 import SAWScript.Proof
+import SAWScript.TopLevel
 import SAWScript.TypedTerm
 import SAWScript.Utils
 
@@ -43,7 +44,7 @@ data Value
   | VTerm (TypedTerm SAWCtx)
   | VReturn Value -- Returned value in unspecified monad
   | VBind Value Value -- Monadic bind in unspecified monad
-  | VIO (IO Value)
+  | VTopLevel (TopLevel Value)
   | VProofScript (ProofScript SAWCtx Value)
   | VSimpset (Simpset (SharedTerm SAWCtx))
   | VTheorem (Theorem SAWCtx)
@@ -122,7 +123,7 @@ showsPrecValue opts p v =
     VTerm t -> showsPrec p (ttTerm t)
     VReturn {} -> showString "<<monadic>>"
     VBind {} -> showString "<<monadic>>"
-    VIO {} -> showString "<<IO>>"
+    VTopLevel {} -> showString "<<TopLevel>>"
     VSimpset {} -> showString "<<simpset>>"
     VProofScript {} -> showString "<<proof script>>"
     VTheorem (Theorem t) -> showString "Theorem " . showParen True (showString (scPrettyTerm (ttTerm t)))
@@ -258,16 +259,19 @@ instance FromValue a => FromValue [a] where
     fromValue _ = error "fromValue []"
 
 instance IsValue a => IsValue (IO a) where
-    toValue io = VIO (fmap toValue io)
+    toValue action = toValue (io action)
 
-instance FromValue a => FromValue (IO a) where
-    fromValue (VIO io) = fmap fromValue io
+instance IsValue a => IsValue (TopLevel a) where
+    toValue action = VTopLevel (fmap toValue action)
+
+instance FromValue a => FromValue (TopLevel a) where
+    fromValue (VTopLevel action) = fmap fromValue action
     fromValue (VReturn v) = return (fromValue v)
     fromValue (VBind m1 v2) = do
       v1 <- fromValue m1
-      m2 <- applyValue v2 v1
+      m2 <- io $ applyValue v2 v1
       fromValue m2
-    fromValue _ = error "fromValue IO"
+    fromValue _ = error "fromValue TopLevel"
 
 instance IsValue a => IsValue (StateT (ProofGoal SAWCtx) IO a) where
     toValue m = VProofScript (fmap toValue m)

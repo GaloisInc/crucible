@@ -24,7 +24,7 @@ module SAWScript.Interpreter
 
 import Control.Applicative
 import qualified Control.Exception as X
-import Control.Monad ( foldM )
+import Control.Monad (foldM, unless)
 import qualified Data.IntMap as IntMap
 import qualified Data.Map as Map
 import Data.Map ( Map )
@@ -40,6 +40,7 @@ import SAWScript.Options
 import SAWScript.Lexer (lexSAW)
 import SAWScript.Parser (parseSchema)
 import SAWScript.Proof
+import SAWScript.TopLevel
 import SAWScript.TypedTerm
 import SAWScript.Utils
 import SAWScript.Value
@@ -199,7 +200,7 @@ interpretModuleAtEntry entryName sc env m =
        Just v -> do
          --putStrLn "We've been asked to execute a 'TopLevel' action, so run it."
          -- We've been asked to execute a 'TopLevel' action, so run it.
-         r <- fromValue v
+         r <- runTopLevel (fromValue v)
          return (r, interpretEnv)
        Nothing -> fail $ "No " ++ entryName ++ " in module " ++ show (SS.moduleName m)
 
@@ -251,6 +252,8 @@ interpretMain opts m = fromValue <$> interpretEntry "main" opts m
 print_value :: SharedContext SAWCtx -> Value -> IO ()
 print_value _sc (VString s) = putStrLn s
 print_value  sc (VTerm t) = do
+  unless (null (getAllExts (ttTerm t))) $
+    fail "term contains symbolic variables"
   t' <- defaultTypedTerm sc t
   rethrowEvalError $ print $ V.ppValue V.defaultPPOpts (evaluateTypedTerm sc t')
 print_value _sc v = putStrLn (showsPrecValue defaultPPOpts 0 v "")

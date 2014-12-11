@@ -75,6 +75,7 @@ import qualified SAWScript.MGU as MGU
 import qualified SAWScript.Parser (parseBlockStmt)
 import qualified SAWScript.Value (evaluate, fromValue)
 import SAWScript.REPL.GenerateModule (replFileName)
+import SAWScript.TopLevel (runTopLevel)
 import SAWScript.TypedTerm
 import SAWScript.Utils (Pos(..))
 
@@ -638,7 +639,7 @@ processBlockBind mx mt _mc expr = do
 
   val <- io $ interpret sc ie expr''
   -- | Run the resulting IO action.
-  result <- io $ SAWScript.Value.fromValue val
+  result <- io $ runTopLevel $ SAWScript.Value.fromValue val
 
   let ie' = extendEnv lname (Just (SS.tMono ty)) Nothing result ie
   putEnvironment ie'
