@@ -23,6 +23,7 @@ module SAWScript.Interpreter
   where
 
 import Control.Applicative
+import qualified Control.Exception as X
 import Control.Monad ( foldM )
 import qualified Data.IntMap as IntMap
 import qualified Data.Map as Map
@@ -44,6 +45,7 @@ import SAWScript.Utils
 import SAWScript.Value
 import Verifier.SAW.Conversion
 import Verifier.SAW.Prelude (preludeModule)
+import Verifier.SAW.Prim (EvalError)
 import Verifier.SAW.Rewriter ( Simpset, emptySimpset, rewritingSharedContext
                              , scSimpset )
 import Verifier.SAW.SharedTerm
@@ -249,8 +251,18 @@ print_value :: SharedContext SAWCtx -> Value -> IO ()
 print_value _sc (VString s) = putStrLn s
 print_value  sc (VTerm t) = do
   t' <- defaultTypedTerm sc t
-  print $ V.ppValue V.defaultPPOpts (evaluateTypedTerm sc t')
+  rethrowEvalError $ print $ V.ppValue V.defaultPPOpts (evaluateTypedTerm sc t')
 print_value _sc v = putStrLn (showsPrecValue defaultPPOpts 0 v "")
+
+rethrowEvalError :: IO a -> IO a
+rethrowEvalError m = run `X.catch` rethrow
+  where
+  run = do
+    a <- m
+    return $! a
+
+  rethrow :: EvalError -> IO a
+  rethrow exn = fail (show exn) -- X.throwIO (EvalError exn)
 
 defaultTypedTerm :: SharedContext s -> TypedTerm s -> IO (TypedTerm s)
 defaultTypedTerm sc (TypedTerm schema trm) =
