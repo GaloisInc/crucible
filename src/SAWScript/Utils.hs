@@ -299,5 +299,6 @@ basic_ss sc = do
       , "compareNat", "finSucc", "finFront", "equalNat", "mkFinVal"
       , "bitvector"
       ]
-    defs' = map (mkIdent (mkModuleName ["Cryptol"])) ["ty", "seq"]
+    defs' = map (mkIdent (mkModuleName ["Cryptol"]))
+            ["ty", "seq", "ecEq", "ecNotEq", "ePCmp"]
     procs = bvConversions ++ natConversions ++ finConversions ++ vecConversions
