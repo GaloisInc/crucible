@@ -12,12 +12,9 @@ import Control.Lens
 import Control.Monad.State
 import qualified Data.ByteString.Lazy as BS
 -- import Data.Either (partitionEithers)
-import Data.Foldable (foldl')
-import Data.List (isPrefixOf, sortBy)
+import Data.List (isPrefixOf)
 import qualified Data.Map as Map
 import Data.Maybe
-import Data.Ord
-import qualified Data.Set as Set
 import qualified Data.Vector as V
 import System.Directory
 import System.IO
@@ -584,14 +581,6 @@ bindExts sc args body = do
   body' <- scInstantiateExt sc (Map.fromList (is `zip` reverse locals)) body
   scLambdaList sc (names `zip` types) body'
 
-extIdx :: SharedTerm s -> Maybe VarIndex
-extIdx (unwrapTermF -> FTermF (ExtCns ec)) = Just (ecVarIndex ec)
-extIdx _ = Nothing
-
-extName :: SharedTerm s -> Maybe String
-extName (unwrapTermF -> FTermF (ExtCns ec)) = Just (ecName ec)
-extName _ = Nothing
-
 freshBitvectorPrim :: SharedContext s -> String -> Int -> IO (TypedTerm s)
 freshBitvectorPrim sc x n = do
   ty <- scBitvector sc (fromIntegral n)
@@ -606,23 +595,6 @@ bindAllExts :: SharedContext s
             -> SharedTerm s
             -> IO (SharedTerm s)
 bindAllExts sc body = bindExts sc (getAllExts body) body
-
--- | Return a list of all ExtCns subterms in the given term, sorted by
--- index.
-getAllExts :: SharedTerm s -> [SharedTerm s]
-getAllExts t = sortBy (comparing extIdx) $ Set.toList args
-    where (seen, exts) = getExtCns (Set.empty, Set.empty) t
-          tf = unwrapTermF t
-          args = snd $ foldl' getExtCns (seen, exts) tf
-          getExtCns (is, a) (STApp idx _) | Set.member idx is = (is, a)
-          getExtCns (is, a) t'@(STApp idx (FTermF (ExtCns _))) =
-            (Set.insert idx is, Set.insert t' a)
-          getExtCns (is, a) t'@(Unshared (FTermF (ExtCns _))) =
-            (is, Set.insert t' a)
-          getExtCns (is, a) (STApp idx tf') =
-            foldl' getExtCns (Set.insert idx is, a) tf'
-          getExtCns (is, a) (Unshared tf') =
-            foldl' getExtCns (is, a) tf'
 
 -- | Apply the given SharedTerm to the given values, and evaluate to a
 -- final value.
