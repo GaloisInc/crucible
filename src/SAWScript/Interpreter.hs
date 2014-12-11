@@ -223,6 +223,7 @@ buildInterpretEnv opts m =
        sc0 <- mkSharedContext scm
        let convs = natConversions
                    ++ bvConversions
+                   ++ finConversions
                    ++ vecConversions
                    ++ [ remove_ident_coerce
                       , remove_ident_unsafeCoerce
