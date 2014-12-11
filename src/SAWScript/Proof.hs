@@ -5,7 +5,7 @@ import SAWScript.TypedTerm
 
 -- | A theorem must contain a boolean term, possibly surrounded by one
 -- or more lambdas which are interpreted as universal quantifiers.
-data Theorem s = Theorem (TypedTerm s)
+data Theorem s = Theorem { thmTerm :: TypedTerm s }
 
 data Quantification = Existential | Universal
   deriving Eq

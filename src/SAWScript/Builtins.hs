@@ -550,11 +550,22 @@ rewritePrim sc ss (TypedTerm schema t) = do
   t' <- rewriteSharedTerm sc ss t
   return (TypedTerm schema t')
 
-addsimp :: SharedContext s -> Theorem s -> Simpset (SharedTerm s) -> Simpset (SharedTerm s)
+addsimp :: SharedContext s -> Theorem s -> Simpset (SharedTerm s)
+        -> Simpset (SharedTerm s)
 addsimp _sc (Theorem t) ss = addRule (ruleOfProp (ttTerm t)) ss
 
-addsimp' :: SharedContext s -> SharedTerm s -> Simpset (SharedTerm s) -> Simpset (SharedTerm s)
+addsimp' :: SharedContext s -> SharedTerm s -> Simpset (SharedTerm s)
+         -> Simpset (SharedTerm s)
 addsimp' _sc t ss = addRule (ruleOfProp t) ss
+
+addsimps :: SharedContext s -> [Theorem s] -> Simpset (SharedTerm s)
+         -> Simpset (SharedTerm s)
+addsimps _sc thms ss =
+  foldr (\thm -> addRule (ruleOfProp (ttTerm (thmTerm thm)))) ss thms
+
+addsimps' :: SharedContext s -> [SharedTerm s] -> Simpset (SharedTerm s)
+          -> Simpset (SharedTerm s)
+addsimps' _sc ts ss = foldr (\t -> addRule (ruleOfProp t)) ss ts
 
 equalPrim :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
 equalPrim t1 t2 = mkSC $ \sc -> equal sc [] t1 t2

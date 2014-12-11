@@ -509,8 +509,16 @@ primitives = Map.fromList
     (scVal addsimp)
     [ "TODO" ]
 
-  , prim "addsimp'"            "{a} a -> Simpset -> Simpset"
+  , prim "addsimp'"            "Term -> Simpset -> Simpset"
     (scVal addsimp')
+    [ "TODO" ]
+
+  , prim "addsimps"            "[Theorem] -> Simpset -> Simpset"
+    (scVal addsimps)
+    [ "TODO" ]
+
+  , prim "addsimps'"           "[Term] -> Simpset -> Simpset"
+    (scVal addsimps')
     [ "TODO" ]
 
   , prim "rewrite"             "Simpset -> Term -> TopLevel Term"
