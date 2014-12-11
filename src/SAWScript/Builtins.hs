@@ -177,13 +177,15 @@ prepForExport sc t = do
 -- function to an AIG file.
 writeAIG :: SharedContext s -> FilePath -> TypedTerm s -> IO ()
 writeAIG sc f t = withBE $ \be -> do
-  ls <- BBSim.bitBlastTerm be sc (ttTerm t)
+  t' <- rewriteEqs sc t
+  ls <- BBSim.bitBlastTerm be sc (ttTerm t')
   ABC.writeAiger f (ABC.Network be (ABC.bvToList ls))
   return ()
 
 writeCNF :: SharedContext s -> FilePath -> TypedTerm s -> IO ()
 writeCNF sc f t = withBE $ \be -> do
-  ls <- BBSim.bitBlastTerm be sc (ttTerm t)
+  t' <- rewriteEqs sc t
+  ls <- BBSim.bitBlastTerm be sc (ttTerm t')
   case AIG.bvToList ls of
     [l] -> do
       _ <- GIA.writeCNF be l f
@@ -300,7 +302,7 @@ checkBooleanSchema s =
 -- satisfiability using ABC.
 satABC :: SharedContext s -> ProofScript s SV.SatResult
 satABC sc = StateT $ \g -> AIG.withNewGraph giaNetwork $ \be -> do
-  let TypedTerm schema t = goalTerm g
+  TypedTerm schema t <- rewriteEqs sc (goalTerm g)
   checkBooleanSchema schema
   let (args, _) = asLambdaList t
       argNames = map fst args
@@ -343,8 +345,8 @@ parseDimacsSolution vars ls = map lkup vars
 satExternal :: Bool -> SharedContext s -> String -> [String]
             -> ProofScript s SV.SatResult
 satExternal doCNF sc execName args = StateT $ \g -> withBE $ \be -> do
+  TypedTerm schema t <- rewriteEqs sc (goalTerm g)
   let cnfName = goalName g ++ ".cnf"
-      TypedTerm schema t = goalTerm g
       argNames = map fst (fst (asLambdaList t))
   checkBoolean sc t
   (path, fh) <- openTempFile "." cnfName
