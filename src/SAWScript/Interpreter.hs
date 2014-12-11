@@ -40,6 +40,7 @@ import SAWScript.Options
 import SAWScript.Lexer (lexSAW)
 import SAWScript.Parser (parseSchema)
 import SAWScript.Proof
+import SAWScript.TopLevel
 import SAWScript.TypedTerm
 import SAWScript.Utils
 import SAWScript.Value
@@ -199,7 +200,7 @@ interpretModuleAtEntry entryName sc env m =
        Just v -> do
          --putStrLn "We've been asked to execute a 'TopLevel' action, so run it."
          -- We've been asked to execute a 'TopLevel' action, so run it.
-         r <- fromValue v
+         r <- runTopLevel (fromValue v)
          return (r, interpretEnv)
        Nothing -> fail $ "No " ++ entryName ++ " in module " ++ show (SS.moduleName m)
 
