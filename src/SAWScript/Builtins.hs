@@ -393,14 +393,21 @@ unsatResult sc g = do
   ft <- scApplyPreludeFalse sc
   return (SV.Unsat, g { goalTerm = TypedTerm schema ft })
 
-prepSBV :: SharedContext s -> TypedTerm s
-        -> IO (SharedTerm s, [SBVSim.Labeler], Predicate)
-prepSBV sc (TypedTerm schema t) = do
-  let eqs = map (mkIdent preludeName) [ "eq_Vec", "eq_Fin", "eq_Bool" ]
-  checkBooleanSchema schema
+rewriteEqs :: SharedContext s -> TypedTerm s -> IO (TypedTerm s)
+rewriteEqs sc (TypedTerm schema t) = do
+  let eqs = map (mkIdent preludeName)
+            [ "eq_Fin", "eq_Bool", "eq_Nat", "eq_bitvector", "eq_VecBool"
+            , "eq_VecVec" ]
   rs <- scEqsRewriteRules sc eqs
   ss <- addRules rs <$> basic_ss sc
   t' <- rewriteSharedTerm sc ss t
+  return (TypedTerm schema t')
+
+prepSBV :: SharedContext s -> TypedTerm s
+        -> IO (SharedTerm s, [SBVSim.Labeler], Predicate)
+prepSBV sc tt = do
+  TypedTerm schema t' <- rewriteEqs sc tt
+  checkBooleanSchema schema
   (labels, lit) <- SBVSim.sbvSolve sc t'
   return (t', labels, lit)
 
