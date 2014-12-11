@@ -24,7 +24,7 @@ module SAWScript.Interpreter
 
 import Control.Applicative
 import qualified Control.Exception as X
-import Control.Monad ( foldM )
+import Control.Monad (foldM, unless)
 import qualified Data.IntMap as IntMap
 import qualified Data.Map as Map
 import Data.Map ( Map )
@@ -251,6 +251,8 @@ interpretMain opts m = fromValue <$> interpretEntry "main" opts m
 print_value :: SharedContext SAWCtx -> Value -> IO ()
 print_value _sc (VString s) = putStrLn s
 print_value  sc (VTerm t) = do
+  unless (null (getAllExts (ttTerm t))) $
+    fail "term contains symbolic variables"
   t' <- defaultTypedTerm sc t
   rethrowEvalError $ print $ V.ppValue V.defaultPPOpts (evaluateTypedTerm sc t')
 print_value _sc v = putStrLn (showsPrecValue defaultPPOpts 0 v "")
