@@ -113,6 +113,7 @@ interpret sc env@(InterpretEnv vm _tm _dm ce) expr =
       SS.Z z                 -> return $ VInteger z
       SS.Undefined           -> return $ error "interpret: undefined"
       SS.Code str            -> toValue `fmap` CEnv.parseTypedTerm sc ce str
+      SS.CType str           -> toValue `fmap` CEnv.parseSchema ce str
       SS.Array es            -> VArray <$> traverse (interpret sc env) es
       SS.Block stmts         -> interpretStmts sc env stmts
       SS.Tuple es            -> VTuple <$> traverse (interpret sc env) es

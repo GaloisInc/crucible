@@ -39,7 +39,7 @@ $codechar  = [$graphic $whitechar]
 @reservedid  = import|and|let|rec|fun|in|do|if|then|else|as|hiding|undefined
              |CryptolSetup|JavaSetup|LLVMSetup
              |ProofScript|TopLevel
-             |Int|String|Term|Bit
+             |Int|String|Term|Type|Bit
              |Simpset|Theorem
              |CryptolModule
              |JavaType|JavaMethodSpec|JavaClass
@@ -67,6 +67,7 @@ $charesc     = [abfnrtv\\\"\'\&]
 @gap         = \\ $whitechar+ \\
 @string      = $graphic # [\"\\] | " " | @escape | @gap
 @code        = ($codechar # \}) | \} ($codechar # \})
+@ctype       = ($codechar # \|) | \| ($codechar # \})
 @num         = @decimal | 0[bB] @binary | 0[oO] @octal | 0[xX] @hexadecimal
 
 sawTokens :-
@@ -82,6 +83,7 @@ $white+                          ;
 @varid                           { TVar                  }
 \" @string* \"                   { TLit  `via'` read     }
 \{\{ @code* \}\}                 { TCode `via'` readCode }
+\{\| @ctype* \|\}                { TCType`via'` readCode }
 @decimal                         { TNum  `via`  read     }
 0[bB] @binary                    { TNum  `via`  readBin  }
 0[oO] @octal                     { TNum  `via`  read     }

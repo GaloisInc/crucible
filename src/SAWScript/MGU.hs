@@ -240,6 +240,7 @@ instance AppSubst Expr where
     Z _                -> expr
     Undefined          -> expr
     Code _             -> expr
+    CType _            -> expr
     Array es           -> Array (appSubst s es)
     Block bs           -> Block (appSubst s bs)
     Tuple es           -> Tuple (appSubst s es)
@@ -306,6 +307,7 @@ inferE (ln, expr) = case expr of
   Undefined -> do a <- newType
                   return (Undefined, a)
   Code s    -> return (Code s, tTerm)
+  CType s   -> return (CType s, tType)
 
   Array  [] -> do a <- newType
                   return (Array [], tArray a)

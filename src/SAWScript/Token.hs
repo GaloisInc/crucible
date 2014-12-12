@@ -12,6 +12,7 @@ data Token p = TVar      { tokPos :: p, tokStr :: String                        
              | TQVar     { tokPos :: p, tokStr :: String, tokVars :: ([String],String) }
              | TLit      { tokPos :: p, tokStr :: String                               }
              | TCode     { tokPos :: p, tokStr :: String                               }
+             | TCType    { tokPos :: p, tokStr :: String                               }
              | TUnknown  { tokPos :: p, tokStr :: String                               }
              | TPunct    { tokPos :: p, tokStr :: String                               }
              | TReserved { tokPos :: p, tokStr :: String                               }

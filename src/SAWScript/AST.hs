@@ -126,6 +126,7 @@ data Expr
   | Z Integer
   | Undefined
   | Code (Located String)
+  | CType (Located String)
   -- Structures
   | Array  [Expr]
   | Block  [BlockStmt]
@@ -188,6 +189,7 @@ data TyCon
   | FunCon
   | StringCon
   | TermCon
+  | TypeCon
   | BoolCon
   | ZCon
   | BlockCon
@@ -240,6 +242,7 @@ instance PrettyPrint TyCon where
     FunCon         -> PP.parens $ PP.text "->"
     StringCon      -> PP.text "String"
     TermCon        -> PP.text "Term"
+    TypeCon        -> PP.text "Type"
     BoolCon        -> PP.text "Bit"
     ZCon           -> PP.text "Int"
     BlockCon       -> PP.text "<Block>"
@@ -304,6 +307,9 @@ tString = TyCon StringCon []
 
 tTerm :: Type
 tTerm = TyCon TermCon []
+
+tType :: Type
+tType = TyCon TypeCon []
 
 tBool :: Type
 tBool = TyCon BoolCon []

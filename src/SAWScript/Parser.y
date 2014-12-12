@@ -59,6 +59,7 @@ import Control.Applicative
   'Int'          { TReserved _ "Int"            }
   'String'       { TReserved _ "String"         }
   'Term'         { TReserved _ "Term"           }
+  'Type'         { TReserved _ "Type"           }
   'Simpset'        { TReserved _ "Simpset"        }
   'Theorem'        { TReserved _ "Theorem"        }
   'CryptolModule'  { TReserved _ "CryptolModule"  }
@@ -87,6 +88,7 @@ import Control.Applicative
   '<-'           { TPunct    _ "<-"             }
   string         { TLit      _ $$               }
   code           { TCode     _ _                }
+  ctype          { TCType    _ _                }
   num            { TNum      _ _ $$             }
   name           { TVar      _ _                }
 
@@ -154,6 +156,7 @@ AExpr :: { Expr }
  | '[' ']'                              { Array []                }
  | string                               { String $1               }
  | Code                                 { Code $1                 }
+ | CType                                { CType $1                }
  | num                                  { Z $1                    }
  | name                                 { Var (Located (tokStr $1) (tokStr $1) (tokPos $1)) }
  | 'undefined'                          { Undefined               }
@@ -167,6 +170,9 @@ AExpr :: { Expr }
 
 Code :: { Located String }
  : code                                 { Located (tokStr $1) (tokStr $1) (tokPos $1) }
+
+CType :: { Located String }
+ : ctype                                { Located (tokStr $1) (tokStr $1) (tokPos $1) }
 
 Field :: { (Name, Expr) }
  : name '=' Expression                  { (tokStr $1, $3) }
@@ -194,6 +200,7 @@ BaseType :: { Type }
  | 'Int'                                { tZ                      }
  | 'String'                             { tString                 }
  | 'Term'                               { tTerm                   }
+ | 'Type'                               { tType                   }
  | 'Simpset'                            { tAbstract "Simpset"     }
  | 'Theorem'                            { tAbstract "Theorem"     }
  | 'CryptolModule'                      { tAbstract "CryptolModule" }

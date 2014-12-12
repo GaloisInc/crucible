@@ -9,10 +9,12 @@ module SAWScript.CryptolEnv
   , bindInteger
   , parseTypedTerm
   , parseDecls
+  , parseSchema
   )
   where
 
 --import qualified Control.Exception as X
+import Control.Monad (unless)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -33,6 +35,7 @@ import qualified Cryptol.Parser.Position as P
 import qualified Cryptol.TypeCheck as T
 import qualified Cryptol.TypeCheck.AST as T
 --import qualified Cryptol.TypeCheck.InferTypes as T
+import qualified Cryptol.TypeCheck.Kind as TK
 import qualified Cryptol.TypeCheck.Monad as TM
 
 import qualified Cryptol.ModuleSystem as M
@@ -98,6 +101,9 @@ ioParseExpr = ioParseGeneric P.parseExprWith
 
 ioParseDecls :: Located String -> IO [P.Decl]
 ioParseDecls = ioParseGeneric P.parseDeclsWith
+
+ioParseSchema :: Located String -> IO P.Schema
+ioParseSchema = ioParseGeneric P.parseSchemaWith
 
 ioParseGeneric :: (P.Config -> String -> Either P.ParseError a) -> Located String -> IO a
 ioParseGeneric parse lstr = ioParseResult (parse cfg str)
@@ -332,6 +338,20 @@ parseDecls sc env input = do
 
   -- | Translate
   translateDeclGroups sc env' dgs
+
+parseSchema :: CryptolEnv s -> Located String -> IO T.Schema
+parseSchema env input = do
+  --putStrLn $ "parseSchema: " ++ show input
+  let modEnv = eModuleEnv env
+  pschema <- ioParseSchema input
+  --putStrLn $ "ioParseSchema: " ++ show pschema
+  let ifDecls = getAllIfaceDecls modEnv
+  let range = fromMaybe P.emptyRange (P.getLoc pschema)
+  (tcEnv, _) <- liftModuleM modEnv $ MB.genInferInput range ifDecls
+  out <- TM.runInferM tcEnv (TK.checkSchema pschema)
+  ((schema, goals), _) <- liftModuleM modEnv (MM.interactive (runInferOutput out))
+  unless (null goals) (print goals)
+  return schema
 
 ------------------------------------------------------------
 

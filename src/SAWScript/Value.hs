@@ -30,6 +30,8 @@ import Verifier.SAW.SharedTerm
 import qualified Verifier.SAW.Evaluator as SC
 import qualified Cryptol.Eval.Value as C
 import Verifier.SAW.Cryptol (exportValueWithSchema)
+import qualified Cryptol.TypeCheck.AST as Cryptol (Schema)
+import Cryptol.Utils.PP (pretty)
 
 -- Values ----------------------------------------------------------------------
 
@@ -42,6 +44,7 @@ data Value
   | VRecord (Map SS.Name Value)
   | VLambda (Value -> IO Value)
   | VTerm (TypedTerm SAWCtx)
+  | VType Cryptol.Schema
   | VReturn Value -- Returned value in unspecified monad
   | VBind Value Value -- Monadic bind in unspecified monad
   | VTopLevel (TopLevel Value)
@@ -121,6 +124,7 @@ showsPrecValue opts p v =
 
     VLambda {} -> showString "<<function>>"
     VTerm t -> showsPrec p (ttTerm t)
+    VType sig -> showString (pretty sig)
     VReturn {} -> showString "<<monadic>>"
     VBind {} -> showString "<<monadic>>"
     VTopLevel {} -> showString "<<TopLevel>>"
@@ -319,6 +323,13 @@ instance FromValue (TypedTerm SAWCtx) where
 instance FromValue (SharedTerm SAWCtx) where
     fromValue (VTerm t) = ttTerm t
     fromValue _ = error "fromValue SharedTerm"
+
+instance IsValue Cryptol.Schema where
+    toValue s = VType s
+
+instance FromValue Cryptol.Schema where
+    fromValue (VType s) = s
+    fromValue _ = error "fromValue Schema"
 
 instance IsValue String where
     toValue n = VString n
