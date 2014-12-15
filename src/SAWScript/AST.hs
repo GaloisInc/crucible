@@ -73,15 +73,10 @@ unionsLEnv = Map.unions
 data Module = Module
   { moduleName         :: ModuleName
   , moduleExprEnv      :: [Decl]
-  , moduleDependencies :: ModuleEnv ValidModule
+  , moduleDependencies :: ModuleEnv Module
   , moduleCryDeps      :: [Import]
   , moduleCryDecls     :: [Located String]
   } deriving (Eq,Show)
-
--- A fully type checked module.
---  Exprs have resolved names, concrete types
---  Types have ResolvedT (Nothing for abstract types, Just FullT for type synonyms)
-type ValidModule = Module
 
 -- }}}
 

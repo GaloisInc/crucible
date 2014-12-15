@@ -181,7 +181,7 @@ interpretStmts sc env@(InterpretEnv vm tm dm ce) stmts =
 
 interpretModule
     :: SharedContext SAWCtx
-    -> InterpretEnv -> SS.ValidModule -> IO InterpretEnv
+    -> InterpretEnv -> SS.Module -> IO InterpretEnv
 interpretModule sc env m =
     do cenv' <- foldM (CEnv.importModule sc) (ieCryptol env) (SS.moduleCryDeps m)
        cenv'' <- foldM (CEnv.parseDecls sc) cenv' (SS.moduleCryDecls m)
@@ -192,7 +192,7 @@ interpretModule sc env m =
 interpretModuleAtEntry :: SS.Name
                           -> SharedContext SAWCtx
                           -> InterpretEnv
-                          -> SS.ValidModule
+                          -> SS.Module
                           -> IO (Value, InterpretEnv)
 interpretModuleAtEntry entryName sc env m =
   do interpretEnv@(InterpretEnv vm _tm _dm _ce) <- interpretModule sc env m
@@ -206,7 +206,7 @@ interpretModuleAtEntry entryName sc env m =
        Nothing -> fail $ "No " ++ entryName ++ " in module " ++ show (SS.moduleName m)
 
 -- | Interpret an expression using the default value environments.
-interpretEntry :: SS.Name -> Options -> SS.ValidModule -> IO Value
+interpretEntry :: SS.Name -> Options -> SS.Module -> IO Value
 interpretEntry entryName opts m =
     do (bic, interpretEnv0) <- buildInterpretEnv opts m
        let sc = biSharedContext bic
@@ -214,7 +214,7 @@ interpretEntry entryName opts m =
          interpretModuleAtEntry entryName sc interpretEnv0 m
        return result
 
-buildInterpretEnv :: Options -> SS.ValidModule -> IO (BuiltinContext, InterpretEnv)
+buildInterpretEnv :: Options -> SS.Module -> IO (BuiltinContext, InterpretEnv)
 buildInterpretEnv opts m =
     do let mn = mkModuleName [SS.moduleName m]
        let scm = insImport preludeModule $
@@ -244,7 +244,7 @@ buildInterpretEnv opts m =
        return (bic, InterpretEnv vm0 tm0 primDocEnv ce0)
 
 -- | Interpret function 'main' using the default value environments.
-interpretMain :: Options -> SS.ValidModule -> IO ()
+interpretMain :: Options -> SS.Module -> IO ()
 interpretMain opts m = fromValue <$> interpretEntry "main" opts m
 
 
