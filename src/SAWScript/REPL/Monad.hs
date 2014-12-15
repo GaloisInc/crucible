@@ -91,7 +91,6 @@ import SAWScript.Compiler (ErrT, runErrT)
 import SAWScript.CryptolEnv
 import SAWScript.Interpreter (InterpretEnv(..), buildInterpretEnv)
 import SAWScript.Options (Options)
-import SAWScript.REPL.GenerateModule as Generate
 import SAWScript.Utils (SAWCtx)
 import Verifier.SAW (SharedContext)
 
@@ -111,8 +110,7 @@ data RW = RW
 -- | Initial, empty environment.
 defaultRW :: Bool -> Options -> IO RW
 defaultRW isBatch opts = do
-  let scratchpadModule = Generate.scratchpad Map.empty
-  (biContext, ienv) <- buildInterpretEnv opts scratchpadModule
+  (biContext, ienv) <- buildInterpretEnv opts
   let sc = biSharedContext biContext
 
   return RW

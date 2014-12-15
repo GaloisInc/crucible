@@ -74,7 +74,6 @@ import qualified SAWScript.Lexer (scan)
 import qualified SAWScript.MGU as MGU
 import qualified SAWScript.Parser (parseBlockStmt)
 import qualified SAWScript.Value (evaluate, fromValue)
-import SAWScript.REPL.GenerateModule (replFileName)
 import SAWScript.TopLevel (runTopLevel)
 import SAWScript.TypedTerm
 import SAWScript.Utils (Pos(..))
@@ -594,6 +593,9 @@ sawScriptCmd str = do
     SS.BlockLet dg        -> processBlockLet dg
     SS.BlockCode lc       -> processBlockCode lc
     SS.BlockImport imp    -> processBlockImport imp
+
+replFileName :: String
+replFileName = "<stdin>"
 
 processBlockLet :: SS.DeclGroup -> REPL ()
 processBlockLet dg = do

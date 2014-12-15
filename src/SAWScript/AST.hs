@@ -71,7 +71,7 @@ unionsLEnv = Map.unions
 -- Module Level {{{
 
 data Module = Module
-  { moduleName         :: ModuleName
+  { moduleFileName     :: FilePath
   , moduleExprEnv      :: [Decl]
   , moduleDependencies :: ModuleEnv Module
   , moduleCryDeps      :: [Import]
@@ -101,7 +101,7 @@ toNameDec :: (LName, a) -> (Name, a)
 toNameDec = first getVal
 
 data TopStmt
-  = TopImport   ModuleName    -- ^ import <module>
+  = TopImport   FilePath      -- ^ import <module>
   | TopTypeDecl LName Schema  -- ^ <name> : <type>
   | TopBind     Decl          -- ^ <name> = <expr>
   | ImportCry   Import        -- ^ import "filepath.cry" [as <name>] [(<names>)]
@@ -257,7 +257,7 @@ prettyModuleName mn = PP.text "module" PP.<+>
                       PP.squotes (PP.text mn)
 
 instance PrettyPrint Module where
-  pretty _ m = prettyModuleName (moduleName m)
+  pretty _ m = prettyModuleName (moduleFileName m)
 
 replicateDoc :: Integer -> PP.Doc -> PP.Doc
 replicateDoc n d

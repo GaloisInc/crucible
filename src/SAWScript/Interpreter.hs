@@ -203,20 +203,20 @@ interpretModuleAtEntry entryName sc env m =
          -- We've been asked to execute a 'TopLevel' action, so run it.
          r <- runTopLevel (fromValue v)
          return (r, interpretEnv)
-       Nothing -> fail $ "No " ++ entryName ++ " in module " ++ show (SS.moduleName m)
+       Nothing -> fail $ "No " ++ entryName ++ " in script file " ++ show (SS.moduleFileName m)
 
 -- | Interpret an expression using the default value environments.
 interpretEntry :: SS.Name -> Options -> SS.Module -> IO Value
 interpretEntry entryName opts m =
-    do (bic, interpretEnv0) <- buildInterpretEnv opts m
+    do (bic, interpretEnv0) <- buildInterpretEnv opts
        let sc = biSharedContext bic
        (result, _interpretEnv) <-
          interpretModuleAtEntry entryName sc interpretEnv0 m
        return result
 
-buildInterpretEnv :: Options -> SS.Module -> IO (BuiltinContext, InterpretEnv)
-buildInterpretEnv opts m =
-    do let mn = mkModuleName [SS.moduleName m]
+buildInterpretEnv :: Options -> IO (BuiltinContext, InterpretEnv)
+buildInterpretEnv opts =
+    do let mn = mkModuleName ["SAWScript"]
        let scm = insImport preludeModule $
                  insImport JavaSAW.javaModule $
                  insImport LLVMSAW.llvmModule $

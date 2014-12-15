@@ -10,7 +10,6 @@ module SAWScript.MGU
        , checkModule
        ) where
 
-import qualified SAWScript.AST as A
 import SAWScript.AST
 import SAWScript.Compiler
 import SAWScript.Interpreter (primTypeEnv) -- FIXME: temporary
@@ -532,7 +531,6 @@ checkKind = return
 -- | deprecated
 checkModule :: Compiler Module Module
 checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
-  let modName = moduleName m
   let decls   = moduleExprEnv m
   let initTs  = [ (n, s) | (_mn, dep) <- depMods m, (Decl n (Just s) _) <- modExprs dep ]
   let primTs  = M.toList SAWScript.Interpreter.primTypeEnv

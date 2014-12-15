@@ -1,8 +1,6 @@
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE QuasiQuotes #-}
 module SAWScript.Import
   ( loadModule
-  , findAndLoadModule
   , emptyLoadedModules
   , LoadedModules(..)
   ) where
@@ -19,28 +17,26 @@ import SAWScript.Options
 import SAWScript.Parser
 
 import System.Directory
-import System.FilePath
 
 loadModule :: Options -> FilePath -> LoadedModules -> IO LoadedModules
 loadModule opts fname ms = do
-  let mn = moduleNameFromPath $ dropExtension (takeFileName fname)
-  when (verbLevel opts > 0) $ putStrLn $ "Loading Module " ++ show mn
+  when (verbLevel opts > 0) $ putStrLn $ "Loading file " ++ show fname
   ftext <- readFile fname
   m <- reportErrT (formModule fname ftext)
-  loadRest (mapMaybe getImport m) (ms { modules = Map.insert mn m (modules ms) })
+  loadRest (mapMaybe getImport m) (ms { modules = Map.insert fname m (modules ms) })
   where loadRest [] ms' = return ms'
         loadRest (imp:imps) ms' =
-          findAndLoadModule opts imp ms' >>= loadRest imps
+          findAndLoadFile opts imp ms' >>= loadRest imps
 
 
 
 data LoadedModules = LoadedModules
-  { modules    :: ModuleEnv [TopStmt]
+  { modules :: Map.Map FilePath [TopStmt]
   } deriving (Show)
 
 instance PrettyPrint LoadedModules where
   pretty _ lm =
-    PP.brackets $ commaSepAll $ fmap prettyModuleName $ Map.keys $ modules lm
+    PP.brackets $ commaSepAll $ fmap PP.text $ Map.keys $ modules lm
 
 emptyLoadedModules :: LoadedModules
 emptyLoadedModules = LoadedModules Map.empty
@@ -48,17 +44,14 @@ emptyLoadedModules = LoadedModules Map.empty
 formModule :: FilePath -> Compiler String [TopStmt]
 formModule f = scan f >=> liftParser parseModule
 
-findAndLoadModule :: Options -> ModuleName -> LoadedModules -> IO LoadedModules
-findAndLoadModule opts name ms = do
-  let mn    = name
-  let fp    = name <.> "saw"
+findAndLoadFile :: Options -> FilePath -> LoadedModules -> IO LoadedModules
+findAndLoadFile opts fp ms = do
   let paths = importPath opts
   mfname <- findFile paths fp
   case mfname of
     Nothing -> fail $ unlines $
-        [ "Couldn't find module " ++ show mn
-        , "  Searched for file: " ++ show fp
-        , "  In directories:"
+        [ "Couldn't find file: " ++ show fp
+        , "  Searched in directories:"
         ] ++ map ("    " ++) paths
     Just fname -> loadModule opts fname ms
 
@@ -74,8 +67,7 @@ findFile paths fileName = search paths
         if b then return (Just path)
              else search ds
 #endif
-  
-getImport :: TopStmt -> Maybe ModuleName
-getImport (TopImport mn) = Just mn
-getImport _ = Nothing
 
+getImport :: TopStmt -> Maybe FilePath
+getImport (TopImport path) = Just path
+getImport _ = Nothing
