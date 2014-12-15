@@ -27,10 +27,10 @@ loadModule opts fname ms = do
   when (verbLevel opts > 0) $ putStrLn $ "Loading Module " ++ show mn
   ftext <- readFile fname
   m <- reportErrT (formModule fname ftext)
-  loadRest mn (mapMaybe getImport m) (ms { modules = Map.insert mn m (modules ms) })
-  where loadRest _mn [] ms' = return ms'
-        loadRest mn (imp:imps) ms' =
-          findAndLoadModule opts imp ms' >>= loadRest mn imps
+  loadRest (mapMaybe getImport m) (ms { modules = Map.insert mn m (modules ms) })
+  where loadRest [] ms' = return ms'
+        loadRest (imp:imps) ms' =
+          findAndLoadModule opts imp ms' >>= loadRest imps
 
 
 
