@@ -74,47 +74,23 @@ import Control.Applicative (Applicative(..), pure, (<*>))
 import Control.Monad (unless,when,ap)
 import Data.IORef (IORef, newIORef, readIORef, modifyIORef)
 import Data.List (isPrefixOf)
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Typeable (Typeable)
 import System.Console.ANSI (setTitle)
 import qualified Control.Exception as X
-import qualified Data.Map as Map
 import System.IO.Error (isUserError, ioeGetErrorString)
 
 import Verifier.SAW.SharedTerm (SharedTerm)
 
 --------------------
-{-
-import Prelude hiding (maybe)
 
-import Control.Applicative (Applicative)
-import Control.Monad.Trans (lift, MonadIO, liftIO)
-import Control.Monad.State (StateT, runStateT, gets, modify)
-import Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
--}
-import Data.Foldable (foldrM)
-import Data.Map (Map)
-{-
-import qualified Data.Map as Map
--}
---import Data.Set (Set)
---import qualified Data.Set as Set
-{-
-import System.Console.Haskeline (InputT, runInputT)
-import qualified System.Console.Haskeline as Haskeline
--}
-
-import SAWScript.AST (Located(getVal) {- ,
-                      ModuleName,
-                      Name,
-                      ValidModule -} )
-import SAWScript.BuildModules (buildModules)
+import SAWScript.AST (Located(getVal))
 import SAWScript.Builtins (BuiltinContext(..))
-import SAWScript.Compiler (ErrT, runErr, runErrT)
+import SAWScript.Compiler (ErrT, runErrT)
 import SAWScript.CryptolEnv
-import SAWScript.Import (emptyLoadedModules)
 import SAWScript.Interpreter (InterpretEnv(..), buildInterpretEnv)
 import SAWScript.Options (Options)
-import SAWScript.ProcessFile (checkModuleWithDeps)
 import SAWScript.REPL.GenerateModule as Generate
 import SAWScript.Utils (SAWCtx)
 import Verifier.SAW (SharedContext)
@@ -135,14 +111,7 @@ data RW = RW
 -- | Initial, empty environment.
 defaultRW :: Bool -> Options -> IO RW
 defaultRW isBatch opts = do
-  result <- runErr $ do
-              built <- buildModules emptyLoadedModules
-              foldrM checkModuleWithDeps Map.empty built
-  modules <- case result of
-               Left msg -> fail msg
-               Right ms -> return ms
-
-  let scratchpadModule = Generate.scratchpad modules
+  let scratchpadModule = Generate.scratchpad Map.empty
   (biContext, ienv) <- buildInterpretEnv opts scratchpadModule
   let sc = biSharedContext biContext
 
