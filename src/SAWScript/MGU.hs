@@ -519,11 +519,6 @@ inferTopDecls (ds : dss) =
      return (ds1 : rest)
 
 
--- Compute groups of recursive components
-computeSCCGroups :: A.ModuleName -> [Decl] -> [[Decl]]
-computeSCCGroups _ = map (: [])
--- ^ FIXME: remove
-
 -- XXX: TODO
 checkKind :: Type -> TI Type
 checkKind = return
@@ -541,7 +536,7 @@ checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
   let decls   = moduleExprEnv m
   let initTs  = [ (n, s) | (_mn, dep) <- depMods m, (Decl n (Just s) _) <- modExprs dep ]
   let primTs  = M.toList SAWScript.Interpreter.primTypeEnv
-  let sccs = computeSCCGroups modName decls
+  let sccs = [ [d] | d <- decls ]
   let go = bindSchemas (initTs ++ primTs) (inferTopDecls sccs >>= exportDecls)
   case evalTI go of
     Right exprRes -> return $ m { moduleExprEnv = exprRes }
