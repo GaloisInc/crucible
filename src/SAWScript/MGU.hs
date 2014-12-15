@@ -4,7 +4,11 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TupleSections #-}
 
-module SAWScript.MGU where
+module SAWScript.MGU
+       ( checkDecl
+       , checkDeclGroup
+       , checkModule
+       ) where
 
 import qualified SAWScript.AST as A
 import SAWScript.AST
@@ -113,9 +117,6 @@ data RO = RO
   { typeEnv :: M.Map (Located Name) Schema
   }
 
-emptyRO :: RO
-emptyRO = RO { typeEnv = M.empty }
-
 data RW = RW
   { nameGen :: TypeIndex
   , subst   :: Subst
@@ -133,11 +134,6 @@ newTypeIndex = do
 
 newType :: TI Type
 newType = TyUnifyVar <$> newTypeIndex
-
-freshInst :: Schema -> TI Type
-freshInst (Forall ns t) = do
-  nts <- mapM (\n -> (,) n <$> newType) ns
-  return (instantiate nts t)
 
 skolemType :: Name -> TI Type
 skolemType n = TySkolemVar n <$> newTypeIndex
@@ -185,14 +181,6 @@ bindDecls ds m = foldr bindDecl m ds
 bindDeclGroup :: DeclGroup -> TI a -> TI a
 bindDeclGroup (NonRecursive d) m = bindDecl d m
 bindDeclGroup (Recursive ds) m = foldr bindDecl m ds
-
-lookupVar :: Located Name -> TI Type
-lookupVar n = do
-  env <- TI $ asks typeEnv
-  case M.lookup n env of
-    Nothing -> do recordError $ "unbound variable: " ++ show n
-                  newType
-    Just schema -> freshInst schema
 
 -- FIXME: This function may miss type variables that occur in the type
 -- of a binding that has been shadowed by another value with the same
@@ -422,11 +410,6 @@ inferField m (n,e) = do
   (e',t) <- inferE (m,e)
   return ((n,e'),(n,t))
 
-inferDecls :: [Decl] -> ([Decl] -> TI a) -> TI a
-inferDecls ds nextF = do
-  ds' <- mapM inferDecl ds
-  bindDecls ds' (nextF ds')
-
 inferDeclGroup :: DeclGroup -> TI DeclGroup
 inferDeclGroup (NonRecursive d) = do 
   d' <- inferDecl d
@@ -588,9 +571,6 @@ evalTIWithEnv :: Map LName Schema -> TI a -> Either [String] a
 evalTIWithEnv env m = case runTIWithEnv env m of
   (res,_,[]) -> Right res
   (_,_,errs) -> Left errs
-
-runTI :: TI a -> (a, Subst, [String])
-runTI = runTIWithEnv M.empty
 
 runTIWithEnv :: Map LName Schema -> TI a -> (a, Subst, [String])
 runTIWithEnv env m = (a, subst rw, errors rw)
