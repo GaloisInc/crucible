@@ -2,19 +2,38 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-module SAWScript.AST where
+module SAWScript.AST
+       ( Name
+       , LName
+       , Bind
+       , Module(..)
+       , Located(..)
+       , TopStmt(..)
+       , Import(..)
+       , Expr(..)
+       , BlockStmt(..)
+       , DeclGroup(..)
+       , Decl(..)
+       , Context(..)
+       , Type(..), TypeIndex
+       , TyCon(..)
+       , Schema(..)
+       , toLName
+       , tMono, tForall, tTuple, tRecord, tArray, tFun
+       , tString, tTerm, tType, tBool, tZ
+       , tBlock, tContext, tAbstract, boundVar
+
+       , PrettyPrint(..), pShow, commaSepAll
+       ) where
 
 import SAWScript.Token
 import SAWScript.Utils
 
-import Data.List
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Control.Arrow
 
 import Data.Foldable (Foldable)
 import Data.Traversable (Traversable)
-import System.FilePath (dropExtension)
 import qualified Text.PrettyPrint.Leijen as PP
 
 import qualified Cryptol.Parser.AST as P (ImportSpec, ModName)
@@ -25,46 +44,7 @@ type Name = String
 
 type ModuleName = Name
 
-moduleNameFromPath :: FilePath -> ModuleName
-moduleNameFromPath fp = dropExtension fp
-
-renderDotSepName :: [Name] -> String
-renderDotSepName = intercalate "."
-
 type Bind a = (Name,a)
-type LBind a = (LName, a)
-onBind :: (a -> b) -> Bind a -> Bind b
-onBind f (n,a) = (n,f a)
-onBinds :: (a -> b) -> [Bind a] -> [Bind b]
-onBinds = map . onBind
-
-type Env a       = Map Name a
-type LEnv a      = Map LName a
-type ModuleEnv a = Map ModuleName a
-
-singletonEnv :: Name -> a -> Env a
-singletonEnv = Map.singleton
-
-lookupEnv :: Name -> Env a -> Maybe a
-lookupEnv = Map.lookup
-
-lookupLEnv :: LName -> LEnv a -> Maybe a
-lookupLEnv = Map.lookup
-
-memberEnv :: Name -> Env a -> Bool
-memberEnv = Map.member
-
-unionEnv :: Env a -> Env a -> Env a
-unionEnv = Map.union
-
-emptyEnv :: Env a
-emptyEnv = Map.empty
-
-insertEnv :: Name -> a -> Env a -> Env a
-insertEnv = Map.insert
-
-unionsLEnv :: [LEnv a] -> LEnv a
-unionsLEnv = Map.unions
 
 -- }}}
 
@@ -73,7 +53,7 @@ unionsLEnv = Map.unions
 data Module = Module
   { moduleFileName     :: FilePath
   , moduleExprEnv      :: [Decl]
-  , moduleDependencies :: ModuleEnv Module
+  , moduleDependencies :: Map FilePath Module
   , moduleCryDeps      :: [Import]
   , moduleCryDecls     :: [Located String]
   } deriving (Eq,Show)
@@ -96,9 +76,6 @@ instance Ord a => Ord (Located a) where
 
 toLName :: Token Pos -> LName
 toLName p = Located (tokStr p) (tokStr p) (tokPos p)
-
-toNameDec :: (LName, a) -> (Name, a)
-toNameDec = first getVal
 
 data TopStmt
   = TopImport   FilePath      -- ^ import <module>
@@ -323,14 +300,5 @@ tAbstract n = TyCon (AbstractCon n) []
 
 boundVar :: Name -> Type
 boundVar n = TyBoundVar n
-
--- }}}
-
--- Expr Accessors/Modifiers {{{
-
-context :: BlockStmt -> Maybe Type
-context s = case s of
-  Bind _ _ c _ -> c
-  _            -> Nothing
 
 -- }}}
