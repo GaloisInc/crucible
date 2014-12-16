@@ -74,10 +74,11 @@ data InterpretEnv = InterpretEnv
   , ieTypes   :: Map SS.LName SS.Schema
   , ieDocs    :: Map SS.Name String
   , ieCryptol :: CEnv.CryptolEnv SAWCtx
+  , ieRO      :: RO
   }
 
 extendEnv :: SS.LName -> Maybe SS.Schema -> Maybe String -> Value -> InterpretEnv -> InterpretEnv
-extendEnv x mt md v (InterpretEnv vm tm dm ce) = InterpretEnv vm' tm' dm' ce'
+extendEnv x mt md v (InterpretEnv vm tm dm ce ro) = InterpretEnv vm' tm' dm' ce' ro
   where
     name = x
     qname = T.QName Nothing (T.Name (getOrig x))
@@ -97,7 +98,7 @@ extendEnv x mt md v (InterpretEnv vm tm dm ce) = InterpretEnv vm' tm' dm' ce'
 -- | Variation that does not force the value argument: it assumes it
 -- is not a term or int.
 extendEnv' :: SS.LName -> Maybe SS.Schema -> Maybe String -> Value -> InterpretEnv -> InterpretEnv
-extendEnv' x mt md v (InterpretEnv vm tm dm ce) = InterpretEnv vm' tm' dm' ce
+extendEnv' x mt md v (InterpretEnv vm tm dm ce ro) = InterpretEnv vm' tm' dm' ce ro
   where
     dm' = maybe dm (\d -> Map.insert (getVal x) d dm) md
     vm' = Map.insert x v vm
@@ -106,7 +107,7 @@ extendEnv' x mt md v (InterpretEnv vm tm dm ce) = InterpretEnv vm' tm' dm' ce
 -- Interpretation of SAWScript -------------------------------------------------
 
 interpret :: SharedContext SAWCtx -> InterpretEnv -> SS.Expr -> IO Value
-interpret sc env@(InterpretEnv vm _tm _dm ce) expr =
+interpret sc env@(InterpretEnv vm _tm _dm ce _ro) expr =
     case expr of
       SS.Bit b               -> return $ VBool b
       SS.String s            -> return $ VString s
@@ -161,7 +162,7 @@ interpretDeclGroup sc env (SS.Recursive ds) = return env'
   where env' = foldr ($) env [ extendEnv' n mty Nothing (interpretFunction sc env' e) | SS.Decl n mty e <- ds ]
 
 interpretStmts :: SharedContext SAWCtx -> InterpretEnv -> [SS.BlockStmt] -> IO Value
-interpretStmts sc env@(InterpretEnv vm tm dm ce) stmts =
+interpretStmts sc env@(InterpretEnv vm tm dm ce ro) stmts =
     case stmts of
       [] -> fail "empty block"
       [SS.Bind Nothing _ _ e] -> interpret sc env e
@@ -175,7 +176,7 @@ interpretStmts sc env@(InterpretEnv vm tm dm ce) stmts =
       SS.BlockLet bs : ss -> interpret sc env (SS.Let bs (SS.Block ss))
       SS.BlockCode s : ss ->
           do ce' <- CEnv.parseDecls sc ce s
-             interpretStmts sc (InterpretEnv vm tm dm ce') ss
+             interpretStmts sc (InterpretEnv vm tm dm ce' ro) ss
       SS.BlockImport _ : _ ->
           do fail "block import unimplemented"
 
@@ -195,13 +196,13 @@ interpretModuleAtEntry :: SS.Name
                           -> SS.Module
                           -> IO (Value, InterpretEnv)
 interpretModuleAtEntry entryName sc env m =
-  do interpretEnv@(InterpretEnv vm _tm _dm _ce) <- interpretModule sc env m
+  do interpretEnv@(InterpretEnv vm _tm _dm _ce ro) <- interpretModule sc env m
      let mainName = Located entryName entryName (PosInternal "entry")
      case Map.lookup mainName vm of
        Just v -> do
          --putStrLn "We've been asked to execute a 'TopLevel' action, so run it."
          -- We've been asked to execute a 'TopLevel' action, so run it.
-         r <- runTopLevel (fromValue v)
+         r <- runTopLevel (fromValue v) ro
          return (r, interpretEnv)
        Nothing -> fail $ "No " ++ entryName ++ " in script file " ++ show (SS.moduleFileName m)
 
@@ -234,6 +235,10 @@ buildInterpretEnv opts =
        let sc = rewritingSharedContext sc0 simps
        ss <- basic_ss sc
        jcb <- JCB.loadCodebase (jarList opts) (classPath opts)
+       let ro0 = RO { roSharedContext = sc
+                    , roJavaCodebase = jcb
+                    , roOptions = opts
+                    }
        let bic = BuiltinContext {
                    biSharedContext = sc
                  , biJavaCodebase = jcb
@@ -241,7 +246,7 @@ buildInterpretEnv opts =
        let vm0 = Map.insert (qualify "basic_ss") (toValue ss) (valueEnv opts bic)
        let tm0 = Map.insert (qualify "basic_ss") (readSchema "Simpset") primTypeEnv
        ce0 <- CEnv.initCryptolEnv sc
-       return (bic, InterpretEnv vm0 tm0 primDocEnv ce0)
+       return (bic, InterpretEnv vm0 tm0 primDocEnv ce0 ro0)
 
 -- | Interpret function 'main' using the default value environments.
 interpretMain :: Options -> SS.Module -> IO ()

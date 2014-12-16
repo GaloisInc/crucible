@@ -641,7 +641,7 @@ processBlockBind mx mt _mc expr = do
 
   val <- io $ interpret sc ie expr''
   -- | Run the resulting IO action.
-  result <- io $ runTopLevel $ SAWScript.Value.fromValue val
+  result <- io $ runTopLevel (SAWScript.Value.fromValue val) (ieRO ie)
 
   let ie' = extendEnv lname (Just (SS.tMono ty)) Nothing result ie
   putEnvironment ie'
