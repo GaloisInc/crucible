@@ -24,7 +24,7 @@ schemaNoUser (T.Forall params props ty) = T.Forall params props (typeNoUser ty)
 
 loadCryptol :: FilePath -> IO M.ModuleEnv
 loadCryptol filepath = do
-  (result, warnings) <- M.loadModuleByPath filepath
+  (result, warnings) <- M.loadModuleByPath filepath =<< M.initialModuleEnv
   mapM_ (print . pp) warnings
   (_m, modEnv) <-
     case result of

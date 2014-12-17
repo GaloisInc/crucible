@@ -208,7 +208,7 @@ genTermEnv sc modEnv = do
 
 loadCryptolModule :: SharedContext s -> FilePath -> IO (CryptolModule s)
 loadCryptolModule sc path = do
-  (result, warnings) <- M.loadModuleByPath path
+  (result, warnings) <- M.loadModuleByPath path =<< M.initialModuleEnv
   mapM_ (print . pp) warnings
   (m, modEnv) <-
     case result of
