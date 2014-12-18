@@ -333,7 +333,7 @@ parseDecls sc env input = do
   let tcEnv' = tcEnv { TM.inpVars = Map.union (eExtraTypes env) (TM.inpVars tcEnv) }
 
   out <- T.tcDecls rdecls tcEnv'
-  (dgs, modEnv') <- liftModuleM modEnv (runInferOutput out)
+  (dgs, modEnv') <- liftModuleM modEnv (MM.interactive (runInferOutput out))
   let env' = env { eModuleEnv = modEnv' }
 
   -- | Translate
