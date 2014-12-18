@@ -35,6 +35,7 @@ import SAWScript.AST (Located(..))
 import SAWScript.Builtins hiding (evaluate)
 import qualified SAWScript.CryptolEnv as CEnv
 import SAWScript.JavaBuiltins
+import SAWScript.JavaExpr
 import SAWScript.LLVMBuiltins
 import SAWScript.Options
 import SAWScript.Lexer (lexSAW)
@@ -545,43 +546,43 @@ primitives = Map.fromList
   -- Java stuff
 
   , prim "java_bool"           "JavaType"
-    (pureVal javaBool)
+    (pureVal JavaBoolean)
     [ "TODO" ]
 
   , prim "java_byte"           "JavaType"
-    (pureVal javaByte)
+    (pureVal JavaByte)
     [ "TODO" ]
 
   , prim "java_char"           "JavaType"
-    (pureVal javaChar)
+    (pureVal JavaChar)
     [ "TODO" ]
 
   , prim "java_short"          "JavaType"
-    (pureVal javaShort)
+    (pureVal JavaShort)
     [ "TODO" ]
 
   , prim "java_int"            "JavaType"
-    (pureVal javaInt)
+    (pureVal JavaInt)
     [ "TODO" ]
 
   , prim "java_long"           "JavaType"
-    (pureVal javaLong)
+    (pureVal JavaLong)
     [ "TODO" ]
 
   , prim "java_float"          "JavaType"
-    (pureVal javaFloat)
+    (pureVal JavaFloat)
     [ "TODO" ]
 
   , prim "java_double"         "JavaType"
-    (pureVal javaDouble)
+    (pureVal JavaDouble)
     [ "TODO" ]
 
   , prim "java_array"          "Int -> JavaType -> JavaType"
-    (pureVal javaArray)
+    (pureVal JavaArray)
     [ "TODO" ]
 
   , prim "java_class"          "String -> JavaType"
-    (pureVal javaClass)
+    (pureVal JavaClass)
     [ "TODO" ]
 
   --, prim "java_value"          "{a} String -> a"

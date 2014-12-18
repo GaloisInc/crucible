@@ -376,36 +376,6 @@ parseStaticParts cb (fname:rest) = do
     Nothing -> return Nothing
 parseStaticParts _ _ = return Nothing
 
-javaBool :: JavaType
-javaBool = JavaBoolean
-
-javaByte :: JavaType
-javaByte = JavaByte
-
-javaChar :: JavaType
-javaChar = JavaChar
-
-javaShort :: JavaType
-javaShort = JavaShort
-
-javaInt :: JavaType
-javaInt = JavaInt
-
-javaLong :: JavaType
-javaLong = JavaLong
-
-javaFloat :: JavaType
-javaFloat = JavaFloat
-
-javaDouble :: JavaType
-javaDouble = JavaDouble
-
-javaArray :: Int -> JavaType -> JavaType
-javaArray n t = JavaArray n t
-
-javaClass :: String -> JavaType
-javaClass name = JavaClass name
-
 exportJSSType :: JavaType -> JavaSetup Type
 exportJSSType jty =
   case jty of
