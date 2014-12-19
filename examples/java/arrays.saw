@@ -25,6 +25,9 @@ sum_setup = do {
 sum_setup' : JavaSetup ();
 sum_setup' = do { java_var "a" (java_array 10 java_int); return (); };
 
+id_setup : JavaSetup ();
+id_setup = do { java_var "a" (java_array 10 java_int); return (); };
+
 comp_setup : JavaSetup ();
 comp_setup = do {
     java_var "a" (java_array 10 java_int);
@@ -41,8 +44,12 @@ main = do {
     comp_ms <- java_verify c "comp" [unit_ms] comp_setup;
     print "Extracting model of sum, which has type:";
     sum_tm <- java_extract c "sum" sum_setup';
+    id_tm <- java_extract c "arr_id" id_setup;
     check_term sum_tm;
-    print "Running model on ten 1 inputs:";
+    print "Running sum on ten 1 inputs:";
     print {{ sum_tm 1 1 1 1 1 1 1 1 1 1 }};
+    check_term id_tm;
+    print "Running arr_id on ten increasing inputs:";
+    print {{ id_tm 1 2 3 4 5 6 7 8 9 10 }};
     print "Done.";
 };

@@ -17,4 +17,8 @@ class Arrays {
     void comp(int a[]) {
         unit(a);
     }
+
+    int[] arr_id(int a[]) {
+        return a;
+    }
 }
