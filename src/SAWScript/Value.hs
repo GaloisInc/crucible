@@ -172,7 +172,7 @@ tupleLookupValue (VTuple vs) i
 tupleLookupValue _ _ = error "tupleLookupValue"
 
 evaluate :: SharedContext s -> SharedTerm s -> SC.Value
-evaluate sc t = SC.evalSharedTerm eval t
+evaluate sc t = SC.evalSharedTerm eval SC.noExtCns t
   where eval = SC.evalGlobal (scModule sc) SC.preludePrims
 -- FIXME: is evalGlobal always appropriate? Or should we
 -- parameterize on a meaning function for globals?

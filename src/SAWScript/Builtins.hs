@@ -578,7 +578,7 @@ equalPrim t1 t2 = mkSC $ \sc -> equal sc [] t1 t2
 
 -- evaluate :: (a :: sort 0) -> Term -> a;
 evaluate :: (Ident -> Value) -> () -> SharedTerm s -> Value
-evaluate global _ = evalSharedTerm global
+evaluate global _ = evalSharedTerm global noExtCns
 
 myPrint :: () -> Value -> SC s ()
 myPrint _ (VString s) = mkSC $ const (putStrLn s)
@@ -645,7 +645,7 @@ cexEvalFn sc args tm = do
       argMap = Map.fromList (zip is args')
       eval = evalGlobal (scModule sc) preludePrims
   tm' <- scInstantiateExt sc argMap tm
-  return $ evalSharedTerm eval tm'
+  return $ evalSharedTerm eval noExtCns tm'
 
 toValueCase :: (SV.FromValue b) =>
                SharedContext SAWCtx
