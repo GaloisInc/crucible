@@ -11,6 +11,7 @@ module SAWScript.JavaExpr
     JavaExprF(..)
   , JavaExpr
   , thisJavaExpr
+  , returnJavaExpr
   , ppJavaExpr
   , jssTypeOfJavaExpr
   , isRefJavaExpr
@@ -99,6 +100,10 @@ type JavaExpr = CC.Term JavaExprF
 
 thisJavaExpr :: JSS.Class -> JavaExpr
 thisJavaExpr cl = CC.Term (Local "this" 0 (JSS.ClassType (JSS.className cl)))
+
+returnJavaExpr :: JSS.Method -> Maybe (JavaExpr)
+returnJavaExpr meth =
+  (CC.Term . Local "return" maxBound) <$> JSS.methodReturnType meth
 
 -- | Pretty print a Java expression.
 ppJavaExpr :: JavaExpr -> String

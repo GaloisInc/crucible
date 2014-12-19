@@ -641,6 +641,11 @@ primitives = Map.fromList
     (bicVal extractJava)
     [ "TODO" ]
 
+  , prim "java_symexec"
+    "JavaClass -> String -> [(String, Term)] -> [String] -> TopLevel Term"
+    (bicVal symexecJava)
+    [ "TODO" ]
+
   , prim "java_verify"
     "JavaClass -> String -> [JavaMethodSpec] -> JavaSetup () -> TopLevel JavaMethodSpec"
     (bicVal verifyJava)

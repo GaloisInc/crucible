@@ -7,8 +7,9 @@
 module SAWScript.JavaBuiltins where
 
 import Control.Applicative hiding (empty)
+import Control.Lens
 import Control.Monad.State
-import Data.List (intercalate)
+import Data.List (intercalate, partition)
 import Data.List.Split
 import Data.IORef
 import Data.Maybe
@@ -122,6 +123,136 @@ getActualArgTypes s = mapM getActualType declaredTypes
         [aty] -> Right aty
         _ -> Left $ "More than one actual type given for parameter " ++ show n
 
+type Assign = (JavaExpr, TypedTerm SAWCtx)
+
+writeJavaTerm :: (MonadSim SAWBackend m) =>
+                 SharedContext SAWCtx
+              -> JavaExpr
+              -> SharedTerm SAWCtx
+              -> Simulator SAWBackend m ()
+writeJavaTerm sc (CC.Term e) t = do
+  v <- valueOfTerm sc t
+  case e of
+    Local _ idx _ -> setLocal idx v
+    InstanceField rexp f -> do
+      rv <- readJavaValue rexp
+      case rv of
+        RValue r -> setInstanceFieldValue r f v
+        _ -> fail "Instance argument of instance field evaluates to non-reference"
+    StaticField f -> setStaticFieldValue f v
+
+readJavaTerm :: (MonadSim sbe m) => JavaExpr -> Simulator sbe m (SBETerm sbe)
+readJavaTerm et@(CC.Term e) =
+  case e of
+    Local "return" _ _ -> do
+      rslt <- getProgramReturnValue
+      case rslt of
+        (Just v) -> termOfValue v
+        Nothing -> fail "Program did not return a value"
+    _ -> termOfValue =<< readJavaValue et
+
+termOfValue :: (MonadSim sbe m) =>
+               JSS.Value (SBETerm sbe) -> Simulator sbe m (SBETerm sbe)
+termOfValue (IValue t) = return t
+termOfValue (LValue t) = return t
+termOfValue (RValue r@(Ref _ (ArrayType _))) = do
+  -- TODO: handle arrays of references
+  ma <- getSymbolicArray r
+  case ma of
+    Just (_, t) -> return t
+    Nothing -> fail "Reference not found in arrays map"
+termOfValue (RValue (Ref _ (ClassType _))) =
+  fail "Translating objects to terms not yet implemented" -- TODO
+termOfValue _ = fail "Can't convert term to value"
+
+
+type SAWBackend = SharedContext SAWCtx
+
+valueOfTerm :: (MonadSim SAWBackend m) =>
+               SharedContext SAWCtx
+            -> SharedTerm SAWCtx
+            -> Simulator SAWBackend m (JSS.Value (SharedTerm SAWCtx))
+valueOfTerm sc t = do
+  ty <- liftIO $ scTypeOf sc t
+  case ty of
+    (asBitvectorType -> Just 32) -> return (IValue t)
+    (asBitvectorType -> Just 64) -> return (LValue t)
+    (asVecType -> Just (n :*: ety)) -> do
+      jty <- case ety of
+               (asBitvectorType -> Just 32) -> return IntType
+               (asBitvectorType -> Just 64) -> return LongType
+               _ -> fail $ "Unsupported array element type: " ++ show ety
+      RValue <$> newSymbolicArray jty (fromIntegral n) t
+    _ -> fail $ "Can't translate term of type: " ++ show ty
+-- If vector of other things, allocate array, translate those things, and store
+-- If record, allocate appropriate object, translate fields, assign fields
+-- For the last case, we need information about the desired Java type
+
+readJavaValue :: (MonadSim sbe m) =>
+                 JavaExpr
+              -> Simulator sbe m (JSS.Value (SBETerm sbe))
+readJavaValue (CC.Term e) = do
+  case e of
+    Local _ idx _ -> do
+      p <- getPath "readJavaValue"
+      case currentCallFrame p of
+        Just cf ->
+          case Map.lookup idx (cf ^. cfLocals) of
+            Just v -> return v
+            Nothing -> fail $ "Local variable " ++ show idx ++ " not found"
+        Nothing -> fail "No current call frame"
+    InstanceField rexp f -> do
+      v <- readJavaValue rexp
+      case v of
+        RValue r -> getInstanceFieldValue r f
+        _ -> fail "Object in instance field expr evaluated to non-reference"
+    StaticField f -> getStaticFieldValue f
+
+symexecJava :: BuiltinContext
+            -> Options
+            -> Class
+            -> String
+            -> [(String, SharedTerm SAWCtx)]
+            -> [String]
+            -> IO (TypedTerm SAWCtx)
+symexecJava bic opts cls mname inputs outputs = do
+  let cb = biJavaCodebase bic
+      pos = fixPos
+      jsc = biSharedContext bic
+      fl = defaultSimFlags { alwaysBitBlastBranchTerms = True }
+  (_mcls, meth) <- findMethod cb pos mname cls
+  -- TODO: should we use mcls anywhere below?
+  let mkAssign (s, tm) = do
+        e <- liftIO $ parseJavaExpr cb cls meth s
+        return (e, tm)
+      maxArg = length (methodParameterTypes meth) - 1
+      isArg (CC.Term (Local _ idx _))
+        | idx <= localIndexOfParameter meth maxArg = True
+      isArg _ = False
+      multDefErr i = error $ "Multiple terms given for argument " ++
+                             show i ++ " in method " ++ methodName meth
+      noDefErr i = fail $ "No binding for argument " ++ show i ++
+                          " in method " ++ methodName meth
+      pidx = fromIntegral . localIndexOfParameter meth
+  withSAWBackend jsc Nothing $ \sbe -> do
+    runSimulator cb sbe defaultSEH (Just fl) $ do
+      setVerbosity (simVerbose opts)
+      assigns <- mapM mkAssign inputs
+      let (argAssigns, otherAssigns) = partition (isArg . fst) assigns
+          argMap = Map.fromListWithKey (\i _ _ -> multDefErr i)
+                   [ (idx, tm) | (CC.Term (Local _ idx _), tm) <- argAssigns ]
+      argTms <- forM [0..maxArg] $ \i ->
+                  maybe (noDefErr i) return $ Map.lookup (pidx i) argMap
+      args <- mapM (valueOfTerm jsc) argTms
+      mapM_ (uncurry (writeJavaTerm jsc)) otherAssigns
+      _ <- case methodIsStatic meth of
+             True -> execStaticMethod (className cls) (methodKey meth) args
+             False -> do
+               RValue this <- freshJavaVal (ClassInstance cls)
+               execInstanceMethod (className cls) (methodKey meth) this args
+      outexprs <- liftIO $ mapM (parseJavaExpr cb cls meth) outputs
+      outtms <- mapM readJavaTerm outexprs
+      liftIO (mkTypedTerm jsc =<< scTuple jsc outtms)
 
 extractJava :: BuiltinContext -> Options -> Class -> String
             -> JavaSetup ()
@@ -146,10 +277,8 @@ extractJava bic opts cls mname setup = do
                   RValue this <- freshJavaVal (ClassInstance cls)
                   execInstanceMethod (className cls) (methodKey meth) this args
       dt <- case rslt of
-              Nothing -> fail "No return value from "
-              Just (IValue t) -> return t
-              Just (LValue t) -> return t
-              _ -> fail "Unimplemented result type from "
+              Nothing -> fail $ "No return value from " ++ methodName meth
+              Just v -> termOfValue v
       liftIO $ do
         let sc = biSharedContext bic
         argBinds <- reverse <$> readIORef argsRef
@@ -314,10 +443,10 @@ showCexResults sc ms vs vals = do
 parseJavaExpr :: Codebase -> Class -> Method -> String
               -> IO JavaExpr
 parseJavaExpr cb cls meth estr = do
-  sr <- parseStaticParts cb parts
+  sr <- parseStaticParts cb eparts
   case sr of
     Just e -> return e
-    Nothing -> parseParts parts
+    Nothing -> parseParts eparts
   where parseParts :: [String] -> IO JavaExpr
         parseParts [] = fail "empty Java expression"
         parseParts [s] =
@@ -326,6 +455,10 @@ parseJavaExpr cb cls meth estr = do
                      fail $ "Can't use 'this' in static method " ++
                             methodName meth
                    | otherwise -> return (thisJavaExpr cls)
+            "return" -> case returnJavaExpr meth of
+                          Just e -> return e
+                          Nothing ->
+                            fail $ "No return value for " ++ methodName meth
             ('a':'r':'g':'s':'[':rest) -> do
               let num = fst (break (==']') rest)
               case readMaybe num of
@@ -361,7 +494,7 @@ parseJavaExpr cb cls meth estr = do
               pos = fixPos -- TODO
           fid <- findField cb pos jt f
           return (CC.Term (InstanceField e fid))
-        parts = reverse (splitOn "." estr)
+        eparts = reverse (splitOn "." estr)
 
 parseStaticParts :: Codebase -> [String] -> IO (Maybe JavaExpr)
 parseStaticParts cb (fname:rest) = do
@@ -413,18 +546,18 @@ checkCompatibleExpr sc msg expr t = do
   liftIO $ case Map.lookup expr atm of
     Nothing -> fail $ "No type found for Java expression: " ++ show expr ++
                       " (" ++ msg ++ ")"
-    Just at -> liftIO $ checkCompatibleType sc msg at t
+    Just aty -> liftIO $ checkCompatibleType sc msg aty t
 
 checkCompatibleType :: SharedContext s
                     -> String
                     -> JavaActualType
                     -> SharedTerm s
                     -> IO ()
-checkCompatibleType sc msg at t = do
-  mlt <- logicTypeOfActual sc at
+checkCompatibleType sc msg aty t = do
+  mlt <- logicTypeOfActual sc aty
   case mlt of
     Nothing ->
-      fail $ "Type is not translatable: " ++ show at ++ " (" ++ msg ++ ")"
+      fail $ "Type is not translatable: " ++ show aty ++ " (" ++ msg ++ ")"
     Just lt -> do
       ty <- scTypeCheckError sc t
       lt' <- scWhnf sc lt
