@@ -256,14 +256,15 @@ interpretMain opts m = fromValue <$> interpretEntry "main" opts m
 
 -- Primitives ------------------------------------------------------------------
 
-print_value :: SharedContext SAWCtx -> Value -> IO ()
-print_value _sc (VString s) = putStrLn s
-print_value  sc (VTerm t) = do
+print_value :: Value -> TopLevel ()
+print_value (VString s) = io $ putStrLn s
+print_value (VTerm t) = do
+  sc <- getSharedContext
   unless (null (getAllExts (ttTerm t))) $
     fail "term contains symbolic variables"
-  t' <- defaultTypedTerm sc t
-  rethrowEvalError $ print $ V.ppValue V.defaultPPOpts (evaluateTypedTerm sc t')
-print_value _sc v = putStrLn (showsPrecValue defaultPPOpts 0 v "")
+  t' <- io $ defaultTypedTerm sc t
+  io $ rethrowEvalError $ print $ V.ppValue V.defaultPPOpts (evaluateTypedTerm sc t')
+print_value v = io $ putStrLn (showsPrecValue defaultPPOpts 0 v "")
 
 rethrowEvalError :: IO a -> IO a
 rethrowEvalError m = run `X.catch` rethrow
@@ -322,11 +323,11 @@ primitives = Map.fromList
     [ "TODO" ]
 
   , prim "define"              "String -> Term -> TopLevel Term"
-    (scVal definePrim)
+    (pureVal definePrim)
     [ "TODO" ]
 
   , prim "print"               "{a} a -> TopLevel ()"
-    (scVal print_value)
+    (pureVal print_value)
     [ "TODO" ]
 
   , prim "print_term"          "Term -> TopLevel ()"
@@ -334,7 +335,7 @@ primitives = Map.fromList
     [ "TODO" ]
 
   , prim "print_type"          "Term -> TopLevel ()"
-    (scVal print_type)
+    (pureVal print_type)
     [ "TODO" ]
 
   , prim "show_term"           "Term -> String"
@@ -342,7 +343,7 @@ primitives = Map.fromList
     [ "TODO" ]
 
   , prim "check_term"          "Term -> TopLevel ()"
-    (scVal check_term)
+    (pureVal check_term)
     [ "TODO" ]
 
   , prim "term_size"           "Term -> Int"
@@ -354,32 +355,32 @@ primitives = Map.fromList
     [ "TODO" ]
 
   , prim "abstract_symbolic"   "Term -> TopLevel Term"
-    (scVal abstractSymbolicPrim)
+    (pureVal abstractSymbolicPrim)
     [ "TODO" ]
 
   , prim "fresh_bitvector"     "String -> Int -> TopLevel Term"
-    (scVal freshBitvectorPrim)
+    (pureVal freshBitvectorPrim)
     [ "TODO" ]
 
 
   , prim "sbv_uninterpreted"   "String -> Term -> TopLevel Uninterp"
-    (scVal sbvUninterpreted)
+    (pureVal sbvUninterpreted)
     [ "TODO" ]
 
   , prim "read_bytes"          "String -> TopLevel Term"
-    (scVal readBytes)
+    (pureVal readBytes)
     [ "Read binary file as a value of type [n][8]" ]
 
   , prim "read_sbv"            "String -> [Uninterp] -> TopLevel Term"
-    (bicVal readSBV)
+    (pureVal readSBV)
     [ "TODO" ]
 
   , prim "read_aig"            "String -> TopLevel Term"
-    (scVal readAIGPrim)
+    (pureVal readAIGPrim)
     [ "TODO" ]
 
   , prim "read_core"           "String -> TopLevel Term"
-    (scVal readCore)
+    (pureVal readCore)
     [ "TODO" ]
 
   , prim "write_aig"           "String -> Term -> TopLevel ()"

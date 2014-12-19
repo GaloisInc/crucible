@@ -46,6 +46,7 @@ import SAWScript.ImportAIG
 
 import SAWScript.Options
 import SAWScript.Proof
+import SAWScript.TopLevel
 import SAWScript.TypedTerm
 import SAWScript.Utils
 import qualified SAWScript.Value as SV
@@ -84,35 +85,40 @@ topReturn _ = return
 topBind :: () -> () -> SC s Value -> (Value -> SC s Value) -> SC s Value
 topBind _ _ = (>>=)
 
-definePrim :: SharedContext s -> String -> TypedTerm s -> IO (TypedTerm s)
-definePrim sc name (TypedTerm schema rhs) = TypedTerm schema <$> scConstant sc ident rhs
-  where ident = mkIdent (moduleName (scModule sc)) name
+definePrim :: String -> TypedTerm SAWCtx -> TopLevel (TypedTerm SAWCtx)
+definePrim name (TypedTerm schema rhs) = do
+  sc <- getSharedContext
+  let ident = mkIdent (moduleName (scModule sc)) name
+  t <- io $ scConstant sc ident rhs
+  return $ TypedTerm schema t
 
-sbvUninterpreted :: SharedContext s -> String -> SharedTerm s -> IO (Uninterp s)
-sbvUninterpreted _ s t = return $ Uninterp (s, t)
+sbvUninterpreted :: String -> SharedTerm SAWCtx -> TopLevel (Uninterp SAWCtx)
+sbvUninterpreted s t = return $ Uninterp (s, t)
 
-readBytes :: SharedContext SAWCtx -> FilePath -> IO (TypedTerm SAWCtx)
-readBytes sc path = do
-  content <- BS.readFile path
+readBytes :: FilePath -> TopLevel (TypedTerm SAWCtx)
+readBytes path = do
+  sc <- getSharedContext
+  content <- io $ BS.readFile path
   let len = BS.length content
   let bytes = BS.unpack content
-  e <- scBitvector sc 8
-  xs <- mapM (scBvConst sc 8 . toInteger) bytes
-  trm <- scVector sc e xs
+  e <- io $ scBitvector sc 8
+  xs <- io $ mapM (scBvConst sc 8 . toInteger) bytes
+  trm <- io $ scVector sc e xs
   let schema = C.Forall [] [] (C.tSeq (C.tNum len) (C.tSeq (C.tNum (8::Int)) C.tBit))
   return (TypedTerm schema trm)
 
-readSBV :: BuiltinContext -> Options -> FilePath -> [Uninterp SAWCtx] -> IO (TypedTerm SAWCtx)
-readSBV bic opts path unintlst =
-    do let sc = biSharedContext bic
-       pgm <- SBV.loadSBV path
+readSBV :: FilePath -> [Uninterp SAWCtx] -> TopLevel (TypedTerm SAWCtx)
+readSBV path unintlst =
+    do sc <- getSharedContext
+       opts <- getOptions
+       pgm <- io $ SBV.loadSBV path
        let schema = C.Forall [] [] (toCType (SBV.typOf pgm))
-       trm <- SBV.parseSBVPgm sc (\s _ -> Map.lookup s unintmap) pgm
+       trm <- io $ SBV.parseSBVPgm sc (\s _ -> Map.lookup s unintmap) pgm
        when (extraChecks opts) $ do
-         tcr <- scTypeCheck sc trm
+         tcr <- io $ scTypeCheck sc trm
          case tcr of
            Left err ->
-             putStr $ unlines $
+             io $ putStr $ unlines $
              ("Type error reading " ++ path ++ ":") : prettyTCError err
            Right _ -> return () -- TODO: check that it matches 'schema'?
        return (TypedTerm schema trm)
@@ -135,14 +141,15 @@ withBE f = do
 -- | Read an AIG file representing a theorem or an arbitrary function
 -- and represent its contents as a @SharedTerm@ lambda term. This is
 -- inefficient but semantically correct.
-readAIGPrim :: SharedContext s -> FilePath -> IO (TypedTerm s)
-readAIGPrim sc f = do
-  exists <- doesFileExist f
+readAIGPrim :: FilePath -> TopLevel (TypedTerm SAWCtx)
+readAIGPrim f = do
+  sc <- getSharedContext
+  exists <- io $ doesFileExist f
   unless exists $ fail $ "AIG file " ++ f ++ " not found."
-  et <- readAIG sc f
+  et <- io $ readAIG sc f
   case et of
     Left err -> fail $ "Reading AIG failed: " ++ err
-    Right t -> mkTypedTerm sc t
+    Right t -> io $ mkTypedTerm sc t
 
 {-
 -- | Apply some rewrite rules before exporting, to ensure that terms
@@ -208,8 +215,10 @@ writeSMTLib2 sc f t = do
 writeCore :: FilePath -> TypedTerm s -> IO ()
 writeCore path t = writeFile path (scWriteExternal (ttTerm t))
 
-readCore :: SharedContext s -> FilePath -> IO (TypedTerm s)
-readCore sc path = mkTypedTerm sc =<< scReadExternal sc =<< readFile path
+readCore :: FilePath -> TopLevel (TypedTerm SAWCtx)
+readCore path = do
+  sc <- getSharedContext
+  io (mkTypedTerm sc =<< scReadExternal sc =<< readFile path)
 
 assumeValid :: ProofScript s SV.ProofResult
 assumeValid = StateT $ \goal -> do
@@ -575,11 +584,15 @@ myPrint :: () -> Value -> SC s ()
 myPrint _ (VString s) = mkSC $ const (putStrLn s)
 myPrint _ v = mkSC $ const (print v)
 
-print_type :: SharedContext s -> SharedTerm s -> IO ()
-print_type sc t = scTypeOf sc t >>= print
+print_type :: SharedTerm SAWCtx -> TopLevel ()
+print_type t = do
+  sc <- getSharedContext
+  io (scTypeOf sc t >>= print)
 
-check_term :: SharedContext s -> SharedTerm s -> IO ()
-check_term sc t = scTypeCheckError sc t >>= print
+check_term :: SharedTerm SAWCtx -> TopLevel ()
+check_term t = do
+  sc <- getSharedContext
+  io (scTypeCheckError sc t >>= print)
 
 checkTypedTerm :: SharedContext s -> TypedTerm s -> IO ()
 checkTypedTerm sc (TypedTerm _schema t) = scTypeCheckError sc t >>= print
@@ -601,15 +614,17 @@ bindExts sc args body = do
   body' <- scInstantiateExt sc (Map.fromList (is `zip` reverse locals)) body
   scLambdaList sc (names `zip` types) body'
 
-freshBitvectorPrim :: SharedContext s -> String -> Int -> IO (TypedTerm s)
-freshBitvectorPrim sc x n = do
-  ty <- scBitvector sc (fromIntegral n)
-  tm <- scFreshGlobal sc x ty
-  mkTypedTerm sc tm
+freshBitvectorPrim :: String -> Int -> TopLevel (TypedTerm SAWCtx)
+freshBitvectorPrim x n = do
+  sc <- getSharedContext
+  ty <- io $ scBitvector sc (fromIntegral n)
+  tm <- io $ scFreshGlobal sc x ty
+  io $ mkTypedTerm sc tm
 
-abstractSymbolicPrim :: SharedContext s -> TypedTerm s -> IO (TypedTerm s)
-abstractSymbolicPrim sc (TypedTerm _ t) =
-  mkTypedTerm sc =<< bindAllExts sc t
+abstractSymbolicPrim :: TypedTerm SAWCtx -> TopLevel (TypedTerm SAWCtx)
+abstractSymbolicPrim (TypedTerm _ t) = do
+  sc <- getSharedContext
+  io (mkTypedTerm sc =<< bindAllExts sc t)
 
 bindAllExts :: SharedContext s
             -> SharedTerm s
