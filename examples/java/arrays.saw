@@ -47,9 +47,9 @@ main = do {
     id_tm <- java_extract c "arr_id" id_setup;
     check_term sum_tm;
     print "Running sum on ten 1 inputs:";
-    print {{ sum_tm 1 1 1 1 1 1 1 1 1 1 }};
+    print {{ sum_tm [1, 1, 1, 1, 1, 1, 1, 1, 1, 1] }};
     check_term id_tm;
     print "Running arr_id on ten increasing inputs:";
-    print {{ id_tm 1 2 3 4 5 6 7 8 9 10 }};
+    print {{ id_tm [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] }};
     print "Done.";
 };

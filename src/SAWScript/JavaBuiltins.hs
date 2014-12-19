@@ -248,7 +248,7 @@ symexecJava bic opts cls mname inputs outputs = do
       _ <- case methodIsStatic meth of
              True -> execStaticMethod (className cls) (methodKey meth) args
              False -> do
-               RValue this <- freshJavaVal (ClassInstance cls)
+               RValue this <- freshJavaVal Nothing jsc (ClassInstance cls)
                execInstanceMethod (className cls) (methodKey meth) this args
       outexprs <- liftIO $ mapM (parseJavaExpr cb cls meth) outputs
       outtms <- mapM readJavaTerm outexprs
@@ -269,12 +269,12 @@ extractJava bic opts cls mname setup = do
     runSimulator cb sbe defaultSEH (Just fl) $ do
       setVerbosity (simVerbose opts)
       argTypes <- either fail return (getActualArgTypes setupRes)
-      args <- mapM freshJavaVal argTypes
+      args <- mapM (freshJavaVal (Just argsRef) jsc) argTypes
       -- TODO: support initializing other state elements
       rslt <- case methodIsStatic meth of
                 True -> execStaticMethod (className cls) (methodKey meth) args
                 False -> do
-                  RValue this <- freshJavaVal (ClassInstance cls)
+                  RValue this <- freshJavaVal (Just argsRef) jsc (ClassInstance cls)
                   execInstanceMethod (className cls) (methodKey meth) this args
       dt <- case rslt of
               Nothing -> fail $ "No return value from " ++ methodName meth
@@ -285,24 +285,12 @@ extractJava bic opts cls mname setup = do
         -- TODO: group argBinds according to the declared types
         bindExts jsc argBinds dt >>= mkTypedTerm sc
 
-freshJavaArg :: MonadIO m =>
-                Backend sbe
-             -> Type
-             -> m (AtomicValue d f (SBETerm sbe) (SBETerm sbe) r)
-freshJavaArg sbe BooleanType = liftIO (IValue <$> freshBool sbe)
-freshJavaArg sbe ByteType    = liftIO (IValue <$> freshByte sbe)
-freshJavaArg sbe CharType    = liftIO (IValue <$> freshChar sbe)
-freshJavaArg sbe ShortType   = liftIO (IValue <$> freshShort sbe)
-freshJavaArg sbe IntType     = liftIO (IValue <$> freshInt sbe)
-freshJavaArg sbe LongType    = liftIO (LValue <$> freshLong sbe)
-freshJavaArg _ ty = fail $ "Unsupported argument type: " ++ show ty
-
--- TODO: specialize to SAWCore terms, and use SAWCore's fresh value
--- creation?
--- TODO: adapt to use local variables, instead?
-freshJavaVal :: MonadSim sbe m =>
-                JavaActualType -> Simulator sbe m (JSS.Value (SBETerm sbe))
-freshJavaVal (PrimitiveType ty) = do
+freshJavaVal :: (MonadIO m, Functor m) =>
+                Maybe (IORef [SharedTerm SAWCtx])
+             -> SharedContext SAWCtx
+             -> JavaActualType
+             -> Simulator SAWBackend m (JSS.Value (SharedTerm SAWCtx))
+freshJavaVal _ _ (PrimitiveType ty) = do
   case ty of
     BooleanType -> withSBE $ \sbe -> IValue <$> freshBool sbe
     ByteType    -> withSBE $ \sbe -> IValue <$> freshByte sbe
@@ -311,26 +299,27 @@ freshJavaVal (PrimitiveType ty) = do
     IntType     -> withSBE $ \sbe -> IValue <$> freshInt sbe
     LongType    -> withSBE $ \sbe -> LValue <$> freshLong sbe
     _ -> fail $ "Can't create fresh primitive value of type " ++ show ty
-freshJavaVal (ArrayInstance n ty) = do
-  -- TODO: use SAWCore fresh values to avoid the getLVal/getIVal functions?
-  elts <- replicateM n (freshJavaVal (PrimitiveType ty))
-  -- TODO: create a fresh array and fill the array below with
-  -- selections of its elements?
-  let getLVal (LValue t) = Just t
-      getLVal _ = Nothing
-      getIVal (IValue t) = Just t
-      getIVal _ = Nothing
+freshJavaVal argsRef sc (ArrayInstance n ty) | isPrimitiveType ty = do
+  -- TODO: should this use bvAt?
+  elts <- liftIO $ do
+    ety <- scBitvector sc (fromIntegral (JSS.stackWidth ty))
+    ntm <- scNat sc (fromIntegral n)
+    aty <- scVecType sc ntm ety
+    atm <- scFreshGlobal sc "_" aty
+    maybe (return ()) (\r -> modifyIORef r (atm :)) argsRef
+    mapM (scAt sc ntm ety atm) =<< mapM (scNat sc) [0..(fromIntegral n) - 1]
   case ty of
-    LongType -> RValue <$> newLongArray (mapMaybe getLVal elts)
-    _ | isIValue ty ->
-        RValue <$> newIntArray (ArrayType ty) (mapMaybe getIVal elts)
+    LongType -> RValue <$> newLongArray elts
+    _ | isIValue ty -> RValue <$> newIntArray (ArrayType ty) elts
     _ -> fail $ "Can't create array with element type " ++ show ty
 -- TODO: allow input declarations to specialize types of fields
-freshJavaVal (ClassInstance c) = do
+freshJavaVal _ _ (ArrayInstance _ _) =
+  fail $ "Can't create fresh array of non-scalar elements"
+freshJavaVal argsRef sc (ClassInstance c) = do
   r <- createInstance (className c) Nothing
   forM_ (classFields c) $ \f -> do
     let ty = fieldType f
-    v <- freshJavaVal (PrimitiveType ty)
+    v <- freshJavaVal argsRef sc (PrimitiveType ty)
     setInstanceFieldValue r (FieldId (className c) (fieldName f) ty) v
   return (RValue r)
 
