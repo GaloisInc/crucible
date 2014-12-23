@@ -103,7 +103,7 @@ TopStmts :: { [TopStmt] }
  : termBy(TopStmt, ';')                 { $1 }
 
 TopStmt :: { TopStmt }
- : 'import' name                        { TopImport (tokStr $1) }
+ : 'import' name                        { TopImport (tokStr $2) }
  | 'import' Import                      { ImportCry $2                 }
  | name ':' PolyType                    { TopTypeDecl (toLName $1) $3  }
  | Declaration                          { TopBind $1 }
