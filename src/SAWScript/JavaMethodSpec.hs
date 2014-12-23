@@ -97,14 +97,14 @@ mkJSSValue _ _ = error "internal: illegal type"
 -- | Add assumption for predicate to path state.
 addAssumption :: SharedContext SAWCtx -> SharedTerm SAWCtx -> SpecPathState -> IO SpecPathState
 addAssumption sc x p = do
-  andOp <- liftIO $ scApplyPreludeAnd sc
+  andOp <- liftIO $ scApplyPrelude_and sc
   p & JSS.pathAssertions %%~ \a -> liftIO (andOp a x)
 
 -- | Add assertion for predicate to path state.
 addAssertion :: SharedContext SAWCtx -> SharedTerm SAWCtx -> SpecPathState -> IO SpecPathState
 addAssertion sc x p = do
   -- TODO: p becomes an additional VC in this case
-  andOp <- liftIO $ scApplyPreludeAnd sc
+  andOp <- liftIO $ scApplyPrelude_and sc
   p & JSS.pathAssertions %%~ \a -> liftIO (andOp a x)
 
 -- EvalContext {{{1

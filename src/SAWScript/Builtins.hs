@@ -267,11 +267,11 @@ satABCold sc = StateT $ \g -> withBE $ \be -> do
           satRes <- ABC.checkSat be l
           case satRes of
             ABC.Unsat -> do
-              ft <- scApplyPreludeFalse sc
+              ft <- scApplyPrelude_False sc
               return (SV.Unsat, g { goalTerm = ft })
             ABC.Sat cex -> do
               let r = liftCexBB shapes cex
-              tt <- scApplyPreludeTrue sc
+              tt <- scApplyPrelude_True sc
               case r of
                 Left err -> fail $ "Can't parse counterexample: " ++ err
                 Right [v] ->
@@ -322,12 +322,12 @@ satABC sc = StateT $ \g -> AIG.withNewGraph giaNetwork $ \be -> do
   case satRes of
     AIG.Unsat -> do
       -- putStrLn "UNSAT"
-      ft <- scApplyPreludeFalse sc
+      ft <- scApplyPrelude_False sc
       return (SV.Unsat, g { goalTerm = TypedTerm schema ft })
     AIG.Sat cex -> do
       -- putStrLn "SAT"
       let r = liftCexBB shapes cex
-      tt <- scApplyPreludeTrue sc
+      tt <- scApplyPrelude_True sc
       case r of
         Left err -> fail $ "Can't parse counterexample: " ++ err
         Right [v] ->
@@ -376,7 +376,7 @@ satExternal doCNF sc execName args = StateT $ \g -> withBE $ \be -> do
     (["s SATISFIABLE"], _) -> do
       let bs = parseDimacsSolution vars vls
       let r = liftCexBB shapes bs
-      tt <- scApplyPreludeTrue sc
+      tt <- scApplyPrelude_True sc
       case r of
         Left msg -> fail $ "Can't parse counterexample: " ++ msg
         Right [v] ->
@@ -384,7 +384,7 @@ satExternal doCNF sc execName args = StateT $ \g -> withBE $ \be -> do
         Right vs -> do
           return (SV.SatMulti (zip argNames vs), g { goalTerm = TypedTerm schema tt })
     (["s UNSATISFIABLE"], []) -> do
-      ft <- scApplyPreludeFalse sc
+      ft <- scApplyPrelude_False sc
       return (SV.Unsat, g { goalTerm = TypedTerm schema ft })
     _ -> fail $ "Unexpected result from SAT solver:\n" ++ out
 
@@ -398,7 +398,7 @@ unsatResult :: SharedContext s -> ProofGoal s
             -> IO (SV.SatResult, ProofGoal s)
 unsatResult sc g = do
   let schema = C.Forall [] [] C.tBit
-  ft <- scApplyPreludeFalse sc
+  ft <- scApplyPrelude_False sc
   return (SV.Unsat, g { goalTerm = TypedTerm schema ft })
 
 rewriteEqs :: SharedContext s -> TypedTerm s -> IO (TypedTerm s)
@@ -433,11 +433,11 @@ satSBV conf sc = StateT $ \g -> do
   case r of
     SBV.Satisfiable {} -> do
       let schema = C.Forall [] [] C.tBit
-      tt <- scApplyPreludeTrue sc
+      tt <- scApplyPrelude_True sc
       return (getLabels labels r (SBV.getModelDictionary r) argNames, g {goalTerm = TypedTerm schema tt})
     SBV.Unsatisfiable {} -> do
       let schema = C.Forall [] [] C.tBit
-      ft <- scApplyPreludeFalse sc
+      ft <- scApplyPrelude_False sc
       return (SV.Unsat, g { goalTerm = TypedTerm schema ft })
     SBV.Unknown {} -> fail "Prover returned Unknown"
     SBV.ProofError _ ls -> fail . unlines $ "Prover returned error: " : ls

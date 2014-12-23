@@ -38,9 +38,9 @@ bitblastSharedTerm _ v (asBoolType -> Just ()) = do
   modify (`V.snoc` v)
 bitblastSharedTerm sc v (asBitvectorType -> Just w) = do
   inputs <- liftIO $ do
-    getFn <- scApplyPreludeGet sc
+    getFn <- scApplyPrelude_get sc
     wt <- scNat sc w
-    boolType <- scPreludeBool sc
+    boolType <- scPrelude_Bool sc
     V.generateM (fromIntegral w) $ \i -> do
       getFn wt boolType v =<< scFinConst sc (fromIntegral i) w
   modify (V.++ inputs)
@@ -66,7 +66,7 @@ parseAIGResultType sc (asBitvectorType -> Just w) = do
   put remaining
   -- Return remaining as a vector.
   liftIO $ do
-    boolType <- scPreludeBool sc
+    boolType <- scPrelude_Bool sc
     scVector sc boolType (V.toList base)
 parseAIGResultType _ _ = throwError "Could not parse AIG output type."
 
@@ -81,11 +81,11 @@ networkAsSharedTerms
     -> IO (V.Vector (SharedTerm s))
 networkAsSharedTerms ntk sc inputTerms outputLits = do
   -- Get evaluator
-  scNot <- scApplyPreludeNot sc
-  scAnd <- scApplyPreludeAnd sc
-  scOr <- scApplyPreludeOr sc
-  scImpl <- scApplyPreludeImplies sc
-  scFalse <- scApplyPreludeFalse sc
+  scNot <- scApplyPrelude_not sc
+  scAnd <- scApplyPrelude_and sc
+  scOr <- scApplyPrelude_or sc
+  scImpl <- scApplyPrelude_implies sc
+  scFalse <- scApplyPrelude_False sc
 
   -- Left is nonnegated, Right is negated
   let viewAnd inj _ (Left x)  (Left y)  = fmap inj $ scAnd x y

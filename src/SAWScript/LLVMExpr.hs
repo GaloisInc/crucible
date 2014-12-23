@@ -213,8 +213,8 @@ lssTypeOfActual = id
 logicTypeOfActual :: SharedContext s -> LLVMActualType
                   -> IO (Maybe (SharedTerm s))
 logicTypeOfActual sc (LSS.IntType w) = Just <$> scBitvector sc (fromIntegral w)
-logicTypeOfActual sc LSS.FloatType = Just <$> scPreludeFloat sc
-logicTypeOfActual sc LSS.DoubleType = Just <$> scPreludeDouble sc
+logicTypeOfActual sc LSS.FloatType = Just <$> scPrelude_Float sc
+logicTypeOfActual sc LSS.DoubleType = Just <$> scPrelude_Double sc
 logicTypeOfActual sc (LSS.ArrayType n ty) = do
   melTyp <- logicTypeOfActual sc ty
   case melTyp of

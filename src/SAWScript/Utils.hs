@@ -233,7 +233,7 @@ equal sc ctx tm1 tm2 = do
         unless (l1 == l2) $ fail $ "Arrays have different sizes: " ++
                                    show l1 ++ " and " ++ show l2
         -- TODO: check that ety1 == ety2?
-        getOp <- scApplyPreludeGet sc
+        getOp <- scApplyPrelude_get sc
         eqs <- forM [0..l1-1] $ \i -> do
                  it <- scNat sc i
                  lt <- scNat sc l1
@@ -241,7 +241,7 @@ equal sc ctx tm1 tm2 = do
                  et1 <- getOp lt ety1 tm1 ft
                  et2 <- getOp lt ety1 tm2 ft
                  equal sc ctx et1 et2
-        andOp <- scApplyPreludeAnd sc
+        andOp <- scApplyPrelude_and sc
         trueTm <- scBool sc True
         foldM andOp trueTm eqs
       (_, _) ->
@@ -249,11 +249,11 @@ equal sc ctx tm1 tm2 = do
                show ty1' ++ " and " ++ show ty2'
 
 allEqual :: SharedContext s -> [(SharedTerm s, SharedTerm s)] -> IO (SharedTerm s)
-allEqual sc [] = scApplyPreludeTrue sc
+allEqual sc [] = scApplyPrelude_True sc
 allEqual sc ((t, t'):ts) = do
   r <- allEqual sc ts
   eq <- equal sc [] t t'
-  andFn <- scApplyPreludeAnd sc
+  andFn <- scApplyPrelude_and sc
   andFn eq r
 
 scRemoveBitvector :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
@@ -266,14 +266,14 @@ scRemoveBitvector sc tm = do
 scEq :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
 scEq sc x y = equal sc [] x y {- do
   xty <- scTypeOf sc x
-  eqOp <- scApplyPreludeEq sc
+  eqOp <- scApplyPrelude_eq sc
   res <- eqOp xty x y
   return res -}
 
 scImplies :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
 scImplies sc x y = do
   xNot <- scNot sc x
-  orOp <- scApplyPreludeOr sc
+  orOp <- scApplyPrelude_or sc
   orOp xNot y
 
 defRewrites :: SharedContext s -> Ident -> IO [RewriteRule (SharedTerm s)]
