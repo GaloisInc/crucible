@@ -28,8 +28,9 @@ import Verifier.SAW.Rewriter ( Simpset )
 import Verifier.SAW.SharedTerm
 
 import qualified Verifier.SAW.Evaluator as SC
+import qualified Verifier.SAW.Simulator.Concrete as Concrete
 import qualified Cryptol.Eval.Value as C
-import Verifier.SAW.Cryptol (exportValueWithSchema)
+import Verifier.SAW.Cryptol (exportValueWithSchema, exportValueWithSchema')
 import qualified Cryptol.TypeCheck.AST as Cryptol (Schema)
 import Cryptol.Utils.PP (pretty)
 
@@ -180,6 +181,13 @@ evaluate sc t = SC.evalSharedTerm eval SC.noExtCns t
 evaluateTypedTerm :: SharedContext s -> TypedTerm s -> C.Value
 evaluateTypedTerm sc (TypedTerm schema trm) =
   exportValueWithSchema schema (evaluate sc trm)
+
+evaluate' :: SharedContext s -> SharedTerm s -> Concrete.CValue
+evaluate' sc t = Concrete.evalSharedTerm (scModule sc) t
+
+evaluateTypedTerm' :: SharedContext s -> TypedTerm s -> C.Value
+evaluateTypedTerm' sc (TypedTerm schema trm) =
+  exportValueWithSchema' schema (evaluate' sc trm)
 
 applyValue :: Value -> Value -> IO Value
 applyValue (VLambda f) x = f x
