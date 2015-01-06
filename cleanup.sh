@@ -1,4 +1,4 @@
-(cd deps/abcBridge/abc && rm -f `find . -name "*.o"`)
+(cd deps/abcBridge && rm -rf abc-build)
 (cd deps/abcBridge && cabal clean)
 (cd deps/aig && cabal clean)
 (cd deps/cryptol && cabal clean)
