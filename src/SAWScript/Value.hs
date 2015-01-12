@@ -27,10 +27,9 @@ import Verifier.SAW.FiniteValue
 import Verifier.SAW.Rewriter ( Simpset )
 import Verifier.SAW.SharedTerm
 
-import qualified Verifier.SAW.Evaluator as SC
 import qualified Verifier.SAW.Simulator.Concrete as Concrete
 import qualified Cryptol.Eval.Value as C
-import Verifier.SAW.Cryptol (exportValueWithSchema, exportValueWithSchema')
+import Verifier.SAW.Cryptol (exportValueWithSchema)
 import qualified Cryptol.TypeCheck.AST as Cryptol (Schema)
 import Cryptol.Utils.PP (pretty)
 
@@ -172,22 +171,12 @@ tupleLookupValue (VTuple vs) i
   | otherwise = error $ "no such tuple index: " ++ show i
 tupleLookupValue _ _ = error "tupleLookupValue"
 
-evaluate :: SharedContext s -> SharedTerm s -> SC.Value
-evaluate sc t = SC.evalSharedTerm eval SC.noExtCns t
-  where eval = SC.evalGlobal (scModule sc) SC.preludePrims
--- FIXME: is evalGlobal always appropriate? Or should we
--- parameterize on a meaning function for globals?
+evaluate :: SharedContext s -> SharedTerm s -> Concrete.CValue
+evaluate sc t = Concrete.evalSharedTerm (scModule sc) t
 
 evaluateTypedTerm :: SharedContext s -> TypedTerm s -> C.Value
 evaluateTypedTerm sc (TypedTerm schema trm) =
   exportValueWithSchema schema (evaluate sc trm)
-
-evaluate' :: SharedContext s -> SharedTerm s -> Concrete.CValue
-evaluate' sc t = Concrete.evalSharedTerm (scModule sc) t
-
-evaluateTypedTerm' :: SharedContext s -> TypedTerm s -> C.Value
-evaluateTypedTerm' sc (TypedTerm schema trm) =
-  exportValueWithSchema' schema (evaluate' sc trm)
 
 applyValue :: Value -> Value -> IO Value
 applyValue (VLambda f) x = f x
