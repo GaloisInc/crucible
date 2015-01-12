@@ -32,7 +32,7 @@ import Data.Traversable hiding ( mapM )
 
 import qualified SAWScript.AST as SS
 import SAWScript.AST (Located(..))
-import SAWScript.Builtins hiding (evaluate)
+import SAWScript.Builtins
 import qualified SAWScript.CryptolEnv as CEnv
 import SAWScript.JavaBuiltins
 import SAWScript.JavaExpr

@@ -1,7 +1,7 @@
 module SAWScript.VerificationCheck where
 
-import Verifier.SAW.Evaluator
 import Verifier.SAW.SharedTerm
+import Verifier.SAW.Simulator.Concrete (CValue)
 import Text.PrettyPrint.Leijen
 
 import Verifier.SAW.Cryptol (scCryptolEq)
@@ -23,7 +23,7 @@ vcGoal :: SharedContext s -> VerificationCheck s -> IO (SharedTerm s)
 vcGoal _ (AssertionCheck _ n) = return n
 vcGoal sc (EqualityCheck _ x y) = scCryptolEq sc x y
 
-type CounterexampleFn s = (SharedTerm s -> IO Value) -> IO Doc
+type CounterexampleFn s = (SharedTerm s -> IO CValue) -> IO Doc
 
 -- | Returns documentation for check that fails.
 vcCounterexample :: VerificationCheck s -> CounterexampleFn s

@@ -33,10 +33,10 @@ import Verifier.SAW.FiniteValue ( FiniteType(..), FiniteValue(..)
                                 , scFiniteValue, fvVec, readFiniteValues
                                 , finiteTypeOf
                                 )
-import Verifier.SAW.Evaluator hiding (applyAll)
 import Verifier.SAW.Prelude
 import Verifier.SAW.SCTypeCheck
 import Verifier.SAW.SharedTerm
+import qualified Verifier.SAW.Simulator.Concrete as Concrete
 import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
 import Verifier.SAW.TypedAST hiding (instantiateVarList)
@@ -76,14 +76,6 @@ import Data.SBV (satWith, SMTConfig, Predicate, compileToSMTLib)
 data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
                                      , biJavaCodebase  :: JSS.Codebase
                                      }
-
---topReturn :: (a :: sort 0) -> a -> TopLevel a;
-topReturn :: () -> Value -> SC s Value
-topReturn _ = return
-
---topBind :: (a b :: sort 0) -> TopLevel a -> (a -> TopLevel b) -> TopLevel b;
-topBind :: () -> () -> SC s Value -> (Value -> SC s Value) -> SC s Value
-topBind _ _ = (>>=)
 
 definePrim :: String -> TypedTerm SAWCtx -> TopLevel (TypedTerm SAWCtx)
 definePrim name (TypedTerm schema rhs) = do
@@ -573,17 +565,6 @@ addsimps' :: SharedContext s -> [SharedTerm s] -> Simpset (SharedTerm s)
           -> Simpset (SharedTerm s)
 addsimps' _sc ts ss = foldr (\t -> addRule (ruleOfProp t)) ss ts
 
-equalPrim :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
-equalPrim t1 t2 = mkSC $ \sc -> equal sc [] t1 t2
-
--- evaluate :: (a :: sort 0) -> Term -> a;
-evaluate :: (Ident -> Value) -> () -> SharedTerm s -> Value
-evaluate global _ = evalSharedTerm global noExtCns
-
-myPrint :: () -> Value -> SC s ()
-myPrint _ (VString s) = mkSC $ const (putStrLn s)
-myPrint _ v = mkSC $ const (print v)
-
 print_type :: SharedTerm SAWCtx -> TopLevel ()
 print_type t = do
   sc <- getSharedContext
@@ -634,7 +615,7 @@ bindAllExts sc body = bindExts sc (getAllExts body) body
 -- | Apply the given SharedTerm to the given values, and evaluate to a
 -- final value.
 cexEvalFn :: SharedContext s -> [FiniteValue] -> SharedTerm s
-          -> IO Value
+          -> IO Concrete.CValue
 cexEvalFn sc args tm = do
   -- NB: there may be more args than exts, and this is ok. One side of
   -- an equality may have more free variables than the other,
@@ -643,9 +624,8 @@ cexEvalFn sc args tm = do
   args' <- mapM (scFiniteValue sc) args
   let is = mapMaybe extIdx exts
       argMap = Map.fromList (zip is args')
-      eval = evalGlobal (scModule sc) preludePrims
   tm' <- scInstantiateExt sc argMap tm
-  return $ evalSharedTerm eval noExtCns tm'
+  return $ Concrete.evalSharedTerm (scModule sc) tm'
 
 toValueCase :: (SV.FromValue b) =>
                SharedContext SAWCtx
