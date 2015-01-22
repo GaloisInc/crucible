@@ -627,6 +627,10 @@ primitives = Map.fromList
     (bicVal javaVerifyTactic)
     [ "TODO" ]
 
+  , prim "java_no_simulate"    "JavaSetup ()"
+    (pureVal javaNoSimulate)
+    [ "TODO" ]
+
   , prim "java_pure"           "JavaSetup ()"
     (pureVal javaPure)
     [ "TODO" ]

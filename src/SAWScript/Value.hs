@@ -208,6 +208,7 @@ data JavaSetupState
       jsSpec :: JIR.JavaMethodSpecIR
     , jsContext :: SharedContext SAWCtx
     , jsTactic :: ValidationPlan
+    , jsSimulate :: Bool
     }
 
 type JavaSetup a = StateT JavaSetupState IO a

@@ -335,10 +335,12 @@ runJavaSetup :: Pos -> Codebase -> Class -> String -> SharedContext SAWCtx
              -> IO JavaSetupState
 runJavaSetup pos cb cls mname jsc setup = do
   ms <- initMethodSpec pos cb cls mname
+  --putStrLn "Created MethodSpec"
   let setupState = JavaSetupState {
                      jsSpec = ms
                    , jsContext = jsc
                    , jsTactic = Skip
+                   , jsSimulate = True
                    }
   snd <$> runStateT setup setupState
 
@@ -353,6 +355,7 @@ verifyJava bic opts cls mname overrides setup = do
       bsc = biSharedContext bic
       jsc = bsc
   setupRes <- runJavaSetup pos cb cls mname jsc setup
+  --putStrLn "Done running setup"
   let ms = jsSpec setupRes
       vp = VerifyParams {
              vpCode = cb
@@ -361,47 +364,50 @@ verifyJava bic opts cls mname overrides setup = do
            , vpSpec = ms
            , vpOver = overrides
            }
-      verb = simVerbose opts
-      overrideText =
-        case overrides of
-          [] -> ""
-          irs -> " (overriding " ++ show (map renderName irs) ++ ")"
-      renderName ir = className (specMethodClass ir) ++ "." ++
-                      methodName (specMethod ir)
-      configs = [ (bs, cl)
-                | bs <- {- concat $ Map.elems $ -} [specBehaviors ms]
-                , cl <- bsRefEquivClasses bs
-                ]
-  when (verb >= 2) $ putStrLn $ "Starting verification of " ++ specName ms
-  forM_ configs $ \(bs,cl) -> withSAWBackend jsc Nothing $ \sbe -> do
-    when (verb >= 2) $ do
-      putStrLn $ "Executing " ++ specName ms ++
-                 " at PC " ++ show (bsLoc bs) ++ "."
-    runDefSimulator cb sbe $ do
-      setVerbosity (simVerbose opts)
-      esd <- initializeVerification jsc ms bs cl
-      res <- mkSpecVC jsc vp esd
-      when (verb >= 5) $ liftIO $ do
-        putStrLn "Verifying the following:"
-        mapM_ (print . ppPathVC) res
-      let prover script vs g = do
-            glam <- bindAllExts jsc g
-            tt <- mkTypedTerm jsc glam
-            doExtraChecks opts bsc glam
-            r <- evalStateT script (ProofGoal Universal (vsVCName vs) tt)
-            case r of
-              SS.Unsat -> when (verb >= 3) $ putStrLn "Valid."
-              -- TODO: replace x with something
-              SS.Sat val -> showCexResults jsc ms vs [("x", val)]
-              SS.SatMulti vals -> showCexResults jsc ms vs vals
-      case jsTactic setupRes of
-        Skip -> liftIO $ putStrLn $
-          "WARNING: skipping verification of " ++ show (specName ms)
-        RunVerify script ->
-          liftIO $ runValidation (prover script) vp jsc esd res
-  endTime <- getCurrentTime
-  putStrLn $ "Successfully verified " ++ specName ms ++ overrideText ++
-             " (" ++ showDuration (diffUTCTime endTime startTime) ++ ")"
+  when (jsSimulate setupRes) $ do
+    let verb = simVerbose opts
+        overrideText =
+          case overrides of
+            [] -> ""
+            irs -> " (overriding " ++ show (map renderName irs) ++ ")"
+        renderName ir = className (specMethodClass ir) ++ "." ++
+                        methodName (specMethod ir)
+        configs = [ (bs, cl)
+                  | bs <- {- concat $ Map.elems $ -} [specBehaviors ms]
+                  , cl <- bsRefEquivClasses bs
+                  ]
+    when (verb >= 2) $ putStrLn $ "Starting verification of " ++ specName ms
+    forM_ configs $ \(bs,cl) -> withSAWBackend jsc Nothing $ \sbe -> do
+      when (verb >= 2) $ do
+        putStrLn $ "Executing " ++ specName ms ++
+                   " at PC " ++ show (bsLoc bs) ++ "."
+      runDefSimulator cb sbe $ do
+        setVerbosity (simVerbose opts)
+        esd <- initializeVerification jsc ms bs cl
+        res <- mkSpecVC jsc vp esd
+        when (verb >= 5) $ liftIO $ do
+          putStrLn "Verifying the following:"
+          mapM_ (print . ppPathVC) res
+        let prover script vs g = do
+              glam <- bindAllExts jsc g
+              tt <- mkTypedTerm jsc glam
+              doExtraChecks opts bsc glam
+              r <- evalStateT script (ProofGoal Universal (vsVCName vs) tt)
+              case r of
+                SS.Unsat -> when (verb >= 3) $ putStrLn "Valid."
+                -- TODO: replace x with something
+                SS.Sat val -> showCexResults jsc ms vs [("x", val)]
+                SS.SatMulti vals -> showCexResults jsc ms vs vals
+        case jsTactic setupRes of
+          Skip -> liftIO $ putStrLn $
+            "WARNING: skipping verification of " ++ specName ms
+          RunVerify script ->
+            liftIO $ runValidation (prover script) vp jsc esd res
+    endTime <- getCurrentTime
+    putStrLn $ "Successfully verified " ++ specName ms ++ overrideText ++
+               " (" ++ showDuration (diffUTCTime endTime startTime) ++ ")"
+  unless (jsSimulate setupRes) $ putStrLn $
+    "WARNING: skipping simulation of " ++ specName ms
   return ms
 
 doExtraChecks :: Options -> SharedContext s -> SharedTerm s -> IO ()
@@ -590,6 +596,9 @@ checkEqualTypes declared actual name =
 modifySpec :: (JavaMethodSpecIR -> JavaMethodSpecIR) -> JavaSetup ()
 modifySpec f = modify $ \st -> st { jsSpec = f (jsSpec st) }
 
+javaNoSimulate :: JavaSetup ()
+javaNoSimulate = modify (\s -> s { jsSimulate = False })
+
 javaClassVar :: BuiltinContext -> Options -> String -> JavaType
              -> JavaSetup ()
 javaClassVar bic _ name t = do
@@ -599,6 +608,7 @@ javaClassVar bic _ name t = do
 javaVar :: BuiltinContext -> Options -> String -> JavaType
         -> JavaSetup (TypedTerm SAWCtx)
 javaVar bic _ name t = do
+  --liftIO $ putStrLn "javaVar"
   (expr, aty) <- typeJavaExpr bic name t
   modifySpec (specAddVarDecl name expr aty)
   let sc = biSharedContext bic
@@ -621,7 +631,7 @@ javaMayAlias bic _ exprs = do
 javaAssert :: BuiltinContext -> Options -> SharedTerm SAWCtx
            -> JavaSetup ()
 javaAssert bic _ v = do
-  --liftIO $ print "javaAssert"
+  --liftIO $ putStrLn "javaAssert"
   ms <- gets jsSpec
   let m = specJavaExprNames ms
       atm = specActualTypeMap ms
@@ -646,7 +656,7 @@ getJavaExpr ms name = do
 javaAssertEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
            -> JavaSetup ()
 javaAssertEq bic _ name t = do
-  --liftIO $ print "javaAssertEq"
+  --liftIO $ putStrLn "javaAssertEq"
   ms <- gets jsSpec
   let m = specJavaExprNames ms
       atm = specActualTypeMap ms
@@ -659,7 +669,7 @@ javaAssertEq bic _ name t = do
 javaEnsureEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
              -> JavaSetup ()
 javaEnsureEq bic _ name t = do
-  --liftIO $ print "javaEnsureEq"
+  --liftIO $ putStrLn "javaEnsureEq"
   ms <- gets jsSpec
   (expr, ty) <- liftIO $ getJavaExpr ms name
   let m = specJavaExprNames ms
@@ -679,7 +689,7 @@ javaEnsureEq bic _ name t = do
 javaModify :: BuiltinContext -> Options -> String
            -> JavaSetup ()
 javaModify _bic _ name = do
-  --liftIO $ print "javaModify"
+  --liftIO $ putStrLn "javaModify"
   ms <- gets jsSpec
   (expr, _) <- liftIO $ getJavaExpr ms name
   let mty = Map.lookup expr (bsActualTypeMap (specBehaviors ms))
@@ -693,7 +703,7 @@ javaModify _bic _ name = do
 javaReturn :: BuiltinContext -> Options -> SharedTerm SAWCtx
            -> JavaSetup ()
 javaReturn bic _ t = do
-  --liftIO $ print "javaReturn"
+  --liftIO $ putStrLn "javaReturn"
   ms <- gets jsSpec
   let m = specJavaExprNames ms
       atm = specActualTypeMap ms
