@@ -468,16 +468,25 @@ satMathSAT = satSBV MathSAT.sbvCurrentSolver
 satYices :: SharedContext s -> ProofScript s SV.SatResult
 satYices = satSBV Yices.sbvCurrentSolver
 
+negTypedTerm :: SharedContext s -> TypedTerm s -> IO (TypedTerm s)
+negTypedTerm sc (TypedTerm schema t) = do
+  checkBooleanSchema schema
+  t' <- negTerm sc t
+  return (TypedTerm schema t')
+
+negTerm :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
+negTerm sc (STApp _ (Lambda x ty tm)) = scLambda sc x ty =<< negTerm sc tm
+negTerm sc tm = scNot sc tm
+
 satWithExporter :: (SharedContext s -> FilePath -> TypedTerm s -> IO ())
                 -> SharedContext s
                 -> String
                 -> String
                 -> ProofScript s SV.SatResult
 satWithExporter exporter sc path ext = StateT $ \g -> do
-  when (goalQuant g == Universal)
-    (fail "satWithExporter: Universal quantification unimplemented")
-  let t = goalTerm g
-  checkBooleanSchema (ttSchema t)
+  t <- case goalQuant g of
+         Existential -> return (goalTerm g)
+         Universal -> negTypedTerm sc (goalTerm g)
   exporter sc ((path ++ goalName g) ++ ext) t
   unsatResult sc g
 
