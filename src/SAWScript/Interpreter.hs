@@ -448,61 +448,61 @@ primitives = Map.fromList
     (pureVal (assumeUnsat :: ProofScript SAWCtx SatResult))
     [ "TODO" ]
 
-  , prim "abc"                 "{a} ProofScript a"
+  , prim "abc"                 "ProofScript SatResult"
     (scVal satABC)
     [ "TODO" ]
 
-  , prim "boolector"           "{a} ProofScript a"
+  , prim "boolector"           "ProofScript SatResult"
     (scVal satBoolector)
     [ "TODO" ]
 
-  , prim "cvc4"                "{a} ProofScript a"
+  , prim "cvc4"                "ProofScript SatResult"
     (scVal satCVC4)
     [ "TODO" ]
 
-  , prim "z3"                  "{a} ProofScript a"
+  , prim "z3"                  "ProofScript SatResult"
     (scVal satZ3)
     [ "TODO" ]
 
-  , prim "mathsat"             "{a} ProofScript a"
+  , prim "mathsat"             "ProofScript SatResult"
     (scVal satMathSAT)
     [ "TODO" ]
 
 {-
-  , prim "abc_old"             "{a} ProofScript a"
+  , prim "abc_old"             "ProofScript SatResult"
     (scVal satABCold)
     [ "TODO" ]
 -}
 
-  , prim "yices"               "{a} ProofScript a"
+  , prim "yices"               "ProofScript SatResult"
     (scVal satYices)
     [ "TODO" ]
 
-  , prim "offline_aig"         "{a} String -> ProofScript a"
+  , prim "offline_aig"         "String -> ProofScript SatResult"
     (scVal satAIG)
     [ "TODO" ]
 
-  , prim "offline_cnf"         "{a} String -> ProofScript a"
+  , prim "offline_cnf"         "String -> ProofScript SatResult"
     (scVal satCNF)
     [ "TODO" ]
 
-  , prim "offline_extcore"     "{a} String -> ProofScript a"
+  , prim "offline_extcore"     "String -> ProofScript SatResult"
     (scVal satExtCore)
     [ "TODO" ]
 
-  , prim "offline_smtlib1"     "{a} String -> ProofScript a"
+  , prim "offline_smtlib1"     "String -> ProofScript SatResult"
     (scVal satSMTLib1)
     [ "TODO" ]
 
-  , prim "offline_smtlib2"     "{a} String -> ProofScript a"
+  , prim "offline_smtlib2"     "String -> ProofScript SatResult"
     (scVal satSMTLib2)
     [ "TODO" ]
 
-  , prim "external_cnf_solver" "{a} String -> [String] -> ProofScript a"
+  , prim "external_cnf_solver" "String -> [String] -> ProofScript SatResult"
     (scVal (satExternal True))
     [ "TODO" ]
 
-  , prim "external_aig_solver" "{a} String -> [String] -> ProofScript a"
+  , prim "external_aig_solver" "String -> [String] -> ProofScript SatResult"
     (scVal (satExternal False))
     [ "TODO" ]
 
@@ -627,7 +627,7 @@ primitives = Map.fromList
     (bicVal javaReturn)
     [ "TODO" ]
 
-  , prim "java_verify_tactic"  "{a} ProofScript a -> JavaSetup ()"
+  , prim "java_verify_tactic"  "ProofScript SatResult -> JavaSetup ()"
     (bicVal javaVerifyTactic)
     [ "TODO" ]
 
@@ -712,7 +712,7 @@ primitives = Map.fromList
     (bicVal llvmReturn)
     [ "TODO" ]
 
-  , prim "llvm_verify_tactic"  "{a} ProofScript a -> LLVMSetup ()"
+  , prim "llvm_verify_tactic"  "ProofScript SatResult -> LLVMSetup ()"
     (bicVal llvmVerifyTactic)
     [ "TODO" ]
 
