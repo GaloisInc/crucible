@@ -441,4 +441,4 @@ instance IsValue SatResult where
 
 instance FromValue SatResult where
    fromValue (VSatResult r) = r
-   fromValue _ = error "fromValue SatResult"
+   fromValue v = error $ "fromValue SatResult: " ++ show v
