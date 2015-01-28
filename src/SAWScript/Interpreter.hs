@@ -322,6 +322,10 @@ primitives = Map.fromList
     (pureVal (VLambda . forValue))
     [ "TODO" ]
 
+  , prim "str_concat"          "String -> String -> String"
+    (pureVal ((++) :: String -> String -> String))
+    [ "TODO" ]
+
   , prim "define"              "String -> Term -> TopLevel Term"
     (pureVal definePrim)
     [ "TODO" ]
