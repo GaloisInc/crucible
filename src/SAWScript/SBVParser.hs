@@ -10,10 +10,13 @@ module SAWScript.SBVParser
   , typOf
   ) where
 
-import Control.Monad.State
+import Prelude hiding (mapM)
+
+import Control.Monad.State hiding (mapM)
 import Data.List (intercalate)
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Traversable (mapM)
 
 import Verifier.SAW.TypedAST
 import Verifier.SAW.SharedTerm
@@ -235,18 +238,18 @@ scTyp sc (TVec n t) =
        scVecType sc ntm ty
 scTyp sc (TTuple as) =
     do ts <- mapM (scTyp sc) as
-       scNestedTupleType sc ts
+       scTupleType sc ts
 scTyp sc (TRecord fields) =
-    do let (_names, as) = unzip fields
-       ts <- mapM (scTyp sc) as
-       scNestedTupleType sc ts
+    do let am = Map.fromList fields
+       tm <- mapM (scTyp sc) am
+       scRecordType sc tm
 
 -- | projects all the components out of the input term
 -- TODO: rename to splitInput?
 splitInputs :: SharedContext s -> Typ -> SharedTerm s -> IO [SharedTerm s]
 splitInputs _sc TBool x = return [x]
 splitInputs sc (TTuple ts) x =
-    do xs <- mapM (\i -> scNestedSelector sc i x) [1 .. length ts]
+    do xs <- mapM (\i -> scTupleSelector sc x i) [1 .. length ts]
        yss <- sequence (zipWith (splitInputs sc) ts xs)
        return (concat yss)
 splitInputs _ (TVec _ TBool) x = return [x]
@@ -259,16 +262,10 @@ splitInputs sc (TVec n t) x =
        return (concat yss)
 splitInputs _ (TFun _ _) _ = error "splitInputs TFun: not a first-order type"
 splitInputs sc (TRecord fields) x =
-  splitInputs sc (TTuple (map snd fields)) x
-  -- ^ Currently the Cryptol->SAWCore translation maps
-  -- records to nested tuples, so we need to use the same
-  -- representation here. (This may change in the future.)
-{-
     do let (names, ts) = unzip fields
        xs <- mapM (scRecordSelect sc x) names
        yss <- sequence (zipWith (splitInputs sc) ts xs)
        return (concat yss)
--}
 
 ----------------------------------------------------------------------
 
@@ -290,7 +287,7 @@ combineOutputs sc ty xs0 =
              lift (scBv1ToBool sc x)
       go (TTuple ts) =
           do xs <- mapM go ts
-             lift (scNestedTuple sc xs)
+             lift (scTuple sc xs)
       go (TVec _ TBool) = pop
       go (TVec n t) =
           do xs <- replicateM (fromIntegral n) (go t)
