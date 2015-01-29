@@ -1,0 +1,7 @@
+main : TopLevel ();
+main = do {
+  t <- read_sbv "add_comm.sbv" [];
+  let t2 = {{ \x -> t x == ~ (t x) }};
+  print "Writing add_comm.cnf";
+  write_cnf "add_comm.cnf" t2;
+};

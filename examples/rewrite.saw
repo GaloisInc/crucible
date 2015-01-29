@@ -1,0 +1,13 @@
+crule t = do { ss <- cryptol_ss ; rewrite ss t; };
+
+main = do {
+    rule <- crule {{ \(x:[384]) -> join ((split x) : [12][32]) == x }};
+    print "== Original version of rule:";
+    print_term rule;
+    let rule_ss = addsimps' [rule] empty_ss;
+    t <- rewrite rule_ss rule;
+    print "== Rule rewritten with itself:";
+    print_term t;
+    print "== Proof result:";
+    prove_print abc t;
+};
