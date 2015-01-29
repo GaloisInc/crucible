@@ -102,29 +102,6 @@ extractLLVM sc (LLVMModule file mdl) func _setup = do
             lamTm <- bindExts scLLVM (map snd args) rv
             scImport sc lamTm >>= mkTypedTerm sc
 
-{-
-extractLLVMBit :: FilePath -> String -> SC s (SharedTerm s')
-extractLLVMBit file func = mkSC $ \_sc -> do
-  mdl <- loadModule file
-  let dl = parseDataLayout $ modDataLayout mdl
-      sym = Symbol func
-      mg = defaultMemGeom dl
-  withBE $ \be -> do
-    LBit.SBEPair sbe mem <- return $ LBit.createBuddyAll be dl mg
-    cb <- mkCodebase sbe dl mdl
-    case lookupDefine sym cb of
-      Nothing -> fail $ "Bitcode file " ++ file ++
-                        " does not contain symbol " ++ func ++ "."
-      Just md -> runSimulator cb sbe mem defaultSEH Nothing $ do
-        setVerbosity 0
-        args <- mapM freshLLVMArg (sdArgs md)
-        callDefine_ sym (sdRetType md) args
-        mrv <- getProgramReturnValue
-        case mrv of
-          Nothing -> fail "No return value from simulated function."
-          Just bt -> fail "extractLLVMBit: not yet implemented"
--}
-
 freshLLVMArg :: Monad m =>
             (t, MemType) -> Simulator sbe m (MemType, SBETerm sbe)
 freshLLVMArg (_, ty@(IntType bw)) = do
