@@ -216,7 +216,7 @@ type JavaSetup a = StateT JavaSetupState IO a
 data LLVMSetupState
   = LLVMSetupState {
       lsSpec :: LIR.LLVMMethodSpecIR
-    , lsContext :: SharedContext LSSCtx
+    , lsContext :: SharedContext SAWCtx
     , lsTactic :: ValidationPlan
     }
 

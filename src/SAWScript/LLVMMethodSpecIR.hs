@@ -209,7 +209,7 @@ bsAddCommand :: BehaviorCommand -> BehaviorSpec -> BehaviorSpec
 bsAddCommand bc bs =
   bs { bsReversedCommands = bc : bsReversedCommands bs }
 
-type Backend = SAWBackend LSSCtx
+type Backend = SAWBackend SAWCtx
 
 initLLVMMethodSpec :: Pos -> LSS.Codebase Backend -> String
                    -> LLVMMethodSpecIR

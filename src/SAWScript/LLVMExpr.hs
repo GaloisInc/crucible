@@ -135,7 +135,7 @@ newtype LogicExpr = LogicExpr (SharedTerm SAWCtx)
 mkLogicExpr :: SharedTerm SAWCtx -> LogicExpr
 mkLogicExpr = LogicExpr
 
-useLogicExpr :: SharedContext LSSCtx -> LogicExpr -> IO (SharedTerm LSSCtx)
+useLogicExpr :: SharedContext SAWCtx -> LogicExpr -> IO (SharedTerm SAWCtx)
 useLogicExpr sc (LogicExpr t) = scImport sc t
 
 {-

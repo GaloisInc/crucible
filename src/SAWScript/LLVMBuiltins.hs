@@ -13,8 +13,6 @@ import Data.String
 import Text.PrettyPrint.HughesPJ
 import Text.Read (readMaybe)
 
-import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
-
 import Text.LLVM ( modTypes, modGlobals, modDeclares, modDefines, modDataLayout
                  , defName, defRetType, defVarArgs, defArgs, defAttrs
                  , funLinkage, funGC
@@ -87,7 +85,7 @@ extractLLVM sc (LLVMModule file mdl) func _setup = do
   let dl = parseDataLayout $ modDataLayout mdl
       sym = Symbol func
   withBE $ \be -> do
-    (sbe, mem, scLLVM) <- createSAWBackend' be dl []
+    (sbe, mem, scLLVM) <- createSAWBackend' be dl sc
     (_warnings, cb) <- mkCodebase sbe dl mdl
     -- TODO: Print warnings from codebase.
     case lookupDefine sym cb of
@@ -143,8 +141,9 @@ verifyLLVM :: BuiltinContext -> Options -> LLVMModule -> String
 verifyLLVM bic opts (LLVMModule _file mdl) func overrides setup = do
   let pos = fixPos -- TODO
       dl = parseDataLayout $ modDataLayout mdl
+      sc = biSharedContext bic
   withBE $ \be -> do
-    (sbe, mem, scLLVM) <- createSAWBackend' be dl [CryptolSAW.cryptolModule]
+    (sbe, mem, scLLVM) <- createSAWBackend' be dl sc
     (_warnings, cb) <- mkCodebase sbe dl mdl
     let ms0 = initLLVMMethodSpec pos cb func
         lsctx0 = LLVMSetupState {
@@ -185,7 +184,7 @@ verifyLLVM bic opts (LLVMModule _file mdl) func overrides setup = do
           mapM_ (print . ppPathVC) res
         let prover :: ProofScript SAWCtx SV.SatResult
                    -> VerifyState
-                   -> SharedTerm LSSCtx
+                   -> SharedTerm SAWCtx
                    -> IO ()
             prover script vs g = do
               glam <- bindAllExts scLLVM g
@@ -205,7 +204,7 @@ verifyLLVM bic opts (LLVMModule _file mdl) func overrides setup = do
     putStrLn $ "Successfully verified " ++ show (specName ms) ++ overrideText
     return ms
 
-showCexResults :: SharedContext LSSCtx
+showCexResults :: SharedContext SAWCtx
                -> LLVMMethodSpecIR
                -> VerifyState
                -> [(String, FiniteValue)]
@@ -221,8 +220,8 @@ showCexResults sc ms vs vals = do
 llvmPure :: LLVMSetup ()
 llvmPure = return ()
 
-parseLLVMExpr :: Codebase (SAWBackend LSSCtx)
-              -> SymDefine (SharedTerm LSSCtx)
+parseLLVMExpr :: Codebase (SAWBackend SAWCtx)
+              -> SymDefine (SharedTerm SAWCtx)
               -> String
               -> IO LLVMExpr
 parseLLVMExpr cb fn = parseParts . reverse . splitOn "."

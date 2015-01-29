@@ -42,10 +42,6 @@ import Verifier.SAW.TypedAST
 
 data SAWCtx
   deriving (Typeable)
-data JSSCtx
-  deriving (Typeable)
-data LSSCtx
-  deriving (Typeable)
 
 data Pos = Pos !FilePath -- file
                !Int      -- line

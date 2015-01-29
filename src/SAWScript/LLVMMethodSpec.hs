@@ -52,14 +52,14 @@ import Verifier.SAW.Rewriter
 import Verifier.SAW.SharedTerm hiding (Ident)
 import Verifier.SAW.TypedAST hiding (Ident)
 
-type SpecBackend = SAWBackend LSSCtx
+type SpecBackend = SAWBackend SAWCtx
 type SpecPathState = Path SpecBackend
-type SpecLLVMValue = SharedTerm LSSCtx
+type SpecLLVMValue = SharedTerm SAWCtx
 
 storePathState :: SBE SpecBackend
-               -> SharedTerm LSSCtx
+               -> SharedTerm SAWCtx
                -> MemType
-               -> SharedTerm LSSCtx
+               -> SharedTerm SAWCtx
                -> SpecPathState
                -> IO SpecPathState
 storePathState sbe dst tp val ps = do
@@ -69,7 +69,7 @@ storePathState sbe dst tp val ps = do
   return (ps & pathMem .~ m')
 
 loadPathState :: SBE SpecBackend
-              -> SharedTerm LSSCtx
+              -> SharedTerm SAWCtx
               -> MemType
               -> SpecPathState
               -> IO SpecLLVMValue
@@ -103,12 +103,12 @@ storeGlobal sbe gm sym tp v ps = do
     Nothing -> fail $ "Global " ++ show sym ++ " not found"
 
 -- | Add assumption for predicate to path state.
-addAssumption :: SBE SpecBackend -> SharedTerm LSSCtx -> SpecPathState -> IO SpecPathState
+addAssumption :: SBE SpecBackend -> SharedTerm SAWCtx -> SpecPathState -> IO SpecPathState
 addAssumption sbe x p = do
   p & pathAssertions %%~ \a -> liftIO (sbeRunIO sbe (applyAnd sbe a x))
 
 -- | Add assertion for predicate to path state.
-addAssertion :: SBE SpecBackend -> SharedTerm LSSCtx -> SpecPathState -> IO SpecPathState
+addAssertion :: SBE SpecBackend -> SharedTerm SAWCtx -> SpecPathState -> IO SpecPathState
 addAssertion sbe x p = do
   -- TODO: p becomes an additional VC in this case
   p & pathAssertions %%~ \a -> liftIO (sbeRunIO sbe (applyAnd sbe a x))
@@ -116,16 +116,16 @@ addAssertion sbe x p = do
 -- | Contextual information needed to evaluate expressions.
 data EvalContext
   = EvalContext {
-      ecContext :: SharedContext LSSCtx
+      ecContext :: SharedContext SAWCtx
     , ecBackend :: SBE SpecBackend
     , ecGlobalMap :: GlobalMap SpecBackend
-    , ecArgs :: [(Ident, SharedTerm LSSCtx)]
+    , ecArgs :: [(Ident, SharedTerm SAWCtx)]
     , ecPathState :: SpecPathState
     , ecLLVMExprs :: Map String (TC.LLVMActualType, TC.LLVMExpr)
     }
 
 evalContextFromPathState :: Map String (TC.LLVMActualType, TC.LLVMExpr)
-                         -> SharedContext LSSCtx
+                         -> SharedContext SAWCtx
                          -> SBE SpecBackend
                          -> GlobalMap SpecBackend
                          -> SpecPathState
@@ -181,7 +181,7 @@ evalLLVMRefExpr expr ec = eval expr
             TC.StructField _ _ _ _ -> fail "struct fields not yet supported" -- TODO
         gm = ecGlobalMap ec
 
-evalDerefLLVMExpr :: (MonadIO m) => TC.LLVMExpr -> EvalContext -> m (SharedTerm LSSCtx)
+evalDerefLLVMExpr :: (MonadIO m) => TC.LLVMExpr -> EvalContext -> m (SharedTerm SAWCtx)
 evalDerefLLVMExpr expr ec = do
   val <- evalLLVMExpr expr ec
   case TC.lssTypeOfLLVMExpr expr of
@@ -225,7 +225,7 @@ data OCState = OCState {
          ocsLoc :: SymBlockID
        , ocsEvalContext :: !EvalContext
        , ocsResultState :: !SpecPathState
-       , ocsReturnValue :: !(Maybe (SharedTerm LSSCtx))
+       , ocsReturnValue :: !(Maybe (SharedTerm SAWCtx))
        , ocsErrors :: [OverrideError]
        }
 
@@ -297,7 +297,7 @@ ocModifyResultStateIO fn = do
   put $! bcs { ocsResultState = new }
 
 -- | Add assumption for predicate.
-ocAssert :: Pos -> String -> SharedTerm LSSCtx -> OverrideComputation ()
+ocAssert :: Pos -> String -> SharedTerm SAWCtx -> OverrideComputation ()
 ocAssert p _nm x = do
   sbe <- (ecBackend . ocsEvalContext) <$> get
   case asBool x of
@@ -371,11 +371,11 @@ execBehavior bsl ec ps = do
        mapM_ ocStep (bsCommands bs)
 
 execOverride :: (MonadIO m, Functor m) =>
-                SharedContext LSSCtx
+                SharedContext SAWCtx
              -> Pos
              -> LLVMMethodSpecIR
              -> [(MemType, SpecLLVMValue)]
-             -> Simulator SpecBackend m (Maybe (SharedTerm LSSCtx))
+             -> Simulator SpecBackend m (Maybe (SharedTerm SAWCtx))
 execOverride sc _pos ir args = do
   initPS <- fromMaybe (error "no path during override") <$> getPath
   let bsl = specBehavior ir
@@ -408,7 +408,7 @@ execOverride sc _pos ir args = do
 
 -- | Add a method override for the given method to the simulator.
 overrideFromSpec :: (MonadIO m, Functor m) =>
-                    SharedContext LSSCtx
+                    SharedContext SAWCtx
                  -> Pos
                  -> LLVMMethodSpecIR
                  -> Simulator SpecBackend m ()
@@ -442,7 +442,7 @@ _esdArgs = mapMaybe getArg . esdInitialAssignments
 
 -- | State for running the behavior specifications in a method override.
 data ESGState = ESGState {
-         esContext :: SharedContext LSSCtx
+         esContext :: SharedContext SAWCtx
        , esBackend :: SBE SpecBackend
        , esGlobalMap :: GlobalMap SpecBackend
        , esLLVMExprs :: Map String (TC.LLVMActualType, TC.LLVMExpr)
@@ -497,7 +497,7 @@ esModifyInitialPathStateIO fn =
      esPutInitialPathState =<< liftIO (fn s0)
 
 {-
-esAddEqAssertion :: SBE SpecBackend -> String -> SharedTerm LSSCtx -> SharedTerm LSSCtx
+esAddEqAssertion :: SBE SpecBackend -> String -> SharedTerm SAWCtx -> SharedTerm SAWCtx
                  -> ExpectedStateGenerator ()
 esAddEqAssertion sbe _nm x y =
   do sc <- gets esContext
@@ -537,7 +537,7 @@ esSetLLVMValue (CC.Term exprF) v = do
 
 createLogicValue :: Codebase SpecBackend
                  -> SBE SpecBackend
-                 -> SharedContext LSSCtx
+                 -> SharedContext SAWCtx
                  -> TC.LLVMExpr
                  -> SpecPathState
                  -> MemType
@@ -574,7 +574,7 @@ createLogicValue _ _ sc expr ps mtp mrhs = do
   return (tm, ps)
 
 esSetLogicValue :: Codebase SpecBackend
-                -> SharedContext LSSCtx
+                -> SharedContext SAWCtx
                 -> TC.LLVMExpr
                 -> MemType
                 -> Maybe TC.LogicExpr
@@ -630,7 +630,7 @@ esStep (Modify lhsExpr tp) = do
 --   * Values pointed to become fresh variables, unless initialized by
 --     assertions
 initializeVerification :: (MonadIO m, Functor m) =>
-                          SharedContext LSSCtx
+                          SharedContext SAWCtx
                        -> LLVMMethodSpecIR
                        -> Simulator SpecBackend m ExpectedStateDef
 initializeVerification sc ir = do
@@ -725,13 +725,13 @@ initializeVerification sc ir = do
 data PathVC = PathVC {
           pvcStartLoc :: SymBlockID
         , pvcEndLoc :: Maybe SymBlockID
-        , pvcInitialAssignments :: [(TC.LLVMExpr, SharedTerm LSSCtx)]
+        , pvcInitialAssignments :: [(TC.LLVMExpr, SharedTerm SAWCtx)]
           -- | Assumptions on inputs.
-        , pvcAssumptions :: SharedTerm LSSCtx
+        , pvcAssumptions :: SharedTerm SAWCtx
           -- | Static errors found in path.
         , pvcStaticErrors :: [Doc]
           -- | What to verify for this result.
-        , pvcChecks :: [VerificationCheck LSSCtx]
+        , pvcChecks :: [VerificationCheck SAWCtx]
         }
 
 ppPathVC :: PathVC -> Doc
@@ -761,12 +761,12 @@ type PathVCGenerator m = StateT PathVC (Simulator SpecBackend m)
 
 -- | Add verification condition to list.
 pvcgAssertEq :: (Monad m) =>
-                String -> SharedTerm LSSCtx -> SharedTerm LSSCtx -> PathVCGenerator m ()
+                String -> SharedTerm SAWCtx -> SharedTerm SAWCtx -> PathVCGenerator m ()
 pvcgAssertEq name jv sv  =
   modify $ \pvc -> pvc { pvcChecks = EqualityCheck name jv sv : pvcChecks pvc }
 
 pvcgAssert :: (Monad m) =>
-              String -> SharedTerm LSSCtx -> PathVCGenerator m ()
+              String -> SharedTerm SAWCtx -> PathVCGenerator m ()
 pvcgAssert nm v =
   modify $ \pvc -> pvc { pvcChecks = AssertionCheck nm v : pvcChecks pvc }
 
@@ -777,7 +777,7 @@ pvcgFail msg =
 
 -- | Compare result with expected state.
 generateVC :: (MonadIO m) =>
-              SharedContext LSSCtx
+              SharedContext SAWCtx
            -> LLVMMethodSpecIR
            -> ExpectedStateDef -- ^ What is expected
            -> RunResult -- ^ Results of symbolic execution.
@@ -812,7 +812,7 @@ generateVC _sc _ir esd (ps, endLoc, res) = do
         pvcgAssert "final assertions" (ps ^. pathAssertions)
 
 mkSpecVC :: (MonadIO m, Functor m, MonadException m) =>
-            SharedContext LSSCtx
+            SharedContext SAWCtx
          -> VerifyParams
          -> ExpectedStateDef
          -> Simulator SpecBackend m [PathVC]
@@ -830,16 +830,16 @@ mkSpecVC sc params esd = do
   mapM (generateVC sc ir esd) [(ps, Nothing, Right returnVal)]
 
 data VerifyParams = VerifyParams
-  { vpCode    :: Codebase (SAWBackend LSSCtx)
-  , vpContext :: SharedContext LSSCtx
+  { vpCode    :: Codebase (SAWBackend SAWCtx)
+  , vpContext :: SharedContext SAWCtx
   , vpOpts    :: Options
   , vpSpec    :: LLVMMethodSpecIR
   , vpOver    :: [LLVMMethodSpecIR]
   }
 
 type SymbolicRunHandler =
-  SharedContext LSSCtx -> ExpectedStateDef -> [PathVC] -> IO ()
-type Prover = VerifyState -> SharedTerm LSSCtx -> IO ()
+  SharedContext SAWCtx -> ExpectedStateDef -> [PathVC] -> IO ()
+type Prover = VerifyState -> SharedTerm SAWCtx -> IO ()
 
 runValidation :: Prover -> VerifyParams -> SymbolicRunHandler
 runValidation prover params sc esd results = do
@@ -891,8 +891,8 @@ data VerifyState = VState {
          -- | Evaluation context used for parsing expressions during
          -- verification.
        , vsEvalContext :: EvalContext
-       , vsInitialAssignments :: [(TC.LLVMExpr, SharedTerm LSSCtx)]
-       , vsCounterexampleFn :: CounterexampleFn LSSCtx
+       , vsInitialAssignments :: [(TC.LLVMExpr, SharedTerm SAWCtx)]
+       , vsCounterexampleFn :: CounterexampleFn SAWCtx
        , vsStaticErrors :: [Doc]
        }
 
