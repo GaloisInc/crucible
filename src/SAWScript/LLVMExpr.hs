@@ -61,6 +61,7 @@ data LLVMExprF v
   | Global LSS.Symbol LLVMActualType
   | Deref v LLVMActualType
   | StructField v String Int LLVMActualType
+  | ReturnValue LLVMActualType
   deriving (Functor, CC.Foldable, CC.Traversable)
 
 instance CC.EqFoldable LLVMExprF where
@@ -68,6 +69,7 @@ instance CC.EqFoldable LLVMExprF where
   fequal (Global x _)(Global y _) = x == y
   fequal (Deref e _) (Deref e' _) = e == e'
   fequal (StructField xr _ xi _) (StructField yr _ yi _) = xi == yi && (xr == yr)
+  fequal (ReturnValue _) (ReturnValue _) = True
   fequal _ _ = False
 
 instance CC.OrdFoldable LLVMExprF where
@@ -84,12 +86,16 @@ instance CC.OrdFoldable LLVMExprF where
         case r1 `compare` r2 of
           EQ -> f1 `compare` f2
           r  -> r
+  StructField _ _ _ _ `fcompare` _           = LT
+  _          `fcompare` StructField _ _ _ _  = GT
+  (ReturnValue _) `fcompare` (ReturnValue _) = EQ
 
 instance CC.ShowFoldable LLVMExprF where
   fshow (Arg _ nm _) = show nm
   fshow (Global nm _) = show nm
   fshow (Deref e _) = "*(" ++ show e ++ ")"
   fshow (StructField r f _ _) = show r ++ "." ++ f
+  fshow (ReturnValue _) = "return"
 
 -- | Typechecked LLVMExpr
 type LLVMExpr = CC.Term LLVMExprF
@@ -102,6 +108,7 @@ ppLLVMExpr (CC.Term exprF) =
     Global nm _ -> LSS.ppSymbol nm
     Deref e _ -> char '*' <> parens (ppLLVMExpr e)
     StructField r f _ _ -> ppLLVMExpr r <> char '.' <> text f
+    ReturnValue _ -> text "return"
 
 -- | Returns LSS Type of LLVMExpr
 lssTypeOfLLVMExpr :: LLVMExpr -> LSS.MemType
@@ -111,6 +118,7 @@ lssTypeOfLLVMExpr (CC.Term exprF) =
     Global _ tp -> tp
     Deref _ tp -> tp
     StructField _ _ _ tp -> tp
+    ReturnValue tp -> tp
 
 updateLLVMExprType :: LLVMExpr -> LSS.MemType -> LLVMExpr
 updateLLVMExprType (CC.Term exprF) tp = CC.Term $
@@ -119,6 +127,7 @@ updateLLVMExprType (CC.Term exprF) tp = CC.Term $
     Global n _ -> Global n tp
     Deref e _ -> Deref e tp
     StructField r f i _ -> StructField r f i tp
+    ReturnValue _ -> ReturnValue tp
 
 -- | Returns true if expression is a pointer.
 isPtrLLVMExpr :: LLVMExpr -> Bool

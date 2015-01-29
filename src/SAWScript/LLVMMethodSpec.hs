@@ -163,6 +163,7 @@ evalLLVMExpr expr ec = eval expr
               addr <- evalLLVMExpr ae ec
               liftIO $ loadPathState sbe addr tp ps
             TC.StructField _ _ _ _ -> fail "struct fields not yet supported" -- TODO
+            TC.ReturnValue _ -> fail "return values not yet supported" -- TODO
         sbe = ecBackend ec
         ps = ecPathState ec
 
@@ -179,6 +180,7 @@ evalLLVMRefExpr expr ec = eval expr
                 Nothing -> fail $ "evalLLVMRefExpr: global " ++ show n ++ " not found"
             TC.Deref ae _ -> evalLLVMExpr ae ec
             TC.StructField _ _ _ _ -> fail "struct fields not yet supported" -- TODO
+            TC.ReturnValue _ -> fail "return values not yet supported" -- TODO
         gm = ecGlobalMap ec
 
 evalDerefLLVMExpr :: (MonadIO m) => TC.LLVMExpr -> EvalContext -> m (SharedTerm SAWCtx)
@@ -532,8 +534,8 @@ esSetLLVMValue (CC.Term exprF) v = do
           ps' <- liftIO $ storePathState sbe addr tp v ps
           esPutInitialPathState ps'
         Nothing -> fail "internal: esSetLLVMValue on address not assigned a value"
-    -- TODO: the following is ugly, and doesn't make good use of lenses
     TC.StructField _ _ _ _ -> fail "Can't set the value of structure fields."
+    TC.ReturnValue _ -> fail "Can't set the return value of a function."
 
 createLogicValue :: Codebase SpecBackend
                  -> SBE SpecBackend

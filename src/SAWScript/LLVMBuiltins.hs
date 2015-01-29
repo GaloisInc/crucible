@@ -3,10 +3,12 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE TypeFamilies #-}
 module SAWScript.LLVMBuiltins where
 
 import Control.Applicative
 import Control.Monad.State hiding (mapM)
+import Data.List (partition)
 import Data.List.Split
 import qualified Data.Map as Map
 import Data.String
@@ -74,6 +76,86 @@ browseLLVMModule (LLVMModule name m) = do
         ppSymbol (defName d) <>
           ppArgList (defVarArgs d) (map (ppTyped ppIdent) (defArgs d)) <+>
         ppMaybe (\gc -> text "gc" <+> ppGC gc) (funGC (defAttrs d))
+
+type Assign = (LLVMExpr, TypedTerm SAWCtx)
+
+writeLLVMTerm :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
+                 DataLayout
+              -> LLVMExpr
+              -> SBETerm sbe
+              -> Simulator sbe m ()
+writeLLVMTerm dl (Term e) t = do
+  case e of
+    Arg _ _ _ -> fail "Can't write to argument."
+    Global s ty -> do
+      addr <- evalExprInCC "writeLLVMTerm:Global" (SValSymbol s)
+      store ty addr t (memTypeAlign dl ty)
+    Deref ae ty -> do
+      addr <- readLLVMTerm dl ae
+      store ty addr t (memTypeAlign dl ty)
+    StructField _ _ _ _ -> fail "Struct fields not yet supported."
+    ReturnValue _ -> fail "Can't write to return value."
+
+readLLVMTerm :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
+                DataLayout -> LLVMExpr -> Simulator sbe m (SBETerm sbe)
+readLLVMTerm dl (Term e) =
+  case e of
+    Arg _ i _ -> evalExprInCC "readLLVMTerm:Arg" (SValIdent i)
+    Global s ty -> do
+      addr <- evalExprInCC "readLLVMTerm:Global" (SValSymbol s)
+      load ty addr (memTypeAlign dl ty)
+    Deref ae ty -> do
+      addr <- readLLVMTerm dl ae
+      load ty addr (memTypeAlign dl ty)
+    StructField _ _ _ _ -> fail "Struct fields not yet supported."
+    ReturnValue _ -> do
+      rslt <- getProgramReturnValue
+      case rslt of
+        (Just v) -> return v
+        Nothing -> fail "Program did not return a value"
+
+symexecLLVM :: BuiltinContext
+            -> Options
+            -> LLVMModule
+            -> String
+            -> [(String, SharedTerm SAWCtx)]
+            -> [String]
+            -> IO (TypedTerm SAWCtx)
+symexecLLVM bic opts (LLVMModule file mdl) fname inputs outputs = do
+  let sym = Symbol fname
+      dl = parseDataLayout $ modDataLayout mdl
+      sc = biSharedContext bic
+  withBE $ \be -> do
+    (sbe, mem, scLLVM) <- createSAWBackend' be dl sc
+    (_warnings, cb) <- mkCodebase sbe dl mdl
+    case lookupDefine sym cb of
+      Nothing -> fail $ "Bitcode file " ++ file ++
+                        " does not contain symbol " ++ fname ++ "."
+      Just md -> runSimulator cb sbe mem Nothing $ do
+        setVerbosity (simVerbose opts)
+        let mkAssign (s, tm) = do
+              e <- liftIO $ parseLLVMExpr cb md s
+              return (e, tm)
+            maxArg = length (sdArgs md) - 1
+            isArg (Term (Arg _ _ _)) = True
+            isArg _ = False
+            multDefErr i = error $ "Multiple terms given for argument " ++
+                                   show i ++ " in function " ++ fname
+            noDefErr i = fail $ "No binding for argument " ++ show i ++
+                                " in function " ++ fname
+        assigns <- mapM mkAssign inputs
+        let (argAssigns, otherAssigns) = partition (isArg . fst) assigns
+            argMap =
+              Map.fromListWithKey
+              (\i _ _ -> multDefErr i)
+              [ (idx, (tp, tm)) | (Term (Arg idx _ tp), tm) <- argAssigns ]
+        args <- forM [0..maxArg] $ \i ->
+                  maybe (noDefErr i) return $ Map.lookup i argMap
+        mapM_ (uncurry (writeLLVMTerm dl)) otherAssigns
+        _ <- callDefine sym (sdRetType md) args
+        outexprs <- liftIO $ mapM (parseLLVMExpr cb md) outputs
+        outtms <- mapM (readLLVMTerm dl) outexprs
+        liftIO (mkTypedTerm scLLVM =<< scTuple scLLVM outtms)
 
 -- | Extract a simple, pure model from the given symbol within the
 -- given bitcode file. This code creates fresh inputs for all
@@ -219,6 +301,11 @@ parseLLVMExpr cb fn = parseParts . reverse . splitOn "."
                   | otherwise ->
                     fail $ "Argument index too large: " ++ show n
                 Nothing -> fail $ "Bad LLVM expression syntax: " ++ s
+            "return" ->
+              case sdRetType fn of
+                Nothing ->
+                  fail "Function with void return type used with `return` expression."
+                Just ty -> return (Term (ReturnValue ty))
             _ -> do
               let nid = fromString s
               case lookup nid numArgs of

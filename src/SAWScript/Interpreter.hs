@@ -735,6 +735,11 @@ primitives = Map.fromList
     (scVal extractLLVM)
     [ "TODO" ]
 
+  , prim "llvm_symexec"
+    "LLVMModule -> String -> [(String, Term)] -> [String] -> TopLevel Term"
+    (bicVal symexecLLVM)
+    [ "TODO" ]
+
   , prim "llvm_verify"
     "LLVMModule -> String -> [LLVMMethodSpec] -> LLVMSetup () -> TopLevel LLVMMethodSpec"
     (bicVal verifyLLVM)
