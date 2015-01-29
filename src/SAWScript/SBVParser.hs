@@ -294,15 +294,9 @@ combineOutputs sc ty xs0 =
              ety <- lift (scTyp sc t)
              lift (scVector sc ety xs)
       go (TRecord fields) =
-          go (TTuple (map snd fields))
-             -- ^ Currently the Cryptol->SAWCore translation maps
-             -- records to nested tuples, so we need to use the same
-             -- representation here. (This may change in the future.)
-{-
           do let (names, ts) = unzip fields
              xs <- mapM go ts
              lift (scRecord sc (Map.fromList (zip names xs)))
--}
       go (TFun _ _) =
           fail "combineOutputs: not a first-order type"
 
