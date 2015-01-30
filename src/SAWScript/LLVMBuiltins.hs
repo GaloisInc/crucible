@@ -31,9 +31,7 @@ import Verifier.LLVM.Backend.SAW
 import Verifier.LLVM.Simulator
 
 import Verifier.SAW.FiniteValue
-import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm
-import Verifier.SAW.TypedAST (Termlike)
 
 import SAWScript.CongruenceClosure hiding (mapM)
 import SAWScript.Builtins
@@ -413,15 +411,6 @@ llvmAssertEq _bic _ name t = do
   (expr, _) <- liftIO $ getLLVMExpr ms name
   modify $ \st ->
     st { lsSpec = specAddLogicAssignment fixPos expr (mkLogicExpr t) ms }
-
-asLLVMValue :: (Monad f, Termlike t) => Recognizer f t String
-asLLVMValue t =
-  case asApplyAll t of
-    (asGlobalDef -> Just "LLVM.mkValue", [_, st]) -> do
-      s <- asStringLit st
-      return s
-    _ -> fail "not an instance of LLVM.mkValue"
-
 
 llvmEnsureEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
              -> LLVMSetup ()

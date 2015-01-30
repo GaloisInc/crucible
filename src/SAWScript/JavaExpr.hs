@@ -38,20 +38,15 @@ module SAWScript.JavaExpr
 -- Imports {{{2
 
 import Control.Applicative
-import Control.Monad
-import Data.Foldable
-import Data.Set (Set)
-import qualified Data.Set as Set
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Maybe (mapMaybe)
 
 import Language.JVM.Common (ppFldId)
 
 import qualified Verifier.Java.Codebase as JSS
 import Verifier.Java.SAWBackend hiding (basic_ss)
 
-import Verifier.SAW.Recognizer
-import Verifier.SAW.Rewriter
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST
 
@@ -114,10 +109,8 @@ ppJavaExpr (CC.Term exprF) =
     StaticField f -> ppFldId f
 
 asJavaExpr :: SharedTerm SAWCtx -> Maybe String
-asJavaExpr t =
-  case asApplyAll t of
-    (asGlobalDef -> Just "Java.mkValue", [_, asStringLit -> s]) -> s
-    _ -> Nothing
+asJavaExpr (STApp _ (FTermF (ExtCns ec))) = Just (ecName ec)
+asJavaExpr _ = Nothing
 
 -- | Returns JSS Type of JavaExpr
 jssTypeOfJavaExpr :: JavaExpr -> JSS.Type
@@ -139,7 +132,7 @@ isClassJavaExpr = isClassType . jssTypeOfJavaExpr
 
 data LogicExpr =
   LogicExpr { -- | A term, possibly function type, which does _not_
-              -- contain any @Java.mkValue@ subexpressions.
+              -- contain any external constant subexpressions.
               _leTerm :: SharedTerm SAWCtx
               -- | The Java expressions, if any, that the term should
               -- be applied to
@@ -149,61 +142,32 @@ data LogicExpr =
 
 scJavaValue :: SharedContext s -> SharedTerm s -> String -> IO (SharedTerm s)
 scJavaValue sc ty name = do
-  s <- scString sc name
-  ty' <- scRemoveBitvector sc ty
-  mkValue <- scGlobalDef sc (parseIdent "Java.mkValue")
-  scApplyAll sc mkValue [ty', s]
+  scFreshGlobal sc name ty
 
 mkMixedExpr :: Map String JavaExpr
-            -> Map JavaExpr JavaActualType
             -> SharedContext SAWCtx
             -> SharedTerm SAWCtx
             -> IO MixedExpr
-mkMixedExpr m _ _ (asJavaExpr -> Just s) =
+mkMixedExpr m _ (asJavaExpr -> Just s) =
   case Map.lookup s m of
     Nothing -> fail $ "Java expression not found: " ++ s
     Just je -> return (JE je)
-mkMixedExpr m tys sc t = do
-  let javaExprNames = Set.toList (termJavaExprs t)
+mkMixedExpr m sc t = do
+  let extTerms = getAllExts t
+      exts = mapMaybe toExtCns extTerms
+      toExtCns (STApp _ (FTermF (ExtCns ec))) = Just ec
+      toExtCns _ = Nothing
+      extNames = map ecName exts
       findWithMsg msg k m' = maybe (fail msg) return (Map.lookup k m')
-  -- print javaExprNames
-  localVars <- mapM (scLocalVar sc) $ reverse [0..length javaExprNames - 1]
-  r <- forM (zip javaExprNames localVars) $ \(name, var) -> do
-    jexp <- findWithMsg ("Unknown Java expression: " ++ name) name m
-    aty <- findWithMsg ("No type for Java expression: " ++ name) jexp tys
-    mlty <- logicTypeOfActual sc aty
-    case mlty of
-      Just lty -> do
-        jval <- scJavaValue sc lty name
-        -- print $ "Rule: " ++ show jval ++ " -> " ++ show var
-        return (jexp, (name, lty), ruleOfTerms jval var)
-      Nothing -> fail $ "Can't convert actual type to logic type: " ++ show aty
-  let (javaExprs, args, rules) = unzip3 r
-  basics <- basic_ss sc
-  let ss = addRules rules basics
-  t' <- rewriteSharedTerm sc ss t
-  le <- LogicExpr <$> scLambdaList sc args t' <*> pure javaExprs
+  javaExprs <- mapM
+               (\n -> findWithMsg ("Unknown Java expression: " ++ n) n m)
+               extNames
+  le <- LogicExpr <$> scAbstractExts sc exts t <*> pure javaExprs
   return (LE le)
 
 -- | Return java expressions in logic expression.
 logicExprJavaExprs :: LogicExpr -> [JavaExpr]
 logicExprJavaExprs = leJavaArgs
-
-termJavaExprs :: SharedTerm SAWCtx -> Set String
-termJavaExprs = snd . impl (Set.empty, Set.empty)
-  where impl a@(seen, exprs) t =
-          case alreadySeen of
-            Nothing -> a
-            Just seen' ->
-              case asJavaExpr t of
-                Just s -> (seen', Set.insert s exprs)
-                Nothing -> foldl' impl (seen', exprs) (unwrapTermF t)
-          where
-            alreadySeen = case t of
-              STApp idx _
-                | Set.member idx seen -> Nothing
-                | otherwise           -> Just (Set.insert idx seen)
-              Unshared _              -> Just seen
 
 useLogicExpr :: SharedContext SAWCtx -> LogicExpr -> [SharedTerm SAWCtx]
              -> IO (SharedTerm SAWCtx)

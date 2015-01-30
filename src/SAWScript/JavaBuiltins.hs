@@ -637,13 +637,12 @@ javaAssert bic _ v = do
   --liftIO $ putStrLn "javaAssert"
   ms <- gets jsSpec
   let m = specJavaExprNames ms
-      atm = specActualTypeMap ms
-  let sc = biSharedContext bic
+      sc = biSharedContext bic
   ty <- liftIO $ scTypeCheckError sc v
   ty' <- liftIO $ scWhnf sc ty
   unless (asBoolType ty' == Just ()) $
     fail $ "java_assert passed expression of non-boolean type: " ++ show ty'
-  me <- liftIO $ mkMixedExpr m atm sc v
+  me <- liftIO $ mkMixedExpr m sc v
   case me of
     LE le -> modifySpec (specAddBehaviorCommand (AssertPred fixPos le))
     JE je -> fail $ "Used java_assert with Java expression: " ++ show je
@@ -662,11 +661,10 @@ javaAssertEq bic _ name t = do
   --liftIO $ putStrLn "javaAssertEq"
   ms <- gets jsSpec
   let m = specJavaExprNames ms
-      atm = specActualTypeMap ms
-  let sc = biSharedContext bic
+      sc = biSharedContext bic
   (expr, _) <- liftIO $ getJavaExpr ms name
   checkCompatibleExpr sc "java_assert_eq" expr t
-  me <- liftIO $ mkMixedExpr m atm sc t
+  me <- liftIO $ mkMixedExpr m sc t
   modifySpec (specAddLogicAssignment fixPos expr me)
 
 javaEnsureEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
@@ -676,11 +674,10 @@ javaEnsureEq bic _ name t = do
   ms <- gets jsSpec
   (expr, ty) <- liftIO $ getJavaExpr ms name
   let m = specJavaExprNames ms
-      atm = specActualTypeMap ms
-  let sc = biSharedContext bic
+      sc = biSharedContext bic
   --liftIO $ putStrLn "Making MixedExpr"
   checkCompatibleExpr sc "java_ensure_eq" expr t
-  me <- liftIO $ mkMixedExpr m atm sc t
+  me <- liftIO $ mkMixedExpr m sc t
   --liftIO $ putStrLn "Done making MixedExpr"
   let cmd = case (CC.unTerm expr, ty) of
               (_, ArrayType _) -> EnsureArray fixPos expr me
@@ -709,9 +706,8 @@ javaReturn bic _ t = do
   --liftIO $ putStrLn "javaReturn"
   ms <- gets jsSpec
   let m = specJavaExprNames ms
-      atm = specActualTypeMap ms
   -- TODO: check that types are compatible
-  me <- liftIO $ mkMixedExpr m atm (biSharedContext bic) t
+  me <- liftIO $ mkMixedExpr m (biSharedContext bic) t
   modifySpec (specAddBehaviorCommand (ReturnValue me))
 
 javaVerifyTactic :: BuiltinContext -> Options

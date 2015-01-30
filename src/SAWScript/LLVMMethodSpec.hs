@@ -48,7 +48,6 @@ import Verifier.LLVM.Backend hiding (asBool)
 import Verifier.LLVM.Backend.SAW
 
 import Verifier.SAW.Recognizer
-import Verifier.SAW.Rewriter
 import Verifier.SAW.SharedTerm hiding (Ident)
 import Verifier.SAW.TypedAST hiding (Ident)
 
@@ -192,28 +191,26 @@ evalDerefLLVMExpr expr ec = do
     PtrType _ -> fail "Pointer to weird type."
     _ -> return val
 
--- | Build the application of LLVM.mkValue to the given string.
 scLLVMValue :: SharedContext s -> SharedTerm s -> String -> IO (SharedTerm s)
-scLLVMValue sc ty name = do
-  s <- scString sc name
-  ty' <- scRemoveBitvector sc ty
-  mkValue <- scGlobalDef sc (parseIdent "LLVM.mkValue")
-  nt <- scApplyAll sc mkValue [ty', s]
-  return nt
+scLLVMValue sc ty name = scFreshGlobal sc name ty
 
 -- | Evaluate a typed expression in the context of a particular state.
 evalLogicExpr :: (MonadIO m) => TC.LogicExpr -> EvalContext -> m SpecLLVMValue
 evalLogicExpr initExpr ec = do
   let sc = ecContext ec
   t <- liftIO $ TC.useLogicExpr sc initExpr
-  rules <- forM (Map.toList (ecLLVMExprs ec)) $ \(name, (aty, expr)) ->
-             do lt <- evalLLVMExpr expr ec
-                 -- TODO: error handling!
-                Just ty <- liftIO $ TC.logicTypeOfActual sc aty
-                nt <- liftIO $ scLLVMValue sc ty name
-                return (ruleOfTerms nt lt)
-  let ss = addRules rules emptySimpset
-  liftIO $ rewriteSharedTerm sc ss t
+  let extTerms = getAllExts t
+      exts = mapMaybe toExtCns extTerms
+      toExtCns (STApp _ (FTermF (ExtCns ext))) = Just ext
+      toExtCns _ = Nothing
+  extMap <- forM exts $ \ext -> do
+              let n = ecName ext
+              case Map.lookup n (ecLLVMExprs ec) of
+                Just (_, expr) -> do
+                  lt <- evalLLVMExpr expr ec
+                  return (ecVarIndex ext, lt)
+                Nothing -> fail $ "Name " ++ n ++ " not found."
+  liftIO $ scInstantiateExt sc (Map.fromList extMap) t
 
 -- | Return Java value associated with mixed expression.
 evalMixedExpr :: (MonadIO m) =>
