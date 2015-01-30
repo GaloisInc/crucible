@@ -7,6 +7,6 @@ main = do {
     t <- llvm_symexec m "add" [("x", x), ("y", y)] ["return"];
     print_term t;
     t' <- abstract_symbolic t;
-    prove_print abc {{ \a b -> (t' a b).0 == add a b }};
+    prove_print abc {{ \a b -> t' a b == add a b }};
     print "Done.";
 };

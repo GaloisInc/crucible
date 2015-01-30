@@ -155,7 +155,10 @@ symexecLLVM bic opts (LLVMModule file mdl) fname inputs outputs = do
         _ <- callDefine sym (sdRetType md) args
         outexprs <- liftIO $ mapM (parseLLVMExpr cb md) outputs
         outtms <- mapM (readLLVMTerm dl) outexprs
-        liftIO (mkTypedTerm scLLVM =<< scTuple scLLVM outtms)
+        let bundle tms = case tms of
+                           [t] -> return t
+                           _ -> scTuple scLLVM tms
+        liftIO (mkTypedTerm scLLVM =<< bundle outtms)
 
 -- | Extract a simple, pure model from the given symbol within the
 -- given bitcode file. This code creates fresh inputs for all

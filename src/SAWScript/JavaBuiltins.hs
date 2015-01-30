@@ -252,7 +252,10 @@ symexecJava bic opts cls mname inputs outputs = do
                execInstanceMethod (className cls) (methodKey meth) this args
       outexprs <- liftIO $ mapM (parseJavaExpr cb cls meth) outputs
       outtms <- mapM readJavaTerm outexprs
-      liftIO (mkTypedTerm jsc =<< scTuple jsc outtms)
+      let bundle tms = case tms of
+                         [t] -> return t
+                         _ -> scTuple jsc tms
+      liftIO (mkTypedTerm jsc =<< bundle outtms)
 
 extractJava :: BuiltinContext -> Options -> Class -> String
             -> JavaSetup ()
