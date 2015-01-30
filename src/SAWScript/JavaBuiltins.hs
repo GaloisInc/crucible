@@ -173,7 +173,7 @@ valueOfTerm :: (MonadSim SAWBackend m) =>
             -> SharedTerm SAWCtx
             -> Simulator SAWBackend m (JSS.Value (SharedTerm SAWCtx))
 valueOfTerm sc t = do
-  ty <- liftIO $ scTypeOf sc t
+  ty <- liftIO $ (scTypeOf sc t >>= scWhnf sc)
   case ty of
     (asBitvectorType -> Just 32) -> return (IValue t)
     (asBitvectorType -> Just 64) -> return (LValue t)

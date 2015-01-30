@@ -2,8 +2,8 @@ main : TopLevel ();
 main = do {
     cadd <- java_load_class "Add";
     add <- define "add" {{ \x y -> (x : [32]) + y }};
-    x <- fresh_bitvector "x" 32;
-    y <- fresh_bitvector "y" 32;
+    x <- fresh_symbolic "x" {| [32] |};
+    y <- fresh_symbolic "y" {| [32] |};
     t <- java_symexec cadd "add" [("x", x), ("y", y)] ["return"];
     print_term t;
     t' <- abstract_symbolic t;
