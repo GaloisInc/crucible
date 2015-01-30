@@ -229,7 +229,9 @@ buildInterpretEnv opts =
                    ++ bvConversions
                    ++ finConversions
                    ++ vecConversions
-                   ++ [ remove_ident_coerce
+                   ++ [ tupleConversion
+                      , recordConversion
+                      , remove_ident_coerce
                       , remove_ident_unsafeCoerce
                       ]
        simps <- scSimpset sc0 [] [] convs
