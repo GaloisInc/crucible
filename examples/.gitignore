@@ -1,3 +1,5 @@
 *.class
+*.cnf
+*.extcore
 *.smt
 *.smt2
