@@ -555,11 +555,14 @@ addPreludeEqs sc names ss = do
 addPreludeDefs :: SharedContext s -> [String] -> Simpset (SharedTerm s)
               -> IO (Simpset (SharedTerm s))
 addPreludeDefs sc names ss = do
-  let defs = mapMaybe getDef names -- FIXME: warn if not found
+  defs <- mapM getDef names -- FIXME: warn if not found
   defRules <- concat <$> (mapM (scDefRewriteRules sc) defs)
   return (addRules defRules ss)
     where qualify = mkIdent (mkModuleName ["Prelude"])
-          getDef n = findDef (scModule sc) (qualify n)
+          getDef n =
+            case findDef (scModule sc) (qualify n) of
+              Just d -> return d
+              Nothing -> fail $ "Prelude definition " ++ n ++ " not found"
 
 rewritePrim :: SharedContext s -> Simpset (SharedTerm s) -> TypedTerm s -> IO (TypedTerm s)
 rewritePrim sc ss (TypedTerm schema t) = do
