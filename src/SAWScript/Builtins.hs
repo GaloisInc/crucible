@@ -26,6 +26,7 @@ import Text.Read
 import qualified Verifier.Java.Codebase as JSS
 -- import Verifier.Java.SAWBackend (javaModule)
 -- import Verifier.LLVM.Backend.SAW (llvmModule)
+import qualified Verifier.SAW.Cryptol as Cryptol
 
 import Verifier.SAW.Constant
 import Verifier.SAW.ExternalFormat
@@ -616,12 +617,14 @@ bindExts sc args body = do
   body' <- scInstantiateExt sc (Map.fromList (is `zip` reverse locals)) body
   scLambdaList sc (names `zip` types) body'
 
-freshBitvectorPrim :: String -> Int -> TopLevel (TypedTerm SAWCtx)
-freshBitvectorPrim x n = do
+freshSymbolicPrim :: String -> C.Schema -> TopLevel (TypedTerm SAWCtx)
+freshSymbolicPrim x schema@(C.Forall [] [] ct) = do
   sc <- getSharedContext
-  ty <- io $ scBitvector sc (fromIntegral n)
-  tm <- io $ scFreshGlobal sc x ty
-  io $ mkTypedTerm sc tm
+  cty <- io $ Cryptol.importType sc Cryptol.emptyEnv ct
+  tm <- io $ scFreshGlobal sc x cty
+  return $ TypedTerm schema tm
+freshSymbolicPrim _ _ =
+  fail "Can't create fresh symbolic variable of non-ground type."
 
 abstractSymbolicPrim :: TypedTerm SAWCtx -> TopLevel (TypedTerm SAWCtx)
 abstractSymbolicPrim (TypedTerm _ t) = do

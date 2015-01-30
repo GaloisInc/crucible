@@ -362,10 +362,9 @@ primitives = Map.fromList
     (pureVal abstractSymbolicPrim)
     [ "TODO" ]
 
-  , prim "fresh_bitvector"     "String -> Int -> TopLevel Term"
-    (pureVal freshBitvectorPrim)
+  , prim "fresh_symbolic"      "String -> Type -> TopLevel Term"
+    (pureVal freshSymbolicPrim)
     [ "TODO" ]
-
 
   , prim "sbv_uninterpreted"   "String -> Term -> TopLevel Uninterp"
     (pureVal sbvUninterpreted)
