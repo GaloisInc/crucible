@@ -35,7 +35,6 @@ import qualified Verifier.Java.Codebase as JSS
 
 import Verifier.SAW.Conversion
 import Verifier.SAW.Prelude
-import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST
@@ -202,56 +201,6 @@ findField _ pos _ _ =
   let msg = "Primitive types cannot be dereferenced."
    in throwIOExecException pos (ftext msg) ""
 
-equal :: SharedContext s -> [SharedTerm s] -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-equal sc _ctx (STApp _ (Lambda x1 ty1 tm1)) (STApp _ (Lambda _ ty2 tm2)) =
-  case (asBitvectorType ty1, asBitvectorType ty2) of
-    (Just n1, Just n2) -> do
-      unless (n1 == n2) $
-        fail $ "Arguments have different sizes: " ++
-               show n1 ++ " and " ++ show n2
-      eqBody <- equal sc [ty1] tm1 tm2
-      scLambda sc x1 ty1 eqBody
-    (_, _) ->
-        fail $ "Incompatible function arguments. Types are " ++
-               show ty1 ++ " and " ++ show ty2
-equal sc ctx tm1 tm2 = do
-    ty1 <- scTypeOf' sc ctx tm1
-    ty2 <- scTypeOf' sc ctx tm2
-    ss <- basic_ss sc
-    ty1' <- rewriteSharedTerm sc ss ty1
-    ty2' <- rewriteSharedTerm sc ss ty2
-    case (ty1', ty2') of
-      (asBitvectorType -> Just n1, asBitvectorType -> Just n2) -> do
-        unless (n1 == n2) $ fail "Bitvectors have different sizes."
-        n1t <- scNat sc n1
-        scBvEq sc n1t tm1 tm2
-      (asVecType -> Just (l1 :*: ety1), asVecType -> Just (l2 :*: _ety2)) -> do
-        unless (l1 == l2) $ fail $ "Arrays have different sizes: " ++
-                                   show l1 ++ " and " ++ show l2
-        -- TODO: check that ety1 == ety2?
-        getOp <- scApplyPrelude_get sc
-        eqs <- forM [0..l1-1] $ \i -> do
-                 it <- scNat sc i
-                 lt <- scNat sc l1
-                 ft <- scFinVal sc it lt
-                 et1 <- getOp lt ety1 tm1 ft
-                 et2 <- getOp lt ety1 tm2 ft
-                 equal sc ctx et1 et2
-        andOp <- scApplyPrelude_and sc
-        trueTm <- scBool sc True
-        foldM andOp trueTm eqs
-      (_, _) ->
-        fail $ "Incompatible non-lambda terms. Types are " ++
-               show ty1' ++ " and " ++ show ty2'
-
-allEqual :: SharedContext s -> [(SharedTerm s, SharedTerm s)] -> IO (SharedTerm s)
-allEqual sc [] = scApplyPrelude_True sc
-allEqual sc ((t, t'):ts) = do
-  r <- allEqual sc ts
-  eq <- equal sc [] t t'
-  andFn <- scApplyPrelude_and sc
-  andFn eq r
-
 scRemoveBitvector :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
 scRemoveBitvector sc tm = do
   rules <- scDefRewriteRules sc def
@@ -260,11 +209,11 @@ scRemoveBitvector sc tm = do
     where Just def = findDef (scModule sc) (parseIdent "Prelude.bitvector")
 
 scEq :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-scEq sc x y = equal sc [] x y {- do
+scEq sc x y = do
   xty <- scTypeOf sc x
   eqOp <- scApplyPrelude_eq sc
   res <- eqOp xty x y
-  return res -}
+  return res
 
 scImplies :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
 scImplies sc x y = do

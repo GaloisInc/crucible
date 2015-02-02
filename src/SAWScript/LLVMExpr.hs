@@ -145,7 +145,7 @@ mkLogicExpr :: SharedTerm SAWCtx -> LogicExpr
 mkLogicExpr = LogicExpr
 
 useLogicExpr :: SharedContext SAWCtx -> LogicExpr -> IO (SharedTerm SAWCtx)
-useLogicExpr sc (LogicExpr t) = return t
+useLogicExpr _ (LogicExpr t) = return t
 
 {-
 -- | Return type of a typed expression.
