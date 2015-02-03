@@ -1,4 +1,5 @@
 #!/bin/bash
+set -x
 set -e
 
 PKGS="SAWCore Cryptol Java LLVM SAWScript"
@@ -14,7 +15,6 @@ while getopts "tpf" opt; do
   case $opt in
     t)
       dotests="true"
-      sandbox_dir=build-tests
       ;;
     f)
       force_utils="true"
@@ -31,44 +31,29 @@ if [ ! -e ./deps ] ; then
   mkdir deps
 fi
 
-PWD=`pwd`
-PATH=${PWD}/${sandbox_dir}/bin:$PATH
+HERE=`pwd`
+PATH=${HERE}/${sandbox_dir}/bin:$PATH
+CABAL="cabal"
 
 if [ ! -e ${sandbox_dir} ] ; then
-  cabal sandbox --sandbox=${sandbox_dir} init
+    for pkg in ${PKGS} ; do
+        (cd ${HERE}/../$pkg && ${CABAL} sandbox --sandbox="${HERE}/${sandbox_dir}" init)
+    done
 fi
 
-# we have to disable library stripping on recent cabal-install versions
-# to work around a bug (?) in the 32bit binutils on our install of CentOS5
-# make sure the cabal _library_ we have installed understands the option we need
-cabal install "Cabal >= 1.20"
-echo "library-stripping: False" > cabal.config
-
 if [ "${dotests}" == "true" ] ; then
-  for pkg in sawScript cryptol-verifier llvm-verifier jvm-verifier saw-core ; do
-    cabal sandbox hc-pkg unregister $pkg || true
+  for pkg in sawScript llvm-verifier jvm-verifier cryptol-verifier saw-core ; do
+    ${CABAL} sandbox hc-pkg unregister $pkg || true
   done
-fi
-
-# prepopulate some packages to try to prevent reinstalls later
-cabal install "transformers >= 0.4"
-cabal install "QuickCheck >= 2.7.6"
-
-# prepopulate additional packages when in testing mode
-if [ "${dotests}" == "true" ] ; then
-  cabal install "tasty"
-  cabal install "tasty-quickcheck"
-  cabal install "tasty-hunit"
-  cabal install "tasty-ant-xml"
 fi
 
 # use cabal to install the build-time depencencies we need
 # always build them if the '-f' option was given
 for prog in ${PROGRAMS} ; do
   if [ "${force_utils}" == "true" ]; then
-    cabal install $prog
+    ${CABAL} install $prog
   else
-    (which $prog && $prog --version) || cabal install $prog
+    (which $prog && $prog --version) || ${CABAL} install $prog
   fi
 done
 
@@ -81,19 +66,17 @@ for repo in ${GITHUB_REPOS} ; do
   fi
 done
 
-(cd deps/cryptol && sh configure)
-
 for repo in ${GITHUB_REPOS} ; do
-  cabal sandbox add-source deps/${repo}
+  ${CABAL} sandbox add-source deps/${repo}
 
   # Be sure abcBridge builds with pthreads diabled on Windows
   if [ "${OS}" == "Windows_NT" -a "${repo}" == "abcBridge" ]; then
-    cabal install --force abcBridge -f-enable-pthreads
+    ${CABAL} install --force abcBridge -f-enable-pthreads
   fi
 done
 
 for pkg in ${PKGS} ; do
-  cabal sandbox add-source ../${pkg}
+  ${CABAL} sandbox add-source ../${pkg}
 done
 
 if [ "${dotests}" == "true" ] ; then
@@ -111,11 +94,11 @@ if [ "${dotests}" == "true" ] ; then
     fi
 
     (cd ${pkg} &&
-         cabal sandbox init --sandbox="../SAWScript/${sandbox_dir}" &&
-         cabal install --enable-tests --only-dependencies &&
-         cabal configure --enable-tests &&
-         cabal build --only &&
-         (cabal test --only ${test_flags} || true))
+         ${CABAL} sandbox init --sandbox="${HERE}/${sandbox_dir}" &&
+         ${CABAL} install --enable-tests --only-dependencies &&
+         ${CABAL} configure --enable-tests &&
+         ${CABAL} build &&
+         (${CABAL} test ${test_flags} || true))
 
     if [ -e ${pkg}-test-results.xml ]; then
       xsltproc jenkins-junit-munge.xsl ${pkg}-test-results.xml > jenkins-${pkg}-test-results.xml
@@ -127,6 +110,6 @@ if [ "${dotests}" == "true" ] ; then
 
 else
 
-  cabal install --reinstall --force-reinstalls
+  ${CABAL} install --reinstall --force-reinstalls
 
 fi

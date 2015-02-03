@@ -28,8 +28,8 @@ import Control.Applicative hiding (empty)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Cont
-import Control.Monad.Except
 import Control.Monad.State
+import Control.Monad.Trans.Except
 import Data.Int
 import Data.List (intercalate) -- foldl', intersperse)
 import Data.Map (Map)
@@ -163,25 +163,25 @@ evalJavaExpr expr ec = eval expr
             TC.Local _ idx _ ->
               case Map.lookup idx (ecLocals ec) of
                 Just v -> return v
-                Nothing -> throwError $ EvalExprUnknownLocal idx expr
+                Nothing -> throwE $ EvalExprUnknownLocal idx expr
             TC.InstanceField r f -> do
               JSS.RValue ref <- eval r
               let ifields = (ecPathState ec) ^. JSS.pathMemory . JSS.memInstanceFields
               case Map.lookup (ref, f) ifields of
                 Just v -> return v
-                Nothing -> throwError $ EvalExprUnknownField f expr
+                Nothing -> throwE $ EvalExprUnknownField f expr
             TC.StaticField f -> do
               let sfields = (ecPathState ec) ^. JSS.pathMemory . JSS.memStaticFields
               case Map.lookup f sfields of
                 Just v -> return v
-                Nothing -> throwError $ EvalExprUnknownField f expr
+                Nothing -> throwE $ EvalExprUnknownField f expr
 
 evalJavaRefExpr :: TC.JavaExpr -> EvalContext -> ExprEvaluator JSS.Ref
 evalJavaRefExpr expr ec = do
   val <- evalJavaExpr expr ec
   case val of
     JSS.RValue ref -> return ref
-    _ -> throwError $ EvalExprBadJavaType "evalJavaRefExpr" expr
+    _ -> throwE $ EvalExprBadJavaType "evalJavaRefExpr" expr
 
 evalJavaExprAsLogic :: TC.JavaExpr -> EvalContext -> ExprEvaluator (SharedTerm SAWCtx)
 evalJavaExprAsLogic expr ec = do
@@ -190,11 +190,11 @@ evalJavaExprAsLogic expr ec = do
     JSS.RValue r ->
       let arrs = (ecPathState ec) ^. JSS.pathMemory . JSS.memScalarArrays in
       case Map.lookup r arrs of
-        Nothing    -> throwError $ EvalExprUnknownArray expr
+        Nothing    -> throwE $ EvalExprUnknownArray expr
         Just (_,n) -> return n
     JSS.IValue n -> return n
     JSS.LValue n -> return n
-    _ -> throwError $ EvalExprBadJavaType "evalJavaExprAsLogic" expr
+    _ -> throwE $ EvalExprBadJavaType "evalJavaExprAsLogic" expr
 
 -- | Evaluates a typed expression in the context of a particular state.
 evalLogicExpr :: TC.LogicExpr -> EvalContext -> ExprEvaluator (SharedTerm SAWCtx)
@@ -222,7 +222,7 @@ evalMixedExpr (TC.LE expr) ec = do
   case (asBitvectorType ty', asBoolType ty') of
     (Just 32, _) -> return (JSS.IValue n)
     (Just 64, _) -> return (JSS.LValue n)
-    (Just _, _) -> throwError (EvalExprBadLogicType "evalMixedExpr" (show ty'))
+    (Just _, _) -> throwE (EvalExprBadLogicType "evalMixedExpr" (show ty'))
     (Nothing, Just _) -> do
       b <- liftIO $ do
         boolTy <- scBoolType sc
@@ -231,7 +231,7 @@ evalMixedExpr (TC.LE expr) ec = do
         scVector sc boolTy (replicate 31 false ++ [n])
       return (JSS.IValue b)
     (Nothing, Nothing) ->
-      throwError (EvalExprBadLogicType "evalMixedExpr" (show ty'))
+      throwE (EvalExprBadLogicType "evalMixedExpr" (show ty'))
 evalMixedExpr (TC.JE expr) ec = evalJavaExpr expr ec
 
 evalMixedExprAsLogic :: TC.MixedExpr -> EvalContext

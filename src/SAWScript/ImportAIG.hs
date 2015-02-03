@@ -11,8 +11,8 @@ import Control.Applicative
 import Control.Exception
 import Control.Lens
 import Control.Monad
-import Control.Monad.Except
 import Control.Monad.State.Strict
+import Control.Monad.Trans.Except
 import qualified Data.Vector as V
 import Text.PrettyPrint.Leijen hiding ((<$>))
 
@@ -24,6 +24,9 @@ import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm hiding (scNot, scAnd, scOr)
 
 type TypeParser s = StateT (V.Vector (SharedTerm s)) (ExceptT String IO)
+
+throwTP :: String -> TypeParser s a
+throwTP = lift . throwE
 
 runTypeParser :: V.Vector (SharedTerm s)
               -> TypeParser s a
@@ -44,7 +47,7 @@ bitblastSharedTerm sc v (asBitvectorType -> Just w) = do
     V.generateM (fromIntegral w) $ \i -> do
       getFn wt boolType v =<< scFinConst sc (fromIntegral i) w
   modify (V.++ inputs)
-bitblastSharedTerm _ _ tp = throwError $ show $
+bitblastSharedTerm _ _ tp = throwTP $ show $
   text "Could not parse AIG input type:" <$$>
   indent 2 (scPrettyTermDoc tp)
 
@@ -54,21 +57,21 @@ parseAIGResultType :: SharedContext s
 parseAIGResultType _ (asBoolType -> Just ()) = do
   outputs <- get
   when (V.length outputs == 0) $ do
-    throwError "Not enough output bits for Bool result."
+    throwTP "Not enough output bits for Bool result."
   put (V.drop 1 outputs)
   -- Return remaining as a vector.
   return (outputs V.! 0)
 parseAIGResultType sc (asBitvectorType -> Just w) = do
   outputs <- get
   when (fromIntegral (V.length outputs) < w) $ do
-    throwError "Not enough output bits for type."
+    throwTP "Not enough output bits for type."
   let (base,remaining) = V.splitAt (fromIntegral w) outputs
   put remaining
   -- Return remaining as a vector.
   liftIO $ do
     boolType <- scPrelude_Bool sc
     scVector sc boolType (V.toList base)
-parseAIGResultType _ _ = throwError "Could not parse AIG output type."
+parseAIGResultType _ _ = throwTP "Could not parse AIG output type."
 
 
 -- |
@@ -143,9 +146,9 @@ translateNetwork sc ntk outputLits args resultType = do
   do let expectedInputCount = V.length inputTerms
      aigCount <- liftIO $ AIG.inputCount ntk
      unless (expectedInputCount == aigCount) $ do
-       throwError $ "AIG has " ++ show aigCount
-                 ++ " inputs, while expected type has "
-                 ++ show expectedInputCount ++ " inputs."
+       throwE $ "AIG has " ++ show aigCount
+                  ++ " inputs, while expected type has "
+                  ++ show expectedInputCount ++ " inputs."
   --lift $ putStrLn "Output vars"
   -- Get outputs as SAWCore terms.
   outputVars <- liftIO $
@@ -154,7 +157,7 @@ translateNetwork sc ntk outputLits args resultType = do
    -- Join output lits into result type.
   (res,rargs) <- runTypeParser outputVars $ parseAIGResultType sc resultType
   unless (V.null rargs) $
-    throwError "AIG contains more outputs than expected."
+    throwE "AIG contains more outputs than expected."
   lift $ scLambdaList sc args res
 
 readAIGexpect

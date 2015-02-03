@@ -26,8 +26,8 @@ import Control.Applicative hiding (empty)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Cont
-import Control.Monad.Except
 import Control.Monad.State
+import Control.Monad.Trans.Except
 import Data.List (sortBy)
 import Data.Map (Map)
 import qualified Data.Map as Map
