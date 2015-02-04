@@ -10,8 +10,6 @@
 module SAWScript.Interpreter
   ( interpret
   , interpretDeclGroup
-  , interpretMain
-  , interpretModuleAtEntry
   , InterpretEnv(..)
   , buildInterpretEnv
   , extendEnv
@@ -19,12 +17,13 @@ module SAWScript.Interpreter
   , IsValue(..)
   , primTypeEnv
   , primDocEnv
+  , processFile
   )
   where
 
 import Control.Applicative
 import qualified Control.Exception as X
-import Control.Monad (foldM, unless)
+import Control.Monad (foldM, unless, when)
 import qualified Data.IntMap as IntMap
 import qualified Data.Map as Map
 import Data.Map ( Map )
@@ -33,12 +32,15 @@ import Data.Traversable hiding ( mapM )
 import qualified SAWScript.AST as SS
 import SAWScript.AST (Located(..))
 import SAWScript.Builtins
+import SAWScript.Compiler (reportErrT)
 import qualified SAWScript.CryptolEnv as CEnv
+import qualified SAWScript.Import
 import SAWScript.JavaBuiltins
 import SAWScript.JavaExpr
 import SAWScript.LLVMBuiltins
 import SAWScript.Options
 import SAWScript.Lexer (lexSAW)
+import SAWScript.MGU (checkDecl)
 import SAWScript.Parser (parseSchema)
 import SAWScript.Proof
 import SAWScript.TopLevel
@@ -76,10 +78,11 @@ data InterpretEnv = InterpretEnv
   , ieDocs    :: Map SS.Name String
   , ieCryptol :: CEnv.CryptolEnv SAWCtx
   , ieRO      :: RO
+  , ieOptions :: Options
   }
 
 extendEnv :: SS.LName -> Maybe SS.Schema -> Maybe String -> Value -> InterpretEnv -> InterpretEnv
-extendEnv x mt md v (InterpretEnv vm tm dm ce ro) = InterpretEnv vm' tm' dm' ce' ro
+extendEnv x mt md v (InterpretEnv vm tm dm ce ro opts) = InterpretEnv vm' tm' dm' ce' ro opts
   where
     name = x
     qname = T.QName Nothing (T.Name (getOrig x))
@@ -99,7 +102,7 @@ extendEnv x mt md v (InterpretEnv vm tm dm ce ro) = InterpretEnv vm' tm' dm' ce'
 -- | Variation that does not force the value argument: it assumes it
 -- is not a term or int.
 extendEnv' :: SS.LName -> Maybe SS.Schema -> Maybe String -> Value -> InterpretEnv -> InterpretEnv
-extendEnv' x mt md v (InterpretEnv vm tm dm ce ro) = InterpretEnv vm' tm' dm' ce ro
+extendEnv' x mt md v (InterpretEnv vm tm dm ce ro opts) = InterpretEnv vm' tm' dm' ce ro opts
   where
     dm' = maybe dm (\d -> Map.insert (getVal x) d dm) md
     vm' = Map.insert x v vm
@@ -108,7 +111,7 @@ extendEnv' x mt md v (InterpretEnv vm tm dm ce ro) = InterpretEnv vm' tm' dm' ce
 -- Interpretation of SAWScript -------------------------------------------------
 
 interpret :: SharedContext SAWCtx -> InterpretEnv -> SS.Expr -> IO Value
-interpret sc env@(InterpretEnv vm _tm _dm ce _ro) expr =
+interpret sc env@(InterpretEnv vm _tm _dm ce _ro _opts) expr =
     case expr of
       SS.Bit b               -> return $ VBool b
       SS.String s            -> return $ VString s
@@ -163,7 +166,7 @@ interpretDeclGroup sc env (SS.Recursive ds) = return env'
   where env' = foldr ($) env [ extendEnv' n mty Nothing (interpretFunction sc env' e) | SS.Decl n mty e <- ds ]
 
 interpretStmts :: SharedContext SAWCtx -> InterpretEnv -> [SS.BlockStmt] -> IO Value
-interpretStmts sc env@(InterpretEnv vm tm dm ce ro) stmts =
+interpretStmts sc env@(InterpretEnv vm tm dm ce ro opts) stmts =
     case stmts of
       [] -> fail "empty block"
       [SS.Bind Nothing _ _ e] -> interpret sc env e
@@ -177,44 +180,34 @@ interpretStmts sc env@(InterpretEnv vm tm dm ce ro) stmts =
       SS.BlockLet bs : ss -> interpret sc env (SS.Let bs (SS.Block ss))
       SS.BlockCode s : ss ->
           do ce' <- CEnv.parseDecls sc ce s
-             interpretStmts sc (InterpretEnv vm tm dm ce' ro) ss
+             interpretStmts sc (InterpretEnv vm tm dm ce' ro opts) ss
       SS.BlockImport _ : _ ->
           do fail "block import unimplemented"
 
-interpretModule
-    :: SharedContext SAWCtx
-    -> InterpretEnv -> SS.Module -> IO InterpretEnv
-interpretModule sc env m =
-    do cenv' <- foldM (CEnv.importModule sc) (ieCryptol env) (SS.moduleCryDeps m)
-       cenv'' <- foldM (CEnv.parseDecls sc) cenv' (SS.moduleCryDecls m)
-       let env' = env { ieCryptol = cenv'' }
-       let decls = SS.moduleExprEnv m
-       foldM (interpretDecl sc) env' decls
+interpretTopStmt :: SharedContext SAWCtx -> InterpretEnv -> SS.TopStmt -> IO InterpretEnv
+interpretTopStmt sc env stmt =
+  case stmt of
+    SS.TopImport file -> interpretFile sc env file
+    SS.TopTypeDecl{}  -> fail "Type signature without accompanying binding"
+    SS.TopBind decl   -> do decl' <- reportErrT (checkDecl (ieTypes env) decl)
+                            interpretDecl sc env decl'
+    SS.ImportCry imp  -> do cenv' <- CEnv.importModule sc (ieCryptol env) imp
+                            return env { ieCryptol = cenv' }
+    SS.TopCode lstr   -> do cenv' <- CEnv.parseDecls sc (ieCryptol env) lstr
+                            return env { ieCryptol = cenv' }
 
-interpretModuleAtEntry :: SS.Name
-                          -> SharedContext SAWCtx
-                          -> InterpretEnv
-                          -> SS.Module
-                          -> IO (Value, InterpretEnv)
-interpretModuleAtEntry entryName sc env m =
-  do interpretEnv@(InterpretEnv vm _tm _dm _ce ro) <- interpretModule sc env m
-     let mainName = Located entryName entryName (PosInternal "entry")
-     case Map.lookup mainName vm of
-       Just v -> do
-         --putStrLn "We've been asked to execute a 'TopLevel' action, so run it."
-         -- We've been asked to execute a 'TopLevel' action, so run it.
-         r <- runTopLevel (fromValue v) ro
-         return (r, interpretEnv)
-       Nothing -> fail $ "No " ++ entryName ++ " in script file " ++ show (SS.moduleFileName m)
+interpretFile :: SharedContext SAWCtx -> InterpretEnv -> FilePath -> IO InterpretEnv
+interpretFile sc env file = do
+  stmts <- SAWScript.Import.loadFile (ieOptions env) file
+  foldM (interpretTopStmt sc) env stmts
 
--- | Interpret an expression using the default value environments.
-interpretEntry :: SS.Name -> Options -> SS.Module -> IO Value
-interpretEntry entryName opts m =
-    do (bic, interpretEnv0) <- buildInterpretEnv opts
-       let sc = biSharedContext bic
-       (result, _interpretEnv) <-
-         interpretModuleAtEntry entryName sc interpretEnv0 m
-       return result
+-- | Evaluate the value called 'main' from the current environment.
+interpretMain :: InterpretEnv -> IO ()
+interpretMain env =
+  case Map.lookup mainName (ieValues env) of
+    Nothing -> fail "No 'main' defined"
+    Just v -> runTopLevel (fromValue v) (ieRO env)
+  where mainName = Located "main" "main" (PosInternal "entry")
 
 buildInterpretEnv :: Options -> IO (BuiltinContext, InterpretEnv)
 buildInterpretEnv opts =
@@ -249,12 +242,14 @@ buildInterpretEnv opts =
        let vm0 = Map.insert (qualify "basic_ss") (toValue ss) (valueEnv opts bic)
        let tm0 = Map.insert (qualify "basic_ss") (readSchema "Simpset") primTypeEnv
        ce0 <- CEnv.initCryptolEnv sc
-       return (bic, InterpretEnv vm0 tm0 primDocEnv ce0 ro0)
+       return (bic, InterpretEnv vm0 tm0 primDocEnv ce0 ro0 opts)
 
--- | Interpret function 'main' using the default value environments.
-interpretMain :: Options -> SS.Module -> IO ()
-interpretMain opts m = fromValue <$> interpretEntry "main" opts m
-
+processFile :: Options -> FilePath -> IO ()
+processFile opts file = do
+  (bic, env) <- buildInterpretEnv opts
+  let sc = biSharedContext bic
+  env' <- interpretFile sc env file
+  interpretMain env'
 
 -- Primitives ------------------------------------------------------------------
 

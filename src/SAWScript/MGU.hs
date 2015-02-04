@@ -7,12 +7,10 @@
 module SAWScript.MGU
        ( checkDecl
        , checkDeclGroup
-       , checkModule
        ) where
 
 import SAWScript.AST
 import SAWScript.Compiler
-import SAWScript.Interpreter (primTypeEnv) -- FIXME: temporary
 
 import Control.Applicative
 
@@ -173,9 +171,6 @@ bindSchemas bs m = foldr (uncurry bindSchema) m bs
 bindDecl :: Decl -> TI a -> TI a
 bindDecl (Decl _ Nothing _) m = m
 bindDecl (Decl n (Just s) _) m = bindSchema n s m
-
-bindDecls :: [Decl] -> TI a -> TI a
-bindDecls ds m = foldr bindDecl m ds
 
 bindDeclGroup :: DeclGroup -> TI a -> TI a
 bindDeclGroup (NonRecursive d) m = bindDecl d m
@@ -509,15 +504,6 @@ generalize es0 ts0 =
 
      return $ zipWith mk es ts
 
--- Check a list of recursive groups, sorted by dependency.
-inferTopDecls :: [[Decl]] -> TI [[Decl]]
-inferTopDecls [] = return []
-inferTopDecls (ds : dss) =
-  do ds1 <- inferRecDecls ds
-     rest <- bindDecls ds1 (inferTopDecls dss)
-     return (ds1 : rest)
-
-
 -- XXX: TODO
 checkKind :: Type -> TI Type
 checkKind = return
@@ -527,23 +513,6 @@ checkKind = return
 -- }}}
 
 -- Main interface {{{
-
--- | deprecated
-checkModule :: Compiler Module Module
-checkModule {- initTs -} = compiler "TypeCheck" $ \m -> do
-  let decls   = moduleExprEnv m
-  let initTs  = [ (n, s) | (_mn, dep) <- depMods m, (Decl n (Just s) _) <- modExprs dep ]
-  let primTs  = M.toList SAWScript.Interpreter.primTypeEnv
-  let sccs = [ [d] | d <- decls ]
-  let go = bindSchemas (initTs ++ primTs) (inferTopDecls sccs >>= exportDecls)
-  case evalTI go of
-    Right exprRes -> return $ m { moduleExprEnv = exprRes }
-    Left errs     -> fail $ unlines errs
-  where
-  depMods = M.toList . moduleDependencies
-  modExprs = moduleExprEnv
-
-  exportDecls dss = sequence [ appSubstM d | ds <- dss, d <- ds ]
 
 checkDeclGroup :: Map LName Schema -> DeclGroup -> Err DeclGroup
 checkDeclGroup env dg =
@@ -556,9 +525,6 @@ checkDecl env decl =
   case evalTIWithEnv env (inferDecl decl) of
     Right decl' -> return decl'
     Left errs -> fail (unlines errs)
-
-evalTI :: TI a -> Either [String] a
-evalTI = evalTIWithEnv M.empty
 
 evalTIWithEnv :: Map LName Schema -> TI a -> Either [String] a
 evalTIWithEnv env m = case runTIWithEnv env m of

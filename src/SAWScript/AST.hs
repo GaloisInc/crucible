@@ -6,7 +6,6 @@ module SAWScript.AST
        ( Name
        , LName
        , Bind
-       , Module(..)
        , Located(..)
        , TopStmt(..)
        , Import(..)
@@ -45,18 +44,6 @@ type Name = String
 type ModuleName = Name
 
 type Bind a = (Name,a)
-
--- }}}
-
--- Module Level {{{
-
-data Module = Module
-  { moduleFileName     :: FilePath
-  , moduleExprEnv      :: [Decl]
-  , moduleDependencies :: Map FilePath Module
-  , moduleCryDeps      :: [Import]
-  , moduleCryDecls     :: [Located String]
-  } deriving (Eq,Show)
 
 -- }}}
 
@@ -232,9 +219,6 @@ instance PrettyPrint Context where
 prettyModuleName :: ModuleName -> PP.Doc
 prettyModuleName mn = PP.text "module" PP.<+>
                       PP.squotes (PP.text mn)
-
-instance PrettyPrint Module where
-  pretty _ m = prettyModuleName (moduleFileName m)
 
 replicateDoc :: Integer -> PP.Doc -> PP.Doc
 replicateDoc n d

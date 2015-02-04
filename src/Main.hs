@@ -9,7 +9,7 @@ import System.Console.GetOpt
 import System.Environment
 
 import SAWScript.Options
-import SAWScript.ProcessFile (processFile)
+import SAWScript.Interpreter (processFile)
 import qualified SAWScript.REPL as REPL
 
 main :: IO ()
