@@ -1,4 +1,4 @@
 
-import imports2;
+include "imports2.saw";
 
-main = print "Done.";
+main = do { print i; print x; print "Done."; };

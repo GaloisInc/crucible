@@ -38,6 +38,7 @@ import Control.Applicative
 
 %token
   'import'       { TReserved _ "import"         }
+  'include'      { TReserved _ "include"        }
   'and'          { TReserved _ "and"            }
   'as'           { TReserved _ "as"             }
   'hiding'       { TReserved _ "hiding"         }
@@ -103,7 +104,7 @@ TopStmts :: { [TopStmt] }
  : termBy(TopStmt, ';')                 { $1 }
 
 TopStmt :: { TopStmt }
- : 'import' name                        { TopImport (tokStr $2) }
+ : 'include' string                     { TopInclude $2 }
  | 'import' Import                      { ImportCry $2                 }
  | name ':' PolyType                    { TopTypeDecl (toLName $1) $3  }
  | Declaration                          { TopBind $1 }

@@ -187,14 +187,14 @@ interpretStmts sc env@(InterpretEnv vm tm dm ce ro opts) stmts =
 interpretTopStmt :: SharedContext SAWCtx -> InterpretEnv -> SS.TopStmt -> IO InterpretEnv
 interpretTopStmt sc env stmt =
   case stmt of
-    SS.TopImport file -> interpretFile sc env file
-    SS.TopTypeDecl{}  -> fail "Type signature without accompanying binding"
-    SS.TopBind decl   -> do decl' <- reportErrT (checkDecl (ieTypes env) decl)
-                            interpretDecl sc env decl'
-    SS.ImportCry imp  -> do cenv' <- CEnv.importModule sc (ieCryptol env) imp
-                            return env { ieCryptol = cenv' }
-    SS.TopCode lstr   -> do cenv' <- CEnv.parseDecls sc (ieCryptol env) lstr
-                            return env { ieCryptol = cenv' }
+    SS.TopInclude file -> interpretFile sc env file
+    SS.TopTypeDecl{}   -> fail "Type signature without accompanying binding"
+    SS.TopBind decl    -> do decl' <- reportErrT (checkDecl (ieTypes env) decl)
+                             interpretDecl sc env decl'
+    SS.ImportCry imp   -> do cenv' <- CEnv.importModule sc (ieCryptol env) imp
+                             return env { ieCryptol = cenv' }
+    SS.TopCode lstr    -> do cenv' <- CEnv.parseDecls sc (ieCryptol env) lstr
+                             return env { ieCryptol = cenv' }
 
 interpretFile :: SharedContext SAWCtx -> InterpretEnv -> FilePath -> IO InterpretEnv
 interpretFile sc env file = do

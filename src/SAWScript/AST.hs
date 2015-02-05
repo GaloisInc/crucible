@@ -65,7 +65,7 @@ toLName :: Token Pos -> LName
 toLName p = Located (tokStr p) (tokStr p) (tokPos p)
 
 data TopStmt
-  = TopImport   FilePath      -- ^ import <module>
+  = TopInclude  FilePath      -- ^ include "filepath.saw"
   | TopTypeDecl LName Schema  -- ^ <name> : <type>
   | TopBind     Decl          -- ^ <name> = <expr>
   | ImportCry   Import        -- ^ import "filepath.cry" [as <name>] [(<names>)]
@@ -215,10 +215,6 @@ instance PrettyPrint Context where
     LLVMSetup    -> PP.text "LLVMSetup"
     ProofScript  -> PP.text "ProofScript"
     TopLevel     -> PP.text "TopLevel"
-
-prettyModuleName :: ModuleName -> PP.Doc
-prettyModuleName mn = PP.text "module" PP.<+>
-                      PP.squotes (PP.text mn)
 
 replicateDoc :: Integer -> PP.Doc -> PP.Doc
 replicateDoc n d
