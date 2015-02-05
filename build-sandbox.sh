@@ -31,7 +31,12 @@ if [ ! -e ./deps ] ; then
   mkdir deps
 fi
 
-HERE=`pwd`
+if [ "${OS}" == "Windows_NT" ] ; then
+    HERE=$(cygpath -w $(pwd))
+else
+    HERE=$(pwd)
+fi
+
 PATH=${HERE}/${sandbox_dir}/bin:$PATH
 CABAL="cabal"
 
