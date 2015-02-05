@@ -63,6 +63,8 @@ mgu m (TyCon tc1 ts1) (TyCon tc2 ts2) = do
   mgus m ts1 ts2
 mgu _ (TySkolemVar a i) (TySkolemVar b j)
   | (a, i) == (b, j) = return emptySubst
+mgu _ (TyBoundVar a) (TyBoundVar b)
+  | a == b = return emptySubst
 mgu m t1 t2 = failMGU $ "type mismatch: " ++ pShow t1 ++ " and " ++ pShow t2 ++ " at " ++ show m
 
 mgus :: LName -> [Type] -> [Type] -> Either String Subst
@@ -102,6 +104,30 @@ instance UnifyVars Type where
 
 instance UnifyVars Schema where
   unifyVars (Forall _ t) = unifyVars t
+
+-- }}}
+
+-- BoundVars {{{
+
+class BoundVars t where
+  boundVars :: t -> S.Set Name
+
+instance (Ord k, BoundVars a) => BoundVars (M.Map k a) where
+  boundVars = boundVars . M.elems
+
+instance (BoundVars a) => BoundVars [a] where
+  boundVars = S.unions . map boundVars
+
+instance BoundVars Type where
+  boundVars t = case t of
+    TyCon _ ts      -> boundVars ts
+    TyRecord tm     -> boundVars tm
+    TyBoundVar n    -> S.singleton n
+    TyUnifyVar _    -> S.empty
+    TySkolemVar _ _ -> S.empty
+
+instance BoundVars Schema where
+  boundVars (Forall ns t) = boundVars t S.\\ S.fromList ns
 
 -- }}}
 
@@ -187,6 +213,13 @@ unifyVarsInEnv = do
   let ss = M.elems env
   ss' <- mapM appSubstM ss
   return $ unifyVars ss'
+
+boundVarsInEnv :: TI (S.Set Name)
+boundVarsInEnv = do
+  env <- TI $ asks typeEnv
+  let ss = M.elems env
+  ss' <- mapM appSubstM ss
+  return $ boundVars ss'
 
 -- }}}
 
@@ -476,8 +509,6 @@ inferDecl (Decl n (Just s) e) = do
   -- FIXME: make sure the skolem variables didn't "leak" into the surrounding context
   return (Decl n (Just s) e')
 
-
--- XXX: For now, no schema type signatures.
 inferRecDecls :: [Decl] -> TI [Decl]
 inferRecDecls ds =
   do let names = map dName ds
@@ -493,14 +524,16 @@ inferRecDecls ds =
 
 generalize :: [OutExpr] -> [Type] -> TI [(OutExpr,Schema)]
 generalize es0 ts0 =
-  do ts <- appSubstM ts0
-     es <- appSubstM es0
+  do es <- appSubstM es0
+     ts <- appSubstM ts0
 
-     withAsmps <- unifyVarsInEnv
-     let is = S.toList (unifyVars ts S.\\ withAsmps)
+     envUnify <- unifyVarsInEnv
+     envBound <- boundVarsInEnv
+     let is = S.toList (unifyVars ts S.\\ envUnify)
+     let bs = S.toList (boundVars ts S.\\ envBound)
      let ns = [ "a." ++ show i | i <- is ]
      let s = listSubst (zip is (map TyBoundVar ns))
-     let mk e t = (appSubst s e, Forall ns (appSubst s t))
+     let mk e t = (appSubst s e, Forall (ns ++ bs) (appSubst s t))
 
      return $ zipWith mk es ts
 
