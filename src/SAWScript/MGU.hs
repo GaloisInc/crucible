@@ -253,7 +253,6 @@ instance AppSubst Expr where
     Bit _              -> expr
     String _           -> expr
     Z _                -> expr
-    Undefined          -> expr
     Code _             -> expr
     CType _            -> expr
     Array es           -> Array (appSubst s es)
@@ -320,8 +319,6 @@ inferE (ln, expr) = case expr of
   Bit b     -> return (Bit b, tBool)
   String s  -> return (String s, tString)
   Z i       -> return (Z i, tZ)
-  Undefined -> do a <- newType
-                  return (Undefined, a)
   Code s    -> return (Code s, tTerm)
   CType s   -> return (CType s, tType)
 

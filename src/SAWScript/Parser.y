@@ -48,7 +48,6 @@ import Control.Applicative
   'if'           { TReserved _ "if"             }
   'then'         { TReserved _ "then"           }
   'else'         { TReserved _ "else"           }
-  'undefined'    { TReserved _ "undefined"      }
   'CryptolSetup' { TReserved _ "CryptolSetup"   }
   'JavaSetup'    { TReserved _ "JavaSetup"      }
   'LLVMSetup'    { TReserved _ "LLVMSetup"      }
@@ -154,7 +153,6 @@ AExpr :: { Expr }
  | CType                                { CType $1                }
  | num                                  { Z $1                    }
  | name                                 { Var (Located (tokStr $1) (tokStr $1) (tokPos $1)) }
- | 'undefined'                          { Undefined               }
  | '(' Expression ')'                   { $2                      }
  | '(' commas2(Expression) ')'          { Tuple $2                }
  | '[' commas(Expression) ']'           { Array $2                }

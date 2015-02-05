@@ -117,7 +117,6 @@ interpret sc env@(InterpretEnv vm _tm _dm ce _ro) expr =
       SS.Bit b               -> return $ VBool b
       SS.String s            -> return $ VString s
       SS.Z z                 -> return $ VInteger z
-      SS.Undefined           -> return $ error "interpret: undefined"
       SS.Code str            -> toValue `fmap` CEnv.parseTypedTerm sc ce str
       SS.CType str           -> toValue `fmap` CEnv.parseSchema ce str
       SS.Array es            -> VArray <$> traverse (interpret sc env) es
@@ -784,6 +783,9 @@ primitives = Map.fromList
     (\_ bic -> toValueCase (biSharedContext bic) caseProofResultPrim)
     [ "TODO" ]
 
+  , prim "undefined"           "{a} a"
+    (\_ _ -> error "interpret: undefined")
+    [ "TODO" ]
   ]
   where
     prim :: String -> String -> (Options -> BuiltinContext -> Value) -> [String]

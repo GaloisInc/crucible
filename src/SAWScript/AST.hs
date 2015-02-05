@@ -72,7 +72,6 @@ data Expr
   = Bit Bool
   | String String
   | Z Integer
-  | Undefined
   | Code (Located String)
   | CType (Located String)
   -- Structures
