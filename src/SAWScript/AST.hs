@@ -109,6 +109,7 @@ data BlockStmt
   | BlockLet      DeclGroup
   | BlockCode     (Located String)
   | BlockImport   Import
+  | BlockInclude  FilePath
   deriving (Eq, Show)
 
 data DeclGroup

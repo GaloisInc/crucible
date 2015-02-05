@@ -10,6 +10,7 @@
 module SAWScript.Interpreter
   ( interpret
   , interpretDeclGroup
+  , interpretFile
   , InterpretEnv(..)
   , buildInterpretEnv
   , extendEnv
@@ -23,7 +24,7 @@ module SAWScript.Interpreter
 
 import Control.Applicative
 import qualified Control.Exception as X
-import Control.Monad (foldM, unless, when)
+import Control.Monad (foldM, unless)
 import qualified Data.IntMap as IntMap
 import qualified Data.Map as Map
 import Data.Map ( Map )

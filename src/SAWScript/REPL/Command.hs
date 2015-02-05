@@ -67,6 +67,7 @@ import SAWScript.Interpreter
      extendEnv,
      interpret,
      interpretDeclGroup,
+     interpretFile,
      primDocEnv,
      primTypeEnv,
      InterpretEnv(..))
@@ -593,6 +594,7 @@ sawScriptCmd str = do
     SS.BlockLet dg        -> processBlockLet dg
     SS.BlockCode lc       -> processBlockCode lc
     SS.BlockImport imp    -> processBlockImport imp
+    SS.BlockInclude file  -> processBlockInclude file
 
 replFileName :: String
 replFileName = "<stdin>"
@@ -618,6 +620,13 @@ processBlockImport imp = do
   cenv <- getCryptolEnv
   cenv' <- io (CEnv.importModule sc cenv imp)
   setCryptolEnv cenv'
+
+processBlockInclude :: FilePath -> REPL ()
+processBlockInclude file = do
+  sc <- getSharedContext
+  ie <- getEnvironment
+  ie' <- io $ interpretFile sc ie file
+  putEnvironment ie'
 
 processBlockBind :: Maybe SS.LName -> Maybe SS.Type -> Maybe SS.Type -> SS.Expr -> REPL ()
 processBlockBind mx mt _mc expr = do

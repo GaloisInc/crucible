@@ -130,6 +130,7 @@ BlockStmt :: { BlockStmt }
  | 'let' Declaration                    { BlockLet (NonRecursive $2)               }
  | 'let' Code                           { BlockCode $2                 }
  | 'import' Import                      { BlockImport $2               }
+ | 'include' string                     { BlockInclude $2              }
 
 Declaration :: { Decl }
  : name list(Arg) '=' Expression        { Decl (toLName $1) Nothing (buildFunction $2 $4) }
