@@ -164,31 +164,31 @@ data Schema = Forall [Name] Type
 -- Pretty Printing {{{
 
 pShow :: PrettyPrint a => a -> String
-pShow = show . pretty True
+pShow = show . pretty 0
 
 class PrettyPrint p where
   -- Bool indicates whether term should be parenthesized, eg. if rendering is space separated.
-  pretty :: Bool -> p -> PP.Doc
+  pretty :: Int -> p -> PP.Doc
 
 instance PrettyPrint Schema where
   pretty _ (Forall ns t) = case ns of
-    [] -> pretty False t
-    _  -> PP.braces (commaSepAll $ map PP.text ns) PP.<+> pretty False t
+    [] -> pretty 0 t
+    _  -> PP.braces (commaSepAll $ map PP.text ns) PP.<+> pretty 0 t
 
 instance PrettyPrint Type where
   pretty par t@(TyCon tc ts) = case (tc,ts) of
     (_,[])                 -> pretty par tc
-    (TupleCon _,_)         -> PP.parens $ commaSepAll $ map (pretty False) ts
-    (ArrayCon,[typ])       -> PP.brackets (pretty False typ)
-    (FunCon,[f,v])         -> (if par then PP.parens else id) $
-                                pretty False f PP.<+> PP.text "->" PP.<+> pretty False v
-    (BlockCon,[cxt,typ])   -> (if par then PP.parens else id) $
-                                pretty True cxt PP.<+> pretty True typ
+    (TupleCon _,_)         -> PP.parens $ commaSepAll $ map (pretty 0) ts
+    (ArrayCon,[typ])       -> PP.brackets (pretty 0 typ)
+    (FunCon,[f,v])         -> (if par > 0 then PP.parens else id) $
+                                pretty 1 f PP.<+> PP.text "->" PP.<+> pretty 0 v
+    (BlockCon,[cxt,typ])   -> (if par > 1 then PP.parens else id) $
+                                pretty 1 cxt PP.<+> pretty 2 typ
     _ -> error $ "malformed TyCon: " ++ show t
   pretty _par (TyRecord fs) =
       PP.braces
     $ commaSepAll
-    $ map (\(n,t) -> PP.text n `prettyTypeSig` pretty False t)
+    $ map (\(n,t) -> PP.text n `prettyTypeSig` pretty 0 t)
     $ Map.toList fs
   pretty _par (TyUnifyVar i)    = PP.text "t." PP.<> PP.integer i
   pretty _par (TySkolemVar n i) = PP.text n PP.<> PP.integer i
