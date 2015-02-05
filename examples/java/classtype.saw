@@ -1,10 +1,10 @@
-id_spec = do {
+let id_spec = do {
     java_class_var "x" (java_class "java.lang.Object");
     java_return {{ 0 : [32] }};
     java_verify_tactic abc;
 };
 
-main = do {
+let main = do {
     c <- java_load_class "ClassType";
     java_verify c "id" [] id_spec;
 };

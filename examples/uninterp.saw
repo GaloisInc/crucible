@@ -1,8 +1,6 @@
-main = do {
-    let {{ f (x:[64]) = x * x }};
-    fsym <- define "f" {{ f }};
-    let {{ thm x = ((fsym x) + (fsym x)) == ((fsym x) * 2) }};
-    prove_print abc {{ thm }};
-    //write_aig "uninterp.aig" {{ \x -> ~(thm x) }};
-    prove_print yices {{ thm }};
-};
+let {{ f (x:[64]) = x * x }};
+fsym <- define "f" {{ f }};
+let {{ thm x = ((fsym x) + (fsym x)) == ((fsym x) * 2) }};
+prove_print abc {{ thm }};
+//write_aig "uninterp.aig" {{ \x -> ~(thm x) }};
+prove_print yices {{ thm }};

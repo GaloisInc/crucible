@@ -1,6 +1,3 @@
+let map : (a -> b) -> [a] -> [b] = undefined;
 
-map : {a,b} (a -> b) -> [a] -> [b];
-map = undefined;
-
-main = return 1;
-
+let main = return 1;

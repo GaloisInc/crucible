@@ -1,35 +1,30 @@
-setx_spec : JavaSetup ();
-setx_spec = do {
+let setx_spec : JavaSetup () = do {
     newx <- java_var "newx" java_int;
     java_var "this.x" java_int;
     java_ensure_eq "this.x" {{ newx : [32] }};
     java_verify_tactic abc;
 };
 
-sety_spec : JavaSetup ();
-sety_spec = do {
+let sety_spec : JavaSetup () = do {
     newy <- java_var "newy" java_long;
     java_var "this.y" java_long;
     java_ensure_eq "this.y" {{ newy : [64] }};
     java_verify_tactic abc;
 };
 
-unitx_spec : JavaSetup ();
-unitx_spec = do {
+let unitx_spec : JavaSetup () = do {
     java_var "this.x" java_int;
     java_ensure_eq "this.x" {{ 1 : [32] }};
     java_verify_tactic abc;
 };
 
-unity_spec : JavaSetup ();
-unity_spec = do {
+let unity_spec : JavaSetup () = do {
     java_var "this.y" java_long;
     java_ensure_eq "this.y" {{ 1 : [64] }};
     java_verify_tactic abc;
 };
 
-main : TopLevel ();
-main = do {
+let main : TopLevel () = do {
     c <- java_load_class "Fields";
     ms_setx <- java_verify c "setx" [] setx_spec;
     ms_sety <- java_verify c "sety" [] sety_spec;

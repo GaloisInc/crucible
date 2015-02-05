@@ -1,20 +1,17 @@
-add_setup : LLVMSetup ();
-add_setup = do {
+let add_setup : LLVMSetup () = do {
     x <- llvm_ptr "x" (llvm_int 32);
     y <- llvm_ptr "y" (llvm_int 32);
     llvm_return {{ x + y : [32] }};
     llvm_verify_tactic abc;
 };
 
-clear_setup : LLVMSetup ();
-clear_setup = do {
+let clear_setup : LLVMSetup () = do {
     a <- llvm_ptr "a" (llvm_array 10 (llvm_int 32));
     llvm_ensure_eq "*a" {{ zero : [10][32] }};
     llvm_verify_tactic abc;
 };
 
-main : TopLevel ();
-main = do {
+let main : TopLevel () = do {
     m <- llvm_load_module "ptr.bc";
     add_ms <- llvm_verify m "add" [] add_setup;
     clear_ms <- llvm_verify m "clear" [] clear_setup;

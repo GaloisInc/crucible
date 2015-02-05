@@ -1,11 +1,7 @@
-// FIXME: Toplevel term bindings need to be added to the Cryptol environment.
-twice = {{ \f x -> f (f x) }};
-ident = {{ \x -> x }};
+let twice = {{ \f x -> f (f x) }};
+let ident = {{ \x -> x }};
 
-main : TopLevel ();
-main = do {
-  print_term {{ twice ident : [8] -> [8] }};
-  twice_id <- define "twice_id" {{ twice ident : [8] -> [8] }};
-  print_term twice_id;
-  print {{ twice_id 5 }};
-};
+print_term {{ twice ident : [8] -> [8] }};
+twice_id <- define "twice_id" {{ twice ident : [8] -> [8] }};
+print_term twice_id;
+print {{ twice_id 5 }};

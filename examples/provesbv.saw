@@ -1,6 +1,3 @@
-main : TopLevel ();
-main = do {
-  t <- read_sbv "add_comm.sbv" [];
-  r <- prove abc t;
-  print r;
-};
+t <- read_sbv "add_comm.sbv" [];
+r <- prove abc t;
+print r;

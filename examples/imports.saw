@@ -1,4 +1,6 @@
 
 include "imports2.saw";
 
-main = do { print i; print x; print "Done."; };
+print i;
+print x;
+print "Done.";

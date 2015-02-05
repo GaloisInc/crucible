@@ -1,20 +1,17 @@
-setx_spec : JavaSetup ();
-setx_spec = do {
+let setx_spec : JavaSetup () = do {
     newx <- java_var "newx" java_int;
     java_var "sfield.StaticField.x" java_int;
     java_ensure_eq "sfield.StaticField.x" {{ newx : [32] }};
     java_verify_tactic abc;
 };
 
-getx_spec : JavaSetup ();
-getx_spec = do {
+let getx_spec : JavaSetup () = do {
     x <- java_var "sfield.StaticField.x" java_int;
     java_return {{ x : [32] }};
     java_verify_tactic abc;
 };
 
-main : TopLevel ();
-main = do {
+let main : TopLevel () = do {
     c <- java_load_class "sfield.StaticField";
     ms_setx <- java_verify c "setx" [] setx_spec;
     ms_getx <- java_verify c "getx" [] getx_spec;

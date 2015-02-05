@@ -1,15 +1,13 @@
 import "mutRecTest.cry";
-main = do {
-  let {{ f = streamFibs    : [8] -> [32] }};
-  let {{ g = streamFibsAlt : [8] -> [32] }};
-  let {{ h = recFibs       : [8] -> [32] }};
-  let {{ i = recFibs2      : [8] -> [32] }};
 
-  let thm1 = {{ f === g }};
-  prove_print abc thm1;
+let {{ f = streamFibs    : [8] -> [32] }};
+let {{ g = streamFibsAlt : [8] -> [32] }};
+let {{ h = recFibs       : [8] -> [32] }};
+let {{ i = recFibs2      : [8] -> [32] }};
 
-  // FIXME, this makes the simulator crash the stack
-  //let thm2 x = f x == h x;
-  // prove_print abc thm2;
+let thm1 = {{ f === g }};
+prove_print abc thm1;
 
-};
+// FIXME, this makes the simulator crash the stack
+//let thm2 x = f x == h x;
+// prove_print abc thm2;

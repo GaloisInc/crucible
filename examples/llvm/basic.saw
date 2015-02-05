@@ -1,20 +1,17 @@
-add_setup : LLVMSetup ();
-add_setup = do {
+let add_setup : LLVMSetup () = do {
     x <- llvm_var "x" (llvm_int 32);
     y <- llvm_var "y" (llvm_int 32);
     llvm_return {{ x + y : [32] }};
     llvm_verify_tactic abc;
 };
 
-dbl_setup : LLVMSetup ();
-dbl_setup = do {
+let dbl_setup : LLVMSetup () = do {
     x <- llvm_var "x" (llvm_int 32);
     llvm_return {{ x + x : [32] }};
     llvm_verify_tactic abc;
 };
 
-main : TopLevel ();
-main = do {
+let main : TopLevel () = do {
     m <- llvm_load_module "basic.bc";
     add_ms <- llvm_verify m "add" [] add_setup;
     llvm_verify m "dbl" [add_ms] dbl_setup;

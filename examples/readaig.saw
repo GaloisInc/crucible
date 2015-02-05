@@ -1,10 +1,7 @@
-main : TopLevel ();
-main = do {
-  t <- read_aig "add_comm.aig";
-  print "Value:";
-  print t;
-  print "Type:";
-  print_type t;
-  print "Term:";
-  print_term t;
-};
+t <- read_aig "add_comm.aig";
+print "Value:";
+print t;
+print "Type:";
+print_type t;
+print "Term:";
+print_term t;

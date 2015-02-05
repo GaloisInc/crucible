@@ -1,6 +1,4 @@
 
-i : Int;
-i = 1;
+let i : Int = 1;
 
-x : Term;
-x = {{ 0xffffff }};
+let x : Term = {{ 0xffffff }};

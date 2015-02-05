@@ -1,7 +1,3 @@
-// FIXME: Toplevel bindings in Cryptol context
-and_assoc = {{ \(x, y, z : Bit) -> ((x && y) && z) == (x && (y && z)) }};
-
-main = do {
-  result <- prove abc {{ \(x, y, z : Bit) -> ((x && y) && z) == (x && (y && z)) }};
-  print result;
-};
+let {{ and_assoc (x, y, z : Bit) = ((x && y) && z) == (x && (y && z)) }};
+result <- prove abc {{ and_assoc }};
+print result;

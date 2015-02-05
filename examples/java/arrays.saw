@@ -1,20 +1,17 @@
-copy_setup : JavaSetup ();
-copy_setup = do {
+let copy_setup : JavaSetup () = do {
     a <- java_var "a" (java_array 10 java_int);
     java_var "b" (java_array 10 java_int);
     java_ensure_eq "b" {{ a : [10][32] }};
     java_verify_tactic abc;
 };
 
-unit_setup : JavaSetup ();
-unit_setup = do {
+let unit_setup : JavaSetup () = do {
     java_var "a" (java_array 10 java_int);
     java_ensure_eq "a" {{ [1, 0, 0, 0, 0, 0, 0, 0, 0, 0] : [10][32] }};
     java_verify_tactic abc;
 };
 
-sum_setup : JavaSetup ();
-sum_setup = do {
+let sum_setup : JavaSetup () = do {
     a <- java_var "a" (java_array 10 java_int);
     // Silly way to write it, but works as a test.
     java_return {{ (a@0) + (a@1) + (a@2) + (a@3) + (a@4) +
@@ -22,21 +19,17 @@ sum_setup = do {
     java_verify_tactic abc;
 };
 
-sum_setup' : JavaSetup ();
-sum_setup' = do { java_var "a" (java_array 10 java_int); return (); };
+let sum_setup' : JavaSetup () = do { java_var "a" (java_array 10 java_int); return (); };
 
-id_setup : JavaSetup ();
-id_setup = do { java_var "a" (java_array 10 java_int); return (); };
+let id_setup : JavaSetup () = do { java_var "a" (java_array 10 java_int); return (); };
 
-comp_setup : JavaSetup ();
-comp_setup = do {
+let comp_setup : JavaSetup () = do {
     java_var "a" (java_array 10 java_int);
     java_ensure_eq "a" {{ [1, 0, 0, 0, 0, 0, 0, 0, 0, 0] : [10][32] }};
     java_verify_tactic abc;
 };
 
-main : TopLevel ();
-main = do {
+let main : TopLevel () = do {
     c <- java_load_class "Arrays";
     copy_ms <- java_verify c "copy" [] copy_setup;
     unit_ms <- java_verify c "unit" [] unit_setup;

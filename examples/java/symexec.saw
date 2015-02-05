@@ -1,12 +1,9 @@
-main : TopLevel ();
-main = do {
-    cadd <- java_load_class "Add";
-    add <- define "add" {{ \x y -> (x : [32]) + y }};
-    x <- fresh_symbolic "x" {| [32] |};
-    y <- fresh_symbolic "y" {| [32] |};
-    t <- java_symexec cadd "add" [("x", x), ("y", y)] ["return"];
-    print_term t;
-    t' <- abstract_symbolic t;
-    prove_print abc {{ \a b -> t' a b == add a b }};
-    print "Done.";
-};
+cadd <- java_load_class "Add";
+add <- define "add" {{ \x y -> (x : [32]) + y }};
+x <- fresh_symbolic "x" {| [32] |};
+y <- fresh_symbolic "y" {| [32] |};
+t <- java_symexec cadd "add" [("x", x), ("y", y)] ["return"];
+print_term t;
+t' <- abstract_symbolic t;
+prove_print abc {{ \a b -> t' a b == add a b }};
+print "Done.";

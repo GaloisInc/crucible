@@ -1,4 +1,4 @@
-get_setup = do {
+let get_setup = do {
     java_var "a" (java_array 4 java_int);
     j <- java_var "j" java_int;
     java_assert {{ 0 <= (j : [32]) && j <= 3 }};
@@ -7,7 +7,7 @@ get_setup = do {
     java_verify_tactic abc;
 };
 
-main = do {
+let main = do {
     c <- java_load_class "Get";
     java_verify c "get" [] get_setup;
 };
