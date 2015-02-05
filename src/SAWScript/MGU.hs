@@ -271,13 +271,13 @@ instance AppSubst Expr where
 instance (Ord k, AppSubst a) => AppSubst (M.Map k a) where
   appSubst s = fmap (appSubst s)
 
-instance AppSubst BlockStmt where
+instance AppSubst Stmt where
   appSubst s bst = case bst of
-    Bind mn mt ctx e -> Bind mn mt ctx e
-    BlockLet dg   -> BlockLet (appSubst s dg)
-    BlockCode str -> BlockCode str
-    BlockImport imp -> BlockImport imp
-    BlockInclude file -> BlockInclude file
+    StmtBind mn mt ctx e -> StmtBind mn mt ctx e
+    StmtLet dg           -> StmtLet (appSubst s dg)
+    StmtCode str         -> StmtCode str
+    StmtImport imp       -> StmtImport imp
+    StmtInclude file     -> StmtInclude file
 
 instance AppSubst DeclGroup where
   appSubst s (Recursive ds) = Recursive (appSubst s ds)
@@ -311,8 +311,8 @@ instance Instantiate Type where
 
 -- Type Inference {{{
 
-type OutExpr      = Expr
-type OutBlockStmt = BlockStmt
+type OutExpr = Expr
+type OutStmt = Stmt
 
 
 inferE :: (LName, Expr) -> TI (OutExpr,Type)
@@ -447,14 +447,14 @@ inferDeclGroup (Recursive ds) = do
   ds' <- inferRecDecls ds
   return (Recursive ds')
 
-inferStmts :: LName -> Type -> [BlockStmt] -> TI ([OutBlockStmt],Type)
+inferStmts :: LName -> Type -> [Stmt] -> TI ([OutStmt], Type)
 
 inferStmts m _ctx [] = do
   recordError ("do block must include at least one expression at " ++ show m)
   t <- newType
   return ([], t)
 
-inferStmts m ctx [Bind Nothing _ mc e] = do
+inferStmts m ctx [StmtBind Nothing _ mc e] = do
   t  <- newType
   e' <- checkE m e (tBlock ctx t)
   mc' <- case mc of
@@ -462,14 +462,14 @@ inferStmts m ctx [Bind Nothing _ mc e] = do
     Just ty  -> do ty' <- checkKind ty
                    unify m ty ctx -- TODO: should this be ty'?
                    return ty'
-  return ([Bind Nothing (Just t) (Just mc') e'],t)
+  return ([StmtBind Nothing (Just t) (Just mc') e'],t)
 
 inferStmts m _ [_] = do
   recordError ("do block must end with expression at " ++ show m)
   t <- newType
   return ([],t)
 
-inferStmts m ctx (Bind mn mt mc e : more) = do
+inferStmts m ctx (StmtBind mn mt mc e : more) = do
   t <- maybe newType return mt
   e' <- checkE m e (tBlock ctx t)
   mc' <- case mc of
@@ -482,24 +482,24 @@ inferStmts m ctx (Bind mn mt mc e : more) = do
         Just n  -> bindSchema n (tMono t)
   (more',t') <- f $ inferStmts m ctx more
 
-  return (Bind mn (Just t') (Just mc') e' : more', t')
+  return (StmtBind mn (Just t') (Just mc') e' : more', t')
 
-inferStmts m ctx (BlockLet dg : more) = do
+inferStmts m ctx (StmtLet dg : more) = do
   dg' <- inferDeclGroup dg
   (more', t) <- bindDeclGroup dg' (inferStmts m ctx more)
-  return (BlockLet dg' : more', t)
+  return (StmtLet dg' : more', t)
 
-inferStmts m ctx (BlockCode s : more) = do
+inferStmts m ctx (StmtCode s : more) = do
   (more',t) <- inferStmts m ctx more
-  return (BlockCode s : more', t)
+  return (StmtCode s : more', t)
 
-inferStmts m ctx (BlockImport imp : more) = do
+inferStmts m ctx (StmtImport imp : more) = do
   (more', t) <- inferStmts m ctx more
-  return (BlockImport imp : more', t)
+  return (StmtImport imp : more', t)
 
-inferStmts m ctx (BlockInclude file : more) = do
+inferStmts m ctx (StmtInclude file : more) = do
   (more', t) <- inferStmts m ctx more
-  return (BlockInclude file : more', t)
+  return (StmtInclude file : more', t)
 
 inferDecl :: Decl -> TI Decl
 inferDecl (Decl n Nothing e) = do

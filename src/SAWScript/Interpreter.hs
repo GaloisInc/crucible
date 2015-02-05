@@ -10,6 +10,7 @@
 module SAWScript.Interpreter
   ( interpret
   , interpretDeclGroup
+  , interpretStmt
   , interpretFile
   , InterpretEnv(..)
   , buildInterpretEnv
@@ -41,7 +42,7 @@ import SAWScript.JavaExpr
 import SAWScript.LLVMBuiltins
 import SAWScript.Options
 import SAWScript.Lexer (lexSAW)
-import SAWScript.MGU (checkDecl)
+import SAWScript.MGU (checkDecl, checkDeclGroup)
 import SAWScript.Parser (parseSchema)
 import SAWScript.Proof
 import SAWScript.TopLevel
@@ -166,47 +167,79 @@ interpretDeclGroup sc env (SS.NonRecursive d) =
 interpretDeclGroup sc env (SS.Recursive ds) = return env'
   where env' = foldr ($) env [ extendEnv' n mty Nothing (interpretFunction sc env' e) | SS.Decl n mty e <- ds ]
 
-interpretStmts :: SharedContext SAWCtx -> InterpretEnv -> [SS.BlockStmt] -> IO Value
+interpretStmts :: SharedContext SAWCtx -> InterpretEnv -> [SS.Stmt] -> IO Value
 interpretStmts sc env@(InterpretEnv vm tm dm ce ro opts) stmts =
     case stmts of
       [] -> fail "empty block"
-      [SS.Bind Nothing _ _ e] -> interpret sc env e
-      SS.Bind Nothing _ _ e : ss ->
+      [SS.StmtBind Nothing _ _ e] -> interpret sc env e
+      SS.StmtBind Nothing _ _ e : ss ->
           do v1 <- interpret sc env e
              return $ VBind v1 $ VLambda $ const $ interpretStmts sc env ss
-      SS.Bind (Just x) mt _ e : ss ->
+      SS.StmtBind (Just x) mt _ e : ss ->
           do v1 <- interpret sc env e
              let f v = interpretStmts sc (extendEnv x (fmap SS.tMono mt) Nothing v env) ss
              bindValue v1 (VLambda f)
-      SS.BlockLet bs : ss -> interpret sc env (SS.Let bs (SS.Block ss))
-      SS.BlockCode s : ss ->
+      SS.StmtLet bs : ss -> interpret sc env (SS.Let bs (SS.Block ss))
+      SS.StmtCode s : ss ->
           do ce' <- CEnv.parseDecls sc ce s
              interpretStmts sc (InterpretEnv vm tm dm ce' ro opts) ss
-      SS.BlockImport _ : _ ->
+      SS.StmtImport _ : _ ->
           do fail "block import unimplemented"
 
-interpretTopStmt :: SharedContext SAWCtx -> InterpretEnv -> SS.TopStmt -> IO InterpretEnv
-interpretTopStmt sc env stmt =
+processStmtBind :: Bool -> SharedContext SAWCtx -> InterpretEnv -> Maybe SS.LName
+                 -> Maybe SS.Type -> Maybe SS.Type -> SS.Expr -> IO InterpretEnv
+processStmtBind printBinds sc env mx mt _mc expr = do
+  let it = SS.Located "it" "it" PosREPL
+  let lname = maybe it id mx
+  let ctx = SS.tContext SS.TopLevel
+  let expr' = case mt of
+                Nothing -> expr
+                Just t -> SS.TSig expr (SS.tBlock ctx t)
+  let decl = SS.Decl lname Nothing (SS.Block [SS.StmtBind Nothing Nothing (Just ctx) expr'])
+
+  SS.Decl _ (Just schema) expr'' <- reportErrT $ checkDecl (ieTypes env) decl
+  ty <- case schema of
+          SS.Forall [] t ->
+            case t of
+              SS.TyCon SS.BlockCon [c, t'] | c == ctx -> return t'
+              _ -> fail $ "Not a TopLevel monadic type: " ++ SS.pShow t
+          _ -> fail $ "Not a monomorphic type: " ++ SS.pShow schema
+
+  val <- interpret sc env expr''
+  -- | Run the resulting IO action.
+  result <- runTopLevel (SAWScript.Value.fromValue val) (ieRO env)
+
+  -- | Print non-unit result if it was not bound to a variable
+  case mx of
+    Nothing | printBinds && not (isVUnit result) -> print result
+    _                                            -> return ()
+
+  let env' = extendEnv lname (Just (SS.tMono ty)) Nothing result env
+  return env'
+
+-- | Interpret a block-level statement in the TopLevel monad.
+interpretStmt :: Bool -> SharedContext SAWCtx -> InterpretEnv -> SS.Stmt -> IO InterpretEnv
+interpretStmt printBinds sc env stmt =
   case stmt of
-    SS.TopInclude file -> interpretFile sc env file
-    SS.TopTypeDecl{}   -> fail "Type signature without accompanying binding"
-    SS.TopBind decl    -> do decl' <- reportErrT (checkDecl (ieTypes env) decl)
-                             interpretDecl sc env decl'
-    SS.ImportCry imp   -> do cenv' <- CEnv.importModule sc (ieCryptol env) imp
-                             return env { ieCryptol = cenv' }
-    SS.TopCode lstr    -> do cenv' <- CEnv.parseDecls sc (ieCryptol env) lstr
-                             return env { ieCryptol = cenv' }
+    SS.StmtBind mx mt mc expr -> processStmtBind printBinds sc env mx mt mc expr
+    SS.StmtLet dg             -> do dg' <- reportErrT (checkDeclGroup (ieTypes env) dg)
+                                    interpretDeclGroup sc env dg'
+    SS.StmtCode lstr          -> do cenv' <- CEnv.parseDecls sc (ieCryptol env) lstr
+                                    return env { ieCryptol = cenv' }
+    SS.StmtImport imp         -> do cenv' <- CEnv.importModule sc (ieCryptol env) imp
+                                    return env { ieCryptol = cenv' }
+    SS.StmtInclude file       -> interpretFile sc env file
 
 interpretFile :: SharedContext SAWCtx -> InterpretEnv -> FilePath -> IO InterpretEnv
 interpretFile sc env file = do
   stmts <- SAWScript.Import.loadFile (ieOptions env) file
-  foldM (interpretTopStmt sc) env stmts
+  foldM (interpretStmt False sc) env stmts
 
 -- | Evaluate the value called 'main' from the current environment.
 interpretMain :: InterpretEnv -> IO ()
 interpretMain env =
   case Map.lookup mainName (ieValues env) of
-    Nothing -> fail "No 'main' defined"
+    Nothing -> return () -- fail "No 'main' defined"
     Just v -> runTopLevel (fromValue v) (ieRO env)
   where mainName = Located "main" "main" (PosInternal "entry")
 

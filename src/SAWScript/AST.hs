@@ -7,10 +7,9 @@ module SAWScript.AST
        , LName
        , Bind
        , Located(..)
-       , TopStmt(..)
        , Import(..)
        , Expr(..)
-       , BlockStmt(..)
+       , Stmt(..)
        , DeclGroup(..)
        , Decl(..)
        , Context(..)
@@ -64,14 +63,6 @@ instance Ord a => Ord (Located a) where
 toLName :: Token Pos -> LName
 toLName p = Located (tokStr p) (tokStr p) (tokPos p)
 
-data TopStmt
-  = TopInclude  FilePath      -- ^ include "filepath.saw"
-  | TopTypeDecl LName Schema  -- ^ <name> : <type>
-  | TopBind     Decl          -- ^ <name> = <expr>
-  | ImportCry   Import        -- ^ import "filepath.cry" [as <name>] [(<names>)]
-  | TopCode (Located String)  -- ^ let {{ <cryptol decls> }}
-  deriving (Eq, Show)
-
 data Import = Import
   { iModule    :: Either FilePath P.ModName
   , iAs        :: Maybe P.ModName
@@ -88,7 +79,7 @@ data Expr
   | CType (Located String)
   -- Structures
   | Array  [Expr]
-  | Block  [BlockStmt]
+  | Block  [Stmt]
   | Tuple  [Expr]
   | Record (Map Name Expr)
   -- Accessors
@@ -104,12 +95,12 @@ data Expr
   | TSig Expr Type
   deriving (Eq, Show)
 
-data BlockStmt
-  = Bind          (Maybe LName) (Maybe Type) (Maybe Type) Expr
-  | BlockLet      DeclGroup
-  | BlockCode     (Located String)
-  | BlockImport   Import
-  | BlockInclude  FilePath
+data Stmt
+  = StmtBind     (Maybe LName) (Maybe Type) (Maybe Type) Expr
+  | StmtLet      DeclGroup
+  | StmtCode     (Located String)
+  | StmtImport   Import
+  | StmtInclude  FilePath
   deriving (Eq, Show)
 
 data DeclGroup

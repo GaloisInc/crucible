@@ -7,8 +7,7 @@
 {-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
 module SAWScript.Parser
   ( parseModule
-  , parseTopStmt
-  , parseBlockStmt
+  , parseStmt
   , parseSchema
   , ParseError(..)
   ) where
@@ -28,9 +27,8 @@ import Control.Applicative
 
 }
 
-%name parseModule TopStmts
-%name parseTopStmt TopStmt
-%name parseBlockStmt BlockStmt
+%name parseModule Stmts
+%name parseStmt Stmt
 %name parseSchema PolyType
 %error { parseError }
 %tokentype { Token Pos }
@@ -100,15 +98,8 @@ import Control.Applicative
 
 %%
 
-TopStmts :: { [TopStmt] }
- : termBy(TopStmt, ';')                 { $1 }
-
-TopStmt :: { TopStmt }
- : 'include' string                     { TopInclude $2 }
- | 'import' Import                      { ImportCry $2                 }
- | name ':' PolyType                    { TopTypeDecl (toLName $1) $3  }
- | Declaration                          { TopBind $1 }
- | 'let' Code                           { TopCode $2 }
+Stmts :: { [Stmt] }
+ : termBy(Stmt, ';')                    { $1 }
 
 Import :: { Import }
  : string mbAs mbImportSpec             { Import (Left $1) $2 $3 }
@@ -123,14 +114,14 @@ mbImportSpec :: { Maybe P.ImportSpec }
  | 'hiding' '(' list(name) ')'          { Just $ P.Hiding [ P.Name (tokStr n) | n <- $3 ] }
  | {- empty -}                          { Nothing }
 
-BlockStmt :: { BlockStmt }
- : Expression                           { Bind Nothing Nothing Nothing $1   }
- | Arg '<-' Expression                  { Bind (Just (fst $1)) (snd $1) Nothing $3 }
- | 'rec' sepBy1(Declaration, 'and')     { BlockLet (Recursive $2)                  }
- | 'let' Declaration                    { BlockLet (NonRecursive $2)               }
- | 'let' Code                           { BlockCode $2                 }
- | 'import' Import                      { BlockImport $2               }
- | 'include' string                     { BlockInclude $2              }
+Stmt :: { Stmt }
+ : Expression                           { StmtBind Nothing Nothing Nothing $1   }
+ | Arg '<-' Expression                  { StmtBind (Just (fst $1)) (snd $1) Nothing $3 }
+ | 'rec' sepBy1(Declaration, 'and')     { StmtLet (Recursive $2)                  }
+ | 'let' Declaration                    { StmtLet (NonRecursive $2)               }
+ | 'let' Code                           { StmtCode $2                 }
+ | 'import' Import                      { StmtImport $2               }
+ | 'include' string                     { StmtInclude $2              }
 
 Declaration :: { Decl }
  : name list(Arg) '=' Expression        { Decl (toLName $1) Nothing (buildFunction $2 $4) }
@@ -166,7 +157,7 @@ AExpr :: { Expr }
  | '(' commas2(Expression) ')'          { Tuple $2                }
  | '[' commas(Expression) ']'           { Array $2                }
  | '{' commas(Field) '}'                { Record (Map.fromList $2) }
- | 'do' '{' termBy(BlockStmt, ';') '}'  { Block $3                }
+ | 'do' '{' termBy(Stmt, ';') '}'       { Block $3                }
  | AExpr '.' name                       { Lookup $1 (tokStr $3)   }
  | AExpr '.' num                        { TLookup $1 $3           }
 

@@ -56,24 +56,20 @@ import qualified Data.Map as Map
 import qualified SAWScript.AST as SS
     (pShow,
      Import(..),
-     Expr(TSig, Block), BlockStmt(..), Decl(..), DeclGroup(..),
+     Expr(TSig, Block), Stmt(..), Decl(..), DeclGroup(..),
      LName, Located(..),
      Context(..), Schema(..), Type(..), TyCon(..),
      tMono, tBlock, tContext)
 import qualified SAWScript.CryptolEnv as CEnv
 import SAWScript.Compiler (liftParser)
 import SAWScript.Interpreter
-    (isVUnit,
-     extendEnv,
-     interpret,
-     interpretDeclGroup,
-     interpretFile,
+    (interpretStmt,
      primDocEnv,
      primTypeEnv,
      InterpretEnv(..))
 import qualified SAWScript.Lexer (scan)
 import qualified SAWScript.MGU as MGU
-import qualified SAWScript.Parser (parseBlockStmt)
+import qualified SAWScript.Parser (parseStmt)
 import qualified SAWScript.Value (evaluate, fromValue)
 import SAWScript.TopLevel (runTopLevel)
 import SAWScript.TypedTerm
@@ -588,78 +584,14 @@ caveats:
 sawScriptCmd :: String -> REPL ()
 sawScriptCmd str = do
   tokens <- err $ SAWScript.Lexer.scan replFileName str
-  ast <- err $ liftParser SAWScript.Parser.parseBlockStmt tokens
-  case ast of
-    SS.Bind mx mt mc expr -> processBlockBind mx mt mc expr
-    SS.BlockLet dg        -> processBlockLet dg
-    SS.BlockCode lc       -> processBlockCode lc
-    SS.BlockImport imp    -> processBlockImport imp
-    SS.BlockInclude file  -> processBlockInclude file
+  stmt <- err $ liftParser SAWScript.Parser.parseStmt tokens
+  sc <- getSharedContext
+  ie <- getEnvironment
+  ie' <- io $ interpretStmt True sc ie stmt
+  putEnvironment ie'
 
 replFileName :: String
 replFileName = "<stdin>"
-
-processBlockLet :: SS.DeclGroup -> REPL ()
-processBlockLet dg = do
-  ie <- getEnvironment
-  dg' <- err $ MGU.checkDeclGroup (ieTypes ie) dg
-  sc <- getSharedContext
-  ie' <- io $ interpretDeclGroup sc ie dg'
-  putEnvironment ie'
-
-processBlockCode :: SS.Located String -> REPL ()
-processBlockCode lc = do
-  sc <- getSharedContext
-  ce <- getCryptolEnv
-  ce' <- io $ CEnv.parseDecls sc ce lc
-  setCryptolEnv ce'
-
-processBlockImport :: SS.Import -> REPL ()
-processBlockImport imp = do
-  sc <- getSharedContext
-  cenv <- getCryptolEnv
-  cenv' <- io (CEnv.importModule sc cenv imp)
-  setCryptolEnv cenv'
-
-processBlockInclude :: FilePath -> REPL ()
-processBlockInclude file = do
-  sc <- getSharedContext
-  ie <- getEnvironment
-  ie' <- io $ interpretFile sc ie file
-  putEnvironment ie'
-
-processBlockBind :: Maybe SS.LName -> Maybe SS.Type -> Maybe SS.Type -> SS.Expr -> REPL ()
-processBlockBind mx mt _mc expr = do
-  let it = SS.Located "it" "it" PosREPL
-  let lname = maybe it id mx
-  let ctx = SS.tContext SS.TopLevel
-  let expr' = case mt of
-                Nothing -> expr
-                Just t -> SS.TSig expr (SS.tBlock ctx t)
-  let decl = SS.Decl lname Nothing (SS.Block [SS.Bind Nothing Nothing (Just ctx) expr'])
-
-  ie <- getEnvironment
-  sc <- getSharedContext
-  SS.Decl _ (Just schema) expr'' <- err $ MGU.checkDecl (ieTypes ie) decl
-  ty <- case schema of
-          SS.Forall [] t ->
-            case t of
-              SS.TyCon SS.BlockCon [c, t'] | c == ctx -> return t'
-              _ -> io $ fail $ "Not a TopLevel monadic type: " ++ SS.pShow t
-          _ -> io $ fail $ "Not a monomorphic type: " ++ SS.pShow schema
-
-  val <- io $ interpret sc ie expr''
-  -- | Run the resulting IO action.
-  result <- io $ runTopLevel (SAWScript.Value.fromValue val) (ieRO ie)
-
-  let ie' = extendEnv lname (Just (SS.tMono ty)) Nothing result ie
-  putEnvironment ie'
-
-  -- | Print non-unit result if it was not bound to a variable
-  case mx of
-    Nothing | not (isVUnit result) -> io $ print result
-    _                              -> return ()
-
 
 -- C-c Handlings ---------------------------------------------------------------
 
