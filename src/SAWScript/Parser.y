@@ -125,6 +125,8 @@ Stmt :: { Stmt }
 
 Declaration :: { Decl }
  : name list(Arg) '=' Expression        { Decl (toLName $1) Nothing (buildFunction $2 $4) }
+ | name list(Arg) ':' Type '=' Expression
+                                        { Decl (toLName $1) Nothing (buildFunction $2 (TSig $6 $4)) }
 
 Arg :: { (LName, Maybe Type) }
  : name                                 { (toLName $1, Nothing) }
