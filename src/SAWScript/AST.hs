@@ -167,7 +167,6 @@ pShow :: PrettyPrint a => a -> String
 pShow = show . pretty 0
 
 class PrettyPrint p where
-  -- Bool indicates whether term should be parenthesized, eg. if rendering is space separated.
   pretty :: Int -> p -> PP.Doc
 
 instance PrettyPrint Schema where
