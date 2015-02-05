@@ -185,6 +185,8 @@ interpretStmts sc env@(InterpretEnv vm tm dm ce ro opts) stmts =
              interpretStmts sc (InterpretEnv vm tm dm ce' ro opts) ss
       SS.StmtImport _ : _ ->
           do fail "block import unimplemented"
+      SS.StmtInclude _ : _ ->
+          do fail "block include unimplemented"
 
 processStmtBind :: Bool -> SharedContext SAWCtx -> InterpretEnv -> Maybe SS.LName
                  -> Maybe SS.Type -> Maybe SS.Type -> SS.Expr -> IO InterpretEnv

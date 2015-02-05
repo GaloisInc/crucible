@@ -56,10 +56,7 @@ import qualified Data.Map as Map
 import qualified SAWScript.AST as SS
     (pShow,
      Import(..),
-     Expr(TSig, Block), Stmt(..), Decl(..), DeclGroup(..),
-     LName, Located(..),
-     Context(..), Schema(..), Type(..), TyCon(..),
-     tMono, tBlock, tContext)
+     Located(..))
 import qualified SAWScript.CryptolEnv as CEnv
 import SAWScript.Compiler (liftParser)
 import SAWScript.Interpreter
@@ -68,10 +65,8 @@ import SAWScript.Interpreter
      primTypeEnv,
      InterpretEnv(..))
 import qualified SAWScript.Lexer (scan)
-import qualified SAWScript.MGU as MGU
 import qualified SAWScript.Parser (parseStmt)
-import qualified SAWScript.Value (evaluate, fromValue)
-import SAWScript.TopLevel (runTopLevel)
+import qualified SAWScript.Value (evaluate)
 import SAWScript.TypedTerm
 import SAWScript.Utils (Pos(..))
 

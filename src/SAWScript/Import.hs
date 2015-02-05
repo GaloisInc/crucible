@@ -5,7 +5,6 @@ module SAWScript.Import
   ) where
 
 import Control.Monad ((>=>), when)
-import Control.Applicative ((<$>))
 
 import SAWScript.AST
 import SAWScript.Compiler

@@ -40,8 +40,6 @@ import qualified Cryptol.Parser.AST as P (ImportSpec, ModName)
 
 type Name = String
 
-type ModuleName = Name
-
 type Bind a = (Name,a)
 
 -- }}}
