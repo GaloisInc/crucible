@@ -43,7 +43,6 @@ import Control.Applicative
   'let'          { TReserved _ "let"            }
   'rec'          { TReserved _ "rec"            }
   'in'           { TReserved _ "in"             }
-  'type'         { TReserved _ "type"           }
   'do'           { TReserved _ "do"             }
   'if'           { TReserved _ "if"             }
   'then'         { TReserved _ "then"           }
