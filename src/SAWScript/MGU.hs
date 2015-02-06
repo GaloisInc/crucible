@@ -63,7 +63,7 @@ mgu m (TyCon tc1 ts1) (TyCon tc2 ts2) = do
   mgus m ts1 ts2
 mgu _ (TySkolemVar a i) (TySkolemVar b j)
   | (a, i) == (b, j) = return emptySubst
-mgu _ (TyBoundVar a) (TyBoundVar b)
+mgu _ (TyVar a) (TyVar b)
   | a == b = return emptySubst
 mgu m t1 t2 = failMGU $ "type mismatch: " ++ pShow t1 ++ " and " ++ pShow t2 ++ " at " ++ show m
 
@@ -98,7 +98,7 @@ instance UnifyVars Type where
   unifyVars t = case t of
     TyCon _ ts      -> unifyVars ts
     TyRecord tm     -> unifyVars tm
-    TyBoundVar _    -> S.empty
+    TyVar _         -> S.empty
     TyUnifyVar i    -> S.singleton i
     TySkolemVar _ _ -> S.empty
 
@@ -107,27 +107,27 @@ instance UnifyVars Schema where
 
 -- }}}
 
--- BoundVars {{{
+-- NamedVars {{{
 
-class BoundVars t where
-  boundVars :: t -> S.Set Name
+class NamedVars t where
+  namedVars :: t -> S.Set Name
 
-instance (Ord k, BoundVars a) => BoundVars (M.Map k a) where
-  boundVars = boundVars . M.elems
+instance (Ord k, NamedVars a) => NamedVars (M.Map k a) where
+  namedVars = namedVars . M.elems
 
-instance (BoundVars a) => BoundVars [a] where
-  boundVars = S.unions . map boundVars
+instance (NamedVars a) => NamedVars [a] where
+  namedVars = S.unions . map namedVars
 
-instance BoundVars Type where
-  boundVars t = case t of
-    TyCon _ ts      -> boundVars ts
-    TyRecord tm     -> boundVars tm
-    TyBoundVar n    -> S.singleton n
+instance NamedVars Type where
+  namedVars t = case t of
+    TyCon _ ts      -> namedVars ts
+    TyRecord tm     -> namedVars tm
+    TyVar n         -> S.singleton n
     TyUnifyVar _    -> S.empty
     TySkolemVar _ _ -> S.empty
 
-instance BoundVars Schema where
-  boundVars (Forall ns t) = boundVars t S.\\ S.fromList ns
+instance NamedVars Schema where
+  namedVars (Forall ns t) = namedVars t S.\\ S.fromList ns
 
 -- }}}
 
@@ -214,12 +214,12 @@ unifyVarsInEnv = do
   ss' <- mapM appSubstM ss
   return $ unifyVars ss'
 
-boundVarsInEnv :: TI (S.Set Name)
-boundVarsInEnv = do
+namedVarsInEnv :: TI (S.Set Name)
+namedVarsInEnv = do
   env <- TI $ asks typeEnv
   let ss = M.elems env
   ss' <- mapM appSubstM ss
-  return $ boundVars ss'
+  return $ namedVars ss'
 
 -- }}}
 
@@ -238,7 +238,7 @@ instance AppSubst Type where
   appSubst s t = case t of
     TyCon tc ts     -> TyCon tc (appSubst s ts)
     TyRecord fs     -> TyRecord (appSubst s fs)
-    TyBoundVar _    -> t
+    TyVar _         -> t
     TyUnifyVar i    -> case M.lookup i (unSubst s) of
                          Just t' -> t'
                          Nothing -> t
@@ -302,7 +302,7 @@ instance Instantiate Type where
   instantiate nts ty = case ty of
     TyCon tc ts     -> TyCon tc (instantiate nts ts)
     TyRecord fs     -> TyRecord (fmap (instantiate nts) fs)
-    TyBoundVar n    -> maybe ty id (lookup n nts)
+    TyVar n         -> maybe ty id (lookup n nts)
     TyUnifyVar _    -> ty
     TySkolemVar _ _ -> ty
 
@@ -530,11 +530,11 @@ generalize es0 ts0 =
      ts <- appSubstM ts0
 
      envUnify <- unifyVarsInEnv
-     envBound <- boundVarsInEnv
+     envNamed <- namedVarsInEnv
      let is = S.toList (unifyVars ts S.\\ envUnify)
-     let bs = S.toList (boundVars ts S.\\ envBound)
+     let bs = S.toList (namedVars ts S.\\ envNamed)
      let ns = [ "a." ++ show i | i <- is ]
-     let s = listSubst (zip is (map TyBoundVar ns))
+     let s = listSubst (zip is (map TyVar ns))
      let mk e t = (appSubst s e, Forall (ns ++ bs) (appSubst s t))
 
      return $ zipWith mk es ts

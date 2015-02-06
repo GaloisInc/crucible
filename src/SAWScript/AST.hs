@@ -19,7 +19,7 @@ module SAWScript.AST
        , toLName
        , tMono, tForall, tTuple, tRecord, tArray, tFun
        , tString, tTerm, tType, tBool, tZ
-       , tBlock, tContext, tAbstract, boundVar
+       , tBlock, tContext, tVar
 
        , PrettyPrint(..), pShow, commaSepAll
        ) where
@@ -124,7 +124,7 @@ data Context
 data Type
   = TyCon TyCon [Type]
   | TyRecord (Map Name Type)
-  | TyBoundVar Name
+  | TyVar Name
   | TyUnifyVar TypeIndex       -- ^ For internal typechecker use only
   | TySkolemVar Name TypeIndex -- ^ For internal typechecker use only
   deriving (Eq,Show)
@@ -142,7 +142,6 @@ data TyCon
   | ZCon
   | BlockCon
   | ContextCon Context
-  | AbstractCon String
   deriving (Eq, Show)
 
 data Schema = Forall [Name] Type
@@ -180,7 +179,7 @@ instance PrettyPrint Type where
     $ Map.toList fs
   pretty _par (TyUnifyVar i)    = PP.text "t." PP.<> PP.integer i
   pretty _par (TySkolemVar n i) = PP.text n PP.<> PP.integer i
-  pretty _par (TyBoundVar n)    = PP.text n
+  pretty _par (TyVar n)         = PP.text n
 
 instance PrettyPrint TyCon where
   pretty par tc = case tc of
@@ -194,7 +193,6 @@ instance PrettyPrint TyCon where
     ZCon           -> PP.text "Int"
     BlockCon       -> PP.text "<Block>"
     ContextCon cxt -> pretty par cxt
-    AbstractCon n  -> PP.text n
 
 instance PrettyPrint Context where
   pretty _ c = case c of
@@ -263,10 +261,7 @@ tBlock c t = TyCon BlockCon [c,t]
 tContext :: Context -> Type
 tContext c = TyCon (ContextCon c) []
 
-tAbstract :: Name -> Type
-tAbstract n = TyCon (AbstractCon n) []
-
-boundVar :: Name -> Type
-boundVar n = TyBoundVar n
+tVar :: Name -> Type
+tVar n = TyVar n
 
 -- }}}

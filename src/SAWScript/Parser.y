@@ -58,18 +58,6 @@ import Control.Applicative
   'String'       { TReserved _ "String"         }
   'Term'         { TReserved _ "Term"           }
   'Type'         { TReserved _ "Type"           }
-  'Simpset'        { TReserved _ "Simpset"        }
-  'Theorem'        { TReserved _ "Theorem"        }
-  'CryptolModule'  { TReserved _ "CryptolModule"  }
-  'JavaType'       { TReserved _ "JavaType"       }
-  'JavaMethodSpec' { TReserved _ "JavaMethodSpec" }
-  'JavaClass'      { TReserved _ "JavaClass"      }
-  'LLVMType'       { TReserved _ "LLVMType"       }
-  'LLVMMethodSpec' { TReserved _ "LLVMMethodSpec" }
-  'LLVMModule'     { TReserved _ "LLVMModule"     }
-  'Uninterp'       { TReserved _ "Uninterp"       }
-  'ProofResult'    { TReserved _ "ProofResult"    }
-  'SatResult'      { TReserved _ "SatResult"      }
   ';'            { TPunct    _ ";"              }
   '['            { TPunct    _ "["              }
   ']'            { TPunct    _ "]"              }
@@ -186,7 +174,7 @@ FieldType :: { Bind Type }
   : name ':' BaseType                   { (tokStr $1, $3)         }
 
 BaseType :: { Type }
- : name                                 { boundVar (tokStr $1)    }
+ : name                                 { tVar (tokStr $1)        }
  | Context BaseType                     { tBlock $1 $2            }
  | '(' ')'                              { tTuple []               }
  | 'Bit'                                { tBool                   }
@@ -194,18 +182,6 @@ BaseType :: { Type }
  | 'String'                             { tString                 }
  | 'Term'                               { tTerm                   }
  | 'Type'                               { tType                   }
- | 'Simpset'                            { tAbstract "Simpset"     }
- | 'Theorem'                            { tAbstract "Theorem"     }
- | 'CryptolModule'                      { tAbstract "CryptolModule" }
- | 'JavaType'                           { tAbstract "JavaType"    }
- | 'JavaMethodSpec'                     { tAbstract "JavaMethodSpec" }
- | 'JavaClass'                          { tAbstract "JavaClass"   }
- | 'LLVMType'                           { tAbstract "LLVMType"    }
- | 'LLVMMethodSpec'                     { tAbstract "LLVMMethodSpec" }
- | 'LLVMModule'                         { tAbstract "LLVMModule"  }
- | 'Uninterp'                           { tAbstract "Uninterp"    }
- | 'ProofResult'                        { tAbstract "ProofResult" }
- | 'SatResult'                          { tAbstract "SatResult"   }
  | '(' Type ')'                         { $2                      }
  | '(' commas2(Type) ')'                { tTuple $2               }
  | '[' Type ']'                         { tArray $2               }
@@ -217,7 +193,7 @@ Context :: { Type }
  | 'LLVMSetup'                          { tContext LLVMSetup      }
  | 'ProofScript'                        { tContext ProofScript    }
  | 'TopLevel'                           { tContext TopLevel       }
- | name                                 { boundVar (tokStr $1)    }
+ | name                                 { tVar (tokStr $1)        }
 
 -- Parameterized productions, most come directly from the Happy manual.
 fst(p, q)  : p q   { $1 }
