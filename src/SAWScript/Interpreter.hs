@@ -79,8 +79,14 @@ data InterpretEnv = InterpretEnv
   , ieTypes   :: Map SS.LName SS.Schema
   , ieDocs    :: Map SS.Name String
   , ieCryptol :: CEnv.CryptolEnv SAWCtx
-  , ieRO      :: RO
+  , ieRO      :: TopLevelRO
   }
+
+doTopLevel :: TopLevel a -> InterpretEnv -> IO (a, InterpretEnv)
+doTopLevel action (InterpretEnv vm tm dm ce ro) = do
+  let rw = TopLevelRW vm tm dm ce
+  (result, TopLevelRW vm' tm' dm' ce') <- runTopLevel action ro rw
+  return (result, InterpretEnv vm' tm' dm' ce' ro)
 
 extendEnv :: SS.LName -> Maybe SS.Schema -> Maybe String -> Value -> InterpretEnv -> InterpretEnv
 extendEnv x mt md v (InterpretEnv vm tm dm ce ro) = InterpretEnv vm' tm' dm' ce' ro
@@ -207,15 +213,15 @@ processStmtBind printBinds sc env mx mt _mc expr = do
 
   val <- interpret sc env expr''
   -- | Run the resulting IO action.
-  result <- runTopLevel (SAWScript.Value.fromValue val) (ieRO env)
+  (result, env') <- doTopLevel (SAWScript.Value.fromValue val) env
 
   -- | Print non-unit result if it was not bound to a variable
   case mx of
     Nothing | printBinds && not (isVUnit result) -> print result
     _                                            -> return ()
 
-  let env' = extendEnv lname (Just (SS.tMono ty)) Nothing result env
-  return env'
+  let env'' = extendEnv lname (Just (SS.tMono ty)) Nothing result env'
+  return env''
 
 -- | Interpret a block-level statement in the TopLevel monad.
 interpretStmt :: Bool -> SharedContext SAWCtx -> InterpretEnv -> SS.Stmt -> IO InterpretEnv
@@ -240,7 +246,7 @@ interpretMain :: InterpretEnv -> IO ()
 interpretMain env =
   case Map.lookup mainName (ieValues env) of
     Nothing -> return () -- fail "No 'main' defined"
-    Just v -> runTopLevel (fromValue v) (ieRO env)
+    Just v -> fst <$> doTopLevel (fromValue v) env
   where mainName = Located "main" "main" (PosInternal "entry")
 
 buildInterpretEnv :: Options -> IO (BuiltinContext, InterpretEnv)
@@ -265,10 +271,11 @@ buildInterpretEnv opts =
        let sc = rewritingSharedContext sc0 simps
        ss <- basic_ss sc
        jcb <- JCB.loadCodebase (jarList opts) (classPath opts)
-       let ro0 = RO { roSharedContext = sc
-                    , roJavaCodebase = jcb
-                    , roOptions = opts
-                    }
+       let ro0 = TopLevelRO
+                   { roSharedContext = sc
+                   , roJavaCodebase = jcb
+                   , roOptions = opts
+                   }
        let bic = BuiltinContext {
                    biSharedContext = sc
                  , biJavaCodebase = jcb

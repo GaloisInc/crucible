@@ -1,11 +1,14 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
 module SAWScript.Value where
 
-import Control.Monad.IO.Class ( liftIO )
+import Control.Applicative (Applicative)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Reader (ReaderT(..), asks)
 import Control.Monad.State ( StateT(..) )
 import Data.List ( intersperse )
 import qualified Data.Map as M
@@ -13,13 +16,14 @@ import Data.Map ( Map )
 import qualified Text.LLVM as L
 
 import qualified SAWScript.AST as SS
+import qualified SAWScript.CryptolEnv as CEnv
 import qualified SAWScript.JavaMethodSpecIR as JIR
 import qualified SAWScript.LLVMMethodSpecIR as LIR
 import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.LLVM.Codebase as LSS
 import SAWScript.JavaExpr (JavaType(..))
+import SAWScript.Options (Options)
 import SAWScript.Proof
-import SAWScript.TopLevel
 import SAWScript.TypedTerm
 import SAWScript.Utils
 
@@ -196,6 +200,44 @@ forValue (x : xs) f =
      bindValue m1 (VLambda $ \v1 ->
        bindValue m2 (VLambda $ \v2 ->
          return $ VReturn (VArray (v1 : fromValue v2))))
+
+-- TopLevel Monad --------------------------------------------------------------
+
+-- | TopLevel Read-Only Environment.
+data TopLevelRO =
+  TopLevelRO
+  { roSharedContext :: SharedContext SAWCtx
+  , roJavaCodebase  :: JSS.Codebase
+  , roOptions       :: Options
+  }
+
+data TopLevelRW =
+  TopLevelRW
+  { rwValues  :: Map SS.LName Value
+  , rwTypes   :: Map SS.LName SS.Schema
+  , rwDocs    :: Map SS.Name String
+  , rwCryptol :: CEnv.CryptolEnv SAWCtx
+  }
+
+newtype TopLevel a = TopLevel (ReaderT TopLevelRO (StateT TopLevelRW IO) a)
+  deriving (Functor, Applicative, Monad, MonadIO)
+
+runTopLevel :: TopLevel a -> TopLevelRO -> TopLevelRW -> IO (a, TopLevelRW)
+runTopLevel (TopLevel m) = runStateT . runReaderT m
+
+io :: IO a -> TopLevel a
+io = liftIO
+
+getSharedContext :: TopLevel (SharedContext SAWCtx)
+getSharedContext = TopLevel (asks roSharedContext)
+
+getJavaCodebase :: TopLevel JSS.Codebase
+getJavaCodebase = TopLevel (asks roJavaCodebase)
+
+getOptions :: TopLevel Options
+getOptions = TopLevel (asks roOptions)
+
+-- Other SAWScript Monads ------------------------------------------------------
 
 -- The ProofScript in RunVerify is in the SAWScript context, and
 -- should stay there.
