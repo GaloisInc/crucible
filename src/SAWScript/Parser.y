@@ -43,12 +43,10 @@ import Control.Applicative
   'let'          { TReserved _ "let"            }
   'rec'          { TReserved _ "rec"            }
   'in'           { TReserved _ "in"             }
-  'type'         { TReserved _ "type"           }
   'do'           { TReserved _ "do"             }
   'if'           { TReserved _ "if"             }
   'then'         { TReserved _ "then"           }
   'else'         { TReserved _ "else"           }
-  'undefined'    { TReserved _ "undefined"      }
   'CryptolSetup' { TReserved _ "CryptolSetup"   }
   'JavaSetup'    { TReserved _ "JavaSetup"      }
   'LLVMSetup'    { TReserved _ "LLVMSetup"      }
@@ -59,18 +57,6 @@ import Control.Applicative
   'String'       { TReserved _ "String"         }
   'Term'         { TReserved _ "Term"           }
   'Type'         { TReserved _ "Type"           }
-  'Simpset'        { TReserved _ "Simpset"        }
-  'Theorem'        { TReserved _ "Theorem"        }
-  'CryptolModule'  { TReserved _ "CryptolModule"  }
-  'JavaType'       { TReserved _ "JavaType"       }
-  'JavaMethodSpec' { TReserved _ "JavaMethodSpec" }
-  'JavaClass'      { TReserved _ "JavaClass"      }
-  'LLVMType'       { TReserved _ "LLVMType"       }
-  'LLVMMethodSpec' { TReserved _ "LLVMMethodSpec" }
-  'LLVMModule'     { TReserved _ "LLVMModule"     }
-  'Uninterp'       { TReserved _ "Uninterp"       }
-  'ProofResult'    { TReserved _ "ProofResult"    }
-  'SatResult'      { TReserved _ "SatResult"      }
   ';'            { TPunct    _ ";"              }
   '['            { TPunct    _ "["              }
   ']'            { TPunct    _ "]"              }
@@ -154,7 +140,6 @@ AExpr :: { Expr }
  | CType                                { CType $1                }
  | num                                  { Z $1                    }
  | name                                 { Var (Located (tokStr $1) (tokStr $1) (tokPos $1)) }
- | 'undefined'                          { Undefined               }
  | '(' Expression ')'                   { $2                      }
  | '(' commas2(Expression) ')'          { Tuple $2                }
  | '[' commas(Expression) ']'           { Array $2                }
@@ -188,7 +173,7 @@ FieldType :: { Bind Type }
   : name ':' BaseType                   { (tokStr $1, $3)         }
 
 BaseType :: { Type }
- : name                                 { boundVar (tokStr $1)    }
+ : name                                 { tVar (tokStr $1)        }
  | Context BaseType                     { tBlock $1 $2            }
  | '(' ')'                              { tTuple []               }
  | 'Bit'                                { tBool                   }
@@ -196,18 +181,6 @@ BaseType :: { Type }
  | 'String'                             { tString                 }
  | 'Term'                               { tTerm                   }
  | 'Type'                               { tType                   }
- | 'Simpset'                            { tAbstract "Simpset"     }
- | 'Theorem'                            { tAbstract "Theorem"     }
- | 'CryptolModule'                      { tAbstract "CryptolModule" }
- | 'JavaType'                           { tAbstract "JavaType"    }
- | 'JavaMethodSpec'                     { tAbstract "JavaMethodSpec" }
- | 'JavaClass'                          { tAbstract "JavaClass"   }
- | 'LLVMType'                           { tAbstract "LLVMType"    }
- | 'LLVMMethodSpec'                     { tAbstract "LLVMMethodSpec" }
- | 'LLVMModule'                         { tAbstract "LLVMModule"  }
- | 'Uninterp'                           { tAbstract "Uninterp"    }
- | 'ProofResult'                        { tAbstract "ProofResult" }
- | 'SatResult'                          { tAbstract "SatResult"   }
  | '(' Type ')'                         { $2                      }
  | '(' commas2(Type) ')'                { tTuple $2               }
  | '[' Type ']'                         { tArray $2               }
@@ -219,7 +192,7 @@ Context :: { Type }
  | 'LLVMSetup'                          { tContext LLVMSetup      }
  | 'ProofScript'                        { tContext ProofScript    }
  | 'TopLevel'                           { tContext TopLevel       }
- | name                                 { boundVar (tokStr $1)    }
+ | name                                 { tVar (tokStr $1)        }
 
 -- Parameterized productions, most come directly from the Happy manual.
 fst(p, q)  : p q   { $1 }

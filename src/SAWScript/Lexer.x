@@ -37,16 +37,9 @@ $hexit     = [0-9 A-F a-f]
 $idchar    = [$alpha $digit \' \_]
 $codechar  = [$graphic $whitechar]
 
-@reservedid  = import|include|and|let|rec|fun|in|do|if|then|else|as|hiding|undefined
-             |CryptolSetup|JavaSetup|LLVMSetup
-             |ProofScript|TopLevel
+@reservedid  = import|include|and|let|rec|fun|in|do|if|then|else|as|hiding
+             |CryptolSetup|JavaSetup|LLVMSetup|ProofScript|TopLevel
              |Int|String|Term|Type|Bit
-             |Simpset|Theorem
-             |CryptolModule
-             |JavaType|JavaMethodSpec|JavaClass
-             |LLVMType|LLVMMethodSpec|LLVMModule
-             |Uninterp
-             |ProofResult|SatResult
 
 @punct       = "," | ";" | "(" | ")" | ":" | "::" | "[" | "]" | "<-" | "->"
              | "=" | "{" | "}" | "." | "\"
