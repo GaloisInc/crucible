@@ -1,20 +1,17 @@
-setup : JavaSetup ();
-setup = do {
+let setup : JavaSetup () = do {
     x <- java_var "x" java_int;
     y <- java_var "y" java_int;
     java_return {{ x + y }};
     java_verify_tactic abc;
 };
 
-setup' : JavaSetup ();
-setup' = do {
+let setup' : JavaSetup () = do {
     x <- java_var "x" java_int;
     java_return {{ x + x }};
     java_verify_tactic abc;
 };
 
-main : TopLevel ();
-main = do {
+let main = do {
     cls <- java_load_class "Add";
     ms <- java_verify cls "add" [] setup;
     ms' <- java_verify cls "dbl" [ms] setup';

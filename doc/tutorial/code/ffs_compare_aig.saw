@@ -1,4 +1,4 @@
-main = do {
+let main = do {
     java_ffs_ref <- read_aig "java_ffs_ref.aig";
     java_ffs_imp <- read_aig "java_ffs_imp.aig";
     c_ffs_ref <- read_aig "c_ffs_ref.aig";

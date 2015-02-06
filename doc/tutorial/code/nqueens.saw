@@ -1,5 +1,6 @@
 import "NQueens.cry";
-main = do {
+
+let main = do {
   print {{ nQueens [0,1,2,3,4,5,6,7] }};
 
   sat_print abc {{ nQueens`{8} }};

@@ -1,4 +1,4 @@
-main = do {
+let main = do {
   print "Extracting reference term";
   l <- llvm_load_module "ffs.bc";
   ffs_ref <- llvm_extract l "ffs_ref" llvm_pure;

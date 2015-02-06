@@ -1,4 +1,4 @@
-main = do {
+let main = do {
     l <- llvm_load_module "double.bc";
     double_imp <- llvm_extract l "double_imp" llvm_pure;
     double_ref <- llvm_extract l "double_ref" llvm_pure;

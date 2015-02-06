@@ -1,4 +1,4 @@
-main = do {
+let main = do {
     cls <- java_load_class "FFS";
     bc <- llvm_load_module "ffs.bc";
     java_ffs_ref <- java_extract cls "ffs_ref" java_pure;
