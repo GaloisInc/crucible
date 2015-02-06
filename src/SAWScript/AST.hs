@@ -97,7 +97,6 @@ data Stmt
   | StmtLet      DeclGroup
   | StmtCode     (Located String)
   | StmtImport   Import
-  | StmtInclude  FilePath
   deriving (Eq, Show)
 
 data DeclGroup

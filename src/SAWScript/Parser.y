@@ -36,7 +36,6 @@ import Control.Applicative
 
 %token
   'import'       { TReserved _ "import"         }
-  'include'      { TReserved _ "include"        }
   'and'          { TReserved _ "and"            }
   'as'           { TReserved _ "as"             }
   'hiding'       { TReserved _ "hiding"         }
@@ -107,7 +106,6 @@ Stmt :: { Stmt }
  | 'let' Declaration                    { StmtLet (NonRecursive $2)               }
  | 'let' Code                           { StmtCode $2                 }
  | 'import' Import                      { StmtImport $2               }
- | 'include' string                     { StmtInclude $2              }
 
 Declaration :: { Decl }
  : name list(Arg) '=' Expression        { Decl (toLName $1) Nothing (buildFunction $2 $4) }

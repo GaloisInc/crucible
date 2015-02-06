@@ -189,8 +189,6 @@ interpretStmts sc env@(InterpretEnv vm tm dm ce ro) stmts =
              interpretStmts sc (InterpretEnv vm tm dm ce' ro) ss
       SS.StmtImport _ : _ ->
           do fail "block import unimplemented"
-      SS.StmtInclude _ : _ ->
-          do fail "block include unimplemented"
 
 processStmtBind :: Bool -> SharedContext SAWCtx -> InterpretEnv -> Maybe SS.LName
                  -> Maybe SS.Type -> Maybe SS.Type -> SS.Expr -> IO InterpretEnv
@@ -234,7 +232,6 @@ interpretStmt printBinds sc env stmt =
                                     return env { ieCryptol = cenv' }
     SS.StmtImport imp         -> do cenv' <- CEnv.importModule sc (ieCryptol env) imp
                                     return env { ieCryptol = cenv' }
-    SS.StmtInclude file       -> interpretFile sc env file
 
 interpretFile :: SharedContext SAWCtx -> InterpretEnv -> FilePath -> IO InterpretEnv
 interpretFile sc env file = do
@@ -293,6 +290,15 @@ processFile opts file = do
   interpretMain env'
 
 -- Primitives ------------------------------------------------------------------
+
+include_value :: FilePath -> TopLevel ()
+include_value file = do
+  sc <- getSharedContext
+  ro <- getTopLevelRO
+  TopLevelRW vm tm dm ce <- getTopLevelRW
+  let env = InterpretEnv vm tm dm ce ro
+  InterpretEnv vm' tm' dm' ce' _ <- io $ interpretFile sc env file
+  putTopLevelRW (TopLevelRW vm' tm' dm' ce')
 
 print_value :: Value -> TopLevel ()
 print_value (VString s) = io $ putStrLn s
@@ -367,6 +373,10 @@ primitives = Map.fromList
   , prim "define"              "String -> Term -> TopLevel Term"
     (pureVal definePrim)
     [ "TODO" ]
+
+  , prim "include"             "String -> TopLevel ()"
+    (pureVal include_value)
+    [ "Execute the given SAWScript file" ]
 
   , prim "print"               "{a} a -> TopLevel ()"
     (pureVal print_value)

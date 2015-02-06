@@ -8,8 +8,8 @@ module SAWScript.Value where
 
 import Control.Applicative (Applicative)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Reader (ReaderT(..), asks)
-import Control.Monad.State ( StateT(..) )
+import Control.Monad.Reader (ReaderT(..), ask, asks)
+import Control.Monad.State (StateT(..), get, put)
 import Data.List ( intersperse )
 import qualified Data.Map as M
 import Data.Map ( Map )
@@ -236,6 +236,15 @@ getJavaCodebase = TopLevel (asks roJavaCodebase)
 
 getOptions :: TopLevel Options
 getOptions = TopLevel (asks roOptions)
+
+getTopLevelRO :: TopLevel TopLevelRO
+getTopLevelRO = TopLevel ask
+
+getTopLevelRW :: TopLevel TopLevelRW
+getTopLevelRW = TopLevel get
+
+putTopLevelRW :: TopLevelRW -> TopLevel ()
+putTopLevelRW rw = TopLevel (put rw)
 
 -- Other SAWScript Monads ------------------------------------------------------
 

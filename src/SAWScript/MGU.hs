@@ -276,7 +276,6 @@ instance AppSubst Stmt where
     StmtLet dg           -> StmtLet (appSubst s dg)
     StmtCode str         -> StmtCode str
     StmtImport imp       -> StmtImport imp
-    StmtInclude file     -> StmtInclude file
 
 instance AppSubst DeclGroup where
   appSubst s (Recursive ds) = Recursive (appSubst s ds)
@@ -493,10 +492,6 @@ inferStmts m ctx (StmtCode s : more) = do
 inferStmts m ctx (StmtImport imp : more) = do
   (more', t) <- inferStmts m ctx more
   return (StmtImport imp : more', t)
-
-inferStmts m ctx (StmtInclude file : more) = do
-  (more', t) <- inferStmts m ctx more
-  return (StmtInclude file : more', t)
 
 inferDecl :: Decl -> TI Decl
 inferDecl (Decl n Nothing e) = do
