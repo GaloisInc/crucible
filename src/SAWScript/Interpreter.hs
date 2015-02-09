@@ -199,7 +199,7 @@ processStmtBind printBinds sc env mx mt _mc expr = do
   let expr' = case mt of
                 Nothing -> expr
                 Just t -> SS.TSig expr (SS.tBlock ctx t)
-  let decl = SS.Decl lname Nothing (SS.Block [SS.StmtBind Nothing Nothing (Just ctx) expr'])
+  let decl = SS.Decl lname Nothing expr'
 
   SS.Decl _ (Just schema) expr'' <- reportErrT $ checkDecl (ieTypes env) decl
   ty <- case schema of
