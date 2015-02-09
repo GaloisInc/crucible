@@ -11,20 +11,25 @@ dotests="false"
 dopull="false"
 sandbox_dir=build
 
-while getopts "tpf" opt; do
-  case $opt in
-    t)
-      dotests="true"
-      ;;
-    f)
-      force_utils="true"
-      ;;
-    p) dopull="true" ;;
-    \?)
-      echo "Invalid option: -$OPTARG" >&2
-      exit 1
-      ;;
-  esac
+while getopts "tpfj:" opt; do
+    case $opt in
+        t)
+            dotests="true"
+            ;;
+        f)
+            force_utils="true"
+            ;;
+        p)
+            dopull="true"
+            ;;
+        j)
+            jobs="-j$OPTARG"
+            ;;
+        \?)
+            echo "Invalid option: -$OPTARG" >&2
+            exit 1
+            ;;
+    esac
 done
 
 if [ ! -e ./deps ] ; then
@@ -56,9 +61,9 @@ fi
 # always build them if the '-f' option was given
 for prog in ${PROGRAMS} ; do
   if [ "${force_utils}" == "true" ]; then
-    ${CABAL} install $prog
+    ${CABAL} install $jobs $prog
   else
-    (which $prog && $prog --version) || ${CABAL} install $prog
+    (which $prog && $prog --version) || ${CABAL} install $jobs $prog
   fi
 done
 
@@ -76,7 +81,7 @@ for repo in ${GITHUB_REPOS} ; do
 
   # Be sure abcBridge builds with pthreads diabled on Windows
   if [ "${OS}" == "Windows_NT" -a "${repo}" == "abcBridge" ]; then
-    ${CABAL} install --force abcBridge -f-enable-pthreads
+    ${CABAL} install $jobs --force abcBridge -f-enable-pthreads
   fi
 done
 
@@ -100,7 +105,7 @@ if [ "${dotests}" == "true" ] ; then
 
     (cd ${pkg} &&
          ${CABAL} sandbox init --sandbox="${HERE}/${sandbox_dir}" &&
-         ${CABAL} install --enable-tests --only-dependencies &&
+         ${CABAL} install $jobs --enable-tests --only-dependencies &&
          ${CABAL} configure --enable-tests &&
          ${CABAL} build &&
          (${CABAL} test ${test_flags} || true))
