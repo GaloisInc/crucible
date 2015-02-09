@@ -378,6 +378,10 @@ primitives = Map.fromList
     (pureVal include_value)
     [ "Execute the given SAWScript file" ]
 
+  , prim "env"                 "TopLevel ()"
+    (pureVal envCmd)
+    [ "Print all sawscript values in scope" ]
+
   , prim "print"               "{a} a -> TopLevel ()"
     (pureVal print_value)
     [ "TODO" ]

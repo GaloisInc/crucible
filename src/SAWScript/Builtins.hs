@@ -45,6 +45,7 @@ import Verifier.SAW.TypedAST hiding (instantiateVarList)
 import qualified SAWScript.SBVParser as SBV
 import SAWScript.ImportAIG
 
+import SAWScript.AST (getVal, pShow)
 import SAWScript.Options
 import SAWScript.Proof
 import SAWScript.TopLevel
@@ -680,3 +681,9 @@ caseSatResultPrim sc sr vUnsat vSat = do
     SV.Sat v -> do t <- mkTypedTerm sc =<< scFiniteValue sc v
                    SV.applyValue vSat (SV.toValue t)
     SV.SatMulti _ -> fail $ "multi-value satisfying assignment"
+
+envCmd :: TopLevel ()
+envCmd = do
+  m <- rwTypes <$> getTopLevelRW
+  let showLName = getVal
+  io $ sequence_ [ putStrLn (showLName x ++ " : " ++ pShow v) | (x, v) <- Map.assocs m ]

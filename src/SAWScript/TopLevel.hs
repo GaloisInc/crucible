@@ -7,6 +7,9 @@ module SAWScript.TopLevel
   , getSharedContext
   , getJavaCodebase
   , getOptions
+  , getTopLevelRO
+  , getTopLevelRW
+  , putTopLevelRW
   ) where
 
 import SAWScript.Value
