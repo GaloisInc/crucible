@@ -62,11 +62,11 @@ import SAWScript.Compiler (liftParser)
 import SAWScript.Interpreter
     (interpretStmt,
      primDocEnv,
-     primTypeEnv,
-     InterpretEnv(..))
+     primTypeEnv)
 import qualified SAWScript.Lexer (scan)
 import qualified SAWScript.Parser (parseStmt)
 import qualified SAWScript.Value (evaluate)
+import SAWScript.TopLevel (TopLevelRW(..))
 import SAWScript.TypedTerm
 import SAWScript.Utils (Pos(..))
 
@@ -445,7 +445,7 @@ envCmd _pfx = do
   io $ sequence_ [ putStrLn (showLName x ++ " = " ++ show v) | (x, v) <- Map.assocs (interpretEnvValues env) ]
   io $ putStrLn "\nTypes:\n"
 -}
-  io $ sequence_ [ putStrLn (showLName x ++ " : " ++ SS.pShow v) | (x, v) <- Map.assocs (ieTypes env) ]
+  io $ sequence_ [ putStrLn (showLName x ++ " : " ++ SS.pShow v) | (x, v) <- Map.assocs (rwTypes env) ]
 
 browseCmd :: String -> REPL ()
 browseCmd pfx = do
@@ -580,9 +580,9 @@ sawScriptCmd :: String -> REPL ()
 sawScriptCmd str = do
   tokens <- err $ SAWScript.Lexer.scan replFileName str
   stmt <- err $ liftParser SAWScript.Parser.parseStmt tokens
-  sc <- getSharedContext
+  ro <- getTopLevelRO
   ie <- getEnvironment
-  ie' <- io $ interpretStmt True sc ie stmt
+  ie' <- io $ interpretStmt True ro ie stmt
   putEnvironment ie'
 
 replFileName :: String

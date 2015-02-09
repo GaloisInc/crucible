@@ -12,8 +12,7 @@ module SAWScript.Interpreter
   , interpretDeclGroup
   , interpretStmt
   , interpretFile
-  , InterpretEnv(..)
-  , buildInterpretEnv
+  , buildTopLevelEnv
   , extendEnv
   , Value, isVUnit
   , IsValue(..)
@@ -74,22 +73,8 @@ import qualified Cryptol.Eval.Value as V (defaultPPOpts, ppValue)
 
 -- Environment -----------------------------------------------------------------
 
-data InterpretEnv = InterpretEnv
-  { ieValues  :: Map SS.LName Value
-  , ieTypes   :: Map SS.LName SS.Schema
-  , ieDocs    :: Map SS.Name String
-  , ieCryptol :: CEnv.CryptolEnv SAWCtx
-  , ieRO      :: TopLevelRO
-  }
-
-doTopLevel :: TopLevel a -> InterpretEnv -> IO (a, InterpretEnv)
-doTopLevel action (InterpretEnv vm tm dm ce ro) = do
-  let rw = TopLevelRW vm tm dm ce
-  (result, TopLevelRW vm' tm' dm' ce') <- runTopLevel action ro rw
-  return (result, InterpretEnv vm' tm' dm' ce' ro)
-
-extendEnv :: SS.LName -> Maybe SS.Schema -> Maybe String -> Value -> InterpretEnv -> InterpretEnv
-extendEnv x mt md v (InterpretEnv vm tm dm ce ro) = InterpretEnv vm' tm' dm' ce' ro
+extendEnv :: SS.LName -> Maybe SS.Schema -> Maybe String -> Value -> TopLevelRW -> TopLevelRW
+extendEnv x mt md v (TopLevelRW vm tm dm ce) = TopLevelRW vm' tm' dm' ce'
   where
     name = x
     qname = T.QName Nothing (T.Name (getOrig x))
@@ -108,8 +93,8 @@ extendEnv x mt md v (InterpretEnv vm tm dm ce ro) = InterpretEnv vm' tm' dm' ce'
 
 -- | Variation that does not force the value argument: it assumes it
 -- is not a term or int.
-extendEnv' :: SS.LName -> Maybe SS.Schema -> Maybe String -> Value -> InterpretEnv -> InterpretEnv
-extendEnv' x mt md v (InterpretEnv vm tm dm ce ro) = InterpretEnv vm' tm' dm' ce ro
+extendEnv' :: SS.LName -> Maybe SS.Schema -> Maybe String -> Value -> TopLevelRW -> TopLevelRW
+extendEnv' x mt md v (TopLevelRW vm tm dm ce) = TopLevelRW vm' tm' dm' ce
   where
     dm' = maybe dm (\d -> Map.insert (getVal x) d dm) md
     vm' = Map.insert x v vm
@@ -117,82 +102,82 @@ extendEnv' x mt md v (InterpretEnv vm tm dm ce ro) = InterpretEnv vm' tm' dm' ce
 
 -- Interpretation of SAWScript -------------------------------------------------
 
-interpret :: SharedContext SAWCtx -> InterpretEnv -> SS.Expr -> IO Value
-interpret sc env@(InterpretEnv vm _tm _dm ce _ro) expr =
+interpret :: TopLevelRO -> TopLevelRW -> SS.Expr -> IO Value
+interpret ro@(TopLevelRO sc _ _) env@(TopLevelRW vm _tm _dm ce) expr =
     case expr of
       SS.Bit b               -> return $ VBool b
       SS.String s            -> return $ VString s
       SS.Z z                 -> return $ VInteger z
       SS.Code str            -> toValue `fmap` CEnv.parseTypedTerm sc ce str
       SS.CType str           -> toValue `fmap` CEnv.parseSchema ce str
-      SS.Array es            -> VArray <$> traverse (interpret sc env) es
-      SS.Block stmts         -> interpretStmts sc env stmts
-      SS.Tuple es            -> VTuple <$> traverse (interpret sc env) es
-      SS.Record bs           -> VRecord <$> traverse (interpret sc env) bs
-      SS.Index e1 e2         -> do a <- interpret sc env e1
-                                   i <- interpret sc env e2
+      SS.Array es            -> VArray <$> traverse (interpret ro env) es
+      SS.Block stmts         -> interpretStmts ro env stmts
+      SS.Tuple es            -> VTuple <$> traverse (interpret ro env) es
+      SS.Record bs           -> VRecord <$> traverse (interpret ro env) bs
+      SS.Index e1 e2         -> do a <- interpret ro env e1
+                                   i <- interpret ro env e2
                                    return (indexValue a i)
-      SS.Lookup e n          -> do a <- interpret sc env e
+      SS.Lookup e n          -> do a <- interpret ro env e
                                    return (lookupValue a n)
-      SS.TLookup e i         -> do a <- interpret sc env e
+      SS.TLookup e i         -> do a <- interpret ro env e
                                    return (tupleLookupValue a i)
       SS.Var x               -> case Map.lookup x vm of
                                   Nothing -> fail $ "unknown variable: " ++ SS.getVal x
                                   Just v -> return v
 
       SS.Function x t e      -> do let env' v = extendEnv x (fmap SS.tMono t) Nothing v env
-                                       f v = interpret sc (env' v) e
+                                       f v = interpret ro (env' v) e
                                    return $ VLambda f
-      SS.Application e1 e2   -> do v1 <- interpret sc env e1
-                                   v2 <- interpret sc env e2
+      SS.Application e1 e2   -> do v1 <- interpret ro env e1
+                                   v2 <- interpret ro env e2
                                    case v1 of
                                      VLambda f -> f v2
                                      _ -> fail $ "interpret Application: " ++ show v1
-      SS.Let dg e            -> do env' <- interpretDeclGroup sc env dg
-                                   interpret sc env' e
-      SS.TSig e _            -> interpret sc env e
+      SS.Let dg e            -> do env' <- interpretDeclGroup ro env dg
+                                   interpret ro env' e
+      SS.TSig e _            -> interpret ro env e
 
-interpretDecl :: SharedContext SAWCtx -> InterpretEnv -> SS.Decl -> IO InterpretEnv
-interpretDecl sc env (SS.Decl n mt expr) = do
-  v <- interpret sc env expr
+interpretDecl :: TopLevelRO -> TopLevelRW -> SS.Decl -> IO TopLevelRW
+interpretDecl ro env (SS.Decl n mt expr) = do
+  v <- interpret ro env expr
   return (extendEnv n mt Nothing v env)
 
-interpretFunction :: SharedContext SAWCtx -> InterpretEnv -> SS.Expr -> Value
-interpretFunction sc env expr =
+interpretFunction :: TopLevelRO -> TopLevelRW -> SS.Expr -> Value
+interpretFunction ro env expr =
     case expr of
       SS.Function x t e -> VLambda f
-        where f v = interpret sc (extendEnv x (fmap SS.tMono t) Nothing v env) e
-      SS.TSig e _ -> interpretFunction sc env e
+        where f v = interpret ro (extendEnv x (fmap SS.tMono t) Nothing v env) e
+      SS.TSig e _ -> interpretFunction ro env e
       _ -> error "interpretFunction: not a function"
 
-interpretDeclGroup :: SharedContext SAWCtx -> InterpretEnv -> SS.DeclGroup -> IO InterpretEnv
-interpretDeclGroup sc env (SS.NonRecursive d) =
-  interpretDecl sc env d
-interpretDeclGroup sc env (SS.Recursive ds) = return env'
-  where env' = foldr ($) env [ extendEnv' n mty Nothing (interpretFunction sc env' e) | SS.Decl n mty e <- ds ]
+interpretDeclGroup :: TopLevelRO -> TopLevelRW -> SS.DeclGroup -> IO TopLevelRW
+interpretDeclGroup ro env (SS.NonRecursive d) =
+  interpretDecl ro env d
+interpretDeclGroup ro env (SS.Recursive ds) = return env'
+  where env' = foldr ($) env [ extendEnv' n mty Nothing (interpretFunction ro env' e) | SS.Decl n mty e <- ds ]
 
-interpretStmts :: SharedContext SAWCtx -> InterpretEnv -> [SS.Stmt] -> IO Value
-interpretStmts sc env@(InterpretEnv vm tm dm ce ro) stmts =
+interpretStmts :: TopLevelRO -> TopLevelRW -> [SS.Stmt] -> IO Value
+interpretStmts ro@(TopLevelRO sc _ _) env@(TopLevelRW vm tm dm ce) stmts =
     case stmts of
       [] -> fail "empty block"
-      [SS.StmtBind Nothing _ _ e] -> interpret sc env e
+      [SS.StmtBind Nothing _ _ e] -> interpret ro env e
       SS.StmtBind Nothing _ _ e : ss ->
-          do v1 <- interpret sc env e
-             return $ VBind v1 $ VLambda $ const $ interpretStmts sc env ss
+          do v1 <- interpret ro env e
+             return $ VBind v1 $ VLambda $ const $ interpretStmts ro env ss
       SS.StmtBind (Just x) mt _ e : ss ->
-          do v1 <- interpret sc env e
-             let f v = interpretStmts sc (extendEnv x (fmap SS.tMono mt) Nothing v env) ss
+          do v1 <- interpret ro env e
+             let f v = interpretStmts ro (extendEnv x (fmap SS.tMono mt) Nothing v env) ss
              bindValue v1 (VLambda f)
-      SS.StmtLet bs : ss -> interpret sc env (SS.Let bs (SS.Block ss))
+      SS.StmtLet bs : ss -> interpret ro env (SS.Let bs (SS.Block ss))
       SS.StmtCode s : ss ->
           do ce' <- CEnv.parseDecls sc ce s
-             interpretStmts sc (InterpretEnv vm tm dm ce' ro) ss
+             interpretStmts ro (TopLevelRW vm tm dm ce') ss
       SS.StmtImport _ : _ ->
           do fail "block import unimplemented"
 
-processStmtBind :: Bool -> SharedContext SAWCtx -> InterpretEnv -> Maybe SS.LName
-                 -> Maybe SS.Type -> Maybe SS.Type -> SS.Expr -> IO InterpretEnv
-processStmtBind printBinds sc env mx mt _mc expr = do
+processStmtBind :: Bool -> TopLevelRO -> TopLevelRW -> Maybe SS.LName
+                 -> Maybe SS.Type -> Maybe SS.Type -> SS.Expr -> IO TopLevelRW
+processStmtBind printBinds ro env mx mt _mc expr = do
   let it = SS.Located "it" "it" PosREPL
   let lname = maybe it id mx
   let ctx = SS.tContext SS.TopLevel
@@ -201,7 +186,7 @@ processStmtBind printBinds sc env mx mt _mc expr = do
                 Just t -> SS.TSig expr (SS.tBlock ctx t)
   let decl = SS.Decl lname Nothing expr'
 
-  SS.Decl _ (Just schema) expr'' <- reportErrT $ checkDecl (ieTypes env) decl
+  SS.Decl _ (Just schema) expr'' <- reportErrT $ checkDecl (rwTypes env) decl
   ty <- case schema of
           SS.Forall [] t ->
             case t of
@@ -209,9 +194,9 @@ processStmtBind printBinds sc env mx mt _mc expr = do
               _ -> fail $ "Not a TopLevel monadic type: " ++ SS.pShow t
           _ -> fail $ "Not a monomorphic type: " ++ SS.pShow schema
 
-  val <- interpret sc env expr''
+  val <- interpret ro env expr''
   -- | Run the resulting IO action.
-  (result, env') <- doTopLevel (SAWScript.Value.fromValue val) env
+  (result, env') <- runTopLevel (SAWScript.Value.fromValue val) ro env
 
   -- | Print non-unit result if it was not bound to a variable
   case mx of
@@ -222,32 +207,32 @@ processStmtBind printBinds sc env mx mt _mc expr = do
   return env''
 
 -- | Interpret a block-level statement in the TopLevel monad.
-interpretStmt :: Bool -> SharedContext SAWCtx -> InterpretEnv -> SS.Stmt -> IO InterpretEnv
-interpretStmt printBinds sc env stmt =
+interpretStmt :: Bool -> TopLevelRO -> TopLevelRW -> SS.Stmt -> IO TopLevelRW
+interpretStmt printBinds ro@(TopLevelRO sc _ _) env stmt =
   case stmt of
-    SS.StmtBind mx mt mc expr -> processStmtBind printBinds sc env mx mt mc expr
-    SS.StmtLet dg             -> do dg' <- reportErrT (checkDeclGroup (ieTypes env) dg)
-                                    interpretDeclGroup sc env dg'
-    SS.StmtCode lstr          -> do cenv' <- CEnv.parseDecls sc (ieCryptol env) lstr
-                                    return env { ieCryptol = cenv' }
-    SS.StmtImport imp         -> do cenv' <- CEnv.importModule sc (ieCryptol env) imp
-                                    return env { ieCryptol = cenv' }
+    SS.StmtBind mx mt mc expr -> processStmtBind printBinds ro env mx mt mc expr
+    SS.StmtLet dg             -> do dg' <- reportErrT (checkDeclGroup (rwTypes env) dg)
+                                    interpretDeclGroup ro env dg'
+    SS.StmtCode lstr          -> do cenv' <- CEnv.parseDecls sc (rwCryptol env) lstr
+                                    return env { rwCryptol = cenv' }
+    SS.StmtImport imp         -> do cenv' <- CEnv.importModule sc (rwCryptol env) imp
+                                    return env { rwCryptol = cenv' }
 
-interpretFile :: SharedContext SAWCtx -> InterpretEnv -> FilePath -> IO InterpretEnv
-interpretFile sc env file = do
-  stmts <- SAWScript.Import.loadFile (roOptions (ieRO env)) file
-  foldM (interpretStmt False sc) env stmts
+interpretFile :: TopLevelRO -> TopLevelRW -> FilePath -> IO TopLevelRW
+interpretFile ro env file = do
+  stmts <- SAWScript.Import.loadFile (roOptions ro) file
+  foldM (interpretStmt False ro) env stmts
 
 -- | Evaluate the value called 'main' from the current environment.
-interpretMain :: InterpretEnv -> IO ()
-interpretMain env =
-  case Map.lookup mainName (ieValues env) of
+interpretMain :: TopLevelRO -> TopLevelRW -> IO ()
+interpretMain ro env =
+  case Map.lookup mainName (rwValues env) of
     Nothing -> return () -- fail "No 'main' defined"
-    Just v -> fst <$> doTopLevel (fromValue v) env
+    Just v -> fst <$> runTopLevel (fromValue v) ro env
   where mainName = Located "main" "main" (PosInternal "entry")
 
-buildInterpretEnv :: Options -> IO (BuiltinContext, InterpretEnv)
-buildInterpretEnv opts =
+buildTopLevelEnv :: Options -> IO (BuiltinContext, TopLevelRO, TopLevelRW)
+buildTopLevelEnv opts =
     do let mn = mkModuleName ["SAWScript"]
        let scm = insImport preludeModule $
                  insImport JavaSAW.javaModule $
@@ -280,25 +265,22 @@ buildInterpretEnv opts =
        let vm0 = Map.insert (qualify "basic_ss") (toValue ss) (valueEnv opts bic)
        let tm0 = Map.insert (qualify "basic_ss") (readSchema "Simpset") primTypeEnv
        ce0 <- CEnv.initCryptolEnv sc
-       return (bic, InterpretEnv vm0 tm0 primDocEnv ce0 ro0)
+       return (bic, ro0, TopLevelRW vm0 tm0 primDocEnv ce0)
 
 processFile :: Options -> FilePath -> IO ()
 processFile opts file = do
-  (bic, env) <- buildInterpretEnv opts
-  let sc = biSharedContext bic
-  env' <- interpretFile sc env file
-  interpretMain env'
+  (_, ro, env) <- buildTopLevelEnv opts
+  env' <- interpretFile ro env file
+  interpretMain ro env'
 
 -- Primitives ------------------------------------------------------------------
 
 include_value :: FilePath -> TopLevel ()
 include_value file = do
-  sc <- getSharedContext
   ro <- getTopLevelRO
-  TopLevelRW vm tm dm ce <- getTopLevelRW
-  let env = InterpretEnv vm tm dm ce ro
-  InterpretEnv vm' tm' dm' ce' _ <- io $ interpretFile sc env file
-  putTopLevelRW (TopLevelRW vm' tm' dm' ce')
+  rw <- getTopLevelRW
+  rw' <- io $ interpretFile ro rw file
+  putTopLevelRW rw'
 
 print_value :: Value -> TopLevel ()
 print_value (VString s) = io $ putStrLn s

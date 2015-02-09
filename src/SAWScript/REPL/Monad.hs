@@ -49,6 +49,7 @@ module SAWScript.REPL.Monad (
 
     -- ** SAWScript stuff
   , getSharedContext
+  , getTopLevelRO
   , getEnvironment, modifyEnvironment, putEnvironment
   , getSAWScriptNames
   , err
@@ -89,8 +90,9 @@ import SAWScript.AST (Located(getVal))
 import SAWScript.Builtins (BuiltinContext(..))
 import SAWScript.Compiler (ErrT, runErrT)
 import SAWScript.CryptolEnv
-import SAWScript.Interpreter (InterpretEnv(..), buildInterpretEnv)
+import SAWScript.Interpreter (buildTopLevelEnv)
 import SAWScript.Options (Options)
+import SAWScript.TopLevel (TopLevelRO(..), TopLevelRW(..))
 import SAWScript.Utils (SAWCtx)
 import Verifier.SAW (SharedContext)
 
@@ -104,13 +106,14 @@ data RW = RW
   , eIsBatch    :: Bool
   , eUserEnv    :: UserEnv     -- ^ User-configured settings from :set commands
   , sharedContext :: SharedContext SAWCtx
-  , environment :: InterpretEnv
+  , eTopLevelRO :: TopLevelRO
+  , environment :: TopLevelRW
   }
 
 -- | Initial, empty environment.
 defaultRW :: Bool -> Options -> IO RW
 defaultRW isBatch opts = do
-  (biContext, ienv) <- buildInterpretEnv opts
+  (biContext, ro, rw) <- buildTopLevelEnv opts
   let sc = biSharedContext biContext
 
   return RW
@@ -119,7 +122,8 @@ defaultRW isBatch opts = do
     , eIsBatch    = isBatch
     , eUserEnv    = mkUserEnv userOptions
     , sharedContext = sc
-    , environment = ienv
+    , eTopLevelRO = ro
+    , environment = rw
     }
 
 -- | Build up the prompt for the REPL.
@@ -363,10 +367,10 @@ setModuleEnv :: M.ModuleEnv -> REPL ()
 setModuleEnv me = modifyCryptolEnv (\ce -> ce { eModuleEnv = me })
 
 getCryptolEnv :: REPL (CryptolEnv SAWCtx)
-getCryptolEnv = ieCryptol `fmap` getEnvironment
+getCryptolEnv = rwCryptol `fmap` getEnvironment
 
 modifyCryptolEnv :: (CryptolEnv SAWCtx -> CryptolEnv SAWCtx) -> REPL ()
-modifyCryptolEnv f = modifyEnvironment (\ie -> ie { ieCryptol = f (ieCryptol ie) })
+modifyCryptolEnv f = modifyEnvironment (\rw -> rw { rwCryptol = f (rwCryptol rw) })
 
 setCryptolEnv :: CryptolEnv SAWCtx -> REPL ()
 setCryptolEnv x = modifyCryptolEnv (const x)
@@ -374,13 +378,16 @@ setCryptolEnv x = modifyCryptolEnv (const x)
 getSharedContext :: REPL (SharedContext SAWCtx)
 getSharedContext = fmap sharedContext getRW
 
-getEnvironment :: REPL InterpretEnv
+getTopLevelRO :: REPL TopLevelRO
+getTopLevelRO = fmap eTopLevelRO getRW
+
+getEnvironment :: REPL TopLevelRW
 getEnvironment = fmap environment getRW
 
-putEnvironment :: InterpretEnv -> REPL ()
+putEnvironment :: TopLevelRW -> REPL ()
 putEnvironment = modifyEnvironment . const
 
-modifyEnvironment :: (InterpretEnv -> InterpretEnv) -> REPL ()
+modifyEnvironment :: (TopLevelRW -> TopLevelRW) -> REPL ()
 modifyEnvironment f = modifyRW_ $ \current ->
   current { environment = f (environment current) }
 
@@ -388,7 +395,7 @@ modifyEnvironment f = modifyRW_ $ \current ->
 getSAWScriptNames :: REPL [String]
 getSAWScriptNames = do
   env <- getEnvironment
-  let rnames = Map.keys (ieValues env)
+  let rnames = Map.keys (rwValues env)
   return (map getVal rnames)
 
 -- Lifting computations --
