@@ -536,11 +536,10 @@ provePrim _sc script t = do
 provePrintPrim :: SharedContext s -> ProofScript s SV.SatResult
                -> TypedTerm s -> IO (Theorem s)
 provePrintPrim _sc script t = do
-  checkBooleanSchema (ttSchema t)
-  r <- evalStateT script (ProofGoal Universal "prove" t)
+  r <- provePrim _sc script t
   case r of
-    SV.Unsat -> putStrLn "Valid" >> return (Theorem t)
-    _ -> fail (show (SV.flipSatResult r))
+    SV.Valid -> putStrLn "Valid" >> return (Theorem t)
+    _ -> fail (show r)
 
 satPrim :: SharedContext s -> ProofScript s SV.SatResult -> TypedTerm s
         -> IO SV.SatResult
@@ -550,9 +549,7 @@ satPrim _sc script t = do
 
 satPrintPrim :: SharedContext s -> ProofScript s SV.SatResult
              -> TypedTerm s -> IO ()
-satPrintPrim _sc script t = do
-  r <- evalStateT script (ProofGoal Existential "sat" t)
-  print r
+satPrintPrim _sc script t = print =<< satPrim _sc script t
 
 cryptolSimpset :: SharedContext s -> IO (Simpset (SharedTerm s))
 cryptolSimpset sc = scSimpset sc cryptolDefs [] []
