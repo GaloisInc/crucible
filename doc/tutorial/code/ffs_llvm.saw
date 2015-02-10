@@ -14,9 +14,14 @@ let main = do {
   result <- prove abc thm1;
   print result;
 
-  print "Finding bug";
-  let thm2 = {{ \x -> ffs_ref x == ffs_bug x }};
+  print "Finding bug via sat search";
+  let thm2 = {{ \x -> ffs_ref x != ffs_bug x }};
   result <- sat abc thm2;
+  print result;
+
+  print "Finding bug via failed proof";
+  let thm3 = {{ \x -> ffs_ref x == ffs_bug x }};
+  result <- prove abc thm3;
   print result;
 
   print "Done.";
