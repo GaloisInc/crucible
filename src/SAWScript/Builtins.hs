@@ -304,7 +304,8 @@ satABC :: SharedContext s -> ProofScript s SV.SatResult
 satABC sc = StateT $ \g -> AIG.withNewGraph giaNetwork $ \be -> do
   TypedTerm schema t <- rewriteEqs sc (goalTerm g)
   checkBooleanSchema schema
-  let (args, _) = asLambdaList t
+  tp <- scWhnf sc =<< scTypeOf sc t
+  let (args, _) = asPiList tp
       argNames = map fst args
   -- putStrLn "Simulating..."
   (shapes, lit0) <- BBSim.bitBlast be sc t
@@ -320,14 +321,17 @@ satABC sc = StateT $ \g -> AIG.withNewGraph giaNetwork $ \be -> do
       return (SV.Unsat, g { goalTerm = TypedTerm schema ft })
     AIG.Sat cex -> do
       -- putStrLn "SAT"
+      print cex
       let r = liftCexBB shapes cex
       tt <- scApplyPrelude_True sc
       case r of
         Left err -> fail $ "Can't parse counterexample: " ++ err
         Right [v] ->
           return (SV.Sat v, g { goalTerm = TypedTerm schema tt })
-        Right vs -> do
-          return (SV.SatMulti (zip argNames vs), g { goalTerm = TypedTerm schema tt })
+        Right vs
+          | length argNames == length vs -> do
+              return (SV.SatMulti (zip argNames vs), g { goalTerm = TypedTerm schema tt })
+          | otherwise -> fail $ unwords ["ABC SAT results do not match expected arguments", show argNames, show vs]
     AIG.SatUnknown -> fail "Unknown result from ABC"
 
 parseDimacsSolution :: [Int]    -- ^ The list of CNF variables to return
@@ -346,8 +350,9 @@ satExternal :: Bool -> SharedContext s -> String -> [String]
             -> ProofScript s SV.SatResult
 satExternal doCNF sc execName args = StateT $ \g -> withBE $ \be -> do
   TypedTerm schema t <- rewriteEqs sc (goalTerm g)
+  tp <- scWhnf sc =<< scTypeOf sc t
   let cnfName = goalName g ++ ".cnf"
-      argNames = map fst (fst (asLambdaList t))
+      argNames = map fst (fst (asPiList tp))
   checkBoolean sc t
   (path, fh) <- openTempFile "." cnfName
   hClose fh -- Yuck. TODO: allow writeCNF et al. to work on handles.
@@ -375,8 +380,10 @@ satExternal doCNF sc execName args = StateT $ \g -> withBE $ \be -> do
         Left msg -> fail $ "Can't parse counterexample: " ++ msg
         Right [v] ->
           return (SV.Sat v, g { goalTerm = TypedTerm schema tt })
-        Right vs -> do
-          return (SV.SatMulti (zip argNames vs), g { goalTerm = TypedTerm schema tt })
+        Right vs
+          | length argNames == length vs -> do
+              return (SV.SatMulti (zip argNames vs), g { goalTerm = TypedTerm schema tt })
+          | otherwise -> fail $ unwords ["external SAT results do not match expected arguments", show argNames, show vs]
     (["s UNSATISFIABLE"], []) -> do
       ft <- scApplyPrelude_False sc
       return (SV.Unsat, g { goalTerm = TypedTerm schema ft })
@@ -421,7 +428,8 @@ satSBV conf sc = StateT $ \g -> do
   let lit = case goalQuant g of
         Existential -> lit0
         Universal -> liftM SBV.bnot lit0
-  let (args, _) = asLambdaList t'
+  tp <- scWhnf sc =<< scTypeOf sc t'
+  let (args, _) = asPiList tp
       argNames = map fst args
   SBV.SatResult r <- satWith conf lit
   case r of
@@ -441,7 +449,10 @@ getLabels :: [SBVSim.Labeler] -> SBV.SMTResult -> Map.Map String CW -> [String] 
 getLabels ls m d argNames =
   case fmap getLabel ls of
     [x] -> SV.Sat x
-    xs -> SV.SatMulti (zip argNames xs)
+    xs
+     | length argNames == length xs -> SV.SatMulti (zip argNames xs)
+     | otherwise -> error $ unwords ["SBV SAT results do not match expected arguments", show argNames, show xs]
+
   where
     getLabel :: SBVSim.Labeler -> FiniteValue
     getLabel (SBVSim.BoolLabel s) = FVBit . fromJust $ SBV.getModelValue s m
