@@ -5,6 +5,8 @@
 module SAWScript.ImportAIG
   ( readAIGexpect
   , readAIG
+  , loadAIG
+  , AIGNetwork
   ) where
 
 import Control.Applicative
@@ -24,6 +26,8 @@ import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm hiding (scNot, scAnd, scOr)
 
 type TypeParser s = StateT (V.Vector (SharedTerm s)) (ExceptT String IO)
+
+type AIGNetwork = ABC.Network ABC.Lit ABC.GIA
 
 throwTP :: String -> TypeParser s a
 throwTP = lift . throwE
@@ -172,6 +176,13 @@ readAIGexpect sc path aigType =
     let (args,resultType) = asPiList aigType
     runExceptT $
       translateNetwork sc ntk outputLits args resultType
+
+loadAIG :: FilePath -> IO (Either String AIGNetwork)
+loadAIG f = do
+   mntk <- try (AIG.aigerNetwork ABC.proxy f)
+   case mntk of
+      Left e -> return (Left (show (e :: IOException)))
+      Right ntk -> return $ Right ntk
 
 readAIG :: SharedContext s -> FilePath -> IO (Either String (SharedTerm s))
 readAIG sc f =

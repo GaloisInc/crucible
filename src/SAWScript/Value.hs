@@ -26,6 +26,7 @@ import SAWScript.Options (Options)
 import SAWScript.Proof
 import SAWScript.TypedTerm
 import SAWScript.Utils
+import SAWScript.ImportAIG
 
 import Verifier.SAW.FiniteValue
 import Verifier.SAW.Rewriter ( Simpset )
@@ -67,7 +68,7 @@ data Value
   | VSatResult SatResult
   | VProofResult ProofResult
   | VUninterp (Uninterp SAWCtx)
-  -- | VAIG (BitEngine Lit) (V.Vector Lit) (V.Vector Lit)
+  | VAIG AIGNetwork
 
 data LLVMModule =
   LLVMModule
@@ -151,6 +152,7 @@ showsPrecValue opts p v =
     VSatResult (Sat t) -> showString "Sat: " . shows t
     VSatResult (SatMulti ts) -> showString "Sat: " . shows ts
     VUninterp u -> showString "Uninterp: " . shows u
+    VAIG _ -> showString "<<AIG>>"
 
 instance Show Value where
     showsPrec p v = showsPrecValue defaultPPOpts p v
@@ -361,6 +363,13 @@ instance FromValue a => FromValue (StateT LLVMSetupState IO a) where
       m2 <- liftIO $ applyValue v2 v1
       fromValue m2
     fromValue _ = error "fromValue LLVMSetup"
+
+instance IsValue (AIGNetwork) where
+    toValue t = VAIG t
+
+instance FromValue (AIGNetwork) where
+    fromValue (VAIG t) = t
+    fromValue _ = error "fromValue AIGNetwork"
 
 instance IsValue (TypedTerm SAWCtx) where
     toValue t = VTerm t

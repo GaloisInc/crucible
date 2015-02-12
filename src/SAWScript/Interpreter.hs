@@ -430,6 +430,18 @@ primitives = Map.fromList
     (pureVal readSBV)
     [ "TODO" ]
 
+  , prim "load_aig"            "String -> TopLevel AIG"
+    (pureVal loadAIGPrim)
+    [ "TODO" ]
+
+  , prim "cec"                 "AIG -> AIG -> TopLevel ProofResult"
+    (pureVal cecPrim)
+    [ "TODO" ]
+
+  , prim "bitblast"            "Term -> TopLevel AIG"
+    (scVal bitblastPrim)
+    [ "TODO" ]
+
   , prim "read_aig"            "String -> TopLevel Term"
     (pureVal readAIGPrim)
     [ "TODO" ]
@@ -477,7 +489,6 @@ primitives = Map.fromList
   , prim "sat_print"           "{b} ProofScript b -> Term -> TopLevel ()"
     (scVal satPrintPrim)
     [ "TODO" ]
-
 
   , prim "unfolding"           "[String] -> ProofScript ()"
     (scVal unfoldGoal)

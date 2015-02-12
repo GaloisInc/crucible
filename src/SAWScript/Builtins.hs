@@ -5,8 +5,10 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE PatternGuards #-}
 module SAWScript.Builtins where
 
+import Data.Foldable (toList)
 import Control.Applicative
 import Control.Lens
 import Control.Monad.State
@@ -23,6 +25,7 @@ import System.Process
 import Text.Read
 
 
+
 import qualified Verifier.Java.Codebase as JSS
 -- import Verifier.Java.SAWBackend (javaModule)
 -- import Verifier.LLVM.Backend.SAW (llvmModule)
@@ -31,7 +34,7 @@ import qualified Verifier.SAW.Cryptol as Cryptol
 import Verifier.SAW.Constant
 import Verifier.SAW.ExternalFormat
 import Verifier.SAW.FiniteValue ( FiniteType(..), FiniteValue(..)
-                                , scFiniteValue, fvVec, readFiniteValues
+                                , scFiniteValue, fvVec, readFiniteValues, readFiniteValue
                                 , finiteTypeOf
                                 )
 import Verifier.SAW.Prelude
@@ -131,6 +134,34 @@ readSBV path unintlst =
 withBE :: (forall s . ABC.GIA s -> IO a) -> IO a
 withBE f = do
   ABC.withNewGraph ABC.giaNetwork f
+
+cecPrim :: AIGNetwork -> AIGNetwork -> TopLevel SV.ProofResult
+cecPrim x y = do
+  res <- io $ ABC.cec x y
+  case res of
+    ABC.Valid -> return $ SV.Valid
+    ABC.Invalid bs
+      | Just ft <- readFiniteValue (FTVec (fromIntegral (length bs)) FTBit) bs ->
+           return $ SV.Invalid ft
+      | otherwise -> fail "cec: impossible, could not parse counterexample"
+    ABC.VerifyUnknown -> fail "cec: unknown result "
+
+loadAIGPrim :: FilePath -> TopLevel AIGNetwork
+loadAIGPrim f = do
+  exists <- io $ doesFileExist f
+  unless exists $ fail $ "AIG file " ++ f ++ " not found."
+  et <- io $ loadAIG f
+  case et of
+    Left err -> fail $ "Reading AIG failed: " ++ err
+    Right ntk -> return ntk
+
+-- | Tranlsate a SAWCore term into an AIG
+bitblastPrim :: SharedContext SAWCtx -> TypedTerm SAWCtx -> TopLevel AIGNetwork
+bitblastPrim sc t = io $ do
+  t' <- rewriteEqs sc t
+  withBE $ \be -> do
+    ls <- BBSim.bitBlastTerm be sc (ttTerm t')
+    return (AIG.Network be (toList ls))
 
 -- | Read an AIG file representing a theorem or an arbitrary function
 -- and represent its contents as a @SharedTerm@ lambda term. This is

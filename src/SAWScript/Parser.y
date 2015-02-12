@@ -56,6 +56,7 @@ import Control.Applicative
   'String'       { TReserved _ "String"         }
   'Term'         { TReserved _ "Term"           }
   'Type'         { TReserved _ "Type"           }
+  'AIG'          { TReserved _ "AIG"            }
   ';'            { TPunct    _ ";"              }
   '['            { TPunct    _ "["              }
   ']'            { TPunct    _ "]"              }
@@ -179,6 +180,7 @@ BaseType :: { Type }
  | 'String'                             { tString                 }
  | 'Term'                               { tTerm                   }
  | 'Type'                               { tType                   }
+ | 'AIG'                                { tAIG                    }
  | '(' Type ')'                         { $2                      }
  | '(' commas2(Type) ')'                { tTuple $2               }
  | '[' Type ']'                         { tArray $2               }
