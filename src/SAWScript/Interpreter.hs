@@ -441,23 +441,27 @@ primitives = Map.fromList
 
   , prim "load_aig"            "String -> TopLevel AIG"
     (pureVal loadAIGPrim)
-    [ "TODO" ]
+    [ "Read an AIG file in binary AIGER format." ]
 
   , prim "cec"                 "AIG -> AIG -> TopLevel ProofResult"
     (pureVal cecPrim)
-    [ "TODO" ]
+    [ "Perform a Combinitorial Equivalance Check between two AIGs."
+    , "The AIGs must have the same number of inputs and outputs."
+    ]
 
   , prim "bitblast"            "Term -> TopLevel AIG"
     (scVal bitblastPrim)
-    [ "TODO" ]
+    [ "Translate a term into an AIG.  The term must be representable as a function"
+    , "from a finite number of bits to a finite number of bits."
+    ]
 
   , prim "read_aig"            "String -> TopLevel Term"
     (pureVal readAIGPrim)
-    [ "TODO" ]
+    [ "Read an AIG file in AIGER format and translate to a term" ]
 
   , prim "read_core"           "String -> TopLevel Term"
     (pureVal readCore)
-    [ "TODO" ]
+    [ "Read a term from a file in the SAWCore external format" ]
 
   , prim "write_aig"           "String -> Term -> TopLevel ()"
     (scVal writeAIG)
@@ -480,8 +484,7 @@ primitives = Map.fromList
 
   , prim "write_core"          "String -> Term -> TopLevel ()"
     (pureVal (writeCore :: FilePath -> TypedTerm SAWCtx -> IO ()))
-    [ "TODO" ]
-
+    [ "Write out a representation of a term in SAWCore external format." ]
 
   , prim "prove"               "{b} ProofScript b -> Term -> TopLevel ProofResult"
     (scVal provePrim)
