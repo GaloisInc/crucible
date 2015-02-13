@@ -51,6 +51,7 @@ import SAWScript.Utils
 import SAWScript.Value
 import Verifier.SAW.Conversion
 import Verifier.SAW.Prelude (preludeModule)
+import Verifier.SAW.PrettySExp
 import Verifier.SAW.Prim (EvalError)
 import Verifier.SAW.Rewriter ( Simpset, emptySimpset, rewritingSharedContext
                              , scSimpset )
@@ -390,6 +391,14 @@ primitives = Map.fromList
     (pureVal ((putStrLn . scPrettyTerm) :: SharedTerm SAWCtx -> IO ()))
     [ "TODO" ]
 
+  , prim "print_term_sexp"     "Term -> TopLevel ()"
+    (pureVal ((print . ppSharedTermSExp) :: SharedTerm SAWCtx -> IO ()))
+    [ "TODO" ]
+
+  , prim "print_term_sexp'"    "Int -> Term -> TopLevel ()"
+    (pureVal printTermSExp')
+    [ "TODO" ]
+
   , prim "print_type"          "Term -> TopLevel ()"
     (pureVal print_type)
     [ "TODO" ]
@@ -500,6 +509,14 @@ primitives = Map.fromList
 
   , prim "print_goal"          "ProofScript ()"
     (pureVal (printGoal :: ProofScript SAWCtx ()))
+    [ "TODO" ]
+
+  , prim "print_goal_sexp"     "ProofScript ()"
+    (pureVal printGoalSExp)
+    [ "TODO" ]
+
+  , prim "print_goal_sexp'"    "Int -> ProofScript ()"
+    (pureVal printGoalSExp')
     [ "TODO" ]
 
   , prim "assume_valid"        "ProofScript ProofResult"
