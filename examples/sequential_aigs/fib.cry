@@ -1,0 +1,48 @@
+import StateMachine
+
+// Fibonacci state iterators with different state but same output
+// sequence: 8-bit Fibonacci numbers.
+//
+// The state transitions, ignoring bit widths, are
+//
+//   (0, (0, 0, 0))       |-> (0, (1, 0, 1))
+//
+// and
+//
+//   (0, (1, fn, f(n+1))) |-> (fn, (1, f(n+1), f(n+2)))
+//
+// where 'fn' denotes the 'n'th Fibonacci number.
+//
+// The first bit of the states indicates whether it's the first
+// step or not; the sequential circuit gets seeded with all zero
+// bits.
+
+fib1 : ([0], ([1], [8], [8])) -> ([8], ([1], [8], [8]))
+fib1 (_, (start, fn, fn1)) = (fn, (1, fn1', fn2))
+  where
+  fn1' = if start == 0 then 1 else fn1
+  fn2 = fn + fn1'
+
+fib1_state_bits = 1 + 8 + 8 : [8]
+
+
+fib2 : ([0], ([1], [16], [16])) -> ([8], ([1], [16], [16]))
+fib2 (_, (start, fn , fn1)) = (fn', (1, fn1', fn2))
+  where
+  // Some (at least Cryptol level) obfuscation.
+  fn1' = (zero # start) * fn1 + (zero # ~start)
+  fn2 = fn + fn1'
+  fn' = drop`{8} fn
+
+fib2_state_bits = 1 + 16 + 16 : [8]
+
+
+// Tests.
+inputs : [1000][0]
+inputs = zero
+
+test = equiv fib1 fib2 inputs
+
+// The states sequences.
+states1 = exec fib1 inputs
+states2 = exec fib2 inputs
