@@ -156,8 +156,8 @@ loadAIGPrim f = do
     Right ntk -> return ntk
 
 -- | Tranlsate a SAWCore term into an AIG
-bitblastPrim :: SharedContext SAWCtx -> TypedTerm SAWCtx -> TopLevel AIGNetwork
-bitblastPrim sc t = io $ do
+bitblastPrim :: SharedContext s -> TypedTerm s -> IO AIGNetwork
+bitblastPrim sc t = do
   t' <- rewriteEqs sc t
   withBE $ \be -> do
     ls <- BBSim.bitBlastTerm be sc (ttTerm t')
@@ -205,17 +205,14 @@ prepForExport sc t = do
 -- | Write a @SharedTerm@ representing a theorem or an arbitrary
 -- function to an AIG file.
 writeAIG :: SharedContext s -> FilePath -> TypedTerm s -> IO ()
-writeAIG sc f t = withBE $ \be -> do
-  t' <- rewriteEqs sc t
-  ls <- BBSim.bitBlastTerm be sc (ttTerm t')
-  ABC.writeAiger f (ABC.Network be (ABC.bvToList ls))
-  return ()
+writeAIG sc f t = do
+  aig <- bitblastPrim sc t
+  ABC.writeAiger f aig
 
 writeCNF :: SharedContext s -> FilePath -> TypedTerm s -> IO ()
-writeCNF sc f t = withBE $ \be -> do
-  t' <- rewriteEqs sc t
-  ls <- BBSim.bitBlastTerm be sc (ttTerm t')
-  case AIG.bvToList ls of
+writeCNF sc f t = do
+  AIG.Network be ls <- bitblastPrim sc t
+  case ls of
     [l] -> do
       _ <- GIA.writeCNF be l f
       return ()
