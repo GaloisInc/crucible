@@ -209,6 +209,15 @@ writeAIG sc f t = do
   aig <- bitblastPrim sc t
   ABC.writeAiger f aig
 
+-- | Like @writeAIG@, but takes an additional 'Integer' argument
+-- specifying the number of input and output bits to be interpreted as
+-- latches.
+writeAIGWithLatches ::
+  SharedContext s -> FilePath -> TypedTerm s -> Integer -> IO ()
+writeAIGWithLatches sc f t n = do
+  aig <- bitblastPrim sc t
+  GIA.writeAigerWithLatches f aig (fromInteger n)
+
 writeCNF :: SharedContext s -> FilePath -> TypedTerm s -> IO ()
 writeCNF sc f t = do
   AIG.Network be ls <- bitblastPrim sc t
