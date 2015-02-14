@@ -51,6 +51,7 @@ import SAWScript.Utils
 import SAWScript.Value
 import Verifier.SAW.Conversion
 import Verifier.SAW.Prelude (preludeModule)
+import Verifier.SAW.PrettySExp
 import Verifier.SAW.Prim (EvalError)
 import Verifier.SAW.Rewriter ( Simpset, emptySimpset, rewritingSharedContext
                              , scSimpset )
@@ -390,6 +391,14 @@ primitives = Map.fromList
     (pureVal ((putStrLn . scPrettyTerm) :: SharedTerm SAWCtx -> IO ()))
     [ "TODO" ]
 
+  , prim "print_term_sexp"     "Term -> TopLevel ()"
+    (pureVal ((print . ppSharedTermSExp) :: SharedTerm SAWCtx -> IO ()))
+    [ "TODO" ]
+
+  , prim "print_term_sexp'"    "Int -> Term -> TopLevel ()"
+    (pureVal printTermSExp')
+    [ "TODO" ]
+
   , prim "print_type"          "Term -> TopLevel ()"
     (pureVal print_type)
     [ "TODO" ]
@@ -432,23 +441,27 @@ primitives = Map.fromList
 
   , prim "load_aig"            "String -> TopLevel AIG"
     (pureVal loadAIGPrim)
-    [ "TODO" ]
+    [ "Read an AIG file in binary AIGER format." ]
 
   , prim "cec"                 "AIG -> AIG -> TopLevel ProofResult"
     (pureVal cecPrim)
-    [ "TODO" ]
+    [ "Perform a Combinitorial Equivalance Check between two AIGs."
+    , "The AIGs must have the same number of inputs and outputs."
+    ]
 
   , prim "bitblast"            "Term -> TopLevel AIG"
     (scVal bitblastPrim)
-    [ "TODO" ]
+    [ "Translate a term into an AIG.  The term must be representable as a function"
+    , "from a finite number of bits to a finite number of bits."
+    ]
 
   , prim "read_aig"            "String -> TopLevel Term"
     (pureVal readAIGPrim)
-    [ "TODO" ]
+    [ "Read an AIG file in AIGER format and translate to a term" ]
 
   , prim "read_core"           "String -> TopLevel Term"
     (pureVal readCore)
-    [ "TODO" ]
+    [ "Read a term from a file in the SAWCore external format" ]
 
   , prim "write_aig"           "String -> Term -> TopLevel ()"
     (scVal writeAIG)
@@ -487,8 +500,7 @@ primitives = Map.fromList
 
   , prim "write_core"          "String -> Term -> TopLevel ()"
     (pureVal (writeCore :: FilePath -> TypedTerm SAWCtx -> IO ()))
-    [ "TODO" ]
-
+    [ "Write out a representation of a term in SAWCore external format." ]
 
   , prim "prove"               "{b} ProofScript b -> Term -> TopLevel ProofResult"
     (scVal provePrim)
@@ -516,6 +528,14 @@ primitives = Map.fromList
 
   , prim "print_goal"          "ProofScript ()"
     (pureVal (printGoal :: ProofScript SAWCtx ()))
+    [ "TODO" ]
+
+  , prim "print_goal_sexp"     "ProofScript ()"
+    (pureVal printGoalSExp)
+    [ "TODO" ]
+
+  , prim "print_goal_sexp'"    "Int -> ProofScript ()"
+    (pureVal printGoalSExp')
     [ "TODO" ]
 
   , prim "assume_valid"        "ProofScript ProofResult"

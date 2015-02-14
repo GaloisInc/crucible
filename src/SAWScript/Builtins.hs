@@ -38,6 +38,7 @@ import Verifier.SAW.FiniteValue ( FiniteType(..), FiniteValue(..)
                                 , finiteTypeOf
                                 )
 import Verifier.SAW.Prelude
+import Verifier.SAW.PrettySExp
 import Verifier.SAW.SCTypeCheck
 import Verifier.SAW.SharedTerm
 import qualified Verifier.SAW.Simulator.Concrete as Concrete
@@ -264,6 +265,17 @@ assumeUnsat = StateT $ \goal -> do
 printGoal :: ProofScript s ()
 printGoal = StateT $ \goal -> do
   putStrLn (scPrettyTerm (ttTerm (goalTerm goal)))
+  return ((), goal)
+
+printGoalSExp :: ProofScript SAWCtx ()
+printGoalSExp = StateT $ \goal -> do
+  print (ppSharedTermSExp (ttTerm (goalTerm goal)))
+  return ((), goal)
+
+printGoalSExp' :: Int -> ProofScript SAWCtx ()
+printGoalSExp' n = StateT $ \goal -> do
+  let cfg = defaultPPConfig { ppMaxDepth = Just n}
+  print (ppSharedTermSExpWith cfg (ttTerm (goalTerm goal)))
   return ((), goal)
 
 unfoldGoal :: SharedContext s -> [String] -> ProofScript s ()
@@ -642,6 +654,10 @@ check_term :: SharedTerm SAWCtx -> TopLevel ()
 check_term t = do
   sc <- getSharedContext
   io (scTypeCheckError sc t >>= print)
+
+printTermSExp' :: Int -> SharedTerm SAWCtx -> TopLevel ()
+printTermSExp' n =
+  io . print . ppSharedTermSExpWith (defaultPPConfig { ppMaxDepth = Just n })
 
 checkTypedTerm :: SharedContext s -> TypedTerm s -> IO ()
 checkTypedTerm sc (TypedTerm _schema t) = scTypeCheckError sc t >>= print
