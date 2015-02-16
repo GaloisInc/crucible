@@ -17,7 +17,7 @@ import StateMachine
 // step or not; the sequential circuit gets seeded with all zero
 // bits.
 
-fib1 : ([0], ([1], [8], [8])) -> ([8], ([1], [8], [8]))
+fib1 : ([1], ([1], [8], [8])) -> ([8], ([1], [8], [8]))
 fib1 (_, (start, fn, fn1)) = (fn, (1, fn1', fn2))
   where
   fn1' = if start == 0 then 1 else fn1
@@ -26,7 +26,7 @@ fib1 (_, (start, fn, fn1)) = (fn, (1, fn1', fn2))
 fib1_state_bits = 1 + 8 + 8 : [8]
 
 
-fib2 : ([0], ([1], [16], [16])) -> ([8], ([1], [16], [16]))
+fib2 : ([1], ([1], [16], [16])) -> ([8], ([1], [16], [16]))
 fib2 (_, (start, fn , fn1)) = (fn', (1, fn1', fn2))
   where
   // Some (at least Cryptol level) obfuscation.
@@ -36,9 +36,20 @@ fib2 (_, (start, fn , fn1)) = (fn', (1, fn1', fn2))
 
 fib2_state_bits = 1 + 16 + 16 : [8]
 
+fib3 : ([1], ([1], [16], [16], [64])) -> ([8], ([1], [16], [16], [64]))
+fib3 (_, (start, fn, fn1, k)) = (fn', (1, fn1', fn2, k+1))
+  where
+  // Some (at least Cryptol level) obfuscation.
+  fn1' = (zero # start) * fn1 + (zero # ~start)
+  fn2 = fn + fn1'
+  // Wrong output when counter 'k' has special value.
+  fn' = (drop`{8} fn) + if k == 0xff00ff00ff00ff00 then 1 else 0
+
+fib3_state_bits = 1 + 16 + 16 + 64 : [8]
+
 
 // Tests.
-inputs : [1000][0]
+inputs : [1000][1]
 inputs = zero
 
 test = equiv fib1 fib2 inputs
