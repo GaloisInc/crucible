@@ -1,5 +1,5 @@
 import "fib.cry";
 
-write_aig_with_latches "fib1.aig" {{ fib1 }} 17; // {{ fib1_state_bits }};
-write_aig_with_latches "fib2.aig" {{ fib2 }} 33; // {{ fib2_state_bits }};
-write_aig_with_latches "fib3.aig" {{ fib3 }} 97; // {{ fib3_state_bits }};
+write_aig_with_latches "fib1.aig" {{ fib1 }} {{ fib1_state_bits }};
+write_aig_with_latches "fib2.aig" {{ fib2 }} {{ fib2_state_bits }};
+write_aig_with_latches "fib3.aig" {{ fib3 }} {{ fib3_state_bits }};

@@ -29,6 +29,6 @@ let {{
   f3 (i, s) = (4 * i, s + s)
 }};
 
-write_aig_with_latches "f1.aig" {{ f1 }} 8;
-write_aig_with_latches "f2.aig" {{ f2 }} 16;
-write_aig_with_latches "f3.aig" {{ f3 }} 8;
+write_aig_with_latches "f1.aig" {{ f1 }} {{ 8:[8] }};
+write_aig_with_latches "f2.aig" {{ f2 }} {{ 16:[8] }};
+write_aig_with_latches "f3.aig" {{ f3 }} {{ 8:[8] }};

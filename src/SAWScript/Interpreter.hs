@@ -321,6 +321,7 @@ rethrowEvalError m = run `X.catch` rethrow
   rethrow :: EvalError -> IO a
   rethrow exn = fail (show exn) -- X.throwIO (EvalError exn)
 
+-- | Default the values of the type variables in a typed term.
 defaultTypedTerm :: SharedContext s -> TypedTerm s -> IO (TypedTerm s)
 defaultTypedTerm sc (TypedTerm schema trm) =
   case inst of
@@ -471,7 +472,7 @@ primitives = Map.fromList
     ]
 
   , prim "write_aig_with_latches"
-                               "String -> Term -> Int -> TopLevel ()"
+                               "String -> Term -> Term -> TopLevel ()"
     (scVal writeAIGWithLatches)
     [ "Write out a representation of a term in binary AIGER format. The"
     , "term must be representable as a function from a finite number of"

@@ -6,6 +6,7 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE DoAndIfThenElse #-}
 module SAWScript.Builtins where
 
 import Data.Foldable (toList)
@@ -70,6 +71,7 @@ import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
 
 import qualified Cryptol.TypeCheck.AST as C
+import qualified Cryptol.Eval.Value as C
 import Cryptol.Utils.PP (pretty)
 
 import qualified Data.SBV.Bridge.Boolector as Boolector
@@ -214,10 +216,30 @@ writeAIG sc f t = do
 -- specifying the number of input and output bits to be interpreted as
 -- latches.
 writeAIGWithLatches ::
-  SharedContext s -> FilePath -> TypedTerm s -> Integer -> IO ()
-writeAIGWithLatches sc f t n = do
-  aig <- bitblastPrim sc t
-  GIA.writeAigerWithLatches f aig (fromInteger n)
+  SharedContext s -> FilePath -> TypedTerm s -> TypedTerm s -> IO ()
+writeAIGWithLatches sc file term numLatches = do
+  aig <- bitblastPrim sc term
+  let numLatches' = SV.evaluateTypedTerm sc numLatches
+  if isWord numLatches' then do
+    let numLatches'' = fromInteger . C.fromWord $ numLatches'
+    GIA.writeAigerWithLatches file aig numLatches''
+  else do
+    fail $ "writeAIGWithLatches: " ++
+      "non-integer or polymorphic number of latches; you may need a width " ++
+      "annotation '_:[width]': \n" ++
+      "value: " ++ ppCryptol numLatches' ++ "\n" ++
+      "term: " ++ ppSharedTerm numLatches
+  where
+    isWord :: C.Value -> Bool
+    isWord (C.VWord _) = True
+    isWord (C.VSeq isWord' _) = isWord'
+    isWord _ = False
+
+    ppCryptol :: C.Value -> String
+    ppCryptol = show . C.ppValue C.defaultPPOpts
+
+    ppSharedTerm :: TypedTerm s -> String
+    ppSharedTerm = scPrettyTerm . ttTerm
 
 writeCNF :: SharedContext s -> FilePath -> TypedTerm s -> IO ()
 writeCNF sc f t = do
