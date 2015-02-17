@@ -2,4 +2,16 @@ import "fib.cry";
 
 write_aig_with_latches "fib1.aig" {{ fib1 }} {{ fib1_state_bits }};
 write_aig_with_latches "fib2.aig" {{ fib2 }} {{ fib2_state_bits }};
-write_aig_with_latches "fib3.aig" {{ fib3 }} {{ fib3_state_bits }};
+
+write_aig_with_latches "buggy_fib4.aig" {{ buggy_fib4 }}
+  {{ buggy_fib4_state_bits }};
+write_aig_with_latches "buggy_fib8.aig" {{ buggy_fib8 }}
+  {{ buggy_fib8_state_bits }};
+write_aig_with_latches "buggy_fib12.aig" {{ buggy_fib12 }}
+  {{ buggy_fib12_state_bits }};
+write_aig_with_latches "buggy_fib16.aig" {{ buggy_fib16 }}
+  {{ buggy_fib16_state_bits }};
+write_aig_with_latches "buggy_fib32.aig" {{ buggy_fib32 }}
+  {{ buggy_fib32_state_bits }};
+write_aig_with_latches "buggy_fib64.aig" {{ buggy_fib64 }}
+  {{ buggy_fib64_state_bits }};
