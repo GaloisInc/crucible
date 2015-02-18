@@ -259,23 +259,24 @@ writeSAIGInferLatches sc file tt = do
             _ -> die "domain or range not finite width"
         _ -> die "not a function type"
 
--- | Like @writeAIG@, but takes an additional 'Integer' argument
+-- | Like @writeAIGInferLatches@, but takes an additional argument
 -- specifying the number of input and output bits to be interpreted as
 -- latches.
-writeAIGWithLatches ::
+writeAIGComputedLatches ::
   SharedContext s -> FilePath -> TypedTerm s -> TypedTerm s -> IO ()
-writeAIGWithLatches sc file term numLatches = do
+writeAIGComputedLatches sc file term numLatches = do
   aig <- bitblastPrim sc term
   let numLatches' = SV.evaluateTypedTerm sc numLatches
   if isWord numLatches' then do
     let numLatches'' = fromInteger . C.fromWord $ numLatches'
     GIA.writeAigerWithLatches file aig numLatches''
   else do
-    fail $ "writeAIGWithLatches: " ++
-      "non-integer or polymorphic number of latches; you may need a width " ++
-      "annotation '_:[width]': \n" ++
+    fail $ "writeAIGComputedLatches:\n" ++
+      "non-integer or polymorphic number of latches;\n" ++
+      "you may need a width annotation '_:[width]':\n" ++
       "value: " ++ ppCryptol numLatches' ++ "\n" ++
-      "term: " ++ ppSharedTerm numLatches
+      "term: " ++ ppSharedTerm numLatches ++ "\n" ++
+      "type: " ++ (pretty . ttSchema $ numLatches)
   where
     isWord :: C.Value -> Bool
     isWord (C.VWord _) = True

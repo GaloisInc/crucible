@@ -480,20 +480,13 @@ primitives = Map.fromList
     , "AIG with '|s|' latches."
     ]
 
-  , prim "write_aig_with_latches"
-                               "String -> Term -> Term -> TopLevel ()"
-    (scVal writeAIGWithLatches)
+  , prim "write_saig'"         "String -> Term -> Term -> TopLevel ()"
+    (scVal writeAIGComputedLatches)
     [ "Write out a representation of a term in binary AIGER format. The"
     , "term must be representable as a function from a finite number of"
     , "bits to a finite number of bits, '[m] -> [n]'. The int argument,"
     , "'k', must be at most 'min {m, n}', and specifies that the *last* 'k'"
     , "input and output bits are joined as latches."
-    , ""
-    , "Note: this is a first version. In the future we may infer the"
-    , "the number of latch bits from the SAW type of the"
-    , "input term, perhaps by the convention that a SAW term of type"
-    , "'(i, s) -> (o, s)' is interpreted as an '[|i| + |s|] -> [|o| + |s|]'"
-    , "AIG with '|s|' latches."
     ]
 
   , prim "write_cnf"           "String -> Term -> TopLevel ()"
