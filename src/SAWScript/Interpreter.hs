@@ -471,6 +471,15 @@ primitives = Map.fromList
     , "bits to a finite number of bits."
     ]
 
+  , prim "write_saig"          "String -> Term -> TopLevel ()"
+    (scVal writeSAIGInferLatches)
+    [ "Write out a representation of a term in binary AIGER format. The"
+    , "term must be representable as a function from a finite number of"
+    , "bits to a finite number of bits. The type must be of the form"
+    , "'(i, s) -> (o, s)' and is interpreted as an '[|i| + |s|] -> [|o| + |s|]'"
+    , "AIG with '|s|' latches."
+    ]
+
   , prim "write_aig_with_latches"
                                "String -> Term -> Term -> TopLevel ()"
     (scVal writeAIGWithLatches)

@@ -36,7 +36,7 @@ import Verifier.SAW.Constant
 import Verifier.SAW.ExternalFormat
 import Verifier.SAW.FiniteValue ( FiniteType(..), FiniteValue(..)
                                 , scFiniteValue, fvVec, readFiniteValues, readFiniteValue
-                                , finiteTypeOf
+                                , finiteTypeOf, asFiniteTypePure, sizeFiniteType
                                 )
 import Verifier.SAW.Prelude
 import Verifier.SAW.PrettySExp
@@ -211,6 +211,53 @@ writeAIG :: SharedContext s -> FilePath -> TypedTerm s -> IO ()
 writeAIG sc f t = do
   aig <- bitblastPrim sc t
   ABC.writeAiger f aig
+
+-- | Like @writeAIG@, but takes an additional 'Integer' argument
+-- specifying the number of input and output bits to be interpreted as
+-- latches. Used to implement more friendly SAIG writers
+-- @writeSAIGInferLatches@ and @writeSAIGComputedLatches@.
+writeSAIG :: SharedContext s -> FilePath -> TypedTerm s -> Int -> IO ()
+writeSAIG sc file tt numLatches = do
+  aig <- bitblastPrim sc tt
+  GIA.writeAigerWithLatches file aig numLatches
+
+-- | Given a term a type '(i, s) -> (o, s)', call @writeSAIG@ on term
+-- with latch bits set to '|s|', the width of 's'.
+writeSAIGInferLatches :: forall s.
+  SharedContext s -> FilePath -> TypedTerm s -> IO ()
+writeSAIGInferLatches sc file tt = do
+  ty <- scTypeOf sc (ttTerm tt)
+  s <- getStateType ty
+  let numLatches = sizeFiniteType s
+  writeSAIG sc file tt numLatches
+  where
+    die :: Monad m => String -> m a
+    die why = fail $
+      "writeSAIGInferLatches: " ++ why ++ ":\n" ++
+      "term must have type of the form '(i, s) -> (o, s)',\n" ++
+      "where 'i', 's', and 'o' are all fixed-width types,\n" ++
+      "but type of term is:\n" ++ (pretty . ttSchema $ tt)
+
+    -- Decompose type as '(i, s) -> (o, s)' and return 's'.
+    getStateType :: SharedTerm s -> IO FiniteType
+    getStateType ty = do
+      ty' <- scWhnf sc ty
+      case ty' of
+        (asPi -> Just (_nm, tp, body)) ->
+          -- NB: if we get unexpected "state types are different"
+          -- failures here than we need to 'scWhnf sc' before calling
+          -- 'asFiniteType'.
+          case (asFiniteTypePure tp, asFiniteTypePure body) of
+            (Just dom, Just rng) ->
+              case (dom, rng) of
+                (FTTuple [_i, s], FTTuple [_o, s']) ->
+                  if s == s' then
+                    return s
+                  else
+                    die "state types are different"
+                _ -> die "domain or range not a tuple type"
+            _ -> die "domain or range not finite width"
+        _ -> die "not a function type"
 
 -- | Like @writeAIG@, but takes an additional 'Integer' argument
 -- specifying the number of input and output bits to be interpreted as

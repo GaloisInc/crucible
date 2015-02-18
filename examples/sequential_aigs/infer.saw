@@ -1,0 +1,23 @@
+// Tests for 'SAWScript.Builtins.writeSAIGInferLatches'.
+
+let f = {{ \(x:[8], y:[8]) -> (y, x) }};
+write_saig "/tmp/infer.f.aig" f;
+
+let g = {{ \((i1:[1], i2:[1]), (s1:[1], s2:[1])) -> ((s2, i1), (i2, s1)) }};
+write_saig "/tmp/infer.g.aig" g;
+
+let h = {{ \(i:[0], (s1:[1], s2:[1], s3:[1])) -> (zero:[0], (s3, s1, s2)) }};
+write_saig "/tmp/infer.h.aig" h;
+
+// Not a tuple type:
+//let fail = {{ \(x:[8]) -> x }};
+
+// Input and output states are different types.
+//let fail = {{ \(i:[4], s:[8]) -> (s, i) }};
+
+// Not a function.
+//let fail = {{ zero:[8] }};
+
+// Domain or range not finite width.
+let fail = {{ \x -> x }};
+write_saig "/tmp/infer.fail.aig" fail;
