@@ -521,6 +521,12 @@ primitives = Map.fromList
     (scVal satPrintPrim)
     [ "TODO" ]
 
+  , prim "qc_print"            "Int -> Term -> TopLevel ()"
+    (scVal quickCheckPrintPrim)
+    [ "Quick Check term and print the results."
+    , "The 'Int' arg specifies how many tests to run."
+    ]
+
   , prim "unfolding"           "[String] -> ProofScript ()"
     (scVal unfoldGoal)
     [ "TODO" ]

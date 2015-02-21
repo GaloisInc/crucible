@@ -22,9 +22,9 @@ import qualified Data.Vector as V
 import System.Directory
 import System.IO
 import System.Process
+import System.Random.TF (newTFGen)
 -- import Text.PrettyPrint.Leijen hiding ((<$>))
 import Text.Read
-
 
 
 import qualified Verifier.Java.Codebase as JSS
@@ -45,6 +45,7 @@ import Verifier.SAW.SharedTerm
 import qualified Verifier.SAW.Simulator.Concrete as Concrete
 import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
+import Verifier.SAW.Testing.Random (scRunTests, scTestableType)
 import Verifier.SAW.TypedAST hiding (instantiateVarList)
 
 import qualified SAWScript.SBVParser as SBV
@@ -669,6 +670,27 @@ satPrim _sc script t = do
 satPrintPrim :: SharedContext s -> ProofScript s SV.SatResult
              -> TypedTerm s -> IO ()
 satPrintPrim _sc script t = print =<< satPrim _sc script t
+
+-- | Quick check (random test) a term and print the result. The
+-- 'Integer' parameter is the number of random tests to run.
+quickCheckPrintPrim :: SharedContext s -> Integer -> TypedTerm s -> IO ()
+quickCheckPrintPrim sc numTests tt = do
+  let tm = ttTerm tt
+  ty <- scTypeOf sc tm
+  maybeInputs <- scTestableType sc ty
+  case maybeInputs of
+    Just inputs -> do
+      g <- newTFGen
+      let sz = undefined
+      (result, _g') <- scRunTests sc numTests tm inputs sz g
+      case result of
+        Nothing -> putStrLn $ "All " ++ show numTests ++ " tests passed!"
+        Just counterExample -> putStrLn $
+          "At least one test failed! Counter example:\n" ++
+          showList counterExample ""
+    Nothing -> fail $ "quickCheckPrintPrim:\n" ++
+      "term has non-testable type:\n" ++
+      pretty (ttSchema tt)
 
 cryptolSimpset :: SharedContext s -> IO (Simpset (SharedTerm s))
 cryptolSimpset sc = scSimpset sc cryptolDefs [] []
