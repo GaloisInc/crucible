@@ -30,3 +30,12 @@ equiv sm1 sm2 is = all [ o1 == o2 | o1 <- eval sm1 is | o2 <- eval sm2 is ]
   all xs = its ! 0
     where
     its = [True] # [ x && it | x <- xs | it <- its ]
+
+// Because the initial state is always seeded with 'zero : s', it's
+// common to have boilerplate code which sets up the "real" initial state.
+// This combinator takes the place of that boilerplate.
+init_with : {i, o, s} s -> SM i o s -> SM i o (Bool, s)
+init_with s_initial sm (i, (started, s)) = (o, (True, s''))
+  where
+  s' = if started then s else s_initial
+  (o, s'') = sm (i, s')
