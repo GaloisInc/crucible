@@ -478,6 +478,10 @@ primitives = Map.fromList
     , "bits to a finite number of bits. The type must be of the form"
     , "'(i, s) -> (o, s)' and is interpreted as an '[|i| + |s|] -> [|o| + |s|]'"
     , "AIG with '|s|' latches."
+    , ""
+    , "Arguments:"
+    , "  file to translation to : String"
+    , "  function to translate to sequential AIG : Term"
     ]
 
   , prim "write_saig'"         "String -> Term -> Term -> TopLevel ()"
@@ -487,6 +491,11 @@ primitives = Map.fromList
     , "bits to a finite number of bits, '[m] -> [n]'. The int argument,"
     , "'k', must be at most 'min {m, n}', and specifies that the *last* 'k'"
     , "input and output bits are joined as latches."
+    , ""
+    , "Arguments:"
+    , "  file to translation to : String"
+    , "  number of latches : Term"
+    , "  function to translate to sequential AIG : Term"
     ]
 
   , prim "write_cnf"           "String -> Term -> TopLevel ()"
