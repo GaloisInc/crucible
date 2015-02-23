@@ -681,8 +681,7 @@ quickCheckPrintPrim sc numTests tt = do
   case maybeInputs of
     Just inputs -> do
       g <- newTFGen
-      let sz = undefined
-      (result, _g') <- scRunTests sc numTests tm inputs sz g
+      (result, _g') <- scRunTests sc numTests tm inputs g
       case result of
         Nothing -> putStrLn $ "All " ++ show numTests ++ " tests passed!"
         Just counterExample -> putStrLn $
