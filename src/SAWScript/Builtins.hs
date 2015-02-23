@@ -22,7 +22,6 @@ import qualified Data.Vector as V
 import System.Directory
 import System.IO
 import System.Process
-import System.Random.TF (newTFGen)
 -- import Text.PrettyPrint.Leijen hiding ((<$>))
 import Text.Read
 
@@ -45,7 +44,7 @@ import Verifier.SAW.SharedTerm
 import qualified Verifier.SAW.Simulator.Concrete as Concrete
 import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
-import Verifier.SAW.Testing.Random (scRunTests, scTestableType)
+import Verifier.SAW.Testing.Random (scRunTestsTFIO, scTestableType)
 import Verifier.SAW.TypedAST hiding (instantiateVarList)
 
 import qualified SAWScript.SBVParser as SBV
@@ -680,8 +679,7 @@ quickCheckPrintPrim sc numTests tt = do
   maybeInputs <- scTestableType sc ty
   case maybeInputs of
     Just inputs -> do
-      g <- newTFGen
-      (result, _g') <- scRunTests sc numTests tm inputs g
+      result <- scRunTestsTFIO sc numTests tm inputs
       case result of
         Nothing -> putStrLn $ "All " ++ show numTests ++ " tests passed!"
         Just counterExample -> putStrLn $
