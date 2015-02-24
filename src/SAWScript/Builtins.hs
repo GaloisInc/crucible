@@ -21,8 +21,10 @@ import Data.Maybe
 import qualified Data.Vector as V
 import System.Directory
 import System.IO
+import System.IO.Temp (withSystemTempFile)
 import System.Process
 -- import Text.PrettyPrint.Leijen hiding ((<$>))
+import Text.Printf (printf)
 import Text.Read
 
 
@@ -137,6 +139,26 @@ readSBV path unintlst =
 withBE :: (forall s . ABC.GIA s -> IO a) -> IO a
 withBE f = do
   ABC.withNewGraph ABC.giaNetwork f
+
+-- | Use ABC's 'dsec' command to equivalence check to terms
+-- representing SAIGs. Note that nothing is returned; you must read
+-- the output to see what happened.
+--
+-- TODO: this is a first version. The interface can be improved later,
+-- but I don't want too worry to much about generalization before I
+-- have more examples. It might be an improvement to take SAIGs as
+-- arguments, in the style of 'cecPrim' below. This would require
+-- support for latches in the 'AIGNetwork' SAWScript type.
+dsecPrint :: SharedContext s -> TypedTerm s -> TypedTerm s -> IO ()
+dsecPrint sc t1 t2 = do
+  withSystemTempFile ".aig" $ \path1 _handle1 -> do
+  withSystemTempFile ".aig" $ \path2 _handle2 -> do
+  writeSAIGInferLatches sc path1 t1
+  writeSAIGInferLatches sc path2 t2
+  callCommand (abcDsec path1 path2)
+  where
+    -- The '-w' here may be overkill ...
+    abcDsec path1 path2 = printf "abc -c 'read %s; dsec -v -w %s;'" path1 path2
 
 cecPrim :: AIGNetwork -> AIGNetwork -> TopLevel SV.ProofResult
 cecPrim x y = do

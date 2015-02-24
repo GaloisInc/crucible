@@ -444,6 +444,16 @@ primitives = Map.fromList
     (pureVal loadAIGPrim)
     [ "Read an AIG file in binary AIGER format." ]
 
+  , prim "dsec_print"                "Term -> Term -> TopLevel ()"
+    (scVal dsecPrint)
+    [ "Use ABC's 'dsec' command to compare two terms as SAIGs."
+    , "The terms must have a type as described in ':help write_saig',"
+    , "i.e. of the form '(i, s) -> (o, s)'. Note that nothing is returned:"
+    , "you must read the output to see what happened."
+    , ""
+    , "You must have an 'abc' executable on your PATH to use this command."
+    ]
+
   , prim "cec"                 "AIG -> AIG -> TopLevel ProofResult"
     (pureVal cecPrim)
     [ "Perform a Combinitorial Equivalance Check between two AIGs."
