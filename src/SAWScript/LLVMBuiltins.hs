@@ -92,7 +92,7 @@ writeLLVMTerm dl (Term e) t = do
     Deref ae ty -> do
       addr <- readLLVMTerm dl ae
       store ty addr t (memTypeAlign dl ty)
-    StructField _ _ _ -> fail "Struct fields not yet supported."
+    StructField _ _ _ _ -> fail "Struct fields not yet supported."
     ReturnValue _ -> fail "Can't write to return value."
 
 readLLVMTerm :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
@@ -106,7 +106,7 @@ readLLVMTerm dl (Term e) =
     Deref ae ty -> do
       addr <- readLLVMTerm dl ae
       load ty addr (memTypeAlign dl ty)
-    StructField _ _ _ -> fail "Struct fields not yet supported."
+    StructField _ _ _ _ -> fail "Struct fields not yet supported."
     ReturnValue _ -> do
       rslt <- getProgramReturnValue
       case rslt of
@@ -352,7 +352,7 @@ parseLLVMExpr cb fn str = runParserT parseExpr () "expr" str
         (StructType si, Just (n :: Int))
           | n < siFieldCount si -> do
             let ty = fiType (siFields si V.! n)
-            return (Term (StructField e n ty))
+            return (Term (StructField e si n ty))
           | otherwise -> fail $ "Field out of range: " ++ show n
         (_, Just _) -> fail "Attempting to apply . operation to non-struct"
         (_, Nothing) -> fail "Attempting to apply . operation to invalid field"
@@ -366,7 +366,7 @@ parseLLVMExpr cb fn str = runParserT parseExpr () "expr" str
           | n < siFieldCount si -> do
             let e = Term (Deref re sty)
                 ty = fiType (siFields si V.! n)
-            return (Term (StructField e n ty))
+            return (Term (StructField e si n ty))
           | otherwise -> fail $ "Field out of range: " ++ show n
         (_, Just _) ->
           fail "Attempting to apply -> operation to invalid operand"

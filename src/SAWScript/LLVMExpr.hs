@@ -60,7 +60,7 @@ data LLVMExprF v
   = Arg Int LSS.Ident LLVMActualType
   | Global LSS.Symbol LLVMActualType
   | Deref v LLVMActualType
-  | StructField v Int LLVMActualType
+  | StructField v LSS.StructInfo Int LLVMActualType
   | ReturnValue LLVMActualType
   deriving (Functor, CC.Foldable, CC.Traversable)
 
@@ -68,7 +68,7 @@ instance CC.EqFoldable LLVMExprF where
   fequal (Arg i _ _)(Arg j _ _) = i == j
   fequal (Global x _)(Global y _) = x == y
   fequal (Deref e _) (Deref e' _) = e == e'
-  fequal (StructField xr xi _) (StructField yr yi _) = xi == yi && (xr == yr)
+  fequal (StructField xr _ xi _) (StructField yr _ yi _) = xi == yi && (xr == yr)
   fequal (ReturnValue _) (ReturnValue _) = True
   fequal _ _ = False
 
@@ -82,19 +82,19 @@ instance CC.OrdFoldable LLVMExprF where
   Deref e _  `fcompare` Deref e' _   = e `compare` e'
   Deref _ _  `fcompare` _            = LT
   _          `fcompare` Deref _ _    = GT
-  StructField r1 f1 _ `fcompare` StructField r2 f2 _ =
+  StructField r1 _ f1 _ `fcompare` StructField r2 _ f2 _ =
         case r1 `compare` r2 of
           EQ -> f1 `compare` f2
           r  -> r
-  StructField _ _ _ `fcompare` _           = LT
-  _          `fcompare` StructField _ _ _  = GT
+  StructField _ _ _ _ `fcompare` _           = LT
+  _          `fcompare` StructField _ _ _ _ = GT
   (ReturnValue _) `fcompare` (ReturnValue _) = EQ
 
 instance CC.ShowFoldable LLVMExprF where
   fshow (Arg _ nm _) = show nm
   fshow (Global nm _) = show nm
   fshow (Deref e _) = "*(" ++ show e ++ ")"
-  fshow (StructField r f _) = show r ++ "." ++ show f
+  fshow (StructField r _ f _) = show r ++ "." ++ show f
   fshow (ReturnValue _) = "return"
 
 -- | Typechecked LLVMExpr
@@ -107,7 +107,7 @@ ppLLVMExpr (CC.Term exprF) =
     Arg _ nm _ -> text (show nm)
     Global nm _ -> LSS.ppSymbol nm
     Deref e _ -> char '*' <> parens (ppLLVMExpr e)
-    StructField r f _ -> ppLLVMExpr r <> char '.' <> text (show f)
+    StructField r _ f _ -> ppLLVMExpr r <> char '.' <> text (show f)
     ReturnValue _ -> text "return"
 
 -- | Returns LSS Type of LLVMExpr
@@ -117,7 +117,7 @@ lssTypeOfLLVMExpr (CC.Term exprF) =
     Arg _ _ tp -> tp
     Global _ tp -> tp
     Deref _ tp -> tp
-    StructField _ _ tp -> tp
+    StructField _ _ _ tp -> tp
     ReturnValue tp -> tp
 
 updateLLVMExprType :: LLVMExpr -> LSS.MemType -> LLVMExpr
@@ -126,7 +126,7 @@ updateLLVMExprType (CC.Term exprF) tp = CC.Term $
     Arg i n _ -> Arg i n tp
     Global n _ -> Global n tp
     Deref e _ -> Deref e tp
-    StructField r i _ -> StructField r i tp
+    StructField r si i _ -> StructField r si i tp
     ReturnValue _ -> ReturnValue tp
 
 -- | Returns true if expression is a pointer.
