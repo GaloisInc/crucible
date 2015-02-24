@@ -21,10 +21,11 @@ import Data.Maybe
 import qualified Data.Vector as V
 import System.Directory
 import System.IO
+import System.IO.Temp (withSystemTempFile)
 import System.Process
 -- import Text.PrettyPrint.Leijen hiding ((<$>))
+import Text.Printf (printf)
 import Text.Read
-
 
 
 import qualified Verifier.Java.Codebase as JSS
@@ -45,6 +46,7 @@ import Verifier.SAW.SharedTerm
 import qualified Verifier.SAW.Simulator.Concrete as Concrete
 import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
+import Verifier.SAW.Testing.Random (scRunTestsTFIO, scTestableType)
 import Verifier.SAW.TypedAST hiding (instantiateVarList)
 
 import qualified SAWScript.SBVParser as SBV
@@ -137,6 +139,26 @@ readSBV path unintlst =
 withBE :: (forall s . ABC.GIA s -> IO a) -> IO a
 withBE f = do
   ABC.withNewGraph ABC.giaNetwork f
+
+-- | Use ABC's 'dsec' command to equivalence check to terms
+-- representing SAIGs. Note that nothing is returned; you must read
+-- the output to see what happened.
+--
+-- TODO: this is a first version. The interface can be improved later,
+-- but I don't want too worry to much about generalization before I
+-- have more examples. It might be an improvement to take SAIGs as
+-- arguments, in the style of 'cecPrim' below. This would require
+-- support for latches in the 'AIGNetwork' SAWScript type.
+dsecPrint :: SharedContext s -> TypedTerm s -> TypedTerm s -> IO ()
+dsecPrint sc t1 t2 = do
+  withSystemTempFile ".aig" $ \path1 _handle1 -> do
+  withSystemTempFile ".aig" $ \path2 _handle2 -> do
+  writeSAIGInferLatches sc path1 t1
+  writeSAIGInferLatches sc path2 t2
+  callCommand (abcDsec path1 path2)
+  where
+    -- The '-w' here may be overkill ...
+    abcDsec path1 path2 = printf "abc -c 'read %s; dsec -v -w %s;'" path1 path2
 
 cecPrim :: AIGNetwork -> AIGNetwork -> TopLevel SV.ProofResult
 cecPrim x y = do
@@ -669,6 +691,25 @@ satPrim _sc script t = do
 satPrintPrim :: SharedContext s -> ProofScript s SV.SatResult
              -> TypedTerm s -> IO ()
 satPrintPrim _sc script t = print =<< satPrim _sc script t
+
+-- | Quick check (random test) a term and print the result. The
+-- 'Integer' parameter is the number of random tests to run.
+quickCheckPrintPrim :: SharedContext s -> Integer -> TypedTerm s -> IO ()
+quickCheckPrintPrim sc numTests tt = do
+  let tm = ttTerm tt
+  ty <- scTypeOf sc tm
+  maybeInputs <- scTestableType sc ty
+  case maybeInputs of
+    Just inputs -> do
+      result <- scRunTestsTFIO sc numTests tm inputs
+      case result of
+        Nothing -> putStrLn $ "All " ++ show numTests ++ " tests passed!"
+        Just counterExample -> putStrLn $
+          "At least one test failed! Counter example:\n" ++
+          showList counterExample ""
+    Nothing -> fail $ "quickCheckPrintPrim:\n" ++
+      "term has non-testable type:\n" ++
+      pretty (ttSchema tt)
 
 cryptolSimpset :: SharedContext s -> IO (Simpset (SharedTerm s))
 cryptolSimpset sc = scSimpset sc cryptolDefs [] []

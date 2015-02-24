@@ -17,14 +17,13 @@ import StateMachine
 // step or not; the sequential circuit gets seeded with all zero
 // bits.
 
-fib1 : ([1], ([1], [8], [8])) -> ([8], ([1], [8], [8]))
-fib1 (_, (start, fn, fn1)) = (fn, (1, fn1', fn2))
+fib1_no_init : ([1], ([8], [8])) -> ([8], ([8], [8]))
+fib1_no_init (_, (fn, fn1)) = (fn, (fn1, fn2))
   where
-  fn1' = if start == 0 then 1 else fn1
-  fn2 = fn + fn1'
+  fn2 = fn + fn1
 
+fib1 = init_with (0, 1) fib1_no_init
 fib1_state_bits = 1 + 8 + 8 : [8]
-
 
 fib2 : ([1], ([1], [16], [16])) -> ([8], ([1], [16], [16]))
 fib2 (_, (start, fn , fn1)) = (fn', (1, fn1', fn2))
@@ -38,15 +37,18 @@ fib2_state_bits = 1 + 16 + 16 : [8]
 
 // Make a buggy version of fib state machine which returns wrong value
 // when state counter has magic value.
-mk_buggy_fib : {a} (fin a, a >= 1) => [a] ->
-  ([1], ([1], [8], [8], [a])) -> ([8], ([1], [8], [8], [a]))
-mk_buggy_fib magic (_, (start, fn, fn1, k)) = (fn', (1, fn1', fn2, k+1))
+//
+// If this were a common pattern for example generation, we could
+// make a "magic-value bug" combinator in the style of 'init_with'.
+mk_buggy_fib_no_init : {a} (fin a, a >= 1) => [a] ->
+  ([1], ([8], [8], [a])) -> ([8], ([8], [8], [a]))
+mk_buggy_fib_no_init magic (_, (fn, fn1, k)) = (fn', (fn1, fn2, k+1))
   where
-  fn1' = if start == 0 then 1 else fn1
-  fn2 = fn + fn1'
+  fn2 = fn + fn1
   // Change output when state has magic value.
   fn' = fn + if k == magic then 1 else 0
 
+mk_buggy_fib magic = init_with (0, 1, 0) (mk_buggy_fib_no_init magic)
 count_buggy_state_bits : {a} (fin a, width a <= 7) => [a] -> [8]
 count_buggy_state_bits magic = 1 + 8 + 8 + `a
 

@@ -444,6 +444,16 @@ primitives = Map.fromList
     (pureVal loadAIGPrim)
     [ "Read an AIG file in binary AIGER format." ]
 
+  , prim "dsec_print"                "Term -> Term -> TopLevel ()"
+    (scVal dsecPrint)
+    [ "Use ABC's 'dsec' command to compare two terms as SAIGs."
+    , "The terms must have a type as described in ':help write_saig',"
+    , "i.e. of the form '(i, s) -> (o, s)'. Note that nothing is returned:"
+    , "you must read the output to see what happened."
+    , ""
+    , "You must have an 'abc' executable on your PATH to use this command."
+    ]
+
   , prim "cec"                 "AIG -> AIG -> TopLevel ProofResult"
     (pureVal cecPrim)
     [ "Perform a Combinitorial Equivalance Check between two AIGs."
@@ -478,6 +488,10 @@ primitives = Map.fromList
     , "bits to a finite number of bits. The type must be of the form"
     , "'(i, s) -> (o, s)' and is interpreted as an '[|i| + |s|] -> [|o| + |s|]'"
     , "AIG with '|s|' latches."
+    , ""
+    , "Arguments:"
+    , "  file to translation to : String"
+    , "  function to translate to sequential AIG : Term"
     ]
 
   , prim "write_saig'"         "String -> Term -> Term -> TopLevel ()"
@@ -487,6 +501,11 @@ primitives = Map.fromList
     , "bits to a finite number of bits, '[m] -> [n]'. The int argument,"
     , "'k', must be at most 'min {m, n}', and specifies that the *last* 'k'"
     , "input and output bits are joined as latches."
+    , ""
+    , "Arguments:"
+    , "  file to translation to : String"
+    , "  number of latches : Term"
+    , "  function to translate to sequential AIG : Term"
     ]
 
   , prim "write_cnf"           "String -> Term -> TopLevel ()"
@@ -520,6 +539,12 @@ primitives = Map.fromList
   , prim "sat_print"           "{b} ProofScript b -> Term -> TopLevel ()"
     (scVal satPrintPrim)
     [ "TODO" ]
+
+  , prim "qc_print"            "Int -> Term -> TopLevel ()"
+    (scVal quickCheckPrintPrim)
+    [ "Quick Check term and print the results."
+    , "The 'Int' arg specifies how many tests to run."
+    ]
 
   , prim "unfolding"           "[String] -> ProofScript ()"
     (scVal unfoldGoal)

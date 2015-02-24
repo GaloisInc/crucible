@@ -1,5 +1,11 @@
 import "fib.cry";
 
+// Run ABC in a subprocess.
+
+dsec_print {{ mk_buggy_fib (~zero:[10]) }} {{ fib1 }};
+
+// Write .aig's to disk.
+
 write_saig' "tmp/fib1'.aig" {{ fib1 }} {{ fib1_state_bits }};
 write_saig  "tmp/fib1.aig" {{ fib1 }};
 write_saig' "tmp/fib2'.aig" {{ fib2 }} {{ fib2_state_bits }};
