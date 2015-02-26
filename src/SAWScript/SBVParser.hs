@@ -119,9 +119,13 @@ parseSBVExpr sc unint nodes size (SBV.SBVApp operator sbvs) =
                    do putStrLn ("WARNING: unknown uninterpreted function " ++ show (name, typ, size))
                       putStrLn ("Using Prelude." ++ name)
                       scGlobalDef sc (mkIdent preludeName name)
-             (_inSizes, args) <- liftM unzip $ mapM (parseSBV sc nodes) sbvs
-             let (TFun inTyp outTyp) = typ
-             -- unless (typSizes inTyp == inSizes) (putStrLn ("ERROR parseSBVPgm: input size mismatch in " ++ name) >> print inTyp >> print inSizes)
+             args <- mapM (parseSBV sc nodes) sbvs
+             let inSizes = map fst args
+                 (TFun inTyp outTyp) = typ
+             unless (sum (typSizes inTyp) == sum (map fromIntegral inSizes)) $ do
+               putStrLn ("ERROR parseSBVPgm: input size mismatch in " ++ name)
+               print inTyp
+               print inSizes
              argument <- combineOutputs sc inTyp args
              result <- scApply sc t argument
              results <- splitInputs sc outTyp result
@@ -270,25 +274,40 @@ splitInputs sc (TRecord fields) x =
 ----------------------------------------------------------------------
 
 -- | Combines outputs into a data structure according to Typ
-combineOutputs :: forall s. SharedContext s -> Typ -> [SharedTerm s] -> IO (SharedTerm s)
+combineOutputs :: forall s. SharedContext s -> Typ -> [(Nat, SharedTerm s)]
+               -> IO (SharedTerm s)
 combineOutputs sc ty xs0 =
     do (z, ys) <- runStateT (go ty) xs0
-       unless (null ys) (fail "combineOutputs: too many outputs")
+       unless (null ys) (fail $ "combineOutputs: too many outputs: " ++
+                                show (length ys) ++ " remaining")
        return z
     where
-      pop :: StateT [SharedTerm s] IO (SharedTerm s)
+      pop :: StateT [(Nat, SharedTerm s)] IO (Nat, SharedTerm s)
       pop = do xs <- get
                case xs of
                  [] -> fail "combineOutputs: too few outputs"
                  y : ys -> put ys >> return y
-      go :: Typ -> StateT [SharedTerm s] IO (SharedTerm s)
+      go :: Typ -> StateT [(Nat, SharedTerm s)] IO (SharedTerm s)
       go TBool =
-          do x <- pop
+          do (_, x) <- pop
              lift (scBv1ToBool sc x)
       go (TTuple ts) =
           do xs <- mapM go ts
              lift (scTuple sc xs)
-      go (TVec _ TBool) = pop
+      go (TVec n TBool) =
+          do (n', x) <- pop
+             case () of
+               () | n' == fromIntegral n -> return x
+                  | n' == 1 ->
+                    do xs <- replicateM (fromIntegral n - 1) pop
+                       boolTy <- lift (scBoolType sc)
+                       let totSize = sum (1 : map fst xs)
+                       unless (totSize == fromIntegral n) $
+                         fail $ "combineOutputs: can't read SBV bitvector: " ++
+                                show totSize ++ " doesn't equal " ++ show n
+                       lift (scVector sc boolTy (x : map snd xs))
+                  | otherwise -> fail $ "combineOutputs: can't read SBV bitvector from " ++
+                                        show n' ++ " arguments"
       go (TVec n t) =
           do xs <- replicateM (fromIntegral n) (go t)
              ety <- lift (scTyp sc t)
@@ -320,7 +339,7 @@ parseSBVPgm sc unint (SBV.SBVPgm (_version, irtype, revcmds, _vcs, _warnings, _u
        let nodes0 = Map.fromList (zip inNodes inputTerms)
        nodes <- foldM (parseSBVAssign sc unint) nodes0 assigns
        --putStrLn "collecting output..."
-       outputTerms <- mapM (liftM snd . parseSBV sc nodes) outputs
+       outputTerms <- mapM (parseSBV sc nodes) outputs
        outputTerm <- combineOutputs sc outTyp outputTerms
        scLambda sc "x" inputType outputTerm
 
