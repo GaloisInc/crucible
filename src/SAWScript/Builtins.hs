@@ -9,6 +9,7 @@
 {-# LANGUAGE DoAndIfThenElse #-}
 module SAWScript.Builtins where
 
+import Data.Functor
 import Data.Foldable (toList)
 import Control.Applicative
 import Control.Lens
@@ -200,6 +201,73 @@ readAIGPrim f = do
   case et of
     Left err -> fail $ "Reading AIG failed: " ++ err
     Right t -> io $ mkTypedTerm sc t
+
+replacePrim :: TypedTerm SAWCtx
+            -> TypedTerm SAWCtx
+            -> TypedTerm SAWCtx
+            -> TopLevel (TypedTerm SAWCtx)
+replacePrim pat replace t = do
+  sc <- getSharedContext
+
+  let tpat  = ttTerm pat
+  let trepl = ttTerm replace
+
+  let fvpat = looseVars tpat
+  let fvrepl = looseVars trepl
+
+  unless (fvpat == 0) $ fail $ unlines
+    [ "pattern term is not closed", show tpat ]
+
+  unless (fvrepl == 0) $ fail $ unlines
+    [ "replacement term is not closed", show trepl ]
+
+  io $ do
+    ty1 <- scTypeOf sc tpat
+    ty2 <- scTypeOf sc trepl
+    c <- scConvertable sc False ty1 ty2
+    unless c $ fail $ unlines
+      [ "terms do not have convertable types", show tpat, show ty1, show trepl, show ty2 ]
+
+  let ss = emptySimpset
+  t' <- io $ replaceTerm sc ss (tpat, trepl) (ttTerm t)
+
+  io $ do
+    ty  <- scTypeOf sc (ttTerm t)
+    ty' <- scTypeOf sc t'
+    c' <- scConvertable sc False ty ty'
+    unless c' $ fail $ unlines
+      [ "term does not have the same type after replacement", show ty, show ty' ]
+
+  return t{ ttTerm = t' }
+
+
+hoistIfsPrim :: TypedTerm SAWCtx
+             -> TopLevel (TypedTerm SAWCtx)
+hoistIfsPrim t = do
+  sc <- getSharedContext
+  t' <- io $ hoistIfs sc (ttTerm t)
+
+  io $ do
+    ty  <- scTypeOf sc (ttTerm t)
+    ty' <- scTypeOf sc t'
+    c' <- scConvertable sc False ty ty'
+    unless c' $ fail $ unlines
+      [ "term does not have the same type after hoisting ifs", show ty, show ty' ]
+
+  return t{ ttTerm = t' }
+
+
+
+checkConvertablePrim :: TypedTerm SAWCtx
+                     -> TypedTerm SAWCtx
+                     -> TopLevel ()
+checkConvertablePrim x y = do
+   sc <- getSharedContext
+   io $ do
+     c <- scConvertable sc False (ttTerm x) (ttTerm y)
+     if c
+       then putStrLn "Convertable"
+       else putStrLn "Not convertable"
 
 {-
 -- | Apply some rewrite rules before exporting, to ensure that terms

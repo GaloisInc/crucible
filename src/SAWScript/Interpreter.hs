@@ -432,6 +432,18 @@ primitives = Map.fromList
     (pureVal sbvUninterpreted)
     [ "TODO" ]
 
+  , prim "check_convertable"  "Term -> Term -> TopLevel ()"
+    (pureVal checkConvertablePrim)
+    [ "Check if two terms are convertable" ]
+
+  , prim "replace"             "Term -> Term -> Term -> TopLevel Term"
+    (pureVal replacePrim)
+    [ "'replace x y z' rewrites occurences of term x into y inside the term z.  x and y must be closed terms." ]
+
+  , prim "hoist_ifs"            "Term -> TopLevel Term"
+    (pureVal hoistIfsPrim)
+    [ "Hoist all if-then-else expressions as high as possible" ]
+
   , prim "read_bytes"          "String -> TopLevel Term"
     (pureVal readBytes)
     [ "Read binary file as a value of type [n][8]" ]
