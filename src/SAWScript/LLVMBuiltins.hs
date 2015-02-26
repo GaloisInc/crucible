@@ -296,10 +296,10 @@ parseLLVMExpr cb fn str = runParserT parseExpr () "expr" str
     numArgs = zipWith (\(i, ty) n -> (i, (n, ty))) args [(0::Int)..]
     parseExpr :: LLVMExprParser LLVMExpr
     parseExpr = choice [ parseReturn
+                       , parseVar
                        , parseDeref
                        , parseParens
                        , parseArgs
-                       , parseVar
                        , parseDirectField
                        , parseDerefField
                        ]
