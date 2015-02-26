@@ -533,8 +533,9 @@ exportJavaType cb jty =
     JavaFloat       -> fail "exportJavaType: Can't translate float type"
     JavaDouble      -> fail "exportJavaType: Can't translate double type"
     JavaArray n t   -> ArrayInstance (fromIntegral n) <$> exportJSSType t
-    JavaClass name  -> do cls <- liftIO $ lookupClass cb fixPos name
-                          return (ClassInstance cls)
+    JavaClass name  ->
+      do cls <- liftIO $ lookupClass cb fixPos (dotsToSlashes name)
+         return (ClassInstance cls)
 
 checkCompatibleExpr :: SharedContext s -> String -> JavaExpr -> SharedTerm s
                     -> JavaSetup ()
