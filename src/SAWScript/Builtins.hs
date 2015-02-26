@@ -781,7 +781,9 @@ quickCheckPrintPrim sc numTests tt = do
 
 cryptolSimpset :: SharedContext s -> IO (Simpset (SharedTerm s))
 cryptolSimpset sc = scSimpset sc cryptolDefs [] []
-  where cryptolDefs = moduleDefs CryptolSAW.cryptolModule
+  where cryptolDefs = filter (not . excluded) $
+                      moduleDefs CryptolSAW.cryptolModule
+        excluded d = defIdent d `elem` [ "Cryptol.fix" ]
 
 addPreludeEqs :: SharedContext s -> [String] -> Simpset (SharedTerm s)
               -> IO (Simpset (SharedTerm s))
@@ -789,6 +791,13 @@ addPreludeEqs sc names ss = do
   eqRules <- mapM (scEqRewriteRule sc) (map qualify names)
   return (addRules eqRules ss)
     where qualify = mkIdent (mkModuleName ["Prelude"])
+
+addCryptolEqs :: SharedContext s -> [String] -> Simpset (SharedTerm s)
+              -> IO (Simpset (SharedTerm s))
+addCryptolEqs sc names ss = do
+  eqRules <- mapM (scEqRewriteRule sc) (map qualify names)
+  return (addRules eqRules ss)
+    where qualify = mkIdent (mkModuleName ["Cryptol"])
 
 addPreludeDefs :: SharedContext s -> [String] -> Simpset (SharedTerm s)
               -> IO (Simpset (SharedTerm s))

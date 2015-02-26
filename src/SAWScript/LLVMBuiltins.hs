@@ -6,13 +6,14 @@
 {-# LANGUAGE TypeFamilies #-}
 module SAWScript.LLVMBuiltins where
 
-import Control.Applicative
+import Control.Applicative hiding (many)
 import Control.Monad.State hiding (mapM)
 import Data.List (partition)
-import Data.List.Split
 import qualified Data.Map as Map
 import Data.String
-import Text.PrettyPrint.HughesPJ
+import qualified Data.Vector as V
+import Text.Parsec as P
+import Text.PrettyPrint.HughesPJ as PP
 import Text.Read (readMaybe)
 
 import Text.LLVM ( modTypes, modGlobals, modDeclares, modDefines, modDataLayout
@@ -65,7 +66,7 @@ browseLLVMModule (LLVMModule name m) = do
     where
       showParts pp xs = mapM_ (print . nest 2 . pp) xs
       ppGlobal' g =
-        ppSymbol (globalSym g) <+> char '=' <+>
+        ppSymbol (globalSym g) <+> PP.char '=' <+>
         ppGlobalAttrs (globalAttrs g) <+>
         ppType (globalType g)
       ppDefine' d =
@@ -132,7 +133,7 @@ symexecLLVM bic opts (LLVMModule file mdl) fname inputs outputs = do
       Just md -> runSimulator cb sbe mem Nothing $ do
         setVerbosity (simVerbose opts)
         let mkAssign (s, tm) = do
-              e <- liftIO $ parseLLVMExpr cb md s
+              e <- failLeft $ liftIO $ parseLLVMExpr cb md s
               return (e, tm)
             maxArg = length (sdArgs md) - 1
             isArg (Term (Arg _ _ _)) = True
@@ -151,7 +152,7 @@ symexecLLVM bic opts (LLVMModule file mdl) fname inputs outputs = do
                   maybe (noDefErr i) return $ Map.lookup i argMap
         mapM_ (uncurry (writeLLVMTerm dl)) otherAssigns
         _ <- callDefine sym (sdRetType md) args
-        outexprs <- liftIO $ mapM (parseLLVMExpr cb md) outputs
+        outexprs <- liftIO $ mapM (failLeft . parseLLVMExpr cb md) outputs
         outtms <- mapM (readLLVMTerm dl) outexprs
         let bundle tms = case tms of
                            [t] -> return t
@@ -280,49 +281,97 @@ showCexResults sc ms vs vals = do
 llvmPure :: LLVMSetup ()
 llvmPure = return ()
 
+type LLVMExprParser a = ParsecT String () IO a                  
+
+failLeft :: (Monad m, Show s) => m (Either s a) -> m a
+failLeft act = either (fail . show) return =<< act
+
 parseLLVMExpr :: Codebase (SAWBackend SAWCtx)
               -> SymDefine (SharedTerm SAWCtx)
               -> String
-              -> IO LLVMExpr
-parseLLVMExpr cb fn = parseParts . reverse . splitOn "."
-  where parseParts [] = fail "Empty LLVM expression"
-        parseParts [s] =
-          case s of
-            ('*':rest) -> do
-              e <- parseParts [rest]
-              case lssTypeOfLLVMExpr e of
-                PtrType (MemType ty) -> return (Term (Deref e ty))
-                _ -> fail "Attempting to apply * operation to non-pointer"
-            ('a':'r':'g':'s':'[':rest) -> do
-              let num = fst (break (==']') rest)
-              case readMaybe num of
-                Just (n :: Int)
-                  | n < length numArgs ->
-                    let (i, ty) = args !! n in return (Term (Arg n i ty))
-                  | otherwise ->
-                    fail $ "Argument index too large: " ++ show n
-                Nothing -> fail $ "Bad LLVM expression syntax: " ++ s
-            "return" ->
-              case sdRetType fn of
-                Nothing ->
-                  fail "Function with void return type used with `return` expression."
-                Just ty -> return (Term (ReturnValue ty))
-            _ -> do
-              let nid = fromString s
-              case lookup nid numArgs of
-                Just (n, ty) -> return (Term (Arg n nid ty))
-                Nothing ->
-                  case lookupSym (Symbol s) cb of
-                    Just (Left gb) ->
-                      return (Term (Global (CB.globalSym gb) (CB.globalType gb)))
-                    _ -> fail $ "Unknown variable: " ++ s
-        parseParts (_f:_rest) = fail "struct fields not yet supported" {- do
-          e <- parseParts rest
-          let lt = lssTypeOfLLVMExpr e
-              pos = fixPos -- TODO
-          -}
-        args = sdArgs fn
-        numArgs = zipWith (\(i, ty) n -> (i, (n, ty))) args [0..]
+              -> IO (Either ParseError LLVMExpr)
+parseLLVMExpr cb fn str = runParserT parseExpr () "expr" str
+  where
+    args = sdArgs fn
+    numArgs = zipWith (\(i, ty) n -> (i, (n, ty))) args [(0::Int)..]
+    parseExpr :: LLVMExprParser LLVMExpr
+    parseExpr = choice [ parseReturn
+                       , parseVar
+                       , parseDeref
+                       , parseParens
+                       , parseArgs
+                       , parseDirectField
+                       , parseDerefField
+                       ]
+    alphaUnder = choice [P.letter, P.char '_']
+    parseIdent = (:) <$> alphaUnder <*> many (choice [alphaUnder, P.digit])
+    parseVar = do
+      s <- parseIdent
+      let nid = fromString s
+      case lookup nid numArgs of
+        Just (n, ty) -> return (Term (Arg n nid ty))
+        Nothing ->
+          case lookupSym (Symbol s) cb of
+            Just (Left gb) ->
+              return (Term (Global (CB.globalSym gb) (CB.globalType gb)))
+            _ -> fail $ "Unknown variable: " ++ s
+    parseParens = string "(" *> parseExpr <* string ")"
+    parseReturn = do
+      _ <- string "return"
+      case sdRetType fn of
+        Just ty -> return (Term (ReturnValue ty))
+        Nothing ->
+          fail "Function with void return type used with `return` expression."
+    parseDeref = do
+      _ <- string "*"
+      e <- parseExpr
+      case lssTypeOfLLVMExpr e of
+        PtrType (MemType ty) -> return (Term (Deref e ty))
+        _ -> fail "Attempting to apply * operation to non-pointer"
+    parseArgs :: LLVMExprParser LLVMExpr
+    parseArgs = do
+      _ <- string "args"
+      _ <- string "["
+      ns <- many1 digit
+      e <- case readMaybe ns of
+             Just (n :: Int)
+               | n < length numArgs ->
+                 let (i, ty) = args !! n in return (Term (Arg n i ty))
+               | otherwise ->
+                 fail $ "Argument index too large: " ++ show n
+             Nothing ->
+               fail $ "Using `args` with non-numeric parameter: " ++ ns
+      _ <- string "]"
+      return e
+    parseDirectField :: LLVMExprParser LLVMExpr
+    parseDirectField = do
+      e <- parseExpr
+      _ <- string "."
+      ns <- many1 digit
+      case (lssTypeOfLLVMExpr e, readMaybe ns) of
+        (StructType si, Just (n :: Int))
+          | n < siFieldCount si -> do
+            let ty = fiType (siFields si V.! n)
+            return (Term (StructField e si n ty))
+          | otherwise -> fail $ "Field out of range: " ++ show n
+        (_, Just _) -> fail "Attempting to apply . operation to non-struct"
+        (_, Nothing) -> fail "Attempting to apply . operation to invalid field"
+    parseDerefField :: LLVMExprParser LLVMExpr
+    parseDerefField = do
+      re <- parseExpr
+      _ <- string "->"
+      ns <- many1 digit
+      case (lssTypeOfLLVMExpr re, readMaybe ns) of
+        (PtrType (MemType sty@(StructType si)), Just (n :: Int))
+          | n < siFieldCount si -> do
+            let e = Term (Deref re sty)
+                ty = fiType (siFields si V.! n)
+            return (Term (StructField e si n ty))
+          | otherwise -> fail $ "Field out of range: " ++ show n
+        (_, Just _) ->
+          fail "Attempting to apply -> operation to invalid operand"
+        (_, Nothing) ->
+          fail "Attempting to apply -> operation to invalid field"
 
 getLLVMExpr :: Monad m =>
                LLVMMethodSpecIR -> String
@@ -355,9 +404,10 @@ llvmVar bic _ name lty = do
   funcDef <- case lookupDefine func cb of
                Just fd -> return fd
                Nothing -> fail $ "Function " ++ show func ++ " not found."
-  expr <- liftIO $ parseLLVMExpr cb funcDef name
+  expr <- failLeft $ liftIO $ parseLLVMExpr cb funcDef name
   let expr' = updateLLVMExprType expr lty
-  modify $ \st -> st { lsSpec = specAddVarDecl fixPos name expr' lty (lsSpec st) }
+  modify $ \st ->
+    st { lsSpec = specAddVarDecl fixPos name expr' lty (lsSpec st) }
   let sc = biSharedContext bic
   Just ty <- liftIO $ logicTypeOfActual sc lty
   liftIO $ scLLVMValue sc ty name >>= mkTypedTerm sc
@@ -370,7 +420,7 @@ llvmPtr bic _ name lty = do
       func = specFunction ms
       cb = specCodebase ms
       Just funcDef = lookupDefine func cb
-  expr <- liftIO $ parseLLVMExpr cb funcDef name
+  expr <- failLeft $ liftIO $ parseLLVMExpr cb funcDef name
   let pty = PtrType (MemType lty)
       expr' = updateLLVMExprType expr pty
       dexpr = Term (Deref expr' lty)
