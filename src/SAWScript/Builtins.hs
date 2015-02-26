@@ -724,6 +724,13 @@ addPreludeEqs sc names ss = do
   return (addRules eqRules ss)
     where qualify = mkIdent (mkModuleName ["Prelude"])
 
+addCryptolEqs :: SharedContext s -> [String] -> Simpset (SharedTerm s)
+              -> IO (Simpset (SharedTerm s))
+addCryptolEqs sc names ss = do
+  eqRules <- mapM (scEqRewriteRule sc) (map qualify names)
+  return (addRules eqRules ss)
+    where qualify = mkIdent (mkModuleName ["Cryptol"])
+
 addPreludeDefs :: SharedContext s -> [String] -> Simpset (SharedTerm s)
               -> IO (Simpset (SharedTerm s))
 addPreludeDefs sc names ss = do
