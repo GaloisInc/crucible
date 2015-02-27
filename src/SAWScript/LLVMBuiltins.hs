@@ -4,12 +4,15 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE TupleSections #-}
 module SAWScript.LLVMBuiltins where
 
 import Control.Applicative hiding (many)
 import Control.Monad.State hiding (mapM)
 import Data.List (partition)
 import qualified Data.Map as Map
+import Data.Maybe
 import Data.String
 import qualified Data.Vector as V
 import Text.Parsec as P
@@ -28,8 +31,10 @@ import Verifier.LLVM.Codebase hiding ( Global, ppSymbol, ppIdent
                                      , globalSym, globalType
                                      )
 import qualified Verifier.LLVM.Codebase as CB
+import Verifier.LLVM.Codebase.LLVMContext
 import Verifier.LLVM.Backend.SAW
 import Verifier.LLVM.Simulator
+import Verifier.LLVM.Simulator.Internals
 
 import Verifier.SAW.FiniteValue
 import Verifier.SAW.SharedTerm
@@ -78,35 +83,77 @@ browseLLVMModule (LLVMModule name m) = do
 
 type Assign = (LLVMExpr, TypedTerm SAWCtx)
 
+addrPlusOffset :: (Functor m, MonadIO m) =>
+                  SBETerm sbe -> Offset
+               -> Simulator sbe m (SBETerm sbe)
+addrPlusOffset a o = do
+  sbe <- gets symBE
+  w <- ptrBitwidth <$> getDL
+  ot <- liftSBE $ termInt sbe w (fromIntegral o)
+  liftSBE $ applyTypedExpr sbe (PtrAdd a ot)
+
 writeLLVMTerm :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
                  DataLayout
+              -> [SBETerm sbe]
               -> LLVMExpr
               -> SBETerm sbe
               -> Simulator sbe m ()
-writeLLVMTerm dl (Term e) t = do
+writeLLVMTerm dl args (Term e) t = do
   case e of
     Arg _ _ _ -> fail "Can't write to argument."
     Global s ty -> do
       addr <- evalExprInCC "writeLLVMTerm:Global" (SValSymbol s)
       store ty addr t (memTypeAlign dl ty)
     Deref ae ty -> do
-      addr <- readLLVMTerm dl ae
+      addr <- readLLVMTerm dl args ae
       store ty addr t (memTypeAlign dl ty)
-    StructField _ _ _ _ -> fail "Struct fields not yet supported."
+    StructField ae si idx ty ->
+      case siFieldOffset si idx of
+        Just off -> do
+          saddr <- readLLVMTermAddr dl args ae
+          addr <- addrPlusOffset saddr off
+          store ty t addr (memTypeAlign dl ty)
+        Nothing ->
+          fail $ "Struct field index " ++ show idx ++ " out of bounds"
     ReturnValue _ -> fail "Can't write to return value."
 
-readLLVMTerm :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
-                DataLayout -> LLVMExpr -> Simulator sbe m (SBETerm sbe)
-readLLVMTerm dl (Term e) =
+readLLVMTermAddr :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
+                    DataLayout -> [SBETerm sbe] -> LLVMExpr
+                 -> Simulator sbe m (SBETerm sbe)
+readLLVMTermAddr dl args (Term e) =
   case e of
-    Arg _ i _ -> evalExprInCC "readLLVMTerm:Arg" (SValIdent i)
+    Arg _ _ _ -> fail "Can't read address of argument"
+    Global s _ -> evalExprInCC "readLLVMTerm:Global" (SValSymbol s)
+    Deref ae _ -> readLLVMTerm dl args ae
+    StructField ae si idx _ ->
+      case siFieldOffset si idx of
+        Just off -> do
+          saddr <- readLLVMTermAddr dl args ae
+          addrPlusOffset saddr off
+        Nothing ->
+          fail $ "Struct field index " ++ show idx ++ " out of bounds"
+    ReturnValue _ -> fail "Can't read address of return value"
+
+readLLVMTerm :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
+                DataLayout -> [SBETerm sbe] -> LLVMExpr
+             -> Simulator sbe m (SBETerm sbe)
+readLLVMTerm dl args (Term e) =
+  case e of
+    Arg n _ _ -> return (args !! n)
     Global s ty -> do
       addr <- evalExprInCC "readLLVMTerm:Global" (SValSymbol s)
       load ty addr (memTypeAlign dl ty)
     Deref ae ty -> do
-      addr <- readLLVMTerm dl ae
+      addr <- readLLVMTerm dl args ae
       load ty addr (memTypeAlign dl ty)
-    StructField _ _ _ _ -> fail "Struct fields not yet supported."
+    StructField ae si idx ty ->
+      case siFieldOffset si idx of
+        Just off -> do
+          saddr <- readLLVMTermAddr dl args ae
+          addr <- addrPlusOffset saddr off
+          load ty addr (memTypeAlign dl ty)
+        Nothing ->
+          fail $ "Struct field index " ++ show idx ++ " out of bounds"
     ReturnValue _ -> do
       rslt <- getProgramReturnValue
       case rslt of
@@ -135,29 +182,39 @@ symexecLLVM bic opts (LLVMModule file mdl) fname inputs outputs = do
         let mkAssign (s, tm) = do
               e <- failLeft $ liftIO $ parseLLVMExpr cb md s
               return (e, tm)
-            maxArg = length (sdArgs md) - 1
             isArg (Term (Arg _ _ _)) = True
             isArg _ = False
             multDefErr i = error $ "Multiple terms given for argument " ++
                                    show i ++ " in function " ++ fname
-            noDefErr i = fail $ "No binding for argument " ++ show i ++
-                                " in function " ++ fname
         assigns <- mapM mkAssign inputs
+        let allocOne ty = do
+              let aw = ptrBitwidth dl
+              sz <- liftSBE (termInt sbe aw 1)
+              malloc ty aw sz
         let (argAssigns, otherAssigns) = partition (isArg . fst) assigns
             argMap =
               Map.fromListWithKey
               (\i _ _ -> multDefErr i)
               [ (idx, (tp, tm)) | (Term (Arg idx _ tp), tm) <- argAssigns ]
-        args <- forM [0..maxArg] $ \i ->
-                  maybe (noDefErr i) return $ Map.lookup i argMap
-        mapM_ (uncurry (writeLLVMTerm dl)) otherAssigns
-        _ <- callDefine sym (sdRetType md) args
+        let rargs = [(i, resolveType cb ty) | (i, ty) <- sdArgs md]
+        args <- forM (zip [0..] rargs) $ \(i, (_, ty)) ->
+                  case (Map.lookup i argMap, ty) of
+                    (Just v, _) -> return v
+                    (Nothing, PtrType (MemType dty)) -> (ty,) <$> allocOne dty
+                    _ -> fail $ "No binding for argument " ++ show i ++
+                                " in function " ++ fname
+        let argVals = map snd args
+        let retReg = (,Ident "__SAWScript_rslt") <$> sdRetType md
+        _ <- callDefine' False sym retReg args
+        mapM_ (uncurry (writeLLVMTerm dl argVals)) otherAssigns
+        run
         outexprs <- liftIO $ mapM (failLeft . parseLLVMExpr cb md) outputs
-        outtms <- mapM (readLLVMTerm dl) outexprs
+        outtms <- mapM (readLLVMTerm dl argVals) outexprs
         let bundle tms = case tms of
                            [t] -> return t
                            _ -> scTuple scLLVM tms
         liftIO (mkTypedTerm scLLVM =<< bundle outtms)
+
 
 -- | Extract a simple, pure model from the given symbol within the
 -- given bitcode file. This code creates fresh inputs for all
@@ -281,7 +338,7 @@ showCexResults sc ms vs vals = do
 llvmPure :: LLVMSetup ()
 llvmPure = return ()
 
-type LLVMExprParser a = ParsecT String () IO a                  
+type LLVMExprParser a = ParsecT String () IO a
 
 failLeft :: (Monad m, Show s) => m (Either s a) -> m a
 failLeft act = either (fail . show) return =<< act
@@ -290,23 +347,27 @@ parseLLVMExpr :: Codebase (SAWBackend SAWCtx)
               -> SymDefine (SharedTerm SAWCtx)
               -> String
               -> IO (Either ParseError LLVMExpr)
-parseLLVMExpr cb fn str = runParserT parseExpr () "expr" str
+parseLLVMExpr cb fn str = runParserT (parseExpr <* eof) () "expr" str
   where
-    args = sdArgs fn
+    args = [(i, resolveType cb ty) | (i, ty) <- sdArgs fn]
     numArgs = zipWith (\(i, ty) n -> (i, (n, ty))) args [(0::Int)..]
     parseExpr :: LLVMExprParser LLVMExpr
-    parseExpr = choice [ parseReturn
-                       , parseVar
-                       , parseDeref
-                       , parseParens
-                       , parseArgs
-                       , parseDirectField
-                       , parseDerefField
-                       ]
+    parseExpr = choice
+                [ parseDerefField
+                , parseDeref
+                , parseDirectField
+                , parseAExpr
+                ]
+    parseAExpr = choice
+                 [ parseReturn
+                 , parseArgs
+                 , parseVar
+                 , parseParens
+                 ]
     alphaUnder = choice [P.letter, P.char '_']
     parseIdent = (:) <$> alphaUnder <*> many (choice [alphaUnder, P.digit])
     parseVar = do
-      s <- parseIdent
+      s <- try parseIdent
       let nid = fromString s
       case lookup nid numArgs of
         Just (n, ty) -> return (Term (Arg n nid ty))
@@ -314,52 +375,53 @@ parseLLVMExpr cb fn str = runParserT parseExpr () "expr" str
           case lookupSym (Symbol s) cb of
             Just (Left gb) ->
               return (Term (Global (CB.globalSym gb) (CB.globalType gb)))
-            _ -> fail $ "Unknown variable: " ++ s
+            _ -> unexpected $ "Unknown variable: " ++ s
     parseParens = string "(" *> parseExpr <* string ")"
     parseReturn = do
-      _ <- string "return"
+      _ <- try (string "return")
       case sdRetType fn of
         Just ty -> return (Term (ReturnValue ty))
         Nothing ->
-          fail "Function with void return type used with `return` expression."
+          unexpected "Function with void return type used with `return`."
     parseDeref = do
       _ <- string "*"
-      e <- parseExpr
+      e <- parseAExpr
       case lssTypeOfLLVMExpr e of
         PtrType (MemType ty) -> return (Term (Deref e ty))
-        _ -> fail "Attempting to apply * operation to non-pointer"
+        _ -> unexpected "Attempting to apply * operation to non-pointer"
     parseArgs :: LLVMExprParser LLVMExpr
     parseArgs = do
-      _ <- string "args"
-      _ <- string "["
+      _ <- try (string "args[")
       ns <- many1 digit
       e <- case readMaybe ns of
              Just (n :: Int)
-               | n < length numArgs ->
-                 let (i, ty) = args !! n in return (Term (Arg n i ty))
+               | n < length numArgs -> do
+                 let (i, ty) = args !! n
+                 return (Term (Arg n i ty))
                | otherwise ->
-                 fail $ "Argument index too large: " ++ show n
+                 unexpected $ "Argument index too large: " ++ show n
              Nothing ->
-               fail $ "Using `args` with non-numeric parameter: " ++ ns
+               unexpected $ "Using `args` with non-numeric parameter: " ++ ns
       _ <- string "]"
       return e
     parseDirectField :: LLVMExprParser LLVMExpr
     parseDirectField = do
-      e <- parseExpr
-      _ <- string "."
+      e <- try (parseAExpr <* string ".")
       ns <- many1 digit
       case (lssTypeOfLLVMExpr e, readMaybe ns) of
         (StructType si, Just (n :: Int))
           | n < siFieldCount si -> do
             let ty = fiType (siFields si V.! n)
             return (Term (StructField e si n ty))
-          | otherwise -> fail $ "Field out of range: " ++ show n
-        (_, Just _) -> fail "Attempting to apply . operation to non-struct"
-        (_, Nothing) -> fail "Attempting to apply . operation to invalid field"
+          | otherwise -> unexpected $ "Field out of range: " ++ show n
+        (_, Nothing) -> unexpected $
+          "Attempting to apply . operation to invalid field: " ++ ns
+        (ty, Just _) ->
+          unexpected $ "Attempting to apply . operation to non-struct: " ++
+                       show (ppActualType ty)
     parseDerefField :: LLVMExprParser LLVMExpr
     parseDerefField = do
-      re <- parseExpr
-      _ <- string "->"
+      re <- try (parseAExpr <* string "->")
       ns <- many1 digit
       case (lssTypeOfLLVMExpr re, readMaybe ns) of
         (PtrType (MemType sty@(StructType si)), Just (n :: Int))
@@ -367,11 +429,22 @@ parseLLVMExpr cb fn str = runParserT parseExpr () "expr" str
             let e = Term (Deref re sty)
                 ty = fiType (siFields si V.! n)
             return (Term (StructField e si n ty))
-          | otherwise -> fail $ "Field out of range: " ++ show n
-        (_, Just _) ->
-          fail "Attempting to apply -> operation to invalid operand"
-        (_, Nothing) ->
-          fail "Attempting to apply -> operation to invalid field"
+          | otherwise -> unexpected $ "Field out of range: " ++ show n
+        (_, Nothing) -> unexpected $
+          "Attempting to apply -> operation to invalid field: " ++ ns
+        (ty, Just _) ->
+          unexpected $ "Attempting to apply -> operation to non-struct: " ++
+                       show (ppActualType ty)
+
+resolveType :: Codebase (SAWBackend SAWCtx) -> MemType -> MemType
+resolveType cb (PtrType ty) = PtrType $ resolveSymType cb ty
+resolveType _ ty = ty
+
+resolveSymType :: Codebase (SAWBackend SAWCtx) -> SymType -> SymType
+resolveSymType cb (MemType mt) = MemType $ resolveType cb mt
+resolveSymType cb ty@(Alias i) =
+  fromMaybe ty $ lookupAlias i where ?lc = cbLLVMContext cb
+resolveSymType _ ty = ty
 
 getLLVMExpr :: Monad m =>
                LLVMMethodSpecIR -> String
@@ -473,7 +546,7 @@ llvmEnsureEq _ _ name t = do
 
 llvmModify :: BuiltinContext -> Options -> String
            -> LLVMSetup ()
-llvmModify _ _ _name = error "llvm_modify not implemented" {- do
+llvmModify _ _ _name = fail "llvm_modify not implemented" {- do
   ms <- gets lsSpec
   (expr, ty) <- liftIO $ getLLVMExpr ms name
   modify $ \st ->
