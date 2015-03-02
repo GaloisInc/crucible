@@ -530,7 +530,6 @@ satABC sc = StateT $ \g -> AIG.withNewGraph giaNetwork $ \be -> do
       return (SV.Unsat, g { goalTerm = TypedTerm schema ft })
     AIG.Sat cex -> do
       -- putStrLn "SAT"
-      print cex
       let r = liftCexBB shapes cex
       tt <- scApplyPrelude_True sc
       case r of
