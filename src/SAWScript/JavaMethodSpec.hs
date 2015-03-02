@@ -1098,7 +1098,7 @@ runValidation prover params sc esd results = do
         m = esdJavaExprs esd
     if null (pvcStaticErrors pvc) then
      forM_ (pvcChecks pvc) $ \vc -> do
-       let vs = mkVState (vcName vc) (vcCounterexample vc)
+       let vs = mkVState (vcName vc) (vcCounterexample sc vc)
        g <- scImplies sc (pvcAssumptions pvc) =<< vcGoal sc vc
        when (verb >= 2) $ do
          putStr $ "Checking " ++ vcName vc
