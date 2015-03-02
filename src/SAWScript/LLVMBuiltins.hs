@@ -268,6 +268,7 @@ verifyLLVM bic opts (LLVMModule _file mdl) func overrides setup = do
                     lsSpec = ms0
                   , lsTactic = Skip
                   , lsContext = scLLVM
+                  , lsSimulate = True
                   }
     (_, lsctx) <- runStateT setup lsctx0
     let ms = lsSpec lsctx
@@ -289,7 +290,7 @@ verifyLLVM bic opts (LLVMModule _file mdl) func overrides setup = do
                   , cl <- bsRefEquivClasses bs
                   ] -}
     let lopts = Nothing -- FIXME
-    do
+    when (lsSimulate lsctx) $ do
     -- forM_ configs $ \(bs,cl) -> do
       when (verb >= 3) $ do
         putStrLn $ "Executing " ++ show (specName ms)
@@ -319,7 +320,10 @@ verifyLLVM bic opts (LLVMModule _file mdl) func overrides setup = do
             "WARNING: skipping verification of " ++ show (specName ms)
           RunVerify script ->
             liftIO $ runValidation (prover script) vp scLLVM esd res
-    putStrLn $ "Successfully verified " ++ show (specName ms) ++ overrideText
+    if lsSimulate lsctx
+       then putStrLn $ "Successfully verified " ++
+                       show (specName ms) ++ overrideText
+       else putStrLn $ "WARNING: skipping simulation of " ++ show (specName ms)
     return ms
 
 showCexResults :: SharedContext SAWCtx
@@ -466,6 +470,9 @@ llvmDouble = DoubleType
 
 llvmArray :: Int -> MemType -> MemType
 llvmArray n t = ArrayType n t
+
+llvmNoSimulate :: LLVMSetup ()
+llvmNoSimulate = modify (\s -> s { lsSimulate = False })
 
 llvmVar :: BuiltinContext -> Options -> String -> MemType
         -> LLVMSetup (TypedTerm SAWCtx)

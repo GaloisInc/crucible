@@ -271,6 +271,7 @@ data LLVMSetupState
       lsSpec :: LIR.LLVMMethodSpecIR
     , lsContext :: SharedContext SAWCtx
     , lsTactic :: ValidationPlan
+    , lsSimulate :: Bool
     }
 
 type LLVMSetup a = StateT LLVMSetupState IO a
