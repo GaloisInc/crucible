@@ -1,0 +1,94 @@
+import StateMachine
+
+// Fibonacci state iterators with different state but same output
+// sequence: 8-bit Fibonacci numbers.
+//
+// The state transitions, ignoring bit widths, are
+//
+//   (0, (0, 0, 0))       |-> (0, (1, 0, 1))
+//
+// and
+//
+//   (0, (1, fn, f(n+1))) |-> (fn, (1, f(n+1), f(n+2)))
+//
+// where 'fn' denotes the 'n'th Fibonacci number.
+//
+// The first bit of the states indicates whether it's the first
+// step or not; the sequential circuit gets seeded with all zero
+// bits.
+
+fib1_no_init : ([1], ([8], [8])) -> ([8], ([8], [8]))
+fib1_no_init (_, (fn, fn1)) = (fn, (fn1, fn2))
+  where
+  fn2 = fn + fn1
+
+fib1 = init_with (0, 1) fib1_no_init
+fib1_state_bits = 1 + 8 + 8 : [8]
+
+fib2 : ([1], ([1], [16], [16])) -> ([8], ([1], [16], [16]))
+fib2 (_, (start, fn , fn1)) = (fn', (1, fn1', fn2))
+  where
+  // Some (at least Cryptol level) obfuscation.
+  fn1' = (zero # start) * fn1 + (zero # ~start)
+  fn2 = fn + fn1'
+  fn' = drop`{8} fn
+
+fib2_state_bits = 1 + 16 + 16 : [8]
+
+// Make a buggy version of fib state machine which returns wrong value
+// when state counter has magic value.
+//
+// If this were a common pattern for example generation, we could
+// make a "magic-value bug" combinator in the style of 'init_with'.
+mk_buggy_fib_no_init : {a} (fin a, a >= 1) => [a] ->
+  ([1], ([8], [8], [a])) -> ([8], ([8], [8], [a]))
+mk_buggy_fib_no_init magic (_, (fn, fn1, k)) = (fn', (fn1, fn2, k+1))
+  where
+  fn2 = fn + fn1
+  // Change output when state has magic value.
+  fn' = fn + if k == magic then 1 else 0
+
+mk_buggy_fib magic = init_with (0, 1, 0) (mk_buggy_fib_no_init magic)
+count_buggy_state_bits : {a} (fin a, width a <= 7) => [a] -> [8]
+count_buggy_state_bits magic = 1 + 8 + 8 + `a
+
+// 4-bit counter
+buggy_fib4_magic = 0xf
+buggy_fib4 = mk_buggy_fib buggy_fib4_magic
+buggy_fib4_state_bits = count_buggy_state_bits buggy_fib4_magic
+
+// 8-bit counter
+buggy_fib8_magic = 0xff
+buggy_fib8 = mk_buggy_fib buggy_fib8_magic
+buggy_fib8_state_bits = count_buggy_state_bits buggy_fib8_magic
+
+// 12-bit counter
+buggy_fib12_magic = 0b111111111111
+buggy_fib12 = mk_buggy_fib buggy_fib12_magic
+buggy_fib12_state_bits = count_buggy_state_bits buggy_fib12_magic
+
+// 16-bit counter
+buggy_fib16_magic = 0xffff
+buggy_fib16 = mk_buggy_fib buggy_fib16_magic
+buggy_fib16_state_bits = count_buggy_state_bits buggy_fib16_magic
+
+// 32-bit counter
+buggy_fib32_magic = 0xffffffff
+buggy_fib32 = mk_buggy_fib buggy_fib32_magic
+buggy_fib32_state_bits = count_buggy_state_bits buggy_fib32_magic
+
+// 64-bit counter
+buggy_fib64_magic = 0xffffffffffffffff
+buggy_fib64 = mk_buggy_fib buggy_fib64_magic
+buggy_fib64_state_bits = count_buggy_state_bits buggy_fib64_magic
+
+
+// Tests.
+inputs : [1000][1]
+inputs = zero
+
+test = equiv fib1 fib2 inputs
+
+// The states sequences.
+states1 = exec fib1 inputs
+states2 = exec fib2 inputs

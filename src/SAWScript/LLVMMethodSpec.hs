@@ -116,6 +116,7 @@ addAssertion sbe x p = do
 data EvalContext
   = EvalContext {
       ecContext :: SharedContext SAWCtx
+    , ecDataLayout :: DataLayout
     , ecBackend :: SBE SpecBackend
     , ecGlobalMap :: GlobalMap SpecBackend
     , ecArgs :: [(Ident, SharedTerm SAWCtx)]
@@ -124,14 +125,16 @@ data EvalContext
     }
 
 evalContextFromPathState :: Map String (TC.LLVMActualType, TC.LLVMExpr)
+                         -> DataLayout
                          -> SharedContext SAWCtx
                          -> SBE SpecBackend
                          -> GlobalMap SpecBackend
                          -> SpecPathState
                          -> EvalContext
-evalContextFromPathState m sc sbe gm ps
+evalContextFromPathState m dl sc sbe gm ps
   = EvalContext {
       ecContext = sc
+    , ecDataLayout = dl
     , ecBackend = sbe
     , ecGlobalMap = gm
     , ecArgs = case ps ^.. pathCallFrames of
@@ -148,7 +151,8 @@ runEval v = liftIO (runExceptT v)
 
 -- | Evaluate an LLVM expression, and return its value (r-value) as an
 -- internal term.
-evalLLVMExpr :: (MonadIO m) => TC.LLVMExpr -> EvalContext -> m SpecLLVMValue
+evalLLVMExpr :: (MonadIO m) => TC.LLVMExpr -> EvalContext
+             -> m SpecLLVMValue
 evalLLVMExpr expr ec = eval expr
   where eval e@(CC.Term app) =
           case app of
@@ -161,14 +165,24 @@ evalLLVMExpr expr ec = eval expr
             TC.Deref ae tp -> do
               addr <- evalLLVMExpr ae ec
               liftIO $ loadPathState sbe addr tp ps
-            TC.StructField _ _ _ _ -> fail "struct fields not yet supported" -- TODO
+            TC.StructField ae si idx tp ->
+              case siFieldOffset si idx of
+                Just off -> do
+                  saddr <- evalLLVMExpr ae ec
+                  addr <- liftIO $ addrPlusOffset (ecDataLayout ec) sc saddr off
+                  liftIO $ loadPathState sbe addr tp ps
+                Nothing ->
+                  fail $ "Struct field index " ++ show idx ++ " out of bounds"
             TC.ReturnValue _ -> fail "return values not yet supported" -- TODO
         sbe = ecBackend ec
         ps = ecPathState ec
+        sc = ecContext ec
 
 -- | Evaluate an LLVM expression, and return the location it describes
 -- (l-value) as an internal term.
-evalLLVMRefExpr :: (MonadIO m) => TC.LLVMExpr -> EvalContext -> m SpecLLVMValue
+evalLLVMRefExpr :: (MonadIO m) =>
+                   TC.LLVMExpr -> EvalContext
+                -> m SpecLLVMValue
 evalLLVMRefExpr expr ec = eval expr
   where eval (CC.Term app) =
           case app of
@@ -176,13 +190,23 @@ evalLLVMRefExpr expr ec = eval expr
             TC.Global n _ -> do
               case Map.lookup n gm of
                 Just addr -> return addr
-                Nothing -> fail $ "evalLLVMRefExpr: global " ++ show n ++ " not found"
+                Nothing ->
+                  fail $ "evalLLVMRefExpr: global " ++ show n ++ " not found"
             TC.Deref ae _ -> evalLLVMExpr ae ec
-            TC.StructField _ _ _ _ -> fail "struct fields not yet supported" -- TODO
-            TC.ReturnValue _ -> fail "return values not yet supported" -- TODO
+            TC.StructField ae si idx _ ->
+              case siFieldOffset si idx of
+                Just off -> do
+                  addr <- evalLLVMExpr ae ec
+                  liftIO $ addrPlusOffset (ecDataLayout ec) sc addr off
+                Nothing ->
+                  fail $ "Struct field index " ++ show idx ++ " out of bounds"
+            TC.ReturnValue _ -> fail "evalLLVMRefExpr: applied to return value"
         gm = ecGlobalMap ec
+        sc = ecContext ec
 
-evalDerefLLVMExpr :: (MonadIO m) => TC.LLVMExpr -> EvalContext -> m (SharedTerm SAWCtx)
+evalDerefLLVMExpr :: (MonadIO m) =>
+                     TC.LLVMExpr -> EvalContext
+                  -> m (SharedTerm SAWCtx)
 evalDerefLLVMExpr expr ec = do
   val <- evalLLVMExpr expr ec
   case TC.lssTypeOfLLVMExpr expr of
@@ -195,7 +219,9 @@ scLLVMValue :: SharedContext s -> SharedTerm s -> String -> IO (SharedTerm s)
 scLLVMValue sc ty name = scFreshGlobal sc name ty
 
 -- | Evaluate a typed expression in the context of a particular state.
-evalLogicExpr :: (MonadIO m) => TC.LogicExpr -> EvalContext -> m SpecLLVMValue
+evalLogicExpr :: (MonadIO m) =>
+                 TC.LogicExpr -> EvalContext
+              -> m SpecLLVMValue
 evalLogicExpr initExpr ec = do
   let sc = ecContext ec
   t <- liftIO $ TC.useLogicExpr sc initExpr
@@ -213,8 +239,7 @@ evalLogicExpr initExpr ec = do
   liftIO $ scInstantiateExt sc (Map.fromList extMap) t
 
 -- | Return Java value associated with mixed expression.
-evalMixedExpr :: (MonadIO m) =>
-                 TC.MixedExpr -> EvalContext
+evalMixedExpr :: (MonadIO m) => TC.MixedExpr -> EvalContext
               -> m SpecLLVMValue
 evalMixedExpr (TC.LogicE expr) ec = evalLogicExpr expr ec
 evalMixedExpr (TC.LLVME expr) ec = evalLLVMExpr expr ec
@@ -384,6 +409,7 @@ execOverride sc _pos ir args = do
   sbe <- gets symBE
   gm <- use globalTerms
   let ec = EvalContext { ecContext = sc
+                       , ecDataLayout = cbDataLayout cb
                        , ecBackend = sbe
                        , ecGlobalMap = gm
                        , ecArgs = zip (map fst (sdArgs funcDef)) (map snd args)
@@ -423,6 +449,7 @@ data ExpectedStateDef = ESD {
          -- | Initial path state (used for evaluating expressions in
          -- verification).
        , esdBackend :: SBE SpecBackend
+       , esdDataLayout :: DataLayout
        , esdGlobalMap :: GlobalMap SpecBackend
        , esdInitialPathState :: SpecPathState
          -- | Stores initial assignments.
@@ -442,6 +469,7 @@ _esdArgs = mapMaybe getArg . esdInitialAssignments
 -- | State for running the behavior specifications in a method override.
 data ESGState = ESGState {
          esContext :: SharedContext SAWCtx
+       , esDataLayout :: DataLayout
        , esBackend :: SBE SpecBackend
        , esGlobalMap :: GlobalMap SpecBackend
        , esLLVMExprs :: Map String (TC.LLVMActualType, TC.LLVMExpr)
@@ -458,11 +486,12 @@ type ExpectedStateGenerator = StateT ESGState IO
 esEval :: (EvalContext -> ExprEvaluator b) -> ExpectedStateGenerator b
 esEval fn = do
   sc <- gets esContext
+  dl <- gets esDataLayout
   m <- gets esLLVMExprs
   sbe <- gets esBackend
   gm <- gets esGlobalMap
   initPS <- gets esInitialPathState
-  let ec = evalContextFromPathState m sc sbe gm initPS
+  let ec = evalContextFromPathState m dl sc sbe gm initPS
   res <- runEval (fn ec)
   case res of
     Left expr -> fail $ "internal: esEval given " ++ show expr ++ "."
@@ -511,12 +540,23 @@ esAssertEq nm x y = do
   esAddEqAssertion sbe nm x y
 -}
 
+addrPlusOffset :: DataLayout -> SharedContext SAWCtx -> SpecLLVMValue -> Offset
+               -> IO SpecLLVMValue
+addrPlusOffset dl sc a o = do
+  let w = fromIntegral (ptrBitwidth dl)
+  ot <- scBvConst sc w (fromIntegral o)
+  wt <- scNat sc w
+  scBvAdd sc wt a ot
+
 -- | Set value in initial state.
-esSetLLVMValue :: TC.LLVMExpr -> SpecLLVMValue -> ExpectedStateGenerator ()
+esSetLLVMValue :: TC.LLVMExpr -> SpecLLVMValue
+               -> ExpectedStateGenerator ()
 esSetLLVMValue (CC.Term exprF) v = do
+  sc <- gets esContext
+  dl <- gets esDataLayout
+  sbe <- gets esBackend
   case exprF of
     TC.Global n tp -> do
-      sbe <- gets esBackend
       gm <- gets esGlobalMap
       ps <- esGetInitialPathState
       ps' <- liftIO $ storeGlobal sbe gm n tp v ps
@@ -524,14 +564,24 @@ esSetLLVMValue (CC.Term exprF) v = do
     TC.Arg _ _ _ -> fail "Can't set the value of arguments."
     TC.Deref addrExp tp -> do
       assgns <- gets esInitialAssignments
-      sbe <- gets esBackend
       case lookup addrExp assgns of
         Just addr -> do
           ps <- esGetInitialPathState
           ps' <- liftIO $ storePathState sbe addr tp v ps
           esPutInitialPathState ps'
-        Nothing -> fail "internal: esSetLLVMValue on address not assigned a value"
-    TC.StructField _ _ _ _ -> fail "Can't set the value of structure fields."
+        Nothing ->
+          fail "internal: esSetLLVMValue on address not assigned a value"
+    TC.StructField addrExp si idx tp -> do
+      assgns <- gets esInitialAssignments
+      case (lookup addrExp assgns, siFieldOffset si idx) of
+        (Just saddr, Just off) -> do
+          ps <- esGetInitialPathState
+          addr <- liftIO $ addrPlusOffset dl sc saddr off
+          ps' <- liftIO $ storePathState sbe addr tp v ps
+          esPutInitialPathState ps'
+        (Nothing, _) ->
+          fail "internal: esSetLLVMValue on address not assigned a value"
+        (_, Nothing) -> fail "internal: esSetLLVMValue on field out of bounds"
     TC.ReturnValue _ -> fail "Can't set the return value of a function."
 
 createLogicValue :: Codebase SpecBackend
@@ -621,7 +671,7 @@ esStep (Modify lhsExpr tp) = do
 
 -- | Initialize verification of a given 'LLVMMethodSpecIR'. The design
 -- principles for now include:
--- 
+--
 --   * All pointers must be concrete and distinct
 --
 --   * All types must be of known size
@@ -637,6 +687,7 @@ initializeVerification sc ir = do
       bs = specBehavior ir
       fn = specFunction ir
       cb = specCodebase ir
+      dl = cbDataLayout cb
       Just fnDef = lookupDefine fn (specCodebase ir)
       isArgAssgn (CC.Term (TC.Arg _ _ _), _) = True
       isArgAssgn _ = False
@@ -677,7 +728,7 @@ initializeVerification sc ir = do
 
   gm <- use globalTerms
   let rreg =  (,Ident "__sawscript_result") <$> sdRetType fnDef
-      cmpFst (i, _) (i', _) = 
+      cmpFst (i, _) (i', _) =
         case i `compare` i' of
           EQ -> error $ "Argument " ++ show i ++ " declared multiple times."
           r -> r
@@ -685,6 +736,7 @@ initializeVerification sc ir = do
 
   initPS <- fromMaybe (error "initializeVerification") <$> getPath
   let initESG = ESGState { esContext = sc
+                         , esDataLayout = dl
                          , esBackend = sbe
                          , esGlobalMap = gm
                          , esLLVMExprs = exprs
@@ -712,6 +764,7 @@ initializeVerification sc ir = do
   ctrlStk ?= (cs & currentPath .~ esInitialPathState es)
 
   return ESD { esdStartLoc = bsLoc bs
+             , esdDataLayout = dl
              , esdBackend = sbe
              , esdGlobalMap = gm
              , esdInitialPathState = esInitialPathState es
@@ -848,6 +901,7 @@ runValidation prover params sc esd results = do
       m = specLLVMExprNames ir
       sbe = esdBackend esd
       gm = esdGlobalMap esd
+      dl = esdDataLayout esd
 
   forM_ results $ \pvc -> do
     let mkVState nm cfn =
@@ -855,7 +909,7 @@ runValidation prover params sc esd results = do
                  , vsMethodSpec = ir
                  , vsVerbosity = verb
                  -- , vsFromBlock = esdStartLoc esd
-                 , vsEvalContext = evalContextFromPathState m sc sbe gm ps
+                 , vsEvalContext = evalContextFromPathState m dl sc sbe gm ps
                  , vsInitialAssignments = pvcInitialAssignments pvc
                  , vsCounterexampleFn = cfn
                  , vsStaticErrors = pvcStaticErrors pvc

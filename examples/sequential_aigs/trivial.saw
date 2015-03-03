@@ -1,0 +1,34 @@
+/*
+
+This trivial example demonstrates that sequential equivalence ignores
+state, but not i/o, as we would expect.
+
+Usage:
+
+$ saw trivial.saw
+$ abc
+UC Berkeley, ABC 1.01 (compiled Feb 13 2015 14:26:08)
+abc 01> read f1.aig
+abc 02> dsec f2.aig
+Networks are equivalent.   Time =     0.01 sec
+abc 02> dsec f3.aig
+Networks are NOT EQUIVALENT.   Time =     0.00 sec
+The counter-example is invalid because of phase abstraction.
+
+*/
+
+// Here 'f1' and 'f2' are sequentially equivalent, but 'f3' is different.
+let {{
+  f1 : ([8],[8]) -> ([8],[8])
+  f1 (i, s) = (5 * i, s + s)
+
+  f2 : ([8],[16]) -> ([8],[16])
+  f2 (i, s) = (i + (i << 2), s * s)
+
+  f3 : ([8],[8]) -> ([8],[8])
+  f3 (i, s) = (4 * i, s + s)
+}};
+
+write_aig_with_latches "tmp/f1.aig" {{ f1 }} {{ 8:[8] }};
+write_aig_with_latches "tmp/f2.aig" {{ f2 }} {{ 16:[8] }};
+write_aig_with_latches "tmp/f3.aig" {{ f3 }} {{ 8:[8] }};

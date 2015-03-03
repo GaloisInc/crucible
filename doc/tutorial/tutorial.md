@@ -72,6 +72,20 @@ SAWScript allows us to state this problem concisely, and to quickly
 and automatically prove the equivalence of these two functions for all
 possible inputs.
 
+Buggy Implementation
+--------------------
+
+Finally, a buggy implementation which is correct on all but one
+possible input (also in `code/ffs.c`). Although contrived, this
+program represents a case where traditional testing -- as opposed
+to verification -- is unlikely to be helpful.
+
+``` {.c}
+$include 29-33 code/ffs.c
+```
+
+SAWScript allows us to quickly identify an input exhibiting the bug.
+
 Generating LLVM Code
 --------------------
 
@@ -94,7 +108,8 @@ Equivalence Proof
 -----------------
 
 We now show how to use SAWScript to prove the equivalence of the
-reference and implementation versions of the FFS algorithm.
+reference and implementation versions of the FFS algorithm, and
+exhibit the bug in the buggy implementation.
 
 A SAWScript program is typically structured as a set of commands
 within a `main` function, potentially along with other functions
@@ -102,7 +117,7 @@ defined to abstract over commonly-used combinations of commands.
 
 The following script (in `code/ffs_llvm.saw`) is sufficient to
 automatically prove the equivalence of the `ffs_ref` and `ffs_imp`
-functions.
+functions, and identify the bug in `ffs_bug`.
 
 ```
 $include all code/ffs_llvm.saw
@@ -126,6 +141,31 @@ theorem prover to use.
 If the `saw` executable is in your PATH, you can run the script above with
 
     # saw ffs_llvm.saw
+
+producing the output
+
+```
+Loading module Cryptol
+Loading file "ffs_llvm.saw"
+Extracting reference term
+Extracting implementation term
+Extracting buggy term
+Proving equivalence
+Valid
+Finding bug via sat search
+Sat: 1052688
+Finding bug via failed proof
+Invalid: 1052688
+Done.
+```
+
+Note that `0x101010 = 1052688`, and so both explicitly searching for
+an input exhibiting the bug (with `sat`) and attempting to prove the
+false equivalence (with `prove`) exhibit the bug. Symmetrically, we
+could use `sat` to prove the equivalence of `ffs_ref` and `ffs_imp`,
+by checking that the corresponding disequality is
+unsatisfiable. Indeed, this exactly what happens behind the scenes:
+`prove abc <goal>` is essentially `not (sat abc (not <goal>))`.
 
 Cross-Language Proofs
 ---------------------
@@ -178,11 +218,12 @@ Using SMT-Lib Solvers
 
 The examples presented so far have used the internal proof system
 provided by SAWScript, based primarily on a version of the ABC tool
-from UC Berkeley linked into the `saw` executable. However, other
-proof tools can be used, as well. The current version of SAWScript
-includes support for exporting models representing theorems as goals
-in the SMT-Lib language. These goals can then be solved using an
-external SMT solver such as Yices or CVC4.
+from UC Berkeley linked into the `saw` executable. However, there is
+internal support for other proof tools -- such as Yices
+and CVC4 as illustrated in the next example -- and more general
+support for exporting models representing theorems as goals
+in the SMT-Lib language. These exported goals can then be solved using an
+external SMT solver.
 
 Consider the following C file:
 
@@ -193,8 +234,9 @@ $include all code/double.c
 In this trivial example, an integer can be doubled either using
 multiplication or shifting. The following SAWScript program
 (`code/double.saw`) verifies that the two are equivalent using both
-ABC, and by exporting an SMT-Lib theorem to be checked by an external
-solver.
+internal ABC, Yices, and CVC4 modes,
+and by exporting an SMT-Lib theorem to be checked later, by an external
+SAT solver.
 
 ```
 $include all code/double.saw
@@ -214,16 +256,20 @@ checking.
 The SMT-Lib export capabilities in SAWScript are currently based on a
 somewhat outdated implementation, and don't support the full range of
 operations that the `abc` tactic support. This will improve in the
-near future.
+near future. (The internal support for Z3, CVC4, MathSAT, and Yices
+is implemented via the `Data.SBV` package,
+separately from the internal ABC support via `Data.AIG`. The two
+implementations have a similar high-level structure ...)
 
 External SAT Solvers
 ====================
 
-In addition to the `abc` and `yices` proof tactics used above,
-SAWScript can also invoke external SAT solvers that support the DIMACS
+In addition to the `abc`, `cvc4`, and `yices` proof tactics used above,
+SAWScript can also invoke arbitrary
+external SAT solvers that support the DIMACS
 CNF format for problem and solution descriptions, using the
-`external_cnf_solver` tactic. For example, you can use `picosat` to
-prove the theorem `thm`, with the following commands:
+`external_cnf_solver` tactic. For example, you can use PicoSAT to
+prove the theorem `thm` from the last example, with the following commands:
 
     let picosat = external_cnf_solver "picosat" ["%f"];
     prove_print picosat thm;
@@ -278,7 +324,9 @@ This can be run as follows:
 In this example, the definitions of `setup` and `setup'` provide extra
 information about how to configure the symbolic simulator when analyzing
 Java code. In this case, the setup blocks provide explicit descriptions
-of the implicit configuration used by `java_extract`. The `java_var`
+of the implicit configuration used by `java_extract`
+(used in the earlier Java FFS example and in the next section).
+The `java_var`
 commands instruct the simulator to create fresh symbolic inputs to
 correspond to the Java variables `x` and `y`. Then, the `java_return`
 commands indicate the expected return value of the each method, in terms
@@ -403,7 +451,7 @@ AIG Export and Import
 Most of the previous examples have used the `abc` tactic to discharge
 theorems. This tactic works by translating the given term to
 And-Inverter Graph (AIG) format, transforming the graph in various
-ways, and then sending using a SAT solver to complete the proof.
+ways, and then using a SAT solver to complete the proof.
 
 Alternatively, the `write_aig` command can be used to write an AIG
 directly to a file, for later processing by external tools, as shown

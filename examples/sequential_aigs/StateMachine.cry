@@ -1,0 +1,41 @@
+module StateMachine where
+
+// A state machine is function of type '(i, s) -> (o, s)',
+// with input type 'i', state type 's', and output type 'o'.
+type SM i o s = (i, s) -> (o, s)
+
+// To run a state machine for 'n' steps, a sequence of 'n'
+// input values must be provided; the initial state is always
+// seeded with 'zero : s'.
+run : {n, i, s, o} SM i o s -> [n]i -> [n](o,s)
+run sm is = oss
+  where
+  states = [zero] # [ os.1 | os <- oss ]
+  oss = [ sm (i, s) | i <- is | s <- states ]
+
+eval : {n, i, s, o} SM i o s -> [n]i -> [n](o)
+eval sm is = [ os.0 | os <- run sm is ]
+
+exec : {n, i, s, o} SM i o s -> [n]i -> [n](s)
+exec sm is = [ os.1 | os <- run sm is ]
+
+// Two state machines are equivalent if their output streams agree
+// on all input streams. This function checks equivalence at specific
+// finite input sequences.
+equiv : {n, i, s1, s2, o} (Cmp o, fin n)
+     => SM i o s1 -> SM i o s2 -> [n]i -> Bool
+equiv sm1 sm2 is = all [ o1 == o2 | o1 <- eval sm1 is | o2 <- eval sm2 is ]
+  where
+  all : {m} (fin m) => [m]Bool -> Bool
+  all xs = its ! 0
+    where
+    its = [True] # [ x && it | x <- xs | it <- its ]
+
+// Because the initial state is always seeded with 'zero : s', it's
+// common to have boilerplate code which sets up the "real" initial state.
+// This combinator takes the place of that boilerplate.
+init_with : {i, o, s} s -> SM i o s -> SM i o (Bool, s)
+init_with s_initial sm (i, (started, s)) = (o, (True, s''))
+  where
+  s' = if started then s else s_initial
+  (o, s'') = sm (i, s')

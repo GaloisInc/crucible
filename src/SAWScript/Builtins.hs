@@ -5,8 +5,12 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE DoAndIfThenElse #-}
 module SAWScript.Builtins where
 
+import Data.Functor
+import Data.Foldable (toList)
 import Control.Applicative
 import Control.Lens
 import Control.Monad.State
@@ -18,8 +22,10 @@ import Data.Maybe
 import qualified Data.Vector as V
 import System.Directory
 import System.IO
+import System.IO.Temp (withSystemTempFile)
 import System.Process
 -- import Text.PrettyPrint.Leijen hiding ((<$>))
+import Text.Printf (printf)
 import Text.Read
 
 
@@ -31,15 +37,17 @@ import qualified Verifier.SAW.Cryptol as Cryptol
 import Verifier.SAW.Constant
 import Verifier.SAW.ExternalFormat
 import Verifier.SAW.FiniteValue ( FiniteType(..), FiniteValue(..)
-                                , scFiniteValue, fvVec, readFiniteValues
-                                , finiteTypeOf
+                                , scFiniteValue, fvVec, readFiniteValues, readFiniteValue
+                                , finiteTypeOf, asFiniteTypePure, sizeFiniteType
                                 )
 import Verifier.SAW.Prelude
+import Verifier.SAW.PrettySExp
 import Verifier.SAW.SCTypeCheck
 import Verifier.SAW.SharedTerm
 import qualified Verifier.SAW.Simulator.Concrete as Concrete
 import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
+import Verifier.SAW.Testing.Random (scRunTestsTFIO, scTestableType)
 import Verifier.SAW.TypedAST hiding (instantiateVarList)
 
 import qualified SAWScript.SBVParser as SBV
@@ -66,6 +74,7 @@ import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
 
 import qualified Cryptol.TypeCheck.AST as C
+import qualified Cryptol.Eval.Value as C
 import Cryptol.Utils.PP (pretty)
 
 import qualified Data.SBV.Bridge.Boolector as Boolector
@@ -132,6 +141,54 @@ withBE :: (forall s . ABC.GIA s -> IO a) -> IO a
 withBE f = do
   ABC.withNewGraph ABC.giaNetwork f
 
+-- | Use ABC's 'dsec' command to equivalence check to terms
+-- representing SAIGs. Note that nothing is returned; you must read
+-- the output to see what happened.
+--
+-- TODO: this is a first version. The interface can be improved later,
+-- but I don't want too worry to much about generalization before I
+-- have more examples. It might be an improvement to take SAIGs as
+-- arguments, in the style of 'cecPrim' below. This would require
+-- support for latches in the 'AIGNetwork' SAWScript type.
+dsecPrint :: SharedContext s -> TypedTerm s -> TypedTerm s -> IO ()
+dsecPrint sc t1 t2 = do
+  withSystemTempFile ".aig" $ \path1 _handle1 -> do
+  withSystemTempFile ".aig" $ \path2 _handle2 -> do
+  writeSAIGInferLatches sc path1 t1
+  writeSAIGInferLatches sc path2 t2
+  callCommand (abcDsec path1 path2)
+  where
+    -- The '-w' here may be overkill ...
+    abcDsec path1 path2 = printf "abc -c 'read %s; dsec -v -w %s;'" path1 path2
+
+cecPrim :: AIGNetwork -> AIGNetwork -> TopLevel SV.ProofResult
+cecPrim x y = do
+  res <- io $ ABC.cec x y
+  case res of
+    ABC.Valid -> return $ SV.Valid
+    ABC.Invalid bs
+      | Just ft <- readFiniteValue (FTVec (fromIntegral (length bs)) FTBit) bs ->
+           return $ SV.Invalid ft
+      | otherwise -> fail "cec: impossible, could not parse counterexample"
+    ABC.VerifyUnknown -> fail "cec: unknown result "
+
+loadAIGPrim :: FilePath -> TopLevel AIGNetwork
+loadAIGPrim f = do
+  exists <- io $ doesFileExist f
+  unless exists $ fail $ "AIG file " ++ f ++ " not found."
+  et <- io $ loadAIG f
+  case et of
+    Left err -> fail $ "Reading AIG failed: " ++ err
+    Right ntk -> return ntk
+
+-- | Tranlsate a SAWCore term into an AIG
+bitblastPrim :: SharedContext s -> TypedTerm s -> IO AIGNetwork
+bitblastPrim sc t = do
+  t' <- rewriteEqs sc t
+  withBE $ \be -> do
+    ls <- BBSim.bitBlastTerm be sc (ttTerm t')
+    return (AIG.Network be (toList ls))
+
 -- | Read an AIG file representing a theorem or an arbitrary function
 -- and represent its contents as a @SharedTerm@ lambda term. This is
 -- inefficient but semantically correct.
@@ -144,6 +201,73 @@ readAIGPrim f = do
   case et of
     Left err -> fail $ "Reading AIG failed: " ++ err
     Right t -> io $ mkTypedTerm sc t
+
+replacePrim :: TypedTerm SAWCtx
+            -> TypedTerm SAWCtx
+            -> TypedTerm SAWCtx
+            -> TopLevel (TypedTerm SAWCtx)
+replacePrim pat replace t = do
+  sc <- getSharedContext
+
+  let tpat  = ttTerm pat
+  let trepl = ttTerm replace
+
+  let fvpat = looseVars tpat
+  let fvrepl = looseVars trepl
+
+  unless (fvpat == 0) $ fail $ unlines
+    [ "pattern term is not closed", show tpat ]
+
+  unless (fvrepl == 0) $ fail $ unlines
+    [ "replacement term is not closed", show trepl ]
+
+  io $ do
+    ty1 <- scTypeOf sc tpat
+    ty2 <- scTypeOf sc trepl
+    c <- scConvertable sc False ty1 ty2
+    unless c $ fail $ unlines
+      [ "terms do not have convertable types", show tpat, show ty1, show trepl, show ty2 ]
+
+  let ss = emptySimpset
+  t' <- io $ replaceTerm sc ss (tpat, trepl) (ttTerm t)
+
+  io $ do
+    ty  <- scTypeOf sc (ttTerm t)
+    ty' <- scTypeOf sc t'
+    c' <- scConvertable sc False ty ty'
+    unless c' $ fail $ unlines
+      [ "term does not have the same type after replacement", show ty, show ty' ]
+
+  return t{ ttTerm = t' }
+
+
+hoistIfsPrim :: TypedTerm SAWCtx
+             -> TopLevel (TypedTerm SAWCtx)
+hoistIfsPrim t = do
+  sc <- getSharedContext
+  t' <- io $ hoistIfs sc (ttTerm t)
+
+  io $ do
+    ty  <- scTypeOf sc (ttTerm t)
+    ty' <- scTypeOf sc t'
+    c' <- scConvertable sc False ty ty'
+    unless c' $ fail $ unlines
+      [ "term does not have the same type after hoisting ifs", show ty, show ty' ]
+
+  return t{ ttTerm = t' }
+
+
+
+checkConvertablePrim :: TypedTerm SAWCtx
+                     -> TypedTerm SAWCtx
+                     -> TopLevel ()
+checkConvertablePrim x y = do
+   sc <- getSharedContext
+   io $ do
+     c <- scConvertable sc False (ttTerm x) (ttTerm y)
+     if c
+       then putStrLn "Convertable"
+       else putStrLn "Not convertable"
 
 {-
 -- | Apply some rewrite rules before exporting, to ensure that terms
@@ -174,17 +298,91 @@ prepForExport sc t = do
 -- | Write a @SharedTerm@ representing a theorem or an arbitrary
 -- function to an AIG file.
 writeAIG :: SharedContext s -> FilePath -> TypedTerm s -> IO ()
-writeAIG sc f t = withBE $ \be -> do
-  t' <- rewriteEqs sc t
-  ls <- BBSim.bitBlastTerm be sc (ttTerm t')
-  ABC.writeAiger f (ABC.Network be (ABC.bvToList ls))
-  return ()
+writeAIG sc f t = do
+  aig <- bitblastPrim sc t
+  ABC.writeAiger f aig
+
+-- | Like @writeAIG@, but takes an additional 'Integer' argument
+-- specifying the number of input and output bits to be interpreted as
+-- latches. Used to implement more friendly SAIG writers
+-- @writeSAIGInferLatches@ and @writeSAIGComputedLatches@.
+writeSAIG :: SharedContext s -> FilePath -> TypedTerm s -> Int -> IO ()
+writeSAIG sc file tt numLatches = do
+  aig <- bitblastPrim sc tt
+  GIA.writeAigerWithLatches file aig numLatches
+
+-- | Given a term a type '(i, s) -> (o, s)', call @writeSAIG@ on term
+-- with latch bits set to '|s|', the width of 's'.
+writeSAIGInferLatches :: forall s.
+  SharedContext s -> FilePath -> TypedTerm s -> IO ()
+writeSAIGInferLatches sc file tt = do
+  ty <- scTypeOf sc (ttTerm tt)
+  s <- getStateType ty
+  let numLatches = sizeFiniteType s
+  writeSAIG sc file tt numLatches
+  where
+    die :: Monad m => String -> m a
+    die why = fail $
+      "writeSAIGInferLatches: " ++ why ++ ":\n" ++
+      "term must have type of the form '(i, s) -> (o, s)',\n" ++
+      "where 'i', 's', and 'o' are all fixed-width types,\n" ++
+      "but type of term is:\n" ++ (pretty . ttSchema $ tt)
+
+    -- Decompose type as '(i, s) -> (o, s)' and return 's'.
+    getStateType :: SharedTerm s -> IO FiniteType
+    getStateType ty = do
+      ty' <- scWhnf sc ty
+      case ty' of
+        (asPi -> Just (_nm, tp, body)) ->
+          -- NB: if we get unexpected "state types are different"
+          -- failures here than we need to 'scWhnf sc' before calling
+          -- 'asFiniteType'.
+          case (asFiniteTypePure tp, asFiniteTypePure body) of
+            (Just dom, Just rng) ->
+              case (dom, rng) of
+                (FTTuple [_i, s], FTTuple [_o, s']) ->
+                  if s == s' then
+                    return s
+                  else
+                    die "state types are different"
+                _ -> die "domain or range not a tuple type"
+            _ -> die "domain or range not finite width"
+        _ -> die "not a function type"
+
+-- | Like @writeAIGInferLatches@, but takes an additional argument
+-- specifying the number of input and output bits to be interpreted as
+-- latches.
+writeAIGComputedLatches ::
+  SharedContext s -> FilePath -> TypedTerm s -> TypedTerm s -> IO ()
+writeAIGComputedLatches sc file term numLatches = do
+  aig <- bitblastPrim sc term
+  let numLatches' = SV.evaluateTypedTerm sc numLatches
+  if isWord numLatches' then do
+    let numLatches'' = fromInteger . C.fromWord $ numLatches'
+    GIA.writeAigerWithLatches file aig numLatches''
+  else do
+    fail $ "writeAIGComputedLatches:\n" ++
+      "non-integer or polymorphic number of latches;\n" ++
+      "you may need a width annotation '_:[width]':\n" ++
+      "value: " ++ ppCryptol numLatches' ++ "\n" ++
+      "term: " ++ ppSharedTerm numLatches ++ "\n" ++
+      "type: " ++ (pretty . ttSchema $ numLatches)
+  where
+    isWord :: C.Value -> Bool
+    isWord (C.VWord _) = True
+    isWord (C.VSeq isWord' _) = isWord'
+    isWord _ = False
+
+    ppCryptol :: C.Value -> String
+    ppCryptol = show . C.ppValue C.defaultPPOpts
+
+    ppSharedTerm :: TypedTerm s -> String
+    ppSharedTerm = scPrettyTerm . ttTerm
 
 writeCNF :: SharedContext s -> FilePath -> TypedTerm s -> IO ()
-writeCNF sc f t = withBE $ \be -> do
-  t' <- rewriteEqs sc t
-  ls <- BBSim.bitBlastTerm be sc (ttTerm t')
-  case AIG.bvToList ls of
+writeCNF sc f t = do
+  AIG.Network be ls <- bitblastPrim sc t
+  case ls of
     [l] -> do
       _ <- GIA.writeCNF be l f
       return ()
@@ -227,6 +425,17 @@ assumeUnsat = StateT $ \goal -> do
 printGoal :: ProofScript s ()
 printGoal = StateT $ \goal -> do
   putStrLn (scPrettyTerm (ttTerm (goalTerm goal)))
+  return ((), goal)
+
+printGoalSExp :: ProofScript SAWCtx ()
+printGoalSExp = StateT $ \goal -> do
+  print (ppSharedTermSExp (ttTerm (goalTerm goal)))
+  return ((), goal)
+
+printGoalSExp' :: Int -> ProofScript SAWCtx ()
+printGoalSExp' n = StateT $ \goal -> do
+  let cfg = defaultPPConfig { ppMaxDepth = Just n}
+  print (ppSharedTermSExpWith cfg (ttTerm (goalTerm goal)))
   return ((), goal)
 
 unfoldGoal :: SharedContext s -> [String] -> ProofScript s ()
@@ -304,7 +513,8 @@ satABC :: SharedContext s -> ProofScript s SV.SatResult
 satABC sc = StateT $ \g -> AIG.withNewGraph giaNetwork $ \be -> do
   TypedTerm schema t <- rewriteEqs sc (goalTerm g)
   checkBooleanSchema schema
-  let (args, _) = asLambdaList t
+  tp <- scWhnf sc =<< scTypeOf sc t
+  let (args, _) = asPiList tp
       argNames = map fst args
   -- putStrLn "Simulating..."
   (shapes, lit0) <- BBSim.bitBlast be sc t
@@ -326,8 +536,10 @@ satABC sc = StateT $ \g -> AIG.withNewGraph giaNetwork $ \be -> do
         Left err -> fail $ "Can't parse counterexample: " ++ err
         Right [v] ->
           return (SV.Sat v, g { goalTerm = TypedTerm schema tt })
-        Right vs -> do
-          return (SV.SatMulti (zip argNames vs), g { goalTerm = TypedTerm schema tt })
+        Right vs
+          | length argNames == length vs -> do
+              return (SV.SatMulti (zip argNames vs), g { goalTerm = TypedTerm schema tt })
+          | otherwise -> fail $ unwords ["ABC SAT results do not match expected arguments", show argNames, show vs]
     AIG.SatUnknown -> fail "Unknown result from ABC"
 
 parseDimacsSolution :: [Int]    -- ^ The list of CNF variables to return
@@ -346,8 +558,9 @@ satExternal :: Bool -> SharedContext s -> String -> [String]
             -> ProofScript s SV.SatResult
 satExternal doCNF sc execName args = StateT $ \g -> withBE $ \be -> do
   TypedTerm schema t <- rewriteEqs sc (goalTerm g)
+  tp <- scWhnf sc =<< scTypeOf sc t
   let cnfName = goalName g ++ ".cnf"
-      argNames = map fst (fst (asLambdaList t))
+      argNames = map fst (fst (asPiList tp))
   checkBoolean sc t
   (path, fh) <- openTempFile "." cnfName
   hClose fh -- Yuck. TODO: allow writeCNF et al. to work on handles.
@@ -375,8 +588,10 @@ satExternal doCNF sc execName args = StateT $ \g -> withBE $ \be -> do
         Left msg -> fail $ "Can't parse counterexample: " ++ msg
         Right [v] ->
           return (SV.Sat v, g { goalTerm = TypedTerm schema tt })
-        Right vs -> do
-          return (SV.SatMulti (zip argNames vs), g { goalTerm = TypedTerm schema tt })
+        Right vs
+          | length argNames == length vs -> do
+              return (SV.SatMulti (zip argNames vs), g { goalTerm = TypedTerm schema tt })
+          | otherwise -> fail $ unwords ["external SAT results do not match expected arguments", show argNames, show vs]
     (["s UNSATISFIABLE"], []) -> do
       ft <- scApplyPrelude_False sc
       return (SV.Unsat, g { goalTerm = TypedTerm schema ft })
@@ -421,7 +636,8 @@ satSBV conf sc = StateT $ \g -> do
   let lit = case goalQuant g of
         Existential -> lit0
         Universal -> liftM SBV.bnot lit0
-  let (args, _) = asLambdaList t'
+  tp <- scWhnf sc =<< scTypeOf sc t'
+  let (args, _) = asPiList tp
       argNames = map fst args
   SBV.SatResult r <- satWith conf lit
   case r of
@@ -441,7 +657,10 @@ getLabels :: [SBVSim.Labeler] -> SBV.SMTResult -> Map.Map String CW -> [String] 
 getLabels ls m d argNames =
   case fmap getLabel ls of
     [x] -> SV.Sat x
-    xs -> SV.SatMulti (zip argNames xs)
+    xs
+     | length argNames == length xs -> SV.SatMulti (zip argNames xs)
+     | otherwise -> error $ unwords ["SBV SAT results do not match expected arguments", show argNames, show xs]
+
   where
     getLabel :: SBVSim.Labeler -> FiniteValue
     getLabel (SBVSim.BoolLabel s) = FVBit . fromJust $ SBV.getModelValue s m
@@ -525,11 +744,10 @@ provePrim _sc script t = do
 provePrintPrim :: SharedContext s -> ProofScript s SV.SatResult
                -> TypedTerm s -> IO (Theorem s)
 provePrintPrim _sc script t = do
-  checkBooleanSchema (ttSchema t)
-  r <- evalStateT script (ProofGoal Universal "prove" t)
+  r <- provePrim _sc script t
   case r of
-    SV.Unsat -> putStrLn "Valid" >> return (Theorem t)
-    _ -> fail (show (SV.flipSatResult r))
+    SV.Valid -> putStrLn "Valid" >> return (Theorem t)
+    _ -> fail (show r)
 
 satPrim :: SharedContext s -> ProofScript s SV.SatResult -> TypedTerm s
         -> IO SV.SatResult
@@ -539,13 +757,32 @@ satPrim _sc script t = do
 
 satPrintPrim :: SharedContext s -> ProofScript s SV.SatResult
              -> TypedTerm s -> IO ()
-satPrintPrim _sc script t = do
-  r <- evalStateT script (ProofGoal Existential "sat" t)
-  print r
+satPrintPrim _sc script t = print =<< satPrim _sc script t
+
+-- | Quick check (random test) a term and print the result. The
+-- 'Integer' parameter is the number of random tests to run.
+quickCheckPrintPrim :: SharedContext s -> Integer -> TypedTerm s -> IO ()
+quickCheckPrintPrim sc numTests tt = do
+  let tm = ttTerm tt
+  ty <- scTypeOf sc tm
+  maybeInputs <- scTestableType sc ty
+  case maybeInputs of
+    Just inputs -> do
+      result <- scRunTestsTFIO sc numTests tm inputs
+      case result of
+        Nothing -> putStrLn $ "All " ++ show numTests ++ " tests passed!"
+        Just counterExample -> putStrLn $
+          "At least one test failed! Counter example:\n" ++
+          showList counterExample ""
+    Nothing -> fail $ "quickCheckPrintPrim:\n" ++
+      "term has non-testable type:\n" ++
+      pretty (ttSchema tt)
 
 cryptolSimpset :: SharedContext s -> IO (Simpset (SharedTerm s))
 cryptolSimpset sc = scSimpset sc cryptolDefs [] []
-  where cryptolDefs = moduleDefs CryptolSAW.cryptolModule
+  where cryptolDefs = filter (not . excluded) $
+                      moduleDefs CryptolSAW.cryptolModule
+        excluded d = defIdent d `elem` [ "Cryptol.fix" ]
 
 addPreludeEqs :: SharedContext s -> [String] -> Simpset (SharedTerm s)
               -> IO (Simpset (SharedTerm s))
@@ -553,6 +790,13 @@ addPreludeEqs sc names ss = do
   eqRules <- mapM (scEqRewriteRule sc) (map qualify names)
   return (addRules eqRules ss)
     where qualify = mkIdent (mkModuleName ["Prelude"])
+
+addCryptolEqs :: SharedContext s -> [String] -> Simpset (SharedTerm s)
+              -> IO (Simpset (SharedTerm s))
+addCryptolEqs sc names ss = do
+  eqRules <- mapM (scEqRewriteRule sc) (map qualify names)
+  return (addRules eqRules ss)
+    where qualify = mkIdent (mkModuleName ["Cryptol"])
 
 addPreludeDefs :: SharedContext s -> [String] -> Simpset (SharedTerm s)
               -> IO (Simpset (SharedTerm s))
@@ -597,6 +841,10 @@ check_term :: SharedTerm SAWCtx -> TopLevel ()
 check_term t = do
   sc <- getSharedContext
   io (scTypeCheckError sc t >>= print)
+
+printTermSExp' :: Int -> SharedTerm SAWCtx -> TopLevel ()
+printTermSExp' n =
+  io . print . ppSharedTermSExpWith (defaultPPConfig { ppMaxDepth = Just n })
 
 checkTypedTerm :: SharedContext s -> TypedTerm s -> IO ()
 checkTypedTerm sc (TypedTerm _schema t) = scTypeCheckError sc t >>= print

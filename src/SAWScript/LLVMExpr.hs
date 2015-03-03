@@ -60,7 +60,7 @@ data LLVMExprF v
   = Arg Int LSS.Ident LLVMActualType
   | Global LSS.Symbol LLVMActualType
   | Deref v LLVMActualType
-  | StructField v String Int LLVMActualType
+  | StructField v LSS.StructInfo Int LLVMActualType
   | ReturnValue LLVMActualType
   deriving (Functor, CC.Foldable, CC.Traversable)
 
@@ -87,14 +87,14 @@ instance CC.OrdFoldable LLVMExprF where
           EQ -> f1 `compare` f2
           r  -> r
   StructField _ _ _ _ `fcompare` _           = LT
-  _          `fcompare` StructField _ _ _ _  = GT
+  _          `fcompare` StructField _ _ _ _ = GT
   (ReturnValue _) `fcompare` (ReturnValue _) = EQ
 
 instance CC.ShowFoldable LLVMExprF where
   fshow (Arg _ nm _) = show nm
   fshow (Global nm _) = show nm
   fshow (Deref e _) = "*(" ++ show e ++ ")"
-  fshow (StructField r f _ _) = show r ++ "." ++ f
+  fshow (StructField r _ f _) = show r ++ "." ++ show f
   fshow (ReturnValue _) = "return"
 
 -- | Typechecked LLVMExpr
@@ -107,7 +107,7 @@ ppLLVMExpr (CC.Term exprF) =
     Arg _ nm _ -> text (show nm)
     Global nm _ -> LSS.ppSymbol nm
     Deref e _ -> char '*' <> parens (ppLLVMExpr e)
-    StructField r f _ _ -> ppLLVMExpr r <> char '.' <> text f
+    StructField r _ f _ -> ppLLVMExpr r <> char '.' <> text (show f)
     ReturnValue _ -> text "return"
 
 -- | Returns LSS Type of LLVMExpr
@@ -126,7 +126,7 @@ updateLLVMExprType (CC.Term exprF) tp = CC.Term $
     Arg i n _ -> Arg i n tp
     Global n _ -> Global n tp
     Deref e _ -> Deref e tp
-    StructField r f i _ -> StructField r f i tp
+    StructField r si i _ -> StructField r si i tp
     ReturnValue _ -> ReturnValue tp
 
 -- | Returns true if expression is a pointer.

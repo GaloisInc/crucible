@@ -7,6 +7,12 @@ let main = do {
     r <- prove abc thm;
     print r;
 
+    r <- prove yices thm;
+    print r;
+
+    r <- prove cvc4 thm;
+    print r;
+
     let thm_neg = {{ \x -> ~(thm x) }};
     write_smtlib1 "double.smt" thm_neg;
 
