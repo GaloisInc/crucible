@@ -1,0 +1,19 @@
+// Print all the satisfying assignments for a boolean predicate.
+//
+// Only works for uncurried predicates, because I don't know
+// how to write the "exclude the current solution" predicate
+// refinement
+//
+//   \x -> x != s && p x
+//
+// for curried predicates 'p'.
+
+rec allsat_print p = do {
+  r <- sat abc p;
+  caseSatResult r
+    (print "Done!")
+    (\s -> do {
+      print s;
+      allsat_print {{ \x -> x != s && p x }};
+    });
+};

@@ -1,0 +1,5 @@
+import "CoinPuzzle.cry";
+include "allsat_print.saw";
+
+// Need to uncurry to use 'allsat_print'.
+allsat_print {{ \(a,b,c,d) -> coinPuzzle a b c d }};
