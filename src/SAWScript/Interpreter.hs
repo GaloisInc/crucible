@@ -74,15 +74,22 @@ import qualified Cryptol.Eval.Value as V (defaultPPOpts, ppValue)
 
 -- Environment -----------------------------------------------------------------
 
+maybeInsert :: Ord k => k -> Maybe a -> Map k a -> Map k a
+maybeInsert _ Nothing m = m
+maybeInsert k (Just x) m = Map.insert k x m
+
 extendEnv :: SS.LName -> Maybe SS.Schema -> Maybe String -> Value -> TopLevelRW -> TopLevelRW
-extendEnv x mt md v (TopLevelRW vm tm dm ce) = TopLevelRW vm' tm' dm' ce'
+extendEnv x mt md v rw =
+  rw { rwValues  = Map.insert name v (rwValues rw)
+     , rwTypes   = maybeInsert name mt (rwTypes rw)
+     , rwDocs    = maybeInsert (getVal name) md (rwDocs rw)
+     , rwCryptol = ce'
+     }
   where
     name = x
     qname = T.QName Nothing (T.Name (getOrig x))
     modname = T.ModName [getOrig x]
-    vm' = Map.insert name v vm
-    tm' = maybe tm (\t -> Map.insert name t tm) mt
-    dm' = maybe dm (\d -> Map.insert (getVal name) d dm) md
+    ce = rwCryptol rw
     ce' = case v of
             VTerm t
               -> CEnv.bindTypedTerm (qname, t) ce
@@ -95,90 +102,93 @@ extendEnv x mt md v (TopLevelRW vm tm dm ce) = TopLevelRW vm' tm' dm' ce'
 -- | Variation that does not force the value argument: it assumes it
 -- is not a term or int.
 extendEnv' :: SS.LName -> Maybe SS.Schema -> Maybe String -> Value -> TopLevelRW -> TopLevelRW
-extendEnv' x mt md v (TopLevelRW vm tm dm ce) = TopLevelRW vm' tm' dm' ce
-  where
-    dm' = maybe dm (\d -> Map.insert (getVal x) d dm) md
-    vm' = Map.insert x v vm
-    tm' = maybe tm (\t -> Map.insert x t tm) mt
+extendEnv' x mt md v rw =
+  rw { rwValues  = Map.insert x v (rwValues rw)
+     , rwTypes   = maybeInsert x mt (rwTypes rw)
+     , rwDocs    = maybeInsert (getVal x) md (rwDocs rw)
+     }
 
 -- Interpretation of SAWScript -------------------------------------------------
 
 interpret :: TopLevelRO -> TopLevelRW -> SS.Expr -> IO Value
-interpret ro@(TopLevelRO sc _ _) env@(TopLevelRW vm _tm _dm ce) expr =
+interpret ro rw expr =
     case expr of
       SS.Bit b               -> return $ VBool b
       SS.String s            -> return $ VString s
       SS.Z z                 -> return $ VInteger z
-      SS.Code str            -> toValue `fmap` CEnv.parseTypedTerm sc ce str
-      SS.CType str           -> toValue `fmap` CEnv.parseSchema ce str
-      SS.Array es            -> VArray <$> traverse (interpret ro env) es
-      SS.Block stmts         -> interpretStmts ro env stmts
-      SS.Tuple es            -> VTuple <$> traverse (interpret ro env) es
-      SS.Record bs           -> VRecord <$> traverse (interpret ro env) bs
-      SS.Index e1 e2         -> do a <- interpret ro env e1
-                                   i <- interpret ro env e2
+      SS.Code str            -> toValue `fmap` CEnv.parseTypedTerm sc (rwCryptol rw) str
+      SS.CType str           -> toValue `fmap` CEnv.parseSchema (rwCryptol rw) str
+      SS.Array es            -> VArray <$> traverse (interpret ro rw) es
+      SS.Block stmts         -> interpretStmts ro rw stmts
+      SS.Tuple es            -> VTuple <$> traverse (interpret ro rw) es
+      SS.Record bs           -> VRecord <$> traverse (interpret ro rw) bs
+      SS.Index e1 e2         -> do a <- interpret ro rw e1
+                                   i <- interpret ro rw e2
                                    return (indexValue a i)
-      SS.Lookup e n          -> do a <- interpret ro env e
+      SS.Lookup e n          -> do a <- interpret ro rw e
                                    return (lookupValue a n)
-      SS.TLookup e i         -> do a <- interpret ro env e
+      SS.TLookup e i         -> do a <- interpret ro rw e
                                    return (tupleLookupValue a i)
-      SS.Var x               -> case Map.lookup x vm of
+      SS.Var x               -> case Map.lookup x (rwValues rw) of
                                   Nothing -> fail $ "unknown variable: " ++ SS.getVal x
                                   Just v -> return v
 
-      SS.Function x t e      -> do let env' v = extendEnv x (fmap SS.tMono t) Nothing v env
-                                       f v = interpret ro (env' v) e
+      SS.Function x t e      -> do let rw' v = extendEnv x (fmap SS.tMono t) Nothing v rw
+                                       f v = interpret ro (rw' v) e
                                    return $ VLambda f
-      SS.Application e1 e2   -> do v1 <- interpret ro env e1
-                                   v2 <- interpret ro env e2
+      SS.Application e1 e2   -> do v1 <- interpret ro rw e1
+                                   v2 <- interpret ro rw e2
                                    case v1 of
                                      VLambda f -> f v2
                                      _ -> fail $ "interpret Application: " ++ show v1
-      SS.Let dg e            -> do env' <- interpretDeclGroup ro env dg
-                                   interpret ro env' e
-      SS.TSig e _            -> interpret ro env e
+      SS.Let dg e            -> do rw' <- interpretDeclGroup ro rw dg
+                                   interpret ro rw' e
+      SS.TSig e _            -> interpret ro rw e
+
+  where sc = roSharedContext ro
 
 interpretDecl :: TopLevelRO -> TopLevelRW -> SS.Decl -> IO TopLevelRW
-interpretDecl ro env (SS.Decl n mt expr) = do
-  v <- interpret ro env expr
-  return (extendEnv n mt Nothing v env)
+interpretDecl ro rw (SS.Decl n mt expr) = do
+  v <- interpret ro rw expr
+  return (extendEnv n mt Nothing v rw)
 
 interpretFunction :: TopLevelRO -> TopLevelRW -> SS.Expr -> Value
-interpretFunction ro env expr =
+interpretFunction ro rw expr =
     case expr of
       SS.Function x t e -> VLambda f
-        where f v = interpret ro (extendEnv x (fmap SS.tMono t) Nothing v env) e
-      SS.TSig e _ -> interpretFunction ro env e
+        where f v = interpret ro (extendEnv x (fmap SS.tMono t) Nothing v rw) e
+      SS.TSig e _ -> interpretFunction ro rw e
       _ -> error "interpretFunction: not a function"
 
 interpretDeclGroup :: TopLevelRO -> TopLevelRW -> SS.DeclGroup -> IO TopLevelRW
-interpretDeclGroup ro env (SS.NonRecursive d) =
-  interpretDecl ro env d
-interpretDeclGroup ro env (SS.Recursive ds) = return env'
-  where env' = foldr ($) env [ extendEnv' n mty Nothing (interpretFunction ro env' e) | SS.Decl n mty e <- ds ]
+interpretDeclGroup ro rw (SS.NonRecursive d) =
+  interpretDecl ro rw d
+interpretDeclGroup ro rw (SS.Recursive ds) = return rw'
+  where rw' = foldr ($) rw [ extendEnv' n mty Nothing (interpretFunction ro rw' e) | SS.Decl n mty e <- ds ]
 
 interpretStmts :: TopLevelRO -> TopLevelRW -> [SS.Stmt] -> IO Value
-interpretStmts ro@(TopLevelRO sc _ _) env@(TopLevelRW vm tm dm ce) stmts =
+interpretStmts ro rw stmts =
     case stmts of
       [] -> fail "empty block"
-      [SS.StmtBind Nothing _ _ e] -> interpret ro env e
+      [SS.StmtBind Nothing _ _ e] -> interpret ro rw e
       SS.StmtBind Nothing _ _ e : ss ->
-          do v1 <- interpret ro env e
-             return $ VBind v1 $ VLambda $ const $ interpretStmts ro env ss
+          do v1 <- interpret ro rw e
+             return $ VBind v1 $ VLambda $ const $ interpretStmts ro rw ss
       SS.StmtBind (Just x) mt _ e : ss ->
-          do v1 <- interpret ro env e
-             let f v = interpretStmts ro (extendEnv x (fmap SS.tMono mt) Nothing v env) ss
+          do v1 <- interpret ro rw e
+             let f v = interpretStmts ro (extendEnv x (fmap SS.tMono mt) Nothing v rw) ss
              bindValue v1 (VLambda f)
-      SS.StmtLet bs : ss -> interpret ro env (SS.Let bs (SS.Block ss))
+      SS.StmtLet bs : ss -> interpret ro rw (SS.Let bs (SS.Block ss))
       SS.StmtCode s : ss ->
-          do ce' <- CEnv.parseDecls sc ce s
-             interpretStmts ro (TopLevelRW vm tm dm ce') ss
+          do ce' <- CEnv.parseDecls sc (rwCryptol rw) s
+             interpretStmts ro rw{rwCryptol = ce'} ss
       SS.StmtImport _ : _ ->
           do fail "block import unimplemented"
+  where sc = roSharedContext ro
 
 processStmtBind :: Bool -> TopLevelRO -> TopLevelRW -> Maybe SS.LName
                  -> Maybe SS.Type -> Maybe SS.Type -> SS.Expr -> IO TopLevelRW
-processStmtBind printBinds ro env mx mt _mc expr = do
+processStmtBind printBinds ro rw mx mt _mc expr = do
   let it = SS.Located "it" "it" PosREPL
   let lname = maybe it id mx
   let ctx = SS.tContext SS.TopLevel
@@ -187,7 +197,7 @@ processStmtBind printBinds ro env mx mt _mc expr = do
                 Just t -> SS.TSig expr (SS.tBlock ctx t)
   let decl = SS.Decl lname Nothing expr'
 
-  SS.Decl _ (Just schema) expr'' <- reportErrT $ checkDecl (rwTypes env) decl
+  SS.Decl _ (Just schema) expr'' <- reportErrT $ checkDecl (rwTypes rw) decl
   ty <- case schema of
           SS.Forall [] t ->
             case t of
@@ -195,41 +205,42 @@ processStmtBind printBinds ro env mx mt _mc expr = do
               _ -> fail $ "Not a TopLevel monadic type: " ++ SS.pShow t
           _ -> fail $ "Not a monomorphic type: " ++ SS.pShow schema
 
-  val <- interpret ro env expr''
+  val <- interpret ro rw expr''
   -- | Run the resulting IO action.
-  (result, env') <- runTopLevel (SAWScript.Value.fromValue val) ro env
+  (result, rw') <- runTopLevel (SAWScript.Value.fromValue val) ro rw
 
   -- | Print non-unit result if it was not bound to a variable
   case mx of
     Nothing | printBinds && not (isVUnit result) -> print result
     _                                            -> return ()
 
-  let env'' = extendEnv lname (Just (SS.tMono ty)) Nothing result env'
-  return env''
+  let rw'' = extendEnv lname (Just (SS.tMono ty)) Nothing result rw'
+  return rw''
 
 -- | Interpret a block-level statement in the TopLevel monad.
 interpretStmt :: Bool -> TopLevelRO -> TopLevelRW -> SS.Stmt -> IO TopLevelRW
-interpretStmt printBinds ro@(TopLevelRO sc _ _) env stmt =
+interpretStmt printBinds ro rw stmt =
   case stmt of
-    SS.StmtBind mx mt mc expr -> processStmtBind printBinds ro env mx mt mc expr
-    SS.StmtLet dg             -> do dg' <- reportErrT (checkDeclGroup (rwTypes env) dg)
-                                    interpretDeclGroup ro env dg'
-    SS.StmtCode lstr          -> do cenv' <- CEnv.parseDecls sc (rwCryptol env) lstr
-                                    return env { rwCryptol = cenv' }
-    SS.StmtImport imp         -> do cenv' <- CEnv.importModule sc (rwCryptol env) imp
-                                    return env { rwCryptol = cenv' }
+    SS.StmtBind mx mt mc expr -> processStmtBind printBinds ro rw mx mt mc expr
+    SS.StmtLet dg             -> do dg' <- reportErrT (checkDeclGroup (rwTypes rw) dg)
+                                    interpretDeclGroup ro rw dg'
+    SS.StmtCode lstr          -> do cenv' <- CEnv.parseDecls sc (rwCryptol rw) lstr
+                                    return rw { rwCryptol = cenv' }
+    SS.StmtImport imp         -> do cenv' <- CEnv.importModule sc (rwCryptol rw) imp
+                                    return rw { rwCryptol = cenv' }
+  where sc = roSharedContext ro
 
 interpretFile :: TopLevelRO -> TopLevelRW -> FilePath -> IO TopLevelRW
-interpretFile ro env file = do
+interpretFile ro rw file = do
   stmts <- SAWScript.Import.loadFile (roOptions ro) file
-  foldM (interpretStmt False ro) env stmts
+  foldM (interpretStmt False ro) rw stmts
 
 -- | Evaluate the value called 'main' from the current environment.
 interpretMain :: TopLevelRO -> TopLevelRW -> IO ()
-interpretMain ro env =
-  case Map.lookup mainName (rwValues env) of
+interpretMain ro rw =
+  case Map.lookup mainName (rwValues rw) of
     Nothing -> return () -- fail "No 'main' defined"
-    Just v -> fst <$> runTopLevel (fromValue v) ro env
+    Just v -> fst <$> runTopLevel (fromValue v) ro rw
   where mainName = Located "main" "main" (PosInternal "entry")
 
 buildTopLevelEnv :: Options -> IO (BuiltinContext, TopLevelRO, TopLevelRW)
@@ -266,13 +277,19 @@ buildTopLevelEnv opts =
        let vm0 = Map.insert (qualify "basic_ss") (toValue ss) (valueEnv opts bic)
        let tm0 = Map.insert (qualify "basic_ss") (readSchema "Simpset") primTypeEnv
        ce0 <- CEnv.initCryptolEnv sc
-       return (bic, ro0, TopLevelRW vm0 tm0 primDocEnv ce0)
+       let rw0 = TopLevelRW
+                   { rwValues   = vm0
+                   , rwTypes    = tm0
+                   , rwDocs     = primDocEnv
+                   , rwCryptol  = ce0
+                   }
+       return (bic, ro0, rw0)
 
 processFile :: Options -> FilePath -> IO ()
 processFile opts file = do
-  (_, ro, env) <- buildTopLevelEnv opts
-  env' <- interpretFile ro env file
-  interpretMain ro env'
+  (_, ro, rw) <- buildTopLevelEnv opts
+  rw' <- interpretFile ro rw file
+  interpretMain ro rw'
 
 -- Primitives ------------------------------------------------------------------
 
