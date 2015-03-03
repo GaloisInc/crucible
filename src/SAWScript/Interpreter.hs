@@ -857,6 +857,10 @@ primitives = Map.fromList
     (bicVal llvmVerifyTactic)
     [ "TODO" ]
 
+  , prim "llvm_no_simulate"    "LLVMSetup ()"
+    (pureVal llvmNoSimulate)
+    [ "TODO" ]
+
   , prim "llvm_pure"           "LLVMSetup ()"
     (pureVal llvmPure)
     [ "TODO" ]
