@@ -392,7 +392,9 @@ parseLLVMExpr cb fn str = runParserT (parseExpr <* eof) () "expr" str
       e <- parseAExpr
       case lssTypeOfLLVMExpr e of
         PtrType (MemType ty) -> return (Term (Deref e ty))
-        _ -> unexpected "Attempting to apply * operation to non-pointer"
+        ty -> unexpected $
+              "Attempting to apply * operation to non-pointer, of type " ++
+              show (ppActualType ty)
     parseArgs :: LLVMExprParser LLVMExpr
     parseArgs = do
       _ <- try (string "args[")
