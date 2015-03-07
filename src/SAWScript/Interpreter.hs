@@ -585,6 +585,10 @@ primitives = Map.fromList
     (pureVal (assumeUnsat :: ProofScript SAWCtx SatResult))
     [ "TODO" ]
 
+  , prim "quickcheck"          "Int -> ProofScript SatResult"
+    (scVal quickcheckGoal)
+    [ "TODO" ]
+
   , prim "abc"                 "ProofScript SatResult"
     (scVal satABC)
     [ "TODO" ]

@@ -412,6 +412,26 @@ readCore path = do
   sc <- getSharedContext
   io (mkTypedTerm sc =<< scReadExternal sc =<< readFile path)
 
+quickcheckGoal :: SharedContext s -> Integer -> ProofScript s SV.SatResult
+quickcheckGoal sc n = StateT $ \goal -> do
+  putStr $ "WARNING: using quickcheck to prove goal..."
+  hFlush stdout
+  let tm = ttTerm (goalTerm goal)
+  ty <- scTypeOf sc tm
+  maybeInputs <- scTestableType sc ty
+  case maybeInputs of
+    Just inputs -> do
+      result <- scRunTestsTFIO sc n tm inputs
+      case result of
+        Nothing -> do
+          putStrLn $ "checked " ++ show n ++ " cases."
+          return (SV.Unsat, goal)
+        Just (cex:_) -> return (SV.Sat cex, goal)
+        Just [] -> fail "quickcheck: empty counterexample"
+    Nothing -> fail $ "quickcheck:\n" ++
+      "term has non-testable type:\n" ++
+      pretty (ttSchema (goalTerm goal))
+
 assumeValid :: ProofScript s SV.ProofResult
 assumeValid = StateT $ \goal -> do
   putStrLn $ "WARNING: assuming goal " ++ goalName goal ++ " is valid"
