@@ -330,8 +330,7 @@ withSAWBackend :: SharedContext s
                -> Maybe (IORef [SharedTerm s])
                -> (Backend (SharedContext s) -> IO a)
                -> IO a
-withSAWBackend jsc argsRef a =
-  withBE $ \be -> sawBackend jsc argsRef be >>= a
+withSAWBackend jsc argsRef a = sawBackend jsc argsRef sawProxy >>= a
 
 runJavaSetup :: Pos -> Codebase -> Class -> String -> SharedContext SAWCtx
              -> StateT JavaSetupState IO a

@@ -167,12 +167,12 @@ symexecLLVM :: BuiltinContext
             -> [(String, SharedTerm SAWCtx)]
             -> [String]
             -> IO (TypedTerm SAWCtx)
-symexecLLVM bic opts (LLVMModule file mdl) fname inputs outputs = do
+symexecLLVM bic opts (LLVMModule file mdl) fname inputs outputs =
   let sym = Symbol fname
       dl = parseDataLayout $ modDataLayout mdl
       sc = biSharedContext bic
-  withBE $ \be -> do
-    (sbe, mem, scLLVM) <- createSAWBackend' be dl sc
+  in do
+    (sbe, mem, scLLVM) <- createSAWBackend' sawProxy dl sc
     (_warnings, cb) <- mkCodebase sbe dl mdl
     case lookupDefine sym cb of
       Nothing -> fail $ "Bitcode file " ++ file ++
@@ -222,11 +222,11 @@ symexecLLVM bic opts (LLVMModule file mdl) fname inputs outputs = do
 -- verifications will require more complex execution contexts.
 extractLLVM :: SharedContext SAWCtx -> LLVMModule -> String -> LLVMSetup ()
             -> IO (TypedTerm SAWCtx)
-extractLLVM sc (LLVMModule file mdl) func _setup = do
+extractLLVM sc (LLVMModule file mdl) func _setup =
   let dl = parseDataLayout $ modDataLayout mdl
       sym = Symbol func
-  withBE $ \be -> do
-    (sbe, mem, scLLVM) <- createSAWBackend' be dl sc
+  in do
+    (sbe, mem, scLLVM) <- createSAWBackend' sawProxy dl sc
     (_warnings, cb) <- mkCodebase sbe dl mdl
     -- TODO: Print warnings from codebase.
     case lookupDefine sym cb of
@@ -256,12 +256,12 @@ verifyLLVM :: BuiltinContext -> Options -> LLVMModule -> String
            -> [LLVMMethodSpecIR]
            -> LLVMSetup ()
            -> IO LLVMMethodSpecIR
-verifyLLVM bic opts (LLVMModule _file mdl) func overrides setup = do
+verifyLLVM bic opts (LLVMModule _file mdl) func overrides setup =
   let pos = fixPos -- TODO
       dl = parseDataLayout $ modDataLayout mdl
       sc = biSharedContext bic
-  withBE $ \be -> do
-    (sbe, mem, scLLVM) <- createSAWBackend' be dl sc
+  in do
+    (sbe, mem, scLLVM) <- createSAWBackend' sawProxy dl sc
     (_warnings, cb) <- mkCodebase sbe dl mdl
     let ms0 = initLLVMMethodSpec pos cb func
         lsctx0 = LLVMSetupState {

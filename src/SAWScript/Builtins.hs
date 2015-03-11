@@ -15,7 +15,6 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad.State
 import qualified Data.ByteString.Lazy as BS
--- import Data.Either (partitionEithers)
 import Data.List (isPrefixOf)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -24,14 +23,11 @@ import System.Directory
 import System.IO
 import System.IO.Temp (withSystemTempFile)
 import System.Process
--- import Text.PrettyPrint.Leijen hiding ((<$>))
 import Text.Printf (printf)
 import Text.Read
 
 
 import qualified Verifier.Java.Codebase as JSS
--- import Verifier.Java.SAWBackend (javaModule)
--- import Verifier.LLVM.Backend.SAW (llvmModule)
 import qualified Verifier.SAW.Cryptol as Cryptol
 
 import Verifier.SAW.Constant
@@ -69,7 +65,6 @@ import qualified Data.ABC as ABC
 import qualified Data.SBV as SBV
 import Data.SBV.Internals
 
-import Data.ABC (giaNetwork)
 import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
 
@@ -137,9 +132,10 @@ readSBV path unintlst =
           SBV.TTuple ts  -> C.tTuple (map toCType ts)
           SBV.TRecord bs -> C.tRec [ (C.Name n, toCType t) | (n, t) <- bs ]
 
-withBE :: (forall s . ABC.GIA s -> IO a) -> IO a
-withBE f = do
-  ABC.withNewGraph ABC.giaNetwork f
+
+-- | The 'AIG.Proxy' used by SAWScript.
+sawProxy :: AIG.Proxy GIA.Lit GIA.GIA
+sawProxy = GIA.proxy
 
 -- | Use ABC's 'dsec' command to equivalence check to terms
 -- representing SAIGs. Note that nothing is returned; you must read
@@ -185,8 +181,7 @@ loadAIGPrim f = do
 bitblastPrim :: SharedContext s -> TypedTerm s -> IO AIGNetwork
 bitblastPrim sc t = do
   t' <- rewriteEqs sc t
-  withBE $ \be -> do
-    ls <- BBSim.bitBlastTerm be sc (ttTerm t')
+  BBSim.withBitBlastedTerm sawProxy sc (ttTerm t') $ \be ls -> do
     return (AIG.Network be (toList ls))
 
 -- | Read an AIG file representing a theorem or an arbitrary function
@@ -530,14 +525,14 @@ checkBooleanSchema s =
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
 satABC :: SharedContext s -> ProofScript s SV.SatResult
-satABC sc = StateT $ \g -> AIG.withNewGraph giaNetwork $ \be -> do
+satABC sc = StateT $ \g -> do
   TypedTerm schema t <- rewriteEqs sc (goalTerm g)
   checkBooleanSchema schema
   tp <- scWhnf sc =<< scTypeOf sc t
   let (args, _) = asPiList tp
       argNames = map fst args
   -- putStrLn "Simulating..."
-  (shapes, lit0) <- BBSim.bitBlast be sc t
+  BBSim.withBitBlastedPred sawProxy sc t $ \be lit0 shapes -> do
   let lit = case goalQuant g of
         Existential -> lit0
         Universal -> AIG.not lit0
@@ -576,7 +571,7 @@ parseDimacsSolution vars ls = map lkup vars
 
 satExternal :: Bool -> SharedContext s -> String -> [String]
             -> ProofScript s SV.SatResult
-satExternal doCNF sc execName args = StateT $ \g -> withBE $ \be -> do
+satExternal doCNF sc execName args = StateT $ \g -> do
   TypedTerm schema t <- rewriteEqs sc (goalTerm g)
   tp <- scWhnf sc =<< scTypeOf sc t
   let cnfName = goalName g ++ ".cnf"
@@ -587,7 +582,7 @@ satExternal doCNF sc execName args = StateT $ \g -> withBE $ \be -> do
   let args' = map replaceFileName args
       replaceFileName "%f" = path
       replaceFileName a = a
-  (shapes, l0) <- BBSim.bitBlast be sc t
+  BBSim.withBitBlastedPred sawProxy sc t $ \be l0 shapes -> do
   let l = case goalQuant g of
         Existential -> l0
         Universal -> AIG.not l0
