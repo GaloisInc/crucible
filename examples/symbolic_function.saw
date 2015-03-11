@@ -1,0 +1,23 @@
+let {{
+  // Output feedback cipher chaning mode
+
+  OFB_enc : {a, n} fin n => (a -> a) -> a -> [n]a -> [n]a
+  OFB_enc enc iv pt = pt ^ keystream
+    where keystream = take`{n} [ enc k | k <- [iv] # keystream ]
+
+  OFB_dec : {a, n} fin n => (a -> a) -> a -> [n]a -> [n]a
+  OFB_dec enc iv ct = ct ^ keystream
+    where keystream = take`{n} [ enc k | k <- [iv] # keystream ]
+
+  prop1 : {a, n} (Cmp a, fin n) => (a -> a) -> a -> [n]a -> Bit
+  prop1 enc iv pt = OFB_dec enc iv (OFB_enc enc iv pt) == pt
+
+  prop2 : {a, n} (Cmp a, fin n) => (a -> a) -> a -> [n]a -> Bit
+  prop2 enc iv ct = OFB_enc enc iv (OFB_dec enc iv ct) == ct
+
+}};
+
+enc <- fresh_symbolic "enc" {| [64] -> [64] |};
+
+prove_print cvc4 {{ prop1 enc : [64] -> [100][64] -> Bit }};
+prove_print cvc4 {{ prop2 enc : [64] -> [100][64] -> Bit }};
