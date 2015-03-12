@@ -933,7 +933,12 @@ caseProofResultPrim sc pr vValid vInvalid = do
     SV.Valid -> return vValid
     SV.Invalid v -> do t <- mkTypedTerm sc =<< scFiniteValue sc v
                        SV.applyValue vInvalid (SV.toValue t)
-    SV.InvalidMulti _ -> fail $ "multi-value counter-example"
+    SV.InvalidMulti pairs -> do
+      let fvs = map snd pairs
+      ts <- mapM (scFiniteValue sc) fvs
+      t <- scTuple sc ts
+      tt <- mkTypedTerm sc t
+      SV.applyValue vInvalid (SV.toValue tt)
 
 caseSatResultPrim :: SharedContext SAWCtx -> SV.SatResult
                   -> SV.Value -> SV.Value
@@ -943,7 +948,12 @@ caseSatResultPrim sc sr vUnsat vSat = do
     SV.Unsat -> return vUnsat
     SV.Sat v -> do t <- mkTypedTerm sc =<< scFiniteValue sc v
                    SV.applyValue vSat (SV.toValue t)
-    SV.SatMulti _ -> fail $ "multi-value satisfying assignment"
+    SV.SatMulti pairs -> do
+      let fvs = map snd pairs
+      ts <- mapM (scFiniteValue sc) fvs
+      t <- scTuple sc ts
+      tt <- mkTypedTerm sc t
+      SV.applyValue vUnsat (SV.toValue tt)
 
 envCmd :: TopLevel ()
 envCmd = do

@@ -896,11 +896,35 @@ primitives = Map.fromList
 
   , prim "caseSatResult"       "{b} SatResult -> b -> (Term -> b) -> b"
     (\_ bic -> toValueCase (biSharedContext bic) caseSatResultPrim)
-    [ "TODO" ]
+    [ "Branch on the result of SAT solving."
+    , ""
+    , "Usage: caseSatResult <code to run if unsat> <code to run if sat>."
+    , ""
+    , "For example,"
+    , ""
+    , "  r <- sat abc <thm>"
+    , "  caseSatResult r <unsat> <sat>"
+    , ""
+    , "will run '<unsat>' if '<thm>' is unSAT and will run '<sat> <example>'"
+    , "if '<thm>' is SAT, where '<example>' is a satisfying assignment."
+    , "If '<thm>' is a curried function, then '<example>' will be a tuple."
+    ]
 
   , prim "caseProofResult"     "{b} ProofResult -> b -> (Term -> b) -> b"
     (\_ bic -> toValueCase (biSharedContext bic) caseProofResultPrim)
-    [ "TODO" ]
+    [ "Branch on the result of proofing."
+    , ""
+    , "Usage: caseProofResult <code to run if true> <code to run if false>."
+    , ""
+    , "For example,"
+    , ""
+    , "  r <- prove abc <thm>"
+    , "  caseProofResult r <true> <false>"
+    , ""
+    , "will run '<trie>' if '<thm>' is proved and will run '<false> <example>'"
+    , "if '<thm>' is false, where '<example>' is a counter example."
+    , "If '<thm>' is a curried function, then '<example>' will be a tuple."
+    ]
 
   , prim "undefined"           "{a} a"
     (\_ _ -> error "interpret: undefined")
