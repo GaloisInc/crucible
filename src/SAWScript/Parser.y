@@ -8,6 +8,7 @@
 module SAWScript.Parser
   ( parseModule
   , parseStmt
+  , parseStmtSemi
   , parseSchema
   , ParseError(..)
   ) where
@@ -29,6 +30,7 @@ import Control.Applicative
 
 %name parseModule Stmts
 %name parseStmt Stmt
+%name parseStmtSemi StmtSemi
 %name parseSchema PolyType
 %error { parseError }
 %tokentype { Token Pos }
@@ -86,6 +88,9 @@ import Control.Applicative
 
 Stmts :: { [Stmt] }
  : termBy(Stmt, ';')                    { $1 }
+
+StmtSemi :: { Stmt }
+ : fst(Stmt, opt(';'))                  { $1 }
 
 Import :: { Import }
  : string mbAs mbImportSpec             { Import (Left $1) $2 $3 }

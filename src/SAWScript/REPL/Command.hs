@@ -64,7 +64,7 @@ import SAWScript.Interpreter
      primDocEnv,
      primTypeEnv)
 import qualified SAWScript.Lexer (scan)
-import qualified SAWScript.Parser (parseStmt)
+import qualified SAWScript.Parser (parseStmtSemi)
 import qualified SAWScript.Value (evaluate)
 import SAWScript.TopLevel (TopLevelRW(..))
 import SAWScript.TypedTerm
@@ -579,7 +579,7 @@ caveats:
 sawScriptCmd :: String -> REPL ()
 sawScriptCmd str = do
   tokens <- err $ SAWScript.Lexer.scan replFileName str
-  stmt <- err $ liftParser SAWScript.Parser.parseStmt tokens
+  stmt <- err $ liftParser SAWScript.Parser.parseStmtSemi tokens
   ro <- getTopLevelRO
   ie <- getEnvironment
   ie' <- io $ interpretStmt True ro ie stmt
