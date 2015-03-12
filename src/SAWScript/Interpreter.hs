@@ -403,6 +403,10 @@ primitives = Map.fromList
     (pureVal print_type)
     [ "TODO" ]
 
+  , prim "type"                "Term -> Type"
+    (pureVal (ttSchema :: TypedTerm SAWCtx -> T.Schema))
+    [ "TODO" ]
+
   , prim "show_term"           "Term -> String"
     (pureVal (scPrettyTerm :: SharedTerm SAWCtx -> String))
     [ "TODO" ]
