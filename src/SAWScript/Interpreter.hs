@@ -928,7 +928,12 @@ primitives = Map.fromList
 
   , prim "undefined"           "{a} a"
     (\_ _ -> error "interpret: undefined")
-    [ "TODO" ]
+    [ "An undefined value of any type. Evaluating 'undefined' makes the program crash." ]
+
+  , prim "exit"                "Int -> TopLevel ()"
+    (pureVal exitPrim)
+
+    [ "Exit SAWScript, returning the supplied exit code to the parent process." ]
   ]
   where
     prim :: String -> String -> (Options -> BuiltinContext -> Value) -> [String]

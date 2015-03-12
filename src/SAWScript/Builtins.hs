@@ -20,6 +20,7 @@ import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Vector as V
 import System.Directory
+import qualified System.Exit as Exit
 import System.IO
 import System.IO.Temp (withSystemTempFile)
 import System.Process
@@ -960,3 +961,10 @@ envCmd = do
   m <- rwTypes <$> getTopLevelRW
   let showLName = getVal
   io $ sequence_ [ putStrLn (showLName x ++ " : " ++ pShow v) | (x, v) <- Map.assocs m ]
+
+exitPrim :: Integer -> IO ()
+exitPrim code = Exit.exitWith exitCode
+  where
+    exitCode = if code /= 0
+               then Exit.ExitFailure (fromInteger code)
+               else Exit.ExitSuccess
