@@ -198,16 +198,19 @@ processStmtBind printBinds ro rw mx mt _mc expr = do
   let decl = SS.Decl lname Nothing expr'
 
   SS.Decl _ (Just schema) expr'' <- reportErrT $ checkDecl (rwTypes rw) decl
-  ty <- case schema of
-          SS.Forall [] t ->
-            case t of
-              SS.TyCon SS.BlockCon [c, t'] | c == ctx -> return t'
-              _ -> fail $ "Not a TopLevel monadic type: " ++ SS.pShow t
-          _ -> fail $ "Not a monomorphic type: " ++ SS.pShow schema
 
   val <- interpret ro rw expr''
-  -- | Run the resulting IO action.
-  (result, rw') <- runTopLevel (SAWScript.Value.fromValue val) ro rw
+
+  -- | Run the resulting TopLevel action.
+  (result, ty, rw') <-
+    case schema of
+      SS.Forall [] t ->
+        case t of
+          SS.TyCon SS.BlockCon [c, t'] | c == ctx -> do
+            (result, rw') <- runTopLevel (SAWScript.Value.fromValue val) ro rw
+            return (result, t', rw')
+          _ -> return (val, t, rw)
+      _ -> fail $ "Not a monomorphic type: " ++ SS.pShow schema
 
   -- | Print non-unit result if it was not bound to a variable
   case mx of
