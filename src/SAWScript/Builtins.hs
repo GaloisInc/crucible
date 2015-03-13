@@ -636,6 +636,11 @@ rewriteEqs sc (TypedTerm schema t) = do
   t' <- rewriteSharedTerm sc ss t
   return (TypedTerm schema t')
 
+codegenSBV :: SharedContext s -> FilePath -> String -> TypedTerm s -> IO ()
+codegenSBV sc path fname (TypedTerm _schema t) =
+  SBVSim.sbvCodeGen sc mpath fname t
+  where mpath = if null path then Nothing else Just path
+
 prepSBV :: SharedContext s -> TypedTerm s
         -> IO (SharedTerm s, [SBVSim.Labeler], Predicate)
 prepSBV sc tt = do

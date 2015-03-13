@@ -564,6 +564,10 @@ primitives = Map.fromList
     , "The 'Int' arg specifies how many tests to run."
     ]
 
+  , prim "codegen"             "String -> String -> Term -> TopLevel ()"
+    (scVal codegenSBV)
+    [ "Generate straight-line C code for the given term using SBV." ]
+
   , prim "unfolding"           "[String] -> ProofScript ()"
     (scVal unfoldGoal)
     [ "TODO" ]
