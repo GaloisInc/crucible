@@ -92,31 +92,6 @@ addrPlusOffset a o = do
   ot <- liftSBE $ termInt sbe w (fromIntegral o)
   liftSBE $ applyTypedExpr sbe (PtrAdd a ot)
 
-writeLLVMTerm :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
-                 DataLayout
-              -> [SBETerm sbe]
-              -> LLVMExpr
-              -> SBETerm sbe
-              -> Simulator sbe m ()
-writeLLVMTerm dl args (Term e) t = do
-  case e of
-    Arg _ _ _ -> fail "Can't write to argument."
-    Global s ty -> do
-      addr <- evalExprInCC "writeLLVMTerm:Global" (SValSymbol s)
-      store ty addr t (memTypeAlign dl ty)
-    Deref ae ty -> do
-      addr <- readLLVMTerm dl args ae
-      store ty addr t (memTypeAlign dl ty)
-    StructField ae si idx ty ->
-      case siFieldOffset si idx of
-        Just off -> do
-          saddr <- readLLVMTermAddr dl args ae
-          addr <- addrPlusOffset saddr off
-          store ty t addr (memTypeAlign dl ty)
-        Nothing ->
-          fail $ "Struct field index " ++ show idx ++ " out of bounds"
-    ReturnValue _ -> fail "Can't write to return value."
-
 readLLVMTermAddr :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
                     DataLayout -> [SBETerm sbe] -> LLVMExpr
                  -> Simulator sbe m (SBETerm sbe)
@@ -134,46 +109,49 @@ readLLVMTermAddr dl args (Term e) =
           fail $ "Struct field index " ++ show idx ++ " out of bounds"
     ReturnValue _ -> fail "Can't read address of return value"
 
+writeLLVMTerm :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
+                 DataLayout
+              -> [SBETerm sbe]
+              -> LLVMExpr
+              -> SBETerm sbe
+              -> Simulator sbe m ()
+writeLLVMTerm dl args e t = do
+  let ty = lssTypeOfLLVMExpr e
+  addr <- readLLVMTermAddr dl args e
+  store ty t addr (memTypeAlign dl ty)
+
 readLLVMTerm :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
                 DataLayout -> [SBETerm sbe] -> LLVMExpr
              -> Simulator sbe m (SBETerm sbe)
-readLLVMTerm dl args (Term e) =
+readLLVMTerm dl args et@(Term e) =
   case e of
     Arg n _ _ -> return (args !! n)
-    Global s ty -> do
-      addr <- evalExprInCC "readLLVMTerm:Global" (SValSymbol s)
-      load ty addr (memTypeAlign dl ty)
-    Deref ae ty -> do
-      addr <- readLLVMTerm dl args ae
-      load ty addr (memTypeAlign dl ty)
-    StructField ae si idx ty ->
-      case siFieldOffset si idx of
-        Just off -> do
-          saddr <- readLLVMTermAddr dl args ae
-          addr <- addrPlusOffset saddr off
-          load ty addr (memTypeAlign dl ty)
-        Nothing ->
-          fail $ "Struct field index " ++ show idx ++ " out of bounds"
     ReturnValue _ -> do
       rslt <- getProgramReturnValue
       case rslt of
         (Just v) -> return v
         Nothing -> fail "Program did not return a value"
+    _ -> do
+      let ty = lssTypeOfLLVMExpr et
+      addr <- readLLVMTermAddr dl args et
+      load ty addr (memTypeAlign dl ty)
 
 symexecLLVM :: BuiltinContext
             -> Options
             -> LLVMModule
             -> String
+            -> [(String, Integer)]
             -> [(String, SharedTerm SAWCtx)]
             -> [String]
             -> IO (TypedTerm SAWCtx)
-symexecLLVM bic opts (LLVMModule file mdl) fname inputs outputs =
+symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs =
   let sym = Symbol fname
       dl = parseDataLayout $ modDataLayout mdl
       sc = biSharedContext bic
   in do
     (sbe, mem, scLLVM) <- createSAWBackend' sawProxy dl sc
-    (_warnings, cb) <- mkCodebase sbe dl mdl
+    (warnings, cb) <- mkCodebase sbe dl mdl
+    forM_ warnings $ putStrLn . ("WARNING: " ++) . show
     case lookupDefine sym cb of
       Nothing -> fail $ "Bitcode file " ++ file ++
                         " does not contain symbol " ++ fname ++ "."
