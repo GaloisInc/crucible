@@ -891,7 +891,7 @@ primitives = Map.fromList
     [ "TODO" ]
 
   , prim "llvm_symexec"
-    "LLVMModule -> String -> [(String, Term)] -> [String] -> TopLevel Term"
+    "LLVMModule -> String -> [(String, Int)] -> [(String, Term)] -> [String] -> TopLevel Term"
     (bicVal symexecLLVM)
     [ "TODO" ]
 

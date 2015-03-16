@@ -14,6 +14,7 @@ module SAWScript.LLVMExpr
   , lssTypeOfLLVMExpr
   , updateLLVMExprType
   , isPtrLLVMExpr
+  , isArgLLVMExpr
     -- * Logic expressions
   , LogicExpr
   -- , logicExprLLVMExprs
@@ -27,7 +28,6 @@ module SAWScript.LLVMExpr
   , isActualPtr
   , isPrimitiveType
   , logicTypeOfActual
-  --, isActualSubtype
   , ppActualType
   , SymbolLocation (..)
   ) where
@@ -135,6 +135,10 @@ isPtrLLVMExpr e =
   case lssTypeOfLLVMExpr e of
     LSS.PtrType _ -> True
     _ -> False
+
+isArgLLVMExpr :: LLVMExpr -> Bool
+isArgLLVMExpr (CC.Term (Arg _ _ _)) = True
+isArgLLVMExpr _ = False
 
 -- LogicExpr {{{1
 

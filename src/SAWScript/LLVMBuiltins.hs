@@ -160,16 +160,24 @@ symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs =
         let mkAssign (s, tm) = do
               e <- failLeft $ liftIO $ parseLLVMExpr cb md s
               return (e, tm)
-            isArg (Term (Arg _ _ _)) = True
-            isArg _ = False
+            mkAllocAssign (s, n) = do
+              e <- failLeft $ liftIO $ parseLLVMExpr cb md s
+              case lssTypeOfLLVMExpr e of
+                PtrType (MemType ty) -> do
+                  tm <- allocSome n ty
+                  return (e, tm)
+                _ -> fail $ "Allocation parameter " ++ s ++
+                            " does not have pointer type"
+            allocSome n ty = do
+              let aw = ptrBitwidth dl
+              sz <- liftSBE (termInt sbe aw n)
+              malloc ty aw sz
             multDefErr i = error $ "Multiple terms given for argument " ++
                                    show i ++ " in function " ++ fname
+        allocAssigns <- mapM mkAllocAssign allocs
         assigns <- mapM mkAssign inputs
-        let allocOne ty = do
-              let aw = ptrBitwidth dl
-              sz <- liftSBE (termInt sbe aw 1)
-              malloc ty aw sz
-        let (argAssigns, otherAssigns) = partition (isArg . fst) assigns
+        let allAssigns = allocAssigns ++ assigns
+            (argAssigns, otherAssigns) = partition (isArgLLVMExpr . fst) allAssigns
             argMap =
               Map.fromListWithKey
               (\i _ _ -> multDefErr i)
@@ -178,7 +186,7 @@ symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs =
         args <- forM (zip [0..] rargs) $ \(i, (_, ty)) ->
                   case (Map.lookup i argMap, ty) of
                     (Just v, _) -> return v
-                    (Nothing, PtrType (MemType dty)) -> (ty,) <$> allocOne dty
+                    -- (Nothing, PtrType (MemType dty)) -> (ty,) <$> allocSome 1 dty
                     _ -> fail $ "No binding for argument " ++ show i ++
                                 " in function " ++ fname
         let argVals = map snd args
