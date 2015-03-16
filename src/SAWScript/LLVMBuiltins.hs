@@ -227,8 +227,8 @@ extractLLVM sc (LLVMModule file mdl) func _setup =
       sym = Symbol func
   in do
     (sbe, mem, scLLVM) <- createSAWBackend' sawProxy dl sc
-    (_warnings, cb) <- mkCodebase sbe dl mdl
-    -- TODO: Print warnings from codebase.
+    (warnings, cb) <- mkCodebase sbe dl mdl
+    forM_ warnings $ putStrLn . ("WARNING: " ++) . show
     case lookupDefine sym cb of
       Nothing -> fail $ "Bitcode file " ++ file ++
                         " does not contain symbol " ++ func ++ "."
@@ -262,7 +262,8 @@ verifyLLVM bic opts (LLVMModule _file mdl) func overrides setup =
       sc = biSharedContext bic
   in do
     (sbe, mem, scLLVM) <- createSAWBackend' sawProxy dl sc
-    (_warnings, cb) <- mkCodebase sbe dl mdl
+    (warnings, cb) <- mkCodebase sbe dl mdl
+    forM_ warnings $ putStrLn . ("WARNING: " ++) . show
     let ms0 = initLLVMMethodSpec pos cb func
         lsctx0 = LLVMSetupState {
                     lsSpec = ms0
