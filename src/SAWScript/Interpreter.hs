@@ -566,7 +566,14 @@ primitives = Map.fromList
 
   , prim "codegen"             "String -> String -> Term -> TopLevel ()"
     (scVal codegenSBV)
-    [ "Generate straight-line C code for the given term using SBV." ]
+    [ "Generate straight-line C code for the given term using SBV."
+    , ""
+    , "First argument is directory path (\"\" for stdout) for generating files."
+    , "Second argument is C function name."
+    , "Third argument is the term to generated code for. It must be a"
+    , "first-order function whose arguments and result are all of type"
+    , "Bit, [8], [16], [32], or [64]."
+    ]
 
   , prim "unfolding"           "[String] -> ProofScript ()"
     (scVal unfoldGoal)
