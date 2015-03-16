@@ -553,15 +553,6 @@ llvmEnsureEq _ _ name t = do
     st { lsSpec =
            specAddBehaviorCommand (Ensure fixPos expr (LogicE (mkLogicExpr t))) (lsSpec st) }
 
-llvmModify :: BuiltinContext -> Options -> String
-           -> LLVMSetup ()
-llvmModify _ _ _name = fail "llvm_modify not implemented" {- do
-  ms <- gets lsSpec
-  (expr, ty) <- liftIO $ getLLVMExpr ms name
-  modify $ \st ->
-    st { lsSpec =
-           specAddBehaviorCommand (Modify expr ty) (lsSpec st) } -}
-
 llvmReturn :: BuiltinContext -> Options -> SharedTerm SAWCtx
            -> LLVMSetup ()
 llvmReturn _ _ t =

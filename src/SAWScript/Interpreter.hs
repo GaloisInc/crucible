@@ -627,12 +627,6 @@ primitives = Map.fromList
     (scVal satMathSAT)
     [ "TODO" ]
 
-{-
-  , prim "abc_old"             "ProofScript SatResult"
-    (scVal satABCold)
-    [ "TODO" ]
--}
-
   , prim "yices"               "ProofScript SatResult"
     (scVal satYices)
     [ "TODO" ]
@@ -843,8 +837,6 @@ primitives = Map.fromList
     (pureVal llvmArray)
     [ "TODO" ]
 
-  --, prim "llvm_value"          "{a} String -> a"
-
   , prim "llvm_var"            "String -> LLVMType -> LLVMSetup Term"
     (bicVal llvmVar)
     [ "TODO" ]
@@ -865,10 +857,6 @@ primitives = Map.fromList
 
   , prim "llvm_ensure_eq"      "String -> Term -> LLVMSetup ()"
     (bicVal llvmEnsureEq)
-    [ "TODO" ]
-
-  , prim "llvm_modify"         "String -> LLVMSetup ()"
-    (bicVal llvmModify)
     [ "TODO" ]
 
   , prim "llvm_return"         "Term -> LLVMSetup ()"
