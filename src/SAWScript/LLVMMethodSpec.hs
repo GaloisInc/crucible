@@ -38,6 +38,7 @@ import qualified SAWScript.CongruenceClosure as CC
 import qualified SAWScript.LLVMExpr as TC
 import SAWScript.Options
 import SAWScript.Utils
+import Verifier.SAW.Prelude
 import SAWScript.LLVMMethodSpecIR
 import SAWScript.VerificationCheck
 
