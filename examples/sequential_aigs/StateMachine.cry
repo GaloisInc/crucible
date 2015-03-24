@@ -39,3 +39,74 @@ init_with s_initial sm (i, (started, s)) = (o, (True, s''))
   where
   s' = if started then s else s_initial
   (o, s'') = sm (i, s')
+
+////////////////////////////////////////////////////////////////
+// Loops.
+//
+// We can model loops with SAIGs that ignore their input and act like
+// step functions, producing dummy output until they are done looping,
+// at which point they produce a constant stream of their result. We
+// can then compare loops for equivalence by checking they eventually
+// stabilize to the same constant output stream.
+
+// A loop has no input, only a state. The output includes a bool
+// indicating whether the loop has terminated or not.
+type Body o s = s -> ((Bool, o), s)
+
+// In order to prove that two loops are equivalent for all initial
+// states using sequential equivalence checking, we add an input
+// stream and compute the initial state from the first stream element.
+//
+// This function and 'init_with' above could be unified into something
+// of type
+//
+//   (i1 -> 1) -> SM i2 o s -> SM (i1, i2) (Bool, o) (Bool, s)
+//
+mk_loop : {i,o,s} (i -> s) -> Body o s -> SM i (Bool, o) (Bool, s)
+mk_loop initializer body (i, (started, s)) = (o, (True, s''))
+  where
+  s' = if started then s else initializer i
+  (o, s'') = body s'
+
+// Run a loop for 'n' steps, seeded with input 'i'.
+run_loop : {n, i, o, s} (fin n, n >= 1) =>
+  SM i o s -> i -> [n](o, s)
+run_loop loop i = run loop ([i] # zero)
+
+// Sequential equivalence checking (SEC) is lock-step equivalence, so
+// to compare two loop using SEC we need to ensure that both loops
+// produce their output in the same step. We can achieve this via a
+// biased product of streams, which doesn't produce any output until
+// both internal streams have, at which point it duplicates the stream
+// it's biased towards.
+//
+// However, this sounds like a computability theoretic construction --
+// i.e. it shows something is possible, not that it's feasible in
+// practice -- and I'm not optimistic that ABC will magically be able
+// to check the equivalence of such biased joins quickly.
+sync_loops : {i, o, s1, s2}
+  [1] -> SM i (Bool, o) s1 -> SM i (Bool, o) s2 -> SM i (Bool, o) (s1, s2)
+sync_loops bias l1 l2 (i, (s1, s2)) = ((done, o'), (s1', s2'))
+  where
+  ((done1, o1), s1') = l1 (i, s1)
+  ((done2, o2), s2') = l2 (i, s2)
+  o = [o1, o2] @ bias
+  done = done1 && done2
+  o' = if done then o else zero
+
+// Alternatively, we can build a synced miter: run both loops until
+// they produce output, and then compare the output for equality.  If
+// two loops are equivalent their miter will be 'const True' (IIRC
+// traditional miters are constantly *false* for equal circuits).
+miter_loops : {i, o, s1, s2} (Cmp o) =>
+  SM i (Bool, o) s1 -> SM i (Bool, o) s2 -> SM i Bool (s1, s2)
+miter_loops l1 l2 (i, (s1, s2)) = (o', (s1', s2'))
+  where
+  ((done1, o1), s1') = l1 (i, s1)
+  ((done2, o2), s2') = l2 (i, s2)
+  done = done1 && done2
+  o' = if done then o1 == o2 else True
+
+// For checking equivalence against loop miters.
+const_true : {i} SM i Bool [1]
+const_true (_, _) = (True, zero)
