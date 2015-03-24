@@ -1,0 +1,36 @@
+import "StateMachine.cry";
+import "exp.cry";
+
+// I didn't get the results I expected here: comparing the synced
+// circuits is much faster than comparing the miter to the constant
+// circuit. I expected the opposite, since the miter is about the same
+// size as one synced circuit, and so the net amount of circuit is
+// about half for the miter-based equivalence check. However, there is
+// no structural similarity between the miter and the constant
+// circuit, whereas the synced circuits share nearly all of their
+// structure, so STRASHing and FRAIGing should eliminate the size
+// difference in practice. In any case, both comparison methods are
+// slow, and both fail to verify the 8-bit version of the example.
+
+// 93 seconds for 6 bits
+// failed after 360 seconds for 8 bits
+dsec_print
+  {{ synced_exp`{4,4} 0 }}
+  {{ synced_exp`{4,4} 1 }};
+
+/*
+// 438 seconds for 6 bits
+TOTAL       =   437.75 sec (100.00 %)
+Property UNDECIDED after interpolation.  Time =   437.77 sec
+The miter is proved unreachable after 23 iterations.  Time =     0.38 sec
+Networks are equivalent.   Time =   438.24 sec
+*/
+/*
+// 452 seconds to *fail* for 8 bits
+TOTAL       =    60.01 sec (100.00 %)
+Networks are UNDECIDED.   Time =   451.78 sec
+The unsolved reduced miter is written into file "sm01.aig".
+*/
+dsec_print
+  {{ mitered_exp`{4,4} }}
+  {{ const_true`{([4],[4])} }};

@@ -1,0 +1,53 @@
+// Compare exponentiation implementations using SAIGs.
+
+import StateMachine
+
+// Linear number of multiplications.
+/*
+r = 1
+while p > 0:
+  r *= x
+  --p
+return r
+*/
+exp_ref : {m, n} (m >= 1, n >= 1, fin m, fin n) =>
+  SM ([m], [n]) (Bool, [m]) (Bool, ([m], [n], [m]))
+exp_ref = mk_loop (\(x, p) -> (x, p, 1)) body
+  where
+  body : Body [m] ([m], [n], [m])
+  body (x, p', r) =
+    if p' == 0
+    then ((True, r), (x, p', r))
+    else ((False, zero), (x, p' - 1, r * x))
+
+// Logarithmic number of multiplications.
+/*
+r = 1
+while p > 0:
+  if p & 1:
+    r *= x
+  x *= x
+  p >>= 1
+return r
+*/
+exp_opt : {m, n} (m >= 1, n >= 1, fin m, fin n) =>
+  SM ([m], [n]) (Bool, [m]) (Bool, ([m], [n], [m]))
+exp_opt = mk_loop (\(x, p) -> (x, p, 1)) body
+  where
+  body : Body [m] ([m], [n], [m])
+  body (x', p', r) =
+    if p' == 0
+    then ((True, r), (x', p', r))
+    else ((False, zero), (x' * x', p' >> 1, r'))
+      where
+      r' = if (p' && 1) != 0
+           then r * x'
+           else r
+
+synced_exp : {m, n} (m >= 1, n >= 1, fin m, fin n) =>
+  [1] -> SM ([m], [n]) (Bool, [m]) ((Bool, ([m], [n], [m])), (Bool, ([m], [n], [m])))
+synced_exp bias = sync_loops bias exp_ref exp_opt
+
+mitered_exp : {m, n} (m >= 1, n >= 1, fin m, fin n) =>
+  SM ([m], [n]) Bool ((Bool, ([m], [n], [m])), (Bool, ([m], [n], [m])))
+mitered_exp = miter_loops exp_ref exp_opt
