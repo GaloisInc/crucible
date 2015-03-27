@@ -33,4 +33,4 @@ The unsolved reduced miter is written into file "sm01.aig".
 */
 dsec_print
   {{ mitered_exp`{4,4} }}
-  {{ const_true`{([4],[4])} }};
+  {{ const_false`{([4],[4])} }};

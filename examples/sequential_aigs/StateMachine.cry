@@ -41,6 +41,31 @@ init_with s_initial sm (i, (started, s)) = (o, (True, s''))
   (o, s'') = sm (i, s')
 
 ////////////////////////////////////////////////////////////////
+// Miters.
+//
+// The HWMCC (Hardware Model Checking Competition) provers consider
+// AIG outputs to represent "safety properties" which are "violated"
+// when the output bit is 1. If the circuit has multiple output bits,
+// then each one is considered a separate safety property. Some
+// provers, e.g. tip, will attempt to prove each property separately.
+
+// Miter two statemachines for lock-step equivalence. See also
+// 'miter_loops' below for an eventual-equivalence miter for loops.
+miter : {i, o, s1, s2} (Cmp o) =>
+  SM i o s1 -> SM i o s2 -> SM i Bool (s1, s2)
+miter sm1 sm2 (i, (s1, s2)) = (o, (s1', s2'))
+  where
+  (o1, s1') = sm1 (i, s1)
+  (o2, s2') = sm2 (i, s2)
+  o = o1 != o2
+
+// For checking equivalence via miters using sequential equivalence
+// checking: the underlying state machines are equal when their miter
+// is equal to the const_false state machine.
+const_false : {i} SM i Bool [1]
+const_false (_, _) = (False, zero)
+
+////////////////////////////////////////////////////////////////
 // Loops.
 //
 // We can model loops with SAIGs that ignore their input and act like
@@ -96,8 +121,7 @@ sync_loops bias l1 l2 (i, (s1, s2)) = ((done, o'), (s1', s2'))
 
 // Alternatively, we can build a synced miter: run both loops until
 // they produce output, and then compare the output for equality.  If
-// two loops are equivalent their miter will be 'const True' (IIRC
-// traditional miters are constantly *false* for equal circuits).
+// two loops are equivalent their miter will be 'const False'.
 miter_loops : {i, o, s1, s2} (Cmp o) =>
   SM i (Bool, o) s1 -> SM i (Bool, o) s2 -> SM i Bool (s1, s2)
 miter_loops l1 l2 (i, (s1, s2)) = (o', (s1', s2'))
@@ -105,8 +129,4 @@ miter_loops l1 l2 (i, (s1, s2)) = (o', (s1', s2'))
   ((done1, o1), s1') = l1 (i, s1)
   ((done2, o2), s2') = l2 (i, s2)
   done = done1 && done2
-  o' = if done then o1 == o2 else True
-
-// For checking equivalence against loop miters.
-const_true : {i} SM i Bool [1]
-const_true (_, _) = (True, zero)
+  o' = if done then o1 != o2 else False
