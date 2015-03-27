@@ -141,14 +141,18 @@ writeJavaTerm sc (CC.Term e) t = do
         _ -> fail "Instance argument of instance field evaluates to non-reference"
     StaticField f -> setStaticFieldValue f v
 
-readJavaTerm :: (MonadSim sbe m) => JavaExpr -> Simulator sbe m (SBETerm sbe)
-readJavaTerm et@(CC.Term e) =
+readJavaTerm :: (MonadSim sbe m) =>
+                Method -> [JSS.Value (SBETerm sbe)] -> JavaExpr
+             -> Simulator sbe m (SBETerm sbe)
+readJavaTerm _meth _args et@(CC.Term e) =
   case e of
     Local "return" _ _ -> do
       rslt <- getProgramReturnValue
       case rslt of
         (Just v) -> termOfValue v
         Nothing -> fail "Program did not return a value"
+    -- TODO: allow lookups in args
+    -- Local _ _ _ | isArg meth et -> undefined
     _ -> termOfValue =<< readJavaValue et
 
 termOfValue :: (MonadSim sbe m) =>
@@ -182,7 +186,7 @@ valueOfTerm sc t = do
                (asBitvectorType -> Just 32) -> return IntType
                (asBitvectorType -> Just 64) -> return LongType
                _ -> fail $ "Unsupported array element type: " ++ show ety
-      RValue <$> newSymbolicArray jty (fromIntegral n) t
+      RValue <$> newSymbolicArray (ArrayType jty) (fromIntegral n) t
     _ -> fail $ "Can't translate term of type: " ++ show ty
 -- If vector of other things, allocate array, translate those things, and store
 -- If record, allocate appropriate object, translate fields, assign fields
@@ -208,6 +212,14 @@ readJavaValue (CC.Term e) = do
         _ -> fail "Object in instance field expr evaluated to non-reference"
     StaticField f -> getStaticFieldValue f
 
+isArg :: Method -> CC.Term JavaExprF -> Bool
+isArg meth (CC.Term (Local _ idx _)) =
+  idx <= localIndexOfParameter meth (maxArg meth)
+isArg _ _ = False
+
+maxArg :: Method -> Int
+maxArg meth = length (methodParameterTypes meth) - 1
+
 symexecJava :: BuiltinContext
             -> Options
             -> Class
@@ -225,10 +237,6 @@ symexecJava bic opts cls mname inputs outputs = do
   let mkAssign (s, tm) = do
         e <- liftIO $ parseJavaExpr cb cls meth s
         return (e, tm)
-      maxArg = length (methodParameterTypes meth) - 1
-      isArg (CC.Term (Local _ idx _))
-        | idx <= localIndexOfParameter meth maxArg = True
-      isArg _ = False
       multDefErr i = error $ "Multiple terms given for argument " ++
                              show i ++ " in method " ++ methodName meth
       noDefErr i = fail $ "No binding for argument " ++ show i ++
@@ -238,10 +246,10 @@ symexecJava bic opts cls mname inputs outputs = do
     runSimulator cb sbe defaultSEH (Just fl) $ do
       setVerbosity (simVerbose opts)
       assigns <- mapM mkAssign inputs
-      let (argAssigns, otherAssigns) = partition (isArg . fst) assigns
+      let (argAssigns, otherAssigns) = partition (isArg meth . fst) assigns
           argMap = Map.fromListWithKey (\i _ _ -> multDefErr i)
                    [ (idx, tm) | (CC.Term (Local _ idx _), tm) <- argAssigns ]
-      argTms <- forM [0..maxArg] $ \i ->
+      argTms <- forM [0..maxArg meth] $ \i ->
                   maybe (noDefErr i) return $ Map.lookup (pidx i) argMap
       args <- mapM (valueOfTerm jsc) argTms
       mapM_ (uncurry (writeJavaTerm jsc)) otherAssigns
@@ -251,7 +259,7 @@ symexecJava bic opts cls mname inputs outputs = do
                RValue this <- freshJavaVal Nothing jsc (ClassInstance cls)
                execInstanceMethod (className cls) (methodKey meth) this args
       outexprs <- liftIO $ mapM (parseJavaExpr cb cls meth) outputs
-      outtms <- mapM readJavaTerm outexprs
+      outtms <- mapM (readJavaTerm meth args) outexprs
       let bundle tms = case tms of
                          [t] -> return t
                          _ -> scTuple jsc tms
@@ -378,12 +386,14 @@ verifyJava bic opts cls mname overrides setup = do
                   | bs <- {- concat $ Map.elems $ -} [specBehaviors ms]
                   , cl <- bsRefEquivClasses bs
                   ]
+        fl = defaultSimFlags { alwaysBitBlastBranchTerms = True }
     when (verb >= 2) $ putStrLn $ "Starting verification of " ++ specName ms
     forM_ configs $ \(bs,cl) -> withSAWBackend jsc Nothing $ \sbe -> do
       when (verb >= 2) $ do
         putStrLn $ "Executing " ++ specName ms ++
                    " at PC " ++ show (bsLoc bs) ++ "."
-      runDefSimulator cb sbe $ do
+      -- runDefSimulator cb sbe $ do
+      runSimulator cb sbe defaultSEH (Just fl) $ do
         setVerbosity (simVerbose opts)
         esd <- initializeVerification jsc ms bs cl
         res <- mkSpecVC jsc vp esd
