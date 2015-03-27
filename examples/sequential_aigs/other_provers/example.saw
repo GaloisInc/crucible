@@ -1,0 +1,27 @@
+import "../StateMachine.cry";
+import "../exp.cry";
+
+let {{
+// Trivial failing safety property.
+//
+// After 's_magic' many occurences of the input 'i_magic' the circuit
+// returns 1.
+bad : {m_i, m_o, m_s} (fin m_i, fin m_o, m_o >= 1, fin m_s, m_s >= 1) =>
+  [m_i] -> [m_s] -> SM [m_i] [m_o] [m_s]
+bad i_magic s_magic (i, s) =
+  if s == s_magic
+  then (reverse 1, s)
+  else if i == i_magic
+       then (0, s + 1)
+       else (0, s)
+}};
+
+write_saig "tmp/bad_0xff_0xfff.aig" {{ bad`{m_o=8} 0xff 0xfff }};
+write_saig "tmp/bad_42_47.aig" {{ bad`{8,8,8} 42 47 }};
+write_saig "tmp/bad_0b101_5.aig" {{ bad`{3,8,8} 0b101 5 }};
+write_saig "tmp/good.aig" {{ \(i:[8], s:[8]) -> (0x00, s + 1) }};
+
+write_saig "tmp/mitered-exp.4.4.aig" {{ mitered_exp`{4,4} }};
+write_saig "tmp/mitered-exp.6.6.aig" {{ mitered_exp`{6,6} }};
+write_saig "tmp/mitered-exp.8.8.aig" {{ mitered_exp`{8,8} }};
+write_saig "tmp/mitered-exp.10.10.aig" {{ mitered_exp`{10,10} }};

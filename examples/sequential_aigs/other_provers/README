@@ -1,0 +1,39 @@
+Examples miter-based sequential equivalence checking using a variety
+of tools.
+
+Notes
+=====
+
+- iimc utilizes multiple cores.
+- the abc 'pdr' command does IC3.
+- the abc 'dprove' command does SEC of a miter.
+
+Timing
+======
+
+Timing info for successful verifications.
+
+Exponentiation loops
+--------------------
+
+The linearly- and log-many-multiplications exponentiation examples.
+
+Conclusion: iimc is fast on this example!
+
+    abc -c 'read tmp/mitered-exp.4.4.aig; pdr'  1.00s user 0.02s system 99% cpu 1.026 total
+    abc -c 'read tmp/mitered-exp.6.6.aig; pdr'  1001.56s user 32.41s system 100% cpu 17:13.96 total
+
+    abc -c 'read tmp/mitered-exp.4.4.aig; dprove'  1.57s user 0.04s system 99% cpu 1.608 total
+    abc -c 'read tmp/mitered-exp.6.6.aig; dprove'  436.32s user 4.20s system 100% cpu 7:20.51 total
+
+    iimc tmp/mitered-exp.4.4.aig  0.36s user 0.04s system 260% cpu 0.153 total
+    iimc tmp/mitered-exp.6.6.aig  5.07s user 0.10s system 352% cpu 1.468 total
+    iimc tmp/mitered-exp.8.8.aig  198.91s user 1.14s system 375% cpu 53.282 total
+    nice iimc tmp/mitered-exp.8.8.aig  214.46s user 1.18s system 387% cpu 55.681 total
+    nice iimc tmp/mitered-exp.10.10.aig  18535.06s user 30.12s system 385% cpu 1:20:10.64 total
+
+    tip tmp/mitered-exp.4.4.aig  0.11s user 0.00s system 99% cpu 0.113 total
+    tip tmp/mitered-exp.6.6.aig  986.17s user 2.32s system 99% cpu 16:28.51 total
+
+    IC3 < tmp/mitered-exp.4.4.aig  0.52s user 0.00s system 99% cpu 0.520 total
+    IC3 < tmp/mitered-exp.6.6.aig  283.36s user 0.73s system 99% cpu 4:44.09 total
