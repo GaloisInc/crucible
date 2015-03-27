@@ -1,0 +1,54 @@
+Example usage of ABC's 'bm' (Boolean matching) command.
+
+The 'bm' command checks if two combinatorial circuits are equal
+up to a permutation of inputs and outputs. I.e.
+
+  bm c1 c2
+
+checks if there exist permutations 'p' and 'q' s.t.
+
+  c1 = q o c2 o p
+
+When called with the '-P' option, it only check for input
+permutations, i.e. if there exists p s.t.
+
+  c1 = c2 o p
+
+Surprisingly, when comparing AES implementations the 'bm' command is
+three times faster than the 'cec' command, even for circuits that are
+equal without permutation (i.e. for 'p = q = id').
+
+The example AIGs are produced by running 'make'. Besides the AES
+examples, there are many trivial circuits (the 'almost_id_*' circuits)
+related to debugging the 'bm' command; see
+https://bitbucket.org/alanmi/abc/issue/31/assertion-failure-and-core-dump-when
+for details.
+
+Summary of 'cec' and 'bm' performance:
+
+$ time abc -c 'cec -v ./aes.aig ./aes-ref.aig'
+
+finds networks equiv after 12 minutes.
+
+$ time abc -c 'bm -P ./aes.aig ./aes-ref.input-not-permuted.aig'
+
+and
+
+$ time abc -c 'bm ./aes.aig ./aes-ref.input-not-permuted.aig'
+
+find networks equiv after 4 minutes.
+
+$ time abc -c 'bm -P ./aes.aig ./aes-ref.aig'
+
+finds networks equiv after 4 minutes.
+
+$ time abc -c 'bm -P ./aes-ref.input-not-permuted.aig ./aes-ref.aig'
+
+finds networks equiv after 1 minute. Here we compared two circuits
+that are structurally the same except that an input permutation has
+been added to 'aes-ref.aig' to make it agree with LSS produced
+'aes.aig'.
+
+When using ABC to check two circuits were *not* equivalent, I ran into
+a bug, but 'bm' was able to distinguish the 2-bit example circuits
+'almost-id.2.*.aig' without crashing.
