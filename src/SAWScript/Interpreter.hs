@@ -940,6 +940,9 @@ primitives = Map.fromList
     (pureVal exitPrim)
 
     [ "Exit SAWScript, returning the supplied exit code to the parent process." ]
+  , prim "time"                "{a} TopLevel a -> TopLevel a"
+    (\_ _ -> toValue timePrim)
+    [ "Print the CPU time used by the given TopLevel command." ]
   ]
   where
     prim :: String -> String -> (Options -> BuiltinContext -> Value) -> [String]

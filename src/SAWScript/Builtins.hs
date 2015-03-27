@@ -19,6 +19,7 @@ import Data.List (isPrefixOf)
 import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Vector as V
+import System.CPUTime
 import System.Directory
 import qualified System.Exit as Exit
 import System.IO
@@ -973,3 +974,13 @@ exitPrim code = Exit.exitWith exitCode
     exitCode = if code /= 0
                then Exit.ExitFailure (fromInteger code)
                else Exit.ExitSuccess
+
+timePrim :: TopLevel SV.Value -> TopLevel SV.Value
+timePrim a = do
+  t1 <- liftIO $ getCPUTime
+  r <- a
+  t2 <- liftIO $ getCPUTime
+  let t :: Double
+      t = fromIntegral (t2-t1) * 1e-12
+  liftIO $ printf "Time: %9.3fs\n" t
+  return r
