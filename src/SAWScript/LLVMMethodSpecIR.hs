@@ -19,6 +19,7 @@ module SAWScript.LLVMMethodSpecIR
   , specName
   , specPos
   , specCodebase
+  , specDef
   , specFunction
   , specBehavior
   , specAddBehaviorCommand
@@ -43,6 +44,7 @@ import qualified Data.Map as Map
 import Data.String
 import Text.PrettyPrint.Leijen hiding ((<$>))
 
+import Verifier.SAW.SharedTerm
 import qualified Verifier.LLVM.Codebase as LSS
 import Verifier.LLVM.Backend.SAW
 
@@ -223,6 +225,7 @@ initLLVMMethodSpec pos cb symname =
       initMS = MSIR { specPos = pos
                     , specCodebase = cb
                     , specFunction = sym
+                    , specDef = def
                     , specLLVMExprNames = Map.empty
                     , specBehavior = initBS
                     }
@@ -234,8 +237,10 @@ data LLVMMethodSpecIR = MSIR {
     specPos :: Pos
     -- | Codebase containing function to verify.
   , specCodebase :: LSS.Codebase Backend
-    -- | Function to verify.
+    -- | Name of function to verify.
   , specFunction :: LSS.Symbol
+    -- | Definition of function to verify.
+  , specDef :: LSS.SymDefine (SharedTerm SAWCtx)
     -- | Mapping from user-visible LLVM state names to LLVMExprs
   , specLLVMExprNames :: Map String (LLVMActualType, LLVMExpr)
     -- | Behavior specification for method.

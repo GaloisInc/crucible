@@ -38,6 +38,7 @@ import Verifier.LLVM.Simulator.Internals
 
 import Verifier.SAW.FiniteValue
 import Verifier.SAW.SharedTerm
+import Verifier.SAW.SCTypeCheck
 
 import SAWScript.CongruenceClosure hiding (mapM)
 import SAWScript.Builtins
@@ -99,7 +100,7 @@ readLLVMTermAddr dl args (Term e) =
   case e of
     Arg _ _ _ -> fail "Can't read address of argument"
     Global s _ -> evalExprInCC "readLLVMTerm:Global" (SValSymbol s)
-    Deref ae _ -> readLLVMTerm dl args ae
+    Deref ae _ -> readLLVMTerm dl args ae 1
     StructField ae si idx _ ->
       case siFieldOffset si idx of
         Just off -> do
@@ -112,18 +113,22 @@ readLLVMTermAddr dl args (Term e) =
 writeLLVMTerm :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
                  DataLayout
               -> [SBETerm sbe]
-              -> LLVMExpr
-              -> SBETerm sbe
+              -> (LLVMExpr, SBETerm sbe, Integer)
               -> Simulator sbe m ()
-writeLLVMTerm dl args e t = do
+writeLLVMTerm dl args (e, t, cnt) = do
   let ty = lssTypeOfLLVMExpr e
   addr <- readLLVMTermAddr dl args e
-  store ty t addr (memTypeAlign dl ty)
+  let ty' | cnt > 1 = ArrayType (fromIntegral cnt) ty
+          | otherwise = ty
+  store ty' t addr (memTypeAlign dl ty)
 
 readLLVMTerm :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
-                DataLayout -> [SBETerm sbe] -> LLVMExpr
+                DataLayout
+             -> [SBETerm sbe]
+             -> LLVMExpr
+             -> Integer
              -> Simulator sbe m (SBETerm sbe)
-readLLVMTerm dl args et@(Term e) =
+readLLVMTerm dl args et@(Term e) cnt =
   case e of
     Arg n _ _ -> return (args !! n)
     ReturnValue _ -> do
@@ -134,15 +139,17 @@ readLLVMTerm dl args et@(Term e) =
     _ -> do
       let ty = lssTypeOfLLVMExpr et
       addr <- readLLVMTermAddr dl args et
-      load ty addr (memTypeAlign dl ty)
+      let ty' | cnt > 1 = ArrayType (fromIntegral cnt) ty
+              | otherwise = ty
+      load ty' addr (memTypeAlign dl ty)
 
 symexecLLVM :: BuiltinContext
             -> Options
             -> LLVMModule
             -> String
             -> [(String, Integer)]
-            -> [(String, SharedTerm SAWCtx)]
-            -> [String]
+            -> [(String, SharedTerm SAWCtx, Integer)]
+            -> [(String, Integer)]
             -> IO (TypedTerm SAWCtx)
 symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs =
   let sym = Symbol fname
@@ -157,31 +164,35 @@ symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs =
                         " does not contain symbol " ++ fname ++ "."
       Just md -> runSimulator cb sbe mem Nothing $ do
         setVerbosity (simVerbose opts)
-        let mkAssign (s, tm) = do
+        let mkAssign (s, tm, n) = do
               e <- failLeft $ liftIO $ parseLLVMExpr cb md s
-              return (e, tm)
+              return (e, tm, n)
             mkAllocAssign (s, n) = do
               e <- failLeft $ liftIO $ parseLLVMExpr cb md s
               case lssTypeOfLLVMExpr e of
                 PtrType (MemType ty) -> do
                   tm <- allocSome n ty
-                  return (e, tm)
+                  return (e, tm, n)
                 _ -> fail $ "Allocation parameter " ++ s ++
                             " does not have pointer type"
             allocSome n ty = do
               let aw = ptrBitwidth dl
               sz <- liftSBE (termInt sbe aw n)
               malloc ty aw sz
+            mkOut (s, n) = do
+              e <- failLeft $ liftIO $ parseLLVMExpr cb md s
+              return (e, n)
             multDefErr i = error $ "Multiple terms given for argument " ++
                                    show i ++ " in function " ++ fname
+            isArgAssign (e, _, _) = isArgLLVMExpr e
         allocAssigns <- mapM mkAllocAssign allocs
         assigns <- mapM mkAssign inputs
         let allAssigns = allocAssigns ++ assigns
-            (argAssigns, otherAssigns) = partition (isArgLLVMExpr . fst) allAssigns
+            (argAssigns, otherAssigns) = partition isArgAssign allAssigns
             argMap =
               Map.fromListWithKey
               (\i _ _ -> multDefErr i)
-              [ (idx, (tp, tm)) | (Term (Arg idx _ tp), tm) <- argAssigns ]
+              [ (idx, (tp, tm)) | (Term (Arg idx _ tp), tm, _) <- argAssigns ]
         let rargs = [(i, resolveType cb ty) | (i, ty) <- sdArgs md]
         args <- forM (zip [0..] rargs) $ \(i, (_, ty)) ->
                   case (Map.lookup i argMap, ty) of
@@ -190,12 +201,12 @@ symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs =
                     _ -> fail $ "No binding for argument " ++ show i ++
                                 " in function " ++ fname
         let argVals = map snd args
-        let retReg = (,Ident "__SAWScript_rslt") <$> sdRetType md
+            retReg = (,Ident "__SAWScript_rslt") <$> sdRetType md
         _ <- callDefine' False sym retReg args
-        mapM_ (uncurry (writeLLVMTerm dl argVals)) otherAssigns
+        mapM_ (writeLLVMTerm dl argVals) otherAssigns
         run
-        outexprs <- liftIO $ mapM (failLeft . parseLLVMExpr cb md) outputs
-        outtms <- mapM (readLLVMTerm dl argVals) outexprs
+        outexprs <- mapM mkOut outputs
+        outtms <- mapM (uncurry (readLLVMTerm dl argVals)) outexprs
         let bundle tms = case tms of
                            [t] -> return t
                            _ -> scTuple scLLVM tms
@@ -463,6 +474,7 @@ llvmArray n t = ArrayType n t
 llvmNoSimulate :: LLVMSetup ()
 llvmNoSimulate = modify (\s -> s { lsSimulate = False })
 
+-- TODO: error if name refers to pointer variable
 llvmVar :: BuiltinContext -> Options -> String -> MemType
         -> LLVMSetup (TypedTerm SAWCtx)
 llvmVar bic _ name lty = do
@@ -518,33 +530,56 @@ llvmMayAlias bic _ exprs = do
 
 llvmAssert :: BuiltinContext -> Options -> SharedTerm SAWCtx
            -> LLVMSetup ()
-llvmAssert _ _ v =
+llvmAssert bic _ v = do
+  liftIO $ checkBoolean (biSharedContext bic) v
   modify $ \st ->
     st { lsSpec =
            specAddBehaviorCommand (AssertPred fixPos (mkLogicExpr v)) (lsSpec st) }
 
 llvmAssertEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
              -> LLVMSetup ()
-llvmAssertEq _bic _ name t = do
+llvmAssertEq bic _ name t = do
+  let sc = biSharedContext bic
+  ty <- liftIO $ scTypeCheckError sc t
   ms <- gets lsSpec
-  (expr, _) <- liftIO $ getLLVMExpr ms name
+  (expr, mty) <- liftIO $ getLLVMExpr ms name
+  lty <- liftIO $ logicTypeOfActual sc mty
+  unless (lty == Just ty) $ fail $
+    "llvm_assert_eq: provided expression of type " ++ show ty ++
+    " doesn't match expected type " ++ show lty
   modify $ \st ->
     st { lsSpec = specAddLogicAssignment fixPos expr (mkLogicExpr t) ms }
 
 llvmEnsureEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
              -> LLVMSetup ()
-llvmEnsureEq _ _ name t = do
+llvmEnsureEq bic _ name t = do
+  let sc = biSharedContext bic
+  ty <- liftIO $ scTypeCheckError sc t
   ms <- gets lsSpec
-  (expr, _) <- liftIO $ getLLVMExpr ms name
+  (expr, mty) <- liftIO $ getLLVMExpr ms name
+  lty <- liftIO $ logicTypeOfActual sc mty
+  unless (lty == Just ty) $ fail $
+    "llvm_ensure_eq: provided expression of type " ++ show ty ++
+    " doesn't match expected type " ++ show lty
   modify $ \st ->
     st { lsSpec =
            specAddBehaviorCommand (Ensure fixPos expr (LogicE (mkLogicExpr t))) (lsSpec st) }
 
 llvmReturn :: BuiltinContext -> Options -> SharedTerm SAWCtx
            -> LLVMSetup ()
-llvmReturn _ _ t =
-  modify $ \st ->
-    st { lsSpec = specAddBehaviorCommand (Return (LogicE (mkLogicExpr t))) (lsSpec st) }
+llvmReturn bic _ t = do
+  let sc = biSharedContext bic
+  ty <- liftIO $ scTypeCheckError sc t
+  ms <- gets lsSpec
+  case sdRetType (specDef ms) of
+    Just mty -> do
+      lty <- liftIO $ logicTypeOfActual sc mty
+      unless (Just ty == lty) $ fail $
+        "llvm_return: provided expression of type " ++ show ty ++
+        " doesn't match expected return type " ++ show lty
+      modify $ \st ->
+        st { lsSpec = specAddBehaviorCommand (Return (LogicE (mkLogicExpr t))) (lsSpec st) }
+    Nothing -> fail "llvm_return called on void function"
 
 llvmVerifyTactic :: BuiltinContext -> Options
                  -> ProofScript SAWCtx SV.SatResult

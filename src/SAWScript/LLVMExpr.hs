@@ -225,7 +225,10 @@ lssTypeOfActual = id
 -- | Returns logical type of actual type if it is an array or primitive type.
 logicTypeOfActual :: SharedContext s -> LLVMActualType
                   -> IO (Maybe (SharedTerm s))
-logicTypeOfActual sc (LSS.IntType w) = Just <$> scBitvector sc (fromIntegral w)
+logicTypeOfActual sc (LSS.IntType w) = do
+  bType <- scBoolType sc
+  lTm <- scNat sc (fromIntegral w)
+  Just <$> scVecType sc lTm bType
 logicTypeOfActual sc LSS.FloatType = Just <$> scPrelude_Float sc
 logicTypeOfActual sc LSS.DoubleType = Just <$> scPrelude_Double sc
 logicTypeOfActual sc (LSS.ArrayType n ty) = do

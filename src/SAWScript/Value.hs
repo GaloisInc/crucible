@@ -307,6 +307,13 @@ instance (FromValue a, FromValue b) => FromValue (a, b) where
     fromValue (VTuple [x, y]) = (fromValue x, fromValue y)
     fromValue _ = error "fromValue (,)"
 
+instance (IsValue a, IsValue b, IsValue c) => IsValue (a, b, c) where
+    toValue (x, y, z) = VTuple [toValue x, toValue y, toValue z]
+
+instance (FromValue a, FromValue b, FromValue c) => FromValue (a, b, c) where
+    fromValue (VTuple [x, y, z]) = (fromValue x, fromValue y, fromValue z)
+    fromValue _ = error "fromValue (,,)"
+
 instance IsValue a => IsValue [a] where
     toValue xs = VArray (map toValue xs)
 
