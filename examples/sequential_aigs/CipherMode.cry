@@ -1,0 +1,92 @@
+module CipherMode where
+
+// Block-cipher modes of operation.
+//
+// A mode turns a block transformer into a stream-of-blocks
+// transformer. In some cases, the stream-of-blocks transformer is
+// also a stream-of-bits transformer, e.g. for the one-time-pad-style
+// modes (CFB, OFB, and CTR below).
+//
+// http://en.wikipedia.org/wiki/Block_cipher_mode_of_operation .
+
+import StateMachine
+
+// Block cipher over 'k'-bit keys and 'n'-bit blocks.
+//
+// We don't actually care about encryption, so these are actually just
+// keyed block transformers.
+type BC k n = [k] -> [n] -> [n]
+
+////////////////////////////////////////////////////////////////
+// Modes.
+
+// Electronic Code Book mode.
+ecb : {k, n} BC k n -> SM ([k], [n]) [n] (Bool, [k])
+ecb bc = init i sm
+  where
+  sm : SM [n] [n] [k]
+  sm (block, key) = (ct, key)
+    where
+    ct = bc key block
+  i : [k] -> [k]
+  i key = key
+
+// Cipher-Block Chaining mode.
+cbc : {k, n} BC k n -> SM (([k], [n]), [n]) [n] (Bool, ([k], [n]))
+cbc bc = init i sm
+  where
+  sm : SM [n] [n] ([k], [n])
+  sm (block, (key, state)) = (ct, (key, state'))
+    where
+    ct = bc key (state ^ block)
+    state' = ct
+  i : ([k], [n]) -> ([k], [n])
+  i (key, iv) = (key, iv)
+
+// Propagating CBC mode.
+pcbc : {k, n} BC k n -> SM (([k], [n]), [n]) [n] (Bool, ([k], [n]))
+pcbc bc = init i sm
+  where
+  sm : SM [n] [n] ([k], [n])
+  sm (block, (key, state)) = (ct, (key, state'))
+    where
+    ct = bc key (state ^ block)
+    state' = block ^ ct
+  i : ([k], [n]) -> ([k], [n])
+  i (key, iv) = (key, iv)
+
+// Cipher FeedBack mode.
+cfb : {k, n} BC k n -> SM (([k], [n]), [n]) [n] (Bool, ([k], [n]))
+cfb bc = init i sm
+  where
+  sm : SM [n] [n] ([k], [n])
+  sm (block, (key, state)) = (ct, (key, state'))
+    where
+    ct = bc key state ^ block
+    state' = ct
+  i : ([k], [n]) -> ([k], [n])
+  i (key, iv) = (key, iv)
+
+// Output FeedBack mode.
+ofb : {k, n} BC k n -> SM (([k], [n]), [n]) [n] (Bool, ([k], [n]))
+ofb bc = init i sm
+  where
+  sm : SM [n] [n] ([k], [n])
+  sm (block, (key, state)) = (ct, (key, state'))
+    where
+    state' = bc key state
+    ct = state' ^ block
+  i : ([k], [n]) -> ([k], [n])
+  i (key, iv) = (key, iv)
+
+// CounTer Mode.
+ctr : {k, n} (fin n, n >= 1) =>
+  BC k (2*n) -> SM (([k], [n]), [2*n]) [2*n] (Bool, ([k], [n], [n]))
+ctr bc = init i sm
+  where
+  sm : SM [2*n] [2*n] ([k], [n], [n])
+  sm (block, (key, iv, counter)) = (ct, (key, iv, counter + 1))
+    where
+    ct = bc key (iv # counter) ^ block
+  i : ([k], [n]) -> ([k], [n], [n])
+  i (key, iv) = (key, iv, 0)

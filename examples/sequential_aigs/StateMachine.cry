@@ -40,6 +40,22 @@ init_with s_initial sm (i, (started, s)) = (o, (True, s''))
   s' = if started then s else s_initial
   (o, s'') = sm (i, s')
 
+// A more general initializer which unifies 'init_with' above and
+// 'mk_loop' below.
+//
+// The function 'mk_s_initial' computes the initial state from the
+// first type-'a' input to the state machine, where the input type 'i'
+// has been extended with initializer input type 'a' to '(a, i)'.
+// Note that all type-'a' inputs after the first will be ignored, so
+// this could cause unnecessary work for the prover (e.g. ABC) if it's
+// unable to realize that these inputs are irrelevant.
+init : {a, i, o, s}
+  (a -> s) -> SM i o s -> SM (a, i) o (Bool, s)
+init mk_s_initial sm ((a, i), (started, s)) = (o, (True, s''))
+  where
+  s' = if started then s else mk_s_initial a
+  (o, s'') = sm (i, s')
+
 ////////////////////////////////////////////////////////////////
 // Miters.
 //
@@ -81,12 +97,6 @@ type Body o s = s -> ((Bool, o), s)
 // In order to prove that two loops are equivalent for all initial
 // states using sequential equivalence checking, we add an input
 // stream and compute the initial state from the first stream element.
-//
-// This function and 'init_with' above could be unified into something
-// of type
-//
-//   (i1 -> 1) -> SM i2 o s -> SM (i1, i2) (Bool, o) (Bool, s)
-//
 mk_loop : {i,o,s} (i -> s) -> Body o s -> SM i (Bool, o) (Bool, s)
 mk_loop initializer body (i, (started, s)) = (o, (True, s''))
   where
