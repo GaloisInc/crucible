@@ -1,0 +1,8 @@
+// Write SAIGs for trivial miters. These miters are useful for
+// determining if a prover command supports miters as input (e.g. ABC's
+// 'dprove' does, but ABC's 'dsec' does not).
+
+import "StateMachine.cry";
+
+write_saig "tmp/miter.sat.aig" {{ sat_miter }};
+write_saig "tmp/miter.unsat.aig" {{ unsat_miter }};

@@ -7,6 +7,11 @@ Notes
 - iimc utilizes multiple cores.
 - the abc 'pdr' command does IC3.
 - the abc 'dprove' command does SEC of a miter.
+- the abc 'dsec' command does *not* operate on miters. If you give it
+  a single input circuit it will compare that circuit to itself,
+  always returning "equivalent"!
+- the abc 'simsec' command always segfaults, or complains that the
+  input is not a valid miter.
 
 Timing
 ======
@@ -16,7 +21,9 @@ Timing info for successful verifications.
 Exponentiation loops
 --------------------
 
-The linearly- and log-many-multiplications exponentiation examples.
+The linearly- and log-many-multiplications exponentiation
+examples. All of these runs are successful, with the prover returning
+"equivalent".
 
 Conclusion: iimc is fast on this example!
 

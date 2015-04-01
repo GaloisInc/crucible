@@ -81,6 +81,23 @@ miter sm1 sm2 (i, (s1, s2)) = (o, (s1', s2'))
 const_false : {i} SM i Bool [1]
 const_false (_, _) = (False, zero)
 
+// For comparison to 'const_false' in a miter, to ensure that a given
+// command works on miters. Some ABC commands, e.g. 'dsec', compare
+// the current circuit to itself when given only one argument, leading
+// to false positives when mistakenly using 'dsec' to verify miters.
+const_true : {i} SM i Bool [1]
+const_true (_, _) = (True, zero)
+
+// Pass (the SAIG for) these miters to a verifier to see if it works
+// on miters.  Create the SAIG with 'write_saig'.
+//
+// The verification should fail.
+sat_miter : SM [1] Bool ([1], [1])
+sat_miter = miter const_true const_false
+// The verification should succeed.
+unsat_miter : SM [1] Bool ([1], [1])
+unsat_miter = miter const_true const_true
+
 ////////////////////////////////////////////////////////////////
 // Loops.
 //
