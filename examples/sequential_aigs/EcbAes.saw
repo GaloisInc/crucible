@@ -1,0 +1,38 @@
+import "../abc/AES.cry";
+import "StateMachine.cry";
+import "CipherMode.cry";
+
+print "Reading ../abc/aes.aig ...";
+aes_aig <- read_aig "../abc/aes.aig";
+
+let {{
+// In the LLVM tutorial file ':/LLVM/doc/lss-tutorial/code/aes.saw' 
+// this (self inverting) input transform is instead applied to the Cryptol
+// reference implementation. It shouldn't matter for the purpose of
+// these tests -- we just need the two "block ciphers" to be equivalent
+// functions -- but here we instead fix the LLVM AIG so that we're really
+// dealing with AES.
+aes : [128] -> [128] -> [128]
+aes key block = aes_aig (join (reverse (groupBy`{32} (block # key))))
+
+aes_ref : [128] -> [128] -> [128]
+aes_ref key block = aesEncrypt (block, key)
+}};
+
+print "Writing tmp/aes.aig ...";
+write_aig "tmp/aes.aig" {{ aes }};
+
+print "Writing tmp/aes-ref.aig ...";
+write_aig "tmp/aes-ref.aig" {{ aes_ref }};
+
+print "Writing ecb miter ...";
+write_saig "tmp/miter.ecb.aes.aes-ref.aig"
+  {{ miter (ecb aes) (ecb aes_ref) }};
+
+print "Writing ecb miter ...";
+write_saig "tmp/miter.ecb.aes-ref.aes-ref.aig"
+  {{ miter (ecb aes_ref) (ecb aes_ref) }};
+
+print "Writing ecb miter ...";
+write_saig "tmp/miter.ecb.aes.aes.aig"
+  {{ miter (ecb aes) (ecb aes) }};
