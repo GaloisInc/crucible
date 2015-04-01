@@ -1,0 +1,87 @@
+Cipher Mode Experiments
+=======================
+
+According to experiments, the provers have a much harder time
+verifying the composition of a mode with equivalent block ciphers,
+than simply verifying the equivalent block ciphers directly.
+
+The miters used are
+
+- tmp/miter.ecb.aes.aes.aig: compares ECB mode of LLVM AES
+  implementation to itself.
+
+- tmp/miter.ecb.aes-ref.aes-ref.aig: compares ECB mode of Cryptol AES
+  implementation to itself.
+
+- tmp/miter.ecb.aes.aes-ref.aig: compares ECB mode of LLVM AES to ECB
+  mode of Cryptol AES implementation.
+
+So far, no prover is able to verify tmp/miter.ecb.aes.aes-ref.aig.
+
+Success
+-------
+
+Conclude that miter is unsat:
+
+    iimc -v 1 tmp/miter.ecb.aes.aes.aig  12.78s user 0.37s system 99% cpu 13.153 total
+    abc -c 'read tmp/miter.ecb.aes.aes.aig; dsec'  33.77s user 0.78s system 99% cpu 34.588 total
+    abc -c 'read tmp/miter.ecb.aes.aes.aig; dprove'  148.83s user 20.61s system 99% cpu 2:50.86 total
+
+    iimc -v 1 tmp/miter.ecb.aes-ref.aes-ref.aig  5.13s user 0.57s system 97% cpu 5.834 total
+    abc -c 'read tmp/miter.ecb.aes-ref.aes-ref.aig; dsec'  7.68s user 0.20s system 99% cpu 7.929 total
+    abc -c 'read tmp/miter.ecb.aes-ref.aes-ref.aig; dprove'  65.05s user 7.30s system 99% cpu 1:12.50 total
+
+Failure
+-------
+
+By comparison, directly verifying the equivalence of the two AES
+implementations using ABC's 'cec' in the LLVM tutorial takes about 15
+minutes on conathan's machine, and about 4 minutes using ABC's 'bm'
+command.
+
+Killed with ^C:
+
+    abc -c 'read tmp/miter.ecb.aes.aes.aig; pdr'  9209.58s user 0.68s system 99% cpu 2:33:31.21 total
+    
+    abc -c 'read tmp/miter.ecb.aes-ref.aes-ref.aig; pdr'  8981.07s user 1.03s system 99% cpu 2:29:43.67 total
+
+    iimc tmp/miter.ecb.aes.aes-ref.aig  194689.22s user 83.56s system 299% cpu 18:04:58.47 total
+
+Exceeded resource limits:
+
+    time abc -c 'read tmp/miter.ecb.aes.aes-ref.aig; dprove -v'
+    ABC command line: "read tmp/miter.ecb.aes.aes-ref.aig; dprove -v".
+
+    RESOURCE LIMITS: Iterations = 6. Rewriting = no. Fraiging = yes.
+    Miter = 5000 (2.0).  Rwr = 3 (1.0).  Fraig = 2 (8.0).  Last = 0.
+    ITERATION  1 : Confs =   5000. FraigBTL =   2. 
+    SimWords = 32. Rounds = 3. Mem = 105.46 MB.  Classes: Beg = 8066. End = 8066.
+    Proof = 0. Counter-example = 0. Fail = 0. FailReal = 0. Zero = 510.
+    Final = 863396. Miter = 863396. Total = 863396. Mux = 0. (Exor = 0.) SatVars = 0.
+    AIG simulation   =     0.19 sec
+    AIG traversal    =     0.00 sec
+    SAT solving      =     0.00 sec
+        Unsat        =     0.00 sec
+        Sat          =     0.00 sec
+        Fail         =     0.00 sec
+    Class refining   =     0.00 sec
+    TOTAL RUNTIME    =     0.88 sec
+    Nodes =  863396.  Levels = 1729.  Fraiging    =     0.88 sec
+    Running "bmc2". AIG:  PI/PO/Reg = 256/1/258.  Node = 1601931. Lev =  4264.
+    Params: FramesMax = 20. NodesDelta = 2000. ConfMaxOne = 2000. ConfMaxAll = 0.
+       0 : F =    1. O =   0.  And = 1600551. Var =  468821. Conf =   2001.   12 MB     8.16 sec
+    No output failed in 0 frames.  Time =     8.16 sec
+    Reached local conflict limit (2000).
+    Original miter:       Latches =   258. Nodes = 1601931.
+    Sequential cleanup:   Latches =   257. Nodes = 1601803. Time =     0.64 sec
+    Forward retiming:     Latches =   257. Nodes = 1601547. Time =     1.00 sec
+    Latch-corr (I=  1):   Latches =   129. Nodes = 1600807. Time =     1.57 sec
+    Fraiging:             Latches =   129. Nodes = 746282. Time =  1829.65 sec
+    Min-reg retiming:     Latches =   129. Nodes = 746282. Time =     0.93 sec
+    K-step (K= 1,I= 16):  Latches =   129. Nodes = 623443. Time =  7165.39 sec
+    Min-reg retiming:     Latches =   129. Nodes = 623443. Time =     0.79 sec
+    Rewriting:            Latches =   129. Nodes = 439305. Time =    58.95 sec
+    Seq simulation  :     Latches =   129. Nodes = 439305. Time =     2.28 sec
+    Global conflict limit (5000000) exceeded.
+    Networks are UNDECIDED.   Time =  9062.05 sec
+    abc -c 'read tmp/miter.ecb.aes.aes-ref.aig; dprove -v'  9123.75s user 15.00s system 99% cpu 2:32:18.96 total
