@@ -1,0 +1,127 @@
+// How much easier is it to verify that two implementations of scaling
+// are equal, versus verifying two corresponding uses of ECB mode are
+// equal.
+//
+// The scaling example is chosen in the hope that we should be able to
+// tune it's difficulty by adjusting scaling factor. The
+// addition-based implementation generates a circuit of size linear in
+// the scaling factor.
+
+import "StateMachine.cry";
+import "CipherMode.cry";
+
+let {{
+scale_ref : {n} (fin n, n >= 1) => [n] -> [n] -> [n]
+scale_ref s x = s * x
+
+scale : {n} (fin n, n >= 1) => [n] -> [n] -> [n]
+scale s x = if s == 0 then 0 else x + scale (s - 1) x
+
+// Add ignored keys (constant function) for compatibility with cipher
+// block modes.
+keyed : {k, a, b} (a -> b) -> [k] -> a -> b
+keyed f key = f
+}};
+
+// for n in $(seq 10 5 100); do echo 'write_aig "tmp/scale.32.'$n'.aig" {{ scale`{32} '$n' }};'; done
+write_aig "tmp/scale.32.10.aig" {{ scale`{32} 10 }};
+write_aig "tmp/scale.32.15.aig" {{ scale`{32} 15 }};
+write_aig "tmp/scale.32.20.aig" {{ scale`{32} 20 }};
+write_aig "tmp/scale.32.25.aig" {{ scale`{32} 25 }};
+write_aig "tmp/scale.32.30.aig" {{ scale`{32} 30 }};
+write_aig "tmp/scale.32.35.aig" {{ scale`{32} 35 }};
+write_aig "tmp/scale.32.40.aig" {{ scale`{32} 40 }};
+write_aig "tmp/scale.32.45.aig" {{ scale`{32} 45 }};
+write_aig "tmp/scale.32.50.aig" {{ scale`{32} 50 }};
+write_aig "tmp/scale.32.55.aig" {{ scale`{32} 55 }};
+write_aig "tmp/scale.32.60.aig" {{ scale`{32} 60 }};
+write_aig "tmp/scale.32.65.aig" {{ scale`{32} 65 }};
+write_aig "tmp/scale.32.70.aig" {{ scale`{32} 70 }};
+write_aig "tmp/scale.32.75.aig" {{ scale`{32} 75 }};
+write_aig "tmp/scale.32.80.aig" {{ scale`{32} 80 }};
+write_aig "tmp/scale.32.85.aig" {{ scale`{32} 85 }};
+write_aig "tmp/scale.32.90.aig" {{ scale`{32} 90 }};
+write_aig "tmp/scale.32.95.aig" {{ scale`{32} 95 }};
+write_aig "tmp/scale.32.100.aig" {{ scale`{32} 100 }};
+
+// for n in $(seq 10 5 100); do echo 'write_aig "tmp/scale-ref.32.'$n'.aig" {{ scale_ref`{32} '$n' }};'; done
+write_aig "tmp/scale-ref.32.10.aig" {{ scale_ref`{32} 10 }};
+write_aig "tmp/scale-ref.32.15.aig" {{ scale_ref`{32} 15 }};
+write_aig "tmp/scale-ref.32.20.aig" {{ scale_ref`{32} 20 }};
+write_aig "tmp/scale-ref.32.25.aig" {{ scale_ref`{32} 25 }};
+write_aig "tmp/scale-ref.32.30.aig" {{ scale_ref`{32} 30 }};
+write_aig "tmp/scale-ref.32.35.aig" {{ scale_ref`{32} 35 }};
+write_aig "tmp/scale-ref.32.40.aig" {{ scale_ref`{32} 40 }};
+write_aig "tmp/scale-ref.32.45.aig" {{ scale_ref`{32} 45 }};
+write_aig "tmp/scale-ref.32.50.aig" {{ scale_ref`{32} 50 }};
+write_aig "tmp/scale-ref.32.55.aig" {{ scale_ref`{32} 55 }};
+write_aig "tmp/scale-ref.32.60.aig" {{ scale_ref`{32} 60 }};
+write_aig "tmp/scale-ref.32.65.aig" {{ scale_ref`{32} 65 }};
+write_aig "tmp/scale-ref.32.70.aig" {{ scale_ref`{32} 70 }};
+write_aig "tmp/scale-ref.32.75.aig" {{ scale_ref`{32} 75 }};
+write_aig "tmp/scale-ref.32.80.aig" {{ scale_ref`{32} 80 }};
+write_aig "tmp/scale-ref.32.85.aig" {{ scale_ref`{32} 85 }};
+write_aig "tmp/scale-ref.32.90.aig" {{ scale_ref`{32} 90 }};
+write_aig "tmp/scale-ref.32.95.aig" {{ scale_ref`{32} 95 }};
+write_aig "tmp/scale-ref.32.100.aig" {{ scale_ref`{32} 100 }};
+
+// for n in $(seq 10 5 100); do echo 'write_saig "tmp/miter.ecb.scale.scale-ref.32.'$n'.aig"
+//   {{ miter (ecb (keyed`{k=32} (scale`{32} '$n')))
+//            (ecb (keyed`{k=32} (scale_ref`{32} '$n'))) }};'; done
+write_saig "tmp/miter.ecb.scale.scale-ref.32.10.aig"
+  {{ miter (ecb (keyed`{k=32} (scale`{32} 10)))
+           (ecb (keyed`{k=32} (scale_ref`{32} 10))) }};
+write_saig "tmp/miter.ecb.scale.scale-ref.32.15.aig"
+  {{ miter (ecb (keyed`{k=32} (scale`{32} 15)))
+           (ecb (keyed`{k=32} (scale_ref`{32} 15))) }};
+write_saig "tmp/miter.ecb.scale.scale-ref.32.20.aig"
+  {{ miter (ecb (keyed`{k=32} (scale`{32} 20)))
+           (ecb (keyed`{k=32} (scale_ref`{32} 20))) }};
+write_saig "tmp/miter.ecb.scale.scale-ref.32.25.aig"
+  {{ miter (ecb (keyed`{k=32} (scale`{32} 25)))
+           (ecb (keyed`{k=32} (scale_ref`{32} 25))) }};
+write_saig "tmp/miter.ecb.scale.scale-ref.32.30.aig"
+  {{ miter (ecb (keyed`{k=32} (scale`{32} 30)))
+           (ecb (keyed`{k=32} (scale_ref`{32} 30))) }};
+write_saig "tmp/miter.ecb.scale.scale-ref.32.35.aig"
+  {{ miter (ecb (keyed`{k=32} (scale`{32} 35)))
+           (ecb (keyed`{k=32} (scale_ref`{32} 35))) }};
+write_saig "tmp/miter.ecb.scale.scale-ref.32.40.aig"
+  {{ miter (ecb (keyed`{k=32} (scale`{32} 40)))
+           (ecb (keyed`{k=32} (scale_ref`{32} 40))) }};
+write_saig "tmp/miter.ecb.scale.scale-ref.32.45.aig"
+  {{ miter (ecb (keyed`{k=32} (scale`{32} 45)))
+           (ecb (keyed`{k=32} (scale_ref`{32} 45))) }};
+write_saig "tmp/miter.ecb.scale.scale-ref.32.50.aig"
+  {{ miter (ecb (keyed`{k=32} (scale`{32} 50)))
+           (ecb (keyed`{k=32} (scale_ref`{32} 50))) }};
+write_saig "tmp/miter.ecb.scale.scale-ref.32.55.aig"
+  {{ miter (ecb (keyed`{k=32} (scale`{32} 55)))
+           (ecb (keyed`{k=32} (scale_ref`{32} 55))) }};
+write_saig "tmp/miter.ecb.scale.scale-ref.32.60.aig"
+  {{ miter (ecb (keyed`{k=32} (scale`{32} 60)))
+           (ecb (keyed`{k=32} (scale_ref`{32} 60))) }};
+write_saig "tmp/miter.ecb.scale.scale-ref.32.65.aig"
+  {{ miter (ecb (keyed`{k=32} (scale`{32} 65)))
+           (ecb (keyed`{k=32} (scale_ref`{32} 65))) }};
+write_saig "tmp/miter.ecb.scale.scale-ref.32.70.aig"
+  {{ miter (ecb (keyed`{k=32} (scale`{32} 70)))
+           (ecb (keyed`{k=32} (scale_ref`{32} 70))) }};
+write_saig "tmp/miter.ecb.scale.scale-ref.32.75.aig"
+  {{ miter (ecb (keyed`{k=32} (scale`{32} 75)))
+           (ecb (keyed`{k=32} (scale_ref`{32} 75))) }};
+write_saig "tmp/miter.ecb.scale.scale-ref.32.80.aig"
+  {{ miter (ecb (keyed`{k=32} (scale`{32} 80)))
+           (ecb (keyed`{k=32} (scale_ref`{32} 80))) }};
+write_saig "tmp/miter.ecb.scale.scale-ref.32.85.aig"
+  {{ miter (ecb (keyed`{k=32} (scale`{32} 85)))
+           (ecb (keyed`{k=32} (scale_ref`{32} 85))) }};
+write_saig "tmp/miter.ecb.scale.scale-ref.32.90.aig"
+  {{ miter (ecb (keyed`{k=32} (scale`{32} 90)))
+           (ecb (keyed`{k=32} (scale_ref`{32} 90))) }};
+write_saig "tmp/miter.ecb.scale.scale-ref.32.95.aig"
+  {{ miter (ecb (keyed`{k=32} (scale`{32} 95)))
+           (ecb (keyed`{k=32} (scale_ref`{32} 95))) }};
+write_saig "tmp/miter.ecb.scale.scale-ref.32.100.aig"
+  {{ miter (ecb (keyed`{k=32} (scale`{32} 100)))
+           (ecb (keyed`{k=32} (scale_ref`{32} 100))) }};
