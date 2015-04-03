@@ -25,3 +25,20 @@ write_saig "tmp/mitered-exp.4.4.aig" {{ mitered_exp`{4,4} }};
 write_saig "tmp/mitered-exp.6.6.aig" {{ mitered_exp`{6,6} }};
 write_saig "tmp/mitered-exp.8.8.aig" {{ mitered_exp`{8,8} }};
 write_saig "tmp/mitered-exp.10.10.aig" {{ mitered_exp`{10,10} }};
+
+/*
+for n in 4 6 8 10; do
+echo \
+'write_saig "tmp/exp-ref.'$n'.'$n'.aig" {{ synced_exp`{'$n','$n'} 0 }};'
+echo \
+'write_saig "tmp/exp-opt.'$n'.'$n'.aig" {{ synced_exp`{'$n','$n'} 1 }};'
+done
+*/
+write_saig "tmp/exp-ref.4.4.aig" {{ synced_exp`{4,4} 0 }};
+write_saig "tmp/exp-opt.4.4.aig" {{ synced_exp`{4,4} 1 }};
+write_saig "tmp/exp-ref.6.6.aig" {{ synced_exp`{6,6} 0 }};
+write_saig "tmp/exp-opt.6.6.aig" {{ synced_exp`{6,6} 1 }};
+write_saig "tmp/exp-ref.8.8.aig" {{ synced_exp`{8,8} 0 }};
+write_saig "tmp/exp-opt.8.8.aig" {{ synced_exp`{8,8} 1 }};
+write_saig "tmp/exp-ref.10.10.aig" {{ synced_exp`{10,10} 0 }};
+write_saig "tmp/exp-opt.10.10.aig" {{ synced_exp`{10,10} 1 }};

@@ -44,3 +44,40 @@ Conclusion: iimc is fast on this example!
 
     IC3 < tmp/mitered-exp.4.4.aig  0.52s user 0.00s system 99% cpu 0.520 total
     IC3 < tmp/mitered-exp.6.6.aig  283.36s user 0.73s system 99% cpu 4:44.09 total
+
+
+Weird progression of ABC results using 'dsec':
+
+    $ for n in 4 6 8 10; do
+        eval time abc -c "'dsec tmp/exp-ref.$n.$n.aig tmp/exp-opt.$n.$n.aig'"
+      done 2>&1 | tee dsec.out
+
+    ABC command line: "dsec tmp/exp-ref.4.4.aig tmp/exp-opt.4.4.aig".
+
+    Networks are equivalent.   Time =     1.36 sec
+    abc -c 'dsec tmp/exp-ref.4.4.aig tmp/exp-opt.4.4.aig'  1.32s user 0.07s system 99% cpu 1.396 total
+
+
+    ABC command line: "dsec tmp/exp-ref.6.6.aig tmp/exp-opt.6.6.aig".
+
+    The miter is proved unreachable after 23 iterations.  Time =     0.67 sec
+    Networks are equivalent.   Time =    97.46 sec
+    abc -c 'dsec tmp/exp-ref.6.6.aig tmp/exp-opt.6.6.aig'  95.66s user 1.84s system 100% cpu 1:37.50 total
+
+
+    ABC command line: "dsec tmp/exp-ref.8.8.aig tmp/exp-opt.8.8.aig".
+
+    BDDs blew up during image computation.  Time =     2.40 sec
+    Reached timeout (60 seconds).
+    Networks are UNDECIDED.   Time =   369.04 sec
+    The unsolved reduced miter is written into file "sm01.aig".
+    abc -c 'dsec tmp/exp-ref.8.8.aig tmp/exp-opt.8.8.aig'  361.95s user 7.14s system 99% cpu 6:09.11 total
+
+
+    ABC command line: "dsec tmp/exp-ref.10.10.aig tmp/exp-opt.10.10.aig".
+
+    The number of intermediate BDD nodes exceeded the limit (50000).
+    Reached timeout (60 seconds).
+    Networks are UNDECIDED.   Time =   150.12 sec
+    The unsolved reduced miter is written into file "sm01.aig".
+    abc -c 'dsec tmp/exp-ref.10.10.aig tmp/exp-opt.10.10.aig'  146.25s user 3.92s system 99% cpu 2:30.18 total
