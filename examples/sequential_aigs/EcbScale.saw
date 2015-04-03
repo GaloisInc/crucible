@@ -65,9 +65,11 @@ write_aig "tmp/scale-ref.32.90.aig" {{ scale_ref`{32} 90 }};
 write_aig "tmp/scale-ref.32.95.aig" {{ scale_ref`{32} 95 }};
 write_aig "tmp/scale-ref.32.100.aig" {{ scale_ref`{32} 100 }};
 
-// for n in $(seq 10 5 100); do echo 'write_saig "tmp/miter.ecb.scale.scale-ref.32.'$n'.aig"
-//   {{ miter (ecb (keyed`{k=32} (scale`{32} '$n')))
-//            (ecb (keyed`{k=32} (scale_ref`{32} '$n'))) }};'; done
+/*
+for n in $(seq 10 5 100); do echo 'write_saig "tmp/miter.ecb.scale.scale-ref.32.'$n'.aig"
+  {{ miter (ecb (keyed`{k=32} (scale`{32} '$n')))
+           (ecb (keyed`{k=32} (scale_ref`{32} '$n'))) }};'; done
+*/
 write_saig "tmp/miter.ecb.scale.scale-ref.32.10.aig"
   {{ miter (ecb (keyed`{k=32} (scale`{32} 10)))
            (ecb (keyed`{k=32} (scale_ref`{32} 10))) }};
@@ -125,3 +127,90 @@ write_saig "tmp/miter.ecb.scale.scale-ref.32.95.aig"
 write_saig "tmp/miter.ecb.scale.scale-ref.32.100.aig"
   {{ miter (ecb (keyed`{k=32} (scale`{32} 100)))
            (ecb (keyed`{k=32} (scale_ref`{32} 100))) }};
+
+/*
+for n in $(seq 10 5 100); do
+echo \
+'write_saig "tmp/ecb.scale.32.'$n'.aig"
+  {{ (ecb (keyed`{k=32} (scale`{32} '$n'))) }};'
+echo \
+'write_saig "tmp/ecb.scale-ref.32.'$n'.aig"
+  {{ (ecb (keyed`{k=32} (scale_ref`{32} '$n'))) }};'
+done
+*/
+write_saig "tmp/ecb.scale.32.10.aig"
+  {{ (ecb (keyed`{k=32} (scale`{32} 10))) }};
+write_saig "tmp/ecb.scale-ref.32.10.aig"
+  {{ (ecb (keyed`{k=32} (scale_ref`{32} 10))) }};
+write_saig "tmp/ecb.scale.32.15.aig"
+  {{ (ecb (keyed`{k=32} (scale`{32} 15))) }};
+write_saig "tmp/ecb.scale-ref.32.15.aig"
+  {{ (ecb (keyed`{k=32} (scale_ref`{32} 15))) }};
+write_saig "tmp/ecb.scale.32.20.aig"
+  {{ (ecb (keyed`{k=32} (scale`{32} 20))) }};
+write_saig "tmp/ecb.scale-ref.32.20.aig"
+  {{ (ecb (keyed`{k=32} (scale_ref`{32} 20))) }};
+write_saig "tmp/ecb.scale.32.25.aig"
+  {{ (ecb (keyed`{k=32} (scale`{32} 25))) }};
+write_saig "tmp/ecb.scale-ref.32.25.aig"
+  {{ (ecb (keyed`{k=32} (scale_ref`{32} 25))) }};
+write_saig "tmp/ecb.scale.32.30.aig"
+  {{ (ecb (keyed`{k=32} (scale`{32} 30))) }};
+write_saig "tmp/ecb.scale-ref.32.30.aig"
+  {{ (ecb (keyed`{k=32} (scale_ref`{32} 30))) }};
+write_saig "tmp/ecb.scale.32.35.aig"
+  {{ (ecb (keyed`{k=32} (scale`{32} 35))) }};
+write_saig "tmp/ecb.scale-ref.32.35.aig"
+  {{ (ecb (keyed`{k=32} (scale_ref`{32} 35))) }};
+write_saig "tmp/ecb.scale.32.40.aig"
+  {{ (ecb (keyed`{k=32} (scale`{32} 40))) }};
+write_saig "tmp/ecb.scale-ref.32.40.aig"
+  {{ (ecb (keyed`{k=32} (scale_ref`{32} 40))) }};
+write_saig "tmp/ecb.scale.32.45.aig"
+  {{ (ecb (keyed`{k=32} (scale`{32} 45))) }};
+write_saig "tmp/ecb.scale-ref.32.45.aig"
+  {{ (ecb (keyed`{k=32} (scale_ref`{32} 45))) }};
+write_saig "tmp/ecb.scale.32.50.aig"
+  {{ (ecb (keyed`{k=32} (scale`{32} 50))) }};
+write_saig "tmp/ecb.scale-ref.32.50.aig"
+  {{ (ecb (keyed`{k=32} (scale_ref`{32} 50))) }};
+write_saig "tmp/ecb.scale.32.55.aig"
+  {{ (ecb (keyed`{k=32} (scale`{32} 55))) }};
+write_saig "tmp/ecb.scale-ref.32.55.aig"
+  {{ (ecb (keyed`{k=32} (scale_ref`{32} 55))) }};
+write_saig "tmp/ecb.scale.32.60.aig"
+  {{ (ecb (keyed`{k=32} (scale`{32} 60))) }};
+write_saig "tmp/ecb.scale-ref.32.60.aig"
+  {{ (ecb (keyed`{k=32} (scale_ref`{32} 60))) }};
+write_saig "tmp/ecb.scale.32.65.aig"
+  {{ (ecb (keyed`{k=32} (scale`{32} 65))) }};
+write_saig "tmp/ecb.scale-ref.32.65.aig"
+  {{ (ecb (keyed`{k=32} (scale_ref`{32} 65))) }};
+write_saig "tmp/ecb.scale.32.70.aig"
+  {{ (ecb (keyed`{k=32} (scale`{32} 70))) }};
+write_saig "tmp/ecb.scale-ref.32.70.aig"
+  {{ (ecb (keyed`{k=32} (scale_ref`{32} 70))) }};
+write_saig "tmp/ecb.scale.32.75.aig"
+  {{ (ecb (keyed`{k=32} (scale`{32} 75))) }};
+write_saig "tmp/ecb.scale-ref.32.75.aig"
+  {{ (ecb (keyed`{k=32} (scale_ref`{32} 75))) }};
+write_saig "tmp/ecb.scale.32.80.aig"
+  {{ (ecb (keyed`{k=32} (scale`{32} 80))) }};
+write_saig "tmp/ecb.scale-ref.32.80.aig"
+  {{ (ecb (keyed`{k=32} (scale_ref`{32} 80))) }};
+write_saig "tmp/ecb.scale.32.85.aig"
+  {{ (ecb (keyed`{k=32} (scale`{32} 85))) }};
+write_saig "tmp/ecb.scale-ref.32.85.aig"
+  {{ (ecb (keyed`{k=32} (scale_ref`{32} 85))) }};
+write_saig "tmp/ecb.scale.32.90.aig"
+  {{ (ecb (keyed`{k=32} (scale`{32} 90))) }};
+write_saig "tmp/ecb.scale-ref.32.90.aig"
+  {{ (ecb (keyed`{k=32} (scale_ref`{32} 90))) }};
+write_saig "tmp/ecb.scale.32.95.aig"
+  {{ (ecb (keyed`{k=32} (scale`{32} 95))) }};
+write_saig "tmp/ecb.scale-ref.32.95.aig"
+  {{ (ecb (keyed`{k=32} (scale_ref`{32} 95))) }};
+write_saig "tmp/ecb.scale.32.100.aig"
+  {{ (ecb (keyed`{k=32} (scale`{32} 100))) }};
+write_saig "tmp/ecb.scale-ref.32.100.aig"
+  {{ (ecb (keyed`{k=32} (scale_ref`{32} 100))) }};
