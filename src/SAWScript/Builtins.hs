@@ -74,11 +74,6 @@ import qualified Cryptol.TypeCheck.AST as C
 import qualified Cryptol.Eval.Value as C
 import Cryptol.Utils.PP (pretty)
 
-import qualified Data.SBV.Bridge.Boolector as Boolector
-import qualified Data.SBV.Bridge.Z3 as Z3
-import qualified Data.SBV.Bridge.CVC4 as CVC4
-import qualified Data.SBV.Bridge.Yices as Yices
-import qualified Data.SBV.Bridge.MathSAT as MathSAT
 import Data.SBV (satWith, SMTConfig, Predicate, compileToSMTLib)
 
 data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
@@ -697,19 +692,19 @@ getLabels ls m d argNames =
     getLabel (SBVSim.RecLabel xs) = FVRec $ fmap getLabel xs
 
 satBoolector :: SharedContext s -> ProofScript s SV.SatResult
-satBoolector = satSBV Boolector.sbvCurrentSolver
+satBoolector = satSBV SBV.boolector
 
 satZ3 :: SharedContext s -> ProofScript s SV.SatResult
-satZ3 = satSBV Z3.sbvCurrentSolver
+satZ3 = satSBV SBV.z3
 
 satCVC4 :: SharedContext s -> ProofScript s SV.SatResult
-satCVC4 = satSBV CVC4.sbvCurrentSolver
+satCVC4 = satSBV SBV.cvc4
 
 satMathSAT :: SharedContext s -> ProofScript s SV.SatResult
-satMathSAT = satSBV MathSAT.sbvCurrentSolver
+satMathSAT = satSBV SBV.mathSAT
 
 satYices :: SharedContext s -> ProofScript s SV.SatResult
-satYices = satSBV Yices.sbvCurrentSolver
+satYices = satSBV SBV.yices
 
 negTypedTerm :: SharedContext s -> TypedTerm s -> IO (TypedTerm s)
 negTypedTerm sc (TypedTerm schema t) = do
