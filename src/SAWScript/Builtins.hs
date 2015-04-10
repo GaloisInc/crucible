@@ -64,8 +64,7 @@ import qualified Verifier.SAW.Simulator.BitBlast as BBSim
 import qualified Verifier.SAW.Simulator.SBV as SBVSim
 
 import qualified Data.ABC as ABC
-import qualified Data.SBV as SBV
-import Data.SBV.Internals
+import qualified Data.SBV.Dynamic as SBV
 
 import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
@@ -73,8 +72,6 @@ import qualified Data.AIG as AIG
 import qualified Cryptol.TypeCheck.AST as C
 import qualified Cryptol.Eval.Value as C
 import Cryptol.Utils.PP (pretty)
-
-import Data.SBV (satWith, SMTConfig, Predicate, compileToSMTLib)
 
 data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
                                      , biJavaCodebase  :: JSS.Codebase
@@ -385,7 +382,7 @@ writeCNF sc f t = do
 writeSMTLib1 :: SharedContext s -> FilePath -> TypedTerm s -> IO ()
 writeSMTLib1 sc f t = do
   (_, _, l) <- prepSBV sc t
-  txt <- compileToSMTLib False True l
+  txt <- SBV.compileToSMTLib False True l
   writeFile f txt
 
 -- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
@@ -393,7 +390,7 @@ writeSMTLib1 sc f t = do
 writeSMTLib2 :: SharedContext s -> FilePath -> TypedTerm s -> IO ()
 writeSMTLib2 sc f t = do
   (_, _, l) <- prepSBV sc t
-  txt <- compileToSMTLib True True l
+  txt <- SBV.compileToSMTLib True True l
   writeFile f txt
 
 writeCore :: FilePath -> TypedTerm s -> IO ()
@@ -638,7 +635,7 @@ codegenSBV sc path fname (TypedTerm _schema t) =
   where mpath = if null path then Nothing else Just path
 
 prepSBV :: SharedContext s -> TypedTerm s
-        -> IO (SharedTerm s, [SBVSim.Labeler], Predicate)
+        -> IO (SharedTerm s, [SBVSim.Labeler], SBV.Symbolic SBV.SVal)
 prepSBV sc tt = do
   TypedTerm schema t' <- rewriteEqs sc tt
   checkBooleanSchema schema
@@ -647,21 +644,21 @@ prepSBV sc tt = do
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using SBV. (Currently ignores satisfying assignments.)
-satSBV :: SMTConfig -> SharedContext s -> ProofScript s SV.SatResult
+satSBV :: SBV.SMTConfig -> SharedContext s -> ProofScript s SV.SatResult
 satSBV conf sc = StateT $ \g -> do
   (t', labels, lit0) <- prepSBV sc (goalTerm g)
   let lit = case goalQuant g of
         Existential -> lit0
-        Universal -> liftM SBV.bnot lit0
+        Universal -> liftM SBV.svNot lit0
   tp <- scWhnf sc =<< scTypeOf sc t'
   let (args, _) = asPiList tp
       argNames = map fst args
-  SBV.SatResult r <- satWith conf lit
+  SBV.SatResult r <- SBV.satWith conf lit
   case r of
     SBV.Satisfiable {} -> do
       let schema = C.Forall [] [] C.tBit
       tt <- scApplyPrelude_True sc
-      return (getLabels labels r (SBV.getModelDictionary r) argNames, g {goalTerm = TypedTerm schema tt})
+      return (getLabels labels (SBV.getModelDictionary r) argNames, g {goalTerm = TypedTerm schema tt})
     SBV.Unsatisfiable {} -> do
       let schema = C.Forall [] [] C.tBit
       ft <- scApplyPrelude_False sc
@@ -670,8 +667,8 @@ satSBV conf sc = StateT $ \g -> do
     SBV.ProofError _ ls -> fail . unlines $ "Prover returned error: " : ls
     SBV.TimeOut {} -> fail "Prover timed out"
 
-getLabels :: [SBVSim.Labeler] -> SBV.SMTResult -> Map.Map String CW -> [String] -> SV.SatResult
-getLabels ls m d argNames =
+getLabels :: [SBVSim.Labeler] -> Map.Map String SBV.CW -> [String] -> SV.SatResult
+getLabels ls d argNames =
   case fmap getLabel ls of
     [x] -> SV.Sat x
     xs
@@ -680,9 +677,9 @@ getLabels ls m d argNames =
 
   where
     getLabel :: SBVSim.Labeler -> FiniteValue
-    getLabel (SBVSim.BoolLabel s) = FVBit . fromJust $ SBV.getModelValue s m
+    getLabel (SBVSim.BoolLabel s) = FVBit (SBV.cwToBool (d Map.! s))
     getLabel (SBVSim.WordLabel s) = d Map.! s &
-      (\(KBounded _ n)-> FVWord (fromIntegral n)) . SBV.cwKind <*> (\(CWInteger i)-> i) . SBV.cwVal
+      (\(SBV.KBounded _ n)-> FVWord (fromIntegral n)) . SBV.cwKind <*> (\(SBV.CWInteger i)-> i) . SBV.cwVal
     getLabel (SBVSim.VecLabel xs)
       | V.null xs = error "getLabel of empty vector"
       | otherwise = fvVec t vs
