@@ -1,0 +1,117 @@
+Name:          saw-script
+Version:       0.1
+Author:        Galois Inc.
+Maintainer:    atomb@galois.com
+Build-type:    Simple
+Cabal-version: >= 1.8.0.2
+
+library
+  build-depends:
+      base >= 4
+    , abcBridge
+    , aig
+    , ansi-terminal
+    , array
+    , binary
+    , bytestring
+    , containers
+    , cryptol
+    , cryptol-verifier
+    , deepseq
+    , either
+    , executable-path
+    , directory
+    , fgl
+    , filepath
+    , haskeline
+    , jvm-parser
+    , jvm-verifier
+    , lens
+    , llvm-pretty >= 0.3.0.0
+    , llvm-pretty-bc-parser >= 0.1.3.1
+    , llvm-verifier >= 0.2.1
+    , mtl >= 2.1
+    , old-locale
+    , old-time
+    , parsec
+    , pretty
+    , pretty-show
+    , process
+    , saw-core
+    , sbv >= 4.3
+    , smtLib
+    , split
+    , temporary
+    , template-haskell
+    , time
+    , transformers
+    , transformers-compat
+    , vector
+    , xdg-basedir
+    , wl-pprint
+    , GraphSCC
+
+  hs-source-dirs: src
+
+  exposed-modules:
+    SAWScript.AST
+    SAWScript.Builtins
+    SAWScript.CongruenceClosure
+    SAWScript.Compiler
+    SAWScript.CryptolBuiltins
+    SAWScript.CryptolEnv
+    SAWScript.Import
+    SAWScript.ImportAIG
+    SAWScript.Interpreter
+    SAWScript.JavaBuiltins
+    SAWScript.JavaExpr
+    SAWScript.JavaMethodSpec
+    SAWScript.JavaMethodSpecIR
+    SAWScript.Lexer
+    SAWScript.LLVMBuiltins
+    SAWScript.LLVMExpr
+    SAWScript.LLVMMethodSpec
+    SAWScript.LLVMMethodSpecIR
+    SAWScript.Options
+    SAWScript.Parser
+    SAWScript.Proof
+    SAWScript.REPL
+    SAWScript.REPL.Command
+    SAWScript.REPL.Haskeline
+    SAWScript.REPL.Logo
+    SAWScript.REPL.Monad
+    SAWScript.SBVParser
+    SAWScript.SBVModel
+    SAWScript.REPL.Trie
+    SAWScript.Token
+    SAWScript.TopLevel
+    SAWScript.MGU
+    SAWScript.TypedTerm
+    SAWScript.Utils
+    SAWScript.Value
+    SAWScript.VerificationCheck
+
+  GHC-options: -O2 -Wall -Werror -fno-ignore-asserts -fno-spec-constr-count
+
+  build-tools:
+    alex >= 3.1.3,
+    happy >= 1.9.4
+
+executable saw
+  hs-source-dirs: .
+
+  GHC-options: -O2 -Wall -Werror -fno-ignore-asserts -fno-spec-constr-count
+
+  main-is: src/Main.hs
+
+  build-depends:
+      base >= 4
+    , containers
+    , directory
+    , either
+    , filepath
+    , haskeline
+    , QuickCheck
+    , transformers
+    , saw-script
+    , saw-core

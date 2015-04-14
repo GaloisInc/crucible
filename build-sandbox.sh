@@ -52,7 +52,7 @@ if [ ! -e ${sandbox_dir} ] ; then
 fi
 
 if [ "${dotests}" == "true" ] ; then
-  for pkg in sawScript llvm-verifier jvm-verifier cryptol-verifier saw-core ; do
+  for pkg in saw-script llvm-verifier jvm-verifier cryptol-verifier saw-core ; do
     ${CABAL} sandbox hc-pkg unregister $pkg || true
   done
 fi
