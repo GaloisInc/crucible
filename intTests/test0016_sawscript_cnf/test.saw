@@ -1,0 +1,5 @@
+write_cnf "tmp/x__x.cnf"      {{ \(x:[8]) -> \(y:[8]) -> x == x }};
+write_cnf "tmp/x__x1.cnf"     {{ \(x:[8]) -> \(y:[8]) -> x == x + 1}};
+write_cnf "tmp/x__y.cnf"      {{ \(x:[8]) -> \(y:[8]) -> x == y }};
+write_cnf "tmp/x_not_y.cnf"   {{ \(x:[8]) -> \(y:[8]) -> x != y }};
+write_cnf "tmp/xx_not_2x.cnf" {{ \(x:[8]) -> \(y:[8]) -> x + x != 2 * x }};

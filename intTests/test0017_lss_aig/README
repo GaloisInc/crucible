@@ -1,0 +1,4 @@
+Test AIG generation for arrays in LSS using SAW and default backends.
+
+For the default backend, arrays get reversed on the way *out*, and for
+the saw backend, arrays get reversed on the way *in*.

@@ -1,0 +1,23 @@
+import "../support/MD5.cry";
+
+let main = do {
+   java_md5 <- read_aig "../support/JavaMD5.aig";
+
+   print "ref type";
+   print_type {{ md5_ref }};
+   print "";
+
+   check_term {{ md5_ref }};
+   print "";
+
+   print "AIG type";
+   print_type java_md5;
+   print "";
+
+   print "AIG type, checked";
+   check_term java_md5;
+   print "";
+
+   let thm = {{ \x -> join (md5_ref x) == java_md5 (join x) }};
+   prove_print abc thm;
+};

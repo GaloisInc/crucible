@@ -1,0 +1,13 @@
+let main = do {
+   java_md5 <- read_aig "../support/JavaMD5.aig";
+
+   print "AIG type";
+   print_type java_md5;
+
+   print "AIG type, checked";
+   check_term java_md5;
+
+   let thm1 = {{ java_md5 zero ==
+                 join [82, 231, 200, 108, 39, 210, 159, 253, 158, 75, 174, 116, 196, 18, 24, 165] }};
+   prove_print abc thm1;
+};

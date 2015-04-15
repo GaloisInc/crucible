@@ -1,0 +1,15 @@
+// What's the point? The test input
+//
+//   0x0000000100000002000000030000000400000005000000060000000700000008
+//
+// maps to output
+//
+//   0x1100000122000002330000034400000455000005660000067700000788000008
+//
+// and variations on this due to permutations in the input or output
+// encoding are easy to spot, and we can distinguish input transforms
+// from output transforms.
+encrypt : ([128], [128]) -> [256]
+encrypt (pt, key) =
+  (0x11000000220000003300000044000000 ^ pt) #
+  (0x55000000660000007700000088000000 ^ key)

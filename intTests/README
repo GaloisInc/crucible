@@ -1,0 +1,54 @@
+===============================
+Integration tests for SAWScript
+===============================
+
+Running tests
+=============
+
+To run all default tests:
+    ./runtests.sh
+
+The default tests are those with directory names of the form "test*"
+which are not listed in the file defined by the environment variable
+"DISABLED_TESTS". The default value of "DISABLED_TESTS" is
+"disabled_tests.txt". Non-default tests can always be run manually, as
+in the next example.
+
+To run a subset of tests, provide the directory names you wish to run:
+    ./runtests.sh test0001 test0029
+
+Output from test runs will be placed in the logs/ directory.
+
+The "runtests.sh" script expects to find the generated executables
+(for, e.g., saw) in "../SAWScript/build/bin".  A different directory
+can be specified by defining the "BIN" environment variable.
+
+By default tests are run with a timeout of 5 minutes. The default
+timeout can be overridden by defining the timeout in seconds in the
+TEST_TIMEOUT environment variable. For example, to run the default
+tests with a timeout of 30 minutes:
+
+  (TEST_TIMEOUT=1800; ./runtests.sh)
+
+Creating tests
+==============
+
+A test is defined by a directory which contains a shell script called
+"test.sh"; the test succeeds when the shell script does. When run by
+"runtests.sh", these "test.sh" scripts are interpreted by "sh", which
+varies with platform -- in particular, it's not Bash on Debian based
+systems. So, keep your "test.sh" simple, or change how "runtests.sh"
+works.
+
+Tests generally consist of a SAW script that is expected to succeed
+together with the artifacts that are needed. The "runtests.sh" script
+defines environment variables "JAVA", "SAW", "LSS", and "JSS",
+pointing to the corresponding executables, and with appropriate Java
+classpaths included. It's a good idea to include a README in each test
+directory.
+
+If the test directory name starts with "test", and the directory name
+is not included in the file specified by the environment variable
+"DISABLED_TESTS", then the test is run by default. Only default tests
+are run on the build slaves. When disabling a test by default, explain
+why in that test's README.

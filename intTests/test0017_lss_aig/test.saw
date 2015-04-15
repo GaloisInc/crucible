@@ -1,0 +1,29 @@
+import "test.cry";
+include "../support/prove_or_die.saw";
+
+let {{
+  run : ([256] -> [256]) -> (([128], [128]) -> [256])
+  run f (x, y) = f (x # y)
+
+  o : {a, b, c} (b -> c) -> (a -> b) -> (a -> c)
+  o f g x = f (g x)
+
+  regroup : [256] -> [256]
+  regroup = o join (o reverse groupBy`{32})
+}};
+
+let check_terms_eq name f g = do {
+  prove_or_die name {{ \xy -> f xy == g xy }};
+};
+
+// For the default backend the array gets reversed on the way *out*.
+ct_default <- read_aig "tmp/ct.default.aig";
+check_terms_eq "(regroup `o` run ct_default) === encrypt"
+  {{ o regroup (run ct_default) }}
+  {{ encrypt }};
+
+// For the saw backend the array gets reversed on the way *in*.
+ct_saw <- read_aig "tmp/ct.saw.aig";
+check_terms_eq "run (ct_saw `o` regroup) === encrypt"
+  {{ run (o ct_saw regroup) }}
+  {{ encrypt }};

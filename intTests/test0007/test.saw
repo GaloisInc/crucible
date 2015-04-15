@@ -1,0 +1,12 @@
+let main = do {
+   java_md5 <- read_aig "../support/JavaMD5.aig";
+
+   print "AIG type";
+   print_type java_md5;
+   print "";
+   print "AIG type, checked";
+   check_term java_md5;
+
+   let thm1 = {{ java_md5 0 == 0x52e7c86c27d29ffd9e4bae74c41218a5 }};
+   prove_print abc thm1;
+};

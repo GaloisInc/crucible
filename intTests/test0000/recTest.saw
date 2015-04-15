@@ -1,0 +1,7 @@
+import "mutRecTest.cry";
+
+let main = do {
+  // FIXME, this makes the simulator (?) crash the stack
+  let thm2 = {{ \ (x:[8]) -> streamFibs x == recFibs x }};
+  prove_print abc thm2;
+};

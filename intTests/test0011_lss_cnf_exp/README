@@ -1,0 +1,6 @@
+Use CNF to check a non-trivial equality between two implementations of
+exponentiation.
+
+However, it seems that LSS loops while trying to generate the symbolic
+term here, presumably because it can't tell that one of the
+exponentiation implementations always terminates.

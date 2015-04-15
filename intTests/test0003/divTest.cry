@@ -1,0 +1,6 @@
+
+divTestFunc : [8] -> [64 / 2]
+divTestFunc _ = zero
+
+expTestFunc : [8] -> [2 ^^ 5]
+expTestFunc _ = zero

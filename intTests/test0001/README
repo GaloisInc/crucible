@@ -1,0 +1,8 @@
+Attempt to prove the equivalance of a Java MD5 implementation with
+a Cryptol referenced implementation.
+
+Observed behavior:
+  Java method fails to import
+
+Desired behavior:
+  method imports and proof succeeds

@@ -1,0 +1,15 @@
+# Tests that are not run by default.
+
+# When adding a test to this list, add a note explaining why in that
+# test's README.
+
+# Timeout.
+test0000
+test_FNV_a1_rev
+
+# Not implemented.
+test0001
+
+# Symbolic simulators can't tell that the loops terminate.
+test0010_jss_cnf_exp
+test0011_lss_cnf_exp

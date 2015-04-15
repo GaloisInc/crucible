@@ -1,0 +1,9 @@
+
+let main = do {
+   java_md5 <- read_aig "../support/JavaMD5.aig";
+
+   // should be trivial...
+   let thm1 = {{ \x -> java_md5 x == java_md5 x }};
+   prove_print abc thm1;
+
+};

@@ -1,0 +1,6 @@
+Test 'termSAT' implementation in SAW and default backends.
+
+The 'termSAT' function is used to prune unreachable branches during
+symbolic simulation. In this example, the unreachable branch has an
+infinite loop.  Running LSS without the '--satbranches' option does
+indeed loop here.

@@ -1,0 +1,9 @@
+import "../support/MD5.cry";
+
+let main = do {
+   c <- java_load_class "JavaMD5";
+   java_md5 <- java_extract c "computeMD5" java_pure;
+
+   let thm1 = {{ \x -> md5_ref x == java_md5 x }};
+   prove_print abc thm1;
+};

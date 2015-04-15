@@ -1,0 +1,6 @@
+import "divTest.cry";
+
+let main = do {
+  let thm1 = {{ \x -> divTestFunc x == expTestFunc x }};
+  prove_print abc thm1;
+};

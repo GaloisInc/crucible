@@ -1,0 +1,57 @@
+include "../support/prove_or_die.saw";
+
+// The type of 'run' is more specific than necessary. The point is to
+// document the behavior of LSS using the SAW backend.
+//
+// There is a lot of overlap between this file and
+// ../test0012_jss_aig/test.saw.
+let {{
+  run : ([16] -> [8]) -> [8] -> [8] -> [8]
+  run f x y = f ((zero # x) + ((zero # y) <<< 8))
+
+  bit_to_int : {a} (fin a, a >= 1) => Bit -> [a]
+  bit_to_int b = if b then 1 else 0
+}};
+
+let check_pred name f r = do {
+  prove_or_die name {{ \x -> \y -> run f x y == r }};
+};
+
+let check_terms_eq name f g = do {
+  prove_or_die name {{ \x -> \y -> f x y == g x y }};
+};
+
+let check_x_irrel name f = do {
+  prove_or_die name {{ \x1 -> \x2 -> \y -> run f x1 y == run f x2 y }};
+};
+
+let check_y_irrel name f = do {
+  prove_or_die name {{ \x -> \y1 -> \y2 -> run f x y1 == run f x y2 }};
+};
+
+x__x <- read_aig "tmp/x__x.aig";
+check_pred "x__x" x__x {{ 1 }};
+
+x__x1 <- read_aig "tmp/x__x1.aig";
+check_pred "x__x1" x__x1 {{ 0 }};
+
+x__y <- read_aig "tmp/x__y.aig";
+check_terms_eq "x__y" {{ run x__y }} {{ \x -> \y -> bit_to_int (x == y) }};
+
+xx <- read_aig "tmp/xx.aig";
+x2 <- read_aig "tmp/2x.aig";
+check_terms_eq "xx 2x" {{ run xx }} {{ run x2 }};
+check_terms_eq "xx (2 * x) mixed"
+  {{ run xx }}
+  {{ \x -> \y -> 2 * x }};
+check_y_irrel "xx y irrel" xx;
+check_y_irrel "2x y irrel" x2;
+
+yy <- read_aig "tmp/yy.aig";
+y2 <- read_aig "tmp/2y.aig";
+check_terms_eq "yy 2y" {{ run yy }} {{ run y2 }};
+check_terms_eq "2y (y + y) mixed"
+  {{ run y2 }}
+  {{ \x -> \y -> y + y }};
+check_x_irrel "yy x irrel" yy;
+check_x_irrel "2y x irrel" y2;

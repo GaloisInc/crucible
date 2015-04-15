@@ -1,0 +1,13 @@
+Test AIG generation in LSS using SAW backend.
+
+The tests in 'test.saw' only make sense for the SAW backend; the
+default backend encodes the arguments and results in a different
+way.
+
+There used to be a bug in JSS and LSS where multiple AIG writes
+interacted, causing the number of input bits in the AIG to grow with
+each write. So in 'test.sh' we are careful to check that the number of
+input bits is always 16.
+
+Unlike JSS, the AIGs generated here are very unsurprising. See
+../test0012_jss_aig/README for a discussion of the JSS weirdness.

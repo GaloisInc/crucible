@@ -1,0 +1,2 @@
+org.sat4j.core.jar: Open source DIMACS format SAT solver from
+http://www.sat4j.org/. See usage in ../sat.sh for usage info.

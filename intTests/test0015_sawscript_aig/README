@@ -1,0 +1,11 @@
+Test AIG generation in SAWScript.
+
+These examples provide some documentation of the SAWScript AIG
+encoding.
+
+Note that, compared to LSS and JSS, the arguments here are reversed:
+for functions '\x -> \y -> e' the arguments are packed as 'x # y'
+here, but as 'y # x' for LSS and JSS. However, in LSS and JSS you
+don't actually write the arguments explicitly -- rather, open terms
+are closed over the symbolic variables in scope -- so I'm not sure the
+comparison is fair.

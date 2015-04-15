@@ -1,0 +1,6 @@
+import "FNV_a1.cry";
+
+let main = do {
+    let thm = {{ \msg -> break secret1 (msg : [14][8]) }} ;
+    sat_print abc thm;
+};

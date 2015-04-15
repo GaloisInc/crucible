@@ -1,0 +1,8 @@
+We attempt to prove the equivalance of a stream-equation and a directly-recursive
+definition of the Fibonocci numbers.
+
+Observed behavior: saw executable blows out its stack and crashes to command prompt.
+
+Desired behavior:
+  1) a valid proof
+  2) failing that, a graceful failure of the symbolic simulator.

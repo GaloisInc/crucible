@@ -1,0 +1,2 @@
+Demonstrates the ability to import cryptol functions with
+division and exponents in type signatures.

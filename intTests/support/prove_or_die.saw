@@ -1,0 +1,11 @@
+// Prove theorem or exit SAWScript.
+let prove_or_die name thm = do {
+  print name;
+  r <- prove abc thm;
+  caseProofResult r
+    (print "True")
+    (\c -> do {
+      print "False";
+      exit 1;
+    });
+};

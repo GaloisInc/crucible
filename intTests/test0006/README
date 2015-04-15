@@ -1,0 +1,2 @@
+This test demonstrates the ability to prove a basic fact about an imported Cryptol definition,
+that it evaluates on a concrete argument to a specific, known value.

@@ -1,0 +1,20 @@
+Test AIG generation in JSS using SAW backend.
+
+The tests in 'test.saw' only make sense for the SAW backend; the
+default backend encodes the arguments and results in a different
+way.
+
+There used to be a bug in JSS and LSS where multiple AIG writes
+interacted, causing the number of input bits in the AIG to grow with
+each write. So in 'test.sh' we are careful to check that the number of
+input bits is always 16.
+
+Besides checking predicates, where the input encoding does not matter,
+and the output is a single bit, we also check the input and output
+encoding for functions. Here there are some surprises if you don't
+know that Java bytes get promoted to ints in arithmetic, so that
+e.g. 'x + x' has type 'int' and is the same as '((int) x) + ((int) x)'
+for 'x' of type 'byte'. This is covered in the Binary Numeric
+Promotion section of the Java spec:
+
+http://docs.oracle.com/javase/specs/jls/se7/html/jls-5.html#jls-5.6.2

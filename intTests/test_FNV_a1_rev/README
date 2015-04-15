@@ -1,0 +1,5 @@
+This test is related to the following bug report:
+https://www.galois.com/cryptol/ticket/345
+
+This bug is now fixed, but the test case is disabled because it
+is a computationally-intractible hash-reversal task.
