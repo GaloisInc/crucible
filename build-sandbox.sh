@@ -90,20 +90,18 @@ for pkg in ${PKGS} ; do
 done
 
 if [ "${dotests}" == "true" ] ; then
-  cd ..
-
   if [ -z ${TEST_TIMEOUT} ]; then
     TEST_TIMEOUT="60s"
   fi
 
   for pkg in ${TESTABLE}; do
-    test_flags="--test-option=--xml=../${pkg}-test-results.xml --test-option=--timeout=${TEST_TIMEOUT}"
+    test_flags="--test-option=--xml=${HERE}/${pkg}-test-results.xml --test-option=--timeout=${TEST_TIMEOUT}"
 
     if [ ! "${QC_TESTS}" == "" ]; then
         test_flags="${test_flags} --test-option=--quickcheck-tests=${QC_TESTS}"
     fi
 
-    (cd ${pkg} &&
+    (cd ../${pkg} &&
          ${CABAL} sandbox init --sandbox="${HERE}/${sandbox_dir}" &&
          ${CABAL} install $jobs --enable-tests --only-dependencies &&
          ${CABAL} configure --enable-tests &&
