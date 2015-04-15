@@ -394,6 +394,10 @@ primitives = Map.fromList
     (pureVal ((putStrLn . scPrettyTerm) :: SharedTerm SAWCtx -> IO ()))
     [ "TODO" ]
 
+  , prim "print_term_depth"    "Int -> Term -> TopLevel ()"
+    (pureVal ((\d -> print . ppTermDepth d) :: Int -> SharedTerm SAWCtx -> IO ()))
+    [ "TODO" ]
+
   , prim "print_term_sexp"     "Term -> TopLevel ()"
     (pureVal ((print . ppSharedTermSExp) :: SharedTerm SAWCtx -> IO ()))
     [ "TODO" ]
@@ -585,6 +589,10 @@ primitives = Map.fromList
 
   , prim "print_goal"          "ProofScript ()"
     (pureVal (printGoal :: ProofScript SAWCtx ()))
+    [ "TODO" ]
+
+  , prim "print_goal_depth"    "Int -> ProofScript ()"
+    (pureVal printGoalDepth)
     [ "TODO" ]
 
   , prim "print_goal_sexp"     "ProofScript ()"

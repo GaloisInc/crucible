@@ -436,6 +436,11 @@ printGoal = StateT $ \goal -> do
   putStrLn (scPrettyTerm (ttTerm (goalTerm goal)))
   return ((), goal)
 
+printGoalDepth :: Int -> ProofScript SAWCtx ()
+printGoalDepth n = StateT $ \goal -> do
+  print (ppTermDepth n (ttTerm (goalTerm goal)))
+  return ((), goal)
+
 printGoalSExp :: ProofScript SAWCtx ()
 printGoalSExp = StateT $ \goal -> do
   print (ppSharedTermSExp (ttTerm (goalTerm goal)))
