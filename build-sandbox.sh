@@ -2,10 +2,11 @@
 set -x
 set -e
 
-PKGS="SAWCore Cryptol Java LLVM SAWScript"
+PKGS="saw-core cryptol-verifier jvm-verifier llvm-verifier"
 GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser"
+GALOIS_REPOS="saw-core cryptol-verifier jvm-verifier llvm-verifier"
 PROGRAMS="alex happy c2hs"
-TESTABLE="SAWCore Java LLVM"
+TESTABLE="saw-core jvm-verifier llvm-verifier"
 
 dotests="false"
 dopull="false"
@@ -45,10 +46,29 @@ fi
 PATH=${HERE}/${sandbox_dir}/bin:$PATH
 CABAL="cabal"
 
+for repo in ${GITHUB_REPOS} ; do
+  if [ ! -e ./deps/${repo} ] ; then
+    git clone https://github.com/GaloisInc/${repo}.git ./deps/${repo}
+  fi
+  if [ "${dopull}" == "true" ] ; then
+    (cd ./deps/${repo} && git checkout master && git pull)
+  fi
+done
+
+for repo in ${GALOIS_REPOS} ; do
+  if [ ! -e ./deps/${repo} ] ; then
+    git clone ssh://src.galois.com/srv/git/saw/${repo}.git ./deps/${repo}
+  fi
+  if [ "${dopull}" == "true" ] ; then
+    (cd ./deps/${repo} && git checkout master && git pull)
+  fi
+done
+
 if [ ! -e ${sandbox_dir} ] ; then
     for pkg in ${PKGS} ; do
-        (cd ${HERE}/../$pkg && ${CABAL} sandbox --sandbox="${HERE}/${sandbox_dir}" init)
+        (cd deps/$pkg && ${CABAL} sandbox --sandbox="${HERE}/${sandbox_dir}" init)
     done
+    ${CABAL} sandbox --sandbox="${HERE}/${sandbox_dir}" init
 fi
 
 if [ "${dotests}" == "true" ] ; then
@@ -67,26 +87,13 @@ for prog in ${PROGRAMS} ; do
   fi
 done
 
-for repo in ${GITHUB_REPOS} ; do
-  if [ ! -e ./deps/${repo} ] ; then
-    git clone https://github.com/GaloisInc/${repo}.git ./deps/${repo}
-  fi
-  if [ "${dopull}" == "true" ] ; then
-    (cd ./deps/${repo} && git checkout master && git pull)
-  fi
-done
-
-for repo in ${GITHUB_REPOS} ; do
+for repo in ${GITHUB_REPOS} ${GALOIS_REPOS}; do
   ${CABAL} sandbox add-source deps/${repo}
 
   # Be sure abcBridge builds with pthreads diabled on Windows
   if [ "${OS}" == "Windows_NT" -a "${repo}" == "abcBridge" ]; then
     ${CABAL} install $jobs --force abcBridge -f-enable-pthreads
   fi
-done
-
-for pkg in ${PKGS} ; do
-  ${CABAL} sandbox add-source ../${pkg}
 done
 
 if [ "${dotests}" == "true" ] ; then
@@ -101,7 +108,7 @@ if [ "${dotests}" == "true" ] ; then
         test_flags="${test_flags} --test-option=--quickcheck-tests=${QC_TESTS}"
     fi
 
-    (cd ../${pkg} &&
+    (cd deps/${pkg} &&
          ${CABAL} sandbox init --sandbox="${HERE}/${sandbox_dir}" &&
          ${CABAL} install $jobs --enable-tests --only-dependencies &&
          ${CABAL} configure --enable-tests &&
