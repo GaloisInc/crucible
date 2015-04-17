@@ -1,5 +1,6 @@
 src/SAWScript/Lexer.hs
 src/SAWScript/Parser.hs
 deps
+dist
 build
 build-tests
