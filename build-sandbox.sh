@@ -3,8 +3,8 @@ set -x
 set -e
 
 PKGS="saw-core cryptol-verifier jvm-verifier llvm-verifier"
-GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser"
-GALOIS_REPOS="saw-core cryptol-verifier jvm-verifier llvm-verifier"
+GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser \
+              saw-core cryptol-verifier jvm-verifier llvm-verifier"
 PROGRAMS="alex happy c2hs"
 TESTABLE="saw-core jvm-verifier llvm-verifier"
 
@@ -48,16 +48,7 @@ CABAL="cabal"
 
 for repo in ${GITHUB_REPOS} ; do
   if [ ! -e ./deps/${repo} ] ; then
-    git clone https://github.com/GaloisInc/${repo}.git ./deps/${repo}
-  fi
-  if [ "${dopull}" == "true" ] ; then
-    (cd ./deps/${repo} && git checkout master && git pull)
-  fi
-done
-
-for repo in ${GALOIS_REPOS} ; do
-  if [ ! -e ./deps/${repo} ] ; then
-    git clone ssh://src.galois.com/srv/git/saw/${repo}.git ./deps/${repo}
+    git clone git@github.com:GaloisInc/${repo}.git ./deps/${repo}
   fi
   if [ "${dopull}" == "true" ] ; then
     (cd ./deps/${repo} && git checkout master && git pull)
