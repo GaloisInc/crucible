@@ -347,8 +347,8 @@ defaultTypedTerm sc (TypedTerm schema trm) = do
                 (soln, _) <- mSoln
                 mapM (`lookup` soln) (T.sVars schema)
     cvc4Cfg = SolverConfig { solverPath = "cvc4"
-                           , solverArgs = [ "--lang=smt2", "--incremental" ]
-                           , solverVerbose = 1
+                           , solverArgs = [ "--lang=smt2", "--incremental", "--rewrite-divk" ]
+                           , solverVerbose = 0
                            }
     warnDefault ns (x,t) =
       print $ text "Assuming" <+> ppWithNames ns x <+> text "=" <+> pp t
