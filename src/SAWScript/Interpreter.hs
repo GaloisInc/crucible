@@ -64,11 +64,11 @@ import qualified Verifier.LLVM.Backend.SAW as LLVMSAW
 import qualified Verifier.SAW.Cryptol as Cryptol
 import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 
+import Cryptol.TypeCheck (SolverConfig(..))
 import qualified Cryptol.TypeCheck.AST as T
-import Cryptol.TypeCheck.Defaulting (defaultExpr)
 import Cryptol.TypeCheck.PP (ppWithNames)
+import Cryptol.TypeCheck.Solve (defaultReplExpr)
 import Cryptol.TypeCheck.Subst (apSubst, listSubst)
-import Cryptol.Parser.Position (emptyRange)
 import Cryptol.Utils.PP
 import qualified Cryptol.Eval.Value as V (defaultPPOpts, ppValue)
 
@@ -325,8 +325,9 @@ rethrowEvalError m = run `X.catch` rethrow
 
 -- | Default the values of the type variables in a typed term.
 defaultTypedTerm :: SharedContext s -> TypedTerm s -> IO (TypedTerm s)
-defaultTypedTerm sc (TypedTerm schema trm) =
-  case inst of
+defaultTypedTerm sc (TypedTerm schema trm) = do
+  i <- inst
+  case i of
     Nothing -> return (TypedTerm schema trm)
     Just tys -> do
       let vars = T.sVars schema
@@ -341,8 +342,14 @@ defaultTypedTerm sc (TypedTerm schema trm) =
       let schema' = T.Forall [] [] (apSubst su (T.sType schema))
       return (TypedTerm schema' trm')
   where
-    inst = do (soln, _) <- defaultExpr emptyRange undefined schema
-              mapM (`lookup` soln) (T.sVars schema)
+    inst = do mSoln <- defaultReplExpr cvc4Cfg undefined schema
+              return $ do
+                (soln, _) <- mSoln
+                mapM (`lookup` soln) (T.sVars schema)
+    cvc4Cfg = SolverConfig { solverPath = "cvc4"
+                           , solverArgs = [ "--lang=smt2", "--incremental" ]
+                           , solverVerbose = 1
+                           }
     warnDefault ns (x,t) =
       print $ text "Assuming" <+> ppWithNames ns x <+> text "=" <+> pp t
 
