@@ -13,3 +13,7 @@ test0001
 # Symbolic simulators can't tell that the loops terminate.
 test0010_jss_cnf_exp
 test0011_lss_cnf_exp
+
+# The Examples have not been incorporated back into the saw-script
+# repo yet.
+test_ecdsa
