@@ -9,7 +9,7 @@ fi
 
 # define the BIN variable, if not already defined
 if [ -z "$BIN" ]; then
-  export BIN=$TESTBASE/../SAWScript/build/bin
+  export BIN=$TESTBASE/../build/bin
 fi
 
 if [ "${OS}" == "Windows_NT" ]; then

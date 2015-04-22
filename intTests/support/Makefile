@@ -1,4 +1,4 @@
-SYM_API=../../LLVM/sym-api
+SYM_API=../../deps/llvm-verifier/sym-api
 
 %.bc: %.c
 	clang -emit-llvm -I$(SYM_API) -c $< -o $(shell basename $< .c).bc

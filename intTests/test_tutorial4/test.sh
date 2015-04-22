@@ -2,8 +2,8 @@
 set -e
 
 mkdir -p tmp
-cp -r ../../LLVM/sym-api tmp
-cp -r ../../LLVM/doc/lss-tutorial/code/* tmp
+cp -r ../../deps/llvm-verifier/sym-api tmp
+cp -r ../../deps/llvm-verifier/doc/lss-tutorial/code/* tmp
 cd tmp
 # assume the .bc is already built
 # the build slaves don't generally have LLVM installed
