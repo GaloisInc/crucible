@@ -64,7 +64,8 @@ import qualified Verifier.LLVM.Backend.SAW as LLVMSAW
 import qualified Verifier.SAW.Cryptol as Cryptol
 import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 
-import Cryptol.TypeCheck (SolverConfig(..))
+import Cryptol.ModuleSystem.Env (meSolverConfig)
+import Cryptol.TypeCheck (SolverConfig)
 import qualified Cryptol.TypeCheck.AST as T
 import Cryptol.TypeCheck.PP (ppWithNames)
 import Cryptol.TypeCheck.Solve (defaultReplExpr)
@@ -307,9 +308,11 @@ print_value :: Value -> TopLevel ()
 print_value (VString s) = io $ putStrLn s
 print_value (VTerm t) = do
   sc <- getSharedContext
+  cenv <- fmap rwCryptol getTopLevelRW
+  let cfg = meSolverConfig (CEnv.eModuleEnv cenv)
   unless (null (getAllExts (ttTerm t))) $
     fail "term contains symbolic variables"
-  t' <- io $ defaultTypedTerm sc t
+  t' <- io $ defaultTypedTerm sc cfg t
   io $ rethrowEvalError $ print $ V.ppValue V.defaultPPOpts (evaluateTypedTerm sc t')
 print_value v = io $ putStrLn (showsPrecValue defaultPPOpts 0 v "")
 
@@ -324,10 +327,12 @@ rethrowEvalError m = run `X.catch` rethrow
   rethrow exn = fail (show exn) -- X.throwIO (EvalError exn)
 
 -- | Default the values of the type variables in a typed term.
-defaultTypedTerm :: SharedContext s -> TypedTerm s -> IO (TypedTerm s)
-defaultTypedTerm sc (TypedTerm schema trm) = do
-  i <- inst
-  case i of
+defaultTypedTerm :: SharedContext s -> SolverConfig -> TypedTerm s -> IO (TypedTerm s)
+defaultTypedTerm sc cfg (TypedTerm schema trm) = do
+  mdefault <- defaultReplExpr cfg undefined schema
+  let inst = do (soln, _) <- mdefault
+                mapM (`lookup` soln) (T.sVars schema)
+  case inst of
     Nothing -> return (TypedTerm schema trm)
     Just tys -> do
       let vars = T.sVars schema
@@ -342,14 +347,6 @@ defaultTypedTerm sc (TypedTerm schema trm) = do
       let schema' = T.Forall [] [] (apSubst su (T.sType schema))
       return (TypedTerm schema' trm')
   where
-    inst = do mSoln <- defaultReplExpr cvc4Cfg undefined schema
-              return $ do
-                (soln, _) <- mSoln
-                mapM (`lookup` soln) (T.sVars schema)
-    cvc4Cfg = SolverConfig { solverPath = "cvc4"
-                           , solverArgs = [ "--lang=smt2", "--incremental", "--rewrite-divk" ]
-                           , solverVerbose = 0
-                           }
     warnDefault ns (x,t) =
       print $ text "Assuming" <+> ppWithNames ns x <+> text "=" <+> pp t
 
