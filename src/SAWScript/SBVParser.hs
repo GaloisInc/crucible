@@ -130,7 +130,8 @@ parseSBVExpr sc unint nodes size (SBV.SBVApp operator sbvs) =
              result <- scApply sc t argument
              results <- splitInputs sc outTyp result
              let outSizes = typSizes outTyp
-             scAppendAll sc (zip results outSizes)
+             -- Append bitvector components of result value in lsb order
+             scAppendAll sc (reverse (zip results outSizes))
     where
       -- | scMkOp :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
       binop scMkOp [sbv1, sbv2] =
