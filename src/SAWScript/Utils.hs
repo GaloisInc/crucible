@@ -27,7 +27,7 @@ import System.Directory(makeRelativeToCurrentDirectory)
 import System.FilePath(makeRelative, isAbsolute, (</>), takeDirectory)
 import System.Time(TimeDiff(..), getClockTime, diffClockTimes, normalizeTimeDiff, toCalendarTime, formatCalendarTime)
 import System.Locale(defaultTimeLocale)
-import Text.PrettyPrint.Leijen hiding ((</>), (<$>))
+import Text.PrettyPrint.ANSI.Leijen hiding ((</>), (<$>))
 import Text.Printf
 import Numeric(showFFloat)
 

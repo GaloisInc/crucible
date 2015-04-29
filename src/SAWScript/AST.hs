@@ -32,7 +32,7 @@ import qualified Data.Map as Map
 
 import Data.Foldable (Foldable)
 import Data.Traversable (Traversable)
-import qualified Text.PrettyPrint.Leijen as PP
+import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import qualified Cryptol.Parser.AST as P (ImportSpec, ModName)
 

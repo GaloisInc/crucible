@@ -42,7 +42,7 @@ module SAWScript.LLVMMethodSpecIR
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.String
-import Text.PrettyPrint.Leijen hiding ((<$>))
+import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import Verifier.SAW.SharedTerm
 import qualified Verifier.LLVM.Codebase as LSS

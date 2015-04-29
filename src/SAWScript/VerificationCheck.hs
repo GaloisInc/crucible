@@ -6,7 +6,7 @@ import qualified Cryptol.Eval.Value as CV
 import Verifier.SAW.Cryptol (exportValueWithSchema, scCryptolType)
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.Simulator.Concrete (CValue)
-import Text.PrettyPrint.Leijen
+import Text.PrettyPrint.ANSI.Leijen
 
 import Verifier.SAW.Cryptol (scCryptolEq)
 

@@ -36,7 +36,7 @@ module SAWScript.LLVMExpr
 
 import Control.Applicative ((<$>))
 -- import Data.Set (Set)
-import Text.PrettyPrint.Leijen hiding ((<$>))
+import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import qualified Verifier.LLVM.Codebase as LSS
 

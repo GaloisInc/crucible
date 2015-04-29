@@ -16,7 +16,7 @@ import Data.Maybe
 import qualified Data.Map as Map
 import Data.Time.Clock
 import qualified Data.Vector as V
-import Text.PrettyPrint.Leijen hiding ((<$>))
+import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import Text.Read (readMaybe)
 
 import Language.JVM.Common

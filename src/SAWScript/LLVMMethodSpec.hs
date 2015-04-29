@@ -32,7 +32,7 @@ import Data.List (sortBy)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
-import Text.PrettyPrint.Leijen hiding ((<$>))
+import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import qualified SAWScript.CongruenceClosure as CC
 import qualified SAWScript.LLVMExpr as TC
