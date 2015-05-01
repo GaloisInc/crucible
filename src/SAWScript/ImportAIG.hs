@@ -6,6 +6,7 @@ module SAWScript.ImportAIG
   ( readAIGexpect
   , readAIG
   , loadAIG
+  , verifyAIGCompatible
   , AIGNetwork
   ) where
 
@@ -195,3 +196,16 @@ readAIG sc f =
     outType <- scVecType sc outLen boolType
     runExceptT $
       translateNetwork sc ntk outputLits [("x", inType)] outType
+
+-- | Check that the input and output counts of the given
+--   AIGNetworks are equal.
+verifyAIGCompatible :: AIGNetwork -> AIGNetwork -> IO ()
+verifyAIGCompatible x y = do
+   inx <- AIG.networkInputCount x
+   iny <- AIG.networkInputCount y
+   let outx = AIG.networkOutputCount x
+   let outy = AIG.networkOutputCount y
+   when (inx /= iny) $ do
+       fail $ unwords ["AIG input counts do not match:", show inx, show iny]
+   when (outx /= outy) $ do
+       fail $ unwords ["AIG output counts do not match:", show outx, show outy]

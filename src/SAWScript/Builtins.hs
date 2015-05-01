@@ -153,6 +153,7 @@ dsecPrint sc t1 t2 = do
 
 cecPrim :: AIGNetwork -> AIGNetwork -> TopLevel SV.ProofResult
 cecPrim x y = do
+  io $ verifyAIGCompatible x y
   res <- io $ ABC.cec x y
   case res of
     ABC.Valid -> return $ SV.Valid
