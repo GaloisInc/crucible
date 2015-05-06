@@ -87,7 +87,7 @@ for prog in ${PROGRAMS} ; do
   fi
 done
 
-for repo in ${GITHUB_REPOS} ${GALOIS_REPOS}; do
+for repo in ${PUBLIC_GITHUB_REPOS} ${PRIVATE_GITHUB_REPOS} ${GALOIS_REPOS}; do
   ${CABAL} sandbox add-source deps/${repo}
 
   # Be sure abcBridge builds with pthreads diabled on Windows
