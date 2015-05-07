@@ -295,18 +295,19 @@ combineOutputs sc ty xs0 =
       go (TTuple ts) =
           do xs <- mapM go ts
              lift (scTuple sc xs)
+      -- | SBV files may encode values of type '[n]Bool' in one of two
+      -- ways: as a single n-bit word, or as a list of n 1-bit words.
       go (TVec n TBool) =
           do (n', x) <- pop
              case () of
                () | n' == fromIntegral n -> return x
                   | n' == 1 ->
-                    do xs <- replicateM (fromIntegral n - 1) pop
-                       boolTy <- lift (scBoolType sc)
-                       let totSize = sum (1 : map fst xs)
-                       unless (totSize == fromIntegral n) $
+                    do (sizes, xs) <- fmap unzip $ replicateM (fromIntegral n - 1) pop
+                       unless (all (== 1) sizes) $
                          fail $ "combineOutputs: can't read SBV bitvector: " ++
-                                show totSize ++ " doesn't equal " ++ show n
-                       lift (scVector sc boolTy (x : map snd xs))
+                                show sizes ++ " doesn't equal " ++ show n
+                       -- Append 1-bit words, lsb first (TODO: is this right?)
+                       lift $ scAppendAll sc $ reverse [ (t, 1) | t <- x : xs ]
                   | otherwise -> fail $ "combineOutputs: can't read SBV bitvector from " ++
                                         show n' ++ " arguments"
       go (TVec n t) =
