@@ -488,7 +488,8 @@ parseJavaExpr cb cls meth estr = do
             _ | hasDebugInfo meth -> do
                   let mlv = lookupLocalVariableByName meth 0 s
                   case mlv of
-                    Nothing -> fail $ "local doesn't exist: " ++ s
+                    Nothing -> fail $ "local " ++ s ++ " doesn't exist, expected one of: " ++
+                                 unwords (map localName (localVariableEntries meth 0))
                     Just lv -> return (CC.Term (Local s i ty))
                       where i = localIdx lv
                             ty = localType lv
