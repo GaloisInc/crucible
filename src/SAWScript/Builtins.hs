@@ -80,8 +80,7 @@ data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
 definePrim :: String -> TypedTerm SAWCtx -> TopLevel (TypedTerm SAWCtx)
 definePrim name (TypedTerm schema rhs) = do
   sc <- getSharedContext
-  let ident = mkIdent (moduleName (scModule sc)) name
-  t <- io $ scConstant sc ident rhs
+  t <- io $ scConstant sc name rhs
   return $ TypedTerm schema t
 
 sbvUninterpreted :: String -> SharedTerm SAWCtx -> TopLevel (Uninterp SAWCtx)
@@ -455,9 +454,8 @@ printGoalSExp' n = StateT $ \goal -> do
 
 unfoldGoal :: SharedContext s -> [String] -> ProofScript s ()
 unfoldGoal sc names = StateT $ \goal -> do
-  let ids = map (mkIdent (moduleName (scModule sc))) names
   let TypedTerm schema trm = goalTerm goal
-  trm' <- scUnfoldConstants sc ids trm
+  trm' <- scUnfoldConstants sc names trm
   return ((), goal { goalTerm = TypedTerm schema trm' })
 
 simplifyGoal :: SharedContext s -> Simpset (SharedTerm s) -> ProofScript s ()
