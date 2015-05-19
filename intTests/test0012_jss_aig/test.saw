@@ -5,10 +5,10 @@ include "../support/prove_or_die.saw";
 // SAW backend.
 let {{
   run_pred : ([16] -> [1]) -> [8] -> [8] -> [1]
-  run_pred f x y = f ((zero # x) + ((zero # y) <<< 8))
+  run_pred f x y = f (x # y)
 
   run_term : ([16] -> [32]) -> [8] -> [8] -> [32]
-  run_term f x y = f ((zero # x) + ((zero # y) <<< 8))
+  run_term f x y = f (x # y)
 
   bit_to_int : {a} (fin a, a >= 1) => Bit -> [a]
   bit_to_int b = if b then 1 else 0
