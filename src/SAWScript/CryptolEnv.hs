@@ -184,7 +184,7 @@ translateDeclGroups sc env dgs = do
         , C.envP = Map.empty
         , C.envC = types'
         }
-  cryEnv' <- C.importDeclGroups sc cryEnv dgs
+  cryEnv' <- C.importTopLevelDeclGroups sc cryEnv dgs
   termEnv' <- traverse (\(t, j) -> incVars sc 0 j t) (C.envE cryEnv')
 
   let decls = concatMap T.groupDecls dgs
@@ -201,7 +201,7 @@ translateDeclGroups sc env dgs = do
 genTermEnv :: SharedContext s -> ME.ModuleEnv -> IO (Map T.QName (SharedTerm s))
 genTermEnv sc modEnv = do
   let declGroups = concatMap T.mDecls (ME.loadedModules modEnv)
-  cryEnv <- C.importDeclGroups sc C.emptyEnv declGroups
+  cryEnv <- C.importTopLevelDeclGroups sc C.emptyEnv declGroups
   traverse (\(t, j) -> incVars sc 0 j t) (C.envE cryEnv)
 
 --------------------------------------------------------------------------------

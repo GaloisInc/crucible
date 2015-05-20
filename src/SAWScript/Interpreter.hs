@@ -643,6 +643,10 @@ primitives = Map.fromList
     (scVal satYices)
     [ "TODO" ]
 
+  , prim "unint_z3"            "[String] -> ProofScript SatResult"
+    (scVal satUnintZ3)
+    [ "TODO" ]
+
   , prim "offline_aig"         "String -> ProofScript SatResult"
     (scVal satAIG)
     [ "TODO" ]

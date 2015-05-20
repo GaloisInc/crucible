@@ -380,16 +380,26 @@ writeCNF sc f t = do
 -- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
 -- 1 file.
 writeSMTLib1 :: SharedContext s -> FilePath -> TypedTerm s -> IO ()
-writeSMTLib1 sc f t = do
-  (_, _, l) <- prepSBV sc t
+writeSMTLib1 sc f t = writeUnintSMTLib1 sc f [] t
+
+-- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
+-- 1 file, treating some constants as uninterpreted.
+writeUnintSMTLib1 :: SharedContext s -> FilePath -> [String] -> TypedTerm s -> IO ()
+writeUnintSMTLib1 sc f unints t = do
+  (_, _, l) <- prepSBV sc unints t
   txt <- SBV.compileToSMTLib False True l
   writeFile f txt
 
 -- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
 -- 2 file.
 writeSMTLib2 :: SharedContext s -> FilePath -> TypedTerm s -> IO ()
-writeSMTLib2 sc f t = do
-  (_, _, l) <- prepSBV sc t
+writeSMTLib2 sc f t = writeUnintSMTLib2 sc f [] t
+
+-- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
+-- 2 file, treating some constants as uninterpreted.
+writeUnintSMTLib2 :: SharedContext s -> FilePath -> [String] -> TypedTerm s -> IO ()
+writeUnintSMTLib2 sc f unints t = do
+  (_, _, l) <- prepSBV sc unints t
   txt <- SBV.compileToSMTLib True True l
   writeFile f txt
 
@@ -635,22 +645,28 @@ rewriteEqs sc (TypedTerm schema t) = do
 
 codegenSBV :: SharedContext s -> FilePath -> String -> TypedTerm s -> IO ()
 codegenSBV sc path fname (TypedTerm _schema t) =
-  SBVSim.sbvCodeGen sc mpath fname t
+  SBVSim.sbvCodeGen sc [] mpath fname t
   where mpath = if null path then Nothing else Just path
 
-prepSBV :: SharedContext s -> TypedTerm s
+prepSBV :: SharedContext s -> [String] -> TypedTerm s
         -> IO (SharedTerm s, [SBVSim.Labeler], SBV.Symbolic SBV.SVal)
-prepSBV sc tt = do
+prepSBV sc unints tt = do
   TypedTerm schema t' <- rewriteEqs sc tt
   checkBooleanSchema schema
-  (labels, lit) <- SBVSim.sbvSolve sc t'
+  (labels, lit) <- SBVSim.sbvSolve sc unints t'
   return (t', labels, lit)
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using SBV. (Currently ignores satisfying assignments.)
 satSBV :: SBV.SMTConfig -> SharedContext s -> ProofScript s SV.SatResult
-satSBV conf sc = StateT $ \g -> do
-  (t', labels, lit0) <- prepSBV sc (goalTerm g)
+satSBV conf sc = satUnintSBV conf sc []
+
+-- | Bit-blast a @SharedTerm@ representing a theorem and check its
+-- satisfiability using SBV. (Currently ignores satisfying assignments.)
+-- Constants with names in @unints@ are kept as uninterpreted functions.
+satUnintSBV :: SBV.SMTConfig -> SharedContext s -> [String] -> ProofScript s SV.SatResult
+satUnintSBV conf sc unints = StateT $ \g -> do
+  (t', labels, lit0) <- prepSBV sc unints (goalTerm g)
   let lit = case goalQuant g of
         Existential -> lit0
         Universal -> liftM SBV.svNot lit0
@@ -706,6 +722,21 @@ satMathSAT = satSBV SBV.mathSAT
 
 satYices :: SharedContext s -> ProofScript s SV.SatResult
 satYices = satSBV SBV.yices
+
+satUnintBoolector :: SharedContext s -> [String] -> ProofScript s SV.SatResult
+satUnintBoolector = satUnintSBV SBV.boolector
+
+satUnintZ3 :: SharedContext s -> [String] -> ProofScript s SV.SatResult
+satUnintZ3 = satUnintSBV SBV.z3
+
+satUnintCVC4 :: SharedContext s -> [String] -> ProofScript s SV.SatResult
+satUnintCVC4 = satUnintSBV SBV.cvc4
+
+satUnintMathSAT :: SharedContext s -> [String] -> ProofScript s SV.SatResult
+satUnintMathSAT = satUnintSBV SBV.mathSAT
+
+satUnintYices :: SharedContext s -> [String] -> ProofScript s SV.SatResult
+satUnintYices = satUnintSBV SBV.yices
 
 negTypedTerm :: SharedContext s -> TypedTerm s -> IO (TypedTerm s)
 negTypedTerm sc (TypedTerm schema t) = do
