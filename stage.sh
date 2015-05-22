@@ -1,12 +1,28 @@
 #!/bin/bash
 set -e
 
+while getopts "c" opt; do
+    case $opt in
+        c)
+            # Remove './tmp', including all previous releases, before staging.
+            clean="true"
+            ;;
+        \?)
+            echo "Invalid option: -$OPTARG" >&2
+            exit 1
+            ;;
+    esac
+done
+
 DATE=`date +%F`
 # Get 'Version' from the .cabal file.
 VERSION=`grep Version saw-script.cabal | awk '{print $2}'`
 
 TARGET=tmp/saw-${VERSION}-${DATE}-`uname`-`uname -m`
 
+if [ -z "$clean" ]; then
+    rm -rf ./tmp
+fi
 mkdir -p ${TARGET}/bin
 mkdir -p ${TARGET}/doc
 
