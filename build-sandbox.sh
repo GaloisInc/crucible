@@ -1,5 +1,6 @@
 #!/bin/bash
 set -x
+set -v
 set -e
 
 PKGS="saw-core cryptol-verifier jvm-verifier llvm-verifier"

@@ -1,25 +1,14 @@
-#!/bin/sh
+#!/bin/bash
 set -e
 
-DATE=`date "+%Y-%m-%d"`
-TARGET=saw-alpha-${DATE}
+DATE=`date +%F`
+# Get 'Version' from the .cabal file.
+VERSION=`grep Version saw-script.cabal | awk '{print $2}'`
 
-NM=`uname`
-
-if [ "${OS}" == "Windows_NT" ]; then
-  EXEDIR=windows
-  CRYLIBDIR=cryptol
-elif [ "${NM}" == "Darwin" ]; then
-  EXEDIR=macosx
-  CRYLIBDIR=share/cryptol
-else
-  EXEDIR=linux
-  CRYLIBDIR=share/cryptol
-fi
+TARGET=tmp/saw-${VERSION}-${DATE}-`uname`-`uname -m`
 
 mkdir -p ${TARGET}/bin
 mkdir -p ${TARGET}/doc
-mkdir -p ${TARGET}/${CRYLIBDIR}
 
 echo Staging ...
 
@@ -35,15 +24,19 @@ cp build/bin/saw                              ${TARGET}/bin
 cp doc/extcore.txt                            ${TARGET}/doc
 cp doc/tutorial/sawScriptTutorial.pdf         ${TARGET}/doc
 cp -r doc/tutorial/code                       ${TARGET}/doc
-cp deps/cryptol/lib/Cryptol.cry               ${TARGET}/${CRYLIBDIR}
-cp -r ../Examples/ecdsa                       ${TARGET}/ecdsa
-cp -r ../Examples/zuc                         ${TARGET}/zuc
-rm -rf ${TARGET}/ecdsa/cryptol-2-spec
+#cp deps/cryptol/lib/Cryptol.cry               ${TARGET}/${CRYLIBDIR}
+#cp -r ../Examples/ecdsa                       ${TARGET}/ecdsa
+#rm -rf ${TARGET}/ecdsa/cryptol-2-spec
+#cp -r ../Examples/zuc                         ${TARGET}/zuc
 
-if [ "${label}" == "Chair" ]; then
-  7za.exe a -tzip ${TARGET}-${EXEDIR}.zip -r ${TARGET}
-  echo "Release package is ${TARGET}-${EXEDIR}.zip"
+if [ "${OS}" == "Windows_NT" ]; then
+  rm -f ${TARGET}.zip
+  7za.exe a -tzip ${TARGET}.zip -r ${TARGET}
+  echo
+  echo "Release package is ${TARGET}.zip"
 else
-  tar cvfz ${TARGET}-${EXEDIR}.tar.gz ${TARGET}
-  echo "Release package is ${TARGET}-${EXEDIR}.tar.gz"
+  rm -f ${TARGET}.tar.gz
+  tar cvfz ${TARGET}.tar.gz ${TARGET}
+  echo
+  echo "Release package is ${TARGET}.tar.gz"
 fi
