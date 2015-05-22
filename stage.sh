@@ -18,7 +18,11 @@ DATE=`date +%F`
 # Get 'Version' from the .cabal file.
 VERSION=`grep Version saw-script.cabal | awk '{print $2}'`
 
-TARGET=tmp/saw-${VERSION}-${DATE}-`uname`-`uname -m`
+# The last part adds '-$SYSTEM_DESC' to distinguish Jenkins Linux
+# builds when 'SYSTEM_DESC' is defined. The 'SYSTEM_DESC' env var is
+# defined as part of the Jenkins node configuration on the Linux
+# nodes.
+TARGET=tmp/saw-${VERSION}-${DATE}-`uname`-`uname -m`${SYSTEM_DESC:+-${SYSTEM_DESC}}
 
 if [ -n "$clean" ]; then
     rm -rf ./tmp
