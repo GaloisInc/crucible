@@ -20,7 +20,7 @@ VERSION=`grep Version saw-script.cabal | awk '{print $2}'`
 
 TARGET=tmp/saw-${VERSION}-${DATE}-`uname`-`uname -m`
 
-if [ -z "$clean" ]; then
+if [ -n "$clean" ]; then
     rm -rf ./tmp
 fi
 mkdir -p ${TARGET}/bin
