@@ -294,7 +294,7 @@ keepOne src as = case as of
 getVars :: REPL (Map.Map P.QName M.IfaceDecl)
 getVars  = do
   me <- getModuleEnv
-  let decls = M.focusedEnv me
+  let decls = fst $ M.focusedEnv me
   let vars1 = keepOne "getVars" `fmap` M.ifDecls decls
   extras <- getExtraTypes
   let vars2 = Map.mapWithKey (\q s -> M.IfaceDecl q s []) extras
@@ -303,13 +303,13 @@ getVars  = do
 getTSyns :: REPL (Map.Map P.QName T.TySyn)
 getTSyns  = do
   me <- getModuleEnv
-  let decls = M.focusedEnv me
+  let decls = fst $ M.focusedEnv me
   return (keepOne "getTSyns" `fmap` M.ifTySyns decls)
 
 getNewtypes :: REPL (Map.Map P.QName T.Newtype)
 getNewtypes = do
   me <- getModuleEnv
-  let decls = M.focusedEnv me
+  let decls = fst $ M.focusedEnv me
   return (keepOne "getNewtypes" `fmap` M.ifNewtypes decls)
 
 -- | Get visible variable names.
