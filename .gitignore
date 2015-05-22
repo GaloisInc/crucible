@@ -6,3 +6,4 @@ dist
 build
 build-tests
 *-test-results.xml
+tmp

@@ -47,7 +47,7 @@ cp -r doc/tutorial/code                       ${TARGET}/doc
 
 if [ "${OS}" == "Windows_NT" ]; then
   rm -f ${TARGET}.zip
-  7za.exe a -tzip ${TARGET}.zip -r ${TARGET}
+  7za a -tzip ${TARGET}.zip -r ${TARGET}
   echo
   echo "Release package is ${TARGET}.zip"
 else
