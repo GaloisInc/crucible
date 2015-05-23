@@ -22,10 +22,10 @@ VERSION=`grep Version saw-script.cabal | awk '{print $2}'`
 # builds when 'SYSTEM_DESC' is defined. The 'SYSTEM_DESC' env var is
 # defined as part of the Jenkins node configuration on the Linux
 # nodes.
-TARGET=tmp/saw-${VERSION}-${DATE}-`uname`-`uname -m`${SYSTEM_DESC:+-${SYSTEM_DESC}}
+TARGET=tmp/release/saw-${VERSION}-${DATE}-`uname`-`uname -m`${SYSTEM_DESC:+-${SYSTEM_DESC}}
 
 if [ -n "$clean" ]; then
-    rm -rf ./tmp
+    rm -rf ./tmp/release
 fi
 mkdir -p ${TARGET}/bin
 mkdir -p ${TARGET}/doc
@@ -53,10 +53,10 @@ if [ "${OS}" == "Windows_NT" ]; then
   rm -f ${TARGET}.zip
   7za a -tzip ${TARGET}.zip -r ${TARGET}
   echo
-  echo "Release package is ${TARGET}.zip"
+  echo "Release package is `pwd`/${TARGET}.zip"
 else
   rm -f ${TARGET}.tar.gz
   tar cvfz ${TARGET}.tar.gz ${TARGET}
   echo
-  echo "Release package is ${TARGET}.tar.gz"
+  echo "Release package is `pwd`/${TARGET}.tar.gz"
 fi
