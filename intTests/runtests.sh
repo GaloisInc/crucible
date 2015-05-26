@@ -6,6 +6,7 @@
 if [ -z "$TESTBASE" ]; then
   export TESTBASE=`pwd`
 fi
+JSS_BASE=$TESTBASE/../deps/jvm-verifier
 
 # define the BIN variable, if not already defined
 if [ -z "$BIN" ]; then
@@ -25,10 +26,10 @@ fi
 #
 # Locate rt.jar. This is already a Windows path on windows, so no need
 # to 'cygpath' it.
-JDK=$(java -verbose 2>&1 | sed -n -e '1 s/\[Opened \(.*\)\]/\1/p')
+JDK=$("$JSS_BASE"/find-java-rt-jar.sh)
 CP="$JDK"
 # Add our bundled .jars to the class path.
-for i in ${TESTBASE}/jars/*.jar; do
+for i in "$TESTBASE"/jars/*.jar "$JSS_BASE"/jars/*.jar; do
   if [ "$OS" == "Windows_NT" ]; then
     i=$(cygpath -w "$i")
   fi
