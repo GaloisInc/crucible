@@ -44,6 +44,7 @@ library
     , split
     , temporary
     , template-haskell
+    , text
     , time
     , transformers
     , transformers-compat
