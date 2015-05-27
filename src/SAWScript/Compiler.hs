@@ -9,8 +9,9 @@ module SAWScript.Compiler ( Compiler, compiler
 
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative (Alternative, Applicative)
-#endif
+#else
 import Control.Applicative (Alternative)
+#endif
 import Control.Monad (MonadPlus)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Class (MonadTrans)
