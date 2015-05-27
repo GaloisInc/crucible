@@ -1,5 +1,7 @@
 module SAWScript.CryptolBuiltins where
 
+import Data.Text.Lazy (pack)
+
 import qualified Verifier.SAW.Cryptol as C
 import Verifier.SAW
 
@@ -37,7 +39,7 @@ extractCryptol sc modEnv input = do
   let declGroups = concatMap T.mDecls (M.loadedModules modEnv)
   env <- C.importDeclGroups sc C.emptyEnv declGroups
   pexpr <-
-    case P.parseExpr input of
+    case P.parseExpr (pack input) of
       Left err -> fail (show (pp err))
       Right x -> return x
   (exprResult, exprWarnings) <- M.checkExpr pexpr modEnv

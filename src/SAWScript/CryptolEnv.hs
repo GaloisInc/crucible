@@ -101,17 +101,13 @@ ioParseExpr :: Located String -> IO P.Expr
 ioParseExpr = ioParseGeneric P.parseExprWith
 
 ioParseDecls :: Located String -> IO [P.Decl]
-ioParseDecls = ioParseGeneric' P.parseDeclsWith
+ioParseDecls = ioParseGeneric P.parseDeclsWith
 
 ioParseSchema :: Located String -> IO P.Schema
-ioParseSchema = ioParseGeneric' P.parseSchemaWith
+ioParseSchema = ioParseGeneric P.parseSchemaWith
 
-ioParseGeneric' :: (P.Config -> Text -> Either P.ParseError a) -> Located String -> IO a
-ioParseGeneric' parse = ioParseGeneric parse'
-  where parse' cfg s = parse cfg (pack s)
-
-ioParseGeneric :: (P.Config -> String -> Either P.ParseError a) -> Located String -> IO a
-ioParseGeneric parse lstr = ioParseResult (parse cfg str)
+ioParseGeneric :: (P.Config -> Text -> Either P.ParseError a) -> Located String -> IO a
+ioParseGeneric parse lstr = ioParseResult (parse cfg (pack str))
   where
     (file, line, col) =
       case getPos lstr of
