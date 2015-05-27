@@ -53,14 +53,6 @@ for repo in ${PUBLIC_GITHUB_REPOS} ; do
   fi
   if [ "${dopull}" == "true" ] ; then
     (cd ./deps/${repo} && git checkout master && git pull)
-    # Pin the Cryptol version.
-    #
-    # This is the last version before the big change from 'String' to
-    # 'Data.Text' in Cryptol.
-    if [ "${repo}" == "cryptol" ] ; then
-        (cd ./deps/${repo} && \
-         git reset --hard 1ae907f5d91c445f00fe935e4d1eef014adc6a93)
-    fi
   fi
 done
 
