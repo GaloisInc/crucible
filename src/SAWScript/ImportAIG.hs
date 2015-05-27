@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
@@ -10,9 +11,11 @@ module SAWScript.ImportAIG
   , AIGNetwork
   ) where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
-import Control.Exception
 import Control.Lens
+#endif
+import Control.Exception
 import Control.Monad
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Except

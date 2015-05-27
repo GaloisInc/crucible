@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveTraversable #-}
@@ -37,7 +38,9 @@ module SAWScript.JavaExpr
 
 -- Imports {{{2
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
+#endif
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (mapMaybe)

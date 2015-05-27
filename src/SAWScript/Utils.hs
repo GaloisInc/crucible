@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE EmptyDataDecls #-}
 {- |
@@ -10,7 +11,10 @@ Point-of-contact : jhendrix, lerkok
 {-# LANGUAGE DeriveDataTypeable  #-}
 module SAWScript.Utils where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
+import Data.Traversable (traverse)
+#endif
 import Control.Exception as CE
 import Control.Monad.State
 import Control.DeepSeq(rnf, NFData(..))
@@ -22,7 +26,6 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Ratio
 import Data.Time.Clock
-import Data.Traversable (traverse)
 import System.Directory(makeRelativeToCurrentDirectory)
 import System.FilePath(makeRelative, isAbsolute, (</>), takeDirectory)
 import System.Time(TimeDiff(..), getClockTime, diffClockTimes, normalizeTimeDiff, toCalendarTime, formatCalendarTime)

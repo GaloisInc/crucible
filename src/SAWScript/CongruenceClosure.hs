@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 module SAWScript.CongruenceClosure 
   ( -- * Functor type classes
@@ -27,7 +28,9 @@ module SAWScript.CongruenceClosure
   , mayAliases
   ) where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative ((<$), (<$>))
+#endif
 import qualified Control.Monad.State as MTL
 import qualified Data.List as List
 import Data.Map (Map)

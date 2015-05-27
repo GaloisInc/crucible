@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveFunctor,DeriveFoldable,DeriveTraversable #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -30,8 +31,10 @@ import SAWScript.Utils
 import Data.Map (Map)
 import qualified Data.Map as Map
 
+#if !MIN_VERSION_base(4,8,0)
 import Data.Foldable (Foldable)
 import Data.Traversable (Traversable)
+#endif
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import qualified Cryptol.Parser.AST as P (ImportSpec, ModName)

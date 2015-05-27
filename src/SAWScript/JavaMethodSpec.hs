@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -24,7 +25,9 @@ module SAWScript.JavaMethodSpec
 
 -- Imports {{{1
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative hiding (empty)
+#endif
 import Control.Lens
 import Control.Monad
 import Control.Monad.Cont

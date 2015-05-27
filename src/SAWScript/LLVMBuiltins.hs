@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -8,7 +9,9 @@
 {-# LANGUAGE TupleSections #-}
 module SAWScript.LLVMBuiltins where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative hiding (many)
+#endif
 import Control.Monad.State hiding (mapM)
 import Data.List (partition)
 import qualified Data.Map as Map

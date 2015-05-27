@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 module SAWScript.CryptolEnv
   ( CryptolEnv(..)
   , initCryptolEnv
@@ -19,9 +20,12 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Maybe (fromMaybe)
-import Data.Monoid
 import Data.Text.Lazy (Text, pack)
+
+#if !MIN_VERSION_base(4,8,0)
+import Data.Monoid
 import Data.Traversable
+#endif
 
 import System.Environment.Executable(splitExecutablePath)
 import System.FilePath ((</>), normalise, joinPath, splitPath)

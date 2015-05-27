@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module SAWScript.Compiler ( Compiler, compiler
                           , Err, runErr
@@ -6,7 +7,10 @@ module SAWScript.Compiler ( Compiler, compiler
                           , liftParser
                           ) where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative (Alternative, Applicative)
+#endif
+import Control.Applicative (Alternative)
 import Control.Monad (MonadPlus)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Class (MonadTrans)

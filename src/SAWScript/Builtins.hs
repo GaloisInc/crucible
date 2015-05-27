@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -9,9 +10,11 @@
 {-# LANGUAGE DoAndIfThenElse #-}
 module SAWScript.Builtins where
 
-import Data.Functor
 import Data.Foldable (toList)
+#if !MIN_VERSION_base(4,8,0)
+import Data.Functor
 import Control.Applicative
+#endif
 import Control.Lens
 import Control.Monad.State
 import qualified Data.ByteString.Lazy as BS

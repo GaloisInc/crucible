@@ -6,6 +6,7 @@
 -- Stability   :  provisional
 -- Portability :  portable
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 
@@ -71,7 +72,9 @@ import Cryptol.Utils.PP
 import Cryptol.Utils.Panic (panic)
 import qualified Cryptol.Parser.AST as P
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative (Applicative(..), pure, (<*>))
+#endif
 import Control.Monad (unless,when,ap)
 import Data.IORef (IORef, newIORef, readIORef, modifyIORef)
 import Data.List (isPrefixOf)

@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -6,7 +7,9 @@
 {-# LANGUAGE FlexibleContexts #-}
 module SAWScript.JavaBuiltins where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative hiding (empty)
+#endif
 import Control.Lens
 import Control.Monad.State
 import Data.List (intercalate, partition)

@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -fno-warn-deprecated-flags #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -6,7 +8,9 @@
 {-# LANGUAGE ViewPatterns #-}
 module SAWScript.Value where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative (Applicative)
+#endif
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (ReaderT(..), ask, asks)
 import Control.Monad.State (StateT(..), get, put)
@@ -316,6 +320,7 @@ instance (FromValue a, FromValue b, FromValue c) => FromValue (a, b, c) where
 
 instance IsValue a => IsValue [a] where
     toValue xs = VArray (map toValue xs)
+
 
 instance FromValue a => FromValue [a] where
     fromValue (VArray xs) = map fromValue xs

@@ -5,6 +5,7 @@ Description      : Provides typechecked representation for method specifications
 Stability        : provisional
 Point-of-contact : jhendrix, atomb
 -}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE PatternGuards #-}
@@ -49,7 +50,9 @@ module SAWScript.JavaMethodSpecIR
 
 -- Imports {{{1
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
+#endif
 import Control.Monad
 import Data.Graph.Inductive (scc, Gr, mkGraph)
 import Data.List (intercalate, sort)

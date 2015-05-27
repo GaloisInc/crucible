@@ -1,8 +1,11 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+#if !MIN_VERSION_base(4,8,0)
 {-# LANGUAGE OverlappingInstances #-}
+#endif
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -22,13 +25,15 @@ module SAWScript.Interpreter
   )
   where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
+import Data.Traversable hiding ( mapM )
+#endif
 import qualified Control.Exception as X
 import Control.Monad (foldM, unless)
 import qualified Data.IntMap as IntMap
 import qualified Data.Map as Map
 import Data.Map ( Map )
-import Data.Traversable hiding ( mapM )
 
 import qualified SAWScript.AST as SS
 import SAWScript.AST (Located(..))

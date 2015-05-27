@@ -5,6 +5,7 @@
 {-# OPTIONS_GHC -fno-warn-name-shadowing      #-}
 {-# OPTIONS_GHC -fno-warn-missing-signatures  #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
+{-# OPTIONS_GHC -fno-warn-tabs                #-}
 module SAWScript.Parser
   ( parseModule
   , parseStmt
