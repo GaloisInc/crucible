@@ -85,12 +85,10 @@ for repo in ${PRIVATE_GITHUB_REPOS} ; do
   fi
 done
 
-if [ ! -e ${sandbox_dir} ] ; then
-    for pkg in ${PKGS} ; do
-        (cd deps/$pkg && ${CABAL} sandbox --sandbox="${HERE}/${sandbox_dir}" init)
-    done
-    ${CABAL} sandbox --sandbox="${HERE}/${sandbox_dir}" init
-fi
+for pkg in ${PKGS} ; do
+  (cd deps/$pkg && ${CABAL} sandbox --sandbox="${HERE}/${sandbox_dir}" init)
+done
+${CABAL} sandbox --sandbox="${HERE}/${sandbox_dir}" init
 
 if [ "${dotests}" == "true" ] ; then
   for pkg in saw-script llvm-verifier jvm-verifier cryptol-verifier saw-core ; do
