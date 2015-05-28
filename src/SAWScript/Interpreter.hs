@@ -555,19 +555,19 @@ primitives = Map.fromList
     (pureVal (writeCore :: FilePath -> TypedTerm SAWCtx -> IO ()))
     [ "Write out a representation of a term in SAWCore external format." ]
 
-  , prim "prove"               "{b} ProofScript b -> Term -> TopLevel ProofResult"
+  , prim "prove"               "ProofScript SatResult -> Term -> TopLevel ProofResult"
     (scVal provePrim)
     [ "TODO" ]
 
-  , prim "prove_print"         "{b} ProofScript b -> Term -> TopLevel Theorem"
+  , prim "prove_print"         "ProofScript SatResult -> Term -> TopLevel Theorem"
     (scVal provePrintPrim)
     [ "TODO" ]
 
-  , prim "sat"                 "{b} ProofScript b -> Term -> TopLevel SatResult"
+  , prim "sat"                 "ProofScript SatResult -> Term -> TopLevel SatResult"
     (scVal satPrim)
     [ "TODO" ]
 
-  , prim "sat_print"           "{b} ProofScript b -> Term -> TopLevel ()"
+  , prim "sat_print"           "ProofScript SatResult -> Term -> TopLevel ()"
     (scVal satPrintPrim)
     [ "TODO" ]
 
