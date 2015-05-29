@@ -867,6 +867,11 @@ rewritePrim sc ss (TypedTerm schema t) = do
   t' <- rewriteSharedTerm sc ss t
   return (TypedTerm schema t')
 
+unfold_term :: SharedContext s -> [String] -> TypedTerm s -> IO (TypedTerm s)
+unfold_term sc names (TypedTerm schema t) = do
+  t' <- scUnfoldConstants sc names t
+  return (TypedTerm schema t')
+
 addsimp :: SharedContext s -> Theorem s -> Simpset (SharedTerm s)
         -> Simpset (SharedTerm s)
 addsimp _sc (Theorem t) ss = addRule (ruleOfProp (ttTerm t)) ss

@@ -722,6 +722,10 @@ primitives = Map.fromList
     (scVal rewritePrim)
     [ "TODO" ]
 
+  , prim "unfold_term"         "[String] -> Term -> TopLevel Term"
+    (scVal unfold_term)
+    [ "Unfold the definitions of the specified constants in the given term." ]
+
   , prim "cryptol_load"        "String -> TopLevel CryptolModule"
     (scVal CEnv.loadCryptolModule)
     [ "TODO" ]
