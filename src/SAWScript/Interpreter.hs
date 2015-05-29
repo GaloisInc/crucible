@@ -223,6 +223,11 @@ processStmtBind printBinds ro rw mx mt _mc expr = do
     Nothing | printBinds && not (isVUnit result) -> print result
     _                                            -> return ()
 
+  -- | Print function type if result was a function
+  case ty of
+    SS.TyCon SS.FunCon _ -> putStrLn $ getVal lname ++ " : " ++ SS.pShow ty
+    _ -> return ()
+
   let rw'' = extendEnv lname (Just (SS.tMono ty)) Nothing result rw'
   return rw''
 
