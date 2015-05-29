@@ -18,11 +18,10 @@ DATE=`date +%F`
 # Get 'Version' from the .cabal file.
 VERSION=`grep Version saw-script.cabal | awk '{print $2}'`
 
-# The last part adds '-$SYSTEM_DESC' to distinguish Jenkins Linux
-# builds when 'SYSTEM_DESC' is defined. The 'SYSTEM_DESC' env var is
+# Warn if 'SYSTEM_DESC' is not defined. The 'SYSTEM_DESC' env var is
 # defined as part of the Jenkins node configuration on the Linux
 # nodes.
-RELEASE=saw-${VERSION}-${DATE}-`uname`-`uname -m`${SYSTEM_DESC:+-${SYSTEM_DESC}}
+RELEASE=saw-${VERSION}-${DATE}-${SYSTEM_DESC:-SYSTEM_DESC-IS-NOT-DEFINED}
 TARGET=tmp/release/$RELEASE
 
 if [ -n "$clean" ]; then
