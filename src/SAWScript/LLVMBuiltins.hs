@@ -185,8 +185,8 @@ symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs =
             mkOut (s, n) = do
               e <- failLeft $ liftIO $ parseLLVMExpr cb md s
               return (e, n)
-            multDefErr i = error $ "Multiple terms given for argument " ++
-                                   show i ++ " in function " ++ fname
+            multDefErr i = error $ "Multiple terms given for " ++ ordinal (i + 1) ++
+                                   " argument in function " ++ fname
             isArgAssign (e, _, _) = isArgLLVMExpr e
         allocAssigns <- mapM mkAllocAssign allocs
         assigns <- mapM mkAssign inputs
@@ -201,8 +201,8 @@ symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs =
                   case (Map.lookup i argMap, ty) of
                     (Just v, _) -> return v
                     -- (Nothing, PtrType (MemType dty)) -> (ty,) <$> allocSome 1 dty
-                    _ -> fail $ "No binding for argument " ++ show i ++
-                                " in function " ++ fname
+                    _ -> fail $ "No binding for " ++ ordinal (i + 1) ++
+                                " argument in function " ++ fname
         let argVals = map snd args
             retReg = (,Ident "__SAWScript_rslt") <$> sdRetType md
         _ <- callDefine' False sym retReg args
@@ -406,7 +406,7 @@ parseLLVMExpr cb fn str = runParserT (parseExpr <* eof) () "expr" str
                  let (i, ty) = args !! n
                  return (Term (Arg n i ty))
                | otherwise ->
-                 unexpected $ "Argument index too large: " ++ show n
+                 unexpected $ "(Zero-based) argument index too large: " ++ show n
              Nothing ->
                unexpected $ "Using `args` with non-numeric parameter: " ++ ns
       _ <- string "]"

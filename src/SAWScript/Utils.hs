@@ -243,3 +243,21 @@ basic_ss sc = do
     defs' = map (mkIdent (mkModuleName ["Cryptol"]))
             ["ty", "seq", "ecEq", "ecNotEq", "ePCmp"]
     procs = bvConversions ++ natConversions ++ finConversions ++ vecConversions
+
+-- | Convert a non-negative integer to to an ordinal string.
+--
+-- Note: @0 -> "0th"@, so do @'ordinal' (n + 1)@ if you want one-based
+-- results.
+ordinal :: (Integral a, Show a) => a -> String
+-- Not sure what to do with negative integers so bail.
+ordinal n | n < 0 = error "Only non-negative cardinals are supported."
+          | otherwise = show n ++ suffix
+  where
+    suffix =
+      if inTens then "th"
+      else case n `mod` 10 of
+             1 -> "st"
+             2 -> "nd"
+             3 -> "rd"
+             _ -> "th"
+    inTens = (n `mod` 100) `div` 10 == 1

@@ -240,10 +240,10 @@ symexecJava bic opts cls mname inputs outputs = do
   let mkAssign (s, tm) = do
         e <- liftIO $ parseJavaExpr cb cls meth s
         return (e, tm)
-      multDefErr i = error $ "Multiple terms given for argument " ++
-                             show i ++ " in method " ++ methodName meth
-      noDefErr i = fail $ "No binding for argument " ++ show i ++
-                          " in method " ++ methodName meth
+      multDefErr i = error $ "Multiple terms given for " ++ ordinal (i + 1) ++
+                             " argument in method " ++ methodName meth
+      noDefErr i = fail $ "No binding for " ++ ordinal (i + 1) ++
+                          " argument in method " ++ methodName meth
       pidx = fromIntegral . localIndexOfParameter meth
   withSAWBackend jsc Nothing $ \sbe -> do
     runSimulator cb sbe defaultSEH (Just fl) $ do
@@ -484,7 +484,7 @@ parseJavaExpr cb cls meth estr = do
                       | n < V.length paramTypes ->
                         return (CC.Term (Local s i (paramTypes V.! (fromIntegral n))))
                       | otherwise ->
-                        fail $ "local variable index " ++ show i ++
+                        fail $ "(Zero-based) local variable index " ++ show i ++
                                " for parameter " ++ show n ++ " doesn't exist"
                     Just lv -> return (CC.Term (Local s i (localType lv)))
                 Nothing -> fail $ "bad Java expression syntax: " ++ s
