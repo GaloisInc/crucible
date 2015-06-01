@@ -1,5 +1,5 @@
 TARGET   = sawScriptTutorial
-SRCS     = ${TARGET}.md ${wildcard *.bib} ${wildcard *.cls} ${wildcard *.sty} figures/sawScriptExecution.pdf
+SRCS     = ${TARGET}.md ${wildcard *.bib} ${wildcard *.cls} ${wildcard *.sty}
 CODE     = ${wildcard code/*.c} \
            ${wildcard code/*.cry} \
            ${wildcard code/*.java} \
