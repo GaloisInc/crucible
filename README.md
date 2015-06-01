@@ -1,5 +1,11 @@
-This repo holds code for SAWScript. Many dependencies are checked out
-into `deps/` when you build using `build-sandbox.sh`; see below.
+This repository contains the code for SAWScript, the scripting
+language that forms the primary user interface to the Software
+Analysis Workbench (SAW). It provides the ability to reason about
+formal models describing the denotation of programs written in
+languages such as C, Java, and Cryptol.
+
+Many dependencies are checked out into `deps/` when you build using
+`build-sandbox.sh`; see below.
 
 Dependencies include:
 
@@ -41,6 +47,6 @@ To build SAWScript, CSS, LSS, and JSS together:
 
   * Optionally, run ./stage.sh to create a binary tarball.
 
-The SAWScript tutorial, [doc/tutorial/sawScriptTutorial.pdf]
-(https://github.com/GaloisInc/saw-script/raw/master/doc/tutorial/sawScriptTutorial.pdf),
+The SAWScript tutorial, [doc/tutorial/]
+(https://github.com/GaloisInc/saw-script/raw/master/doc/tutorial/),
 will give you an introduction to using the SAWScript interpreter.
