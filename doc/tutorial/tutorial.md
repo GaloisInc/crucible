@@ -33,13 +33,13 @@ ways.
 Reference Implementation
 -------------------------
 
-One simple implementation take the form of a loop in which the index
-starts out at zero, and we keep track of a mask initialized to have
-the least significant bit set. On each iteration, we increment the
-index, and shift the mask to the left. Then we can use a bitwise "and"
-operation to test the bit at the index indicated by the index
-variable. The following C code (which is also in the `code/ffs.c` file
-accompanying this tutorial) uses this approach.
+One simple implementation takes the form of a loop with an index
+initialized to zero, and a mask initialized to have the least
+significant bit set. On each iteration, we increment the index, and
+shift the mask to the left. Then we can use a bitwise "and" operation
+to test the bit at the index indicated by the index variable. The
+following C code (which is also in the `code/ffs.c` file accompanying
+this tutorial) uses this approach.
 
 ``` {.c}
 $include 9-17 code/ffs.c
@@ -89,10 +89,10 @@ SAWScript allows us to quickly identify an input exhibiting the bug.
 Generating LLVM Code
 --------------------
 
-The SAWScript interpreter knows how to analyze LLVM code, but most
-programs are originally written in a higher-level language such as C,
-as in our example. Therefore, the C code must be translated to LLVM,
-using something like the following command:
+The SAWScript interpreter can analyze LLVM code, but most programs are
+originally written in a higher-level language such as C, as in our
+example. Therefore, the C code must be translated to LLVM, using
+something like the following command:
 
     # clang -c -emit-llvm -o ffs.bc ffs.c
 
@@ -111,9 +111,9 @@ We now show how to use SAWScript to prove the equivalence of the
 reference and implementation versions of the FFS algorithm, and
 exhibit the bug in the buggy implementation.
 
-A SAWScript program is typically structured as a set of commands
-within a `main` function, potentially along with other functions
-defined to abstract over commonly-used combinations of commands.
+A SAWScript program is typically structured as a sequence of commands,
+potentially along with definitions of functions that abstract over
+commonly-used combinations of commands.
 
 The following script (in `code/ffs_llvm.saw`) is sufficient to
 automatically prove the equivalence of the `ffs_ref` and `ffs_imp`
@@ -219,11 +219,11 @@ Using SMT-Lib Solvers
 The examples presented so far have used the internal proof system
 provided by SAWScript, based primarily on a version of the ABC tool
 from UC Berkeley linked into the `saw` executable. However, there is
-internal support for other proof tools -- such as Yices
-and CVC4 as illustrated in the next example -- and more general
-support for exporting models representing theorems as goals
-in the SMT-Lib language. These exported goals can then be solved using an
-external SMT solver.
+internal support for other proof tools -- such as Yices and CVC4 as
+illustrated in the next example -- and more general support for
+exporting models representing theorems as goals in the SMT-Lib
+language. These exported goals can then be solved using an external
+SMT solver.
 
 Consider the following C file:
 
@@ -243,23 +243,19 @@ $include all code/double.saw
 ```
 
 The new primitives introduced here are the tilde operator, `~`, which
-constructs the logical negation of a term, and `write_smtlib1`, which
-writes a term as a proof obligation in SMT-Lib version 1 format.
+constructs the logical negation of a term, and `write_smtlib2`, which
+writes a term as a proof obligation in SMT-Lib version 2 format.
 Because SMT solvers are satisfiability solvers, negating the input
 term allows us to interpret a result of "unsatisfiable" from the
 solver as an indication of the validity of the term. The `prove`
 primitive does this automatically, but for flexibility the
-`write_smtlib1` primitive passes the given term through unchanged,
+`write_smtlib2` primitive passes the given term through unchanged,
 because it might be used for either satisfiability or validity
 checking.
 
-The SMT-Lib export capabilities in SAWScript are currently based on a
-somewhat outdated implementation, and don't support the full range of
-operations that the `abc` tactic support. This will improve in the
-near future. (The internal support for Z3, CVC4, MathSAT, and Yices
-is implemented via the `Data.SBV` package,
-separately from the internal ABC support via `Data.AIG`. The two
-implementations have a similar high-level structure ...)
+The SMT-Lib export capabilities in SAWScript make use of the Haskell
+SBV package, and support ABC, Boolector, CVC4, MathSAT, Yices, and Z3.
+
 
 External SAT Solvers
 ====================
@@ -299,8 +295,16 @@ translated into a single mathematical model. SAWScript also has
 support for more compositional proofs, as well as proofs about
 functions that use heap data structures.
 
-As a simple example of compositional reasoning, consider the following
-Java code.
+Compositional Cryptol Proofs
+----------------------------
+
+TODO: Salsa20 or 3DES
+
+Compositional Imperative Proofs
+-------------------------------
+
+As a simple example of compositional reasoning on imperative programs,
+consider the following Java code.
 
 ``` {.java}
 $include all code/Add.java
@@ -321,16 +325,15 @@ This can be run as follows:
 
     # saw -j <path to rt.jar or classes.jar from JDK> java_add.saw
 
-In this example, the definitions of `setup` and `setup'` provide extra
-information about how to configure the symbolic simulator when analyzing
-Java code. In this case, the setup blocks provide explicit descriptions
-of the implicit configuration used by `java_extract`
-(used in the earlier Java FFS example and in the next section).
-The `java_var`
-commands instruct the simulator to create fresh symbolic inputs to
-correspond to the Java variables `x` and `y`. Then, the `java_return`
-commands indicate the expected return value of the each method, in terms
-of existing models (which can be written inline).
+In this example, the definitions of `add_spec` and `dbl_spec` provide
+extra information about how to configure the symbolic simulator when
+analyzing Java code. In this case, the setup blocks provide explicit
+descriptions of the implicit configuration used by `java_extract`
+(used in the earlier Java FFS example and in the next section). The
+`java_var` commands instruct the simulator to create fresh symbolic
+inputs to correspond to the Java variables `x` and `y`. Then, the
+`java_return` commands indicate the expected return value of the each
+method, in terms of existing models (which can be written inline).
 
 Finally, the `java_verify_tactic` command indicates what method to use
 to prove that the Java methods do indeed return the expected value. In
@@ -344,32 +347,30 @@ into later instances of `java_verify` to indicate that calls to the
 analyzed method do not need to be followed, and the previous proof about
 that method can be used instead of re-analyzing it.
 
-
-<!---
-- The interactive interpreter is currently undergoing extensive revision.
-- When these changes settle down, this section should be uncommented
-- and brought up-to-date.
-
-
 Interactive Interpreter
 =======================
 
 The examples so far have used SAWScript in batch mode on complete
 script files. It also has an interactive Read-Eval-Print Loop (REPL)
 which can be convenient for experimentation. To start the REPL, run
-SAWScript with the `-I` flag:
+SAWScript with no arguments:
 
-    # saw -I
+    # saw
 
-The REPL can evaluate any command that would appear in the `main`
-function of a standalone script, as well as a few special commands
-that start with a colon:
+The REPL can evaluate any command that would appear at the top level
+of a standalone script, or in the `main` function, as well as a few
+special commands that start with a colon:
 
-    :env   display the current sawscript environment
-    :?     display a brief description about a built-in operator
-    :help  display a brief description about a built-in operator
-    :quit  exit the REPL
-    :cd    set the current working directory
+    :env     display the current sawscript environment
+    :type    check the type of an expression
+    :browse  display the current environment
+    :eval    evaluate an expression and print the result
+    :?       display a brief description about a built-in operator
+    :help    display a brief description about a built-in operator
+    :quit    exit the REPL
+    :load    load a module
+    :add     load an additional module
+    :cd      set the current working directory
 
 As an example of the sort of interactive use that the REPL allows,
 consider the file `code/NQueens.cry`, which provides an Cryptol
@@ -387,37 +388,39 @@ equivalence verification.
 
 First, we can load a model of the `nQueens` term from the Cryptol file.
 
-    # saw -I
+    # saw
        ___  __ _ _ _ _
       / __|/ _' | | | |
       \__ \ (_| | | | |
       |___/\__,_|\_,_/
 
-    sawscript> m <- cryptol_module "NQueens.cry"
+    sawscript> m <- cryptol_load "NQueens.cry"
     Loading module Cryptol
     Loading module Main
-    sawscript> (nq8 : [8][3] -> Bit) <- cryptol_extract m "nQueens : Solution 8"
-    Extracting expression of type Main::Solution 8
+    sawscript> let nq8 = {{ m::nQueens`{8} }}
 
 Once we've extracted this model, we can try it on a specific
 configuration to see if it satisfies the property that none of the
 queens threaten any of the others.
 
-    sawscript> print (nq8 [0,1,2,3,4,5,6,7])
+    sawscript> print {{ nq8 [0,1,2,3,4,5,6,7] }}
     False
 
 This particular configuration didn't work, but we can use the
 satisfiability checking tools to automatically find one that does.
 
     sawscript> sat_print abc nq8
-    Sat [3:[3],1:[3],6:[3],2:[3],5:[3],7:[3],4:[3],0:[3]]
+    Sat [3,1,6,2,5,7,4,0]
 
 And, finally, we can double-check that this is indeed a valid solution.
 
     sawscript> print (nq8 [3,1,6,2,5,7,4,0])
     True
 
--->
+More Sophisticated Imperative Models
+====================================
+
+TODO: talk about `llvm_symexec`, `java_symexec`
 
 Other Examples
 ==============
