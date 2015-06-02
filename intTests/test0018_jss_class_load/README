@@ -1,0 +1,13 @@
+Test class loading in JSS and SAWScript.
+
+Test that JSS can quickly find classes via the classpath, both in '.'
+and non-'.' components. Test that SAW starts up quickly when '/' is in
+the classpath.
+
+As mentioned in https://github.com/GaloisInc/jvm-verifier/issues/3,
+JSS, and hence the SAWScript interpreter, were loading all '.class'
+files located at or below any classpath directory on startup. The
+default classpath is the current directory '.', so e.g. starting 'saw'
+in the root directory '/' made it appear to hang when the classpath
+was unset, since it was searching the entire filesystem for '.class'
+files.
