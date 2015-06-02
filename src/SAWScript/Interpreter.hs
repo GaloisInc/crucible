@@ -386,7 +386,7 @@ primitives = Map.fromList
 
   , prim "str_concat"          "String -> String -> String"
     (pureVal ((++) :: String -> String -> String))
-    [ "TODO" ]
+    [ "Concatenate two strings to yield a third." ]
 
   , prim "define"              "String -> Term -> TopLevel Term"
     (pureVal definePrim)
@@ -394,23 +394,23 @@ primitives = Map.fromList
 
   , prim "include"             "String -> TopLevel ()"
     (pureVal include_value)
-    [ "Execute the given SAWScript file" ]
+    [ "Execute the given SAWScript file." ]
 
   , prim "env"                 "TopLevel ()"
     (pureVal envCmd)
-    [ "Print all sawscript values in scope" ]
+    [ "Print all sawscript values in scope." ]
 
   , prim "print"               "{a} a -> TopLevel ()"
     (pureVal print_value)
-    [ "TODO" ]
+    [ "Print the value of the given expression." ]
 
   , prim "print_term"          "Term -> TopLevel ()"
     (pureVal ((putStrLn . scPrettyTerm) :: SharedTerm SAWCtx -> IO ()))
-    [ "TODO" ]
+    [ "Pretty-print the given term in SAWCore syntax." ]
 
   , prim "print_term_depth"    "Int -> Term -> TopLevel ()"
     (pureVal ((\d -> print . ppTermDepth d) :: Int -> SharedTerm SAWCtx -> IO ()))
-    [ "TODO" ]
+    [ "Pretty-print the given term in SAWCore syntax up to a given depth." ]
 
   , prim "print_term_sexp"     "Term -> TopLevel ()"
     (pureVal ((print . ppSharedTermSExp) :: SharedTerm SAWCtx -> IO ()))
@@ -422,27 +422,29 @@ primitives = Map.fromList
 
   , prim "print_type"          "Term -> TopLevel ()"
     (pureVal print_type)
-    [ "TODO" ]
+    [ "Print the type of the given term." ]
 
   , prim "type"                "Term -> Type"
     (pureVal (ttSchema :: TypedTerm SAWCtx -> T.Schema))
-    [ "TODO" ]
+    [ "Return the type of the given term." ]
 
   , prim "show_term"           "Term -> String"
     (pureVal (scPrettyTerm :: SharedTerm SAWCtx -> String))
-    [ "TODO" ]
+    [ "Pretty-print the given term in SAWCore syntax, yielding a String." ]
 
   , prim "check_term"          "Term -> TopLevel ()"
     (pureVal check_term)
-    [ "TODO" ]
+    [ "Type-check the given term, printing an error message if ill-typed." ]
 
   , prim "term_size"           "Term -> Int"
     (pureVal (scSharedSize :: SharedTerm SAWCtx -> Integer))
-    [ "TODO" ]
+    [ "Return the size of the given term in the number of DAG nodes." ]
 
   , prim "term_tree_size"      "Term -> Int"
     (pureVal (scTreeSize :: SharedTerm SAWCtx -> Integer))
-    [ "TODO" ]
+    [ "Return the size of the given term in the number of nodes it would"
+    , "have if treated as a tree instead of a DAG."
+    ]
 
   , prim "abstract_symbolic"   "Term -> TopLevel Term"
     (pureVal abstractSymbolicPrim)
@@ -462,23 +464,27 @@ primitives = Map.fromList
 
   , prim "replace"             "Term -> Term -> Term -> TopLevel Term"
     (pureVal replacePrim)
-    [ "'replace x y z' rewrites occurences of term x into y inside the term z.  x and y must be closed terms." ]
+    [ "'replace x y z' rewrites occurences of term x into y inside the"
+    , "term z.  x and y must be closed terms."
+    ]
 
   , prim "hoist_ifs"            "Term -> TopLevel Term"
     (pureVal hoistIfsPrim)
-    [ "Hoist all if-then-else expressions as high as possible" ]
+    [ "Hoist all if-then-else expressions as high as possible." ]
 
   , prim "read_bytes"          "String -> TopLevel Term"
     (pureVal readBytes)
-    [ "Read binary file as a value of type [n][8]" ]
+    [ "Read binary file as a value of type [n][8]." ]
 
   , prim "read_sbv"            "String -> [Uninterp] -> TopLevel Term"
     (pureVal readSBV)
-    [ "TODO" ]
+    [ "Read an SBV file produced by Cryptol 1, using the given set of"
+    , "overrides for any uninterpreted functions that appear in the file."
+    ]
 
   , prim "load_aig"            "String -> TopLevel AIG"
     (pureVal loadAIGPrim)
-    [ "Read an AIG file in binary AIGER format." ]
+    [ "Read an AIG file in binary AIGER format, yielding an AIG value." ]
 
   , prim "dsec_print"                "Term -> Term -> TopLevel ()"
     (scVal dsecPrint)
@@ -498,17 +504,17 @@ primitives = Map.fromList
 
   , prim "bitblast"            "Term -> TopLevel AIG"
     (scVal bitblastPrim)
-    [ "Translate a term into an AIG.  The term must be representable as a function"
-    , "from a finite number of bits to a finite number of bits."
+    [ "Translate a term into an AIG.  The term must be representable as a"
+    , "function from a finite number of bits to a finite number of bits."
     ]
 
   , prim "read_aig"            "String -> TopLevel Term"
     (pureVal readAIGPrim)
-    [ "Read an AIG file in AIGER format and translate to a term" ]
+    [ "Read an AIG file in AIGER format and translate to a term." ]
 
   , prim "read_core"           "String -> TopLevel Term"
     (pureVal readCore)
-    [ "Read a term from a file in the SAWCore external format" ]
+    [ "Read a term from a file in the SAWCore external format." ]
 
   , prim "write_aig"           "String -> Term -> TopLevel ()"
     (scVal writeAIG)
@@ -546,15 +552,15 @@ primitives = Map.fromList
 
   , prim "write_cnf"           "String -> Term -> TopLevel ()"
     (scVal writeCNF)
-    [ "TODO" ]
+    [ "Write the given term to the named file in CNF format." ]
 
   , prim "write_smtlib1"       "String -> Term -> TopLevel ()"
     (scVal writeSMTLib1)
-    [ "TODO" ]
+    [ "Write the given term to the named file in SMT-Lib version 1 format." ]
 
   , prim "write_smtlib2"       "String -> Term -> TopLevel ()"
     (scVal writeSMTLib2)
-    [ "TODO" ]
+    [ "Write the given term to the named file in SMT-Lib version 2 format." ]
 
   , prim "write_core"          "String -> Term -> TopLevel ()"
     (pureVal (writeCore :: FilePath -> TypedTerm SAWCtx -> IO ()))
@@ -562,24 +568,38 @@ primitives = Map.fromList
 
   , prim "prove"               "ProofScript SatResult -> Term -> TopLevel ProofResult"
     (scVal provePrim)
-    [ "TODO" ]
+    [ "Use the given proof script to attempt to prove that a term is valid"
+    , "(true for all inputs). Returns a proof result that can be analyzed"
+    , "with 'caseProofResult' to determine whether it represents a successful"
+    , "proof or a counter-example."
+    ]
 
   , prim "prove_print"         "ProofScript SatResult -> Term -> TopLevel Theorem"
     (scVal provePrintPrim)
-    [ "TODO" ]
+    [ "Use the given proof script to attempt to prove that a term is valid"
+    , "(true for all inputs). Returns a Theorem if successful, and aborts"
+    , "if unsuccessful."
+    ]
 
   , prim "sat"                 "ProofScript SatResult -> Term -> TopLevel SatResult"
     (scVal satPrim)
-    [ "TODO" ]
+    [ "Use the given proof script to attempt to prove that a term is"
+    , "satisfiable (true for any input). Returns a proof result that can" 
+    , "be analyzed with 'caseSatResult' to determine whether it represents"
+    , "a satisfiying assignment or an indication of unsatisfiability."
+    ]
 
   , prim "sat_print"           "ProofScript SatResult -> Term -> TopLevel ()"
     (scVal satPrintPrim)
-    [ "TODO" ]
+    [ "Use the given proof script to attempt to prove that a term is"
+      "satisfiable (true for any input). Returns nothing if successful, and"
+      "aborts if unsuccessful."
+    ]
 
   , prim "qc_print"            "Int -> Term -> TopLevel ()"
     (scVal quickCheckPrintPrim)
-    [ "Quick Check term and print the results."
-    , "The 'Int' arg specifies how many tests to run."
+    [ "Quick Check a term by applying it to a sequence of random inputs"
+      "and print the results. The 'Int' arg specifies how many tests to run."
     ]
 
   , prim "codegen"             "String -> String -> Term -> TopLevel ()"
@@ -603,7 +623,7 @@ primitives = Map.fromList
 
   , prim "print_goal"          "ProofScript ()"
     (pureVal (printGoal :: ProofScript SAWCtx ()))
-    [ "TODO" ]
+    [ "Print the current goal that a proof script is attempting to prove." ]
 
   , prim "print_goal_depth"    "Int -> ProofScript ()"
     (pureVal printGoalDepth)
@@ -631,27 +651,27 @@ primitives = Map.fromList
 
   , prim "abc"                 "ProofScript SatResult"
     (scVal satABC)
-    [ "TODO" ]
+    [ "Use the ABC theorem prover to complete a proof." ]
 
   , prim "boolector"           "ProofScript SatResult"
     (scVal satBoolector)
-    [ "TODO" ]
+    [ "Use the Boolector theorem prover to complete a proof." ]
 
   , prim "cvc4"                "ProofScript SatResult"
     (scVal satCVC4)
-    [ "TODO" ]
+    [ "Use the CVC4 theorem prover to complete a proof." ]
 
   , prim "z3"                  "ProofScript SatResult"
     (scVal satZ3)
-    [ "TODO" ]
+    [ "Use the Z3 theorem prover to complete a proof." ]
 
   , prim "mathsat"             "ProofScript SatResult"
     (scVal satMathSAT)
-    [ "TODO" ]
+    [ "Use the MathSAT theorem prover to complete a proof." ]
 
   , prim "yices"               "ProofScript SatResult"
     (scVal satYices)
-    [ "TODO" ]
+    [ "Use the Yices theorem prover to complete a proof." ]
 
   , prim "unint_z3"            "[String] -> ProofScript SatResult"
     (scVal satUnintZ3)
@@ -659,23 +679,23 @@ primitives = Map.fromList
 
   , prim "offline_aig"         "String -> ProofScript SatResult"
     (scVal satAIG)
-    [ "TODO" ]
+    [ "Write the current goal to the given file in AIGER format." ]
 
   , prim "offline_cnf"         "String -> ProofScript SatResult"
     (scVal satCNF)
-    [ "TODO" ]
+    [ "Write the current goal to the given file in CNF format." ]
 
   , prim "offline_extcore"     "String -> ProofScript SatResult"
     (scVal satExtCore)
-    [ "TODO" ]
+    [ "Write the current goal to the given file in SAWCore format." ]
 
   , prim "offline_smtlib1"     "String -> ProofScript SatResult"
     (scVal satSMTLib1)
-    [ "TODO" ]
+    [ "Write the current goal to the given file in SMT-Lib1 format." ]
 
   , prim "offline_smtlib2"     "String -> ProofScript SatResult"
     (scVal satSMTLib2)
-    [ "TODO" ]
+    [ "Write the current goal to the given file in SMT-Lib2 format." ]
 
   , prim "external_cnf_solver" "String -> [String] -> ProofScript SatResult"
     (scVal (satExternal True))
@@ -733,7 +753,7 @@ primitives = Map.fromList
 
   , prim "cryptol_load"        "String -> TopLevel CryptolModule"
     (scVal CEnv.loadCryptolModule)
-    [ "TODO" ]
+    [ "Load the given file as a Cryptol module." ]
 
   , prim "cryptol_extract"     "CryptolModule -> String -> TopLevel Term"
     (pureVal (CEnv.lookupCryptolModule :: CryptolModule SAWCtx -> String -> IO (TypedTerm SAWCtx)))
@@ -743,43 +763,45 @@ primitives = Map.fromList
 
   , prim "java_bool"           "JavaType"
     (pureVal JavaBoolean)
-    [ "TODO" ]
+    [ "The Java type of booleans." ]
 
   , prim "java_byte"           "JavaType"
     (pureVal JavaByte)
-    [ "TODO" ]
+    [ "The Java type of bytes." ]
 
   , prim "java_char"           "JavaType"
     (pureVal JavaChar)
-    [ "TODO" ]
+    [ "The Java type of characters." ]
 
   , prim "java_short"          "JavaType"
     (pureVal JavaShort)
-    [ "TODO" ]
+    [ "The Java type of short integers." ]
 
   , prim "java_int"            "JavaType"
     (pureVal JavaInt)
-    [ "TODO" ]
+    [ "The standard Java integer type." ]
 
   , prim "java_long"           "JavaType"
     (pureVal JavaLong)
-    [ "TODO" ]
+    [ "The Java type of long integers." ]
 
   , prim "java_float"          "JavaType"
     (pureVal JavaFloat)
-    [ "TODO" ]
+    [ "The Java type of single-precision floating point values." ]
 
   , prim "java_double"         "JavaType"
     (pureVal JavaDouble)
-    [ "TODO" ]
+    [ "The Java type of double-precision floating point values." ]
 
   , prim "java_array"          "Int -> JavaType -> JavaType"
     (pureVal JavaArray)
-    [ "TODO" ]
+    [ "The Java type of arrays of a fixed number of elements of the given"
+    , "type."
+    ]
 
   , prim "java_class"          "String -> JavaType"
     (pureVal JavaClass)
-    [ "TODO" ]
+    [ "The Java type corresponding to the named class." ]
 
   --, prim "java_value"          "{a} String -> a"
 
@@ -964,12 +986,15 @@ primitives = Map.fromList
 
   , prim "undefined"           "{a} a"
     (\_ _ -> error "interpret: undefined")
-    [ "An undefined value of any type. Evaluating 'undefined' makes the program crash." ]
+    [ "An undefined value of any type. Evaluating 'undefined' makes the"
+    , "program crash."
+    ]
 
   , prim "exit"                "Int -> TopLevel ()"
     (pureVal exitPrim)
-
-    [ "Exit SAWScript, returning the supplied exit code to the parent process." ]
+    [ "Exit SAWScript, returning the supplied exit code to the parent"
+      "process."
+    ]
   , prim "time"                "{a} TopLevel a -> TopLevel a"
     (\_ _ -> toValue timePrim)
     [ "Print the CPU time used by the given TopLevel command." ]
