@@ -592,14 +592,14 @@ primitives = Map.fromList
   , prim "sat_print"           "ProofScript SatResult -> Term -> TopLevel ()"
     (scVal satPrintPrim)
     [ "Use the given proof script to attempt to prove that a term is"
-      "satisfiable (true for any input). Returns nothing if successful, and"
-      "aborts if unsuccessful."
+    , "satisfiable (true for any input). Returns nothing if successful, and"
+    , "aborts if unsuccessful."
     ]
 
   , prim "qc_print"            "Int -> Term -> TopLevel ()"
     (scVal quickCheckPrintPrim)
     [ "Quick Check a term by applying it to a sequence of random inputs"
-      "and print the results. The 'Int' arg specifies how many tests to run."
+    , "and print the results. The 'Int' arg specifies how many tests to run."
     ]
 
   , prim "codegen"             "String -> String -> Term -> TopLevel ()"
@@ -993,7 +993,7 @@ primitives = Map.fromList
   , prim "exit"                "Int -> TopLevel ()"
     (pureVal exitPrim)
     [ "Exit SAWScript, returning the supplied exit code to the parent"
-      "process."
+    , "process."
     ]
   , prim "time"                "{a} TopLevel a -> TopLevel a"
     (\_ _ -> toValue timePrim)
