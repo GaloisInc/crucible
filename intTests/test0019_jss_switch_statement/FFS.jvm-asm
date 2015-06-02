@@ -1,0 +1,131 @@
+Compiled from "FFS.java"
+public class FFS {
+  public FFS();
+    Code:
+       0: aload_0
+       1: invokespecial #1;                 // Method java/lang/Object."<init>":()V
+       4: return
+
+  public static void main(java.lang.String[]);
+    Code:
+       0: getstatic     #2;                 // Field java/lang/System.out:Ljava/io/PrintStream;
+       3: iconst_4
+       4: invokestatic  #3;                 // Method ffs_imp:(I)I
+       7: invokevirtual #4;                 // Method java/io/PrintStream.println:(I)V
+      10: return
+
+  static int ffs_imp(int);
+    Code:
+       0: iload_0
+       1: iconst_m1
+       2: ixor
+       3: iconst_1
+       4: iadd
+       5: iload_0
+       6: ixor
+       7: lookupswitch  { // 32
+           -2147483648: 357
+           -1073741824: 354
+            -536870912: 351
+            -268435456: 348
+            -134217728: 345
+             -67108864: 342
+             -33554432: 339
+             -16777216: 336
+              -8388608: 333
+              -4194304: 330
+              -2097152: 327
+              -1048576: 324
+               -524288: 321
+               -262144: 318
+               -131072: 315
+                -65536: 312
+                -32768: 309
+                -16384: 306
+                 -8192: 303
+                 -4096: 300
+                 -2048: 297
+                 -1024: 294
+                  -512: 291
+                  -256: 288
+                  -128: 285
+                   -64: 282
+                   -32: 280
+                   -16: 278
+                    -8: 276
+                    -4: 274
+                    -2: 272
+                     0: 360
+               default: 371
+          }
+     272: iconst_1
+     273: ireturn
+     274: iconst_2
+     275: ireturn
+     276: iconst_3
+     277: ireturn
+     278: iconst_4
+     279: ireturn
+     280: iconst_5
+     281: ireturn
+     282: bipush        6
+     284: ireturn
+     285: bipush        7
+     287: ireturn
+     288: bipush        8
+     290: ireturn
+     291: bipush        9
+     293: ireturn
+     294: bipush        10
+     296: ireturn
+     297: bipush        11
+     299: ireturn
+     300: bipush        12
+     302: ireturn
+     303: bipush        13
+     305: ireturn
+     306: bipush        14
+     308: ireturn
+     309: bipush        15
+     311: ireturn
+     312: bipush        16
+     314: ireturn
+     315: bipush        17
+     317: ireturn
+     318: bipush        18
+     320: ireturn
+     321: bipush        19
+     323: ireturn
+     324: bipush        20
+     326: ireturn
+     327: bipush        21
+     329: ireturn
+     330: bipush        22
+     332: ireturn
+     333: bipush        23
+     335: ireturn
+     336: bipush        24
+     338: ireturn
+     339: bipush        25
+     341: ireturn
+     342: bipush        26
+     344: ireturn
+     345: bipush        27
+     347: ireturn
+     348: bipush        28
+     350: ireturn
+     351: bipush        29
+     353: ireturn
+     354: bipush        30
+     356: ireturn
+     357: bipush        31
+     359: ireturn
+     360: iload_0
+     361: ifne          368
+     364: iconst_0
+     365: goto          370
+     368: bipush        32
+     370: ireturn
+     371: iconst_0
+     372: ireturn
+}

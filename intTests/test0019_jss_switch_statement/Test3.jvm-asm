@@ -1,0 +1,37 @@
+Compiled from "Test3.java"
+public class Test3 {
+  public Test3();
+    Code:
+       0: aload_0
+       1: invokespecial #1;                 // Method java/lang/Object."<init>":()V
+       4: return
+
+  public static void main(java.lang.String[]);
+    Code:
+       0: getstatic     #2;                 // Field java/lang/System.out:Ljava/io/PrintStream;
+       3: iconst_3
+       4: invokestatic  #3;                 // Method f:(I)I
+       7: invokevirtual #4;                 // Method java/io/PrintStream.println:(I)V
+      10: return
+
+  static int f(int);
+    Code:
+       0: iload_0
+       1: tableswitch   { // 0 to 3
+                     0: 32
+                     1: 34
+                     2: 36
+                     3: 38
+               default: 40
+          }
+      32: iconst_0
+      33: ireturn
+      34: iconst_1
+      35: ireturn
+      36: iconst_2
+      37: ireturn
+      38: iconst_3
+      39: ireturn
+      40: iconst_4
+      41: ireturn
+}

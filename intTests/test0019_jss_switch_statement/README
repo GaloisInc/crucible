@@ -1,0 +1,9 @@
+Test that JSS can handle switch statements.
+
+JSS couldn't handle switch statements with more than one case:
+https://github.com/GaloisInc/jvm-verifier/issues/2.
+
+There are two JVM instructions for switch, 'lookupswitch' and
+'tableswitch' --
+https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-3.html#jvms-3.10
+-- so we include tests that generate both instructions.

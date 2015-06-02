@@ -1,0 +1,49 @@
+Compiled from "Id.java"
+public class Id {
+  public Id();
+    Code:
+       0: aload_0
+       1: invokespecial #1;                 // Method java/lang/Object."<init>":()V
+       4: return
+
+  static int id_imp(int);
+    Code:
+       0: iconst_0
+       1: istore_1
+       2: iconst_0
+       3: istore_2
+       4: iconst_0
+       5: istore_3
+       6: iload_0
+       7: lookupswitch  { // 14
+                     0: 128
+                     1: 133
+                     2: 128
+                     3: 133
+                     4: 128
+                     5: 133
+                     8: 128
+                     9: 133
+                    16: 128
+                    17: 133
+                    32: 128
+                    33: 133
+                    64: 128
+                    65: 133
+               default: 138
+          }
+     128: iload_0
+     129: istore_1
+     130: goto          140
+     133: iload_0
+     134: istore_2
+     135: goto          140
+     138: iload_0
+     139: istore_3
+     140: iload_1
+     141: iload_2
+     142: iadd
+     143: iload_3
+     144: iadd
+     145: ireturn
+}

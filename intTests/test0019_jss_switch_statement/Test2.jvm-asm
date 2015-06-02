@@ -1,0 +1,28 @@
+Compiled from "Test2.java"
+public class Test2 {
+  public Test2();
+    Code:
+       0: aload_0
+       1: invokespecial #1;                 // Method java/lang/Object."<init>":()V
+       4: return
+
+  public static void main(java.lang.String[]);
+    Code:
+       0: getstatic     #2;                 // Field java/lang/System.out:Ljava/io/PrintStream;
+       3: iconst_2
+       4: invokestatic  #3;                 // Method f:(I)I
+       7: invokevirtual #4;                 // Method java/io/PrintStream.println:(I)V
+      10: return
+
+  static int f(int);
+    Code:
+       0: iload_0
+       1: lookupswitch  { // 2
+                     0: 28
+                     1: 31
+               default: 31
+          }
+      28: goto          31
+      31: iconst_2
+      32: ireturn
+}

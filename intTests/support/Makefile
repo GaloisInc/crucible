@@ -9,3 +9,6 @@ CP=.
 
 %.class: %.java
 	javac -cp $(CP):../jars/galois.jar $<
+
+%.jvm-asm: %.java
+	javap -c -classpath $(CP):../jars/galois.jar $(shell basename $< .java) > $@
