@@ -53,10 +53,6 @@ foldl seed f xs = res ! 0
 
 
 // Test driver.  Given a sequence of bytes, calculate the MD5 sum.
-test : {a} (fin a,
-            64 >= width (8 * a),
-            512 * ((8 * a + 576) / 512) - 8 * a >= 65) =>
-       [a][8] -> [128]
 test s = md5 (join s)
 
 // Reference implementation of MD5 on exactly 16 bytes.
@@ -81,8 +77,6 @@ type MD5State = ([32],[32],[32],[32])
 // Finally, return the current MD5 state after all blocks are processed,
 // interpreting the 4 32-bit words as a single 128-bit sequence.
 
-md5 : {a} (fin a, 64 >= width a, 512 * ((a + 576) / 512) - a >= 65) =>
-      [a] -> [128]
 md5 msg = md5output finalState
     where
       finalState : MD5State
@@ -143,8 +137,6 @@ md5output (a,b,c,d) = htonl a # htonl b # htonl c # htonl d
 //
 // See RFC 1321, sections 3.1 and 3.2
 
-pad : {a} (fin a, 64 >= width a, 512 * ((a + 576) / 512) - a >= 65) =>
-      [a] -> [512 * ((a + 65 + 511) / 512)]
 pad msg =
     msg # [True] # zero # htonll sz
     where
