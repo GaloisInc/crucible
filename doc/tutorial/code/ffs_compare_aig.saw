@@ -1,14 +1,12 @@
-let main = do {
-    java_ffs_ref <- read_aig "java_ffs_ref.aig";
-    java_ffs_imp <- read_aig "java_ffs_imp.aig";
-    c_ffs_ref <- read_aig "c_ffs_ref.aig";
-    c_ffs_imp <- read_aig "c_ffs_imp.aig";
+java_ffs_ref <- read_aig "java_ffs_ref.aig";
+java_ffs_imp <- read_aig "java_ffs_imp.aig";
+c_ffs_ref <- read_aig "c_ffs_ref.aig";
+c_ffs_imp <- read_aig "c_ffs_imp.aig";
 
-    let thm1 = {{ \x -> java_ffs_ref x == java_ffs_imp x }};
-    prove_print abc thm1;
+let thm1 = {{ \x -> java_ffs_ref x == java_ffs_imp x }};
+prove_print abc thm1;
 
-    let thm2 = {{ \x -> c_ffs_ref x == c_ffs_imp x }};
-    prove_print abc thm2;
+let thm2 = {{ \x -> c_ffs_ref x == c_ffs_imp x }};
+prove_print abc thm2;
 
-    print "Done.";
-};
+print "Done.";

@@ -1,34 +1,30 @@
 import "ffs.cry";
+j <- java_load_class "FFS";
+java_ffs_ref <- java_extract j "ffs_ref" java_pure;
+java_ffs_imp <- java_extract j "ffs_imp" java_pure;
 
-let main = do {
+l <- llvm_load_module "ffs.bc";
+c_ffs_ref <- llvm_extract l "ffs_ref" llvm_pure;
+c_ffs_imp <- llvm_extract l "ffs_imp" llvm_pure;
 
-    j <- java_load_class "FFS";
-    java_ffs_ref <- java_extract j "ffs_ref" java_pure;
-    java_ffs_imp <- java_extract j "ffs_imp" java_pure;
+print "java ref <-> java imp";
+let thm1 = {{ \x -> java_ffs_ref x == java_ffs_imp x }};
+prove_print abc thm1;
 
-    l <- llvm_load_module "ffs.bc";
-    c_ffs_ref <- llvm_extract l "ffs_ref" llvm_pure;
-    c_ffs_imp <- llvm_extract l "ffs_imp" llvm_pure;
+print "c ref <-> c imp";
+let thm2 = {{ \x -> c_ffs_ref x == c_ffs_imp x }};
+prove_print abc thm2;
 
-    print "java ref <-> java imp";
-    let thm1 = {{ \x -> java_ffs_ref x == java_ffs_imp x }};
-    prove_print abc thm1;
+print "java imp <-> c imp";
+let thm3 = {{ \x -> java_ffs_imp x ==  c_ffs_imp x }};
+prove_print abc thm3;
 
-    print "c ref <-> c imp";
-    let thm2 = {{ \x -> c_ffs_ref x == c_ffs_imp x }};
-    prove_print abc thm2;
+print "cryptol imp <-> c imp";
+let thm4 = {{ \x -> ffs_imp x ==  c_ffs_imp x }};
+prove_print abc thm4;
 
-    print "java imp <-> c imp";
-    let thm3 = {{ \x -> java_ffs_imp x ==  c_ffs_imp x }};
-    prove_print abc thm3;
+print "cryptol imp <-> cryptol ref";
+let thm5 = {{ \x -> ffs_imp x ==  ffs_ref x }};
+prove_print abc thm5;
 
-    print "cryptol imp <-> c imp";
-    let thm4 = {{ \x -> ffs_imp x ==  c_ffs_imp x }};
-    prove_print abc thm4;
-
-    print "cryptol imp <-> cryptol ref";
-    let thm5 = {{ \x -> ffs_imp x ==  ffs_ref x }};
-    prove_print abc thm5;
-
-    print "Done.";
-};
+print "Done.";

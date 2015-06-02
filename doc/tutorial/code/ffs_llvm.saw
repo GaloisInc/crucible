@@ -1,28 +1,26 @@
-let main = do {
-  print "Extracting reference term";
-  l <- llvm_load_module "ffs.bc";
-  ffs_ref <- llvm_extract l "ffs_ref" llvm_pure;
+print "Extracting reference term";
+l <- llvm_load_module "ffs.bc";
+ffs_ref <- llvm_extract l "ffs_ref" llvm_pure;
 
-  print "Extracting implementation term";
-  ffs_imp <- llvm_extract l "ffs_imp" llvm_pure;
+print "Extracting implementation term";
+ffs_imp <- llvm_extract l "ffs_imp" llvm_pure;
 
-  print "Extracting buggy term";
-  ffs_bug <- llvm_extract l "ffs_bug" llvm_pure;
+print "Extracting buggy term";
+ffs_bug <- llvm_extract l "ffs_bug" llvm_pure;
 
-  print "Proving equivalence";
-  let thm1 = {{ \x -> ffs_ref x == ffs_imp x }};
-  result <- prove abc thm1;
-  print result;
+print "Proving equivalence";
+let thm1 = {{ \x -> ffs_ref x == ffs_imp x }};
+result <- prove abc thm1;
+print result;
 
-  print "Finding bug via sat search";
-  let thm2 = {{ \x -> ffs_ref x != ffs_bug x }};
-  result <- sat abc thm2;
-  print result;
+print "Finding bug via sat search";
+let thm2 = {{ \x -> ffs_ref x != ffs_bug x }};
+result <- sat abc thm2;
+print result;
 
-  print "Finding bug via failed proof";
-  let thm3 = {{ \x -> ffs_ref x == ffs_bug x }};
-  result <- prove abc thm3;
-  print result;
+print "Finding bug via failed proof";
+let thm3 = {{ \x -> ffs_ref x == ffs_bug x }};
+result <- prove abc thm3;
+print result;
 
-  print "Done.";
-};
+print "Done.";
