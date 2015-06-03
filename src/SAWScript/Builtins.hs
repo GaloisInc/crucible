@@ -176,8 +176,12 @@ loadAIGPrim f = do
 
 -- | Tranlsate a SAWCore term into an AIG
 bitblastPrim :: SharedContext s -> TypedTerm s -> IO AIGNetwork
-bitblastPrim sc t = do
-  t' <- rewriteEqs sc t
+bitblastPrim sc tt = do
+  t' <- rewriteEqs sc tt
+  let s = ttSchema t'
+  case s of
+    C.Forall [] [] _ -> return ()
+    _ -> fail $ "Attempting to bitblast a term with a polymorphic type: " ++ pretty s
   BBSim.withBitBlastedTerm sawProxy sc (ttTerm t') $ \be ls -> do
     return (AIG.Network be (toList ls))
 
