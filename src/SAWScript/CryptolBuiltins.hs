@@ -1,3 +1,10 @@
+{- |
+Module           : $Header$
+Description      :
+License          : Free for non-commercial use. See LICENSE.
+Stability        : provisional
+Point-of-contact : huffman
+-}
 module SAWScript.CryptolBuiltins where
 
 import Data.Text.Lazy (pack)

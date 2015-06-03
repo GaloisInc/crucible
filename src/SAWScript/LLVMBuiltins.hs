@@ -7,6 +7,14 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE TupleSections #-}
+
+{- |
+Module           : $Header$
+Description      :
+License          : Free for non-commercial use. See LICENSE.
+Stability        : provisional
+Point-of-contact : atomb
+-}
 module SAWScript.LLVMBuiltins where
 
 #if !MIN_VERSION_base(4,8,0)

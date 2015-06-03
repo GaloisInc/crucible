@@ -8,6 +8,14 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE DoAndIfThenElse #-}
+
+{- |
+Module           : $Header$
+Description      :
+License          : Free for non-commercial use. See LICENSE.
+Stability        : provisional
+Point-of-contact : atomb
+-}
 module SAWScript.Builtins where
 
 import Data.Foldable (toList)

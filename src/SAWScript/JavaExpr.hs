@@ -7,6 +7,14 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
+
+{- |
+Module           : $Header$
+Description      :
+License          : Free for non-commercial use. See LICENSE.
+Stability        : provisional
+Point-of-contact : atomb
+-}
 module SAWScript.JavaExpr
   (-- * Java Expressions
     JavaExprF(..)

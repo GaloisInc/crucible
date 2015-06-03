@@ -1,14 +1,13 @@
--- |
--- Module      :  $Header$
--- Copyright   :  (c) 2013-2014 Galois, Inc.
--- License     :  BSD3
--- Maintainer  :  cryptol@galois.com
--- Stability   :  provisional
--- Portability :  portable
-
 {-# LANGUAGE PatternGuards #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
+{- |
+Module           : $Header$
+Description      :
+License          : Free for non-commercial use. See LICENSE.
+Stability        : provisional
+Point-of-contact : huffman
+-}
 module SAWScript.REPL.Haskeline where
 
 import SAWScript.REPL.Command

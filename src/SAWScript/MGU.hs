@@ -5,6 +5,13 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TupleSections #-}
 
+{- |
+Module           : $Header$
+Description      :
+License          : Free for non-commercial use. See LICENSE.
+Stability        : provisional
+Point-of-contact : diatchki
+-}
 module SAWScript.MGU
        ( checkDecl
        , checkDeclGroup

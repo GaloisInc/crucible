@@ -5,6 +5,14 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
+
+{- |
+Module           : $Header$
+Description      :
+License          : Free for non-commercial use. See LICENSE.
+Stability        : provisional
+Point-of-contact : atomb
+-}
 module SAWScript.JavaBuiltins where
 
 #if !MIN_VERSION_base(4,8,0)

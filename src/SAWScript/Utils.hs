@@ -5,7 +5,7 @@
 Module           : $Header$
 Description      :
 Stability        : provisional
-Point-of-contact : jhendrix, lerkok
+Point-of-contact : jhendrix, atomb
 -}
 
 {-# LANGUAGE DeriveDataTypeable  #-}

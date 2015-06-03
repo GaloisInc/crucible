@@ -1,3 +1,10 @@
+{- |
+Module           : $Header$
+Description      :
+License          : Free for non-commercial use. See LICENSE.
+Stability        : provisional
+Point-of-contact : atomb
+-}
 module SAWScript.VerificationCheck where
 
 import Control.Monad

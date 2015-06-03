@@ -6,6 +6,14 @@
 {-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
+
+{- |
+Module           : $Header$
+Description      :
+License          : Free for non-commercial use. See LICENSE.
+Stability        : provisional
+Point-of-contact : huffman
+-}
 module SAWScript.Value where
 
 #if !MIN_VERSION_base(4,8,0)

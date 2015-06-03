@@ -1,5 +1,13 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
+{- |
+Module           : $Header$
+Description      :
+License          : Free for non-commercial use. See LICENSE.
+Stability        : provisional
+Point-of-contact : atomb
+-}
 module SAWScript.Compiler ( Compiler, compiler
                           , Err, runErr
                           , ErrT, runErrT, mapErrT

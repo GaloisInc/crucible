@@ -1,5 +1,13 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DoAndIfThenElse #-}
+
+{- |
+Module           : $Header$
+Description      :
+License          : Free for non-commercial use. See LICENSE.
+Stability        : provisional
+Point-of-contact : atomb
+-}
 module SAWScript.CongruenceClosure 
   ( -- * Functor type classes
     EqFoldable(..)

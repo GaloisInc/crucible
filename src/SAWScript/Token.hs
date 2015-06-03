@@ -2,7 +2,7 @@
 Module           : $Header$
 Description      :
 Stability        : provisional
-Point-of-contact : lerkok
+Point-of-contact : atomb
 -}
 
 {-# LANGUAGE DeriveFunctor #-}

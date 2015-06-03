@@ -2,6 +2,7 @@
 {- |
 Module           : $Header$
 Description      : Provides typechecked representation for method specifications and function for creating it from AST representation.
+License          : Free for non-commercial use. See LICENSE.
 Stability        : provisional
 Point-of-contact : jhendrix, atomb
 -}
