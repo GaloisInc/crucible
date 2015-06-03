@@ -299,7 +299,7 @@ getVars  = do
   let decls = fst $ M.focusedEnv me
   let vars1 = keepOne "getVars" `fmap` M.ifDecls decls
   extras <- getExtraTypes
-  let vars2 = Map.mapWithKey (\q s -> M.IfaceDecl q s []) extras
+  let vars2 = Map.mapWithKey (\q s -> M.IfaceDecl q s [] False Nothing) extras
   return (Map.union vars1 vars2)
 
 getTSyns :: REPL (Map.Map P.QName T.TySyn)
