@@ -230,10 +230,9 @@ basic_ss sc = do
   return $ addConvs procs (addRules (rs1 ++ rs2) emptySimpset)
   where
     eqs = map (mkIdent preludeName)
-      ["get_single", "get_bvAnd", "get_bvOr", "get_bvXor", "get_bvNot",
-       "not_not", "get_slice", "bvAddZeroL", "bvAddZeroR", "ite_eq",
-       "not_not", "and_True", "and_False", "and_idem", "ite_eq",
-       "or_triv1", "and_triv1", "or_triv2", "and_triv2"
+      [ "not_not", "bvAddZeroL", "bvAddZeroR", "ite_eq"
+      , "not_not", "and_True", "and_False", "and_idem", "ite_eq"
+      , "or_triv1", "and_triv1", "or_triv2", "and_triv2"
       ]
     defs = map (mkIdent preludeName)
       [ "not", "and", "or", "xor", "boolEq", "ite", "addNat", "mulNat"

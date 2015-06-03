@@ -280,7 +280,7 @@ checkConvertablePrim x y = do
 prepForExport :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
 prepForExport sc t = do
   let eqs = map (mkIdent preludeName) [ "eq_Bool"
-                                      , "get_single"
+                                      , "at_single"
                                       , "bvNat_bvToNat"
                                       , "equalNat_bv"
                                       ]
