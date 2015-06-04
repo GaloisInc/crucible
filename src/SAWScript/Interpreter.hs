@@ -275,7 +275,6 @@ buildTopLevelEnv opts =
        sc0 <- mkSharedContext scm
        let convs = natConversions
                    ++ bvConversions
-                   ++ finConversions
                    ++ vecConversions
                    ++ [ tupleConversion
                       , recordConversion

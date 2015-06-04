@@ -241,7 +241,7 @@ basic_ss sc = do
       ]
     defs' = map (mkIdent (mkModuleName ["Cryptol"]))
             ["ty", "seq", "ecEq", "ecNotEq", "ePCmp"]
-    procs = bvConversions ++ natConversions ++ finConversions ++ vecConversions
+    procs = bvConversions ++ natConversions ++ vecConversions
 
 -- | Convert a non-negative integer to to an ordinal string.
 --
