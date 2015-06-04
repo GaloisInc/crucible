@@ -932,12 +932,23 @@ primitives = Map.fromList
   , prim "java_extract"
     "JavaClass -> String -> JavaSetup () -> TopLevel Term"
     (bicVal extractJava)
-    [ "TODO" ]
+    [ "Translate a Java method directly to a Term. The parameters of the"
+    , "Term will be the parameters of the Java method, and the return"
+    , "value will be the return value of the method. Only static methods"
+    , "with scalar argument and return types are currently supported. For"
+    , "more flexibility, see 'java_symexec' or 'java_verify'."
+    ]
 
   , prim "java_symexec"
     "JavaClass -> String -> [(String, Term)] -> [String] -> TopLevel Term"
     (bicVal symexecJava)
-    [ "TODO" ]
+    [ "Symbolically execute a Java method and construct a Term corresponding"
+    , "to its result. The first list contains pairs of variable or field"
+    , "names along with Terms specifying their initial (possibly symbolic)"
+    , "values. The second list contains the names of the variables or fields"
+    , "to treat as outputs. The resulting Term will be of tuple type, with"
+    , "as many elements as there are names in the output list."
+    ]
 
   , prim "java_verify"
     "JavaClass -> String -> [JavaMethodSpec] -> JavaSetup () -> TopLevel JavaMethodSpec"
@@ -1024,12 +1035,28 @@ primitives = Map.fromList
   , prim "llvm_extract"
     "LLVMModule -> String -> LLVMSetup () -> TopLevel Term"
     (scVal extractLLVM)
-    [ "TODO" ]
+    [ "Translate an LLVM function directly to a Term. The parameters of the"
+    , "Term will be the parameters of the LLVM function, and the return"
+    , "value will be the return value of the functions. Only functions with"
+    , "scalar argument and return types are currently supported. For more"
+    , "flexibility, see 'llvm_symexec' or 'llvm_verify'."
+    ]
 
   , prim "llvm_symexec"
     "LLVMModule -> String -> [(String, Int)] -> [(String, Term, Int)] -> [(String, Int)] -> TopLevel Term"
     (bicVal symexecLLVM)
-    [ "TODO" ]
+    [ "Symbolically execute an LLVM function and construct a Term corresponding"
+    , "to its result. The first list describes what allocations should be"
+    , "performed before execution. Each name given is allocated to point to"
+    , "the given number of elements, of the appropriate type. The second list"
+    , "contains pairs of variables or expressions along with Terms specifying"
+    , "their initial (possibly symbolic) values, and the number of elements"
+    , "that the term should contain. Finally, the third list contains the"
+    , "names of the variables or expressions to treat as outputs, along with"
+    , "the number of elements to read from those locations. The resulting Term"
+    , "will be of tuple type, with as many elements as there are names in the"
+    , "output list."
+    ]
 
   , prim "llvm_verify"
     "LLVMModule -> String -> [LLVMMethodSpec] -> LLVMSetup () -> TopLevel LLVMMethodSpec"
