@@ -20,8 +20,8 @@ let {{ dec3 k1 k2 k3 msg = dec (k1, (enc (k2, dec (k3, msg)))) }};
 
 print "proving dec3_enc3...";
 let {{ prop3 k1 k2 k3 msg = dec3 k1 k2 k3 (enc3 k1 k2 k3 msg) == msg }};
-prove_print do { simplify ss; print_goal; abc; } {{prop3}};
+prove_print do { unfolding ["prop3","enc3","dec3"]; simplify ss; print_goal; abc; } {{prop3}};
 
 print "proving enc3_dec3...";
 let {{ prop4 k1 k2 k3 msg = enc3 k1 k2 k3 (dec3 k1 k2 k3 msg) == msg }};
-prove_print do { simplify ss; print_goal; abc; } {{prop4}};
+prove_print do { unfolding ["prop4","enc3","dec3"]; simplify ss; print_goal; abc; } {{prop4}};
