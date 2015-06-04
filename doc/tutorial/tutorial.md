@@ -298,7 +298,10 @@ functions that use heap data structures.
 Compositional Cryptol Proofs
 ----------------------------
 
-TODO: Salsa20 or 3DES
+The simplest form of compositional reasoning within SAWScript involves
+treating sub-terms of models as uninterpreted functions.
+
+TODO
 
 Compositional Imperative Proofs
 -------------------------------
@@ -420,7 +423,75 @@ And, finally, we can double-check that this is indeed a valid solution.
 More Sophisticated Imperative Models
 ====================================
 
-TODO: talk about `llvm_symexec`, `java_symexec`
+The analysis of JVM and LLVM programs presented so far have been
+relatively simple and automated. The `java_extract` and `llvm_extract`
+commands can extract models from simple methods or functions with
+minimal effort. For more complex code, however, more flexibility is
+necessary.
+
+The `java_symexec` and `llvm_symexec` commands provide greater control
+over the use of symbolic execution to generate models of JVM and LLVM
+programs. These two commands have similar structure, but slight
+differences due to the differences between the underlying languages.
+
+The shared structure is intuitively the following: both commands take
+parameters that set up the initial symbolic state of the program,
+before execution begins, and parameters that indicate which portions
+of the program state should be returned as output when execution
+completes.
+
+More specifically, the Java version of the command has the following
+signature:
+
+    java_symexec : JavaClass
+                -> String
+                -> [(String, Term)]
+                -> [String]
+                -> TopLevel Term
+
+This first two parameters are the same as for `java_extract`: the
+class object and the name of the method from that class to execute.
+The third parameter describes the initial state of execution. For each
+element of this list, SAWScript writes the value of the `Term` to the
+destination variable or field named by the `String`. The syntax of
+destination follows Java syntax. For example, `o.f` describes field
+`f` of object `o`. The fourth parameter indicates which elements of
+the final state to return as output. The syntax of the strings in this
+list is the same as for the initial state description.
+
+TODO: example and limitations
+
+The LLVM version of the command has some additional complexities, due
+to the less structured nature of the LLVM memory model.
+
+    llvm_symexec : LLVMModule
+                -> String
+                -> [(String, Int)]
+                -> [(String, Term, Int)]
+                -> [(String, Int)]
+                -> TopLevel Term
+
+Symmetrically with the Java version, the first two arguments are the
+same as for `llvm_extract`. However, while the Java version of this
+command takes two additional arguments, the LLVM version takes three.
+The first list describes allocations, the second describes initial
+values, and the third describes results. For the first list, SAWScript
+will initialize the pointer named by the given string to point to the
+number of elements indicated by the `Int`. For the second list,
+SAWScript will write to the given location with the given number of
+elements read from the given term. The name given in the initial
+assignment list should be written as an r-value, so if `"p"` appears
+in the allocation list then `"*p"` should appear in the initial
+assignment list. Finally, the third list describes the results, using
+the same convention: read $n$ elements from the named location.
+
+The numbers given for a particular location in the three lists need
+not be the same. For instance, we might allocate 10 elements for
+pointer `p`, write 8 elements to `*p` at the beginning, and read 4
+elements from `*p` at the end. However, both the initialization and
+result sizes must be less than or equal to the allocation size.
+
+TODO: example and limitations
 
 Other Examples
 ==============
