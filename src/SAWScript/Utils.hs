@@ -236,7 +236,7 @@ basic_ss sc = do
       ]
     defs = map (mkIdent preludeName)
       [ "not", "and", "or", "xor", "boolEq", "ite", "addNat", "mulNat"
-      , "compareNat", "finSucc", "finFront", "equalNat", "mkFinVal"
+      , "compareNat", "equalNat"
       , "bitvector"
       ]
     defs' = map (mkIdent (mkModuleName ["Cryptol"]))
