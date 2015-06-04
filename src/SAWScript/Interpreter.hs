@@ -62,7 +62,7 @@ import SAWScript.Utils
 import SAWScript.Value
 import Verifier.SAW.Conversion
 import Verifier.SAW.Prelude (preludeModule)
-import Verifier.SAW.PrettySExp
+--import Verifier.SAW.PrettySExp
 import Verifier.SAW.Prim (EvalError)
 import Verifier.SAW.Rewriter ( Simpset, emptySimpset, rewritingSharedContext
                              , scSimpset )
