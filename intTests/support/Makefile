@@ -1,6 +1,12 @@
 SYM_API=../../deps/llvm-verifier/sym-api
 CP=.
 
+%.ll: %.c
+	clang -S -emit-llvm -I$(SYM_API) $< -o $(shell basename $< .c).ll
+
+%.bc: %.ll
+	llvm-as $<
+
 %.bc: %.c
 	clang -emit-llvm -I$(SYM_API) -c $< -o $(shell basename $< .c).bc
 

@@ -1,0 +1,7 @@
+These tests exercise various bits of the LLVM symbolic simulator that involve doing symbolic merges
+at function return points.  Because clang doesn't usually emit code that causes such symbolic
+merges, some of the test programs in this directory are generated via hand-modifed LLVM assembly
+(namely, test_switch.ll and test_switch3.ll).
+
+Note, some of these tests actually use branches (test_switch.ll). So, we're not so good at naming things.
+See GaloisInc/llvm-verifier#2 for the bug report and patches that motivated these tests.

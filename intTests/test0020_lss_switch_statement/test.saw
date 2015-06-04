@@ -1,0 +1,20 @@
+let {{ f x = if x == (0:[8]) then (1:[8]) else 4
+    }};
+
+
+m1 <- llvm_load_module "test_switch.bc";
+l1 <- llvm_extract m1 "test_case" llvm_pure;
+l2 <- llvm_extract m1 "test_case_indirect" llvm_pure;
+
+prove_print abc {{ \x -> f x == l1 x }};
+prove_print abc {{ \x -> f x == l2 x }};
+
+m2 <- llvm_load_module "test_switch2.bc";
+l3 <- llvm_extract m2 "test_case_wrapper" llvm_pure;
+
+prove_print abc {{ \x -> f x == l3 x }};
+
+m3 <- llvm_load_module "test_switch3.bc";
+l4 <- llvm_extract m3 "test_case_wrapper" llvm_pure;
+
+prove_print abc {{ \x -> f x == l4 x }};
