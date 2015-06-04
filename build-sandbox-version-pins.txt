@@ -7,4 +7,4 @@ jvm-verifier 3410bab13d2653d8e92417eeadcc961c2ff1e211
 llvm-pretty 38eb118da5b622f6779f53bb60d8971ceb4a45d2
 llvm-pretty-bc-parser 61c1e2f9a5bce63522fd3da01f95ed6e438c6650
 llvm-verifier f83ded8e02d5790e7511e334dce7a933894e10f9
-pins.txt saw-core e9a7f73d710760b81dc7acd901f61d6fe5d9d615
+saw-core e9a7f73d710760b81dc7acd901f61d6fe5d9d615
