@@ -385,11 +385,18 @@ primitives :: Map SS.LName Primitive
 primitives = Map.fromList
   [ prim "return"              "{m, a} a -> m a"
     (pureVal VReturn)
-    [ "TODO" ]
+    [ "Yield a value in a command context. The command"
+    , "    x <- return e"
+    ,"will result in the same value being bound to 'x' as the command"
+    , "    let x = e"
+    ]
 
   , prim "for"                 "{m, a, b} [a] -> (a -> m b) -> m [b]"
     (pureVal (VLambda . forValue))
-    [ "TODO" ]
+    [ "Apply the given command in sequence to the given list. Return"
+    , "the list containing the result returned by the command at each"
+    , "iteration."
+    ]
 
   , prim "str_concat"          "String -> String -> String"
     (pureVal ((++) :: String -> String -> String))
@@ -397,7 +404,10 @@ primitives = Map.fromList
 
   , prim "define"              "String -> Term -> TopLevel Term"
     (pureVal definePrim)
-    [ "TODO" ]
+    [ "Wrap a term with a name that allows its body to be hidden or"
+    , "revealed. This can allow any sub-term to be treated as an"
+    , "uninterpreted function during proofs."
+    ]
 
   , prim "include"             "String -> TopLevel ()"
     (pureVal include_value)
@@ -419,6 +429,7 @@ primitives = Map.fromList
     (pureVal ((\d -> print . ppTermDepth d) :: Int -> SharedTerm SAWCtx -> IO ()))
     [ "Pretty-print the given term in SAWCore syntax up to a given depth." ]
 
+{-
   , prim "print_term_sexp"     "Term -> TopLevel ()"
     (pureVal ((print . ppSharedTermSExp) :: SharedTerm SAWCtx -> IO ()))
     [ "TODO" ]
@@ -426,6 +437,7 @@ primitives = Map.fromList
   , prim "print_term_sexp'"    "Int -> Term -> TopLevel ()"
     (pureVal printTermSExp')
     [ "TODO" ]
+-}
 
   , prim "print_type"          "Term -> TopLevel ()"
     (pureVal print_type)
@@ -455,15 +467,23 @@ primitives = Map.fromList
 
   , prim "abstract_symbolic"   "Term -> TopLevel Term"
     (pureVal abstractSymbolicPrim)
-    [ "TODO" ]
+    [ "Take a term containing symbolic variables of the form returned"
+    , "by 'fresh_symbolic' and return a new lambda term in which those"
+    , "variables have been replaced by parameter references."
+    ]
 
   , prim "fresh_symbolic"      "String -> Type -> TopLevel Term"
     (pureVal freshSymbolicPrim)
-    [ "TODO" ]
+    [ "Create a fresh symbolic variable of the given type. The given name"
+    , "is used only for pretty-printing."
+    ]
 
   , prim "sbv_uninterpreted"   "String -> Term -> TopLevel Uninterp"
     (pureVal sbvUninterpreted)
-    [ "TODO" ]
+    [ "Indicate that the given term should be used as the definition of the"
+    , "named function when loading an SBV file. This command returns an"
+    , "object that can be passed to 'read_sbv'."
+    ]
 
   , prim "check_convertable"  "Term -> Term -> TopLevel ()"
     (pureVal checkConvertablePrim)
@@ -622,11 +642,11 @@ primitives = Map.fromList
 
   , prim "unfolding"           "[String] -> ProofScript ()"
     (scVal unfoldGoal)
-    [ "TODO" ]
+    [ "Unfold the named subterm(s) within the current goal." ]
 
   , prim "simplify"            "Simpset -> ProofScript ()"
     (scVal simplifyGoal)
-    [ "TODO" ]
+    [ "Apply the given simplifier rule set to the current goal." ]
 
   , prim "print_goal"          "ProofScript ()"
     (pureVal (printGoal :: ProofScript SAWCtx ()))
@@ -634,8 +654,11 @@ primitives = Map.fromList
 
   , prim "print_goal_depth"    "Int -> ProofScript ()"
     (pureVal printGoalDepth)
-    [ "TODO" ]
+    [ "Print the current goal that a proof script is attempting to prove,"
+    , "limited to a maximum depth."
+    ]
 
+{-
   , prim "print_goal_sexp"     "ProofScript ()"
     (pureVal printGoalSExp)
     [ "TODO" ]
@@ -643,46 +666,52 @@ primitives = Map.fromList
   , prim "print_goal_sexp'"    "Int -> ProofScript ()"
     (pureVal printGoalSExp')
     [ "TODO" ]
+-}
 
   , prim "assume_valid"        "ProofScript ProofResult"
     (pureVal (assumeValid :: ProofScript SAWCtx ProofResult))
-    [ "TODO" ]
+    [ "Assume the current goal is valid, completing the proof." ]
 
   , prim "assume_unsat"        "ProofScript SatResult"
     (pureVal (assumeUnsat :: ProofScript SAWCtx SatResult))
-    [ "TODO" ]
+    [ "Assume the current goal is unsatisfiable, completing the proof." ]
 
   , prim "quickcheck"          "Int -> ProofScript SatResult"
     (scVal quickcheckGoal)
-    [ "TODO" ]
+    [ "Quick Check the current goal by applying it to a sequence of random"
+    , "inputs. Fail the proof script if the goal returns 'False' for any"
+    , "of these inputs."
+    ]
 
   , prim "abc"                 "ProofScript SatResult"
     (scVal satABC)
-    [ "Use the ABC theorem prover to complete a proof." ]
+    [ "Use the ABC theorem prover to prove the current goal." ]
 
   , prim "boolector"           "ProofScript SatResult"
     (scVal satBoolector)
-    [ "Use the Boolector theorem prover to complete a proof." ]
+    [ "Use the Boolector theorem prover to prove the current goal." ]
 
   , prim "cvc4"                "ProofScript SatResult"
     (scVal satCVC4)
-    [ "Use the CVC4 theorem prover to complete a proof." ]
+    [ "Use the CVC4 theorem prover to prove the current goal." ]
 
   , prim "z3"                  "ProofScript SatResult"
     (scVal satZ3)
-    [ "Use the Z3 theorem prover to complete a proof." ]
+    [ "Use the Z3 theorem prover to prove the current goal." ]
 
   , prim "mathsat"             "ProofScript SatResult"
     (scVal satMathSAT)
-    [ "Use the MathSAT theorem prover to complete a proof." ]
+    [ "Use the MathSAT theorem prover to prove the current goal." ]
 
   , prim "yices"               "ProofScript SatResult"
     (scVal satYices)
-    [ "Use the Yices theorem prover to complete a proof." ]
+    [ "Use the Yices theorem prover to prove the current goal." ]
 
   , prim "unint_z3"            "[String] -> ProofScript SatResult"
     (scVal satUnintZ3)
-    [ "TODO" ]
+    [ "Use the Z3 theorem prover to prove the current goal. Leave the"
+    , "given list of names, as defined with 'define', as uninterpreted."
+    ]
 
   , prim "offline_aig"         "String -> ProofScript SatResult"
     (scVal satAIG)
@@ -706,53 +735,71 @@ primitives = Map.fromList
 
   , prim "external_cnf_solver" "String -> [String] -> ProofScript SatResult"
     (scVal (satExternal True))
-    [ "TODO" ]
+    [ "Use an external SAT solver supporting CNF to prove the current goal."
+    , "The first argument is the executable name of the solver, and the"
+    , "second is the list of arguments to pass to the solver. The string '%f'"
+    , "anywhere in the argument list will be replaced with the name of the"
+    , "temporary file holding the CNF version of the formula."]
 
   , prim "external_aig_solver" "String -> [String] -> ProofScript SatResult"
     (scVal (satExternal False))
-    [ "TODO" ]
+    [ "Use an external SAT solver supporting AIG to prove the current goal."
+    , "The first argument is the executable name of the solver, and the"
+    , "second is the list of arguments to pass to the solver. The string '%f'"
+    , "anywhere in the argument list will be replaced with the name of the"
+    , "temporary file holding the AIG version of the formula."]
 
   , prim "empty_ss"            "Simpset"
     (pureVal (emptySimpset :: Simpset (SharedTerm SAWCtx)))
-    [ "TODO" ]
+    [ "The empty simplification rule set, containing no rules." ]
 
   , prim "cryptol_ss"          "TopLevel Simpset"
     (scVal cryptolSimpset)
-    [ "TODO" ]
+    [ "A set of simplification rules that will expand definitions from the" 
+    , "Cryptol module."
+    ]
 
   , prim "add_prelude_eqs"     "[String] -> Simpset -> TopLevel Simpset"
     (scVal addPreludeEqs)
-    [ "TODO" ]
+    [ "Add the named equality rules from the Prelude module to the given"
+    , "simplification rule set."
+    ]
 
   , prim "add_cryptol_eqs"     "[String] -> Simpset -> TopLevel Simpset"
     (scVal addCryptolEqs)
-    [ "TODO" ]
+    [ "Add the named equality rules from the Cryptol module to the given"
+    , "simplification rule set."
+    ]
 
   , prim "add_prelude_defs"    "[String] -> Simpset -> TopLevel Simpset"
     (scVal addPreludeDefs)
-    [ "TODO" ]
+    [ "Add the named definitions from the Prelude module to the given"
+    , "simplification rule set."
+    ]
 
   --, prim "basic_ss"            "Simpset"
 
   , prim "addsimp"             "Theorem -> Simpset -> Simpset"
     (scVal addsimp)
-    [ "TODO" ]
+    [ "Add a proved equality theorem to a given simplification rule set." ]
 
   , prim "addsimp'"            "Term -> Simpset -> Simpset"
     (scVal addsimp')
-    [ "TODO" ]
+    [ "Add an arbitrary equality term to a given simplification rule set." ]
 
   , prim "addsimps"            "[Theorem] -> Simpset -> Simpset"
     (scVal addsimps)
-    [ "TODO" ]
+    [ "Add proved equality theorems to a given simplification rule set." ]
 
   , prim "addsimps'"           "[Term] -> Simpset -> Simpset"
     (scVal addsimps')
-    [ "TODO" ]
+    [ "Add arbitrary equality terms to a given simplification rule set." ]
 
   , prim "rewrite"             "Simpset -> Term -> TopLevel Term"
     (scVal rewritePrim)
-    [ "TODO" ]
+    [ "Rewrite a term using a specific simplification rule set, returning"
+    , "the rewritten term"
+    ]
 
   , prim "unfold_term"         "[String] -> Term -> TopLevel Term"
     (scVal unfold_term)
@@ -764,7 +811,9 @@ primitives = Map.fromList
 
   , prim "cryptol_extract"     "CryptolModule -> String -> TopLevel Term"
     (pureVal (CEnv.lookupCryptolModule :: CryptolModule SAWCtx -> String -> IO (TypedTerm SAWCtx)))
-    [ "TODO" ]
+    [ "Load a single definition from a Cryptol module and translate it into"
+    , "a 'Term'."
+    ]
 
   -- Java stuff
 
@@ -814,54 +863,69 @@ primitives = Map.fromList
 
   , prim "java_var"            "String -> JavaType -> JavaSetup Term"
     (bicVal javaVar)
-    [ "TODO" ]
+    [ "Return a term corresponding to the initial value of the named Java"
+    , "variable, which should have the given type. The returned term can be"
+    , "used to construct more complex expressions. For example it can be used"
+    , "with 'java_return' to describe the expected return value in terms"
+    , "of the initial value of a variable."
+    ]
 
   , prim "java_class_var"      "{a} String -> JavaType -> JavaSetup a"
     (bicVal javaClassVar)
-    [ "TODO" ]
+    [ "Declare that the named Java variable should point to an object of the"
+    , "given class type."
+    ]
 
   , prim "java_may_alias"      "[String] -> JavaSetup ()"
     (bicVal javaMayAlias)
-    [ "TODO" ]
+    [ "Indicate that the given set of Java variables are allowed to alias"
+    , "each other."
+    ]
 
   , prim "java_assert"         "Term -> JavaSetup ()"
     (bicVal javaAssert)
-    [ "TODO" ]
+    [ "Assert that the given term should evaluate to true in the initial"
+    , "state of a Java method."
+    ]
 
   --, prim "java_assert_eq"      "{a} String -> a -> JavaSetup ()"
   --  (bicVal javaAssertEq)
 
   , prim "java_ensure_eq"      "String -> Term -> JavaSetup ()"
     (bicVal javaEnsureEq)
-    [ "TODO" ]
+    [ "Specify that the given Java variable should have a value equal to the"
+    , "given term when execution finishes."
+    ]
 
   , prim "java_modify"         "String -> JavaSetup ()"
     (bicVal javaModify)
-    [ "TODO" ]
+    [ "Indicate that a Java method may modify the named portion of the state." ]
 
   , prim "java_return"         "Term -> JavaSetup ()"
     (bicVal javaReturn)
-    [ "TODO" ]
+    [ "Indicate the expected return value of a Java method." ]
 
   , prim "java_verify_tactic"  "ProofScript SatResult -> JavaSetup ()"
     (bicVal javaVerifyTactic)
-    [ "TODO" ]
+    [ "Use the given proof script to prove the specified properties about"
+    , "a Java method."
+    ]
 
   , prim "java_no_simulate"    "JavaSetup ()"
     (pureVal javaNoSimulate)
-    [ "TODO" ]
+    [ "Skip symbolic simulation for this Java method." ]
 
   , prim "java_pure"           "JavaSetup ()"
     (pureVal javaPure)
-    [ "TODO" ]
+    [ "The empty specification for 'java_verify'. Equivalent to 'return ()'." ]
 
   , prim "java_load_class"     "String -> TopLevel JavaClass"
     (bicVal (const . loadJavaClass))
-    [ "TODO" ]
+    [ "Load the named Java class and return a handle to it." ]
 
   , prim "java_browse_class"   "JavaClass -> TopLevel ()"
     (pureVal browseJavaClass)
-    [ "TODO" ]
+    [ "Print out the contents of the given Java class." ]
 
   --, prim "java_class_info"     "JavaClass -> TopLevel ()"
 
@@ -882,23 +946,30 @@ primitives = Map.fromList
 
   , prim "llvm_int"            "Int -> LLVMType"
     (pureVal llvmInt)
-    [ "TODO" ]
+    [ "The type of LLVM integers, of the given bit width." ]
 
   , prim "llvm_float"          "LLVMType"
     (pureVal llvmFloat)
-    [ "TODO" ]
+    [ "The type of single-precision floating point numbers in LLVM." ]
 
   , prim "llvm_double"         "LLVMType"
     (pureVal llvmDouble)
-    [ "TODO" ]
+    [ "The type of double-precision floating point numbers in LLVM." ]
 
   , prim "llvm_array"          "Int -> LLVMType -> LLVMType"
     (pureVal llvmArray)
-    [ "TODO" ]
+    [ "The type of LLVM arrays with the given number of elements of the"
+    , "given type."
+    ]
 
   , prim "llvm_var"            "String -> LLVMType -> LLVMSetup Term"
     (bicVal llvmVar)
-    [ "TODO" ]
+    [ "Return a term corresponding to the initial value of the named LLVM"
+    , "variable, which should have the given type. The returned term can be"
+    , "used to construct more complex expressions. For example it can be used"
+    , "with 'llvm_return' to describe the expected return value in terms"
+    , "of the initial value of a variable."
+    ]
 
   , prim "llvm_ptr"            "String -> LLVMType -> LLVMSetup Term"
     (bicVal llvmPtr)
@@ -909,38 +980,44 @@ primitives = Map.fromList
 
   , prim "llvm_assert"         "Term -> LLVMSetup ()"
     (bicVal llvmAssert)
-    [ "TODO" ]
+    [ "Assert that the given term should evaluate to true in the initial"
+    , "state of an LLVM function."
+    ]
 
   --, prim "llvm_assert_eq"      "{a} String -> a -> LLVMSetup ()"
   --  (bicVal llvmAssertEq)
 
   , prim "llvm_ensure_eq"      "String -> Term -> LLVMSetup ()"
     (bicVal llvmEnsureEq)
-    [ "TODO" ]
+    [ "Specify that the LLVM Java variable should have a value equal to the"
+    , "given term when execution finishes."
+    ]
 
   , prim "llvm_return"         "Term -> LLVMSetup ()"
     (bicVal llvmReturn)
-    [ "TODO" ]
+    [ "Indicate the expected return value of an LLVM function." ]
 
   , prim "llvm_verify_tactic"  "ProofScript SatResult -> LLVMSetup ()"
     (bicVal llvmVerifyTactic)
-    [ "TODO" ]
+    [ "Use the given proof script to prove the specified properties about"
+    , "an LLVM function."
+    ]
 
   , prim "llvm_no_simulate"    "LLVMSetup ()"
     (pureVal llvmNoSimulate)
-    [ "TODO" ]
+    [ "Skip symbolic simulation for this LLVM method." ]
 
   , prim "llvm_pure"           "LLVMSetup ()"
     (pureVal llvmPure)
-    [ "TODO" ]
+    [ "The empty specification for 'llvm_verify'. Equivalent to 'return ()'." ]
 
   , prim "llvm_load_module"    "String -> TopLevel LLVMModule"
     (pureVal loadLLVMModule)
-    [ "TODO" ]
+    [ "Load an LLVM bitcode file and return a handle to it." ]
 
   , prim "llvm_browse_module"  "LLVMModule -> TopLevel ()"
     (pureVal browseLLVMModule)
-    [ "TODO" ]
+    [ "Print out the contents of a given LLVM module." ]
 
   --, prim "llvm_module_info"    "LLVMModule -> TopLevel ()"
 
