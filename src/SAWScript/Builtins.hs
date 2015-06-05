@@ -651,7 +651,7 @@ unsatResult sc g = do
 rewriteEqs :: SharedContext s -> TypedTerm s -> IO (TypedTerm s)
 rewriteEqs sc (TypedTerm schema t) = do
   let eqs = map (mkIdent preludeName)
-            [ "eq_Fin", "eq_Bool", "eq_Nat", "eq_bitvector", "eq_VecBool"
+            [ "eq_Bool", "eq_Nat", "eq_bitvector", "eq_VecBool"
             , "eq_VecVec" ]
   rs <- scEqsRewriteRules sc eqs
   ss <- addRules rs <$> basic_ss sc
