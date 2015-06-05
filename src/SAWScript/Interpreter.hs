@@ -953,7 +953,17 @@ primitives = Map.fromList
   , prim "java_verify"
     "JavaClass -> String -> [JavaMethodSpec] -> JavaSetup () -> TopLevel JavaMethodSpec"
     (bicVal verifyJava)
-    [ "TODO" ]
+    [ "Verify a Java method against a method specification. The first two"
+    , "arguments are the same as for 'java_extract' and 'java_symexec'."
+    , "The list of JavaMethodSpec values in the third argument makes it"
+    , "possible to use the results of previous verifications to take the"
+    , "place of actual execution when encountering a method call. The last"
+    , "parameter is a setup block, containing a sequence of commands of type"
+    , "'JavaSetup a' that configure the symbolic simulator and specify the"
+    , "types of variables in scope, the expected results of execution, and"
+    , "the tactics to use to verify that the method produces the expected"
+    , "results."
+    ]
 
   , prim "llvm_int"            "Int -> LLVMType"
     (pureVal llvmInt)
@@ -984,7 +994,11 @@ primitives = Map.fromList
 
   , prim "llvm_ptr"            "String -> LLVMType -> LLVMSetup Term"
     (bicVal llvmPtr)
-    [ "TODO" ]
+    [ "Declare that the named LLVM variable should point to a value of the"
+    , "given type. This command makes the given variable visible later, so"
+    , "the use of 'llvm_ptr \"p\" ...' is necessary before using, for"
+    , "instance, 'llvm_ensure \"*p\" ...'."
+    ]
 
   --, prim "llvm_may_alias"      "[String] -> LLVMSetup ()"
   --  (bicVal llvmMayAlias)
@@ -1061,7 +1075,17 @@ primitives = Map.fromList
   , prim "llvm_verify"
     "LLVMModule -> String -> [LLVMMethodSpec] -> LLVMSetup () -> TopLevel LLVMMethodSpec"
     (bicVal verifyLLVM)
-    [ "TODO" ]
+    [ "Verify an LLVM function against a specification. The first two"
+    , "arguments are the same as for 'llvm_extract' and 'llvm_symexec'."
+    , "The list of LLVMMethodSpec values in the third argument makes it"
+    , "possible to use the results of previous verifications to take the"
+    , "place of actual execution when encountering a function call. The last"
+    , "parameter is a setup block, containing a sequence of commands of type"
+    , "'LLVMSetup a' that configure the symbolic simulator and specify the"
+    , "types of variables in scope, the expected results of execution, and"
+    , "the tactics to use to verify that the function produces the expected"
+    , "results."
+    ]
 
   , prim "caseSatResult"       "{b} SatResult -> b -> (Term -> b) -> b"
     (\_ bic -> toValueCase (biSharedContext bic) caseSatResultPrim)
