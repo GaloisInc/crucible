@@ -295,6 +295,7 @@ translated into a single mathematical model. SAWScript also has
 support for more compositional proofs, as well as proofs about
 functions that use heap data structures.
 
+<!--
 Compositional Cryptol Proofs
 ----------------------------
 
@@ -302,6 +303,7 @@ The simplest form of compositional reasoning within SAWScript involves
 treating sub-terms of models as uninterpreted functions.
 
 TODO
+-->
 
 Compositional Imperative Proofs
 -------------------------------
@@ -440,8 +442,21 @@ before execution begins, and parameters that indicate which portions
 of the program state should be returned as output when execution
 completes.
 
-More specifically, the Java version of the command has the following
-signature:
+The initial state before symbolic execution typically includes unknown
+(symbolic) elements. To construct `Term` inputs that contains symbolic
+variables, you can start by using the `fresh_symbolic` command, which
+takes a name and a type as arguments, and returns a `Term`. The name
+is used only for pretty-printing, and the type is used for later
+consistency checking. For example, consider the following command:
+
+    x <- fresh_symbolic "x" {| [32] |};
+
+This creates a new `Term` stored in the SAWScript variable `x` that is
+a 32-bit symbolic word.
+
+These symbolic variables are most commonly used by the more general
+Java and LLVM model extraction commands. The Java version of the
+command has the following signature:
 
     java_symexec : JavaClass
                 -> String
@@ -453,13 +468,34 @@ This first two parameters are the same as for `java_extract`: the
 class object and the name of the method from that class to execute.
 The third parameter describes the initial state of execution. For each
 element of this list, SAWScript writes the value of the `Term` to the
-destination variable or field named by the `String`. The syntax of
-destination follows Java syntax. For example, `o.f` describes field
-`f` of object `o`. The fourth parameter indicates which elements of
-the final state to return as output. The syntax of the strings in this
-list is the same as for the initial state description.
+destination variable or field named by the `String`. Typically, the
+`Term` will either be directly the result of `fresh_symbolic` or an
+more complex expression containing such a result, though it is allowed
+to be a constant value. The syntax of destination follows Java syntax.
+For example, `o.f` describes field `f` of object `o`. The fourth
+parameter indicates which elements of the final state to return as
+output. The syntax of the strings in this list is the same as for the
+initial state description.
 
-TODO: example and limitations
+An example of using `java_symexec` on a simple function (using just
+scalar arguments and return values) appears in the
+`code/java_symexec.saw` file, quoted below.
+
+```
+$include all code/java_symexec.saw
+```
+
+This script uses `fresh_symbolic` to construct two fresh variables,
+`x` and `y`, and then passes them in as the initial values of the
+method parameters of the same name. It then uses the special name
+`return` to refer to the return value of the method in the output
+list. Finally, it uses the `abstract_symbolic` command to convert a
+`Term` containing symbolic variables into a function that takes the
+values of those variables as parameters. This last step exists partly
+to illustrate the use of `abstract_symbolic`, and partly because the
+`prove_print` command currently cannot process terms that contain
+symbolic variables (though we plan to adapt it to be able to in the
+near future).
 
 The LLVM version of the command has some additional complexities, due
 to the less structured nature of the LLVM memory model.
@@ -491,7 +527,26 @@ pointer `p`, write 8 elements to `*p` at the beginning, and read 4
 elements from `*p` at the end. However, both the initialization and
 result sizes must be less than or equal to the allocation size.
 
-TODO: example and limitations
+An example of using `java_symexec` on a function similar to the Java
+method just discussed appears in the `code/java_symexec.saw` file,
+quoted below.
+
+```
+$include all code/llvm_symexec.saw
+```
+
+This has largely the same structure as the Java example, except that
+`llvm_symexec` command takes and extra argument, describing
+allocations, and the input and output descriptions take sizes as well
+as values, to compensate for the fact that LLVM does not track how
+much memory a given variable takes up. In simple scalar cases such as
+this one, the size argument will always be `1`. However, if an input
+or output parameter is an array, it will take on the corresponding
+size value. For instance, say an LLVM function takes as a parameter an
+array `a` containing 10 elements of type `uint32_t *`, which it reads
+and writes. We could then call `llvm_symexec` with an allocation
+argument of `[("a", 10)]`, and both input and output arguments of
+`[("*a", 10)]` (note the additional `*` in the latter).
 
 Other Examples
 ==============
