@@ -57,11 +57,11 @@ bitblastSharedTerm _ v (asBoolType -> Just ()) = do
   modify (`V.snoc` v)
 bitblastSharedTerm sc v (asBitvectorType -> Just w) = do
   inputs <- liftIO $ do
-    getFn <- scApplyPrelude_get sc
+    atFn <- scApplyPrelude_at sc
     wt <- scNat sc w
     boolType <- scPrelude_Bool sc
     V.generateM (fromIntegral w) $ \i -> do
-      getFn wt boolType v =<< scFinConst sc (fromIntegral i) w
+      atFn wt boolType v =<< scNat sc (fromIntegral i)
   modify (V.++ inputs)
 bitblastSharedTerm _ _ tp = throwTP $ show $
   text "Could not parse AIG input type:" <$$>
