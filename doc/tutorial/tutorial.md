@@ -23,12 +23,13 @@ can be described.
 Example: Find First Set
 =======================
 
-As a first example, we consider a simple function that identifies the
-first ``1`` bit in a word. The function takes an integer as input,
-treated as a vector of bits, and returns another integer which
-indicates the index of the first bit set. This function exists in a
-number of standard C libraries, and can be implemented in several
-ways.
+As a first example, we consider equivalence checking different implementations
+of the POSIX `ffsl` function, which identifies the position of the first ``1``
+bit in a word. The function takes an integer as input, treated as a vector of
+bits, and returns another integer which indicates the index of the first bit
+set. This function can be implemented in several ways with different
+performance and code clarity tradeoffs, and we would like to show those
+different implementations are equivalent.
 
 Reference Implementation
 -------------------------
@@ -133,10 +134,15 @@ function, which computes a scalar return value entirely as a function
 of its scalar parameters.
 
 The `let` statement then constructs a new term corresponding to the
-assertion of equality between two existing terms. The `prove_print`
-command can verify the validity of such an assertion, and print out
-the results of verification. The `abc` parameter indicates what
-theorem prover to use.
+assertion of equality between two existing terms.  Arbitrary
+Cryptol expressions can be embedded within SAWScript; to distinguish
+Cryptol code from SAWScript commands, the Cryptol code is placed
+within double brackets `{{` and `}}`.
+
+The `prove_print` command can verify the validity of such an assertion, and
+print out the results of verification. The `abc` parameter indicates what
+theorem prover to use; SAWScript offers support for many other SAT and
+SMT solvers as well as user definable simplification tactics.
 
 If the `saw` executable is in your PATH, you can run the script above with
 
