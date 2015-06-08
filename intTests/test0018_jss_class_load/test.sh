@@ -10,7 +10,7 @@ $JSS -c "'a${CPSEP}b'" com/example/Test
 # since JSS will attempt to load all '.class' files it can find at or
 # below the root directory.
 if [ "${OS}" == "Windows_NT" ]; then
-    BASE=$(cygpath -w '$(pwd)')
+    BASE=$(cygpath -w $(pwd) )
 else
     BASE=$(pwd)
 fi
