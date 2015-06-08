@@ -2,7 +2,7 @@ m <- llvm_load_module "basic.bc";
 add <- define "add" {{ \x y -> (x : [32]) + y }};
 x <- fresh_symbolic "x" {| [32] |};
 y <- fresh_symbolic "y" {| [32] |};
-t <- llvm_symexec m "add" [] [("x", x), ("y", y)] ["return"];
+t <- llvm_symexec m "add" [] [("x", x, 1), ("y", y, 1)] [("return", 1)];
 print_term t;
 t' <- abstract_symbolic t;
 prove_print abc {{ \a b -> t' a b == add a b }};
