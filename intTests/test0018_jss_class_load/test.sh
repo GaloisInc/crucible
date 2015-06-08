@@ -9,7 +9,12 @@ $JSS -c "'a${CPSEP}b'" com/example/Test
 # https://github.com/GaloisInc/jvm-verifier/issues/3 is not fixed,
 # since JSS will attempt to load all '.class' files it can find at or
 # below the root directory.
-cp=$(pwd)${DIRSEP}a${CPSEP}$(pwd)${DIRSEP}b${CPSEP}.
+if [ "${OS}" == "Windows_NT" ]; then
+    BASE=$(cygpath -w '$(pwd)')
+else
+    BASE=$(pwd)
+fi
+cp=${BASE}${DIRSEP}a${CPSEP}${BASE}${DIRSEP}b${CPSEP}.
 (cd / && $JSS -c "'$cp'" org/example/Test)
 (cd / && $JSS -c "'$cp'" com/example/Test)
 (cd / && $SAW -c "'$cp'" /dev/null)
