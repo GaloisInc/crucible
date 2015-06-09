@@ -9,10 +9,10 @@ Many dependencies are checked out into `deps/` when you build using
 
 Dependencies include:
 
-* `deps/cryptol-verifier/`: Cryptol Symbolic Simulator (CSS)
-* `deps/jvm-verifier/`:     Java Symbolic Simulator (JSS)
-* `deps/llvm-verifier/`:    LLVM Symbolic Simulator (LSS)
-* `deps/saw-core/`:         SAWCore intermediate language, used by LSS, JSS, and SAWScript
+* `deps/cryptol-verifier/`: [Cryptol Symbolic Simulator (CSS)](https://github.com/GaloisInc/cryptol-verifier)
+* `deps/jvm-verifier/`:     [Java Symbolic Simulator (JSS)](https://github.com/GaloisInc/jvm-verifier)
+* `deps/llvm-verifier/`:    [LLVM Symbolic Simulator (LSS)](https://github.com/GaloisInc/llvm-verifier)
+* `deps/saw-core/`:         [SAWCore intermediate language](https://github.com/GaloisInc/saw-core), used by LSS, JSS, and SAWScript
 
 To build SAWScript, CSS, LSS, and JSS together:
 
