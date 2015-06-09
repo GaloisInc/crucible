@@ -449,11 +449,13 @@ of the program state should be returned as output when execution
 completes.
 
 The initial state before symbolic execution typically includes unknown
-(symbolic) elements. To construct `Term` inputs that contains symbolic
+(symbolic) elements. To construct `Term` inputs that contain symbolic
 variables, you can start by using the `fresh_symbolic` command, which
-takes a name and a type as arguments, and returns a `Term`. The name
-is used only for pretty-printing, and the type is used for later
-consistency checking. For example, consider the following command:
+takes a name and a type as arguments, and returns a `Term`. A type can
+be written using Cryptol type syntax by enclosing it within `{|` `|}`.
+The name is used only for pretty-printing, and the type is used for
+later consistency checking. For example, consider the following
+command:
 
     x <- fresh_symbolic "x" {| [32] |};
 
