@@ -17,6 +17,7 @@ library
     , array
     , binary
     , bytestring
+    , cond
     , containers
     , cryptol
     , cryptol-verifier
@@ -26,6 +27,7 @@ library
     , directory
     , fgl
     , filepath
+    , free
     , haskeline
     , jvm-parser
     , jvm-verifier
@@ -58,6 +60,10 @@ library
 
   exposed-modules:
     SAWScript.AST
+    SAWScript.AutoMatch
+    SAWScript.AutoMatch.ArgMapping
+    SAWScript.AutoMatch.Declaration
+    SAWScript.AutoMatch.Util
     SAWScript.Builtins
     SAWScript.CongruenceClosure
     SAWScript.Compiler
