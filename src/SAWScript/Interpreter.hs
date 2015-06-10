@@ -748,13 +748,17 @@ primitives = Map.fromList
     , "anywhere in the argument list will be replaced with the name of the"
     , "temporary file holding the AIG version of the formula."]
 
+  , prim "trivial"             "ProofScript SatResult"
+    (pureVal trivial)
+    [ "Succeed only if the proof goal is a literal 'True'." ]
+
   , prim "empty_ss"            "Simpset"
     (pureVal (emptySimpset :: Simpset (SharedTerm SAWCtx)))
     [ "The empty simplification rule set, containing no rules." ]
 
   , prim "cryptol_ss"          "TopLevel Simpset"
     (scVal cryptolSimpset)
-    [ "A set of simplification rules that will expand definitions from the" 
+    [ "A set of simplification rules that will expand definitions from the"
     , "Cryptol module."
     ]
 
