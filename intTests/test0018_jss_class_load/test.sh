@@ -17,4 +17,4 @@ fi
 cp=${BASE}${DIRSEP}a${CPSEP}${BASE}${DIRSEP}b${CPSEP}.
 (cd / && $JSS -c "'$cp'" org/example/Test)
 (cd / && $JSS -c "'$cp'" com/example/Test)
-(cd / && $SAW -c "'$cp'" /dev/null)
+(cd / && $SAW -c "'$cp'" "${BASE}/test.saw")
