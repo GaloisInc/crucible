@@ -63,6 +63,7 @@ library
     SAWScript.AutoMatch
     SAWScript.AutoMatch.ArgMapping
     SAWScript.AutoMatch.Declaration
+    SAWScript.AutoMatch.LLVM
     SAWScript.AutoMatch.Util
     SAWScript.Builtins
     SAWScript.CongruenceClosure

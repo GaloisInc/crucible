@@ -156,7 +156,8 @@ matchInteractively = do
                    ((for rightArgs $ \(rn, ri) ->
                       (formatIndexedArg False rn typ ri,
                        do match (Arg ln typ, li) (Arg rn typ, ri)
-                          loop (delete (ln, li) leftArgs, delete (rn, ri) rightArgs)))
+                          loop (delete (ln, li) leftArgs,
+                                delete (rn, ri) rightArgs)))
                      ++ [("Quit", userQuit)]))
    where
       argsForType typ =

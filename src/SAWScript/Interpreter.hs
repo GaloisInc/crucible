@@ -85,6 +85,8 @@ import Cryptol.TypeCheck.Subst (apSubst, listSubst)
 import Cryptol.Utils.PP
 import qualified Cryptol.Eval.Value as V (defaultPPOpts, ppValue)
 
+import SAWScript.AutoMatch.LLVM
+
 -- Environment -----------------------------------------------------------------
 
 maybeInsert :: Ord k => k -> Maybe a -> Map k a -> Map k a
@@ -1023,6 +1025,11 @@ primitives = Map.fromList
   , prim "llvm_extract"
     "LLVMModule -> String -> LLVMSetup () -> TopLevel Term"
     (scVal extractLLVM)
+    [ "TODO" ]
+
+  , prim "llvm_decl_print"
+    "LLVMModule -> TopLevel ()"
+    (scVal getDeclsLLVM)
     [ "TODO" ]
 
   , prim "llvm_symexec"
