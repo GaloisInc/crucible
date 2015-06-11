@@ -1,7 +1,5 @@
 module SAWScript.AutoMatch.Util where
 
-import qualified Data.Map as Map
-import           Data.Map   (Map)
 import qualified Data.Set as Set
 import           Data.Set   (Set)
 
@@ -38,11 +36,12 @@ for = flip map
 returning :: (Monad m) => a -> m b -> m a
 returning a mb = mb >> return a
 
-keySet :: (Ord k) => Map k a -> Set k
-keySet = Set.fromList . Map.keys
-
 fastIntersect :: (Ord a) => [a] -> [a] -> [a]
 fastIntersect xs ys = Set.toList $ Set.fromList xs `Set.intersection` Set.fromList ys
+
+symmetricDifference :: (Ord a) => Set a -> Set a -> Set a
+symmetricDifference s t =
+   Set.difference (Set.union s t) (Set.intersection s t)
 
 yes, no :: [String]
 (yes, no) =

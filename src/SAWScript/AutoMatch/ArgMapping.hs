@@ -5,7 +5,9 @@ module SAWScript.AutoMatch.ArgMapping
   , makeArgMapping
   , removeName
   , lookupName
-  , lookupType ) where
+  , lookupType
+  , emptyArgMapping
+  , isEmptyArgMapping ) where
 
 import qualified Data.Map as Map
 import           Data.Map   (Map)
@@ -52,3 +54,10 @@ lookupName name (ArgMapping _ nls) = Map.lookup name nls
 
 lookupType :: Type -> ArgMapping -> Maybe (Set (Name, Int))
 lookupType typ (ArgMapping tbs _) = Map.lookup typ tbs
+
+emptyArgMapping :: ArgMapping
+emptyArgMapping = makeArgMapping []
+
+isEmptyArgMapping :: ArgMapping -> Bool
+isEmptyArgMapping (ArgMapping t n) =
+  Map.null t && Map.null n

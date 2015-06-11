@@ -36,7 +36,9 @@ import Data.Maybe
 import SAWScript.AutoMatch.Declaration
 import SAWScript.AutoMatch.Util
 
-getDeclsLLVM :: SharedContext SAWCtx -> LLVMModule -> {- LLVMSetup () -> -} IO ()
+import SAWScript.AutoMatch
+
+getDeclsLLVM :: SharedContext SAWCtx -> LLVMModule -> {- LLVMSetup () -> -} IO [Decl]
 getDeclsLLVM sc (LLVMModule _file mdl) {- _setup -} =
 
   let dataLayout = parseDataLayout $ modDataLayout mdl
@@ -45,7 +47,7 @@ getDeclsLLVM sc (LLVMModule _file mdl) {- _setup -} =
     (sbe, _mem, _scLLVM) <- createSAWBackend' sawProxy dataLayout sc
     (warnings, cb) <- mkCodebase sbe dataLayout mdl
     forM_ warnings $ putStrLn . ("WARNING: " ++) . show
-    mapM_ print . catMaybes . for symbols $ \symbol ->
+    return . catMaybes . for symbols $ \symbol ->
       symDefineToDecl =<< lookupDefine symbol cb
 
    where
@@ -71,14 +73,8 @@ getDeclsLLVM sc (LLVMModule _file mdl) {- _setup -} =
             Array <$> memTypeToStdType memType
          _ -> Nothing
 
-      --runSimulator cb sbe mem Nothing $ do
-      --  setVerbosity 0
-      --  args <- mapM freshLLVMArg (sdArgs md)
-      --  _ <- callDefine sym (sdRetType md) args
-      --  mrv <- getProgramReturnValue
-      --  case mrv of
-      --    Nothing -> fail "No return value from simulated function."
-      --    Just rv -> liftIO $ do
-      --      lamTm <- bindExts scLLVM (map snd args) rv
-      --      scImport sc lamTm >>= mkTypedTerm sc
-
+printMatchesLLVM :: SharedContext SAWCtx -> LLVMModule -> LLVMModule -> {- LLVMSetup () -> -} IO ()
+printMatchesLLVM sc leftModule rightModule {- _setup -} = do
+   leftDecls  <- getDeclsLLVM sc leftModule
+   rightDecls <- getDeclsLLVM sc rightModule
+   print =<< interactIO (matchModules leftDecls rightDecls)

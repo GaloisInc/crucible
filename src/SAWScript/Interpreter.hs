@@ -1027,9 +1027,9 @@ primitives = Map.fromList
     (scVal extractLLVM)
     [ "TODO" ]
 
-  , prim "llvm_decl_print"
-    "LLVMModule -> TopLevel ()"
-    (scVal getDeclsLLVM)
+  , prim "llvm_match_print"
+    "LLVMModule -> LLVMModule -> TopLevel ()"
+    (scVal printMatchesLLVM)
     [ "TODO" ]
 
   , prim "llvm_symexec"
