@@ -15,7 +15,7 @@ else
     BASE=$(pwd)
 fi
 cp=${BASE}${DIRSEP}a${CPSEP}${BASE}${DIRSEP}b${CPSEP}.
-sawfile=$(pwd)/test.saw
+sawfile=${BASE}${DIRSEP}test.saw
 (cd / && $JSS -c "'$cp'" org/example/Test)
 (cd / && $JSS -c "'$cp'" com/example/Test)
-(cd / && $SAW -c "'$cp'" "$sawfile")
+(cd / && $SAW -c "'$cp'" "'$sawfile'")
