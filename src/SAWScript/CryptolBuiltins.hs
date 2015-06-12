@@ -51,7 +51,7 @@ extractCryptol sc modEnv input = do
       Right x -> return x
   (exprResult, exprWarnings) <- M.checkExpr pexpr modEnv
   mapM_ (print . pp) exprWarnings
-  ((expr, schema), _modEnv') <-
+  ((_, expr, schema), _modEnv') <-
     case exprResult of
       Left err -> fail (show (pp err))
       Right x -> return x

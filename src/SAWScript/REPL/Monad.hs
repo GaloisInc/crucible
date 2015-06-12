@@ -58,8 +58,7 @@ module SAWScript.REPL.Monad (
 
 import SAWScript.REPL.Trie
 
-import Cryptol.Prims.Types(typeOf)
-import Cryptol.Prims.Syntax(ECon(..),ppPrefix)
+import Cryptol.Prims.Eval(primTable)
 import Cryptol.Eval (EvalError)
 import qualified Cryptol.ModuleSystem as M
 import Cryptol.ModuleSystem.NamingEnv (NamingEnv)
@@ -283,9 +282,8 @@ setREPLTitle  = unlessBatch $ do
   rw <- getRW
   io (setTitle (mkTitle rw))
 
-builtIns :: [(String,(ECon,T.Schema))]
-builtIns = map mk [ minBound .. maxBound :: ECon ]
-  where mk x = (show (ppPrefix x), (x, typeOf x))
+builtIns :: [String]
+builtIns = Map.keys primTable
 
 -- | Only meant for use with one of getVars or getTSyns.
 keepOne :: String -> [a] -> a
@@ -299,7 +297,7 @@ getVars  = do
   let decls = fst $ M.focusedEnv me
   let vars1 = keepOne "getVars" `fmap` M.ifDecls decls
   extras <- getExtraTypes
-  let vars2 = Map.mapWithKey (\q s -> M.IfaceDecl q s [] False Nothing) extras
+  let vars2 = Map.mapWithKey (\q s -> M.IfaceDecl q s [] False Nothing Nothing) extras
   return (Map.union vars1 vars2)
 
 getTSyns :: REPL (Map.Map P.QName T.TySyn)
@@ -317,7 +315,7 @@ getNewtypes = do
 -- | Get visible variable names.
 getExprNames :: REPL [String]
 getExprNames  = do as <- (map getName . Map.keys) `fmap` getVars
-                   return (map fst builtIns ++ as)
+                   return (builtIns ++ as)
 
 -- | Get visible type signature names.
 getTypeNames :: REPL [String]
