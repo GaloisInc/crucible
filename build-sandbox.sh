@@ -4,8 +4,8 @@ set -v
 set -e
 
 PKGS="saw-core cryptol-verifier jvm-verifier llvm-verifier"
-PUBLIC_GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser"
-PRIVATE_GITHUB_REPOS="saw-core cryptol-verifier jvm-verifier llvm-verifier"
+PUBLIC_GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser saw-core cryptol-verifier jvm-verifier llvm-verifier"
+PRIVATE_GITHUB_REPOS=""
 PROGRAMS="alex happy c2hs"
 TESTABLE="saw-core jvm-verifier llvm-verifier"
 
