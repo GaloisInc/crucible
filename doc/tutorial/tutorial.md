@@ -24,7 +24,7 @@ Example: Find First Set
 =======================
 
 As a first example, we consider equivalence checking different implementations
-of the POSIX `ffsl` function, which identifies the position of the first ``1``
+of the POSIX `ffs` function, which identifies the position of the first ``1``
 bit in a word. The function takes an integer as input, treated as a vector of
 bits, and returns another integer which indicates the index of the first bit
 set. This function can be implemented in several ways with different
