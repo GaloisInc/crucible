@@ -86,6 +86,7 @@ import Cryptol.Utils.PP
 import qualified Cryptol.Eval.Value as V (defaultPPOpts, ppValue)
 
 import SAWScript.AutoMatch.LLVM
+import SAWScript.AutoMatch.JVM
 
 -- Environment -----------------------------------------------------------------
 
@@ -933,6 +934,11 @@ primitives = Map.fromList
   , prim "java_extract"
     "JavaClass -> String -> JavaSetup () -> TopLevel Term"
     (bicVal extractJava)
+    [ "TODO" ]
+
+  , prim "java_match_print"
+    "JavaClass -> JavaClass -> TopLevel Term"
+    (bicVal printMatchesJVM)
     [ "TODO" ]
 
   , prim "java_symexec"

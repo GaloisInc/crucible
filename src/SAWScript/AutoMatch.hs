@@ -5,7 +5,9 @@
 module SAWScript.AutoMatch where
 
 import qualified Data.Map as Map
+import           Data.Map   (Map)
 import qualified Data.Set as Set
+import           Data.Set   (Set)
 
 import Control.Monad
 import Control.Monad.Free
@@ -14,7 +16,7 @@ import Control.Monad.Writer
 import Control.Monad.State
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
-import Control.Arrow ((***), (&&&), first, second)
+import Control.Arrow ((***), (&&&), second)
 
 import Data.Maybe
 import Data.Char
@@ -95,13 +97,13 @@ matchingProcedure left right =
 
 -- The individual components of the interactive matching procedure...
 
-initialInfo :: Match (Arg,Int) ArgMapping ()
+initialInfo :: ArgMatch ()
 initialInfo = do
    (left, right) <- ask
    info (Just "Comparing") $ show left ++
           "\n           " ++ show right ++ "\n"
 
-checkReturnTypeCompat :: Match (Arg,Int) ArgMapping ()
+checkReturnTypeCompat :: ArgMatch ()
 checkReturnTypeCompat = do
    (left, right) <- ask
    when (declType left /= declType right) $
@@ -112,7 +114,7 @@ checkReturnTypeCompat = do
          declName right ++ " : ... " ++ show (declType right) ++
          ") do not match in return type, and so cannot be reconciled."
 
-checkSignatureCompat :: Match (Arg,Int) ArgMapping ()
+checkSignatureCompat :: ArgMatch ()
 checkSignatureCompat = do
    (left, right) <- ask
    whenM (uncurry (/=) . both (fmap Set.size . typeBins) <$> get) $ do
@@ -122,7 +124,7 @@ checkSignatureCompat = do
          "' cannot be aligned by permutation."
       confirmOrQuit "Proceed with matching anyway?"
 
-processExactMatches :: Match (Arg,Int) ArgMapping ()
+processExactMatches :: ArgMatch ()
 processExactMatches = do
    exactMatches <- findExactMatches <$> get
    forM_ exactMatches $ \((arg1, i1), (arg2, i2)) -> do
@@ -131,7 +133,7 @@ processExactMatches = do
          "(" ++ show arg1 ++ ")" ++ " at " ++
          formatIndex i1 ++ corresponds ++ formatIndex i2
 
-checkNameClashes :: Match (Arg,Int) ArgMapping ()
+checkNameClashes :: ArgMatch ()
 checkNameClashes = do
    sharedNames <- getIntersect (Map.keys . nameLocs)
    forM_ sharedNames $ \name -> do
@@ -142,7 +144,7 @@ checkNameClashes = do
          " are named identically, but have differing types."
       confirmOrQuit "Proceed with matching by considering them distinct?"
 
-matchInteractively :: Match (Arg,Int) ArgMapping ()
+matchInteractively :: ArgMatch ()
 matchInteractively = do
    sharedTypes <- getIntersect (Map.keys . typeBins)
    forM_ sharedTypes $ \typ ->
@@ -167,27 +169,32 @@ matchInteractively = do
 
 -- The monad stack used above looks like this...
 
-type Match m s a =
-   ReaderT (Decl, Decl)                            -- information about initial declarations
+type Match r w s a =
+   ReaderT r                            -- information about initial declarations
       (MaybeT                                      -- possible early termination
-         (WriterT [(m,m)]                          -- append-only output of matched results
-                  (StateT (s,s)                    -- remaining arguments on each side
+         (WriterT [w]                          -- append-only output of matched results
+                  (StateT s                    -- remaining arguments on each side
                           Interaction))) a         -- free monad of instructions to execute
 
-runMatchDecls :: (Decl, Decl) -> Match (Arg,Int) ArgMapping a -> Interaction (Maybe a, (Assignments, Mappings))
-runMatchDecls (l,r) =
+runMatch :: r -> s -> Match r w s a -> Interaction (Maybe a, ([w], s))
+runMatch r s =
    fmap rassoc
-   . flip runStateT (both (makeArgMapping . declArgs) (l,r))
+   . flip runStateT s
    . runWriterT
    . runMaybeT
-   . flip runReaderT (l,r)
+   . flip runReaderT r
    where
       rassoc ((x,y),z) = (x,(y,z))
 
-execMatchDecls :: (Decl, Decl) -> Match (Arg,Int) ArgMapping a -> Interaction (Assignments, Mappings)
+type ArgMatch a = Match (Decl,Decl) ((Arg,Int),(Arg,Int)) (ArgMapping,ArgMapping) a
+
+runMatchDecls :: (Decl, Decl) -> ArgMatch a -> Interaction (Maybe a, (Assignments, Mappings))
+runMatchDecls (l,r) = runMatch (l,r) (both (makeArgMapping . declArgs) (l,r))
+
+execMatchDecls :: (Decl, Decl) -> ArgMatch a -> Interaction (Assignments, Mappings)
 execMatchDecls (l,r) = fmap snd . runMatchDecls (l,r)
 
-matchArgs :: (Arg, Int) -> (Arg, Int) -> Match (Arg,Int) ArgMapping ()
+matchArgs :: (Arg, Int) -> (Arg, Int) -> ArgMatch ()
 matchArgs (Arg ln lt, li) (Arg rn rt, ri) = do
    modify (removeName ln *** removeName rn)
    tell [((Arg ln lt, li), (Arg rn rt, ri))]
@@ -225,7 +232,7 @@ getInBounds (l,h) = do
       else do outOfBounds i (l,h)
               getInBounds (l,h)
 
-getIntersect :: (Ord b) => (s -> [b]) -> Match m s [b]
+getIntersect :: (Ord b) => (s -> [b]) -> Match r w (s,s) [b]
 getIntersect f =
    Set.toList . uncurry Set.intersection . (both $ Set.fromList . f) <$> get
 
@@ -264,37 +271,67 @@ findExactMatches (leftMapping, rightMapping) =
             Set.intersection (namesWithType typ leftMapping)
                              (namesWithType typ rightMapping)
 
-findDeclMatches :: [Decl] -> [Decl] -> Interaction ([(Decl,Decl)], ([Decl],[Decl]))
-findDeclMatches leftModule rightModule =
-   fmap (swap . first (both Map.elems))
-   . runWriterT . flip execStateT (both declsNameMaps (leftModule, rightModule)) $ do
-      -- exact function name matches
-      sharedNames <- Set.toList . uncurry Set.intersection . both Map.keysSet <$> get
-      forM_ sharedNames $ \name -> do
-         info (Just "Aligning functions") $ name ++ corresponds ++ name ++ "\n"
-         tell =<< (: []) <$> gets (both $ assertJust . Map.lookup name)
-         modify (both $ Map.delete name)
-      -- report unmatched names
-      (leftoverLeft, leftoverRight) <- both Map.keys <$> get
-      forM_ leftoverLeft $ \name ->
-         warning $ "Could not find correspondence for " ++ name ++ " (LEFT)"
-      forM_ leftoverRight $ \name ->
-         warning $ "Could not find correspondence for " ++ name ++ " (RIGHT)"
-   where
-      swap (x,y) = (y,x)
-      declsNameMaps = Map.fromList . map (declName &&& id)
+matchModules :: (String, [Decl]) -> (String, [Decl]) -> Interaction [(Decl, Decl, Assignments)]
+matchModules (leftFilename, leftModule) (rightFilename, rightModule) =
+   fmap (fst . snd) . runMatch () (both (tabulateBy declSig) (leftModule, rightModule)) $ do
 
-matchModules :: [Decl] -> [Decl] -> Interaction [(Decl, Decl, Assignments)]
-matchModules leftModule rightModule = do
-   matchingDecls <- fst <$> findDeclMatches leftModule rightModule
-   fmap catMaybes . forM matchingDecls $ \(leftDecl, rightDecl) -> do
-      (assigns, leftovers) <- matchingProcedure leftDecl rightDecl
-      if uncurry (&&) (both isEmptyArgMapping leftovers)
-         then return . Just $ (leftDecl, rightDecl, assigns)
-         else return Nothing
+      info Nothing $ "Aligning module declarations between " ++ leftFilename ++ corresponds ++ rightFilename
+      sharedSigs <- gets $ uncurry sharedKeys
+      forM_ sharedSigs $ \sig -> do
+         declsByApproxName <- gets (both $ tabulateBy (approximateName . declName) . Set.toList . assertJust . Map.lookup sig)
+         let matchingNames = uncurry sharedKeys $ declsByApproxName
+         forM_ matchingNames $ \name -> do
+            case both (Set.toList . assertJust . Map.lookup name) declsByApproxName of
+               ([leftDecl], [rightDecl]) -> do
+                  (assigns, leftovers) <- lift . lift . lift . lift $ matchingProcedure leftDecl rightDecl
+                  if uncurry (&&) (both isEmptyArgMapping leftovers)
+                     then matchDecls leftDecl rightDecl assigns
+                     else return ()
+               _ -> undefined -- TODO: what to do if multiple names match on either side
+
+            -- TODO: provide interactive matching of remaining functions binned in signature
+
+         -- TODO: more inexact name matching
+
+      -- Report unmatched declarations
+      (unselectedL, unselectedR) <- gets (both $ concatMap Set.toList . Map.elems)
+      forM_ unselectedL $ \decl ->
+         warning $ "Failed to find potential match for left-side declaration " ++ show decl
+      forM_ unselectedR $ \decl ->
+         warning $ "Failed to find potential match for right-side declaration " ++ show decl
+
+type DeclMatch a = Match () (Decl,Decl,Assignments) (Map Sig (Set Decl),Map Sig (Set Decl)) a
+
+matchDecls :: Decl -> Decl -> Assignments -> DeclMatch ()
+matchDecls ld rd as = do
+   modify (deleteFromSetMap (declSig ld) ld *** deleteFromSetMap (declSig rd) rd)
+   tell [(ld, rd, as)]
+
+sharedKeys :: (Ord k) => Map k v -> Map k v -> [k]
+sharedKeys = curry $ Set.toList . uncurry Set.intersection . both Map.keysSet
+
+tabulateBy :: (Ord k, Ord v) => (v -> k) -> [v] -> Map k (Set v)
+tabulateBy f = Map.fromListWith Set.union . map (f &&& Set.singleton)
+
+associateSetWith :: (Ord k) => (k -> v) -> Set k -> Map k v
+associateSetWith f = Map.fromAscList . map (id &&& f) . Set.toAscList
+
+approximateName :: Name -> Name
+approximateName =
+   filter (not . (`elem` "_- ")) . map toLower
+
+--matchModules :: [Decl] -> [Decl] -> Interaction [(Decl, Decl, Assignments)]
+--matchModules leftModule rightModule = do
+--   matchingDecls <- fst <$> findDeclMatches leftModule rightModule
+--   fmap catMaybes . forM matchingDecls $ \(leftDecl, rightDecl) -> do
+--      (assigns, leftovers) <- matchingProcedure leftDecl rightDecl
+--      if uncurry (&&) (both isEmptyArgMapping leftovers)
+--         then return . Just $ (leftDecl, rightDecl, assigns)
+--         else return Nothing
+
 
 -- Example declarations:
 
 dl, dr :: Decl
-dl = Decl "foo" Int [Arg "y" Int, Arg "x" Int, Arg "p" Int, Arg "z" Int]
-dr = Decl "foo" Int [Arg "z" Int, Arg "y" Int, Arg "p" Int, Arg "x" Int]
+dl = Decl "fooBar" Int [Arg "y" Int, Arg "x" Int, Arg "p" Int, Arg "z" Int]
+dr = Decl "Foo_Bar" Int [Arg "z" Int, Arg "y" Int, Arg "p" Int, Arg "x" Int]

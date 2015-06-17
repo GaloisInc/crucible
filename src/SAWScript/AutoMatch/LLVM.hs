@@ -1,4 +1,5 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase    #-}
+{-# LANGUAGE TupleSections #-}
 
 module SAWScript.AutoMatch.LLVM where
 
@@ -38,8 +39,8 @@ import SAWScript.AutoMatch.Util
 
 import SAWScript.AutoMatch
 
-getDeclsLLVM :: SharedContext SAWCtx -> LLVMModule -> {- LLVMSetup () -> -} IO [Decl]
-getDeclsLLVM sc (LLVMModule _file mdl) {- _setup -} =
+getDeclsLLVM :: SharedContext SAWCtx -> LLVMModule -> {- LLVMSetup () -> -} IO (String,[Decl])
+getDeclsLLVM sc (LLVMModule file mdl) {- _setup -} =
 
   let dataLayout = parseDataLayout $ modDataLayout mdl
       symbols = map defName (modDefines mdl)
@@ -47,7 +48,7 @@ getDeclsLLVM sc (LLVMModule _file mdl) {- _setup -} =
     (sbe, _mem, _scLLVM) <- createSAWBackend' sawProxy dataLayout sc
     (warnings, cb) <- mkCodebase sbe dataLayout mdl
     forM_ warnings $ putStrLn . ("WARNING: " ++) . show
-    return . catMaybes . for symbols $ \symbol ->
+    return . (file,) . catMaybes . for symbols $ \symbol ->
       symDefineToDecl =<< lookupDefine symbol cb
 
    where

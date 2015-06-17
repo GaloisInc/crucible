@@ -2,8 +2,11 @@ module SAWScript.AutoMatch.Util where
 
 import qualified Data.Set as Set
 import           Data.Set   (Set)
+import qualified Data.Map as Map
+import           Data.Map   (Map)
 
 import Data.Maybe
+import Control.Monad (mfilter)
 
 import SAWScript.AutoMatch.Declaration
 
@@ -42,6 +45,10 @@ fastIntersect xs ys = Set.toList $ Set.fromList xs `Set.intersection` Set.fromLi
 symmetricDifference :: (Ord a) => Set a -> Set a -> Set a
 symmetricDifference s t =
    Set.difference (Set.union s t) (Set.intersection s t)
+
+deleteFromSetMap :: (Ord k, Ord v) => k -> v -> Map k (Set v) -> Map k (Set v)
+deleteFromSetMap k v =
+  Map.update (mfilter (not . Set.null) . Just . Set.delete v) k
 
 yes, no :: [String]
 (yes, no) =

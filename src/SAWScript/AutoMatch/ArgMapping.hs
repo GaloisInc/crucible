@@ -14,10 +14,10 @@ import           Data.Map   (Map)
 import qualified Data.Set as Set
 import           Data.Set   (Set)
 
-import Control.Monad
 import Data.Maybe
 
 import SAWScript.AutoMatch.Declaration
+import SAWScript.AutoMatch.Util
 
 data ArgMapping =
    ArgMapping { typeBins_ :: Map Type (Set (Name, Int))
@@ -44,9 +44,7 @@ removeName name mapping =
    fromMaybe mapping $ do
       (nameIndex, nameType) <- Map.lookup name (nameLocs mapping)
       return $ ArgMapping
-         (Map.update (mfilter (not . Set.null) . Just . Set.delete (name, nameIndex))
-                     nameType
-                     (typeBins mapping))
+         (deleteFromSetMap nameType (name, nameIndex) (typeBins mapping))
          (Map.delete name (nameLocs mapping))
 
 lookupName :: Name -> ArgMapping -> Maybe (Int, Type)
