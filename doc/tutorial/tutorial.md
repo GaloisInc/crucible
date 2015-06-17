@@ -271,12 +271,14 @@ SBV package, and support ABC, Boolector, CVC4, MathSAT, Yices, and Z3.
 External SAT Solvers
 ====================
 
-In addition to the `abc`, `cvc4`, and `yices` proof tactics used above,
-SAWScript can also invoke arbitrary
-external SAT solvers that support the DIMACS
-CNF format for problem and solution descriptions, using the
-`external_cnf_solver` tactic. For example, you can use PicoSAT to
-prove the theorem `thm` from the last example, with the following commands:
+In addition to the `abc`, `cvc4`, and `yices` proof tactics used
+above, SAWScript can also invoke arbitrary external SAT solvers that
+that read CNF files and produce results according to the SAT
+competition
+[input and output conventions](http://www.satcompetition.org/2009/format-solvers2009.html),
+using the `external_cnf_solver` tactic. For example, you can use
+[PicoSAT](http://fmv.jku.at/picosat/) to prove the theorem `thm` from
+the last example, with the following commands:
 
     let picosat = external_cnf_solver "picosat" ["%f"];
     prove_print picosat thm;
@@ -296,6 +298,9 @@ representation of the term you're proving.
 The `external_cnf_solver` tactic is based on the same underlying
 infrastructure as the `abc` tactic, and is generally capable of
 proving the same variety of theorems.
+
+To write a CNF file without immediately invoking a solver, use the
+`offline_cnf` tactic, or the `write_cnf` top-level command.
 
 Compositional Proofs
 ====================
@@ -596,8 +601,9 @@ And-Inverter Graph (AIG) format, transforming the graph in various
 ways, and then using a SAT solver to complete the proof.
 
 Alternatively, the `write_aig` command can be used to write an AIG
-directly to a file, for later processing by external tools, as shown
-in `code/ffs_gen_aig.saw`.
+directly to a file, in [AIGER format](http://fmv.jku.at/aiger/), for
+later processing by external tools, as shown in
+`code/ffs_gen_aig.saw`.
 
 ````
 $include all code/ffs_gen_aig.saw
@@ -616,6 +622,10 @@ second:
 
     # saw -j <path to rt.jar or classes.jar from JDK> ffs_gen_aig.saw
     # saw ffs_compare_aig.saw
+
+Files in AIGER format can be produced and processed by several
+external tools, including ABC, Cryptol version 1, and various hardware
+synthesis and verification systems.
 
 <!---
 
