@@ -384,7 +384,7 @@ special commands that start with a colon:
     :cd      set the current working directory
 
 As an example of the sort of interactive use that the REPL allows,
-consider the file `code/NQueens.cry`, which provides an Cryptol
+consider the file `code/NQueens.cry`, which provides a Cryptol
 specification of the problem of placing a specific number of queens on
 a chess board in such a way that none of them threaten any of the
 others.
@@ -466,11 +466,11 @@ These symbolic variables are most commonly used by the more general
 Java and LLVM model extraction commands. The Java version of the
 command has the following signature:
 
-    java_symexec : JavaClass
-                -> String
-                -> [(String, Term)]
-                -> [String]
-                -> TopLevel Term
+    java_symexec : JavaClass        // Java class object
+                -> String           // Java method name
+                -> [(String, Term)] // Initial state elements
+                -> [String]         // Final (output) state elements
+                -> TopLevel Term    // Resulting Term
 
 This first two parameters are the same as for `java_extract`: the
 class object and the name of the method from that class to execute.
@@ -508,12 +508,12 @@ near future).
 The LLVM version of the command has some additional complexities, due
 to the less structured nature of the LLVM memory model.
 
-    llvm_symexec : LLVMModule
-                -> String
-                -> [(String, Int)]
-                -> [(String, Term, Int)]
-                -> [(String, Int)]
-                -> TopLevel Term
+    llvm_symexec : LLVMModule            // LLVM module object
+                -> String                // Function name
+                -> [(String, Int)]       // Initial allocations
+                -> [(String, Term, Int)] // Initial state element
+                -> [(String, Int)]       // Final state elements
+                -> TopLevel Term         // Resulting Term
 
 Symmetrically with the Java version, the first two arguments are the
 same as for `llvm_extract`. However, while the Java version of this
@@ -544,7 +544,7 @@ $include all code/llvm_symexec.saw
 ```
 
 This has largely the same structure as the Java example, except that
-`llvm_symexec` command takes and extra argument, describing
+the `llvm_symexec` command takes and extra argument, describing
 allocations, and the input and output descriptions take sizes as well
 as values, to compensate for the fact that LLVM does not track how
 much memory a given variable takes up. In simple scalar cases such as
