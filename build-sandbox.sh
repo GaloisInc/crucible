@@ -40,7 +40,7 @@ fi
 
 if [ "${OS}" == "Windows_NT" ] ; then
     HERE=$(cygpath -w $(pwd))
-    EXTRA_CONSTRAINTS="--constraint=\"abcBridge -enable-pthreads\""
+    EXTRA_CONSTRAINTS=--constraint=abcBridge\ -enable-pthreads
 else
     HERE=$(pwd)
     EXTRA_CONSTRAINTS=""
@@ -102,9 +102,9 @@ fi
 # always build them if the '-f' option was given
 for prog in ${PROGRAMS} ; do
   if [ "${force_utils}" == "true" ]; then
-    ${CABAL} install ${EXTRA_CONSTRAINTS} $jobs $prog
+    ${CABAL} install "${EXTRA_CONSTRAINTS}" $jobs $prog
   else
-    (which $prog && $prog --version) || ${CABAL} install ${EXTRA_CONSTRAINTS} $jobs $prog
+    (which $prog && $prog --version) || ${CABAL} install "${EXTRA_CONSTRAINTS}" $jobs $prog
   fi
 done
 
@@ -132,10 +132,10 @@ if [ "${dotests}" == "true" ] ; then
 
     (cd deps/${pkg} &&
          ${CABAL} sandbox init --sandbox="${HERE}/${sandbox_dir}" &&
-         ${CABAL} install ${EXTRA_CONSTRAINTS} $jobs --enable-tests --only-dependencies &&
-         ${CABAL} configure ${EXTRA_CONSTRAINTS} --enable-tests &&
-         ${CABAL} build ${EXTRA_CONSTRAINTS} &&
-         (${CABAL} test ${EXTRA_CONSTRAINTS} ${test_flags} || true))
+         ${CABAL} install "${EXTRA_CONSTRAINTS}" $jobs --enable-tests --only-dependencies &&
+         ${CABAL} configure "${EXTRA_CONSTRAINTS}" --enable-tests &&
+         ${CABAL} build &&
+         (${CABAL} test ${test_flags} || true))
 
     if [ -e ${pkg}-test-results.xml ]; then
       xsltproc jenkins-junit-munge.xsl ${pkg}-test-results.xml > jenkins-${pkg}-test-results.xml
@@ -147,6 +147,6 @@ if [ "${dotests}" == "true" ] ; then
 
 else
 
-  ${CABAL} install ${EXTRA_CONSTRAINTS} --reinstall --force-reinstalls
+  ${CABAL} install "${EXTRA_CONSTRAINTS}" --reinstall --force-reinstalls
 
 fi
