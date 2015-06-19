@@ -40,8 +40,10 @@ fi
 
 if [ "${OS}" == "Windows_NT" ] ; then
     HERE=$(cygpath -w $(pwd))
+    EXTRA_CONSTRAINTS="--constraint=\"abcBridge -enable-pthreads\""
 else
     HERE=$(pwd)
+    EXTRA_CONSTRAINTS=""
 fi
 
 PATH=${HERE}/${sandbox_dir}/bin:$PATH
@@ -100,19 +102,20 @@ fi
 # always build them if the '-f' option was given
 for prog in ${PROGRAMS} ; do
   if [ "${force_utils}" == "true" ]; then
-    ${CABAL} install $jobs $prog
+    ${CABAL} install ${EXTRA_CONSTRAINTS} $jobs $prog
   else
-    (which $prog && $prog --version) || ${CABAL} install $jobs $prog
+    (which $prog && $prog --version) || ${CABAL} install ${EXTRA_CONSTRAINTS} $jobs $prog
   fi
 done
 
 for repo in ${PUBLIC_GITHUB_REPOS} ${PRIVATE_GITHUB_REPOS} ${GALOIS_REPOS}; do
   ${CABAL} sandbox add-source deps/${repo}
 
+  # We should be able to skip this step by using EXTRA_CONSTRAINTS now instead
   # Be sure abcBridge builds with pthreads diabled on Windows
-  if [ "${OS}" == "Windows_NT" -a "${repo}" == "abcBridge" ]; then
-    ${CABAL} install $jobs --force abcBridge -f-enable-pthreads
-  fi
+  #if [ "${OS}" == "Windows_NT" -a "${repo}" == "abcBridge" ]; then
+  #  ${CABAL} install $jobs --force abcBridge -f-enable-pthreads
+  #fi
 done
 
 if [ "${dotests}" == "true" ] ; then
@@ -129,10 +132,10 @@ if [ "${dotests}" == "true" ] ; then
 
     (cd deps/${pkg} &&
          ${CABAL} sandbox init --sandbox="${HERE}/${sandbox_dir}" &&
-         ${CABAL} install $jobs --enable-tests --only-dependencies &&
-         ${CABAL} configure --enable-tests &&
-         ${CABAL} build &&
-         (${CABAL} test ${test_flags} || true))
+         ${CABAL} install ${EXTRA_CONSTRAINTS} $jobs --enable-tests --only-dependencies &&
+         ${CABAL} configure ${EXTRA_CONSTRAINTS} --enable-tests &&
+         ${CABAL} build ${EXTRA_CONSTRAINTS} &&
+         (${CABAL} test ${EXTRA_CONSTRAINTS} ${test_flags} || true))
 
     if [ -e ${pkg}-test-results.xml ]; then
       xsltproc jenkins-junit-munge.xsl ${pkg}-test-results.xml > jenkins-${pkg}-test-results.xml
@@ -144,6 +147,6 @@ if [ "${dotests}" == "true" ] ; then
 
 else
 
-  ${CABAL} install --reinstall --force-reinstalls
+  ${CABAL} install ${EXTRA_CONSTRAINTS} --reinstall --force-reinstalls
 
 fi
