@@ -40,10 +40,21 @@ fi
 
 if [ "${OS}" == "Windows_NT" ] ; then
     HERE=$(cygpath -w $(pwd))
+
+    # Force abcBridge to be built without pthreads
     EXTRA_CONSTRAINTS=--constraint=abcBridge\ -enable-pthreads
 else
     HERE=$(pwd)
-    EXTRA_CONSTRAINTS=""
+
+    # NB the flag '-v1' sets the cabal verbosity to 1, which is its
+    # default value. This should be a no-op, and is only added here
+    # because it is the easiest way I could think of to deal with the
+    # stupid issues that arise with string interpolation.  In
+    # particular, if this string is empty, later cabal invocations
+    # look like:
+    #      cabal install '' --force-reinstalls
+    # and the empty string is interpreted as a file name, which fails :-(
+    EXTRA_CONSTRAINTS=-v1
 fi
 
 PATH=${HERE}/${sandbox_dir}/bin:$PATH
