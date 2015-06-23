@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveFunctor    #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase       #-}
+{-# LANGUAGE ViewPatterns     #-}
 
 module SAWScript.AutoMatch where
 
@@ -24,12 +25,24 @@ import Data.Ord
 import Data.List
 
 import Control.Conditional (whenM)
-
 import Text.Read (readMaybe)
+import System.FilePath
+import System.Console.Terminal.Size
+
+import SAWScript.Builtins
+import SAWScript.LLVMBuiltins
+import SAWScript.JavaBuiltins
+import SAWScript.Options
+import qualified Verifier.Java.Simulator as JSS hiding (lookupClass)
+import SAWScript.Value as SV
 
 import SAWScript.AutoMatch.ArgMapping
 import SAWScript.AutoMatch.Declaration
 import SAWScript.AutoMatch.Util
+
+import SAWScript.AutoMatch.JVM
+import SAWScript.AutoMatch.LLVM
+import SAWScript.AutoMatch.Cryptol
 
 -- A free monad...
 
@@ -42,6 +55,8 @@ data InteractionF a =
   | Choice String [String] a
   | OutOfBounds Int (Int,Int) a
   | Failure String a
+  | ThickSeparator a
+  | ThinSeparator a
   -- input:
   | Confirm String (Bool -> a)
   | GetInt String (Int -> a)
@@ -67,6 +82,8 @@ interactIO interaction =
             putStrLn ("Please enter an integer between " ++ show l ++ " and " ++ show h ++ ".") >> interactIO k
          Failure str k ->
             putStrLn ("Failure: " ++ str) >> interactIO k
+         ThickSeparator k ->
+            putStrLn 
          Confirm str f -> do
             putStr ("Confirm: " ++ str ++ " ")
             fix $ \loop -> do
@@ -101,7 +118,7 @@ initialInfo :: ArgMatch ()
 initialInfo = do
    (left, right) <- ask
    info (Just "Comparing") $ show left ++
-          "\n           " ++ show right ++ "\n"
+          "\n           " ++ show right
 
 checkReturnTypeCompat :: ArgMatch ()
 checkReturnTypeCompat = do
@@ -211,11 +228,11 @@ confirm :: MonadFree InteractionF m => String -> m Bool
 confirm string = liftF $ Confirm string id
 
 offerChoice :: MonadFree InteractionF m => String -> [(String, m a)] -> m a
-offerChoice str options =
-   let (descriptions, actions) = unzip options
-       numOptions = length options
+offerChoice str opts =
+   let (descriptions, actions) = unzip opts
+       numOpts = length opts
    in do liftF $ Choice str descriptions ()
-         userChoice <- getInBounds (1, numOptions)
+         userChoice <- getInBounds (1, numOpts)
          actions !! (userChoice - 1)
 
 outOfBounds :: MonadFree InteractionF m => Int -> (Int,Int) -> m ()
@@ -329,9 +346,53 @@ approximateName =
 --         then return . Just $ (leftDecl, rightDecl, assigns)
 --         else return Nothing
 
+data SourceLanguage = Cryptol | JVM | LLVM deriving (Eq, Ord, Show)
 
--- Example declarations:
+data TaggedSourceFile =
+   TaggedSourceFile { sourceLanguage :: SourceLanguage
+                    , sourceFilePath :: FilePath } deriving (Eq, Ord, Show)
 
-dl, dr :: Decl
-dl = Decl "fooBar" Int [Arg "y" Int, Arg "x" Int, Arg "p" Int, Arg "z" Int]
-dr = Decl "Foo_Bar" Int [Arg "z" Int, Arg "y" Int, Arg "p" Int, Arg "x" Int]
+autoTagSourceFile :: FilePath -> Either String TaggedSourceFile
+autoTagSourceFile path = case takeExtension path of
+   ".cry"   -> Right $ TaggedSourceFile Cryptol path
+   ".bc"    -> Right $ TaggedSourceFile LLVM    path
+   ".class" -> Right $ TaggedSourceFile JVM     path
+   ext      -> Left ext
+
+printMatchesJVM :: BuiltinContext -> Options -> JSS.Class -> JSS.Class -> {- JavaSetup () -> -} IO ()
+printMatchesJVM bic opts leftClass rightClass {- _setup -} = do
+   leftDecls  <- getDeclsJVM bic opts leftClass
+   rightDecls <- getDeclsJVM bic opts rightClass
+   print =<< interactIO (matchModules leftDecls rightDecls)
+
+printMatchesLLVM :: BuiltinContext -> Options -> LLVMModule -> LLVMModule -> {- LLVMSetup () -> -} IO ()
+printMatchesLLVM bic _opts leftModule rightModule {- _setup -} =
+   let sc = biSharedContext bic in do
+      leftDecls  <- getDeclsLLVM sc leftModule
+      rightDecls <- getDeclsLLVM sc rightModule
+      print =<< interactIO (matchModules leftDecls rightDecls)
+
+autoMatchFiles :: BuiltinContext -> Options -> FilePath -> FilePath -> IO (Either String (Interaction [(Decl, Decl, Assignments)]))
+autoMatchFiles bic opts leftPath rightPath =
+   case both autoTagSourceFile (leftPath, rightPath) of
+      (Left leftExt, Left rightExt) ->
+         return . Left $ "Could handle neither file extension " ++ leftExt ++ " of " ++ leftPath ++ " nor " ++ rightExt ++ " of " ++ rightPath
+      (Left leftExt, Right _) ->
+         return . Left $ "Couldn't handle file extension " ++ leftExt ++ " of left-hand file " ++ leftPath
+      (Right _, Left rightExt) ->
+         return . Left $ "Couldn't handle file extension " ++ rightExt ++ " of right-hand file " ++ rightPath
+      (Right leftSource, Right rightSource) -> do
+         leftModule  <- loadDecls bic opts leftSource
+         rightModule <- loadDecls bic opts rightSource
+         return . Right $ matchModules leftModule rightModule
+
+autoMatchPrint :: BuiltinContext -> Options -> FilePath -> FilePath -> IO ()
+autoMatchPrint bic opts left right =
+   either print (print <=< interactIO) =<< autoMatchFiles bic opts left right
+
+loadDecls :: BuiltinContext -> Options -> TaggedSourceFile -> IO (String,[Decl])
+loadDecls bic opts (TaggedSourceFile lang path) =
+   case lang of
+      Cryptol -> getDeclsCryptol path
+      LLVM    -> loadLLVMModule path >>= getDeclsLLVM (biSharedContext bic)
+      JVM     -> loadJavaClass bic (dropExtension path) >>= getDeclsJVM bic opts

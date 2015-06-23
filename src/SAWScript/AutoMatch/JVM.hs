@@ -5,7 +5,6 @@ module SAWScript.AutoMatch.JVM where
 
 import qualified Language.JVM.Parser as JVM
 
---import qualified Verifier.Java.Codebase as CB hiding (lookupClass)
 import qualified Verifier.Java.Simulator as JSS hiding (lookupClass)
 --import Verifier.Java.SAWBackend
 
@@ -34,7 +33,6 @@ import SAWScript.Options
 
 import SAWScript.AutoMatch.Declaration
 import SAWScript.AutoMatch.Util
-import SAWScript.AutoMatch
 
 import Control.Monad
 import Data.Maybe
@@ -53,19 +51,13 @@ getDeclsJVM _bic _opts cls {- _setup -} =
    where
 
       jssTypeToStdType = \case
-         JVM.ArrayType t    -> Array <$> jssTypeToStdType t
-         JVM.BooleanType    -> Just Bool
-         JVM.ByteType       -> Just UChar -- TODO: not sure about this equivalence...
-         JVM.CharType       -> Just Char
-         JVM.ClassType _str -> Nothing
-         JVM.DoubleType     -> Just Double
-         JVM.FloatType      -> Just Float
-         JVM.IntType        -> Just Int
-         JVM.LongType       -> Just Long
-         JVM.ShortType      -> Just Short
-
-printMatchesJVM :: BuiltinContext -> Options -> JSS.Class -> JSS.Class -> {- JavaSetup () -> -} IO ()
-printMatchesJVM bic opts leftClass rightClass {- _setup -} = do
-   leftDecls  <- getDeclsJVM bic opts leftClass
-   rightDecls <- getDeclsJVM bic opts rightClass
-   print =<< interactIO (matchModules leftDecls rightDecls)
+         JVM.ArrayType _    -> Nothing -- TODO: Handle array types
+         JVM.BooleanType    -> Just $ TCon (TC TCBit) []
+         JVM.ByteType       -> Just $ bitSeqType 8
+         JVM.CharType       -> Just $ bitSeqType 16 -- TODO: Not sure about this equivalence
+         JVM.ClassType _str -> Nothing -- TODO: Support classes as records?
+         JVM.DoubleType     -> Nothing -- We don't support floating point types
+         JVM.FloatType      -> Nothing -- We don't support floating point types
+         JVM.IntType        -> Just $ bitSeqType 32
+         JVM.LongType       -> Just $ bitSeqType 64
+         JVM.ShortType      -> Just $ bitSeqType 16

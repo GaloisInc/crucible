@@ -48,6 +48,7 @@ library
     , split
     , temporary
     , template-haskell
+    , terminal-size
     , text
     , time
     , transformers
@@ -63,6 +64,7 @@ library
     SAWScript.AutoMatch
     SAWScript.AutoMatch.ArgMapping
     SAWScript.AutoMatch.Declaration
+    SAWScript.AutoMatch.Cryptol
     SAWScript.AutoMatch.LLVM
     SAWScript.AutoMatch.JVM
     SAWScript.AutoMatch.Util

@@ -37,8 +37,6 @@ import Data.Maybe
 import SAWScript.AutoMatch.Declaration
 import SAWScript.AutoMatch.Util
 
-import SAWScript.AutoMatch
-
 getDeclsLLVM :: SharedContext SAWCtx -> LLVMModule -> {- LLVMSetup () -> -} IO (String,[Decl])
 getDeclsLLVM sc (LLVMModule file mdl) {- _setup -} =
 
@@ -60,22 +58,13 @@ getDeclsLLVM sc (LLVMModule file mdl) {- _setup -} =
          in Decl name <$> retType <*> args
 
       memTypeToStdType t = case t of
-         IntType 8  -> Just Char
-         IntType 16 -> Just Short
-         IntType 32 -> Just Int
-         IntType 64 -> Just Long
-         FloatType  -> Just Float
-         DoubleType -> Just Double
-         PtrType VoidType ->
-            Just $ Pointer Void
-         PtrType (MemType memType) ->
-            Pointer <$> memTypeToStdType memType
-         ArrayType _size memType ->
-            Array <$> memTypeToStdType memType
+         IntType 8  -> Just $ bitSeqType 8
+         IntType 16 -> Just $ bitSeqType 16
+         IntType 32 -> Just $ bitSeqType 32
+         IntType 64 -> Just $ bitSeqType 64
+         FloatType  -> Nothing -- We don't support floating point types
+         DoubleType -> Nothing -- We don't support floating point types
+         PtrType (MemType _memType) -> Nothing
+            --memTypeToStdType memType -- TODO: Support pointers
+         ArrayType _size _memType -> Nothing -- TODO: Support arrays
          _ -> Nothing
-
-printMatchesLLVM :: SharedContext SAWCtx -> LLVMModule -> LLVMModule -> {- LLVMSetup () -> -} IO ()
-printMatchesLLVM sc leftModule rightModule {- _setup -} = do
-   leftDecls  <- getDeclsLLVM sc leftModule
-   rightDecls <- getDeclsLLVM sc rightModule
-   print =<< interactIO (matchModules leftDecls rightDecls)

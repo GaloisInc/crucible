@@ -12,6 +12,9 @@ import SAWScript.AutoMatch.Declaration
 
 -- Some project-specific utilities...
 
+bitSeqType :: Integer -> Type
+bitSeqType i = TCon (TC TCSeq) [TCon (TC (TCNum i)) [],TCon (TC TCBit) []]
+
 formatIndexedArg :: Bool -> Name -> Type -> Int -> String
 formatIndexedArg paren name typ index =
    lparen ++ show (Arg name typ) ++ rparen ++ " " ++ formatIndex index
@@ -20,7 +23,7 @@ formatIndexedArg paren name typ index =
       rparen = if paren then ")" else ""
 
 formatIndex :: Int -> String
-formatIndex index = "[#" ++ show index ++ "]"
+formatIndex index = "arg. #" ++ show index ++ ""
 
 corresponds :: String
 corresponds = " <-> "

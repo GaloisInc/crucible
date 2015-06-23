@@ -1,5 +1,5 @@
 module SAWScript.AutoMatch.Declaration 
-  ( Type(..)
+  ( Type(..), TCon(..), TC(..)
   , Name
   , Arg(..)
   , Decl(..)
@@ -14,12 +14,8 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Control.Arrow ( (&&&) )
 
-data Type = Array Type
-          | Pointer Type
-          | Int |  Long |  Short |  Char | Bool
-          | UInt | ULong | UShort | UChar
-          | Double | Float | Void
-          deriving (Eq, Ord, Show)
+import Cryptol.TypeCheck.AST (Type(..), TCon(..), TC(..))
+import Cryptol.Utils.PP
 
 type Name = String
 
@@ -32,7 +28,7 @@ instance Show Arg where
       showParen (d > app_prec) $
          showString n
          . showString " : "
-         . showsPrec (app_prec + 1) t
+         . showString (pretty t)
       where app_prec = 10
 
 data Decl = Decl { declName :: Name
@@ -49,7 +45,7 @@ instance Show Decl where
          . showString (intercalate ", " (map show as))
          . showString ")"
          . showString " -> "
-         . showsPrec (app_prec + 1) t
+         . showString (pretty t)
       where
          app_prec = 10
 
