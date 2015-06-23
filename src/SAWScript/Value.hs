@@ -189,8 +189,11 @@ tupleLookupValue (VTuple vs) i
   | otherwise = error $ "no such tuple index: " ++ show i
 tupleLookupValue _ _ = error "tupleLookupValue"
 
+concretePrimitives :: Map Ident Concrete.CValue
+concretePrimitives = M.empty
+
 evaluate :: SharedContext s -> SharedTerm s -> Concrete.CValue
-evaluate sc t = Concrete.evalSharedTerm (scModule sc) t
+evaluate sc t = Concrete.evalSharedTerm (scModule sc) concretePrimitives t
 
 evaluateTypedTerm :: SharedContext s -> TypedTerm s -> C.Value
 evaluateTypedTerm sc (TypedTerm schema trm) =
