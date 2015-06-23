@@ -4,8 +4,8 @@ set -v
 set -e
 
 PKGS="saw-core cryptol-verifier jvm-verifier llvm-verifier"
-PUBLIC_GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser"
-PRIVATE_GITHUB_REPOS="saw-core cryptol-verifier jvm-verifier llvm-verifier"
+PUBLIC_GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser saw-core cryptol-verifier jvm-verifier llvm-verifier"
+PRIVATE_GITHUB_REPOS=""
 PROGRAMS="alex happy c2hs"
 TESTABLE="saw-core jvm-verifier llvm-verifier"
 
@@ -40,8 +40,21 @@ fi
 
 if [ "${OS}" == "Windows_NT" ] ; then
     HERE=$(cygpath -w $(pwd))
+
+    # Force abcBridge to be built without pthreads
+    EXTRA_CONSTRAINTS=--constraint=abcBridge\ -enable-pthreads
 else
     HERE=$(pwd)
+
+    # NB the flag '-v1' sets the cabal verbosity to 1, which is its
+    # default value. This should be a no-op, and is only added here
+    # because it is the easiest way I could think of to deal with the
+    # stupid issues that arise with string interpolation.  In
+    # particular, if this string is empty, later cabal invocations
+    # look like:
+    #      cabal install '' --force-reinstalls
+    # and the empty string is interpreted as a file name, which fails :-(
+    EXTRA_CONSTRAINTS=-v1
 fi
 
 PATH=${HERE}/${sandbox_dir}/bin:$PATH
@@ -100,19 +113,20 @@ fi
 # always build them if the '-f' option was given
 for prog in ${PROGRAMS} ; do
   if [ "${force_utils}" == "true" ]; then
-    ${CABAL} install $jobs $prog
+    ${CABAL} install "${EXTRA_CONSTRAINTS}" $jobs $prog
   else
-    (which $prog && $prog --version) || ${CABAL} install $jobs $prog
+    (which $prog && $prog --version) || ${CABAL} install "${EXTRA_CONSTRAINTS}" $jobs $prog
   fi
 done
 
 for repo in ${PUBLIC_GITHUB_REPOS} ${PRIVATE_GITHUB_REPOS} ${GALOIS_REPOS}; do
   ${CABAL} sandbox add-source deps/${repo}
 
+  # We should be able to skip this step by using EXTRA_CONSTRAINTS now instead
   # Be sure abcBridge builds with pthreads diabled on Windows
-  if [ "${OS}" == "Windows_NT" -a "${repo}" == "abcBridge" ]; then
-    ${CABAL} install $jobs --force abcBridge -f-enable-pthreads
-  fi
+  #if [ "${OS}" == "Windows_NT" -a "${repo}" == "abcBridge" ]; then
+  #  ${CABAL} install $jobs --force abcBridge -f-enable-pthreads
+  #fi
 done
 
 if [ "${dotests}" == "true" ] ; then
@@ -129,8 +143,8 @@ if [ "${dotests}" == "true" ] ; then
 
     (cd deps/${pkg} &&
          ${CABAL} sandbox init --sandbox="${HERE}/${sandbox_dir}" &&
-         ${CABAL} install $jobs --enable-tests --only-dependencies &&
-         ${CABAL} configure --enable-tests &&
+         ${CABAL} install "${EXTRA_CONSTRAINTS}" $jobs --enable-tests --only-dependencies &&
+         ${CABAL} configure "${EXTRA_CONSTRAINTS}" --enable-tests &&
          ${CABAL} build &&
          (${CABAL} test ${test_flags} || true))
 
@@ -144,6 +158,6 @@ if [ "${dotests}" == "true" ] ; then
 
 else
 
-  ${CABAL} install --reinstall --force-reinstalls
+  ${CABAL} install "${EXTRA_CONSTRAINTS}" --reinstall --force-reinstalls
 
 fi

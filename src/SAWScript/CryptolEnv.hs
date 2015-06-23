@@ -347,7 +347,7 @@ parseDecls sc env input = do
   let tcEnv' = tcEnv { TM.inpVars = Map.union (eExtraTypes env) (TM.inpVars tcEnv) }
 
   -- Convert from 'Decl' to 'TopDecl' so that types will be generalized
-  let topdecls = [ P.Decl (P.TopLevel P.Public d) | d <- rdecls ]
+  let topdecls = [ P.Decl (P.TopLevel P.Public Nothing d) | d <- rdecls ]
   out <- T.tcDecls topdecls tcEnv'
   (dgs, modEnv') <- liftModuleM modEnv (MM.interactive (runInferOutput out))
   let env' = env { eModuleEnv = modEnv' }

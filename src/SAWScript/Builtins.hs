@@ -456,6 +456,18 @@ assumeUnsat = StateT $ \goal -> do
   putStrLn $ "WARNING: assuming goal " ++ goalName goal ++ " is unsat"
   return (SV.Unsat, goal)
 
+trivial :: ProofScript SAWCtx SV.SatResult
+trivial = StateT $ \goal -> do
+  checkTrue (ttTerm (goalTerm goal))
+  return (SV.Unsat, goal)
+  where
+    checkTrue :: SharedTerm SAWCtx -> IO ()
+    checkTrue t =
+      case unwrapTermF t of
+        Lambda _ _ t' -> checkTrue t'
+        FTermF (CtorApp "Prelude.True" []) -> return ()
+        _ -> fail "trivial: not a trivial goal"
+
 printGoal :: ProofScript s ()
 printGoal = StateT $ \goal -> do
   putStrLn (scPrettyTerm (ttTerm (goalTerm goal)))

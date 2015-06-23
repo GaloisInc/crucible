@@ -75,6 +75,7 @@ XML_TEMP="${XML_FILE}.tmp"
 # Run tests.
 
 mkdir -p logs
+rm -f logs/*
 
 NUM_TESTS=0
 FAILED_TESTS=0

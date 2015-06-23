@@ -16,15 +16,15 @@ let thm2 = {{ \x -> c_ffs_ref x == c_ffs_imp x }};
 prove_print abc thm2;
 
 print "java imp <-> c imp";
-let thm3 = {{ \x -> java_ffs_imp x ==  c_ffs_imp x }};
+let thm3 = {{ \x -> java_ffs_imp x == c_ffs_imp x }};
 prove_print abc thm3;
 
 print "cryptol imp <-> c imp";
-let thm4 = {{ \x -> ffs_imp x ==  c_ffs_imp x }};
+let thm4 = {{ \x -> ffs_imp x == c_ffs_imp x }};
 prove_print abc thm4;
 
 print "cryptol imp <-> cryptol ref";
-let thm5 = {{ \x -> ffs_imp x ==  ffs_ref x }};
+let thm5 = {{ \x -> ffs_imp x == ffs_ref x }};
 prove_print abc thm5;
 
 print "Done.";

@@ -42,7 +42,6 @@ import Cryptol.Parser (ParseError())
 import qualified Cryptol.TypeCheck.AST as T
 import Cryptol.Utils.PP
 import qualified Cryptol.Parser.AST as P
-import Cryptol.Prims.Doc(helpDoc)
 
 import Control.Monad (guard, unless, when)
 import Data.Char (isSpace,isPunctuation,isSymbol)
@@ -532,8 +531,10 @@ helpCmd cmd
   | null cmd = io (mapM_ putStrLn (genHelp commandList))
   | Just d <- Map.lookup cmd primDocEnv =
                 io $ putStr d
-  | Just (ec,_) <- lookup cmd builtIns =
-                io $ print $ helpDoc ec
+-- FIXME? can we restore the ability to lookup doc strings from Cryptol?
+--  | Just (ec,_) <- lookup cmd builtIns =
+--                io $ print $ helpDoc ec
+
   | otherwise = do io $ putStrLn $ "// No documentation is available."
                    typeOfCmd cmd
 
