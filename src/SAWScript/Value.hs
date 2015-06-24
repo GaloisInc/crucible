@@ -39,6 +39,7 @@ import SAWScript.Proof
 import SAWScript.TypedTerm
 import SAWScript.Utils
 import SAWScript.ImportAIG
+import SAWScript.SAWCorePrimitives( concretePrimitives )
 
 import Verifier.SAW.FiniteValue
 import Verifier.SAW.Rewriter ( Simpset )
@@ -188,9 +189,6 @@ tupleLookupValue (VTuple vs) i
   | fromIntegral i <= length vs = vs !! (fromIntegral i - 1)
   | otherwise = error $ "no such tuple index: " ++ show i
 tupleLookupValue _ _ = error "tupleLookupValue"
-
-concretePrimitives :: Map Ident Concrete.CValue
-concretePrimitives = M.empty
 
 evaluate :: SharedContext s -> SharedTerm s -> Concrete.CValue
 evaluate sc t = Concrete.evalSharedTerm (scModule sc) concretePrimitives t

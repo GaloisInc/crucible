@@ -68,6 +68,7 @@ import SAWScript.Proof
 import SAWScript.TopLevel
 import SAWScript.TypedTerm
 import SAWScript.Utils
+import SAWScript.SAWCorePrimitives( bitblastPrimitives, sbvPrimitives, concretePrimitives )
 import qualified SAWScript.Value as SV
 
 import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
@@ -182,8 +183,6 @@ loadAIGPrim f = do
     Left err -> fail $ "Reading AIG failed: " ++ err
     Right ntk -> return ntk
 
-bitblastPrimitives :: AIG.IsAIG l g => g s -> Map.Map Ident (BBSim.BValue (l s))
-bitblastPrimitives _ = Map.empty
 
 -- | Tranlsate a SAWCore term into an AIG
 bitblastPrim :: SharedContext s -> TypedTerm s -> IO AIGNetwork
@@ -673,9 +672,6 @@ rewriteEqs sc (TypedTerm schema t) = do
   t' <- rewriteSharedTerm sc ss t
   return (TypedTerm schema t')
 
-sbvPrimitives :: Map.Map Ident SBVSim.SValue
-sbvPrimitives = Map.empty
-
 codegenSBV :: SharedContext s -> FilePath -> String -> TypedTerm s -> IO ()
 codegenSBV sc path fname (TypedTerm _schema t) =
   SBVSim.sbvCodeGen sc sbvPrimitives [] mpath fname t
@@ -985,7 +981,7 @@ cexEvalFn sc args tm = do
   let is = mapMaybe extIdx exts
       argMap = Map.fromList (zip is args')
   tm' <- scInstantiateExt sc argMap tm
-  return $ Concrete.evalSharedTerm (scModule sc) SV.concretePrimitives tm'
+  return $ Concrete.evalSharedTerm (scModule sc) concretePrimitives tm'
 
 toValueCase :: (SV.FromValue b) =>
                SharedContext SAWCtx
