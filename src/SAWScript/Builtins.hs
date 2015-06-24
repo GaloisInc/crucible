@@ -183,6 +183,15 @@ loadAIGPrim f = do
     Left err -> fail $ "Reading AIG failed: " ++ err
     Right ntk -> return ntk
 
+saveAIGPrim :: String -> AIGNetwork -> TopLevel ()
+saveAIGPrim f n = io $ AIG.writeAiger f n
+
+saveAIGasCNFPrim :: String -> AIGNetwork -> TopLevel ()
+saveAIGasCNFPrim f (AIG.Network be ls) =
+  case ls of
+    [l] -> do _ <- io $ GIA.writeCNF be l f
+              return ()
+    _ -> fail "save_aig_as_cnf: non-boolean term"
 
 -- | Tranlsate a SAWCore term into an AIG
 bitblastPrim :: SharedContext s -> TypedTerm s -> IO AIGNetwork
