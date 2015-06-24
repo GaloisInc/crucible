@@ -32,21 +32,33 @@ import SAWScript.Options
 --import Data.Maybe
 
 import SAWScript.AutoMatch.Declaration
+import SAWScript.AutoMatch.Interaction
 import SAWScript.AutoMatch.Util
 
 import Control.Monad
-import Data.Maybe
+import Control.Monad.Free
+import Data.Either
 
-getDeclsJVM :: BuiltinContext -> Options -> JSS.Class -> {- JavaSetup () -> -} IO (String,[Decl])
-getDeclsJVM _bic _opts cls {- _setup -} =
+getDeclsJVM :: BuiltinContext -> Options -> JSS.Class -> {- JavaSetup () -> -} IO (Interaction (Maybe [Decl]))
+getDeclsJVM _bic _opts cls {- _setup -} = return $ do
 
-   return . (JSS.className cls,) . catMaybes . for (JSS.classMethods cls) $ \method ->
-      do returnType <- jssTypeToStdType =<< JSS.methodReturnType method
-         argTypes <- mapM jssTypeToStdType $ JSS.methodParameterTypes method
-         let argIndices = map (JSS.localIndexOfParameter method) [0 .. length argTypes - 1]
-         tableEntries <- forM argIndices $ JSS.lookupLocalVariableByIdx method 0
-         let args = zipWith Arg (map JSS.localName tableEntries) argTypes
-         return $ Decl (JSS.methodName method) returnType args
+   let (untranslateable, translations) =
+         partitionEithers . for (JSS.classMethods cls) $ \method ->
+            maybe (Left $ JSS.methodName method) Right $ do
+               returnType <- jssTypeToStdType =<< JSS.methodReturnType method
+               argTypes <- mapM jssTypeToStdType $ JSS.methodParameterTypes method
+               let argIndices = map (JSS.localIndexOfParameter method) [0 .. length argTypes - 1]
+               tableEntries <- forM argIndices $ JSS.lookupLocalVariableByIdx method 0
+               let args = zipWith Arg (map JSS.localName tableEntries) argTypes
+               return $ Decl (JSS.methodName method) returnType args
+
+   when (not . null $ untranslateable) $ do
+      separator ThinSep
+      liftF . flip Warning () $ "No translation for the following signatures in " ++ JSS.className cls ++ ".class:"
+      bulleted $ map (("'" ++) . (++ "'")) untranslateable
+
+   return $ Just translations
+
 
    where
 

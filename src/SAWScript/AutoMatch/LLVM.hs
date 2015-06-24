@@ -4,40 +4,25 @@
 module SAWScript.AutoMatch.LLVM where
 
 import Control.Monad.State hiding (mapM)
+import Control.Monad.Free
 
 import Text.LLVM hiding (parseDataLayout, Array, Double, Float, FloatType, Void)
-import Verifier.LLVM.Codebase hiding ( Global, ppSymbol, ppIdent
-                                     , globalSym, globalType )
---import qualified Verifier.LLVM.Codebase as CB
---import Verifier.LLVM.Codebase.LLVMContext
+import Verifier.LLVM.Codebase hiding ( Global, ppSymbol, ppIdent, globalSym, globalType )
 import Verifier.LLVM.Backend.SAW
---import Verifier.LLVM.Codebase.DataLayout
---import Verifier.LLVM.Codebase.AST
---import Verifier.LLVM.Simulator
---import Verifier.LLVM.Simulator.Internals
-
---import Verifier.SAW.FiniteValue
 import Verifier.SAW.SharedTerm
---import Verifier.SAW.SCTypeCheck
 
---import SAWScript.CongruenceClosure hiding (mapM)
 import SAWScript.Builtins
---import SAWScript.LLVMExpr
---import SAWScript.LLVMMethodSpecIR
---import SAWScript.LLVMMethodSpec
---import SAWScript.Options
---import SAWScript.Proof
---import SAWScript.TypedTerm
 import SAWScript.Utils
-import SAWScript.Value as SV
+import SAWScript.Value
 
-import Data.Maybe
+--import Data.Maybe
+import Data.Either
 
---import SAWScript.AutoMatch
+import SAWScript.AutoMatch.Interaction
 import SAWScript.AutoMatch.Declaration
 import SAWScript.AutoMatch.Util
 
-getDeclsLLVM :: SharedContext SAWCtx -> LLVMModule -> {- LLVMSetup () -> -} IO (String,[Decl])
+getDeclsLLVM :: SharedContext SAWCtx -> LLVMModule -> {- LLVMSetup () -> -} IO (Interaction (Maybe [Decl]))
 getDeclsLLVM sc (LLVMModule file mdl) {- _setup -} =
 
   let dataLayout = parseDataLayout $ modDataLayout mdl
@@ -45,9 +30,19 @@ getDeclsLLVM sc (LLVMModule file mdl) {- _setup -} =
   in do
     (sbe, _mem, _scLLVM) <- createSAWBackend' sawProxy dataLayout sc
     (warnings, cb) <- mkCodebase sbe dataLayout mdl
-    forM_ warnings $ putStrLn . ("WARNING: " ++) . show
-    return . (file,) . catMaybes . for symbols $ \symbol ->
-      symDefineToDecl =<< lookupDefine symbol cb
+    return $ do
+      forM_ warnings $ liftF . flip Warning () . show
+      let (untranslateable, translations) =
+            partitionEithers . for symbols $ \(Symbol name) ->
+               maybe (Left name) Right $
+                  symDefineToDecl =<< lookupDefine (Symbol name) cb
+
+      when (not . null $ untranslateable) $ do
+         separator ThinSep
+         liftF . flip Warning () $ "No translation for the following signatures in " ++ file ++ ":"
+         bulleted $ map (("'" ++) . (++ "'")) untranslateable
+
+      return $ Just translations
 
    where
 
