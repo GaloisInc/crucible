@@ -1,5 +1,3 @@
-{-# LANGUAGE CPP #-}
-
 {- |
 Module           : $Header$
 Description      :
@@ -13,9 +11,6 @@ module SAWScript.SAWCorePrimitives
 , sbvPrimitives
 ) where
 
-#if !MIN_VERSION_base(4,8,0)
-import Control.Applicative (Applicative)
-#endif
 import qualified Data.Map as M
 import Data.Map ( Map )
 
