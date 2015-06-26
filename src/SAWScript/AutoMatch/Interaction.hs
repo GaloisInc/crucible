@@ -103,11 +103,11 @@ type Assignments = [((Arg, Int), (Arg, Int))]
 type Mappings    = (ArgMapping, ArgMapping)
 
 type Match r w s a =
-   ReaderT r                            -- information about initial declarations
-      (MaybeT                                      -- possible early termination
+   ReaderT r                                   -- information about initial declarations
+      (MaybeT                                  -- possible early termination
          (WriterT [w]                          -- append-only output of matched results
                   (StateT s                    -- remaining arguments on each side
-                          Interaction))) a         -- free monad of instructions to execute
+                          Interaction))) a     -- free monad of instructions to execute
 
 runMatch :: r -> s -> Match r w s a -> Interaction (Maybe a, ([w], s))
 runMatch r s =

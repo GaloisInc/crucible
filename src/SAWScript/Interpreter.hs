@@ -37,10 +37,11 @@ import Control.Applicative
 import Data.Traversable hiding ( mapM )
 #endif
 import qualified Control.Exception as X
-import Control.Monad (foldM, unless)
+import Control.Monad (foldM, unless, (>=>))
 import qualified Data.IntMap as IntMap
 import qualified Data.Map as Map
 import Data.Map ( Map )
+import Text.Show.Pretty (ppShow)
 
 import qualified SAWScript.AST as SS
 import SAWScript.AST (Located(..))
@@ -84,6 +85,8 @@ import Cryptol.TypeCheck.Solve (defaultReplExpr)
 import Cryptol.TypeCheck.Subst (apSubst, listSubst)
 import Cryptol.Utils.PP
 import qualified Cryptol.Eval.Value as V (defaultPPOpts, ppValue)
+
+import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import SAWScript.AutoMatch
 
@@ -439,6 +442,16 @@ primitives = Map.fromList
     (pureVal printTermSExp')
     [ "TODO" ]
 -}
+
+  , prim "dump_file_AST"       "String -> TopLevel ()"
+    (bicVal $ const $ \opts -> SAWScript.Import.loadFile opts >=> mapM_ (putStrLn . ppShow))
+    [ "Dump a pretty representation of the SAWScript AST for a file." ]
+
+  , prim "parser_printer_roundtrip"       "String -> TopLevel ()"
+    (bicVal $ const $
+      \opts -> SAWScript.Import.loadFile opts >=>
+               PP.putDoc . SS.prettyWholeModule)
+    [ "Parses the file as SAWScript and renders the resultant AST back to SAWScript concrete syntax." ]
 
   , prim "print_type"          "Term -> TopLevel ()"
     (pureVal print_type)
@@ -950,11 +963,6 @@ primitives = Map.fromList
     , "more flexibility, see 'java_symexec' or 'java_verify'."
     ]
 
-  , prim "java_match_print"
-    "JavaClass -> JavaClass -> TopLevel Term"
-    (bicVal printMatchesJVM)
-    [ "TODO" ]
-
   , prim "java_symexec"
     "JavaClass -> String -> [(String, Term)] -> [String] -> TopLevel Term"
     (bicVal symexecJava)
@@ -1071,11 +1079,6 @@ primitives = Map.fromList
     , "scalar argument and return types are currently supported. For more"
     , "flexibility, see 'llvm_symexec' or 'llvm_verify'."
     ]
-
-  , prim "llvm_match_print"
-    "LLVMModule -> LLVMModule -> TopLevel ()"
-    (bicVal printMatchesLLVM)
-    [ "TODO" ]
 
   , prim "llvm_symexec"
     "LLVMModule -> String -> [(String, Int)] -> [(String, Term, Int)] -> [(String, Int)] -> TopLevel Term"

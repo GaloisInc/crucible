@@ -24,8 +24,6 @@ import System.FilePath
 
 import SAWScript.Builtins
 import SAWScript.Options
-import qualified Verifier.Java.Simulator as JSS hiding (lookupClass)
-import SAWScript.Value as SV
 
 import SAWScript.AutoMatch.ArgMapping
 import SAWScript.AutoMatch.Declaration
@@ -170,7 +168,7 @@ matchModules leftModule rightModule =
                   if uncurry (&&) (both isEmptyArgMapping leftovers)
                      then matchDecls leftDecl rightDecl assigns
                      else return ()
-               _ -> undefined -- TODO: what to do if multiple names match on either side
+               _ -> return ()
 
             -- TODO: provide interactive matching of remaining functions binned in signature
 
@@ -202,21 +200,6 @@ autoTagSourceFile path = case takeExtension path of
    ".bc"    -> Right $ TaggedSourceFile LLVM    path
    ".class" -> Right $ TaggedSourceFile JVM     path
    ext      -> Left ext
-
--- TODO: Get rid of printMatches*
-
-printMatchesJVM :: BuiltinContext -> Options -> JSS.Class -> JSS.Class -> {- JavaSetup () -> -} IO ()
-printMatchesJVM _bic _opts _leftClass _rightClass {- _setup -} = do undefined
-   --leftDecls  <- getDeclsJVM bic opts leftClass
-   --rightDecls <- getDeclsJVM bic opts rightClass
-   --print =<< interactIO (matchModules leftDecls rightDecls)
-
-printMatchesLLVM :: BuiltinContext -> Options -> LLVMModule -> LLVMModule -> {- LLVMSetup () -> -} IO ()
-printMatchesLLVM _bic _opts _leftModule _rightModule {- _setup -} = undefined
-   --let sc = biSharedContext bic in do
-   --   leftDecls  <- getDeclsLLVM sc leftModule
-   --   rightDecls <- getDeclsLLVM sc rightModule
-   --   print =<< interactIO (matchModules leftDecls rightDecls)
 
 autoMatchFiles :: BuiltinContext -> Options -> FilePath -> FilePath -> IO (Interaction [(Decl, Decl, Assignments)])
 autoMatchFiles bic opts leftPath rightPath =
