@@ -664,7 +664,10 @@ primitives = Map.fromList
     [ "Print the current goal that a proof script is attempting to prove,"
     , "limited to a maximum depth."
     ]
-
+  , prim "print_goal_consts"   "ProofScript ()"
+    (pureVal printGoalConsts)
+    [ "Print the list of unfoldable constants in the current proof goal."
+    ]
 {-
   , prim "print_goal_sexp"     "ProofScript ()"
     (pureVal printGoalSExp)

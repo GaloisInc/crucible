@@ -489,6 +489,11 @@ printGoalDepth n = StateT $ \goal -> do
   print (ppTermDepth n (ttTerm (goalTerm goal)))
   return ((), goal)
 
+printGoalConsts :: ProofScript SAWCtx ()
+printGoalConsts = StateT $ \goal -> do
+  mapM_ putStrLn $ Map.keys (getConstantSet (ttTerm (goalTerm goal)))
+  return ((), goal)
+
 printGoalSExp :: ProofScript SAWCtx ()
 printGoalSExp = StateT $ \goal -> do
   print (ppSharedTermSExp (ttTerm (goalTerm goal)))
