@@ -85,6 +85,9 @@ sharedKeys = curry $ Set.toList . uncurry Set.intersection . both Map.keysSet
 associateSetWith :: (Ord k) => (k -> v) -> Set k -> Map k v
 associateSetWith f = Map.fromAscList . map (id &&& f) . Set.toAscList
 
+pairA :: (Applicative f) => f a -> f b -> f (a,b)
+pairA = (<*>) . fmap (,)
+
 yes, no :: [String]
 (yes, no) =
    let yes' = ["y","yes","yep","yeah","okay","ok","mkay","ay","positive"]

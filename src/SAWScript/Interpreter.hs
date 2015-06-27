@@ -41,7 +41,6 @@ import Control.Monad (foldM, unless, (>=>))
 import qualified Data.IntMap as IntMap
 import qualified Data.Map as Map
 import Data.Map ( Map )
-import Text.Show.Pretty (ppShow)
 
 import qualified SAWScript.AST as SS
 import SAWScript.AST (Located(..))
@@ -444,7 +443,7 @@ primitives = Map.fromList
 -}
 
   , prim "dump_file_AST"       "String -> TopLevel ()"
-    (bicVal $ const $ \opts -> SAWScript.Import.loadFile opts >=> mapM_ (putStrLn . ppShow))
+    (bicVal $ const $ \opts -> SAWScript.Import.loadFile opts >=> mapM_ print)
     [ "Dump a pretty representation of the SAWScript AST for a file." ]
 
   , prim "parser_printer_roundtrip"       "String -> TopLevel ()"
@@ -607,8 +606,8 @@ primitives = Map.fromList
     (pureVal (writeCore :: FilePath -> TypedTerm SAWCtx -> IO ()))
     [ "Write out a representation of a term in SAWCore external format." ]
 
-  , prim "auto_match_print" "String -> String -> TopLevel ()"
-    (bicVal autoMatchPrint)
+  , prim "auto_match" "String -> String -> TopLevel ()"
+    (bicVal autoMatch)
     [ "Interactively decides how to align two modules of potentially heterogeneous"
     , "language and prints the result."
     ]

@@ -40,6 +40,7 @@ data InteractionF a =
   -- input:
   | Confirm String (Bool -> a)
   | GetInt String (Int -> a)
+  | GetString String (String -> a)
   deriving (Functor)
 
 -- And (one possible) interpretation for it into IO...
@@ -93,11 +94,16 @@ interactIO program = do
                         (b,_):_ -> interactIO' (f b)
                         []      -> liftIO (putStr "Please enter either 'yes' or 'no': ") >> loop
                GetInt str f -> do
+                  checkSep
                   result <- fix $ \loop -> do
                      liftIO $ putStr (str ++ " ")
                      maybe (liftIO (putStrLn "Please enter an integer.") >> loop) (interactIO' . f) . readMaybe =<< liftIO getLine
-                  checkSep
                   return result
+               GetString str f -> do
+                  checkSep
+                  liftIO $ putStr (str ++ " ")
+                  interactIO' . f =<< liftIO getLine
+
 
 type Assignments = [((Arg, Int), (Arg, Int))]
 type Mappings    = (ArgMapping, ArgMapping)
@@ -173,6 +179,9 @@ outOfBounds i (l,h) = liftF $ OutOfBounds i (l,h) ()
 
 getInt :: MonadFree InteractionF m => m Int
 getInt = liftF $ GetInt "?" id
+
+getString :: MonadFree InteractionF m => String -> m String
+getString str = liftF $ GetString str id
 
 getInBounds :: MonadFree InteractionF m => (Int,Int) -> m Int
 getInBounds (l,h) = do
