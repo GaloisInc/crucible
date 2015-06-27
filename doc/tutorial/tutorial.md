@@ -566,6 +566,44 @@ and writes. We could then call `llvm_symexec` with an allocation
 argument of `[("a", 10)]`, and both input and output arguments of
 `[("*a", 10)]` (note the additional `*` in the latter).
 
+Concretely, consider a function to calculate the dot product of two
+vectors. We can define this operation functionally in Cryptol as
+follows (and as in `code/dotprod.cry`).
+
+```
+$include all code/dotprod.cry
+```
+
+This code uses a very functional style, and declares several generic,
+polymorphic functions. A more specialized implementation of dot
+product in C might look more like the following, from
+`code/dotprod.c`.
+
+```
+$include all code/dotprod.c
+```
+
+Here, we have two arrays of 32-bit integers, which we assume to both
+contain `size` elements. We can prove the equivalence between the C
+and Cryptol dot product functions with the following SAWScript program
+(in `code/dotprod.saw`).
+
+```
+$include all code/dotprod.saw
+```
+
+The structure of this script is similar to the previous example, but
+has some additional complexities. First, we pass in an allocation list
+that declares that `x` and `y` each point to 12 elements of their
+respective types (both `uint32_t` in this case). Next, we state that
+the *values* pointed to by `x` and `y` are the (symbolic) values of
+`xs` and `ys` respectively, each of which consists of 12 elements.
+Finally, the `size` parameter is the constant `12`. Because the type
+of `t` is fixed after the `llvm_symexec` command has run, the Cryptol
+type checker can specialize the `dotprod` function to the appropriate
+type. ABC can then easily prove the equivalence between the C and
+Cryptol implementations.
+
 Other Examples
 ==============
 

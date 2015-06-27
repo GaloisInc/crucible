@@ -68,6 +68,7 @@ import SAWScript.Proof
 import SAWScript.TopLevel
 import SAWScript.TypedTerm
 import SAWScript.Utils
+import SAWScript.SAWCorePrimitives( bitblastPrimitives, sbvPrimitives, concretePrimitives )
 import qualified SAWScript.Value as SV
 
 import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
@@ -182,6 +183,16 @@ loadAIGPrim f = do
     Left err -> fail $ "Reading AIG failed: " ++ err
     Right ntk -> return ntk
 
+saveAIGPrim :: String -> AIGNetwork -> TopLevel ()
+saveAIGPrim f n = io $ AIG.writeAiger f n
+
+saveAIGasCNFPrim :: String -> AIGNetwork -> TopLevel ()
+saveAIGasCNFPrim f (AIG.Network be ls) =
+  case ls of
+    [l] -> do _ <- io $ GIA.writeCNF be l f
+              return ()
+    _ -> fail "save_aig_as_cnf: non-boolean term"
+
 -- | Tranlsate a SAWCore term into an AIG
 bitblastPrim :: SharedContext s -> TypedTerm s -> IO AIGNetwork
 bitblastPrim sc tt = do
@@ -190,7 +201,7 @@ bitblastPrim sc tt = do
   case s of
     C.Forall [] [] _ -> return ()
     _ -> fail $ "Attempting to bitblast a term with a polymorphic type: " ++ pretty s
-  BBSim.withBitBlastedTerm sawProxy sc (ttTerm t') $ \be ls -> do
+  BBSim.withBitBlastedTerm sawProxy sc bitblastPrimitives (ttTerm t') $ \be ls -> do
     return (AIG.Network be (toList ls))
 
 -- | Read an AIG file representing a theorem or an arbitrary function
@@ -478,6 +489,11 @@ printGoalDepth n = StateT $ \goal -> do
   print (ppTermDepth n (ttTerm (goalTerm goal)))
   return ((), goal)
 
+printGoalConsts :: ProofScript SAWCtx ()
+printGoalConsts = StateT $ \goal -> do
+  mapM_ putStrLn $ Map.keys (getConstantSet (ttTerm (goalTerm goal)))
+  return ((), goal)
+
 printGoalSExp :: ProofScript SAWCtx ()
 printGoalSExp = StateT $ \goal -> do
   print (ppSharedTermSExp (ttTerm (goalTerm goal)))
@@ -567,7 +583,7 @@ satABC sc = StateT $ \g -> do
   let (args, _) = asPiList tp
       argNames = map fst args
   -- putStrLn "Simulating..."
-  BBSim.withBitBlastedPred sawProxy sc t $ \be lit0 shapes -> do
+  BBSim.withBitBlastedPred sawProxy sc bitblastPrimitives t $ \be lit0 shapes -> do
   let lit = case goalQuant g of
         Existential -> lit0
         Universal -> AIG.not lit0
@@ -617,7 +633,7 @@ satExternal doCNF sc execName args = StateT $ \g -> do
   let args' = map replaceFileName args
       replaceFileName "%f" = path
       replaceFileName a = a
-  BBSim.withBitBlastedPred sawProxy sc t $ \be l0 shapes -> do
+  BBSim.withBitBlastedPred sawProxy sc bitblastPrimitives t $ \be l0 shapes -> do
   let l = case goalQuant g of
         Existential -> l0
         Universal -> AIG.not l0
@@ -672,7 +688,7 @@ rewriteEqs sc (TypedTerm schema t) = do
 
 codegenSBV :: SharedContext s -> FilePath -> String -> TypedTerm s -> IO ()
 codegenSBV sc path fname (TypedTerm _schema t) =
-  SBVSim.sbvCodeGen sc [] mpath fname t
+  SBVSim.sbvCodeGen sc sbvPrimitives [] mpath fname t
   where mpath = if null path then Nothing else Just path
 
 prepSBV :: SharedContext s -> [String] -> TypedTerm s
@@ -680,7 +696,7 @@ prepSBV :: SharedContext s -> [String] -> TypedTerm s
 prepSBV sc unints tt = do
   TypedTerm schema t' <- rewriteEqs sc tt
   checkBooleanSchema schema
-  (labels, lit) <- SBVSim.sbvSolve sc unints t'
+  (labels, lit) <- SBVSim.sbvSolve sc sbvPrimitives unints t'
   return (t', labels, lit)
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
@@ -979,7 +995,7 @@ cexEvalFn sc args tm = do
   let is = mapMaybe extIdx exts
       argMap = Map.fromList (zip is args')
   tm' <- scInstantiateExt sc argMap tm
-  return $ Concrete.evalSharedTerm (scModule sc) tm'
+  return $ Concrete.evalSharedTerm (scModule sc) concretePrimitives tm'
 
 toValueCase :: (SV.FromValue b) =>
                SharedContext SAWCtx

@@ -39,6 +39,7 @@ import SAWScript.Proof
 import SAWScript.TypedTerm
 import SAWScript.Utils
 import SAWScript.ImportAIG
+import SAWScript.SAWCorePrimitives( concretePrimitives )
 
 import Verifier.SAW.FiniteValue
 import Verifier.SAW.Rewriter ( Simpset )
@@ -190,7 +191,7 @@ tupleLookupValue (VTuple vs) i
 tupleLookupValue _ _ = error "tupleLookupValue"
 
 evaluate :: SharedContext s -> SharedTerm s -> Concrete.CValue
-evaluate sc t = Concrete.evalSharedTerm (scModule sc) t
+evaluate sc t = Concrete.evalSharedTerm (scModule sc) concretePrimitives t
 
 evaluateTypedTerm :: SharedContext s -> TypedTerm s -> C.Value
 evaluateTypedTerm sc (TypedTerm schema trm) =

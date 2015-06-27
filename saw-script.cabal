@@ -98,6 +98,7 @@ library
     SAWScript.SBVParser
     SAWScript.SBVModel
     SAWScript.REPL.Trie
+    SAWScript.SAWCorePrimitives
     SAWScript.Token
     SAWScript.TopLevel
     SAWScript.MGU

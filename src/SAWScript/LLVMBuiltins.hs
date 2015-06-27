@@ -166,6 +166,7 @@ symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs =
   let sym = Symbol fname
       dl = parseDataLayout $ modDataLayout mdl
       sc = biSharedContext bic
+      lopts = defaultLSSOpts { optsSatAtBranches = True }
   in do
     (sbe, mem, scLLVM) <- createSAWBackend' sawProxy dl sc
     (warnings, cb) <- mkCodebase sbe dl mdl
@@ -173,7 +174,7 @@ symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs =
     case lookupDefine sym cb of
       Nothing -> fail $ "Bitcode file " ++ file ++
                         " does not contain symbol " ++ fname ++ "."
-      Just md -> runSimulator cb sbe mem Nothing $ do
+      Just md -> runSimulator cb sbe mem (Just lopts) $ do
         setVerbosity (simVerbose opts)
         let mkAssign (s, tm, n) = do
               e <- failLeft $ liftIO $ parseLLVMExpr cb md s

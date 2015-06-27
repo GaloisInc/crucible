@@ -525,6 +525,14 @@ primitives = Map.fromList
   , prim "load_aig"            "String -> TopLevel AIG"
     (pureVal loadAIGPrim)
     [ "Read an AIG file in binary AIGER format, yielding an AIG value." ]
+  , prim "save_aig"            "String -> AIG -> TopLevel ()"
+    (pureVal saveAIGPrim)
+    [ "Write an AIG to a file in binary AIGER format." ]
+  , prim "save_aig_as_cnf"     "String -> AIG -> TopLevel ()"
+    (pureVal saveAIGasCNFPrim)
+    [ "Write an AIG representing a boolean function to a file in DIMACS"
+    , "CNF format."
+    ]
 
   , prim "dsec_print"                "Term -> Term -> TopLevel ()"
     (scVal dsecPrint)
@@ -676,7 +684,10 @@ primitives = Map.fromList
     [ "Print the current goal that a proof script is attempting to prove,"
     , "limited to a maximum depth."
     ]
-
+  , prim "print_goal_consts"   "ProofScript ()"
+    (pureVal printGoalConsts)
+    [ "Print the list of unfoldable constants in the current proof goal."
+    ]
 {-
   , prim "print_goal_sexp"     "ProofScript ()"
     (pureVal printGoalSExp)

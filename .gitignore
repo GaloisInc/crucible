@@ -8,3 +8,4 @@ build-tests
 *-test-results.xml
 tmp
 build-sandbox-version-pins.txt
+.stack-work
