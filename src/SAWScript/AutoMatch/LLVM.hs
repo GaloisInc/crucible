@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase    #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE CPP           #-}
 
 module SAWScript.AutoMatch.LLVM where
 
@@ -17,6 +18,9 @@ import SAWScript.Value
 
 --import Data.Maybe
 import Data.Either
+#if !MIN_VERSION_base(4,8,0)
+import Control.Applicative
+#endif
 
 import SAWScript.AutoMatch.Interaction
 import SAWScript.AutoMatch.Declaration

@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveFunctor    #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE CPP              #-}
 
 module SAWScript.AutoMatch.Interaction where
 
@@ -20,6 +21,9 @@ import Control.Monad.Writer
 import Control.Monad.State
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
+#if !MIN_VERSION_base(4,8,0)
+import Control.Applicative
+#endif
 import Control.Arrow ((***), second)
 import Control.Conditional (whenM)
 import Text.Read (readMaybe)
@@ -198,7 +202,7 @@ failure printFailure string =
 userQuit :: (Monad m, MonadTrans t, MonadFree InteractionF (t (MaybeT m))) => t (MaybeT m) b
 userQuit = failure False "Matching terminated by user."
 
-confirmOrQuit :: (Monad m, MonadTrans t, MonadFree InteractionF (t (MaybeT m))) => String -> t (MaybeT m) ()
+confirmOrQuit :: (Monad m, MonadTrans t, MonadFree InteractionF (t (MaybeT m)), Functor (t (MaybeT m))) => String -> t (MaybeT m) ()
 confirmOrQuit str =
    whenM (not <$> confirm str) userQuit
 

@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase       #-}
 {-# LANGUAGE ViewPatterns     #-}
 {-# LANGUAGE RecordWildCards  #-}
+{-# LANGUAGE CPP              #-}
 
 module SAWScript.AutoMatch where
 
@@ -22,7 +23,9 @@ import Data.Char
 import Data.Ord
 import Data.List
 import Data.Maybe
-import Data.Function
+#if !MIN_VERSION_base(4,8,0)
+import Control.Applicative
+#endif
 
 import Control.Conditional (whenM)
 import System.FilePath
@@ -54,6 +57,10 @@ import Language.JVM.Common (dotsToSlashes)
 import Text.PrettyPrint.ANSI.Leijen (putDoc, hPutDoc)
 
 import System.IO
+
+#if MIN_VERSION_base(4,8,0)
+import Data.Function
+#endif
 
 -- The interactive matching procedure...
 
@@ -445,3 +452,7 @@ autoMatch interpreter leftFile rightFile =
    autoTagSourceFiles leftFile rightFile &
       (either (io . putStrLn) $ 
          uncurry autoMatchFiles >=> io . interactIO >=> actAfterMatch interpreter)
+
+#if !MIN_VERSION_base(4,8,0)
+   where (&) = flip ($)
+#endif
