@@ -22,8 +22,8 @@ import SAWScript.AutoMatch.Interaction
 import SAWScript.AutoMatch.Declaration
 import SAWScript.AutoMatch.Util
 
-getDeclsLLVM :: SharedContext SAWCtx -> LLVMModule -> {- LLVMSetup () -> -} IO (Interaction (Maybe [Decl]))
-getDeclsLLVM sc (LLVMModule file mdl) {- _setup -} =
+getDeclsLLVM :: SharedContext SAWCtx -> LLVMModule -> IO (Interaction (Maybe [Decl]))
+getDeclsLLVM sc (LLVMModule file mdl) =
 
   let dataLayout = parseDataLayout $ modDataLayout mdl
       symbols = map defName (modDefines mdl)

@@ -16,6 +16,7 @@ import Control.Monad.State
 import Control.Monad.Reader
 import Control.Monad.Supply
 import Control.Conditional (ifM)
+import Control.Monad.IfElse (awhen)
 
 import Data.Char
 import Data.Ord
@@ -27,14 +28,19 @@ import Control.Conditional (whenM)
 import System.FilePath
 
 import qualified SAWScript.AST as SAWScript
---import qualified Cryptol.Parser.AST as Cryptol
+import qualified Cryptol.Parser.AST      as Cryptol
+import qualified Cryptol.Parser.Position as Cryptol
+import qualified Cryptol.Utils.PP        as Cryptol
 import SAWScript.Builtins
-import SAWScript.Options
+--import SAWScript.Options
+import SAWScript.Utils
+import SAWScript.TopLevel
+import SAWScript.Value
+--import Verifier.SAW.SharedTerm
 
 import SAWScript.AutoMatch.ArgMapping
 import SAWScript.AutoMatch.Declaration
 import SAWScript.AutoMatch.Util
-import SAWScript.Utils
 
 import SAWScript.AutoMatch.Interaction
 import SAWScript.AutoMatch.JVM
@@ -42,7 +48,8 @@ import SAWScript.AutoMatch.LLVM
 import SAWScript.AutoMatch.Cryptol
 
 import SAWScript.LLVMBuiltins
-import SAWScript.JavaBuiltins
+--import SAWScript.JavaBuiltins
+import Language.JVM.Common (dotsToSlashes)
 
 import Text.PrettyPrint.ANSI.Leijen (putDoc, hPutDoc)
 
@@ -233,14 +240,10 @@ autoTagSourceFiles leftPath rightPath =
       (Right leftSource, Right rightSource) ->
          return (leftSource, rightSource)
 
-autoMatchFiles :: BuiltinContext -> Options
-               -> TaggedSourceFile -> TaggedSourceFile
-               -> IO (Interaction MatchResult)
-autoMatchFiles bic opts
-               leftSource@(TaggedSourceFile _ leftPath)
-               rightSource@(TaggedSourceFile _ rightPath) = do
-   leftModInteract  <- loadDecls bic opts leftSource
-   rightModInteract <- loadDecls bic opts rightSource
+autoMatchFiles :: TaggedSourceFile -> TaggedSourceFile -> TopLevel (Interaction MatchResult)
+autoMatchFiles leftSource@(TaggedSourceFile _ leftPath) rightSource@(TaggedSourceFile _ rightPath) = do
+   leftModInteract  <- loadDecls leftSource
+   rightModInteract <- loadDecls rightSource
    return . frame (separator SuperThickSep) $ do 
       info Nothing $ "Aligning declarations between " ++ leftPath ++ corresponds ++ rightPath
       separator ThickSep
@@ -248,12 +251,17 @@ autoMatchFiles bic opts
             (processResults leftSource rightSource <=< uncurry matchModules) =<<
          pairA <$> leftModInteract <*> rightModInteract
 
-loadDecls :: BuiltinContext -> Options -> TaggedSourceFile -> IO (Interaction (Maybe [Decl]))
-loadDecls bic opts (TaggedSourceFile lang path) =
+loadDecls :: TaggedSourceFile -> TopLevel (Interaction (Maybe [Decl]))
+loadDecls (TaggedSourceFile lang path) = do
+   sc <- getSharedContext
    case lang of
-      Cryptol -> getDeclsCryptol path
-      LLVM    -> loadLLVMModule path >>= getDeclsLLVM (biSharedContext bic)
-      JVM     -> loadJavaClass bic (dropExtension path) >>= getDeclsJVM bic opts
+      Cryptol -> io $ getDeclsCryptol path
+      LLVM    -> io $ loadLLVMModule path >>= getDeclsLLVM sc
+      JVM     -> loadJavaClassTopLevel (dropExtension path) >>= io . getDeclsJVM
+   where
+      loadJavaClassTopLevel cls = do 
+         javaCodebase <- getJavaCodebase
+         io . lookupClass javaCodebase fixPos . dotsToSlashes $ cls
 
 -- What to do after performing the matching procedure...
 data MatchResult =
@@ -262,31 +270,36 @@ data MatchResult =
                , afterMatchPrint   :: Bool
                , afterMatchExecute :: Bool }
 
-actAfterMatch :: BuiltinContext -> Options -> MatchResult -> IO ()
-actAfterMatch bic opts MatchResult{..} =
+-- | The type of the line-by-line interpreter, which needs to be passed in another module to avoid circularity
+type StmtInterpreter = TopLevelRO -> TopLevelRW -> [SAWScript.Stmt] -> IO Value
+
+actAfterMatch :: StmtInterpreter -> MatchResult -> TopLevel ()
+actAfterMatch interpretStmts MatchResult{..} =
    let renderedScript = SAWScript.prettyWholeModule generatedScript
-   in do case afterMatchSave of
-            Nothing   -> return ()
-            Just file ->
-               withFile file WriteMode $ \handle ->
-                  hPutDoc handle renderedScript
-         when afterMatchPrint   $ putDoc renderedScript
-         when afterMatchExecute $ interpret bic opts generatedScript
+   in do io . awhen afterMatchSave $ \file ->
+                 withFile file WriteMode $ \handle ->
+                     hPutDoc handle renderedScript
+         io . when afterMatchPrint $ putDoc renderedScript
+         when afterMatchExecute $ interpret generatedScript
    where
-      interpret = undefined -- TODO: hook into SAWScript interpreter to execute the AST
+      interpret script = do
+         ro <- getTopLevelRO
+         rw <- getTopLevelRW
+         io . void $ interpretStmts ro rw script
 
 processResults :: TaggedSourceFile -> TaggedSourceFile
                -> [(Decl, Decl, Assignments)]
                -> Interaction MatchResult
-processResults (TaggedSourceFile leftLang  leftFile)
-               (TaggedSourceFile rightLang rightFile)
-               matchings =
+processResults (TaggedSourceFile leftLang  leftFile) (TaggedSourceFile rightLang rightFile) matchings = do
 
-      MatchResult script <$> (ifM (confirm "Save generated script to file?")
-                                  (Just <$> getString "Filename:")
-                                  (return Nothing))
-                         <*> confirm "Print generated script to the console?"
-                         <*> confirm "Execute generated script?"
+      MatchResult script <$> (do separator ThickSep
+                                 ifM (confirm "Save generated script to file?")
+                                     (Just <$> getString "Filename:")
+                                     (return Nothing))
+                         <*> (do separator ThinSep
+                                 confirm "Print generated script to the console?")
+                         <*> (do separator ThinSep
+                                 confirm "Execute generated script?")
 
    where
 
@@ -349,33 +362,46 @@ processResults (TaggedSourceFile leftLang  leftFile)
 
       equivalenceTheorem :: (String -> String) -> SAWScript.LName -> SAWScript.LName -> Assignments -> ScriptWriter (SAWScript.LName)
       equivalenceTheorem prefix leftFunction rightFunction assigns = do
+         theoremName <- newNameWith prefix
          (leftArgs, rightArgs) <-
             fmap (both (map snd . sortBy (comparing fst)) . unzip) .
             forM assigns $
                \((Arg leftName _, leftIndex), (Arg rightName _, rightIndex)) -> do
-                  name <- newNameWith (nameCenter (leftName ++ "__" ++ rightName))
+                  name <- newNameWith (nameCenter (leftName ++ "_" ++ rightName))
                   return ((leftIndex, name), (rightIndex, name))
-         return undefined
+         returning theoremName . tell $
+            [SAWScript.StmtBind (Just theoremName) Nothing Nothing .
+                SAWScript.Code . locate .
+                   show . Cryptol.ppPrec 0 .
+                      cryptolAbstractNamesSAW leftArgs .
+                         cryptolApplyFunction (Cryptol.EParens . Cryptol.EVar . nameCryptolFromSAW . locate $ "==") $
+                            [ cryptolApplyFunctionSAW leftFunction  leftArgs
+                            , cryptolApplyFunctionSAW rightFunction rightArgs ]]
 
       nameCryptolFromSAW :: SAWScript.LName -> Cryptol.QName
-      nameCryptolFromSAW = Cryptol.QName Nothing . Cryptol.Name . getVal
+      nameCryptolFromSAW = Cryptol.QName Nothing . Cryptol.Name . SAWScript.getVal
 
       cryptolAbstractNamesSAW :: [SAWScript.LName] -> Cryptol.Expr -> Cryptol.Expr
       cryptolAbstractNamesSAW names expr =
-         Cryptol.EFun (for names $ nameCryptolFromSAW) expr
+         Cryptol.EFun (for names $ Cryptol.PVar . cryptolLocate . SAWScript.getVal) expr
 
       cryptolApplyFunctionSAW :: SAWScript.LName -> [SAWScript.LName] -> Cryptol.Expr
       cryptolApplyFunctionSAW function args =
-         let f  = Cryptol.EVar . nameCryptolFromSAW $ function
-             as = for args $ Cryptol.EVar . nameCryptolFromSAW
-         in foldl Cryptol.EApp f as
+         cryptolApplyFunction (Cryptol.EVar $ nameCryptolFromSAW function)
+                              (map (Cryptol.EVar . nameCryptolFromSAW) args)
 
-      -- TODO: Make abstract-all-arguments function out of the two above
-      -- TODO: Make constructor for Cryptol equality between two expressions
-      -- TODO: Invoke Cryptol pretty-printer to render the result to a string in the SAWScript AST
+      cryptolApplyFunction :: Cryptol.Expr -> [Cryptol.Expr] -> Cryptol.Expr
+      cryptolApplyFunction function args =
+         foldl Cryptol.EApp function args
 
       prove :: SAWScript.LName -> ScriptWriter ()
-      prove = undefined -- TODO: render an invocation of the prover as AST
+      prove theorem = tell $
+         [SAWScript.StmtBind Nothing Nothing Nothing
+             (SAWScript.Application
+                (SAWScript.Application
+                   (SAWScript.Var . locate $ "prove_print")
+                   (SAWScript.Var (locate "abc")))
+                (SAWScript.Var theorem))]
 
       printString :: String -> ScriptWriter ()
       printString string = tell $
@@ -388,6 +414,15 @@ processResults (TaggedSourceFile leftLang  leftFile)
       locate name =
          SAWScript.Located name "" (PosInternal "generated by auto_match")
 
+      cryptolLocate :: String -> Cryptol.LName
+      cryptolLocate name =
+         Cryptol.Located
+            (Cryptol.Range
+               (Cryptol.Position 0 0)
+               (Cryptol.Position 0 0)
+               (error "bogus position generated by auto_match"))
+            (Cryptol.Name name)
+
       newNameWith :: (String -> String) -> ScriptWriter (SAWScript.LName)
       newNameWith prefix = locate . prefix <$> supply
 
@@ -396,17 +431,17 @@ processResults (TaggedSourceFile leftLang  leftFile)
          leftModule  <- loadFile (nameLeft  "module") leftLang  leftFile
          rightModule <- loadFile (nameRight "module") rightLang rightFile
          forM_ matchings $ \(leftDecl, rightDecl, assigns) -> do
-            leftFunction  <- extractFunction (nameLeft  "function") leftLang  (declName leftDecl)  leftModule
-            rightFunction <- extractFunction (nameRight "function") rightLang (declName rightDecl) rightModule
+            leftFunction  <- extractFunction (nameLeft  (declName leftDecl))  leftLang  (declName leftDecl)  leftModule
+            rightFunction <- extractFunction (nameRight (declName rightDecl)) rightLang (declName rightDecl) rightModule
             theorem       <- equivalenceTheorem (nameCenter "theorem") leftFunction rightFunction assigns
-            printString $ "Proving " ++ declName leftDecl  ++ " from " ++ leftFile ++
-                              " == " ++ declName rightDecl ++ " from " ++ rightFile
+            printString $ "Proving '" ++ declName leftDecl  ++ "' (" ++ leftFile  ++ ")" ++
+                              " == '" ++ declName rightDecl ++ "' (" ++ rightFile ++ ")"
             prove theorem
 
 type ScriptWriter = WriterT [SAWScript.Stmt] (Supply String)
 
-autoMatch :: BuiltinContext -> Options -> FilePath -> FilePath -> IO ()
-autoMatch bic opts leftFile rightFile =
+autoMatch :: StmtInterpreter -> FilePath -> FilePath -> TopLevel ()
+autoMatch interpreter leftFile rightFile =
    autoTagSourceFiles leftFile rightFile &
-      (either putStrLn $ 
-         uncurry (autoMatchFiles bic opts) >=> interactIO >=> actAfterMatch bic opts)
+      (either (io . putStrLn) $ 
+         uncurry autoMatchFiles >=> io . interactIO >=> actAfterMatch interpreter)

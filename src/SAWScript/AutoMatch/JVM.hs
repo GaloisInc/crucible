@@ -6,31 +6,9 @@ module SAWScript.AutoMatch.JVM where
 import qualified Language.JVM.Parser as JVM
 
 import qualified Verifier.Java.Simulator as JSS hiding (lookupClass)
---import Verifier.Java.SAWBackend
 
---import Verifier.SAW.Recognizer
---import Verifier.SAW.FiniteValue
---import Verifier.SAW.SCTypeCheck
---import Verifier.SAW.SharedTerm
-
---import qualified SAWScript.CongruenceClosure as CC
-
---import SAWScript.JavaExpr
---import SAWScript.JavaMethodSpec
---import SAWScript.JavaMethodSpecIR
-
-import SAWScript.Builtins
-import SAWScript.Options
---import SAWScript.Proof
---import SAWScript.TypedTerm
---import SAWScript.Utils
---import SAWScript.Value as SS
-
---import SAWScript.JavaBuiltins
-
---import Data.IORef
---import Data.Maybe
-
+--import SAWScript.Builtins
+--import SAWScript.Options
 import SAWScript.AutoMatch.Declaration
 import SAWScript.AutoMatch.Interaction
 import SAWScript.AutoMatch.Util
@@ -39,8 +17,8 @@ import Control.Monad
 import Control.Monad.Free
 import Data.Either
 
-getDeclsJVM :: BuiltinContext -> Options -> JSS.Class -> {- JavaSetup () -> -} IO (Interaction (Maybe [Decl]))
-getDeclsJVM _bic _opts cls {- _setup -} = return $ do
+getDeclsJVM :: JSS.Class -> IO (Interaction (Maybe [Decl]))
+getDeclsJVM cls = return $ do
 
    let (untranslateable, translations) =
          partitionEithers . for (JSS.classMethods cls) $ \method ->
@@ -58,7 +36,6 @@ getDeclsJVM _bic _opts cls {- _setup -} = return $ do
       bulleted $ map (("'" ++) . (++ "'")) untranslateable
 
    return $ Just translations
-
 
    where
 

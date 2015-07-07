@@ -29,6 +29,7 @@ library
     , filepath
     , free
     , haskeline
+    , IfElse
     , jvm-parser
     , jvm-verifier
     , lens

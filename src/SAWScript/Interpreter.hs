@@ -615,7 +615,7 @@ primitives = Map.fromList
     [ "Write out a representation of a term in SAWCore external format." ]
 
   , prim "auto_match" "String -> String -> TopLevel ()"
-    (bicVal autoMatch)
+    (pureVal (autoMatch interpretStmts :: FilePath -> FilePath -> TopLevel ()))
     [ "Interactively decides how to align two modules of potentially heterogeneous"
     , "language and prints the result."
     ]

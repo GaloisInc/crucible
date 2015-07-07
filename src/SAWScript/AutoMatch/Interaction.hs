@@ -97,7 +97,7 @@ interactIO program = do
                   checkSep
                   result <- fix $ \loop -> do
                      liftIO $ putStr (str ++ " ")
-                     maybe (liftIO (putStrLn "Please enter an integer.") >> loop) (interactIO' . f) . readMaybe =<< liftIO getLine
+                     maybe (liftIO (putStr "Please enter an integer: ") >> loop) (interactIO' . f) . readMaybe =<< liftIO getLine
                   return result
                GetString str f -> do
                   checkSep
