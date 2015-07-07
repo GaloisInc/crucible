@@ -9,3 +9,4 @@ build-tests
 tmp
 build-sandbox-version-pins.txt
 .stack-work
+.DS_Store
