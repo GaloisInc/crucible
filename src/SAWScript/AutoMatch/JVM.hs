@@ -17,6 +17,8 @@ import Control.Monad
 import Control.Monad.Free
 import Data.Either
 
+-- | Parse a Java class into a list of declarations
+--   Yields an Interaction so that we can talk to the user about what went wrong
 getDeclsJVM :: JSS.Class -> IO (Interaction (Maybe [Decl]))
 getDeclsJVM cls = return $ do
 

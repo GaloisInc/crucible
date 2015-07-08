@@ -62,8 +62,7 @@ import System.IO
 import Data.Function
 #endif
 
--- The interactive matching procedure...
-
+-- | The interactive procedure for matching two given function declarations
 matchingProcedure :: Decl -> Decl -> Interaction (Assignments, Mappings)
 matchingProcedure left right =
    execMatchDecls (left, right) . sequence_ $
@@ -74,14 +73,14 @@ matchingProcedure left right =
       , checkNameClashes
       , matchInteractively ]
 
--- The individual components of the interactive matching procedure...
-
+-- | Print information about the two declarations about to be matched
 initialInfo :: ArgMatch ()
 initialInfo = do
    (left, right) <- ask
    info (Just "Comparing") $ show left ++
           "\n           " ++ show right
 
+-- | Fail matching if the two declarations differ in return type
 checkReturnTypeCompat :: ArgMatch ()
 checkReturnTypeCompat = do
    (left, right) <- ask
@@ -93,6 +92,7 @@ checkReturnTypeCompat = do
          declName right ++ " : ... " ++ show (declType right) ++
          ") do not match in return type, and so cannot be reconciled."
 
+-- | Fail matching if the two declarations have argument types which aren't permutations of each other
 checkSignatureCompat :: ArgMatch ()
 checkSignatureCompat = do
    (left, right) <- ask
@@ -103,6 +103,7 @@ checkSignatureCompat = do
          "' cannot be aligned by permutation."
       confirmOrQuit "Proceed with matching anyway?"
 
+-- | Automatically equate all arguments which match exactly in type and name
 processExactMatches :: ArgMatch ()
 processExactMatches = do
    exactMatches <- findExactMatches <$> get
@@ -116,6 +117,7 @@ processExactMatches = do
             formatIndex i1 ++ corresponds ++ formatIndex i2
       separator ThinSep
 
+-- | Interactively warn when any arguments of *different* types have the same name -- this is likely a user error
 checkNameClashes :: ArgMatch ()
 checkNameClashes = do
    sharedNames <- getIntersect (Map.keys . nameLocs)
@@ -127,6 +129,7 @@ checkNameClashes = do
          " are named identically, but have differing types."
       confirmOrQuit "Proceed with matching by considering them distinct?"
 
+-- | Walk through the remaining unmatched declarations asking the user to align them
 matchInteractively :: ArgMatch ()
 matchInteractively = do
    sharedTypes <- getIntersect (Map.keys . typeBins)
@@ -151,12 +154,13 @@ matchInteractively = do
          --                    *just*ified use ^^^^^^^^^^ because typ is
          --                    definitely in map when we call this function
 
+-- | Project from the (s,s) state a list of the intersection of return values
+--   from the function on both parts of the state
 getIntersect :: (Ord b) => (s -> [b]) -> Match r w (s,s) [b]
 getIntersect f =
    Set.toList . uncurry Set.intersection . (both $ Set.fromList . f) <$> get
 
--- How to find exact matches (name & type) between two ArgMappings:
-
+-- | Compute exact matches (name & type) between two ArgMappings:
 findExactMatches :: (ArgMapping, ArgMapping) -> [((Arg, Int), (Arg, Int))]
 findExactMatches (leftMapping, rightMapping) =
    concat $
@@ -179,6 +183,7 @@ findExactMatches (leftMapping, rightMapping) =
             Set.intersection (namesWithType typ leftMapping)
                              (namesWithType typ rightMapping)
 
+-- | The interactive procedure to match declarations between two whole modules
 matchModules :: [Decl] -> [Decl] -> Interaction [(Decl, Decl, Assignments)]
 matchModules leftModule rightModule =
    runMatchModules leftModule rightModule $ do
@@ -211,16 +216,21 @@ matchModules leftModule rightModule =
          warning "Did not find matches for right-side declarations:"
          bulleted $ map show unselectedR
 
+-- | Names are approximately equal if they are equal modulo
+--   spaces, underscores, hyphens, and capitalization
 approximateName :: Name -> Name
 approximateName =
    filter (not . (`elem` "_- ")) . map toLower
 
+-- | Source langauges we support
 data SourceLanguage = Cryptol | JVM | LLVM deriving (Eq, Ord, Show)
 
+-- | A filepath tagged with its language of origin
 data TaggedSourceFile =
    TaggedSourceFile { sourceLanguage :: SourceLanguage
                     , sourceFilePath :: FilePath } deriving (Eq, Ord, Show)
 
+-- | Try to recognize the source language of a filepath, and tag it if we know how
 autoTagSourceFile :: FilePath -> Either String TaggedSourceFile
 autoTagSourceFile path = case takeExtension path of
    ".cry"   -> Right $ TaggedSourceFile Cryptol path
@@ -228,6 +238,7 @@ autoTagSourceFile path = case takeExtension path of
    ".class" -> Right $ TaggedSourceFile JVM     path
    ext      -> Left ext
 
+-- | Try to tag both files and fail with a descriptive error if either cannot be recognized
 autoTagSourceFiles :: FilePath -> FilePath -> Either String (TaggedSourceFile, TaggedSourceFile)
 autoTagSourceFiles leftPath rightPath =
    case both autoTagSourceFile (leftPath, rightPath) of
@@ -247,6 +258,7 @@ autoTagSourceFiles leftPath rightPath =
       (Right leftSource, Right rightSource) ->
          return (leftSource, rightSource)
 
+-- | Take two tagged source files and load them up to generate an interaction which matches the modules together
 autoMatchFiles :: TaggedSourceFile -> TaggedSourceFile -> TopLevel (Interaction MatchResult)
 autoMatchFiles leftSource@(TaggedSourceFile _ leftPath) rightSource@(TaggedSourceFile _ rightPath) = do
    leftModInteract  <- loadDecls leftSource
@@ -258,6 +270,7 @@ autoMatchFiles leftSource@(TaggedSourceFile _ leftPath) rightSource@(TaggedSourc
             (processResults leftSource rightSource <=< uncurry matchModules) =<<
          pairA <$> leftModInteract <*> rightModInteract
 
+-- | Load the declarations from the given file, dispatching on the source language to determine how to do this
 loadDecls :: TaggedSourceFile -> TopLevel (Interaction (Maybe [Decl]))
 loadDecls (TaggedSourceFile lang path) = do
    sc <- getSharedContext
@@ -270,7 +283,7 @@ loadDecls (TaggedSourceFile lang path) = do
          javaCodebase <- getJavaCodebase
          io . lookupClass javaCodebase fixPos . dotsToSlashes $ cls
 
--- What to do after performing the matching procedure...
+-- A description of the result of matching: some generated SAWScript, and some flags determining what to do now
 data MatchResult =
    MatchResult { generatedScript   :: [SAWScript.Stmt]
                , afterMatchSave    :: Maybe FilePath 
@@ -280,6 +293,7 @@ data MatchResult =
 -- | The type of the line-by-line interpreter, which needs to be passed in another module to avoid circularity
 type StmtInterpreter = TopLevelRO -> TopLevelRW -> [SAWScript.Stmt] -> IO Value
 
+-- | How to interpret a MatchResult to the TopLevel monad
 actAfterMatch :: StmtInterpreter -> MatchResult -> TopLevel ()
 actAfterMatch interpretStmts MatchResult{..} =
    let renderedScript = SAWScript.prettyWholeModule generatedScript
@@ -294,6 +308,25 @@ actAfterMatch interpretStmts MatchResult{..} =
          rw <- getTopLevelRW
          io . void $ interpretStmts ro rw script
 
+-- | The top level entry-point for AutoMatch
+--   Requires a StmtInterpreter to be passed as input to resolve import cycle
+autoMatch :: StmtInterpreter -> FilePath -> FilePath -> TopLevel ()
+autoMatch interpreter leftFile rightFile =
+   autoTagSourceFiles leftFile rightFile &
+      (either (io . putStrLn) $ 
+         uncurry autoMatchFiles >=> io . interactIO >=> actAfterMatch interpreter)
+
+#if !MIN_VERSION_base(4,8,0)
+   where (&) = flip ($)
+#endif
+
+-- | Just a bunch of SAWScript statments as output and a supply of unique identifiers
+type ScriptWriter = WriterT [SAWScript.Stmt] (Supply String)
+
+-- | Given two tagged source files and a bunch of matchings of declarations,
+--   generate an interaction which asks the user what to do after the matching
+--   and gives the appropriate MatchResult. Contains the logic for generating 
+--   SAWScript based upon the assignments.
 processResults :: TaggedSourceFile -> TaggedSourceFile
                -> [(Decl, Decl, Assignments)]
                -> Interaction MatchResult
@@ -433,6 +466,7 @@ processResults (TaggedSourceFile leftLang  leftFile) (TaggedSourceFile rightLang
       newNameWith :: (String -> String) -> ScriptWriter (SAWScript.LName)
       newNameWith prefix = locate . prefix <$> supply
 
+      -- Here's the template for the output script:
       script :: [SAWScript.Stmt]
       script = flip evalSupply (map show [(0 :: Integer) ..]) . execWriterT $ do
          leftModule  <- loadFile (nameLeft  "module") leftLang  leftFile
@@ -444,15 +478,3 @@ processResults (TaggedSourceFile leftLang  leftFile) (TaggedSourceFile rightLang
             printString $ "Proving '" ++ declName leftDecl  ++ "' (" ++ leftFile  ++ ")" ++
                               " == '" ++ declName rightDecl ++ "' (" ++ rightFile ++ ")"
             prove theorem
-
-type ScriptWriter = WriterT [SAWScript.Stmt] (Supply String)
-
-autoMatch :: StmtInterpreter -> FilePath -> FilePath -> TopLevel ()
-autoMatch interpreter leftFile rightFile =
-   autoTagSourceFiles leftFile rightFile &
-      (either (io . putStrLn) $ 
-         uncurry autoMatchFiles >=> io . interactIO >=> actAfterMatch interpreter)
-
-#if !MIN_VERSION_base(4,8,0)
-   where (&) = flip ($)
-#endif

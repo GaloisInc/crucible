@@ -30,6 +30,7 @@ import Text.Read (readMaybe)
 import Data.Maybe
 import Data.Char
 
+-- | A pure description of a user interaction by means of a free monad
 type Interaction = Free InteractionF
 
 data InteractionF a =
@@ -47,8 +48,10 @@ data InteractionF a =
   | GetString String (String -> a)
   deriving (Functor)
 
--- And (one possible) interpretation for it into IO...
-
+-- | The obvious interpretation of an interaction into IO
+--   The only real complexity here is that we collapse horizontal separators together
+--   so that multiple adjacent separators will be printed as a single separator as thick
+--   as the largest one called for by the interaction.
 interactIO :: Interaction a -> IO a
 interactIO program = do
    hSetBuffering stdin  NoBuffering
@@ -108,10 +111,18 @@ interactIO program = do
                   liftIO $ putStr (str ++ " ")
                   interactIO' . f =<< liftIO getLine
 
-
+-- | A list of assignments between the arguments of two declarations
 type Assignments = [((Arg, Int), (Arg, Int))]
+
+-- | A pair of ArgMappings
 type Mappings    = (ArgMapping, ArgMapping)
 
+-- | The monad stack in which we write most of our interaction code
+--   We can read the initial declarations we're working with (ReaderT),
+--   write out matches we've identified (WriterT),
+--   remove things from consideration (StateT),
+--   and possibly terminate early (MaybeT),
+--   all while being able to talk to the user (Interaction)
 type Match r w s a =
    ReaderT r                                   -- information about initial declarations
       (MaybeT                                  -- possible early termination
@@ -119,6 +130,8 @@ type Match r w s a =
                   (StateT s                    -- remaining arguments on each side
                           Interaction))) a     -- free monad of instructions to execute
 
+-- | Boil off the monad stack to get down to an Interaction
+--   Needs starting read-only and writeable states
 runMatch :: r -> s -> Match r w s a -> Interaction (Maybe a, ([w], s))
 runMatch r s =
    fmap rassoc
@@ -129,28 +142,44 @@ runMatch r s =
    where
       rassoc ((x,y),z) = (x,(y,z))
 
+-- | An ArgMatch is a computation which is sourced from two declarations,
+--   produces a stream of pairs of index-paired Args,
+--   and removes arguments from a pair of ArgMappings as it goes.
 type ArgMatch a = Match (Decl,Decl) ((Arg,Int),(Arg,Int)) (ArgMapping,ArgMapping) a
 
+-- | A DeclMatch is a computation which produces a stream of triples:
+--   two decls and a list of argument assignments between them,
+--   and removes declarations from a collection of signatures multi-mapped to declarations.
 type DeclMatch a = Match () (Decl,Decl,Assignments) (Map Sig (Set Decl),Map Sig (Set Decl)) a
 
+-- | Match two declarations together with the given assignments of arguments
+--   Removes the two of them from consideration and dumps the matching into the output stream
 matchDecls :: Decl -> Decl -> Assignments -> DeclMatch ()
 matchDecls ld rd as = do
    modify (deleteFromSetMap (declSig ld) ld *** deleteFromSetMap (declSig rd) rd)
    tell [(ld, rd, as)]
 
+-- | If the Match has no interesting information, boil the layers off to get an Interaction
 runVoidMatch :: Match () () () a -> Interaction (Maybe a)
 runVoidMatch = fmap fst . runMatch () ()
 
+-- | Given two lists of declarations representing modules and a computation which computes their
+--   matches, run the computation and produce an interaction giving the result.
 runMatchModules :: [Decl] -> [Decl] -> DeclMatch a -> Interaction [(Decl,Decl,Assignments)]
 runMatchModules leftModule rightModule =
    fmap (fst . snd) . runMatch () (both (tabulateBy declSig) (leftModule, rightModule))
 
+-- | Given two declarations and a computation which computes their matches, run the computation
+--   and produce an interaction giving the result.
 runMatchDecls :: (Decl, Decl) -> ArgMatch a -> Interaction (Maybe a, (Assignments, Mappings))
 runMatchDecls (l,r) = runMatch (l,r) (both (makeArgMapping . declArgs) (l,r))
 
+-- | Like runMatchDecls but we don't care about what the ArgMatch computation returned
 execMatchDecls :: (Decl, Decl) -> ArgMatch a -> Interaction (Assignments, Mappings)
 execMatchDecls (l,r) = fmap snd . runMatchDecls (l,r)
 
+-- | Match two arguments at given indices together
+--   Removes the two of them from consideration and dumps the matching into the output stream
 matchArgs :: (Arg, Int) -> (Arg, Int) -> ArgMatch ()
 matchArgs (Arg ln lt, li) (Arg rn rt, ri) = do
    modify (removeName ln *** removeName rn)
@@ -158,18 +187,23 @@ matchArgs (Arg ln lt, li) (Arg rn rt, ri) = do
 
 -- Smart constructors for match actions...
 
+-- | Print information to the user
 info :: MonadFree InteractionF m => Maybe String -> String -> m ()
 info title string = liftF $ Info title string ()
 
+-- | Print a bulleted list of the given strings
 bulleted :: MonadFree InteractionF m => [String] -> m ()
 bulleted strings = liftF $ Bulleted strings ()
 
+-- | Warn the user about something
 warning :: MonadFree InteractionF m => String -> m ()
 warning string = liftF $ Warning string ()
 
+-- | Ask the user for confirmation of some question
 confirm :: MonadFree InteractionF m => String -> m Bool
 confirm string = liftF $ Confirm string id
 
+-- | Offer the user multiple choices and execute the action which corresponds to their selection
 offerChoice :: MonadFree InteractionF m => String -> [(String, m a)] -> m a
 offerChoice str opts =
    let (descriptions, actions) = unzip opts
@@ -178,15 +212,19 @@ offerChoice str opts =
          userChoice <- getInBounds (1, numOpts)
          actions !! (userChoice - 1)
 
+-- | Report an out-of-bounds error to the user (internal use only)
 outOfBounds :: MonadFree InteractionF m => Int -> (Int,Int) -> m ()
 outOfBounds i (l,h) = liftF $ OutOfBounds i (l,h) ()
 
+-- | Get an integer from the user
 getInt :: MonadFree InteractionF m => m Int
 getInt = liftF $ GetInt "?" id
 
+-- | Get a string from the user, showing a particular prompt
 getString :: MonadFree InteractionF m => String -> m String
 getString str = liftF $ GetString str id
 
+-- | Get an integer from the user in a particular range, asking again and again until they comply
 getInBounds :: MonadFree InteractionF m => (Int,Int) -> m Int
 getInBounds (l,h) = do
    i <- getInt
@@ -195,22 +233,31 @@ getInBounds (l,h) = do
       else do outOfBounds i (l,h)
               getInBounds (l,h)
 
+-- | Terminate the interaction, printing an error message
+--   The printFailure flag indicates whether or not to use the word "Failure" in the message
+--   (sometimes we don't really want to castigate the user!)
 failure :: (Monad m, MonadTrans t, MonadFree InteractionF (t (MaybeT m))) => Bool -> String -> t (MaybeT m) b
 failure printFailure string =
    liftF (Failure printFailure string ()) >> lift (MaybeT (return Nothing))
 
+-- | Terminate the interaction because the user said to do so in some manner
 userQuit :: (Monad m, MonadTrans t, MonadFree InteractionF (t (MaybeT m))) => t (MaybeT m) b
 userQuit = failure False "Matching terminated by user."
 
+-- | Ask the user whether they want to continue (phrasing up to the programmer) and quit if not
 confirmOrQuit :: (Monad m, MonadTrans t, MonadFree InteractionF (t (MaybeT m)), Functor (t (MaybeT m))) => String -> t (MaybeT m) ()
 confirmOrQuit str =
    whenM (not <$> confirm str) userQuit
 
+-- | Symbolic representation of horizontal separators printable during interaction
 data Separator = SuperThinSep | ThinSep | ThickSep | SuperThickSep deriving (Eq, Ord, Show)
 
+-- | Print a separator of the given thickness
 separator :: MonadFree InteractionF m => Separator -> m ()
 separator = liftF . flip Separator ()
 
+-- | Actually print a separator in IO -- separators assume the width of the terminal,
+--   or 80 characters if we can't figure out what width the terminal is.
 printSeparator :: Separator -> IO ()
 printSeparator sep =
    printSeparatorWith $ case sep of

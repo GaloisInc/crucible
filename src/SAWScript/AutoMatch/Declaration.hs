@@ -17,8 +17,10 @@ import Control.Arrow ( (&&&) )
 import Cryptol.TypeCheck.AST (Type(..), TCon(..), TC(..))
 import Cryptol.Utils.PP
 
+-- | Names are strings
 type Name = String
 
+-- | Arguments are names with (Cryptol) types
 data Arg = Arg { argName :: Name
                , argType :: Type }
                deriving (Eq, Ord)
@@ -31,6 +33,7 @@ instance Show Arg where
          . showString (pretty t)
       where app_prec = 10
 
+-- | Declarations have a name, a return type, and a list of arguments
 data Decl = Decl { declName :: Name
                  , declType :: Type
                  , declArgs :: [Arg] }
@@ -49,6 +52,7 @@ instance Show Decl where
       where
          app_prec = 10
 
+-- | The signature of a declaration is the multiset of its argument types crossed with its return type
 data Sig = Sig { sigArgs_ :: Map Type Int
                , sigOut_  :: Type }
                deriving (Eq, Ord)
@@ -59,6 +63,7 @@ sigArgs = sigArgs_
 sigOut :: Sig -> Type
 sigOut  = sigOut_
 
+-- | Compute the signature of a declaration
 declSig :: Decl -> Sig
 declSig (Decl _ t as) =
   flip Sig t $
