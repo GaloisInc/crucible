@@ -106,6 +106,8 @@ extendEnv x mt md v rw =
     ce' = case v of
             VTerm t
               -> CEnv.bindTypedTerm (qname, t) ce
+            VType s
+              -> CEnv.bindType (qname, s) ce
             VInteger n
               -> CEnv.bindInteger (qname, n) ce
             VCryptolModule m

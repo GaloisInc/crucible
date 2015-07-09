@@ -15,6 +15,7 @@ module SAWScript.CryptolEnv
   , lookupCryptolModule
   , importModule
   , bindTypedTerm
+  , bindType
   , bindInteger
   , parseTypedTerm
   , parseDecls
@@ -284,6 +285,16 @@ bindTypedTerm (qname, TypedTerm schema trm) env =
       }
   where
     ename = MN.EFromBind (P.Located P.emptyRange qname)
+
+bindType :: (T.QName, T.Schema) -> CryptolEnv s -> CryptolEnv s
+bindType (qname, T.Forall [] [] ty) env =
+  env { eExtraNames = MR.shadowing (MN.singletonT qname tname) (eExtraNames env)
+      , eExtraTSyns = Map.insert qname tysyn (eExtraTSyns env)
+      }
+  where
+    tname = MN.TFromSyn (P.Located P.emptyRange qname)
+    tysyn = T.TySyn qname [] [] ty
+bindType _ env = env -- only monomorphic types may be bound
 
 bindInteger :: (T.QName, Integer) -> CryptolEnv s -> CryptolEnv s
 bindInteger (qname, n) env =
