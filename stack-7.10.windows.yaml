@@ -1,4 +1,6 @@
-flags: {}
+flags:
+  abcBridge:
+    enable-pthreads: false
 packages:
   - deps/llvm-pretty/
   - deps/llvm-pretty-bc-parser/
