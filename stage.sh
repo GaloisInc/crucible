@@ -32,23 +32,23 @@ mkdir -p ${TARGET}/doc
 
 echo Staging ...
 
-strip build/bin/*
+# Workaround bug which prevents using `stack path --local-install-root`:
+# https://github.com/commercialhaskell/stack/issues/604.
+BIN=$(stack path | sed -ne 's/local-install-root: //p')/bin
+
+strip $BIN/*
 
 cp deps/abcBridge/abc-build/copyright.txt     ${TARGET}/ABC_LICENSE
 cp LICENSE                                    ${TARGET}/LICENSE
-cp build/bin/bcdump                           ${TARGET}/bin
-cp build/bin/extcore-info                     ${TARGET}/bin
-cp build/bin/jss                              ${TARGET}/bin
-cp build/bin/llvm-disasm                      ${TARGET}/bin
-cp build/bin/lss                              ${TARGET}/bin
-cp build/bin/saw                              ${TARGET}/bin
+cp $BIN/bcdump                                ${TARGET}/bin
+cp $BIN/extcore-info                          ${TARGET}/bin
+cp $BIN/jss                                   ${TARGET}/bin
+cp $BIN/llvm-disasm                           ${TARGET}/bin
+cp $BIN/lss                                   ${TARGET}/bin
+cp $BIN/saw                                   ${TARGET}/bin
 cp doc/extcore.txt                            ${TARGET}/doc
 cp doc/tutorial/sawScriptTutorial.pdf         ${TARGET}/doc
 cp -r doc/tutorial/code                       ${TARGET}/doc
-#cp deps/cryptol/lib/Cryptol.cry               ${TARGET}/${CRYLIBDIR}
-#cp -r ../Examples/ecdsa                       ${TARGET}/ecdsa
-#rm -rf ${TARGET}/ecdsa/cryptol-2-spec
-#cp -r ../Examples/zuc                         ${TARGET}/zuc
 
 cd tmp/release
 if [ "${OS}" == "Windows_NT" ]; then
