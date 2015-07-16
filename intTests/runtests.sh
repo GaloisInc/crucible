@@ -10,7 +10,10 @@ JSS_BASE=$TESTBASE/../deps/jvm-verifier
 
 # define the BIN variable, if not already defined
 if [ -z "$BIN" ]; then
-  export BIN=$TESTBASE/../build/bin
+  # Workaround bug which prevents using `stack path --local-install-root`:
+  # https://github.com/commercialhaskell/stack/issues/604.
+  export BIN="$(cd $TESTBASE/.. &&
+    stack path | sed -ne 's/local-install-root: //p')"/bin
 fi
 
 if [ "${OS}" == "Windows_NT" ]; then
