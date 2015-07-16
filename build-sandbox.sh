@@ -36,6 +36,7 @@ else
     HERE=$(pwd)
 fi
 
+stack="stack $jobs"
 
 if [ "${dotests}" == "true" ] ; then
   if [ -z ${TEST_TIMEOUT} ]; then
@@ -43,18 +44,13 @@ if [ "${dotests}" == "true" ] ; then
   fi
 
   for pkg in ${TESTABLE}; do
-    test_flags="--test-option=--xml=${HERE}/${pkg}-test-results.xml --test-option=--timeout=${TEST_TIMEOUT}"
+    test_arguments="--xml=${HERE}/${pkg}-test-results.xml --timeout=${TEST_TIMEOUT}"
 
     if [ ! "${QC_TESTS}" == "" ]; then
-        test_flags="${test_flags} --test-option=--quickcheck-tests=${QC_TESTS}"
+        test_arguments="${test_arguments} --quickcheck-tests=${QC_TESTS}"
     fi
 
-    (cd deps/${pkg} &&
-         ${CABAL} sandbox init --sandbox="${HERE}/${sandbox_dir}" &&
-         ${CABAL} install "${EXTRA_CONSTRAINTS}" $jobs --enable-tests --only-dependencies &&
-         ${CABAL} configure "${EXTRA_CONSTRAINTS}" --enable-tests &&
-         ${CABAL} build &&
-         (${CABAL} test ${test_flags} || true))
+    ${stack} test --test-arguments="${test_arguments}" ${pkg}
 
     if [ -e ${pkg}-test-results.xml ]; then
       xsltproc jenkins-junit-munge.xsl ${pkg}-test-results.xml > jenkins-${pkg}-test-results.xml
@@ -63,9 +59,6 @@ if [ "${dotests}" == "true" ] ; then
       exit 1
     fi
   done
-
 else
-
-  ${CABAL} install "${EXTRA_CONSTRAINTS}" --reinstall --force-reinstalls
-
+  ${stack} build
 fi
