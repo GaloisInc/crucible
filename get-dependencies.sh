@@ -58,3 +58,6 @@ for repo in ${PRIVATE_GITHUB_REPOS} ; do
     (cd ./deps/${repo} && git checkout master && git pull && pin "$repo")
   fi
 done
+
+# Download GHC if necessary.
+stack setup
