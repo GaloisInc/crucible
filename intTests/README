@@ -19,8 +19,8 @@ To run a subset of tests, provide the directory names you wish to run:
 
 Output from test runs will be placed in the logs/ directory.
 
-The "runtests.sh" script expects to find the generated executables
-(for, e.g., saw) in "../SAWScript/build/bin".  A different directory
+The "runtests.sh" script finds the generated executables
+(e.g. `saw`) using `stack path --local-install-root`. A different directory
 can be specified by defining the "BIN" environment variable.
 
 By default tests are run with a timeout of 5 minutes. The default
