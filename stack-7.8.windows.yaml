@@ -1,3 +1,5 @@
+# On Windows the abcBridge package only builds on i386.
+arch: i386
 flags:
   abcBridge:
     enable-pthreads: false
