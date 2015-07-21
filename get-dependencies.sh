@@ -39,7 +39,7 @@ pin () {
     committish=$(sed -ne "s/^$repo \(.*\)\$/\1/p" < \
       "$HERE"/build-sandbox-version-pins.txt)
     echo Namely: $committish
-    git reset --hard "$committish"
+    git checkout "$committish"
   fi
 }
 
