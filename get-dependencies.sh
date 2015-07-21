@@ -46,17 +46,15 @@ pin () {
 for repo in ${PUBLIC_GITHUB_REPOS} ; do
   if [ ! -e ./deps/${repo} ] ; then
     git clone https://github.com/GaloisInc/${repo}.git ./deps/${repo}
-  else
-    (cd ./deps/${repo} && git checkout master && git pull && pin "$repo")
   fi
+  (cd ./deps/${repo} && git checkout master && git pull && pin "$repo")
 done
 
 for repo in ${PRIVATE_GITHUB_REPOS} ; do
   if [ ! -e ./deps/${repo} ] ; then
     git clone git@github.com:GaloisInc/${repo}.git ./deps/${repo}
-  else
-    (cd ./deps/${repo} && git checkout master && git pull && pin "$repo")
   fi
+  (cd ./deps/${repo} && git checkout master && git pull && pin "$repo")
 done
 
 # Download GHC if necessary.
