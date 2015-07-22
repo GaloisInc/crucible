@@ -33,7 +33,7 @@ To build SAWScript and related utilities (CSS, LSS, JSS) from source:
   * Ensure that you have the programs `javac` and `cvc4` on your
     `PATH`. CVC4 binaries are available at http://cvc4.cs.nyu.edu/downloads/.
 
-  * **Developers only**:
+  * **Developers**:
     optionally, create a `build-sandbox-version-pins.txt` and pin the
     revisions of dependencies as necessary by adding lines like
     
@@ -52,7 +52,10 @@ To build SAWScript and related utilities (CSS, LSS, JSS) from source:
         ln -s stack.<ghc version and os>.yaml stack.yaml
 
     As of this writing, SAWScript does not build on Windows with GHC
-    7.10.
+    7.10. Also, the Windows build uses 32-bit GHC because our
+    `abcBridge` package currently requires this. However, Stack will
+    automatically download GHC for you if needed, so this is not
+    inconvenient in practice.
 
     The `stack-<ghc version>-unix.yaml` files are for both Linux and
     OS X.
@@ -61,7 +64,16 @@ To build SAWScript and related utilities (CSS, LSS, JSS) from source:
 
         export STACK_YAML=stack.<ghc version and os>.yaml
 
-    instead of creating a symlink.)
+    instead of creating a symlink.
+
+    **Developers**: defining a `STACK_YAML` env var also overrides the
+    `stack.yaml` file, if any, and so is useful for testing a
+    alternative build without permanently changing your default. You
+    can even define `STACK_YAML` only for the current command: e.g.
+
+        STACK_YAML=stack.<ghc version and os>.yaml stack build
+
+    will build SAWScript using the given Stack YAML.)
 
   * Build SAWScript by running
     
