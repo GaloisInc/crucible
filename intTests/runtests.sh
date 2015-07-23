@@ -10,7 +10,15 @@ JSS_BASE=$TESTBASE/../deps/jvm-verifier
 
 # define the BIN variable, if not already defined
 if [ -z "$BIN" ]; then
-  export BIN=$TESTBASE/../build/bin
+  # Workaround bug which prevents using `stack path --local-install-root`:
+  # https://github.com/commercialhaskell/stack/issues/604.
+  BIN="$(cd "$TESTBASE"/.. &&
+    stack path | sed -ne 's/local-install-root: //p')"/bin
+  if [ "$OS" = "Windows_NT" ]; then
+    # Stack returns Windows paths on Windows, but we're using Cygwin so
+    # we want Unix paths.
+    BIN=$(cygpath -u "$BIN")
+  fi
 fi
 
 if [ "${OS}" == "Windows_NT" ]; then
@@ -20,6 +28,7 @@ else
   export CPSEP=":"
   export DIRSEP="/"
 fi
+export PATH=$BIN:$PATH
 
 # Build the class path. On Windows, Java requires Windows-style paths
 # here, even in Cygwin.
@@ -39,9 +48,9 @@ export CP
 
 # We need the 'eval's here to interpret the single quotes protecting
 # the spaces and semi-colons in the Windows class path.
-export SAW="eval ${BIN}/saw -j '$CP'"
-export JSS="eval ${BIN}/jss -j '$CP' -c ."
-export LSS="${BIN}/lss"
+export SAW="eval saw -j '$CP'"
+export JSS="eval jss -j '$CP' -c ."
+export LSS="lss"
 
 # Figure out what tests to run
 if [[ -z "$@" ]]; then

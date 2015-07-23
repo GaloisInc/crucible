@@ -20,9 +20,11 @@ Precompiled SAWScript binaries for a variety of platforms are available on the [
 
 To build SAWScript and related utilities (CSS, LSS, JSS) from source:
 
-  * Ensure you have the programs `alex`, `happy`, and `c2hs`. All of
-    them can be installed with `cabal install`. If you do that, make
-    sure `$HOME/.cabal/bin` is in your `PATH`.
+  * Ensure that you have the
+    [Stack](https://github.com/commercialhaskell/stack) program on
+    your `PATH`. If you don't already have Stack, then `cabal install stack`,
+    or download a precompiled binary from
+    https://github.com/commercialhaskell/stack/releases.
 
   * Ensure that you have the C libraries and header files for
     `terminfo`, which generally comes as part of `ncurses` on most
@@ -31,7 +33,8 @@ To build SAWScript and related utilities (CSS, LSS, JSS) from source:
   * Ensure that you have the programs `javac` and `cvc4` on your
     `PATH`. CVC4 binaries are available at http://cvc4.cs.nyu.edu/downloads/.
 
-  * Optionally, create a `build-sandbox-version-pins.txt` and pin the
+  * **Developers**:
+    optionally, create a `build-sandbox-version-pins.txt` and pin the
     revisions of dependencies as necessary by adding lines like
     
         <dependency name> <committish>
@@ -41,16 +44,59 @@ To build SAWScript and related utilities (CSS, LSS, JSS) from source:
     so you can get a stable build by checking out a release branch (e.g.
     `git checkout release-0.1-dev`).
 
+  * Setup a `stack.yaml` for your OS and preferred GHC.
+
+    Choose one of the Stack YAML config files and link it to
+    `stack.yaml`:
+
+        ln -s stack.<ghc version and os>.yaml stack.yaml
+
+    As of this writing, SAWScript does not build on Windows with GHC
+    7.10. Also, the Windows build uses 32-bit GHC because our
+    `abcBridge` package currently requires this. However, Stack will
+    automatically download GHC for you if needed, so this is not
+    inconvenient in practice.
+
+    The `stack-<ghc version>-unix.yaml` files are for both Linux and
+    OS X.
+
+    (Alternativley, you can
+
+        export STACK_YAML=stack.<ghc version and os>.yaml
+
+    instead of creating a symlink.
+
+    **Developers**: defining a `STACK_YAML` env var also overrides the
+    `stack.yaml` file, if any, and so is useful for testing a
+    alternative build without permanently changing your default. You
+    can even define `STACK_YAML` only for the current command: e.g.
+
+        STACK_YAML=stack.<ghc version and os>.yaml stack build
+
+    will build SAWScript using the given Stack YAML.)
+
   * Build SAWScript by running
     
         ./build-sandbox.sh -p
-    
-    The executables will be created in `./build/bin`; you can now
-    start the SAWScript interpreter by running `./build/bin/saw`.
 
     The `-p` flag tells it to pull the latest updates from any
     dependency repositories. You can omit `-p`, and speed up the
     build slightly, if you know that they haven't changed.
+
+    The SAWScript executables will be created in
+
+        echo `stack path --local-install-root`/bin
+
+    a path under the SAWScript repo. You can install SAWScript into
+    a more predictable location by running
+
+        stack install
+
+    which installs into
+
+        stack path --local-bin-path
+
+    which is `$HOME/.local/bin` by default.
 
   * Optionally, run ./stage.sh to create a binary tarball.
 
