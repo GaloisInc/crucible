@@ -40,11 +40,12 @@ stack="stack $jobs"
 
 if [ "${dotests}" == "true" ] ; then
   if [ -z ${TEST_TIMEOUT} ]; then
-    TEST_TIMEOUT="60s"
+    TEST_TIMEOUT="120s"
   fi
 
+  mkdir -p tmp
   for pkg in ${TESTABLE}; do
-    test_arguments="--xml=${HERE}/${pkg}-test-results.xml --timeout=${TEST_TIMEOUT}"
+    test_arguments="--xml=${HERE}/tmp/${pkg}-test-results.xml --timeout=${TEST_TIMEOUT}"
 
     if [ ! "${QC_TESTS}" == "" ]; then
         test_arguments="${test_arguments} --quickcheck-tests=${QC_TESTS}"
@@ -52,10 +53,10 @@ if [ "${dotests}" == "true" ] ; then
 
     ${stack} test --test-arguments="${test_arguments}" ${pkg}
 
-    if [ -e ${pkg}-test-results.xml ]; then
-      xsltproc jenkins-junit-munge.xsl ${pkg}-test-results.xml > jenkins-${pkg}-test-results.xml
+    if [ -e tmp/${pkg}-test-results.xml ]; then
+      xsltproc jenkins-junit-munge.xsl tmp/${pkg}-test-results.xml > tmp/jenkins-${pkg}-test-results.xml
     else
-      echo "Missing test results: ${pkg}-test-results.xml"
+      echo "Missing test results: tmp/${pkg}-test-results.xml"
       exit 1
     fi
   done
