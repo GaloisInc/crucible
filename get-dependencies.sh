@@ -24,14 +24,14 @@ else
 fi
 
 # Pin a repo *if* a corresponding pin is defined in
-# './build-sandbox-version-pins.txt'. Assumes the CWD is in the
-# argument repo.
+# './build-sandbox-version-pins.txt'. Pin to 'master' by default.
 #
 # The format of the pins file entries is '<repo> <committish>'. Lines
 # starting with '#' are treated as comments (because they aren't valid
-# repo names).
+# repo names). The valid repo names are the directories in './deps'.
 pin () {
   repo="$1"
+  committish=master
   echo Searching for pins for $repo ...
   if [ -e "$HERE"/build-sandbox-version-pins.txt ] && \
      grep "^$repo .\+\$" "$HERE"/build-sandbox-version-pins.txt &>/dev/null; then
@@ -39,22 +39,36 @@ pin () {
     committish=$(sed -ne "s/^$repo \(.*\)\$/\1/p" < \
       "$HERE"/build-sandbox-version-pins.txt)
     echo Namely: $committish
-    git checkout "$committish"
   fi
+  (
+    cd "$HERE"/deps/"$repo"
+    # The `fetch` is necessary before `checkout` for new branches.
+    git fetch
+    git checkout "$committish"
+    # Pull if we are on a branch. Here `git rev-parse` returns the
+    # branch name, if any, or "HEAD" if we are not on a branch (in
+    # "detached head" state in Git speak).
+    if [ "$(git rev-parse --abbrev-ref HEAD)" != "HEAD" ]; then
+      git pull --ff-only
+    fi
+  )
 }
 
+# Get repos that don't exist.
 for repo in ${PUBLIC_GITHUB_REPOS} ; do
   if [ ! -e ./deps/${repo} ] ; then
     git clone https://github.com/GaloisInc/${repo}.git ./deps/${repo}
   fi
-  (cd ./deps/${repo} && git checkout master && git pull && pin "$repo")
 done
-
 for repo in ${PRIVATE_GITHUB_REPOS} ; do
   if [ ! -e ./deps/${repo} ] ; then
     git clone git@github.com:GaloisInc/${repo}.git ./deps/${repo}
   fi
-  (cd ./deps/${repo} && git checkout master && git pull && pin "$repo")
+done
+
+# Update repos.
+for repo in ${PUBLIC_GITHUB_REPOS} ${PRIVATE_GITHUB_REPOS}; do
+  pin "$repo"
 done
 
 # Download GHC if necessary.
