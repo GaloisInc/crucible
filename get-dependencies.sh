@@ -73,3 +73,7 @@ done
 
 # Download GHC if necessary.
 stack setup
+
+# Remind what version of GHC we're using and where our binaries are
+# going.
+stack path
