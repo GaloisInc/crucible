@@ -51,7 +51,17 @@ if [ "${dotests}" == "true" ] ; then
         test_arguments="${test_arguments} --quickcheck-tests=${QC_TESTS}"
     fi
 
-    ${stack} test --test-arguments="${test_arguments}" ${pkg}
+    # Stack is returning 1 when a test fails, which kills the whole
+    # build. Presumably Cabal returned 0 in this case.
+    #
+    # If the build part of the test fails, there won't be any XML
+    # file, so we'll detect failure in that case when we check for the
+    # XML file below.
+    (
+      set +e
+      ${stack} test --test-arguments="${test_arguments}" ${pkg}
+      exit 0
+    )
 
     if [ -e tmp/${pkg}-test-results.xml ]; then
       xsltproc jenkins-junit-munge.xsl tmp/${pkg}-test-results.xml > tmp/jenkins-${pkg}-test-results.xml
