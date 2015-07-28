@@ -517,6 +517,12 @@ simplifyGoal sc ss = StateT $ \goal -> do
   trm' <- rewriteSharedTerm sc ss trm
   return ((), goal { goalTerm = TypedTerm schema trm' })
 
+beta_reduce_goal :: SharedContext s -> ProofScript s ()
+beta_reduce_goal sc = StateT $ \goal -> do
+  let TypedTerm schema trm = goalTerm goal
+  trm' <- betaNormalize sc trm
+  return ((), goal { goalTerm = TypedTerm schema trm' })
+
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
 {-
@@ -910,6 +916,11 @@ rewritePrim sc ss (TypedTerm schema t) = do
 unfold_term :: SharedContext s -> [String] -> TypedTerm s -> IO (TypedTerm s)
 unfold_term sc names (TypedTerm schema t) = do
   t' <- scUnfoldConstants sc names t
+  return (TypedTerm schema t')
+
+beta_reduce_term :: SharedContext s -> TypedTerm s -> IO (TypedTerm s)
+beta_reduce_term sc (TypedTerm schema t) = do
+  t' <- betaNormalize sc t
   return (TypedTerm schema t')
 
 addsimp :: SharedContext s -> Theorem s -> Simpset (SharedTerm s)

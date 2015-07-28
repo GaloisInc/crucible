@@ -657,6 +657,10 @@ primitives = Map.fromList
     (scVal simplifyGoal)
     [ "Apply the given simplifier rule set to the current goal." ]
 
+  , prim "beta_reduce_goal"    "ProofScript ()"
+    (scVal beta_reduce_goal)
+    [ "Reduce the current goal to beta-normal form." ]
+
   , prim "print_goal"          "ProofScript ()"
     (pureVal (printGoal :: ProofScript SAWCtx ()))
     [ "Print the current goal that a proof script is attempting to prove." ]
@@ -820,6 +824,10 @@ primitives = Map.fromList
   , prim "unfold_term"         "[String] -> Term -> TopLevel Term"
     (scVal unfold_term)
     [ "Unfold the definitions of the specified constants in the given term." ]
+
+  , prim "beta_reduce_term"    "Term -> TopLevel Term"
+    (scVal beta_reduce_term)
+    [ "Reduce the given term to beta-normal form." ]
 
   , prim "cryptol_load"        "String -> TopLevel CryptolModule"
     (scVal CEnv.loadCryptolModule)
