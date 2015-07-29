@@ -38,6 +38,7 @@ module SAWScript.JavaExpr
   , jssTypeOfActual
   , isActualRef
   , logicTypeOfActual
+  , cryptolTypeOfActual
   , typeOfLogicExpr
   , ppActualType
   , MethodLocation (..)
@@ -63,6 +64,8 @@ import Verifier.SAW.TypedAST
 
 import qualified SAWScript.CongruenceClosure as CC
 import SAWScript.Utils
+
+import qualified Cryptol.TypeCheck.AST as Cryptol
 
 data MethodLocation
    = PC Integer
@@ -231,6 +234,13 @@ logicTypeOfActual sc (ArrayInstance l tp) = do
   Just <$> scVecType sc lTm elTy
 logicTypeOfActual sc (PrimitiveType tp) = do
   Just <$> scBitvector sc (fromIntegral (JSS.stackWidth tp))
+
+cryptolTypeOfActual :: JavaActualType -> Maybe Cryptol.Type
+cryptolTypeOfActual (ClassInstance _) = Nothing
+cryptolTypeOfActual (ArrayInstance l (JSS.stackWidth -> n)) =
+  Just $ Cryptol.tSeq (Cryptol.tNum l) (Cryptol.tSeq (Cryptol.tNum n) Cryptol.tBit)
+cryptolTypeOfActual (PrimitiveType (JSS.stackWidth -> n)) = do
+  Just $ Cryptol.tSeq (Cryptol.tNum n) Cryptol.tBit
 
 ppActualType :: JavaActualType -> String
 ppActualType (ClassInstance x) = JSS.slashesToDots (JSS.className x)

@@ -54,6 +54,8 @@ import SAWScript.TypedTerm
 import SAWScript.Utils
 import SAWScript.Value as SS
 
+import qualified Cryptol.TypeCheck.AST as Cryptol
+
 
 loadJavaClass :: BuiltinContext -> String -> IO Class
 loadJavaClass bic =
@@ -558,34 +560,28 @@ exportJavaType cb jty =
       do cls <- liftIO $ lookupClass cb fixPos (dotsToSlashes name)
          return (ClassInstance cls)
 
-checkCompatibleExpr :: SharedContext s -> String -> JavaExpr -> SharedTerm s
-                    -> JavaSetup ()
-checkCompatibleExpr sc msg expr t = do
+checkCompatibleExpr :: String -> JavaExpr -> Cryptol.Schema -> JavaSetup ()
+checkCompatibleExpr msg expr schema = do
   jsState <- get
   let atm = specActualTypeMap (jsSpec jsState)
   liftIO $ case Map.lookup expr atm of
     Nothing -> fail $ "No type found for Java expression: " ++ show expr ++
                       " (" ++ msg ++ ")"
-    Just aty -> liftIO $ checkCompatibleType sc msg aty t
+    Just aty -> liftIO $ checkCompatibleType msg aty schema
 
-checkCompatibleType :: SharedContext s
-                    -> String
+checkCompatibleType :: String
                     -> JavaActualType
-                    -> SharedTerm s
+                    -> Cryptol.Schema
                     -> IO ()
-checkCompatibleType sc msg aty t = do
-  mlt <- logicTypeOfActual sc aty
-  case mlt of
+checkCompatibleType msg aty schema = do
+  case cryptolTypeOfActual aty of
     Nothing ->
       fail $ "Type is not translatable: " ++ show aty ++ " (" ++ msg ++ ")"
     Just lt -> do
-      ty <- scTypeCheckError sc t
-      lt' <- scWhnf sc lt
-      ty' <- scWhnf sc ty
-      unless (lt' == ty') $ fail $
+      unless (Cryptol.Forall [] [] lt == schema) $ fail $
         unlines [ "Incompatible type:"
-                , "  Expected: " ++ show lt'
-                , "  Got: " ++ show ty'
+                , "  Expected: " ++ show lt
+                , "  Got: " ++ show schema
                 , "  In context: " ++ msg
                 ]
 
@@ -677,28 +673,28 @@ getJavaExpr ms name = do
     Just expr -> return (expr, jssTypeOfJavaExpr expr)
     Nothing -> fail $ "Java name " ++ name ++ " has not been declared."
 
-javaAssertEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
+javaAssertEq :: BuiltinContext -> Options -> String -> TypedTerm SAWCtx
            -> JavaSetup ()
-javaAssertEq bic _ name t = do
+javaAssertEq bic _ name (TypedTerm schema t) = do
   --liftIO $ putStrLn "javaAssertEq"
   ms <- gets jsSpec
   let m = specJavaExprNames ms
       sc = biSharedContext bic
   (expr, _) <- liftIO $ getJavaExpr ms name
-  checkCompatibleExpr sc "java_assert_eq" expr t
+  checkCompatibleExpr "java_assert_eq" expr schema
   me <- liftIO $ mkMixedExpr m sc t
   modifySpec (specAddLogicAssignment fixPos expr me)
 
-javaEnsureEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
+javaEnsureEq :: BuiltinContext -> Options -> String -> TypedTerm SAWCtx
              -> JavaSetup ()
-javaEnsureEq bic _ name t = do
+javaEnsureEq bic _ name (TypedTerm schema t) = do
   --liftIO $ putStrLn "javaEnsureEq"
   ms <- gets jsSpec
   (expr, ty) <- liftIO $ getJavaExpr ms name
   let m = specJavaExprNames ms
       sc = biSharedContext bic
   --liftIO $ putStrLn "Making MixedExpr"
-  checkCompatibleExpr sc "java_ensure_eq" expr t
+  checkCompatibleExpr "java_ensure_eq" expr schema
   me <- liftIO $ mkMixedExpr m sc t
   --liftIO $ putStrLn "Done making MixedExpr"
   let cmd = case (CC.unTerm expr, ty) of
