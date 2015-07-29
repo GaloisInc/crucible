@@ -649,17 +649,15 @@ javaMayAlias bic _ exprs = do
   -- TODO: check that all expressions exist and have the same type
   modifySpec (specAddAliasSet exprList)
 
-javaAssert :: BuiltinContext -> Options -> SharedTerm SAWCtx
+javaAssert :: BuiltinContext -> Options -> TypedTerm SAWCtx
            -> JavaSetup ()
-javaAssert bic _ v = do
+javaAssert bic _ (TypedTerm schema v) = do
   --liftIO $ putStrLn "javaAssert"
   ms <- gets jsSpec
   let m = specJavaExprNames ms
       sc = biSharedContext bic
-  ty <- liftIO $ scTypeCheckError sc v
-  ty' <- liftIO $ scWhnf sc ty
-  unless (asBoolType ty' == Just ()) $
-    fail $ "java_assert passed expression of non-boolean type: " ++ show ty'
+  unless (schema == Cryptol.Forall [] [] Cryptol.tBit) $
+    fail $ "java_assert passed expression of non-boolean type: " ++ show schema
   me <- liftIO $ mkMixedExpr m sc v
   case me of
     LE le -> modifySpec (specAddBehaviorCommand (AssertPred fixPos le))
