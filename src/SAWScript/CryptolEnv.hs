@@ -377,7 +377,8 @@ parseSchema env input = do
   let ifDecls = getAllIfaceDecls modEnv
   let range = fromMaybe P.emptyRange (P.getLoc pschema)
   (tcEnv, _) <- liftModuleM modEnv $ MB.genInferInput range ifDecls
-  out <- TM.runInferM tcEnv (TK.checkSchema pschema)
+  let tcEnv' = tcEnv { TM.inpTSyns = Map.union (eExtraTSyns env) (TM.inpTSyns tcEnv) }
+  out <- TM.runInferM tcEnv' (TK.checkSchema pschema)
   ((schema, goals), _) <- liftModuleM modEnv (MM.interactive (runInferOutput out))
   unless (null goals) (print goals)
   return schema
