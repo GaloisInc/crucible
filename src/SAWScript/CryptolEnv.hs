@@ -355,7 +355,9 @@ parseDecls sc env input = do
   let ifDecls = getAllIfaceDecls modEnv
   let range = fromMaybe P.emptyRange (P.getLoc rdecls)
   (tcEnv, _) <- liftModuleM modEnv $ MB.genInferInput range ifDecls
-  let tcEnv' = tcEnv { TM.inpVars = Map.union (eExtraTypes env) (TM.inpVars tcEnv) }
+  let tcEnv' = tcEnv { TM.inpVars = Map.union (eExtraTypes env) (TM.inpVars tcEnv)
+                     , TM.inpTSyns = Map.union (eExtraTSyns env) (TM.inpTSyns tcEnv)
+                     }
 
   -- Convert from 'Decl' to 'TopDecl' so that types will be generalized
   let topdecls = [ P.Decl (P.TopLevel P.Public Nothing d) | d <- rdecls ]
