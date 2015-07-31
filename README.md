@@ -40,9 +40,22 @@ To build SAWScript and related utilities (CSS, LSS, JSS) from source:
         <dependency name> <committish>
     
     See the `pin` function in `build-sandbox.sh` for more details. The release
-    branches already include a known-to-work `build-sandboxy-versions-pins.txt`,
+    branches already include a known-to-work `build-sandbox-versions-pins.txt`,
     so you can get a stable build by checking out a release branch (e.g.
     `git checkout release-0.1-dev`).
+
+    To create a `build-sandbox-versions-pins.txt` for the current
+    state of the dependencies, do
+
+        for d in deps/*; \
+          do (cd $d && echo -n "$(basename "$d") "; git rev-parse HEAD); \
+        done > build-sandbox-version-pins.txt
+
+    and then
+
+        git add --force build-sandbox-version-pins.txt
+
+    if you are in a new release branch.
 
   * Setup a `stack.yaml` for your OS and preferred GHC.
 
