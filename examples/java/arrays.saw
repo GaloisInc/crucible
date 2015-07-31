@@ -30,7 +30,7 @@ let comp_setup : JavaSetup () = do {
 };
 
 let main : TopLevel () = do {
-    c <- java_load_class "Arrays";
+    c <- java_load_class "ArrayTest";
     copy_ms <- java_verify c "copy" [] copy_setup;
     unit_ms <- java_verify c "unit" [] unit_setup;
     sum_ms <- java_verify c "sum" [] sum_setup;
