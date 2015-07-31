@@ -2,6 +2,9 @@
 {-# LANGUAGE DeriveFunctor,DeriveFoldable,DeriveTraversable #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 {- |
 Module           : $Header$
@@ -29,7 +32,7 @@ module SAWScript.AST
        , tString, tTerm, tType, tBool, tZ, tAIG
        , tBlock, tContext, tVar
 
-       , PrettyPrint(..), pShow, commaSepAll
+       , PrettyPrint(..), pShow, commaSepAll, prettyWholeModule
        ) where
 
 import SAWScript.Token
@@ -37,14 +40,16 @@ import SAWScript.Utils
 
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.List (intercalate)
 
 #if !MIN_VERSION_base(4,8,0)
 import Data.Foldable (Foldable)
 import Data.Traversable (Traversable)
 #endif
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
+import           Text.PrettyPrint.ANSI.Leijen (Pretty)
 
-import qualified Cryptol.Parser.AST as P (ImportSpec, ModName)
+import qualified Cryptol.Parser.AST as P (ImportSpec(..), ModName(..), Name(..))
 
 -- Names {{{
 
@@ -160,6 +165,111 @@ data Schema = Forall [Name] Type
 -- }}}
 
 -- Pretty Printing {{{
+
+prettyWholeModule :: [Stmt] -> PP.Doc
+prettyWholeModule = (PP.<> PP.linebreak) . vcatWithSemi . map PP.pretty
+
+vcatWithSemi :: [PP.Doc] -> PP.Doc
+vcatWithSemi = PP.vcat . map (PP.<> PP.semi)
+
+instance Pretty Expr where
+   pretty = \case
+      Bit b    -> PP.text $ show b
+      String s -> PP.dquotes (PP.text s)
+      Z i      -> PP.integer i
+      Code ls  -> PP.braces . PP.braces $ PP.text (getVal ls)
+      CType (Located string _ _) -> PP.braces . PP.text $ "|" ++ string ++ "|"
+      Array xs -> PP.list (map PP.pretty xs)
+      Block stmts ->
+         PP.text "do" PP.<+> PP.lbrace PP.<> PP.linebreak PP.<>
+         (PP.indent 3 $ (PP.align . vcatWithSemi . map PP.pretty $ stmts)) PP.<> 
+         PP.linebreak PP.<> PP.rbrace
+      Tuple exprs -> PP.tupled (map PP.pretty exprs)
+      Record mapping ->
+         PP.braces . (PP.space PP.<>) . (PP.<> PP.space) . PP.align . PP.sep . PP.punctuate PP.comma $
+            map (\(name, value) -> PP.text name PP.<+> PP.text "=" PP.<+> PP.pretty value)
+                (Map.assocs mapping)
+      Index _ _ -> error "No concrete syntax for AST node 'Index'"
+      Lookup expr name -> PP.pretty expr PP.<> PP.dot PP.<> PP.text name
+      TLookup expr int -> PP.pretty expr PP.<> PP.dot PP.<> PP.integer int
+      Var (Located name _ _) ->
+         PP.text name
+      Function (Located name _ _) mType expr ->
+         PP.text "\\" PP.<+> prettyMaybeTypedArg (name,mType) PP.<+> PP.text "-> " PP.<+> PP.pretty expr
+      Application f a -> PP.pretty f PP.<+> PP.pretty a
+      Let (NonRecursive decl) expr ->
+         PP.text "let" PP.<+> 
+         prettyDef decl PP.</>
+         PP.text "in" PP.<+> PP.pretty expr
+      Let (Recursive decls) expr ->
+         PP.text "let" PP.<+> 
+         PP.cat (PP.punctuate
+            (PP.empty PP.</> PP.text "and" PP.<> PP.space)
+            (map prettyDef decls)) PP.</>
+         PP.text "in" PP.<+> PP.pretty expr
+      TSig expr typ -> PP.parens $ PP.pretty expr PP.<+> PP.colon PP.<+> pretty 0 typ
+
+instance Pretty Stmt where
+   pretty = \case
+      StmtBind (Just (Located name _ _)) leftType _rightType expr ->
+         prettyMaybeTypedArg (name,leftType) PP.<+> PP.text "<-" PP.<+> PP.align (PP.pretty expr)
+      StmtBind Nothing _leftType _rightType expr ->
+         PP.pretty expr
+      StmtLet (NonRecursive decl) ->
+         PP.text "let" PP.<+> prettyDef decl
+      StmtLet (Recursive decls) ->
+         PP.text "rec" PP.<+> 
+         PP.cat (PP.punctuate
+            (PP.empty PP.</> PP.text "and" PP.<> PP.space)
+            (map prettyDef decls))
+      StmtCode (Located code _ _) ->
+         PP.text "let" PP.<+>
+            (PP.braces . PP.braces $ PP.text code)
+      StmtImport Import{iModule,iAs,iSpec} ->
+         PP.text "import" PP.<+>
+         (case iModule of
+            Left filepath ->
+               PP.dquotes . PP.text $ filepath
+            Right (P.ModName modPath) ->
+               PP.text (intercalate "." modPath)) PP.<>
+         (case iAs of
+            Just (P.ModName modPath) ->
+               PP.space PP.<> PP.text "as" PP.<+> PP.text (intercalate "." modPath)
+            Nothing -> PP.empty) PP.<>
+         (case iSpec of
+            Just (P.Hiding names) ->
+               PP.space PP.<> PP.text "hiding" PP.<+> PP.tupled (map stringName names)
+            Just (P.Only names) ->
+               PP.space PP.<> PP.tupled (map stringName names)
+            Nothing -> PP.empty)
+      --expr -> PP.cyan . PP.text $ show expr
+   
+      where
+         stringName = \case
+            P.Name n       -> PP.text n
+            P.NewName _ _i -> error "Encountered 'NewName' while pretty-printing."
+
+prettyDef :: Decl -> PP.Doc
+prettyDef Decl{dName,dDef} =
+   PP.text (getVal dName) PP.<+>
+   let (args, body) = dissectLambda dDef
+   in (if not (null args)
+          then PP.hsep (map prettyMaybeTypedArg args) PP.<> PP.space
+          else PP.empty) PP.<>
+      PP.text "=" PP.<+> PP.pretty body
+
+prettyMaybeTypedArg :: (Name,Maybe Type) -> PP.Doc
+prettyMaybeTypedArg (name,Nothing) =
+   PP.text name
+prettyMaybeTypedArg (name,Just typ) =
+   PP.parens $ PP.text name PP.<+> PP.colon PP.<+> pretty 0 typ
+
+dissectLambda :: Expr -> ([(Name,Maybe Type)],Expr)
+dissectLambda = \case
+   Function (Located name _ _) mType
+            (dissectLambda -> (names, expr)) ->
+               ((name, mType) : names, expr)
+   expr -> ([],expr)
 
 pShow :: PrettyPrint a => a -> String
 pShow = show . pretty 0

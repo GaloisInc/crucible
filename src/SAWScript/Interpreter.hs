@@ -37,7 +37,7 @@ import Control.Applicative
 import Data.Traversable hiding ( mapM )
 #endif
 import qualified Control.Exception as X
-import Control.Monad (foldM, unless)
+import Control.Monad (foldM, unless, (>=>))
 import qualified Data.IntMap as IntMap
 import qualified Data.Map as Map
 import Data.Map ( Map )
@@ -84,6 +84,10 @@ import Cryptol.TypeCheck.Solve (defaultReplExpr)
 import Cryptol.TypeCheck.Subst (apSubst, listSubst)
 import Cryptol.Utils.PP
 import qualified Cryptol.Eval.Value as V (defaultPPOpts, ppValue)
+
+import qualified Text.PrettyPrint.ANSI.Leijen as PP
+
+import SAWScript.AutoMatch
 
 -- Environment -----------------------------------------------------------------
 
@@ -440,6 +444,16 @@ primitives = Map.fromList
     [ "TODO" ]
 -}
 
+  , prim "dump_file_AST"       "String -> TopLevel ()"
+    (bicVal $ const $ \opts -> SAWScript.Import.loadFile opts >=> mapM_ print)
+    [ "Dump a pretty representation of the SAWScript AST for a file." ]
+
+  , prim "parser_printer_roundtrip"       "String -> TopLevel ()"
+    (bicVal $ const $
+      \opts -> SAWScript.Import.loadFile opts >=>
+               PP.putDoc . SS.prettyWholeModule)
+    [ "Parses the file as SAWScript and renders the resultant AST back to SAWScript concrete syntax." ]
+
   , prim "print_type"          "Term -> TopLevel ()"
     (pureVal print_type)
     [ "Print the type of the given term." ]
@@ -601,6 +615,12 @@ primitives = Map.fromList
   , prim "write_core"          "String -> Term -> TopLevel ()"
     (pureVal (writeCore :: FilePath -> TypedTerm SAWCtx -> IO ()))
     [ "Write out a representation of a term in SAWCore external format." ]
+
+  , prim "auto_match" "String -> String -> TopLevel ()"
+    (pureVal (autoMatch interpretStmts :: FilePath -> FilePath -> TopLevel ()))
+    [ "Interactively decides how to align two modules of potentially heterogeneous"
+    , "language and prints the result."
+    ]
 
   , prim "prove"               "ProofScript SatResult -> Term -> TopLevel ProofResult"
     (scVal provePrim)

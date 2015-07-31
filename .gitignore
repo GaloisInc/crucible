@@ -10,3 +10,4 @@ tmp
 build-sandbox-version-pins.txt
 .stack-work
 stack.yaml
+.DS_Store
