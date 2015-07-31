@@ -26,4 +26,6 @@ extra-deps:
   - tuple-0.3.0.2
   - xdg-basedir-0.2.2
   - OneTuple-0.2.1
+  - cond-0.4.1.1
+  - monad-supply-0.6
 resolver: lts-2.15
