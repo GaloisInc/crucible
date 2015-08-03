@@ -385,7 +385,13 @@ parseSchema env input = do
   let range = fromMaybe P.emptyRange (P.getLoc rschema)
   (tcEnv, _) <- liftModuleM modEnv $ MB.genInferInput range ifDecls
   let tcEnv' = tcEnv { TM.inpTSyns = Map.union (eExtraTSyns env) (TM.inpTSyns tcEnv) }
-  out <- TM.runInferM tcEnv' (TK.checkSchema rschema)
+  let infer =
+        case rschema of
+          P.Forall [] [] t _ -> do
+            t' <- TK.checkType t Nothing -- allow either kind KNum or KType
+            return (T.Forall [] [] t', [])
+          _ -> TK.checkSchema rschema
+  out <- TM.runInferM tcEnv' infer
   ((schema, goals), _) <- liftModuleM modEnv (MM.interactive (runInferOutput out))
   unless (null goals) (print goals)
   return (schemaNoUser schema)
