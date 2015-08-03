@@ -388,7 +388,18 @@ parseSchema env input = do
   out <- TM.runInferM tcEnv' (TK.checkSchema rschema)
   ((schema, goals), _) <- liftModuleM modEnv (MM.interactive (runInferOutput out))
   unless (null goals) (print goals)
-  return schema
+  return (schemaNoUser schema)
+
+typeNoUser :: T.Type -> T.Type
+typeNoUser t =
+  case t of
+    T.TCon tc ts   -> T.TCon tc (map typeNoUser ts)
+    T.TVar {}      -> t
+    T.TUser _ _ ty -> typeNoUser ty
+    T.TRec fields  -> T.TRec [ (n, typeNoUser ty) | (n, ty) <- fields ]
+
+schemaNoUser :: T.Schema -> T.Schema
+schemaNoUser (T.Forall params props ty) = T.Forall params props (typeNoUser ty)
 
 ------------------------------------------------------------
 
