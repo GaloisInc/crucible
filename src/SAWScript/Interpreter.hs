@@ -413,6 +413,14 @@ primitives = Map.fromList
     , "    let x = e"
     ]
 
+  , prim "true"                "Bool"
+    (pureVal True)
+    [ "A boolean value." ]
+
+  , prim "false"               "Bool"
+    (pureVal False)
+    [ "A boolean value." ]
+
   , prim "for"                 "{m, a, b} [a] -> (a -> m b) -> m [b]"
     (pureVal (VLambda . forValue))
     [ "Apply the given command in sequence to the given list. Return"

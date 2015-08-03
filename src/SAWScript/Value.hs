@@ -131,8 +131,8 @@ showBraces s = showString "{" . s . showString "}"
 showsPrecValue :: PPOpts -> Int -> Value -> ShowS
 showsPrecValue opts p v =
   case v of
-    VBool True -> showString "True"
-    VBool False -> showString "False"
+    VBool True -> showString "true"
+    VBool False -> showString "false"
     VString s -> shows s
     VInteger n -> shows n
     VArray vs -> showBrackets $ commaSep $ map (showsPrecValue opts 0) vs
