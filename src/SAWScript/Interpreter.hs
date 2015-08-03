@@ -83,7 +83,7 @@ import Cryptol.TypeCheck.PP (ppWithNames)
 import Cryptol.TypeCheck.Solve (defaultReplExpr)
 import Cryptol.TypeCheck.Subst (apSubst, listSubst)
 import Cryptol.Utils.PP
-import qualified Cryptol.Eval.Value as V (defaultPPOpts, ppValue)
+import qualified Cryptol.Eval.Value as V (defaultPPOpts, ppValue, PPOpts(..))
 
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
@@ -346,8 +346,14 @@ print_value (VTerm t) = do
   unless (null (getAllExts (ttTerm t))) $
     fail "term contains symbolic variables"
   t' <- io $ defaultTypedTerm sc cfg t
-  io $ rethrowEvalError $ print $ V.ppValue V.defaultPPOpts (evaluateTypedTerm sc t')
-print_value v = io $ putStrLn (showsPrecValue defaultPPOpts 0 v "")
+  opts <- fmap rwPPOpts getTopLevelRW
+  let opts' = V.defaultPPOpts { V.useAscii = ppOptsAscii opts
+                              , V.useBase = ppOptsBase opts
+                              }
+  io $ rethrowEvalError $ print $ V.ppValue opts' (evaluateTypedTerm sc t')
+print_value v = do
+  opts <- fmap rwPPOpts getTopLevelRW
+  io $ putStrLn (showsPrecValue opts 0 v "")
 
 rethrowEvalError :: IO a -> IO a
 rethrowEvalError m = run `X.catch` rethrow
