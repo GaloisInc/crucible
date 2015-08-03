@@ -308,6 +308,7 @@ buildTopLevelEnv opts =
                    , rwTypes    = tm0
                    , rwDocs     = primDocEnv
                    , rwCryptol  = ce0
+                   , rwPPOpts   = defaultPPOpts
                    }
        return (bic, ro0, rw0)
 
@@ -325,6 +326,16 @@ include_value file = do
   rw <- getTopLevelRW
   rw' <- io $ interpretFile ro rw file
   putTopLevelRW rw'
+
+set_ascii :: Bool -> TopLevel ()
+set_ascii b = do
+  rw <- getTopLevelRW
+  putTopLevelRW rw { rwPPOpts = (rwPPOpts rw) { ppOptsAscii = b } }
+
+set_base :: Int -> TopLevel ()
+set_base b = do
+  rw <- getTopLevelRW
+  putTopLevelRW rw { rwPPOpts = (rwPPOpts rw) { ppOptsBase = b } }
 
 print_value :: Value -> TopLevel ()
 print_value (VString s) = io $ putStrLn s
@@ -421,6 +432,15 @@ primitives = Map.fromList
   , prim "env"                 "TopLevel ()"
     (pureVal envCmd)
     [ "Print all sawscript values in scope." ]
+
+  , prim "set_ascii"           "Bool -> TopLevel ()"
+    (pureVal set_ascii)
+    [ "Select whether to pretty-print arrays of 8-bit numbers as ascii strings." ]
+
+  , prim "set_base"            "Int -> TopLevel ()"
+    (pureVal set_base)
+    [ "Set the number base for pretty-printing numeric literals."
+    , "Permissible values include 2, 8, 10, and 16." ]
 
   , prim "print"               "{a} a -> TopLevel ()"
     (pureVal print_value)

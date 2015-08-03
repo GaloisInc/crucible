@@ -112,10 +112,12 @@ isVUnit _ = False
 
 data PPOpts = PPOpts
   { ppOptsAnnotate :: Bool
+  , ppOptsAscii :: Bool
+  , ppOptsBase :: Int
   }
 
 defaultPPOpts :: PPOpts
-defaultPPOpts = PPOpts False
+defaultPPOpts = PPOpts False False 10
 
 commaSep :: [ShowS] -> ShowS
 commaSep ss = foldr (.) id (intersperse (showString ",") ss)
@@ -232,6 +234,7 @@ data TopLevelRW =
   , rwTypes   :: Map SS.LName SS.Schema
   , rwDocs    :: Map SS.Name String
   , rwCryptol :: CEnv.CryptolEnv SAWCtx
+  , rwPPOpts  :: PPOpts
   }
 
 newtype TopLevel a = TopLevel (ReaderT TopLevelRO (StateT TopLevelRW IO) a)
