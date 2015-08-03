@@ -372,13 +372,20 @@ parseSchema :: CryptolEnv s -> Located String -> IO T.Schema
 parseSchema env input = do
   --putStrLn $ "parseSchema: " ++ show input
   let modEnv = eModuleEnv env
+
+  -- | Parse
   pschema <- ioParseSchema input
   --putStrLn $ "ioParseSchema: " ++ show pschema
+
+  -- | Resolve names
+  let nameEnv = MR.namingEnv pschema `MR.shadowing` getNamingEnv env
+  (rschema, _) <- liftModuleM modEnv (MM.interactive (MB.rename nameEnv pschema))
+
   let ifDecls = getAllIfaceDecls modEnv
-  let range = fromMaybe P.emptyRange (P.getLoc pschema)
+  let range = fromMaybe P.emptyRange (P.getLoc rschema)
   (tcEnv, _) <- liftModuleM modEnv $ MB.genInferInput range ifDecls
   let tcEnv' = tcEnv { TM.inpTSyns = Map.union (eExtraTSyns env) (TM.inpTSyns tcEnv) }
-  out <- TM.runInferM tcEnv' (TK.checkSchema pschema)
+  out <- TM.runInferM tcEnv' (TK.checkSchema rschema)
   ((schema, goals), _) <- liftModuleM modEnv (MM.interactive (runInferOutput out))
   unless (null goals) (print goals)
   return schema
