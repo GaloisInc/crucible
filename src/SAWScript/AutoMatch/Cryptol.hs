@@ -88,5 +88,5 @@ tupleFunctionType _                                                             
 
 -- | Find the name from the source if one exists
 sourceName :: QName -> Maybe String
-sourceName (unqual -> Name string) = Just string
+sourceName (unqual -> Name string) = Just (unpack string)
 sourceName _                       = Nothing

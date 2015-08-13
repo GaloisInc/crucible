@@ -98,12 +98,12 @@ Import :: { Import }
  -- TODO: allow imports by module name instead of path
 
 mbAs :: { Maybe P.ModName }
- : 'as' name                            { Just (P.ModName [tokStr $2]) }
+ : 'as' name                            { Just (P.mkModName [tokStr $2]) }
  | {- empty -}                          { Nothing }
 
 mbImportSpec :: { Maybe P.ImportSpec }
- : '(' list(name) ')'                   { Just $ P.Only   [ P.Name (tokStr n) | n <- $2 ] }
- | 'hiding' '(' list(name) ')'          { Just $ P.Hiding [ P.Name (tokStr n) | n <- $3 ] }
+ : '(' list(name) ')'                   { Just $ P.Only   [ P.mkName (tokStr n) | n <- $2 ] }
+ | 'hiding' '(' list(name) ')'          { Just $ P.Hiding [ P.mkName (tokStr n) | n <- $3 ] }
  | {- empty -}                          { Nothing }
 
 Stmt :: { Stmt }

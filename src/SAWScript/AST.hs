@@ -49,7 +49,8 @@ import Data.Traversable (Traversable)
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 import           Text.PrettyPrint.ANSI.Leijen (Pretty)
 
-import qualified Cryptol.Parser.AST as P (ImportSpec(..), ModName(..), Name(..))
+import qualified Cryptol.Parser.AST as P (ImportSpec(..), ModName(..), Name(..), unModName)
+import qualified Cryptol.ModuleSystem.Name as P (unpack)
 
 -- Names {{{
 
@@ -218,7 +219,7 @@ instance Pretty Stmt where
       StmtLet (NonRecursive decl) ->
          PP.text "let" PP.<+> prettyDef decl
       StmtLet (Recursive decls) ->
-         PP.text "rec" PP.<+> 
+         PP.text "rec" PP.<+>
          PP.cat (PP.punctuate
             (PP.empty PP.</> PP.text "and" PP.<> PP.space)
             (map prettyDef decls))
@@ -230,11 +231,11 @@ instance Pretty Stmt where
          (case iModule of
             Left filepath ->
                PP.dquotes . PP.text $ filepath
-            Right (P.ModName modPath) ->
-               PP.text (intercalate "." modPath)) PP.<>
+            Right modName ->
+               PP.text (intercalate "." (P.unModName modName))) PP.<>
          (case iAs of
-            Just (P.ModName modPath) ->
-               PP.space PP.<> PP.text "as" PP.<+> PP.text (intercalate "." modPath)
+            Just modName ->
+               PP.space PP.<> PP.text "as" PP.<+> PP.text (intercalate "." (P.unModName modName))
             Nothing -> PP.empty) PP.<>
          (case iSpec of
             Just (P.Hiding names) ->
@@ -243,10 +244,10 @@ instance Pretty Stmt where
                PP.space PP.<> PP.tupled (map stringName names)
             Nothing -> PP.empty)
       --expr -> PP.cyan . PP.text $ show expr
-   
+
       where
          stringName = \case
-            P.Name n       -> PP.text n
+            P.Name n       -> PP.text (P.unpack n)
             P.NewName _ _i -> error "Encountered 'NewName' while pretty-printing."
 
 prettyDef :: Decl -> PP.Doc

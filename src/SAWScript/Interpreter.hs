@@ -104,8 +104,8 @@ extendEnv x mt md v rw =
      }
   where
     name = x
-    qname = T.QName Nothing (T.Name (getOrig x))
-    modname = T.ModName [getOrig x]
+    qname = T.mkUnqual (T.mkName (getOrig x))
+    modname = T.mkModName [getOrig x]
     ce = rwCryptol rw
     ce' = case v of
             VTerm t

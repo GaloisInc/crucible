@@ -135,7 +135,7 @@ readSBV path unintlst =
           SBV.TFun t1 t2 -> C.tFun (toCType t1) (toCType t2)
           SBV.TVec n t   -> C.tSeq (C.tNum n) (toCType t)
           SBV.TTuple ts  -> C.tTuple (map toCType ts)
-          SBV.TRecord bs -> C.tRec [ (C.Name n, toCType t) | (n, t) <- bs ]
+          SBV.TRecord bs -> C.tRec [ (C.mkName n, toCType t) | (n, t) <- bs ]
 
 
 -- | The 'AIG.Proxy' used by SAWScript.

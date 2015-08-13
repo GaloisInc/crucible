@@ -62,6 +62,7 @@ import Cryptol.Prims.Eval(primTable)
 import Cryptol.Eval (EvalError)
 import qualified Cryptol.ModuleSystem as M
 import Cryptol.ModuleSystem.NamingEnv (NamingEnv)
+import Cryptol.ModuleSystem.Name (unpack)
 import Cryptol.Parser (ParseError,ppError)
 import Cryptol.Parser.NoInclude (IncludeError,ppIncludeError)
 import Cryptol.Parser.NoPat (Error)
@@ -283,7 +284,7 @@ setREPLTitle  = unlessBatch $ do
   io (setTitle (mkTitle rw))
 
 builtIns :: [String]
-builtIns = Map.keys primTable
+builtIns = map unpack (Map.keys primTable)
 
 -- | Only meant for use with one of getVars or getTSyns.
 keepOne :: String -> [a] -> a

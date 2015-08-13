@@ -254,7 +254,7 @@ bindCryptolModule (modName, CryptolModule tm) env =
 
 lookupCryptolModule :: CryptolModule s -> String -> IO (TypedTerm s)
 lookupCryptolModule (CryptolModule tm) name =
-  case Map.lookup (P.Name name) tm of
+  case Map.lookup (P.mkName name) tm of
     Nothing -> fail $ "Binding not found: " ++ name
     Just t -> return t
 
@@ -361,7 +361,9 @@ parseDecls sc env input = do
 
   -- Convert from 'Decl' to 'TopDecl' so that types will be generalized
   let topdecls = [ P.Decl (P.TopLevel P.Public Nothing d) | d <- rdecls ]
-  out <- T.tcDecls topdecls tcEnv'
+  out <- T.tcDecls topdecls tcEnv' -- FIXME: instead of using tcDecls,
+                                   -- use something like inferModule,
+                                   -- which also returns TSyns.
   (dgs, modEnv') <- liftModuleM modEnv (MM.interactive (runInferOutput out))
   let env' = env { eModuleEnv = modEnv' }
 
