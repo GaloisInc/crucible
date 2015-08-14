@@ -67,7 +67,6 @@ import Verifier.SAW.SharedTerm
 
 -- JSS Utilities {{{1
 
-
 type Verbosity = Int
 
 -- | Set value of bound to instance field in path state.

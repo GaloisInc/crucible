@@ -8,7 +8,15 @@ Point-of-contact : atomb
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ViewPatterns #-}
 module SAWScript.JavaMethodSpec.ExpectedStateDef
-  ( ExpectedStateDef(..)
+  ( ExpectedStateDef
+  , esdStartLoc
+  , esdInitialAssignments
+  , esdInitialPathState
+  , esdReturnValue
+  , esdStaticFields
+  , esdInstanceFields
+  , esdJavaExprs
+  , esdArrays
   , esdRefName
   , initializeVerification
     -- * Ut
@@ -51,7 +59,7 @@ import Verifier.SAW.Cryptol (scCryptolEq)
 
 -- ExpectedStateDef {{{1
 
--- | Describes expected result of computation.
+-- | Describes expected result computation.
 data ExpectedStateDef = ESD {
          -- | Location that we started from.
          esdStartLoc :: JSS.Breakpoint
@@ -71,6 +79,8 @@ data ExpectedStateDef = ESD {
        , esdInstanceFields :: !(Map (JSS.Ref, JSS.FieldId) (Maybe SpecJavaValue))
          -- | Maps static fields to expected value, or Nothing if value may
          -- be arbitrary.
+         -- Verification will check that all fields assigned a value at the
+         -- are defined in this map.
        , esdStaticFields :: !(Map JSS.FieldId (Maybe SpecJavaValue))
          -- | Maps reference to expected node, or Nothing if value may be arbitrary.
        , esdArrays :: !(Map JSS.Ref (Maybe (Int32, SharedTerm SAWCtx)))
