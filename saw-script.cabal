@@ -82,6 +82,8 @@ library
     SAWScript.JavaBuiltins
     SAWScript.JavaExpr
     SAWScript.JavaMethodSpec
+    SAWScript.JavaMethodSpec.Evaluator
+    SAWScript.JavaMethodSpec.ExpectedStateDef
     SAWScript.JavaMethodSpecIR
     SAWScript.Lexer
     SAWScript.LLVMBuiltins
