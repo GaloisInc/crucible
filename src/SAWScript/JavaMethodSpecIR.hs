@@ -1,4 +1,3 @@
--- | Provides 
 {- |
 Module           : $Header$
 Description      : Provides typechecked representation for method specifications and function for creating it from AST representation.
@@ -13,7 +12,7 @@ Point-of-contact : jhendrix, atomb
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module SAWScript.JavaMethodSpecIR 
+module SAWScript.JavaMethodSpecIR
   (-- * MethodSpec record
     JavaMethodSpecIR
   , specName
@@ -164,7 +163,7 @@ type RefEquivConfiguration = [(JavaExprEquivClass, JavaActualType)]
 
 -- | Returns all possible potential equivalence classes for spec.
 bsRefEquivClasses :: BehaviorSpec -> [RefEquivConfiguration]
-bsRefEquivClasses bs = 
+bsRefEquivClasses bs =
   map (map parseSet . CC.toList) $ Set.toList $
     CC.mayAliases (bsMayAliasClasses bs) (bsMustAliasSet bs)
  where parseSet l@(e:_) =
@@ -176,7 +175,7 @@ bsRefEquivClasses bs =
 bsPrimitiveExprs :: BehaviorSpec -> [JavaExpr]
 bsPrimitiveExprs bs =
   [ e | (e, PrimitiveType _) <- Map.toList (bsActualTypeMap bs) ]
- 
+
 bsLogicEqs :: BehaviorSpec -> [(JavaExpr, JavaExpr)]
 bsLogicEqs bs =
   [ (lhs, rhs) | (_, lhs, JE rhs) <- bsLogicAssignments bs ]
@@ -184,9 +183,9 @@ bsLogicEqs bs =
 -- | Returns logic assignments to equivance class.
 bsAssignmentsForClass ::  BehaviorSpec -> JavaExprEquivClass
                       -> [LogicExpr]
-bsAssignmentsForClass bs cl = res 
+bsAssignmentsForClass bs cl = res
   where s = Set.fromList cl
-        res = [ rhs 
+        res = [ rhs
               | (_, lhs, LE rhs) <- bsLogicAssignments bs
               , Set.member lhs s
               ]
@@ -275,7 +274,9 @@ initMethodSpec pos cb thisClass mname = do
 
 -- JavaMethodSpecIR {{{1
 
+-- | This class captures the spec for the overall method.
 data JavaMethodSpecIR = MSIR {
+    -- | The position of the specification for error reporting purposes.
     specPos :: Pos
     -- | Class used for this instance.
   , specThisClass :: JSS.Class

@@ -478,51 +478,51 @@ generateVC ir esd (ps, endLoc, res) = do
         forM_ (Map.toList $ ps ^. JSS.pathMemory . JSS.memStaticFields) $ \(f,jval) -> do
           let fieldName = show (JSS.fieldIdName f)
                             ++ " of class " ++ (JSS.fieldIdClass f)
-          case Map.lookup f (esdStaticFields esd) of
-            Nothing ->
+          case esdStaticFieldValue f esd of
+            NoExpectedValue ->
               pvcgFail $ ftext $ "Modifies the undefined static field " ++ fieldName ++ "."
-            Just sval -> do
-              case (jval,sval) of
-                (_,Nothing) -> return ()
-                (jv, Just sv) | jv == sv -> return ()
-                (JSS.RValue jref, Just (JSS.RValue _)) ->
+            AnyExpectedValue -> return ()
+            AssignedExpectedValue sv -> do
+              case (jval,sv) of
+                (jv, _) | jv == sv -> return ()
+                (JSS.RValue jref, JSS.RValue _) ->
                   pvcgFail $ ftext $
                     "Assigns an unexpected value " ++ esdRefName jref esd
                        ++ " to " ++ fieldName ++ "."
-                (JSS.IValue jvmNode, Just (JSS.IValue specNode)) ->
+                (JSS.IValue jvmNode, JSS.IValue specNode) ->
                   pvcgAssertEq fieldName jvmNode specNode
-                (JSS.LValue jvmNode, Just (JSS.LValue specNode)) ->
+                (JSS.LValue jvmNode, JSS.LValue specNode) ->
                   pvcgAssertEq fieldName jvmNode specNode
-                (_, Just _) ->
+                _ ->
                   pvcgFail $
                   ftext "internal: comparePathStates encountered illegal field type."
         -- Check instance fields
         forM_ (Map.toList (ps ^. JSS.pathMemory . JSS.memInstanceFields)) $ \((ref,f), jval) -> do
           let fieldName = show (JSS.fieldIdName f)
                             ++ " of " ++ esdRefName ref esd
-          case Map.lookup (ref,f) (esdInstanceFields esd) of
-            Nothing ->
+          case esdInstanceFieldValue ref f esd of
+            NoExpectedValue ->
               pvcgFail $ ftext $ "Modifies the undefined field " ++ fieldName ++ "."
-            Just sval -> do
-              case (jval,sval) of
-                (_,Nothing) -> return ()
-                (jv, Just sv) | jv == sv -> return ()
-                (JSS.RValue jref, Just (JSS.RValue _)) ->
+            AnyExpectedValue -> return ()
+            AssignedExpectedValue sv -> do
+              case (jval,sv) of
+                (jv, _) | jv == sv -> return ()
+                (JSS.RValue jref, JSS.RValue _) ->
                   pvcgFail $ ftext $
                     "Assigns an unexpected value " ++ esdRefName jref esd
                        ++ " to " ++ fieldName ++ "."
-                (JSS.IValue jvmNode, Just (JSS.IValue specNode)) ->
+                (JSS.IValue jvmNode, JSS.IValue specNode) ->
                   pvcgAssertEq fieldName jvmNode specNode
-                (JSS.LValue jvmNode, Just (JSS.LValue specNode)) ->
+                (JSS.LValue jvmNode, JSS.LValue specNode) ->
                   pvcgAssertEq fieldName jvmNode specNode
-                (_, Just _) -> pvcgFail $
+                _ -> pvcgFail $
                   ftext "internal: comparePathStates encountered illegal field type."
         -- Check value arrays
         forM_ (Map.toList (ps ^. JSS.pathMemory . JSS.memScalarArrays)) $ \(ref,(jlen,jval)) -> do
-          case Map.lookup ref (esdArrays esd) of
-            Nothing -> pvcgFail $ ftext $ "Allocates an array."
-            Just Nothing -> return ()
-            Just (Just (slen, sval))
+          case esdArrayValue ref esd of
+            NoExpectedValue -> pvcgFail $ ftext $ "Allocates an array."
+            AnyExpectedValue -> return ()
+            AssignedExpectedValue (slen, sval)
               | jlen /= slen -> pvcgFail $ ftext $ "Array changes size."
               | otherwise -> pvcgAssertEq (esdRefName ref esd) jval sval
         -- Check ref arrays
@@ -582,12 +582,12 @@ runValidation prover params sc esd results = do
                  , vsMethodSpec = ir
                  , vsVerbosity = verb
                  -- , vsFromBlock = esdStartLoc esd
-                 , vsEvalContext = evalContextFromPathState sc m ps
+                 , vsEvalContext = evalContextFromPathState sc (esdJavaExprs esd) ps
                  , vsInitialAssignments = pvcInitialAssignments pvc
                  , vsCounterexampleFn = cfn
                  , vsStaticErrors = pvcStaticErrors pvc
                  }
-        m = esdJavaExprs esd
+--        m = esdJavaExprs esd
     if null (pvcStaticErrors pvc) then
      forM_ (pvcChecks pvc) $ \vc -> do
        let vs = mkVState (vcName vc) (vcCounterexample sc vc)

@@ -104,9 +104,9 @@ mapLookupAny keys m = listToMaybe $ catMaybes $ map (\k -> Map.lookup k m) keys
 -- ExecException {{{1
 
 -- | Class of exceptions thrown by SBV parser.
-data ExecException = ExecException Pos          -- ^ Position
-                                   Doc          -- ^ Error message
-                                   String       -- ^ Resolution tip
+data ExecException = ExecException Pos          -- Position
+                                   Doc          -- Error message
+                                   String       -- Resolution tip
   deriving (Show, Typeable)
 
 instance Exception ExecException

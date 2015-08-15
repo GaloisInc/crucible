@@ -129,7 +129,7 @@ ioParseGeneric parse lstr = ioParseResult (parse cfg (pack str))
         PosREPL       -> ("<interactive>", 1, 1)
     cfg = P.defaultConfig { P.cfgSource = file }
     str = concat [ replicate (line - 1) '\n'
-                 , replicate (col - 1 + 2) ' ' -- ^ add 2 to compensate for dropped "{{"
+                 , replicate (col - 1 + 2) ' ' -- add 2 to compensate for dropped "{{"
                  , getVal lstr ]
 
 ioParseResult :: Either P.ParseError a -> IO a
@@ -268,7 +268,7 @@ importModule sc env imp = do
             Right mn -> fst `fmap` liftModuleM modEnv (MB.findModule mn)
   (m, modEnv') <- liftModuleM modEnv (MB.loadModuleByPath path)
 
-  -- | Regenerate SharedTerm environment. TODO: preserve old
+  -- Regenerate SharedTerm environment. TODO: preserve old
   -- values, only translate decls from new module.
   let oldTermEnv = eTermEnv env
   newTermEnv <- genTermEnv sc modEnv'
@@ -311,17 +311,17 @@ parseTypedTerm :: SharedContext s -> CryptolEnv s -> Located String -> IO (Typed
 parseTypedTerm sc env input = do
   let modEnv = eModuleEnv env
 
-  -- | Parse
+  -- Parse
   pexpr <- ioParseExpr input
 
-  -- | Eliminate patterns
+  -- Eliminate patterns
   (npe, _) <- liftModuleM modEnv (MM.interactive (MB.noPat pexpr))
 
-  -- | Resolve names
+  -- Resolve names
   let nameEnv = getNamingEnv env
   (re, _) <- liftModuleM modEnv (MM.interactive (MB.rename nameEnv npe))
 
-  -- | Infer types
+  -- Infer types
   let ifDecls = getAllIfaceDecls modEnv
   let range = fromMaybe P.emptyRange (P.getLoc re)
   (tcEnv, _) <- liftModuleM modEnv $ MB.genInferInput range ifDecls
@@ -333,7 +333,7 @@ parseTypedTerm sc env input = do
   ((expr, schema), modEnv') <- liftModuleM modEnv (MM.interactive (runInferOutput out))
   let env' = env { eModuleEnv = modEnv' }
 
-  -- | Translate
+  -- Translate
   trm <- translateExpr sc env' expr
   return (TypedTerm schema trm)
 
@@ -341,17 +341,17 @@ parseDecls :: SharedContext s -> CryptolEnv s -> Located String -> IO (CryptolEn
 parseDecls sc env input = do
   let modEnv = eModuleEnv env
 
-  -- | Parse
+  -- Parse
   decls <- ioParseDecls input
 
-  -- | Eliminate patterns
+  -- Eliminate patterns
   (npdecls, _) <- liftModuleM modEnv (MM.interactive (MB.noPat decls))
 
-  -- | Resolve names
+  -- Resolve names
   let nameEnv = MR.namingEnv npdecls `MR.shadowing` getNamingEnv env
   (rdecls, _) <- liftModuleM modEnv (MM.interactive (MB.rename nameEnv npdecls))
 
-  -- | Infer types
+  -- Infer types
   let ifDecls = getAllIfaceDecls modEnv
   let range = fromMaybe P.emptyRange (P.getLoc rdecls)
   (tcEnv, _) <- liftModuleM modEnv $ MB.genInferInput range ifDecls
@@ -367,7 +367,7 @@ parseDecls sc env input = do
   (dgs, modEnv') <- liftModuleM modEnv (MM.interactive (runInferOutput out))
   let env' = env { eModuleEnv = modEnv' }
 
-  -- | Translate
+  -- Translate
   translateDeclGroups sc env' dgs
 
 parseSchema :: CryptolEnv s -> Located String -> IO T.Schema
@@ -375,11 +375,11 @@ parseSchema env input = do
   --putStrLn $ "parseSchema: " ++ show input
   let modEnv = eModuleEnv env
 
-  -- | Parse
+  -- Parse
   pschema <- ioParseSchema input
   --putStrLn $ "ioParseSchema: " ++ show pschema
 
-  -- | Resolve names
+  -- Resolve names
   let nameEnv = MR.namingEnv pschema `MR.shadowing` getNamingEnv env
   (rschema, _) <- liftModuleM modEnv (MM.interactive (MB.rename nameEnv pschema))
 

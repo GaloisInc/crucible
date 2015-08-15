@@ -220,7 +220,7 @@ processStmtBind printBinds ro rw mx mt _mc expr = do
 
   val <- interpret ro rw expr''
 
-  -- | Run the resulting TopLevel action.
+  -- Run the resulting TopLevel action.
   (result, ty, rw') <-
     case schema of
       SS.Forall [] t ->
@@ -231,12 +231,12 @@ processStmtBind printBinds ro rw mx mt _mc expr = do
           _ -> return (val, t, rw)
       _ -> fail $ "Not a monomorphic type: " ++ SS.pShow schema
 
-  -- | Print non-unit result if it was not bound to a variable
+  -- Print non-unit result if it was not bound to a variable
   case mx of
     Nothing | printBinds && not (isVUnit result) -> print result
     _                                            -> return ()
 
-  -- | Print function type if result was a function
+  -- Print function type if result was a function
   case ty of
     SS.TyCon SS.FunCon _ -> putStrLn $ getVal lname ++ " : " ++ SS.pShow ty
     _ -> return ()
@@ -674,7 +674,7 @@ primitives = Map.fromList
   , prim "sat"                 "ProofScript SatResult -> Term -> TopLevel SatResult"
     (scVal satPrim)
     [ "Use the given proof script to attempt to prove that a term is"
-    , "satisfiable (true for any input). Returns a proof result that can" 
+    , "satisfiable (true for any input). Returns a proof result that can"
     , "be analyzed with 'caseSatResult' to determine whether it represents"
     , "a satisfiying assignment or an indication of unsatisfiability."
     ]

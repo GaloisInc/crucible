@@ -18,12 +18,12 @@ import Text.PrettyPrint.ANSI.Leijen
 import Verifier.SAW.Cryptol (scCryptolEq)
 
 data VerificationCheck s
-  = AssertionCheck String         -- ^ Name of assertion.
-                   (SharedTerm s) -- ^ Assertion term.
-  -- | Check that equality assertion is true.
-  | EqualityCheck String          -- ^ Name of value to compare
-                  (SharedTerm s)  -- ^ Value returned by implementation.
-                  (SharedTerm s)  -- ^ Expected value in Spec.
+  = AssertionCheck String (SharedTerm s)
+    -- ^ A predicate to check with a name and term.
+  | EqualityCheck String          -- Name of value to compare
+                  (SharedTerm s)  -- Value returned by implementation.
+                  (SharedTerm s)  -- Expected value in Spec.
+    -- ^ Check that equality assertion is true.
 
 vcName :: VerificationCheck s -> String
 vcName (AssertionCheck nm _) = nm

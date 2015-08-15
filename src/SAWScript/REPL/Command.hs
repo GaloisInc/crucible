@@ -354,7 +354,7 @@ typeOfCmd str = do
              sc <- getSharedContext
              cenv <- getCryptolEnv
              TypedTerm schema _ <- io (CEnv.parseTypedTerm sc cenv str')
-             -- ^ TODO: export functions to let us get the expr
+             -- TODO: export functions to let us get the expr
 
              -- XXX need more warnings from the module system
              --io (mapM_ printWarning ws)

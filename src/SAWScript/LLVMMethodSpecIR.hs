@@ -1,4 +1,3 @@
--- | Provides 
 {- |
 Module           : $Header$
 Description      : Provides typechecked representation for LLVM function
@@ -13,7 +12,7 @@ Point-of-contact : atomb
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module SAWScript.LLVMMethodSpecIR 
+module SAWScript.LLVMMethodSpecIR
   ( -- * MethodSpec record
     LLVMMethodSpecIR
   , specName
@@ -124,7 +123,7 @@ type PtrEquivConfiguration = [(LLVMExprEquivClass, LLVMActualType)]
 
 -- | Returns all possible potential equivalence classes for spec.
 bsRefEquivClasses :: BehaviorSpec -> [PtrEquivConfiguration]
-bsRefEquivClasses bs = 
+bsRefEquivClasses bs =
   map (map parseSet . CC.toList) $ Set.toList $
     CC.mayAliases (bsMayAliasClasses bs) (bsMustAliasSet bs)
  where parseSet l@(e:_) =
@@ -136,7 +135,7 @@ bsRefEquivClasses bs =
 bsPrimitiveExprs :: BehaviorSpec -> [LLVMExpr]
 bsPrimitiveExprs bs =
   [ e | (e, ty) <- Map.toList (bsActualTypeMap bs), isPrimitiveType ty ]
- 
+
 asLLVMExpr :: Map String LLVMExpr -> LogicExpr -> Maybe LLVMExpr
 asLLVMExpr m (asCtor -> Just (i, [e])) =
   case e of
@@ -152,9 +151,9 @@ bsLogicEqs m bs =
 -- | Returns logic assignments to equivance class.
 bsAssignmentsForClass :: Map String LLVMExpr -> BehaviorSpec -> LLVMExprEquivClass
                       -> [LogicExpr]
-bsAssignmentsForClass m bs cl = res 
+bsAssignmentsForClass m bs cl = res
   where s = Set.fromList cl
-        res = [ rhs 
+        res = [ rhs
               | (_,lhs,rhs) <- bsLogicAssignments bs
               , Set.member lhs s
               , not (isJust (asLLVMExpr m rhs)) ]
