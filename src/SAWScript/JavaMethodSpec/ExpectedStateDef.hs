@@ -262,7 +262,7 @@ esSetJavaValue e@(CC.Term exprF) v = do
     -- TODO: the following is ugly, and doesn't make good use of lenses
     TC.InstanceField refExpr f -> do
       -- Lookup refrence associated to refExpr
-      Just ref <- Map.lookup refExpr <$> gets esExprRefMap
+      Just ref <- Map.lookup refExpr `fmap` gets esExprRefMap
       ps <- use esInitialPathState
       case Map.lookup (ref,f) (ps ^. JSS.pathMemory . JSS.memInstanceFields) of
         Just oldValue -> esAssertEq (TC.ppJavaExpr e) oldValue v
