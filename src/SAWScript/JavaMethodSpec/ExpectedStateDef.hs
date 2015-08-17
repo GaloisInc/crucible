@@ -5,6 +5,7 @@ License          : Free for non-commercial use. See LICENSE.
 Stability        : provisional
 Point-of-contact : atomb
 -}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ViewPatterns #-}
 module SAWScript.JavaMethodSpec.ExpectedStateDef
