@@ -945,7 +945,8 @@ primitives = Map.fromList
     , "variable, which should have the given type. The returned term can be"
     , "used to construct more complex expressions. For example it can be used"
     , "with 'java_return' to describe the expected return value in terms"
-    , "of the initial value of a variable."
+    , "of the initial value of a variable. The Java variable can also be of"
+    , "the form \"args[n]\" to refer to the (0-based) nth argument of a method."
     ]
 
   , prim "java_class_var"      "{a} String -> JavaType -> JavaSetup a"
