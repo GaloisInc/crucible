@@ -1,0 +1,19 @@
+c <- llvm_load_module "side.bc";
+
+let side_spec = do {
+  a <- llvm_ptr "a" (llvm_int 32);
+  llvm_return {{ a }};
+  llvm_ensure_eq "*a" {{ 0:[32] }};
+  llvm_verify_tactic abc;
+  };
+
+side_proof <- llvm_verify c "side_effect" [] side_spec;
+
+let foo_spec = do {
+  x <- llvm_var "x" (llvm_int 32);
+  llvm_return {{ x }};
+  llvm_verify_tactic abc;
+  };
+
+bad <- llvm_verify c "foo" [side_proof] foo_spec;
+print "Done.";

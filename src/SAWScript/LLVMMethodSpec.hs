@@ -439,7 +439,9 @@ execOverride sc _pos ir args = do
                      ]
       -- TODO: turn this message into a proper exception
       fail (show msg)
-    [(_, _, Right mval)] -> return mval
+    [(ps, _, Right mval)] -> do
+      currentPathOfState .= ps
+      return mval
     [] -> fail "Zero paths returned from override execution."
     _  -> fail "More than one path returned from override execution."
 
