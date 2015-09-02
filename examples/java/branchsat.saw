@@ -1,0 +1,13 @@
+let f_spec = do {
+   x <- java_var "x" java_int;
+   java_assert {{ x == (4:[32]) }};
+   java_sat_branches true;
+   java_return {{ 6 : [32] }};
+   java_verify_tactic abc;
+};
+
+c <- java_load_class "BranchTest";
+// The following will not terminate if the last parameter is `false`
+f <- java_symexec c "f" [("x", {{ 4:[32] }})] ["return"] true;
+print_term f;
+java_verify c "f" [] f_spec;
