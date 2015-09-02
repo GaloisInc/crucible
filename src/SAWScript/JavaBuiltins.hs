@@ -239,12 +239,15 @@ symexecJava :: BuiltinContext
             -> String
             -> [(String, SharedTerm SAWCtx)]
             -> [String]
+            -> Bool
             -> IO (TypedTerm SAWCtx)
-symexecJava bic opts cls mname inputs outputs = do
+symexecJava bic opts cls mname inputs outputs satBranches = do
   let cb = biJavaCodebase bic
       pos = fixPos
       jsc = biSharedContext bic
-      fl = defaultSimFlags { alwaysBitBlastBranchTerms = True }
+      fl = defaultSimFlags { alwaysBitBlastBranchTerms = True
+                           , satAtBranches = satBranches
+                           }
   (_mcls, meth) <- findMethod cb pos mname cls
   -- TODO: should we use mcls anywhere below?
   let mkAssign (s, tm) = do
@@ -364,6 +367,7 @@ runJavaSetup pos cb cls mname jsc setup = do
                    , jsContext = jsc
                    , jsTactic = Skip
                    , jsSimulate = True
+                   , jsSatBranches = False
                    }
   snd <$> runStateT setup setupState
 
@@ -399,7 +403,9 @@ verifyJava bic opts cls mname overrides setup = do
                   | bs <- {- concat $ Map.elems $ -} [specBehaviors ms]
                   , cl <- bsRefEquivClasses bs
                   ]
-        fl = defaultSimFlags { alwaysBitBlastBranchTerms = True }
+        fl = defaultSimFlags { alwaysBitBlastBranchTerms = True
+                             , satAtBranches = jsSatBranches setupRes
+                             }
     when (verb >= 2) $ putStrLn $ "Starting verification of " ++ specName ms
     forM_ configs $ \(bs,cl) -> withSAWBackend jsc Nothing $ \sbe -> do
       when (verb >= 2) $ do
@@ -619,6 +625,9 @@ modifySpec f = modify $ \st -> st { jsSpec = f (jsSpec st) }
 
 javaNoSimulate :: JavaSetup ()
 javaNoSimulate = modify (\s -> s { jsSimulate = False })
+
+javaSatBranches :: Bool -> JavaSetup ()
+javaSatBranches doSat = modify (\s -> s { jsSatBranches = doSat })
 
 javaClassVar :: BuiltinContext -> Options -> String -> JavaType
              -> JavaSetup ()

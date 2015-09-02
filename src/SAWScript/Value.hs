@@ -278,6 +278,7 @@ data JavaSetupState
     , jsContext :: SharedContext SAWCtx
     , jsTactic :: ValidationPlan
     , jsSimulate :: Bool
+    , jsSatBranches :: Bool
     }
 
 type JavaSetup a = StateT JavaSetupState IO a

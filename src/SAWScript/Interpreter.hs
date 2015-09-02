@@ -990,6 +990,12 @@ primitives = Map.fromList
     , "a Java method."
     ]
 
+  , prim "java_sat_branches"   "Bool -> JavaSetup ()"
+    (pureVal javaSatBranches)
+    [ "Turn on or off satisfiability checking of branch conditions during"
+    , "symbolic execution."
+    ]
+
   , prim "java_no_simulate"    "JavaSetup ()"
     (pureVal javaNoSimulate)
     [ "Skip symbolic simulation for this Java method." ]
@@ -1019,7 +1025,7 @@ primitives = Map.fromList
     ]
 
   , prim "java_symexec"
-    "JavaClass -> String -> [(String, Term)] -> [String] -> TopLevel Term"
+    "JavaClass -> String -> [(String, Term)] -> [String] -> Bool -> TopLevel Term"
     (bicVal symexecJava)
     [ "Symbolically execute a Java method and construct a Term corresponding"
     , "to its result. The first list contains pairs of variable or field"

@@ -480,20 +480,26 @@ command has the following signature:
                 -> String           // Java method name
                 -> [(String, Term)] // Initial state elements
                 -> [String]         // Final (output) state elements
+                -> Bool             // Check satisfiability of branches?
                 -> TopLevel Term    // Resulting Term
 
-This first two parameters are the same as for `java_extract`: the
-class object and the name of the method from that class to execute.
-The third parameter describes the initial state of execution. For each
-element of this list, SAWScript writes the value of the `Term` to the
-destination variable or field named by the `String`. Typically, the
-`Term` will either be directly the result of `fresh_symbolic` or an
-more complex expression containing such a result, though it is allowed
-to be a constant value. The syntax of destination follows Java syntax.
-For example, `o.f` describes field `f` of object `o`. The fourth
-parameter indicates which elements of the final state to return as
-output. The syntax of the strings in this list is the same as for the
-initial state description.
+This first two parameters are the same as for `java_extract`: the class
+object and the name of the method from that class to execute. The third
+parameter describes the initial state of execution. For each element of
+this list, SAWScript writes the value of the `Term` to the destination
+variable or field named by the `String`. Typically, the `Term` will
+either be directly the result of `fresh_symbolic` or an more complex
+expression containing such a result, though it is allowed to be a
+constant value. The syntax of destination follows Java syntax. For
+example, `o.f` describes field `f` of object `o`. The fourth parameter
+indicates which elements of the final state to return as output. The
+syntax of the strings in this list is the same as for the initial state
+description. The final parameter indicates whether to perform
+satisfiability checks on branch conditions. If this is `true`, SAW will
+use its internal version of ABC to check the satisfiability of each
+branch condition before executing the associated branch. If this is
+`false`, SAW will simply check whether the branch condition has a
+constant value.
 
 An example of using `java_symexec` on a simple function (using just
 scalar arguments and return values) appears in the
