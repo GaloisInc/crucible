@@ -182,6 +182,16 @@ termOfValue (RValue (Ref _ (ClassType _))) =
   fail "Translating objects to terms not yet implemented" -- TODO
 termOfValue _ = fail "Can't convert term to value"
 
+byteExtend :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
+byteExtend sc x = do
+  n24 <- scNat sc 24
+  n8 <- scNat sc 8
+  scBvUExt sc n24 n8 x
+
+shortExtend :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
+shortExtend sc x = do
+  n16 <- scNat sc 16
+  scBvUExt sc n16 n16 x
 
 type SAWBackend = SharedContext SAWCtx
 
@@ -192,10 +202,14 @@ valueOfTerm :: (MonadSim SAWBackend m) =>
 valueOfTerm sc t = do
   ty <- liftIO $ (scTypeOf sc t >>= scWhnf sc)
   case ty of
+    (asBitvectorType -> Just 8) -> IValue <$> (liftIO $ byteExtend sc t)
+    (asBitvectorType -> Just 16) -> IValue <$> (liftIO $ shortExtend sc t)
     (asBitvectorType -> Just 32) -> return (IValue t)
     (asBitvectorType -> Just 64) -> return (LValue t)
     (asVecType -> Just (n :*: ety)) -> do
       jty <- case ety of
+               (asBitvectorType -> Just 8) -> return IntType
+               (asBitvectorType -> Just 16) -> return IntType
                (asBitvectorType -> Just 32) -> return IntType
                (asBitvectorType -> Just 64) -> return LongType
                _ -> fail $ "Unsupported array element type: " ++ show ety
