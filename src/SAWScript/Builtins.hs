@@ -995,14 +995,15 @@ bindAllExts sc body = bindExts sc (getAllExts body) body
 
 -- | Apply the given SharedTerm to the given values, and evaluate to a
 -- final value.
-cexEvalFn :: SharedContext s -> [FiniteValue] -> SharedTerm s
+-- TODO: Take (ExtCns, FiniteValue) instead of (SharedTerm, FiniteValue)
+cexEvalFn :: SharedContext s -> [(SharedTerm s, FiniteValue)] -> SharedTerm s
           -> IO Concrete.CValue
 cexEvalFn sc args tm = do
   -- NB: there may be more args than exts, and this is ok. One side of
   -- an equality may have more free variables than the other,
   -- particularly in the case where there is a counter-example.
-  let exts = getAllExts tm
-  args' <- mapM (scFiniteValue sc) args
+  let exts = map fst args
+  args' <- mapM (scFiniteValue sc . snd) args
   let is = mapMaybe extIdx exts
       argMap = Map.fromList (zip is args')
   tm' <- scInstantiateExt sc argMap tm

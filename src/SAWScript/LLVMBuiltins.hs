@@ -316,15 +316,16 @@ verifyLLVM bic opts (LLVMModule _file mdl) func overrides setup =
                    -> SharedTerm SAWCtx
                    -> IO ()
             prover script vs g = do
-              glam <- bindAllExts scLLVM g
+              let exts = getAllExts g
+              glam <- bindExts scLLVM exts g
               let bsc = biSharedContext bic
               glam' <- scImport bsc glam
               tt <- mkTypedTerm bsc glam'
               r <- evalStateT script (ProofGoal Universal (vsVCName vs) tt)
               case r of
                 SV.Unsat -> when (verb >= 3) $ putStrLn "Valid."
-                SV.Sat val ->  showCexResults scLLVM ms vs [("x", val)] -- TODO: replace x with something
-                SV.SatMulti vals -> showCexResults scLLVM ms vs vals
+                SV.Sat val ->  showCexResults scLLVM ms vs exts [("x", val)] -- TODO: replace x with something
+                SV.SatMulti vals -> showCexResults scLLVM ms vs exts vals
         case lsTactic lsctx of
           Skip -> liftIO $ putStrLn $
             "WARNING: skipping verification of " ++ show (specName ms)
@@ -339,14 +340,17 @@ verifyLLVM bic opts (LLVMModule _file mdl) func overrides setup =
 showCexResults :: SharedContext SAWCtx
                -> LLVMMethodSpecIR
                -> VerifyState
+               -> [SharedTerm SAWCtx] -- TODO: Use ExtCns type here instead
                -> [(String, FiniteValue)]
                -> IO ()
-showCexResults sc ms vs vals = do
+showCexResults sc ms vs exts vals = do
   putStrLn $ "When verifying " ++ show (specName ms) ++ ":"
   putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
   putStrLn $ "Counterexample: "
   mapM_ (\(n, v) -> putStrLn ("  " ++ n ++ ": " ++ show v)) vals
-  vsCounterexampleFn vs (cexEvalFn sc (map snd vals)) >>= print
+  if (length exts == length vals)
+    then vsCounterexampleFn vs (cexEvalFn sc (zip exts (map snd vals))) >>= print
+    else putStrLn "ERROR: Can't show result, wrong number of values"
   fail "Proof failed."
 
 llvmPure :: LLVMSetup ()

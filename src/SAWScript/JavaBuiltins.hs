@@ -434,15 +434,16 @@ verifyJava bic opts cls mname overrides setup = do
           putStrLn "Verifying the following:"
           mapM_ (print . ppPathVC) res
         let prover script vs g = do
-              glam <- bindAllExts jsc g
+              let exts = getAllExts g
+              glam <- bindExts jsc exts g
               tt <- mkTypedTerm jsc glam
               doExtraChecks opts bsc glam
               r <- evalStateT script (ProofGoal Universal (vsVCName vs) tt)
               case r of
                 SS.Unsat -> when (verb >= 3) $ putStrLn "Valid."
                 -- TODO: replace x with something
-                SS.Sat val -> showCexResults jsc ms vs [("x", val)]
-                SS.SatMulti vals -> showCexResults jsc ms vs vals
+                SS.Sat val -> showCexResults jsc ms vs exts [("x", val)]
+                SS.SatMulti vals -> showCexResults jsc ms vs exts vals
         case jsTactic setupRes of
           Skip -> liftIO $ putStrLn $
             "WARNING: skipping verification of " ++ specName ms
@@ -470,14 +471,17 @@ doExtraChecks opts bsc t = do
 showCexResults :: SharedContext SAWCtx
                -> JavaMethodSpecIR
                -> VerifyState
+               -> [SharedTerm SAWCtx] -- TODO: Use ExtCns type here instead
                -> [(String, FiniteValue)]
                -> IO ()
-showCexResults sc ms vs vals = do
+showCexResults sc ms vs exts vals = do
   putStrLn $ "When verifying " ++ specName ms ++ ":"
   putStrLn $ "Proof of " ++ vsVCName vs ++ " failed."
   putStrLn $ "Counterexample: "
   mapM_ (\(n, v) -> putStrLn ("  " ++ n ++ ": " ++ show v)) vals
-  vsCounterexampleFn vs (cexEvalFn sc (map snd vals)) >>= print
+  if (length exts == length vals)
+    then vsCounterexampleFn vs (cexEvalFn sc (zip exts (map snd vals))) >>= print
+    else putStrLn "ERROR: Can't show result, wrong number of values"
   fail "Proof failed."
 
 parseJavaExpr :: Codebase -> Class -> Method -> String
