@@ -26,6 +26,17 @@ while getopts "tpfj:" opt; do
     esac
 done
 
+if [ ! -e stack.yaml -a -z "$STACK_YAML" ] ; then
+    set +x
+    echo
+    echo "ERROR: no stack.yaml file found."
+    echo
+    echo "Select one of the given stack configuration files using:"
+    echo
+    echo "    ln -s stack.<ghc version and os>.yaml stack.yaml"
+    exit 1
+fi
+
 if [ ! -e ./deps -o "${dopull}" == "true" ] ; then
   ./get-dependencies.sh
 fi
