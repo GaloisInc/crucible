@@ -57,6 +57,7 @@ import qualified Cryptol.ModuleSystem.Base as MB
 import qualified Cryptol.ModuleSystem.Env as ME
 import qualified Cryptol.ModuleSystem.Interface as MI
 import qualified Cryptol.ModuleSystem.Monad as MM
+import qualified Cryptol.ModuleSystem.Name as MB (preludeName)
 import qualified Cryptol.ModuleSystem.NamingEnv as MN
 import qualified Cryptol.ModuleSystem.Renamer as MR
 
