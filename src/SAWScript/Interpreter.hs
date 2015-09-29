@@ -215,6 +215,7 @@ processStmtBind printBinds ro rw mx mt _mc expr = do
                 Nothing -> expr
                 Just t -> SS.TSig expr (SS.tBlock ctx t)
   let decl = SS.Decl lname Nothing expr'
+  let opts = rwPPOpts rw
 
   SS.Decl _ (Just schema) expr'' <- reportErrT $ checkDecl (rwTypes rw) decl
 
@@ -233,7 +234,7 @@ processStmtBind printBinds ro rw mx mt _mc expr = do
 
   -- Print non-unit result if it was not bound to a variable
   case mx of
-    Nothing | printBinds && not (isVUnit result) -> print result
+    Nothing | printBinds && not (isVUnit result) -> putStrLn (showsPrecValue opts 0 result "")
     _                                            -> return ()
 
   -- Print function type if result was a function

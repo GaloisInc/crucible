@@ -840,12 +840,13 @@ provePrim _sc script t = do
   return (SV.flipSatResult r)
 
 provePrintPrim :: SharedContext s -> ProofScript s SV.SatResult
-               -> TypedTerm s -> IO (Theorem s)
+               -> TypedTerm s -> TopLevel (Theorem s)
 provePrintPrim _sc script t = do
-  r <- provePrim _sc script t
+  r <- io $ provePrim _sc script t
+  opts <- rwPPOpts <$> getTopLevelRW
   case r of
-    SV.Valid -> putStrLn "Valid" >> return (Theorem t)
-    _ -> fail (show r)
+    SV.Valid -> io (putStrLn "Valid") >> return (Theorem t)
+    _ -> fail (SV.showsProofResult opts r "")
 
 satPrim :: SharedContext s -> ProofScript s SV.SatResult -> TypedTerm s
         -> IO SV.SatResult
@@ -854,8 +855,11 @@ satPrim _sc script t = do
   evalStateT script (ProofGoal Existential "sat" t)
 
 satPrintPrim :: SharedContext s -> ProofScript s SV.SatResult
-             -> TypedTerm s -> IO ()
-satPrintPrim _sc script t = print =<< satPrim _sc script t
+             -> TypedTerm s -> TopLevel ()
+satPrintPrim _sc script t = do
+  result <- io $ satPrim _sc script t
+  opts <- rwPPOpts <$> getTopLevelRW
+  io $ putStrLn (SV.showsSatResult opts result "")
 
 -- | Quick check (random test) a term and print the result. The
 -- 'Integer' parameter is the number of random tests to run.

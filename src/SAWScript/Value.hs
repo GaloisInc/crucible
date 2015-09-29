@@ -47,7 +47,7 @@ import Verifier.SAW.SharedTerm
 
 import qualified Verifier.SAW.Simulator.Concrete as Concrete
 import qualified Cryptol.Eval.Value as C
-import Verifier.SAW.Cryptol (exportValueWithSchema)
+import Verifier.SAW.Cryptol (exportValueWithSchema, exportFiniteValue)
 import qualified Cryptol.TypeCheck.AST as Cryptol (Schema)
 import Cryptol.Utils.PP (pretty)
 
@@ -119,6 +119,13 @@ data PPOpts = PPOpts
 defaultPPOpts :: PPOpts
 defaultPPOpts = PPOpts False False 10
 
+cryptolPPOpts :: PPOpts -> C.PPOpts
+cryptolPPOpts opts =
+  C.defaultPPOpts
+    { C.useAscii = ppOptsAscii opts
+    , C.useBase = ppOptsBase opts
+    }
+
 commaSep :: [ShowS] -> ShowS
 commaSep ss = foldr (.) id (intersperse (showString ",") ss)
 
@@ -127,6 +134,32 @@ showBrackets s = showString "[" . s . showString "]"
 
 showBraces :: ShowS -> ShowS
 showBraces s = showString "{" . s . showString "}"
+
+showsProofResult :: PPOpts -> ProofResult -> ShowS
+showsProofResult opts r =
+  case r of
+    Valid -> showString "Valid"
+    Invalid t -> showString "Invalid: " . showVal t
+    InvalidMulti ts -> showString "Invalid: [" . showMulti "" ts
+  where
+    opts' = cryptolPPOpts opts
+    showVal t = shows (C.ppValue opts' (exportFiniteValue t))
+    showEqn (x, t) = showString x . showString " = " . showVal t
+    showMulti _ [] = showString "]"
+    showMulti s (eqn : eqns) = showString s . showEqn eqn . showMulti ", " eqns
+
+showsSatResult :: PPOpts -> SatResult -> ShowS
+showsSatResult opts r =
+  case r of
+    Unsat -> showString "Unsat"
+    Sat t -> showString "Sat: " . showVal t
+    SatMulti ts -> showString "Sat: [" . showMulti "" ts
+  where
+    opts' = cryptolPPOpts opts
+    showVal t = shows (C.ppValue opts' (exportFiniteValue t))
+    showEqn (x, t) = showString x . showString " = " . showVal t
+    showMulti _ [] = showString "]"
+    showMulti s (eqn : eqns) = showString s . showEqn eqn . showMulti ", " eqns
 
 showsPrecValue :: PPOpts -> Int -> Value -> ShowS
 showsPrecValue opts p v =
@@ -160,12 +193,8 @@ showsPrecValue opts p v =
     VCryptolModule {} -> showString "<<Cryptol Module>>" -- TODO: print list of bindings
     VLLVMModule {} -> showString "<<LLVM Module>>"
     VJavaClass {} -> showString "<<Java Class>>"
-    VProofResult Valid -> showString "Valid"
-    VProofResult (Invalid t) -> showString "Invalid: " . shows t
-    VProofResult (InvalidMulti ts) -> showString "Invalid: " . shows ts
-    VSatResult Unsat -> showString "Unsat"
-    VSatResult (Sat t) -> showString "Sat: " . shows t
-    VSatResult (SatMulti ts) -> showString "Sat: " . shows ts
+    VProofResult r -> showsProofResult opts r
+    VSatResult r -> showsSatResult opts r
     VUninterp u -> showString "Uninterp: " . shows u
     VAIG _ -> showString "<<AIG>>"
 
