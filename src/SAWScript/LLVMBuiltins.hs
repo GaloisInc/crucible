@@ -48,6 +48,7 @@ import Verifier.LLVM.Simulator
 import Verifier.LLVM.Simulator.Internals
 
 import Verifier.SAW.FiniteValue
+import Verifier.SAW.Recognizer (asExtCns)
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.SCTypeCheck
 
@@ -244,12 +245,13 @@ extractLLVM sc (LLVMModule file mdl) func _setup =
       Just md -> runSimulator cb sbe mem Nothing $ do
         setVerbosity 0
         args <- mapM freshLLVMArg (sdArgs md)
+        exts <- mapM (asExtCns . snd) args
         _ <- callDefine sym (sdRetType md) args
         mrv <- getProgramReturnValue
         case mrv of
           Nothing -> fail "No return value from simulated function."
           Just rv -> liftIO $ do
-            lamTm <- bindExts scLLVM (map snd args) rv
+            lamTm <- bindExts scLLVM exts rv
             scImport sc lamTm >>= mkTypedTerm sc
 
 freshLLVMArg :: Monad m =>
@@ -340,7 +342,7 @@ verifyLLVM bic opts (LLVMModule _file mdl) func overrides setup =
 showCexResults :: SharedContext SAWCtx
                -> LLVMMethodSpecIR
                -> VerifyState
-               -> [SharedTerm SAWCtx] -- TODO: Use ExtCns type here instead
+               -> [ExtCns (SharedTerm SAWCtx)]
                -> [(String, FiniteValue)]
                -> IO ()
 showCexResults sc ms vs exts vals = do

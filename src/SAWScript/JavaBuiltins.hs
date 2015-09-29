@@ -323,8 +323,9 @@ extractJava bic opts cls mname setup = do
       liftIO $ do
         let sc = biSharedContext bic
         argBinds <- reverse <$> readIORef argsRef
+        exts <- mapM asExtCns argBinds
         -- TODO: group argBinds according to the declared types
-        bindExts jsc argBinds dt >>= mkTypedTerm sc
+        bindExts jsc exts dt >>= mkTypedTerm sc
 
 freshJavaVal :: (MonadIO m, Functor m) =>
                 Maybe (IORef [SharedTerm SAWCtx])
@@ -471,7 +472,7 @@ doExtraChecks opts bsc t = do
 showCexResults :: SharedContext SAWCtx
                -> JavaMethodSpecIR
                -> VerifyState
-               -> [SharedTerm SAWCtx] -- TODO: Use ExtCns type here instead
+               -> [ExtCns (SharedTerm SAWCtx)]
                -> [(String, FiniteValue)]
                -> IO ()
 showCexResults sc ms vs exts vals = do

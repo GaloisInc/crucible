@@ -52,7 +52,6 @@ import Control.Applicative
 #endif
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe (mapMaybe)
 
 import Language.JVM.Common (ppFldId)
 
@@ -167,10 +166,7 @@ mkMixedExpr m _ (asJavaExpr -> Just s) =
     Nothing -> fail $ "Java expression not found: " ++ s
     Just je -> return (JE je)
 mkMixedExpr m sc t = do
-  let extTerms = getAllExts t
-      exts = mapMaybe toExtCns extTerms
-      toExtCns (STApp _ (FTermF (ExtCns ec))) = Just ec
-      toExtCns _ = Nothing
+  let exts = getAllExts t
       extNames = map ecName exts
       findWithMsg msg k m' = maybe (fail msg) return (Map.lookup k m')
   javaExprs <- mapM

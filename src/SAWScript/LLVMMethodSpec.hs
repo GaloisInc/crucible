@@ -61,7 +61,6 @@ import Verifier.LLVM.Backend.SAW
 
 import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm hiding (Ident)
-import Verifier.SAW.TypedAST hiding (Ident)
 
 type SpecBackend = SAWBackend SAWCtx
 type SpecPathState = Path SpecBackend
@@ -237,10 +236,7 @@ evalLogicExpr :: (MonadIO m) =>
 evalLogicExpr initExpr ec = do
   let sc = ecContext ec
   t <- liftIO $ TC.useLogicExpr sc initExpr
-  let extTerms = getAllExts t
-      exts = mapMaybe toExtCns extTerms
-      toExtCns (STApp _ (FTermF (ExtCns ext))) = Just ext
-      toExtCns _ = Nothing
+  let exts = getAllExts t
   extMap <- forM exts $ \ext -> do
               let n = ecName ext
               case Map.lookup n (ecLLVMExprs ec) of

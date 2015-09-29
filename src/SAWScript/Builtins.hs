@@ -965,15 +965,13 @@ fixPos :: Pos
 fixPos = PosInternal "FIXME"
 
 bindExts :: SharedContext s
-         -> [SharedTerm s]
+         -> [ExtCns (SharedTerm s)]
          -> SharedTerm s
          -> IO (SharedTerm s)
-bindExts sc args body = do
-  types <- mapM (scTypeOf sc) args
-  let is = mapMaybe extIdx args
-      names = mapMaybe extName args
-  unless (length types == length is && length types == length names) $
-    fail "argument isn't external input"
+bindExts sc exts body = do
+  let types = map ecType exts
+  let is = map ecVarIndex exts
+  let names = map ecName exts
   locals <- mapM (scLocalVar sc . fst) ([0..] `zip` reverse types)
   body' <- scInstantiateExt sc (Map.fromList (is `zip` reverse locals)) body
   scLambdaList sc (names `zip` types) body'
@@ -1000,7 +998,7 @@ bindAllExts sc body = bindExts sc (getAllExts body) body
 -- | Apply the given SharedTerm to the given values, and evaluate to a
 -- final value.
 -- TODO: Take (ExtCns, FiniteValue) instead of (SharedTerm, FiniteValue)
-cexEvalFn :: SharedContext s -> [(SharedTerm s, FiniteValue)] -> SharedTerm s
+cexEvalFn :: SharedContext s -> [(ExtCns (SharedTerm s), FiniteValue)] -> SharedTerm s
           -> IO Concrete.CValue
 cexEvalFn sc args tm = do
   -- NB: there may be more args than exts, and this is ok. One side of
@@ -1008,7 +1006,7 @@ cexEvalFn sc args tm = do
   -- particularly in the case where there is a counter-example.
   let exts = map fst args
   args' <- mapM (scFiniteValue sc . snd) args
-  let is = mapMaybe extIdx exts
+  let is = map ecVarIndex exts
       argMap = Map.fromList (zip is args')
   tm' <- scInstantiateExt sc argMap tm
   return $ Concrete.evalSharedTerm (scModule sc) concretePrimitives tm'
