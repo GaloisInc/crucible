@@ -37,6 +37,7 @@ module SAWScript.LLVMExpr
   , isActualPtr
   , isPrimitiveType
   , logicTypeOfActual
+  , cryptolTypeOfActual
   , ppActualType
   , SymbolLocation (..)
   ) where
@@ -56,6 +57,8 @@ import Verifier.SAW.SharedTerm
 
 import qualified SAWScript.CongruenceClosure as CC
 import SAWScript.Utils
+
+import qualified Cryptol.TypeCheck.AST as Cryptol
 
 data SymbolLocation
    = Block LSS.SymBlockID
@@ -253,6 +256,18 @@ logicTypeOfActual sc (LSS.PtrType _) =
   -- TODO: this is hardcoded to 32-bit pointers
   Just <$> scBitvector sc (4 * 8)
 logicTypeOfActual _ _ = return Nothing
+
+-- | Returns Cryptol type of actual type if it is an array or primitive type.
+cryptolTypeOfActual :: LLVMActualType -> Maybe Cryptol.Type
+cryptolTypeOfActual (LSS.IntType w) =
+  Just $ Cryptol.tSeq (Cryptol.tNum w) Cryptol.tBit
+cryptolTypeOfActual (LSS.ArrayType n ty) = do
+  elty <- cryptolTypeOfActual ty
+  return $ Cryptol.tSeq (Cryptol.tNum n) elty
+cryptolTypeOfActual (LSS.PtrType _) =
+  -- TODO: this is hardcoded to 32-bit pointers
+  Just $ Cryptol.tSeq (Cryptol.tNum (4 * 8 :: Integer)) Cryptol.tBit
+cryptolTypeOfActual _ = Nothing
 
 ppActualType :: LLVMActualType -> Doc
 ppActualType = LSS.ppMemType

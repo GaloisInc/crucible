@@ -50,7 +50,6 @@ import Verifier.LLVM.Simulator.Internals
 import Verifier.SAW.FiniteValue
 import Verifier.SAW.Recognizer (asExtCns)
 import Verifier.SAW.SharedTerm
-import Verifier.SAW.SCTypeCheck
 
 import SAWScript.CongruenceClosure hiding (mapM)
 import SAWScript.Builtins
@@ -62,6 +61,8 @@ import SAWScript.Proof
 import SAWScript.TypedTerm
 import SAWScript.Utils
 import SAWScript.Value as SV
+
+import qualified Cryptol.TypeCheck.AST as Cryptol
 
 loadLLVMModule :: FilePath -> IO LLVMModule
 loadLLVMModule file = LLVMModule file <$> loadModule file
@@ -546,6 +547,20 @@ llvmMayAlias bic _ exprs = do
   modify $ \st -> st { lsSpec = specAddAliasSet exprs (lsSpec st) }
 -}
 
+checkCompatibleType :: String -> LLVMActualType -> Cryptol.Schema -> IO ()
+checkCompatibleType msg aty schema = do
+  case cryptolTypeOfActual aty of
+    Nothing ->
+      fail $ "Type is not translatable: " ++ show () {-aty-} ++ " (" ++ msg ++ ")"
+      -- FIXME: Show instance for LLVMActualType
+    Just lt -> do
+      unless (Cryptol.Forall [] [] lt == schema) $ fail $
+        unlines [ "Incompatible type:"
+                , "  Expected: " ++ show lt
+                , "  Got: " ++ show schema
+                , "  In context: " ++ msg
+                ]
+
 llvmAssert :: BuiltinContext -> Options -> SharedTerm SAWCtx
            -> LLVMSetup ()
 llvmAssert bic _ v = do
@@ -554,59 +569,29 @@ llvmAssert bic _ v = do
     st { lsSpec =
            specAddBehaviorCommand (AssertPred fixPos (mkLogicExpr v)) (lsSpec st) }
 
-llvmAssertEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
-             -> LLVMSetup ()
-llvmAssertEq bic _ name t = do
-  let sc = biSharedContext bic
-  ty <- liftIO $ scTypeCheckError sc t
+llvmAssertEq :: String -> TypedTerm SAWCtx -> LLVMSetup ()
+llvmAssertEq name (TypedTerm schema t) = do
   ms <- gets lsSpec
   (expr, mty) <- liftIO $ getLLVMExpr ms name
-  mlty <- liftIO $ logicTypeOfActual sc mty
-  lty <- case mlty of
-    Nothing -> fail "llvm_assert_eq: unsupported llvm type: (TODO print mty)"
-    Just lty -> return lty
-  ok <- liftIO $ scConvertable sc False lty ty
-  unless ok $ fail $
-    "llvm_assert_eq: provided expression of type " ++ show ty ++
-    " doesn't match expected type " ++ show lty
+  liftIO $ checkCompatibleType "llvm_assert_eq" mty schema
   modify $ \st ->
     st { lsSpec = specAddLogicAssignment fixPos expr (mkLogicExpr t) ms }
 
-llvmEnsureEq :: BuiltinContext -> Options -> String -> SharedTerm SAWCtx
-             -> LLVMSetup ()
-llvmEnsureEq bic _ name t = do
-  let sc = biSharedContext bic
-  ty <- liftIO $ scTypeCheckError sc t
+llvmEnsureEq :: String -> TypedTerm SAWCtx -> LLVMSetup ()
+llvmEnsureEq name (TypedTerm schema t) = do
   ms <- gets lsSpec
   (expr, mty) <- liftIO $ getLLVMExpr ms name
-  mlty <- liftIO $ logicTypeOfActual sc mty
-  lty <- case mlty of
-    Nothing -> fail "llvm_ensure_eq: unsupported llvm type: (TODO print mty)"
-    Just lty -> return lty
-  ok <- liftIO $ scConvertable sc False lty ty
-  unless ok $ fail $
-    "llvm_ensure_eq: provided expression of type " ++ show ty ++
-    " doesn't match expected type " ++ show lty
+  liftIO $ checkCompatibleType "llvm_ensure_eq" mty schema
   modify $ \st ->
     st { lsSpec =
            specAddBehaviorCommand (Ensure fixPos expr (LogicE (mkLogicExpr t))) (lsSpec st) }
 
-llvmReturn :: BuiltinContext -> Options -> SharedTerm SAWCtx
-           -> LLVMSetup ()
-llvmReturn bic _ t = do
-  let sc = biSharedContext bic
-  ty <- liftIO $ scTypeCheckError sc t
+llvmReturn :: TypedTerm SAWCtx -> LLVMSetup ()
+llvmReturn (TypedTerm schema t) = do
   ms <- gets lsSpec
   case sdRetType (specDef ms) of
     Just mty -> do
-      mlty <- liftIO $ logicTypeOfActual sc mty
-      lty <- case mlty of
-        Nothing -> fail "llvm_return: unsupported llvm type: (TODO print mty)"
-        Just lty -> return lty
-      ok <- liftIO $ scConvertable sc False lty ty
-      unless ok $ fail $
-        "llvm_return: provided expression of type " ++ show ty ++
-        " doesn't match expected return type " ++ show lty
+      liftIO $ checkCompatibleType "llvm_return" mty schema
       modify $ \st ->
         st { lsSpec = specAddBehaviorCommand (Return (LogicE (mkLogicExpr t))) (lsSpec st) }
     Nothing -> fail "llvm_return called on void function"

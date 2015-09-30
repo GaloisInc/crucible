@@ -1096,16 +1096,16 @@ primitives = Map.fromList
     ]
 
   --, prim "llvm_assert_eq"      "{a} String -> a -> LLVMSetup ()"
-  --  (bicVal llvmAssertEq)
+  --  (pureVal llvmAssertEq)
 
   , prim "llvm_ensure_eq"      "String -> Term -> LLVMSetup ()"
-    (bicVal llvmEnsureEq)
+    (pureVal llvmEnsureEq)
     [ "Specify that the LLVM Java variable should have a value equal to the"
     , "given term when execution finishes."
     ]
 
   , prim "llvm_return"         "Term -> LLVMSetup ()"
-    (bicVal llvmReturn)
+    (pureVal llvmReturn)
     [ "Indicate the expected return value of an LLVM function." ]
 
   , prim "llvm_verify_tactic"  "ProofScript SatResult -> LLVMSetup ()"
