@@ -561,8 +561,12 @@ llvmAssertEq bic _ name t = do
   ty <- liftIO $ scTypeCheckError sc t
   ms <- gets lsSpec
   (expr, mty) <- liftIO $ getLLVMExpr ms name
-  lty <- liftIO $ logicTypeOfActual sc mty
-  unless (lty == Just ty) $ fail $
+  mlty <- liftIO $ logicTypeOfActual sc mty
+  lty <- case mlty of
+    Nothing -> fail "llvm_assert_eq: unsupported llvm type: (TODO print mty)"
+    Just lty -> return lty
+  ok <- liftIO $ scConvertable sc False lty ty
+  unless ok $ fail $
     "llvm_assert_eq: provided expression of type " ++ show ty ++
     " doesn't match expected type " ++ show lty
   modify $ \st ->
@@ -575,8 +579,12 @@ llvmEnsureEq bic _ name t = do
   ty <- liftIO $ scTypeCheckError sc t
   ms <- gets lsSpec
   (expr, mty) <- liftIO $ getLLVMExpr ms name
-  lty <- liftIO $ logicTypeOfActual sc mty
-  unless (lty == Just ty) $ fail $
+  mlty <- liftIO $ logicTypeOfActual sc mty
+  lty <- case mlty of
+    Nothing -> fail "llvm_ensure_eq: unsupported llvm type: (TODO print mty)"
+    Just lty -> return lty
+  ok <- liftIO $ scConvertable sc False lty ty
+  unless ok $ fail $
     "llvm_ensure_eq: provided expression of type " ++ show ty ++
     " doesn't match expected type " ++ show lty
   modify $ \st ->
@@ -591,8 +599,12 @@ llvmReturn bic _ t = do
   ms <- gets lsSpec
   case sdRetType (specDef ms) of
     Just mty -> do
-      lty <- liftIO $ logicTypeOfActual sc mty
-      unless (Just ty == lty) $ fail $
+      mlty <- liftIO $ logicTypeOfActual sc mty
+      lty <- case mlty of
+        Nothing -> fail "llvm_return: unsupported llvm type: (TODO print mty)"
+        Just lty -> return lty
+      ok <- liftIO $ scConvertable sc False lty ty
+      unless ok $ fail $
         "llvm_return: provided expression of type " ++ show ty ++
         " doesn't match expected return type " ++ show lty
       modify $ \st ->
