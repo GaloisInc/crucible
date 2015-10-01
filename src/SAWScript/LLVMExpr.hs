@@ -118,7 +118,7 @@ type LLVMExpr = CC.Term LLVMExprF
 ppLLVMExpr :: LLVMExpr -> Doc
 ppLLVMExpr (CC.Term exprF) =
   case exprF of
-    Arg _ nm _ -> text (show nm)
+    Arg _ nm _ -> LSS.ppIdent nm
     Global nm _ -> LSS.ppSymbol nm
     Deref e _ -> char '*' <> parens (ppLLVMExpr e)
     StructField r _ f _ -> ppLLVMExpr r <> char '.' <> text (show f)
