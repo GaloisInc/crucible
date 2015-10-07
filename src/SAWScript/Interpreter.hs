@@ -1114,6 +1114,12 @@ primitives = Map.fromList
     , "an LLVM function."
     ]
 
+  , prim "llvm_sat_branches"   "Bool -> LLVMSetup ()"
+    (pureVal llvmSatBranches)
+    [ "Turn on or off satisfiability checking of branch conditions during"
+    , "symbolic execution."
+    ]
+
   , prim "llvm_no_simulate"    "LLVMSetup ()"
     (pureVal llvmNoSimulate)
     [ "Skip symbolic simulation for this LLVM method." ]

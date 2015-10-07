@@ -318,6 +318,7 @@ data LLVMSetupState
     , lsContext :: SharedContext SAWCtx
     , lsTactic :: ValidationPlan
     , lsSimulate :: Bool
+    , lsSatBranches :: Bool
     }
 
 type LLVMSetup a = StateT LLVMSetupState IO a

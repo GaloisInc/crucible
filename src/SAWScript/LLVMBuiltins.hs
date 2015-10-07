@@ -173,7 +173,9 @@ symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs =
   let sym = Symbol fname
       dl = parseDataLayout $ modDataLayout mdl
       sc = biSharedContext bic
-      lopts = defaultLSSOpts { optsSatAtBranches = True }
+      lopts = LSSOpts { optsErrorPathDetails = True
+                      , optsSatAtBranches = True
+                      }
   in do
     (sbe, mem, scLLVM) <- createSAWBackend' sawProxy dl sc
     (warnings, cb) <- mkCodebase sbe dl mdl
@@ -241,6 +243,9 @@ extractLLVM :: SharedContext SAWCtx -> LLVMModule -> String -> LLVMSetup ()
 extractLLVM sc (LLVMModule file mdl) func _setup =
   let dl = parseDataLayout $ modDataLayout mdl
       sym = Symbol func
+      lopts = LSSOpts { optsErrorPathDetails = True
+                      , optsSatAtBranches = True
+                      }
   in do
     (sbe, mem, scLLVM) <- createSAWBackend' sawProxy dl sc
     (warnings, cb) <- mkCodebase sbe dl mdl
@@ -248,7 +253,7 @@ extractLLVM sc (LLVMModule file mdl) func _setup =
     case lookupDefine sym cb of
       Nothing -> fail $ "Bitcode file " ++ file ++
                         " does not contain symbol " ++ func ++ "."
-      Just md -> runSimulator cb sbe mem Nothing $ do
+      Just md -> runSimulator cb sbe mem (Just lopts) $ do
         setVerbosity 0
         args <- mapM freshLLVMArg (sdArgs md)
         exts <- mapM (asExtCns . snd) args
@@ -287,6 +292,7 @@ verifyLLVM bic opts (LLVMModule _file mdl) func overrides setup =
                   , lsTactic = Skip
                   , lsContext = scLLVM
                   , lsSimulate = True
+                  , lsSatBranches = False
                   }
     (_, lsctx) <- runStateT setup lsctx0
     let ms = lsSpec lsctx
@@ -302,12 +308,14 @@ verifyLLVM bic opts (LLVMModule _file mdl) func overrides setup =
             [] -> ""
             irs -> " (overriding " ++ show (map specFunction irs) ++ ")"
     when (verb >= 2) $ putStrLn $ "Starting verification of " ++ show (specName ms)
-    let lopts = Nothing -- FIXME
+    let lopts = LSSOpts { optsErrorPathDetails = True
+                        , optsSatAtBranches = lsSatBranches lsctx
+                        }
     when (lsSimulate lsctx) $ do
     -- forM_ configs $ \(bs,cl) -> do
       when (verb >= 3) $ do
         putStrLn $ "Executing " ++ show (specName ms)
-      runSimulator cb sbe mem lopts $ do
+      runSimulator cb sbe mem (Just lopts) $ do
         setVerbosity verb
         esd <- initializeVerification scLLVM ms
         res <- mkSpecVC scLLVM vp esd
@@ -454,6 +462,9 @@ llvmArray n t = ArrayType n t
 
 llvmNoSimulate :: LLVMSetup ()
 llvmNoSimulate = modify (\s -> s { lsSimulate = False })
+
+llvmSatBranches :: Bool -> LLVMSetup ()
+llvmSatBranches doSat = modify (\s -> s { lsSatBranches = doSat })
 
 llvmVar :: BuiltinContext -> Options -> String -> MemType
         -> LLVMSetup (TypedTerm SAWCtx)
