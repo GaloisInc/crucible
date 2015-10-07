@@ -233,9 +233,9 @@ symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs =
 
 
 -- | Extract a simple, pure model from the given symbol within the
--- given bitcode file. This code creates fresh inputs for all
--- arguments and returns a term representing the return value. Some
--- verifications will require more complex execution contexts.
+-- given bitcode file. This code creates fresh inputs for all arguments and
+-- returns a lambda term representing the return value as a function of the
+-- arguments. Many verifications will require more complex execution contexts.
 extractLLVM :: SharedContext SAWCtx -> LLVMModule -> String -> LLVMSetup ()
             -> IO (TypedTerm SAWCtx)
 extractLLVM sc (LLVMModule file mdl) func _setup =
