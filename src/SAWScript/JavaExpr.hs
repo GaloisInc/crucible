@@ -21,15 +21,15 @@ module SAWScript.JavaExpr
   , JavaExpr
   , thisJavaExpr
   , returnJavaExpr
+  , asJavaExpr
   , ppJavaExpr
   , jssTypeOfJavaExpr
   , isRefJavaExpr
   , isClassJavaExpr
     -- * Logic expressions
-  , LogicExpr
+  , LogicExpr(..)
   , logicExprJavaExprs
   , useLogicExpr
-  , mkMixedExpr
   , scJavaValue
     -- * Mixed expressions
   , MixedExpr(..)
@@ -50,8 +50,6 @@ module SAWScript.JavaExpr
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
 #endif
-import Data.Map (Map)
-import qualified Data.Map as Map
 
 import Language.JVM.Common (ppFldId)
 
@@ -156,24 +154,6 @@ data LogicExpr =
 scJavaValue :: SharedContext s -> SharedTerm s -> String -> IO (SharedTerm s)
 scJavaValue sc ty name = do
   scFreshGlobal sc name ty
-
-mkMixedExpr :: Map String JavaExpr
-            -> SharedContext SAWCtx
-            -> SharedTerm SAWCtx
-            -> IO MixedExpr
-mkMixedExpr m _ (asJavaExpr -> Just s) =
-  case Map.lookup s m of
-    Nothing -> fail $ "Java expression not found: " ++ s
-    Just je -> return (JE je)
-mkMixedExpr m sc t = do
-  let exts = getAllExts t
-      extNames = map ecName exts
-      findWithMsg msg k m' = maybe (fail msg) return (Map.lookup k m')
-  javaExprs <- mapM
-               (\n -> findWithMsg ("Unknown Java expression: " ++ n) n m)
-               extNames
-  le <- LogicExpr <$> scAbstractExts sc exts t <*> pure javaExprs
-  return (LE le)
 
 -- | Return java expressions in logic expression.
 logicExprJavaExprs :: LogicExpr -> [JavaExpr]

@@ -17,6 +17,7 @@ module SAWScript.JavaMethodSpecIR
     JavaMethodSpecIR
   , specName
   , specPos
+  , specCodebase
   , specThisClass
   , specMethod
   , specMethodClass
@@ -26,7 +27,6 @@ module SAWScript.JavaMethodSpecIR
   , specAddVarDecl
   , specAddLogicAssignment
   , specAddAliasSet
-  , specJavaExprNames
   , specActualTypeMap
   , initMethodSpec
   --, resolveMethodSpecIR
@@ -193,11 +193,10 @@ bsAssignmentsForClass bs cl = res
 -- | Retuns ordering of Java expressions to corresponding logic value.
 bsLogicClasses :: forall s.
                   SharedContext s
-               -> Map String JavaExpr
                -> BehaviorSpec
                -> RefEquivConfiguration
                -> IO (Maybe [(JavaExprEquivClass, SharedTerm s, [LogicExpr])])
-bsLogicClasses sc _m bs cfg = do
+bsLogicClasses sc bs cfg = do
   let allClasses = CC.toList
                    -- Add logic equations.
                    $ flip (foldr (uncurry CC.insertEquation)) (bsLogicEqs bs)
@@ -262,10 +261,10 @@ initMethodSpec pos cb thisClass mname = do
                   , bsReversedCommands = []
                   }
       initMS = MSIR { specPos = pos
+                    , specCodebase = cb
                     , specThisClass = thisClass
                     , specMethodClass = methodClass
                     , specMethod = method
-                    , specJavaExprNames = Map.empty
                     , specInitializedClasses =
                         map JSS.className superClasses
                     , specBehaviors = initBS
@@ -278,14 +277,14 @@ initMethodSpec pos cb thisClass mname = do
 data JavaMethodSpecIR = MSIR {
     -- | The position of the specification for error reporting purposes.
     specPos :: Pos
+    -- | The codebase containing the method being specified.
+  , specCodebase :: JSS.Codebase
     -- | Class used for this instance.
   , specThisClass :: JSS.Class
     -- | Class where method is defined.
   , specMethodClass :: JSS.Class
     -- | Method to verify.
   , specMethod :: JSS.Method
-    -- | Mapping from user-visible Java state names to JavaExprs
-  , specJavaExprNames :: Map String JavaExpr
     -- | Class names expected to be initialized using JVM "/" separators.
     -- (as opposed to Java "." path separators). Currently this is set
     -- to the list of superclasses of specThisClass.
@@ -303,10 +302,9 @@ specName ir =
   in JSS.slashesToDots clName ++ ('.' : mName)
 
 -- TODO: error if already declared
-specAddVarDecl :: String -> JavaExpr -> JavaActualType
+specAddVarDecl :: JavaExpr -> JavaActualType
                -> JavaMethodSpecIR -> JavaMethodSpecIR
-specAddVarDecl name expr jt ms = ms { specBehaviors = bs'
-                                    , specJavaExprNames = ns' }
+specAddVarDecl expr jt ms = ms { specBehaviors = bs' }
   where bs = specBehaviors ms
         bs' = bs { bsActualTypeMap =
                      Map.insert expr jt (bsActualTypeMap bs)
@@ -316,7 +314,6 @@ specAddVarDecl name expr jt ms = ms { specBehaviors = bs'
                      else
                        bsMustAliasSet bs
                  }
-        ns' = Map.insert name expr (specJavaExprNames ms)
 
 specAddLogicAssignment :: Pos -> JavaExpr -> MixedExpr
                        -> JavaMethodSpecIR -> JavaMethodSpecIR

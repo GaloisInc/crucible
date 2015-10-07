@@ -64,12 +64,13 @@ import Verifier.SAW.Cryptol (scCryptolEq)
 data ExpectedStateDef = ESD {
          -- | Location that we started from.
          esdStartLoc :: !JSS.Breakpoint
-       , esdJavaExprs :: !(Map String TC.JavaExpr)
          -- | Map from references back to Java expressions denoting them.
        , esdRefExprMap :: !(Map JSS.Ref [TC.JavaExpr])
          -- | Initial path state (used for evaluating expressions in
          -- verification).
        , esdInitialPathState :: !SpecPathState
+         -- | All Java expressions that have been declared.
+       , esdJavaExprs :: [TC.JavaExpr]
          -- | Stores initial assignments.
        , esdInitialAssignments :: !([(TC.JavaExpr, SharedTerm SAWCtx)])
          -- | Expected return value or Nothing if method returns void.
@@ -157,7 +158,7 @@ esdArrayValue ref esd =
 data ESGState = ESGState {
          esContext :: !(SharedContext SAWCtx)
        , esMethod :: !JSS.Method
-       , esJavaExprs :: !(Map String TC.JavaExpr)
+       , esExprs :: [TC.JavaExpr]
        , esExprRefMap :: !(Map TC.JavaExpr JSS.Ref)
        , esErrors :: ![String]
 
@@ -194,9 +195,9 @@ type ExpectedStateGenerator = StateT ESGState IO
 esEval :: (EvalContext -> ExprEvaluator b) -> ExpectedStateGenerator b
 esEval fn = do
   sc <- gets esContext
-  m <- gets esJavaExprs
   initPS <- use esInitialPathState
-  let ec = evalContextFromPathState sc m initPS
+  exprs <- gets esExprs
+  let ec = evalContextFromPathState sc initPS exprs
   res <- runEval (fn ec)
   case res of
     Left _expr -> error "internal: esEval failed to evaluate expression"
@@ -443,7 +444,6 @@ initializeVerification :: JSS.MonadSim (SharedContext SAWCtx) m
 initializeVerification sc ir bs refConfig = do
   exprRefs <- mapM (JSS.genRef . TC.jssTypeOfActual . snd) refConfig
   let refAssignments = (exprRefs `zip` map fst refConfig)
-      m = specJavaExprNames ir
       --key = JSS.methodKey (specMethod ir)
       pushFrame cs = fromMaybe (error "internal: failed to push call frame") mcs'
         where
@@ -465,7 +465,7 @@ initializeVerification sc ir bs refConfig = do
   initPS <- JSS.getPath (PP.text "initializeVerification")
   let initESG = ESGState { esContext = sc
                          , esMethod = specMethod ir
-                         , esJavaExprs = m
+                         , esExprs = Map.keys (bsActualTypeMap bs)
                          , esExprRefMap = Map.fromList
                              [ (e, r) | (r,cl) <- refAssignments, e <- cl ]
                          , esErrors = []
@@ -485,7 +485,7 @@ initializeVerification sc ir bs refConfig = do
             forM_ cl $ \e -> esSetJavaValue e (JSS.RValue r)
           -- Set initial logic values.
           -- liftIO $ putStrLn "Setting logic values."
-          lcs <- liftIO $ bsLogicClasses sc m bs refConfig
+          lcs <- liftIO $ bsLogicClasses sc bs refConfig
           case lcs of
             Nothing ->
               let msg = "Unresolvable cyclic dependencies between assumptions."
@@ -500,9 +500,8 @@ initializeVerification sc ir bs refConfig = do
     "Errors while initializing verification:" : map indent2 errs
   JSS.modifyPathM_ (PP.text "initializeVerification") (\_ -> return (es^.esInitialPathState))
   return ESD { esdStartLoc = bsLoc bs
-             , esdJavaExprs = specJavaExprNames ir
              , esdRefExprMap = Map.fromList refAssignments
-
+             , esdJavaExprs = esExprs initESG
              , esdInitialPathState = es^.esInitialPathState
              , esdInitialAssignments = reverse (es^.esInitialAssignments)
              , esdReturnValue    = es^.esReturnValue

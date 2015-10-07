@@ -73,19 +73,19 @@ setArrayValue r n v =
 data EvalContext = EvalContext {
          ecContext :: SharedContext SAWCtx
        , ecLocals :: Map JSS.LocalVariableIndex SpecJavaValue
+       , ecJavaExprs :: [TC.JavaExpr]
        , ecPathState :: SpecPathState
-       , ecJavaExprs :: Map String TC.JavaExpr
        }
 
-evalContextFromPathState :: SharedContext SAWCtx -> Map String TC.JavaExpr -> SpecPathState -> EvalContext
-evalContextFromPathState sc m ps =
+evalContextFromPathState :: SharedContext SAWCtx -> SpecPathState -> [TC.JavaExpr] -> EvalContext
+evalContextFromPathState sc ps es =
   let Just f = JSS.currentCallFrame ps
       localMap = f ^. JSS.cfLocals
   in EvalContext {
          ecContext = sc
        , ecLocals = localMap
+       , ecJavaExprs = es
        , ecPathState = ps
-       , ecJavaExprs = m
        }
 
 -- ExprEvalError {{{1
@@ -173,10 +173,8 @@ evalMixedExpr (TC.JE expr) ec = evalJavaExpr expr ec
 evalLogicExpr :: TC.LogicExpr -> EvalContext -> ExprEvaluator (SharedTerm SAWCtx)
 evalLogicExpr initExpr ec = do
   let sc = ecContext ec
-      getExprs =
-        filter (not . TC.isClassJavaExpr . snd) . Map.toList . ecJavaExprs
-      exprs = getExprs ec
-  args <- forM exprs $ \(_name, expr) -> do
+      exprs = filter (not . TC.isClassJavaExpr) (ecJavaExprs ec)
+  args <- forM exprs $ \expr -> do
     t <- evalJavaExprAsLogic expr ec
     return (expr, t)
   let argMap = Map.fromList args

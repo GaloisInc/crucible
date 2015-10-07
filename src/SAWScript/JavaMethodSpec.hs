@@ -260,10 +260,23 @@ ocStep (ReturnValue expr) = do
 
 -- Executing overrides {{{2
 
-execBehavior :: [BehaviorSpec] -> EvalContext -> SpecPathState -> IO [RunResult]
-execBehavior bsl ec ps = do
+execBehavior :: [BehaviorSpec]
+             -> SharedContext SAWCtx
+             -> Maybe JSS.Ref
+             -> [(JSS.LocalVariableIndex, JSS.Value (SharedTerm SAWCtx))]
+             -> SpecPathState
+             -> IO [RunResult]
+execBehavior bsl sc mbThis argLocals ps = do
   -- Get state of current execution path in simulator.
   fmap orParseResults $ forM bsl $ \bs -> do
+    let ec = EvalContext { ecContext = sc
+                         , ecJavaExprs = Map.keys (bsActualTypeMap bs)
+                         , ecLocals =  Map.fromList $
+                                       case mbThis of
+                                       Just th -> (0, JSS.RValue th) : argLocals
+                                       Nothing -> argLocals
+                         , ecPathState = ps
+                         }
     let initOCS =
           OCState { ocsLoc = bsLoc bs
                   , ocsEvalContext = ec
@@ -296,7 +309,6 @@ execBehavior bsl ec ps = do
             case badPairs of
               [] -> return ()
               (x,y):_ -> ocError (AliasingInputs x y)
-       let sc = ecContext ec
        -- Verify the initial logic assignments
        forM_ (bsLogicAssignments bs) $ \(pos, lhs, rhs) -> do
          ocEval (evalJavaExprAsLogic lhs) $ \lhsVal ->
@@ -331,19 +343,10 @@ execOverride sc pos ir mbThis args = do
   let bsl = specBehaviors ir -- Map.lookup (JSS.BreakPC 0) (specBehaviors ir) -- TODO
   let method = specMethod ir
       argLocals = map (JSS.localIndexOfParameter method) [0..] `zip` args
-      m = specJavaExprNames ir
-  let ec = EvalContext { ecContext = sc
-                       , ecLocals =  Map.fromList $
-                           case mbThis of
-                             Just th -> (0, JSS.RValue th) : argLocals
-                             Nothing -> argLocals
-                       , ecPathState = initPS
-                       , ecJavaExprs = m
-                       }
   -- Check class initialization.
   checkClassesInitialized pos (specName ir) (specInitializedClasses ir)
   -- Execute behavior.
-  res <- liftIO $ execBehavior [bsl] ec initPS
+  res <- liftIO $ execBehavior [bsl] sc mbThis argLocals initPS
   -- Create function for generation resume actions.
   case res of
     [(_, _, Left el)] -> do
@@ -576,13 +579,14 @@ runValidation prover params sc esd results = do
   let ir = vpSpec params
       verb = verbLevel (vpOpts params)
       ps = esdInitialPathState esd
+      exprs = esdJavaExprs esd
   forM_ results $ \pvc -> do
     let mkVState nm cfn =
           VState { vsVCName = nm
                  , vsMethodSpec = ir
                  , vsVerbosity = verb
                  -- , vsFromBlock = esdStartLoc esd
-                 , vsEvalContext = evalContextFromPathState sc (esdJavaExprs esd) ps
+                 , vsEvalContext = evalContextFromPathState sc ps exprs
                  , vsInitialAssignments = pvcInitialAssignments pvc
                  , vsCounterexampleFn = cfn
                  , vsStaticErrors = pvcStaticErrors pvc
