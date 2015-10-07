@@ -455,7 +455,6 @@ llvmArray n t = ArrayType n t
 llvmNoSimulate :: LLVMSetup ()
 llvmNoSimulate = modify (\s -> s { lsSimulate = False })
 
--- TODO: error if name refers to pointer variable
 llvmVar :: BuiltinContext -> Options -> String -> MemType
         -> LLVMSetup (TypedTerm SAWCtx)
 llvmVar bic _ name lty = do
@@ -467,6 +466,10 @@ llvmVar bic _ name lty = do
                Just fd -> return fd
                Nothing -> fail $ "Function " ++ show func ++ " not found."
   expr <- failLeft $ runExceptT $ parseLLVMExpr cb funcDef name
+  when (isPtrLLVMExpr expr) $ fail $
+    "Used `llvm_var` for pointer expression `" ++ name ++
+    "`. Use `llvm_ptr` instead."
+  -- TODO: check compatibility before updating
   let expr' = updateLLVMExprType expr lty
   modify $ \st ->
     st { lsSpec = specAddVarDecl fixPos name expr' lty (lsSpec st) }
@@ -483,7 +486,11 @@ llvmPtr bic _ name lty = do
       cb = specCodebase ms
       Just funcDef = lookupDefine func cb
   expr <- failLeft $ runExceptT $ parseLLVMExpr cb funcDef name
+  unless (isPtrLLVMExpr expr) $ fail $
+    "Used `llvm_ptr` for non-pointer expression `" ++ name ++
+    "`. Use `llvm_var` instead."
   let pty = PtrType (MemType lty)
+      -- TODO: check compatibility before updating
       expr' = updateLLVMExprType expr pty
       dexpr = Term (Deref expr' lty)
       dname = '*':name
