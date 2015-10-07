@@ -21,6 +21,7 @@ module SAWScript.LLVMBuiltins where
 import Control.Applicative hiding (many)
 #endif
 import Control.Monad.State hiding (mapM)
+import Control.Monad.Trans.Except
 import Data.List (partition)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -28,7 +29,6 @@ import Data.String
 import qualified Data.Vector as V
 import Text.Parsec as P
 import Text.PrettyPrint.HughesPJ as PP
-import Text.Read (readMaybe)
 
 import Text.LLVM ( modTypes, modGlobals, modDeclares, modDefines, modDataLayout
                  , defName, defRetType, defVarArgs, defArgs, defAttrs
@@ -184,10 +184,10 @@ symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs =
       Just md -> runSimulator cb sbe mem (Just lopts) $ do
         setVerbosity (simVerbose opts)
         let mkAssign (s, tm, n) = do
-              e <- failLeft $ liftIO $ parseLLVMExpr cb md s
+              e <- failLeft $ runExceptT $ parseLLVMExpr cb md s
               return (e, tm, n)
             mkAllocAssign (s, n) = do
-              e <- failLeft $ liftIO $ parseLLVMExpr cb md s
+              e <- failLeft $ runExceptT $ parseLLVMExpr cb md s
               case lssTypeOfLLVMExpr e of
                 PtrType (MemType ty) -> do
                   tm <- allocSome n ty
@@ -199,7 +199,7 @@ symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs =
               sz <- liftSBE (termInt sbe aw n)
               malloc ty aw sz
             mkOut (s, n) = do
-              e <- failLeft $ liftIO $ parseLLVMExpr cb md s
+              e <- failLeft $ runExceptT $ parseLLVMExpr cb md s
               return (e, n)
             multDefErr i = error $ "Multiple terms given for " ++ ordinal (i + 1) ++
                                    " argument in function " ++ fname
@@ -364,100 +364,62 @@ type LLVMExprParser a = ParsecT String () IO a
 failLeft :: (Monad m, Show s) => m (Either s a) -> m a
 failLeft act = either (fail . show) return =<< act
 
-parseLLVMExpr :: Codebase (SAWBackend SAWCtx)
-              -> SymDefine (SharedTerm SAWCtx)
-              -> String
-              -> IO (Either ParseError LLVMExpr)
-parseLLVMExpr cb fn str = runParserT (parseExpr <* eof) () "expr" str
-  where
-    args = [(i, resolveType cb ty) | (i, ty) <- sdArgs fn]
-    numArgs = zipWith (\(i, ty) n -> (i, (n, ty))) args [(0::Int)..]
-    parseExpr :: LLVMExprParser LLVMExpr
-    parseExpr = choice
-                [ parseDerefField
-                , parseDeref
-                , parseDirectField
-                , parseAExpr
-                ]
-    parseAExpr = choice
-                 [ parseReturn
-                 , parseArgs
-                 , parseVar
-                 , parseParens
-                 ]
-    alphaUnder = choice [P.letter, P.char '_']
-    parseIdent = (:) <$> alphaUnder <*> many (choice [alphaUnder, P.digit])
-    parseVar = do
-      s <- try parseIdent
-      let nid = fromString s
+checkProtoLLVMExpr :: (Monad m) =>
+                      Codebase (SAWBackend SAWCtx)
+                   -> SymDefine (SharedTerm SAWCtx)
+                   -> ProtoLLVMExpr
+                   -> ExceptT String m LLVMExpr
+checkProtoLLVMExpr cb fn pe =
+  case pe of
+    PReturn ->
+      case sdRetType fn of
+        Just ty -> return (Term (ReturnValue ty))
+        Nothing -> throwE "Function with void return type used with `return`."
+    PVar x -> do
+      let nid = fromString x
       case lookup nid numArgs of
         Just (n, ty) -> return (Term (Arg n nid ty))
         Nothing ->
-          case lookupSym (Symbol s) cb of
+          case lookupSym (Symbol x) cb of
             Just (Left gb) ->
               return (Term (Global (CB.globalSym gb) (CB.globalType gb)))
-            _ -> unexpected $ "Unknown variable: " ++ s
-    parseParens = string "(" *> parseExpr <* string ")"
-    parseReturn = do
-      _ <- try (string "return")
-      case sdRetType fn of
-        Just ty -> return (Term (ReturnValue ty))
-        Nothing ->
-          unexpected "Function with void return type used with `return`."
-    parseDeref = do
-      _ <- string "*"
-      e <- parseAExpr
+            _ -> throwE $ "Unknown variable: " ++ x
+    PArg n | n < length numArgs -> do
+               let (i, tp) = args !! n
+               return (Term (Arg n i tp))
+           | otherwise ->
+               throwE $ "(Zero-based) argument index too large: " ++ show n
+    PDeref de -> do
+      e <- checkProtoLLVMExpr cb fn de
       case lssTypeOfLLVMExpr e of
         PtrType (MemType ty) -> return (Term (Deref e ty))
-        ty -> unexpected $
+        ty -> throwE $
               "Attempting to apply * operation to non-pointer, of type " ++
               show (ppActualType ty)
-    parseArgs :: LLVMExprParser LLVMExpr
-    parseArgs = do
-      _ <- try (string "args[")
-      ns <- many1 digit
-      e <- case readMaybe ns of
-             Just (n :: Int)
-               | n < length numArgs -> do
-                 let (i, ty) = args !! n
-                 return (Term (Arg n i ty))
-               | otherwise ->
-                 unexpected $ "(Zero-based) argument index too large: " ++ show n
-             Nothing ->
-               unexpected $ "Using `args` with non-numeric parameter: " ++ ns
-      _ <- string "]"
-      return e
-    parseDirectField :: LLVMExprParser LLVMExpr
-    parseDirectField = do
-      e <- try (parseAExpr <* string ".")
-      ns <- many1 digit
-      case (lssTypeOfLLVMExpr e, readMaybe ns) of
-        (StructType si, Just (n :: Int))
+    PField n se -> do
+      e <- checkProtoLLVMExpr cb fn se
+      case lssTypeOfLLVMExpr e of
+        StructType si
           | n < siFieldCount si -> do
             let ty = fiType (siFields si V.! n)
             return (Term (StructField e si n ty))
-          | otherwise -> unexpected $ "Field out of range: " ++ show n
-        (_, Nothing) -> unexpected $
-          "Attempting to apply . operation to invalid field: " ++ ns
-        (ty, Just _) ->
-          unexpected $ "Attempting to apply . operation to non-struct: " ++
-                       show (ppActualType ty)
-    parseDerefField :: LLVMExprParser LLVMExpr
-    parseDerefField = do
-      re <- try (parseAExpr <* string "->")
-      ns <- many1 digit
-      case (lssTypeOfLLVMExpr re, readMaybe ns) of
-        (PtrType (MemType sty@(StructType si)), Just (n :: Int))
-          | n < siFieldCount si -> do
-            let e = Term (Deref re sty)
-                ty = fiType (siFields si V.! n)
-            return (Term (StructField e si n ty))
-          | otherwise -> unexpected $ "Field out of range: " ++ show n
-        (_, Nothing) -> unexpected $
-          "Attempting to apply -> operation to invalid field: " ++ ns
-        (ty, Just _) ->
-          unexpected $ "Attempting to apply -> operation to non-struct: " ++
-                       show (ppActualType ty)
+          | otherwise -> throwE $ "Field out of range: " ++ show n
+        ty ->
+          throwE $ "Attempting to apply . or -> operation to non-struct: " ++
+                   show (ppActualType ty)
+  where
+    args = [(i, resolveType cb ty) | (i, ty) <- sdArgs fn]
+    numArgs = zipWith (\(i, ty) n -> (i, (n, ty))) args [(0::Int)..]
+
+parseLLVMExpr :: (Monad m) =>
+                 Codebase (SAWBackend SAWCtx)
+              -> SymDefine (SharedTerm SAWCtx)
+              -> String
+              -> ExceptT String m LLVMExpr
+parseLLVMExpr cb fn str =
+  case parseProtoLLVMExpr str of
+    Left err -> throwE ("Parse error: " ++ show err)
+    Right e -> checkProtoLLVMExpr cb fn e
 
 resolveType :: Codebase (SAWBackend SAWCtx) -> MemType -> MemType
 resolveType cb (PtrType ty) = PtrType $ resolveSymType cb ty
@@ -504,7 +466,7 @@ llvmVar bic _ name lty = do
   funcDef <- case lookupDefine func cb of
                Just fd -> return fd
                Nothing -> fail $ "Function " ++ show func ++ " not found."
-  expr <- failLeft $ liftIO $ parseLLVMExpr cb funcDef name
+  expr <- failLeft $ runExceptT $ parseLLVMExpr cb funcDef name
   let expr' = updateLLVMExprType expr lty
   modify $ \st ->
     st { lsSpec = specAddVarDecl fixPos name expr' lty (lsSpec st) }
@@ -520,7 +482,7 @@ llvmPtr bic _ name lty = do
       func = specFunction ms
       cb = specCodebase ms
       Just funcDef = lookupDefine func cb
-  expr <- failLeft $ liftIO $ parseLLVMExpr cb funcDef name
+  expr <- failLeft $ runExceptT $ parseLLVMExpr cb funcDef name
   let pty = PtrType (MemType lty)
       expr' = updateLLVMExprType expr pty
       dexpr = Term (Deref expr' lty)
@@ -535,8 +497,8 @@ llvmDeref :: BuiltinContext -> Options -> Value
           -> LLVMSetup (SharedTerm SAWCtx)
 llvmDeref _bic _ _t = fail "llvm_deref not yet implemented"
 
-checkCompatibleType :: String -> LLVMActualType -> Cryptol.Schema -> IO ()
-checkCompatibleType msg aty schema = do
+checkCompatibleType :: String -> LLVMActualType -> Cryptol.Schema -> LLVMSetup ()
+checkCompatibleType msg aty schema = liftIO $ do
   case cryptolTypeOfActual aty of
     Nothing ->
       fail $ "Type is not translatable: " ++ show () {-aty-} ++ " (" ++ msg ++ ")"
@@ -560,16 +522,16 @@ llvmAssert bic _ v = do
 llvmAssertEq :: String -> TypedTerm SAWCtx -> LLVMSetup ()
 llvmAssertEq name (TypedTerm schema t) = do
   ms <- gets lsSpec
-  (expr, mty) <- liftIO $ getLLVMExpr ms name
-  liftIO $ checkCompatibleType "llvm_assert_eq" mty schema
+  (expr, mty) <- getLLVMExpr ms name
+  checkCompatibleType "llvm_assert_eq" mty schema
   modify $ \st ->
     st { lsSpec = specAddLogicAssignment fixPos expr (mkLogicExpr t) ms }
 
 llvmEnsureEq :: String -> TypedTerm SAWCtx -> LLVMSetup ()
 llvmEnsureEq name (TypedTerm schema t) = do
   ms <- gets lsSpec
-  (expr, mty) <- liftIO $ getLLVMExpr ms name
-  liftIO $ checkCompatibleType "llvm_ensure_eq" mty schema
+  (expr, mty) <- getLLVMExpr ms name
+  checkCompatibleType "llvm_ensure_eq" mty schema
   modify $ \st ->
     st { lsSpec =
            specAddBehaviorCommand (Ensure fixPos expr (LogicE (mkLogicExpr t))) (lsSpec st) }
@@ -579,7 +541,7 @@ llvmReturn (TypedTerm schema t) = do
   ms <- gets lsSpec
   case sdRetType (specDef ms) of
     Just mty -> do
-      liftIO $ checkCompatibleType "llvm_return" mty schema
+      checkCompatibleType "llvm_return" mty schema
       modify $ \st ->
         st { lsSpec = specAddBehaviorCommand (Return (LogicE (mkLogicExpr t))) (lsSpec st) }
     Nothing -> fail "llvm_return called on void function"

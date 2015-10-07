@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -19,6 +20,9 @@ module SAWScript.LLVMExpr
   (-- * LLVM Expressions
     LLVMExprF(..)
   , LLVMExpr
+  , ProtoLLVMExpr(..)
+  , parseProtoLLVMExpr
+  , ppProtoLLVMExpr
   , ppLLVMExpr
   , lssTypeOfLLVMExpr
   , updateLLVMExprType
@@ -48,7 +52,10 @@ module SAWScript.LLVMExpr
 import Control.Applicative ((<$>))
 #endif
 -- import Data.Set (Set)
-import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import Data.Functor.Identity
+import Text.Parsec as P
+import Text.PrettyPrint.ANSI.Leijen as PP hiding ((<$>))
+import Text.Read
 
 import qualified Verifier.LLVM.Codebase as LSS
 
@@ -66,7 +73,80 @@ data SymbolLocation
    | LineExact Integer
   deriving (Show)
 
--- LLVMExpr {{{1
+type Parser a = ParsecT String () Identity a
+
+-- The result of parsing an LLVM expression, before type-checking
+data ProtoLLVMExpr
+  = PVar String
+  | PArg Int
+  | PDeref ProtoLLVMExpr
+  | PField Int ProtoLLVMExpr
+  | PReturn
+  -- | PIndex ProtoLLVMExpr ProtoLLVMExpr
+    deriving (Show)
+
+ppProtoLLVMExpr :: ProtoLLVMExpr -> Doc
+ppProtoLLVMExpr (PVar x) = text x
+ppProtoLLVMExpr PReturn = text "return"
+ppProtoLLVMExpr (PArg n) = PP.string "args[" <> int n <> PP.string "]"
+ppProtoLLVMExpr (PDeref e) = PP.text "*" <> PP.parens (ppProtoLLVMExpr e)
+ppProtoLLVMExpr (PField n e) =
+  PP.parens (ppProtoLLVMExpr e) <> text "." <> int n
+--ppProtoLLVMExpr (PIndex n e) =
+--  ppProtoLLVMExpr e <> text "[" <> ppProtoLLVMExpr n <> text "]"
+
+parseProtoLLVMExpr :: String
+                   -> Either ParseError ProtoLLVMExpr
+parseProtoLLVMExpr = runIdentity . runParserT (parseExpr <* eof) () "expr"
+  where
+    parseExpr = P.choice
+                [ parseDerefField
+                , parseDeref
+                , parseDirectField
+                , parseAExpr
+                ]
+    parseAExpr = P.choice
+                 [ parseReturn
+                 , parseArgs
+                 , parseVar
+                 , parseParens
+                 ]
+    alphaUnder = P.choice [P.letter, P.char '_']
+    parseIdent = (:) <$> alphaUnder <*> many (P.choice [alphaUnder, P.digit])
+    parseVar :: Parser ProtoLLVMExpr
+    parseVar = PVar <$> try parseIdent
+    parseParens :: Parser ProtoLLVMExpr
+    parseParens = P.string "(" *> parseExpr <* P.string ")"
+    parseReturn :: Parser ProtoLLVMExpr
+    parseReturn = try (P.string "return") >> return PReturn
+    parseDeref :: Parser ProtoLLVMExpr
+    parseDeref = PDeref <$> (try (P.string "*") *> parseAExpr)
+    parseArgs :: Parser ProtoLLVMExpr
+    parseArgs = do
+      _ <- try (P.string "args[")
+      ns <- many1 digit
+      e <- case readMaybe ns of
+             Just (n :: Int) -> return (PArg n)
+             Nothing ->
+               unexpected $ "Using `args` with non-numeric parameter: " ++ ns
+      _ <- P.string "]"
+      return e
+    parseDirectField :: Parser ProtoLLVMExpr
+    parseDirectField = do
+      e <- try (parseAExpr <* P.string ".")
+      ns <- many1 digit
+      case readMaybe ns of
+        Just (n :: Int) -> return (PField n e)
+        Nothing -> unexpected $
+          "Attempting to apply . operation to non-integer field ID: " ++ ns
+    parseDerefField :: Parser ProtoLLVMExpr
+    parseDerefField = do
+      re <- try (parseAExpr <* P.string "->")
+      ns <- many1 digit
+      case readMaybe ns of
+        Just (n :: Int) -> return (PField n (PDeref re))
+        Nothing -> unexpected $
+          "Attempting to apply -> operation to non-integer field ID: " ++ ns
 
 -- NB: the types listed in each of these should be the type of the
 -- entire expression. So "Deref v tp" means "*v has type tp".
@@ -74,6 +154,7 @@ data LLVMExprF v
   = Arg Int LSS.Ident LLVMActualType
   | Global LSS.Symbol LLVMActualType
   | Deref v LLVMActualType
+  -- | Index v v LLVMActualType
   | StructField v LSS.StructInfo Int LLVMActualType
   | ReturnValue LLVMActualType
   deriving (Functor, CC.Foldable, CC.Traversable)
@@ -120,8 +201,8 @@ ppLLVMExpr (CC.Term exprF) =
   case exprF of
     Arg _ nm _ -> LSS.ppIdent nm
     Global nm _ -> LSS.ppSymbol nm
-    Deref e _ -> char '*' <> parens (ppLLVMExpr e)
-    StructField r _ f _ -> ppLLVMExpr r <> char '.' <> text (show f)
+    Deref e _ -> PP.char '*' <> PP.parens (ppLLVMExpr e)
+    StructField r _ f _ -> ppLLVMExpr r <> PP.char '.' <> text (show f)
     ReturnValue _ -> text "return"
 
 -- | Returns LSS Type of LLVMExpr
