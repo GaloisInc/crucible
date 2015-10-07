@@ -95,7 +95,8 @@ browseLLVMModule (LLVMModule name m) = do
           ppArgList (defVarArgs d) (map (ppTyped ppIdent) (defArgs d)) <+>
         ppMaybe (\gc -> text "gc" <+> ppGC gc) (funGC (defAttrs d))
 
-type Assign = (LLVMExpr, TypedTerm SAWCtx)
+
+-- LLVM memory operations
 
 addrPlusOffset :: (Functor m, MonadIO m) =>
                   SBETerm sbe -> Offset
@@ -155,6 +156,10 @@ readLLVMTerm dl args et@(Term e) cnt =
       let ty' | cnt > 1 = ArrayType (fromIntegral cnt) ty
               | otherwise = ty
       load ty' addr (memTypeAlign dl ty)
+
+-- LLVM verification and model extraction commands
+
+type Assign = (LLVMExpr, TypedTerm SAWCtx)
 
 symexecLLVM :: BuiltinContext
             -> Options
@@ -297,11 +302,6 @@ verifyLLVM bic opts (LLVMModule _file mdl) func overrides setup =
             [] -> ""
             irs -> " (overriding " ++ show (map specFunction irs) ++ ")"
     when (verb >= 2) $ putStrLn $ "Starting verification of " ++ show (specName ms)
-    {-
-    let configs = [ (bs, cl)
-                  | bs <- {- concat $ Map.elems $ -} [specBehaviors ms]
-                  , cl <- bsRefEquivClasses bs
-                  ] -}
     let lopts = Nothing -- FIXME
     when (lsSimulate lsctx) $ do
     -- forM_ configs $ \(bs,cl) -> do
@@ -534,18 +534,6 @@ llvmPtr bic _ name lty = do
 llvmDeref :: BuiltinContext -> Options -> Value
           -> LLVMSetup (SharedTerm SAWCtx)
 llvmDeref _bic _ _t = fail "llvm_deref not yet implemented"
-
-{-
-llvmMayAlias :: BuiltinContext -> Options -> [String]
-             -> LLVMSetup ()
-llvmMayAlias bic _ exprs = do
-  lsState <- get
-  let ms = lsSpec lsState
-      cb = specCodebase ms
-      func = specFunction ms
-  exprs <- liftIO $ mapM (parseLLVMExpr cb func) exprs
-  modify $ \st -> st { lsSpec = specAddAliasSet exprs (lsSpec st) }
--}
 
 checkCompatibleType :: String -> LLVMActualType -> Cryptol.Schema -> IO ()
 checkCompatibleType msg aty schema = do

@@ -165,30 +165,6 @@ mkLogicExpr = LogicExpr
 useLogicExpr :: SharedContext SAWCtx -> LogicExpr -> IO (SharedTerm SAWCtx)
 useLogicExpr _ (LogicExpr t) = return t
 
-{-
--- | Return type of a typed expression.
-typeOfLogicExpr :: SharedContext s -> LogicExpr s -> IO (SharedTerm s)
-typeOfLogicExpr = scTypeOf
--}
-
-{-
--- | Return java expressions in logic expression.
-logicExprLLVMExprs :: LogicExpr -> Set LLVMExpr
-logicExprLLVMExprs = flip impl Set.empty
-  where impl (Apply _ args) s = foldr impl s args
-        impl (JavaValue e _ _) s = Set.insert e s
-        impl _ s = s
--}
-
-{-
--- | Returns names of variables appearing in typedExpr.
-logicExprVarNames :: LogicExpr -> Set String
-logicExprVarNames = flip impl Set.empty
-  where impl (Apply _ args) s = foldr impl s args
-        impl (Var nm _) s = Set.insert nm s
-        impl _ s = s
--}
-
 -- MixedExpr {{{1
 
 -- | A logic or LLVM expression.
