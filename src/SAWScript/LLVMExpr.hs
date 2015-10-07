@@ -49,7 +49,7 @@ module SAWScript.LLVMExpr
 -- Imports {{{2
 
 #if !MIN_VERSION_base(4,8,0)
-import Control.Applicative ((<$>))
+import Control.Applicative
 #endif
 -- import Data.Set (Set)
 import Data.Functor.Identity
