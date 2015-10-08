@@ -112,7 +112,7 @@ parseProtoLLVMExpr = runIdentity . runParserT (parseExpr <* eof) () "expr"
                  , parseParens
                  ]
     alphaUnder = P.choice [P.letter, P.char '_']
-    parseIdent = (:) <$> alphaUnder <*> many (P.choice [alphaUnder, P.digit])
+    parseIdent = (:) <$> alphaUnder <*> P.many (P.choice [alphaUnder, P.digit])
     parseVar :: Parser ProtoLLVMExpr
     parseVar = PVar <$> try parseIdent
     parseParens :: Parser ProtoLLVMExpr
