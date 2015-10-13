@@ -765,3 +765,6 @@ javaVerifyTactic :: BuiltinContext -> Options
                  -> JavaSetup ()
 javaVerifyTactic _ _ script =
   modify $ \st -> st { jsTactic = RunVerify script }
+
+javaAllowAlloc :: JavaSetup ()
+javaAllowAlloc = modifySpec specSetAllowAllocation

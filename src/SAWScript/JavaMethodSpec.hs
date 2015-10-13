@@ -523,7 +523,9 @@ generateVC ir esd (ps, endLoc, res) = do
         -- Check value arrays
         forM_ (Map.toList (ps ^. JSS.pathMemory . JSS.memScalarArrays)) $ \(ref,(jlen,jval)) -> do
           case esdArrayValue ref esd of
-            NoExpectedValue -> pvcgFail $ ftext $ "Allocates an array."
+            NoExpectedValue
+              | specAllowAlloc ir -> return ()
+              | otherwise -> pvcgFail $ ftext $ "Allocates an array."
             AnyExpectedValue -> return ()
             AssignedExpectedValue (slen, sval)
               | jlen /= slen -> pvcgFail $ ftext $ "Array changes size."

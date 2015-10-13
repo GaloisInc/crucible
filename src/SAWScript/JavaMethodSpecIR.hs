@@ -28,6 +28,8 @@ module SAWScript.JavaMethodSpecIR
   , specAddLogicAssignment
   , specAddAliasSet
   , specActualTypeMap
+  , specAllowAlloc
+  , specSetAllowAllocation
   , initMethodSpec
   --, resolveMethodSpecIR
     -- * Method behavior.
@@ -268,6 +270,7 @@ initMethodSpec pos cb thisClass mname = do
                     , specInitializedClasses =
                         map JSS.className superClasses
                     , specBehaviors = initBS
+                    , specAllowAlloc = False
                     }
   return initMS
 
@@ -292,6 +295,8 @@ data JavaMethodSpecIR = MSIR {
     -- | Behavior specifications for method at different PC values.
     -- A list is used because the behavior may depend on the inputs.
   , specBehaviors :: BehaviorSpec  -- Map JSS.Breakpoint [BehaviorSpec]
+    -- | Whether this method is allowed to (invisibly) allocate new objects.
+  , specAllowAlloc :: Bool
   }
 
 -- | Return user printable name of method spec (currently the class + method name).
@@ -334,3 +339,6 @@ specAddBehaviorCommand bc ms =
 
 specActualTypeMap :: JavaMethodSpecIR -> Map JavaExpr JavaActualType
 specActualTypeMap = bsActualTypeMap . specBehaviors
+
+specSetAllowAllocation :: JavaMethodSpecIR -> JavaMethodSpecIR
+specSetAllowAllocation ms = ms { specAllowAlloc = True }

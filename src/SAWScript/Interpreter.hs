@@ -1001,6 +1001,13 @@ primitives = Map.fromList
     (pureVal javaNoSimulate)
     [ "Skip symbolic simulation for this Java method." ]
 
+  , prim "java_allow_alloc"    "JavaSetup ()"
+    (pureVal javaAllowAlloc)
+    [ "Allow allocation of new objects or arrays during simulation,"
+    , "as long as the behavior of the method can still be described"
+    , "as a pure function."
+    ]
+
   , prim "java_pure"           "JavaSetup ()"
     (pureVal javaPure)
     [ "The empty specification for 'java_verify'. Equivalent to 'return ()'." ]

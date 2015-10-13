@@ -1,0 +1,10 @@
+let alloc_spec = do {
+    java_var "dst" (java_array 10 java_int);
+    src <- java_var "src" (java_array 10 java_int);
+    java_allow_alloc;
+    java_ensure_eq "dst" src;
+    java_verify_tactic abc;
+};
+
+c <- java_load_class "Alloc";
+java_verify c "alloc" [] alloc_spec;
