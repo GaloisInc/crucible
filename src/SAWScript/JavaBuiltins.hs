@@ -239,14 +239,6 @@ readJavaValue (CC.Term e) = do
         _ -> fail "Object in instance field expr evaluated to non-reference"
     StaticField f -> getStaticFieldValue f
 
-isArg :: Method -> CC.Term JavaExprF -> Bool
-isArg meth (CC.Term (Local _ idx _)) =
-  idx <= localIndexOfParameter meth (maxArg meth)
-isArg _ _ = False
-
-maxArg :: Method -> Int
-maxArg meth = length (methodParameterTypes meth) - 1
-
 symexecJava :: BuiltinContext
             -> Options
             -> Class
@@ -664,6 +656,9 @@ javaClassVar :: BuiltinContext -> Options -> String -> JavaType
              -> JavaSetup ()
 javaClassVar bic _ name t = do
   (expr, aty) <- typeJavaExpr bic name t
+  case exprType expr of
+    ClassType _ -> return ()
+    _ -> fail "Can't use `java_class_var` with variable of non-class type."
   modifySpec (specAddVarDecl expr aty)
 
 javaVar :: BuiltinContext -> Options -> String -> JavaType
@@ -671,6 +666,9 @@ javaVar :: BuiltinContext -> Options -> String -> JavaType
 javaVar bic _ name t = do
   --liftIO $ putStrLn "javaVar"
   (expr, aty) <- typeJavaExpr bic name t
+  case exprType expr of
+    ClassType _ -> fail "Can't use `java_var` with variable of class type."
+    _ -> return ()
   modifySpec (specAddVarDecl expr aty)
   let sc = biSharedContext bic
   liftIO $ do
@@ -726,15 +724,19 @@ javaEnsureEq bic _ name (TypedTerm schema t) = do
   ms <- gets jsSpec
   (expr, ty) <- getJavaExpr ms name
   let sc = biSharedContext bic
+      meth = specMethod ms
   --liftIO $ putStrLn "Making MixedExpr"
+  when (isArg meth expr && isScalarExpr expr) $ fail $
+    "The `java_ensure_eq` function cannot be used " ++
+    "to set the value of a scalar argument."
   checkCompatibleExpr "java_ensure_eq" expr schema
   me <- liftIO $ mkMixedExpr sc ms t
   --liftIO $ putStrLn "Done making MixedExpr"
-  let cmd = case (CC.unTerm expr, ty) of
-              (_, ArrayType _) -> EnsureArray fixPos expr me
-              (InstanceField r f, _) -> EnsureInstanceField fixPos r f me
-              (StaticField f, _) -> EnsureStaticField fixPos f me
-              _ -> error "invalid java_ensure command"
+  cmd <- case (CC.unTerm expr, ty) of
+    (_, ArrayType _) -> return (EnsureArray fixPos expr me)
+    (InstanceField r f, _) -> return (EnsureInstanceField fixPos r f me)
+    (StaticField f, _) -> return (EnsureStaticField fixPos f me)
+    _ -> fail $ "invalid java_ensure target: " ++ name
   modifySpec (specAddBehaviorCommand cmd)
 
 javaModify :: BuiltinContext -> Options -> String
@@ -743,12 +745,16 @@ javaModify _bic _ name = do
   --liftIO $ putStrLn "javaModify"
   ms <- gets jsSpec
   (expr, _) <- getJavaExpr ms name
+  let meth = specMethod ms
+  when (isArg meth expr && isScalarExpr expr) $ fail $
+    "The `java_modify` function cannot be used " ++
+    "to set the value of a scalar argument."
   let mty = Map.lookup expr (bsActualTypeMap (specBehaviors ms))
-  let cmd = case (CC.unTerm expr, mty) of
-              (_, Just ty@(ArrayInstance _ _)) -> ModifyArray expr ty
-              (InstanceField r f, _) -> ModifyInstanceField r f
-              (StaticField f, _) -> ModifyStaticField f
-              _ -> error "invalid java_modify command"
+  cmd <- case (CC.unTerm expr, mty) of
+    (_, Just ty@(ArrayInstance _ _)) -> return (ModifyArray expr ty)
+    (InstanceField r f, _) -> return (ModifyInstanceField r f)
+    (StaticField f, _) -> return (ModifyStaticField f)
+    _ -> fail $ "invalid java_modify target: " ++ name
   modifySpec (specAddBehaviorCommand cmd)
 
 javaReturn :: BuiltinContext -> Options -> SharedTerm SAWCtx

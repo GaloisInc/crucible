@@ -23,6 +23,10 @@ module SAWScript.JavaExpr
   , returnJavaExpr
   , asJavaExpr
   , ppJavaExpr
+  , exprType
+  , isScalarExpr
+  , isArg
+  , maxArg
   , jssTypeOfJavaExpr
   , isRefJavaExpr
   , isClassJavaExpr
@@ -138,6 +142,22 @@ isClassJavaExpr :: JavaExpr -> Bool
 isClassJavaExpr = isClassType . jssTypeOfJavaExpr
   where isClassType (JSS.ClassType _) = True
         isClassType _ = False
+
+maxArg :: JSS.Method -> Int
+maxArg meth = length (JSS.methodParameterTypes meth) - 1
+
+isArg :: JSS.Method -> JavaExpr -> Bool
+isArg meth (CC.Term (Local _ idx _)) =
+  idx <= JSS.localIndexOfParameter meth (maxArg meth)
+isArg _ _ = False
+
+exprType :: JavaExpr -> JSS.Type
+exprType (CC.Term (Local _ _ ty)) = ty
+exprType (CC.Term (InstanceField _ f)) = JSS.fieldIdType f
+exprType (CC.Term (StaticField f)) = JSS.fieldIdType f
+
+isScalarExpr :: JavaExpr -> Bool
+isScalarExpr = JSS.isPrimitiveType . exprType
 
 -- LogicExpr {{{1
 
