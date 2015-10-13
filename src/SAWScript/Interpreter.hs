@@ -950,7 +950,7 @@ primitives = Map.fromList
     , "the form \"args[n]\" to refer to the (0-based) nth argument of a method."
     ]
 
-  , prim "java_class_var"      "{a} String -> JavaType -> JavaSetup a"
+  , prim "java_class_var"      "String -> JavaType -> JavaSetup ()"
     (bicVal javaClassVar)
     [ "Declare that the named Java variable should point to an object of the"
     , "given class type."
