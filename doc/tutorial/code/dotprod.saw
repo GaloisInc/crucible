@@ -8,6 +8,6 @@ let inputs = [ ("*x", xs, 12)
              , ("size", {{ 12:[32] }}, 1)
              ];
 let outputs = [("return", 1)];
-t <- llvm_symexec m "dotprod" allocs inputs outputs;
+t <- llvm_symexec m "dotprod" allocs inputs outputs true;
 thm1 <- abstract_symbolic {{ t == dotprod xs ys }};
 prove_print abc thm1;

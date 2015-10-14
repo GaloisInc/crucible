@@ -168,13 +168,14 @@ symexecLLVM :: BuiltinContext
             -> [(String, Integer)]
             -> [(String, SharedTerm SAWCtx, Integer)]
             -> [(String, Integer)]
+            -> Bool
             -> IO (TypedTerm SAWCtx)
-symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs =
+symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs doSat =
   let sym = Symbol fname
       dl = parseDataLayout $ modDataLayout mdl
       sc = biSharedContext bic
       lopts = LSSOpts { optsErrorPathDetails = True
-                      , optsSatAtBranches = True
+                      , optsSatAtBranches = doSat
                       }
   in do
     (sbe, mem, scLLVM) <- createSAWBackend' sawProxy dl sc

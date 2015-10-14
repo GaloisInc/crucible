@@ -1156,7 +1156,7 @@ primitives = Map.fromList
     ]
 
   , prim "llvm_symexec"
-    "LLVMModule -> String -> [(String, Int)] -> [(String, Term, Int)] -> [(String, Int)] -> TopLevel Term"
+    "LLVMModule -> String -> [(String, Int)] -> [(String, Term, Int)] -> [(String, Int)] -> Bool -> TopLevel Term"
     (bicVal symexecLLVM)
     [ "Symbolically execute an LLVM function and construct a Term corresponding"
     , "to its result. The first list describes what allocations should be"
@@ -1164,11 +1164,11 @@ primitives = Map.fromList
     , "the given number of elements, of the appropriate type. The second list"
     , "contains pairs of variables or expressions along with Terms specifying"
     , "their initial (possibly symbolic) values, and the number of elements"
-    , "that the term should contain. Finally, the third list contains the"
-    , "names of the variables or expressions to treat as outputs, along with"
-    , "the number of elements to read from those locations. The resulting Term"
-    , "will be of tuple type, with as many elements as there are names in the"
-    , "output list."
+    , "that the term should contain. The third list contains the names of the"
+    , "variables or expressions to treat as outputs, along with the number of"
+    , "elements to read from those locations. Finally, the Bool argument sets"
+    , "branch satisfiability checking on or off. The resulting Term will be of"
+    , "tuple type, with as many elements as there are names in the output list."
     ]
 
   , prim "llvm_verify"

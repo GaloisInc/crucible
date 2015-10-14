@@ -1,0 +1,5 @@
+m <- cryptol_load "DES.cry";
+let enc = {{ m::DES.encrypt }};
+let dec = {{ m::DES.decrypt }};
+let {{ thm key msg = dec key (enc key msg) == msg }};
+prove_print abc {{ thm }};
