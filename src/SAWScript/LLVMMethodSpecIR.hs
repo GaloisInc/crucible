@@ -40,7 +40,6 @@ module SAWScript.LLVMMethodSpecIR
 
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.String
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import Verifier.SAW.SharedTerm
@@ -212,18 +211,18 @@ bsAddCommand bc bs =
 
 type Backend = SAWBackend SAWCtx
 
-initLLVMMethodSpec :: Pos -> LSS.Codebase Backend -> String
+initLLVMMethodSpec :: Pos
+                   -> LSS.Codebase Backend
+                   -> LSS.SymDefine (SharedTerm SAWCtx)
                    -> LLVMMethodSpecIR
-initLLVMMethodSpec pos cb symname =
-  let sym = fromString symname
-      Just def = LSS.lookupDefine sym cb
-      initBS = BS { bsLoc = LSS.sdEntry def
+initLLVMMethodSpec pos cb def =
+  let initBS = BS { bsLoc = LSS.sdEntry def
                   , bsExprDecls = Map.empty
                   , bsReversedCommands = []
                   }
       initMS = MSIR { specPos = pos
                     , specCodebase = cb
-                    , specFunction = sym
+                    , specFunction = LSS.sdName def
                     , specDef = def
                     , specLLVMExprNames = Map.empty
                     , specBehavior = initBS
@@ -237,7 +236,7 @@ data LLVMMethodSpecIR = MSIR {
     -- | Codebase containing function to verify.
   , specCodebase :: LSS.Codebase Backend
     -- | Name of function to verify.
-  , specFunction :: LSS.Symbol
+  , specFunction :: LSS.Symbol -- TODO: is this necessary?
     -- | Definition of function to verify.
   , specDef :: LSS.SymDefine (SharedTerm SAWCtx)
     -- | Mapping from user-visible LLVM state names to LLVMExprs

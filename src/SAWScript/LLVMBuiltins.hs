@@ -161,6 +161,10 @@ readLLVMTerm dl args et@(Term e) cnt =
 
 type Assign = (LLVMExpr, TypedTerm SAWCtx)
 
+missingSymMsg :: String -> String -> String
+missingSymMsg file func =
+  "Bitcode file " ++ file ++ " does not contain symbol `" ++ func ++ "`."
+
 symexecLLVM :: BuiltinContext
             -> Options
             -> LLVMModule
@@ -182,8 +186,7 @@ symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs doSat =
     (warnings, cb) <- mkCodebase sbe dl mdl
     forM_ warnings $ putStrLn . ("WARNING: " ++) . show
     case lookupDefine sym cb of
-      Nothing -> fail $ "Bitcode file " ++ file ++
-                        " does not contain symbol " ++ fname ++ "."
+      Nothing -> fail $ missingSymMsg file fname
       Just md -> runSimulator cb sbe mem (Just lopts) $ do
         setVerbosity (simVerbose opts)
         let mkAssign (s, tm, n) = do
@@ -252,8 +255,7 @@ extractLLVM sc (LLVMModule file mdl) func _setup =
     (warnings, cb) <- mkCodebase sbe dl mdl
     forM_ warnings $ putStrLn . ("WARNING: " ++) . show
     case lookupDefine sym cb of
-      Nothing -> fail $ "Bitcode file " ++ file ++
-                        " does not contain symbol " ++ func ++ "."
+      Nothing -> fail $ missingSymMsg file func
       Just md -> runSimulator cb sbe mem (Just lopts) $ do
         setVerbosity 0
         args <- mapM freshLLVMArg (sdArgs md)
@@ -279,7 +281,7 @@ verifyLLVM :: BuiltinContext -> Options -> LLVMModule -> String
            -> [LLVMMethodSpecIR]
            -> LLVMSetup ()
            -> IO LLVMMethodSpecIR
-verifyLLVM bic opts (LLVMModule _file mdl) func overrides setup =
+verifyLLVM bic opts (LLVMModule file mdl) funcname overrides setup =
   let pos = fixPos -- TODO
       dl = parseDataLayout $ modDataLayout mdl
       sc = biSharedContext bic
@@ -287,6 +289,9 @@ verifyLLVM bic opts (LLVMModule _file mdl) func overrides setup =
     (sbe, mem, scLLVM) <- createSAWBackend' sawProxy dl sc
     (warnings, cb) <- mkCodebase sbe dl mdl
     forM_ warnings $ putStrLn . ("WARNING: " ++) . show
+    func <- case lookupDefine (fromString funcname) cb of
+      Nothing -> fail $ missingSymMsg file funcname
+      Just def -> return def
     let ms0 = initLLVMMethodSpec pos cb func
         lsctx0 = LLVMSetupState {
                     lsSpec = ms0
