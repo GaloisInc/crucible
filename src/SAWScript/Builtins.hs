@@ -979,7 +979,7 @@ bindExts sc exts body = do
 freshSymbolicPrim :: String -> C.Schema -> TopLevel (TypedTerm SAWCtx)
 freshSymbolicPrim x schema@(C.Forall [] [] ct) = do
   sc <- getSharedContext
-  cty <- io $ Cryptol.importType sc Cryptol.emptyEnv ct
+  cty <- io $ Cryptol.importType' sc Cryptol.emptyEnv ct
   tm <- io $ scFreshGlobal sc x cty
   return $ TypedTerm schema tm
 freshSymbolicPrim _ _ =
