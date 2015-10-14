@@ -28,4 +28,5 @@ extra-deps:
   - OneTuple-0.2.1
   - cond-0.4.1.1
   - monad-supply-0.6
+  - base-compat-0.8.2
 resolver: lts-2.15
