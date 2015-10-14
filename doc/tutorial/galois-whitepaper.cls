@@ -10,7 +10,7 @@
 \LoadClass{article}
 
 % Useful packages:
-\RequirePackage[table]{xcolor}
+% \RequirePackage[table]{xcolor}
 \RequirePackage{graphicx}
 \RequirePackage[headheight=144pt,top=2in,left=1in,right=1in,bottom=1in]{geometry}
 \RequirePackage{lastpage}
@@ -27,36 +27,37 @@
 \linespread{1.05}
 \RequirePackage[scaled]{helvet}
 \fi
+
 \RequirePackage{sectsty}
 \allsectionsfont{\sffamily}
 
-
 % Define a TODO command
 \RequirePackage{ifthen}
-\RequirePackage{color}
+%% \RequirePackage{color}
 
-\definecolor{Orange}{rgb}{1,0.5,0}
+% \definecolor{Orange}{rgb}{1,0.5,0}
 \newcommand{\todo}[1][0]{%
-\textsf{\textbf{\textcolor{Orange}{%
-[[TODO\ifthenelse{\equal{#1}{0}}{}{: #1}]]}}}%
+\textsf{\textbf{%
+[[TODO\ifthenelse{\equal{#1}{0}}{}{: #1}]]}}%
 }
 
 \newcommand{\highlight}[2][yellow]{\colorbox{#1}{#2}}
 
 % Misc defines
-\newcommand{\@companyName}{\vspace*{3cm} Galois, Inc.}
-\newcommand{\@addressPhone}{
- 421 SW 6th Ave., Ste.\ 300\\
- Portland, OR 97204
-}
-\newcommand{\@contact}{\todo[Contact]}
-\newcommand{\@subtitle}{TODO: Subtitle}
-
-\newcommand{\contact}[1]{\renewcommand{\@contact}{{#1}}}
+\makeatletter
+  \newcommand{\@companyName}{\vspace*{3cm} Galois, Inc.}
+  \newcommand{\@addressPhone}{
+   421 SW 6th Ave., Ste.\ 300\\
+   Portland, OR 97204
+  }
+  \newcommand{\@contact}{\todo[Contact]}
+  \newcommand{\@subtitle}{TODO: Subtitle}
+  \newcommand{\contact}[1]{\renewcommand{\@contact}{{#1}}}
+\makeatother
 
 \renewcommand{\paragraph}[1]{\textbf{\sffamily{#1}}\quad}
 
-\definecolor{galoislightgray}{gray}{0.6}
+% \definecolor{galoislightgray}{gray}{0.6}
 % Define header and footer
 \RequirePackage{fancyhdr}
 \pagestyle{fancy}
@@ -75,10 +76,12 @@
 %%
 %% Define a special header style for the title page:
 %%
+\makeatletter
 \newcommand{\ps@title}{%
   \renewcommand{\@oddhead}{%
     \sffamily\hspace{-0.25in}\includegraphics[width=1in]{figures/galois.png}
     }}
+\makeatother
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
@@ -86,17 +89,22 @@
 %%
 \lhead{\sffamily\hspace{0.75in}\includegraphics[width=1in]{figures/galois.png}}
 
+\makeatletter
 \rhead{
   \sffamily
   \textit{\@title{}}\\
-  {\color{galoislightgray} {}}
+  % {\color{galoislightgray} {}}
+  {\color{lightgray} {}}
   \vspace{0.12in}
 }
+\makeatother
 
-\lfoot{\sffamily\color{galoislightgray}\small\copyright{} 2014 Galois, Inc.}
+% \lfoot{\sffamily\color{galoislightgray}\small\copyright{} 2014 Galois, Inc.}
+\lfoot{\sffamily\color{lightgray}\small\copyright{} 2014 Galois, Inc.}
 
 \rfoot{
-  \sffamily \color{galoislightgray}\small
+  % \sffamily \color{galoislightgray}\small
+  \sffamily \color{lightgray}\small
   Page \thepage{}% of \pageref{LastPage}
 }
 
@@ -104,6 +112,7 @@
 %%
 %% The title content definition:
 %%
+\makeatletter
 \DeclareRobustCommand{\maketitle}{
     \thispagestyle{title}
     \begin{center}
@@ -121,16 +130,16 @@
     \end{center}
 }
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%5
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
 %% Add a stop ``.'' after each section number:
+%%
 \renewcommand*{\@seccntformat}[1]{%
   \csname the#1\endcsname.\quad
 }
 
 % Redefine the bibliography environment to use \section{\bibname}
 % instead of \section*{\bibname}
-\makeatletter
 \newcommand{\bibname}{References}
 \renewenvironment{thebibliography}[1]
      {\section*{\bibname}% <-- this line was changed from \chapter* to \section*
@@ -171,5 +180,4 @@
   {-0ex \@plus -1ex \@minus -.2ex}%
   {0.1ex \@plus .1ex \@minus -.1ex}%
   {\sffamily\normalsize\bfseries}} %
-
 \makeatother
