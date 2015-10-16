@@ -24,7 +24,6 @@ import Control.Monad.State hiding (mapM)
 import Control.Monad.Trans.Except
 import Data.List (partition)
 import qualified Data.Map as Map
-import Data.Maybe
 import Data.String
 import qualified Data.Vector as V
 import Text.Parsec as P
@@ -42,7 +41,6 @@ import Verifier.LLVM.Codebase hiding ( Global, ppSymbol, ppIdent
                                      , globalSym, globalType
                                      )
 import qualified Verifier.LLVM.Codebase as CB
-import Verifier.LLVM.Codebase.LLVMContext
 import Verifier.LLVM.Backend.SAW
 import Verifier.LLVM.Simulator
 import Verifier.LLVM.Simulator.Internals
@@ -56,6 +54,7 @@ import SAWScript.Builtins
 import SAWScript.LLVMExpr
 import SAWScript.LLVMMethodSpecIR
 import SAWScript.LLVMMethodSpec
+import SAWScript.LLVMUtils
 import SAWScript.Options
 import SAWScript.Proof
 import SAWScript.TypedTerm
@@ -434,16 +433,6 @@ parseLLVMExpr cb fn str =
   case parseProtoLLVMExpr str of
     Left err -> throwE ("Parse error: " ++ show err)
     Right e -> checkProtoLLVMExpr cb fn e
-
-resolveType :: Codebase (SAWBackend SAWCtx) -> MemType -> MemType
-resolveType cb (PtrType ty) = PtrType $ resolveSymType cb ty
-resolveType _ ty = ty
-
-resolveSymType :: Codebase (SAWBackend SAWCtx) -> SymType -> SymType
-resolveSymType cb (MemType mt) = MemType $ resolveType cb mt
-resolveSymType cb ty@(Alias i) =
-  fromMaybe ty $ lookupAlias i where ?lc = cbLLVMContext cb
-resolveSymType _ ty = ty
 
 getLLVMExpr :: Monad m =>
                LLVMMethodSpecIR -> String

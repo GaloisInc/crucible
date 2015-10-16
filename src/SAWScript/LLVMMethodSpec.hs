@@ -51,6 +51,7 @@ import SAWScript.Options
 import SAWScript.Utils
 import Verifier.SAW.Prelude
 import SAWScript.LLVMMethodSpecIR
+import SAWScript.LLVMUtils
 import SAWScript.VerificationCheck
 
 import Verifier.LLVM.Simulator hiding (State)
@@ -225,9 +226,6 @@ evalDerefLLVMExpr expr ec = do
       loadPathState (ecBackend ec) val tp (ecPathState ec)
     PtrType _ -> fail "Pointer to weird type."
     _ -> return val
-
-scLLVMValue :: SharedContext s -> SharedTerm s -> String -> IO (SharedTerm s)
-scLLVMValue sc ty name = scFreshGlobal sc name ty
 
 -- | Evaluate a typed expression in the context of a particular state.
 evalLogicExpr :: (MonadIO m) =>

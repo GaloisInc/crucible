@@ -90,6 +90,7 @@ library
     SAWScript.LLVMExpr
     SAWScript.LLVMMethodSpec
     SAWScript.LLVMMethodSpecIR
+    SAWScript.LLVMUtils
     SAWScript.Options
     SAWScript.Parser
     SAWScript.Proof
