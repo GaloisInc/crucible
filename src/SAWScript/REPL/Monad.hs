@@ -62,7 +62,7 @@ import Cryptol.Prims.Eval(primTable)
 import Cryptol.Eval (EvalError)
 import qualified Cryptol.ModuleSystem as M
 import Cryptol.ModuleSystem.NamingEnv (NamingEnv)
-import Cryptol.ModuleSystem.Name (unpack)
+import Cryptol.Utils.Ident (unpackIdent)
 import Cryptol.Parser (ParseError,ppError)
 import Cryptol.Parser.NoInclude (IncludeError,ppIncludeError)
 import Cryptol.Parser.NoPat (Error)
@@ -284,34 +284,28 @@ setREPLTitle  = unlessBatch $ do
   io (setTitle (mkTitle rw))
 
 builtIns :: [String]
-builtIns = map unpack (Map.keys primTable)
+builtIns = map unpackIdent (Map.keys primTable)
 
--- | Only meant for use with one of getVars or getTSyns.
-keepOne :: String -> [a] -> a
-keepOne src as = case as of
-  [a] -> a
-  _   -> panic ("REPL: " ++ src) ["name clash in interface file"]
-
-getVars :: REPL (Map.Map P.QName M.IfaceDecl)
+getVars :: REPL (Map.Map T.Name M.IfaceDecl)
 getVars  = do
   me <- getModuleEnv
-  let decls = fst $ M.focusedEnv me
-  let vars1 = keepOne "getVars" `fmap` M.ifDecls decls
+  let (decls, _namingenv, _namedisp) = M.focusedEnv me
+  let vars1 = M.ifDecls decls
   extras <- getExtraTypes
   let vars2 = Map.mapWithKey (\q s -> M.IfaceDecl q s [] False Nothing Nothing) extras
   return (Map.union vars1 vars2)
 
-getTSyns :: REPL (Map.Map P.QName T.TySyn)
+getTSyns :: REPL (Map.Map T.Name T.TySyn)
 getTSyns  = do
   me <- getModuleEnv
-  let decls = fst $ M.focusedEnv me
-  return (keepOne "getTSyns" `fmap` M.ifTySyns decls)
+  let (decls, _namingenv, _namedisp) = M.focusedEnv me
+  return (M.ifTySyns decls)
 
-getNewtypes :: REPL (Map.Map P.QName T.Newtype)
+getNewtypes :: REPL (Map.Map T.Name T.Newtype)
 getNewtypes = do
   me <- getModuleEnv
-  let decls = fst $ M.focusedEnv me
-  return (keepOne "getNewtypes" `fmap` M.ifNewtypes decls)
+  let (decls, _namingenv, _namedisp) = M.focusedEnv me
+  return (M.ifNewtypes decls)
 
 -- | Get visible variable names.
 getExprNames :: REPL [String]
@@ -331,25 +325,25 @@ getPropertyNames =
      return [ getName x | (x,d) <- Map.toList xs,
                 T.PragmaProperty `elem` M.ifDeclPragmas d ]
 
-getName :: P.QName -> String
+getName :: T.Name -> String
 getName  = show . pp
 
-getTermEnv :: REPL (Map T.QName (SharedTerm SAWCtx))
+getTermEnv :: REPL (Map T.Name (SharedTerm SAWCtx))
 getTermEnv = fmap eTermEnv getCryptolEnv
 
-modifyTermEnv :: (Map T.QName (SharedTerm SAWCtx) -> Map T.QName (SharedTerm SAWCtx)) -> REPL ()
+modifyTermEnv :: (Map T.Name (SharedTerm SAWCtx) -> Map T.Name (SharedTerm SAWCtx)) -> REPL ()
 modifyTermEnv f = modifyCryptolEnv $ \ce -> ce { eTermEnv = f (eTermEnv ce) }
 
-setTermEnv :: Map T.QName (SharedTerm SAWCtx) -> REPL ()
+setTermEnv :: Map T.Name (SharedTerm SAWCtx) -> REPL ()
 setTermEnv x = modifyTermEnv (const x)
 
-getExtraTypes :: REPL (Map T.QName T.Schema)
+getExtraTypes :: REPL (Map T.Name T.Schema)
 getExtraTypes = fmap eExtraTypes getCryptolEnv
 
-modifyExtraTypes :: (Map T.QName T.Schema -> Map T.QName T.Schema) -> REPL ()
+modifyExtraTypes :: (Map T.Name T.Schema -> Map T.Name T.Schema) -> REPL ()
 modifyExtraTypes f = modifyCryptolEnv $ \ce -> ce { eExtraTypes = f (eExtraTypes ce) }
 
-setExtraTypes :: Map T.QName T.Schema -> REPL ()
+setExtraTypes :: Map T.Name T.Schema -> REPL ()
 setExtraTypes x = modifyExtraTypes (const x)
 
 getExtraNames :: REPL NamingEnv

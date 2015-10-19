@@ -40,8 +40,9 @@ import qualified Cryptol.ModuleSystem as M
 import qualified Cryptol.Eval.Value as E
 import Cryptol.Parser (ParseError())
 import qualified Cryptol.TypeCheck.AST as T
+import qualified Cryptol.ModuleSystem.Name as T (nameIdent)
+import qualified Cryptol.Utils.Ident as T (unpackIdent)
 import Cryptol.Utils.PP
-import qualified Cryptol.Parser.AST as P
 
 import Control.Monad (guard, unless, when)
 import Data.Char (isSpace,isPunctuation,isSymbol)
@@ -598,10 +599,8 @@ handleCtrlC  = io (putStrLn "Ctrl-C")
 
 -- Utilities -------------------------------------------------------------------
 
-isNamePrefix :: String -> P.QName -> Bool
-isNamePrefix pfx n = case n of
-  P.QName _ (P.Name _) -> pfx `isPrefixOf` pretty n
-  _                    -> False
+isNamePrefix :: String -> T.Name -> Bool
+isNamePrefix pfx n = pfx `isPrefixOf` T.unpackIdent (T.nameIdent n)
 
 {-
 printWarning :: (Range,Warning) -> IO ()

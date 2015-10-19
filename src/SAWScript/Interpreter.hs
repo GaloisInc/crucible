@@ -79,6 +79,7 @@ import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 import Cryptol.ModuleSystem.Env (meSolverConfig)
 import Cryptol.TypeCheck (SolverConfig)
 import qualified Cryptol.TypeCheck.AST as T
+import qualified Cryptol.Utils.Ident as T (packIdent, packModName)
 import Cryptol.TypeCheck.PP (ppWithNames)
 import Cryptol.TypeCheck.Solve (defaultReplExpr)
 import Cryptol.TypeCheck.Subst (apSubst, listSubst)
@@ -104,16 +105,16 @@ extendEnv x mt md v rw =
      }
   where
     name = x
-    qname = T.mkUnqual (T.mkName (getOrig x))
-    modname = T.mkModName [getOrig x]
+    ident = T.packIdent (getOrig x)
+    modname = T.packModName [getOrig x]
     ce = rwCryptol rw
     ce' = case v of
             VTerm t
-              -> CEnv.bindTypedTerm (qname, t) ce
+              -> CEnv.bindTypedTerm (ident, t) ce
             VType s
-              -> CEnv.bindType (qname, s) ce
+              -> CEnv.bindType (ident, s) ce
             VInteger n
-              -> CEnv.bindInteger (qname, n) ce
+              -> CEnv.bindInteger (ident, n) ce
             VCryptolModule m
               -> CEnv.bindCryptolModule (modname, m) ce
             _ -> ce

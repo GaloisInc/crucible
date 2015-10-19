@@ -49,8 +49,8 @@ import Data.Traversable (Traversable)
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 import           Text.PrettyPrint.ANSI.Leijen (Pretty)
 
-import qualified Cryptol.Parser.AST as P (ImportSpec(..), ModName(..), Name(..), unModName)
-import qualified Cryptol.ModuleSystem.Name as P (unpack)
+import qualified Cryptol.Parser.AST as P (ImportSpec(..), ModName)
+import qualified Cryptol.Utils.Ident as P (unpackIdent, unpackModName)
 
 -- Names {{{
 
@@ -232,23 +232,23 @@ instance Pretty Stmt where
             Left filepath ->
                PP.dquotes . PP.text $ filepath
             Right modName ->
-               PP.text (intercalate "." (P.unModName modName))) PP.<>
+               ppModName modName) PP.<>
          (case iAs of
             Just modName ->
-               PP.space PP.<> PP.text "as" PP.<+> PP.text (intercalate "." (P.unModName modName))
+               PP.space PP.<> PP.text "as" PP.<+> ppModName modName
             Nothing -> PP.empty) PP.<>
          (case iSpec of
             Just (P.Hiding names) ->
-               PP.space PP.<> PP.text "hiding" PP.<+> PP.tupled (map stringName names)
+               PP.space PP.<> PP.text "hiding" PP.<+> PP.tupled (map ppIdent names)
             Just (P.Only names) ->
-               PP.space PP.<> PP.tupled (map stringName names)
+               PP.space PP.<> PP.tupled (map ppIdent names)
             Nothing -> PP.empty)
       --expr -> PP.cyan . PP.text $ show expr
 
       where
-         stringName = \case
-            P.Name n       -> PP.text (P.unpack n)
-            P.NewName _ _i -> error "Encountered 'NewName' while pretty-printing."
+        ppModName mn = PP.text (intercalate "." (P.unpackModName mn))
+        ppIdent i = PP.text (P.unpackIdent i)
+        --ppName n = ppIdent (P.nameIdent n)
 
 prettyDef :: Decl -> PP.Doc
 prettyDef Decl{dName,dDef} =

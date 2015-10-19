@@ -17,6 +17,7 @@ import Data.Ord
 
 import qualified Cryptol.ModuleSystem as M
 import Cryptol.ModuleSystem.Name
+import Cryptol.Utils.Ident (unpackIdent)
 import qualified Cryptol.TypeCheck.AST as AST
 import Cryptol.Utils.PP
 
@@ -51,7 +52,7 @@ flattenDeclGroup (AST.Recursive decls)   = decls
 flattenDeclGroup (AST.NonRecursive decl) = [decl]
 
 -- | If the expression is a tuple projection, get the name of the tuple and the index projected
-tupleSelInfo :: AST.Expr -> Maybe (AST.QName, Int)
+tupleSelInfo :: AST.Expr -> Maybe (AST.Name, Int)
 tupleSelInfo (AST.ESel (AST.EVar name) (AST.TupleSel i _)) = return (name, i)
 tupleSelInfo _                                             = Nothing
 
@@ -68,7 +69,7 @@ declDefExpr = \case
    AST.DExpr expr -> Just expr
 
 -- | If a lambda is of the form @\(a,b,...,z) -> ...)@ then give the list of names bound in the tuple
-tupleLambdaBindings :: AST.Expr -> Maybe [AST.QName]
+tupleLambdaBindings :: AST.Expr -> Maybe [AST.Name]
 tupleLambdaBindings (AST.EAbs tupleName _ whereClause) = do
    bindings <- whereBindings whereClause
    return . map snd . sortBy (comparing fst) . catMaybes . for bindings $
@@ -87,6 +88,5 @@ tupleFunctionType (AST.TCon (AST.TC AST.TCFun) [AST.TCon (AST.TC (AST.TCTuple _)
 tupleFunctionType _                                                                                = Nothing
 
 -- | Find the name from the source if one exists
-sourceName :: QName -> Maybe String
-sourceName (unqual -> Name string) = Just (unpack string)
-sourceName _                       = Nothing
+sourceName :: Name -> Maybe String
+sourceName nm = Just (unpackIdent (nameIdent nm))

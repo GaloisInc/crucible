@@ -83,6 +83,7 @@ import qualified Data.AIG as AIG
 
 import qualified Cryptol.TypeCheck.AST as C
 import qualified Cryptol.Eval.Value as C
+import qualified Cryptol.Utils.Ident as C (packIdent)
 import Cryptol.Utils.PP (pretty)
 
 data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
@@ -135,7 +136,7 @@ readSBV path unintlst =
           SBV.TFun t1 t2 -> C.tFun (toCType t1) (toCType t2)
           SBV.TVec n t   -> C.tSeq (C.tNum n) (toCType t)
           SBV.TTuple ts  -> C.tTuple (map toCType ts)
-          SBV.TRecord bs -> C.tRec [ (C.mkName n, toCType t) | (n, t) <- bs ]
+          SBV.TRecord bs -> C.tRec [ (C.packIdent n, toCType t) | (n, t) <- bs ]
 
 
 -- | The 'AIG.Proxy' used by SAWScript.

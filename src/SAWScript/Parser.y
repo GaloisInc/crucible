@@ -22,6 +22,7 @@ import SAWScript.AST
 import SAWScript.Utils
 
 import qualified Cryptol.Parser.AST as P
+import qualified Cryptol.Utils.Ident as P (packIdent, packModName)
 
 import qualified Text.Show.Pretty as PP
 
@@ -98,12 +99,12 @@ Import :: { Import }
  -- TODO: allow imports by module name instead of path
 
 mbAs :: { Maybe P.ModName }
- : 'as' name                            { Just (P.mkModName [tokStr $2]) }
+ : 'as' name                            { Just (P.packModName [tokStr $2]) }
  | {- empty -}                          { Nothing }
 
 mbImportSpec :: { Maybe P.ImportSpec }
- : '(' list(name) ')'                   { Just $ P.Only   [ P.mkName (tokStr n) | n <- $2 ] }
- | 'hiding' '(' list(name) ')'          { Just $ P.Hiding [ P.mkName (tokStr n) | n <- $3 ] }
+ : '(' list(name) ')'                   { Just $ P.Only   [ P.packIdent (tokStr n) | n <- $2 ] }
+ | 'hiding' '(' list(name) ')'          { Just $ P.Hiding [ P.packIdent (tokStr n) | n <- $3 ] }
  | {- empty -}                          { Nothing }
 
 Stmt :: { Stmt }
