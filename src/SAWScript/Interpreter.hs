@@ -1147,7 +1147,7 @@ primitives = Map.fromList
 
   , prim "llvm_extract"
     "LLVMModule -> String -> LLVMSetup () -> TopLevel Term"
-    (scVal extractLLVM)
+    (bicVal extractLLVM)
     [ "Translate an LLVM function directly to a Term. The parameters of the"
     , "Term will be the parameters of the LLVM function, and the return"
     , "value will be the return value of the functions. Only functions with"
