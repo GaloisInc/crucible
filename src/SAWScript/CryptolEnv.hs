@@ -176,9 +176,9 @@ translateExpr :: SharedContext s -> CryptolEnv s -> T.Expr -> IO (SharedTerm s)
 translateExpr sc env expr = do
   let modEnv = eModuleEnv env
   let ifaceDecls = getAllIfaceDecls modEnv
-  (prims, _) <- liftModuleM modEnv MB.getPrimMap
-  (types, _) <- liftModuleM modEnv $
-                TM.inpVars `fmap` MB.genInferInput P.emptyRange prims ifaceDecls
+  (types, _) <- liftModuleM modEnv $ do
+    prims <- MB.getPrimMap
+    TM.inpVars `fmap` MB.genInferInput P.emptyRange prims ifaceDecls
   let types' = Map.union (eExtraTypes env) types
   let terms = eTermEnv env
   let cryEnv = C.Env
