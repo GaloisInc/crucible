@@ -326,24 +326,27 @@ parseTypedTerm sc env input = do
   -- Parse
   pexpr <- ioParseExpr input
 
-  -- Eliminate patterns
-  (npe, _) <- liftModuleM modEnv (MM.interactive (MB.noPat pexpr))
+  ((expr, schema), modEnv') <- liftModuleM modEnv $ do
 
-  -- Resolve names
-  let nameEnv = getNamingEnv env
-  (re, _) <- liftModuleM modEnv (MM.interactive (MB.rename interactiveName nameEnv (MR.rename npe)))
+    -- Eliminate patterns
+    npe <- MM.interactive (MB.noPat pexpr)
 
-  -- Infer types
-  let ifDecls = getAllIfaceDecls modEnv
-  let range = fromMaybe P.emptyRange (P.getLoc re)
-  (prims, _) <- liftModuleM modEnv MB.getPrimMap
-  (tcEnv, _) <- liftModuleM modEnv $ MB.genInferInput range prims ifDecls
-  let tcEnv' = tcEnv { TM.inpVars = Map.union (eExtraTypes env) (TM.inpVars tcEnv)
-                     , TM.inpTSyns = Map.union (eExtraTSyns env) (TM.inpTSyns tcEnv)
-                     }
+    -- Resolve names
+    let nameEnv = getNamingEnv env
+    re <- MM.interactive (MB.rename interactiveName nameEnv (MR.rename npe))
 
-  out <- T.tcExpr re tcEnv'
-  ((expr, schema), modEnv') <- liftModuleM modEnv (MM.interactive (runInferOutput out))
+    -- Infer types
+    let ifDecls = getAllIfaceDecls modEnv
+    let range = fromMaybe P.emptyRange (P.getLoc re)
+    prims <- MB.getPrimMap
+    tcEnv <- MB.genInferInput range prims ifDecls
+    let tcEnv' = tcEnv { TM.inpVars = Map.union (eExtraTypes env) (TM.inpVars tcEnv)
+                       , TM.inpTSyns = Map.union (eExtraTSyns env) (TM.inpTSyns tcEnv)
+                       }
+
+    out <- MM.io (T.tcExpr re tcEnv')
+    MM.interactive (runInferOutput out)
+
   let env' = env { eModuleEnv = modEnv' }
 
   -- Translate
