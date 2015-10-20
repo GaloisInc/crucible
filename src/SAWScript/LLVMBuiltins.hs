@@ -63,6 +63,10 @@ import SAWScript.Value as SV
 
 import qualified Cryptol.TypeCheck.AST as Cryptol
 
+type Backend = SAWBackend SAWCtx
+type SAWTerm = SharedTerm SAWCtx
+type SAWDefine = SymDefine SAWTerm
+
 loadLLVMModule :: FilePath -> IO LLVMModule
 loadLLVMModule file = LLVMModule file <$> loadModule file
 
@@ -133,7 +137,7 @@ writeLLVMTerm dl args (e, t, cnt) = do
   addr <- readLLVMTermAddr dl args e
   let ty' | cnt > 1 = ArrayType (fromIntegral cnt) ty
           | otherwise = ty
-  store ty' t addr (memTypeAlign dl ty)
+  store ty' t addr (memTypeAlign dl ty')
 
 readLLVMTerm :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
                 DataLayout
@@ -154,15 +158,36 @@ readLLVMTerm dl args et@(Term e) cnt =
       addr <- readLLVMTermAddr dl args et
       let ty' | cnt > 1 = ArrayType (fromIntegral cnt) ty
               | otherwise = ty
-      load ty' addr (memTypeAlign dl ty)
+      load ty' addr (memTypeAlign dl ty')
 
 -- LLVM verification and model extraction commands
 
 type Assign = (LLVMExpr, TypedTerm SAWCtx)
 
-missingSymMsg :: String -> String -> String
-missingSymMsg file func =
+missingSymMsg :: String -> Symbol -> String
+missingSymMsg file (Symbol func) =
   "Bitcode file " ++ file ++ " does not contain symbol `" ++ func ++ "`."
+
+startSimulator :: SharedContext s
+               -> LSSOpts
+               -> LLVMModule
+               -> Symbol
+               -> (SharedContext s
+                   -> SBE (SAWBackend s)
+                   -> Codebase (SAWBackend s)
+                   -> DataLayout
+                   -> SymDefine (SharedTerm s)
+                   -> Simulator (SAWBackend s) IO a)
+               -> IO a
+startSimulator sc lopts (LLVMModule file mdl) sym body = do
+  let dl = parseDataLayout $ modDataLayout mdl
+  (sbe, mem, scLLVM) <- createSAWBackend' sawProxy dl sc
+  (warnings, cb) <- mkCodebase sbe dl mdl
+  forM_ warnings $ putStrLn . ("WARNING: " ++) . show
+  case lookupDefine sym cb of
+    Nothing -> fail $ missingSymMsg file sym
+    Just md -> runSimulator cb sbe mem (Just lopts) $
+               body scLLVM sbe cb dl md
 
 symexecLLVM :: BuiltinContext
             -> Options
@@ -173,21 +198,15 @@ symexecLLVM :: BuiltinContext
             -> [(String, Integer)]
             -> Bool
             -> IO (TypedTerm SAWCtx)
-symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs doSat =
+symexecLLVM bic opts lmod fname allocs inputs outputs doSat =
   let sym = Symbol fname
-      dl = parseDataLayout $ modDataLayout mdl
       sc = biSharedContext bic
       lopts = LSSOpts { optsErrorPathDetails = True
                       , optsSatAtBranches = doSat
                       }
-  in do
-    (sbe, mem, scLLVM) <- createSAWBackend' sawProxy dl sc
-    (warnings, cb) <- mkCodebase sbe dl mdl
-    forM_ warnings $ putStrLn . ("WARNING: " ++) . show
-    case lookupDefine sym cb of
-      Nothing -> fail $ missingSymMsg file fname
-      Just md -> runSimulator cb sbe mem (Just lopts) $ do
+  in startSimulator sc lopts lmod sym $ \scLLVM sbe cb dl md -> do
         setVerbosity (simVerbose opts)
+        let verb = simVerbose opts
         let mkAssign (s, tm, n) = do
               e <- failLeft $ runExceptT $ parseLLVMExpr cb md s
               return (e, tm, n)
@@ -196,10 +215,14 @@ symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs doSat =
               case lssTypeOfLLVMExpr e of
                 PtrType (MemType ty) -> do
                   tm <- allocSome n ty
+                  when (verb >= 2) $ liftIO $ putStrLn $
+                    "Allocated address: " ++ show tm
                   return (e, tm, n)
                 _ -> fail $ "Allocation parameter " ++ s ++
                             " does not have pointer type"
             allocSome n ty = do
+              when (verb >= 2) $ liftIO $ putStrLn $
+                "Allocating " ++ show n ++ " elements of type " ++ show (ppActualType ty)
               let aw = ptrBitwidth dl
               sz <- liftSBE (termInt sbe aw n)
               malloc ty aw sz
@@ -228,7 +251,9 @@ symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs doSat =
             retReg = (,Ident "__SAWScript_rslt") <$> sdRetType md
         _ <- callDefine' False sym retReg args
         mapM_ (writeLLVMTerm dl argVals) otherAssigns
+        when (verb >= 2) $ liftIO $ putStrLn $ "Running " ++ fname
         run
+        when (verb >= 2) $ liftIO $ putStrLn $ "Finished running " ++ fname
         outexprs <- mapM mkOut outputs
         outtms <- mapM (uncurry (readLLVMTerm dl argVals)) outexprs
         let bundle tms = case tms of
@@ -241,31 +266,29 @@ symexecLLVM bic opts (LLVMModule file mdl) fname allocs inputs outputs doSat =
 -- given bitcode file. This code creates fresh inputs for all arguments and
 -- returns a lambda term representing the return value as a function of the
 -- arguments. Many verifications will require more complex execution contexts.
-extractLLVM :: SharedContext SAWCtx -> LLVMModule -> String -> LLVMSetup ()
+extractLLVM :: BuiltinContext
+            -> Options
+            -> LLVMModule
+            -> String
+            -> LLVMSetup ()
             -> IO (TypedTerm SAWCtx)
-extractLLVM sc (LLVMModule file mdl) func _setup =
-  let dl = parseDataLayout $ modDataLayout mdl
-      sym = Symbol func
+extractLLVM bic opts lmod func _setup =
+  let sym = Symbol func
+      sc = biSharedContext bic
       lopts = LSSOpts { optsErrorPathDetails = True
                       , optsSatAtBranches = True
                       }
-  in do
-    (sbe, mem, scLLVM) <- createSAWBackend' sawProxy dl sc
-    (warnings, cb) <- mkCodebase sbe dl mdl
-    forM_ warnings $ putStrLn . ("WARNING: " ++) . show
-    case lookupDefine sym cb of
-      Nothing -> fail $ missingSymMsg file func
-      Just md -> runSimulator cb sbe mem (Just lopts) $ do
-        setVerbosity 0
-        args <- mapM freshLLVMArg (sdArgs md)
-        exts <- mapM (asExtCns . snd) args
-        _ <- callDefine sym (sdRetType md) args
-        mrv <- getProgramReturnValue
-        case mrv of
-          Nothing -> fail "No return value from simulated function."
-          Just rv -> liftIO $ do
-            lamTm <- bindExts scLLVM exts rv
-            scImport sc lamTm >>= mkTypedTerm sc
+  in startSimulator sc lopts lmod sym $ \scLLVM _sbe _cb _dl md -> do
+    setVerbosity (simVerbose opts)
+    args <- mapM freshLLVMArg (sdArgs md)
+    exts <- mapM (asExtCns . snd) args
+    _ <- callDefine sym (sdRetType md) args
+    mrv <- getProgramReturnValue
+    case mrv of
+      Nothing -> fail "No return value from simulated function."
+      Just rv -> liftIO $ do
+        lamTm <- bindExts scLLVM exts rv
+        scImport sc lamTm >>= mkTypedTerm sc
 
 freshLLVMArg :: Monad m =>
             (t, MemType) -> Simulator sbe m (MemType, SBETerm sbe)
@@ -289,7 +312,7 @@ verifyLLVM bic opts (LLVMModule file mdl) funcname overrides setup =
     (warnings, cb) <- mkCodebase sbe dl mdl
     forM_ warnings $ putStrLn . ("WARNING: " ++) . show
     func <- case lookupDefine (fromString funcname) cb of
-      Nothing -> fail $ missingSymMsg file funcname
+      Nothing -> fail $ missingSymMsg file (Symbol funcname)
       Just def -> return def
     let ms0 = initLLVMMethodSpec pos cb func
         lsctx0 = LLVMSetupState {
@@ -307,7 +330,7 @@ verifyLLVM bic opts (LLVMModule file mdl) funcname overrides setup =
                           , vpSpec = ms
                           , vpOver = overrides
                           }
-    let verb = verbLevel (vpOpts vp)
+    let verb = verbLevel opts
     let overrideText =
           case overrides of
             [] -> ""
@@ -327,31 +350,35 @@ verifyLLVM bic opts (LLVMModule file mdl) funcname overrides setup =
         when (verb >= 3) $ liftIO $ do
           putStrLn "Verifying the following:"
           mapM_ (print . ppPathVC) res
-        let prover :: ProofScript SAWCtx SV.SatResult
-                   -> VerifyState
-                   -> SharedTerm SAWCtx
-                   -> IO ()
-            prover script vs g = do
-              let exts = getAllExts g
-              glam <- bindExts scLLVM exts g
-              let bsc = biSharedContext bic
-              glam' <- scImport bsc glam
-              tt <- mkTypedTerm bsc glam'
-              r <- evalStateT script (ProofGoal Universal (vsVCName vs) tt)
-              case r of
-                SV.Unsat -> when (verb >= 3) $ putStrLn "Valid."
-                SV.Sat val ->  showCexResults scLLVM ms vs exts [("x", val)] -- TODO: replace x with something
-                SV.SatMulti vals -> showCexResults scLLVM ms vs exts vals
         case lsTactic lsctx of
           Skip -> liftIO $ putStrLn $
             "WARNING: skipping verification of " ++ show (specName ms)
-          RunVerify script ->
-            liftIO $ runValidation (prover script) vp scLLVM esd res
+          RunVerify script -> do
+            let prv = prover opts scLLVM ms script
+            liftIO $ runValidation prv vp scLLVM esd res
     if lsSimulate lsctx
        then putStrLn $ "Successfully verified " ++
                        show (specName ms) ++ overrideText
        else putStrLn $ "WARNING: skipping simulation of " ++ show (specName ms)
     return ms
+
+prover :: Options
+       -> SharedContext SAWCtx
+       -> LLVMMethodSpecIR
+       -> ProofScript SAWCtx SV.SatResult
+       -> VerifyState
+       -> SharedTerm SAWCtx
+       -> IO ()
+prover opts sc ms script vs g = do
+  let exts = getAllExts g
+      verb = verbLevel opts
+  tt <- mkTypedTerm sc =<< bindExts sc exts g
+  r <- evalStateT script (ProofGoal Universal (vsVCName vs) tt)
+  case r of
+    SV.Unsat -> when (verb >= 3) $ putStrLn "Valid."
+    -- TODO: replace x with something in the following
+    SV.Sat val ->  showCexResults sc ms vs exts [("x", val)]
+    SV.SatMulti vals -> showCexResults sc ms vs exts vals
 
 showCexResults :: SharedContext SAWCtx
                -> LLVMMethodSpecIR
