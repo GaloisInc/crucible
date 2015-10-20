@@ -160,8 +160,9 @@ runInferOutput :: TM.InferOutput a -> MM.ModuleM a
 runInferOutput out =
   case out of
 
-    TM.InferOK warns seeds _supply o ->
+    TM.InferOK warns seeds supply o ->
       do MM.setNameSeeds seeds
+         MM.setSupply supply
          MM.typeCheckWarnings warns
          return o
 
