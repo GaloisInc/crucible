@@ -10,7 +10,6 @@ module SAWScript.TypedTerm where
 import Data.Map (Map)
 
 import qualified Cryptol.TypeCheck.AST as C
-import qualified Cryptol.Utils.Ident as C
 
 import Verifier.SAW.Cryptol (scCryptolType)
 import Verifier.SAW.SharedTerm
@@ -36,7 +35,7 @@ mkTypedTerm sc trm = do
 -- Typed modules ---------------------------------------------------------------
 
 {- In SAWScript, we can refer to a Cryptol module as a first class
-value. These are represented simply as maps from identifiers to typed
+value. These are represented simply as maps from names to typed
 terms. -}
 
-newtype CryptolModule s = CryptolModule (Map C.Ident (TypedTerm s))
+newtype CryptolModule s = CryptolModule (Map C.Name (TypedTerm s))
