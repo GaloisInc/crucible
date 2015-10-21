@@ -690,7 +690,6 @@ Exporting SAWCore Models
 ------------------------
 
 `write_aig`
-`write_smtlib1`
 `write_smtlib2`
 `write_core`
 
@@ -760,7 +759,6 @@ Running Provers
 TODO: implement the following
 `cnf_solver`
 `qbf_solver`
-`smtlib1_solver`
 `smtlib2_solver`
 
 Extracting Models from Programs
@@ -778,7 +776,6 @@ Extracting Models from Programs
 **Extra Proof Tactics**
 
 `offline_aig`
-`offline_smtlib1`
 `offline_smtlib2`
 `offline_extcore`
 

@@ -405,19 +405,6 @@ writeCNF sc f t = do
     _ -> fail "writeCNF: non-boolean term"
 
 -- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
--- 1 file.
-writeSMTLib1 :: SharedContext s -> FilePath -> TypedTerm s -> IO ()
-writeSMTLib1 sc f t = writeUnintSMTLib1 sc f [] t
-
--- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
--- 1 file, treating some constants as uninterpreted.
-writeUnintSMTLib1 :: SharedContext s -> FilePath -> [String] -> TypedTerm s -> IO ()
-writeUnintSMTLib1 sc f unints t = do
-  (_, _, l) <- prepSBV sc unints t
-  txt <- SBV.compileToSMTLib False True l
-  writeFile f txt
-
--- | Write a @SharedTerm@ representing a theorem to an SMT-Lib version
 -- 2 file.
 writeSMTLib2 :: SharedContext s -> FilePath -> TypedTerm s -> IO ()
 writeSMTLib2 sc f t = writeUnintSMTLib2 sc f [] t
@@ -427,7 +414,7 @@ writeSMTLib2 sc f t = writeUnintSMTLib2 sc f [] t
 writeUnintSMTLib2 :: SharedContext s -> FilePath -> [String] -> TypedTerm s -> IO ()
 writeUnintSMTLib2 sc f unints t = do
   (_, _, l) <- prepSBV sc unints t
-  txt <- SBV.compileToSMTLib True True l
+  txt <- SBV.compileToSMTLib SBV.SMTLib2 True l
   writeFile f txt
 
 writeCore :: FilePath -> TypedTerm s -> IO ()
@@ -818,9 +805,6 @@ satCNF sc path = satWithExporter writeCNF sc path ".cnf"
 
 satExtCore :: SharedContext s -> FilePath -> ProofScript s SV.SatResult
 satExtCore sc path = satWithExporter (const writeCore) sc path ".extcore"
-
-satSMTLib1 :: SharedContext s -> FilePath -> ProofScript s SV.SatResult
-satSMTLib1 sc path = satWithExporter writeSMTLib1 sc path ".smt"
 
 satSMTLib2 :: SharedContext s -> FilePath -> ProofScript s SV.SatResult
 satSMTLib2 sc path = satWithExporter writeSMTLib2 sc path ".smt2"

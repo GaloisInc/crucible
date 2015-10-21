@@ -640,10 +640,6 @@ primitives = Map.fromList
     (scVal writeCNF)
     [ "Write the given term to the named file in CNF format." ]
 
-  , prim "write_smtlib1"       "String -> Term -> TopLevel ()"
-    (scVal writeSMTLib1)
-    [ "Write the given term to the named file in SMT-Lib version 1 format." ]
-
   , prim "write_smtlib2"       "String -> Term -> TopLevel ()"
     (scVal writeSMTLib2)
     [ "Write the given term to the named file in SMT-Lib version 2 format." ]
@@ -796,10 +792,6 @@ primitives = Map.fromList
   , prim "offline_extcore"     "String -> ProofScript SatResult"
     (scVal satExtCore)
     [ "Write the current goal to the given file in SAWCore format." ]
-
-  , prim "offline_smtlib1"     "String -> ProofScript SatResult"
-    (scVal satSMTLib1)
-    [ "Write the current goal to the given file in SMT-Lib1 format." ]
 
   , prim "offline_smtlib2"     "String -> ProofScript SatResult"
     (scVal satSMTLib2)
