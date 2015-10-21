@@ -12,18 +12,17 @@ class JavaMD5
     {
         byte[] msg = Symbolic.freshByteArray(16);
 
-	byte[] out = computeMD5( msg );
+        byte[] out = new byte[16];
+
+        computeMD5( msg, out );
 
         Symbolic.writeAiger("JavaMD5.aig", out);
     }
 
-    public static byte[] computeMD5( byte[] msg ) {
-        byte[] out = new byte[16];
+    public static void computeMD5( byte[] msg, byte[] out ) {
         MD5Digest digest = new MD5Digest();
 
         digest.update(msg, 0, msg.length);
         digest.doFinal(out, 0);
-
-	return out;
     }
 }
