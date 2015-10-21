@@ -8,6 +8,9 @@ Point-of-contact : atomb
 -}
 module SAWScript.LLVMUtils where
 
+#if !MIN_VERSION_base(4,8,0)
+import Control.Applicative hiding (many)
+#endif
 import Control.Monad.State
 import Data.Maybe
 import Verifier.LLVM.Backend
