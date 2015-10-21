@@ -101,51 +101,36 @@ browseLLVMModule (LLVMModule name m) = do
 
 -- LLVM memory operations
 
-addrPlusOffset :: (Functor m, MonadIO m) =>
-                  SBETerm sbe -> Offset
-               -> Simulator sbe m (SBETerm sbe)
-addrPlusOffset a o = do
-  sbe <- gets symBE
-  w <- ptrBitwidth <$> getDL
-  ot <- liftSBE $ termInt sbe w (fromIntegral o)
-  liftSBE $ applyTypedExpr sbe (PtrAdd a ot)
-
 readLLVMTermAddr :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
-                    DataLayout -> [SBETerm sbe] -> LLVMExpr
+                    [SBETerm sbe] -> LLVMExpr
                  -> Simulator sbe m (SBETerm sbe)
-readLLVMTermAddr dl args (Term e) =
+readLLVMTermAddr args (Term e) =
   case e of
     Arg _ _ _ -> fail "Can't read address of argument"
     Global s _ -> evalExprInCC "readLLVMTerm:Global" (SValSymbol s)
-    Deref ae _ -> readLLVMTerm dl args ae 1
+    Deref ae _ -> readLLVMTerm args ae 1
     StructField ae si idx _ ->
-      case siFieldOffset si idx of
-        Just off -> do
-          saddr <- readLLVMTermAddr dl args ae
-          addrPlusOffset saddr off
-        Nothing ->
-          fail $ "Struct field index " ++ show idx ++ " out of bounds"
+      structFieldAddr si idx =<< readLLVMTerm args ae 1
     ReturnValue _ -> fail "Can't read address of return value"
 
 writeLLVMTerm :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
-                 DataLayout
-              -> [SBETerm sbe]
+                 [SBETerm sbe]
               -> (LLVMExpr, SBETerm sbe, Integer)
               -> Simulator sbe m ()
-writeLLVMTerm dl args (e, t, cnt) = do
+writeLLVMTerm args (e, t, cnt) = do
+  addr <- readLLVMTermAddr args e
   let ty = lssTypeOfLLVMExpr e
-  addr <- readLLVMTermAddr dl args e
-  let ty' | cnt > 1 = ArrayType (fromIntegral cnt) ty
+      ty' | cnt > 1 = ArrayType (fromIntegral cnt) ty
           | otherwise = ty
+  dl <- getDL
   store ty' t addr (memTypeAlign dl ty')
 
 readLLVMTerm :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
-                DataLayout
-             -> [SBETerm sbe]
+                [SBETerm sbe]
              -> LLVMExpr
              -> Integer
              -> Simulator sbe m (SBETerm sbe)
-readLLVMTerm dl args et@(Term e) cnt =
+readLLVMTerm args et@(Term e) cnt =
   case e of
     Arg n _ _ -> return (args !! n)
     ReturnValue _ -> do
@@ -155,9 +140,11 @@ readLLVMTerm dl args et@(Term e) cnt =
         Nothing -> fail "Program did not return a value"
     _ -> do
       let ty = lssTypeOfLLVMExpr et
-      addr <- readLLVMTermAddr dl args et
+      addr <- readLLVMTermAddr args et
       let ty' | cnt > 1 = ArrayType (fromIntegral cnt) ty
               | otherwise = ty
+      -- Type should be type of value, not type of ptr
+      dl <- getDL
       load ty' addr (memTypeAlign dl ty')
 
 -- LLVM verification and model extraction commands
@@ -217,7 +204,7 @@ symexecLLVM bic opts lmod fname allocs inputs outputs doSat =
                   tm <- allocSome n ty
                   when (verb >= 2) $ liftIO $ putStrLn $
                     "Allocated address: " ++ show tm
-                  return (e, tm, n)
+                  return (e, tm, 1)
                 _ -> fail $ "Allocation parameter " ++ s ++
                             " does not have pointer type"
             allocSome n ty = do
@@ -250,12 +237,13 @@ symexecLLVM bic opts lmod fname allocs inputs outputs doSat =
         let argVals = map snd args
             retReg = (,Ident "__SAWScript_rslt") <$> sdRetType md
         _ <- callDefine' False sym retReg args
-        mapM_ (writeLLVMTerm dl argVals) otherAssigns
+        -- TODO: the following line is generating memory errors
+        mapM_ (writeLLVMTerm argVals) otherAssigns
         when (verb >= 2) $ liftIO $ putStrLn $ "Running " ++ fname
         run
         when (verb >= 2) $ liftIO $ putStrLn $ "Finished running " ++ fname
         outexprs <- mapM mkOut outputs
-        outtms <- mapM (uncurry (readLLVMTerm dl argVals)) outexprs
+        outtms <- mapM (uncurry (readLLVMTerm argVals)) outexprs
         let bundle tms = case tms of
                            [t] -> return t
                            _ -> scTuple scLLVM tms
@@ -340,7 +328,6 @@ verifyLLVM bic opts (LLVMModule file mdl) funcname overrides setup =
                         , optsSatAtBranches = lsSatBranches lsctx
                         }
     when (lsSimulate lsctx) $ do
-    -- forM_ configs $ \(bs,cl) -> do
       when (verb >= 3) $ do
         putStrLn $ "Executing " ++ show (specName ms)
       runSimulator cb sbe mem (Just lopts) $ do
@@ -439,13 +426,13 @@ checkProtoLLVMExpr cb fn pe =
     PField n se -> do
       e <- checkProtoLLVMExpr cb fn se
       case lssTypeOfLLVMExpr e of
-        StructType si
+        PtrType (MemType (StructType si))
           | n < siFieldCount si -> do
             let ty = fiType (siFields si V.! n)
             return (Term (StructField e si n ty))
           | otherwise -> throwE $ "Field out of range: " ++ show n
         ty ->
-          throwE $ "Attempting to apply . or -> operation to non-struct: " ++
+          throwE $ "Left side of -> is not a struct pointer: " ++
                    show (ppActualType ty)
   where
     args = [(i, resolveType cb ty) | (i, ty) <- sdArgs fn]
@@ -527,8 +514,9 @@ llvmPtr bic _ name lty = do
       expr' = updateLLVMExprType expr pty
       dexpr = Term (Deref expr' lty)
       dname = '*':name
-  modify $ \st -> st { lsSpec = specAddVarDecl fixPos dname dexpr lty $
-                                specAddVarDecl fixPos name expr' pty (lsSpec st) }
+  modify $ \st ->
+    st { lsSpec = specAddVarDecl fixPos dname dexpr lty $
+                  specAddVarDecl fixPos name expr' pty (lsSpec st) }
   let sc = biSharedContext bic
   Just dty <- liftIO $ logicTypeOfActual sc lty
   liftIO $ scLLVMValue sc dty dname >>= mkTypedTerm sc
@@ -537,12 +525,13 @@ llvmDeref :: BuiltinContext -> Options -> Value
           -> LLVMSetup (SharedTerm SAWCtx)
 llvmDeref _bic _ _t = fail "llvm_deref not yet implemented"
 
-checkCompatibleType :: String -> LLVMActualType -> Cryptol.Schema -> LLVMSetup ()
+checkCompatibleType :: String -> LLVMActualType -> Cryptol.Schema
+                    -> LLVMSetup ()
 checkCompatibleType msg aty schema = liftIO $ do
   case cryptolTypeOfActual aty of
     Nothing ->
-      fail $ "Type is not translatable: " ++ show () {-aty-} ++ " (" ++ msg ++ ")"
-      -- FIXME: Show instance for LLVMActualType
+      fail $ "Type is not translatable: " ++ show (ppMemType aty) ++
+             " (" ++ msg ++ ")"
     Just lt -> do
       unless (Cryptol.Forall [] [] lt == schema) $ fail $
         unlines [ "Incompatible type:"
@@ -555,9 +544,9 @@ llvmAssert :: BuiltinContext -> Options -> SharedTerm SAWCtx
            -> LLVMSetup ()
 llvmAssert bic _ v = do
   liftIO $ checkBoolean (biSharedContext bic) v
+  let cmd = AssertPred fixPos (mkLogicExpr v)
   modify $ \st ->
-    st { lsSpec =
-           specAddBehaviorCommand (AssertPred fixPos (mkLogicExpr v)) (lsSpec st) }
+    st { lsSpec = specAddBehaviorCommand cmd (lsSpec st) }
 
 llvmAssertEq :: String -> TypedTerm SAWCtx -> LLVMSetup ()
 llvmAssertEq name (TypedTerm schema t) = do
@@ -572,9 +561,9 @@ llvmEnsureEq name (TypedTerm schema t) = do
   ms <- gets lsSpec
   (expr, mty) <- getLLVMExpr ms name
   checkCompatibleType "llvm_ensure_eq" mty schema
+  let cmd = Ensure fixPos expr (LogicE (mkLogicExpr t))
   modify $ \st ->
-    st { lsSpec =
-           specAddBehaviorCommand (Ensure fixPos expr (LogicE (mkLogicExpr t))) (lsSpec st) }
+    st { lsSpec = specAddBehaviorCommand cmd (lsSpec st) }
 
 llvmReturn :: TypedTerm SAWCtx -> LLVMSetup ()
 llvmReturn (TypedTerm schema t) = do
@@ -582,8 +571,9 @@ llvmReturn (TypedTerm schema t) = do
   case sdRetType (specDef ms) of
     Just mty -> do
       checkCompatibleType "llvm_return" mty schema
+      let cmd = Return (LogicE (mkLogicExpr t))
       modify $ \st ->
-        st { lsSpec = specAddBehaviorCommand (Return (LogicE (mkLogicExpr t))) (lsSpec st) }
+        st { lsSpec = specAddBehaviorCommand cmd (lsSpec st) }
     Nothing -> fail "llvm_return called on void function"
 
 llvmVerifyTactic :: BuiltinContext -> Options

@@ -51,7 +51,7 @@ import SAWScript.Options
 import SAWScript.Utils
 import Verifier.SAW.Prelude
 import SAWScript.LLVMMethodSpecIR
-import SAWScript.LLVMUtils
+import SAWScript.LLVMUtils hiding (addrPlusOffset)
 import SAWScript.VerificationCheck
 
 import Verifier.LLVM.Simulator hiding (State)

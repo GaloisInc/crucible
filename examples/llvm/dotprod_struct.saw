@@ -1,0 +1,14 @@
+import "dotprod.cry";
+m <- llvm_load_module "dotprod_struct.bc";
+xs <- fresh_symbolic "xs" {| [2][32] |};
+ys <- fresh_symbolic "ys" {| [2][32] |};
+let allocs = [ ("x", 1), ("y", 1), ("x->0", 2), ("y->0", 2) ];
+let inputs = [ ("*(x->0)", {{ xs }}, 2)
+             , ("*(y->0)", {{ ys }}, 2)
+             , ("x->1", {{ 2:[32] }}, 1)
+             , ("y->1", {{ 2:[32] }}, 1)
+             ];
+let outputs = [("return", 1)];
+t <- llvm_symexec m "dotprod_struct" allocs inputs outputs true;
+thm <- abstract_symbolic {{ t == dotprod xs ys }};
+prove_print abc thm;

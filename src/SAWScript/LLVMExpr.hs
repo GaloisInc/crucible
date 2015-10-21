@@ -37,7 +37,6 @@ module SAWScript.LLVMExpr
   , MixedExpr(..)
     -- * Actual type
   , LLVMActualType
-  , lssTypeOfActual
   , isActualPtr
   , isPrimitiveType
   , logicTypeOfActual
@@ -80,7 +79,7 @@ data ProtoLLVMExpr
   = PVar String
   | PArg Int
   | PDeref ProtoLLVMExpr
-  | PField Int ProtoLLVMExpr
+  | PField Int ProtoLLVMExpr -- Recursive arg is address
   | PReturn
   -- | PIndex ProtoLLVMExpr ProtoLLVMExpr
     deriving (Show)
@@ -91,7 +90,7 @@ ppProtoLLVMExpr PReturn = text "return"
 ppProtoLLVMExpr (PArg n) = PP.string "args[" <> int n <> PP.string "]"
 ppProtoLLVMExpr (PDeref e) = PP.text "*" <> PP.parens (ppProtoLLVMExpr e)
 ppProtoLLVMExpr (PField n e) =
-  PP.parens (ppProtoLLVMExpr e) <> text "." <> int n
+  PP.parens (ppProtoLLVMExpr e) <> text "->" <> int n
 --ppProtoLLVMExpr (PIndex n e) =
 --  ppProtoLLVMExpr e <> text "[" <> ppProtoLLVMExpr n <> text "]"
 
@@ -102,7 +101,6 @@ parseProtoLLVMExpr = runIdentity . runParserT (parseExpr <* eof) () "expr"
     parseExpr = P.choice
                 [ parseDerefField
                 , parseDeref
-                , parseDirectField
                 , parseAExpr
                 ]
     parseAExpr = P.choice
@@ -131,20 +129,12 @@ parseProtoLLVMExpr = runIdentity . runParserT (parseExpr <* eof) () "expr"
                unexpected $ "Using `args` with non-numeric parameter: " ++ ns
       _ <- P.string "]"
       return e
-    parseDirectField :: Parser ProtoLLVMExpr
-    parseDirectField = do
-      e <- try (parseAExpr <* P.string ".")
-      ns <- many1 digit
-      case readMaybe ns of
-        Just (n :: Int) -> return (PField n e)
-        Nothing -> unexpected $
-          "Attempting to apply . operation to non-integer field ID: " ++ ns
     parseDerefField :: Parser ProtoLLVMExpr
     parseDerefField = do
       re <- try (parseAExpr <* P.string "->")
       ns <- many1 digit
       case readMaybe ns of
-        Just (n :: Int) -> return (PField n (PDeref re))
+        Just (n :: Int) -> return (PField n re)
         Nothing -> unexpected $
           "Attempting to apply -> operation to non-integer field ID: " ++ ns
 
@@ -155,7 +145,7 @@ data LLVMExprF v
   | Global LSS.Symbol LLVMActualType
   | Deref v LLVMActualType
   -- | Index v v LLVMActualType
-  | StructField v LSS.StructInfo Int LLVMActualType
+  | StructField v LSS.StructInfo Int LLVMActualType -- Recursive arg is address
   | ReturnValue LLVMActualType
   deriving (Functor, CC.Foldable, CC.Traversable)
 
@@ -163,7 +153,8 @@ instance CC.EqFoldable LLVMExprF where
   fequal (Arg i _ _)(Arg j _ _) = i == j
   fequal (Global x _)(Global y _) = x == y
   fequal (Deref e _) (Deref e' _) = e == e'
-  fequal (StructField xr _ xi _) (StructField yr _ yi _) = xi == yi && (xr == yr)
+  fequal (StructField xr _ xi _) (StructField yr _ yi _) =
+    xi == yi && (xr == yr)
   fequal (ReturnValue _) (ReturnValue _) = True
   fequal _ _ = False
 
@@ -202,7 +193,7 @@ ppLLVMExpr (CC.Term exprF) =
     Arg _ nm _ -> LSS.ppIdent nm
     Global nm _ -> LSS.ppSymbol nm
     Deref e _ -> PP.char '*' <> PP.parens (ppLLVMExpr e)
-    StructField r _ f _ -> ppLLVMExpr r <> PP.char '.' <> text (show f)
+    StructField r _ f _ -> ppLLVMExpr r <> text "->" <> text (show f)
     ReturnValue _ -> text "return"
 
 -- | Returns LSS Type of LLVMExpr
@@ -226,10 +217,7 @@ updateLLVMExprType (CC.Term exprF) tp = CC.Term $
 
 -- | Returns true if expression is a pointer.
 isPtrLLVMExpr :: LLVMExpr -> Bool
-isPtrLLVMExpr e =
-  case lssTypeOfLLVMExpr e of
-    LSS.PtrType _ -> True
-    _ -> False
+isPtrLLVMExpr = isActualPtr . lssTypeOfLLVMExpr
 
 isArgLLVMExpr :: LLVMExpr -> Bool
 isArgLLVMExpr (CC.Term (Arg _ _ _)) = True
@@ -264,34 +252,10 @@ isPrimitiveType LSS.FloatType = True
 isPrimitiveType LSS.DoubleType = True
 isPrimitiveType _ = False
 
-instance Eq LSS.MemType where
-  (LSS.IntType bw) == (LSS.IntType bw') = bw == bw'
-  (LSS.PtrType (LSS.MemType mt)) == (LSS.PtrType (LSS.MemType mt')) = mt == mt'
-  LSS.FloatType == LSS.FloatType = True
-  LSS.DoubleType == LSS.DoubleType = True
-  (LSS.ArrayType n t) == (LSS.ArrayType n' t') = n == n' && (t == t')
-  (LSS.VecType n t) == (LSS.VecType n' t') = n == n' && (t == t')
-  (LSS.StructType si) == (LSS.StructType si') = si == si'
-  _ == _ = False
-
--- FIXME: not sure this is really the right way to go
-instance Eq LSS.StructInfo where
-  si == si' = LSS.siFields si == LSS.siFields si'
-
-instance Eq LSS.FieldInfo where
-  fi == fi' = LSS.fiOffset fi == LSS.fiOffset fi' &&
-              LSS.fiType fi == LSS.fiType fi' &&
-              LSS.fiPadding fi == LSS.fiPadding fi'
-
 -- | Returns true if this represents a reference.
 isActualPtr :: LLVMActualType -> Bool
 isActualPtr (LSS.PtrType _) = True
-isActualPtr (LSS.ArrayType _ _) = True
 isActualPtr _ = False
-
--- | Returns LLVM symbolic simulator type that actual type represents.
-lssTypeOfActual :: LLVMActualType -> LSS.MemType
-lssTypeOfActual = id
 
 -- | Returns logical type of actual type if it is an array or primitive type.
 logicTypeOfActual :: SharedContext s -> LLVMActualType
@@ -309,9 +273,6 @@ logicTypeOfActual sc (LSS.ArrayType n ty) = do
       lTm <- scNat sc (fromIntegral n)
       Just <$> scVecType sc lTm elTyp
     Nothing -> return Nothing
-logicTypeOfActual sc (LSS.PtrType _) =
-  -- TODO: this is hardcoded to 32-bit pointers
-  Just <$> scBitvector sc (4 * 8)
 logicTypeOfActual _ _ = return Nothing
 
 -- | Returns Cryptol type of actual type if it is an array or primitive type.
@@ -321,9 +282,6 @@ cryptolTypeOfActual (LSS.IntType w) =
 cryptolTypeOfActual (LSS.ArrayType n ty) = do
   elty <- cryptolTypeOfActual ty
   return $ Cryptol.tSeq (Cryptol.tNum n) elty
-cryptolTypeOfActual (LSS.PtrType _) =
-  -- TODO: this is hardcoded to 32-bit pointers
-  Just $ Cryptol.tSeq (Cryptol.tNum (4 * 8 :: Integer)) Cryptol.tBit
 cryptolTypeOfActual _ = Nothing
 
 ppActualType :: LLVMActualType -> Doc
