@@ -13,9 +13,9 @@ module SAWScript.JavaMethodSpec.Evaluator
     -- * Utilities
   , SpecPathState
   , SpecJavaValue
-  , addAssertion
-  , addAssumption
-  , setArrayValue
+  , addAssertionPS
+  , addAssumptionPS
+  , setArrayValuePS
   ) where
 
 import Control.Lens
@@ -31,9 +31,9 @@ import qualified SAWScript.CongruenceClosure as CC (Term(..))
 import qualified SAWScript.JavaExpr as TC
 import SAWScript.Utils ( SAWCtx, basic_ss)
 
-import qualified Execution.JavaSemantics as JSS (AtomicValue(..))
-import qualified Verifier.Java.Codebase as JSS (LocalVariableIndex, FieldId)
-import qualified Verifier.Java.Common   as JSS
+import Execution.JavaSemantics (AtomicValue(..))
+import Verifier.Java.Codebase (LocalVariableIndex, FieldId)
+import Verifier.Java.Common
 
 
 import Verifier.SAW.Prelude
@@ -43,44 +43,49 @@ import Verifier.SAW.SharedTerm
 
 -- SpecPathState {{{1
 
-type SpecPathState = JSS.Path (SharedContext SAWCtx)
-type SpecJavaValue = JSS.Value (SharedTerm SAWCtx)
+type SpecPathState = Path (SharedContext SAWCtx)
+type SpecJavaValue = Value (SharedTerm SAWCtx)
 
 -- | Add assertion for predicate to path state.
-addAssertion :: SharedContext SAWCtx -> SharedTerm SAWCtx -> SpecPathState -> IO SpecPathState
-addAssertion sc x p = do
+addAssertionPS :: SharedContext SAWCtx -> SharedTerm SAWCtx -> SpecPathState
+               -> IO SpecPathState
+addAssertionPS sc x p = do
   -- TODO: p becomes an additional VC in this case
   andOp <- liftIO $ scApplyPrelude_and sc
-  p & JSS.pathAssertions %%~ \a -> liftIO (andOp a x)
+  p & pathAssertions %%~ \a -> liftIO (andOp a x)
 
 -- | Add assumption for predicate to path state.
-addAssumption :: SharedContext SAWCtx -> SharedTerm SAWCtx -> SpecPathState -> IO SpecPathState
-addAssumption sc x p = do
+addAssumptionPS :: SharedContext SAWCtx -> SharedTerm SAWCtx -> SpecPathState
+                -> IO SpecPathState
+addAssumptionPS sc x p = do
   andOp <- liftIO $ scApplyPrelude_and sc
-  p & JSS.pathAssertions %%~ \a -> liftIO (andOp a x)
+  p & pathAssertions %%~ \a -> liftIO (andOp a x)
 
 -- | Set value bound to array in path state.
 -- Assumes value is an array with a ground length.
-setArrayValue :: JSS.Ref -> Int32 -> SharedTerm ctx
-              -> JSS.Path (SharedContext ctx)
-              -> JSS.Path (SharedContext ctx)
-setArrayValue r n v =
-  JSS.pathMemory . JSS.memScalarArrays %~ Map.insert r (n, v)
+setArrayValuePS :: Ref -> Int32 -> SharedTerm ctx
+                -> Path (SharedContext ctx)
+                -> Path (SharedContext ctx)
+setArrayValuePS r n v =
+  pathMemory . memScalarArrays %~ Map.insert r (n, v)
 
 -- EvalContext {{{1
 
 -- | Contextual information needed to evaluate expressions.
 data EvalContext = EvalContext {
          ecContext :: SharedContext SAWCtx
-       , ecLocals :: Map JSS.LocalVariableIndex SpecJavaValue
+       , ecLocals :: Map LocalVariableIndex SpecJavaValue
        , ecJavaExprs :: [TC.JavaExpr]
        , ecPathState :: SpecPathState
        }
 
-evalContextFromPathState :: SharedContext SAWCtx -> SpecPathState -> [TC.JavaExpr] -> EvalContext
+evalContextFromPathState :: SharedContext SAWCtx
+                         -> SpecPathState
+                         -> [TC.JavaExpr]
+                         -> EvalContext
 evalContextFromPathState sc ps es =
-  let Just f = JSS.currentCallFrame ps
-      localMap = f ^. JSS.cfLocals
+  let Just f = currentCallFrame ps
+      localMap = f ^. cfLocals
   in EvalContext {
          ecContext = sc
        , ecLocals = localMap
@@ -95,8 +100,8 @@ data ExprEvalError
   | EvalExprBadJavaType String TC.JavaExpr
   | EvalExprBadLogicType String String
   | EvalExprUnknownArray TC.JavaExpr
-  | EvalExprUnknownLocal JSS.LocalVariableIndex TC.JavaExpr
-  | EvalExprUnknownField JSS.FieldId TC.JavaExpr
+  | EvalExprUnknownLocal LocalVariableIndex TC.JavaExpr
+  | EvalExprUnknownField FieldId TC.JavaExpr
   | EvalExprOther String
 
 
@@ -107,11 +112,10 @@ type ExprEvaluator a = ExceptT ExprEvalError IO a
 runEval :: MonadIO m => ExprEvaluator b -> m (Either ExprEvalError b)
 runEval v = liftIO (runExceptT v)
 
--- or undefined subexpression if not.
--- N.B. This method assumes that the Java path state is well-formed, the
--- the JavaExpression syntactically referes to the correct type of method
--- (static versus instance), and correct well-typed arguments.  It does
--- not assume that all the instanceFields in the JavaEvalContext are initialized.
+-- N.B. This method assumes that the Java path state is well-formed, the the
+-- JavaExpression syntactically referes to the correct type of method (static
+-- versus instance), and correct well-typed arguments. It does not assume that
+-- all the instanceFields in the JavaEvalContext are initialized.
 evalJavaExpr :: TC.JavaExpr -> EvalContext -> ExprEvaluator SpecJavaValue
 evalJavaExpr expr ec = eval expr
   where eval (CC.Term app) =
@@ -121,28 +125,29 @@ evalJavaExpr expr ec = eval expr
                 Just v -> return v
                 Nothing -> throwE $ EvalExprUnknownLocal idx expr
             TC.InstanceField r f -> do
-              JSS.RValue ref <- eval r
-              let ifields = (ecPathState ec) ^. JSS.pathMemory . JSS.memInstanceFields
+              RValue ref <- eval r
+              let ifields = (ecPathState ec) ^. pathMemory . memInstanceFields
               case Map.lookup (ref, f) ifields of
                 Just v -> return v
                 Nothing -> throwE $ EvalExprUnknownField f expr
             TC.StaticField f -> do
-              let sfields = (ecPathState ec) ^. JSS.pathMemory . JSS.memStaticFields
+              let sfields = (ecPathState ec) ^. pathMemory . memStaticFields
               case Map.lookup f sfields of
                 Just v -> return v
                 Nothing -> throwE $ EvalExprUnknownField f expr
 
-evalJavaExprAsLogic :: TC.JavaExpr -> EvalContext -> ExprEvaluator (SharedTerm SAWCtx)
+evalJavaExprAsLogic :: TC.JavaExpr -> EvalContext
+                    -> ExprEvaluator (SharedTerm SAWCtx)
 evalJavaExprAsLogic expr ec = do
   val <- evalJavaExpr expr ec
   case val of
-    JSS.RValue r ->
-      let arrs = (ecPathState ec) ^. JSS.pathMemory . JSS.memScalarArrays in
+    RValue r ->
+      let arrs = (ecPathState ec) ^. pathMemory . memScalarArrays in
       case Map.lookup r arrs of
         Nothing    -> throwE $ EvalExprUnknownArray expr
         Just (_,n) -> return n
-    JSS.IValue n -> return n
-    JSS.LValue n -> return n
+    IValue n -> return n
+    LValue n -> return n
     _ -> throwE $ EvalExprBadJavaType "evalJavaExprAsLogic" expr
 
 -- | Return Java value associated with mixed expression.
@@ -155,8 +160,8 @@ evalMixedExpr (TC.LE expr) ec = do
   ss <- liftIO $ basic_ss sc
   ty' <- liftIO $ rewriteSharedTerm sc ss ty
   case (asBitvectorType ty', asBoolType ty') of
-    (Just 32, _) -> return (JSS.IValue n)
-    (Just 64, _) -> return (JSS.LValue n)
+    (Just 32, _) -> return (IValue n)
+    (Just 64, _) -> return (LValue n)
     (Just _, _) -> throwE (EvalExprBadLogicType "evalMixedExpr" (show ty'))
     (Nothing, Just _) -> do
       b <- liftIO $ do
@@ -164,13 +169,14 @@ evalMixedExpr (TC.LE expr) ec = do
         false <- scBool sc False
         -- TODO: fix this to work in a different way. This is endian-specific.
         scVector sc boolTy (replicate 31 false ++ [n])
-      return (JSS.IValue b)
+      return (IValue b)
     (Nothing, Nothing) ->
       throwE (EvalExprBadLogicType "evalMixedExpr" (show ty'))
 evalMixedExpr (TC.JE expr) ec = evalJavaExpr expr ec
 
 -- | Evaluates a typed expression in the context of a particular state.
-evalLogicExpr :: TC.LogicExpr -> EvalContext -> ExprEvaluator (SharedTerm SAWCtx)
+evalLogicExpr :: TC.LogicExpr -> EvalContext
+              -> ExprEvaluator (SharedTerm SAWCtx)
 evalLogicExpr initExpr ec = do
   let sc = ecContext ec
       exprs = filter (not . TC.isClassJavaExpr) (ecJavaExprs ec)
@@ -178,14 +184,15 @@ evalLogicExpr initExpr ec = do
     t <- evalJavaExprAsLogic expr ec
     return (expr, t)
   let argMap = Map.fromList args
-      argTerms = mapMaybe (\k -> Map.lookup k argMap) (TC.logicExprJavaExprs initExpr)
+      argTerms = mapMaybe (\k -> Map.lookup k argMap) $
+                 TC.logicExprJavaExprs initExpr
   liftIO $ TC.useLogicExpr sc initExpr argTerms
 
-evalJavaRefExpr :: TC.JavaExpr -> EvalContext -> ExprEvaluator JSS.Ref
+evalJavaRefExpr :: TC.JavaExpr -> EvalContext -> ExprEvaluator Ref
 evalJavaRefExpr expr ec = do
   val <- evalJavaExpr expr ec
   case val of
-    JSS.RValue ref -> return ref
+    RValue ref -> return ref
     _ -> throwE $ EvalExprBadJavaType "evalJavaRefExpr" expr
 
 evalMixedExprAsLogic :: TC.MixedExpr -> EvalContext

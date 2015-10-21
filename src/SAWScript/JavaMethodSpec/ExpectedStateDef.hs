@@ -27,7 +27,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.State.Strict
 import Data.Int
-import qualified Data.JVM.Symbolic.AST as JSS
+import Data.JVM.Symbolic.AST as JSS
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
@@ -35,9 +35,9 @@ import qualified Text.PrettyPrint.HughesPJ as PP
 
 import Language.JVM.Common (ppFldId)
 
-import qualified Verifier.Java.Codebase as JSS
-import qualified Verifier.Java.Common as JSS
-import qualified Verifier.Java.Simulator as JSS
+import Verifier.Java.Codebase as JSS
+import Verifier.Java.Common as JSS
+import Verifier.Java.Simulator as JSS
 
 import qualified SAWScript.CongruenceClosure as CC
 import qualified SAWScript.JavaExpr as TC
@@ -63,9 +63,9 @@ import Verifier.SAW.Cryptol (scCryptolEq)
 -- | Describes expected result computation.
 data ExpectedStateDef = ESD {
          -- | Location that we started from.
-         esdStartLoc :: !JSS.Breakpoint
+         esdStartLoc :: !Breakpoint
          -- | Map from references back to Java expressions denoting them.
-       , esdRefExprMap :: !(Map JSS.Ref [TC.JavaExpr])
+       , esdRefExprMap :: !(Map Ref [TC.JavaExpr])
          -- | Initial path state (used for evaluating expressions in
          -- verification).
        , esdInitialPathState :: !SpecPathState
@@ -77,20 +77,20 @@ data ExpectedStateDef = ESD {
        , esdReturnValue :: !(Maybe SpecJavaValue)
          -- | Maps instance fields to expected value, or Nothing if value may
          -- be arbitrary.
-       , esdInstanceFields :: !(Map (JSS.Ref, JSS.FieldId) (Maybe SpecJavaValue))
+       , esdInstanceFields :: !(Map (Ref, FieldId) (Maybe SpecJavaValue))
          -- | Maps static fields to expected value, or Nothing if value may
          -- be arbitrary.
          -- Verification will check that all fields assigned a value at the
          -- are defined in this map.
-       , esdStaticFields :: !(Map JSS.FieldId (Maybe SpecJavaValue))
+       , esdStaticFields :: !(Map FieldId (Maybe SpecJavaValue))
          -- | Maps reference to expected node, or Nothing if value may be arbitrary.
-       , esdArrays :: !(Map JSS.Ref (Maybe (Int32, SharedTerm SAWCtx)))
+       , esdArrays :: !(Map Ref (Maybe (Int32, SharedTerm SAWCtx)))
        }
 
 
 -- | Return the name of a reference from the expected state def.
-esdRefName :: JSS.Ref -> ExpectedStateDef -> String
-esdRefName JSS.NullRef _ = "null"
+esdRefName :: Ref -> ExpectedStateDef -> String
+esdRefName NullRef _ = "null"
 esdRefName ref esd =
   case Map.lookup ref (esdRefExprMap esd) of
     Just cl -> ppJavaExprEquivClass cl
@@ -98,30 +98,30 @@ esdRefName ref esd =
 
 -- | Describes the expected value of a state variable.
 data ExpectedValue a
-   = NoExpectedValue
-     -- ^ The state variable did not have any expected value.
-   | AnyExpectedValue
-     -- ^ The state variable may have any value.
-   | AssignedExpectedValue a
-     -- ^ The state variable has a specific assigned value.
+  = NoExpectedValue
+  -- ^ The state variable did not have any expected value.
+  | AnyExpectedValue
+  -- ^ The state variable may have any value.
+  | AssignedExpectedValue a
+  -- ^ The state variable has a specific assigned value.
 
-esdStaticFieldValue :: JSS.FieldId
-                       -> ExpectedStateDef
-                       -> ExpectedValue SpecJavaValue
+esdStaticFieldValue :: FieldId
+                    -> ExpectedStateDef
+                    -> ExpectedValue SpecJavaValue
 esdStaticFieldValue f esd =
   case Map.lookup f (esdStaticFields esd) of
-   Nothing ->
-     -- Check if field was in initial state.
-       case Map.lookup f init_map of
+    Nothing ->
+      -- Check if field was in initial state.
+      case Map.lookup f init_map of
         Nothing -> NoExpectedValue
         Just r -> AssignedExpectedValue r
-     where init_map = esdInitialPathState esd^.JSS.pathMemory^.JSS.memStaticFields
+      where init_map = esdInitialPathState esd^.pathMemory^.memStaticFields
 
-   Just Nothing -> AnyExpectedValue
-   Just (Just r) -> AssignedExpectedValue r
+    Just Nothing -> AnyExpectedValue
+    Just (Just r) -> AssignedExpectedValue r
 
-esdInstanceFieldValue :: JSS.Ref
-                      -> JSS.FieldId
+esdInstanceFieldValue :: Ref
+                      -> FieldId
                       -> ExpectedStateDef
                       -> ExpectedValue SpecJavaValue
 esdInstanceFieldValue ref f esd =
@@ -131,12 +131,12 @@ esdInstanceFieldValue ref f esd =
      case Map.lookup (ref,f) init_map of
       Nothing -> NoExpectedValue
       Just r -> AssignedExpectedValue r
-     where init_map = esdInitialPathState esd^.JSS.pathMemory^.JSS.memInstanceFields
+     where init_map = esdInitialPathState esd^.pathMemory^.memInstanceFields
    Just Nothing -> AnyExpectedValue
    Just (Just r) -> AssignedExpectedValue r
 
 -- | Get the value we expect a reference to have at the beginning.
-esdArrayValue :: JSS.Ref
+esdArrayValue :: Ref
               -> ExpectedStateDef
               -> ExpectedValue (Int32, SharedTerm SAWCtx)
 esdArrayValue ref esd =
@@ -147,7 +147,7 @@ esdArrayValue ref esd =
      case Map.lookup ref init_map of
        Nothing -> NoExpectedValue
        Just r -> AssignedExpectedValue r
-    where init_map = esdInitialPathState esd^.JSS.pathMemory^.JSS.memScalarArrays
+    where init_map = esdInitialPathState esd^.pathMemory^.memScalarArrays
    Just Nothing -> AnyExpectedValue
    Just (Just r) -> AssignedExpectedValue r
 
@@ -157,17 +157,17 @@ esdArrayValue ref esd =
 -- | State for running the behavior specifications in a method override.
 data ESGState = ESGState {
          esContext :: !(SharedContext SAWCtx)
-       , esMethod :: !JSS.Method
+       , esMethod :: !Method
        , esExprs :: [TC.JavaExpr]
-       , esExprRefMap :: !(Map TC.JavaExpr JSS.Ref)
+       , esExprRefMap :: !(Map TC.JavaExpr Ref)
        , esErrors :: ![String]
 
        , _esInitialPathState :: !SpecPathState
        , _esInitialAssignments :: ![(TC.JavaExpr, SharedTerm SAWCtx)]
        , _esReturnValue :: !(Maybe SpecJavaValue)
-       , _esInstanceFields :: !(Map (JSS.Ref, JSS.FieldId) (Maybe SpecJavaValue))
-       , _esStaticFields :: !(Map JSS.FieldId (Maybe SpecJavaValue))
-       , _esArrays :: !(Map JSS.Ref (Maybe (Int32, SharedTerm SAWCtx)))
+       , _esInstanceFields :: !(Map (Ref, FieldId) (Maybe SpecJavaValue))
+       , _esStaticFields :: !(Map FieldId (Maybe SpecJavaValue))
+       , _esArrays :: !(Map Ref (Maybe (Int32, SharedTerm SAWCtx)))
        }
 
 esInitialPathState :: Simple Lens ESGState SpecPathState
@@ -179,13 +179,13 @@ esInitialAssignments = lens _esInitialAssignments (\s v -> s { _esInitialAssignm
 esReturnValue :: Simple Lens ESGState (Maybe SpecJavaValue)
 esReturnValue = lens _esReturnValue (\s v -> s { _esReturnValue = v })
 
-esInstanceFields :: Simple Lens ESGState (Map (JSS.Ref, JSS.FieldId) (Maybe SpecJavaValue))
+esInstanceFields :: Simple Lens ESGState (Map (Ref, FieldId) (Maybe SpecJavaValue))
 esInstanceFields = lens _esInstanceFields (\s v -> s { _esInstanceFields = v })
 
-esStaticFields :: Simple Lens ESGState (Map JSS.FieldId (Maybe SpecJavaValue))
+esStaticFields :: Simple Lens ESGState (Map FieldId (Maybe SpecJavaValue))
 esStaticFields = lens _esStaticFields (\s v -> s { _esStaticFields = v })
 
-esArrays :: Simple Lens ESGState (Map JSS.Ref (Maybe (Int32, SharedTerm SAWCtx)))
+esArrays :: Simple Lens ESGState (Map Ref (Maybe (Int32, SharedTerm SAWCtx)))
 esArrays = lens _esArrays (\s v -> s { _esArrays = v })
 
 -- | Monad used to execute statements in a behavior specification for a method
@@ -204,14 +204,14 @@ esEval fn = do
     Right v   -> return v
 
 esError :: String -> ExpectedStateGenerator ()
-esError err = modify $ \es -> es { esErrors = err : esErrors es }
+esError e = modify $ \es -> es { esErrors = e : esErrors es }
 
 esAddAssertion :: SharedContext SAWCtx
                -> SharedTerm SAWCtx
                -> ExpectedStateGenerator ()
 esAddAssertion sc prop = do
   ps <- use esInitialPathState
-  ps' <- liftIO $ addAssertion sc prop ps
+  ps' <- liftIO $ addAssertionPS sc prop ps
   esInitialPathState .= ps'
 
 esAddAssumption :: SharedContext SAWCtx
@@ -219,7 +219,7 @@ esAddAssumption :: SharedContext SAWCtx
                -> ExpectedStateGenerator ()
 esAddAssumption sc prop = do
   ps <- use esInitialPathState
-  ps' <- liftIO $ addAssumption sc prop ps
+  ps' <- liftIO $ addAssumptionPS sc prop ps
   esInitialPathState .= ps'
 
 esAddEqAssertion :: SharedContext SAWCtx -> String -> SharedTerm SAWCtx -> SharedTerm SAWCtx
@@ -231,13 +231,13 @@ esAddEqAssertion sc _nm x y = do
 -- | Assert that two terms are equal.
 esAssertEq :: String -> SpecJavaValue -> SpecJavaValue
            -> ExpectedStateGenerator ()
-esAssertEq nm (JSS.RValue x) (JSS.RValue y) = do
+esAssertEq nm (RValue x) (RValue y) = do
   when (x /= y) $
     esError $ "internal: Asserted different references for " ++ nm ++ " are equal."
-esAssertEq nm (JSS.IValue x) (JSS.IValue y) = do
+esAssertEq nm (IValue x) (IValue y) = do
   sc <- gets esContext
   esAddEqAssertion sc nm x y
-esAssertEq nm (JSS.LValue x) (JSS.LValue y) = do
+esAssertEq nm (LValue x) (LValue y) = do
   sc <- gets esContext
   esAddEqAssertion sc nm x y
 esAssertEq _ _ _ = esError "internal: esAssertEq given illegal arguments."
@@ -250,11 +250,11 @@ esSetJavaValue e@(CC.Term exprF) v = do
     -- TODO: the following is ugly, and doesn't make good use of lenses
     TC.Local _ idx _ -> do
       ps <- use esInitialPathState
-      let ls = case JSS.currentCallFrame ps of
-                 Just cf -> cf ^. JSS.cfLocals
+      let ls = case currentCallFrame ps of
+                 Just cf -> cf ^. cfLocals
                  Nothing -> Map.empty
-          ps' = (JSS.pathStack %~ updateLocals) ps
-          updateLocals (f:r) = (JSS.cfLocals %~ Map.insert idx v) f : r
+          ps' = (pathStack %~ updateLocals) ps
+          updateLocals (f:r) = (cfLocals %~ Map.insert idx v) f : r
           updateLocals [] =
             error "internal: esSetJavaValue of local with empty call stack"
       -- liftIO $ putStrLn $ "Local " ++ show idx ++ " with stack " ++ show ls
@@ -266,16 +266,16 @@ esSetJavaValue e@(CC.Term exprF) v = do
       -- Lookup refrence associated to refExpr
       Just ref <- Map.lookup refExpr `fmap` gets esExprRefMap
       ps <- use esInitialPathState
-      case Map.lookup (ref,f) (ps ^. JSS.pathMemory . JSS.memInstanceFields) of
+      case Map.lookup (ref,f) (ps ^. pathMemory . memInstanceFields) of
         Just oldValue -> esAssertEq (TC.ppJavaExpr e) oldValue v
         Nothing ->
-          esInitialPathState . JSS.pathMemory . JSS.memInstanceFields %= Map.insert (ref,f) v
+          esInitialPathState . pathMemory . memInstanceFields %= Map.insert (ref,f) v
     TC.StaticField f -> do
       ps <- use esInitialPathState
-      case Map.lookup f (ps ^. JSS.pathMemory . JSS.memStaticFields) of
+      case Map.lookup f (ps ^. pathMemory . memStaticFields) of
         Just oldValue -> esAssertEq (TC.ppJavaExpr e) oldValue v
         Nothing ->
-          esInitialPathState . JSS.pathMemory . JSS.memStaticFields %= Map.insert f v
+          esInitialPathState . pathMemory . memStaticFields %= Map.insert f v
 
 esResolveLogicExprs :: TC.JavaExpr -> SharedTerm SAWCtx -> [TC.LogicExpr]
                     -> ExpectedStateGenerator (SharedTerm SAWCtx)
@@ -312,14 +312,14 @@ esSetLogicValues sc cl@(rep:_) tp lrhs = do
   case ty of
     (isVecType (const (return ())) -> Just (n :*: _)) -> do
        refs <- forM cl $ \expr -> do
-                 JSS.RValue ref <- esEval $ evalJavaExpr expr
+                 RValue ref <- esEval $ evalJavaExpr expr
                  return ref
        forM_ refs $ \r ->
-         esInitialPathState %= setArrayValue r (fromIntegral n) value
+         esInitialPathState %= setArrayValuePS r (fromIntegral n) value
     (asBitvectorType -> Just 32) ->
-       mapM_ (flip esSetJavaValue (JSS.IValue value)) cl
+       mapM_ (flip esSetJavaValue (IValue value)) cl
     (asBitvectorType -> Just 64) ->
-       mapM_ (flip esSetJavaValue (JSS.LValue value)) cl
+       mapM_ (flip esSetJavaValue (LValue value)) cl
     _ -> esError "internal: initializing Java values given bad rhs."
 
 esStep :: BehaviorCommand -> ExpectedStateGenerator ()
@@ -346,11 +346,11 @@ esStep (EnsureInstanceField _pos refExpr f rhsExpr) = do
   case (Map.lookup (ref, f) ifMap, value) of
     (Nothing, _) -> return ()
     (Just Nothing, _) -> return ()
-    (Just (Just (JSS.RValue prev)), JSS.RValue new)
+    (Just (Just (RValue prev)), RValue new)
       | prev == new -> return ()
-    (Just (Just (JSS.IValue prev)), JSS.IValue new) ->
+    (Just (Just (IValue prev)), IValue new) ->
        esAddEqAssertion sc (show refExpr) prev new
-    (Just (Just (JSS.LValue prev)), JSS.LValue new) ->
+    (Just (Just (LValue prev)), LValue new) ->
        esAddEqAssertion sc (show refExpr) prev new
     -- TODO: See if we can give better error message here.
     -- Perhaps this just ends up meaning that we need to verify the assumptions in this
@@ -367,11 +367,11 @@ esStep (EnsureStaticField _pos f rhsExpr) = do
   case (Map.lookup f sfMap, value) of
     (Nothing, _) -> return ()
     (Just Nothing, _) -> return ()
-    (Just (Just (JSS.RValue prev)), JSS.RValue new)
+    (Just (Just (RValue prev)), RValue new)
       | prev == new -> return ()
-    (Just (Just (JSS.IValue prev)), JSS.IValue new) ->
+    (Just (Just (IValue prev)), IValue new) ->
        esAddEqAssertion sc (ppFldId f) prev new
-    (Just (Just (JSS.LValue prev)), JSS.LValue new) ->
+    (Just (Just (LValue prev)), LValue new) ->
        esAddEqAssertion sc (ppFldId f) prev new
     -- TODO: See if we can give better error message here.
     -- Perhaps this just ends up meaning that we need to verify the assumptions in this
@@ -428,7 +428,7 @@ esStep (ModifyArray refExpr _) = do
 --
 -- This method returns an @ExpectedStateDef@ which will be used to verify the
 -- state(s) after simulation are compatible with the specification.
-initializeVerification :: JSS.MonadSim (SharedContext SAWCtx) m
+initializeVerification :: MonadSim (SharedContext SAWCtx) m
                        => SharedContext SAWCtx
                           -- ^ The SharedContext for creating new symbolic
                           -- expressions.
@@ -440,29 +440,30 @@ initializeVerification :: JSS.MonadSim (SharedContext SAWCtx) m
                        -> RefEquivConfiguration
                           -- ^ The particular relationship between which references
                           -- alias each other for verification purposes.
-                       -> JSS.Simulator (SharedContext SAWCtx) m ExpectedStateDef
+                       -> Simulator (SharedContext SAWCtx) m ExpectedStateDef
 initializeVerification sc ir bs refConfig = do
-  exprRefs <- mapM (JSS.genRef . TC.jssTypeOfActual . snd) refConfig
+  exprRefs <- mapM (genRef . TC.jssTypeOfActual . snd) refConfig
   let refAssignments = (exprRefs `zip` map fst refConfig)
-      --key = JSS.methodKey (specMethod ir)
+      --key = methodKey (specMethod ir)
       pushFrame cs = fromMaybe (error "internal: failed to push call frame") mcs'
         where
-          mcs' = JSS.pushCallFrame (JSS.className (specMethodClass ir))
-                                   (specMethod ir)
-                                   JSS.entryBlock -- FIXME: not the right block
-                                   Map.empty
-                                   cs
-  JSS.modifyCSM_ (return . pushFrame)
+          mcs' = pushCallFrame
+                 (className (specMethodClass ir))
+                 (specMethod ir)
+                 entryBlock -- FIXME: not the right block
+                 Map.empty
+                 cs
+  modifyCSM_ (return . pushFrame)
   let updateInitializedClasses mem =
-        foldr (flip JSS.setInitializationStatus JSS.Initialized)
+        foldr (flip setInitializationStatus Initialized)
               mem
               (specInitializedClasses ir)
-  JSS.modifyPathM_ (PP.text "initializeVerification") $
-    return . (JSS.pathMemory %~ updateInitializedClasses)
+  modifyPathM_ (PP.text "initializeVerification") $
+    return . (pathMemory %~ updateInitializedClasses)
   -- TODO: add breakpoints once local specs exist
-  --forM_ (Map.keys (specBehaviors ir)) $ JSS.addBreakpoint clName key
+  --forM_ (Map.keys (specBehaviors ir)) $ addBreakpoint clName key
   -- TODO: set starting PC
-  initPS <- JSS.getPath (PP.text "initializeVerification")
+  initPS <- getPath (PP.text "initializeVerification")
   let initESG = ESGState { esContext = sc
                          , esMethod = specMethod ir
                          , esExprs = Map.keys (bsActualTypeMap bs)
@@ -482,7 +483,7 @@ initializeVerification sc ir bs refConfig = do
           -- Set references
           -- liftIO $ putStrLn "Setting references."
           forM_ refAssignments $ \(r,cl) ->
-            forM_ cl $ \e -> esSetJavaValue e (JSS.RValue r)
+            forM_ cl $ \e -> esSetJavaValue e (RValue r)
           -- Set initial logic values.
           -- liftIO $ putStrLn "Setting logic values."
           lcs <- liftIO $ bsLogicClasses sc bs refConfig
@@ -498,7 +499,7 @@ initializeVerification sc ir bs refConfig = do
       indent2 = (' ' :) . (' ' :)
   unless (null errs) $ fail . unlines $
     "Errors while initializing verification:" : map indent2 errs
-  JSS.modifyPathM_ (PP.text "initializeVerification") (\_ -> return (es^.esInitialPathState))
+  modifyPathM_ (PP.text "initializeVerification") (\_ -> return (es^.esInitialPathState))
   return ESD { esdStartLoc = bsLoc bs
              , esdRefExprMap = Map.fromList refAssignments
              , esdJavaExprs = esExprs initESG
