@@ -467,8 +467,11 @@ generateVC ir esd (ps, endLoc, res) = do
           (Just (JSS.RValue rv), Just (JSS.RValue srv)) ->
             when (rv /= srv) $
               pvcgFail $ ftext $ "Assigns unexpected return value."
+          -- TODO: should the following check that the reference is "new"?
+          (Just (JSS.RValue _), Nothing) -> return ()
           (Just _, Nothing) ->
-            pvcgFail $ ftext $ "Missing return spec for method returning a value."
+            pvcgFail $ ftext $
+            "Missing return spec for method returning a value."
           _ ->  pvcgFail $ ftext $
                 "internal: The Java method has an unsupported return type."
         -- Check initialization
