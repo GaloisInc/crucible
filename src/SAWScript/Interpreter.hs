@@ -1009,10 +1009,6 @@ primitives = Map.fromList
     (bicVal (const . loadJavaClass))
     [ "Load the named Java class and return a handle to it." ]
 
-  , prim "java_browse_class"   "JavaClass -> TopLevel ()"
-    (pureVal browseJavaClass)
-    [ "Print out the contents of the given Java class." ]
-
   --, prim "java_class_info"     "JavaClass -> TopLevel ()"
 
   , prim "java_extract"

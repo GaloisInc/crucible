@@ -23,7 +23,6 @@ import Control.Monad.State
 import Data.List (intercalate, partition)
 import Data.List.Split
 import Data.IORef
-import Data.Maybe
 import qualified Data.Map as Map
 import Data.Time.Clock
 import qualified Data.Vector as V
@@ -56,68 +55,9 @@ import SAWScript.Value as SS
 
 import qualified Cryptol.TypeCheck.AST as Cryptol
 
-
 loadJavaClass :: BuiltinContext -> String -> IO Class
 loadJavaClass bic =
   lookupClass (biJavaCodebase bic) fixPos . dotsToSlashes
-
-browseJavaClass :: Class -> IO ()
-browseJavaClass = print . prettyClass
-
-prettyClass :: Class -> Doc
-prettyClass cls = vcat $
-  [ empty
-  , text "Class name:" <+> text (className cls) <+>
-    parens (commas attrs)
-  , text "Superclass:" <+> text (fromMaybe "none" (superClass cls))
-  , empty
-  ] ++
-  (if null (classInterfaces cls)
-      then []
-      else [ text "Interfaces:"
-           , indent 2 (vcat (map text (classInterfaces cls)))
-           , empty
-           ]) ++
-  [ text "Fields:"
-  , indent 2 (vcat (map prettyField (classFields cls)))
-  , empty
-  , text "Methods:"
-  , indent 2 (vcat (map prettyMethod (classMethods cls)))
-  , empty
-  ]
-  where attrs = concat
-          [ if classIsPublic cls then [text "public"] else []
-          , if classIsFinal cls then [text "final"] else []
-          , if classHasSuperAttribute cls then [text "super"] else []
-          , if classIsInterface cls then [text "interface"] else []
-          , if classIsAbstract cls then [text "abstract"] else []
-          ]
-
-prettyField :: Field -> Doc
-prettyField f = hsep $
-  [ text (show (fieldVisibility f)) ] ++
-  attrs ++
-  [ text (show (ppType (fieldType f))) -- TODO: Ick. Different PPs.
-  , text (fieldName f)
-  ]
-  where attrs = concat
-          [ if fieldIsStatic f then [text "static"] else []
-          , if fieldIsFinal f then [text "final"] else []
-          , if fieldIsVolatile f then [text "volatile"] else []
-          , if fieldIsTransient f then [text "transient"] else []
-          ]
-
-prettyMethod :: Method -> Doc
-prettyMethod m =
-  hsep [ maybe (text "void") prettyType ret
-       , text name
-       , (parens . commas . map prettyType) params
-       ]
-  where (MethodKey name params ret) = methodKey m
-        prettyType = text . show . ppType -- TODO: Ick.
-
-commas :: [Doc] -> Doc
-commas = sep . punctuate comma
 
 getActualArgTypes :: JavaSetupState -> Either String [JavaActualType]
 getActualArgTypes s = mapM getActualType declaredTypes

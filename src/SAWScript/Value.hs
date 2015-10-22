@@ -35,6 +35,7 @@ import qualified SAWScript.LLVMMethodSpecIR as LIR
 import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.LLVM.Codebase as LSS
 import SAWScript.JavaExpr (JavaType(..))
+import SAWScript.JavaPretty (prettyClass)
 import SAWScript.Options (Options)
 import SAWScript.Proof
 import SAWScript.TypedTerm
@@ -218,7 +219,7 @@ showsPrecValue opts p v =
     VLLVMType t -> showString (show (LSS.ppMemType t))
     VCryptolModule m -> showString (showCryptolModule m)
     VLLVMModule m -> showString (showLLVMModule m)
-    VJavaClass {} -> showString "<<Java Class>>"
+    VJavaClass c -> shows (prettyClass c)
     VProofResult r -> showsProofResult opts r
     VSatResult r -> showsSatResult opts r
     VUninterp u -> showString "Uninterp: " . shows u
