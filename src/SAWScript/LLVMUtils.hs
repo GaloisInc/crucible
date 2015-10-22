@@ -1,4 +1,5 @@
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE CPP #-}
 {- |
 Module           : $Header$
 Description      :
