@@ -27,15 +27,8 @@ import qualified Data.Map as Map
 import Data.String
 import qualified Data.Vector as V
 import Text.Parsec as P
-import Text.PrettyPrint.HughesPJ as PP
 
-import Text.LLVM ( modTypes, modGlobals, modDeclares, modDefines, modDataLayout
-                 , defName, defRetType, defVarArgs, defArgs, defAttrs
-                 , funLinkage, funGC
-                 , globalAttrs, globalSym, globalType
-                 , ppType, ppGC, ppArgList,  ppLinkage, ppTyped,  ppTypeDecl
-                 , ppDeclare, ppGlobalAttrs, ppMaybe, ppSymbol, ppIdent
-                 )
+import Text.LLVM (modDataLayout)
 import Verifier.LLVM.Backend
 import Verifier.LLVM.Codebase hiding ( Global, ppSymbol, ppIdent
                                      , globalSym, globalType
@@ -69,35 +62,6 @@ type SAWDefine = SymDefine SAWTerm
 
 loadLLVMModule :: FilePath -> IO LLVMModule
 loadLLVMModule file = LLVMModule file <$> loadModule file
-
-browseLLVMModule :: LLVMModule -> IO ()
-browseLLVMModule (LLVMModule name m) = do
-  putStrLn ("Module: " ++ name)
-  putStrLn "Types:"
-  showParts ppTypeDecl (modTypes m)
-  putStrLn ""
-  putStrLn "Globals:"
-  showParts ppGlobal' (modGlobals m)
-  putStrLn ""
-  putStrLn "External references:"
-  showParts ppDeclare (modDeclares m)
-  putStrLn ""
-  putStrLn "Definitions:"
-  showParts ppDefine' (modDefines m)
-  putStrLn ""
-    where
-      showParts pp xs = mapM_ (print . nest 2 . pp) xs
-      ppGlobal' g =
-        ppSymbol (globalSym g) <+> PP.char '=' <+>
-        ppGlobalAttrs (globalAttrs g) <+>
-        ppType (globalType g)
-      ppDefine' d =
-        ppMaybe ppLinkage (funLinkage (defAttrs d)) <+>
-        ppType (defRetType d) <+>
-        ppSymbol (defName d) <>
-          ppArgList (defVarArgs d) (map (ppTyped ppIdent) (defArgs d)) <+>
-        ppMaybe (\gc -> text "gc" <+> ppGC gc) (funGC (defAttrs d))
-
 
 -- LLVM memory operations
 

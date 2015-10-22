@@ -1132,10 +1132,6 @@ primitives = Map.fromList
     (pureVal loadLLVMModule)
     [ "Load an LLVM bitcode file and return a handle to it." ]
 
-  , prim "llvm_browse_module"  "LLVMModule -> TopLevel ()"
-    (pureVal browseLLVMModule)
-    [ "Print out the contents of a given LLVM module." ]
-
   --, prim "llvm_module_info"    "LLVMModule -> TopLevel ()"
 
   , prim "llvm_extract"
