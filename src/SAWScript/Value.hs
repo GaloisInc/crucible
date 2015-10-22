@@ -190,7 +190,7 @@ showsPrecValue opts p v =
     VLLVMMethodSpec {} -> showString "<<LLVM MethodSpec>>"
     VJavaType {} -> showString "<<Java type>>"
     VLLVMType t -> showString (show (LSS.ppMemType t))
-    VCryptolModule {} -> showString "<<Cryptol Module>>" -- TODO: print list of bindings
+    VCryptolModule m -> showString (showCryptolModule m)
     VLLVMModule {} -> showString "<<LLVM Module>>"
     VJavaClass {} -> showString "<<Java Class>>"
     VProofResult r -> showsProofResult opts r

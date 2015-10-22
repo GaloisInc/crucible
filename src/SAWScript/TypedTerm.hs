@@ -8,8 +8,11 @@ Point-of-contact : huffman
 module SAWScript.TypedTerm where
 
 import Data.Map (Map)
+import qualified Data.Map as Map
 
+import Cryptol.ModuleSystem.Name (nameIdent)
 import qualified Cryptol.TypeCheck.AST as C
+import Cryptol.Utils.PP (pretty)
 
 import Verifier.SAW.Cryptol (scCryptolType)
 import Verifier.SAW.SharedTerm
@@ -39,3 +42,10 @@ value. These are represented simply as maps from names to typed
 terms. -}
 
 newtype CryptolModule s = CryptolModule (Map C.Name (TypedTerm s))
+
+showCryptolModule :: CryptolModule s -> String
+showCryptolModule (CryptolModule m) =
+  unlines ("Symbols" : "=======" : map showBinding (Map.assocs m))
+  where
+    showBinding (name, TypedTerm schema _) =
+      "    " ++ pretty (nameIdent name) ++ " : " ++ pretty schema
