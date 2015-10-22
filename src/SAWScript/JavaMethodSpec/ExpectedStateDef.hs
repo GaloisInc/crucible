@@ -200,7 +200,7 @@ esEval fn = do
   let ec = evalContextFromPathState sc initPS exprs
   res <- runEval (fn ec)
   case res of
-    Left _expr -> error "internal: esEval failed to evaluate expression"
+    Left expr -> error $ "internal: esEval failed to evaluate expression: " ++ show expr
     Right v   -> return v
 
 esError :: String -> ExpectedStateGenerator ()

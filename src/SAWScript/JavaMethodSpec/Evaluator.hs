@@ -103,6 +103,7 @@ data ExprEvalError
   | EvalExprUnknownLocal LocalVariableIndex TC.JavaExpr
   | EvalExprUnknownField FieldId TC.JavaExpr
   | EvalExprOther String
+  deriving Show
 
 
 -- ExprEvaluator {{{1
