@@ -1,0 +1,7 @@
+m <- llvm_load_module "struct.bc";
+let allocs = [ ("o", 1), ("o->0", 2) ];
+let inputs = [ ("*(o->0)", {{ [1, 2] : [2][32] }}, 2) ];
+let outputs = [("return", 1)];
+t_indir <- llvm_symexec m "add_indirect" allocs inputs outputs false;
+let thm = {{ t_indir == 3 }};
+print thm;
