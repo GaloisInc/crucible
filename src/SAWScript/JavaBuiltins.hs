@@ -182,7 +182,7 @@ symexecJava :: BuiltinContext
             -> [(String, SharedTerm SAWCtx)]
             -> [String]
             -> Bool
-            -> IO (TypedTerm SAWCtx)
+            -> TopLevel (TypedTerm SAWCtx)
 symexecJava bic opts cls mname inputs outputs satBranches = do
   let cb = biJavaCodebase bic
       pos = fixPos
@@ -190,7 +190,7 @@ symexecJava bic opts cls mname inputs outputs satBranches = do
       fl = defaultSimFlags { alwaysBitBlastBranchTerms = True
                            , satAtBranches = satBranches
                            }
-  (_mcls, meth) <- findMethod cb pos mname cls
+  (_mcls, meth) <- io $ findMethod cb pos mname cls
   -- TODO: should we use mcls anywhere below?
   let mkAssign (s, tm) = do
         e <- liftIO $ parseJavaExpr cb cls meth s
@@ -200,7 +200,7 @@ symexecJava bic opts cls mname inputs outputs satBranches = do
       noDefErr i = fail $ "No binding for " ++ ordinal (i + 1) ++
                           " argument in method " ++ methodName meth
       pidx = fromIntegral . localIndexOfParameter meth
-  withSAWBackend jsc Nothing $ \sbe -> do
+  withSAWBackend jsc Nothing $ \sbe -> io $ do
     runSimulator cb sbe defaultSEH (Just fl) $ do
       setVerbosity (simVerbose opts)
       assigns <- mapM mkAssign inputs
@@ -225,17 +225,17 @@ symexecJava bic opts cls mname inputs outputs satBranches = do
 
 extractJava :: BuiltinContext -> Options -> Class -> String
             -> JavaSetup ()
-            -> IO (TypedTerm SAWCtx)
+            -> TopLevel (TypedTerm SAWCtx)
 extractJava bic opts cls mname setup = do
   let cb = biJavaCodebase bic
       pos = fixPos
       jsc = biSharedContext bic
-  argsRef <- newIORef []
+  argsRef <- io $ newIORef []
   withSAWBackend jsc (Just argsRef) $ \sbe -> do
     setupRes <- runJavaSetup pos cb cls mname jsc setup
     let fl = defaultSimFlags { alwaysBitBlastBranchTerms = True }
         meth = specMethod (jsSpec setupRes)
-    runSimulator cb sbe defaultSEH (Just fl) $ do
+    io $ runSimulator cb sbe defaultSEH (Just fl) $ do
       setVerbosity (simVerbose opts)
       argTypes <- either fail return (getActualArgTypes setupRes)
       args <- mapM (freshJavaVal (Just argsRef) jsc) argTypes
@@ -295,15 +295,15 @@ freshJavaVal argsRef sc (ClassInstance c) = do
 
 withSAWBackend :: SharedContext s
                -> Maybe (IORef [SharedTerm s])
-               -> (Backend (SharedContext s) -> IO a)
-               -> IO a
-withSAWBackend jsc argsRef a = sawBackend jsc argsRef sawProxy >>= a
+               -> (Backend (SharedContext s) -> TopLevel a)
+               -> TopLevel a
+withSAWBackend jsc argsRef a = io (sawBackend jsc argsRef sawProxy) >>= a
 
 runJavaSetup :: Pos -> Codebase -> Class -> String -> SharedContext SAWCtx
-             -> StateT JavaSetupState IO a
-             -> IO JavaSetupState
+             -> StateT JavaSetupState TopLevel a
+             -> TopLevel JavaSetupState
 runJavaSetup pos cb cls mname jsc setup = do
-  ms <- initMethodSpec pos cb cls mname
+  ms <- io $ initMethodSpec pos cb cls mname
   --putStrLn "Created MethodSpec"
   let setupState = JavaSetupState {
                      jsSpec = ms
@@ -317,9 +317,9 @@ runJavaSetup pos cb cls mname jsc setup = do
 verifyJava :: BuiltinContext -> Options -> Class -> String
            -> [JavaMethodSpecIR]
            -> JavaSetup ()
-           -> IO JavaMethodSpecIR
+           -> TopLevel JavaMethodSpecIR
 verifyJava bic opts cls mname overrides setup = do
-  startTime <- getCurrentTime
+  startTime <- io $ getCurrentTime
   let pos = fixPos -- TODO
       cb = biJavaCodebase bic
       bsc = biSharedContext bic
@@ -349,8 +349,8 @@ verifyJava bic opts cls mname overrides setup = do
         fl = defaultSimFlags { alwaysBitBlastBranchTerms = True
                              , satAtBranches = jsSatBranches setupRes
                              }
-    when (verb >= 2) $ putStrLn $ "Starting verification of " ++ specName ms
-    forM_ configs $ \(bs,cl) -> withSAWBackend jsc Nothing $ \sbe -> do
+    when (verb >= 2) $ io $ putStrLn $ "Starting verification of " ++ specName ms
+    forM_ configs $ \(bs,cl) -> withSAWBackend jsc Nothing $ \sbe -> io $ do
       when (verb >= 2) $ do
         putStrLn $ "Executing " ++ specName ms ++
                    " at PC " ++ show (bsLoc bs) ++ "."
@@ -378,10 +378,10 @@ verifyJava bic opts cls mname overrides setup = do
             "WARNING: skipping verification of " ++ specName ms
           RunVerify script ->
             liftIO $ runValidation (prover script) vp jsc esd res
-    endTime <- getCurrentTime
-    putStrLn $ "Successfully verified " ++ specName ms ++ overrideText ++
-               " (" ++ showDuration (diffUTCTime endTime startTime) ++ ")"
-  unless (jsSimulate setupRes) $ putStrLn $
+    endTime <- io $ getCurrentTime
+    io $ putStrLn $ "Successfully verified " ++ specName ms ++ overrideText ++
+                    " (" ++ showDuration (diffUTCTime endTime startTime) ++ ")"
+  unless (jsSimulate setupRes) $ io $ putStrLn $
     "WARNING: skipping simulation of " ++ specName ms
   return ms
 

@@ -337,7 +337,7 @@ data JavaSetupState
     , jsSatBranches :: Bool
     }
 
-type JavaSetup a = StateT JavaSetupState IO a
+type JavaSetup a = StateT JavaSetupState TopLevel a
 
 data LLVMSetupState
   = LLVMSetupState {
@@ -348,7 +348,7 @@ data LLVMSetupState
     , lsSatBranches :: Bool
     }
 
-type LLVMSetup a = StateT LLVMSetupState IO a
+type LLVMSetup a = StateT LLVMSetupState TopLevel a
 
 -- IsValue class ---------------------------------------------------------------
 
@@ -423,10 +423,10 @@ instance FromValue a => FromValue (StateT (ProofGoal SAWCtx) IO a) where
       fromValue m2
     fromValue _ = error "fromValue ProofScript"
 
-instance IsValue a => IsValue (StateT JavaSetupState IO a) where
+instance IsValue a => IsValue (StateT JavaSetupState TopLevel a) where
     toValue m = VJavaSetup (fmap toValue m)
 
-instance FromValue a => FromValue (StateT JavaSetupState IO a) where
+instance FromValue a => FromValue (StateT JavaSetupState TopLevel a) where
     fromValue (VJavaSetup m) = fmap fromValue m
     fromValue (VReturn v) = return (fromValue v)
     fromValue (VBind m1 v2) = do
@@ -435,10 +435,10 @@ instance FromValue a => FromValue (StateT JavaSetupState IO a) where
       fromValue m2
     fromValue _ = error "fromValue JavaSetup"
 
-instance IsValue a => IsValue (StateT LLVMSetupState IO a) where
+instance IsValue a => IsValue (StateT LLVMSetupState TopLevel a) where
     toValue m = VLLVMSetup (fmap toValue m)
 
-instance FromValue a => FromValue (StateT LLVMSetupState IO a) where
+instance FromValue a => FromValue (StateT LLVMSetupState TopLevel a) where
     fromValue (VLLVMSetup m) = fmap fromValue m
     fromValue (VReturn v) = return (fromValue v)
     fromValue (VBind m1 v2) = do

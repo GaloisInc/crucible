@@ -254,15 +254,15 @@ freshLLVMArg (_, _) = fail "Only integer arguments are supported for now."
 verifyLLVM :: BuiltinContext -> Options -> LLVMModule -> String
            -> [LLVMMethodSpecIR]
            -> LLVMSetup ()
-           -> IO LLVMMethodSpecIR
+           -> TopLevel LLVMMethodSpecIR
 verifyLLVM bic opts (LLVMModule file mdl) funcname overrides setup =
   let pos = fixPos -- TODO
       dl = parseDataLayout $ modDataLayout mdl
       sc = biSharedContext bic
   in do
-    (sbe, mem, scLLVM) <- createSAWBackend' sawProxy dl sc
-    (warnings, cb) <- mkCodebase sbe dl mdl
-    forM_ warnings $ putStrLn . ("WARNING: " ++) . show
+    (sbe, mem, scLLVM) <- io $ createSAWBackend' sawProxy dl sc
+    (warnings, cb) <- io $ mkCodebase sbe dl mdl
+    io $ forM_ warnings $ putStrLn . ("WARNING: " ++) . show
     func <- case lookupDefine (fromString funcname) cb of
       Nothing -> fail $ missingSymMsg file (Symbol funcname)
       Just def -> return def
@@ -287,11 +287,11 @@ verifyLLVM bic opts (LLVMModule file mdl) funcname overrides setup =
           case overrides of
             [] -> ""
             irs -> " (overriding " ++ show (map specFunction irs) ++ ")"
-    when (verb >= 2) $ putStrLn $ "Starting verification of " ++ show (specName ms)
+    when (verb >= 2) $ io $ putStrLn $ "Starting verification of " ++ show (specName ms)
     let lopts = LSSOpts { optsErrorPathDetails = True
                         , optsSatAtBranches = lsSatBranches lsctx
                         }
-    when (lsSimulate lsctx) $ do
+    when (lsSimulate lsctx) $ io $ do
       when (verb >= 3) $ do
         putStrLn $ "Executing " ++ show (specName ms)
       runSimulator cb sbe mem (Just lopts) $ do
@@ -308,9 +308,9 @@ verifyLLVM bic opts (LLVMModule file mdl) funcname overrides setup =
             let prv = prover opts scLLVM ms script
             liftIO $ runValidation prv vp scLLVM esd res
     if lsSimulate lsctx
-       then putStrLn $ "Successfully verified " ++
+       then io $ putStrLn $ "Successfully verified " ++
                        show (specName ms) ++ overrideText
-       else putStrLn $ "WARNING: skipping simulation of " ++ show (specName ms)
+       else io $ putStrLn $ "WARNING: skipping simulation of " ++ show (specName ms)
     return ms
 
 prover :: Options
