@@ -26,6 +26,7 @@ import Data.List ( intersperse )
 import qualified Data.Map as M
 import Data.Map ( Map )
 import qualified Text.LLVM as L
+import qualified Text.PrettyPrint.HughesPJ as PP
 
 import qualified SAWScript.AST as SS
 import qualified SAWScript.CryptolEnv as CEnv
@@ -88,6 +89,31 @@ data LLVMModule =
   { modName :: String
   , modMod :: L.Module
   }
+
+showLLVMModule :: LLVMModule -> String
+showLLVMModule (LLVMModule name m) =
+  unlines [ "Module: " ++ name
+          , "Types:"
+          , showParts L.ppTypeDecl (L.modTypes m)
+          , "Globals:"
+          , showParts ppGlobal' (L.modGlobals m)
+          , "External references:"
+          , showParts L.ppDeclare (L.modDeclares m)
+          , "Definitions:"
+          , showParts ppDefine' (L.modDefines m)
+          ]
+  where
+    showParts pp xs = unlines $ map (show . PP.nest 2 . pp) xs
+    ppGlobal' g =
+      L.ppSymbol (L.globalSym g) PP.<+> PP.char '=' PP.<+>
+      L.ppGlobalAttrs (L.globalAttrs g) PP.<+>
+      L.ppType (L.globalType g)
+    ppDefine' d =
+      L.ppMaybe L.ppLinkage (L.funLinkage (L.defAttrs d)) PP.<+>
+      L.ppType (L.defRetType d) PP.<+>
+      L.ppSymbol (L.defName d) PP.<>
+      L.ppArgList (L.defVarArgs d) (map (L.ppTyped L.ppIdent) (L.defArgs d)) PP.<+>
+      L.ppMaybe (\gc -> PP.text "gc" PP.<+> L.ppGC gc) (L.funGC (L.defAttrs d))
 
 data ProofResult
   = Valid
@@ -191,7 +217,7 @@ showsPrecValue opts p v =
     VJavaType {} -> showString "<<Java type>>"
     VLLVMType t -> showString (show (LSS.ppMemType t))
     VCryptolModule m -> showString (showCryptolModule m)
-    VLLVMModule {} -> showString "<<LLVM Module>>"
+    VLLVMModule m -> showString (showLLVMModule m)
     VJavaClass {} -> showString "<<Java Class>>"
     VProofResult r -> showsProofResult opts r
     VSatResult r -> showsSatResult opts r
