@@ -52,6 +52,7 @@ import SAWScript.Utils
 import Verifier.SAW.Prelude
 import SAWScript.LLVMMethodSpecIR
 import SAWScript.LLVMUtils hiding (addrPlusOffset)
+import SAWScript.Value (TopLevel, io)
 import SAWScript.VerificationCheck
 
 import Verifier.LLVM.Simulator hiding (State)
@@ -898,8 +899,8 @@ data VerifyParams = VerifyParams
   }
 
 type SymbolicRunHandler =
-  SharedContext SAWCtx -> ExpectedStateDef -> [PathVC] -> IO ()
-type Prover = VerifyState -> SharedTerm SAWCtx -> IO ()
+  SharedContext SAWCtx -> ExpectedStateDef -> [PathVC] -> TopLevel ()
+type Prover = VerifyState -> SharedTerm SAWCtx -> TopLevel ()
 
 runValidation :: Prover -> VerifyParams -> SymbolicRunHandler
 runValidation prover params sc esd results = do
@@ -925,8 +926,8 @@ runValidation prover params sc esd results = do
     if null (pvcStaticErrors pvc) then
       forM_ (pvcChecks pvc) $ \vc -> do
         let vs = mkVState (vcName vc) (vcCounterexample sc vc)
-        g <- scImplies sc (pvcAssumptions pvc) =<< vcGoal sc vc
-        when (verb >= 3) $ do
+        g <- io (scImplies sc (pvcAssumptions pvc) =<< vcGoal sc vc)
+        when (verb >= 3) $ io $ do
           putStr $ "Checking " ++ vcName vc
           when (verb >= 4) $ putStr $ " (" ++ show g ++ ")"
           putStrLn ""
@@ -934,9 +935,9 @@ runValidation prover params sc esd results = do
     else do
       let vsName = "an invalid path"
       let vs = mkVState vsName (\_ -> return $ vcat (pvcStaticErrors pvc))
-      false <- scBool sc False
-      g <- scImplies sc (pvcAssumptions pvc) false
-      when (verb >= 4) $ do
+      false <- io $ scBool sc False
+      g <- io $ scImplies sc (pvcAssumptions pvc) false
+      when (verb >= 4) $ io $ do
         putStrLn $ "Checking " ++ vsName
         print $ pvcStaticErrors pvc
         putStrLn $ "Calling prover to disprove " ++

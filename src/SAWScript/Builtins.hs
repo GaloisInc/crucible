@@ -70,6 +70,7 @@ import SAWScript.TypedTerm
 import SAWScript.Utils
 import SAWScript.SAWCorePrimitives( bitblastPrimitives, sbvPrimitives, concretePrimitives )
 import qualified SAWScript.Value as SV
+import SAWScript.Value (ProofScript)
 
 import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 import qualified Verifier.SAW.Simulator.BitBlast as BBSim
@@ -426,7 +427,7 @@ readCore path = do
   io (mkTypedTerm sc =<< scReadExternal sc =<< readFile path)
 
 quickcheckGoal :: SharedContext s -> Integer -> ProofScript s SV.SatResult
-quickcheckGoal sc n = StateT $ \goal -> do
+quickcheckGoal sc n = StateT $ \goal -> io $ do
   putStr $ "WARNING: using quickcheck to prove goal..."
   hFlush stdout
   let tm = ttTerm (goalTerm goal)
@@ -447,12 +448,12 @@ quickcheckGoal sc n = StateT $ \goal -> do
 
 assumeValid :: ProofScript s SV.ProofResult
 assumeValid = StateT $ \goal -> do
-  putStrLn $ "WARNING: assuming goal " ++ goalName goal ++ " is valid"
+  io $ putStrLn $ "WARNING: assuming goal " ++ goalName goal ++ " is valid"
   return (SV.Valid, goal)
 
 assumeUnsat :: ProofScript s SV.SatResult
 assumeUnsat = StateT $ \goal -> do
-  putStrLn $ "WARNING: assuming goal " ++ goalName goal ++ " is unsat"
+  io $ putStrLn $ "WARNING: assuming goal " ++ goalName goal ++ " is unsat"
   return (SV.Unsat, goal)
 
 trivial :: ProofScript SAWCtx SV.SatResult
@@ -460,7 +461,7 @@ trivial = StateT $ \goal -> do
   checkTrue (ttTerm (goalTerm goal))
   return (SV.Unsat, goal)
   where
-    checkTrue :: SharedTerm SAWCtx -> IO ()
+    checkTrue :: SharedTerm SAWCtx -> TopLevel ()
     checkTrue t =
       case unwrapTermF t of
         Lambda _ _ t' -> checkTrue t'
@@ -469,46 +470,46 @@ trivial = StateT $ \goal -> do
 
 printGoal :: ProofScript s ()
 printGoal = StateT $ \goal -> do
-  putStrLn (scPrettyTerm (ttTerm (goalTerm goal)))
+  io $ putStrLn (scPrettyTerm (ttTerm (goalTerm goal)))
   return ((), goal)
 
 printGoalDepth :: Int -> ProofScript SAWCtx ()
 printGoalDepth n = StateT $ \goal -> do
-  print (ppTermDepth n (ttTerm (goalTerm goal)))
+  io $ print (ppTermDepth n (ttTerm (goalTerm goal)))
   return ((), goal)
 
 printGoalConsts :: ProofScript SAWCtx ()
 printGoalConsts = StateT $ \goal -> do
-  mapM_ putStrLn $ Map.keys (getConstantSet (ttTerm (goalTerm goal)))
+  io $ mapM_ putStrLn $ Map.keys (getConstantSet (ttTerm (goalTerm goal)))
   return ((), goal)
 
 printGoalSExp :: ProofScript SAWCtx ()
 printGoalSExp = StateT $ \goal -> do
-  print (ppSharedTermSExp (ttTerm (goalTerm goal)))
+  io $ print (ppSharedTermSExp (ttTerm (goalTerm goal)))
   return ((), goal)
 
 printGoalSExp' :: Int -> ProofScript SAWCtx ()
 printGoalSExp' n = StateT $ \goal -> do
   let cfg = defaultPPConfig { ppMaxDepth = Just n}
-  print (ppSharedTermSExpWith cfg (ttTerm (goalTerm goal)))
+  io $ print (ppSharedTermSExpWith cfg (ttTerm (goalTerm goal)))
   return ((), goal)
 
 unfoldGoal :: SharedContext s -> [String] -> ProofScript s ()
 unfoldGoal sc names = StateT $ \goal -> do
   let TypedTerm schema trm = goalTerm goal
-  trm' <- scUnfoldConstants sc names trm
+  trm' <- io $ scUnfoldConstants sc names trm
   return ((), goal { goalTerm = TypedTerm schema trm' })
 
 simplifyGoal :: SharedContext s -> Simpset (SharedTerm s) -> ProofScript s ()
 simplifyGoal sc ss = StateT $ \goal -> do
   let TypedTerm schema trm = goalTerm goal
-  trm' <- rewriteSharedTerm sc ss trm
+  trm' <- io $ rewriteSharedTerm sc ss trm
   return ((), goal { goalTerm = TypedTerm schema trm' })
 
 beta_reduce_goal :: SharedContext s -> ProofScript s ()
 beta_reduce_goal sc = StateT $ \goal -> do
   let TypedTerm schema trm = goalTerm goal
-  trm' <- betaNormalize sc trm
+  trm' <- io $ betaNormalize sc trm
   return ((), goal { goalTerm = TypedTerm schema trm' })
 
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
@@ -570,7 +571,7 @@ checkBooleanSchema s =
 -- | Bit-blast a @SharedTerm@ representing a theorem and check its
 -- satisfiability using ABC.
 satABC :: SharedContext s -> ProofScript s SV.SatResult
-satABC sc = StateT $ \g -> do
+satABC sc = StateT $ \g -> io $ do
   TypedTerm schema t <- rewriteEqs sc (goalTerm g)
   checkBooleanSchema schema
   tp <- scWhnf sc =<< scTypeOf sc t
@@ -616,7 +617,7 @@ parseDimacsSolution vars ls = map lkup vars
 
 satExternal :: Bool -> SharedContext s -> String -> [String]
             -> ProofScript s SV.SatResult
-satExternal doCNF sc execName args = StateT $ \g -> do
+satExternal doCNF sc execName args = StateT $ \g -> io $ do
   TypedTerm schema t <- rewriteEqs sc (goalTerm g)
   tp <- scWhnf sc =<< scTypeOf sc t
   let cnfName = goalName g ++ ".cnf"
@@ -702,7 +703,7 @@ satSBV conf sc = satUnintSBV conf sc []
 -- satisfiability using SBV. (Currently ignores satisfying assignments.)
 -- Constants with names in @unints@ are kept as uninterpreted functions.
 satUnintSBV :: SBV.SMTConfig -> SharedContext s -> [String] -> ProofScript s SV.SatResult
-satUnintSBV conf sc unints = StateT $ \g -> do
+satUnintSBV conf sc unints = StateT $ \g -> io $ do
   (t', labels, lit0) <- prepSBV sc unints (goalTerm g)
   let lit = case goalQuant g of
         Existential -> lit0
@@ -790,7 +791,7 @@ satWithExporter :: (SharedContext s -> FilePath -> TypedTerm s -> IO ())
                 -> String
                 -> String
                 -> ProofScript s SV.SatResult
-satWithExporter exporter sc path ext = StateT $ \g -> do
+satWithExporter exporter sc path ext = StateT $ \g -> io $ do
   t <- case goalQuant g of
          Existential -> return (goalTerm g)
          Universal -> negTypedTerm sc (goalTerm g)
@@ -818,31 +819,31 @@ liftCexBB tys bs =
 -- | Translate a @SharedTerm@ representing a theorem for input to the
 -- given validity-checking script and attempt to prove it.
 provePrim :: SharedContext s -> ProofScript s SV.SatResult
-          -> TypedTerm s -> IO SV.ProofResult
+          -> TypedTerm s -> TopLevel SV.ProofResult
 provePrim _sc script t = do
-  checkBooleanSchema (ttSchema t)
+  io $ checkBooleanSchema (ttSchema t)
   r <- evalStateT script (ProofGoal Universal "prove" t)
   return (SV.flipSatResult r)
 
 provePrintPrim :: SharedContext s -> ProofScript s SV.SatResult
                -> TypedTerm s -> TopLevel (Theorem s)
 provePrintPrim _sc script t = do
-  r <- io $ provePrim _sc script t
+  r <- provePrim _sc script t
   opts <- rwPPOpts <$> getTopLevelRW
   case r of
     SV.Valid -> io (putStrLn "Valid") >> return (Theorem t)
     _ -> fail (SV.showsProofResult opts r "")
 
 satPrim :: SharedContext s -> ProofScript s SV.SatResult -> TypedTerm s
-        -> IO SV.SatResult
+        -> TopLevel SV.SatResult
 satPrim _sc script t = do
-  checkBooleanSchema (ttSchema t)
+  io $ checkBooleanSchema (ttSchema t)
   evalStateT script (ProofGoal Existential "sat" t)
 
 satPrintPrim :: SharedContext s -> ProofScript s SV.SatResult
              -> TypedTerm s -> TopLevel ()
 satPrintPrim _sc script t = do
-  result <- io $ satPrim _sc script t
+  result <- satPrim _sc script t
   opts <- rwPPOpts <$> getTopLevelRW
   io $ putStrLn (SV.showsSatResult opts result "")
 

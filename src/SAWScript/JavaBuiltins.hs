@@ -350,6 +350,8 @@ verifyJava bic opts cls mname overrides setup = do
                              , satAtBranches = jsSatBranches setupRes
                              }
     when (verb >= 2) $ io $ putStrLn $ "Starting verification of " ++ specName ms
+    ro <- getTopLevelRO
+    rw <- getTopLevelRW
     forM_ configs $ \(bs,cl) -> withSAWBackend jsc Nothing $ \sbe -> io $ do
       when (verb >= 2) $ do
         putStrLn $ "Executing " ++ specName ms ++
@@ -364,20 +366,20 @@ verifyJava bic opts cls mname overrides setup = do
           mapM_ (print . ppPathVC) res
         let prover script vs g = do
               let exts = getAllExts g
-              glam <- bindExts jsc exts g
-              tt <- mkTypedTerm jsc glam
-              doExtraChecks opts bsc glam
+              glam <- io $ bindExts jsc exts g
+              tt <- io $ mkTypedTerm jsc glam
+              io $ doExtraChecks opts bsc glam
               r <- evalStateT script (ProofGoal Universal (vsVCName vs) tt)
               case r of
-                SS.Unsat -> when (verb >= 3) $ putStrLn "Valid."
+                SS.Unsat -> when (verb >= 3) $ io $ putStrLn "Valid."
                 -- TODO: replace x with something
-                SS.Sat val -> showCexResults jsc ms vs exts [("x", val)]
-                SS.SatMulti vals -> showCexResults jsc ms vs exts vals
+                SS.Sat val -> io $ showCexResults jsc ms vs exts [("x", val)]
+                SS.SatMulti vals -> io $ showCexResults jsc ms vs exts vals
         case jsTactic setupRes of
           Skip -> liftIO $ putStrLn $
             "WARNING: skipping verification of " ++ specName ms
           RunVerify script ->
-            liftIO $ runValidation (prover script) vp jsc esd res
+            liftIO $ fmap fst $ runTopLevel (runValidation (prover script) vp jsc esd res) ro rw
     endTime <- io $ getCurrentTime
     io $ putStrLn $ "Successfully verified " ++ specName ms ++ overrideText ++
                     " (" ++ showDuration (diffUTCTime endTime startTime) ++ ")"

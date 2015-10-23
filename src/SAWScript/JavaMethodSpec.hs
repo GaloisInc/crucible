@@ -55,6 +55,7 @@ import SAWScript.Utils
 import SAWScript.JavaMethodSpecIR
 import SAWScript.JavaMethodSpec.Evaluator
 import SAWScript.JavaMethodSpec.ExpectedStateDef
+import SAWScript.Value (TopLevel, io)
 import SAWScript.VerificationCheck
 
 import Verifier.Java.Simulator hiding (asBool, State)
@@ -593,9 +594,9 @@ data VerifyParams = VerifyParams
   }
 
 type SymbolicRunHandler =
-  SharedContext SAWCtx -> ExpectedStateDef -> [PathVC] -> IO ()
+  SharedContext SAWCtx -> ExpectedStateDef -> [PathVC] -> TopLevel ()
 type Prover =
-  VerifyState -> SharedTerm SAWCtx -> IO ()
+  VerifyState -> SharedTerm SAWCtx -> TopLevel ()
 
 runValidation :: Prover -> VerifyParams -> SymbolicRunHandler
 runValidation prover params sc esd results = do
@@ -616,8 +617,8 @@ runValidation prover params sc esd results = do
     if null (pvcStaticErrors pvc) then
      forM_ (pvcChecks pvc) $ \vc -> do
        let vs = mkVState (vcName vc) (vcCounterexample sc vc)
-       g <- scImplies sc (pvcAssumptions pvc) =<< vcGoal sc vc
-       when (verb >= 2) $ do
+       g <- io $ scImplies sc (pvcAssumptions pvc) =<< vcGoal sc vc
+       when (verb >= 2) $ io $ do
          putStr $ "Checking " ++ vcName vc
          when (verb >= 5) $ putStr $ " (" ++ scPrettyTerm g ++ ")"
          putStrLn ""
@@ -630,12 +631,12 @@ runValidation prover params sc esd results = do
                      ++ maybe "" (\loc -> " to " ++ show loc)
                               (pvcEndLoc pvc) -}
       let vs = mkVState vsName (\_ -> return $ vcat (pvcStaticErrors pvc))
-      false <- scBool sc False
-      g <- scImplies sc (pvcAssumptions pvc) false
-      when (verb >= 2) $ do
+      false <- io $ scBool sc False
+      g <- io $ scImplies sc (pvcAssumptions pvc) false
+      when (verb >= 2) $ io $ do
         putStrLn $ "Checking " ++ vsName
         print $ pvcStaticErrors pvc
-      when (verb >= 5) $ do
+      when (verb >= 5) $ io $ do
         putStrLn $ "Calling prover to disprove " ++
                  scPrettyTerm (pvcAssumptions pvc)
       prover vs g

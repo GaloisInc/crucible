@@ -55,7 +55,6 @@ import SAWScript.Options
 import SAWScript.Lexer (lexSAW)
 import SAWScript.MGU (checkDecl, checkDeclGroup)
 import SAWScript.Parser (parseSchema)
-import SAWScript.Proof
 import SAWScript.TopLevel
 import SAWScript.TypedTerm
 import SAWScript.Utils

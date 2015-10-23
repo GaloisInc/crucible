@@ -291,6 +291,8 @@ verifyLLVM bic opts (LLVMModule file mdl) funcname overrides setup =
     let lopts = LSSOpts { optsErrorPathDetails = True
                         , optsSatAtBranches = lsSatBranches lsctx
                         }
+    ro <- getTopLevelRO
+    rw <- getTopLevelRW
     when (lsSimulate lsctx) $ io $ do
       when (verb >= 3) $ do
         putStrLn $ "Executing " ++ show (specName ms)
@@ -306,7 +308,7 @@ verifyLLVM bic opts (LLVMModule file mdl) funcname overrides setup =
             "WARNING: skipping verification of " ++ show (specName ms)
           RunVerify script -> do
             let prv = prover opts scLLVM ms script
-            liftIO $ runValidation prv vp scLLVM esd res
+            liftIO $ fmap fst $ runTopLevel (runValidation prv vp scLLVM esd res) ro rw
     if lsSimulate lsctx
        then io $ putStrLn $ "Successfully verified " ++
                        show (specName ms) ++ overrideText
@@ -319,17 +321,17 @@ prover :: Options
        -> ProofScript SAWCtx SV.SatResult
        -> VerifyState
        -> SharedTerm SAWCtx
-       -> IO ()
+       -> TopLevel ()
 prover opts sc ms script vs g = do
   let exts = getAllExts g
       verb = verbLevel opts
-  tt <- mkTypedTerm sc =<< bindExts sc exts g
+  tt <- io (mkTypedTerm sc =<< bindExts sc exts g)
   r <- evalStateT script (ProofGoal Universal (vsVCName vs) tt)
   case r of
-    SV.Unsat -> when (verb >= 3) $ putStrLn "Valid."
+    SV.Unsat -> when (verb >= 3) $ io $ putStrLn "Valid."
     -- TODO: replace x with something in the following
-    SV.Sat val ->  showCexResults sc ms vs exts [("x", val)]
-    SV.SatMulti vals -> showCexResults sc ms vs exts vals
+    SV.Sat val -> io $ showCexResults sc ms vs exts [("x", val)]
+    SV.SatMulti vals -> io $ showCexResults sc ms vs exts vals
 
 showCexResults :: SharedContext SAWCtx
                -> LLVMMethodSpecIR

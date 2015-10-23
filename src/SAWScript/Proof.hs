@@ -7,7 +7,6 @@ Point-of-contact : huffman
 -}
 module SAWScript.Proof where
 
-import Control.Monad.State
 import SAWScript.TypedTerm
 
 -- | A theorem must contain a boolean term, possibly surrounded by one
@@ -27,6 +26,3 @@ data ProofGoal s =
   , goalName :: String
   , goalTerm :: TypedTerm s
   }
-
-type ProofScript s a = StateT (ProofGoal s) IO a
-
