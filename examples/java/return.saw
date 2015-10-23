@@ -1,0 +1,12 @@
+let return_spec = do {
+  x <- java_var "n" java_int;
+  java_var "return" (java_array 5 java_int);
+  java_ensure_eq "return" {{ [x, x, x, x, x] }};
+  java_allow_alloc;
+  java_assert {{ x == 22 }};
+  //java_return {{ [x, x, x, x, x] }};
+  java_verify_tactic abc;
+};
+
+c <- java_load_class "Return";
+java_verify c "fill" [] return_spec;
