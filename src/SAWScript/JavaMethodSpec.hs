@@ -277,12 +277,12 @@ execBehavior bsl sc mbThis argLocals ps = do
   -- Get state of current execution path in simulator.
   fmap orParseResults $ forM bsl $ \bs -> do
     let ec = EvalContext { ecContext = sc
-                         , ecJavaExprs = Map.keys (bsActualTypeMap bs)
                          , ecLocals =  Map.fromList $
                                        case mbThis of
                                        Just th -> (0, RValue th) : argLocals
                                        Nothing -> argLocals
                          , ecPathState = ps
+                         -- , ecReturnVal = Nothing
                          }
     let initOCS =
           OCState { ocsLoc = bsLoc bs
@@ -602,19 +602,17 @@ runValidation prover params sc esd results = do
   let ir = vpSpec params
       verb = verbLevel (vpOpts params)
       ps = esdInitialPathState esd
-      exprs = esdJavaExprs esd
   forM_ results $ \pvc -> do
     let mkVState nm cfn =
           VState { vsVCName = nm
                  , vsMethodSpec = ir
                  , vsVerbosity = verb
                  -- , vsFromBlock = esdStartLoc esd
-                 , vsEvalContext = evalContextFromPathState sc ps exprs
+                 , vsEvalContext = evalContextFromPathState sc ps
                  , vsInitialAssignments = pvcInitialAssignments pvc
                  , vsCounterexampleFn = cfn
                  , vsStaticErrors = pvcStaticErrors pvc
                  }
---        m = esdJavaExprs esd
     if null (pvcStaticErrors pvc) then
      forM_ (pvcChecks pvc) $ \vc -> do
        let vs = mkVState (vcName vc) (vcCounterexample sc vc)

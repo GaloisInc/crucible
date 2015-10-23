@@ -25,9 +25,9 @@ module SAWScript.JavaExpr
   , ppJavaExpr
   , exprType
   , isScalarExpr
+  , isReturnExpr
   , isArg
   , maxArg
-  , jssTypeOfJavaExpr
   , isRefJavaExpr
   , isClassJavaExpr
     -- * Logic expressions
@@ -77,18 +77,23 @@ data MethodLocation
 -- JavaExpr {{{1
 
 data JavaExprF v
-  = Local String JSS.LocalVariableIndex JSS.Type
+  = ReturnVal JSS.Type
+  | Local String JSS.LocalVariableIndex JSS.Type
   | InstanceField v JSS.FieldId
   | StaticField JSS.FieldId
   deriving (Functor, CC.Foldable, CC.Traversable)
 
 instance CC.EqFoldable JavaExprF where
+  fequal (ReturnVal _) (ReturnVal _) = True
   fequal (Local _ i _)(Local _ j _) = i == j
   fequal (InstanceField xr xf) (InstanceField yr yf) = xf == yf && (xr == yr)
   fequal (StaticField xf) (StaticField yf) = xf == yf
   fequal _ _ = False
 
 instance CC.OrdFoldable JavaExprF where
+  ReturnVal _ `fcompare` ReturnVal _  = EQ
+  ReturnVal _ `fcompare` _            = LT
+  _           `fcompare` ReturnVal _  = GT
   Local _ i _ `fcompare` Local _ i' _ = i `compare` i'
   Local _ _ _ `fcompare` _           = LT
   _           `fcompare` Local _ _ _ = GT
@@ -101,6 +106,7 @@ instance CC.OrdFoldable JavaExprF where
   _ `fcompare` StaticField _ = LT
 
 instance CC.ShowFoldable JavaExprF where
+  fshow (ReturnVal _) = "return"
   fshow (Local nm _ _) = nm
   fshow (InstanceField r f) = show r ++ "." ++ JSS.fieldIdName f
   fshow (StaticField f) = ppFldId f
@@ -113,12 +119,17 @@ thisJavaExpr cl = CC.Term (Local "this" 0 (JSS.ClassType (JSS.className cl)))
 
 returnJavaExpr :: JSS.Method -> Maybe (JavaExpr)
 returnJavaExpr meth =
-  (CC.Term . Local "return" maxBound) <$> JSS.methodReturnType meth
+  (CC.Term . ReturnVal) <$> JSS.methodReturnType meth
+
+isReturnExpr :: JavaExpr -> Bool
+isReturnExpr (CC.Term (ReturnVal _)) = True
+isReturnExpr _ = False
 
 -- | Pretty print a Java expression.
 ppJavaExpr :: JavaExpr -> String
 ppJavaExpr (CC.Term exprF) =
   case exprF of
+    ReturnVal _ -> "return"
     Local nm _ _ -> nm
     InstanceField r f -> ppJavaExpr r ++ "." ++ JSS.fieldIdName f
     StaticField f -> ppFldId f
@@ -127,19 +138,11 @@ asJavaExpr :: SharedTerm SAWCtx -> Maybe String
 asJavaExpr (STApp _ (FTermF (ExtCns ec))) = Just (ecName ec)
 asJavaExpr _ = Nothing
 
--- | Returns JSS Type of JavaExpr
-jssTypeOfJavaExpr :: JavaExpr -> JSS.Type
-jssTypeOfJavaExpr (CC.Term exprF) =
-  case exprF of
-    Local _ _ tp      -> tp
-    InstanceField _ f -> JSS.fieldIdType f
-    StaticField f -> JSS.fieldIdType f
-
 isRefJavaExpr :: JavaExpr -> Bool
-isRefJavaExpr = JSS.isRefType . jssTypeOfJavaExpr
+isRefJavaExpr = JSS.isRefType . exprType
 
 isClassJavaExpr :: JavaExpr -> Bool
-isClassJavaExpr = isClassType . jssTypeOfJavaExpr
+isClassJavaExpr = isClassType . exprType
   where isClassType (JSS.ClassType _) = True
         isClassType _ = False
 
@@ -152,6 +155,7 @@ isArg meth (CC.Term (Local _ idx _)) =
 isArg _ _ = False
 
 exprType :: JavaExpr -> JSS.Type
+exprType (CC.Term (ReturnVal ty)) = ty
 exprType (CC.Term (Local _ _ ty)) = ty
 exprType (CC.Term (InstanceField _ f)) = JSS.fieldIdType f
 exprType (CC.Term (StaticField f)) = JSS.fieldIdType f
@@ -198,6 +202,7 @@ data MixedExpr
 -- | Identifies concrete type of a Java expression.
 data JavaActualType
   = ClassInstance JSS.Class
+  -- TODO: eventually change JSS.Type to JavaActualType, for more flexibility
   | ArrayInstance Int JSS.Type
   | PrimitiveType JSS.Type
   deriving (Show)

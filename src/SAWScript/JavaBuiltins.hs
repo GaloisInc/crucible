@@ -86,6 +86,7 @@ writeJavaTerm :: (MonadSim SAWBackend m) =>
 writeJavaTerm sc (CC.Term e) t = do
   v <- valueOfTerm sc t
   case e of
+    ReturnVal _ -> fail "Can't set return value"
     Local _ idx _ -> setLocal idx v
     InstanceField rexp f -> do
       rv <- readJavaValue rexp
@@ -95,18 +96,8 @@ writeJavaTerm sc (CC.Term e) t = do
     StaticField f -> setStaticFieldValue f v
 
 readJavaTerm :: (MonadSim sbe m) =>
-                Method -> [JSS.Value (SBETerm sbe)] -> JavaExpr
-             -> Simulator sbe m (SBETerm sbe)
-readJavaTerm _meth _args et@(CC.Term e) =
-  case e of
-    Local "return" _ _ -> do
-      rslt <- getProgramReturnValue
-      case rslt of
-        (Just v) -> termOfValue v
-        Nothing -> fail "Program did not return a value"
-    -- TODO: allow lookups in args
-    -- Local _ _ _ | isArg meth et -> undefined
-    _ -> termOfValue =<< readJavaValue et
+                JavaExpr -> Simulator sbe m (SBETerm sbe)
+readJavaTerm et = termOfValue =<< readJavaValue et
 
 termOfValue :: (MonadSim sbe m) =>
                JSS.Value (SBETerm sbe) -> Simulator sbe m (SBETerm sbe)
@@ -148,8 +139,8 @@ valueOfTerm sc t = do
     (asBitvectorType -> Just 64) -> return (LValue t)
     (asVecType -> Just (n :*: ety)) -> do
       jty <- case ety of
-               (asBitvectorType -> Just 8) -> return IntType
-               (asBitvectorType -> Just 16) -> return IntType
+               (asBitvectorType -> Just 8) -> return ByteType
+               (asBitvectorType -> Just 16) -> return ShortType
                (asBitvectorType -> Just 32) -> return IntType
                (asBitvectorType -> Just 64) -> return LongType
                _ -> fail $ "Unsupported array element type: " ++ show ety
@@ -164,6 +155,11 @@ readJavaValue :: (MonadSim sbe m) =>
               -> Simulator sbe m (JSS.Value (SBETerm sbe))
 readJavaValue (CC.Term e) = do
   case e of
+    ReturnVal _ -> do
+      mrv <- getProgramReturnValue
+      case mrv of
+        Just rv -> return rv
+        Nothing -> fail "Return value not found"
     Local _ idx _ -> do
       p <- getPath "readJavaValue"
       case currentCallFrame p of
@@ -221,7 +217,7 @@ symexecJava bic opts cls mname inputs outputs satBranches = do
                RValue this <- freshJavaVal Nothing jsc (ClassInstance cls)
                execInstanceMethod (className cls) (methodKey meth) this args
       outexprs <- liftIO $ mapM (parseJavaExpr cb cls meth) outputs
-      outtms <- mapM (readJavaTerm meth args) outexprs
+      outtms <- mapM readJavaTerm outexprs
       let bundle tms = case tms of
                          [t] -> return t
                          _ -> scTuple jsc tms
@@ -468,7 +464,7 @@ parseJavaExpr cb cls meth estr = do
                          " referenced by name, but no debug info available"
         parseParts (f:rest) = do
           e <- parseParts rest
-          let jt = jssTypeOfJavaExpr e
+          let jt = exprType e
               pos = fixPos -- TODO
           fid <- findField cb pos jt f
           return (CC.Term (InstanceField e fid))
@@ -491,12 +487,12 @@ mkMixedExpr :: SharedContext SAWCtx
             -> JavaMethodSpecIR
             -> SharedTerm SAWCtx
             -> IO MixedExpr
-mkMixedExpr _ ms (asJavaExpr -> Just s) = (JE . fst) <$> getJavaExpr ms s
+mkMixedExpr _ ms (asJavaExpr -> Just s) = JE <$> getJavaExpr ms s
 mkMixedExpr sc ms t = do
   let exts = getAllExts t
       extNames = map ecName exts
   javaExprs <- mapM (getJavaExpr ms) extNames
-  le <- LogicExpr <$> scAbstractExts sc exts t <*> pure (map fst javaExprs)
+  le <- LogicExpr <$> scAbstractExts sc exts t <*> pure javaExprs
   return (LE le)
 
 exportJSSType :: JavaType -> JavaSetup Type
@@ -566,7 +562,7 @@ typeJavaExpr bic name ty = do
       cls = specThisClass ms
       meth = specMethod ms
   expr <- liftIO $ parseJavaExpr (biJavaCodebase bic) cls meth name
-  let jty = jssTypeOfJavaExpr expr
+  let jty = exprType expr
   jty' <- exportJSSType ty
   liftIO $ checkEqualTypes jty jty' name
   aty <- exportJavaType cb ty
@@ -621,7 +617,7 @@ javaMayAlias _ _ exprs = do
   ms <- gets jsSpec
   exprList <- liftIO $ mapM (getJavaExpr ms) exprs
   -- TODO: check that all expressions exist and have the same type
-  modifySpec (specAddAliasSet (map fst exprList))
+  modifySpec (specAddAliasSet exprList)
 
 javaAssert :: BuiltinContext -> Options -> TypedTerm SAWCtx
            -> JavaSetup ()
@@ -638,13 +634,12 @@ javaAssert bic _ (TypedTerm schema v) = do
 
 getJavaExpr :: (MonadIO m) =>
                JavaMethodSpecIR -> String
-            -> m (JavaExpr, Type)
+            -> m JavaExpr
 getJavaExpr ms name = do
   let cb = specCodebase ms
       cls = specThisClass ms
       meth = specMethod ms
-  expr <- liftIO $ parseJavaExpr cb cls meth name
-  return (expr, jssTypeOfJavaExpr expr)
+  liftIO $ parseJavaExpr cb cls meth name
 
 javaAssertEq :: BuiltinContext -> Options -> String -> TypedTerm SAWCtx
            -> JavaSetup ()
@@ -652,7 +647,7 @@ javaAssertEq bic _ name (TypedTerm schema t) = do
   --liftIO $ putStrLn "javaAssertEq"
   ms <- gets jsSpec
   let sc = biSharedContext bic
-  (expr, _) <- getJavaExpr ms name
+  expr <- getJavaExpr ms name
   checkCompatibleExpr "java_assert_eq" expr schema
   me <- liftIO $ mkMixedExpr sc ms t
   modifySpec (specAddLogicAssignment fixPos expr me)
@@ -662,9 +657,10 @@ javaEnsureEq :: BuiltinContext -> Options -> String -> TypedTerm SAWCtx
 javaEnsureEq bic _ name (TypedTerm schema t) = do
   --liftIO $ putStrLn "javaEnsureEq"
   ms <- gets jsSpec
-  (expr, ty) <- getJavaExpr ms name
+  expr <- getJavaExpr ms name
   let sc = biSharedContext bic
       meth = specMethod ms
+      ty = exprType expr
   --liftIO $ putStrLn "Making MixedExpr"
   when (isArg meth expr && isScalarExpr expr) $ fail $
     "The `java_ensure_eq` function cannot be used " ++
@@ -684,7 +680,7 @@ javaModify :: BuiltinContext -> Options -> String
 javaModify _bic _ name = do
   --liftIO $ putStrLn "javaModify"
   ms <- gets jsSpec
-  (expr, _) <- getJavaExpr ms name
+  expr <- getJavaExpr ms name
   let meth = specMethod ms
   when (isArg meth expr && isScalarExpr expr) $ fail $
     "The `java_modify` function cannot be used " ++

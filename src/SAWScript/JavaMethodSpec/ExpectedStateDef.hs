@@ -14,7 +14,6 @@ module SAWScript.JavaMethodSpec.ExpectedStateDef
   , esdInitialAssignments
   , esdInitialPathState
   , esdReturnValue
-  , esdJavaExprs
   , ExpectedValue(..)
   , esdStaticFieldValue
   , esdInstanceFieldValue
@@ -64,13 +63,12 @@ import Verifier.SAW.Cryptol (scCryptolEq)
 data ExpectedStateDef = ESD {
          -- | Location that we started from.
          esdStartLoc :: !Breakpoint
-         -- | Map from references back to Java expressions denoting them.
+         -- | Map from references back to Java expressions denoting them. Purely
+         -- for diagnostics.
        , esdRefExprMap :: !(Map Ref [TC.JavaExpr])
          -- | Initial path state (used for evaluating expressions in
          -- verification).
        , esdInitialPathState :: !SpecPathState
-         -- | All Java expressions that have been declared.
-       , esdJavaExprs :: [TC.JavaExpr]
          -- | Stores initial assignments.
        , esdInitialAssignments :: !([(TC.JavaExpr, SharedTerm SAWCtx)])
          -- | Expected return value or Nothing if method returns void.
@@ -158,7 +156,6 @@ esdArrayValue ref esd =
 data ESGState = ESGState {
          esContext :: !(SharedContext SAWCtx)
        , esMethod :: !Method
-       , esExprs :: [TC.JavaExpr]
        , esExprRefMap :: !(Map TC.JavaExpr Ref)
        , esErrors :: ![String]
 
@@ -196,8 +193,7 @@ esEval :: (EvalContext -> ExprEvaluator b) -> ExpectedStateGenerator b
 esEval fn = do
   sc <- gets esContext
   initPS <- use esInitialPathState
-  exprs <- gets esExprs
-  let ec = evalContextFromPathState sc initPS exprs
+  let ec = evalContextFromPathState sc initPS
   res <- runEval (fn ec)
   case res of
     Left expr -> error $ "internal: esEval failed to evaluate expression: " ++ show expr
@@ -248,6 +244,8 @@ esSetJavaValue e@(CC.Term exprF) v = do
   -- liftIO $ putStrLn $ "Setting Java value for " ++ show e
   case exprF of
     -- TODO: the following is ugly, and doesn't make good use of lenses
+    -- TODO: is this the right way to handle return values?
+    TC.ReturnVal _ -> error "internal: can't set return value in initial state"
     TC.Local _ idx _ -> do
       ps <- use esInitialPathState
       let ls = case currentCallFrame ps of
@@ -466,7 +464,6 @@ initializeVerification sc ir bs refConfig = do
   initPS <- getPath (PP.text "initializeVerification")
   let initESG = ESGState { esContext = sc
                          , esMethod = specMethod ir
-                         , esExprs = Map.keys (bsActualTypeMap bs)
                          , esExprRefMap = Map.fromList
                              [ (e, r) | (r,cl) <- refAssignments, e <- cl ]
                          , esErrors = []
@@ -502,7 +499,6 @@ initializeVerification sc ir bs refConfig = do
   modifyPathM_ (PP.text "initializeVerification") (\_ -> return (es^.esInitialPathState))
   return ESD { esdStartLoc = bsLoc bs
              , esdRefExprMap = Map.fromList refAssignments
-             , esdJavaExprs = esExprs initESG
              , esdInitialPathState = es^.esInitialPathState
              , esdInitialAssignments = reverse (es^.esInitialAssignments)
              , esdReturnValue    = es^.esReturnValue

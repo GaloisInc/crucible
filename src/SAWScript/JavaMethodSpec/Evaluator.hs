@@ -75,21 +75,18 @@ setArrayValuePS r n v =
 data EvalContext = EvalContext {
          ecContext :: SharedContext SAWCtx
        , ecLocals :: Map LocalVariableIndex SpecJavaValue
-       , ecJavaExprs :: [TC.JavaExpr]
        , ecPathState :: SpecPathState
        }
 
 evalContextFromPathState :: SharedContext SAWCtx
                          -> SpecPathState
-                         -> [TC.JavaExpr]
                          -> EvalContext
-evalContextFromPathState sc ps es =
+evalContextFromPathState sc ps =
   let Just f = currentCallFrame ps
       localMap = f ^. cfLocals
   in EvalContext {
          ecContext = sc
        , ecLocals = localMap
-       , ecJavaExprs = es
        , ecPathState = ps
        }
 
@@ -121,6 +118,10 @@ evalJavaExpr :: TC.JavaExpr -> EvalContext -> ExprEvaluator SpecJavaValue
 evalJavaExpr expr ec = eval expr
   where eval (CC.Term app) =
           case app of
+            TC.ReturnVal _ ->
+              case (ecPathState ec) ^. pathRetVal of
+                Just rv -> return rv
+                Nothing -> fail "Method does not (yet) have a return value."
             TC.Local _ idx _ ->
               case Map.lookup idx (ecLocals ec) of
                 Just v -> return v
@@ -180,7 +181,7 @@ evalLogicExpr :: TC.LogicExpr -> EvalContext
               -> ExprEvaluator (SharedTerm SAWCtx)
 evalLogicExpr initExpr ec = do
   let sc = ecContext ec
-      exprs = filter (not . TC.isClassJavaExpr) (ecJavaExprs ec)
+      exprs = TC.logicExprJavaExprs initExpr
   args <- forM exprs $ \expr -> do
     t <- evalJavaExprAsLogic expr ec
     return (expr, t)
