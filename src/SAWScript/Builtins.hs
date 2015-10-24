@@ -999,7 +999,7 @@ cexEvalFn sc args tm = do
 
 toValueCase :: (SV.FromValue b) =>
                SharedContext SAWCtx
-            -> (SharedContext SAWCtx -> b -> SV.Value -> SV.Value -> IO SV.Value)
+            -> (SharedContext SAWCtx -> b -> SV.Value -> SV.Value -> TopLevel SV.Value)
             -> SV.Value
 toValueCase sc prim =
   SV.VLambda $ \b -> return $
@@ -1009,32 +1009,32 @@ toValueCase sc prim =
 
 caseProofResultPrim :: SharedContext SAWCtx -> SV.ProofResult
                     -> SV.Value -> SV.Value
-                    -> IO SV.Value
+                    -> TopLevel SV.Value
 caseProofResultPrim sc pr vValid vInvalid = do
   case pr of
     SV.Valid -> return vValid
-    SV.Invalid v -> do t <- mkTypedTerm sc =<< scFiniteValue sc v
+    SV.Invalid v -> do t <- io $ mkTypedTerm sc =<< scFiniteValue sc v
                        SV.applyValue vInvalid (SV.toValue t)
     SV.InvalidMulti pairs -> do
       let fvs = map snd pairs
-      ts <- mapM (scFiniteValue sc) fvs
-      t <- scTuple sc ts
-      tt <- mkTypedTerm sc t
+      ts <- io $ mapM (scFiniteValue sc) fvs
+      t <- io $ scTuple sc ts
+      tt <- io $ mkTypedTerm sc t
       SV.applyValue vInvalid (SV.toValue tt)
 
 caseSatResultPrim :: SharedContext SAWCtx -> SV.SatResult
                   -> SV.Value -> SV.Value
-                  -> IO SV.Value
+                  -> TopLevel SV.Value
 caseSatResultPrim sc sr vUnsat vSat = do
   case sr of
     SV.Unsat -> return vUnsat
-    SV.Sat v -> do t <- mkTypedTerm sc =<< scFiniteValue sc v
+    SV.Sat v -> do t <- io $ mkTypedTerm sc =<< scFiniteValue sc v
                    SV.applyValue vSat (SV.toValue t)
     SV.SatMulti pairs -> do
       let fvs = map snd pairs
-      ts <- mapM (scFiniteValue sc) fvs
-      t <- scTuple sc ts
-      tt <- mkTypedTerm sc t
+      ts <- io $ mapM (scFiniteValue sc) fvs
+      t <- io $ scTuple sc ts
+      tt <- io $ mkTypedTerm sc t
       SV.applyValue vUnsat (SV.toValue tt)
 
 envCmd :: TopLevel ()

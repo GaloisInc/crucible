@@ -22,6 +22,7 @@ import Control.Applicative (Applicative)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (ReaderT(..), ask, asks)
 import Control.Monad.State (StateT(..), get, put)
+import Control.Monad.Trans.Class (lift)
 import Data.List ( intersperse )
 import qualified Data.Map as M
 import Data.Map ( Map )
@@ -62,7 +63,7 @@ data Value
   | VArray [Value]
   | VTuple [Value]
   | VRecord (Map SS.Name Value)
-  | VLambda (Value -> IO Value)
+  | VLambda (Value -> TopLevel Value)
   | VTerm (TypedTerm SAWCtx)
   | VType Cryptol.Schema
   | VReturn Value -- Returned value in unspecified monad
@@ -255,17 +256,17 @@ evaluateTypedTerm :: SharedContext s -> TypedTerm s -> C.Value
 evaluateTypedTerm sc (TypedTerm schema trm) =
   exportValueWithSchema schema (evaluate sc trm)
 
-applyValue :: Value -> Value -> IO Value
+applyValue :: Value -> Value -> TopLevel Value
 applyValue (VLambda f) x = f x
 applyValue _ _ = fail "applyValue"
 
 thenValue :: Value -> Value -> Value
 thenValue v1 v2 = VBind v1 (VLambda (const (return v2)))
 
-bindValue :: Value -> Value -> IO Value
+bindValue :: Value -> Value -> TopLevel Value
 bindValue v1 v2 = return (VBind v1 v2)
 
-forValue :: [Value] -> Value -> IO Value
+forValue :: [Value] -> Value -> TopLevel Value
 forValue [] _ = return $ VReturn (VArray [])
 forValue (x : xs) f =
   do m1 <- applyValue f x
@@ -409,7 +410,7 @@ instance FromValue a => FromValue (TopLevel a) where
     fromValue (VReturn v) = return (fromValue v)
     fromValue (VBind m1 v2) = do
       v1 <- fromValue m1
-      m2 <- io $ applyValue v2 v1
+      m2 <- applyValue v2 v1
       fromValue m2
     fromValue _ = error "fromValue TopLevel"
 
@@ -421,7 +422,7 @@ instance FromValue a => FromValue (StateT (ProofGoal SAWCtx) TopLevel a) where
     fromValue (VReturn v) = return (fromValue v)
     fromValue (VBind m1 v2) = do
       v1 <- fromValue m1
-      m2 <- liftIO $ applyValue v2 v1
+      m2 <- lift $ applyValue v2 v1
       fromValue m2
     fromValue _ = error "fromValue ProofScript"
 
@@ -433,7 +434,7 @@ instance FromValue a => FromValue (StateT JavaSetupState TopLevel a) where
     fromValue (VReturn v) = return (fromValue v)
     fromValue (VBind m1 v2) = do
       v1 <- fromValue m1
-      m2 <- liftIO $ applyValue v2 v1
+      m2 <- lift $ applyValue v2 v1
       fromValue m2
     fromValue _ = error "fromValue JavaSetup"
 
@@ -445,7 +446,7 @@ instance FromValue a => FromValue (StateT LLVMSetupState TopLevel a) where
     fromValue (VReturn v) = return (fromValue v)
     fromValue (VBind m1 v2) = do
       v1 <- fromValue m1
-      m2 <- liftIO $ applyValue v2 v1
+      m2 <- lift $ applyValue v2 v1
       fromValue m2
     fromValue _ = error "fromValue LLVMSetup"
 

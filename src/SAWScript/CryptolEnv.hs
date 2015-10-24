@@ -226,23 +226,27 @@ genTermEnv sc modEnv = do
 
 --------------------------------------------------------------------------------
 
-loadCryptolModule :: SharedContext s -> FilePath -> IO (CryptolModule s)
-loadCryptolModule sc path = do
-  (result, warnings) <- M.loadModuleByPath path =<< M.initialModuleEnv
-  mapM_ (print . pp) warnings
-  (m, modEnv) <-
-    case result of
-      Left err -> fail (show (pp err))
-      Right x -> return x
-  let ifaceDecls = getAllIfaceDecls modEnv
-  (types, _) <- liftModuleM modEnv $ do
+loadCryptolModule :: SharedContext s -> CryptolEnv s -> FilePath
+                     -> IO (CryptolModule s, CryptolEnv s)
+loadCryptolModule sc env path = do
+  let modEnv = eModuleEnv env
+  (m, modEnv') <- liftModuleM modEnv (MB.loadModuleByPath path)
+
+  let ifaceDecls = getAllIfaceDecls modEnv'
+  (types, modEnv'') <- liftModuleM modEnv' $ do
     prims <- MB.getPrimMap
     TM.inpVars `fmap` MB.genInferInput P.emptyRange prims ifaceDecls
-  terms <- genTermEnv sc modEnv
+
+  -- Regenerate SharedTerm environment.
+  let oldTermEnv = eTermEnv env
+  newTermEnv <- genTermEnv sc modEnv''
   let names = P.eBinds (T.mExports m) -- :: Set T.Name
   let tm' = Map.filterWithKey (\k _ -> Set.member k names) $
-            Map.intersectionWith TypedTerm types terms
-  return (CryptolModule tm')
+            Map.intersectionWith TypedTerm types newTermEnv
+  let env' = env { eModuleEnv = modEnv''
+                 , eTermEnv = Map.union newTermEnv oldTermEnv
+                 }
+  return (CryptolModule tm', env')
 
 bindCryptolModule :: forall s. (P.ModName, CryptolModule s) -> CryptolEnv s -> CryptolEnv s
 bindCryptolModule (modName, CryptolModule tm) env =

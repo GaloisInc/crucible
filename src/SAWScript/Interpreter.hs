@@ -37,7 +37,7 @@ import Control.Applicative
 import Data.Traversable hiding ( mapM )
 #endif
 import qualified Control.Exception as X
-import Control.Monad (foldM, unless, (>=>))
+import Control.Monad (unless, (>=>))
 import qualified Data.IntMap as IntMap
 import qualified Data.Map as Map
 import Data.Map ( Map )
@@ -91,6 +91,15 @@ import SAWScript.AutoMatch
 
 -- Environment -----------------------------------------------------------------
 
+type LocalBinding = (SS.LName, Maybe SS.Schema, Maybe String, Value)
+type LocalEnv = [LocalBinding]
+
+emptyLocal :: LocalEnv
+emptyLocal = []
+
+extendLocal :: SS.LName -> Maybe SS.Schema -> Maybe String -> Value -> LocalEnv -> LocalEnv
+extendLocal x mt md v env = (x, mt, md, v) : env
+
 maybeInsert :: Ord k => k -> Maybe a -> Map k a -> Map k a
 maybeInsert _ Nothing m = m
 maybeInsert k (Just x) m = Map.insert k x m
@@ -118,96 +127,107 @@ extendEnv x mt md v rw =
               -> CEnv.bindCryptolModule (modname, m) ce
             _ -> ce
 
--- | Variation that does not force the value argument: it assumes it
--- is not a term or int.
-extendEnv' :: SS.LName -> Maybe SS.Schema -> Maybe String -> Value -> TopLevelRW -> TopLevelRW
-extendEnv' x mt md v rw =
-  rw { rwValues  = Map.insert x v (rwValues rw)
-     , rwTypes   = maybeInsert x mt (rwTypes rw)
-     , rwDocs    = maybeInsert (getVal x) md (rwDocs rw)
-     }
+mergeLocalEnv :: LocalEnv -> TopLevelRW -> TopLevelRW
+mergeLocalEnv env rw = foldr addBinding rw env
+  where addBinding (x, mt, md, v) = extendEnv x mt md v
+
+getMergedEnv :: LocalEnv -> TopLevel TopLevelRW
+getMergedEnv env = mergeLocalEnv env `fmap` getTopLevelRW
 
 -- Interpretation of SAWScript -------------------------------------------------
 
-interpret :: TopLevelRO -> TopLevelRW -> SS.Expr -> IO Value
-interpret ro rw expr =
+interpret :: LocalEnv -> SS.Expr -> TopLevel Value
+interpret env expr =
     case expr of
       SS.Bit b               -> return $ VBool b
       SS.String s            -> return $ VString s
       SS.Z z                 -> return $ VInteger z
-      SS.Code str            -> toValue `fmap` CEnv.parseTypedTerm sc (rwCryptol rw) str
-      SS.CType str           -> toValue `fmap` CEnv.parseSchema (rwCryptol rw) str
-      SS.Array es            -> VArray <$> traverse (interpret ro rw) es
-      SS.Block stmts         -> interpretStmts ro rw stmts
-      SS.Tuple es            -> VTuple <$> traverse (interpret ro rw) es
-      SS.Record bs           -> VRecord <$> traverse (interpret ro rw) bs
-      SS.Index e1 e2         -> do a <- interpret ro rw e1
-                                   i <- interpret ro rw e2
+      SS.Code str            -> do sc <- getSharedContext
+                                   cenv <- fmap rwCryptol (getMergedEnv env)
+                                   --io $ putStrLn $ "Parsing code: " ++ show str
+                                   --showCryptolEnv' cenv
+                                   t <- io $ CEnv.parseTypedTerm sc cenv str
+                                   return (toValue t)
+      SS.CType str           -> do cenv <- fmap rwCryptol (getMergedEnv env)
+                                   s <- io $ CEnv.parseSchema cenv str
+                                   return (toValue s)
+      SS.Array es            -> VArray <$> traverse (interpret env) es
+      SS.Block stmts         -> interpretStmts env stmts
+      SS.Tuple es            -> VTuple <$> traverse (interpret env) es
+      SS.Record bs           -> VRecord <$> traverse (interpret env) bs
+      SS.Index e1 e2         -> do a <- interpret env e1
+                                   i <- interpret env e2
                                    return (indexValue a i)
-      SS.Lookup e n          -> do a <- interpret ro rw e
+      SS.Lookup e n          -> do a <- interpret env e
                                    return (lookupValue a n)
-      SS.TLookup e i         -> do a <- interpret ro rw e
+      SS.TLookup e i         -> do a <- interpret env e
                                    return (tupleLookupValue a i)
-      SS.Var x               -> case Map.lookup x (rwValues rw) of
-                                  Nothing -> fail $ "unknown variable: " ++ SS.getVal x
-                                  Just v -> return v
-
-      SS.Function x t e      -> do let rw' v = extendEnv x (fmap SS.tMono t) Nothing v rw
-                                       f v = interpret ro (rw' v) e
+      SS.Var x               -> do rw <- getMergedEnv env
+                                   case Map.lookup x (rwValues rw) of
+                                     Nothing -> fail $ "unknown variable: " ++ SS.getVal x
+                                     Just v -> return v
+      SS.Function x t e      -> do let f v = interpret
+                                             (extendLocal x (fmap SS.tMono t) Nothing v env) e
                                    return $ VLambda f
-      SS.Application e1 e2   -> do v1 <- interpret ro rw e1
-                                   v2 <- interpret ro rw e2
+      SS.Application e1 e2   -> do v1 <- interpret env e1
+                                   v2 <- interpret env e2
                                    case v1 of
                                      VLambda f -> f v2
                                      _ -> fail $ "interpret Application: " ++ show v1
-      SS.Let dg e            -> do rw' <- interpretDeclGroup ro rw dg
-                                   interpret ro rw' e
-      SS.TSig e _            -> interpret ro rw e
+      SS.Let dg e            -> do env' <- interpretDeclGroup env dg
+                                   interpret env' e
+      SS.TSig e _            -> interpret env e
 
-  where sc = roSharedContext ro
+interpretDecl :: LocalEnv -> SS.Decl -> TopLevel LocalEnv
+interpretDecl env (SS.Decl n mt expr) = do
+  v <- interpret env expr
+  return (extendLocal n mt Nothing v env)
 
-interpretDecl :: TopLevelRO -> TopLevelRW -> SS.Decl -> IO TopLevelRW
-interpretDecl ro rw (SS.Decl n mt expr) = do
-  v <- interpret ro rw expr
-  return (extendEnv n mt Nothing v rw)
-
-interpretFunction :: TopLevelRO -> TopLevelRW -> SS.Expr -> Value
-interpretFunction ro rw expr =
+interpretFunction :: LocalEnv -> SS.Expr -> Value
+interpretFunction env expr =
     case expr of
       SS.Function x t e -> VLambda f
-        where f v = interpret ro (extendEnv x (fmap SS.tMono t) Nothing v rw) e
-      SS.TSig e _ -> interpretFunction ro rw e
+        where f v = interpret (extendLocal x (fmap SS.tMono t) Nothing v env) e
+      SS.TSig e _ -> interpretFunction env e
       _ -> error "interpretFunction: not a function"
 
-interpretDeclGroup :: TopLevelRO -> TopLevelRW -> SS.DeclGroup -> IO TopLevelRW
-interpretDeclGroup ro rw (SS.NonRecursive d) =
-  interpretDecl ro rw d
-interpretDeclGroup ro rw (SS.Recursive ds) = return rw'
-  where rw' = foldr ($) rw [ extendEnv' n mty Nothing (interpretFunction ro rw' e) | SS.Decl n mty e <- ds ]
+interpretDeclGroup :: LocalEnv -> SS.DeclGroup -> TopLevel LocalEnv
+interpretDeclGroup env (SS.NonRecursive d) = interpretDecl env d
+interpretDeclGroup env (SS.Recursive ds) = return env'
+  where
+    env' = foldr addDecl env ds
+    addDecl (SS.Decl n mty e) = extendLocal n mty Nothing (interpretFunction env' e)
 
-interpretStmts :: TopLevelRO -> TopLevelRW -> [SS.Stmt] -> IO Value
-interpretStmts ro rw stmts =
+interpretStmts :: LocalEnv -> [SS.Stmt] -> TopLevel Value
+interpretStmts env stmts =
     case stmts of
       [] -> fail "empty block"
-      [SS.StmtBind Nothing _ _ e] -> interpret ro rw e
+      [SS.StmtBind Nothing _ _ e] -> interpret env e
       SS.StmtBind Nothing _ _ e : ss ->
-          do v1 <- interpret ro rw e
-             return $ VBind v1 $ VLambda $ const $ interpretStmts ro rw ss
+          do v1 <- interpret env e
+             bindValue v1 (VLambda (const (interpretStmts env ss)))
       SS.StmtBind (Just x) mt _ e : ss ->
-          do v1 <- interpret ro rw e
-             let f v = interpretStmts ro (extendEnv x (fmap SS.tMono mt) Nothing v rw) ss
+          do v1 <- interpret env e
+             let f v = interpretStmts (extendLocal x (fmap SS.tMono mt) Nothing v env) ss
              bindValue v1 (VLambda f)
-      SS.StmtLet bs : ss -> interpret ro rw (SS.Let bs (SS.Block ss))
+      SS.StmtLet bs : ss -> interpret env (SS.Let bs (SS.Block ss))
       SS.StmtCode s : ss ->
-          do ce' <- CEnv.parseDecls sc (rwCryptol rw) s
-             interpretStmts ro rw{rwCryptol = ce'} ss
+          do sc <- getSharedContext
+             rw <- getMergedEnv env
+             ce' <- io $ CEnv.parseDecls sc (rwCryptol rw) s
+             -- FIXME: Local bindings get saved into the global cryptol environment here.
+             -- We should change parseDecls to return only the new bindings instead.
+             putTopLevelRW $ rw{rwCryptol = ce'}
+             interpretStmts env ss
       SS.StmtImport _ : _ ->
           do fail "block import unimplemented"
-  where sc = roSharedContext ro
 
-processStmtBind :: Bool -> TopLevelRO -> TopLevelRW -> Maybe SS.LName
-                 -> Maybe SS.Type -> Maybe SS.Type -> SS.Expr -> IO TopLevelRW
-processStmtBind printBinds ro rw mx mt _mc expr = do
+stmtInterpreter :: StmtInterpreter
+stmtInterpreter ro rw stmts = fmap fst $ runTopLevel (interpretStmts emptyLocal stmts) ro rw
+
+processStmtBind :: Bool -> Maybe SS.LName
+                -> Maybe SS.Type -> Maybe SS.Type -> SS.Expr -> TopLevel ()
+processStmtBind printBinds mx mt _mc expr = do
   let it = SS.Located "it" "it" PosREPL
   let lname = maybe it id mx
   let ctx = SS.tContext SS.TopLevel
@@ -215,61 +235,76 @@ processStmtBind printBinds ro rw mx mt _mc expr = do
                 Nothing -> expr
                 Just t -> SS.TSig expr (SS.tBlock ctx t)
   let decl = SS.Decl lname Nothing expr'
+  rw <- getTopLevelRW
   let opts = rwPPOpts rw
 
-  SS.Decl _ (Just schema) expr'' <- reportErrT $ checkDecl (rwTypes rw) decl
+  SS.Decl _ (Just schema) expr'' <- io $ reportErrT $ checkDecl (rwTypes rw) decl
 
-  val <- interpret ro rw expr''
+  val <- interpret emptyLocal expr''
 
   -- Run the resulting TopLevel action.
-  (result, ty, rw') <-
+  (result, ty) <-
     case schema of
       SS.Forall [] t ->
         case t of
           SS.TyCon SS.BlockCon [c, t'] | c == ctx -> do
-            (result, rw') <- runTopLevel (SAWScript.Value.fromValue val) ro rw
-            return (result, t', rw')
-          _ -> return (val, t, rw)
+            result <- SAWScript.Value.fromValue val
+            return (result, t')
+          _ -> return (val, t)
       _ -> fail $ "Not a monomorphic type: " ++ SS.pShow schema
+  --io $ putStrLn $ "Top-level bind: " ++ show mx
+  --showCryptolEnv
 
   -- Print non-unit result if it was not bound to a variable
   case mx of
-    Nothing | printBinds && not (isVUnit result) -> putStrLn (showsPrecValue opts 0 result "")
+    Nothing | printBinds && not (isVUnit result) -> io $ putStrLn (showsPrecValue opts 0 result "")
     _                                            -> return ()
 
   -- Print function type if result was a function
   case ty of
-    SS.TyCon SS.FunCon _ -> putStrLn $ getVal lname ++ " : " ++ SS.pShow ty
+    SS.TyCon SS.FunCon _ -> io $ putStrLn $ getVal lname ++ " : " ++ SS.pShow ty
     _ -> return ()
 
-  let rw'' = extendEnv lname (Just (SS.tMono ty)) Nothing result rw'
-  return rw''
+  rw' <- getTopLevelRW
+  putTopLevelRW $ extendEnv lname (Just (SS.tMono ty)) Nothing result rw'
 
 -- | Interpret a block-level statement in the TopLevel monad.
-interpretStmt :: Bool -> TopLevelRO -> TopLevelRW -> SS.Stmt -> IO TopLevelRW
-interpretStmt printBinds ro rw stmt =
+interpretStmt :: Bool -> SS.Stmt -> TopLevel ()
+interpretStmt printBinds stmt =
   case stmt of
-    SS.StmtBind mx mt mc expr -> processStmtBind printBinds ro rw mx mt mc expr
-    SS.StmtLet dg             -> do dg' <- reportErrT (checkDeclGroup (rwTypes rw) dg)
-                                    interpretDeclGroup ro rw dg'
-    SS.StmtCode lstr          -> do cenv' <- CEnv.parseDecls sc (rwCryptol rw) lstr
-                                    return rw { rwCryptol = cenv' }
-    SS.StmtImport imp         -> do cenv' <- CEnv.importModule sc (rwCryptol rw) imp
-                                    return rw { rwCryptol = cenv' }
-  where sc = roSharedContext ro
+    SS.StmtBind mx mt mc expr -> processStmtBind printBinds mx mt mc expr
+    SS.StmtLet dg             -> do rw <- getTopLevelRW
+                                    dg' <- io $ reportErrT (checkDeclGroup (rwTypes rw) dg)
+                                    env <- interpretDeclGroup emptyLocal dg'
+                                    getMergedEnv env >>= putTopLevelRW
+    SS.StmtCode lstr          -> do rw <- getTopLevelRW
+                                    sc <- getSharedContext
+                                    --io $ putStrLn $ "Processing toplevel code: " ++ show lstr
+                                    --showCryptolEnv
+                                    cenv' <- io $ CEnv.parseDecls sc (rwCryptol rw) lstr
+                                    putTopLevelRW $ rw { rwCryptol = cenv' }
+                                    --showCryptolEnv
+    SS.StmtImport imp         -> do rw <- getTopLevelRW
+                                    sc <- getSharedContext
+                                    --showCryptolEnv
+                                    cenv' <- io $ CEnv.importModule sc (rwCryptol rw) imp
+                                    putTopLevelRW $ rw { rwCryptol = cenv' }
+                                    --showCryptolEnv
 
-interpretFile :: TopLevelRO -> TopLevelRW -> FilePath -> IO TopLevelRW
-interpretFile ro rw file = do
-  stmts <- SAWScript.Import.loadFile (roOptions ro) file
-  foldM (interpretStmt False ro) rw stmts
+interpretFile :: FilePath -> TopLevel ()
+interpretFile file = do
+  opts <- getOptions
+  stmts <- io $ SAWScript.Import.loadFile opts file
+  mapM_ (interpretStmt False) stmts
 
 -- | Evaluate the value called 'main' from the current environment.
-interpretMain :: TopLevelRO -> TopLevelRW -> IO ()
-interpretMain ro rw =
+interpretMain :: TopLevel ()
+interpretMain = do
+  rw <- getTopLevelRW
+  let mainName = Located "main" "main" (PosInternal "entry")
   case Map.lookup mainName (rwValues rw) of
     Nothing -> return () -- fail "No 'main' defined"
-    Just v -> fst <$> runTopLevel (fromValue v) ro rw
-  where mainName = Located "main" "main" (PosInternal "entry")
+    Just v -> fromValue v
 
 buildTopLevelEnv :: Options -> IO (BuiltinContext, TopLevelRO, TopLevelRW)
 buildTopLevelEnv opts =
@@ -316,17 +351,13 @@ buildTopLevelEnv opts =
 processFile :: Options -> FilePath -> IO ()
 processFile opts file = do
   (_, ro, rw) <- buildTopLevelEnv opts
-  rw' <- interpretFile ro rw file
-  interpretMain ro rw'
+  _ <- runTopLevel (interpretFile file >> interpretMain) ro rw
+  return ()
 
 -- Primitives ------------------------------------------------------------------
 
 include_value :: FilePath -> TopLevel ()
-include_value file = do
-  ro <- getTopLevelRO
-  rw <- getTopLevelRW
-  rw' <- io $ interpretFile ro rw file
-  putTopLevelRW rw'
+include_value file = interpretFile file
 
 set_ascii :: Bool -> TopLevel ()
 set_ascii b = do
@@ -355,6 +386,15 @@ print_value (VTerm t) = do
 print_value v = do
   opts <- fmap rwPPOpts getTopLevelRW
   io $ putStrLn (showsPrecValue opts 0 v "")
+
+cryptol_load :: FilePath -> TopLevel (CryptolModule SAWCtx)
+cryptol_load path = do
+  sc <- getSharedContext
+  rw <- getTopLevelRW
+  let ce = rwCryptol rw
+  (m, ce') <- io $ CEnv.loadCryptolModule sc ce path
+  putTopLevelRW $ rw { rwCryptol = ce' }
+  return m
 
 rethrowEvalError :: IO a -> IO a
 rethrowEvalError m = run `X.catch` rethrow
@@ -648,7 +688,7 @@ primitives = Map.fromList
     [ "Write out a representation of a term in SAWCore external format." ]
 
   , prim "auto_match" "String -> String -> TopLevel ()"
-    (pureVal (autoMatch interpretStmts :: FilePath -> FilePath -> TopLevel ()))
+    (pureVal (autoMatch stmtInterpreter :: FilePath -> FilePath -> TopLevel ()))
     [ "Interactively decides how to align two modules of potentially heterogeneous"
     , "language and prints the result."
     ]
@@ -877,7 +917,7 @@ primitives = Map.fromList
     [ "Reduce the given term to beta-normal form." ]
 
   , prim "cryptol_load"        "String -> TopLevel CryptolModule"
-    (scVal CEnv.loadCryptolModule)
+    (pureVal cryptol_load)
     [ "Load the given file as a Cryptol module." ]
 
   , prim "cryptol_extract"     "CryptolModule -> String -> TopLevel Term"

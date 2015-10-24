@@ -66,7 +66,7 @@ import SAWScript.Interpreter
 import qualified SAWScript.Lexer (scan)
 import qualified SAWScript.Parser (parseStmtSemi)
 import qualified SAWScript.Value (evaluate)
-import SAWScript.TopLevel (TopLevelRW(..))
+import SAWScript.TopLevel (TopLevelRW(..), runTopLevel)
 import SAWScript.TypedTerm
 import SAWScript.Utils (Pos(..))
 
@@ -584,7 +584,7 @@ sawScriptCmd str = do
   stmt <- err $ liftParser SAWScript.Parser.parseStmtSemi tokens
   ro <- getTopLevelRO
   ie <- getEnvironment
-  ie' <- io $ interpretStmt True ro ie stmt
+  ((), ie') <- io $ runTopLevel (interpretStmt True stmt) ro ie
   putEnvironment ie'
 
 replFileName :: String
