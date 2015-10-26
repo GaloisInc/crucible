@@ -860,26 +860,26 @@ primitives = Map.fromList
     (pureVal (emptySimpset :: Simpset (SharedTerm SAWCtx)))
     [ "The empty simplification rule set, containing no rules." ]
 
-  , prim "cryptol_ss"          "TopLevel Simpset"
-    (pureVal cryptolSimpset)
+  , prim "cryptol_ss"          "() -> Simpset"
+    (funVal1 (\() -> cryptolSimpset))
     [ "A set of simplification rules that will expand definitions from the"
     , "Cryptol module."
     ]
 
-  , prim "add_prelude_eqs"     "[String] -> Simpset -> TopLevel Simpset"
-    (pureVal addPreludeEqs)
+  , prim "add_prelude_eqs"     "[String] -> Simpset -> Simpset"
+    (funVal2 addPreludeEqs)
     [ "Add the named equality rules from the Prelude module to the given"
     , "simplification rule set."
     ]
 
-  , prim "add_cryptol_eqs"     "[String] -> Simpset -> TopLevel Simpset"
-    (pureVal addCryptolEqs)
+  , prim "add_cryptol_eqs"     "[String] -> Simpset -> Simpset"
+    (funVal2 addCryptolEqs)
     [ "Add the named equality rules from the Cryptol module to the given"
     , "simplification rule set."
     ]
 
-  , prim "add_prelude_defs"    "[String] -> Simpset -> TopLevel Simpset"
-    (pureVal addPreludeDefs)
+  , prim "add_prelude_defs"    "[String] -> Simpset -> Simpset"
+    (funVal2 addPreludeDefs)
     [ "Add the named definitions from the Prelude module to the given"
     , "simplification rule set."
     ]
@@ -902,18 +902,18 @@ primitives = Map.fromList
     (pureVal addsimps')
     [ "Add arbitrary equality terms to a given simplification rule set." ]
 
-  , prim "rewrite"             "Simpset -> Term -> TopLevel Term"
-    (pureVal rewritePrim)
+  , prim "rewrite"             "Simpset -> Term -> Term"
+    (funVal2 rewritePrim)
     [ "Rewrite a term using a specific simplification rule set, returning"
     , "the rewritten term"
     ]
 
-  , prim "unfold_term"         "[String] -> Term -> TopLevel Term"
-    (pureVal unfold_term)
+  , prim "unfold_term"         "[String] -> Term -> Term"
+    (funVal2 unfold_term)
     [ "Unfold the definitions of the specified constants in the given term." ]
 
-  , prim "beta_reduce_term"    "Term -> TopLevel Term"
-    (pureVal beta_reduce_term)
+  , prim "beta_reduce_term"    "Term -> Term"
+    (funVal1 beta_reduce_term)
     [ "Reduce the given term to beta-normal form." ]
 
   , prim "cryptol_load"        "String -> TopLevel CryptolModule"
@@ -1270,6 +1270,15 @@ primitives = Map.fromList
 
     pureVal :: forall t. IsValue t => t -> Options -> BuiltinContext -> Value
     pureVal x _ _ = toValue x
+
+    funVal1 :: forall a t. (FromValue a, IsValue t) => (a -> TopLevel t)
+               -> Options -> BuiltinContext -> Value
+    funVal1 f _ _ = VLambda $ \a -> fmap toValue (f (fromValue a))
+
+    funVal2 :: forall a b t. (FromValue a, FromValue b, IsValue t) => (a -> b -> TopLevel t)
+               -> Options -> BuiltinContext -> Value
+    funVal2 f _ _ = VLambda $ \a -> return $ VLambda $ \b ->
+      fmap toValue (f (fromValue a) (fromValue b))
 
     scVal :: forall t. IsValue t =>
              (SharedContext SAWCtx -> t) -> Options -> BuiltinContext -> Value
