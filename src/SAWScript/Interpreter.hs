@@ -694,7 +694,7 @@ primitives = Map.fromList
     ]
 
   , prim "prove"               "ProofScript SatResult -> Term -> TopLevel ProofResult"
-    (scVal provePrim)
+    (pureVal provePrim)
     [ "Use the given proof script to attempt to prove that a term is valid"
     , "(true for all inputs). Returns a proof result that can be analyzed"
     , "with 'caseProofResult' to determine whether it represents a successful"
@@ -702,14 +702,14 @@ primitives = Map.fromList
     ]
 
   , prim "prove_print"         "ProofScript SatResult -> Term -> TopLevel Theorem"
-    (scVal provePrintPrim)
+    (pureVal provePrintPrim)
     [ "Use the given proof script to attempt to prove that a term is valid"
     , "(true for all inputs). Returns a Theorem if successful, and aborts"
     , "if unsuccessful."
     ]
 
   , prim "sat"                 "ProofScript SatResult -> Term -> TopLevel SatResult"
-    (scVal satPrim)
+    (pureVal satPrim)
     [ "Use the given proof script to attempt to prove that a term is"
     , "satisfiable (true for any input). Returns a proof result that can"
     , "be analyzed with 'caseSatResult' to determine whether it represents"
@@ -717,7 +717,7 @@ primitives = Map.fromList
     ]
 
   , prim "sat_print"           "ProofScript SatResult -> Term -> TopLevel ()"
-    (scVal satPrintPrim)
+    (pureVal satPrintPrim)
     [ "Use the given proof script to attempt to prove that a term is"
     , "satisfiable (true for any input). Returns nothing if successful, and"
     , "aborts if unsuccessful."
@@ -741,15 +741,15 @@ primitives = Map.fromList
     ]
 
   , prim "unfolding"           "[String] -> ProofScript ()"
-    (scVal unfoldGoal)
+    (pureVal unfoldGoal)
     [ "Unfold the named subterm(s) within the current goal." ]
 
   , prim "simplify"            "Simpset -> ProofScript ()"
-    (scVal simplifyGoal)
+    (pureVal simplifyGoal)
     [ "Apply the given simplifier rule set to the current goal." ]
 
   , prim "beta_reduce_goal"    "ProofScript ()"
-    (scVal beta_reduce_goal)
+    (pureVal beta_reduce_goal)
     [ "Reduce the current goal to beta-normal form." ]
 
   , prim "print_goal"          "ProofScript ()"
@@ -861,25 +861,25 @@ primitives = Map.fromList
     [ "The empty simplification rule set, containing no rules." ]
 
   , prim "cryptol_ss"          "TopLevel Simpset"
-    (scVal cryptolSimpset)
+    (pureVal cryptolSimpset)
     [ "A set of simplification rules that will expand definitions from the"
     , "Cryptol module."
     ]
 
   , prim "add_prelude_eqs"     "[String] -> Simpset -> TopLevel Simpset"
-    (scVal addPreludeEqs)
+    (pureVal addPreludeEqs)
     [ "Add the named equality rules from the Prelude module to the given"
     , "simplification rule set."
     ]
 
   , prim "add_cryptol_eqs"     "[String] -> Simpset -> TopLevel Simpset"
-    (scVal addCryptolEqs)
+    (pureVal addCryptolEqs)
     [ "Add the named equality rules from the Cryptol module to the given"
     , "simplification rule set."
     ]
 
   , prim "add_prelude_defs"    "[String] -> Simpset -> TopLevel Simpset"
-    (scVal addPreludeDefs)
+    (pureVal addPreludeDefs)
     [ "Add the named definitions from the Prelude module to the given"
     , "simplification rule set."
     ]
@@ -887,33 +887,33 @@ primitives = Map.fromList
   --, prim "basic_ss"            "Simpset"
 
   , prim "addsimp"             "Theorem -> Simpset -> Simpset"
-    (scVal addsimp)
+    (pureVal addsimp)
     [ "Add a proved equality theorem to a given simplification rule set." ]
 
   , prim "addsimp'"            "Term -> Simpset -> Simpset"
-    (scVal addsimp')
+    (pureVal addsimp')
     [ "Add an arbitrary equality term to a given simplification rule set." ]
 
   , prim "addsimps"            "[Theorem] -> Simpset -> Simpset"
-    (scVal addsimps)
+    (pureVal addsimps)
     [ "Add proved equality theorems to a given simplification rule set." ]
 
   , prim "addsimps'"           "[Term] -> Simpset -> Simpset"
-    (scVal addsimps')
+    (pureVal addsimps')
     [ "Add arbitrary equality terms to a given simplification rule set." ]
 
   , prim "rewrite"             "Simpset -> Term -> TopLevel Term"
-    (scVal rewritePrim)
+    (pureVal rewritePrim)
     [ "Rewrite a term using a specific simplification rule set, returning"
     , "the rewritten term"
     ]
 
   , prim "unfold_term"         "[String] -> Term -> TopLevel Term"
-    (scVal unfold_term)
+    (pureVal unfold_term)
     [ "Unfold the definitions of the specified constants in the given term." ]
 
   , prim "beta_reduce_term"    "Term -> TopLevel Term"
-    (scVal beta_reduce_term)
+    (pureVal beta_reduce_term)
     [ "Reduce the given term to beta-normal form." ]
 
   , prim "cryptol_load"        "String -> TopLevel CryptolModule"
@@ -1211,7 +1211,7 @@ primitives = Map.fromList
     ]
 
   , prim "caseSatResult"       "{b} SatResult -> b -> (Term -> b) -> b"
-    (\_ bic -> toValueCase (biSharedContext bic) caseSatResultPrim)
+    (\_ _ -> toValueCase caseSatResultPrim)
     [ "Branch on the result of SAT solving."
     , ""
     , "Usage: caseSatResult <code to run if unsat> <code to run if sat>."
@@ -1227,7 +1227,7 @@ primitives = Map.fromList
     ]
 
   , prim "caseProofResult"     "{b} ProofResult -> b -> (Term -> b) -> b"
-    (\_ bic -> toValueCase (biSharedContext bic) caseProofResultPrim)
+    (\_ _ -> toValueCase caseProofResultPrim)
     [ "Branch on the result of proofing."
     , ""
     , "Usage: caseProofResult <code to run if true> <code to run if false>."

@@ -494,20 +494,23 @@ printGoalSExp' n = StateT $ \goal -> do
   io $ print (ppSharedTermSExpWith cfg (ttTerm (goalTerm goal)))
   return ((), goal)
 
-unfoldGoal :: SharedContext s -> [String] -> ProofScript s ()
-unfoldGoal sc names = StateT $ \goal -> do
+unfoldGoal :: [String] -> ProofScript SAWCtx ()
+unfoldGoal names = StateT $ \goal -> do
+  sc <- getSharedContext
   let TypedTerm schema trm = goalTerm goal
   trm' <- io $ scUnfoldConstants sc names trm
   return ((), goal { goalTerm = TypedTerm schema trm' })
 
-simplifyGoal :: SharedContext s -> Simpset (SharedTerm s) -> ProofScript s ()
-simplifyGoal sc ss = StateT $ \goal -> do
+simplifyGoal :: Simpset (SharedTerm SAWCtx) -> ProofScript SAWCtx ()
+simplifyGoal ss = StateT $ \goal -> do
+  sc <- getSharedContext
   let TypedTerm schema trm = goalTerm goal
   trm' <- io $ rewriteSharedTerm sc ss trm
   return ((), goal { goalTerm = TypedTerm schema trm' })
 
-beta_reduce_goal :: SharedContext s -> ProofScript s ()
-beta_reduce_goal sc = StateT $ \goal -> do
+beta_reduce_goal :: ProofScript SAWCtx ()
+beta_reduce_goal = StateT $ \goal -> do
+  sc <- getSharedContext
   let TypedTerm schema trm = goalTerm goal
   trm' <- io $ betaNormalize sc trm
   return ((), goal { goalTerm = TypedTerm schema trm' })
@@ -818,32 +821,32 @@ liftCexBB tys bs =
 
 -- | Translate a @SharedTerm@ representing a theorem for input to the
 -- given validity-checking script and attempt to prove it.
-provePrim :: SharedContext s -> ProofScript s SV.SatResult
-          -> TypedTerm s -> TopLevel SV.ProofResult
-provePrim _sc script t = do
+provePrim :: ProofScript SAWCtx SV.SatResult
+          -> TypedTerm SAWCtx -> TopLevel SV.ProofResult
+provePrim script t = do
   io $ checkBooleanSchema (ttSchema t)
   r <- evalStateT script (ProofGoal Universal "prove" t)
   return (SV.flipSatResult r)
 
-provePrintPrim :: SharedContext s -> ProofScript s SV.SatResult
-               -> TypedTerm s -> TopLevel (Theorem s)
-provePrintPrim _sc script t = do
-  r <- provePrim _sc script t
+provePrintPrim :: ProofScript SAWCtx SV.SatResult
+               -> TypedTerm SAWCtx -> TopLevel (Theorem SAWCtx)
+provePrintPrim script t = do
+  r <- provePrim script t
   opts <- rwPPOpts <$> getTopLevelRW
   case r of
     SV.Valid -> io (putStrLn "Valid") >> return (Theorem t)
     _ -> fail (SV.showsProofResult opts r "")
 
-satPrim :: SharedContext s -> ProofScript s SV.SatResult -> TypedTerm s
+satPrim :: ProofScript SAWCtx SV.SatResult -> TypedTerm SAWCtx
         -> TopLevel SV.SatResult
-satPrim _sc script t = do
+satPrim script t = do
   io $ checkBooleanSchema (ttSchema t)
   evalStateT script (ProofGoal Existential "sat" t)
 
-satPrintPrim :: SharedContext s -> ProofScript s SV.SatResult
-             -> TypedTerm s -> TopLevel ()
-satPrintPrim _sc script t = do
-  result <- satPrim _sc script t
+satPrintPrim :: ProofScript SAWCtx SV.SatResult
+             -> TypedTerm SAWCtx -> TopLevel ()
+satPrintPrim script t = do
+  result <- satPrim script t
   opts <- rwPPOpts <$> getTopLevelRW
   io $ putStrLn (SV.showsSatResult opts result "")
 
@@ -866,69 +869,77 @@ quickCheckPrintPrim sc numTests tt = do
       "term has non-testable type:\n" ++
       pretty (ttSchema tt)
 
-cryptolSimpset :: SharedContext s -> IO (Simpset (SharedTerm s))
-cryptolSimpset sc = scSimpset sc cryptolDefs [] []
+cryptolSimpset :: TopLevel (Simpset (SharedTerm SAWCtx))
+cryptolSimpset = do
+  sc <- getSharedContext
+  io $ scSimpset sc cryptolDefs [] []
   where cryptolDefs = filter (not . excluded) $
                       moduleDefs CryptolSAW.cryptolModule
         excluded d = defIdent d `elem` [ "Cryptol.fix" ]
 
-addPreludeEqs :: SharedContext s -> [String] -> Simpset (SharedTerm s)
-              -> IO (Simpset (SharedTerm s))
-addPreludeEqs sc names ss = do
-  eqRules <- mapM (scEqRewriteRule sc) (map qualify names)
+addPreludeEqs :: [String] -> Simpset (SharedTerm SAWCtx)
+              -> TopLevel (Simpset (SharedTerm SAWCtx))
+addPreludeEqs names ss = do
+  sc <- getSharedContext
+  eqRules <- io $ mapM (scEqRewriteRule sc) (map qualify names)
   return (addRules eqRules ss)
     where qualify = mkIdent (mkModuleName ["Prelude"])
 
-addCryptolEqs :: SharedContext s -> [String] -> Simpset (SharedTerm s)
-              -> IO (Simpset (SharedTerm s))
-addCryptolEqs sc names ss = do
-  eqRules <- mapM (scEqRewriteRule sc) (map qualify names)
+addCryptolEqs :: [String] -> Simpset (SharedTerm SAWCtx)
+              -> TopLevel (Simpset (SharedTerm SAWCtx))
+addCryptolEqs names ss = do
+  sc <- getSharedContext
+  eqRules <- io $ mapM (scEqRewriteRule sc) (map qualify names)
   return (addRules eqRules ss)
     where qualify = mkIdent (mkModuleName ["Cryptol"])
 
-addPreludeDefs :: SharedContext s -> [String] -> Simpset (SharedTerm s)
-              -> IO (Simpset (SharedTerm s))
-addPreludeDefs sc names ss = do
-  defs <- mapM getDef names -- FIXME: warn if not found
-  defRules <- concat <$> (mapM (scDefRewriteRules sc) defs)
+addPreludeDefs :: [String] -> Simpset (SharedTerm SAWCtx)
+              -> TopLevel (Simpset (SharedTerm SAWCtx))
+addPreludeDefs names ss = do
+  sc <- getSharedContext
+  defs <- io $ mapM (getDef sc) names -- FIXME: warn if not found
+  defRules <- io $ concat <$> (mapM (scDefRewriteRules sc) defs)
   return (addRules defRules ss)
     where qualify = mkIdent (mkModuleName ["Prelude"])
-          getDef n =
+          getDef sc n =
             case findDef (scModule sc) (qualify n) of
               Just d -> return d
               Nothing -> fail $ "Prelude definition " ++ n ++ " not found"
 
-rewritePrim :: SharedContext s -> Simpset (SharedTerm s) -> TypedTerm s -> IO (TypedTerm s)
-rewritePrim sc ss (TypedTerm schema t) = do
-  t' <- rewriteSharedTerm sc ss t
+rewritePrim :: Simpset (SharedTerm SAWCtx) -> TypedTerm SAWCtx -> TopLevel (TypedTerm SAWCtx)
+rewritePrim ss (TypedTerm schema t) = do
+  sc <- getSharedContext
+  t' <- io $ rewriteSharedTerm sc ss t
   return (TypedTerm schema t')
 
-unfold_term :: SharedContext s -> [String] -> TypedTerm s -> IO (TypedTerm s)
-unfold_term sc names (TypedTerm schema t) = do
-  t' <- scUnfoldConstants sc names t
+unfold_term :: [String] -> TypedTerm SAWCtx -> TopLevel (TypedTerm SAWCtx)
+unfold_term names (TypedTerm schema t) = do
+  sc <- getSharedContext
+  t' <- io $ scUnfoldConstants sc names t
   return (TypedTerm schema t')
 
-beta_reduce_term :: SharedContext s -> TypedTerm s -> IO (TypedTerm s)
-beta_reduce_term sc (TypedTerm schema t) = do
-  t' <- betaNormalize sc t
+beta_reduce_term :: TypedTerm SAWCtx -> TopLevel (TypedTerm SAWCtx)
+beta_reduce_term (TypedTerm schema t) = do
+  sc <- getSharedContext
+  t' <- io $ betaNormalize sc t
   return (TypedTerm schema t')
 
-addsimp :: SharedContext s -> Theorem s -> Simpset (SharedTerm s)
-        -> Simpset (SharedTerm s)
-addsimp _sc (Theorem t) ss = addRule (ruleOfProp (ttTerm t)) ss
+addsimp :: Theorem SAWCtx -> Simpset (SharedTerm SAWCtx)
+        -> Simpset (SharedTerm SAWCtx)
+addsimp (Theorem t) ss = addRule (ruleOfProp (ttTerm t)) ss
 
-addsimp' :: SharedContext s -> SharedTerm s -> Simpset (SharedTerm s)
-         -> Simpset (SharedTerm s)
-addsimp' _sc t ss = addRule (ruleOfProp t) ss
+addsimp' :: SharedTerm SAWCtx -> Simpset (SharedTerm SAWCtx)
+         -> Simpset (SharedTerm SAWCtx)
+addsimp' t ss = addRule (ruleOfProp t) ss
 
-addsimps :: SharedContext s -> [Theorem s] -> Simpset (SharedTerm s)
-         -> Simpset (SharedTerm s)
-addsimps _sc thms ss =
+addsimps :: [Theorem SAWCtx] -> Simpset (SharedTerm SAWCtx)
+         -> Simpset (SharedTerm SAWCtx)
+addsimps thms ss =
   foldr (\thm -> addRule (ruleOfProp (ttTerm (thmTerm thm)))) ss thms
 
-addsimps' :: SharedContext s -> [SharedTerm s] -> Simpset (SharedTerm s)
-          -> Simpset (SharedTerm s)
-addsimps' _sc ts ss = foldr (\t -> addRule (ruleOfProp t)) ss ts
+addsimps' :: [SharedTerm SAWCtx] -> Simpset (SharedTerm SAWCtx)
+          -> Simpset (SharedTerm SAWCtx)
+addsimps' ts ss = foldr (\t -> addRule (ruleOfProp t)) ss ts
 
 print_type :: SharedTerm SAWCtx -> TopLevel ()
 print_type t = do
@@ -943,9 +954,6 @@ check_term t = do
 printTermSExp' :: Int -> SharedTerm SAWCtx -> TopLevel ()
 printTermSExp' n =
   io . print . ppSharedTermSExpWith (defaultPPConfig { ppMaxDepth = Just n })
-
-checkTypedTerm :: SharedContext s -> TypedTerm s -> IO ()
-checkTypedTerm sc (TypedTerm _schema t) = scTypeCheckError sc t >>= print
 
 fixPos :: Pos
 fixPos = PosInternal "FIXME"
@@ -998,19 +1006,19 @@ cexEvalFn sc args tm = do
   return $ Concrete.evalSharedTerm (scModule sc) concretePrimitives tm'
 
 toValueCase :: (SV.FromValue b) =>
-               SharedContext SAWCtx
-            -> (SharedContext SAWCtx -> b -> SV.Value -> SV.Value -> TopLevel SV.Value)
+               (b -> SV.Value -> SV.Value -> TopLevel SV.Value)
             -> SV.Value
-toValueCase sc prim =
+toValueCase prim =
   SV.VLambda $ \b -> return $
   SV.VLambda $ \v1 -> return $
   SV.VLambda $ \v2 ->
-  prim sc (SV.fromValue b) v1 v2
+  prim (SV.fromValue b) v1 v2
 
-caseProofResultPrim :: SharedContext SAWCtx -> SV.ProofResult
+caseProofResultPrim :: SV.ProofResult
                     -> SV.Value -> SV.Value
                     -> TopLevel SV.Value
-caseProofResultPrim sc pr vValid vInvalid = do
+caseProofResultPrim pr vValid vInvalid = do
+  sc <- getSharedContext
   case pr of
     SV.Valid -> return vValid
     SV.Invalid v -> do t <- io $ mkTypedTerm sc =<< scFiniteValue sc v
@@ -1022,10 +1030,11 @@ caseProofResultPrim sc pr vValid vInvalid = do
       tt <- io $ mkTypedTerm sc t
       SV.applyValue vInvalid (SV.toValue tt)
 
-caseSatResultPrim :: SharedContext SAWCtx -> SV.SatResult
+caseSatResultPrim :: SV.SatResult
                   -> SV.Value -> SV.Value
                   -> TopLevel SV.Value
-caseSatResultPrim sc sr vUnsat vSat = do
+caseSatResultPrim sr vUnsat vSat = do
+  sc <- getSharedContext
   case sr of
     SV.Unsat -> return vUnsat
     SV.Sat v -> do t <- io $ mkTypedTerm sc =<< scFiniteValue sc v
