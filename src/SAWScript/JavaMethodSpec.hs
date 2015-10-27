@@ -449,6 +449,71 @@ pvcgFail :: Doc -> PathVCGenerator ()
 pvcgFail msg =
   modify $ \pvc -> pvc { pvcStaticErrors = msg : pvcStaticErrors pvc }
 
+pvcgDeepAssertEq :: String
+                 -> Path (SharedContext SAWCtx)
+                 -> SpecJavaValue
+                 -> ExpectedStateDef
+                 -> SpecJavaValue
+                 -> PathVCGenerator ()
+pvcgDeepAssertEq _ _ jv _ sv | jv == sv = return ()
+pvcgDeepAssertEq name _ (IValue jv) _ (IValue sv) =
+  pvcgAssertEq name jv sv
+pvcgDeepAssertEq name _ (LValue jv) _ (LValue sv) =
+  pvcgAssertEq name jv sv
+pvcgDeepAssertEq name ps (RValue jref) esd (RValue sref)  = do
+  let psScalarArrays = ps ^. pathMemory . memScalarArrays
+  case (Map.lookup jref psScalarArrays, esdArrayValue sref esd) of
+    (Just _, NoExpectedValue) ->
+      pvcgFail $ ftext "Assigned value to array when none expected."
+    (Just _, AnyExpectedValue) -> return ()
+    (Just (jlen, jval), AssignedExpectedValue (slen, sval))
+      | jlen == slen -> pvcgAssertEq name jval sval
+      | otherwise -> pvcgFail $ ftext "Array changed size."
+    (Nothing, NoExpectedValue) -> return ()
+    (Nothing, AnyExpectedValue) ->
+      pvcgFail $ ftext "No value assigned when arbitrary change expected."
+    (Nothing, AssignedExpectedValue _) ->
+      pvcgFail $ ftext "No value assigned when specific change expected."
+  let instanceFields = Map.mergeWithKey pairUp pairLeft pairRight
+                       (pathRefInstanceFields ps jref)
+                       (esdRefInstanceFields esd sref)
+      pairUp _ a b = Just (Just a, Just b)
+      pairLeft = fmap (\a -> (Just a, Nothing))
+      pairRight = fmap (\b -> (Nothing, Just b))
+  forM_ (Map.toList instanceFields) $ \(fid, (mjval, msval)) ->
+    case (mjval, msval) of
+      -- Specified modification
+      (Just jval, Just (Just sval)) ->
+        pvcgDeepAssertEq (name ++ "." ++ fieldIdName fid) ps jval esd sval
+      -- Arbitrary modification
+      (Just _, Just Nothing) -> return ()
+      (Just _, Nothing) -> pvcgFail $ ftext "Disallowed modification"
+      (Nothing, Just (Just _)) ->
+        pvcgFail $ ftext "No value assigned when specific change expected."
+      (Nothing, Just Nothing) ->
+        pvcgFail $ ftext "No value assigned when arbitrary change expected."
+      (Nothing, Nothing) -> return ()
+pvcgDeepAssertEq name _ _ _ _ =
+  fail $ "Expected and actual values for " ++ name ++ " are incomparable."
+
+refInstanceFields :: (Ord f) =>
+                     Map.Map (Ref, f) v
+                  -> Ref
+                  -> Map.Map f v
+refInstanceFields m r =
+  Map.fromList [ (f, v) | ((mr, f), v) <- Map.toList m, mr == r ]
+
+pathRefInstanceFields :: Path (SharedContext SAWCtx)
+                      -> Ref
+                      -> Map.Map FieldId SpecJavaValue
+pathRefInstanceFields ps =
+  refInstanceFields (ps ^. pathMemory . memInstanceFields)
+
+esdRefInstanceFields :: ExpectedStateDef
+                     -> Ref
+                     -> Map.Map FieldId (Maybe SpecJavaValue)
+esdRefInstanceFields esd = refInstanceFields (esdInstanceFields esd)
+
 -- generateVC {{{2
 
 -- | Compare result with expected state.
@@ -472,20 +537,13 @@ generateVC ir esd (ps, endLoc, res) = do
         -- Check return value
         case (maybeRetVal, esdReturnValue esd) of
           (Nothing,Nothing) -> return ()
-          (Just (IValue rv), Just (IValue srv)) ->
-            pvcgAssertEq "return value" rv srv
-          (Just (LValue rv), Just (LValue srv)) ->
-            pvcgAssertEq "return value" rv srv
-          (Just (RValue rv), Just (RValue srv)) ->
-            when (rv /= srv) $
-              pvcgFail $ ftext $ "Assigns unexpected return value."
-          -- TODO: should the following check that the reference is "new"?
-          (Just (RValue _), Nothing) -> return ()
+          (Just rv, Just srv) ->
+            pvcgDeepAssertEq "return value" ps rv esd srv
+          (Nothing, Just _) ->
+            pvcgFail $ ftext $ "Return spec provided for void method."
           (Just _, Nothing) ->
             pvcgFail $ ftext $
             "Missing return spec for method returning a value."
-          _ ->  pvcgFail $ ftext $
-                "internal: The Java method has an unsupported return type."
         -- Check initialization
         do let sinits = Set.fromList (specInitializedClasses ir)
            forM_ (Map.keys (ps ^. pathMemory . memInitialization)) $ \cl -> do
@@ -502,20 +560,8 @@ generateVC ir esd (ps, endLoc, res) = do
                 pvcgFail $ ftext $
                 "Modifies the undefined static field " ++ fieldName ++ "."
               AnyExpectedValue -> return ()
-              AssignedExpectedValue sv -> do
-                case (jval,sv) of
-                  (jv, _) | jv == sv -> return ()
-                  (RValue jref, RValue _) ->
-                    pvcgFail $ ftext $
-                    "Assigns an unexpected value " ++ esdRefName jref esd ++
-                    " to " ++ fieldName ++ "."
-                  (IValue jvmNode, IValue specNode) ->
-                    pvcgAssertEq fieldName jvmNode specNode
-                  (LValue jvmNode, LValue specNode) ->
-                    pvcgAssertEq fieldName jvmNode specNode
-                  _ ->
-                    pvcgFail $ ftext $
-                    "internal: illegal field type in comparePathStates"
+              AssignedExpectedValue sv ->
+                pvcgDeepAssertEq fieldName ps jval esd sv
         -- Check instance fields
         forM_ (Map.toList (ps ^. pathMemory . memInstanceFields)) $
           \((ref,f), jval) -> do
@@ -526,19 +572,8 @@ generateVC ir esd (ps, endLoc, res) = do
                 pvcgFail $ ftext $
                 "Modifies the undefined field " ++ fieldName ++ "."
               AnyExpectedValue -> return ()
-              AssignedExpectedValue sv -> do
-                case (jval,sv) of
-                  (jv, _) | jv == sv -> return ()
-                  (RValue jref, RValue _) ->
-                    pvcgFail $ ftext $
-                    "Assigns an unexpected value " ++ esdRefName jref esd ++
-                    " to " ++ fieldName ++ "."
-                  (IValue jvmNode, IValue specNode) ->
-                    pvcgAssertEq fieldName jvmNode specNode
-                  (LValue jvmNode, LValue specNode) ->
-                    pvcgAssertEq fieldName jvmNode specNode
-                  _ -> pvcgFail $ ftext $
-                       "internal: illegal field type in comparePathStates"
+              AssignedExpectedValue sv ->
+                pvcgDeepAssertEq fieldName ps jval esd sv
         -- Check value arrays
         forM_ (Map.toList (ps ^. pathMemory . memScalarArrays)) $
           \(ref,(jlen,jval)) -> do

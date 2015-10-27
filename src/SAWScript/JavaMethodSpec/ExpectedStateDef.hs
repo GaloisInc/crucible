@@ -13,6 +13,7 @@ module SAWScript.JavaMethodSpec.ExpectedStateDef
   , esdStartLoc
   , esdInitialAssignments
   , esdInitialPathState
+  , esdInstanceFields
   , esdReturnValue
   , ExpectedValue(..)
   , esdStaticFieldValue
