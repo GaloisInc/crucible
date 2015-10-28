@@ -91,6 +91,11 @@ data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
                                      , biJavaCodebase  :: JSS.Codebase
                                      }
 
+showPrim :: SV.Value -> TopLevel String
+showPrim v = do
+  opts <- fmap rwPPOpts getTopLevelRW
+  return (SV.showsPrecValue opts 0 v "")
+
 definePrim :: String -> TypedTerm SAWCtx -> TopLevel (TypedTerm SAWCtx)
 definePrim name (TypedTerm schema rhs) = do
   sc <- getSharedContext

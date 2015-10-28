@@ -497,6 +497,10 @@ primitives = Map.fromList
     [ "Set the number base for pretty-printing numeric literals."
     , "Permissible values include 2, 8, 10, and 16." ]
 
+  , prim "show"                "{a} a -> String"
+    (funVal1 showPrim)
+    [ "Convert the value of the given expression to a string." ]
+
   , prim "print"               "{a} a -> TopLevel ()"
     (pureVal print_value)
     [ "Print the value of the given expression." ]
