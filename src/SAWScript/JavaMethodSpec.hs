@@ -103,6 +103,8 @@ evalErrExpr (EvalExprBadJavaType _ _) =
   error "evalErrExpr: EvalExprBadJavaType"
 evalErrExpr (EvalExprBadLogicType _ _) =
   error "evalErrExpr: EvalExprBadLogicType"
+evalErrExpr EvalExprNoReturn =
+  error "evalErrExpr: EvalExprNoReturn"
 evalErrExpr (EvalExprOther _) =
   error "evalErrExpr: EvalExprOther"
 

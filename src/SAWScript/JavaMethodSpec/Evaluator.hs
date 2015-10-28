@@ -99,6 +99,7 @@ data ExprEvalError
   | EvalExprUnknownArray TC.JavaExpr
   | EvalExprUnknownLocal LocalVariableIndex TC.JavaExpr
   | EvalExprUnknownField FieldId TC.JavaExpr
+  | EvalExprNoReturn
   | EvalExprOther String
   deriving Show
 
@@ -121,7 +122,7 @@ evalJavaExpr expr ec = eval expr
             TC.ReturnVal _ ->
               case (ecPathState ec) ^. pathRetVal of
                 Just rv -> return rv
-                Nothing -> fail "Method does not (yet) have a return value."
+                Nothing -> throwE EvalExprNoReturn
             TC.Local _ idx _ ->
               case Map.lookup idx (ecLocals ec) of
                 Just v -> return v
