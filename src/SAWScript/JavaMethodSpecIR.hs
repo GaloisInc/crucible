@@ -314,7 +314,7 @@ specAddVarDecl expr jt ms = ms { specBehaviors = bs' }
         bs' = bs { bsActualTypeMap =
                      Map.insert expr jt (bsActualTypeMap bs)
                  , bsMustAliasSet =
-                     if isRefJavaExpr expr && not (isReturnExpr expr) then
+                     if isRefJavaExpr expr then
                        CC.insertTerm expr (bsMustAliasSet bs)
                      else
                        bsMustAliasSet bs
