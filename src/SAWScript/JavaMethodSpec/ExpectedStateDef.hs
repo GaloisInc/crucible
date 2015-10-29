@@ -72,6 +72,8 @@ data ExpectedStateDef = ESD {
        , esdInitialPathState :: !SpecPathState
          -- | Stores initial assignments.
        , esdInitialAssignments :: !([(TC.JavaExpr, SharedTerm SAWCtx)])
+         -- | Expected return value or Nothing if method returns void.
+       , esdReturnValue :: !(Maybe SpecJavaValue)
          -- | Maps instance fields to expected value, or Nothing if value may
          -- be arbitrary.
        , esdInstanceFields :: !(Map (Ref, FieldId) (Maybe SpecJavaValue))
@@ -84,8 +86,6 @@ data ExpectedStateDef = ESD {
        , esdArrays :: !(Map Ref (Maybe (Int32, SharedTerm SAWCtx)))
        }
 
-esdReturnValue :: ExpectedStateDef -> Maybe SpecJavaValue
-esdReturnValue esd = esdInitialPathState esd ^. pathRetVal
 
 -- | Return the name of a reference from the expected state def.
 esdRefName :: Ref -> ExpectedStateDef -> String
@@ -162,6 +162,7 @@ data ESGState = ESGState {
 
        , _esInitialPathState :: !SpecPathState
        , _esInitialAssignments :: ![(TC.JavaExpr, SharedTerm SAWCtx)]
+       , _esReturnValue :: !(Maybe SpecJavaValue)
        , _esInstanceFields :: !(Map (Ref, FieldId) (Maybe SpecJavaValue))
        , _esStaticFields :: !(Map FieldId (Maybe SpecJavaValue))
        , _esArrays :: !(Map Ref (Maybe (Int32, SharedTerm SAWCtx)))
@@ -172,6 +173,9 @@ esInitialPathState = lens _esInitialPathState (\s v -> s { _esInitialPathState =
 
 esInitialAssignments :: Simple Lens ESGState [(TC.JavaExpr, SharedTerm SAWCtx)]
 esInitialAssignments = lens _esInitialAssignments (\s v -> s { _esInitialAssignments = v })
+
+esReturnValue :: Simple Lens ESGState (Maybe SpecJavaValue)
+esReturnValue = lens _esReturnValue (\s v -> s { _esReturnValue = v })
 
 esInstanceFields :: Simple Lens ESGState (Map (Ref, FieldId) (Maybe SpecJavaValue))
 esInstanceFields = lens _esInstanceFields (\s v -> s { _esInstanceFields = v })
@@ -241,7 +245,7 @@ esSetJavaValue e@(CC.Term exprF) v = do
   -- liftIO $ putStrLn $ "Setting Java value for " ++ show e
   case exprF of
     -- TODO: the following is ugly, and doesn't make good use of lenses
-    TC.ReturnVal _ -> esInitialPathState . pathRetVal .= Just v
+    TC.ReturnVal _ -> esReturnValue .= Just v
     TC.Local _ idx _ -> do
       ps <- use esInitialPathState
       let ls = case currentCallFrame ps of
@@ -328,7 +332,7 @@ esStep (AssumePred expr) = do
   esAddAssumption sc v
 esStep (ReturnValue expr) = do
   v <- esEval $ evalMixedExpr expr
-  esInitialPathState . pathRetVal .= Just v
+  esReturnValue .= Just v
 esStep (EnsureInstanceField _pos refExpr f rhsExpr) = do
   -- Evaluate expressions.
   ref <- esEval $ evalJavaRefExpr refExpr
@@ -466,6 +470,7 @@ initializeVerification sc ir bs refConfig = do
 
                          , _esInitialPathState = initPS
                          , _esInitialAssignments = []
+                         , _esReturnValue = Nothing
                          , _esInstanceFields = Map.empty
                          , _esStaticFields = Map.empty
                          , _esArrays = Map.empty
@@ -496,6 +501,7 @@ initializeVerification sc ir bs refConfig = do
              , esdRefExprMap = Map.fromList refAssignments
              , esdInitialPathState = es^.esInitialPathState
              , esdInitialAssignments = reverse (es^.esInitialAssignments)
+             , esdReturnValue    = es^.esReturnValue
              , esdInstanceFields = es^.esInstanceFields
              , esdStaticFields   = es^.esStaticFields
              , esdArrays         = es^.esArrays
