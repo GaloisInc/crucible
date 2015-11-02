@@ -88,6 +88,7 @@ import Cryptol.Utils.PP (pretty)
 
 data BuiltinContext = BuiltinContext { biSharedContext :: SharedContext SAWCtx
                                      , biJavaCodebase  :: JSS.Codebase
+                                     , biBasicSS       :: Simpset (SharedTerm SAWCtx)
                                      }
 
 showPrim :: SV.Value -> TopLevel String

@@ -335,13 +335,13 @@ buildTopLevelEnv opts =
        let bic = BuiltinContext {
                    biSharedContext = sc
                  , biJavaCodebase = jcb
+                 , biBasicSS = ss
                  }
-       let vm0 = Map.insert (qualify "basic_ss") (toValue ss) (valueEnv opts bic)
-       let tm0 = Map.insert (qualify "basic_ss") (readSchema "Simpset") primTypeEnv
        ce0 <- CEnv.initCryptolEnv sc
+
        let rw0 = TopLevelRW
-                   { rwValues   = vm0
-                   , rwTypes    = tm0
+                   { rwValues   = valueEnv opts bic
+                   , rwTypes    = primTypeEnv
                    , rwDocs     = primDocEnv
                    , rwCryptol  = ce0
                    , rwPPOpts   = defaultPPOpts
@@ -888,7 +888,11 @@ primitives = Map.fromList
     , "simplification rule set."
     ]
 
-  --, prim "basic_ss"            "Simpset"
+  , prim "basic_ss"            "Simpset"
+    (bicVal $ \bic _ -> toValue $ biBasicSS bic)
+    [ "A basic rewriting simplification set containing some boolean identities"
+    , "and conversions relating to bitvectors, natural numbers, and vectors."
+    ]
 
   , prim "addsimp"             "Theorem -> Simpset -> Simpset"
     (pureVal addsimp)
