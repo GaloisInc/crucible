@@ -1,5 +1,5 @@
 SYM_API=../../deps/llvm-verifier/sym-api
-CP=.
+CP=.:../../deps/jvm-verifier/support/galois.jar
 
 %.ll: %.c
 	clang -S -emit-llvm -I$(SYM_API) $< -o $(shell basename $< .c).ll
