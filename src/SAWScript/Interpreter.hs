@@ -665,7 +665,7 @@ primitives = Map.fromList
     , "  function to translate to sequential AIG : Term"
     ]
 
-  , prim "write_saig'"         "String -> Term -> Term -> TopLevel ()"
+  , prim "write_saig'"         "String -> Term -> Int -> TopLevel ()"
     (scVal writeAIGComputedLatches)
     [ "Write out a representation of a term in binary AIGER format. The"
     , "term must be representable as a function from a finite number of"
@@ -675,8 +675,8 @@ primitives = Map.fromList
     , ""
     , "Arguments:"
     , "  file to translation to : String"
-    , "  number of latches : Term"
     , "  function to translate to sequential AIG : Term"
+    , "  number of latches : Int"
     ]
 
   , prim "write_cnf"           "String -> Term -> TopLevel ()"

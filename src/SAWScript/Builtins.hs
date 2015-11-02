@@ -83,7 +83,6 @@ import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
 
 import qualified Cryptol.TypeCheck.AST as C
-import qualified Cryptol.Eval.Value as C
 import qualified Cryptol.Utils.Ident as C (packIdent)
 import Cryptol.Utils.PP (pretty)
 
@@ -375,31 +374,10 @@ writeSAIGInferLatches sc file tt = do
 -- specifying the number of input and output bits to be interpreted as
 -- latches.
 writeAIGComputedLatches ::
-  SharedContext s -> FilePath -> TypedTerm s -> TypedTerm s -> IO ()
+  SharedContext s -> FilePath -> TypedTerm s -> Int -> IO ()
 writeAIGComputedLatches sc file term numLatches = do
-  aig <- bitblastPrim sc term
-  let numLatches' = SV.evaluateTypedTerm sc numLatches
-  if isWord numLatches' then do
-    let numLatches'' = fromInteger . C.fromWord $ numLatches'
-    GIA.writeAigerWithLatches file aig numLatches''
-  else do
-    fail $ "writeAIGComputedLatches:\n" ++
-      "non-integer or polymorphic number of latches;\n" ++
-      "you may need a width annotation '_:[width]':\n" ++
-      "value: " ++ ppCryptol numLatches' ++ "\n" ++
-      "term: " ++ ppSharedTerm numLatches ++ "\n" ++
-      "type: " ++ (pretty . ttSchema $ numLatches)
-  where
-    isWord :: C.Value -> Bool
-    isWord (C.VWord _) = True
-    isWord (C.VSeq isWord' _) = isWord'
-    isWord _ = False
+  writeSAIG sc file term numLatches
 
-    ppCryptol :: C.Value -> String
-    ppCryptol = show . C.ppValue C.defaultPPOpts
-
-    ppSharedTerm :: TypedTerm s -> String
-    ppSharedTerm = scPrettyTerm . ttTerm
 
 writeCNF :: SharedContext s -> FilePath -> TypedTerm s -> IO ()
 writeCNF sc f t = do
