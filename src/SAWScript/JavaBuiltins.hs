@@ -78,13 +78,28 @@ getActualArgTypes s = mapM getActualType declaredTypes
 
 type Assign = (JavaExpr, TypedTerm SAWCtx)
 
+typeOfValue :: JSS.Value a -> JSS.Type
+typeOfValue (IValue _) = JSS.IntType
+typeOfValue (LValue _) = JSS.LongType
+typeOfValue (RValue (Ref _ ty)) = ty
+typeOfValue (RValue NullRef) = error "Can't get type of null reference."
+typeOfValue (FValue _) = JSS.FloatType
+typeOfValue (DValue _) = JSS.DoubleType
+typeOfValue (AValue _) = error "Can't get type of address value."
+
 writeJavaTerm :: (MonadSim SAWBackend m) =>
                  SharedContext SAWCtx
               -> JavaExpr
-              -> SharedTerm SAWCtx
+              -> TypedTerm SAWCtx
               -> Simulator SAWBackend m ()
-writeJavaTerm sc (CC.Term e) t = do
-  v <- valueOfTerm sc t
+writeJavaTerm sc expr@(CC.Term e) tm = do
+  liftIO $ putStrLn "write"
+  v <- valueOfTerm sc tm
+  let vty = typeOfValue v
+      ety = exprType expr
+  unless (vty == ety) $ fail $
+    "Writing value of type " ++ show vty ++
+    " to location of type " ++ show ety ++ "."
   case e of
     ReturnVal _ -> fail "Can't set return value"
     Local _ idx _ -> setLocal idx v
@@ -128,9 +143,10 @@ type SAWBackend = SharedContext SAWCtx
 
 valueOfTerm :: (MonadSim SAWBackend m) =>
                SharedContext SAWCtx
-            -> SharedTerm SAWCtx
+            -> TypedTerm SAWCtx
             -> Simulator SAWBackend m (JSS.Value (SharedTerm SAWCtx))
-valueOfTerm sc t = do
+valueOfTerm sc (TypedTerm _schema t) = do
+  -- TODO: the following is silly since we have @schema@ in scope
   ty <- liftIO $ (scTypeOf sc t >>= scWhnf sc)
   case ty of
     (asBitvectorType -> Just 8) -> IValue <$> (liftIO $ byteExtend sc t)
@@ -179,7 +195,7 @@ symexecJava :: BuiltinContext
             -> Options
             -> Class
             -> String
-            -> [(String, SharedTerm SAWCtx)]
+            -> [(String, TypedTerm SAWCtx)]
             -> [String]
             -> Bool
             -> TopLevel (TypedTerm SAWCtx)
@@ -210,6 +226,12 @@ symexecJava bic opts cls mname inputs outputs satBranches = do
       argTms <- forM [0..maxArg meth] $ \i ->
                   maybe (noDefErr i) return $ Map.lookup (pidx i) argMap
       args <- mapM (valueOfTerm jsc) argTms
+      let actualArgTys = map typeOfValue args
+          expectedArgTys = methodParameterTypes meth
+      forM_ (zip actualArgTys expectedArgTys) $ \ (aty, ety) ->
+        unless (aty == ety) $ fail $
+        "Passing value of type " ++ show aty ++
+        " to argument expected to be of type " ++ show ety ++ "."
       mapM_ (uncurry (writeJavaTerm jsc)) otherAssigns
       _ <- case methodIsStatic meth of
              True -> execStaticMethod (className cls) (methodKey meth) args
@@ -695,9 +717,9 @@ javaModify _bic _ name = do
     _ -> fail $ "invalid java_modify target: " ++ name
   modifySpec (specAddBehaviorCommand cmd)
 
-javaReturn :: BuiltinContext -> Options -> SharedTerm SAWCtx
+javaReturn :: BuiltinContext -> Options -> TypedTerm SAWCtx
            -> JavaSetup ()
-javaReturn bic _ t = do
+javaReturn bic _ (TypedTerm _ t) = do
   --liftIO $ putStrLn "javaReturn"
   -- TODO: check that types are compatible
   ms <- gets jsSpec
