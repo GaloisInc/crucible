@@ -476,7 +476,10 @@ pvcgDeepAssertEq name ps (RValue jref) esd (RValue sref)  = do
     (Just _, AnyExpectedValue) -> return ()
     (Just (jlen, jval), AssignedExpectedValue (slen, sval))
       | jlen == slen -> pvcgAssertEq name jval sval
-      | otherwise -> pvcgFail $ ftext "Array changed size."
+      | otherwise ->
+          pvcgFail $ ftext $
+          "Array changed size. Expected " ++ show slen ++
+          " but found " ++ show jlen ++ "."
     (Nothing, NoExpectedValue) -> return ()
     (Nothing, AnyExpectedValue) ->
       pvcgFail $ ftext "No value assigned when arbitrary change expected."
