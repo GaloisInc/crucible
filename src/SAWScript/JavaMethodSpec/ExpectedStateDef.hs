@@ -11,7 +11,7 @@ Point-of-contact : atomb
 module SAWScript.JavaMethodSpec.ExpectedStateDef
   ( ExpectedStateDef
   , esdStartLoc
-  , esdInitialAssignments
+  -- , esdInitialAssignments
   , esdInitialPathState
   , esdInstanceFields
   , esdReturnValue
@@ -71,8 +71,6 @@ data ExpectedStateDef = ESD {
          -- verification).
        , esdInitialPathState :: !SpecPathState
          -- | Stores initial assignments.
-       , esdInitialAssignments :: !([(TC.JavaExpr, SharedTerm SAWCtx)])
-         -- | Expected return value or Nothing if method returns void.
        , esdReturnValue :: !(Maybe SpecJavaValue)
          -- | Maps instance fields to expected value, or Nothing if value may
          -- be arbitrary.
@@ -161,8 +159,8 @@ data ESGState = ESGState {
        , esErrors :: ![String]
 
        , _esInitialPathState :: !SpecPathState
-       , _esInitialAssignments :: ![(TC.JavaExpr, SharedTerm SAWCtx)]
        , _esReturnValue :: !(Maybe SpecJavaValue)
+       -- , _esInitialAssignments :: ![(TC.JavaExpr, SharedTerm SAWCtx)]
        , _esInstanceFields :: !(Map (Ref, FieldId) (Maybe SpecJavaValue))
        , _esStaticFields :: !(Map FieldId (Maybe SpecJavaValue))
        , _esArrays :: !(Map Ref (Maybe (Int32, SharedTerm SAWCtx)))
@@ -171,8 +169,10 @@ data ESGState = ESGState {
 esInitialPathState :: Simple Lens ESGState SpecPathState
 esInitialPathState = lens _esInitialPathState (\s v -> s { _esInitialPathState = v })
 
+{-
 esInitialAssignments :: Simple Lens ESGState [(TC.JavaExpr, SharedTerm SAWCtx)]
 esInitialAssignments = lens _esInitialAssignments (\s v -> s { _esInitialAssignments = v })
+-}
 
 esReturnValue :: Simple Lens ESGState (Maybe SpecJavaValue)
 esReturnValue = lens _esReturnValue (\s v -> s { _esReturnValue = v })
@@ -194,7 +194,8 @@ esEval :: (EvalContext -> ExprEvaluator b) -> ExpectedStateGenerator b
 esEval fn = do
   sc <- gets esContext
   initPS <- use esInitialPathState
-  let ec = evalContextFromPathState sc initPS
+  rv <- use esReturnValue
+  let ec = evalContextFromPathState sc rv initPS
   res <- runEval (fn ec)
   case res of
     Left expr -> error $ "internal: esEval failed to evaluate expression: " ++ show expr
@@ -304,7 +305,7 @@ esSetLogicValues sc cl@(rep:_) tp lrhs = do
   -- Get value of rhs.
   value <- esResolveLogicExprs rep tp lrhs
   -- Update Initial assignments.
-  esInitialAssignments %= (map (\e -> (e,value)) cl ++)
+  --esInitialAssignments %= (map (\e -> (e,value)) cl ++)
   ty <- liftIO $ scTypeOf sc value
   -- Update value.
   case ty of
@@ -469,7 +470,6 @@ initializeVerification sc ir bs refConfig = do
                          , esErrors = []
 
                          , _esInitialPathState = initPS
-                         , _esInitialAssignments = []
                          , _esReturnValue = Nothing
                          , _esInstanceFields = Map.empty
                          , _esStaticFields = Map.empty
@@ -500,8 +500,8 @@ initializeVerification sc ir bs refConfig = do
   return ESD { esdStartLoc = bsLoc bs
              , esdRefExprMap = Map.fromList refAssignments
              , esdInitialPathState = es^.esInitialPathState
-             , esdInitialAssignments = reverse (es^.esInitialAssignments)
              , esdReturnValue    = es^.esReturnValue
+             -- , esdInitialAssignments = reverse (es^.esInitialAssignments)
              , esdInstanceFields = es^.esInstanceFields
              , esdStaticFields   = es^.esStaticFields
              , esdArrays         = es^.esArrays

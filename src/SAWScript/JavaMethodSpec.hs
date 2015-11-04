@@ -284,8 +284,9 @@ execBehavior bsl sc mbThis argLocals ps = do
                                        case mbThis of
                                        Just th -> (0, RValue th) : argLocals
                                        Nothing -> argLocals
+                         -- TODO: does this need to be initialized for reference returns?
+                         , ecReturnValue = Nothing
                          , ecPathState = ps
-                         -- , ecReturnVal = Nothing
                          }
     let initOCS =
           OCState { ocsLoc = bsLoc bs
@@ -403,7 +404,7 @@ overrideFromSpec de pos ir
 data PathVC = PathVC {
           pvcStartLoc :: Breakpoint
         , pvcEndLoc :: Maybe Breakpoint
-        , pvcInitialAssignments :: [(TC.JavaExpr, SharedTerm SAWCtx)]
+        -- , pvcInitialAssignments :: [(TC.JavaExpr, SharedTerm SAWCtx)]
           -- | Assumptions on inputs.
         , pvcAssumptions :: SharedTerm SAWCtx
           -- | Static errors found in path.
@@ -416,9 +417,9 @@ ppPathVC :: PathVC -> Doc
 ppPathVC pvc =
   nest 2 $
   vcat [ text "Path VC:"
-       , nest 2 $ vcat $
-         text "Initial assignments:" :
-         map ppAssignment (pvcInitialAssignments pvc)
+       -- , nest 2 $ vcat $
+       --   text "Initial assignments:" :
+       --   map ppAssignment (pvcInitialAssignments pvc)
        , nest 2 $
          vcat [ text "Assumptions:"
               , scPrettyTermDoc (pvcAssumptions pvc)
@@ -430,10 +431,11 @@ ppPathVC pvc =
          text "Checks:" :
          map ppCheck (pvcChecks pvc)
        ]
+  {-
   where ppAssignment (expr, tm) = hsep [ text (TC.ppJavaExpr expr)
                                        , text ":="
                                        , scPrettyTermDoc tm
-                                       ]
+                                       ] -}
 
 type PathVCGenerator = State PathVC
 
@@ -525,8 +527,8 @@ generateVC :: JavaMethodSpecIR
            -> PathVC -- ^ Proof oblications
 generateVC ir esd (ps, endLoc, res) = do
   let initState  =
-        PathVC { pvcInitialAssignments = esdInitialAssignments esd
-               , pvcStartLoc = esdStartLoc esd
+        PathVC { {- pvcInitialAssignments = esdInitialAssignments esd
+               , -} pvcStartLoc = esdStartLoc esd
                , pvcEndLoc = endLoc
                , pvcAssumptions = ps ^. pathAssertions
                , pvcStaticErrors = []
@@ -640,14 +642,15 @@ runValidation prover params sc esd results = do
   let ir = vpSpec params
       verb = verbLevel (vpOpts params)
       ps = esdInitialPathState esd
+      rv = esdReturnValue esd
   forM_ results $ \pvc -> do
     let mkVState nm cfn =
           VState { vsVCName = nm
                  , vsMethodSpec = ir
                  , vsVerbosity = verb
                  -- , vsFromBlock = esdStartLoc esd
-                 , vsEvalContext = evalContextFromPathState sc ps
-                 , vsInitialAssignments = pvcInitialAssignments pvc
+                 , vsEvalContext = evalContextFromPathState sc rv ps
+                 -- , vsInitialAssignments = pvcInitialAssignments pvc
                  , vsCounterexampleFn = cfn
                  , vsStaticErrors = pvcStaticErrors pvc
                  }
@@ -687,7 +690,7 @@ data VerifyState = VState {
          -- | Evaluation context used for parsing expressions during
          -- verification.
        , vsEvalContext :: EvalContext
-       , vsInitialAssignments :: [(TC.JavaExpr, SharedTerm SAWCtx)]
+       -- , vsInitialAssignments :: [(TC.JavaExpr, SharedTerm SAWCtx)]
        , vsCounterexampleFn :: CounterexampleFn SAWCtx
        , vsStaticErrors :: [Doc]
        }

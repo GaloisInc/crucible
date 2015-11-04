@@ -75,18 +75,21 @@ setArrayValuePS r n v =
 data EvalContext = EvalContext {
          ecContext :: SharedContext SAWCtx
        , ecLocals :: Map LocalVariableIndex SpecJavaValue
+       , ecReturnValue :: Maybe SpecJavaValue
        , ecPathState :: SpecPathState
        }
 
 evalContextFromPathState :: SharedContext SAWCtx
+                         -> Maybe SpecJavaValue
                          -> SpecPathState
                          -> EvalContext
-evalContextFromPathState sc ps =
+evalContextFromPathState sc rv ps =
   let Just f = currentCallFrame ps
       localMap = f ^. cfLocals
   in EvalContext {
          ecContext = sc
        , ecLocals = localMap
+       , ecReturnValue = rv
        , ecPathState = ps
        }
 
@@ -120,7 +123,7 @@ evalJavaExpr expr ec = eval expr
   where eval (CC.Term app) =
           case app of
             TC.ReturnVal _ ->
-              case (ecPathState ec) ^. pathRetVal of
+              case ecReturnValue ec of
                 Just rv -> return rv
                 Nothing -> throwE EvalExprNoReturn
             TC.Local _ idx _ ->
