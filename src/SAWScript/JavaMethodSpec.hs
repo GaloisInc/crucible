@@ -40,12 +40,15 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Cont
 import Control.Monad.State.Strict
+import qualified Data.Array as Array
 import Data.List (intercalate) -- foldl', intersperse)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import qualified Data.Set as Set
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import qualified Text.PrettyPrint.HughesPJ as PP
+
+import Debug.Trace
 
 import Language.JVM.Common (ppFldId)
 import qualified SAWScript.CongruenceClosure as CC
@@ -459,6 +462,7 @@ pvcgDeepAssertEq :: String
                  -> ExpectedStateDef
                  -> SpecJavaValue
                  -> PathVCGenerator ()
+-- TODO: should we only do this equality check on references?
 pvcgDeepAssertEq _ _ jv _ sv | jv == sv = return ()
 pvcgDeepAssertEq name _ (IValue jv) _ (IValue sv) =
   pvcgAssertEq name jv sv
@@ -513,10 +517,45 @@ pathRefInstanceFields :: Path (SharedContext SAWCtx)
 pathRefInstanceFields ps =
   refInstanceFields (ps ^. pathMemory . memInstanceFields)
 
+pathArrayRefs :: Path (SharedContext SAWCtx)
+              -> Ref
+              -> [Ref]
+pathArrayRefs ps r =
+  concat
+  [ Array.elems a
+  | (ar, a) <- Map.toList (ps ^. pathMemory . memRefArrays)
+  , ar == r
+  ]
+
+pathStaticFieldRefs :: Path (SharedContext SAWCtx)
+                    -> [Ref]
+pathStaticFieldRefs ps =
+  valueRefs $ map snd $ Map.toList (ps ^. pathMemory . memStaticFields)
+
 esdRefInstanceFields :: ExpectedStateDef
                      -> Ref
                      -> Map.Map FieldId (Maybe SpecJavaValue)
 esdRefInstanceFields esd = refInstanceFields (esdInstanceFields esd)
+
+reachableFromRef :: SpecPathState -> Set.Set Ref -> Ref -> Set.Set Ref
+reachableFromRef _ seen r | r `Set.member` seen = Set.empty
+reachableFromRef ps seen r =
+  Set.unions
+  [ Set.singleton r
+  , Set.unions (map (reachableFromRef ps seen') refArrayRefs)
+  , Set.unions (map (reachableFromRef ps seen') instFieldRefs)
+  ]
+  where refArrayRefs = pathArrayRefs ps r
+        instFieldRefs = valueRefs $ map snd $ Map.toList $ pathRefInstanceFields ps r
+        seen' = Set.insert r seen
+
+reachableRefs :: SpecPathState -> [SpecJavaValue] -> Set.Set Ref
+reachableRefs ps vs  =
+  Set.unions [ reachableFromRef ps Set.empty r | r <- roots ]
+  where roots = pathStaticFieldRefs ps ++ valueRefs vs
+
+valueRefs :: [SpecJavaValue] -> [Ref]
+valueRefs vs = [ r | RValue r <- vs ]
 
 -- generateVC {{{2
 
@@ -539,6 +578,9 @@ generateVC ir esd (ps, endLoc, res) = do
       Left oe -> pvcgFail (vcat (map (ftext . ppOverrideError) oe))
       Right maybeRetVal -> do
         -- Check return value
+        let Just cf = currentCallFrame (esdInitialPathState esd)
+        let args = Map.elems (cf ^. cfLocals)
+        let reachable = reachableRefs ps (maybeToList maybeRetVal ++ args)
         case (maybeRetVal, esdReturnValue esd) of
           (Nothing,Nothing) -> return ()
           (Just rv, Just srv) ->
@@ -551,7 +593,12 @@ generateVC ir esd (ps, endLoc, res) = do
         -- Check initialization
         do let sinits = Set.fromList (specInitializedClasses ir)
            forM_ (Map.keys (ps ^. pathMemory . memInitialization)) $ \cl -> do
-             when (cl `Set.notMember` sinits) $ do
+             -- NB: when used as an override, we will not initialize this extra
+             -- class. Ultimately, we should track which extra classes are
+             -- initialized and make sure the override initializes them, too. Or
+             -- is it ok to assume that it'll get initialized later if
+             -- necessary?
+             when (cl `Set.notMember` sinits && not (specAllowAlloc ir)) $ do
                pvcgFail $ ftext $
                  "Initializes extra class " ++ slashesToDots cl ++ "."
         -- Check static fields
@@ -572,6 +619,8 @@ generateVC ir esd (ps, endLoc, res) = do
             let fieldName = show (fieldIdName f) ++
                             " of " ++ esdRefName ref esd
             case esdInstanceFieldValue ref f esd of
+              _ | not (Set.member ref reachable) ->
+                    trace ("Skipping " ++ show ref) $ return ()
               NoExpectedValue ->
                 pvcgFail $ ftext $
                 "Modifies the undefined field " ++ fieldName ++ "."
@@ -582,6 +631,8 @@ generateVC ir esd (ps, endLoc, res) = do
         forM_ (Map.toList (ps ^. pathMemory . memScalarArrays)) $
           \(ref,(jlen,jval)) -> do
             case esdArrayValue ref esd of
+              _ | not (Set.member ref reachable) ->
+                    trace ("Skipping " ++ show ref) $ return ()
               NoExpectedValue
                 | specAllowAlloc ir -> return ()
                 | otherwise -> pvcgFail $ ftext $ "Allocates an array."
