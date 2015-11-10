@@ -58,6 +58,7 @@ import SAWScript.Utils
 import SAWScript.JavaMethodSpecIR
 import SAWScript.JavaMethodSpec.Evaluator
 import SAWScript.JavaMethodSpec.ExpectedStateDef
+import SAWScript.JavaUtils
 import SAWScript.Value (TopLevel, io)
 import SAWScript.VerificationCheck
 
@@ -72,28 +73,6 @@ import Verifier.SAW.SharedTerm
 -- JSS Utilities {{{1
 
 type Verbosity = Int
-
--- | Set value of bound to instance field in path state.
-setInstanceFieldValuePS :: Ref -> FieldId -> SpecJavaValue
-                        -> SpecPathState -> SpecPathState
-setInstanceFieldValuePS r f v =
-  pathMemory . memInstanceFields %~ Map.insert (r, f) v
-
--- | Set value of bound to static field in path state.
-setStaticFieldValuePS :: FieldId -> SpecJavaValue
-                      -> SpecPathState -> SpecPathState
-setStaticFieldValuePS f v =
-  pathMemory . memStaticFields %~ Map.insert f v
-
--- | Returns value constructor from node.
-mkJSSValue :: Type -> n -> Value n
-mkJSSValue BooleanType n = IValue n
-mkJSSValue ByteType    n = IValue n
-mkJSSValue CharType    n = IValue n
-mkJSSValue IntType     n = IValue n
-mkJSSValue LongType    n = LValue n
-mkJSSValue ShortType   n = IValue n
-mkJSSValue _ _ = error "internal: illegal type"
 
 -- EvalContext {{{1
 
@@ -362,6 +341,10 @@ execOverride sc pos ir mbThis args = do
       argLocals = map (localIndexOfParameter method) [0..] `zip` args
   -- Check class initialization.
   checkClassesInitialized pos (specName ir) (specInitializedClasses ir)
+
+  -- TODO: allocate any declared variables that don't currently evaluate to
+  -- references. Treat return variable specially.
+
   -- Execute behavior.
   res <- liftIO $ execBehavior [bsl] sc mbThis argLocals initPS
   -- Create function for generation resume actions.

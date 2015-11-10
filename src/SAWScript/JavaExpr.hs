@@ -42,6 +42,7 @@ module SAWScript.JavaExpr
   , jssTypeOfActual
   , isActualRef
   , logicTypeOfActual
+  , logicTypeOfJSSType
   , cryptolTypeOfActual
   , typeOfLogicExpr
   , ppActualType
@@ -134,7 +135,7 @@ ppJavaExpr (CC.Term exprF) =
     InstanceField r f -> ppJavaExpr r ++ "." ++ JSS.fieldIdName f
     StaticField f -> ppFldId f
 
-asJavaExpr :: SharedTerm SAWCtx -> Maybe String
+asJavaExpr :: SharedTerm s -> Maybe String
 asJavaExpr (STApp _ (FTermF (ExtCns ec))) = Just (ecName ec)
 asJavaExpr _ = Nothing
 
@@ -234,6 +235,13 @@ logicTypeOfActual sc (ArrayInstance l tp) = do
   lTm <- scNat sc (fromIntegral l)
   Just <$> scVecType sc lTm elTy
 logicTypeOfActual sc (PrimitiveType tp) = do
+  Just <$> scBitvector sc (fromIntegral (JSS.stackWidth tp))
+
+logicTypeOfJSSType :: SharedContext s -> JSS.Type
+                   -> IO (Maybe (SharedTerm s))
+logicTypeOfJSSType _ (JSS.ArrayType _) = return Nothing
+logicTypeOfJSSType _ (JSS.ClassType _) = return Nothing
+logicTypeOfJSSType sc tp = do
   Just <$> scBitvector sc (fromIntegral (JSS.stackWidth tp))
 
 cryptolTypeOfActual :: JavaActualType -> Maybe Cryptol.Type

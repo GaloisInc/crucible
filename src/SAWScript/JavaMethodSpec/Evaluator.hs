@@ -29,6 +29,7 @@ import Data.Maybe (mapMaybe)
 
 import qualified SAWScript.CongruenceClosure as CC (Term(..))
 import qualified SAWScript.JavaExpr as TC
+import SAWScript.JavaUtils
 import SAWScript.Utils ( SAWCtx, basic_ss)
 
 import Execution.JavaSemantics (AtomicValue(..))
@@ -42,9 +43,6 @@ import Verifier.SAW.Rewriter (rewriteSharedTerm)
 import Verifier.SAW.SharedTerm
 
 -- SpecPathState {{{1
-
-type SpecPathState = Path (SharedContext SAWCtx)
-type SpecJavaValue = Value (SharedTerm SAWCtx)
 
 -- | Add assertion for predicate to path state.
 addAssertionPS :: SharedContext SAWCtx -> SharedTerm SAWCtx -> SpecPathState

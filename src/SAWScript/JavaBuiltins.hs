@@ -27,8 +27,10 @@ import qualified Data.Map as Map
 import Data.Time.Clock
 import qualified Data.Vector as V
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import qualified Text.PrettyPrint.HughesPJ as PP
 import Text.Read (readMaybe)
 
+import Data.JVM.Symbolic.AST (entryBlock)
 import Language.JVM.Common
 
 import Verifier.Java.Codebase hiding (lookupClass)
@@ -45,6 +47,7 @@ import qualified SAWScript.CongruenceClosure as CC
 import SAWScript.JavaExpr
 import SAWScript.JavaMethodSpec
 import SAWScript.JavaMethodSpecIR
+import SAWScript.JavaUtils
 
 import SAWScript.Builtins
 import SAWScript.Options
@@ -52,6 +55,7 @@ import SAWScript.Proof
 import SAWScript.TypedTerm
 import SAWScript.Utils
 import SAWScript.Value as SS
+import SAWScript.VerificationCheck
 
 import qualified Cryptol.TypeCheck.AST as Cryptol
 
@@ -77,119 +81,6 @@ getActualArgTypes s = mapM getActualType declaredTypes
         _ -> Left $ "More than one actual type given for parameter " ++ show n
 
 type Assign = (JavaExpr, TypedTerm SAWCtx)
-
-typeOfValue :: JSS.Value a -> JSS.Type
-typeOfValue (IValue _) = JSS.IntType
-typeOfValue (LValue _) = JSS.LongType
-typeOfValue (RValue (Ref _ ty)) = ty
-typeOfValue (RValue NullRef) = error "Can't get type of null reference."
-typeOfValue (FValue _) = JSS.FloatType
-typeOfValue (DValue _) = JSS.DoubleType
-typeOfValue (AValue _) = error "Can't get type of address value."
-
-writeJavaTerm :: (MonadSim SAWBackend m) =>
-                 SharedContext SAWCtx
-              -> JavaExpr
-              -> TypedTerm SAWCtx
-              -> Simulator SAWBackend m ()
-writeJavaTerm sc expr@(CC.Term e) tm = do
-  liftIO $ putStrLn "write"
-  v <- valueOfTerm sc tm
-  let vty = typeOfValue v
-      ety = exprType expr
-  unless (vty == ety) $ fail $
-    "Writing value of type " ++ show vty ++
-    " to location of type " ++ show ety ++ "."
-  case e of
-    ReturnVal _ -> fail "Can't set return value"
-    Local _ idx _ -> setLocal idx v
-    InstanceField rexp f -> do
-      rv <- readJavaValue rexp
-      case rv of
-        RValue r -> setInstanceFieldValue r f v
-        _ -> fail "Instance argument of instance field evaluates to non-reference"
-    StaticField f -> setStaticFieldValue f v
-
-readJavaTerm :: (MonadSim sbe m) =>
-                JavaExpr -> Simulator sbe m (SBETerm sbe)
-readJavaTerm et = termOfValue =<< readJavaValue et
-
-termOfValue :: (MonadSim sbe m) =>
-               JSS.Value (SBETerm sbe) -> Simulator sbe m (SBETerm sbe)
-termOfValue (IValue t) = return t
-termOfValue (LValue t) = return t
-termOfValue (RValue r@(Ref _ (ArrayType _))) = do
-  -- TODO: handle arrays of references
-  ma <- getSymbolicArray r
-  case ma of
-    Just (_, t) -> return t
-    Nothing -> fail "Reference not found in arrays map"
-termOfValue (RValue (Ref _ (ClassType _))) =
-  fail "Translating objects to terms not yet implemented" -- TODO
-termOfValue _ = fail "Can't convert term to value"
-
-byteExtend :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
-byteExtend sc x = do
-  n24 <- scNat sc 24
-  n8 <- scNat sc 8
-  scBvUExt sc n24 n8 x
-
-shortExtend :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
-shortExtend sc x = do
-  n16 <- scNat sc 16
-  scBvUExt sc n16 n16 x
-
-type SAWBackend = SharedContext SAWCtx
-
-valueOfTerm :: (MonadSim SAWBackend m) =>
-               SharedContext SAWCtx
-            -> TypedTerm SAWCtx
-            -> Simulator SAWBackend m (JSS.Value (SharedTerm SAWCtx))
-valueOfTerm sc (TypedTerm _schema t) = do
-  -- TODO: the following is silly since we have @schema@ in scope
-  ty <- liftIO $ (scTypeOf sc t >>= scWhnf sc)
-  case ty of
-    (asBitvectorType -> Just 8) -> IValue <$> (liftIO $ byteExtend sc t)
-    (asBitvectorType -> Just 16) -> IValue <$> (liftIO $ shortExtend sc t)
-    (asBitvectorType -> Just 32) -> return (IValue t)
-    (asBitvectorType -> Just 64) -> return (LValue t)
-    (asVecType -> Just (n :*: ety)) -> do
-      jty <- case ety of
-               (asBitvectorType -> Just 8) -> return ByteType
-               (asBitvectorType -> Just 16) -> return ShortType
-               (asBitvectorType -> Just 32) -> return IntType
-               (asBitvectorType -> Just 64) -> return LongType
-               _ -> fail $ "Unsupported array element type: " ++ show ety
-      RValue <$> newSymbolicArray (ArrayType jty) (fromIntegral n) t
-    _ -> fail $ "Can't translate term of type: " ++ show ty
--- If vector of other things, allocate array, translate those things, and store
--- If record, allocate appropriate object, translate fields, assign fields
--- For the last case, we need information about the desired Java type
-
-readJavaValue :: (MonadSim sbe m) =>
-                 JavaExpr
-              -> Simulator sbe m (JSS.Value (SBETerm sbe))
-readJavaValue (CC.Term e) = do
-  case e of
-    ReturnVal _ -> do
-      mrv <- getProgramReturnValue
-      case mrv of
-        Just rv -> return rv
-        Nothing -> fail "Return value not found"
-    Local _ idx _ -> do
-      p <- getPath "readJavaValue"
-      case currentCallFrame p of
-        Just cf ->
-          case Map.lookup idx (cf ^. cfLocals) of
-            Just v -> return v
-            Nothing -> fail $ "Local variable " ++ show idx ++ " not found"
-        Nothing -> fail "No current call frame"
-    InstanceField rexp f -> do
-      v <- readJavaValue rexp
-      case v of
-        RValue r -> getInstanceFieldValue r f
-        _ -> fail "Object in instance field expr evaluated to non-reference"
-    StaticField f -> getStaticFieldValue f
 
 symexecJava :: BuiltinContext
             -> Options
@@ -239,7 +130,7 @@ symexecJava bic opts cls mname inputs outputs satBranches = do
                RValue this <- freshJavaVal Nothing jsc (ClassInstance cls)
                execInstanceMethod (className cls) (methodKey meth) this args
       outexprs <- liftIO $ mapM (parseJavaExpr cb cls meth) outputs
-      outtms <- mapM readJavaTerm outexprs
+      outtms <- mapM readJavaTermSim outexprs
       let bundle tms = case tms of
                          [t] -> return t
                          _ -> scTuple jsc tms
@@ -269,51 +160,13 @@ extractJava bic opts cls mname setup = do
                   execInstanceMethod (className cls) (methodKey meth) this args
       dt <- case rslt of
               Nothing -> fail $ "No return value from " ++ methodName meth
-              Just v -> termOfValue v
+              Just v -> termOfValueSim v
       liftIO $ do
         let sc = biSharedContext bic
         argBinds <- reverse <$> readIORef argsRef
         exts <- mapM asExtCns argBinds
         -- TODO: group argBinds according to the declared types
         bindExts jsc exts dt >>= mkTypedTerm sc
-
-freshJavaVal :: (MonadIO m, Functor m) =>
-                Maybe (IORef [SharedTerm SAWCtx])
-             -> SharedContext SAWCtx
-             -> JavaActualType
-             -> Simulator SAWBackend m (JSS.Value (SharedTerm SAWCtx))
-freshJavaVal _ _ (PrimitiveType ty) = do
-  case ty of
-    BooleanType -> withSBE $ \sbe -> IValue <$> freshBool sbe
-    ByteType    -> withSBE $ \sbe -> IValue <$> freshByte sbe
-    CharType    -> withSBE $ \sbe -> IValue <$> freshChar sbe
-    ShortType   -> withSBE $ \sbe -> IValue <$> freshShort sbe
-    IntType     -> withSBE $ \sbe -> IValue <$> freshInt sbe
-    LongType    -> withSBE $ \sbe -> LValue <$> freshLong sbe
-    _ -> fail $ "Can't create fresh primitive value of type " ++ show ty
-freshJavaVal argsRef sc (ArrayInstance n ty) | isPrimitiveType ty = do
-  -- TODO: should this use bvAt?
-  elts <- liftIO $ do
-    ety <- scBitvector sc (fromIntegral (JSS.stackWidth ty))
-    ntm <- scNat sc (fromIntegral n)
-    aty <- scVecType sc ntm ety
-    atm <- scFreshGlobal sc "_" aty
-    maybe (return ()) (\r -> modifyIORef r (atm :)) argsRef
-    mapM (scAt sc ntm ety atm) =<< mapM (scNat sc) [0..(fromIntegral n) - 1]
-  case ty of
-    LongType -> RValue <$> newLongArray elts
-    _ | isIValue ty -> RValue <$> newIntArray (ArrayType ty) elts
-    _ -> fail $ "Can't create array with element type " ++ show ty
--- TODO: allow input declarations to specialize types of fields
-freshJavaVal _ _ (ArrayInstance _ _) =
-  fail $ "Can't create fresh array of non-scalar elements"
-freshJavaVal argsRef sc (ClassInstance c) = do
-  r <- createInstance (className c) Nothing
-  forM_ (classFields c) $ \f -> do
-    let ty = fieldType f
-    v <- freshJavaVal argsRef sc (PrimitiveType ty)
-    setInstanceFieldValue r (FieldId (className c) (fieldName f) ty) v
-  return (RValue r)
 
 withSAWBackend :: SharedContext s
                -> Maybe (IORef [SharedTerm s])
@@ -335,6 +188,149 @@ runJavaSetup pos cb cls mname jsc setup = do
                    , jsSatBranches = False
                    }
   snd <$> runStateT setup setupState
+
+initializeVerification' :: MonadSim (SharedContext SAWCtx) m
+                        => SharedContext SAWCtx
+                           -- ^ The SharedContext for creating new symbolic
+                           -- expressions.
+                        -> JavaMethodSpecIR
+                           -- ^ The specification of the overall method.
+                        -> BehaviorSpec
+                           -- ^ The particular behavioral specification that
+                           -- we are checking.
+                        -> RefEquivConfiguration
+                           -- ^ The particular relationship between which references
+                           -- alias each other for verification purposes.
+                        -> Simulator (SharedContext SAWCtx) m (JSS.Path (SharedContext SAWCtx))
+initializeVerification' sc ir bs refConfig = do
+  -- Generate a reference for each reference equivalence class
+  exprRefs <- mapM (genRef . jssTypeOfActual . snd) refConfig
+  let _refAssignments = (exprRefs `zip` map fst refConfig)
+      pushFrame cs = case mcs' of
+                       Nothing -> error "internal: failed to push call frame"
+                       Just cs' -> cs'
+        where
+          mcs' = pushCallFrame
+                 (className (specMethodClass ir))
+                 (specMethod ir)
+                 entryBlock -- FIXME: not the right block
+                 Map.empty
+                 cs
+  modifyCSM_ (return . pushFrame)
+  let updateInitializedClasses mem =
+        foldr (flip setInitializationStatus Initialized)
+              mem
+              (specInitializedClasses ir)
+  modifyPathM_ (PP.text "initializeVerification") $
+    return . (pathMemory %~ updateInitializedClasses)
+  mapM_ (initStep sc) (bsCommands bs)
+  getPath (PP.text "initializeVerification")
+
+initStep :: (Monad m) =>
+            SharedContext SAWCtx -> BehaviorCommand
+         -> Simulator (SharedContext SAWCtx) m ()
+initStep sc (AssertPred _ expr) = do
+  c <- logicExprToTermSim sc expr
+  addAssertion c
+initStep sc (AssumePred expr) = do
+  c <- logicExprToTermSim sc expr -- Create term in initial state
+  addAssertion c
+initStep _ _ = return ()
+
+
+valueEqTerm :: (MonadIO m) =>
+               String
+            -> SpecJavaValue
+            -> SharedTerm SAWCtx
+            -> Simulator (SharedContext SAWCtx) m [VerificationCheck SAWCtx]
+valueEqTerm name (IValue t) t' = return [EqualityCheck name t t']
+valueEqTerm name (LValue t) t' = return [EqualityCheck name t t']
+valueEqTerm name (RValue r) t' = do
+  ps <- getPath (PP.text name)
+  case Map.lookup r (ps ^. pathMemory . memScalarArrays) of
+    Just (_, t) -> return [EqualityCheck name t t']
+    Nothing -> fail $ "valueEqTerm: " ++ name ++ ": ref does not point to array"
+valueEqTerm name _ _ = fail $ "valueEqTerm: " ++ name ++ ": unspported value type"
+
+-- TODO: have checkStep record a list of all the things it has checked.
+-- After it runs, we can go through the final state and check whether
+-- there are any unchecked elements of the state.
+checkStep :: (MonadIO m) =>
+             VerificationState -> BehaviorCommand
+          -> Simulator (SharedContext SAWCtx) m [VerificationCheck SAWCtx]
+checkStep _ (AssertPred _ _) = return []
+checkStep _ (AssumePred _) = return []
+checkStep vs (ReturnValue expr) = do
+  t <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) expr
+  mrv <- getProgramReturnValue
+  case mrv of
+    Just rv -> valueEqTerm "ReturnValue" rv t
+    Nothing -> fail "Return specification, but method did not return a value."
+checkStep vs (EnsureInstanceField _pos refExpr f rhsExpr) = do
+  rv <- readJavaValueSim refExpr
+  case rv of
+    RValue ref -> do
+      fv <- getInstanceFieldValue ref f
+      ft <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) rhsExpr
+      valueEqTerm "EnsureInstanceField" fv ft
+    _ -> fail "Left-hand side of . did not evaluate to a reference."
+checkStep vs (EnsureStaticField _pos f rhsExpr) = do
+  fv <- getStaticFieldValue f
+  ft <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) rhsExpr
+  valueEqTerm "EnsureStaticField" fv ft
+checkStep vs (ModifyInstanceField refExpr f) = do
+  rv <- readJavaValueSim refExpr
+  case rv of
+    RValue ref -> do
+      mty <- liftIO $ logicTypeOfJSSType (vsContext vs) (fieldIdType f)
+      case mty of
+        Just ty -> do
+          fv <- getInstanceFieldValue ref f
+          ft <- liftIO $ scFreshGlobal (vsContext vs) "_" ty
+          valueEqTerm "ModifyInstanceField" fv ft
+        Nothing -> fail "Invalid type in java_modify for instance field."
+    _ -> fail "Left-hand side of . did not evaluate to a reference."
+checkStep vs (ModifyStaticField f) = do
+  fv <- getStaticFieldValue f
+  mty <- liftIO $ logicTypeOfJSSType (vsContext vs) (fieldIdType f)
+  case mty of
+    Just ty -> do
+      ft <- liftIO $ scFreshGlobal (vsContext vs) "_" ty
+      valueEqTerm "ModifyStaticField" fv ft
+    Nothing -> fail "Invalid type in java_modify for static field."
+checkStep vs (EnsureArray _pos refExpr rhsExpr) = do
+  rv <- readJavaValueSim refExpr
+  t <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) rhsExpr
+  valueEqTerm "EnsureArray" rv t
+checkStep vs (ModifyArray refExpr aty) = do
+  rv <- readJavaValueSim refExpr
+  mty <- liftIO $ logicTypeOfActual (vsContext vs) aty
+  case mty of
+    Just ty -> do
+      t <- liftIO $ scFreshGlobal (vsContext vs) "_" ty
+      valueEqTerm "ModifyArray" rv t
+    Nothing -> fail "Invalid type in java_modify for array."
+
+data VerificationState = VerificationState
+                         { vsContext :: SharedContext SAWCtx
+                         , vsSpec :: JavaMethodSpecIR
+                         , vsInitialState :: JSS.Path (SharedContext SAWCtx)
+                         }
+
+checkFinalState :: MonadSim (SharedContext SAWCtx) m =>
+                   SharedContext SAWCtx
+                -> JavaMethodSpecIR
+                -> BehaviorSpec
+                -> JSS.Path (SharedContext SAWCtx)
+                -> Simulator (SharedContext SAWCtx) m [VerificationCheck SAWCtx]
+checkFinalState sc ms bs initPS = do
+  let st = VerificationState { vsContext = sc
+                             , vsSpec = ms
+                             , vsInitialState = initPS
+                             }
+  vcs <- mapM (checkStep st) (bsCommands bs)
+  -- TODO: also compare states, keep track of what we've looked at
+  return (concat vcs)
 
 verifyJava :: BuiltinContext -> Options -> Class -> String
            -> [JavaMethodSpecIR]
@@ -374,7 +370,11 @@ verifyJava bic opts cls mname overrides setup = do
     when (verb >= 2) $ io $ putStrLn $ "Starting verification of " ++ specName ms
     ro <- getTopLevelRO
     rw <- getTopLevelRW
+    -- io $ print (length configs)
     forM_ configs $ \(bs,cl) -> withSAWBackend jsc Nothing $ \sbe -> io $ do
+      -- print (bsActualTypeMap bs)
+      -- print (bsRefExprs bs)
+      -- print cl
       when (verb >= 2) $ do
         putStrLn $ "Executing " ++ specName ms ++
                    " at PC " ++ show (bsLoc bs) ++ "."
