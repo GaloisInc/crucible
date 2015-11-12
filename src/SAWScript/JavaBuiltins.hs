@@ -226,7 +226,7 @@ initializeVerification' sc ir bs refConfig = do
   mapM_ (initStep sc) (bsCommands bs)
   getPath (PP.text "initializeVerification")
 
-initStep :: (Monad m) =>
+initStep :: (Functor m, Monad m) =>
             SharedContext SAWCtx -> BehaviorCommand
          -> Simulator (SharedContext SAWCtx) m ()
 initStep sc (AssertPred _ expr) = do
@@ -238,7 +238,7 @@ initStep sc (AssumePred expr) = do
 initStep _ _ = return ()
 
 
-valueEqTerm :: (MonadIO m) =>
+valueEqTerm :: (Functor m, MonadIO m) =>
                String
             -> SpecJavaValue
             -> SharedTerm SAWCtx
@@ -255,7 +255,7 @@ valueEqTerm name _ _ = fail $ "valueEqTerm: " ++ name ++ ": unspported value typ
 -- TODO: have checkStep record a list of all the things it has checked.
 -- After it runs, we can go through the final state and check whether
 -- there are any unchecked elements of the state.
-checkStep :: (MonadIO m) =>
+checkStep :: (Functor m, MonadIO m) =>
              VerificationState -> BehaviorCommand
           -> Simulator (SharedContext SAWCtx) m [VerificationCheck SAWCtx]
 checkStep _ (AssertPred _ _) = return []

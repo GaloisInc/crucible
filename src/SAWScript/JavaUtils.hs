@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -11,12 +13,16 @@ Point-of-contact : atomb
 -}
 module SAWScript.JavaUtils where
 
+#if !MIN_VERSION_base(4,8,0)
+import Control.Applicative
+#endif
 import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.IORef
 import qualified Data.Map as Map
 import Data.Maybe
+
 import Verifier.Java.Simulator as JSS
 import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm
@@ -96,17 +102,17 @@ writeJavaTerm sc expr@(CC.Term e) tm = do
         _ -> fail "Instance argument of instance field evaluates to non-reference"
     StaticField f -> setStaticFieldValue f v
 
-readJavaTerm :: Monad m =>
+readJavaTerm :: (Functor m, Monad m) =>
                 Path' term -> JavaExpr -> m term
 readJavaTerm ps et = termOfValue ps =<< readJavaValue ps et
 
-readJavaTermSim :: Monad m =>
+readJavaTermSim :: (Functor m, Monad m) =>
                    JavaExpr -> Simulator sbe m (SBETerm sbe)
 readJavaTermSim e = do
   ps <- getPath "readJavaTermSim"
   readJavaTerm ps e
 
-termOfValue :: (Monad m) =>
+termOfValue :: (Functor m, Monad m) =>
                Path' term -> JSS.Value term -> m term
 termOfValue _ (IValue t) = return t
 termOfValue _ (LValue t) = return t
@@ -118,7 +124,7 @@ termOfValue _ (RValue (Ref _ (ClassType _))) =
   fail "Translating objects to terms not yet implemented" -- TODO
 termOfValue _ _ = fail "Can't convert term to value"
 
-termOfValueSim :: Monad m =>
+termOfValueSim :: (Functor m, Monad m) =>
                   JSS.Value (SBETerm sbe) -> Simulator sbe m (SBETerm sbe)
 termOfValueSim v = do
   ps <- getPath "termOfValueSim"
@@ -149,7 +155,7 @@ valueOfTerm sc (TypedTerm _schema t) = do
 -- If record, allocate appropriate object, translate fields, assign fields
 -- For the last case, we need information about the desired Java type
 
-readJavaValue :: Monad m =>
+readJavaValue :: (Functor m, Monad m) =>
                  Path' term -> JavaExpr -> m (JSS.Value term)
 readJavaValue ps (CC.Term e) = do
   case e of
@@ -204,7 +210,7 @@ mixedExprToTerm :: SharedContext SAWCtx
 mixedExprToTerm sc ps (LE le) = logicExprToTerm sc ps le
 mixedExprToTerm _sc ps (JE je) = readJavaTerm ps je
 
-logicExprToTermSim :: (Monad m) =>
+logicExprToTermSim :: (Functor m, Monad m) =>
                       SharedContext SAWCtx
                    -> LogicExpr
                    -> Simulator SAWBackend m (SharedTerm SAWCtx)
