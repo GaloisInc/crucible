@@ -306,7 +306,7 @@ valueEqTerm name ps (RValue r) t' = do
     Nothing -> fail $ "valueEqTerm: " ++ name ++ ": ref does not point to array"
 valueEqTerm name _ _ _ = fail $ "valueEqTerm: " ++ name ++ ": unspported value type"
 
-readJavaValueVerif :: Monad m =>
+readJavaValueVerif :: (Functor m, Monad m) =>
                       VerificationState
                    -> Path' (SharedTerm SAWCtx)
                    -> JavaExpr
