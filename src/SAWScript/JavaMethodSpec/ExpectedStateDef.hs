@@ -212,17 +212,18 @@ esAddAssertion sc prop = do
   ps' <- liftIO $ addAssertionPS sc prop ps
   esInitialPathState .= ps'
 
-esAddAssumption :: SharedContext SAWCtx
-               -> SharedTerm SAWCtx
-               -> ExpectedStateGenerator ()
-esAddAssumption sc prop = do
+esAddAssumption :: SharedTerm SAWCtx
+                -> ExpectedStateGenerator ()
+esAddAssumption prop = do
+  sc <- gets esContext
   ps <- use esInitialPathState
   ps' <- liftIO $ addAssumptionPS sc prop ps
   esInitialPathState .= ps'
 
-esAddEqAssertion :: SharedContext SAWCtx -> String -> SharedTerm SAWCtx -> SharedTerm SAWCtx
+esAddEqAssertion :: String -> SharedTerm SAWCtx -> SharedTerm SAWCtx
                  -> ExpectedStateGenerator ()
-esAddEqAssertion sc _nm x y = do
+esAddEqAssertion _nm x y = do
+  sc <- gets esContext
   prop <- liftIO $ scEq sc x y
   esAddAssertion sc prop
 
@@ -232,12 +233,8 @@ esAssertEq :: String -> SpecJavaValue -> SpecJavaValue
 esAssertEq nm (RValue x) (RValue y) = do
   when (x /= y) $
     esError $ "internal: Asserted different references for " ++ nm ++ " are equal."
-esAssertEq nm (IValue x) (IValue y) = do
-  sc <- gets esContext
-  esAddEqAssertion sc nm x y
-esAssertEq nm (LValue x) (LValue y) = do
-  sc <- gets esContext
-  esAddEqAssertion sc nm x y
+esAssertEq nm (IValue x) (IValue y) = esAddEqAssertion nm x y
+esAssertEq nm (LValue x) (LValue y) = esAddEqAssertion nm x y
 esAssertEq _ _ _ = esError "internal: esAssertEq given illegal arguments."
 
 -- | Set value in initial state.
@@ -292,7 +289,7 @@ esResolveLogicExprs _ _ (hrhs:rrhs) = do
   forM_ rrhs $ \rhsExpr -> do
     rhs <- esEval $ evalLogicExpr rhsExpr
     prop <- liftIO $ scCryptolEq sc t rhs
-    esAddAssumption sc prop
+    esAddAssumption prop
   -- Return value.
   return t
 
@@ -324,13 +321,11 @@ esSetLogicValues sc cl@(rep:_) tp lrhs = do
 esStep :: BehaviorCommand -> ExpectedStateGenerator ()
 -- TODO: Figure out difference between assertPred and assumePred
 esStep (AssertPred _ expr) = do
-  sc <- gets esContext
   v <- esEval $ evalLogicExpr expr
-  esAddAssumption sc v
+  esAddAssumption v
 esStep (AssumePred expr) = do
-  sc <- gets esContext
   v <- esEval $ evalLogicExpr expr
-  esAddAssumption sc v
+  esAddAssumption v
 esStep (ReturnValue expr) = do
   v <- esEval $ evalMixedExpr expr
   esReturnValue .= Just v
@@ -338,8 +333,6 @@ esStep (EnsureInstanceField _pos refExpr f rhsExpr) = do
   -- Evaluate expressions.
   ref <- esEval $ evalJavaRefExpr refExpr
   value <- esEval $ evalMixedExpr rhsExpr
-  -- Get dag engine
-  sc <- gets esContext
   -- Check that instance field is already defined, if so add an equality check for that.
   ifMap <- use esInstanceFields
   case (Map.lookup (ref, f) ifMap, value) of
@@ -348,9 +341,9 @@ esStep (EnsureInstanceField _pos refExpr f rhsExpr) = do
     (Just (Just (RValue prev)), RValue new)
       | prev == new -> return ()
     (Just (Just (IValue prev)), IValue new) ->
-       esAddEqAssertion sc (show refExpr) prev new
+       esAddEqAssertion (show refExpr) prev new
     (Just (Just (LValue prev)), LValue new) ->
-       esAddEqAssertion sc (show refExpr) prev new
+       esAddEqAssertion (show refExpr) prev new
     -- TODO: See if we can give better error message here.
     -- Perhaps this just ends up meaning that we need to verify the assumptions in this
     -- behavior are inconsistent.
@@ -359,8 +352,6 @@ esStep (EnsureInstanceField _pos refExpr f rhsExpr) = do
   esInstanceFields %= Map.insert (ref,f) (Just value)
 esStep (EnsureStaticField _pos f rhsExpr) = do
   value <- esEval $ evalMixedExpr rhsExpr
-  -- Get dag engine
-  sc <- gets esContext
   -- Check that instance field is already defined, if so add an equality check for that.
   sfMap <- use esStaticFields
   case (Map.lookup f sfMap, value) of
@@ -369,9 +360,9 @@ esStep (EnsureStaticField _pos f rhsExpr) = do
     (Just (Just (RValue prev)), RValue new)
       | prev == new -> return ()
     (Just (Just (IValue prev)), IValue new) ->
-       esAddEqAssertion sc (ppFldId f) prev new
+       esAddEqAssertion (ppFldId f) prev new
     (Just (Just (LValue prev)), LValue new) ->
-       esAddEqAssertion sc (ppFldId f) prev new
+       esAddEqAssertion (ppFldId f) prev new
     -- TODO: See if we can give better error message here.
     -- Perhaps this just ends up meaning that we need to verify the assumptions in this
     -- behavior are inconsistent.
@@ -405,7 +396,7 @@ esStep (EnsureArray _pos lhsExpr rhsExpr) = do
       case Map.lookup ref arrayMap of
         Just (Just (oldLen, prev))
           | l /= fromIntegral oldLen -> esError "internal: array changed size."
-          | otherwise -> esAddEqAssertion sc (show lhsExpr) prev value
+          | otherwise -> esAddEqAssertion (show lhsExpr) prev value
         _ -> return ()
       -- Define instance field post condition.
       esArrays %= Map.insert ref (Just (l, value))
