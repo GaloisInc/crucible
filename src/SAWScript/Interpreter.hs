@@ -1081,7 +1081,7 @@ primitives = Map.fromList
 
   , prim "java_verify"
     "JavaClass -> String -> [JavaMethodSpec] -> JavaSetup () -> TopLevel JavaMethodSpec"
-    (bicVal verifyJava)
+    (bicVal (verifyJava True))
     [ "Verify a Java method against a method specification. The first two"
     , "arguments are the same as for 'java_extract' and 'java_symexec'."
     , "The list of JavaMethodSpec values in the third argument makes it"
@@ -1093,6 +1093,11 @@ primitives = Map.fromList
     , "the tactics to use to verify that the method produces the expected"
     , "results."
     ]
+
+  , prim "java_verify_exp"
+    "JavaClass -> String -> [JavaMethodSpec] -> JavaSetup () -> TopLevel JavaMethodSpec"
+    (bicVal (verifyJava False))
+    [ "Experimental code. Don't expect this to work reliably. " ]
 
   , prim "llvm_int"            "Int -> LLVMType"
     (pureVal llvmInt)

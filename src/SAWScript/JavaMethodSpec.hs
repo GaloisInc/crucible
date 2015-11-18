@@ -23,7 +23,11 @@ module SAWScript.JavaMethodSpec
   , SymbolicRunHandler
   , initializeVerification
   , runValidation
+  , overrideFromSpec
   , mkSpecVC
+  , PathVC(..)
+  , pvcgAssertEq
+  , pvcgAssert
   , ppPathVC
   , VerifyParams(..)
   , VerifyState(..)
@@ -423,28 +427,30 @@ ppPathVC pvc =
                                        , scPrettyTermDoc tm
                                        ] -}
 
-type PathVCGenerator = State PathVC
+type PathVCGenerator = StateT PathVC
 
 -- | Add verification condition to list.
-pvcgAssertEq :: String -> SharedTerm SAWCtx -> SharedTerm SAWCtx
-             -> PathVCGenerator ()
+pvcgAssertEq :: (Monad m) =>
+                String -> SharedTerm SAWCtx -> SharedTerm SAWCtx
+             -> PathVCGenerator m ()
 pvcgAssertEq name jv sv  =
   modify $ \pvc -> pvc { pvcChecks = EqualityCheck name jv sv : pvcChecks pvc }
 
-pvcgAssert :: String -> SharedTerm SAWCtx -> PathVCGenerator ()
+pvcgAssert :: (Monad m) => String -> SharedTerm SAWCtx -> PathVCGenerator m ()
 pvcgAssert nm v =
   modify $ \pvc -> pvc { pvcChecks = AssertionCheck nm v : pvcChecks pvc }
 
-pvcgFail :: Doc -> PathVCGenerator ()
+pvcgFail :: (Monad m) => Doc -> PathVCGenerator m ()
 pvcgFail msg =
   modify $ \pvc -> pvc { pvcStaticErrors = msg : pvcStaticErrors pvc }
 
-pvcgDeepAssertEq :: String
+pvcgDeepAssertEq :: (Monad m) =>
+                    String
                  -> Path (SharedContext SAWCtx)
                  -> SpecJavaValue
                  -> ExpectedStateDef
                  -> SpecJavaValue
-                 -> PathVCGenerator ()
+                 -> PathVCGenerator m ()
 -- TODO: should we only do this equality check on references?
 pvcgDeepAssertEq _ _ jv _ sv | jv == sv = return ()
 pvcgDeepAssertEq name _ (IValue jv) _ (IValue sv) =
@@ -670,23 +676,23 @@ data VerifyParams = VerifyParams
   }
 
 type SymbolicRunHandler =
-  SharedContext SAWCtx -> ExpectedStateDef -> [PathVC] -> TopLevel ()
+  SharedContext SAWCtx -> [PathVC] -> TopLevel ()
 type Prover =
   VerifyState -> SharedTerm SAWCtx -> TopLevel ()
 
 runValidation :: Prover -> VerifyParams -> SymbolicRunHandler
-runValidation prover params sc esd results = do
+runValidation prover params sc results = do
   let ir = vpSpec params
       verb = verbLevel (vpOpts params)
-      ps = esdInitialPathState esd
-      rv = esdReturnValue esd
+      -- ps = esdInitialPathState esd
+      -- rv = esdReturnValue esd
   forM_ results $ \pvc -> do
     let mkVState nm cfn =
           VState { vsVCName = nm
                  , vsMethodSpec = ir
                  , vsVerbosity = verb
                  -- , vsFromBlock = esdStartLoc esd
-                 , vsEvalContext = evalContextFromPathState sc rv ps
+                 -- , vsEvalContext = evalContextFromPathState sc rv ps
                  -- , vsInitialAssignments = pvcInitialAssignments pvc
                  , vsCounterexampleFn = cfn
                  , vsStaticErrors = pvcStaticErrors pvc
@@ -726,7 +732,7 @@ data VerifyState = VState {
        -- , vsFromBlock :: BlockId
          -- | Evaluation context used for parsing expressions during
          -- verification.
-       , vsEvalContext :: EvalContext
+       -- , vsEvalContext :: EvalContext
        -- , vsInitialAssignments :: [(TC.JavaExpr, SharedTerm SAWCtx)]
        , vsCounterexampleFn :: CounterexampleFn SAWCtx
        , vsStaticErrors :: [Doc]

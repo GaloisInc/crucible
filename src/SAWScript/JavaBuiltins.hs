@@ -20,10 +20,12 @@ import Control.Applicative hiding (empty)
 #endif
 import Control.Lens
 import Control.Monad.State
+import qualified Control.Monad.State.Strict as SState
 import Data.List (intercalate, partition)
 import Data.List.Split
 import Data.IORef
 import qualified Data.Map as Map
+import Data.Maybe
 import Data.Time.Clock
 import qualified Data.Vector as V
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -55,7 +57,6 @@ import SAWScript.Proof
 import SAWScript.TypedTerm
 import SAWScript.Utils
 import SAWScript.Value as SS
-import SAWScript.VerificationCheck
 
 import qualified Cryptol.TypeCheck.AST as Cryptol
 
@@ -205,7 +206,7 @@ initializeVerification' :: MonadSim (SharedContext SAWCtx) m
 initializeVerification' sc ir bs refConfig = do
   -- Generate a reference for each reference equivalence class
   exprRefs <- mapM (genRef . jssTypeOfActual . snd) refConfig
-  let _refAssignments = (exprRefs `zip` map fst refConfig)
+  let refAssignments = (exprRefs `zip` map fst refConfig)
       pushFrame cs = case mcs' of
                        Nothing -> error "internal: failed to push call frame"
                        Just cs' -> cs'
@@ -223,8 +224,61 @@ initializeVerification' sc ir bs refConfig = do
               (specInitializedClasses ir)
   modifyPathM_ (PP.text "initializeVerification") $
     return . (pathMemory %~ updateInitializedClasses)
+  forM_ refAssignments $ \(r, cl) ->
+    forM_ cl $ \e ->
+      case e of
+        -- Don't try to set the return value
+        (CC.Term (ReturnVal _)) -> return ()
+        _ -> writeJavaValue e (RValue r)
+  lcs <- liftIO $ bsLogicClasses sc bs refConfig
+  case lcs of
+    Nothing ->
+      let msg = "Unresolvable cyclic dependencies between assumptions."
+      in throwIOExecException (specPos ir) (ftext msg) ""
+    Just assignments -> mapM_ (\(l, t, r) -> setClassValues sc l t r) assignments
   mapM_ (initStep sc) (bsCommands bs)
   getPath (PP.text "initializeVerification")
+
+evalLogicExpr' :: MonadSim (SharedContext SAWCtx) m =>
+                  SharedContext SAWCtx -> LogicExpr
+               -> Simulator (SharedContext SAWCtx) m (SharedTerm SAWCtx)
+evalLogicExpr' sc initExpr = do
+  let exprs = logicExprJavaExprs initExpr
+  args <- forM exprs $ \expr -> do
+    t <- readJavaTermSim expr
+    return (expr, t)
+  let argMap = Map.fromList args
+      argTerms = mapMaybe (\k -> Map.lookup k argMap) $
+                 logicExprJavaExprs initExpr
+  liftIO $ useLogicExpr sc initExpr argTerms
+
+resolveClassRHS :: MonadSim (SharedContext SAWCtx) m =>
+                   SharedContext SAWCtx
+                -> JavaExpr
+                -> SharedTerm SAWCtx
+                -> [LogicExpr]
+                -> Simulator (SharedContext SAWCtx) m (TypedTerm SAWCtx)
+resolveClassRHS sc _ tp [] =
+  liftIO (scFreshGlobal sc "_" tp >>= mkTypedTerm sc)
+resolveClassRHS sc _ _ [r] = do
+  t <- evalLogicExpr' sc r
+  liftIO $ mkTypedTerm sc t
+resolveClassRHS _ _ _ _ =
+  fail "Not yet implemented."
+
+setClassValues :: (MonadSim (SharedContext SAWCtx) m) =>
+                  SharedContext SAWCtx
+               -> [JavaExpr] -> SharedTerm SAWCtx
+               -> [LogicExpr]
+               -> Simulator (SharedContext SAWCtx) m ()
+setClassValues sc l tp rs =
+  forM_ l $ \e -> do
+    case e of
+      -- Don't try to set the return value
+      CC.Term (ReturnVal _) -> return ()
+      _ -> do
+        t <- resolveClassRHS sc e tp rs
+        writeJavaTerm sc e t
 
 initStep :: (Functor m, Monad m) =>
             SharedContext SAWCtx -> BehaviorCommand
@@ -238,77 +292,96 @@ initStep sc (AssumePred expr) = do
 initStep _ _ = return ()
 
 
-valueEqTerm :: (Functor m, MonadIO m) =>
+valueEqTerm :: (Functor m, Monad m) =>
                String
+            -> SpecPathState
             -> SpecJavaValue
             -> SharedTerm SAWCtx
-            -> Simulator (SharedContext SAWCtx) m [VerificationCheck SAWCtx]
-valueEqTerm name (IValue t) t' = return [EqualityCheck name t t']
-valueEqTerm name (LValue t) t' = return [EqualityCheck name t t']
-valueEqTerm name (RValue r) t' = do
-  ps <- getPath (PP.text name)
+            -> SState.StateT PathVC m ()
+valueEqTerm name _ (IValue t) t' = pvcgAssertEq name t t'
+valueEqTerm name _ (LValue t) t' = pvcgAssertEq name t t'
+valueEqTerm name ps (RValue r) t' = do
   case Map.lookup r (ps ^. pathMemory . memScalarArrays) of
-    Just (_, t) -> return [EqualityCheck name t t']
+    Just (_, t) -> pvcgAssertEq name t t'
     Nothing -> fail $ "valueEqTerm: " ++ name ++ ": ref does not point to array"
-valueEqTerm name _ _ = fail $ "valueEqTerm: " ++ name ++ ": unspported value type"
+valueEqTerm name _ _ _ = fail $ "valueEqTerm: " ++ name ++ ": unspported value type"
+
+readJavaValueVerif :: Monad m =>
+                      VerificationState
+                   -> Path' (SharedTerm SAWCtx)
+                   -> JavaExpr
+                   -> m (JSS.Value (SharedTerm SAWCtx))
+readJavaValueVerif vs ps refExpr = do
+  let initPS = vsInitialState vs
+      mcf = currentCallFrame initPS
+  cf <- maybe (fail "No call frame") return mcf
+  readJavaValue cf ps refExpr
 
 -- TODO: have checkStep record a list of all the things it has checked.
 -- After it runs, we can go through the final state and check whether
 -- there are any unchecked elements of the state.
-checkStep :: (Functor m, MonadIO m) =>
-             VerificationState -> BehaviorCommand
-          -> Simulator (SharedContext SAWCtx) m [VerificationCheck SAWCtx]
-checkStep _ (AssertPred _ _) = return []
-checkStep _ (AssumePred _) = return []
-checkStep vs (ReturnValue expr) = do
+checkStep :: (Functor m, Monad m, MonadIO m) =>
+             VerificationState
+          -> SpecPathState
+          -> BehaviorCommand
+          -> SState.StateT PathVC m ()
+checkStep _ _ (AssertPred _ _) = return ()
+checkStep _ _ (AssumePred _) = return ()
+checkStep vs ps (ReturnValue expr) = do
   t <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) expr
-  mrv <- getProgramReturnValue
-  case mrv of
-    Just rv -> valueEqTerm "ReturnValue" rv t
+  case ps ^. pathRetVal of
+    Just rv -> valueEqTerm "ReturnValue" ps rv t
     Nothing -> fail "Return specification, but method did not return a value."
-checkStep vs (EnsureInstanceField _pos refExpr f rhsExpr) = do
-  rv <- readJavaValueSim refExpr
+checkStep vs ps (EnsureInstanceField _pos refExpr f rhsExpr) = do
+  rv <- readJavaValueVerif vs ps refExpr
   case rv of
     RValue ref -> do
-      fv <- getInstanceFieldValue ref f
-      ft <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) rhsExpr
-      valueEqTerm "EnsureInstanceField" fv ft
+      let mfv = getInstanceFieldValuePS ps ref f
+      case mfv of
+        Just fv -> do
+          ft <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) rhsExpr
+          valueEqTerm "EnsureInstanceField" ps fv ft
+        Nothing  -> fail "Invalid instance field in java_ensure_eq."
     _ -> fail "Left-hand side of . did not evaluate to a reference."
-checkStep vs (EnsureStaticField _pos f rhsExpr) = do
-  fv <- getStaticFieldValue f
+checkStep vs ps (EnsureStaticField _pos f rhsExpr) = do
+  let mfv = getStaticFieldValuePS ps f
   ft <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) rhsExpr
-  valueEqTerm "EnsureStaticField" fv ft
-checkStep vs (ModifyInstanceField refExpr f) = do
-  rv <- readJavaValueSim refExpr
+  case mfv of
+    Just fv -> valueEqTerm "EnsureStaticField" ps fv ft
+    Nothing -> fail "Invalid static field in java_ensure_eq."
+checkStep vs ps (ModifyInstanceField refExpr f) = do
+  rv <- readJavaValueVerif vs ps refExpr
   case rv of
     RValue ref -> do
       mty <- liftIO $ logicTypeOfJSSType (vsContext vs) (fieldIdType f)
-      case mty of
-        Just ty -> do
-          fv <- getInstanceFieldValue ref f
+      let mfv = getInstanceFieldValuePS ps ref f
+      case (mty, mfv) of
+        (Just ty, Just fv) -> do
           ft <- liftIO $ scFreshGlobal (vsContext vs) "_" ty
-          valueEqTerm "ModifyInstanceField" fv ft
-        Nothing -> fail "Invalid type in java_modify for instance field."
+          valueEqTerm "ModifyInstanceField" ps fv ft
+        (Nothing, _) -> fail "Invalid type in java_modify for instance field."
+        (_, Nothing) -> fail "Invalid instance field in java_modify."
     _ -> fail "Left-hand side of . did not evaluate to a reference."
-checkStep vs (ModifyStaticField f) = do
-  fv <- getStaticFieldValue f
+checkStep vs ps (ModifyStaticField f) = do
   mty <- liftIO $ logicTypeOfJSSType (vsContext vs) (fieldIdType f)
-  case mty of
-    Just ty -> do
+  let mfv = getStaticFieldValuePS ps f
+  case (mty, mfv) of
+    (Just ty, Just fv) -> do
       ft <- liftIO $ scFreshGlobal (vsContext vs) "_" ty
-      valueEqTerm "ModifyStaticField" fv ft
-    Nothing -> fail "Invalid type in java_modify for static field."
-checkStep vs (EnsureArray _pos refExpr rhsExpr) = do
-  rv <- readJavaValueSim refExpr
+      valueEqTerm "ModifyStaticField" ps fv ft
+    (Nothing, _) -> fail "Invalid type in java_modify for static field."
+    (_, Nothing) -> fail "Invalid static field in java_modify."
+checkStep vs ps (EnsureArray _pos refExpr rhsExpr) = do
+  rv <- readJavaValueVerif vs ps refExpr
   t <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) rhsExpr
-  valueEqTerm "EnsureArray" rv t
-checkStep vs (ModifyArray refExpr aty) = do
-  rv <- readJavaValueSim refExpr
+  valueEqTerm "EnsureArray" ps rv t
+checkStep vs ps (ModifyArray refExpr aty) = do
+  rv <- readJavaValueVerif vs ps refExpr
   mty <- liftIO $ logicTypeOfActual (vsContext vs) aty
   case mty of
     Just ty -> do
       t <- liftIO $ scFreshGlobal (vsContext vs) "_" ty
-      valueEqTerm "ModifyArray" rv t
+      valueEqTerm "ModifyArray" ps rv t
     Nothing -> fail "Invalid type in java_modify for array."
 
 data VerificationState = VerificationState
@@ -322,21 +395,28 @@ checkFinalState :: MonadSim (SharedContext SAWCtx) m =>
                 -> JavaMethodSpecIR
                 -> BehaviorSpec
                 -> JSS.Path (SharedContext SAWCtx)
-                -> Simulator (SharedContext SAWCtx) m [VerificationCheck SAWCtx]
+                -> Simulator (SharedContext SAWCtx) m PathVC
 checkFinalState sc ms bs initPS = do
   let st = VerificationState { vsContext = sc
                              , vsSpec = ms
                              , vsInitialState = initPS
                              }
-  vcs <- mapM (checkStep st) (bsCommands bs)
+  finalPS <- getPath "checkFinalState"
+  let initState  =
+        PathVC { pvcStartLoc = bsLoc bs
+               , pvcEndLoc = Nothing
+               , pvcAssumptions = finalPS ^. pathAssertions
+               , pvcStaticErrors = []
+               , pvcChecks = []
+               }
+  SState.execStateT (mapM_ (checkStep st finalPS) (bsCommands bs)) initState
   -- TODO: also compare states, keep track of what we've looked at
-  return (concat vcs)
 
-verifyJava :: BuiltinContext -> Options -> Class -> String
+verifyJava :: Bool -> BuiltinContext -> Options -> Class -> String
            -> [JavaMethodSpecIR]
            -> JavaSetup ()
            -> TopLevel JavaMethodSpecIR
-verifyJava bic opts cls mname overrides setup = do
+verifyJava isOld bic opts cls mname overrides setup = do
   startTime <- io $ getCurrentTime
   let pos = fixPos -- TODO
       cb = biJavaCodebase bic
@@ -381,11 +461,6 @@ verifyJava bic opts cls mname overrides setup = do
       -- runDefSimulator cb sbe $ do
       runSimulator cb sbe defaultSEH (Just fl) $ do
         setVerbosity (simVerbose opts)
-        esd <- initializeVerification jsc ms bs cl
-        res <- mkSpecVC jsc vp esd
-        when (verb >= 5) $ liftIO $ do
-          putStrLn "Verifying the following:"
-          mapM_ (print . ppPathVC) res
         let prover script vs g = do
               let exts = getAllExts g
               glam <- io $ bindExts jsc exts g
@@ -397,11 +472,29 @@ verifyJava bic opts cls mname overrides setup = do
                 -- TODO: replace x with something
                 SS.Sat val -> io $ showCexResults jsc ms vs exts [("x", val)]
                 SS.SatMulti vals -> io $ showCexResults jsc ms vs exts vals
+        pvcs <- case isOld of
+          True -> do
+            esd <- initializeVerification jsc ms bs cl
+            mkSpecVC jsc vp esd
+          False -> do
+            let ovds = vpOver vp
+            initPS <- initializeVerification' jsc ms bs cl
+            when (verb >= 2) $ liftIO $
+              putStrLn $ "Overriding: " ++ show (map specName ovds)
+            mapM_ (overrideFromSpec jsc (specPos ms)) ovds
+            -- Execute code.
+            run
+            pvc <- checkFinalState jsc ms bs initPS
+            return [pvc]
+        when (verb >= 5) $ liftIO $ do
+          putStrLn "Verifying the following:"
+          mapM_ (print . ppPathVC) pvcs
+        let validator script = runValidation (prover script) vp jsc pvcs
         case jsTactic setupRes of
           Skip -> liftIO $ putStrLn $
             "WARNING: skipping verification of " ++ specName ms
           RunVerify script ->
-            liftIO $ fmap fst $ runTopLevel (runValidation (prover script) vp jsc esd res) ro rw
+            liftIO $ fmap fst $ runTopLevel (validator script) ro rw
     endTime <- io $ getCurrentTime
     io $ putStrLn $ "Successfully verified " ++ specName ms ++ overrideText ++
                     " (" ++ showDuration (diffUTCTime endTime startTime) ++ ")"
