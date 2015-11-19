@@ -228,14 +228,16 @@ ocStep (ModifyInstanceField refExpr f) =
         w = fromIntegral $ stackWidth tp
     logicType <- liftIO $ scBitvector sc (fromInteger w)
     n <- liftIO $ scFreshGlobal sc (TC.ppJavaExpr refExpr) logicType
-    ocModifyResultState $ setInstanceFieldValuePS lhsRef f (mkJSSValue tp n)
+    v <- liftIO $ mkJSSValue tp n
+    ocModifyResultState $ setInstanceFieldValuePS lhsRef f v
 ocStep (ModifyStaticField f) = do
   sc <- gets (ecContext . ocsEvalContext)
   let tp = fieldIdType f
       w = fromIntegral $ stackWidth tp
   logicType <- liftIO $ scBitvector sc (fromInteger w)
   n <- liftIO $ scFreshGlobal sc (ppFldId f) logicType
-  ocModifyResultState $ setStaticFieldValuePS f (mkJSSValue tp n)
+  v <- liftIO $ mkJSSValue tp n
+  ocModifyResultState $ setStaticFieldValuePS f v
 ocStep (ModifyArray refExpr ty) = do
   ocEval (evalJavaRefExpr refExpr) $ \ref -> do
     sc <- gets (ecContext . ocsEvalContext)

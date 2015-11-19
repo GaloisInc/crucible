@@ -40,7 +40,9 @@ module SAWScript.JavaExpr
     -- * Actual type
   , JavaActualType(..)
   , jssTypeOfActual
+  , javaTypeToActual
   , isActualRef
+  , narrowTypeOfActual
   , logicTypeOfActual
   , logicTypeOfJSSType
   , cryptolTypeOfActual
@@ -226,6 +228,31 @@ jssTypeOfActual (ClassInstance x) = JSS.ClassType (JSS.className x)
 jssTypeOfActual (ArrayInstance _ tp) = JSS.ArrayType tp
 jssTypeOfActual (PrimitiveType tp) = tp
 
+javaTypeToActual :: JSS.Type -> Maybe JavaActualType
+javaTypeToActual tp
+  | JSS.isPrimitiveType tp = Just (PrimitiveType tp)
+  | otherwise = Nothing
+
+narrowTypeOfActual :: SharedContext s -> JavaActualType
+                  -> IO (Maybe (SharedTerm s))
+narrowTypeOfActual _ (ClassInstance _) = return Nothing
+narrowTypeOfActual sc (ArrayInstance l tp) = do
+  elTy <- scBitvector sc (fromIntegral (JSS.stackWidth tp))
+  lTm <- scNat sc (fromIntegral l)
+  Just <$> scVecType sc lTm elTy
+narrowTypeOfActual sc (PrimitiveType JSS.BooleanType) =
+  Just <$> scBitvector sc 1
+narrowTypeOfActual sc (PrimitiveType JSS.ByteType) =
+  Just <$> scBitvector sc 8
+narrowTypeOfActual sc (PrimitiveType JSS.ShortType) =
+  Just <$> scBitvector sc 16
+narrowTypeOfActual sc (PrimitiveType JSS.IntType) =
+  Just <$> scBitvector sc 32
+narrowTypeOfActual sc (PrimitiveType JSS.LongType) =
+  Just <$> scBitvector sc 64
+narrowTypeOfActual _ ty =
+  fail $ "Unsupported Java type " ++ show ty
+
 -- | Returns logical type of actual type if it is an array or primitive type.
 logicTypeOfActual :: SharedContext s -> JavaActualType
                   -> IO (Maybe (SharedTerm s))
@@ -234,8 +261,8 @@ logicTypeOfActual sc (ArrayInstance l tp) = do
   elTy <- scBitvector sc (fromIntegral (JSS.stackWidth tp))
   lTm <- scNat sc (fromIntegral l)
   Just <$> scVecType sc lTm elTy
-logicTypeOfActual sc (PrimitiveType tp) = do
-  Just <$> scBitvector sc (fromIntegral (JSS.stackWidth tp))
+logicTypeOfActual sc (PrimitiveType tp) =
+  logicTypeOfJSSType sc tp
 
 logicTypeOfJSSType :: SharedContext s -> JSS.Type
                    -> IO (Maybe (SharedTerm s))

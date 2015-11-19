@@ -118,8 +118,9 @@ symexecJava bic opts cls mname inputs outputs satBranches = do
       argTms <- forM [0..maxArg meth] $ \i ->
                   maybe (noDefErr i) return $ Map.lookup (pidx i) argMap
       args <- mapM (valueOfTerm jsc) argTms
-      let actualArgTys = map typeOfValue args
-          expectedArgTys = methodParameterTypes meth
+      -- TODO: map scTypeOf over argTms and lift to JavaActualType
+      actualArgTys <- liftIO $ mapM (typeOfValue jsc) args
+      let expectedArgTys = methodParameterTypes meth
       forM_ (zip actualArgTys expectedArgTys) $ \ (aty, ety) ->
         unless (aty == ety) $ fail $
         "Passing value of type " ++ show aty ++
@@ -159,9 +160,10 @@ extractJava bic opts cls mname setup = do
                 False -> do
                   RValue this <- freshJavaVal (Just argsRef) jsc (ClassInstance cls)
                   execInstanceMethod (className cls) (methodKey meth) this args
-      dt <- case rslt of
-              Nothing -> fail $ "No return value from " ++ methodName meth
-              Just v -> termOfValueSim v
+      dt <- case (rslt, methodReturnType meth) of
+              (Nothing, _) -> fail $ "No return value from " ++ methodName meth
+              (_, Nothing) -> fail $ "Return value from void method " ++ methodName meth
+              (Just v, Just tp) -> termOfValueSim tp v
       liftIO $ do
         let sc = biSharedContext bic
         argBinds <- reverse <$> readIORef argsRef
@@ -291,20 +293,22 @@ initStep sc (AssumePred expr) = do
   addAssertion c
 initStep _ _ = return ()
 
-
-valueEqTerm :: (Functor m, Monad m) =>
-               String
+valueEqTerm :: (Functor m, Monad m, MonadIO m) =>
+               SharedContext SAWCtx
+            -> String
             -> SpecPathState
             -> SpecJavaValue
             -> SharedTerm SAWCtx
             -> SState.StateT PathVC m ()
-valueEqTerm name _ (IValue t) t' = pvcgAssertEq name t t'
-valueEqTerm name _ (LValue t) t' = pvcgAssertEq name t t'
-valueEqTerm name ps (RValue r) t' = do
+valueEqTerm sc name _ (IValue t) t' = do
+  t'' <- liftIO $ extendToIValue sc t'
+  pvcgAssertEq name t t''
+valueEqTerm _ name _ (LValue t) t' = pvcgAssertEq name t t'
+valueEqTerm _ name ps (RValue r) t' = do
   case Map.lookup r (ps ^. pathMemory . memScalarArrays) of
     Just (_, t) -> pvcgAssertEq name t t'
     Nothing -> fail $ "valueEqTerm: " ++ name ++ ": ref does not point to array"
-valueEqTerm name _ _ _ = fail $ "valueEqTerm: " ++ name ++ ": unspported value type"
+valueEqTerm _ name _ _ _ = fail $ "valueEqTerm: " ++ name ++ ": unspported value type"
 
 readJavaValueVerif :: (Functor m, Monad m) =>
                       VerificationState
@@ -313,9 +317,7 @@ readJavaValueVerif :: (Functor m, Monad m) =>
                    -> m (JSS.Value (SharedTerm SAWCtx))
 readJavaValueVerif vs ps refExpr = do
   let initPS = vsInitialState vs
-      mcf = currentCallFrame initPS
-  cf <- maybe (fail "No call frame") return mcf
-  readJavaValue cf ps refExpr
+  readJavaValue (currentCallFrame initPS) ps refExpr
 
 -- TODO: have checkStep record a list of all the things it has checked.
 -- After it runs, we can go through the final state and check whether
@@ -330,7 +332,7 @@ checkStep _ _ (AssumePred _) = return ()
 checkStep vs ps (ReturnValue expr) = do
   t <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) expr
   case ps ^. pathRetVal of
-    Just rv -> valueEqTerm "ReturnValue" ps rv t
+    Just rv -> valueEqTerm (vsContext vs) "ReturnValue" ps rv t
     Nothing -> fail "Return specification, but method did not return a value."
 checkStep vs ps (EnsureInstanceField _pos refExpr f rhsExpr) = do
   rv <- readJavaValueVerif vs ps refExpr
@@ -340,16 +342,16 @@ checkStep vs ps (EnsureInstanceField _pos refExpr f rhsExpr) = do
       case mfv of
         Just fv -> do
           ft <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) rhsExpr
-          valueEqTerm "EnsureInstanceField" ps fv ft
+          valueEqTerm (vsContext vs) "EnsureInstanceField" ps fv ft
         Nothing  -> fail "Invalid instance field in java_ensure_eq."
     _ -> fail "Left-hand side of . did not evaluate to a reference."
 checkStep vs ps (EnsureStaticField _pos f rhsExpr) = do
   let mfv = getStaticFieldValuePS ps f
   ft <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) rhsExpr
   case mfv of
-    Just fv -> valueEqTerm "EnsureStaticField" ps fv ft
+    Just fv -> valueEqTerm (vsContext vs) "EnsureStaticField" ps fv ft
     Nothing -> fail "Invalid static field in java_ensure_eq."
-checkStep vs ps (ModifyInstanceField refExpr f) = do
+checkStep _vs _ps (ModifyInstanceField _refExpr _f) = return () {- do
   rv <- readJavaValueVerif vs ps refExpr
   case rv of
     RValue ref -> do
@@ -358,31 +360,31 @@ checkStep vs ps (ModifyInstanceField refExpr f) = do
       case (mty, mfv) of
         (Just ty, Just fv) -> do
           ft <- liftIO $ scFreshGlobal (vsContext vs) "_" ty
-          valueEqTerm "ModifyInstanceField" ps fv ft
+          valueEqTerm (vsContext vs) "ModifyInstanceField" ps fv ft
         (Nothing, _) -> fail "Invalid type in java_modify for instance field."
         (_, Nothing) -> fail "Invalid instance field in java_modify."
-    _ -> fail "Left-hand side of . did not evaluate to a reference."
-checkStep vs ps (ModifyStaticField f) = do
+    _ -> fail "Left-hand side of . did not evaluate to a reference." -}
+checkStep _vs _ps (ModifyStaticField _f) = return () {- do
   mty <- liftIO $ logicTypeOfJSSType (vsContext vs) (fieldIdType f)
   let mfv = getStaticFieldValuePS ps f
   case (mty, mfv) of
     (Just ty, Just fv) -> do
       ft <- liftIO $ scFreshGlobal (vsContext vs) "_" ty
-      valueEqTerm "ModifyStaticField" ps fv ft
+      valueEqTerm (vsContext vs) "ModifyStaticField" ps fv ft
     (Nothing, _) -> fail "Invalid type in java_modify for static field."
-    (_, Nothing) -> fail "Invalid static field in java_modify."
+    (_, Nothing) -> fail "Invalid static field in java_modify." -}
 checkStep vs ps (EnsureArray _pos refExpr rhsExpr) = do
   rv <- readJavaValueVerif vs ps refExpr
   t <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) rhsExpr
-  valueEqTerm "EnsureArray" ps rv t
-checkStep vs ps (ModifyArray refExpr aty) = do
+  valueEqTerm (vsContext vs) "EnsureArray" ps rv t
+checkStep _vs _ps (ModifyArray _refExpr _aty) = return () {- do
   rv <- readJavaValueVerif vs ps refExpr
   mty <- liftIO $ logicTypeOfActual (vsContext vs) aty
   case mty of
     Just ty -> do
       t <- liftIO $ scFreshGlobal (vsContext vs) "_" ty
-      valueEqTerm "ModifyArray" ps rv t
-    Nothing -> fail "Invalid type in java_modify for array."
+      valueEqTerm (vsContext vs) "ModifyArray" ps rv t
+    Nothing -> fail "Invalid type in java_modify for array." -}
 
 data VerificationState = VerificationState
                          { vsContext :: SharedContext SAWCtx
