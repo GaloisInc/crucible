@@ -7,6 +7,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {- |
 Module           : $Header$
@@ -26,6 +27,7 @@ module SAWScript.JavaExpr
   , exprType
   , isScalarExpr
   , isReturnExpr
+  , containsReturn
   , isArg
   , maxArg
   , isRefJavaExpr
@@ -48,6 +50,7 @@ module SAWScript.JavaExpr
   , cryptolTypeOfActual
   , typeOfLogicExpr
   , ppActualType
+  , parseJavaExpr
   , MethodLocation (..)
   , JavaType(..)
   ) where
@@ -60,7 +63,12 @@ import Control.Applicative
 
 import Language.JVM.Common (ppFldId)
 
-import qualified Verifier.Java.Codebase as JSS
+import Data.List (intercalate)
+import Data.List.Split
+import qualified Data.Vector as V
+import Text.Read
+
+import Verifier.Java.Codebase as JSS
 import Verifier.Java.SAWBackend hiding (basic_ss)
 
 import Verifier.SAW.SharedTerm
@@ -127,6 +135,13 @@ returnJavaExpr meth =
 isReturnExpr :: JavaExpr -> Bool
 isReturnExpr (CC.Term (ReturnVal _)) = True
 isReturnExpr _ = False
+
+containsReturn :: JavaExpr -> Bool
+containsReturn (CC.Term e) =
+  case e of
+    ReturnVal _ -> True
+    InstanceField e' _ -> containsReturn e'
+    _ -> False
 
 -- | Pretty print a Java expression.
 ppJavaExpr :: JavaExpr -> String
@@ -282,6 +297,76 @@ ppActualType :: JavaActualType -> String
 ppActualType (ClassInstance x) = JSS.slashesToDots (JSS.className x)
 ppActualType (ArrayInstance l tp) = show tp ++ "[" ++ show l ++ "]"
 ppActualType (PrimitiveType tp) = show tp
+
+parseJavaExpr :: JSS.Codebase -> JSS.Class -> JSS.Method -> String
+              -> IO JavaExpr
+parseJavaExpr cb cls meth estr = do
+  sr <- parseStaticParts cb eparts
+  case sr of
+    Just e -> return e
+    Nothing -> parseParts eparts
+  where parseParts :: [String] -> IO JavaExpr
+        parseParts [] = fail "empty Java expression"
+        parseParts [s] =
+          case s of
+            "this" | JSS.methodIsStatic meth ->
+                     fail $ "Can't use 'this' in static method " ++
+                            JSS.methodName meth
+                   | otherwise -> return (thisJavaExpr cls)
+            "return" -> case returnJavaExpr meth of
+                          Just e -> return e
+                          Nothing ->
+                            fail $ "No return value for " ++ methodName meth
+            ('a':'r':'g':'s':'[':rest) -> do
+              let num = fst (break (==']') rest)
+              case readMaybe num of
+                Just (n :: Int) -> do
+                  let i = localIndexOfParameter meth n
+                      mlv = lookupLocalVariableByIdx meth 0 i
+                      paramTypes = V.fromList .
+                                   methodKeyParameterTypes .
+                                   methodKey $
+                                   meth
+                  case mlv of
+                    Nothing
+                      | n < V.length paramTypes ->
+                        return (CC.Term (Local s i (paramTypes V.! (fromIntegral n))))
+                      | otherwise ->
+                        fail $ "(Zero-based) local variable index " ++ show i ++
+                               " for parameter " ++ show n ++ " doesn't exist"
+                    Just lv -> return (CC.Term (Local s i (localType lv)))
+                Nothing -> fail $ "bad Java expression syntax: " ++ s
+            _ | hasDebugInfo meth -> do
+                  let mlv = lookupLocalVariableByName meth 0 s
+                  case mlv of
+                    Nothing -> fail $ "local " ++ s ++ " doesn't exist, expected one of: " ++
+                                 unwords (map localName (localVariableEntries meth 0))
+                    Just lv -> return (CC.Term (Local s i ty))
+                      where i = JSS.localIdx lv
+                            ty = JSS.localType lv
+              | otherwise ->
+                  fail $ "variable " ++ s ++
+                         " referenced by name, but no debug info available"
+        parseParts (f:rest) = do
+          e <- parseParts rest
+          let jt = exprType e
+              pos = PosInternal "FIXME" -- TODO
+          fid <- findField cb pos jt f
+          return (CC.Term (InstanceField e fid))
+        eparts = reverse (splitOn "." estr)
+
+parseStaticParts :: Codebase -> [String] -> IO (Maybe JavaExpr)
+parseStaticParts cb (fname:rest) = do
+  let cname = intercalate "/" (reverse rest)
+  mc <- tryLookupClass cb cname
+  case mc of
+    Just c ->
+      case filter ((== fname) . fieldName) (classFields c) of
+        [f] -> return (Just (CC.Term fld))
+          where fld =  StaticField (FieldId cname fname (fieldType f))
+        _ -> return Nothing
+    Nothing -> return Nothing
+parseStaticParts _ _ = return Nothing
 
 -- JavaType {{{1
 

@@ -21,16 +21,13 @@ import Control.Applicative hiding (empty)
 import Control.Lens
 import Control.Monad.State
 import qualified Control.Monad.State.Strict as SState
-import Data.List (intercalate, partition)
-import Data.List.Split
+import Data.List (partition)
 import Data.IORef
 import qualified Data.Map as Map
 import Data.Maybe
 import Data.Time.Clock
-import qualified Data.Vector as V
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import qualified Text.PrettyPrint.HughesPJ as PP
-import Text.Read (readMaybe)
 
 import Data.JVM.Symbolic.AST (entryBlock)
 import Language.JVM.Common
@@ -264,13 +261,6 @@ resolveClassRHS sc _ _ [r] = do
   liftIO $ mkTypedTerm sc t
 resolveClassRHS _ _ _ _ =
   fail "Not yet implemented."
-
-containsReturn :: JavaExpr -> Bool
-containsReturn (CC.Term e) =
-  case e of
-    ReturnVal _ -> True
-    InstanceField e' _ -> containsReturn e'
-    _ -> False
 
 setClassValues :: (MonadSim (SharedContext SAWCtx) m) =>
                   SharedContext SAWCtx
@@ -532,76 +522,6 @@ showCexResults sc ms vs exts vals = do
     then vsCounterexampleFn vs (cexEvalFn sc (zip exts (map snd vals))) >>= print
     else putStrLn "ERROR: Can't show result, wrong number of values"
   fail "Proof failed."
-
-parseJavaExpr :: Codebase -> Class -> Method -> String
-              -> IO JavaExpr
-parseJavaExpr cb cls meth estr = do
-  sr <- parseStaticParts cb eparts
-  case sr of
-    Just e -> return e
-    Nothing -> parseParts eparts
-  where parseParts :: [String] -> IO JavaExpr
-        parseParts [] = fail "empty Java expression"
-        parseParts [s] =
-          case s of
-            "this" | methodIsStatic meth ->
-                     fail $ "Can't use 'this' in static method " ++
-                            methodName meth
-                   | otherwise -> return (thisJavaExpr cls)
-            "return" -> case returnJavaExpr meth of
-                          Just e -> return e
-                          Nothing ->
-                            fail $ "No return value for " ++ methodName meth
-            ('a':'r':'g':'s':'[':rest) -> do
-              let num = fst (break (==']') rest)
-              case readMaybe num of
-                Just (n :: Int) -> do
-                  let i = localIndexOfParameter meth n
-                      mlv = lookupLocalVariableByIdx meth 0 i
-                      paramTypes = V.fromList .
-                                   methodKeyParameterTypes .
-                                   methodKey $
-                                   meth
-                  case mlv of
-                    Nothing
-                      | n < V.length paramTypes ->
-                        return (CC.Term (Local s i (paramTypes V.! (fromIntegral n))))
-                      | otherwise ->
-                        fail $ "(Zero-based) local variable index " ++ show i ++
-                               " for parameter " ++ show n ++ " doesn't exist"
-                    Just lv -> return (CC.Term (Local s i (localType lv)))
-                Nothing -> fail $ "bad Java expression syntax: " ++ s
-            _ | hasDebugInfo meth -> do
-                  let mlv = lookupLocalVariableByName meth 0 s
-                  case mlv of
-                    Nothing -> fail $ "local " ++ s ++ " doesn't exist, expected one of: " ++
-                                 unwords (map localName (localVariableEntries meth 0))
-                    Just lv -> return (CC.Term (Local s i ty))
-                      where i = localIdx lv
-                            ty = localType lv
-              | otherwise ->
-                  fail $ "variable " ++ s ++
-                         " referenced by name, but no debug info available"
-        parseParts (f:rest) = do
-          e <- parseParts rest
-          let jt = exprType e
-              pos = fixPos -- TODO
-          fid <- findField cb pos jt f
-          return (CC.Term (InstanceField e fid))
-        eparts = reverse (splitOn "." estr)
-
-parseStaticParts :: Codebase -> [String] -> IO (Maybe JavaExpr)
-parseStaticParts cb (fname:rest) = do
-  let cname = intercalate "/" (reverse rest)
-  mc <- tryLookupClass cb cname
-  case mc of
-    Just c ->
-      case filter ((== fname) . fieldName) (classFields c) of
-        [f] -> return (Just (CC.Term fld))
-          where fld =  StaticField (FieldId cname fname (fieldType f))
-        _ -> return Nothing
-    Nothing -> return Nothing
-parseStaticParts _ _ = return Nothing
 
 mkMixedExpr :: SharedContext SAWCtx
             -> JavaMethodSpecIR
