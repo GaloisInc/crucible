@@ -112,14 +112,18 @@ getStaticFieldValuePS ps f =
   Map.lookup f (ps ^. pathMemory . memStaticFields)
 
 -- | Returns value constructor from node.
-mkJSSValue :: Type -> n -> IO (Value n)
-mkJSSValue BooleanType n = return (IValue n)
-mkJSSValue ByteType    n = return (IValue n)
-mkJSSValue CharType    n = return (IValue n)
-mkJSSValue IntType     n = return (IValue n)
-mkJSSValue LongType    n = return (LValue n)
-mkJSSValue ShortType   n = return (IValue n)
-mkJSSValue _ _ = fail "internal: illegal type"
+mkJSSValue :: SharedContext s -> Type -> SharedTerm s -> IO (Value (SharedTerm s))
+mkJSSValue sc BooleanType n = IValue <$> extendToIValue sc n
+mkJSSValue sc ByteType    n = IValue <$> extendToIValue sc n
+mkJSSValue sc CharType    n = IValue <$> extendToIValue sc n
+mkJSSValue sc IntType     n = IValue <$> extendToIValue sc n
+mkJSSValue sc LongType    n = do
+  ty <- scTypeOf sc n
+  case ty of
+    (asBitvectorType -> Just 64) -> return (LValue n)
+    _ -> fail "internal: invalid LValue passed to mkJSSValue."
+mkJSSValue sc ShortType   n = IValue <$> extendToIValue sc n
+mkJSSValue _ _ _ = fail "internal: illegal type passed to mkJSSValue"
 
 
 writeJavaTerm :: (MonadSim (SharedContext s) m) =>
