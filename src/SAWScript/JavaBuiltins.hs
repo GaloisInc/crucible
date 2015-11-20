@@ -323,7 +323,7 @@ checkStep _ _ (AssumePred _) = return ()
 checkStep vs ps (ReturnValue expr) = do
   t <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) expr
   case ps ^. pathRetVal of
-    Just rv -> valueEqTerm (vsContext vs) "ReturnValue" ps rv t
+    Just rv -> valueEqTerm (vsContext vs) "return" ps rv t
     Nothing -> fail "Return specification, but method did not return a value."
 checkStep vs ps (EnsureInstanceField _pos refExpr f rhsExpr) = do
   rv <- readJavaValueVerif vs ps refExpr
@@ -333,49 +333,25 @@ checkStep vs ps (EnsureInstanceField _pos refExpr f rhsExpr) = do
       case mfv of
         Just fv -> do
           ft <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) rhsExpr
-          valueEqTerm (vsContext vs) "EnsureInstanceField" ps fv ft
+          valueEqTerm (vsContext vs) (ppJavaExpr refExpr ++ "." ++ fieldIdName f) ps fv ft
         Nothing  -> fail "Invalid instance field in java_ensure_eq."
     _ -> fail "Left-hand side of . did not evaluate to a reference."
 checkStep vs ps (EnsureStaticField _pos f rhsExpr) = do
   let mfv = getStaticFieldValuePS ps f
   ft <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) rhsExpr
   case mfv of
-    Just fv -> valueEqTerm (vsContext vs) "EnsureStaticField" ps fv ft
+    Just fv -> valueEqTerm (vsContext vs) (ppFldId f) ps fv ft
     Nothing -> fail "Invalid static field in java_ensure_eq."
-checkStep _vs _ps (ModifyInstanceField _refExpr _f) = return () {- do
-  rv <- readJavaValueVerif vs ps refExpr
-  case rv of
-    RValue ref -> do
-      mty <- liftIO $ logicTypeOfJSSType (vsContext vs) (fieldIdType f)
-      let mfv = getInstanceFieldValuePS ps ref f
-      case (mty, mfv) of
-        (Just ty, Just fv) -> do
-          ft <- liftIO $ scFreshGlobal (vsContext vs) "_" ty
-          valueEqTerm (vsContext vs) "ModifyInstanceField" ps fv ft
-        (Nothing, _) -> fail "Invalid type in java_modify for instance field."
-        (_, Nothing) -> fail "Invalid instance field in java_modify."
-    _ -> fail "Left-hand side of . did not evaluate to a reference." -}
-checkStep _vs _ps (ModifyStaticField _f) = return () {- do
-  mty <- liftIO $ logicTypeOfJSSType (vsContext vs) (fieldIdType f)
-  let mfv = getStaticFieldValuePS ps f
-  case (mty, mfv) of
-    (Just ty, Just fv) -> do
-      ft <- liftIO $ scFreshGlobal (vsContext vs) "_" ty
-      valueEqTerm (vsContext vs) "ModifyStaticField" ps fv ft
-    (Nothing, _) -> fail "Invalid type in java_modify for static field."
-    (_, Nothing) -> fail "Invalid static field in java_modify." -}
+-- TODO: mark that the given ref can be modified
+checkStep _vs _ps (ModifyInstanceField _refExpr _f) = return ()
+-- TODO: mark that the given field can be modified
+checkStep _vs _ps (ModifyStaticField _f) = return ()
 checkStep vs ps (EnsureArray _pos refExpr rhsExpr) = do
   rv <- readJavaValueVerif vs ps refExpr
   t <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) rhsExpr
-  valueEqTerm (vsContext vs) "EnsureArray" ps rv t
-checkStep _vs _ps (ModifyArray _refExpr _aty) = return () {- do
-  rv <- readJavaValueVerif vs ps refExpr
-  mty <- liftIO $ logicTypeOfActual (vsContext vs) aty
-  case mty of
-    Just ty -> do
-      t <- liftIO $ scFreshGlobal (vsContext vs) "_" ty
-      valueEqTerm (vsContext vs) "ModifyArray" ps rv t
-    Nothing -> fail "Invalid type in java_modify for array." -}
+  valueEqTerm (vsContext vs) (ppJavaExpr refExpr) ps rv t
+-- TODO: mark that the given ref can be modified
+checkStep _vs _ps (ModifyArray _refExpr _aty) = return ()
 
 data VerificationState = VerificationState
                          { vsContext :: SharedContext SAWCtx
