@@ -228,10 +228,7 @@ initializeVerification' sc ir bs refConfig = do
     return . (pathMemory %~ updateInitializedClasses)
   forM_ refAssignments $ \(r, cl) ->
     forM_ cl $ \e ->
-      case e of
-        -- Don't try to set the return value
-        (CC.Term (ReturnVal _)) -> return ()
-        _ -> writeJavaValue e (RValue r)
+      unless (containsReturn e) $ writeJavaValue e (RValue r)
   lcs <- liftIO $ bsLogicClasses sc bs refConfig
   case lcs of
     Nothing ->
@@ -268,19 +265,23 @@ resolveClassRHS sc _ _ [r] = do
 resolveClassRHS _ _ _ _ =
   fail "Not yet implemented."
 
+containsReturn :: JavaExpr -> Bool
+containsReturn (CC.Term e) =
+  case e of
+    ReturnVal _ -> True
+    InstanceField e' _ -> containsReturn e'
+    _ -> False
+
 setClassValues :: (MonadSim (SharedContext SAWCtx) m) =>
                   SharedContext SAWCtx
                -> [JavaExpr] -> SharedTerm SAWCtx
                -> [LogicExpr]
                -> Simulator (SharedContext SAWCtx) m ()
 setClassValues sc l tp rs =
-  forM_ l $ \e -> do
-    case e of
-      -- Don't try to set the return value
-      CC.Term (ReturnVal _) -> return ()
-      _ -> do
-        t <- resolveClassRHS sc e tp rs
-        writeJavaTerm sc e t
+  forM_ l $ \e ->
+    unless (containsReturn e) $ do
+      t <- resolveClassRHS sc e tp rs
+      writeJavaTerm sc e t
 
 initStep :: (Functor m, Monad m) =>
             SharedContext SAWCtx -> BehaviorCommand
