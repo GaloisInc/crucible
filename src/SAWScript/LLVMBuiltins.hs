@@ -391,7 +391,7 @@ checkProtoLLVMExpr cb fn pe =
               show (ppActualType ty)
     PField n se -> do
       e <- checkProtoLLVMExpr cb fn se
-      case lssTypeOfLLVMExpr e of
+      case resolveType cb (lssTypeOfLLVMExpr e) of
         PtrType (MemType (StructType si))
           | n < siFieldCount si -> do
             let ty = fiType (siFields si V.! n)
