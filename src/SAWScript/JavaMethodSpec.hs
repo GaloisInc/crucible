@@ -28,6 +28,7 @@ module SAWScript.JavaMethodSpec
   , PathVC(..)
   , pvcgAssertEq
   , pvcgAssert
+  , pvcgFail
   , ppPathVC
   , VerifyParams(..)
   , VerifyState(..)

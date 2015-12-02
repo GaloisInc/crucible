@@ -345,3 +345,7 @@ freshJavaVal argsRef sc (ClassInstance c) = do
     v <- freshJavaVal argsRef sc (PrimitiveType ty)
     setInstanceFieldValue r (FieldId (className c) (fieldName f) ty) v
   return (RValue r)
+
+isArrayType :: Type -> Bool
+isArrayType (ArrayType _) = True
+isArrayType _ = False

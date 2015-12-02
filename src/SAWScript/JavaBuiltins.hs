@@ -25,6 +25,7 @@ import Data.List (partition)
 import Data.IORef
 import qualified Data.Map as Map
 import Data.Maybe
+import qualified Data.Set as Set
 import Data.Time.Clock
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import qualified Text.PrettyPrint.HughesPJ as PP
@@ -301,6 +302,29 @@ valueEqTerm _ name ps (RValue r) t' = do
     Nothing -> fail $ "valueEqTerm: " ++ name ++ ": ref does not point to array"
 valueEqTerm _ name _ _ _ = fail $ "valueEqTerm: " ++ name ++ ": unspported value type"
 
+valueEqValue :: (Functor m, Monad m, MonadIO m) =>
+               SharedContext SAWCtx
+            -> String
+            -> SpecPathState
+            -> SpecJavaValue
+            -> SpecPathState
+            -> SpecJavaValue
+            -> SState.StateT PathVC m ()
+valueEqValue sc name _ (IValue t) _ (IValue t') = do
+  it <- liftIO $ extendToIValue sc t
+  it' <- liftIO $ extendToIValue sc t'
+  pvcgAssertEq name it it'
+valueEqValue _ name _ (LValue t) _ (LValue t') = pvcgAssertEq name t t'
+valueEqValue _ name ps (RValue r) ps' (RValue r') = do
+  let ma = Map.lookup r (ps ^. pathMemory . memScalarArrays)
+      ma' = Map.lookup r' (ps' ^. pathMemory . memScalarArrays)
+  case (ma, ma') of
+    (Just (len, t), Just (len', t'))
+      | len == len' -> pvcgAssertEq name t t'
+      | otherwise -> fail $ "valueEqTerm: array sizes don't match: " ++ show (len, len')
+    _ -> fail $ "valueEqTerm: " ++ name ++ ": ref does not point to array"
+valueEqValue _ name _ _ _ _ = fail $ "valueEqValue: " ++ name ++ ": unspported value type"
+
 readJavaValueVerif :: (Functor m, Monad m) =>
                       VerificationState
                    -> Path' (SharedTerm SAWCtx)
@@ -370,6 +394,7 @@ checkFinalState sc ms bs initPS = do
                              , vsSpec = ms
                              , vsInitialState = initPS
                              }
+      cmds = bsCommands bs
   finalPS <- getPath "checkFinalState"
   let initState  =
         PathVC { pvcStartLoc = bsLoc bs
@@ -378,8 +403,62 @@ checkFinalState sc ms bs initPS = do
                , pvcStaticErrors = []
                , pvcChecks = []
                }
-  SState.execStateT (mapM_ (checkStep st finalPS) (bsCommands bs)) initState
-  -- TODO: also compare states, keep track of what we've looked at
+  let mentionedSFields =
+        Set.fromList $
+        [ fid | EnsureStaticField _ fid _ <- cmds] ++
+        [ fid | ModifyStaticField fid <- cmds ]
+      mentionedIFieldExprs =
+        [ (e, fid) | EnsureInstanceField _ e fid _ <- cmds] ++
+        [ (e, fid) | ModifyInstanceField e fid <- cmds ]
+      mentionedArrayExprs =
+        [ e | EnsureArray _ e _ <- cmds] ++
+        [ e | ModifyArray e _ <- cmds ]
+  mentionedIFields <- forM mentionedIFieldExprs $ \(e, fid) -> do
+      rv <- readJavaValue (currentCallFrame initPS) initPS e
+      case rv of
+        RValue r -> return (r, fid)
+        _ -> fail "internal: mentionedIFields"
+  mentionedArrays <- forM mentionedArrayExprs $ \e -> do
+      rv <- readJavaValue (currentCallFrame initPS) initPS e
+      case rv of
+        RValue r -> return r
+        _ -> fail "internal: mentionedArrays"
+  let mentionedIFieldSet = Set.fromList mentionedIFields
+  let mentionedArraySet = Set.fromList mentionedArrays
+  flip SState.execStateT initState $ do
+    mapM_ (checkStep st finalPS) cmds
+    let initMem = initPS ^. pathMemory
+        finalMem = finalPS ^. pathMemory
+        fieldDesc f = show (fieldIdName f) ++
+                      " of class " ++ (fieldIdClass f)
+    when (initMem ^. memInitialization /= finalMem ^. memInitialization) $
+      pvcgFail "Initializes extra class."
+    when (initMem ^. memClassObjects /= finalMem ^. memClassObjects) $
+      pvcgFail "Allocates class object."
+    when (initMem ^. memRefArrays /= finalMem ^. memRefArrays) $
+      pvcgFail "Allocates or modifies reference array."
+    forM_ (Map.toList (finalMem ^. memStaticFields)) $ \(f, fval) ->
+      -- NB: arrays will be handled by the code below
+      unless (Set.member f mentionedSFields || isArrayType (fieldIdType f)) $
+      case Map.lookup f (initMem ^. memStaticFields) of
+        Nothing -> pvcgFail $ ftext $ "Modifies unspecified static field " ++ fieldDesc f
+        Just ival -> valueEqValue sc (fieldDesc f) initPS ival finalPS fval
+    forM_ (Map.toList (finalMem ^. memInstanceFields)) $ \((ref, f), fval) ->
+      -- NB: arrays will be handled by the code below
+      unless (Set.member (ref, f) mentionedIFieldSet || isArrayType (fieldIdType f)) $
+      case Map.lookup (ref, f) (initMem ^. memInstanceFields) of
+        Nothing -> pvcgFail $ ftext $ "Modifies unspecified instance field " ++ fieldDesc f
+        Just ival -> do
+          valueEqValue sc (fieldDesc f) initPS ival finalPS fval
+    forM_ (Map.toList (finalMem ^. memScalarArrays)) $ \(ref, (flen, fval)) ->
+      unless (Set.member ref mentionedArraySet) $
+      case Map.lookup ref (initMem ^. memScalarArrays) of
+        Nothing -> pvcgFail $ "Modifies unspecified array."
+        Just (ilen, ival)
+          | ilen == flen -> pvcgAssertEq "array" ival fval -- TODO: name
+          | otherwise -> pvcgFail "Array changed size."
+    -- TODO: check that return value has been specified if method returns a value
+    pvcgAssert "final assertions" (finalPS ^. pathAssertions)
 
 verifyJava :: Bool -> BuiltinContext -> Options -> Class -> String
            -> [JavaMethodSpecIR]
