@@ -423,17 +423,22 @@ getLLVMExpr ms name = do
     Just (_, expr) -> return (expr, lssTypeOfLLVMExpr expr)
     Nothing -> fail $ "LLVM name " ++ name ++ " has not been declared."
 
-llvmInt :: Int -> MemType
-llvmInt n = IntType n
+llvmInt :: Int -> SymType
+llvmInt n = MemType (IntType n)
 
-llvmFloat :: MemType
-llvmFloat = FloatType
+llvmFloat :: SymType
+llvmFloat = MemType FloatType
 
-llvmDouble :: MemType
-llvmDouble = DoubleType
+llvmDouble :: SymType
+llvmDouble = MemType DoubleType
 
-llvmArray :: Int -> MemType -> MemType
-llvmArray n t = ArrayType n t
+llvmArray :: Int -> SymType -> SymType
+llvmArray n (MemType t) = MemType (ArrayType n t)
+llvmArray _ t =
+  error $ "Unsupported array element type: " ++ show (ppSymType t)
+
+llvmStruct :: String -> SymType
+llvmStruct n = Alias (fromString n)
 
 llvmNoSimulate :: LLVMSetup ()
 llvmNoSimulate = modify (\s -> s { lsSimulate = False })
@@ -441,13 +446,16 @@ llvmNoSimulate = modify (\s -> s { lsSimulate = False })
 llvmSatBranches :: Bool -> LLVMSetup ()
 llvmSatBranches doSat = modify (\s -> s { lsSatBranches = doSat })
 
-llvmVar :: BuiltinContext -> Options -> String -> MemType
+llvmVar :: BuiltinContext -> Options -> String -> SymType
         -> LLVMSetup (TypedTerm SAWCtx)
-llvmVar bic _ name lty = do
+llvmVar bic _ name sty = do
   lsState <- get
   let ms = lsSpec lsState
       func = specFunction ms
       cb = specCodebase ms
+  lty <- case resolveSymType cb sty of
+           MemType mty -> return mty
+           rty -> fail $ "Unsupported type in llvm_var: " ++ show (ppSymType rty)
   funcDef <- case lookupDefine func cb of
                Just fd -> return fd
                Nothing -> fail $ "Function " ++ show func ++ " not found."
@@ -460,17 +468,22 @@ llvmVar bic _ name lty = do
   modify $ \st ->
     st { lsSpec = specAddVarDecl fixPos name expr' lty (lsSpec st) }
   let sc = biSharedContext bic
-  Just ty <- liftIO $ logicTypeOfActual sc lty
-  liftIO $ scLLVMValue sc ty name >>= mkTypedTerm sc
+  mty <- liftIO $ logicTypeOfActual sc lty
+  case mty of
+    Just ty -> liftIO $ scLLVMValue sc ty name >>= mkTypedTerm sc
+    Nothing -> fail $ "Unsupported type in llvm_var: " ++ show (ppMemType lty)
 
-llvmPtr :: BuiltinContext -> Options -> String -> MemType
+llvmPtr :: BuiltinContext -> Options -> String -> SymType
         -> LLVMSetup (TypedTerm SAWCtx)
-llvmPtr bic _ name lty = do
+llvmPtr bic _ name sty = do
   lsState <- get
   let ms = lsSpec lsState
       func = specFunction ms
       cb = specCodebase ms
       Just funcDef = lookupDefine func cb
+  lty <- case resolveSymType cb sty of
+           MemType mty -> return mty
+           rty -> fail $ "Unsupported type in llvm_var: " ++ show (ppSymType rty)
   expr <- failLeft $ runExceptT $ parseLLVMExpr cb funcDef name
   unless (isPtrLLVMExpr expr) $ fail $
     "Used `llvm_ptr` for non-pointer expression `" ++ name ++
@@ -484,8 +497,10 @@ llvmPtr bic _ name lty = do
     st { lsSpec = specAddVarDecl fixPos dname dexpr lty $
                   specAddVarDecl fixPos name expr' pty (lsSpec st) }
   let sc = biSharedContext bic
-  Just dty <- liftIO $ logicTypeOfActual sc lty
-  liftIO $ scLLVMValue sc dty dname >>= mkTypedTerm sc
+  mty <- liftIO $ logicTypeOfActual sc lty
+  case mty of
+    Just ty -> liftIO $ scLLVMValue sc ty dname >>= mkTypedTerm sc
+    Nothing -> fail $ "Unsupported type in llvm_ptr: " ++ show (ppMemType lty)
 
 llvmDeref :: BuiltinContext -> Options -> Value
           -> LLVMSetup (SharedTerm SAWCtx)

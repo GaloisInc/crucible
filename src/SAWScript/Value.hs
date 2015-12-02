@@ -77,7 +77,7 @@ data Value
   | VJavaMethodSpec JIR.JavaMethodSpecIR
   | VLLVMMethodSpec LIR.LLVMMethodSpecIR
   | VJavaType JavaType
-  | VLLVMType LSS.MemType
+  | VLLVMType LSS.SymType
   | VCryptolModule (CryptolModule SAWCtx)
   | VJavaClass JSS.Class
   | VLLVMModule LLVMModule
@@ -217,7 +217,7 @@ showsPrecValue opts p v =
     VJavaMethodSpec {} -> showString "<<Java MethodSpec>>"
     VLLVMMethodSpec {} -> showString "<<LLVM MethodSpec>>"
     VJavaType {} -> showString "<<Java type>>"
-    VLLVMType t -> showString (show (LSS.ppMemType t))
+    VLLVMType t -> showString (show (LSS.ppSymType t))
     VCryptolModule m -> showString (showCryptolModule m)
     VLLVMModule m -> showString (showLLVMModule m)
     VJavaClass c -> shows (prettyClass c)
@@ -540,10 +540,10 @@ instance FromValue JavaType where
     fromValue (VJavaType t) = t
     fromValue _ = error "fromValue JavaType"
 
-instance IsValue LSS.MemType where
+instance IsValue LSS.SymType where
     toValue t = VLLVMType t
 
-instance FromValue LSS.MemType where
+instance FromValue LSS.SymType where
     fromValue (VLLVMType t) = t
     fromValue _ = error "fromValue LLVMType"
 

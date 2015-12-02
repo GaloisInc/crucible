@@ -1117,6 +1117,11 @@ primitives = Map.fromList
     , "given type."
     ]
 
+  , prim "llvm_struct"         "String -> LLVMType"
+    (pureVal llvmStruct)
+    [ "The type of an LLVM struct of the given name."
+    ]
+
   , prim "llvm_var"            "String -> LLVMType -> LLVMSetup Term"
     (bicVal llvmVar)
     [ "Return a term corresponding to the initial value of the named LLVM"
