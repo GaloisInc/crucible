@@ -415,12 +415,14 @@ checkFinalState sc ms bs initPS = do
         [ e | EnsureArray _ e _ <- cmds] ++
         [ e | ModifyArray e _ <- cmds ]
   mentionedIFields <- forM mentionedIFieldExprs $ \(e, fid) -> do
-      rv <- readJavaValue (currentCallFrame initPS) initPS e
+      -- TODO: best combination of initPS and finalPS unclear here.
+      rv <- readJavaValue (currentCallFrame initPS) finalPS e
       case rv of
         RValue r -> return (r, fid)
         _ -> fail "internal: mentionedIFields"
   mentionedArrays <- forM mentionedArrayExprs $ \e -> do
-      rv <- readJavaValue (currentCallFrame initPS) initPS e
+      -- TODO: best combination of initPS and finalPS unclear here.
+      rv <- readJavaValue (currentCallFrame initPS) finalPS e
       case rv of
         RValue r -> return r
         _ -> fail "internal: mentionedArrays"
@@ -433,7 +435,8 @@ checkFinalState sc ms bs initPS = do
         fieldDesc f = show (fieldIdName f) ++
                       " of class " ++ (fieldIdClass f)
     when (initMem ^. memInitialization /= finalMem ^. memInitialization) $
-      pvcgFail "Initializes extra class."
+      unless (specAllowAlloc ms) $
+        pvcgFail "Initializes extra class."
     when (initMem ^. memClassObjects /= finalMem ^. memClassObjects) $
       pvcgFail "Allocates class object."
     when (initMem ^. memRefArrays /= finalMem ^. memRefArrays) $
@@ -452,7 +455,8 @@ checkFinalState sc ms bs initPS = do
     forM_ (Map.toList (finalMem ^. memScalarArrays)) $ \(ref, (flen, fval)) ->
       unless (Set.member ref mentionedArraySet) $
       case Map.lookup ref (initMem ^. memScalarArrays) of
-        Nothing -> pvcgFail $ "Modifies unspecified array."
+        Nothing -> unless (specAllowAlloc ms) $
+                   pvcgFail "Allocates scalar array."
         Just (ilen, ival)
           | ilen == flen -> pvcgAssertEq "array" ival fval -- TODO: name
           | otherwise -> pvcgFail "Array changed size."
