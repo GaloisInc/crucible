@@ -315,6 +315,7 @@ valueEqValue sc name _ (IValue t) _ (IValue t') = do
   it' <- liftIO $ extendToIValue sc t'
   pvcgAssertEq name it it'
 valueEqValue _ name _ (LValue t) _ (LValue t') = pvcgAssertEq name t t'
+valueEqValue _ _ _ (RValue r) _ (RValue r') | r == r' = return ()
 valueEqValue _ name ps (RValue r) ps' (RValue r') = do
   let ma = Map.lookup r (ps ^. pathMemory . memScalarArrays)
       ma' = Map.lookup r' (ps' ^. pathMemory . memScalarArrays)
@@ -438,14 +439,12 @@ checkFinalState sc ms bs initPS = do
     when (initMem ^. memRefArrays /= finalMem ^. memRefArrays) $
       pvcgFail "Allocates or modifies reference array."
     forM_ (Map.toList (finalMem ^. memStaticFields)) $ \(f, fval) ->
-      -- NB: arrays will be handled by the code below
-      unless (Set.member f mentionedSFields || isArrayType (fieldIdType f)) $
+      unless (Set.member f mentionedSFields) $
       case Map.lookup f (initMem ^. memStaticFields) of
         Nothing -> pvcgFail $ ftext $ "Modifies unspecified static field " ++ fieldDesc f
         Just ival -> valueEqValue sc (fieldDesc f) initPS ival finalPS fval
     forM_ (Map.toList (finalMem ^. memInstanceFields)) $ \((ref, f), fval) ->
-      -- NB: arrays will be handled by the code below
-      unless (Set.member (ref, f) mentionedIFieldSet || isArrayType (fieldIdType f)) $
+      unless (Set.member (ref, f) mentionedIFieldSet) $
       case Map.lookup (ref, f) (initMem ^. memInstanceFields) of
         Nothing -> pvcgFail $ ftext $ "Modifies unspecified instance field " ++ fieldDesc f
         Just ival -> do
