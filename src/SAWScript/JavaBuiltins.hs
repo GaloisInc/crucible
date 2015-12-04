@@ -57,6 +57,7 @@ import SAWScript.Utils
 import SAWScript.Value as SS
 
 import qualified Cryptol.TypeCheck.AST as Cryptol
+import qualified Cryptol.Utils.PP as Cryptol (pretty)
 
 loadJavaClass :: BuiltinContext -> String -> IO Class
 loadJavaClass bic =
@@ -653,8 +654,8 @@ checkCompatibleType msg aty schema = do
     Just lt -> do
       unless (Cryptol.Forall [] [] lt == schema) $ fail $
         unlines [ "Incompatible type:"
-                , "  Expected: " ++ show lt
-                , "  Got: " ++ show schema
+                , "  Expected: " ++ Cryptol.pretty lt
+                , "  Got: " ++ Cryptol.pretty schema
                 , "  In context: " ++ msg
                 ]
 
