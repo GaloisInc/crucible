@@ -204,9 +204,11 @@ initializeVerification' :: MonadSim (SharedContext SAWCtx) m
                            -- alias each other for verification purposes.
                         -> Simulator (SharedContext SAWCtx) m (JSS.Path (SharedContext SAWCtx))
 initializeVerification' sc ir bs refConfig = do
-  -- Generate a reference for each reference equivalence class
-  exprRefs <- mapM (genRef . jssTypeOfActual . snd) refConfig
-  let refAssignments = (exprRefs `zip` map fst refConfig)
+  -- Generate a reference for each reference equivalence class that
+  -- isn't entirely involved in a return expression.
+  let refConfig' = filter (not . all containsReturn . fst) refConfig
+  exprRefs <- mapM (genRef . jssTypeOfActual . snd) refConfig'
+  let refAssignments = (exprRefs `zip` map fst refConfig')
       pushFrame cs = case mcs' of
                        Nothing -> error "internal: failed to push call frame"
                        Just cs' -> cs'
@@ -225,9 +227,8 @@ initializeVerification' sc ir bs refConfig = do
   modifyPathM_ (PP.text "initializeVerification") $
     return . (pathMemory %~ updateInitializedClasses)
   forM_ refAssignments $ \(r, cl) ->
-    forM_ cl $ \e ->
-      unless (containsReturn e) $ writeJavaValue e (RValue r)
-  lcs <- liftIO $ bsLogicClasses sc bs refConfig
+    forM_ cl $ \e -> writeJavaValue e (RValue r)
+  lcs <- liftIO $ bsLogicClasses sc bs refConfig'
   case lcs of
     Nothing ->
       let msg = "Unresolvable cyclic dependencies between assumptions."
