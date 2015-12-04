@@ -396,7 +396,6 @@ overrideFromSpec de pos ir
 data PathVC = PathVC {
           pvcStartLoc :: Breakpoint
         , pvcEndLoc :: Maybe Breakpoint
-        -- , pvcInitialAssignments :: [(TC.JavaExpr, SharedTerm SAWCtx)]
           -- | Assumptions on inputs.
         , pvcAssumptions :: SharedTerm SAWCtx
           -- | Static errors found in path.
@@ -409,9 +408,6 @@ ppPathVC :: PathVC -> Doc
 ppPathVC pvc =
   nest 2 $
   vcat [ text "Path VC:"
-       -- , nest 2 $ vcat $
-       --   text "Initial assignments:" :
-       --   map ppAssignment (pvcInitialAssignments pvc)
        , nest 2 $
          vcat [ text "Assumptions:"
               , scPrettyTermDoc (pvcAssumptions pvc)
@@ -512,8 +508,7 @@ generateVC :: JavaMethodSpecIR
            -> PathVC -- ^ Proof oblications
 generateVC ir esd (ps, endLoc, res) = do
   let initState  =
-        PathVC { {- pvcInitialAssignments = esdInitialAssignments esd
-               , -} pvcStartLoc = esdStartLoc esd
+        PathVC { pvcStartLoc = esdStartLoc esd
                , pvcEndLoc = endLoc
                , pvcAssumptions = ps ^. pathAssertions
                , pvcStaticErrors = []
@@ -647,7 +642,6 @@ runValidation prover params sc results = do
                  , vsVerbosity = verb
                  -- , vsFromBlock = esdStartLoc esd
                  -- , vsEvalContext = evalContextFromPathState sc rv ps
-                 -- , vsInitialAssignments = pvcInitialAssignments pvc
                  , vsCounterexampleFn = cfn
                  , vsStaticErrors = pvcStaticErrors pvc
                  }
@@ -687,7 +681,6 @@ data VerifyState = VState {
          -- | Evaluation context used for parsing expressions during
          -- verification.
        -- , vsEvalContext :: EvalContext
-       -- , vsInitialAssignments :: [(TC.JavaExpr, SharedTerm SAWCtx)]
        , vsCounterexampleFn :: CounterexampleFn SAWCtx
        , vsStaticErrors :: [Doc]
        }
