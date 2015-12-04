@@ -52,6 +52,7 @@ import SAWScript.Utils
 import Verifier.SAW.Prelude
 import SAWScript.LLVMMethodSpecIR
 import SAWScript.LLVMUtils hiding (addrPlusOffset)
+import SAWScript.PathVC
 import SAWScript.Value (TopLevel, io)
 import SAWScript.VerificationCheck
 
@@ -782,63 +783,13 @@ initializeVerification sc ir = do
              , esdReturnValue = esReturnValue es
              }
 
--- | Describes the verification result arising from one symbolic execution path.
-data PathVC = PathVC {
-          pvcStartLoc :: SymBlockID
-        , pvcEndLoc :: Maybe SymBlockID
-          -- | Assumptions on inputs.
-        , pvcAssumptions :: SharedTerm SAWCtx
-          -- | Static errors found in path.
-        , pvcStaticErrors :: [Doc]
-          -- | What to verify for this result.
-        , pvcChecks :: [VerificationCheck SAWCtx]
-        }
-
-ppPathVC :: PathVC -> Doc
-ppPathVC pvc =
-  nest 2 $
-  vcat [ text "Path VC:"
-       , nest 2 $
-         vcat [ text "Assumptions:"
-              , scPrettyTermDoc (pvcAssumptions pvc)
-              ]
-       , nest 2 $ vcat $
-         text "Static errors:" :
-         pvcStaticErrors pvc
-       , nest 2 $ vcat $
-         text "Checks:" :
-         map ppCheck (pvcChecks pvc)
-       ]
-  where ppAssignment (expr, tm) = hsep [ TC.ppLLVMExpr expr
-                                       , text ":="
-                                       , scPrettyTermDoc tm
-                                       ]
-
-type PathVCGenerator m = StateT PathVC (Simulator SpecBackend m)
-
--- | Add verification condition to list.
-pvcgAssertEq :: (Monad m) =>
-                String -> SharedTerm SAWCtx -> SharedTerm SAWCtx -> PathVCGenerator m ()
-pvcgAssertEq name jv sv  =
-  modify $ \pvc -> pvc { pvcChecks = EqualityCheck name jv sv : pvcChecks pvc }
-
-pvcgAssert :: (Monad m) =>
-              String -> SharedTerm SAWCtx -> PathVCGenerator m ()
-pvcgAssert nm v =
-  modify $ \pvc -> pvc { pvcChecks = AssertionCheck nm v : pvcChecks pvc }
-
-pvcgFail :: Monad m =>
-            Doc -> PathVCGenerator m ()
-pvcgFail msg =
-  modify $ \pvc -> pvc { pvcStaticErrors = msg : pvcStaticErrors pvc }
-
 -- | Compare result with expected state.
 generateVC :: (MonadIO m) =>
               SharedContext SAWCtx
            -> LLVMMethodSpecIR
            -> ExpectedStateDef -- ^ What is expected
            -> RunResult -- ^ Results of symbolic execution.
-           -> Simulator SpecBackend m PathVC
+           -> Simulator SpecBackend m (PathVC SymBlockID)
 generateVC _sc _ir esd (ps, endLoc, res) = do
   let initState  =
         PathVC { pvcStartLoc = esdStartLoc esd
@@ -871,7 +822,7 @@ mkSpecVC :: (MonadIO m, Functor m, MonadException m) =>
             SharedContext SAWCtx
          -> VerifyParams
          -> ExpectedStateDef
-         -> Simulator SpecBackend m [PathVC]
+         -> Simulator SpecBackend m [PathVC SymBlockID]
 mkSpecVC sc params esd = do
   let ir = vpSpec params
   -- Log execution.
@@ -894,7 +845,7 @@ data VerifyParams = VerifyParams
   }
 
 type SymbolicRunHandler =
-  SharedContext SAWCtx -> ExpectedStateDef -> [PathVC] -> TopLevel ()
+  SharedContext SAWCtx -> ExpectedStateDef -> [PathVC SymBlockID] -> TopLevel ()
 type Prover = VerifyState -> SharedTerm SAWCtx -> TopLevel ()
 
 runValidation :: Prover -> VerifyParams -> SymbolicRunHandler
@@ -943,7 +894,7 @@ data VerifyState = VState {
        , vsMethodSpec :: LLVMMethodSpecIR
        , vsVerbosity :: Verbosity
          -- | Starting Block is used for checking VerifyAt commands.
-       -- , vsFromBlock :: SymBlockId
+       -- , vsFromBlock :: SymBlockID
          -- | Evaluation context used for parsing expressions during
          -- verification.
        , vsEvalContext :: EvalContext

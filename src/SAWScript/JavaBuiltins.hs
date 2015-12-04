@@ -20,7 +20,6 @@ import Control.Applicative hiding (empty)
 #endif
 import Control.Lens
 import Control.Monad.State
-import qualified Control.Monad.State.Strict as SState
 import Data.List (partition)
 import Data.IORef
 import qualified Data.Map as Map
@@ -293,7 +292,7 @@ valueEqTerm :: (Functor m, Monad m, MonadIO m) =>
             -> SpecPathState
             -> SpecJavaValue
             -> SharedTerm SAWCtx
-            -> SState.StateT PathVC m ()
+            -> StateT (PathVC Breakpoint) m ()
 valueEqTerm sc name _ (IValue t) t' = do
   t'' <- liftIO $ extendToIValue sc t'
   pvcgAssertEq name t t''
@@ -311,7 +310,7 @@ valueEqValue :: (Functor m, Monad m, MonadIO m) =>
             -> SpecJavaValue
             -> SpecPathState
             -> SpecJavaValue
-            -> SState.StateT PathVC m ()
+            -> StateT (PathVC Breakpoint) m ()
 valueEqValue sc name _ (IValue t) _ (IValue t') = do
   it <- liftIO $ extendToIValue sc t
   it' <- liftIO $ extendToIValue sc t'
@@ -344,7 +343,7 @@ checkStep :: (Functor m, Monad m, MonadIO m) =>
              VerificationState
           -> SpecPathState
           -> BehaviorCommand
-          -> SState.StateT PathVC m ()
+          -> StateT (PathVC Breakpoint) m ()
 checkStep _ _ (AssertPred _ _) = return ()
 checkStep _ _ (AssumePred _) = return ()
 checkStep vs ps (ReturnValue expr) = do
@@ -391,7 +390,7 @@ checkFinalState :: MonadSim (SharedContext SAWCtx) m =>
                 -> JavaMethodSpecIR
                 -> BehaviorSpec
                 -> JSS.Path (SharedContext SAWCtx)
-                -> Simulator (SharedContext SAWCtx) m PathVC
+                -> Simulator (SharedContext SAWCtx) m (PathVC Breakpoint)
 checkFinalState sc ms bs initPS = do
   let st = VerificationState { vsContext = sc
                              , vsSpec = ms
@@ -436,7 +435,7 @@ checkFinalState sc ms bs initPS = do
             Just cf -> return (Map.elems (cf ^. cfLocals))
             Nothing -> fail "internal: no call frame in initial path state"
   let reachable = reachableRefs finalPS (maybeToList maybeRetVal ++ args)
-  flip SState.execStateT initState $ do
+  flip execStateT initState $ do
     mapM_ (checkStep st finalPS) cmds
     let initMem = initPS ^. pathMemory
         finalMem = finalPS ^. pathMemory

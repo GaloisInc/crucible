@@ -95,6 +95,7 @@ library
     SAWScript.LLVMUtils
     SAWScript.Options
     SAWScript.Parser
+    SAWScript.PathVC
     SAWScript.Proof
     SAWScript.REPL
     SAWScript.REPL.Command

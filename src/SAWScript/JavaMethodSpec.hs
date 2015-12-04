@@ -44,7 +44,7 @@ import Control.Applicative hiding (empty)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Cont
-import Control.Monad.State.Strict
+import Control.Monad.State
 import Data.List (intercalate) -- foldl', intersperse)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
@@ -63,6 +63,7 @@ import SAWScript.JavaMethodSpecIR
 import SAWScript.JavaMethodSpec.Evaluator
 import SAWScript.JavaMethodSpec.ExpectedStateDef
 import SAWScript.JavaUtils
+import SAWScript.PathVC
 import SAWScript.Value (TopLevel, io)
 import SAWScript.VerificationCheck
 
@@ -390,65 +391,13 @@ overrideFromSpec de pos ir
 
 -- MethodSpec verification {{{1
 
--- PathVC {{{2
-
--- | Describes the verification result arising from one symbolic execution path.
-data PathVC = PathVC {
-          pvcStartLoc :: Breakpoint
-        , pvcEndLoc :: Maybe Breakpoint
-          -- | Assumptions on inputs.
-        , pvcAssumptions :: SharedTerm SAWCtx
-          -- | Static errors found in path.
-        , pvcStaticErrors :: [Doc]
-          -- | What to verify for this result.
-        , pvcChecks :: [VerificationCheck SAWCtx]
-        }
-
-ppPathVC :: PathVC -> Doc
-ppPathVC pvc =
-  nest 2 $
-  vcat [ text "Path VC:"
-       , nest 2 $
-         vcat [ text "Assumptions:"
-              , scPrettyTermDoc (pvcAssumptions pvc)
-              ]
-       , nest 2 $ vcat $
-         text "Static errors:" :
-         pvcStaticErrors pvc
-       , nest 2 $ vcat $
-         text "Checks:" :
-         map ppCheck (pvcChecks pvc)
-       ]
-  {-
-  where ppAssignment (expr, tm) = hsep [ text (TC.ppJavaExpr expr)
-                                       , text ":="
-                                       , scPrettyTermDoc tm
-                                       ] -}
-
-type PathVCGenerator = StateT PathVC
-
--- | Add verification condition to list.
-pvcgAssertEq :: (Monad m) =>
-                String -> SharedTerm SAWCtx -> SharedTerm SAWCtx
-             -> PathVCGenerator m ()
-pvcgAssertEq name jv sv  =
-  modify $ \pvc -> pvc { pvcChecks = EqualityCheck name jv sv : pvcChecks pvc }
-
-pvcgAssert :: (Monad m) => String -> SharedTerm SAWCtx -> PathVCGenerator m ()
-pvcgAssert nm v =
-  modify $ \pvc -> pvc { pvcChecks = AssertionCheck nm v : pvcChecks pvc }
-
-pvcgFail :: (Monad m) => Doc -> PathVCGenerator m ()
-pvcgFail msg =
-  modify $ \pvc -> pvc { pvcStaticErrors = msg : pvcStaticErrors pvc }
-
 pvcgDeepAssertEq :: (Monad m) =>
                     String
                  -> Path (SharedContext SAWCtx)
                  -> SpecJavaValue
                  -> ExpectedStateDef
                  -> SpecJavaValue
-                 -> PathVCGenerator m ()
+                 -> PathVCGenerator Breakpoint m ()
 -- TODO: should we only do this equality check on references?
 pvcgDeepAssertEq _ _ jv _ sv | jv == sv = return ()
 pvcgDeepAssertEq name _ (IValue jv) _ (IValue sv) =
@@ -505,7 +454,7 @@ esdRefInstanceFields esd = refInstanceFields (esdInstanceFields esd)
 generateVC :: JavaMethodSpecIR
            -> ExpectedStateDef -- ^ What is expected
            -> RunResult -- ^ Results of symbolic execution.
-           -> PathVC -- ^ Proof oblications
+           -> PathVC Breakpoint -- ^ Proof oblications
 generateVC ir esd (ps, endLoc, res) = do
   let initState  =
         PathVC { pvcStartLoc = esdStartLoc esd
@@ -598,7 +547,7 @@ mkSpecVC :: MonadSim (SharedContext SAWCtx) m =>
             SharedContext SAWCtx
          -> VerifyParams
          -> ExpectedStateDef
-         -> Simulator (SharedContext SAWCtx) m [PathVC]
+         -> Simulator (SharedContext SAWCtx) m [PathVC Breakpoint]
 mkSpecVC sc params esd = do
   let ir = vpSpec params
       vrb = simVerbose (vpOpts params)
@@ -625,7 +574,7 @@ data VerifyParams = VerifyParams
   }
 
 type SymbolicRunHandler =
-  SharedContext SAWCtx -> [PathVC] -> TopLevel ()
+  SharedContext SAWCtx -> [PathVC Breakpoint] -> TopLevel ()
 type Prover =
   VerifyState -> SharedTerm SAWCtx -> TopLevel ()
 
