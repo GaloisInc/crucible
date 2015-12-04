@@ -37,7 +37,6 @@ import Numeric(showFFloat)
 import qualified Verifier.Java.Codebase as JSS
 
 import Verifier.SAW.Conversion
-import Verifier.SAW.Prelude
 import Verifier.SAW.Rewriter
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST
@@ -210,12 +209,6 @@ scRemoveBitvector sc tm = do
   tm' <- rewriteSharedTerm sc (addRules rules emptySimpset) tm
   return tm'
     where Just def = findDef (scModule sc) (parseIdent "Prelude.bitvector")
-
-scImplies :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-scImplies sc x y = do
-  xNot <- scNot sc x
-  orOp <- scApplyPrelude_or sc
-  orOp xNot y
 
 defRewrites :: SharedContext s -> Ident -> IO [RewriteRule (SharedTerm s)]
 defRewrites sc ident =
