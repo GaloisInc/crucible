@@ -397,6 +397,7 @@ checkFinalState sc ms bs initPS = do
                              }
       cmds = bsCommands bs
   finalPS <- getPath "checkFinalState"
+  let maybeRetVal = finalPS ^. pathRetVal
   let initState  =
         PathVC { pvcStartLoc = bsLoc bs
                , pvcEndLoc = Nothing
@@ -428,6 +429,11 @@ checkFinalState sc ms bs initPS = do
         _ -> fail "internal: mentionedArrays"
   let mentionedIFieldSet = Set.fromList mentionedIFields
   let mentionedArraySet = Set.fromList mentionedArrays
+  let mcf = currentCallFrame initPS
+  args <- case mcf of
+            Just cf -> return (Map.elems (cf ^. cfLocals))
+            Nothing -> fail "internal: no call frame in initial path state"
+  let reachable = reachableRefs finalPS (maybeToList maybeRetVal ++ args)
   flip SState.execStateT initState $ do
     mapM_ (checkStep st finalPS) cmds
     let initMem = initPS ^. pathMemory
@@ -443,17 +449,20 @@ checkFinalState sc ms bs initPS = do
       pvcgFail "Allocates or modifies reference array."
     forM_ (Map.toList (finalMem ^. memStaticFields)) $ \(f, fval) ->
       unless (Set.member f mentionedSFields) $
-      case Map.lookup f (initMem ^. memStaticFields) of
-        Nothing -> pvcgFail $ ftext $ "Modifies unspecified static field " ++ fieldDesc f
-        Just ival -> valueEqValue sc (fieldDesc f) initPS ival finalPS fval
-    forM_ (Map.toList (finalMem ^. memInstanceFields)) $ \((ref, f), fval) ->
+        unless(isArrayType (fieldIdType f)) $
+          case Map.lookup f (initMem ^. memStaticFields) of
+            Nothing -> pvcgFail $ ftext $ "Modifies unspecified static field " ++ fieldDesc f
+            Just ival -> valueEqValue sc (fieldDesc f) initPS ival finalPS fval
+    forM_ (Map.toList (finalMem ^. memInstanceFields)) $ \((ref, f), fval) -> do
       unless (Set.member (ref, f) mentionedIFieldSet) $
-      case Map.lookup (ref, f) (initMem ^. memInstanceFields) of
-        Nothing -> pvcgFail $ ftext $ "Modifies unspecified instance field " ++ fieldDesc f
-        Just ival -> do
-          valueEqValue sc (fieldDesc f) initPS ival finalPS fval
+        when (ref `Set.member` reachable && not (isArrayType (fieldIdType f))) $
+        case Map.lookup (ref, f) (initMem ^. memInstanceFields) of
+          Nothing -> pvcgFail $ ftext $ "Modifies unspecified instance field " ++ fieldDesc f
+          Just ival -> do
+            valueEqValue sc (fieldDesc f) initPS ival finalPS fval
     forM_ (Map.toList (finalMem ^. memScalarArrays)) $ \(ref, (flen, fval)) ->
       unless (Set.member ref mentionedArraySet) $
+      when (ref `Set.member` reachable) $
       case Map.lookup ref (initMem ^. memScalarArrays) of
         Nothing -> unless (specAllowAlloc ms) $
                    pvcgFail "Allocates scalar array."

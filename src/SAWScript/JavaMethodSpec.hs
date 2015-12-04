@@ -45,7 +45,6 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Cont
 import Control.Monad.State.Strict
-import qualified Data.Array as Array
 import Data.List (intercalate) -- foldl', intersperse)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
@@ -499,60 +498,12 @@ pvcgDeepAssertEq name ps (RValue jref) esd (RValue sref)  = do
 pvcgDeepAssertEq name _ _ _ _ =
   fail $ "Expected and actual values for " ++ name ++ " are incomparable."
 
-refInstanceFields :: (Ord f) =>
-                     Map.Map (Ref, f) v
-                  -> Ref
-                  -> Map.Map f v
-refInstanceFields m r =
-  Map.fromList [ (f, v) | ((mr, f), v) <- Map.toList m, mr == r ]
-
-pathRefInstanceFields :: Path (SharedContext SAWCtx)
-                      -> Ref
-                      -> Map.Map FieldId SpecJavaValue
-pathRefInstanceFields ps =
-  refInstanceFields (ps ^. pathMemory . memInstanceFields)
-
-pathArrayRefs :: Path (SharedContext SAWCtx)
-              -> Ref
-              -> [Ref]
-pathArrayRefs ps r =
-  concat
-  [ Array.elems a
-  | (ar, a) <- Map.toList (ps ^. pathMemory . memRefArrays)
-  , ar == r
-  ]
-
-pathStaticFieldRefs :: Path (SharedContext SAWCtx)
-                    -> [Ref]
-pathStaticFieldRefs ps =
-  valueRefs $ map snd $ Map.toList (ps ^. pathMemory . memStaticFields)
+-- generateVC {{{2
 
 esdRefInstanceFields :: ExpectedStateDef
                      -> Ref
                      -> Map.Map FieldId (Maybe SpecJavaValue)
 esdRefInstanceFields esd = refInstanceFields (esdInstanceFields esd)
-
-reachableFromRef :: SpecPathState -> Set.Set Ref -> Ref -> Set.Set Ref
-reachableFromRef _ seen r | r `Set.member` seen = Set.empty
-reachableFromRef ps seen r =
-  Set.unions
-  [ Set.singleton r
-  , Set.unions (map (reachableFromRef ps seen') refArrayRefs)
-  , Set.unions (map (reachableFromRef ps seen') instFieldRefs)
-  ]
-  where refArrayRefs = pathArrayRefs ps r
-        instFieldRefs = valueRefs $ map snd $ Map.toList $ pathRefInstanceFields ps r
-        seen' = Set.insert r seen
-
-reachableRefs :: SpecPathState -> [SpecJavaValue] -> Set.Set Ref
-reachableRefs ps vs  =
-  Set.unions [ reachableFromRef ps Set.empty r | r <- roots ]
-  where roots = pathStaticFieldRefs ps ++ valueRefs vs
-
-valueRefs :: [SpecJavaValue] -> [Ref]
-valueRefs vs = [ r | RValue r <- vs ]
-
--- generateVC {{{2
 
 -- | Compare result with expected state.
 generateVC :: JavaMethodSpecIR
