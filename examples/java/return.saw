@@ -3,6 +3,8 @@ let fill_spec = do {
   java_var "return" (java_array 5 java_int);
   java_assert {{ x == 22 }};
   java_ensure_eq "return" {{ [x, x, x, x, x] }};
+  // This also works, and means the same thing.
+  // java_return {{ [x, x, x, x, x] }};
   java_allow_alloc;
   java_verify_tactic abc;
 };
@@ -23,5 +25,5 @@ let newSimple_spec = do {
 
 
 c <- java_load_class "Return";
-java_verify c "fill" [] fill_spec;
-java_verify c "newSimple" [] newSimple_spec;
+java_verify_exp c "fill" [] fill_spec;
+java_verify_exp c "newSimple" [] newSimple_spec;
