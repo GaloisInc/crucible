@@ -203,13 +203,6 @@ findField _ pos _ _ =
   let msg = "Primitive types cannot be dereferenced."
    in throwIOExecException pos (ftext msg) ""
 
-scRemoveBitvector :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
-scRemoveBitvector sc tm = do
-  rules <- scDefRewriteRules sc def
-  tm' <- rewriteSharedTerm sc (addRules rules emptySimpset) tm
-  return tm'
-    where Just def = findDef (scModule sc) (parseIdent "Prelude.bitvector")
-
 defRewrites :: SharedContext s -> Ident -> IO [RewriteRule (SharedTerm s)]
 defRewrites sc ident =
       case findDef (scModule sc) ident of

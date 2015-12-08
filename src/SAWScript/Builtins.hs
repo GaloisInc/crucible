@@ -291,32 +291,6 @@ checkConvertablePrim x y = do
        then putStrLn "Convertable"
        else putStrLn "Not convertable"
 
-{-
--- | Apply some rewrite rules before exporting, to ensure that terms
--- are within the language subset supported by formats such as SMT-Lib
--- QF_AUFBV or AIG.
-prepForExport :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
-prepForExport sc t = do
-  let eqs = map (mkIdent preludeName) [ "eq_Bool"
-                                      , "at_single"
-                                      , "bvNat_bvToNat"
-                                      , "equalNat_bv"
-                                      ]
-      defs = map (mkIdent (moduleName javaModule))
-                 [ "ecJoin", "ecJoin768", "ecSplit", "ecSplit768"
-                 , "ecExtend", "longExtend"
-                 ] ++
-             map (mkIdent (moduleName llvmModule))
-                 [ "trunc31" ] ++
-             map (mkIdent preludeName)
-                 [ "splitLittleEndian", "joinLittleEndian", "finEq" ]
-  rs1 <- concat <$> traverse (defRewrites sc) defs
-  rs2 <- scEqsRewriteRules sc eqs
-  basics <- basic_ss sc
-  let ss = addRules (rs1 ++ rs2) basics
-  rewriteSharedTerm sc ss t
--}
-
 -- | Write a @SharedTerm@ representing a theorem or an arbitrary
 -- function to an AIG file.
 writeAIG :: SharedContext s -> FilePath -> TypedTerm s -> IO ()

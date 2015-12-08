@@ -305,11 +305,6 @@ logicExprToTermSim sc le = do
   ps <- getPath "logicExprToTermSim"
   liftIO $ logicExprToTerm sc (currentCallFrame ps) ps le
 
-addAssertion :: SBETerm sbe -> Simulator sbe m ()
-addAssertion t = do
-  sbe <- use backend
-  modifyPathM_ "addAssertion" (addPathAssertion sbe t)
-
 freshJavaVal :: (MonadIO m, Functor m) =>
                 Maybe (IORef [SharedTerm SAWCtx])
              -> SharedContext SAWCtx
