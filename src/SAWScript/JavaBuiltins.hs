@@ -234,7 +234,6 @@ initializeVerification' sc ir bs refConfig = do
       let msg = "Unresolvable cyclic dependencies between assumptions."
       in throwIOExecException (specPos ir) (ftext msg) ""
     Just assignments -> mapM_ (\(l, t, r) -> setClassValues sc l t r) assignments
-  mapM_ (initStep sc) (bsCommands bs)
   getPath (PP.text "initializeVerification")
 
 evalLogicExpr' :: MonadSim (SharedContext SAWCtx) m =>
@@ -274,17 +273,6 @@ setClassValues sc l tp rs =
     unless (containsReturn e) $ do
       t <- resolveClassRHS sc e tp rs
       writeJavaTerm sc e t
-
-initStep :: (Functor m, Monad m) =>
-            SharedContext SAWCtx -> BehaviorCommand
-         -> Simulator (SharedContext SAWCtx) m ()
-initStep sc (AssertPred _ expr) = do
-  c <- logicExprToTermSim sc expr
-  addAssertion c
-initStep sc (AssumePred expr) = do
-  c <- logicExprToTermSim sc expr -- Create term in initial state
-  addAssertion c
-initStep _ _ = return ()
 
 valueEqTerm :: (Functor m, Monad m, MonadIO m) =>
                SharedContext SAWCtx
@@ -336,16 +324,11 @@ readJavaValueVerif vs ps refExpr = do
   let initPS = vsInitialState vs
   readJavaValue (currentCallFrame initPS) ps refExpr
 
--- TODO: have checkStep record a list of all the things it has checked.
--- After it runs, we can go through the final state and check whether
--- there are any unchecked elements of the state.
 checkStep :: (Functor m, Monad m, MonadIO m) =>
              VerificationState
           -> SpecPathState
           -> BehaviorCommand
           -> StateT (PathVC Breakpoint) m ()
-checkStep _ _ (AssertPred _ _) = return ()
-checkStep _ _ (AssumePred _) = return ()
 checkStep vs ps (ReturnValue expr) = do
   t <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) expr
   case ps ^. pathRetVal of
@@ -368,15 +351,12 @@ checkStep vs ps (EnsureStaticField _pos f rhsExpr) = do
   case mfv of
     Just fv -> valueEqTerm (vsContext vs) (ppFldId f) ps fv ft
     Nothing -> fail "Invalid static field in java_ensure_eq."
--- TODO: mark that the given ref can be modified
 checkStep _vs _ps (ModifyInstanceField _refExpr _f) = return ()
--- TODO: mark that the given field can be modified
 checkStep _vs _ps (ModifyStaticField _f) = return ()
 checkStep vs ps (EnsureArray _pos refExpr rhsExpr) = do
   rv <- readJavaValueVerif vs ps refExpr
   t <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) rhsExpr
   valueEqTerm (vsContext vs) (ppJavaExpr refExpr) ps rv t
--- TODO: mark that the given ref can be modified
 checkStep _vs _ps (ModifyArray _refExpr _aty) = return ()
 
 data VerificationState = VerificationState
@@ -399,10 +379,11 @@ checkFinalState sc ms bs initPS = do
       cmds = bsCommands bs
   finalPS <- getPath "checkFinalState"
   let maybeRetVal = finalPS ^. pathRetVal
+  assumptions <- liftIO $ evalAssumptions sc initPS (specAssumptions ms)
   let initState  =
         PathVC { pvcStartLoc = bsLoc bs
                , pvcEndLoc = Nothing
-               , pvcAssumptions = finalPS ^. pathAssertions
+               , pvcAssumptions = assumptions
                , pvcStaticErrors = []
                , pvcChecks = []
                }
@@ -737,7 +718,7 @@ javaAssert bic _ (TypedTerm schema v) = do
     fail $ "java_assert passed expression of non-boolean type: " ++ show schema
   me <- liftIO $ mkMixedExpr sc ms v
   case me of
-    LE le -> modifySpec (specAddBehaviorCommand (AssertPred fixPos le))
+    LE le -> modifySpec (specAddAssumption le)
     JE je -> fail $ "Used java_assert with Java expression: " ++ show je
 
 getJavaExpr :: (MonadIO m) =>

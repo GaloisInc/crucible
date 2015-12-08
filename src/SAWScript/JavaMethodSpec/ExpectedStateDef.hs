@@ -20,6 +20,7 @@ module SAWScript.JavaMethodSpec.ExpectedStateDef
   , esdInstanceFieldValue
   , esdArrayValue
   , esdRefName
+  , esdAssumptions
   , initializeVerification
   ) where
 
@@ -50,6 +51,7 @@ import SAWScript.Utils
   , ftext
   , throwIOExecException
   )
+import SAWScript.JavaUtils
 
 import Verifier.SAW.Prelude
 import Verifier.SAW.Recognizer
@@ -70,6 +72,9 @@ data ExpectedStateDef = ESD {
          -- | Initial path state (used for evaluating expressions in
          -- verification).
        , esdInitialPathState :: !SpecPathState
+         -- | Assumptions under which to check that this expected state
+         -- has been achieved.
+       , esdAssumptions :: SharedTerm SAWCtx
          -- | Stores initial assignments.
        , esdReturnValue :: !(Maybe SpecJavaValue)
          -- | Maps instance fields to expected value, or Nothing if value may
@@ -159,6 +164,7 @@ data ESGState = ESGState {
        , esErrors :: ![String]
 
        , _esInitialPathState :: !SpecPathState
+       , _esAssumptions :: SharedTerm SAWCtx
        , _esReturnValue :: !(Maybe SpecJavaValue)
        -- , _esInitialAssignments :: ![(TC.JavaExpr, SharedTerm SAWCtx)]
        , _esInstanceFields :: !(Map (Ref, FieldId) (Maybe SpecJavaValue))
@@ -168,6 +174,9 @@ data ESGState = ESGState {
 
 esInitialPathState :: Simple Lens ESGState SpecPathState
 esInitialPathState = lens _esInitialPathState (\s v -> s { _esInitialPathState = v })
+
+esAssumptions :: Simple Lens ESGState (SharedTerm SAWCtx)
+esAssumptions = lens _esAssumptions (\s a -> s { _esAssumptions = a })
 
 {-
 esInitialAssignments :: Simple Lens ESGState [(TC.JavaExpr, SharedTerm SAWCtx)]
@@ -216,9 +225,9 @@ esAddAssumption :: SharedTerm SAWCtx
                 -> ExpectedStateGenerator ()
 esAddAssumption prop = do
   sc <- gets esContext
-  ps <- use esInitialPathState
-  ps' <- liftIO $ addAssumptionPS sc prop ps
-  esInitialPathState .= ps'
+  a <- use esAssumptions
+  a' <- liftIO $ scAnd sc a prop
+  esAssumptions .= a'
 
 esAddEqAssertion :: String -> SharedTerm SAWCtx -> SharedTerm SAWCtx
                  -> ExpectedStateGenerator ()
@@ -319,13 +328,6 @@ esSetLogicValues sc cl@(rep:_) tp lrhs = do
     _ -> esError "internal: initializing Java values given bad rhs."
 
 esStep :: BehaviorCommand -> ExpectedStateGenerator ()
--- TODO: Figure out difference between assertPred and assumePred
-esStep (AssertPred _ expr) = do
-  v <- esEval $ evalLogicExpr expr
-  esAddAssumption v
-esStep (AssumePred expr) = do
-  v <- esEval $ evalLogicExpr expr
-  esAddAssumption v
 esStep (ReturnValue expr) = do
   v <- esEval $ evalMixedExpr expr
   esReturnValue .= Just v
@@ -454,7 +456,9 @@ initializeVerification sc ir bs refConfig = do
   --forM_ (Map.keys (specBehaviors ir)) $ addBreakpoint clName key
   -- TODO: set starting PC
   initPS <- getPath (PP.text "initializeVerification")
+  true <- liftIO $ scBool sc True
   let initESG = ESGState { esContext = sc
+                         , _esAssumptions = true
                          , esMethod = specMethod ir
                          , esExprRefMap = Map.fromList
                              [ (e, r) | (r,cl) <- refAssignments, e <- cl ]
@@ -488,9 +492,12 @@ initializeVerification sc ir bs refConfig = do
   unless (null errs) $ fail . unlines $
     "Errors while initializing verification:" : map indent2 errs
   modifyPathM_ (PP.text "initializeVerification") (\_ -> return (es^.esInitialPathState))
+  assumptions <- liftIO $ evalAssumptions sc (es^.esInitialPathState) (specAssumptions ir)
+  allAssumptions <- liftIO $ scAnd sc assumptions (es ^. esAssumptions)
   return ESD { esdStartLoc = bsLoc bs
              , esdRefExprMap = Map.fromList refAssignments
              , esdInitialPathState = es^.esInitialPathState
+             , esdAssumptions    = allAssumptions
              , esdReturnValue    = es^.esReturnValue
              -- , esdInitialAssignments = reverse (es^.esInitialAssignments)
              , esdInstanceFields = es^.esInstanceFields

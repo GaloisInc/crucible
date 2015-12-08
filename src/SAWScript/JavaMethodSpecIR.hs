@@ -27,9 +27,11 @@ module SAWScript.JavaMethodSpecIR
   , specAddVarDecl
   , specAddLogicAssignment
   , specAddAliasSet
+  , specAddAssumption
   , specActualTypeMap
   , specAllowAlloc
   , specSetAllowAllocation
+  , specAssumptions
   , initMethodSpec
   --, resolveMethodSpecIR
     -- * Method behavior.
@@ -41,6 +43,7 @@ module SAWScript.JavaMethodSpecIR
   , bsRefEquivClasses
   , bsActualTypeMap
   , bsLogicAssignments
+  , bsAssumptions
   , bsLogicClasses
   , bsCheckAliasTypes
   , BehaviorCommand(..)
@@ -96,12 +99,8 @@ ppJavaExprEquivClass cl = "{ " ++ intercalate ", " (map ppJavaExpr (sort cl)) ++
 -- useLogicExpr, in a specific shared context, before they can be
 -- used.
 data BehaviorCommand
-     -- | An assertion that is assumed to be true in the specificaiton.
-   = AssertPred Pos LogicExpr
-     -- | An assumption made in a conditional behavior specification.
-   | AssumePred LogicExpr
      -- | Assign Java expression the value given by the mixed expression.
-   | EnsureInstanceField Pos JavaExpr JSS.FieldId MixedExpr
+   = EnsureInstanceField Pos JavaExpr JSS.FieldId MixedExpr
      -- | Assign static Java field the value given by the mixed expression.
    | EnsureStaticField Pos JSS.FieldId MixedExpr
      -- | Assign array value of Java expression the value given by the rhs.
@@ -129,6 +128,8 @@ data BehaviorSpec = BS {
        , bsMayAliasClasses :: [[JavaExpr]]
          -- | Equations
        , bsLogicAssignments :: [(Pos, JavaExpr, MixedExpr)]
+         -- | Conditions assumed by this specification.
+       , bsAssumptions :: [LogicExpr]
          -- | Commands to execute in reverse order.
        , bsReversedCommands :: [BehaviorCommand]
        } deriving (Show)
@@ -242,6 +243,10 @@ bsAddCommand :: BehaviorCommand -> BehaviorSpec -> BehaviorSpec
 bsAddCommand bc bs =
   bs { bsReversedCommands = bc : bsReversedCommands bs }
 
+bsAddAssumption :: LogicExpr -> BehaviorSpec -> BehaviorSpec
+bsAddAssumption le bs =
+  bs { bsAssumptions = le : bsAssumptions bs }
+
 initMethodSpec :: Pos -> JSS.Codebase
                -> JSS.Class -> String
                -> IO JavaMethodSpecIR
@@ -260,6 +265,7 @@ initMethodSpec pos cb thisClass mname = do
                         CC.insertTerm this CC.empty
                   , bsMayAliasClasses = []
                   , bsLogicAssignments = []
+                  , bsAssumptions = []
                   , bsReversedCommands = []
                   }
       initMS = MSIR { specPos = pos
@@ -337,8 +343,16 @@ specAddBehaviorCommand :: BehaviorCommand
 specAddBehaviorCommand bc ms =
   ms { specBehaviors = bsAddCommand bc (specBehaviors ms) }
 
+
+specAddAssumption :: LogicExpr -> JavaMethodSpecIR -> JavaMethodSpecIR
+specAddAssumption le ms =
+  ms { specBehaviors = bsAddAssumption le (specBehaviors ms)}
+
 specActualTypeMap :: JavaMethodSpecIR -> Map JavaExpr JavaActualType
 specActualTypeMap = bsActualTypeMap . specBehaviors
 
 specSetAllowAllocation :: JavaMethodSpecIR -> JavaMethodSpecIR
 specSetAllowAllocation ms = ms { specAllowAlloc = True }
+
+specAssumptions :: JavaMethodSpecIR -> [LogicExpr]
+specAssumptions = bsAssumptions . specBehaviors

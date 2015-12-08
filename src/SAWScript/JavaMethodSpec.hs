@@ -134,9 +134,7 @@ ppOverrideError Abort                = "Path was aborted."
 
 data OverrideResult
    = SuccessfulRun (Path (SharedContext SAWCtx)) (Maybe Breakpoint) (Maybe SpecJavaValue)
-   | FalseAssumption
    | FailedRun (Path (SharedContext SAWCtx)) (Maybe Breakpoint) [OverrideError]
-   -- deriving (Show)
 
 type RunResult = ( Path (SharedContext SAWCtx)
                  , Maybe Breakpoint
@@ -152,9 +150,6 @@ type OverrideComputation = ContT OverrideResult (StateT OCState IO)
 
 ocError :: OverrideError -> OverrideComputation ()
 ocError e = modify $ \ocs -> ocs { ocsErrors = e : ocsErrors ocs }
-
-ocAssumeFailed :: OverrideComputation a
-ocAssumeFailed = ContT (\_ -> return FalseAssumption)
 
 -- OverrideComputation utilities {{{2
 
@@ -195,16 +190,6 @@ ocAssert p _nm x = do
 -- ocStep {{{2
 
 ocStep :: BehaviorCommand -> OverrideComputation ()
-ocStep (AssertPred pos expr) =
-  ocEval (evalLogicExpr expr) $ \p ->
-    ocAssert pos "Override predicate" p
-ocStep (AssumePred expr) = do
-  sc <- gets (ecContext . ocsEvalContext)
-  ocEval (evalLogicExpr expr) $ \v ->
-    case asBool v of
-      Just True -> return ()
-      Just False -> ocAssumeFailed
-      _ -> ocModifyResultStateIO $ addAssumptionPS sc v
 ocStep (EnsureInstanceField _pos refExpr f rhsExpr) = do
   ocEval (evalJavaRefExpr refExpr) $ \lhsRef ->
     ocEval (evalMixedExpr rhsExpr) $ \value ->
@@ -316,6 +301,10 @@ execBehavior bsl sc mbThis argLocals ps = do
            ocEval (evalMixedExprAsLogic rhs) $ \rhsVal ->
              ocAssert pos "Override value assertion"
                 =<< liftIO (scEq sc lhsVal rhsVal)
+       -- Verify assumptions
+       forM_ (bsAssumptions bs) $ \le -> do
+         ocEval (evalLogicExpr le) $ \assumptions ->
+           ocAssert (PosInternal "assumption") "Override assumption check" assumptions
        -- Execute statements.
        mapM_ ocStep (bsCommands bs)
 
@@ -459,7 +448,7 @@ generateVC ir esd (ps, endLoc, res) = do
   let initState  =
         PathVC { pvcStartLoc = esdStartLoc esd
                , pvcEndLoc = endLoc
-               , pvcAssumptions = ps ^. pathAssertions
+               , pvcAssumptions = esdAssumptions esd
                , pvcStaticErrors = []
                , pvcChecks = []
                }

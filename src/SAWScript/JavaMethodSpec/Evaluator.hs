@@ -14,7 +14,6 @@ module SAWScript.JavaMethodSpec.Evaluator
   , SpecPathState
   , SpecJavaValue
   , addAssertionPS
-  , addAssumptionPS
   , setArrayValuePS
   ) where
 
@@ -49,13 +48,6 @@ addAssertionPS :: SharedContext SAWCtx -> SharedTerm SAWCtx -> SpecPathState
                -> IO SpecPathState
 addAssertionPS sc x p = do
   -- TODO: p becomes an additional VC in this case
-  andOp <- liftIO $ scApplyPrelude_and sc
-  p & pathAssertions %%~ \a -> liftIO (andOp a x)
-
--- | Add assumption for predicate to path state.
-addAssumptionPS :: SharedContext SAWCtx -> SharedTerm SAWCtx -> SpecPathState
-                -> IO SpecPathState
-addAssumptionPS sc x p = do
   andOp <- liftIO $ scApplyPrelude_and sc
   p & pathAssertions %%~ \a -> liftIO (andOp a x)
 

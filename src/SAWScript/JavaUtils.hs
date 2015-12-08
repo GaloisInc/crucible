@@ -399,3 +399,19 @@ reachableRefs ps vs  =
 
 valueRefs :: [SpecJavaValue] -> [Ref]
 valueRefs vs = [ r | RValue r <- vs ]
+
+useLogicExprPS :: JSS.Path (SharedContext SAWCtx)
+               -> SharedContext SAWCtx
+               -> LogicExpr
+               -> IO (SharedTerm SAWCtx)
+useLogicExprPS ps sc le = do
+  let mcf = (currentCallFrame ps)
+  args <- mapM (readJavaTerm mcf ps) (logicExprJavaExprs le)
+  useLogicExpr sc le args
+
+evalAssumptions :: SharedContext SAWCtx -> SpecPathState -> [LogicExpr]
+                -> IO (SharedTerm SAWCtx)
+evalAssumptions sc ps as = do
+  assumptionList <- mapM (useLogicExprPS ps sc) as
+  true <- scBool sc True
+  foldM (scAnd sc) true assumptionList
