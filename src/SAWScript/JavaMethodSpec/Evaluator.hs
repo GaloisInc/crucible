@@ -29,16 +29,14 @@ import Data.Maybe (mapMaybe)
 import qualified SAWScript.CongruenceClosure as CC (Term(..))
 import qualified SAWScript.JavaExpr as TC
 import SAWScript.JavaUtils
-import SAWScript.Utils ( SAWCtx, basic_ss)
+import SAWScript.Utils ( SAWCtx )
 
 import Execution.JavaSemantics (AtomicValue(..))
 import Verifier.Java.Codebase (LocalVariableIndex, FieldId)
 import Verifier.Java.Common
 
 
-import Verifier.SAW.Prelude
 import Verifier.SAW.Recognizer (asBoolType, asBitvectorType)
-import Verifier.SAW.Rewriter (rewriteSharedTerm)
 import Verifier.SAW.SharedTerm
 
 -- SpecPathState {{{1
@@ -47,9 +45,7 @@ import Verifier.SAW.SharedTerm
 addAssertionPS :: SharedContext SAWCtx -> SharedTerm SAWCtx -> SpecPathState
                -> IO SpecPathState
 addAssertionPS sc x p = do
-  -- TODO: p becomes an additional VC in this case
-  andOp <- liftIO $ scApplyPrelude_and sc
-  p & pathAssertions %%~ \a -> liftIO (andOp a x)
+  p & pathAssertions %%~ \a -> liftIO (scAnd sc a x)
 
 -- | Set value bound to array in path state.
 -- Assumes value is an array with a ground length.
@@ -152,13 +148,11 @@ evalMixedExpr :: TC.MixedExpr -> EvalContext
 evalMixedExpr (TC.LE expr) ec = do
   n <- evalLogicExpr expr ec
   let sc = ecContext ec
-  ty <- liftIO $ scTypeOf sc n
-  ss <- liftIO $ basic_ss sc
-  ty' <- liftIO $ rewriteSharedTerm sc ss ty
-  case (asBitvectorType ty', asBoolType ty') of
+  ty <- liftIO $ scWhnf sc =<< scTypeOf sc n
+  case (asBitvectorType ty, asBoolType ty) of
     (Just 32, _) -> return (IValue n)
     (Just 64, _) -> return (LValue n)
-    (Just _, _) -> throwE (EvalExprBadLogicType "evalMixedExpr" (show ty'))
+    (Just _, _) -> throwE (EvalExprBadLogicType "evalMixedExpr" (show ty))
     (Nothing, Just _) -> do
       b <- liftIO $ do
         boolTy <- scBoolType sc
@@ -167,7 +161,7 @@ evalMixedExpr (TC.LE expr) ec = do
         scVector sc boolTy (replicate 31 false ++ [n])
       return (IValue b)
     (Nothing, Nothing) ->
-      throwE (EvalExprBadLogicType "evalMixedExpr" (show ty'))
+      throwE (EvalExprBadLogicType "evalMixedExpr" (show ty))
 evalMixedExpr (TC.JE expr) ec = evalJavaExpr expr ec
 
 -- | Evaluates a typed expression in the context of a particular state.

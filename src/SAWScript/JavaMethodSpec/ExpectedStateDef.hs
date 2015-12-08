@@ -47,7 +47,6 @@ import SAWScript.JavaMethodSpec.Evaluator
 import SAWScript.JavaMethodSpecIR
 import SAWScript.Utils
   ( SAWCtx
-  , basic_ss
   , ftext
   , throwIOExecException
   )
@@ -55,7 +54,6 @@ import SAWScript.JavaUtils
 
 import Verifier.SAW.Prelude
 import Verifier.SAW.Recognizer
-import Verifier.SAW.Rewriter
 import Verifier.SAW.SharedTerm
 
 import Verifier.SAW.Cryptol (scCryptolEq)
@@ -388,8 +386,7 @@ esStep (EnsureArray _pos lhsExpr rhsExpr) = do
   value  <- esEval $ evalMixedExprAsLogic rhsExpr
   -- Get dag engine
   sc <- gets esContext
-  ss <- liftIO $ basic_ss sc
-  ty <- liftIO $ scTypeOf sc value >>= rewriteSharedTerm sc ss
+  ty <- liftIO $ scTypeOf sc value >>= scWhnf sc
   case ty of
     (isVecType (const (return ())) -> Just (w :*: _)) -> do
       let l = fromIntegral w

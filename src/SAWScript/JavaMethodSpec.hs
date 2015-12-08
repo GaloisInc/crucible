@@ -72,7 +72,6 @@ import Verifier.Java.SAWBackend hiding (basic_ss)
 
 import Verifier.SAW.Prelude
 import Verifier.SAW.Recognizer
-import Verifier.SAW.Rewriter
 import Verifier.SAW.SharedTerm
 
 -- JSS Utilities {{{1
@@ -201,8 +200,7 @@ ocStep (EnsureArray _pos lhsExpr rhsExpr) = do
   ocEval (evalJavaRefExpr lhsExpr) $ \lhsRef ->
     ocEval (evalMixedExprAsLogic rhsExpr) $ \rhsVal -> do
       sc <- gets (ecContext . ocsEvalContext)
-      ss <- liftIO $ basic_ss sc
-      ty <- liftIO $ scTypeOf sc rhsVal >>= rewriteSharedTerm sc ss
+      ty <- liftIO $ scTypeOf sc rhsVal >>= scWhnf sc
       case ty of
         (isVecType (const (return ())) -> Just (n :*: _)) ->
           ocModifyResultState $ setArrayValuePS lhsRef (fromIntegral n) rhsVal
@@ -232,8 +230,7 @@ ocStep (ModifyArray refExpr ty) = do
       Nothing -> ocError (InvalidType (show ty))
       Just tp -> do
         rhsVal <- liftIO $ scFreshGlobal sc (TC.ppJavaExpr refExpr) tp
-        ss <- liftIO $ basic_ss sc
-        lty <- liftIO $ scTypeOf sc rhsVal >>= rewriteSharedTerm sc ss
+        lty <- liftIO $ scTypeOf sc rhsVal >>= scWhnf sc
         case lty of
           (isVecType (const (return ())) -> Just (n :*: _)) ->
             ocModifyResultState $ setArrayValuePS ref (fromIntegral n) rhsVal
