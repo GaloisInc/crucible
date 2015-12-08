@@ -63,14 +63,14 @@ shortExtend sc x = do
 
 extendToIValue :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
 extendToIValue sc t = do
-  ty <- scTypeOf sc t
+  ty <- scWhnf sc =<< scTypeOf sc t
   case ty of
     (asBoolType -> Just ()) -> boolExtend' sc t
     (asBitvectorType -> Just 1) -> boolExtend sc t
     (asBitvectorType -> Just 8) -> byteExtend sc t
     (asBitvectorType -> Just 16) -> shortExtend sc t
     (asBitvectorType -> Just 32) -> return t
-    _ -> fail "Invalid type passed to extendToIValue"
+    _ -> fail $ "Invalid type passed to extendToIValue: " ++ show ty
 
 typeOfValue :: SharedContext s -> JSS.Value (SharedTerm s) -> IO JSS.Type
 typeOfValue sc (IValue t) = do
