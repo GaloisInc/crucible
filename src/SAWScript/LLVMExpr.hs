@@ -81,7 +81,7 @@ data ProtoLLVMExpr
   | PDeref ProtoLLVMExpr
   | PField Int ProtoLLVMExpr -- Recursive arg is address
   | PReturn
-  -- | PIndex ProtoLLVMExpr ProtoLLVMExpr
+  -- PIndex ProtoLLVMExpr ProtoLLVMExpr
     deriving (Show)
 
 ppProtoLLVMExpr :: ProtoLLVMExpr -> Doc
