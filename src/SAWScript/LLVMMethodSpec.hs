@@ -115,15 +115,9 @@ storeGlobal sbe gm sym tp v ps = do
     Just addr -> storePathState sbe addr tp v ps
     Nothing -> fail $ "Global " ++ show sym ++ " not found"
 
--- | Add assumption for predicate to path state.
-addAssumption :: SBE SpecBackend -> SharedTerm SAWCtx -> SpecPathState -> IO SpecPathState
-addAssumption sbe x p = do
-  p & pathAssertions %%~ \a -> liftIO (sbeRunIO sbe (applyAnd sbe a x))
-
 -- | Add assertion for predicate to path state.
 addAssertion :: SBE SpecBackend -> SharedTerm SAWCtx -> SpecPathState -> IO SpecPathState
 addAssertion sbe x p = do
-  -- TODO: p becomes an additional VC in this case
   p & pathAssertions %%~ \a -> liftIO (sbeRunIO sbe (applyAnd sbe a x))
 
 -- | Contextual information needed to evaluate expressions.
@@ -281,7 +275,6 @@ ppOverrideError Abort                = "Path was aborted."
 
 data OverrideResult
    = SuccessfulRun SpecPathState (Maybe SymBlockID) (Maybe SpecLLVMValue)
-   | FalseAssumption
    | FailedRun SpecPathState (Maybe SymBlockID) [OverrideError]
 
 type RunResult = ( SpecPathState
@@ -298,9 +291,6 @@ type OverrideComputation = ContT OverrideResult (StateT OCState IO)
 
 ocError :: OverrideError -> OverrideComputation ()
 ocError e = modify $ \ocs -> ocs { ocsErrors = e : ocsErrors ocs }
-
-ocAssumeFailed :: OverrideComputation a
-ocAssumeFailed = ContT (\_ -> return FalseAssumption)
 
 -- | Runs an evaluate within an override computation.
 ocEval :: (EvalContext -> ExprEvaluator b)
@@ -338,16 +328,6 @@ ocAssert p _nm x = do
     _ -> ocModifyResultStateIO (addAssertion sbe x)
 
 ocStep :: BehaviorCommand -> OverrideComputation ()
-ocStep (AssertPred pos expr) =
-  ocEval (evalLogicExpr expr) $ \p ->
-    ocAssert pos "Override predicate" p
-ocStep (AssumePred expr) = do
-  sbe <- gets (ecBackend . ocsEvalContext)
-  ocEval (evalLogicExpr expr) $ \v ->
-    case asBool v of
-      Just True -> return ()
-      Just False -> ocAssumeFailed
-      _ -> ocModifyResultStateIO $ addAssumption sbe v
 ocStep (Ensure _pos lhsExpr rhsExpr) = do
   sbe <- gets (ecBackend . ocsEvalContext)
   ocEval (evalLLVMRefExpr lhsExpr) $ \lhsRef ->
@@ -399,6 +379,10 @@ execBehavior bsl ec ps = do
                  ocAssert (PosInternal "FIXME") "Override value assertion"
                     =<< liftIO (scEq sc lhsVal rhsVal)
            Nothing -> return ()
+       -- Verify assumptions
+       forM_ (bsAssumptions bs) $ \le -> do
+         ocEval (evalLogicExpr le) $ \assumptions ->
+           ocAssert (PosInternal "assumption") "Override assumption check" assumptions
        -- Execute statements.
        mapM_ ocStep (bsCommands bs)
 
@@ -464,6 +448,8 @@ data ExpectedStateDef = ESD {
        , esdInitialPathState :: SpecPathState
          -- | Stores initial assignments.
        , esdInitialAssignments :: [(TC.LLVMExpr, SpecLLVMValue)]
+         -- | Initial assumptions leading to this expected state.
+       , esdAssumptions :: SharedTerm SAWCtx
          -- | Expected effects in the form (location, value).
        , esdExpectedValues :: [(TC.LLVMExpr, SpecLLVMValue, MemType, SpecLLVMValue)]
          -- | Expected return value or Nothing if method returns void.
@@ -483,6 +469,7 @@ data ESGState = ESGState {
        , esBackend :: SBE SpecBackend
        , esGlobalMap :: GlobalMap SpecBackend
        , esLLVMExprs :: Map String (TC.LLVMActualType, TC.LLVMExpr)
+       , esAssumptions :: SharedTerm SAWCtx
        , esInitialAssignments :: [(TC.LLVMExpr, SpecLLVMValue)]
        , esInitialPathState :: SpecPathState
        , esExpectedValues :: [(TC.LLVMExpr, SpecLLVMValue, MemType, SpecLLVMValue)]
@@ -526,7 +513,6 @@ esModifyInitialPathState :: (SpecPathState -> SpecPathState)
                          -> ExpectedStateGenerator ()
 esModifyInitialPathState fn =
   modify $ \es -> es { esInitialPathState = fn (esInitialPathState es) }
--}
 
 esModifyInitialPathStateIO :: (SpecPathState -> IO SpecPathState)
                          -> ExpectedStateGenerator ()
@@ -534,7 +520,6 @@ esModifyInitialPathStateIO fn =
   do s0 <- esGetInitialPathState
      esPutInitialPathState =<< liftIO (fn s0)
 
-{-
 esAddEqAssertion :: SBE SpecBackend -> String -> SharedTerm SAWCtx -> SharedTerm SAWCtx
                  -> ExpectedStateGenerator ()
 esAddEqAssertion sbe _nm x y =
@@ -549,6 +534,14 @@ esAssertEq nm x y = do
   sbe <- gets esBackend
   esAddEqAssertion sbe nm x y
 -}
+
+esAddAssumption :: SpecLLVMValue
+                -> ExpectedStateGenerator ()
+esAddAssumption p = do
+  a <- gets esAssumptions
+  sc <- gets esContext
+  a' <- liftIO $ scAnd sc a p
+  modify $ \es -> es { esAssumptions = a' }
 
 addrPlusOffset :: DataLayout -> SharedContext SAWCtx -> SpecLLVMValue -> Offset
                -> IO SpecLLVMValue
@@ -654,14 +647,6 @@ esSetLogicValue cb sc expr mtp mrhs = do
   esSetLLVMValue expr value
 
 esStep :: BehaviorCommand -> ExpectedStateGenerator ()
-esStep (AssertPred _ expr) = do
-  sbe <- gets esBackend
-  v <- esEval $ evalLogicExpr expr
-  esModifyInitialPathStateIO $ addAssumption sbe v
-esStep (AssumePred expr) = do
-  sbe <- gets esBackend
-  v <- esEval $ evalLogicExpr expr
-  esModifyInitialPathStateIO $ addAssumption sbe v
 esStep (Return expr) = do
   v <- esEval $ evalMixedExpr expr
   modify $ \es -> es { esReturnValue = Just v }
@@ -745,10 +730,12 @@ initializeVerification sc ir = do
   callDefine' False fn rreg (map snd (sortBy cmpFst (catMaybes args)))
 
   initPS <- fromMaybe (error "initializeVerification") <$> getPath
+  true <- liftIO $ scBool sc True
   let initESG = ESGState { esContext = sc
                          , esDataLayout = dl
                          , esBackend = sbe
                          , esGlobalMap = gm
+                         , esAssumptions = true
                          , esLLVMExprs = exprs
                          , esInitialAssignments = argAssignments''
                          , esInitialPathState = initPS
@@ -767,6 +754,9 @@ initializeVerification sc ir = do
     forM_ otherAssignments $ \(expr, v) -> do
       let Just (mtp, _) = Map.lookup expr (bsExprDecls bs)
       esSetLogicValue cb sc expr mtp v
+    -- Add assumptions
+    forM_ (specAssumptions ir) $ \le ->
+      esEval (evalLogicExpr le) >>= esAddAssumption
     -- Process commands
     mapM esStep (bsCommands bs)
 
@@ -777,6 +767,7 @@ initializeVerification sc ir = do
              , esdDataLayout = dl
              , esdBackend = sbe
              , esdGlobalMap = gm
+             , esdAssumptions = esAssumptions es
              , esdInitialPathState = esInitialPathState es
              , esdInitialAssignments = reverse (esInitialAssignments es)
              , esdExpectedValues = esExpectedValues es
@@ -794,7 +785,7 @@ generateVC _sc _ir esd (ps, endLoc, res) = do
   let initState  =
         PathVC { pvcStartLoc = esdStartLoc esd
                , pvcEndLoc = endLoc
-               , pvcAssumptions = ps ^. pathAssertions
+               , pvcAssumptions = esdAssumptions esd
                , pvcStaticErrors = []
                , pvcChecks = []
                }

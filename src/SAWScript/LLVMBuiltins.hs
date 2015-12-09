@@ -525,9 +525,8 @@ llvmAssert :: BuiltinContext -> Options -> SharedTerm SAWCtx
            -> LLVMSetup ()
 llvmAssert bic _ v = do
   liftIO $ checkBoolean (biSharedContext bic) v
-  let cmd = AssertPred fixPos (mkLogicExpr v)
   modify $ \st ->
-    st { lsSpec = specAddBehaviorCommand cmd (lsSpec st) }
+    st { lsSpec = specAddAssumption (mkLogicExpr v) (lsSpec st) }
 
 llvmAssertEq :: String -> TypedTerm SAWCtx -> LLVMSetup ()
 llvmAssertEq name (TypedTerm schema t) = do

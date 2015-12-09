@@ -21,9 +21,11 @@ module SAWScript.LLVMMethodSpecIR
   , specDef
   , specFunction
   , specBehavior
+  , specAssumptions
   , specAddBehaviorCommand
   , specAddVarDecl
   , specAddLogicAssignment
+  , specAddAssumption
   , specLLVMExprNames
   , initLLVMMethodSpec
     -- * Method behavior.
@@ -32,6 +34,7 @@ module SAWScript.LLVMMethodSpecIR
   , bsExprs
   , bsPtrExprs
   , bsExprDecls
+  , bsAssumptions
   , BehaviorCommand(..)
   , bsCommands
   ) where
@@ -68,12 +71,8 @@ ppLLVMExprEquivClass cl = list (map ppLLVMExpr (sort cl))
 -- useLogicExpr, in a specific shared context, before they can be
 -- used.
 data BehaviorCommand
-     -- | An assertion that is assumed to be true in the specificaiton.
-   = AssertPred Pos LogicExpr
-     -- | An assumption made in a conditional behavior specification.
-   | AssumePred LogicExpr
      -- | Assign an LLVM variables the value given by the mixed expression.
-   | Ensure Pos LLVMExpr MixedExpr
+   = Ensure Pos LLVMExpr MixedExpr
      -- | Modify an LLVM variables to an arbitrary expression.
      -- integral type or array.
    | Modify LLVMExpr LLVMActualType
@@ -85,6 +84,8 @@ data BehaviorSpec = BS {
          bsLoc :: LSS.SymBlockID
          -- | Declared LLVM expressions, with types and maybe initial values.
        , bsExprDecls :: Map LLVMExpr (LLVMActualType, Maybe LogicExpr)
+         -- | Assumptions for this behavior.
+       , bsAssumptions :: [LogicExpr]
          -- | Commands to execute in reverse order.
        , bsReversedCommands :: [BehaviorCommand]
        }
@@ -209,6 +210,10 @@ bsAddCommand :: BehaviorCommand -> BehaviorSpec -> BehaviorSpec
 bsAddCommand bc bs =
   bs { bsReversedCommands = bc : bsReversedCommands bs }
 
+bsAddAssumption :: LogicExpr -> BehaviorSpec -> BehaviorSpec
+bsAddAssumption a bs =
+  bs { bsAssumptions = a : bsAssumptions bs }
+
 type Backend = SAWBackend SAWCtx
 
 initLLVMMethodSpec :: Pos
@@ -218,6 +223,7 @@ initLLVMMethodSpec :: Pos
 initLLVMMethodSpec pos cb def =
   let initBS = BS { bsLoc = LSS.sdEntry def
                   , bsExprDecls = Map.empty
+                  , bsAssumptions = []
                   , bsReversedCommands = []
                   }
       initMS = MSIR { specPos = pos
@@ -249,6 +255,9 @@ data LLVMMethodSpecIR = MSIR {
 -- method name).
 specName :: LLVMMethodSpecIR -> Doc
 specName = LSS.ppSymbol . specFunction
+
+specAssumptions :: LLVMMethodSpecIR -> [LogicExpr]
+specAssumptions = bsAssumptions . specBehavior
 
 specAddVarDecl :: Pos -> String -> LLVMExpr -> LLVMActualType
                -> LLVMMethodSpecIR -> LLVMMethodSpecIR
@@ -285,3 +294,8 @@ specAddBehaviorCommand :: BehaviorCommand
                        -> LLVMMethodSpecIR -> LLVMMethodSpecIR
 specAddBehaviorCommand bc ms =
   ms { specBehavior = bsAddCommand bc (specBehavior ms) }
+
+specAddAssumption :: LogicExpr
+                  -> LLVMMethodSpecIR -> LLVMMethodSpecIR
+specAddAssumption a ms =
+  ms { specBehavior = bsAddAssumption a (specBehavior ms) }
