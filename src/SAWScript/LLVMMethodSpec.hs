@@ -303,14 +303,6 @@ ocEval fn m = do
     Left expr -> ocError $ UndefinedExpr expr
     Right v   -> m v
 
--- Modify result state
-{-
-ocModifyResultState :: (SpecPathState -> SpecPathState) -> OverrideComputation ()
-ocModifyResultState fn = do
-  bcs <- get
-  put $! bcs { ocsResultState = fn (ocsResultState bcs) }
--}
-
 ocModifyResultStateIO :: (SpecPathState -> IO SpecPathState)
                       -> OverrideComputation ()
 ocModifyResultStateIO fn = do
@@ -507,33 +499,6 @@ esGetInitialPathState = gets esInitialPathState
 
 esPutInitialPathState :: SpecPathState -> ExpectedStateGenerator ()
 esPutInitialPathState ps = modify $ \es -> es { esInitialPathState = ps }
-
-{-
-esModifyInitialPathState :: (SpecPathState -> SpecPathState)
-                         -> ExpectedStateGenerator ()
-esModifyInitialPathState fn =
-  modify $ \es -> es { esInitialPathState = fn (esInitialPathState es) }
-
-esModifyInitialPathStateIO :: (SpecPathState -> IO SpecPathState)
-                         -> ExpectedStateGenerator ()
-esModifyInitialPathStateIO fn =
-  do s0 <- esGetInitialPathState
-     esPutInitialPathState =<< liftIO (fn s0)
-
-esAddEqAssertion :: SBE SpecBackend -> String -> SharedTerm SAWCtx -> SharedTerm SAWCtx
-                 -> ExpectedStateGenerator ()
-esAddEqAssertion sbe _nm x y =
-  do sc <- gets esContext
-     prop <- liftIO (scEq sc x y)
-     esModifyInitialPathStateIO (addAssertion sbe prop)
-
--- | Assert that two terms are equal.
-esAssertEq :: String -> SpecLLVMValue -> SpecLLVMValue
-           -> ExpectedStateGenerator ()
-esAssertEq nm x y = do
-  sbe <- gets esBackend
-  esAddEqAssertion sbe nm x y
--}
 
 esAddAssumption :: SpecLLVMValue
                 -> ExpectedStateGenerator ()
