@@ -202,7 +202,8 @@ initializeVerification' :: MonadSim (SharedContext SAWCtx) m
                         -> RefEquivConfiguration
                            -- ^ The particular relationship between which references
                            -- alias each other for verification purposes.
-                        -> Simulator (SharedContext SAWCtx) m (JSS.Path (SharedContext SAWCtx))
+                        -> Simulator (SharedContext SAWCtx) m
+                           (JSS.Path (SharedContext SAWCtx))
 initializeVerification' sc ir bs refConfig = do
   -- Generate a reference for each reference equivalence class that
   -- isn't entirely involved in a return expression.
@@ -369,9 +370,10 @@ checkFinalState :: MonadSim (SharedContext SAWCtx) m =>
                    SharedContext SAWCtx
                 -> JavaMethodSpecIR
                 -> BehaviorSpec
+                -> RefEquivConfiguration
                 -> JSS.Path (SharedContext SAWCtx)
                 -> Simulator (SharedContext SAWCtx) m (PathVC Breakpoint)
-checkFinalState sc ms bs initPS = do
+checkFinalState sc ms bs cl initPS = do
   let st = VerificationState { vsContext = sc
                              , vsSpec = ms
                              , vsInitialState = initPS
@@ -379,6 +381,12 @@ checkFinalState sc ms bs initPS = do
       cmds = bsCommands bs
   finalPS <- getPath "checkFinalState"
   let maybeRetVal = finalPS ^. pathRetVal
+  refList <- forM (concatMap fst cl) $ \e -> do
+      rv <- readJavaValue (currentCallFrame initPS) finalPS e
+      case rv of
+        RValue r -> return (r, e)
+        _ -> fail "internal: refMap"
+  let refMap = Map.fromList refList
   assumptions <- liftIO $ evalAssumptions sc initPS (specAssumptions ms)
   let initState  =
         PathVC { pvcStartLoc = bsLoc bs
@@ -420,8 +428,6 @@ checkFinalState sc ms bs initPS = do
     mapM_ (checkStep st finalPS) cmds
     let initMem = initPS ^. pathMemory
         finalMem = finalPS ^. pathMemory
-        fieldDesc f = show (fieldIdName f) ++
-                      " of class " ++ (fieldIdClass f)
     when (initMem ^. memInitialization /= finalMem ^. memInitialization) $
       unless (specAllowAlloc ms) $
         pvcgFail "Initializes extra class."
@@ -432,16 +438,24 @@ checkFinalState sc ms bs initPS = do
     forM_ (Map.toList (finalMem ^. memStaticFields)) $ \(f, fval) ->
       unless (Set.member f mentionedSFields) $
         unless(isArrayType (fieldIdType f)) $
+          let fieldDesc = fieldIdClass f ++ "." ++ fieldIdName f in
           case Map.lookup f (initMem ^. memStaticFields) of
-            Nothing -> pvcgFail $ ftext $ "Modifies unspecified static field " ++ fieldDesc f
-            Just ival -> valueEqValue sc (fieldDesc f) initPS ival finalPS fval
+            Nothing -> pvcgFail $ ftext $
+                       "Modifies unspecified static field " ++ fieldDesc
+            Just ival -> valueEqValue sc fieldDesc initPS ival finalPS fval
     forM_ (Map.toList (finalMem ^. memInstanceFields)) $ \((ref, f), fval) -> do
       unless (Set.member (ref, f) mentionedIFieldSet) $
         when (ref `Set.member` reachable && not (isArrayType (fieldIdType f))) $
+        let fname =
+              case Map.lookup ref refMap of
+                Just e -> ppJavaExpr e ++ "." ++ fieldIdName f
+                Nothing -> "field " ++ fieldIdName f ++  " of a new object"
+        in
         case Map.lookup (ref, f) (initMem ^. memInstanceFields) of
-          Nothing -> pvcgFail $ ftext $ "Modifies unspecified instance field " ++ fieldDesc f
+          Nothing -> pvcgFail $ ftext $
+                     "Modifies unspecified instance field: " ++ fname
           Just ival -> do
-            valueEqValue sc (fieldDesc f) initPS ival finalPS fval
+            valueEqValue sc fname initPS ival finalPS fval
     forM_ (Map.toList (finalMem ^. memScalarArrays)) $ \(ref, (flen, fval)) ->
       unless (Set.member ref mentionedArraySet) $
       when (ref `Set.member` reachable) $
@@ -449,7 +463,13 @@ checkFinalState sc ms bs initPS = do
         Nothing -> unless (specAllowAlloc ms) $
                    pvcgFail "Allocates scalar array."
         Just (ilen, ival)
-          | ilen == flen -> pvcgAssertEq "array" ival fval -- TODO: name
+          | ilen == flen ->
+              let aname =
+                    case Map.lookup ref refMap of
+                      Just e -> ppJavaExpr e
+                      Nothing -> "a new array"
+              in
+              pvcgAssertEq aname ival fval -- TODO: name
           | otherwise -> pvcgFail "Array changed size."
     -- TODO: check that return value has been specified if method returns a value
     pvcgAssert "final assertions" (finalPS ^. pathAssertions)
@@ -526,7 +546,7 @@ verifyJava isOld bic opts cls mname overrides setup = do
             mapM_ (overrideFromSpec jsc (specPos ms)) ovds
             -- Execute code.
             run
-            pvc <- checkFinalState jsc ms bs initPS
+            pvc <- checkFinalState jsc ms bs cl initPS
             return [pvc]
         when (verb >= 5) $ liftIO $ do
           putStrLn "Verifying the following:"
