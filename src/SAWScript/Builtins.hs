@@ -441,6 +441,13 @@ printGoalConsts = StateT $ \goal -> do
   io $ mapM_ putStrLn $ Map.keys (getConstantSet (ttTerm (goalTerm goal)))
   return ((), goal)
 
+printGoalSize :: ProofScript SAWCtx ()
+printGoalSize = StateT $ \goal -> do
+  let t = ttTerm (goalTerm goal)
+  io $ putStrLn $ "Goal shared size: " ++ show (scSharedSize t)
+  io $ putStrLn $ "Goal unshared size: " ++ show (scTreeSize t)
+  return ((), goal)
+
 printGoalSExp :: ProofScript SAWCtx ()
 printGoalSExp = StateT $ \goal -> do
   io $ print (ppSharedTermSExp (ttTerm (goalTerm goal)))
