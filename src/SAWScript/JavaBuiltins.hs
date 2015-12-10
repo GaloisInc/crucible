@@ -262,8 +262,8 @@ resolveClassRHS :: MonadSim (SharedContext SAWCtx) m =>
                 -> SharedTerm SAWCtx
                 -> [LogicExpr]
                 -> Simulator (SharedContext SAWCtx) m (TypedTerm SAWCtx)
-resolveClassRHS sc _ tp [] =
-  liftIO (scFreshGlobal sc "_" tp >>= mkTypedTerm sc)
+resolveClassRHS sc e tp [] =
+  liftIO (scFreshGlobal sc (jeVarName e) tp >>= mkTypedTerm sc)
 resolveClassRHS sc _ _ [r] = do
   t <- evalLogicExpr' sc r
   liftIO $ mkTypedTerm sc t

@@ -24,6 +24,7 @@ module SAWScript.JavaExpr
   , returnJavaExpr
   , asJavaExpr
   , ppJavaExpr
+  , jeVarName
   , exprType
   , isScalarExpr
   , isReturnExpr
@@ -151,6 +152,12 @@ ppJavaExpr (CC.Term exprF) =
     Local nm _ _ -> nm
     InstanceField r f -> ppJavaExpr r ++ "." ++ JSS.fieldIdName f
     StaticField f -> ppFldId f
+
+-- | Turn a Java expression into a valid SAWCore variable name.
+jeVarName :: JavaExpr -> String
+jeVarName = map dotToUnderscore . ppJavaExpr
+  where dotToUnderscore '.' = '_'
+        dotToUnderscore c = c
 
 asJavaExpr :: SharedTerm s -> Maybe String
 asJavaExpr (STApp _ (FTermF (ExtCns ec))) = Just (ecName ec)
