@@ -78,6 +78,7 @@ import qualified Verifier.SAW.Simulator.SBV as SBVSim
 
 import qualified Data.ABC as ABC
 import qualified Data.SBV.Dynamic as SBV
+import qualified Data.SBV.Internals as SBV
 
 import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
@@ -705,7 +706,7 @@ getLabels ls d argNames =
     getLabel :: SBVSim.Labeler -> FiniteValue
     getLabel (SBVSim.BoolLabel s) = FVBit (SBV.cwToBool (d Map.! s))
     getLabel (SBVSim.WordLabel s) = d Map.! s &
-      (\(SBV.KBounded _ n)-> FVWord (fromIntegral n)) . SBV.cwKind <*> (\(SBV.CWInteger i)-> i) . SBV.cwVal
+      (\(SBV.KBounded _ n)-> FVWord (fromIntegral n)) . SBV.kindOf <*> (\(SBV.CWInteger i)-> i) . SBV.cwVal
     getLabel (SBVSim.VecLabel xs)
       | V.null xs = error "getLabel of empty vector"
       | otherwise = fvVec t vs
