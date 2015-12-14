@@ -21,6 +21,8 @@ module SAWScript.CryptolEnv
   , parseTypedTerm
   , parseDecls
   , parseSchema
+  , typeNoUser
+  , schemaNoUser
   )
   where
 

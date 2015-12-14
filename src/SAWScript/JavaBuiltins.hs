@@ -49,6 +49,7 @@ import SAWScript.JavaMethodSpecIR
 import SAWScript.JavaUtils
 
 import SAWScript.Builtins
+import SAWScript.CryptolEnv (schemaNoUser)
 import SAWScript.Options
 import SAWScript.Proof
 import SAWScript.TypedTerm
@@ -658,7 +659,7 @@ checkCompatibleType msg aty schema = do
     Nothing ->
       fail $ "Type is not translatable: " ++ show aty ++ " (" ++ msg ++ ")"
     Just lt -> do
-      unless (Cryptol.Forall [] [] lt == schema) $ fail $
+      unless (Cryptol.Forall [] [] lt == schemaNoUser schema) $ fail $
         unlines [ "Incompatible type:"
                 , "  Expected: " ++ Cryptol.pretty lt
                 , "  Got: " ++ Cryptol.pretty schema
@@ -740,7 +741,7 @@ javaAssert bic _ (TypedTerm schema v) = do
   --liftIO $ putStrLn "javaAssert"
   let sc = biSharedContext bic
   ms <- gets jsSpec
-  unless (schema == Cryptol.Forall [] [] Cryptol.tBit) $
+  unless (schemaNoUser schema == Cryptol.Forall [] [] Cryptol.tBit) $
     fail $ "java_assert passed expression of non-boolean type: " ++ show schema
   me <- liftIO $ mkMixedExpr sc ms v
   case me of
