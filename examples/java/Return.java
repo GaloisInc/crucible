@@ -12,6 +12,14 @@ class Return {
         return o;
     }
 
+    public static int[] fillwrap(int n) {
+        return fill(n);
+    }
+
+    public static SimpleObj newSimpleWrap(int x, int y) {
+        return newSimple(x, y);
+    }
+
     public static void main(String[] args) {
         System.out.println(fill(22)[3]);
     }

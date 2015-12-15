@@ -23,7 +23,8 @@ let newSimple_spec = do {
   java_verify_tactic abc;
 };
 
-
 c <- java_load_class "Return";
-java_verify_exp c "fill" [] fill_spec;
-java_verify_exp c "newSimple" [] newSimple_spec;
+fill_ov <- java_verify_exp c "fill" [] fill_spec;
+java_verify_exp c "fillwrap" [fill_ov] fill_spec;
+newSimple_ov <- java_verify_exp c "newSimple" [] newSimple_spec;
+java_verify_exp c "newSimpleWrap" [newSimple_ov] newSimple_spec;
