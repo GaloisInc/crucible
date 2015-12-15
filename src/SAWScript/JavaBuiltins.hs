@@ -263,8 +263,12 @@ verifyJava isOld bic opts cls mname overrides setup = do
             when (verb >= 2) $ liftIO $
               putStrLn $ "Overriding: " ++ show (map specName ovds)
             mapM_ (overrideFromSpec jsc (specPos ms)) ovds
+            when (verb >= 2) $ liftIO $
+              putStrLn $ "Running method: " ++ specName ms
             -- Execute code.
             run
+            when (verb >= 2) $ liftIO $
+              putStrLn $ "Checking final state"
             pvc <- checkFinalState jsc ms bs cl initPS
             return [pvc]
         when (verb >= 5) $ liftIO $ do
