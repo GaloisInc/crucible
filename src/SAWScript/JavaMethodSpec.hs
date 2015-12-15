@@ -48,7 +48,8 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Cont
 import Control.Monad.State
-import Data.List (intercalate) -- foldl', intersperse)
+import Data.Function (on)
+import Data.List (intercalate, sortBy)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import qualified Data.Set as Set
@@ -250,10 +251,11 @@ ocStep (ReturnValue expr) = do
 execBehavior :: [BehaviorSpec]
              -> SharedContext SAWCtx
              -> Maybe Ref
-             -> [(LocalVariableIndex, Value (SharedTerm SAWCtx))]
+             -> [(LocalVariableIndex, SpecJavaValue)]
+             -> Maybe SpecJavaValue
              -> SpecPathState
              -> IO [RunResult]
-execBehavior bsl sc mbThis argLocals ps = do
+execBehavior bsl sc mbThis argLocals mrv ps = do
   -- Get state of current execution path in simulator.
   fmap orParseResults $ forM bsl $ \bs -> do
     let ec = EvalContext { ecContext = sc
@@ -261,15 +263,14 @@ execBehavior bsl sc mbThis argLocals ps = do
                                        case mbThis of
                                        Just th -> (0, RValue th) : argLocals
                                        Nothing -> argLocals
-                         -- TODO: does this need to be initialized for reference returns?
-                         , ecReturnValue = Nothing
+                         , ecReturnValue = mrv
                          , ecPathState = ps
                          }
     let initOCS =
           OCState { ocsLoc = bsLoc bs
                   , ocsEvalContext = ec
                   , ocsResultState = ps
-                  , ocsReturnValue = Nothing
+                  , ocsReturnValue = mrv
                   , ocsErrors = []
                   }
     let resCont () = do
@@ -334,18 +335,34 @@ execOverride :: MonadSim (SharedContext SAWCtx) m
              -> Simulator (SharedContext SAWCtx) m ()
 execOverride sc pos ir mbThis args = do
   -- Execute behaviors.
-  initPS <- getPath (PP.text "MethodSpec override")
   let bsl = specBehaviors ir -- Map.lookup (BreakPC 0) (specBehaviors ir) -- TODO
   let method = specMethod ir
       argLocals = map (localIndexOfParameter method) [0..] `zip` args
   -- Check class initialization.
   checkClassesInitialized pos (specName ir) (specInitializedClasses ir)
 
-  -- TODO: allocate any declared variables that don't currently evaluate to
-  -- references. Treat return variable specially.
+  -- Allocate any objects that currently don't exist, in order of depth.
+  forM_ (sortBy (compare `on` exprDepth) (bsRefExprs bsl)) $ \e -> do
+    case e of
+      -- If the return value is a reference, it must be allocated.
+      CC.Term(ReturnVal _) ->
+        modifyPathM_ "ReturnVal" $ \p -> do
+          r <- genRef (exprType e)
+          return (p & pathRetVal .~ Just (RValue r))
+      -- Any other reference expression that currently has no value
+      -- should be allocated a new reference.
+      _ -> do
+        ps <- getPath (PP.text "Object allocation")
+        case readJavaValue (currentCallFrame ps) ps e of
+          Left _ -> do
+            r <- genRef (exprType e)
+            writeJavaValue e (RValue r)
+          Right _ -> return ()
 
+  initPS <- getPath (PP.text "MethodSpec override")
   -- Execute behavior.
-  res <- liftIO $ execBehavior [bsl] sc mbThis argLocals initPS
+  let mrv = initPS ^. pathRetVal
+  res <- liftIO $ execBehavior [bsl] sc mbThis argLocals mrv initPS
   -- Create function for generation resume actions.
   case res of
     [(_, _, Left el)] -> do

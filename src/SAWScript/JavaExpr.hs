@@ -26,6 +26,7 @@ module SAWScript.JavaExpr
   , ppJavaExpr
   , jeVarName
   , exprType
+  , exprDepth
   , isScalarExpr
   , isReturnExpr
   , containsReturn
@@ -184,6 +185,10 @@ exprType (CC.Term (ReturnVal ty)) = ty
 exprType (CC.Term (Local _ _ ty)) = ty
 exprType (CC.Term (InstanceField _ f)) = JSS.fieldIdType f
 exprType (CC.Term (StaticField f)) = JSS.fieldIdType f
+
+exprDepth :: JavaExpr -> Int
+exprDepth (CC.Term (InstanceField e _)) = 1 + exprDepth e
+exprDepth _ = 1
 
 isScalarExpr :: JavaExpr -> Bool
 isScalarExpr = JSS.isPrimitiveType . exprType
