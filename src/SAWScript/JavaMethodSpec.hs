@@ -48,8 +48,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Cont
 import Control.Monad.State
-import Data.Function (on)
-import Data.List (intercalate, sortBy)
+import Data.List (intercalate)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import qualified Data.Set as Set
@@ -152,17 +151,18 @@ orParseResults l =
   [ (ps, block, Left  e) | FailedRun     ps block e <- l ] ++
   [ (ps, block, Right v) | SuccessfulRun ps block v <- l ]
 
-type OverrideComputation = ContT OverrideResult (StateT OCState IO)
+type OverrideComputation m =
+  ContT OverrideResult (StateT OCState (SAWJavaSim m))
 
-ocError :: OverrideError -> OverrideComputation ()
+ocError :: OverrideError -> OverrideComputation m ()
 ocError e = modify $ \ocs -> ocs { ocsErrors = e : ocsErrors ocs }
 
 -- OverrideComputation utilities {{{2
 
 -- | Runs an evaluate within an override computation.
 ocEval :: (EvalContext -> ExprEvaluator b)
-       -> (b -> OverrideComputation ())
-       -> OverrideComputation ()
+       -> (b -> OverrideComputation m ())
+       -> OverrideComputation m ()
 ocEval fn m = do
   ec <- gets ocsEvalContext
   res <- runEval (fn ec)
@@ -170,22 +170,39 @@ ocEval fn m = do
     Left e  -> ocError $ UndefinedExpr (evalErrExpr e)
     Right v -> m v
 
+ocDoesEval :: (EvalContext -> ExprEvaluator b)
+           -> OverrideComputation m Bool
+ocDoesEval fn = do
+  ec <- gets ocsEvalContext
+  res <- runEval (fn ec)
+  return $ either (const False) (const True) res
+
 -- Modify result state
 ocModifyResultState :: (SpecPathState -> SpecPathState)
-                    -> OverrideComputation ()
+                    -> OverrideComputation m ()
 ocModifyResultState fn = do
   bcs <- get
   put $! bcs { ocsResultState = fn (ocsResultState bcs) }
 
 ocModifyResultStateIO :: (SpecPathState -> IO SpecPathState)
-                      -> OverrideComputation ()
+                      -> OverrideComputation m ()
 ocModifyResultStateIO fn = do
   bcs <- get
   new <- liftIO $ fn $ ocsResultState bcs
   put $! bcs { ocsResultState = new }
 
+ocSetReturnValue :: Maybe SpecJavaValue
+                 -> OverrideComputation m ()
+ocSetReturnValue mrv = do
+  bcs <- get
+  let ec = ocsEvalContext bcs
+      ec' = ec { ecReturnValue = mrv }
+  put $! bcs { ocsReturnValue = mrv
+             , ocsEvalContext = ec'
+             }
+
 -- | Add assumption for predicate.
-ocAssert :: Pos -> String -> SharedTerm SAWCtx -> OverrideComputation ()
+ocAssert :: Pos -> String -> SharedTerm SAWCtx -> OverrideComputation m ()
 ocAssert p _nm x = do
   sc <- (ecContext . ocsEvalContext) <$> get
   case asBool x of
@@ -195,25 +212,36 @@ ocAssert p _nm x = do
 
 -- ocStep {{{2
 
-ocStep :: BehaviorCommand -> OverrideComputation ()
-ocStep (EnsureInstanceField _pos refExpr f rhsExpr) = do
-  ocEval (evalJavaRefExpr refExpr) $ \lhsRef ->
-    ocEval (evalMixedExpr rhsExpr) $ \value ->
-      ocModifyResultState $ setInstanceFieldValuePS lhsRef f value
-ocStep (EnsureStaticField _pos f rhsExpr) = do
+evalOrCreate :: JavaExpr
+             -> (Ref -> OverrideComputation m ())
+             -> OverrideComputation m ()
+evalOrCreate e f = do
+  exists <- ocDoesEval (evalJavaExpr e)
+  if exists
+    then ocEval (evalJavaRefExpr e) f
+    else do r <- lift $ lift $ genRef (exprType e)
+            ocModifyResultStateIO (writeJavaValuePS e (RValue r))
+            f r
+
+ocStep :: BehaviorCommand -> OverrideComputation m ()
+ocStep (EnsureInstanceField _pos refExpr f rhsExpr) =
+  evalOrCreate refExpr $ \lhsRef ->
   ocEval (evalMixedExpr rhsExpr) $ \value ->
-    ocModifyResultState $ setStaticFieldValuePS f value
-ocStep (EnsureArray _pos lhsExpr rhsExpr) = do
-  ocEval (evalJavaRefExpr lhsExpr) $ \lhsRef ->
-    ocEval (evalMixedExprAsLogic rhsExpr) $ \rhsVal -> do
-      sc <- gets (ecContext . ocsEvalContext)
-      ty <- liftIO $ scTypeOf sc rhsVal >>= scWhnf sc
-      case ty of
-        (isVecType (const (return ())) -> Just (n :*: _)) ->
-          ocModifyResultState $ setArrayValuePS lhsRef (fromIntegral n) rhsVal
-        _ -> ocError (InvalidType (show ty))
+  ocModifyResultState $ setInstanceFieldValuePS lhsRef f value
+ocStep (EnsureStaticField _pos f rhsExpr) =
+  ocEval (evalMixedExpr rhsExpr) $ \value ->
+  ocModifyResultState $ setStaticFieldValuePS f value
+ocStep (EnsureArray _pos lhsExpr rhsExpr) =
+  evalOrCreate lhsExpr $ \lhsRef ->
+  ocEval (evalMixedExprAsLogic rhsExpr) $ \rhsVal -> do
+    sc <- gets (ecContext . ocsEvalContext)
+    ty <- liftIO $ scTypeOf sc rhsVal >>= scWhnf sc
+    case ty of
+      (isVecType (const (return ())) -> Just (n :*: _)) ->
+        ocModifyResultState $ setArrayValuePS lhsRef (fromIntegral n) rhsVal
+      _ -> ocError (InvalidType (show ty))
 ocStep (ModifyInstanceField refExpr f) =
-  ocEval (evalJavaRefExpr refExpr) $ \lhsRef -> do
+  evalOrCreate refExpr $ \lhsRef -> do
     sc <- gets (ecContext . ocsEvalContext)
     let tp = fieldIdType f
         w = fromIntegral $ stackWidth tp
@@ -229,8 +257,8 @@ ocStep (ModifyStaticField f) = do
   n <- liftIO $ scFreshGlobal sc (ppFldId f) logicType
   v <- liftIO $ mkJSSValue sc tp n
   ocModifyResultState $ setStaticFieldValuePS f v
-ocStep (ModifyArray refExpr ty) = do
-  ocEval (evalJavaRefExpr refExpr) $ \ref -> do
+ocStep (ModifyArray refExpr ty) =
+  evalOrCreate refExpr $ \ref -> do
     sc <- gets (ecContext . ocsEvalContext)
     mtp <- liftIO $ TC.logicTypeOfActual sc ty
     case mtp of
@@ -244,33 +272,33 @@ ocStep (ModifyArray refExpr ty) = do
           _ -> ocError (InvalidType (show ty))
 ocStep (ReturnValue expr) = do
   ocEval (evalMixedExpr expr) $ \val ->
-    modify $ \ocs -> ocs { ocsReturnValue = Just val }
+    ocSetReturnValue (Just val)
 
 -- Executing overrides {{{2
 
-execBehavior :: [BehaviorSpec]
+execBehavior :: BehaviorSpec
              -> SharedContext SAWCtx
              -> Maybe Ref
              -> [(LocalVariableIndex, SpecJavaValue)]
-             -> Maybe SpecJavaValue
              -> SpecPathState
-             -> IO [RunResult]
-execBehavior bsl sc mbThis argLocals mrv ps = do
+             -> SAWJavaSim m [RunResult]
+execBehavior bsl sc mbThis argLocals ps = do
+
   -- Get state of current execution path in simulator.
-  fmap orParseResults $ forM bsl $ \bs -> do
+  fmap orParseResults $ forM [bsl] $ \bs -> do
     let ec = EvalContext { ecContext = sc
                          , ecLocals =  Map.fromList $
                                        case mbThis of
                                        Just th -> (0, RValue th) : argLocals
                                        Nothing -> argLocals
-                         , ecReturnValue = mrv
+                         , ecReturnValue = Nothing
                          , ecPathState = ps
                          }
     let initOCS =
           OCState { ocsLoc = bsLoc bs
                   , ocsEvalContext = ec
                   , ocsResultState = ps
-                  , ocsReturnValue = mrv
+                  , ocsReturnValue = Nothing
                   , ocsErrors = []
                   }
     let resCont () = do
@@ -284,10 +312,19 @@ execBehavior bsl sc mbThis argLocals mrv ps = do
             else
               FailedRun resPS (Just loc) l
     flip evalStateT initOCS $ flip runContT resCont $ do
+       -- If the return value is a reference, it must be allocated.
+       forM_ (bsRefExprs bsl) $ \e -> do
+         case e of
+           CC.Term(ReturnVal _) -> do
+             r <- lift $ lift $ genRef (exprType e)
+             ocSetReturnValue (Just (RValue r))
+           _ -> return () -- Nothing else to do?
+
+       ec' <- gets ocsEvalContext
        -- Check that all expressions that reference each other may do so.
        do -- Build map from references to expressions that map to them.
           let exprs = bsRefExprs bs
-          ocEval (\_ -> mapM (flip evalJavaRefExpr ec) exprs) $ \refs -> do
+          ocEval (\_ -> mapM (flip evalJavaRefExpr ec') exprs) $ \refs -> do
             let refExprMap =
                   Map.fromListWith (++) $ refs `zip` [[e] | e <- exprs]
             --- Get counterexamples.
@@ -314,7 +351,7 @@ execBehavior bsl sc mbThis argLocals mrv ps = do
 
 checkClassesInitialized :: MonadSim (SharedContext SAWCtx) m =>
                            Pos -> String -> [String]
-                        -> Simulator (SharedContext SAWCtx) m ()
+                        -> SAWJavaSim m ()
 checkClassesInitialized pos nm requiredClasses = do
   forM_ requiredClasses $ \c -> do
     mem <- getMem (PP.text "checkClassesInitialized")
@@ -332,7 +369,7 @@ execOverride :: MonadSim (SharedContext SAWCtx) m
              -> JavaMethodSpecIR
              -> Maybe Ref
              -> [Value (SharedTerm SAWCtx)]
-             -> Simulator (SharedContext SAWCtx) m ()
+             -> SAWJavaSim m ()
 execOverride sc pos ir mbThis args = do
   -- Execute behaviors.
   let bsl = specBehaviors ir -- Map.lookup (BreakPC 0) (specBehaviors ir) -- TODO
@@ -340,29 +377,8 @@ execOverride sc pos ir mbThis args = do
       argLocals = map (localIndexOfParameter method) [0..] `zip` args
   -- Check class initialization.
   checkClassesInitialized pos (specName ir) (specInitializedClasses ir)
-
-  -- Allocate any objects that currently don't exist, in order of depth.
-  forM_ (sortBy (compare `on` exprDepth) (bsRefExprs bsl)) $ \e -> do
-    case e of
-      -- If the return value is a reference, it must be allocated.
-      CC.Term(ReturnVal _) ->
-        modifyPathM_ "ReturnVal" $ \p -> do
-          r <- genRef (exprType e)
-          return (p & pathRetVal .~ Just (RValue r))
-      -- Any other reference expression that currently has no value
-      -- should be allocated a new reference.
-      _ -> do
-        ps <- getPath (PP.text "Object allocation")
-        case readJavaValue (currentCallFrame ps) ps e of
-          Left _ -> do
-            r <- genRef (exprType e)
-            writeJavaValue e (RValue r)
-          Right _ -> return ()
-
-  initPS <- getPath (PP.text "MethodSpec override")
-  -- Execute behavior.
-  let mrv = initPS ^. pathRetVal
-  res <- liftIO $ execBehavior [bsl] sc mbThis argLocals mrv initPS
+  initPS <- getPath "execOverride"
+  res <- execBehavior bsl sc mbThis argLocals initPS
   -- Create function for generation resume actions.
   case res of
     [(_, _, Left el)] -> do
@@ -373,10 +389,16 @@ execOverride sc pos ir mbThis args = do
       modifyPathM_ (PP.text "path result") $ \_ ->
         return $
         case (mval, ps ^. pathStack) of
-          (Just val, [])     -> ps & set pathRetVal (Just val)
+          -- If the current path stack is empty, the result of the
+          -- override is the return value of the current method.
+          (_, [])     -> ps & set pathRetVal mval
+          -- If the current path stack is non-empty and the override
+          -- returned a value, put it on the operand stack of the
+          -- current call frame.
           (Just val, (f:fr)) -> ps & set pathStack  (f' : fr)
             where f' = f & cfOpds %~ (val :)
-          (Nothing,  [])     -> ps & set pathRetVal Nothing
+          -- If the current path stack is non-empty and the override
+          -- returned no value, leave the state alone.
           (Nothing,  _:_)    -> ps
     [] -> fail "Zero paths returned from override execution."
     _  -> fail "More than one path returned from override execution."
@@ -386,7 +408,7 @@ overrideFromSpec :: MonadSim (SharedContext SAWCtx) m =>
                     SharedContext SAWCtx
                  -> Pos
                  -> JavaMethodSpecIR
-                 -> Simulator (SharedContext SAWCtx) m ()
+                 -> SAWJavaSim m ()
 overrideFromSpec de pos ir
   | methodIsStatic method =
       overrideStaticMethod cName key $ \args ->
@@ -556,7 +578,7 @@ mkSpecVC :: MonadSim (SharedContext SAWCtx) m =>
             SharedContext SAWCtx
          -> VerifyParams
          -> ExpectedStateDef
-         -> Simulator (SharedContext SAWCtx) m [PathVC Breakpoint]
+         -> SAWJavaSim m [PathVC Breakpoint]
 mkSpecVC sc params esd = do
   let ir = vpSpec params
       vrb = simVerbose (vpOpts params)
@@ -657,8 +679,7 @@ initializeVerification' :: MonadSim (SharedContext SAWCtx) m
                         -> RefEquivConfiguration
                            -- ^ The particular relationship between which references
                            -- alias each other for verification purposes.
-                        -> Simulator (SharedContext SAWCtx) m
-                           SpecPathState
+                        -> SAWJavaSim m SpecPathState
 initializeVerification' sc ir bs refConfig = do
   -- Generate a reference for each reference equivalence class that
   -- isn't entirely involved in a return expression.
@@ -694,7 +715,7 @@ initializeVerification' sc ir bs refConfig = do
 
 evalLogicExpr' :: MonadSim (SharedContext SAWCtx) m =>
                   SharedContext SAWCtx -> LogicExpr
-               -> Simulator (SharedContext SAWCtx) m (SharedTerm SAWCtx)
+               -> SAWJavaSim m (SharedTerm SAWCtx)
 evalLogicExpr' sc initExpr = do
   let exprs = logicExprJavaExprs initExpr
   args <- forM exprs $ \expr -> do
@@ -710,7 +731,7 @@ resolveClassRHS :: MonadSim (SharedContext SAWCtx) m =>
                 -> JavaExpr
                 -> SharedTerm SAWCtx
                 -> [LogicExpr]
-                -> Simulator (SharedContext SAWCtx) m (TypedTerm SAWCtx)
+                -> SAWJavaSim m (TypedTerm SAWCtx)
 resolveClassRHS sc e tp [] =
   liftIO (scFreshGlobal sc (jeVarName e) tp >>= mkTypedTerm sc)
 resolveClassRHS sc _ _ [r] = do
@@ -723,7 +744,7 @@ setClassValues :: (MonadSim (SharedContext SAWCtx) m) =>
                   SharedContext SAWCtx
                -> [JavaExpr] -> SharedTerm SAWCtx
                -> [LogicExpr]
-               -> Simulator (SharedContext SAWCtx) m ()
+               -> SAWJavaSim m ()
 setClassValues sc l tp rs =
   forM_ l $ \e ->
     unless (containsReturn e) $ do
@@ -827,7 +848,7 @@ checkFinalState :: MonadSim (SharedContext SAWCtx) m =>
                 -> BehaviorSpec
                 -> RefEquivConfiguration
                 -> SpecPathState
-                -> Simulator (SharedContext SAWCtx) m (PathVC Breakpoint)
+                -> SAWJavaSim m (PathVC Breakpoint)
 checkFinalState sc ms bs cl initPS = do
   let st = VerificationState { vsContext = sc
                              , vsSpec = ms

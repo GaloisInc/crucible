@@ -37,6 +37,7 @@ import SAWScript.Utils
 type SAWBackend = SharedContext SAWCtx
 type SpecPathState = Path (SharedContext SAWCtx)
 type SpecJavaValue = Value (SharedTerm SAWCtx)
+type SAWJavaSim = Simulator (SharedContext SAWCtx)
 
 boolExtend :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
 boolExtend sc x = do
@@ -164,6 +165,27 @@ writeJavaValue (CC.Term e) v =
         RValue r -> setInstanceFieldValue r f v
         _ -> fail "Instance argument of instance field evaluates to non-reference"
     StaticField f -> setStaticFieldValue f v
+
+writeJavaValuePS :: (Functor m, Monad m) =>
+                    JavaExpr
+                 -> SpecJavaValue
+                 -> SpecPathState
+                 -> m SpecPathState
+writeJavaValuePS (CC.Term e) v ps =
+  case e of
+    ReturnVal _ -> return (ps & set pathRetVal (Just v))
+    Local _ i _ ->
+      case ps ^. pathStack of
+        [] -> fail "no stack frames"
+        (cf:cfs) -> do
+          let cf' = cf & cfLocals %~ Map.insert i v
+          return (ps & pathStack .~ (cf':cfs))
+    InstanceField rexp f -> do
+      rv <- readJavaValue (currentCallFrame ps) ps rexp
+      case rv of
+        RValue r -> return (setInstanceFieldValuePS r f v ps)
+        _ -> fail "Instance argument of instance field evaluates to non-reference"
+    StaticField f -> return (setStaticFieldValuePS f v ps)
 
 readJavaTerm :: (Functor m, Monad m) =>
                 Maybe (CallFrame term) -> Path' term -> JavaExpr -> m term
