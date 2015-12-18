@@ -4,6 +4,7 @@ module SAWScript.JavaMethodSpec.Evaluator
   , ExprEvaluator
   , runEval
   , evalJavaExpr
+  , setJavaExpr
   , evalJavaExprAsLogic
   , evalJavaRefExpr
   , evalLogicExpr
@@ -127,6 +128,22 @@ evalJavaExpr expr ec = eval expr
               case Map.lookup f sfields of
                 Just v -> return v
                 Nothing -> throwE $ EvalExprUnknownField f expr
+
+setJavaExpr :: TC.JavaExpr -> SpecJavaValue -> EvalContext
+            -> ExprEvaluator EvalContext
+setJavaExpr (CC.Term app) v ec =
+  case app of
+    TC.ReturnVal _ ->
+      return (ec { ecReturnValue = Just v })
+    TC.Local _ idx _ ->
+      return (ec { ecLocals = Map.insert idx v (ecLocals ec) })
+    TC.InstanceField r f -> do
+      RValue ref <- evalJavaExpr r ec
+      return (ec { ecPathState =
+                     setInstanceFieldValuePS ref f v (ecPathState ec) })
+    TC.StaticField f -> do
+      return (ec { ecPathState =
+                     setStaticFieldValuePS f v (ecPathState ec) })
 
 evalJavaExprAsLogic :: TC.JavaExpr -> EvalContext
                     -> ExprEvaluator (SharedTerm SAWCtx)

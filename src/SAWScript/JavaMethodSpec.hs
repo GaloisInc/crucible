@@ -108,7 +108,6 @@ data OCState = OCState {
          ocsLoc :: Breakpoint
        , ocsEvalContext :: !EvalContext
        , ocsResultState :: !SpecPathState
-       , ocsReturnValue :: !(Maybe SpecJavaValue)
        , ocsErrors :: [OverrideError]
        }
 
@@ -197,9 +196,14 @@ ocSetReturnValue mrv = do
   bcs <- get
   let ec = ocsEvalContext bcs
       ec' = ec { ecReturnValue = mrv }
-  put $! bcs { ocsReturnValue = mrv
-             , ocsEvalContext = ec'
-             }
+  put $! bcs { ocsEvalContext = ec' }
+
+ocSetJavaExpr :: JavaExpr -> SpecJavaValue
+              -> OverrideComputation m ()
+ocSetJavaExpr e v = do
+  ocEval (setJavaExpr e v) $ \ec -> do
+    modify $ \ocs -> ocs { ocsEvalContext = ec }
+    ocModifyResultState (const (ecPathState ec))
 
 -- | Add assumption for predicate.
 ocAssert :: Pos -> String -> SharedTerm SAWCtx -> OverrideComputation m ()
@@ -220,7 +224,7 @@ evalOrCreate e f = do
   if exists
     then ocEval (evalJavaRefExpr e) f
     else do r <- lift $ lift $ genRef (exprType e)
-            ocModifyResultStateIO (writeJavaValuePS e (RValue r))
+            ocSetJavaExpr e (RValue r)
             f r
 
 ocStep :: BehaviorCommand -> OverrideComputation m ()
@@ -298,17 +302,16 @@ execBehavior bsl sc mbThis argLocals ps = do
           OCState { ocsLoc = bsLoc bs
                   , ocsEvalContext = ec
                   , ocsResultState = ps
-                  , ocsReturnValue = Nothing
                   , ocsErrors = []
                   }
     let resCont () = do
           OCState { ocsLoc = loc
                   , ocsResultState = resPS
-                  , ocsReturnValue = v
+                  , ocsEvalContext = ecres
                   , ocsErrors = l } <- get
           return $
             if null l then
-              SuccessfulRun resPS (Just loc) v
+              SuccessfulRun resPS (Just loc) (ecReturnValue ecres)
             else
               FailedRun resPS (Just loc) l
     flip evalStateT initOCS $ flip runContT resCont $ do
