@@ -48,7 +48,8 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Cont
 import Control.Monad.State
-import Data.List (intercalate)
+import Data.Function
+import Data.List (intercalate, sortBy)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import qualified Data.Set as Set
@@ -199,7 +200,16 @@ ocSetJavaExpr :: JavaExpr -> SpecJavaValue
 ocSetJavaExpr e v = do
   ocEval (setJavaExpr e v) $ \ec -> do
     modify $ \ocs -> ocs { ocsEvalContext = ec }
-    ocModifyResultState (const (ecPathState ec))
+  -- Anything other than a local or the return value should be set in
+  -- the result state, as well.
+  case e of
+    CC.Term (ReturnVal _ ) -> return ()
+    CC.Term (Local _ _ _) -> ocError (UndefinedExpr e)
+    CC.Term (InstanceField refExpr f) ->
+      ocEval (evalJavaRefExpr refExpr) $ \lhsRef ->
+      ocModifyResultState $ setInstanceFieldValuePS lhsRef f v
+    CC.Term (StaticField f) ->
+      ocModifyResultState $ setStaticFieldValuePS f v
 
 -- | Add assumption for predicate.
 ocAssert :: Pos -> String -> SharedTerm SAWCtx -> OverrideComputation m ()
@@ -212,27 +222,16 @@ ocAssert p _nm x = do
 
 -- ocStep {{{2
 
-evalOrCreate :: JavaExpr
-             -> (Ref -> OverrideComputation m ())
-             -> OverrideComputation m ()
-evalOrCreate e f = do
-  exists <- ocDoesEval (evalJavaExpr e)
-  if exists
-    then ocEval (evalJavaRefExpr e) f
-    else do r <- lift $ lift $ genRef (exprType e)
-            ocSetJavaExpr e (RValue r)
-            f r
-
 ocStep :: BehaviorCommand -> OverrideComputation m ()
 ocStep (EnsureInstanceField _pos refExpr f rhsExpr) =
-  evalOrCreate refExpr $ \lhsRef ->
+  ocEval (evalJavaRefExpr refExpr) $ \lhsRef ->
   ocEval (evalMixedExpr rhsExpr) $ \value ->
   ocModifyResultState $ setInstanceFieldValuePS lhsRef f value
 ocStep (EnsureStaticField _pos f rhsExpr) =
   ocEval (evalMixedExpr rhsExpr) $ \value ->
   ocModifyResultState $ setStaticFieldValuePS f value
 ocStep (EnsureArray _pos lhsExpr rhsExpr) =
-  evalOrCreate lhsExpr $ \lhsRef ->
+  ocEval (evalJavaRefExpr lhsExpr) $ \lhsRef ->
   ocEval (evalMixedExprAsLogic rhsExpr) $ \rhsVal -> do
     sc <- gets (ecContext . ocsEvalContext)
     ty <- liftIO $ scTypeOf sc rhsVal >>= scWhnf sc
@@ -241,7 +240,7 @@ ocStep (EnsureArray _pos lhsExpr rhsExpr) =
         ocModifyResultState $ setArrayValuePS lhsRef (fromIntegral n) rhsVal
       _ -> ocError (InvalidType (show ty))
 ocStep (ModifyInstanceField refExpr f) =
-  evalOrCreate refExpr $ \lhsRef -> do
+  ocEval (evalJavaRefExpr refExpr) $ \lhsRef -> do
     sc <- gets (ecContext . ocsEvalContext)
     let tp = fieldIdType f
         w = fromIntegral $ stackWidth tp
@@ -258,7 +257,7 @@ ocStep (ModifyStaticField f) = do
   v <- liftIO $ mkJSSValue sc tp n
   ocModifyResultState $ setStaticFieldValuePS f v
 ocStep (ModifyArray refExpr ty) =
-  evalOrCreate refExpr $ \ref -> do
+  ocEval (evalJavaRefExpr refExpr) $ \ref -> do
     sc <- gets (ecContext . ocsEvalContext)
     mtp <- liftIO $ TC.logicTypeOfActual sc ty
     case mtp of
@@ -311,13 +310,14 @@ execBehavior bsl sc mbThis argLocals ps = do
             else
               FailedRun resPS (Just loc) l
     flip evalStateT initOCS $ flip runContT resCont $ do
-       -- If the return value is a reference, it must be allocated.
-       forM_ (bsRefExprs bsl) $ \e -> do
-         case e of
-           CC.Term(ReturnVal _) -> do
-             r <- lift $ lift $ genRef (exprType e)
-             ocSetReturnValue (Just (RValue r))
-           _ -> return () -- Nothing else to do?
+       -- If any of the reference expressions mentioned in the spec
+       -- doesn't already evaluate to a reference, we need to allocate
+       -- it.
+       forM_ (sortBy (compare `on` exprDepth) (bsRefExprs bsl)) $ \e -> do
+         exists <- ocDoesEval (evalJavaExpr e)
+         unless exists $ do
+           r <- lift $ lift $ genRef (exprType e)
+           ocSetJavaExpr e (RValue r)
 
        ec' <- gets ocsEvalContext
        -- Check that all expressions that reference each other may do so.
