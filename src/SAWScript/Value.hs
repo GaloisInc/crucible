@@ -214,7 +214,7 @@ showsPrecValue opts p v =
     VTheorem (Theorem t) -> showString "Theorem " . showParen True (showString (scPrettyTerm (ttTerm t)))
     VJavaSetup {} -> showString "<<Java Setup>>"
     VLLVMSetup {} -> showString "<<LLVM Setup>>"
-    VJavaMethodSpec {} -> showString "<<Java MethodSpec>>"
+    VJavaMethodSpec ms -> shows (JIR.ppMethodSpec ms)
     VLLVMMethodSpec {} -> showString "<<LLVM MethodSpec>>"
     VJavaType {} -> showString "<<Java type>>"
     VLLVMType t -> showString (show (LSS.ppSymType t))

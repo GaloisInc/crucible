@@ -12,6 +12,7 @@ Point-of-contact : jhendrix, atomb
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
 module SAWScript.JavaMethodSpecIR
   (-- * MethodSpec record
     JavaMethodSpecIR
@@ -51,6 +52,7 @@ module SAWScript.JavaMethodSpecIR
     -- * Equivalence classes for references.
   , JavaExprEquivClass
   , ppJavaExprEquivClass
+  , ppMethodSpec
   ) where
 
 -- Imports {{{1
@@ -66,6 +68,7 @@ import qualified Data.Map as Map
 import Data.Maybe (catMaybes)
 import qualified Data.Set as Set
 import qualified Data.Vector as V
+import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import qualified Verifier.Java.Codebase as JSS
 import qualified Verifier.Java.Common as JSS
@@ -133,6 +136,93 @@ data BehaviorSpec = BS {
          -- | Commands to execute in reverse order.
        , bsReversedCommands :: [BehaviorCommand]
        } deriving (Show)
+
+ppLogicExpr :: LogicExpr -> Doc
+ppLogicExpr (LogicExpr t args) =
+  vcat $
+  parens (scPrettyTermDoc t) :
+  map (text . ppJavaExpr) args
+
+ppMixedExpr :: MixedExpr -> Doc
+ppMixedExpr (JE je) = text (ppJavaExpr je)
+ppMixedExpr (LE le) = ppLogicExpr le
+
+ppBehaviorCommand :: BehaviorCommand -> Doc
+ppBehaviorCommand cmd =
+  case cmd of
+    (EnsureInstanceField _ je f me) ->
+      "sets instance field" <+>
+      text (ppJavaExpr je) <> "." <> ppField f <+>
+      "to" <+> ppMixedExpr me
+    (EnsureStaticField _ f me) ->
+      "sets static field" <+>
+      ppStaticField f <+>
+      "to" <+> ppMixedExpr me
+    (EnsureArray _ je me) ->
+      "sets array" <+> text(ppJavaExpr je) <+>
+      "to" <+> ppMixedExpr me
+    (ModifyInstanceField je f) ->
+      "modifies instance field" <+>
+      text (ppJavaExpr je) <> "." <> ppField f
+    (ModifyStaticField f) ->
+      "modifies static field" <+>
+      ppStaticField f
+    (ModifyArray je _) ->
+      "modifies array" <+> text (ppJavaExpr je)
+    (ReturnValue me) ->
+      "returns" <+> ppMixedExpr me
+  where
+    ppField f = text (JSS.fieldIdName f)
+    ppStaticField f =
+      text (JSS.fieldIdClass f) <> "." <> text (JSS.fieldIdName f)
+
+ppBehavior :: BehaviorSpec -> Doc
+ppBehavior bs =
+  vcat [ "Assumes the following types for Java locations:"
+       , indent 2 $ vcat $ map ppActualTypeEntry $
+         Map.toList (bsActualTypeMap bs)
+       , ""
+       , "Assumes the following sets of references must alias:"
+       , indent 2 $ vcat $ map ppSet $ CC.toList $ bsMustAliasSet bs
+       , ""
+       , "Assumes the following sets of references may alias:"
+       , indent 2 $ vcat $ map ppSet $ bsMayAliasClasses bs
+       , ""
+       , "Assumes the following set of assignments:"
+       , indent 2 $ vcat $ map ppAssign $ bsLogicAssignments bs
+       , ""
+       , "Assumes the following preconditions:"
+       , indent 2 $ vcat $ map ppLogicExpr $ bsAssumptions bs
+       , ""
+       , "Ensures the following postconditions:"
+       , indent 2 $ vcat $ map ppBehaviorCommand $ bsCommands bs
+       , ""
+       ]
+  where
+    ppActualTypeEntry (e, t) =
+      text (ppJavaExpr e) <+> "::" <+> text (ppActualType t)
+    ppSet =
+      hcat . map (text . ppJavaExpr)
+    ppAssign (_, je, me) =
+      text (ppJavaExpr je) <+> ":=" <+> ppMixedExpr me
+
+ppMethodSpec :: JavaMethodSpecIR -> Doc
+ppMethodSpec ms =
+  vcat [ "Java Method specification."
+       , ""
+       , "Instance class:" <+> text (JSS.className (specThisClass ms))
+       , "Definition class:" <+> text (JSS.className (specMethodClass ms))
+       , "Method:" <+> text (JSS.methodName (specMethod ms))
+       , ""
+       , "Requires these classes to be initialized:"
+       , indent 2 $ vcat $ map text $ specInitializedClasses ms
+       , ""
+       , if specAllowAlloc ms
+         then "Allows allocation."
+         else "Does not allow allocation."
+       , ""
+       , ppBehavior $ specBehaviors ms
+       ]
 
 -- | Returns list of all Java expressions that are references.
 bsExprs :: BehaviorSpec -> [JavaExpr]
