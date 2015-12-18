@@ -149,16 +149,10 @@ evalMixedExpr (TC.LE expr) ec = do
   let sc = ecContext ec
   ty <- liftIO $ scWhnf sc =<< scTypeOf sc n
   case (asBitvectorType ty, asBoolType ty) of
-    (Just 32, _) -> return (IValue n)
+    (Just sz, _) | sz <= 32 -> IValue <$> (liftIO (extendToIValue sc n))
     (Just 64, _) -> return (LValue n)
     (Just _, _) -> throwE (EvalExprBadLogicType "evalMixedExpr" (show ty))
-    (Nothing, Just _) -> do
-      b <- liftIO $ do
-        boolTy <- scBoolType sc
-        false <- scBool sc False
-        -- TODO: fix this to work in a different way. This is endian-specific.
-        scVector sc boolTy (replicate 31 false ++ [n])
-      return (IValue b)
+    (Nothing, Just _) -> IValue <$> (liftIO (boolExtend' sc n))
     (Nothing, Nothing) ->
       throwE (EvalExprBadLogicType "evalMixedExpr" (show ty))
 evalMixedExpr (TC.JE expr) ec = evalJavaExpr expr ec
