@@ -76,7 +76,7 @@ extendToIValue sc t = do
 
 typeOfValue :: SharedContext s -> JSS.Value (SharedTerm s) -> IO JSS.Type
 typeOfValue sc (IValue t) = do
-  ty <- scTypeOf sc t
+  ty <- scWhnf sc =<< scTypeOf sc t
   case ty of
     (asBoolType -> Just ()) -> return JSS.BooleanType
     (asBitvectorType -> Just 1) -> return JSS.BooleanType
