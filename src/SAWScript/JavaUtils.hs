@@ -20,6 +20,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
 import qualified Data.Array as Array
+import Data.Int
 import Data.IORef
 import qualified Data.Map as Map
 import Data.Maybe
@@ -89,6 +90,23 @@ typeOfValue _ (RValue NullRef) = fail "Can't get type of null reference."
 typeOfValue _ (FValue _) = return JSS.FloatType
 typeOfValue _ (DValue _) = return JSS.DoubleType
 typeOfValue _ (AValue _) = fail "Can't get type of address value."
+
+-- SpecPathState {{{1
+
+-- | Add assertion for predicate to path state.
+addAssertionPS :: SharedContext SAWCtx -> SharedTerm SAWCtx
+               -> SpecPathState
+               -> IO SpecPathState
+addAssertionPS sc x p = do
+  p & pathAssertions %%~ \a -> liftIO (scAnd sc a x)
+
+-- | Set value bound to array in path state.
+-- Assumes value is an array with a ground length.
+setArrayValuePS :: Ref -> Int32 -> SharedTerm SAWCtx
+                -> SpecPathState
+                -> SpecPathState
+setArrayValuePS r n v =
+  pathMemory . memScalarArrays %~ Map.insert r (n, v)
 
 -- | Set value of bound to instance field in path state.
 setInstanceFieldValuePS :: Ref -> FieldId -> SpecJavaValue

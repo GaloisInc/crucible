@@ -22,7 +22,6 @@ import Control.Lens
 import Control.Monad (forM)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
-import Data.Int (Int32)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
@@ -39,22 +38,6 @@ import Verifier.Java.Common
 
 import Verifier.SAW.Recognizer (asBoolType, asBitvectorType)
 import Verifier.SAW.SharedTerm
-
--- SpecPathState {{{1
-
--- | Add assertion for predicate to path state.
-addAssertionPS :: SharedContext SAWCtx -> SharedTerm SAWCtx -> SpecPathState
-               -> IO SpecPathState
-addAssertionPS sc x p = do
-  p & pathAssertions %%~ \a -> liftIO (scAnd sc a x)
-
--- | Set value bound to array in path state.
--- Assumes value is an array with a ground length.
-setArrayValuePS :: Ref -> Int32 -> SharedTerm ctx
-                -> Path (SharedContext ctx)
-                -> Path (SharedContext ctx)
-setArrayValuePS r n v =
-  pathMemory . memScalarArrays %~ Map.insert r (n, v)
 
 -- EvalContext {{{1
 
