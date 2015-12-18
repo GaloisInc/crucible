@@ -72,8 +72,7 @@ data ExprEvalError
   | EvalExprUnknownArray TC.JavaExpr
   | EvalExprUnknownLocal LocalVariableIndex TC.JavaExpr
   | EvalExprUnknownField FieldId TC.JavaExpr
-  | EvalExprNoReturn
-  | EvalExprOther String
+  | EvalExprNoReturn TC.JavaExpr
   deriving Show
 
 
@@ -95,7 +94,7 @@ evalJavaExpr expr ec = eval expr
             TC.ReturnVal _ ->
               case ecReturnValue ec of
                 Just rv -> return rv
-                Nothing -> throwE EvalExprNoReturn
+                Nothing -> throwE (EvalExprNoReturn expr)
             TC.Local _ idx _ ->
               case Map.lookup idx (ecLocals ec) of
                 Just v -> return v

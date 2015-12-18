@@ -91,14 +91,10 @@ evalErrExpr (EvalExprUndefined e) = e
 evalErrExpr (EvalExprUnknownArray e) = e
 evalErrExpr (EvalExprUnknownLocal _ e) = e
 evalErrExpr (EvalExprUnknownField _ e) = e
-evalErrExpr (EvalExprBadJavaType _ _) =
-  error "evalErrExpr: EvalExprBadJavaType"
+evalErrExpr (EvalExprBadJavaType _ e) = e
 evalErrExpr (EvalExprBadLogicType _ _) =
   error "evalErrExpr: EvalExprBadLogicType"
-evalErrExpr EvalExprNoReturn =
-  error "evalErrExpr: EvalExprNoReturn"
-evalErrExpr (EvalExprOther _) =
-  error "evalErrExpr: EvalExprOther"
+evalErrExpr (EvalExprNoReturn e) = e
 
 -- Method specification overrides {{{1
 -- OverrideComputation definition {{{2
