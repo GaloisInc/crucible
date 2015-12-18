@@ -149,7 +149,8 @@ extractJava bic opts cls mname setup = do
   argsRef <- io $ newIORef []
   withSAWBackend jsc (Just argsRef) $ \sbe -> do
     setupRes <- runJavaSetup pos cb cls mname jsc setup
-    let fl = defaultSimFlags { alwaysBitBlastBranchTerms = True }
+    let fl = defaultSimFlags { alwaysBitBlastBranchTerms =
+                                 jsSatBranches setupRes }
         meth = specMethod (jsSpec setupRes)
     io $ runSimulator cb sbe defaultSEH (Just fl) $ do
       setVerbosity (simVerbose opts)
