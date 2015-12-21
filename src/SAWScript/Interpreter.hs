@@ -769,6 +769,12 @@ primitives = Map.fromList
     (pureVal printGoalConsts)
     [ "Print the list of unfoldable constants in the current proof goal."
     ]
+  , prim "print_goal_size"     "ProofScript ()"
+    (pureVal printGoalSize)
+    [ "Print the size of the goal in terms of both the number of DAG nodes"
+    , "and the number of nodes it would have if represented as a tree."
+    ]
+
 {-
   , prim "print_goal_sexp"     "ProofScript ()"
     (pureVal printGoalSExp)

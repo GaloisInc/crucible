@@ -20,6 +20,7 @@ module SAWScript.LLVMBuiltins where
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative hiding (many)
 #endif
+import Control.Lens
 import Control.Monad.State hiding (mapM)
 import Control.Monad.Trans.Except
 import Data.List (partition)
@@ -177,9 +178,6 @@ symexecLLVM bic opts lmod fname allocs inputs outputs doSat =
               let aw = ptrBitwidth dl
               sz <- liftSBE (termInt sbe aw n)
               malloc ty aw sz
-            mkOut (s, n) = do
-              e <- failLeft $ runExceptT $ parseLLVMExpr cb md s
-              return (e, n)
             multDefErr i = error $ "Multiple terms given for " ++ ordinal (i + 1) ++
                                    " argument in function " ++ fname
             isArgAssign (e, _, _) = isArgLLVMExpr e
@@ -206,8 +204,16 @@ symexecLLVM bic opts lmod fname allocs inputs outputs doSat =
         when (verb >= 2) $ liftIO $ putStrLn $ "Running " ++ fname
         run
         when (verb >= 2) $ liftIO $ putStrLn $ "Finished running " ++ fname
-        outexprs <- mapM mkOut outputs
-        outtms <- mapM (uncurry (readLLVMTerm argVals)) outexprs
+        outtms <- forM outputs $ \(ostr, n) -> do
+          case ostr of
+            "$safety" -> do
+              mp <- getPath
+              case mp of
+                Nothing -> fail "No final path for safety condition."
+                Just p -> return (p ^. pathAssertions)
+            _ -> do
+              e <- failLeft $ runExceptT $ parseLLVMExpr cb md ostr
+              readLLVMTerm argVals e n
         let bundle tms = case tms of
                            [t] -> return t
                            _ -> scTuple scLLVM tms

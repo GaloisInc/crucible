@@ -24,7 +24,9 @@ module SAWScript.JavaExpr
   , returnJavaExpr
   , asJavaExpr
   , ppJavaExpr
+  , jeVarName
   , exprType
+  , exprDepth
   , isScalarExpr
   , isReturnExpr
   , containsReturn
@@ -152,6 +154,12 @@ ppJavaExpr (CC.Term exprF) =
     InstanceField r f -> ppJavaExpr r ++ "." ++ JSS.fieldIdName f
     StaticField f -> ppFldId f
 
+-- | Turn a Java expression into a valid SAWCore variable name.
+jeVarName :: JavaExpr -> String
+jeVarName = map dotToUnderscore . ppJavaExpr
+  where dotToUnderscore '.' = '_'
+        dotToUnderscore c = c
+
 asJavaExpr :: SharedTerm s -> Maybe String
 asJavaExpr (STApp _ (FTermF (ExtCns ec))) = Just (ecName ec)
 asJavaExpr _ = Nothing
@@ -177,6 +185,10 @@ exprType (CC.Term (ReturnVal ty)) = ty
 exprType (CC.Term (Local _ _ ty)) = ty
 exprType (CC.Term (InstanceField _ f)) = JSS.fieldIdType f
 exprType (CC.Term (StaticField f)) = JSS.fieldIdType f
+
+exprDepth :: JavaExpr -> Int
+exprDepth (CC.Term (InstanceField e _)) = 1 + exprDepth e
+exprDepth _ = 1
 
 isScalarExpr :: JavaExpr -> Bool
 isScalarExpr = JSS.isPrimitiveType . exprType

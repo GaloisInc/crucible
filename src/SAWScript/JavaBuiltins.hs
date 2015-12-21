@@ -23,13 +23,9 @@ import Control.Monad.State
 import Data.List (partition)
 import Data.IORef
 import qualified Data.Map as Map
-import Data.Maybe
-import qualified Data.Set as Set
 import Data.Time.Clock
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
-import qualified Text.PrettyPrint.HughesPJ as PP
 
-import Data.JVM.Symbolic.AST (entryBlock)
 import Language.JVM.Common
 
 import Verifier.Java.Codebase hiding (lookupClass)
@@ -49,6 +45,7 @@ import SAWScript.JavaMethodSpecIR
 import SAWScript.JavaUtils
 
 import SAWScript.Builtins
+import SAWScript.CryptolEnv (schemaNoUser)
 import SAWScript.Options
 import SAWScript.Proof
 import SAWScript.TypedTerm
@@ -124,13 +121,19 @@ symexecJava bic opts cls mname inputs outputs satBranches = do
         "Passing value of type " ++ show aty ++
         " to argument expected to be of type " ++ show ety ++ "."
       mapM_ (uncurry (writeJavaTerm jsc)) otherAssigns
+      initPS <- getPath "java_symexec initial"
       _ <- case methodIsStatic meth of
              True -> execStaticMethod (className cls) (methodKey meth) args
              False -> do
                RValue this <- freshJavaVal Nothing jsc (ClassInstance cls)
                execInstanceMethod (className cls) (methodKey meth) this args
-      outexprs <- liftIO $ mapM (parseJavaExpr cb cls meth) outputs
-      outtms <- mapM readJavaTermSim outexprs
+      ps <- getPath "java_symexec final"
+      outtms <- forM outputs $ \ostr -> do
+        case ostr of
+          "$safety" -> return (ps ^. pathAssertions)
+          _-> do
+            e <- liftIO $ parseJavaExpr cb cls meth ostr
+            readJavaTerm (currentCallFrame initPS) ps e
       let bundle tms = case tms of
                          [t] -> return t
                          _ -> scTuple jsc tms
@@ -146,7 +149,8 @@ extractJava bic opts cls mname setup = do
   argsRef <- io $ newIORef []
   withSAWBackend jsc (Just argsRef) $ \sbe -> do
     setupRes <- runJavaSetup pos cb cls mname jsc setup
-    let fl = defaultSimFlags { alwaysBitBlastBranchTerms = True }
+    let fl = defaultSimFlags { alwaysBitBlastBranchTerms =
+                                 jsSatBranches setupRes }
         meth = specMethod (jsSpec setupRes)
     io $ runSimulator cb sbe defaultSEH (Just fl) $ do
       setVerbosity (simVerbose opts)
@@ -189,270 +193,6 @@ runJavaSetup pos cb cls mname jsc setup = do
                    , jsSatBranches = False
                    }
   snd <$> runStateT setup setupState
-
-initializeVerification' :: MonadSim (SharedContext SAWCtx) m
-                        => SharedContext SAWCtx
-                           -- ^ The SharedContext for creating new symbolic
-                           -- expressions.
-                        -> JavaMethodSpecIR
-                           -- ^ The specification of the overall method.
-                        -> BehaviorSpec
-                           -- ^ The particular behavioral specification that
-                           -- we are checking.
-                        -> RefEquivConfiguration
-                           -- ^ The particular relationship between which references
-                           -- alias each other for verification purposes.
-                        -> Simulator (SharedContext SAWCtx) m (JSS.Path (SharedContext SAWCtx))
-initializeVerification' sc ir bs refConfig = do
-  -- Generate a reference for each reference equivalence class that
-  -- isn't entirely involved in a return expression.
-  let refConfig' = filter (not . all containsReturn . fst) refConfig
-  exprRefs <- mapM (genRef . jssTypeOfActual . snd) refConfig'
-  let refAssignments = (exprRefs `zip` map fst refConfig')
-      pushFrame cs = case mcs' of
-                       Nothing -> error "internal: failed to push call frame"
-                       Just cs' -> cs'
-        where
-          mcs' = pushCallFrame
-                 (className (specMethodClass ir))
-                 (specMethod ir)
-                 entryBlock -- FIXME: not the right block
-                 Map.empty
-                 cs
-  modifyCSM_ (return . pushFrame)
-  let updateInitializedClasses mem =
-        foldr (flip setInitializationStatus Initialized)
-              mem
-              (specInitializedClasses ir)
-  modifyPathM_ (PP.text "initializeVerification") $
-    return . (pathMemory %~ updateInitializedClasses)
-  forM_ refAssignments $ \(r, cl) ->
-    forM_ cl $ \e -> writeJavaValue e (RValue r)
-  lcs <- liftIO $ bsLogicClasses sc bs refConfig'
-  case lcs of
-    Nothing ->
-      let msg = "Unresolvable cyclic dependencies between assumptions."
-      in throwIOExecException (specPos ir) (ftext msg) ""
-    Just assignments -> mapM_ (\(l, t, r) -> setClassValues sc l t r) assignments
-  getPath (PP.text "initializeVerification")
-
-evalLogicExpr' :: MonadSim (SharedContext SAWCtx) m =>
-                  SharedContext SAWCtx -> LogicExpr
-               -> Simulator (SharedContext SAWCtx) m (SharedTerm SAWCtx)
-evalLogicExpr' sc initExpr = do
-  let exprs = logicExprJavaExprs initExpr
-  args <- forM exprs $ \expr -> do
-    t <- readJavaTermSim expr
-    return (expr, t)
-  let argMap = Map.fromList args
-      argTerms = mapMaybe (\k -> Map.lookup k argMap) $
-                 logicExprJavaExprs initExpr
-  liftIO $ useLogicExpr sc initExpr argTerms
-
-resolveClassRHS :: MonadSim (SharedContext SAWCtx) m =>
-                   SharedContext SAWCtx
-                -> JavaExpr
-                -> SharedTerm SAWCtx
-                -> [LogicExpr]
-                -> Simulator (SharedContext SAWCtx) m (TypedTerm SAWCtx)
-resolveClassRHS sc _ tp [] =
-  liftIO (scFreshGlobal sc "_" tp >>= mkTypedTerm sc)
-resolveClassRHS sc _ _ [r] = do
-  t <- evalLogicExpr' sc r
-  liftIO $ mkTypedTerm sc t
-resolveClassRHS _ _ _ _ =
-  fail "Not yet implemented."
-
-setClassValues :: (MonadSim (SharedContext SAWCtx) m) =>
-                  SharedContext SAWCtx
-               -> [JavaExpr] -> SharedTerm SAWCtx
-               -> [LogicExpr]
-               -> Simulator (SharedContext SAWCtx) m ()
-setClassValues sc l tp rs =
-  forM_ l $ \e ->
-    unless (containsReturn e) $ do
-      t <- resolveClassRHS sc e tp rs
-      writeJavaTerm sc e t
-
-valueEqTerm :: (Functor m, Monad m, MonadIO m) =>
-               SharedContext SAWCtx
-            -> String
-            -> SpecPathState
-            -> SpecJavaValue
-            -> SharedTerm SAWCtx
-            -> StateT (PathVC Breakpoint) m ()
-valueEqTerm sc name _ (IValue t) t' = do
-  t'' <- liftIO $ extendToIValue sc t'
-  pvcgAssertEq name t t''
-valueEqTerm _ name _ (LValue t) t' = pvcgAssertEq name t t'
-valueEqTerm _ name ps (RValue r) t' = do
-  case Map.lookup r (ps ^. pathMemory . memScalarArrays) of
-    Just (_, t) -> pvcgAssertEq name t t'
-    Nothing -> fail $ "valueEqTerm: " ++ name ++ ": ref does not point to array"
-valueEqTerm _ name _ _ _ = fail $ "valueEqTerm: " ++ name ++ ": unspported value type"
-
-valueEqValue :: (Functor m, Monad m, MonadIO m) =>
-               SharedContext SAWCtx
-            -> String
-            -> SpecPathState
-            -> SpecJavaValue
-            -> SpecPathState
-            -> SpecJavaValue
-            -> StateT (PathVC Breakpoint) m ()
-valueEqValue sc name _ (IValue t) _ (IValue t') = do
-  it <- liftIO $ extendToIValue sc t
-  it' <- liftIO $ extendToIValue sc t'
-  pvcgAssertEq name it it'
-valueEqValue _ name _ (LValue t) _ (LValue t') = pvcgAssertEq name t t'
-valueEqValue _ _ _ (RValue r) _ (RValue r') | r == r' = return ()
-valueEqValue _ name ps (RValue r) ps' (RValue r') = do
-  let ma = Map.lookup r (ps ^. pathMemory . memScalarArrays)
-      ma' = Map.lookup r' (ps' ^. pathMemory . memScalarArrays)
-  case (ma, ma') of
-    (Just (len, t), Just (len', t'))
-      | len == len' -> pvcgAssertEq name t t'
-      | otherwise -> fail $ "valueEqTerm: array sizes don't match: " ++ show (len, len')
-    _ -> fail $ "valueEqTerm: " ++ name ++ ": ref does not point to array"
-valueEqValue _ name _ _ _ _ = fail $ "valueEqValue: " ++ name ++ ": unspported value type"
-
-readJavaValueVerif :: (Functor m, Monad m) =>
-                      VerificationState
-                   -> Path' (SharedTerm SAWCtx)
-                   -> JavaExpr
-                   -> m (JSS.Value (SharedTerm SAWCtx))
-readJavaValueVerif vs ps refExpr = do
-  let initPS = vsInitialState vs
-  readJavaValue (currentCallFrame initPS) ps refExpr
-
-checkStep :: (Functor m, Monad m, MonadIO m) =>
-             VerificationState
-          -> SpecPathState
-          -> BehaviorCommand
-          -> StateT (PathVC Breakpoint) m ()
-checkStep vs ps (ReturnValue expr) = do
-  t <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) expr
-  case ps ^. pathRetVal of
-    Just rv -> valueEqTerm (vsContext vs) "return" ps rv t
-    Nothing -> fail "Return specification, but method did not return a value."
-checkStep vs ps (EnsureInstanceField _pos refExpr f rhsExpr) = do
-  rv <- readJavaValueVerif vs ps refExpr
-  case rv of
-    RValue ref -> do
-      let mfv = getInstanceFieldValuePS ps ref f
-      case mfv of
-        Just fv -> do
-          ft <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) rhsExpr
-          valueEqTerm (vsContext vs) (ppJavaExpr refExpr ++ "." ++ fieldIdName f) ps fv ft
-        Nothing  -> fail "Invalid instance field in java_ensure_eq."
-    _ -> fail "Left-hand side of . did not evaluate to a reference."
-checkStep vs ps (EnsureStaticField _pos f rhsExpr) = do
-  let mfv = getStaticFieldValuePS ps f
-  ft <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) rhsExpr
-  case mfv of
-    Just fv -> valueEqTerm (vsContext vs) (ppFldId f) ps fv ft
-    Nothing -> fail "Invalid static field in java_ensure_eq."
-checkStep _vs _ps (ModifyInstanceField _refExpr _f) = return ()
-checkStep _vs _ps (ModifyStaticField _f) = return ()
-checkStep vs ps (EnsureArray _pos refExpr rhsExpr) = do
-  rv <- readJavaValueVerif vs ps refExpr
-  t <- liftIO $ mixedExprToTerm (vsContext vs) (vsInitialState vs) rhsExpr
-  valueEqTerm (vsContext vs) (ppJavaExpr refExpr) ps rv t
-checkStep _vs _ps (ModifyArray _refExpr _aty) = return ()
-
-data VerificationState = VerificationState
-                         { vsContext :: SharedContext SAWCtx
-                         , vsSpec :: JavaMethodSpecIR
-                         , vsInitialState :: JSS.Path (SharedContext SAWCtx)
-                         }
-
-checkFinalState :: MonadSim (SharedContext SAWCtx) m =>
-                   SharedContext SAWCtx
-                -> JavaMethodSpecIR
-                -> BehaviorSpec
-                -> JSS.Path (SharedContext SAWCtx)
-                -> Simulator (SharedContext SAWCtx) m (PathVC Breakpoint)
-checkFinalState sc ms bs initPS = do
-  let st = VerificationState { vsContext = sc
-                             , vsSpec = ms
-                             , vsInitialState = initPS
-                             }
-      cmds = bsCommands bs
-  finalPS <- getPath "checkFinalState"
-  let maybeRetVal = finalPS ^. pathRetVal
-  assumptions <- liftIO $ evalAssumptions sc initPS (specAssumptions ms)
-  let initState  =
-        PathVC { pvcStartLoc = bsLoc bs
-               , pvcEndLoc = Nothing
-               , pvcAssumptions = assumptions
-               , pvcStaticErrors = []
-               , pvcChecks = []
-               }
-  let mentionedSFields =
-        Set.fromList $
-        [ fid | EnsureStaticField _ fid _ <- cmds] ++
-        [ fid | ModifyStaticField fid <- cmds ]
-      mentionedIFieldExprs =
-        [ (e, fid) | EnsureInstanceField _ e fid _ <- cmds] ++
-        [ (e, fid) | ModifyInstanceField e fid <- cmds ]
-      mentionedArrayExprs =
-        [ e | EnsureArray _ e _ <- cmds] ++
-        [ e | ModifyArray e _ <- cmds ]
-  mentionedIFields <- forM mentionedIFieldExprs $ \(e, fid) -> do
-      -- TODO: best combination of initPS and finalPS unclear here.
-      rv <- readJavaValue (currentCallFrame initPS) finalPS e
-      case rv of
-        RValue r -> return (r, fid)
-        _ -> fail "internal: mentionedIFields"
-  mentionedArrays <- forM mentionedArrayExprs $ \e -> do
-      -- TODO: best combination of initPS and finalPS unclear here.
-      rv <- readJavaValue (currentCallFrame initPS) finalPS e
-      case rv of
-        RValue r -> return r
-        _ -> fail "internal: mentionedArrays"
-  let mentionedIFieldSet = Set.fromList mentionedIFields
-  let mentionedArraySet = Set.fromList mentionedArrays
-  let mcf = currentCallFrame initPS
-  args <- case mcf of
-            Just cf -> return (Map.elems (cf ^. cfLocals))
-            Nothing -> fail "internal: no call frame in initial path state"
-  let reachable = reachableRefs finalPS (maybeToList maybeRetVal ++ args)
-  flip execStateT initState $ do
-    mapM_ (checkStep st finalPS) cmds
-    let initMem = initPS ^. pathMemory
-        finalMem = finalPS ^. pathMemory
-        fieldDesc f = show (fieldIdName f) ++
-                      " of class " ++ (fieldIdClass f)
-    when (initMem ^. memInitialization /= finalMem ^. memInitialization) $
-      unless (specAllowAlloc ms) $
-        pvcgFail "Initializes extra class."
-    when (initMem ^. memClassObjects /= finalMem ^. memClassObjects) $
-      pvcgFail "Allocates class object."
-    when (initMem ^. memRefArrays /= finalMem ^. memRefArrays) $
-      pvcgFail "Allocates or modifies reference array."
-    forM_ (Map.toList (finalMem ^. memStaticFields)) $ \(f, fval) ->
-      unless (Set.member f mentionedSFields) $
-        unless(isArrayType (fieldIdType f)) $
-          case Map.lookup f (initMem ^. memStaticFields) of
-            Nothing -> pvcgFail $ ftext $ "Modifies unspecified static field " ++ fieldDesc f
-            Just ival -> valueEqValue sc (fieldDesc f) initPS ival finalPS fval
-    forM_ (Map.toList (finalMem ^. memInstanceFields)) $ \((ref, f), fval) -> do
-      unless (Set.member (ref, f) mentionedIFieldSet) $
-        when (ref `Set.member` reachable && not (isArrayType (fieldIdType f))) $
-        case Map.lookup (ref, f) (initMem ^. memInstanceFields) of
-          Nothing -> pvcgFail $ ftext $ "Modifies unspecified instance field " ++ fieldDesc f
-          Just ival -> do
-            valueEqValue sc (fieldDesc f) initPS ival finalPS fval
-    forM_ (Map.toList (finalMem ^. memScalarArrays)) $ \(ref, (flen, fval)) ->
-      unless (Set.member ref mentionedArraySet) $
-      when (ref `Set.member` reachable) $
-      case Map.lookup ref (initMem ^. memScalarArrays) of
-        Nothing -> unless (specAllowAlloc ms) $
-                   pvcgFail "Allocates scalar array."
-        Just (ilen, ival)
-          | ilen == flen -> pvcgAssertEq "array" ival fval -- TODO: name
-          | otherwise -> pvcgFail "Array changed size."
-    -- TODO: check that return value has been specified if method returns a value
-    pvcgAssert "final assertions" (finalPS ^. pathAssertions)
 
 verifyJava :: Bool -> BuiltinContext -> Options -> Class -> String
            -> [JavaMethodSpecIR]
@@ -524,9 +264,13 @@ verifyJava isOld bic opts cls mname overrides setup = do
             when (verb >= 2) $ liftIO $
               putStrLn $ "Overriding: " ++ show (map specName ovds)
             mapM_ (overrideFromSpec jsc (specPos ms)) ovds
+            when (verb >= 2) $ liftIO $
+              putStrLn $ "Running method: " ++ specName ms
             -- Execute code.
             run
-            pvc <- checkFinalState jsc ms bs initPS
+            when (verb >= 2) $ liftIO $
+              putStrLn $ "Checking final state"
+            pvc <- checkFinalState jsc ms bs cl initPS
             return [pvc]
         when (verb >= 5) $ liftIO $ do
           putStrLn "Verifying the following:"
@@ -632,7 +376,7 @@ checkCompatibleType msg aty schema = do
     Nothing ->
       fail $ "Type is not translatable: " ++ show aty ++ " (" ++ msg ++ ")"
     Just lt -> do
-      unless (Cryptol.Forall [] [] lt == schema) $ fail $
+      unless (Cryptol.Forall [] [] lt == schemaNoUser schema) $ fail $
         unlines [ "Incompatible type:"
                 , "  Expected: " ++ Cryptol.pretty lt
                 , "  Got: " ++ Cryptol.pretty schema
@@ -714,7 +458,7 @@ javaAssert bic _ (TypedTerm schema v) = do
   --liftIO $ putStrLn "javaAssert"
   let sc = biSharedContext bic
   ms <- gets jsSpec
-  unless (schema == Cryptol.Forall [] [] Cryptol.tBit) $
+  unless (schemaNoUser schema == Cryptol.Forall [] [] Cryptol.tBit) $
     fail $ "java_assert passed expression of non-boolean type: " ++ show schema
   me <- liftIO $ mkMixedExpr sc ms v
   case me of

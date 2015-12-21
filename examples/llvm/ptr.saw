@@ -11,9 +11,17 @@ let clear_setup : LLVMSetup () = do {
     llvm_verify_tactic abc;
 };
 
+let copy_setup : LLVMSetup () = do {
+    a <- llvm_ptr "a" (llvm_array 10 (llvm_int 32));
+    b <- llvm_ptr "b" (llvm_array 10 (llvm_int 32));
+    llvm_ensure_eq "*a" {{ b }};
+    llvm_verify_tactic abc;
+};
+
 let main : TopLevel () = do {
     m <- llvm_load_module "ptr.bc";
     add_ms <- llvm_verify m "add" [] add_setup;
     clear_ms <- llvm_verify m "clear" [] clear_setup;
+    copy_ms <- llvm_verify m "copy" [] copy_setup;
     print "Done.";
 };

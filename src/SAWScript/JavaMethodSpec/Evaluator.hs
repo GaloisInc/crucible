@@ -4,6 +4,7 @@ module SAWScript.JavaMethodSpec.Evaluator
   , ExprEvaluator
   , runEval
   , evalJavaExpr
+  , setJavaExpr
   , evalJavaExprAsLogic
   , evalJavaRefExpr
   , evalLogicExpr
@@ -21,7 +22,6 @@ import Control.Lens
 import Control.Monad (forM)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
-import Data.Int (Int32)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
@@ -38,22 +38,6 @@ import Verifier.Java.Common
 
 import Verifier.SAW.Recognizer (asBoolType, asBitvectorType)
 import Verifier.SAW.SharedTerm
-
--- SpecPathState {{{1
-
--- | Add assertion for predicate to path state.
-addAssertionPS :: SharedContext SAWCtx -> SharedTerm SAWCtx -> SpecPathState
-               -> IO SpecPathState
-addAssertionPS sc x p = do
-  p & pathAssertions %%~ \a -> liftIO (scAnd sc a x)
-
--- | Set value bound to array in path state.
--- Assumes value is an array with a ground length.
-setArrayValuePS :: Ref -> Int32 -> SharedTerm ctx
-                -> Path (SharedContext ctx)
-                -> Path (SharedContext ctx)
-setArrayValuePS r n v =
-  pathMemory . memScalarArrays %~ Map.insert r (n, v)
 
 -- EvalContext {{{1
 
@@ -88,8 +72,7 @@ data ExprEvalError
   | EvalExprUnknownArray TC.JavaExpr
   | EvalExprUnknownLocal LocalVariableIndex TC.JavaExpr
   | EvalExprUnknownField FieldId TC.JavaExpr
-  | EvalExprNoReturn
-  | EvalExprOther String
+  | EvalExprNoReturn TC.JavaExpr
   deriving Show
 
 
@@ -111,7 +94,7 @@ evalJavaExpr expr ec = eval expr
             TC.ReturnVal _ ->
               case ecReturnValue ec of
                 Just rv -> return rv
-                Nothing -> throwE EvalExprNoReturn
+                Nothing -> throwE (EvalExprNoReturn expr)
             TC.Local _ idx _ ->
               case Map.lookup idx (ecLocals ec) of
                 Just v -> return v
@@ -127,6 +110,22 @@ evalJavaExpr expr ec = eval expr
               case Map.lookup f sfields of
                 Just v -> return v
                 Nothing -> throwE $ EvalExprUnknownField f expr
+
+setJavaExpr :: TC.JavaExpr -> SpecJavaValue -> EvalContext
+            -> ExprEvaluator EvalContext
+setJavaExpr (CC.Term app) v ec =
+  case app of
+    TC.ReturnVal _ ->
+      return (ec { ecReturnValue = Just v })
+    TC.Local _ idx _ ->
+      return (ec { ecLocals = Map.insert idx v (ecLocals ec) })
+    TC.InstanceField r f -> do
+      RValue ref <- evalJavaExpr r ec
+      return (ec { ecPathState =
+                     setInstanceFieldValuePS ref f v (ecPathState ec) })
+    TC.StaticField f -> do
+      return (ec { ecPathState =
+                     setStaticFieldValuePS f v (ecPathState ec) })
 
 evalJavaExprAsLogic :: TC.JavaExpr -> EvalContext
                     -> ExprEvaluator (SharedTerm SAWCtx)
@@ -150,16 +149,10 @@ evalMixedExpr (TC.LE expr) ec = do
   let sc = ecContext ec
   ty <- liftIO $ scWhnf sc =<< scTypeOf sc n
   case (asBitvectorType ty, asBoolType ty) of
-    (Just 32, _) -> return (IValue n)
+    (Just sz, _) | sz <= 32 -> IValue <$> (liftIO (extendToIValue sc n))
     (Just 64, _) -> return (LValue n)
     (Just _, _) -> throwE (EvalExprBadLogicType "evalMixedExpr" (show ty))
-    (Nothing, Just _) -> do
-      b <- liftIO $ do
-        boolTy <- scBoolType sc
-        false <- scBool sc False
-        -- TODO: fix this to work in a different way. This is endian-specific.
-        scVector sc boolTy (replicate 31 false ++ [n])
-      return (IValue b)
+    (Nothing, Just _) -> IValue <$> (liftIO (boolExtend' sc n))
     (Nothing, Nothing) ->
       throwE (EvalExprBadLogicType "evalMixedExpr" (show ty))
 evalMixedExpr (TC.JE expr) ec = evalJavaExpr expr ec

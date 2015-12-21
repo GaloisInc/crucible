@@ -20,6 +20,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
 import qualified Data.Array as Array
+import Data.Int
 import Data.IORef
 import qualified Data.Map as Map
 import Data.Maybe
@@ -37,6 +38,7 @@ import SAWScript.Utils
 type SAWBackend = SharedContext SAWCtx
 type SpecPathState = Path (SharedContext SAWCtx)
 type SpecJavaValue = Value (SharedTerm SAWCtx)
+type SAWJavaSim = Simulator (SharedContext SAWCtx)
 
 boolExtend :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
 boolExtend sc x = do
@@ -74,7 +76,7 @@ extendToIValue sc t = do
 
 typeOfValue :: SharedContext s -> JSS.Value (SharedTerm s) -> IO JSS.Type
 typeOfValue sc (IValue t) = do
-  ty <- scTypeOf sc t
+  ty <- scWhnf sc =<< scTypeOf sc t
   case ty of
     (asBoolType -> Just ()) -> return JSS.BooleanType
     (asBitvectorType -> Just 1) -> return JSS.BooleanType
@@ -88,6 +90,23 @@ typeOfValue _ (RValue NullRef) = fail "Can't get type of null reference."
 typeOfValue _ (FValue _) = return JSS.FloatType
 typeOfValue _ (DValue _) = return JSS.DoubleType
 typeOfValue _ (AValue _) = fail "Can't get type of address value."
+
+-- SpecPathState {{{1
+
+-- | Add assertion for predicate to path state.
+addAssertionPS :: SharedContext SAWCtx -> SharedTerm SAWCtx
+               -> SpecPathState
+               -> IO SpecPathState
+addAssertionPS sc x p = do
+  p & pathAssertions %%~ \a -> liftIO (scAnd sc a x)
+
+-- | Set value bound to array in path state.
+-- Assumes value is an array with a ground length.
+setArrayValuePS :: Ref -> Int32 -> SharedTerm SAWCtx
+                -> SpecPathState
+                -> SpecPathState
+setArrayValuePS r n v =
+  pathMemory . memScalarArrays %~ Map.insert r (n, v)
 
 -- | Set value of bound to instance field in path state.
 setInstanceFieldValuePS :: Ref -> FieldId -> SpecJavaValue
@@ -164,6 +183,27 @@ writeJavaValue (CC.Term e) v =
         RValue r -> setInstanceFieldValue r f v
         _ -> fail "Instance argument of instance field evaluates to non-reference"
     StaticField f -> setStaticFieldValue f v
+
+writeJavaValuePS :: (Functor m, Monad m) =>
+                    JavaExpr
+                 -> SpecJavaValue
+                 -> SpecPathState
+                 -> m SpecPathState
+writeJavaValuePS (CC.Term e) v ps =
+  case e of
+    ReturnVal _ -> return (ps & set pathRetVal (Just v))
+    Local _ i _ ->
+      case ps ^. pathStack of
+        [] -> fail "no stack frames"
+        (cf:cfs) -> do
+          let cf' = cf & cfLocals %~ Map.insert i v
+          return (ps & pathStack .~ (cf':cfs))
+    InstanceField rexp f -> do
+      rv <- readJavaValue (currentCallFrame ps) ps rexp
+      case rv of
+        RValue r -> return (setInstanceFieldValuePS r f v ps)
+        _ -> fail "Instance argument of instance field evaluates to non-reference"
+    StaticField f -> return (setStaticFieldValuePS f v ps)
 
 readJavaTerm :: (Functor m, Monad m) =>
                 Maybe (CallFrame term) -> Path' term -> JavaExpr -> m term

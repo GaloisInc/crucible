@@ -23,7 +23,19 @@ let newSimple_spec = do {
   java_verify_tactic abc;
 };
 
+let simpleWrap2_spec = do {
+  x <- java_var "x" java_int;
+  y <- java_var "y" java_int;
+  java_assert {{ x == 43 }};
+  java_assert {{ y == 77 }};
+  java_return {{ 2 : [32] }};
+  java_allow_alloc;
+  java_verify_tactic abc;
+};
 
 c <- java_load_class "Return";
-java_verify_exp c "fill" [] fill_spec;
-java_verify_exp c "newSimple" [] newSimple_spec;
+fill_ov <- java_verify_exp c "fill" [] fill_spec;
+java_verify_exp c "fillwrap" [fill_ov] fill_spec;
+newSimple_ov <- java_verify_exp c "newSimple" [] newSimple_spec;
+java_verify_exp c "newSimpleWrap" [newSimple_ov] newSimple_spec;
+java_verify_exp c "newSimpleWrap2" [newSimple_ov] simpleWrap2_spec;
