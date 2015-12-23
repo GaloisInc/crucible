@@ -29,8 +29,8 @@ import qualified Data.ByteString.Lazy as BS
 import Data.List (isPrefixOf)
 import qualified Data.Map as Map
 import Data.Maybe
+import Data.Time.Clock
 import qualified Data.Vector as V
-import System.CPUTime
 import System.Directory
 import qualified System.Exit as Exit
 import System.IO
@@ -1027,10 +1027,9 @@ exitPrim code = Exit.exitWith exitCode
 
 timePrim :: TopLevel SV.Value -> TopLevel SV.Value
 timePrim a = do
-  t1 <- liftIO $ getCPUTime
+  t1 <- liftIO $ getCurrentTime
   r <- a
-  t2 <- liftIO $ getCPUTime
-  let t :: Double
-      t = fromIntegral (t2-t1) * 1e-12
-  liftIO $ printf "Time: %9.3fs\n" t
+  t2 <- liftIO $ getCurrentTime
+  let diff = diffUTCTime t2 t1
+  liftIO $ printf "Time: %s\n" (show diff)
   return r
