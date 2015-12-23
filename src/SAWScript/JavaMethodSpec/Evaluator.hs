@@ -149,10 +149,10 @@ evalMixedExpr (TC.LE expr) ec = do
   let sc = ecContext ec
   ty <- liftIO $ scWhnf sc =<< scTypeOf sc n
   case (asBitvectorType ty, asBoolType ty) of
-    (Just sz, _) | sz <= 32 -> IValue <$> (liftIO (extendToIValue sc n))
+    (Just sz, _) | sz <= 32 -> fmap IValue (liftIO (extendToIValue sc n))
     (Just 64, _) -> return (LValue n)
     (Just _, _) -> throwE (EvalExprBadLogicType "evalMixedExpr" (show ty))
-    (Nothing, Just _) -> IValue <$> (liftIO (boolExtend' sc n))
+    (Nothing, Just _) -> fmap IValue (liftIO (boolExtend' sc n))
     (Nothing, Nothing) ->
       throwE (EvalExprBadLogicType "evalMixedExpr" (show ty))
 evalMixedExpr (TC.JE expr) ec = evalJavaExpr expr ec
