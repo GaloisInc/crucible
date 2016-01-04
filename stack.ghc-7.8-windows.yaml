@@ -16,6 +16,7 @@ packages:
   - deps/llvm-verifier/
   - .
 extra-deps:
+  - clock-0.5.2
   - fgl-visualize-0.1.0.1
   - dotgen-0.4.2
   - generic-trie-0.3.0.1
