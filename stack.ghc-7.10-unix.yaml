@@ -16,7 +16,7 @@ extra-deps:
   - dotgen-0.4.2
   - generic-trie-0.3.0.1
   - simple-smt-0.6.0
-  - sbv-5.6
+  - sbv-5.8
   - xdg-basedir-0.2.2
   - monad-supply-0.6
-resolver: lts-3.6
+resolver: lts-3.19

@@ -78,7 +78,6 @@ import qualified Verifier.SAW.Simulator.SBV as SBVSim
 
 import qualified Data.ABC as ABC
 import qualified Data.SBV.Dynamic as SBV
-import qualified Data.SBV.Internals as SBV
 
 import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
