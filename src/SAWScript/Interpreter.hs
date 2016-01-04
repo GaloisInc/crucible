@@ -830,6 +830,12 @@ primitives = Map.fromList
     , "given list of names, as defined with 'define', as uninterpreted."
     ]
 
+  , prim "unint_cvc4"            "[String] -> ProofScript SatResult"
+    (scVal satUnintCVC4)
+    [ "Use the CVC4 theorem prover to prove the current goal. Leave the"
+    , "given list of names, as defined with 'define', as uninterpreted."
+    ]
+
   , prim "offline_aig"         "String -> ProofScript SatResult"
     (scVal satAIG)
     [ "Write the current goal to the given file in AIGER format." ]
