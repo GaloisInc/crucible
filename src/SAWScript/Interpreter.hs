@@ -559,8 +559,8 @@ primitives = Map.fromList
     , "have if treated as a tree instead of a DAG."
     ]
 
-  , prim "abstract_symbolic"   "Term -> TopLevel Term"
-    (pureVal abstractSymbolicPrim)
+  , prim "abstract_symbolic"   "Term -> Term"
+    (funVal1 abstractSymbolicPrim)
     [ "Take a term containing symbolic variables of the form returned"
     , "by 'fresh_symbolic' and return a new lambda term in which those"
     , "variables have been replaced by parameter references."
