@@ -77,6 +77,7 @@ import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 
 import Cryptol.ModuleSystem.Env (meSolverConfig)
 import Cryptol.TypeCheck (SolverConfig)
+import qualified Cryptol.TypeCheck.Solver.CrySAT as CrySAT
 import qualified Cryptol.TypeCheck.AST as T
 import qualified Cryptol.Utils.Ident as T (packIdent, packModName)
 import Cryptol.TypeCheck.PP (ppWithNames)
@@ -409,7 +410,7 @@ rethrowEvalError m = run `X.catch` rethrow
 -- | Default the values of the type variables in a typed term.
 defaultTypedTerm :: SharedContext s -> SolverConfig -> TypedTerm s -> IO (TypedTerm s)
 defaultTypedTerm sc cfg (TypedTerm schema trm) = do
-  mdefault <- defaultReplExpr cfg undefined schema
+  mdefault <- CrySAT.withSolver cfg (\s -> defaultReplExpr s undefined schema)
   let inst = do (soln, _) <- mdefault
                 mapM (`lookup` soln) (T.sVars schema)
   case inst of
