@@ -12,3 +12,17 @@ let outputs = [("return", 1)];
 t <- llvm_symexec m "dotprod_struct" allocs inputs outputs true;
 thm <- abstract_symbolic {{ t == dotprod xs ys }};
 prove_print abc thm;
+
+let dotprod_spec = do {
+    llvm_ptr "x" (llvm_struct "vec_t");
+    llvm_ptr "y" (llvm_struct "vec_t");
+    xs <- llvm_var "*(x->0)" (llvm_array 2 (llvm_int 32));
+    xn <- llvm_var "x->1" (llvm_int 32);
+    ys <- llvm_var "*(y->0)" (llvm_array 2 (llvm_int 32));
+    yn <- llvm_var "y->1" (llvm_int 32);
+    llvm_assert {{ xn == 2 }};
+    llvm_assert {{ yn == 2 }};
+    llvm_return {{ dotprod xs ys }};
+};
+
+llvm_verify m "dotprod_struct" [] dotprod_spec;

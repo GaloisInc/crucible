@@ -1,19 +1,24 @@
 let add_setup : LLVMSetup () = do {
-    x <- llvm_ptr "x" (llvm_int 32);
-    y <- llvm_ptr "y" (llvm_int 32);
+    llvm_ptr "x" (llvm_int 32);
+    llvm_ptr "y" (llvm_int 32);
+    x <- llvm_var "*x" (llvm_int 32);
+    y <- llvm_var "*y" (llvm_int 32);
     llvm_return {{ x + y : [32] }};
     llvm_verify_tactic abc;
 };
 
 let clear_setup : LLVMSetup () = do {
-    a <- llvm_ptr "a" (llvm_array 10 (llvm_int 32));
+    llvm_ptr "a" (llvm_array 10 (llvm_int 32));
+    a <- llvm_var "*a" (llvm_array 10 (llvm_int 32));
     llvm_ensure_eq "*a" {{ zero : [10][32] }};
     llvm_verify_tactic abc;
 };
 
 let copy_setup : LLVMSetup () = do {
-    a <- llvm_ptr "a" (llvm_array 10 (llvm_int 32));
-    b <- llvm_ptr "b" (llvm_array 10 (llvm_int 32));
+    llvm_ptr "a" (llvm_array 10 (llvm_int 32));
+    llvm_ptr "b" (llvm_array 10 (llvm_int 32));
+    a <- llvm_var "*a" (llvm_array 10 (llvm_int 32));
+    b <- llvm_var "*b" (llvm_array 10 (llvm_int 32));
     llvm_ensure_eq "*a" {{ b }};
     llvm_verify_tactic abc;
 };
