@@ -1144,7 +1144,7 @@ primitives = Map.fromList
     , "of the initial value of a variable."
     ]
 
-  , prim "llvm_ptr"            "String -> LLVMType -> LLVMSetup Term"
+  , prim "llvm_ptr"            "String -> LLVMType -> LLVMSetup ()"
     (bicVal llvmPtr)
     [ "Declare that the named LLVM variable should point to a value of the"
     , "given type. This command makes the given variable visible later, so"

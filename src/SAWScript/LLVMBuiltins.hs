@@ -480,8 +480,8 @@ llvmVar bic _ name sty = do
     Nothing -> fail $ "Unsupported type in llvm_var: " ++ show (ppMemType lty)
 
 llvmPtr :: BuiltinContext -> Options -> String -> SymType
-        -> LLVMSetup (TypedTerm SAWCtx)
-llvmPtr bic _ name sty = do
+        -> LLVMSetup ()
+llvmPtr _ _ name sty = do
   lsState <- get
   let ms = lsSpec lsState
       func = specFunction ms
@@ -489,7 +489,7 @@ llvmPtr bic _ name sty = do
       Just funcDef = lookupDefine func cb
   lty <- case resolveSymType cb sty of
            MemType mty -> return mty
-           rty -> fail $ "Unsupported type in llvm_var: " ++ show (ppSymType rty)
+           rty -> fail $ "Unsupported type in llvm_ptr: " ++ show (ppSymType rty)
   expr <- failLeft $ runExceptT $ parseLLVMExpr cb funcDef name
   unless (isPtrLLVMExpr expr) $ fail $
     "Used `llvm_ptr` for non-pointer expression `" ++ name ++
@@ -502,15 +502,6 @@ llvmPtr bic _ name sty = do
   modify $ \st ->
     st { lsSpec = specAddVarDecl fixPos dname dexpr lty $
                   specAddVarDecl fixPos name expr' pty (lsSpec st) }
-  let sc = biSharedContext bic
-  mty <- liftIO $ logicTypeOfActual sc lty
-  case mty of
-    Just ty -> liftIO $ scLLVMValue sc ty dname >>= mkTypedTerm sc
-    Nothing -> fail $ "Unsupported type in llvm_ptr: " ++ show (ppMemType lty)
-
-llvmDeref :: BuiltinContext -> Options -> Value
-          -> LLVMSetup (SharedTerm SAWCtx)
-llvmDeref _bic _ _t = fail "llvm_deref not yet implemented"
 
 checkCompatibleType :: String -> LLVMActualType -> Cryptol.Schema
                     -> LLVMSetup ()
