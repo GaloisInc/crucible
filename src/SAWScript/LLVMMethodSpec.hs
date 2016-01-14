@@ -51,7 +51,7 @@ import SAWScript.Options
 import SAWScript.Utils
 import Verifier.SAW.Prelude
 import SAWScript.LLVMMethodSpecIR
-import SAWScript.LLVMUtils hiding (addrPlusOffset)
+import SAWScript.LLVMUtils
 import SAWScript.PathVC
 import SAWScript.Value (TopLevel, io)
 import SAWScript.VerificationCheck
@@ -452,14 +452,6 @@ esAddAssumption p = do
   sc <- gets esContext
   a' <- liftIO $ scAnd sc a p
   modify $ \es -> es { esAssumptions = a' }
-
-addrPlusOffset :: DataLayout -> SharedContext SAWCtx -> SpecLLVMValue -> Offset
-               -> IO SpecLLVMValue
-addrPlusOffset dl sc a o = do
-  let w = fromIntegral (ptrBitwidth dl)
-  ot <- scBvConst sc w (fromIntegral o)
-  wt <- scNat sc w
-  scBvAdd sc wt a ot
 
 -- | Set value in initial state.
 esSetLLVMValue :: TC.LLVMExpr -> SpecLLVMValue

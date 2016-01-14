@@ -42,21 +42,29 @@ resolveSymType _ ty = ty
 scLLVMValue :: SharedContext s -> SharedTerm s -> String -> IO (SharedTerm s)
 scLLVMValue sc ty name = scFreshGlobal sc name ty
 
-addrPlusOffset :: (Functor m, MonadIO m) =>
-                  SBETerm sbe -> Offset
-               -> Simulator sbe m (SBETerm sbe)
-addrPlusOffset a o = do
+addrPlusOffsetSim :: (Functor m, MonadIO m) =>
+                     SBETerm sbe -> Offset
+                  -> Simulator sbe m (SBETerm sbe)
+addrPlusOffsetSim a o = do
   sbe <- gets symBE
   w <- ptrBitwidth <$> getDL
   ot <- liftSBE $ termInt sbe w (fromIntegral o)
   liftSBE $ applyTypedExpr sbe (PtrAdd a ot)
+
+addrPlusOffset :: DataLayout -> SharedContext SAWCtx -> SpecLLVMValue -> Offset
+               -> IO SpecLLVMValue
+addrPlusOffset dl sc a o = do
+  let w = fromIntegral (ptrBitwidth dl)
+  ot <- scBvConst sc w (fromIntegral o)
+  wt <- scNat sc w
+  scBvAdd sc wt a ot
 
 structFieldAddr :: (Functor m, MonadIO m) =>
                    StructInfo -> Int -> SBETerm sbe
                 -> Simulator sbe m (SBETerm sbe)
 structFieldAddr si idx base =
   case siFieldOffset si idx of
-    Just off -> addrPlusOffset base off
+    Just off -> addrPlusOffsetSim base off
     Nothing -> fail $ "Struct field index " ++ show idx ++ " out of bounds"
 
 storePathState :: SBE SpecBackend
