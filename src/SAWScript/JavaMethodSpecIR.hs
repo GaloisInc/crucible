@@ -343,7 +343,8 @@ initMethodSpec :: Pos -> JSS.Codebase
 initMethodSpec pos cb thisClass mname = do
   (methodClass,method) <- findMethod cb pos mname thisClass
   superClasses <- JSS.supers cb thisClass
-  let this = thisJavaExpr thisClass
+  let argClasses = [ c | JSS.ClassType c <- JSS.methodParameterTypes method ]
+      this = thisJavaExpr thisClass
       initTypeMap | JSS.methodIsStatic method = Map.empty
                   | otherwise = Map.singleton this (ClassInstance thisClass)
       initBS = BS { bsLoc = JSS.BreakEntry
@@ -364,7 +365,8 @@ initMethodSpec pos cb thisClass mname = do
                     , specMethodClass = methodClass
                     , specMethod = method
                     , specInitializedClasses =
-                        map JSS.className superClasses
+                        map JSS.className superClasses ++
+                        argClasses
                     , specBehaviors = initBS
                     , specAllowAlloc = False
                     }
