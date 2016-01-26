@@ -540,7 +540,8 @@ checkBooleanSchema s =
 -- satisfiability using ABC.
 satABC :: SharedContext s -> ProofScript s SV.SatResult
 satABC sc = StateT $ \g -> io $ do
-  TypedTerm schema t <- rewriteEqs sc (goalTerm g)
+  let t0 = ttTerm (goalTerm g)
+  TypedTerm schema t <- (bindAllExts sc t0 >>= mkTypedTerm sc >>= rewriteEqs sc)
   checkBooleanSchema schema
   tp <- scWhnf sc =<< scTypeOf sc t
   let (args, _) = asPiList tp
