@@ -1090,6 +1090,8 @@ primitives = Map.fromList
     , "values. The second list contains the names of the variables or fields"
     , "to treat as outputs. The resulting Term will be of tuple type, with"
     , "as many elements as there are names in the output list."
+    , "The final boolean value indicates if path conditions should be checked for"
+    , "satisfiability at branch points."
     ]
 
   , prim "java_verify"
