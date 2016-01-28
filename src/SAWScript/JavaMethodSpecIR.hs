@@ -343,8 +343,7 @@ initMethodSpec :: Pos -> JSS.Codebase
 initMethodSpec pos cb thisClass mname = do
   (methodClass,method) <- findMethod cb pos mname thisClass
   superClasses <- JSS.supers cb thisClass
-  let argClasses = [ c | JSS.ClassType c <- JSS.methodParameterTypes method ]
-      this = thisJavaExpr thisClass
+  let this = thisJavaExpr thisClass
       initTypeMap | JSS.methodIsStatic method = Map.empty
                   | otherwise = Map.singleton this (ClassInstance thisClass)
       initBS = BS { bsLoc = JSS.BreakEntry
@@ -365,8 +364,7 @@ initMethodSpec pos cb thisClass mname = do
                     , specMethodClass = methodClass
                     , specMethod = method
                     , specInitializedClasses =
-                        map JSS.className superClasses ++
-                        argClasses
+                        map JSS.className superClasses
                     , specBehaviors = initBS
                     , specAllowAlloc = False
                     }
@@ -407,8 +405,14 @@ specName ir =
 -- TODO: error if already declared
 specAddVarDecl :: JavaExpr -> JavaActualType
                -> JavaMethodSpecIR -> JavaMethodSpecIR
-specAddVarDecl expr jt ms = ms { specBehaviors = bs' }
+specAddVarDecl expr jt ms = ms { specBehaviors = bs'
+                               , specInitializedClasses = cs'
+                               }
   where bs = specBehaviors ms
+        cs = specInitializedClasses ms
+        cs' = case jt of
+                ClassInstance c -> JSS.className c : cs
+                _ -> cs
         bs' = bs { bsActualTypeMap =
                      Map.insert expr jt (bsActualTypeMap bs)
                  , bsMustAliasSet =
