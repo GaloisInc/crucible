@@ -415,12 +415,12 @@ inferE (ln, expr) = case expr of
        t1 <- appSubstM t
        elTy <- case t1 of
                  TyCon (TupleCon n) tys
-                   | i <= n -> return (tys !! (fromIntegral i - 1))
+                   | i < n -> return (tys !! fromIntegral i)
                    | otherwise ->
                           do recordError $ unlines
                                 [ "Tuple index out of bounds."
                                 , "Given index " ++ show i ++
-                                  " is greater than tuple size of " ++
+                                  " is too large for tuple size of " ++
                                   show n
                                 ]
                              newType

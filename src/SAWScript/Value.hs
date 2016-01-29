@@ -245,7 +245,7 @@ lookupValue _ _ = error "lookupValue"
 
 tupleLookupValue :: Value -> Integer -> Value
 tupleLookupValue (VTuple vs) i
-  | fromIntegral i <= length vs = vs !! (fromIntegral i - 1)
+  | 0 <= i && fromIntegral i < length vs = vs !! fromIntegral i
   | otherwise = error $ "no such tuple index: " ++ show i
 tupleLookupValue _ _ = error "tupleLookupValue"
 
