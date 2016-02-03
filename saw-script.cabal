@@ -21,7 +21,6 @@ library
     , array
     , binary
     , bytestring
-    , cond
     , containers
     , cryptol
     , cryptol-verifier
