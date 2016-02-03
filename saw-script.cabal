@@ -7,6 +7,10 @@ Cabal-version: >= 1.8.0.2
 License:       OtherLicense
 License-file:  LICENSE
 
+extra-source-files:
+    src/SAWScript/Parser.y
+    src/SAWScript/Lexer.x
+
 library
   build-depends:
       base >= 4
