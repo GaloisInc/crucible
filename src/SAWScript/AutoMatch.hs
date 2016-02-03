@@ -16,7 +16,6 @@ import Control.Monad.Writer
 import Control.Monad.State
 import Control.Monad.Reader
 import Control.Monad.Supply
-import Control.Conditional (ifM)
 import Control.Monad.IfElse (awhen)
 
 import Data.Char
@@ -27,7 +26,6 @@ import Data.Maybe
 import Control.Applicative
 #endif
 
-import Control.Conditional (whenM)
 import System.FilePath
 
 import qualified SAWScript.AST as SAWScript
@@ -97,7 +95,8 @@ checkReturnTypeCompat = do
 checkSignatureCompat :: ArgMatch ()
 checkSignatureCompat = do
    (left, right) <- ask
-   whenM (uncurry (/=) . both (fmap Set.size . typeBins) <$> get) $ do
+   r <- get
+   when ((uncurry (/=) . both (fmap Set.size . typeBins)) r) $ do
       warning $
          "The signatures for '" ++ declName left ++
          "' and '" ++ declName right ++ 
@@ -334,9 +333,8 @@ processResults :: TaggedSourceFile -> TaggedSourceFile
 processResults (TaggedSourceFile leftLang  leftFile) (TaggedSourceFile rightLang rightFile) matchings = do
 
       MatchResult script <$> (do separator ThickSep
-                                 ifM (confirm "Save generated script to file?")
-                                     (Just <$> getString "Filename:")
-                                     (return Nothing))
+                                 doSave <- confirm "Save generated script to file?"
+                                 if doSave then (Just <$> getString "Filename:") else (return Nothing))
                          <*> (do separator ThinSep
                                  confirm "Print generated script to the console?")
                          <*> (do separator ThinSep
