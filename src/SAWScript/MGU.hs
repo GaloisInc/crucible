@@ -168,6 +168,16 @@ newTypeIndex = do
 newType :: TI Type
 newType = TyUnifyVar <$> newTypeIndex
 
+newTypePattern :: Pattern -> TI (Type, Pattern)
+newTypePattern pat =
+  case pat of
+    PWild mt  -> do t <- maybe newType return mt
+                    return (t, PWild (Just t))
+    PVar x mt -> do t <- maybe newType return mt
+                    return (t, PVar x (Just t))
+    PTuple ps -> do (ts, ps') <- unzip <$> mapM newTypePattern ps
+                    return (tTuple ts, PTuple ps')
+
 skolemType :: Name -> TI Type
 skolemType n = TySkolemVar n <$> newTypeIndex
 
@@ -211,6 +221,17 @@ bindDecl (Decl n (Just s) _) m = bindSchema n s m
 bindDeclGroup :: DeclGroup -> TI a -> TI a
 bindDeclGroup (NonRecursive d) m = bindDecl d m
 bindDeclGroup (Recursive ds) m = foldr bindDecl m ds
+
+bindPattern :: Pattern -> TI a -> TI a
+bindPattern pat = bindSchemas bs
+  where bs = [ (x, tMono t) | (x, Just t) <- patternBindings pat ]
+
+patternBindings :: Pattern -> [(Located Name, Maybe Type)]
+patternBindings pat =
+  case pat of
+    PWild _mt -> []
+    PVar x mt -> [(x, mt)]
+    PTuple ps -> concatMap patternBindings ps
 
 -- FIXME: This function may miss type variables that occur in the type
 -- of a binding that has been shadowed by another value with the same
@@ -273,16 +294,22 @@ instance AppSubst Expr where
     Lookup rec fld     -> Lookup (appSubst s rec) fld
     TLookup tpl idx    -> TLookup (appSubst s tpl) idx
     Var _              -> expr
-    Function x xt body -> Function x (appSubst s xt) (appSubst s body)
+    Function pat body  -> Function (appSubst s pat) (appSubst s body)
     Application f v    -> Application (appSubst s f) (appSubst s v)
     Let dg e           -> Let (appSubst s dg) (appSubst s e)
+
+instance AppSubst Pattern where
+  appSubst s pat = case pat of
+    PWild mt  -> PWild (appSubst s mt)
+    PVar x mt -> PVar x (appSubst s mt)
+    PTuple ps -> PTuple (appSubst s ps)
 
 instance (Ord k, AppSubst a) => AppSubst (M.Map k a) where
   appSubst s = fmap (appSubst s)
 
 instance AppSubst Stmt where
   appSubst s bst = case bst of
-    StmtBind mn mt ctx e -> StmtBind mn mt ctx e
+    StmtBind pat ctx e   -> StmtBind (appSubst s pat) (appSubst s ctx) (appSubst s e)
     StmtLet dg           -> StmtLet (appSubst s dg)
     StmtCode str         -> StmtCode str
     StmtImport imp       -> StmtImport imp
@@ -368,9 +395,9 @@ inferE (ln, expr) = case expr of
   -}
 
 
-  Function x mt body -> do xt <- maybe newType return mt
-                           (body',t) <- bindSchema x (tMono xt) $ inferE (ln, body)
-                           return (Function x (Just xt) body', tFun xt t)
+  Function pat body -> do (pt, pat') <- newTypePattern pat
+                          (body', t) <- bindPattern pat' $ inferE (ln, body)
+                          return (Function pat' body', tFun pt t)
 
   Application f v -> do (v',fv) <- inferE (ln,v)
                         t <- newType
@@ -460,35 +487,32 @@ inferStmts m _ctx [] = do
   t <- newType
   return ([], t)
 
-inferStmts m ctx [StmtBind Nothing _ mc e] = do
-  t  <- newType
+inferStmts m ctx [StmtBind (PWild mt) mc e] = do
+  t  <- maybe newType return mt
   e' <- checkE m e (tBlock ctx t)
   mc' <- case mc of
     Nothing -> return ctx
     Just ty  -> do ty' <- checkKind ty
                    unify m ty ctx -- TODO: should this be ty'?
                    return ty'
-  return ([StmtBind Nothing (Just t) (Just mc') e'],t)
+  return ([StmtBind (PWild (Just t)) (Just mc') e'],t)
 
 inferStmts m _ [_] = do
   recordError ("do block must end with expression at " ++ show m)
   t <- newType
   return ([],t)
 
-inferStmts m ctx (StmtBind mn mt mc e : more) = do
-  t <- maybe newType return mt
-  e' <- checkE m e (tBlock ctx t)
+inferStmts m ctx (StmtBind pat mc e : more) = do
+  (pt, pat') <- newTypePattern pat
+  e' <- checkE m e (tBlock ctx pt)
   mc' <- case mc of
     Nothing -> return ctx
     Just c  -> do c' <- checkKind c
                   unify m c ctx
                   return c'
-  let f = case mn of
-        Nothing -> id
-        Just n  -> bindSchema n (tMono t)
-  (more',t') <- f $ inferStmts m ctx more
+  (more', t') <- bindPattern pat' $ inferStmts m ctx more
 
-  return (StmtBind mn (Just t') (Just mc') e' : more', t')
+  return (StmtBind pat' (Just mc') e' : more', t')
 
 inferStmts m ctx (StmtLet dg : more) = do
   dg' <- inferDeclGroup dg

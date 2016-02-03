@@ -353,17 +353,17 @@ processResults (TaggedSourceFile leftLang  leftFile) (TaggedSourceFile rightLang
          returning boundName . tell $
             case lang of
                Cryptol ->
-                  [SAWScript.StmtBind (Just boundName) Nothing Nothing
+                  [SAWScript.StmtBind (SAWScript.PVar boundName Nothing) Nothing
                      (SAWScript.Application
                         (SAWScript.Var . locate $ "cryptol_load")
                         (SAWScript.String file))]
                LLVM ->
-                  [SAWScript.StmtBind (Just boundName) Nothing Nothing
+                  [SAWScript.StmtBind (SAWScript.PVar boundName Nothing) Nothing
                      (SAWScript.Application
                         (SAWScript.Var . locate $ "llvm_load_module")
                         (SAWScript.String file))]
                JVM ->
-                  [SAWScript.StmtBind (Just boundName) Nothing Nothing
+                  [SAWScript.StmtBind (SAWScript.PVar boundName Nothing) Nothing
                      (SAWScript.Application
                         (SAWScript.Var . locate $ "java_load_class")
                         (SAWScript.String $ dropExtension file))]
@@ -374,14 +374,14 @@ processResults (TaggedSourceFile leftLang  leftFile) (TaggedSourceFile rightLang
          returning boundName . tell $
             case lang of
                Cryptol ->
-                  [SAWScript.StmtBind (Just boundName) Nothing Nothing
+                  [SAWScript.StmtBind (SAWScript.PVar boundName Nothing) Nothing
                      (SAWScript.Application
                         (SAWScript.Application
                            (SAWScript.Var . locate $ "cryptol_extract")
                            (SAWScript.Var loadedModule))
                         (SAWScript.String function))]
                LLVM ->
-                  [SAWScript.StmtBind (Just boundName) Nothing Nothing
+                  [SAWScript.StmtBind (SAWScript.PVar boundName Nothing) Nothing
                      (SAWScript.Application
                         (SAWScript.Application
                            (SAWScript.Application
@@ -390,7 +390,7 @@ processResults (TaggedSourceFile leftLang  leftFile) (TaggedSourceFile rightLang
                            (SAWScript.String function))
                         (SAWScript.Var . locate $ "llvm_pure"))]
                JVM ->
-                  [SAWScript.StmtBind (Just boundName) Nothing Nothing
+                  [SAWScript.StmtBind (SAWScript.PVar boundName Nothing) Nothing
                      (SAWScript.Application
                         (SAWScript.Application
                            (SAWScript.Application
@@ -409,7 +409,7 @@ processResults (TaggedSourceFile leftLang  leftFile) (TaggedSourceFile rightLang
                   name <- newNameWith (nameCenter (leftName ++ "_" ++ rightName))
                   return ((leftIndex, name), (rightIndex, name))
          returning theoremName . tell $
-            [SAWScript.StmtBind (Just theoremName) Nothing Nothing .
+            [SAWScript.StmtBind (SAWScript.PVar theoremName Nothing) Nothing .
                 SAWScript.Code . locate .
                    show . Cryptol.ppPrec 0 .
                       cryptolAbstractNamesSAW leftArgs .
@@ -435,7 +435,7 @@ processResults (TaggedSourceFile leftLang  leftFile) (TaggedSourceFile rightLang
 
       prove :: SAWScript.LName -> ScriptWriter ()
       prove theorem = tell $
-         [SAWScript.StmtBind Nothing Nothing Nothing
+         [SAWScript.StmtBind (SAWScript.PWild Nothing) Nothing
              (SAWScript.Application
                 (SAWScript.Application
                    (SAWScript.Var . locate $ "prove_print")
@@ -444,7 +444,7 @@ processResults (TaggedSourceFile leftLang  leftFile) (TaggedSourceFile rightLang
 
       printString :: String -> ScriptWriter ()
       printString string = tell $
-         [SAWScript.StmtBind Nothing Nothing Nothing
+         [SAWScript.StmtBind (SAWScript.PWild Nothing) Nothing
              (SAWScript.Application
                 (SAWScript.Var . locate $ "print")
                 (SAWScript.String string))]

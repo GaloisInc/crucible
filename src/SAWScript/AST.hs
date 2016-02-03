@@ -20,6 +20,7 @@ module SAWScript.AST
        , Located(..)
        , Import(..)
        , Expr(..)
+       , Pattern(..)
        , Stmt(..)
        , DeclGroup(..)
        , Decl(..)
@@ -101,15 +102,21 @@ data Expr
   | TLookup Expr Integer
   -- LC
   | Var (Located Name)
-  | Function    LName (Maybe Type) Expr
+  | Function Pattern Expr
   | Application Expr Expr
   -- Sugar
   | Let DeclGroup Expr
   | TSig Expr Type
   deriving (Eq, Show)
 
+data Pattern
+  = PWild (Maybe Type)
+  | PVar LName (Maybe Type)
+  | PTuple [Pattern]
+  deriving (Eq, Show)
+
 data Stmt
-  = StmtBind     (Maybe LName) (Maybe Type) (Maybe Type) Expr
+  = StmtBind     Pattern (Maybe Type) Expr
   | StmtLet      DeclGroup
   | StmtCode     (Located String)
   | StmtImport   Import
@@ -195,27 +202,37 @@ instance Pretty Expr where
       TLookup expr int -> PP.pretty expr PP.<> PP.dot PP.<> PP.integer int
       Var (Located name _ _) ->
          PP.text name
-      Function (Located name _ _) mType expr ->
-         PP.text "\\" PP.<+> prettyMaybeTypedArg (name,mType) PP.<+> PP.text "-> " PP.<+> PP.pretty expr
+      Function pat expr ->
+         PP.text "\\" PP.<+> PP.pretty pat PP.<+> PP.text "-> " PP.<+> PP.pretty expr
       Application f a -> PP.pretty f PP.<+> PP.pretty a
       Let (NonRecursive decl) expr ->
-         PP.text "let" PP.<+> 
+         PP.text "let" PP.<+>
          prettyDef decl PP.</>
          PP.text "in" PP.<+> PP.pretty expr
       Let (Recursive decls) expr ->
-         PP.text "let" PP.<+> 
+         PP.text "let" PP.<+>
          PP.cat (PP.punctuate
             (PP.empty PP.</> PP.text "and" PP.<> PP.space)
             (map prettyDef decls)) PP.</>
          PP.text "in" PP.<+> PP.pretty expr
       TSig expr typ -> PP.parens $ PP.pretty expr PP.<+> PP.colon PP.<+> pretty 0 typ
 
+instance Pretty Pattern where
+  pretty pat = case pat of
+    PWild mType ->
+      prettyMaybeTypedArg ("_", mType)
+    PVar (Located name _ _) mType ->
+      prettyMaybeTypedArg (name, mType)
+    PTuple pats ->
+      PP.tupled (map PP.pretty pats)
+
 instance Pretty Stmt where
    pretty = \case
-      StmtBind (Just (Located name _ _)) leftType _rightType expr ->
-         prettyMaybeTypedArg (name,leftType) PP.<+> PP.text "<-" PP.<+> PP.align (PP.pretty expr)
-      StmtBind Nothing _leftType _rightType expr ->
+
+      StmtBind (PVar (Located "" _ _) _leftType) _rightType expr ->
          PP.pretty expr
+      StmtBind pat _rightType expr ->
+         PP.pretty pat PP.<+> PP.text "<-" PP.<+> PP.align (PP.pretty expr)
       StmtLet (NonRecursive decl) ->
          PP.text "let" PP.<+> prettyDef decl
       StmtLet (Recursive decls) ->
@@ -255,7 +272,7 @@ prettyDef Decl{dName,dDef} =
    PP.text (getVal dName) PP.<+>
    let (args, body) = dissectLambda dDef
    in (if not (null args)
-          then PP.hsep (map prettyMaybeTypedArg args) PP.<> PP.space
+          then PP.hsep (map PP.pretty args) PP.<> PP.space
           else PP.empty) PP.<>
       PP.text "=" PP.<+> PP.pretty body
 
@@ -265,12 +282,10 @@ prettyMaybeTypedArg (name,Nothing) =
 prettyMaybeTypedArg (name,Just typ) =
    PP.parens $ PP.text name PP.<+> PP.colon PP.<+> pretty 0 typ
 
-dissectLambda :: Expr -> ([(Name,Maybe Type)],Expr)
+dissectLambda :: Expr -> ([Pattern], Expr)
 dissectLambda = \case
-   Function (Located name _ _) mType
-            (dissectLambda -> (names, expr)) ->
-               ((name, mType) : names, expr)
-   expr -> ([],expr)
+  Function pat (dissectLambda -> (pats, expr)) -> (pat : pats, expr)
+  expr -> ([], expr)
 
 pShow :: PrettyPrint a => a -> String
 pShow = show . pretty 0

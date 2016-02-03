@@ -135,6 +135,23 @@ mergeLocalEnv env rw = foldr addBinding rw env
 getMergedEnv :: LocalEnv -> TopLevel TopLevelRW
 getMergedEnv env = mergeLocalEnv env `fmap` getTopLevelRW
 
+bindPatternGeneric :: (SS.LName -> Maybe SS.Schema -> Maybe String -> Value -> e -> e)
+                   -> SS.Pattern -> Value -> e -> e
+bindPatternGeneric ext pat v env =
+  case pat of
+    SS.PWild _   -> env
+    SS.PVar x mt -> ext x (fmap SS.tMono mt) Nothing v env
+    SS.PTuple ps ->
+      case v of
+        VTuple vs -> foldr ($) env (zipWith (bindPatternGeneric ext) ps vs)
+        _         -> error "bindPattern: expected tuple value"
+
+bindPatternLocal :: SS.Pattern -> Value -> LocalEnv -> LocalEnv
+bindPatternLocal = bindPatternGeneric extendLocal
+
+bindPatternEnv :: SS.Pattern -> Value -> TopLevelRW -> TopLevelRW
+bindPatternEnv = bindPatternGeneric extendEnv
+
 -- Interpretation of SAWScript -------------------------------------------------
 
 interpret :: LocalEnv -> SS.Expr -> TopLevel Value
@@ -167,8 +184,7 @@ interpret env expr =
                                    case Map.lookup x (rwValues rw) of
                                      Nothing -> fail $ "unknown variable: " ++ SS.getVal x
                                      Just v -> return v
-      SS.Function x t e      -> do let f v = interpret
-                                             (extendLocal x (fmap SS.tMono t) Nothing v env) e
+      SS.Function pat e      -> do let f v = interpret (bindPatternLocal pat v env) e
                                    return $ VLambda f
       SS.Application e1 e2   -> do v1 <- interpret env e1
                                    v2 <- interpret env e2
@@ -187,8 +203,8 @@ interpretDecl env (SS.Decl n mt expr) = do
 interpretFunction :: LocalEnv -> SS.Expr -> Value
 interpretFunction env expr =
     case expr of
-      SS.Function x t e -> VLambda f
-        where f v = interpret (extendLocal x (fmap SS.tMono t) Nothing v env) e
+      SS.Function pat e -> VLambda f
+        where f v = interpret (bindPatternLocal pat v env) e
       SS.TSig e _ -> interpretFunction env e
       _ -> error "interpretFunction: not a function"
 
@@ -203,13 +219,10 @@ interpretStmts :: LocalEnv -> [SS.Stmt] -> TopLevel Value
 interpretStmts env stmts =
     case stmts of
       [] -> fail "empty block"
-      [SS.StmtBind Nothing _ _ e] -> interpret env e
-      SS.StmtBind Nothing _ _ e : ss ->
+      [SS.StmtBind (SS.PWild _) _ e] -> interpret env e
+      SS.StmtBind pat _ e : ss ->
           do v1 <- interpret env e
-             bindValue v1 (VLambda (const (interpretStmts env ss)))
-      SS.StmtBind (Just x) mt _ e : ss ->
-          do v1 <- interpret env e
-             let f v = interpretStmts (extendLocal x (fmap SS.tMono mt) Nothing v env) ss
+             let f v = interpretStmts (bindPatternLocal pat v env) ss
              bindValue v1 (VLambda f)
       SS.StmtLet bs : ss -> interpret env (SS.Let bs (SS.Block ss))
       SS.StmtCode s : ss ->
@@ -226,9 +239,12 @@ interpretStmts env stmts =
 stmtInterpreter :: StmtInterpreter
 stmtInterpreter ro rw stmts = fmap fst $ runTopLevel (interpretStmts emptyLocal stmts) ro rw
 
-processStmtBind :: Bool -> Maybe SS.LName
-                -> Maybe SS.Type -> Maybe SS.Type -> SS.Expr -> TopLevel ()
-processStmtBind printBinds mx mt _mc expr = do
+processStmtBind :: Bool -> SS.Pattern -> Maybe SS.Type -> SS.Expr -> TopLevel ()
+processStmtBind printBinds pat _mc expr = do -- mx mt
+  let (mx, mt) = case pat of
+        SS.PWild t -> (Nothing, t)
+        SS.PVar x t -> (Just x, t)
+        _ -> (Nothing, Nothing)
   let it = SS.Located "it" "it" PosREPL
   let lname = maybe it id mx
   let ctx = SS.tContext SS.TopLevel
@@ -257,9 +273,10 @@ processStmtBind printBinds mx mt _mc expr = do
   --showCryptolEnv
 
   -- Print non-unit result if it was not bound to a variable
-  case mx of
-    Nothing | printBinds && not (isVUnit result) -> io $ putStrLn (showsPrecValue opts 0 result "")
-    _                                            -> return ()
+  case pat of
+    SS.PWild _ | printBinds && not (isVUnit result) ->
+      io $ putStrLn (showsPrecValue opts 0 result "")
+    _ -> return ()
 
   -- Print function type if result was a function
   case ty of
@@ -267,13 +284,24 @@ processStmtBind printBinds mx mt _mc expr = do
     _ -> return ()
 
   rw' <- getTopLevelRW
-  putTopLevelRW $ extendEnv lname (Just (SS.tMono ty)) Nothing result rw'
+  let pat' = annotatePattern pat ty
+  putTopLevelRW $ bindPatternEnv pat' result rw'
+
+annotatePattern :: SS.Pattern -> SS.Type -> SS.Pattern
+annotatePattern pat ty =
+  case pat of
+    SS.PWild _   -> SS.PWild (Just ty)
+    SS.PVar x _  -> SS.PVar x (Just ty)
+    SS.PTuple ps ->
+      case ty of
+        SS.TyCon (SS.TupleCon _) ts -> SS.PTuple (zipWith annotatePattern ps ts)
+        _ -> pat
 
 -- | Interpret a block-level statement in the TopLevel monad.
 interpretStmt :: Bool -> SS.Stmt -> TopLevel ()
 interpretStmt printBinds stmt =
   case stmt of
-    SS.StmtBind mx mt mc expr -> processStmtBind printBinds mx mt mc expr
+    SS.StmtBind pat mc expr  -> processStmtBind printBinds pat mc expr
     SS.StmtLet dg             -> do rw <- getTopLevelRW
                                     dg' <- io $ reportErrT (checkDeclGroup (rwTypes rw) dg)
                                     env <- interpretDeclGroup emptyLocal dg'
