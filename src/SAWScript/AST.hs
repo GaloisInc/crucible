@@ -128,7 +128,7 @@ data DeclGroup
   deriving (Eq, Show)
 
 data Decl
-  = Decl { dName :: LName, dType :: Maybe Schema, dDef :: Expr }
+  = Decl { dPat :: Pattern, dType :: Maybe Schema, dDef :: Expr }
   deriving (Eq, Show)
 
 -- }}}
@@ -268,9 +268,9 @@ instance Pretty Stmt where
         --ppName n = ppIdent (P.nameIdent n)
 
 prettyDef :: Decl -> PP.Doc
-prettyDef Decl{dName,dDef} =
-   PP.text (getVal dName) PP.<+>
-   let (args, body) = dissectLambda dDef
+prettyDef (Decl pat _ def) =
+   PP.pretty pat PP.<+>
+   let (args, body) = dissectLambda def
    in (if not (null args)
           then PP.hsep (map PP.pretty args) PP.<> PP.space
           else PP.empty) PP.<>
