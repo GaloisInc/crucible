@@ -14,10 +14,13 @@ module SAWScript.Version (
   , commitBranch
   , commitDirty
   , version
+  , hashText
+  , versionText
   ) where
 
-import Paths_saw_script
+import Paths_saw_script (version)
 import qualified GitRev
+import Data.Version (showVersion)
 
 commitHash :: String
 commitHash = GitRev.hash
@@ -30,3 +33,10 @@ commitBranch = GitRev.branch
 
 commitDirty :: Bool
 commitDirty = GitRev.dirty
+
+hashText :: String
+hashText | commitShortHash == "UNKNOWN" = ""
+         | otherwise = " (" ++ commitShortHash ++ ")"
+
+versionText :: String
+versionText = "version " ++ showVersion version ++ hashText

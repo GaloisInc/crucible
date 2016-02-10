@@ -7,11 +7,8 @@ Point-of-contact : huffman
 -}
 module SAWScript.REPL.Logo where
 
-import Paths_saw_script (version)
-import Data.Version (showVersion)
-import SAWScript.Version (commitShortHash)
+import SAWScript.Version (versionText)
 import System.Console.ANSI
-
 
 type Version = String
 
@@ -26,9 +23,6 @@ logo useColor =
   where
   sgr | useColor  = setSGRCode
       | otherwise = const []
-  hashText | commitShortHash == "UNKNOWN" = ""
-           | otherwise = " (" ++ commitShortHash ++ ")"
-  versionText = "version " ++ showVersion version ++ hashText
   ver = sgr [SetColor Foreground Dull White]
         ++ replicate (lineLen - 20 - length versionText) ' '
         ++ versionText
