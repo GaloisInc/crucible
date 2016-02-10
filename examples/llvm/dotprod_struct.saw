@@ -14,15 +14,19 @@ thm <- abstract_symbolic {{ t == dotprod xs ys }};
 prove_print abc thm;
 
 let dotprod_spec = do {
-    llvm_ptr "x" (llvm_struct "vec_t");
-    llvm_ptr "y" (llvm_struct "vec_t");
+    llvm_ptr "x" (llvm_struct "struct.vec_t");
+    llvm_ptr "y" (llvm_struct "struct.vec_t");
+    llvm_ptr "x->0" (llvm_array 2 (llvm_int 32));
+    llvm_ptr "y->0" (llvm_array 2 (llvm_int 32));
     xs <- llvm_var "*(x->0)" (llvm_array 2 (llvm_int 32));
     xn <- llvm_var "x->1" (llvm_int 32);
     ys <- llvm_var "*(y->0)" (llvm_array 2 (llvm_int 32));
     yn <- llvm_var "y->1" (llvm_int 32);
-    llvm_assert {{ xn == 2 }};
-    llvm_assert {{ yn == 2 }};
+    llvm_sat_branches true;
+    llvm_assert_eq "x->1" {{ 2:[32] }};
+    llvm_assert_eq "y->1" {{ 2:[32] }};
     llvm_return {{ dotprod xs ys }};
+    llvm_verify_tactic abc;
 };
 
 llvm_verify m "dotprod_struct" [] dotprod_spec;

@@ -1185,12 +1185,14 @@ primitives = Map.fromList
     , "state of an LLVM function."
     ]
 
-  --, prim "llvm_assert_eq"      "{a} String -> a -> LLVMSetup ()"
-  --  (pureVal llvmAssertEq)
+  , prim "llvm_assert_eq"      "{a} String -> a -> LLVMSetup ()"
+    (pureVal llvmAssertEq)
+    [ "Specify the initial value of an LLVM variable."
+    ]
 
   , prim "llvm_ensure_eq"      "String -> Term -> LLVMSetup ()"
     (pureVal llvmEnsureEq)
-    [ "Specify that the LLVM Java variable should have a value equal to the"
+    [ "Specify that the LLVM variable should have a value equal to the"
     , "given term when execution finishes."
     ]
 
