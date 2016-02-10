@@ -18,3 +18,7 @@ uint32_t dotprod_struct(vec_t *x, vec_t *y) {
     }
     return res;
 }
+
+uint32_t dotprod_wrap(vec_t *x, vec_t *y) {
+    return dotprod_struct(x, y);
+}
