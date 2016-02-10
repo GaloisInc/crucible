@@ -31,6 +31,7 @@ library
     , fgl
     , filepath
     , free
+    , gitrev
     , haskeline
     , IfElse
     , jvm-parser
@@ -116,6 +117,11 @@ library
     SAWScript.Utils
     SAWScript.Value
     SAWScript.VerificationCheck
+    SAWScript.Version
+
+  other-modules:
+    Paths_saw_script
+    GitRev
 
   GHC-options: -O2 -Wall -Werror -fno-ignore-asserts -fno-spec-constr-count
 

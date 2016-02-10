@@ -7,7 +7,9 @@ Point-of-contact : huffman
 -}
 module SAWScript.REPL.Logo where
 
---import Data.Version (showVersion)
+import Paths_saw_script (version)
+import Data.Version (showVersion)
+import SAWScript.Version (commitShortHash)
 import System.Console.ANSI
 
 
@@ -24,20 +26,19 @@ logo useColor =
   where
   sgr | useColor  = setSGRCode
       | otherwise = const []
-{-
   hashText | commitShortHash == "UNKNOWN" = ""
            | otherwise = " (" ++ commitShortHash ++ ")"
   versionText = "version " ++ showVersion version ++ hashText
   ver = sgr [SetColor Foreground Dull White]
         ++ replicate (lineLen - 20 - length versionText) ' '
         ++ versionText
--}
   ls =
     [ "   ___  __ _ _ _ _"
     , "  / __|/ _\' | | | |"
     , "  \\__ \\ (_| | | | |"
-    , "  |___/\\__,_|\\_,_/ " -- ++ ver
+    , "  |___/\\__,_|\\_,_/ " ++ ver
     ]
+  lineLen   = length (head ls)
   slen      = length ls `div` 3
   (ws,rest) = splitAt slen ls
   (vs,ds)   = splitAt slen rest
