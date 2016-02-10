@@ -18,7 +18,7 @@ import System.Environment
 import SAWScript.Options
 import SAWScript.Interpreter (processFile)
 import qualified SAWScript.REPL as REPL
-import SAWScript.Version (versionText)
+import SAWScript.Version (shortVersionText)
 
 main :: IO ()
 main = do
@@ -30,7 +30,7 @@ main = do
       {- We have two modes of operation: batch processing, handled in
       'SAWScript.ProcessFile', and a REPL, defined in 'SAWScript.REPL'. -}
       case files of
-        _ | showVersion opts'' -> hPutStrLn stderr versionText
+        _ | showVersion opts'' -> hPutStrLn stderr shortVersionText
         _ | showHelp opts'' -> err (usageInfo header options)
         [] -> REPL.run opts''
         _ | runInteractively opts'' -> REPL.run opts''

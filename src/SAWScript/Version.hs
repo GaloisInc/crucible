@@ -16,6 +16,7 @@ module SAWScript.Version (
   , version
   , hashText
   , versionText
+  , shortVersionText
   ) where
 
 import Paths_saw_script (version)
@@ -39,4 +40,7 @@ hashText | commitShortHash == "UNKNOWN" = ""
          | otherwise = " (" ++ commitShortHash ++ ")"
 
 versionText :: String
-versionText = "version " ++ showVersion version ++ hashText
+versionText = "version " ++ shortVersionText
+
+shortVersionText :: String
+shortVersionText = showVersion version ++ hashText
