@@ -104,7 +104,8 @@ runEval v = liftIO (runExceptT v)
 
 -- | Evaluate an LLVM expression, and return its value (r-value) as an
 -- internal term.
-evalLLVMExpr :: (MonadIO m) => TC.LLVMExpr -> EvalContext
+evalLLVMExpr :: (Functor m, MonadIO m) =>
+                TC.LLVMExpr -> EvalContext
              -> m SpecLLVMValue
 evalLLVMExpr expr ec = eval expr
   where eval e@(CC.Term app) =
@@ -136,7 +137,7 @@ evalLLVMExpr expr ec = eval expr
 
 -- | Evaluate an LLVM expression, and return the location it describes
 -- (l-value) as an internal term.
-evalLLVMRefExpr :: (MonadIO m) =>
+evalLLVMRefExpr :: (Functor m, MonadIO m) =>
                    TC.LLVMExpr -> EvalContext
                 -> m SpecLLVMValue
 evalLLVMRefExpr expr ec = eval expr
@@ -160,7 +161,7 @@ evalLLVMRefExpr expr ec = eval expr
         gm = ecGlobalMap ec
         sc = ecContext ec
 
-evalDerefLLVMExpr :: (MonadIO m) =>
+evalDerefLLVMExpr :: (Functor m, MonadIO m) =>
                      TC.LLVMExpr -> EvalContext
                   -> m (SharedTerm SAWCtx)
 evalDerefLLVMExpr expr ec = do
@@ -173,7 +174,7 @@ evalDerefLLVMExpr expr ec = do
     _ -> return val
 
 -- | Evaluate a typed expression in the context of a particular state.
-evalLogicExpr :: (MonadIO m) =>
+evalLogicExpr :: (Functor m, MonadIO m) =>
                  TC.LogicExpr -> EvalContext
               -> m SpecLLVMValue
 evalLogicExpr initExpr ec = do
@@ -190,7 +191,8 @@ evalLogicExpr initExpr ec = do
   liftIO $ scInstantiateExt sc (Map.fromList extMap) t
 
 -- | Return Java value associated with mixed expression.
-evalMixedExpr :: (MonadIO m) => TC.MixedExpr -> EvalContext
+evalMixedExpr :: (Functor m, MonadIO m) =>
+                 TC.MixedExpr -> EvalContext
               -> m SpecLLVMValue
 evalMixedExpr (TC.LogicE expr) ec = evalLogicExpr expr ec
 evalMixedExpr (TC.LLVME expr) ec = evalLLVMExpr expr ec
