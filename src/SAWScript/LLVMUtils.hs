@@ -114,7 +114,7 @@ addAssertion :: SBE SpecBackend -> SharedTerm SAWCtx -> SpecPathState -> IO Spec
 addAssertion sbe x p = do
   p & pathAssertions %%~ \a -> liftIO (sbeRunIO sbe (applyAnd sbe a x))
 
-allocSome :: (Functor sbe, MonadIO m) =>
+allocSome :: (Functor sbe, Functor m, MonadIO m) =>
              SBE sbe
           -> DataLayout
           -> Integer
