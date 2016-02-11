@@ -1,0 +1,7 @@
+c <- java_load_class "Test0023";
+java_verify c "id" [] do {
+    x <- java_var "x" java_int;
+    java_assert {{ x > 5 }};
+    java_return {{ 6 : [32] }};
+    java_verify_tactic abc;
+};

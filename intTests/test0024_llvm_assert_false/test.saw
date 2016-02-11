@@ -1,0 +1,7 @@
+m <- llvm_load_module "test0024.bc";
+llvm_verify m "id" [] do {
+    x <- llvm_var "x" (llvm_int 32);
+    llvm_assert {{ x > 5 }};
+    llvm_return {{ 6 : [32] }};
+    llvm_verify_tactic abc;
+};
