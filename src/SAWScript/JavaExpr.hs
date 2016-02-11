@@ -161,7 +161,7 @@ jeVarName = map dotToUnderscore . ppJavaExpr
         dotToUnderscore c = c
 
 asJavaExpr :: SharedTerm s -> Maybe String
-asJavaExpr (STApp _ (FTermF (ExtCns ec))) = Just (ecName ec)
+asJavaExpr STApp{ stAppTermF = FTermF (ExtCns ec) } = Just (ecName ec)
 asJavaExpr _ = Nothing
 
 isRefJavaExpr :: JavaExpr -> Bool
