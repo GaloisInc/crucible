@@ -752,7 +752,7 @@ negTypedTerm sc (TypedTerm schema t) = do
   return (TypedTerm schema t')
 
 negTerm :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
-negTerm sc (STApp _ (Lambda x ty tm)) = scLambda sc x ty =<< negTerm sc tm
+negTerm sc (STApp _ _ (Lambda x ty tm)) = scLambda sc x ty =<< negTerm sc tm
 negTerm sc tm = scNot sc tm
 
 satWithExporter :: (SharedContext s -> FilePath -> TypedTerm s -> IO ())
