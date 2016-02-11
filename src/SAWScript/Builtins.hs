@@ -50,7 +50,6 @@ import Verifier.SAW.FiniteValue ( FiniteType(..), FiniteValue(..)
                                 , finiteTypeOf, asFiniteTypePure, sizeFiniteType
                                 )
 import Verifier.SAW.Prelude
-import Verifier.SAW.PrettySExp
 import Verifier.SAW.SCTypeCheck
 import Verifier.SAW.SharedTerm
 import qualified Verifier.SAW.Simulator.Concrete as Concrete
@@ -446,17 +445,6 @@ printGoalSize = StateT $ \goal -> do
   let t = ttTerm (goalTerm goal)
   io $ putStrLn $ "Goal shared size: " ++ show (scSharedSize t)
   io $ putStrLn $ "Goal unshared size: " ++ show (scTreeSize t)
-  return ((), goal)
-
-printGoalSExp :: ProofScript SAWCtx ()
-printGoalSExp = StateT $ \goal -> do
-  io $ print (ppSharedTermSExp (ttTerm (goalTerm goal)))
-  return ((), goal)
-
-printGoalSExp' :: Int -> ProofScript SAWCtx ()
-printGoalSExp' n = StateT $ \goal -> do
-  let cfg = defaultPPConfig { ppMaxDepth = Just n}
-  io $ print (ppSharedTermSExpWith cfg (ttTerm (goalTerm goal)))
   return ((), goal)
 
 unfoldGoal :: [String] -> ProofScript SAWCtx ()
@@ -918,10 +906,6 @@ check_term :: SharedTerm SAWCtx -> TopLevel ()
 check_term t = do
   sc <- getSharedContext
   io (scTypeCheckError sc t >>= print)
-
-printTermSExp' :: Int -> SharedTerm SAWCtx -> TopLevel ()
-printTermSExp' n =
-  io . print . ppSharedTermSExpWith (defaultPPConfig { ppMaxDepth = Just n })
 
 fixPos :: Pos
 fixPos = PosInternal "FIXME"
