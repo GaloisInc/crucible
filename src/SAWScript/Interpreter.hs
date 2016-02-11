@@ -536,16 +536,6 @@ primitives = Map.fromList
     (pureVal ((\d -> print . ppTermDepth d) :: Int -> SharedTerm SAWCtx -> IO ()))
     [ "Pretty-print the given term in SAWCore syntax up to a given depth." ]
 
-{-
-  , prim "print_term_sexp"     "Term -> TopLevel ()"
-    (pureVal ((print . ppSharedTermSExp) :: SharedTerm SAWCtx -> IO ()))
-    [ "TODO" ]
-
-  , prim "print_term_sexp'"    "Int -> Term -> TopLevel ()"
-    (pureVal printTermSExp')
-    [ "TODO" ]
--}
-
   , prim "dump_file_AST"       "String -> TopLevel ()"
     (bicVal $ const $ \opts -> SAWScript.Import.loadFile opts >=> mapM_ print)
     [ "Dump a pretty representation of the SAWScript AST for a file." ]
@@ -797,16 +787,6 @@ primitives = Map.fromList
     [ "Print the size of the goal in terms of both the number of DAG nodes"
     , "and the number of nodes it would have if represented as a tree."
     ]
-
-{-
-  , prim "print_goal_sexp"     "ProofScript ()"
-    (pureVal printGoalSExp)
-    [ "TODO" ]
-
-  , prim "print_goal_sexp'"    "Int -> ProofScript ()"
-    (pureVal printGoalSExp')
-    [ "TODO" ]
--}
 
   , prim "assume_valid"        "ProofScript ProofResult"
     (pureVal (assumeValid :: ProofScript SAWCtx ProofResult))
