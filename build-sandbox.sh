@@ -70,7 +70,7 @@ if [ "${dotests}" == "true" ] ; then
     # XML file below.
     (
       set +e
-      ${stack} build --test --haddock --test-arguments="${test_arguments}" ${pkg}
+      ${stack} build --test --test-arguments="${test_arguments}" ${pkg}
       exit 0
     )
 
@@ -82,5 +82,5 @@ if [ "${dotests}" == "true" ] ; then
     fi
   done
 else
-  ${stack} build --haddock
+  ${stack} build
 fi

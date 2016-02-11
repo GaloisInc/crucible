@@ -7,6 +7,10 @@ Cabal-version: >= 1.8.0.2
 License:       OtherLicense
 License-file:  LICENSE
 
+extra-source-files:
+    src/SAWScript/Parser.y
+    src/SAWScript/Lexer.x
+
 library
   build-depends:
       base >= 4
@@ -17,7 +21,6 @@ library
     , array
     , binary
     , bytestring
-    , cond
     , containers
     , cryptol
     , cryptol-verifier
@@ -28,6 +31,7 @@ library
     , fgl
     , filepath
     , free
+    , gitrev
     , haskeline
     , IfElse
     , jvm-parser
@@ -113,6 +117,11 @@ library
     SAWScript.Utils
     SAWScript.Value
     SAWScript.VerificationCheck
+    SAWScript.Version
+
+  other-modules:
+    Paths_saw_script
+    GitRev
 
   GHC-options: -O2 -Wall -Werror -fno-ignore-asserts -fno-spec-constr-count
 

@@ -35,6 +35,7 @@ $graphic   = [$alpha $symbol $digit $special \:\"\'\_]
 $binit     = 0-1
 $octit     = 0-7
 $hexit     = [0-9 A-F a-f]
+$idfirst   = [$alpha \_]
 $idchar    = [$alpha $digit \' \_]
 $codechar  = [$graphic $whitechar]
 
@@ -47,7 +48,7 @@ $codechar  = [$graphic $whitechar]
 @reservedop  = "~"  | "-" | "*" | "+" | "/" | "%" | ">>" | "<<" | "|" | "&"
              | "^" | "#"  | "==" | "!=" | ">=" | ">" | "<=" |"<" | "&&"
              | "||" | "==>" | "@"
-@varid       = $alpha $idchar*
+@varid       = $idfirst $idchar*
 @decimal     = $digit+
 @binary      = $binit+
 @octal       = $octit+

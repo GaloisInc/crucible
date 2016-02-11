@@ -28,6 +28,7 @@ import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Identity
+import Data.List (genericLength)
 import Data.Map (Map)
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -168,13 +169,15 @@ newTypeIndex = do
 newType :: TI Type
 newType = TyUnifyVar <$> newTypeIndex
 
-skolemType :: Name -> TI Type
-skolemType n = TySkolemVar n <$> newTypeIndex
-
-skolemInst :: Schema -> TI Type
-skolemInst (Forall ns t) = do
-  nts <- mapM (\n -> (,) n <$> skolemType n) ns
-  return (instantiate nts t)
+newTypePattern :: Pattern -> TI (Type, Pattern)
+newTypePattern pat =
+  case pat of
+    PWild mt  -> do t <- maybe newType return mt
+                    return (t, PWild (Just t))
+    PVar x mt -> do t <- maybe newType return mt
+                    return (t, PVar x (Just t))
+    PTuple ps -> do (ts, ps') <- unzip <$> mapM newTypePattern ps
+                    return (tTuple ts, PTuple ps')
 
 appSubstM :: AppSubst t => t -> TI t
 appSubstM t = do
@@ -206,11 +209,33 @@ bindSchemas bs m = foldr (uncurry bindSchema) m bs
 
 bindDecl :: Decl -> TI a -> TI a
 bindDecl (Decl _ Nothing _) m = m
-bindDecl (Decl n (Just s) _) m = bindSchema n s m
+bindDecl (Decl p (Just s) _) m = bindPatternSchema p s m
 
 bindDeclGroup :: DeclGroup -> TI a -> TI a
 bindDeclGroup (NonRecursive d) m = bindDecl d m
 bindDeclGroup (Recursive ds) m = foldr bindDecl m ds
+
+bindPattern :: Pattern -> TI a -> TI a
+bindPattern pat = bindSchemas bs
+  where bs = [ (x, tMono t) | (x, Just t) <- patternBindings pat ]
+
+patternBindings :: Pattern -> [(Located Name, Maybe Type)]
+patternBindings pat =
+  case pat of
+    PWild _mt -> []
+    PVar x mt -> [(x, mt)]
+    PTuple ps -> concatMap patternBindings ps
+
+bindPatternSchema :: Pattern -> Schema -> TI a -> TI a
+bindPatternSchema pat s@(Forall vs t) m =
+  case pat of
+    PWild _ -> m
+    PVar n _ -> bindSchema n s m
+    PTuple ps ->
+      case t of
+        TyCon (TupleCon _) ts -> foldr ($) m
+          [ bindPatternSchema p (Forall vs t') | (p, t') <- zip ps ts ]
+        _ -> m
 
 -- FIXME: This function may miss type variables that occur in the type
 -- of a binding that has been shadowed by another value with the same
@@ -273,16 +298,22 @@ instance AppSubst Expr where
     Lookup rec fld     -> Lookup (appSubst s rec) fld
     TLookup tpl idx    -> TLookup (appSubst s tpl) idx
     Var _              -> expr
-    Function x xt body -> Function x (appSubst s xt) (appSubst s body)
+    Function pat body  -> Function (appSubst s pat) (appSubst s body)
     Application f v    -> Application (appSubst s f) (appSubst s v)
     Let dg e           -> Let (appSubst s dg) (appSubst s e)
+
+instance AppSubst Pattern where
+  appSubst s pat = case pat of
+    PWild mt  -> PWild (appSubst s mt)
+    PVar x mt -> PVar x (appSubst s mt)
+    PTuple ps -> PTuple (appSubst s ps)
 
 instance (Ord k, AppSubst a) => AppSubst (M.Map k a) where
   appSubst s = fmap (appSubst s)
 
 instance AppSubst Stmt where
   appSubst s bst = case bst of
-    StmtBind mn mt ctx e -> StmtBind mn mt ctx e
+    StmtBind pat ctx e   -> StmtBind (appSubst s pat) (appSubst s ctx) (appSubst s e)
     StmtLet dg           -> StmtLet (appSubst s dg)
     StmtCode str         -> StmtCode str
     StmtImport imp       -> StmtImport imp
@@ -292,7 +323,7 @@ instance AppSubst DeclGroup where
   appSubst s (NonRecursive d) = NonRecursive (appSubst s d)
 
 instance AppSubst Decl where
-  appSubst s (Decl n mt e) = Decl n (appSubst s mt) (appSubst s e)
+  appSubst s (Decl p mt e) = Decl (appSubst s p) (appSubst s mt) (appSubst s e)
 
 -- }}}
 
@@ -321,7 +352,6 @@ instance Instantiate Type where
 
 type OutExpr = Expr
 type OutStmt = Stmt
-
 
 inferE :: (LName, Expr) -> TI (OutExpr,Type)
 inferE (ln, expr) = case expr of
@@ -368,9 +398,9 @@ inferE (ln, expr) = case expr of
   -}
 
 
-  Function x mt body -> do xt <- maybe newType return mt
-                           (body',t) <- bindSchema x (tMono xt) $ inferE (ln, body)
-                           return (Function x (Just xt) body', tFun xt t)
+  Function pat body -> do (pt, pat') <- newTypePattern pat
+                          (body', t) <- bindPattern pat' $ inferE (ln, body)
+                          return (Function pat' body', tFun pt t)
 
   Application f v -> do (v',fv) <- inferE (ln,v)
                         t <- newType
@@ -460,35 +490,32 @@ inferStmts m _ctx [] = do
   t <- newType
   return ([], t)
 
-inferStmts m ctx [StmtBind Nothing _ mc e] = do
-  t  <- newType
+inferStmts m ctx [StmtBind (PWild mt) mc e] = do
+  t  <- maybe newType return mt
   e' <- checkE m e (tBlock ctx t)
   mc' <- case mc of
     Nothing -> return ctx
     Just ty  -> do ty' <- checkKind ty
                    unify m ty ctx -- TODO: should this be ty'?
                    return ty'
-  return ([StmtBind Nothing (Just t) (Just mc') e'],t)
+  return ([StmtBind (PWild (Just t)) (Just mc') e'],t)
 
 inferStmts m _ [_] = do
   recordError ("do block must end with expression at " ++ show m)
   t <- newType
   return ([],t)
 
-inferStmts m ctx (StmtBind mn mt mc e : more) = do
-  t <- maybe newType return mt
-  e' <- checkE m e (tBlock ctx t)
+inferStmts m ctx (StmtBind pat mc e : more) = do
+  (pt, pat') <- newTypePattern pat
+  e' <- checkE m e (tBlock ctx pt)
   mc' <- case mc of
     Nothing -> return ctx
     Just c  -> do c' <- checkKind c
                   unify m c ctx
                   return c'
-  let f = case mn of
-        Nothing -> id
-        Just n  -> bindSchema n (tMono t)
-  (more',t') <- f $ inferStmts m ctx more
+  (more', t') <- bindPattern pat' $ inferStmts m ctx more
 
-  return (StmtBind mn (Just t') (Just mc') e' : more', t')
+  return (StmtBind pat' (Just mc') e' : more', t')
 
 inferStmts m ctx (StmtLet dg : more) = do
   dg' <- inferDeclGroup dg
@@ -503,31 +530,48 @@ inferStmts m ctx (StmtImport imp : more) = do
   (more', t) <- inferStmts m ctx more
   return (StmtImport imp : more', t)
 
-inferDecl :: Decl -> TI Decl
-inferDecl (Decl n Nothing e) = do
-  (e',t) <- inferE (n, e)
-  [(e1,s)] <- generalize [e'] [t]
-  return (Decl n (Just s) e1)
+patternLNames :: Pattern -> [LName]
+patternLNames pat =
+  case pat of
+    PWild _ -> []
+    PVar n _ -> [n]
+    PTuple ps -> concatMap patternLNames ps
 
-inferDecl (Decl n (Just s) e) = do
-  (e', t) <- inferE (n, e)
-  t' <- skolemInst s
-  unify n t t'
-  -- FIXME: make sure the skolem variables didn't "leak" into the surrounding context
-  return (Decl n (Just s) e')
+constrainTypeWithPattern :: LName -> Type -> Pattern -> TI ()
+constrainTypeWithPattern ln t pat =
+  case pat of
+    PWild Nothing -> return ()
+    PWild (Just t') -> unify ln t t'
+    PVar _ Nothing -> return ()
+    PVar _ (Just t') -> unify ln t t'
+    PTuple ps ->
+      case t of
+        TyCon (TupleCon k) ts
+          | k == genericLength ps ->
+            sequence_ $ zipWith (constrainTypeWithPattern ln) ts ps
+        _ -> recordError $ unlines
+               [ "type mismatch: " ++ pShow (TupleCon (genericLength ps)) ++ " and " ++ pShow t
+               , " at " ++ show ln
+               ]
+
+inferDecl :: Decl -> TI Decl
+inferDecl (Decl pat _ e) = do
+  let n = head (patternLNames pat)
+  (e',t) <- inferE (n, e)
+  constrainTypeWithPattern n t pat
+  [(e1,s)] <- generalize [e'] [t]
+  return (Decl pat (Just s) e1)
 
 inferRecDecls :: [Decl] -> TI [Decl]
 inferRecDecls ds =
-  do let names = map dName ds
-     guessedSchemas <- mapM (maybe (tMono <$> newType) return . dType) ds
-     (es,ts) <- unzip `fmap`
-                bindSchemas (zip names guessedSchemas)
-                            (mapM inferE [ (n, e) | Decl n _ e <- ds ])
-     guessedTypes <- mapM skolemInst guessedSchemas
-     sequence_ $ zipWith3 unify names ts guessedTypes
-     (es1,ss) <- unzip `fmap` generalize es ts
-     return [ Decl n (Just s) e | (n, s, e) <- zip3 names ss es1 ]
-
+  do let pats = map dPat ds
+     (_ts, pats') <- unzip <$> mapM newTypePattern pats
+     (es, ts) <- fmap unzip
+                 $ flip (foldr bindPattern) pats'
+                 $ sequence [ inferE (head (patternLNames p), e) | Decl p _ e <- ds ]
+     sequence_ $ zipWith (constrainTypeWithPattern (error "FIXME")) ts pats'
+     ess <- generalize es ts
+     return [ Decl p (Just s) e1 | (p, (e1, s)) <- zip pats ess ]
 
 generalize :: [OutExpr] -> [Type] -> TI [(OutExpr,Schema)]
 generalize es0 ts0 =

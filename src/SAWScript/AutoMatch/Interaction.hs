@@ -25,7 +25,6 @@ import Control.Monad.Trans.Maybe
 import Control.Applicative
 #endif
 import Control.Arrow ((***), second)
-import Control.Conditional (whenM)
 import Text.Read (readMaybe)
 import Data.Maybe
 import Data.Char
@@ -246,8 +245,9 @@ userQuit = failure False "Matching terminated by user."
 
 -- | Ask the user whether they want to continue (phrasing up to the programmer) and quit if not
 confirmOrQuit :: (Monad m, MonadTrans t, MonadFree InteractionF (t (MaybeT m)), Functor (t (MaybeT m))) => String -> t (MaybeT m) ()
-confirmOrQuit str =
-   whenM (not <$> confirm str) userQuit
+confirmOrQuit str = do
+   r <- confirm str
+   when (not r) userQuit
 
 -- | Symbolic representation of horizontal separators printable during interaction
 data Separator = SuperThinSep | ThinSep | ThickSep | SuperThickSep deriving (Eq, Ord, Show)

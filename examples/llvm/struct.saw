@@ -14,14 +14,12 @@ print set_indir;
 print "Original value of array field elements when directly returned:";
 print id_t;
 
-/*
 let set_spec = do {
-    // The following does not yet work, since llvm_ptr doesn't support
-    // struct types.
     llvm_ptr "o" (llvm_struct "struct.s");
+    llvm_ptr "o->0" (llvm_array 2 (llvm_int 32));
+    llvm_var "*(o->0)" (llvm_array 2 (llvm_int 32));
     llvm_ensure_eq "*(o->0)" {{ [0, 0] : [2][32] }};
     llvm_verify_tactic abc;
 };
 
 llvm_verify m "set_indirect" [] set_spec;
-*/

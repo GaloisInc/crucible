@@ -75,27 +75,23 @@ storePathState :: SBE SpecBackend
                -> IO SpecPathState
 storePathState sbe dst tp val ps = do
   (c, m') <- sbeRunIO sbe (memStore sbe (ps ^. pathMem) dst tp val 0)
-  _ps' <- addAssertion sbe c ps
-  -- FIXME: don't discard ps'!
-  return (ps & pathMem .~ m')
+  ps' <- addAssertion sbe c ps
+  return (ps' & pathMem .~ m')
 
 loadPathState :: SBE SpecBackend
               -> SharedTerm SAWCtx
               -> MemType
               -> SpecPathState
-              -> IO SpecLLVMValue
-loadPathState sbe src tp ps = do
-  (c, v) <- sbeRunIO sbe (memLoad sbe (ps ^. pathMem) tp src 0)
-  _ps' <- addAssertion sbe c ps
-  -- FIXME: don't discard ps'!
-  return v
+              -> IO (SpecLLVMValue, SpecLLVMValue)
+loadPathState sbe src tp ps =
+  sbeRunIO sbe (memLoad sbe (ps ^. pathMem) tp src 0)
 
 loadGlobal :: SBE SpecBackend
            -> GlobalMap SpecBackend
            -> Symbol
            -> MemType
            -> SpecPathState
-           -> IO SpecLLVMValue
+           -> IO (SpecLLVMValue, SpecLLVMValue)
 loadGlobal sbe gm sym tp ps = do
   case Map.lookup sym gm of
     Just addr -> loadPathState sbe addr tp ps
@@ -117,3 +113,14 @@ storeGlobal sbe gm sym tp v ps = do
 addAssertion :: SBE SpecBackend -> SharedTerm SAWCtx -> SpecPathState -> IO SpecPathState
 addAssertion sbe x p = do
   p & pathAssertions %%~ \a -> liftIO (sbeRunIO sbe (applyAnd sbe a x))
+
+allocSome :: (Functor sbe, Functor m, MonadIO m) =>
+             SBE sbe
+          -> DataLayout
+          -> Integer
+          -> MemType
+          -> Simulator sbe m (SBETerm sbe)
+allocSome sbe dl n ty = do
+  let aw = ptrBitwidth dl
+  sz <- liftSBE (termInt sbe aw n)
+  malloc ty aw sz

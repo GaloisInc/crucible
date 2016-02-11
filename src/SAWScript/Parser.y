@@ -108,21 +108,25 @@ mbImportSpec :: { Maybe P.ImportSpec }
  | {- empty -}                          { Nothing }
 
 Stmt :: { Stmt }
- : Expression                           { StmtBind Nothing Nothing Nothing $1   }
- | Arg '<-' Expression                  { StmtBind (Just (fst $1)) (snd $1) Nothing $3 }
+ : Expression                           { StmtBind (PWild Nothing) Nothing $1   }
+ | Expression '<-' Expression           {% fmap (\x -> StmtBind x Nothing $3) (toPattern $1) }
  | 'rec' sepBy1(Declaration, 'and')     { StmtLet (Recursive $2)                  }
  | 'let' Declaration                    { StmtLet (NonRecursive $2)               }
  | 'let' Code                           { StmtCode $2                 }
  | 'import' Import                      { StmtImport $2               }
 
 Declaration :: { Decl }
- : name list(Arg) '=' Expression        { Decl (toLName $1) Nothing (buildFunction $2 $4) }
- | name list(Arg) ':' Type '=' Expression
-                                        { Decl (toLName $1) Nothing (buildFunction $2 (TSig $6 $4)) }
+ : Arg list(Arg) '=' Expression         { Decl $1 Nothing (buildFunction $2 $4) }
+ | Arg list(Arg) ':' Type '=' Expression
+                                        { Decl $1 Nothing (buildFunction $2 (TSig $6 $4)) }
 
-Arg :: { (LName, Maybe Type) }
- : name                                 { (toLName $1, Nothing) }
- | '(' name ':' Type ')'                { (toLName $2, Just $4) }
+Pattern :: { Pattern }
+ : Arg                                  { $1 }
+ | name ':' Type                        { PVar (toLName $1) (Just $3) }
+
+Arg :: { Pattern }
+ : name                                 { PVar (toLName $1) Nothing }
+ | '(' commas(Pattern) ')'              { case $2 of [p] -> p; _ -> PTuple $2 }
 
 Expression :: { Expr }
  : IExpr                                { $1 }
@@ -263,6 +267,7 @@ commas2(p) : sepBy2(p, ',') { $1 }
 data ParseError
   = UnexpectedEOF
   | UnexpectedToken (Token Pos)
+  | InvalidPattern Expr
 
 instance Show ParseError where
   show e =
@@ -276,12 +281,18 @@ parseError toks = case toks of
   []    -> Left UnexpectedEOF
   t : _ -> Left (UnexpectedToken t)
 
-buildFunction :: [(LName, Maybe Type)] -> Expr -> Expr
-buildFunction args e = foldr foldFunction e args
-  where
-  foldFunction (argName, mType) rhs = Function argName mType rhs
+buildFunction :: [Pattern] -> Expr -> Expr
+buildFunction args e = foldr Function e args
 
 buildApplication :: [Expr] -> Expr
 buildApplication = foldl1 (\e body -> Application e body)
+
+toPattern :: Expr -> Either ParseError Pattern
+toPattern expr =
+  case expr of
+    Tuple es       -> PTuple `fmap` mapM toPattern es
+    TSig (Var x) t -> return (PVar x (Just t))
+    Var x          -> return (PVar x Nothing)
+    _              -> Left (InvalidPattern expr)
 
 }

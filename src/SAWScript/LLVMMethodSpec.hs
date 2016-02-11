@@ -104,7 +104,8 @@ runEval v = liftIO (runExceptT v)
 
 -- | Evaluate an LLVM expression, and return its value (r-value) as an
 -- internal term.
-evalLLVMExpr :: (MonadIO m) => TC.LLVMExpr -> EvalContext
+evalLLVMExpr :: (Functor m, MonadIO m) =>
+                TC.LLVMExpr -> EvalContext
              -> m SpecLLVMValue
 evalLLVMExpr expr ec = eval expr
   where eval e@(CC.Term app) =
@@ -114,16 +115,19 @@ evalLLVMExpr expr ec = eval expr
                 Just v -> return v
                 Nothing -> fail $ "evalLLVMExpr: argument not found: " ++ show e
             TC.Global n tp -> do
-              liftIO $ loadGlobal sbe (ecGlobalMap ec) n tp ps
+              -- TODO: don't discard fst
+              snd <$> (liftIO $ loadGlobal sbe (ecGlobalMap ec) n tp ps)
             TC.Deref ae tp -> do
               addr <- evalLLVMExpr ae ec
-              liftIO $ loadPathState sbe addr tp ps
+              -- TODO: don't discard fst
+              snd <$> (liftIO $ loadPathState sbe addr tp ps)
             TC.StructField ae si idx tp ->
               case siFieldOffset si idx of
                 Just off -> do
                   saddr <- evalLLVMExpr ae ec
                   addr <- liftIO $ addrPlusOffset (ecDataLayout ec) sc saddr off
-                  liftIO $ loadPathState sbe addr tp ps
+                  -- TODO: don't discard fst
+                  snd <$> (liftIO $ loadPathState sbe addr tp ps)
                 Nothing ->
                   fail $ "Struct field index " ++ show idx ++ " out of bounds"
             TC.ReturnValue _ -> fail "return values not yet supported" -- TODO
@@ -133,7 +137,7 @@ evalLLVMExpr expr ec = eval expr
 
 -- | Evaluate an LLVM expression, and return the location it describes
 -- (l-value) as an internal term.
-evalLLVMRefExpr :: (MonadIO m) =>
+evalLLVMRefExpr :: (Functor m, MonadIO m) =>
                    TC.LLVMExpr -> EvalContext
                 -> m SpecLLVMValue
 evalLLVMRefExpr expr ec = eval expr
@@ -157,19 +161,20 @@ evalLLVMRefExpr expr ec = eval expr
         gm = ecGlobalMap ec
         sc = ecContext ec
 
-evalDerefLLVMExpr :: (MonadIO m) =>
+evalDerefLLVMExpr :: (Functor m, MonadIO m) =>
                      TC.LLVMExpr -> EvalContext
                   -> m (SharedTerm SAWCtx)
 evalDerefLLVMExpr expr ec = do
   val <- evalLLVMExpr expr ec
   case TC.lssTypeOfLLVMExpr expr of
     PtrType (MemType tp) -> liftIO $
-      loadPathState (ecBackend ec) val tp (ecPathState ec)
+      -- TODO: don't discard fst
+      (snd <$> loadPathState (ecBackend ec) val tp (ecPathState ec))
     PtrType _ -> fail "Pointer to weird type."
     _ -> return val
 
 -- | Evaluate a typed expression in the context of a particular state.
-evalLogicExpr :: (MonadIO m) =>
+evalLogicExpr :: (Functor m, MonadIO m) =>
                  TC.LogicExpr -> EvalContext
               -> m SpecLLVMValue
 evalLogicExpr initExpr ec = do
@@ -186,7 +191,8 @@ evalLogicExpr initExpr ec = do
   liftIO $ scInstantiateExt sc (Map.fromList extMap) t
 
 -- | Return Java value associated with mixed expression.
-evalMixedExpr :: (MonadIO m) => TC.MixedExpr -> EvalContext
+evalMixedExpr :: (Functor m, MonadIO m) =>
+                 TC.MixedExpr -> EvalContext
               -> m SpecLLVMValue
 evalMixedExpr (TC.LogicE expr) ec = evalLogicExpr expr ec
 evalMixedExpr (TC.LLVME expr) ec = evalLLVMExpr expr ec
@@ -456,7 +462,7 @@ esAddAssumption p = do
 -- | Set value in initial state.
 esSetLLVMValue :: TC.LLVMExpr -> SpecLLVMValue
                -> ExpectedStateGenerator ()
-esSetLLVMValue (CC.Term exprF) v = do
+esSetLLVMValue e@(CC.Term exprF) v = do
   sc <- gets esContext
   dl <- gets esDataLayout
   sbe <- gets esBackend
@@ -475,7 +481,7 @@ esSetLLVMValue (CC.Term exprF) v = do
           ps' <- liftIO $ storePathState sbe addr tp v ps
           esPutInitialPathState ps'
         Nothing ->
-          fail "internal: esSetLLVMValue on address not assigned a value"
+          fail $ "internal: esSetLLVMValue on address not assigned a value: " ++ show (TC.ppLLVMExpr e)
     TC.StructField addrExp si idx tp -> do
       assgns <- gets esInitialAssignments
       case (lookup addrExp assgns, siFieldOffset si idx) of
@@ -485,7 +491,7 @@ esSetLLVMValue (CC.Term exprF) v = do
           ps' <- liftIO $ storePathState sbe addr tp v ps
           esPutInitialPathState ps'
         (Nothing, _) ->
-          fail "internal: esSetLLVMValue on address not assigned a value"
+          fail $ "internal: esSetLLVMValue on address not assigned a value: " ++ show (TC.ppLLVMExpr e)
         (_, Nothing) -> fail "internal: esSetLLVMValue on field out of bounds"
     TC.ReturnValue _ -> fail "Can't set the return value of a function."
 
@@ -499,7 +505,9 @@ createLogicValue :: Codebase SpecBackend
                  -> IO (SpecLLVMValue, SpecPathState)
 createLogicValue _ _ _ _ _ (PtrType _) (Just _) =
   fail "Pointer variables cannot be given initial values."
-createLogicValue cb sbe sc expr ps (PtrType (MemType mtp)) _ = do
+createLogicValue _ _ _ _ _ (StructType _) (Just _) =
+  fail "Struct variables cannot be given initial values as a whole."
+createLogicValue cb sbe sc _expr ps (PtrType (MemType mtp)) Nothing = do
   let dl = cbDataLayout cb
       sz = memTypeSize dl mtp
       w = ptrBitwidth dl
@@ -510,14 +518,11 @@ createLogicValue cb sbe sc expr ps (PtrType (MemType mtp)) _ = do
     AError msg -> fail msg
     AResult c addr m' -> do
       ps' <- addAssertion sbe c (ps & pathMem .~ m')
-      mbltp <- TC.logicTypeOfActual sc mtp
-      case mbltp of
-        Just ty -> do
-          v <- scFreshGlobal sc (show (TC.ppLLVMExpr expr)) ty
-          ps'' <- storePathState sbe addr mtp v ps'
-          return (addr, ps'')
-        Nothing ->
-          fail "Can't translate actual type to logic type."
+      return (addr, ps')
+createLogicValue _ _ _ _ _ (PtrType ty) Nothing =
+  fail $ "Pointer to weird type: " ++ show (ppSymType ty)
+createLogicValue _ _ _ _ _ (StructType _) Nothing =
+  fail "Non-pointer struct variables not supported."
 createLogicValue _ _ sc expr ps mtp mrhs = do
   mbltp <- TC.logicTypeOfActual sc mtp
   -- Get value of rhs.
@@ -540,11 +545,12 @@ esSetLogicValue cb sc expr mtp mrhs = do
   ps <- gets esInitialPathState
   -- Create the value to associate with this LLVM expression: either
   -- an assigned value or a fresh input.
-  -- TODO: don't discard ps'!
-  (value, _ps') <- liftIO $ createLogicValue cb sbe sc expr ps mtp mrhs
+  (value, ps') <- liftIO $ createLogicValue cb sbe sc expr ps mtp mrhs
   -- Update the initial assignments in the expected state.
   modify $ \es -> es { esInitialAssignments =
-                         (expr, value) : esInitialAssignments es }
+                         (expr, value) : esInitialAssignments es
+                     , esInitialPathState = ps'
+                     }
   -- Update the LLVM value in the stored path state.
   esSetLLVMValue expr value
 
@@ -646,16 +652,15 @@ initializeVerification sc ir = do
                          }
 
   es <- liftIO $ flip execStateT initESG $ do
+    let doAssign (expr, v) = do
+          let Just (mtp, _) = Map.lookup expr (bsExprDecls bs)
+          esSetLogicValue cb sc expr mtp v
     -- Allocate space for all pointers that aren't directly parameters.
-    forM_ ptrAssignments $ \(expr, v) -> do
-      let Just (mtp, _) = Map.lookup expr (bsExprDecls bs)
-      esSetLogicValue cb sc expr mtp v
+    forM_ ptrAssignments doAssign
     -- Set initial logic values for everything except arguments and
     -- pointers, including values pointed to by pointers from directly
     -- above, and fields of structures from anywhere.
-    forM_ otherAssignments $ \(expr, v) -> do
-      let Just (mtp, _) = Map.lookup expr (bsExprDecls bs)
-      esSetLogicValue cb sc expr mtp v
+    forM_ otherAssignments doAssign
     -- Add assumptions
     forM_ (specAssumptions ir) $ \le ->
       esEval (evalLogicExpr le) >>= esAddAssumption
@@ -705,8 +710,9 @@ generateVC _sc _ir esd (ps, endLoc, res) = do
         -- Check that expected state modifications have occurred.
         -- TODO: extend this to check that nothing else has changed.
         forM_ (esdExpectedValues esd) $ \(e, lhs, tp, rhs) -> do
-          finalValue <- liftIO $ loadPathState (esdBackend esd) lhs tp ps
+          (c, finalValue) <- liftIO $ loadPathState (esdBackend esd) lhs tp ps
           pvcgAssertEq (show e) finalValue rhs
+          pvcgAssert (show e ++ " safety condition") c
 
         -- Check assertions
         pvcgAssert "final assertions" (ps ^. pathAssertions)

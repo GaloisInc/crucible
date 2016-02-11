@@ -22,6 +22,7 @@ data Options = Options
   , extraChecks      :: Bool
   , runInteractively :: Bool
   , showHelp         :: Bool
+  , showVersion      :: Bool
   } deriving (Show)
 
 defaultOptions :: Options
@@ -35,6 +36,7 @@ defaultOptions
     , extraChecks = False
     , runInteractively = False
     , showHelp = False
+    , showVersion = False
     }
 
 options :: [OptDescr (Options -> Options)]
@@ -42,6 +44,9 @@ options =
   [ Option "h?" ["help"]
     (NoArg (\opts -> opts { showHelp = True }))
     "Print this help message"
+  , Option "V" ["version"]
+    (NoArg (\opts -> opts { showVersion = True }))
+    "Show the version of the SAWScript interpreter"
   , Option "c" ["classpath"]
     (ReqArg
      (\p opts -> opts { classPath = classPath opts ++ splitSearchPath p })

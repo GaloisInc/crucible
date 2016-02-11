@@ -166,18 +166,14 @@ symexecLLVM bic opts lmod fname allocs inputs outputs doSat =
               e <- failLeft $ runExceptT $ parseLLVMExpr cb md s
               case lssTypeOfLLVMExpr e of
                 PtrType (MemType ty) -> do
-                  tm <- allocSome n ty
+                  when (verb >= 2) $ liftIO $ putStrLn $
+                    "Allocating " ++ show n ++ " elements of type " ++ show (ppActualType ty)
+                  tm <- allocSome sbe dl n ty
                   when (verb >= 2) $ liftIO $ putStrLn $
                     "Allocated address: " ++ show tm
                   return (e, tm, 1)
                 _ -> fail $ "Allocation parameter " ++ s ++
                             " does not have pointer type"
-            allocSome n ty = do
-              when (verb >= 2) $ liftIO $ putStrLn $
-                "Allocating " ++ show n ++ " elements of type " ++ show (ppActualType ty)
-              let aw = ptrBitwidth dl
-              sz <- liftSBE (termInt sbe aw n)
-              malloc ty aw sz
             multDefErr i = error $ "Multiple terms given for " ++ ordinal (i + 1) ++
                                    " argument in function " ++ fname
             isArgAssign (e, _, _) = isArgLLVMExpr e
@@ -489,6 +485,7 @@ llvmPtr _ _ name sty = do
       Just funcDef = lookupDefine func cb
   lty <- case resolveSymType cb sty of
            MemType mty -> return mty
+           Alias i -> fail $ "Unexpected type alias in llvm_ptr: " ++ show i
            rty -> fail $ "Unsupported type in llvm_ptr: " ++ show (ppSymType rty)
   expr <- failLeft $ runExceptT $ parseLLVMExpr cb funcDef name
   unless (isPtrLLVMExpr expr) $ fail $
@@ -497,11 +494,8 @@ llvmPtr _ _ name sty = do
   let pty = PtrType (MemType lty)
       -- TODO: check compatibility before updating
       expr' = updateLLVMExprType expr pty
-      dexpr = Term (Deref expr' lty)
-      dname = '*':name
   modify $ \st ->
-    st { lsSpec = specAddVarDecl fixPos dname dexpr lty $
-                  specAddVarDecl fixPos name expr' pty (lsSpec st) }
+    st { lsSpec = specAddVarDecl fixPos name expr' pty (lsSpec st) }
 
 checkCompatibleType :: String -> LLVMActualType -> Cryptol.Schema
                     -> LLVMSetup ()
