@@ -20,6 +20,7 @@ import Control.Applicative hiding (empty)
 #endif
 import Control.Lens
 import Control.Monad.State
+import Control.Monad.Trans.Except
 import Data.List (partition)
 import Data.IORef
 import qualified Data.Map as Map
@@ -96,7 +97,7 @@ symexecJava bic opts cls mname inputs outputs satBranches = do
   (_mcls, meth) <- io $ findMethod cb pos mname cls
   -- TODO: should we use mcls anywhere below?
   let mkAssign (s, tm) = do
-        e <- liftIO $ parseJavaExpr cb cls meth s
+        e <- parseJavaExpr' cb cls meth s
         return (e, tm)
       multDefErr i = error $ "Multiple terms given for " ++ ordinal (i + 1) ++
                              " argument in method " ++ methodName meth
@@ -132,7 +133,7 @@ symexecJava bic opts cls mname inputs outputs satBranches = do
         case ostr of
           "$safety" -> return (ps ^. pathAssertions)
           _-> do
-            e <- liftIO $ parseJavaExpr cb cls meth ostr
+            e <- parseJavaExpr' cb cls meth ostr
             readJavaTerm (currentCallFrame initPS) ps e
       let bundle tms = case tms of
                          [t] -> return t
@@ -394,7 +395,7 @@ typeJavaExpr bic name ty = do
       cb = biJavaCodebase bic
       cls = specThisClass ms
       meth = specMethod ms
-  expr <- liftIO $ parseJavaExpr (biJavaCodebase bic) cls meth name
+  expr <- parseJavaExpr' (biJavaCodebase bic) cls meth name
   let jty = exprType expr
   jty' <- exportJSSType ty
   liftIO $ checkEqualTypes jty jty' name
@@ -465,6 +466,12 @@ javaAssert bic _ (TypedTerm schema v) = do
     LE le -> modifySpec (specAddAssumption le)
     JE je -> fail $ "Used java_assert with Java expression: " ++ show je
 
+parseJavaExpr' :: (MonadIO m) =>
+                  JSS.Codebase -> JSS.Class -> JSS.Method -> String
+               -> m JavaExpr
+parseJavaExpr' cb cls meth name =
+  liftIO (runExceptT (parseJavaExpr cb cls meth name) >>= either fail return)
+
 getJavaExpr :: (MonadIO m) =>
                JavaMethodSpecIR -> String
             -> m JavaExpr
@@ -472,7 +479,7 @@ getJavaExpr ms name = do
   let cb = specCodebase ms
       cls = specThisClass ms
       meth = specMethod ms
-  liftIO $ parseJavaExpr cb cls meth name
+  parseJavaExpr' cb cls meth name
 
 javaAssertEq :: BuiltinContext -> Options -> String -> TypedTerm SAWCtx
            -> JavaSetup ()

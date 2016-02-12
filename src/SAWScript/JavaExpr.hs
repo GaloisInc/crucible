@@ -62,13 +62,15 @@ module SAWScript.JavaExpr
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
 #endif
+import Control.Monad.Trans
+import Control.Monad.Trans.Except
 
 import Language.JVM.Common (ppFldId)
 
 import Data.List (intercalate)
 import Data.List.Split
 import qualified Data.Vector as V
-import Text.Read
+import Text.Read hiding (lift)
 
 import Verifier.Java.Codebase as JSS
 import Verifier.Java.SAWBackend hiding (basic_ss)
@@ -311,24 +313,24 @@ ppActualType (ArrayInstance l tp) = show tp ++ "[" ++ show l ++ "]"
 ppActualType (PrimitiveType tp) = show tp
 
 parseJavaExpr :: JSS.Codebase -> JSS.Class -> JSS.Method -> String
-              -> IO JavaExpr
+              -> ExceptT String IO JavaExpr
 parseJavaExpr cb cls meth estr = do
-  sr <- parseStaticParts cb eparts
+  sr <- lift $ parseStaticParts cb eparts
   case sr of
     Just e -> return e
     Nothing -> parseParts eparts
-  where parseParts :: [String] -> IO JavaExpr
-        parseParts [] = fail "empty Java expression"
+  where parseParts :: [String] -> ExceptT String IO JavaExpr
+        parseParts [] = throwE "empty Java expression"
         parseParts [s] =
           case s of
-            "this" | JSS.methodIsStatic meth ->
-                     fail $ "Can't use 'this' in static method " ++
-                            JSS.methodName meth
-                   | otherwise -> return (thisJavaExpr cls)
+            "this" | JSS.methodIsStatic meth -> throwE $
+                     "Can't use 'this' in static method " ++
+                     JSS.methodName meth
+                   | otherwise -> return $ thisJavaExpr cls
             "return" -> case returnJavaExpr meth of
                           Just e -> return e
-                          Nothing ->
-                            fail $ "No return value for " ++ methodName meth
+                          Nothing -> throwE $
+                            "No return value for " ++ methodName meth
             ('a':'r':'g':'s':'[':rest) -> do
               let num = fst (break (==']') rest)
               case readMaybe num of
@@ -342,30 +344,31 @@ parseJavaExpr cb cls meth estr = do
                   case mlv of
                     Nothing
                       | n < V.length paramTypes ->
-                        return (CC.Term (Local s i (paramTypes V.! (fromIntegral n))))
-                      | otherwise ->
-                        fail $ "(Zero-based) local variable index " ++ show i ++
-                               " for parameter " ++ show n ++ " doesn't exist"
-                    Just lv -> return (CC.Term (Local s i (localType lv)))
+                        return $ CC.Term $ Local s i $ paramTypes V.! (fromIntegral n)
+                      | otherwise -> throwE $
+                          "(Zero-based) local variable index " ++ show i ++
+                          " for parameter " ++ show n ++ " doesn't exist"
+                    Just lv -> return $ CC.Term $ Local s i $ localType lv
                 Nothing -> fail $ "bad Java expression syntax: " ++ s
             _ | hasDebugInfo meth -> do
                   let mlv = lookupLocalVariableByName meth 0 s
                   case mlv of
-                    Nothing -> fail $ "local " ++ s ++ " doesn't exist, expected one of: " ++
-                                 unwords (map localName (localVariableEntries meth 0))
-                    Just lv -> return (CC.Term (Local s i ty))
+                    Nothing -> throwE $
+                      "local " ++ s ++ " doesn't exist, expected one of: " ++
+                      (unwords $ map localName $ localVariableEntries meth 0)
+                    Just lv -> return $ CC.Term $ Local s i ty
                       where i = JSS.localIdx lv
                             ty = JSS.localType lv
-              | otherwise ->
-                  fail $ "variable " ++ s ++
-                         " referenced by name, but no debug info available"
+              | otherwise -> throwE $
+                  "variable " ++ s ++
+                  " referenced by name, but no debug info available"
         parseParts (f:rest) = do
           e <- parseParts rest
           let jt = exprType e
               pos = PosInternal "FIXME" -- TODO
           fid <- findField cb pos jt f
-          return (CC.Term (InstanceField e fid))
-        eparts = reverse (splitOn "." estr)
+          return $ CC.Term $ InstanceField e fid
+        eparts = reverse $ splitOn "." estr
 
 parseStaticParts :: Codebase -> [String] -> IO (Maybe JavaExpr)
 parseStaticParts cb (fname:rest) = do

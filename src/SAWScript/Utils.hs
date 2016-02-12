@@ -17,6 +17,7 @@ import Data.Traversable (traverse)
 #endif
 import Control.Exception as CE
 import Control.Monad.State
+import Control.Monad.Trans.Except
 import Control.DeepSeq(rnf, NFData(..))
 import Data.List(intercalate)
 import Data.Char(isSpace)
@@ -182,26 +183,28 @@ findMethod cb pos nm initClass = impl initClass
                      res = "Please rename the Java method so that it is unique."
                   in throwIOExecException pos (ftext msg) res
 
-throwFieldNotFound :: Pos -> JSS.Type -> String -> IO a
-throwFieldNotFound pos tp fieldName =
-  let msg = "Values with type \'" ++ show tp ++ "\' do not contain field named "
-              ++ fieldName ++ "."
-   in throwIOExecException pos (ftext msg) ""
+throwFieldNotFound :: JSS.Type -> String -> ExceptT String IO a
+throwFieldNotFound tp fieldName = throwE msg
+  where
+    msg = "Values with type \'" ++ show tp ++
+          "\' do not contain field named " ++
+          fieldName ++ "."
 
-findField :: JSS.Codebase -> Pos -> JSS.Type -> String -> IO JSS.FieldId
-findField _ pos tp@(JSS.ArrayType _) nm = throwFieldNotFound pos tp nm
-findField cb pos tp@(JSS.ClassType clName) nm = impl =<< lookupClass cb pos clName
-  where impl cl =
-          case filter (\f -> JSS.fieldName f == nm) $ JSS.classFields cl of
-            [] -> do
-              case JSS.superClass cl of
-                Nothing -> throwFieldNotFound pos tp nm
-                Just superName -> impl =<< lookupClass cb pos superName
-            [f] -> return $ JSS.FieldId (JSS.className cl) nm (JSS.fieldType f)
-            _ -> error "internal: Found multiple fields with the same name."
-findField _ pos _ _ =
-  let msg = "Primitive types cannot be dereferenced."
-   in throwIOExecException pos (ftext msg) ""
+findField :: JSS.Codebase -> Pos -> JSS.Type -> String -> ExceptT String IO JSS.FieldId
+findField _  _ tp@(JSS.ArrayType _) nm = throwFieldNotFound tp nm
+findField cb pos tp@(JSS.ClassType clName) nm = impl =<< lift (lookupClass cb pos clName)
+  where
+    impl cl =
+      case filter (\f -> JSS.fieldName f == nm) $ JSS.classFields cl of
+        [] -> do
+          case JSS.superClass cl of
+            Nothing -> throwFieldNotFound tp nm
+            Just superName -> impl =<< lift (lookupClass cb pos superName)
+        [f] -> return $ JSS.FieldId (JSS.className cl) nm (JSS.fieldType f)
+        _ -> throwE $
+             "internal: Found multiple fields with the same name: " ++ nm
+findField _ _ _ _ =
+  throwE "Primitive types cannot be dereferenced."
 
 defRewrites :: SharedContext s -> Ident -> IO [RewriteRule (SharedTerm s)]
 defRewrites sc ident =
