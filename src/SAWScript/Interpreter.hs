@@ -1098,7 +1098,7 @@ primitives = Map.fromList
 
   , prim "java_verify"
     "JavaClass -> String -> [JavaMethodSpec] -> JavaSetup () -> TopLevel JavaMethodSpec"
-    (bicVal (verifyJava True))
+    (bicVal (verifyJava False))
     [ "Verify a Java method against a method specification. The first two"
     , "arguments are the same as for 'java_extract' and 'java_symexec'."
     , "The list of JavaMethodSpec values in the third argument makes it"
