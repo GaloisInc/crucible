@@ -299,13 +299,14 @@ readJavaValue mcf ps (CC.Term e) = do
           let ifields = ps ^. pathMemory . memInstanceFields
           case Map.lookup (ref, f) ifields of
             Just fv -> return fv
-            _ -> fail "Instance field not found."
+            _ -> fail $ "Instance field '" ++ fieldIdName f ++ "' not found."
         _ -> fail "Object of instance field selector evaluated to non-reference."
     StaticField f -> do
       let sfields = ps ^. pathMemory . memStaticFields
       case Map.lookup f sfields of
         Just v -> return v
-        _ -> fail "Static field not found."
+        _ -> fail $ "Static field '" ++ fieldIdName f ++
+                    "' not found in class '" ++ fieldIdClass f ++ "'"
 
 readJavaValueSim :: (MonadSim sbe m) =>
                     JavaExpr

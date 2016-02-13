@@ -324,13 +324,13 @@ parseJavaExpr cb cls meth estr = do
         parseParts [s] =
           case s of
             "this" | JSS.methodIsStatic meth -> throwE $
-                     "Can't use 'this' in static method " ++
+                     "can't use 'this' in static method " ++
                      JSS.methodName meth
                    | otherwise -> return $ thisJavaExpr cls
             "return" -> case returnJavaExpr meth of
                           Just e -> return e
                           Nothing -> throwE $
-                            "No return value for " ++ methodName meth
+                            "no return value for " ++ methodName meth
             ('a':'r':'g':'s':'[':rest) -> do
               let num = fst (break (==']') rest)
               case readMaybe num of
@@ -346,16 +346,14 @@ parseJavaExpr cb cls meth estr = do
                       | n < V.length paramTypes ->
                         return $ CC.Term $ Local s i $ paramTypes V.! (fromIntegral n)
                       | otherwise -> throwE $
-                          "(Zero-based) local variable index " ++ show i ++
+                          "(zero-based) local variable index " ++ show i ++
                           " for parameter " ++ show n ++ " doesn't exist"
                     Just lv -> return $ CC.Term $ Local s i $ localType lv
                 Nothing -> fail $ "bad Java expression syntax: " ++ s
             _ | hasDebugInfo meth -> do
                   let mlv = lookupLocalVariableByName meth 0 s
                   case mlv of
-                    Nothing -> throwE $
-                      "local " ++ s ++ " doesn't exist, expected one of: " ++
-                      (unwords $ map localName $ localVariableEntries meth 0)
+                    Nothing -> throwE $ "can't parse expression: " ++ estr
                     Just lv -> return $ CC.Term $ Local s i ty
                       where i = JSS.localIdx lv
                             ty = JSS.localType lv
