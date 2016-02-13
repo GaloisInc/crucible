@@ -681,8 +681,10 @@ initializeVerification' :: MonadSim (SharedContext SAWCtx) m
                         -> SAWJavaSim m SpecPathState
 initializeVerification' sc ir bs refConfig = do
   -- Generate a reference for each reference equivalence class that
-  -- isn't entirely involved in a return expression.
-  let refConfig' = filter (not . all containsReturn . fst) refConfig
+  -- isn't entirely involved in a return expression. Sort by depth so
+  -- that we create enclosing objects before enclosed objects.
+  let refConfig' = sortBy (compare `on` (maximum . map exprDepth . fst)) $
+                   filter (not . all containsReturn . fst) refConfig
   exprRefs <- mapM (genRef . jssTypeOfActual . snd) refConfig'
   let refAssignments = (exprRefs `zip` map fst refConfig')
       pushFrame cs = case mcs' of

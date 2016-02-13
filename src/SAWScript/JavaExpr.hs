@@ -314,11 +314,7 @@ ppActualType (PrimitiveType tp) = show tp
 
 parseJavaExpr :: JSS.Codebase -> JSS.Class -> JSS.Method -> String
               -> ExceptT String IO JavaExpr
-parseJavaExpr cb cls meth estr = do
-  sr <- lift $ parseStaticParts cb eparts
-  case sr of
-    Just e -> return e
-    Nothing -> parseParts eparts
+parseJavaExpr cb cls meth estr = parseParts eparts
   where parseParts :: [String] -> ExceptT String IO JavaExpr
         parseParts [] = throwE "empty Java expression"
         parseParts [s] =
@@ -360,26 +356,20 @@ parseJavaExpr cb cls meth estr = do
               | otherwise -> throwE $
                   "variable " ++ s ++
                   " referenced by name, but no debug info available"
-        parseParts (f:rest) = do
-          e <- parseParts rest
-          let jt = exprType e
-              pos = PosInternal "FIXME" -- TODO
-          fid <- findField cb pos jt f
-          return $ CC.Term $ InstanceField e fid
+        parseParts (fname:rest) = do
+          let cname = intercalate "/" (reverse rest)
+          mc <- lift $ tryLookupClass cb cname
+          case (filter ((== fname) . fieldName) . filter fieldIsStatic . classFields) <$> mc of
+            Just [fld] -> do
+              let fid = FieldId cname fname (fieldType fld)
+              return $ CC.Term $ StaticField fid
+            _ -> do
+              e <- parseParts rest
+              let jt = exprType e
+                  pos = PosInternal "FIXME" -- TODO
+              fid <- findField cb pos jt fname
+              return $ CC.Term $ InstanceField e fid
         eparts = reverse $ splitOn "." estr
-
-parseStaticParts :: Codebase -> [String] -> IO (Maybe JavaExpr)
-parseStaticParts cb (fname:rest) = do
-  let cname = intercalate "/" (reverse rest)
-  mc <- tryLookupClass cb cname
-  case mc of
-    Just c ->
-      case filter ((== fname) . fieldName) (classFields c) of
-        [f] -> return (Just (CC.Term fld))
-          where fld =  StaticField (FieldId cname fname (fieldType f))
-        _ -> return Nothing
-    Nothing -> return Nothing
-parseStaticParts _ _ = return Nothing
 
 -- JavaType {{{1
 
