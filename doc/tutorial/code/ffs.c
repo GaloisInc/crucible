@@ -25,6 +25,20 @@ uint32_t ffs_imp(uint32_t i) {
     return (i) ? (n+((i+1) & 0x01)) : 0;
 }
 
+uint32_t ffs_imp_nobranch(uint32_t i) {
+  char n = 1;
+  int s1 = !(i & 0xffff) << 4;
+  n += s1; i >>= s1;
+  int s2 = !(i & 0x00ff) << 3;
+  n += s2;  i >>= s2;
+  int s3 = !(i & 0x000f) << 2;
+  n += s3;  i >>= s3;
+  int s4 = !(i & 0x0003) << 1;
+  n += s4;  i >>= s4;
+  // Still does have one branch...
+  return (i) ? (n+((i+1) & 0x01)) : 0;
+}
+
 // and now a buggy one
 uint32_t ffs_bug(uint32_t word) {
     // injected bug:
