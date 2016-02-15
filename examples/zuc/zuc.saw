@@ -1,0 +1,252 @@
+let {{ t (x : [32]) = drop`{1} x : [31] }};
+
+let use_LFSR = do {
+    S0 <- llvm_var "LFSR_S0" (llvm_int 32);
+    S1 <- llvm_var "LFSR_S1" (llvm_int 32);
+    S2 <- llvm_var "LFSR_S2" (llvm_int 32);
+    S3 <- llvm_var "LFSR_S3" (llvm_int 32);
+    S4 <- llvm_var "LFSR_S4" (llvm_int 32);
+    S5 <- llvm_var "LFSR_S5" (llvm_int 32);
+    S6 <- llvm_var "LFSR_S6" (llvm_int 32);
+    S7 <- llvm_var "LFSR_S7" (llvm_int 32);
+    S8 <- llvm_var "LFSR_S8" (llvm_int 32);
+    S9 <- llvm_var "LFSR_S9" (llvm_int 32);
+    S10 <- llvm_var "LFSR_S10" (llvm_int 32);
+    S11 <- llvm_var "LFSR_S11" (llvm_int 32);
+    S12 <- llvm_var "LFSR_S12" (llvm_int 32);
+    S13 <- llvm_var "LFSR_S13" (llvm_int 32);
+    S14 <- llvm_var "LFSR_S14" (llvm_int 32);
+    S15 <- llvm_var "LFSR_S15" (llvm_int 32);
+    llvm_assert {{ S0 == (S0 && 0x7FFFFFFF) }};
+    llvm_assert {{ S1 == (S1 && 0x7FFFFFFF) }};
+    llvm_assert {{ S2 == (S2 && 0x7FFFFFFF) }};
+    llvm_assert {{ S3 == (S3 && 0x7FFFFFFF) }};
+    llvm_assert {{ S4 == (S4 && 0x7FFFFFFF) }};
+    llvm_assert {{ S5 == (S5 && 0x7FFFFFFF) }};
+    llvm_assert {{ S6 == (S6 && 0x7FFFFFFF) }};
+    llvm_assert {{ S7 == (S7 && 0x7FFFFFFF) }};
+    llvm_assert {{ S8 == (S8 && 0x7FFFFFFF) }};
+    llvm_assert {{ S9 == (S9 && 0x7FFFFFFF) }};
+    llvm_assert {{ S10 == (S10 && 0x7FFFFFFF) }};
+    llvm_assert {{ S11 == (S11 && 0x7FFFFFFF) }};
+    llvm_assert {{ S12 == (S12 && 0x7FFFFFFF) }};
+    llvm_assert {{ S13 == (S13 && 0x7FFFFFFF) }};
+    llvm_assert {{ S14 == (S14 && 0x7FFFFFFF) }};
+    llvm_assert {{ S15 == (S15 && 0x7FFFFFFF) }};
+    return {{ [t S0, t S1, t S2, t S3, t S4, t S5, t S6, t S7,
+               t S8, t S9, t S10, t S11, t S12, t S13, t S14, t S15] }};
+};
+
+let assign_LFSR s' = do {
+    llvm_ensure_eq "LFSR_S0"  {{ (0 # (s' @ 0))  : [32] }};
+    llvm_ensure_eq "LFSR_S1"  {{ (0 # (s' @ 1))  : [32] }};
+    llvm_ensure_eq "LFSR_S2"  {{ (0 # (s' @ 2))  : [32] }};
+    llvm_ensure_eq "LFSR_S3"  {{ (0 # (s' @ 3))  : [32] }};
+    llvm_ensure_eq "LFSR_S4"  {{ (0 # (s' @ 4))  : [32] }};
+    llvm_ensure_eq "LFSR_S5"  {{ (0 # (s' @ 5))  : [32] }};
+    llvm_ensure_eq "LFSR_S6"  {{ (0 # (s' @ 6))  : [32] }};
+    llvm_ensure_eq "LFSR_S7"  {{ (0 # (s' @ 7))  : [32] }};
+    llvm_ensure_eq "LFSR_S8"  {{ (0 # (s' @ 8))  : [32] }};
+    llvm_ensure_eq "LFSR_S9"  {{ (0 # (s' @ 9))  : [32] }};
+    llvm_ensure_eq "LFSR_S10" {{ (0 # (s' @ 10)) : [32] }};
+    llvm_ensure_eq "LFSR_S11" {{ (0 # (s' @ 11)) : [32] }};
+    llvm_ensure_eq "LFSR_S12" {{ (0 # (s' @ 12)) : [32] }};
+    llvm_ensure_eq "LFSR_S13" {{ (0 # (s' @ 13)) : [32] }};
+    llvm_ensure_eq "LFSR_S14" {{ (0 # (s' @ 14)) : [32] }};
+    llvm_ensure_eq "LFSR_S15" {{ (0 # (s' @ 15)) : [32] }};
+};
+
+let AddM_spec cry_add = do {
+    a <- llvm_var "a" (llvm_int 32);
+    b <- llvm_var "b" (llvm_int 32);
+    llvm_assert {{ a == (a && 0x7FFFFFFF) }};
+    llvm_assert {{ b == (b && 0x7FFFFFFF) }};
+    llvm_return {{ (0 # (cry_add [t a, t b])) : [32] }};
+    llvm_verify_tactic abc;
+};
+
+let MulPow_spec cry_mulpow = do {
+    x <- llvm_var "x" (llvm_int 32);
+    k <- llvm_var "k" (llvm_int 32);
+    llvm_assert {{ x == (x && 0x7FFFFFFF) }};
+    llvm_assert {{ k == (k && 0x7FFFFFFF) }};
+    llvm_assert {{ (k >= 8) && (k <= 21) }};
+    llvm_return {{ (0 # (cry_mulpow (t x, t k))) : [32] }};
+    llvm_verify_tactic abc;
+};
+
+let F_spec (zuc : CryptolModule) = do {
+    X0 <- llvm_var "BRC_X0" (llvm_int 32);
+    X1 <- llvm_var "BRC_X1" (llvm_int 32);
+    X2 <- llvm_var "BRC_X2" (llvm_int 32);
+    R1 <- llvm_var "F_R1" (llvm_int 32);
+    R2 <- llvm_var "F_R2" (llvm_int 32);
+    S0a <- llvm_var "S0" (llvm_array 256 (llvm_int 8));
+    S1a <- llvm_var "S1" (llvm_array 256 (llvm_int 8));
+    llvm_assert {{ S0a == zuc::S0Table }};
+    llvm_assert {{ S1a == zuc::S1Table }};
+    let res = {{ zuc::F ([X0, X1, X2], [R1, R2]) }};
+    llvm_return {{ res.0 }};
+    llvm_ensure_eq "F_R1" {{ res.1 @ 0 }};
+    llvm_ensure_eq "F_R2" {{ res.1 @ 1 }};
+    llvm_verify_tactic abc;
+};
+
+let BR_spec (zuc : CryptolModule) = do {
+    s <- use_LFSR;
+    X0 <- llvm_var "BRC_X0" (llvm_int 32);
+    X1 <- llvm_var "BRC_X1" (llvm_int 32);
+    X2 <- llvm_var "BRC_X2" (llvm_int 32);
+    X3 <- llvm_var "BRC_X3" (llvm_int 32);
+    let res = {{ zuc::BitReorganization s }};
+    llvm_ensure_eq "BRC_X0" {{ res @ 0 }};
+    llvm_ensure_eq "BRC_X1" {{ res @ 1 }};
+    llvm_ensure_eq "BRC_X2" {{ res @ 2 }};
+    llvm_ensure_eq "BRC_X3" {{ res @ 3 }};
+    llvm_verify_tactic abc;
+};
+
+let L12_spec cry_L12 = do {
+    X <- llvm_var "X" (llvm_int 32);
+    llvm_return {{ cry_L12 X }};
+    llvm_verify_tactic abc;
+};
+
+let LFSRWithInitializationMode_spec cry_LIM = do {
+    u <- llvm_var "u" (llvm_int 32);
+    llvm_assert {{ u == (u && 0x7FFFFFFF) }};
+    s <- use_LFSR;
+    assign_LFSR {{ cry_LIM (t u, s) }};
+    llvm_verify_tactic abc;
+};
+
+let Initialization_spec cry_Init = do {
+    llvm_ptr "k" (llvm_array 16 (llvm_int 8));
+    llvm_ptr "iv" (llvm_array 16 (llvm_int 8));
+    k <- llvm_var "*k" (llvm_array 16 (llvm_int 8));
+    iv <- llvm_var "*iv" (llvm_array 16 (llvm_int 8));
+    llvm_var "F_R1" (llvm_int 32);
+    llvm_var "F_R2" (llvm_int 32);
+    use_LFSR;
+    let {{ res = cry_Init (join k, join iv) }};
+    assign_LFSR {{ res.0 }};
+    llvm_ensure_eq "F_R1" {{ res.1 }};
+    llvm_ensure_eq "F_R2" {{ res.2 }};
+    //llvm_verify_tactic (quickcheck 10);
+    llvm_verify_tactic abc;
+};
+
+zucbc <- llvm_load_module "zuc.bc";
+zuc14bc <- llvm_load_module "zuc14.bc";
+zuccry <- cryptol_load "zuc.cry";
+
+print "Proving equivalence with Cryptol spec.";
+AddM_ov <- llvm_verify zucbc "AddM" [] (AddM_spec {{ zuccry::add }});
+mulpow_ov <- llvm_verify zucbc "MulByPow2" [] (MulPow_spec {{ zuccry::mulpow }});
+BR_ov <- llvm_verify zucbc "BitReorganization" [] (BR_spec zuccry);
+L1_ov <- llvm_verify zucbc "L1" [] (L12_spec {{ zuccry::L1 }});
+L2_ov <- llvm_verify zucbc "L2" [] (L12_spec {{ zuccry::L2 }});
+LIM_ov <- llvm_verify zucbc "LFSRWithInitialisationMode" [AddM_ov, mulpow_ov]
+  (LFSRWithInitializationMode_spec {{zuccry::LFSRWithInitializationModeC}});
+F_ov <- llvm_verify zucbc "F" [L1_ov, L2_ov] (F_spec zuccry);
+
+/*
+llvm_verify zucbc "InitializationOne" [BR_ov, LIM_ov, F_ov]
+  (Initialization_spec {{zuccry::InitializeZUC_C0}});
+
+llvm_verify zucbc "Initialization" [BR_ov, LIM_ov, F_ov]
+  (Initialization_spec {{zuccry::InitializeZUC_C32}});
+*/
+
+k <- fresh_symbolic "k" {| [16][8] |};
+iv1 <- fresh_symbolic "iv1" {| [16][8] |};
+iv2 <- fresh_symbolic "iv2" {| [16][8] |};
+
+let allocs = [ ("k", 16), ("iv", 16) ];
+let results =
+  [ ("LFSR_S0", 1)
+  , ("LFSR_S1", 1)
+  , ("LFSR_S2", 1)
+  , ("LFSR_S3", 1)
+  , ("LFSR_S4", 1)
+  , ("LFSR_S5", 1)
+  , ("LFSR_S6", 1)
+  , ("LFSR_S7", 1)
+  , ("LFSR_S8", 1)
+  , ("LFSR_S9", 1)
+  , ("LFSR_S10", 1)
+  , ("LFSR_S11", 1)
+  , ("LFSR_S12", 1)
+  , ("LFSR_S13", 1)
+  , ("LFSR_S14", 1)
+  , ("LFSR_S15", 1)
+  , ("F_R1", 1)
+  , ("F_R2", 1)
+  ];
+
+print "Proving absence of ZUC 1.4 IV weakness in ZUC 1.5.";
+
+init1 <- llvm_symexec zucbc "InitializationOne"
+  allocs
+  [ ("*k", {{ k }}, 16)
+  , ("*iv", {{ iv1 }}, 16)
+  , ("F_R1", {{ 0 }}, 1)
+  , ("F_R2", {{ 0 }}, 1)
+  ]
+  results
+  false;
+init2 <- llvm_symexec zucbc "InitializationOne"
+  allocs
+  [ ("*k", {{ k }}, 16)
+  , ("*iv", {{ iv2 }}, 16)
+  , ("F_R1", {{ 0 }}, 1)
+  , ("F_R2", {{ 0 }}, 1)
+  ]
+  results
+  false;
+thm2 <- abstract_symbolic {{ iv1 == iv2 || init1 != init2 }};
+r <- time (prove abc thm2);
+caseProofResult r
+  (print "Q.E.D.")
+  (\ce -> do { print "Counterexample:"; print ce; });
+
+print "Proving presence of ZUC 1.4 IV weakness.";
+
+init1_14 <- llvm_symexec zuc14bc "InitializationOne"
+  allocs
+  [ ("*k", k, 16)
+  , ("*iv", iv1, 16)
+  , ("F_R1", {{ 0 }}, 1)
+  , ("F_R2", {{ 0 }}, 1)
+  ]
+  results
+  false;
+init2_14 <- llvm_symexec zuc14bc "InitializationOne"
+  allocs
+  [ ("*k", k, 16)
+  , ("*iv", iv2, 16)
+  , ("F_R1", {{ 0 }}, 1)
+  , ("F_R2", {{ 0 }}, 1)
+  ]
+  results
+  false;
+m1 <- abstract_symbolic init1_14;
+m2 <- abstract_symbolic init2_14;
+thm2_14 <- abstract_symbolic {{ iv1 == iv2 || init1_14 != init2_14 }};
+set_base 16; // Show counter-examples in hex
+r14 <- time (prove abc thm2_14);
+caseProofResult r14
+  (print "Q.E.D.")
+  (\ce -> do {
+            print "k =";
+            print {{ ce.0 }};
+            print "iv1 =";
+            print {{ ce.1 }};
+            print "iv2 =";
+            print {{ ce.2 }};
+            print "init1 =";
+            print {{ m1 ce.0 ce.1 }};
+            print "init2 =";
+            print {{ m2 ce.0 ce.2 }};
+          });
+print "Done.";
