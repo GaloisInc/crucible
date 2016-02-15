@@ -1,0 +1,222 @@
+module p384_ec_mul where
+
+import bv
+import ec_point_ops
+import mul_java
+import p384_field
+import p384_ec_point_ops
+import ref_ec_mul
+
+/* Promote a finite sequence to an infinite sequence */
+mk_strm : {a, b} fin a => [a][b] -> [inf][b]
+mk_strm x = x # zero
+
+/* Adds two n*m bit numbers split into m-bit segments and returns carry. */
+ripple_adc : {m, n} (m >= 1, fin m, fin n) => ([n][m],[n][m]) -> ([n][m],Bit)
+ripple_adc(xx,yy) = (values, carry_strm!0)
+  where
+    adc' : ([m],[m],Bit) -> (Bit,[m])
+    adc'(x,y,c) = (sum@0, drop(sum))
+      where sum = safe_add(x,y) + uext([c])
+    list = [ adc'(a,b,c)
+           | a <- xx
+           | b <- yy
+           | c <- carry_strm
+           ]
+    values = [ v | (_,v) <- list ]
+    carry_strm : [n+1]
+    carry_strm  = [False] # [ c | (c,_) <- list ]
+
+/* Returns (xl # c) >> 1. */
+ripple_shr : {m, n} (m >= 1, fin m, n >= 1, fin n) => ([n][m],Bit) -> ([n][m])
+ripple_shr(xl,c) = [ (x' << (width(x) - 1:[width m])) || (x >> 1)
+                   | x <- xl
+                   | x' <- drop`{1}(xl) # [(uext([c]))] 
+                   ]
+
+p384_ec_zero_point : JacobianPoint [384]
+p384_ec_zero_point = ec_zero_point(p384_field)
+
+/* Matches Java implementation */
+p384_ec_mul : ([384], AffinePoint [384]) -> JacobianPoint [384]
+p384_ec_mul (d, s) = res!0
+  where
+    d' : [12][32]
+    d' = toJavaArray d
+    ini =  p384_ec_mul_init(d, s)
+    h : [12][32]
+    h = toJavaArray (ini.h)
+    r0 = ini.r
+    f (j, r) = p384_ec_mul_aux(r, s, j, h@i, uext([c]), d'@i, d_at_ip1)
+      where
+        i        = j >> 5
+        c        = i < 11
+        d_at_ip1 = if c then d'@(i+1) else 0 
+                   /* NB: We guard indexing here to avoid bounds VCs;
+                      p384_ec_mul_aux's use of d_at_ip1 is likewise
+                      guarded. */
+    res : [385]_
+    res = [r0] #
+          [ f(j, r)
+          | j <- reverse [0..383]
+          | r <- res
+          ]
+
+/* Matches Java implementation */
+p384_ec_mul_aux : ( JacobianPoint [384]
+                   , AffinePoint [384]
+                   , [32], [32], [32], [32], [32] ) -> JacobianPoint [384]
+p384_ec_mul_aux (r, s, j, hi, i_lt_11, d_at_i, d_at_ip1) = r'
+  where
+    m = 1 << j
+    ki  = d_at_i >> 1
+    ki' = if i_lt_11 != 0 then
+            ((d_at_ip1 && 1) << 31) || ki
+          else
+            ki
+    r2 = p384_ec_double(r)
+    r'  = if ((hi && m) != 0) && ((ki' && m) == 0) then
+            p384_ec_full_add(r2, s)
+          else if ((hi && m) == 0) && ((ki' && m) != 0) then
+            p384_ec_full_sub(r2, s)
+          else
+            r2
+
+p384_ec_mul_init : ([384], AffinePoint [384]) ->
+                   { h: [384], r: JacobianPoint [384] }
+p384_ec_mul_init (d, s) = { h = fromJavaArray h0, r = r0 }
+  where
+    d' : [12][32]
+    d' = toJavaArray d
+    (h0, c) = ripple_adc(d', ripple_shr(d', False))
+    r0 = if c then ec_projectify(p384_field, s)
+              else p384_ec_zero_point
+
+p384_ec_twin_mul_init :
+  ([384], AffinePoint [384], [384], AffinePoint [384]) ->
+  { r : JacobianPoint [384]
+  , sMt : AffinePoint [384]
+  , sPt : AffinePoint [384]
+  }
+p384_ec_twin_mul_init(d0, s, d1, t) =
+  { r = r0
+  , sPt = if s.x == t.x then azero else sPt0
+  , sMt = if s.x == t.x then azero else sMt0
+  }
+  where
+    azero = { x = 0:[384], y = 0:[384] }
+    r0 =
+      if s.x == t.x then
+        if s.y == t.y then
+          p384_ec_mul(g.add(d0, d1), s)
+        else
+          p384_ec_mul(g.sub(d0, d1), s)
+      else
+        ec_zero_point f
+    m    = p384_point_ops
+    f    = m.field
+    g    = m.group_field
+    sP   = ec_projectify(f, s)
+    sPtP = m.add(sP, t) /* 1: ec_full_add (SpT, S, T) */
+    sMtP = m.sub(sP, t) /* 2: ec_full_sub (SmT, S, T) */
+    sDiv = f.div(f.field_unit, f.mul(sPtP.z, sMtP.z))
+    sPt0 = { x = f.mul(sPtP.x, g2), y = f.mul(f.mul(sPtP.y, g1), g2) }
+           where g1 = f.mul(sMtP.z, sDiv)
+                 g2 = f.sq(g1)
+    sMt0 = { x = f.mul(sMtP.x, g2), y = f.mul(f.mul(sMtP.y, g1), g2) }
+           where g1 = f.mul(sPtP.z, sDiv)
+                 g2 = f.sq(g1)
+
+p384_ec_twin_mul_aux1 : 
+  (JacobianPoint [384], [32], [32], AffinePoint [384], AffinePoint [384], AffinePoint [384], AffinePoint [384])
+  -> JacobianPoint [384]
+p384_ec_twin_mul_aux1(rP, u0_32, u1_32, sPt, s, sMt, t) =
+  ec_twin_mul_aux1(p384_point_ops, rP, u0_32, u1_32, sPt, s, sMt, t)
+
+p384_ec_twin_mul_aux2 : ([32],[32],[32],[32],[32],[32],[32],[32],[32]) -> 
+  { tma2_u0:[32]
+  , tma2_u1:[32]
+  , tma2_c0':[32]
+  , tma2_c1':[32]
+  , tma2_e0':[32]
+  , tma2_e1':[32]
+  , tma2_sh':[32]
+  }
+p384_ec_twin_mul_aux2 (c0, c1, e0, e1, sh, d0i, d1i, dv1, dv2) = 
+  { tma2_u0  = u0
+  , tma2_u1  = u1
+  , tma2_c0' = c0'
+  , tma2_c1' = c1'
+  , tma2_e0' = e0'
+  , tma2_e1' = e1'
+  , tma2_sh' = sh'
+  }
+  where
+    c0'           = ((if h0Less then 0 else `0x20) ^ (c0 << 1)) || ((e0 >> sh) && `0x1)
+    c1'           = ((if h1Less then 0 else `0x20) ^ (c1 << 1)) || ((e1 >> sh) && `0x1)
+    u0            = if h0Less then 0 else (if (c0 && `0x20) != 0 then (-1) else 1)
+    u1            = if h1Less then 0 else (if (c1 && `0x20) != 0 then (-1) else 1)
+
+    h0            = if (c0 && `0x20) != 0 then 31 - h0' else h0'
+      where h0' = c0 && `0x1F
+
+    h1            = if (c1 && `0x20) != 0 then 31 - h1' else h1'
+      where h1' = c1 && `0x1F
+
+    h0Less        = h0 < F(h1)
+    h1Less        = h1 < F(h0)
+    (e0',e1',sh') = if dv1 != 0 then 
+                      if dv2 != 0 then (d0i, d1i, 31) else (0, 0, 31)
+                    else (e0, e1, sh-1)
+
+// F : [5] -> [5] via original impl
+// F : [32] -> [32] via fused impl
+p384_ec_twin_mul_aux_F32 : [32] -> [32]
+p384_ec_twin_mul_aux_F32 = F
+
+/* Matches Java implementation */
+p384_ec_twin_mul : ([384],AffinePoint[384], [384], AffinePoint [384]) -> JacobianPoint [384]
+p384_ec_twin_mul(d0, s, d1, t) = 
+  if s.x == t.x then i.r else jj_r
+  where
+   m     = p384_point_ops
+   f     = m.field
+   g     = m.group_field
+   i     = p384_ec_twin_mul_init(d0, s, d1, t)
+   d0'   = toJavaArray d0
+   d1'   = toJavaArray d1
+   d0_11 = d0'!0
+   d1_11 = d1'!0
+   (jj_r, _, _, _, _, _) = jj!0
+   jj : [386](JacobianPoint [384], _,_,_,_,_)
+   jj    = [ ( i.r             // initial point
+             , d0_11 >> 28     // c0 initial value
+             , d1_11 >> 28     // c1 initial value
+             , d0_11           // e0 initial value
+             , d1_11           // e1 initial value
+             , 27:[32]         // shift initial value
+             )
+           ]
+         # [ (r', c0', c1', e0', e1', sh')
+             where
+                k = (k0-5):[32]
+                r'         = p384_ec_twin_mul_aux1(r, u0, u1, i.sPt, s, i.sMt, t)
+                aux2       = p384_ec_twin_mul_aux2(c0, c1, e0, e1, sh, d0i, d1i, dv1, dv2)
+                (u0, u1)   = (aux2.tma2_u0, aux2.tma2_u1)
+                (c0', c1') = (aux2.tma2_c0', aux2.tma2_c1')
+                (e0', e1') = (aux2.tma2_e0', aux2.tma2_e1')
+                sh'        = aux2.tma2_sh'
+                (d0i, d1i, 
+                 dv1, dv2) = if dv1i && dv2i then 
+                               (d0'@ii, d1'@ii, dv1', dv2') 
+                             else 
+                               (zero, zero, dv1', dv2')
+                             where
+                               ii    = (k >> 5) - 1
+                               dv1i  = (k && `0x1F) == 0
+                               dv2i  = ~(ii@0)
+                               dv1' = uext [dv1i] : [32]
+                               dv2' = uext [dv2i] : [32]
+           | (r, c0, c1, e0, e1, sh) <- jj
+           | k0 <- reverse [0 .. 384]
+           ]

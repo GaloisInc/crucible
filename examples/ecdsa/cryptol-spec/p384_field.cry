@@ -1,0 +1,133 @@
+module p384_field where
+
+import bv
+import mod_arith
+import mul_java
+import Field
+
+p384_prime : [384]
+p384_prime = - (2 ^^ 384 + 2 ^^ 128 + 2 ^^ 96 - 2 ^^ 32 + 1)
+
+// Give explicit names to these finite field operators, so SBV
+//  can uninterpret them.
+p384_is_field_val : [384] -> Bit
+p384_is_field_val = is_normal p384_prime
+
+p384_is_group_val : [384] -> Bit
+p384_is_group_val  = is_normal p384_group_size
+
+p384_mod_add : ([384],[384],[384]) -> [384]
+p384_mod_add = mod_add
+
+p384_mod_sub : ([384],[384],[384]) -> [384]
+p384_mod_sub = mod_sub
+
+p384_mod_neg : ([384], [384]) -> [384]
+p384_mod_neg = mod_neg
+
+p384_safe_product : ([384], [384]) -> [768]
+p384_safe_product (x, y) = safe_product(x, y)
+
+p384_field_add(x,y) = p384_mod_add(p384_prime, x, y)
+p384_field_sub(x,y) = p384_mod_sub(p384_prime, x, y)
+/* p384_field_neg(x) returns -x mod p384_prime. */
+p384_field_neg(x)        = if x == 0 then 0 else (p384_prime - x)
+
+p384_field_mul : ([384],[384]) -> [384]
+p384_field_mul(x,y)      = p384_field_mod(p384_safe_product(x, y))
+
+p384_field_sq(x)         = p384_field_mul(x, x)
+
+p384_mod_half : ([384],[384]) -> [384]
+p384_mod_half = mod_half
+
+p384_mod_mul : ([384],[384],[384]) -> [384]
+p384_mod_mul = mod_mul
+
+p384_mod_div : ([384],[384],[384]) -> [384]
+p384_mod_div = mod_div
+
+// P384 field reference modulus.
+p384_field_mod : [768] -> [384]
+p384_field_mod(a)
+    = drop(if b1 then r0
+           else if b2 then r1
+           else if b3 then r2
+           else if b4 then r3
+           else r4)
+  where
+    [  a23, a22, a21, a20, a19, a18, a17, a16, a15, a14, a13, a12,
+       a11, a10,  a9,  a8,  a7,  a6,  a5,  a4,  a3,  a2,  a1,  a0]
+              = [ uext x | (x : [32]) <- split a ] : [24][64]
+
+    chop : [64] -> ([64],[32])
+    chop x = (iext(take(x):[32]), drop(x))
+
+    (d0, z0)  = chop(    a0          +a12+a21        +a20-a23)
+    (d1, z1)  = chop(d0 +a1          +a13+a22+a23        -a12-a20)
+    (d2, z2)  = chop(d1 +a2          +a14+a23            -a13-a21)
+    (d3, z3)  = chop(d2 +a3          +a15+a12+a20    +a21-a14-a22-a23)
+    (d4, z4)  = chop(d3 +a4 +(a21<<1)+a16+a13+a12+a20+a22-a15-(a23<<1))
+    (d5, z5)  = chop(d4 +a5 +(a22<<1)+a17+a14+a13+a21+a23-a16)
+    (d6, z6)  = chop(d5 +a6 +(a23<<1)+a18+a15+a14+a22    -a17)
+    (d7, z7)  = chop(d6 +a7          +a19+a16+a15+a23    -a18)
+    (d8, z8)  = chop(d7 +a8          +a20+a17+a16        -a19)
+    (d9, z9)  = chop(d8 +a9          +a21+a18+a17        -a20)
+    (d10,z10) = chop(d9 +a10         +a22+a19+a18        -a21)
+    (d11,z11) = chop(d10+a11         +a23+a20+a19        -a22)
+
+    r : [13*32]
+    r = (drop(d11):[32])
+      # z11 # z10 #  z9 #  z8 #  z7 #  z6 
+      #  z5 #  z4 #  z3 #  z2 #  z1 #  z0
+
+    p  = uext(p384_prime) : [13*32]
+    // Fix potential underflow
+    r0 = if (d11@0) then r + p else r 
+    // Fix potential overflow
+    (r1,b1)   = sbb(r0, p)
+    (r2,b2)   = sbb(r1, p)
+    (r3,b3)   = sbb(r2, p)
+    (r4,b4)   = sbb(r3, p)
+
+/* Defines a reference prime field that uses normalized numbers and
+   large word bit operations. */
+p384_field :  Field [384]
+p384_field = {
+    is_val     = p384_is_field_val
+  , norm       = \x -> if x < p384_prime then x else x - p384_prime
+  , add        = p384_field_add
+  , sub        = p384_field_sub
+  , neg        = p384_field_neg
+  , mul        = p384_field_mul
+  , sq         = p384_field_sq
+  , half       = \x -> p384_mod_half(p384_prime, x)
+  , div        = \(x,y) -> p384_mod_div(p384_prime, x, y)
+  , field_zero = 0
+  , field_unit = 1
+  , is_equal   = \(x,y) -> x == y
+  }
+
+p384_group_size : [384]
+p384_group_size =
+  join
+    [0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
+     0xc7634d81, 0xf4372ddf, 0x581a0db2, 0x48b0a77a, 0xecec196a, 0xccc52973]
+
+/* Defines a reference prime field that uses normalized numbers and
+   large word bit operations. */
+p384_group_field :  Field [384]
+p384_group_field =
+  { is_val     = p384_is_group_val
+  , norm       = \x -> if x < p384_group_size then x else x - p384_group_size
+  , add        = \(x,y) -> p384_mod_add(p384_group_size, x, y)
+  , sub        = \(x,y) -> p384_mod_sub(p384_group_size, x, y)
+  , neg        = \x     -> p384_mod_neg(p384_group_size, x)
+  , mul        = \(x,y) -> p384_group_mul(p384_group_size, x, y)
+  , sq         = \x     -> p384_mod_mul(p384_group_size, x, x)
+  , half       = \x     -> p384_mod_half(p384_group_size, x)
+  , div        = \(x,y) -> p384_mod_div(p384_group_size, x, y)
+  , field_zero = 0
+  , field_unit = 1
+  , is_equal   = \(x,y) -> x == y
+  }

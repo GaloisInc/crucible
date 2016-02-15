@@ -1,0 +1,178 @@
+module ec_point_ops where
+
+import Field
+import Set
+
+type AffinePoint fv = { x : fv, y : fv }
+
+/* Return an affine point. */
+nzAffinePoint : {fv} (fv,fv) -> AffinePoint fv
+nzAffinePoint (ax,ay) = { x = ax, y = ay }
+
+/* Define Jacobian points */
+type JacobianPoint fv = { x : fv, y : fv, z : fv }
+
+/* Create affine point from Jacobian (only well-defined if z coordinate is non-zero). */
+ec_affinify : {fv} (Field fv, JacobianPoint fv) -> AffinePoint fv
+ec_affinify(f,s) = { x = f.mul(g2, s.x), y = f.mul(g3, s.y) }
+  where g = f.div(f.field_unit, s.z)
+        g2 = f.sq(g)
+        g3 = f.mul(g, g2)
+
+/* Create projective value from affine. */
+/* Routine 2.2.1 in [NSA 2008] */
+ec_projectify : {fv} (Field fv, AffinePoint fv) -> JacobianPoint fv
+ec_projectify(f,s) = { x = s.x, y = s.y, z = f.field_unit }
+
+/* Returns zero point. */
+ec_zero_point : {fv} Field fv -> JacobianPoint fv
+ec_zero_point(f) = { x = f.field_unit, y = f.field_unit, z = f.field_zero }
+
+/* Checks to see if point is zero. */
+ec_is_zero_point : {fv} (Field fv, JacobianPoint fv) -> Bit
+ec_is_zero_point(f,s) = f.is_equal(s.z, f.field_zero)
+
+/* Is the Jacobian point well-formed? Here we assume
+** the only valid zero-point is the unit zero point.
+** NOTE: The output of ECC operations in this file always
+**   satisfies this assumption. However, they are more
+**   permissive in their inputs, i.e. they still do the
+**   right thing when given a non-unit zero point.
+*/
+is_JacobianPoint : {fv} (Cmp fv) => Field fv -> Set (JacobianPoint fv)
+is_JacobianPoint f s =
+  (  f.is_val ((s:JacobianPoint fv).x)
+  && f.is_val (s.y)
+  && f.is_val (s.z)
+  && implies (ec_is_zero_point (f,s))
+             (s == ec_zero_point f)
+  )
+
+/* Point operations {{{1 */
+
+type PointOps fv gv = {
+       field : Field fv
+     , double : JacobianPoint fv -> JacobianPoint fv
+     , add : (JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv
+     , sub : (JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv
+     , group_field : Field gv
+     }
+
+/* Double a Jacobian point */
+/* Line numbers taken from Routine 2.2.6 in [NSA 2008] */
+/* This version uses 4 multiplies and 4 squarings (4M + 4S).  The paper
+   "A software implementation of NIST P-224" by Bernstein 2001 has a
+   version that uses 3M + 5S.
+   In that version, there are the following correspondances
+     r7  = delta
+     r11 = alpha
+     r14 = gamma
+     r15 = beta
+     r16 = 4*beta
+     r17 = alpha^2
+     r18 = x3 = alpha^2 - 8*beta
+     r12 = y1 * z1
+   The key difference is to replace the computation of r13
+    with "r13 = (s.y + s.z)^2 - s.y^2 - s.z^2".
+   */
+ec_double : {fv} (Field fv, JacobianPoint fv) -> JacobianPoint fv
+ec_double(f,s) =
+  if is_zero(s.z) then
+    { x = f.field_unit, y = f.field_unit, z = f.field_zero } /* 5: r <- (1,1,0) and return */
+  else
+    { x = r18, y = r23, z = r13 }
+ where
+   add = f.add
+   sub = f.sub
+   mul = f.mul
+   is_zero(x) = f.is_equal(x, f.field_zero)
+   dbl(x) = f.add(x, x)
+   mul3(x) = f.add(x, f.add(x, x))
+   mul4(x) = dbl(dbl(x))
+   mul8(x) = dbl(mul4(x))
+
+   r7  = f.sq(s.z)               /*  7: t4 <- (t3)^2 */
+   r8  = f.sub(s.x, r7)          /*  8: t5 <- t1 - t4 */
+   r9  = add(s.x, r7)            /*  9: t4 <- t1 + t4 */
+   r10 = mul(r9, r8)             /* 10: t5 <- t4 * t5 */
+   r11 = mul3(r10)               /* 11: t4 <- 3 * t5 */
+   r12 = mul(s.z, s.y)           /* 12: t3 <- t3 * t2 */
+   r13 = dbl(r12)                /* 13: t3 <- 2 * t3 */
+   r14 = f.sq(s.y)               /* 14: t2 <- (t2)^2 */
+   r15 = mul(s.x, r14)           /* 15: t5 <- t1 * t2 */
+   r16 = mul4(r15)               /* 16: t5 <- 4 * t5 */
+   r17 = f.sq(r11)               /* 17: t1 <- (t4)^2 */    
+   r18 = sub(sub(r17, r16), r16) /* 18: t1 <- t1 - 2 * t5 */
+   r19 = f.sq(r14)               /* 19: t2 <- (t2)^2 */
+   r20 = mul8(r19)               /* 20: t2 <- 8 * t2 */ 
+   r21 = sub(r16, r18)           /* 21: t5 <- t5 - t1 */
+   r22 = mul(r11, r21)           /* 22: t5 <- t4 * t5 */ 
+   r23 = sub(r22, r20)           /* 23: t2 <- t5 - t2 */
+
+/**
+ * Add a Jacobian point to an affine point over the given field.
+ * Note: Will return { 0, 0, 0 } if points are equivalent, and double should be
+ *       called.
+ * Algorithm comes from Routine 2.2.7 in [NSA 2008].
+ */
+ec_add : {fv, gv} (PointOps fv [gv], JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv
+ec_add(p,s,t) =
+  if is_zero(r13) then
+    if is_zero(r14) then
+      p.double(s) /* 17: r <- (0,0,0) and return */
+    else
+      { x = p.field.field_unit
+      , y = p.field.field_unit
+      , z = p.field.field_zero
+      } /* 19: r <- (1,1,0) and return */
+  else
+    { x = r32, y = r37, z = r27 }
+  where
+   add = p.field.add
+   sub = p.field.sub
+   mul = p.field.mul
+   sq  = p.field.sq
+   is_zero(x) = p.field.is_equal(x, p.field.field_zero)
+   dbl(x) = add(x, x)
+   dbl_dec(x, y) = sub(sub(x, y), y)
+   /* Line numbers from Routine 2.2.7 definition. */
+
+   r9 = sq(s.z)             /*  9: t7 <- (t3)^2 */
+   r10 = mul(t.x, r9)       /* 10: t4 <- t4 * t7 */
+   r11 = mul(s.z, r9)       /* 11: t7 <- t3 * t7 */
+   r12 = mul(t.y, r11)      /* 12: t5 <- t5 * t7 */
+   r13 = sub(s.x, r10)      /* 13: t4 <- t1 - t4 */
+   r14 = sub(s.y, r12)      /* 14: t5 <- t2 - t5 */
+
+   r22 = sub(dbl(s.x), r13) /* 22: t1 <- 2*t1 - t4 */
+   r23 = sub(dbl(s.y), r14) /* 23: t2 <- 2*t2 - t5 */
+
+   r27 = mul(s.z, r13)      /* 27: t3 <- t3 * t4 */
+   r28 = sq(r13)            /* 28: t7 <- (t4)^2 */
+   r29 = mul(r13, r28)      /* 29: t4 <- t4 * t7 */
+   r30 = mul(r22, r28)      /* 30: t7 <- t1 * t7 */
+   r31 = sq(r14)            /* 31: t1 <- (t1)^2 */
+   r32 = sub(r31, r30)      /* 32: t1 <- t1 - t7 */
+   /*r33 = sub(r30, dbl(r32))*/ /* 33: t7 <- t7 - 2*t1 */
+   /* The following is a better match for the Java implementation. */
+   r33 = dbl_dec(r30, r32)  /* 33: t7 <- t7 - 2*t1 */
+   r34 = mul(r14, r33)      /* 34: t5 <- t5 * t7 */
+   r35 = mul(r23, r29)      /* 35: t4 <- t2 * t4 */
+   r36 = sub(r34, r35)      /* 36: t2 <- t5 - t4 */
+   r37 = p.field.half(r36)  /* 37: t2 <- t2/2 */
+
+/* Add Jacobian point to an affine point over the given field. */
+/* Algorithm comes from Routine 2.2.8 in [NSA 2008] */
+ec_full_add : {fv, gv} (fin gv) => (PointOps fv [gv], JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv
+ec_full_add(p, s, t) =
+  if is_zero(s.z) then
+    { x = t.x, y = t.y, z = p.field.field_unit }
+  else
+    ec_add(p, s, t)
+ where
+   is_zero(x) = p.field.is_equal(x, p.field.field_zero)
+
+/* Subtract affine point from Jacobian point over the given field. */
+/* Algorithm comes from Routine 2.2.9 in [NSA 2008] */
+ec_full_sub : {fv, gv} (PointOps fv [gv], JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv
+ec_full_sub(p, s, t) = p.add(s, { x = t.x, y = p.field.neg(t.y) })

@@ -1,0 +1,220 @@
+module ecc where
+
+import bv
+import mod_arith
+import mul_java
+
+import Field /* Defines Field type and generic operations */
+import ec_point_ops
+import ref_ec_mul
+import p384_field
+import p384_ec_point_ops
+import p384_ec_mul
+ 
+/* Scalar multiply operations {{{1 */
+
+
+test_params : ([384], AffinePoint [384], [384], AffinePoint [384]) 
+test_params = 
+//  (0x7b52dc21312701d79a2465bb9fdf6fd30c4f76cf74787e44348f8217e6ffd5e02ee8c55a7c5d91b452825b1026d26893, {x=0xdf1c86a62d76090308a0d4c371704b36f3bfa41f0dbf8185d297b8a2c811756f0f4be19871cde079c5d43cfd0fab7fe8; y=0x70521fdd9165b0d33e948be941c590f2fbe7e2754ba110ae24089d41773acfdd34701acaafa669a884d3eefbf557d98b}, 0x211bb4730ad83e31aedbd66a5a750e800cf4de096495323ea94a73f25e9bcb5068a9dcc93e98efecb136eb057e6f41a4, {x=0x6bdf86d8f4cdf5b63a6a1e93a75457c0816fa2f3f69bc706ab69a7b5a63d4956d83cc4ca551f6aaf7653b8dd0991a6af; y=0xa8ce019e78abd658350e5885c8fddb172117a24bf157dfdbe8a1831e03758e630784470287c8e25908d931f22581bf97});
+//  (0x6250471849e0c0eb47e9cf2c8e04c9ad0745e358d1cf11fb53e178a3c5b301b5f9e7f62e61c8f2113615cc4ff9927f9b, {x=0x005255b811499293ea986c66b4698e0748284d391130afd3f9febbc71ef3b39fe13a3deaa1489d817b885edf270b1bf6; y=0xc9a1dcdb74a4ae432edea47750d754d918b2f1fd8d9ee612b4f0cf2bebcb0eeef43ef5d0ce90cb75362bd2cfe69bffad}, 0xd9e8d87abffb84c0c06fe47396aa84871f08420561a7d8cc64fef7796fc0ca9a5406a37a054cc8cd57e26a3a7249fdb3, {x=0x8da95367d9e731f86adda9bfae6ff170cf090be5223f3b33c0d7c6c585bfc1330137d237fdc16bd432797a1da1dfa331; y=0x114d8b24d75d0149603aa6eab6ccec1cd83f5baaca7898dd6edd7c2ca91176893102b9fe129a09f9fdb208e18be46d16});
+  (0xe74872524f90425d832a4f264e1f7b9209ec7456e9b4c467d8eac6c68f973ea7fea24f4d3fa8498bb1e26f933eaa261b
+  , { x=0xbbab93c429707b2afe9ac285314d7b40c4ee31531b13291aa9058307cdd038b572fdf2f3a84dc912804fa426fe531a3c
+    , y=0x4c2cffaa333bfd82b575918bb979bf51480c836082c097a03fed5454877b37d2f44f0401d212c16b05052bd383047b31
+    }
+  , 0xd4356773f2b311955542c5835696b9dca9d0e59197d5746bbf7dc079a666d955f74114662e38d31196bf94b060cc0c80
+  , { x=0xd40c63c65b413d0741c56e884f0dca63b822a6f6879d36f9261d9b4a270d5d79a9be790fdfb871b5d6ae9204da692663
+    , y=0x4d6b2b937c85b3c0c3cd2df85e9307cc89e0093f336af3b4531aa126bbdbec466562d8aa0dc1cf360fc1f1d0951e3ad1
+    })
+
+/* ECDSA Operations {{{1 */
+
+/** Operations for ECDSA abstraction layer */
+type Curve fv gv = {
+    point_ops : PointOps fv gv
+  , base : AffinePoint fv
+  , affinify : JacobianPoint fv -> AffinePoint fv
+  , mul : (gv, AffinePoint fv) -> JacobianPoint fv
+  , twin_mul : (gv, AffinePoint fv, gv, AffinePoint fv) -> JacobianPoint fv
+  }
+
+/* Create a public key from a private key */
+initialize_public_key : {fv} (Curve [fv] [fv], [fv]) -> AffinePoint [fv]
+initialize_public_key(c, k) = c.affinify(c.mul(k, c.base))
+
+/**
+ * Reference ECDSA signature algorithm as formalized from [ANSI X9.62-2005, pg 8]
+ * Parameters:
+ *  Curve c
+ *  Private key d of signatory.
+ *  Integer e obtained after hashing message on step e)
+ *  Ephemeral EC private key in range [1 .. c.curve)
+ */
+ecdsa_sign : {fv} (fin fv, fv >= 1) => (Curve [fv] [fv], [fv], [fv], [fv]) -> ([fv], [fv])
+ecdsa_sign(c,d,e,k) = if is_zero(r) || is_zero(s) then (0,0) else (r, s)
+  where
+    g = c.point_ops.group_field
+    is_zero(x) = g.is_equal(x, g.field_zero)
+    /* Compute x coordinate of public key. */
+    j = (c.affinify(c.mul(k, c.base))).x
+    /* c) Set r = j mod n */
+    r = g.norm(j)
+    s = g.div(g.add(g.norm(e), g.mul(d, r)), k)
+
+/**
+ * Reference ECDSA signature verification algorithm as formalized from [ANSI X9.62-2005, pg 9]
+ * Parameters
+ *  Curve c
+ *  Integer e' obtained after hashing message on  step "c".
+ *  Pair returned by ref_ecdsa_sign algorithm.
+ *  Public key of key signatory.
+ * Result:
+ *  Bit that is True if verification suceeds, and false otherwise.
+ */
+ecdsa_public_verify : {fv} (fin fv, fv >= 1)
+   => (Curve [fv] [fv], [fv], ([fv], [fv]), AffinePoint [fv]) -> Bit
+ecdsa_public_verify(c, e, (r, s), q)
+    /* h) Compare v and r' if v = r', output "valid"; otherwise output "invalid". */
+   = in_range(s) && (v == r)
+  where
+    f = c.point_ops.field
+    g = c.point_ops.group_field
+    mul(x,y) = g.mul(x, y)
+    div(x,y) = g.div(x, y)
+    is_zero(x) = g.is_equal(x, g.field_zero)
+    in_range(x) = ~is_zero(x) && g.is_val(x)
+    s_inv = div(1, s)
+    u1 = mul(e, s_inv)
+    u2 = mul(r, s_inv)
+    r2 = c.twin_mul(u1, c.base, u2, q)
+    /* f) Convert the field element x_r to an integer j as described in A.5 */
+    j = f.mul(r2.x, f.sq(f.div(f.field_unit, r2.z)))
+    /* g) v = j mod n */
+    v = g.norm(j)
+
+/* This version performs a cheaper sequence of operations, and matches
+ * the Java implementation. Correspondence between the reference and
+ * implementation versions of ecdsa_public_verify is probably best proved
+ * independent of the Java code.
+ */
+ecdsa_public_verify_imp :
+  (Curve [384] [384], [384], ([384], [384]), AffinePoint [384]) -> Bit
+ecdsa_public_verify_imp(c, e, (r, s), q)
+   = in_range(r) && in_range(s) &&
+     ~is_zero(r2.z) &&
+     (g.is_equal(j, r2.x) || ((carry == False) && (g.is_equal(k, r2.x))))
+  where
+    f = c.point_ops.field
+    g = c.point_ops.group_field
+    mul(x,y) = g.mul(x, y)
+    div(x,y) = g.div(x, y)
+    is_zero(x) = g.is_equal(x, g.field_zero)
+    in_range(x) = ~is_zero(x) && g.is_val(x)
+    s_inv = div(1, s)
+    u1 = mul(g.norm(e), s_inv)
+    u2 = mul(r, s_inv)
+    r2 = c.twin_mul(u1, c.base, u2, q)
+    r2zsq = f.sq(r2.z)
+    j = f.mul(r, r2zsq)
+    sum = r + p384_group_size
+    carry = (sum < r) && (sum < p384_group_size)
+    k = f.mul(sum, r2zsq)
+
+/* P384 reference definitions {{{1 */
+
+/* Utility functions {{{2 */ 
+
+type RsltWithCarry a b = { carry : a , rslt : b }
+
+p384_incFieldPrime : [384] -> RsltWithCarry [32] [384]
+p384_incFieldPrime x = { carry = zero # [(bs @ 0)]
+                       , rslt = drop(bs) : [384]
+                       }
+  where bs = safe_add(x, p384_prime)
+
+p384_decFieldPrime : [384] -> RsltWithCarry [32] [384]
+p384_decFieldPrime x = { carry = if (bs @ 0) then -1 else 0
+                       , rslt = drop(bs) : [384]
+                       }
+  where bs = safe_sub(x, p384_prime)
+
+/* P384 modular arithmetic definitions. {{{2 */
+
+
+/* P384 field definitions. {{{2 */
+
+
+p384_field_cube(x)       = p384_field_mul(x, p384_field_sq(x))
+
+/* P384 group field operations {{{2 */
+
+/** P384 curve operations {{{2 */
+
+p384_base : AffinePoint [384]
+p384_base = nzAffinePoint(
+  join [0xaa87ca22, 0xbe8b0537, 0x8eb1c71e, 0xf320ad74, 0x6e1d3b62, 0x8ba79b98
+       ,0x59f741e0, 0x82542a38, 0x5502f25d, 0xbf55296c, 0x3a545e38, 0x72760ab7],
+  join [0x3617de4a, 0x96262c6f, 0x5d9e98bf, 0x9292dc29, 0xf8f41dbd, 0x289a147c
+       ,0xe9da3113, 0xb5f0b8c0, 0x0a60b1ce, 0x1d7e819d, 0x7a431d7c, 0x90ea0e5f])
+
+
+
+p384_group_add : ([384],[384]) -> [384]
+p384_group_add = p384_group_field.add
+
+p384_curve : Curve [384] [384]
+p384_curve =
+  { point_ops = p384_point_ops
+  , base = p384_base
+  , affinify = \x -> ec_affinify(p384_field, x)
+  , mul = p384_ec_mul
+  , twin_mul = p384_ec_twin_mul
+  }
+
+p384_ecdsa_sign : ([384], [384], [384]) -> { r:[384], s:[384] }
+p384_ecdsa_sign(d,e,k) = { r = rr, s = ss }
+  where (rr, ss) = ecdsa_sign(p384_curve,d,e,k)
+
+p384_ecdsa_public_verify : ([384], [384], [384], AffinePoint [384]) -> Bit
+p384_ecdsa_public_verify(e,pr,ps,q) =
+  ecdsa_public_verify_imp(p384_curve,e,(pr,ps),q)
+
+/* P384 test code {{{2 */
+
+/* Curve "a" parameter, defined in [FIPS-186-3, page 87] to be -3 */
+p384_a : [384]
+p384_a = p384_prime - 3
+
+/* Curve "b" parameter, defined in [FIPS-186-3, page 89] */
+p384_b : [384]
+p384_b = 0xb3312fa7e23ee7e4988e056be3f82d19181d9c6efe8141120314088f5013875ac656398d8a2ed19d2a85c8edd3ec2aef
+
+
+/* Convert a p384 Jacobian point to an affine point */
+p384_affinify : JacobianPoint [384] -> AffinePoint [384]
+p384_affinify p = ec_affinify(p384_field, p)
+
+/* Convert a p384 affine point to a Jacobian point */
+p384_jacobify : AffinePoint [384] -> JacobianPoint [384]
+p384_jacobify p = { x = p.x, y = p.y, z = 1 }
+
+p384_base4 : JacobianPoint [384]
+p384_base4 = p384_ec_double(p384_ec_double(p384_jacobify(p384_base)))
+
+p384_base3 : AffinePoint [384]
+p384_base3 = p384_affinify(p384_ec_full_sub(p384_base4, p384_base))
+
+p384_base5 : AffinePoint [384]
+p384_base5 = p384_affinify(p384_ec_full_add(p384_base4, p384_base))
+
+
+/* Does an affine point lie on the curve? */
+p384_is_affine_point : AffinePoint [384] -> Bit
+p384_is_affine_point p =
+  p384_field_sq(p.y) ==
+  p384_field_add(p384_field_cube(p.x),
+                 p384_field_add(p384_field_mul(p384_a, p.x), p384_b))
+
+/* P384 implementation curve definition {{{1 */
+
+/* Chunked arithmetic routines {{{2 */

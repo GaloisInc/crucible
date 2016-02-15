@@ -1,0 +1,113 @@
+module ecc_tests where
+
+import ec_point_ops
+import p384_field
+import p384_ec_mul
+import ecc
+
+/* Point "S" defined in [NSA 2008, Section 4.4.2] */
+p384_s : AffinePoint [384]
+p384_s = nzAffinePoint(
+  join [0xfba203b8, 0x1bbd23f2, 0xb3be971c, 0xc23997e1, 0xae4d89e6, 0x9cb6f923,
+        0x85dda827, 0x68ada415, 0xebab4167, 0x459da98e, 0x62b1332d, 0x1e73cb0e],
+  join [0x5ffedbae, 0xfdeba603, 0xe7923e06, 0xcdb5d0c6, 0x5b223014, 0x29293376,
+        0xd5c6944e, 0x3fa6259f, 0x162b4788, 0xde6987fd, 0x59aed5e4, 0xb5285e45])
+
+/* Point "T" defined in [NSA 2008, Section 4.4.2] */
+p384_t : AffinePoint [384]
+p384_t = nzAffinePoint(
+  join [0xaacc0520, 0x2e7fda6f, 0xc73d82f0, 0xa6622052, 0x7da8117e, 0xe8f8330e,
+        0xad7d20ee, 0x6f255f58, 0x2d8bd38c, 0x5a7f2b40, 0xbcdb68ba, 0x13d81051],
+  join [0x84009a26, 0x3fefba7c, 0x2c57cffa, 0x5db3634d, 0x286131af, 0xc0fca8d2,
+        0x5afa22a7, 0xb5dce0d9, 0x470da892, 0x33cee178, 0x592f49b6, 0xfecb5092])
+
+/* Multiple "D" defined in [NSA 2008, Section 4.4.2] */
+p384_d =
+  join [0xa4ebcae5, 0xa6659834, 0x93ab3e62, 0x6085a24c, 0x104311a7, 0x61b5a8fd,
+        0xac052ed1, 0xf111a5c4, 0x4f76f456, 0x59d2d111, 0xa61b5fdd, 0x97583480]
+
+/* Multiple "E" defined in [NSA 2008, Section 4.4.2] */
+p384_e =
+  join [0xafcf8811, 0x9a3a76c8, 0x7acbd600, 0x8e1349b2, 0x9f4ba9aa, 0x0e12ce89,
+        0xbcfcae21, 0x80b38d81, 0xab8cf150, 0x95301a18, 0x2afbc689, 0x3e75385d]
+
+p384_projectify : AffinePoint [384] -> JacobianPoint [384]
+p384_projectify(p) = ec_projectify(f,p)
+  where f = p384_curve.point_ops.field
+
+p384_affinify : JacobianPoint [384] -> AffinePoint [384]
+p384_affinify(p) = ec_affinify(f,p)
+  where f = p384_curve.point_ops.field
+
+test_p384_s_plus_t : AffinePoint [384]
+test_p384_s_plus_t = p384_affinify(add(p384_projectify(s),t))
+  where s = p384_s
+        t = p384_t
+        add = p384_curve.point_ops.add
+
+expected_p384_s_plus_t : AffinePoint [384]
+expected_p384_s_plus_t =
+  { x = join [0x12dc5ce7, 0xacdfc584, 0x4d939f40, 0xb4df012e, 0x68f865b8, 0x9c3213ba,
+              0x97090a24, 0x7a2fc009, 0x075cf471, 0xcd2e85c4, 0x89979b65, 0xee0b5eed]
+  , y = join [0x167312e5, 0x8fe0c0af, 0xa248f285, 0x4e3cddcb, 0x557f983b, 0x3189b67f,
+              0x21eee013, 0x41e7e9fe, 0x67f6ee81, 0xb36988ef, 0xa406945c, 0x8804a4b0]
+  }
+
+test_p384_s_minus_t : AffinePoint [384]
+test_p384_s_minus_t = p384_affinify(sub(p384_projectify(s),t))
+  where s = p384_s
+        t = p384_t
+        sub = p384_curve.point_ops.sub
+
+expected_p384_s_minus_t : AffinePoint [384]
+expected_p384_s_minus_t =
+  { x = join [0x6afdaf8d, 0xa8b11c98, 0x4cf177e5, 0x51cee542, 0xcda4ac2f, 0x25cd522d,
+              0x0cd710f8, 0x8059c656, 0x5aef78f6, 0xb5ed6cc0, 0x5a6666de, 0xf2a2fb59]
+  , y = join [0x7bed0e15, 0x8ae8cc70, 0xe847a603, 0x47ca1548, 0xc348decc, 0x6309f48b,
+              0x59bd5afc, 0x9a9b804e, 0x7f787617, 0x8cb5a7eb, 0x4f6940a9, 0xc73e8e5e]
+  }
+
+test_p384_double_s : AffinePoint [384]
+test_p384_double_s = p384_affinify(dbl(p384_projectify(s)))
+  where s = p384_s
+        dbl = p384_curve.point_ops.double
+
+expected_p384_double_s : AffinePoint [384]
+expected_p384_double_s =
+  { x = join [0x2a2111b1, 0xe0aa8b2f, 0xc5a19755, 0x16bc4d58, 0x017ff96b, 0x25e1bdff,
+              0x3c229d5f, 0xac3bacc3, 0x19dcbec2, 0x9f9478f4, 0x2dee597b, 0x4641504c]
+  , y = join [0xfa2e3d9d, 0xc84db895, 0x4ce8085e, 0xf28d7184, 0xfddfd134, 0x4b4d4797,
+              0x343af9b5, 0xf9d83752, 0x0b450f72, 0x6443e411, 0x4bd4e5bd, 0xb2f65ddd]
+  }
+
+test_p384_ds : AffinePoint [384]
+test_p384_ds = p384_affinify(mul(p384_d, p384_s))
+  where mul = p384_curve.mul
+
+expected_p384_ds : AffinePoint [384]
+expected_p384_ds =
+  { x = join [0xe4f77e7f, 0xfeb7f095, 0x8910e3a6, 0x80d677a4, 0x77191df1, 0x66160ff7,
+              0xef6bb526, 0x1f791aa7, 0xb45e3e65, 0x3d151b95, 0xdad3d93c, 0xa0290ef2]
+  , y = join [0xac7dee41, 0xd8c5f4a7, 0xd5836960, 0xa773cfc1, 0x376289d3, 0x373f8cf7,
+              0x417b0c62, 0x07ac32e9, 0x13856612, 0xfc9ff2e3, 0x57eb2ee0, 0x5cf9667f]
+  }
+
+test_p384_ds_et : AffinePoint [384]
+test_p384_ds_et = p384_affinify(twin_mul(p384_d, p384_s, p384_e, p384_t))
+  where twin_mul = p384_curve.twin_mul
+
+expected_p384_ds_et : AffinePoint [384]
+expected_p384_ds_et =
+  { x = join [0x917ea28b, 0xcd641741, 0xae5d18c2, 0xf1bd917b, 0xa68d34f0, 0xf0577387,
+              0xdc812604, 0x62aea60e, 0x2417b8bd, 0xc5d954fc, 0x729d211d, 0xb23a02dc]
+  , y = join [0x1a29f7ce, 0x6d074654, 0xd77b4088, 0x8c73e925, 0x46c8f16a, 0x5ff6bcbd,
+              0x307f758d, 0x4aee684b, 0xeff26f67, 0x42f597e2, 0x585c86da, 0x908f7186]
+  }
+
+test_all : Bit
+test_all =
+     test_p384_s_plus_t  == expected_p384_s_plus_t
+  && test_p384_s_minus_t == expected_p384_s_minus_t
+  && test_p384_double_s  == expected_p384_double_s
+  && test_p384_ds    == expected_p384_ds
+  && test_p384_ds_et == expected_p384_ds_et

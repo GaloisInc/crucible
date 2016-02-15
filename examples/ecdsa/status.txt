@@ -1,0 +1,56 @@
+PROOF STATUS
+
+Subgoal                     tactic           time(s)
+-----------------------------------------------------
+set_unit                    abc              #
+set_zero                    abc              #
+is_zero                     abc              #
+assign                      abc              #
+array_shift                 abc              #
+leq                         abc              ##
+shr                         abc              #
+decFieldPrime               abc              ##
+incFieldPrime               abc              ##
+dbl                         abc              #
+add                         abc              ###
+sub                         abc              #####
+mul_inner                   z3               #
+mul                         abc              #############
+sq_inner1                   z3               #
+sq_inner2                   z3               #
+sq_loop                     abc              ##
+sq                          abc              ###
+mod_sub                     simplify+abc     ##
+mod_half                    simplify+abc     ##
+mod_div                     SKIPPED
+group_add                   simplify+abc     ###
+field_add                   simplify+abc     ####
+field_sub                   simplify+abc     ##
+field_dbl_dec               simplify+trivial #
+field_dbl                   simplify+abc     ##
+field_red                   abc              ##################################
+field_sq                    simplify+trivial ##
+field_mul                   simplify+trivial ##
+group_red_aux               abc              ########
+group_red                   boolector        ####
+group_mul_aux               abc              #######
+field_mul3                  simplify+trivial #
+field_mul4                  simplify+trivial #
+field_mul8                  simplify+trivial #
+group_mul                   z3               ##############
+ec_double                   simp+boolector   ######################
+ec_full_add                 simplify+z3      #####
+ec_full_sub                 simp+unint_z3    ######
+ec_mul_init                 abc              ###
+ec_mul_aux                  simp+unint_z3    #######
+ec_mul                      unint_z3         #####################
+ec_twin_mul_aux_f           abc              #
+ec_twin_mul_aux1            simp+unint_z3    #####
+ec_twin_mul_aux2            abc              ##
+ec_twin_mul_init            simp+unint_z3    101s
+ec_twin_mul                 simp+unint_z3    93s
+p384_ecdsa_sign             simp+unint_z3    187s
+p384_ecdsa_public_verify    simp+unint_z3    ##
+
+Original proof discharged group_mul, ec_mul, and ec_twin_mul with just
+rewriting.

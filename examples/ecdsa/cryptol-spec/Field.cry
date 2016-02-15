@@ -1,0 +1,116 @@
+module Field where
+
+import Morphism
+import Set
+
+type Field fv =
+  { is_val : Set fv         // carrier set
+  , norm : fv -> fv
+  , add : (fv,fv) -> fv
+  , sub : (fv,fv) -> fv
+  , neg : fv -> fv
+  , mul : (fv,fv) -> fv
+  , sq : fv -> fv
+  , half : fv -> fv
+  , div : (fv,fv) -> fv
+  /* Zero value for field. */
+  , field_zero : fv
+    /* Unit value for field. */
+  , field_unit : fv
+  /* Return true if two field elements are equal. */
+  , is_equal : (fv, fv) -> Bit
+  }
+
+// Are all the field operations closed with respect to the
+//  underlying carrier set?
+/*
+Field_closed : {a} Field a -> (a,a) -> Bit
+Field_closed f (a1,a2) =
+  implies (V a1 & V a2)
+    ( V (f.add (a1,a2))
+    & V (f.sub (a1,a2))
+    & V (f.neg a1)
+    & V (f.mul (a1,a2))
+    & V (f.sq a1)
+    & V (f.half a1)
+    & V (f.div (a1,a2))
+    & V (f.field_zero)
+    & V (f.field_unit)
+    & f.is_equal (a1,a1)
+    )
+  where { V = f.is_val }
+*/
+
+/* ***** Field morphisms ****** */
+
+/*
+type Field_Mor (a,b) = Mor (Field a, Field b)
+
+Field_mor : {a b} EP (a,b) -> Field_Mor (a,b);
+Field_mor p f =
+  { is_val     = Emb (Set_ep (ep_op p)) ((f:Field a).is_val)
+  ; norm       = Emb (Efun1_ep p) (f.norm)
+  ; add        = Emb (Efun2_ep p) (f.add)
+  ; sub        = Emb (Efun2_ep p) (f.sub)
+  ; neg        = Emb (Efun1_ep p) (f.neg)
+  ; mul        = Emb (Efun2_ep p) (f.mul)
+  ; sq         = Emb (Efun1_ep p) (f.sq)
+  ; half       = Emb (Efun1_ep p) (f.half)
+  ; div        = Emb (Efun2_ep p) (f.div)
+  ; field_zero = Emb p (f.field_zero)
+  ; field_unit = Emb p (f.field_unit)
+  ; is_equal   = Emb (Set_ep (ep_op (Pair_ep (p,p)))) (f.is_equal)
+  };
+
+// Does m induce a Field morphism between f and g?
+isFieldMorphism : {a b} (fin b) =>
+                        Mor (a,b) ->
+                        Field a ->
+                        Field b ->
+                        Set ((a,a));
+isFieldMorphism m f g (a1,a2) =
+  implies ((f : Field a).is_val a1 & f.is_val a2)
+    ( (g : Field b).is_val b1
+    & equalFun2 (f.add)  (g.add)
+    & equalFun2 (f.sub)  (g.sub)
+    & equalFun1 (f.neg)  (g.neg)
+    & equalFun2 (f.mul)  (g.mul)
+    & equalFun1 (f.sq)   (g.sq)
+    & equalFun1 (f.half) (g.half)
+    & equalFun2 (f.div)  (g.div)
+    & (m (f.field_zero)   == g.field_zero)
+    & (m (f.field_unit)   == g.field_unit)
+    & (f.is_equal (a1,a2) == g.is_equal (b1,b2))
+    )
+  where { b1 = m a1;
+          b2 = m a2;
+          equalFun1 : (a -> a) -> (b -> b) -> Bit;
+          equalFun1 h k = m (h a1) == k b1;
+          equalFun2 : ((a,a) -> a) -> ((b,b) -> b) -> Bit;
+          equalFun2 h k = m (h (a1,a2)) == k (b1,b2); 
+        };
+
+// Are fields f and g isomorphic (via the EP-pair p)?
+isFieldIso : {a b} (fin a, fin b) =>
+                  EP (a,b) ->
+                  Field a ->
+                  Field b ->
+                  Set ((a,a,b,b));
+isFieldIso p f g (a1,a2,b1,b2) =
+  isFieldMorphism (p.emb) f g (a1,a2) &
+  isFieldMorphism (p.prj) g f (b1,b2);
+
+*/
+
+/* ***** Field EP-pair ***** */
+
+/*
+type Field_EP (a,b) = EP (Field a, Field b);
+
+Field_ep : {a b} EP (a,b) -> Field_EP (a,b);
+Field_ep p =
+  { emb = Field_mor p
+  ; prj = Field_mor (ep_op p)
+  };
+
+*/

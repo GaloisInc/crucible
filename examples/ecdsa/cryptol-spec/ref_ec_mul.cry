@@ -1,0 +1,116 @@
+module ref_ec_mul where
+
+import ec_point_ops
+
+/* Multiplies a large word scalar by the an affine point. */
+ec_mul : {fv, gv}  (fin gv) => (PointOps fv [gv], [gv], AffinePoint fv) -> JacobianPoint fv
+ec_mul (m, d, s) = res!0
+  where
+    k = d # [False, False]
+    h = k + (k + k)
+    res = [(ec_zero_point(m.field))]
+          #  [ if hi && ~ki then
+                 m.add(m.double(r), s)
+               else if ~hi && ki then
+                 m.sub(m.double(r), s)
+               else
+                 m.double(r)
+             | hi <- h
+             | ki <- k
+             | r  <- res 
+             ]
+
+ec_twin_mul_aux1 : {fv, gv} (fin gv, gv >= 4) => 
+  (PointOps fv [gv], JacobianPoint fv, [32], [32],
+   AffinePoint fv, AffinePoint fv, AffinePoint fv, AffinePoint fv) 
+  -> (JacobianPoint fv)
+ec_twin_mul_aux1(m,rP,u0,u1,sPt,s,sMt,t) = r
+  where
+   f = m.field
+   r = if u0 == -1 then
+         (if      u1 == -1 then m.sub(r2, sPt)
+          else if u1 ==  0 then m.sub(r2, s)
+          else                  m.sub(r2, sMt))
+       else if u0 == 0 then
+         (if      u1 == -1 then m.sub(r2, t)
+          else if u1 ==  1 then m.add(r2, t)
+          else                  r2)
+       else
+         (if      u1 == -1 then m.add(r2, sMt)
+          else if u1 ==  0 then m.add(r2, s)
+          else                  m.add(r2, sPt))
+   r2 = m.double(rP)
+
+F : {a} (fin a, a>=5) => [a] -> [a]
+F(t) = if (18 <= t) && (t < 22) then
+          9
+       else if (14 <= t) && (t < 18) then
+         10
+       else if (22 <= t) && (t < 24) then
+         11
+       else if (4 <= t) && (t < 12) then
+         14
+       else
+         12
+
+/* Return d0 * S + d1 * T. All points projective, 0 <= d0, d1 < p. */
+ec_twin_mul : {fv, gv} (fin gv) 
+            => (PointOps fv [gv+4], [gv+4], AffinePoint fv, [gv+4], AffinePoint fv)
+            -> (JacobianPoint fv)
+ec_twin_mul(m, d0, s, d1, t) =
+  if ec_is_zero_point(f, sPtP) then /* s + t = 0 */
+    ec_mul(m, g.sub(d0, d1), s)
+  else if ec_is_zero_point(f, sMtP) then /* s = t */
+    ec_mul(m, g.add(d0, d1), s)
+  else
+    drop`{gv+4}(r)@0
+ where
+   f    = m.field
+   g    = m.group_field
+   sP   = ec_projectify(f, s)
+   sPtP = m.add(sP, t) /* 1: ec_full_add (SpT, S, T) */
+   sMtP = m.sub(sP, t) /* 2: ec_full_sub (SmT, S, T) */
+   sDiv = f.div(f.field_unit, f.mul(sPtP.z, sMtP.z))
+   sPt  = { x = f.mul(g2, sPtP.x)
+          , y = f.mul(f.mul(gd, g2), sPtP.y)
+          }
+     where gd = f.mul(sMtP.z, sDiv)
+           g2 = f.sq(gd)
+   sMt  = { x = f.mul(g2, sMtP.x)
+          , y = f.mul(f.mul(gd, g2), sMtP.y)
+          }
+     where gd  = f.mul(sPtP.z, sDiv)
+           g2 = f.sq(gd)
+   init_c : [2][6]
+   init_c = [zero # (take(d0) : [4]), zero # (take(d1) : [4])]
+   c : [inf]_
+   c = [init_c]
+     # [ [[abs(u0) ^ c01, c02, c03, c04, c05, e0N],
+          [abs(u1) ^ c11, c12, c13, c14, c15, e1N]]
+          where
+            abs : {a} (fin a) => [a] -> Bit
+            abs(x) = x != zero
+       | [[c00, c01, c02, c03, c04, c05], [c10, c11, c12, c13, c14, c15]] <- c 
+       | [u0, u1] <- u
+       | e0N <- (drop`{4}(d0)) # (zero : [inf])
+       | e1N <- (drop`{4}(d1)) # (zero : [inf])
+       ]
+   u : [inf]_
+   u = [ [u0, u1]
+            where
+              h0' = [c05, c04, c03, c02, c01]
+              h0 = if c00 then 31 - h0' else h0'
+              h1' = [c15, c14, c13, c12, c11]
+              h1 = if c10 then 31 - h1' else h1'
+              u0 : [32]
+              u0 = if h0 < F(h1) then 0 else if c00 then -1 else 1
+              u1 : [32]
+              u1 = if h1 < F(h0) then 0 else if c10 then -1 else 1
+       | [[c00, c01, c02, c03, c04, c05], [c10, c11, c12, c13, c14, c15]] <- c 
+       ]
+   r : [inf]_
+   r = [(ec_zero_point f)]
+     # [ ec_twin_mul_aux1(m, rP, u0, u1, sPt, s, sMt, t)
+       | rP      <- r
+       | [u0, u1] <- u
+       ]

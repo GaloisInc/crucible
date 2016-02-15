@@ -1,0 +1,22 @@
+module p384_ec_point_ops where
+
+import ec_point_ops
+import p384_field
+
+p384_point_ops : PointOps [384] [384]
+p384_point_ops = {
+    field  = p384_field
+  , double = p384_ec_double
+  , add    = p384_ec_full_add
+  , sub    = p384_ec_full_sub
+  , group_field = p384_group_field
+  }
+
+p384_ec_double : JacobianPoint [384] -> JacobianPoint [384]
+p384_ec_double(p) = ec_double(p384_field, p)
+
+p384_ec_full_add : (JacobianPoint [384],AffinePoint [384]) -> JacobianPoint [384]
+p384_ec_full_add(p,q) = ec_full_add(p384_point_ops, p, q)
+
+p384_ec_full_sub : (JacobianPoint [384],AffinePoint [384]) -> JacobianPoint [384]
+p384_ec_full_sub(p,q) = ec_full_sub(p384_point_ops, p, q)

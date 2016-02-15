@@ -1,0 +1,167 @@
+module Morphism where
+
+import Set
+
+/* ***** Morphisms ***** */
+
+/* This file contains types and functions for
+** coercing values between different Cryptol types.
+*/
+
+// Morphism from type a to type b.
+type Mor a b = a -> b
+
+// Contravariant morphism (Opposite morphism)
+type Mor_OP a b = Mor b a
+
+id_mor : {a} Mor a a
+id_mor x = x
+
+comp_mor : {a, b, c} Mor b c -> Mor a b -> Mor a c
+comp_mor f g x = f (g x)
+
+// Homset morphism (contravariant in 1st arg, covariant in second arg)
+Hom_mor : {a, b, c, d} Mor_OP a b -> Mor c d -> Mor (a -> c) (b -> d)
+Hom_mor f g h = comp_mor g (comp_mor h f)
+
+// Product morphism
+Pair_mor : {a, b, c, d} Mor a c -> Mor b d -> Mor (a,b) (c,d)
+Pair_mor f g (a,b) = (f a, g b)
+
+// Diagonal morphism
+Diag_mor : {a, b} Mor a b -> Mor (a,a) (b,b)
+Diag_mor f = Pair_mor f f
+
+// Set morphism (contravariant)
+Set_mor : {a, b} Mor_OP a b -> Mor (Set a) (Set b)
+Set_mor m = Hom_mor m id_mor
+
+// Binary-Set morphism (contravariant)
+Set2_mor : {a, b} Mor_OP a b -> Mor (Set (a,a)) (Set (b,b))
+Set2_mor = comp_mor Set_mor Diag_mor
+
+/*
+// Does function f commute with function g through
+// morphism m, for every value in S?
+commutes : {a, b} (fin b) =>
+                  Set a ->
+                  Mor a b ->
+                  (a -> a) ->
+                  (b -> b) ->
+                  Set a
+commutes S m f g x =
+  implies (S x)
+          (m (f x) == g (m x))
+
+// Does binary function f commute with binary function
+// g through morphism m, for every value in S?
+commutes2 : {a, b} (fin b) =>
+                   Set (a,a) ->
+                   Mor a b ->
+                   ((a,a) -> a) ->
+                   ((b,b) -> b) ->
+                   Set (a,a)
+commutes2 S m f g (x,y) =
+  implies (S (x,y))
+          (m (f (x,y)) == g (m x, m y))
+*/
+
+/* ****** Embedding-Projection pairs (EP-pairs) ****** */
+
+// An embedding-projection pair allows you to embed
+// values from one type into another type without losing
+// information.
+
+/*
+// Functions to embed values from type a into type b.
+//  The .emb function needs to be injective.
+//  The .prj function needs to be injective on
+//   the range of the .emb function. That is,
+//   given an EP-pair p, then p.prj (p.emb x) = x,
+//   for all x of type a.
+type EP a b =
+  { emb : Mor a b
+  , prj : Mor b a
+  }
+
+EP : {a, b} Mor a b -> Mor b a -> EP a b
+EP e = \p -> { emb = e, prj = p }
+ 
+Emb : {a, b} EP a b -> Mor a b;
+Emb p = p.emb;
+
+Prj : {a, b} EP a b -> Mor b a;
+Prj p = p.prj;
+*/
+
+/* ****** EP-pair transformers ****** */
+
+/* These functions create new EP-pairs from
+**  existing EP-pairs.
+*/
+
+/*
+// Contravariant EP-pair (Opposite EP-pair).
+type EP_OP a b = EP b a;
+
+ep_op : {a b} EP a b -> EP_OP a b;
+ep_op p = EP (p.prj) (p.emb);
+
+// Identity EP-pair
+id_ep : {a} EP a a;
+id_ep = EP id_mor id_mor;
+
+// Composition of EP-pairs
+comp_ep : {a, b, c} EP b c -> EP a b -> EP a c;
+comp_ep p q =
+  EP (comp_mor ((p : EP (b,c)).emb) ((q : EP (a,b)).emb))
+     (comp_mor (q.prj) (p.prj));
+
+Pair_ep : {a b c d} (EP (a,c), EP (b,d)) -> EP ((a,b),(c,d));
+Pair_ep (p1,p2) =
+  EP (Pair_mor (p1.emb) (p2.emb))
+     (Pair_mor (p1.prj) (p2.prj));
+
+Diag_ep : {a b c d} EP (a,b) -> EP ((a,a),(b,b));
+Diag_ep p =
+  EP (Diag_mor (p.emb))
+     (Diag_mor (p.prj));
+
+// Hom-set EP-pair
+Hom_ep : {a b c d} (EP_OP (a,b), EP (c,d)) -> EP ((a -> c), (b -> d));
+Hom_ep (p,q) =
+  EP (Hom_mor (p.emb) (q.emb))
+     (Hom_mor (p.prj) (q.prj));
+
+// Unary endo-function EP-pair
+Efun1_ep : {a b} EP (a,b) -> EP ((a -> a), (b -> b));
+Efun1_ep p = Hom_ep (ep_op p, p);
+
+// Binary endo-function EP-pair
+Efun2_ep : {a b} EP (a,b) -> EP (((a,a) -> a), ((b,b) -> b));
+Efun2_ep p = Hom_ep (ep_op (Pair_ep (p,p)), p);
+
+// Set EP-Pair
+Set_ep : {a b} EP_OP (a,b) -> EP (Set a, Set b);
+Set_ep p = EP (Set_mor (p.emb))
+              (Set_mor (p.prj));
+
+// Binary-Set EP-Pair
+Set2_ep : {a b} EP_OP (a,b) -> EP (Set ((a,a)), Set ((b,b)));
+Set2_ep p = EP (Set2_mor (p.emb))
+               (Set2_mor (p.prj));
+*/
+
+/* **** Set-operations on EP-pairs ****** */
+
+/*
+image_ep : {a b} EP (a,b) -> Set a -> Set b;
+image_ep p P b = P (p.prj b);
+
+// The result subtype will be valid, provided the
+//  EP-pair is closed with respect to its carrier sets.
+ep_closed : {a b} (Set a, Set b) -> EP (a,b) -> Set ((a,b));
+ep_closed (A,B) p (a,b) =
+    (subset (image_ep p A) B) b
+  & (subset (image_ep (ep_op p) B) A) a;
+*/

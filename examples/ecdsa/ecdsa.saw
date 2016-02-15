@@ -1,0 +1,1540 @@
+let ecc_class = "com.galois.ecc.P384ECC64";
+
+import "cryptol-spec/ecc.cry" as ecc;
+import "cryptol-spec/mul_java.cry" as mul_java;
+import "cryptol-spec/p384_field.cry" as p384_field;
+import "cryptol-spec/p384_ec_point_ops.cry" as p384_ec_point_ops;
+import "cryptol-spec/p384_ec_mul.cry" as p384_ec_mul;
+
+////////////////////////////////////////////////////////////
+/* Library of Cryptol functions */
+
+let {{
+
+  ec_join : [12][32] -> [384]
+  ec_join x = join (reverse x)
+
+  ec_join768 : [24][32] -> [768]
+  ec_join768 x = join (reverse x)
+
+  ec_split : [384] -> [12][32]
+  ec_split x = reverse (split x)
+
+  ec_split768 : [768] -> [24][32]
+  ec_split768 x = reverse (split x)
+
+  long_extend : [32] -> [64]
+  long_extend x = zero # x
+
+  ec_extend : [32] -> [384]
+  ec_extend x = zero # x
+
+  jget a (i : [32]) = a @ i
+
+  p384_mod_div (p,x,y) = egcd(p,0,y,x)
+    where
+      mh = p384_field::p384_mod_half
+      ms = p384_field::p384_mod_sub
+      /* In code below, a is always odd. */
+      egcd(a,ra,b,rb) =
+        if b == 0 then
+          ra
+        else if (b && 1) == 0 then /* b is even. */
+          egcd(a, ra, b >> 1, mh(p, rb))
+        else if a < b then
+          egcd(a, ra, (b - a) >> 1, mh(p, ms(p, rb, ra)))
+        else
+          egcd(b, rb, (a - b) >> 1, mh(p, ms(p, ra, rb)))
+
+  field_prime = 0xffffffffffffffffffffffffffffffffffffffffffffffff #
+                0xfffffffffffffffeffffffff0000000000000000ffffffff
+
+  group_order = 0xffffffffffffffffffffffffffffffffffffffffffffffff #
+                0xc7634d81f4372ddf581a0db248b0a77aecec196accc52973
+
+  app2 f x = f (x, x)
+  app3 f x = f (x, app2 f x)
+  app4 f x = f (app2 f x, app2 f x)
+  app8 f x = f (app4 f x, app4 f x)
+
+}};
+
+////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////
+/* Convenience functions for conventions used in the Java ECDSA
+implementation */
+
+let default_tactic n = assume_unsat;
+let hard_tactic n = assume_unsat;
+
+let ecdsa_arr384 n = do {
+  a <- java_var n (java_array 12 java_int);
+  return {{ ec_join a }};
+};
+
+let ecdsa_arr768 n = do {
+  a <- java_var n (java_array 24 java_int);
+  return {{ ec_join768 a }};
+};
+
+let ecdsa_uses_field_prime = do {
+  p <- ecdsa_arr384 "this.field_prime";
+  java_assert {{ p == field_prime }};
+};
+
+let ecdsa_uses_field_unit = do {
+  u <- ecdsa_arr384 "this.field_unit";
+  java_assert {{ u == 1 }};
+};
+
+let ecdsa_uses_group_order = do {
+  order <- ecdsa_arr384 "this.group_order";
+  java_assert {{ order == group_order }};
+};
+
+let ecdsa_uses_temps = do {
+  ecdsa_arr384 "this.t1";
+  ecdsa_arr384 "this.t2";
+  ecdsa_arr384 "this.t3";
+  java_modify "this.t1";
+  java_modify "this.t2";
+  java_modify "this.t3";
+};
+
+let ecdsa_uses_a = do {
+  ecdsa_arr768 "this.a";
+  java_modify "this.a";
+};
+
+let ecdsa_affine n = do {
+  java_class_var n (java_class "com/galois/ecc/AffinePoint");
+  tx <- ecdsa_arr384 (str_concat n ".x");
+  ty <- ecdsa_arr384 (str_concat n ".y");
+  return {{ { x = tx, y = ty } }};
+};
+
+let ecdsa_jacobian n = do {
+  java_class_var n (java_class "com/galois/ecc/JacobianPoint");
+  rx <- ecdsa_arr384 (str_concat n ".x");
+  ry <- ecdsa_arr384 (str_concat n ".y");
+  rz <- ecdsa_arr384 (str_concat n ".z");
+  return {{ { x = rx, y = ry, z = rz } }};
+};
+
+let ecdsa_signature n = do {
+  java_class_var n (java_class "com/galois/ecc/Signature");
+  rr <- ecdsa_arr384 (str_concat n ".r");
+  rs <- ecdsa_arr384 (str_concat n ".s");
+  return {{ { r = rr, s = rs } }};
+};
+
+let ecdsa_public_key n = do {
+  java_class_var n (java_class "com/galois/ecc/PublicKey");
+  rx <- ecdsa_arr384 (str_concat n ".x");
+  ry <- ecdsa_arr384 (str_concat n ".y");
+  return {{ { x = rx, y = ry } }};
+};
+
+let ecdsa_twin_mul_aux2_rslt n = do {
+  java_class_var n (java_class "com/galois/ecc/TwinMulAux2Rslt");
+  ru0 <- java_var (str_concat n ".u0") java_int;
+  ru1 <- java_var (str_concat n ".u1") java_int;
+  rc0p <- java_var (str_concat n ".c0p") java_int;
+  rc1p <- java_var (str_concat n ".c1p") java_int;
+  re0p <- java_var (str_concat n ".e0p") java_int;
+  re1p <- java_var (str_concat n ".e1p") java_int;
+  rshp <- java_var (str_concat n ".shp") java_int;
+  return {{ { u0 = ru0, u1 = ru1
+            , c0p = rc0p, c1p = rc1p
+            , e0p = re0p, e1p = re1p
+            , shp = rshp
+            } }};
+};
+
+let ecdsa_assign_arr384 a x = java_ensure_eq a {{ ec_split x }};
+let ecdsa_assign_arr768 a x = java_ensure_eq a {{ ec_split768 x }};
+
+let ecdsa_assign_jacobian n j = do {
+  ecdsa_assign_arr384 (str_concat n ".x") {{ j.x }};
+  ecdsa_assign_arr384 (str_concat n ".y") {{ j.y }};
+  ecdsa_assign_arr384 (str_concat n ".z") {{ j.z }};
+};
+
+let ecdsa_assign_affine n a = do {
+  ecdsa_assign_arr384 (str_concat n ".x") {{ a.x }};
+  ecdsa_assign_arr384 (str_concat n ".y") {{ a.y }};
+};
+////////////////////////////////////////////////////////////
+
+// Define to be "java_no_simulate" to skip all but a chosen few proofs
+let maybe_skip = return ();
+//let maybe_skip = java_no_simulate;
+
+////////////////////////////////////////////////////////////
+/* The actual method specifications */
+
+let set_zero_spec = do {
+  ecdsa_arr384 "x";
+  ecdsa_assign_arr384 "x" {{ 0 }};
+  maybe_skip;
+  java_verify_tactic abc;
+};
+
+let set_unit_spec = do {
+  ecdsa_arr384 "x";
+  ecdsa_assign_arr384 "x" {{ 1 }};
+  maybe_skip;
+  java_verify_tactic abc;
+};
+
+let leq_spec = do {
+  x <- ecdsa_arr384 "x";
+  y <- ecdsa_arr384 "y";
+  java_may_alias [ "x", "y" ];
+  java_return {{ if x <= y then (1:[32]) else (0:[32]) }};
+  java_verify_tactic abc;
+};
+
+let shr_spec = do {
+  ecdsa_arr384 "z";
+  x <- ecdsa_arr384 "x";
+  c <- java_var "c" java_int;
+  java_may_alias [ "z", "x" ];
+  ecdsa_assign_arr384 "z" {{ (ec_extend c << 383) || (x >> 1) }};
+  maybe_skip;
+  java_verify_tactic abc;
+};
+
+let is_zero_spec = do {
+  x <- ecdsa_arr384 "x";
+  java_return {{ x == 0 }};
+  maybe_skip;
+  java_verify_tactic abc;
+};
+
+let is_equal_spec = do {
+  x <- ecdsa_arr384 "x";
+  y <- ecdsa_arr384 "y";
+  java_return {{ x == y }};
+  maybe_skip;
+  java_verify_tactic abc;
+};
+
+let assign_spec = do {
+  ecdsa_arr384 "x";
+  y <- ecdsa_arr384 "y";
+  ecdsa_assign_arr384 "x" y;
+  maybe_skip;
+  java_verify_tactic abc;
+};
+
+let array_shift_spec = do {
+  r <- ecdsa_arr384 "r";
+  ecdsa_assign_arr384 "r" {{ (r << 32) }};
+  java_return {{ long_extend (jget (ec_split r) 11) }};
+  maybe_skip;
+  java_verify_tactic abc;
+};
+
+let add_spec = do {
+  x <- ecdsa_arr384 "x";
+  y <- ecdsa_arr384 "y";
+  ecdsa_arr384 "z";
+  java_may_alias ["z", "x", "y"];
+  let z = {{ x + y }};
+  ecdsa_assign_arr384 "z" {{ z }};
+  java_return {{ (z < x) && (z < y) }};
+  maybe_skip;
+  java_verify_tactic abc;
+};
+
+let dbl_spec = do {
+  x <- ecdsa_arr384 "x";
+  ecdsa_arr384 "z";
+  let z = {{ x + x }};
+  java_may_alias ["x", "z"];
+  ecdsa_assign_arr384 "z" {{ z }};
+  java_return {{ z < x }};
+  maybe_skip;
+  java_verify_tactic abc;
+};
+
+/*
+let dbl_dec_spec = do {
+  y <- ecdsa_arr384 "y";
+  z <- ecdsa_arr384 "z";
+  ecdsa_assign_arr384 "z" {{ (z - 2*y) }};
+  java_return {{ z < y }};
+  java_verify_tactic (default_tactic "dbl_dec");
+};
+*/
+
+let sub_spec = do {
+  x <- ecdsa_arr384 "x";
+  y <- ecdsa_arr384 "y";
+  ecdsa_arr384 "z";
+  java_may_alias ["z", "x", "y"];
+  let z = {{ x - y }};
+  ecdsa_assign_arr384 "z" {{ z }};
+  java_return {{ if (x >= y) then (0:[32]) else (0xffffffff:[32]) }};
+  maybe_skip;
+  java_verify_tactic abc;
+};
+
+let mul_inner_spec = do {
+  azero <- java_var "azero" java_bool;
+  a <- java_var "a" (java_array 24 java_int);
+  ij <- java_var "ij" java_int;
+  xi <- java_var "xi" java_int;
+  yj <- java_var "yj" java_int;
+  d <- java_var "d" java_long;
+  java_assert {{ (0 <= ij) && (ij <= 23) }};
+  let res = {{ mul_java::mul_java_inner (azero, a, ij, xi, yj, d) }};
+  java_ensure_eq "a" {{ res.mji_a }};
+  java_return {{ res.mji_d }};
+  maybe_skip;
+  // Recently, Z3 became much slower on this. Why?
+  // Possibilities: new version of SBV, use of svSelect, changes in ite
+  //java_verify_tactic z3;
+  java_verify_tactic abc;
+};
+
+let mul_spec ss = do {
+  a <- ecdsa_arr768 "a";
+  x <- ecdsa_arr384 "x";
+  y <- ecdsa_arr384 "y";
+  java_may_alias ["x", "y"];
+  ecdsa_assign_arr768 "a" {{ mul_java::mul_java (a, x, y) }};
+  maybe_skip;
+  java_verify_tactic abc;
+};
+
+let sq_inner1_spec = do {
+  a <- java_var "a" (java_array 24 java_int);
+  ij <- java_var "ij" java_int;
+  c <- java_var "c" java_long;
+  java_assert {{ (0 <= ij) && (ij <= 23) }};
+  let res = {{ mul_java::sq_java_inner1 (a, ij, c) }};
+  java_ensure_eq "a" {{ res.mji_a }};
+  java_return {{ res.mji_d }};
+  maybe_skip;
+  java_verify_tactic z3;
+};
+
+let sq_inner2_spec = do {
+  a <- java_var "a" (java_array 24 java_int);
+  ij <- java_var "ij" java_int;
+  xati <- java_var "xati" java_int;
+  c <- java_var "c" java_long;
+  java_assert {{ (0 <= ij) && (ij <= 23) }};
+  let res = {{ mul_java::sq_java_inner2 (a, ij, xati, c) }};
+  java_ensure_eq "a" {{ res.mji_a }};
+  java_return {{ res.mji_d }};
+  maybe_skip;
+  // Recently, Z3 became much slower on this. Why?
+  // Possibilities: new version of SBV, use of svSelect, changes in ite
+  //java_verify_tactic z3;
+  java_verify_tactic abc;
+};
+
+let sq_loop_spec ss = do {
+  a <- java_var "a" (java_array 24 java_int);
+  x <- ecdsa_arr384 "x";
+  java_ensure_eq "a" {{ mul_java::sq_java_loop (a, x) }};
+  maybe_skip;
+  java_verify_tactic abc;
+};
+
+let sq_spec ss = do {
+  a <- ecdsa_arr768 "a";
+  x <- ecdsa_arr384 "x";
+  ecdsa_assign_arr768 "a" {{ mul_java::sq_java (a, x) }};
+  maybe_skip;
+  java_verify_tactic abc;
+};
+
+let mod_sub_spec ss = do {
+  ecdsa_arr384 "z";
+  x <- ecdsa_arr384 "x";
+  y <- ecdsa_arr384 "y";
+  p <- ecdsa_arr384 "p";
+  java_may_alias ["z", "x", "y"];
+  ecdsa_assign_arr384 "z" {{ p384_field::p384_mod_sub (p, x, y) }};
+  maybe_skip;
+  java_verify_tactic do {
+    unfolding ["p384_mod_sub"];
+    simplify ss; abc;
+  };
+};
+
+let mod_half_spec ss = do {
+  x <- ecdsa_arr384 "x";
+  p <- ecdsa_arr384 "p";
+  java_may_alias [ "x", "p" ];
+  ecdsa_assign_arr384 "x" {{ p384_field::p384_mod_half (p, x) }};
+  maybe_skip;
+  java_verify_tactic do {
+    unfolding ["p384_mod_half"];
+    simplify ss; abc;
+  };
+};
+
+// TODO: extract recursive models
+let mod_div_spec = do {
+  ra <- ecdsa_arr384 "ra";
+  x <- ecdsa_arr384 "x";
+  y <- ecdsa_arr384 "y";
+  p <- ecdsa_arr384 "p";
+  ecdsa_uses_temps;
+  ecdsa_assign_arr384 "ra" {{ p384_mod_div (p, x, y) }};
+  java_no_simulate;
+};
+
+let inc_dec_FieldPrime_spec ss f = do {
+  x <- ecdsa_arr384 "x";
+  let r = {{ f x }};
+  ecdsa_assign_arr384 "x" {{ r.rslt }};
+  java_return {{ r.carry }};
+  maybe_skip;
+  java_verify_tactic abc; // Faster than Yices
+};
+
+let group_add_spec ss = do {
+  z <- ecdsa_arr384 "z";
+  x <- ecdsa_arr384 "x";
+  y <- ecdsa_arr384 "y";
+  ecdsa_uses_group_order;
+  java_may_alias ["z", "x", "y"];
+  ecdsa_assign_arr384 "z" {{ p384_field::p384_mod_add (group_order, x, y) }};
+  maybe_skip;
+  java_verify_tactic do {
+    simplify ss; abc; // yices?
+  };
+};
+
+let group_red_aux_spec = do {
+  r  <- ecdsa_arr384 "r";
+  aj <- java_var "aj" java_int;
+  j  <- java_var "j" java_int;
+  c  <- java_var "c" java_long;
+  b  <- java_var "b" java_long;
+  java_assert {{ (0 <= j) && (j <= 11) }};
+  let res = {{ mul_java::group_red_aux_java (r, aj, j, c, b) }};
+  ecdsa_assign_arr384 "r" {{ res.gra_r }};
+  java_return {{ res.gra_b }};
+  maybe_skip;
+  java_verify_tactic abc;
+};
+
+let group_red_spec ss = do {
+  r  <- ecdsa_arr384 "r";
+  c  <- java_var "c" java_long;
+  ecdsa_uses_group_order;
+  ecdsa_assign_arr384 "r" {{ mul_java::p384_group_red (group_order, r, c) }};
+  maybe_skip;
+  java_verify_tactic do {
+    unfolding ["p384_group_red"];
+    simplify ss; unint_z3 ["group_red_aux_java"];
+  };
+};
+
+let group_mul_aux_spec = do {
+  r  <- ecdsa_arr384 "r";
+  yj <- java_var "yj" java_int;
+  j  <- java_var "j" java_int;
+  xi <- java_var "xi" java_int;
+  c  <- java_var "c" java_long;
+  java_assert {{ (0 <= j) && (j <= 11) }};
+  let res = {{ mul_java::group_mul_aux_java (r, yj, j, xi, c) }};
+  ecdsa_assign_arr384 "r" {{ res.gra_r }};
+  java_return {{ res.gra_b }};
+  maybe_skip;
+  java_verify_tactic abc;
+};
+
+let group_mul_spec ss = do {
+  r <- ecdsa_arr384 "r";
+  x <- ecdsa_arr384 "x";
+  y <- ecdsa_arr384 "y";
+  ecdsa_uses_group_order;
+  ecdsa_assign_arr384 "r" {{ mul_java::p384_group_mul (group_order, x, y) }};
+  maybe_skip;
+  java_verify_tactic do {
+    unfolding ["p384_group_mul"];
+    simplify ss;
+    unint_z3 ["p384_group_red", "group_mul_aux_java"];
+  };
+};
+
+let field_add_sub_spec ss f = do {
+  ecdsa_arr384 "z";
+  x <- ecdsa_arr384 "x";
+  y <- ecdsa_arr384 "y";
+  java_may_alias ["z", "x", "y"];
+  ecdsa_uses_field_prime;
+  ecdsa_assign_arr384 "z" {{ f (x, y) }};
+  maybe_skip;
+  java_verify_tactic do {
+    unfolding ["p384_field_add", "p384_field_sub"];
+    simplify ss;
+    abc;
+  };
+};
+
+let field_dbl_spec ss = do {
+  ecdsa_arr384 "z";
+  x <- ecdsa_arr384 "x";
+  ecdsa_uses_field_prime;
+  java_may_alias ["z", "x"];
+  ecdsa_assign_arr384 "z" {{ p384_field::p384_field_add (x, x) }};
+  maybe_skip;
+  java_verify_tactic do { simplify ss; abc; };
+};
+
+let field_red_spec = do {
+  ecdsa_arr384 "z";
+  a <- ecdsa_arr768 "a";
+  ecdsa_uses_field_prime;
+  ecdsa_assign_arr384 "z" {{ p384_field::p384_field_mod a }};
+  maybe_skip;
+  java_verify_tactic abc;
+};
+
+let field_sq_spec ss = do {
+  ecdsa_arr384 "z";
+  x <- ecdsa_arr384 "x";
+  ecdsa_uses_a;
+  java_may_alias ["z", "x"];
+  ecdsa_uses_field_prime;
+  ecdsa_assign_arr384 "z" {{ p384_field::p384_field_sq x }};
+  maybe_skip;
+  java_verify_tactic do {
+    unfolding ["p384_field_sq", "p384_field_mul"];
+    simplify ss;
+    trivial;
+  };
+};
+
+let field_mul_spec ss = do {
+  ecdsa_arr384 "z";
+  x <- ecdsa_arr384 "x";
+  y <- ecdsa_arr384 "y";
+  java_may_alias ["z", "x", "y"];
+  ecdsa_uses_field_prime;
+  ecdsa_uses_a;
+  ecdsa_assign_arr384 "z" {{ p384_field::p384_field_mul (x, y) }};
+  maybe_skip;
+  java_verify_tactic do {
+    unfolding ["p384_field_mul"];
+    simplify ss;
+    trivial;
+  };
+};
+
+let field_dbl_dec_spec ss = do {
+  z <- ecdsa_arr384 "z";
+  x <- ecdsa_arr384 "x";
+  ecdsa_uses_field_prime;
+  ecdsa_assign_arr384 "z"
+    {{ p384_field::p384_field_sub (p384_field::p384_field_sub (z, x), x) }};
+  maybe_skip;
+  java_verify_tactic do { simplify ss; z3; };
+};
+
+let field_muln_spec_noalias ss f = do {
+  ecdsa_arr384 "z";
+  x <- ecdsa_arr384 "x";
+  ecdsa_uses_field_prime;
+  ecdsa_assign_arr384 "z" {{ f x }};
+  maybe_skip;
+  java_verify_tactic do {
+    unfolding ["app2", "app3"];
+    simplify ss;
+    trivial;
+  };
+};
+
+let field_muln_spec_alias ss f = do {
+  ecdsa_arr384 "z";
+  x <- ecdsa_arr384 "x";
+  java_may_alias ["z", "x"];
+  ecdsa_uses_field_prime;
+  ecdsa_assign_arr384 "z" {{ f x }};
+  maybe_skip;
+  java_verify_tactic do {
+    unfolding ["app2", "app4", "app8"];
+    simplify ss;
+    trivial;
+  };
+};
+
+let ec_double_spec ss = do {
+  r <- ecdsa_jacobian "r";
+  ecdsa_uses_temps;
+  ecdsa_uses_a;
+  ecdsa_uses_field_prime;
+  ecdsa_assign_jacobian "r" {{ p384_ec_point_ops::p384_ec_double r }};
+  maybe_skip;
+  java_verify_tactic do {
+    unfolding ["p384_ec_double"];
+    simplify ss;
+    unint_z3 [ "p384_field_add", "p384_field_mul"
+             , "p384_field_sq", "p384_field_sub"
+             ];
+  };
+};
+
+let ec_full_add_spec ss = do {
+  r <- ecdsa_jacobian "r";
+  t <- ecdsa_affine "t";
+  ecdsa_uses_a;
+  ecdsa_uses_field_prime;
+  ecdsa_uses_temps;
+  ecdsa_assign_jacobian "r" {{ p384_ec_point_ops::p384_ec_full_add(r, t) }};
+  maybe_skip;
+  java_verify_tactic do {
+    unfolding ["p384_ec_full_add"];
+    simplify ss;
+    unint_z3 [ "p384_field_add", "p384_field_sub", "p384_field_mul"
+             , "p384_full_add", "p384_mod_half", "p384_ec_double"
+             ];
+  };
+};
+
+let ec_full_sub_spec ss = do {
+  r <- ecdsa_jacobian "r";
+  t <- ecdsa_affine "t";
+  ecdsa_uses_a;
+  ecdsa_uses_field_prime;
+  ecdsa_uses_temps;
+  ecdsa_assign_jacobian "r" {{ p384_ec_point_ops::p384_ec_full_sub(r, t) }};
+  maybe_skip;
+  java_verify_tactic do {
+    simplify ss;
+    unfolding ["p384_field_neg"];
+    simplify ss;
+    unint_z3 [ "p384_ec_full_add", "p384_ec_double", "p384_field_add"
+             , "p384_field_sub", "p384_field_mul"
+             , "p384_full_add", "p384_mod_half"
+             ];
+  };
+};
+
+let ec_mul_init_spec = do {
+  ecdsa_jacobian "r";
+  d <- ecdsa_arr384 "d";
+  ecdsa_arr384 "this.h";
+  s <- ecdsa_affine "s";
+  ecdsa_uses_field_prime;
+  ecdsa_uses_a;
+  ecdsa_uses_temps;
+  let res = {{ p384_ec_mul::p384_ec_mul_init (d, s) }};
+  ecdsa_assign_jacobian "r" {{ res.r }};
+  ecdsa_assign_arr384 "this.h" {{ res.h }};
+  maybe_skip;
+  java_verify_tactic abc;
+};
+
+let ec_mul_aux_spec ss = do {
+  r <- ecdsa_jacobian "r";
+  j <- java_var "j" java_int;
+  hi <- java_var "hi" java_int;
+  i_lt <- java_var "i_lt_11" java_bool;
+  d_at_i <- java_var "d_at_i" java_int;
+  d_at_ip1 <- java_var "d_at_ip1" java_int;
+  s <- ecdsa_affine "s";
+  ecdsa_uses_field_prime;
+  ecdsa_uses_a;
+  ecdsa_uses_temps;
+  java_assert {{ (j >= 0) && (j <= 384) }};
+  java_assert {{ ((j >> 5) < 11) == (i_lt != 0) }};
+  ecdsa_assign_jacobian "r"
+    {{ p384_ec_mul::p384_ec_mul_aux (r, s, j, hi, i_lt, d_at_i, d_at_ip1) }};
+  maybe_skip;
+  java_verify_tactic do {
+    unfolding ["p384_ec_mul_aux"];
+    simplify ss;
+    unint_z3 [ "p384_ec_double", "p384_ec_full_add", "p384_ec_full_sub"
+             ];
+  };
+};
+
+let ec_mul_spec = do {
+  d <- ecdsa_arr384 "d";
+  h <- ecdsa_arr384 "this.h";
+  ecdsa_jacobian "r";
+  s <- ecdsa_affine "s";
+  ecdsa_uses_field_prime;
+  ecdsa_uses_temps;
+  ecdsa_uses_a;
+  ecdsa_assign_jacobian "r" {{ p384_ec_mul::p384_ec_mul (d, s) }};
+  java_modify "this.h";
+  maybe_skip;
+  java_verify_tactic do {
+    unfolding ["p384_ec_mul"];
+    beta_reduce_goal;
+    unint_z3 ["p384_ec_mul_aux", "p384_ec_mul_init"];
+  };
+};
+
+let ec_twin_mul_init_spec ss = do {
+  ecdsa_jacobian "r";
+  d0 <- ecdsa_arr384 "d0";
+  d1 <- ecdsa_arr384 "d1";
+  ecdsa_affine "sPt";
+  ecdsa_affine "sMt";
+  s <- ecdsa_affine "s";
+  t <- ecdsa_affine "t";
+  ecdsa_jacobian "sPtP";
+  ecdsa_jacobian "sMtP";
+  ecdsa_arr384 "this.h";
+  ecdsa_uses_group_order;
+  ecdsa_uses_field_prime;
+  ecdsa_uses_field_unit;
+  ecdsa_uses_temps;
+  ecdsa_uses_a;
+
+  let res = {{ p384_ec_mul::p384_ec_twin_mul_init (d0, s, d1, t) }};
+  ecdsa_assign_jacobian "r" {{ res.r }};
+  ecdsa_assign_affine "sPt" {{ res.sPt }};
+  ecdsa_assign_affine "sMt" {{ res.sMt }};
+
+  java_return {{ s.x == t.x }};
+
+  java_modify "sPtP.x";
+  java_modify "sPtP.y";
+  java_modify "sPtP.z";
+  java_modify "sMtP.x";
+  java_modify "sMtP.y";
+  java_modify "sMtP.z";
+  java_modify "this.h";
+
+  maybe_skip;
+  java_verify_tactic do {
+    unfolding [ "p384_ec_twin_mul_init" ];
+    simplify ss;
+    unint_z3 [ "p384_ec_full_add"
+             , "p384_ec_full_sub"
+             , "p384_ec_mul"
+             , "p384_ec_double"
+             , "p384_mod_add"
+             , "p384_mod_sub"
+             , "p384_field_mul"
+             , "p384_field_sq"
+             , "p384_mod_div"
+             ];
+  };
+};
+
+let ec_twin_mul_aux1_spec ss = do {
+  r <- ecdsa_jacobian "r";
+  u0 <- java_var "u0" java_int;
+  u1 <- java_var "u1" java_int;
+  sPt <- ecdsa_affine "sPt";
+  sMt <- ecdsa_affine "sMt";
+  s <- ecdsa_affine "s";
+  t <- ecdsa_affine "t";
+  ecdsa_uses_field_prime;
+  ecdsa_uses_temps;
+  ecdsa_uses_a;
+  ecdsa_assign_jacobian "r"
+    {{ p384_ec_mul::p384_ec_twin_mul_aux1 (r, u0, u1, sPt, s, sMt, t)}};
+  maybe_skip;
+  java_verify_tactic do {
+    unfolding ["p384_ec_twin_mul_aux1", "ec_twin_mul_aux1"];
+    simplify ss;
+    unint_z3 [ "p384_ec_double", "p384_ec_full_add", "p384_ec_full_sub"
+             ];
+  };
+};
+
+let ec_twin_mul_aux2_spec = do {
+  c0 <- java_var "c0" java_int;
+  c1 <- java_var "c1" java_int;
+  e0 <- java_var "e0" java_int;
+  e1 <- java_var "e1" java_int;
+  shift <- java_var "shift" java_int;
+  d0i <- java_var "d0i" java_int;
+  d1i <- java_var "d1i" java_int;
+  dv1 <- java_var "dv1" java_bool;
+  dv2 <- java_var "dv2" java_bool;
+  auxr <- java_class_var "this.aux2Rslt" (java_class "com/galois/ecc/TwinMulAux2Rslt");
+  u0 <- java_var "this.aux2Rslt.u0" java_int;
+  u1 <- java_var "this.aux2Rslt.u1" java_int;
+  c0p <- java_var "this.aux2Rslt.c0p" java_int;
+  c1p <- java_var "this.aux2Rslt.c1p" java_int;
+  e0p <- java_var "this.aux2Rslt.e0p" java_int;
+  e1p <- java_var "this.aux2Rslt.e1p" java_int;
+  shp <- java_var "this.aux2Rslt.shp" java_int;
+  let res =
+    {{ p384_ec_mul::p384_ec_twin_mul_aux2 (c0, c1, e0, e1, shift, d0i, d1i, dv1, dv2) }};
+  java_ensure_eq "this.aux2Rslt.u0" {{ res.tma2_u0 }};
+  java_ensure_eq "this.aux2Rslt.u1" {{ res.tma2_u1 }};
+  java_ensure_eq "this.aux2Rslt.c0p" {{ res.tma2_c0' }};
+  java_ensure_eq "this.aux2Rslt.c1p" {{ res.tma2_c1' }};
+  java_ensure_eq "this.aux2Rslt.e0p" {{ res.tma2_e0' }};
+  java_ensure_eq "this.aux2Rslt.e1p" {{ res.tma2_e1' }};
+  java_ensure_eq "this.aux2Rslt.shp" {{ res.tma2_sh' }};
+  maybe_skip;
+  java_verify_tactic abc;
+};
+
+let ec_twin_mul_aux_f_spec = do {
+  t <- java_var "t" java_int;
+  java_return {{ p384_ec_mul::p384_ec_twin_mul_aux_F32 t }};
+  maybe_skip;
+  java_verify_tactic abc;
+};
+
+let ec_twin_mul_spec ss = do {
+  r <- ecdsa_jacobian "r";
+  s <- ecdsa_affine "s";
+  t <- ecdsa_affine "t";
+  sPtP <- ecdsa_jacobian "sPtP";
+  sMtP <- ecdsa_jacobian "sMtP";
+  sPt <- ecdsa_affine "sPt";
+  sMt <- ecdsa_affine "sMt";
+  d0 <- ecdsa_arr384 "d0";
+  d1 <- ecdsa_arr384 "d1";
+  ecdsa_arr384 "this.h";
+  aux2rslt <- ecdsa_twin_mul_aux2_rslt "this.aux2Rslt";
+  ecdsa_uses_field_prime;
+  ecdsa_uses_field_unit;
+  ecdsa_uses_group_order;
+  ecdsa_uses_temps;
+  ecdsa_uses_a;
+  ecdsa_assign_jacobian "r" {{ p384_ec_mul::p384_ec_twin_mul (d0, s, d1, t) }};
+  java_modify "this.aux2Rslt.u0";
+  java_modify "this.aux2Rslt.u1";
+  java_modify "this.aux2Rslt.c0p";
+  java_modify "this.aux2Rslt.c1p";
+  java_modify "this.aux2Rslt.e0p";
+  java_modify "this.aux2Rslt.e1p";
+  java_modify "this.aux2Rslt.shp";
+  java_modify "sPtP.x";
+  java_modify "sPtP.y";
+  java_modify "sPtP.z";
+  java_modify "sMtP.x";
+  java_modify "sMtP.y";
+  java_modify "sMtP.z";
+  java_modify "sMt.x";
+  java_modify "sMt.y";
+  java_modify "sPt.x";
+  java_modify "sPt.y";
+  java_modify "this.h";
+  maybe_skip;
+  java_verify_tactic do {
+    unfolding ["p384_ec_twin_mul"];
+    beta_reduce_goal;
+    simplify ss;
+    unint_z3 [ "p384_ec_twin_mul_init", "p384_ec_twin_mul_aux1"
+             , "p384_ec_twin_mul_aux2", "p384_ec_twin_mul_aux_f"
+             ];
+  };
+};
+
+let ecdsa_sign_spec ss = do {
+  signature <- ecdsa_signature "signature";
+  d <- ecdsa_arr384 "privateKey";
+  e <- ecdsa_arr384 "hashValue";
+  k <- ecdsa_arr384 "ephemeralKey";
+  rP <- ecdsa_jacobian "this.rP";
+  sPtP <- ecdsa_jacobian "this.sPtP";
+  sMtP <- ecdsa_jacobian "this.sMtP";
+  sPt <- ecdsa_affine "this.sPt";
+  sMt <- ecdsa_affine "this.sMt";
+  basePoint <- ecdsa_affine "this.basePoint";
+  basePoint3 <- ecdsa_affine "this.basePoint3";
+  basePoint5 <- ecdsa_affine "this.basePoint5";
+  aux2rslt <- ecdsa_twin_mul_aux2_rslt "this.aux2Rslt";
+  qPoint <- ecdsa_affine "this.qPoint";
+  wd <- java_var "this.width" java_int;
+  ecdsa_uses_field_prime;
+  ecdsa_uses_field_unit;
+  ecdsa_uses_group_order;
+  ecdsa_uses_temps;
+  ecdsa_uses_a;
+  ecdsa_arr384 "this.h";
+  ecdsa_arr384 "this.u1";
+  ecdsa_arr384 "this.u2";
+  java_assert {{ basePoint == ecc::p384_base }};
+  java_assert {{ basePoint3 == ecc::p384_base3 }};
+  java_assert {{ basePoint5 == ecc::p384_base5 }};
+  java_assert {{ wd == (12 : [32]) }};
+  java_assert {{ ~(d == (0:[384])) }};
+  java_assert {{ ~(k == (0:[384])) }};
+  java_assert {{ ~(group_order <= d) }};
+  java_assert {{ ~(group_order <= k) }};
+  let res = {{ ecc::p384_ecdsa_sign(d, e, k) }};
+  ecdsa_assign_arr384 "signature.r" {{ res.r }};
+  ecdsa_assign_arr384 "signature.s" {{ res.s }};
+
+  java_modify "this.a";
+
+  java_ensure_eq "this.h"            {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.t1"           {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.t2"           {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.t3"           {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.u1"           {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.u2"           {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.rP.x"         {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.rP.y"         {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.rP.z"         {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.sPtP.x"       {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.sPtP.y"       {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.sPtP.z"       {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.sMtP.x"       {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.sMtP.y"       {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.sMtP.z"       {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.sPt.x"        {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.sPt.y"        {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.sMt.x"        {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.sMt.y"        {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.aux2Rslt.u0"  {{ 0:[32] }};
+  java_ensure_eq "this.aux2Rslt.u1"  {{ 0:[32] }};
+  java_ensure_eq "this.aux2Rslt.c0p" {{ 0:[32] }};
+  java_ensure_eq "this.aux2Rslt.c1p" {{ 0:[32] }};
+  java_ensure_eq "this.aux2Rslt.e0p" {{ 0:[32] }};
+  java_ensure_eq "this.aux2Rslt.e1p" {{ 0:[32] }};
+  java_ensure_eq "this.aux2Rslt.shp" {{ 0:[32] }};
+  java_ensure_eq "this.qPoint.x"     {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.qPoint.y"     {{ split(0 : [384]) : [12][32] }};
+
+  java_return {{ (zero # [res.r != 0 && res.s != 0]) : [32] }};
+  maybe_skip;
+  java_verify_tactic do {
+    unfolding [ "p384_ecdsa_sign" ];
+    simplify ss;
+    unint_z3 [ "p384_ec_mul"
+             , "p384_field_mul"
+             , "p384_field_sq"
+             , "p384_group_mul"
+             , "p384_mod_add"
+             , "p384_mod_div"
+             ];
+  };
+};
+
+let ecdsa_public_verify_spec ss = do {
+  sig <- ecdsa_signature "signature";
+  e <- ecdsa_arr384 "hashValue";
+  publicKey <- ecdsa_public_key "publicKey";
+  q <- ecdsa_affine "this.qPoint";
+  wd <- java_var "this.width" java_int;
+  rP <- ecdsa_jacobian "this.rP";
+  sPtP <- ecdsa_jacobian "this.sPtP";
+  sMtP <- ecdsa_jacobian "this.sMtP";
+  sPt <- ecdsa_affine "this.sPt";
+  sMt <- ecdsa_affine "this.sMt";
+  aux2rslt <- ecdsa_twin_mul_aux2_rslt "this.aux2Rslt";
+  basePoint <- ecdsa_affine "this.basePoint";
+  ecdsa_uses_field_prime;
+  ecdsa_uses_group_order;
+  ecdsa_uses_field_unit;
+  ecdsa_uses_temps;
+  ecdsa_uses_a;
+  ecdsa_arr384 "this.h";
+  ecdsa_arr384 "this.u1";
+  ecdsa_arr384 "this.u2";
+  java_assert {{ basePoint == ecc::p384_base }};
+  java_assert {{ wd == (12 : [32]) }};
+  java_return {{ ecc::p384_ecdsa_public_verify(e, sig.r, sig.s, publicKey) }};
+
+  java_modify "this.a";
+
+  java_ensure_eq "this.h"            {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.t1"           {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.t2"           {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.t3"           {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.u1"           {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.u2"           {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.rP.x"         {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.rP.y"         {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.rP.z"         {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.sPtP.x"       {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.sPtP.y"       {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.sPtP.z"       {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.sMtP.x"       {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.sMtP.y"       {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.sMtP.z"       {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.sPt.x"        {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.sPt.y"        {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.sMt.x"        {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.sMt.y"        {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.aux2Rslt.u0"  {{ 0:[32] }};
+  java_ensure_eq "this.aux2Rslt.u1"  {{ 0:[32] }};
+  java_ensure_eq "this.aux2Rslt.c0p" {{ 0:[32] }};
+  java_ensure_eq "this.aux2Rslt.c1p" {{ 0:[32] }};
+  java_ensure_eq "this.aux2Rslt.e0p" {{ 0:[32] }};
+  java_ensure_eq "this.aux2Rslt.e1p" {{ 0:[32] }};
+  java_ensure_eq "this.aux2Rslt.shp" {{ 0:[32] }};
+  java_ensure_eq "this.qPoint.x"     {{ split(0 : [384]) : [12][32] }};
+  java_ensure_eq "this.qPoint.y"     {{ split(0 : [384]) : [12][32] }};
+
+  maybe_skip;
+  java_verify_tactic do {
+    unfolding [ "p384_ecdsa_public_verify", "ecdsa_public_verify_imp" ];
+    simplify ss;
+    let ufs = [ "p384_ec_twin_mul"
+              , "p384_field_mul"
+              , "p384_field_sq"
+              , "p384_group_mul"
+              , "p384_mod_div"
+              ];
+    unint_z3 ufs;
+    //assume_unsat;
+    //print_goal_consts;
+    //offline_extcore "public_verify.";
+  };
+};
+
+////////////////////////////////////////////////////////////
+
+let main = do {
+  c <- java_load_class ecc_class;
+  let method name specs setup = time do {
+    print (str_concat "Verifying " name);
+    java_verify c name specs setup;
+  };
+
+  let decFieldPrime_def = {{ ecc::p384_decFieldPrime }};
+  let incFieldPrime_def = {{ ecc::p384_incFieldPrime }};
+
+  let field_add_def = {{ p384_field::p384_field_add }};
+  let field_sub_def = {{ p384_field::p384_field_sub }};
+
+  let ec_full_add_def = {{ p384_ec_point_ops::p384_ec_full_add }};
+  let ec_full_sub_def = {{ p384_ec_point_ops::p384_ec_full_sub }};
+
+  print "Proving and registering rewrite rules.";
+  let cry_ss = cryptol_ss ();
+  let ss0 = add_prelude_eqs [ "bvShiftL_bvShl"
+                            , "bvShiftR_bvShr"
+                            ] cry_ss;
+
+  let crule t = rewrite ss0 t;
+  let prove_rule t = prove_print abc (rewrite ss0 t);
+
+  let ss1 = add_prelude_eqs
+    [ "ite_not"
+    , "ite_nest1"
+    , "ite_nest2"
+    , "ite_fold_not"
+    , "ite_eq"
+    , "ite_bit"
+    , "ite_bit_false_1"
+    , "ite_bit_true_1"
+    , "ite_eq_cong_1"
+    , "ite_eq_cong_2"
+    , "ite_split_cong"
+    , "ite_join_cong"
+    , "eq_refl"
+    , "at_single"
+    ] (add_prelude_defs ["implies"] ss0);
+  let ss2 = add_cryptol_eqs [] ss1;
+
+  join_split_384  <- prove_rule {{ \(x:[384]) -> join ((split x) : [12][32]) == x }};
+  split_join_384  <- prove_rule {{ \(x:[12][32]) -> split ((join x) : [384]) == x }};
+  join_split_768  <- prove_rule {{ \(x:[768]) -> join ((split x) : [24][32]) == x }};
+  split_join_768  <- prove_rule {{ \(x:[24][32]) -> split ((join x) : [768]) == x }};
+  ec_join_split   <- prove_rule {{ \x -> ec_join (ec_split x) == x }};
+  ec_join_split_768 <- prove_rule {{ \x -> ec_join768 (ec_split768 x) == x }};
+  ec_join_ite     <- prove_rule {{ \b x y -> ec_join (if b then x else y)
+                                   == (if b then ec_join x else ec_join y) }};
+  not_not         <- prove_rule {{ \(x:Bit) -> (~(~x)) == x }};
+  not_or          <- prove_rule {{ \x y -> (~((x:Bit) || (y:Bit))) == ((~x) && (~y)) }};
+  not_and         <- prove_rule {{ \x y -> (~((x:Bit) && (y:Bit))) == ((~x) || (~y)) }};
+  and_idem        <- prove_rule {{ \x -> (x && x) == (x : Bit) }};
+  and_idem_not1   <- prove_rule {{ \x -> ((~ x) && x) == False }};
+  and_idem_not2   <- prove_rule {{ \x -> (x && (~ x)) == False }};
+  or_idem         <- prove_rule {{ \x -> (x || x) == (x : Bit) }};
+  or_idem_not1    <- prove_rule {{ \x -> ((~ x) || x) == True }};
+  or_idem_not2    <- prove_rule {{ \x -> (x || (~ x)) == True }};
+  and_true_elim1  <- prove_rule {{ \x -> (True && x) == x }};
+  and_true_elim2  <- prove_rule {{ \x -> (x && True) == x }};
+  and_false_elim1 <- prove_rule {{ \x -> (False && x) == False }};
+  and_false_elim2 <- prove_rule {{ \x -> (x && False) == False }};
+  and_left_assoc  <- prove_rule {{ \x y z -> ((x:Bit) && (y && z)) == ((x && y) && z) }};
+  and_redundant1  <- prove_rule {{ \x y -> (((x:Bit) && y) && y) == (x && y) }};
+  and_redundant2  <- prove_rule {{ \x y -> (((x:Bit) && y) && x) == (x && y) }};
+  or_true_elim1   <- prove_rule {{ \x -> (True || x) == True }};
+  or_true_elim2   <- prove_rule {{ \x -> (x || True) == True }};
+  or_false_elim1  <- prove_rule {{ \x -> (False || x) == x }};
+  or_false_elim2  <- prove_rule {{ \x -> (x || False) == x }};
+  or_redundant1   <- prove_rule {{ \x y -> (((x:Bit) || y) || y) == (x || y) }};
+  or_redundant2   <- prove_rule {{ \x y -> (((x:Bit) || y) || x) == (x || y) }};
+  //imp_true_elim   <- prove_rule {{ \x -> (x ==> true) -> true }};
+  rev_rev_id      <- prove_rule {{ \x -> (reverse (reverse x)) == (x : [12][32]) }};
+  rev_rev_id2     <- prove_rule {{ \x -> (reverse (reverse x)) == (x : [24][32]) }};
+  eq_id_bool      <- prove_rule {{ \x -> ((x : Bit) == x) == True }};
+  eq_id_int       <- prove_rule {{ \x -> ((x : [32]) == x) == True }};
+  eq_id_long      <- prove_rule {{ \x -> ((x : [64]) == x) == True }};
+  eq_id_12_32     <- prove_rule {{ \x -> ((x : [12][32]) == x) == True }};
+  eq_id_24_32     <- prove_rule {{ \x -> ((x : [24][32]) == x) == True }};
+  eq_id_384       <- prove_rule {{ \x -> ((x : [384]) == x) == True }};
+  eq_id_768       <- prove_rule {{ \x -> ((x : [768]) == x) == True }};
+  eq_split_cong_1 <- prove_rule {{ \(x:[384]) -> \(y:[12][32]) ->
+                                   (split x == y) == (x == join y) }};
+  eq_split_cong_2 <- prove_rule {{ \(x:[12][32]) -> \(y:[384]) ->
+                                   (x == split y) == (join x == y) }};
+  eq_split_zero   <- prove_rule {{ \(x:[12][32]) ->
+                                   (x == zero) == (join x == 0) }};
+  eq_split_unit   <- prove_rule {{ \(x:[12][32]) ->
+                                   (x == split 1) == (join x == 1) }};
+
+  // A rewrite rule for a pattern that shows up often in simulated Java programs.
+  bool2word_eq_0 <- do {
+    let ss' = add_prelude_eqs ["eq_VecBool"] ss0;
+    let t' = rewrite ss' {{ \(x:Bit) ->
+      ([False,False,False,False,False,False,False,False
+       ,False,False,False,False,False,False,False,False
+       ,False,False,False,False,False,False,False,False
+       ,False,False,False,False,False,False,False,x] == 0) == (~ x) }};
+    //print_term t';
+    prove_print abc t';
+  };
+
+  // Axiomatic rules: For now, we assume these without proof.
+  let mul_java_elim = crule {{ \(a:[768]) -> \(x:[384]) -> \(y:[384]) ->
+                       mul_java::mul_java (a, x, y) == p384_field::p384_safe_product (x, y) }};
+  let sq_java_elim = crule {{ \(a:[768]) -> \(x:[384]) ->
+                       mul_java::sq_java (a, x) == p384_field::p384_safe_product (x, x) }};
+
+  let basic_simps  = [ join_split_384
+                     , split_join_384
+                     , join_split_768
+                     , split_join_768
+                     , ec_join_split
+                     , ec_join_split_768
+                     , ec_join_ite
+                     , not_not
+                     , and_idem
+                     , and_idem_not1
+                     , and_idem_not2
+                     , or_idem
+                     , or_idem_not1
+                     , or_idem_not2
+                     , and_true_elim1
+                     , and_true_elim2
+                     , and_false_elim1
+                     , and_false_elim2
+                     , and_left_assoc
+                     , or_true_elim1
+                     , or_true_elim2
+                     , or_false_elim1
+                     , or_false_elim2
+                     , or_redundant1
+                     , or_redundant2
+                     , rev_rev_id
+                     , rev_rev_id2
+                     , eq_id_bool
+                     , eq_id_int
+                     , eq_id_long
+                     , eq_id_12_32
+                     , eq_id_24_32
+                     , eq_id_384
+                     , eq_id_768
+                     , eq_split_cong_1
+                     , eq_split_cong_2
+                     , eq_split_zero
+                     , eq_split_unit
+                     ];
+  let ss3 = addsimps basic_simps ss2;
+  let ss4 = addsimps' [mul_java_elim, sq_java_elim] ss3;
+  let ss = add_prelude_defs
+    [ "bvUpd"
+    , "bvAt"
+    , "and"
+    , "or"
+    , "not"
+    , "bitvector"
+    ] ss4;
+
+  p384_point_ops_add_simp <- do {
+    let t = {{ \x -> p384_ec_point_ops::p384_point_ops.add x ==
+                p384_ec_point_ops::p384_ec_full_add x }};
+    let t' = rewrite ss0 t;
+    //print "Proving rewrite rule:";
+    //print_term t';
+    prove_print do {
+      unint_z3
+        [ "p384_ec_double", "p384_field_add", "p384_field_mul", "p384_field_neg"
+        , "p384_field_sq", "p384_field_sub", "p384_group_field", "p384_is_field_val"
+        , "p384_mod_div", "p384_mod_half", "p384_prime" ];
+    } t';
+  };
+  p384_point_ops_sub_simp <- do {
+    let t = {{ \x -> p384_ec_point_ops::p384_point_ops.sub x ==
+                p384_ec_point_ops::p384_ec_full_sub x }};
+    let t' = rewrite ss0 t;
+    //print "Proving rewrite rule:";
+    //print_term t';
+    prove_print do {
+      unint_z3
+        [ "p384_ec_double", "p384_field_add", "p384_field_mul", "p384_field_neg"
+        , "p384_field_sq", "p384_field_sub", "p384_group_field", "p384_is_field_val"
+        , "p384_mod_div", "p384_mod_half", "p384_prime" ];
+    } t';
+  };
+  p384_point_ops_field_mul_simp <- do {
+    let {{ thm x = p384_ec_point_ops::p384_point_ops.field.mul x ==
+                   p384_field::p384_field_mul x }};
+    // This is pretty quick even without the rewriting and uniterpretation
+    // used above.
+    let t = unfold_term ["thm"] {{ thm }};
+    let t = rewrite ss0 t;
+    print_term t;
+    prove_print z3 t;
+  };
+  p384_point_ops_field_sq_simp <- do {
+    let {{ thm x = p384_ec_point_ops::p384_point_ops.field.sq x ==
+                   p384_field::p384_field_sq x }};
+    // This is pretty quick even without the rewriting and uniterpretation
+    // used above.
+    let t = unfold_term ["thm"] {{ thm }};
+    let t = rewrite ss0 t;
+    print_term t;
+    prove_print z3 t;
+  };
+  p384_point_ops_field_mul_simp2 <- do {
+    let {{ thm x = ecc::p384_curve.point_ops.field.mul x ==
+                   p384_field::p384_field_mul x }};
+    // This is pretty quick even without the rewriting and uniterpretation
+    // used above.
+    let t = unfold_term ["thm"] {{ thm }};
+    let t = rewrite ss0 t;
+    print_term t;
+    prove_print z3 t;
+  };
+  p384_point_ops_field_sq_simp2 <- do {
+    let {{ thm x = ecc::p384_curve.point_ops.field.sq x ==
+                   p384_field::p384_field_sq x }};
+    // This is pretty quick even without the rewriting and uniterpretation
+    // used above.
+    let t = unfold_term ["thm"] {{ thm }};
+    let t = rewrite ss0 t;
+    print_term t;
+    prove_print z3 t;
+  };
+
+  p384_curve_field_mul_simp <- do {
+    let {{ thm x y = ecc::p384_curve.point_ops.group_field.mul (x, y) ==
+                     mul_java::p384_group_mul (p384_field::p384_group_size, x, y) }};
+    let t = unfold_term ["thm"] {{ thm }};
+    let t = rewrite ss0 t;
+    print_term t;
+    prove_print (unint_z3 ["p384_group_mul"]) t;
+  };
+
+  p384_curve_field_sq_simp <- do {
+    let {{ thm x = ecc::p384_curve.point_ops.group_field.sq x ==
+                   p384_field::p384_mod_mul (p384_field::p384_group_size, x, x) }};
+    let t = unfold_term ["thm"] {{ thm }};
+    let t = rewrite ss0 t;
+    print_term t;
+    prove_print (unint_z3 ["p384_mod_mul"]) t;
+  };
+  p384_curve_field_div_simp <- do {
+    let {{ thm x y = ecc::p384_curve.point_ops.group_field.div (x,y) ==
+                     p384_mod_div (p384_field::p384_group_size, x, y) }};
+    let t = unfold_term ["thm"] {{ thm }};
+    let t = rewrite ss0 t;
+    print_term t;
+    prove_print (unint_z3 ["p384_mod_div"]) t;
+  };
+  p384_curve_twin_mul_simp <- do {
+    let {{ thm x = ecc::p384_curve.twin_mul x ==
+                   p384_ec_mul::p384_ec_twin_mul x }};
+    let t = unfold_term ["thm"] {{ thm }};
+    let t = rewrite ss0 t;
+    print_term t;
+    prove_print (unint_z3 ["p384_ec_twin_mul"]) t;
+  };
+  p384_curve_is_equal_simp <- do {
+    let {{ thm x y = ecc::p384_curve.point_ops.group_field.is_equal (x, y) ==
+                     (x == y) }};
+    let t = unfold_term ["thm"] {{ thm }};
+    let t = rewrite ss0 t;
+    print_term t;
+    prove_print z3 t;
+  };
+  p384_curve_is_val_simp <- do {
+    let {{ thm x = ecc::p384_curve.point_ops.group_field.is_val x ==
+                   p384_field::p384_is_group_val x }};
+    let t = unfold_term ["thm"] {{ thm }};
+    let t = rewrite ss0 t;
+    print_term t;
+    prove_print z3 t;
+  };
+  p384_curve_norm_simp <- do {
+    let {{ thm x = ecc::p384_curve.point_ops.group_field.norm x ==
+                   (if x < p384_field::p384_group_size
+                    then x
+                    else x - p384_field::p384_group_size) }};
+    let t = unfold_term ["thm"] {{ thm }};
+    let t = rewrite ss0 t;
+    print_term t;
+    prove_print z3 t;
+  };
+  p384_curve_field_zero_simp <- do {
+    let {{ thm = ecc::p384_curve.point_ops.group_field.field_zero == 0 }};
+    let t = unfold_term ["thm"] {{ thm }};
+    let t = rewrite ss0 t;
+    print_term t;
+    prove_print z3 t;
+  };
+  p384_curve_base_simp <- do {
+    let {{ thm = ecc::p384_curve.base == ecc::p384_base }};
+    let t = unfold_term ["thm"] {{ thm }};
+    let t = rewrite ss0 t;
+    print_term t;
+    prove_print z3 t;
+  };
+
+  print "Performing verification.";
+  set_unit_ov <- method "set_unit"      [] set_unit_spec;
+  set_zero_ov <- method "set_zero"      [] set_zero_spec;
+  is_zero_ov <- method "is_zero"       [] is_zero_spec;
+  is_equal_ov <- method "is_equal"    [] is_equal_spec;
+  assign_ov <- method "assign"        [] assign_spec;
+  ashift_ov <- method "array_shift"   [] array_shift_spec;
+  leq_ov <- method "leq" [] leq_spec;
+  shr_ov <- method "shr"           [] shr_spec;
+
+  dec_ov <- method "decFieldPrime" [] (inc_dec_FieldPrime_spec ss decFieldPrime_def);
+  inc_ov <- method "incFieldPrime" [] (inc_dec_FieldPrime_spec ss incFieldPrime_def);
+  dbl_ov <- method "dbl" [] dbl_spec;
+  add_ov <- method "add" [] add_spec;
+  sub_ov <- method "sub" [] sub_spec;
+  mul_inner_ov <- method "mul_inner" [] mul_inner_spec;
+  mul_ov <- method "mul" [mul_inner_ov] (mul_spec ss);
+  sq_inner1_ov <- method "sq_inner1"     [] sq_inner1_spec;
+  sq_inner2_ov <- method "sq_inner2"     [] sq_inner2_spec;
+  sq_loop_ov <- method "sq_loop"       [mul_inner_ov] (sq_loop_spec ss);
+  sq_ov <- method "sq" [sq_inner1_ov, sq_inner2_ov, sq_loop_ov, mul_inner_ov] (sq_spec ss);
+  mod_sub_ov <- method "mod_sub"       [sub_ov, add_ov] (mod_sub_spec ss);
+  mod_half_ov <- method "mod_half"      [add_ov, shr_ov] (mod_half_spec ss);
+  mod_div_ov <- method "mod_div"         [mod_half_ov, mod_sub_ov] mod_div_spec;
+  group_add_ov <- method "group_add"     [add_ov, leq_ov, sub_ov] (group_add_spec ss);
+  field_add_ov <- method "field_add" [add_ov, leq_ov, dec_ov] (field_add_sub_spec ss field_add_def);
+  field_sub_ov <- method "field_sub" [sub_ov, inc_ov] (field_add_sub_spec ss field_sub_def);
+  field_dbl_dec_ov <- method "field_dbl_dec" [field_sub_ov] (field_dbl_dec_spec ss);
+  field_dbl_ov <- method "field_dbl" [dbl_ov, leq_ov, dec_ov] (field_dbl_spec ss);
+  field_red_ov <- method "field_red" [inc_ov, leq_ov, dec_ov] field_red_spec;
+  field_sq_ov <- method "field_sq" [sq_ov, field_red_ov] (field_sq_spec ss);
+
+  field_mul_ov <- method "field_mul" [mul_ov, field_red_ov] (field_mul_spec ss);
+
+  group_red_aux_ov <- method "group_red_aux" [] group_red_aux_spec;
+  group_red_ov <- method "group_red" [sub_ov, group_red_aux_ov] (group_red_spec ss);
+  group_mul_aux_ov <- method "group_mul_aux" [] group_mul_aux_spec;
+
+  field_mul3_ov <- method "field_mul3" [field_add_ov, field_dbl_ov] (field_muln_spec_noalias ss {{ app3 field_add_def }});
+  field_mul4_ov <- method "field_mul4" [field_dbl_ov] (field_muln_spec_alias ss {{ app4 field_add_def }});
+  field_mul8_ov <- method "field_mul8" [field_dbl_ov] (field_muln_spec_alias ss {{ app8 field_add_def }});
+
+  group_mul_ov <- method "group_mul" [ set_zero_ov
+                                     , group_red_ov
+                                     , ashift_ov
+                                     , group_mul_aux_ov
+                                     , leq_ov
+                                     , sub_ov
+                                     ] (group_mul_spec ss);
+
+  ec_double_ov <- method "ec_double"
+                  [ field_sq_ov
+                  , field_sub_ov
+                  , field_add_ov
+                  , field_mul_ov
+                  , field_mul3_ov
+                  , field_mul4_ov
+                  , field_mul8_ov
+                  , field_dbl_ov
+                  , field_dbl_dec_ov
+                  , is_zero_ov
+                  , set_unit_ov
+                  , set_zero_ov
+                  ]
+                  (ec_double_spec ss);
+
+  ec_full_add_ov <- method "ec_full_add"
+                  [ field_add_ov
+                  , field_dbl_ov
+                  , field_dbl_dec_ov
+                  , field_sub_ov
+                  , field_mul_ov
+                  , field_sq_ov
+                  , mod_half_ov
+                  , ec_double_ov
+                  , sub_ov
+                  , assign_ov
+                  , is_zero_ov
+                  , set_unit_ov
+                  , set_zero_ov
+                  ]
+                  (ec_full_add_spec ss);
+
+  p384_ec_full_sub_simp <- do {
+    let t = {{ \s t ->
+        p384_ec_point_ops::p384_ec_full_sub(s,t) ==
+        p384_ec_point_ops::p384_ec_full_add(s,
+          { x = t.x, y = p384_field::p384_field_neg(t.y) }) }};
+    let t' = rewrite ss0 t;
+    print "Proving rewrite rule:";
+    print_term t';
+    prove_print do {
+      unfolding
+        [ "p384_ec_full_sub", "ec_full_sub", "p384_point_ops", "p384_field"
+        , "p384_ec_full_add", "ec_full_add", "ec_add" ];
+      //print_goal_consts; // keep all remaining consts abstract for z3
+      unint_z3
+        [ "p384_ec_double", "p384_field_add", "p384_field_mul", "p384_field_neg"
+        , "p384_field_sq", "p384_field_sub", "p384_group_field", "p384_is_field_val"
+        , "p384_mod_div", "p384_mod_half", "p384_prime" ];
+
+    } t';
+  };
+  let ec_full_sub_ss = addsimps [p384_ec_full_sub_simp, bool2word_eq_0] ss;
+  ec_full_sub_ov <- method "ec_full_sub"
+                  [ ec_full_add_ov
+                  , sub_ov
+                  , assign_ov
+                  , is_zero_ov
+                  , set_unit_ov
+                  , set_zero_ov
+                  ]
+                  (ec_full_sub_spec ec_full_sub_ss);
+
+  ec_mul_init_ov <- method "ec_mul_init" [] ec_mul_init_spec;
+
+  ec_mul_aux_ov <- method "ec_mul_aux"
+                  [ field_add_ov
+                  , field_sub_ov
+                  , field_dbl_ov
+                  , field_mul_ov
+                  , field_sq_ov
+                  , ec_double_ov
+                  , ec_full_add_ov
+                  , ec_full_sub_ov
+                  ]
+                  (ec_mul_aux_spec ss);
+
+  ec_mul_ov <- method "ec_mul"
+               [ ec_mul_aux_ov
+               , ec_mul_init_ov
+               ]
+               ec_mul_spec;
+
+  ec_twin_mul_aux_f_ov <- method "ec_twin_mul_aux_f"
+                          []
+                          ec_twin_mul_aux_f_spec;
+
+  let ec_twin_mul_aux1_ss =
+    addsimps [p384_point_ops_add_simp, p384_point_ops_sub_simp] ss;
+  ec_twin_mul_aux1_ov <- method "ec_twin_mul_aux1"
+                         [ field_add_ov
+                         , field_sub_ov
+                         , field_dbl_ov
+                         , field_mul_ov
+                         , field_sq_ov
+                         , ec_double_ov
+                         , ec_full_add_ov
+                         , ec_full_sub_ov
+                         ]
+                         (ec_twin_mul_aux1_spec ec_twin_mul_aux1_ss);
+
+  ec_twin_mul_aux2_ov <- method "ec_twin_mul_aux2"
+                         []
+                         ec_twin_mul_aux2_spec;
+
+  let twin_mul_init_ss =
+    addsimps [ p384_point_ops_add_simp
+             , p384_point_ops_sub_simp
+             , p384_point_ops_field_mul_simp
+             , p384_point_ops_field_sq_simp
+             , p384_point_ops_field_mul_simp2
+             , p384_point_ops_field_sq_simp2
+             , p384_curve_field_mul_simp
+             , p384_curve_field_sq_simp
+             , p384_curve_twin_mul_simp
+             , p384_curve_field_div_simp
+             , p384_curve_is_equal_simp
+             , p384_curve_field_zero_simp
+             , p384_curve_base_simp
+             , p384_curve_is_val_simp
+             , p384_curve_norm_simp
+             ] ss;
+  ec_twin_mul_init_ov <- method "ec_twin_mul_init"
+                         [ assign_ov
+                         , is_equal_ov
+                         , set_unit_ov
+                         , set_zero_ov
+                         , group_add_ov
+                         , field_mul_ov
+                         , field_sq_ov
+                         , mod_sub_ov
+                         , mod_div_ov
+                         , ec_mul_ov
+                         , ec_double_ov
+                         , ec_full_add_ov
+                         , ec_full_sub_ov
+                         ]
+                         (ec_twin_mul_init_spec twin_mul_init_ss);
+
+  let ec_twin_mul_ss = addsimps [bool2word_eq_0] ss;
+  ec_twin_mul_ov <- method "ec_twin_mul"
+                         [ assign_ov
+                         , is_equal_ov
+                         , set_unit_ov
+                         , set_zero_ov
+                         , group_add_ov
+                         , field_mul_ov
+                         , field_sq_ov
+                         , mod_sub_ov
+                         , mod_div_ov
+                         , ec_mul_ov
+                         , ec_full_add_ov
+                         , ec_full_sub_ov
+                         , ec_twin_mul_aux1_ov
+                         , ec_twin_mul_aux2_ov
+                         , ec_twin_mul_aux_f_ov
+                         , ec_twin_mul_init_ov
+                         ]
+                         (ec_twin_mul_spec ec_twin_mul_ss);
+                         // (ec_twin_mul_spec twin_mul_init_ss);
+                         // TODO: see if some rules from twin_mul_init_ss can help.
+
+  method "signHash"
+         [ assign_ov
+         , ec_mul_ov
+         , mod_div_ov
+         , field_sq_ov
+         , field_mul_ov
+         , leq_ov
+         , sub_ov
+         , group_mul_ov
+         , group_add_ov
+         , is_zero_ov
+         , set_zero_ov
+         ]
+         (ecdsa_sign_spec ss);
+
+  method "verifySignature"
+         [ leq_ov
+         , sub_ov
+         , mod_div_ov
+         , group_mul_ov
+         , assign_ov
+         , ec_twin_mul_ov
+         , is_zero_ov
+         , set_zero_ov
+         , field_sq_ov
+         , field_mul_ov
+         , is_equal_ov
+         , add_ov
+         ]
+         (ecdsa_public_verify_spec twin_mul_init_ss);
+
+  print "Done.";
+};

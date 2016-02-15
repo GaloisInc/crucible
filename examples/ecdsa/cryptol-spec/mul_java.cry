@@ -1,0 +1,224 @@
+module mul_java where
+
+import bv
+
+// Array update
+update : {n, a, i} (fin n, fin i, 2^^i >= n) => [n]a -> [i] -> a -> [n]a
+update xs i y = [ if i == j then y else x | x <- xs | j <- [0...] ]
+
+mul_java_inner : ([32], [24][32], [32], [32], [32], [64]) -> { mji_a : [24][32], mji_d : [64]}
+mul_java_inner (azero, a, ij, xi, yj, d) = { mji_a = a', mji_d = d' >> 32 }
+  where
+    m        = uext(xi) * uext(yj)
+    d'       = d + m + uext(aij)
+    a'       = update a ij (drop(d'))
+    aij      = if azero == 0 then a @ ij else 0
+
+/*
+aset : {n, is} (fin n, fin is, n >= is, is >= lg2 n, n >= 32, is >= max(lg2 n, 6)) =>
+          ([n], [is], [is]) -> [n]
+*/
+aset (a, i, x) = (a && imask) || x'
+  where
+    imask = ~(uext(0xFFFFFFFF : [32]) << (i*32))
+    x' = uext(x) << (i*32)
+
+aset_768 : ([768], [32], [32]) -> [768]
+aset_768 = aset
+
+toJavaArray : [384] -> [12][32]
+toJavaArray x = reverse (split x)
+
+fromJavaArray : [12][32] -> [384]
+fromJavaArray x = join (reverse x)
+
+// Matches java implementation; computes safe_product.
+mul_java : ([768], [384], [384]) -> [768]
+mul_java (a0, x, y) = join (reverse (a_final!0))
+  where
+    l   = 12 : [32]
+    x'  = toJavaArray x
+    y'  = toJavaArray y
+    a0' = reverse (split a0) : [24][32]
+
+    /* First loop in Java implementation */
+    a_first : [13]([64],[24][32])
+    a_first = [ (zero : [64], a0' : [24][32]) ]
+            # [ (res.mji_d, res.mji_a)
+                   where res = mul_java_inner(1, a, j, x'@0, y'@j, d)
+              | (d, a) <- a_first
+              | j      <- [0..11]
+              ]
+    (d_first_final, a_first_final) = a_first!0
+    ad_first_final = update a_first_final l (drop(d_first_final):[32])
+
+    /* Second loop in Java implementation */
+    a_final : [12][24][32]
+    a_final = [ ad_first_final ]
+            # [ ad_inner_final
+                 where
+                   /* Inner loop in Java implementation */
+                   a_inner : [13]([64],[24][32],[32])
+                   a_inner = [ ( zero : [64] /* d */, a, i) ]
+                           # [ (res.mji_d, res.mji_a, ij+1)
+                                where
+                                  res = mul_java_inner(0, ai, ij, x'@i, y'@j, d)
+                             | (d, ai, ij) <- a_inner
+                             | j          <- [0..(12-1)]:[12][32]
+                             ]
+
+                   (d_inner_final, a_inner_final, ij_final) = a_inner!0
+                   ad_inner_final = update a_inner_final ij_final (drop(d_inner_final))
+              | a <- a_final
+              | i <- [1..11]
+              ]
+
+sq_java_inner1 : ([24][32], [32], [64]) -> { mji_a : [24][32], mji_d : [64]}
+sq_java_inner1 (a, ij, c) = { mji_a = a' , mji_d = c'' }
+  where
+    aij = a @ ij
+    c' = c + (uext(aij) << 1)
+    a' = update a ij (drop(c'))
+    c'' = c' >> 32
+
+sq_java_inner2 : ([24][32], [32], [32], [64]) ->
+                 { mji_a : [24][32], mji_d : [64]}
+sq_java_inner2 (a, ij, xati, c) = { mji_a = a' , mji_d = c'' }
+  where
+    aij = a @ ij
+    xi = uext(xati) : [64]
+    m = xi * xi
+    c' = c + (m && 0x00000000FFFFFFFF) + (uext(aij) << 1)
+    a' = update a ij (drop(c'))
+    c'' = (c' >> 32) + (m >> 32)
+
+sq_java_loop : ([24][32], [384]) -> [24][32]
+sq_java_loop(a0, x) = a_mid!0
+  where
+    /* Second loop in Java implementation */
+    l = 12 : [32]
+    x'  = toJavaArray x
+    a_mid   = [ a0 ]
+            # [ ad_inner_final
+                 where
+                   /* Inner loop in Java implementation */
+                   a_inner = [ ( zero : [64] /* d */, a, i+i+1) ]
+                           # [ (res.mji_d, res.mji_a, ij+1)
+                                where
+                                  res = if j+i < l then
+                                          mul_java_inner(0, ai, ij, x'@i, x'@(j+i), d)
+                                        else zero
+                             | (d, ai, ij) <- a_inner
+                             | j          <- [1..(12-1)]
+                             ]
+                   (d_inner_final, a_inner_final, ij_final) = a_inner!i
+                   ad_inner_final = update a_inner_final ij_final (drop(d_inner_final))
+              | a <- a_mid
+              | i <- [1..(12-2)]
+              ]
+
+sq_java : ([768], [384]) -> [768]
+sq_java (a0, x) = join (reverse ad_final_final)
+  where
+    l   = 12 : [32]
+    x'  = toJavaArray x
+    a0' = reverse (split a0) : [24][32]
+    x0 = x'@0
+    /* First loop in Java implementation */
+    a_first = [ (zero : [64], a0' : [24][32]) ]
+            # [ (res.mji_d, res.mji_a)
+                 where res = mul_java_inner(1, a, j, x0, x'@j, d)
+              | (d, a) <- a_first
+              | j      <- [1..11]
+              ]
+    (d_first_final, a_first_final) = a_first!0
+    ad_first_final = update a_first_final l (drop(d_first_final))
+
+    mid_res = mul_java_inner(1, sq_java_loop(ad_first_final, x), 0, x0, x0, 0)
+
+    /* Third loop in Java implementation */
+    a_final : [12]([64],[24][32],[32])
+    a_final = [ (mid_res.mji_d, mid_res.mji_a, 1) ]
+            # [ (res'.mji_d, res'.mji_a, ij+2)
+                where
+                   res = sq_java_inner1(a, ij, c)
+                   res' = sq_java_inner2(res.mji_a, ij+1, x'@(i:[32]), res.mji_d)
+              | (c, a, ij) <- a_final
+              | i      <- [1..11]
+              ]
+    (d_final_final, a_final_final, ij_final) = a_final!0
+    ad_final_final = update a_final_final ((l << 1) - 1) (drop(d_final_final))
+
+aset_384 : ([384], [32], [32]) -> [384]
+aset_384(a, i, x) = fromJavaArray (update (toJavaArray a) i x)
+
+java_lashr32 : [64] -> [64]
+java_lashr32 x = take(iext(x) : [96])
+
+group_red_aux_java : ([384], [32], [32], [64], [64]) ->
+                     { gra_r: [384] , gra_b : [64] }
+group_red_aux_java(r, aj, j, c, b) = { gra_r = r' , gra_b = b'' }
+  where
+    rj, m, b' : [64]
+    rj = uext(toJavaArray r @ j)
+    m = c * uext(aj)
+    b' = b + rj - uext(drop(m):[32])
+    r' = aset_384(r, j, drop(b'))
+    b'' = java_lashr32(b') - (m >> 32)
+
+group_mul_aux_java : ([384], [32], [32], [32], [64]) ->
+                     { gra_r: [384] , gra_b : [64] }
+group_mul_aux_java(r, yj, j, xi, c) = { gra_r = r' , gra_b = c'' }
+  where
+    rj, m, c' : [64]
+    rj = uext(toJavaArray r @ j)
+    m = uext(xi) * uext(yj)
+    c' = c + rj + uext(drop(m):[32])
+    r' = aset_384(r, j, drop(c'))
+    c'' = (c' >> 32) + (m >> 32)
+
+p384_group_red : ([384], [384], [64]) -> [384]
+p384_group_red(order, r, c) = r'''
+  where
+    order' = toJavaArray order
+    loop : [13]([384],[64])
+    loop = [ (r, zero : [64]) ] #
+           [ (res.gra_r, res.gra_b)
+              where res = group_red_aux_java(rj, order'@j, j, c, bi)
+           | (rj, bi) <- loop
+           | j <- [0..11]
+           ]
+    (r', b) = loop!0
+    c' = c + b
+    (r'', c'') = if c' != 0 then
+                   (r' - order, c' + (if r' >= order then 0 else -1))
+                 else (r', c')
+    r''' = if c'' != 0 then r'' - order else r''
+
+p384_group_mul : ([384], [384], [384]) -> [384]
+p384_group_mul(order, x, y) = r'
+  where
+    xa = toJavaArray x
+    ya = toJavaArray y
+    outer : [13][384]
+    outer = [ (zero : [384]) ] #
+            [ p384_group_red(order, rn, cn)
+               where
+                 r0 : [384]
+                 r0 = p384_group_red(order,
+                                     ro << (32 : [9]),
+                                     uext(take(ro):[32]))
+                 inner : [13]([384], [64])
+                 inner = [ (r0, 0) ] #
+                         [ (res.gra_r, res.gra_b)
+                            where
+                              res = group_mul_aux_java(rj, ya@j, j, xa@(i:[32]), cj)
+                         | j <- [0..11]
+                         | (rj, cj) <- inner
+                         ]
+                 (rn, cn) = inner!0
+            | i <- reverse [0..11]
+            | ro <- outer
+            ]
+    r = outer!0
+    r' = if order <= r then r - order else r
