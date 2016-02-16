@@ -318,16 +318,16 @@ showCexResults sc ms vs exts vals = do
   fail "Proof failed."
 
 mkMixedExpr :: SharedContext SAWCtx
-            -> JavaMethodSpecIR
             -> SharedTerm SAWCtx
-            -> IO MixedExpr
-mkMixedExpr _ ms (asJavaExpr -> Just s) = JE <$> getJavaExpr ms s
-mkMixedExpr sc ms t = do
+            -> JavaSetup MixedExpr
+mkMixedExpr _ (asJavaExpr -> Just s) =
+  (JE . fst) <$> getJavaExpr "mkMixedExpr" s
+mkMixedExpr sc t = do
   let exts = getAllExts t
       extNames = map ecName exts
-  javaExprs <- mapM (getJavaExpr ms) extNames
-  le <- LogicExpr <$> scAbstractExts sc exts t <*> pure javaExprs
-  return (LE le)
+  jes <- mapM (getJavaExpr "mkMixedExpr") extNames
+  fn <- liftIO $ scAbstractExts sc exts t
+  return $ LE $ LogicExpr fn (map fst jes)
 
 exportJSSType :: JavaType -> JavaSetup Type
 exportJSSType jty =
@@ -338,8 +338,8 @@ exportJSSType jty =
     JavaShort       -> return ShortType
     JavaInt         -> return IntType
     JavaLong        -> return LongType
-    JavaFloat       -> fail "exportJSSType: Can't translate float type"
-    JavaDouble      -> fail "exportJSSType: Can't translate double type"
+    JavaFloat       -> return FloatType
+    JavaDouble      -> return DoubleType
     JavaArray _ ety -> ArrayType <$> exportJSSType ety
     JavaClass name  -> return $ ClassType (dotsToSlashes name)
 
@@ -352,26 +352,17 @@ exportJavaType cb jty =
     JavaShort       -> return $ PrimitiveType ShortType
     JavaInt         -> return $ PrimitiveType IntType
     JavaLong        -> return $ PrimitiveType LongType
-    JavaFloat       -> fail "exportJavaType: Can't translate float type"
-    JavaDouble      -> fail "exportJavaType: Can't translate double type"
+    JavaFloat       -> return $ PrimitiveType FloatType
+    JavaDouble      -> return $ PrimitiveType DoubleType
     JavaArray n t   -> ArrayInstance (fromIntegral n) <$> exportJSSType t
     JavaClass name  ->
       do cls <- liftIO $ lookupClass cb fixPos (dotsToSlashes name)
          return (ClassInstance cls)
 
-checkCompatibleExpr :: String -> JavaExpr -> Cryptol.Schema -> JavaSetup ()
-checkCompatibleExpr msg expr schema = do
-  jsState <- get
-  let atm = specActualTypeMap (jsSpec jsState)
-  liftIO $ case Map.lookup expr atm of
-    Nothing -> fail $ "No type found for Java expression: " ++ show expr ++
-                      " (" ++ msg ++ ")"
-    Just aty -> liftIO $ checkCompatibleType msg aty schema
-
 checkCompatibleType :: String
                     -> JavaActualType
                     -> Cryptol.Schema
-                    -> IO ()
+                    -> JavaSetup ()
 checkCompatibleType msg aty schema = do
   case cryptolTypeOfActual aty of
     Nothing ->
@@ -384,25 +375,35 @@ checkCompatibleType msg aty schema = do
                 , "  In context: " ++ msg
                 ]
 
-javaPure :: JavaSetup ()
-javaPure = return ()
+parseJavaExpr' :: (MonadIO m) =>
+                  JSS.Codebase -> JSS.Class -> JSS.Method -> String
+               -> m JavaExpr
+parseJavaExpr' cb cls meth name =
+  liftIO (runExceptT (parseJavaExpr cb cls meth name) >>= either fail return)
+
+getJavaExpr :: String -> String -> JavaSetup (JavaExpr, JavaActualType)
+getJavaExpr ctx name = do
+  ms <- gets jsSpec
+  let cb = specCodebase ms
+      cls = specThisClass ms
+      meth = specMethod ms
+  e <- parseJavaExpr' cb cls meth name
+  case Map.lookup e (bsActualTypeMap (specBehaviors ms)) of
+    Just ty -> return (e, ty)
+    Nothing -> fail $ "Unknown expression " ++ name ++ " in " ++ ctx
 
 typeJavaExpr :: BuiltinContext -> String -> JavaType
              -> JavaSetup (JavaExpr, JavaActualType)
 typeJavaExpr bic name ty = do
-  jsState <- get
-  let ms = jsSpec jsState
-      cb = biJavaCodebase bic
-      cls = specThisClass ms
-      meth = specMethod ms
-  expr <- parseJavaExpr' (biJavaCodebase bic) cls meth name
-  let jty = exprType expr
+  ms <- gets jsSpec
+  let cb = biJavaCodebase bic
+  expr <- parseJavaExpr' cb (specThisClass ms) (specMethod ms) name
   jty' <- exportJSSType ty
-  liftIO $ checkEqualTypes jty jty' name
+  checkEqualTypes (exprType expr) jty' name
   aty <- exportJavaType cb ty
   return (expr, aty)
 
-checkEqualTypes :: Type -> Type -> String -> IO ()
+checkEqualTypes :: Type -> Type -> String -> JavaSetup ()
 checkEqualTypes declared actual name =
   when (declared /= actual) $ fail $ show $
     hsep [ text "WARNING: Declared type"
@@ -416,6 +417,9 @@ checkEqualTypes declared actual name =
 modifySpec :: (JavaMethodSpecIR -> JavaMethodSpecIR) -> JavaSetup ()
 modifySpec f = modify $ \st -> st { jsSpec = f (jsSpec st) }
 
+javaPure :: JavaSetup ()
+javaPure = return ()
+
 javaNoSimulate :: JavaSetup ()
 javaNoSimulate = modify (\s -> s { jsSimulate = False })
 
@@ -426,8 +430,8 @@ javaClassVar :: BuiltinContext -> Options -> String -> JavaType
              -> JavaSetup ()
 javaClassVar bic _ name t = do
   (expr, aty) <- typeJavaExpr bic name t
-  case exprType expr of
-    ClassType _ -> return ()
+  case aty of
+    ClassInstance _ -> return ()
     _ -> fail "Can't use `java_class_var` with variable of non-class type."
   modifySpec (specAddVarDecl expr aty)
 
@@ -436,8 +440,8 @@ javaVar :: BuiltinContext -> Options -> String -> JavaType
 javaVar bic _ name t = do
   --liftIO $ putStrLn "javaVar"
   (expr, aty) <- typeJavaExpr bic name t
-  case exprType expr of
-    ClassType _ -> fail "Can't use `java_var` with variable of class type."
+  case aty of
+    ClassInstance _ -> fail "Can't use `java_var` with variable of class type."
     _ -> return ()
   modifySpec (specAddVarDecl expr aty)
   let sc = biSharedContext bic
@@ -448,48 +452,28 @@ javaVar bic _ name t = do
 javaMayAlias :: BuiltinContext -> Options -> [String]
              -> JavaSetup ()
 javaMayAlias _ _ exprs = do
-  ms <- gets jsSpec
-  exprList <- liftIO $ mapM (getJavaExpr ms) exprs
-  -- TODO: check that all expressions exist and have the same type
-  modifySpec (specAddAliasSet exprList)
+  exprList <- mapM (getJavaExpr "java_may_alias") exprs
+  -- TODO: check that all expressions have the same type
+  modifySpec (specAddAliasSet (map fst exprList))
 
 javaAssert :: BuiltinContext -> Options -> TypedTerm SAWCtx
            -> JavaSetup ()
 javaAssert bic _ (TypedTerm schema v) = do
   --liftIO $ putStrLn "javaAssert"
-  let sc = biSharedContext bic
-  ms <- gets jsSpec
   unless (schemaNoUser schema == Cryptol.Forall [] [] Cryptol.tBit) $
     fail $ "java_assert passed expression of non-boolean type: " ++ show schema
-  me <- liftIO $ mkMixedExpr sc ms v
+  me <- mkMixedExpr (biSharedContext bic) v
   case me of
     LE le -> modifySpec (specAddAssumption le)
     JE je -> fail $ "Used java_assert with Java expression: " ++ show je
-
-parseJavaExpr' :: (MonadIO m) =>
-                  JSS.Codebase -> JSS.Class -> JSS.Method -> String
-               -> m JavaExpr
-parseJavaExpr' cb cls meth name =
-  liftIO (runExceptT (parseJavaExpr cb cls meth name) >>= either fail return)
-
-getJavaExpr :: (MonadIO m) =>
-               JavaMethodSpecIR -> String
-            -> m JavaExpr
-getJavaExpr ms name = do
-  let cb = specCodebase ms
-      cls = specThisClass ms
-      meth = specMethod ms
-  parseJavaExpr' cb cls meth name
 
 javaAssertEq :: BuiltinContext -> Options -> String -> TypedTerm SAWCtx
            -> JavaSetup ()
 javaAssertEq bic _ name (TypedTerm schema t) = do
   --liftIO $ putStrLn "javaAssertEq"
-  ms <- gets jsSpec
-  let sc = biSharedContext bic
-  expr <- getJavaExpr ms name
-  checkCompatibleExpr "java_assert_eq" expr schema
-  me <- liftIO $ mkMixedExpr sc ms t
+  (expr, aty) <- (getJavaExpr "java_assert_eq") name
+  checkCompatibleType "java_assert_eq" aty schema
+  me <- mkMixedExpr (biSharedContext bic) t
   modifySpec (specAddLogicAssignment fixPos expr me)
 
 javaEnsureEq :: BuiltinContext -> Options -> String -> TypedTerm SAWCtx
@@ -497,19 +481,16 @@ javaEnsureEq :: BuiltinContext -> Options -> String -> TypedTerm SAWCtx
 javaEnsureEq bic _ name (TypedTerm schema t) = do
   --liftIO $ putStrLn "javaEnsureEq"
   ms <- gets jsSpec
-  expr <- getJavaExpr ms name
-  let sc = biSharedContext bic
-      meth = specMethod ms
-      ty = exprType expr
+  (expr, aty) <- (getJavaExpr "java_ensure_eq") name
   --liftIO $ putStrLn "Making MixedExpr"
-  when (isArg meth expr && isScalarExpr expr) $ fail $
+  when (isArg (specMethod ms) expr && isScalarExpr expr) $ fail $
     "The `java_ensure_eq` function cannot be used " ++
     "to set the value of a scalar argument."
-  checkCompatibleExpr "java_ensure_eq" expr schema
-  me <- liftIO $ mkMixedExpr sc ms t
+  checkCompatibleType "java_ensure_eq" aty schema
+  me <- mkMixedExpr (biSharedContext bic) t
   --liftIO $ putStrLn "Done making MixedExpr"
-  cmd <- case (CC.unTerm expr, ty) of
-    (_, ArrayType _) -> return (EnsureArray fixPos expr me)
+  cmd <- case (CC.unTerm expr, aty) of
+    (_, ArrayInstance _ _) -> return (EnsureArray fixPos expr me)
     (InstanceField r f, _) -> return (EnsureInstanceField fixPos r f me)
     (StaticField f, _) -> return (EnsureStaticField fixPos f me)
     _ -> fail $ "invalid java_ensure target: " ++ name
@@ -520,14 +501,12 @@ javaModify :: BuiltinContext -> Options -> String
 javaModify _bic _ name = do
   --liftIO $ putStrLn "javaModify"
   ms <- gets jsSpec
-  expr <- getJavaExpr ms name
-  let meth = specMethod ms
-  when (isArg meth expr && isScalarExpr expr) $ fail $
+  (expr, aty) <- (getJavaExpr "java_modify") name
+  when (isArg (specMethod ms) expr && isScalarExpr expr) $ fail $
     "The `java_modify` function cannot be used " ++
     "to set the value of a scalar argument."
-  let mty = Map.lookup expr (bsActualTypeMap (specBehaviors ms))
-  cmd <- case (CC.unTerm expr, mty) of
-    (_, Just ty@(ArrayInstance _ _)) -> return (ModifyArray expr ty)
+  cmd <- case (CC.unTerm expr, aty) of
+    (_, ArrayInstance _ _) -> return (ModifyArray expr aty)
     (InstanceField r f, _) -> return (ModifyInstanceField r f)
     (StaticField f, _) -> return (ModifyStaticField f)
     _ -> fail $ "invalid java_modify target: " ++ name
@@ -537,10 +516,15 @@ javaReturn :: BuiltinContext -> Options -> TypedTerm SAWCtx
            -> JavaSetup ()
 javaReturn bic _ (TypedTerm _ t) = do
   --liftIO $ putStrLn "javaReturn"
-  -- TODO: check that types are compatible
   ms <- gets jsSpec
-  me <- liftIO $ mkMixedExpr (biSharedContext bic) ms t
-  modifySpec (specAddBehaviorCommand (ReturnValue me))
+  let meth = specMethod ms
+  case methodReturnType meth of
+    Just _ty -> do
+      -- TODO: check that types are compatible
+      me <- mkMixedExpr (biSharedContext bic) t
+      modifySpec (specAddBehaviorCommand (ReturnValue me))
+    Nothing ->
+      fail $ "can't use `java_return` on void method " ++ methodName meth
 
 javaVerifyTactic :: BuiltinContext -> Options
                  -> ProofScript SAWCtx SatResult
