@@ -1023,8 +1023,11 @@ primitives = Map.fromList
     , "state of a Java method."
     ]
 
-  --, prim "java_assert_eq"      "{a} String -> a -> JavaSetup ()"
-  --  (bicVal javaAssertEq)
+  , prim "java_assert_eq"      "{a} String -> a -> JavaSetup ()"
+    (bicVal javaAssertEq)
+    [ "Assert that the given variable should have the given value in the"
+    , "initial state of a Java method."
+    ]
 
   , prim "java_ensure_eq"      "String -> Term -> JavaSetup ()"
     (bicVal javaEnsureEq)
