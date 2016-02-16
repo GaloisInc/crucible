@@ -1066,6 +1066,12 @@ primitives = Map.fromList
     , "as a pure function."
     ]
 
+   , prim "java_requires_class"  "String -> JavaSetup ()"
+     (pureVal javaRequiresClass)
+     [ "Declare that the given method can only be executed if the given"
+     , "class has already been initialized."
+     ]
+
   , prim "java_pure"           "JavaSetup ()"
     (pureVal javaPure)
     [ "The empty specification for 'java_verify'. Equivalent to 'return ()'." ]

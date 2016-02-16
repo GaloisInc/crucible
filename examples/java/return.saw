@@ -24,6 +24,7 @@ let newSimple_spec = do {
 };
 
 let simpleWrap2_spec = do {
+  java_requires_class "SimpleObj";
   x <- java_var "x" java_int;
   y <- java_var "y" java_int;
   java_assert {{ x == 43 }};

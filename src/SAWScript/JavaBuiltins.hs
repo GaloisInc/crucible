@@ -426,6 +426,11 @@ javaNoSimulate = modify (\s -> s { jsSimulate = False })
 javaSatBranches :: Bool -> JavaSetup ()
 javaSatBranches doSat = modify (\s -> s { jsSatBranches = doSat })
 
+javaRequiresClass :: String -> JavaSetup ()
+javaRequiresClass cls = modifySpec $ \ms ->
+  let clss' = cls : specInitializedClasses ms in
+  ms { specInitializedClasses = clss' }
+
 javaClassVar :: BuiltinContext -> Options -> String -> JavaType
              -> JavaSetup ()
 javaClassVar bic _ name t = do
