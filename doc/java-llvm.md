@@ -122,7 +122,7 @@ In cases like this, a direct translation is possible, given only an
 identification of which code to execute. Two functions exist to handle
 such simple code:
 
-    java_extract : JavaClass -> String -> JavaSetup () -> TopLevel Term 
+    java_extract : JavaClass -> String -> JavaSetup () -> TopLevel Term
 
     llvm_extract : LLVMModule -> String -> LLVMSetup () -> TopLevel Term
 
@@ -219,7 +219,7 @@ The syntax of these expressions is as follows:
 
   * For an expression `e` of object type, `e.f` refers to the instance
     field `f` of the object described by `e`.
-  
+
   * The value of an expression of array type is the entire contents of
     the array. At the moment, there is no way to refer to individual
     elements of an array.
@@ -347,8 +347,6 @@ make use of largely the same set of concepts.
 * Several commands are available to configure the contents of the
   initial state, before symbolic execution.
 
-* Several commands configure the behavior of symbolic execution overall.
-
 * Several commands are available to describe what to check of the final
   state, after symbolic execution.
 
@@ -356,9 +354,8 @@ make use of largely the same set of concepts.
   matches the specification.
 
 The following sections describe the details of configuring initial
-states, controlling symbolic execution, stating the expected properties
-of the final state, and proving that the final state actually satisfies
-those properties.
+states, stating the expected properties of the final state, and proving
+that the final state actually satisfies those properties.
 
 ## Configuring the Initial State
 
@@ -391,7 +388,7 @@ use the same syntax described earlier for `java_symexec` and
     java_double : JavaType
     java_class : String -> JavaType
     java_array : Int -> JavaType -> JavaType
-    
+
     llvm_int : Int -> LLVMType
     llvm_array : Int -> LLVMType -> LLVMType
     llvm_struct : String -> LLVMType
@@ -420,18 +417,6 @@ TODO: `java_assert_eq` and `llvm_assert_eq`
 
 TODO:  `java_may_alias`
 
-## Controlling Symbolic Execution
-
-TODO
-
-    java_no_simulate
-    llvm_no_simulate
-
-    java_sat_branches
-    llvm_sat_branches
-
-    java_allow_alloc
-
 ## Checking the Final State
 
 TODO
@@ -452,6 +437,8 @@ TODO
 
     llvm_verify_tactic
 
+TODO: mention behavior with no tactic specified
+
 # Proof Scripts
 
 TODO
@@ -462,3 +449,25 @@ The primary advantage of the specification-based approach to
 verification is that it allows for compositional reasoning.
 
 TODO
+
+# Controlling Symbolic Execution
+
+Three sets of commands are available to control the symbolic execution
+process. The first two control the use of satisfiability checking to
+determine whether both paths are feasible when encountering branches in
+the program, which is particularly relevant for branches controlling the
+iteration of loops.
+
+    java_sat_branches : Bool -> JavaSetup ()
+    llvm_sat_branches : Bool -> LLVMSetup ()
+
+The `Bool` parameter has the same effect as the `Bool` parameter passed
+to `java_symexec` and `llvm_symexec`.
+
+TODO:
+
+    java_allow_alloc
+
+    java_no_simulate
+    llvm_no_simulate
+
