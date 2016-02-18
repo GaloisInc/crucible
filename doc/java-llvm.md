@@ -82,7 +82,34 @@ TODO
 
 # Loading Code
 
-TODO: describe code loading process
+To load LLVM code, simply provide the location of a valid bitcode file
+to the `llvm_load_module` function.
+
+    llvm_load_module : String -> TopLevel LLVMModule
+
+The resulting `LLVMModule` can be passed into the various functions
+described below to perform analysis of specific LLVM functions.
+
+Loading Java code is slightly more complex, because of the more
+structured nature of Java packages. First, when running `saw`, two flags
+control where to look for classes. The `-j` flag takes the name of a JAR
+file as an argument, and adds the contents of that file to the class
+database. The `-c` flag takes the name of a directory as an argument,
+and adds all class files found in that directory (and its
+subdirectories) to the class database. By default, the current directory
+is included in the class path. However, the Java standard library
+(usually called `rt.jar`) is generally required for any non-trivial Java
+code, and is installed in a wide variety of different locations.
+Therefore, for most Java analysis, you must provide a `-j` argument
+specifying where to find this file.
+
+Once the class path is configured, you can pass the name of a class to
+the `java_load_class` function.
+
+    java_load_class : String -> TopLevel JavaClass
+
+The resulting `JavaClass` can be passed into the various functions
+described below to perform analysis of specific Java methods.
 
 # Direct Extraction
 
@@ -311,9 +338,11 @@ Like all of the functions for Java and LLVM analysis, the first two
 parameters indicate what code to analyze. The third parameter is used
 for compositional verification, as described in the next section. For
 now, assume that it is always the empty list. The final parameter
-describes the specification of the code to be analyzed. Specifications
-are slightly different between Java and LLVM, but make use of largely
-the same set of concepts.
+describes the specification of the code to be analyzed, built out of
+commands of type `JavaSetup` or `LLVMSetup`. In most cases, this
+parameter will be a `do` block containing a sequence of commands of this
+type. Specifications are slightly different between Java and LLVM, but
+make use of largely the same set of concepts.
 
 * Several commands are available to configure the contents of the
   initial state, before symbolic execution.
@@ -326,45 +355,82 @@ the same set of concepts.
 * One final command describes how to prove that the code under analysis
   matches the specification.
 
+The following sections describe the details of configuring initial
+states, controlling symbolic execution, stating the expected properties
+of the final state, and proving that the final state actually satisfies
+those properties.
+
 ## Configuring the Initial State
 
-TODO
+The first step in configuring the initial state is to specify which
+program variables are important, and to specify their types more
+precisely. The symbolic execution system currently expects the layout of
+memory before symbolic execution to be completely specified. As in
+`llvm_symexec`, SAW needs information about how much space every pointer
+or reference variable points to. And, with one exception, SAW assumes
+that every pointer points to a distinct region of memory.
 
-    java_assert
-    java_var
-    java_class_var
-    java_may_alias
+Because of this structure, the are separate functions used to describe
+variables with values of base types versus variables of pointer type.
 
-    llvm_assert
-    llvm_assert_eq
-    llvm_var
-    llvm_ptr
+For simple integer values, use `java_var` or `llvm_var`.
 
-    java_byte
-    java_char
-    java_short
-    java_int
-    java_long
-    java_float
-    java_double
-    java_class
+    java_var : String -> JavaType -> JavaSetup Term
+    llvm_var : String -> LLVMType -> LLVMSetup Term
+
+These functions both take a variable name and a type. The variable names
+use the same syntax described earlier for `java_symexec` and
+`llvm_symexec`. The types are built up using the following functions:
+
+    java_byte : JavaType
+    java_char : JavaType
+    java_short : JavaType
+    java_int : JavaType
+    java_long : JavaType
+    java_float : JavaType
+    java_double : JavaType
+    java_class : String -> JavaType
+    java_array : Int -> JavaType -> JavaType
     
-    llvm_int
-    llvm_array
-    llvm_struct
-    llvm_float
-    llvm_double
+    llvm_int : Int -> LLVMType
+    llvm_array : Int -> LLVMType -> LLVMType
+    llvm_struct : String -> LLVMType
+    llvm_float : LLVMType
+    llvm_double : LLVMType
+
+Most of these types are straightforward mappings to the standard Java
+and LLVM types. The one key difference is that arrays must have a fixed,
+concrete size. Therefore, all analysis results are under the assumption
+that any arrays have the specific size indicated, and may not hold for
+other sizes. The `llvm_int` function also takes an `Int` parameter
+indicating the variable's bit width.
+
+The `Term` returned by `java_var` and `llvm_var` is a representation of
+the _initial value_ of the variable being declared. It can be used in
+any later expression.
+
+TODO: `java_class_var` and `llvm_ptr`
+
+The `java_assert` and `llvm_assert` functions take a `Term` of boolean
+type as an argument which states a condition that must be true in the
+initial state, before the function under analysis executes. The term can
+refer to the initial values of any declared program variables.
+
+TODO: `java_assert_eq` and `llvm_assert_eq`
+
+TODO:  `java_may_alias`
 
 ## Controlling Symbolic Execution
 
 TODO
 
     java_no_simulate
-    java_sat_branches
-    java_allow_alloc
-
     llvm_no_simulate
+
+    java_sat_branches
     llvm_sat_branches
+
+    java_allow_alloc
 
 ## Checking the Final State
 
@@ -385,6 +451,10 @@ TODO
     java_verify_tactic
 
     llvm_verify_tactic
+
+# Proof Scripts
+
+TODO
 
 # Compositional Verification
 
