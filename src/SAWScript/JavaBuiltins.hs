@@ -235,9 +235,7 @@ verifyJava bic opts cls mname overrides setup = do
     rw <- getTopLevelRW
     -- io $ print (length configs)
     forM_ configs $ \(bs,cl) -> withSAWBackend jsc Nothing $ \sbe -> io $ do
-      -- print (bsActualTypeMap bs)
-      -- print (bsRefExprs bs)
-      -- print cl
+      liftIO $ bsCheckAliasTypes pos bs
       when (verb >= 2) $ do
         putStrLn $ "Executing " ++ specName ms ++
                    " at PC " ++ show (bsLoc bs) ++ "."
@@ -453,7 +451,6 @@ javaMayAlias :: BuiltinContext -> Options -> [String]
              -> JavaSetup ()
 javaMayAlias _ _ exprs = do
   exprList <- mapM (getJavaExpr "java_may_alias") exprs
-  -- TODO: check that all expressions have the same type
   modifySpec (specAddAliasSet (map fst exprList))
 
 javaAssert :: BuiltinContext -> Options -> TypedTerm SAWCtx
