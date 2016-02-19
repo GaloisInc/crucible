@@ -64,54 +64,6 @@ type SAWDefine = SymDefine SAWTerm
 loadLLVMModule :: FilePath -> IO LLVMModule
 loadLLVMModule file = LLVMModule file <$> loadModule file
 
--- LLVM memory operations
-
-readLLVMTermAddr :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
-                    [SBETerm sbe] -> LLVMExpr
-                 -> Simulator sbe m (SBETerm sbe)
-readLLVMTermAddr args (Term e) =
-  case e of
-    Arg _ _ _ -> fail "Can't read address of argument"
-    Global s _ -> evalExprInCC "readLLVMTerm:Global" (SValSymbol s)
-    Deref ae _ -> readLLVMTerm args ae 1
-    StructField ae si idx _ ->
-      structFieldAddr si idx =<< readLLVMTerm args ae 1
-    ReturnValue _ -> fail "Can't read address of return value"
-
-writeLLVMTerm :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
-                 [SBETerm sbe]
-              -> (LLVMExpr, SBETerm sbe, Integer)
-              -> Simulator sbe m ()
-writeLLVMTerm args (e, t, cnt) = do
-  addr <- readLLVMTermAddr args e
-  let ty = lssTypeOfLLVMExpr e
-      ty' | cnt > 1 = ArrayType (fromIntegral cnt) ty
-          | otherwise = ty
-  dl <- getDL
-  store ty' t addr (memTypeAlign dl ty')
-
-readLLVMTerm :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
-                [SBETerm sbe]
-             -> LLVMExpr
-             -> Integer
-             -> Simulator sbe m (SBETerm sbe)
-readLLVMTerm args et@(Term e) cnt =
-  case e of
-    Arg n _ _ -> return (args !! n)
-    ReturnValue _ -> do
-      rslt <- getProgramReturnValue
-      case rslt of
-        (Just v) -> return v
-        Nothing -> fail "Program did not return a value"
-    _ -> do
-      let ty = lssTypeOfLLVMExpr et
-      addr <- readLLVMTermAddr args et
-      let ty' | cnt > 1 = ArrayType (fromIntegral cnt) ty
-              | otherwise = ty
-      -- Type should be type of value, not type of ptr
-      dl <- getDL
-      load ty' addr (memTypeAlign dl ty')
-
 -- LLVM verification and model extraction commands
 
 type Assign = (LLVMExpr, TypedTerm SAWCtx)
@@ -243,15 +195,6 @@ extractLLVM bic opts lmod func _setup =
       Just rv -> liftIO $ do
         lamTm <- bindExts scLLVM exts rv
         scImport sc lamTm >>= mkTypedTerm sc
-
-freshLLVMArg :: Monad m =>
-            (t, MemType) -> Simulator sbe m (MemType, SBETerm sbe)
-freshLLVMArg (_, ty@(IntType bw)) = do
-  sbe <- gets symBE
-  tm <- liftSBE $ freshInt sbe bw
-  return (ty, tm)
-freshLLVMArg (_, _) = fail "Only integer arguments are supported for now."
-
 
 verifyLLVM :: BuiltinContext -> Options -> LLVMModule -> String
            -> [LLVMMethodSpecIR]

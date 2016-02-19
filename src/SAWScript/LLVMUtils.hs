@@ -18,11 +18,13 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Verifier.LLVM.Backend
 import Verifier.LLVM.Backend.SAW
-import Verifier.LLVM.Codebase
+import Verifier.LLVM.Codebase hiding (Global)
 import Verifier.LLVM.Codebase.LLVMContext
 import Verifier.LLVM.Simulator
 import Verifier.LLVM.Simulator.Internals
 import Verifier.SAW.SharedTerm
+import SAWScript.CongruenceClosure hiding (mapM)
+import SAWScript.LLVMExpr
 import SAWScript.Utils
 
 type SpecBackend = SAWBackend SAWCtx
@@ -124,3 +126,59 @@ allocSome sbe dl n ty = do
   let aw = ptrBitwidth dl
   sz <- liftSBE (termInt sbe aw n)
   malloc ty aw sz
+
+-- LLVM memory operations
+
+readLLVMTermAddr :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
+                    [SBETerm sbe] -> LLVMExpr
+                 -> Simulator sbe m (SBETerm sbe)
+readLLVMTermAddr args (Term e) =
+  case e of
+    Arg _ _ _ -> fail "Can't read address of argument"
+    Global s _ -> evalExprInCC "readLLVMTerm:Global" (SValSymbol s)
+    Deref ae _ -> readLLVMTerm args ae 1
+    StructField ae si idx _ ->
+      structFieldAddr si idx =<< readLLVMTerm args ae 1
+    ReturnValue _ -> fail "Can't read address of return value"
+
+writeLLVMTerm :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
+                 [SBETerm sbe]
+              -> (LLVMExpr, SBETerm sbe, Integer)
+              -> Simulator sbe m ()
+writeLLVMTerm args (e, t, cnt) = do
+  addr <- readLLVMTermAddr args e
+  let ty = lssTypeOfLLVMExpr e
+      ty' | cnt > 1 = ArrayType (fromIntegral cnt) ty
+          | otherwise = ty
+  dl <- getDL
+  store ty' t addr (memTypeAlign dl ty')
+
+readLLVMTerm :: (Functor m, Monad m, MonadIO m, Functor sbe) =>
+                [SBETerm sbe]
+             -> LLVMExpr
+             -> Integer
+             -> Simulator sbe m (SBETerm sbe)
+readLLVMTerm args et@(Term e) cnt =
+  case e of
+    Arg n _ _ -> return (args !! n)
+    ReturnValue _ -> do
+      rslt <- getProgramReturnValue
+      case rslt of
+        (Just v) -> return v
+        Nothing -> fail "Program did not return a value"
+    _ -> do
+      let ty = lssTypeOfLLVMExpr et
+      addr <- readLLVMTermAddr args et
+      let ty' | cnt > 1 = ArrayType (fromIntegral cnt) ty
+              | otherwise = ty
+      -- Type should be type of value, not type of ptr
+      dl <- getDL
+      load ty' addr (memTypeAlign dl ty')
+
+freshLLVMArg :: Monad m =>
+            (t, MemType) -> Simulator sbe m (MemType, SBETerm sbe)
+freshLLVMArg (_, ty@(IntType bw)) = do
+  sbe <- gets symBE
+  tm <- liftSBE $ freshInt sbe bw
+  return (ty, tm)
+freshLLVMArg (_, _) = fail "Only integer arguments are supported for now."
