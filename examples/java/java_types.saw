@@ -1,0 +1,41 @@
+c <- java_load_class "JavaTypes";
+
+let set_spec fname ty = do {
+    x <- java_var "args[0]" ty;
+    java_var fname ty;
+    java_ensure_eq fname x;
+    java_verify_tactic abc;
+};
+
+let get_spec fname ty = do {
+    x <- java_var fname ty;
+    java_return x;
+    java_verify_tactic abc;
+};
+
+let verify_get mname fname ty = java_verify c mname [] (get_spec fname ty);
+let verify_set mname fname ty = java_verify c mname [] (set_spec fname ty);
+
+verify_set "byte_set"  "this.bfld" java_byte;
+verify_set "char_set"  "this.cfld" java_char;
+verify_set "short_set" "this.sfld" java_short;
+verify_set "int_set"   "this.ifld" java_int;
+verify_set "long_set"  "this.lfld" java_long;
+
+verify_get "byte_get"  "this.bfld" java_byte;
+verify_get "char_get"  "this.cfld" java_char;
+verify_get "short_get" "this.sfld" java_short;
+verify_get "int_get"   "this.ifld" java_int;
+verify_get "long_get"  "this.lfld" java_long;
+
+verify_set "byte_aset"  "this.bafld" (java_array 4 java_byte);
+verify_set "char_aset"  "this.cafld" (java_array 4 java_char);
+verify_set "short_aset" "this.safld" (java_array 4 java_short);
+verify_set "int_aset"   "this.iafld" (java_array 4 java_int);
+verify_set "long_aset"  "this.lafld" (java_array 4 java_long);
+
+verify_get "byte_aget"  "this.bafld" (java_array 4 java_byte);
+verify_get "char_aget"  "this.cafld" (java_array 4 java_char);
+verify_get "short_aget" "this.safld" (java_array 4 java_short);
+verify_get "int_aget"   "this.iafld" (java_array 4 java_int);
+verify_get "long_aget"  "this.lafld" (java_array 4 java_long);
