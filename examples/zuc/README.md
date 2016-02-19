@@ -30,8 +30,9 @@ also shed some light into how Cryptol can be used in the cryptographic
 design and evaluation processes even if you skip all the ZUC-specific
 details.
 
-Our implementation follows the latest specification of ZUC, which is at
-version 1.5 at the time of writing.
+Our implementation follows the latest
+[specification](http://www.gsma.com/technicalprojects/wp-content/uploads/2012/04/eea3eia3zucv16.pdf)
+of ZUC, which is at version 1.5 at the time of writing.
 
 # Addition in GF(2^31 - 1)
 
@@ -261,7 +262,7 @@ u32 F()
 ~~~~
 
 We will skip the details of ZUC’s S-boxes and the functions `L1` and
-`L2`, but you can see their implementation [here] TODO.
+`L2`, but you can see their implementation [here](zuc.cry).
 
 # Loading the key
 
@@ -388,7 +389,8 @@ with the algorithm itself but rather with how it has to be implemented.
 The other aspect of Cryptol is that the specification, as high level as
 it is, remains executable. So, we can use our implementation and test it
 against the published test-vectors for ZUC. Here’s the first example
-from the test [document] TODO
+from the test
+[document](http://www.gsmworld.com/documents/EEA3_EIA3_Test_Data_v1_1.pdf).
 
 (Section 3.3):
 
@@ -398,7 +400,7 @@ Main> take (ZUC 0 0) : [2][32]
 [0x27bede74, 0x018082da]
 ~~~~
 
-(The full [implementation] TODO has further test vectors from the
+(The full [implementation](zuc.cry) has further test vectors from the
 specification, see the theorem `ZUC_TestVectors`.) Note that since our
 implementation of ZUC returns an infinite sequence, we have used the
 `take` function to just look at the first two outputs. Naturally, we can
@@ -418,7 +420,8 @@ An IV collision occurs if two different IVs cause the algorithm to
 initialize itself to precisely the same state, thus losing entropy.
 Cryptographers seriously worry about such losses of entropy as they can
 lead to efficient attacks by cutting down the search space
-significantly. In a recent conference, Wu et al., [demonstrated] TODO
+significantly. In a recent conference, Wu et al.,
+[demonstrated](http://www.iacr.org/archive/asiacrypt2012/76580257/76580257.pdf)
 one such vulnerability in ZUC 1.4. In that version of the specification,
 ZUC had a slightly different initialization sequence. First, instead of
 addition in GF(2^31-1), it performed a simple XOR when LFSR is used in
@@ -520,7 +523,7 @@ implementations always produce exactly the same results.
 
 The complete proof script showing the equivalence between the Cryptol
 and C code, as well as proving the presence of the IV collision in
-version 1.4 and its absence in version 1.5, is [here] TODO.
+version 1.4 and its absence in version 1.5, is [here](zuc.saw).
 
 In this document, we step through some, but not all of the proofs in
 that document.
@@ -579,9 +582,9 @@ AddM_ov <- llvm_verify zucbc "AddM" [] (AddM_spec {{ zuccry::add }});
 This command uses the `zucbc` LLVM module loaded above, and looks up the
 `add` function in the `zuccry` Cryptol module loaded above.
 
-The SAWScript file [here] TODO includes proofs of equivalence between
-more Cryptol and C functions, though most of those follow the same basic
-outline as the `add` function.
+The SAWScript file [here](zuc.saw) includes proofs of equivalence
+between more Cryptol and C functions, though most of those follow the
+same basic outline as the `add` function.
 
 In addition to showing equivalence, we can also prove security
 properties directly on the C code. This isn't necessarily relevant if
