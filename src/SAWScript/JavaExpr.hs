@@ -266,21 +266,28 @@ narrowTypeOfActual :: SharedContext s -> JavaActualType
                   -> IO (Maybe (SharedTerm s))
 narrowTypeOfActual _ (ClassInstance _) = return Nothing
 narrowTypeOfActual sc (ArrayInstance l tp) = do
-  elTy <- scBitvector sc (fromIntegral (JSS.stackWidth tp))
-  lTm <- scNat sc (fromIntegral l)
-  Just <$> scVecType sc lTm elTy
+  case javaTypeToActual tp of
+    Just at -> do
+      melTy <- narrowTypeOfActual sc  at
+      case melTy of
+        Just elTy -> do
+          lTm <- scNat sc (fromIntegral l)
+          Just <$> scVecType sc lTm elTy
+        Nothing -> return Nothing
+    Nothing -> return Nothing
 narrowTypeOfActual sc (PrimitiveType JSS.BooleanType) =
   Just <$> scBitvector sc 1
 narrowTypeOfActual sc (PrimitiveType JSS.ByteType) =
   Just <$> scBitvector sc 8
+narrowTypeOfActual sc (PrimitiveType JSS.CharType) =
+  Just <$> scBitvector sc 16
 narrowTypeOfActual sc (PrimitiveType JSS.ShortType) =
   Just <$> scBitvector sc 16
 narrowTypeOfActual sc (PrimitiveType JSS.IntType) =
   Just <$> scBitvector sc 32
 narrowTypeOfActual sc (PrimitiveType JSS.LongType) =
   Just <$> scBitvector sc 64
-narrowTypeOfActual _ ty =
-  fail $ "Unsupported Java type " ++ show ty
+narrowTypeOfActual _ _ = return Nothing
 
 -- | Returns logical type of actual type if it is an array or primitive type.
 logicTypeOfActual :: SharedContext s -> JavaActualType

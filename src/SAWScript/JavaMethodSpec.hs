@@ -706,7 +706,7 @@ initializeVerification' sc ir bs refConfig = do
     return . (pathMemory %~ updateInitializedClasses)
   forM_ refAssignments $ \(r, cl) ->
     forM_ cl $ \e -> writeJavaValue e (RValue r)
-  lcs <- liftIO $ bsLogicClasses sc bs refConfig'
+  lcs <- liftIO $ bsLogicClasses bs refConfig'
   case lcs of
     Nothing ->
       let msg = "Unresolvable cyclic dependencies between assumptions."
@@ -730,11 +730,21 @@ evalLogicExpr' sc initExpr = do
 resolveClassRHS :: MonadSim (SharedContext SAWCtx) m =>
                    SharedContext SAWCtx
                 -> JavaExpr
-                -> SharedTerm SAWCtx
+                -> JavaActualType
                 -> [LogicExpr]
                 -> SAWJavaSim m (TypedTerm SAWCtx)
-resolveClassRHS sc e tp [] =
-  liftIO (scFreshGlobal sc (jeVarName e) tp >>= mkTypedTerm sc)
+resolveClassRHS sc e tp [] = do
+  mlty <- liftIO $ TC.narrowTypeOfActual sc tp
+  case (mlty, tp) of
+    (Just lty, PrimitiveType pt) | pt /= LongType -> do
+      liftIO $ (scFreshGlobal sc (jeVarName e) lty >>=
+                extendToIValue sc >>=
+                mkTypedTerm sc)
+    (Just lty, _) -> do
+       liftIO $ (scFreshGlobal sc (jeVarName e) lty >>= mkTypedTerm sc)
+    (Nothing, _) ->
+      fail $ "Can't convert Java type to logic type: " ++
+             show (TC.ppActualType tp)
 resolveClassRHS sc _ _ [r] = do
   t <- evalLogicExpr' sc r
   liftIO $ mkTypedTerm sc t
@@ -743,7 +753,8 @@ resolveClassRHS _ _ _ _ =
 
 setClassValues :: (MonadSim (SharedContext SAWCtx) m) =>
                   SharedContext SAWCtx
-               -> [JavaExpr] -> SharedTerm SAWCtx
+               -> [JavaExpr]
+               -> JavaActualType
                -> [LogicExpr]
                -> SAWJavaSim m ()
 setClassValues sc l tp rs =

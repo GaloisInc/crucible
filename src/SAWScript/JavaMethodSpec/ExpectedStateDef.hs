@@ -280,14 +280,18 @@ esSetJavaValue e@(CC.Term exprF) v = do
         Nothing ->
           esInitialPathState . pathMemory . memStaticFields %= Map.insert f v
 
-esResolveLogicExprs :: TC.JavaExpr -> SharedTerm SAWCtx -> [TC.LogicExpr]
+esResolveLogicExprs :: TC.JavaExpr -> TC.JavaActualType -> [TC.LogicExpr]
                     -> ExpectedStateGenerator (SharedTerm SAWCtx)
 esResolveLogicExprs e tp [] = do
   sc <- gets esContext
-  -- Create input variable.
-  -- liftIO $ putStrLn $ "Creating global of type: " ++ show tp
-  -- TODO: look e up in map, instead
-  liftIO $ scFreshGlobal sc (TC.ppJavaExpr e) tp
+  mlty <- liftIO $ TC.narrowTypeOfActual sc tp
+  case (mlty, tp) of
+    (Just lty, (TC.PrimitiveType pt)) | pt /= LongType -> do
+      liftIO $ (scFreshGlobal sc (TC.jeVarName e) lty >>= extendToIValue sc)
+    (Just lty, _) -> liftIO $ (scFreshGlobal sc (TC.jeVarName e) lty)
+    (Nothing, _) ->
+      fail $ "Can't convert Java type to logic type: " ++
+             show (TC.ppActualType tp)
 esResolveLogicExprs _ _ (hrhs:rrhs) = do
   sc <- gets esContext
   -- liftIO $ putStrLn $ "Evaluating " ++ show hrhs
@@ -300,7 +304,7 @@ esResolveLogicExprs _ _ (hrhs:rrhs) = do
   -- Return value.
   return t
 
-esSetLogicValues :: SharedContext SAWCtx -> [TC.JavaExpr] -> SharedTerm SAWCtx
+esSetLogicValues :: SharedContext SAWCtx -> [TC.JavaExpr] -> TC.JavaActualType
                  -> [TC.LogicExpr]
                  -> ExpectedStateGenerator ()
 esSetLogicValues _ [] _ _ = esError "empty class passed to esSetLogicValues"
@@ -475,7 +479,7 @@ initializeVerification sc ir bs refConfig = do
             forM_ cl $ \e -> esSetJavaValue e (RValue r)
           -- Set initial logic values.
           -- liftIO $ putStrLn "Setting logic values."
-          lcs <- liftIO $ bsLogicClasses sc bs refConfig
+          lcs <- liftIO $ bsLogicClasses bs refConfig
           case lcs of
             Nothing ->
               let msg = "Unresolvable cyclic dependencies between assumptions."

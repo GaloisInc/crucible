@@ -284,12 +284,10 @@ bsAssignmentsForClass bs cl = res
               ]
 
 -- | Retuns ordering of Java expressions to corresponding logic value.
-bsLogicClasses :: forall s.
-                  SharedContext s
-               -> BehaviorSpec
+bsLogicClasses :: BehaviorSpec
                -> RefEquivConfiguration
-               -> IO (Maybe [(JavaExprEquivClass, SharedTerm s, [LogicExpr])])
-bsLogicClasses sc bs cfg = do
+               -> IO (Maybe [(JavaExprEquivClass, JavaActualType, [LogicExpr])])
+bsLogicClasses bs cfg = do
   let allClasses = CC.toList
                    -- Add logic equations.
                    $ flip (foldr (uncurry CC.insertEquation)) (bsLogicEqs bs)
@@ -298,13 +296,10 @@ bsLogicClasses sc bs cfg = do
                    -- Create initial set with references.
                    $ CC.fromList (map fst cfg)
   logicClasses <- (catMaybes <$>) $
-                  forM allClasses $ \(cl@(e:_)) -> do
+                  forM allClasses $ \(cl@(e:_)) ->
                     case Map.lookup e (bsActualTypeMap bs) of
-                      Just at -> do
-                        mtp <- logicTypeOfActual sc at
-                        case mtp of
-                          Just tp -> return (Just (cl, tp))
-                          Nothing -> return Nothing
+                      Just (ClassInstance _) -> return Nothing
+                      Just at -> return (Just (cl, at))
                       Nothing -> return Nothing
   let v = V.fromList logicClasses
       -- Create nodes.
@@ -316,7 +311,7 @@ bsLogicClasses sc bs cfg = do
                            , se <- logicExprJavaExprs src
                            , let Just s = Map.lookup se exprNodeMap ]
       -- Compute strongly connected components.
-      components = scc (mkGraph grNodes grEdges :: Gr (JavaExprEquivClass, SharedTerm s) ())
+      components = scc (mkGraph grNodes grEdges :: Gr (JavaExprEquivClass, JavaActualType) ())
   return $ if all (\l -> length l == 1) components
              then Just [ (cl, at, bsAssignmentsForClass bs cl)
                        | [n] <- components
