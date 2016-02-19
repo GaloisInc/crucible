@@ -30,9 +30,9 @@ also shed some light into how Cryptol can be used in the cryptographic
 design and evaluation processes even if you skip all the ZUC-specific
 details.
 
-Our implementation follows the latest
-[specification](http://www.gsma.com/technicalprojects/wp-content/uploads/2012/04/eea3eia3zucv16.pdf)
-of ZUC, which is at version 1.5 at the time of writing.
+Our implementation follows the
+[specification](http://www.gsma.com/aboutus/wp-content/uploads/2014/12/eea3eia3zucv16.pdf)
+of ZUC.
 
 # Addition in GF(2^31 - 1)
 
@@ -389,10 +389,7 @@ with the algorithm itself but rather with how it has to be implemented.
 The other aspect of Cryptol is that the specification, as high level as
 it is, remains executable. So, we can use our implementation and test it
 against the published test-vectors for ZUC. Here’s the first example
-from the test
-[document](http://www.gsmworld.com/documents/EEA3_EIA3_Test_Data_v1_1.pdf).
-
-(Section 3.3):
+from the test document (Section 3.3):
 
 ~~~~
 # cryptol zuc.cry
@@ -731,19 +728,13 @@ Q.E.D.
 Designing cryptographic algorithms requires a deep understanding of the
 underlying science of cryptography, and a fair amount of the mathematics
 thus involved. Implementing such algorithms need not! We believe that
-the Cryptol toolset provides the right idioms and the tools to simplify
-cryptographic algorithm implementations and evaluations, abstracting
-away from machine specific details and platform specific concerns.
-Specifications remain pure, and hence easier to reason about and
-communicate. The executable nature of Cryptol also makes it easy to just
-play around with your implementations, without worrying about myriads of
-implementation specific concerns. (Compare how you would do a similar
-study of ZUC if you had to use C or Java; how much of your time would be
-spent on the actual algorithm, and how much on "everything else.") Once
-the algorithm is developed, the compilation and synthesis tools of
-Cryptol can help in creating artifacts that can be deployed in software
-or in an FPGA. By separating the concerns of specification from
-implementation, Cryptol provides new means of simplifying
-crypto-algorithm development and evaluation.
-
-
+the Cryptol and SAW tools provide the right idioms and features to
+simplify cryptographic algorithm implementations and evaluations,
+abstracting away from machine specific details and platform specific
+concerns. Specifications remain pure, and hence easier to reason about
+and communicate. The executable nature of Cryptol also makes it easy to
+just play around with your implementations, without worrying about
+implementation specific concerns. At the same time, all of the
+high-level specification done in Cryptol can be compared to more
+efficient implementations used in practice, bridging the theoretical and
+applied realms of cryptography.
