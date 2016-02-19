@@ -22,12 +22,10 @@ module SAWScript.JavaMethodSpec
   , specName
   , specMethodClass
   , SymbolicRunHandler
-  , initializeVerification
   , initializeVerification'
   , runValidation
   , checkFinalState
   , overrideFromSpec
-  , mkSpecVC
   , PathVC(..)
   , pvcgAssertEq
   , pvcgAssert
@@ -36,7 +34,6 @@ module SAWScript.JavaMethodSpec
   , VerifyParams(..)
   , VerifyState(..)
   , EvalContext(..)
-  , ExpectedStateDef(..)
   ) where
 
 -- Imports {{{1
@@ -56,8 +53,6 @@ import qualified Data.Set as Set
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import qualified Text.PrettyPrint.HughesPJ as PP
 
-import Debug.Trace
-
 import Language.JVM.Common (ppFldId)
 import qualified SAWScript.CongruenceClosure as CC
 import SAWScript.JavaExpr as TC
@@ -65,7 +60,7 @@ import SAWScript.Options
 import SAWScript.Utils
 import SAWScript.JavaMethodSpecIR
 import SAWScript.JavaMethodSpec.Evaluator
-import SAWScript.JavaMethodSpec.ExpectedStateDef
+--import SAWScript.JavaMethodSpec.ExpectedStateDef
 import SAWScript.JavaUtils
 import SAWScript.PathVC
 import SAWScript.TypedTerm
@@ -419,182 +414,6 @@ overrideFromSpec de pos ir
        method = specMethod ir
        key = methodKey method
 
--- MethodSpec verification {{{1
-
-pvcgDeepAssertEq :: (Monad m) =>
-                    String
-                 -> Path (SharedContext SAWCtx)
-                 -> SpecJavaValue
-                 -> ExpectedStateDef
-                 -> SpecJavaValue
-                 -> PathVCGenerator Breakpoint m ()
--- TODO: should we only do this equality check on references?
-pvcgDeepAssertEq _ _ jv _ sv | jv == sv = return ()
-pvcgDeepAssertEq name _ (IValue jv) _ (IValue sv) =
-  pvcgAssertEq name jv sv
-pvcgDeepAssertEq name _ (LValue jv) _ (LValue sv) =
-  pvcgAssertEq name jv sv
-pvcgDeepAssertEq name ps (RValue jref) esd (RValue sref)  = do
-  let psScalarArrays = ps ^. pathMemory . memScalarArrays
-  case (Map.lookup jref psScalarArrays, esdArrayValue sref esd) of
-    (Just _, NoExpectedValue) ->
-      pvcgFail $ ftext "Assigned value to array when none expected."
-    (Just _, AnyExpectedValue) -> return ()
-    (Just (jlen, jval), AssignedExpectedValue (slen, sval))
-      | jlen == slen -> pvcgAssertEq name jval sval
-      | otherwise ->
-          pvcgFail $ ftext $
-          "Array changed size. Expected " ++ show slen ++
-          " but found " ++ show jlen ++ "."
-    (Nothing, NoExpectedValue) -> return ()
-    (Nothing, AnyExpectedValue) ->
-      pvcgFail $ ftext "No value assigned when arbitrary change expected."
-    (Nothing, AssignedExpectedValue _) ->
-      pvcgFail $ ftext "No value assigned when specific change expected."
-  let instanceFields = Map.mergeWithKey pairUp pairLeft pairRight
-                       (pathRefInstanceFields ps jref)
-                       (esdRefInstanceFields esd sref)
-      pairUp _ a b = Just (Just a, Just b)
-      pairLeft = fmap (\a -> (Just a, Nothing))
-      pairRight = fmap (\b -> (Nothing, Just b))
-  forM_ (Map.toList instanceFields) $ \(fid, (mjval, msval)) ->
-    case (mjval, msval) of
-      -- Specified modification
-      (Just jval, Just (Just sval)) ->
-        pvcgDeepAssertEq (name ++ "." ++ fieldIdName fid) ps jval esd sval
-      -- Arbitrary modification
-      (Just _, Just Nothing) -> return ()
-      (Just _, Nothing) -> pvcgFail $ ftext "Disallowed modification"
-      (Nothing, Just (Just _)) ->
-        pvcgFail $ ftext "No value assigned when specific change expected."
-      (Nothing, Just Nothing) ->
-        pvcgFail $ ftext "No value assigned when arbitrary change expected."
-      (Nothing, Nothing) -> return ()
-pvcgDeepAssertEq name _ _ _ _ =
-  fail $ "Expected and actual values for " ++ name ++ " are incomparable."
-
--- generateVC {{{2
-
-esdRefInstanceFields :: ExpectedStateDef
-                     -> Ref
-                     -> Map.Map FieldId (Maybe SpecJavaValue)
-esdRefInstanceFields esd = refInstanceFields (esdInstanceFields esd)
-
--- | Compare result with expected state.
-generateVC :: JavaMethodSpecIR
-           -> ExpectedStateDef -- ^ What is expected
-           -> RunResult -- ^ Results of symbolic execution.
-           -> PathVC Breakpoint -- ^ Proof oblications
-generateVC ir esd (ps, endLoc, res) = do
-  let initState  =
-        PathVC { pvcStartLoc = esdStartLoc esd
-               , pvcEndLoc = endLoc
-               , pvcAssumptions = esdAssumptions esd
-               , pvcStaticErrors = []
-               , pvcChecks = []
-               }
-  flip execState initState $ do
-    case res of
-      Left oe -> pvcgFail (vcat (map (ftext . ppOverrideError) oe))
-      Right maybeRetVal -> do
-        -- Check return value
-        let Just cf = currentCallFrame (esdInitialPathState esd)
-        let args = Map.elems (cf ^. cfLocals)
-        let reachable = reachableRefs ps (maybeToList maybeRetVal ++ args)
-        case (maybeRetVal, esdReturnValue esd) of
-          (Nothing,Nothing) -> return ()
-          (Just rv, Just srv) ->
-            pvcgDeepAssertEq "return value" ps rv esd srv
-          (Nothing, Just _) ->
-            pvcgFail $ ftext $ "Return spec provided for void method."
-          (Just _, Nothing) ->
-            pvcgFail $ ftext $
-            "Missing return spec for method returning a value."
-        -- Check initialization
-        do let sinits = Set.fromList (specInitializedClasses ir)
-           forM_ (Map.keys (ps ^. pathMemory . memInitialization)) $ \cl -> do
-             -- NB: when used as an override, we will not initialize this extra
-             -- class. Ultimately, we should track which extra classes are
-             -- initialized and make sure the override initializes them, too. Or
-             -- is it ok to assume that it'll get initialized later if
-             -- necessary?
-             when (cl `Set.notMember` sinits && not (specAllowAlloc ir)) $ do
-               pvcgFail $ ftext $
-                 "Initializes extra class " ++ slashesToDots cl ++ "."
-        -- Check static fields
-        forM_ (Map.toList $ ps ^. pathMemory . memStaticFields) $
-          \(f,jval) -> do
-            let fieldName = show (fieldIdName f) ++
-                            " of class " ++ (fieldIdClass f)
-            case esdStaticFieldValue f esd of
-              NoExpectedValue ->
-                pvcgFail $ ftext $
-                "Modifies the undefined static field " ++ fieldName ++ "."
-              AnyExpectedValue -> return ()
-              AssignedExpectedValue sv ->
-                pvcgDeepAssertEq fieldName ps jval esd sv
-        -- Check instance fields
-        forM_ (Map.toList (ps ^. pathMemory . memInstanceFields)) $
-          \((ref,f), jval) -> do
-            let fieldName = show (fieldIdName f) ++
-                            " of " ++ esdRefName ref esd
-            case esdInstanceFieldValue ref f esd of
-              _ | not (Set.member ref reachable) ->
-                    trace ("Skipping " ++ show ref) $ return ()
-              NoExpectedValue ->
-                pvcgFail $ ftext $
-                "Modifies the undefined field " ++ fieldName ++ "."
-              AnyExpectedValue -> return ()
-              AssignedExpectedValue sv ->
-                pvcgDeepAssertEq fieldName ps jval esd sv
-        -- Check value arrays
-        forM_ (Map.toList (ps ^. pathMemory . memScalarArrays)) $
-          \(ref,(jlen,jval)) -> do
-            case esdArrayValue ref esd of
-              _ | not (Set.member ref reachable) ->
-                    trace ("Skipping " ++ show ref) $ return ()
-              NoExpectedValue
-                | specAllowAlloc ir -> return ()
-                | otherwise -> pvcgFail $ ftext $ "Allocates an array."
-              AnyExpectedValue -> return ()
-              AssignedExpectedValue (slen, sval)
-                | jlen /= slen -> pvcgFail $ ftext $ "Array changes size."
-                | otherwise -> pvcgAssertEq (esdRefName ref esd) jval sval
-        -- Check ref arrays
-        when (not (Map.null (ps ^. pathMemory . memRefArrays))) $ do
-          pvcgFail $ ftext "Modifies references arrays."
-        -- Check assertions
-        pvcgAssert "final assertions" (ps ^. pathAssertions)
-        -- Check class objects
-        forM_ (Map.keys (ps ^. pathMemory . memClassObjects)) $
-          \clNm -> pvcgFail $ ftext $
-                   "Allocated class object for " ++
-                   slashesToDots clNm ++ "."
-
--- verifyMethodSpec and friends {{{2
-
-mkSpecVC :: MonadSim (SharedContext SAWCtx) m =>
-            SharedContext SAWCtx
-         -> VerifyParams
-         -> ExpectedStateDef
-         -> SAWJavaSim m [PathVC Breakpoint]
-mkSpecVC sc params esd = do
-  let ir = vpSpec params
-      vrb = simVerbose (vpOpts params)
-      ovds = vpOver params
-  -- Log execution.
-  setVerbosity vrb
-  -- Add method spec overrides.
-  when (vrb >= 2) $ liftIO $
-       putStrLn $ "Overriding: " ++ show (map specName ovds)
-  mapM_ (overrideFromSpec sc (specPos ir)) ovds
-  -- Execute code.
-  run
-  returnVal <- getProgramReturnValue
-  ps <- getPath (PP.text "mkSpecVC")
-  -- TODO: handle exceptional or breakpoint terminations
-  return $ map (generateVC ir esd) [(ps, Nothing, Right returnVal)]
-
 data VerifyParams = VerifyParams
   { vpCode    :: Codebase
   , vpContext :: SharedContext SAWCtx
@@ -612,15 +431,11 @@ runValidation :: Prover -> VerifyParams -> SymbolicRunHandler
 runValidation prover params sc results = do
   let ir = vpSpec params
       verb = verbLevel (vpOpts params)
-      -- ps = esdInitialPathState esd
-      -- rv = esdReturnValue esd
   forM_ results $ \pvc -> do
     let mkVState nm cfn =
           VState { vsVCName = nm
                  , vsMethodSpec = ir
                  , vsVerbosity = verb
-                 -- , vsFromBlock = esdStartLoc esd
-                 -- , vsEvalContext = evalContextFromPathState sc rv ps
                  , vsCounterexampleFn = cfn
                  , vsStaticErrors = pvcStaticErrors pvc
                  }
@@ -634,12 +449,7 @@ runValidation prover params sc results = do
          putStrLn ""
        prover vs g
     else do
-      let vsName = "an invalid path " {-
-                     ++ (case esdStartLoc esd of
-                           0 -> ""
-                           block -> " from " ++ show loc)
-                     ++ maybe "" (\loc -> " to " ++ show loc)
-                              (pvcEndLoc pvc) -}
+      let vsName = "an invalid path"
       let vs = mkVState vsName (\_ -> return $ vcat (pvcStaticErrors pvc))
       false <- io $ scBool sc False
       g <- io $ scImplies sc (pvcAssumptions pvc) false
@@ -688,8 +498,8 @@ initializeVerification' sc ir bs refConfig = do
   exprRefs <- mapM (genRef . jssTypeOfActual . snd) refConfig'
   let refAssignments = (exprRefs `zip` map fst refConfig')
       pushFrame cs = case mcs' of
-                       Nothing -> error "internal: failed to push call frame"
-                       Just cs' -> cs'
+                       Nothing -> fail "internal: failed to push call frame"
+                       Just cs' -> return cs'
         where
           mcs' = pushCallFrame
                  (className (specMethodClass ir))
@@ -697,7 +507,7 @@ initializeVerification' sc ir bs refConfig = do
                  entryBlock -- FIXME: not the right block
                  Map.empty
                  cs
-  modifyCSM_ (return . pushFrame)
+  modifyCSM_ pushFrame
   let updateInitializedClasses mem =
         foldr (flip setInitializationStatus Initialized)
               mem
@@ -961,4 +771,3 @@ checkFinalState sc ms bs cl initPS = do
           | otherwise -> pvcgFail "Array changed size."
     -- TODO: check that return value has been specified if method returns a value
     pvcgAssert "final assertions" (finalPS ^. pathAssertions)
-

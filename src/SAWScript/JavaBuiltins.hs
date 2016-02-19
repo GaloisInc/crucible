@@ -195,11 +195,11 @@ runJavaSetup pos cb cls mname jsc setup = do
                    }
   snd <$> runStateT setup setupState
 
-verifyJava :: Bool -> BuiltinContext -> Options -> Class -> String
+verifyJava :: BuiltinContext -> Options -> Class -> String
            -> [JavaMethodSpecIR]
            -> JavaSetup ()
            -> TopLevel JavaMethodSpecIR
-verifyJava isOld bic opts cls mname overrides setup = do
+verifyJava bic opts cls mname overrides setup = do
   startTime <- io $ getCurrentTime
   let pos = fixPos -- TODO
       cb = biJavaCodebase bic
@@ -255,24 +255,19 @@ verifyJava isOld bic opts cls mname overrides setup = do
                 -- TODO: replace x with something
                 SS.Sat val -> io $ showCexResults jsc ms vs exts [("x", val)]
                 SS.SatMulti vals -> io $ showCexResults jsc ms vs exts vals
-        pvcs <- case isOld of
-          True -> do
-            esd <- initializeVerification jsc ms bs cl
-            mkSpecVC jsc vp esd
-          False -> do
-            let ovds = vpOver vp
-            initPS <- initializeVerification' jsc ms bs cl
-            when (verb >= 2) $ liftIO $
-              putStrLn $ "Overriding: " ++ show (map specName ovds)
-            mapM_ (overrideFromSpec jsc (specPos ms)) ovds
-            when (verb >= 2) $ liftIO $
-              putStrLn $ "Running method: " ++ specName ms
-            -- Execute code.
-            run
-            when (verb >= 2) $ liftIO $
-              putStrLn $ "Checking final state"
-            pvc <- checkFinalState jsc ms bs cl initPS
-            return [pvc]
+        let ovds = vpOver vp
+        initPS <- initializeVerification' jsc ms bs cl
+        when (verb >= 2) $ liftIO $
+          putStrLn $ "Overriding: " ++ show (map specName ovds)
+        mapM_ (overrideFromSpec jsc (specPos ms)) ovds
+        when (verb >= 2) $ liftIO $
+          putStrLn $ "Running method: " ++ specName ms
+        -- Execute code.
+        run
+        when (verb >= 2) $ liftIO $
+          putStrLn $ "Checking final state"
+        pvc <- checkFinalState jsc ms bs cl initPS
+        let pvcs = [pvc] -- Only one for now, but that might change
         when (verb >= 5) $ liftIO $ do
           putStrLn "Verifying the following:"
           mapM_ (print . ppPathVC) pvcs

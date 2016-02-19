@@ -1,6 +1,5 @@
 module SAWScript.JavaMethodSpec.Evaluator
   ( EvalContext(..)
-  , evalContextFromPathState
   , ExprEvaluator
   , runEval
   , evalJavaExpr
@@ -47,20 +46,6 @@ data EvalContext = EvalContext {
        , ecLocals :: Map LocalVariableIndex SpecJavaValue
        , ecReturnValue :: Maybe SpecJavaValue
        , ecPathState :: SpecPathState
-       }
-
-evalContextFromPathState :: SharedContext SAWCtx
-                         -> Maybe SpecJavaValue
-                         -> SpecPathState
-                         -> EvalContext
-evalContextFromPathState sc rv ps =
-  let Just f = currentCallFrame ps
-      localMap = f ^. cfLocals
-  in EvalContext {
-         ecContext = sc
-       , ecLocals = localMap
-       , ecReturnValue = rv
-       , ecPathState = ps
        }
 
 -- ExprEvalError {{{1
