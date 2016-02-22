@@ -85,7 +85,9 @@ TODO
 To load LLVM code, simply provide the location of a valid bitcode file
 to the `llvm_load_module` function.
 
-    llvm_load_module : String -> TopLevel LLVMModule
+~~~~
+llvm_load_module : String -> TopLevel LLVMModule
+~~~~
 
 The resulting `LLVMModule` can be passed into the various functions
 described below to perform analysis of specific LLVM functions.
@@ -106,7 +108,9 @@ specifying where to find this file.
 Once the class path is configured, you can pass the name of a class to
 the `java_load_class` function.
 
-    java_load_class : String -> TopLevel JavaClass
+~~~~
+java_load_class : String -> TopLevel JavaClass
+~~~~
 
 The resulting `JavaClass` can be passed into the various functions
 described below to perform analysis of specific Java methods.
@@ -122,9 +126,11 @@ In cases like this, a direct translation is possible, given only an
 identification of which code to execute. Two functions exist to handle
 such simple code:
 
-    java_extract : JavaClass -> String -> JavaSetup () -> TopLevel Term
+~~~~
+java_extract : JavaClass -> String -> JavaSetup () -> TopLevel Term
 
-    llvm_extract : LLVMModule -> String -> LLVMSetup () -> TopLevel Term
+llvm_extract : LLVMModule -> String -> LLVMSetup () -> TopLevel Term
+~~~~
 
 The structure of these two functions is essentially identical. The first
 argument describes where to look for code (in either a Java class or an
@@ -152,17 +158,50 @@ TODO: talk about proof
 
 # Creating Symbolic Variables
 
-TODO
+The direct extraction process just discussed automatically introduces
+symbolic variables and then abstracts over them, yielding a function in
+the intermediate language of SAW that reflects the semantics of the
+original Java or LLVM code. For simple functions, this is often the most
+convenient interface. For more complex code, however, it can be
+necessary (or more natural) to specifically introduce fresh variables
+and indicate what portions of the program state they correspond to.
+
+The function `fresh_symbolic` function is responsible for creating new
+variables in this context.
+
+~~~~
+fresh_symbolic : String -> Type -> TopLevel Term
+~~~~
+
+The first argument is a name used for pretty-printing of terms and
+counter-examples. In many cases it makes sense for this to be the same
+as the name used within SAWScript, as in the following:
+
+~~~~
+x <- fresh_symbolic "x" ty;
+~~~~
+
+However, using the same name is not required.
+
+The second argument to `fresh_symbolic` is the type of the fresh
+variable. Ultimately, this will be a SAWCore type, however it it usually
+convenient to specify it using Cryptol syntax using the type quoting
+brackets `{|` and `|}`. So, for example, creating a 32-bit integer, as
+might be used to represent a Java `int` or an LLVM `i32`, can be done as
+follows:
+
+~~~~
+x <- fresh_symbolic "x" {| [32] |};
+~~~~
 
 # Monolithic Symbolic Execution
 
 TODO: examples
 
-In many cases, the values read by a function, and the effects produced
-by it, are more complex than supported by the direct extraction process
-just described. In that case, it's necessary to provide more
-information. In particular, following the structure described earlier,
-we need:
+In many cases, the inputs and outputs of a function are more complex
+than supported by the direct extraction process just described. In that
+case, it's necessary to provide more information. In particular,
+following the structure described earlier, we need:
 
 * For every pointer or object reference, how much storage space it
   refers to.
@@ -172,20 +211,22 @@ we need:
 
 This capability is provided by the following built-in functions:
 
-    java_symexec : JavaClass ->
-                   String ->
-                   [(String, Term)] ->
-                   [String] ->
-                   Bool ->
-                   TopLevel Term
+~~~~
+java_symexec : JavaClass ->
+               String ->
+               [(String, Term)] ->
+               [String] ->
+               Bool ->
+               TopLevel Term
 
-    llvm_symexec : LLVMModule ->
-                   String ->
-                   [(String, Int)] ->
-                   [(String, Term, Int)] ->
-                   [(String, Int)] ->
-                   Bool ->
-                   TopLevel Term
+llvm_symexec : LLVMModule ->
+               String ->
+               [(String, Int)] ->
+               [(String, Term, Int)] ->
+               [(String, Int)] ->
+               Bool ->
+               TopLevel Term
+~~~~
 
 For both functions, the first two arguments are the same as for the
 direct extraction functions from the previous section, identifying what
@@ -322,17 +363,19 @@ a specification, however, sometimes a more declarative approach is
 convenient. The following two functions allow for combined model
 extraction and verification.
 
-    java_verify : JavaClass ->
-                  String ->
-                  [JavaMethodSpec] ->
-                  JavaSetup () ->
-                  TopLevel JavaMethodSpec
+~~~~
+java_verify : JavaClass ->
+              String ->
+              [JavaMethodSpec] ->
+              JavaSetup () ->
+              TopLevel JavaMethodSpec
 
-    llvm_verify : LLVMModule ->
-                  String ->
-                  [LLVMMethodSpec] ->
-                  LLVMSetup () ->
-                  TopLevel LLVMMethodSpec
+llvm_verify : LLVMModule ->
+              String ->
+              [LLVMMethodSpec] ->
+              LLVMSetup () ->
+              TopLevel LLVMMethodSpec
+~~~~
 
 Like all of the functions for Java and LLVM analysis, the first two
 parameters indicate what code to analyze. The third parameter is used
@@ -372,28 +415,32 @@ variables with values of base types versus variables of pointer type.
 
 For simple integer values, use `java_var` or `llvm_var`.
 
-    java_var : String -> JavaType -> JavaSetup Term
-    llvm_var : String -> LLVMType -> LLVMSetup Term
+~~~~
+java_var : String -> JavaType -> JavaSetup Term
+llvm_var : String -> LLVMType -> LLVMSetup Term
+~~~~
 
 These functions both take a variable name and a type. The variable names
 use the same syntax described earlier for `java_symexec` and
 `llvm_symexec`. The types are built up using the following functions:
 
-    java_byte : JavaType
-    java_char : JavaType
-    java_short : JavaType
-    java_int : JavaType
-    java_long : JavaType
-    java_float : JavaType
-    java_double : JavaType
-    java_class : String -> JavaType
-    java_array : Int -> JavaType -> JavaType
+~~~~
+java_byte : JavaType
+java_char : JavaType
+java_short : JavaType
+java_int : JavaType
+java_long : JavaType
+java_float : JavaType
+java_double : JavaType
+java_class : String -> JavaType
+java_array : Int -> JavaType -> JavaType
 
-    llvm_int : Int -> LLVMType
-    llvm_array : Int -> LLVMType -> LLVMType
-    llvm_struct : String -> LLVMType
-    llvm_float : LLVMType
-    llvm_double : LLVMType
+llvm_int : Int -> LLVMType
+llvm_array : Int -> LLVMType -> LLVMType
+llvm_struct : String -> LLVMType
+llvm_float : LLVMType
+llvm_double : LLVMType
+~~~~
 
 Most of these types are straightforward mappings to the standard Java
 and LLVM types. The one key difference is that arrays must have a fixed,
@@ -406,68 +453,399 @@ The `Term` returned by `java_var` and `llvm_var` is a representation of
 the _initial value_ of the variable being declared. It can be used in
 any later expression.
 
-TODO: `java_class_var` and `llvm_ptr`
+While `java_var` and `llvm_var` declare elements of the program state
+that have values representable in the logic of SAW, pointers and
+references exist only inside the simulator: they are not representable
+before or after symbolic execution. Because of this, different functions
+are available to declare variables of pointer or reference type.
+
+~~~~
+java_class_var : String -> JavaType -> JavaSetup ()
+
+llvm_ptr : String -> LLVMType -> LLVMSetup ()
+~~~~
+
+For both functions, the first argument is the name of the state element
+that they refer to. For `java_class_var`, the second argument is the
+type of the object, which should always be the result of the
+`java_class` function called with an appropriate class name. Arrays in
+Java are treated as if they were values, rather than references, since
+their values are directly representable in SAWCore. For `llvm_ptr`, the
+second argument is the type of the value pointed to. Both functions
+return no useful value (the unit type `()`), since the values of
+pointers are not meaningful in SAWCore. In LLVM, arrays are represented
+as pointers, and therefore the pointer and the value pointed to must be
+declared separately:
+
+~~~~
+llvm_ptr "a" (llvm_array 10 (llvm_int 32));
+a <- llvm_var "*a" (llvm_array 10 (llvm_int 32));
+~~~~
 
 The `java_assert` and `llvm_assert` functions take a `Term` of boolean
 type as an argument which states a condition that must be true in the
 initial state, before the function under analysis executes. The term can
 refer to the initial values of any declared program variables.
 
-TODO: `java_assert_eq` and `llvm_assert_eq`
+When the condition required of an initial state is that a variable
+always has a specific, concrete value, optimized forms of these
+functions are available. The `java_assert_eq` and `llvm_assert_eq`
+functions take two arguments: an expression naming a location in the
+program state, and a `Term` representing an initial value. These
+functions work as destructive updates in the state of the symbolic
+simulator, and can make branch conditions more likely to reduce to
+constants. This means that, although `_assert` and `_assert_eq`
+functions can be used to make semantically-equivalent statements, using
+the latter can make symbolic termination more likely.
 
-TODO:  `java_may_alias`
+Finally, although the default configuration of the symbolic simulators
+in SAW is to make every pointer or reference refer to a fresh region of
+memory separate from all other pointers, it is possible to override this
+behavior for Java programs by declaring that a set references can alias
+each other.
+
+~~~~
+java_may_alias : [String] -> JavaSetup ()
+~~~~
+
+This function takes a list of names referring to references, and
+declares that any element of this set may (or may not) alias any other.
+Because this is a may-alias relationship, the verification process
+involves a separate proof for each possible aliasing configuration. At
+the moment, LLVM heaps must be completely disjoint.
 
 ## Checking the Final State
 
-TODO
+The simplest statement about the expected final state of the method or
+function under analysis is to declare what value it should return
+(generally as a function of the variables declared as part of the
+initial state).
 
-    mention "return" variable
+~~~~
+java_return : Term -> JavaSetup ()
 
-    java_ensure_eq
-    java_return
+llvm_return : Term -> LLVMSetup ()
+~~~~
 
-    llvm_ensure_eq
-    llvm_return
+For side effects, the following two functions allow declaration of the
+final expected value of that the program state should contain when
+execution finishes.
+
+~~~~
+java_ensure_eq : String -> Term -> JavaSetup ()
+
+llvm_ensure_eq : String -> Term -> LLVMSetup ()
+~~~~
+
+For the most part, these two functions may refer to the same set of
+variables used to set up the initial state. However, for functions that
+return pointers or objects, the special name `return` is also available.
+It can be used in `java_class_var` and `llvm_ptr` calls, to declare the
+more specific object or array type of a return value, and in the
+`_ensure_eq` function to declare the associated values. For LLVM arrays,
+typical use is like this:
+
+~~~~
+llvm_ensure_eq "*return" v;
+~~~~
+
+The `return` expression is also useful for fields of returned objects or
+structs:
+
+~~~~
+java_ensure_eq "return.f" v;
+
+llvm_ensure_eq "return->0" v;
+~~~~
 
 ## Running Proofs
 
-TODO
+Once the constraints on the initial and final states have been declared,
+what remains is to prove that the code under analysis actually meets
+these specifications. The goal of SAW is to automate this proof as much
+as possible, but some degree of input into the proof process is
+sometimes necessary, and can be provided with the following functions:
 
-    java_verify_tactic
+~~~~
+java_verify_tactic : ProofScript SatResult -> JavaSetup ()
 
-    llvm_verify_tactic
+llvm_verify_tactic : ProofScript SatResult -> LLVMSetup ()
+~~~~
 
-TODO: mention behavior with no tactic specified
+Both of these take a proof script as an argument, which specifies how to
+perform the proof. If the setup block does not call one of these
+functions, SAW will print a warning message and skip the proof (which
+can sometimes be a useful behavior during debugging, or in compositional
+verification as described later). The next section describes the
+structure of proof scripts, which are also useful with the standalone
+`proof` and `sat` functions within SAWScript, regardless of whether Java
+or LLVM code is involved.
 
 # Proof Scripts
 
-TODO
+The simplest proof scripts just indicate which automated prover to use.
+The `ProofScript` values `abc` and `z3` select the ABC and Z3 theorem
+provers, respectively, and are typically good choices. In addition to
+these, the `boolector`, `cvc4`, `mathsat`, and `yices` provers are
+available.
+
+In more complex cases, some pre-processing can be helpful or necessary
+before handing the problem off to an automated prover. The
+pre-processing can involve rewriting, beta reduction, unfolding, the use
+of provers that require slightly more configuration, or the use of 
+provers that do very little real work.
+
+## Rewriting
+
+The basic concept involved in rewriting `Term`s is that of a `Simpset`,
+which includes a collection of rewrite rules. A few basic, pre-defined
+values of this type exist:
+
+~~~
+empty_ss : Simpset
+basic_ss : Simpset
+cryptol_ss : () -> Simpset
+~~~
+
+The first is the empty set of rules. Rewriting with it should have no
+effect, but it is useful as an argument to some of the functions that
+construct larger `Simpset` values. The `basic_ss` constant is a
+collection of generally-useful rules that will be useful in most proof
+scripts. The `cryptol_ss` value includes a collection of
+Cryptol-specific rules, including rules to simplify away the
+abstractions introduced in the translation from Cryptol to SAWCore,
+which can be useful when proving equivalence between Cryptol and
+non-Cryptol code. When comparing Cryptol to Cryptol code, leaving these
+abstractions in place can be most appropriate, however, so `cryptol_ss`
+is not included in `basic_ss`.
+
+The next set of functions add either a single rule or a list of rules to
+an existing `Simpset`.
+
+~~~~
+addsimp : Theorem -> Simpset -> Simpset
+addsimp' : Term -> Simpset -> Simpset
+addsimps : [Theorem] -> Simpset -> Simpset
+addsimps' : [Term] -> Simpset -> Simpset
+~~~~
+
+The functions that take a `Theorem` type work with rewrite rules that
+are proved to be correct. The `prove_print` function returns a `Theorem`
+when successful, and any such theorem that is an equality statement can
+be used as a rewrite rule. The behavior is that any instance of the
+left-hand side of this equality in the goal is replaced with the
+right-hand side of the equality.
+
+The functions above that take `Term` arguments work with terms of the
+same shape, but which haven't been proven to be correct. When using
+these functions, the soundness of the proof process depends on the
+correctness of these rules as a side condition.
+
+Finally, there are some built-in rules that are not included in either
+`basic_ss` and `cryptol_ss` because they are not always beneficial, but
+can sometimes be helpful or essential.
+
+~~~~
+add_cryptol_eqs : [String] -> Simpset -> Simpset
+add_prelude_defs : [String] -> Simpset -> Simpset
+add_prelude_eqs : [String] -> Simpset -> Simpset
+~~~~
+
+A rewrite rule in SAW can be
+specified in multiple ways, the third due to the dependent type system
+used in SAWCore:
+
+  * as the definition of functions that can be unfolded,
+  * as a term of boolean type (or a function returning a boolean) that
+    is an equality statement, and
+  * as a term of _equality type_ whose body encodes a proof that the
+    equality in the type is valid.
+
+The `cryptol_ss` simpset includes rewrite rules to unfold all
+definitions in the `Cryptol` SAWCore module, but does not include any of
+the terms of equality type. The `add_cryptol_eqs` function adds the
+terms of equality type with the given names to the given `Simpset`. The
+`add_prelude_defs` and `add_prelude_eqs` functions add definition
+unfolding rules and equality-typed terms, respectively, from the SAWCore
+`Prelude` module.
+
+## Other Transformations
+
+Some useful transformations are not easily specified using equality
+statements, and instead have special tactics.
+
+~~~~
+beta_reduce_goal : ProofScript ()
+unfolding : [String] -> ProofScript ()
+~~~~
+
+The `beta_reduce_goal` tactic takes any sub-expression of the form `(\x
+-> t) v` and replaces it with a transformed version of `t` in which all
+instances of `x` are replaced by `v`.
+
+The `unfolding` tactic works with "opaque constants". Each of these is a
+named subterm in a SAWCore term that can be treated as "folded", in
+which case it is just an opaque name (essentially an uninterpreted
+function), or "unfolded", in which case it looks just like any other
+subterm. The `unfolding` tactic unfolds any instances of opaque
+constants with the any of the given names.
+
+Using `unfolding` is mostly useful for proofs based entirely on
+rewriting, since default behavior for automated provers is to unfold all
+opaque constants before sending a goal to a prover. However, with Z3 and
+CVC4, it is possible to indicate that specific constants should be left
+folded (uninterpreted).
+
+~~~~
+unint_cvc4 : [String] -> ProofScript SatResult
+unint_z3 : [String] -> ProofScript SatResult
+~~~~
+
+Ultimately, we plan to implement a more generic tactic that leaves
+certain constants uninterpreted in whatever prover is ultimately used
+(provided that uninterpreted functions are expressible in the prover).
+
+## Other External Provers
+
+In addition to the built-in automated provers already discussed, SAW
+supports more generic interfaces to other arbitrary theorem provers
+supporting specific interfaces.
+
+~~~~
+external_aig_solver : String -> [String] -> ProofScript SatResult
+
+external_cnf_solver : String -> [String] -> ProofScript SatResult
+~~~~
+
+The `external_aig_solver` function supports theorem provers that can
+take input as a single-output AIGER file. The first argument is the name
+of the executable to run. The second argument is the list of parameters
+to pass to that executable. Within this list, any element that consists
+simply of `%f` is replaced with the name of the temporary AIGER file
+generated for the proof goal. The output from the solver is expected to
+be in DIMACS solution format.
+
+The `external_cnf_solver` function works similarly but for SAT solvers
+that take input in DIMACS CNF format and produce output in DIMACS
+solution format.
+
+## Offline Provers
+
+For provers that must be invoked in more complex ways, or to defer proof
+until a later time, there are functions to write the current goal to a
+file in various formats, and then assume that the goal is valid through
+the rest of the script.
+
+~~~~
+offline_aig : String -> ProofScript SatResult
+offline_cnf : String -> ProofScript SatResult
+offline_extcore : String -> ProofScript SatResult
+offline_smtlib2 : String -> ProofScript SatResult
+~~~~
+
+These support the AIGER, DIMACS CNF, shared SAWCore, and SMT-Lib v2
+formats, respectively. The shared representation for SAWCore is
+described [here](extcore.txt).
+
+## Proof Script Diagnostics
+
+During development of a proof, it can be useful to print various
+information about the current goal. The following tactics are useful in
+that context.
+
+~~~~
+print_goal : ProofScript ()
+print_goal_consts : ProofScript ()
+print_goal_depth : Int -> ProofScript ()
+print_goal_size : ProofScript ()
+~~~~
+
+The `print_goal` tactic prints the entire goal in SAWCore syntax. The
+`print_goal_depth` is intended for especially large goals. It takes an
+integer argument, `n`, and prints the goal up to depth `n`. Any elided
+subterms are printed as `...`. The `print_goal_consts` tactic prints a
+list of the opaque constants that are folded in the current goal, and
+`print_goal_size` prints the number of DAG nodes in the goal.
+
+## Miscellaneous Tactics
+
+Some proofs can be completed using unsound placeholders, or using
+techniques that do not require significant computation.
+
+```
+assume_unsat : ProofScript SatResult
+assume_valid : ProofScript ProofResult
+quickcheck : Int -> ProofScript SatResult
+trivial : ProofScript SatResult
+```
+
+The `assume_unsat` and `assume_valid` tactics indicate that the current
+goal should be considered unsatisfiable or valid, depending on whether
+the proof script is checking satisfiability or validity. At the moment,
+`java_verify` and `llvm_verify` run their proofs in the a
+satisfiability-checking context, so `assume_unsat` is currently the
+appropriate tactic. This is likely to change in the future.
+
+The `quickcheck` tactic runs the goal on the given number of random
+inputs, and succeeds if the result of evaluation is always `true`. This
+is unsound, but can be helpful during proof development, or as a way to
+provide some evidence for the validity of a specification believed to be
+true but difficult or infeasible to prove.
+
+The `trivial` tactic states that the current goal should be trivially
+true (i.e., the constant `true` or a function that immediately returns
+`true`). It fails if that is not the case.
 
 # Compositional Verification
 
 The primary advantage of the specification-based approach to
-verification is that it allows for compositional reasoning.
+verification is that it allows for compositional reasoning. That is,
+when proving something about a given method or function, we can make use
+of things we have already proved about its callees, rather than
+analyzing them afresh.
 
-TODO
+The `java_verify` and `llvm_verify` functions returns values of type
+`JavaMethodSpec` and `LLVMMethodSpec`, respectively. These values are
+opaque objects that internally contain all of the information provided
+in the associated `JavaSetup` or `LLVMSetup` blocks, along with the
+results of the verification process.
+
+Any of these `MethodSpec` objects can be passed in via the third
+argument of the `_verify` functions. For any function or method
+specified by one of these parameters, the simulator will not follow
+calls to the associated target. Instead, it will perform the following
+steps:
+
+* Check that all `_assert` and `_assert_eq` statements in the
+  specification are satisfied.
+* Check that any aliasing is compatible with the aliasing restricted
+  stated with `java_may_alias`, for Java programs.
+* Check that all classes required by the target method have already been
+  initialized, for Java programs.
+* Update the simulator state as described in the specification.
+
+Normally, a `MethodSpec` comes as the result of both simulation and
+proof of the target code. However, in some cases, it can be useful to
+use it to specify some code that either doesn't exist or is hard to
+prove. In those cases, the `java_no_simulate` or `llvm_no_simulate`
+functions can be used to indicate not to even try to simulate the code
+being specified, and instead return a `MethodSpec` that is assumed to be
+correct.
+
+TODO: talk about `java_allow_alloc`.
 
 # Controlling Symbolic Execution
 
-Three sets of commands are available to control the symbolic execution
-process. The first two control the use of satisfiability checking to
-determine whether both paths are feasible when encountering branches in
-the program, which is particularly relevant for branches controlling the
+One other set of commands is available to control the symbolic execution
+process. These control the use of satisfiability checking to determine
+whether both paths are feasible when encountering branches in the
+program, which is particularly relevant for branches controlling the
 iteration of loops.
 
-    java_sat_branches : Bool -> JavaSetup ()
-    llvm_sat_branches : Bool -> LLVMSetup ()
+~~~~
+java_sat_branches : Bool -> JavaSetup ()
+llvm_sat_branches : Bool -> LLVMSetup ()
+~~~~
 
 The `Bool` parameter has the same effect as the `Bool` parameter passed
 to `java_symexec` and `llvm_symexec`.
-
-TODO:
-
-    java_allow_alloc
-
-    java_no_simulate
-    llvm_no_simulate
-
