@@ -102,14 +102,8 @@ library
     SAWScript.Parser
     SAWScript.PathVC
     SAWScript.Proof
-    SAWScript.REPL
-    SAWScript.REPL.Command
-    SAWScript.REPL.Haskeline
-    SAWScript.REPL.Logo
-    SAWScript.REPL.Monad
     SAWScript.SBVParser
     SAWScript.SBVModel
-    SAWScript.REPL.Trie
     SAWScript.SAWCorePrimitives
     SAWScript.Token
     SAWScript.TopLevel
@@ -118,11 +112,6 @@ library
     SAWScript.Utils
     SAWScript.Value
     SAWScript.VerificationCheck
-    SAWScript.Version
-
-  other-modules:
-    Paths_saw_script
-    GitRev
 
   GHC-options: -O2 -Wall -Werror -fno-ignore-asserts -fno-spec-constr-count
 
@@ -131,15 +120,27 @@ library
     happy >= 1.9.4
 
 executable saw
-  hs-source-dirs: .
+  hs-source-dirs: saw
 
   GHC-options: -O2 -Wall -Werror -fno-ignore-asserts -fno-spec-constr-count
 
-  main-is: src/Main.hs
+  main-is: Main.hs
+
+  other-modules:
+    GitRev
+    Paths_saw_script
+    SAWScript.REPL
+    SAWScript.REPL.Command
+    SAWScript.REPL.Haskeline
+    SAWScript.REPL.Logo
+    SAWScript.REPL.Monad
+    SAWScript.REPL.Trie
+    SAWScript.Version
 
   build-depends:
       base >= 4
     , containers
+    , cryptol
     , directory
     , either
     , filepath
