@@ -49,6 +49,8 @@ library
     , pretty-show
     , process
     , saw-core
+    , saw-core-aig
+    , saw-core-sbv
     , sbv >= 4.3
     , smtLib
     , split

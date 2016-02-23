@@ -10,7 +10,7 @@ set -x
 set -v
 set -e
 
-PUBLIC_GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser saw-core cryptol-verifier jvm-verifier llvm-verifier"
+PUBLIC_GITHUB_REPOS="cryptol aig abcBridge jvm-parser llvm-pretty llvm-pretty-bc-parser saw-core saw-core-aig saw-core-sbv cryptol-verifier jvm-verifier llvm-verifier"
 PRIVATE_GITHUB_REPOS=""
 
 if [ ! -e ./deps ] ; then

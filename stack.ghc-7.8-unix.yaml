@@ -7,6 +7,8 @@ packages:
   - deps/abcBridge/
   - deps/cryptol/
   - deps/saw-core/
+  - deps/saw-core-aig/
+  - deps/saw-core-sbv/
   - deps/cryptol-verifier/
   - deps/jvm-verifier/
   - deps/llvm-verifier/
