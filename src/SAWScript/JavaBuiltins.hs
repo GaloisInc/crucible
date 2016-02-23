@@ -306,7 +306,9 @@ showCexResults sc ms vs exts vals = do
   putStrLn $ "Counterexample: "
   mapM_ (\(n, v) -> putStrLn ("  " ++ n ++ ": " ++ show v)) vals
   if (length exts == length vals)
-    then vsCounterexampleFn vs (cexEvalFn sc (zip exts (map snd vals))) >>= print
+    then do let cexEval = cexEvalFn sc (zip exts (map snd vals))
+            doc <- vsCounterexampleFn vs cexEval
+            putStrLn (displayS (renderPretty 0.8 80 doc) "")
     else putStrLn "ERROR: Can't show result, wrong number of values"
   fail "Proof failed."
 

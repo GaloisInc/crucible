@@ -728,18 +728,22 @@ checkFinalState sc ms bs cl initPS = do
         finalMem = finalPS ^. pathMemory
     when (initMem ^. memInitialization /= finalMem ^. memInitialization) $
       unless (specAllowAlloc ms) $
-        pvcgFail "Initializes extra class."
+        pvcgFail "Initializes an extra class."
     when (initMem ^. memClassObjects /= finalMem ^. memClassObjects) $
-      pvcgFail "Allocates class object."
+      pvcgFail "Allocates a class object."
     when (initMem ^. memRefArrays /= finalMem ^. memRefArrays) $
-      pvcgFail "Allocates or modifies reference array."
+      pvcgFail "Allocates or modifies a reference array."
     forM_ (Map.toList (finalMem ^. memStaticFields)) $ \(f, fval) ->
       unless (Set.member f mentionedSFields) $
         unless(isArrayType (fieldIdType f)) $
           let fieldDesc = fieldIdClass f ++ "." ++ fieldIdName f in
           case Map.lookup f (initMem ^. memStaticFields) of
-            Nothing -> pvcgFail $ ftext $
-                       "Modifies unspecified static field " ++ fieldDesc
+            Nothing -> pvcgFail $ hsep
+              [ ftext "Modifies the unspecified static field"
+              , ftext fieldDesc
+              , "of type"
+              , ftext (show (fieldIdType f))
+              ]
             Just ival -> valueEqValue sc fieldDesc initPS ival finalPS fval
     forM_ (Map.toList (finalMem ^. memInstanceFields)) $ \((ref, f), fval) -> do
       unless (Set.member (ref, f) mentionedIFieldSet) $
@@ -750,8 +754,12 @@ checkFinalState sc ms bs cl initPS = do
                 Nothing -> "field " ++ fieldIdName f ++  " of a new object"
         in
         case Map.lookup (ref, f) (initMem ^. memInstanceFields) of
-          Nothing -> pvcgFail $ ftext $
-                     "Modifies unspecified instance field: " ++ fname
+          Nothing -> pvcgFail $ hsep
+            [ ftext "Modifies the unspecified instance field"
+            , ftext fname
+            , "of type"
+            , ftext (show (fieldIdType f))
+            ]
           Just ival -> do
             valueEqValue sc fname initPS ival finalPS fval
     forM_ (Map.toList (finalMem ^. memScalarArrays)) $ \(ref, (flen, fval)) ->
@@ -768,6 +776,11 @@ checkFinalState sc ms bs cl initPS = do
                       Nothing -> "a new array"
               in
               pvcgAssertEq aname ival fval -- TODO: name
-          | otherwise -> pvcgFail "Array changed size."
+          | otherwise -> pvcgFail $ hsep
+            [ "Array changed size from"
+            , int (fromIntegral ilen)
+            , "to"
+            , int (fromIntegral flen)
+            ]
     -- TODO: check that return value has been specified if method returns a value
     pvcgAssert "final assertions" (finalPS ^. pathAssertions)
