@@ -16,7 +16,6 @@ library
       base >= 4
     , abcBridge
     , aig
-    , ansi-terminal
     , ansi-wl-pprint
     , array
     , binary
@@ -31,7 +30,6 @@ library
     , fgl
     , filepath
     , free
-    , gitrev
     , haskeline
     , IfElse
     , jvm-parser
@@ -139,11 +137,13 @@ executable saw
 
   build-depends:
       base >= 4
+    , ansi-terminal
     , containers
     , cryptol
     , directory
     , either
     , filepath
+    , gitrev
     , haskeline
     , QuickCheck
     , transformers

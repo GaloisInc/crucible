@@ -1,5 +1,6 @@
 src/SAWScript/Lexer.hs
 src/SAWScript/Parser.hs
+saw/GitRev.hs
 cabal.sandbox.config
 deps
 dist
