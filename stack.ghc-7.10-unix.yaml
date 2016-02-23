@@ -18,6 +18,4 @@ extra-deps:
   - fgl-visualize-0.1.0.1
   - dotgen-0.4.2
   - monad-supply-0.6
-  - tuple-0.3.0.2
-  - OneTuple-0.2.1
 resolver: lts-5.1
