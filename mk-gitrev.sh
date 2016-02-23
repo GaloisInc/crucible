@@ -1,3 +1,7 @@
+#!/bin/sh
+
+set -e
+
 rev=`git rev-parse HEAD`
 branch=`git rev-parse --abbrev-ref HEAD`
 status=`git status --porcelain`
