@@ -425,14 +425,36 @@ trivial = StateT $ \goal -> do
         FTermF (CtorApp "Prelude.True" []) -> return ()
         _ -> fail "trivial: not a trivial goal"
 
+getTopLevelPPOpts :: TopLevel PPOpts
+getTopLevelPPOpts = do
+  rw <- getTopLevelRW
+  return defaultPPOpts { ppBase = SV.ppOptsBase (rwPPOpts rw) }
+
+show_term :: SharedTerm SAWCtx -> TopLevel String
+show_term t = do
+  opts <- getTopLevelPPOpts
+  return (scPrettyTerm opts t)
+
+print_term :: SharedTerm SAWCtx -> TopLevel ()
+print_term t = do
+  opts <- getTopLevelPPOpts
+  io $ putStrLn (scPrettyTerm opts t)
+
+print_term_depth :: Int -> SharedTerm SAWCtx -> TopLevel ()
+print_term_depth d t = do
+  opts <- getTopLevelPPOpts
+  io $ print (ppTermDepth opts d t)
+
 printGoal :: ProofScript s ()
 printGoal = StateT $ \goal -> do
-  io $ putStrLn (scPrettyTerm (ttTerm (goalTerm goal)))
+  opts <- getTopLevelPPOpts
+  io $ putStrLn (scPrettyTerm opts (ttTerm (goalTerm goal)))
   return ((), goal)
 
 printGoalDepth :: Int -> ProofScript SAWCtx ()
 printGoalDepth n = StateT $ \goal -> do
-  io $ print (ppTermDepth n (ttTerm (goalTerm goal)))
+  opts <- getTopLevelPPOpts
+  io $ print (ppTermDepth opts n (ttTerm (goalTerm goal)))
   return ((), goal)
 
 printGoalConsts :: ProofScript SAWCtx ()

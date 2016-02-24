@@ -367,7 +367,7 @@ buildTopLevelEnv opts =
                    , rwTypes    = primTypeEnv
                    , rwDocs     = primDocEnv
                    , rwCryptol  = ce0
-                   , rwPPOpts   = defaultPPOpts
+                   , rwPPOpts   = SAWScript.Value.defaultPPOpts
                    }
        return (bic, ro0, rw0)
 
@@ -529,11 +529,11 @@ primitives = Map.fromList
     [ "Print the value of the given expression." ]
 
   , prim "print_term"          "Term -> TopLevel ()"
-    (pureVal ((putStrLn . scPrettyTerm) :: SharedTerm SAWCtx -> IO ()))
+    (pureVal print_term)
     [ "Pretty-print the given term in SAWCore syntax." ]
 
   , prim "print_term_depth"    "Int -> Term -> TopLevel ()"
-    (pureVal ((\d -> print . ppTermDepth d) :: Int -> SharedTerm SAWCtx -> IO ()))
+    (pureVal print_term_depth)
     [ "Pretty-print the given term in SAWCore syntax up to a given depth." ]
 
   , prim "dump_file_AST"       "String -> TopLevel ()"
@@ -555,7 +555,7 @@ primitives = Map.fromList
     [ "Return the type of the given term." ]
 
   , prim "show_term"           "Term -> String"
-    (pureVal (scPrettyTerm :: SharedTerm SAWCtx -> String))
+    (funVal1 show_term)
     [ "Pretty-print the given term in SAWCore syntax, yielding a String." ]
 
   , prim "check_term"          "Term -> TopLevel ()"

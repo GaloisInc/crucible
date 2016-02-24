@@ -65,7 +65,7 @@ bitblastSharedTerm sc v (asBitvectorType -> Just w) = do
   modify (V.++ inputs)
 bitblastSharedTerm _ _ tp = throwTP $ show $
   text "Could not parse AIG input type:" <$$>
-  indent 2 (scPrettyTermDoc tp)
+  indent 2 (scPrettyTermDoc defaultPPOpts tp)
 
 parseAIGResultType :: SharedContext s
                    -> SharedTerm s -- ^ Term for type

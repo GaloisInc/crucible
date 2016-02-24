@@ -445,7 +445,7 @@ runValidation prover params sc results = do
        g <- io $ scImplies sc (pvcAssumptions pvc) =<< vcGoal sc vc
        when (verb >= 2) $ io $ do
          putStr $ "Checking " ++ vcName vc
-         when (verb >= 5) $ putStr $ " (" ++ scPrettyTerm g ++ ")"
+         when (verb >= 5) $ putStr $ " (" ++ scPrettyTerm defaultPPOpts g ++ ")"
          putStrLn ""
        prover vs g
     else do
@@ -458,7 +458,7 @@ runValidation prover params sc results = do
         print $ pvcStaticErrors pvc
       when (verb >= 5) $ io $ do
         putStrLn $ "Calling prover to disprove " ++
-                 scPrettyTerm (pvcAssumptions pvc)
+                 scPrettyTerm defaultPPOpts (pvcAssumptions pvc)
       prover vs g
 
 data VerifyState = VState {

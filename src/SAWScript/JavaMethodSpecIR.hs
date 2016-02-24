@@ -140,7 +140,7 @@ data BehaviorSpec = BS {
 ppLogicExpr :: LogicExpr -> Doc
 ppLogicExpr (LogicExpr t args) =
   vcat $
-  parens (scPrettyTermDoc t) :
+  parens (scPrettyTermDoc defaultPPOpts t) :
   map (text . ppJavaExpr) args
 
 ppMixedExpr :: MixedExpr -> Doc
