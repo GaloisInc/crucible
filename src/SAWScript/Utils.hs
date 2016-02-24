@@ -52,6 +52,9 @@ data Pos = Pos !FilePath -- file
          | PosREPL
   deriving (Eq)
 
+renderDoc :: Doc -> String
+renderDoc doc = displayS (renderPretty 0.8 80 doc) ""
+
 endPos :: FilePath -> Pos
 endPos f = Pos f 0 0
 

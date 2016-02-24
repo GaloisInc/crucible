@@ -308,7 +308,7 @@ showCexResults sc ms vs exts vals = do
   if (length exts == length vals)
     then do let cexEval = cexEvalFn sc (zip exts (map snd vals))
             doc <- vsCounterexampleFn vs cexEval
-            putStrLn (displayS (renderPretty 0.8 80 doc) "")
+            putStrLn (renderDoc doc)
     else putStrLn "ERROR: Can't show result, wrong number of values"
   fail "Proof failed."
 
@@ -385,7 +385,10 @@ getJavaExpr ctx name = do
   e <- parseJavaExpr' cb cls meth name
   case Map.lookup e (bsActualTypeMap (specBehaviors ms)) of
     Just ty -> return (e, ty)
-    Nothing -> fail $ "Unknown expression " ++ name ++ " in " ++ ctx
+    Nothing -> fail $ renderDoc $
+      hsep [ "Unknown expression", ftext name, "in",  ftext ctx ] <> "."
+      <$$>
+      ftext "Maybe you're missing a `java_var` or `java_class_var`?"
 
 typeJavaExpr :: BuiltinContext -> String -> JavaType
              -> JavaSetup (JavaExpr, JavaActualType)
@@ -453,6 +456,10 @@ javaMayAlias :: BuiltinContext -> Options -> [String]
              -> JavaSetup ()
 javaMayAlias _ _ exprs = do
   exprList <- mapM (getJavaExpr "java_may_alias") exprs
+  forM_ exprList $ \(e, _) ->
+    unless (isRefJavaExpr e) $ fail $
+      "Can't use `java_may_alias` with non-reference variable: " ++
+      ppJavaExpr e
   modifySpec (specAddAliasSet (map fst exprList))
 
 javaAssert :: BuiltinContext -> Options -> TypedTerm SAWCtx
