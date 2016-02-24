@@ -1,0 +1,3 @@
+c <- java_load_class "Return";
+t <- java_symexec c "fill" [("n", {{ 22:[32] }})] ["return"] false;
+print_term t;

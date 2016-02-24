@@ -1,7 +1,7 @@
 let init_spec = do {
   a <- java_var "this.a" (java_array 5 java_int);
   x <- java_var "x" java_int;
-  java_assert {{ x == 22 }};
+  java_assert_eq "x" {{ 22 : [32] }};
   java_ensure_eq "this.a" {{ [x, x, x, x, x] }};
   java_allow_alloc;
   java_verify_tactic abc;

@@ -1,7 +1,7 @@
 let fill_spec = do {
   x <- java_var "n" java_int;
   java_var "return" (java_array 5 java_int);
-  java_assert {{ x == 22 }};
+  java_assert_eq "n" {{ 22 : [32] }};
   java_ensure_eq "return" {{ [x, x, x, x, x] }};
   // This also works, and means the same thing.
   // java_return {{ [x, x, x, x, x] }};
@@ -15,8 +15,8 @@ let newSimple_spec = do {
   java_class_var "return" (java_class "SimpleObj");
   java_var "return.x" java_int;
   java_var "return.y" java_int;
-  java_assert {{ x == 43 }};
-  java_assert {{ y == 77 }};
+  java_assert_eq "x" {{ 43 : [32] }};
+  java_assert_eq "y" {{ 77 : [32] }};
   java_ensure_eq "return.x" {{ x }};
   java_ensure_eq "return.y" {{ y }};
   java_allow_alloc;
@@ -27,8 +27,8 @@ let simpleWrap2_spec = do {
   java_requires_class "SimpleObj";
   x <- java_var "x" java_int;
   y <- java_var "y" java_int;
-  java_assert {{ x == 43 }};
-  java_assert {{ y == 77 }};
+  java_assert_eq "x" {{ 43 : [32] }};
+  java_assert_eq "y" {{ 77 : [32] }};
   java_return {{ 2 : [32] }};
   java_allow_alloc;
   java_verify_tactic abc;

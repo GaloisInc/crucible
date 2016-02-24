@@ -1,6 +1,6 @@
 let f_spec = do {
    x <- java_var "x" java_int;
-   java_assert {{ x == (4:[32]) }};
+   java_assert_eq "x" {{ 4:[32] }};
    java_sat_branches true;
    java_return {{ 6 : [32] }};
    java_verify_tactic abc;
