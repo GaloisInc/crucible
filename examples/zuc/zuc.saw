@@ -1,5 +1,7 @@
 let {{ t (x : [32]) = drop`{1} x : [31] }};
 
+// Common declarations of all the globals used by the various proofs
+// below.
 let use_LFSR = do {
     S0 <- llvm_var "LFSR_S0" (llvm_int 32);
     S1 <- llvm_var "LFSR_S1" (llvm_int 32);
@@ -120,22 +122,6 @@ let LFSRWithInitializationMode_spec cry_LIM = do {
     llvm_verify_tactic abc;
 };
 
-let Initialization_spec cry_Init = do {
-    llvm_ptr "k" (llvm_array 16 (llvm_int 8));
-    llvm_ptr "iv" (llvm_array 16 (llvm_int 8));
-    k <- llvm_var "*k" (llvm_array 16 (llvm_int 8));
-    iv <- llvm_var "*iv" (llvm_array 16 (llvm_int 8));
-    llvm_var "F_R1" (llvm_int 32);
-    llvm_var "F_R2" (llvm_int 32);
-    use_LFSR;
-    let {{ res = cry_Init (join k, join iv) }};
-    assign_LFSR {{ res.0 }};
-    llvm_ensure_eq "F_R1" {{ res.1 }};
-    llvm_ensure_eq "F_R2" {{ res.2 }};
-    //llvm_verify_tactic (quickcheck 10);
-    llvm_verify_tactic abc;
-};
-
 zucbc <- llvm_load_module "zuc.bc";
 zuc14bc <- llvm_load_module "zuc14.bc";
 zuccry <- cryptol_load "zuc.cry";
@@ -149,14 +135,6 @@ L2_ov <- llvm_verify zucbc "L2" [] (L12_spec {{ zuccry::L2 }});
 LIM_ov <- llvm_verify zucbc "LFSRWithInitialisationMode" [AddM_ov, mulpow_ov]
   (LFSRWithInitializationMode_spec {{zuccry::LFSRWithInitializationModeC}});
 F_ov <- llvm_verify zucbc "F" [L1_ov, L2_ov] (F_spec zuccry);
-
-/*
-llvm_verify zucbc "InitializationOne" [BR_ov, LIM_ov, F_ov]
-  (Initialization_spec {{zuccry::InitializeZUC_C0}});
-
-llvm_verify zucbc "Initialization" [BR_ov, LIM_ov, F_ov]
-  (Initialization_spec {{zuccry::InitializeZUC_C32}});
-*/
 
 k <- fresh_symbolic "k" {| [16][8] |};
 iv1 <- fresh_symbolic "iv1" {| [16][8] |};
@@ -204,10 +182,15 @@ init2 <- llvm_symexec zucbc "InitializationOne"
   ]
   results
   false;
-thm2 <- abstract_symbolic {{ iv1 == iv2 || init1 != init2 }};
-r <- time (prove abc thm2);
+
+// Prove that InitializationOne is injective in v1.5.
+r <- time (prove abc {{ iv1 == iv2 || init1 != init2 }});
+
+// Pretty-print the results.
 caseProofResult r
+  // Valid
   (print "Q.E.D.")
+  // Counter-example
   (\ce -> do { print "Counterexample:"; print ce; });
 
 print "Proving presence of ZUC 1.4 IV weakness.";
@@ -230,13 +213,24 @@ init2_14 <- llvm_symexec zuc14bc "InitializationOne"
   ]
   results
   false;
+  
+// Convert terms with symbolic variables into functions over those
+// variables.
 m1 <- abstract_symbolic init1_14;
 m2 <- abstract_symbolic init2_14;
-thm2_14 <- abstract_symbolic {{ iv1 == iv2 || init1_14 != init2_14 }};
-set_base 16; // Show counter-examples in hex
-r14 <- time (prove abc thm2_14);
+
+// Show counter-examples in hex
+set_base 16;
+
+// Try to prove that InitializationOne is injective in v1.4 (expecting
+// to fail)
+r14 <- time (prove abc {{ iv1 == iv2 || init1_14 != init2_14 }});
+
+// Pretty-print the results.
 caseProofResult r14
+  // Valid
   (print "Q.E.D.")
+  // Counter-example
   (\ce -> do {
             print "k =";
             print {{ ce.0 }};
@@ -249,4 +243,5 @@ caseProofResult r14
             print "init2 =";
             print {{ m2 ce.0 ce.2 }};
           });
+
 print "Done.";
