@@ -6,7 +6,7 @@ understanding the behavior of the available built-in functions.
 
 At the most abstract level, symbolic execution works like normal program
 execution except that the values of all variables within the program
-can be arbitary *expressions*, rather than concrete values, potentially
+can be arbitrary *expressions*, rather than concrete values, potentially
 containing mathematical variables. As a concrete example, consider the
 following C program, which returns the maximum of two values:
 
@@ -78,7 +78,28 @@ require more information from the user.
 
 # Symbolic Termination
 
-TODO
+(placeholder, put here by dylan)
+
+Whether or not a program terminates on concrete inputs is a complex
+question. For symbolic simulation, a non-terminating computation is one that fails
+to complete during the analysis phase, which can happen more often than
+you might expect.
+
+For example, this simple loop:
+
+~~~~ {.c}
+int i = 1;
+boolean done = false;
+while (!done){
+	if (i % 8 == 0) done = true;
+	i += 5;
+}
+~~~~
+
+can only be determined to symbolically terminate if the analysis takes 
+into account algebraic rules about common multiples. Similarly, it can be difficult
+to prove that a base case is eventually reached for all inputs to a recursive
+program.
 
 # Loading Code
 
@@ -99,7 +120,7 @@ file as an argument, and adds the contents of that file to the class
 database. The `-c` flag takes the name of a directory as an argument,
 and adds all class files found in that directory (and its
 subdirectories) to the class database. By default, the current directory
-is included in the class path. However, the Java standard library
+is included in the class path. However, the Java runtime and standard library
 (usually called `rt.jar`) is generally required for any non-trivial Java
 code, and is installed in a wide variety of different locations.
 Therefore, for most Java analysis, you must provide a `-j` argument
@@ -147,7 +168,7 @@ b`) function explicitly turns on branch satisfiability checking, which
 can help with symbolic termination issues, as described earlier. In the
 future, other configuration may be possible.
 
-When the `*_extract` functions complete, they return a `Term`
+When the `..._extract` functions complete, they return a `Term`
 corresponding to the value returned by the function or method.
 
 These functions work only for code that takes some fixed number of
@@ -314,7 +335,7 @@ here should be expressions identifying *pointers* rather than the values
 of those pointers.
 
 The fourth argument, of type `[(String, Term, Int)]` indicates the
-initial values to write to the program state before execution. TODO: say
+initial values to write to the program state before execution. ***TODO:*** say
 more, including that the `String`s should be *value* expressions.
 
 Finally, the fifth argument, of type `[(String, Int)]` indicates the
@@ -324,6 +345,36 @@ elements to read. The number of elements does not need to be the same as
 the number of elements allocated or written in the initial state.
 However, reading past the end of an object or reading a location that
 has not been initialized will lead to an error.
+
+## Examples
+
+Here is an example `symexec` from the tutorial:
+
+~~~
+// show that add(x,y) == add(y,x) for all x and y
+cadd <- java_load_class "Add";
+x <- fresh_symbolic "x" {| [32] |};
+y <- fresh_symbolic "y" {| [32] |};
+ja <- java_symexec cadd "add" [("x", x), ("y", y)] ["return"] true;
+print_term ja;
+ja' <- abstract_symbolic ja;
+prove_print abc {{ \a b -> ja' a b == ja' b a }};
+print "Done.";
+~~~ 
+
+and here is that example run through saw:
+~~~
+% saw -j <path to>rt.jar java_symexec.saw 
+Loading module Cryptol
+Loading file "java_symexec.saw"
+let { x0 = Cryptol.ty
+             (Cryptol.TCSeq (Cryptol.TCNum 32) Cryptol.TCBit);
+    }
+ in Prelude.bvAdd 32 x y
+Valid
+Done.
+~~~
+
 
 ## Limitations
 
@@ -380,7 +431,7 @@ llvm_verify : LLVMModule ->
 Like all of the functions for Java and LLVM analysis, the first two
 parameters indicate what code to analyze. The third parameter is used
 for compositional verification, as described in the next section. For
-now, assume that it is always the empty list. The final parameter
+now, the empty list works fine. The final parameter
 describes the specification of the code to be analyzed, built out of
 commands of type `JavaSetup` or `LLVMSetup`. In most cases, this
 parameter will be a `do` block containing a sequence of commands of this
@@ -581,6 +632,20 @@ structure of proof scripts, which are also useful with the standalone
 `proof` and `sat` functions within SAWScript, regardless of whether Java
 or LLVM code is involved.
 
+Here is a brief example, proving that the Java add method is equivalent to a specification in Cryptol:
+
+~~~
+cadd <- java_load_class "Add";
+add <- define "add" {{ \x y -> (x : [32]) + y }}; // the specification
+x <- fresh_symbolic "x" {| [32] |};
+y <- fresh_symbolic "y" {| [32] |};
+t <- java_symexec cadd "add" [("x", x), ("y", y)] ["return"] true;
+print_term t;
+t' <- abstract_symbolic t;
+prove_print abc {{ \a b -> t' a b == add a b }};
+print "Done.";
+~~~
+
 # Proof Scripts
 
 The simplest proof scripts just indicate which automated prover to use.
@@ -596,6 +661,8 @@ of provers that require slightly more configuration, or the use of
 provers that do very little real work.
 
 ## Rewriting
+
+* TODO: motivate when rewriting is needed/is a good idea
 
 The basic concept involved in rewriting `Term`s is that of a `Simpset`,
 which includes a collection of rewrite rules. A few basic, pre-defined
@@ -802,7 +869,8 @@ The primary advantage of the specification-based approach to
 verification is that it allows for compositional reasoning. That is,
 when proving something about a given method or function, we can make use
 of things we have already proved about its callees, rather than
-analyzing them afresh.
+analyzing them afresh. This enables us to reason about much larger
+and more complex systems than previously possible.
 
 The `java_verify` and `llvm_verify` functions returns values of type
 `JavaMethodSpec` and `LLVMMethodSpec`, respectively. These values are
