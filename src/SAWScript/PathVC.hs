@@ -32,7 +32,7 @@ ppPathVC pvc =
   vcat [ text "Path VC:"
        , nest 2 $
          vcat [ text "Assumptions:"
-              , scPrettyTermDoc (pvcAssumptions pvc)
+              , scPrettyTermDoc defaultPPOpts (pvcAssumptions pvc)
               ]
        , nest 2 $ vcat $
          text "Static errors:" :

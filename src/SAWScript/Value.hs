@@ -46,7 +46,8 @@ import SAWScript.SAWCorePrimitives( concretePrimitives )
 
 import Verifier.SAW.FiniteValue
 import Verifier.SAW.Rewriter ( Simpset )
-import Verifier.SAW.SharedTerm
+import Verifier.SAW.SharedTerm hiding (PPOpts(..), defaultPPOpts)
+import qualified Verifier.SAW.SharedTerm as SharedTerm (PPOpts(..), defaultPPOpts)
 
 import qualified Verifier.SAW.Simulator.Concrete as Concrete
 import qualified Cryptol.Eval.Value as C
@@ -190,7 +191,7 @@ showsSatResult opts r =
     showMulti s (eqn : eqns) = showString s . showEqn eqn . showMulti ", " eqns
 
 showsPrecValue :: PPOpts -> Int -> Value -> ShowS
-showsPrecValue opts p v =
+showsPrecValue opts _p v =
   case v of
     VBool True -> showString "true"
     VBool False -> showString "false"
@@ -204,14 +205,14 @@ showsPrecValue opts p v =
                        showString n . showString "=" . showsPrecValue opts 0 fv
 
     VLambda {} -> showString "<<function>>"
-    VTerm t -> showsPrec p (ttTerm t)
+    VTerm t -> showString (scPrettyTerm opts' (ttTerm t))
     VType sig -> showString (pretty sig)
     VReturn {} -> showString "<<monadic>>"
     VBind {} -> showString "<<monadic>>"
     VTopLevel {} -> showString "<<TopLevel>>"
     VSimpset {} -> showString "<<simpset>>"
     VProofScript {} -> showString "<<proof script>>"
-    VTheorem (Theorem t) -> showString "Theorem " . showParen True (showString (scPrettyTerm (ttTerm t)))
+    VTheorem (Theorem t) -> showString "Theorem " . showParen True (showString (scPrettyTerm opts' (ttTerm t)))
     VJavaSetup {} -> showString "<<Java Setup>>"
     VLLVMSetup {} -> showString "<<LLVM Setup>>"
     VJavaMethodSpec ms -> shows (JIR.ppMethodSpec ms)
@@ -225,6 +226,8 @@ showsPrecValue opts p v =
     VSatResult r -> showsSatResult opts r
     VUninterp u -> showString "Uninterp: " . shows u
     VAIG _ -> showString "<<AIG>>"
+  where
+    opts' = SharedTerm.defaultPPOpts { SharedTerm.ppBase = ppOptsBase opts }
 
 instance Show Value where
     showsPrec p v = showsPrecValue defaultPPOpts p v

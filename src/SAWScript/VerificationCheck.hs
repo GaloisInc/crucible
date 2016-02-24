@@ -40,7 +40,7 @@ type CounterexampleFn s = (SharedTerm s -> IO CValue) -> IO Doc
 vcCounterexample :: SharedContext s -> VerificationCheck s -> CounterexampleFn s
 vcCounterexample _ (AssertionCheck nm n) _ =
   return $ text ("Assertion " ++ nm ++ " is unsatisfied:") <+>
-           scPrettyTermDoc n
+           scPrettyTermDoc defaultPPOpts n
 vcCounterexample sc (EqualityCheck nm impNode specNode) evalFn =
   do ln <- evalFn impNode
      sn <- evalFn specNode
@@ -63,11 +63,11 @@ vcCounterexample sc (EqualityCheck nm impNode specNode) evalFn =
 ppCheck :: VerificationCheck s -> Doc
 ppCheck (AssertionCheck nm tm) =
   hsep [ text (nm ++ ":")
-       , scPrettyTermDoc tm
+       , scPrettyTermDoc defaultPPOpts tm
        ]
 ppCheck (EqualityCheck nm tm tm') =
   hsep [ text (nm ++ ":")
-       , scPrettyTermDoc tm
+       , scPrettyTermDoc defaultPPOpts tm
        , text ":="
-       , scPrettyTermDoc tm'
+       , scPrettyTermDoc defaultPPOpts tm'
        ]

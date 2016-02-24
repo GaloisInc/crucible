@@ -785,7 +785,7 @@ runValidation prover params sc esd results = do
         putStrLn $ "Checking " ++ vsName
         print $ pvcStaticErrors pvc
         putStrLn $ "Calling prover to disprove " ++
-                 scPrettyTerm (pvcAssumptions pvc)
+                 scPrettyTerm defaultPPOpts (pvcAssumptions pvc)
       prover vs g
 
 data VerifyState = VState {
