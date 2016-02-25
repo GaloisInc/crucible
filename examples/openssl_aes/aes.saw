@@ -6,14 +6,14 @@ let {{
 }};
 
 print "Loading OpenSSL implementation";
-aes_imp <- load_aig "aes_imp.aig";
+aes_imp <- time (load_aig "aes_imp.aig");
 
 print "Bitblasting Cryptol implementation";
-aes_ref <- bitblast {{ aesExtract }};
+aes_ref <- time (bitblast {{ aesExtract }});
 
 print "Checking equivalence (may take about an hour)";
-res <- cec aes_imp aes_ref;
+res <- time (cec aes_imp aes_ref);
 print res;
 
 print "Writing reference AIG";
-write_aig "aes_ref.aig" {{ aesExtract }};
+time (write_aig "aes_ref.aig" {{ aesExtract }});

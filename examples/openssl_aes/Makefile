@@ -37,7 +37,7 @@ aes_all.bc: aes_wrap.bc openssl-${VER}/crypto/aes/aes_core.o
 
 aes_imp.aig: aes_all.bc
 	@echo "The next step may take about a minute."
-	${LSS} $<
+	time ${LSS} $<
 
 aes_ref.aig: aes_imp.aig aes.saw
 	${SAW} aes.saw
