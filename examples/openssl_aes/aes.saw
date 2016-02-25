@@ -1,0 +1,19 @@
+import "../../deps/cryptol/docs/ProgrammingCryptol/aes/AES.cry";
+
+let {{
+  aesExtract x = aesEncrypt (pt,key)
+    where [pt,key] = split x
+}};
+
+print "Loading OpenSSL implementation";
+aes_imp <- load_aig "aes_imp.aig";
+
+print "Bitblasting Cryptol implementation";
+aes_ref <- bitblast {{ aesExtract }};
+
+print "Checking equivalence (may take 10-20 minutes)";
+res <- cec aes_imp aes_ref;
+print res;
+
+print "Writing reference AIG";
+write_aig "aes_ref.aig" {{ aesExtract }};
