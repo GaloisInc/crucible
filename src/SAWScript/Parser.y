@@ -55,7 +55,7 @@ import Control.Applicative
   'LLVMSetup'    { TReserved _ "LLVMSetup"      }
   'ProofScript'  { TReserved _ "ProofScript"    }
   'TopLevel'     { TReserved _ "TopLevel"       }
-  'Bit'          { TReserved _ "Bit"            }
+  'Bool'         { TReserved _ "Bool"           }
   'Int'          { TReserved _ "Int"            }
   'String'       { TReserved _ "String"         }
   'Term'         { TReserved _ "Term"           }
@@ -135,6 +135,8 @@ Expression :: { Expr }
  | 'let' Declaration 'in' Expression    { Let (NonRecursive $2) $4 }
  | 'rec' sepBy1(Declaration, 'and')
    'in' Expression                      { Let (Recursive $2) $4 }
+ | 'if' Expression 'then' Expression
+                   'else' Expression    { IfThenElse $2 $4 $6 }
 
 IExpr :: { Expr }
  : AExprs                               { $1 }
@@ -148,7 +150,7 @@ AExpr :: { Expr }
  | string                               { String $1               }
  | Code                                 { Code $1                 }
  | CType                                { CType $1                }
- | num                                  { Z $1                    }
+ | num                                  { Int $1                  }
  | name                                 { Var (Located (tokStr $1) (tokStr $1) (tokPos $1)) }
  | '(' Expression ')'                   { $2                      }
  | '(' commas2(Expression) ')'          { Tuple $2                }
@@ -186,8 +188,8 @@ BaseType :: { Type }
  : name                                 { tVar (tokStr $1)        }
  | Context BaseType                     { tBlock $1 $2            }
  | '(' ')'                              { tTuple []               }
- | 'Bit'                                { tBool                   }
- | 'Int'                                { tZ                      }
+ | 'Bool'                               { tBool                   }
+ | 'Int'                                { tInt                    }
  | 'String'                             { tString                 }
  | 'Term'                               { tTerm                   }
  | 'Type'                               { tType                   }

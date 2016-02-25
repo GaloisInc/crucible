@@ -41,7 +41,7 @@ $codechar  = [$graphic $whitechar]
 
 @reservedid  = import|and|let|rec|fun|in|do|if|then|else|as|hiding
              |CryptolSetup|JavaSetup|LLVMSetup|ProofScript|TopLevel
-             |Int|String|Term|Type|Bit|AIG
+             |Int|String|Term|Type|Bool|AIG
 
 @punct       = "," | ";" | "(" | ")" | ":" | "::" | "[" | "]" | "<-" | "->"
              | "=" | "{" | "}" | "." | "\"

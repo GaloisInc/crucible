@@ -285,9 +285,9 @@ instance AppSubst Schema where
 instance AppSubst Expr where
   appSubst s expr = case expr of
     TSig e t           -> TSig (appSubst s e) (appSubst s t)
-    Bit _              -> expr
+    Bool _             -> expr
     String _           -> expr
-    Z _                -> expr
+    Int _              -> expr
     Code _             -> expr
     CType _            -> expr
     Array es           -> Array (appSubst s es)
@@ -301,6 +301,7 @@ instance AppSubst Expr where
     Function pat body  -> Function (appSubst s pat) (appSubst s body)
     Application f v    -> Application (appSubst s f) (appSubst s v)
     Let dg e           -> Let (appSubst s dg) (appSubst s e)
+    IfThenElse e e2 e3 -> IfThenElse (appSubst s e) (appSubst s e2) (appSubst s e3)
 
 instance AppSubst Pattern where
   appSubst s pat = case pat of
@@ -355,72 +356,40 @@ type OutStmt = Stmt
 
 inferE :: (LName, Expr) -> TI (OutExpr,Type)
 inferE (ln, expr) = case expr of
-  Bit b     -> return (Bit b, tBool)
+  Bool b    -> return (Bool b, tBool)
   String s  -> return (String s, tString)
-  Z i       -> return (Z i, tZ)
+  Int i     -> return (Int i, tInt)
   Code s    -> return (Code s, tTerm)
   CType s   -> return (CType s, tType)
 
-  Array  [] -> do a <- newType
-                  return (Array [], tArray a)
+  Array [] ->
+    do a <- newType
+       return (Array [], tArray a)
 
-  Array (e:es) -> do (e',t) <- inferE (ln, e)
-                     es' <- mapM (flip (checkE ln) t) es
-                     return (Array (e':es'), tArray t)
+  Array (e:es) ->
+    do (e',t) <- inferE (ln, e)
+       es' <- mapM (flip (checkE ln) t) es
+       return (Array (e':es'), tArray t)
 
-  Block bs -> do ctx <- newType
-                 (bs',t') <- inferStmts ln ctx bs
-                 return (Block bs', tBlock ctx t')
+  Block bs ->
+    do ctx <- newType
+       (bs',t') <- inferStmts ln ctx bs
+       return (Block bs', tBlock ctx t')
 
-  Tuple  es -> do (es',ts) <- unzip `fmap` mapM (inferE . (ln,)) es
-                  return (Tuple es', tTuple ts)
+  Tuple es ->
+    do (es',ts) <- unzip `fmap` mapM (inferE . (ln,)) es
+       return (Tuple es', tTuple ts)
 
-  Record fs -> do (nes',nts) <- unzip `fmap` mapM (inferField ln) (M.toList fs)
-                  return (Record (M.fromList nes'), TyRecord $ M.fromList nts)
+  Record fs ->
+    do (nes',nts) <- unzip `fmap` mapM (inferField ln) (M.toList fs)
+       return (Record (M.fromList nes'), TyRecord $ M.fromList nts)
 
-  Index ar ix -> do (ar',at) <- inferE (ln,ar)
-                    ix'      <- checkE ln ix tZ
-                    t        <- newType
-                    unify ln (tArray t) at
-                    return (Index ar' ix', t)
-
-  TSig e t  -> do t' <- checkKind t
-                  (e',t'') <- inferE (ln,e)
-                  unify ln t' t''
-                  return (e',t'')
-  {-
-  TSig e (Forall [] t) -> do t' <- checkKind t
-                             e' <- checkE e t'
-                             return (e', t')
-
-  TSig e (Forall _ _) -> do recordError "TODO: TSig with Schema"
-                            inferE e
-  -}
-
-
-  Function pat body -> do (pt, pat') <- newTypePattern pat
-                          (body', t) <- bindPattern pat' $ inferE (ln, body)
-                          return (Function pat' body', tFun pt t)
-
-  Application f v -> do (v',fv) <- inferE (ln,v)
-                        t <- newType
-                        let ft = tFun fv t
-                        f' <- checkE ln f ft
-                        return (Application f' v', t)
-
-  Var x   -> do env <- TI $ asks typeEnv
-                case M.lookup x env of
-                  Nothing -> do
-                    recordError $ "unbound variable: " ++ show x
-                    t <- newType
-                    return (Var x, t)
-                  Just (Forall as t) -> do
-                    ts <- mapM (const newType) as
-                    return (Var x, instantiate (zip as ts) t)
-
-  Let dg body -> do dg' <- inferDeclGroup dg
-                    (body', t) <- bindDeclGroup dg' (inferE (ln, body))
-                    return (Let dg' body', t)
+  Index ar ix ->
+    do (ar',at) <- inferE (ln,ar)
+       ix'      <- checkE ln ix tInt
+       t        <- newType
+       unify ln (tArray t) at
+       return (Index ar' ix', t)
 
   Lookup e n ->
     do (e1,t) <- inferE (ln, e)
@@ -440,6 +409,7 @@ inferE (ln, expr) = case expr of
                             ]
                          newType
        return (Lookup e1 n, elTy)
+
   TLookup e i ->
     do (e1,t) <- inferE (ln,e)
        t1 <- appSubstM t
@@ -461,6 +431,45 @@ inferE (ln, expr) = case expr of
                          newType
        return (TLookup e1 i, elTy)
 
+  Var x ->
+    do env <- TI $ asks typeEnv
+       case M.lookup x env of
+         Nothing -> do
+           recordError $ "unbound variable: " ++ show x
+           t <- newType
+           return (Var x, t)
+         Just (Forall as t) -> do
+           ts <- mapM (const newType) as
+           return (Var x, instantiate (zip as ts) t)
+
+  Function pat body ->
+    do (pt, pat') <- newTypePattern pat
+       (body', t) <- bindPattern pat' $ inferE (ln, body)
+       return (Function pat' body', tFun pt t)
+
+  Application f v ->
+    do (v',fv) <- inferE (ln,v)
+       t <- newType
+       let ft = tFun fv t
+       f' <- checkE ln f ft
+       return (Application f' v', t)
+
+  Let dg body ->
+    do dg' <- inferDeclGroup dg
+       (body', t) <- bindDeclGroup dg' (inferE (ln, body))
+       return (Let dg' body', t)
+
+  TSig e t ->
+    do t' <- checkKind t
+       (e',t'') <- inferE (ln,e)
+       unify ln t' t''
+       return (e',t'')
+
+  IfThenElse e1 e2 e3 ->
+    do e1' <- checkE ln e1 tBool
+       (e2', t) <- inferE (ln, e2)
+       e3' <- checkE ln e3 t
+       return (IfThenElse e1' e2' e3', t)
 
 
 checkE :: LName -> Expr -> Type -> TI OutExpr

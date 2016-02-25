@@ -30,7 +30,7 @@ module SAWScript.AST
        , Schema(..)
        , toLName
        , tMono, tForall, tTuple, tRecord, tArray, tFun
-       , tString, tTerm, tType, tBool, tZ, tAIG
+       , tString, tTerm, tType, tBool, tInt, tAIG
        , tBlock, tContext, tVar
 
        , PrettyPrint(..), pShow, commaSepAll, prettyWholeModule
@@ -86,9 +86,9 @@ data Import = Import
 
 data Expr
   -- Constants
-  = Bit Bool
+  = Bool Bool
   | String String
-  | Z Integer
+  | Int Integer
   | Code (Located String)
   | CType (Located String)
   -- Structures
@@ -107,6 +107,7 @@ data Expr
   -- Sugar
   | Let DeclGroup Expr
   | TSig Expr Type
+  | IfThenElse Expr Expr Expr
   deriving (Eq, Show)
 
 data Pattern
@@ -161,7 +162,7 @@ data TyCon
   | TermCon
   | TypeCon
   | BoolCon
-  | ZCon
+  | IntCon
   | BlockCon
   | AIGCon
   | ContextCon Context
@@ -181,41 +182,45 @@ vcatWithSemi :: [PP.Doc] -> PP.Doc
 vcatWithSemi = PP.vcat . map (PP.<> PP.semi)
 
 instance Pretty Expr where
-   pretty = \case
-      Bit b    -> PP.text $ show b
-      String s -> PP.dquotes (PP.text s)
-      Z i      -> PP.integer i
-      Code ls  -> PP.braces . PP.braces $ PP.text (getVal ls)
-      CType (Located string _ _) -> PP.braces . PP.text $ "|" ++ string ++ "|"
-      Array xs -> PP.list (map PP.pretty xs)
-      Block stmts ->
-         PP.text "do" PP.<+> PP.lbrace PP.<> PP.linebreak PP.<>
-         (PP.indent 3 $ (PP.align . vcatWithSemi . map PP.pretty $ stmts)) PP.<> 
-         PP.linebreak PP.<> PP.rbrace
-      Tuple exprs -> PP.tupled (map PP.pretty exprs)
-      Record mapping ->
-         PP.braces . (PP.space PP.<>) . (PP.<> PP.space) . PP.align . PP.sep . PP.punctuate PP.comma $
-            map (\(name, value) -> PP.text name PP.<+> PP.text "=" PP.<+> PP.pretty value)
-                (Map.assocs mapping)
-      Index _ _ -> error "No concrete syntax for AST node 'Index'"
-      Lookup expr name -> PP.pretty expr PP.<> PP.dot PP.<> PP.text name
-      TLookup expr int -> PP.pretty expr PP.<> PP.dot PP.<> PP.integer int
-      Var (Located name _ _) ->
-         PP.text name
-      Function pat expr ->
-         PP.text "\\" PP.<+> PP.pretty pat PP.<+> PP.text "-> " PP.<+> PP.pretty expr
-      Application f a -> PP.pretty f PP.<+> PP.pretty a
-      Let (NonRecursive decl) expr ->
-         PP.text "let" PP.<+>
-         prettyDef decl PP.</>
-         PP.text "in" PP.<+> PP.pretty expr
-      Let (Recursive decls) expr ->
-         PP.text "let" PP.<+>
-         PP.cat (PP.punctuate
-            (PP.empty PP.</> PP.text "and" PP.<> PP.space)
-            (map prettyDef decls)) PP.</>
-         PP.text "in" PP.<+> PP.pretty expr
-      TSig expr typ -> PP.parens $ PP.pretty expr PP.<+> PP.colon PP.<+> pretty 0 typ
+  pretty expr0 = case expr0 of
+    Bool b   -> PP.text $ show b
+    String s -> PP.dquotes (PP.text s)
+    Int i    -> PP.integer i
+    Code ls  -> PP.braces . PP.braces $ PP.text (getVal ls)
+    CType (Located string _ _) -> PP.braces . PP.text $ "|" ++ string ++ "|"
+    Array xs -> PP.list (map PP.pretty xs)
+    Block stmts ->
+      PP.text "do" PP.<+> PP.lbrace PP.<> PP.linebreak PP.<>
+      (PP.indent 3 $ (PP.align . vcatWithSemi . map PP.pretty $ stmts)) PP.<>
+      PP.linebreak PP.<> PP.rbrace
+    Tuple exprs -> PP.tupled (map PP.pretty exprs)
+    Record mapping ->
+      PP.braces . (PP.space PP.<>) . (PP.<> PP.space) . PP.align . PP.sep . PP.punctuate PP.comma $
+      map (\(name, value) -> PP.text name PP.<+> PP.text "=" PP.<+> PP.pretty value)
+      (Map.assocs mapping)
+    Index _ _ -> error "No concrete syntax for AST node 'Index'"
+    Lookup expr name -> PP.pretty expr PP.<> PP.dot PP.<> PP.text name
+    TLookup expr int -> PP.pretty expr PP.<> PP.dot PP.<> PP.integer int
+    Var (Located name _ _) ->
+      PP.text name
+    Function pat expr ->
+      PP.text "\\" PP.<+> PP.pretty pat PP.<+> PP.text "-> " PP.<+> PP.pretty expr
+    Application f a -> PP.pretty f PP.<+> PP.pretty a
+    Let (NonRecursive decl) expr ->
+      PP.text "let" PP.<+>
+      prettyDef decl PP.</>
+      PP.text "in" PP.<+> PP.pretty expr
+    Let (Recursive decls) expr ->
+      PP.text "let" PP.<+>
+      PP.cat (PP.punctuate
+              (PP.empty PP.</> PP.text "and" PP.<> PP.space)
+              (map prettyDef decls)) PP.</>
+      PP.text "in" PP.<+> PP.pretty expr
+    TSig expr typ -> PP.parens $ PP.pretty expr PP.<+> PP.colon PP.<+> pretty 0 typ
+    IfThenElse e1 e2 e3 ->
+      PP.text "if" PP.<+> PP.pretty e1 PP.<+>
+      PP.text "then" PP.<+> PP.pretty e2 PP.<+>
+      PP.text "else" PP.<+> PP.pretty e3
 
 instance Pretty Pattern where
   pretty pat = case pat of
@@ -325,8 +330,8 @@ instance PrettyPrint TyCon where
     StringCon      -> PP.text "String"
     TermCon        -> PP.text "Term"
     TypeCon        -> PP.text "Type"
-    BoolCon        -> PP.text "Bit"
-    ZCon           -> PP.text "Int"
+    BoolCon        -> PP.text "Bool"
+    IntCon         -> PP.text "Int"
     AIGCon         -> PP.text "AIG"
     BlockCon       -> PP.text "<Block>"
     ContextCon cxt -> pretty par cxt
@@ -392,8 +397,8 @@ tBool = TyCon BoolCon []
 tAIG :: Type
 tAIG = TyCon AIGCon []
 
-tZ :: Type
-tZ = TyCon ZCon []
+tInt :: Type
+tInt = TyCon IntCon []
 
 tBlock :: Type -> Type -> Type
 tBlock c t = TyCon BlockCon [c,t]

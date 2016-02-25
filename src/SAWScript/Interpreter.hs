@@ -162,9 +162,9 @@ bindPatternEnv = bindPatternGeneric extendEnv
 interpret :: LocalEnv -> SS.Expr -> TopLevel Value
 interpret env expr =
     case expr of
-      SS.Bit b               -> return $ VBool b
+      SS.Bool b              -> return $ VBool b
       SS.String s            -> return $ VString s
-      SS.Z z                 -> return $ VInteger z
+      SS.Int z               -> return $ VInteger z
       SS.Code str            -> do sc <- getSharedContext
                                    cenv <- fmap rwCryptol (getMergedEnv env)
                                    --io $ putStrLn $ "Parsing code: " ++ show str
@@ -199,6 +199,10 @@ interpret env expr =
       SS.Let dg e            -> do env' <- interpretDeclGroup env dg
                                    interpret env' e
       SS.TSig e _            -> interpret env e
+      SS.IfThenElse e1 e2 e3 -> do v1 <- interpret env e1
+                                   case v1 of
+                                     VBool b -> interpret env (if b then e2 else e3)
+                                     _ -> fail $ "interpret IfThenElse: " ++ show v1
 
 interpretDecl :: LocalEnv -> SS.Decl -> TopLevel LocalEnv
 interpretDecl env (SS.Decl pat mt expr) = do
