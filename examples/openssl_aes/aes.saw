@@ -11,7 +11,7 @@ aes_imp <- load_aig "aes_imp.aig";
 print "Bitblasting Cryptol implementation";
 aes_ref <- bitblast {{ aesExtract }};
 
-print "Checking equivalence (may take 10-20 minutes)";
+print "Checking equivalence (may take about an hour)";
 res <- cec aes_imp aes_ref;
 print res;
 
