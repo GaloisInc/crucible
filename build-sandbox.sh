@@ -86,3 +86,7 @@ if [ "${dotests}" == "true" ] ; then
 else
   ${stack} build
 fi
+
+# Link bin directory to a more convenient location
+rm -f bin
+ln -s `stack path --local-install-root`/bin
