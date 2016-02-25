@@ -53,6 +53,7 @@ import Verifier.SAW.Prelude
 import Verifier.SAW.SCTypeCheck
 import Verifier.SAW.SharedTerm
 import qualified Verifier.SAW.Simulator.Concrete as Concrete
+import Verifier.SAW.Prim (rethrowEvalError)
 import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
 import Verifier.SAW.Testing.Random (scRunTestsTFIO, scTestableType)
@@ -82,6 +83,7 @@ import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
 
 import qualified Cryptol.TypeCheck.AST as C
+import qualified Cryptol.Eval.Value as C (fromVBit)
 import qualified Cryptol.Utils.Ident as C (packIdent)
 import Cryptol.Utils.PP (pretty)
 
@@ -1041,3 +1043,14 @@ timePrim a = do
   let diff = diffUTCTime t2 t1
   liftIO $ printf "Time: %s\n" (show diff)
   return r
+
+eval_bool :: TypedTerm SAWCtx -> TopLevel Bool
+eval_bool t = do
+  sc <- getSharedContext
+  case ttSchema t of
+    C.Forall [] [] (C.tIsBit -> True) -> return ()
+    _ -> fail "eval_bool: not type Bit"
+  unless (null (getAllExts (ttTerm t))) $
+    fail "eval_bool: term contains symbolic variables"
+  v <- io $ rethrowEvalError $ return $ SV.evaluateTypedTerm sc t
+  return (C.fromVBit v)

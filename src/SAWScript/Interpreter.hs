@@ -36,7 +36,6 @@ module SAWScript.Interpreter
 import Control.Applicative
 import Data.Traversable hiding ( mapM )
 #endif
-import qualified Control.Exception as X
 import Control.Monad (unless, (>=>))
 import qualified Data.IntMap as IntMap
 import qualified Data.Map as Map
@@ -62,7 +61,7 @@ import SAWScript.Value
 import Verifier.SAW.Conversion
 import Verifier.SAW.Prelude (preludeModule)
 --import Verifier.SAW.PrettySExp
-import Verifier.SAW.Prim (EvalError)
+import Verifier.SAW.Prim (rethrowEvalError)
 import Verifier.SAW.Rewriter ( Simpset, emptySimpset, rewritingSharedContext
                              , scSimpset )
 import Verifier.SAW.SharedTerm
@@ -422,16 +421,6 @@ cryptol_load path = do
   (m, ce') <- io $ CEnv.loadCryptolModule sc ce path
   putTopLevelRW $ rw { rwCryptol = ce' }
   return m
-
-rethrowEvalError :: IO a -> IO a
-rethrowEvalError m = run `X.catch` rethrow
-  where
-  run = do
-    a <- m
-    return $! a
-
-  rethrow :: EvalError -> IO a
-  rethrow exn = fail (show exn) -- X.throwIO (EvalError exn)
 
 -- | Default the values of the type variables in a typed term.
 defaultTypedTerm :: SharedContext s -> SolverConfig -> TypedTerm s -> IO (TypedTerm s)
@@ -1306,6 +1295,11 @@ primitives = Map.fromList
   , prim "time"                "{a} TopLevel a -> TopLevel a"
     (\_ _ -> toValue timePrim)
     [ "Print the CPU time used by the given TopLevel command." ]
+
+  , prim "eval_bool"           "Term -> Bool"
+    (funVal1 eval_bool)
+    [ "Evaluate a Cryptol term of type Bit to either 'true' or 'false'."
+    ]
   ]
   where
     prim :: String -> String -> (Options -> BuiltinContext -> Value) -> [String]
