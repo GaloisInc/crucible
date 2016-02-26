@@ -26,6 +26,7 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad.State
 import qualified Data.ByteString.Lazy as BS
+import qualified Data.IntMap as IntMap
 import Data.List (isPrefixOf)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -35,7 +36,7 @@ import System.Directory
 import qualified System.Exit as Exit
 import System.IO
 import System.IO.Temp (withSystemTempFile)
-import System.Process
+import System.Process (callCommand, readProcessWithExitCode)
 import Text.Printf (printf)
 import Text.Read
 
@@ -59,6 +60,7 @@ import Verifier.SAW.Rewriter
 import Verifier.SAW.Testing.Random (scRunTestsTFIO, scTestableType)
 import Verifier.SAW.TypedAST hiding (instantiateVarList)
 
+import qualified SAWScript.CryptolEnv as CEnv
 import qualified SAWScript.SBVParser as SBV
 import SAWScript.ImportAIG
 
@@ -82,8 +84,14 @@ import qualified Data.SBV.Dynamic as SBV
 import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
 
+import qualified Cryptol.ModuleSystem.Env as C (meSolverConfig)
+import qualified Cryptol.TypeCheck as C (SolverConfig)
 import qualified Cryptol.TypeCheck.AST as C
-import qualified Cryptol.Eval.Value as C (fromVBit)
+import qualified Cryptol.TypeCheck.PP as C (ppWithNames, pp, text, (<+>))
+import qualified Cryptol.TypeCheck.Solve as C (defaultReplExpr)
+import qualified Cryptol.TypeCheck.Solver.CrySAT as C (withSolver)
+import qualified Cryptol.TypeCheck.Subst as C (apSubst, listSubst)
+import qualified Cryptol.Eval.Value as C (fromVBit, fromWord)
 import qualified Cryptol.Utils.Ident as C (packIdent)
 import Cryptol.Utils.PP (pretty)
 
@@ -1054,3 +1062,41 @@ eval_bool t = do
     fail "eval_bool: term contains symbolic variables"
   v <- io $ rethrowEvalError $ return $ SV.evaluateTypedTerm sc t
   return (C.fromVBit v)
+
+eval_int :: TypedTerm SAWCtx -> TopLevel Integer
+eval_int t = do
+  sc <- getSharedContext
+  cenv <- fmap rwCryptol getTopLevelRW
+  let cfg = C.meSolverConfig (CEnv.eModuleEnv cenv)
+  unless (null (getAllExts (ttTerm t))) $
+    fail "term contains symbolic variables"
+  t' <- io $ defaultTypedTerm sc cfg t
+  case ttSchema t' of
+    C.Forall [] [] (C.tIsSeq -> Just (_, C.tIsBit -> True)) -> return ()
+    _ -> fail "eval_int: not a bitvector type"
+  v <- io $ rethrowEvalError $ return $ SV.evaluateTypedTerm sc t'
+  return (C.fromWord v)
+
+-- | Default the values of the type variables in a typed term.
+defaultTypedTerm :: SharedContext s -> C.SolverConfig -> TypedTerm s -> IO (TypedTerm s)
+defaultTypedTerm sc cfg (TypedTerm schema trm) = do
+  mdefault <- C.withSolver cfg (\s -> C.defaultReplExpr s undefined schema)
+  let inst = do (soln, _) <- mdefault
+                mapM (`lookup` soln) (C.sVars schema)
+  case inst of
+    Nothing -> return (TypedTerm schema trm)
+    Just tys -> do
+      let vars = C.sVars schema
+      let nms = C.addTNames vars IntMap.empty
+      mapM_ (warnDefault nms) (zip vars tys)
+      xs <- mapM (Cryptol.importType sc Cryptol.emptyEnv) tys
+      let tm = Map.fromList [ (C.tpUnique tp, (t, 0)) | (tp, t) <- zip (C.sVars schema) xs ]
+      let env = Cryptol.emptyEnv { Cryptol.envT = tm }
+      ys <- mapM (Cryptol.proveProp sc env) (C.sProps schema)
+      trm' <- scApplyAll sc trm (xs ++ ys)
+      let su = C.listSubst (zip (map C.tpVar vars) tys)
+      let schema' = C.Forall [] [] (C.apSubst su (C.sType schema))
+      return (TypedTerm schema' trm')
+  where
+    warnDefault ns (x,t) =
+      print $ C.text "Assuming" C.<+> C.ppWithNames ns (x :: C.TParam) C.<+> C.text "=" C.<+> C.pp t

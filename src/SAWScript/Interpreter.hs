@@ -37,7 +37,6 @@ import Control.Applicative
 import Data.Traversable hiding ( mapM )
 #endif
 import Control.Monad (unless, (>=>))
-import qualified Data.IntMap as IntMap
 import qualified Data.Map as Map
 import Data.Map ( Map )
 
@@ -71,18 +70,11 @@ import qualified Verifier.Java.Codebase as JCB
 import qualified Verifier.Java.SAWBackend as JavaSAW
 import qualified Verifier.LLVM.Backend.SAW as LLVMSAW
 
-import qualified Verifier.SAW.Cryptol as Cryptol
 import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 
 import Cryptol.ModuleSystem.Env (meSolverConfig)
-import Cryptol.TypeCheck (SolverConfig)
-import qualified Cryptol.TypeCheck.Solver.CrySAT as CrySAT
 import qualified Cryptol.TypeCheck.AST as T
 import qualified Cryptol.Utils.Ident as T (packIdent, packModName)
-import Cryptol.TypeCheck.PP (ppWithNames)
-import Cryptol.TypeCheck.Solve (defaultReplExpr)
-import Cryptol.TypeCheck.Subst (apSubst, listSubst)
-import Cryptol.Utils.PP
 import qualified Cryptol.Eval.Value as V (defaultPPOpts, ppValue, PPOpts(..))
 
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
@@ -421,30 +413,6 @@ cryptol_load path = do
   (m, ce') <- io $ CEnv.loadCryptolModule sc ce path
   putTopLevelRW $ rw { rwCryptol = ce' }
   return m
-
--- | Default the values of the type variables in a typed term.
-defaultTypedTerm :: SharedContext s -> SolverConfig -> TypedTerm s -> IO (TypedTerm s)
-defaultTypedTerm sc cfg (TypedTerm schema trm) = do
-  mdefault <- CrySAT.withSolver cfg (\s -> defaultReplExpr s undefined schema)
-  let inst = do (soln, _) <- mdefault
-                mapM (`lookup` soln) (T.sVars schema)
-  case inst of
-    Nothing -> return (TypedTerm schema trm)
-    Just tys -> do
-      let vars = T.sVars schema
-      let nms = T.addTNames vars IntMap.empty
-      mapM_ (warnDefault nms) (zip vars tys)
-      xs <- mapM (Cryptol.importType sc Cryptol.emptyEnv) tys
-      let tm = Map.fromList [ (T.tpUnique tp, (t, 0)) | (tp, t) <- zip (T.sVars schema) xs ]
-      let env = Cryptol.emptyEnv { Cryptol.envT = tm }
-      ys <- mapM (Cryptol.proveProp sc env) (T.sProps schema)
-      trm' <- scApplyAll sc trm (xs ++ ys)
-      let su = listSubst (zip (map T.tpVar vars) tys)
-      let schema' = T.Forall [] [] (apSubst su (T.sType schema))
-      return (TypedTerm schema' trm')
-  where
-    warnDefault ns (x,t) =
-      print $ text "Assuming" <+> ppWithNames ns x <+> text "=" <+> pp t
 
 readSchema :: String -> SS.Schema
 readSchema str =
@@ -1299,6 +1267,11 @@ primitives = Map.fromList
   , prim "eval_bool"           "Term -> Bool"
     (funVal1 eval_bool)
     [ "Evaluate a Cryptol term of type Bit to either 'true' or 'false'."
+    ]
+
+  , prim "eval_int"           "Term -> Int"
+    (funVal1 eval_int)
+    [ "Evaluate a Cryptol term of type [n] and convert to a SAWScript Int."
     ]
   ]
   where
