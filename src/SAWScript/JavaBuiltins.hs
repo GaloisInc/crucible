@@ -250,8 +250,6 @@ verifyJava bic opts cls mname overrides setup = do
               r <- evalStateT script (ProofGoal Universal (vsVCName vs) tt)
               case r of
                 SS.Unsat -> when (verb >= 3) $ io $ putStrLn "Valid."
-                -- TODO: replace x with something
-                SS.Sat val -> io $ showCexResults jsc ms vs exts [("x", val)]
                 SS.SatMulti vals -> io $ showCexResults jsc ms vs exts vals
         let ovds = vpOver vp
         initPS <- initializeVerification' jsc ms bs cl
@@ -309,7 +307,9 @@ showCexResults sc ms vs exts vals = do
     then do let cexEval = cexEvalFn sc (zip exts (map snd vals))
             doc <- vsCounterexampleFn vs cexEval
             putStrLn (renderDoc doc)
-    else putStrLn "ERROR: Can't show result, wrong number of values"
+    else do putStrLn $ "ERROR: Can't show result, wrong number of values"
+            putStrLn $ "Constants: " ++ show (map ecName exts)
+            putStrLn $ "Value names: " ++ show (map fst vals)
   fail "Proof failed."
 
 mkMixedExpr :: SharedContext SAWCtx

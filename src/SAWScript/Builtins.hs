@@ -186,7 +186,7 @@ cecPrim x y = do
     ABC.Valid -> return $ SV.Valid
     ABC.Invalid bs
       | Just ft <- readFiniteValue (FTVec (fromIntegral (length bs)) FTBit) bs ->
-           return $ SV.Invalid ft
+           return $ SV.InvalidMulti [("x", ft)]
       | otherwise -> fail "cec: impossible, could not parse counterexample"
     ABC.VerifyUnknown -> fail "cec: unknown result "
 
@@ -407,8 +407,8 @@ quickcheckGoal sc n = StateT $ \goal -> io $ do
         Nothing -> do
           putStrLn $ "checked " ++ show n ++ " cases."
           return (SV.Unsat, goal)
-        Just (cex:_) -> return (SV.Sat cex, goal)
-        Just [] -> fail "quickcheck: empty counterexample"
+        -- TODO: use reasonable names here
+        Just cex -> return (SV.SatMulti (zip (repeat "_") cex), goal)
     Nothing -> fail $ "quickcheck:\n" ++
       "term has non-testable type:\n" ++
       pretty (ttSchema (goalTerm goal))
@@ -584,8 +584,6 @@ satABC sc = StateT $ \g -> io $ do
       tt <- scApplyPrelude_True sc
       case r of
         Left err -> fail $ "Can't parse counterexample: " ++ err
-        Right [v] ->
-          return (SV.Sat v, g { goalTerm = TypedTerm schema tt })
         Right vs
           | length argNames == length vs -> do
               return (SV.SatMulti (zip argNames vs), g { goalTerm = TypedTerm schema tt })
@@ -636,8 +634,6 @@ satExternal doCNF sc execName args = StateT $ \g -> io $ do
       tt <- scApplyPrelude_True sc
       case r of
         Left msg -> fail $ "Can't parse counterexample: " ++ msg
-        Right [v] ->
-          return (SV.Sat v, g { goalTerm = TypedTerm schema tt })
         Right vs
           | length argNames == length vs -> do
               return (SV.SatMulti (zip argNames vs), g { goalTerm = TypedTerm schema tt })
@@ -716,24 +712,24 @@ satUnintSBV conf sc unints = StateT $ \g -> io $ do
 
 getLabels :: [SBVSim.Labeler] -> Map.Map String SBV.CW -> [String] -> SV.SatResult
 getLabels ls d argNames =
-  case fmap getLabel ls of
-    [x] -> SV.Sat x
-    xs
-     | length argNames == length xs -> SV.SatMulti (zip argNames xs)
-     | otherwise -> error $ unwords ["SBV SAT results do not match expected arguments", show argNames, show xs]
+  if length argNames == length xs then
+    SV.SatMulti (zip argNames xs)
+  else
+    error $ unwords ["SBV SAT results do not match expected arguments", show argNames, show xs]
 
   where
+    xs = fmap getLabel ls
     getLabel :: SBVSim.Labeler -> FiniteValue
     getLabel (SBVSim.BoolLabel s) = FVBit (SBV.cwToBool (d Map.! s))
     getLabel (SBVSim.WordLabel s) = d Map.! s &
       (\(SBV.KBounded _ n)-> FVWord (fromIntegral n)) . SBV.kindOf <*> (\(SBV.CWInteger i)-> i) . SBV.cwVal
-    getLabel (SBVSim.VecLabel xs)
-      | V.null xs = error "getLabel of empty vector"
+    getLabel (SBVSim.VecLabel ns)
+      | V.null ns = error "getLabel of empty vector"
       | otherwise = fvVec t vs
-      where vs = map getLabel (V.toList xs)
+      where vs = map getLabel (V.toList ns)
             t = finiteTypeOf (head vs)
-    getLabel (SBVSim.TupleLabel xs) = FVTuple $ map getLabel (V.toList xs)
-    getLabel (SBVSim.RecLabel xs) = FVRec $ fmap getLabel xs
+    getLabel (SBVSim.TupleLabel ns) = FVTuple $ map getLabel (V.toList ns)
+    getLabel (SBVSim.RecLabel ns) = FVRec $ fmap getLabel ns
 
 satBoolector :: SharedContext s -> ProofScript s SV.SatResult
 satBoolector = satSBV SBV.boolector
@@ -1005,8 +1001,6 @@ caseProofResultPrim pr vValid vInvalid = do
   sc <- getSharedContext
   case pr of
     SV.Valid -> return vValid
-    SV.Invalid v -> do t <- io $ mkTypedTerm sc =<< scFiniteValue sc v
-                       SV.applyValue vInvalid (SV.toValue t)
     SV.InvalidMulti pairs -> do
       let fvs = map snd pairs
       ts <- io $ mapM (scFiniteValue sc) fvs
@@ -1021,14 +1015,12 @@ caseSatResultPrim sr vUnsat vSat = do
   sc <- getSharedContext
   case sr of
     SV.Unsat -> return vUnsat
-    SV.Sat v -> do t <- io $ mkTypedTerm sc =<< scFiniteValue sc v
-                   SV.applyValue vSat (SV.toValue t)
     SV.SatMulti pairs -> do
       let fvs = map snd pairs
       ts <- io $ mapM (scFiniteValue sc) fvs
       t <- io $ scTuple sc ts
       tt <- io $ mkTypedTerm sc t
-      SV.applyValue vUnsat (SV.toValue tt)
+      SV.applyValue vSat (SV.toValue tt)
 
 envCmd :: TopLevel ()
 envCmd = do

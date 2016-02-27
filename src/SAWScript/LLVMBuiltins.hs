@@ -274,8 +274,6 @@ prover opts sc ms script vs g = do
   r <- evalStateT script (ProofGoal Universal (vsVCName vs) tt)
   case r of
     SV.Unsat -> when (verb >= 3) $ io $ putStrLn "Valid."
-    -- TODO: replace x with something in the following
-    SV.Sat val -> io $ showCexResults sc ms vs exts [("x", val)]
     SV.SatMulti vals -> io $ showCexResults sc ms vs exts vals
 
 showCexResults :: SharedContext SAWCtx

@@ -120,19 +120,16 @@ showLLVMModule (LLVMModule name m) =
 
 data ProofResult
   = Valid
-  | Invalid FiniteValue
   | InvalidMulti [(String, FiniteValue)]
     deriving (Show)
 
 data SatResult
   = Unsat
-  | Sat FiniteValue
   | SatMulti [(String, FiniteValue)]
     deriving (Show)
 
 flipSatResult :: SatResult -> ProofResult
 flipSatResult Unsat = Valid
-flipSatResult (Sat t) = Invalid t
 flipSatResult (SatMulti t) = InvalidMulti t
 
 isVUnit :: Value -> Bool
@@ -168,7 +165,6 @@ showsProofResult :: PPOpts -> ProofResult -> ShowS
 showsProofResult opts r =
   case r of
     Valid -> showString "Valid"
-    Invalid t -> showString "Invalid: " . showVal t
     InvalidMulti ts -> showString "Invalid: [" . showMulti "" ts
   where
     opts' = cryptolPPOpts opts
@@ -181,7 +177,6 @@ showsSatResult :: PPOpts -> SatResult -> ShowS
 showsSatResult opts r =
   case r of
     Unsat -> showString "Unsat"
-    Sat t -> showString "Sat: " . showVal t
     SatMulti ts -> showString "Sat: [" . showMulti "" ts
   where
     opts' = cryptolPPOpts opts
