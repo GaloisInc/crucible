@@ -39,6 +39,7 @@ type SAWBackend = SharedContext SAWCtx
 type SpecPathState = Path (SharedContext SAWCtx)
 type SpecJavaValue = Value (SharedTerm SAWCtx)
 type SAWJavaSim = Simulator (SharedContext SAWCtx)
+type LocalMap t = Map.Map LocalVariableIndex (Value t)
 
 boolExtend :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
 boolExtend sc x = do
@@ -199,14 +200,14 @@ writeJavaValuePS (CC.Term e) v ps =
           let cf' = cf & cfLocals %~ Map.insert i v
           return (ps & pathStack .~ (cf':cfs))
     InstanceField rexp f -> do
-      rv <- readJavaValue (currentCallFrame ps) ps rexp
+      rv <- readJavaValue ((^. cfLocals) <$> currentCallFrame ps) ps rexp
       case rv of
         RValue r -> return (setInstanceFieldValuePS r f v ps)
         _ -> fail "Instance argument of instance field evaluates to non-reference"
     StaticField f -> return (setStaticFieldValuePS f v ps)
 
 readJavaTerm :: (Functor m, Monad m) =>
-                Maybe (CallFrame term) -> Path' term -> JavaExpr -> m term
+                Maybe (LocalMap term) -> Path' term -> JavaExpr -> m term
 readJavaTerm mcf ps et =
   termOfValue ps (exprType et) =<< readJavaValue mcf ps et
 
@@ -215,7 +216,7 @@ readJavaTermSim :: (Functor m, Monad m) =>
                 -> Simulator sbe m (SBETerm sbe)
 readJavaTermSim e = do
   ps <- getPath "readJavaTermSim"
-  readJavaTerm (currentCallFrame ps) ps e
+  readJavaTerm ((^. cfLocals) <$> currentCallFrame ps) ps e
 
 termOfValue :: (Functor m, Monad m) =>
                Path' term -> JSS.Type -> JSS.Value term -> m term
@@ -275,25 +276,25 @@ valueOfTerm sc (TypedTerm _schema t) = do
 -- call frame than the one in the current state, which can be useful to
 -- access parameters of a method that has returned.
 readJavaValue :: (Functor m, Monad m) =>
-                 Maybe (CallFrame term)
+                 Maybe (LocalMap term)
               -> Path' term
               -> JavaExpr
               -> m (JSS.Value term)
-readJavaValue mcf ps (CC.Term e) = do
+readJavaValue mlocals ps (CC.Term e) = do
   case e of
     ReturnVal _ ->
       case ps ^. pathRetVal of
         Just rv -> return rv
         Nothing -> fail "Return value not found"
     Local _ idx _ ->
-      case mcf of
-        Just cf ->
-          case Map.lookup idx (cf ^. cfLocals) of
+      case mlocals of
+        Just locals ->
+          case Map.lookup idx locals of
             Just v -> return v
             Nothing -> fail $ "Local variable " ++ show idx ++ " not found"
         Nothing -> fail "Trying to read local variable with no call frame."
     InstanceField rexp f -> do
-      rv <- readJavaValue mcf ps rexp
+      rv <- readJavaValue mlocals ps rexp
       case rv of
         RValue ref -> do
           let ifields = ps ^. pathMemory . memInstanceFields
@@ -313,16 +314,16 @@ readJavaValueSim :: (MonadSim sbe m) =>
                  -> Simulator sbe m (JSS.Value (SBETerm sbe))
 readJavaValueSim e = do
   ps <- getPath "readJavaValueSim"
-  readJavaValue (currentCallFrame ps) ps e
+  readJavaValue ((^. cfLocals) <$> currentCallFrame ps) ps e
 
 logicExprToTerm :: SharedContext SAWCtx
-                -> Maybe (CallFrame (SharedTerm SAWCtx))
+                -> Maybe (LocalMap (SharedTerm SAWCtx))
                 -> Path' (SharedTerm SAWCtx) -> LogicExpr
                 -> IO (SharedTerm SAWCtx)
-logicExprToTerm sc mcf ps le = do
+logicExprToTerm sc mlocals ps le = do
   let exprs = logicExprJavaExprs le
   args <- forM exprs $ \expr -> do
-    t <- readJavaTerm mcf ps expr
+    t <- readJavaTerm mlocals ps expr
     return (expr, t)
   let argMap = Map.fromList args
       argTerms = mapMaybe (\k -> Map.lookup k argMap) exprs
@@ -333,10 +334,10 @@ mixedExprToTerm :: SharedContext SAWCtx
                 -> Path' (SharedTerm SAWCtx) -> MixedExpr
                 -> IO (SharedTerm SAWCtx)
 mixedExprToTerm sc ps me = do
-  let mcf = currentCallFrame ps
+  let mlocals = (^. cfLocals) <$> currentCallFrame ps
   case me of
-    LE le -> logicExprToTerm sc mcf ps le
-    JE je -> readJavaTerm mcf ps je
+    LE le -> logicExprToTerm sc mlocals ps le
+    JE je -> readJavaTerm mlocals ps je
 
 logicExprToTermSim :: (Functor m, Monad m) =>
                       SharedContext SAWCtx
@@ -344,7 +345,7 @@ logicExprToTermSim :: (Functor m, Monad m) =>
                    -> Simulator SAWBackend m (SharedTerm SAWCtx)
 logicExprToTermSim sc le = do
   ps <- getPath "logicExprToTermSim"
-  liftIO $ logicExprToTerm sc (currentCallFrame ps) ps le
+  liftIO $ logicExprToTerm sc ((^. cfLocals) <$> currentCallFrame ps) ps le
 
 freshJavaVal :: (MonadIO m, Functor m) =>
                 Maybe (IORef [SharedTerm SAWCtx])
@@ -441,8 +442,8 @@ useLogicExprPS :: JSS.Path (SharedContext SAWCtx)
                -> LogicExpr
                -> IO (SharedTerm SAWCtx)
 useLogicExprPS ps sc le = do
-  let mcf = (currentCallFrame ps)
-  args <- mapM (readJavaTerm mcf ps) (logicExprJavaExprs le)
+  let mlocals = (^. cfLocals) <$> currentCallFrame ps
+  args <- mapM (readJavaTerm mlocals ps) (logicExprJavaExprs le)
   useLogicExpr sc le args
 
 evalAssumptions :: SharedContext SAWCtx -> SpecPathState -> [LogicExpr]

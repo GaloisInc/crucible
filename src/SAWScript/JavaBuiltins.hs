@@ -122,19 +122,22 @@ symexecJava bic opts cls mname inputs outputs satBranches = do
         "Passing value of type " ++ show aty ++
         " to argument expected to be of type " ++ show ety ++ "."
       mapM_ (uncurry (writeJavaTerm jsc)) otherAssigns
-      initPS <- getPath "java_symexec initial"
-      _ <- case methodIsStatic meth of
-             True -> execStaticMethod (className cls) (methodKey meth) args
-             False -> do
-               RValue this <- freshJavaVal Nothing jsc (ClassInstance cls)
-               execInstanceMethod (className cls) (methodKey meth) this args
-      ps <- getPath "java_symexec final"
+      allArgs <- case methodIsStatic meth of
+                   True -> return args
+                   False -> do
+                     this <- createInstance (className cls) Nothing
+                     return (RValue this : args)
+      let localMap = setupLocals allArgs
+      mp <- execMethod (className cls) (methodKey meth) localMap
+      ps <- case mp of
+              Nothing -> fail "No paths returned from execMethod"
+              Just (ps, _) -> return ps
       outtms <- forM outputs $ \ostr -> do
         case ostr of
           "$safety" -> return (ps ^. pathAssertions)
           _-> do
             e <- parseJavaExpr' cb cls meth ostr
-            readJavaTerm (currentCallFrame initPS) ps e
+            readJavaTerm (Just localMap) ps e
       let bundle tms = case tms of
                          [t] -> return t
                          _ -> scTuple jsc tms

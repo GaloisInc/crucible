@@ -621,7 +621,7 @@ readJavaValueVerif :: (Functor m, Monad m) =>
                    -> m SpecJavaValue
 readJavaValueVerif vs ps refExpr = do
   let initPS = vsInitialState vs
-  readJavaValue (currentCallFrame initPS) ps refExpr
+  readJavaValue ((^. cfLocals) <$> currentCallFrame initPS) ps refExpr
 
 checkStep :: (Functor m, Monad m, MonadIO m) =>
              VerificationState
@@ -679,8 +679,9 @@ checkFinalState sc ms bs cl initPS = do
       cmds = bsCommands bs
   finalPS <- getPath "checkFinalState"
   let maybeRetVal = finalPS ^. pathRetVal
+      initLocals = (^. cfLocals) <$> currentCallFrame initPS
   refList <- forM (concatMap fst cl) $ \e -> do
-      rv <- readJavaValue (currentCallFrame initPS) finalPS e
+      rv <- readJavaValue initLocals finalPS e
       case rv of
         RValue r -> return (r, e)
         _ -> fail "internal: refMap"
@@ -704,14 +705,14 @@ checkFinalState sc ms bs cl initPS = do
         [ e | EnsureArray _ e _ <- cmds] ++
         [ e | ModifyArray e _ <- cmds ]
   mentionedIFields <- forM mentionedIFieldExprs $ \(e, fid) -> do
-      -- TODO: best combination of initPS and finalPS unclear here.
-      rv <- readJavaValue (currentCallFrame initPS) finalPS e
+      -- TODO: best combination of initLocals and finalPS unclear here.
+      rv <- readJavaValue initLocals finalPS e
       case rv of
         RValue r -> return (r, fid)
         _ -> fail "internal: mentionedIFields"
   mentionedArrays <- forM mentionedArrayExprs $ \e -> do
-      -- TODO: best combination of initPS and finalPS unclear here.
-      rv <- readJavaValue (currentCallFrame initPS) finalPS e
+      -- TODO: best combination of initLocals and finalPS unclear here.
+      rv <- readJavaValue initLocals finalPS e
       case rv of
         RValue r -> return r
         _ -> fail "internal: mentionedArrays"
