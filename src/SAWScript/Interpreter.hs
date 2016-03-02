@@ -984,7 +984,7 @@ primitives = Map.fromList
     , "state of a Java method."
     ]
 
-  , prim "java_assert_eq"      "{a} String -> a -> JavaSetup ()"
+  , prim "java_assert_eq"      "String -> Term -> JavaSetup ()"
     (bicVal javaAssertEq)
     [ "Assert that the given variable should have the given value in the"
     , "initial state of a Java method."
@@ -1135,7 +1135,7 @@ primitives = Map.fromList
     , "state of an LLVM function."
     ]
 
-  , prim "llvm_assert_eq"      "{a} String -> a -> LLVMSetup ()"
+  , prim "llvm_assert_eq"      "String -> Term -> LLVMSetup ()"
     (pureVal llvmAssertEq)
     [ "Specify the initial value of an LLVM variable."
     ]
