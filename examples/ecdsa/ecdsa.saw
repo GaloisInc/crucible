@@ -65,9 +65,6 @@ let {{
 /* Convenience functions for conventions used in the Java ECDSA
 implementation */
 
-let default_tactic n = assume_unsat;
-let hard_tactic n = assume_unsat;
-
 let ecdsa_arr384 n = do {
   a <- java_var n (java_array 12 java_int);
   return {{ ec_join a }};
@@ -259,16 +256,6 @@ let dbl_spec = do {
   maybe_skip;
   java_verify_tactic abc;
 };
-
-/*
-let dbl_dec_spec = do {
-  y <- ecdsa_arr384 "y";
-  z <- ecdsa_arr384 "z";
-  ecdsa_assign_arr384 "z" {{ (z - 2*y) }};
-  java_return {{ z < y }};
-  java_verify_tactic (default_tactic "dbl_dec");
-};
-*/
 
 let sub_spec = do {
   x <- ecdsa_arr384 "x";
