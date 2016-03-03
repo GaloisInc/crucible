@@ -1,18 +1,24 @@
 m <- llvm_load_module "struct.bc";
+a <- fresh_symbolic "a" {| [32] |};
+b <- fresh_symbolic "b" {| [32] |};
 let allocs = [ ("o", 1), ("o->0", 2) ];
-let inputs = [ ("*(o->0)", {{ [1, 2] : [2][32] }}, 2) ];
+let inputs = [ ("*(o->0)", {{ [a, b] : [2][32] }}, 2) ];
+let zinputs = [ ("*(o->0)", {{ zero : [2][32] }}, 2) ];
 let add_outputs = [("return", 1)];
 let set_outputs = [("*(o->0)", 2)];
 let id_outputs = [("*(return->0)", 2)];
 add_indir <- llvm_symexec m "add_indirect" allocs inputs add_outputs false;
 set_indir <- llvm_symexec m "set_indirect" allocs inputs set_outputs false;
 id_t <- llvm_symexec m "s_id" allocs inputs id_outputs false;
+zero_t <- llvm_symexec m "s_id" allocs zinputs id_outputs false;
 print "Sum of array field elements:";
-print add_indir;
+print_term add_indir;
 print "New value of array field elements after clearing:";
-print set_indir;
+print_term set_indir;
 print "Original value of array field elements when directly returned:";
-print id_t;
+print_term id_t;
+print "Original value of zero array field elements when directly returned:";
+print zero_t;
 
 let set_spec = do {
     llvm_ptr "o" (llvm_struct "struct.s");
