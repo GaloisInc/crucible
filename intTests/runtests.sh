@@ -96,28 +96,31 @@ for i in $TESTS; do
 
   # Some nasty bash hacking here to catpure the amount of time taken by the test
   # See http://mywiki.wooledge.org/BashFAQ/032
+  START_TIME=$SECONDS
   if [ "${OS}" == "Windows_NT" ]; then
     # ulimit is useless on cygwin :-(  Use the 'timeout' utility instead
-    TEST_TIME=$(cd $i; (time /usr/bin/timeout -k 15 ${TEST_TIMEOUT} sh -vx test.sh > ../logs/$i.log 2>&1) 2>&1 )
+    (cd $i; (/usr/bin/timeout -k 15 ${TEST_TIMEOUT} sh -vx test.sh > ../logs/$i.log 2>&1) 2>&1 )
     RES=$?
   else
-    TEST_TIME=$(ulimit -t ${TEST_TIMEOUT}; cd $i; (time sh -vx test.sh > ../logs/$i.log 2>&1) 2>&1 )
+    (ulimit -t ${TEST_TIMEOUT}; cd $i; (sh -vx test.sh > ../logs/$i.log 2>&1) 2>&1 )
     RES=$?
   fi
+  END_TIME=$SECONDS
+  TEST_TIME=$(expr $END_TIME - $START_TIME)
 
-  if [ $(echo "$TEST_TIME >= $TEST_TIMEOUT" | bc) == 1 ]; then
+  if [ $(expr $TEST_TIME ">=" $TEST_TIMEOUT) == 1 ]; then
     TIMED_OUT=" TIMEOUT"
   else
     TIMED_OUT=""
   fi
 
-  TOTAL_TIME=$( echo "${TOTAL_TIME} + ${TEST_TIME}" | bc )
+  TOTAL_TIME=$(expr ${TOTAL_TIME} + ${TEST_TIME})
 
   if [ $RES == 0 ]; then
-    echo "$i: OK ($TEST_TIME)"
+    echo "$i: OK (${TEST_TIME}s)"
     echo "  <testcase name=\"${i}\" time=\"${TEST_TIME}\" />" >> ${XML_TEMP}
   else
-    echo "$i: FAIL ($TEST_TIME$TIMED_OUT)"
+    echo "$i: FAIL (${TEST_TIME}s${TIMED_OUT})"
     if [ ! -z "$LOUD" ]; then cat logs/$i.log; fi
     FAILED_TESTS=$(( $FAILED_TESTS + 1 ))
     echo "  <testcase name=\"${i}\" time=\"${TEST_TIME}\"><failure><![CDATA[" >> ${XML_TEMP}
