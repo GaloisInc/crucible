@@ -974,9 +974,6 @@ let ecdsa_public_verify_spec ss = do {
               , "p384_mod_div"
               ];
     unint_z3 ufs;
-    //assume_unsat;
-    //print_goal_consts;
-    //offline_extcore "public_verify.";
   };
 };
 
@@ -1175,7 +1172,7 @@ let main = do {
     // used above.
     let t = unfold_term ["thm"] {{ thm }};
     let t = rewrite ss0 t;
-    print_term t;
+    //print_term t;
     prove_print z3 t;
   };
   p384_point_ops_field_sq_simp <- do {
@@ -1185,7 +1182,7 @@ let main = do {
     // used above.
     let t = unfold_term ["thm"] {{ thm }};
     let t = rewrite ss0 t;
-    print_term t;
+    //print_term t;
     prove_print z3 t;
   };
   p384_point_ops_field_mul_simp2 <- do {
@@ -1195,7 +1192,7 @@ let main = do {
     // used above.
     let t = unfold_term ["thm"] {{ thm }};
     let t = rewrite ss0 t;
-    print_term t;
+    //print_term t;
     prove_print z3 t;
   };
   p384_point_ops_field_sq_simp2 <- do {
@@ -1205,7 +1202,7 @@ let main = do {
     // used above.
     let t = unfold_term ["thm"] {{ thm }};
     let t = rewrite ss0 t;
-    print_term t;
+    //print_term t;
     prove_print z3 t;
   };
 
@@ -1214,7 +1211,7 @@ let main = do {
                      mul_java::p384_group_mul (p384_field::p384_group_size, x, y) }};
     let t = unfold_term ["thm"] {{ thm }};
     let t = rewrite ss0 t;
-    print_term t;
+    //print_term t;
     prove_print (unint_z3 ["p384_group_mul"]) t;
   };
 
@@ -1223,7 +1220,7 @@ let main = do {
                    p384_field::p384_mod_mul (p384_field::p384_group_size, x, x) }};
     let t = unfold_term ["thm"] {{ thm }};
     let t = rewrite ss0 t;
-    print_term t;
+    //print_term t;
     prove_print (unint_z3 ["p384_mod_mul"]) t;
   };
   p384_curve_field_div_simp <- do {
@@ -1231,7 +1228,7 @@ let main = do {
                      p384_mod_div (p384_field::p384_group_size, x, y) }};
     let t = unfold_term ["thm"] {{ thm }};
     let t = rewrite ss0 t;
-    print_term t;
+    //print_term t;
     prove_print (unint_z3 ["p384_mod_div"]) t;
   };
   p384_curve_twin_mul_simp <- do {
@@ -1239,7 +1236,7 @@ let main = do {
                    p384_ec_mul::p384_ec_twin_mul x }};
     let t = unfold_term ["thm"] {{ thm }};
     let t = rewrite ss0 t;
-    print_term t;
+    //print_term t;
     prove_print (unint_z3 ["p384_ec_twin_mul"]) t;
   };
   p384_curve_is_equal_simp <- do {
@@ -1247,7 +1244,7 @@ let main = do {
                      (x == y) }};
     let t = unfold_term ["thm"] {{ thm }};
     let t = rewrite ss0 t;
-    print_term t;
+    //print_term t;
     prove_print z3 t;
   };
   p384_curve_is_val_simp <- do {
@@ -1255,7 +1252,7 @@ let main = do {
                    p384_field::p384_is_group_val x }};
     let t = unfold_term ["thm"] {{ thm }};
     let t = rewrite ss0 t;
-    print_term t;
+    //print_term t;
     prove_print z3 t;
   };
   p384_curve_norm_simp <- do {
@@ -1265,21 +1262,21 @@ let main = do {
                     else x - p384_field::p384_group_size) }};
     let t = unfold_term ["thm"] {{ thm }};
     let t = rewrite ss0 t;
-    print_term t;
+    //print_term t;
     prove_print z3 t;
   };
   p384_curve_field_zero_simp <- do {
     let {{ thm = ecc::p384_curve.point_ops.group_field.field_zero == 0 }};
     let t = unfold_term ["thm"] {{ thm }};
     let t = rewrite ss0 t;
-    print_term t;
+    //print_term t;
     prove_print z3 t;
   };
   p384_curve_base_simp <- do {
     let {{ thm = ecc::p384_curve.base == ecc::p384_base }};
     let t = unfold_term ["thm"] {{ thm }};
     let t = rewrite ss0 t;
-    print_term t;
+    //print_term t;
     prove_print z3 t;
   };
 
@@ -1373,7 +1370,7 @@ let main = do {
           { x = t.x, y = p384_field::p384_field_neg(t.y) }) }};
     let t' = rewrite ss0 t;
     print "Proving rewrite rule:";
-    print_term t';
+    //print_term t';
     prove_print do {
       unfolding
         [ "p384_ec_full_sub", "ec_full_sub", "p384_point_ops", "p384_field"
