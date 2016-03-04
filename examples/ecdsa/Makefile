@@ -3,8 +3,10 @@ JDK?=$(shell (java -verbose 2>&1) | grep Opened | head -1 | cut -d ' ' -f 2 | cu
 
 all : build
 
+build : build/com/galois/ecc/ECCProvider.class
+
 # Create Java class files
-build :
+build/com/galois/ecc/ECCProvider.class :
 	mkdir -p build
 	javac -g -cp src src/com/galois/ecc/*.java -d build
 	javac -g -cp build:tests tests/com/galois/ecc/*.java -d build
