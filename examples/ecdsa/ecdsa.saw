@@ -76,17 +76,19 @@ let ecdsa_arr768 n = do {
 };
 
 let ecdsa_uses_field_prime = do {
-  p <- ecdsa_arr384 "this.field_prime";
-  java_assert {{ p == field_prime }};
+  ecdsa_arr384 "this.field_prime";
+  java_assert_eq "this.field_prime" {{ ec_split field_prime }};
 };
 
 let ecdsa_uses_field_unit = do {
-  u <- ecdsa_arr384 "this.field_unit";
-  java_assert {{ u == 1 }};
+  ecdsa_arr384 "this.field_unit";
+  java_assert_eq "this.field_unit" {{ ec_split 1 }};
 };
 
 let ecdsa_uses_group_order = do {
   order <- ecdsa_arr384 "this.group_order";
+  // FIXME: for some reason, we get a spurious counter-example in
+  // twin_mul_init if we use java_assert_eq below
   java_assert {{ order == group_order }};
 };
 
@@ -117,6 +119,12 @@ let ecdsa_jacobian n = do {
   ry <- ecdsa_arr384 (str_concat n ".y");
   rz <- ecdsa_arr384 (str_concat n ".z");
   return {{ { x = rx, y = ry, z = rz } }};
+};
+
+let ecdsa_uses_base f v = do {
+  ecdsa_affine f;
+  java_assert_eq (str_concat f ".x") {{ ec_split v.x }};
+  java_assert_eq (str_concat f ".y") {{ ec_split v.y }};
 };
 
 let ecdsa_signature n = do {
@@ -831,9 +839,6 @@ let ecdsa_sign_spec ss = do {
   sMtP <- ecdsa_jacobian "this.sMtP";
   sPt <- ecdsa_affine "this.sPt";
   sMt <- ecdsa_affine "this.sMt";
-  basePoint <- ecdsa_affine "this.basePoint";
-  basePoint3 <- ecdsa_affine "this.basePoint3";
-  basePoint5 <- ecdsa_affine "this.basePoint5";
   aux2rslt <- ecdsa_twin_mul_aux2_rslt "this.aux2Rslt";
   qPoint <- ecdsa_affine "this.qPoint";
   wd <- java_var "this.width" java_int;
@@ -845,10 +850,10 @@ let ecdsa_sign_spec ss = do {
   ecdsa_arr384 "this.h";
   ecdsa_arr384 "this.u1";
   ecdsa_arr384 "this.u2";
-  java_assert {{ basePoint == ecc::p384_base }};
-  java_assert {{ basePoint3 == ecc::p384_base3 }};
-  java_assert {{ basePoint5 == ecc::p384_base5 }};
-  java_assert {{ wd == (12 : [32]) }};
+  ecdsa_uses_base "this.basePoint" {{ ecc::p384_base }};
+  ecdsa_uses_base "this.basePoint3" {{ ecc::p384_base3 }};
+  ecdsa_uses_base "this.basePoint5" {{ ecc::p384_base5 }};
+  java_assert_eq "this.width" {{ 12 : [32] }};
   java_assert {{ ~(d == (0:[384])) }};
   java_assert {{ ~(k == (0:[384])) }};
   java_assert {{ ~(group_order <= d) }};
@@ -915,7 +920,7 @@ let ecdsa_public_verify_spec ss = do {
   sPt <- ecdsa_affine "this.sPt";
   sMt <- ecdsa_affine "this.sMt";
   aux2rslt <- ecdsa_twin_mul_aux2_rslt "this.aux2Rslt";
-  basePoint <- ecdsa_affine "this.basePoint";
+  ecdsa_uses_base "this.basePoint" {{ ecc::p384_base }};
   ecdsa_uses_field_prime;
   ecdsa_uses_group_order;
   ecdsa_uses_field_unit;
@@ -924,8 +929,7 @@ let ecdsa_public_verify_spec ss = do {
   ecdsa_arr384 "this.h";
   ecdsa_arr384 "this.u1";
   ecdsa_arr384 "this.u2";
-  java_assert {{ basePoint == ecc::p384_base }};
-  java_assert {{ wd == (12 : [32]) }};
+  java_assert_eq "this.width" {{ 12 : [32] }};
   java_return {{ ecc::p384_ecdsa_public_verify(e, sig.r, sig.s, publicKey) }};
 
   java_modify "this.a";
