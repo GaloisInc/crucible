@@ -1273,6 +1273,11 @@ primitives = Map.fromList
     (funVal1 eval_int)
     [ "Evaluate a Cryptol term of type [n] and convert to a SAWScript Int."
     ]
+
+  , prim "eval_size"          "Type -> Int"
+    (funVal1 eval_size)
+    [ "Convert a Cryptol size type to a SAWScript Int."
+    ]
   ]
   where
     prim :: String -> String -> (Options -> BuiltinContext -> Value) -> [String]
