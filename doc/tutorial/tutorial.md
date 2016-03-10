@@ -554,8 +554,8 @@ pointer `p`, write 8 elements to `*p` at the beginning, and read 4
 elements from `*p` at the end. However, both the initialization and
 result sizes must be less than or equal to the allocation size.
 
-An example of using `java_symexec` on a function similar to the Java
-method just discussed appears in the `code/java_symexec.saw` file,
+An example of using `llvm_symexec` on a function similar to the Java
+method just discussed appears in the `code/llvm_symexec.saw` file,
 quoted below.
 
 ```
