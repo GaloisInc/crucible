@@ -22,6 +22,7 @@ import Data.Foldable (toList)
 #if !MIN_VERSION_base(4,8,0)
 import Data.Functor
 import Control.Applicative
+import Data.Monoid
 #endif
 import Control.Lens
 import Control.Monad.State
