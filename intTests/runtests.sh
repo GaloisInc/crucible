@@ -10,10 +10,7 @@ JSS_BASE=$TESTBASE/../deps/jvm-verifier
 
 # define the BIN variable, if not already defined
 if [ -z "$BIN" ]; then
-  # Workaround bug which prevents using `stack path --local-install-root`:
-  # https://github.com/commercialhaskell/stack/issues/604.
-  BIN="$(cd "$TESTBASE"/.. &&
-    stack path | sed -ne 's/local-install-root: //p')"/bin
+  BIN="$(cd "$TESTBASE"/.. && stack path --local-install-root)"/bin
   if [ "$OS" = "Windows_NT" ]; then
     # Stack returns Windows paths on Windows, but we're using Cygwin so
     # we want Unix paths.
