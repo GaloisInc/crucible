@@ -36,12 +36,13 @@ if [ -n "$clean" ]; then
 fi
 mkdir -p ${TARGET}/bin
 mkdir -p ${TARGET}/doc
-mkdir -p ${TARGET}/examples
 mkdir -p ${TARGET}/lib
 
 echo Staging ...
 
-BIN=$(stack path --local-install-root)/bin
+# Workaround bug which prevents using `stack path --local-install-root`:
+# https://github.com/commercialhaskell/stack/issues/604.
+BIN=$(stack path | sed -ne 's/local-install-root: //p')/bin
 
 strip "$BIN"/*
 
@@ -56,7 +57,6 @@ cp "$BIN"/saw                                 ${TARGET}/bin
 cp doc/extcore.txt                            ${TARGET}/doc
 cp doc/tutorial/sawScriptTutorial.pdf         ${TARGET}/doc
 cp -r doc/tutorial/code                       ${TARGET}/doc
-cp -r examples/*                              ${TARGET}/examples
 cp deps/jvm-verifier/support/galois.jar       ${TARGET}/lib
 cp -r deps/cryptol/lib/*                      ${TARGET}/lib
 
