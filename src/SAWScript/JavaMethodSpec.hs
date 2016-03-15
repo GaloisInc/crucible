@@ -727,13 +727,20 @@ checkFinalState sc ms bs cl initPS = do
     mapM_ (checkStep st finalPS) cmds
     let initMem = initPS ^. pathMemory
         finalMem = finalPS ^. pathMemory
+        initRefArrays = initMem ^. memRefArrays
+        finalRefArrays = finalMem ^. memRefArrays
     when (initMem ^. memInitialization /= finalMem ^. memInitialization) $
       unless (specAllowAlloc ms) $
         pvcgFail "Initializes an extra class."
     when (initMem ^. memClassObjects /= finalMem ^. memClassObjects) $
       pvcgFail "Allocates a class object."
-    when (initMem ^. memRefArrays /= finalMem ^. memRefArrays) $
-      pvcgFail "Allocates or modifies a reference array."
+    when (Map.keys initRefArrays /= Map.keys finalRefArrays) $
+      unless (specAllowAlloc ms) $
+        pvcgFail "Allocates a reference array"
+    forM_ (Map.toList initRefArrays) $ \(r, a) ->
+      case Map.lookup r finalRefArrays of
+        Just a' -> when (a /= a') $ pvcgFail "Modifies a reference array."
+        Nothing -> pvcgFail "Reference array disappeared?"
     forM_ (Map.toList (finalMem ^. memStaticFields)) $ \(f, fval) ->
       unless (Set.member f mentionedSFields) $
         unless(isArrayType (fieldIdType f)) $
