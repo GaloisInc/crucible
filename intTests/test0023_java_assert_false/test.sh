@@ -1,8 +1,7 @@
-$SAW test.saw
-RES=$?
-echo $RES
-if [ $RES -eq 0 ] ; then
-    exit 1
-else
+#!/bin/sh
+
+if ! $SAW side.saw ; then
     exit 0
+else
+    exit 1
 fi
