@@ -5,13 +5,16 @@ execution*, so some background on how this process works can help with
 understanding the behavior of the available built-in functions.
 
 At the most abstract level, symbolic execution works like normal program
-execution except that the values of all variables within the program
-can be arbitrary *expressions*, rather than concrete values, potentially
-containing mathematical variables. As a concrete example, consider the
-following C program, which returns the maximum of two values:
+execution except that the values of all variables within the program can
+be arbitrary *expressions*, rather than concrete values, potentially
+containing mathematical variables. Therefore, each symbolic execution
+corresponds to some set of possible concrete executions.
+
+As a concrete example, consider the following C program, which returns
+the maximum of two values:
 
 ~~~~ {.c}
-int max(int x, int y) {
+unsigned int max(unsigned int x, unsigned int y) {
     if (y > x) {
         return y;
     } else {
@@ -27,28 +30,41 @@ int r = max(5, 4);
 ~~~~
 
 then it will assign the value `5` to `r`. However, we can consider what
-it will do for *arbitrary* inputs, as well. In the following example:
+it will do for *arbitrary* inputs, as well. Consider the following
+example:
 
 ~~~~ {.c}
 int r = max(a, b);
 ~~~~
 
-we could describe the general value of `r` as follows:
+where `a` and `b` are variables with unknown values. It is still
+possible to describe the result of the `max` function in terms of `a`
+and `b`. The following expression describes the value of `r`:
 
 ~~~~
 ite (b > a) b a
 ~~~~
 
 where `ite` is the "if-then-else" mathematical function that, based on
-the value of its first argument returns either the second or third.
+the value of its first argument returns either the second or third. One
+subtlety of constructing this expression, however, is the treatment of
+conditionals in the original program. For any concrete values of `a` and
+`b`, only one branch of the `if` statement will execute. During symbolic
+execution, on the other hand, it is necessary to execute *both*
+branches, track two different program states (each composed of symbolic
+values), and then to *merge* those states after executing the `if`
+statement. This merging process takes into account the original branch
+condition and introduces the `ite` expression.
 
 A symbolic execution system, then, is very similar to an interpreter
-with a different notion of what constitutes a value. Therefore, the
+with a different notion of what constitutes a value, and which executes
+*all* paths through the program instead of just one. Therefore, the
 execution process follows a similar process to that of a normal
 interpreter, and the process of generating a model for a piece of code
 is similar to building a test harness for that same code.
 
-More specifically, the setup process typically takes the following form:
+More specifically, the setup process for a test harness typically takes
+the following form:
 
 * Initialize or allocate any resources needed by the code. For Java and
   LLVM code, this typically means allocating memory and setting the
@@ -63,7 +79,7 @@ Accordingly, three pieces of information are particularly relevant to
 the symbolic execution process, and therefore needed as input to the
 symbolic execution system:
 
-* The initial state of the system.
+* The initial (potentially symbolic) state of the system.
 
 * The code to execute.
 
@@ -78,14 +94,35 @@ require more information from the user.
 
 # Symbolic Termination
 
-(placeholder, put here by dylan)
+In the previous section we described the process of executing multiple
+branches and merging the results when encountering a conditional
+statement in the program. When a program contains loops, the branch that
+chooses to continue or terminate a loop could go either way. Therefore,
+without a bit more information, the most obvious implementation of
+symbolic execution would never terminate when executing programs with
+loops.
 
-Whether or not a program terminates on concrete inputs is a complex
-question. For symbolic simulation, a non-terminating computation is one that fails
-to complete during the analysis phase, which can happen more often than
-you might expect.
+The solution to this problem is to analyze the branch condition whenever
+considering multiple branches. If the condition for one branch can never
+be true in the context of the current symbolic state, there is no reason
+to execute that branch, and skipping it can make it possible for
+symbolic execution to terminate.
 
-For example, this simple loop:
+Directly comparing the branch condition to a constant can sometimes be
+enough to ensure termination. For example, in simple, bounded loops like
+the following, comparison with a constant is sufficient.
+
+~~~~ {.c}
+for (int i = 0; i < 10; i++) {
+    // do something
+}
+~~~~
+
+In this case, the value of `i` is always concrete, and will eventually
+reach the value `10`, at which point the branch corresponding to
+continuing the loop will be infeasible.
+
+As a more complex example, consider the following loop:
 
 ~~~~ {.c}
 int i = 1;
@@ -96,12 +133,19 @@ while (!done){
 }
 ~~~~
 
-can only be determined to symbolically terminate if the analysis takes 
-into account algebraic rules about common multiples. Similarly, it can be difficult
-to prove that a base case is eventually reached for all inputs to a recursive
-program.
+This loop can only be determined to symbolically terminate if the
+analysis takes into account algebraic rules about common multiples.
+Similarly, it can be difficult to prove that a base case is eventually
+reached for all inputs to a recursive program.
+
+TODO: something about SAT checking
+
+Now let's get into the details of the specific commands available to
+analyze JVM and LLVM programs.
 
 # Loading Code
+
+The first step in analyzing any code is to load it into the system.
 
 To load LLVM code, simply provide the location of a valid bitcode file
 to the `llvm_load_module` function.
@@ -159,23 +203,20 @@ LLVM module, loaded as described in the previous section). The second
 argument is the name of the function or method to extract.
 
 The third argument provides the ability to configure other aspects of
-the symbolic execution process. At the moment, two options are possible.
-If you pass in `java_pure` or `llvm_pure`, respectively, the default
-extraction process is simply to set both arguments to fresh symbolic
-variables, and return the symbolic value returned by the function or
-method under analysis. The `java_sat_branches b` (or `llvm_sat_branches
-b`) function explicitly turns on branch satisfiability checking, which
-can help with symbolic termination issues, as described earlier. In the
-future, other configuration may be possible.
+the symbolic execution process. At the moment, only one option possible:
+pass in `java_pure` or `llvm_pure`, for Java and LLLVM respectively, and
+the default extraction process is simply to set both arguments to fresh
+symbolic variables, and return the symbolic value returned by the
+function or method under analysis.
 
 When the `..._extract` functions complete, they return a `Term`
 corresponding to the value returned by the function or method.
 
-These functions work only for code that takes some fixed number of
-integral parameters, returns an integral result, and does not access any
-dynamically-allocated memory.
+These functions currently work only for code that takes some fixed
+number of integral parameters, returns an integral result, and does not
+access any dynamically-allocated memory.
 
-TODO: talk about proof
+TODO: talk about proof, with an example
 
 # Creating Symbolic Variables
 
@@ -545,7 +586,7 @@ functions take two arguments: an expression naming a location in the
 program state, and a `Term` representing an initial value. These
 functions work as destructive updates in the state of the symbolic
 simulator, and can make branch conditions more likely to reduce to
-constants. This means that, although `_assert` and `_assert_eq`
+constants. This means that, although `..._assert` and `..._assert_eq`
 functions can be used to make semantically-equivalent statements, using
 the latter can make symbolic termination more likely.
 
@@ -593,8 +634,8 @@ variables used to set up the initial state. However, for functions that
 return pointers or objects, the special name `return` is also available.
 It can be used in `java_class_var` and `llvm_ptr` calls, to declare the
 more specific object or array type of a return value, and in the
-`_ensure_eq` function to declare the associated values. For LLVM arrays,
-typical use is like this:
+`..._ensure_eq` function to declare the associated values. For LLVM
+arrays, typical use is like this:
 
 ~~~~
 llvm_ensure_eq "*return" v;
@@ -879,12 +920,12 @@ in the associated `JavaSetup` or `LLVMSetup` blocks, along with the
 results of the verification process.
 
 Any of these `MethodSpec` objects can be passed in via the third
-argument of the `_verify` functions. For any function or method
+argument of the `..._verify` functions. For any function or method
 specified by one of these parameters, the simulator will not follow
 calls to the associated target. Instead, it will perform the following
 steps:
 
-* Check that all `_assert` and `_assert_eq` statements in the
+* Check that all `..._assert` and `..._assert_eq` statements in the
   specification are satisfied.
 * Check that any aliasing is compatible with the aliasing restricted
   stated with `java_may_alias`, for Java programs.
