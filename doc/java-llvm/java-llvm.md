@@ -1,3 +1,4 @@
+
 # Symbolic Execution
 
 Analysis of Java and LLVM within SAWScript builds heavily on *symbolic
@@ -391,7 +392,7 @@ has not been initialized will lead to an error.
 
 Here is an example `symexec` from the tutorial:
 
-~~~
+~~~~
 // show that add(x,y) == add(y,x) for all x and y
 cadd <- java_load_class "Add";
 x <- fresh_symbolic "x" {| [32] |};
@@ -401,10 +402,11 @@ print_term ja;
 ja' <- abstract_symbolic ja;
 prove_print abc {{ \a b -> ja' a b == ja' b a }};
 print "Done.";
-~~~ 
+~~~~
 
 and here is that example run through saw:
-~~~
+
+~~~~
 % saw -j <path to>rt.jar java_symexec.saw 
 Loading module Cryptol
 Loading file "java_symexec.saw"
@@ -414,7 +416,7 @@ let { x0 = Cryptol.ty
  in Prelude.bvAdd 32 x y
 Valid
 Done.
-~~~
+~~~~
 
 
 ## Limitations

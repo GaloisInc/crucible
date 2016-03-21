@@ -79,7 +79,7 @@
 \makeatletter
 \newcommand{\ps@title}{%
   \renewcommand{\@oddhead}{%
-    \sffamily\hspace{-0.25in}\includegraphics[width=1in]{figures/galois.png}
+    \sffamily\hspace{-0.25in}\includegraphics[width=1in]{figures/galois.pdf}
     }}
 \makeatother
 
@@ -87,7 +87,7 @@
 %%
 %% Set up the headers/footers for the rest of the document:
 %%
-\lhead{\sffamily\hspace{0.75in}\includegraphics[width=1in]{figures/galois.png}}
+\lhead{\sffamily\hspace{1in}\includegraphics[width=1in]{figures/galois.pdf}}
 
 \makeatletter
 \rhead{
@@ -99,8 +99,7 @@
 }
 \makeatother
 
-% \lfoot{\sffamily\color{galoislightgray}\small\copyright{} 2014 Galois, Inc.}
-\lfoot{\sffamily\color{lightgray}\small\copyright{} 2014 Galois, Inc.}
+\lfoot{\sffamily\color{lightgray}\small\copyright{} 2015 Galois, Inc.}
 
 \rfoot{
   % \sffamily \color{galoislightgray}\small
