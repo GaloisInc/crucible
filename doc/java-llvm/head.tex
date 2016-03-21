@@ -1,0 +1,49 @@
+\usepackage{listings}
+\usepackage{float}
+\usepackage{xspace}
+\usepackage{color}
+\usepackage{tikz}
+\usepackage{url}
+\usepackage{amsmath}
+\usepackage{amscd}
+\usepackage{verbatim}
+\usepackage{fancyvrb}
+
+\let\verbatiminput=\verbatimtabinput
+\VerbatimFootnotes
+\DefineVerbatimEnvironment{code}{Verbatim}{}
+\DefineVerbatimEnvironment{pseudoCode}{Verbatim}{}
+\hyphenation{Saw-Script}
+\newcommand{\sawScript}{{\sc SAWScript}\xspace}
+\renewcommand{\textfraction}{0.05}
+\renewcommand{\topfraction}{0.95}
+\renewcommand{\bottomfraction}{0.95}
+\renewcommand{\floatpagefraction}{0.35}
+\setcounter{totalnumber}{5}
+\definecolor{MyGray}{rgb}{0.9,0.9,0.9}
+\makeatletter\newenvironment{graybox}{%
+   \begin{lrbox}{\@tempboxa}\begin{minipage}{\columnwidth}}{\end{minipage}\end{lrbox}%
+   \colorbox{MyGray}{\usebox{\@tempboxa}}
+}\makeatother
+
+\setlength{\parskip}{0.6em}
+\setlength{\abovecaptionskip}{0.5em}
+
+\lstset{
+         basicstyle=\footnotesize\ttfamily,
+         numberstyle=\tiny,
+         numbersep=5pt,
+         extendedchars=true,
+         breaklines=true,
+         showspaces=false,
+         showtabs=false,
+         xleftmargin=10pt,
+         xrightmargin=5pt,
+         framexleftmargin=5pt,
+         framexrightmargin=-1pt,
+         framexbottommargin=4pt,
+         showstringspaces=false
+}
+
+\author{The Galois SAW Team\\\texttt{saw@galois.com}}
+\title{Analyzing Java and LLVM Programs with SAW}
