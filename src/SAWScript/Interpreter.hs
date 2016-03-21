@@ -1204,7 +1204,7 @@ primitives = Map.fromList
 
   , prim "llvm_verify"
     "LLVMModule -> String -> [LLVMMethodSpec] -> LLVMSetup () -> TopLevel LLVMMethodSpec"
-    (bicVal verifyLLVM)
+    (bicVal (verifyLLVM True))
     [ "Verify an LLVM function against a specification. The first two"
     , "arguments are the same as for 'llvm_extract' and 'llvm_symexec'."
     , "The list of LLVMMethodSpec values in the third argument makes it"
@@ -1215,6 +1215,22 @@ primitives = Map.fromList
     , "types of variables in scope, the expected results of execution, and"
     , "the tactics to use to verify that the function produces the expected"
     , "results."
+    ]
+  , prim "llvm_verify_exp"
+    "LLVMModule -> String -> [LLVMMethodSpec] -> LLVMSetup () -> TopLevel LLVMMethodSpec"
+    (bicVal (verifyLLVM False))
+    [ "Verify an LLVM function against a specification. The first two"
+    , "arguments are the same as for 'llvm_extract' and 'llvm_symexec'."
+    , "The list of LLVMMethodSpec values in the third argument makes it"
+    , "possible to use the results of previous verifications to take the"
+    , "place of actual execution when encountering a function call. The last"
+    , "parameter is a setup block, containing a sequence of commands of type"
+    , "'LLVMSetup a' that configure the symbolic simulator and specify the"
+    , "types of variables in scope, the expected results of execution, and"
+    , "the tactics to use to verify that the function produces the expected"
+    , "results."
+    , ""
+    , "** EXPERIMENTAL VERSION **"
     ]
 
   , prim "caseSatResult"       "{b} SatResult -> b -> (Term -> b) -> b"

@@ -196,11 +196,15 @@ extractLLVM bic opts lmod func _setup =
         lamTm <- bindExts scLLVM exts rv
         scImport sc lamTm >>= mkTypedTerm sc
 
-verifyLLVM :: BuiltinContext -> Options -> LLVMModule -> String
+verifyLLVM :: Bool
+           -> BuiltinContext
+           -> Options
+           -> LLVMModule
+           -> String
            -> [LLVMMethodSpecIR]
            -> LLVMSetup ()
            -> TopLevel LLVMMethodSpecIR
-verifyLLVM bic opts (LLVMModule file mdl) funcname overrides setup =
+verifyLLVM isOld bic opts (LLVMModule file mdl) funcname overrides setup =
   let pos = fixPos -- TODO
       dl = parseDataLayout $ modDataLayout mdl
       sc = biSharedContext bic
@@ -243,8 +247,16 @@ verifyLLVM bic opts (LLVMModule file mdl) funcname overrides setup =
         putStrLn $ "Executing " ++ show (specName ms)
       runSimulator cb sbe mem (Just lopts) $ do
         setVerbosity verb
-        esd <- initializeVerification scLLVM ms
-        res <- mkSpecVC scLLVM vp esd
+        res <- case isOld of
+          True -> do
+            esd <- initializeVerification scLLVM ms
+            mkSpecVC scLLVM vp esd
+          False -> do
+            (initPS, args) <- initializeVerification' scLLVM ms
+            mapM_ (overrideFromSpec sc (specPos ms)) (vpOver vp)
+            run
+            res <- checkFinalState scLLVM ms initPS args
+            return [res]
         when (verb >= 3) $ liftIO $ do
           putStrLn "Verifying the following:"
           mapM_ (print . ppPathVC) res
@@ -253,7 +265,7 @@ verifyLLVM bic opts (LLVMModule file mdl) funcname overrides setup =
             "WARNING: skipping verification of " ++ show (specName ms)
           RunVerify script -> do
             let prv = prover opts scLLVM ms script
-            liftIO $ fmap fst $ runTopLevel (runValidation prv vp scLLVM esd res) ro rw
+            liftIO $ fmap fst $ runTopLevel (runValidation prv vp scLLVM res) ro rw
     if lsSimulate lsctx
        then io $ putStrLn $ "Successfully verified " ++
                        show (specName ms) ++ overrideText
@@ -342,6 +354,17 @@ checkProtoLLVMExpr cb fn pe =
           | otherwise -> throwE $ "Field out of range: " ++ show n
         ty ->
           throwE $ "Left side of -> is not a struct pointer: " ++
+                   show (ppActualType ty)
+    PDirectField n se -> do
+      e <- checkProtoLLVMExpr cb fn se
+      case resolveType cb (lssTypeOfLLVMExpr e) of
+        StructType si
+          | n < siFieldCount si -> do
+            let ty = fiType (siFields si V.! n)
+            return (Term (StructDirectField e si n ty))
+          | otherwise -> throwE $ "Field out of range: " ++ show n
+        ty ->
+          throwE $ "Left side of . is not a struct: " ++
                    show (ppActualType ty)
   where
     args = [(i, resolveType cb ty) | (i, ty) <- sdArgs fn]

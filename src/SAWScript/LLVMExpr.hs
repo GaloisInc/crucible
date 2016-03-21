@@ -79,7 +79,8 @@ data ProtoLLVMExpr
   = PVar String
   | PArg Int
   | PDeref ProtoLLVMExpr
-  | PField Int ProtoLLVMExpr -- Recursive arg is address
+  | PField Int ProtoLLVMExpr -- Recursive arg is _address_
+  | PDirectField Int ProtoLLVMExpr -- Recursive arg is _value_
   | PReturn
   -- PIndex ProtoLLVMExpr ProtoLLVMExpr
     deriving (Show)
@@ -91,6 +92,8 @@ ppProtoLLVMExpr (PArg n) = PP.string "args[" <> int n <> PP.string "]"
 ppProtoLLVMExpr (PDeref e) = PP.text "*" <> PP.parens (ppProtoLLVMExpr e)
 ppProtoLLVMExpr (PField n e) =
   PP.parens (ppProtoLLVMExpr e) <> text "->" <> int n
+ppProtoLLVMExpr (PDirectField n e) =
+  PP.parens (ppProtoLLVMExpr e) <> text "." <> int n
 --ppProtoLLVMExpr (PIndex n e) =
 --  ppProtoLLVMExpr e <> text "[" <> ppProtoLLVMExpr n <> text "]"
 
@@ -100,6 +103,7 @@ parseProtoLLVMExpr = runIdentity . runParserT (parseExpr <* eof) () "expr"
   where
     parseExpr = P.choice
                 [ parseDerefField
+                , parseDirectField
                 , parseDeref
                 , parseAExpr
                 ]
@@ -137,6 +141,14 @@ parseProtoLLVMExpr = runIdentity . runParserT (parseExpr <* eof) () "expr"
         Just (n :: Int) -> return (PField n re)
         Nothing -> unexpected $
           "Attempting to apply -> operation to non-integer field ID: " ++ ns
+    parseDirectField :: Parser ProtoLLVMExpr
+    parseDirectField = do
+      re <- try (parseAExpr <* P.string ".")
+      ns <- many1 digit
+      case readMaybe ns of
+        Just (n :: Int) -> return (PDirectField n re)
+        Nothing -> unexpected $
+          "Attempting to apply . operation to non-integer field ID: " ++ ns
 
 -- NB: the types listed in each of these should be the type of the
 -- entire expression. So "Deref v tp" means "*v has type tp".
@@ -145,7 +157,8 @@ data LLVMExprF v
   | Global LSS.Symbol LLVMActualType
   | Deref v LLVMActualType
   -- | Index v v LLVMActualType
-  | StructField v LSS.StructInfo Int LLVMActualType -- Recursive arg is address
+  | StructField v LSS.StructInfo Int LLVMActualType -- Recursive arg is _address_
+  | StructDirectField v LSS.StructInfo Int LLVMActualType -- Recursive arg is _value_
   | ReturnValue LLVMActualType
   deriving (Functor, CC.Foldable, CC.Traversable)
 
@@ -154,6 +167,8 @@ instance CC.EqFoldable LLVMExprF where
   fequal (Global x _)(Global y _) = x == y
   fequal (Deref e _) (Deref e' _) = e == e'
   fequal (StructField xr _ xi _) (StructField yr _ yi _) =
+    xi == yi && (xr == yr)
+  fequal (StructDirectField xr _ xi _) (StructDirectField yr _ yi _) =
     xi == yi && (xr == yr)
   fequal (ReturnValue _) (ReturnValue _) = True
   fequal _ _ = False
@@ -174,13 +189,20 @@ instance CC.OrdFoldable LLVMExprF where
           r  -> r
   StructField _ _ _ _ `fcompare` _           = LT
   _          `fcompare` StructField _ _ _ _ = GT
+  StructDirectField r1 _ f1 _ `fcompare` StructDirectField r2 _ f2 _ =
+        case r1 `compare` r2 of
+          EQ -> f1 `compare` f2
+          r  -> r
+  StructDirectField _ _ _ _ `fcompare` _           = LT
+  _          `fcompare` StructDirectField _ _ _ _ = GT
   (ReturnValue _) `fcompare` (ReturnValue _) = EQ
 
 instance CC.ShowFoldable LLVMExprF where
   fshow (Arg _ nm _) = show nm
   fshow (Global nm _) = show nm
   fshow (Deref e _) = "*(" ++ show e ++ ")"
-  fshow (StructField r _ f _) = show r ++ "." ++ show f
+  fshow (StructField r _ f _) = show r ++ "->" ++ show f
+  fshow (StructDirectField r _ f _) = show r ++ "." ++ show f
   fshow (ReturnValue _) = "return"
 
 -- | Typechecked LLVMExpr
@@ -194,6 +216,7 @@ ppLLVMExpr (CC.Term exprF) =
     Global nm _ -> LSS.ppSymbol nm
     Deref e _ -> PP.char '*' <> PP.parens (ppLLVMExpr e)
     StructField r _ f _ -> ppLLVMExpr r <> text "->" <> text (show f)
+    StructDirectField r _ f _ -> ppLLVMExpr r <> text "." <> text (show f)
     ReturnValue _ -> text "return"
 
 -- | Returns LSS Type of LLVMExpr
@@ -204,6 +227,7 @@ lssTypeOfLLVMExpr (CC.Term exprF) =
     Global _ tp -> tp
     Deref _ tp -> tp
     StructField _ _ _ tp -> tp
+    StructDirectField _ _ _ tp -> tp
     ReturnValue tp -> tp
 
 updateLLVMExprType :: LLVMExpr -> LSS.MemType -> LLVMExpr
@@ -213,6 +237,7 @@ updateLLVMExprType (CC.Term exprF) tp = CC.Term $
     Global n _ -> Global n tp
     Deref e _ -> Deref e tp
     StructField r si i _ -> StructField r si i tp
+    StructDirectField r si i _ -> StructDirectField r si i tp
     ReturnValue _ -> ReturnValue tp
 
 -- | Returns true if expression is a pointer.
