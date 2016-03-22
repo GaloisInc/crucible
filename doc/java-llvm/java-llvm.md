@@ -1,4 +1,3 @@
-
 # Symbolic Execution
 
 Analysis of Java and LLVM within SAWScript builds heavily on *symbolic
@@ -123,23 +122,39 @@ In this case, the value of `i` is always concrete, and will eventually
 reach the value `10`, at which point the branch corresponding to
 continuing the loop will be infeasible.
 
-As a more complex example, consider the following loop:
+As a more complex example, consider the following function:
 
 ~~~~ {.c}
-int i = 1;
-boolean done = false;
-while (!done){
-	if (i % 8 == 0) done = true;
-	i += 5;
+uint8_t f(uint8_t i) {
+  int done = 0;
+  while (!done){
+    if (i % 8 == 0) done = 1;
+    i += 5;
+  }
+  return i;
 }
 ~~~~
 
-This loop can only be determined to symbolically terminate if the
-analysis takes into account algebraic rules about common multiples.
-Similarly, it can be difficult to prove that a base case is eventually
-reached for all inputs to a recursive program.
+The loop in this function can only be determined to symbolically
+terminate if the analysis takes into account algebraic rules about
+common multiples. Similarly, it can be difficult to prove that a base
+case is eventually reached for all inputs to a recursive program.
 
-TODO: something about SAT checking
+In this particular case, however, the code *is* guaranteed to terminate
+after a fixed number of iterations (where the number of possible
+iterations is a function of the number of bits in the integers being
+used). To show that the last iteration is in fact the last possible,
+it's necessary to do more than just compare the branch condition with a
+constant. Instead, we can use the same proof tools that we use to
+ultimately analyze the generated models to, early in the process, prove
+that certain branch conditions can never be true (i.e., are
+*unsatisfiable*).
+
+Normally, most of the Java and LLVM analysis commands simply compare
+branch conditions to the constant `True` or `False` to determine whether
+a branch may be feasible. However, each form of analysis allows branch
+satisfiability checking to be turned on if needed, in which case
+functions like `f` above will terminate.
 
 Now let's get into the details of the specific commands available to
 analyze JVM and LLVM programs.
@@ -217,8 +232,6 @@ These functions currently work only for code that takes some fixed
 number of integral parameters, returns an integral result, and does not
 access any dynamically-allocated memory.
 
-TODO: talk about proof, with an example
-
 # Creating Symbolic Variables
 
 The direct extraction process just discussed automatically introduces
@@ -258,8 +271,6 @@ x <- fresh_symbolic "x" {| [32] |};
 ~~~~
 
 # Monolithic Symbolic Execution
-
-TODO: examples
 
 In many cases, the inputs and outputs of a function are more complex
 than supported by the direct extraction process just described. In that
@@ -377,8 +388,11 @@ here should be expressions identifying *pointers* rather than the values
 of those pointers.
 
 The fourth argument, of type `[(String, Term, Int)]` indicates the
-initial values to write to the program state before execution. ***TODO:*** say
-more, including that the `String`s should be *value* expressions.
+initial values to write to the program state before execution. The
+elements of this list should include *l-value* expressions. For example,
+if a function has an argument named `p` of type `int *`, the allocation
+list might contain the element `("p", 1)`, whereas the initial values
+list might contain the element `("*p", v, 1)`, for some value `v`.
 
 Finally, the fifth argument, of type `[(String, Int)]` indicates the
 elements to read from the final state. For each entry, the `String`
@@ -390,7 +404,8 @@ has not been initialized will lead to an error.
 
 ## Examples
 
-Here is an example `symexec` from the tutorial:
+The following code is a complete example of using the `java_symexec`
+function.
 
 ~~~~
 // show that add(x,y) == add(y,x) for all x and y
@@ -404,7 +419,17 @@ prove_print abc {{ \a b -> ja' a b == ja' b a }};
 print "Done.";
 ~~~~
 
-and here is that example run through saw:
+It first loads the `Add` class and creates two 32-bit symbolic
+variables, `x` and `y`. It then symbolically execute the `add` method
+with the symbolic variables just created passed in as its two arguments,
+and returns the symbolic expression denoting the method's return value.
+
+Once the script has a `Term` in hand (the variable `ja`), it translates
+the version containing symbolic variables into a function that takes
+concrete values for those variables as arguments. Finally, it proves
+that the resulting function is commutative.
+
+Running this script through `saw` gives the following output:
 
 ~~~~
 % saw -j <path to>rt.jar java_symexec.saw 
@@ -443,8 +468,6 @@ functions, they also have some limitations and assumptions.
   they may refer to objects of subtypes of that type. Therefore, the
   code under analysis may behave differently when given parameters of
   more specific types.
-
-* TODO: anything else?
 
 # Specification-Based Verification
 
@@ -677,7 +700,7 @@ or LLVM code is involved.
 
 Here is a brief example, proving that the Java add method is equivalent to a specification in Cryptol:
 
-~~~
+~~~~
 cadd <- java_load_class "Add";
 add <- define "add" {{ \x y -> (x : [32]) + y }}; // the specification
 x <- fresh_symbolic "x" {| [32] |};
@@ -687,7 +710,7 @@ print_term t;
 t' <- abstract_symbolic t;
 prove_print abc {{ \a b -> t' a b == add a b }};
 print "Done.";
-~~~
+~~~~
 
 # Proof Scripts
 
@@ -704,8 +727,6 @@ of provers that require slightly more configuration, or the use of
 provers that do very little real work.
 
 ## Rewriting
-
-* TODO: motivate when rewriting is needed/is a good idea
 
 The basic concept involved in rewriting `Term`s is that of a `Simpset`,
 which includes a collection of rewrite rules. A few basic, pre-defined
@@ -882,12 +903,12 @@ list of the opaque constants that are folded in the current goal, and
 Some proofs can be completed using unsound placeholders, or using
 techniques that do not require significant computation.
 
-```
+~~~~
 assume_unsat : ProofScript SatResult
 assume_valid : ProofScript ProofResult
 quickcheck : Int -> ProofScript SatResult
 trivial : ProofScript SatResult
-```
+~~~~
 
 The `assume_unsat` and `assume_valid` tactics indicate that the current
 goal should be considered unsatisfiable or valid, depending on whether
@@ -943,7 +964,18 @@ functions can be used to indicate not to even try to simulate the code
 being specified, and instead return a `MethodSpec` that is assumed to be
 correct.
 
-TODO: talk about `java_allow_alloc`.
+The default behavior of `java_verify` disallows allocation within the
+method being analyzed. This restriction makes it possible to reason
+about all possible effects of a method, since only effects specified
+with `java_ensure_eq` or `java_modify` are allowed. For many
+cryptographic applications, this behavior is important, because it is
+important to know whether, for instance, temporary variables storing key
+material have been cleared after use. Garbage on the heap that has been
+collected but not cleared could let confidential information leak.
+
+If allocation is not a concern in a particular application, the
+`java_allow_alloc` function makes allocation within legal within the
+method being specified.
 
 # Controlling Symbolic Execution
 
