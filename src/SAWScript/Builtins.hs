@@ -79,6 +79,9 @@ import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 import qualified Verifier.SAW.Simulator.BitBlast as BBSim
 import qualified Verifier.SAW.Simulator.SBV as SBVSim
 
+import qualified Verifier.SAW.Simulator.ANF as ANF
+import qualified Verifier.SAW.Simulator.ANF.Base as ANF
+
 import qualified Data.ABC as ABC
 import qualified Data.SBV.Dynamic as SBV
 
@@ -667,6 +670,41 @@ rewriteEqs sc (TypedTerm schema t) = do
   ss <- addRules rs <$> basic_ss sc
   t' <- rewriteSharedTerm sc ss t
   return (TypedTerm schema t')
+
+-- | Bit-blast a @SharedTerm@ representing a theorem and check its
+-- satisfiability using the ANF library.
+satANF :: SharedContext s -> ProofScript s SV.SatResult
+satANF sc = StateT $ \g -> io $ do
+  let t0 = ttTerm (goalTerm g)
+  TypedTerm schema t <- (bindAllExts sc t0 >>= mkTypedTerm sc >>= rewriteEqs sc)
+  checkBooleanSchema schema
+  tp <- scWhnf sc =<< scTypeOf sc t
+  let (args, _) = asPiList tp
+      argNames = map fst args
+  -- putStrLn "Simulating..."
+  ANF.withBitBlastedPred sc Map.empty t $ \lit0 shapes -> do
+  let lit = case goalQuant g of
+        Existential -> lit0
+        Universal -> ANF.compl lit0
+  -- putStrLn "Checking..."
+  case ANF.sat lit of
+    Nothing -> do
+      -- putStrLn "UNSAT"
+      ft <- scApplyPrelude_False sc
+      return (SV.Unsat, g { goalTerm = TypedTerm schema ft })
+    Just cex -> do
+      -- putStrLn "SAT"
+      let m = Map.fromList cex
+      let n = sum (map sizeFiniteType shapes)
+      let bs = map (maybe False id . flip Map.lookup m) $ take n [0..]
+      let r = liftCexBB shapes bs
+      tt <- scApplyPrelude_True sc
+      case r of
+        Left err -> fail $ "Can't parse counterexample: " ++ err
+        Right vs
+          | length argNames == length vs -> do
+              return (SV.SatMulti (zip argNames vs), g { goalTerm = TypedTerm schema tt })
+          | otherwise -> fail $ unwords ["ANF SAT results do not match expected arguments", show argNames, show vs]
 
 codegenSBV :: SharedContext s -> FilePath -> String -> TypedTerm s -> IO ()
 codegenSBV sc path fname (TypedTerm _schema t) =
