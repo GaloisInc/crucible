@@ -12,7 +12,8 @@
 % Useful packages:
 % \RequirePackage[table]{xcolor}
 \RequirePackage{graphicx}
-\RequirePackage[headheight=144pt,top=2in,left=1in,right=1in,bottom=1in]{geometry}
+%\RequirePackage[headheight=144pt,top=1in,left=1in,right=1in,bottom=1in]{geometry}
+\RequirePackage[top=1in,left=1in,right=1in,bottom=1in]{geometry}
 \RequirePackage{lastpage}
 
 % Define fonts
@@ -75,12 +76,12 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
 %% Define a special header style for the title page:
-%%
-\makeatletter
-\newcommand{\ps@title}{%
-  \renewcommand{\@oddhead}{%
-    \sffamily\hspace{-0.25in}\includegraphics[width=1in]{figures/galois.pdf}
-    }}
+%
+ \makeatletter
+ \newcommand{\ps@title}{%
+   \renewcommand{\@oddhead}{%
+     \sffamily\includegraphics[width=1in]{figures/galois.pdf}
+     }}
 \makeatother
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -90,13 +91,7 @@
 \lhead{\sffamily\hspace{1in}\includegraphics[width=1in]{figures/galois.pdf}}
 
 \makeatletter
-\rhead{
-  \sffamily
-  \textit{\@title{}}\\
-  % {\color{galoislightgray} {}}
-  {\color{lightgray} {}}
-  \vspace{0.12in}
-}
+\rhead{\sffamily \textit{\@title{}}}
 \makeatother
 
 \lfoot{\sffamily\color{lightgray}\small\copyright{} 2016 Galois, Inc.}

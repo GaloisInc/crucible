@@ -8,14 +8,12 @@ AUX      = ${wildcard *.blg} ${wildcard *.bbl} ${wildcard *.aux} \
            ${wildcard *.eps} ${wildcard *.log} ${wildcard *.toc}
 PDFARGS   = -H head.tex \
             -B before.tex \
-            --toc \
             --listings \
             -V documentclass:galois-whitepaper \
             -V fontsize:12 \
             --latex-engine=pdflatex
 HTMLARGS  = --css doc.css \
             -B before.html \
-            --toc \
             --standalone \
             --self-contained
 
