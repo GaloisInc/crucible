@@ -719,11 +719,9 @@ initializeVerification' :: (MonadIO m, Monad m, Functor m) =>
                         -> LLVMMethodSpecIR
                         -> Simulator SpecBackend m (SpecPathState, [SpecLLVMValue])
 initializeVerification' sc ir = do
-  let --exprs = specLLVMExprNames ir
-      bs = specBehavior ir
+  let bs = specBehavior ir
       fn = specFunction ir
       cb = specCodebase ir
-      --dl = cbDataLayout cb
       Just fnDef = lookupDefine fn (specCodebase ir)
       isArgAssgn (CC.Term (TC.Arg _ _ _), _) = True
       isArgAssgn _ = False
