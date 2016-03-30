@@ -1,0 +1,130 @@
+import "AES.cry";
+
+print "Proving encrypt_lemma...";
+encrypt_lemma <-
+  time (prove_print (unint_z3 ["AESRound"])
+  (rewrite (cryptol_ss())
+  {{ \(state0 : State) (ks : [9]RoundKey) ->
+      (rounds where rounds = [state0] # [ AESRound (rk, s) | rk <- ks | s <- rounds ]) ! 0 ==
+        AESRound(ks@8,AESRound(ks@7,AESRound(ks@6,AESRound(ks@5,AESRound(ks@4,
+          AESRound(ks@3,AESRound(ks@2,AESRound(ks@1,AESRound(ks@0,state0)))))))))
+  }}));
+
+print "Proving decrypt_lemma...";
+decrypt_lemma <-
+  time (prove_print (unint_z3 ["AESInvRound"])
+  (rewrite (cryptol_ss())
+  {{ \(state0 : State) (ks : [9]RoundKey) ->
+      (rounds where rounds = [state0] # [ AESInvRound (rk, s) | rk <- reverse ks | s <- rounds ]) ! 0 ==
+        AESInvRound(ks@0,AESInvRound(ks@1,AESInvRound(ks@2,AESInvRound(ks@3,AESInvRound(ks@4,
+          AESInvRound(ks@5,AESInvRound(ks@6,AESInvRound(ks@7,AESInvRound(ks@8,state0)))))))))
+  }}));
+
+print "Proving msgToState_stateToMsg(anf)...";
+msgToState_stateToMsg <-
+  time (prove_print anf
+  {{ \st -> msgToState (stateToMsg st) == st }});
+
+print "Proving stateToMsg_msgToState(anf)...";
+stateToMsg_msgToState <-
+  time (prove_print anf
+  {{ \msg -> stateToMsg (msgToState msg) == msg }});
+
+print "Proving AddRoundKey_cancel(anf)...";
+AddRoundKey_cancel <-
+  time (prove_print anf
+  {{ \rk s -> AddRoundKey (rk, AddRoundKey (rk, s)) == s }});
+
+print "Proving InvShiftRows_ShiftRows(anf)...";
+InvShiftRows_ShiftRows <-
+  time (prove_print anf
+  {{ \s -> InvShiftRows (ShiftRows s) == s }});
+
+print "Proving InvSubByte_SubByte'(anf)...";
+InvSubByte_SubByte' <-
+  time (prove_print anf
+  {{ \x -> InvSubByte (SubByte' x) == x }});
+
+print "Proving InvSubBytes_SubBytes(rewriting,anf)...";
+InvSubBytes_SubBytes <-
+  time (prove_print do {
+    unfolding ["InvSubBytes", "SubBytes"];
+    simplify (add_prelude_eqs ["map_map"]
+             (addsimps [InvSubByte_SubByte']
+             (cryptol_ss())));
+    anf;
+  }
+  {{ \s -> InvSubBytes (SubBytes s) == s }});
+
+print "Proving InvMixColumns_MixColumns(anf)...";
+InvMixColumns_MixColumns <-
+  time (prove_print anf
+  {{ \s -> InvMixColumns (MixColumns s) == s }});
+
+print "Proving aesDecrypt_aesEncrypt(rewriting)...";
+dec_enc <-
+  time (prove_print do {
+    unfolding ["aesEncrypt", "aesDecrypt"];
+    simplify (addsimps [encrypt_lemma,
+                        decrypt_lemma]
+              (cryptol_ss()));
+    unfolding ["AESRound", "AESInvRound", "AESFinalRound", "AESFinalInvRound"];
+    simplify (add_prelude_eqs ["eq_refl"]
+             (addsimps [msgToState_stateToMsg,
+                        AddRoundKey_cancel,
+                        InvShiftRows_ShiftRows,
+                        InvSubBytes_SubBytes,
+                        InvMixColumns_MixColumns,
+                        stateToMsg_msgToState]
+              (cryptol_ss())));
+    trivial;
+  }
+  {{ \msg key -> aesDecrypt (aesEncrypt (msg, key), key) == msg }});
+
+print "Proving ShiftRows_InvShiftRows(anf)...";
+ShiftRows_InvShiftRows <-
+  time (prove_print anf
+  {{ \s -> ShiftRows (InvShiftRows s) == s }});
+
+print "Proving SubByte'_InvSubByte(anf)...";
+SubByte'_InvSubByte <-
+  time (prove_print anf
+  {{ \x -> SubByte' (InvSubByte x) == x }});
+
+print "Proving InvSubBytes_SubBytes(rewriting,anf)...";
+SubBytes_InvSubBytes <-
+  time (prove_print do {
+    unfolding ["InvSubBytes", "SubBytes"];
+    simplify (add_prelude_eqs ["map_map"]
+             (addsimps [SubByte'_InvSubByte]
+             (cryptol_ss())));
+    anf;
+  }
+  {{ \s -> SubBytes (InvSubBytes s) == s }});
+
+print "Proving MixColumns_InvMixColumns(anf)...";
+MixColumns_InvMixColumns <-
+  time (prove_print anf
+  {{ \s -> MixColumns (InvMixColumns s) == s }});
+
+print "Proving aesEncrypt_aesDecrypt(rewriting)...";
+enc_dec <-
+  time (prove_print do {
+    unfolding ["aesEncrypt", "aesDecrypt"];
+    simplify (addsimps [encrypt_lemma,
+                        decrypt_lemma]
+              (cryptol_ss()));
+    unfolding ["AESRound", "AESInvRound", "AESFinalRound", "AESFinalInvRound"];
+    simplify (add_prelude_eqs ["eq_refl"]
+             (addsimps [msgToState_stateToMsg,
+                        AddRoundKey_cancel,
+                        ShiftRows_InvShiftRows,
+                        SubBytes_InvSubBytes,
+                        MixColumns_InvMixColumns,
+                        stateToMsg_msgToState]
+              (cryptol_ss())));
+    trivial;
+  }
+  {{ \msg key -> aesEncrypt (aesDecrypt (msg, key), key) == msg }});
+
+exit 0;
