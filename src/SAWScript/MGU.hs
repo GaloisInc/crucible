@@ -19,6 +19,7 @@ module SAWScript.MGU
 
 import SAWScript.AST
 import SAWScript.Compiler
+import SAWScript.Utils (Pos(..))
 
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
@@ -546,6 +547,12 @@ patternLNames pat =
     PVar n _ -> [n]
     PTuple ps -> concatMap patternLNames ps
 
+patternLName :: Pattern -> LName
+patternLName pat =
+  case patternLNames pat of
+    (n : _) -> n
+    [] -> Located "_" "_" PosREPL
+
 constrainTypeWithPattern :: LName -> Type -> Pattern -> TI ()
 constrainTypeWithPattern ln t pat =
   case pat of
@@ -565,7 +572,7 @@ constrainTypeWithPattern ln t pat =
 
 inferDecl :: Decl -> TI Decl
 inferDecl (Decl pat _ e) = do
-  let n = head (patternLNames pat)
+  let n = patternLName pat
   (e',t) <- inferE (n, e)
   constrainTypeWithPattern n t pat
   [(e1,s)] <- generalize [e'] [t]
@@ -577,7 +584,7 @@ inferRecDecls ds =
      (_ts, pats') <- unzip <$> mapM newTypePattern pats
      (es, ts) <- fmap unzip
                  $ flip (foldr bindPattern) pats'
-                 $ sequence [ inferE (head (patternLNames p), e) | Decl p _ e <- ds ]
+                 $ sequence [ inferE (patternLName p, e) | Decl p _ e <- ds ]
      sequence_ $ zipWith (constrainTypeWithPattern (error "FIXME")) ts pats'
      ess <- generalize es ts
      return [ Decl p (Just s) e1 | (p, (e1, s)) <- zip pats ess ]
