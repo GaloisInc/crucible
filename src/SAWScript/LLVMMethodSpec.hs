@@ -729,7 +729,7 @@ initializeVerification' sc ir = do
       assignments = map getAssign $ Map.toList (bsExprDecls bs)
       getAssign (e, (_, v)) = (e, v)
       argAssignments = filter isArgAssgn assignments
-      ptrAssignments = filter isPtrAssgn assignments
+      ptrAssignments = filter (\a -> isPtrAssgn a && not (isArgAssgn a)) assignments
       otherAssignments =
         filter (\a -> not (isArgAssgn a || isPtrAssgn a)) assignments
       setPS ps = do
@@ -770,12 +770,10 @@ initializeVerification' sc ir = do
   callDefine' False fn rreg argVals
 
   let doAssign (expr, mle) = do
-        v <- case mle of
-               Just le -> liftIO $ TC.useLogicExpr sc le
-               Nothing -> do
-                 let Just (mtp, _) = Map.lookup expr (bsExprDecls bs)
-                 Just lty <- liftIO $ TC.logicTypeOfActual sc mtp
-                 liftIO $ scFreshGlobal sc (show (TC.ppLLVMExpr expr)) lty
+        let Just (ty, _) = Map.lookup expr (bsExprDecls bs)
+        ps <- fromMaybe (error "initializeVerification") <$> getPath
+        (v, ps') <- liftIO $ createLogicValue cb sbe sc expr ps ty mle
+        setPS ps'
         writeLLVMTerm (map snd argVals) (expr, v, 1)
 
   -- Allocate space for all pointers that aren't directly parameters.
