@@ -53,7 +53,7 @@ import qualified Cryptol.TypeCheck.AST as T
 --import qualified Cryptol.TypeCheck.InferTypes as T
 import qualified Cryptol.TypeCheck.Kind as TK
 import qualified Cryptol.TypeCheck.Monad as TM
-import qualified Cryptol.TypeCheck.PP as TP
+--import qualified Cryptol.TypeCheck.PP as TP
 
 import qualified Cryptol.ModuleSystem as M
 import qualified Cryptol.ModuleSystem.Base as MB
@@ -432,8 +432,8 @@ parseSchema env input = do
               return (T.Forall [] [] t', goals)
             _ -> TK.checkSchema rschema
     out <- MM.io (TM.runInferM tcEnv' infer)
-    (schema, goals) <- MM.interactive (runInferOutput out)
-    mapM_ (MM.io . print . TP.ppWithNames TP.emptyNameMap) goals
+    (schema, _goals) <- MM.interactive (runInferOutput out)
+    --mapM_ (MM.io . print . TP.ppWithNames TP.emptyNameMap) goals
     return (schemaNoUser schema)
 
 typeNoUser :: T.Type -> T.Type
