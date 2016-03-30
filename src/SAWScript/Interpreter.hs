@@ -453,6 +453,30 @@ primitives = Map.fromList
     , "iteration."
     ]
 
+  , prim "null"                "{a} [a] -> Bool"
+    (pureVal (null :: [Value] -> Bool))
+    [ "Test whether a list value is empty." ]
+
+  , prim "nth"                 "{a} [a] -> Int -> a"
+    (funVal2 (nthPrim :: [Value] -> Int -> TopLevel Value))
+    [ "Look up the value at the given list position." ]
+
+  , prim "head"                "{a} [a] -> a"
+    (funVal1 (headPrim :: [Value] -> TopLevel Value))
+    [ "Get the first element from the list." ]
+
+  , prim "tail"                "{a} [a] -> [a]"
+    (funVal1 (tailPrim :: [Value] -> TopLevel [Value]))
+    [ "Drop the first element from a list." ]
+
+  , prim "concat"              "{a} [a] -> [a] -> [a]"
+    (pureVal ((++) :: [Value] -> [Value] -> [Value]))
+    [ "Concatenate two lists to yield a third." ]
+
+  , prim "length"              "{a} [a] -> Int"
+    (pureVal (length :: [Value] -> Int))
+    [ "Compute the length of a list." ]
+
   , prim "str_concat"          "String -> String -> String"
     (pureVal ((++) :: String -> String -> String))
     [ "Concatenate two strings to yield a third." ]

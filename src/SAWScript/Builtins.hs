@@ -1144,3 +1144,16 @@ eval_size s =
             C.TCon (C.TC C.TCInf) _     -> fail "eval_size: illegal infinite size"
             _                           -> fail "eval_size: invalid type"
     _ -> fail "eval_size: unsupported polymorphic type"
+
+nthPrim :: [a] -> Int -> TopLevel a
+nthPrim [] _ = fail "nth: index too large"
+nthPrim (x : _) 0 = return x
+nthPrim (_ : xs) i = nthPrim xs (i - 1)
+
+headPrim :: [a] -> TopLevel a
+headPrim [] = fail "head: empty list"
+headPrim (x : _) = return x
+
+tailPrim :: [a] -> TopLevel [a]
+tailPrim [] = fail "tail: empty list"
+tailPrim (_ : xs) = return xs
