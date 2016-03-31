@@ -714,7 +714,11 @@ codegenSBV sc path fname (TypedTerm _schema t) =
 prepSBV :: SharedContext s -> [String] -> TypedTerm s
         -> IO (SharedTerm s, [SBVSim.Labeler], SBV.Symbolic SBV.SVal)
 prepSBV sc unints tt = do
-  TypedTerm schema t' <- rewriteEqs sc tt
+  let t0 = ttTerm tt
+  -- Abstract over all non-function ExtCns variables
+  let nonFun e = fmap ((== Nothing) . asPi) (scWhnf sc (ecType e))
+  exts <- filterM nonFun (getAllExts t0)
+  TypedTerm schema t' <- (bindExts sc exts t0 >>= mkTypedTerm sc >>= rewriteEqs sc)
   checkBooleanSchema schema
   (labels, lit) <- SBVSim.sbvSolve sc sbvPrimitives unints t'
   return (t', labels, lit)
@@ -741,7 +745,8 @@ satUnintSBV conf sc unints = StateT $ \g -> io $ do
     SBV.Satisfiable {} -> do
       let schema = C.Forall [] [] C.tBit
       tt <- scApplyPrelude_True sc
-      return (getLabels labels (SBV.getModelDictionary r) argNames, g {goalTerm = TypedTerm schema tt})
+      let dict = SBV.getModelDictionary r
+      return (getLabels labels dict argNames, g {goalTerm = TypedTerm schema tt})
     SBV.Unsatisfiable {} -> do
       let schema = C.Forall [] [] C.tBit
       ft <- scApplyPrelude_False sc
