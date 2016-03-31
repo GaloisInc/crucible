@@ -65,12 +65,6 @@ To build SAWScript and related utilities (CSS, LSS, JSS) from source:
 
         ln -s stack.<ghc version and os>.yaml stack.yaml
 
-    As of this writing, SAWScript does not build on Windows with GHC
-    7.10. Also, the Windows build uses 32-bit GHC because our
-    `abcBridge` package currently requires this. However, Stack will
-    automatically download GHC for you if needed, so this is not
-    inconvenient in practice.
-
     The `stack-<ghc version>-unix.yaml` files are for both Linux and
     OS X.
 
