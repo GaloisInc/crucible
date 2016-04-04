@@ -53,8 +53,8 @@ could be as many as 32, depending on the input value. It's possible to
 implement the same algorithm with significantly fewer branches, and no
 backward branches.
 
-Optimized Implementation
-------------------------
+Optimized Implementations
+-------------------------
 
 An alternative implementation, taken by the following program (also in
 `code/ffs.c`), treats the bits of the input word in chunks, allowing
@@ -64,14 +64,21 @@ sequences of zero bits to be skipped over more quickly.
 $include 19-26 code/ffs.c
 ```
 
-However, this code is much less obvious than the previous
-implementation. If it is correct, we would like to use it, since it
-has the potential to be faster. But how do we gain confidence that it
-calculates the same results as the original program?
+Another optimized version, in the following rather mysterious program
+(also in `code/ffs.c`), based on the `ffs` implementation in [musl
+libc](http://www.musl-libc.org/).
 
-SAWScript allows us to state this problem concisely, and to quickly
-and automatically prove the equivalence of these two functions for all
-possible inputs.
+``` {.c}
+$include 69-76 code/ffs.c
+```
+
+These optimized versions are much less obvious than the reference
+implementation. They might be faster, but how do we gain confidence
+that they calculate the same results as the reference implementation?
+
+SAWScript allows us to state these problems concisely, and to quickly
+and automatically prove the equivalence of the reference and optimized
+implementations on all possible inputs.
 
 Buggy Implementation
 --------------------
@@ -117,8 +124,8 @@ potentially along with definitions of functions that abstract over
 commonly-used combinations of commands.
 
 The following script (in `code/ffs_llvm.saw`) is sufficient to
-automatically prove the equivalence of the `ffs_ref` and `ffs_imp`
-functions, and identify the bug in `ffs_bug`.
+automatically prove the equivalence of `ffs_ref` with `ffs_imp` and
+`ffs_musl`, and identify the bug in `ffs_bug`.
 
 ```
 $include all code/ffs_llvm.saw
@@ -139,8 +146,8 @@ Cryptol expressions can be embedded within SAWScript; to distinguish
 Cryptol code from SAWScript commands, the Cryptol code is placed
 within double brackets `{{` and `}}`.
 
-The `prove_print` command can verify the validity of such an assertion, and
-print out the results of verification. The `abc` parameter indicates what
+The `prove` command can verify the validity of such an assertion.
+The `abc` parameter indicates what
 theorem prover to use; SAWScript offers support for many other SAT and
 SMT solvers as well as user definable simplification tactics.
 
@@ -153,15 +160,18 @@ producing the output
 ```
 Loading module Cryptol
 Loading file "ffs_llvm.saw"
-Extracting reference term
-Extracting implementation term
-Extracting buggy term
-Proving equivalence
+Extracting reference term: ffs_ref
+Extracting implementation term: ffs_imp
+Extracting implementation term: ffs_musl
+Extracting buggy term: ffs_bug
+Proving equivalence: ffs_ref == ffs_imp
 Valid
-Finding bug via sat search
-Sat: 1052688
-Finding bug via failed proof
-Invalid: 1052688
+Proving equivalence: ffs_ref == ffs_musl
+Valid
+Finding bug via sat search: ffs_ref != ffs_bug
+Sat: [x = 1052688]
+Finding bug via failed proof: ffs_ref == ffs_bug
+Invalid: [x = 1052688]
 Done.
 ```
 
@@ -272,7 +282,7 @@ External SAT Solvers
 ====================
 
 In addition to the `abc`, `cvc4`, and `yices` proof tactics used
-above, SAWScript can also invoke arbitrary external SAT solvers that
+above, SAWScript can also invoke arbitrary external SAT solvers
 that read CNF files and produce results according to the SAT
 competition
 [input and output conventions](http://www.satcompetition.org/2009/format-solvers2009.html),
