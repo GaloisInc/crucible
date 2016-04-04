@@ -82,7 +82,7 @@ program represents a case where traditional testing -- as opposed
 to verification -- is unlikely to be helpful.
 
 ``` {.c}
-$include 29-33 code/ffs.c
+$include 43-47 code/ffs.c
 ```
 
 SAWScript allows us to quickly identify an input exhibiting the bug.

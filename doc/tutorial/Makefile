@@ -25,9 +25,7 @@ HTMLARGS  = --css doc.css \
             --standalone \
             --self-contained
 
-all: pdf
-
-pdf: ${TARGET}.pdf ${TARGET}.html
+all: ${TARGET}.pdf ${TARGET}.html
 
 ${TARGET}.pdf: ${SRCS} Makefile
 	pandoc ${PDFARGS} -o $@ ${TARGET}.md
