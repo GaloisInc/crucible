@@ -20,45 +20,45 @@ decrypt_lemma <-
           AESInvRound(ks@5,AESInvRound(ks@6,AESInvRound(ks@7,AESInvRound(ks@8,state0)))))))))
   }}));
 
-print "Proving msgToState_stateToMsg(anf)...";
+print "Proving msgToState_stateToMsg(rme)...";
 msgToState_stateToMsg <-
-  time (prove_print anf
+  time (prove_print rme
   {{ \st -> msgToState (stateToMsg st) == st }});
 
-print "Proving stateToMsg_msgToState(anf)...";
+print "Proving stateToMsg_msgToState(rme)...";
 stateToMsg_msgToState <-
-  time (prove_print anf
+  time (prove_print rme
   {{ \msg -> stateToMsg (msgToState msg) == msg }});
 
-print "Proving AddRoundKey_cancel(anf)...";
+print "Proving AddRoundKey_cancel(rme)...";
 AddRoundKey_cancel <-
-  time (prove_print anf
+  time (prove_print rme
   {{ \rk s -> AddRoundKey (rk, AddRoundKey (rk, s)) == s }});
 
-print "Proving InvShiftRows_ShiftRows(anf)...";
+print "Proving InvShiftRows_ShiftRows(rme)...";
 InvShiftRows_ShiftRows <-
-  time (prove_print anf
+  time (prove_print rme
   {{ \s -> InvShiftRows (ShiftRows s) == s }});
 
-print "Proving InvSubByte_SubByte'(anf)...";
+print "Proving InvSubByte_SubByte'(rme)...";
 InvSubByte_SubByte' <-
-  time (prove_print anf
+  time (prove_print rme
   {{ \x -> InvSubByte (SubByte' x) == x }});
 
-print "Proving InvSubBytes_SubBytes(rewriting,anf)...";
+print "Proving InvSubBytes_SubBytes(rewriting,rme)...";
 InvSubBytes_SubBytes <-
   time (prove_print do {
     unfolding ["InvSubBytes", "SubBytes"];
     simplify (add_prelude_eqs ["map_map"]
              (addsimps [InvSubByte_SubByte']
              (cryptol_ss())));
-    anf;
+    rme;
   }
   {{ \s -> InvSubBytes (SubBytes s) == s }});
 
-print "Proving InvMixColumns_MixColumns(anf)...";
+print "Proving InvMixColumns_MixColumns(rme)...";
 InvMixColumns_MixColumns <-
-  time (prove_print anf
+  time (prove_print rme
   {{ \s -> InvMixColumns (MixColumns s) == s }});
 
 print "Proving aesDecrypt_aesEncrypt(rewriting)...";
@@ -81,30 +81,30 @@ dec_enc <-
   }
   {{ \msg key -> aesDecrypt (aesEncrypt (msg, key), key) == msg }});
 
-print "Proving ShiftRows_InvShiftRows(anf)...";
+print "Proving ShiftRows_InvShiftRows(rme)...";
 ShiftRows_InvShiftRows <-
-  time (prove_print anf
+  time (prove_print rme
   {{ \s -> ShiftRows (InvShiftRows s) == s }});
 
-print "Proving SubByte'_InvSubByte(anf)...";
+print "Proving SubByte'_InvSubByte(rme)...";
 SubByte'_InvSubByte <-
-  time (prove_print anf
+  time (prove_print rme
   {{ \x -> SubByte' (InvSubByte x) == x }});
 
-print "Proving InvSubBytes_SubBytes(rewriting,anf)...";
+print "Proving InvSubBytes_SubBytes(rewriting,rme)...";
 SubBytes_InvSubBytes <-
   time (prove_print do {
     unfolding ["InvSubBytes", "SubBytes"];
     simplify (add_prelude_eqs ["map_map"]
              (addsimps [SubByte'_InvSubByte]
              (cryptol_ss())));
-    anf;
+    rme;
   }
   {{ \s -> SubBytes (InvSubBytes s) == s }});
 
-print "Proving MixColumns_InvMixColumns(anf)...";
+print "Proving MixColumns_InvMixColumns(rme)...";
 MixColumns_InvMixColumns <-
-  time (prove_print anf
+  time (prove_print rme
   {{ \s -> MixColumns (InvMixColumns s) == s }});
 
 print "Proving aesEncrypt_aesDecrypt(rewriting)...";
