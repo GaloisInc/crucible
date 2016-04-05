@@ -542,21 +542,28 @@ to the less structured nature of the LLVM memory model.
                 -> Bool                  // Enable branch SAT checking
                 -> TopLevel Term         // Resulting Term
 
-Symmetrically with the Java version, the first two arguments are the
-same as for `llvm_extract`. However, while the Java version of this
-command takes two additional arguments, the LLVM version takes three.
-The first list describes allocations, the second describes initial
-values, and the third describes results. For the first list, SAWScript
-will initialize the pointer named by the given string to point to the
-number of elements indicated by the `Int`. For the second list,
-SAWScript will write to the given location with the given number of
-elements read from the given term. The name given in the initial
-assignment list should be written as an r-value, so if `"p"` appears in
-the allocation list then `"*p"` should appear in the initial assignment
-list. The third list describes the results, using the same convention:
-read $n$ elements from the named location. Finally, the `Bool` parameter
-indicates whether to perform satisfiability checking of branch
-conditions, instead of simply comparing them with the constant `False`.
+The first two and last arguments of `llvm_extract` are symmetric with
+`java_extract`, specifying a module, function, and whether to
+SAT-check branch conditions.  However, while `java_extract` takes
+*two* input/output arguments, corresponding to initial values and
+results, `llvm_extract` takes *three* input/output arguments,
+corresponding to memory allocations, initial values, and
+results. Below, we first give an `llvm_extract` example for `add`,
+which is close to the corresponding `java_extract` example above, but
+does not make use of the unfamiliar initialization argument. We then
+give a second `llvm_extract` example for `dotprod`, which does use the
+initialization argument.
+
+In more detail, the input/output arguments of `llvm_symexec` are
+interpreted as follows. For the first list, SAWScript will initialize
+the pointer named by the given string to point to the number of
+elements indicated by the `Int`. For the second list, SAWScript will
+write to the given location with the given number of elements read
+from the given term. The name given in the initial assignment list
+should be written as an r-value, so if `"p"` appears in the allocation
+list then `"*p"` should appear in the initial assignment list. The
+third list describes the results, using the same convention: read $n$
+elements from the named location.
 
 The numbers given for a particular location in the three lists need
 not be the same. For instance, we might allocate 10 elements for
@@ -573,8 +580,9 @@ $include all code/llvm_symexec.saw
 ```
 
 This has largely the same structure as the Java example, except that
-the `llvm_symexec` command takes and extra argument, describing
-allocations, and the input and output descriptions take sizes as well
+the `llvm_symexec` command takes an extra argument, describing
+allocations (here the empty list `[]`),
+and the input and output descriptions take sizes as well
 as values, to compensate for the fact that LLVM does not track how
 much memory a given variable takes up. In simple scalar cases such as
 this one, the size argument will always be `1`. However, if an input
