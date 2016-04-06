@@ -43,7 +43,7 @@ To build SAWScript and related utilities (CSS, LSS, JSS) from source:
     See the `pin` function in `build-sandbox.sh` for more details. The release
     branches already include a known-to-work `build-sandbox-versions-pins.txt`,
     so you can get a stable build by checking out a release branch (e.g.
-    `git checkout release-0.1-dev`).
+    `git checkout release-0.2`).
 
     To create a `build-sandbox-versions-pins.txt` for the current
     state of the dependencies, do
