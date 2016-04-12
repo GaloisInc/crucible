@@ -1,7 +1,7 @@
 {- |
 Module           : $Header$
 Description      : Pretty printer for Java Class datatype.
-License          : Free for non-commercial use. See LICENSE.
+License          : BSD3
 Stability        : provisional
 Point-of-contact : atomb
 -}

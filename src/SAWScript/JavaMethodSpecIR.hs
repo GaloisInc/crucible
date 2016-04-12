@@ -1,7 +1,7 @@
 {- |
 Module           : $Header$
 Description      : Provides typechecked representation for method specifications and function for creating it from AST representation.
-License          : Free for non-commercial use. See LICENSE.
+License          : BSD3
 Stability        : provisional
 Point-of-contact : jhendrix, atomb
 -}

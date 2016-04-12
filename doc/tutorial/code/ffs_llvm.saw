@@ -1,26 +1,34 @@
-print "Extracting reference term";
+print "Extracting reference term: ffs_ref";
 l <- llvm_load_module "ffs.bc";
 ffs_ref <- llvm_extract l "ffs_ref" llvm_pure;
 
-print "Extracting implementation term";
+print "Extracting implementation term: ffs_imp";
 ffs_imp <- llvm_extract l "ffs_imp" llvm_pure;
 
-print "Extracting buggy term";
+print "Extracting implementation term: ffs_musl";
+ffs_musl <- llvm_extract l "ffs_musl" llvm_pure;
+
+print "Extracting buggy term: ffs_bug";
 ffs_bug <- llvm_extract l "ffs_bug" llvm_pure;
 
-print "Proving equivalence";
+print "Proving equivalence: ffs_ref == ffs_imp";
 let thm1 = {{ \x -> ffs_ref x == ffs_imp x }};
 result <- prove abc thm1;
 print result;
 
-print "Finding bug via sat search";
-let thm2 = {{ \x -> ffs_ref x != ffs_bug x }};
-result <- sat abc thm2;
+print "Proving equivalence: ffs_ref == ffs_musl";
+let thm2 = {{ \x -> ffs_ref x == ffs_musl x }};
+result <- prove abc thm2;
 print result;
 
-print "Finding bug via failed proof";
-let thm3 = {{ \x -> ffs_ref x == ffs_bug x }};
-result <- prove abc thm3;
+print "Finding bug via sat search: ffs_ref != ffs_bug";
+let thm3 = {{ \x -> ffs_ref x != ffs_bug x }};
+result <- sat abc thm3;
+print result;
+
+print "Finding bug via failed proof: ffs_ref == ffs_bug";
+let thm4 = {{ \x -> ffs_ref x == ffs_bug x }};
+result <- prove abc thm4;
 print result;
 
 print "Done.";

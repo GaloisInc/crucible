@@ -1,0 +1,4 @@
+WARNING: lines from some source files in this directory are
+automatically included in the tutorial, by line number. So, if you
+edit these sources file, you may need to update line numbers in the
+tutorial source, ../tutorial.md.

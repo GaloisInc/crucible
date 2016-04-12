@@ -12,7 +12,7 @@
 {- |
 Module           : $Header$
 Description      :
-License          : Free for non-commercial use. See LICENSE.
+License          : BSD3
 Stability        : provisional
 Point-of-contact : atomb
 -}
@@ -78,6 +78,9 @@ import SAWScript.Value (ProofScript)
 import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 import qualified Verifier.SAW.Simulator.BitBlast as BBSim
 import qualified Verifier.SAW.Simulator.SBV as SBVSim
+
+import qualified Verifier.SAW.Simulator.RME as RME
+import qualified Verifier.SAW.Simulator.RME.Base as RME
 
 import qualified Data.ABC as ABC
 import qualified Data.SBV.Dynamic as SBV
@@ -668,6 +671,41 @@ rewriteEqs sc (TypedTerm schema t) = do
   t' <- rewriteSharedTerm sc ss t
   return (TypedTerm schema t')
 
+-- | Bit-blast a @SharedTerm@ representing a theorem and check its
+-- satisfiability using the RME library.
+satRME :: SharedContext s -> ProofScript s SV.SatResult
+satRME sc = StateT $ \g -> io $ do
+  let t0 = ttTerm (goalTerm g)
+  TypedTerm schema t <- (bindAllExts sc t0 >>= mkTypedTerm sc >>= rewriteEqs sc)
+  checkBooleanSchema schema
+  tp <- scWhnf sc =<< scTypeOf sc t
+  let (args, _) = asPiList tp
+      argNames = map fst args
+  -- putStrLn "Simulating..."
+  RME.withBitBlastedPred sc Map.empty t $ \lit0 shapes -> do
+  let lit = case goalQuant g of
+        Existential -> lit0
+        Universal -> RME.compl lit0
+  -- putStrLn "Checking..."
+  case RME.sat lit of
+    Nothing -> do
+      -- putStrLn "UNSAT"
+      ft <- scApplyPrelude_False sc
+      return (SV.Unsat, g { goalTerm = TypedTerm schema ft })
+    Just cex -> do
+      -- putStrLn "SAT"
+      let m = Map.fromList cex
+      let n = sum (map sizeFiniteType shapes)
+      let bs = map (maybe False id . flip Map.lookup m) $ take n [0..]
+      let r = liftCexBB shapes bs
+      tt <- scApplyPrelude_True sc
+      case r of
+        Left err -> fail $ "Can't parse counterexample: " ++ err
+        Right vs
+          | length argNames == length vs -> do
+              return (SV.SatMulti (zip argNames vs), g { goalTerm = TypedTerm schema tt })
+          | otherwise -> fail $ unwords ["RME SAT results do not match expected arguments", show argNames, show vs]
+
 codegenSBV :: SharedContext s -> FilePath -> String -> TypedTerm s -> IO ()
 codegenSBV sc path fname (TypedTerm _schema t) =
   SBVSim.sbvCodeGen sc sbvPrimitives [] mpath fname t
@@ -676,7 +714,11 @@ codegenSBV sc path fname (TypedTerm _schema t) =
 prepSBV :: SharedContext s -> [String] -> TypedTerm s
         -> IO (SharedTerm s, [SBVSim.Labeler], SBV.Symbolic SBV.SVal)
 prepSBV sc unints tt = do
-  TypedTerm schema t' <- rewriteEqs sc tt
+  let t0 = ttTerm tt
+  -- Abstract over all non-function ExtCns variables
+  let nonFun e = fmap ((== Nothing) . asPi) (scWhnf sc (ecType e))
+  exts <- filterM nonFun (getAllExts t0)
+  TypedTerm schema t' <- (bindExts sc exts t0 >>= mkTypedTerm sc >>= rewriteEqs sc)
   checkBooleanSchema schema
   (labels, lit) <- SBVSim.sbvSolve sc sbvPrimitives unints t'
   return (t', labels, lit)
@@ -703,7 +745,8 @@ satUnintSBV conf sc unints = StateT $ \g -> io $ do
     SBV.Satisfiable {} -> do
       let schema = C.Forall [] [] C.tBit
       tt <- scApplyPrelude_True sc
-      return (getLabels labels (SBV.getModelDictionary r) argNames, g {goalTerm = TypedTerm schema tt})
+      let dict = SBV.getModelDictionary r
+      return (getLabels labels dict argNames, g {goalTerm = TypedTerm schema tt})
     SBV.Unsatisfiable {} -> do
       let schema = C.Forall [] [] C.tBit
       ft <- scApplyPrelude_False sc
@@ -1106,3 +1149,16 @@ eval_size s =
             C.TCon (C.TC C.TCInf) _     -> fail "eval_size: illegal infinite size"
             _                           -> fail "eval_size: invalid type"
     _ -> fail "eval_size: unsupported polymorphic type"
+
+nthPrim :: [a] -> Int -> TopLevel a
+nthPrim [] _ = fail "nth: index too large"
+nthPrim (x : _) 0 = return x
+nthPrim (_ : xs) i = nthPrim xs (i - 1)
+
+headPrim :: [a] -> TopLevel a
+headPrim [] = fail "head: empty list"
+headPrim (x : _) = return x
+
+tailPrim :: [a] -> TopLevel [a]
+tailPrim [] = fail "tail: empty list"
+tailPrim (_ : xs) = return xs

@@ -1,7 +1,7 @@
 -- |
 -- Module      :  $Header$
 -- Copyright   :  (c) 2013-2016 Galois, Inc.
--- License     :  Free for non-commercial use. See LICENSE.
+-- License     :  BSD3
 -- Maintainer  :  saw@galois.com
 -- Stability   :  provisional
 -- Portability :  portable

@@ -4,7 +4,7 @@
 {- |
 Module           : $Header$
 Description      :
-License          : Free for non-commercial use. See LICENSE.
+License          : BSD3
 Stability        : provisional
 Point-of-contact : huffman
 -}
@@ -27,7 +27,6 @@ module SAWScript.CryptolEnv
   where
 
 --import qualified Control.Exception as X
-import Control.Monad (unless)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -54,6 +53,7 @@ import qualified Cryptol.TypeCheck.AST as T
 --import qualified Cryptol.TypeCheck.InferTypes as T
 import qualified Cryptol.TypeCheck.Kind as TK
 import qualified Cryptol.TypeCheck.Monad as TM
+--import qualified Cryptol.TypeCheck.PP as TP
 
 import qualified Cryptol.ModuleSystem as M
 import qualified Cryptol.ModuleSystem.Base as MB
@@ -427,12 +427,13 @@ parseSchema env input = do
     let infer =
           case rschema of
             P.Forall [] [] t _ -> do
-              t' <- TK.checkType t Nothing -- allow either kind KNum or KType
-              return (T.Forall [] [] t', [])
+              let k = Nothing -- allow either kind KNum or KType
+              (t', goals) <- TM.collectGoals $ TK.checkType t k
+              return (T.Forall [] [] t', goals)
             _ -> TK.checkSchema rschema
     out <- MM.io (TM.runInferM tcEnv' infer)
-    (schema, goals) <- MM.interactive (runInferOutput out)
-    unless (null goals) (MM.io (print goals))
+    (schema, _goals) <- MM.interactive (runInferOutput out)
+    --mapM_ (MM.io . print . TP.ppWithNames TP.emptyNameMap) goals
     return (schemaNoUser schema)
 
 typeNoUser :: T.Type -> T.Type

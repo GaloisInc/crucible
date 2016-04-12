@@ -1,132 +1,30 @@
-﻿NONCOMMERCIAL END-USER LICENSE AGREEMENT
+Copyright (c) 2013-2016 Galois Inc.
+All rights reserved.
 
-Be sure to carefully read and understand all of the rights and
-restrictions described in this End-User License Agreement (“EULA”). BY
-DOWNLOADING, INSTALLING, ACCESSING, AND/OR OTHERWISE USING THE
-SOFTWARE, YOU ACCEPT AND AGREE WITHOUT RESERVATION TO BE BOUND BY
-THESE TERMS. IF YOU DO NOT ACCEPT THESE TERMS IN THEIR ENTIRETY, YOU
-ARE NOT AUTHORIZED TO DOWNLOAD, INSTALL, OR USE THE SOFTWARE IN ANY
-WAY. Alternative license terms may be available to you by
-contacting contracts@galois.com.
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
 
-This EULA is a legal agreement between you (either an individual or a
-single entity) and Galois, Inc. (“GALOIS”) for the software referred
-to by GALOIS as the “Software Analysis Workbench” which includes the
-computer software, and may include associated media, printed materials
-and any “online” or electronic documentation (“Software”). By
-utilizing the Software, you agree to be bound by the terms of this
-EULA. If you do not agree to the terms of this EULA, you may not
-access or use the Software.
+  * Redistributions of source code must retain the above copyright
+    notice, this list of conditions and the following disclaimer.
 
-GRANT OF LIMITED LICENSE.  GALOIS hereby grants to you a personal,
-non-exclusive, non-transferable, royalty-free license to access, use
-and modify the Software for your own internal, non-commercial
-purposes. Teaching and academic research are typical examples of
-non-commercial use. If your project receives external funding from
-other than U.S. Government research grants or contracts, you must
-obtain a commercial license from Galois.
+  * Redistributions in binary form must reproduce the above copyright
+    notice, this list of conditions and the following disclaimer in
+    the documentation and/or other materials provided with the
+    distribution.
 
-The Software is licensed to you, and such license does not constitute
-a sale of the Software. GALOIS reserves the right to release the
-Software under different license terms or to stop distributing or
-providing access to the Software at any time.
+  * Neither the name of Galois, Inc. nor the names of its contributors
+    may be used to endorse or promote products derived from this
+    software without specific prior written permission.
 
-RESTRICTIONS.  You may not use or distribute this Software, or any
-derivative works of this Software, for commercial purposes. Examples
-of commercial purposes include running business operations; licensing,
-leasing, or selling the Software; distributing the Software for use
-with commercial products; using the Software in the creation or use of
-commercial products; or any other activity whose purpose is to procure
-a commercial gain to you or others.
-
-You may not: (i) distribute, sublicense, rent or lease the Software,
-except as expressly permitted under the limited license above; or (ii)
-sell professional services or commercial products based on the use of
-this software or the interpretation of its results..
-
-OWNERSHIP.  GALOIS is the sole owner of the Software and the
-intellectual property rights therein. You agree that GALOIS retains
-title to and ownership of the Software and that you will keep
-confidential and use your best efforts to prevent and protect the
-Software from unauthorized access, use or disclosure. All trademarks,
-service marks, and trade names are proprietary to GALOIS. All rights
-not expressly granted herein are hereby reserved.
-
-TERMINATION.  The EULA is effective upon the date you first use the
-Software and shall continue until terminated as specified below.
-
-You may terminate the EULA at any time prior to the natural expiration
-date by destroying the Software and any and all related documentation
-and copies and installations thereof, whether made under the terms of
-these terms or otherwise. GALOIS may terminate the EULA if you fail to
-comply with any condition of the EULA or at GALOIS' discretion for
-good cause. If you sue anyone over patents that you think may apply to
-the software or anyone's use of the software, this EULA (and your
-license and rights obtained herein) terminate automatically. Upon
-termination, you must destroy the Software in your possession, if any,
-and any and all copies thereof. In the event of termination for any
-reason, the provisions set forth under the paragraphs entitled
-DISCLAIMER OF ALL WARRANTIES, EXCLUSION OF ALL DAMAGES, and LIMITATION
-AND RELEASE OF LIABILITY shall survive.
-
-DISCLAIMER OF ALL WARRANTIES.  GALOIS PROVIDES THE SOFTWARE “AS IS”
-AND WITH ALL FAULTS, AND HEREBY DISCLAIMS ALL OTHER WARRANTIES AND
-CONDITIONS, EITHER EXPRESS, IMPLIED OR STATUTORY, INCLUDING BUT NOT
-LIMITED TO ANY (IF ANY) IMPLIED WARRANTIES OR CONDITIONS OF
-MERCHANTABILITY, OF FITNESS FOR A PARTICULAR PURPOSE, OF LACK OF
-VIRUSES AND OF LACK OF NEGLIGENCE OR LACK OF WORKMANLIKE EFFORT. ALSO,
-THERE IS NO WARRANTY OR CONDITION OF TITLE, OF QUIET ENJOYMENT OR OF
-NON-INFRINGEMENT. THE ENTIRE RISK ARISING OUT OF THE USE OR
-PERFORMANCE OF THE SOFTWARE IS WITH YOU.
-
-EXCLUSION OF ALL DAMAGES.  TO THE MAXIMUM EXTENT PERMITTED BY
-APPLICABLE LAW, IN NO EVENT SHALL GALOIS BE LIABLE FOR ANY
-CONSEQUENTIAL, INCIDENTAL, DIRECT, INDIRECT, SPECIAL, PUNITIVE OR
-OTHER DAMAGES WHATSOEVER (INCLUDING, WITHOUT LIMITATION, DAMAGES FOR
-ANY INJURY TO PERSON OR PROPERTY, DAMAGES FOR LOSS OF PROFITS,
-BUSINESS INTERRUPTION, LOSS OF BUSINESS INFORMATION, FOR LOSS OF
-PRIVACY FOR FAILURE TO MEET ANY DUTY INCLUDING OF GOOD FAITH OR OF
-REASONABLE CARE, FOR NEGLIGENCE AND FOR ANY PECUNIARY OR OTHER LOSS
-WHATSOEVER) ARISING OUT OF OR IN ANY WAY RELATED TO THE USE OF OR
-INABILITY TO USE THE SOFTWARE, EVEN IF GALOIS HAS BEEN ADVISED OF THE
-POSSIBILITY OF SUCH DAMAGES. THIS EXCLUSION OF DAMAGES SHALL BE
-EFFECTIVE EVEN IF ANY REMEDY FAILS OF ITS ESSENTIAL PURPOSE.
-
-LIMITATION AND RELEASE OF LIABILITY.  GALOIS has included in this EULA
-terms that disclaim all warranties and liability for the Software. To
-the full extent allowed by law, YOU HEREBY RELEASE GALOIS FROM ANY AND
-ALL LIABILITY ARISING FROM OR RELATED TO ALL CLAIMS CONCERNING THE
-SOFTWARE OR ITS USE. If you do not wish to accept access to the
-Software under the terms of this EULA, do not access or use the
-Software. No refund will be made, because the Software was provided to
-you at no charge. Independent of, severable from, and to be enforced
-independently of any other provision of this EULA, UNDER NO
-CIRCUMSTANCE SHALL GALOIS' AGGREGATE LIABILITY TO YOU (INCLUDING
-LIABILITY TO ANY THIRD PERSON OR PERSONS WHOSE CLAIM OR CLAIMS ARE
-BASED ON OR DERIVED FROM A RIGHT OR RIGHTS CLAIMED BY YOU), WITH
-RESPECT TO ANY AND ALL CLAIMS AT ANY AND ALL TIMES ARISING FROM OR
-RELATED TO THE SUBJECT MATTER OF THIS EULA, IN CONTRACT, TORT, OR
-OTHERWISE, EXCEED THE TOTAL AMOUNT, IF ANY, ACTUALLY PAID BY YOU TO
-GALOIS PURSUANT TO THIS EULA.
-
-GENERAL INFORMATION.  The EULA constitutes the entire agreement
-between you and GALOIS and governs your access to and use of the
-Software. The EULA shall not be modified except in writing by both
-parties.
-
-The EULA shall be governed by and construed in accordance with the
-laws of the State of Oregon, without regard to the conflicts of law
-principles thereof.
-
-If any provision of the EULA shall be deemed unlawful, void, or for
-any reason unenforceable, then that provision shall be deemed
-severable from these terms and shall not affect the validity and
-enforceability of any remaining provisions.
-
-In consideration of your use of the Software, you represent that you
-are of legal age to form a binding contract and are not a person
-barred from receiving services under the laws of the United States or
-other applicable jurisdiction.
-
-The failure of GALOIS to exercise or enforce any right or provision of
-the EULA shall not constitute a waiver of such right or provision.
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER
+OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

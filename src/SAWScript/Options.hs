@@ -3,7 +3,7 @@
 {- |
 Module           : $Header$
 Description      :
-License          : Free for non-commercial use. See LICENSE.
+License          : BSD3
 Stability        : provisional
 Point-of-contact : atomb
 -}

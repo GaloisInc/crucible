@@ -16,9 +16,13 @@ structure of many other typed functional languages, with some special
 features specifically targeted at the coordination of verification and
 analysis tasks.
 
-This tutorial introduces the details of the language by walking
-through several examples, and showing how simple verification tasks
-can be described.
+This tutorial introduces the details of the language by walking through
+several examples, and showing how simple verification tasks can be
+described. Most of the examples make use of inline specifications
+written in Cryptol, a language originally designed for high-level
+descriptions of cryptographic algorithms. For readers unfamiliar with
+Cryptol, various documents describing its use are available
+[here](http://cryptol.net/documentation.html).
 
 Example: Find First Set
 =======================
@@ -53,8 +57,8 @@ could be as many as 32, depending on the input value. It's possible to
 implement the same algorithm with significantly fewer branches, and no
 backward branches.
 
-Optimized Implementation
-------------------------
+Optimized Implementations
+-------------------------
 
 An alternative implementation, taken by the following program (also in
 `code/ffs.c`), treats the bits of the input word in chunks, allowing
@@ -64,14 +68,21 @@ sequences of zero bits to be skipped over more quickly.
 $include 19-26 code/ffs.c
 ```
 
-However, this code is much less obvious than the previous
-implementation. If it is correct, we would like to use it, since it
-has the potential to be faster. But how do we gain confidence that it
-calculates the same results as the original program?
+Another optimized version, in the following rather mysterious program
+(also in `code/ffs.c`), based on the `ffs` implementation in [musl
+libc](http://www.musl-libc.org/).
 
-SAWScript allows us to state this problem concisely, and to quickly
-and automatically prove the equivalence of these two functions for all
-possible inputs.
+``` {.c}
+$include 69-76 code/ffs.c
+```
+
+These optimized versions are much less obvious than the reference
+implementation. They might be faster, but how do we gain confidence
+that they calculate the same results as the reference implementation?
+
+SAWScript allows us to state these problems concisely, and to quickly
+and automatically prove the equivalence of the reference and optimized
+implementations on all possible inputs.
 
 Buggy Implementation
 --------------------
@@ -82,7 +93,7 @@ program represents a case where traditional testing -- as opposed
 to verification -- is unlikely to be helpful.
 
 ``` {.c}
-$include 29-33 code/ffs.c
+$include 43-47 code/ffs.c
 ```
 
 SAWScript allows us to quickly identify an input exhibiting the bug.
@@ -117,8 +128,8 @@ potentially along with definitions of functions that abstract over
 commonly-used combinations of commands.
 
 The following script (in `code/ffs_llvm.saw`) is sufficient to
-automatically prove the equivalence of the `ffs_ref` and `ffs_imp`
-functions, and identify the bug in `ffs_bug`.
+automatically prove the equivalence of `ffs_ref` with `ffs_imp` and
+`ffs_musl`, and identify the bug in `ffs_bug`.
 
 ```
 $include all code/ffs_llvm.saw
@@ -139,8 +150,8 @@ Cryptol expressions can be embedded within SAWScript; to distinguish
 Cryptol code from SAWScript commands, the Cryptol code is placed
 within double brackets `{{` and `}}`.
 
-The `prove_print` command can verify the validity of such an assertion, and
-print out the results of verification. The `abc` parameter indicates what
+The `prove` command can verify the validity of such an assertion.
+The `abc` parameter indicates what
 theorem prover to use; SAWScript offers support for many other SAT and
 SMT solvers as well as user definable simplification tactics.
 
@@ -153,15 +164,18 @@ producing the output
 ```
 Loading module Cryptol
 Loading file "ffs_llvm.saw"
-Extracting reference term
-Extracting implementation term
-Extracting buggy term
-Proving equivalence
+Extracting reference term: ffs_ref
+Extracting implementation term: ffs_imp
+Extracting implementation term: ffs_musl
+Extracting buggy term: ffs_bug
+Proving equivalence: ffs_ref == ffs_imp
 Valid
-Finding bug via sat search
-Sat: 1052688
-Finding bug via failed proof
-Invalid: 1052688
+Proving equivalence: ffs_ref == ffs_musl
+Valid
+Finding bug via sat search: ffs_ref != ffs_bug
+Sat: [x = 1052688]
+Finding bug via failed proof: ffs_ref == ffs_bug
+Invalid: [x = 1052688]
 Done.
 ```
 
@@ -255,14 +269,15 @@ $include all code/double.saw
 
 The new primitives introduced here are the tilde operator, `~`, which
 constructs the logical negation of a term, and `write_smtlib2`, which
-writes a term as a proof obligation in SMT-Lib version 2 format.
-Because SMT solvers are satisfiability solvers, negating the input
-term allows us to interpret a result of "unsatisfiable" from the
-solver as an indication of the validity of the term. The `prove`
-primitive does this automatically, but for flexibility the
-`write_smtlib2` primitive passes the given term through unchanged,
-because it might be used for either satisfiability or validity
-checking.
+writes a term as a proof obligation in SMT-Lib version 2 format. Because
+SMT solvers are satisfiability solvers, their default behavior is to
+treat free variables as existentially quantified. By negating the input
+term, we can instead treat the free variables as universally quantified:
+a result of "unsatisfiable" from the solver indicates that the original
+term (before negation) is a valid theorem. The `prove` primitive does
+this automatically, but for flexibility the `write_smtlib2` primitive
+passes the given term through unchanged, because it might be used for
+either satisfiability or validity checking.
 
 The SMT-Lib export capabilities in SAWScript make use of the Haskell
 SBV package, and support ABC, Boolector, CVC4, MathSAT, Yices, and Z3.
@@ -272,7 +287,7 @@ External SAT Solvers
 ====================
 
 In addition to the `abc`, `cvc4`, and `yices` proof tactics used
-above, SAWScript can also invoke arbitrary external SAT solvers that
+above, SAWScript can also invoke arbitrary external SAT solvers
 that read CNF files and produce results according to the SAT
 competition
 [input and output conventions](http://www.satcompetition.org/2009/format-solvers2009.html),
@@ -532,21 +547,28 @@ to the less structured nature of the LLVM memory model.
                 -> Bool                  // Enable branch SAT checking
                 -> TopLevel Term         // Resulting Term
 
-Symmetrically with the Java version, the first two arguments are the
-same as for `llvm_extract`. However, while the Java version of this
-command takes two additional arguments, the LLVM version takes three.
-The first list describes allocations, the second describes initial
-values, and the third describes results. For the first list, SAWScript
-will initialize the pointer named by the given string to point to the
-number of elements indicated by the `Int`. For the second list,
-SAWScript will write to the given location with the given number of
-elements read from the given term. The name given in the initial
-assignment list should be written as an r-value, so if `"p"` appears in
-the allocation list then `"*p"` should appear in the initial assignment
-list. The third list describes the results, using the same convention:
-read $n$ elements from the named location. Finally, the `Bool` parameter
-indicates whether to perform satisfiability checking of branch
-conditions, instead of simply comparing them with the constant `False`.
+The first two and last arguments of `llvm_extract` are symmetric with
+`java_extract`, specifying a module, function, and whether to
+SAT-check branch conditions.  However, while `java_extract` takes
+*two* input/output arguments, corresponding to initial values and
+results, `llvm_extract` takes *three* input/output arguments,
+corresponding to memory allocations, initial values, and
+results. Below, we first give an `llvm_extract` example for `add`,
+which is close to the corresponding `java_extract` example above, but
+does not make use of the unfamiliar initialization argument. We then
+give a second `llvm_extract` example for `dotprod`, which does use the
+initialization argument.
+
+In more detail, the input/output arguments of `llvm_symexec` are
+interpreted as follows. For the first list, SAWScript will initialize
+the pointer named by the given string to point to the number of
+elements indicated by the `Int`. For the second list, SAWScript will
+write to the given location with the given number of elements read
+from the given term. The name given in the initial assignment list
+should be written as an r-value, so if `"p"` appears in the allocation
+list then `"*p"` should appear in the initial assignment list. The
+third list describes the results, using the same convention: read $n$
+elements from the named location.
 
 The numbers given for a particular location in the three lists need
 not be the same. For instance, we might allocate 10 elements for
@@ -563,8 +585,9 @@ $include all code/llvm_symexec.saw
 ```
 
 This has largely the same structure as the Java example, except that
-the `llvm_symexec` command takes and extra argument, describing
-allocations, and the input and output descriptions take sizes as well
+the `llvm_symexec` command takes an extra argument, describing
+allocations (here the empty list `[]`),
+and the input and output descriptions take sizes as well
 as values, to compensate for the fact that LLVM does not track how
 much memory a given variable takes up. In simple scalar cases such as
 this one, the size argument will always be `1`. However, if an input

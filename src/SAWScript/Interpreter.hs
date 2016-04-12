@@ -13,7 +13,7 @@
 {- |
 Module           : $Header$
 Description      :
-License          : Free for non-commercial use. See LICENSE.
+License          : BSD3
 Stability        : provisional
 Point-of-contact : huffman
 -}
@@ -453,6 +453,30 @@ primitives = Map.fromList
     , "iteration."
     ]
 
+  , prim "null"                "{a} [a] -> Bool"
+    (pureVal (null :: [Value] -> Bool))
+    [ "Test whether a list value is empty." ]
+
+  , prim "nth"                 "{a} [a] -> Int -> a"
+    (funVal2 (nthPrim :: [Value] -> Int -> TopLevel Value))
+    [ "Look up the value at the given list position." ]
+
+  , prim "head"                "{a} [a] -> a"
+    (funVal1 (headPrim :: [Value] -> TopLevel Value))
+    [ "Get the first element from the list." ]
+
+  , prim "tail"                "{a} [a] -> [a]"
+    (funVal1 (tailPrim :: [Value] -> TopLevel [Value]))
+    [ "Drop the first element from a list." ]
+
+  , prim "concat"              "{a} [a] -> [a] -> [a]"
+    (pureVal ((++) :: [Value] -> [Value] -> [Value]))
+    [ "Concatenate two lists to yield a third." ]
+
+  , prim "length"              "{a} [a] -> Int"
+    (pureVal (length :: [Value] -> Int))
+    [ "Compute the length of a list." ]
+
   , prim "str_concat"          "String -> String -> String"
     (pureVal ((++) :: String -> String -> String))
     [ "Concatenate two strings to yield a third." ]
@@ -831,6 +855,10 @@ primitives = Map.fromList
     , "second is the list of arguments to pass to the solver. The string '%f'"
     , "anywhere in the argument list will be replaced with the name of the"
     , "temporary file holding the AIG version of the formula."]
+
+  , prim "rme"                 "ProofScript SatResult"
+    (scVal satRME)
+    [ "Prove the current goal by expansion to Reed-Muller Normal Form." ]
 
   , prim "trivial"             "ProofScript SatResult"
     (pureVal trivial)

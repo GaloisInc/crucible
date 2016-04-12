@@ -21,8 +21,8 @@ Precompiled SAWScript binaries for a variety of platforms are available on the [
 To build SAWScript and related utilities (CSS, LSS, JSS) from source:
 
   * Ensure that you have the
-    [Stack](https://github.com/commercialhaskell/stack) program on
-    your `PATH`. If you don't already have Stack, then `cabal install stack`,
+    [Stack](https://github.com/commercialhaskell/stack) program on your
+    `PATH`. If you don't already have Stack, then `cabal install stack`,
     or download a precompiled binary from
     https://github.com/commercialhaskell/stack/releases.
 
@@ -30,19 +30,20 @@ To build SAWScript and related utilities (CSS, LSS, JSS) from source:
     `terminfo`, which generally comes as part of `ncurses` on most
     platforms.
 
-  * Ensure that you have the programs `javac` and `cvc4` on your
-    `PATH`. CVC4 binaries are available at http://cvc4.cs.nyu.edu/downloads/.
+  * Ensure that you have the programs `javac` and `z3` on your
+    `PATH`. Z3 binaries are available at
+    https://github.com/Z3Prover/z3/releases
 
   * **Developers**:
     optionally, create a `build-sandbox-version-pins.txt` and pin the
     revisions of dependencies as necessary by adding lines like
-    
+
         <dependency name> <committish>
-    
+
     See the `pin` function in `build-sandbox.sh` for more details. The release
     branches already include a known-to-work `build-sandbox-versions-pins.txt`,
     so you can get a stable build by checking out a release branch (e.g.
-    `git checkout release-0.1-dev`).
+    `git checkout release-0.2`).
 
     To create a `build-sandbox-versions-pins.txt` for the current
     state of the dependencies, do
@@ -64,16 +65,10 @@ To build SAWScript and related utilities (CSS, LSS, JSS) from source:
 
         ln -s stack.<ghc version and os>.yaml stack.yaml
 
-    As of this writing, SAWScript does not build on Windows with GHC
-    7.10. Also, the Windows build uses 32-bit GHC because our
-    `abcBridge` package currently requires this. However, Stack will
-    automatically download GHC for you if needed, so this is not
-    inconvenient in practice.
-
     The `stack-<ghc version>-unix.yaml` files are for both Linux and
     OS X.
 
-    (Alternativley, you can
+    (Alternatively, you can
 
         export STACK_YAML=stack.<ghc version and os>.yaml
 
@@ -89,7 +84,7 @@ To build SAWScript and related utilities (CSS, LSS, JSS) from source:
     will build SAWScript using the given Stack YAML.)
 
   * Build SAWScript by running
-    
+
         ./build-sandbox.sh -p
 
     The `-p` flag tells it to pull the latest updates from any
@@ -115,7 +110,7 @@ To build SAWScript and related utilities (CSS, LSS, JSS) from source:
 
 ## Related Packages
 
-Many dependencies are automatically downloaded into `deps/` when you 
+Many dependencies are automatically downloaded into `deps/` when you
 build using `build-sandbox.sh`; see
 [Manual Installation](#manual-installation) above. Key automatically
 downloaded dependencies include:
