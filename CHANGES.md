@@ -32,13 +32,14 @@
     * New built-in functions for processing lists: TODO names
 
 * New proof backends:
-    * A new `rme` proof tactic, based on the Reed-Muller Expansion
+    * A new `rme` proof tactic, based on the
+      [Reed-Muller Expansion](https://en.wikipedia.org/wiki/Reed%E2%80%93Muller_expansion)
       normal form for propositional formulas. This tactic is
       particularly efficient for dealing with polynomials over Galois
       fields, as used in AES, for instance.
 
-* The latest Cryptol code, which includes the following changes since
-  release 2.3.0:
+* Linked against the latest Cryptol code, which includes the following
+  changes since release 2.3.0:
     * An extended prelude with more Haskell-like functions
     * Better, more portable seeding for `random`
     * Performance improvements for symbolically executing tables of
@@ -47,8 +48,8 @@
 
 * Internal improvements:
     * Simplified Cryptol to SAWCore translation
-    * Improved performance of Cryptol->SAWCore translation for recursive
-      functions
-    * Updated parser to support some of LLVM 3.7
+    * Improved performance of Cryptol to SAWCore translation for
+      recursive functions
+    * Updated bitcode parser to support some of the changes in LLVM 3.7
     * Many bug fixes
     * Many code cleanups
