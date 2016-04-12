@@ -36,6 +36,7 @@ if [ -n "$clean" ]; then
 fi
 mkdir -p ${TARGET}/bin
 mkdir -p ${TARGET}/doc
+mkdir -p ${TARGET}/examples
 mkdir -p ${TARGET}/lib
 
 echo Staging ...
@@ -59,6 +60,7 @@ cp doc/java-llvm/java-llvm.pdf                ${TARGET}/doc
 cp -r doc/tutorial/code                       ${TARGET}/doc
 cp deps/jvm-verifier/support/galois.jar       ${TARGET}/lib
 cp -r deps/cryptol/lib/*                      ${TARGET}/lib
+cp -r examples/*                              ${TARGET}/examples
 
 cd tmp/release
 if [ "${OS}" == "Windows_NT" ]; then
