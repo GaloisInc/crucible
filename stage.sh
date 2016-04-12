@@ -49,13 +49,13 @@ strip "$BIN"/*
 cp deps/abcBridge/abc-build/copyright.txt     ${TARGET}/ABC_LICENSE
 cp LICENSE                                    ${TARGET}/LICENSE
 cp "$BIN"/bcdump                              ${TARGET}/bin
-cp "$BIN"/extcore-info                        ${TARGET}/bin
 cp "$BIN"/jss                                 ${TARGET}/bin
 cp "$BIN"/llvm-disasm                         ${TARGET}/bin
 cp "$BIN"/lss                                 ${TARGET}/bin
 cp "$BIN"/saw                                 ${TARGET}/bin
 cp doc/extcore.txt                            ${TARGET}/doc
 cp doc/tutorial/sawScriptTutorial.pdf         ${TARGET}/doc
+cp doc/java-llvm/java-llvm.pdf                ${TARGET}/doc
 cp -r doc/tutorial/code                       ${TARGET}/doc
 cp deps/jvm-verifier/support/galois.jar       ${TARGET}/lib
 cp -r deps/cryptol/lib/*                      ${TARGET}/lib
