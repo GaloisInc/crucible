@@ -196,15 +196,14 @@ extractLLVM bic opts lmod func _setup =
         lamTm <- bindExts scLLVM exts rv
         scImport sc lamTm >>= mkTypedTerm sc
 
-verifyLLVM :: Bool
-           -> BuiltinContext
+verifyLLVM :: BuiltinContext
            -> Options
            -> LLVMModule
            -> String
            -> [LLVMMethodSpecIR]
            -> LLVMSetup ()
            -> TopLevel LLVMMethodSpecIR
-verifyLLVM isOld bic opts (LLVMModule file mdl) funcname overrides setup =
+verifyLLVM bic opts (LLVMModule file mdl) funcname overrides setup =
   let pos = fixPos -- TODO
       dl = parseDataLayout $ modDataLayout mdl
       sc = biSharedContext bic
@@ -247,25 +246,19 @@ verifyLLVM isOld bic opts (LLVMModule file mdl) funcname overrides setup =
         putStrLn $ "Executing " ++ show (specName ms)
       runSimulator cb sbe mem (Just lopts) $ do
         setVerbosity verb
-        res <- case isOld of
-          True -> do
-            esd <- initializeVerification scLLVM ms
-            mkSpecVC scLLVM vp esd
-          False -> do
-            (initPS, args) <- initializeVerification' scLLVM ms
-            mapM_ (overrideFromSpec sc (specPos ms)) (vpOver vp)
-            run
-            res <- checkFinalState scLLVM ms initPS args
-            return [res]
+        (initPS, args) <- initializeVerification' scLLVM ms
+        mapM_ (overrideFromSpec sc (specPos ms)) (vpOver vp)
+        run
+        res <- checkFinalState scLLVM ms initPS args
         when (verb >= 3) $ liftIO $ do
           putStrLn "Verifying the following:"
-          mapM_ (print . ppPathVC) res
+          print (ppPathVC res)
         case lsTactic lsctx of
           Skip -> liftIO $ putStrLn $
             "WARNING: skipping verification of " ++ show (specName ms)
           RunVerify script -> do
             let prv = prover opts scLLVM ms script
-            liftIO $ fmap fst $ runTopLevel (runValidation prv vp scLLVM res) ro rw
+            liftIO $ fmap fst $ runTopLevel (runValidation prv vp scLLVM [res]) ro rw
     if lsSimulate lsctx
        then io $ putStrLn $ "Successfully verified " ++
                        show (specName ms) ++ overrideText
