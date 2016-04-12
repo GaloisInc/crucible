@@ -611,7 +611,7 @@ polymorphic functions. A more specialized implementation of dot
 product in C might look more like the following, from
 `code/dotprod.c`.
 
-```
+``` {.c}
 $include all code/dotprod.c
 ```
 
