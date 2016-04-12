@@ -4,7 +4,7 @@ Author:        Galois Inc.
 Maintainer:    atomb@galois.com
 Build-type:    Simple
 Cabal-version: >= 1.8.0.2
-License:       OtherLicense
+License:       BSD3
 License-file:  LICENSE
 
 extra-source-files:
