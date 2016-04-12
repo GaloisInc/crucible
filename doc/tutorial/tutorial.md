@@ -16,9 +16,13 @@ structure of many other typed functional languages, with some special
 features specifically targeted at the coordination of verification and
 analysis tasks.
 
-This tutorial introduces the details of the language by walking
-through several examples, and showing how simple verification tasks
-can be described.
+This tutorial introduces the details of the language by walking through
+several examples, and showing how simple verification tasks can be
+described. Most of the examples make use of inline specifications
+written in Cryptol, a language originally designed for high-level
+descriptions of cryptographic algorithms. For readers unfamiliar with
+Cryptol, various documents describing its use are available
+[here](http://cryptol.net/documentation.html).
 
 Example: Find First Set
 =======================
@@ -265,14 +269,15 @@ $include all code/double.saw
 
 The new primitives introduced here are the tilde operator, `~`, which
 constructs the logical negation of a term, and `write_smtlib2`, which
-writes a term as a proof obligation in SMT-Lib version 2 format.
-Because SMT solvers are satisfiability solvers, negating the input
-term allows us to interpret a result of "unsatisfiable" from the
-solver as an indication of the validity of the term. The `prove`
-primitive does this automatically, but for flexibility the
-`write_smtlib2` primitive passes the given term through unchanged,
-because it might be used for either satisfiability or validity
-checking.
+writes a term as a proof obligation in SMT-Lib version 2 format. Because
+SMT solvers are satisfiability solvers, their default behavior is to
+treat free variables as existentially quantified. By negating the input
+term, we can instead treat the free variables as universally quantified:
+a result of "unsatisfiable" from the solver indicates that the original
+term (before negation) is a valid theorem. The `prove` primitive does
+this automatically, but for flexibility the `write_smtlib2` primitive
+passes the given term through unchanged, because it might be used for
+either satisfiability or validity checking.
 
 The SMT-Lib export capabilities in SAWScript make use of the Haskell
 SBV package, and support ABC, Boolector, CVC4, MathSAT, Yices, and Z3.
