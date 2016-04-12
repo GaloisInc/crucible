@@ -1,5 +1,7 @@
 # Version 0.2-dev
 
+* Released under the 3-clause BSD license
+
 * Major improvements to the Java and LLVM verification infrastructure,
   as described in more detail [here](doc/java-llvm/java-llvm.md):
     * Major refactoring and polish to `java_verify` and `java_symexec`
