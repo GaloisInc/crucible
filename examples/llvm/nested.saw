@@ -1,0 +1,13 @@
+let f_spec = do {
+    llvm_ptr "p" (llvm_struct "struct.t");
+    x <- llvm_var "p->0" (llvm_int 32);
+    a <- llvm_var "(p->1).0" (llvm_int 32);
+    b <- llvm_var "(p->1).1" (llvm_int 32);
+    y <- llvm_var "p->2" (llvm_int 32);
+    llvm_return b;
+    llvm_verify_tactic abc;
+};
+
+m <- llvm_load_module "nested.bc";
+
+llvm_verify m "f" [] f_spec;
