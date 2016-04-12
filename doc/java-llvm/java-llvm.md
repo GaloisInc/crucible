@@ -394,7 +394,10 @@ initial values to write to the program state before execution. The
 elements of this list should include *value* expressions. For example,
 if a function has an argument named `p` of type `int *`, the allocation
 list might contain the element `("p", 1)`, whereas the initial values
-list might contain the element `("*p", v, 1)`, for some value `v`.
+list might contain the element `("*p", v, 1)`, for some value `v`. The
+`Int` portion of each tuple indicates how large the term is: for a term
+with Cryptol type `[n]a`, the `Int` argument should be `n`. In the
+future we expect this value to be inferred.
 
 Finally, the fifth argument, of type `[(String, Int)]` indicates the
 elements to read from the final state. For each entry, the `String`
@@ -818,6 +821,11 @@ folded (uninterpreted).
 unint_cvc4 : [String] -> ProofScript SatResult
 unint_z3 : [String] -> ProofScript SatResult
 ~~~~
+
+The list of `String` arguments in these two cases indicates the names of
+the constants to leave folded, and therefore present as uninterpreted
+functions to the prover. To determine which folded constants appear in a
+goal, use the `print_goal_consts` function described below.
 
 Ultimately, we plan to implement a more generic tactic that leaves
 certain constants uninterpreted in whatever prover is ultimately used
