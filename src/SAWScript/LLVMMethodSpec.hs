@@ -596,7 +596,7 @@ readLLVMMixedExprPS ir sc ps args (TC.LogicE le) = do
 readLLVMMixedExprPS _ir _sc ps args (TC.LLVME le) =
   readLLVMTermPS ps args le 1
 
-useLogicExprPS :: (Monad m, MonadIO m) =>
+useLogicExprPS :: (Functor m, Monad m, MonadIO m) =>
                   LLVMMethodSpecIR
                -> SharedContext SAWCtx
                -> SpecPathState
@@ -614,7 +614,7 @@ useLogicExprPS ir sc ps args initExpr = do
                 Nothing -> fail $ "Name " ++ n ++ " not found."
   liftIO $ scInstantiateExt sc (Map.fromList extMap) t
 
-evalAssumptions :: (Monad m, MonadIO m) =>
+evalAssumptions :: (Functor m, Monad m, MonadIO m) =>
                    LLVMMethodSpecIR
                 -> SharedContext SAWCtx
                 -> SpecPathState
