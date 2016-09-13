@@ -1,0 +1,24 @@
+#!/bin/bash
+set -e
+
+echo "This script should be run from the mss root directory."
+
+
+show_help () {
+  echo ""
+  echo "mss does not appear to be built with coverage information."
+  echo ""
+  echo "Please rebuild mss with the following line:"
+  echo "  cabal install --enable-tests --enable-library-coverage -f=enable-hpc"
+  echo ""
+  echo "    --enable-library-coverage enables coverage information for the library."
+  echo "    -f=enable-hpc does the same for the unitTest executable."
+}
+
+# Deleting existing coverage
+rm -f unitTest.tix
+# Run unit tests
+# ./dist/dist-sandbox-f97cc5fd/build/unitTest/unitTest
+# Generate markup report in hpc directory
+hpc markup --hpcdir=dist/hpc/mix/unitTest --hpcdir=dist/hpc/mix/galois-mss-0.5.18 --destdir=hpc_report unitTest.tix || show_help
+echo "Report available at hpc_report/hpc_index.html"

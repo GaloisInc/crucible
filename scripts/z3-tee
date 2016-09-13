@@ -1,0 +1,2 @@
+#!/bin/bash
+tee z3.in | z3 $@ | tee z3.out

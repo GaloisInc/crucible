@@ -1,0 +1,25 @@
+flags: {}
+extra-lib-dirs:
+  - /usr/local/lib
+
+packages:
+- crucible
+- crucible-abc
+- crucible-blt
+- crucible-saw
+- crucible-server
+- galois-matlab
+- dependencies/abcBridge
+- dependencies/aig
+- dependencies/blt
+- dependencies/IHaskell/ipython-kernel
+- dependencies/parameterized-utils
+- dependencies/hpb
+- dependencies/saw-core
+- dependencies/llvm-pretty
+- dependencies/llvm-pretty-bc-parser
+extra-deps:
+- clock-0.5.2
+- dotgen-0.4.2
+- fgl-visualize-0.1.0.1
+resolver: lts-5.3

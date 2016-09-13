@@ -1,0 +1,2 @@
+#!/bin/bash
+tee $HOME/dreal.in | dReal $@ 2> $HOME/dreal.err | tee $HOME/dreal.out

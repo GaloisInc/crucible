@@ -1,0 +1,11 @@
+/build/
+/dependencies/
+.cabal-sandbox
+.stack-work
+**/cabal.config
+cabal.sandbox.config
+dist
+TAGS
+unitTest.tix
+hpc_report
+stack.yaml
