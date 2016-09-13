@@ -1,0 +1,169 @@
+-----------------------------------------------------------------------
+-- |
+-- Module           : Lang.Crucible.Analysis.Postdom
+-- Description      : Populates postdominator entries in CFG blocks.
+-- Copyright        : (c) Galois, Inc 2014
+-- Maintainer       : Joe Hendrix <jhendrix@galois.com>
+-- Stability        : provisional
+--
+-- This module provides a method for populating the postdominator fields
+-- in blocks of a Core SSA-form CFG.
+------------------------------------------------------------------------
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
+module Lang.Crucible.Analysis.Postdom
+  ( postdomInfo
+  , validatePostdom
+  ) where
+
+import           Control.Monad.State
+import qualified Data.Graph.Inductive as G
+import           Data.Map (Map)
+import qualified Data.Map as Map
+import           Data.Maybe
+import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.TraversableF
+import           Data.Parameterized.TraversableFC
+import qualified Data.Set as Set
+
+import           Lang.Crucible.Core
+
+-- | Convert a block ID to a node
+toNode :: BlockID blocks ctx -> G.Node
+toNode (BlockID b) = 1 + Ctx.indexVal b
+
+-- | Create
+reverseEdge :: Int -> Block blocks ret ctx -> G.LEdge ()
+reverseEdge d b = (d, toNode (blockID b), ())
+
+-- | For a given block with out edges l, return edges from
+-- each block in @l@ to @b@.
+inEdges :: Block blocks ret ctx -> [G.LEdge ()]
+inEdges b =
+  case withBlockTermStmt b (\_ -> termStmtNextBlocks) of
+    Nothing -> [reverseEdge 0 b]
+    Just l -> (\(Some n) -> toNode n `reverseEdge` b) <$> l
+
+inEdgeGraph :: BlockMap blocks ret -> G.UGr
+inEdgeGraph m = G.mkGraph ((,()) <$> nodes) edges
+  where nodes = 0 : toListFC (toNode . blockID) m
+        edges = foldrFC (\b -> (inEdges b ++)) [] m
+
+-- | Return subgraph of nodes reachable from given node.
+reachableSubgraph :: G.Node -> G.UGr -> G.UGr
+reachableSubgraph initNode g = G.mkGraph nl el
+  where reachableNodes = Set.fromList $ G.bfs initNode g
+        keepNode = (`Set.member` reachableNodes)
+        nl = filter (\(n,_) -> keepNode n) (G.labNodes g)
+
+        keepEdge (s,e,_) = keepNode s && keepNode e
+        el = filter keepEdge (G.labEdges g)
+
+nodeToBlockIDMap :: BlockMap blocks ret
+                 -> Map G.Node (Some (BlockID blocks))
+nodeToBlockIDMap =
+  foldrFC (\b -> Map.insert (toNode (blockID b)) (Some (blockID b)))
+          Map.empty
+
+postdomMap :: forall blocks ret
+            . BlockMap blocks ret
+           -> Map (Some (BlockID blocks)) [Some (BlockID blocks)]
+postdomMap m = r
+  where g0 = inEdgeGraph m
+        g = reachableSubgraph 0 g0
+
+        idMap = nodeToBlockIDMap m
+        f :: Int -> Maybe (Some (BlockID blocks))
+        f 0 = Nothing
+        f i = Map.lookup i idMap
+        -- Map each block to the postdominator for the block.
+        r = Map.fromList
+          [ (pd_id, mapMaybe f l)
+          | (pd,_:l)  <- G.dom g 0
+          , pd > 0
+          , let Just pd_id = Map.lookup pd idMap
+          ]
+
+postdomAssignment :: forall blocks ret . BlockMap blocks ret -> CFGPostdom blocks
+postdomAssignment m = fmapFC go m
+  where pd = postdomMap m
+        go :: Block blocks ret c -> ConstK [Some (BlockID blocks)] c
+        go b = ConstK $ fromMaybe [] (Map.lookup (Some (blockID b)) pd)
+
+-- | Compute posstdom information for CFG.
+postdomInfo :: CFG b i r -> CFGPostdom b
+postdomInfo g = postdomAssignment (cfgBlockMap g)
+
+
+blockEndsWithError :: Block blocks ret args -> Bool
+blockEndsWithError b =
+  withBlockTermStmt b $ \_ ts ->
+    case ts of
+      ErrorStmt{} -> True
+      _ -> False
+
+addErrorIf :: Bool -> String -> State [String] ()
+addErrorIf True msg = modify $ (msg:)
+addErrorIf False _ = return ()
+
+validateTarget :: CFG blocks init ret
+               -> CFGPostdom blocks
+               -> String
+               -- ^ Identifier for error.
+               -> [Some (BlockID blocks)]
+               -- ^ Postdoms for source block.
+               -> Some (BlockID blocks)
+               -- ^ Target
+               -> State [String] ()
+validateTarget _ pdInfo src (Some pd:src_postdoms) (Some tgt)
+  | isJust (testEquality pd tgt) =
+      addErrorIf (src_postdoms /= tgt_postdoms) $
+        "Unexpected postdominators from " ++ src ++ " to " ++ show tgt ++ "."
+  where ConstK tgt_postdoms = pdInfo Ctx.! blockIDIndex tgt
+validateTarget g pdInfo src src_postdoms (Some tgt)
+  | blockEndsWithError tgt_block =
+    return ()
+  | otherwise = do
+      let tgt_len = length tgt_postdoms
+      let src_len = length src_postdoms
+      addErrorIf (tgt_len < src_len) $
+        "Unexpected postdominators from " ++ src ++ " to " ++ show tgt ++ "."
+      let tgt_prefix = drop (tgt_len - src_len) tgt_postdoms
+      addErrorIf (src_postdoms /= tgt_prefix) $
+        "Unexpected postdominators from " ++ src ++ " to " ++ show tgt ++ "."
+  where tgt_block = getBlock tgt (cfgBlockMap g)
+        ConstK tgt_postdoms = pdInfo Ctx.! blockIDIndex tgt
+
+validatePostdom :: CFG blocks init ret
+                -> CFGPostdom blocks
+                -> [String]
+validatePostdom g pdInfo = flip execState [] $ do
+  forMFC_ (cfgBlockMap g) $ \b -> do
+    let ConstK b_pd = pdInfo Ctx.! blockIDIndex (blockID b)
+    let loc = show (cfgHandle g) ++ show (blockID b)
+    mapM_ (validateTarget g pdInfo loc b_pd) (nextBlocks b)
+
+    withBlockTermStmt b $ \_ ts -> do
+      case ts of
+        Jump tgt -> do
+          validateTarget g pdInfo loc b_pd (jumpTargetID tgt)
+        Br _ tgt1 tgt2  -> do
+          validateTarget g pdInfo loc b_pd (jumpTargetID tgt1)
+          validateTarget g pdInfo loc b_pd (jumpTargetID tgt2)
+        MaybeBranch _ _ x y -> do
+          validateTarget g pdInfo loc b_pd (switchTargetID x)
+          validateTarget g pdInfo loc b_pd (jumpTargetID   y)
+        MSwitchStmt _ s -> do
+          traverseF_  (validateTarget g pdInfo loc b_pd . switchTargetID) s
+        VariantElim _ _ s -> do
+          traverseFC_ (validateTarget g pdInfo loc b_pd . switchTargetID) s
+        Return{} -> do
+          addErrorIf (not (null b_pd)) $
+            "Expected empty postdom in " ++ loc ++ "."
+        TailCall{} -> do
+          addErrorIf (not (null b_pd)) $
+            "Expected empty postdom in " ++ loc ++ "."
+        ErrorStmt{} -> do
+          addErrorIf (not (null b_pd)) $
+            "Expected empty postdom in " ++ loc ++ "."
