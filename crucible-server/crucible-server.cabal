@@ -1,0 +1,69 @@
+Name:          crucible-server
+Version:       0.1
+Author:        Galois Inc.
+Maintainer:    bjones@galois.com
+Build-type:    Custom
+Cabal-version: >= 1.9.2
+
+library
+  build-depends:
+    ansi-wl-pprint,
+    base >= 4.7,
+    bytestring >= 0.10.2,
+    containers,
+    crucible >= 0.1,
+    crucible-abc,
+    crucible-saw,
+    galois-matlab,
+    hashable,
+    hashtables,
+    hpb >= 0.1.1,
+    lens,
+    mtl,
+    parameterized-utils >= 0.1.7,
+    saw-core,
+    text,
+    transformers,
+    vector
+
+  hs-source-dirs: src
+
+  build-tools:
+    hpb
+
+  exposed-modules:
+    Lang.Crucible.Proto
+    Lang.Crucible.Server.CallbackOutputHandle
+    Lang.Crucible.Server.Encoding
+    Lang.Crucible.Server.MultipartOperations
+    Lang.Crucible.Server.Requests
+    Lang.Crucible.Server.SAWOverrides
+    Lang.Crucible.Server.SimpleOverrides
+    Lang.Crucible.Server.Simulator
+    Lang.Crucible.Server.Translation
+    Lang.Crucible.Server.TypeConv
+    Lang.Crucible.Server.ValueConv
+
+  ghc-options: -Wall -threaded
+  ghc-prof-options: -O2 -fprof-auto-top
+
+
+executable crucible-server
+  build-depends:
+    ansi-wl-pprint,
+    base >= 4.7,
+    crucible,
+    crucible-abc,
+    crucible-saw,
+    crucible-server,
+    hpb >= 0.1.1,
+    lens,
+    parameterized-utils >= 0.1.7,
+    saw-core,
+    text
+
+  ghc-options: -Wall
+
+  main-is: Main_crucible.hs
+  hs-source-dirs:
+    crucible-server
