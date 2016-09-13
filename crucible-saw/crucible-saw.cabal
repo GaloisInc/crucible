@@ -1,0 +1,33 @@
+Name:          crucible-saw
+Version:       0.1
+Author:        Galois Inc.
+Maintainer:    rdockins@galois.com
+Build-type:    Simple
+Cabal-version: >= 1.9.2
+
+library
+  build-depends:
+    ansi-wl-pprint,
+    base >= 4.7,
+    containers,
+    crucible >= 0.1,
+    directory,
+    galois-matlab,
+    lens,
+    llvm-pretty,
+    mtl,
+    parameterized-utils,
+    saw-core >= 0.1,
+    text,
+    transformers,
+    vector
+
+  hs-source-dirs: src
+
+  exposed-modules:
+--    Lang.Crucible.Solver.SAWCoreBackend
+    Lang.Crucible.Solver.SAWCoreBackend2
+--    Lang.Crucible.Solver.ExtractSAWCore
+
+  ghc-options: -Wall -threaded
+  ghc-prof-options: -O2 -fprof-auto-top

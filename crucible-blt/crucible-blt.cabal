@@ -1,0 +1,48 @@
+Name:          crucible-blt
+Version:       0.2
+Author:        Galois Inc.
+Maintainer:    bjones@galois.com
+Build-type:    Simple
+Cabal-version: >= 1.10
+
+library
+  build-depends:
+    base >= 4.7,
+    ansi-wl-pprint,
+    blt >= 0.12.1,
+    containers,
+    crucible >= 0.1,
+    lens >= 1.2,
+    parameterized-utils,
+    transformers
+
+  hs-source-dirs: src
+
+  exposed-modules:
+    Lang.Crucible.Solver.SimpleBackend.BLT
+
+  ghc-options: -Wall -threaded
+  ghc-prof-options: -O2 -fprof-auto-top
+
+  default-language: Haskell2010
+
+test-suite test
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+
+  ghc-options: -Wall
+  ghc-prof-options: -fprof-auto -O2
+
+  main-is: Test.hs
+
+  build-depends:
+    base             >= 4.7,
+    containers,
+    crucible-blt,
+    QuickCheck,
+    tasty            >= 0.10,
+    tasty-hunit      >= 0.9,
+    tasty-quickcheck >= 0.8,
+    blt              >= 0.12
+
+  default-language: Haskell2010

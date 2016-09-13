@@ -1,0 +1,32 @@
+Name:          crucible-abc
+Version:       0.1
+Author:        Galois Inc.
+Maintainer:    jhendrix@galois.com
+Build-type:    Simple
+Cabal-version: >= 1.9.2
+
+library
+  build-depends:
+    base >= 4.7,
+    aig,
+    abcBridge >= 0.11,
+    ansi-wl-pprint,
+    containers,
+    crucible >= 0.1,
+    directory,
+    io-streams,
+    lens,
+    mtl,
+    parameterized-utils,
+    process,
+    transformers,
+    unordered-containers,
+    utf8-string
+
+  hs-source-dirs: src
+
+  exposed-modules:
+    Lang.Crucible.Solver.SimpleBackend.ABC
+
+  ghc-options: -Wall -threaded
+  ghc-prof-options: -O2 -fprof-auto-top
