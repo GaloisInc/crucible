@@ -1,0 +1,34 @@
+Name:          galois-matlab
+Version:       0.1
+Author:        Galois Inc.
+Maintainer:    jhendrix@galois.com
+Build-type:    Simple
+Cabal-version: >= 1.9.2
+
+flag enable-hpc
+  Description: Collect HPC coverage information.
+  Default: False
+
+library
+  build-depends:
+    base >= 4.7,
+    ansi-wl-pprint,
+    deepseq,
+    hashable,
+    text,
+    transformers,
+    vector
+
+  hs-source-dirs: src
+
+  exposed-modules:
+    Lang.MATLAB.CharVector
+    Lang.MATLAB.FieldName
+    Lang.MATLAB.MatlabChar
+    Lang.MATLAB.MultiDimArray
+    Lang.MATLAB.Utils.List
+    Lang.MATLAB.Utils.Nat
+    Lang.MATLAB.Utils.PrettyPrint
+
+  ghc-options: -Wall -Werror
+  ghc-prof-options: -O2 -fprof-auto-top
