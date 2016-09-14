@@ -103,16 +103,23 @@ bindSAWTerm sym bt t = do
   SB.insertIdxValue (saw_elt_cache st) (SB.bvarId bv) (SAWElt t)
   return sbVar
 
+newSAWCoreBackend :: SC.SharedContext
+                  -> NonceGenerator IO s
+                  -> IO (SAWCoreBackend s)
+newSAWCoreBackend sc gen = do
+  inpr <- newIORef Seq.empty
+  ch   <- SB.newIdxCache
+  let st = SAWCoreState sc inpr ch Seq.empty
+  SB.newSimpleBuilder st gen
+
+
 -- | Run a computation with a fresh SAWCoreBackend, in the context of the
 --   given module.
 withSAWCoreBackend :: SC.Module -> (forall n. SAWCoreBackend n -> IO a) -> IO a
 withSAWCoreBackend md f = do
   withIONonceGenerator $ \gen -> do
     sc   <- SC.mkSharedContext md
-    inpr <- newIORef Seq.empty
-    ch   <- SB.newIdxCache
-    let st = SAWCoreState sc inpr ch Seq.empty
-    sym <- SB.newSimpleBuilder st gen
+    sym  <- newSAWCoreBackend sc gen
     f sym
 
 toSC :: SAWCoreBackend n -> SB.Elt n tp -> IO SC.Term

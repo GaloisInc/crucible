@@ -62,6 +62,7 @@ library
     Lang.Crucible.FunctionHandle
     Lang.Crucible.FunctionName
     Lang.Crucible.Generator
+    Lang.Crucible.LLVM
     Lang.Crucible.LLVM.DataLayout
     Lang.Crucible.LLVM.Intrinsics
     Lang.Crucible.LLVM.LLVMContext
