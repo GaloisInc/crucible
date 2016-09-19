@@ -72,12 +72,3 @@ fi
 for pkg in $PKG_LIST; do
   checkout "git@github.com:GaloisInc/$pkg.git" $pkg
 done
-
-checkout "git@github.com:joehendrix/IHaskell.git" IHaskell
-
-# Check for zmq
-pkg_result=$(pkg-config --exists "libzmq >= 4.0" || echo "NOT FOUND")
-if [[ ! -z $pkg_result ]]; then
-    echo "Failed to find libzmq using pkg-config."
-    echo "Please install it and set PKG_CONFIG_PATH to allow pkg-config to find it."
-fi

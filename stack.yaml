@@ -12,7 +12,6 @@ packages:
 - dependencies/abcBridge
 - dependencies/aig
 - dependencies/blt
-- dependencies/IHaskell/ipython-kernel
 - dependencies/parameterized-utils
 - dependencies/hpb
 - dependencies/saw-core
