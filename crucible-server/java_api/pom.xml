@@ -18,18 +18,11 @@
     <cruciblePath>${crucibleHome}/bin/crucible-server</cruciblePath>
   </properties>
 
-  <pluginRepositories>
-    <pluginRepository>
-      <id>protoc-plugin</id>
-      <url>http://sergei-ivanov.github.com/maven-protoc-plugin/repo/releases/</url>
-    </pluginRepository>
-  </pluginRepositories>
-
   <dependencies>
     <dependency>
 	    <groupId>com.google.protobuf</groupId>
 	    <artifactId>protobuf-java</artifactId>
-	    <version>2.6.1</version>
+	    <version>3.0.0</version>
     </dependency>
 
     <dependency>
@@ -114,9 +107,9 @@
 
 	    <!-- Plugin for preprocessing protocol buffer definitions -->
 	    <plugin>
-        <groupId>com.google.protobuf.tools</groupId>
-        <artifactId>maven-protoc-plugin</artifactId>
-	      <version>0.3.2</version>
+	      <groupId>org.xolstice.maven.plugins</groupId>
+	      <artifactId>protobuf-maven-plugin</artifactId>
+	      <version>0.5.0</version>
         <configuration>
 	        <!-- Tell the protocol buffer preprocessor where to find the protocol definitions -->
 	        <protoSourceRoot>${project.basedir}/../proto</protoSourceRoot>
@@ -131,7 +124,7 @@
           <execution>
             <goals>
               <goal>compile</goal>
-              <goal>testCompile</goal>
+              <goal>test-compile</goal>
             </goals>
           </execution>
         </executions>
