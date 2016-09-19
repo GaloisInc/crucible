@@ -30,7 +30,7 @@ import           Lang.Crucible.Server.ValueConv
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Simulator.MSSim
 import           Lang.Crucible.Simulator.RegMap
-import qualified Lang.Crucible.Solver.SAWCoreBackend2 as SAW
+import qualified Lang.Crucible.Solver.SAWCoreBackend as SAW
 import qualified Lang.Crucible.Solver.SimpleBuilder as SB
 import           Lang.Crucible.Types
 

@@ -15,7 +15,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# OPTIONS_GHC -Wwarn #-}
 
-module Lang.Crucible.Solver.SAWCoreBackend2 where
+module Lang.Crucible.Solver.SAWCoreBackend where
 
 import           Control.Exception ( assert, throw )
 import           Control.Lens

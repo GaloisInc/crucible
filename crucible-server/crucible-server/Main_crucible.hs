@@ -22,7 +22,7 @@ import           Data.HPB
 import           Data.Parameterized.Nonce
 
 import           Lang.Crucible.Solver.SimpleBackend
-import qualified Lang.Crucible.Solver.SAWCoreBackend2 as SAW
+import qualified Lang.Crucible.Solver.SAWCoreBackend as SAW
 
 import qualified Lang.Crucible.Proto as P
 import           Lang.Crucible.Server.Requests
