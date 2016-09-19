@@ -137,7 +137,7 @@ library
     Lang.Crucible.Utils.SymMultiDimArray
     Lang.Crucible.Utils.UnaryBV
 
-  ghc-options: -Wall -threaded -Werror
+  ghc-options: -Wall -Werror
   ghc-prof-options: -O2 -fprof-auto-top
 
   if flag(unsafe-operations)

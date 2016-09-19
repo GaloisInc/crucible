@@ -269,7 +269,7 @@ class HasDim d where
 
   -- | Returns total size of array dimensions.
   -- For example, @dimSize "2*3*4"@ returns @24@.
-  dimSize :: HasDim d => d -> Nat
+  dimSize :: d -> Nat
   dimSize (dim -> Dim rcnt ccnt higherdim) = rcnt * ccnt * product higherdim
 
 instance HasDim ArrayDim where
@@ -561,7 +561,7 @@ fromRows rc cc a
 
 -- | Return a value at a given location in the array.
 -- An assertion will fail if value is out of range.
-(!?) :: (Functor m, Monad m) => MultiDimArray v -> Index -> m v
+(!?) :: Monad m => MultiDimArray v -> Index -> m v
 a !? l0 = resolve <$> tryEltIndex (asDimList a) l0
   where v = mdVec a
         resolve o = assert (0 <= o && o < fromIntegral (V.length v)) (v V.! fromIntegral o)
