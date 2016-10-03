@@ -67,7 +67,7 @@ baseSCType ctx bt =
     BaseBoolRepr -> SC.scBoolType ctx
     BaseBVRepr w -> SC.scBitvector ctx $ fromIntegral (natValue w)
     BaseNatRepr  -> SC.scNatType ctx
-    BaseIntegerRepr -> SC.scInteger ctx
+    BaseIntegerRepr -> SC.scIntegerType ctx
     BaseArrayRepr indexTypes range ->
       case Ctx.view indexTypes of
         Ctx.AssignExtend b dom -> do
@@ -278,7 +278,7 @@ evaluateElt sym sc cache = f
             (NatToRealSAWElt xn, NatToRealSAWElt yn) -> fmap NatToRealSAWElt $
               join (SC.scIte sc <$> SC.scNatType sc <*> f c ?? xn ?? yn)
             (IntToRealSAWElt xi, IntToRealSAWElt yi) -> fmap IntToRealSAWElt $
-              join (SC.scIte sc <$> SC.scInteger sc <*> f c ?? xi ?? yi)
+              join (SC.scIte sc <$> SC.scIntegerType sc <*> f c ?? xi ?? yi)
             _ -> realFail
 
         SB.RealDiv{} -> realFail
