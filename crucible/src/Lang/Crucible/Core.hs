@@ -18,12 +18,14 @@ on the place from which you jumped.
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ParallelListComp #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -fno-spec-constr #-}
@@ -105,6 +107,7 @@ import           Control.Monad.ST
 import           Data.Maybe
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Map (Pair(..))
 import           Data.Parameterized.Nonce.Unsafe
 import           Data.Parameterized.Some
 import qualified Data.Parameterized.TH.GADT as U
@@ -1707,6 +1710,12 @@ instance ShowF (Reg ctx) where
 instance Pretty (Reg ctx tp) where
   pretty = text.show
 
+instance Ctx.ApplyEmbedding' Reg where
+  applyEmbedding' ctxe r = Reg $ Ctx.applyEmbedding' ctxe (regIndex r)
+
+instance Ctx.ExtendContext' Reg where
+  extendContext' diff r = Reg $ Ctx.extendContext' diff (regIndex r)
+
 -- | Finds the value of the most-recently introduced register in scope.
 lastReg :: Ctx.KnownContext ctx => Reg (ctx ::> tp) tp
 lastReg = Reg (Ctx.nextIndex Ctx.knownSize)
@@ -1819,6 +1828,15 @@ jumpTargetID (JumpTarget tgt _ _) = Some tgt
 extendJumpTarget :: Ctx.Diff blocks' blocks -> JumpTarget blocks' ctx -> JumpTarget blocks ctx
 extendJumpTarget diff (JumpTarget b tps a) = JumpTarget (extendBlockID' diff b) tps a
 
+instance Ctx.ApplyEmbedding (JumpTarget blocks) where
+  applyEmbedding ctxe (JumpTarget dest tys args) =
+    JumpTarget dest tys (fmapFC (Ctx.applyEmbedding' ctxe) args)
+
+instance Ctx.ExtendContext (JumpTarget blocks) where
+  extendContext diff (JumpTarget dest tys args) =
+    JumpTarget dest tys (fmapFC (Ctx.extendContext' diff) args)
+
+
 
 ------------------------------------------------------------------------
 -- SwitchTarget
@@ -1842,6 +1860,16 @@ extendSwitchTarget :: Ctx.Diff blocks' blocks
                    -> SwitchTarget blocks ctx tp
 extendSwitchTarget diff (SwitchTarget b tps a) =
     SwitchTarget (extendBlockID' diff b) tps a
+
+instance Ctx.ApplyEmbedding' (SwitchTarget blocks) where
+  applyEmbedding' ctxe (SwitchTarget dest tys args) =
+    SwitchTarget dest tys (fmapFC (Ctx.applyEmbedding' ctxe) args)
+
+instance Ctx.ExtendContext' (SwitchTarget blocks) where
+  extendContext' diff (SwitchTarget dest tys args) =
+    SwitchTarget dest tys (fmapFC (Ctx.extendContext' diff) args)
+
+
 
 ------------------------------------------------------------------------
 -- MSwitch
@@ -2129,6 +2157,83 @@ instance Pretty (TermStmt blocks ret ctx) where
     ErrorStmt msg ->
       text "error" <+> pretty msg
 
+
+applyEmbeddingStmt :: forall ctx ctx' sctx.
+                      Ctx.CtxEmbedding ctx ctx' -> Stmt ctx sctx
+                      -> Pair (Stmt ctx') (Ctx.CtxEmbedding sctx)
+applyEmbeddingStmt ctxe stmt =
+  case stmt of
+    SetReg tp e -> Pair (SetReg tp (Ctx.applyEmbedding' ctxe e))
+                        (Ctx.extendEmbeddingBoth ctxe)
+
+    CallHandle ret hdl tys args ->
+      Pair (CallHandle ret (reg hdl) tys (fmapFC reg args))
+           (Ctx.extendEmbeddingBoth ctxe)
+
+    Print str -> Pair (Print (reg str)) ctxe
+
+    ReadGlobal var -> Pair (ReadGlobal var)
+                           (Ctx.extendEmbeddingBoth ctxe)
+
+    WriteGlobal var r -> Pair (WriteGlobal var (reg r)) ctxe
+    NewRefCell tp r -> Pair (NewRefCell tp (reg r))
+                            (Ctx.extendEmbeddingBoth ctxe)
+    ReadRefCell r     -> Pair (ReadRefCell (reg r))
+                              (Ctx.extendEmbeddingBoth ctxe)
+    WriteRefCell r r' ->  Pair (WriteRefCell (reg r) (reg r')) ctxe
+    Assert b str      -> Pair (Assert (reg b) (reg str)) ctxe
+  where
+    reg :: forall tp. Reg ctx tp -> Reg ctx' tp
+    reg = Ctx.applyEmbedding' ctxe
+
+
+instance Ctx.ApplyEmbedding (TermStmt blocks ret) where
+  applyEmbedding :: forall ctx ctx'.
+                    Ctx.CtxEmbedding ctx ctx'
+                    -> TermStmt blocks ret ctx
+                    -> TermStmt blocks ret ctx'
+  applyEmbedding ctxe term =
+    case term of
+      Jump jt -> Jump (apC jt)
+      Br b jtl jtr -> Br (apC' b) (apC jtl) (apC jtr)
+      MaybeBranch tp b swt jt    -> MaybeBranch tp (apC' b) (apC' swt) (apC jt)
+      MSwitchStmt tm targets     -> MSwitchStmt (apC' tm) (fmapF apC' targets)
+      VariantElim repr r targets -> VariantElim repr (apC' r) (fmapFC apC' targets)
+      Return r -> Return (apC' r)
+      TailCall hdl tys args -> TailCall (apC' hdl) tys (fmapFC apC' args)
+      ErrorStmt r -> ErrorStmt (apC' r)
+    where
+      apC' :: forall f v. Ctx.ApplyEmbedding' f => f ctx v -> f ctx' v
+      apC' = Ctx.applyEmbedding' ctxe
+
+      apC :: forall f. Ctx.ApplyEmbedding  f => f ctx -> f ctx'
+      apC  = Ctx.applyEmbedding  ctxe
+
+instance Ctx.ExtendContext (TermStmt blocks ret) where
+  extendContext :: forall ctx ctx'.
+                    Ctx.Diff ctx ctx'
+                    -> TermStmt blocks ret ctx
+                    -> TermStmt blocks ret ctx'
+  extendContext diff term =
+    case term of
+      Jump jt -> Jump (extC jt)
+      Br b jtl jtr -> Br (extC' b) (extC jtl) (extC jtr)
+      MaybeBranch tp b swt jt    -> MaybeBranch tp (extC' b) (extC' swt) (extC jt)
+      MSwitchStmt tm targets     -> MSwitchStmt (extC' tm) (fmapF extC' targets)
+      VariantElim repr r targets -> VariantElim repr (extC' r) (fmapFC extC' targets)
+      Return r -> Return (extC' r)
+      TailCall hdl tys args -> TailCall (extC' hdl) tys (fmapFC extC' args)
+      ErrorStmt r -> ErrorStmt (extC' r)
+    where
+      extC' :: forall f v. Ctx.ExtendContext' f => f ctx v -> f ctx' v
+      extC' = Ctx.extendContext' diff
+
+      extC :: forall f. Ctx.ExtendContext  f => f ctx -> f ctx'
+      extC  = Ctx.extendContext  diff
+
+
+
+
 ------------------------------------------------------------------------
 -- StmtSeq
 
@@ -2212,6 +2317,16 @@ extendStmtSeq :: Ctx.Diff blocks' blocks -> StmtSeq blocks' ret ctx -> StmtSeq b
 extendStmtSeq diff (ConsStmt p s l) = ConsStmt p s (extendStmtSeq diff l)
 extendStmtSeq diff (TermStmt p s) = TermStmt p (extendTermStmt diff s)
 #endif
+
+
+instance Ctx.ApplyEmbedding (StmtSeq blocks ret) where
+  applyEmbedding ctxe (ConsStmt loc stmt rest) =
+    case applyEmbeddingStmt ctxe stmt of
+      Pair stmt' ctxe' -> ConsStmt loc stmt' (Ctx.applyEmbedding ctxe' rest)
+  applyEmbedding ctxe (TermStmt loc term) =
+    TermStmt loc (Ctx.applyEmbedding ctxe term)
+
+
 
 ------------------------------------------------------------------------
 -- CFGPostdom
@@ -2515,3 +2630,10 @@ foldApp f0 r0 a = execState (traverseApp (go f0) a) r0
 
 mapApp :: (forall u . f u -> g u) -> App f tp -> App g tp
 mapApp f a = runIdentity (traverseApp (pure . f) a)
+
+
+instance Ctx.ApplyEmbedding' Expr where
+  applyEmbedding' ctxe (App e) = App (mapApp (Ctx.applyEmbedding' ctxe) e)
+
+instance Ctx.ExtendContext' Expr where
+  extendContext' diff (App e) = App (mapApp (Ctx.extendContext' diff) e)
