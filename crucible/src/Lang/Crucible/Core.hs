@@ -85,6 +85,7 @@ module Lang.Crucible.Core
   , extendMSwitch
   , zipSwitchWith
   , ppMSwitch
+  , applyEmbeddingStmt
 
   , TermStmt(..)
   , termStmtNextBlocks
