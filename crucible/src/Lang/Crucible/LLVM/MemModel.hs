@@ -50,6 +50,16 @@ module Lang.Crucible.LLVM.MemModel
 , loadString
 , loadMaybeString
 , ppMem
+
+-- * Direct API to LLVMVal
+, LLVMVal(..)
+, LLVMPtrExpr(..)
+, coerceAny
+, unpackMemValue
+, packMemValue
+, loadRaw
+, storeRaw
+, mallocRaw
 )
 where
 
@@ -449,6 +459,22 @@ doDumpMem sym h mem = do
   hPutStrLn h (show doc)
 
 
+loadRaw :: IsSymInterface sym
+        => sym
+        -> MemImpl sym PtrWidth
+        -> LLVMPtrExpr (SymExpr sym) PtrWidth
+        -> G.Type
+        -> IO (LLVMVal sym PtrWidth)
+loadRaw sym mem ptr valType = do
+  (p,v) <- G.readMem (crucibleTermGenerator sym ptrWidth) ptr valType (memImplHeap mem)
+  case v of
+      Unassigned ->
+        fail "Invalid memory load"
+      PE p' v' -> do
+        p'' <- andPred sym p p'
+        addAssertion sym p'' (AssertFailureSimError "Invalid memory load")
+        return v'
+
 doLoad :: IsSymInterface sym
   => sym
   -> RegValue sym Mem
@@ -466,6 +492,19 @@ doLoad sym mem ptr valType = do
         p'' <- andPred sym p p'
         addAssertion sym p'' (AssertFailureSimError "Invalid memory load")
         unpackMemValue sym v'
+
+storeRaw :: IsSymInterface sym
+  => sym
+  -> MemImpl sym PtrWidth
+  -> LLVMPtrExpr (SymExpr sym) PtrWidth
+  -> G.Type
+  -> LLVMVal sym PtrWidth
+  -> IO (MemImpl sym PtrWidth)
+storeRaw sym mem ptr valType val = do
+    (p, heap') <- G.writeMem (crucibleTermGenerator sym ptrWidth) ptr valType (PE (truePred sym) val) (memImplHeap mem)
+    addAssertion sym p (AssertFailureSimError "Invalid memory store")
+    return mem{ memImplHeap = heap' }
+
 
 doStore :: IsSymInterface sym
   => sym
@@ -616,6 +655,21 @@ doMalloc sym mem sz = do
 
   let heap' = G.allocMem G.HeapAlloc (LLVMPtr blk sz z) (LLVMOffset sz) (memImplHeap mem)
   let ptr = RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV sz Ctx.%> RV z)
+  return (ptr, mem{ memImplHeap = heap' })
+
+mallocRaw
+  :: IsSymInterface sym
+  => sym
+  -> MemImpl sym PtrWidth
+  -> SymExpr sym (BaseBVType PtrWidth)
+  -> IO (LLVMPtrExpr (SymExpr sym) PtrWidth, MemImpl sym PtrWidth)
+mallocRaw sym mem sz = do
+  blkNum <- nextBlock (memImplBlockSource mem)
+  blk <- natLit sym (fromIntegral blkNum)
+  z <- bvLit sym ptrWidth 0
+
+  let ptr = LLVMPtr blk sz z
+  let heap' = G.allocMem G.HeapAlloc ptr (LLVMOffset sz) (memImplHeap mem)
   return (ptr, mem{ memImplHeap = heap' })
 
 
