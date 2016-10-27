@@ -2,12 +2,21 @@ Name:          crucible-abc
 Version:       0.1
 Author:        Galois Inc.
 Maintainer:    jhendrix@galois.com
+License:       BSD3
+License-file:  LICENSE
 Build-type:    Simple
 Cabal-version: >= 1.9.2
+Category:      Language
+Synopsis:      Crucible bindings to ABC
+Description:
+  ABC provides datastructures and solver support for working with
+  boolean circuits expressed using And-Inverter Graphs (AIGs).  This
+  package provides support for lowering Crucible formulae to AIGs
+  and binding to ABC solver subroutines.
 
 library
   build-depends:
-    base >= 4.7,
+    base >= 4.7 && < 4.9,
     aig,
     abcBridge >= 0.11,
     ansi-wl-pprint,
@@ -28,5 +37,5 @@ library
   exposed-modules:
     Lang.Crucible.Solver.SimpleBackend.ABC
 
-  ghc-options: -Wall -threaded
+  ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top

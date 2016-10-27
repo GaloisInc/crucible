@@ -2,8 +2,17 @@ Name:          crucible
 Version:       0.1
 Author:        Galois Inc.
 Maintainer:    jhendrix@galois.com
+License:       BSD3
+License-file:  LICENSE
 Build-type:    Simple
 Cabal-version: >= 1.9.2
+Category:      Language
+Synopsis:      Crucible is a library for language-agnostic symbolic simulation
+Description:
+  Crucible provides a program representation format based on single-static assignment
+  (SSA) form control flow graphs, and a symbolic simulation engine for executing
+  programs expressed in this format.  It also provides support for communicating with
+  a variety of SAT and SMT solvers; including Z3, CVC4, Yices, STP, and dReal.
 
 -- Many (but not all, sadly) uses of unsafe operations are
 -- controlled by this compile flag.  When this flag is set
@@ -16,7 +25,7 @@ flag unsafe-operations
 
 library
   build-depends:
-    base >= 4.7,
+    base >= 4.7 && < 4.9, 
     ansi-wl-pprint,
     attoparsec,
     bimap >= 0.2,

@@ -2,13 +2,20 @@ Name:          crucible-saw
 Version:       0.1
 Author:        Galois Inc.
 Maintainer:    rdockins@galois.com
+License:       BSD3
+License-file:  LICENSE
 Build-type:    Simple
 Cabal-version: >= 1.9.2
+Category:      Language
+Synopsis:      Crucible bindings to SAW
+Description:
+  This package provides a Crucible solver backend that produces
+  SAWCore terms.
 
 library
   build-depends:
     ansi-wl-pprint,
-    base >= 4.7,
+    base >= 4.7 && < 4.9,
     containers,
     crucible >= 0.1,
     directory,
@@ -28,5 +35,5 @@ library
     Lang.Crucible.Solver.SAWCoreBackend
 --    Lang.Crucible.Solver.ExtractSAWCore
 
-  ghc-options: -Wall -threaded
+  ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top

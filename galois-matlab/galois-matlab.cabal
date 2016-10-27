@@ -3,7 +3,12 @@ Version:       0.1
 Author:        Galois Inc.
 Maintainer:    jhendrix@galois.com
 Build-type:    Simple
+License:       BSD3
+License-file:  LICENSE
 Cabal-version: >= 1.9.2
+Category:      Language
+Synopsis:      Datastructures and utilities for representing MATLAB values
+
 
 flag enable-hpc
   Description: Collect HPC coverage information.
@@ -11,7 +16,7 @@ flag enable-hpc
 
 library
   build-depends:
-    base >= 4.7,
+    base >= 4.7 && < 4.9,
     ansi-wl-pprint,
     deepseq,
     hashable,

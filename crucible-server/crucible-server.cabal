@@ -3,7 +3,18 @@ Version:       0.1
 Author:        Galois Inc.
 Maintainer:    bjones@galois.com
 Build-type:    Custom
+License:       BSD3
+License-file:  LICENSE
 Cabal-version: >= 1.9.2
+Category:      Language
+Synopsis:      IPC server designed for interlanguage Crucible support
+Description:
+  The Crucible server provides a host-language-agnostic interface to a
+  subset of the Crucible library functionality.  This API is exposed via
+  protocol buffer messages.
+
+extra-source-files:
+  proto/crucible.proto
 
 library
   build-depends:
@@ -44,14 +55,14 @@ library
     Lang.Crucible.Server.TypeConv
     Lang.Crucible.Server.ValueConv
 
-  ghc-options: -Wall -threaded
+  ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
 
 
 executable crucible-server
   build-depends:
     ansi-wl-pprint,
-    base >= 4.7,
+    base >= 4.7 && < 4.9,
     crucible,
     crucible-abc,
     crucible-saw,

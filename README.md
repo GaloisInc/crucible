@@ -1,9 +1,4 @@
-This `git` repo contains the source code for crucible and the crucible server
-
- * **`crucible-server`**, a standalone process that allows constructing
-   and symbolically executing Crucible programs via a [Protocol Buffers][pb].
-
-[pb]: https://developers.google.com/protocol-buffers/ "Protocol Buffers"
+This `git` repo contains the source code for crucible and the crucible server.
 
 Crucible has been designed as a set of Haskell packages organized so that Crucible
 itself has a minimal number of external dependencies, and functionality
@@ -25,6 +20,14 @@ Currently, the repo consists of the following Haskell packages:
    also contains a Java API for working with `crucible-server`.
  * **`galois-matlab`** provides a few data structures for working with
    MATLAB values.
+
+In addition, there is the following library/executable package:
+
+ * **`crucible-server`**, a standalone process that allows constructing
+   and symbolically executing Crucible programs via a [Protocol Buffers][pb].
+
+[pb]: https://developers.google.com/protocol-buffers/ "Protocol Buffers"
+
 
 For developing `crucible`, this repo follows a workflow similar to the
 [Gitflow][gitflow] workflow model.
