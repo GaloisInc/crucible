@@ -4,8 +4,7 @@
 -- Description     : Allows for construction of a function based off a subgraph
 --                   of an SSA-form function, subject to certain constraints
 -- Copyright       : (c) Galois, Inc 2015
---
---
+-- License         : BSD3
 --
 ---------------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}

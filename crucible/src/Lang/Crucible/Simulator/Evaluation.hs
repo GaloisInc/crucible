@@ -5,6 +5,7 @@
 -- Copyright        : (c) Galois, Inc 2014
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
+-- License          : BSD3
 --
 -- This module provides operations evaluating MATLAB expressions.
 ------------------------------------------------------------------------

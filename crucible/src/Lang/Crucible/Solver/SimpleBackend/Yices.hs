@@ -1,3 +1,15 @@
+------------------------------------------------------------------------
+-- |
+-- Module      : Lang.Crucible.Solver.SimpleBackend.Yices
+-- Description : Solver adapter code for Yices
+-- Copyright   : (c) Galois, Inc 2015-2016
+-- Maintainer  : Rob Dockins <rdockins@galois.com>
+-- Stability   : provisional
+-- License     : BSD3
+--
+-- Yices-specific tweaks to the basic SMTLib2 solver interface.
+------------------------------------------------------------------------
+
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE EmptyDataDecls #-}

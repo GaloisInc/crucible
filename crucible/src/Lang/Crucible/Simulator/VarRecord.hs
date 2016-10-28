@@ -1,3 +1,14 @@
+-----------------------------------------------------------------------
+-- |
+-- Module           : Lang.Crucible.Simulator.VarRecord
+-- Description      : Track data about symbolic variables generated during simulation
+-- Copyright        : (c) Galois, Inc 2014-2106
+-- Maintainer       : Joe Hendrix <jhendrix@galois.com>
+-- Stability        : provisional
+-- License          : BSD3
+--
+------------------------------------------------------------------------
+
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}

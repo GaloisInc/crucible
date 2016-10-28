@@ -5,9 +5,10 @@
 -- Copyright        : (c) Galois, Inc 2014
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
+-- License          : BSD3
 --
 -- Execution trees record the state of the simulator as it explores
--- exeuction paths through a program.
+-- execution paths through a program.
 ------------------------------------------------------------------------
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}

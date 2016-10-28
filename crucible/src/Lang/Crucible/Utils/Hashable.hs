@@ -3,6 +3,7 @@ Module      : Lang.Crucible.Utils.Hashable
 Copyright   : (c) Galois Inc, 2015
 License     : AllRightsReserved
 Maintainer  : jhendrix@galois.com
+License     : BSD3
 
 Declares newtype wrappers around values to implement Hashable.
 -}

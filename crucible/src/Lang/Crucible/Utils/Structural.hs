@@ -2,7 +2,7 @@
 Module     : Lang.Crucible.Utils.Structural
 Copyright  : (c) Galois, Inc 2013-2016
 Maintainer : Joe Hendrix <jhendrix@galois.com>
-License    : AllRightsReserved
+License    : BSD3
 
 This module declares template Haskell primitives so that it is easier
 to work with GADTs that have many constructors.

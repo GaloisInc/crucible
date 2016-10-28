@@ -2,6 +2,7 @@
 Module     : Lang.Crucible.MATLAB.Intrinsics.Solver
 Copyright  : (c) Galois, Inc, 2016
 Maintainer : Joe Hendrix <jhendrix@galois.com>
+License    : BSD3
 
 This module provides an interface that a symbolic backend should
 implement to support MATLAB intrinsics.

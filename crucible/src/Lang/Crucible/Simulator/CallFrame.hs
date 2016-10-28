@@ -5,6 +5,7 @@
 -- Copyright        : (c) Galois, Inc 2014
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
+-- License          : BSD3
 --
 -- Call frames are used to record information about suspended stack
 -- frames when functions are called.

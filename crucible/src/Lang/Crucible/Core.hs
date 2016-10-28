@@ -2,6 +2,7 @@
 Module           : Lang.Crucible.Core
 Copyright        : (c) Galois, Inc 2014-2016
 Maintainer       : Joe Hendrix <jhendrix@galois.com>
+License          : BSD3
 
 Define a SSA-based control flow graph data structure using a side-effect free
 expression syntax.

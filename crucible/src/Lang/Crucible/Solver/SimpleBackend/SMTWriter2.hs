@@ -5,6 +5,7 @@
 -- Copyright   : (c) Galois, Inc 2014-15.
 -- Maintainer  : Joe Hendrix <jhendrix@galois.com>
 -- Stability   : provisional
+-- License     : BSD3
 --
 -- This defines common definitions used in writing SMTLIB (2.0 and later), and
 -- yices outputs from 'Elt' values.

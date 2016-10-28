@@ -1,3 +1,12 @@
+-- |
+-- Module           : Lang.Crucible.LLVM.PrettyPrint
+-- Description      : Printing utilties for LLVM
+-- Copyright        : (c) Galois, Inc 2015-2016
+-- Maintainer       : Rob Dockins <rdockins@galois.com>
+-- Stability        : provisional
+-- License          : BSD3
+------------------------------------------------------------------------
+
 module Lang.Crucible.LLVM.PrettyPrint
   ( commaSepList
   , ppIntType

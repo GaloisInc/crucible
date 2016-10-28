@@ -3,6 +3,7 @@ Module      : Lang.Crucible.Solver.BoolInterface
 Copyright   : (c) Galois, Inc 2014-2016
 License     : AllRightsReserved
 Maintainer  : Joe Hendrix <jhendrix@galois.com>
+License     : BSD3
 
 This module provides a minimalistic interface for manipulating Boolean formulas
 and execution contexts in the symbolic simulator.

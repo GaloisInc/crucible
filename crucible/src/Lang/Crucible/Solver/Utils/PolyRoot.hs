@@ -3,6 +3,7 @@ Module      : Lang.Crucible.Solver.Utils.PolyRoot
 Copyright   : (c) Galois Inc, 2016
 License     : AllRightsReserved
 Maintainer  : jhendrix@galois.com
+License     : BSD3
 
 Defines a numeric data-type where each number is represented as the root of a
 polynomial over a single variable.

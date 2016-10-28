@@ -1,3 +1,14 @@
+------------------------------------------------------------------------
+-- |
+-- Module           : Lang.Crucible.Utils.BitSet
+-- Description      : Encode a set of enumerable elements using the bit-positions
+--                    in an Integer
+-- Copyright        : (c) Galois, Inc 2015
+-- Maintainer       : Joe Hendrix <jhendrix@galois.com>
+-- Stability        : provisional
+-- License          : BSD3
+------------------------------------------------------------------------
+
 module Lang.Crucible.Utils.BitSet
 ( BitSet
 , getBits

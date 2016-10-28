@@ -5,6 +5,7 @@
 -- Copyright        : (c) Galois, Inc 2014
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
+-- License          : BSD3
 --
 -- This module provides an interface for running dReal and parsing
 -- the results back.

@@ -1,3 +1,13 @@
+-- |
+-- Module           : Lang.Crucible.LLVM.Intrinsics
+-- Description      : Override definitions for LLVM intrisic and basic
+--                    library functions
+-- Copyright        : (c) Galois, Inc 2015-2016
+-- Maintainer       : Rob Dockins <rdockins@galois.com>
+-- Stability        : provisional
+-- License          : BSD3
+------------------------------------------------------------------------
+
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}

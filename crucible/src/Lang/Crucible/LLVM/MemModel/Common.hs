@@ -1,3 +1,12 @@
+-- |
+-- Module           : Lang.Crucible.LLVM.MemModel.Common
+-- Description      : Core definitions of the symbolic C memory model
+-- Copyright        : (c) Galois, Inc 2011-2016
+-- Maintainer       : Rob Dockins <rdockins@galois.com>
+-- Stability        : provisional
+-- License          : BSD3
+------------------------------------------------------------------------
+
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveTraversable #-}

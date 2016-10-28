@@ -5,6 +5,7 @@
 -- Copyright        : (c) Galois, Inc 2014
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
+-- License          : BSD3
 --
 -- RegValue is a type family that defines the runtime representation
 -- of crucible types.

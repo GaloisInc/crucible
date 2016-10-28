@@ -5,6 +5,7 @@
 -- Copyright        : (c) Galois, Inc 2016
 -- Maintainer       : Simon Winwood <sjw@galois.com>
 -- Stability        : provisional
+-- License          : BSD3
 --
 ------------------------------------------------------------------------
 {-# LANGUAGE FlexibleInstances #-}

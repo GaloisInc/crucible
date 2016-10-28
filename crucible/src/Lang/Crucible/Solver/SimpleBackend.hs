@@ -1,3 +1,16 @@
+-----------------------------------------------------------------------
+-- |
+-- Module           : Lang.Crucible.Solver.SimpleBackend
+-- Description      : The default backend, which only connects to
+--                    solvers in response to specific calls.
+-- Copyright        : (c) Galois, Inc 2015-2016
+-- Maintainer       : Rob Dockins <rdockins@galois.com>
+-- Stability        : provisional
+-- License          : BSD3
+--
+------------------------------------------------------------------------
+
+
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 module Lang.Crucible.Solver.SimpleBackend

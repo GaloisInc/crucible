@@ -1,3 +1,15 @@
+-----------------------------------------------------------------------
+-- |
+-- Module           : Lang.Crucible.Solver.OnlineBackend
+-- Description      : Solver backend that maintains a persistent
+--                    connection to Yices
+-- Copyright        : (c) Galois, Inc 2015-2016
+-- Maintainer       : Rob Dockins <rdockins@galois.com>
+-- Stability        : provisional
+-- License          : BSD3
+--
+------------------------------------------------------------------------
+
 {-# LANGUAGE EmptyDataDecls #-}
 module Lang.Crucible.Solver.OnlineBackend
   ( -- * OnlineBackend

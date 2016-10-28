@@ -2,6 +2,7 @@
 Module           : Lang.Crucible.Utils.LeqMap
 Copyright        : (c) Galois, Inc 2015-2016
 Maintainer       : Joe Hendrix <jhendrix@galois.com>
+License          : BSD3
 
 This module defines a strict map.
 

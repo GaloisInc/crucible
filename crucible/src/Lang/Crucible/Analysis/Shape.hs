@@ -5,6 +5,7 @@
 -- Copyright   : (c) Galois, Inc 2015
 -- Maintainer  : Rob Dockins <rdockins@galois.com>
 -- Stability   : provisional
+-- License     : BSD3
 --
 -- This shape analysis tracks the flow of literal, concrete and symbolic
 -- data through a program.  The main use for this analysis is to identify

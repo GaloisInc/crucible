@@ -3,6 +3,7 @@ Module      : Lang.Crucible.Solver.SimpleBackend.Simplify
 Copyright   : (c) Galois, Inc 2016
 License     : AllRightsReserved
 Maintainer  : Joe Hendrix <jhendrix@galois.com>
+License     : BSD3
 
 This module provides a minimalistic interface for manipulating Boolean formulas
 and execution contexts in the symbolic simulator.

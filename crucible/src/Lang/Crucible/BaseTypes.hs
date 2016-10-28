@@ -2,9 +2,10 @@
 -- |
 -- Module           : Lang.Crucible.BaseTypes
 -- Description      : This module exports the types used in solver expressions.
--- Copyright        : (c) Galois, Inc 2014
+-- Copyright        : (c) Galois, Inc 2014-2016
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
+-- License          : BSD3
 --
 -- This module exports the types used in solver expressions.
 --

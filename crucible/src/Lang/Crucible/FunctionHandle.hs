@@ -2,6 +2,7 @@
 Module           : Lang.Crucible.FunctionHandle
 Copyright        : (c) Galois, Inc 2014-2016
 Maintainer       : Joe Hendrix <jhendrix@galois.com>
+License          : BSD3
 
 This provides handles to functions, which provides a unique
 identifier of a function at runtime.  Function handles can be thought of

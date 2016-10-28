@@ -5,6 +5,7 @@
 -- Copyright        : (c) Galois, Inc 2013-2015
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
+-- License          : BSD3
 --
 -- This module provides functions for calling overrides and Crucible CFGS.
 ------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 {-|
 Module      : Lang.Crucible.Utils.UnaryBV
 Copyright   : (c) Galois, Inc 2015-2016
-License     : AllRightsReserved
+License     : BSD3
 Maintainer  : Joe Hendrix <jhendrix@galois.com>
 
 This module defines a data structure for representing a symbolic bitvector

@@ -3,6 +3,7 @@ Module      : Lang.Crucible.Solver.Symbol
 Copyright   : (c) Galois Inc, 2015
 License     : AllRightsReserved
 Maintainer  : jhendrix@galois.com
+License     : BSD3
 
 Declares a symbol that can be used as an identifier and is legal in all the
 output formats supported.

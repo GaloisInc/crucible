@@ -2,6 +2,7 @@
 Module           : Lang.Crucible.MATLAB.Types
 Copyright        : (c) Galois, Inc 2015-2016
 Maintainer       : Joe Hendrix <jhendrix@galois.com>
+License          : BSD3
 
 This defines basic types specific to MATLAB.
 -}

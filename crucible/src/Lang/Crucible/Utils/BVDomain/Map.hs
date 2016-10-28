@@ -1,3 +1,11 @@
+{-|
+Module      : Lang.Crucible.Utils.BVDomain.Map
+Copyright   : (c) Galois Inc, 2015-2016
+License     : AllRightsReserved
+Maintainer  : jhendrix@galois.com
+License     : BSD3
+-}
+
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}

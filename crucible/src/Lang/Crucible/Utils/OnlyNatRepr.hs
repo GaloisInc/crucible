@@ -3,6 +3,7 @@ Module           : Lang.Crucible.Utils.OnlyNatRepr
 Copyright        : (c) Galois
 License          : AllRightsReserved
 Maintainer       : Joe Hendrix <jhendrix@galois.com>
+License          : BSD3
 
 Defines a GADT for indicating a base type must be a natural number.  Used for
 restricting index types in MATLAB arrays.

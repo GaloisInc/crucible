@@ -8,6 +8,7 @@
 -- Copyright        : (c) Galois, Inc 2014
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
+-- License          : BSD3
 ------------------------------------------------------------------------
 {-# LANGUAGE CPP #-}
 module Lang.Crucible.Utils.MonadVerbosity

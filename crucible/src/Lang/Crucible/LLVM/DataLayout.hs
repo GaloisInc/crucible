@@ -1,3 +1,13 @@
+------------------------------------------------------------------------
+-- |
+-- Module           : Lang.Crucible.LLVM.DataLayout
+-- Description      : Basic datatypes for describing LLVM types and memory layout
+-- Copyright        : (c) Galois, Inc 2011-2013
+-- Maintainer       : Rob Dockins <rdockins@galois.com>
+-- Stability        : provisional
+-- License          : BSD3
+------------------------------------------------------------------------
+
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}

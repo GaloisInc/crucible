@@ -1,3 +1,15 @@
+{-|
+Module     : Lang.Crucible.Utils.SymMultiDimArray
+Copyright  : (c) Galois, Inc 2013-2016
+Maintainer : Joe Hendrix <jhendrix@galois.com>
+License    : BSD3
+
+Define symbolic multidimensional arrays, and translations between
+these and "concrete" multidimensional arrays.  The difference is that
+symbolic arrays are directly backed by symbolic formulae inside solvers
+that support a theory of arrays or a theory of uninterpreted functions.
+-}
+
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}

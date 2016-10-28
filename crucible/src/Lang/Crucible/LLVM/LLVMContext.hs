@@ -5,6 +5,7 @@
 -- Copyright        : (c) Galois, Inc 2011-2013
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
+-- License          : BSD3
 --
 -- This module provides functionality for querying simulator type
 -- information in a module, and converting llvm-pretty types into

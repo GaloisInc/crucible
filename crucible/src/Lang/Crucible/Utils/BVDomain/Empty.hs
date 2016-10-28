@@ -3,6 +3,7 @@ Module      : Lang.Crucible.Utils.BVDomain.Empty
 Copyright   : (c) Galois Inc, 2015-2016
 License     : AllRightsReserved
 Maintainer  : jhendrix@galois.com
+License     : BSD3
 
 Defines an empty bitvector domain compatible with
 'Lang.Crucible.Utils.BVDomain.Map' that can be used for

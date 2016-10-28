@@ -2,6 +2,7 @@
 Module           : Lang.Crucible.Utils.SExp
 Copyright        : (c) Galois, Inc 2014
 Maintainer       : Joe Hendrix <jhendrix@galois.com>
+License          : BSD3
 
 Provides a function for reading decimal numbers returned
 by Z3 or Yices.

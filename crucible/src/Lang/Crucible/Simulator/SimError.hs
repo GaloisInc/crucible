@@ -1,10 +1,11 @@
 -----------------------------------------------------------------------
 -- |
--- Module           : Lang.Crucible.Simulator.ExecutionTree
+-- Module           : Lang.Crucible.Simulator.SimError
 -- Description      : Data structure the execution state of the simulator
 -- Copyright        : (c) Galois, Inc 2014
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
+-- License          : BSD3
 --
 -- Execution trees record the state of the simulator as it explores
 -- exeuction paths through a program.

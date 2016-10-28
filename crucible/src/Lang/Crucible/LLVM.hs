@@ -5,6 +5,7 @@
 -- Copyright        : (c) Galois, Inc 2015-2016
 -- Maintainer       : rdockins@galois.com
 -- Stability        : provisional
+-- License          : BSD3
 ------------------------------------------------------------------------
 module Lang.Crucible.LLVM
 ( registerModuleFn

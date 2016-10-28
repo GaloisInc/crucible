@@ -5,6 +5,7 @@
 -- Copyright   : (c) Galois, Inc 2015
 -- Maintainer  : Rob Dockins <rdockins@galois.com>
 -- Stability   : provisional
+-- License     : BSD3
 --
 -- Z3-specific tweaks to the basic SMTLib2 solver interface.
 ------------------------------------------------------------------------

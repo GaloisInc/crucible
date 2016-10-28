@@ -6,6 +6,7 @@
 -- Copyright        : (c) Galois, Inc 2014
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
+-- License          : BSD3
 --
 -- This module defines CFGs which feature mutable registers, in contrast
 -- to the Core CFGs, which are in SSA form.  Register CFGs can be
