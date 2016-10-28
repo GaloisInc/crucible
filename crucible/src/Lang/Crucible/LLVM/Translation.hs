@@ -596,9 +596,9 @@ transValue _ (L.ValConstExpr cexp) =
   case cexp of
     L.ConstConv op x outty ->
       translateConversion op x outty
-    L.ConstGEP _inBounds [] ->
+    L.ConstGEP _inBounds _resType [] ->
       fail "empty getelementpointer expression"
-    L.ConstGEP _inBounds (base:elts) -> do
+    L.ConstGEP _inBounds _resType (base:elts) -> do
       base' <- transTypedValue base
       elts' <- mapM transTypedValue elts
       typ <- liftMemType (L.typedType base)
@@ -631,6 +631,9 @@ transValue _ (L.ValConstExpr cexp) =
 
     L.ConstBlockAddr _funSymbol _blockLabel ->
       fail "'blockaddress' expressions not supported."
+
+    L.ConstFCmp _ _ _ -> fail "constant comparisons not currently supported"
+    L.ConstICmp _ _ _ -> fail "constant comparisons not currently supported"
 
 transValue ty v =
   fail $ unwords ["unsupported LLVM value:", show v, "of type", show ty]
@@ -2054,9 +2057,9 @@ setLocation (_:xs) = setLocation xs
 findFile :: (?lc :: TyCtx.LLVMContext) => L.ValMd -> String
 findFile (L.ValMdRef x) =
   case TyCtx.lookupMetadata x of
-    (_:Just (L.ValMdRef y):_) ->
+    Just (L.ValMdNode (_:Just (L.ValMdRef y):_)) ->
       case TyCtx.lookupMetadata y of
-        [Just (L.ValMdString fname), Just (L.ValMdString _fpath)] -> fname
+        Just (L.ValMdNode [Just (L.ValMdString fname), Just (L.ValMdString _fpath)]) -> fname
         _ -> ""
     _ -> ""
 findFile _ = ""

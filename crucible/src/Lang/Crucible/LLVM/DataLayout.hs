@@ -66,6 +66,7 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word32, Word64)
 import qualified Text.LLVM as L
+import qualified Text.LLVM.PP as L
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 #if !MIN_VERSION_base(4,8,0)

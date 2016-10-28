@@ -39,13 +39,13 @@ module Lang.Crucible.LLVM.LLVMContext
 
 import Control.Lens
 import Control.Monad.State (State, runState, MonadState(..), modify)
-import Data.Maybe (fromMaybe)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Vector as V
-import qualified Text.LLVM         as L
+import qualified Text.LLVM as L
+import qualified Text.LLVM.PP as L
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import Lang.Crucible.LLVM.DataLayout
@@ -159,7 +159,7 @@ tcStruct packed fldTys = do
   fmap (mkStructInfo pdl packed) . sequence <$> mapM tcMemType fldTys
 
 type AliasMap = Map Ident SymType
-type MetadataMap = Map Int [Maybe L.ValMd]
+type MetadataMap = Map Int L.ValMd
 
 -- | Provides information about the types in an LLVM bitcode file.
 data LLVMContext = LLVMContext
@@ -179,9 +179,8 @@ ppLLVMContext lc =
 lookupAlias :: (?lc :: LLVMContext) => Ident -> Maybe SymType
 lookupAlias i = llvmAliasMap ?lc ^. at i
 
-lookupMetadata :: (?lc :: LLVMContext) => Int -> [Maybe L.ValMd]
-lookupMetadata x =
-  fromMaybe [] $ Map.lookup x (llvmMetadataMap ?lc)
+lookupMetadata :: (?lc :: LLVMContext) => Int -> Maybe L.ValMd
+lookupMetadata x = Map.lookup x (llvmMetadataMap ?lc)
 
 -- | If argument corresponds to a @MemType@ possibly via aliases,
 -- then return it.  Otherwise, returns @Nothing@.
