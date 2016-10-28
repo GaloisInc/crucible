@@ -1,3 +1,14 @@
+-----------------------------------------------------------------------
+-- |
+-- Module           : Lang.Crucible.Server.Encoding
+-- Copyright        : (c) Galois, Inc 2014-2016
+-- Maintainer       : Rob Dockins <rdockins@galois.com>
+-- Stability        : provisional
+-- License          : BSD3
+--
+-- Encoding and decoding utilities for numeric data.
+------------------------------------------------------------------------
+
 module Lang.Crucible.Server.Encoding
   ( decodeSigned
   , encodeSigned

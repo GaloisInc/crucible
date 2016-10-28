@@ -13,9 +13,15 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Werror #-}
+
 {-
- - This module provides the BLT integer linear programming library
- - as an optional solver in MSS.
+Module           : Lang.Crucible.Solver.SimpleBackend.BLT
+Copyright        : (c) Galois, Inc 2014-2016
+Maintainer:      : bjones@galois.com
+License          : BSD3
+
+This module provides the BLT integer linear programming library
+as an optional solver for Crucible.
 -}
 module Lang.Crucible.Solver.SimpleBackend.BLT
   ( -- * BLT Adapter API

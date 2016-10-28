@@ -1,3 +1,15 @@
+-----------------------------------------------------------------------
+-- |
+-- Module           : Lang.Crucible.Server.TypeConv
+-- Copyright        : (c) Galois, Inc 2014-2016
+-- Maintainer       : Rob Dockins <rdockins@galois.com>
+-- Stability        : provisional
+-- License          : BSD3
+--
+-- Operations to translate between the protocol-buffer represntation
+-- of types and the internal Crucible representation.
+------------------------------------------------------------------------
+
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}

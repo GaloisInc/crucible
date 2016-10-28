@@ -1,12 +1,13 @@
 -----------------------------------------------------------------------
 -- |
--- Module           : Lang.Crucible.Solver.SAWCoreBackend2
+-- Module           : Lang.Crucible.Solver.SAWCoreBackend
 -- Description      : Crucible interface for generating SAWCore
--- Copyright        : (c) Galois, Inc 2014
+-- Copyright        : (c) Galois, Inc 2014-2016
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
+-- License          : BSD3
 --
--- This module provides a crucible backend that produces SAWCore terms.
+-- This module provides a Crucible backend that produces SAWCore terms.
 ------------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}

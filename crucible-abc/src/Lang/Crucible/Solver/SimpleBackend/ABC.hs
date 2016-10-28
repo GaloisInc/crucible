@@ -1,3 +1,14 @@
+{-
+Module           : Lang.Crucible.Solver.SimpleBackend.ABC
+Copyright        : (c) Galois, Inc 2014-2016
+Maintainer       : Joe Hendrix <jhendrix@galois.com>
+License          : BSD3
+
+Solver adapter and associcated operations for connecting the
+Crucible simple builder backend to the ABC And-Inverter Graph (AIG)
+representation.
+-}
+
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE GADTs #-}

@@ -1,3 +1,15 @@
+-----------------------------------------------------------------------
+-- |
+-- Module           : Lang.Crucible.Server.CallbackOutputHandle
+-- Copyright        : (c) Galois, Inc 2014-2016
+-- Maintainer       : Rob Dockins <rdockins@galois.com>
+-- Stability        : provisional
+-- License          : BSD3
+--
+-- Utility for making an I/O handle from a collection of callback
+-- functions.
+------------------------------------------------------------------------
+
 {-# LANGUAGE DeriveDataTypeable #-}
 module Lang.Crucible.Server.CallbackOutputHandle
   ( OutputCallbacks(..)

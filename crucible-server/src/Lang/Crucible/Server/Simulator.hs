@@ -1,3 +1,15 @@
+-----------------------------------------------------------------------
+-- |
+-- Module           : Lang.Crucible.Server.Simulator
+-- Copyright        : (c) Galois, Inc 2014-2016
+-- Maintainer       : Rob Dockins <rdockins@galois.com>
+-- Stability        : provisional
+-- License          : BSD3
+--
+-- State-management datastructures and functions for interfacing with
+-- the main crucible simulator.
+------------------------------------------------------------------------
+
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}

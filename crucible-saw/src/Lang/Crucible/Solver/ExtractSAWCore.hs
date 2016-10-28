@@ -1,3 +1,15 @@
+-----------------------------------------------------------------------
+-- |
+-- Module           : Lang.Crucible.Solver.ExtractSAWCore
+-- Copyright        : (c) Galois, Inc 2014-2016
+-- Maintainer       : Rob Dockins <rdockins@galois.com>
+-- Stability        : provisional
+-- License          : BSD3
+--
+-- Some experimental, and currently bitrotted code for extracting
+-- recursive functional representations from Crucible programs.
+------------------------------------------------------------------------
+
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}

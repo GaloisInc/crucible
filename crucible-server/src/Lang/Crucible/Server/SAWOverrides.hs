@@ -1,3 +1,14 @@
+-----------------------------------------------------------------------
+-- |
+-- Module           : Lang.Crucible.Server.SAWOverrides
+-- Copyright        : (c) Galois, Inc 2014-2016
+-- Maintainer       : Rob Dockins <rdockins@galois.com>
+-- Stability        : provisional
+-- License          : BSD3
+--
+-- Function implementations that are specific to the SAW backend.
+------------------------------------------------------------------------
+
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
