@@ -17,8 +17,7 @@ Currently, the repo consists of the following Haskell packages:
 
  * **`crucible`** provides the core Crucible definitions, the
    symbolic simulator, the `SimpleBackend` formula representation, interfaces
-   between `SimpleBackend` and SMT solvers, and LLVM and MATLAB to
-   Crucible translators.
+   between `SimpleBackend` and SMT solvers, and an LLVM-to-Crucible translator.
  * **`crucible-abc`** provides functionality for generating
    ABC networks from `SimpleBackend` expressions.
  * **`crucible-blt`** provides functionality for generating
