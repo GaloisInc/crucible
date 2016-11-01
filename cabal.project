@@ -1,0 +1,23 @@
+-- note: since new-build does not yet support adding custom
+-- (non-alex/happy/etc) build tools to the path, you will have to do
+-- something like this before building:
+--
+-- export PATH=$PWD/dist-newstyle/build/x86_64-linux/ghc-7.10.3/hpb-0.1.1/c/hpb/build/hpb:$PATH
+
+packages:
+  crucible/
+  crucible-abc/
+  crucible-blt/
+  crucible-saw/
+  crucible-server/
+  galois-matlab/
+
+optional-packages:
+  dependencies/abcBridge/
+  dependencies/aig/
+  dependencies/blt/
+  dependencies/hpb/
+  dependencies/llvm-pretty/
+  dependencies/llvm-pretty-bc-parser/
+  dependencies/parameterized-utils/
+  dependencies/saw-core/
