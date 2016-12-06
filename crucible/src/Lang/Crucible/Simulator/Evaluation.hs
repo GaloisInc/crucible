@@ -559,7 +559,7 @@ evalApp sym itefns logFn evalSub a0 = do
     BoolXor x y -> do
       xv <- evalSub x
       yv <- evalSub y
-      orPred sym xv yv
+      xorPred sym xv yv
     BoolIte ce x y -> do
       c <- evalSub ce
       case asConstantPred c of
