@@ -396,7 +396,7 @@ data ValueFromFrame (s :: * -> fk -> argk -> *) (root :: *) (ret :: *) (f :: fk)
   VFFPartial :: !(ValueFromFrame s ret ret f)
              -> !(Pred (Solver s))
              -> !(AbortedResult s)
-             -> !Bool -- ^ should we abort the sibling branch when it merges with us?
+             -> !Bool -- should we abort the sibling branch when it merges with us?
              -> ValueFromFrame s ret ret f
 
   -- VFFEnd denotes that when the function terminates we should just return

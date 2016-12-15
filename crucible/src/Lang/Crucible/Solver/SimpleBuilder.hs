@@ -3795,7 +3795,7 @@ instance IsExprBuilder (SimpleBuilder t st) where
   arrayIte sym p x y
      | Just b <- asConstantPred p = return $! if b then x else y
      | x == y = return x
-       -- | Extract all concrete updates out.
+       --  Extract all concrete updates out.
      | ArrayMapView mx x' <- viewArrayMap x
      , ArrayMapView my y' <- viewArrayMap y
      , not (Hash.mapNull mx) || not (Hash.mapNull my) = do

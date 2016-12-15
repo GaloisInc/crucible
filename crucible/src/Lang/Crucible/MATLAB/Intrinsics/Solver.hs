@@ -105,7 +105,7 @@ data MatlabSolverFn (f :: BaseType -> *) args ret where
   -- (which must be natural numbers) are between 1 and the given upper bounds (inclusive).
   IndicesInRange :: !(Ctx.Assignment OnlyNatRepr (idx ::> itp))
                  -> !(Ctx.Assignment f (idx ::> itp))
-                    -- ^ Upper bounds on indices
+                    -- Upper bounds on indices
                  -> MatlabSolverFn f (idx ::> itp) BaseBoolType
 
   IsEqFn :: !(BaseTypeRepr tp)
