@@ -939,9 +939,9 @@ ptrIsNull sym _p@(RolledType x) = do
 
 
 data LLVMPtrExpr e w
-  = LLVMPtr (e BaseNatType)     -- ^ Block number
-            (e (BaseBVType w))  -- ^ End-of-block offset (1 past end of valid bytes)
-            (e (BaseBVType w))  -- ^ Current offset in block
+  = LLVMPtr (e BaseNatType)     --  Block number
+            (e (BaseBVType w))  --  End-of-block offset (1 past end of valid bytes)
+            (e (BaseBVType w))  --  Current offset in block
   | LLVMOffset (e (BaseBVType w))
 
 -- NB, this is a somewhat strange Eq instance.  It is used by

@@ -14,8 +14,8 @@ as function pointers, but there are no operations to manipulate them.
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TypeOperators #-}
 module Lang.Crucible.FunctionHandle
-    -- * Function handle
-  ( FnHandle
+  ( -- * Function handle
+    FnHandle
   , handleID
   , handleName
   , handleArgTypes

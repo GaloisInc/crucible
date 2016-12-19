@@ -433,7 +433,7 @@ data App f (tp :: CrucibleType) where
   ArrayDim   :: !(f (MultiDimArrayType tp))
              -> App f ArrayDimType
 
-  -- | This resizes the array to given dimensions.
+  -- This resizes the array to given dimensions.
   --
   -- The new dimensions can be assumed to be not smaller than the current array
   -- dimensions in each index.  When resizing the array, the new dimensions
@@ -608,7 +608,7 @@ data App f (tp :: CrucibleType) where
   UIntArrayToIntegerArray :: !(f (MatlabUIntArrayType))
                           -> App f IntegerArrayType
 
-  -- | Converts a real array to an integer array.
+  --  Converts a real array to an integer array.
   --
   -- Result is undefined if real values are not integers.
   RealArrayToIntegerArray :: !(f RealArrayType)
@@ -666,7 +666,7 @@ data App f (tp :: CrucibleType) where
   MatlabIntArrayDim :: !(f MatlabIntArrayType)
                     -> App f ArrayDimType
 
-  -- | This resizes the array to given dimensions.
+  -- This resizes the array to given dimensions.
   --
   -- The new dimensions can be assumed to be not smaller than the current array
   -- dimensions in each index.  When resizing the array, the new dimensions
