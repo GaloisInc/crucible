@@ -1,7 +1,7 @@
 Crucible is a language-agnostic library for performing forward
 symbolic execution of imperative progams.  It provides a collection of
 data-structures and APIs for expressing programs as control-flow
-graphs.  Progams expressed as CFGs in this way can be automatically
+graphs.  Programs expressed as CFGs in this way can be automatically
 explored by the symbolic exeuction engine.  In addition, new data
 types and operations can be added to the symbolic simulator by
 implementing fresh primitives directly in Haskell.  Crucible also
