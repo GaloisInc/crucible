@@ -22,7 +22,7 @@ import Lang.Crucible.FunctionHandle
 import Lang.Crucible.FunctionName
 import Lang.Crucible.ProgramLoc
 import Control.Monad.ST
-import Data.Parameterized.Context as Ctx
+import Data.Parameterized.Context as Ctx hiding ((++))
 import Data.Parameterized.Map as MapF
 import Data.Set as S
 import Debug.Trace
