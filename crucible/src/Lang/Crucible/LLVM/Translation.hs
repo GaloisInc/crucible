@@ -801,14 +801,26 @@ definePhiBlock l l' = do
   case Map.lookup l' bim of
     Nothing -> fail $ unwords ["label not found in label map:", show l']
     Just bi' -> do
+      -- Collect all the relevant phi functions to evaluate
       let phi_funcs = maybe [] toList $ Map.lookup l (block_phi_map bi')
-      mapM_ assignPhi phi_funcs
+
+      -- NOTE: We evaluate all the right-hand sides of the phi nodes BEFORE
+      --   we assign the values to their associated registers.  This preserves
+      --   the expected semantics that phi functions are evaluated in the context
+      --   of the previous basic block, and prevents unintended register shadowing.
+      --   Otherwise loop-carried dependencies will sometimes end up with the wrong
+      --   values.
+      phiVals <- mapM evalPhi phi_funcs
+      mapM_ assignPhi phiVals
+
+      -- Now jump to the target code block
       jump (block_label bi')
 
- where assignPhi (ident,tp,v) = do
-         t_v <- transTypedValue (L.Typed tp v)
-         assignLLVMReg ident t_v
-
+ where evalPhi (ident,tp,v) = do
+           t_v <- transTypedValue (L.Typed tp v)
+           return (ident,t_v)
+       assignPhi (ident,t_v) = do
+           assignLLVMReg ident t_v
 
 -- Given an LLVM expression of vector type, select out the ith element.
 extractElt
