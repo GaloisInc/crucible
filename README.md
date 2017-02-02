@@ -30,7 +30,7 @@ Currently, the repo consists of the following Haskell packages:
 In addition, there is the following library/executable package:
 
  * **`crucible-server`**, a standalone process that allows constructing
-   and symbolically executing Crucible programs via a [Protocol Buffers][pb].
+   and symbolically executing Crucible programs via [Protocol Buffers][pb].
    The crucible-server directory also contains a Java API for
    connecting to and working with the `crucible-server`.
 
