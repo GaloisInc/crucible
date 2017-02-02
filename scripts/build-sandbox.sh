@@ -72,3 +72,6 @@ fi
 for pkg in $PKG_LIST; do
   checkout "git@github.com:GaloisInc/$pkg.git" $pkg
 done
+
+# Download circuit-synthesis repo
+checkout "git@github.com:dagit/circuit-synthesis.git" circuit-synthesis
