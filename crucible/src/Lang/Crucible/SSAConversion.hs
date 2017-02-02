@@ -42,7 +42,7 @@ import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.Type.Equality
 
-import           Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Context as Ctx hiding ((++))
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableF
 import           Data.Parameterized.TraversableFC

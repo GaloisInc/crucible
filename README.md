@@ -1,8 +1,8 @@
 Crucible is a language-agnostic library for performing forward
-symbolic execution of imperative progams.  It provides a collection of
+symbolic execution of imperative programs.  It provides a collection of
 data-structures and APIs for expressing programs as control-flow
-graphs.  Progams expressed as CFGs in this way can be automatically
-explored by the symbolic exeuction engine.  In addition, new data
+graphs.  Programs expressed as CFGs in this way can be automatically
+explored by the symbolic execution engine.  In addition, new data
 types and operations can be added to the symbolic simulator by
 implementing fresh primitives directly in Haskell.  Crucible also
 provides connections to a variety of SAT and SMT solvers that can be
@@ -30,7 +30,7 @@ Currently, the repo consists of the following Haskell packages:
 In addition, there is the following library/executable package:
 
  * **`crucible-server`**, a standalone process that allows constructing
-   and symbolically executing Crucible programs via a [Protocol Buffers][pb].
+   and symbolically executing Crucible programs via [Protocol Buffers][pb].
    The crucible-server directory also contains a Java API for
    connecting to and working with the `crucible-server`.
 
