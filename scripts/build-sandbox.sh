@@ -52,8 +52,9 @@ checkout () {
 # GitHub repos (some private, some public) required by the build
 PKG_LIST="abcBridge aig blt saw-core hpb llvm-pretty llvm-pretty-bc-parser parameterized-utils"
 
-# base GitHub URL for Galois repos
-GITHUB_URL="git@github.com:GaloisInc"
+# Set base GitHub URL for Galois repos if it's not already set
+: ${GITHUB_URL:="git@github.com:GaloisInc"}
+echo "Using github url: $GITHUB_URL"
 
 # Check if 'stack' is in the path
 if  type stack >/dev/null 2>&1; then
