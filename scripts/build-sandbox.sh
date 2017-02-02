@@ -71,5 +71,5 @@ fi
 
 # Download GitHub repos
 for pkg in $PKG_LIST; do
-  checkout "git@github.com:GaloisInc/$pkg.git" $pkg
+  checkout "$GITHUB_URL/$pkg.git" $pkg
 done
