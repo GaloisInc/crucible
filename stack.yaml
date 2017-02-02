@@ -9,7 +9,6 @@ packages:
 - crucible-saw
 - crucible-acirc
 - crucible-server
-- circuit-synthesis
 - galois-matlab
 - dependencies/abcBridge
 - dependencies/aig
@@ -19,6 +18,7 @@ packages:
 - dependencies/saw-core
 - dependencies/llvm-pretty
 - dependencies/llvm-pretty-bc-parser
+- dependencies/circuit-synthesis
 extra-deps:
 - clock-0.5.2
 - dotgen-0.4.2
