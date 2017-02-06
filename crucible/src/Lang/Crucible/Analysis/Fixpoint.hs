@@ -180,7 +180,11 @@ equalPointAbstractions :: forall (dom :: CrucibleType -> *) ctx
 equalPointAbstractions dom pa1 pa2 =
   PU.foldlFC (\a (Ignore b) -> a && b) True pointwiseEqualRegs && equalGlobals
   where
-    equalGlobals = PM.toList (pa1 ^. paGlobals) == PM.toList (pa2 ^. paGlobals)
+    checkGlobal (PM.Pair gv1 d1) (PM.Pair gv2 d2) =
+      case PM.testEquality gv1 gv2 of
+        Just Refl -> domEq dom d1 d2
+        Nothing -> False
+    equalGlobals = and $ zipWith checkGlobal (PM.toList (pa1 ^. paGlobals)) (PM.toList (pa2 ^. paGlobals))
     pointwiseEqualRegs = PU.zipWith (\a b -> Ignore (domEq dom a b)) (pa1 ^. paRegisters) (pa2 ^. paRegisters)
 
 -- | Apply the transfer functions from an interpretation to a block,
