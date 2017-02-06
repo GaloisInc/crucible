@@ -635,6 +635,8 @@ transValue _ (L.ValConstExpr cexp) =
 
     L.ConstFCmp _ _ _ -> fail "constant comparisons not currently supported"
     L.ConstICmp _ _ _ -> fail "constant comparisons not currently supported"
+    L.ConstArith _ _ _ -> fail "constant arithmetic not currently supported"
+    L.ConstBit _ _ _ -> fail "constant bit operations not currently supported"
 
 transValue ty v =
   fail $ unwords ["unsupported LLVM value:", show v, "of type", show ty]
