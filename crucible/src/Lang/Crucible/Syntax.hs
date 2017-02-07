@@ -451,7 +451,7 @@ concatExprs :: forall w a expr
             -> (forall w'. (1 <= w') => NatRepr w' -> expr (BVType w') -> a)
             -> a
 
-concatExprs _ [] = error "Cannot concatenate 0 elements together"
+concatExprs _ [] = \_ -> error "Cannot concatenate 0 elements together"
 concatExprs w (a:as) = go a as
 
  where go :: (1 <= w)

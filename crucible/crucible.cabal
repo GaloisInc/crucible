@@ -25,7 +25,7 @@ flag unsafe-operations
 
 library
   build-depends:
-    base >= 4.7 && < 4.9, 
+    base >= 4.7 && < 4.10,
     ansi-wl-pprint,
     attoparsec,
     bimap >= 0.2,
@@ -149,7 +149,7 @@ library
     Lang.Crucible.Utils.SymMultiDimArray
     Lang.Crucible.Utils.UnaryBV
 
-  ghc-options: -Wall -Werror
+  ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
 
   if flag(unsafe-operations)

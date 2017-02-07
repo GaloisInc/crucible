@@ -15,7 +15,7 @@ Description:
 library
   build-depends:
     ansi-wl-pprint,
-    base >= 4.7 && < 4.9,
+    base >= 4.7 && < 4.10,
     containers,
     crucible >= 0.1,
     directory,

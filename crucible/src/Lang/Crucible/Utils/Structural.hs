@@ -36,13 +36,14 @@ structuralPretty tpq pats0 = do
   d <- lookupDataType' =<< asTypeCon "structuralPretty" =<< tpq
   pp <- newName "pp"
   a <- newName "a"
+
   let pats = assocTypePats (dataParamTypes d) pats0
   lamE [varP pp, varP a] $
-    caseE (varE a) (matchPretty pats (varE pp) <$> dataCtors d)
+      caseE (varE a) (matchPretty pats (varE pp) <$> dataCtors d)
 
 matchPretty :: (Type -> Q (Maybe ExpQ))  -- ^ Pattern match functions
-            -> ExpQ -> Con -> MatchQ
-matchPretty matchPat pp (NormalC nm tps) = do
+            -> ExpQ -> NormalizedCon -> MatchQ
+matchPretty matchPat pp (NC nm tps) = do
   let n = length tps
   nms <- replicateM n (newName "x")
   let pat = conP nm (varP <$> nms)
@@ -65,7 +66,5 @@ matchPretty matchPat pp (NormalC nm tps) = do
        = [| brackets (commas (toListFC $(pp) $(v))) |]
       mkPP v _ = [| text (show $(v)) |]
       --mkPP _ tp = error $ "Unsupported type " ++ show tp ++ " with " ++ nameBase nm
-  let rhs = [| ppFn $(litE (stringL nm')) $(listE (zipWith mkPP0 vars (snd <$> tps))) |]
+  let rhs = [| ppFn $(litE (stringL nm')) $(listE (zipWith mkPP0 vars tps)) |]
   match pat (normalB rhs) []
-matchPretty patFn pp (ForallC _ _ c) = matchPretty patFn pp c
-matchPretty _ _ c = error $ "Unsupported Con: " ++ show c
