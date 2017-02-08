@@ -478,11 +478,13 @@ loadRaw sym mem ptr valType = do
   (p,v) <- G.readMem (crucibleTermGenerator sym ptrWidth) ptr valType (memImplHeap mem)
   case v of
       Unassigned ->
-        fail "Invalid memory load"
+        fail errMsg
       PE p' v' -> do
         p'' <- andPred sym p p'
-        addAssertion sym p'' (AssertFailureSimError "Invalid memory load")
+        addAssertion sym p'' (AssertFailureSimError errMsg)
         return v'
+  where
+    errMsg = "Invalid memory load: " ++ show (ppPtrExpr ptrWidth ptr)
 
 doLoad :: IsSymInterface sym
   => sym
@@ -493,13 +495,14 @@ doLoad :: IsSymInterface sym
 doLoad sym mem ptr valType = do
     --putStrLn "MEM LOAD"
     let ptr' = translatePtr ptr
+        errMsg = "Invalid memory load: " ++ show (ppPtr ptr)
     (p, v) <- G.readMem (crucibleTermGenerator sym ptrWidth) ptr' valType (memImplHeap mem)
     case v of
       Unassigned ->
-        fail "Invalid memory load"
+        fail errMsg
       PE p' v' -> do
         p'' <- andPred sym p p'
-        addAssertion sym p'' (AssertFailureSimError "Invalid memory load")
+        addAssertion sym p'' (AssertFailureSimError errMsg)
         unpackMemValue sym v'
 
 storeRaw :: IsSymInterface sym
