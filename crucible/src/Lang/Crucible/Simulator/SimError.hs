@@ -26,11 +26,13 @@ module Lang.Crucible.Simulator.SimError (
     SimErrorReason(..)
   , SimError(..)
   , simErrorReasonMsg
+  , ppSimError
   ) where
 
 import Control.Exception
 import Data.String
 import Data.Typeable
+import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import Lang.Crucible.ProgramLoc
 
@@ -73,11 +75,13 @@ instance Show SimErrorReason where
   show = simErrorReasonMsg
 
 instance Show SimError where
-  show er = unlines
-     [ show (simErrorReason er)
-     , unwords $ [ "in", show (plFunction (simErrorLoc er))
-                 , "at", show (plSourceLoc (simErrorLoc er))
-                 ]
-     ]
+  show = show . ppSimError
+
+ppSimError :: SimError -> Doc
+ppSimError er =
+  vcat [ vcat (text <$> lines (show (simErrorReason er)))
+       , text "in" <+> text (show (plFunction loc)) <+> text "at" <+> text (show (plSourceLoc loc))
+       ]
+ where loc = simErrorLoc er
 
 instance Exception SimError
