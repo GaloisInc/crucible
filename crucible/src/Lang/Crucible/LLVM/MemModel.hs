@@ -56,6 +56,7 @@ module Lang.Crucible.LLVM.MemModel
 , doPtrAddOffset
 , doPtrSubtract
 , doDumpMem
+, doResolveGlobal
 , loadString
 , loadMaybeString
 , ppMem
@@ -430,13 +431,21 @@ packMemValue sym (G.Type (G.Struct fls) _) (StructRepr ctx) xs = do
 packMemValue _ _ _ _ =
   fail "Unexpected values in packMemValue"
 
+doResolveGlobal
+  :: IsSymInterface sym
+  => sym
+  -> MemImpl sym PtrWidth
+  -> L.Symbol
+  -> IO (RegValue sym LLVMPointerType)
+doResolveGlobal _sym mem symbol =
+  case Map.lookup symbol (memImplGlobalMap mem) of
+    Just ptr -> return ptr
+    Nothing  -> fail $ unwords ["Unable to resolve global symbol", show symbol]
+
 memResolveGlobal :: IntrinsicImpl sym (EmptyCtx ::> Mem ::> ConcreteType GlobalSymbol) LLVMPointerType
-memResolveGlobal = mkIntrinsic $ \_ _sym
+memResolveGlobal = mkIntrinsic $ \_ sym
   (regValue -> mem)
-  (regValue -> (GlobalSymbol symbol)) -> do
-    case Map.lookup symbol (memImplGlobalMap mem) of
-      Just ptr -> return ptr
-      Nothing  -> fail $ unwords ["Unable to resolve global symbol", show symbol]
+  (regValue -> (GlobalSymbol symbol)) -> liftIO $ doResolveGlobal sym mem symbol
 
 memLoad :: IntrinsicImpl sym (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMValTypeType) AnyType
 memLoad = mkIntrinsic $ \_ sym
