@@ -399,8 +399,8 @@ fieldEnd f = fieldOffset f + typeSize (f^.fieldVal) + fieldPad f
 -- Value constructor
 
 data ValueCtorF v
-   = -- | Concatentates two bitvectors.
-     -- The first bitvector contains values stored at the low-order byes
+   = -- | Concatenates two bitvectors.
+     -- The first bitvector contains values stored at the low-order bytes
      -- while the second contains values at the high-order bytes.  Thus, the
      -- meaning of this depends on the endianness of the target architecture.
      ConcatBV Size v Size v
