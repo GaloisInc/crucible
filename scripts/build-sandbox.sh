@@ -75,4 +75,4 @@ for pkg in $PKG_LIST; do
 done
 
 # Download circuit-synthesis repo
-checkout "git@github.com:spaceships/circuit-synthesis.git" circuit-synthesis
+checkout "git@github.com:spaceships/circuit-synthesis.git" circuit-synthesis wip/new-format
