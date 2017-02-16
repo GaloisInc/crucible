@@ -37,16 +37,7 @@ In addition, there is the following library/executable package:
 [pb]: https://developers.google.com/protocol-buffers/ "Protocol Buffers"
 
 
-For developing `crucible`, this repo follows a workflow similar to the
-[Gitflow][gitflow] workflow model.
-
-[gitflow]: http://nvie.com/posts/a-successful-git-branching-model/ "Gitflow Model"
-
-The current development version is in the `develop` branch, and major feature
-development should occur in branches of `develop` that are prefixed with
-initials identifying the main author of the feature (e.g., `jhx-symbolic-fn`).
-Minor fixes can occur directly on `develop`, but an effort should be made to
-ensure that develop always builds.
+The development of major features and additions to `crucible` is done in separate branches of the repository, all of which are based off `master` and merge back into it when completed. Minor features and bug fixes are done in the `master` branch. Naming of feature branches is free-form.
 
 To use `stack` to build crucible, you can use the shell script
 `scripts/build-sandbox.sh` to retrieve the appropriate repos for
