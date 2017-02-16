@@ -24,4 +24,4 @@ main = do
     _5 <- intMul sym _4 _3
     _6 <- intAdd sym _3 _5
     print (printSymExpr _6)
-    generateCircuit "test-mul.acirc" _6
+    generateCircuit "test-mul.acirc" [_6]

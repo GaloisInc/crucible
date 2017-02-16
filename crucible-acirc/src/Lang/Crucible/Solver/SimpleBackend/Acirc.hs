@@ -7,8 +7,9 @@ module Lang.Crucible.Solver.SimpleBackend.Acirc
 
 import           Data.Tuple ( swap )
 import           Data.Ratio ( denominator, numerator )
-import           Data.IORef ( IORef, newIORef, readIORef, atomicModifyIORef )
+import           Data.IORef ( IORef, newIORef, readIORef, writeIORef, atomicModifyIORef )
 import           Data.Set ( Set )
+import qualified Data.Set as S
 import qualified Data.Foldable as Fold
 
 import           Control.Lens ( (^.) )
@@ -77,8 +78,8 @@ memoEltNonce synth n act = do
 
 -- | Top level function for generating the circuit. Takes the crucible term and
 -- writes the circuit description to a file.
-generateCircuit :: FilePath -> Elt t BaseIntegerType -> IO ()
-generateCircuit fp e = do
+generateCircuit :: FilePath -> [Elt t BaseIntegerType] -> IO ()
+generateCircuit fp es = do
   -- First, we create empty data structures for the conversion
   ref <- newIORef B.emptyBuild
   h   <- liftST H.new
@@ -87,22 +88,28 @@ generateCircuit fp e = do
                         }
   -- Second, the next step is to find all the inputs to the computation so that
   -- we can create the circuit inputs.
-  let vars = eltVarInfo e
-  recordUninterpConstants synth (vars^.uninterpConstants)
+  let vars = S.unions (map ((^.uninterpConstants) . eltVarInfo) es)
+  recordUninterpConstants synth vars
   -- Third, generate the structure of the circuit from the crucible term
-  name <- eval synth e
-  -- Fourth, now we need to generate the circuit's output
-  st   <- readIORef (synthesisState synth)
-  let st' = flip execState st $
-        case name of
-          GroundInt n   -> do
-            {- this int is our constant output from the circuit -}
-            constantRef <- B.constant n
-            B.output constantRef
-            {- this is the output wire of our circuit -}
-          Ref       r -> B.output r
+  names <- mapM (eval synth) es
+  mapM_ (synthesize synth) names
   -- Finally, we have the final circuit and we can write it to the output file.
+  st' <- readIORef (synthesisState synth)
   writeCircuit fp st'
+  where
+  synthesize :: Synthesis t -> NameType BaseIntegerType -> IO ()
+  synthesize synth name = do
+    st <- readIORef (synthesisState synth)
+    -- now we need to generate the circuit's output
+    let st' = flip execState st $
+          case name of
+            GroundInt n -> do
+              {- this int is our constant output from the circuit -}
+              constantRef <- B.constant n
+              B.output constantRef
+              {- this is the output wire of our circuit -}
+            Ref r -> B.output r
+    writeIORef (synthesisState synth) st'
 
 -- | Gather up the variables that correspond to inputs
 eltVarInfo :: Elt t tp -> CollectedVarInfo t
@@ -174,30 +181,32 @@ doApp synth ae = do
       -- This is by far the trickiest case.  Crucible stores sums as weighted
       -- sums. This representation is basically a set of coefficients that are
       -- meant to be multiplied with some sums.
-      -- TODO: in the first continuation we should collect up the terms and
-      -- generate an n-ary addition gate instead of doing binary sums.
       ws' <- WS.eval (\r1 r2 -> do
                        r1' <- r1
                        r2' <- r2
                        return $ do
                          r1'' <- r1'
                          r2'' <- r2'
-                         B.circAdd r1'' r2'')
+                         return $! r1'' ++ r2'')
                      -- coefficient case
                      (\c t -> do
                        IntToReal (Ref t') <- eval synth t
                        assert (denominator c == 1) $ return $ do
                          -- simplify products to simple addition, when we can
-                         if numerator c == 1
-                            then return t'
-                            else do c' <- B.constant (numerator c)
-                                    B.circMul c' t')
+                         case numerator c of
+                           1  -> return [t']
+                           -1 -> (:[]) <$> B.circNeg t'
+                           _  -> error "We can only support multiplication of 1 and -1 constants")
+                           -- TODO: Code below is for when we can support constants
+                           -- _ -> do c' <- B.constant (numerator c)
+                           --         B.circMul c' t')
                      -- just a constant
-                     (\c -> do
-                       assert (denominator c == 1) $ return $ do
-                         B.constant (numerator c))
+                     (\c -> error "We cannot support raw literals")
+                       -- TODO: Code below is for when we can support constants
+                       -- assert (denominator c == 1) $ return $ do
+                       --   B.constant (numerator c))
                      ws
-      return (IntToReal . Ref <$> ws')
+      return $! IntToReal . Ref <$> (B.circSumN =<< ws')
     _ -> fail "Not supported"
 
   where
