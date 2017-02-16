@@ -25,7 +25,7 @@ flag unsafe-operations
 
 library
   build-depends:
-    base >= 4.7 && < 4.9, 
+    base >= 4.7 && < 4.10,
     ansi-wl-pprint,
     attoparsec,
     bimap >= 0.2,
@@ -61,6 +61,8 @@ library
   exposed-modules:
     Lang.Crucible.Analysis.DFS
     Lang.Crucible.Analysis.ForwardDataflow
+    Lang.Crucible.Analysis.Fixpoint
+    Lang.Crucible.Analysis.Fixpoint.Components
     Lang.Crucible.Analysis.Postdom
     Lang.Crucible.Analysis.Reachable
     Lang.Crucible.Analysis.Shape
@@ -147,8 +149,28 @@ library
     Lang.Crucible.Utils.SymMultiDimArray
     Lang.Crucible.Utils.UnaryBV
 
-  ghc-options: -Wall -Werror
+  ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
 
   if flag(unsafe-operations)
     cpp-options: -DUNSAFE_OPS
+
+test-suite absint-tests
+  type: exitcode-stdio-1.0
+  default-language: Haskell2010
+  hs-source-dirs: test/absint
+  other-modules: AI,
+                 EvenOdd,
+                 Max,
+                 WTO
+  ghc-options: -Wall
+  main-is: Main.hs
+  build-depends: base,
+                 containers,
+                 mtl,
+                 crucible,
+                 parameterized-utils,
+                 tasty >= 0.10,
+                 tasty-hunit >= 0.9,
+                 tasty-quickcheck >= 0.8,
+                 QuickCheck

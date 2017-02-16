@@ -102,6 +102,8 @@ module Lang.Crucible.Simulator.MSSim
   , useIntrinsic
   , mkIntrinsic
   , AnyFnBindings(..)
+  , filterCrucibleFrames
+  , ppExceptionContext
   ) where
 
 import           Control.Exception
@@ -115,6 +117,7 @@ import qualified Data.Parameterized.Map as MapF
 import           Data.Proxy
 import           System.IO
 import           System.IO.Error
+import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import qualified Data.Parameterized.Context as Ctx
 
@@ -512,6 +515,22 @@ abortBranchGlobalState sym iTypes (GlobalState d g refs)
          , show d
          , show $ plSourceLoc loc
          ]
+
+filterCrucibleFrames :: SomeFrame (SimFrame sym)
+                     -> Maybe ProgramLoc
+filterCrucibleFrames (SomeFrame (MF f)) = Just (frameProgramLoc f)
+filterCrucibleFrames _ = Nothing
+
+-- | Print the exception
+ppExceptionContext :: [SomeFrame (SimFrame sym)] -> SimError -> Doc
+ppExceptionContext frames e =
+  case frames of
+    [_] -> ppSimError e
+    SomeFrame (OF f):_ ->
+        text ("When calling " ++ show nm ++ ":") <$$>
+        indent 2 (ppSimError e)
+      where nm = override f
+    _ -> ppSimError e
 
 --------------------------------------------------------------------------
 -- FnBinding
