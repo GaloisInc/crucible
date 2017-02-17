@@ -50,7 +50,7 @@ checkout () {
 }
 
 # GitHub repos (some private, some public) required by the build
-PKG_LIST="abcBridge aig blt saw-core hpb llvm-pretty llvm-pretty-bc-parser parameterized-utils"
+PKG_LIST="abcBridge aig blt saw-core hpb llvm-pretty llvm-pretty-bc-parser parameterized-utils anastasia golang"
 
 # Set base GitHub URL for Galois repos if it's not already set
 : ${GITHUB_URL:="git@github.com:GaloisInc"}
