@@ -9,16 +9,21 @@ packages:
 - crucible-saw
 - crucible-server
 - galois-matlab
+- go-crucible
 - dependencies/abcBridge
 - dependencies/aig
 - dependencies/blt
+#- dependencies/golang
+- ../golang
+- dependencies/anastasia
 - dependencies/parameterized-utils
 - dependencies/hpb
 - dependencies/saw-core
 - dependencies/llvm-pretty
 - dependencies/llvm-pretty-bc-parser
 extra-deps:
-- clock-0.5.2
+- clock-0.7.2
 - dotgen-0.4.2
 - fgl-visualize-0.1.0.1
-resolver: lts-5.3
+- alex-tools-0.1.1.0
+resolver: lts-8.0
