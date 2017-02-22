@@ -31,6 +31,7 @@ set -e
 checkout () {
   local url=$1 # File to unpack
   local pkg=$2
+  local branch=$3
   if [ ! -d "dependencies/$pkg" ]; then
       pushd dependencies > /dev/null
       git clone "$url"
@@ -44,7 +45,7 @@ checkout () {
   elif [ -z "${NO_GIT_PULL}" ]; then
       echo "Pulling from $pkg"
       pushd "dependencies/$pkg" > /dev/null
-      git pull
+      git pull origin $branch
       popd > /dev/null
   fi
 }
