@@ -68,7 +68,7 @@ memoEltNonce synth n act = do
   let h = synthesisHash synth
   mn <- liftST $ H.lookup h n
   case mn of
-    Just m  -> return m
+    Just m  -> return m -- The id was found in the memo table
     Nothing -> do
       a    <- act
       name <- atomicModifyIORef (synthesisState synth)
@@ -78,6 +78,7 @@ memoEltNonce synth n act = do
 
 -- | Top level function for generating the circuit. Takes the crucible term and
 -- writes the circuit description to a file.
+-- The basetype of the second argument must be BaseIntegerType
 generateCircuit :: FilePath -> [Elt t BaseIntegerType] -> IO ()
 generateCircuit fp es = do
   -- First, we create empty data structures for the conversion
@@ -111,9 +112,14 @@ generateCircuit fp es = do
             Ref r -> B.output r
     writeIORef (synthesisState synth) st'
 
+-- Elt and CollectedVarInfo are Crucible types
+-- CollectedVarInfo is a wrapper type for an existantial type
+
 -- | Gather up the variables that correspond to inputs
 eltVarInfo :: Elt t tp -> CollectedVarInfo t
 eltVarInfo e = runST $ collectVarInfo $ recordEltVars ExistsOnly e
+
+-- Some is also a wrapper type
 
 -- | Given a set of bound variables, generates inputs for them in the circuit
 recordUninterpConstants :: Synthesis t -> Set (Some (SimpleBoundVar t)) -> IO ()
@@ -166,7 +172,7 @@ doApp synth ae = do
     -- undo that, as we only support integers.
     RealToInteger n -> do
       n' <- eval synth n
-      return $! return (intToReal n')
+      return $! return (intToReal n') -- TODO: rename `intToReal`
     IntegerToReal n -> do
       n' <- eval synth n
       return $! return (IntToReal n')
