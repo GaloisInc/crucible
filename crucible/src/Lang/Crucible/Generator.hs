@@ -39,6 +39,9 @@ module Lang.Crucible.Generator
   , withPosition
   , readGlobal
   , writeGlobal
+  , newReference
+  , readReference
+  , writeReference
   , newReg
   , newUnassignedReg
   , newUnassignedReg'
@@ -286,6 +289,20 @@ newReg e = do
     r <- newUnassignedReg'' (typeOfAtom a)
     addStmt (SetReg r a)
     return r
+
+-- | Create a new reference bound to the value of the expression
+newReference :: Expr s tp -> Generator h s t ret (Expr s (ReferenceType tp))
+newReference e = do a <- mkAtom e
+                    AtomExpr <$> freshAtom (NewRef a)
+
+readReference :: Expr s (ReferenceType tp) -> Generator h s t ret (Expr s tp)
+readReference ref = do a <- mkAtom ref
+                       AtomExpr <$> freshAtom (ReadRef a)
+
+writeReference :: Expr s (ReferenceType tp) -> Expr s tp -> Generator h s t ret ()
+writeReference ref val = do aref <- mkAtom ref
+                            aval <- mkAtom val
+                            Generator $ addStmt $ WriteRef aref aval
 
 -- | Read a global variable
 readGlobal :: GlobalVar tp -> Generator h s t ret (Expr s tp)
