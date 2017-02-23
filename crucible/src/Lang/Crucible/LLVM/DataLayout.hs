@@ -72,6 +72,8 @@ import Control.Lens
 import Control.Monad.State.Strict
 import qualified Data.FingerTree as FT
 import Data.Maybe
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word32, Word64)
@@ -121,73 +123,48 @@ type Offset = Word64
 -- e.g., alignment value of 3 indicates the pointer must align on 2^3-byte boundaries.
 type Alignment = Word32
 
+newtype AlignInfo = AT (Map Nat Alignment)
+  deriving (Eq)
 
-newtype BW = BW Word64
-  deriving (Eq, Ord, Num)
-
-instance Monoid BW where
-  mempty                = BW 0
-  mappend (BW a) (BW b) = BW (max a b)
-
-data AlignSpec =
-  AlignSpec { -- Size in bits
-              asBitWidth :: Nat
-              -- Alignment in bytes (this is the ABI value).
-            , asAlign    :: Alignment
-            }
- deriving( Eq )
-
-instance FT.Measured BW AlignSpec where
-  measure = fromIntegral . asBitWidth
-
-newtype AlignTree = AT (FT.FingerTree BW AlignSpec)
- deriving( Eq )
-
--- | Make alignment tree from sorted list.
-emptyAlignTree :: AlignTree
-emptyAlignTree = AT FT.empty
+-- | Make alignment info containing no alignments.
+emptyAlignInfo :: AlignInfo
+emptyAlignInfo = AT Map.empty
 
 -- | Return alignment exactly at point if any.
-findExact :: Nat -> AlignTree -> Maybe Alignment
-findExact w (AT t) =
-    case FT.viewl mge of
-     e FT.:< _ | asBitWidth e == w -> Just (asAlign e)
-     _ -> Nothing
-  where mge = snd $ FT.split (>= fromIntegral w) t
+findExact :: Nat -> AlignInfo -> Maybe Alignment
+findExact w (AT t) = Map.lookup w t
 
--- | Find match for alignment using LLVM's rules for integer types.
-findIntMatch :: Nat -> AlignTree -> Maybe Alignment
+-- | Find match for alignment using LLVM's rules for integer types. If
+-- there is not an alignment entry for the exact size given, return
+-- the alignment for the next larger size. If there is no larger size,
+-- return the alignment of the largest size in the map.
+findIntMatch :: Nat -> AlignInfo -> Alignment
 findIntMatch w (AT t) =
-    case FT.viewl mge of
-     e FT.:< _ -> Just (asAlign e)
-     FT.EmptyL ->
-       case FT.viewr lt of
-         _ FT.:> e -> Just (asAlign e)
-         FT.EmptyR -> Nothing
-  where (lt, mge) = FT.split (>= fromIntegral w) t
+  case Map.lookupGE w t of
+    Just (_, a) -> a
+    Nothing ->
+      case Map.toDescList t of
+        ((_, a) : _) -> a
+        _ -> 0
 
--- | Return maximum alignment constriant stored in tree.
-maxAlignmentInTree :: AlignTree -> Alignment
-maxAlignmentInTree (AT t) = foldrOf folded (max . asAlign) 0 t
+-- | Return maximum alignment constraint stored in tree.
+maxAlignmentInTree :: AlignInfo -> Alignment
+maxAlignmentInTree (AT t) = foldrOf folded max 0 t
 
 -- | Update alignment tree
 updateAlign :: Nat
-            -> AlignTree
+            -> AlignInfo
             -> Maybe Alignment
-            -> AlignTree
-updateAlign w (AT t) ma = AT $
-    case FT.split (> fromIntegral w) t of
-      (FT.viewr -> lt FT.:> ml, gt) | asBitWidth ml == w -> merge lt gt
-      (mle, gt) -> merge mle gt
-  where merge l r = (FT.><) l (maybe r (\a -> AlignSpec w a FT.<| r) ma)
+            -> AlignInfo
+updateAlign w (AT t) ma = AT (Map.alter (const ma) w t)
 
-type instance Index AlignTree = Nat
-type instance IxValue AlignTree = Alignment
+type instance Index AlignInfo = Nat
+type instance IxValue AlignInfo = Alignment
 
-instance Ixed AlignTree where
+instance Ixed AlignInfo where
   ix k = at k . traverse
 
-instance At AlignTree where
+instance At AlignInfo where
   at k f m = updateAlign k m <$> indexed f k (findExact k m)
 
 -- | Flags byte orientation of target machine.
@@ -200,11 +177,11 @@ data DataLayout
         , _stackAlignment :: !Alignment
         , _ptrSize     :: !Size
         , _ptrAlign    :: !Alignment
-        , _integerInfo :: !AlignTree
-        , _vectorInfo  :: !AlignTree
-        , _floatInfo   :: !AlignTree
-        , _aggInfo     :: !AlignTree
-        , _stackInfo   :: !AlignTree
+        , _integerInfo :: !AlignInfo
+        , _vectorInfo  :: !AlignInfo
+        , _floatInfo   :: !AlignInfo
+        , _aggInfo     :: !AlignInfo
+        , _stackInfo   :: !AlignInfo
         , _layoutWarnings :: [L.LayoutSpec]
         }
 
@@ -225,21 +202,21 @@ ptrSize = lens _ptrSize (\s v -> s { _ptrSize = v})
 ptrAlign :: Simple Lens DataLayout Alignment
 ptrAlign = lens _ptrAlign (\s v -> s { _ptrAlign = v})
 
-integerInfo :: Simple Lens DataLayout AlignTree
+integerInfo :: Simple Lens DataLayout AlignInfo
 integerInfo = lens _integerInfo (\s v -> s { _integerInfo = v})
 
-vectorInfo :: Simple Lens DataLayout AlignTree
+vectorInfo :: Simple Lens DataLayout AlignInfo
 vectorInfo = lens _vectorInfo (\s v -> s { _vectorInfo = v})
 
-floatInfo :: Simple Lens DataLayout AlignTree
+floatInfo :: Simple Lens DataLayout AlignInfo
 floatInfo = lens _floatInfo (\s v -> s { _floatInfo = v})
 
 -- | Information about aggregate size.
-aggInfo :: Simple Lens DataLayout AlignTree
+aggInfo :: Simple Lens DataLayout AlignInfo
 aggInfo = lens _aggInfo (\s v -> s { _aggInfo = v})
 
 -- | Layout constraints on a stack object with the given size.
-stackInfo :: Simple Lens DataLayout AlignTree
+stackInfo :: Simple Lens DataLayout AlignInfo
 stackInfo = lens _stackInfo (\s v -> s { _stackInfo = v})
 
 -- | Layout specs that could not be parsed.
@@ -259,7 +236,7 @@ fromBits a | w <= 0 = Left $ "Alignment must be a positive number."
   where (w,r) = toInteger a `divMod` 8
 
 -- | Insert alignment into spec.
-setAt :: Simple Lens DataLayout AlignTree -> Nat -> Alignment -> State DataLayout ()
+setAt :: Simple Lens DataLayout AlignInfo -> Nat -> Alignment -> State DataLayout ()
 setAt f sz a = f . at sz ?= a
 
 -- | Get default data layout if no spec is defined.
@@ -269,11 +246,11 @@ defaultDataLayout = execState defaults dl
                 , _stackAlignment = 1
                 , _ptrSize  = 8 -- 64 bit pointers = 8 bytes
                 , _ptrAlign = 3 -- 64 bit alignment: 2^3=8 byte boundaries
-                , _integerInfo = emptyAlignTree
-                , _floatInfo   = emptyAlignTree
-                , _vectorInfo  = emptyAlignTree
-                , _aggInfo     = emptyAlignTree
-                , _stackInfo   = emptyAlignTree
+                , _integerInfo = emptyAlignInfo
+                , _floatInfo   = emptyAlignInfo
+                , _vectorInfo  = emptyAlignInfo
+                , _aggInfo     = emptyAlignInfo
+                , _stackInfo   = emptyAlignInfo
                 , _layoutWarnings = []
                 }
         defaults = do
@@ -311,7 +288,7 @@ fromSize i | i < 0 = error $ "Negative size given in data layout."
            | otherwise = fromIntegral i
 
 -- | Insert alignment into spec.
-setAtBits :: Simple Lens DataLayout AlignTree -> L.LayoutSpec -> Int -> Int -> State DataLayout ()
+setAtBits :: Simple Lens DataLayout AlignInfo -> L.LayoutSpec -> Int -> Int -> State DataLayout ()
 setAtBits f spec sz a =
   case fromBits a of
     Left{} -> layoutWarnings %= (spec:)
@@ -478,8 +455,7 @@ memTypeSizeInBits dl tp = fromIntegral $ 8 * memTypeSize dl tp
 memTypeAlign :: DataLayout -> MemType -> Alignment
 memTypeAlign dl mtp =
   case mtp of
-    IntType w -> a
-      where Just a = findIntMatch (fromIntegral w) (dl ^. integerInfo)
+    IntType w -> findIntMatch (fromIntegral w) (dl ^. integerInfo)
     FloatType -> a
       where Just a = findExact 32 (dl ^. floatInfo)
     DoubleType -> a
