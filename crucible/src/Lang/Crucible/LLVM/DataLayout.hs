@@ -484,7 +484,6 @@ data StructInfo = StructInfo { siDataLayout :: !DataLayout
                              , siIsPacked   :: !Bool
                              , structSize   :: !Size
                              , structAlign  :: !Alignment
-                             , structPadding :: !Size
                              , siFields     :: !(V.Vector FieldInfo)
                              }
  deriving (Show)
@@ -496,8 +495,6 @@ instance Eq StructInfo where
    structSize si1 == structSize si2
    &&
    structAlign si1 == structAlign si2
-   &&
-   structPadding si1 == structPadding si2
    &&
    siFields si1 == siFields si2
 
@@ -513,33 +510,31 @@ data FieldInfo = FieldInfo { fiOffset    :: !Offset
 -- information about structs.  The function produced corresponds to the
 -- StructLayout object constructor in TargetData.cpp.
 mkStructInfo :: DataLayout -> Bool -> [MemType] -> StructInfo
-mkStructInfo dl packed tps0 = go [] 0 (max a0 (nextAlign tps0)) tps0
+mkStructInfo dl packed tps0 = go [] 0 a0 tps0
   where a0 | packed = 0
            | otherwise = fromMaybe 0 (findExact 0 (dl^.aggInfo))
-        -- Aligment of next type if any. Alignment value of n means to
-        -- align on 2^n byte boundaries.
-        nextAlign :: [MemType] -> Alignment
-        nextAlign _ | packed = 0
-        nextAlign [] = 0
-        nextAlign (StructType si:tps) =
-          nextAlign $
-          map fiType (V.toList (siFields si)) ++ tps
-        nextAlign (tp:_) = memTypeAlign dl tp
+        -- Padding after each field depends on the alignment of the
+        -- type of the next field, if there is one. Padding after the
+        -- last field depends on the alignment of the whole struct
+        -- (i.e. the maximum alignment of any field). Alignment value
+        -- of n means to align on 2^n byte boundaries.
+        nextAlign :: Alignment -> [MemType] -> Alignment
+        nextAlign _ _ | packed = 0
+        nextAlign maxAlign [] = maxAlign
+        nextAlign _ (tp:_) = memTypeAlign dl tp
         -- Process fields
         go :: [FieldInfo] -- ^ Fields so far in reverse order.
            -> Size        -- ^ Total size so far (aligned to next element)
-           -> Alignment   -- ^ Maximum alignment
+           -> Alignment   -- ^ Maximum alignment so far
            -> [MemType]   -- ^ Fields to process
            -> StructInfo
         go flds sz maxAlign [] =
             StructInfo { siDataLayout = dl
                        , siIsPacked = packed
-                       , structSize = sz'
+                       , structSize = sz
                        , structAlign = maxAlign
-                       , structPadding = sz' - sz
                        , siFields = V.fromList (reverse flds)
                        }
-          where sz' = nextPow2Multiple sz (fromIntegral maxAlign)
 
         go flds sz maxAlign (tp:tpl) = go (fi:flds) sz' (max maxAlign fieldAlign) tpl
           where fi = FieldInfo { fiOffset = sz
@@ -549,7 +544,7 @@ mkStructInfo dl packed tps0 = go [] 0 (max a0 (nextAlign tps0)) tps0
                 -- End of field for tp
                 e = sz + memTypeSize dl tp
                 -- Alignment of next field
-                fieldAlign = nextAlign tpl
+                fieldAlign = nextAlign maxAlign tpl
                 -- Size of field at alignment for next thing.
                 sz' = nextPow2Multiple e (fromIntegral fieldAlign)
 
