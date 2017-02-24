@@ -119,7 +119,7 @@ type Size = Word64
 
 type Offset = Word64
 
--- | Alignment's must be a power of two, so we just store the exponent.
+-- | Alignments must be a power of two, so we just store the exponent.
 -- e.g., alignment value of 3 indicates the pointer must align on 2^3-byte boundaries.
 type Alignment = Word32
 
@@ -134,10 +134,12 @@ emptyAlignInfo = AT Map.empty
 findExact :: Nat -> AlignInfo -> Maybe Alignment
 findExact w (AT t) = Map.lookup w t
 
--- | Find match for alignment using LLVM's rules for integer types. If
--- there is not an alignment entry for the exact size given, return
--- the alignment for the next larger size. If there is no larger size,
--- return the alignment of the largest size in the map.
+-- | Find match for alignment using LLVM's rules for integer types:
+-- "If no match is found, and the type sought is an integer type, then
+-- the smallest integer type that is larger than the bitwidth of the
+-- sought type is used. If none of the specifications are larger than
+-- the bitwidth then the largest integer type is used."
+-- (llvm.org/docs/LangRef.html#langref-datalayout)
 findIntMatch :: Nat -> AlignInfo -> Alignment
 findIntMatch w (AT t) =
   case Map.lookupGE w t of
@@ -146,6 +148,17 @@ findIntMatch w (AT t) =
       case Map.toDescList t of
         ((_, a) : _) -> a
         _ -> 0
+
+-- | Find match for alignment using LLVM's rules for vector types: "If
+-- no match is found, and the type sought is a vector type, then the
+-- largest vector type that is smaller than the sought vector type
+-- will be used as a fall back."
+-- (llvm.org/docs/LangRef.html#langref-datalayout)
+findVecMatch :: Nat -> AlignInfo -> Alignment
+findVecMatch w (AT t) =
+  case Map.lookupLE w t of
+    Just (_, a) -> a
+    Nothing -> 0
 
 -- | Return maximum alignment constraint stored in tree.
 maxAlignmentInTree :: AlignInfo -> Alignment
@@ -259,7 +272,7 @@ defaultDataLayout = execState defaults dl
           setAt integerInfo  8 0 -- 8-bit values aligned on byte addresses.
           setAt integerInfo 16 1 -- 16-bit values aligned on 2 byte addresses.
           setAt integerInfo 32 2 -- 32-bit values aligned on 4 byte addresses.
-          setAt integerInfo 64 2 -- 64-bit balues aligned on 4 byte addresses.
+          setAt integerInfo 64 2 -- 64-bit values aligned on 4 byte addresses.
           -- Default float alignments
           setAt floatInfo  16 1 -- Half is aligned on 2 byte addresses.
           setAt floatInfo  32 2 -- Float is aligned on 4 byte addresses.
@@ -462,10 +475,7 @@ memTypeAlign dl mtp =
       where Just a = findExact 64 (dl ^. floatInfo)
     PtrType{} -> dl ^. ptrAlign
     ArrayType _ tp -> memTypeAlign dl tp
-    VecType n tp   ->
-      case findExact (memTypeSizeInBits dl tp) (dl^.vectorInfo) of
-        Just a -> a
-        Nothing -> fromIntegral (lgCeil n) + memTypeAlign dl tp
+    VecType _n _tp -> findVecMatch (memTypeSizeInBits dl mtp) (dl^.vectorInfo)
     StructType si  -> structAlign si
     MetadataType -> 0
 
