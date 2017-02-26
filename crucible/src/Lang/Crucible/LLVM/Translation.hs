@@ -127,7 +127,7 @@ import           Lang.Crucible.Core (AnyCFG(..))
 import qualified Lang.Crucible.Core as C
 import           Lang.Crucible.FunctionName
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.LLVM.DataLayout
+import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Intrinsics
 import qualified Lang.Crucible.LLVM.LLVMContext as TyCtx
 import           Lang.Crucible.LLVM.MemModel
