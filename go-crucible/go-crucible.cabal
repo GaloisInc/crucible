@@ -13,6 +13,7 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:     Lang.Crucible.Go.Translation
+                       Lang.Crucible.Go.Types
   -- other-modules:       
   -- other-extensions:    
   build-depends:       base >=4.8 && < 5

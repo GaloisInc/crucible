@@ -7,6 +7,8 @@
 
 module Lang.Crucible.Go.Translation (translateFunction) where
 
+import Lang.Crucible.Go.Types
+
 import Language.Go.AST
 import Language.Go.Parser (ParserAnnotation)
 import Language.Go.Types hiding (Complex)
@@ -31,13 +33,14 @@ import qualified Data.Parameterized.Context as Ctx
 import Data.Int
 import Data.Maybe
 import Control.Monad.ST
-import Control.Monad (foldM)
+import Control.Monad (foldM, zipWithM)
 import Control.Monad.State
 import Data.Text (Text)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.Default.Class
 import Lens.Simple
+import qualified Data.List.NonEmpty as NE
 
 -- | (Currently) the entry point of the module: translates one go
 -- function to a Crucible control-flow graph. The parameters are the
@@ -167,7 +170,7 @@ graphGenerator body retTypeRepr =
 translateStatement :: Statement ParserAnnotation -> TypeRepr ret -> Generator h s (TransState rctx) ret (Maybe (Expr s ret))
 translateStatement s retTypeRepr = case s of
   DeclStmt _ (VarDecl _ varspecs)     -> mapM_ translateVarSpec varspecs >> return Nothing
-  DeclStmt _ (ConstDecl _ constspecs) -> error $ "Unsupported Go statement " ++ show s
+  DeclStmt _ (ConstDecl _ constspecs) -> mapM_ translateConstSpec constspecs >> return Nothing
   DeclStmt _ (TypeDecl _ _) ->
     -- type declarations are only reflected in type analysis results
     -- and type translations; they are not executable
@@ -182,9 +185,33 @@ translateStatement s retTypeRepr = case s of
 translateVarSpec :: VarSpec ParserAnnotation -> Generator h s (TransState rctx) ret ()
 translateVarSpec s = case s of
   -- the rules for matching multiple variables and expressions are the
-  -- same as for normal expressions. We don't support multi-valued right-hand-sides yet.
-  TypedVarSpec _ identifiers typ initialValues -> undefined
+  -- same as for normal assignment expressions, with the addition of
+  -- an empty list of initial values. We don't support multi-valued
+  -- right-hand-sides yet.
+  TypedVarSpec _ identifiers typ initialValues ->
+    translateType 32 (toValueType typ) $
+    \typeRepr zeroVal ->
+      if null initialValues then
+        -- declare variables with zero values; 
+        mapM_ (\ident -> declareIdent ident zeroVal typeRepr ) $ NE.toList identifiers
+      else if NE.length identifiers /= length initialValues then error "The number of variable declared doesn't match the number of initial values provided. This is either a syntax error or a destructuring assignment. The latter is not supported."
+           else void $ zipWithM (\ident value -> declareIdent ident (translateExpression value) typeRepr) (NE.toList identifiers) initialValues
   UntypedVarSpec _ identifiers initialValues -> error "Untyped variable declarations will be supported in V4"
+
+translateExpression :: Expression ParserAnnotation -> Expr s typ
+translateExpression e = case e of
+  _ -> error "Unsuported expression type"
+
+-- Declares an identifier; ignores blank identifiers. A thin wrapper
+-- around `declareVar` that doesn't return the register
+declareIdent :: Id a -> Expr s tp -> TypeRepr tp -> Generator h s (TransState rctx) ret ()
+declareIdent ident value typ = case ident of
+  BlankId _ -> return ()
+  Id _ name -> void $ declareVar name value typ
+
+
+translateConstSpec :: ConstSpec ParserAnnotation -> Generator h s (TransState rctx) ret ()
+translateConstSpec c = undefined
   
   
 -- | Translate a Go type to a Crucible type. This is where type semantics is encoded.
