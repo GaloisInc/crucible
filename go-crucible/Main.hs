@@ -8,6 +8,6 @@ import Control.Monad.ST
 import Lang.Crucible.Core
 
 main :: IO ()
-main = case runST $ translateFunction (Id undefined "f") undefined undefined [] of
+main = case runST $ translateFunction (Id undefined undefined "f") undefined undefined [] of
          AnyCFG cfg -> putStrLn $ show cfg
 

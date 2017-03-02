@@ -12,7 +12,7 @@ import Lang.Crucible.Go.Types
 import Language.Go.AST
 import Language.Go.Parser (ParserAnnotation)
 import Language.Go.Types hiding (Complex)
-import qualified Language.Go.Types as Go
+import Language.Go.Types
 
 import Lang.Crucible.RegCFG
 import Lang.Crucible.Core (AnyCFG(..))
@@ -49,7 +49,7 @@ translateFunction :: forall h. Id ParserAnnotation -- ^ Function name
                   -> ParameterList ParserAnnotation -- ^ Function parameters
                   -> ReturnList ParserAnnotation
                   -> [Statement ParserAnnotation] -> ST h AnyCFG
-translateFunction (Id _ fname) params returns body =
+translateFunction (Id _ bind fname) params returns body =
   withHandleAllocator $ \ha ->
   bindReturns returns $ \(retctx :: CtxRepr tretctx) setupReturns ->
   bindParams params $ \(ctx :: CtxRepr tctx) setupParams ->
@@ -77,9 +77,9 @@ bindReturns rlist f =
               -> (forall ctx. CtxRepr ctx -> (forall s ret rctx. Generator h s (TransState rctx) ret (VariableAssignment s ctx)) -> a)
               -> a
       goNamed [] k = k Ctx.empty (return Ctx.empty)
-      goNamed ((NamedParameter _ (Id (_, Just (TypeB vt)) rname) _):ps) k =
+      goNamed (np@(NamedParameter _ (Id _ _ rname) _):ps) k =
         translateType {- TODO Abstract this: implicit parameter or generator state -}
-           32 vt (\t zv ->
+           32 (fromRight $ getType np) (\t zv ->
                     goNamed ps (\ctx gen -> k (ctx Ctx.%> t)
                                  (do assign <- gen
                                      reg <- declareVar rname zv t
@@ -120,11 +120,11 @@ bindParams plist f =
              -> a)
          -> a
       go []     k = k Ctx.empty (\_ -> return ())
-      go ((NamedParameter _ (Id (_, Just (TypeB vt)) pname) _):ps) k =
+      go (np@(NamedParameter _ (Id _ _ pname) _):ps) k =
         translateType {- TODO Abstract this: implicit parameter or generator state -}
-        32 vt $ \t zv -> go ps (\ctx f -> k (ctx Ctx.%> t) 
-                                         (\a -> do f (Ctx.init a)
-                                                   void $ declareVar pname (AtomExpr (Ctx.last a)) t))
+        32 (fromRight $ getType np) $ \t zv -> go ps (\ctx f -> k (ctx Ctx.%> t) 
+                                                       (\a -> do f (Ctx.init a)
+                                                                 void $ declareVar pname (AtomExpr (Ctx.last a)) t))
   in case plist of
     NamedParameterList _ params mspread -> go (params ++ maybeToList mspread) f
     AnonymousParameterList _ _ _ -> error "Unexpected anonymous parameter list in a function definition"
@@ -182,6 +182,8 @@ translateStatement s retTypeRepr = case s of
   AssignStmt _ lhs op rhs -> error $ "Unsupported Go statement " ++ show s
   _ -> error $ "Unsupported Go statement " ++ show s
 
+fromRight (Right x) = x
+
 translateVarSpec :: VarSpec ParserAnnotation -> Generator h s (TransState rctx) ret ()
 translateVarSpec s = case s of
   -- the rules for matching multiple variables and expressions are the
@@ -189,7 +191,7 @@ translateVarSpec s = case s of
   -- an empty list of initial values. We don't support multi-valued
   -- right-hand-sides yet.
   TypedVarSpec _ identifiers typ initialValues ->
-    translateType 32 (toValueType typ) $
+    translateType 32 (fromRight $ getType typ) $
     \typeRepr zeroVal ->
       if null initialValues then
         -- declare variables with zero values; 
@@ -207,7 +209,7 @@ translateExpression e = case e of
 declareIdent :: Id a -> Expr s tp -> TypeRepr tp -> Generator h s (TransState rctx) ret ()
 declareIdent ident value typ = case ident of
   BlankId _ -> return ()
-  Id _ name -> void $ declareVar name value typ
+  Id _ _ name -> void $ declareVar name value typ
 
 
 translateConstSpec :: ConstSpec ParserAnnotation -> Generator h s (TransState rctx) ret ()
@@ -215,25 +217,25 @@ translateConstSpec c = undefined
   
   
 -- | Translate a Go type to a Crucible type. This is where type semantics is encoded.
-translateType :: forall a. Int32 {-Target architecture word size-}
-              -> ValueType
+translateType :: forall a. Int {-Target architecture word size-}
+              -> SemanticType
               -> (forall typ. TypeRepr typ -> (forall s. Expr s typ) -> a)
               -> a
 translateType wordSize typ = typeAsRepr (instantiateWordSize wordSize typ)
 
-instantiateWordSize :: Int32 -> ValueType -> ValueType
+instantiateWordSize :: Int -> SemanticType -> SemanticType
 instantiateWordSize wordSize typ = case typ of
   Int Nothing signed -> Int (Just wordSize) signed
   _                  -> typ
 
-typeAsRepr :: forall a. ValueType
+typeAsRepr :: forall a. SemanticType
            -> (forall typ. TypeRepr typ -> (forall s. Expr s typ) -> a)
            -> a
 typeAsRepr typ lifter = injectType (toTypeRepr typ)
    where injectType :: ReprAndValue -> a
          injectType (ReprAndValue repr zv) = lifter repr zv
 
-toTypeRepr :: ValueType
+toTypeRepr :: SemanticType
            -> ReprAndValue
 toTypeRepr typ = case typ of
   Int (Just width) _ -> case someNat (fromIntegral width) of
@@ -241,7 +243,7 @@ toTypeRepr typ = case typ of
     _ -> error $ unwords ["invalid integer width",show width]
   Float width -> ReprAndValue RealValRepr undefined
   Boolean -> ReprAndValue BoolRepr undefined
-  Go.Complex width -> undefined
+  Complex width -> undefined
   Iota -> ReprAndValue IntegerRepr undefined
   Nil -> ReprAndValue (MaybeRepr AnyRepr) undefined
   String -> ReprAndValue (VectorRepr $ BVRepr (knownNat :: NatRepr 8)) undefined
@@ -249,11 +251,11 @@ toTypeRepr typ = case typ of
   Array _ typ -> typeAsRepr typ $ \t tzv -> ReprAndValue (VectorRepr t) undefined
   Struct fields -> undefined
   Pointer typ -> ReprAndValue (ReferenceRepr AnyRepr) undefined
-  Go.Interface sig -> undefined
+  Interface sig -> undefined
   Map keyType valueType -> undefined
   Slice typ -> typeAsRepr typ $ \t zv -> ReprAndValue (StructRepr undefined) undefined
   Channel _ typ -> toTypeRepr typ
   BuiltIn name -> undefined -- ^ built-in function
-  Alias (TypeName (Just bind) _ _) -> undefined
+  Alias (TypeName _ _ _) -> undefined
 
 data ReprAndValue = forall typ. ReprAndValue (TypeRepr typ) (forall s. Expr s typ)
