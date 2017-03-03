@@ -10,7 +10,6 @@ module Lang.Crucible.Go.Translation (translateFunction) where
 import Lang.Crucible.Go.Types
 
 import Language.Go.AST
-import Language.Go.Parser (ParserAnnotation)
 import Language.Go.Types hiding (Complex)
 import Language.Go.Types
 
@@ -45,10 +44,10 @@ import qualified Data.List.NonEmpty as NE
 -- | (Currently) the entry point of the module: translates one go
 -- function to a Crucible control-flow graph. The parameters are the
 -- same as for the `FunctionDecl` AST constructor.
-translateFunction :: forall h. Id ParserAnnotation -- ^ Function name
-                  -> ParameterList ParserAnnotation -- ^ Function parameters
-                  -> ReturnList ParserAnnotation
-                  -> [Statement ParserAnnotation] -> ST h AnyCFG
+translateFunction :: forall h. Id SourceRange -- ^ Function name
+                  -> ParameterList SourceRange -- ^ Function parameters
+                  -> ReturnList SourceRange
+                  -> [Statement SourceRange] -> ST h AnyCFG
 translateFunction (Id _ bind fname) params returns body =
   withHandleAllocator $ \ha ->
   bindReturns returns $ \(retctx :: CtxRepr tretctx) setupReturns ->
@@ -69,11 +68,11 @@ translateFunction (Id _ bind fname) params returns body =
 -- crucible registers mapped to the names. Like many functions here,
 -- uses, continuation-passing style to construct heterogeneous lists
 -- and work with type-level literals.
-bindReturns :: ReturnList ParserAnnotation
+bindReturns :: ReturnList SourceRange
             -> (forall ctx. CtxRepr ctx -> (forall s ret rctx. Generator h s (TransState rctx) ret (Maybe (VariableAssignment s ctx))) -> a)
             -> a
 bindReturns rlist f =
-  let goNamed :: [NamedParameter ParserAnnotation]
+  let goNamed :: [NamedParameter SourceRange]
               -> (forall ctx. CtxRepr ctx -> (forall s ret rctx. Generator h s (TransState rctx) ret (VariableAssignment s ctx)) -> a)
               -> a
       goNamed [] k = k Ctx.empty (return Ctx.empty)
@@ -85,10 +84,10 @@ bindReturns rlist f =
                                      reg <- declareVar rname zv t
                                      return (assign Ctx.%> GoVarOpen reg))
                                ))
-      goAnon :: [Type ParserAnnotation] -> (forall ctx. CtxRepr ctx -> a) -> a
+      goAnon :: [Type SourceRange] -> (forall ctx. CtxRepr ctx -> a) -> a
       goAnon [] k = k Ctx.empty
-      goAnon (t:ts) k = case snd $ t^.ann of
-        Just (TypeB vt) -> translateType 32 vt $ \t _ ->
+      goAnon (t:ts) k = case getType t of
+        Right vt -> translateType 32 vt $ \t _ ->
           goAnon ts (\ctx -> k (ctx Ctx.%> t))
         _ -> error "Expecting a semantic type inferred for a return type, but found none"
   in case rlist of
@@ -108,13 +107,13 @@ data GoVarReg s where
 
 -- | Generate the Crucible type context and bind parameter names to
 -- (typed) Crucible registers.
-bindParams :: ParameterList ParserAnnotation
+bindParams :: ParameterList SourceRange
            -> (forall ctx. CtxRepr ctx
                -> (forall s ret. Ctx.Assignment (Atom s) ctx -> Generator h s (TransState rctx) ret ())
                -> a)
            -> a
 bindParams plist f =
-  let go :: [NamedParameter ParserAnnotation]
+  let go :: [NamedParameter SourceRange]
          -> (forall ctx. CtxRepr ctx
              -> (forall s ret. Ctx.Assignment (Atom s) ctx -> Generator h s (TransState rctx) ret ())
              -> a)
@@ -156,7 +155,7 @@ declareVar name value t = do ref <- newReference value
                              modify' (\ts -> ts {lexenv = HM.insert name (GoVarReg t reg) (lexenv ts)})
                              return reg
 
-graphGenerator :: [Statement ParserAnnotation] -> TypeRepr ret -> Generator h s (TransState rctx) ret (Expr s ret)
+graphGenerator :: [Statement SourceRange] -> TypeRepr ret -> Generator h s (TransState rctx) ret (Expr s ret)
 graphGenerator body retTypeRepr =
   do rets <- liftM catMaybes $ mapM (\s -> translateStatement s retTypeRepr) body
      -- The following is going to be a fallthrough block that would
@@ -167,7 +166,7 @@ graphGenerator body retTypeRepr =
   --    return $ App (C.BVLit (knownNat :: NatRepr 32) 12)
 
 -- | Translates individual statements. This is where Go statement semantics is encoded.
-translateStatement :: Statement ParserAnnotation -> TypeRepr ret -> Generator h s (TransState rctx) ret (Maybe (Expr s ret))
+translateStatement :: Statement SourceRange -> TypeRepr ret -> Generator h s (TransState rctx) ret (Maybe (Expr s ret))
 translateStatement s retTypeRepr = case s of
   DeclStmt _ (VarDecl _ varspecs)     -> mapM_ translateVarSpec varspecs >> return Nothing
   DeclStmt _ (ConstDecl _ constspecs) -> mapM_ translateConstSpec constspecs >> return Nothing
@@ -184,7 +183,7 @@ translateStatement s retTypeRepr = case s of
 
 fromRight (Right x) = x
 
-translateVarSpec :: VarSpec ParserAnnotation -> Generator h s (TransState rctx) ret ()
+translateVarSpec :: VarSpec SourceRange -> Generator h s (TransState rctx) ret ()
 translateVarSpec s = case s of
   -- the rules for matching multiple variables and expressions are the
   -- same as for normal assignment expressions, with the addition of
@@ -200,7 +199,7 @@ translateVarSpec s = case s of
            else void $ zipWithM (\ident value -> declareIdent ident (translateExpression value) typeRepr) (NE.toList identifiers) initialValues
   UntypedVarSpec _ identifiers initialValues -> error "Untyped variable declarations will be supported in V4"
 
-translateExpression :: Expression ParserAnnotation -> Expr s typ
+translateExpression :: Expression SourceRange -> Expr s typ
 translateExpression e = case e of
   _ -> error "Unsuported expression type"
 
@@ -212,7 +211,7 @@ declareIdent ident value typ = case ident of
   Id _ _ name -> void $ declareVar name value typ
 
 
-translateConstSpec :: ConstSpec ParserAnnotation -> Generator h s (TransState rctx) ret ()
+translateConstSpec :: ConstSpec SourceRange -> Generator h s (TransState rctx) ret ()
 translateConstSpec c = undefined
   
   
