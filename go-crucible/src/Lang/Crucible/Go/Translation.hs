@@ -184,6 +184,13 @@ translateStatement s retTypeRepr = case s of
     -- Does this case have to handle assignments to named return variables?
   AssignStmt _ lhs Assignment rhs
     | F.length lhs == F.length rhs -> mapM_ translateAssignment (NE.zip lhs rhs) >> return Nothing
+  ReturnStmt _ [e] ->
+    withTranslatedExpression e $ \e'@(Gen.App app) ->
+      case e' of
+        _ | Just Refl <- testEquality (C.appType app) retTypeRepr -> do
+              return (Just e')
+          | otherwise -> error ("translateStatement: Incorrect return type: " ++ show e)
+  ReturnStmt _ _ -> error ("translateStatement: Multiple return values are not yet supported: " ++ show s)
   EmptyStmt _ -> return Nothing
   _ -> error $ "Unsupported Go statement " ++ show s
 
