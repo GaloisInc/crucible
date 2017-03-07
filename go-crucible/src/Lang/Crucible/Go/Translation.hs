@@ -185,14 +185,17 @@ translateStatement s retTypeRepr = case s of
   AssignStmt _ lhs Assignment rhs
     | F.length lhs == F.length rhs -> mapM_ translateAssignment (NE.zip lhs rhs) >> return Nothing
   ReturnStmt _ [e] ->
-    withTranslatedExpression e $ \e'@(Gen.App app) ->
+    withTranslatedExpression e $ \e' ->
       case e' of
-        _ | Just Refl <- testEquality (C.appType app) retTypeRepr -> do
+        _ | Just Refl <- testEquality (exprType e') retTypeRepr -> do
               return (Just e')
           | otherwise -> error ("translateStatement: Incorrect return type: " ++ show e)
   ReturnStmt _ _ -> error ("translateStatement: Multiple return values are not yet supported: " ++ show s)
   EmptyStmt _ -> return Nothing
   _ -> error $ "Unsupported Go statement " ++ show s
+
+exprType :: Gen.Expr s typ -> TypeRepr typ
+exprType (Gen.App app) = C.appType app
 
 fromRight :: Either a b -> b
 fromRight (Right x) = x
@@ -200,14 +203,14 @@ fromRight (Right x) = x
 translateAssignment :: (Expression SourceRange, Expression SourceRange)
                     -> Gen.Generator h s (TransState rctx) ret ()
 translateAssignment (lhs, rhs) =
-  withTranslatedExpression rhs $ \rhs'@(Gen.App rhsApp) ->
+  withTranslatedExpression rhs $ \rhs' ->
     case lhs of
       Name _ (Id _ _ ident) -> do
         lenv <- St.gets lexenv
         case HM.lookup ident lenv of
           Nothing -> error ("translateAssignment: Undefined identifier: " ++ show ident)
           Just (GoVarReg typeRep refReg)
-            | Just Refl <- testEquality typeRep (C.appType rhsApp) -> do
+            | Just Refl <- testEquality typeRep (exprType rhs') -> do
                 regExp <- Gen.readReg refReg
                 Gen.writeReference regExp rhs'
             | otherwise -> error ("translateAssignment: type mismatch between lhs and rhs: " ++ show (lhs, rhs))
@@ -230,8 +233,8 @@ translateVarSpec s = case s of
   UntypedVarSpec _ identifiers initialValues -> error "Untyped variable declarations will be supported in V4"
   where
     bindExpr ident value = do
-      withTranslatedExpression value $ \expr@(Gen.App app) ->
-        declareIdent ident expr (C.appType app)
+      withTranslatedExpression value $ \expr ->
+        declareIdent ident expr (exprType expr)
 
 -- | Translate a Go expression into a Crucible expression
 --
@@ -263,9 +266,9 @@ withTranslatedExpression e k = case e of
     withTranslatedExpression operand $ \innerExpr ->
       translateUnaryExpression e k op innerExpr
   BinaryExpr _ op e1 e2 -> do
-    withTranslatedExpression e1 $ \e1'@(Gen.App a1) ->
-      withTranslatedExpression e2 $ \e2'@(Gen.App a2) ->
-        case (C.appType a1, C.appType a2) of
+    withTranslatedExpression e1 $ \e1' ->
+      withTranslatedExpression e2 $ \e2' ->
+        case (exprType e1', exprType e2') of
           (BVRepr w1, BVRepr w2)
             | Just Refl <- testEquality w1 w2
             , Just LeqProof <- isPosNat w1 ->
@@ -287,8 +290,8 @@ translateConversion :: (forall toTyp . Gen.Expr s toTyp -> Gen.Generator h s (Tr
                     -> ReprAndValue
                     -> Gen.Expr s fromTyp
                     -> Gen.Generator h s (TransState rctx) ret a
-translateConversion k toType e@(Gen.App app) =
-  case (C.appType app, toType) of
+translateConversion k toType e =
+  case (exprType e, toType) of
     (BoolRepr, ReprAndValue (BVRepr w) _) -> k (Gen.App (C.BoolToBV w e))
     -- FIXME: Need sign information if this is integral
     -- (BVRepr w1, ReprAndValue (BVRepr w2) _)
@@ -359,8 +362,8 @@ translateUnaryExpression :: Expression SourceRange
                          -> UnaryOp
                          -> Gen.Expr s tp
                          -> a
-translateUnaryExpression e k op innerExpr@(Gen.App cexpr) =
-  case (op, C.appType cexpr, exprTypeRepr e) of
+translateUnaryExpression e k op innerExpr =
+  case (op, exprType innerExpr, exprTypeRepr e) of
     (Plus, _, _) -> k innerExpr
     (Minus, BVRepr w, Right (ReprAndValue (BVRepr w') zero))
       | Just Refl <- testEquality w w'
