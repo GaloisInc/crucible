@@ -291,6 +291,7 @@ withTranslatedExpression e k = case e of
                   | isSigned1 && isSigned2 -> translateBitvectorBinaryOp k op Signed w1 e1' e2'
                   | not isSigned1 && not isSigned2 -> translateBitvectorBinaryOp k op Unsigned w1 e1' e2'
                 _ -> error ("withTranslatedExpression: mixed signedness in binary operator: " ++ show (op, e1, e2))
+          (RealValRepr, RealValRepr) -> translateFloatingOp e k op e1' e2'
           (BoolRepr, BoolRepr) -> translateBooleanBinaryOp e k op e1' e2'
           _ -> error ("withTranslatedExpression: unsupported operation: " ++ show (op, e1, e2))
   Conversion _ toType baseE ->
@@ -328,6 +329,38 @@ translateBooleanBinaryOp :: Expression SourceRange
                          -> a
 translateBooleanBinaryOp =
   error "Boolean binary operators are not supported"
+
+-- | Translate floating point arithmetic to Crucible
+--
+-- Note that the translation is to *real* valued arithmetic, as we
+-- don't have models of IEEE floats.
+translateFloatingOp :: Expression SourceRange
+                    -> (forall typ . Gen.Expr s typ -> a)
+                    -> BinaryOp
+                    -> Gen.Expr s RealValType
+                    -> Gen.Expr s RealValType
+                    -> a
+translateFloatingOp e k op e1 e2 =
+  case op of
+    Add -> k (Gen.App (C.RealAdd e1 e2))
+    Subtract -> k (Gen.App (C.RealSub e1 e2))
+    Multiply -> k (Gen.App (C.RealMul e1 e2))
+    Equals -> k (Gen.App (C.RealEq e1 e2))
+    NotEquals -> k (Gen.App (C.Not (Gen.App (C.RealEq e1 e2))))
+    Less -> k (Gen.App (C.RealLt e1 e2))
+    LessEq -> k (Gen.App (C.Not (Gen.App (C.RealLt e2 e1))))
+    Greater -> k (Gen.App (C.RealLt e2 e1))
+    GreaterEq -> k (Gen.App (C.Not (Gen.App (C.RealLt e1 e2))))
+    Divide -> error ("translateFloatingOp: Division is not supported: " ++ show e)
+    Remainder -> error ("translateFloatingOp: Remainder is not supported: " ++ show e)
+    BitwiseAnd -> error ("translateFloatingOp: BitwiseAnd is not supported: " ++ show e)
+    BitwiseOr -> error ("translateFloatingOp: BitwiseOr is not supported: " ++ show e)
+    BitwiseXOr -> error ("translateFloatingOp: BitwiseXOr is not supported: " ++ show e)
+    BitwiseNAnd -> error ("translateFloatingOp: BitwiseNAnd is not supported: " ++ show e)
+    LeftShift -> error ("translateFloatingOp: LeftShift is not supported: " ++ show e)
+    RightShift -> error ("translateFloatingOp: RightShift is not supported: " ++ show e)
+    LogicalAnd -> error ("translateFloatingOp: LogicalAnd is not supported: " ++ show e)
+    LogicalOr -> error ("translateFloatingOp: LogicalOr is not supported: " ++ show e)
 
 -- | Translate a binary operation over bitvectors
 --
