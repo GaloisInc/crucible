@@ -439,9 +439,9 @@ toTypeRepr typ = case typ of
   Int (Just width) _ -> case someNat (fromIntegral width) of
     Just (Some w) | Just LeqProof <- isPosNat w -> ReprAndValue (BVRepr w) (Gen.App (C.BVLit w 0))
     _ -> error $ unwords ["invalid integer width",show width]
-  Float _width -> ReprAndValue RealValRepr (Gen.App (C.RationalLit (realToFrac (0::Int))))
+  Float _width -> ReprAndValue RealValRepr real0
   Boolean -> ReprAndValue BoolRepr (Gen.App (C.BoolLit False))
-  Complex _width -> undefined
+  Complex _width -> ReprAndValue ComplexRealRepr (Gen.App (C.Complex real0 real0))
   Iota -> ReprAndValue IntegerRepr undefined
   Nil -> ReprAndValue (MaybeRepr AnyRepr) (Gen.App (C.NothingValue AnyRepr))
   String -> ReprAndValue (VectorRepr $ BVRepr (knownNat :: NatRepr 8)) undefined
@@ -455,6 +455,10 @@ toTypeRepr typ = case typ of
   Channel _ typ' -> toTypeRepr typ'
   BuiltIn _name -> undefined -- ^ built-in function
   Alias (TypeName _ _ _) -> undefined
+  where
+    real0 = Gen.App (C.RationalLit (realToFrac (0::Int)))
+
+
 
 -- | The 'TypeRepr' and the zero initializer value for a given type
 data ReprAndValue = forall typ. ReprAndValue (TypeRepr typ) (forall s. Gen.Expr s typ)
