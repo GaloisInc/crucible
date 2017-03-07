@@ -205,7 +205,7 @@ translateAssignment :: (Expression SourceRange, Expression SourceRange)
 translateAssignment (lhs, rhs) =
   withTranslatedExpression rhs $ \rhs' ->
     case lhs of
-      Name _ (Id _ _ ident) -> do
+      Name _ Nothing (Id _ _ ident) -> do
         lenv <- St.gets lexenv
         case HM.lookup ident lenv of
           Nothing -> error ("translateAssignment: Undefined identifier: " ++ show ident)
@@ -255,7 +255,7 @@ withTranslatedExpression e k = case e of
       _ -> error ("withTranslatedExpression: impossible literal type: " ++ show e)
   FloatLit _ d -> k (Gen.App (C.RationalLit (realToFrac d)))
   StringLit _ t -> k (Gen.App (C.TextLit t))
-  Name _ (Id _ _ ident) -> do
+  Name _ Nothing (Id _ _ ident) -> do
     lenv <- St.gets lexenv
     case HM.lookup ident lenv of
       Nothing -> error ("withTranslatedExpression: Undefined identifier: " ++ show ident)
