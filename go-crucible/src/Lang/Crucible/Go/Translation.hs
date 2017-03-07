@@ -178,8 +178,6 @@ translateStatement s retTypeRepr = case s of
     -- either be the same, or |rhs| = 1. Assigning multi-valued
     -- right-hand sides (|rhs|=1 and |lhs| > 1) is not currently
     -- supported.
-    --
-    -- Does this case have to handle assignments to named return variables?
   AssignStmt _ lhs Assignment rhs
     | F.length lhs == F.length rhs -> mapM_ translateAssignment (NE.zip lhs rhs)
   ReturnStmt _ [e] ->
