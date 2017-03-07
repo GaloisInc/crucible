@@ -190,6 +190,7 @@ translateStatement s retTypeRepr = case s of
           | otherwise -> error ("translateStatement: Incorrect return type: " ++ show e)
   ReturnStmt _ _ -> error ("translateStatement: Multiple return values are not yet supported: " ++ show s)
   EmptyStmt _ -> return ()
+  BlockStmt _ body -> translateBlock body retTypeRepr
   IfStmt _ Nothing e then_ else_ -> do
     withTranslatedExpression e $ \e' -> do
       case e' of
