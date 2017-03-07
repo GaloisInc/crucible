@@ -264,8 +264,8 @@ withTranslatedExpression e k = case e of
             , Just LeqProof <- isPosNat w1 ->
               case (getType e1, getType e2) of
                 (Right (Int _ isSigned1), Right (Int _ isSigned2))
-                  | isSigned1 && isSigned2 -> translateBitwiseBinaryOp k op Signed w1 e1' e2'
-                  | not isSigned1 && not isSigned2 -> translateBitwiseBinaryOp k op Unsigned w1 e1' e2'
+                  | isSigned1 && isSigned2 -> translateBitvectorBinaryOp k op Signed w1 e1' e2'
+                  | not isSigned1 && not isSigned2 -> translateBitvectorBinaryOp k op Unsigned w1 e1' e2'
                 _ -> error ("withTranslatedExpression: mixed signedness in binary operator: " ++ show (op, e1, e2))
           (BoolRepr, BoolRepr) -> translateBooleanBinaryOp e k op e1' e2'
           _ -> error ("withTranslatedExpression: unsupported operation: " ++ show (op, e1, e2))
@@ -309,7 +309,7 @@ translateBooleanBinaryOp =
 --
 -- This includes translations for ==, /=, <, >, <=, and >= (which also
 -- need other implementations for other types)
-translateBitwiseBinaryOp :: (1 <= w)
+translateBitvectorBinaryOp :: (1 <= w)
                          => (forall typ . Gen.Expr s typ -> a)
                          -> BinaryOp
                          -> SignedOrUnsigned
@@ -317,7 +317,7 @@ translateBitwiseBinaryOp :: (1 <= w)
                          -> Gen.Expr s (BVType w)
                          -> Gen.Expr s (BVType w)
                          -> a
-translateBitwiseBinaryOp k op sou w e1 e2 =
+translateBitvectorBinaryOp k op sou w e1 e2 =
   case op of
     Add -> k (Gen.App (C.BVAdd w e1 e2))
     Subtract -> k (Gen.App (C.BVSub w e1 e2))
@@ -343,8 +343,8 @@ translateBitwiseBinaryOp k op sou w e1 e2 =
               | otherwise -> k (Gen.App (C.Not (Gen.App (C.BVUlt w e1 e2))))
     Greater | isSigned sou -> k (Gen.App (C.Not (Gen.App (C.BVSle w e1 e2))))
             | otherwise -> k (Gen.App (C.Not (Gen.App (C.BVUle w e1 e2))))
-    LogicalAnd -> error "translateBitwiseBinaryOp: logical and of bitvectors is not supported"
-    LogicalOr -> error "translateBitwiseBinaryOp: logical and of bitvectors is not supported"
+    LogicalAnd -> error "translateBitvectorBinaryOp: logical and of bitvectors is not supported"
+    LogicalOr -> error "translateBitvectorBinaryOp: logical and of bitvectors is not supported"
 
 
 translateUnaryExpression :: Expression SourceRange
