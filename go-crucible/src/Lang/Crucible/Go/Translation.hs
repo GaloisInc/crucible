@@ -236,8 +236,8 @@ translateVarSpec s = case s of
 -- 2) We need to be able to dereference all of the references holding
 --    values, and 'readReference' is in 'Generator'
 withTranslatedExpression :: Expression SourceRange
-                         -> (forall typ . Gen.Expr s typ -> Gen.Generator h s (TransState rctx) ret ())
-                         -> Gen.Generator h s (TransState rctx) ret ()
+                         -> (forall typ . Gen.Expr s typ -> Gen.Generator h s (TransState rctx) ret a)
+                         -> Gen.Generator h s (TransState rctx) ret a
 withTranslatedExpression e k = case e of
   IntLit _ i ->
     case toTypeRepr `liftM` getType e of
@@ -276,10 +276,10 @@ withTranslatedExpression e k = case e of
         Left err -> error ("withTranslatedType: Unexpected conversion type: " ++ show (toType, err))
   _ -> error "Unsuported expression type"
 
-translateConversion :: (forall toTyp . Gen.Expr s toTyp -> Gen.Generator h s (TransState rctx) ret ())
+translateConversion :: (forall toTyp . Gen.Expr s toTyp -> Gen.Generator h s (TransState rctx) ret a)
                     -> ReprAndValue
                     -> Gen.Expr s fromTyp
-                    -> Gen.Generator h s (TransState rctx) ret ()
+                    -> Gen.Generator h s (TransState rctx) ret a
 translateConversion k toType e@(Gen.App app) =
   case (C.appType app, toType) of
     (BoolRepr, ReprAndValue (BVRepr w) _) -> k (Gen.App (C.BoolToBV w e))
