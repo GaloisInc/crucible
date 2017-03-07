@@ -150,7 +150,7 @@ declareVar name value t = do ref <- Gen.newReference value
 
 graphGenerator :: [Statement SourceRange] -> TypeRepr ret -> Gen.Generator h s (TransState rctx) ret (Gen.Expr s ret)
 graphGenerator body retTypeRepr =
-  do rets <- catMaybes <$> mapM (\s -> translateStatement s retTypeRepr) body
+  do mapM_ (\s -> translateStatement s retTypeRepr) body
      -- The following is going to be a fallthrough block that would
      -- never be reachable if all the exit paths in the function graph
      -- end with a return statement.
@@ -161,21 +161,19 @@ graphGenerator body retTypeRepr =
 -- | Translates individual statements. This is where Go statement
 -- semantics is encoded.
 --
--- Note that only the returned expressions are returned from this
--- function.  The rest of the expressions are translated into
--- assignments that are handled internally by the 'Gen.Generator'
--- Monad.
+-- Note that we currently only support single return values (and no
+-- return via named return values).
 translateStatement :: Statement SourceRange
                    -> TypeRepr ret
-                   -> Gen.Generator h s (TransState rctx) ret (Maybe (Gen.Expr s ret))
+                   -> Gen.Generator h s (TransState rctx) ret ()
 translateStatement s retTypeRepr = case s of
-  DeclStmt _ (VarDecl _ varspecs)     -> mapM_ translateVarSpec varspecs >> return Nothing
-  DeclStmt _ (ConstDecl _ constspecs) -> mapM_ translateConstSpec constspecs >> return Nothing
+  DeclStmt _ (VarDecl _ varspecs)     -> mapM_ translateVarSpec varspecs
+  DeclStmt _ (ConstDecl _ constspecs) -> mapM_ translateConstSpec constspecs
   DeclStmt _ (TypeDecl _ _) ->
     -- type declarations are only reflected in type analysis results
     -- and type translations; they are not executable
-    return Nothing
-  ExpressionStmt _ expr -> withTranslatedExpression expr (const (return ())) >> return Nothing
+    return ()
+  ExpressionStmt _ expr -> withTranslatedExpression expr (const (return ()))
     -- The number of expressions (|e|) in `lhs` and `rhs` should
     -- either be the same, or |rhs| = 1. Assigning multi-valued
     -- right-hand sides (|rhs|=1 and |lhs| > 1) is not currently
@@ -183,16 +181,34 @@ translateStatement s retTypeRepr = case s of
     --
     -- Does this case have to handle assignments to named return variables?
   AssignStmt _ lhs Assignment rhs
-    | F.length lhs == F.length rhs -> mapM_ translateAssignment (NE.zip lhs rhs) >> return Nothing
+    | F.length lhs == F.length rhs -> mapM_ translateAssignment (NE.zip lhs rhs)
   ReturnStmt _ [e] ->
     withTranslatedExpression e $ \e' ->
       case e' of
-        _ | Just Refl <- testEquality (exprType e') retTypeRepr -> do
-              return (Just e')
+        _ | Just Refl <- testEquality (exprType e') retTypeRepr ->
+            Gen.returnFromFunction e'
           | otherwise -> error ("translateStatement: Incorrect return type: " ++ show e)
   ReturnStmt _ _ -> error ("translateStatement: Multiple return values are not yet supported: " ++ show s)
-  EmptyStmt _ -> return Nothing
+  EmptyStmt _ -> return ()
+  IfStmt _ Nothing e then_ else_ -> do
+    withTranslatedExpression e $ \e' -> do
+      case e' of
+        _ | Just Refl <- testEquality (exprType e') BoolRepr -> do
+              Gen.ifte_ e' (translateBlock then_ retTypeRepr) (translateBlock else_ retTypeRepr)
+              return ()
+          | otherwise -> error ("translateStatement: Invalid type for if statement condition: " ++ show e)
   _ -> error $ "Unsupported Go statement " ++ show s
+
+-- | Translate a basic block, saving and restoring the lexical
+-- environment around the block
+translateBlock :: (Traversable t)
+               => t (Statement SourceRange)
+               -> TypeRepr ret
+               -> Gen.Generator h s (TransState ctx) ret ()
+translateBlock stmts retTypeRepr = do
+  env0 <- St.gets lexenv
+  mapM_ (\s -> translateStatement s retTypeRepr) stmts
+  St.modify' $ \s -> s { lexenv = env0 }
 
 exprType :: Gen.Expr s typ -> TypeRepr typ
 exprType (Gen.App app) = C.appType app
@@ -279,10 +295,10 @@ withTranslatedExpression e k = case e of
                 _ -> error ("withTranslatedExpression: mixed signedness in binary operator: " ++ show (op, e1, e2))
           (BoolRepr, BoolRepr) -> translateBooleanBinaryOp e k op e1' e2'
           _ -> error ("withTranslatedExpression: unsupported operation: " ++ show (op, e1, e2))
-  Conversion _ toType e ->
-    withTranslatedExpression e $ \e' ->
+  Conversion _ toType baseE ->
+    withTranslatedExpression baseE $ \baseE' ->
       case getType toType of
-        Right toType' -> translateConversion k (toTypeRepr toType') e'
+        Right toType' -> translateConversion k (toTypeRepr toType') baseE'
         Left err -> error ("withTranslatedType: Unexpected conversion type: " ++ show (toType, err))
   _ -> error "Unsuported expression type"
 
