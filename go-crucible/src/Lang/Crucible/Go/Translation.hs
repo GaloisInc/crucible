@@ -192,9 +192,8 @@ translateStatement s retTypeRepr = case s of
   IfStmt _ Nothing e then_ else_ -> do
     withTranslatedExpression e $ \e' -> do
       case e' of
-        _ | Just Refl <- testEquality (exprType e') BoolRepr -> do
+        _ | Just Refl <- testEquality (exprType e') BoolRepr ->
               Gen.ifte_ e' (translateBlock then_ retTypeRepr) (translateBlock else_ retTypeRepr)
-              return ()
           | otherwise -> error ("translateStatement: Invalid type for if statement condition: " ++ show e)
   _ -> error $ "Unsupported Go statement " ++ show s
 
