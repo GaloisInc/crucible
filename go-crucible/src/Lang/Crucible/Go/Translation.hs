@@ -384,6 +384,7 @@ translateBlock stmts retTypeRepr = do
 
 exprType :: Gen.Expr s typ -> TypeRepr typ
 exprType (Gen.App app) = C.appType app
+exprType (Gen.AtomExpr atom) = Gen.typeOfAtom atom
 
 fromRight :: Either a b -> b
 fromRight (Right x) = x
