@@ -270,7 +270,8 @@ translateStatement s retTypeRepr = case s of
       Nothing -> error ("Jump to undeclared label: " ++ show s)
       Just lbl -> Gen.jump lbl
   BlockStmt _ body -> translateBlock body retTypeRepr
-  IfStmt _ Nothing e then_ else_ -> do
+  IfStmt _ mguard e then_ else_ -> do
+    F.forM_ mguard $ flip translateStatement retTypeRepr
     withTranslatedExpression e $ \e' -> do
       case e' of
         _ | Just Refl <- testEquality (exprType e') BoolRepr ->
