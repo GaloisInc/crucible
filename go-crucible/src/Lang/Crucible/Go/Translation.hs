@@ -123,7 +123,13 @@ bindParams plist f =
 -- | State of translation: the user state part of the Generator monad used here.
 data TransState ctx s = TransState
   {lexenv :: !(HashMap Text (GoVarReg s)) -- ^ A mapping from variable names to registers
-  ,enclosingLabels :: !(LabelStack s) -- ^ Labels lexically enclosing current source location
+  ,explicitLabels :: !(HashMap Text (Gen.Label s))
+  -- ^ A mapping of explicitly-introduced Go label names to their
+  -- corresponding Crucible block labels
+  ,enclosingBreaks :: !(LabelStack s)
+  -- ^ The stack of enclosing break labels
+  ,enclosingContinues :: !(LabelStack s)
+  -- ^ The stack of enclosing continue labels
   ,returnSlots :: !(Maybe (VariableAssignment s ctx))
    -- ^ The list of registers that represent the components of the
    -- return value. Crucible functions can only have one return value,
@@ -135,7 +141,9 @@ data TransState ctx s = TransState
 
 instance Default (TransState ctx s) where
   def = TransState {lexenv = HM.empty
-                   ,enclosingLabels = LabelStack []
+                   ,explicitLabels = HM.empty
+                   ,enclosingBreaks = LabelStack []
+                   ,enclosingContinues = LabelStack []
                    ,returnSlots = Nothing
                    }
 
@@ -188,6 +196,28 @@ translateStatement s retTypeRepr = case s of
           | otherwise -> error ("translateStatement: Incorrect return type: " ++ show e)
   ReturnStmt _ _ -> error ("translateStatement: Multiple return values are not yet supported: " ++ show s)
   EmptyStmt _ -> return ()
+  LabeledStmt _ (Label _ labelName) stmt -> do
+    Gen.endNow $ \cont -> do
+      exit_lbl <- Gen.newLabel
+      lbl <- Gen.newLabel
+      Gen.endCurrentBlock (Gen.Jump lbl)
+      Gen.defineBlock lbl $ do
+        -- NOTE: I'm not sure if this state modification is valid in
+        -- the presence of this continuation... will require testing.
+        St.modify' $ \s -> s { explicitLabels = HM.insert labelName lbl (explicitLabels s) }
+        translateStatement stmt retTypeRepr
+      Gen.resume_ exit_lbl cont
+  GotoStmt _ (Label _ labelName) -> do
+    lbls <- St.gets explicitLabels
+    -- FIXME: We process statements in order, so if we see a jump to a
+    -- label that we haven't visited yet, we are in trouble (since it
+    -- isn't in the map).  We probably need to do a pre-pass over all
+    -- of the LabeledStmts so that we can allocate and collect all of
+    -- the labels ahead of time.  Alternatively, we could use knot
+    -- tying, but that seems gross.
+    case HM.lookup labelName lbls of
+      Nothing -> error ("Forward goto jumps are not yet supported: " ++ show s)
+      Just lbl -> Gen.jump lbl
   BlockStmt _ body -> translateBlock body retTypeRepr
   IfStmt _ Nothing e then_ else_ -> do
     withTranslatedExpression e $ \e' -> do
@@ -225,12 +255,59 @@ translateStatement s retTypeRepr = case s of
                     Gen.branch cond' loop_lbl exit_lbl
                   | otherwise -> error ("Invalid condition type in for loop: " ++ show s)
       Gen.defineBlock loop_lbl $ do
-        translateBlock body retTypeRepr
-        F.forM_ mincrement $ \increment -> translateStatement increment retTypeRepr
+        -- Push the break and continue labels onto the stack so that
+        -- nested break statements can reference them.  We'll pop them
+        -- back off once we are done translating the body.
+        withLoopLabels exit_lbl cond_lbl $ do
+          translateBlock body retTypeRepr
+          F.forM_ mincrement $ \increment -> translateStatement increment retTypeRepr
+
         Gen.jump cond_lbl
       Gen.resume_ exit_lbl cont
 
+  BreakStmt _ Nothing -> do
+    bs <- St.gets enclosingBreaks
+    case bs of
+      LabelStack (b:_) -> Gen.jump b
+      LabelStack [] -> error "Empty break stack for break statement"
+  BreakStmt _ (Just _) -> error "Named breaks are not supported yet"
+  ContinueStmt _ Nothing -> do
+    cs <- St.gets enclosingContinues
+    case cs of
+      LabelStack (c:_) -> Gen.jump c
+      LabelStack [] -> error "Empty continue stack for continue statement"
+  ContinueStmt _ (Just _) -> error "Named continues are not supported yet"
+
   _ -> error $ "Unsupported Go statement " ++ show s
+
+withLoopLabels :: Gen.Label s
+               -> Gen.Label s
+               -> Gen.Generator h s (TransState ctx) ret ()
+               -> Gen.Generator h s (TransState ctx) ret ()
+withLoopLabels breakLabel contLabel gen = do
+  pushLabels breakLabel contLabel
+  gen
+  popLabels
+
+pushLabels :: Gen.Label s -> Gen.Label s -> Gen.Generator h s (TransState ctx) ret ()
+pushLabels breakLabel contLabel =
+  St.modify' $ \s ->
+    case (enclosingBreaks s, enclosingContinues s) of
+      (LabelStack bs, LabelStack cs) ->
+        s { enclosingBreaks = LabelStack (breakLabel : bs)
+          , enclosingContinues = LabelStack (contLabel : cs)
+          }
+
+popLabels :: Gen.Generator h s (TransState ctx) ret ()
+popLabels = do
+  St.modify' $ \s ->
+    case (enclosingBreaks s, enclosingContinues s) of
+      (LabelStack [], _) -> error "popLabels: empty break stack"
+      (_, LabelStack []) -> error "popLabels: empty continue stack"
+      (LabelStack (_:bs), LabelStack (_:cs)) ->
+        s { enclosingBreaks = LabelStack bs
+          , enclosingContinues = LabelStack cs
+          }
 
 -- | Translate a basic block, saving and restoring the lexical
 -- environment around the block
