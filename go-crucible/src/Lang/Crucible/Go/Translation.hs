@@ -159,14 +159,65 @@ declareVar name value t = do ref <- Gen.newReference value
                              return reg
 
 graphGenerator :: [Statement SourceRange] -> TypeRepr ret -> GoGenerator h s rctx ret (Gen.Expr s ret)
-graphGenerator body retTypeRepr =
-  do mapM_ (\s -> translateStatement s retTypeRepr) body
-     -- The following is going to be a fallthrough block that would
-     -- never be reachable if all the exit paths in the function graph
-     -- end with a return statement.
-     Gen.reportError $ Gen.App (C.TextLit "Expected a return statement, but found none.")
-  -- do Just Refl <- return $ testEquality retTypeRepr $ BVRepr (knownNat :: NatRepr 32)
-  --    return $ App (C.BVLit (knownNat :: NatRepr 32) 12)
+graphGenerator body retTypeRepr = do
+  -- First, traverse all of the statements of the function to allocate
+  -- Crucible labels for each source level label.  We need this to
+  -- handle gotos, named breaks, and named continues.
+  Gen.endNow $ \cont -> do
+    entry_label <- Gen.newLabel
+    labelMap <- F.foldlM buildLabelMap HM.empty body
+    St.modify' $ \s -> s { explicitLabels = labelMap }
+    Gen.resume_ entry_label cont
+
+  mapM_ (\s -> translateStatement s retTypeRepr) body
+  -- The following is going to be a fallthrough block that would
+  -- never be reachable if all the exit paths in the function graph
+  -- end with a return statement.
+  Gen.reportError $ Gen.App (C.TextLit "Expected a return statement, but found none.")
+
+-- | For each statement defining a label, populate the hash map with a
+-- fresh crucible label.
+buildLabelMap :: HashMap Text (Gen.Label s)
+              -> Statement SourceRange
+              -> Gen.End h s t init ret (HashMap Text (Gen.Label s))
+buildLabelMap m stmt =
+  case stmt of
+    LabeledStmt _ (Label _ labelName) stmt' -> do
+      lbl <- Gen.newLabel
+      buildLabelMap (HM.insert labelName lbl m) stmt'
+    BlockStmt _ stmts -> F.foldlM buildLabelMap m stmts
+    IfStmt _ mguard _ then_ else_ -> do
+      m1 <- maybe (return m) (buildLabelMap m) mguard
+      m2 <- F.foldlM buildLabelMap m1 then_
+      F.foldlM buildLabelMap m2 else_
+    ExprSwitchStmt _ mguard _ clauses -> do
+      m1 <- maybe (return m) (buildLabelMap m) mguard
+      F.foldlM (\m' (ExprClause _ _ stmts) -> F.foldlM buildLabelMap m' stmts) m1 clauses
+    TypeSwitchStmt _ mguard _ clauses -> do
+      m1 <- maybe (return m) (buildLabelMap m) mguard
+      F.foldlM (\m' (TypeClause _ _ stmts) -> F.foldlM buildLabelMap m' stmts) m1 clauses
+    ForStmt _ (ForClause _ minit _ mpost) stmts -> do
+      m1 <- maybe (return m) (buildLabelMap m) minit
+      m2 <- maybe (return m1) (buildLabelMap m1) mpost
+      F.foldlM buildLabelMap m2 stmts
+    ForStmt _ (ForRange {}) stmts ->
+      F.foldlM buildLabelMap m stmts
+    GoStmt {} -> return m
+    SelectStmt _ clauses ->
+      F.foldlM (\m' (CommClause _ _ stmts) -> F.foldlM buildLabelMap m' stmts) m clauses
+    BreakStmt {} -> return m
+    ContinueStmt {} -> return m
+    ReturnStmt {} -> return m
+    GotoStmt {} -> return m
+    FallthroughStmt {} -> return m
+    DeferStmt {} -> return m
+    ShortVarDeclStmt {} -> return m
+    AssignStmt {} -> return m
+    UnaryAssignStmt {} -> return m
+    DeclStmt {} -> return m
+    ExpressionStmt {} -> return m
+    EmptyStmt {} -> return m
+    SendStmt {} -> return m
 
 -- | Translates individual statements. This is where Go statement
 -- semantics is encoded.
@@ -201,24 +252,22 @@ translateStatement s retTypeRepr = case s of
   LabeledStmt _ (Label _ labelName) stmt -> do
     Gen.endNow $ \cont -> do
       exit_lbl <- Gen.newLabel
-      lbl <- Gen.newLabel
+      lbls <- St.gets explicitLabels
+      lbl <- case HM.lookup labelName lbls of
+        Nothing -> error ("Missing definition of label: " ++ show labelName)
+        Just l -> return l
+
       Gen.endCurrentBlock (Gen.Jump lbl)
       Gen.defineBlock lbl $ do
         -- NOTE: I'm not sure if this state modification is valid in
         -- the presence of this continuation... will require testing.
-        St.modify' $ \s -> s { explicitLabels = HM.insert labelName lbl (explicitLabels s) }
+        St.modify' $ \st -> st { explicitLabels = HM.insert labelName lbl (explicitLabels st) }
         translateStatement stmt retTypeRepr
       Gen.resume_ exit_lbl cont
   GotoStmt _ (Label _ labelName) -> do
     lbls <- St.gets explicitLabels
-    -- FIXME: We process statements in order, so if we see a jump to a
-    -- label that we haven't visited yet, we are in trouble (since it
-    -- isn't in the map).  We probably need to do a pre-pass over all
-    -- of the LabeledStmts so that we can allocate and collect all of
-    -- the labels ahead of time.  Alternatively, we could use knot
-    -- tying, but that seems gross.
     case HM.lookup labelName lbls of
-      Nothing -> error ("Forward goto jumps are not yet supported: " ++ show s)
+      Nothing -> error ("Jump to undeclared label: " ++ show s)
       Just lbl -> Gen.jump lbl
   BlockStmt _ body -> translateBlock body retTypeRepr
   IfStmt _ Nothing e then_ else_ -> do
