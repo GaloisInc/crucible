@@ -51,11 +51,11 @@ translateFunction (Id _ bind fname) params returns body =
                                             St.modify' (\ts -> ts {returnSlots = retslots})
 
                                             setupParams assignment
-                                            graphGenerator body (StructRepr retctx)))
+                                            graphGenerator body retctx))
      case toSSA g of
        C.SomeCFG gs -> return $ C.AnyCFG gs
 
-type GoGenerator h s rctx ret a = Gen.Generator h s (TransState rctx) ret a
+type GoGenerator h s rctx a = Gen.Generator h s (TransState rctx) (StructType rctx) a
 
 -- | Bind the list of return values to both the function return type
 -- in the crucible CFG and, if the return values are named, to
@@ -63,11 +63,11 @@ type GoGenerator h s rctx ret a = Gen.Generator h s (TransState rctx) ret a
 -- uses, continuation-passing style to construct heterogeneous lists
 -- and work with type-level literals.
 bindReturns :: ReturnList SourceRange
-            -> (forall ctx. CtxRepr ctx -> (forall s ret rctx. GoGenerator h s rctx ret (Maybe (VariableAssignment s ctx))) -> a)
+            -> (forall ctx. CtxRepr ctx -> (forall s rctx. GoGenerator h s rctx (Maybe (VariableAssignment s ctx))) -> a)
             -> a
 bindReturns rlist f =
   let goNamed :: [NamedParameter SourceRange]
-              -> (forall ctx. CtxRepr ctx -> (forall s ret rctx. GoGenerator h s rctx ret (VariableAssignment s ctx)) -> a)
+              -> (forall ctx. CtxRepr ctx -> (forall s rctx. GoGenerator h s rctx (VariableAssignment s ctx)) -> a)
               -> a
       goNamed [] k = k Ctx.empty (return Ctx.empty)
       goNamed (np@(NamedParameter _ (Id _ _ rname) _):ps) k =
@@ -103,13 +103,13 @@ data GoVarReg s where
 -- (typed) Crucible registers.
 bindParams :: ParameterList SourceRange
            -> (forall ctx. CtxRepr ctx
-               -> (forall s ret. Ctx.Assignment (Gen.Atom s) ctx -> GoGenerator h s rctx ret ())
+               -> (forall s. Ctx.Assignment (Gen.Atom s) ctx -> GoGenerator h s rctx ())
                -> a)
            -> a
 bindParams plist f =
   let go :: [NamedParameter SourceRange]
          -> (forall ctx. CtxRepr ctx
-             -> (forall s ret. Ctx.Assignment (Gen.Atom s) ctx -> GoGenerator h s rctx ret ())
+             -> (forall s. Ctx.Assignment (Gen.Atom s) ctx -> GoGenerator h s rctx ())
              -> a)
          -> a
       go []     k = k Ctx.empty (\_ -> return ())
@@ -152,24 +152,24 @@ instance Default (TransState ctx s) where
 
 newtype LabelStack s = LabelStack [Gen.Label s]
 
-declareVar :: Text -> Gen.Expr s tp -> TypeRepr tp -> GoGenerator h s rctx ret (Gen.Reg s (ReferenceType tp))
+declareVar :: Text -> Gen.Expr s tp -> TypeRepr tp -> GoGenerator h s rctx (Gen.Reg s (ReferenceType tp))
 declareVar name value t = do ref <- Gen.newReference value
                              reg <- Gen.newReg ref
                              St.modify' (\ts -> ts {lexenv = HM.insert name (GoVarReg t reg) (lexenv ts)})
                              return reg
 
-graphGenerator :: [Statement SourceRange] -> TypeRepr ret -> GoGenerator h s rctx ret (Gen.Expr s ret)
-graphGenerator body retTypeRepr = do
+graphGenerator :: [Statement SourceRange] -> CtxRepr rctx -> GoGenerator h s rctx a --(Gen.Expr s (StructType rctx))
+graphGenerator body ctxrepr = do
   -- First, traverse all of the statements of the function to allocate
   -- Crucible labels for each source level label.  We need this to
   -- handle gotos, named breaks, and named continues.
-  Gen.endNow $ \cont -> do
-    entry_label <- Gen.newLabel
-    labelMap <- F.foldlM buildLabelMap HM.empty body
-    St.modify' $ \s -> s { explicitLabels = labelMap }
-    Gen.resume_ entry_label cont
+  -- Gen.endNow $ \cont -> do
+  --   entry_label <- Gen.newLabel
+  --   labelMap <- F.foldlM buildLabelMap HM.empty body
+  --   St.modify' $ \s -> s { explicitLabels = labelMap }
+  --   Gen.resume_ entry_label cont
 
-  mapM_ (\s -> translateStatement s retTypeRepr) body
+  mapM_ (\s -> translateStatement s ctxrepr) body
   -- The following is going to be a fallthrough block that would
   -- never be reachable if all the exit paths in the function graph
   -- end with a return statement.
@@ -225,9 +225,9 @@ buildLabelMap m stmt =
 -- Note that we currently only support single return values (and no
 -- return via named return values).
 translateStatement :: Statement SourceRange
-                   -> TypeRepr ret
-                   -> GoGenerator h s rctx ret ()
-translateStatement s retTypeRepr = case s of
+                   -> CtxRepr rctx
+                   -> GoGenerator h s rctx ()
+translateStatement s retCtxRepr = case s of
   DeclStmt _ (VarDecl _ varspecs)     -> mapM_ translateVarSpec varspecs
   DeclStmt _ (ConstDecl _ constspecs) -> mapM_ translateConstSpec constspecs
   DeclStmt _ (TypeDecl _ _) ->
@@ -245,9 +245,9 @@ translateStatement s retTypeRepr = case s of
   ReturnStmt _ [e] ->
     withTranslatedExpression e $ \e' ->
       case e' of
-        _ | Just Refl <- testEquality (exprType e') retTypeRepr ->
-            Gen.returnFromFunction e'
-          | otherwise -> error ("translateStatement: Incorrect return type: " ++ show e)
+        _ | Just Refl <- testEquality (Ctx.empty Ctx.%> (exprType e')) retCtxRepr ->
+            Gen.returnFromFunction $ Gen.App $ C.MkStruct retCtxRepr (Ctx.empty Ctx.%> e')
+          | otherwise -> error ("translateStatement error: Incorrect return type: " ++ show e ++ " Expected type: " ++ show retCtxRepr ++ " Actual type: " ++ show (exprType e'))
   ReturnStmt _ _ -> error ("translateStatement: Multiple return values are not yet supported: " ++ show s)
   EmptyStmt _ -> return ()
   LabeledStmt _ (Label _ labelName) stmt -> do
@@ -263,20 +263,20 @@ translateStatement s retTypeRepr = case s of
         -- NOTE: I'm not sure if this state modification is valid in
         -- the presence of this continuation... will require testing.
         St.modify' $ \st -> st { explicitLabels = HM.insert labelName lbl (explicitLabels st) }
-        translateStatement stmt retTypeRepr
+        translateStatement stmt retCtxRepr
       Gen.resume_ exit_lbl cont
   GotoStmt _ (Label _ labelName) -> do
     lbls <- St.gets explicitLabels
     case HM.lookup labelName lbls of
       Nothing -> error ("Jump to undeclared label: " ++ show s)
       Just lbl -> Gen.jump lbl
-  BlockStmt _ body -> translateBlock body retTypeRepr
+  BlockStmt _ body -> translateBlock body retCtxRepr
   IfStmt _ mguard e then_ else_ -> do
-    F.forM_ mguard $ flip translateStatement retTypeRepr
+    F.forM_ mguard $ flip translateStatement retCtxRepr
     withTranslatedExpression e $ \e' -> do
       case e' of
         _ | Just Refl <- testEquality (exprType e') BoolRepr ->
-              Gen.ifte_ e' (translateBlock then_ retTypeRepr) (translateBlock else_ retTypeRepr)
+              Gen.ifte_ e' (translateBlock then_ retCtxRepr) (translateBlock else_ retCtxRepr)
           | otherwise -> error ("translateStatement: Invalid type for if statement condition: " ++ show e)
 
   -- This translation is very verbose because we can't re-use the
@@ -290,7 +290,7 @@ translateStatement s retTypeRepr = case s of
   -- current loop context into translateStatement and translateBlock.
   -- Maybe we can just capture them in the scope of translateBlock.
   ForStmt _ (ForClause _ minitializer mcondition mincrement) body -> do
-    F.forM_ minitializer $ \initializer -> translateStatement initializer retTypeRepr
+    F.forM_ minitializer $ \initializer -> translateStatement initializer retCtxRepr
     Gen.endNow $ \cont -> do
       cond_lbl <- Gen.newLabel
       loop_lbl <- Gen.newLabel
@@ -312,8 +312,8 @@ translateStatement s retTypeRepr = case s of
         -- nested break statements can reference them.  We'll pop them
         -- back off once we are done translating the body.
         withLoopLabels exit_lbl cond_lbl $ do
-          translateBlock body retTypeRepr
-          F.forM_ mincrement $ \increment -> translateStatement increment retTypeRepr
+          translateBlock body retCtxRepr
+          F.forM_ mincrement $ \increment -> translateStatement increment retCtxRepr
 
         Gen.jump cond_lbl
       Gen.resume_ exit_lbl cont
@@ -344,14 +344,14 @@ translateStatement s retTypeRepr = case s of
 
 withLoopLabels :: Gen.Label s
                -> Gen.Label s
-               -> GoGenerator h s ctx ret ()
-               -> GoGenerator h s ctx ret ()
+               -> GoGenerator h s ctx ()
+               -> GoGenerator h s ctx ()
 withLoopLabels breakLabel contLabel gen = do
   pushLabels breakLabel contLabel
   gen
   popLabels
 
-pushLabels :: Gen.Label s -> Gen.Label s -> GoGenerator h s ctx ret ()
+pushLabels :: Gen.Label s -> Gen.Label s -> GoGenerator h s ctx ()
 pushLabels breakLabel contLabel =
   St.modify' $ \s ->
     case (enclosingBreaks s, enclosingContinues s) of
@@ -360,7 +360,7 @@ pushLabels breakLabel contLabel =
           , enclosingContinues = LabelStack (contLabel : cs)
           }
 
-popLabels :: GoGenerator h s ctx ret ()
+popLabels :: GoGenerator h s ctx ()
 popLabels = do
   St.modify' $ \s ->
     case (enclosingBreaks s, enclosingContinues s) of
@@ -375,11 +375,11 @@ popLabels = do
 -- environment around the block
 translateBlock :: (Traversable t)
                => t (Statement SourceRange)
-               -> TypeRepr ret
-               -> GoGenerator h s ctx ret ()
-translateBlock stmts retTypeRepr = do
+               -> CtxRepr ctx
+               -> GoGenerator h s ctx ()
+translateBlock stmts retCtxRepr = do
   env0 <- St.gets lexenv
-  mapM_ (\s -> translateStatement s retTypeRepr) stmts
+  mapM_ (\s -> translateStatement s retCtxRepr) stmts
   St.modify' $ \s -> s { lexenv = env0 }
 
 exprType :: Gen.Expr s typ -> TypeRepr typ
@@ -390,7 +390,7 @@ fromRight :: Either a b -> b
 fromRight (Right x) = x
 
 translateAssignment :: (Expression SourceRange, Expression SourceRange)
-                    -> GoGenerator h s rctx ret ()
+                    -> GoGenerator h s rctx ()
 translateAssignment (lhs, rhs) =
   withTranslatedExpression rhs $ \rhs' ->
     case lhs of
@@ -405,7 +405,7 @@ translateAssignment (lhs, rhs) =
             | otherwise -> error ("translateAssignment: type mismatch between lhs and rhs: " ++ show (lhs, rhs))
       _ -> error ("translateAssignment: unsupported LHS: " ++ show lhs)
 
-translateVarSpec :: VarSpec SourceRange -> GoGenerator h s rctx ret ()
+translateVarSpec :: VarSpec SourceRange -> GoGenerator h s rctx ()
 translateVarSpec s = case s of
   -- the rules for matching multiple variables and expressions are the
   -- same as for normal assignment expressions, with the addition of
@@ -435,8 +435,8 @@ translateVarSpec s = case s of
 -- 2) We need to be able to dereference all of the references holding
 --    values, and 'readReference' is in 'Generator'
 withTranslatedExpression :: Expression SourceRange
-                         -> (forall typ . Gen.Expr s typ -> GoGenerator h s rctx ret a)
-                         -> GoGenerator h s rctx ret a
+                         -> (forall typ . Gen.Expr s typ -> GoGenerator h s rctx a)
+                         -> GoGenerator h s rctx a
 withTranslatedExpression e k = case e of
   IntLit _ i ->
     case toTypeRepr `liftM` getType e of
@@ -476,10 +476,10 @@ withTranslatedExpression e k = case e of
         Left err -> error ("withTranslatedType: Unexpected conversion type: " ++ show (toType, err))
   _ -> error "Unsuported expression type"
 
-translateConversion :: (forall toTyp . Gen.Expr s toTyp -> GoGenerator h s rctx ret a)
+translateConversion :: (forall toTyp . Gen.Expr s toTyp -> GoGenerator h s rctx a)
                     -> ReprAndValue
                     -> Gen.Expr s fromTyp
-                    -> GoGenerator h s rctx ret a
+                    -> GoGenerator h s rctx a
 translateConversion k toType e =
   case (exprType e, toType) of
     (BoolRepr, ReprAndValue (BVRepr w) _) -> k (Gen.App (C.BoolToBV w e))
@@ -612,12 +612,12 @@ exprTypeRepr e = toTypeRepr `liftM` getType e
 
 -- | Declares an identifier; ignores blank identifiers. A thin wrapper
 -- around `declareVar` that doesn't return the register
-declareIdent :: Id a -> Gen.Expr s tp -> TypeRepr tp -> GoGenerator h s rctx ret ()
+declareIdent :: Id a -> Gen.Expr s tp -> TypeRepr tp -> GoGenerator h s rctx ()
 declareIdent ident value typ = case ident of
   BlankId _ -> return ()
   Id _ _ name -> void $ declareVar name value typ
 
-translateConstSpec :: ConstSpec SourceRange -> GoGenerator h s rctx ret ()
+translateConstSpec :: ConstSpec SourceRange -> GoGenerator h s rctx ()
 translateConstSpec = undefined
 
 -- | Translate a Go type to a Crucible type. This is where type semantics is encoded.
