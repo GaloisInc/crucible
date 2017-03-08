@@ -195,6 +195,41 @@ translateStatement s retTypeRepr = case s of
         _ | Just Refl <- testEquality (exprType e') BoolRepr ->
               Gen.ifte_ e' (translateBlock then_ retTypeRepr) (translateBlock else_ retTypeRepr)
           | otherwise -> error ("translateStatement: Invalid type for if statement condition: " ++ show e)
+
+  -- This translation is very verbose because we can't re-use the
+  -- Gen.when combinator.  We need the labels to implement break and
+  -- continue, and Gen.when would make them inaccessible.  Note that
+  -- this will still be tricky, because we somehow need to get those
+  -- labels out of the End monad so that we can store them in the
+  -- state.
+  --
+  -- Instead of that, maybe we just need to explicitly pass the
+  -- current loop context into translateStatement and translateBlock.
+  -- Maybe we can just capture them in the scope of translateBlock.
+  ForStmt _ (ForClause _ minitializer mcondition mincrement) body -> do
+    F.forM_ minitializer $ \initializer -> translateStatement initializer retTypeRepr
+    Gen.endNow $ \cont -> do
+      cond_lbl <- Gen.newLabel
+      loop_lbl <- Gen.newLabel
+      exit_lbl <- Gen.newLabel
+
+      Gen.endCurrentBlock (Gen.Jump cond_lbl)
+
+      Gen.defineBlock cond_lbl $ do
+        case mcondition of
+          Nothing -> Gen.jump loop_lbl
+          Just cond -> do
+            withTranslatedExpression cond $ \cond' -> do
+              case cond' of
+                _ | Just Refl <- testEquality (exprType cond') BoolRepr ->
+                    Gen.branch cond' loop_lbl exit_lbl
+                  | otherwise -> error ("Invalid condition type in for loop: " ++ show s)
+      Gen.defineBlock loop_lbl $ do
+        translateBlock body retTypeRepr
+        F.forM_ mincrement $ \increment -> translateStatement increment retTypeRepr
+        Gen.jump cond_lbl
+      Gen.resume_ exit_lbl cont
+
   _ -> error $ "Unsupported Go statement " ++ show s
 
 -- | Translate a basic block, saving and restoring the lexical
