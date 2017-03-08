@@ -241,6 +241,7 @@ translateStatement s retTypeRepr = case s of
     -- supported.
   AssignStmt _ lhs Assignment rhs
     | F.length lhs == F.length rhs -> mapM_ translateAssignment (NE.zip lhs rhs)
+    | otherwise -> error "Mismatched assignment expression lengths"
   ReturnStmt _ [e] ->
     withTranslatedExpression e $ \e' ->
       case e' of
@@ -329,8 +330,17 @@ translateStatement s retTypeRepr = case s of
       LabelStack (c:_) -> Gen.jump c
       LabelStack [] -> error "Empty continue stack for continue statement"
   ContinueStmt _ (Just _) -> error "Named continues are not supported yet"
-
-  _ -> error $ "Unsupported Go statement " ++ show s
+  SendStmt {} -> error "Send statements are not supported yet"
+  UnaryAssignStmt {} -> error "Unary assignments are not supported yet"
+  ExprSwitchStmt {} -> error "Expr switch statements are not supported yet"
+  TypeSwitchStmt {} -> error "Type switch statements are not supported yet"
+  GoStmt {} -> error "go statements are not supported yet"
+  ForStmt _ (ForRange {}) _ -> error "For range statements are not supported yet"
+  AssignStmt _ _ (ComplexAssign _) _ -> error "Complex assignments are not supported yet"
+  SelectStmt {} -> error "Select statements are not supported yet"
+  FallthroughStmt {} -> error "Fallthrough statements are not supported yet"
+  DeferStmt {} -> error "Defer statements are not supported yet"
+  ShortVarDeclStmt {} -> error "Short variable declarations are not supported yet"
 
 withLoopLabels :: Gen.Label s
                -> Gen.Label s
