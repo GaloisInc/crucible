@@ -23,7 +23,7 @@ import Data.Parameterized.Some
 import qualified Data.Parameterized.Context as Ctx
 
 import qualified Data.Foldable as F
-import Data.Maybe ( catMaybes, maybeToList )
+import Data.Maybe ( maybeToList )
 import Control.Monad.ST ( ST )
 import Control.Monad ( liftM, zipWithM, void )
 import qualified Control.Monad.State as St
