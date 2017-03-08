@@ -79,8 +79,8 @@ bindReturns rlist f =
       goAnon :: [Type SourceRange] -> (forall ctx. CtxRepr ctx -> a) -> a
       goAnon [] k = k Ctx.empty
       goAnon (t:ts) k = case getType t of
-        Right vt -> translateType 32 vt $ \t _ ->
-          goAnon ts (\ctx -> k (ctx Ctx.%> t))
+        Right vt -> translateType 32 vt $ \t' _ ->
+          goAnon ts (\ctx -> k (ctx Ctx.%> t'))
         _ -> error "Expecting a semantic type inferred for a return type, but found none"
   in case rlist of
     NamedReturnList _ nrets -> goNamed nrets $ \ctx gen -> f ctx (Just <$> gen)
