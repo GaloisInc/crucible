@@ -82,7 +82,7 @@ module Lang.Crucible.Generator
   , fromJustExpr
   , assertedJustExpr
   , while
-  -- * Re-exorts
+  -- * Re-exports
   , Ctx.Ctx(..)
   , Position
   , module Lang.Crucible.RegCFG
