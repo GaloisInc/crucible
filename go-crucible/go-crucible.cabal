@@ -47,9 +47,9 @@ test-suite go-crucible-tests
                  lens,
                  tasty >= 0.10 && < 0.12,
                  tasty-hunit,
+                 filepath >= 1 && < 2,
                  filemanip >= 0.3.6 && < 0.4,
                  parameterized-utils,
-                 saw-core,
                  crucible,
                  golang,
                  go-crucible
