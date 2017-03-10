@@ -1,9 +1,8 @@
 {-|
 Module           : Lang.Crucible.Solver.Interface
 Copyright        : (c) Galois, Inc 2014-2016
-License          : AllRightsReserved
-Maintainer       : Joe Hendrix <jhendrix@galois.com>
 License          : BSD3
+Maintainer       : Joe Hendrix <jhendrix@galois.com>
 
 Defines interface between the simulator and terms that are sent to the
 SAT or SMT solver.  The simulator can use a richer set of types, but the

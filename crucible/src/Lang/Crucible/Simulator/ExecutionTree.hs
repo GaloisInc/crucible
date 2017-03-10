@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.Simulator.ExecutionTree
 -- Description      : Data structure the execution state of the simulator
 -- Copyright        : (c) Galois, Inc 2014
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 -- Execution trees record the state of the simulator as it explores
 -- execution paths through a program.

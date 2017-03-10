@@ -4,9 +4,9 @@
 -- Description      : This module performs the work of tranlating LLVM AST
 --                    into a Cucible control-flow graph.
 -- Copyright        : (c) Galois, Inc 2014-2015
+-- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 -- This module translates an LLVM Module into a collection of Crucible
 -- control-flow graphs, one per function.  The tricky parts of this translation

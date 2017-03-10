@@ -3,9 +3,9 @@
 -- Module      : Lang.Crucible.Solver.SimpleBackend.CVC4
 -- Description : Solver adapter code for CVC4
 -- Copyright   : (c) Galois, Inc 2015
+-- License     : BSD3
 -- Maintainer  : Rob Dockins <rdockins@galois.com>
 -- Stability   : provisional
--- License     : BSD3
 --
 -- CVC4-specific tweaks to the basic SMTLib2 solver interface.
 ------------------------------------------------------------------------

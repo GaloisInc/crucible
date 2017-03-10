@@ -1,9 +1,8 @@
 {-|
 Module           : Lang.Crucible.Solver.Partial
 Copyright        : (c) Galois, Inc 2014-2016
-License          : AllRightsReserved
-Maintainer       : Joe Hendrix <jhendrix@galois.com>
 License          : BSD3
+Maintainer       : Joe Hendrix <jhendrix@galois.com>
 
 This defines a partial expression data type 'PartExpr' which is essentially a
 generalization of 'Maybe' as a datatype, and a monad transformer 'PartialT'

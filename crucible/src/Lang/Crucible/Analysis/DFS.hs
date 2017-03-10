@@ -16,9 +16,9 @@
 -- Module      : Lang.Crucible.Analysis.DFS
 -- Description : Depth-first search algorithm on Crucible CFGs
 -- Copyright   : (c) Galois, Inc 2015
+-- License     : BSD3
 -- Maintainer  : Rob Dockins <rdockins@galois.com>
 -- Stability   : provisional
--- License     : BSD3
 --
 -- This module defines a generic algorithm for depth-first search
 -- traversal of a control flow graph.

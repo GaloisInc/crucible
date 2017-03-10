@@ -2,9 +2,9 @@
 -- Module           : Lang.Crucible.LLVM.MemModel
 -- Description      : Core definitions of the symbolic C memory model
 -- Copyright        : (c) Galois, Inc 2015-2016
+-- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 ------------------------------------------------------------------------
 
 {-# LANGUAGE DataKinds #-}

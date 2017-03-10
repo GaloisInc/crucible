@@ -1,9 +1,8 @@
 {-|
 Module      : Lang.Crucible.Solver.WeightedSum
 Copyright   : (c) Galois Inc, 2015-2016
-License     : AllRightsReserved
-Maintainer  : jhendrix@galois.com
 License     : BSD3
+Maintainer  : jhendrix@galois.com
 
 Declares a weighted sum type used for representing rational sums over variables
 and an offset.

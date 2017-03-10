@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.LLVM.LLVMContext
 -- Description      : Provides simulator type information and conversions.
 -- Copyright        : (c) Galois, Inc 2011-2013
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 -- This module provides functionality for querying simulator type
 -- information in a module, and converting llvm-pretty types into

@@ -4,9 +4,9 @@
 -- Description      : Provides a representation of Crucible programs using
 --                    mutable registers rather than SSA.
 -- Copyright        : (c) Galois, Inc 2014
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 -- This module defines CFGs which feature mutable registers, in contrast
 -- to the Core CFGs, which are in SSA form.  Register CFGs can be

@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.Utils.StateContT
 -- Description      : A monad providing continuations and state.
 -- Copyright        : (c) Galois, Inc 2013-2014
+-- Licensed         : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- Licensed         : BSD3
 --
 -- This module defines a monad with continuations and state.  By using this
 -- instead of a MTL StateT and ContT transformer stack, one can have a

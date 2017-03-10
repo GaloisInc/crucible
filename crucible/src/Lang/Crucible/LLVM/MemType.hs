@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.LLVM.MemType
 -- Description      : Basic datatypes for describing LLVM types
 -- Copyright        : (c) Galois, Inc 2011-2013
+-- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 ------------------------------------------------------------------------
 
 {-# LANGUAGE CPP #-}

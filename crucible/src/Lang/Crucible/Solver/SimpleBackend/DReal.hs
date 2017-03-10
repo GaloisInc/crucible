@@ -3,9 +3,9 @@
 -- module           : Lang.Crucible.Solver.SimpleBackend.DReal
 -- Description      : Interface for running dReal
 -- Copyright        : (c) Galois, Inc 2014
+-- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 -- This module provides an interface for running dReal and parsing
 -- the results back.
