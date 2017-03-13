@@ -5,6 +5,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImplicitParams #-}
 
 module Lang.Crucible.Go.Translation (translateFunction) where
 
@@ -36,7 +37,8 @@ import qualified Data.List.NonEmpty as NE
 -- | (Currently) the entry point of the module: translates one go
 -- function to a Crucible control-flow graph. The parameters are the
 -- same as for the `FunctionDecl` AST constructor.
-translateFunction :: forall h. Id SourceRange -- ^ Function name
+translateFunction :: forall h. (?machineWordWidth :: Int)
+                  => Id SourceRange -- ^ Function name
                   -> ParameterList SourceRange -- ^ Function parameters
                   -> ReturnList SourceRange
                   -> [Statement SourceRange] -> ST h C.AnyCFG
@@ -62,7 +64,8 @@ type GoGenerator h s rctx a = Gen.Generator h s (TransState rctx) (StructType rc
 -- crucible registers mapped to the names. Like many functions here,
 -- uses, continuation-passing style to construct heterogeneous lists
 -- and work with type-level literals.
-bindReturns :: ReturnList SourceRange
+bindReturns :: (?machineWordWidth :: Int)
+            => ReturnList SourceRange
             -> (forall ctx. CtxRepr ctx -> (forall s rctx. GoGenerator h s rctx (Maybe (VariableAssignment s ctx))) -> a)
             -> a
 bindReturns rlist f =
@@ -72,7 +75,7 @@ bindReturns rlist f =
       goNamed [] k = k Ctx.empty (return Ctx.empty)
       goNamed (np@(NamedParameter _ (Id _ _ rname) _):ps) k =
         translateType {- TODO Abstract this: implicit parameter or generator state -}
-           32 (fromRight $ getType np) (\t zv ->
+           (fromRight $ getType np) (\t zv ->
                     goNamed ps (\ctx gen -> k (ctx Ctx.%> t)
                                  (do assign <- gen
                                      reg <- declareVar rname zv t
@@ -81,7 +84,7 @@ bindReturns rlist f =
       goAnon :: [Type SourceRange] -> (forall ctx. CtxRepr ctx -> a) -> a
       goAnon [] k = k Ctx.empty
       goAnon (t:ts) k = case getType t of
-        Right vt -> translateType 32 vt $ \t' _ ->
+        Right vt -> translateType vt $ \t' _ ->
           goAnon ts (\ctx -> k (ctx Ctx.%> t'))
         _ -> error "Expecting a semantic type inferred for a return type, but found none"
   in case rlist of
@@ -101,7 +104,8 @@ data GoVarReg s where
 
 -- | Generate the Crucible type context and bind parameter names to
 -- (typed) Crucible registers.
-bindParams :: ParameterList SourceRange
+bindParams :: (?machineWordWidth :: Int)
+           => ParameterList SourceRange
            -> (forall ctx. CtxRepr ctx
                -> (forall s. Ctx.Assignment (Gen.Atom s) ctx -> GoGenerator h s rctx ())
                -> a)
@@ -114,8 +118,8 @@ bindParams plist f =
          -> a
       go []     k = k Ctx.empty (\_ -> return ())
       go (np@(NamedParameter _ (Id _ _ pname) _):ps) k =
-        translateType {- TODO Abstract this: implicit parameter or generator state -}
-        32 (fromRight $ getType np) $ \t zv -> go ps (\ctx f' -> k (ctx Ctx.%> t) 
+        translateType 
+        (fromRight $ getType np) $ \t zv -> go ps (\ctx f' -> k (ctx Ctx.%> t) 
                                                        (\a -> do f' (Ctx.init a)
                                                                  void $ declareVar pname (Gen.AtomExpr (Ctx.last a)) t))
   in case plist of
@@ -139,6 +143,7 @@ data TransState ctx s = TransState
    -- multiplex return values in a struct that would store references
    -- to return values. The struct is going to be created from the
    -- variable assignment in this component of the user state.
+  ,machineWordWidth :: !Int -- ^ size of the machine word
   }
 
 instance Default (TransState ctx s) where
@@ -147,10 +152,22 @@ instance Default (TransState ctx s) where
                    ,enclosingBreaks = LabelStack []
                    ,enclosingContinues = LabelStack []
                    ,returnSlots = Nothing
+                   ,machineWordWidth = 32
                    }
 
 
 newtype LabelStack s = LabelStack [Gen.Label s]
+
+getMachineWordWidth :: GoGenerator h s rctx Int
+getMachineWordWidth = St.gets machineWordWidth
+
+setMachineWordWidth :: Int -> GoGenerator h s rctx ()
+setMachineWordWidth w = St.modify' (\ts -> ts {machineWordWidth = w})
+
+-- | Fully specialize a type with the current machine word width
+specializeTypeM :: SemanticType -> GoGenerator h s rctx SemanticType
+specializeTypeM typ = do w <- getMachineWordWidth
+                         return $ specializeType w typ
 
 declareVar :: Text -> Gen.Expr s tp -> TypeRepr tp -> GoGenerator h s rctx (Gen.Reg s (ReferenceType tp))
 declareVar name value t = do ref <- Gen.newReference value
@@ -412,7 +429,7 @@ translateVarSpec s = case s of
   -- an empty list of initial values. We don't support multi-valued
   -- right-hand-sides yet.
   TypedVarSpec _ identifiers typ initialValues ->
-    translateType 32 (fromRight $ getType typ) $
+    translateTypeM (fromRight $ getType typ) $
     \typeRepr zeroVal ->
       if null initialValues then
         -- declare variables with zero values;
@@ -621,16 +638,16 @@ translateConstSpec :: ConstSpec SourceRange -> GoGenerator h s rctx ()
 translateConstSpec = undefined
 
 -- | Translate a Go type to a Crucible type. This is where type semantics is encoded.
-translateType :: forall a. Int {-Target architecture word size-}
-              -> SemanticType
+translateType :: forall a. (?machineWordWidth :: Int) => SemanticType
               -> (forall typ. TypeRepr typ -> (forall s. Gen.Expr s typ) -> a)
               -> a
-translateType wordSize typ = typeAsRepr (instantiateWordSize wordSize typ)
+translateType typ = typeAsRepr (specializeType ?machineWordWidth typ)
 
-instantiateWordSize :: Int -> SemanticType -> SemanticType
-instantiateWordSize wordSize typ = case typ of
-  Int Nothing signed -> Int (Just wordSize) signed
-  _                  -> typ
+translateTypeM :: forall h s rctx a. SemanticType
+               -> (forall typ. TypeRepr typ -> (forall s. Gen.Expr s typ) -> GoGenerator h s rctx a)
+               -> GoGenerator h s rctx a
+translateTypeM typ f = do w <- getMachineWordWidth
+                          let ?machineWordWidth = w in translateType typ f
 
 typeAsRepr :: forall a. SemanticType
            -> (forall typ. TypeRepr typ -> (forall s. Gen.Expr s typ) -> a)
@@ -647,6 +664,7 @@ toTypeRepr typ = case typ of
   Int (Just width) _ -> case someNat (fromIntegral width) of
     Just (Some w) | Just LeqProof <- isPosNat w -> ReprAndValue (BVRepr w) (Gen.App (C.BVLit w 0))
     _ -> error $ unwords ["invalid integer width",show width]
+  Int Nothing _ -> error $ "Type translation: Unexpected integer type without width: expectin all integers to have width specified explicitly."
   Float _width -> ReprAndValue RealValRepr real0
   Boolean -> ReprAndValue BoolRepr (Gen.App (C.BoolLit False))
   Complex _width -> ReprAndValue ComplexRealRepr (Gen.App (C.Complex real0 real0))
@@ -663,6 +681,7 @@ toTypeRepr typ = case typ of
   Channel _ typ' -> toTypeRepr typ'
   BuiltIn _name -> undefined -- ^ built-in function
   Alias (TypeName _ _ _) -> undefined
+  _ -> error $ "Unmatched pattern for " ++ show typ
   where
     real0 = Gen.App (C.RationalLit (realToFrac (0::Int)))
 
