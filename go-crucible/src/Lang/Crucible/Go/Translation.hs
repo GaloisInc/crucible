@@ -251,7 +251,7 @@ translateStatement s retCtxRepr = case s of
     -- type declarations are only reflected in type analysis results
     -- and type translations; they are not executable
     return ()
-  ExpressionStmt _ expr -> withTranslatedExpression expr (const (return ()))
+  ExpressionStmt _ expr -> withTranslatedExpression expr $ \_ _ -> return ()
     -- The number of expressions (|e|) in `lhs` and `rhs` should
     -- either be the same, or |rhs| = 1. Assigning multi-valued
     -- right-hand sides (|rhs|=1 and |lhs| > 1) is not currently
@@ -260,7 +260,7 @@ translateStatement s retCtxRepr = case s of
     | F.length lhs == F.length rhs -> mapM_ translateAssignment (NE.zip lhs rhs)
     | otherwise -> error "Mismatched assignment expression lengths"
   ReturnStmt _ [e] ->
-    withTranslatedExpression e $ \e' ->
+    withTranslatedExpression e $ \_ e' ->
       case e' of
         _ | Just Refl <- testEquality (Ctx.empty Ctx.%> (exprType e')) retCtxRepr ->
             Gen.returnFromFunction $ Gen.App $ C.MkStruct retCtxRepr (Ctx.empty Ctx.%> e')
@@ -290,7 +290,7 @@ translateStatement s retCtxRepr = case s of
   BlockStmt _ body -> translateBlock body retCtxRepr
   IfStmt _ mguard e then_ else_ -> do
     F.forM_ mguard $ flip translateStatement retCtxRepr
-    withTranslatedExpression e $ \e' -> do
+    withTranslatedExpression e $ \_ e' -> do
       case e' of
         _ | Just Refl <- testEquality (exprType e') BoolRepr ->
               Gen.ifte_ e' (translateBlock then_ retCtxRepr) (translateBlock else_ retCtxRepr)
@@ -319,7 +319,7 @@ translateStatement s retCtxRepr = case s of
         case mcondition of
           Nothing -> Gen.jump loop_lbl
           Just cond -> do
-            withTranslatedExpression cond $ \cond' -> do
+            withTranslatedExpression cond $ \_ cond' -> do
               case cond' of
                 _ | Just Refl <- testEquality (exprType cond') BoolRepr ->
                     Gen.branch cond' loop_lbl exit_lbl
@@ -350,11 +350,14 @@ translateStatement s retCtxRepr = case s of
   SendStmt {} -> error "Send statements are not supported yet"
 
   UnaryAssignStmt _ e incdec ->
-    withAssignableLocation e $ \(GoVarReg tp reg) -> do
-      withIncDecWrapper tp incdec $ \op -> do
-        ref0 <- Gen.readReg reg
-        e0 <- Gen.readReference ref0
-        Gen.writeReference ref0 (op e0)
+    withTranslatedExpression e $ \mAssignLoc e' -> do
+    case mAssignLoc of
+      Nothing -> error ("Assignment to unassignable location: " ++ show e)
+      Just loc ->
+        withIncDecWrapper (exprType e') incdec $ \op -> do
+          ref0 <- Gen.readReg loc
+          e0 <- Gen.readReference ref0
+          Gen.writeReference ref0 (op e0)
 
   ExprSwitchStmt {} -> error "Expr switch statements are not supported yet"
   TypeSwitchStmt {} -> error "Type switch statements are not supported yet"
@@ -381,36 +384,6 @@ withIncDecWrapper tp incdec k =
     (C.BVRepr w, Dec) -> k (\val -> Gen.App (C.BVSub w val (Gen.App (C.BVLit w 1))))
     (C.RealValRepr, Dec) -> k (\val -> Gen.App (C.RealSub val (Gen.App (C.RationalLit 1))))
     _ -> error ("Unsupported increment/decrement base type: " ++ show tp)
-
--- | Call a continuation with the location referred to by the given
--- expression (error otherwise)
---
--- We can only update reference locations, so the target of an
--- assignment *must* be an addressable location.  Addressable
--- locations are:
---
--- 1) Named variables
---
--- 2) Field selectors
---
--- 3) Index expressions
---
--- 4) Dereference expressions
-withAssignableLocation :: Expression SourceRange
-                       -> (GoVarReg s -> GoGenerator h s ctx a)
-                       -> GoGenerator h s ctx a
-withAssignableLocation e k =
-  case e of
-    Name _ Nothing (Id _ _ ident) -> do
-      lenv <- St.gets lexenv
-      case HM.lookup ident lenv of
-        Nothing -> error ("withTranslatedExpression: Undefined identifier: " ++ show ident)
-        Just gvr -> k gvr
-    IndexExpr {} -> error ("Unsupported assignable location: " ++ show e)
-    FieldSelector {} -> error ("Unsupported assignable location: " ++ show e)
-    UnaryExpr _ Deref _ -> error ("Unsupported assignable location: " ++ show e)
-    _ -> error ("Unassignable location: " ++ show e)
-
 
 withLoopLabels :: Gen.Label s
                -> Gen.Label s
@@ -462,10 +435,11 @@ fromRight (Right x) = x
 translateAssignment :: (Expression SourceRange, Expression SourceRange)
                     -> GoGenerator h s rctx ()
 translateAssignment (lhs, rhs) =
-  withAssignableLocation lhs $ \(GoVarReg tp reg) -> do
-    withTranslatedExpression rhs $ \rhs' -> do
+  withTranslatedExpression lhs $ \mAssignLoc lhs' -> do
+    withTranslatedExpression rhs $ \_ rhs' -> do
       case () of
-        _ | Just Refl <- testEquality tp (exprType rhs') -> do
+        _ | Just Refl <- testEquality (exprType lhs') (exprType rhs')
+          , Just reg <- mAssignLoc -> do
             ref0 <- Gen.readReg reg
             Gen.writeReference ref0 rhs'
           | otherwise -> error ("translateAssignment: type mismatch between lhs and rhs: " ++ show (lhs, rhs))
@@ -487,7 +461,7 @@ translateVarSpec s = case s of
   UntypedVarSpec _ identifiers initialValues -> error "Untyped variable declarations will be supported in V4"
   where
     bindExpr ident value = do
-      withTranslatedExpression value $ \expr ->
+      withTranslatedExpression value $ \_ expr ->
         declareIdent ident expr (exprType expr)
 
 -- | Translate a Go expression into a Crucible expression
@@ -499,30 +473,48 @@ translateVarSpec s = case s of
 --
 -- 2) We need to be able to dereference all of the references holding
 --    values, and 'readReference' is in 'Generator'
+--
+-- The continuation is called with the assignable location associated
+-- with the expression, if any (e.g., the address of operation returns
+-- an expression along with an assignable location, while a simple
+-- binary addition only returns an expression).
+--
+-- We can only update reference locations, so the target of an
+-- assignment *must* be an addressable location.  Addressable
+-- locations are:
+--
+-- 1) Named variables
+--
+-- 2) Field selectors
+--
+-- 3) Index expressions
+--
+-- 4) Dereference expressions
 withTranslatedExpression :: Expression SourceRange
-                         -> (forall typ . Gen.Expr s typ -> GoGenerator h s rctx a)
+                         -> (forall typ . Maybe (Gen.Reg s (ReferenceType typ)) -> Gen.Expr s typ -> GoGenerator h s rctx a)
                          -> GoGenerator h s rctx a
 withTranslatedExpression e k = case e of
   IntLit _ i ->
     (translateTypeM (fromRight $ getType e)) $ \typerepr _ ->
     case typerepr of
-      (BVRepr repr) -> k (Gen.App (C.BVLit repr i))
+      (BVRepr repr) -> k Nothing (Gen.App (C.BVLit repr i))
       _ -> error ("withTranslatedExpression: impossible literal type: " ++ show e)
-  FloatLit _ d -> k (Gen.App (C.RationalLit (realToFrac d)))
-  StringLit _ t -> k (Gen.App (C.TextLit t))
+  FloatLit _ d -> k Nothing (Gen.App (C.RationalLit (realToFrac d)))
+  StringLit _ t -> k Nothing (Gen.App (C.TextLit t))
   Name _ Nothing (Id _ _ ident) -> do
     lenv <- St.gets lexenv
     case HM.lookup ident lenv of
       Nothing -> error ("withTranslatedExpression: Undefined identifier: " ++ show ident)
       Just (GoVarReg _typeRep refReg) -> do
         regExp <- Gen.readReg refReg
-        Gen.readReference regExp >>= k
+        Gen.readReference regExp >>= k (Just refReg)
   UnaryExpr _ op operand -> do
-    withTranslatedExpression operand $ \innerExpr ->
-      translateUnaryExpression e k op innerExpr
+    exprTypeRepr e $ \tp zero ->
+      withTranslatedExpression operand $ \mAssignLoc innerExpr ->
+        translateUnaryExpression e tp zero k op mAssignLoc innerExpr
   BinaryExpr _ op e1 e2 -> do
-    withTranslatedExpression e1 $ \e1' ->
-      withTranslatedExpression e2 $ \e2' ->
+    withTranslatedExpression e1 $ \_ e1' ->
+      withTranslatedExpression e2 $ \_ e2' ->
         case (exprType e1', exprType e2') of
           (BVRepr w1, BVRepr w2)
             | Just Refl <- testEquality w1 w2
@@ -536,20 +528,20 @@ withTranslatedExpression e k = case e of
           (BoolRepr, BoolRepr) -> translateBooleanBinaryOp e k op e1' e2'
           _ -> error ("withTranslatedExpression: unsupported operation: " ++ show (op, e1, e2))
   Conversion _ toType baseE ->
-    withTranslatedExpression baseE $ \baseE' ->
+    withTranslatedExpression baseE $ \_ baseE' ->
       case getType toType of
         Right toType' -> translateTypeM toType' $ \typerepr _ ->
           translateConversion k typerepr baseE'
         Left err -> error ("withTranslatedType: Unexpected conversion type: " ++ show (toType, err))
   _ -> error "Unsuported expression type"
 
-translateConversion :: (Gen.Expr s toTyp -> GoGenerator h s rctx a)
+translateConversion :: (Maybe (Gen.Reg s (ReferenceType toTyp)) -> Gen.Expr s toTyp -> GoGenerator h s rctx a)
                     -> TypeRepr toTyp
                     -> Gen.Expr s fromTyp
                     -> GoGenerator h s rctx a
 translateConversion k toType e =
   case (exprType e, toType) of
-    (BoolRepr, BVRepr w) -> k (Gen.App (C.BoolToBV w e))
+    (BoolRepr, BVRepr w) -> k Nothing (Gen.App (C.BoolToBV w e))
     -- FIXME: Need sign information if this is integral
     -- (BVRepr w1, ReprAndValue (BVRepr w2) _)
     --   | Just LeqProof <- isPosNat w1
@@ -564,7 +556,7 @@ isSigned Unsigned = False
 
 -- We need to be able to desugar these with short circuiting.
 translateBooleanBinaryOp :: Expression SourceRange
-                         -> (Gen.Expr s BoolType -> a)
+                         -> (Maybe (Gen.Reg s (ReferenceType BoolType)) -> Gen.Expr s BoolType -> a)
                          -> BinaryOp
                          -> Gen.Expr s BoolType
                          -> Gen.Expr s BoolType
@@ -577,22 +569,22 @@ translateBooleanBinaryOp =
 -- Note that the translation is to *real* valued arithmetic, as we
 -- don't have models of IEEE floats.
 translateFloatingOp :: Expression SourceRange
-                    -> (forall typ . Gen.Expr s typ -> a)
+                    -> (forall typ . Maybe (Gen.Reg s (ReferenceType typ)) -> Gen.Expr s typ -> a)
                     -> BinaryOp
                     -> Gen.Expr s RealValType
                     -> Gen.Expr s RealValType
                     -> a
 translateFloatingOp e k op e1 e2 =
   case op of
-    Add -> k (Gen.App (C.RealAdd e1 e2))
-    Subtract -> k (Gen.App (C.RealSub e1 e2))
-    Multiply -> k (Gen.App (C.RealMul e1 e2))
-    Equals -> k (Gen.App (C.RealEq e1 e2))
-    NotEquals -> k (Gen.App (C.Not (Gen.App (C.RealEq e1 e2))))
-    Less -> k (Gen.App (C.RealLt e1 e2))
-    LessEq -> k (Gen.App (C.Not (Gen.App (C.RealLt e2 e1))))
-    Greater -> k (Gen.App (C.RealLt e2 e1))
-    GreaterEq -> k (Gen.App (C.Not (Gen.App (C.RealLt e1 e2))))
+    Add -> k Nothing (Gen.App (C.RealAdd e1 e2))
+    Subtract -> k Nothing (Gen.App (C.RealSub e1 e2))
+    Multiply -> k Nothing (Gen.App (C.RealMul e1 e2))
+    Equals -> k Nothing (Gen.App (C.RealEq e1 e2))
+    NotEquals -> k Nothing (Gen.App (C.Not (Gen.App (C.RealEq e1 e2))))
+    Less -> k Nothing (Gen.App (C.RealLt e1 e2))
+    LessEq -> k Nothing (Gen.App (C.Not (Gen.App (C.RealLt e2 e1))))
+    Greater -> k Nothing (Gen.App (C.RealLt e2 e1))
+    GreaterEq -> k Nothing (Gen.App (C.Not (Gen.App (C.RealLt e1 e2))))
     Divide -> error ("translateFloatingOp: Division is not supported: " ++ show e)
     Remainder -> error ("translateFloatingOp: Remainder is not supported: " ++ show e)
     BitwiseAnd -> error ("translateFloatingOp: BitwiseAnd is not supported: " ++ show e)
@@ -609,7 +601,7 @@ translateFloatingOp e k op e1 e2 =
 -- This includes translations for ==, /=, <, >, <=, and >= (which also
 -- need other implementations for other types)
 translateBitvectorBinaryOp :: (1 <= w)
-                         => (forall typ . Gen.Expr s typ -> a)
+                         => (forall typ . Maybe (Gen.Reg s (ReferenceType typ)) -> Gen.Expr s typ -> a)
                          -> BinaryOp
                          -> SignedOrUnsigned
                          -> NatRepr w
@@ -618,58 +610,74 @@ translateBitvectorBinaryOp :: (1 <= w)
                          -> a
 translateBitvectorBinaryOp k op sou w e1 e2 =
   case op of
-    Add -> k (Gen.App (C.BVAdd w e1 e2))
-    Subtract -> k (Gen.App (C.BVSub w e1 e2))
-    Multiply -> k (Gen.App (C.BVMul w e1 e2))
-    Divide | isSigned sou -> k (Gen.App (C.BVSdiv w e1 e2))
-           | otherwise -> k (Gen.App (C.BVUdiv w e1 e2))
-    Remainder | isSigned sou -> k (Gen.App (C.BVSrem w e1 e2))
-              | otherwise -> k (Gen.App (C.BVUrem w e1 e2))
-    BitwiseAnd -> k (Gen.App (C.BVAnd w e1 e2))
-    BitwiseOr -> k (Gen.App (C.BVOr w e1 e2))
-    BitwiseXOr -> k (Gen.App (C.BVXor w e1 e2))
-    BitwiseNAnd -> k (Gen.App (C.BVNot w (Gen.App (C.BVAnd w e1 e2))))
-    LeftShift -> k (Gen.App (C.BVShl w e1 e2))
-    RightShift | isSigned sou -> k (Gen.App (C.BVAshr w e1 e2))
-               | otherwise -> k (Gen.App (C.BVLshr w e1 e2))
-    Equals -> k (Gen.App (C.BVEq w e1 e2))
-    NotEquals -> k (Gen.App (C.Not (Gen.App (C.BVEq w e1 e2))))
-    LessEq | isSigned sou -> k (Gen.App (C.BVSle w e1 e2))
-           | otherwise -> k (Gen.App (C.BVUle w e1 e2))
-    Less | isSigned sou -> k (Gen.App (C.BVSlt w e1 e2))
-         | otherwise -> k (Gen.App (C.BVUlt w e1 e2))
-    GreaterEq | isSigned sou -> k (Gen.App (C.Not (Gen.App (C.BVSlt w e1 e2))))
-              | otherwise -> k (Gen.App (C.Not (Gen.App (C.BVUlt w e1 e2))))
-    Greater | isSigned sou -> k (Gen.App (C.Not (Gen.App (C.BVSle w e1 e2))))
-            | otherwise -> k (Gen.App (C.Not (Gen.App (C.BVUle w e1 e2))))
+    Add -> k Nothing (Gen.App (C.BVAdd w e1 e2))
+    Subtract -> k Nothing (Gen.App (C.BVSub w e1 e2))
+    Multiply -> k Nothing (Gen.App (C.BVMul w e1 e2))
+    Divide | isSigned sou -> k Nothing (Gen.App (C.BVSdiv w e1 e2))
+           | otherwise -> k Nothing (Gen.App (C.BVUdiv w e1 e2))
+    Remainder | isSigned sou -> k Nothing (Gen.App (C.BVSrem w e1 e2))
+              | otherwise -> k Nothing (Gen.App (C.BVUrem w e1 e2))
+    BitwiseAnd -> k Nothing (Gen.App (C.BVAnd w e1 e2))
+    BitwiseOr -> k Nothing (Gen.App (C.BVOr w e1 e2))
+    BitwiseXOr -> k Nothing (Gen.App (C.BVXor w e1 e2))
+    BitwiseNAnd -> k Nothing (Gen.App (C.BVNot w (Gen.App (C.BVAnd w e1 e2))))
+    LeftShift -> k Nothing (Gen.App (C.BVShl w e1 e2))
+    RightShift | isSigned sou -> k Nothing (Gen.App (C.BVAshr w e1 e2))
+               | otherwise -> k Nothing (Gen.App (C.BVLshr w e1 e2))
+    Equals -> k Nothing (Gen.App (C.BVEq w e1 e2))
+    NotEquals -> k Nothing (Gen.App (C.Not (Gen.App (C.BVEq w e1 e2))))
+    LessEq | isSigned sou -> k Nothing (Gen.App (C.BVSle w e1 e2))
+           | otherwise -> k Nothing (Gen.App (C.BVUle w e1 e2))
+    Less | isSigned sou -> k Nothing (Gen.App (C.BVSlt w e1 e2))
+         | otherwise -> k Nothing (Gen.App (C.BVUlt w e1 e2))
+    GreaterEq | isSigned sou -> k Nothing (Gen.App (C.Not (Gen.App (C.BVSlt w e1 e2))))
+              | otherwise -> k Nothing (Gen.App (C.Not (Gen.App (C.BVUlt w e1 e2))))
+    Greater | isSigned sou -> k Nothing (Gen.App (C.Not (Gen.App (C.BVSle w e1 e2))))
+            | otherwise -> k Nothing (Gen.App (C.Not (Gen.App (C.BVUle w e1 e2))))
     LogicalAnd -> error "translateBitvectorBinaryOp: logical and of bitvectors is not supported"
     LogicalOr -> error "translateBitvectorBinaryOp: logical and of bitvectors is not supported"
 
 
 translateUnaryExpression :: Expression SourceRange
-                         -> (Gen.Expr s tp -> GoGenerator h s rctx a)
+                         -- ^ The original expression
+                         -> TypeRepr tp'
+                         -- ^ The typerepr of the result
+                         -> Gen.Expr s tp'
+                         -- ^ The zero value for the result type
+                         -> (Maybe (Gen.Reg s (ReferenceType tp')) -> Gen.Expr s tp' -> GoGenerator h s rctx a)
+                         -- ^ The continuation to call
                          -> UnaryOp
+                         -- ^ The operator applied by this unary expression
+                         -> Maybe (Gen.Reg s (ReferenceType tp))
+                         -- ^ The original inner expression
                          -> Gen.Expr s tp
+                         -- ^ The translated inner expression
                          -> GoGenerator h s rctx a
-translateUnaryExpression e k op innerExpr =
-  exprTypeRepr e $ \typerepr zero ->
-  case (op, exprType innerExpr, typerepr) of
-    (Plus, _, _) -> k innerExpr
+translateUnaryExpression e resRepr zero k op mAssignLoc innerExpr =
+  case (op, exprType innerExpr, resRepr) of
+    (Plus, innerTp, _)
+      | Just Refl <- testEquality innerTp resRepr -> k Nothing innerExpr
+      | otherwise -> error ("translateUnaryExpression: mismatch in return type of addition: " ++ show e)
     (Minus, BVRepr w, BVRepr w')
       | Just Refl <- testEquality w w'
       , Just LeqProof <- isPosNat w ->
-        k (Gen.App (C.BVSub w zero innerExpr))
+        k Nothing (Gen.App (C.BVSub w zero innerExpr))
     (Minus, _, _) -> error ("withTranslatedExpression: invalid argument to unary minus: " ++ show e)
     (Not, BoolRepr, BoolRepr) ->
-      k (Gen.App (C.Not innerExpr))
+      k Nothing (Gen.App (C.Not innerExpr))
     (Not, _, _) -> error ("withTranslatedExpression: invalid argument to not: " ++ show e)
     (Complement, BVRepr w, BVRepr w')
       | Just Refl <- testEquality w w'
       , Just LeqProof <- isPosNat w ->
-        k (Gen.App (C.BVNot w innerExpr))
+        k Nothing (Gen.App (C.BVNot w innerExpr))
+    (Address, innerTypeRepr, _)
+      | Just Refl <- testEquality resRepr (ReferenceRepr innerTypeRepr)
+      , Just loc <- mAssignLoc ->
+        Gen.readReg loc >>= k Nothing
+      | Nothing <- mAssignLoc -> error ("Address taken of non-assignable location: " ++ show e)
+      | otherwise -> error ("Type mismatch while translating address of operation: " ++ show e)
     (Complement, _, _) -> error ("withTranslatedExpression: invalid argument to complement: " ++ show e)
     (Receive, _, _) -> error "withTranslatedExpression: unary Receive is not supported"
-    (Address, _, _) -> error "withTranslatedExpression: addressof is not supported"
     (Deref, _, _) -> error "withTranslatedExpression: deref is not supported"
 
 -- | This is a trivial wrapper around 'getType' and 'toTypeRepr' to
