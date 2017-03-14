@@ -95,6 +95,9 @@ withSimulatedResult (C.AnyCFG cfg) k = do
 
 -- | Convert a value returned by the symbolic simulator into a simple
 -- result that we can inspect.
+--
+-- Currently, we only support returning a single int32 (which is
+-- wrapped in a single-element struct by our go-crucible translation).
 toSimpleResult :: forall t tp . C.RegEntry (Sym t) tp -> SimpleResult
 toSimpleResult re =
   case C.regType re of
