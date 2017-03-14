@@ -543,7 +543,7 @@ withTranslatedExpression e k = case e of
         Left err -> error ("withTranslatedType: Unexpected conversion type: " ++ show (toType, err))
   _ -> error "Unsuported expression type"
 
-translateConversion :: (forall toTyp . Gen.Expr s toTyp -> GoGenerator h s rctx a)
+translateConversion :: (Gen.Expr s toTyp -> GoGenerator h s rctx a)
                     -> TypeRepr toTyp
                     -> Gen.Expr s fromTyp
                     -> GoGenerator h s rctx a
