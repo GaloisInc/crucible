@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ImplicitParams #-}
 module Main where
 
 import Lang.Crucible.Go.Translation
@@ -8,6 +9,7 @@ import Control.Monad.ST
 import Lang.Crucible.Core
 
 main :: IO ()
-main = case runST $ translateFunction (Id undefined undefined "f") undefined undefined [] of
+main = let ?machineWordWidth = 32 in
+       case runST $ translateFunction (Id undefined undefined "f") undefined undefined [] of
          AnyCFG cfg -> putStrLn $ show cfg
 
