@@ -26,7 +26,7 @@ import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Foldable as F
 import Data.Maybe ( maybeToList )
 import Control.Monad.ST ( ST )
-import Control.Monad ( liftM, zipWithM, void )
+import Control.Monad ( zipWithM, void )
 import qualified Control.Monad.State as St
 import Data.Text (Text)
 import Data.HashMap.Strict (HashMap)
