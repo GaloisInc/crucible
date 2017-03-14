@@ -682,9 +682,8 @@ exprTypeRepr :: Expression SourceRange
              -> (forall typ. TypeRepr typ -> (forall s. Gen.Expr s typ) -> GoGenerator h s rctx a)
                -> GoGenerator h s rctx a
 exprTypeRepr e k = case getType e of
-  Left err -> fail "err"
+  Left err -> fail (show err)
   Right typ -> translateTypeM typ k
-                   
 
 -- | Declares an identifier; ignores blank identifiers. A thin wrapper
 -- around `declareVar` that doesn't return the register
