@@ -331,7 +331,14 @@ translateStatement s retCtxRepr = case s of
       LabelStack [] -> error "Empty continue stack for continue statement"
   ContinueStmt _ (Just _) -> error "Named continues are not supported yet"
   SendStmt {} -> error "Send statements are not supported yet"
-  UnaryAssignStmt {} -> error "Unary assignments are not supported yet"
+
+  UnaryAssignStmt _ e incdec ->
+    withAssignableLocation e $ \(GoVarReg tp reg) -> do
+      withIncDecWrapper tp incdec $ \op -> do
+        ref0 <- Gen.readReg reg
+        e0 <- Gen.readReference ref0
+        Gen.writeReference ref0 (op e0)
+
   ExprSwitchStmt {} -> error "Expr switch statements are not supported yet"
   TypeSwitchStmt {} -> error "Type switch statements are not supported yet"
   GoStmt {} -> error "go statements are not supported yet"
@@ -341,6 +348,52 @@ translateStatement s retCtxRepr = case s of
   FallthroughStmt {} -> error "Fallthrough statements are not supported yet"
   DeferStmt {} -> error "Defer statements are not supported yet"
   ShortVarDeclStmt {} -> error "Short variable declarations are not supported yet"
+
+-- | Given a type witness, return the correct expression constructor
+-- to either add or subtract one from the expression
+--
+-- Only integral (bitvector) and float (real) types are supported.
+withIncDecWrapper :: TypeRepr tp
+                  -> IncDec
+                  -> ((Gen.Expr s tp -> Gen.Expr s tp) -> GoGenerator h s ctx a)
+                  -> GoGenerator h s ctx a
+withIncDecWrapper tp incdec k =
+  case (tp, incdec) of
+    (C.BVRepr w, Inc) -> k (\val -> Gen.App (C.BVAdd w val (Gen.App (C.BVLit w 1))))
+    (C.RealValRepr, Inc) -> k (\val -> Gen.App (C.RealAdd val (Gen.App (C.RationalLit 1))))
+    (C.BVRepr w, Dec) -> k (\val -> Gen.App (C.BVSub w val (Gen.App (C.BVLit w 1))))
+    (C.RealValRepr, Dec) -> k (\val -> Gen.App (C.RealSub val (Gen.App (C.RationalLit 1))))
+    _ -> error ("Unsupported increment/decrement base type: " ++ show tp)
+
+-- | Call a continuation with the location referred to by the given
+-- expression (error otherwise)
+--
+-- We can only update reference locations, so the target of an
+-- assignment *must* be an addressable location.  Addressable
+-- locations are:
+--
+-- 1) Named variables
+--
+-- 2) Field selectors
+--
+-- 3) Index expressions
+--
+-- 4) Dereference expressions
+withAssignableLocation :: Expression SourceRange
+                       -> (GoVarReg s -> GoGenerator h s ctx a)
+                       -> GoGenerator h s ctx a
+withAssignableLocation e k =
+  case e of
+    Name _ Nothing (Id _ _ ident) -> do
+      lenv <- St.gets lexenv
+      case HM.lookup ident lenv of
+        Nothing -> error ("withTranslatedExpression: Undefined identifier: " ++ show ident)
+        Just gvr -> k gvr
+    IndexExpr {} -> error ("Unsupported assignable location: " ++ show e)
+    FieldSelector {} -> error ("Unsupported assignable location: " ++ show e)
+    UnaryExpr _ Deref _ -> error ("Unsupported assignable location: " ++ show e)
+    _ -> error ("Unassignable location: " ++ show e)
+
 
 withLoopLabels :: Gen.Label s
                -> Gen.Label s
@@ -392,18 +445,13 @@ fromRight (Right x) = x
 translateAssignment :: (Expression SourceRange, Expression SourceRange)
                     -> GoGenerator h s rctx ()
 translateAssignment (lhs, rhs) =
-  withTranslatedExpression rhs $ \rhs' ->
-    case lhs of
-      Name _ Nothing (Id _ _ ident) -> do
-        lenv <- St.gets lexenv
-        case HM.lookup ident lenv of
-          Nothing -> error ("translateAssignment: Undefined identifier: " ++ show ident)
-          Just (GoVarReg typeRep refReg)
-            | Just Refl <- testEquality typeRep (exprType rhs') -> do
-                regExp <- Gen.readReg refReg
-                Gen.writeReference regExp rhs'
-            | otherwise -> error ("translateAssignment: type mismatch between lhs and rhs: " ++ show (lhs, rhs))
-      _ -> error ("translateAssignment: unsupported LHS: " ++ show lhs)
+  withAssignableLocation lhs $ \(GoVarReg tp reg) -> do
+    withTranslatedExpression rhs $ \rhs' -> do
+      case () of
+        _ | Just Refl <- testEquality tp (exprType rhs') -> do
+            ref0 <- Gen.readReg reg
+            Gen.writeReference ref0 rhs'
+          | otherwise -> error ("translateAssignment: type mismatch between lhs and rhs: " ++ show (lhs, rhs))
 
 translateVarSpec :: VarSpec SourceRange -> GoGenerator h s rctx ()
 translateVarSpec s = case s of
