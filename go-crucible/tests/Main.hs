@@ -96,8 +96,10 @@ withSimulatedResult (C.AnyCFG cfg) k = do
 -- | Convert a value returned by the symbolic simulator into a simple
 -- result that we can inspect.
 --
--- Currently, we only support returning a single int32 (which is
--- wrapped in a single-element struct by our go-crucible translation).
+-- Currently, we only support returning a single int32, int64, or
+-- float (which is wrapped in a single-element struct by our
+-- go-crucible translation).  Floats are translated to rationals,
+-- unfortunately.
 toSimpleResult :: forall t tp . C.RegEntry (Sym t) tp -> SimpleResult
 toSimpleResult re =
   case C.regType re of
@@ -105,9 +107,18 @@ toSimpleResult re =
       | Just C.Refl <- C.testEquality ctx (Ctx.empty Ctx.%> C.BVRepr (C.knownNat :: C.NatRepr 32)) ->
         case C.unRV (C.regValue re Ctx.! Ctx.base) of
           C.BVElt _ i _ -> RInt i
+          _ -> error "Impossible"
+      | Just C.Refl <- C.testEquality ctx (Ctx.empty Ctx.%> C.BVRepr (C.knownNat :: C.NatRepr 64)) ->
+        case C.unRV (C.regValue re Ctx.! Ctx.base) of
+          C.BVElt _ i _ -> RInt i
+          _ -> error "Impossible"
+      | Just C.Refl <- C.testEquality ctx (Ctx.empty Ctx.%> C.RealValRepr) ->
+        case C.unRV (C.regValue re Ctx.! Ctx.base) of
+          C.RatElt r _ -> RRational r
+          _ -> error "Impossible"
+    _ -> InvalidResult (show (C.regType re))
 
 data SimpleResult = RInt Integer
-                  | RStruct [SimpleResult]
                   | RRational Rational
                   | InvalidResult String
   deriving (Eq, Ord, Read, Show)
