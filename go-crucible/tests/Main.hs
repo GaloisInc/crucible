@@ -15,7 +15,6 @@ import qualified Test.Tasty as T
 import qualified Test.Tasty.HUnit as T
 
 import qualified Data.Parameterized.Context as Ctx
-import qualified Data.Parameterized.TraversableFC as Ctx
 import qualified Data.Parameterized.Nonce as Ctx
 import qualified Data.Parameterized.Map as MapF
 
@@ -98,34 +97,11 @@ withSimulatedResult (C.AnyCFG cfg) k = do
 -- result that we can inspect.
 toSimpleResult :: forall t tp . C.RegEntry (Sym t) tp -> SimpleResult
 toSimpleResult re =
-  case C.asBaseType (C.regType re) of
-    C.NotBaseType -> InvalidResult "Not a base type"
-    C.AsBaseType btr ->
-      eltToSimpleResult (TypedElt btr (C.regValue re))
-
-data TypedElt tp = forall t . TypedElt (C.BaseTypeRepr tp) (C.Elt t tp)
-
-eltToSimpleResult :: TypedElt tp -> SimpleResult
-eltToSimpleResult (TypedElt tp e) =
-  case tp of
-    C.BaseBVRepr _w ->
-      case e of
-        C.BVElt _ i _ -> RInt i
-        _ -> InvalidResult "Expected bitvector"
-    C.BaseRealRepr ->
-      case e of
-        C.RatElt r _ -> RRational r
-        _ -> InvalidResult "Expected rational"
-    C.BaseStructRepr _ ->
-      case e of
-        C.AppElt ae ->
-          case C.eltApp ae of
-            C.StructCtor reprs assignment ->
-              let ra = Ctx.zipWith TypedElt reprs assignment
-              in RStruct (Ctx.toListFC eltToSimpleResult ra)
-            _ -> InvalidResult "Expected struct"
-        _ -> InvalidResult "Expected AppElt"
-    _ -> InvalidResult ("Unknown repr: " ++ show tp)
+  case C.regType re of
+    C.StructRepr ctx
+      | Just C.Refl <- C.testEquality ctx (Ctx.empty Ctx.%> C.BVRepr (C.knownNat :: C.NatRepr 32)) ->
+        case C.unRV (C.regValue re Ctx.! Ctx.base) of
+          C.BVElt _ i _ -> RInt i
 
 data SimpleResult = RInt Integer
                   | RStruct [SimpleResult]
