@@ -3,6 +3,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ImplicitParams #-}
 module Main ( main ) where
 
 import Control.Lens ( (^.) )
@@ -46,7 +47,7 @@ testGoFile fp = T.testCase goFileName $ do
     Left err -> T.assertFailure ("Error while parsing " ++ goFileName ++ ": " ++ show err)
     Right f -> do
       let (fid, params, returns, body) = findFirstFunction f
-          cfg = runST $ translateFunction fid params returns body
+          cfg = let ?machineWordWidth = 32 in runST $ translateFunction fid params returns body
       withSimulatedResult cfg $ \sr -> do
         expectedResult <- read <$> readFile fp
         T.assertEqual "Expected result" expectedResult sr
