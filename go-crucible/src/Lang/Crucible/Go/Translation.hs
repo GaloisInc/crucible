@@ -456,8 +456,9 @@ withTranslatedExpression :: Expression SourceRange
                          -> GoGenerator h s rctx a
 withTranslatedExpression e k = case e of
   IntLit _ i ->
-    case toTypeRepr `liftM` getType e of
-      Right (ReprAndValue (BVRepr repr) _zero) -> k (Gen.App (C.BVLit repr i))
+    (translateTypeM (fromRight $ getType e)) $ \typerepr _ ->
+    case typerepr of
+      (BVRepr repr) -> k (Gen.App (C.BVLit repr i))
       _ -> error ("withTranslatedExpression: impossible literal type: " ++ show e)
   FloatLit _ d -> k (Gen.App (C.RationalLit (realToFrac d)))
   StringLit _ t -> k (Gen.App (C.TextLit t))
@@ -489,17 +490,18 @@ withTranslatedExpression e k = case e of
   Conversion _ toType baseE ->
     withTranslatedExpression baseE $ \baseE' ->
       case getType toType of
-        Right toType' -> translateConversion k (toTypeRepr toType') baseE'
+        Right toType' -> translateTypeM toType' $ \typerepr _ ->
+          translateConversion k typerepr baseE'
         Left err -> error ("withTranslatedType: Unexpected conversion type: " ++ show (toType, err))
   _ -> error "Unsuported expression type"
 
 translateConversion :: (forall toTyp . Gen.Expr s toTyp -> GoGenerator h s rctx a)
-                    -> ReprAndValue
+                    -> TypeRepr toTyp
                     -> Gen.Expr s fromTyp
                     -> GoGenerator h s rctx a
 translateConversion k toType e =
   case (exprType e, toType) of
-    (BoolRepr, ReprAndValue (BVRepr w) _) -> k (Gen.App (C.BoolToBV w e))
+    (BoolRepr, BVRepr w) -> k (Gen.App (C.BoolToBV w e))
     -- FIXME: Need sign information if this is integral
     -- (BVRepr w1, ReprAndValue (BVRepr w2) _)
     --   | Just LeqProof <- isPosNat w1
@@ -597,22 +599,23 @@ translateBitvectorBinaryOp k op sou w e1 e2 =
 
 
 translateUnaryExpression :: Expression SourceRange
-                         -> (Gen.Expr s tp -> a)
+                         -> (Gen.Expr s tp -> GoGenerator h s rctx a)
                          -> UnaryOp
                          -> Gen.Expr s tp
-                         -> a
+                         -> GoGenerator h s rctx a
 translateUnaryExpression e k op innerExpr =
-  case (op, exprType innerExpr, exprTypeRepr e) of
+  exprTypeRepr e $ \typerepr zero ->
+  case (op, exprType innerExpr, typerepr) of
     (Plus, _, _) -> k innerExpr
-    (Minus, BVRepr w, Right (ReprAndValue (BVRepr w') zero))
+    (Minus, BVRepr w, BVRepr w')
       | Just Refl <- testEquality w w'
       , Just LeqProof <- isPosNat w ->
         k (Gen.App (C.BVSub w zero innerExpr))
     (Minus, _, _) -> error ("withTranslatedExpression: invalid argument to unary minus: " ++ show e)
-    (Not, BoolRepr, Right (ReprAndValue BoolRepr _zero)) ->
+    (Not, BoolRepr, BoolRepr) ->
       k (Gen.App (C.Not innerExpr))
     (Not, _, _) -> error ("withTranslatedExpression: invalid argument to not: " ++ show e)
-    (Complement, BVRepr w, Right (ReprAndValue (BVRepr w') _zero))
+    (Complement, BVRepr w, BVRepr w')
       | Just Refl <- testEquality w w'
       , Just LeqProof <- isPosNat w ->
         k (Gen.App (C.BVNot w innerExpr))
@@ -623,9 +626,17 @@ translateUnaryExpression e k op innerExpr =
 
 -- | This is a trivial wrapper around 'getType' and 'toTypeRepr' to
 -- fix the Monad instance of 'getType' (inlining this without a type
--- annotation gives an ambiguous type variable error).
-exprTypeRepr :: Expression SourceRange -> Either (SourceRange, String) ReprAndValue
-exprTypeRepr e = toTypeRepr `liftM` getType e
+-- annotation gives an ambiguous type variable error). Note that it
+-- can potentially `fail` if the expression cannot be typed
+-- (e.g. because of type or lexical mismatch), but, in practice, the
+-- parser guarantees that expressions will be well typed.
+exprTypeRepr :: Expression SourceRange
+             -> (forall typ. TypeRepr typ -> (forall s. Gen.Expr s typ) -> GoGenerator h s rctx a)
+               -> GoGenerator h s rctx a
+exprTypeRepr e k = case getType e of
+  Left err -> fail "err"
+  Right typ -> translateTypeM typ k
+                   
 
 -- | Declares an identifier; ignores blank identifiers. A thin wrapper
 -- around `declareVar` that doesn't return the register
@@ -640,7 +651,7 @@ translateConstSpec = undefined
 -- | Translate a Go type to a Crucible type. This is where type semantics is encoded.
 translateType :: forall a. (?machineWordWidth :: Int) => SemanticType
               -> (forall typ. TypeRepr typ -> (forall s. Gen.Expr s typ) -> a)
-              -> a
+              -> a 
 translateType typ = typeAsRepr (specializeType ?machineWordWidth typ)
 
 translateTypeM :: forall h s rctx a. SemanticType
@@ -658,7 +669,8 @@ typeAsRepr typ lifter = injectType (toTypeRepr typ)
 
 
 -- | Compute the Crucible 'TypeRepr' and zero initializer value for a
--- given Go AST type
+-- given Go AST type. Do not use this function on it's own: use
+-- `translateType` or `translateTypeM`.
 toTypeRepr :: SemanticType -> ReprAndValue
 toTypeRepr typ = case typ of
   Int (Just width) _ -> case someNat (fromIntegral width) of
