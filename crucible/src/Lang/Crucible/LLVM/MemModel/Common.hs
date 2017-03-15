@@ -15,80 +15,80 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 
 module Lang.Crucible.LLVM.MemModel.Common
- ( Addr
- , Size
+  ( Addr
+  , Size
 
-   -- * Range declarations.
- , Range(..)
- , isDisjoint
- , containedBy
- , rSize
+    -- * Range declarations.
+  , Range(..)
+  , isDisjoint
+  , containedBy
+  , rSize
 
-   -- * Term declarations
- , Term(..)
- , foldTermM
- , ShowF(..)
+    -- * Term declarations
+  , Term(..)
+  , foldTermM
+  , ShowF(..)
 
-   -- * Type declarations
- , Type(..)
- , TypeF(..)
- , bitvectorType
- , floatType
- , doubleType
- , arrayType
- , mkStruct
- , typeEnd
- , Field
- , fieldVal
- , fieldPad
- , fieldOffset
+    -- * Type declarations
+  , Type(..)
+  , TypeF(..)
+  , bitvectorType
+  , floatType
+  , doubleType
+  , arrayType
+  , mkStruct
+  , typeEnd
+  , Field
+  , fieldVal
+  , fieldPad
+  , fieldOffset
 
-   -- * Pointer declarations
- , Value
- , ValueF(..)
- , store
- , typeOfValue
- , Cond(..)
+    -- * Pointer declarations
+  , Value
+  , ValueF(..)
+  , store
+  , typeOfValue
+  , Cond(..)
 
- , Mux
- , MuxF(..)
- , muxCond
- , muxLeaf
- , reduceMux
- , subCount
- , atomCount
- , EvalContext
- , evalContext
- , evalV
- , eval
+  , Mux
+  , MuxF(..)
+  , muxCond
+  , muxLeaf
+  , reduceMux
+  , subCount
+  , atomCount
+  , EvalContext
+  , evalContext
+  , evalV
+  , eval
 
- , Var(..)
+  , Var(..)
 
- , ValueCtor
- , ValueCtorF(..)
- , valueImports
+  , ValueCtor
+  , ValueCtorF(..)
+  , valueImports
 
- , BasePreference(..)
+  , BasePreference(..)
 
- , RangeLoad(..)
- , rangeLoadType
- , adjustOffset
- , rangeLoad
- , RangeLoadMux
- , fixedOffsetRangeLoad
- , fixedSizeRangeLoad
- , symbolicRangeLoad
+  , RangeLoad(..)
+  , rangeLoadType
+  , adjustOffset
+  , rangeLoad
+  , RangeLoadMux
+  , fixedOffsetRangeLoad
+  , fixedSizeRangeLoad
+  , symbolicRangeLoad
 
- , ValueView
- , ViewF(..)
+  , ValueView
+  , ViewF(..)
 
- , ValueLoad(..)
- , valueLoadType
- , valueLoad
- , ValueLoadMux
- , symbolicValueLoad
+  , ValueLoad(..)
+  , valueLoadType
+  , valueLoad
+  , ValueLoadMux
+  , symbolicValueLoad
 
- ) where
+  ) where
 
 import Control.Exception (assert)
 import Control.Lens

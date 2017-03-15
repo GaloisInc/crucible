@@ -89,19 +89,19 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.LLVM.Translation
-( ModuleTranslation(..)
-, LLVMContext(..)
-, LLVMHandleInfo(..)
-, SymbolHandleMap
-, symbolMap
-, ModuleCFGMap
-, translateModule
-, llvmIntrinsicTypes
-, llvmIntrinsics
-, initalizeMemory
-, LLVMInt
-, toStorableType
-) where
+  ( ModuleTranslation(..)
+  , ModuleCFGMap
+  , LLVMContext(..)
+  , LLVMHandleInfo(..)
+  , SymbolHandleMap
+  , symbolMap
+  , translateModule
+  , llvmIntrinsicTypes
+  , llvmIntrinsics
+  , initalizeMemory
+  , LLVMInt
+  , toStorableType
+  ) where
 
 
 import Control.Monad.State.Strict

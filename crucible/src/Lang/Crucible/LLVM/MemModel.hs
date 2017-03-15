@@ -24,54 +24,53 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Lang.Crucible.LLVM.MemModel
-( LLVMPointerType
-, llvmPointerRepr
-, nullPointer
-, mkNullPointer
-, isNullPointer
-, PtrWidth
-, ptrWidth
-, ppPtr
-, Mem
-, memRepr
-, MemImpl
-, emptyMem
-, LLVMMemOps(..)
-, newMemOps
-, llvmMemIntrinsics
-, crucibleTermGenerator
-, GlobalMap
-, GlobalSymbol(..)
-, allocGlobals
-, assertDisjointRegions
-, doMemcpy
-, doMemset
-, doMalloc
-, doMallocHandle
-, doLookupHandle
-, doCalloc
-, doFree
-, doLoad
-, doStore
-, doPtrAddOffset
-, doPtrSubtract
-, doDumpMem
-, doResolveGlobal
-, loadString
-, loadMaybeString
-, ppMem
+  ( LLVMPointerType
+  , llvmPointerRepr
+  , nullPointer
+  , mkNullPointer
+  , isNullPointer
+  , PtrWidth
+  , ptrWidth
+  , ppPtr
+  , Mem
+  , memRepr
+  , MemImpl
+  , emptyMem
+  , LLVMMemOps(..)
+  , newMemOps
+  , llvmMemIntrinsics
+  , crucibleTermGenerator
+  , GlobalMap
+  , GlobalSymbol(..)
+  , allocGlobals
+  , assertDisjointRegions
+  , doMemcpy
+  , doMemset
+  , doMalloc
+  , doMallocHandle
+  , doLookupHandle
+  , doCalloc
+  , doFree
+  , doLoad
+  , doStore
+  , doPtrAddOffset
+  , doPtrSubtract
+  , doDumpMem
+  , doResolveGlobal
+  , loadString
+  , loadMaybeString
+  , ppMem
 
--- * Direct API to LLVMVal
-, LLVMVal(..)
-, LLVMPtrExpr(..)
-, coerceAny
-, unpackMemValue
-, packMemValue
-, loadRaw
-, storeRaw
-, mallocRaw
-)
-where
+  -- * Direct API to LLVMVal
+  , LLVMVal(..)
+  , LLVMPtrExpr(..)
+  , coerceAny
+  , unpackMemValue
+  , packMemValue
+  , loadRaw
+  , storeRaw
+  , mallocRaw
+  ) where
 
 import           Control.Lens
 import           Control.Monad
