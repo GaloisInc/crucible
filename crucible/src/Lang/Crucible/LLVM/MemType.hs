@@ -15,31 +15,13 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.LLVM.MemType
-  ( Size
-  , Offset
-  , Alignment
-    -- * Utilities
-  , structBraces
-    -- * Data layout declarations.
-  , DataLayout
-  , EndianForm(..)
-  , intLayout
-  , maxAlignment
-  , ptrSize
-  , ptrAlign
-  , ptrBitwidth
-  , defaultDataLayout
-  , parseDataLayout
+  ( -- * Type information.
+    SymType(..)
+  , MemType(..)
   , memTypeAlign
   , memTypeSize
-    -- * Type information.
-  , SymType(..)
   , ppSymType
-    -- ** MemType
-  , MemType(..)
   , ppMemType
-  , i1, i8, i16, i32, i64
-  , i8p, i16p, i32p, i64p
     -- ** Function type information.
   , FunDecl(..)
   , RetType
@@ -63,6 +45,9 @@ module Lang.Crucible.LLVM.MemType
   , siFields
   , siIndexOfOffset
   , siDropLastField
+    -- ** Common memory types.
+  , i1, i8, i16, i32, i64
+  , i8p, i16p, i32p, i64p
     -- * Re-exports
   , L.Ident(..)
   , ppIdent
@@ -104,7 +89,7 @@ binarySearch f = go
 ppIdent :: L.Ident -> Doc
 ppIdent = text . show . L.ppIdent
 
--- | Type supported by symbolic simulator.
+-- | LLVM types supported by symbolic simulator.
 data SymType
   = MemType MemType
   | Alias L.Ident
@@ -129,7 +114,7 @@ ppSymType VoidType = text "void"
 ppSymType OpaqueType = text "opaque"
 ppSymType (UnsupportedType tp) = text (show (L.ppType tp))
 
--- | LLVM Types supported by simulator with a defined size and alignment.
+-- | LLVM types supported by simulator with a defined size and alignment.
 data MemType
   = IntType Nat
   | PtrType SymType

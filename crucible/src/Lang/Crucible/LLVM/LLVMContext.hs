@@ -50,6 +50,7 @@ import qualified Text.LLVM.PP as L
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import Lang.Crucible.LLVM.MemType
+import Lang.Crucible.LLVM.DataLayout
 
 data IdentStatus
   = Resolved SymType
