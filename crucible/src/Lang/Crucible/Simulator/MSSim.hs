@@ -149,7 +149,7 @@ data SimState (ctx :: * -> *) (sym :: *) (rtp :: *) (f :: *) (args :: Maybe (Ctx
                , returnMergeFn :: !(sym -> MuxFn (Pred sym) rtp)
                  -- ^ Describes how to merge the ultimate return value.
                , _errorHandler :: !(ErrorHandler ctx sym rtp)
-               , _stateTree :: !(ActiveTree (SimState ctx sym) rtp rtp f args)
+               , _stateTree :: !(ActiveTree (SimState ctx sym) rtp f args)
                }
 
 newtype ErrorHandler (ctx :: * -> *) (sym :: *) (rtp :: *)
