@@ -1,9 +1,8 @@
 {-|
 Module      : Lang.Crucible.Solver.SimpleBuilder
 Copyright   : (c) Galois Inc, 2015-2016
-License     : AllRightsReserved
-Maintainer  : jhendrix@galois.com
 License     : BSD3
+Maintainer  : jhendrix@galois.com
 
 Declares the main definitions needed by the SimpleBackend and OnlineBackend
 types.

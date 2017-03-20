@@ -18,9 +18,9 @@
 -- Module      : Lang.Crucible.Analysis.ForwardDataflow
 -- Description : Forward dataflow analysis framework based on Kildall's algorithm
 -- Copyright   : (c) Galois, Inc 2015
+-- License     : BSD3
 -- Maintainer  : Rob Dockins <rdockins@galois.com>
 -- Stability   : provisional
--- License     : BSD3
 --
 -- This module defines a generic framework for forward dataflow analysis,
 -- with some additional control-flow data on the side.

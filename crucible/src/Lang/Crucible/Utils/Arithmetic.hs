@@ -4,9 +4,9 @@
 -- Description      : Utility functions for execution of LLVM Symbolic
 --                    programs.
 -- Copyright        : (c) Galois, Inc 2015
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 ------------------------------------------------------------------------
 {-# LANGUAGE CPP #-}
 module Lang.Crucible.Utils.Arithmetic

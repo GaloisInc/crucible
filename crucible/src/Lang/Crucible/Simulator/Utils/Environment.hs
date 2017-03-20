@@ -5,9 +5,9 @@
 --                    expanding a path with referenced to environment
 --                    variables.
 -- Copyright        : (c) Galois, Inc 2013
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 -- Provides functions for finding an executable, and expanding a path
 -- with referenced to environment variables.

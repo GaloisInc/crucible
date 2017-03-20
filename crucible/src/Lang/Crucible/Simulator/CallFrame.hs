@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.Simulator.CallFrame
 -- Description      : Data structure for call frames in the simulator
 -- Copyright        : (c) Galois, Inc 2014
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 -- Call frames are used to record information about suspended stack
 -- frames when functions are called.

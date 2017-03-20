@@ -3,9 +3,9 @@
 -- Module      : Lang.Crucible.Simulator.MSSim
 -- Description : Definition of the simulator monad
 -- Copyright   : (c) Galois, Inc 2014
+-- License     : BSD3
 -- Maintainer  : Joe Hendrix <jhendrix@galois.com>
 -- Stability   : provisional
--- License     : BSD3
 --
 -- Here we define the main simulation monad MSSim and basic operations on it.
 ------------------------------------------------------------------------

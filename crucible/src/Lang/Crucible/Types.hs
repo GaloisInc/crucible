@@ -4,9 +4,9 @@
 -- Description      : This module exports the types used in Crucible
 --                    expressions.
 -- Copyright        : (c) Galois, Inc 2014
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 -- This module exports the types used in Crucible expressions.
 --
@@ -15,8 +15,8 @@
 -- of the embedded CFG language apart.
 --
 -- In addition, we provide a value-level reification of the type
--- indices that can be examinied by pattern matching, called TypeRepr.
--- The `Representable` class computes the value-level representation
+-- indices that can be examined by pattern matching, called 'TypeRepr'.
+-- The 'KnownRepr' class computes the value-level representation
 -- of a given type index, when the type is known at compile time.
 -- Similar setups exist for other components of the type system:
 -- bitvector data and type contexts.
@@ -41,8 +41,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE UndecidableInstances #-}
 module Lang.Crucible.Types
-  ( -- * CrucibleType
+  ( -- * CrucibleType data kind
     type CrucibleType
+    -- ** Constructors for kind CrucibleType
   , AnyType
   , UnitType
   , BoolType
@@ -77,6 +78,7 @@ module Lang.Crucible.Types
 
   , StringMapType
   , SymbolicArrayType
+    -- * IsRecursiveType
   , IsRecursiveType(..)
 
     -- * Base type injection
@@ -93,6 +95,7 @@ module Lang.Crucible.Types
   , IntWidth(..)
   , UIntWidth(..)
 
+    -- * Derived constructors for kind CrucibleType
   , StructFieldsType
   , CplxArrayType
   , RealArrayType
@@ -107,8 +110,10 @@ module Lang.Crucible.Types
   , MultiDimArrayIndexType
   , ArrayDimType
 
+    -- * Representation of Crucible types
   , TypeRepr(..)
   , FloatInfoRepr(..)
+    -- * Concrete types
   , TypeableType(..)
   , TypeableValue(..)
 
@@ -151,7 +156,7 @@ import           Lang.Crucible.BaseTypes
 ------------------------------------------------------------------------
 -- IntWidth
 
--- | A positive width
+-- | A positive width.
 data IntWidth where
   IntWidth :: (1 <= w) => NatRepr w -> IntWidth
 
@@ -171,11 +176,11 @@ instance Eq UIntWidth where
 -------------------------------------------------------------------------
 -- Concrete types
 
--- | Representation of a Haskell type that can be used as a ConcreteType
+-- | Representation of a Haskell type that can be used as a 'ConcreteType'.
 data TypeableType (a :: *) where
   TypeableType :: (Typeable a, Eq a, Ord a, Show a) => TypeableType a
 
--- | A value of ConcreteType
+-- | A value of 'ConcreteType'.
 data TypeableValue (a :: *) where
   TypeableValue :: (Typeable a, Eq a, Ord a, Show a) => a -> TypeableValue a
 
@@ -184,7 +189,7 @@ data TypeableValue (a :: *) where
 
 
 -- | This data kind describes the styles of floating-point values understood
---   by recent LLVM bytecode formats.  This consist of the standard IEEE 754-2008
+--   by recent LLVM bitcode formats.  This consist of the standard IEEE 754-2008
 --   binary floating point formats, as well as the X86 extended 80-bit format
 --   and the double-double format.
 data FloatInfo where
@@ -210,16 +215,16 @@ data FloatInfoRepr (flt::FloatInfo) where
    X86_80FloatRepr       :: FloatInfoRepr X86_80Float
    DoubleDoubleFloatRepr :: FloatInfoRepr DoubleDoubleFloat
 
--- | This typeclass is used to register recursive crucible types
+-- | This typeclass is used to register recursive Crucible types
 --   with the compiler.  This class defines, for a given symbol,
 --   both the type-level and the representative-level unrolling
---   of a named recursive type.
+--   of a named recursive type.  Parameter @nm@ has kind 'Symbol'.
 class IsRecursiveType (nm::Symbol) where
   type UnrollType nm :: CrucibleType
   unrollType :: SymbolRepr nm -> TypeRepr (UnrollType nm)
 
 -- | This data kind describes the types of values and expressions that
---   can occur in crucible CFGs.  Sometimes these correspond to objects that
+--   can occur in Crucible CFGs.  Sometimes these correspond to objects that
 --   exist in source-level programs, and some correspond only to intermediate
 --   values introduced in translations.
 data CrucibleType where
@@ -324,44 +329,44 @@ data CrucibleType where
    -- A partial map from strings to values.
    StringMapType :: CrucibleType -> CrucibleType
 
-type BaseToType = 'BaseToType
-type BoolType = 'BaseToType BaseBoolType
-type BVType w = 'BaseToType (BaseBVType w)
-type ComplexRealType = 'BaseToType BaseComplexType
-type IntegerType = 'BaseToType BaseIntegerType
-type NatType = 'BaseToType BaseNatType
-type RealValType = 'BaseToType BaseRealType
-type SymbolicArrayType idx xs = 'BaseToType (BaseArrayType idx xs)
-type SymbolicStructType flds = 'BaseToType (BaseStructType flds)
+type BaseToType      = 'BaseToType                -- ^ @:: 'BaseType' -> 'CrucibleType'@.
+type BoolType        = BaseToType BaseBoolType    -- ^ @:: 'CrucibleType'@.
+type BVType w        = BaseToType (BaseBVType w)  -- ^ @:: 'Nat' -> 'CrucibleType'@.
+type ComplexRealType = BaseToType BaseComplexType -- ^ @:: 'CrucibleType'@.
+type IntegerType     = BaseToType BaseIntegerType -- ^ @:: 'CrucibleType'@.
+type NatType         = BaseToType BaseNatType     -- ^ @:: 'CrucibleType'@.
+type RealValType     = BaseToType BaseRealType    -- ^ @:: 'CrucibleType'@.
+type SymbolicArrayType idx xs = BaseToType (BaseArrayType idx xs) -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseType' -> 'CrucibleType'@.
+type SymbolicStructType flds = BaseToType (BaseStructType flds) -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'CrucibleType'@.
 
-type AnyType = 'AnyType
-type CharType = 'CharType
-type ConcreteType = 'ConcreteType
-type FloatType   = 'FloatType
-type FunctionHandleType = 'FunctionHandleType
-type IntWidthType = 'IntWidthType
-type RecursiveType = 'RecursiveType
-type IntrinsicType = 'IntrinsicType
-type ReferenceType = 'ReferenceType
-type MatlabIntArrayType    = 'MatlabIntArrayType
-type MatlabIntType         = 'MatlabIntType
-type MatlabUIntArrayType   = 'MatlabUIntArrayType
-type MatlabUIntType        = 'MatlabUIntType
-type MatlabSymbolicIntArrayType = 'MatlabSymbolicIntArrayType
-type MatlabSymbolicUIntArrayType = 'MatlabSymbolicUIntArrayType
-type MaybeType = 'MaybeType
-type MultiDimArrayType = 'MultiDimArrayType
-type StringMapType = 'StringMapType
-type StringType = 'StringType
-type StructType = 'StructType
-type SymbolicMultiDimArrayType = 'SymbolicMultiDimArrayType
-type UIntWidthType = 'UIntWidthType
-type UnitType   = 'UnitType
-type VariantType = 'VariantType
-type VectorType = 'VectorType
-type WordMapType = 'WordMapType
+type AnyType  = 'AnyType  -- ^ @:: 'CrucibleType'@.
+type CharType = 'CharType -- ^ @:: 'CrucibleType'@.
+type ConcreteType = 'ConcreteType -- ^ @:: a -> 'CrucibleType'@.
+type FloatType    = 'FloatType    -- ^ @:: 'FloatInfo' -> 'CrucibleType'@.
+type FunctionHandleType = 'FunctionHandleType -- ^ @:: 'Ctx' 'CrucibleType' -> 'CrucibleType' -> 'CrucibleType'@.
+type IntWidthType = 'IntWidthType -- ^ @:: 'CrucibleType'@.
+type RecursiveType = 'RecursiveType -- ^ @:: 'Symbol' -> 'CrucibleType'@.
+type IntrinsicType = 'IntrinsicType -- ^ @:: 'Symbol' -> 'CrucibleType'@.
+type ReferenceType = 'ReferenceType -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
+type MatlabIntArrayType    = 'MatlabIntArrayType  -- ^ @:: 'CrucibleType'@.
+type MatlabIntType         = 'MatlabIntType       -- ^ @:: 'CrucibleType'@.
+type MatlabUIntArrayType   = 'MatlabUIntArrayType -- ^ @:: 'CrucibleType'@.
+type MatlabUIntType        = 'MatlabUIntType      -- ^ @:: 'CrucibleType'@.
+type MatlabSymbolicIntArrayType = 'MatlabSymbolicIntArrayType -- ^ @:: 'CrucibleType'@.
+type MatlabSymbolicUIntArrayType = 'MatlabSymbolicUIntArrayType -- ^ @:: 'CrucibleType'@.
+type MaybeType = 'MaybeType -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
+type MultiDimArrayType = 'MultiDimArrayType -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
+type StringMapType = 'StringMapType -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
+type StringType = 'StringType -- ^ @:: 'CrucibleType'@.
+type StructType = 'StructType -- ^ @:: 'Ctx' 'CrucibleType' -> 'CrucibleType'@.
+type SymbolicMultiDimArrayType = 'SymbolicMultiDimArrayType -- ^ @:: 'BaseType' -> 'CrucibleType'@.
+type UIntWidthType = 'UIntWidthType -- ^ @:: 'CrucibleType'@.
+type UnitType      = 'UnitType      -- ^ @:: 'CrucibleType'@.
+type VariantType   = 'VariantType   -- ^ @:: 'Ctx' 'CrucibleType' -> 'CrucibleType'@.
+type VectorType    = 'VectorType    -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
+type WordMapType   = 'WordMapType   -- ^ @:: 'Nat' -> 'BaseType' -> 'CrucibleType'@.
 
--- | A type for a collection of the names of a structure
+-- | A type for a collection of the names of a structure.
 type StructFieldsType = VectorType StringType
 
 type CplxArrayType = MultiDimArrayType ComplexRealType
@@ -443,7 +448,8 @@ asBaseType tp =
 
 type CtxRepr = Ctx.Assignment TypeRepr
 
--- | A family of representatives for crucible types
+-- | A family of representatives for Crucible types. Parameter @tp@
+-- has kind 'CrucibleType'.
 data TypeRepr (tp::CrucibleType) where
    AnyRepr :: TypeRepr AnyType
    ConcreteRepr :: TypeableType a -> TypeRepr (ConcreteType a)

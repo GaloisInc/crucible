@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.FunctionName
 -- Description      : Declarations for function names.
 -- Copyright        : (c) Galois, Inc 2014
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 -- This provides a basic data type for function names.
 ------------------------------------------------------------------------

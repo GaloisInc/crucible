@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.Simulator.Intrinsics
 -- Description      : Class and type definitions for intrinsic types
 -- Copyright        : (c) Galois, Inc 2016
+-- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 ------------------------------------------------------------------------
 

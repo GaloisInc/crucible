@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.Analysis.Reachable
 -- Description      : Trims a CFG to the reachable subset
 -- Copyright        : (c) Galois, Inc 2016
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 ------------------------------------------------------------------------
 
 {-# LANGUAGE ScopedTypeVariables #-}

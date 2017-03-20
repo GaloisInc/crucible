@@ -3,9 +3,9 @@
 -- Module      : Lang.Crucible.Config
 -- Description : Declares attributes for simulator configuration settings.
 -- Copyright   : (c) Galois, Inc 2015-2016
+-- License     : BSD3
 -- Maintainer  : Rob Dockins <rdockins@galois.com>
 -- Stability   : provisional
--- License     : BSD3
 --
 -- This module provides access to simulator's persistent configuration settings,
 -- both from the Haskell codebase of the simulator itself, and from within

@@ -4,9 +4,9 @@
 -- Description      : Solver backend that maintains a persistent
 --                    connection to Yices
 -- Copyright        : (c) Galois, Inc 2015-2016
+-- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 ------------------------------------------------------------------------
 

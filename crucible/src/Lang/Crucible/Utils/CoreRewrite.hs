@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.Utils.CoreRewrite
 -- Description      : Operations for manipulating Core CFGs
 -- Copyright        : (c) Galois, Inc 2016
+-- License          : BSD3
 -- Maintainer       : Simon Winwood <sjw@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 ------------------------------------------------------------------------
 {-# LANGUAGE FlexibleInstances #-}
