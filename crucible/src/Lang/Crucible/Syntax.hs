@@ -201,6 +201,17 @@ instance NumExpr NatType where
 instance LitExpr IntegerType Integer where
   litExpr x = app (IntLit x)
 
+instance EqExpr IntegerType where
+  x .== y = app (IntEq x y)
+
+instance OrdExpr IntegerType where
+  x .< y  = app (IntLt x y)
+
+instance NumExpr IntegerType where
+  x .+ y = app (IntAdd x y)
+  x .* y = app (IntMul x y)
+  x .- y = app (IntSub x y)
+
 ------------------------------------------------------------------------
 -- ConvertableToNat
 
