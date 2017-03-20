@@ -1,0 +1,62 @@
+Name:          crucible-bsv
+Version:       0.1
+Author:        Galois Inc.
+Maintainer:    rdockins@galois.com
+License:       BSD3
+License-file:  LICENSE
+Build-type:    Simple
+Cabal-version: >= 1.9.2
+Category:      Language
+Synopsis:      Crucible frontend for Bluespec System Verilog
+
+library
+  build-depends:
+    ansi-wl-pprint,
+    base >= 4.7 && < 4.10,
+    containers,
+    crucible >= 0.1,
+    directory,
+    galois-matlab,
+    lens,
+    llvm-pretty,
+    mtl,
+    parameterized-utils,
+    saw-core >= 0.1,
+    text,
+    transformers,
+    vector
+
+  hs-source-dirs: src
+
+  exposed-modules:
+      Lang.BSV.AST
+      Lang.BSV.RawAST
+      Lang.BSV.TransAST
+      Lang.Crucible.BSV.Analysis
+      Lang.Crucible.BSV.Translation
+
+
+  ghc-options: -Wall
+  ghc-prof-options: -O2 -fprof-auto-top
+
+executable test-bsv
+  main-is: TestBSV.hs
+
+  ghc-options: -Wall
+
+  build-depends:
+    crucible-bsv,
+    ansi-wl-pprint,
+    base >= 4.7 && < 4.10,
+    containers,
+    crucible >= 0.1,
+    directory,
+    galois-matlab,
+    lens,
+    llvm-pretty,
+    mtl,
+    parameterized-utils,
+    saw-core >= 0.1,
+    text,
+    transformers,
+    vector

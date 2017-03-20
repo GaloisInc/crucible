@@ -7,6 +7,7 @@ packages:
 - crucible-abc
 - crucible-blt
 - crucible-saw
+- crucible-bsv
 - crucible-server
 - galois-matlab
 - dependencies/abcBridge
