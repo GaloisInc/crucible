@@ -74,6 +74,7 @@ module Lang.Crucible.Generator
   , unlessCond
   , assertExpr
   , ifte
+  , ifte'
   , ifte_
   , ifteM
   , MatchMaybe(..)
@@ -555,6 +556,27 @@ ifte e x y = do
     defineBlock x_id $ x >>= jumpToLambda c_id
     defineBlock y_id $ y >>= jumpToLambda c_id
     resume c_id c
+
+-- | If-then-else. The first action if the 'true' branch, the second of the
+-- 'false' branch. See 'Br' in "Lang.Crucible.Core".  This method differs
+--  from 'ifte' only in that it takes an explicit 'TypeRepr'.
+ifte' :: TypeRepr tp
+      -> Expr s BoolType
+      -> Generator h s t ret (Expr s tp)
+      -> Generator h s t ret (Expr s tp)
+      -> Generator h s t ret (Expr s tp)
+ifte' tpr e x y = do
+  e_a <- mkAtom e
+  endNow $ \c -> do
+    x_id <- newLabel
+    y_id <- newLabel
+    c_id <- newLambdaLabel' tpr
+
+    endCurrentBlock (Br e_a x_id y_id)
+    defineBlock x_id $ x >>= jumpToLambda c_id
+    defineBlock y_id $ y >>= jumpToLambda c_id
+    resume c_id c
+
 
 ifteM :: KnownRepr TypeRepr tp
      => Generator h s t ret (Expr s BoolType)
