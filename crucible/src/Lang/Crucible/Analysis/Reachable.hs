@@ -20,7 +20,7 @@ import           Data.Parameterized.Map (MapF)
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.TraversableF
 import           Data.Parameterized.TraversableFC
-import qualified Data.Parameterized.UnsafeContext as Ctx
+import qualified Data.Parameterized.Context as Ctx
 import           Lang.Crucible.Core
 
 remapBlockID :: MapF (BlockID b) (BlockID b') -> BlockID b a -> BlockID b' a
