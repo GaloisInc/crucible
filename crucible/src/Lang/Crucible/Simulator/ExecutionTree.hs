@@ -117,8 +117,9 @@ predEqConst sym p False = notPred sym p
 
 -- | A solver for a sim state.
 -- The parameters for the sim state are:
+--
 --   * The type returned at the top frame by the simulator.
---   * The type of the current frame (e.g., Crucible or Override
+--   * The type of the current frame (e.g., Crucible or Override).
 --   * The arguments in the current frame (used for merging within frames).
 type family Solver (s :: * -> fk -> argk -> *) :: *
 
@@ -372,12 +373,11 @@ vffSavedStateInfo :: VFFOtherPath s root f args -> SolverState s
 vffSavedStateInfo (VFFActivePath   p) = savedStateInfo p
 vffSavedStateInfo (VFFCompletePath p) = savedStateInfo p
 
--- | @ValueFromFrame s root ret f@ contains the context for a simulator with state @s@,
--- global return type @root@, return type for this stack @ret@, and top frame with type
--- @f@.
-  -- A Branch is a branch where both execution paths still contains
-  -- executions that need to continue before mergine.
+-- | @ValueFromFrame s ret f@ contains the context for a simulator with state @s@,
+-- return type for this stack @ret@, and top frame with type @f@.
 data ValueFromFrame (s :: * -> fk -> argk -> *) (ret :: *) (f :: fk) where
+  -- A Branch is a branch where both execution paths still contain
+  -- executions that need to continue before merging.
   -- IntraBranch ctx b t denotes @ctx[[] <b> t]@.
   VFFBranch :: !(ValueFromFrame s ret f)
                -- /\ Outer context.
@@ -404,7 +404,6 @@ data ValueFromFrame (s :: * -> fk -> argk -> *) (ret :: *) (f :: fk) where
   VFFEnd :: !(ValueFromValue s ret (ReturnType s f))
          -> ValueFromFrame s ret f
 
--- | value from value denotes
 data ValueFromValue (s :: * -> fk -> argk -> *) (ret :: *) (top_return :: *) where
   -- VFVCall denotes a return to a given frame.
   VFVCall :: !(ValueFromFrame s ret caller)
@@ -512,7 +511,7 @@ data PathValueFns p v = PathValueFns { muxPathValue :: !(MuxFn p v)
                                      , popPathValue :: !(v -> IO v)
                                      }
 
--- | Interface that SimState should export.
+-- | Interface that 'SimState' should export.
 type IsSimState s
    = ( IsBoolExprBuilder (Solver s)
      , IsBoolSolver (Solver s)

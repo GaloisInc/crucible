@@ -236,9 +236,10 @@ data SimContext (sym :: *)
 
 type IsSymInterfaceProof sym a = (IsSymInterface sym => a) -> a
 
+-- | A map from function handles to their semantics.
 type FunctionBindings sym = FnHandleMap (FnState sym)
 
--- | Create a new simContext with the given bindings
+-- | Create a new 'SimContext' with the given bindings.
 initSimContext :: IsSymInterface sym
                => sym
                -> IntrinsicTypes sym
@@ -257,7 +258,6 @@ initSimContext sym intMuxFns cfg halloc h bindings =
              , _functionBindings      = bindings
              }
 
--- | A map from function handles to their semantics.
 ctxSymInterface :: Simple Lens (SimContext sym) sym
 ctxSymInterface = lens _ctxSymInterface (\s v -> s { _ctxSymInterface = v })
 {-# INLINE ctxSymInterface #-}
@@ -616,9 +616,9 @@ newtype MSSim (sym :: *) (rtp :: *) (l :: *) (args :: Maybe (Ctx CrucibleType)) 
            , MonadState (MSS_State sym rtp l args)
            )
 
-runMSSim :: MSSim sym rtp l args a
-         -> (a -> MSS_State sym rtp l args -> IO (SimResult sym rtp))
-         -> MSS_State sym rtp l args
+runMSSim :: MSSim sym rtp l args a -- ^ Computation to run
+         -> (a -> MSS_State sym rtp l args -> IO (SimResult sym rtp)) -- ^ Continuation
+         -> MSS_State sym rtp l args -- ^ Initial state
          -> IO (SimResult sym rtp)
 runMSSim (Sim m) c s = runStateContT m c s
 
@@ -832,7 +832,7 @@ useIntrinsic :: FnHandle args ret
              -> FnBinding sym
 useIntrinsic hdl impl = FnBinding hdl (UseOverride (impl hdl))
 
--- | Make an IntrinsicImpl from an explicit implementation
+-- | Make an 'IntrinsicImpl' from an explicit implementation.
 mkIntrinsic
     :: forall sym args ret
      . (Ctx.CurryAssignmentClass args, KnownRepr TypeRepr ret)

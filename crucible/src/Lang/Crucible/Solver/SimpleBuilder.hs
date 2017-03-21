@@ -593,8 +593,8 @@ data AppElt t tp
 
 -- | An expression for the SimpleBuilder backend.
 --
--- We call it an Elt, because our expressions use explicit sharing and thus an
--- Elt is an element of a DAG that may be shared.
+-- We call it an 'Elt', because our expressions use explicit sharing and thus an
+-- 'Elt' is an element of a DAG that may be shared.
 data Elt t (tp :: BaseType) where
   NatElt :: {-# UNPACK #-} !Nat -> !ProgramLoc -> Elt t BaseNatType
   IntElt :: !Integer -> !ProgramLoc -> Elt t BaseIntegerType
@@ -760,7 +760,7 @@ testSimpleSymFnEq f g = testEquality (symFnId f) (symFnId g)
 ------------------------------------------------------------------------
 -- asConjunction
 
--- | View bool elt as a conjunction.
+-- | View a boolean 'Elt' as a conjunction.
 asConjunction :: BoolElt t -> [BoolElt t]
 asConjunction e = asConjunction' [e] Set.empty []
 
@@ -1623,7 +1623,7 @@ defaultPPEltOpts =
             , ppElt_useDecimal = True
             }
 
--- | Pretty print an elt using let bindings to create the term.
+-- | Pretty print an 'Elt' using let bindings to create the term.
 ppElt :: Elt t tp -> Doc
 ppElt e
      | null bindings = ppEltDoc False r

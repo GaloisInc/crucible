@@ -49,7 +49,7 @@ data SimpleBackendState t
                            , _proofObligs :: Seq (Seq (BoolElt t), Assertion (BoolElt t))
                            }
 
--- | Returns an initial execution staee.
+-- | Returns an initial execution state.
 initialSimpleBackendState :: SimpleBackendState t
 initialSimpleBackendState
      = SimpleBackendState { _assertions = Seq.empty

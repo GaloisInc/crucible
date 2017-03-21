@@ -1,14 +1,13 @@
 -----------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.LLVM.Translation
--- Description      : This module performs the work of tranlating LLVM AST
---                    into a Cucible control-flow graph.
+-- Description      : Translation of LLVM AST into Crucible control-flow graph
 -- Copyright        : (c) Galois, Inc 2014-2015
 -- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
 --
--- This module translates an LLVM Module into a collection of Crucible
+-- This module translates an LLVM 'Module' into a collection of Crucible
 -- control-flow graphs, one per function.  The tricky parts of this translation
 -- are 1) mapping LLVM types onto Crucible types in a sensible way and 2)
 -- translating the phi-instructions of LLVM's SSA form.
@@ -42,7 +41,7 @@
 --
 -- Some notes on undefined/poison values: (outcome of discussions between JHx and RWD)
 --
--- Continue to add Crucible expressions for undefined values as
+-- * Continue to add Crucible expressions for undefined values as
 -- required (e.g. for floating-point values).  Crucible itself is
 -- currently treating undefined values as fresh symbolic inputs; it
 -- should instead invent a new category of "arbitrary" values that get
@@ -53,7 +52,7 @@
 -- universally-quantified, unlike the symbolic inputs which are
 -- existentially-quantified.
 --
--- For poison values, our implementation strategy is to assert
+-- * For poison values, our implementation strategy is to assert
 -- side conditions onto values that may create poison.  As opposed
 -- to assertions (which must be satisfied because you passed through
 -- a control-flow point) side conditions are intended to mean that

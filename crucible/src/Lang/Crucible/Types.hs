@@ -78,6 +78,9 @@ module Lang.Crucible.Types
 
   , StringMapType
   , SymbolicArrayType
+    -- * FloatInfo data kind
+  , FloatInfo(..)
+  , FloatInfoRepr(..)
     -- * IsRecursiveType
   , IsRecursiveType(..)
 
@@ -89,7 +92,6 @@ module Lang.Crucible.Types
   , asBaseType
 
     -- * Other stuff
-  , FloatInfo(..)
   , CtxRepr
 
   , IntWidth(..)
@@ -112,7 +114,6 @@ module Lang.Crucible.Types
 
     -- * Representation of Crucible types
   , TypeRepr(..)
-  , FloatInfoRepr(..)
     -- * Concrete types
   , TypeableType(..)
   , TypeableValue(..)
@@ -207,6 +208,7 @@ type QuadFloat   = 'QuadFloat
 type X86_80Float = 'X86_80Float
 type DoubleDoubleFloat = 'DoubleDoubleFloat
 
+-- | A family of value-level representatives for floating-point types.
 data FloatInfoRepr (flt::FloatInfo) where
    HalfFloatRepr         :: FloatInfoRepr HalfFloat
    SingleFloatRepr       :: FloatInfoRepr SingleFloat
@@ -234,7 +236,7 @@ data CrucibleType where
    -- A dynamic type that can contain values of any type.
    AnyType :: CrucibleType
 
-   -- A crucible type that lifts an arbitrary Haskell type, provided
+   -- A Crucible type that lifts an arbitrary Haskell type, provided
    -- it supplies Typeable, Eq, Ord and Show instances.
    -- Values of concrete types do not support nontrivial symbolic path merging.
    ConcreteType :: a -> CrucibleType
@@ -293,11 +295,11 @@ data CrucibleType where
 
    -- A multidimensional array of values.  These arrays are "external" arrays
    -- that exist only in the simulator.  Array dimensions are not tracked statically,
-   -- but the array dimentions of external arrays must be concrete values.
+   -- but the array dimensions of external arrays must be concrete values.
    MultiDimArrayType :: CrucibleType -> CrucibleType
 
-   -- A multidimentional array of values.  These arrays are "internal" arrays
-   -- that are represented direclty in the vocabulary of underlying solvers.
+   -- A multidimensional array of values.  These arrays are "internal" arrays
+   -- that are represented directly in the vocabulary of underlying solvers.
    -- Array dimensions are not tracked statically, and may be symbolic.
    -- However, the types that can be stored in symbolic arrays are limited
    -- to the types that can be represented internally to the solver.
@@ -339,31 +341,113 @@ type RealValType     = BaseToType BaseRealType    -- ^ @:: 'CrucibleType'@.
 type SymbolicArrayType idx xs = BaseToType (BaseArrayType idx xs) -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseType' -> 'CrucibleType'@.
 type SymbolicStructType flds = BaseToType (BaseStructType flds) -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'CrucibleType'@.
 
+-- | A dynamic type that can contain values of any type.
 type AnyType  = 'AnyType  -- ^ @:: 'CrucibleType'@.
+
+-- | A single character, as a 16-bit wide char.
 type CharType = 'CharType -- ^ @:: 'CrucibleType'@.
+
+-- | A Crucible type that lifts an arbitrary Haskell type, provided it
+-- supplies 'Typeable', 'Eq', 'Ord' and 'Show' instances. Values of
+-- concrete types do not support nontrivial symbolic path merging.
 type ConcreteType = 'ConcreteType -- ^ @:: a -> 'CrucibleType'@.
+
+-- | A type index for floating point numbers.
 type FloatType    = 'FloatType    -- ^ @:: 'FloatInfo' -> 'CrucibleType'@.
+
+-- | A function handle taking a context of formal arguments and a return type.
 type FunctionHandleType = 'FunctionHandleType -- ^ @:: 'Ctx' 'CrucibleType' -> 'CrucibleType' -> 'CrucibleType'@.
+
+-- | A concrete positive integer value.
 type IntWidthType = 'IntWidthType -- ^ @:: 'CrucibleType'@.
+
+-- | Named recursive types, named by the given symbol. To use
+-- recursive types you must provide an instance of the
+-- 'IsRecursiveType' class that gives the unfolding of this recursive
+-- type. The 'Lang.Crucible.Core.RollRecursive' and
+-- 'Lang.Crucible.Core.UnrollRecursive' operations witness the
+-- isomorphism between a recursive type and its one-step unrolling.
+-- Similar to Haskell's @newtype@, recursive types to not necessarily
+-- have to mention the recursive type being defined; in which case,
+-- the type is simply a new named type which is isomorphic to its
+-- definition.
 type RecursiveType = 'RecursiveType -- ^ @:: 'Symbol' -> 'CrucibleType'@.
+
+-- | Named intrinsic types. Intrinsic types are a way to extend the
+-- Crucible type system after-the-fact and add new type
+-- implementations. Core Crucible provides no operations on intrinsic
+-- types; they must be provided as built-in override functions. See
+-- the 'Lang.Crucible.Simulator.Intrinsics.IntrinsicClass' typeclass
+-- and the 'Lang.Crucible.Simulator.Intrinsics.Intrinsic' type family
+-- defined in "Lang.Crucible.Simulator.Intrinsics".
 type IntrinsicType = 'IntrinsicType -- ^ @:: 'Symbol' -> 'CrucibleType'@.
+
+-- | The type of mutable reference cells.
 type ReferenceType = 'ReferenceType -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
+
+-- | Multidimensional array of signed MATLAB bitvector integers. Every
+-- integer in the array has the same width.
 type MatlabIntArrayType    = 'MatlabIntArrayType  -- ^ @:: 'CrucibleType'@.
+
+-- | The type of unsigned MATLAB bitvector integers of unknown size,
+-- using standard binary arithmetic. Overflowing operations are
+-- clamped to the maximum or minimum value of the bitvector's range.
 type MatlabIntType         = 'MatlabIntType       -- ^ @:: 'CrucibleType'@.
+
+-- | Multidimensional array of unsigned MATLAB bitvector integers.
+-- Every integer in the array has the same width.
 type MatlabUIntArrayType   = 'MatlabUIntArrayType -- ^ @:: 'CrucibleType'@.
+
+-- | The type of unsigned MATLAB bitvector integers of unknown size,
+-- using standard binary arithmetic. Overflowing operations are
+-- clamped to the maximum or minimum value of the bitvector's range.
 type MatlabUIntType        = 'MatlabUIntType      -- ^ @:: 'CrucibleType'@.
 type MatlabSymbolicIntArrayType = 'MatlabSymbolicIntArrayType -- ^ @:: 'CrucibleType'@.
 type MatlabSymbolicUIntArrayType = 'MatlabSymbolicUIntArrayType -- ^ @:: 'CrucibleType'@.
+
+-- | The 'Maybe' type lifted into Crucible expressions.
 type MaybeType = 'MaybeType -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
+
+-- | A multidimensional array of values. These arrays are "external"
+-- arrays that exist only in the simulator. Array dimensions are not
+-- tracked statically, but the array dimensions of external arrays
+-- must be concrete values.
 type MultiDimArrayType = 'MultiDimArrayType -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
+
+-- | A partial map from strings to values.
 type StringMapType = 'StringMapType -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
+
+-- | A sequence of Unicode characters.
 type StringType = 'StringType -- ^ @:: 'CrucibleType'@.
+
+-- | A structure is an aggregate type consisting of a sequence of
+-- values. The type of each value is known statically.
 type StructType = 'StructType -- ^ @:: 'Ctx' 'CrucibleType' -> 'CrucibleType'@.
+
+-- | A multidimensional array of values. These arrays are "internal"
+-- arrays that are represented directly in the vocabulary of
+-- underlying solvers. Array dimensions are not tracked statically,
+-- and may be symbolic. However, the types that can be stored in
+-- symbolic arrays are limited to the types that can be represented
+-- internally to the solver.
 type SymbolicMultiDimArrayType = 'SymbolicMultiDimArrayType -- ^ @:: 'BaseType' -> 'CrucibleType'@.
+
+-- | A value describing the width of an unsigned bitvector. This is a
+-- non-negative integer value.
 type UIntWidthType = 'UIntWidthType -- ^ @:: 'CrucibleType'@.
+
+-- | A type containing a single value "Unit".
 type UnitType      = 'UnitType      -- ^ @:: 'CrucibleType'@.
+
+-- | A variant is a disjoint union of the types listed in the context.
 type VariantType   = 'VariantType   -- ^ @:: 'Ctx' 'CrucibleType' -> 'CrucibleType'@.
+
+-- | A finite (one-dimensional) sequence of values.
 type VectorType    = 'VectorType    -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
+
+-- | A finite map from bitvector values to the given Crucible type.
+-- The 'Nat' index gives the width of the bitvector values used to
+-- index the map.
 type WordMapType   = 'WordMapType   -- ^ @:: 'Nat' -> 'BaseType' -> 'CrucibleType'@.
 
 -- | A type for a collection of the names of a structure.
