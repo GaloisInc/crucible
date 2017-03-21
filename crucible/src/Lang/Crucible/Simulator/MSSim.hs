@@ -36,24 +36,26 @@ module Lang.Crucible.Simulator.MSSim
   , runWithFallback
     -- * Simulator context
   , SimContext
-  , ctxIntrinsicMuxFns
-  , initSimContext
-  , printHandle
-  , SimConfigMonad
+  , IsSymInterfaceProof
   , SimConfig
+  , SimConfigMonad
+  , FunctionBindings
+  , initSimContext
+    -- ** Accessors
+  , ctxSymInterface
+  , ctxIntrinsicMuxFns
+  , isSolverProof
   , simConfig
   , simHandleAllocator
-  , ctxSymInterface
-  , isSolverProof
-  , IsSymInterfaceProof
-  , FunctionBindings
+  , printHandle
   , functionBindings
-  , errorHandler
     -- * Simulator state
-  , SimState(..)
   , MSS_State
+  , SimState(..)
+  , ErrorHandler(..)
   , stateContext
   , stateConfig
+  , errorHandler
   , mssRunErrorHandler
   , mssRunGenericErrorHandler
   , MSSBranchTarget(..)
@@ -77,8 +79,6 @@ module Lang.Crucible.Simulator.MSSim
     -- * Record for variables created.
   , VarRecord(..)
   , varRecordToValue
-    -- * Error handler
-  , ErrorHandler(..)
     -- * Crucible execution
   , CrucibleLang
     -- * Function bindings
