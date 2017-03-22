@@ -102,7 +102,7 @@ taintCall :: forall ctx args ret. CtxRepr args
           -> PU.Assignment Tainted args
           -> PointAbstraction Tainted ctx
           -> (Maybe (PointAbstraction Tainted ctx), Tainted ret)
-taintCall ctxRepr tyRepr funHandleReg funHandleTaint args ctxTaint = undefined
+taintCall _ctxRepr _tyRepr _funHandleReg _funHandleTaint _args _ctxTaint = undefined
 
 taintReadGlobal :: forall ctx tp. GlobalVar tp
                 -> PointAbstraction Tainted ctx
