@@ -131,5 +131,8 @@ taintMaybe :: forall ctx tp. TypeRepr tp
            -> Tainted (MaybeType tp)
            -> PointAbstraction Tainted ctx
            -> (Maybe (PointAbstraction Tainted ctx), Tainted tp, Maybe (PointAbstraction Tainted ctx))
-taintMaybe = undefined
+taintMaybe _guardTypeRepr _guardReg guardTaint _taintMap = (Nothing, taintTypeConvert guardTaint, Nothing) -- ^ We are not handling implicit flow
   
+taintTypeConvert t = case t of
+  Tainted -> Tainted
+  Untainted -> Untainted
