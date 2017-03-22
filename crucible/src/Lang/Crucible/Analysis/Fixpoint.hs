@@ -16,6 +16,8 @@ module Lang.Crucible.Analysis.Fixpoint (
   IterationStrategy(..),
   Interpretation(..),
   PointAbstraction,
+  paGlobals,
+  paRegisters,
   lookupAbstractRegValue,
   -- * Pointed domains
   -- $pointed

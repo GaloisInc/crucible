@@ -11,6 +11,7 @@ import Lang.Crucible.Core
 
 import qualified Data.Parameterized.Context as PU
 import qualified Data.Parameterized.TraversableFC as PU
+import qualified Data.Parameterized.Map as PM
 
 import Control.Lens
 
@@ -106,13 +107,16 @@ taintCall ctxRepr tyRepr funHandleReg funHandleTaint args ctxTaint = undefined
 taintReadGlobal :: forall ctx tp. GlobalVar tp
                 -> PointAbstraction Tainted ctx
                 -> (Maybe (PointAbstraction Tainted ctx), Tainted tp)
-taintReadGlobal var taintMap = undefined
+taintReadGlobal var taintMap = case PM.lookup var $ taintMap ^. paGlobals of
+  Nothing -> puret Untainted
+  Just t  -> puret t
 
 taintWriteGlobal :: forall ctx tp. GlobalVar tp
                  -> Reg ctx tp
                  -> PointAbstraction Tainted ctx
                  -> Maybe (PointAbstraction Tainted ctx)
-taintWriteGlobal var reg taintMap = undefined
+taintWriteGlobal var reg taintMap =  let rt = lookupAbstractRegValue taintMap reg
+                                     in  Just $ taintMap & paGlobals %~ PM.insert var rt
 
 taintBranch :: forall blocks ctx. Reg ctx BoolType
             -> Tainted BoolType
