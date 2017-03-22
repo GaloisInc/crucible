@@ -89,7 +89,11 @@ taintExpr tyrepr (App expr) taintMap = case expr of
   BoolXor r1 r2 -> puret $ depOnRegs [r1, r2] taintMap
   BoolIte g t e -> puret $ depOnRegs [g, t, e] taintMap
   TextLit _ -> puret Untainted
-  MkStruct ctxrepr assignment -> error "TODO: handle MkStruct in taint analysis"
+  MkStruct ctxrepr assign ->
+    -- We label the whole structure with the join of the labels of its
+    -- elements. This is not the most precise way; having a structured
+    -- abstract value would be more precide
+    puret $ PU.foldlFC (\t reg -> (lookupAbstractRegValue taintMap reg) `join` t) Untainted assign
 
 depOnRegs rs taintMap = foldl join Untainted $ map (lookupAbstractRegValue taintMap) rs
   
