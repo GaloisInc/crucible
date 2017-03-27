@@ -42,3 +42,5 @@ The development of major features and additions to `crucible` is done in separat
 To use `stack` to build crucible, you can use the shell script
 `scripts/build-sandbox.sh` to retrieve the appropriate repos for
 building.
+
+Each library is BSD-licensed (see the `LICENSE` file in a project directory for details).
