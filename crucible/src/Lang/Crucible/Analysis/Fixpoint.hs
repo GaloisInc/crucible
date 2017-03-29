@@ -338,7 +338,7 @@ isVisited bid = do
   return (Some bid `S.member` s)
 
 -- | Compute a fixed point via abstract interpretation over a control
--- flow grap ('CFG') given 1) an interpretation + domain, 2) initial
+-- flow graph ('CFG') given 1) an interpretation + domain, 2) initial
 -- assignments of domain values to global variables, and 3) initial
 -- assignments of domain values to function arguments.
 --
