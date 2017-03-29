@@ -4,7 +4,10 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TupleSections #-}
 
-module Lang.Crucible.Analysis.Taint where
+module Lang.Crucible.Analysis.Taint (cfgTaintAnalysis
+                                    ,taintDomain
+                                    ,taintInterp
+                                    ,Tainted(..)) where
 
 import Lang.Crucible.Analysis.Fixpoint
 import Lang.Crucible.Core
