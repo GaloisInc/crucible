@@ -4,9 +4,9 @@
 -- Description      : Defines the low-level interface between a particular
 --                    solver and the SimpleBuilder family of backends.
 -- Copyright        : (c) Galois, Inc 2015
+-- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 ------------------------------------------------------------------------
 {-# LANGUAGE DeriveDataTypeable #-}

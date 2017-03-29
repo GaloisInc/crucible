@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.Simulator.ExecutionTree
 -- Description      : Data structure the execution state of the simulator
 -- Copyright        : (c) Galois, Inc 2014
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 -- Execution trees record the state of the simulator as it explores
 -- execution paths through a program.
@@ -117,8 +117,9 @@ predEqConst sym p False = notPred sym p
 
 -- | A solver for a sim state.
 -- The parameters for the sim state are:
+--
 --   * The type returned at the top frame by the simulator.
---   * The type of the current frame (e.g., Crucible or Override
+--   * The type of the current frame (e.g., Crucible or Override).
 --   * The arguments in the current frame (used for merging within frames).
 type family Solver (s :: * -> fk -> argk -> *) :: *
 
@@ -351,8 +352,8 @@ type PausedPartialFrame (s :: * -> fk -> argk -> *) root f args
 -- | An active execution tree contains at least one active execution.
 -- The data structure is organized so that the current execution
 -- can be accessed rapidly.
-data ActiveTree (s :: * -> fk -> argk -> *) root ret (f::fk) (args :: argk)
-   = ActiveTree { _actContext :: !(ValueFromFrame s root ret f)
+data ActiveTree (s :: * -> fk -> argk -> *) ret (f::fk) (args :: argk)
+   = ActiveTree { _actContext :: !(ValueFromFrame s ret f)
                 , _actResult  :: !(PartialResult s (Frame s f args))
                 }
 
@@ -372,14 +373,13 @@ vffSavedStateInfo :: VFFOtherPath s root f args -> SolverState s
 vffSavedStateInfo (VFFActivePath   p) = savedStateInfo p
 vffSavedStateInfo (VFFCompletePath p) = savedStateInfo p
 
--- | @ValueFromFrame s root ret f@ contains the context for a simulator with state @s@,
--- global return type @root@, return type for this stack @ret@, and top frame with type
--- @f@.
-data ValueFromFrame (s :: * -> fk -> argk -> *) (root :: *) (ret :: *) (f :: fk) where
-  -- A Branch is a branch where both execution paths still contains
-  -- executions that need to continue before mergine.
+-- | @ValueFromFrame s ret f@ contains the context for a simulator with state @s@,
+-- return type for this stack @ret@, and top frame with type @f@.
+data ValueFromFrame (s :: * -> fk -> argk -> *) (ret :: *) (f :: fk) where
+  -- A Branch is a branch where both execution paths still contain
+  -- executions that need to continue before merging.
   -- IntraBranch ctx b t denotes @ctx[[] <b> t]@.
-  VFFBranch :: !(ValueFromFrame s ret ret f)
+  VFFBranch :: !(ValueFromFrame s ret f)
                -- /\ Outer context.
             -> !(SymPathState (Solver s))
                -- /\ State before this branch
@@ -389,53 +389,52 @@ data ValueFromFrame (s :: * -> fk -> argk -> *) (root :: *) (ret :: *) (f :: fk)
                -- /\ Other computation
             -> !(IntraProcedureMergePoint s f args)
                -- /\ merge handler
-            -> ValueFromFrame (s :: * -> fk -> argk -> *) ret ret f
+            -> ValueFromFrame (s :: * -> fk -> argk -> *) ret f
 
   -- A branch where the other child has been aborted.
   -- VFFPartial ctx p r denotes @ctx[[] <p> r]@.
-  VFFPartial :: !(ValueFromFrame s ret ret f)
+  VFFPartial :: !(ValueFromFrame s ret f)
              -> !(Pred (Solver s))
              -> !(AbortedResult s)
              -> !Bool -- should we abort the sibling branch when it merges with us?
-             -> ValueFromFrame s ret ret f
+             -> ValueFromFrame s ret f
 
   -- VFFEnd denotes that when the function terminates we should just return
   -- from the function.
-  VFFEnd :: !(ValueFromValue s ret ret (ReturnType s f))
-         -> ValueFromFrame s ret ret f
+  VFFEnd :: !(ValueFromValue s ret (ReturnType s f))
+         -> ValueFromFrame s ret f
 
--- | value from value denotes
-data ValueFromValue (s :: * -> fk -> argk -> *) (root :: *) (ret :: *) (top_return :: *) where
+data ValueFromValue (s :: * -> fk -> argk -> *) (ret :: *) (top_return :: *) where
   -- VFVCall denotes a return to a given frame.
-  VFVCall :: !(ValueFromFrame s ret ret caller)
+  VFVCall :: !(ValueFromFrame s ret caller)
              -- Previous context
           -> !(Frame s caller args)
              -- Frame of caller.
           -> !(top_return -> Frame s caller args -> ReturnHandler s ret caller new_args)
              -- Continuation to run.
-          -> ValueFromValue s ret ret top_return
+          -> ValueFromValue s ret top_return
 
   -- A branch where the other child has been aborted.
   -- VFVPartial ctx p r denotes @ctx[[] <p> r]@.
-  VFVPartial :: !(ValueFromValue s ret ret top_return)
+  VFVPartial :: !(ValueFromValue s ret top_return)
              -> !(Pred (Solver s))
              -> !(AbortedResult s)
-             -> ValueFromValue s ret ret top_return
+             -> ValueFromValue s ret top_return
 
   -- The top return value.
-  VFVEnd :: ValueFromValue s ret ret ret
+  VFVEnd :: ValueFromValue s ret ret
 
-instance PP.Pretty (ValueFromValue s root ret rp) where
+instance PP.Pretty (ValueFromValue s ret rp) where
   pretty = ppValueFromValue
 
-instance PP.Pretty (ValueFromFrame s root ret f) where
+instance PP.Pretty (ValueFromFrame s ret f) where
   pretty = ppValueFromFrame
 
 instance PP.Pretty (VFFOtherPath s r f a) where
   pretty (VFFActivePath _)   = PP.text "active_path"
   pretty (VFFCompletePath _) = PP.text "complete_path"
 
-ppValueFromFrame :: ValueFromFrame s root ret f -> PP.Doc
+ppValueFromFrame :: ValueFromFrame s ret f -> PP.Doc
 ppValueFromFrame vff =
   case vff of
     VFFBranch ctx _ _ other mp ->
@@ -449,7 +448,7 @@ ppValueFromFrame vff =
     VFFEnd ctx ->
       PP.pretty ctx
 
-ppValueFromValue :: ValueFromValue s root ret tp -> PP.Doc
+ppValueFromValue :: ValueFromValue s ret tp -> PP.Doc
 ppValueFromValue vfv =
   case vfv of
     VFVCall ctx _ _ ->
@@ -464,14 +463,14 @@ ppValueFromValue vfv =
 -- parentFrames
 
 -- | Return parents frames in reverse order.
-parentFrames :: ValueFromFrame s root r a -> [SomeFrame (Frame s)]
+parentFrames :: ValueFromFrame s r a -> [SomeFrame (Frame s)]
 parentFrames c0 =
   case c0 of
     VFFBranch c _ _ _ _ -> parentFrames c
     VFFPartial c _ _ _ -> parentFrames c
     VFFEnd vfv -> vfvParents vfv
 
-vfvParents :: ValueFromValue s r b a -> [SomeFrame (Frame s)]
+vfvParents :: ValueFromValue s r a -> [SomeFrame (Frame s)]
 vfvParents c0 =
   case c0 of
     VFVCall c f _ -> SomeFrame f : parentFrames c
@@ -485,9 +484,9 @@ vfvParents c0 =
 class HasSimState (s :: * -> fk -> argk -> *) where
   stateSymInterface :: s rtp f args -> Solver s
   -- | Get tree in state
-  getSimTree :: s rtp f a -> ActiveTree s rtp rtp f a
+  getSimTree :: s rtp f a -> ActiveTree s rtp f a
   -- | Set tree in state
-  setSimTree :: ActiveTree s rtp rtp g b -> s rtp f a -> s rtp g b
+  setSimTree :: ActiveTree s rtp g b -> s rtp f a -> s rtp g b
   -- | Extract the global state state result from the current state.
   stateResult :: s rtp f a -> StateResult s
 
@@ -512,7 +511,7 @@ data PathValueFns p v = PathValueFns { muxPathValue :: !(MuxFn p v)
                                      , popPathValue :: !(v -> IO v)
                                      }
 
--- | Interface that SimState should export.
+-- | Interface that 'SimState' should export.
 type IsSimState s
    = ( IsBoolExprBuilder (Solver s)
      , IsBoolSolver (Solver s)
@@ -524,8 +523,8 @@ type IsSimState s
 simTree :: HasSimState s
         => Lens (s rtp f a)
                 (s rtp g b)
-                (ActiveTree s rtp rtp f a)
-                (ActiveTree s rtp rtp g b)
+                (ActiveTree s rtp f a)
+                (ActiveTree s rtp g b)
 simTree = lens getSimTree (flip setSimTree)
 {-# INLINE simTree #-}
 
@@ -533,7 +532,7 @@ simTree = lens getSimTree (flip setSimTree)
 -- pathConditions
 
 -- | Return list of conditions along current execution path.
-pathConditions :: ValueFromFrame s r r a
+pathConditions :: ValueFromFrame s r a
                -> [Pred (Solver s)]
 pathConditions c0 =
   case c0 of
@@ -542,7 +541,7 @@ pathConditions c0 =
     VFFEnd vfv            -> vfvConditions vfv
 
 -- | Get the path conditions from the valueFromValue context
-vfvConditions :: ValueFromValue s r r a
+vfvConditions :: ValueFromValue s r a
               -> [Pred (Solver s)]
 vfvConditions c0 =
   case c0 of
@@ -557,7 +556,7 @@ vfvConditions c0 =
 resumeFrame :: IsSimState s
             => s r g b
             -> PausedPartialFrame s r f a
-            -> ValueFromFrame s r r f
+            -> ValueFromFrame s r f
             -> IO (ExecResult s r)
 resumeFrame s pv ctx = resume pv $ s & simTree .~ ActiveTree ctx er
   where er = pv^.pausedValue
@@ -585,7 +584,7 @@ data IntraProcedureMergePoint (s :: * -> fk -> argk -> *) (f :: fk) (args :: arg
 -- | Checking for intra-frame merge.
 
 -- | Return branch target if there is one.
-getIntraFrameBranchTarget :: ValueFromFrame s root r f
+getIntraFrameBranchTarget :: ValueFromFrame s r f
                           -> Maybe (Some (IntraProcedureMergePoint s f))
 getIntraFrameBranchTarget vff0 =
   case vff0 of
@@ -656,7 +655,7 @@ newtype PausedFrame s root f args
 
 runWithCurrentState :: IsSimState s
                     => s r f a
-                    -> ValueFromFrame s r r f
+                    -> ValueFromFrame s r f
                     -> Some (PausedFrame s r f)
                     -> IO (ExecResult s r)
 runWithCurrentState s ctx (Some (PausedFrame pf)) = do
@@ -781,14 +780,14 @@ intra_branch s push_fn p t_fn f_fn tgt = do
 -- ValueFromFrame
 
 -- | Returns true if tree contains a single non-aborted execution.
-isSingleCont :: ValueFromFrame s root b a -> Bool
+isSingleCont :: ValueFromFrame s r a -> Bool
 isSingleCont c0 =
   case c0 of
     VFFBranch{} -> False
     VFFPartial c _ _ _ -> isSingleCont c
     VFFEnd vfv -> isSingleVFV vfv
 
-isSingleVFV :: ValueFromValue s r b a -> Bool
+isSingleVFV :: ValueFromValue s r a -> Bool
 isSingleVFV c0 = do
   case c0 of
     VFVCall c _ _ -> isSingleCont c
@@ -798,8 +797,8 @@ isSingleVFV c0 = do
 -- | Attempt to unwind a frame context into a value context.
 --   This succeeds only if there are no pending symbolic
 --   merges.
-unwindContext :: ValueFromFrame s root ret f
-              -> Maybe (ValueFromValue s root ret (ReturnType s f))
+unwindContext :: ValueFromFrame s ret f
+              -> Maybe (ValueFromValue s ret (ReturnType s f))
 unwindContext c0 =
     case c0 of
       VFFBranch{} -> Nothing
@@ -810,8 +809,8 @@ unwindContext c0 =
 
 -- | Get the context for when returning (assumes no
 -- intra-procedural merges are possible).
-returnContext :: ValueFromFrame s root ret f
-              -> ValueFromValue s root ret (ReturnType s f)
+returnContext :: ValueFromFrame s ret f
+              -> ValueFromValue s ret (ReturnType s f)
 returnContext c0 =
     case unwindContext c0 of
       Just vfv -> vfv
@@ -826,9 +825,9 @@ returnContext c0 =
 --   only if there are no pending symbolic merge points.
 replaceTailFrame :: forall s a b c args args'
                   . ReturnType s a ~ ReturnType s c
-                 => ActiveTree s b b a args
+                 => ActiveTree s b a args
                  -> Frame s c args'
-                 -> Maybe (ActiveTree s b b c args')
+                 -> Maybe (ActiveTree s b c args')
 replaceTailFrame (ActiveTree c er) f = do
     vfv <- unwindContext c
     return $ ActiveTree (VFFEnd vfv) (er & partialValue . gpValue .~ f)
@@ -838,19 +837,19 @@ replaceTailFrame (ActiveTree c er) f = do
 
 -- | Create a tree with a single top frame.
 singletonTree :: TopFrame s f args
-              -> ActiveTree s (ReturnType s f)  (ReturnType s f) f args
+              -> ActiveTree s (ReturnType s f) f args
 singletonTree f = ActiveTree { _actContext = VFFEnd VFVEnd
                              , _actResult = TotalRes f
                              }
 
-actContext :: Lens (ActiveTree s root b a a_args)
-                   (ActiveTree s root c a a_args)
-                   (ValueFromFrame s root b a)
-                   (ValueFromFrame s root c a)
+actContext :: Lens (ActiveTree s b a a_args)
+                   (ActiveTree s c a a_args)
+                   (ValueFromFrame s b a)
+                   (ValueFromFrame s c a)
 actContext = lens _actContext (\s v -> s { _actContext = v })
 
-actResult :: Lens (ActiveTree s root a b args0)
-                  (ActiveTree s root a b args1)
+actResult :: Lens (ActiveTree s a b args0)
+                  (ActiveTree s a b args1)
                   (PartialResult s (Frame s b args0))
                   (PartialResult s (Frame s b args1))
 actResult = lens _actResult setter
@@ -859,22 +858,22 @@ actResult = lens _actResult setter
                                 }
 {-# INLINE actResult #-}
 
-actFrame :: Lens (ActiveTree s root a b args)
-                 (ActiveTree s root a b args')
+actFrame :: Lens (ActiveTree s a b args)
+                 (ActiveTree s a b args')
                  (TopFrame s b args)
                  (TopFrame s b args')
 actFrame = actResult . partialValue
 {-# INLINE actFrame #-}
 
 -- | Return the context of the current top frame.
-asContFrame :: ActiveTree     s ret ret a args
-            -> ValueFromFrame s ret ret a
+asContFrame :: ActiveTree     s ret a args
+            -> ValueFromFrame s ret a
 asContFrame (ActiveTree ctx active_res) =
   case active_res of
     TotalRes{} -> ctx
     PartialRes p _ex ar -> VFFPartial ctx p ar False
 
-activeFrames :: ActiveTree s root b a args -> [SomeFrame (Frame s)]
+activeFrames :: ActiveTree s b a args -> [SomeFrame (Frame s)]
 activeFrames (ActiveTree ctx ar) =
   SomeFrame (ar^.partialValue^.gpValue) : parentFrames ctx
 
@@ -882,8 +881,8 @@ callFn :: (ReturnType s a
            -> Frame s f old_args
            -> ReturnHandler s r f new_args)
        -> Frame s a args
-       -> ActiveTree s r r f old_args
-       -> ActiveTree s r r a args
+       -> ActiveTree s r f old_args
+       -> ActiveTree s r a args
 callFn h f' (ActiveTree ctx er) =
     ActiveTree (VFFEnd (VFVCall ctx old_frame h)) $ er'
   where old_frame   = er^.partialValue^.gpValue
@@ -905,7 +904,7 @@ returnValue s v = do
 
 handleSimReturn :: IsSimState s
                 => (s :: * -> fk -> argk -> *) (r :: *) (f :: fk) (a :: argk)
-                -> ValueFromValue s r r ret
+                -> ValueFromValue s r ret
                    -- ^ Context to return to.
                 -> PartialResult s ret
                    -- ^ Value that is being returned.
@@ -943,7 +942,7 @@ abortExec rsn s = do
 -- This may merge frames, and will throw a user error if merging fails.
 resumeValueFromFrameAbort :: IsSimState s
                           => s r (g :: fk) (a :: ak)
-                          -> ValueFromFrame s r r (f :: fk)
+                          -> ValueFromFrame s r (f :: fk)
                           -> AbortedResult s
                              -- ^ The execution that is being aborted.
                           -> IO (ExecResult s r)
@@ -977,7 +976,7 @@ resumeValueFromFrameAbort s ctx0 ar0 = do
 -- result.
 resumeValueFromValueAbort :: IsSimState s
                           => (s :: * -> fk -> ak -> *) (r :: *) (g :: fk) (a :: ak)
-                          -> ValueFromValue s r r ret
+                          -> ValueFromValue s r ret
                           -> AbortedResult s
                           -> IO (ExecResult s r)
 resumeValueFromValueAbort s ctx0 ar0 = do
@@ -995,22 +994,22 @@ resumeValueFromValueAbort s ctx0 ar0 = do
 -- | Create a tree that contains just a single path with no branches.
 --
 -- All branch conditions are converted to assertions.
-extractCurrentPath :: ActiveTree s root ret f args
-                   -> ActiveTree s root ret f args
+extractCurrentPath :: ActiveTree s ret f args
+                   -> ActiveTree s ret f args
 extractCurrentPath t =
   ActiveTree (vffSingleContext (t^.actContext))
              (TotalRes (t^.actResult^.partialValue))
 
-vffSingleContext :: ValueFromFrame s root ret f
-                 -> ValueFromFrame s root ret f
+vffSingleContext :: ValueFromFrame s ret f
+                 -> ValueFromFrame s ret f
 vffSingleContext ctx0 =
   case ctx0 of
     VFFBranch ctx _ _ _ _   -> vffSingleContext ctx
     VFFPartial ctx _ _ _    -> vffSingleContext ctx
     VFFEnd ctx              -> VFFEnd (vfvSingleContext ctx)
 
-vfvSingleContext :: ValueFromValue s root ret top_ret
-                 -> ValueFromValue s root ret top_ret
+vfvSingleContext :: ValueFromValue s ret top_ret
+                 -> ValueFromValue s ret top_ret
 vfvSingleContext ctx0 =
   case ctx0 of
     VFVCall ctx f h         -> VFVCall (vffSingleContext ctx) f h
@@ -1020,13 +1019,13 @@ vfvSingleContext ctx0 =
 ------------------------------------------------------------------------
 -- muxActiveTree
 
-branchConditions :: ActiveTree s root ret f args -> [Pred (Solver s)]
+branchConditions :: ActiveTree s ret f args -> [Pred (Solver s)]
 branchConditions t =
   case t^.actResult of
     TotalRes _ -> vffBranchConditions (t^.actContext)
     PartialRes p _ _ -> p : vffBranchConditions (t^.actContext)
 
-vffBranchConditions :: ValueFromFrame s root ret f
+vffBranchConditions :: ValueFromFrame s ret f
                     -> [Pred (Solver s)]
 vffBranchConditions ctx0 =
   case ctx0 of
@@ -1034,7 +1033,7 @@ vffBranchConditions ctx0 =
     VFFPartial  ctx p _ _    -> p : vffBranchConditions ctx
     VFFEnd  ctx -> vfvBranchConditions ctx
 
-vfvBranchConditions :: ValueFromValue s root ret top_ret
+vfvBranchConditions :: ValueFromValue s ret top_ret
                     -> [Pred (Solver s)]
 vfvBranchConditions ctx0 =
   case ctx0 of

@@ -4,9 +4,9 @@
 -- Description      : Provides a complex representation that is more generic
 --                    than Data.Complex.
 -- Copyright        : (c) Galois, Inc 2014
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 -- This module provides complex numbers without the RealFloat constraints
 -- that Data.Complex has.  This is useful for representing various

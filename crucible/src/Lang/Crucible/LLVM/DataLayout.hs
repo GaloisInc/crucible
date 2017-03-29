@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.LLVM.DataLayout
 -- Description      : Basic datatypes for describing memory layout and alignment
 -- Copyright        : (c) Galois, Inc 2011-2013
+-- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 ------------------------------------------------------------------------
 
 {-# LANGUAGE CPP #-}
@@ -81,7 +81,7 @@ findExact w (AT t) = Map.lookup w t
 -- that is larger than the bitwidth of the sought type is used. If
 -- none of the specifications are larger than the bitwidth then the
 -- largest integer type is used."
--- (llvm.org/docs/LangRef.html#langref-datalayout)
+-- <http://llvm.org/docs/LangRef.html#langref-datalayout>
 integerAlignment :: DataLayout -> Nat -> Alignment
 integerAlignment dl w =
   case Map.lookupGE w t of
@@ -96,7 +96,7 @@ integerAlignment dl w =
 -- LLVM's rules for vector types: "If no match is found, and the type
 -- sought is a vector type, then the largest vector type that is
 -- smaller than the sought vector type will be used as a fall back."
--- (llvm.org/docs/LangRef.html#langref-datalayout)
+-- <http://llvm.org/docs/LangRef.html#langref-datalayout>
 vectorAlignment :: DataLayout -> Nat -> Alignment
 vectorAlignment dl w =
   case Map.lookupLE w t of
@@ -210,7 +210,7 @@ setAt f sz a = f . at sz ?= a
 -- Language Reference: "When constructing the data layout for a given
 -- target, LLVM starts with a default set of specifications which are
 -- then (possibly) overridden by the specifications in the datalayout
--- keyword." (http://llvm.org/docs/LangRef.html#langref-datalayout)
+-- keyword." <http://llvm.org/docs/LangRef.html#langref-datalayout>
 defaultDataLayout :: DataLayout
 defaultDataLayout = execState defaults dl
   where dl = DL { _intLayout = BigEndian

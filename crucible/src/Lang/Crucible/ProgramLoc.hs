@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.ProgramLoc
 -- Description      : Datatype for handling program locations
 -- Copyright        : (c) Galois, Inc 2014
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 -- This module primarily defines the `Position` datatype for
 -- handling program location data.  A program location may refer

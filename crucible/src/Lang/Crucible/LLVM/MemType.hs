@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.LLVM.MemType
 -- Description      : Basic datatypes for describing LLVM types
 -- Copyright        : (c) Galois, Inc 2011-2013
+-- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 ------------------------------------------------------------------------
 
 {-# LANGUAGE CPP #-}
@@ -15,31 +15,13 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.LLVM.MemType
-  ( Size
-  , Offset
-  , Alignment
-    -- * Utilities
-  , structBraces
-    -- * Data layout declarations.
-  , DataLayout
-  , EndianForm(..)
-  , intLayout
-  , maxAlignment
-  , ptrSize
-  , ptrAlign
-  , ptrBitwidth
-  , defaultDataLayout
-  , parseDataLayout
+  ( -- * Type information.
+    SymType(..)
+  , MemType(..)
   , memTypeAlign
   , memTypeSize
-    -- * Type information.
-  , SymType(..)
   , ppSymType
-    -- ** MemType
-  , MemType(..)
   , ppMemType
-  , i1, i8, i16, i32, i64
-  , i8p, i16p, i32p, i64p
     -- ** Function type information.
   , FunDecl(..)
   , RetType
@@ -63,6 +45,9 @@ module Lang.Crucible.LLVM.MemType
   , siFields
   , siIndexOfOffset
   , siDropLastField
+    -- ** Common memory types.
+  , i1, i8, i16, i32, i64
+  , i8p, i16p, i32p, i64p
     -- * Re-exports
   , L.Ident(..)
   , ppIdent
@@ -104,7 +89,7 @@ binarySearch f = go
 ppIdent :: L.Ident -> Doc
 ppIdent = text . show . L.ppIdent
 
--- | Type supported by symbolic simulator.
+-- | LLVM types supported by symbolic simulator.
 data SymType
   = MemType MemType
   | Alias L.Ident
@@ -120,6 +105,7 @@ data SymType
 instance Show SymType where
   show = show . ppSymType
 
+-- | Pretty-print a 'SymType'.
 ppSymType :: SymType -> Doc
 ppSymType (MemType tp) = ppMemType tp
 ppSymType (Alias i) = ppIdent i
@@ -128,7 +114,7 @@ ppSymType VoidType = text "void"
 ppSymType OpaqueType = text "opaque"
 ppSymType (UnsupportedType tp) = text (show (L.ppType tp))
 
--- | LLVM Types supported by simulator with a defined size and alignment.
+-- | LLVM types supported by simulator with a defined size and alignment.
 data MemType
   = IntType Nat
   | PtrType SymType
@@ -143,6 +129,7 @@ data MemType
 instance Show MemType where
   show = show . ppMemType
 
+-- | Pretty-print a 'MemType'.
 ppMemType :: MemType -> Doc
 ppMemType mtp =
   case mtp of
@@ -155,20 +142,43 @@ ppMemType mtp =
     StructType si -> ppStructInfo si
     MetadataType -> text "metadata"
 
-i1, i8, i16, i32, i64 :: MemType
-i1     = IntType 1
-i8     = IntType 8
-i16    = IntType 16
-i32    = IntType 32
-i64    = IntType 64
+-- | 1-bit integer type.
+i1 :: MemType
+i1 = IntType 1
 
-i8p, i16p, i32p, i64p :: MemType
-i8p    = PtrType (MemType i8)
-i16p   = PtrType (MemType i16)
-i32p   = PtrType (MemType i32)
-i64p   = PtrType (MemType i64)
+-- | 8-bit integer type.
+i8 :: MemType
+i8 = IntType 8
 
--- | Alignment restriction in bytes.
+-- | 16-bit integer type.
+i16 :: MemType
+i16 = IntType 16
+
+-- | 32-bit integer type.
+i32 :: MemType
+i32 = IntType 32
+
+-- | 64-bit integer type.
+i64 :: MemType
+i64 = IntType 64
+
+-- | Pointer to 8-bit integer.
+i8p :: MemType
+i8p = PtrType (MemType i8)
+
+-- | Pointer to 16-bit integer.
+i16p :: MemType
+i16p = PtrType (MemType i16)
+
+-- | Pointer to 32-bit integer.
+i32p :: MemType
+i32p = PtrType (MemType i32)
+
+-- | Pointer to 64-bit integer.
+i64p :: MemType
+i64p = PtrType (MemType i64)
+
+-- | An LLVM function type.
 data FunDecl = FunDecl { fdRetType  :: !RetType
                        , fdArgTypes :: ![MemType]
                        , fdVarArgs  :: !Bool
@@ -178,7 +188,7 @@ data FunDecl = FunDecl { fdRetType  :: !RetType
 -- | Return type if any.
 type RetType = Maybe MemType
 
--- | Declare function that returns void
+-- | Declare function that returns void.
 voidFunDecl :: [MemType] -> FunDecl
 voidFunDecl tps = FunDecl { fdRetType = Nothing
                           , fdArgTypes = tps
@@ -199,16 +209,17 @@ varArgsFunDecl rtp tps = FunDecl { fdRetType = Just rtp
                                  , fdVarArgs = True
                                  }
 
+-- | Pretty-print a function type.
 ppFunDecl :: FunDecl -> Doc
 ppFunDecl (FunDecl rtp args va) = rdoc <> parens (commas (fmap ppMemType args ++ vad))
   where rdoc = maybe (text "void") ppMemType rtp
         vad = if va then [text "..."] else []
 
--- | Pretty print return type.
+-- | Pretty print a return type.
 ppRetType :: RetType -> Doc
 ppRetType = maybe (text "void") ppMemType
 
--- | Returns size of MemType in bytes.
+-- | Returns size of a 'MemType' in bytes.
 memTypeSize :: DataLayout -> MemType -> Size
 memTypeSize dl mtp =
   case mtp of
@@ -239,10 +250,10 @@ memTypeAlign dl mtp =
     StructType si  -> structAlign si
     MetadataType -> 0
 
--- | Information about structs.  Offsets and size is in bytes.
+-- | Information about size, alignment, and fields of a struct.
 data StructInfo = StructInfo { siDataLayout :: !DataLayout
                              , siIsPacked   :: !Bool
-                             , structSize   :: !Size
+                             , structSize   :: !Size -- Size in bytes.
                              , structAlign  :: !Alignment
                              , siFields     :: !(V.Vector FieldInfo)
                              }
@@ -259,17 +270,19 @@ instance Eq StructInfo where
    siFields si1 == siFields si2
 
 
-data FieldInfo = FieldInfo { fiOffset    :: !Offset
-                           , fiType      :: !MemType
-                             -- | Number of bytes of padding at end of field.
-                           , fiPadding   :: !Size
+data FieldInfo = FieldInfo { fiOffset    :: !Offset  -- ^ Byte offset of field relative to start of struct.
+                           , fiType      :: !MemType -- ^ Type of field.
+                           , fiPadding   :: !Size    -- ^ Number of bytes of padding at end of field.
                            }
   deriving (Eq, Show)
 
 -- | Constructs a function for obtaining target-specific size/alignment
 -- information about structs.  The function produced corresponds to the
--- StructLayout object constructor in TargetData.cpp.
-mkStructInfo :: DataLayout -> Bool -> [MemType] -> StructInfo
+-- @StructLayout@ object constructor in TargetData.cpp.
+mkStructInfo :: DataLayout
+             -> Bool -- ^ @True@ = packed, @False@ = unpacked
+             -> [MemType] -- ^ Field types
+             -> StructInfo
 mkStructInfo dl packed tps0 = go [] 0 a0 tps0
   where a0 | packed = 0
            | otherwise = aggregateAlignment dl
@@ -308,17 +321,19 @@ mkStructInfo dl packed tps0 = go [] 0 a0 tps0
                 -- Size of field at alignment for next thing.
                 sz' = nextPow2Multiple e (fromIntegral fieldAlign)
 
+-- | The types of a struct type's fields.
 siFieldTypes :: StructInfo -> Vector MemType
 siFieldTypes si = fiType <$> siFields si
 
+-- | Number of fields in a struct type.
 siFieldCount :: StructInfo -> Int
 siFieldCount = V.length . siFields
 
--- | Returns inforation at given field if int is a valid index.
+-- | Returns information for field with given index, if it is defined.
 siFieldInfo :: StructInfo -> Int -> Maybe FieldInfo
 siFieldInfo si i = siFields si V.!? i
 
--- | Returns offset of field if it is defined.
+-- | Returns offset of field with given index, if it is defined.
 siFieldOffset :: StructInfo -> Int -> Maybe Offset
 siFieldOffset si i = fiOffset <$> siFieldInfo si i
 

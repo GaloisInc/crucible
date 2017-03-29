@@ -4,9 +4,9 @@
 -- Description      : The default backend, which only connects to
 --                    solvers in response to specific calls.
 -- Copyright        : (c) Galois, Inc 2015-2016
+-- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 ------------------------------------------------------------------------
 
@@ -49,7 +49,7 @@ data SimpleBackendState t
                            , _proofObligs :: Seq (Seq (BoolElt t), Assertion (BoolElt t))
                            }
 
--- | Returns an initial execution staee.
+-- | Returns an initial execution state.
 initialSimpleBackendState :: SimpleBackendState t
 initialSimpleBackendState
      = SimpleBackendState { _assertions = Seq.empty

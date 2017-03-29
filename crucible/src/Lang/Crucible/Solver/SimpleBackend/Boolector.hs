@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.Solver.SimpleBackend.Boolector
 -- Description      : Interface for running Boolector
 -- Copyright        : (c) Galois, Inc 2014
+-- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 -- This module provides an interface for running Boolector and parsing
 -- the results back.

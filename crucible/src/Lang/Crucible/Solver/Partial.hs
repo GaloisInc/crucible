@@ -1,13 +1,12 @@
 {-|
 Module           : Lang.Crucible.Solver.Partial
 Copyright        : (c) Galois, Inc 2014-2016
-License          : AllRightsReserved
-Maintainer       : Joe Hendrix <jhendrix@galois.com>
 License          : BSD3
+Maintainer       : Joe Hendrix <jhendrix@galois.com>
 
 This defines a partial expression data type 'PartExpr' which is essentially a
 generalization of 'Maybe' as a datatype, and a monad transformer 'PartialT'
-which is a symbolic generalizion of the 'Maybe' monad.
+which is a symbolic generalization of the 'Maybe' monad.
 -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveTraversable #-}
@@ -47,15 +46,16 @@ data PartExpr p v
 
 -- | Create a part expression from a value that is always defined.
 justPartExpr :: IsBoolExprBuilder sym
-             => sym -> v -> PartExpr (SymExpr sym BaseBoolType) v
+             => sym -> v -> PartExpr (Pred sym) v
 justPartExpr sym = PE (truePred sym)
 
 -- | Create a part expression from a maybe value.
 maybePartExpr :: IsBoolExprBuilder sym
-              => sym -> Maybe a -> PartExpr (SymExpr sym BaseBoolType) a
+              => sym -> Maybe a -> PartExpr (Pred sym) a
 maybePartExpr _ Nothing = Unassigned
 maybePartExpr sym (Just r) = justPartExpr sym r
 
+-- | @'joinMaybePE' = 'Data.Maybe.fromMaybe' 'Unassigned'@.
 joinMaybePE :: Maybe (PartExpr p v) -> PartExpr p v
 joinMaybePE Nothing = Unassigned
 joinMaybePE (Just pe) = pe

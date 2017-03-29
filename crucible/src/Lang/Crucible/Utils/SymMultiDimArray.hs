@@ -1,8 +1,8 @@
 {-|
 Module     : Lang.Crucible.Utils.SymMultiDimArray
 Copyright  : (c) Galois, Inc 2013-2016
-Maintainer : Joe Hendrix <jhendrix@galois.com>
 License    : BSD3
+Maintainer : Joe Hendrix <jhendrix@galois.com>
 
 Define symbolic multidimensional arrays, and translations between
 these and "concrete" multidimensional arrays.  The difference is that

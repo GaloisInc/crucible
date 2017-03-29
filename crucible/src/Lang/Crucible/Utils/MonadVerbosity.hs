@@ -6,9 +6,9 @@
 -- Module           : Lang.Crucible.Utils.MonadVerbosity
 -- Description      : A typeclass for monads equipped with a logging function
 -- Copyright        : (c) Galois, Inc 2014
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 ------------------------------------------------------------------------
 {-# LANGUAGE CPP #-}
 module Lang.Crucible.Utils.MonadVerbosity

@@ -166,12 +166,14 @@ instance FoldableFC BaseTerm where
 instance TraversableFC BaseTerm where
   traverseFC f (BaseTerm tp x) = BaseTerm tp <$> f x
 
--- | The main matlab expression datastructure, defined as a multisorted algebra.
---   The type parameter `f` is used to indicate additional recursive structure;
---   we later tie the knot with the `Expr` datatype, below.
---   The type parameter `tp` is a type index that indicates the matlab type
---   of the values denoted by the given expression form.
-data App f (tp :: CrucibleType) where
+-- | The main Crucible expression datastructure, defined as a
+-- multisorted algebra. Type @'App' f tp@ encodes the top-level
+-- application of a Crucible expression. The type parameter @tp@ is a
+-- type index that indicates the Crucible type of the values denoted
+-- by the given expression form. Parameter @f@ is used everywhere a
+-- recursive sub-expression would go; we later tie the knot with the
+-- `Expr` datatype, below.
+data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
 
   ----------------------------------------------------------------------
   -- ()
@@ -241,7 +243,7 @@ data App f (tp :: CrucibleType) where
   -- @NatSub x y@ equals @x - y@.
   -- The result is undefined if the @x@ is less than @y@.
   NatSub :: !(f NatType) -> !(f NatType) -> App f NatType
-  -- Multiple two natural numbers.
+  -- Multiply two natural numbers.
   NatMul :: !(f NatType) -> !(f NatType) -> App f NatType
 
   ----------------------------------------------------------------------
@@ -1297,6 +1299,7 @@ data App f (tp :: CrucibleType) where
              -> App f BoolType
 
 
+-- | Compute a run-time representation of the type of an application.
 appType :: App f tp -> TypeRepr tp
 appType a0 =
   case a0 of
@@ -2435,10 +2438,16 @@ extendBlockMap = fmapFC extendBlock
 ------------------------------------------------------------------------
 -- CFG
 
--- | A CFG consists of: a function handle, uniquely identifying the function
---   this CFG implements; a block map, representing the main CFG data structure;
---   the identifier of the function entry point; and the runtime representation
---   of the function return type(s).
+-- | A CFG consists of
+--
+-- * a function handle, uniquely identifying the function this CFG
+-- implements;
+--
+-- * a block map, representing the main CFG data structure;
+--
+-- * the identifier of the function entry point; and the runtime
+-- representation of the function return type(s).
+--
 data CFG blocks init ret
    = CFG { cfgHandle :: FnHandle init ret
          , cfgBlockMap :: !(BlockMap blocks ret)
@@ -2451,14 +2460,14 @@ cfgArgTypes g = handleArgTypes (cfgHandle g)
 cfgReturnType :: CFG blocks init ret -> TypeRepr ret
 cfgReturnType g = handleReturnType (cfgHandle g)
 
--- | Class for types that embedd a CFG of some sort
+-- | Class for types that embed a CFG of some sort.
 class HasSomeCFG f init ret | f -> init, f -> ret where
   getCFG :: f b -> SomeCFG init ret
 
 instance Show (CFG blocks init ret) where
   show g = show (ppCFG True g)
 
--- | Pretty print CFG
+-- | Pretty print a CFG.
 ppCFG :: Bool -- ^ Flag indicates if we should print line numbers
       -> CFG blocks init ret
       -> Doc
@@ -2493,6 +2502,7 @@ ppBaseTermAssignment :: (forall u . f u -> Doc)
 ppBaseTermAssignment pp v = brackets (commas (toListFC (pp . baseTermVal) v))
 
 
+-- | Pretty print an application.
 ppApp :: (forall a . f a -> Doc) -> App f b -> Doc
 ppApp = $(U.structuralPretty [t|App|]
           [ ( U.ConType [t|Ctx.Assignment|]
@@ -2517,6 +2527,8 @@ traverseBaseTerm :: Applicative m
                   -> m (Ctx.Assignment (BaseTerm g) x)
 traverseBaseTerm f = traverseFC (traverseFC f)
 
+-- | Traversal that performs the given action on each immediate
+-- subterm of an application. Used for the 'TraversableFC' instance.
 traverseApp :: Applicative m
             => (forall u . f u -> m (g u))
             -> App f tp -> m (App g tp)
@@ -2622,7 +2634,7 @@ instance FoldableFC App where
 instance TraversableFC App where
   traverseFC = traverseApp
 
--- | Fold over an app.
+-- | Fold over an application.
 foldApp :: (forall x . f x -> r -> r)
         -> r
         -> App f tp
@@ -2630,6 +2642,8 @@ foldApp :: (forall x . f x -> r -> r)
 foldApp f0 r0 a = execState (traverseApp (go f0) a) r0
   where go f v = v <$ modify (f v)
 
+-- | Map a Crucible-type-preserving function over the immediate
+-- subterms of an application.
 mapApp :: (forall u . f u -> g u) -> App f tp -> App g tp
 mapApp f a = runIdentity (traverseApp (pure . f) a)
 

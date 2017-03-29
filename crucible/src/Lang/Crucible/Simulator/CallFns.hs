@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.Simulator.CallFns
 -- Description      : Provides functions for calling functions and Crucible CFGs.
 -- Copyright        : (c) Galois, Inc 2013-2015
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 -- This module provides functions for calling overrides and Crucible CFGS.
 ------------------------------------------------------------------------

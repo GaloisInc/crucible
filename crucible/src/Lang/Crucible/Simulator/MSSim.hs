@@ -3,9 +3,9 @@
 -- Module      : Lang.Crucible.Simulator.MSSim
 -- Description : Definition of the simulator monad
 -- Copyright   : (c) Galois, Inc 2014
+-- License     : BSD3
 -- Maintainer  : Joe Hendrix <jhendrix@galois.com>
 -- Stability   : provisional
--- License     : BSD3
 --
 -- Here we define the main simulation monad MSSim and basic operations on it.
 ------------------------------------------------------------------------
@@ -36,24 +36,26 @@ module Lang.Crucible.Simulator.MSSim
   , runWithFallback
     -- * Simulator context
   , SimContext
-  , ctxIntrinsicMuxFns
-  , initSimContext
-  , printHandle
-  , SimConfigMonad
+  , IsSymInterfaceProof
   , SimConfig
+  , SimConfigMonad
+  , FunctionBindings
+  , initSimContext
+    -- ** Accessors
+  , ctxSymInterface
+  , ctxIntrinsicMuxFns
+  , isSolverProof
   , simConfig
   , simHandleAllocator
-  , ctxSymInterface
-  , isSolverProof
-  , IsSymInterfaceProof
-  , FunctionBindings
+  , printHandle
   , functionBindings
-  , errorHandler
     -- * Simulator state
-  , SimState(..)
   , MSS_State
+  , SimState(..)
+  , ErrorHandler(..)
   , stateContext
   , stateConfig
+  , errorHandler
   , mssRunErrorHandler
   , mssRunGenericErrorHandler
   , MSSBranchTarget(..)
@@ -77,8 +79,6 @@ module Lang.Crucible.Simulator.MSSim
     -- * Record for variables created.
   , VarRecord(..)
   , varRecordToValue
-    -- * Error handler
-  , ErrorHandler(..)
     -- * Crucible execution
   , CrucibleLang
     -- * Function bindings
@@ -143,16 +143,16 @@ import           Lang.Crucible.Utils.StateContT
 
 -- | An MSS_State contains the execution context, an error handler, and
 -- the current execution tree.
-data SimState ctx sym rtp f (args :: Maybe (Ctx CrucibleType))
+data SimState (ctx :: * -> *) (sym :: *) (rtp :: *) (f :: *) (args :: Maybe (Ctx CrucibleType))
    = SimState { _stateContext :: !(ctx sym)
                , returnAbortFn :: !(sym -> rtp -> IO rtp)
                , returnMergeFn :: !(sym -> MuxFn (Pred sym) rtp)
                  -- ^ Describes how to merge the ultimate return value.
                , _errorHandler :: !(ErrorHandler ctx sym rtp)
-               , _stateTree :: !(ActiveTree (SimState ctx sym) rtp rtp f args)
+               , _stateTree :: !(ActiveTree (SimState ctx sym) rtp f args)
                }
 
-newtype ErrorHandler ctx sym rtp
+newtype ErrorHandler (ctx :: * -> *) (sym :: *) (rtp :: *)
       = EH { runEH :: forall l args
                    . SimError
                    -> SimState ctx sym rtp l args
@@ -179,7 +179,7 @@ errorHandler = lens _errorHandler (\s v -> s { _errorHandler = v })
 -- FnState
 
 -- | State used to indicate what to do when function is called.
-data FnState sym (args :: Ctx CrucibleType) (ret :: CrucibleType)
+data FnState (sym :: *) (args :: Ctx CrucibleType) (ret :: CrucibleType)
    = UseOverride !(Override sym args ret)
    | forall blocks . UseCFG !(CFG blocks args ret) !(CFGPostdom blocks)
 
@@ -191,7 +191,7 @@ data CrucibleLang (blocks :: Ctx (Ctx CrucibleType)) (ret :: CrucibleType)
 
 type instance BranchTarget (CrucibleLang blocks ret) = MSSBranchTarget blocks ret
 
-data MSSBranchTarget blocks (ret :: CrucibleType) (args :: Maybe (Ctx CrucibleType)) where
+data MSSBranchTarget (blocks :: Ctx (Ctx CrucibleType)) (ret :: CrucibleType) (args :: Maybe (Ctx CrucibleType)) where
    BlockTarget  :: BlockID blocks args -> MSSBranchTarget blocks ret ('Just args)
    ReturnTarget :: MSSBranchTarget blocks ret 'Nothing
 
@@ -210,7 +210,7 @@ instance TestEquality (MSSBranchTarget blocks ret) where
 data OverrideLang (args :: Ctx CrucibleType) (ret :: CrucibleType)
 
 -- | A definition of function semantics.
-data Override sym (args :: Ctx CrucibleType) ret
+data Override sym (args :: Ctx CrucibleType) (ret :: CrucibleType)
    = Override { overrideName :: FunctionName
               , overrideHandler
                   :: forall r
@@ -222,7 +222,7 @@ data Override sym (args :: Ctx CrucibleType) ret
 -- SimContext
 
 -- | Global context for state.
-data SimContext sym
+data SimContext (sym :: *)
    = SimContext { _ctxSymInterface       :: !sym
                 , ctxIntrinsicMuxFns     :: !(IntrinsicTypes sym)
                 , isSolverProof          :: !(forall a . IsSymInterfaceProof sym a)
@@ -236,9 +236,10 @@ data SimContext sym
 
 type IsSymInterfaceProof sym a = (IsSymInterface sym => a) -> a
 
+-- | A map from function handles to their semantics.
 type FunctionBindings sym = FnHandleMap (FnState sym)
 
--- | Create a new simContext with the given bindings
+-- | Create a new 'SimContext' with the given bindings.
 initSimContext :: IsSymInterface sym
                => sym
                -> IntrinsicTypes sym
@@ -257,7 +258,6 @@ initSimContext sym intMuxFns cfg halloc h bindings =
              , _functionBindings      = bindings
              }
 
--- | A map from function handles to their semantics.
 ctxSymInterface :: Simple Lens (SimContext sym) sym
 ctxSymInterface = lens _ctxSymInterface (\s v -> s { _ctxSymInterface = v })
 {-# INLINE ctxSymInterface #-}
@@ -295,7 +295,7 @@ instance MonadVerbosity (StateT (SimContext sym) IO) where
 -- OverrideFrame
 
 -- | Frame in call to override.
-data OverrideFrame sym (ret :: CrucibleType) args
+data OverrideFrame (sym :: *) (ret :: CrucibleType) (args :: Ctx CrucibleType)
    = OverrideFrame { override :: !FunctionName
                    , overrideRegMap :: !(RegMap sym args)
                      -- ^ Arguments to override.
@@ -306,7 +306,7 @@ data OverrideFrame sym (ret :: CrucibleType) args
 ------------------------------------------------------------------------
 -- SimFrame
 
-data SimFrame sym l (args :: Maybe (Ctx CrucibleType)) where
+data SimFrame (sym :: *) (l :: *) (args :: Maybe (Ctx CrucibleType)) where
   OF :: OverrideFrame sym ret args
      -> SimFrame sym (OverrideLang args ret) 'Nothing
   MF :: CallFrame sym blocks ret args
@@ -328,14 +328,14 @@ overrideSimFrame f (OF g) = OF <$> f g
 --   currently pending.  We use this primarily as a sanity check
 --   to help find bugs where we fail to match up calls to
 --   globalPushBranch with globalAbortBranch/globalMuxFn
-data SymGlobalState sym =
+data SymGlobalState (sym :: *) =
   GlobalState
   { _globalPendingBranches :: Int
   , globalMap             :: MapF.MapF GlobalVar (GlobalEntry sym)
   , globalReferenceMap    :: MapF.MapF RefCell (GlobalEntry sym)
   }
 
-newtype GlobalEntry sym tp = GlobalEntry { globalEntryValue :: RegValue sym tp }
+newtype GlobalEntry (sym :: *) (tp :: CrucibleType) = GlobalEntry { globalEntryValue :: RegValue sym tp }
 
 -- | The empty set of global variable bindings
 emptyGlobals :: SymGlobalState sym
@@ -536,7 +536,7 @@ ppExceptionContext frames e =
 -- FnBinding
 
 -- | A pair containing a handle and the state associated to execute it.
-data FnBinding sym where
+data FnBinding (sym :: *) where
   FnBinding :: FnHandle args ret
             -> FnState sym args ret
             -> FnBinding sym
@@ -609,16 +609,16 @@ stateConfig s = simConfig (s^.stateContext)
 type SimResult sym = ExecResult (MSS_State sym)
 
 -- | Monad for running symbolic simulator.
-newtype MSSim sym rtp l args a
+newtype MSSim (sym :: *) (rtp :: *) (l :: *) (args :: Maybe (Ctx CrucibleType)) (a :: *)
       = Sim { unSim :: StateContT (MSS_State sym rtp l args) (SimResult sym rtp) IO a }
   deriving ( Functor
            , Applicative
            , MonadState (MSS_State sym rtp l args)
            )
 
-runMSSim :: MSSim sym rtp l args a
-         -> (a -> MSS_State sym rtp l args -> IO (SimResult sym rtp))
-         -> MSS_State sym rtp l args
+runMSSim :: MSSim sym rtp l args a -- ^ Computation to run
+         -> (a -> MSS_State sym rtp l args -> IO (SimResult sym rtp)) -- ^ Continuation
+         -> MSS_State sym rtp l args -- ^ Initial state
          -> IO (SimResult sym rtp)
 runMSSim (Sim m) c s = runStateContT m c s
 
@@ -832,7 +832,7 @@ useIntrinsic :: FnHandle args ret
              -> FnBinding sym
 useIntrinsic hdl impl = FnBinding hdl (UseOverride (impl hdl))
 
--- | Make an IntrinsicImpl from an explicit implementation
+-- | Make an 'IntrinsicImpl' from an explicit implementation.
 mkIntrinsic
     :: forall sym args ret
      . (Ctx.CurryAssignmentClass args, KnownRepr TypeRepr ret)

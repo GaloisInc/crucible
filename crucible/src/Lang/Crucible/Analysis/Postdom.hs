@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.Analysis.Postdom
 -- Description      : Populates postdominator entries in CFG blocks.
 -- Copyright        : (c) Galois, Inc 2014
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 -- This module provides a method for populating the postdominator fields
 -- in blocks of a Core SSA-form CFG.

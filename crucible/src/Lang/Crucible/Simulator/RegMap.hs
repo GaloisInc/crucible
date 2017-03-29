@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.Simulator.RegMap
 -- Description      : Runtime representation of CFG registers
 -- Copyright        : (c) Galois, Inc 2014
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 -- Register maps hold the values of registers at simulation/run time.
 ------------------------------------------------------------------------

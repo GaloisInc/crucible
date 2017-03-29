@@ -3,9 +3,9 @@
 -- Module      : Lang.Crucible.Solver.SimpleBackend.STP
 -- Description : Solver adapter code for STP
 -- Copyright   : (c) Galois, Inc 2015
+-- License     : BSD3
 -- Maintainer  : Joe Hendrix <rdockins@galois.com>
 -- Stability   : provisional
--- License     : BSD3
 --
 -- STP-specific tweaks to the basic SMTLib2 solver interface.
 ------------------------------------------------------------------------

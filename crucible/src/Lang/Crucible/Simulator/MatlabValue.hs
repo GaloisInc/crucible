@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.Simulator.MatlabValue
 -- Description      : Defines a symbolic representation of Matlab simulator values.
 -- Copyright        : (c) Galois, Inc 2014
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 --  Defines a symbolic representation of Matlab simulator values.
 ------------------------------------------------------------------------

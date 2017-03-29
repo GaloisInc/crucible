@@ -1,9 +1,8 @@
 {-|
 Module      : Lang.Crucible.Solver.BoolInterface
 Copyright   : (c) Galois, Inc 2014-2016
-License     : AllRightsReserved
-Maintainer  : Joe Hendrix <jhendrix@galois.com>
 License     : BSD3
+Maintainer  : Joe Hendrix <jhendrix@galois.com>
 
 This module provides a minimalistic interface for manipulating Boolean formulas
 and execution contexts in the symbolic simulator.
@@ -53,8 +52,8 @@ class IsPred v where
 ------------------------------------------------------------------------
 -- IsBoolSolver
 
--- | IsBoolExprBuilder has methods for constructing
---   symbolic expressions of boolean type
+-- | @IsBoolExprBuilder@ has methods for constructing
+--   symbolic expressions of boolean type.
 class IsBoolExprBuilder sym where
   truePred  :: sym -> Pred sym
   falsePred :: sym -> Pred sym
@@ -110,7 +109,7 @@ data BranchResult sym
      -- The Boolean value indicates whether the backend suggests that the active
      -- path should be the case where the condition is true or false.
    = SymbolicBranch !Bool
-     -- | No branch is needed, and the predicate is evalauted to the
+     -- | No branch is needed, and the predicate is evaluated to the
      -- given value.
    | NoBranch !Bool
      -- | In branching, the simulator detected that the current path

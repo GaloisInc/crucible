@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.Utils.MonadST
 -- Description      : Typeclass for monads generalizing ST
 -- Copyright        : (c) Galois, Inc 2014
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 -- This module defines the MonadST class, which contains the ST
 -- and IO monads and a small collection of moand transformers over them.

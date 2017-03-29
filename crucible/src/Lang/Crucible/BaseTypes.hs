@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.BaseTypes
 -- Description      : This module exports the types used in solver expressions.
 -- Copyright        : (c) Galois, Inc 2014-2016
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 -- This module exports the types used in solver expressions.
 --
@@ -14,9 +14,9 @@
 -- used by solvers apart.
 --
 -- In addition, we provide a value-level reification of the type
--- indices that can be examinied by pattern matching, called BaseTypeRepr.
+-- indices that can be examined by pattern matching, called 'BaseTypeRepr'.
 --
--- Base types are essentially a subset of the wider class of crucible
+-- Base types are essentially a subset of the wider class of Crucible
 -- types (defined in "Lang.Crucible.Types").
 ------------------------------------------------------------------------
 {-# LANGUAGE ConstraintKinds#-}
@@ -35,7 +35,9 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 module Lang.Crucible.BaseTypes
-  ( type BaseType
+  ( -- * BaseType data kind
+    type BaseType
+    -- ** Constructors for kind BaseType
   , BaseBoolType
   , BaseIntegerType
   , BaseNatType
@@ -44,10 +46,12 @@ module Lang.Crucible.BaseTypes
   , BaseComplexType
   , BaseStructType
   , BaseArrayType
+    -- * Representations of base types
   , BaseTypeRepr(..)
   , arrayTypeIndices
   , arrayTypeResult
   , module Data.Parameterized.NatRepr
+    -- * KnownRepr
   , KnownRepr(..)
   , KnownCtx
   ) where
@@ -64,6 +68,10 @@ import           Text.PrettyPrint.ANSI.Leijen
 ------------------------------------------------------------------------
 -- KnownRepr
 
+-- | This class is parameterized by a kind @k@ (typically a data
+-- kind), a type constructor @f@ of kind @k -> *@ (typically a GADT of
+-- singleton types indexed by @k@), and an index parameter @ctx@ of
+-- kind @k@.
 class KnownRepr (f :: k -> *) (ctx :: k) where
   knownRepr :: f ctx
 
@@ -80,7 +88,8 @@ type KnownCtx f = KnownRepr (Ctx.Assignment f)
 ------------------------------------------------------------------------
 -- BaseType
 
--- | A type for the solver.
+-- | This data kind enumerates the Crucible base types, which are
+-- types that may appear in solver expressions.
 data BaseType
    = BaseBoolType
    | BaseIntegerType
@@ -93,19 +102,20 @@ data BaseType
    | BaseStructType (Ctx.Ctx BaseType)
    | BaseArrayType  (Ctx.Ctx BaseType) BaseType
 
-type BaseBoolType    = 'BaseBoolType
-type BaseIntegerType = 'BaseIntegerType
-type BaseNatType     = 'BaseNatType
-type BaseRealType    = 'BaseRealType
-type BaseBVType      = 'BaseBVType
-type BaseComplexType = 'BaseComplexType
-type BaseStructType  = 'BaseStructType
-type BaseArrayType   = 'BaseArrayType
+type BaseBoolType    = 'BaseBoolType    -- ^ @:: 'BaseType'@.
+type BaseIntegerType = 'BaseIntegerType -- ^ @:: 'BaseType'@.
+type BaseNatType     = 'BaseNatType     -- ^ @:: 'BaseType'@.
+type BaseRealType    = 'BaseRealType    -- ^ @:: 'BaseType'@.
+type BaseBVType      = 'BaseBVType      -- ^ @:: 'GHC.TypeLits.Nat' -> 'BaseType'@.
+type BaseComplexType = 'BaseComplexType -- ^ @:: 'BaseType'@.
+type BaseStructType  = 'BaseStructType  -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseType'@.
+type BaseArrayType   = 'BaseArrayType   -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseType' -> 'BaseType'@.
 
 ------------------------------------------------------------------------
 -- BaseTypeRepr
 
--- | A runtime representation of a solver base type.
+-- | A runtime representation of a solver base type. Parameter @bt@
+-- has kind 'BaseType'.
 data BaseTypeRepr (bt::BaseType) :: * where
    BaseBoolRepr :: BaseTypeRepr BaseBoolType
    BaseBVRepr   :: (1 <= w) => !(NatRepr w) -> BaseTypeRepr (BaseBVType w)

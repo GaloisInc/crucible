@@ -4,9 +4,9 @@
 -- Description      : Provides a monadic interface for constructing Crucible
 --                    control flow graphs.
 -- Copyright        : (c) Galois, Inc 2014
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 -- This module provides a monadic interface for constructing control flow
 -- graph expressions.  The goal is to make it easy to convert languages
@@ -85,7 +85,7 @@ module Lang.Crucible.Generator
   , fromJustExpr
   , assertedJustExpr
   , while
-  -- * Re-exorts
+  -- * Re-exports
   , Ctx.Ctx(..)
   , Position
   , module Lang.Crucible.RegCFG

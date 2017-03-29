@@ -2,9 +2,9 @@
 -- Module           : Lang.Crucible.LLVM.Printf
 -- Description      : Interpretation of 'printf' style conversion codes 
 -- Copyright        : (c) Galois, Inc 2015-2016
+-- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 ------------------------------------------------------------------------
 
 {-# LANGUAGE BangPatterns #-}

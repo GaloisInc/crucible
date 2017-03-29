@@ -3,9 +3,9 @@
 -- Module           : Lang.Crucible.Simulator.RegValue
 -- Description      : Runtime representation of CFG registers
 -- Copyright        : (c) Galois, Inc 2014
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
 -- RegValue is a type family that defines the runtime representation
 -- of crucible types.

@@ -1,19 +1,18 @@
 -----------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.LLVM.Translation
--- Description      : This module performs the work of tranlating LLVM AST
---                    into a Cucible control-flow graph.
+-- Description      : Translation of LLVM AST into Crucible control-flow graph
 -- Copyright        : (c) Galois, Inc 2014-2015
+-- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
--- License          : BSD3
 --
--- This module translates an LLVM Module into a collection of Crucible
+-- This module translates an LLVM 'Module' into a collection of Crucible
 -- control-flow graphs, one per function.  The tricky parts of this translation
 -- are 1) mapping LLVM types onto Crucible types in a sensible way and 2)
 -- translating the phi-instructions of LLVM's SSA form.
 --
--- The translation of the LLVM types themeselves is not so difficult;
+-- The translation of the LLVM types themselves is not so difficult;
 -- however, navigating the fact that Crucible expressions are strongly
 -- typed at the Haskell level, whereas the LLVM types are not makes for
 -- some slightly strange programming idioms.  In particular, all the
@@ -24,7 +23,7 @@
 -- pre-pass over all the LLVM basic blocks looking for phi-functions
 -- and build a datastructure that tells us what assignments to make
 -- when jumping from block l to block l'.  We then emit instructions
--- to make these assignements in a separate Crucible basic block (see
+-- to make these assignments in a separate Crucible basic block (see
 -- 'definePhiBlock').  Thus, the translated CFG will generally have
 -- more basic blocks than the original LLVM.
 --
@@ -32,17 +31,17 @@
 --
 --  * Immediate (i.e., not in memory) structs and packed structs are translated the same.
 --  * Undefined values generate special Crucible expressions (e.g., BVUndef) to
---     represent arbitratry bitpatterns
+--     represent arbitrary bitpatterns
 --  * All floating point operations are abstracted into operations on the real numbers.
 --     Thus, answers returned by solvers might not be bit-exact, and might not even be expressible
---     in the orignal floating-point representation.  Moreover, trying to directly
---     examine the bit-patterns of floating-point values will not work, and wierd bit-level
---     tricks on floating-point values will not work properly.  Additionally, NaN, +INF and -INF
+--     in the original floating-point representation.  Moreover, trying to directly
+--     examine the bit-patterns of floating-point values will not work, and weird bit-level
+--     tricks on floating-point values will not work properly.  Additionally, @NaN@, @+INF@ and @-INF@
 --     are never generated, but instead assertions (e.g. about division by zero) will fail.
 --
--- Some notes on undefined/posion values: (outcome of discussions between JHx and RWD)
+-- Some notes on undefined/poison values: (outcome of discussions between JHx and RWD)
 --
--- Continue to add Crucible expressions for undefined values as
+-- * Continue to add Crucible expressions for undefined values as
 -- required (e.g. for floating-point values).  Crucible itself is
 -- currently treating undefined values as fresh symbolic inputs; it
 -- should instead invent a new category of "arbitrary" values that get
@@ -53,7 +52,7 @@
 -- universally-quantified, unlike the symbolic inputs which are
 -- existentially-quantified.
 --
--- For poison values, our implementation strategy is to assert
+-- * For poison values, our implementation strategy is to assert
 -- side conditions onto values that may create poison.  As opposed
 -- to assertions (which must be satisfied because you passed through
 -- a control-flow point) side conditions are intended to mean that
@@ -89,19 +88,19 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.LLVM.Translation
-( ModuleTranslation(..)
-, LLVMContext(..)
-, LLVMHandleInfo(..)
-, SymbolHandleMap
-, symbolMap
-, ModuleCFGMap
-, translateModule
-, llvmIntrinsicTypes
-, llvmIntrinsics
-, initalizeMemory
-, LLVMInt
-, toStorableType
-) where
+  ( ModuleTranslation(..)
+  , ModuleCFGMap
+  , LLVMContext(..)
+  , LLVMHandleInfo(..)
+  , SymbolHandleMap
+  , symbolMap
+  , translateModule
+  , llvmIntrinsicTypes
+  , llvmIntrinsics
+  , initalizeMemory
+  , LLVMInt
+  , toStorableType
+  ) where
 
 
 import Control.Monad.State.Strict
@@ -288,7 +287,7 @@ llvmDeclToFunHandleRepr decl k =
         k args ret
 
 -- | Given an LLVM type and a type context and a register assignment,
---   peel off the rightmost register from the assignement, which is
+--   peel off the rightmost register from the assignment, which is
 --   expected to match the given LLVM type.  Pass the register and
 --   the remaining type and register context to the given continuation.
 --
@@ -429,7 +428,7 @@ data LLVMBlockInfo s
       -- The crucible block label corresponding to this LLVM block
       block_label    :: Label s
 
-      -- map from labels to assignemnts that must be made before
+      -- map from labels to assignments that must be made before
       -- jumping.  If this is the block info for label l',
       -- and the map has [(i1,v1),(i2,v2)] in the phi_map for block l,
       -- then basic block l is required to assign i1 = v1 and i2 = v2
@@ -450,7 +449,7 @@ buildBlockInfo bb = do
                                 })
 
 -- Given the statements in a basic block, find all the phi instructions and
--- compute the list of assignements that must be made for each predicessor block.
+-- compute the list of assignments that must be made for each predicessor block.
 buildPhiMap :: [L.Stmt] -> Map L.BlockLabel (Seq (L.Ident, L.Type, L.Value))
 buildPhiMap ss = go ss Map.empty
  where go (L.Result ident (L.Phi tp xs) _ : stmts) m = go stmts (go' ident tp xs m)
@@ -694,7 +693,7 @@ doAssign (Some r) (VecExpr tp vs) = do
         Just Refl -> assignReg r ex
         Nothing -> fail $ "type mismatch when assigning vector value"
 
--- | Given a list of LLVMExpressions, "unpack" them into an assignement
+-- | Given a list of LLVMExpressions, "unpack" them into an assignment
 --   of crucible expressions.
 unpackArgs :: forall s a
     . (?lc :: TyCtx.LLVMContext
