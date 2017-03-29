@@ -23,6 +23,9 @@ data Tainted (tp :: CrucibleType) where
 join t1 t2 = if t1 == Tainted || t2 == Tainted then Tainted
              else Untainted
 
+cfgTaintAnalysis :: PU.Assignment Tainted init -> CFG blocks init ret -> Tainted ret
+cfgTaintAnalysis paramTaints cfg = snd $ forwardFixpoint taintDomain taintInterp cfg PM.empty paramTaints 
+
 taintDomain :: Domain Tainted
 taintDomain = Domain {domTop = Tainted
                      ,domBottom = Untainted
