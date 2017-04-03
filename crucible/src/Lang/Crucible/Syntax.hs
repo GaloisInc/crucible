@@ -86,10 +86,13 @@ module Lang.Crucible.Syntax
   , littleEndianStore
   ) where
 
+import           GHC.TypeLits (KnownNat)
+
 import           Data.Text (Text)
 import qualified Data.Vector as V
 
 import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.NatRepr
 
 import           Lang.MATLAB.MatlabChar
 import           Lang.MATLAB.Utils.Nat (Nat)
@@ -111,6 +114,12 @@ class IsExpr e where
 -- | An expression that embeds literal values of its type.
 class LitExpr tp ty | tp -> ty where
   litExpr :: IsExpr e => ty -> e tp
+
+------------------------------------------------------------------------
+-- Unit
+
+instance LitExpr UnitType () where
+  litExpr () = app EmptyApp
 
 ------------------------------------------------------------------------
 -- Booleans
@@ -271,6 +280,12 @@ natToCplx = realToCplx . natToReal
 
 instance ConvertableToNat ComplexRealType where
   toNat = toNat . realPart
+
+------------------------------------------------------------------------
+-- Bitvectors
+
+instance (KnownNat w, 1 <= w) => LitExpr (BVType w) Integer where
+  litExpr n = app (BVLit knownNat n)
 
 ------------------------------------------------------------------------
 -- MatlabChar
