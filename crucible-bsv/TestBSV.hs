@@ -1,15 +1,16 @@
 module Main where
 
+--import           Control.Exception
 import           Control.Monad
 import           Control.Monad.ST
 
 import           Lang.BSV.AST
-import qualified Lang.BSV.RawAST
 import           Lang.BSV.TransAST
 
 import           Lang.Crucible.Core
 import           Lang.Crucible.FunctionHandle
 
+import           Lang.Crucible.BSV.Analysis
 import           Lang.Crucible.BSV.Translation
 
 import AES_Defs
@@ -57,9 +58,23 @@ main = do
      putStrLn "================="
      mapM_ putStrLn errs
      putStrLn "================="
-  let f (FunctionDefStmt fd) = print (funDefProto fd)
-      f _ = return ()
-  mapM_ f (packageStmts res)
+  let tenv = processTypedefs (packageStmts res) initialTypeEnv
+  cfgs <- withHandleAllocator $ \halloc -> stToIO $ do
+            venv0 <- initialValEnv halloc
+            (_venv,cfgs) <- translatePackageFuns halloc tenv venv0 (packageStmts res)
+            return cfgs
+  mapM_ (\(AnyCFG cfg) ->
+             do putStrLn "=============="
+                print (cfgHandle cfg)
+                print cfg)
+        cfgs
+
+
+
+--main =
+ -- withHandleAllocator $ \halloc -> do
+ --   AnyCFG g <- stToIO (translateFun halloc emptyTypeEnv testFun)
+ --   print g
 
 
   -- interact $ \input ->
@@ -67,6 +82,3 @@ main = do
   --       ast = transPackage raw
   --    in show ast
 
---  withHandleAllocator $ \halloc -> do
---    AnyCFG g <- stToIO (translateFun halloc testFun)
---    print g
