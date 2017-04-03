@@ -44,6 +44,7 @@ module Lang.Crucible.LLVM.MemModel
   , GlobalSymbol(..)
   , allocGlobals
   , assertDisjointRegions
+  , assertDisjointRegions'
   , doMemcpy
   , doMemset
   , doMalloc
@@ -612,23 +613,24 @@ sextendBVTo sym w w' x
 
 -- Two memory regions are disjoint if any of the following are true:
 --   1) Their block pointers are different
---   2) Their blocks are the same, but dest+len <= src
---   3) Their blocks are the same, but src+len <= dest
-assertDisjointRegions
+--   2) Their blocks are the same, but dest+dlen <= src
+--   3) Their blocks are the same, but src+slen <= dest
+assertDisjointRegions'
   :: (1 <= w, IsSymInterface sym)
-  => sym
+  => String -- ^ label used for error message
+  -> sym
   -> NatRepr w
   -> RegValue sym LLVMPointerType
+  -> RegValue sym (BVType w)
   -> RegValue sym LLVMPointerType
   -> RegValue sym (BVType w)
   -> IO ()
-assertDisjointRegions sym w dest src len = do
-  len' <- sextendBVTo sym w ptrWidth len
+assertDisjointRegions' lbl sym w dest dlen src slen = do
   let LLVMPtr dblk _ doff = translatePtr dest
   let LLVMPtr sblk _ soff = translatePtr src
 
-  dend <- bvAdd sym doff len'
-  send <- bvAdd sym soff len'
+  dend <- bvAdd sym doff =<< sextendBVTo sym w ptrWidth dlen
+  send <- bvAdd sym soff =<< sextendBVTo sym w ptrWidth slen
 
   diffBlk   <- notPred sym =<< natEq sym dblk sblk
   destfirst <- bvSle sym dend soff
@@ -637,7 +639,20 @@ assertDisjointRegions sym w dest src len = do
   c <- orPred sym diffBlk =<< orPred sym destfirst srcfirst
 
   addAssertion sym c
-     (AssertFailureSimError "Memory regions not disjoint in memcpy")
+     (AssertFailureSimError ("Memory regions not disjoint in " ++ lbl))
+
+-- | Simpler interface to 'assertDisjointRegions'' where the lengths
+-- of the two regions are equal as used by the memcpy operation.
+assertDisjointRegions
+  :: (1 <= w, IsSymInterface sym)
+  => sym
+  -> NatRepr w
+  -> RegValue sym LLVMPointerType
+  -> RegValue sym LLVMPointerType
+  -> RegValue sym (BVType w)
+  -> IO ()
+assertDisjointRegions sym w dest src len =
+  assertDisjointRegions' "memcpy" sym w dest len src len
 
 
 doCalloc
