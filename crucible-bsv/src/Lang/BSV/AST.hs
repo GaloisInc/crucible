@@ -98,16 +98,19 @@ data Expr
   | ExprTypeAssert Type Expr
   | ExprStruct Ident [(Ident,Expr)]
   | ExprUnion Ident (Either Expr [(Ident,Expr)])
-  | ExprBlock [ExprStmt] Expr
+  | ExprBlock [ExprStmt]
+  | ExprAction [Stmt]
 --  | ExprInterface Ident [IFaceStmt]
  deriving (Eq,Ord,Show)
 
 data ExprStmt
   = ExprStmtVarDecl [VarDecl]
   | ExprStmtVarAssign VarAssign
+  | ExprStmtLet Ident Binding
   | ExprStmtFunDef FunDef
   | ExprStmtModuleDef ModuleDef
-  | ExprStmtBlock [ExprStmt] Expr
+  | ExprStmtBlock [ExprStmt]
+  | ExprStmtExpr Expr
   ---- FIXME, more stuff here...
  deriving (Eq,Ord,Show)
 
@@ -139,9 +142,9 @@ data PatternConst
 -- Variable Declarations
 
 data VarDecl
-  = VarDecl Type Ident [Expr] (Maybe Expr)
+  = VarDecl Type Ident [Expr] [Expr]
   | VarDeclArrow Type Ident Expr
-  | VarLet Ident Binding
+--  | VarLet Ident Binding
   | VarMatch Pattern Expr
  deriving (Eq,Ord,Show)
 
@@ -172,6 +175,7 @@ data Typedef
   | TypedefEnum [(Ident,Number)] Ident
   | TypedefStruct [StructMember] TypeProto
   | TypedefUnion  [UnionMember] TypeProto
+  | TypedefPrim Ident -- used for primitive types
  deriving (Eq,Ord,Show)
 
 data StructMember
@@ -209,7 +213,7 @@ data Stmt
   | StmtVarAssign VarAssign
   | StmtFunDef FunDef
   | StmtModuleDef ModuleDef
-  | StmtBlock [Stmt]
+  | StmtBlock BlockKind [Stmt]
   | StmtIf CondPredicate Stmt Stmt
   | StmtCase Expr [CaseItem] (Maybe Stmt)
   | StmtFor [(Maybe Type, Ident, Expr)] -- init

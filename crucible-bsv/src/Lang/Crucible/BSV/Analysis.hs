@@ -20,11 +20,27 @@ import Lang.BSV.AST
 
 type TypeEnv = Map Ident Typedef
 
+initialTypeEnv :: TypeEnv
+initialTypeEnv = Map.fromList $
+  -- HACK!
+  [ ("Nb", TypedefSynonym (TypeNat 4)  (TypeProto "Nb" []))
+  , ("Nr", TypedefSynonym (TypeNat 10) (TypeProto "Nr" []))
+  ] ++ map f
+  [ "Vector"
+  , "Bit"
+  , "Int"
+  , "UInt"
+  , "Action"
+  , "Array"
+  ]
+ where f x = (x, TypedefPrim x)
+
 typedefIdent :: Typedef -> Ident
 typedefIdent (TypedefSynonym _ pt) = typedefName pt
 typedefIdent (TypedefEnum _ nm) = nm
 typedefIdent (TypedefStruct _ pt)  = typedefName pt
 typedefIdent (TypedefUnion _ pt)  = typedefName pt
+typedefIdent (TypedefPrim nm)     = nm
 
 processTypedef :: Typedef -> TypeEnv -> TypeEnv
 processTypedef td env =
@@ -42,11 +58,25 @@ processTypedefs (_s : ss) !env =
 
 normalizeType :: TypeEnv -> Type -> Type
 normalizeType env tp@(TypeCon nm args) =
-  case Map.lookup nm env of
-    Just (TypedefSynonym def proto) -> substTyVars proto args def
-    Just _ -> tp
-    Nothing -> error $ "Unknown type constructor: " ++ nm
+  case applyTypes env nm args of
+    Just tp' -> tp'
+    Nothing  -> tp
+normalizeType env tp@(TypeVar nm) =
+  case applyTypes env nm [] of
+    Just tp' -> tp'
+    Nothing  -> tp
+
 normalizeType _env tp = tp
+
+applyTypes :: TypeEnv
+           -> Ident
+           -> [Type]
+           -> Maybe Type
+applyTypes env nm args =
+  case Map.lookup nm env of
+    Just (TypedefSynonym def proto) -> Just $! substTyVars proto args def
+    Just _ -> Nothing
+    Nothing -> error $ "Unknown type constructor: " ++ nm
 
 mapFst :: (a -> a') -> (a,b) -> (a',b)
 mapFst f (x,y) = (f x, y)
@@ -55,7 +85,10 @@ substTyVars :: TypeProto
             -> [Type]
             -> Type
             -> Type
-substTyVars proto args = sub
+substTyVars proto args =
+    if length args == length (typedefFormals proto)
+      then sub
+      else error $ unwords ["Type consturctor argument mismatch", show proto, show args]
   where
     env = Map.fromList $ zip (map fst (typedefFormals proto)) args
     sub (TypeVar nm) = case Map.lookup nm env of

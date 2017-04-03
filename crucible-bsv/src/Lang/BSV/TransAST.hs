@@ -37,7 +37,7 @@ transListOf f = go Seq.empty
     do bs' <- orElse bs $ do
                  b <- f a
                  return (bs Seq.|> b)
-       go bs' as       
+       go bs' as
 
 asIdent :: R.AST -> Trans Ident
 asIdent (R.AstIde nm) = return nm
@@ -107,15 +107,7 @@ transPackage ast = case ast of
        do tp' <- transType tp
           PackageVarDecl <$> transListOf (transVarDecl tp') decls
     R.AstFunctionDef proto provisos body ->
-       do proto' <- transFunProto proto
-          provisos' <- transListOf transProviso provisos
-          body' <- transFunBody body
-          return $ FunctionDefStmt
-                 $ FunDef
-                   { funAttributeInstances = [] -- FIXME??
-                   , funDefProto = proto'{ funProvisos = provisos' }
-                   , funBody = body'
-                   }
+          FunctionDefStmt <$> transFunDef proto provisos body
 
     _ -> giveUp $ "Unexpected package statmenmt:" ++ show s
 
@@ -123,6 +115,13 @@ translateKind :: R.Kind
               -> Trans Kind
 translateKind R.KindValue = return KindValue
 translateKind R.KindNumeric = return KindNumeric
+
+transBlockKind :: R.BlockKind
+               -> Trans BlockKind
+transBlockKind R.BlockKindBegin = return Value
+transBlockKind R.BlockKindAction = return Action
+transBlockKind R.BlockKindActionValue = return ActionValue
+
 
 
 transStmt :: R.AST
@@ -133,14 +132,15 @@ transStmt s = case s of
         StmtVarDecl <$> transListOf (transVarDecl tp') vd
   R.AstLet nm knd ex -> StmtLet <$> asIdent nm <*> transBinding knd ex
   R.AstReturn ex -> StmtReturn <$> transExpr ex
-  R.AstFor init test incr body ->
-       do init' <- transForInit init
+  R.AstFor for_init test incr body ->
+       do init' <- transForInit for_init
           test' <- transExpr test
           incr' <- transForIncr incr
           body' <- transStmt body
           return $ StmtFor init' test' incr' body'
-  R.AstBlock R.BlockKindBegin _nm stmts ->
-       StmtBlock <$> mapM transStmt stmts
+  R.AstBlock kind _nm stmts ->
+       do kind' <- transBlockKind kind
+          StmtBlock kind' <$> transListOf transStmt stmts
   R.AstAssign lhs R.BindingKindEq rhs ->
        do lhs' <- transLValue lhs
           rhs' <- transExpr rhs
@@ -150,7 +150,27 @@ transStmt s = case s of
           rhs' <- transExpr rhs
           return $ StmtVarAssign $ VarAssignArrow nm rhs'
 
-  _ -> giveUp ("transStmt: unexpected statement form: " ++ show s)
+  R.AstFunctionDef proto provisos body ->
+          StmtFunDef <$> transFunDef proto provisos body
+
+  _ -> StmtExpr <$> transExpr s
+
+--giveUp ("transStmt: unexpected statement form: " ++ show s)
+
+
+transFunDef :: R.AstFunctionProto
+            -> [R.AST]
+            -> R.AST
+            -> Trans FunDef
+transFunDef proto provisos body =
+       do proto' <- transFunProto proto
+          provisos' <- transListOf transProviso provisos
+          body' <- transFunBody body
+          return $ FunDef
+                   { funAttributeInstances = [] -- FIXME??
+                   , funDefProto = proto'{ funProvisos = provisos' }
+                   , funBody = body'
+                   }
 
 
 transLValue :: R.AST
@@ -161,7 +181,7 @@ transLValue (R.AstExpr (R.AstIde "PrimIndex") [lhs,idx]) =
   do lhs' <- transLValue lhs
      idx' <- transExpr idx
      return $ LValueIdx lhs' idx'
-transLValue x = 
+transLValue x =
      giveUp $ "unexpected LHS: " ++ show x
 
 transForInit :: R.AST
@@ -183,7 +203,7 @@ transForIncr :: R.AST
 transForIncr (R.AstAssign nm R.BindingKindEq ex) =
   do nm' <- asIdent nm
      ex' <- transExpr ex
-     return [(nm',ex')]     
+     return [(nm',ex')]
 transForIncr x =
   giveUp $ "transForIncr: expected var assignment: " ++ show x
 
@@ -196,14 +216,19 @@ transVarDecl tp (R.AstVarInit nm idxes knd ex) =
      idxes' <- transListOf transExpr idxes
      case knd of
        R.BindingKindNone ->
-         return $ VarDecl tp nm' idxes' Nothing
+         return $ VarDecl tp nm' idxes' []
        R.BindingKindEq ->
-         do ex' <- transExpr ex
-            return $ VarDecl tp nm' idxes' (Just ex')
-       R.BindingKindLArrow -> 
+         do ex' <- transVarInit ex
+            return $ VarDecl tp nm' idxes' ex'
+       R.BindingKindLArrow ->
          do unless (null idxes) (giveUp "illegal array dims on <- var decl")
             ex' <- transExpr ex
             return $ VarDeclArrow tp nm' ex'
+
+transVarInit :: R.AST
+             -> Trans [Expr]
+transVarInit (R.AstExpr (R.AstIde "PrimBitConcat") xs) = transListOf transExpr xs
+transVarInit x = (:[]) <$> transExpr x
 
 
 transBinding :: R.BindingKind
@@ -217,16 +242,62 @@ transBinding knd ex = case knd of
 transExpr :: R.AST
           -> Trans Expr
 transExpr x = case x of
-  R.AstNum x ->
-     return $ ExprIntLit x
+  R.AstNum n ->
+     return $ ExprIntLit n
   R.AstIde n ->
      return $ ExprVar n
+  R.AstString str ->
+     return $ ExprStringLit str
+  -- Why does the parser produce this wierd pattern?
+  -- I've no idea....
+  R.AstExpr (R.AstIde "Apply") (e0:es) ->
+     do e0' <- transExpr e0
+        es' <- transListOf transExpr es
+        return $ ExprFunCall e0' es'
+  R.AstExpr (R.AstIde "PrimCond") [cond,a,b] ->
+     do cond' <- transCond cond
+        a' <- transExpr a
+        b' <- transExpr b
+        return $ ExprCond cond' a' b'
   R.AstExpr e0 es ->
      do e0' <- transExpr e0
         es' <- transListOf transExpr es
         return $ ExprFunCall e0' es'
+  R.AstBlock R.BlockKindBegin _nm stmts ->
+       ExprBlock <$> transListOf transExprStmt stmts
+  R.AstBlock R.BlockKindAction _nm stmts ->
+       ExprAction <$> transListOf transStmt stmts
 
   _ -> giveUp ("unexpected expression form " ++ show x)
+
+
+transCond :: R.AST
+          -> Trans [CondPredicate]
+transCond (R.AstExpr (R.AstIde "&&&") [x,y]) = (++) <$> transCond x <*> transCond y
+transCond (R.AstCondPattern _ _) = giveUp "FIXME: transCond, implement patterns..."
+transCond e = (:[]) . CondExpr <$> transExpr e
+
+transExprStmt :: R.AST
+              -> Trans ExprStmt
+transExprStmt x = case x of
+  R.AstVarDecl tp vd ->
+     do tp' <- transType tp
+        ExprStmtVarDecl <$> transListOf (transVarDecl tp') vd
+  R.AstLet nm knd ex ->
+        ExprStmtLet <$> asIdent nm <*> transBinding knd ex
+  R.AstBlock R.BlockKindBegin _nm stmts ->
+        ExprStmtBlock <$> transListOf transExprStmt stmts
+  R.AstAssign lhs R.BindingKindEq rhs ->
+     do lhs' <- transLValue lhs
+        rhs' <- transExpr rhs
+        return $ ExprStmtVarAssign $ VarAssignEq lhs' rhs'
+  R.AstAssign lhs R.BindingKindLArrow rhs ->
+     do nm   <- asIdent lhs
+        rhs' <- transExpr rhs
+        return $ ExprStmtVarAssign $ VarAssignArrow nm rhs'
+  R.AstFunctionDef proto provisos body ->
+        ExprStmtFunDef <$> transFunDef proto provisos body
+  _ -> ExprStmtExpr <$> transExpr x
 
 
 transFunBody :: R.AST
@@ -258,8 +329,8 @@ transTypeProto ast = giveUp $ unwords ["Expected typedef prototype:", show ast]
 transTypedef :: R.AST
              -> TypeProto
              -> Trans Typedef
-transTypedef (R.AstTypedefDefinedAsStruct _fs _tys) _proto = giveUp "FIXME implement transTypedef for structs" 
-transTypedef (R.AstTypedefDefinedAsTaggedUnion _fs _tys) _proto = giveUp "FIXME implement transTypedef for unions" 
+transTypedef (R.AstTypedefDefinedAsStruct _fs _tys) _proto = giveUp "FIXME implement transTypedef for structs"
+transTypedef (R.AstTypedefDefinedAsTaggedUnion _fs _tys) _proto = giveUp "FIXME implement transTypedef for unions"
 transTypedef (R.AstTypedefDefinedAsEnum _fs _vs) _proto = giveUp "FIXME implement transTypedef for enums"
 transTypedef tp proto =
   do tp' <- transType tp
