@@ -121,6 +121,7 @@ import qualified Text.LLVM.AST as L
 import qualified Data.Parameterized.Context as Ctx
 
 import Data.Parameterized.Some
+import Text.PrettyPrint.ANSI.Leijen (pretty)
 
 import           Lang.Crucible.Core (AnyCFG(..))
 import qualified Lang.Crucible.Core as C
@@ -1214,11 +1215,11 @@ translateConversion op x outty =
        x' <- transTypedValue x
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
-           (Scalar (IntrinsicRepr nm) _, IntrinsicRepr nm' )
-             | Just Refl <- testEquality nm  (knownSymbol :: SymbolRepr "LLVM_pointer")
-             , Just Refl <- testEquality nm' (knownSymbol :: SymbolRepr "LLVM_pointer") ->
-                return x'
-           _ -> fail "integer-to-pointer conversion failed"
+           (Scalar LLVMPointerRepr _, LLVMPointerRepr) -> return x'
+           (NotScalar, _) -> fail ("integer-to-pointer conversion failed: non scalar")
+           (Scalar t v, a)   ->
+               fail ("integer-to-pointer conversion failed: "
+                       ++ show v ++ " : " ++ show (pretty t) ++ " -to- " ++ show (pretty a))
 
     L.PtrToInt -> do
        outty' <- liftMemType outty
