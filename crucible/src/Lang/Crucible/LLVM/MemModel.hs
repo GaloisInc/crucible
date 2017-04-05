@@ -21,11 +21,13 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Lang.Crucible.LLVM.MemModel
   ( LLVMPointerType
   , llvmPointerRepr
+  , pattern LLVMPointerRepr
   , nullPointer
   , mkNullPointer
   , isNullPointer
@@ -121,6 +123,11 @@ ptrWidth = knownNat
 type LLVMPointerType = RecursiveType "LLVM_pointer"
 llvmPointerRepr :: TypeRepr LLVMPointerType
 llvmPointerRepr = knownRepr
+
+pattern LLVMPointerRepr :: () => (ty ~ LLVMPointerType) => TypeRepr ty
+pattern LLVMPointerRepr <- RecursiveRepr (testEquality (knownSymbol :: SymbolRepr "LLVM_pointer") -> Just Refl)
+  where
+    LLVMPointerRepr = llvmPointerRepr
 
 instance IsRecursiveType "LLVM_pointer" where
   type UnrollType "LLVM_pointer" = StructType (EmptyCtx ::> NatType ::> BVType PtrWidth ::> BVType PtrWidth)
