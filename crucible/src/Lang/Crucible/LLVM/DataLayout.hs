@@ -111,8 +111,7 @@ floatAlignment dl w = Map.lookup w t
 
 -- | Get the basic alignment for aggregate types.
 aggregateAlignment :: DataLayout -> Alignment
-aggregateAlignment dl =
-  fromMaybe 0 (findExact 0 (dl^.aggInfo))
+aggregateAlignment dl = dl^.aggAlign
 
 -- | Return maximum alignment constraint stored in tree.
 maxAlignmentInTree :: AlignInfo -> Alignment
@@ -140,15 +139,15 @@ data EndianForm = BigEndian | LittleEndian
 
 -- | Parsed data layout
 data DataLayout
-   = DL { _intLayout :: EndianForm
+   = DL { _intLayout      :: EndianForm
         , _stackAlignment :: !Alignment
-        , _ptrSize     :: !Size
-        , _ptrAlign    :: !Alignment
-        , _integerInfo :: !AlignInfo
-        , _vectorInfo  :: !AlignInfo
-        , _floatInfo   :: !AlignInfo
-        , _aggInfo     :: !AlignInfo
-        , _stackInfo   :: !AlignInfo
+        , _ptrSize        :: !Size
+        , _ptrAlign       :: !Alignment
+        , _aggAlign       :: !Alignment
+        , _integerInfo    :: !AlignInfo
+        , _vectorInfo     :: !AlignInfo
+        , _floatInfo      :: !AlignInfo
+        , _stackInfo      :: !AlignInfo
         , _layoutWarnings :: [L.LayoutSpec]
         }
 
@@ -178,9 +177,9 @@ vectorInfo = lens _vectorInfo (\s v -> s { _vectorInfo = v})
 floatInfo :: Simple Lens DataLayout AlignInfo
 floatInfo = lens _floatInfo (\s v -> s { _floatInfo = v})
 
--- | Information about aggregate size.
-aggInfo :: Simple Lens DataLayout AlignInfo
-aggInfo = lens _aggInfo (\s v -> s { _aggInfo = v})
+-- | Information about aggregate alignment.
+aggAlign :: Simple Lens DataLayout Alignment
+aggAlign = lens _aggAlign (\s v -> s { _aggAlign = v})
 
 -- | Layout constraints on a stack object with the given size.
 stackInfo :: Simple Lens DataLayout AlignInfo
@@ -213,15 +212,15 @@ setAt f sz a = f . at sz ?= a
 -- keyword." <http://llvm.org/docs/LangRef.html#langref-datalayout>
 defaultDataLayout :: DataLayout
 defaultDataLayout = execState defaults dl
-  where dl = DL { _intLayout = BigEndian
+  where dl = DL { _intLayout      = BigEndian
                 , _stackAlignment = 1
-                , _ptrSize  = 8 -- 64 bit pointers = 8 bytes
-                , _ptrAlign = 3 -- 64 bit alignment: 2^3=8 byte boundaries
-                , _integerInfo = emptyAlignInfo
-                , _floatInfo   = emptyAlignInfo
-                , _vectorInfo  = emptyAlignInfo
-                , _aggInfo     = emptyAlignInfo
-                , _stackInfo   = emptyAlignInfo
+                , _ptrSize        = 8 -- 64 bit pointers = 8 bytes
+                , _ptrAlign       = 3 -- 64 bit alignment: 2^3=8 byte boundaries
+                , _aggAlign       = 0 -- 8 bit alignment: 1-byte boundaries
+                , _integerInfo    = emptyAlignInfo
+                , _floatInfo      = emptyAlignInfo
+                , _vectorInfo     = emptyAlignInfo
+                , _stackInfo      = emptyAlignInfo
                 , _layoutWarnings = []
                 }
         defaults = do
@@ -239,18 +238,16 @@ defaultDataLayout = execState defaults dl
           -- Default vector alignments.
           setAt vectorInfo  64 3 -- 64-bit vector is 8 byte aligned.
           setAt vectorInfo 128 4  -- 128-bit vector is 16 byte aligned.
-          -- Default aggregate alignments.
-          setAt aggInfo  0 0  -- Aggregates are 1-byte aligned.
 
 -- | Maximum alignment for any type (used by malloc).
 maxAlignment :: DataLayout -> Alignment
 maxAlignment dl =
   maximum [ dl^.stackAlignment
           , dl^.ptrAlign
+          , dl^.aggAlign
           , maxAlignmentInTree (dl^.integerInfo)
           , maxAlignmentInTree (dl^.vectorInfo)
           , maxAlignmentInTree (dl^.floatInfo)
-          , maxAlignmentInTree (dl^.aggInfo)
           , maxAlignmentInTree (dl^.stackInfo)
           ]
 
@@ -279,7 +276,7 @@ addLayoutSpec ls =
     case ls of
       L.BigEndian    -> intLayout .= BigEndian
       L.LittleEndian -> intLayout .= LittleEndian
-      L.PointerSize     sz a _ ->
+      L.PointerSize _n sz a _ ->
          case fromBits a of
            Right a' | r == 0 -> do ptrSize .= w
                                    ptrAlign .= a'
@@ -288,9 +285,9 @@ addLayoutSpec ls =
       L.IntegerSize    sz a _ -> setAtBits integerInfo ls sz a
       L.VectorSize     sz a _ -> setAtBits vectorInfo  ls sz a
       L.FloatSize      sz a _ -> setAtBits floatInfo   ls sz a
-      L.AggregateSize  sz a _ -> setAtBits aggInfo     ls sz a
       L.StackObjSize   sz a _ -> setAtBits stackInfo   ls sz a
       L.NativeIntSize _ -> return ()
+      L.AggregateSize a _ -> setBits aggAlign ls a
       L.StackAlign a    -> setBits stackAlignment ls a
       L.Mangling _      -> return ()
 
