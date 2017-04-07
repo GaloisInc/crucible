@@ -279,7 +279,7 @@ addLayoutSpec ls =
     case ls of
       L.BigEndian    -> intLayout .= BigEndian
       L.LittleEndian -> intLayout .= LittleEndian
-      L.PointerSize     sz a _ ->
+      L.PointerSize _n sz a _ ->
          case fromBits a of
            Right a' | r == 0 -> do ptrSize .= w
                                    ptrAlign .= a'
