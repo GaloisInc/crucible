@@ -97,7 +97,7 @@ module Lang.Crucible.LLVM.Translation
   , translateModule
   , llvmIntrinsicTypes
   , llvmIntrinsics
-  , initalizeMemory
+  , initializeMemory
   , LLVMInt
   , toStorableType
   ) where
@@ -2226,20 +2226,20 @@ translateModule halloc m = do
                                  })
 
 -------------------------------------------------------------------------
--- initalizeMemory
+-- initializeMemory
 
 -- | Build the initial memory for an LLVM program.  Note, this process
 -- allocates space for global variables, but does not set their
 -- initial values.  Run the `initMemoryCFG` procedure of the
 -- `ModuleTranslation` produced by `translateModule` to set
 -- the values of global variables.
-initalizeMemory
+initializeMemory
    :: IsSymInterface sym
    => sym
    -> LLVMContext
    -> L.Module
    -> IO (MemImpl sym PtrWidth)
-initalizeMemory sym llvm_ctx m = do
+initializeMemory sym llvm_ctx m = do
    --putStrLn "INIT MEMORY"
    let gs = L.modGlobals m
    let ?lc = llvmTypeCtx llvm_ctx
