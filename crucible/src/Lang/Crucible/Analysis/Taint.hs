@@ -46,10 +46,10 @@ taintInterp = Interpretation {interpExpr = taintExpr
                              ,interpMaybe = taintMaybe
                              }
 
-taintExpr :: forall ctx tp. TypeRepr tp
+taintExpr :: forall blocks ctx tp. TypeRepr tp
           -> Expr ctx tp
-          -> PointAbstraction Tainted ctx
-          -> (Maybe (PointAbstraction Tainted ctx), Tainted tp)
+          -> PointAbstraction blocks Tainted ctx
+          -> (Maybe (PointAbstraction blocks Tainted ctx), Tainted tp)
 taintExpr tyrepr (App expr) taintMap = case expr of
   EmptyApp -> puret Untainted
   
@@ -105,26 +105,26 @@ depOnRegs rs taintMap = foldl join Untainted $ map (lookupAbstractRegValue taint
   
 puret = (Nothing, )
     
-taintCall :: forall ctx args ret. CtxRepr args
+taintCall :: forall blocks ctx args ret. CtxRepr args
           -> TypeRepr ret
           -> Reg ctx (FunctionHandleType args ret)
           -> Tainted (FunctionHandleType args ret)
           -> PU.Assignment Tainted args
-          -> PointAbstraction Tainted ctx
-          -> (Maybe (PointAbstraction Tainted ctx), Tainted ret)
+          -> PointAbstraction blocks Tainted ctx
+          -> (Maybe (PointAbstraction blocks Tainted ctx), Tainted ret)
 taintCall _ctxRepr _tyRepr _funHandleReg _funHandleTaint _args _ctxTaint = undefined
 
-taintReadGlobal :: forall ctx tp. GlobalVar tp
-                -> PointAbstraction Tainted ctx
-                -> (Maybe (PointAbstraction Tainted ctx), Tainted tp)
+taintReadGlobal :: forall blocks ctx tp. GlobalVar tp
+                -> PointAbstraction blocks Tainted ctx
+                -> (Maybe (PointAbstraction blocks Tainted ctx), Tainted tp)
 taintReadGlobal var taintMap = case PM.lookup var $ taintMap ^. paGlobals of
   Nothing -> puret Untainted
   Just t  -> puret t
 
-taintWriteGlobal :: forall ctx tp. GlobalVar tp
+taintWriteGlobal :: forall blocks ctx tp. GlobalVar tp
                  -> Reg ctx tp
-                 -> PointAbstraction Tainted ctx
-                 -> Maybe (PointAbstraction Tainted ctx)
+                 -> PointAbstraction blocks Tainted ctx
+                 -> Maybe (PointAbstraction blocks Tainted ctx)
 taintWriteGlobal var reg taintMap =  let rt = lookupAbstractRegValue taintMap reg
                                      in  Just $ taintMap & paGlobals %~ PM.insert var rt
 
@@ -132,15 +132,15 @@ taintBranch :: forall blocks ctx. Reg ctx BoolType
             -> Tainted BoolType
             -> JumpTarget blocks ctx
             -> JumpTarget blocks ctx
-            -> PointAbstraction Tainted ctx
-            -> (Maybe (PointAbstraction Tainted ctx), Maybe (PointAbstraction Tainted ctx))
+            -> PointAbstraction blocks Tainted ctx
+            -> (Maybe (PointAbstraction blocks Tainted ctx), Maybe (PointAbstraction blocks Tainted ctx))
 taintBranch _guardReg _guardTaint _then_ _else_ _taintMap  = (Nothing, Nothing) -- ^ We are not handling implicit flow
 
-taintMaybe :: forall ctx tp. TypeRepr tp
+taintMaybe :: forall blocks ctx tp. TypeRepr tp
            -> Reg ctx (MaybeType tp)
            -> Tainted (MaybeType tp)
-           -> PointAbstraction Tainted ctx
-           -> (Maybe (PointAbstraction Tainted ctx), Tainted tp, Maybe (PointAbstraction Tainted ctx))
+           -> PointAbstraction blocks Tainted ctx
+           -> (Maybe (PointAbstraction blocks Tainted ctx), Tainted tp, Maybe (PointAbstraction blocks Tainted ctx))
 taintMaybe _guardTypeRepr _guardReg guardTaint _taintMap = (Nothing, taintTypeConvert guardTaint, Nothing) -- ^ We are not handling implicit flow
   
 taintTypeConvert t = case t of
