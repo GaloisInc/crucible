@@ -1,0 +1,24 @@
+[submodule "dependencies/abcBridge"]
+	path = dependencies/abcBridge
+	url = git@github.com:GaloisInc/abcBridge.git
+[submodule "dependencies/aig"]
+	path = dependencies/aig
+	url = git@github.com:GaloisInc/aig.git
+[submodule "dependencies/blt"]
+	path = dependencies/blt
+	url = git@github.com:GaloisInc/blt.git
+[submodule "dependencies/saw-core"]
+	path = dependencies/saw-core
+	url = git@github.com:GaloisInc/saw-core.git
+[submodule "dependencies/hpb"]
+	path = dependencies/hpb
+	url = git@github.com:GaloisInc/hpb.git
+[submodule "dependencies/llvm-pretty"]
+	path = dependencies/llvm-pretty
+	url = git@github.com:GaloisInc/llvm-pretty.git
+[submodule "dependencies/llvm-pretty-bc-parser"]
+	path = dependencies/llvm-pretty-bc-parser
+	url = git@github.com:GaloisInc/llvm-pretty-bc-parser.git
+[submodule "dependencies/parameterized-utils"]
+	path = dependencies/parameterized-utils
+	url = git@github.com:GaloisInc/parameterized-utils.git
