@@ -50,6 +50,7 @@ executable test-bsv
     base >= 4.7 && < 4.10,
     containers,
     crucible >= 0.1,
+    crucible-abc,
     directory,
     galois-matlab,
     lens,

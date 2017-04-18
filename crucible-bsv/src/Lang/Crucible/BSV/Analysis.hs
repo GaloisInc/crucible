@@ -22,11 +22,9 @@ type TypeEnv = Map Ident Typedef
 
 initialTypeEnv :: TypeEnv
 initialTypeEnv = Map.fromList $
-  -- HACK!
-  [ ("Nb", TypedefSynonym (TypeNat 4)  (TypeProto "Nb" []))
-  , ("Nr", TypedefSynonym (TypeNat 10) (TypeProto "Nr" []))
-  ] ++ map f
+  map f
   [ "Vector"
+  , "Integer"
   , "Bit"
   , "Int"
   , "UInt"
@@ -59,14 +57,14 @@ processTypedefs (_s : ss) !env =
 normalizeType :: TypeEnv -> Type -> Type
 normalizeType env tp@(TypeCon nm args) =
   case applyTypes env nm args of
-    Just tp' -> tp'
+    Just tp' -> normalizeType env tp'
     Nothing  -> tp
 normalizeType env tp@(TypeVar nm) =
   case applyTypes env nm [] of
-    Just tp' -> tp'
+    Just tp' -> normalizeType env tp'
     Nothing  -> tp
-
 normalizeType _env tp = tp
+
 
 applyTypes :: TypeEnv
            -> Ident

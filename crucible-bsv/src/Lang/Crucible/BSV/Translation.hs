@@ -3,6 +3,7 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -52,6 +53,8 @@ import           Lang.Crucible.Utils.MonadST
 import qualified Lang.BSV.AST as S
 import           Lang.Crucible.BSV.Analysis
 
+import qualified Debug.Trace as Debug
+
 data TopBinding where
   -- A Binding for typeclass methods
   BSV_BindMethod :: S.Ident         -- name of the class
@@ -69,7 +72,7 @@ data TopBinding where
   -- A binding that performs direct in-line code generation at every call site.
   -- This is mainly used as a hack to implement primitive operations that are
   -- polymorphic
-  BSV_BindGen :: (forall h ret s. [BSVExpr s] -> BSVGen h s ret (BSVExpr s)) -> TopBinding
+  BSV_BindGen :: Int -> (forall h ret s. [BSVExpr s] -> BSVGen h s ret (BSVExpr s)) -> TopBinding
 
 
 data BSVBinding s where
@@ -116,25 +119,39 @@ mkBind halloc proto = do
 
 data BSVExpr s where
   BSVExpr  :: S.Type -> TypeRepr tp -> Expr s tp -> BSVExpr s
-  BSVThunk :: S.FunProto -> (forall h s' ret. [BSVExpr s'] -> BSVGen h s' ret (BSVExpr s')) -> BSVExpr s
+  BSVThunk :: S.Type -> Int -> (forall h ret. [BSVExpr s] -> BSVGen h s ret (BSVExpr s)) -> [BSVExpr s] -> BSVExpr s
   BSVUnpack :: (1 <= w) => NatRepr w -> Expr s (BVType w) -> BSVExpr s
+  BSVFromInteger :: Expr s IntegerType -> BSVExpr s
+
+instance Show (BSVExpr s) where
+  show (BSVExpr tp _ ex) = "(" ++ show ex ++ " : " ++ show tp ++")"
+  show (BSVThunk tp n _ _) = "<thunk:"++show n ++">"
+  show (BSVUnpack _ ex)  = "(unpack: " ++ show ex ++ ")"
+  show (BSVFromInteger ex) = "(fromInteger: "++show ex++")"
 
 exprTy :: BSVExpr s -> S.Type
 exprTy (BSVExpr t _ _) = t
-exprTy (BSVThunk p _)  = S.TypeFun p
+exprTy (BSVThunk p _ _ _)  = p
 exprTy (BSVUnpack w _) = S.TypeCon "Bit" [S.TypeNat (natValue w)]
+exprTy (BSVFromInteger _) = S.TypeCon "Integer" []
 
-data BSVState s =
+data BSVState h s =
   BSVState
   { bsvStateVars    :: ValueEnv s
   , bsvTypeEnv      :: TypeEnv
   , bsvLastExpr     :: Maybe (BSVExpr s)
-  , bsvCapturedVars :: Set S.Ident
+  , bsvCapturedVars :: Maybe (STRef h (Set S.Ident))
   , bsvClosure      :: Maybe (Expr s (StringMapType AnyType))
   }
 
-type BSVGen h s ret a = Generator h s BSVState ret a
+type BSVGen h s ret a = Generator h s (BSVState h) ret a
 
+addCapturedVar :: S.Ident -> BSVGen h s ret ()
+addCapturedVar nm =
+  do mref <- bsvCapturedVars <$> get
+     case mref of
+       Nothing  -> fail "Cannot capture variables in top-level function"
+       Just ref -> liftST $ modifySTRef ref (Set.insert nm)
 
 transposeProto :: S.FunProto
 transposeProto =
@@ -184,23 +201,40 @@ transposeGen [BSVExpr tp (VectorRepr (VectorRepr tpr)) vss] = do
 
   return (BSVExpr out_ty (VectorRepr (VectorRepr tpr)) zss)
 
-transposeGen _xs =
-  fail "transpose given incorrect arguments"
+transposeGen args =
+  fail $ unwords $ "transpose given incorrect arguments" : map show args
 
-primIndexProto :: S.FunProto
-primIndexProto =
-  S.FunProto
-  { S.funName = "PrimIndex"
-  , S.funResultType = S.TypeVar "element_type"
-  , S.funFormals = [(S.TypeCon "Array" [S.TypeVar "element_type"], "array")]
-  , S.funProvisos = []
-  }
 
 primIndexGen :: [BSVExpr s]
              -> BSVGen h s ret (BSVExpr s)
-primIndexGen _args =
-  reportError (litExpr "FIXME: implement PrimIndex!!")
+primIndexGen args@[BSVExpr tp (VectorRepr tpr) x, idx] =
+  do tenv <- bsvTypeEnv <$> get
+     case asIndexableType tenv tp of
+       Just tp' ->
+         do i <- asIndex idx
+            return $ BSVExpr tp' tpr $ app $ C.VectorGetEntry tpr x i
+       Nothing ->
+         fail $ unwords $ "primIndex given incorrect arguments" : map show args
 
+primIndexGen args =
+  fail $ unwords $ "primIndex given incorrect arguments" : map show args
+
+
+asIndexableType :: TypeEnv
+                -> S.Type
+                -> Maybe S.Type
+asIndexableType tenv tp =
+  case normalizeType tenv tp of
+    S.TypeCon "Array"  [tp'] -> Just tp'
+    S.TypeCon "Vector" [_sz, tp'] -> Just tp'
+    _ -> Nothing
+
+asIndex :: BSVExpr s
+        -> BSVGen h s ret (Expr s NatType)
+asIndex (BSVExpr _tp IntegerRepr x) = return $ app $ C.IntegerToNat x
+asIndex (BSVExpr _tp (BVRepr w) x)  = return $ app $ C.BVToNat w x
+asIndex (BSVFromInteger n)          = return $ app $ C.IntegerToNat n
+asIndex x = fail $ unwords $ ["not an indexable type", show $ exprTy x]
 
 mapProto :: S.FunProto
 mapProto =
@@ -219,8 +253,30 @@ mapProto =
 
 mapGen :: [BSVExpr s]
        -> BSVGen h s ret (BSVExpr s)
-mapGen _args =
-  reportError (litExpr "FIXME: implement map!!")
+mapGen [ BSVExpr (S.TypeFun p) (FunctionHandleRepr argTys ret) fn
+       , BSVExpr tp (VectorRepr tpr) xs
+       ] | Just Refl <- testEquality argTys (Ctx.empty Ctx.%> tpr)
+       =
+   do (n, _) <- expectVectorType tp
+      zs <- forM [0 .. (n-1)] $ \i ->
+                do let x = app $ C.VectorGetEntry tpr xs (litExpr $ fromInteger i)
+                   call fn (Ctx.empty Ctx.%> x)
+      return $ BSVExpr (S.TypeCon "Vector" [S.TypeNat n, S.funResultType p]) (VectorRepr ret)
+             $ app $ C.VectorLit ret $ V.fromList zs
+
+mapGen [ BSVThunk _ _ fn cls
+       , BSVExpr tp (VectorRepr tpr) xs
+       ]
+           =
+  do (n, tp') <- expectVectorType tp
+     zs <- forM [0 .. (n-1) ] $ \i ->
+                do let x = BSVExpr tp' tpr $ app $ C.VectorGetEntry tpr xs (litExpr $ fromInteger i)
+                   fn (cls ++ [x])
+     mkVector zs
+
+mapGen args =
+  fail $ unwords $ "incorrect arguments passed to map:" : map (show . exprTy) args
+
 
 
 primBitConcat :: [BSVExpr s]
@@ -230,45 +286,180 @@ primBitConcat _args =
 
 zipWithGen :: [BSVExpr s]
            -> BSVGen h s ret (BSVExpr s)
-zipWithGen _args =
-  reportError (litExpr "FIXME: implement zipWith!!")
+zipWithGen [ BSVExpr (S.TypeFun p) (FunctionHandleRepr argTys ret) fn
+           , BSVExpr tp1 (VectorRepr tpr1) xs
+           , BSVExpr tp2 (VectorRepr tpr2) ys
+           ] | Just Refl <- testEquality argTys (Ctx.empty Ctx.%> tpr1 Ctx.%> tpr2)
+           =
+  do tenv <- bsvTypeEnv <$> get
+     (n1, _) <- expectVectorType tp1
+     (n2, _) <- expectVectorType tp2
+     unless (n1 == n2) (fail "Vector length mismatch in zipWith")
+     zs <- forM [0 .. (n1-1) ] $ \i ->
+                    do let x = app $ C.VectorGetEntry tpr1 xs (litExpr $ fromInteger i)
+                       let y = app $ C.VectorGetEntry tpr2 ys (litExpr $ fromInteger i)
+                       call fn (Ctx.empty Ctx.%> x Ctx.%> y)
+     return $ BSVExpr (S.TypeCon "Vector" [S.TypeNat n1, S.funResultType p]) (VectorRepr ret)
+            $ app $ C.VectorLit ret $ V.fromList zs
+
+zipWithGen [ BSVThunk _ _ fn cls
+           , BSVExpr tp1 (VectorRepr tpr1) xs
+           , BSVExpr tp2 (VectorRepr tpr2) ys
+           ]
+           =
+  do tenv <- bsvTypeEnv <$> get
+     (n1, tp1) <- expectVectorType tp1
+     (n2, tp2) <- expectVectorType tp2
+     unless (n1 == n2) (fail "Vector length mismatch in zipWith")
+     zs <- forM [0 .. (n1-1) ] $ \i ->
+                    do let x = BSVExpr tp1 tpr1 $ app $ C.VectorGetEntry tpr1 xs (litExpr $ fromInteger i)
+                       let y = BSVExpr tp2 tpr2 $ app $ C.VectorGetEntry tpr2 ys (litExpr $ fromInteger i)
+                       fn (cls ++ [x,y])
+     mkVector zs
+
+zipWithGen args =
+  fail $ unwords $ "zipWith called on incorrect arguments" : map (show . exprTy) args
+
+mkVector :: forall h s ret
+          . [BSVExpr s]
+         -> BSVGen h s ret (BSVExpr s)
+mkVector [] = fail "Cannot figure out the type of a empty list of items"
+mkVector vs@(BSVExpr tp tpr x : xs) =
+    do zs <- go tpr [x] xs
+       return $ BSVExpr (S.TypeCon "Vector" [S.TypeNat $ toInteger $ length vs, tp]) (VectorRepr tpr)
+              $ app $ C.VectorLit tpr $ V.fromList zs
+  where
+   go :: TypeRepr t -> [Expr s t] -> [BSVExpr s] -> BSVGen h s ret [Expr s t]
+   go tpr zs [] = return $ reverse zs
+   go tpr zs (BSVExpr _ tpr' x : xs)
+     | Just Refl <- testEquality tpr tpr' = go tpr (x:zs) xs
+     | otherwise = fail $ unwords ["Type mismatch in zipWith", show tpr, show tpr']
+   go _ _ _ =
+     fail "Unacceptable value produced by zipWith"
 
 genWithGen :: [BSVExpr s]
            -> BSVGen h s ret (BSVExpr s)
-genWithGen _args =
-  reportError (litExpr "FIXME: implement genWith!!")
+genWithGen [BSVExpr (S.TypeFun p) (FunctionHandleRepr args ret) fn]
+    | Just Refl <- testEquality args (Ctx.empty Ctx.%> IntegerRepr) =
+
+  do -- HACK!
+     let n = 4
+     zs <- forM [0 .. n-1] $ \i ->
+             do let x = app $ C.IntLit $ fromIntegral i
+                call fn (Ctx.empty Ctx.%> x)
+     return $ BSVExpr (S.TypeCon "Vector" [S.TypeNat n, S.funResultType p]) (VectorRepr ret)
+            $ app $ C.VectorLit ret $ V.fromList zs
+
+genWithGen args =
+  fail $ unwords $ "genWith called on incorrect arguments" : map (show . exprTy) args
+
 
 replicateGen :: [BSVExpr s]
            -> BSVGen h s ret (BSVExpr s)
-replicateGen _args =
-  reportError (litExpr "FIXME: implement replicate!!")
+replicateGen [BSVExpr tp tpr x] =
+   do -- HACK!
+      let n = 4
+      return $ BSVExpr (S.TypeCon "Vector" [S.TypeNat n, tp]) (VectorRepr tpr)
+             $ app $ C.VectorReplicate tpr (litExpr $ fromIntegral n) x
+replicateGen [BSVFromInteger x] =
+   do -- HACK!!
+      let n = 4
+      let w = knownNat :: NatRepr 8
+      let tpr = BVRepr w
+      let tp = S.TypeCon "Bit" [S.TypeNat 8]
+      return $ BSVExpr (S.TypeCon "Vector" [S.TypeNat n, tp]) (VectorRepr tpr)
+             $ app $ C.VectorReplicate tpr (litExpr $ fromIntegral n) (app $ C.IntegerToBV w x)
+
+replicateGen args =
+  fail $ unwords $ "replicate called on incorrect arguments" : map (show . exprTy) args
+
 
 arrayToVectorGen :: [BSVExpr s]
            -> BSVGen h s ret (BSVExpr s)
-arrayToVectorGen _args =
-  reportError (litExpr "FIXME: implement arrayToVector!!")
+arrayToVectorGen args@[BSVExpr tp tpr x] =
+  do tenv <- bsvTypeEnv <$> get
+     case normalizeType tenv tp of
+       S.TypeCon "Array" [tp'] ->
+         -- HACK!
+         let n = S.TypeNat 4 in
+         return $ BSVExpr (S.TypeCon "Vector" [n,tp']) tpr x
+       _ -> fail $ unwords $ "arrayToVectorGen called on incorrect arguments" : map (show . exprTy) args
+
+arrayToVectorGen args =
+  fail $ unwords $ "arrayToVectorGen called on incorrect arguments" : map (show . exprTy) args
+
+
+rotateByGen :: [BSVExpr s] -> BSVGen h s ret (BSVExpr s)
+rotateByGen [ BSVExpr tp (VectorRepr tpr) xs
+            , BSVExpr  _ (BVRepr w) n
+            ] =
+   do (sz, tp') <- expectVectorType tp
+      zs <- forM [0 .. sz-1] $ \i ->
+               do let j = app $ C.BVUrem w (app $ C.BVSub w (app $ C.BVLit w $ fromIntegral (i+sz)) n) (app $ C.BVLit w sz)
+                  return $ app $ C.VectorGetEntry tpr xs (app $ C.BvToNat w j)
+      return $ BSVExpr tp (VectorRepr tpr)
+             $ app $ C.VectorLit tpr $ V.fromList zs
+
+rotateByGen [ BSVExpr tp (VectorRepr tpr) xs
+            , BSVExpr  _ IntegerRepr n
+            ] =
+   do (sz, tp') <- expectVectorType tp
+      zs <- forM [0 .. sz-1] $ \i ->
+               do let j = app $ C.IntMod (app $ C.IntSub (app $ C.IntLit $ fromIntegral (i+sz)) n) (app $ C.NatLit $ fromInteger sz)
+                  return $ app $ C.VectorGetEntry tpr xs j
+      return $ BSVExpr tp (VectorRepr tpr)
+             $ app $ C.VectorLit tpr $ V.fromList zs
+
+rotateByGen [ BSVExpr tp (VectorRepr tpr) xs
+            , BSVFromInteger n
+            ] =
+   do (sz, tp') <- expectVectorType tp
+      zs <- forM [0 .. sz-1] $ \i ->
+               do let j = app $ C.IntMod (app $ C.IntSub (app $ C.IntLit $ fromIntegral (i+sz)) n) (app $ C.NatLit $ fromInteger sz)
+                  return $ app $ C.VectorGetEntry tpr xs j
+      return $ BSVExpr tp (VectorRepr tpr)
+             $ app $ C.VectorLit tpr $ V.fromList zs
+
+rotateByGen args =
+  fail $ unwords $ "rotateBy called on incorrect arguments" : map (show . exprTy) args
+
 
 
 reverseGen :: [BSVExpr s] -> BSVGen h s ret (BSVExpr s)
+
 reverseGen [BSVExpr tp (VectorRepr tpr) (asApp -> Just (C.VectorLit _ v))] =
   return $ BSVExpr tp (VectorRepr tpr) (app $ C.VectorLit tpr (V.reverse v))
+
 reverseGen [BSVExpr tp (VectorRepr tpr) vec] =
   do tenv <- bsvTypeEnv <$> get
      let Just (n,_tp') = asVectorType tenv tp
-     let xs = [ app $ C.VectorGetEntry tpr vec (litExpr $ fromInteger (n-1-i))
+     let xs = [ app $ C.VectorGetEntry tpr vec (litExpr $ fromInteger i)
               | i <- [0..(n-1)]
               ]
-     return $ BSVExpr tp (VectorRepr tpr) (app $ C.VectorLit tpr $ V.fromList xs)
-  
+     return $ BSVExpr tp (VectorRepr tpr) (app $ C.VectorLit tpr $ V.fromList $ reverse xs)
 
-reverseGen _args =
-  reportError (litExpr "FIXME: implement reverseGen!!")
+--- HACK! assume we unpack to a [4][4]Bit#(8) Vector
+reverseGen [BSVUnpack w x] =
+  do tenv <- bsvTypeEnv <$> get
+     let tp = S.TypeCon "Vector" [S.TypeNat 4,
+                S.TypeCon "Vector" [S.TypeNat 4,
+                  S.TypeCon "Bit" [S.TypeNat 8]
+                ]
+              ]
+     let tpr = VectorRepr (VectorRepr (BVRepr (knownNat :: NatRepr 8)))
+     x' <- unpackExpr tenv tp tpr w x
+     reverseGen [ BSVExpr tp tpr x' ]
 
+reverseGen args =
+  fail $ unwords $ "reverse called on incorrect arguments" : map show args
 
 concatBSVExprs :: forall h s ret. [BSVExpr s] -> BSVGen h s ret (BSVExpr s)
-concatBSVExprs []  = fail "Cannot produce 0-length bitvector"
-concatBSVExprs [x] = return x
-concatBSVExprs (BSVExpr _ (BVRepr w0) x0 : xs0) = go w0 x0 xs0
+concatBSVExprs = concatBSVExprs' . reverse
+
+concatBSVExprs' :: forall h s ret. [BSVExpr s] -> BSVGen h s ret (BSVExpr s)
+concatBSVExprs' []  = fail "Cannot produce 0-length bitvector"
+concatBSVExprs' [x] = return x
+concatBSVExprs' (BSVExpr _ (BVRepr w0) x0 : xs0) = go w0 x0 xs0
  where
   go :: (1 <= w) => NatRepr w -> Expr s (BVType w) -> [BSVExpr s] -> BSVGen h s ret (BSVExpr s)
   go w x [] = return $ BSVExpr (S.TypeCon "Bit" [S.TypeNat (toInteger $ natValue w)]) (BVRepr w) x
@@ -279,7 +470,22 @@ concatBSVExprs (BSVExpr _ (BVRepr w0) x0 : xs0) = go w0 x0 xs0
 
   go _ _ _ = fail "concatExprs given non-bitvector input"
 
-concatBSVExprs (_ : _) = fail "concatExprs given non-bitvector input"
+concatBSVExprs' (_ : _) = fail "concatExprs given non-bitvector input"
+
+-- HACK! assume the output of truncate is a 4-bit value
+truncateGen :: [BSVExpr s] -> BSVGen h s ret (BSVExpr s)
+truncateGen [BSVExpr _ (BVRepr w) x] =
+  do let w4 = knownNat :: NatRepr 4
+     case testLeq (incNat w4) w of
+       Just LeqProof ->
+         return $ BSVExpr (S.TypeCon "Bit" [S.TypeNat 4]) (BVRepr w4)
+                $ app $ C.BVTrunc w4 w x
+       Nothing ->
+         fail $ unwords ["invalid truncate call", show w, show w4]
+
+truncateGen args =
+  fail $ unwords $ "truncate called on incorrect arguments" : map (show . exprTy) args
+
 
 unpackExpr :: (1 <= w)
            => TypeEnv
@@ -304,9 +510,9 @@ unpackExpr tenv tp (VectorRepr tpr) w x
                       _ -> error $ unwords ["Bad slice in unpack", show tp, show (VectorRepr tpr), show w, show i]
 
                   | i <- [0 .. n-1]
-                  ] 
+                  ]
          xs' <- mapM (unpackExpr tenv tp' tpr w') xs
-         return $ app $ C.VectorLit tpr $ V.fromList xs'
+         return $ app $ C.VectorLit tpr $ V.fromList $ xs'
 
   | otherwise = failMsg
 
@@ -326,7 +532,7 @@ doPack tenv tp (VectorRepr tpr) vec
   | Just (n,tp') <- asVectorType tenv tp =
       do let xs = [ app $ C.VectorGetEntry tpr vec (litExpr $ fromInteger i) | i <- [0..(n-1)] ]
          xs' <- mapM (doPack tenv tp' tpr) xs
-         concatBSVExprs xs'
+         concatBSVExprs $ xs'
 
 doPack _ tp tpr@(BVRepr _) x =
   return $ BSVExpr tp tpr x
@@ -340,7 +546,7 @@ packGen :: [BSVExpr s]
 packGen [BSVExpr tp tpr x] =
   do tenv <- bsvTypeEnv <$> get
      doPack tenv tp tpr x
-  
+
 packGen _ =
   fail "pack given incorrect arguments"
 
@@ -352,32 +558,117 @@ unpackGen [BSVExpr _ (BVRepr w) x] =
 unpackGen _ =
   fail "unpack given incorrect arguments"
 
+fromIntegerGen ::
+  [BSVExpr s] ->
+  BSVGen h s ret (BSVExpr s)
+fromIntegerGen [BSVExpr _ IntegerRepr x] =
+  return $ BSVFromInteger x
+fromIntegerGen _ =
+  fail "fromInteger given incorrect arguments"
 
-bit8_xor_proto :: S.FunProto
-bit8_xor_proto =
-  S.FunProto
-  { S.funName = "bit8_xor_proto"
-  , S.funResultType = S.TypeCon "Bit" [S.TypeNat 8]
-  , S.funFormals = [(S.TypeCon "Bit" [S.TypeNat 8], "x")
-                   ,(S.TypeCon "Bit" [S.TypeNat 8], "y")
-                   ]
-  , S.funProvisos = []
-  }
+boolAndGen :: [BSVExpr s]
+           -> BSVGen h s ret (BSVExpr s)
+boolAndGen [ BSVExpr _ BoolRepr x
+           , BSVExpr _ BoolRepr y
+           ] =
+  do let z = app $ C.And x y
+     return $ BSVExpr (S.TypeCon "Bool" []) BoolRepr z
+
+boolAndGen args =
+  fail $ unwords $ "&& called on incorrect arguments" : map (show . exprTy) args
+
+boolOrGen :: [BSVExpr s]
+           -> BSVGen h s ret (BSVExpr s)
+boolOrGen [ BSVExpr _ BoolRepr x
+          , BSVExpr _ BoolRepr y
+          ] =
+  do let z = app $ C.Or x y
+     return $ BSVExpr (S.TypeCon "Bool" []) BoolRepr z
+
+boolOrGen args =
+  fail $ unwords $ "|| called on incorrect arguments" : map (show . exprTy) args
+
+
+bitXorGen :: [BSVExpr s]
+           -> BSVGen h s ret (BSVExpr s)
+bitXorGen [ BSVExpr tp (BVRepr wx) x
+          , BSVExpr _ (BVRepr wy) y
+          ] | Just Refl <- testEquality wx wy =
+  do let z = app $ C.BVXor wx x y
+     return $ BSVExpr tp (BVRepr wx) z
+
+bitXorGen args =
+  fail $ unwords $ "^ called on incorrect arguments" : map (show . exprTy) args
+
+
+tailGen :: [BSVExpr s]
+        -> BSVGen h s ret (BSVExpr s)
+tailGen [ BSVExpr tp (VectorRepr tpr) (asApp -> Just (C.VectorLit _ v)) ] =
+  do (n,tp') <- expectVectorType tp
+     unless (n >= 1) (fail "tail called on empty vector")
+     let n' = n-1
+     let v' = app $ C.VectorLit tpr $ V.tail v
+     return $ BSVExpr (S.TypeCon "Vector" [S.TypeNat n', tp]) (VectorRepr tpr) v'
+
+tailGen [ BSVExpr tp (VectorRepr tpr) v ] =
+  do (n,tp') <- expectVectorType tp
+     unless (n >= 1) (fail "tail called on empty vector")
+     let n' = n-1
+     let xs = [ app $ C.VectorGetEntry tpr v (litExpr $ fromIntegral i)
+              | i <- [1 .. n']
+              ]
+     let v' = app $ C.VectorLit tpr $ V.fromList xs
+     return $ BSVExpr (S.TypeCon "Vector" [S.TypeNat n', tp]) (VectorRepr tpr) v'
+
+tailGen args =
+  fail $ unwords $ "tail called on incorrect arguments" : map (show . exprTy) args
+
+
+initGen :: [BSVExpr s]
+        -> BSVGen h s ret (BSVExpr s)
+initGen [ BSVExpr tp (VectorRepr tpr) (asApp -> Just (C.VectorLit _ v)) ] =
+  do (n,tp') <- expectVectorType tp
+     unless (n >= 1) (fail "init called on empty vector")
+     let n' = n-1
+     let v' = app $ C.VectorLit tpr $ V.init v
+     return $ BSVExpr (S.TypeCon "Vector" [S.TypeNat n', tp]) (VectorRepr tpr) v'
+
+initGen [ BSVExpr tp (VectorRepr tpr) v ] =
+  do (n,tp') <- expectVectorType tp
+     unless (n >= 1) (fail "init called on empty vector")
+     let n' = n-1
+     let xs = [ app $ C.VectorGetEntry tpr v (litExpr $ fromIntegral i)
+              | i <- [0 .. (n'-1)]
+              ]
+     let v' = app $ C.VectorLit tpr $ V.fromList xs
+     return $ BSVExpr (S.TypeCon "Vector" [S.TypeNat n', tp]) (VectorRepr tpr) v'
+
+initGen args =
+  fail $ unwords $ "init called on incorrect arguments" : map (show . exprTy) args
+
+
+composeGen :: [BSVExpr s]
+           -> BSVGen h s ret (BSVExpr s)
+composeGen [f, g, x] =
+   do y <- applyExpr' g [x]
+      applyExpr' f [y]
+
+composeGen args =
+  fail $ unwords $ "compose called on incorrect arguments" : map (show . exprTy) args
+
+
 
 initialValEnv :: forall h
                . HandleAllocator h
               -> ST h TopEnv
 initialValEnv halloc = do
-    bit8_xor_hdl <- mkHandle' halloc "bit8_xor"
-                         (Ctx.empty Ctx.%> BVRepr (knownNat :: NatRepr 8)
-                          Ctx.%> BVRepr (knownNat :: NatRepr 8))
-                         (BVRepr (knownNat :: NatRepr 8))
     return $ Map.fromList
      [ ("+",  BSV_BindMethod "Arith")
      , ("-",  BSV_BindMethod "Arith")
      , ("-",  BSV_BindMethod "Arith")
      , ("*",  BSV_BindMethod "Arith")
      , ("/",  BSV_BindMethod "Arith")
+     , ("%",  BSV_BindMethod "Arith")
      , ("negate", BSV_BindMethod "Arith")
      , ("==", BSV_BindMethod "Eq")
      , ("!=", BSV_BindMethod "Eq")
@@ -402,22 +693,24 @@ initialValEnv halloc = do
      -- the correct thing to do here...
      , ("?", BSV_BindTopExpr (S.TypeCon "Bit" [S.TypeNat 8]) (BVRepr (knownNat :: NatRepr 8)) (litExpr 0))
 
-     , ("transpose", BSV_BindGen transposeGen)
-     , ("map", BSV_BindGen mapGen)
-     , ("PrimIndex", BSV_BindGen primIndexGen)
-     , ("PrimBitConcat", BSV_BindGen primBitConcat)
-     , ("zipWith", BSV_BindGen zipWithGen)
-     , ("genWith", BSV_BindGen genWithGen)
-     , ("replicate", BSV_BindGen replicateGen)
-     , ("arrayToVector", BSV_BindGen arrayToVectorGen)
-     , ("reverse", BSV_BindGen reverseGen)
+     , ("transpose", BSV_BindGen 1 transposeGen)
+     , ("map", BSV_BindGen 2 mapGen)
+     , ("PrimIndex", BSV_BindGen 2 primIndexGen)
+     , ("PrimBitConcat", BSV_BindGen 0 primBitConcat)
+     , ("zipWith", BSV_BindGen 3 zipWithGen)
+     , ("genWith", BSV_BindGen 1 genWithGen)
+     , ("replicate", BSV_BindGen 1 replicateGen)
+     , ("arrayToVector", BSV_BindGen 1 arrayToVectorGen)
+     , ("reverse", BSV_BindGen 1 reverseGen)
+     , ("truncate", BSV_BindGen 1 truncateGen)
+     , ("rotateBy", BSV_BindGen 2 rotateByGen)
+     , ("tail", BSV_BindGen 1 tailGen)
+     , ("init", BSV_BindGen 1 initGen)
+     , ("compose", BSV_BindGen 3 composeGen)
 
-     , ("bit8_xor", BSV_BindFun bit8_xor_proto bit8_xor_hdl)
+     , ("&&", BSV_BindGen 2 boolAndGen)
+     , ("||", BSV_BindGen 2 boolOrGen)
 
-
-     -- Hack for AES stuff specifically
-     , ("nk", BSV_BindTopExpr (S.TypeCon "Integer" []) IntegerRepr (litExpr 4))
-     , ("nr", BSV_BindTopExpr (S.TypeCon "Integer" []) IntegerRepr (litExpr 10))
      ]
 
 
@@ -433,11 +726,12 @@ lookupVar nm = do
     Just (BSV_Top (BSV_BindCAF tp hdl)) -> BSVExpr tp (handleReturnType hdl) <$> call (litExpr hdl) Ctx.empty
 
     Just (BSV_Top (BSV_BindMethod cls)) ->
-      if nm == "^"
-       then lookupVar "bit8_xor"
-       else fail $ unwords ["FIXME: implement typeclass method lookup", nm, cls]
+      if | nm == "^"    -> return $ BSVThunk (S.TypeVar "unknown") 2 bitXorGen []
+         | nm == "pack" -> return $ BSVThunk (S.TypeVar "unknown") 1 packGen []
+         | otherwise    -> fail $ unwords ["FIXME: implement typeclass method lookup", nm, cls]
 
-    Just (BSV_Top (BSV_BindGen m)) -> return $ BSVThunk (error "Oops, we need a type signature for this thunk expression!") m
+    Just (BSV_Top (BSV_BindGen arity m)) ->
+         return $ BSVThunk (S.TypeVar "unknown") arity m []
     Just (BSV_BindClosure tp tpr) -> do
       mclosure <- bsvClosure <$> get
       case mclosure of
@@ -449,6 +743,7 @@ lookupVar nm = do
                                   (litExpr $ Text.pack $ unwords ["captured variable not found in closure!", nm]))
                                (litExpr $ Text.pack $ unwords ["type mismatch on captured variable:", nm])
 
+           addCapturedVar nm
            return $ BSVExpr tp tpr expr
 
     Nothing -> fail $ unwords ["Variable not found in local scope: ", show nm]
@@ -467,31 +762,71 @@ applyVar nm args = do
     Just (BSV_BindReg _ _ _) -> fail "Cannot (?) apply arguments to a register value"
     Just (BSV_Top (BSV_BindCAF _ _)) -> fail "Cannot apply arguments to a CAF"
     Just (BSV_Top (BSV_BindFun proto hdl)) ->
-       do args' <- prepareArgs (handleArgTypes hdl) args
+       do args' <- prepareArgs proto (handleArgTypes hdl) args
           BSVExpr (S.funResultType proto) (handleReturnType hdl) <$> call (litExpr hdl) args'
-    Just (BSV_Top (BSV_BindGen gen)) -> gen args
+    Just (BSV_Top (BSV_BindGen arity gen)) ->
+       let len = length args in
+       if | len == arity -> gen args
+          | len <  arity -> return $ BSVThunk (S.TypeVar "unknown") (arity - len) gen args
+          | otherwise    -> fail $ unwords ["Tried to apply too many arguments to a thunk", show len, show nm]
 
     Nothing -> fail $ unwords ["Variable not found in local scope: ", show nm]
 
 
-prepareArgs :: CtxRepr ctx
+prepareArgs :: S.FunProto
+            -> CtxRepr ctx
             -> [BSVExpr s]
             -> BSVGen h s ret (Ctx.Assignment (Expr s) ctx)
-prepareArgs ctx0 args0 = go ctx0 (reverse args0)
+prepareArgs proto ctx0 args0 = go ctx0 (reverse args0)
  where
+  go :: CtxRepr ctx -> [BSVExpr s] -> BSVGen h s ret (Ctx.Assignment (Expr s) ctx)
   go (Ctx.view -> Ctx.AssignEmpty) [] = return Ctx.empty
   go (Ctx.view -> Ctx.AssignExtend ctx t) (BSVExpr _tp tpr x:xs) =
     case testEquality t tpr of
-      Just Refl -> do args <- prepareArgs ctx xs
+      Just Refl -> do args <- go ctx xs
                       return (args Ctx.%> x)
-      Nothing   -> fail $ unwords [ "Argument mismatch in function call", show t, show tpr]
-  go _ _ = fail "Argument arity mismatch!"
+      Nothing   -> failMsg
+  go (Ctx.view -> Ctx.AssignExtend ctx t) (BSVFromInteger n:xs) =
+       do x <- case t of
+                 BVRepr w    -> return $ app $ C.IntegerToBV w n
+                 IntegerRepr -> return n
+                 _ -> failMsg
+          args <- go ctx xs
+          return (args Ctx.%> x)
+
+  go _ _ = failMsg
+
+  failMsg :: Monad m => m a
+  failMsg = fail $ unlines $ "Argument arity mismatch!" : show proto : show ctx0 : map show args0
 
 applyExpr :: S.Expr
           -> [BSVExpr s]
           -> BSVGen h s ret (BSVExpr s)
 applyExpr (S.ExprVar nm) args = applyVar nm args
-applyExpr fn _ = fail $ unwords ["Unsupported function expression", show fn]
+applyExpr fn args = do
+  fn' <- translateExpr fn
+  applyExpr' fn' args
+
+applyExpr' :: BSVExpr s
+           -> [BSVExpr s]
+           -> BSVGen h s ret (BSVExpr s)
+applyExpr' fn args = do
+  tenv <- bsvTypeEnv <$> get
+  case fn of
+    BSVExpr (normalizeType tenv -> S.TypeFun proto) (FunctionHandleRepr argTys retTy) f ->
+      do args' <- prepareArgs proto argTys args
+         z <- call f args'
+         return $ BSVExpr (S.funResultType proto) retTy z
+
+    BSVThunk tp n gen cls
+      | length args < n  -> return $ BSVThunk (S.TypeVar "unknown") (n - length args) gen (cls ++ args)
+      | length args == n -> gen (cls++args)
+      | otherwise ->
+            do let (args',rest) = splitAt n args
+               f <- gen (cls++args')
+               applyExpr' f rest
+
+    _ -> fail $ unwords ["unexpected function value in applyExpr'"]
 
 
 bindVar :: S.Ident
@@ -499,10 +834,13 @@ bindVar :: S.Ident
         -> BSVGen h s ret ()
 bindVar nm (BSVExpr tp repr x) =
   modify $ \st -> st{ bsvStateVars = Map.insert nm (BSV_BindExpr tp repr x) (bsvStateVars st) }
-bindVar nm (BSVThunk _ m) =
-  modify $ \st -> st{ bsvStateVars = Map.insert nm (BSV_Top (BSV_BindGen m)) (bsvStateVars st) }
 bindVar _nm (BSVUnpack _ _) =
   fail "Cannot bind an unpacking..."
+bindVar _nm (BSVFromInteger _) =
+  fail "Cannot bind a fromInteger..."
+bindVar nm (BSVThunk _ _ _ _) =
+  fail "Cannot bind a thunk..."
+--  modify $ \st -> st{ bsvStateVars = Map.insert nm (BSV_Top (BSV_BindGen m)) (bsvStateVars st) }
 
 
 bindReg :: S.Ident
@@ -578,9 +916,26 @@ baseCmpMethod
    -> (forall w. (1 <= w) => NatRepr w
       -> Expr s (BVType w) -> Expr s (BVType w) -> C.App (Expr s) BoolType)
    -> [BSVExpr s] -> BSVGen h s ret (BSVExpr s)
-baseCmpMethod nm integerF intF uintF bitsF args = case args of
-  [  BSVExpr (S.TypeCon "Integer" []) IntegerRepr x
-   , BSVExpr (S.TypeCon "Integer" []) IntegerRepr y
+baseCmpMethod nm integerF intF uintF bitsF args = do
+ tenv <- bsvTypeEnv <$> get
+ case args of
+  [  BSVExpr _ IntegerRepr x
+   , BSVExpr _ IntegerRepr y
+   ] -> return $ BSVExpr (S.TypeCon "Bool" []) BoolRepr
+               $ integerF x y
+
+  [  BSVFromInteger x
+   , BSVExpr _ IntegerRepr y
+   ] -> return $ BSVExpr (S.TypeCon "Bool" []) BoolRepr
+               $ integerF x y
+
+  [  BSVExpr _ IntegerRepr x
+   , BSVFromInteger y
+   ] -> return $ BSVExpr (S.TypeCon "Bool" []) BoolRepr
+               $ integerF x y
+
+  [  BSVFromInteger x
+   , BSVFromInteger y
    ] -> return $ BSVExpr (S.TypeCon "Bool" []) BoolRepr
                $ integerF x y
 
@@ -599,22 +954,38 @@ selectBitvectorOperation
    :: String
    -> (forall w. (1<=w) => String -> Integer -> NatRepr w -> Expr s (BVType w) -> Expr s (BVType w) -> BSVGen h s ret a)
    -> [BSVExpr s] -> BSVGen h s ret a
-selectBitvectorOperation nm op args = case args of
-  [  BSVExpr (S.TypeCon cx [S.TypeNat ix]) (BVRepr wx) x
-   , BSVExpr (S.TypeCon cy [S.TypeNat iy]) (BVRepr wy) y
+selectBitvectorOperation nm op args = do
+ tenv <- bsvTypeEnv <$> get
+ case args of
+  [  BSVExpr (normalizeType tenv -> S.TypeCon cx [S.TypeNat ix]) (BVRepr wx) x
+   , BSVExpr (normalizeType tenv -> S.TypeCon cy [S.TypeNat iy]) (BVRepr wy) y
    ] | ix == iy, cx == cy
      , Just Refl <- testEquality wx wy
      -> op cx ix wx x y
 
-  [  BSVExpr (S.TypeCon cx [S.TypeNat ix]) (BVRepr wx) x
-   , BSVExpr (S.TypeCon "Integer" []) IntegerRepr (App (C.IntLit ylit))
-   ] -> op cx ix wx x (app $ C.BVLit wx ylit)
+  [  BSVExpr (normalizeType tenv -> S.TypeCon cx [S.TypeNat ix]) (BVRepr wx) x
+   , BSVFromInteger y
+   ] -> op cx ix wx x (castOp cx wx y)
 
-  [  BSVExpr (S.TypeCon "Integer" []) IntegerRepr (App (C.IntLit xlit))
-   , BSVExpr (S.TypeCon cy [S.TypeNat iy]) (BVRepr wy) y
-   ] -> op cy iy wy (app $ C.BVLit wy xlit) y
+  [  BSVExpr (normalizeType tenv -> S.TypeCon cx [S.TypeNat ix]) (BVRepr wx) x
+   , BSVExpr _ IntegerRepr y
+   ] -> op cx ix wx x (castOp cx wx y)
 
-  _ -> fail $ unwords ["Invalid types for bitwise operation", nm, show (map exprTy args)]
+  [  BSVExpr _ IntegerRepr x
+   , BSVExpr (normalizeType tenv -> S.TypeCon cy [S.TypeNat iy]) (BVRepr wy) y
+   ] -> op cy iy wy (castOp cy wy x) y
+
+  [  BSVFromInteger x
+   , BSVExpr (normalizeType tenv -> S.TypeCon cy [S.TypeNat iy]) (BVRepr wy) y
+   ] -> op cy iy wy (castOp cy wy x) y
+
+  _ -> fail $ unwords ["Invalid types for bitvector operation", nm, show (map exprTy args)]
+
+ where castOp :: (1 <= w) => String -> NatRepr w -> Expr s IntegerType -> Expr s (BVType w)
+       castOp "Int"  w x = app $ C.IntegerToSBV w x
+       castOp "UInt" w x = app $ C.IntegerToBV w x
+       castOp "Bit"  w x = app $ C.IntegerToBV w x
+       castOp c _ _ = error $ unwords ["Unknown bitvector type", c]
 
 
 baseBitwiseMethod
@@ -642,11 +1013,27 @@ baseArithMethod
    -> (forall w. (1 <= w) => NatRepr w
       -> Expr s (BVType w) -> Expr s (BVType w) -> C.App (Expr s) (BVType w))
    -> [BSVExpr s] -> BSVGen h s ret (BSVExpr s)
-baseArithMethod nm integerF intF uintF bitsF args = case args of
-  [  BSVExpr (S.TypeCon "Integer" []) IntegerRepr x
-   , BSVExpr (S.TypeCon "Integer" []) IntegerRepr y
+baseArithMethod nm integerF intF uintF bitsF args = do
+ tenv <- bsvTypeEnv <$> get
+ case args of
+  [  BSVExpr _ IntegerRepr x
+   , BSVExpr _ IntegerRepr y
    ] -> return $ BSVExpr (S.TypeCon "Integer" []) IntegerRepr
                $ integerF x y
+
+  [  BSVFromInteger x
+   , BSVExpr _ IntegerRepr y
+   ] -> return $ BSVExpr (S.TypeCon "Integer" []) IntegerRepr
+               $ integerF x y
+
+  [  BSVExpr _ IntegerRepr x
+   , BSVFromInteger y
+   ] -> return $ BSVExpr (S.TypeCon "Integer" []) IntegerRepr
+               $ integerF x y
+
+  [  BSVFromInteger x
+   , BSVFromInteger y
+   ] -> return $ BSVFromInteger $ integerF x y
 
   _ -> selectBitvectorOperation nm op args
         where
@@ -681,7 +1068,8 @@ applyTypeclassMethod "Arith" "*" =
 applyTypeclassMethod "Arith" "/" =
    baseArithMethod "/" (error "Integer division") C.BVSdiv C.BVUdiv C.BVUdiv
 applyTypeclassMethod "Arith" "%" =
-   baseArithMethod "/" (error "Integer modulus") C.BVSrem C.BVUrem C.BVUrem
+   baseArithMethod "/" (\x y -> app $ C.NatToInteger (app $ C.IntMod x (app $ C.IntegerToNat y)))
+                       C.BVSrem C.BVUrem C.BVUrem
 
 applyTypeclassMethod "Eq" "==" =
    baseCmpMethod "==" (.==) C.BVEq C.BVEq C.BVEq
@@ -735,8 +1123,8 @@ applyTypeclassMethod "Bitwise" ">>" =
 applyTypeclassMethod "Bits" "unpack" = unpackGen
 applyTypeclassMethod "Bits" "pack" = packGen
 
-applyTypeclassMethod "Literal" "fromInteger" = \_args ->
-   reportError "FIXME: implement fromInteger"
+applyTypeclassMethod "Literal" "fromInteger" = fromIntegerGen
+
 
 applyTypeclassMethod cls mth =
   fail $ unwords ["Unknown typelcass method:", cls, mth]
@@ -823,7 +1211,7 @@ translateExpr :: S.Expr
               -> BSVGen h s ret (BSVExpr s)
 translateExpr ex = case ex of
   S.ExprVar nm          -> lookupVar nm
-  S.ExprIntLit n        -> return $ BSVExpr (S.TypeCon "Integer" []) IntegerRepr $ app $ C.IntLit n
+  S.ExprIntLit n        -> return $ BSVFromInteger (litExpr n)
   S.ExprRealLit r       -> return $ BSVExpr (S.TypeCon "Real" []) RealValRepr $ app $ C.RationalLit r
   S.ExprStringLit s     -> return $ BSVExpr (S.TypeCon "String" []) StringRepr $ app $ C.TextLit $ Text.pack s
   S.ExprUnaryOp op x    -> join (unaryOp op <$> translateExpr x)
@@ -833,7 +1221,7 @@ translateExpr ex = case ex of
       BSVExpr xt xtr x' <- translateExpr x
       BSVExpr yt ytr y' <- translateExpr y
       case testEquality xtr ytr of
-        Just Refl | xt == yt ->
+        Just Refl ->
           BSVExpr xt xtr <$> ifte' xtr cond (return x') (return y')
         _ -> fail $ unwords ["Expression types failed to match in conditional expression:"
                             , show xt, show yt ]
@@ -956,10 +1344,11 @@ toStaticIndex x _ =
   fail $ unwords ["Static index required for bit selection:", show x]
 
 
-translateStmt :: HandleAllocator h
-              -> TypeRepr ret
+translateStmt :: forall h s r.
+                 HandleAllocator h
+              -> TypeRepr r
               -> S.Stmt
-              -> BSVGen h s ret ()
+              -> BSVGen h s r ()
 translateStmt halloc ret s = case s of
   S.StmtExpr e -> stashExpr =<< translateExpr e
   S.StmtReturn e -> do
@@ -969,7 +1358,7 @@ translateStmt halloc ret s = case s of
           case testEquality r ret of
             Just Refl -> returnFromFunction x
             Nothing   -> fail $ unwords ["Type mismatch at return statement", show r, show ret]
-        BSVThunk _ _ -> fail $ unwords ["Cannot return a code-gen thunk from a function :-("]
+        BSVThunk _ _ _ _ -> fail $ unwords ["Cannot return a code-gen thunk from a function :-("]
 
   S.StmtLet nm (S.BindingEq e) -> do
       bindVar nm =<< translateExpr e
@@ -994,26 +1383,90 @@ translateStmt halloc ret s = case s of
     translateFunProto proto $ \(args :: CtxRepr args) (ret' :: TypeRepr ret) -> do
       let args' = args Ctx.%> closureRepr
       hdl <- liftST $ mkHandle' halloc nm' args' ret'
-      (SomeCFG g,captured,ls) <- liftST $ translateInnerFun halloc hdl tenv venv fundef
-
-      case toSSA g of
-        C.SomeCFG g_ssa ->
-          mapM_ recordCFG (C.AnyCFG g_ssa : ls)
+      (C.SomeCFG g,captured,ls) <- liftST $ translateInnerFun halloc hdl tenv venv fundef
+      mapM_ recordCFG (C.AnyCFG g : ls)
 
       cls <- mkClosure venv captured
+
       let expr = BSVExpr (S.TypeFun proto) (FunctionHandleRepr args ret') $
                    app $ C.Closure args ret' (litExpr hdl) closureRepr cls
 
       bindVar nm expr
 
+  S.StmtFor init test incr body ->
+     do mapM_ transInit init
+        while (InternalPos, transTest test)
+              (InternalPos, do translateStmt halloc ret body
+                               mapM_ transIncr incr)
+    where
+      transInit (Just tp, nm, expr) = translateVarDecl (S.VarDecl tp nm [] [expr])
+      transInit (Nothing, nm, expr) = translateVarAssign (S.VarAssignEq (S.LValueIdent nm) expr)
+
+      transTest :: S.Expr -> BSVGen h s r (Expr s BoolType)
+      transTest ex =
+         do x <- translateExpr ex
+            case x of
+              BSVExpr _ BoolRepr t -> return t
+              _ -> fail "Expected boolean result from for loop test"
+
+      transIncr (nm,ex) = translateVarAssign (S.VarAssignEq (S.LValueIdent nm) ex)
+
+  S.StmtBlock S.Value ss ->
+      mapM_ (translateStmt halloc ret) ss
+
+  S.StmtVarAssign asgn ->
+      translateVarAssign asgn
+
   _ -> fail $ "Unsupported statement form: " ++ show s
+
+
+translateVarAssign :: forall h s ret.
+  S.VarAssign ->
+  BSVGen h s ret ()
+translateVarAssign (S.VarAssignEq lhs expr) =
+  do x <- translateExpr expr
+     case x of
+       BSVExpr _tp tpr x' -> goLHS tpr (\_ -> return x') lhs
+       _ -> fail $ unwords $ ["Expected expression in variable assignment"]
+
+ where
+  goLHS :: TypeRepr tp -> (Expr s tp -> BSVGen h s ret (Expr s tp)) -> S.LValue -> BSVGen h s ret ()
+  goLHS tpr fn (S.LValueIdent nm) =
+     do mp <- bsvStateVars <$> get
+        case Map.lookup nm mp of
+           Just (BSV_BindReg _tp tpr' reg) | Just Refl <- testEquality tpr tpr' ->
+             do v <- readReg reg
+                v' <- fn v
+                assignReg reg v'
+           _ -> fail $ unwords $ ["Type mismatch assigning to", nm, show tpr]
+  goLHS tpr fn (S.LValueIdx lhs ex) =
+     do ex' <- translateExpr ex
+        case ex' of
+          BSVExpr _ IntegerRepr i ->
+            do let idx = app $ C.IntegerToNat i
+               goLHS (VectorRepr tpr)
+                     (\vs -> do let v = app $ C.VectorGetEntry tpr vs idx
+                                v' <- fn v
+                                let vs' = app $ C.VectorSetEntry tpr vs idx v'
+                                return vs'
+                     )
+                     lhs
+
+  goLHS _tpr _fn lhs =
+    fail $ unwords ["FIXME implement assignment for LHS:", show lhs]
+
+translateVarAssign s =
+  reportError $ litExpr $ Text.pack $ unwords ["FIXME! implement translateVarAssign", show s]
 
 
 mkClosure :: forall h s ret
            . ValueEnv s
           -> Set S.Ident
           -> BSVGen h s ret (Expr s Closure)
-mkClosure env vars = go (app $ C.EmptyStringMap AnyRepr) (Set.toList vars)
+mkClosure env vars =
+   do let vars' = Set.toList vars
+      Debug.trace (unwords $ "Closure variables:" : vars')
+        go (app $ C.EmptyStringMap AnyRepr) vars'
  where
   go :: Expr s Closure
      -> [S.Ident]
@@ -1035,12 +1488,24 @@ translateVarDecl (S.VarDecl tp nm dims es) = do
   let ?tenv = env
   translateArrayType tp dims $ \dims' tpr -> do
     reg <- case es of
-             [] -> newUnassignedReg tpr
+             [] -> newReg =<< translateUninit tp dims' tpr
              _  -> newReg =<< translateArrayInit tp dims' tpr es
     bindReg nm (arrayTp dims' tp) tpr reg
 
 
 translateVarDecl vd = fail $ unwords ["Unsupported var declaration form", show vd]
+
+
+translateUninit :: S.Type -> [Integer] -> TypeRepr tp
+                -> BSVGen h s ret (Expr s tp)
+translateUninit tp [] (VectorRepr tpr) =
+  do (n,tp') <- expectVectorType tp
+     x <- translateUninit tp' [] tpr
+     return $ app $ C.VectorReplicate tpr (litExpr $ fromInteger n) x
+
+translateUninit tp [] (BVRepr w) =
+  do return $ app $ C.BVUndef w
+
 
 
 -- FIXME, this only handles one dimesnion at the moment!
@@ -1053,26 +1518,28 @@ translateArrayInit tp [] tpr [x] = do
       case testEquality tpr tpr' of
         Just Refl -> return x''
         Nothing -> fail $ unwords ["Type mismatch in initializer", show tpr, show tpr']
-    BSVThunk _ _ ->
+    BSVThunk _ _ _ _ ->
       fail $ unwords ["unexpected code-gen thunk in array initializer"]
     BSVUnpack w expr ->
       do tenv <- bsvTypeEnv <$> get
          unpackExpr tenv tp tpr w expr
+    BSVFromInteger n ->
+      case tpr of
+        IntegerRepr -> return n
+        _ -> fail "FIXME, more cases in translateArrayInit for 'fromInteger'"
+
 
 translateArrayInit _tp [n] (VectorRepr (elt_tp :: TypeRepr elt_tp)) xs | toInteger (length xs) == n =
   do let f :: BSVExpr s -> BSVGen h s ret (Expr s elt_tp)
-         f (BSVThunk _ _) =
+         f (BSVThunk _ _ _ _) =
              fail $ unwords ["unexpected code-gen thunk in array initializer"]
+         f (BSVFromInteger n) =
+             case elt_tp of
+               IntegerRepr -> return n
+               BVRepr w    -> return $ app $ C.IntegerToBV w n
          f (BSVExpr _tp tpr x) =
              case testEquality elt_tp tpr of
                Just Refl -> return x
-               _ -> case (elt_tp, tpr) of
-                    -- Ugh, nasty special case
-                      (BVRepr w, IntegerRepr) ->
-                        case x of
-                           App (C.IntLit i) -> return $ App $ C.BVLit w i
-                           _ -> fail $ unwords ["Type mismatch in array initializer", show elt_tp, show tpr]
-                      _ -> fail $ unwords ["Type mismatch in array initializer", show elt_tp, show tpr]
      xs' <- mapM (f <=< translateExpr) xs
      return $ app $ C.VectorLit elt_tp $ V.fromList $ xs'
 translateArrayInit tp dims _tpr xs =
@@ -1115,6 +1582,7 @@ translateType t k = case t of
 
   S.TypeCon "Bool" [] -> k BoolRepr
   S.TypeCon "Integer" [] -> k IntegerRepr
+  S.TypeVar "Integer" -> k IntegerRepr
   S.TypeCon nm [tn]
     | nm `elem` ["Bit", "Int", "UInt"]
     , Just n <- recognize typeNat tn ->
@@ -1188,13 +1656,13 @@ initialState :: TypeEnv
              -> TopEnv
              -> Ctx.Assignment (Atom s) ctx
              -> [(S.Type, S.Ident)]
-             -> BSVState s
+             -> BSVState h s
 initialState tenv venv crucibleFormals bsvFormals =
   BSVState
   { bsvStateVars    = zipFormals crucibleFormals bsvFormals (topToValueEnv venv)
   , bsvTypeEnv      = tenv
   , bsvLastExpr     = Nothing
-  , bsvCapturedVars = Set.empty
+  , bsvCapturedVars = Nothing
   , bsvClosure      = Nothing
   }
 
@@ -1202,15 +1670,16 @@ nestedInitialState :: TypeEnv
              -> ValueEnv s
              -> Ctx.Assignment (Atom s) (ctx ::> Closure)
              -> [(S.Type, S.Ident)]
-             -> BSVState s
-nestedInitialState tenv venv assgn bsvFormals =
+             -> STRef h (Set S.Ident)
+             -> BSVState h s
+nestedInitialState tenv venv assgn bsvFormals capturedRef =
   case Ctx.view assgn of
     Ctx.AssignExtend crucibleFormals cls ->
       BSVState
       { bsvStateVars    = zipFormals crucibleFormals bsvFormals venv
       , bsvTypeEnv      = tenv
       , bsvLastExpr     = Nothing
-      , bsvCapturedVars = Set.empty
+      , bsvCapturedVars = Just capturedRef
       , bsvClosure      = Just (AtomExpr cls)
       }
 
@@ -1221,17 +1690,21 @@ translateFun :: forall h args ret
              -> TypeEnv
              -> TopEnv
              -> S.FunDef
-             -> ST h (SomeCFG args ret, [C.AnyCFG])
+             -> ST h (C.SomeCFG args ret, [C.AnyCFG])
 translateFun halloc hdl tenv venv fundef = do
   let proto = S.funDefProto fundef
   let ?tenv = tenv
   let ret = handleReturnType hdl
-  let def :: FunctionDef h BSVState args ret
+  let nm = functionName $ handleName hdl
+  let def :: FunctionDef h (BSVState h) args ret
       def formals = ( initialState tenv venv formals (S.funFormals proto)
                     , do mapM_ (translateStmt halloc ret) (S.funBody fundef)
                          returnStashedVal ret
                     )
-  defineFunction InternalPos hdl def
+  Debug.trace ("Translating function: " ++ Text.unpack nm) $ do
+   (SomeCFG g, cfgs) <- defineFunction (SourcePos nm 0 0) hdl def
+   let g' = toSSA g
+   return (g', cfgs)
 
 type Closure = StringMapType AnyType
 
@@ -1240,7 +1713,7 @@ closureRepr = knownRepr
 
 arrayTp :: [Integer] -> S.Type -> S.Type
 arrayTp [] tp = tp
-arrayTp (d:ds) tp = S.TypeCon "Array" [S.TypeNat d, arrayTp ds tp]
+arrayTp (d:ds) tp = S.TypeCon "Array" [arrayTp ds tp]
 
 translateInnerFun :: forall h s0 args ret
                    . HandleAllocator h
@@ -1248,26 +1721,27 @@ translateInnerFun :: forall h s0 args ret
                   -> TypeEnv
                   -> ValueEnv s0
                   -> S.FunDef
-                  -> ST h (SomeCFG (args ::> Closure) ret, Set S.Ident, [C.AnyCFG])
+                  -> ST h (C.SomeCFG (args ::> Closure) ret, Set S.Ident, [C.AnyCFG])
 translateInnerFun halloc hdl tenv venv fundef = do
   let proto = S.funDefProto fundef
   let ?tenv = tenv
   let ret = handleReturnType hdl
+  let nm = functionName $ handleName hdl
   -- the type of 'defineFunction' doesn't let us direclty return additional information
   -- from running the generator.  So we use an STRef to leak some additional information
   -- out of the computation
   capturedRef <- newSTRef Set.empty
-  let def :: FunctionDef h BSVState (args ::> Closure) ret
-      def formals = ( nestedInitialState tenv (nestValueEnv venv) formals (S.funFormals proto)
+  let def :: FunctionDef h (BSVState h) (args ::> Closure) ret
+      def formals = ( nestedInitialState tenv (nestValueEnv venv) formals (S.funFormals proto) capturedRef
                     , do mapM_ (translateStmt halloc ret) (S.funBody fundef)
-                         captured <- bsvCapturedVars <$> get
-                         liftST $ writeSTRef capturedRef captured
                          returnStashedVal ret
                     )
 
-  (g, ls) <- defineFunction InternalPos hdl def
-  captured <- readSTRef capturedRef
-  return (g, captured, ls)
+  Debug.trace ("Translating inner function: " ++ Text.unpack nm) $ do
+   (SomeCFG g, ls) <- defineFunction (SourcePos nm 0 0) hdl def
+   captured <- readSTRef capturedRef
+   let g' = toSSA g
+   return (g', captured, ls)
 
 
 translatePackageFuns :: forall h
@@ -1290,15 +1764,15 @@ translatePackageFuns halloc tenv env0 ps0 =
       let nm' = functionNameFromText $ Text.pack $ nm
       translateArrayType tp dims $ \dims' (ret :: TypeRepr ret) ->
         do hdl <- mkHandle' halloc nm' Ctx.empty ret
-           let venv' = Map.insert nm (BSV_BindCAF tp hdl) venv
+           let venv' = Map.insert nm (BSV_BindCAF (arrayTp dims' tp) hdl) venv
            let def venvfinal = do
-                    let cafdef :: FunctionDef h BSVState EmptyCtx ret
+                    let cafdef :: FunctionDef h (BSVState h) EmptyCtx ret
                         cafdef formals = ( initialState tenv venvfinal formals []
                                          , do e <- translateArrayInit tp dims' ret initExprs
                                               stashExpr (BSVExpr (arrayTp dims' tp) ret e)
                                               returnStashedVal ret
                                          )
-                    (SomeCFG g, ls) <- defineFunction InternalPos hdl cafdef
+                    (SomeCFG g, ls) <- defineFunction (SourcePos (Text.pack nm) 0 0) hdl cafdef
                     case toSSA g of C.SomeCFG g_ssa -> return (C.AnyCFG g_ssa : ls)
            goDecls venv' vdefs ps (def : defs)
 
@@ -1317,8 +1791,8 @@ translatePackageFuns halloc tenv env0 ps0 =
             do hdl <- mkHandle' halloc nm args ret
                let venv' = Map.insert (S.funName proto) (BSV_BindFun proto hdl) venv
                let def venvfinal =
-                     do (SomeCFG g, ls) <- translateFun halloc hdl tenv venvfinal fundef
-                        case toSSA g of C.SomeCFG g_ssa -> return (C.AnyCFG g_ssa : ls)
+                     do (C.SomeCFG g, ls) <- translateFun halloc hdl tenv venvfinal fundef
+                        return (C.AnyCFG g : ls)
                go venv' ps (def : defs)
 
    go venv (_ : ps) defs = go venv ps defs

@@ -1,14 +1,102 @@
-module AES_Defs where
-
-import Lang.BSV.RawAST
-
-aesDefs = (AstPackage
+(AstPackage
   (Just (AstIde "AES_Defs"))
   [ (AstImport
       (AstIde "Vector")
     )
-  , (AstImport
-      (AstIde "AES_Params")
+  , (AstTypedef
+      (AstTypedefDefinee
+        (AstIde "AES128")
+        []
+        []
+      )
+      (AstTypeNum 4)
+      []
+    )
+  , (AstTypedef
+      (AstTypedefDefinee
+        (AstIde "AES192")
+        []
+        []
+      )
+      (AstTypeNum 6)
+      []
+    )
+  , (AstTypedef
+      (AstTypedefDefinee
+        (AstIde "AES256")
+        []
+        []
+      )
+      (AstTypeNum 8)
+      []
+    )
+  , (AstTypedef
+      (AstTypedefDefinee
+        (AstIde "Nk")
+        []
+        []
+      )
+      (AstTypeConstructed "AES128"
+        []
+      )
+      []
+    )
+  , (AstVarDecl
+      (AstTypeVar "Integer")
+      [ (AstVarInit
+          (AstIde "nk")
+          []
+          BindingKindEq
+          (AstNum 4)
+        )
+      ]
+    )
+  , (AstTypedef
+      (AstTypedefDefinee
+        (AstIde "Nb")
+        []
+        []
+      )
+      (AstTypeNum 4)
+      []
+    )
+  , (AstVarDecl
+      (AstTypeVar "Integer")
+      [ (AstVarInit
+          (AstIde "nb")
+          []
+          BindingKindEq
+          (AstNum 4)
+        )
+      ]
+    )
+  , (AstTypedef
+      (AstTypedefDefinee
+        (AstIde "Nr")
+        []
+        []
+      )
+      (AstTypeNum 10)
+      []
+    )
+  , (AstVarDecl
+      (AstTypeVar "Integer")
+      [ (AstVarInit
+          (AstIde "nr")
+          []
+          BindingKindEq
+          (AstNum 10)
+        )
+      ]
+    )
+  , (AstTypedef
+      (AstTypedefDefinee
+        (AstIde "AESKeySize")
+        []
+        []
+      )
+      (AstTypeNum 128)
+      []
     )
   , (AstTypedef
       (AstTypedefDefinee
@@ -60,23 +148,8 @@ aesDefs = (AstPackage
         []
         []
       )
-      (AstTypeConstructed "Tuple3"
-        [ (AstTypeConstructed "RoundKey"
-            []
-          )
-        , (AstTypeConstructed "Vector"
-            [ (AstTypeConstructed "TSub"
-                [ (AstTypeConstructed "Nr"
-                    []
-                  )
-                , (AstTypeNum 1)
-                ]
-              )
-            , (AstTypeConstructed "RoundKey"
-                []
-              )
-            ]
-          )
+      (AstTypeConstructed "Vector"
+        [ (AstTypeNum 11)
         , (AstTypeConstructed "RoundKey"
             []
           )
@@ -1498,6 +1571,344 @@ aesDefs = (AstPackage
     )
   , (AstFunctionDef
       (AstFunctionProto
+        (AstTypeConstructed "Vector"
+          [ (AstTypeNum 11)
+          , (AstTypeConstructed "Vector"
+              [ (AstTypeNum 4)
+              , (AstTypeConstructed "Vector"
+                  [ (AstTypeConstructed "Nb"
+                      []
+                    )
+                  , (AstTypeConstructed "Bit"
+                      [ (AstTypeNum 8)
+                      ]
+                    )
+                  ]
+                )
+              ]
+            )
+          ]
+        )
+        (AstIde "expandKeyForever")
+        [ (AstIde "seed")
+        ]
+        [ (AstTypeConstructed "Vector"
+            [ (AstTypeConstructed "Nk"
+                []
+              )
+            , (AstTypeConstructed "Vector"
+                [ (AstTypeNum 4)
+                , (AstTypeConstructed "GF28"
+                    []
+                  )
+                ]
+              )
+            ]
+          )
+        ]
+      )
+      []
+      (AstBlock
+        BlockKindBegin
+        Nothing
+        [ (AstVarDecl
+            (AstTypeConstructed "Vector"
+              [ (AstTypeNum 11)
+              , (AstTypeConstructed "Vector"
+                  [ (AstTypeVar "Nb")
+                  , (AstTypeConstructed "Vector"
+                      [ (AstTypeNum 4)
+                      , (AstTypeConstructed "Bit"
+                          [ (AstTypeNum 8)
+                          ]
+                        )
+                      ]
+                    )
+                  ]
+                )
+              ]
+            )
+            [ (AstVarInit
+                (AstIde "g")
+                []
+                BindingKindEq
+                (AstExpr (AstIde "Apply")
+                  [ (AstIde "unpack")
+                  , (AstExpr (AstIde "Apply")
+                      [ (AstIde "pack")
+                      , (AstExpr (AstIde "Apply")
+                          [ (AstIde "keyWS")
+                          , (AstIde "seed")
+                          ]
+                        )
+                      ]
+                    )
+                  ]
+                )
+              )
+            ]
+          )
+        , (AstReturn
+            (AstExpr (AstIde "Apply")
+              [ (AstIde "map")
+              , (AstIde "transpose")
+              , (AstIde "g")
+              ]
+            )
+          )
+        ]
+      )
+    )
+  , (AstFunctionDef
+      (AstFunctionProto
+        (AstTypeConstructed "Vector"
+          [ (AstTypeNum 44)
+          , (AstTypeConstructed "Vector"
+              [ (AstTypeNum 4)
+              , (AstTypeConstructed "Bit"
+                  [ (AstTypeNum 8)
+                  ]
+                )
+              ]
+            )
+          ]
+        )
+        (AstIde "keyWS")
+        [ (AstIde "seed")
+        ]
+        [ (AstTypeConstructed "Vector"
+            [ (AstTypeConstructed "Nk"
+                []
+              )
+            , (AstTypeConstructed "Vector"
+                [ (AstTypeNum 4)
+                , (AstTypeConstructed "Bit"
+                    [ (AstTypeNum 8)
+                    ]
+                  )
+                ]
+              )
+            ]
+          )
+        ]
+      )
+      []
+      (AstBlock
+        BlockKindBegin
+        Nothing
+        [ (AstVarDecl
+            (AstTypeConstructed "Vector"
+              [ (AstTypeNum 44)
+              , (AstTypeConstructed "Vector"
+                  [ (AstTypeNum 4)
+                  , (AstTypeConstructed "Bit"
+                      [ (AstTypeNum 8)
+                      ]
+                    )
+                  ]
+                )
+              ]
+            )
+            [ (AstVarInit
+                (AstIde "v")
+                []
+                BindingKindNone
+                (AstIde "v")
+              )
+            ]
+          )
+        , (AstFor
+            (AstVarDecl
+            (AstTypeVar "Integer")
+            [ (AstVarInit
+                (AstIde "i")
+                []
+                BindingKindEq
+                (AstNum 0)
+              )
+            ]
+          )
+            (AstExpr (AstIde "<")
+            [ (AstIde "i")
+            , (AstIde "nk")
+            ]
+          )
+            (AstAssign
+            (AstIde "i")BindingKindEq(AstExpr (AstIde "+")
+              [ (AstIde "i")
+              , (AstNum 1)
+              ]
+            )
+          )
+            (AstAssign
+              (AstExpr (AstIde "PrimIndex")
+                [ (AstIde "v")
+                , (AstIde "i")
+                ]
+              )BindingKindEq(AstExpr (AstIde "PrimIndex")
+                [ (AstIde "seed")
+                , (AstIde "i")
+                ]
+              )
+            )
+          )
+        , (AstFor
+            (AstVarDecl
+            (AstTypeVar "Integer")
+            [ (AstVarInit
+                (AstIde "i")
+                []
+                BindingKindEq
+                (AstIde "nk")
+              )
+            ]
+          )
+            (AstExpr (AstIde "<")
+            [ (AstIde "i")
+            , (AstExpr (AstIde "*")
+                [ (AstExpr (AstIde "+")
+                    [ (AstIde "nr")
+                    , (AstNum 1)
+                    ]
+                  )
+                , (AstIde "nb")
+                ]
+              )
+            ]
+          )
+            (AstAssign
+            (AstIde "i")BindingKindEq(AstExpr (AstIde "+")
+              [ (AstIde "i")
+              , (AstNum 1)
+              ]
+            )
+          )
+            (AstBlock
+              BlockKindBegin
+              Nothing
+              [ (AstLet
+                  (AstIde "prev")
+                  BindingKindEq
+                  (AstExpr (AstIde "PrimIndex")
+                    [ (AstIde "v")
+                    , (AstExpr (AstIde "-")
+                        [ (AstIde "i")
+                        , (AstNum 1)
+                        ]
+                      )
+                    ]
+                  )
+                )
+              , (AstLet
+                  (AstIde "old")
+                  BindingKindEq
+                  (AstExpr (AstIde "PrimIndex")
+                    [ (AstIde "v")
+                    , (AstExpr (AstIde "-")
+                        [ (AstIde "i")
+                        , (AstIde "nk")
+                        ]
+                      )
+                    ]
+                  )
+                )
+              , (AstAssign
+                  (AstExpr (AstIde "PrimIndex")
+                    [ (AstIde "v")
+                    , (AstIde "i")
+                    ]
+                  )BindingKindEq(AstExpr (AstIde "Apply")
+                    [ (AstIde "nextWord")
+                    , (AstExpr (AstIde "Apply")
+                        [ (AstIde "fromInteger")
+                        , (AstIde "i")
+                        ]
+                      )
+                    , (AstIde "prev")
+                    , (AstIde "old")
+                    ]
+                  )
+                )
+              ]
+            )
+          )
+        , (AstReturn
+            (AstIde "v")
+          )
+        ]
+      )
+    )
+  , (AstFunctionDef
+      (AstFunctionProto
+        (AstTypeConstructed "KeySchedule"
+          []
+        )
+        (AstIde "expandKey")
+        [ (AstIde "key")
+        ]
+        [ (AstTypeConstructed "Bit"
+            [ (AstTypeConstructed "AESKeySize"
+                []
+              )
+            ]
+          )
+        ]
+      )
+      []
+      (AstBlock
+        BlockKindBegin
+        Nothing
+        [ (AstVarDecl
+            (AstTypeConstructed "Vector"
+              [ (AstTypeVar "Nk")
+              , (AstTypeConstructed "Vector"
+                  [ (AstTypeNum 4)
+                  , (AstTypeConstructed "Bit"
+                      [ (AstTypeNum 8)
+                      ]
+                    )
+                  ]
+                )
+              ]
+            )
+            [ (AstVarInit
+                (AstIde "seed")
+                []
+                BindingKindEq
+                (AstExpr (AstIde "Apply")
+                  [ (AstIde "map")
+                  , (AstIde "reverse")
+                  , (AstExpr (AstIde "Apply")
+                      [ (AstIde "reverse")
+                      , (AstExpr (AstIde "Apply")
+                          [ (AstIde "unpack")
+                          , (AstIde "key")
+                          ]
+                        )
+                      ]
+                    )
+                  ]
+                )
+              )
+            ]
+          )
+        , (AstLet
+            (AstIde "keys")
+            BindingKindEq
+            (AstExpr (AstIde "Apply")
+              [ (AstIde "expandKeyForever")
+              , (AstIde "seed")
+              ]
+            )
+          )
+        , (AstReturn
+            (AstIde "keys")
+          )
+        ]
+      )
+    )
+  , (AstFunctionDef
+      (AstFunctionProto
         (AstTypeConstructed "State"
           []
         )
@@ -1794,6 +2205,338 @@ aesDefs = (AstPackage
             (AstExpr (AstIde "Apply")
               [ (AstIde "pack")
               , (AstIde "z")
+              ]
+            )
+          )
+        ]
+      )
+    )
+  , (AstFunctionDef
+      (AstFunctionProto
+        (AstTypeConstructed "Bit"
+          [ (AstTypeNum 128)
+          ]
+        )
+        (AstIde "aesEncrypt")
+        [ (AstIde "pt")
+        , (AstIde "key")
+        ]
+        [ (AstTypeConstructed "Bit"
+            [ (AstTypeNum 128)
+            ]
+          )
+        , (AstTypeConstructed "Bit"
+            [ (AstTypeConstructed "AESKeySize"
+                []
+              )
+            ]
+          )
+        ]
+      )
+      []
+      (AstBlock
+        BlockKindBegin
+        Nothing
+        [ (AstVarDecl
+            (AstTypeVar "KeySchedule")
+            [ (AstVarInit
+                (AstIde "ks0")
+                []
+                BindingKindEq
+                (AstExpr (AstIde "Apply")
+                  [ (AstIde "expandKey")
+                  , (AstIde "key")
+                  ]
+                )
+              )
+            ]
+          )
+        , (AstVarDecl
+            (AstTypeVar "RoundKey")
+            [ (AstVarInit
+                (AstIde "kInit")
+                []
+                BindingKindEq
+                (AstExpr (AstIde "PrimIndex")
+                  [ (AstIde "ks0")
+                  , (AstNum 0)
+                  ]
+                )
+              )
+            ]
+          )
+        , (AstVarDecl
+            (AstTypeConstructed "Vector"
+              [ (AstTypeNum 9)
+              , (AstTypeVar "RoundKey")
+              ]
+            )
+            [ (AstVarInit
+                (AstIde "ks")
+                []
+                BindingKindEq
+                (AstExpr (AstIde "Apply")
+                  [ (AstIde "tail")
+                  , (AstExpr (AstIde "Apply")
+                      [ (AstIde "init")
+                      , (AstIde "ks0")
+                      ]
+                    )
+                  ]
+                )
+              )
+            ]
+          )
+        , (AstVarDecl
+            (AstTypeVar "RoundKey")
+            [ (AstVarInit
+                (AstIde "kFinal")
+                []
+                BindingKindEq
+                (AstExpr (AstIde "PrimIndex")
+                  [ (AstIde "ks0")
+                  , (AstIde "nr")
+                  ]
+                )
+              )
+            ]
+          )
+        , (AstVarDecl
+            (AstTypeVar "State")
+            [ (AstVarInit
+                (AstIde "state")
+                []
+                BindingKindEq
+                (AstExpr (AstIde "Apply")
+                  [ (AstIde "addRoundKey")
+                  , (AstIde "kInit")
+                  , (AstExpr (AstIde "Apply")
+                      [ (AstIde "msgToState")
+                      , (AstIde "pt")
+                      ]
+                    )
+                  ]
+                )
+              )
+            ]
+          )
+        , (AstFor
+            (AstVarDecl
+            (AstTypeVar "Integer")
+            [ (AstVarInit
+                (AstIde "j")
+                []
+                BindingKindEq
+                (AstNum 1)
+              )
+            ]
+          )
+            (AstExpr (AstIde "<")
+            [ (AstIde "j")
+            , (AstIde "nr")
+            ]
+          )
+            (AstAssign
+            (AstIde "j")BindingKindEq(AstExpr (AstIde "+")
+              [ (AstIde "j")
+              , (AstNum 1)
+              ]
+            )
+          )
+            (AstAssign
+              (AstIde "state")BindingKindEq(AstExpr (AstIde "Apply")
+                [ (AstIde "aesRound")
+                , (AstExpr (AstIde "PrimIndex")
+                    [ (AstIde "ks")
+                    , (AstExpr (AstIde "-")
+                        [ (AstIde "j")
+                        , (AstNum 1)
+                        ]
+                      )
+                    ]
+                  )
+                , (AstIde "state")
+                ]
+              )
+            )
+          )
+        , (AstReturn
+            (AstExpr (AstIde "Apply")
+              [ (AstIde "stateToMsg")
+              , (AstExpr (AstIde "Apply")
+                  [ (AstIde "aesFinalRound")
+                  , (AstIde "kFinal")
+                  , (AstIde "state")
+                  ]
+                )
+              ]
+            )
+          )
+        ]
+      )
+    )
+  , (AstFunctionDef
+      (AstFunctionProto
+        (AstTypeConstructed "Bit"
+          [ (AstTypeNum 128)
+          ]
+        )
+        (AstIde "aesDecrypt")
+        [ (AstIde "ct")
+        , (AstIde "key")
+        ]
+        [ (AstTypeConstructed "Bit"
+            [ (AstTypeNum 128)
+            ]
+          )
+        , (AstTypeConstructed "Bit"
+            [ (AstTypeConstructed "AESKeySize"
+                []
+              )
+            ]
+          )
+        ]
+      )
+      []
+      (AstBlock
+        BlockKindBegin
+        Nothing
+        [ (AstVarDecl
+            (AstTypeVar "KeySchedule")
+            [ (AstVarInit
+                (AstIde "ks0")
+                []
+                BindingKindEq
+                (AstExpr (AstIde "Apply")
+                  [ (AstIde "expandKey")
+                  , (AstIde "key")
+                  ]
+                )
+              )
+            ]
+          )
+        , (AstVarDecl
+            (AstTypeVar "RoundKey")
+            [ (AstVarInit
+                (AstIde "kInit")
+                []
+                BindingKindEq
+                (AstExpr (AstIde "PrimIndex")
+                  [ (AstIde "ks0")
+                  , (AstIde "nr")
+                  ]
+                )
+              )
+            ]
+          )
+        , (AstVarDecl
+            (AstTypeConstructed "Vector"
+              [ (AstTypeNum 9)
+              , (AstTypeVar "RoundKey")
+              ]
+            )
+            [ (AstVarInit
+                (AstIde "ks")
+                []
+                BindingKindEq
+                (AstExpr (AstIde "Apply")
+                  [ (AstIde "init")
+                  , (AstExpr (AstIde "Apply")
+                      [ (AstIde "tail")
+                      , (AstIde "ks0")
+                      ]
+                    )
+                  ]
+                )
+              )
+            ]
+          )
+        , (AstVarDecl
+            (AstTypeVar "RoundKey")
+            [ (AstVarInit
+                (AstIde "kFinal")
+                []
+                BindingKindEq
+                (AstExpr (AstIde "PrimIndex")
+                  [ (AstIde "ks0")
+                  , (AstNum 0)
+                  ]
+                )
+              )
+            ]
+          )
+        , (AstVarDecl
+            (AstTypeVar "State")
+            [ (AstVarInit
+                (AstIde "state")
+                []
+                BindingKindEq
+                (AstExpr (AstIde "Apply")
+                  [ (AstIde "addRoundKey")
+                  , (AstIde "kInit")
+                  , (AstExpr (AstIde "Apply")
+                      [ (AstIde "msgToState")
+                      , (AstIde "ct")
+                      ]
+                    )
+                  ]
+                )
+              )
+            ]
+          )
+        , (AstFor
+            (AstVarDecl
+            (AstTypeVar "Integer")
+            [ (AstVarInit
+                (AstIde "j")
+                []
+                BindingKindEq
+                (AstNum 1)
+              )
+            ]
+          )
+            (AstExpr (AstIde "<")
+            [ (AstIde "j")
+            , (AstIde "nr")
+            ]
+          )
+            (AstAssign
+            (AstIde "j")BindingKindEq(AstExpr (AstIde "+")
+              [ (AstIde "j")
+              , (AstNum 1)
+              ]
+            )
+          )
+            (AstAssign
+              (AstIde "state")BindingKindEq(AstExpr (AstIde "Apply")
+                [ (AstIde "aesInvRound")
+                , (AstExpr (AstIde "PrimIndex")
+                    [ (AstExpr (AstIde "Apply")
+                        [ (AstIde "reverse")
+                        , (AstIde "ks")
+                        ]
+                      )
+                    , (AstExpr (AstIde "-")
+                        [ (AstIde "j")
+                        , (AstNum 1)
+                        ]
+                      )
+                    ]
+                  )
+                , (AstIde "state")
+                ]
+              )
+            )
+          )
+        , (AstReturn
+            (AstExpr (AstIde "Apply")
+              [ (AstIde "stateToMsg")
+              , (AstExpr (AstIde "Apply")
+                  [ (AstIde "aesFinalInvRound")
+                  , (AstIde "kFinal")
+                  , (AstIde "state")
+                  ]
+                )
               ]
             )
           )
@@ -2413,4 +3156,4 @@ aesDefs = (AstPackage
       )
     )
   ]
- )
+)
