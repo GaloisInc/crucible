@@ -623,6 +623,10 @@ evalApp sym itefns logFn evalSub a0 = do
       x <- evalSub xe
       y <- evalSub ye
       intMul sym x y
+    IntMod xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      intMod sym x y
 
     --------------------------------------------------------------------
     -- Maybe
@@ -903,6 +907,18 @@ evalApp sym itefns logFn evalSub a0 = do
     RealToNat x_expr -> do
       x <- evalSub x_expr
       realToNat sym x
+    IntegerToBV w x_expr -> do
+      x <- evalSub x_expr
+      integerToBV sym x w
+    IntegerToSBV w x_expr -> do
+      x <- evalSub x_expr
+      integerToSBV sym x w
+    IntegerToNat x_expr -> do
+      x <- evalSub x_expr
+      integerToNat sym x
+    BVToNat _w x_expr -> do
+      x <- evalSub x_expr
+      bvToNat sym x
 
     ----------------------------------------------------------------------
     -- ComplexReal

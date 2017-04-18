@@ -259,6 +259,9 @@ data App f (tp :: CrucibleType) where
   IntEq :: !(f IntegerType) -> !(f IntegerType) -> App f BoolType
   IntLt :: !(f IntegerType) -> !(f IntegerType) -> App f BoolType
 
+  IntMod :: !(f IntegerType) -> !(f NatType) -> App f NatType
+
+
   ----------------------------------------------------------------------
   -- RealVal
 
@@ -561,6 +564,18 @@ data App f (tp :: CrucibleType) where
   -- integer.
   RealToNat :: !(f RealValType)
             -> App f NatType
+
+  -- Convert an integer to an unsigned bitvector
+  IntegerToBV :: (1 <= w) => !(NatRepr w) -> !(f IntegerType) -> App f (BVType w)
+
+  -- Convert an integer to a signed bitvector
+  IntegerToSBV :: (1 <= w) => !(NatRepr w) -> !(f IntegerType) -> App f (BVType w)
+
+  -- Convert an integer to a nat
+  IntegerToNat :: !(f IntegerType) -> App f NatType
+
+  -- Convert an unsigned bitvector to nat
+  BVToNat :: (1 <= w) => !(NatRepr w) -> !(f (BVType w)) -> App f NatType
 
   ----------------------------------------------------------------------
   -- ComplexReal
@@ -1333,6 +1348,7 @@ appType a0 =
     IntAdd{} -> knownRepr
     IntSub{} -> knownRepr
     IntMul{} -> knownRepr
+    IntMod{} -> knownRepr
     IntEq{} -> knownRepr
     IntLt{} -> knownRepr
 
@@ -1464,6 +1480,10 @@ appType a0 =
     NatToInteger{} -> knownRepr
     IntegerToReal{} -> knownRepr
     RealToNat{} -> knownRepr
+    IntegerToNat{} -> knownRepr
+    BVToNat _ _ -> knownRepr
+    IntegerToBV w _ -> BVRepr w
+    IntegerToSBV w _ -> BVRepr w
 
     ----------------------------------------------------------------------
     -- ComplexReal
