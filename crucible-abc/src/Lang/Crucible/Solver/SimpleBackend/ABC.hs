@@ -56,6 +56,7 @@ import           Data.Parameterized.HashTable (HashTable)
 import qualified Data.Parameterized.HashTable as H
 import           Data.Parameterized.Nonce (Nonce)
 import           Data.Parameterized.Some
+import           Data.Ratio
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Foreign.C.Types
@@ -146,7 +147,6 @@ data NameType s (tp :: BaseType) where
   GroundInt :: Integer -> NameType s BaseIntegerType
   GroundRat :: Rational -> NameType s BaseRealType
   GroundComplex :: Complex Rational -> NameType s BaseComplexType
-
 
 -- | A variable binding in ABC.
 data VarBinding t s where
@@ -264,7 +264,16 @@ bitblastExpr h ae = do
     IteBool c x y -> do
       B <$> (join $ GIA.mux g <$> eval' h c <*> eval' h x <*> eval' h y)
 
+    -- HACK!
+    RealEq c (asApp -> Just (IntegerToReal (asApp -> Just (BVToInteger x)))) ->
+          do c' <- eval' h c
+             unless (denominator c' == 1) realFail
+             x' <- eval' h x
+             let c'' = AIG.bvFromInteger g (widthVal (bvWidth x)) (numerator c')
+             B <$> AIG.bvEq g c'' x'
     RealEq{} -> realFail
+
+
     RealLe{} -> realFail
     RealIsInteger{} -> realFail
     BVTestBit i xe -> (\v -> B $ v AIG.! i) <$> eval' h xe
