@@ -6,6 +6,7 @@ packages:
 - crucible
 - crucible-abc
 - crucible-blt
+- crucible-llvm
 - crucible-saw
 - crucible-server
 - galois-matlab
