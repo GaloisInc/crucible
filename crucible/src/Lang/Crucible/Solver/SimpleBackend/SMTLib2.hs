@@ -435,24 +435,12 @@ parseBvSolverValue _ (SApp ["_", SAtom ('b':'v':n_str), SAtom _w_str])
 parseBvSolverValue _ s = fail $ "Could not parse solver value: " ++ show s
 
 ------------------------------------------------------------------------
--- HasWriter
-
-class HasWriter s t a | s -> t, s -> a where
-  writer :: s -> WriterConn t (Writer a)
-
-instance HasWriter (WriterConn t (Writer a)) t a where
-  writer = id
-
-------------------------------------------------------------------------
 -- Session
 
 -- | This is an interactive session with an SMT solver
 data Session t a = Session { sessionWriter :: !(WriterConn t (Writer a))
                            , sessionResponse :: !(Streams.InputStream UTF8.ByteString)
                            }
-
-instance HasWriter (Session t a) t a where
-  writer = sessionWriter
 
 -- | Get a value from a solver (must be called after checkSat)
 runGetValue :: SMTLib2Tweaks a
