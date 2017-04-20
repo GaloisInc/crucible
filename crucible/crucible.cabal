@@ -42,9 +42,8 @@ library
     hashtables,
     io-streams,
     lens,
-    llvm-pretty,
     mtl,
-    parameterized-utils >= 0.1.7,
+    parameterized-utils >= 0.1.9 && < 0.1.10,
     process,
     scientific,
     smtLib,
@@ -73,17 +72,6 @@ library
     Lang.Crucible.FunctionHandle
     Lang.Crucible.FunctionName
     Lang.Crucible.Generator
-    Lang.Crucible.LLVM
-    Lang.Crucible.LLVM.DataLayout
-    Lang.Crucible.LLVM.Intrinsics
-    Lang.Crucible.LLVM.LLVMContext
-    Lang.Crucible.LLVM.MemModel
-    Lang.Crucible.LLVM.MemModel.Common
-    Lang.Crucible.LLVM.MemModel.Generic
-    Lang.Crucible.LLVM.MemType
-    Lang.Crucible.LLVM.PrettyPrint
-    Lang.Crucible.LLVM.Printf
-    Lang.Crucible.LLVM.Translation
     Lang.Crucible.MATLAB.Intrinsics.Solver
     Lang.Crucible.MATLAB.Types
     Lang.Crucible.ProgramLoc
@@ -150,7 +138,7 @@ library
     Lang.Crucible.Utils.SymMultiDimArray
     Lang.Crucible.Utils.UnaryBV
 
-  ghc-options: -Wall
+  ghc-options: -Wall -Werror
   ghc-prof-options: -O2 -fprof-auto-top
 
   if flag(unsafe-operations)
