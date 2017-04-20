@@ -522,6 +522,9 @@ transValue ty L.ValZeroInit =
 transValue ty@(PtrType _) L.ValNull =
   return $ ZeroExpr ty
 
+transValue ty@(IntType _) L.ValNull =
+  return $ ZeroExpr ty
+
 transValue ty L.ValUndef =
   return $ UndefExpr ty
 
