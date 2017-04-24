@@ -1,5 +1,6 @@
 /build/
 /dependencies/
+/dependencies
 .cabal-sandbox
 .stack-work
 **/cabal.config
@@ -11,3 +12,4 @@ hpc_report
 stack.yaml
 /dist-newstyle
 .*.swp
+cabal.project.local
