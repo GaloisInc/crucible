@@ -97,7 +97,7 @@ module Lang.Crucible.LLVM.Translation
   , translateModule
   , llvmIntrinsicTypes
   , llvmIntrinsics
-  , initalizeMemory
+  , initializeMemory
   , LLVMInt
   , toStorableType
   ) where
@@ -121,6 +121,7 @@ import qualified Text.LLVM.AST as L
 import qualified Data.Parameterized.Context as Ctx
 
 import Data.Parameterized.Some
+import Text.PrettyPrint.ANSI.Leijen (pretty)
 
 import           Lang.Crucible.Core (AnyCFG(..))
 import qualified Lang.Crucible.Core as C
@@ -271,7 +272,7 @@ llvmPtrTypeToRepr (Alias ident) =
     Nothing -> error $ unwords ["Unable to resolve type alias", show ident]
 llvmPtrTypeToRepr (FunType decl) =
   llvmDeclToFunHandleRepr decl $ \args ret -> [Some (FunctionHandleRepr args ret)]
-llvmPtrTypeToRepr _ = [Some llvmPointerRepr]
+llvmPtrTypeToRepr _ = [Some LLVMPointerRepr]
 
 llvmDeclToFunHandleRepr
    :: (?lc :: TyCtx.LLVMContext)
@@ -521,6 +522,9 @@ transValue ty L.ValZeroInit =
 transValue ty@(PtrType _) L.ValNull =
   return $ ZeroExpr ty
 
+transValue ty@(IntType _) L.ValNull =
+  return $ ZeroExpr ty
+
 transValue ty L.ValUndef =
   return $ UndefExpr ty
 
@@ -590,7 +594,7 @@ transValue _ (L.ValSymbol symbol) = do
      mem <- readGlobal memVar
      let symbol' = app $ C.ConcreteLit $ TypeableValue $ GlobalSymbol symbol
      ptr <- call resolveGlobal (Ctx.empty Ctx.%> mem Ctx.%> symbol')
-     return (BaseExpr llvmPointerRepr ptr)
+     return (BaseExpr LLVMPointerRepr ptr)
 
 transValue _ (L.ValConstExpr cexp) =
   case cexp of
@@ -602,7 +606,7 @@ transValue _ (L.ValConstExpr cexp) =
       base' <- transTypedValue base
       elts' <- mapM transTypedValue elts
       typ <- liftMemType (L.typedType base)
-      BaseExpr llvmPointerRepr <$> calcGEP typ base' elts'
+      BaseExpr LLVMPointerRepr <$> calcGEP typ base' elts'
     L.ConstSelect b x y -> do
       b' <- transTypedValue b
       x' <- transTypedValue x
@@ -638,7 +642,7 @@ transValue _ (L.ValConstExpr cexp) =
     L.ConstBit _ _ _ -> fail "constant bit operations not currently supported"
 
 transValue ty v =
-  fail $ unwords ["unsupported LLVM value:", show v, "of type", show ty]
+  error $ unwords ["unsupported LLVM value:", show v, "of type", show ty]
 
 
 -- | Assign a packed LLVM expression into the named LLVM register.
@@ -756,7 +760,7 @@ zeroExpand (ArrayType n tp) k =
   llvmTypeAsRepr tp $ \tpr -> unpackVec tpr (replicate (fromIntegral n) (ZeroExpr tp)) $ k (VectorRepr tpr)
 zeroExpand (VecType n tp) k =
   llvmTypeAsRepr tp $ \tpr -> unpackVec tpr (replicate (fromIntegral n) (ZeroExpr tp)) $ k (VectorRepr tpr)
-zeroExpand (PtrType _tp) k = k llvmPointerRepr nullPointer
+zeroExpand (PtrType _tp) k = k LLVMPointerRepr nullPointer
 zeroExpand FloatType   k  = k RealValRepr (App (C.RationalLit 0))
 zeroExpand DoubleType  k  = k RealValRepr (App (C.RationalLit 0))
 zeroExpand MetadataType _ = ?err "Cannot zero expand metadata"
@@ -779,7 +783,7 @@ undefExpand (VecType n tp) k =
   llvmTypeAsRepr tp $ \tpr -> unpackVec tpr (replicate (fromIntegral n) (UndefExpr tp)) $ k (VectorRepr tpr)
 undefExpand tp _ = ?err $ unwords ["cannot undef expand type:", show tp]
 
---undefExpand (L.PtrTo _tp) k = k llvmPointerRepr (App C.UndefPointer) FIXME?
+--undefExpand (L.PtrTo _tp) k = k LLVMPointerRepr (App C.UndefPointer) FIXME?
 --undefExpand (L.PrimType (L.FloatType _ft)) _k = error "FIXME undefExpand: float types"
 
 unpackVarArgs :: forall h s ret a
@@ -1047,9 +1051,8 @@ callLoad :: (?lc :: TyCtx.LLVMContext)
          -> TypeRepr tp
          -> LLVMExpr s Expr
          -> LLVMGenerator h s ret (LLVMExpr s Expr)
-callLoad typ expectTy (asScalar -> Scalar (RecursiveRepr nm) ptr)
-  | Just Refl <- testEquality nm (knownSymbol :: SymbolRepr "LLVM_pointer") = do
-      memVar <- llvmMemVar . memModelOps . llvmContext <$> get
+callLoad typ expectTy (asScalar -> Scalar LLVMPointerRepr ptr) =
+   do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
       memLoad <- litExpr . llvmMemLoad . memModelOps . llvmContext <$> get
       mem  <- readGlobal memVar
       typ' <- app . C.ConcreteLit . TypeableValue <$> toStorableType typ
@@ -1065,10 +1068,9 @@ callStore :: (?lc :: TyCtx.LLVMContext)
           -> LLVMExpr s Expr
           -> LLVMExpr s Expr
           -> LLVMGenerator h s ret ()
-callStore typ (asScalar -> Scalar (RecursiveRepr nm) ptr) v
-  | Just Refl <- testEquality nm (knownSymbol :: SymbolRepr "LLVM_pointer") = do
+callStore typ (asScalar -> Scalar LLVMPointerRepr ptr) v =
 
-    let ?err = fail
+ do let ?err = fail
     unpackOne v $ \vtpr vexpr -> do
       memVar <- llvmMemVar . memModelOps . llvmContext <$> get
       memStore <- litExpr . llvmMemStore . memModelOps . llvmContext <$> get
@@ -1087,8 +1089,7 @@ calcGEP :: (?lc :: TyCtx.LLVMContext)
         -> LLVMExpr s Expr
         -> [LLVMExpr s Expr]
         -> LLVMGenerator h s ret (Expr s LLVMPointerType)
-calcGEP typ@(PtrType _) (asScalar -> Scalar (RecursiveRepr nm) base) xs@(_ : _)
-   | Just Refl <- testEquality nm (knownSymbol :: SymbolRepr "LLVM_pointer") =
+calcGEP typ@(PtrType _) (asScalar -> Scalar LLVMPointerRepr base) xs@(_ : _) =
         calcGEP' typ base xs
 -- FIXME: support for vector base arguments
 calcGEP typ _base _xs = do
@@ -1217,20 +1218,19 @@ translateConversion op x outty =
        x' <- transTypedValue x
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
-           (Scalar (IntrinsicRepr nm) _, IntrinsicRepr nm' )
-             | Just Refl <- testEquality nm  (knownSymbol :: SymbolRepr "LLVM_pointer")
-             , Just Refl <- testEquality nm' (knownSymbol :: SymbolRepr "LLVM_pointer") ->
-                return x'
-           _ -> fail "integer-to-pointer conversion failed"
+           (Scalar LLVMPointerRepr _, LLVMPointerRepr) -> return x'
+           (NotScalar, _) -> fail ("integer-to-pointer conversion failed: non scalar")
+           (Scalar t v, a)   ->
+               fail ("integer-to-pointer conversion failed: "
+                       ++ show v ++ " : " ++ show (pretty t) ++ " -to- " ++ show (pretty a))
 
     L.PtrToInt -> do
        outty' <- liftMemType outty
        x' <- transTypedValue x
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
-           (Scalar (IntrinsicRepr nm) _, BVRepr w)
-             | Just Refl <- testEquality nm (knownSymbol :: SymbolRepr "LLVM_pointer")
-             , Just Refl <- testEquality w ptrWidth ->
+           (Scalar LLVMPointerRepr _, BVRepr w)
+             | Just Refl <- testEquality w ptrWidth ->
                 return x'
            _ -> fail "pointer-to-integer conversion failed"
 
@@ -1408,7 +1408,7 @@ generateInstr retType lab instr assign_f k =
                              return $ app $ C.BVMul ptrWidth x tp_sz'
                      _ -> fail $ "Invalid alloca argument: " ++ show num
       p <- callAlloca sz
-      assign_f (BaseExpr llvmPointerRepr p)
+      assign_f (BaseExpr LLVMPointerRepr p)
       k
 
     L.Load ptr _align -> do
@@ -1443,7 +1443,7 @@ generateInstr retType lab instr assign_f k =
       elts' <- mapM transTypedValue elts
       typ <- liftMemType (L.typedType base)
       p <- calcGEP typ base' elts'
-      assign_f (BaseExpr llvmPointerRepr p)
+      assign_f (BaseExpr LLVMPointerRepr p)
       k
 
     L.Conv op x outty -> do
@@ -1769,38 +1769,34 @@ generateInstr retType lab instr assign_f k =
                  assign_f (BaseExpr RealValRepr ex)
                  k
 
-             (Scalar (RecursiveRepr nm) x'',
+             (Scalar LLVMPointerRepr x'',
               Scalar (BVRepr w) y'')
-                | Just Refl <- testEquality w ptrWidth
-                , Just Refl <- testEquality nm  (knownSymbol :: SymbolRepr "LLVM_pointer") ->
+                | Just Refl <- testEquality w ptrWidth ->
                     case op of
                       L.Add _ _ -> do
                         ex <- callPtrAddOffset x'' y''
-                        assign_f (BaseExpr llvmPointerRepr ex)
+                        assign_f (BaseExpr LLVMPointerRepr ex)
                         k
                       L.Sub _ _ -> do
                         let off = App (C.BVSub w (App $ C.BVLit w 0) y'')
                         ex <- callPtrAddOffset x'' off
-                        assign_f (BaseExpr llvmPointerRepr ex)
+                        assign_f (BaseExpr LLVMPointerRepr ex)
                         k
 
                       _ -> fail $ unwords ["Unsupported pointer arithmetic operation"]
 
              (Scalar (BVRepr w) x'',
-              Scalar (RecursiveRepr nm) y'')
-                | Just Refl <- testEquality w ptrWidth
-                , Just Refl <- testEquality nm  (knownSymbol :: SymbolRepr "LLVM_pointer") ->
+              Scalar LLVMPointerRepr y'')
+                | Just Refl <- testEquality w ptrWidth ->
                     case op of
                       L.Add _ _ -> do
                         ex <- callPtrAddOffset y'' x''
-                        assign_f (BaseExpr llvmPointerRepr ex)
+                        assign_f (BaseExpr LLVMPointerRepr ex)
                         k
                       _ -> fail $ unwords ["Unsupported pointer arithmetic operation"]
 
-             (Scalar (RecursiveRepr nm) x'',
-              Scalar (RecursiveRepr nm') y'')
-                | Just Refl <- testEquality nm  (knownSymbol :: SymbolRepr "LLVM_pointer")
-                , Just Refl <- testEquality nm' (knownSymbol :: SymbolRepr "LLVM_pointer") ->
+             (Scalar LLVMPointerRepr x'',
+              Scalar LLVMPointerRepr y'') ->
                     case op of
                       L.Sub _ _ -> do
                         ex <- callPtrSubtract x'' y''
@@ -1875,10 +1871,8 @@ generateInstr retType lab instr assign_f k =
                                    (BVRepr (knownNat :: NatRepr 1))
                                    (App (C.BoolToBV knownNat (opf w x'' y''))))
                     k
-             (Scalar (RecursiveRepr sx) x'', Scalar (RecursiveRepr sy) y'')
-               | Just Refl <- testEquality sx (knownSymbol :: SymbolRepr "LLVM_pointer")
-               , Just Refl <- testEquality sy (knownSymbol :: SymbolRepr "LLVM_pointer") -> do
-                   pEq <- litExpr . llvmPtrEq . memModelOps . llvmContext <$> get
+             (Scalar LLVMPointerRepr x'', Scalar LLVMPointerRepr y'') ->
+                do pEq <- litExpr . llvmPtrEq . memModelOps . llvmContext <$> get
                    pLe <- litExpr . llvmPtrLe . memModelOps . llvmContext <$> get
                    memVar <- llvmMemVar . memModelOps . llvmContext <$> get
                    mem <- readGlobal memVar
@@ -1909,10 +1903,9 @@ generateInstr retType lab instr assign_f k =
 
              -- Special case: a pointer can be compared for equality with an integer, as long as
              -- that integer is 0, representing the null pointer.
-             (Scalar (RecursiveRepr sx) x'', Scalar (BVRepr wy) y'')
-               | Just Refl <- testEquality ptrWidth wy
-               , Just Refl <- testEquality sx (knownSymbol :: SymbolRepr "LLVM_pointer") -> do
-                   pIsNull <- litExpr . llvmPtrIsNull . memModelOps . llvmContext <$> get
+             (Scalar LLVMPointerRepr x'', Scalar (BVRepr wy) y'')
+               | Just Refl <- testEquality ptrWidth wy ->
+                do pIsNull <- litExpr . llvmPtrIsNull . memModelOps . llvmContext <$> get
                    assertExpr (App (C.BVEq ptrWidth y'' (App (C.BVLit ptrWidth 0))))
                               "Attempted to compare a pointer to a non-0 integer value"
                    res <- case op of
@@ -1927,10 +1920,9 @@ generateInstr retType lab instr assign_f k =
                    k
 
              -- Symmetric special case to the above
-             (Scalar (BVRepr wx) x'', Scalar (RecursiveRepr sy) y'')
-               | Just Refl <- testEquality ptrWidth wx
-               , Just Refl <- testEquality sy (knownSymbol :: SymbolRepr "LLVM_pointer") -> do
-                   pIsNull <- litExpr . llvmPtrIsNull . memModelOps . llvmContext <$> get
+             (Scalar (BVRepr wx) x'', Scalar LLVMPointerRepr y'')
+               | Just Refl <- testEquality ptrWidth wx ->
+                do pIsNull <- litExpr . llvmPtrIsNull . memModelOps . llvmContext <$> get
                    assertExpr (App (C.BVEq ptrWidth x'' (App (C.BVLit ptrWidth 0))))
                               "Attempted to compare a pointer to a non-0 integer value"
                    res <- case op of
@@ -2237,20 +2229,20 @@ translateModule halloc m = do
                                  })
 
 -------------------------------------------------------------------------
--- initalizeMemory
+-- initializeMemory
 
 -- | Build the initial memory for an LLVM program.  Note, this process
 -- allocates space for global variables, but does not set their
 -- initial values.  Run the `initMemoryCFG` procedure of the
 -- `ModuleTranslation` produced by `translateModule` to set
 -- the values of global variables.
-initalizeMemory
+initializeMemory
    :: IsSymInterface sym
    => sym
    -> LLVMContext
    -> L.Module
    -> IO (MemImpl sym PtrWidth)
-initalizeMemory sym llvm_ctx m = do
+initializeMemory sym llvm_ctx m = do
    --putStrLn "INIT MEMORY"
    let gs = L.modGlobals m
    let ?lc = llvmTypeCtx llvm_ctx

@@ -228,14 +228,14 @@ liftMemType tp = asMemType =<< liftType tp
 liftRetType :: (?lc :: LLVMContext) => L.Type -> Maybe RetType
 liftRetType tp = asRetType =<< liftType tp
 
-compatStructInfo :: (?lc :: LLVMContext) => StructInfo -> StructInfo -> Bool
+compatStructInfo :: StructInfo -> StructInfo -> Bool
 compatStructInfo x y =
   siIsPacked x == siIsPacked y &&
     compatMemTypeVectors (siFieldTypes x) (siFieldTypes y)
 
 -- | Returns true if types are bit-level compatible.
 --
-compatMemTypes :: (?lc :: LLVMContext) => MemType -> MemType -> Bool
+compatMemTypes :: MemType -> MemType -> Bool
 compatMemTypes x0 y0 =
   case (x0, y0) of
     (IntType x, IntType y) -> x == y
@@ -249,18 +249,18 @@ compatMemTypes x0 y0 =
     (StructType x, StructType y) -> x `compatStructInfo` y
     _ -> False
 
-compatRetTypes :: (?lc :: LLVMContext) => RetType -> RetType -> Bool
+compatRetTypes :: RetType -> RetType -> Bool
 compatRetTypes Nothing Nothing = True
 compatRetTypes (Just x) (Just y) = compatMemTypes x y
 compatRetTypes _ _ = False
 
-compatMemTypeLists :: (?lc :: LLVMContext) => [MemType] -> [MemType] -> Bool
+compatMemTypeLists :: [MemType] -> [MemType] -> Bool
 compatMemTypeLists [] [] = True
 compatMemTypeLists (x:xl) (y:yl) =
   compatMemTypes x y && compatMemTypeLists xl yl
 compatMemTypeLists _ _ = False
 
-compatMemTypeVectors :: (?lc :: LLVMContext) => V.Vector MemType -> V.Vector MemType -> Bool
+compatMemTypeVectors :: V.Vector MemType -> V.Vector MemType -> Bool
 compatMemTypeVectors x y =
   V.length x == V.length y &&
   allOf traverse (uncurry compatMemTypes) (V.zip x y)

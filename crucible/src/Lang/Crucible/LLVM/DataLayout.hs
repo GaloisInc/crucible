@@ -240,9 +240,9 @@ defaultDataLayout = execState defaults dl
           setAt vectorInfo  64 3 -- 64-bit vector is 8 byte aligned.
           setAt vectorInfo 128 4  -- 128-bit vector is 16 byte aligned.
           -- Default aggregate alignments.
-          setAt aggInfo  0 3  -- Aggregates are 8 byte aligned.
+          setAt aggInfo  0 0  -- Aggregates are 1-byte aligned.
 
--- | Maximum aligment for any type (used by malloc).
+-- | Maximum alignment for any type (used by malloc).
 maxAlignment :: DataLayout -> Alignment
 maxAlignment dl =
   maximum [ dl^.stackAlignment
@@ -279,7 +279,7 @@ addLayoutSpec ls =
     case ls of
       L.BigEndian    -> intLayout .= BigEndian
       L.LittleEndian -> intLayout .= LittleEndian
-      L.PointerSize     sz a _ ->
+      L.PointerSize _n sz a _ ->
          case fromBits a of
            Right a' | r == 0 -> do ptrSize .= w
                                    ptrAlign .= a'
