@@ -28,7 +28,7 @@ join t1 t2 = if t1 == Tainted || t2 == Tainted then Tainted
              else Untainted
 
 cfgTaintAnalysis :: PU.Assignment Tainted init -> CFG blocks init ret -> Tainted ret
-cfgTaintAnalysis paramTaints cfg = snd $ forwardFixpoint taintDomain taintInterp cfg PM.empty paramTaints 
+cfgTaintAnalysis paramTaints cfg = snd $ forwardFixpoint taintDomain taintInterp cfg PM.empty paramTaints
 
 taintDomain :: Domain Tainted
 taintDomain = Domain {domTop = Tainted
@@ -53,10 +53,10 @@ taintExpr :: forall blocks ctx tp. TypeRepr tp
           -> (Maybe (PointAbstraction blocks Tainted ctx), Tainted tp)
 taintExpr _tyrepr (App expr) taintMap = case expr of
   EmptyApp -> puret Untainted
-  
+
   IntLit _ -> puret Untainted
   IntAdd r1 r2 -> puret $ depOnRegs [r1, r2] taintMap
-  
+
   RationalLit _ -> puret Untainted
   RealAdd r1 r2 -> puret $ depOnRegs [r1, r2] taintMap
   RealSub r1 r2 -> puret $ depOnRegs [r1, r2] taintMap
@@ -65,7 +65,7 @@ taintExpr _tyrepr (App expr) taintMap = case expr of
   RealEq r1 r2 -> puret $ depOnRegs [r1, r2] taintMap
   RealLt r1 r2 -> puret $ depOnRegs [r1, r2] taintMap
 --  RealIsInteger r -> puret $ lookupAbstractRegValue taintMap r
-  
+
   BVUndef _ -> puret Untainted
   BVLit _ _ -> puret Untainted
   BVEq _ r1 r2 -> puret $ depOnRegs [r1, r2] taintMap
@@ -105,10 +105,10 @@ taintExpr _tyrepr (App expr) taintMap = case expr of
 
 depOnRegs :: [Reg ctx a] -> PointAbstraction blocks Tainted ctx -> Tainted b
 depOnRegs rs taintMap = foldl join Untainted $ map (lookupAbstractRegValue taintMap) rs
-  
+
 puret :: t -> (Maybe a, t)
 puret = (Nothing, )
-    
+
 taintCall :: forall blocks ctx args ret. CtxRepr args
           -> TypeRepr ret
           -> Reg ctx (FunctionHandleType args ret)
@@ -146,7 +146,7 @@ taintMaybe :: forall blocks ctx tp. TypeRepr tp
            -> PointAbstraction blocks Tainted ctx
            -> (Maybe (PointAbstraction blocks Tainted ctx), Tainted tp, Maybe (PointAbstraction blocks Tainted ctx))
 taintMaybe _guardTypeRepr _guardReg guardTaint _taintMap = (Nothing, taintTypeConvert guardTaint, Nothing) -- ^ We are not handling implicit flow
-  
+
 taintTypeConvert :: Tainted t -> Tainted tp
 taintTypeConvert t = case t of
   Tainted -> Tainted
