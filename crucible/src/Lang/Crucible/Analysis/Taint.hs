@@ -23,6 +23,7 @@ data Tainted (tp :: CrucibleType) where
   Untainted :: Tainted tp
   deriving (Eq, Show)
 
+join :: Tainted a -> Tainted b -> Tainted c
 join t1 t2 = if t1 == Tainted || t2 == Tainted then Tainted
              else Untainted
 
@@ -50,7 +51,7 @@ taintExpr :: forall blocks ctx tp. TypeRepr tp
           -> Expr ctx tp
           -> PointAbstraction blocks Tainted ctx
           -> (Maybe (PointAbstraction blocks Tainted ctx), Tainted tp)
-taintExpr tyrepr (App expr) taintMap = case expr of
+taintExpr _tyrepr (App expr) taintMap = case expr of
   EmptyApp -> puret Untainted
   
   IntLit _ -> puret Untainted
@@ -60,7 +61,7 @@ taintExpr tyrepr (App expr) taintMap = case expr of
   RealAdd r1 r2 -> puret $ depOnRegs [r1, r2] taintMap
   RealSub r1 r2 -> puret $ depOnRegs [r1, r2] taintMap
   RealMul r1 r2 -> puret $ depOnRegs [r1, r2] taintMap
-  RealIte cr rt re -> puret $ depOnRegs [cr] taintMap `join` depOnRegs [rt, re] taintMap
+  RealIte cr rt rf -> puret $ depOnRegs [cr] taintMap `join` depOnRegs [rt, rf] taintMap
   RealEq r1 r2 -> puret $ depOnRegs [r1, r2] taintMap
   RealLt r1 r2 -> puret $ depOnRegs [r1, r2] taintMap
 --  RealIsInteger r -> puret $ lookupAbstractRegValue taintMap r
@@ -95,14 +96,17 @@ taintExpr tyrepr (App expr) taintMap = case expr of
   BoolXor r1 r2 -> puret $ depOnRegs [r1, r2] taintMap
   BoolIte g t e -> puret $ depOnRegs [g, t, e] taintMap
   TextLit _ -> puret Untainted
-  MkStruct ctxrepr assign ->
+  MkStruct _ctxrepr asgn ->
     -- We label the whole structure with the join of the labels of its
     -- elements. This is not the most precise way; having a structured
     -- abstract value would be more precide
-    puret $ PU.foldlFC (\t reg -> (lookupAbstractRegValue taintMap reg) `join` t) Untainted assign
+    puret $ PU.foldlFC (\t reg -> (lookupAbstractRegValue taintMap reg) `join` t) Untainted asgn
+  _ -> error "FIXME: unhandled case in taintExpr"
 
+depOnRegs :: [Reg ctx a] -> PointAbstraction blocks Tainted ctx -> Tainted b
 depOnRegs rs taintMap = foldl join Untainted $ map (lookupAbstractRegValue taintMap) rs
   
+puret :: t -> (Maybe a, t)
 puret = (Nothing, )
     
 taintCall :: forall blocks ctx args ret. CtxRepr args
@@ -143,6 +147,7 @@ taintMaybe :: forall blocks ctx tp. TypeRepr tp
            -> (Maybe (PointAbstraction blocks Tainted ctx), Tainted tp, Maybe (PointAbstraction blocks Tainted ctx))
 taintMaybe _guardTypeRepr _guardReg guardTaint _taintMap = (Nothing, taintTypeConvert guardTaint, Nothing) -- ^ We are not handling implicit flow
   
+taintTypeConvert :: Tainted t -> Tainted tp
 taintTypeConvert t = case t of
   Tainted -> Tainted
   Untainted -> Untainted
