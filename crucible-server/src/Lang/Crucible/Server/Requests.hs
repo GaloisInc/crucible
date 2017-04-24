@@ -357,7 +357,6 @@ printTermOverride tpr =
   mkOverride (functionNameFromText (Text.pack ("printTerm_"++show tpr))) $ do
     RegMap args <- getOverrideArgs
     let p = regValue $ args^._1
-    sym <- getSymInterface
     let doc = printSymExpr p
     h <- printHandle <$> getContext
     liftIO $ displayIO h (renderPretty 1.0 maxBound $ plain doc)
