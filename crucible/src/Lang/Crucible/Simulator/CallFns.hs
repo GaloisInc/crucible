@@ -469,7 +469,6 @@ crucibleFrameFns s =
          case (x, y) of
           (MF x', MF y') -> MF <$> mergeCallFrame sym intrinsicFns p x' y'
           (RF x', RF y') -> RF <$> muxRegEntry sym intrinsicFns p x' y'
-          _ -> error "internal error: Attempting to merge active frame with return frame"
       , Exec.popPathValue = \x ->
           case x of
             (MF x') -> do

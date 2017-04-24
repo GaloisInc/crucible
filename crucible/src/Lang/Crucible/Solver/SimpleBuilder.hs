@@ -3007,6 +3007,8 @@ leNonpos le zero sym u v = do
   b <- orPred sym uge vge
   andPred sym a b
 
+
+pattern SBVToReal :: () => (1 <= w, tp ~ BaseRealType) => Elt t (BaseBVType w) -> Elt t tp
 pattern SBVToReal x <- (asApp -> Just (IntegerToReal (asApp -> Just (SBVToInteger x))))
 
 

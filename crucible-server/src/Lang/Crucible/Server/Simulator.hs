@@ -34,7 +34,6 @@ import           Data.Maybe ( mapMaybe )
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import           Data.Text.Encoding (decodeUtf8)
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           GHC.Generics
 import           GHC.IO.Handle
@@ -49,7 +48,7 @@ import           Lang.Crucible.Config
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.FunctionName
 import           Lang.Crucible.ProgramLoc
-import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..), frameProgramLoc)
+import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.MSSim
 import           Lang.Crucible.Simulator.RegMap

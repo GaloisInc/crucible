@@ -302,3 +302,5 @@ mkProtoType tpr =
     IntrinsicRepr sym
       | Just Refl <- testEquality sym (knownSymbol :: SymbolRepr "MatlabValue")
       -> mkType P.MatlabValueType
+
+    _ -> error $ unwords ["crucible-server: type not yet supported", show tpr]

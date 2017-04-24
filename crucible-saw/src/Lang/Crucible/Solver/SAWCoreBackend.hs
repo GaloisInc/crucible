@@ -14,7 +14,6 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
-{-# OPTIONS_GHC -Wwarn #-}
 
 module Lang.Crucible.Solver.SAWCoreBackend where
 
@@ -37,7 +36,7 @@ import           Lang.Crucible.Solver.Symbol
 import qualified Lang.Crucible.Solver.WeightedSum as WSum
 
 import qualified Verifier.SAW.SharedTerm as SC
-import qualified Verifier.SAW.TypedAST as SC hiding (incVars)
+import qualified Verifier.SAW.TypedAST as SC
 
 -- | The SAWCoreBackend is a crucible backend that represents symbolic values
 --   as SAWCore terms.
@@ -48,6 +47,7 @@ data SAWCoreState n
                                                                   --   in the order they were created
     , saw_elt_cache :: SB.IdxCache n SAWElt
     , saw_assertions  :: Seq (Assertion (Pred (SAWCoreBackend n)))
+    , saw_obligations :: Seq (Seq (Pred (SAWCoreBackend n)), Assertion (Pred (SAWCoreBackend n)))
     }
 
 data SAWElt (bt :: BaseType) where
@@ -110,7 +110,7 @@ newSAWCoreBackend :: SC.SharedContext
 newSAWCoreBackend sc gen = do
   inpr <- newIORef Seq.empty
   ch   <- SB.newIdxCache
-  let st = SAWCoreState sc inpr ch Seq.empty
+  let st = SAWCoreState sc inpr ch Seq.empty Seq.empty
   SB.newSimpleBuilder st gen
 
 
@@ -214,12 +214,22 @@ evaluateElt sym sc cache = f
 
    go (SB.NonceAppElt p) =
       case SB.nonceEltApp p of
-        SB.Forall _ _ ->
+        SB.Forall{} ->
           fail "SAW backend does not support quantifiers"
-        SB.Exists _ _ ->
+        SB.Exists{} ->
           fail "SAW backend does not support quantifiers"
+        SB.ArrayFromFn{} ->
+          fail "SAW backend does not support symbolic arrays"
+        SB.MapOverArrays{} ->
+          fail "SAW backend does not support symbolic arrays"
+        SB.ArrayTrueOnEntries{} ->
+          fail "SAW backend does not support symbolic arrays"
+        SB.FnApp{} ->
+          fail "SAW backend does not support symbolic functions"
 
-   go (SB.AppElt a) =
+   go a0@(SB.AppElt a) =
+      let nyi :: Monad m => m a
+          nyi = fail $ "Expression form not yet implemented in SAWCore backend:\n" ++ show a0 in
       case SB.eltApp a of
 
         SB.TrueBool  -> SAWElt <$> SC.scBool sc True
@@ -430,9 +440,32 @@ evaluateElt sym sc cache = f
                 _ -> do
                   fail $ "SAWCore backend only currently supports integer and bitvector indices."
 
+        SB.NatDiv{} -> nyi -- FIXME
+        SB.NatToInteger{} -> nyi -- FIXME
+        SB.IntegerToNat{} -> nyi -- FIXME
+        SB.IntegerToReal{} -> nyi -- FIXME
+        SB.RealToInteger{} -> nyi -- FIXME
+        SB.BVToInteger{} -> nyi -- FIXME
+        SB.IntegerToSBV{} -> nyi -- FIXME
+        SB.SBVToInteger{} -> nyi -- FIXME
+        SB.IntegerToBV{} -> nyi -- FIXME
+        SB.RoundReal{} -> nyi -- FIXME
+        SB.FloorReal{} -> nyi -- FIXME
+        SB.CeilReal{} -> nyi -- FIXME
+        SB.Cplx{} -> nyi -- FIXME
+        SB.RealPart{} -> nyi -- FIXME
+        SB.ImagPart{} -> nyi -- FIXME
+        SB.StructCtor{} -> nyi -- FIXME
+        SB.StructField{} -> nyi -- FIXME
+        SB.StructIte{} -> nyi -- FIXME
+
 -- | The current location in the program.
 assertions :: Simple Lens (SAWCoreState n) (Seq.Seq (Assertion (Pred (SAWCoreBackend n))))
 assertions = lens saw_assertions (\s v -> s { saw_assertions = v })
+
+-- | The sequence of accumulated assertion obligations
+proofObligs :: Simple Lens (SAWCoreState n) (Seq (Seq (Pred (SAWCoreBackend n)), Assertion (Pred (SAWCoreBackend n))))
+proofObligs = lens saw_obligations (\s v -> s { saw_obligations = v })
 
 appendAssertion :: ProgramLoc
                 -> Pred (SAWCoreBackend n)
@@ -440,7 +473,9 @@ appendAssertion :: ProgramLoc
                 -> SAWCoreState n
                 -> SAWCoreState n
 appendAssertion l p m s =
-  s & assertions %~ (Seq.|> Assertion l p (Just m))
+  let ast = Assertion l p (Just m) in
+  s & assertions %~ (Seq.|> ast)
+    & proofObligs %~ (Seq.|> (fmap (^.assertPred) (s^.assertions), ast))
 
 -- | Append assertions to path state.
 appendAssertions :: Seq (Assertion (Pred (SAWCoreBackend n)))
@@ -448,8 +483,21 @@ appendAssertions :: Seq (Assertion (Pred (SAWCoreBackend n)))
                  -> SAWCoreState n
 appendAssertions pairs = assertions %~ (Seq.>< pairs)
 
+appendAssumption :: ProgramLoc
+                 -> Pred (SAWCoreBackend n)
+                 -> SAWCoreState n
+                 -> SAWCoreState n
+appendAssumption l p s =
+  s & assertions %~ (Seq.|> Assertion l p Nothing)
 
 instance SB.IsSimpleBuilderState SAWCoreState where
+  sbAddAssumption sym e = do
+    case SB.asApp e of
+      Just SB.TrueBool -> return ()
+      _ -> do
+        loc <- getCurrentProgramLoc sym
+        modifyIORef' (SB.sbStateManager sym) $ appendAssumption loc e
+
   sbAddAssertion sym e m = do
     case SB.asApp e of
       Just SB.TrueBool -> return ()
@@ -477,6 +525,13 @@ instance SB.IsSimpleBuilderState SAWCoreState where
       Just True  -> return $! NoBranch True
       Just False -> return $! NoBranch False
       Nothing    -> return $! SymbolicBranch True
+
+  sbGetProofObligations sym = do
+    mg <- readIORef (SB.sbStateManager sym)
+    return $ mg^.proofObligs
+
+  sbSetProofObligations sym obligs = do
+    modifyIORef' (SB.sbStateManager sym) (set proofObligs obligs)
 
   sbPushBranchPred _ _ = return ()
   sbBacktrackToState _ _ = return ()

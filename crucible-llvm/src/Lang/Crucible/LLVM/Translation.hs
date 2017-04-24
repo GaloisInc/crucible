@@ -155,6 +155,7 @@ declareFromDefine d =
             , L.decName = L.defName d
             , L.decArgs = L.typedType <$> L.defArgs d
             , L.decVarArgs = L.defVarArgs d
+            , L.decAttrs   = L.defAttrs d
             }
 
 -- | Return all declarations derived from both external symbols and

@@ -32,7 +32,6 @@ module Lang.Crucible.Solver.Partial
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 
-import Lang.Crucible.BaseTypes
 import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Solver.BoolInterface
 
