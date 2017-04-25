@@ -165,7 +165,7 @@ setMachineWordWidth :: Int -> GoGenerator h s rctx ()
 setMachineWordWidth w = St.modify' (\ts -> ts {machineWordWidth = w})
 
 -- | Fully specialize a type with the current machine word width
-specializeTypeM :: SemanticType -> GoGenerator h s rctx SemanticType
+specializeTypeM :: VarType -> GoGenerator h s rctx VarType
 specializeTypeM typ = do w <- getMachineWordWidth
                          return $ specializeType w typ
 
@@ -704,18 +704,18 @@ translateConstSpec :: ConstSpec SourceRange -> GoGenerator h s rctx ()
 translateConstSpec = undefined
 
 -- | Translate a Go type to a Crucible type. This is where type semantics is encoded.
-translateType :: forall a. (?machineWordWidth :: Int) => SemanticType
+translateType :: forall a. (?machineWordWidth :: Int) => VarType
               -> (forall typ. TypeRepr typ -> (forall s. Gen.Expr s typ) -> a)
               -> a 
 translateType typ = typeAsRepr (specializeType ?machineWordWidth typ)
 
-translateTypeM :: forall h s rctx a. SemanticType
+translateTypeM :: forall h s rctx a. VarType
                -> (forall typ. TypeRepr typ -> (forall s. Gen.Expr s typ) -> GoGenerator h s rctx a)
                -> GoGenerator h s rctx a
 translateTypeM typ f = do w <- getMachineWordWidth
                           let ?machineWordWidth = w in translateType typ f
 
-typeAsRepr :: forall a. SemanticType
+typeAsRepr :: forall a. VarType
            -> (forall typ. TypeRepr typ -> (forall s. Gen.Expr s typ) -> a)
            -> a
 typeAsRepr typ lifter = injectType (toTypeRepr typ)
@@ -726,7 +726,7 @@ typeAsRepr typ lifter = injectType (toTypeRepr typ)
 -- | Compute the Crucible 'TypeRepr' and zero initializer value for a
 -- given Go AST type. Do not use this function on it's own: use
 -- `translateType` or `translateTypeM`.
-toTypeRepr :: SemanticType -> ReprAndValue
+toTypeRepr :: VarType -> ReprAndValue
 toTypeRepr typ = case typ of
   Int (Just width) _ -> case someNat (fromIntegral width) of
     Just (Some w) | Just LeqProof <- isPosNat w -> ReprAndValue (BVRepr w) (Gen.App (C.BVLit w 0))
