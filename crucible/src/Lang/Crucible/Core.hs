@@ -30,7 +30,11 @@ on the place from which you jumped.
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -fno-spec-constr #-}
-{-# OPTIONS_GHC -fmax-pmcheck-iterations=100000000 #-}
+{-# OPTIONS_GHC -Wwarn #-}
+
+-- Disabled for now; causes the build to use a large amount of memory
+{- OPTIONS_GHC -fmax-pmcheck-iterations=100000000 -}
+
 module Lang.Crucible.Core
   ( -- * App
     App(..)
