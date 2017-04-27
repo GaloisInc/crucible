@@ -2813,8 +2813,7 @@ instance IsBoolExprBuilder (SimpleBuilder t st) where
 
 instance IsBoolSolver (SimpleBuilder t st) where
 
-  evalBranch sym p = sbStateManagerIsBoolSolver sym $
-    sbEvalBranch sym p
+  evalBranch sym p = sbStateManagerIsBoolSolver sym $ sbEvalBranch sym p
 
   getCurrentState sym = do
     s <- readIORef (sbStateManager sym)
@@ -3796,7 +3795,7 @@ instance IsExprBuilder (SimpleBuilder t st) where
   arrayIte sym p x y
      | Just b <- asConstantPred p = return $! if b then x else y
      | x == y = return x
-       --  Extract all concrete updates out.
+       -- Extract all concrete updates out.
      | ArrayMapView mx x' <- viewArrayMap x
      , ArrayMapView my y' <- viewArrayMap y
      , not (Hash.mapNull mx) || not (Hash.mapNull my) = do
@@ -4028,7 +4027,7 @@ instance IsExprBuilder (SimpleBuilder t st) where
         =<< andPred sym b_max
         =<< (\xbv -> bvSle sym xbv ybv) =<< realToSBV sym w x
 
-      -- Stength reductions on a non-linear constraint to piecewise linear.
+      -- Strength reductions on a non-linear constraint to piecewise linear.
     | RatElt 0 _ <- x, Just (RealMul u v) <- asApp y = do
       leNonneg realLe x sym u v
       -- Another strength reduction

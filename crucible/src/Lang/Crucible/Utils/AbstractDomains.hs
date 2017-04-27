@@ -1,3 +1,10 @@
+{-|
+Copyright   : (c) Galois Inc, 2015-2016
+License     : BSD3
+Maintainer  : jhendrix@galois.com
+
+This module declares a set of abstract domains used by the solver.
+-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFunctor #-}
@@ -78,11 +85,6 @@ import           Lang.Crucible.Utils.BVDomain (BVDomain)
 import qualified Lang.Crucible.Utils.BVDomain as BVD
 import           Lang.Crucible.Utils.Complex
 
-#if !MIN_VERSION_base(4,8,0)
-import           Control.Applicative
-import           Prelude hiding (concatMap, sum)
-#endif
-
 ctxZipWith3 :: (forall (x::k) . a x -> b x -> c x -> d x)
             -> Ctx.Assignment a (ctx::Ctx.Ctx k)
             -> Ctx.Assignment b ctx
@@ -92,15 +94,15 @@ ctxZipWith3 f a b c =
   Ctx.generate (Ctx.size a) $ \i ->
     f (a Ctx.! i) (b Ctx.! i) (c Ctx.! i)
 
+
 ------------------------------------------------------------------------
--- ValueBound and ValueRange support classes.
+-- ValueBound
 
 -- | A lower or upper bound on a value.
 data ValueBound tp
    = Unbounded
    | Inclusive !tp
   deriving (Functor, Show)
-
 
 instance Applicative ValueBound where
   pure = Inclusive
@@ -127,11 +129,15 @@ upperBoundIsNonNeg :: (Ord tp, Num tp) => ValueBound tp -> Bool
 upperBoundIsNonNeg Unbounded = True
 upperBoundIsNonNeg (Inclusive y) = y >= 0
 
--- | A range that values could be in, that indicates either (Nothing) meaning
--- no bound, (inclusive) lowerabtract range
+------------------------------------------------------------------------
+-- ValueRange support classes.
+
+-- | Describes a range of values in a totally ordered set.
 data ValueRange tp
   = SingleRange !tp
+    -- ^ Indicates that range denotes a single value
   | MultiRange !(ValueBound tp) !(ValueBound tp)
+    -- ^ Indicates that the number is somewhere between the given upper and lower bound.
 
 addRange :: Num tp => ValueRange tp -> ValueRange tp -> ValueRange tp
 addRange (SingleRange x) (SingleRange y) = SingleRange (x+y)
@@ -140,6 +146,9 @@ addRange (MultiRange lx ux) (SingleRange y) = MultiRange ((y+) <$> lx) ((y+) <$>
 addRange (MultiRange lx ux) (MultiRange ly uy) =
   MultiRange ((+) <$> lx <*> ly) ((+) <$> ux <*> uy)
 
+-- | Return 'Just True if the range only contains an integer, 'Just False' if it
+-- contains no integers, and 'Nothing' if the range contains both integers and
+-- non-integers.
 rangeIsInteger :: ValueRange Rational -> Maybe Bool
 rangeIsInteger (SingleRange x) = Just (denominator x == 1)
 rangeIsInteger (MultiRange (Inclusive l) (Inclusive u))
@@ -194,15 +203,15 @@ mulRange (MultiRange lx ux) (MultiRange ly uy) = MultiRange lz uz
              -- x must be negative and y must be positive.
            | otherwise = (*) <$> ux <*> ly
 
-
+-- | Return lower bound of range.
 rangeLowBound :: ValueRange tp -> ValueBound tp
 rangeLowBound (SingleRange x) = Inclusive x
 rangeLowBound (MultiRange l _) = l
 
+-- | Return upper bound of range.
 rangeHiBound :: ValueRange tp -> ValueBound tp
 rangeHiBound (SingleRange x) = Inclusive x
 rangeHiBound (MultiRange _ u) = u
-
 
 -- | Compute the smallest range containing both ranges.
 joinRange :: Ord tp => ValueRange tp -> ValueRange tp -> ValueRange tp
@@ -308,6 +317,7 @@ ravConcreteRange l h = RAV (concreteRange l h) (Just $! b)
   where -- Return true if this is a singleton.
         b = l == h && denominator l == 1
 
+-- | Add two real abstract values.
 ravAdd :: RealAbstractValue -> RealAbstractValue -> RealAbstractValue
 ravAdd (RAV xr xi) (RAV yr yi) = RAV zr zi
   where zr = addRange xr yr

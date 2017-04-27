@@ -17,6 +17,7 @@ It maps multi-dimensional arrays to either arrays with structs as indices
 if structs are supported or nested arrays if they are not.
 
 The solver should detect when something is not supported and give an
+error rather than sending invalid output to a file.
 -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DoAndIfThenElse #-}

@@ -3,7 +3,7 @@
 -- Module           : Lang.Crucible.RegCFG
 -- Description      : Provides a representation of Crucible programs using
 --                    mutable registers rather than SSA.
--- Copyright        : (c) Galois, Inc 2014
+-- Copyright        : (c) Galois, Inc 2014-2016
 -- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
@@ -37,6 +37,7 @@ module Lang.Crucible.RegCFG
   , Value(..)
   , typeOfValue
   , ValueSet
+    -- * Blocks
   , Block
   , mkBlock
   , blockID
@@ -56,8 +57,8 @@ import qualified Data.Foldable as Fold
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
-import           Data.Parameterized.TraversableFC
 import           Data.Parameterized.TraversableF
+import           Data.Parameterized.TraversableFC
 import           Data.Sequence (Seq)
 import           Data.Set (Set)
 import qualified Data.Set as Set
@@ -100,9 +101,11 @@ instance Pretty (Label s) where
 data LambdaLabel (s :: *) (tp :: CrucibleType)
    = LambdaLabel
       { lambdaInt :: !Int
-        -- | The atom to store the output result in.
-        -- N.B. This must be lazy to break a recursive cycle.
+        -- ^ Integer that uniquely identifies this label within the CFG.
       , lambdaAtom :: Atom s tp
+        -- ^ The atom to store the output result in.
+        --
+        -- Note. This must be lazy to break a recursive cycle.
       }
 
 instance Show (LambdaLabel s tp) where
@@ -281,9 +284,8 @@ typeOfValue :: Value s tp -> TypeRepr tp
 typeOfValue (RegValue r) = typeOfReg r
 typeOfValue (AtomValue a) = typeOfAtom a
 
--- | Set of registers
+-- | A set of values
 type ValueSet s = Set (Some (Value s))
-
 
 ------------------------------------------------------------------------
 -- Expr
@@ -356,6 +358,7 @@ typeOfAtomValue v =
     NewRef a -> ReferenceRepr (typeOfAtom a)
     Call _ _ r -> r
 
+-- | Fold over all values in an 'AtomValue'.
 foldAtomValueInputs :: (forall x . Value s x -> b -> b) -> AtomValue s tp -> b -> b
 foldAtomValueInputs f (ReadReg r)     b = f (RegValue r) b
 foldAtomValueInputs _ (ReadGlobal _)  b =  b
@@ -363,7 +366,6 @@ foldAtomValueInputs f (ReadRef r)     b = f (AtomValue r) b
 foldAtomValueInputs f (NewRef a)      b = f (AtomValue a) b
 foldAtomValueInputs f (EvalApp app0)  b = C.foldApp (f . AtomValue) b app0
 foldAtomValueInputs f (Call g a _)    b = f (AtomValue g) (foldrFC' (f . AtomValue) b a)
-
 
 ppAtomBinding :: Atom s tp -> AtomValue s tp -> Doc
 ppAtomBinding a v = pretty a <+> text ":=" <+> pretty v

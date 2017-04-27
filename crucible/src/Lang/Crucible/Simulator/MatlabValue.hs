@@ -77,6 +77,7 @@ module Lang.Crucible.Simulator.MatlabValue
     -- * Pretty printing
   , CanPrintExpr
   , ppPred
+  , ppReal
   , ppCplx
   , ppSignedBV
   , ppUnsignedBV
@@ -129,15 +130,15 @@ import           Lang.Crucible.MATLAB.Intrinsics.Solver
 import           Lang.Crucible.MATLAB.Types
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegValue
-  ( SomeBVArray(..)
-  , SomeSymbolicBVArray(..)
-  , FnVal
-  , muxReg
-  , muxHandle
-  , mdaMuxFn
-  , RegValue
-  , ValMuxFn
-  )
+                   ( SomeBVArray(..)
+                   , SomeSymbolicBVArray(..)
+                   , FnVal
+                   , muxReg
+                   , muxHandle
+                   , mdaMuxFn
+                   , RegValue
+                   , ValMuxFn
+                   )
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.Complex
@@ -737,11 +738,18 @@ ppPred v =
     Just False -> "0"
     Nothing -> "??"
 
--- | Pretty print a real value.
+-- | Pretty print a complex value.
 ppCplx :: IsExpr e => e BaseComplexType -> String
 ppCplx v =
   case asComplex v of
     Just r  -> ppComplexFrac r
+    Nothing -> "??"
+
+-- | Pretty print a real value.
+ppReal :: IsExpr e => e BaseRealType -> String
+ppReal v =
+  case asRational v of
+    Just r  -> ppFrac r
     Nothing -> "??"
 
 ppUnsignedBV :: IsExpr val => NatRepr w -> val (BaseBVType w) -> String

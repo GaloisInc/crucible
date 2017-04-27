@@ -18,8 +18,8 @@ module Lang.Crucible.FunctionName
   , startFunctionName
   ) where
 
-import Data.Hashable
-import Data.String
+import           Data.Hashable
+import           Data.String
 import qualified Data.Text as Text
 
 ------------------------------------------------------------------------

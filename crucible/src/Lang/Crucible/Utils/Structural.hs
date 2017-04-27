@@ -42,7 +42,9 @@ structuralPretty tpq pats0 = do
       caseE (varE a) (matchPretty pats (varE pp) <$> dataCtors d)
 
 matchPretty :: (Type -> Q (Maybe ExpQ))  -- ^ Pattern match functions
-            -> ExpQ -> NormalizedCon -> MatchQ
+            -> ExpQ
+            -> NormalizedCon
+            -> MatchQ
 matchPretty matchPat pp (NC nm tps) = do
   let n = length tps
   nms <- replicateM n (newName "x")

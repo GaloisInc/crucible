@@ -3,6 +3,8 @@ Module      : Lang.Crucible.Utils.BVDomain.Map
 Copyright   : (c) Galois Inc, 2015-2016
 License     : BSD3
 Maintainer  : jhendrix@galois.com
+
+Defines a bitvector domain based on maps.
 -}
 
 {-# LANGUAGE CPP #-}
@@ -14,6 +16,9 @@ Maintainer  : jhendrix@galois.com
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
+#if MIN_VERSION_base(4,9,0)
+{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
+#endif
 module Lang.Crucible.Utils.BVDomain.Map
   ( BVDomainParams(..)
   , defaultBVDomainParams
@@ -56,25 +61,21 @@ module Lang.Crucible.Utils.BVDomain.Map
   , xor
   ) where
 
-import Control.Exception (assert)
-import Control.Lens ((&), over, both)
+import           Control.Exception (assert)
+import           Control.Lens ((&), over, both)
 import qualified Data.Bits as Bits
-import Data.Bits hiding (testBit, xor)
+import           Data.Bits hiding (testBit, xor)
 import qualified Data.Foldable as Fold
-import Data.List hiding (and, any, concat, or, union)
-import Data.Map.Strict (Map)
+import           Data.List hiding (and, any, concat, or, union)
+import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Set (Set)
+import           Data.Parameterized.NatRepr
+import           Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Parameterized.NatRepr
 
-import GHC.TypeLits
+import           GHC.TypeLits
 
-import Prelude hiding (any, concat, negate, not, and, or)
-
-#if !MIN_VERSION_base(4,8,0)
-import Control.Applicative ((<$>), (<*>))
-#endif
+import           Prelude hiding (any, concat, negate, not, and, or)
 
 -- | @halfRange n@ returns @2^(n-1)@.
 halfRange :: NatRepr w -> Integer
