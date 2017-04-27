@@ -33,6 +33,7 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.Default.Class
 import qualified Data.List.NonEmpty as NE
+import Text.Printf ( printf )
 
 -- | (Currently) the entry point of the module: translates one go
 -- function to a Crucible control-flow graph. The parameters are the
@@ -247,6 +248,7 @@ translateStatement :: Statement SourceRange
 translateStatement s retCtxRepr = case s of
   DeclStmt _ (VarDecl _ varspecs)     -> mapM_ translateVarSpec varspecs
   DeclStmt _ (ConstDecl _ constspecs) -> mapM_ translateConstSpec constspecs
+  ShortVarDeclStmt annot ids inits -> translateVarSpec (UntypedVarSpec annot ids inits)
   DeclStmt _ (TypeDecl _ _) ->
     -- type declarations are only reflected in type analysis results
     -- and type translations; they are not executable
@@ -367,7 +369,6 @@ translateStatement s retCtxRepr = case s of
   SelectStmt {} -> error "Select statements are not supported yet"
   FallthroughStmt {} -> error "Fallthrough statements are not supported yet"
   DeferStmt {} -> error "Defer statements are not supported yet"
-  ShortVarDeclStmt {} -> error "Short variable declarations are not supported yet"
 
 -- | Given a type witness, return the correct expression constructor
 -- to either add or subtract one from the expression
@@ -458,7 +459,10 @@ translateVarSpec s = case s of
         mapM_ (\ident -> declareIdent ident zeroVal typeRepr ) $ NE.toList identifiers
       else if NE.length identifiers /= length initialValues then error "The number of variable declared doesn't match the number of initial values provided. This is either a syntax error or a destructuring assignment. The latter is not supported."
            else void $ zipWithM bindExpr (NE.toList identifiers) initialValues
-  UntypedVarSpec _ identifiers initialValues -> error "Untyped variable declarations will be supported in V4"
+  UntypedVarSpec _ identifiers initialValues
+    | F.length identifiers == F.length initialValues ->
+      void $ zipWithM bindExpr (F.toList identifiers) (F.toList initialValues)
+    | otherwise -> error "Mismatched length untyped variable declarations will be supported in V4"
   where
     bindExpr ident value = do
       withTranslatedExpression value $ \_ expr ->
