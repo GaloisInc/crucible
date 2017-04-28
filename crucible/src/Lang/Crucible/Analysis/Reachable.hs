@@ -1,11 +1,15 @@
 -----------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.Analysis.Reachable
--- Description      : Trims a CFG to the reachable subset
--- Copyright        : (c) Galois, Inc 2016
+-- Description      : Compute the reachable subgraph of a CFG
+-- Copyright        : (c) Galois, Inc 2015
 -- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
+--
+-- Compute reachability on CFG blocks, reduce the CFG to include just
+-- the reachable blocks, and remap block labels in the program to point
+-- to the new, relabeled blocks.
 ------------------------------------------------------------------------
 
 {-# LANGUAGE ScopedTypeVariables #-}

@@ -1,8 +1,8 @@
 {-
 Module           : Lang.Crucible.Solver.ProcessUtils
 Copyright        : (c) Galois, Inc 2014-2016
-Maintainer       : Rob Dockins <rdockins@galois.com>
 License          : BSD3
+Maintainer       : Rob Dockins <rdockins@galois.com>
 
 Common utilities for running solvers and getting back results.
 -}

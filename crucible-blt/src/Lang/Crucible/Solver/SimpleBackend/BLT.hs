@@ -1,3 +1,16 @@
+-----------------------------------------------------------------------
+-- |
+-- Module           : Lang.Crucible.Solver.SimpleBackend.BLT
+-- Description      : Crucible solver interface for BLT
+-- Copyright        : (c) Galois, Inc 2015-2016
+-- License          : BSD3
+-- Maintainer       : bjones@galois.com
+-- Stability        : provisional
+--
+-- This module provides the BLT integer linear programming library
+-- as an optional solver in MSS.
+------------------------------------------------------------------------
+
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -13,16 +26,6 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Werror #-}
-
-{-
-Module           : Lang.Crucible.Solver.SimpleBackend.BLT
-Copyright        : (c) Galois, Inc 2014-2016
-Maintainer:      : bjones@galois.com
-License          : BSD3
-
-This module provides the BLT integer linear programming library
-as an optional solver for Crucible.
--}
 module Lang.Crucible.Solver.SimpleBackend.BLT
   ( -- * BLT Adapter API
     bltParams

@@ -1,3 +1,13 @@
+------------------------------------------------------------------------
+-- |
+-- Module      : Lang.Crucible.Solver.SimpleBackend.AppTheory
+-- Description : Identifying the solver theory required by a core expression
+-- Copyright   : (c) Galois, Inc 2016
+-- License     : BSD3
+-- Maintainer  : Joe Hendrix <jhendrix@galois.com>
+-- Stability   : provisional
+------------------------------------------------------------------------
+
 {-# LANGUAGE GADTs #-}
 module Lang.Crucible.Solver.SimpleBackend.AppTheory
   ( AppTheory(..)
@@ -17,7 +27,7 @@ data AppTheory
    | QuantifierTheory
    | ArrayTheory
    | StructTheory
-     -- ^ Theory attributes to structs (equivalent to records in CVC4/Z3, tuples in Yices)
+     -- ^ Theory attributed to structs (equivalent to records in CVC4/Z3, tuples in Yices)
    | FnTheory
      -- ^ Theory attributed application functions.
    deriving (Eq, Ord)

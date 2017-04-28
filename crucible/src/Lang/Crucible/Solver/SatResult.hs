@@ -1,3 +1,12 @@
+------------------------------------------------------------------------
+-- |
+-- Module      : Lang.Crucible.Solver.SatResult
+-- Description : Simple datastructure for capturing the result of a SAT/SMT query
+-- Copyright   : (c) Galois, Inc 2015
+-- License     : BSD3
+-- Maintainer  : Joe Hendrix <jhendrix@galois.com>
+-- Stability   : provisional
+------------------------------------------------------------------------
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
@@ -8,11 +17,6 @@ module Lang.Crucible.Solver.SatResult
   , isUnsat
   , isUnknown
   ) where
-
-#if !MIN_VERSION_base(4,8,0)
-import Data.Foldable (Foldable)
-import Data.Traversable (Traversable)
-#endif
 
 data SatResult mdl
    = Sat mdl

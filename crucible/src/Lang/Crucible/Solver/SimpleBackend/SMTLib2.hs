@@ -1,3 +1,16 @@
+------------------------------------------------------------------------
+-- |
+-- Module           : Lang.Crucible.Solver.SimpleBackend.SMTLib2
+-- Description      : Inteface for solvers that consume SMTLib2
+-- Copyright        : (c) Galois, Inc 2014-2016
+-- License          : BSD3
+-- Maintainer       : Rob Dockins <rdockins@galois.com>
+-- Stability        : provisional
+--
+-- This module defines operations for producing SMTLib2-compatible queries
+-- useful for interfacing with solvers that accecpt SMTLib2 as an input language.
+------------------------------------------------------------------------
+
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}

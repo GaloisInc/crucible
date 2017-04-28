@@ -79,8 +79,7 @@ newtype PartialT sym m a =
   PartialT { unPartial :: sym -> Pred sym -> m (PartExpr (Pred sym) a) }
 
 -- | Run a partial computation.
-runPartialT :: IsBoolExprBuilder sym
-            => sym -- ^ Solver interface
+runPartialT :: sym -- ^ Solver interface
             -> Pred sym -- ^ Initial condition
             -> PartialT sym m a -- ^ Computation to run.
             -> m (PartExpr (Pred sym) a)

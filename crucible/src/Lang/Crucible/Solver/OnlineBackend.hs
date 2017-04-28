@@ -1,13 +1,23 @@
------------------------------------------------------------------------
+------------------------------------------------------------------------
 -- |
--- Module           : Lang.Crucible.Solver.OnlineBackend
--- Description      : Solver backend that maintains a persistent
---                    connection to Yices
--- Copyright        : (c) Galois, Inc 2015-2016
--- License          : BSD3
--- Maintainer       : Rob Dockins <rdockins@galois.com>
--- Stability        : provisional
+-- Module      : Lang.Crucible.Solver.OnlineBackend
+-- Description : A solver backend that maintains a persistent connection
+-- Copyright   : (c) Galois, Inc 2015-2016
+-- License     : BSD3
+-- Maintainer  : Joe Hendrix <jhendrix@galois.com>
+-- Stability   : provisional
 --
+-- The online backend maintains an open connection to an SMT solver
+-- (Yices, currently) that is used to prune unsatisfiable execution
+-- traces during simulation.  At every symbolic branch point, the SMT
+-- solver is queried to determine if one or both symbolic branches are
+-- unsatisfiable.  Only branches with satisfiable branch conditions
+-- are explored.
+--
+-- The online backend also allows override definitions access to a
+-- persistent SMT solver connection.  This can be useful for some
+-- kinds of algorithms that benefit from quickly performing many
+-- small solver queries in a tight interaction loop.
 ------------------------------------------------------------------------
 
 {-# LANGUAGE EmptyDataDecls #-}

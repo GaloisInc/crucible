@@ -3,7 +3,7 @@
 -- Module           : Lang.Crucible.Utils.StateContT
 -- Description      : A monad providing continuations and state.
 -- Copyright        : (c) Galois, Inc 2013-2014
--- Licensed         : BSD3
+-- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
 --
@@ -30,10 +30,6 @@ import Control.Monad.State.Class  (MonadState(..))
 import Control.Monad.Trans (MonadTrans(..))
 
 import Lang.Crucible.Utils.MonadST
-
-#if !MIN_VERSION_base(4,8,0)
-import Control.Applicative (Applicative(..))
-#endif
 
 -- | A monad transformer that provides @MonadCont@ and @MonadState@.
 newtype StateContT s r m a

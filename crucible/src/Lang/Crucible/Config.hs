@@ -154,10 +154,6 @@ import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MonadVerbosity
 
-#if !MIN_VERSION_base(4,8,0)
-import           Data.Functor
-#endif
-
 -------------------------------------------------------------------------
 -- ConfigOption
 

@@ -1,3 +1,4 @@
+-----------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.LLVM.MemModel.Common
 -- Description      : Core definitions of the symbolic C memory model
@@ -138,7 +139,7 @@ termVars:: Traversable f => Traversal (Term f a) (Term f b) a b
 termVars f (App a) = App <$> traverse (termVars f) a
 termVars f (Var a) = Var <$> f a
 
-foldTermM :: (Applicative m, Monad m, Traversable f)
+foldTermM :: (Monad m, Traversable f)
           => (a -> m r) -> (f r -> m r) -> Term f a -> m r
 foldTermM f _ (Var v) = f v
 foldTermM f g (App v) = g =<< traverse (foldTermM f g) v

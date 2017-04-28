@@ -1,12 +1,14 @@
------------------------------------------------------------------------
+------------------------------------------------------------------------
 -- |
--- Module           : Lang.Crucible.Simulator.VarRecord
--- Description      : Track data about symbolic variables generated during simulation
--- Copyright        : (c) Galois, Inc 2014-2106
--- License          : BSD3
--- Maintainer       : Joe Hendrix <jhendrix@galois.com>
--- Stability        : provisional
+-- Module      : Lang.Crucible.Simulator.VarRecord
+-- Description : Datastructure for recording symbolic values
+-- Copyright   : (c) Galois, Inc 2015-2016
+-- License     : BSD3
+-- Maintainer  : Joe Hendrix <jhendrix@galois.com>
+-- Stability   : provisional
 --
+-- Symbolic values created at runtime are captured in a 'VarRecord'
+-- so they can be retrieved later.
 ------------------------------------------------------------------------
 
 {-# LANGUAGE DataKinds #-}

@@ -1,3 +1,16 @@
+------------------------------------------------------------------------
+-- |
+-- Module      : Lang.Crucible.Solver.SimpleBackend.GroundEval
+-- Description : Computing ground values for expressions from solver assignments
+-- Copyright   : (c) Galois, Inc 2016
+-- License     : BSD3
+-- Maintainer  : Joe Hendrix <jhendrix@galois.com>
+-- Stability   : provisional
+--
+-- Given a collection of assignments to the symbolic values appearing in
+-- an expression, this module computes the ground value.
+------------------------------------------------------------------------
+
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PolyKinds #-}

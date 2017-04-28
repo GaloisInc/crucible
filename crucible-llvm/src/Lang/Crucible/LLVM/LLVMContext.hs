@@ -38,19 +38,19 @@ module Lang.Crucible.LLVM.LLVMContext
   , asMemType
   ) where
 
-import Control.Lens
-import Control.Monad.State (State, runState, MonadState(..), modify)
-import Data.Map (Map)
+import           Control.Lens
+import           Control.Monad.State (State, runState, MonadState(..), modify)
+import           Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Set (Set)
+import           Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Vector as V
 import qualified Text.LLVM as L
 import qualified Text.LLVM.PP as L
-import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-import Lang.Crucible.LLVM.MemType
-import Lang.Crucible.LLVM.DataLayout
+import           Lang.Crucible.LLVM.MemType
+import           Lang.Crucible.LLVM.DataLayout
 
 data IdentStatus
   = Resolved SymType

@@ -7,7 +7,9 @@
 -- Maintainer  : Rob Dockins <rdockins@galois.com>
 -- Stability   : provisional
 --
--- Yices-specific tweaks to the basic SMTLib2 solver interface.
+-- SMTWriter interface for Yices, using the Yices-specific input language.
+-- This language shares many features with SMTLib2, but is not quite
+-- compatible.
 ------------------------------------------------------------------------
 
 {-# LANGUAGE DataKinds #-}
@@ -33,7 +35,6 @@ module Lang.Crucible.Solver.SimpleBackend.Yices
   , push
   , pop
   , inFreshFrame
---  , requestValue
   , setParam
   , setYicesParams
   , HandleReader

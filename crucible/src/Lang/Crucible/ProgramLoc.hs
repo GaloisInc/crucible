@@ -33,22 +33,17 @@ module Lang.Crucible.ProgramLoc
   , HasProgramLoc(..)
   ) where
 
-import Control.DeepSeq
-import Data.Monoid
-import Data.Text (Text)
+import           Control.DeepSeq
+import           Data.Monoid
+import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Lazy.Builder as B
 import qualified Data.Text.Lazy.Builder.Int as B
-import Data.Word
-import Numeric (showHex)
+import           Data.Word
+import           Numeric (showHex)
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
-#if !MIN_VERSION_base(4,8,0)
-import Data.Foldable (Foldable)
-import Data.Traversable (Traversable)
-#endif
-
-import Lang.Crucible.FunctionName
+import           Lang.Crucible.FunctionName
 
 ------------------------------------------------------------------------
 -- Position

@@ -51,11 +51,11 @@ module Lang.Crucible.Simulator.RegValue
 import           Control.Monad
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import           Data.Proxy
 import qualified Data.Set as Set
 import           Data.Text (Text)
-import           Data.Word
 import qualified Data.Vector as V
-import           Data.Proxy
+import           Data.Word
 import           GHC.TypeLits
 
 import qualified Data.Parameterized.Context as Ctx

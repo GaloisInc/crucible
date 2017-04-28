@@ -50,10 +50,6 @@ import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import qualified Debug.Trace as Debug
 
-#if !MIN_VERSION_base(4,8,0)
-import Control.Applicative ((<$>))
-#endif
-
 -----------------------
 data SymDom = Dead | Symbolic | Concrete
   deriving (Eq, Ord, Show)

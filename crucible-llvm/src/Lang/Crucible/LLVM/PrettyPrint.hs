@@ -1,3 +1,4 @@
+------------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.LLVM.PrettyPrint
 -- Description      : Printing utilties for LLVM

@@ -109,9 +109,12 @@ data BranchResult sym
      -- The Boolean value indicates whether the backend suggests that the active
      -- path should be the case where the condition is true or false.
    = SymbolicBranch !Bool
+
      -- | No branch is needed, and the predicate is evaluated to the
      -- given value.
+
    | NoBranch !Bool
+
      -- | In branching, the simulator detected that the current path
      -- is infeasible.
    | InfeasibleBranch

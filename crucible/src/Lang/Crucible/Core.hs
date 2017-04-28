@@ -333,23 +333,26 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
 
   -- Vector literal.
   VectorLit :: !(TypeRepr tp) -> !(Vector (f tp)) -> App f (VectorType tp)
+
   -- Create an vector of constants.
   VectorReplicate :: !(TypeRepr tp)
                   -> !(f NatType)
                   -> !(f tp)
                   -> App f (VectorType tp)
+
   -- Return true if vector is empty.
   VectorIsEmpty :: !(f (VectorType tp))
                 -> App f BoolType
+
   -- Size of vector
   VectorSize :: !(f (VectorType tp)) -> App f NatType
 
   -- Return value stored in given entry.
-  --
   VectorGetEntry :: !(TypeRepr tp)
                  -> !(f (VectorType tp))
                  -> !(f NatType)
                  -> App f tp
+
   -- Update vector at given entry.
   VectorSetEntry :: !(TypeRepr tp)
                  -> !(f (VectorType tp))
@@ -615,7 +618,7 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   UIntArrayToIntegerArray :: !(f (MatlabUIntArrayType))
                           -> App f IntegerArrayType
 
-  --  Converts a real array to an integer array.
+  -- Converts a real array to an integer array.
   --
   -- Result is undefined if real values are not integers.
   RealArrayToIntegerArray :: !(f RealArrayType)
@@ -1688,13 +1691,6 @@ appType a0 =
     AssignmentText{} -> knownRepr
     ShowValue{} -> knownRepr
 
-    ----------------------------------------------------------------------
-    -- Array
---    SymArrayConstant dom ran _   -> SymbolicArrayRepr dom ran
---    SymArrayLookup _dom ran _ _  -> baseToType ran
---    SymArrayUpdate dom ran _ _ _ -> SymbolicArrayRepr dom ran
---    SymArrayEq _ _ _ _ -> knownRepr
-
     ------------------------------------------------------------------------
     -- Introspection
 
@@ -1754,9 +1750,9 @@ ppAssignment :: Ctx.Assignment (Reg ctx) args -> [Doc]
 ppAssignment = toListFC pretty
 
 ------------------------------------------------------------------------
--- GlobalRef
+-- GlobalVar
 
--- | A reference to a global variable.
+-- | A global variable.
 data GlobalVar tp
    = GlobalVar { globalNonce :: {-# UNPACK #-} !(Nonce tp)
                , globalName  :: !Text
@@ -2621,14 +2617,6 @@ instance OrdF f => OrdF (App f) where
                    , (U.ConType [t|Vector|]    `U.TypeApp` U.AnyType, [|compareVector|])
                    ]
                   )
-
-{-
-instance OrdF f => OrdF (App f) where
-  compareF = $(structuralTypeOrd [t|App|]
-                 [ TypeApp (DataArg 0)            U.AnyType
-                 ]
-              )
--}
 
 instance FunctorFC App where
   fmapFC = fmapFCDefault

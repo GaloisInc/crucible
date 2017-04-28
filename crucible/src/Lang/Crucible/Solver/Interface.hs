@@ -323,8 +323,7 @@ class ( IsBoolExprBuilder sym
       BaseArrayRepr{}  -> arrayEq sym x y
 
   -- | Take the if-then-else of two terms.
-  baseTypeIte :: IsExprBuilder sym
-              => sym
+  baseTypeIte :: sym
               -> Pred sym
               -> SymExpr sym tp
               -> SymExpr sym tp
@@ -440,18 +439,21 @@ class ( IsBoolExprBuilder sym
          -> SymBV sym w
          -> IO (SymBV sym w)
 
+  -- | Unsigned bitvector remainder.
   bvUrem :: (1 <= w)
          => sym
          -> SymBV sym w
          -> SymBV sym w
          -> IO (SymBV sym w)
 
+  -- | Signed bitvector division.
   bvSdiv :: (1 <= w)
          => sym
          -> SymBV sym w
          -> SymBV sym w
          -> IO (SymBV sym w)
 
+  -- | Signed bitvector remainder.
   bvSrem :: (1 <= w)
          => sym
          -> SymBV sym w
@@ -471,6 +473,7 @@ class ( IsBoolExprBuilder sym
             -> SymBV sym w
             -> IO (Pred sym)
 
+  -- | Return true if bitvector is negative.
   bvIsNeg :: (1 <= w) => sym -> SymBV sym w -> IO (Pred sym)
   bvIsNeg sym x = bvSlt sym x =<< bvLit sym (bvWidth x) 0
 
@@ -675,6 +678,10 @@ class ( IsBoolExprBuilder sym
        ov  <- join (pure (andPred sym) <*> xorPred sym sx sxy <*> xorPred sym sx sy)
        return (ov, xy)
 
+  -- | 'unsignedWideMultiplyBV sym x y' multiplies two unsigned 'w' bit numbers 'x' and 'y'.
+  --
+  -- It returns a pair containing the top 'w' bits as the first element, and the
+  -- lower 'w' bits as the second element.
   unsignedWideMultiplyBV :: (1 <= w)
                          => sym
                          -> SymBV sym w
@@ -696,6 +703,10 @@ class ( IsBoolExprBuilder sym
        hi  <- bvTrunc sym w =<< bvLshr sym s n
        return (hi, lo)
 
+  -- | 'signedWideMultiplyBV sym x y' multiplies two signed 'w' bit numbers 'x' and 'y'.
+  --
+  -- It returns a pair containing the top 'w' bits as the first element, and the
+  -- lower 'w' bits as the second element.
   signedWideMultiplyBV :: (1 <= w)
                        => sym
                        -> SymBV sym w
@@ -716,30 +727,6 @@ class ( IsBoolExprBuilder sym
        n   <- bvLit sym dbl_w (fromIntegral (widthVal w))
        hi  <- bvTrunc sym w =<< bvLshr sym s n
        return (hi, lo)
-
-{-
-  ----------------------------------------------------------------------
-  -- Float operations
-
-  -- | Make a floating-point literal from a rational.
-  --   FIXME? We do not curretly do any checking that the
-  --   given rational is representable in the given floating-point format.
-
-  mkFloat :: sym
-          -> FloatInfoRepr flt
-          -> Rational
-          -> IO (SymFloat sym flt)
-
-  iteFloat :: sym
-           -> FloatInfoRepr flt
-           -> Pred sym
-           -> SymFloat sym flt
-           -> SymFloat sym flt
-           -> IO (SymFloat sym flt)
-
-  -- FIXME, other floating-point operations....
--}
-
 
   ----------------------------------------------------------------------
   -- Struct operations
@@ -836,7 +823,7 @@ class ( IsBoolExprBuilder sym
     a0 <- constantArray sym idx_tps default_value
     arrayUpdateAtIdxLits sym m a0
 
-  -- | Update an array at a map of index literals.
+  -- | Update an array at specific concrete indices.
   --
   -- This is implemented, but designed to be overriden for efficiency.
   arrayUpdateAtIdxLits :: sym
@@ -1038,7 +1025,7 @@ class ( IsBoolExprBuilder sym
 
   -- | Convert a signed integer to the nearest signed integer with the
   -- given width.  This clamps the value to min-int or max int when truncated
-  -- the widht.
+  -- the width.
   intSetWidth :: (1 <= m, 1 <= n) => sym -> SymBV sym m -> NatRepr n -> IO (SymBV sym n)
   intSetWidth sym e w = do
     let e_width = bvWidth e
@@ -1202,6 +1189,8 @@ class ( IsBoolExprBuilder sym
   -- | @realAtan2 sym y x@ returns the arctangent of @y/x@ with a range
   -- of @-pi@ to @pi@; this corresponds to the angle between the positive
   -- x-axis and the line from the origin @(x,y)@.
+  --
+  -- When @x@ is @0@ this returns @pi/2 * sgn y@.
   realAtan2 :: sym -> SymReal sym -> SymReal sym -> IO (SymReal sym)
 
   -- | Return value denoting pi.
@@ -1320,7 +1309,6 @@ class ( IsBoolExprBuilder sym
     (xr :+ xi) <- cplxGetParts sym x
     realHypot sym xr xi
 
-
   -- | Return the principal square root of a complex number.
   cplxSqrt :: sym -> SymCplx sym -> IO (SymCplx sym)
   cplxSqrt sym x = do
@@ -1390,6 +1378,7 @@ class ( IsBoolExprBuilder sym
         r_part <- realMul sym cos_x cosh_y
         i_part <- realMul sym neg_sin_x sinh_y
         mkComplex sym (r_part :+ i_part)
+
   -- | Compute tan of real value.
   cplxTan :: sym -> SymCplx sym -> IO (SymCplx sym)
   cplxTan sym arg = do
@@ -1520,7 +1509,7 @@ muxWordMap sym _w _tp p (SimpleWordMap bs1 xs1) (SimpleWordMap bs2 xs2) = do
                 <*> arrayIte sym p xs1 xs2
 
 
-insertWordMap :: (IsExprBuilder sym, 1 <= w)
+insertWordMap :: IsExprBuilder sym
               => sym
               -> NatRepr w
               -> BaseTypeRepr a
@@ -1534,7 +1523,7 @@ insertWordMap sym _w _ idx v (SimpleWordMap bs xs) = do
                 <*> arrayUpdate sym xs i v
 
 
-lookupWordMap :: (IsExprBuilder sym, 1 <= w)
+lookupWordMap :: IsExprBuilder sym
               => sym
               -> NatRepr w
               -> BaseTypeRepr a
@@ -1599,10 +1588,9 @@ cplxDiv sym x y = do
 
 -- | Helper function that returns logarithm of input.
 --
--- This operation is partial and may return any value when given
--- zero.
+-- This operation adds an assertion that the input is non-zero.
 cplxLog' :: (IsExprBuilder sym, IsBoolSolver sym)
-        => sym -> SymCplx sym -> IO (Complex (SymReal sym))
+         => sym -> SymCplx sym -> IO (Complex (SymReal sym))
 cplxLog' sym x = do
   let err = GenericSimError "Input to log must be non-zero."
   addAssertionM sym (isNonZero sym x) err
@@ -1617,16 +1605,14 @@ cplxLog' sym x = do
 
 -- | Returns logarithm of input.
 --
--- This operation is partial and may return any value when given
--- zero.
+-- This operation adds an assertion that the input is non-zero.
 cplxLog :: (IsExprBuilder sym, IsBoolSolver sym)
         => sym -> SymCplx sym -> IO (SymCplx sym)
 cplxLog sym x = mkComplex sym =<< cplxLog' sym x
 
 -- | Returns logarithm of input at a given base.
 --
--- This operation is partial and may return any value when given
--- zero.
+-- This operation adds an assertion that the input is non-zero.
 cplxLogBase :: (IsExprBuilder sym, IsBoolSolver sym)
             => Rational
             -> sym
@@ -1636,7 +1622,6 @@ cplxLogBase base sym x = do
   b <- realLog sym =<< realLit sym base
   z <- traverse (\r -> realDiv sym r b) =<< cplxLog' sym x
   mkComplex sym z
-
 
 -- | A function that can be applied to symbolic arguments.
 type family SymFn sym :: Ctx BaseType -> BaseType -> *
@@ -1758,14 +1743,14 @@ class ( IsBoolSolver sym
 ------------------------------------------------------------------------
 -- IsSymInterface utilities
 
+-- | This returns true if the value corresponds to a concrete value.
 baseIsConcrete :: forall sym bt
                 . IsExprBuilder sym
                => sym
-               -> BaseTypeRepr bt
                -> SymExpr sym bt
                -> IO Bool
-baseIsConcrete sym bt x =
-  case bt of
+baseIsConcrete sym x =
+  case exprType x of
     BaseBoolRepr    -> return $ isJust $ asConstantPred x
     BaseNatRepr     -> return $ isJust $ asNat x
     BaseIntegerRepr -> return $ isJust $ asInteger x
@@ -1775,10 +1760,10 @@ baseIsConcrete sym bt x =
     BaseStructRepr (flds ::Ctx.Assignment BaseTypeRepr ctx) ->
         Ctx.forIndex (Ctx.size flds) f (return True)
       where f :: IO Bool -> Ctx.Index ctx tp -> IO Bool
-            f b i = (&&) <$> b <*> (baseIsConcrete sym (flds Ctx.! i) =<< structField sym x i)
-    BaseArrayRepr _ bt' -> do
+            f b i = (&&) <$> b <*> (baseIsConcrete sym =<< structField sym x i)
+    BaseArrayRepr _ _bt' -> do
       case asConstantArray x of
-        Just x' -> baseIsConcrete sym bt' x'
+        Just x' -> baseIsConcrete sym x'
         Nothing -> return $ False
 
 baseDefaultValue :: forall sym bt
@@ -1826,9 +1811,9 @@ mkReal sym v = mkRational sym (toRational v)
 
 -- | Return 1 if the predicate is true; 0 otherwise.
 predToReal :: IsExprBuilder sym => sym -> Pred sym -> IO (SymReal sym)
-predToReal sym v = do
+predToReal sym p = do
   r1 <- realLit sym 1
-  realIte sym v r1 (realZero sym)
+  realIte sym p r1 (realZero sym)
 
 -- | Extract the value of a rational expression; fail if the
 --   value is not a constant.
