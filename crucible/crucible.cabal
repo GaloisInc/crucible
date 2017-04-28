@@ -28,6 +28,7 @@ flag unsafe-operations
 library
   build-depends:
     base >= 4.8 && < 4.10,
+    th-abstraction >=0.1 && <0.2,
     ansi-wl-pprint,
     attoparsec,
     bimap >= 0.2,
