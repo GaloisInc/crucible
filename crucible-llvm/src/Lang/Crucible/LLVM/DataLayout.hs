@@ -2,7 +2,7 @@
 -- |
 -- Module           : Lang.Crucible.LLVM.DataLayout
 -- Description      : Basic datatypes for describing memory layout and alignment
--- Copyright        : (c) Galois, Inc 2011-2013
+-- Copyright        : (c) Galois, Inc 2011-2016
 -- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
@@ -42,11 +42,6 @@ import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
 import Data.Word (Word32, Word64)
 import qualified Text.LLVM as L
-
-#if !MIN_VERSION_base(4,8,0)
-import Control.Applicative ((<$>))
-import Data.Monoid (Monoid(..))
-#endif
 
 import Lang.MATLAB.Utils.Nat
 import Lang.Crucible.Utils.Arithmetic

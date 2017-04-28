@@ -1,3 +1,4 @@
+------------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.LLVM.MemModel.Generic
 -- Description      : Core definitions of the symbolic C memory model
@@ -137,24 +138,24 @@ tgApplyValueF tg (Add x y) = tgAddPtr tg x y
 tgApplyValueF tg (Sub x y) = tgSubPtr tg x y
 tgApplyValueF tg (CValue c) = tgConstPtr tg (fromInteger c)
 
-badLoad :: (Applicative m, Monad m) => TermGenerator m p c t -> Type -> m (c,t)
+badLoad :: Monad m => TermGenerator m p c t -> Type -> m (c,t)
 badLoad tg tp = (tgFalse tg,) <$> tgUndefValue tg tp
 
-genValue :: (Applicative m, Monad m) => TermGenerator m p c t -> (v -> p) -> Value v -> m p
+genValue :: Monad m => TermGenerator m p c t -> (v -> p) -> Value v -> m p
 genValue tg f = foldTermM (return . f) (tgApplyValueF tg)
 
-genCondVar :: (Applicative m, Monad m) => TermGenerator m p c t -> (v -> p) -> Cond v -> m c
+genCondVar :: Monad m => TermGenerator m p c t -> (v -> p) -> Cond v -> m c
 genCondVar tg f c =
   case c of
     Eq x y  -> join $ tgPtrEq tg <$> genValue tg f x <*> genValue tg f y
     Le x y  -> join $ tgPtrLe tg <$> genValue tg f x <*> genValue tg f y
     And x y -> join $ tgAnd tg <$> genCondVar tg f x <*> genCondVar tg f y
 
-genValueCtor :: (Applicative m, Monad m)
+genValueCtor :: Monad m
              => TermGenerator m p c t -> ValueCtor t -> m t
 genValueCtor tg = foldTermM return (tgApplyCtorF tg)
 
-applyView :: (Applicative m, Monad m)
+applyView :: Monad m
           => TermGenerator m p c t -> t -> ValueView Type -> m t
 applyView tg t = foldTermM (\_ -> return t) (tgApplyViewF tg)
 
@@ -177,7 +178,7 @@ tgMuxPair tg c tp (xc,xt) (yc,yt) =
   (,) <$> tgMuxCond tg c xc yc
       <*> tgMuxTerm tg c tp xt yt
 
-evalValueCtor :: (Applicative m, Monad m )
+evalValueCtor :: Monad m
               => TermGenerator m p c t
               -> ValueCtor (c,t)
               -> m (c,t)
@@ -186,7 +187,7 @@ evalValueCtor tg vc =
        <*> genValueCtor tg (snd <$> vc)
 
 evalMuxValueCtor :: forall m u p c t .
-                    (Applicative m, Monad m)
+                    Monad m
                  => TermGenerator m p c t
                     -- Type for value returned
                  -> Type
@@ -203,7 +204,7 @@ evalMuxValueCtor tg tp vf subFn t =
     =<< muxLeaf (traverse subFn) t
 
 readMemCopy :: forall m p c t .
-               (Applicative m, MonadIO m, Eq p)
+               (MonadIO m, Eq p)
             => TermGenerator m p c t
             -> (p, AddrDecomposeResult p)
             -> Type
@@ -256,7 +257,7 @@ readMemCopy tg (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
       evalMuxValueCtor tg tp varFn subFn mux0
 
 readMemStore :: forall m p c t .
-               (Applicative m, MonadIO m, Eq p)
+               (MonadIO m, Eq p)
             => TermGenerator m p c t
             -> (p,AddrDecomposeResult p)
                -- ^ The loaded address and information
@@ -308,7 +309,7 @@ readMemStore tg (l,ld) ltp (d,dd) t stp readPrev' = do
       evalMuxValueCtor tg ltp varFn subFn $
         symbolicValueLoad pref ltp (Var stp)
 
-readMem :: (Applicative m, MonadIO m, Eq p, Ord p)
+readMem :: (MonadIO m, Ord p)
         => TermGenerator m p c t
         -> p
         -> Type
@@ -322,7 +323,7 @@ readMem tg l tp m = do
 --
 -- This represents a predicate indicating if the read was successful, and the value
 -- read (which may be anything if read was unsuccessful).
-readMem' :: (Applicative m, MonadIO m, Ord p)
+readMem' :: (MonadIO m, Ord p)
          => TermGenerator m p c t
             -- ^ Functions for primitive operations on addresses, propositions, and values.
          -> (p, AddrDecomposeResult p)
@@ -414,7 +415,7 @@ emptyMem :: Mem p c t
 emptyMem = Mem { _memState = EmptyMem emptyChanges
                }
 
-isAllocated' :: (Applicative m, Monad m)
+isAllocated' :: Monad m
              => TermGenerator m p c t
                 -- ^ Evaluation function that takes continuation
                 -- for condition if previous check fails.
@@ -433,7 +434,7 @@ isAllocated' tg step (AllocMerge c xr yr:r) =
 -- | @offsetisAllocated tg b o sz m@ returns condition required to prove range
 -- @[b+o..b+o+sz)@ lays within a single allocation in @m@.  This code assumes
 -- @sz@ is non-zero, and @b+o@ does not overflow.
-offsetIsAllocated :: (Applicative m, Monad m, Eq p)
+offsetIsAllocated :: (Monad m, Eq p)
                   => TermGenerator m p c t -> p -> p -> p -> Mem p c t -> m c
 offsetIsAllocated tg t o sz m = do
   (oc, oe) <- tgCheckedAddPtr tg o sz
@@ -443,7 +444,7 @@ offsetIsAllocated tg t o sz m = do
         | otherwise = fallback
   tgAnd tg oc =<< isAllocated' tg step (memAllocs m)
 
-isAllocated :: (Applicative m, Monad m, Eq p)
+isAllocated :: (Monad m, Eq p)
             => TermGenerator m p c t -> p -> p -> Mem p c t -> m c
 isAllocated tg p sz m = do
   ld <- tgPtrDecompose tg p
@@ -471,7 +472,7 @@ isAllocated tg p sz m = do
 --   allocation range of the allocation (loading through it will fail) it is
 --   nonetheless a valid pointer value.  This strange special case is baked into
 --   the C standard to allow certain common coding patterns to be defined.
-isValidPointer :: (Applicative m, Monad m, Eq p)
+isValidPointer :: (Monad m, Eq p)
         => TermGenerator m p c t -> p -> Mem p c t -> m c
 isValidPointer tg p m = do
    sz <- tgConstPtr tg 0
@@ -479,7 +480,7 @@ isValidPointer tg p m = do
  -- NB We call isAllocated with a size of 0.  This is a violation of the usual rules, but gives
  -- precicely what we need for the valid pointer check.
 
-writeMem :: (Applicative m, Monad m, Eq p)
+writeMem :: (Monad m, Eq p)
          => TermGenerator m p c t
          -> p
          -> Type
@@ -492,7 +493,7 @@ writeMem tg p tp v m = do
       <*> writeMem' tg p tp v m
 
 -- | Write memory without checking if it is allocated.
-writeMem' :: (Applicative m, Monad m, Eq p)
+writeMem' :: Monad m
           => TermGenerator m p c t
           -> p
           -> Type
@@ -503,7 +504,7 @@ writeMem' tg p tp v m = addWrite <$> tgPtrDecompose tg p
   where addWrite pd = m & memAddWrite (MemStore (p,pd) v tp)
 
 -- | Perform a mem copy.
-copyMem :: (Applicative m, Monad m, Eq p)
+copyMem :: (Monad m, Eq p)
          => TermGenerator m p c t
          -> p -- ^ Dest
          -> p -- ^ Source
@@ -527,7 +528,7 @@ allocMem :: AllocType -- ^ Type of allocation
 allocMem a b sz = memAddAlloc (Alloc a b sz)
 
 -- | Allocate space for memory
-allocAndWriteMem :: (Applicative m, Monad m, Eq p)
+allocAndWriteMem :: Monad m
                  => TermGenerator m p c t
                  -> AllocType -- ^ Type of allocation
                  -> p -- ^ Base for allocation
@@ -566,7 +567,7 @@ popStackFrameMem m = m & memState %~ popf
         pa (AllocMerge c x y) = Just (AllocMerge c (mapMaybe pa x) (mapMaybe pa y))
 
 freeMem :: forall m p c t
-         . (Applicative m, Monad m, Eq p)
+         . (Monad m, Eq p)
         => TermGenerator m p c t
         -> p -- ^ Base of allocation to free
         -> Mem p c t
@@ -579,7 +580,7 @@ freeMem tg p m = do
 -- will traverse almost the entire memory on every free, even
 -- if we concretely find the corresponding allocation early.
 freeMem' :: forall m p c t
-         . (Applicative m, Monad m, Eq p)
+         . (Monad m, Eq p)
         => TermGenerator m p c t
         -> p
         -> AddrDecomposeResult p -- ^ Base of allocation to free

@@ -1,13 +1,14 @@
 Name:          crucible-llvm
 Version:       0.1
 Author:        Galois Inc.
+Copyright:     (c) Galois, Inc 2014-2016
 Maintainer:    rdockins@galois.com
 License:       BSD3
 License-file:  LICENSE
 Build-type:    Simple
 Cabal-version: >= 1.9.2
 Category:      Language
-Synopsis:      LLVM support for crucible
+Synopsis:      Support for translating and executing LLVM code in Crucible
 
 library
   build-depends:
