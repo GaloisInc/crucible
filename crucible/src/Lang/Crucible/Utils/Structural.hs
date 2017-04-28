@@ -15,9 +15,9 @@ module Lang.Crucible.Utils.Structural
   ( structuralPretty
   ) where
 
-import Control.Monad
 import Data.Char (toLower)
 import Language.Haskell.TH
+import Language.Haskell.TH.Datatype
 import Text.PrettyPrint.ANSI.Leijen (brackets, text)
 
 import Data.Parameterized.TH.GADT
@@ -39,16 +39,16 @@ structuralPretty tpq pats0 = do
 
   let pats = assocTypePats (dataParamTypes d) pats0
   lamE [varP pp, varP a] $
-      caseE (varE a) (matchPretty pats (varE pp) <$> dataCtors d)
+      caseE (varE a) (matchPretty pats (varE pp) <$> datatypeCons d)
 
 matchPretty :: (Type -> Q (Maybe ExpQ))  -- ^ Pattern match functions
             -> ExpQ
-            -> NormalizedCon
+            -> ConstructorInfo
             -> MatchQ
-matchPretty matchPat pp (NC nm tps) = do
-  let n = length tps
-  nms <- replicateM n (newName "x")
-  let pat = conP nm (varP <$> nms)
+matchPretty matchPat pp con = do
+  let nm  = constructorName con
+      tps = constructorFields con
+  (pat,nms) <- conPat con "x"
   let vars = varE <$> nms
   let nm' = case nameBase nm of
               c:r -> toLower c : r
@@ -69,4 +69,4 @@ matchPretty matchPat pp (NC nm tps) = do
       mkPP v _ = [| text (show $(v)) |]
       --mkPP _ tp = error $ "Unsupported type " ++ show tp ++ " with " ++ nameBase nm
   let rhs = [| ppFn $(litE (stringL nm')) $(listE (zipWith mkPP0 vars tps)) |]
-  match pat (normalB rhs) []
+  match (pure pat) (normalB rhs) []
