@@ -52,6 +52,7 @@ import           Lang.Crucible.Simulator.ExecutionTree
          , ReturnType
          )
 import qualified Lang.Crucible.Simulator.ExecutionTree as Exec
+import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.MSSim
 import           Lang.Crucible.Simulator.MatlabValue
 import           Lang.Crucible.Simulator.RegMap

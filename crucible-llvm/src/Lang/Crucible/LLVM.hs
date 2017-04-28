@@ -22,6 +22,7 @@ import           Lang.Crucible.Core
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.MemModel
+import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.MSSim
 
 

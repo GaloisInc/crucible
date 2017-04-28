@@ -63,6 +63,7 @@ import           Lang.Crucible.Simulator.CallFns
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import qualified Lang.Crucible.Simulator.Evaluation as Sim
 import           Lang.Crucible.Simulator.ExecutionTree
+import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.MSSim
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Solver.Interface
