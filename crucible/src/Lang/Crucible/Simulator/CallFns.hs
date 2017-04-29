@@ -19,11 +19,13 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 module Lang.Crucible.Simulator.CallFns
-  ( callCFG
-  , callFnVal
-  , CrucibleState
+  ( CrucibleState
   , loopCrucible
   , returnToOverride
+  , SomeSimFrame(..)
+  , resolveCallFrame
+  , callCFG
+  , callFnVal
   ) where
 
 import           Control.Exception

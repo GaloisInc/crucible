@@ -1,3 +1,13 @@
+------------------------------------------------------------------------
+-- |
+-- Module      : Lang.Crucible.Solver.SimpleBackend.ProblemFeatures
+-- Description : Descriptions of the "features" that can occur in queries
+-- Copyright   : (c) Galois, Inc 2016
+-- License     : BSD3
+-- Maintainer  : Joe Hendrix <jhendrix@galois.com>
+-- Stability   : provisional
+------------------------------------------------------------------------
+
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Lang.Crucible.Solver.SimpleBackend.ProblemFeatures
   ( ProblemFeatures

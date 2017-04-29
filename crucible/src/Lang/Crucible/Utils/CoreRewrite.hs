@@ -42,7 +42,7 @@ import           Lang.Crucible.Core
 -- return a possible annotaition statement (which has access to the
 -- result of the statement, if any) along with a context diff which
 -- describes any new variables.
-annotateCFGStmts :: 
+annotateCFGStmts ::
    (forall cin cout. Some (BlockID blocks) -> Ctx.Size cout -> Stmt cin cout -> Maybe (StmtSeq blocks UnitType cout))
   -- ^ This is the annotation function.  The resulting @StmtSeq@ gets
   -- spliced in after the statement so that they can inspect the
@@ -81,7 +81,7 @@ annotateBlockStmts fS fT b = b & blockStmts %~ goStmts initialCtxe
             Nothing  -> ConsStmt loc stmt' (goStmts ctxe' rest)
             Just annotSeq ->
               ConsStmt loc stmt' (appendStmtSeq ctxe' annotSeq (flip goStmts rest))
-    goStmts ctxe (TermStmt loc term) = 
+    goStmts ctxe (TermStmt loc term) =
       let term' = Ctx.applyEmbedding ctxe term in
       case fT (Some $ blockID b) (ctxe ^. Ctx.ctxeSize) term' of
         Nothing -> TermStmt loc term'
@@ -93,16 +93,16 @@ annotateBlockStmts fS fT b = b & blockStmts %~ goStmts initialCtxe
 
 stmtDiff :: Stmt ctx ctx' -> Ctx.Diff ctx ctx'
 stmtDiff stmt =
-  case stmt of 
+  case stmt of
     SetReg {}       -> Ctx.knownDiff
     CallHandle {}   -> Ctx.knownDiff
-    Print {}        -> Ctx.knownDiff 
-    ReadGlobal {}   -> Ctx.knownDiff 
+    Print {}        -> Ctx.knownDiff
+    ReadGlobal {}   -> Ctx.knownDiff
     WriteGlobal {}  -> Ctx.knownDiff
     NewRefCell {}   -> Ctx.knownDiff
     ReadRefCell {}  -> Ctx.knownDiff
     WriteRefCell {} -> Ctx.knownDiff
-    Assert {}       -> Ctx.knownDiff 
+    Assert {}       -> Ctx.knownDiff
 
 -- | This appends two @StmtSeq@, throwing away the @TermStmt@ from the first @StmtSeq@
 -- It could probably be generalized to @Ctx.Diff@ instead of an embedding.

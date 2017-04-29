@@ -37,15 +37,14 @@ import qualified Data.Foldable as Fold
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
-import           Data.Sequence (Seq)
-import           Data.Set (Set)
-import qualified Data.Set as Set
-import           Data.Type.Equality
-
 import           Data.Parameterized.Context as Ctx hiding ((++))
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableF
 import           Data.Parameterized.TraversableFC
+import           Data.Sequence (Seq)
+import           Data.Set (Set)
+import qualified Data.Set as Set
+import           Data.Type.Equality
 
 import           Lang.Crucible.Analysis.Reachable
 import           Lang.Crucible.Core (MSwitch(..))
@@ -61,11 +60,6 @@ import           Data.Parameterized.Map (MapF)
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Map as MapF
 import           Unsafe.Coerce
-#endif
-
-#if !MIN_VERSION_base(4,8,0)
-import           Control.Applicative
-import           Data.Traversable (traverse)
 #endif
 
 ------------------------------------------------------------------------

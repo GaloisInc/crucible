@@ -26,6 +26,9 @@ value '1' if 'p' is true, the value '2' if 'q & not p' is true, and '3' if
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
+#if MIN_VERSION_base(4,9,0)
+{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
+#endif
 module Lang.Crucible.Utils.UnaryBV
   ( UnaryBV
   , width

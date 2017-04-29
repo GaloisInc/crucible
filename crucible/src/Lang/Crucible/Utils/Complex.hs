@@ -42,12 +42,6 @@ import GHC.Generics (Generic)
 
 import Data.Parameterized.Classes
 
-#if !MIN_VERSION_base(4,8,0)
-import Control.Applicative
-import Data.Foldable (Foldable)
-import Data.Traversable (Traversable(..))
-#endif
-
 -- | A complex pair over an arbitrary type.
 data Complex a = !a :+ !a
   deriving (Eq, Ord, Foldable, Functor, Generic)

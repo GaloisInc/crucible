@@ -1,14 +1,20 @@
 -----------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.Simulator.Intrinsics
--- Description      : Class and type definitions for intrinsic types
--- Copyright        : (c) Galois, Inc 2016
+-- Description      : Basic definitions for defining intrinsic types
+-- Copyright        : (c) Galois, Inc 2015-2016
 -- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
 --
-------------------------------------------------------------------------
-
+-- 'Intrinsic' types can be used to extend the basic set of types available
+-- to the Crucible simulator.  A new intrinsic type is defined by
+-- implementing an `IntrinsicClass` instance, which binds a type-level name
+-- to a particular impelementation.  To use an intrinsic type, one must
+-- register the associated `IntrinsicMuxFn` value with the simulator
+-- prior to starting it.  This is done by building an `IntrinsicMuxFns`
+-- map to be passed to the `initSimContext` function.
+-----------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}

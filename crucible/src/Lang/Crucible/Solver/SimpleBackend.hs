@@ -1,15 +1,16 @@
------------------------------------------------------------------------
--- |
--- Module           : Lang.Crucible.Solver.SimpleBackend
--- Description      : The default backend, which only connects to
---                    solvers in response to specific calls.
--- Copyright        : (c) Galois, Inc 2015-2016
--- License          : BSD3
--- Maintainer       : Rob Dockins <rdockins@galois.com>
--- Stability        : provisional
---
 ------------------------------------------------------------------------
-
+-- |
+-- Module      : Lang.Crucible.Solver.SimpleBackend
+-- Description : The "simple" solver backend
+-- Copyright   : (c) Galois, Inc 2015-2016
+-- License     : BSD3
+-- Maintainer  : Rob Dockins <rdockins@galois.com>
+-- Stability   : provisional
+--
+-- An "offline" backend for communicating with solvers.  This backend
+-- does not maintain a persistent connection to a solver, and does
+-- not perform satisfiability checks at symbolic branch points.
+------------------------------------------------------------------------
 
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE TypeSynonymInstances #-}

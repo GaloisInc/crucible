@@ -25,10 +25,6 @@ import Control.Exception (assert)
 import Data.Bits (Bits(..))
 import Data.Ratio
 
-#if !MIN_VERSION_base(4,8,0)
-import Control.Applicative
-#endif
-
 -- | Returns true if number is a power of two.
 isPow2 :: (Bits a, Num a) => a -> Bool
 isPow2 x = x .&. (x-1) == 0

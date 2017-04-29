@@ -21,10 +21,6 @@ import Control.Monad.IO.Class
 import Control.Monad.Reader
 import System.IO
 
-#if !MIN_VERSION_base(4,8,0)
-import Control.Applicative
-#endif
-
 -- | This class applies to monads that contain verbosity information,
 --   which is used to control the level of debugging messages
 --   presented to the user.

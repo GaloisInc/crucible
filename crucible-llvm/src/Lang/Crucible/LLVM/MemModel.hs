@@ -1,3 +1,4 @@
+------------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.LLVM.MemModel
 -- Description      : Core definitions of the symbolic C memory model

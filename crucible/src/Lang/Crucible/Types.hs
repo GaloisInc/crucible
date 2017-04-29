@@ -78,6 +78,7 @@ module Lang.Crucible.Types
 
   , StringMapType
   , SymbolicArrayType
+
     -- * FloatInfo data kind
   , FloatInfo(..)
   , FloatInfoRepr(..)
@@ -164,6 +165,9 @@ data IntWidth where
 instance Eq IntWidth where
   IntWidth x == IntWidth y = isJust (testEquality x y)
 
+instance Show IntWidth where
+  show (IntWidth x) = show x
+
 ------------------------------------------------------------------------
 -- UIntWidth
 
@@ -173,6 +177,9 @@ data UIntWidth where
 
 instance Eq UIntWidth where
   UIntWidth x == UIntWidth y = isJust (testEquality x y)
+
+instance Show UIntWidth where
+  show (UIntWidth x) = show x
 
 -------------------------------------------------------------------------
 -- Concrete types
@@ -481,7 +488,7 @@ type SymCplxArrayType    = SymbolicMultiDimArrayType BaseComplexType
 type MatlabValueType       = IntrinsicType "MatlabValue"
 type MatlabStructType      = IntrinsicType "MatlabStruct"
 type MatlabObjectType      = IntrinsicType "MatlabObject"
---
+
 -- The runtime type of MatlabObjectArray and MatlabStructArray
 -- has two fields, one is the list of the fields of the struct
 -- and the other is the multidimarraytype. That way the runtime

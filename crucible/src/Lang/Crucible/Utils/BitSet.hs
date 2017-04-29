@@ -3,12 +3,14 @@
 -- Module           : Lang.Crucible.Utils.BitSet
 -- Description      : Encode a set of enumerable elements using the bit-positions
 --                    in an Integer
--- Copyright        : (c) Galois, Inc 2015
+-- Copyright        : (c) Galois, Inc 2015-2016
 -- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
+--
+-- This module provides a simple bitset datastructure
+-- built on top of GHC-native Integers.
 ------------------------------------------------------------------------
-
 module Lang.Crucible.Utils.BitSet
 ( BitSet
 , getBits

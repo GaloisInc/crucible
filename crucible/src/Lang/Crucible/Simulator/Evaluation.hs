@@ -1,13 +1,13 @@
 ------------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.Simulator.Evaluation
--- Description      : Provides functionality for simulating matlab instructions.
--- Copyright        : (c) Galois, Inc 2014
+-- Description      : Evaluation functions for Crucible core expressions
+-- Copyright        : (c) Galois, Inc 2014-2016
 -- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
 --
--- This module provides operations evaluating MATLAB expressions.
+-- This module provides operations evaluating Crucible expressions.
 ------------------------------------------------------------------------
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE GADTs #-}
@@ -1641,6 +1641,6 @@ evalApp sym itefns logFn evalSub a0 = do
     ---------------------------------------------------------------------
     -- Introspection
 
-    IsConcrete b v -> do
-      x <- baseIsConcrete sym b =<< evalSub v
+    IsConcrete _ v -> do
+      x <- baseIsConcrete sym =<< evalSub v
       return $! if x then truePred sym else falsePred sym

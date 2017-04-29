@@ -46,11 +46,6 @@ import Control.Applicative hiding (empty)
 import Prelude hiding (lookup, null)
 import Data.Traversable (foldMapDefault)
 
-#if !MIN_VERSION_base(4,8,0)
-import Data.Foldable (Foldable(..))
-import Data.Traversable (Traversable(..))
-#endif
-
 data MaybeS a = NothingS | JustS !a
 
 type Size = Int

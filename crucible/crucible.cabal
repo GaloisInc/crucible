@@ -1,7 +1,8 @@
 Name:          crucible
 Version:       0.2
 Author:        Galois Inc.
-Maintainer:    jhendrix@galois.com
+Maintainer:    jhendrix@galois.com, rdockins@galois.com
+Copyright:     (c) Galois, Inc 2014-2017
 License:       BSD3
 License-file:  LICENSE
 Build-type:    Simple
@@ -14,6 +15,7 @@ Description:
   programs expressed in this format.  It also provides support for communicating with
   a variety of SAT and SMT solvers; including Z3, CVC4, Yices, STP, and dReal.
 
+
 -- Many (but not all, sadly) uses of unsafe operations are
 -- controlled by this compile flag.  When this flag is set
 -- to False, alternate implementations are used to avoid
@@ -25,7 +27,8 @@ flag unsafe-operations
 
 library
   build-depends:
-    base >= 4.7 && < 4.10,
+    base >= 4.8 && < 4.10,
+    th-abstraction >=0.1 && <0.2,
     ansi-wl-pprint,
     attoparsec,
     bimap >= 0.2,

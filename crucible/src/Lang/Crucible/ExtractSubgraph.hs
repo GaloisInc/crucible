@@ -16,16 +16,16 @@
 {-# LANGUAGE TypeOperators #-}
 module Lang.Crucible.ExtractSubgraph where
 
-import Control.Lens
-import Lang.Crucible.Core
-import Lang.Crucible.FunctionHandle
-import Lang.Crucible.FunctionName
-import Lang.Crucible.ProgramLoc
-import Control.Monad.ST
-import Data.Parameterized.Context as Ctx hiding ((++))
-import Data.Parameterized.Map as MapF
-import Data.Set as S
-import Debug.Trace
+import           Control.Lens
+import           Control.Monad.ST
+import           Data.Parameterized.Context as Ctx hiding ((++))
+import           Data.Parameterized.Map as MapF
+import           Data.Set as S
+import           Debug.Trace
+import           Lang.Crucible.Core
+import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.FunctionName
+import           Lang.Crucible.ProgramLoc
 
 -- given a CFG cfg, a set of blocks cuts that take the return type as their sole
 -- argument, and a block bi that takes the CFG's init type as its sole argument,

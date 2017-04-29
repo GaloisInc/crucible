@@ -24,7 +24,6 @@ module Lang.Crucible.Utils.Hashable
   , mapDelete
   , mapMinView
   , mergeMapWithM
---  , fmapHashedMap
   , traverseHashedMap
   ) where
 
@@ -100,7 +99,13 @@ mkMap m = HashedMap
           , hmMap  = m
           }
 
-computeMapHash :: (HashableF k, HashableF vf) => Map.Map (Ctx.Assignment k i) (vf vi) -> Int
+-- | This compute the hash of a map.  It is the exclusive or of the key/values pairs.
+--
+-- This allows one to update the bindings without rehashing the entire map.
+computeMapHash :: ( HashableF k
+                  , HashableF vf
+                  )
+               => Map.Map (Ctx.Assignment k i) (vf vi) -> Int
 computeMapHash =
    Map.foldlWithKey' (\s k v -> s `xor` hashWithSaltF (hashF k) v) 0
 
@@ -116,6 +121,7 @@ instance Hashable (Map k i vf vi) where
   hashWithSalt s m = hashWithSalt s (hmHash m)
   {-# INLINE hashWithSalt #-}
 
+-- | Create an empty map.
 mapEmpty :: Map k i a vi
 mapEmpty =
   HashedMap
@@ -162,6 +168,7 @@ mapFilter :: (HashableF k, HashableF a)
           -> Map k i a vi
 mapFilter p m = mkMap $ Map.filter p (hmMap m)
 
+-- | Return true if map is empty.
 mapNull :: Map k i a vi -> Bool
 mapNull m = Map.null (hmMap m)
 
@@ -190,4 +197,3 @@ mergeMapWithM b l r x y = do
                            (Map.mapWithKey r)
                            (hmMap x)
                            (hmMap y))
-

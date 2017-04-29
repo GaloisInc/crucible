@@ -70,15 +70,19 @@ instance Show SomeHandle where
 ------------------------------------------------------------------------
 -- CallFrame
 
--- | Call frame for simulator.
+-- | A call frame for a crucible block.
 data CallFrame sym blocks ret args
-   = CallFrame { frameHandle :: SomeHandle
-               , frameBlockMap :: !(BlockMap blocks ret)
+   = CallFrame { frameHandle     :: SomeHandle
+                 -- ^ Handle to control flow graph for the current frame.
+               , frameBlockMap   :: !(BlockMap blocks ret)
+                 -- ^ Block map for current control flow graph.
                , framePostdomMap :: !(CFGPostdom blocks)
+                 -- ^ Post-dominator map for control flow graph associated with this
+                 -- function.
                , frameReturnType :: !(TypeRepr ret)
-               , frameRegs     :: !(RegMap sym args)
-               , _frameStmts   :: !(StmtSeq blocks ret args)
-               , _framePostdom :: !(Maybe (Some (BlockID blocks)))
+               , frameRegs       :: !(RegMap sym args)
+               , _frameStmts     :: !(StmtSeq blocks ret args)
+               , _framePostdom   :: !(Maybe (Some (BlockID blocks)))
                }
 
 -- | List of statements to execute next.

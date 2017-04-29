@@ -31,7 +31,7 @@
 --
 --  * Immediate (i.e., not in memory) structs and packed structs are translated the same.
 --  * Undefined values generate special Crucible expressions (e.g., BVUndef) to
---     represent arbitrary bitpatterns
+--     represent arbitrary bitpatterns.
 --  * All floating point operations are abstracted into operations on the real numbers.
 --     Thus, answers returned by solvers might not be bit-exact, and might not even be expressible
 --     in the original floating-point representation.  Moreover, trying to directly

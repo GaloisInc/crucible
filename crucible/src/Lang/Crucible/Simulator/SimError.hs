@@ -6,9 +6,6 @@
 -- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
---
--- Execution trees record the state of the simulator as it explores
--- exeuction paths through a program.
 ------------------------------------------------------------------------
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE CPP #-}
@@ -35,10 +32,6 @@ import Data.Typeable
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import Lang.Crucible.ProgramLoc
-
-#if !MIN_VERSION_base(4,8,0)
-import Control.Applicative
-#endif
 
 ------------------------------------------------------------------------
 -- SimError
