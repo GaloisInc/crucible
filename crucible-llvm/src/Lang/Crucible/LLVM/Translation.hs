@@ -1449,6 +1449,7 @@ generateInstr retType lab instr assign_f k =
      -- which it can unpack from the ANY values when it knows those types.
      | varargs -> do
            fnTy' <- liftMemType fnTy
+           retTy' <- liftRetType lretTy
            fn' <- transValue fnTy' fn
            args' <- mapM transTypedValue args
            let ?err = fail
@@ -1456,15 +1457,18 @@ generateInstr retType lab instr assign_f k =
            varArgs' <- unpackVarArgs varArgs
            unpackArgs mainArgs $ \argTypes mainArgs' ->
              case asScalar fn' of
-                Scalar (FunctionHandleRepr argTypes' fnRetType) fn'' ->
-                  case testEquality (argTypes Ctx.%> varArgsRepr) argTypes' of
-                    Nothing -> fail $ unlines ["argument type mismatch in call to varargs function"
-                                              , show fn, show args, show fnTy
-                                              , show argTypes, show argTypes']
-                    Just Refl -> do
-                      ret <- call fn'' (mainArgs' Ctx.%> varArgs')
-                      assign_f (BaseExpr fnRetType ret)
-                      k
+                Scalar LLVMPointerRepr ptr ->
+                  do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
+                     memLoadHandle <- litExpr . llvmMemLoadHandle . memModelOps . llvmContext <$> get
+                     mem <- readGlobal memVar
+                     v <- call memLoadHandle (Ctx.empty Ctx.%> mem Ctx.%> ptr)
+                     llvmRetTypeAsRepr retTy' $ \retTy ->
+                       do let expectTy = FunctionHandleRepr (argTypes Ctx.%> varArgsRepr) retTy
+                          let msg = litExpr (Text.pack ("Expected function of type " ++ show expectTy))
+                          let v' = app $ C.FromJustValue expectTy (app $ C.UnpackAny expectTy v) msg
+                          ret <- call v' (mainArgs' Ctx.%> varArgs')
+                          assign_f (BaseExpr retTy ret)
+                          k
                 _ -> fail $ unwords ["unsupported function value", show fn]
 
      -- Ordinary (non varargs) function call
