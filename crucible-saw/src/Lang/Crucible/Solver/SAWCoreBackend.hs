@@ -198,8 +198,8 @@ evaluateElt sym sc cache = f
 
    go :: SB.Elt n tp' -> IO (SAWElt tp')
    go (SB.NatElt n _)  = SAWElt <$> SC.scNat sc (fromIntegral n)
-   go (SB.IntElt _ _)  = fail "FIXME integer literals not supported"
-   go (SB.RatElt _ _)  = fail "FIXME rational literals not supported"
+   go (SB.IntElt i _)  = SAWElt <$> scIntLit sc i
+   go (SB.RatElt r _)  = scRealLit sc r
    go (SB.BVElt w i _) = SAWElt <$> SC.scBvConst sc (fromIntegral (natValue w)) i
 
    go (SB.BoundVarElt bv) =
