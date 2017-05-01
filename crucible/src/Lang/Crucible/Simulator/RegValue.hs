@@ -271,15 +271,16 @@ instance (IsBoolExprBuilder sym, CanMux sym tp) => CanMux sym (MaybeType tp) whe
 -- RegValue MultDimArray instance
 
 {-# INLINE mdaMuxFn #-}
-mdaMuxFn :: MuxFn p v -> MuxFn p (MultiDimArray v)
-mdaMuxFn f p x y | MDA.dim x == MDA.dim y = MDA.zipWithM (f p) x y
-                 | otherwise = fail "Cannot merge arrays with different dimensions."
+mdaMuxFn :: IsPred p => MuxFn p v -> MuxFn p (MultiDimArray v)
+mdaMuxFn f p x y
+  | Just b <- asConstantPred p = pure $! if b then x else y
+  | MDA.dim x == MDA.dim y = MDA.zipWithM (f p) x y
+  | otherwise = fail "Cannot merge arrays with different dimensions."
 
-instance CanMux sym tp => CanMux sym (MultiDimArrayType tp) where
+instance (IsExprBuilder sym, CanMux sym tp)
+      => CanMux sym (MultiDimArrayType tp) where
   {-# INLINE muxReg #-}
-  muxReg s = \_ -> do
-    let f = muxReg s (Proxy :: Proxy tp)
-     in mdaMuxFn f
+  muxReg s = \_ -> mdaMuxFn (muxReg s (Proxy :: Proxy tp))
 
 data SomeSymbolicBVArray f where
   SomeSymbolicBVArray :: (1 <= w)
@@ -305,12 +306,15 @@ instance IsExprBuilder sym => CanMux sym MatlabSymbolicUIntArrayType where
 
 -- TODO: Figure out how to actually compare these.
 {-# INLINE muxHandle #-}
-muxHandle :: sym
+muxHandle :: IsPred (Pred sym)
+          => sym
           -> Pred sym
           -> FnVal sym a r
           -> FnVal sym a r
           -> IO (FnVal sym a r)
-muxHandle _ = \_ x _ -> return x
+muxHandle _ c x y
+  | Just b <- asConstantPred c = pure $! if b then x else y
+  | otherwise = return x
 
 
 instance IsExprBuilder sym => CanMux sym (FunctionHandleType a r) where

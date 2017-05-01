@@ -31,6 +31,7 @@ module Lang.Crucible.Simulator.RegMap
   , regVal'
   , assignReg
   , muxRegForType
+  , muxReference
   , pushBranchForType
   , abortBranchForType
   , pushBranchRegs
@@ -57,7 +58,7 @@ import qualified Lang.Crucible.Utils.SymMultiDimArray as SMDA
 -- RegMap
 
 -- | The value of a register.
-data RegEntry sym tp = RegEntry { regType :: (TypeRepr tp)
+data RegEntry sym tp = RegEntry { regType :: !(TypeRepr tp)
                                 , regValue :: !(RegValue sym tp)
                                 }
 
@@ -89,7 +90,6 @@ regVal' :: RegMap sym ctx
        -> Reg ctx tp
        -> RegEntry sym tp
 regVal' (RegMap a) r = a Ctx.! regIndex r
-
 
 muxConcrete :: (Eq a, Show a) => sym -> ValMuxFn sym (ConcreteType a)
 muxConcrete _ _ x y
@@ -214,7 +214,7 @@ muxRegForType s itefns p =
 
 -- | Mux two register entries.
 {-# INLINE muxRegEntry #-}
-muxRegEntry :: (IsExprBuilder sym)
+muxRegEntry :: IsExprBuilder sym
              => sym
              -> IntrinsicTypes sym
              -> MuxFn (Pred sym) (RegEntry sym tp)

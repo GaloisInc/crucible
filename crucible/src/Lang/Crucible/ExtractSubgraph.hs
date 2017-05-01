@@ -152,8 +152,8 @@ visitChildNode orig cuts bi (SubgraphIntermediate sgMap initMap sz ident cb) f=
         | Just Refl <- testEquality (blockInputs $ orig Ctx.! blockIDIndex bi) (blockInputs $ orig Ctx.! blockIDIndex cut)
         , S.member bi cuts ->
             f $ SubgraphIntermediate
-              (MapF.insert bi (BlockID $ nextIndex sz) (MapF.map (extendBlockID :: BlockID soFar tp -> BlockID (soFar ::> init) tp) sgMap))
-              (MapF.map (extendBlockID :: BlockID soFar tp -> BlockID (soFar ::> init) tp) initMap)
+              (MapF.insert bi (BlockID $ nextIndex sz) (MapF.map extendBlockID sgMap))
+              (MapF.map extendBlockID initMap)
               (incSize sz)
               (extendBlockID ident)
               (\finalMap finalCutMap assn -> do
@@ -175,13 +175,12 @@ mkRetBlock mapF bm ident =
   case MapF.lookup ident mapF of
     Just id' ->
       let block = bm Ctx.! blockIDIndex ident
-          ctxRep = blockInputs block
-      in Just  $
+      in Just $
            let name = plFunction (blockLoc block)
                term = Return lastReg
-              in Block{ blockID = id'
-                      , blockInputs = ctxRep
-                      , _blockStmts = TermStmt (mkProgramLoc name InternalPos) term
+              in Block{ blockID       = id'
+                      , blockInputs   = blockInputs block
+                      , _blockStmts   = TermStmt (mkProgramLoc name InternalPos) term
                       }
     Nothing -> trace ("could not lookup return block id " ++ show (blockIDIndex ident)) Nothing
 
@@ -190,9 +189,9 @@ cloneBlock :: MapF (BlockID old) (BlockID new)
            -> BlockID new ctx -> Block old ret ctx -> Maybe (Block new ret ctx)
 cloneBlock mapF newID b = do
   stmts' <- cloneStmtSeq mapF (b^.blockStmts)
-  return Block{ blockID = newID
-              , blockInputs = blockInputs b
-              , _blockStmts = stmts'
+  return Block{ blockID       = newID
+              , blockInputs   = blockInputs b
+              , _blockStmts   = stmts'
               }
 
 cloneStmtSeq :: MapF (BlockID old) (BlockID new) -> StmtSeq old ret ctx -> Maybe (StmtSeq new ret ctx)

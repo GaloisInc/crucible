@@ -94,15 +94,15 @@ annotateBlockStmts fS fT b = b & blockStmts %~ goStmts initialCtxe
 stmtDiff :: Stmt ctx ctx' -> Ctx.Diff ctx ctx'
 stmtDiff stmt =
   case stmt of
-    SetReg {}       -> Ctx.knownDiff
-    CallHandle {}   -> Ctx.knownDiff
-    Print {}        -> Ctx.knownDiff
-    ReadGlobal {}   -> Ctx.knownDiff
-    WriteGlobal {}  -> Ctx.knownDiff
-    NewRefCell {}   -> Ctx.knownDiff
-    ReadRefCell {}  -> Ctx.knownDiff
-    WriteRefCell {} -> Ctx.knownDiff
-    Assert {}       -> Ctx.knownDiff
+    SetReg {}        -> Ctx.knownDiff
+    CallHandle {}    -> Ctx.knownDiff
+    Print {}         -> Ctx.knownDiff
+    ReadGlobal {}    -> Ctx.knownDiff
+    WriteGlobal {}   -> Ctx.knownDiff
+    NewRefCell {}    -> Ctx.knownDiff
+    ReadRefCell {}   -> Ctx.knownDiff
+    WriteRefCell {}  -> Ctx.knownDiff
+    Assert {}        -> Ctx.knownDiff
 
 -- | This appends two @StmtSeq@, throwing away the @TermStmt@ from the first @StmtSeq@
 -- It could probably be generalized to @Ctx.Diff@ instead of an embedding.
