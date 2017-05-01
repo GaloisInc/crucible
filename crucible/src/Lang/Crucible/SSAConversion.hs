@@ -73,36 +73,6 @@ nextSetMap l = execState (traverse go l) Map.empty
   where go (x,y) = modify $ Map.insertWith Set.union x (Set.singleton y)
 
 ------------------------------------------------------------------------
--- BlockInput
-
-data BlockInput s blocks ret args
-  = BInput { binputID   :: !(C.BlockID blocks args)
-             -- | Arguments expected by block.
-           , binputTypes :: !(C.CtxRepr args)
-           , binputArguments  :: !(Assignment (Value s) args)
-           , binputStmts :: !(Seq (Posd (Stmt s)))
-           , binputTerm  :: !(Posd (TermStmt s ret))
-           }
-
-
-type BlockInputAssignment s blocks ret
-   = Assignment (BlockInput s blocks ret)
-
-#ifdef UNSAFE_OPS
-extBlockInputAssignment :: BlockInputAssignment s blocks ret a
-                        -> BlockInputAssignment s (blocks::>tp) ret a
-extBlockInputAssignment = Data.Coerce.coerce
-#else
-extBlockInputAssignment :: BlockInputAssignment s blocks ret a
-                        -> BlockInputAssignment s (blocks::>tp) ret a
-extBlockInputAssignment = fmapFC extBlockInput
-
-extBlockInput :: BlockInput s blocks ret args
-              -> BlockInput s (blocks::>tp) ret args
-extBlockInput bi = bi { binputID = C.extendBlockID (binputID bi) }
-#endif
-
-------------------------------------------------------------------------
 -- Input
 
 -- | An input is a wrapper around a value that also knows if the
@@ -111,13 +81,16 @@ extBlockInput bi = bi { binputID = C.extendBlockID (binputID bi) }
 -- * The first argument is true if the value was created from a previous block
 -- * The second is the value itself.
 data Input s
-   = Input !Bool !(Some (Value s))
+   = Input { inputGeneratedPrev :: !Bool
+             -- ^ Stores true if the value was created from a previous block.
+           , inputValue :: !(Some (Value s))
+           }
 
 instance Show (Input s) where
-  showsPrec p (Input _ r) = showsPrec p r
+  showsPrec p r = showsPrec p (inputValue r)
 
 instance Eq (Input s) where
-  Input _ x == Input _ y = x == y
+  x == y = inputValue x == inputValue y
 
 isOutputFromBlock :: BlockID s -> Some (Value s) -> Bool
 isOutputFromBlock (LambdaID l) (Some (AtomValue a))
@@ -125,36 +98,54 @@ isOutputFromBlock (LambdaID l) (Some (AtomValue a))
 isOutputFromBlock _ _ = False
 
 mkInput :: BlockID s -> Some (Value s) -> Input s
-mkInput b v = Input (isOutputFromBlock b v) v
+mkInput b v = Input { inputGeneratedPrev = isOutputFromBlock b v
+                    , inputValue = v
+                    }
 
-instance Ord (Input x) where
+instance Ord (Input s) where
   -- LambdaArg introduced in this block should be last.
-  compare (Input is_out_x x) (Input is_out_y y) =
-    case (is_out_x, is_out_y) of
-      (True,  True)  -> assert (x == y) $ EQ
+  compare x y =
+    case (inputGeneratedPrev x, inputGeneratedPrev y) of
+      (True,  True ) -> assert (inputValue x == inputValue y) EQ
       (True,  False) -> GT
-      (False, True)  -> LT
-      (False, False) -> compare x y
-
-
-regOfInput :: Input s -> Some (Value s)
-regOfInput (Input _ r) = r
+      (False, True ) -> LT
+      (False, False) -> compare (inputValue x) (inputValue y)
 
 ------------------------------------------------------------------------
--- SomeAssignment
+-- BlockInput
 
-data SomeAssignment f where
-  SomeA :: C.CtxRepr types -> Assignment f types -> SomeAssignment f
+data BlockInput s blocks ret args
+  = BInput { binputID         :: !(C.BlockID blocks args)
+             -- | Arguments expected by block.
+           , binputArgs       :: !(Assignment (Value s) args)
+           , binputStmts      :: !(Seq (Posd (Stmt s)))
+           , binputTerm       :: !(Posd (TermStmt s ret))
+           }
+
+
+type BlockInputAssignment s blocks ret
+   = Assignment (BlockInput s blocks ret)
+
+#ifdef UNSAFE_OPS
+extBlockInputAssignment :: BlockInputAssignment s blocks ret a
+                        -> BlockInputAssignment s (blocks ::> tp) ret a
+extBlockInputAssignment = Data.Coerce.coerce
+#else
+extBlockInputAssignment :: BlockInputAssignment s blocks ret a
+                        -> BlockInputAssignment s (blocks ::> tp) ret a
+extBlockInputAssignment = fmapFC extBlockInput
+
+extBlockInput :: BlockInput s blocks ret args
+              -> BlockInput s (blocks ::> tp) ret args
+extBlockInput bi = bi { binputID = C.extendBlockID (binputID bi) }
+#endif
+
+------------------------------------------------------------------------
+-- inferRegAssignment
 
 inferRegAssignment :: Set (Input s)
-                   -> SomeAssignment (Value s)
-inferRegAssignment s = go (Set.toList s) Ctx.empty Ctx.empty
-  where go :: [Input s]
-           -> C.CtxRepr types
-           -> Assignment (Value s) types
-           -> SomeAssignment (Value s)
-        go [] repr regs = SomeA repr regs
-        go (Input _ (Some r):rest) repr regs = go rest (repr Ctx.%> typeOfValue r) (regs Ctx.%> r)
+                   -> Some (Assignment (Value s))
+inferRegAssignment s = fromList (inputValue <$> Set.toList s)
 
 ------------------------------------------------------------------------
 -- JumpInfo
@@ -167,7 +158,7 @@ data JumpInfo s blocks where
 
 
 emptyJumpInfoMap :: JumpInfoMap s blocks
-extJumpInfoMap :: JumpInfoMap s blocks -> JumpInfoMap s (blocks::>args)
+extJumpInfoMap :: JumpInfoMap s blocks -> JumpInfoMap s (blocks ::> args)
 lookupJumpInfo :: Label s -> JumpInfoMap s blocks -> Maybe (JumpInfo s blocks)
 insertJumpInfo :: Label s -> JumpInfo s blocks -> JumpInfoMap s blocks -> JumpInfoMap s blocks
 
@@ -183,15 +174,15 @@ insertJumpInfo = Map.insert
 data JumpInfoMap s blocks
   = forall blocks'.
      JumpInfoMap
-     { _jimDiff :: !(Ctx.Diff blocks' blocks)
+     { _jimDiff :: !(Diff blocks' blocks)
      , _jimMap  :: !(Map (Label s) (JumpInfo s blocks'))
      , _jimThunk :: Map (Label s) (JumpInfo s blocks) -- NB! don't make this strict
      }
 
-emptyJumpInfoMap = JumpInfoMap Ctx.noDiff Map.empty Map.empty
+emptyJumpInfoMap = JumpInfoMap noDiff Map.empty Map.empty
 
 extJumpInfoMap (JumpInfoMap diff mp _) =
-  let diff' = Ctx.extendRight diff
+  let diff' = extendRight diff
    in JumpInfoMap diff' mp (fmap (extJumpInfo diff') mp)
 
 lookupJumpInfo l (JumpInfoMap diff mp _) = fmap (extJumpInfo diff) (Map.lookup l mp)
@@ -199,7 +190,7 @@ lookupJumpInfo l (JumpInfoMap diff mp _) = fmap (extJumpInfo diff) (Map.lookup l
 
 insertJumpInfo l ji (JumpInfoMap _ _ thk) =
     let mp = Map.insert l ji thk
-     in JumpInfoMap Ctx.noDiff mp mp
+     in JumpInfoMap noDiff mp mp
 
 -- | Extend jump target
 extJumpInfo :: Diff blocks' blocks -> JumpInfo s blocks' -> JumpInfo s blocks
@@ -211,13 +202,16 @@ extJumpInfo diff (JumpInfo b typs a) = JumpInfo (C.extendBlockID' diff b) typs a
 -- SwitchInfo
 
 data SwitchInfo s blocks tp where
-  SwitchInfo :: C.BlockID blocks (args::>tp)
+  SwitchInfo :: C.BlockID blocks (args ::> tp)
              -> C.CtxRepr args
              -> Assignment (Value s) args
              -> SwitchInfo s blocks tp
 
 emptySwitchInfoMap :: SwitchInfoMap s blocks
-extSwitchInfoMap   :: SwitchInfoMap s blocks -> SwitchInfoMap s (blocks::>args)
+
+extSwitchInfoMap   :: SwitchInfoMap s blocks
+                   -> SwitchInfoMap s (blocks ::> args)
+
 insertSwitchInfo   :: LambdaLabel s tp
                    -> SwitchInfo s blocks tp
                    -> SwitchInfoMap s blocks
@@ -236,7 +230,8 @@ insertSwitchInfo l si (SwitchInfoMap m) = SwitchInfoMap (MapF.insert l si m)
 lookupSwitchInfo l (SwitchInfoMap m) = MapF.lookup l m
 
 #else
-newtype SwitchInfoMap s blocks = SwitchInfoMap (Map (Some (LambdaLabel s)) (SomeSwitchInfo s blocks))
+newtype SwitchInfoMap s blocks =
+  SwitchInfoMap (Map (Some (LambdaLabel s)) (SomeSwitchInfo s blocks))
 data SomeSwitchInfo s blocks = forall tp. SomeSwitchInfo (C.TypeRepr tp) (SwitchInfo s blocks tp)
 
 mapSomeSI :: (forall tp. SwitchInfo s b tp -> SwitchInfo s b' tp) -> SomeSwitchInfo s b -> SomeSwitchInfo s b'
@@ -329,7 +324,7 @@ completeInputs blocks = do
                   -- Compute the inputs needed at the start of prev_block
                   let new_inputs = Set.map (mkInput (blockID prev_block))
                                  $ (`Set.difference` blockAssignedValues prev_block)
-                                 $ Set.map regOfInput inputs
+                                 $ Set.map inputValue inputs
                   let all_inputs = Set.union prev_inputs new_inputs
                   if Set.isSubsetOf new_inputs prev_inputs then
                     resolve_pred r s m
@@ -346,15 +341,16 @@ completeInputs blocks = do
 
 -- | Information that is statically inferred from the block structure.
 data BlockInfo s ret blocks
-   = BI { biBlocks :: !(Assignment (BlockInput s blocks ret) blocks)
-        , biJumpInfo :: !(JumpInfoMap s blocks)
+   = BI { biBlocks     :: !(Assignment (BlockInput s blocks ret) blocks)
+        , biJumpInfo   :: !(JumpInfoMap s blocks)
         , biSwitchInfo :: !(SwitchInfoMap s blocks)
         }
 
+-- | This infers the information given a set of blocks.
 inferBlockInfo :: forall s ret . [Block s ret] -> Some (BlockInfo s ret)
 inferBlockInfo blocks = seq input_map $ go bi0 blocks
   where input_map = completeInputs blocks
-        bi0 = BI { biBlocks = Ctx.empty
+        bi0 = BI { biBlocks = empty
                  , biJumpInfo = emptyJumpInfoMap
                  , biSwitchInfo = emptySwitchInfoMap
                  }
@@ -363,17 +359,17 @@ inferBlockInfo blocks = seq input_map $ go bi0 blocks
            -> Some (BlockInfo s ret)
         go bi [] = Some bi
         go bi (b:rest) = do
-          let sz = Ctx.size (biBlocks bi)
+          let sz = size (biBlocks bi)
           let untyped_id = blockID b
           let Just inputs = Map.lookup untyped_id input_map
           case untyped_id of
             LabelID l -> do
               case inferRegAssignment inputs of
-                SomeA crepr ra -> do
+                Some ra -> do
+                  let crepr = fmapFC typeOfValue ra
                   let block_id = C.BlockID (nextIndex sz)
                   let binput = BInput { binputID = block_id
-                                      , binputTypes = crepr
-                                      , binputArguments = ra
+                                      , binputArgs    = ra
                                       , binputStmts   = blockStmts b
                                       , binputTerm    = blockTerm b
                                       }
@@ -381,19 +377,19 @@ inferBlockInfo blocks = seq input_map $ go bi0 blocks
                   let jump_info'   = extJumpInfoMap $ biJumpInfo bi
                   let switch_info' = extSwitchInfoMap $ biSwitchInfo bi
                   let ji = JumpInfo block_id crepr ra
-                  let bi' = BI { biBlocks = Ctx.extend blocks' binput
+                  let bi' = BI { biBlocks = extend blocks' binput
                                , biJumpInfo = insertJumpInfo l ji jump_info'
                                , biSwitchInfo = switch_info'
                                }
                   go bi' rest
             LambdaID l -> do
               case inferRegAssignment inputs of
-                SomeA crepr ra -> do
+                Some ra -> do
+                  let crepr = fmapFC typeOfValue ra
                   let block_id = C.BlockID (nextIndex sz)
-                  let a = lambdaAtom l
+                  let lastArg = AtomValue (lambdaAtom l)
                   let binput = BInput { binputID = block_id
-                                      , binputTypes = crepr Ctx.%> typeOfAtom a
-                                      , binputArguments = ra Ctx.%> AtomValue a
+                                      , binputArgs = ra %> lastArg
                                       , binputStmts = blockStmts b
                                       , binputTerm = blockTerm b
                                       }
@@ -401,7 +397,7 @@ inferBlockInfo blocks = seq input_map $ go bi0 blocks
                   let jump_info'   = extJumpInfoMap $ biJumpInfo bi
                   let switch_info' = extSwitchInfoMap $ biSwitchInfo bi
                   let si = SwitchInfo block_id crepr ra
-                  let bi' = BI { biBlocks = Ctx.extend blocks' binput
+                  let bi' = BI { biBlocks = extend blocks' binput
                                , biJumpInfo = jump_info'
                                , biSwitchInfo = insertSwitchInfo l si switch_info'
                                }
@@ -420,8 +416,8 @@ type RegExprs ctx = Assignment (MaybeF (C.Expr ctx)) ctx
 
 #ifdef UNSAFE_OPS
 
-extendRegExprs :: MaybeF (C.Expr ctx) tp -> RegExprs ctx ->RegExprs (ctx::>tp)
-extendRegExprs r e = unsafeCoerce (e Ctx.%> r)
+extendRegExprs :: MaybeF (C.Expr ctx) tp -> RegExprs ctx ->RegExprs (ctx ::> tp)
+extendRegExprs r e = unsafeCoerce (e %> r)
 
 -- | Maps values in mutable representation to the current value in the SSA form.
 newtype TypedRegMap s ctx = TypedRegMap { _typedRegMap :: MapF (Value s) (C.Reg ctx) }
@@ -440,14 +436,14 @@ resolveAtom (TypedRegMap m) r = fromMaybe (error msg) (MapF.lookup (AtomValue r)
 regMapFromAssignment :: forall s args
                       . Assignment (Value s) args
                      -> TypedRegMap s args
-regMapFromAssignment a = TypedRegMap $ forIndex (Ctx.size a) go MapF.empty
+regMapFromAssignment a = TypedRegMap $ forIndex (size a) go MapF.empty
   where go :: MapF (Value s) (C.Reg args)
            -> Index args tp
            -> MapF (Value s) (C.Reg args)
-        go m i = MapF.insert (a Ctx.! i) (C.Reg i) m
+        go m i = MapF.insert (a ! i) (C.Reg i) m
 
 extendRegMap :: TypedRegMap s ctx
-             -> TypedRegMap s (ctx::>tp)
+             -> TypedRegMap s (ctx ::> tp)
 extendRegMap = Data.Coerce.coerce
 
 -- | Assign existing register to atom in typed RegMap.
@@ -460,9 +456,9 @@ bindValueReg r cr (TypedRegMap m) = TypedRegMap $ MapF.insert r cr m
 
 #else
 
-extendRegExprs :: MaybeF (C.Expr ctx) tp -> RegExprs ctx -> RegExprs (ctx::>tp)
-extendRegExprs r e = fmapFC ext e Ctx.%> ext r
- where ext :: MaybeF (C.Expr ctx) tp' -> MaybeF (C.Expr (ctx::>tp)) tp'
+extendRegExprs :: MaybeF (C.Expr ctx) tp -> RegExprs ctx -> RegExprs (ctx ::> tp)
+extendRegExprs r e = fmapFC ext e %> ext r
+ where ext :: MaybeF (C.Expr ctx) tp' -> MaybeF (C.Expr (ctx ::> tp)) tp'
        ext NothingF  = NothingF
        ext (JustF (C.App app)) = JustF (C.App (C.mapApp C.extendReg app))
 
@@ -490,16 +486,16 @@ resolveAtom m a = resolveReg m (AtomValue a)
 regMapFromAssignment :: forall s args
                       . Assignment (Value s) args
                      -> TypedRegMap s args
-regMapFromAssignment a = TypedRegMap $ forIndex (Ctx.size a) go Map.empty
+regMapFromAssignment a = TypedRegMap $ forIndex (size a) go Map.empty
   where go :: Map (Some (Value s)) (SomeReg args)
            -> Index args tp
            -> Map (Some (Value s)) (SomeReg args)
         go m i =
-             let r = a Ctx.! i
+             let r = a ! i
               in Map.insert (Some r) (SomeReg (typeOfValue r) (C.Reg i)) m
 
 extendRegMap :: TypedRegMap s ctx
-             -> TypedRegMap s (ctx::>tp)
+             -> TypedRegMap s (ctx ::> tp)
 extendRegMap (TypedRegMap m) =
   TypedRegMap $ fmap (\(SomeReg tr x) -> SomeReg tr (C.extendReg x)) m
 
@@ -521,7 +517,7 @@ assignRegister
     -> TypedRegMap s ctx
     -> TypedRegMap s (ctx ::> tp)
 assignRegister r sz m =
-  bindValueReg r (C.Reg (Ctx.nextIndex sz)) (extendRegMap m)
+  bindValueReg r (C.Reg (nextIndex sz)) (extendRegMap m)
 
 copyValue
     :: Value s tp -- ^ Assign
@@ -552,9 +548,9 @@ resolveLambdaAsJump bi reg_map next_lbl output =
   case lookupSwitchInfo next_lbl (biSwitchInfo bi) of
     Nothing -> error "Could not find label in resolveLambdaAsJump"
     Just (SwitchInfo block_id types inputs) -> do
-      let types' = types Ctx.%> typeOfAtom (lambdaAtom next_lbl)
+      let types' = types %> typeOfAtom (lambdaAtom next_lbl)
       let args = fmapFC (resolveReg reg_map) inputs
-      let args' = args `Ctx.extend` output
+      let args' = args `extend` output
       C.JumpTarget block_id types' args'
 
 -- | Resolve a lambda label into a typed switch target.
@@ -582,7 +578,7 @@ resolveTermStmt bi reg_map bindings t0 =
 
     Br c x y -> do
       let c_r = resolveAtom reg_map c
-      case bindings Ctx.! C.regIndex c_r of
+      case bindings ! C.regIndex c_r of
         JustF (C.App (C.BoolLit True))  -> C.Jump (resolveJumpTarget bi reg_map x)
         JustF (C.App (C.BoolLit False)) -> C.Jump (resolveJumpTarget bi reg_map y)
         _ -> C.Br c_r
@@ -590,7 +586,7 @@ resolveTermStmt bi reg_map bindings t0 =
                   (resolveJumpTarget bi reg_map y)
     MaybeBranch tp e j n -> do
       let e_r = resolveAtom reg_map e
-      case bindings Ctx.! C.regIndex e_r of
+      case bindings ! C.regIndex e_r of
         JustF (C.App (C.JustValue _ je)) -> C.Jump (resolveLambdaAsJump bi reg_map j je)
         JustF (C.App (C.NothingValue _)) -> C.Jump (resolveJumpTarget bi reg_map n)
         _ -> C.MaybeBranch tp
@@ -599,7 +595,7 @@ resolveTermStmt bi reg_map bindings t0 =
                            (resolveJumpTarget bi reg_map n)
     MSwitchStmt e s -> do
       let e_r = resolveAtom reg_map e
-      case bindings Ctx.! C.regIndex e_r of
+      case bindings ! C.regIndex e_r of
         JustF (C.App (C.CplxArrayToMatlab a)) ->
              C.Jump (resolveLambdaAsJump bi reg_map (matchRealArray s) a)
         JustF (C.App (C.MatlabIntArrayToMatlab a)) ->
@@ -634,7 +630,7 @@ appRegMap_extend :: AppRegMap ctx -> AppRegMap (ctx ::> tp)
 appRegMap_extend = Data.Coerce.coerce
 
 appRegMap_insert :: C.App (C.Reg ctx) tp
-                 -> C.Reg (ctx::>tp) tp
+                 -> C.Reg (ctx ::> tp) tp
                  -> AppRegMap ctx
                  -> AppRegMap (ctx ::> tp)
 appRegMap_insert k v m = MapF.insert (Data.Coerce.coerce k) v (appRegMap_extend m)
@@ -679,7 +675,7 @@ appRegMap_empty = Map.empty
 -- | Resolve a list of statements to a typed list.
 resolveStmts :: FunctionName
              -> BlockInfo s ret blocks
-             -> Ctx.Size ctx
+             -> Size ctx
              -> TypedRegMap s ctx
              -> RegExprs ctx
                 -- ^ Maps registers back to the expression that generated them (if any)
@@ -712,7 +708,7 @@ resolveStmts nm bi sz reg_map bindings appMap (Posd p s0:rest) t = do
           let reg_map' = reg_map & copyValue (AtomValue a) (RegValue r)
           resolveStmts nm bi sz reg_map' bindings appMap rest t
         ReadGlobal v -> do
-          let sz' = Ctx.incSize sz
+          let sz' = incSize sz
           let reg_map'  = reg_map  & assignRegister (AtomValue a) sz
           -- No expression to associate with this value.
           let bindings' = bindings & extendRegExprs NothingF
@@ -722,7 +718,7 @@ resolveStmts nm bi sz reg_map bindings appMap (Posd p s0:rest) t = do
                      (C.ReadGlobal v)
                      (resolveStmts nm bi sz' reg_map' bindings' appMap' rest t)
         NewRef v -> do
-          let sz' = Ctx.incSize sz
+          let sz' = incSize sz
           let reg_map'  = reg_map  & assignRegister (AtomValue a) sz
           -- No expression to associate with this value.
           let bindings' = bindings & extendRegExprs NothingF
@@ -734,7 +730,7 @@ resolveStmts nm bi sz reg_map bindings appMap (Posd p s0:rest) t = do
                      (C.NewRefCell (typeOfAtom v) v')
                      (resolveStmts nm bi sz' reg_map' bindings' appMap' rest t)
         ReadRef r -> do
-          let sz' = Ctx.incSize sz
+          let sz' = incSize sz
           let reg_map'  = reg_map  & assignRegister (AtomValue a) sz
           -- No expression to associate with this value.
           let bindings' = bindings & extendRegExprs NothingF
@@ -752,10 +748,10 @@ resolveStmts nm bi sz reg_map bindings appMap (Posd p s0:rest) t = do
             resolveStmts nm bi sz reg_map' bindings appMap rest t
           | otherwise -> do
             let e' = C.App e
-            let sz' = Ctx.incSize sz
+            let sz' = incSize sz
             let reg_map'  = reg_map  & assignRegister (AtomValue a) sz
             let bindings' = bindings & extendRegExprs (JustF e')
-            let appMap'   = appMap   & appRegMap_insert e (C.Reg (Ctx.nextIndex sz))
+            let appMap'   = appMap   & appRegMap_insert e (C.Reg (nextIndex sz))
             let stmt = C.SetReg (typeOfAtom a) e'
             C.ConsStmt pl stmt (resolveStmts nm bi sz' reg_map' bindings' appMap' rest t)
 
@@ -765,7 +761,7 @@ resolveStmts nm bi sz reg_map bindings appMap (Posd p s0:rest) t = do
           let arg_types = fmapFC typeOfAtom args
           let args' = fmapFC (resolveAtom reg_map) args
           let stmt = C.CallHandle return_type h' arg_types args'
-          let sz' = Ctx.incSize sz
+          let sz' = incSize sz
           let reg_map'  = reg_map  & assignRegister (AtomValue a) sz
           let bindings' = bindings & extendRegExprs NothingF
           let appMap'   = appMap   & appRegMap_extend
@@ -794,14 +790,14 @@ resolveBlockMap nm blocks = do
                    -> BlockInput s blocks ret args
                    -> C.Block blocks ret args
       resolveBlock bi bin = do
-        let sz = Ctx.size (binputArguments bin)
-        let regs = regMapFromAssignment (binputArguments bin)
+        let sz = size (binputArgs bin)
+        let regs = regMapFromAssignment (binputArgs bin)
         let regExprs = Ctx.replicate sz NothingF
         let appMap = appRegMap_empty
         let stmts = Fold.toList $ binputStmts bin
         let term = binputTerm bin
         C.Block { C.blockID = binputID bin
-                , C.blockInputs = binputTypes bin
+                , C.blockInputs = fmapFC typeOfValue (binputArgs bin)
                 , C._blockStmts = resolveStmts nm bi sz regs regExprs appMap stmts term
                 }
   case inferBlockInfo blocks of
@@ -822,10 +818,10 @@ toSSA g = do
   let blocks = cfgBlocks g
   case resolveBlockMap (handleName h) blocks of
     SomeBlockMap block_map ->
-      case intIndex 0 (Ctx.size block_map) of
+      case intIndex 0 (size block_map) of
         Nothing -> error "Empty list of blocks."
         Just (Some idx) -> do
-          let b = block_map Ctx.! idx
+          let b = block_map ! idx
           case C.blockInputs b `testEquality` initTypes of
             Nothing -> error $
               "Input block type " ++ show (C.blockInputs b)
