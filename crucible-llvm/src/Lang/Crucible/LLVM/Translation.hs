@@ -253,7 +253,7 @@ llvmTypeToRepr (ArrayType _ tp)  = [llvmTypeAsRepr tp (\t -> Some (VectorRepr t)
 llvmTypeToRepr (VecType _ tp)    = [llvmTypeAsRepr tp (\t-> Some (VectorRepr t))]
 llvmTypeToRepr (StructType si)   = [llvmTypesAsCtx tps (\ts -> Some (StructRepr ts))]
   where tps = map fiType $ toList $ siFields si
-llvmTypeToRepr (PtrType pty) = llvmPtrTypeToRepr pty
+llvmTypeToRepr (PtrType _)   = [Some LLVMPointerRepr]
 llvmTypeToRepr FloatType     = [Some RealValRepr]
 llvmTypeToRepr DoubleType    = [Some RealValRepr]
 --llvmTypeToRepr FloatType   = [Some (FloatRepr SingleFloatRepr)]
@@ -263,17 +263,6 @@ llvmTypeToRepr (IntType n) =
    case someNat (fromIntegral n) of
       Just (Some w) | Just LeqProof <- isPosNat w -> [Some (BVRepr w)]
       _ -> error $ unwords ["invalid integer width",show n]
-
-llvmPtrTypeToRepr :: (?lc :: TyCtx.LLVMContext)
-                  => SymType
-                  -> [Some TypeRepr]
-llvmPtrTypeToRepr (Alias ident) =
-  case TyCtx.lookupAlias ident of
-    Just tp -> llvmPtrTypeToRepr tp
-    Nothing -> error $ unwords ["Unable to resolve type alias", show ident]
-llvmPtrTypeToRepr (FunType decl) =
-  llvmDeclToFunHandleRepr decl $ \args ret -> [Some (FunctionHandleRepr args ret)]
-llvmPtrTypeToRepr _ = [Some LLVMPointerRepr]
 
 llvmDeclToFunHandleRepr
    :: (?lc :: TyCtx.LLVMContext)
@@ -545,15 +534,6 @@ transValue _ (L.ValIdent i) = do
       return $ BaseExpr (typeOfReg r) e
     Just (Right (Some a)) -> do
       return $ BaseExpr (typeOfAtom a) (AtomExpr a)
-
-transValue (PtrType (FunType _)) (L.ValSymbol sym) = do
-  symmap <- (_symbolMap . llvmContext)  <$> get
-  case Map.lookup sym symmap of
-     Nothing -> fail $ unwords ["symbol not found:", show sym]
-     Just (LLVMHandleInfo _ h) -> do
-        let argTypes = handleArgTypes h
-        let retType  = handleReturnType h
-        return $ BaseExpr (FunctionHandleRepr argTypes retType) (litExpr h)
 
 transValue (IntType w) (L.ValInteger i) =
   case someNat (fromIntegral w) of
@@ -828,7 +808,7 @@ definePhiBlock l l' = do
        assignPhi (ident,t_v) = do
            assignLLVMReg ident t_v
 
--- Given an LLVM expression of vector type, select out the ith element.
+-- | Given an LLVM expression of vector type, select out the ith element.
 extractElt
     :: (?lc :: TyCtx.LLVMContext)
     => MemType    -- ^ type contained in the vector
@@ -864,7 +844,7 @@ extractElt _ n (BaseExpr (VectorRepr tyr) v) i
 extractElt _ _ _ _ = fail $ "invalid extractelement instruction"
 
 
--- Given an LLVM expression of vector type, insert a new element at location ith element.
+-- | Given an LLVM expression of vector type, insert a new element at location ith element.
 insertElt
     :: (?lc :: TyCtx.LLVMContext)
 
@@ -1062,7 +1042,7 @@ callLoad typ expectTy (asScalar -> Scalar LLVMPointerRepr ptr) =
       let v' = app $ C.FromJustValue expectTy (app $ C.UnpackAny expectTy v) msg
       return (BaseExpr expectTy v')
 callLoad _ _ _ =
-  fail $ unwords ["Unexpected argument type in callStore"]
+  fail $ unwords ["Unexpected argument type in callLoad"]
 
 callStore :: (?lc :: TyCtx.LLVMContext)
           => MemType
@@ -1275,7 +1255,7 @@ translateConversion op x outty =
          case asScalar x' of
            Scalar tyx _ | Just Refl <- testEquality tyx outty'' ->
              return x'
-           _ -> fail $ unwords ["invalid bitcast", show x, show outty, show outty'']
+           _ -> fail $ unlines ["invalid bitcast", show x, show outty, show outty'']
 
     L.UiToFp -> do
        outty' <- liftMemType outty
@@ -1452,7 +1432,7 @@ generateInstr retType lab instr assign_f k =
       assign_f v
       k
 
-    L.Call _tailCall fnTy@(L.PtrTo (L.FunTy _lretTy largTys varargs)) fn args
+    L.Call _tailCall fnTy@(L.PtrTo (L.FunTy lretTy largTys varargs)) fn args
 
      -- Skip calls to debugging intrinsics.  We might want to support these in some way
      -- in the future.  However, they take metadata values as arguments, which
@@ -1469,6 +1449,7 @@ generateInstr retType lab instr assign_f k =
      -- which it can unpack from the ANY values when it knows those types.
      | varargs -> do
            fnTy' <- liftMemType fnTy
+           retTy' <- liftRetType lretTy
            fn' <- transValue fnTy' fn
            args' <- mapM transTypedValue args
            let ?err = fail
@@ -1476,34 +1457,41 @@ generateInstr retType lab instr assign_f k =
            varArgs' <- unpackVarArgs varArgs
            unpackArgs mainArgs $ \argTypes mainArgs' ->
              case asScalar fn' of
-                Scalar (FunctionHandleRepr argTypes' fnRetType) fn'' ->
-                  case testEquality (argTypes Ctx.%> varArgsRepr) argTypes' of
-                    Nothing -> fail $ unlines ["argument type mismatch in call to varargs function"
-                                              , show fn, show args, show fnTy
-                                              , show argTypes, show argTypes']
-                    Just Refl -> do
-                      ret <- call fn'' (mainArgs' Ctx.%> varArgs')
-                      assign_f (BaseExpr fnRetType ret)
-                      k
+                Scalar LLVMPointerRepr ptr ->
+                  do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
+                     memLoadHandle <- litExpr . llvmMemLoadHandle . memModelOps . llvmContext <$> get
+                     mem <- readGlobal memVar
+                     v <- call memLoadHandle (Ctx.empty Ctx.%> mem Ctx.%> ptr)
+                     llvmRetTypeAsRepr retTy' $ \retTy ->
+                       do let expectTy = FunctionHandleRepr (argTypes Ctx.%> varArgsRepr) retTy
+                          let msg = litExpr (Text.pack ("Expected function of type " ++ show expectTy))
+                          let v' = app $ C.FromJustValue expectTy (app $ C.UnpackAny expectTy v) msg
+                          ret <- call v' (mainArgs' Ctx.%> varArgs')
+                          assign_f (BaseExpr retTy ret)
+                          k
                 _ -> fail $ unwords ["unsupported function value", show fn]
 
      -- Ordinary (non varargs) function call
      | otherwise -> do
            fnTy' <- liftMemType fnTy
+           retTy' <- liftRetType lretTy
            fn' <- transValue fnTy' fn
            args' <- mapM transTypedValue args
            let ?err = fail
            unpackArgs args' $ \argTypes args'' ->
               case asScalar fn' of
-                Scalar (FunctionHandleRepr argTypes' fnRetType) fn'' ->
-                  case testEquality argTypes argTypes' of
-                     Nothing -> fail $ unwords ["argument type mismatch in call to"
-                                               , show fn, show args, show fnTy]
-                     Just Refl -> do
-                         ret <- call fn'' args''
-                         assign_f (BaseExpr fnRetType ret)
-                         k
-
+                Scalar LLVMPointerRepr ptr ->
+                  do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
+                     memLoadHandle <- litExpr . llvmMemLoadHandle . memModelOps . llvmContext <$> get
+                     mem <- readGlobal memVar
+                     v <- call memLoadHandle (Ctx.empty Ctx.%> mem Ctx.%> ptr)
+                     llvmRetTypeAsRepr retTy' $ \retTy ->
+                       do let expectTy = FunctionHandleRepr argTypes retTy
+                          let msg = litExpr (Text.pack ("Expected function of type " ++ show expectTy))
+                          let v' = app $ C.FromJustValue expectTy (app $ C.UnpackAny expectTy v) msg
+                          ret <- call v' args''
+                          assign_f (BaseExpr retTy ret)
+                          k
                 _ -> fail $ unwords ["unsupported function value", show fn]
 
     L.Bit op x y -> do
@@ -2244,7 +2232,11 @@ initializeMemory
    -> L.Module
    -> IO (MemImpl sym PtrWidth)
 initializeMemory sym llvm_ctx m = do
-   --putStrLn "INIT MEMORY"
+   -- Allocate function handles
+   let handles = Map.assocs (_symbolMap llvm_ctx)
+   mem0 <- emptyMem
+   mem <- foldM (allocLLVMHandleInfo sym) mem0 handles
+   -- Allocate global values
    let gs = L.modGlobals m
    let ?lc = llvmTypeCtx llvm_ctx
    let dl = TyCtx.llvmDataLayout ?lc
@@ -2253,4 +2245,13 @@ initializeMemory sym llvm_ctx m = do
                         let sz = memTypeSize dl ty
                         return (L.globalSym g, sz))
                     gs
-   allocGlobals sym gs_alloc =<< emptyMem
+   allocGlobals sym gs_alloc mem
+
+allocLLVMHandleInfo :: IsSymInterface sym
+                    => sym
+                    -> MemImpl sym PtrWidth
+                    -> (L.Symbol, LLVMHandleInfo)
+                    -> IO (MemImpl sym PtrWidth)
+allocLLVMHandleInfo sym mem (symbol, LLVMHandleInfo _ h) =
+  do (ptr, mem') <- doMallocHandle sym mem (SomeFnHandle h)
+     return (registerGlobal mem' symbol ptr)
