@@ -46,6 +46,7 @@ module Lang.Crucible.LLVM.MemModel
   , GlobalMap
   , GlobalSymbol(..)
   , allocGlobals
+  , registerGlobal
   , assertDisjointRegions
   , assertDisjointRegions'
   , doMemcpy
@@ -64,6 +65,7 @@ module Lang.Crucible.LLVM.MemModel
   , loadString
   , loadMaybeString
   , ppMem
+  , SomeFnHandle(..)
 
   -- * Direct API to LLVMVal
   , LLVMVal(..)
@@ -135,6 +137,7 @@ instance IsRecursiveType "LLVM_pointer" where
   unrollType _ = StructRepr (Ctx.empty Ctx.%> NatRepr Ctx.%> BVRepr ptrWidth Ctx.%> BVRepr ptrWidth)
 
 type Mem = IntrinsicType "LLVM_memory"
+
 memRepr :: TypeRepr Mem
 memRepr = knownRepr
 
@@ -216,6 +219,7 @@ data LLVMMemOps
   , llvmMemPopFrame :: FnHandle (EmptyCtx ::> Mem) Mem
   , llvmMemLoad  :: FnHandle (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMValTypeType) AnyType
   , llvmMemStore :: FnHandle (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMValTypeType ::> AnyType) Mem
+  , llvmMemLoadHandle :: FnHandle (EmptyCtx ::> Mem ::> LLVMPointerType) AnyType
   , llvmResolveGlobal :: FnHandle (EmptyCtx ::> Mem ::> ConcreteType GlobalSymbol) LLVMPointerType
   , llvmPtrEq :: FnHandle (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMPointerType) BoolType
   , llvmPtrLe :: FnHandle (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMPointerType) BoolType
@@ -234,6 +238,8 @@ llvmMemIntrinsics memOps =
                  memLoad
   , useIntrinsic (llvmMemStore memOps)
                  memStore
+  , useIntrinsic (llvmMemLoadHandle memOps)
+                 memLoadHandle
   , useIntrinsic (llvmMemPushFrame memOps)
                  memPushFrame
   , useIntrinsic (llvmMemPopFrame memOps)
@@ -262,6 +268,7 @@ newMemOps halloc dl = do
   popFrame    <- mkHandle halloc "llvm_popFrame"
   load        <- mkHandle halloc "llvm_load"
   store       <- mkHandle halloc "llvm_store"
+  loadHandle  <- mkHandle halloc "llvm_load_handle"
   resolveGlob <- mkHandle halloc "llvm_resolve_global"
   pEq         <- mkHandle halloc "llvm_ptrEq"
   pLe         <- mkHandle halloc "llvm_ptrLe"
@@ -276,6 +283,7 @@ newMemOps halloc dl = do
             , llvmMemPopFrame    = popFrame
             , llvmMemLoad        = load
             , llvmMemStore       = store
+            , llvmMemLoadHandle  = loadHandle
             , llvmResolveGlobal  = resolveGlob
             , llvmPtrEq          = pEq
             , llvmPtrLe          = pLe
@@ -309,6 +317,8 @@ emptyMem = do
 
 type GlobalMap sym = Map L.Symbol (RegValue sym LLVMPointerType)
 
+-- | Allocate memory for each global, and register all the resulting
+-- pointers in the 'GlobalMap'.
 allocGlobals :: IsSymInterface sym
              => sym
              -> [(L.Symbol, G.Size)]
@@ -321,17 +331,19 @@ allocGlobal :: IsSymInterface sym
             -> MemImpl sym PtrWidth
             -> (L.Symbol, G.Size)
             -> IO (MemImpl sym PtrWidth)
-allocGlobal sym (MemImpl blockSource gMap hMap mem) (symbol, sz) = do
-  blkNum <- nextBlock blockSource
-  blk <- natLit sym (fromIntegral blkNum)
-  z   <- bvLit sym ptrWidth 0
+allocGlobal sym mem (symbol, sz) = do
   sz' <- bvLit sym ptrWidth (fromIntegral sz)
+  (ptr, mem') <- doMalloc sym mem sz'
+  return (registerGlobal mem' symbol ptr)
 
-  let mem'  = G.allocMem G.GlobalAlloc (LLVMPtr blk sz' z) (LLVMOffset sz') mem
-  let ptr   = RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV sz' Ctx.%> RV z)
+-- | Add an entry to the 'GlobalMap' of the given 'MemImpl'.
+registerGlobal :: MemImpl sym PtrWidth
+               -> L.Symbol
+               -> RegValue sym LLVMPointerType
+               -> MemImpl sym PtrWidth
+registerGlobal (MemImpl blockSource gMap hMap mem) symbol ptr =
   let gMap' = Map.insert symbol ptr gMap
-  return (MemImpl blockSource gMap' hMap mem')
-
+  in MemImpl blockSource gMap' hMap mem
 
 asCrucibleType
   :: G.Type
@@ -557,6 +569,20 @@ memStore = mkIntrinsic $ \_ sym
   (regValue -> valType)
   (regValue -> val) ->
      liftIO $ doStore sym mem ptr valType val
+
+data SomeFnHandle where
+  SomeFnHandle :: FnHandle args ret -> SomeFnHandle
+
+memLoadHandle :: IntrinsicImpl sym (EmptyCtx ::> Mem ::> LLVMPointerType) AnyType
+memLoadHandle = mkIntrinsic $ \_ sym
+  (regValue -> mem)
+  (regValue -> ptr) ->
+     do mhandle <- liftIO $ doLookupHandle sym mem ptr
+        case mhandle of
+          Nothing -> fail "memLoadHandle: not a valid function pointer"
+          Just (SomeFnHandle h) ->
+            do let ty = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
+               return (AnyValue ty (HandleFnVal h))
 
 memAlloca :: IntrinsicImpl sym (EmptyCtx ::> Mem ::> BVType PtrWidth)
                            (StructType (EmptyCtx ::> Mem ::> LLVMPointerType))
