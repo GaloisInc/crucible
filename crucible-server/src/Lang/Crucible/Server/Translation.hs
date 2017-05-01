@@ -478,7 +478,7 @@ mkRegs p base argTypes = V.generate (V.length v) f
                 }
 
 unpackCFG :: IsSymInterface sym
-          => Simulator sym
+          => Simulator p sym
           -> P.Cfg
           -> (forall s init ret. R.CFG s init ret -> IO a)
           -> IO a

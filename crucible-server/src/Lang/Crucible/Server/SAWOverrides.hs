@@ -39,7 +39,7 @@ import           Lang.Crucible.Server.Simulator
 import           Lang.Crucible.Server.TypeConv
 import           Lang.Crucible.Server.ValueConv
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
-import           Lang.Crucible.Simulator.MSSim
+import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
 import qualified Lang.Crucible.Solver.SAWCoreBackend as SAW
 import qualified Lang.Crucible.Solver.SimpleBuilder as SB
@@ -50,7 +50,7 @@ import qualified Verifier.SAW.SharedTerm as SAW
 import qualified Verifier.SAW.Recognizer as SAW
 
 
-sawBackendRequests :: BackendSpecificRequests (SAW.SAWCoreBackend n)
+sawBackendRequests :: BackendSpecificRequests p (SAW.SAWCoreBackend n)
 sawBackendRequests =
   BackendSpecificRequests
   { fulfillExportModelRequest = sawFulfillExportModelRequest
@@ -58,8 +58,8 @@ sawBackendRequests =
   }
 
 sawFulfillExportModelRequest
-   :: forall n
-    . Simulator (SAW.SAWCoreBackend n)
+   :: forall p n
+    . Simulator p (SAW.SAWCoreBackend n)
    -> P.ExportFormat
    -> Text.Text
    -> Seq.Seq P.Value
@@ -114,12 +114,12 @@ sawTypeFromTypeVar sc (x:xs) bt = do
   SAW.scVecType sc n txs
 
 -- | Returns override for creating a given variable associated with the given type.
-symbolicOverride :: forall n tp
+symbolicOverride :: forall p n tp
                   . SAW.SharedContext
                  -> [Int]
                  -> SAW.Term
                  -> TypeRepr tp
-                 -> Override (SAW.SAWCoreBackend n) EmptyCtx tp
+                 -> Override p (SAW.SAWCoreBackend n) EmptyCtx tp
 symbolicOverride sc dims0 sawTp0 tpr0 = do
   mkOverride' "symbolic" tpr0 $ do
     sym <- getSymInterface
@@ -151,7 +151,7 @@ symbolicOverride sc dims0 sawTp0 tpr0 = do
        buildVecs _ _ _ tpr _ = do
           fail $ "Unsupported SAW variable type: " ++ show tpr
 
-sawFulfillSymbolHandleRequest :: Simulator (SAW.SAWCoreBackend n) -> P.VarType -> IO ()
+sawFulfillSymbolHandleRequest :: Simulator p (SAW.SAWCoreBackend n) -> P.VarType -> IO ()
 sawFulfillSymbolHandleRequest sim proto_tp = do
   let dims = proto_tp^.P.varType_dimensions
   let dims' = map fromIntegral $ toList dims

@@ -47,6 +47,10 @@ main = do
   hSetBuffering stdout (BlockBuffering Nothing)
   runSimulator stdin stdout
 
+-- | No interesting state needs to be threaded through
+--   the crucible server...
+data CrucibleServerPersonality sym = CrucibleServerPersonality
+
 runSimulator :: Handle -> Handle -> IO ()
 runSimulator hin hout = do
   handshake <- getDelimited hin
@@ -70,7 +74,7 @@ runSimulator hin hout = do
 runSAWSimulator :: Handle -> Handle -> IO ()
 runSAWSimulator hin hout =
   SAW.withSAWCoreBackend SAW.preludeModule $ \(sym :: SAW.SAWCoreBackend n) -> do
-    s <- newSimulator sym [] [] hin hout
+    s <- newSimulator sym CrucibleServerPersonality [] [] hin hout
     -- Enter loop to start reading commands.
     fulfillRequests s sawBackendRequests
 
@@ -78,6 +82,6 @@ runSimpleSimulator :: Handle -> Handle -> IO ()
 runSimpleSimulator hin hout = do
   withIONonceGenerator $ \gen -> do
     sym <- newSimpleBackend gen
-    s <- newSimulator sym simpleServerOptions simpleServerOverrides hin hout
+    s <- newSimulator sym CrucibleServerPersonality simpleServerOptions simpleServerOverrides hin hout
     -- Enter loop to start reading commands.
     fulfillRequests s simpleBackendRequests

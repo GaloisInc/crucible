@@ -61,21 +61,21 @@ toByteString b = LazyBS.toStrict (Builder.toLazyByteString b)
 ------------------------------------------------------------------------
 -- RegEntry reference
 
-newRegEntryRef :: Simulator sym -> RegEntry sym tp -> IO Word64
+newRegEntryRef :: Simulator p sym -> RegEntry sym tp -> IO Word64
 newRegEntryRef sim a = do
   cnt <- readIORef (simValueCounter sim)
   writeIORef (simValueCounter sim) $! cnt+1
   HIO.insert (simValueCache sim) cnt (Some a)
   return cnt
 
-parseRegEntryRef :: Simulator sym -> Word64 -> IO (Some (RegEntry sym))
+parseRegEntryRef :: Simulator p sym -> Word64 -> IO (Some (RegEntry sym))
 parseRegEntryRef sim w = do
   mv <- HIO.lookup (simValueCache sim) w
   case mv of
     Just v -> return v
     Nothing -> error "Could not find reg entry"
 
-releaseRegEntryRef :: Simulator sym -> Word64 -> IO ()
+releaseRegEntryRef :: Simulator p sym -> Word64 -> IO ()
 releaseRegEntryRef sim w = do
   HIO.delete (simValueCache sim) w
 
@@ -101,7 +101,7 @@ checkedRegEntry tp (Some r) =
     Just Refl -> return r
     Nothing -> fail "Unexpected type for protocol value."
 
-fromProtoValue :: IsSymInterface sym => Simulator sym -> P.Value -> IO (Some (RegEntry sym))
+fromProtoValue :: IsSymInterface sym => Simulator p sym -> P.Value -> IO (Some (RegEntry sym))
 fromProtoValue sim v = do
   sym <- getInterface sim
   case v^.P.value_code of
@@ -135,7 +135,7 @@ fromProtoValue sim v = do
       SomeHandle h <- getHandleBinding sim (v^.P.value_index)
       return $ Some $ RegEntry (handleType h) (HandleFnVal h)
 
-toProtoValue :: IsSymInterface sym => Simulator sym -> RegEntry sym tp -> IO P.Value
+toProtoValue :: IsSymInterface sym => Simulator p sym -> RegEntry sym tp -> IO P.Value
 toProtoValue sim e@(RegEntry tp v) =
   case tp of
     BoolRepr

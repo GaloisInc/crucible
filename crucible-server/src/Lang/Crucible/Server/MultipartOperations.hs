@@ -40,8 +40,8 @@ import qualified Lang.Crucible.Generator as Gen
 import           Lang.Crucible.ProgramLoc
 import qualified Lang.Crucible.RegCFG as R
 import           Lang.Crucible.SSAConversion (toSSA)
+import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Server.Simulator
-import           Lang.Crucible.Simulator.MSSim
 import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
 
@@ -56,9 +56,9 @@ import           Lang.Crucible.Types
 --   The function will return a modified word map with the data written according
 --   to the selected endian encoding.  Despite calling this a multibyte operation,
 --   bytes (i.e., 8-bit cells) are not assumed; the cell width may be any positive size.
-multipartStoreFn :: forall sym addrWidth cellWidth valWidth
+multipartStoreFn :: forall p sym addrWidth cellWidth valWidth
                    . (1 <= addrWidth, 1 <= cellWidth, 1 <= valWidth)
-                  => Simulator sym
+                  => Simulator p sym
                   -> NatRepr addrWidth
                   -> NatRepr cellWidth
                   -> NatRepr valWidth
@@ -126,9 +126,9 @@ multipartStoreFn sim addrWidth cellWidth valWidth num = do
 --   default value will be the result of reading from the word map at any undefined location.
 --
 --   Note: bytes (i.e., 8-bit cells) are not assumed; the cell width may be any positive size.
-multipartLoadFn :: forall sym addrWidth cellWidth valWidth
+multipartLoadFn :: forall p sym addrWidth cellWidth valWidth
                    . (1 <= addrWidth, 1 <= cellWidth, 1 <= valWidth)
-                  => Simulator sym
+                  => Simulator p sym
                   -> NatRepr addrWidth
                   -> NatRepr cellWidth
                   -> NatRepr valWidth

@@ -38,7 +38,8 @@ import qualified Data.Parameterized.Context as Ctx
 
 import           Lang.Crucible.Config
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
-import           Lang.Crucible.Simulator.MSSim
+import           Lang.Crucible.Simulator.ExecutionTree
+import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Solver.Adapter
 import           Lang.Crucible.Solver.Interface
@@ -72,9 +73,9 @@ crucibleServerAdapters =
   , z3Adapter
   ]
 
-simpleServerOptions :: forall t st
+simpleServerOptions :: forall p t st
                     .  Typeable st
-                    => [ConfigDesc (SimConfigMonad (SimpleBuilder t st))]
+                    => [ConfigDesc (SimConfigMonad p (SimpleBuilder t st))]
 simpleServerOptions =
   let adapters :: [SolverAdapter st]
       adapters = crucibleServerAdapters in
@@ -83,7 +84,7 @@ simpleServerOptions =
 
   ] ++ concatMap solver_adapter_config_options adapters
 
-simpleServerOverrides :: [Simulator (SimpleBackend n) -> IO SomeHandle]
+simpleServerOverrides :: [Simulator p (SimpleBackend n) -> IO SomeHandle]
 simpleServerOverrides =
  [ mkPredef checkSatWithAbcOverride
  , mkPredef checkSatWithYicesOverride
@@ -92,7 +93,7 @@ simpleServerOverrides =
  ]
 
 
-simpleBackendRequests :: BackendSpecificRequests (SimpleBackend n)
+simpleBackendRequests :: BackendSpecificRequests p (SimpleBackend n)
 simpleBackendRequests =
   BackendSpecificRequests
   { fulfillExportModelRequest = sbFulfillExportModelRequest
@@ -105,7 +106,7 @@ simpleBackendRequests =
 type CheckSatArgs = EmptyCtx ::> BoolType
 
 -- | Returns override for creating a given variable associated with the given type.
-checkSatWithAbcOverride :: Override (SimpleBackend n) CheckSatArgs BoolType
+checkSatWithAbcOverride :: Override p (SimpleBackend n) CheckSatArgs BoolType
 checkSatWithAbcOverride = do
   mkOverride "checkSatWithAbc" $ do
     RegMap args <- getOverrideArgs
@@ -120,7 +121,7 @@ checkSatWithAbcOverride = do
 -- CheckSatWithYicesHandle Request
 
 -- | Returns override for creating a given variable associated with the given type.
-checkSatWithYicesOverride :: Override (SimpleBackend n) CheckSatArgs BoolType
+checkSatWithYicesOverride :: Override p (SimpleBackend n) CheckSatArgs BoolType
 checkSatWithYicesOverride = do
   mkOverride "checkSatWithYices" $ do
     RegMap args <- getOverrideArgs
@@ -139,7 +140,7 @@ type WriteSMTLIB2Args
    ::> StringType
    ::> BoolType
 
-writeSMTLib2Override :: Override (SimpleBackend n) WriteSMTLIB2Args UnitType
+writeSMTLib2Override :: Override p (SimpleBackend n) WriteSMTLIB2Args UnitType
 writeSMTLib2Override = do
   mkOverride "write_SMTLIB2" $ do
     RegMap args <- getOverrideArgs
@@ -152,7 +153,7 @@ writeSMTLib2Override = do
 -----------------------------------------------------------------------------------------
 -- WriteYicesHandle request
 
-writeYicesOverride :: Override (SimpleBackend n) WriteSMTLIB2Args UnitType
+writeYicesOverride :: Override p (SimpleBackend n) WriteSMTLIB2Args UnitType
 writeYicesOverride = do
   mkOverride "write_yices" $ do
     RegMap args <- getOverrideArgs
@@ -167,7 +168,7 @@ writeYicesOverride = do
 -- SimpleBackend ExportModel request
 
 sbFulfillExportModelRequest
-   :: Simulator (SimpleBackend n)
+   :: Simulator p (SimpleBackend n)
    -> P.ExportFormat
    -> Text.Text
    -> Seq.Seq P.Value
@@ -191,13 +192,13 @@ sbFulfillExportModelRequest _sim P.ExportSAW _path _vals = do
 -- SymbolHandle request
 
 -- | Returns override for creating a given variable associated with the given type.
-symbolicOverride :: BaseTypeRepr tp -> Override sym EmptyCtx (BaseToType tp)
+symbolicOverride :: IsSymInterface sym => BaseTypeRepr tp -> Override p sym EmptyCtx (BaseToType tp)
 symbolicOverride tp = do
   mkOverride' "symbolic" (baseToType tp) $ do
     sym <- getSymInterface
     liftIO $ freshConstant sym emptySymbol tp
 
-sbFulfillSymbolHandleRequest :: Simulator sym -> P.VarType -> IO ()
+sbFulfillSymbolHandleRequest :: IsSymInterface sym => Simulator p sym -> P.VarType -> IO ()
 sbFulfillSymbolHandleRequest sim proto_tp = do
   Some vtp <- varTypeFromProto proto_tp
   let dims = proto_tp^.P.varType_dimensions
