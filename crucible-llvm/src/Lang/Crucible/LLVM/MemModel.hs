@@ -104,7 +104,7 @@ import qualified Lang.Crucible.Core as C
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.Intrinsics
-import           Lang.Crucible.Simulator.MSSim
+import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
@@ -226,7 +226,7 @@ data LLVMMemOps
 
 llvmMemIntrinsics :: IsSymInterface sym
                   => LLVMMemOps
-                  -> [FnBinding sym]
+                  -> [FnBinding p sym]
 llvmMemIntrinsics memOps =
   [ useIntrinsic (llvmMemAlloca memOps)
                  memAlloca
@@ -450,12 +450,12 @@ doResolveGlobal _sym mem symbol =
     Just ptr -> return ptr
     Nothing  -> fail $ unwords ["Unable to resolve global symbol", show symbol]
 
-memResolveGlobal :: IntrinsicImpl sym (EmptyCtx ::> Mem ::> ConcreteType GlobalSymbol) LLVMPointerType
+memResolveGlobal :: IntrinsicImpl p sym (EmptyCtx ::> Mem ::> ConcreteType GlobalSymbol) LLVMPointerType
 memResolveGlobal = mkIntrinsic $ \_ sym
   (regValue -> mem)
   (regValue -> (GlobalSymbol symbol)) -> liftIO $ doResolveGlobal sym mem symbol
 
-memLoad :: IntrinsicImpl sym (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMValTypeType) AnyType
+memLoad :: IntrinsicImpl p sym (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMValTypeType) AnyType
 memLoad = mkIntrinsic $ \_ sym
   (regValue -> mem)
   (regValue -> ptr)
@@ -550,7 +550,7 @@ doStore sym mem ptr valType (AnyValue tpr val) = do
     addAssertion sym p (AssertFailureSimError "Invalid memory store")
     return mem{ memImplHeap = heap' }
 
-memStore :: IntrinsicImpl sym (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMValTypeType ::> AnyType) Mem
+memStore :: IntrinsicImpl p sym (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMValTypeType ::> AnyType) Mem
 memStore = mkIntrinsic $ \_ sym
   (regValue -> mem)
   (regValue -> ptr)
@@ -558,7 +558,7 @@ memStore = mkIntrinsic $ \_ sym
   (regValue -> val) ->
      liftIO $ doStore sym mem ptr valType val
 
-memAlloca :: IntrinsicImpl sym (EmptyCtx ::> Mem ::> BVType PtrWidth)
+memAlloca :: IntrinsicImpl p sym (EmptyCtx ::> Mem ::> BVType PtrWidth)
                            (StructType (EmptyCtx ::> Mem ::> LLVMPointerType))
 memAlloca = mkIntrinsic $ \_ sym
   (regValue -> mem)
@@ -575,14 +575,14 @@ memAlloca = mkIntrinsic $ \_ sym
      let ptr = RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV sz Ctx.%> RV z)
      return (Ctx.empty Ctx.%> (RV $ mem{ memImplHeap = heap' }) Ctx.%> RV ptr)
 
-memPushFrame :: IntrinsicImpl sym (EmptyCtx ::> Mem) Mem
+memPushFrame :: IntrinsicImpl p sym (EmptyCtx ::> Mem) Mem
 memPushFrame = mkIntrinsic $ \_ _sym
   (regValue -> mem) -> do
      --liftIO $ putStrLn "MEM PUSH FRAME"
      let heap' = G.pushStackFrameMem (memImplHeap mem)
      return mem{ memImplHeap = heap' }
 
-memPopFrame :: IntrinsicImpl sym (EmptyCtx ::> Mem) Mem
+memPopFrame :: IntrinsicImpl p sym (EmptyCtx ::> Mem) Mem
 memPopFrame = mkIntrinsic $ \_ _sym
   (regValue -> mem) -> do
      --liftIO $ putStrLn "MEM POP FRAME"
@@ -863,13 +863,13 @@ ppAllocs sym xs = vcat <$> mapM ppAlloc xs
                      (indent 2 a2_doc)
 
 
-ptrAddOffsetOverride :: IntrinsicImpl sym (EmptyCtx ::> LLVMPointerType ::> BVType PtrWidth) LLVMPointerType
+ptrAddOffsetOverride :: IntrinsicImpl p sym (EmptyCtx ::> LLVMPointerType ::> BVType PtrWidth) LLVMPointerType
 ptrAddOffsetOverride = mkIntrinsic $ \_ sym
    (regValue -> x)
    (regValue -> off) ->
      liftIO $ doPtrAddOffset sym x off
 
-ptrSubtractOverride :: IntrinsicImpl sym (EmptyCtx ::> LLVMPointerType ::> LLVMPointerType) (BVType PtrWidth)
+ptrSubtractOverride :: IntrinsicImpl p sym (EmptyCtx ::> LLVMPointerType ::> LLVMPointerType) (BVType PtrWidth)
 ptrSubtractOverride = mkIntrinsic $ \_ sym
    (regValue -> x)
    (regValue -> y) ->
@@ -906,7 +906,7 @@ doPtrAddOffset sym x off = do
          (AssertFailureSimError $ unlines ["Pointer arithmetic resulted in invalid pointer:", show x_doc, show off_doc])
       translatePtrBack p'
 
-ptrEqOverride :: IntrinsicImpl sym (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMPointerType) BoolType
+ptrEqOverride :: IntrinsicImpl p sym (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMPointerType) BoolType
 ptrEqOverride = mkIntrinsic $ \_ sym
    (regValue -> mem)
    (regValue -> x)
@@ -926,7 +926,7 @@ ptrEqOverride = mkIntrinsic $ \_ sym
       let py = translatePtr y
       ptrEq sym ptrWidth px py
 
-ptrLeOverride :: IntrinsicImpl sym (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMPointerType) BoolType
+ptrLeOverride :: IntrinsicImpl p sym (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMPointerType) BoolType
 ptrLeOverride = mkIntrinsic $ \_ sym
    (regValue -> mem)
    (regValue -> x)
@@ -944,7 +944,7 @@ ptrLeOverride = mkIntrinsic $ \_ sym
       let py = translatePtr y
       ptrLe sym ptrWidth px py
 
-ptrIsNullOverride :: IntrinsicImpl sym (EmptyCtx ::> LLVMPointerType) BoolType
+ptrIsNullOverride :: IntrinsicImpl p sym (EmptyCtx ::> LLVMPointerType) BoolType
 ptrIsNullOverride = mkIntrinsic $ \_ sym
   (regValue -> x) -> liftIO $ ptrIsNull sym x
 

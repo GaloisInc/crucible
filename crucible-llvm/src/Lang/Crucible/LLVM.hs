@@ -22,13 +22,14 @@ import           Lang.Crucible.Core
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.MemModel
+import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
-import           Lang.Crucible.Simulator.MSSim
+import           Lang.Crucible.Simulator.OverrideSim
 
 
 registerModuleFn
    :: (L.Symbol, AnyCFG)
-   -> MSSim sym rtp l a ()
+   -> OverrideSim p sym rtp l a ()
 registerModuleFn (_,AnyCFG cfg) = do
   let h = cfgHandle cfg
       s = UseCFG cfg (postdomInfo cfg)
