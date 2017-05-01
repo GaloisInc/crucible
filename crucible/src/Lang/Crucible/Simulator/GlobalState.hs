@@ -23,9 +23,6 @@ import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Solver.Interface
 
-type MuxFn p v = p -> v -> v -> IO v
-
-
 newtype GlobalEntry (sym :: *) (tp :: CrucibleType) = GlobalEntry { globalEntryValue :: RegValue sym tp }
 
 ------------------------------------------------------------------------

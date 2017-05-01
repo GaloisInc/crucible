@@ -88,10 +88,11 @@ library
     Lang.Crucible.Simulator.CallFrame
     Lang.Crucible.Simulator.Evaluation
     Lang.Crucible.Simulator.ExecutionTree
+    Lang.Crucible.Simulator.Frame
     Lang.Crucible.Simulator.Intrinsics
     Lang.Crucible.Simulator.GlobalState
     Lang.Crucible.Simulator.MatlabValue
-    Lang.Crucible.Simulator.MSSim
+    Lang.Crucible.Simulator.OverrideSim
     Lang.Crucible.Simulator.RegMap
     Lang.Crucible.Simulator.RegValue
     Lang.Crucible.Simulator.VarRecord

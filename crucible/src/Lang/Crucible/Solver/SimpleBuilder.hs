@@ -911,7 +911,7 @@ pathState :: Simple Lens (SimpleBuilderPathState st) st
 pathState = lens _pathState (\s v -> s { _pathState = v })
 
 instance HasProgramLoc (SimpleBuilderPathState st) where
-  setProgramLoc l s = s { sbpsLoc = l }
+  programLoc = lens sbpsLoc (\s l -> s { sbpsLoc = l })
 
 ------------------------------------------------------------------------
 -- SymbolVarBimap

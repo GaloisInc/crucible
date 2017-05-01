@@ -21,7 +21,6 @@
 module Lang.Crucible.ProgramLoc
   ( Position(..)
   , startOfFile
-  , buildPosition
   , ppNoFileName
   , Posd(..)
   , ProgramLoc
@@ -34,11 +33,9 @@ module Lang.Crucible.ProgramLoc
   ) where
 
 import           Control.DeepSeq
-import           Data.Monoid
+import           Control.Lens
 import           Data.Text (Text)
 import qualified Data.Text as Text
-import qualified Data.Text.Lazy.Builder as B
-import qualified Data.Text.Lazy.Builder.Int as B
 import           Data.Word
 import           Numeric (showHex)
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
@@ -88,16 +85,6 @@ ppNoFileName (BinaryPos _ addr) =
   PP.text (showHex addr "")
 ppNoFileName InternalPos = PP.text "internal"
 
-buildPosition :: Position -> B.Builder
-buildPosition (SourcePos path l c) =
-  B.fromText path
-  <> B.fromString ":" <> B.decimal l
-  <> B.fromString ":" <> B.decimal c
-buildPosition (BinaryPos path addr) =
-  B.fromText path
-  <> B.fromString ":" <> B.decimal addr
-buildPosition InternalPos = B.fromString "internal"
-
 ------------------------------------------------------------------------
 -- Posd
 
@@ -134,4 +121,6 @@ mkProgramLoc = ProgramLoc
 -- HasProgramLoc
 
 class HasProgramLoc v where
-  setProgramLoc :: ProgramLoc -> v -> v
+  programLoc :: Simple Lens v ProgramLoc
+--  getProgramLoc :: v -> ProgramLoc
+--  setProgramLoc :: ProgramLoc -> v -> v

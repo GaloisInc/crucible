@@ -47,7 +47,6 @@ import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.TraversableFC
 
 import           Lang.Crucible.Core (Reg(..))
-import           Lang.Crucible.Simulator.ExecutionTree (MuxFn)
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Solver.Interface

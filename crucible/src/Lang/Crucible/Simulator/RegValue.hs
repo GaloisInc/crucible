@@ -25,6 +25,7 @@ module Lang.Crucible.Simulator.RegValue
   , CanMux(..)
   , RegValue'(..)
   , VariantBranch(..)
+  , MuxFn
 
     -- * Register values
   , AnyValue(..)
@@ -66,11 +67,12 @@ import qualified Lang.MATLAB.MultiDimArray as MDA
 
 import           Lang.Crucible.FunctionHandle (FnHandle, handleName, RefCell)
 import           Lang.Crucible.FunctionName
-import           Lang.Crucible.Simulator.ExecutionTree (MuxFn)
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.Types
+
+type MuxFn p v = p -> v -> v -> IO v
 
 -- | Maps register types to the associated value.
 type family RegValue (sym :: *) (tp :: CrucibleType) :: * where
