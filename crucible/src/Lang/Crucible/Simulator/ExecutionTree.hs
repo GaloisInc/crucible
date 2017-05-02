@@ -450,7 +450,7 @@ data ValueFromFrame p sym (root :: *) f where
              => !(ValueFromFrame p sym ret f)
              -> !(Pred sym)
              -> !(AbortedResult sym)
-             -> !Bool -- ^ should we abort the sibling branch when it merges with us?
+             -> !Bool -- should we abort the sibling branch when it merges with us?
              -> ValueFromFrame p sym ret f
 
   -- VFFEnd denotes that when the function terminates we should just return
