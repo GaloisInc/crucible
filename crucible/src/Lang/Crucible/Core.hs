@@ -278,6 +278,12 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   RealSub :: !(f RealValType) -> !(f RealValType) -> App f RealValType
   -- Multiple two numbers.
   RealMul :: !(f RealValType) -> !(f RealValType) -> App f RealValType
+  -- Divide two numbers.
+  RealDiv :: !(f RealValType) -> !(f RealValType) -> App f RealValType
+  -- Compute the "real modulus", which is @x - y * floor(x ./ y)@ when
+  -- @y@ is not zero and @x@ when @y@ is zero.
+  RealMod :: !(f RealValType) -> !(f RealValType) -> App f RealValType
+
   -- Return first or second number depending on condition.
   RealIte :: !(f BoolType) -> !(f RealValType) -> !(f RealValType) -> App f RealValType
 
@@ -360,6 +366,11 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
                  -> !(f tp)
                  -> App f (VectorType tp)
 
+  -- Cons an element onto the front of the vector
+  VectorCons :: !(TypeRepr tp)
+             -> !(f tp)
+             -> !(f (VectorType tp))
+             -> App f (VectorType tp)
 
   -----------------------------
   -- SymbolicMultiDimArray
@@ -1011,6 +1022,18 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
            -> !(f BoolType)
            -> App f (BVType w)
 
+  -- Return the unsigned value of the given bitvector as an integer
+  BvToInteger :: (1 <= w)
+              => !(NatRepr w)
+              -> !(f (BVType w))
+              -> App f IntegerType
+
+  -- Return the signed value of the given bitvector as an integer
+  SbvToInteger :: (1 <= w)
+               => !(NatRepr w)
+               -> !(f (BVType w))
+               -> App f IntegerType
+
   -- Return the unsigned value of the given bitvector as a nat
   BvToNat :: (1 <= w)
           => !(NatRepr w)
@@ -1281,7 +1304,12 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
             -> !(f (BaseToType bt))
             -> App f StringType
 
-  ----------------------------------------------------------------------
+  AppendString :: !(f StringType)
+               -> !(f StringType)
+               -> App f StringType
+
+
+----------------------------------------------------------------------
   -- Arrays (supporting symbolic operations)
 
   SymArrayLookup   :: !(BaseTypeRepr b)
@@ -1353,6 +1381,8 @@ appType a0 =
     RealAdd{} -> knownRepr
     RealSub{} -> knownRepr
     RealMul{} -> knownRepr
+    RealDiv{} -> knownRepr
+    RealMod{} -> knownRepr
     RealIte{} -> knownRepr
     RealEq{} -> knownRepr
     RealLt{} -> knownRepr
@@ -1377,12 +1407,13 @@ appType a0 =
 
     ----------------------------------------------------------------------
     -- Vector
-    VectorLit tp _ -> VectorRepr tp
-    VectorReplicate tp _ _ -> VectorRepr tp
-    VectorIsEmpty{} -> knownRepr
-    VectorSize{} -> knownRepr
-    VectorGetEntry tp _ _ -> tp
-    VectorSetEntry tp _ _ _ -> VectorRepr tp
+    VectorIsEmpty{}          -> knownRepr
+    VectorSize{}             -> knownRepr
+    VectorLit       tp _     -> VectorRepr tp
+    VectorReplicate tp _ _   -> VectorRepr tp
+    VectorGetEntry  tp _ _   -> tp
+    VectorSetEntry  tp _ _ _ -> VectorRepr tp
+    VectorCons      tp _ _   -> VectorRepr tp
 
     ----------------------------------------------------------------------
     -- SymbolicMultiDimArray
@@ -1590,6 +1621,8 @@ appType a0 =
 
     BoolToBV w _ -> BVRepr w
     BvToNat{} -> knownRepr
+    BvToInteger{} -> knownRepr
+    SbvToInteger{} -> knownRepr
     BVNonzero{} -> knownRepr
     BVSelect _ n _ _ -> BVRepr n
     BVConcat w1 w2 _ _ -> BVRepr (addNat w1 w2)
@@ -1690,6 +1723,7 @@ appType a0 =
     TextLit{} -> knownRepr
     AssignmentText{} -> knownRepr
     ShowValue{} -> knownRepr
+    AppendString{} -> knownRepr
 
     ------------------------------------------------------------------------
     -- Introspection
