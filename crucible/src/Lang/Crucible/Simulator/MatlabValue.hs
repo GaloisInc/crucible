@@ -413,12 +413,15 @@ valueDimIsScalar sym val =
     Right d -> symDimIsScalar sym (SMDA.symDimToVector d)
 
 symDimAt :: IsExprBuilder sym => sym -> V.Vector (SymNat sym) -> Nat -> IO (SymNat sym)
+symDimAt _ _ 0 = error "symDimAt expects a positive number."
 symDimAt sym v n =
-  case v V.!? fromIntegral n of
+  case v V.!? fromIntegral (n-1) of
     Just r -> return r
     Nothing -> natLit sym 1
 
 -- | Return number of dimensions at given position.
+--
+-- The index for the position in 1-based.
 valueDimAt :: IsExprBuilder sym => sym -> Value sym -> Nat -> IO (SymNat sym)
 valueDimAt sym val n =
   case valueDim val of
@@ -433,8 +436,8 @@ valueDimIsVector sym val =
     Right d -> do
       let v = SMDA.symDimToVector d
       one <- natLit sym 1
-      r1 <- natEq sym one =<< symDimAt sym v 0
-      c1 <- natEq sym one =<< symDimAt sym v 1
+      r1 <- natEq sym one =<< symDimAt sym v 1
+      c1 <- natEq sym one =<< symDimAt sym v 2
       p0 <- orPred sym r1 c1
       p1 <- symDimIsScalar sym (V.drop 2 v)
       andPred sym p0 p1
