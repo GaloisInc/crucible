@@ -441,9 +441,9 @@ evaluateElt sym sc cache = f
                   fail $ "SAWCore backend only currently supports integer and bitvector indices."
 
         SB.NatDiv{} -> nyi -- FIXME
-        SB.NatToInteger{} -> nyi -- FIXME
+        SB.NatToInteger x -> SAWElt <$> (SC.scNatToInt sc =<< f x)
         SB.IntegerToNat{} -> nyi -- FIXME
-        SB.IntegerToReal{} -> nyi -- FIXME
+        SB.IntegerToReal x -> IntToRealSAWElt <$> f x
         SB.RealToInteger{} -> nyi -- FIXME
         SB.BVToInteger{} -> nyi -- FIXME
         SB.IntegerToSBV{} -> nyi -- FIXME
