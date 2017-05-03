@@ -58,7 +58,6 @@ module Lang.Crucible.LLVM.MemModel.Generic where
 
 import Control.Lens
 import Control.Monad
-import Control.Monad.IO.Class
 import Data.IORef
 import Data.Maybe
 import qualified Data.Map as Map
@@ -103,116 +102,110 @@ data MemWrite p c t
 
 -- | This provides functions for manipulating symbolic addresses, propositions, and
 -- values.
-data TermGenerator m p c t = TG {
+data TermGenerator p c t = TG {
          tgPtrWidth :: Size
 
-       , tgPtrDecompose :: p -> m (AddrDecomposeResult p)
-       , tgPtrSizeDecompose :: p -> m (Maybe Integer)
+       , tgPtrDecompose :: p -> IO (AddrDecomposeResult p)
+       , tgPtrSizeDecompose :: p -> IO (Maybe Integer)
 
-       , tgConstPtr :: Size -> m p
-       , tgAddPtr :: p -> p -> m p
+       , tgConstPtr :: Size -> IO p
+       , tgAddPtr :: p -> p -> IO p
          -- | Adds two pointers, returning value along with condition
          -- that holds if arithmetic did not overflow.
-       , tgCheckedAddPtr :: p -> p -> m (c,p)
-       , tgSubPtr :: p -> p -> m p
+       , tgCheckedAddPtr :: p -> p -> IO (c,p)
+       , tgSubPtr :: p -> p -> IO p
 
        , tgFalse :: c
        , tgTrue :: c
-       , tgPtrEq :: p -> p -> m c
-       , tgPtrLe :: p -> p -> m c
-       , tgAnd :: c -> c -> m c
-       , tgOr  :: c -> c -> m c
-       , tgMuxCond :: c -> c -> c -> m c
+       , tgPtrEq :: p -> p -> IO c
+       , tgPtrLe :: p -> p -> IO c
+       , tgAnd :: c -> c -> IO c
+       , tgOr  :: c -> c -> IO c
+       , tgMuxCond :: c -> c -> c -> IO c
 
-       , tgUndefValue :: Type -> m t
-       , tgApplyCtorF  :: ValueCtorF t -> m t
-       , tgApplyViewF  :: ViewF t -> m t
-       , tgMuxTerm :: c -> Type -> t -> t -> m t
+       , tgUndefValue :: Type -> IO t
+       , tgApplyCtorF  :: ValueCtorF t -> IO t
+       , tgApplyViewF  :: ViewF t -> IO t
+       , tgMuxTerm :: c -> Type -> t -> t -> IO t
        }
 
-tgAddPtrC :: Monad m => TermGenerator m p c t -> p -> Addr -> m p
+tgAddPtrC :: TermGenerator p c t -> p -> Addr -> IO p
 tgAddPtrC tg x y = tgAddPtr tg x =<< tgConstPtr tg y
 
-tgApplyValueF :: TermGenerator m p c t -> ValueF p -> m p
+tgApplyValueF :: TermGenerator p c t -> ValueF p -> IO p
 tgApplyValueF tg (Add x y) = tgAddPtr tg x y
 tgApplyValueF tg (Sub x y) = tgSubPtr tg x y
 tgApplyValueF tg (CValue c) = tgConstPtr tg (fromInteger c)
 
-badLoad :: Monad m => TermGenerator m p c t -> Type -> m (c,t)
+badLoad :: TermGenerator p c t -> Type -> IO (c,t)
 badLoad tg tp = (tgFalse tg,) <$> tgUndefValue tg tp
 
-genValue :: Monad m => TermGenerator m p c t -> (v -> p) -> Value v -> m p
+genValue :: TermGenerator p c t -> (v -> p) -> Value v -> IO p
 genValue tg f = foldTermM (return . f) (tgApplyValueF tg)
 
-genCondVar :: Monad m => TermGenerator m p c t -> (v -> p) -> Cond v -> m c
+genCondVar :: TermGenerator p c t -> (v -> p) -> Cond v -> IO c
 genCondVar tg f c =
   case c of
     Eq x y  -> join $ tgPtrEq tg <$> genValue tg f x <*> genValue tg f y
     Le x y  -> join $ tgPtrLe tg <$> genValue tg f x <*> genValue tg f y
     And x y -> join $ tgAnd tg <$> genCondVar tg f x <*> genCondVar tg f y
 
-genValueCtor :: Monad m
-             => TermGenerator m p c t -> ValueCtor t -> m t
+genValueCtor :: TermGenerator p c t -> ValueCtor t -> IO t
 genValueCtor tg = foldTermM return (tgApplyCtorF tg)
 
-applyView :: Monad m
-          => TermGenerator m p c t -> t -> ValueView Type -> m t
+applyView :: TermGenerator p c t -> t -> ValueView Type -> IO t
 applyView tg t = foldTermM (\_ -> return t) (tgApplyViewF tg)
 
 -- | Join all conditions in fold together.
-tgAll :: Monad m
-      => TermGenerator m p c t
-      -> Getting (Dual (Endo (c -> m c))) s c
+tgAll :: TermGenerator p c t
+      -> Getting (Dual (Endo (c -> IO c))) s c
       -> s
-      -> m c
+      -> IO c
 tgAll tg fld = foldrMOf fld (tgAnd tg) (tgTrue tg)
 
-tgMuxPair :: Applicative m
-          => TermGenerator m p c t
+tgMuxPair :: TermGenerator p c t
           -> c
           -> Type
           -> (c,t)
           -> (c,t)
-          -> m (c,t)
+          -> IO (c,t)
 tgMuxPair tg c tp (xc,xt) (yc,yt) =
   (,) <$> tgMuxCond tg c xc yc
       <*> tgMuxTerm tg c tp xt yt
 
-evalValueCtor :: Monad m
-              => TermGenerator m p c t
+evalValueCtor :: TermGenerator p c t
               -> ValueCtor (c,t)
-              -> m (c,t)
+              -> IO (c,t)
 evalValueCtor tg vc =
    (,) <$> tgAll tg (traverse . _1) vc
        <*> genValueCtor tg (snd <$> vc)
 
-evalMuxValueCtor :: forall m u p c t .
-                    Monad m
-                 => TermGenerator m p c t
+evalMuxValueCtor :: forall u p c t .
+                    TermGenerator p c t
                     -- Type for value returned
                  -> Type
                     -- Evaluation function
                  -> (Var -> p)
                     -- Function for reading specific subranges.
-                 -> (u -> m (c,t))
+                 -> (u -> IO (c,t))
                  -> Mux (Cond Var) (ValueCtor u)
-                 -> m (c,t)
+                 -> IO (c,t)
 evalMuxValueCtor tg tp vf subFn t =
   reduceMux (\c -> tgMuxPair tg c tp)
     =<< muxLeaf (evalValueCtor tg)
     =<< muxCond (genCondVar tg vf)
     =<< muxLeaf (traverse subFn) t
 
-readMemCopy :: forall m p c t .
-               (MonadIO m, Eq p)
-            => TermGenerator m p c t
+readMemCopy :: forall p c t .
+               (Eq p)
+            => TermGenerator p c t
             -> (p, AddrDecomposeResult p)
             -> Type
             -> (p, AddrDecomposeResult p)
             -> p
             -> (p,Maybe Integer)
-            -> (Type -> (p, AddrDecomposeResult p) -> m (c,t))
-            -> m (c,t)
+            -> (Type -> (p, AddrDecomposeResult p) -> IO (c,t))
+            -> IO (c,t)
 readMemCopy tg (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
   let varFn :: Var -> p
       varFn Load = l
@@ -225,7 +218,7 @@ readMemCopy tg (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
       , ConcreteOffset sv so
       )
       | lv == sv -> do
-      let subFn :: RangeLoad Addr -> m (c,t)
+      let subFn :: RangeLoad Addr -> IO (c,t)
           subFn (OutOfRange o tp') = readPrev tp' =<< tgAddPtrC tg lv o
           subFn (InRange    o tp') = readPrev tp' =<< tgAddPtrC tg src o
       case szd of
@@ -242,7 +235,7 @@ readMemCopy tg (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
       , lv /= sv -> readPrev' tp (l,ld)
       -- Symbolic offsets
     _ -> do
-      let subFn :: RangeLoad (Value Var) -> m (c,t)
+      let subFn :: RangeLoad (Value Var) -> IO (c,t)
           subFn (OutOfRange o tp') =
             readPrev tp' =<< genValue tg varFn o
           subFn (InRange o tp') =
@@ -256,9 +249,9 @@ readMemCopy tg (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
                    symbolicRangeLoad pref tp
       evalMuxValueCtor tg tp varFn subFn mux0
 
-readMemStore :: forall m p c t .
-               (MonadIO m, Eq p)
-            => TermGenerator m p c t
+readMemStore :: forall p c t .
+               (Eq p)
+            => TermGenerator p c t
             -> (p,AddrDecomposeResult p)
                -- ^ The loaded address and information
             -> Type
@@ -269,9 +262,9 @@ readMemStore :: forall m p c t .
                -- ^ The value that was stored.
             -> Type
                -- ^ The type of value that was written.
-            -> (Type -> (p, AddrDecomposeResult p) -> m (c,t))
+            -> (Type -> (p, AddrDecomposeResult p) -> IO (c,t))
                -- ^ A callback function for when reading fails.
-            -> m (c,t)
+            -> IO (c,t)
 readMemStore tg (l,ld) ltp (d,dd) t stp readPrev' = do
   ssz <- tgConstPtr tg (typeSize stp)
   let varFn :: Var -> p
@@ -285,7 +278,7 @@ readMemStore tg (l,ld) ltp (d,dd) t stp readPrev' = do
       , ConcreteOffset sv so
       )
       | lv == sv -> do
-      let subFn :: ValueLoad Addr -> m (c,t)
+      let subFn :: ValueLoad Addr -> IO (c,t)
           subFn (OldMemory o tp')   = readPrev tp' =<< tgAddPtrC tg lv o
           subFn (LastStore v)       = (tgTrue tg,) <$> applyView tg t v
           subFn (InvalidMemory tp') = badLoad tg tp'
@@ -297,7 +290,7 @@ readMemStore tg (l,ld) ltp (d,dd) t stp readPrev' = do
       , lv /= sv -> readPrev' ltp (l,ld)
       -- Symbolic offsets
     _ -> do
-      let subFn :: ValueLoad (Value Var) -> m (c,t)
+      let subFn :: ValueLoad (Value Var) -> IO (c,t)
           subFn (OldMemory o tp')   = do
                      readPrev tp' =<< genValue tg varFn o
           subFn (LastStore v)       = do
@@ -309,12 +302,12 @@ readMemStore tg (l,ld) ltp (d,dd) t stp readPrev' = do
       evalMuxValueCtor tg ltp varFn subFn $
         symbolicValueLoad pref ltp (Var stp)
 
-readMem :: (MonadIO m, Ord p)
-        => TermGenerator m p c t
+readMem :: (Ord p)
+        => TermGenerator p c t
         -> p
         -> Type
         -> Mem p c t
-        -> m (c,t)
+        -> IO (c,t)
 readMem tg l tp m = do
   ld <- tgPtrDecompose tg l
   readMem' tg (l,ld) tp (memWrites m)
@@ -323,26 +316,26 @@ readMem tg l tp m = do
 --
 -- This represents a predicate indicating if the read was successful, and the value
 -- read (which may be anything if read was unsuccessful).
-readMem' :: (MonadIO m, Ord p)
-         => TermGenerator m p c t
+readMem' :: (Ord p)
+         => TermGenerator p c t
             -- ^ Functions for primitive operations on addresses, propositions, and values.
          -> (p, AddrDecomposeResult p)
-            -- Address we are reading along with information about how it was constructed.
+            -- ^ Address we are reading along with information about how it was constructed.
          -> Type
-            -- The type to read from memory.
+            -- ^ The type to read from memory.
          -> [MemWrite p c t]
-            -- List of writes.
-         -> m (c,t)
+            -- ^ List of writes.
+         -> IO (c,t)
 readMem' tg _ tp [] = badLoad tg tp
 readMem' tg l tp (h:r) = do
-  cache <- liftIO $ newIORef Map.empty
+  cache <- newIORef Map.empty
   let readPrev tp' l' = do
-        m <- liftIO $ readIORef cache
+        m <- readIORef cache
         case Map.lookup (tp',fst l') m of
           Just x -> return x
           Nothing -> do
             x <- readMem' tg l' tp' r
-            liftIO $ writeIORef cache $ Map.insert (tp',fst l') x m
+            writeIORef cache $ Map.insert (tp',fst l') x m
             return x
   case h of
     MemCopy dst src sz -> do
@@ -415,13 +408,12 @@ emptyMem :: Mem p c t
 emptyMem = Mem { _memState = EmptyMem emptyChanges
                }
 
-isAllocated' :: Monad m
-             => TermGenerator m p c t
+isAllocated' :: TermGenerator p c t
                 -- ^ Evaluation function that takes continuation
                 -- for condition if previous check fails.
-             -> (p -> p -> m c -> m c)
+             -> (p -> p -> IO c -> IO c)
              -> [MemAlloc p c]
-             -> m c
+             -> IO c
 isAllocated' tg _ [] = pure (tgFalse tg)
 isAllocated' tg step (Alloc _ a asz:r) = do
   step a asz (isAllocated' tg step r)
@@ -434,8 +426,8 @@ isAllocated' tg step (AllocMerge c xr yr:r) =
 -- | @offsetisAllocated tg b o sz m@ returns condition required to prove range
 -- @[b+o..b+o+sz)@ lays within a single allocation in @m@.  This code assumes
 -- @sz@ is non-zero, and @b+o@ does not overflow.
-offsetIsAllocated :: (Monad m, Eq p)
-                  => TermGenerator m p c t -> p -> p -> p -> Mem p c t -> m c
+offsetIsAllocated :: (Eq p)
+                  => TermGenerator p c t -> p -> p -> p -> Mem p c t -> IO c
 offsetIsAllocated tg t o sz m = do
   (oc, oe) <- tgCheckedAddPtr tg o sz
   let step a asz fallback
@@ -444,8 +436,8 @@ offsetIsAllocated tg t o sz m = do
         | otherwise = fallback
   tgAnd tg oc =<< isAllocated' tg step (memAllocs m)
 
-isAllocated :: (Monad m, Eq p)
-            => TermGenerator m p c t -> p -> p -> Mem p c t -> m c
+isAllocated :: (Eq p)
+            => TermGenerator p c t -> p -> p -> Mem p c t -> IO c
 isAllocated tg p sz m = do
   ld <- tgPtrDecompose tg p
   case ld of
@@ -472,45 +464,44 @@ isAllocated tg p sz m = do
 --   allocation range of the allocation (loading through it will fail) it is
 --   nonetheless a valid pointer value.  This strange special case is baked into
 --   the C standard to allow certain common coding patterns to be defined.
-isValidPointer :: (Monad m, Eq p)
-        => TermGenerator m p c t -> p -> Mem p c t -> m c
+isValidPointer :: (Eq p)
+        => TermGenerator p c t -> p -> Mem p c t -> IO c
 isValidPointer tg p m = do
    sz <- tgConstPtr tg 0
    isAllocated tg p sz m
  -- NB We call isAllocated with a size of 0.  This is a violation of the usual rules, but gives
- -- precicely what we need for the valid pointer check.
+ -- precisely what we need for the valid pointer check.
 
-writeMem :: (Monad m, Eq p)
-         => TermGenerator m p c t
+writeMem :: (Eq p)
+         => TermGenerator p c t
          -> p
          -> Type
          -> t
          -> Mem p c t
-         -> m (c,Mem p c t)
+         -> IO (c, Mem p c t)
 writeMem tg p tp v m = do
   (,) <$> (do sz <- tgConstPtr tg (typeEnd 0 tp)
               isAllocated tg p sz m)
       <*> writeMem' tg p tp v m
 
 -- | Write memory without checking if it is allocated.
-writeMem' :: Monad m
-          => TermGenerator m p c t
+writeMem' :: TermGenerator p c t
           -> p
           -> Type
           -> t
           -> Mem p c t
-          -> m (Mem p c t)
+          -> IO (Mem p c t)
 writeMem' tg p tp v m = addWrite <$> tgPtrDecompose tg p
   where addWrite pd = m & memAddWrite (MemStore (p,pd) v tp)
 
 -- | Perform a mem copy.
-copyMem :: (Monad m, Eq p)
-         => TermGenerator m p c t
+copyMem :: (Eq p)
+         => TermGenerator p c t
          -> p -- ^ Dest
          -> p -- ^ Source
          -> p -- ^ Size
          -> Mem p c t
-         -> m (c,Mem p c t)
+         -> IO (c, Mem p c t)
 copyMem tg dst src sz m = do
   (,) <$> (join $ tgAnd tg <$> isAllocated tg dst sz m
                            <*> isAllocated tg src sz m)
@@ -528,14 +519,13 @@ allocMem :: AllocType -- ^ Type of allocation
 allocMem a b sz = memAddAlloc (Alloc a b sz)
 
 -- | Allocate space for memory
-allocAndWriteMem :: Monad m
-                 => TermGenerator m p c t
+allocAndWriteMem :: TermGenerator p c t
                  -> AllocType -- ^ Type of allocation
                  -> p -- ^ Base for allocation
                  -> Type
                  -> t -- Value to write
                  -> Mem p c t
-                 -> m (Mem p c t)
+                 -> IO (Mem p c t)
 allocAndWriteMem tg a b tp v m = do
   sz <- tgConstPtr tg (typeEnd 0 tp)
   writeMem' tg b tp v (m & memAddAlloc (Alloc a b sz))
@@ -566,12 +556,12 @@ popStackFrameMem m = m & memState %~ popf
         pa a@(Alloc GlobalAlloc _ _) = Just a
         pa (AllocMerge c x y) = Just (AllocMerge c (mapMaybe pa x) (mapMaybe pa y))
 
-freeMem :: forall m p c t
-         . (Monad m, Eq p)
-        => TermGenerator m p c t
+freeMem :: forall p c t
+         . (Eq p)
+        => TermGenerator p c t
         -> p -- ^ Base of allocation to free
         -> Mem p c t
-        -> m (c, Mem p c t)
+        -> IO (c, Mem p c t)
 freeMem tg p m = do
   p' <- tgPtrDecompose tg p
   freeMem' tg p p' m
@@ -579,18 +569,18 @@ freeMem tg p m = do
 -- FIXME? This could perhaps be more efficent.  Right now we
 -- will traverse almost the entire memory on every free, even
 -- if we concretely find the corresponding allocation early.
-freeMem' :: forall m p c t
-         . (Monad m, Eq p)
-        => TermGenerator m p c t
+freeMem' :: forall p c t
+         . (Eq p)
+        => TermGenerator p c t
         -> p
         -> AddrDecomposeResult p -- ^ Base of allocation to free
         -> Mem p c t
-        -> m (c, Mem p c t)
+        -> IO (c, Mem p c t)
 freeMem' tg p p_decomp m = do
     (c, st') <- freeSt (m^.memState)
     return (c, m & memState .~ st')
  where
-  freeAllocs :: [MemAlloc p c] -> m (c, [MemAlloc p c])
+  freeAllocs :: [MemAlloc p c] -> IO (c, [MemAlloc p c])
   freeAllocs [] =
      return ( tgFalse tg , [] )
   freeAllocs (a@(Alloc HeapAlloc base _) : as) = do
@@ -645,13 +635,13 @@ freeMem' tg p p_decomp m = do
      c' <- tgOr tg c c3
      return (c', AllocMerge cm x' y' : as')
 
-  freeCh :: MemChanges p c t -> m (c, MemChanges p c t)
+  freeCh :: MemChanges p c t -> IO (c, MemChanges p c t)
   freeCh (a, w) = do
       (c,a') <- freeAllocs a
       return (c, (a', w))
 
   freeSt :: MemState (MemChanges p c t)
-         -> m (c, MemState (MemChanges p c t))
+         -> IO (c, MemState (MemChanges p c t))
   freeSt (StackFrame ch st) = do
             (c1,ch') <- freeCh ch
             (c2,st') <- freeSt st

@@ -1088,9 +1088,9 @@ crucibleTermGenerator
    :: (1 <= w, IsSymInterface sym)
    => sym
    -> NatRepr w
-   -> G.TermGenerator IO (LLVMPtrExpr (SymExpr sym) w)
-                         (Pred sym)
-                         (PartExpr (Pred sym) (LLVMVal sym w))
+   -> G.TermGenerator (LLVMPtrExpr (SymExpr sym) w)
+                      (Pred sym)
+                      (PartExpr (Pred sym) (LLVMVal sym w))
 crucibleTermGenerator sym w =
    G.TG
    { G.tgPtrWidth = fromIntegral $ natValue w
