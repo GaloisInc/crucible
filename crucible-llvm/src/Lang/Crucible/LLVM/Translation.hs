@@ -1739,7 +1739,10 @@ generateInstr retType lab instr assign_f k =
                           return $ App (C.RealSub a b)
                         L.FMul -> do
                           return $ App (C.RealMul a b)
-                            -- FIXME, implement remaining floating-point operations: FDiv and FRem
+                        L.FDiv -> do
+                          return $ App (C.RealDiv a b)
+                        L.FRem -> do
+                          return $ App (C.RealMod a b)
                         _ -> fail $ unwords ["unsupported floating-point arith operation", show op, show x, show y]
 
            x' <- transTypedValue x
