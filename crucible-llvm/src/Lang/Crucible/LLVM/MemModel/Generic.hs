@@ -66,15 +66,9 @@ import qualified Data.Vector as V
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import Lang.Crucible.LLVM.MemModel.Common
+import Lang.Crucible.LLVM.MemModel.Pointer
 
 --import Debug.Trace as Debug
-
--- | This provides a view of an address as a base + offset when possible.
-data AddrDecomposeResult t
-   = Symbolic t
-   | ConcreteOffset t Integer
-   | SymbolicOffset t t
-  deriving (Show)
 
 adrVar :: AddrDecomposeResult t -> Maybe t
 adrVar Symbolic{} = Nothing
@@ -99,35 +93,6 @@ data MemWrite p c t
   | MemStore (p,AddrDecomposeResult p) t Type
     -- | The merger of two memories.
   | WriteMerge c [MemWrite p c t] [MemWrite p c t]
-
--- | This provides functions for manipulating symbolic addresses, propositions, and
--- values.
-data TermGenerator p c t = TG {
-         tgPtrWidth :: Size
-
-       , tgPtrDecompose :: p -> IO (AddrDecomposeResult p)
-       , tgPtrSizeDecompose :: p -> IO (Maybe Integer)
-
-       , tgConstPtr :: Size -> IO p
-       , tgAddPtr :: p -> p -> IO p
-         -- | Adds two pointers, returning value along with condition
-         -- that holds if arithmetic did not overflow.
-       , tgCheckedAddPtr :: p -> p -> IO (c,p)
-       , tgSubPtr :: p -> p -> IO p
-
-       , tgFalse :: c
-       , tgTrue :: c
-       , tgPtrEq :: p -> p -> IO c
-       , tgPtrLe :: p -> p -> IO c
-       , tgAnd :: c -> c -> IO c
-       , tgOr  :: c -> c -> IO c
-       , tgMuxCond :: c -> c -> c -> IO c
-
-       , tgUndefValue :: Type -> IO t
-       , tgApplyCtorF  :: ValueCtorF t -> IO t
-       , tgApplyViewF  :: ViewF t -> IO t
-       , tgMuxTerm :: c -> Type -> t -> t -> IO t
-       }
 
 tgAddPtrC :: TermGenerator p c t -> p -> Addr -> IO p
 tgAddPtrC tg x y = tgAddPtr tg x =<< tgConstPtr tg y
