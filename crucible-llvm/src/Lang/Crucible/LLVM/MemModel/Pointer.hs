@@ -38,6 +38,9 @@ import           Lang.Crucible.Solver.Partial
 import qualified Lang.Crucible.LLVM.MemModel.Common as G
 
 
+type LLVMPtrExpr' sym w = LLVMPtrExpr (SymExpr sym) w
+type PartLLVMVal sym w = PartExpr (Pred sym) (LLVMVal sym w)
+
 -- | This provides a view of an address as a base + offset when possible.
 data AddrDecomposeResult t
    = Symbolic t
@@ -126,9 +129,9 @@ crucibleTermGenerator
    :: (1 <= w, IsSymInterface sym)
    => sym
    -> NatRepr w
-   -> TermGenerator (LLVMPtrExpr (SymExpr sym) w)
+   -> TermGenerator (LLVMPtrExpr' sym w)
                     (Pred sym)
-                    (PartExpr (Pred sym) (LLVMVal sym w))
+                    (PartLLVMVal sym w)
 crucibleTermGenerator sym w =
   TG
   { tgPtrWidth = fromIntegral $ natValue w
@@ -158,8 +161,8 @@ crucibleTermGenerator sym w =
 ptrDecompose :: (1 <= w, IsExprBuilder sym)
              => sym
              -> NatRepr w
-             -> LLVMPtrExpr (SymExpr sym) w
-             -> IO (AddrDecomposeResult (LLVMPtrExpr (SymExpr sym) w))
+             -> LLVMPtrExpr' sym w
+             -> IO (AddrDecomposeResult (LLVMPtrExpr' sym w))
 ptrDecompose sym w (LLVMPtr base@(asNat -> Just _) end (asUnsignedBV -> Just off)) =
   do z <- bvLit sym w 0
      return (ConcreteOffset (LLVMPtr base end z) off)
@@ -175,7 +178,7 @@ ptrSizeDecompose
   :: IsExprBuilder sym
   => sym
   -> NatRepr w
-  -> LLVMPtrExpr (SymExpr sym) w
+  -> LLVMPtrExpr' sym w
   -> IO (Maybe Integer)
 ptrSizeDecompose _ _ (LLVMOffset (asUnsignedBV -> Just off)) =
   return (Just off)
@@ -185,8 +188,8 @@ ptrSizeDecompose _ _ _ = return Nothing
 ptrEq :: (1 <= w, IsSymInterface sym)
       => sym
       -> NatRepr w
-      -> LLVMPtrExpr (SymExpr sym) w
-      -> LLVMPtrExpr (SymExpr sym) w
+      -> LLVMPtrExpr' sym w
+      -> LLVMPtrExpr' sym w
       -> IO (Pred sym)
 ptrEq sym _w (LLVMPtr base1 _ off1) (LLVMPtr base2 _ off2) =
   do putStrLn "Executing ptrEq"
@@ -215,8 +218,8 @@ ptrEq sym w (LLVMPtr _ _ _) (LLVMOffset off) =
 ptrLe :: (1 <= w, IsSymInterface sym)
       => sym
       -> NatRepr w
-      -> LLVMPtrExpr (SymExpr sym) w
-      -> LLVMPtrExpr (SymExpr sym) w
+      -> LLVMPtrExpr' sym w
+      -> LLVMPtrExpr' sym w
       -> IO (Pred sym)
 ptrLe sym _w (LLVMPtr base1 _ off1) (LLVMPtr base2 _ off2) =
   do putStrLn "Executing ptrLe"
@@ -233,9 +236,9 @@ ptrLe _ _ _ _ =
 ptrAdd :: (1 <= w, IsExprBuilder sym)
        => sym
        -> NatRepr w
-       -> LLVMPtrExpr (SymExpr sym) w
-       -> LLVMPtrExpr (SymExpr sym) w
-       -> IO (LLVMPtrExpr (SymExpr sym) w)
+       -> LLVMPtrExpr' sym w
+       -> LLVMPtrExpr' sym w
+       -> IO (LLVMPtrExpr' sym w)
 ptrAdd sym _w (LLVMPtr base end off1) (LLVMOffset off2) =
   do off' <- bvAdd sym off1 off2
      return $ LLVMPtr base end off'
@@ -252,9 +255,9 @@ ptrCheckedAdd
        :: (1 <= w, IsExprBuilder sym)
        => sym
        -> NatRepr w
-       -> LLVMPtrExpr (SymExpr sym) w
-       -> LLVMPtrExpr (SymExpr sym) w
-       -> IO (Pred sym, LLVMPtrExpr (SymExpr sym) w)
+       -> LLVMPtrExpr' sym w
+       -> LLVMPtrExpr' sym w
+       -> IO (Pred sym, LLVMPtrExpr' sym w)
 ptrCheckedAdd sym w (LLVMPtr base end off1) (LLVMOffset off2) =
   do z <- bvLit sym w 0
      (p1, off') <- addSignedOF sym off1 off2
@@ -282,9 +285,9 @@ ptrCheckedAdd _sym _w (LLVMPtr _ _ _) (LLVMPtr _ _ _) =
 ptrSub :: (1 <= w, IsSymInterface sym)
        => sym
        -> NatRepr w
-       -> LLVMPtrExpr (SymExpr sym) w
-       -> LLVMPtrExpr (SymExpr sym) w
-       -> IO (LLVMPtrExpr (SymExpr sym) w)
+       -> LLVMPtrExpr' sym w
+       -> LLVMPtrExpr' sym w
+       -> IO (LLVMPtrExpr' sym w)
 ptrSub sym _w (LLVMPtr base1 _ off1) (LLVMPtr base2 _ off2) =
   do p <- natEq sym base1 base2
      addAssertion sym p (AssertFailureSimError "Attempted to subtract pointers from different allocations")
@@ -304,8 +307,8 @@ applyCtorFLLVMVal :: forall sym w
     . (1 <= w, IsSymInterface sym)
    => sym
    -> NatRepr w
-   -> G.ValueCtorF (PartExpr (Pred sym) (LLVMVal sym w))
-   -> IO (PartExpr (Pred sym) (LLVMVal sym w))
+   -> G.ValueCtorF (PartLLVMVal sym w)
+   -> IO (PartLLVMVal sym w)
 applyCtorFLLVMVal sym _w ctor =
   case ctor of
     G.ConcatBV low_w  (PE p1 (LLVMValInt low_w' low))
@@ -327,7 +330,7 @@ applyCtorFLLVMVal sym _w ctor =
            do p <- andPred sym p1 p2
               return $ PE p $ LLVMValArray tp (v1 V.++ v2)
     G.MkArray tp vec ->
-      do let f :: PartExpr (Pred sym) (LLVMVal sym w) -> StateT (Pred sym) (MaybeT IO) (LLVMVal sym w)
+      do let f :: PartLLVMVal sym w -> StateT (Pred sym) (MaybeT IO) (LLVMVal sym w)
              f Unassigned = mzero
              f (PE p1 x) =
                do p0 <- get
@@ -340,7 +343,7 @@ applyCtorFLLVMVal sym _w ctor =
            Just (vec',p) -> return $ PE p $ LLVMValArray tp vec'
 
     G.MkStruct vec ->
-      do let f :: (G.Field G.Type, PartExpr (Pred sym) (LLVMVal sym w))
+      do let f :: (G.Field G.Type, PartLLVMVal sym w)
                -> StateT (Pred sym) (MaybeT IO) (G.Field G.Type, LLVMVal sym w)
              f (_fld, Unassigned) = mzero
              f (fld, PE p1 x) = do
@@ -365,8 +368,8 @@ applyViewFLLVMVal
    :: (1 <= w, IsSymInterface sym)
    => sym
    -> NatRepr w
-   -> G.ViewF (PartExpr (Pred sym) (LLVMVal sym w))
-   -> IO (PartExpr (Pred sym) (LLVMVal sym w))
+   -> G.ViewF (PartLLVMVal sym w)
+   -> IO (PartLLVMVal sym w)
 applyViewFLLVMVal sym _wptr v =
   case v of
     G.SelectLowBV low hi (PE p (LLVMValInt w bv))
@@ -410,9 +413,9 @@ muxLLVMVal :: forall sym w
    => sym
    -> NatRepr w
    -> Pred sym
-   -> PartExpr (Pred sym) (LLVMVal sym w)
-   -> PartExpr (Pred sym) (LLVMVal sym w)
-   -> IO (PartExpr (Pred sym) (LLVMVal sym w))
+   -> PartLLVMVal sym w
+   -> PartLLVMVal sym w
+   -> IO (PartLLVMVal sym w)
 muxLLVMVal sym _w p = mux
   where
     mux Unassigned Unassigned = return Unassigned
