@@ -42,7 +42,6 @@ module Lang.Crucible.LLVM.MemModel
   , LLVMMemOps(..)
   , newMemOps
   , llvmMemIntrinsics
-  , crucibleTermGenerator
   , GlobalMap
   , GlobalSymbol(..)
   , allocGlobals
@@ -502,7 +501,7 @@ loadRaw :: IsSymInterface sym
         -> G.Type
         -> IO (LLVMVal sym PtrWidth)
 loadRaw sym mem ptr valType = do
-  (p,v) <- G.readMem (crucibleTermGenerator sym ptrWidth) ptr valType (memImplHeap mem)
+  (p,v) <- G.readMem sym ptrWidth ptr valType (memImplHeap mem)
   case v of
       Unassigned ->
         fail errMsg
@@ -523,7 +522,7 @@ doLoad sym mem ptr valType = do
     --putStrLn "MEM LOAD"
     let ptr' = translatePtr ptr
         errMsg = "Invalid memory load: " ++ show (ppPtr ptr)
-    (p, v) <- G.readMem (crucibleTermGenerator sym ptrWidth) ptr' valType (memImplHeap mem)
+    (p, v) <- G.readMem sym ptrWidth ptr' valType (memImplHeap mem)
     case v of
       Unassigned ->
         fail errMsg
@@ -540,7 +539,7 @@ storeRaw :: IsSymInterface sym
   -> LLVMVal sym PtrWidth
   -> IO (MemImpl sym PtrWidth)
 storeRaw sym mem ptr valType val = do
-    (p, heap') <- G.writeMem (crucibleTermGenerator sym ptrWidth) ptr valType (PE (truePred sym) val) (memImplHeap mem)
+    (p, heap') <- G.writeMem sym ptrWidth ptr valType (PE (truePred sym) val) (memImplHeap mem)
     addAssertion sym p (AssertFailureSimError "Invalid memory store")
     return mem{ memImplHeap = heap' }
 
@@ -556,7 +555,7 @@ doStore sym mem ptr valType (AnyValue tpr val) = do
     --putStrLn "MEM STORE"
     val' <- packMemValue sym valType tpr val
     let ptr' = translatePtr ptr
-    (p, heap') <- G.writeMem (crucibleTermGenerator sym ptrWidth) ptr' valType (PE (truePred sym) val') (memImplHeap mem)
+    (p, heap') <- G.writeMem sym ptrWidth ptr' valType (PE (truePred sym) val') (memImplHeap mem)
     addAssertion sym p (AssertFailureSimError "Invalid memory store")
     return mem{ memImplHeap = heap' }
 
@@ -781,9 +780,8 @@ doFree
   -> RegValue sym LLVMPointerType
   -> IO (MemImpl sym PtrWidth)
 doFree sym mem ptr = do
-  let tg = crucibleTermGenerator sym ptrWidth
   let ptr'@(LLVMPtr blk _ _) = translatePtr ptr
-  (c, heap') <- G.freeMem tg ptr' (memImplHeap mem)
+  (c, heap') <- G.freeMem sym ptrWidth ptr' (memImplHeap mem)
 
   -- If this pointer is a handle pointer, remove the associated data
   let hMap' =
@@ -813,7 +811,6 @@ doMemset sym _w mem dest val len = do
   --len_doc <- printSymExpr sym len
   --putStrLn $ unwords ["doMemset:", show dest_doc, show val_doc, show len_doc]
 
-  let tg = crucibleTermGenerator sym ptrWidth
   case asUnsignedBV len of
     Nothing -> do
       -- FIXME? can we lift this restriction?
@@ -825,7 +822,7 @@ doMemset sym _w mem dest val len = do
       let val' = LLVMValInt (knownNat :: NatRepr 8) val
       let xs   = V.generate (fromInteger sz) (\_ -> val')
       let arr  = PE (truePred sym) (LLVMValArray (G.bitvectorType 1) xs)
-      (c, heap') <- G.writeMem tg (translatePtr dest) tp arr (memImplHeap mem)
+      (c, heap') <- G.writeMem sym ptrWidth (translatePtr dest) tp arr (memImplHeap mem)
       addAssertion sym c
          (AssertFailureSimError "Invalid region specified in memset")
       return mem{ memImplHeap = heap' }
@@ -844,9 +841,8 @@ doMemcpy sym w mem dest src len = do
   let dest' = translatePtr dest
   let src'  = translatePtr src
   len' <- LLVMOffset <$> sextendBVTo sym w ptrWidth len
-  let tg = crucibleTermGenerator sym ptrWidth
 
-  (c, heap') <- G.copyMem tg dest' src' len' (memImplHeap mem)
+  (c, heap') <- G.copyMem sym ptrWidth dest' src' len' (memImplHeap mem)
 
   addAssertion sym c
      (AssertFailureSimError "Invalid memory region in memcpy")
@@ -978,7 +974,7 @@ isValidPointer :: IsSymInterface sym => sym
                -> IO (Pred sym)
 isValidPointer sym p mem = do
    c1 <- ptrIsNull sym p
-   c2 <- G.isValidPointer (crucibleTermGenerator sym ptrWidth) (translatePtr p) (memImplHeap mem)
+   c2 <- G.isValidPointer sym ptrWidth (translatePtr p) (memImplHeap mem)
    orPred sym c1 c2
 
 ptrIsNull :: IsSymInterface sym

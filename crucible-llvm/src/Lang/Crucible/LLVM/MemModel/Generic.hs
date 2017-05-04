@@ -8,10 +8,14 @@
 -- Stability        : provisional
 ------------------------------------------------------------------------
 
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Lang.Crucible.LLVM.MemModel.Generic where
 {-
@@ -67,6 +71,8 @@ import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import Lang.Crucible.LLVM.MemModel.Common
 import Lang.Crucible.LLVM.MemModel.Pointer
+import Lang.Crucible.Solver.Interface
+import Lang.Crucible.Solver.Partial
 
 --import Debug.Trace as Debug
 
@@ -85,6 +91,8 @@ data MemAlloc p c
      -- | The merger of two allocations.
    | AllocMerge c [MemAlloc p c] [MemAlloc p c]
 
+type MemAlloc' sym w = MemAlloc (LLVMPtrExpr' sym w) (Pred sym)
+
 data MemWrite p c t
     -- | @MemCopy dst src len@ represents a copy from [src..src+len) to
     -- [dst..dst+len).
@@ -94,105 +102,102 @@ data MemWrite p c t
     -- | The merger of two memories.
   | WriteMerge c [MemWrite p c t] [MemWrite p c t]
 
-tgAddPtrC :: TermGenerator p c t -> p -> Addr -> IO p
-tgAddPtrC tg x y = tgAddPtr tg x =<< tgConstPtr tg y
+tgAddPtrC :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> LLVMPtrExpr' sym w -> Addr -> IO (LLVMPtrExpr' sym w)
+tgAddPtrC sym w x y = ptrAdd sym w x =<< ptrConst sym w y
 
-tgApplyValueF :: TermGenerator p c t -> ValueF p -> IO p
-tgApplyValueF tg (Add x y) = tgAddPtr tg x y
-tgApplyValueF tg (Sub x y) = tgSubPtr tg x y
-tgApplyValueF tg (CValue c) = tgConstPtr tg (fromInteger c)
+tgApplyValueF :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w -> ValueF (LLVMPtrExpr' sym w) -> IO (LLVMPtrExpr' sym w)
+tgApplyValueF sym w (Add x y) = ptrAdd sym w x y
+tgApplyValueF sym w (Sub x y) = ptrSub sym w x y
+tgApplyValueF sym w (CValue c) = ptrConst sym w (fromInteger c)
 
-badLoad :: TermGenerator p c t -> Type -> IO (c,t)
-badLoad tg tp = (tgFalse tg,) <$> tgUndefValue tg tp
+badLoad :: (IsBoolExprBuilder sym) => sym -> Type -> IO (Pred sym, PartLLVMVal sym w)
+badLoad sym _tp = return (falsePred sym, Unassigned)
 
-genValue :: TermGenerator p c t -> (v -> p) -> Value v -> IO p
-genValue tg f = foldTermM (return . f) (tgApplyValueF tg)
+genValue :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w -> (v -> LLVMPtrExpr' sym w) -> Value v -> IO (LLVMPtrExpr' sym w)
+genValue sym w f = foldTermM (return . f) (tgApplyValueF sym w)
 
-genCondVar :: TermGenerator p c t -> (v -> p) -> Cond v -> IO c
-genCondVar tg f c =
+genCondVar :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w -> (v -> (LLVMPtrExpr' sym w)) -> Cond v -> IO (Pred sym)
+genCondVar sym w f c =
   case c of
-    Eq x y  -> join $ tgPtrEq tg <$> genValue tg f x <*> genValue tg f y
-    Le x y  -> join $ tgPtrLe tg <$> genValue tg f x <*> genValue tg f y
-    And x y -> join $ tgAnd tg <$> genCondVar tg f x <*> genCondVar tg f y
+    Eq x y  -> join $ ptrEq sym w <$> genValue sym w f x <*> genValue sym w f y
+    Le x y  -> join $ ptrLe sym w <$> genValue sym w f x <*> genValue sym w f y
+    And x y -> join $ andPred sym <$> genCondVar sym w f x <*> genCondVar sym w f y
 
-genValueCtor :: TermGenerator p c t -> ValueCtor t -> IO t
-genValueCtor tg = foldTermM return (tgApplyCtorF tg)
+genValueCtor :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w -> ValueCtor (PartLLVMVal sym w) -> IO (PartLLVMVal sym w)
+genValueCtor sym w = foldTermM return (applyCtorFLLVMVal sym w)
 
-applyView :: TermGenerator p c t -> t -> ValueView Type -> IO t
-applyView tg t = foldTermM (\_ -> return t) (tgApplyViewF tg)
+applyView :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w -> PartLLVMVal sym w -> ValueView Type -> IO (PartLLVMVal sym w)
+applyView sym w t = foldTermM (\_ -> return t) (applyViewFLLVMVal sym w)
 
 -- | Join all conditions in fold together.
-tgAll :: TermGenerator p c t
-      -> Getting (Dual (Endo (c -> IO c))) s c
+tgAll :: (IsBoolExprBuilder sym) => sym
+      -> Getting (Dual (Endo (Pred sym -> IO (Pred sym)))) s (Pred sym)
       -> s
-      -> IO c
-tgAll tg fld = foldrMOf fld (tgAnd tg) (tgTrue tg)
+      -> IO (Pred sym)
+tgAll sym fld = foldrMOf fld (andPred sym) (truePred sym)
 
-tgMuxPair :: TermGenerator p c t
-          -> c
-          -> Type
-          -> (c,t)
-          -> (c,t)
-          -> IO (c,t)
-tgMuxPair tg c tp (xc,xt) (yc,yt) =
-  (,) <$> tgMuxCond tg c xc yc
-      <*> tgMuxTerm tg c tp xt yt
+tgMuxPair :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w
+          -> Pred sym
+          -> (Pred sym, PartLLVMVal sym w)
+          -> (Pred sym, PartLLVMVal sym w)
+          -> IO (Pred sym, PartLLVMVal sym w)
+tgMuxPair sym w c (xc,xt) (yc,yt) =
+  (,) <$> itePred sym c xc yc
+      <*> muxLLVMVal sym w c xt yt
 
-evalValueCtor :: TermGenerator p c t
-              -> ValueCtor (c,t)
-              -> IO (c,t)
-evalValueCtor tg vc =
-   (,) <$> tgAll tg (traverse . _1) vc
-       <*> genValueCtor tg (snd <$> vc)
+evalValueCtor :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w
+              -> ValueCtor (Pred sym, PartLLVMVal sym w)
+              -> IO (Pred sym, PartLLVMVal sym w)
+evalValueCtor sym w vc =
+   (,) <$> tgAll sym (traverse . _1) vc
+       <*> genValueCtor sym w (snd <$> vc)
 
-evalMuxValueCtor :: forall u p c t .
-                    TermGenerator p c t
-                    -- Type for value returned
-                 -> Type
+evalMuxValueCtor :: forall u sym w .
+                    (1 <= w, IsSymInterface sym) => sym -> NatRepr w
                     -- Evaluation function
-                 -> (Var -> p)
+                 -> (Var -> LLVMPtrExpr' sym w)
                     -- Function for reading specific subranges.
-                 -> (u -> IO (c,t))
+                 -> (u -> IO (Pred sym, PartLLVMVal sym w))
                  -> Mux (Cond Var) (ValueCtor u)
-                 -> IO (c,t)
-evalMuxValueCtor tg tp vf subFn t =
-  reduceMux (\c -> tgMuxPair tg c tp)
-    =<< muxLeaf (evalValueCtor tg)
-    =<< muxCond (genCondVar tg vf)
+                 -> IO (Pred sym, PartLLVMVal sym w)
+evalMuxValueCtor sym w vf subFn t =
+  reduceMux (\c -> tgMuxPair sym w c)
+    =<< muxLeaf (evalValueCtor sym w)
+    =<< muxCond (genCondVar sym w vf)
     =<< muxLeaf (traverse subFn) t
 
-readMemCopy :: forall p c t .
-               (Eq p)
-            => TermGenerator p c t
-            -> (p, AddrDecomposeResult p)
+readMemCopy :: forall sym w .
+               (1 <= w, IsSymInterface sym)
+            => sym -> NatRepr w
+            -> (LLVMPtrExpr' sym w, AddrDecomposeResult (LLVMPtrExpr' sym w))
             -> Type
-            -> (p, AddrDecomposeResult p)
-            -> p
-            -> (p,Maybe Integer)
-            -> (Type -> (p, AddrDecomposeResult p) -> IO (c,t))
-            -> IO (c,t)
-readMemCopy tg (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
-  let varFn :: Var -> p
+            -> (LLVMPtrExpr' sym w, AddrDecomposeResult (LLVMPtrExpr' sym w))
+            -> LLVMPtrExpr' sym w
+            -> (LLVMPtrExpr' sym w, Maybe Integer)
+            -> (Type -> (LLVMPtrExpr' sym w, AddrDecomposeResult (LLVMPtrExpr' sym w)) -> IO (Pred sym, PartLLVMVal sym w))
+            -> IO (Pred sym, PartLLVMVal sym w)
+readMemCopy sym w (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
+  let varFn :: Var -> LLVMPtrExpr' sym w
       varFn Load = l
       varFn Store = d
       varFn StoreSize = sz
-  let readPrev tp' p = readPrev' tp' . (p,) =<< tgPtrDecompose tg p
+  let readPrev tp' p = readPrev' tp' . (p,) =<< ptrDecompose sym w p
   case (ld, dd) of
     -- Offset if known
     ( ConcreteOffset lv lo
       , ConcreteOffset sv so
       )
       | lv == sv -> do
-      let subFn :: RangeLoad Addr -> IO (c,t)
-          subFn (OutOfRange o tp') = readPrev tp' =<< tgAddPtrC tg lv o
-          subFn (InRange    o tp') = readPrev tp' =<< tgAddPtrC tg src o
+      let subFn :: RangeLoad Addr -> IO (Pred sym, PartLLVMVal sym w)
+          subFn (OutOfRange o tp') = readPrev tp' =<< tgAddPtrC sym w lv o
+          subFn (InRange    o tp') = readPrev tp' =<< tgAddPtrC sym w src o
       case szd of
         Just csz -> do
           let s = R (fromInteger so) (fromInteger (so + csz))
           let vcr = rangeLoad (fromInteger lo) tp s
-          evalValueCtor tg =<< traverse subFn vcr
+          evalValueCtor sym w =<< traverse subFn vcr
         _ ->
-          evalMuxValueCtor tg tp varFn subFn $
+          evalMuxValueCtor sym w varFn subFn $
             fixedOffsetRangeLoad (fromInteger lo) tp (fromInteger so)
     -- We know variables are disjoint.
     _ | Just lv <- adrVar ld
@@ -200,11 +205,11 @@ readMemCopy tg (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
       , lv /= sv -> readPrev' tp (l,ld)
       -- Symbolic offsets
     _ -> do
-      let subFn :: RangeLoad (Value Var) -> IO (c,t)
+      let subFn :: RangeLoad (Value Var) -> IO (Pred sym, PartLLVMVal sym w)
           subFn (OutOfRange o tp') =
-            readPrev tp' =<< genValue tg varFn o
+            readPrev tp' =<< genValue sym w varFn o
           subFn (InRange o tp') =
-            readPrev tp' =<< tgAddPtr tg src =<< genValue tg varFn o
+            readPrev tp' =<< ptrAdd sym w src =<< genValue sym w varFn o
       let pref | ConcreteOffset{} <- dd = FixedStore
                | ConcreteOffset{} <- ld = FixedLoad
                | otherwise = NeitherFixed
@@ -212,105 +217,105 @@ readMemCopy tg (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
                    fixedSizeRangeLoad pref tp (fromInteger csz)
                | otherwise =
                    symbolicRangeLoad pref tp
-      evalMuxValueCtor tg tp varFn subFn mux0
+      evalMuxValueCtor sym w varFn subFn mux0
 
-readMemStore :: forall p c t .
-               (Eq p)
-            => TermGenerator p c t
-            -> (p,AddrDecomposeResult p)
+readMemStore :: forall sym w .
+               (1 <= w, IsSymInterface sym)
+            => sym -> NatRepr w
+            -> (LLVMPtrExpr' sym w, AddrDecomposeResult (LLVMPtrExpr' sym w))
                -- ^ The loaded address and information
             -> Type
                -- The type we are reading.
-            -> (p,AddrDecomposeResult p)
+            -> (LLVMPtrExpr' sym w, AddrDecomposeResult (LLVMPtrExpr' sym w))
                -- ^ The store we are reading from.
-            -> t
+            -> PartLLVMVal sym w
                -- ^ The value that was stored.
             -> Type
                -- ^ The type of value that was written.
-            -> (Type -> (p, AddrDecomposeResult p) -> IO (c,t))
+            -> (Type -> (LLVMPtrExpr' sym w, AddrDecomposeResult (LLVMPtrExpr' sym w)) -> IO (Pred sym, PartLLVMVal sym w))
                -- ^ A callback function for when reading fails.
-            -> IO (c,t)
-readMemStore tg (l,ld) ltp (d,dd) t stp readPrev' = do
-  ssz <- tgConstPtr tg (typeSize stp)
-  let varFn :: Var -> p
+            -> IO (Pred sym, PartLLVMVal sym w)
+readMemStore sym w (l,ld) ltp (d,dd) t stp readPrev' = do
+  ssz <- ptrConst sym w (typeSize stp)
+  let varFn :: Var -> LLVMPtrExpr' sym w
       varFn Load = l
       varFn Store = d
       varFn StoreSize = ssz
-  let readPrev tp p = readPrev' tp . (p,) =<< tgPtrDecompose tg p
+  let readPrev tp p = readPrev' tp . (p,) =<< ptrDecompose sym w p
   case (ld, dd) of
     -- Offset if known
     ( ConcreteOffset lv lo
       , ConcreteOffset sv so
       )
       | lv == sv -> do
-      let subFn :: ValueLoad Addr -> IO (c,t)
-          subFn (OldMemory o tp')   = readPrev tp' =<< tgAddPtrC tg lv o
-          subFn (LastStore v)       = (tgTrue tg,) <$> applyView tg t v
-          subFn (InvalidMemory tp') = badLoad tg tp'
+      let subFn :: ValueLoad Addr -> IO (Pred sym, PartLLVMVal sym w)
+          subFn (OldMemory o tp')   = readPrev tp' =<< tgAddPtrC sym w lv o
+          subFn (LastStore v)       = (truePred sym,) <$> applyView sym w t v
+          subFn (InvalidMemory tp') = badLoad sym tp'
       let vcr = valueLoad (fromInteger lo) ltp (fromInteger so) (Var stp)
-      evalValueCtor tg =<< traverse subFn vcr
+      evalValueCtor sym w =<< traverse subFn vcr
     -- We know variables are disjoint.
     _ | Just lv <- adrVar ld
       , Just sv <- adrVar dd
       , lv /= sv -> readPrev' ltp (l,ld)
       -- Symbolic offsets
     _ -> do
-      let subFn :: ValueLoad (Value Var) -> IO (c,t)
+      let subFn :: ValueLoad (Value Var) -> IO (Pred sym, PartLLVMVal sym w)
           subFn (OldMemory o tp')   = do
-                     readPrev tp' =<< genValue tg varFn o
+                     readPrev tp' =<< genValue sym w varFn o
           subFn (LastStore v)       = do
-                     (tgTrue tg,) <$> applyView tg t v
-          subFn (InvalidMemory tp') = badLoad tg tp'
+                     (truePred sym,) <$> applyView sym w t v
+          subFn (InvalidMemory tp') = badLoad sym tp'
       let pref | ConcreteOffset{} <- dd = FixedStore
                | ConcreteOffset{} <- ld = FixedLoad
                | otherwise = NeitherFixed
-      evalMuxValueCtor tg ltp varFn subFn $
+      evalMuxValueCtor sym w varFn subFn $
         symbolicValueLoad pref ltp (Var stp)
 
-readMem :: (Ord p)
-        => TermGenerator p c t
-        -> p
+readMem :: (1 <= w, IsSymInterface sym)
+        => sym -> NatRepr w
+        -> LLVMPtrExpr' sym w
         -> Type
-        -> Mem p c t
-        -> IO (c,t)
-readMem tg l tp m = do
-  ld <- tgPtrDecompose tg l
-  readMem' tg (l,ld) tp (memWrites m)
+        -> Mem' sym w
+        -> IO (Pred sym, PartLLVMVal sym w)
+readMem sym w l tp m = do
+  ld <- ptrDecompose sym w l
+  readMem' sym w (l,ld) tp (memWrites m)
 
 -- | Read a value from memory given a list of writes.
 --
 -- This represents a predicate indicating if the read was successful, and the value
 -- read (which may be anything if read was unsuccessful).
-readMem' :: (Ord p)
-         => TermGenerator p c t
+readMem' :: (1 <= w, IsSymInterface sym)
+         => sym -> NatRepr w
             -- ^ Functions for primitive operations on addresses, propositions, and values.
-         -> (p, AddrDecomposeResult p)
+         -> (LLVMPtrExpr' sym w, AddrDecomposeResult (LLVMPtrExpr' sym w))
             -- ^ Address we are reading along with information about how it was constructed.
          -> Type
             -- ^ The type to read from memory.
-         -> [MemWrite p c t]
+         -> [MemWrite (LLVMPtrExpr' sym w) (Pred sym) (PartLLVMVal sym w)]
             -- ^ List of writes.
-         -> IO (c,t)
-readMem' tg _ tp [] = badLoad tg tp
-readMem' tg l tp (h:r) = do
+         -> IO (Pred sym, (PartLLVMVal sym w))
+readMem' sym _ _ tp [] = badLoad sym tp
+readMem' sym w l tp (h:r) = do
   cache <- newIORef Map.empty
   let readPrev tp' l' = do
         m <- readIORef cache
         case Map.lookup (tp',fst l') m of
           Just x -> return x
           Nothing -> do
-            x <- readMem' tg l' tp' r
+            x <- readMem' sym w l' tp' r
             writeIORef cache $ Map.insert (tp',fst l') x m
             return x
   case h of
     MemCopy dst src sz -> do
-      readMemCopy tg l tp dst src sz readPrev
+      readMemCopy sym w l tp dst src sz readPrev
     MemStore dst v stp -> do
-      readMemStore tg l tp dst v stp readPrev
+      readMemStore sym w l tp dst v stp readPrev
     WriteMerge c xr yr -> do
-      join $ tgMuxPair tg c tp
-               <$> readMem' tg l tp (xr++r)
-               <*> readMem' tg l tp (yr++r)
+      join $ tgMuxPair sym w c
+               <$> readMem' sym w l tp (xr++r)
+               <*> readMem' sym w l tp (yr++r)
 
 -- | A state of memory as of a stack push, branch, or merge.
 data MemState d =
@@ -344,6 +349,7 @@ muxChanges c (xa,xw) (ya,yw) = ([AllocMerge c xa ya],[WriteMerge c xw yw])
 
 data Mem p c t = Mem { _memState :: MemState (MemChanges p c t)
                      }
+type Mem' sym w = Mem (LLVMPtrExpr' sym w) (Pred sym) (PartLLVMVal sym w)
 
 memState :: Simple Lens (Mem p c t) (MemState ([MemAlloc p c],[MemWrite p c t]))
 memState = lens _memState (\s v -> s { _memState = v })
@@ -373,55 +379,55 @@ emptyMem :: Mem p c t
 emptyMem = Mem { _memState = EmptyMem emptyChanges
                }
 
-isAllocated' :: TermGenerator p c t
+isAllocated' :: (IsBoolExprBuilder sym) => sym -> NatRepr w
                 -- ^ Evaluation function that takes continuation
                 -- for condition if previous check fails.
-             -> (p -> p -> IO c -> IO c)
-             -> [MemAlloc p c]
-             -> IO c
-isAllocated' tg _ [] = pure (tgFalse tg)
-isAllocated' tg step (Alloc _ a asz:r) = do
-  step a asz (isAllocated' tg step r)
-isAllocated' tg step (AllocMerge c xr yr:r) =
-  join $ tgMuxCond tg c
-         <$> isAllocated' tg step (xr ++ r)
-         <*> isAllocated' tg step (yr ++ r)
+             -> (LLVMPtrExpr' sym w -> LLVMPtrExpr' sym w -> IO (Pred sym) -> IO (Pred sym))
+             -> [MemAlloc' sym w]
+             -> IO (Pred sym)
+isAllocated' sym _ _ [] = pure (falsePred sym)
+isAllocated' sym w step (Alloc _ a asz:r) = do
+  step a asz (isAllocated' sym w step r)
+isAllocated' sym w step (AllocMerge c xr yr:r) =
+  join $ itePred sym c
+         <$> isAllocated' sym w step (xr ++ r)
+         <*> isAllocated' sym w step (yr ++ r)
 
 
--- | @offsetisAllocated tg b o sz m@ returns condition required to prove range
+-- | @offsetisAllocated sym w b o sz m@ returns condition required to prove range
 -- @[b+o..b+o+sz)@ lays within a single allocation in @m@.  This code assumes
 -- @sz@ is non-zero, and @b+o@ does not overflow.
-offsetIsAllocated :: (Eq p)
-                  => TermGenerator p c t -> p -> p -> p -> Mem p c t -> IO c
-offsetIsAllocated tg t o sz m = do
-  (oc, oe) <- tgCheckedAddPtr tg o sz
+offsetIsAllocated :: (1 <= w, IsSymInterface sym)
+                  => sym -> NatRepr w -> LLVMPtrExpr' sym w -> LLVMPtrExpr' sym w -> LLVMPtrExpr' sym w -> Mem (LLVMPtrExpr' sym w) (Pred sym) t -> IO (Pred sym)
+offsetIsAllocated sym w t o sz m = do
+  (oc, oe) <- ptrCheckedAdd sym w o sz
   let step a asz fallback
-        | t == a = tgPtrLe tg oe asz
-            --Debug.trace "offsetIsAllocated: comparing <=" $ tgPtrLe tg oe asz
+        | t == a = ptrLe sym w oe asz
+            --Debug.trace "offsetIsAllocated: comparing <=" $ ptrLe sym w oe asz
         | otherwise = fallback
-  tgAnd tg oc =<< isAllocated' tg step (memAllocs m)
+  andPred sym oc =<< isAllocated' sym w step (memAllocs m)
 
-isAllocated :: (Eq p)
-            => TermGenerator p c t -> p -> p -> Mem p c t -> IO c
-isAllocated tg p sz m = do
-  ld <- tgPtrDecompose tg p
+isAllocated :: (1 <= w, IsSymInterface sym)
+            => sym -> NatRepr w -> LLVMPtrExpr' sym w -> LLVMPtrExpr' sym w -> Mem (LLVMPtrExpr' sym w) (Pred sym) t -> IO (Pred sym)
+isAllocated sym w p sz m = do
+  ld <- ptrDecompose sym w p
   case ld of
     Symbolic{} -> do
-      (oc,pe) <- tgCheckedAddPtr tg p sz
+      (oc,pe) <- ptrCheckedAdd sym w p sz
       let step a asz fallback =
-            join $ tgOr tg
-              <$> (do ae <- tgAddPtr tg a asz
-                      join $ tgAnd tg <$> tgPtrLe tg a p <*> tgPtrLe tg pe ae)
+            join $ orPred sym
+              <$> (do ae <- ptrAdd sym w a asz
+                      join $ andPred sym <$> ptrLe sym w a p <*> ptrLe sym w pe ae)
               <*> fallback
-      tgAnd tg oc =<< isAllocated' tg step (memAllocs m)
+      andPred sym oc =<< isAllocated' sym w step (memAllocs m)
     ConcreteOffset t o0 -> do
-      o <- tgConstPtr tg (fromInteger o0)
-      offsetIsAllocated tg t o sz m
+      o <- ptrConst sym w (fromInteger o0)
+      offsetIsAllocated sym w t o sz m
     SymbolicOffset t o -> do
-      offsetIsAllocated tg t o sz m
+      offsetIsAllocated sym w t o sz m
 
 
--- | @isValidPointer tg b m@ returns condition required to prove range
+-- | @isValidPointer sym w b m@ returns condition required to prove range
 --   that @p@ is a valid pointer in @m@.  This means that @p@ is in the
 --   range of some allocation OR ONE PAST THE END of an allocation.  In other words
 --   @p@ is a valid pointer if @b <= p <= b+sz@ for some allocation
@@ -429,71 +435,71 @@ isAllocated tg p sz m = do
 --   allocation range of the allocation (loading through it will fail) it is
 --   nonetheless a valid pointer value.  This strange special case is baked into
 --   the C standard to allow certain common coding patterns to be defined.
-isValidPointer :: (Eq p)
-        => TermGenerator p c t -> p -> Mem p c t -> IO c
-isValidPointer tg p m = do
-   sz <- tgConstPtr tg 0
-   isAllocated tg p sz m
+isValidPointer :: (1 <= w, IsSymInterface sym)
+        => sym -> NatRepr w -> LLVMPtrExpr' sym w -> Mem (LLVMPtrExpr' sym w) (Pred sym) t -> IO (Pred sym)
+isValidPointer sym w p m = do
+   sz <- ptrConst sym w 0
+   isAllocated sym w p sz m
  -- NB We call isAllocated with a size of 0.  This is a violation of the usual rules, but gives
  -- precisely what we need for the valid pointer check.
 
-writeMem :: (Eq p)
-         => TermGenerator p c t
-         -> p
+writeMem :: (1 <= w, IsSymInterface sym)
+         => sym -> NatRepr w
+         -> LLVMPtrExpr' sym w
          -> Type
          -> t
-         -> Mem p c t
-         -> IO (c, Mem p c t)
-writeMem tg p tp v m = do
-  (,) <$> (do sz <- tgConstPtr tg (typeEnd 0 tp)
-              isAllocated tg p sz m)
-      <*> writeMem' tg p tp v m
+         -> Mem (LLVMPtrExpr' sym w) (Pred sym) t
+         -> IO (Pred sym, Mem (LLVMPtrExpr' sym w) (Pred sym) t)
+writeMem sym w p tp v m = do
+  (,) <$> (do sz <- ptrConst sym w (typeEnd 0 tp)
+              isAllocated sym w p sz m)
+      <*> writeMem' sym w p tp v m
 
 -- | Write memory without checking if it is allocated.
-writeMem' :: TermGenerator p c t
-          -> p
+writeMem' :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
+          -> LLVMPtrExpr' sym w
           -> Type
           -> t
-          -> Mem p c t
-          -> IO (Mem p c t)
-writeMem' tg p tp v m = addWrite <$> tgPtrDecompose tg p
+          -> Mem (LLVMPtrExpr' sym w) (Pred sym) t
+          -> IO (Mem (LLVMPtrExpr' sym w) (Pred sym) t)
+writeMem' sym w p tp v m = addWrite <$> ptrDecompose sym w p
   where addWrite pd = m & memAddWrite (MemStore (p,pd) v tp)
 
 -- | Perform a mem copy.
-copyMem :: (Eq p)
-         => TermGenerator p c t
-         -> p -- ^ Dest
-         -> p -- ^ Source
-         -> p -- ^ Size
-         -> Mem p c t
-         -> IO (c, Mem p c t)
-copyMem tg dst src sz m = do
-  (,) <$> (join $ tgAnd tg <$> isAllocated tg dst sz m
-                           <*> isAllocated tg src sz m)
-      <*> (do dstd <- tgPtrDecompose tg dst
-              szd <- tgPtrSizeDecompose tg sz
+copyMem :: (1 <= w, IsSymInterface sym)
+         => sym -> NatRepr w
+         -> LLVMPtrExpr' sym w -- ^ Dest
+         -> LLVMPtrExpr' sym w -- ^ Source
+         -> LLVMPtrExpr' sym w -- ^ Size
+         -> Mem' sym w
+         -> IO (Pred sym, Mem' sym w)
+copyMem sym w dst src sz m = do
+  (,) <$> (join $ andPred sym <$> isAllocated sym w dst sz m
+                           <*> isAllocated sym w src sz m)
+      <*> (do dstd <- ptrDecompose sym w dst
+              szd <- ptrSizeDecompose sym w sz
               return $ m & memAddWrite (MemCopy (dst,dstd) src (sz,szd)))
 
 
 -- | Allocate space for memory
 allocMem :: AllocType -- ^ Type of allocation
-         -> p -- ^ Base for allocation
-         -> p -- ^ Size
-         -> Mem p c t
-         -> Mem p c t
+         -> LLVMPtrExpr' sym w -- ^ Base for allocation
+         -> LLVMPtrExpr' sym w -- ^ Size
+         -> Mem' sym w
+         -> Mem' sym w
 allocMem a b sz = memAddAlloc (Alloc a b sz)
 
 -- | Allocate space for memory
-allocAndWriteMem :: TermGenerator p c t
+allocAndWriteMem :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
                  -> AllocType -- ^ Type of allocation
-                 -> p -- ^ Base for allocation
+                 -> LLVMPtrExpr' sym w -- ^ Base for allocation
                  -> Type
                  -> t -- Value to write
-                 -> Mem p c t
-                 -> IO (Mem p c t)
-allocAndWriteMem tg a b tp v m = do
-  sz <- tgConstPtr tg (typeEnd 0 tp)
-  writeMem' tg b tp v (m & memAddAlloc (Alloc a b sz))
+                 -> Mem (LLVMPtrExpr' sym w) (Pred sym) t
+                 -> IO (Mem (LLVMPtrExpr' sym w) (Pred sym) t)
+allocAndWriteMem sym w a b tp v m = do
+  sz <- ptrConst sym w (typeEnd 0 tp)
+  writeMem' sym w b tp v (m & memAddAlloc (Alloc a b sz))
 
 pushStackFrameMem :: Mem p c t -> Mem p c t
 pushStackFrameMem = memState %~ StackFrame emptyChanges
@@ -503,11 +509,11 @@ popStackFrameMem m = m & memState %~ popf
   where popf (StackFrame (a,w) s) = s & memStateLastChanges %~ prependChanges c
           where c = (mapMaybe pa a, w)
 
-        -- WARNING: The following code executes a stack pop underneith a branch
+        -- WARNING: The following code executes a stack pop underneath a branch
         -- frame.  This is necessary to get merges to work correctly
-        -- when they propigate all the way to function returns.
+        -- when they propagate all the way to function returns.
         -- However, it is not clear that the following code is
-        -- precicely correct because it may leave in place writes to
+        -- precisely correct because it may leave in place writes to
         -- memory locations that have just been popped off the stack.
         -- This does not appear to be causing problems for our
         -- examples, but may be a source of subtle errors.
@@ -521,40 +527,40 @@ popStackFrameMem m = m & memState %~ popf
         pa a@(Alloc GlobalAlloc _ _) = Just a
         pa (AllocMerge c x y) = Just (AllocMerge c (mapMaybe pa x) (mapMaybe pa y))
 
-freeMem :: forall p c t
-         . (Eq p)
-        => TermGenerator p c t
-        -> p -- ^ Base of allocation to free
-        -> Mem p c t
-        -> IO (c, Mem p c t)
-freeMem tg p m = do
-  p' <- tgPtrDecompose tg p
-  freeMem' tg p p' m
+freeMem :: forall sym w
+         . (1 <= w, IsSymInterface sym)
+        => sym -> NatRepr w
+        -> LLVMPtrExpr' sym w -- ^ Base of allocation to free
+        -> Mem' sym w
+        -> IO (Pred sym, Mem' sym w)
+freeMem sym w p m = do
+  p' <- ptrDecompose sym w p
+  freeMem' sym w p p' m
 
 -- FIXME? This could perhaps be more efficent.  Right now we
 -- will traverse almost the entire memory on every free, even
 -- if we concretely find the corresponding allocation early.
-freeMem' :: forall p c t
-         . (Eq p)
-        => TermGenerator p c t
-        -> p
-        -> AddrDecomposeResult p -- ^ Base of allocation to free
-        -> Mem p c t
-        -> IO (c, Mem p c t)
-freeMem' tg p p_decomp m = do
+freeMem' :: forall sym w
+         . (1 <= w, IsSymInterface sym)
+        => sym -> NatRepr w
+        -> LLVMPtrExpr' sym w
+        -> AddrDecomposeResult (LLVMPtrExpr' sym w) -- ^ Base of allocation to free
+        -> Mem' sym w
+        -> IO (Pred sym, Mem' sym w)
+freeMem' sym w p p_decomp m = do
     (c, st') <- freeSt (m^.memState)
     return (c, m & memState .~ st')
  where
-  freeAllocs :: [MemAlloc p c] -> IO (c, [MemAlloc p c])
+  freeAllocs :: [MemAlloc' sym w] -> IO (Pred sym, [MemAlloc' sym w])
   freeAllocs [] =
-     return ( tgFalse tg , [] )
+     return ( falsePred sym , [] )
   freeAllocs (a@(Alloc HeapAlloc base _) : as) = do
-     base' <- tgPtrDecompose tg base
+     base' <- ptrDecompose sym w base
      case (p_decomp, base') of
        (ConcreteOffset p' poff,
          ConcreteOffset b' boff)
            | p' == b' -> do
-               let c = if poff == boff then tgTrue tg else tgFalse tg
+               let c = if poff == boff then truePred sym else falsePred sym
                return (c, as)
            | otherwise -> do
                 (c, as') <- freeAllocs as
@@ -562,7 +568,7 @@ freeMem' tg p p_decomp m = do
        (ConcreteOffset p' poff,
          SymbolicOffset b' boff)
            | p' == b' -> do
-               c <- tgPtrEq tg boff =<< tgConstPtr tg (fromIntegral poff)
+               c <- ptrEq sym w boff =<< ptrConst sym w (fromIntegral poff)
                return (c, as)
            | otherwise -> do
                 (c, as') <- freeAllocs as
@@ -570,7 +576,7 @@ freeMem' tg p p_decomp m = do
        (SymbolicOffset p' poff,
          ConcreteOffset b' boff)
            | p' == b' -> do
-               c <- tgPtrEq tg poff =<< tgConstPtr tg (fromIntegral boff)
+               c <- ptrEq sym w poff =<< ptrConst sym w (fromIntegral boff)
                return (c, as)
            | otherwise -> do
                 (c, as') <- freeAllocs as
@@ -578,15 +584,15 @@ freeMem' tg p p_decomp m = do
        (SymbolicOffset p' poff,
          SymbolicOffset b' boff)
            | p' == b' -> do
-               c <- tgPtrEq tg boff poff
+               c <- ptrEq sym w boff poff
                return (c, as)
            | otherwise -> do
                 (c, as') <- freeAllocs as
                 return (c, a : as')
        _ -> do
-         eq <- tgPtrEq tg p base
+         eq <- ptrEq sym w p base
          (c, as') <- freeAllocs as
-         c'  <- tgOr tg eq c
+         c'  <- orPred sym eq c
          return (c', AllocMerge eq [] [a] : as')
 
   freeAllocs (a@(Alloc _ _ _) : as) = do
@@ -595,27 +601,27 @@ freeMem' tg p p_decomp m = do
   freeAllocs (AllocMerge cm x y : as) = do
      (c1, x') <- freeAllocs x
      (c2, y') <- freeAllocs y
-     c <- tgMuxCond tg cm c1 c2
+     c <- itePred sym cm c1 c2
      (c3, as') <- freeAllocs as
-     c' <- tgOr tg c c3
+     c' <- orPred sym c c3
      return (c', AllocMerge cm x' y' : as')
 
-  freeCh :: MemChanges p c t -> IO (c, MemChanges p c t)
-  freeCh (a, w) = do
+  freeCh :: MemChanges (LLVMPtrExpr' sym w) (Pred sym) (PartLLVMVal sym w) -> IO (Pred sym, MemChanges (LLVMPtrExpr' sym w) (Pred sym) (PartLLVMVal sym w))
+  freeCh (a, w') = do
       (c,a') <- freeAllocs a
-      return (c, (a', w))
+      return (c, (a', w'))
 
-  freeSt :: MemState (MemChanges p c t)
-         -> IO (c, MemState (MemChanges p c t))
+  freeSt :: MemState (MemChanges (LLVMPtrExpr' sym w) (Pred sym) (PartLLVMVal sym w))
+         -> IO (Pred sym, MemState (MemChanges (LLVMPtrExpr' sym w) (Pred sym) (PartLLVMVal sym w)))
   freeSt (StackFrame ch st) = do
             (c1,ch') <- freeCh ch
             (c2,st') <- freeSt st
-            c <- tgOr tg c1 c2
+            c <- orPred sym c1 c2
             return (c, StackFrame ch' st')
   freeSt (BranchFrame ch st) = do
             (c1,ch') <- freeCh ch
             (c2,st') <- freeSt st
-            c <- tgOr tg c1 c2
+            c <- orPred sym c1 c2
             return (c, BranchFrame ch' st')
   freeSt (EmptyMem ch) = do
             (c, ch') <- freeCh ch

@@ -38,7 +38,7 @@ import           Lang.Crucible.Solver.Partial
 import qualified Lang.Crucible.LLVM.MemModel.Common as G
 
 
-type LLVMPtrExpr' sym w = LLVMPtrExpr (SymExpr sym) w
+type LLVMPtrExpr' sym = LLVMPtrExpr (SymExpr sym)
 type PartLLVMVal sym w = PartExpr (Pred sym) (LLVMVal sym w)
 
 -- | This provides a view of an address as a base + offset when possible.
@@ -47,36 +47,6 @@ data AddrDecomposeResult t
    | ConcreteOffset t Integer
    | SymbolicOffset t t
   deriving (Show)
-
--- | This provides functions for manipulating symbolic addresses, propositions, and
--- values.
-data TermGenerator p c t = TG {
-         tgPtrWidth :: G.Size
-
-       , tgPtrDecompose :: p -> IO (AddrDecomposeResult p)
-       , tgPtrSizeDecompose :: p -> IO (Maybe Integer)
-
-       , tgConstPtr :: G.Size -> IO p
-       , tgAddPtr :: p -> p -> IO p
-         -- | Adds two pointers, returning value along with condition
-         -- that holds if arithmetic did not overflow.
-       , tgCheckedAddPtr :: p -> p -> IO (c,p)
-       , tgSubPtr :: p -> p -> IO p
-
-       , tgFalse :: c
-       , tgTrue :: c
-       , tgPtrEq :: p -> p -> IO c
-       , tgPtrLe :: p -> p -> IO c
-       , tgAnd :: c -> c -> IO c
-       , tgOr  :: c -> c -> IO c
-       , tgMuxCond :: c -> c -> c -> IO c
-
-       , tgUndefValue :: G.Type -> IO t
-       , tgApplyCtorF  :: G.ValueCtorF t -> IO t
-       , tgApplyViewF  :: G.ViewF t -> IO t
-       , tgMuxTerm :: c -> G.Type -> t -> t -> IO t
-       }
-
 
 data LLVMPtrExpr e w
   = LLVMPtr (e BaseNatType)     --  Block number
@@ -125,38 +95,8 @@ data LLVMVal sym w where
   LLVMValArray :: G.Type -> Vector (LLVMVal sym w) -> LLVMVal sym w
 
 
-crucibleTermGenerator
-   :: (1 <= w, IsSymInterface sym)
-   => sym
-   -> NatRepr w
-   -> TermGenerator (LLVMPtrExpr' sym w)
-                    (Pred sym)
-                    (PartLLVMVal sym w)
-crucibleTermGenerator sym w =
-  TG
-  { tgPtrWidth = fromIntegral $ natValue w
-  , tgPtrDecompose = ptrDecompose sym w
-  , tgPtrSizeDecompose = ptrSizeDecompose sym w
-  , tgConstPtr = \x -> LLVMOffset <$> bvLit sym w (fromIntegral x)
-  , tgAddPtr = ptrAdd sym w
-  , tgCheckedAddPtr = ptrCheckedAdd sym w
-  , tgSubPtr = ptrSub sym w
-
-  , tgFalse = falsePred sym
-  , tgTrue = truePred sym
-  , tgPtrEq = ptrEq sym w
-  , tgPtrLe = ptrLe sym w
-
-  , tgAnd = andPred sym
-  , tgOr = orPred sym
-  , tgMuxCond = itePred sym
-
-  , tgUndefValue = \_tp -> return $ Unassigned
-  , tgApplyCtorF = applyCtorFLLVMVal sym w
-  , tgApplyViewF = applyViewFLLVMVal sym w
-  , tgMuxTerm = \c _ -> muxLLVMVal sym w c
-  }
-
+ptrConst :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> G.Size -> IO (LLVMPtrExpr' sym w)
+ptrConst sym w x = LLVMOffset <$> bvLit sym w (fromIntegral x)
 
 ptrDecompose :: (1 <= w, IsExprBuilder sym)
              => sym
