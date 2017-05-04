@@ -187,7 +187,7 @@ readMemCopy sym w (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
     ( ConcreteOffset lv lo
       , ConcreteOffset sv so
       )
-      | lv == sv -> do
+      | sameAllocationUnit lv sv -> do
       let subFn :: RangeLoad Addr -> IO (Pred sym, PartLLVMVal sym w)
           subFn (OutOfRange o tp') = readPrev tp' =<< tgAddPtrC sym w lv o
           subFn (InRange    o tp') = readPrev tp' =<< tgAddPtrC sym w src o
@@ -202,7 +202,7 @@ readMemCopy sym w (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
     -- We know variables are disjoint.
     _ | Just lv <- adrVar ld
       , Just sv <- adrVar dd
-      , lv /= sv -> readPrev' tp (l,ld)
+      , not (sameAllocationUnit lv sv) -> readPrev' tp (l,ld)
       -- Symbolic offsets
     _ -> do
       let subFn :: RangeLoad (Value Var) -> IO (Pred sym, PartLLVMVal sym w)
@@ -247,7 +247,7 @@ readMemStore sym w (l,ld) ltp (d,dd) t stp readPrev' = do
     ( ConcreteOffset lv lo
       , ConcreteOffset sv so
       )
-      | lv == sv -> do
+      | sameAllocationUnit lv sv -> do
       let subFn :: ValueLoad Addr -> IO (Pred sym, PartLLVMVal sym w)
           subFn (OldMemory o tp')   = readPrev tp' =<< tgAddPtrC sym w lv o
           subFn (LastStore v)       = (truePred sym,) <$> applyView sym w t v
@@ -257,7 +257,7 @@ readMemStore sym w (l,ld) ltp (d,dd) t stp readPrev' = do
     -- We know variables are disjoint.
     _ | Just lv <- adrVar ld
       , Just sv <- adrVar dd
-      , lv /= sv -> readPrev' ltp (l,ld)
+      , not (sameAllocationUnit lv sv) -> readPrev' ltp (l,ld)
       -- Symbolic offsets
     _ -> do
       let subFn :: ValueLoad (Value Var) -> IO (Pred sym, PartLLVMVal sym w)
@@ -402,7 +402,7 @@ offsetIsAllocated :: (1 <= w, IsSymInterface sym)
 offsetIsAllocated sym w t o sz m = do
   (oc, oe) <- ptrCheckedAdd sym w o sz
   let step a asz fallback
-        | t == a = ptrLe sym w oe asz
+        | sameAllocationUnit t a = ptrLe sym w oe asz
             --Debug.trace "offsetIsAllocated: comparing <=" $ ptrLe sym w oe asz
         | otherwise = fallback
   andPred sym oc =<< isAllocated' sym w step (memAllocs m)
@@ -537,7 +537,7 @@ freeMem sym w p m = do
   p' <- ptrDecompose sym w p
   freeMem' sym w p p' m
 
--- FIXME? This could perhaps be more efficent.  Right now we
+-- FIXME? This could perhaps be more efficient.  Right now we
 -- will traverse almost the entire memory on every free, even
 -- if we concretely find the corresponding allocation early.
 freeMem' :: forall sym w
@@ -559,7 +559,7 @@ freeMem' sym w p p_decomp m = do
      case (p_decomp, base') of
        (ConcreteOffset p' poff,
          ConcreteOffset b' boff)
-           | p' == b' -> do
+           | sameAllocationUnit p' b' -> do
                let c = if poff == boff then truePred sym else falsePred sym
                return (c, as)
            | otherwise -> do
@@ -567,7 +567,7 @@ freeMem' sym w p p_decomp m = do
                 return (c, a : as')
        (ConcreteOffset p' poff,
          SymbolicOffset b' boff)
-           | p' == b' -> do
+           | sameAllocationUnit p' b' -> do
                c <- ptrEq sym w boff =<< ptrConst sym w (fromIntegral poff)
                return (c, as)
            | otherwise -> do
@@ -575,7 +575,7 @@ freeMem' sym w p p_decomp m = do
                 return (c, a : as')
        (SymbolicOffset p' poff,
          ConcreteOffset b' boff)
-           | p' == b' -> do
+           | sameAllocationUnit p' b' -> do
                c <- ptrEq sym w poff =<< ptrConst sym w (fromIntegral boff)
                return (c, as)
            | otherwise -> do
@@ -583,7 +583,7 @@ freeMem' sym w p p_decomp m = do
                 return (c, a : as')
        (SymbolicOffset p' poff,
          SymbolicOffset b' boff)
-           | p' == b' -> do
+           | sameAllocationUnit p' b' -> do
                c <- ptrEq sym w boff poff
                return (c, as)
            | otherwise -> do

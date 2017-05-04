@@ -54,21 +54,17 @@ data LLVMPtrExpr e w
             (e (BaseBVType w))  --  Current offset in block
   | LLVMOffset (e (BaseBVType w))
 
--- NB, this is a somewhat strange Eq instance.  It is used by
--- the Generic memory model module to compare pointers that are
--- known to be concrete base pointers.
--- Thus, we simply assume that the given values are concrete and
--- have offset 0.  This essentially comes down to comparing the
--- allocation block numbers.
-instance IsExpr e => Eq (LLVMPtrExpr e w) where
-  LLVMPtr b1 _ _== LLVMPtr b2 _ _
-    | Just blk1 <- asNat b1
-    , Just blk2 <- asNat b2 = blk1 == blk2
-         --Debug.trace (unwords ["Comparing blocks:",show blk1, show blk2]) $ blk1 == blk2
-  _ == _ = False
+sameAllocationUnit :: (IsExpr e) => LLVMPtrExpr e w -> LLVMPtrExpr e w -> Bool
+sameAllocationUnit (LLVMPtr b1 _ _) (LLVMPtr b2 _ _)
+  | Just blk1 <- asNat b1
+  , Just blk2 <- asNat b2 = blk1 == blk2
+sameAllocationUnit _ _ = False
 
+instance (OrdF e) => Eq (LLVMPtrExpr e w) where
+  x == y = compare x y == EQ
 
-instance (IsExpr e, OrdF e) => Ord (LLVMPtrExpr e w) where
+-- | This is a syntactic ordering used for map lookups.
+instance (OrdF e) => Ord (LLVMPtrExpr e w) where
   compare (LLVMPtr _ _ _) (LLVMOffset _) = LT
   compare (LLVMPtr b1 _ off1) (LLVMPtr b2 _ off2) =
     case compareF b1 b2 of
