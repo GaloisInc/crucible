@@ -31,7 +31,6 @@ import           Data.Vector( Vector )
 import qualified Data.Vector as V
 
 import           Lang.Crucible.Types
-import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
@@ -84,7 +83,6 @@ instance (OrdF e) => Ord (LLVMPtrExpr e w) where
 
 data LLVMVal sym w where
   LLVMValPtr :: SymNat sym -> SymBV sym w -> SymBV sym w -> LLVMVal sym w
-  LLVMValFunPtr :: CtxRepr args -> TypeRepr ret -> FnVal sym args ret -> LLVMVal sym w
   LLVMValInt :: (1 <= x) => NatRepr x -> SymBV sym x -> LLVMVal sym w
   LLVMValReal :: SymReal sym -> LLVMVal sym w
   LLVMValStruct :: Vector (G.Field G.Type, LLVMVal sym w) -> LLVMVal sym w
@@ -370,12 +368,6 @@ muxLLVMVal sym _w p = mux
          end  <- liftIO $ bvIte sym p end1 end2
          off  <- liftIO $ bvIte sym p off1 off2
          return $ LLVMValPtr base end off
-
-    muxval (LLVMValFunPtr args1 ret1 h1) (LLVMValFunPtr args2 ret2 h2)
-      | Just Refl <- testEquality args1 args2
-      , Just Refl <- testEquality ret1 ret2 =
-        do h' <- liftIO $ muxHandle sym p h1 h2
-           return $ LLVMValFunPtr args1 ret1 h'
 
     muxval (LLVMValReal x) (LLVMValReal y) =
       do z <- liftIO $ realIte sym p x y

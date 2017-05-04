@@ -382,8 +382,6 @@ unpackMemValue
    -> IO (AnyValue sym)
 unpackMemValue _ (LLVMValPtr blk end off) =
   return $ AnyValue llvmPointerRepr $ RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV end Ctx.%> RV off)
-unpackMemValue _ (LLVMValFunPtr args ret h) = do
-  return $ AnyValue (FunctionHandleRepr args ret) $ h
 unpackMemValue _ (LLVMValInt w x) =
   return $ AnyValue (BVRepr w) x
 unpackMemValue _ (LLVMValReal x) =
@@ -428,8 +426,6 @@ packMemValue _ _ (RecursiveRepr nm) (RolledType xs)
       let RV end = xs^._2
       let RV off = xs^._3
       return $ LLVMValPtr blk end off
-packMemValue _ _ (FunctionHandleRepr args ret) h =
-  return $ LLVMValFunPtr args ret h
 packMemValue sym (G.Type (G.Array sz tp) _) (VectorRepr tpr) vec
   | V.length vec == fromIntegral sz = do
        vec' <- traverse (packMemValue sym tp tpr) vec
@@ -1008,7 +1004,6 @@ ppTermExpr
 ppTermExpr w t = -- FIXME, do something with the predicate?
   case t of
     LLVMValPtr base end off -> text "ptr" <> ppPtrExpr w (LLVMPtr base end off)
-    LLVMValFunPtr _args _ret fnval -> text "fun(" <> (text $ show fnval) <> text ")"
     LLVMValInt _x v -> printSymExpr v
     LLVMValReal v -> printSymExpr v
     LLVMValStruct v -> encloseSep lbrace rbrace comma v''
@@ -1021,7 +1016,6 @@ ppTermExpr w t = -- FIXME, do something with the predicate?
 
 instance Show (LLVMVal sym w) where
   show (LLVMValPtr _ _ _) = "<ptr>"
-  show (LLVMValFunPtr _ _ h) = "<fnptr: "++ show h ++">"
   show (LLVMValInt w _ ) = "<int" ++ show w ++ ">"
   show (LLVMValReal _) = "<real>"
   show (LLVMValStruct xs) =
