@@ -139,20 +139,19 @@ infix 4 .==
 infix 4 .<=
 (.<=) = Le
 
-instance Num (Value v) where
-  App (CValue 0) + x = x
-  x + App (CValue 0) = x
-  x + y = App (Add x y)
+infixl 6 .+
+(.+) :: Value v -> Value v -> Value v
+App (CValue 0) .+ x = x
+x .+ App (CValue 0) = x
+x .+ y = App (Add x y)
 
-  (*)    = error "CValue (*) undefined"
+infixl 6 .-
+(.-) :: Value v -> Value v -> Value v
+x .- App (CValue 0) = x
+x .- y = App (Sub x y)
 
-  x - App (CValue 0) = x
-  x - y = App (Sub x y)
-
-  negate = error "CValue negate undefined"
-  abs    = error "CValue abs undefined"
-  signum = error "CValue signum undefined"
-  fromInteger = App . CValue . fromInteger
+intValue :: Integral a => a -> Value v
+intValue x = App (CValue (toInteger x))
 
 -- Muxs
 
@@ -234,19 +233,19 @@ storeSize :: Value Var
 storeSize = Var StoreSize
 
 loadOffset :: Size -> Value Var
-loadOffset n = load + fromIntegral n
+loadOffset n = load .+ intValue n
 
 storeOffset :: Size -> Value Var
-storeOffset n = store + fromIntegral n
+storeOffset n = store .+ intValue n
 
 storeEnd :: Value Var
-storeEnd = store + storeSize
+storeEnd = store .+ storeSize
 
 -- | @loadInStoreRange n@ returns predicate if Store <= Load && Load <= Store + n
 loadInStoreRange :: Size -> Cond Var
 loadInStoreRange 0 = load .== store
 loadInStoreRange n = And (store .<= load)
-                         (load .<= store + fromIntegral n)
+                         (load .<= store .+ intValue n)
 
 data Field v = Field { fieldOffset :: Offset
                      , _fieldVal    :: v
@@ -438,12 +437,12 @@ fixedOffsetRangeLoad :: Addr
 fixedOffsetRangeLoad l tp s
    | s < l = do -- Store is before load.
      let sd = l - s -- Number of bytes load comes after store
-     try (storeSize .<= fromIntegral sd |-> loadFail)
+     try (storeSize .<= intValue sd |-> loadFail)
          (iterUp (sd+1) loadCase)
    | le <= s = loadFail -- No load if load ends before write.
    | otherwise = iterUp 0 loadCase
  where le = typeEnd l tp
-       loadCase i | i < le-s  = storeSize .== fromIntegral i |-> loadVal i
+       loadCase i | i < le-s  = storeSize .== intValue i |-> loadVal i
                   | otherwise = always $ loadVal i
        loadVal ssz = Var $ rangeLoad l tp (R s (s+ssz))
        loadFail = Var $ Var (OutOfRange l tp)
@@ -452,16 +451,16 @@ fixedOffsetRangeLoad l tp s
 -- the load address into a global pointer.  The code assumes that @load + i == store@.
 fixLoadBeforeStoreOffset :: BasePreference -> Offset -> Offset -> Value Var
 fixLoadBeforeStoreOffset pref i k
-  | pref == FixedStore = store + fromInteger (toInteger k - toInteger i)
-  | otherwise = load + fromIntegral k
+  | pref == FixedStore = store .+ intValue (toInteger k - toInteger i)
+  | otherwise = load .+ intValue k
 
 -- | @fixLoadAfterStoreOffset pref i k@ adjusts a pointer value that is relative
 -- the load address into a global pointer.  The code assumes that @load == store + i@.
 fixLoadAfterStoreOffset :: BasePreference -> Offset -> Offset -> Value Var
 fixLoadAfterStoreOffset pref i k = assert (k >= i) $
   case pref of
-    FixedStore -> store + fromIntegral k
-    _          -> load  + fromIntegral (k - i)
+    FixedStore -> store .+ intValue k
+    _          -> load  .+ intValue (k - i)
 
 -- | @loadFromStoreStart pref tp i j@ loads a value of type @tp@ from a range under the
 -- assumptions that @load + i == store@ and @j = i + min(storeSize, typeEnd(tp)@.
@@ -471,7 +470,7 @@ loadFromStoreStart :: BasePreference
                    -> Offset
                    -> ValueCtor (RangeLoad (Value Var))
 loadFromStoreStart pref tp i j = adjustOffset inFn outFn <$> rangeLoad 0 tp (R i j)
-  where inFn = fromIntegral
+  where inFn = intValue
         outFn = fixLoadBeforeStoreOffset pref i
 
 fixedSizeRangeLoad :: BasePreference -- ^ Whether addresses are based on store or load.
@@ -502,10 +501,10 @@ fixedSizeRangeLoad pref tp ssz =
        loadVal i = Var $ loadFromStoreStart pref tp i (i+ssz)
 
        storeVal i = Var $ adjustOffset inFn outFn <$> rangeLoad i tp (R 0 ssz)
-         where inFn = fromIntegral
+         where inFn = intValue
                outFn = fixLoadAfterStoreOffset pref i
 
-       loadSucc = Var (Var (InRange (load - store) tp))
+       loadSucc = Var (Var (InRange (load .- store) tp))
        loadFail = Var (Var (OutOfRange load tp))
 
 symbolicRangeLoad :: BasePreference -> Type -> RangeLoadMux (Value Var)
@@ -520,17 +519,17 @@ symbolicRangeLoad pref tp =
                     | otherwise = always loadFail
 
         loadVal0 j = Var $ adjustOffset inFn outFn <$> rangeLoad 0 tp (R 0 j)
-          where inFn k  = load - store + fromIntegral k
-                outFn k = load + fromIntegral k
+          where inFn k  = load .- store .+ intValue k
+                outFn k = load .+ intValue k
 
         storeAfterLoad i
           | i < sz = loadOffset i .== store |-> loadFromOffset i
           | otherwise = always loadFail
 
         loadFromOffset i = assert (0 < i && i < sz) $
-            try (fromIntegral (sz - i) .<= storeSize |-> loadVal i (i+sz))
+            try (intValue (sz - i) .<= storeSize |-> loadVal i (i+sz))
                 (iterDown (sz-1) f)
-          where f j | j > i = fromIntegral (j-i) .== storeSize |-> loadVal i j
+          where f j | j > i = intValue (j-i) .== storeSize |-> loadVal i j
                     | otherwise = always loadFail
 
         loadVal i j = Var $ loadFromStoreStart pref tp i j
