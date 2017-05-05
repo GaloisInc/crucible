@@ -18,47 +18,28 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
 
-module Lang.Crucible.LLVM.MemModel.Generic where
-{-
- ( Type
- , TypeF(..)
- , bitvectorType
- , floatType
- , doubleType
- , arrayType
- , mkStruct
- , typeF
- , typeEnd
- , Field
- , fieldVal ,fieldPad
-
- , ValueCtorF(..)
- , ViewF(..)
-
- , TermGenerator(..)
- , tgMuxPair
- , AddrDecomposeResult(..)
-
- , Mem
- , emptyMem
- , AllocType(..)
- , allocMem
- , allocAndWriteMem
- , readMem
- , isAllocated
- , isValidPointer
- , writeMem
- , writeMem'
- , copyMem
- , pushStackFrameMem
- , popStackFrameMem
- , branchMem
- , branchAbortMem
- , mergeMem
- , ppMem
- , ppType
- ) where
--}
+module Lang.Crucible.LLVM.MemModel.Generic
+  ( Mem
+  , emptyMem
+  , AllocType(..)
+  , MemAlloc(..)
+  , memAllocs
+  , allocMem
+  , allocAndWriteMem
+  , readMem
+  , isValidPointer
+  , writeMem
+  , copyMem
+  , pushStackFrameMem
+  , popStackFrameMem
+  , freeMem
+  , branchMem
+  , branchAbortMem
+  , mergeMem
+  , ppMem
+  , ppType
+  , ppLLVMPtr
+  ) where
 
 import Control.Lens
 import Control.Monad
