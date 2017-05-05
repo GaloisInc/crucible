@@ -55,7 +55,6 @@ module Lang.Crucible.LLVM.MemModel.Generic where
  , branchMem
  , branchAbortMem
  , mergeMem
- , MemPrettyPrinter(..)
  , ppMem
  , ppType
  ) where
@@ -633,10 +632,29 @@ ppLLVMPtr (LLVMPtr blk _ off) = parens $ blk_doc <> ", " <> off_doc
   where blk_doc = printSymExpr blk
         off_doc = printSymExpr off
 
-data MemPrettyPrinter sym w =
-  PP { ppCond :: Int -> Pred sym -> IO Doc
-     , ppTerm :: Int -> PartLLVMVal sym w -> IO Doc
-     }
+ppPartTermExpr
+  :: IsExprBuilder sym
+  => PartExpr (Pred sym) (LLVMVal sym w)
+  -> Doc
+ppPartTermExpr Unassigned = text "<undef>"
+ppPartTermExpr (PE _p t) = ppTermExpr t
+
+ppTermExpr
+  :: forall sym w . IsExprBuilder sym
+  => LLVMVal sym w
+  -> Doc
+ppTermExpr t = -- FIXME, do something with the predicate?
+  case t of
+    LLVMValPtr base end off -> text "ptr" <> ppLLVMPtr (LLVMPtr base end off :: LLVMPtr sym w)
+    LLVMValInt _x v -> printSymExpr v
+    LLVMValReal v -> printSymExpr v
+    LLVMValStruct v -> encloseSep lbrace rbrace comma v''
+      where v'  = fmap (over _2 ppTermExpr) (V.toList v)
+            v'' = map (\(fld,doc) ->
+                        group (text "base+" <> text (show $ fieldOffset fld) <+> equals <+> doc))
+                      v'
+    LLVMValArray _tp v -> encloseSep lbracket rbracket comma v'
+      where v' = ppTermExpr <$> V.toList v
 
 -- | Pretty print type.
 ppType :: Type -> Doc
@@ -649,80 +667,53 @@ ppType tp =
     Struct flds -> braces $ hsep $ punctuate (char ',') $ V.toList $ ppFld <$> flds
       where ppFld f = ppType (f^.fieldVal)
 
-ppMerge :: MemPrettyPrinter sym w
-        -> (v -> IO Doc)
-        -> Pred sym
+ppMerge :: IsExpr e
+        => (v -> Doc)
+        -> e tp
         -> [v]
         -> [v]
-        -> IO Doc
-ppMerge pp vpp c x y = do
-  cdoc <- ppCond pp 0 c
-  xdoc <- traverse vpp x
-  ydoc <- traverse vpp y
-  return $ indent 2 $
+        -> Doc
+ppMerge vpp c x y =
+  indent 2 $
     text "Condition:" <$$>
-    indent 2 cdoc <$$>
+    indent 2 (printSymExpr c) <$$>
     text "True Branch:"  <$$>
-    indent 2 (vcat $ xdoc) <$$>
+    indent 2 (vcat $ map vpp x) <$$>
     text "False Branch:" <$$>
-    indent 2 (vcat $ ydoc)
+    indent 2 (vcat $ map vpp y)
 
-ppAlloc :: IsExprBuilder sym => MemPrettyPrinter sym w -> MemAlloc sym w -> IO Doc
-ppAlloc _pp (Alloc atp base sz) = do
-  let basedoc = text (show base)
-  let szdoc   = printSymExpr sz
-  return $
-    text (show atp) <+> basedoc <+> szdoc
-ppAlloc pp (AllocMerge c x y) = do
-  mergeDoc <- ppMerge pp (ppAlloc pp) c x y
-  return $
-    text "merge" <$$> mergeDoc
+ppAlloc :: IsExprBuilder sym => MemAlloc sym w -> Doc
+ppAlloc (Alloc atp base sz) =
+  text (show atp) <+> text (show base) <+> printSymExpr sz
+ppAlloc (AllocMerge c x y) = do
+  text "merge" <$$> ppMerge ppAlloc c x y
 
-ppWrite :: IsExprBuilder sym => MemPrettyPrinter sym w -> MemWrite sym w -> IO Doc
-ppWrite _pp (MemCopy (d,_) s (l,_)) = do
-  let ddoc = ppLLVMPtr d
-  let sdoc = ppLLVMPtr s
-  let ldoc = printSymExpr l
-  return $ text "memcopy" <+> ddoc <+> sdoc <+> ldoc
-ppWrite pp (MemStore (d,_) v _) = do
-  let ddoc = ppLLVMPtr d
-  vdoc <- ppTerm pp 10 v
-  return $
-    char '*' <> ddoc <+> text ":=" <+> vdoc
-ppWrite pp (WriteMerge c x y) = do
-  mergeDoc <- ppMerge pp (ppWrite pp) c x y
-  return $ text "merge" <$$> mergeDoc
+ppWrite :: IsExprBuilder sym => MemWrite sym w -> Doc
+ppWrite (MemCopy (d,_) s (l,_)) = do
+  text "memcopy" <+> ppLLVMPtr d <+> ppLLVMPtr s <+> printSymExpr l
+ppWrite (MemStore (d,_) v _) = do
+  char '*' <> ppLLVMPtr d <+> text ":=" <+> ppPartTermExpr v
+ppWrite (WriteMerge c x y) = do
+  text "merge" <$$> ppMerge ppWrite c x y
 
-ppMemChanges :: IsExprBuilder sym => MemPrettyPrinter sym w -> MemChanges sym w -> IO Doc
-ppMemChanges pp (al,wl) = do
-  aldoc <- traverse (ppAlloc pp) al
-  wldoc <- traverse (ppWrite pp) wl
-  return $
-    text "Allocations:" <$$>
-    indent 2 (vcat aldoc) <$$>
-    text "Writes:" <$$>
-    indent 2 (vcat wldoc)
+ppMemChanges :: IsExprBuilder sym => MemChanges sym w -> Doc
+ppMemChanges (al,wl) =
+  text "Allocations:" <$$>
+  indent 2 (vcat (map ppAlloc al)) <$$>
+  text "Writes:" <$$>
+  indent 2 (vcat (map ppWrite wl))
 
-ppMemState :: Monad m => (d -> m Doc) -> MemState d -> m Doc
+ppMemState :: (d -> Doc) -> MemState d -> Doc
 ppMemState f (EmptyMem d) = do
-  ddoc <- f d
-  return $ text "Base memory" <$$>
-           indent 2 ddoc
+  text "Base memory" <$$> indent 2 (f d)
 ppMemState f (StackFrame d ms) = do
-  ddoc  <- f d
-  msdoc <- ppMemState f ms
-  return $
-    text "Stack frame" <$$>
-    indent 2 ddoc <$$>
-    msdoc
-
+  text "Stack frame" <$$>
+    indent 2 (f d) <$$>
+    ppMemState f ms
 ppMemState f (BranchFrame d ms) = do
-  ddoc <- f d
-  msdoc <- ppMemState f ms
-  return $
-    text "Branch frame" <$$>
-    indent 2 ddoc <$$>
-    msdoc
+  text "Branch frame" <$$>
+    indent 2 (f d) <$$>
+    ppMemState f ms
 
-ppMem :: IsExprBuilder sym => MemPrettyPrinter sym w -> Mem sym w -> IO Doc
-ppMem pp m = ppMemState (ppMemChanges pp) (m^.memState)
+ppMem :: IsExprBuilder sym => Mem sym w -> Doc
+ppMem m = ppMemState ppMemChanges (m^.memState)

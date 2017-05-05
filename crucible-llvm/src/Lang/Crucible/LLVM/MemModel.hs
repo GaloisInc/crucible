@@ -471,13 +471,8 @@ ppMem
   :: IsSymInterface sym
   => sym
   -> RegValue sym Mem
-  -> IO Doc
-ppMem _sym mem = do
-  let pp = G.PP
-           { G.ppCond = \_x c -> return $ printSymExpr c
-           , G.ppTerm = \_x t -> return $ ppPartTermExpr ptrWidth t
-           }
-  G.ppMem pp (memImplHeap mem)
+  -> Doc
+ppMem _sym mem = G.ppMem (memImplHeap mem)
 
 doDumpMem :: IsSymInterface sym
   => sym
@@ -485,8 +480,7 @@ doDumpMem :: IsSymInterface sym
   -> RegValue sym Mem
   -> IO ()
 doDumpMem sym h mem = do
-  doc <- ppMem sym mem
-  hPutStrLn h (show doc)
+  hPutStrLn h (show (ppMem sym mem))
 
 
 loadRaw :: IsSymInterface sym
@@ -973,32 +967,6 @@ ptrIsNull sym _p@(RolledType x) = do
     poff <- bvEq sym off =<< bvLit sym ptrWidth 0
     andPred sym pblk poff
 
-
-ppPartTermExpr
-  :: IsSymInterface sym
-  => NatRepr w
-  -> PartExpr (Pred sym) (LLVMVal sym w)
-  -> Doc
-ppPartTermExpr _w Unassigned = text "<undef>"
-ppPartTermExpr w (PE _p t) = ppTermExpr w t
-
-ppTermExpr
-  :: forall sym w . IsSymInterface sym
-  => NatRepr w
-  -> LLVMVal sym w
-  -> Doc
-ppTermExpr w t = -- FIXME, do something with the predicate?
-  case t of
-    LLVMValPtr base end off -> text "ptr" <> G.ppLLVMPtr (LLVMPtr base end off :: LLVMPtr sym w)
-    LLVMValInt _x v -> printSymExpr v
-    LLVMValReal v -> printSymExpr v
-    LLVMValStruct v -> encloseSep lbrace rbrace comma v''
-      where v'  = fmap (over _2 (ppTermExpr w)) (V.toList v)
-            v'' = map (\(fld,doc) ->
-                        group (text "base+" <> text (show $ G.fieldOffset fld) <+> equals <+> doc))
-                      v'
-    LLVMValArray _tp v -> encloseSep lbracket rbracket comma v'
-      where v' = ppTermExpr w <$> V.toList v
 
 instance Show (LLVMVal sym w) where
   show (LLVMValPtr _ _ _) = "<ptr>"
