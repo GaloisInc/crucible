@@ -1,6 +1,6 @@
 ------------------------------------------------------------------------
 -- |
--- Module           : Lang.Crucible.LLVM.MemModel
+-- Module           : Lang.Crucible.LLVM.MemModel.Pointer
 -- Description      : Representation of pointers in the LLVM memory model
 -- Copyright        : (c) Galois, Inc 2015-2016
 -- License          : BSD3
@@ -30,41 +30,32 @@ import           Data.Parameterized.Some
 import           Data.Vector( Vector )
 import qualified Data.Vector as V
 
-import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
 import qualified Lang.Crucible.LLVM.MemModel.Common as G
+import           Lang.MATLAB.Utils.Nat (Nat)
 
 
-type LLVMPtrExpr' sym = LLVMPtrExpr (SymExpr sym)
 type PartLLVMVal sym w = PartExpr (Pred sym) (LLVMVal sym w)
 
 -- | This provides a view of an address as a base + offset when possible.
-data AddrDecomposeResult t
-   = Symbolic t
-   | ConcreteOffset t Integer
-   | SymbolicOffset t t
-  deriving (Show)
+data AddrDecomposeResult sym w
+  = Symbolic (LLVMPtr sym w)
+  | ConcreteOffset Nat (SymBV sym w) Integer
+  | SymbolicOffset Nat (SymBV sym w) (SymBV sym w)
+--  deriving (Show)
 
-data LLVMPtrExpr e w
-  = LLVMPtr (e BaseNatType)     --  Block number
-            (e (BaseBVType w))  --  End-of-block offset (1 past end of valid bytes)
-            (e (BaseBVType w))  --  Current offset in block
-  | LLVMOffset (e (BaseBVType w))
+data LLVMPtr sym w
+  = LLVMPtr (SymNat sym)   --  ^ Block number
+            (SymBV sym w)  --  ^ End-of-block offset (1 past end of valid bytes)
+            (SymBV sym w)  --  ^ Current offset in block
 
-sameAllocationUnit :: (IsExpr e) => LLVMPtrExpr e w -> LLVMPtrExpr e w -> Bool
-sameAllocationUnit (LLVMPtr b1 _ _) (LLVMPtr b2 _ _)
-  | Just blk1 <- asNat b1
-  , Just blk2 <- asNat b2 = blk1 == blk2
-sameAllocationUnit _ _ = False
-
-instance (OrdF e) => Eq (LLVMPtrExpr e w) where
+instance (IsSymInterface sym) => Eq (LLVMPtr sym w) where
   x == y = compare x y == EQ
 
 -- | This is a syntactic ordering used for map lookups.
-instance (OrdF e) => Ord (LLVMPtrExpr e w) where
-  compare (LLVMPtr _ _ _) (LLVMOffset _) = LT
+instance (IsSymInterface sym) => Ord (LLVMPtr sym w) where
   compare (LLVMPtr b1 _ off1) (LLVMPtr b2 _ off2) =
     case compareF b1 b2 of
       LTF -> LT
@@ -74,12 +65,6 @@ instance (OrdF e) => Ord (LLVMPtrExpr e w) where
           LTF -> LT
           GTF -> GT
           EQF -> EQ
-  compare (LLVMOffset _) (LLVMPtr _ _ _) = GT
-  compare (LLVMOffset off1) (LLVMOffset off2) =
-    case compareF off1 off2 of
-      LTF -> LT
-      GTF -> GT
-      EQF -> EQ
 
 data LLVMVal sym w where
   LLVMValPtr :: SymNat sym -> SymBV sym w -> SymBV sym w -> LLVMVal sym w
@@ -89,32 +74,28 @@ data LLVMVal sym w where
   LLVMValArray :: G.Type -> Vector (LLVMVal sym w) -> LLVMVal sym w
 
 
-ptrConst :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> G.Size -> IO (LLVMPtrExpr' sym w)
-ptrConst sym w x = LLVMOffset <$> bvLit sym w (fromIntegral x)
+ptrConst :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> G.Size -> IO (SymBV sym w)
+ptrConst sym w x = bvLit sym w (fromIntegral x)
 
 ptrDecompose :: (1 <= w, IsExprBuilder sym)
              => sym
              -> NatRepr w
-             -> LLVMPtrExpr' sym w
-             -> IO (AddrDecomposeResult (LLVMPtrExpr' sym w))
-ptrDecompose sym w (LLVMPtr base@(asNat -> Just _) end (asUnsignedBV -> Just off)) =
-  do z <- bvLit sym w 0
-     return (ConcreteOffset (LLVMPtr base end z) off)
-ptrDecompose sym w (LLVMPtr base@(asNat -> Just _) end off) =
-  do z <- bvLit sym w 0
-     return $ SymbolicOffset (LLVMPtr base end z) (LLVMOffset off)
-ptrDecompose _sym _w p@(LLVMPtr _ _ _) =
-  do return $ Symbolic p
-ptrDecompose _ _ (LLVMOffset _) =
-  do fail "Attempted to treat raw offset as pointer"
+             -> LLVMPtr sym w
+             -> IO (AddrDecomposeResult sym w)
+ptrDecompose _sym _w (LLVMPtr (asNat -> Just b) end (asUnsignedBV -> Just off)) =
+  return $ ConcreteOffset b end off
+ptrDecompose _sym _w (LLVMPtr (asNat -> Just b) end off) =
+  return $ SymbolicOffset b end off
+ptrDecompose _sym _w p =
+  return $ Symbolic p
 
 ptrSizeDecompose
   :: IsExprBuilder sym
   => sym
   -> NatRepr w
-  -> LLVMPtrExpr' sym w
+  -> SymBV sym w
   -> IO (Maybe Integer)
-ptrSizeDecompose _ _ (LLVMOffset (asUnsignedBV -> Just off)) =
+ptrSizeDecompose _ _ (asUnsignedBV -> Just off) =
   return (Just off)
 ptrSizeDecompose _ _ _ = return Nothing
 
@@ -122,77 +103,46 @@ ptrSizeDecompose _ _ _ = return Nothing
 ptrEq :: (1 <= w, IsSymInterface sym)
       => sym
       -> NatRepr w
-      -> LLVMPtrExpr' sym w
-      -> LLVMPtrExpr' sym w
+      -> LLVMPtr sym w
+      -> LLVMPtr sym w
       -> IO (Pred sym)
 ptrEq sym _w (LLVMPtr base1 _ off1) (LLVMPtr base2 _ off2) =
   do putStrLn "Executing ptrEq"
      p1 <- natEq sym base1 base2
      p2 <- bvEq sym off1 off2
      andPred sym p1 p2
-ptrEq sym _w (LLVMOffset off1) (LLVMOffset off2) =
-  do putStrLn "Executing ptrEq"
-     bvEq sym off1 off2
-
--- Comparison of a pointer to the null pointer (offset 0) is allowed,
--- but all other direct ptr/offset comparisons are not allowed
-ptrEq sym w (LLVMOffset off) (LLVMPtr _ _ _) =
-  do putStrLn "Executing ptrEq"
-     z <- bvLit sym w 0
-     p <- bvEq sym off z
-     addAssertion sym p (AssertFailureSimError "Invalid attempt to compare a pointer and a raw offset for equality")
-     return (falsePred sym)
-ptrEq sym w (LLVMPtr _ _ _) (LLVMOffset off) =
-  do putStrLn "Executing ptrEq"
-     z <- bvLit sym w 0
-     p <- bvEq sym off z
-     addAssertion sym p (AssertFailureSimError "Invalid attempt to compare a pointer and a raw offset for equality")
-     return (falsePred sym)
 
 ptrLe :: (1 <= w, IsSymInterface sym)
       => sym
       -> NatRepr w
-      -> LLVMPtrExpr' sym w
-      -> LLVMPtrExpr' sym w
+      -> LLVMPtr sym w
+      -> LLVMPtr sym w
       -> IO (Pred sym)
 ptrLe sym _w (LLVMPtr base1 _ off1) (LLVMPtr base2 _ off2) =
   do putStrLn "Executing ptrLe"
      p1 <- natEq sym base1 base2
      addAssertion sym p1 (AssertFailureSimError "Attempted to compare pointers from different allocations")
      bvSle sym off1 off2
-ptrLe sym _w (LLVMOffset off1) (LLVMOffset off2) =
-  do putStrLn "Executing ptrLe"
-     bvSle sym off1 off2
-ptrLe _ _ _ _ =
-  do fail "Invalid attempt to compare a pointer and a raw offset"
 
-
+-- | Add an offset to a pointer.
 ptrAdd :: (1 <= w, IsExprBuilder sym)
        => sym
        -> NatRepr w
-       -> LLVMPtrExpr' sym w
-       -> LLVMPtrExpr' sym w
-       -> IO (LLVMPtrExpr' sym w)
-ptrAdd sym _w (LLVMPtr base end off1) (LLVMOffset off2) =
+       -> LLVMPtr sym w
+       -> SymBV sym w
+       -> IO (LLVMPtr sym w)
+ptrAdd sym _w (LLVMPtr base end off1) off2 =
   do off' <- bvAdd sym off1 off2
      return $ LLVMPtr base end off'
-ptrAdd sym _w (LLVMOffset off1) (LLVMPtr base end off2) =
-  do off' <- bvAdd sym off1 off2
-     return $ LLVMPtr base end off'
-ptrAdd sym _w (LLVMOffset off1) (LLVMOffset off2) =
-  do off' <- bvAdd sym off1 off2
-     return $ LLVMOffset off'
-ptrAdd _sym _w (LLVMPtr _ _ _) (LLVMPtr _ _ _) =
-  do fail "Attempted to add to pointers"
 
 ptrCheckedAdd
        :: (1 <= w, IsExprBuilder sym)
        => sym
        -> NatRepr w
-       -> LLVMPtrExpr' sym w
-       -> LLVMPtrExpr' sym w
-       -> IO (Pred sym, LLVMPtrExpr' sym w)
-ptrCheckedAdd sym w (LLVMPtr base end off1) (LLVMOffset off2) =
+       -> LLVMPtr sym w
+       -> SymBV sym w
+       -> IO (Pred sym, LLVMPtr sym w)
+ptrCheckedAdd sym w (LLVMPtr base end off1) off2 =
   do z <- bvLit sym w 0
      (p1, off') <- addSignedOF sym off1 off2
      p1' <- notPred sym p1
@@ -200,39 +150,30 @@ ptrCheckedAdd sym w (LLVMPtr base end off1) (LLVMOffset off2) =
      p3 <- bvSle sym z off'
      p <- andPred sym p1' =<< andPred sym p2 p3
      return $ (p, LLVMPtr base end off')
-ptrCheckedAdd sym w (LLVMOffset off1) (LLVMPtr base end off2) =
-  do z <- bvLit sym w 0
-     (p1, off') <- addSignedOF sym off1 off2
-     p1' <- notPred sym p1
-     p2 <- bvSle sym off' end
-     p3 <- bvSle sym z off'
-     p <- andPred sym p1' =<< andPred sym p2 p3
-     return $ (p, LLVMPtr base end off')
-ptrCheckedAdd sym _w (LLVMOffset off1) (LLVMOffset off2) =
-  do (p, off') <- addSignedOF sym off1 off2
-     p' <- notPred sym p
-     return $ (p', LLVMOffset off')
-ptrCheckedAdd _sym _w (LLVMPtr _ _ _) (LLVMPtr _ _ _) =
-  do fail "Attempted to add to pointers"
 
 
-ptrSub :: (1 <= w, IsSymInterface sym)
-       => sym
-       -> NatRepr w
-       -> LLVMPtrExpr' sym w
-       -> LLVMPtrExpr' sym w
-       -> IO (LLVMPtrExpr' sym w)
-ptrSub sym _w (LLVMPtr base1 _ off1) (LLVMPtr base2 _ off2) =
+-- | Compute the difference between two pointers. The pointers must
+-- point into the same allocation block.
+ptrDiff :: (1 <= w, IsSymInterface sym)
+        => sym
+        -> NatRepr w
+        -> LLVMPtr sym w
+        -> LLVMPtr sym w
+        -> IO (SymBV sym w)
+ptrDiff sym _w (LLVMPtr base1 _ off1) (LLVMPtr base2 _ off2) =
   do p <- natEq sym base1 base2
      addAssertion sym p (AssertFailureSimError "Attempted to subtract pointers from different allocations")
      diff <- bvSub sym off1 off2
-     return (LLVMOffset diff)
-ptrSub sym _w (LLVMOffset off1) (LLVMOffset off2) =
-  do diff <- bvSub sym off1 off2
-     return (LLVMOffset diff)
-ptrSub _sym _w (LLVMOffset _) (LLVMPtr _ _ _) =
-  do fail "Cannot substract pointer value from raw offset"
-ptrSub sym _w (LLVMPtr base end off1) (LLVMOffset off2) =
+     return diff
+
+-- | Subtract an offset from a pointer.
+ptrSub :: (1 <= w, IsSymInterface sym)
+       => sym
+       -> NatRepr w
+       -> LLVMPtr sym w
+       -> SymBV sym w
+       -> IO (LLVMPtr sym w)
+ptrSub sym _w (LLVMPtr base end off1) off2 =
   do diff <- bvSub sym off1 off2
      return (LLVMPtr base end diff)
 

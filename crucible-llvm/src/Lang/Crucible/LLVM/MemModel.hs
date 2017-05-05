@@ -68,7 +68,7 @@ module Lang.Crucible.LLVM.MemModel
 
   -- * Direct API to LLVMVal
   , LLVMVal(..)
-  , LLVMPtrExpr(..)
+  , LLVMPtr(..)
   , coerceAny
   , unpackMemValue
   , packMemValue
@@ -302,7 +302,7 @@ data MemImpl sym w =
   { memImplBlockSource :: BlockSource
   , memImplGlobalMap   :: GlobalMap sym
   , memImplHandleMap   :: Map Integer Dynamic
-  , memImplHeap        :: G.Mem (LLVMPtrExpr (SymExpr sym) w) (Pred sym) (PartExpr (Pred sym) (LLVMVal sym w))
+  , memImplHeap        :: G.Mem sym w
   }
 
 -- NB block numbers start counting at 1 because the null pointer
@@ -474,8 +474,7 @@ ppMem
   -> IO Doc
 ppMem _sym mem = do
   let pp = G.PP
-           { G.ppPtr  = \_x p -> return $ ppPtrExpr ptrWidth p
-           , G.ppCond = \_x c -> return $ printSymExpr c
+           { G.ppCond = \_x c -> return $ printSymExpr c
            , G.ppTerm = \_x t -> return $ ppPartTermExpr ptrWidth t
            }
   G.ppMem pp (memImplHeap mem)
@@ -493,7 +492,7 @@ doDumpMem sym h mem = do
 loadRaw :: IsSymInterface sym
         => sym
         -> MemImpl sym PtrWidth
-        -> LLVMPtrExpr (SymExpr sym) PtrWidth
+        -> LLVMPtr sym PtrWidth
         -> G.Type
         -> IO (LLVMVal sym PtrWidth)
 loadRaw sym mem ptr valType = do
@@ -506,7 +505,7 @@ loadRaw sym mem ptr valType = do
         addAssertion sym p'' (AssertFailureSimError errMsg)
         return v'
   where
-    errMsg = "Invalid memory load: " ++ show (ppPtrExpr ptrWidth ptr)
+    errMsg = "Invalid memory load: " ++ show (G.ppLLVMPtr ptr)
 
 doLoad :: IsSymInterface sym
   => sym
@@ -530,7 +529,7 @@ doLoad sym mem ptr valType = do
 storeRaw :: IsSymInterface sym
   => sym
   -> MemImpl sym PtrWidth
-  -> LLVMPtrExpr (SymExpr sym) PtrWidth
+  -> LLVMPtr sym PtrWidth
   -> G.Type
   -> LLVMVal sym PtrWidth
   -> IO (MemImpl sym PtrWidth)
@@ -590,7 +589,7 @@ memAlloca = mkIntrinsic $ \_ sym
      blk <- liftIO $ natLit sym (fromIntegral blkNum)
      z <- liftIO $ bvLit sym ptrWidth 0
 
-     let heap' = G.allocMem G.StackAlloc (LLVMPtr blk sz z) (LLVMOffset sz) (memImplHeap mem)
+     let heap' = G.allocMem G.StackAlloc (fromInteger blkNum) sz (memImplHeap mem)
      let ptr = RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV sz Ctx.%> RV z)
      return (Ctx.empty Ctx.%> (RV $ mem{ memImplHeap = heap' }) Ctx.%> RV ptr)
 
@@ -610,7 +609,7 @@ memPopFrame = mkIntrinsic $ \_ _sym
 
 
 translatePtr :: RegValue sym LLVMPointerType
-             -> LLVMPtrExpr (SymExpr sym) PtrWidth
+             -> LLVMPtr sym PtrWidth
 translatePtr (RolledType xs) =
    let RV blk = xs^._1 in
    let RV end = xs^._2 in
@@ -618,12 +617,10 @@ translatePtr (RolledType xs) =
    LLVMPtr blk end off
 
 
-translatePtrBack :: LLVMPtrExpr (SymExpr sym) PtrWidth
+translatePtrBack :: LLVMPtr sym PtrWidth
                  -> IO (RegValue sym LLVMPointerType)
 translatePtrBack (LLVMPtr blk end off) =
   return $ RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV end Ctx.%> RV off)
-translatePtrBack (LLVMOffset _) =
-  fail "Expected pointer value, but got offset value instead"
 
 sextendBVTo :: (1 <= w, IsSymInterface sym)
             => sym
@@ -715,7 +712,7 @@ doMalloc sym mem sz = do
   blk <- liftIO $ natLit sym (fromIntegral blkNum)
   z <- liftIO $ bvLit sym ptrWidth 0
 
-  let heap' = G.allocMem G.HeapAlloc (LLVMPtr blk sz z) (LLVMOffset sz) (memImplHeap mem)
+  let heap' = G.allocMem G.HeapAlloc (fromInteger blkNum) sz (memImplHeap mem)
   let ptr = RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV sz Ctx.%> RV z)
   return (ptr, mem{ memImplHeap = heap' })
 
@@ -724,14 +721,14 @@ mallocRaw
   => sym
   -> MemImpl sym PtrWidth
   -> SymExpr sym (BaseBVType PtrWidth)
-  -> IO (LLVMPtrExpr (SymExpr sym) PtrWidth, MemImpl sym PtrWidth)
+  -> IO (LLVMPtr sym PtrWidth, MemImpl sym PtrWidth)
 mallocRaw sym mem sz = do
   blkNum <- nextBlock (memImplBlockSource mem)
   blk <- natLit sym (fromIntegral blkNum)
   z <- bvLit sym ptrWidth 0
 
   let ptr = LLVMPtr blk sz z
-  let heap' = G.allocMem G.HeapAlloc ptr (LLVMOffset sz) (memImplHeap mem)
+  let heap' = G.allocMem G.HeapAlloc (fromInteger blkNum) sz (memImplHeap mem)
   return (ptr, mem{ memImplHeap = heap' })
 
 
@@ -746,7 +743,7 @@ doMallocHandle sym mem x = do
   blk <- liftIO $ natLit sym (fromIntegral blkNum)
   z <- liftIO $ bvLit sym ptrWidth 0
 
-  let heap' = G.allocMem G.HeapAlloc (LLVMPtr blk z z) (LLVMOffset z) (memImplHeap mem)
+  let heap' = G.allocMem G.HeapAlloc (fromInteger blkNum) z (memImplHeap mem)
   let hMap' = Map.insert blkNum (toDyn x) (memImplHandleMap mem)
   let ptr = RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV z Ctx.%> RV z)
 
@@ -836,7 +833,7 @@ doMemcpy
 doMemcpy sym w mem dest src len = do
   let dest' = translatePtr dest
   let src'  = translatePtr src
-  len' <- LLVMOffset <$> sextendBVTo sym w ptrWidth len
+  len' <- sextendBVTo sym w ptrWidth len
 
   (c, heap') <- G.copyMem sym ptrWidth dest' src' len' (memImplHeap mem)
 
@@ -855,17 +852,11 @@ ppPtr (RolledType xs) =
         end_doc = printSymExpr end
         off_doc = printSymExpr off
 
-ppPtrExpr :: IsExpr e => NatRepr w -> LLVMPtrExpr e w -> Doc
-ppPtrExpr _w (LLVMPtr blk _ off) = parens $ blk_doc <> ", " <> off_doc
-  where blk_doc = printSymExpr blk
-        off_doc = printSymExpr off
-ppPtrExpr _w (LLVMOffset off) = printSymExpr off
-
-ppAllocs :: IsSymInterface sym => sym -> [G.MemAlloc (LLVMPtrExpr (SymExpr sym) PtrWidth) (Pred sym)] -> IO Doc
+ppAllocs :: IsSymInterface sym => sym -> [G.MemAlloc sym PtrWidth] -> IO Doc
 ppAllocs sym xs = vcat <$> mapM ppAlloc xs
  where ppAlloc (G.Alloc allocTp base sz) = do
-            let base_doc = ppPtrExpr ptrWidth base
-            let sz_doc   = ppPtrExpr ptrWidth sz
+            let base_doc = text (show base)
+            let sz_doc   = printSymExpr sz
             return $ text (show allocTp) <+> base_doc <+> text "SIZE:" <+> sz_doc
        ppAlloc (G.AllocMerge p a1 a2) = do
             a1_doc <- ppAllocs sym a1
@@ -900,11 +891,7 @@ doPtrSubtract
 doPtrSubtract sym x y = do
    let px = translatePtr x
    let py = translatePtr y
-   diff <- ptrSub sym ptrWidth px py
-   case diff of
-     LLVMOffset off -> return off
-     LLVMPtr _ _ _ ->
-       fail "Expected offset as result of subtraction, but got pointer instead"
+   ptrDiff sym ptrWidth px py
 
 doPtrAddOffset
   :: IsSymInterface sym
@@ -914,8 +901,7 @@ doPtrAddOffset
   -> IO (RegValue sym LLVMPointerType)
 doPtrAddOffset sym x off = do
       let px = translatePtr x
-      let poff = LLVMOffset off
-      (v, p') <- ptrCheckedAdd sym ptrWidth px poff
+      (v, p') <- ptrCheckedAdd sym ptrWidth px off
       let x_doc = ppPtr x
       let off_doc = printSymExpr off
       addAssertion sym v
@@ -997,13 +983,13 @@ ppPartTermExpr _w Unassigned = text "<undef>"
 ppPartTermExpr w (PE _p t) = ppTermExpr w t
 
 ppTermExpr
-  :: IsSymInterface sym
+  :: forall sym w . IsSymInterface sym
   => NatRepr w
   -> LLVMVal sym w
   -> Doc
 ppTermExpr w t = -- FIXME, do something with the predicate?
   case t of
-    LLVMValPtr base end off -> text "ptr" <> ppPtrExpr w (LLVMPtr base end off)
+    LLVMValPtr base end off -> text "ptr" <> G.ppLLVMPtr (LLVMPtr base end off :: LLVMPtr sym w)
     LLVMValInt _x v -> printSymExpr v
     LLVMValReal v -> printSymExpr v
     LLVMValStruct v -> encloseSep lbrace rbrace comma v''
