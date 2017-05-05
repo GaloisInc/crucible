@@ -21,14 +21,10 @@ module Lang.Crucible.LLVM.MemModel.Common
 
     -- * Range declarations.
   , Range(..)
-  , isDisjoint
-  , containedBy
-  , rSize
 
     -- * Term declarations
   , Term(..)
   , foldTermM
-  , ShowF(..)
 
     -- * Type declarations
   , Type(..)
@@ -47,35 +43,22 @@ module Lang.Crucible.LLVM.MemModel.Common
     -- * Pointer declarations
   , Value
   , ValueF(..)
-  , store
-  , typeOfValue
   , Cond(..)
 
   , Mux
-  , MuxF(..)
   , muxCond
   , muxLeaf
   , reduceMux
-  , subCount
-  , atomCount
-  , EvalContext
-  , evalContext
-  , evalV
-  , eval
 
   , Var(..)
 
   , ValueCtor
   , ValueCtorF(..)
-  , valueImports
 
   , BasePreference(..)
 
   , RangeLoad(..)
-  , rangeLoadType
-  , adjustOffset
   , rangeLoad
-  , RangeLoadMux
   , fixedOffsetRangeLoad
   , fixedSizeRangeLoad
   , symbolicRangeLoad
@@ -84,9 +67,7 @@ module Lang.Crucible.LLVM.MemModel.Common
   , ViewF(..)
 
   , ValueLoad(..)
-  , valueLoadType
   , valueLoad
-  , ValueLoadMux
   , symbolicValueLoad
 
   ) where
@@ -109,17 +90,6 @@ type Offset = Size
 -- | @WR i j@ denotes that the write should store in range [i..j).
 data Range = R { rStart :: Addr, _rEnd :: Addr }
   deriving (Eq, Show)
-
-rSize :: Range -> Size
-rSize (R l h) = h - l
-
-containedBy :: Range -> Range -> Bool
-containedBy (R xl xe) (R yl ye) = yl <= xl && xe <= ye
-
--- | Returns true if there are no bytes in intersetion of two ranges.
-isDisjoint :: Range -> Range -> Bool
-isDisjoint (R xl xe) (R yl ye) =
-  xl == xe || yl == ye || xe <= yl || ye <= xl
 
 -- Var
 
@@ -209,14 +179,6 @@ reduceMux f (App (Mux c x y)) = join $
   f c <$> reduceMux f x <*> reduceMux f y
 reduceMux _ (Var a) = pure a
 
-subCount :: Mux c a -> Int
-subCount (App (Mux _ t f)) = 1 + subCount t + subCount f
-subCount _ = 1
-
-atomCount :: Mux c a -> Int
-atomCount (App (Mux _ t f)) = atomCount t + atomCount f
-atomCount _ = 1
-
 data MuxCase c a
    = MuxCase c (Mux c a)
    | DefaultMux (Mux c a)
@@ -285,35 +247,6 @@ loadInStoreRange :: Size -> Cond Var
 loadInStoreRange 0 = load .== store
 loadInStoreRange n = And (store .<= load)
                          (load .<= store + fromIntegral n)
-
--- | Contains load start and store range.
-type EvalContext v = Var -> v
-
-evalContext :: Addr -> Type -> Range -> EvalContext Integer
-evalContext l _ (R s se) = assert (s <= se) $ fn
-  where fn Load  = toInteger l
-        fn Store = toInteger s
-        fn StoreSize = toInteger (se - s)
-
-evalV :: (v -> Integer) -> Value v -> Integer
-evalV ec (Var v) = ec v
-evalV ec (App vf) =
-  case vf of
-    Add x y -> evalV ec x + evalV ec y
-    Sub x y -> evalV ec x - evalV ec y
-    CValue c -> c
-
-evalCond :: (v -> Integer) -> Cond v -> Bool
-evalCond ec c =
- case c of
-   Eq x y  -> evalV ec x == evalV ec y
-   Le x y  -> evalV ec x <= evalV ec y
-   And x y -> evalCond ec x && evalCond ec y
-
-eval :: (v -> Integer) -> Mux (Cond v) a -> a
-eval c = evalF
-  where evalF (App (Mux b t f)) = evalF (if evalCond c b then t else f)
-        evalF (Var a) = a
 
 data Field v = Field { fieldOffset :: Offset
                      , _fieldVal    :: v
@@ -425,33 +358,6 @@ concatBV xw x yw y = App (ConcatBV xw x yw y)
 singletonArray :: Type -> ValueCtor a -> ValueCtor a
 singletonArray tp e = App (MkArray tp (V.singleton e))
 
--- | Returns imports in a Value Ctor
-valueImports :: ValueCtor a -> [a]
-valueImports = toListOf termVars
-
-typeOfValueF :: ValueCtorF (TypeF Type) -> Maybe Type
-typeOfValueF (ConcatBV xw xtp yw ytp)
-  | Bitvector xw == xtp && Bitvector yw == ytp =
-    return (bitvectorType (xw + yw))
-typeOfValueF (BVToFloat (Bitvector 4)) = return $ mkType Float
-typeOfValueF (BVToDouble (Bitvector 8)) = return $ mkType Double
-typeOfValueF (ConsArray tp tp' n (Array n' etp))
-  | typeF tp == tp' && (n,tp) == (toInteger n', etp) =
-    return (arrayType (fromInteger (n+1)) etp)
-typeOfValueF (AppendArray tp m (Array m' tp0) n (Array n' tp1))
-  | (m,tp) == (toInteger m', tp0)
-    && (n,tp) == (toInteger n', tp1) =
-      return (arrayType (fromInteger (m+n)) tp0)
-typeOfValueF (MkArray tp tps)
-  | allOf folded (== typeF tp) tps =
-    return (arrayType (fromIntegral (V.length tps)) tp)
-typeOfValueF (MkStruct ftps)
-  | V.length ftps > 0 = return (structType (fst <$> ftps))
-typeOfValueF _ = Nothing
-
-typeOfValue :: (a -> Maybe Type) -> ValueCtor a -> Maybe Type
-typeOfValue f = foldTermM f (typeOfValueF . fmap typeF)
-
 -- | Create value of type that splits at a particular byte offset.
 splitTypeValue :: Type   -- ^ Type of value to create
                -> Offset -- ^ Bytes offset to slice type at.
@@ -505,10 +411,6 @@ data RangeLoad a
       -- | In range includes offset relative to store and type.
     | InRange a Type
   deriving (Functor, Foldable, Traversable, Show)
-
-rangeLoadType :: RangeLoad a -> Type
-rangeLoadType (OutOfRange _ tp) = tp
-rangeLoadType (InRange _ tp) = tp
 
 adjustOffset :: (a -> b)
              -> (a -> b)
@@ -677,11 +579,6 @@ data ValueLoad v
     -- read.
   | InvalidMemory Type
   deriving (Functor,Show)
-
-valueLoadType :: ValueLoad a -> Maybe Type
-valueLoadType (OldMemory _ tp) = Just tp
-valueLoadType (LastStore v) = viewType v
-valueLoadType (InvalidMemory tp) = Just tp
 
 loadBitvector :: Addr -> Size -> Addr -> ValueView Type -> ValueCtor (ValueLoad Addr)
 loadBitvector lo lw so v = do
