@@ -222,10 +222,12 @@ readMemStore sym w (l,ld) ltp (d,dd) t stp readPrev' = do
   let readPrev tp p = readPrev' tp . (p,) =<< ptrDecompose sym w p
   case (ld, dd) of
     -- Offset if known
-    (ConcreteOffset lv _ lo, ConcreteOffset sv _ so)
+    (ConcreteOffset lv le lo, ConcreteOffset sv _ so)
       | lv == sv -> do
       let subFn :: ValueLoad Addr -> IO (Pred sym, PartLLVMVal sym w)
-          subFn (OldMemory o tp')   = error "BH FIXME readMemStore(2)" o tp' -- readPrev tp' =<< tgAddPtrC sym w lv o
+          subFn (OldMemory o tp')   = do lv' <- natLit sym lv
+                                         o' <- bvLit sym w (toInteger o)
+                                         readPrev tp' (LLVMPtr lv' le o')
           subFn (LastStore v)       = (truePred sym,) <$> applyView sym w t v
           subFn (InvalidMemory tp') = badLoad sym tp'
       let vcr = valueLoad (fromInteger lo) ltp (fromInteger so) (Var stp)
