@@ -28,15 +28,21 @@ import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 
 import           Lang.Crucible.BaseTypes
+import           Lang.Crucible.Config
 import           Lang.Crucible.ProgramLoc
+import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
+import           Lang.Crucible.Solver.SatResult
 import qualified Lang.Crucible.Solver.SimpleBuilder as SB
+import qualified Lang.Crucible.Solver.SimpleBackend.ABC as ABC
 import           Lang.Crucible.Solver.Symbol
 import qualified Lang.Crucible.Solver.WeightedSum as WSum
 
 import qualified Verifier.SAW.SharedTerm as SC
 import qualified Verifier.SAW.TypedAST as SC
+
+data SAWCruciblePersonality sym = SAWCruciblePersonality
 
 -- | The SAWCoreBackend is a crucible backend that represents symbolic values
 --   as SAWCore terms.
@@ -48,7 +54,17 @@ data SAWCoreState n
     , saw_elt_cache :: SB.IdxCache n SAWElt
     , saw_assertions  :: Seq (Assertion (Pred (SAWCoreBackend n)))
     , saw_obligations :: Seq (Seq (Pred (SAWCoreBackend n)), Assertion (Pred (SAWCoreBackend n)))
+    , saw_config    :: SimConfig SAWCruciblePersonality (SAWCoreBackend n)
     }
+
+sawCheckPathSat :: ConfigOption Bool
+sawCheckPathSat = configOption "saw.check_path_sat"
+
+sawOptions :: Monad m => [ConfigDesc m]
+sawOptions =
+  [ opt sawCheckPathSat False
+    "Check the satisfiability of path conditions on branches"
+  ]
 
 data SAWElt (bt :: BaseType) where
   SAWElt :: !SC.Term -> SAWElt bt
@@ -106,11 +122,14 @@ bindSAWTerm sym bt t = do
 
 newSAWCoreBackend :: SC.SharedContext
                   -> NonceGenerator IO s
+                  -> SimConfig SAWCruciblePersonality (SAWCoreBackend s)
                   -> IO (SAWCoreBackend s)
-newSAWCoreBackend sc gen = do
+newSAWCoreBackend sc gen cfg = do
   inpr <- newIORef Seq.empty
   ch   <- SB.newIdxCache
-  let st = SAWCoreState sc inpr ch Seq.empty Seq.empty
+  -- TODO: add option for enabling and disabling path sat checking
+  extendConfig ABC.abcOptions cfg
+  let st = SAWCoreState sc inpr ch Seq.empty Seq.empty cfg
   SB.newSimpleBuilder st gen
 
 
@@ -119,8 +138,9 @@ newSAWCoreBackend sc gen = do
 withSAWCoreBackend :: SC.Module -> (forall n. SAWCoreBackend n -> IO a) -> IO a
 withSAWCoreBackend md f = do
   withIONonceGenerator $ \gen -> do
+    cfg <- initialConfig 0 []
     sc   <- SC.mkSharedContext md
-    sym  <- newSAWCoreBackend sc gen
+    sym  <- newSAWCoreBackend sc gen cfg
     f sym
 
 toSC :: SAWCoreBackend n -> SB.Elt n tp -> IO SC.Term
@@ -490,6 +510,19 @@ appendAssumption :: ProgramLoc
 appendAssumption l p s =
   s & assertions %~ (Seq.|> Assertion l p Nothing)
 
+checkSatisfiable :: SAWCoreBackend n
+                 -> (Pred (SAWCoreBackend n))
+                 -> IO (SatResult ())
+checkSatisfiable sym p = do
+  cfg <- saw_config <$> readIORef (SB.sbStateManager sym)
+  enabled <- getConfigValue sawCheckPathSat cfg
+  let logLn _ _ = return ()
+  case enabled of
+    True -> do
+      sr <- ABC.checkSat cfg logLn p
+      return (const () <$> sr)
+    False -> return (Sat ())
+
 instance SB.IsSimpleBuilderState SAWCoreState where
   sbAddAssumption sym e = do
     case SB.asApp e of
@@ -520,11 +553,19 @@ instance SB.IsSimpleBuilderState SAWCoreState where
     s <- readIORef (SB.sbStateManager sym)
     andAllOf sym folded (view assertPred <$> s^.assertions)
 
-  sbEvalBranch _ p = do
+  sbEvalBranch sym p = do
     case asConstantPred p of
       Just True  -> return $! NoBranch True
       Just False -> return $! NoBranch False
-      Nothing    -> return $! SymbolicBranch True
+      Nothing -> do
+       notP <- notPred sym p
+       p_res    <- checkSatisfiable sym p
+       notp_res <- checkSatisfiable sym notP
+       case (p_res, notp_res) of
+         (Unsat, Unsat) -> return InfeasibleBranch
+         (Unsat, _ )    -> return $! NoBranch False
+         (_    , Unsat) -> return $! NoBranch True
+         (_    , _)     -> return $! SymbolicBranch True
 
   sbGetProofObligations sym = do
     mg <- readIORef (SB.sbStateManager sym)
