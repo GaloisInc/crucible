@@ -165,13 +165,16 @@ evalMuxValueCtor :: forall u sym w .
                  -> (LLVMPtr sym w, LLVMPtr sym w, SymBV sym w)
                     -- Function for reading specific subranges.
                  -> (u -> IO (Pred sym, PartLLVMVal sym w))
-                 -> Mux Cond (ValueCtor u)
+                 -> Mux (ValueCtor u)
                  -> IO (Pred sym, PartLLVMVal sym w)
-evalMuxValueCtor sym w vf subFn t =
-  reduceMux (\c -> tgMuxPair sym w c)
-    =<< muxLeaf (evalValueCtor sym w)
-    =<< muxCond (genCondVar sym w vf)
-    =<< muxLeaf (traverse subFn) t
+evalMuxValueCtor sym w _vf subFn (MuxVar v) =
+  do v' <- traverse subFn v
+     evalValueCtor sym w v'
+evalMuxValueCtor sym w vf subFn (Mux c t1 t2) =
+  do c' <- genCondVar sym w vf c
+     t1' <- evalMuxValueCtor sym w vf subFn t1
+     t2' <- evalMuxValueCtor sym w vf subFn t2
+     tgMuxPair sym w c' t1' t2'
 
 readMemCopy :: forall sym w .
                (1 <= w, IsSymInterface sym)

@@ -45,10 +45,7 @@ module Lang.Crucible.LLVM.MemModel.Common
   , IntExpr(..)
   , Cond(..)
 
-  , Mux
-  , muxCond
-  , muxLeaf
-  , reduceMux
+  , Mux(..)
 
   , ValueCtor
   , ValueCtorF(..)
@@ -102,11 +99,6 @@ instance (ShowF f, Show a)  => Show (Term f a) where
   showsPrec p (App f) = showParen (p >= 10) (showString "App " . showsPrecF 10 f)
   showsPrec p (Var x) = showParen (p >= 10) (showString "Var " . showsPrec 10 x)
 
--- | Traverse over variables in term.
-termVars:: Traversable f => Traversal (Term f a) (Term f b) a b
-termVars f (App a) = App <$> traverse (termVars f) a
-termVars f (Var a) = Var <$> f a
-
 foldTermM :: (Monad m, Traversable f)
           => (a -> m r) -> (f r -> m r) -> Term f a -> m r
 foldTermM f _ (Var v) = f v
@@ -157,67 +149,47 @@ intValue x = CValue (toInteger x)
 
 -- Muxs
 
-data MuxF c v = Mux c v v
- deriving (Functor, Foldable, Traversable, Show)
+data Mux a = Mux Cond (Mux a) (Mux a) | MuxVar a
+  deriving Show
 
-instance Show c => ShowF (MuxF c) where
-  showsPrecF = showsPrec
+data MuxCase a
+   = MuxCase Cond (Mux a)
+   | DefaultMux (Mux a)
 
-type Mux c a = Term (MuxF c) a
-
--- | Traverse over conditions in mux.
-muxCond :: Traversal (Mux c a) (Mux d a) c d
-muxCond f (App (Mux c x y)) = App <$> (Mux <$> f c <*> muxCond f x <*> muxCond f y)
-muxCond _ (Var a) = pure (Var a)
-
--- | Traverse over leafs in mux.
-muxLeaf :: Traversal (Mux c x) (Mux c y) x y
-muxLeaf = termVars
-
--- | Reduce a mux using the given function for ite.
-reduceMux :: (Applicative m, Monad m) => (c -> a -> a -> m a) -> Mux c a -> m a
-reduceMux f (App (Mux c x y)) = join $
-  f c <$> reduceMux f x <*> reduceMux f y
-reduceMux _ (Var a) = pure a
-
-data MuxCase c a
-   = MuxCase c (Mux c a)
-   | DefaultMux (Mux c a)
-
-(|->) :: c -> Mux c a -> MuxCase c a
+(|->) :: Cond -> Mux a -> MuxCase a
 infix 3 |->
 c |-> x = MuxCase c x
 
-always :: Mux c a -> MuxCase c a
+always :: Mux a -> MuxCase a
 always = DefaultMux
 
-try :: MuxCase c a -> Mux c a -> Mux c a
+try :: MuxCase a -> Mux a -> Mux a
 try (DefaultMux x) _ = x
-try (MuxCase c x) y = App (Mux c x y)
+try (MuxCase c x) y = Mux c x y
 
 -- | @iterDown i n f@ generates a formula generates from values starting
 -- from @n@ and incrementing by i until an unconditional formula is returned by @f@.
 iterBy :: (i -> i)
        -> i
-       -> (i -> MuxCase c a)
-       -> Mux c a
+       -> (i -> MuxCase a)
+       -> Mux a
 iterBy i n f =
   case f n of
     DefaultMux x -> x
-    MuxCase c x -> App (Mux c x (iterBy i (i n) f))
+    MuxCase c x -> Mux c x (iterBy i (i n) f)
 
 -- | @iterDown n f@ generates a formula generates from values starting
 -- from @n@ and counting down until an unconditional formula is returned by @f@.
 iterDown :: Num i
          => i
-         -> (i -> MuxCase c a)
-         -> Mux c a
+         -> (i -> MuxCase a)
+         -> Mux a
 iterDown = iterBy (\s -> s - 1)
 
 iterUp :: Num i
        => i
-       -> (i -> MuxCase c a)
-       -> Mux c a
+       -> (i -> MuxCase a)
+       -> Mux a
 iterUp = iterBy (\s -> s + 1)
 
 -- Variable for mem model.
@@ -427,7 +399,7 @@ rangeLoad lo ltp s@(R so se)
  where le = typeEnd lo ltp
        loadFail = Var (OutOfRange lo ltp)
 
-type RangeLoadMux v w = Mux Cond (ValueCtor (RangeLoad v w))
+type RangeLoadMux v w = Mux (ValueCtor (RangeLoad v w))
 
 fixedOffsetRangeLoad :: Addr
                      -> Type
@@ -443,8 +415,8 @@ fixedOffsetRangeLoad l tp s
  where le = typeEnd l tp
        loadCase i | i < le-s  = IntEq storeSize (intValue i) |-> loadVal i
                   | otherwise = always $ loadVal i
-       loadVal ssz = Var $ rangeLoad l tp (R s (s+ssz))
-       loadFail = Var $ Var (OutOfRange l tp)
+       loadVal ssz = MuxVar $ rangeLoad l tp (R s (s+ssz))
+       loadFail = MuxVar $ Var (OutOfRange l tp)
 
 -- | @fixLoadBeforeStoreOffset pref i k@ adjusts a pointer value that is relative
 -- the load address into a global pointer.  The code assumes that @load + i == store@.
@@ -476,7 +448,7 @@ fixedSizeRangeLoad :: BasePreference -- ^ Whether addresses are based on store o
                    -> Type
                    -> Size
                    -> RangeLoadMux PtrExpr IntExpr
-fixedSizeRangeLoad _ tp 0 = Var (Var (OutOfRange load tp))
+fixedSizeRangeLoad _ tp 0 = MuxVar (Var (OutOfRange load tp))
 fixedSizeRangeLoad pref tp ssz =
   try (loadOffset lsz .<= store |-> loadFail) $
   iterDown lsz prefixL
@@ -497,14 +469,14 @@ fixedSizeRangeLoad pref tp ssz =
          | i < ssz   = load .== storeOffset i |-> storeVal i
          | otherwise = always loadFail
 
-       loadVal i = Var $ loadFromStoreStart pref tp i (i+ssz)
+       loadVal i = MuxVar $ loadFromStoreStart pref tp i (i+ssz)
 
-       storeVal i = Var $ adjustOffset inFn outFn <$> rangeLoad i tp (R 0 ssz)
+       storeVal i = MuxVar $ adjustOffset inFn outFn <$> rangeLoad i tp (R 0 ssz)
          where inFn = intValue
                outFn = fixLoadAfterStoreOffset pref i
 
-       loadSucc = Var (Var (InRange (load .- store) tp))
-       loadFail = Var (Var (OutOfRange load tp))
+       loadSucc = MuxVar (Var (InRange (load .- store) tp))
+       loadFail = MuxVar (Var (OutOfRange load tp))
 
 symbolicRangeLoad :: BasePreference -> Type -> RangeLoadMux PtrExpr IntExpr
 symbolicRangeLoad pref tp =
@@ -517,7 +489,7 @@ symbolicRangeLoad pref tp =
         loadIter0 j | j > 0     = loadOffset j .== storeEnd |-> loadVal0 j
                     | otherwise = always loadFail
 
-        loadVal0 j = Var $ adjustOffset inFn outFn <$> rangeLoad 0 tp (R 0 j)
+        loadVal0 j = MuxVar $ adjustOffset inFn outFn <$> rangeLoad 0 tp (R 0 j)
           where inFn k  = IntAdd (PtrDiff load store) (intValue k)
                 outFn k = PtrAdd load (intValue k)
 
@@ -531,8 +503,8 @@ symbolicRangeLoad pref tp =
           where f j | j > i = IntEq (intValue (j-i)) storeSize |-> loadVal i j
                     | otherwise = always loadFail
 
-        loadVal i j = Var $ loadFromStoreStart pref tp i j
-        loadFail = Var (Var (OutOfRange load tp))
+        loadVal i j = MuxVar $ loadFromStoreStart pref tp i j
+        loadFail = MuxVar (Var (OutOfRange load tp))
 
 -- ValueView
 
@@ -654,7 +626,7 @@ valueLoad lo ltp so v
        le = typeEnd lo ltp
        se = so + typeSize stp
 
-type ValueLoadMux = Mux Cond (ValueCtor (ValueLoad PtrExpr))
+type ValueLoadMux = Mux (ValueCtor (ValueLoad PtrExpr))
 
 symbolicValueLoad :: BasePreference -- ^ Whether addresses are based on store or load.
                   -> Type
@@ -669,15 +641,15 @@ symbolicValueLoad pref tp v =
        prefixL i
            | i > 0 =
              loadOffset i .== store |->
-               Var (fmap adjustFn <$> valueLoad 0 tp i v)
+               MuxVar (fmap adjustFn <$> valueLoad 0 tp i v)
            | otherwise = always (iterUp 0 suffixS)
          where adjustFn = fixLoadBeforeStoreOffset pref i
 
        suffixS i
            | i < typeSize stp =
              load .== storeOffset i |->
-               Var (fmap adjustFn <$> valueLoad i tp 0 v)
+               MuxVar (fmap adjustFn <$> valueLoad i tp 0 v)
            | otherwise = always loadFail
          where adjustFn = fixLoadAfterStoreOffset pref i
 
-       loadFail = Var $ Var (OldMemory load tp)
+       loadFail = MuxVar $ Var (OldMemory load tp)
