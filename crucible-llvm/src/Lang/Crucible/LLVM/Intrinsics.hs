@@ -110,6 +110,7 @@ register_llvm_overrides = do
 
   register_llvm_override llvmPrintfOverride
   register_llvm_override llvmPutsOverride
+  register_llvm_override llvmPutCharOverride
 
 ------------------------------------------------------------------------
 -- LLVMHandleInfo
@@ -575,6 +576,25 @@ llvmMemsetOverride =
   )
 
 
+llvmPutCharOverride
+  :: IsSymInterface sym
+  => LLVMOverride p sym (EmptyCtx ::> BVType 32) (BVType 32)
+llvmPutCharOverride =
+  let nm = "putchar" in
+  ( L.Declare
+    { L.decRetType = L.PrimType $ L.Integer 32
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PrimType $ L.Integer 32
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    }
+  , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
+       sym <- getSymInterface
+       (RegMap args) <- getOverrideArgs
+       Ctx.uncurryAssignment (callPutChar sym memOps) args
+  )
+
 llvmPutsOverride
   :: IsSymInterface sym
   => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType) (BVType 32)
@@ -768,6 +788,20 @@ callObjectsize sym _memOps w
     z <- bvLit sym w 0
     n <- bvNotBits sym z -- NB: -1 is the boolean negation of zero
     bvIte sym t z n
+
+
+callPutChar
+  :: IsSymInterface sym
+  => sym
+  -> LLVMMemOps
+  -> RegEntry sym (BVType 32)
+  -> OverrideSim p sym r args ret (RegValue sym (BVType 32))
+callPutChar _sym _memOps
+ (regValue -> ch) = do
+    h <- printHandle <$> getContext
+    let chval = maybe '?' (toEnum . fromInteger) (asUnsignedBV ch)
+    liftIO $ hPutChar h chval
+    return ch
 
 
 callPuts
