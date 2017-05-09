@@ -107,8 +107,7 @@ ptrEq :: (1 <= w, IsSymInterface sym)
       -> LLVMPtr sym w
       -> IO (Pred sym)
 ptrEq sym _w (LLVMPtr base1 _ off1) (LLVMPtr base2 _ off2) =
-  do putStrLn "Executing ptrEq"
-     p1 <- natEq sym base1 base2
+  do p1 <- natEq sym base1 base2
      p2 <- bvEq sym off1 off2
      andPred sym p1 p2
 
@@ -119,8 +118,7 @@ ptrLe :: (1 <= w, IsSymInterface sym)
       -> LLVMPtr sym w
       -> IO (Pred sym)
 ptrLe sym _w (LLVMPtr base1 _ off1) (LLVMPtr base2 _ off2) =
-  do putStrLn "Executing ptrLe"
-     p1 <- natEq sym base1 base2
+  do p1 <- natEq sym base1 base2
      addAssertion sym p1 (AssertFailureSimError "Attempted to compare pointers from different allocations")
      bvSle sym off1 off2
 
