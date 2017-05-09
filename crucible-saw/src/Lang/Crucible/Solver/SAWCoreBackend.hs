@@ -27,6 +27,9 @@ import           Data.Ratio
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 
+import qualified Data.ABC.GIA as GIA
+import qualified Data.AIG as AIG
+
 import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
 import           Lang.Crucible.ProgramLoc
@@ -35,11 +38,12 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.SatResult
 import qualified Lang.Crucible.Solver.SimpleBuilder as SB
-import qualified Lang.Crucible.Solver.SimpleBackend.ABC as ABC
 import           Lang.Crucible.Solver.Symbol
 import qualified Lang.Crucible.Solver.WeightedSum as WSum
 
+import qualified Verifier.SAW.Cryptol.Prims as CryPrims
 import qualified Verifier.SAW.SharedTerm as SC
+import qualified Verifier.SAW.Simulator.BitBlast as BBSim
 import qualified Verifier.SAW.TypedAST as SC
 
 data SAWCruciblePersonality sym = SAWCruciblePersonality
@@ -127,8 +131,6 @@ newSAWCoreBackend :: SC.SharedContext
 newSAWCoreBackend sc gen cfg = do
   inpr <- newIORef Seq.empty
   ch   <- SB.newIdxCache
-  -- TODO: add option for enabling and disabling path sat checking
-  extendConfig ABC.abcOptions cfg
   let st = SAWCoreState sc inpr ch Seq.empty Seq.empty cfg
   SB.newSimpleBuilder st gen
 
@@ -514,13 +516,20 @@ checkSatisfiable :: SAWCoreBackend n
                  -> (Pred (SAWCoreBackend n))
                  -> IO (SatResult ())
 checkSatisfiable sym p = do
-  cfg <- saw_config <$> readIORef (SB.sbStateManager sym)
+  mgr <- readIORef (SB.sbStateManager sym)
+  let cfg = saw_config mgr
+      sc = saw_ctx mgr
+      cache = saw_elt_cache mgr
   enabled <- getConfigValue sawCheckPathSat cfg
   let logLn _ _ = return ()
   case enabled of
     True -> do
-      sr <- ABC.checkSat cfg logLn p
-      return (const () <$> sr)
+      t <- evaluateElt sym sc cache p
+      BBSim.withBitBlastedPred GIA.proxy sc CryPrims.bitblastPrims t $ \be lit shapes -> do
+        satRes <- AIG.checkSat be (AIG.not lit)
+        case satRes of
+          AIG.Sat _ -> return (Sat ())
+          _ -> return Unsat
     False -> return (Sat ())
 
 instance SB.IsSimpleBuilderState SAWCoreState where
