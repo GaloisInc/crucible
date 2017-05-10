@@ -521,15 +521,14 @@ checkSatisfiable sym p = do
       sc = saw_ctx mgr
       cache = saw_elt_cache mgr
   enabled <- getConfigValue sawCheckPathSat cfg
-  let logLn _ _ = return ()
   case enabled of
     True -> do
       t <- evaluateElt sym sc cache p
-      BBSim.withBitBlastedPred GIA.proxy sc CryPrims.bitblastPrims t $ \be lit shapes -> do
-        satRes <- AIG.checkSat be (AIG.not lit)
+      BBSim.withBitBlastedPred GIA.proxy sc CryPrims.bitblastPrims t $ \be lit _shapes -> do
+        satRes <- AIG.checkSat be lit
         case satRes of
-          AIG.Sat _ -> return (Sat ())
-          _ -> return Unsat
+          AIG.Unsat -> return Unsat
+          _ -> return (Sat ())
     False -> return (Sat ())
 
 instance SB.IsSimpleBuilderState SAWCoreState where
@@ -562,19 +561,22 @@ instance SB.IsSimpleBuilderState SAWCoreState where
     s <- readIORef (SB.sbStateManager sym)
     andAllOf sym folded (view assertPred <$> s^.assertions)
 
-  sbEvalBranch sym p = do
-    case asConstantPred p of
+  sbEvalBranch sym pb = do
+    case asConstantPred pb of
       Just True  -> return $! NoBranch True
       Just False -> return $! NoBranch False
       Nothing -> do
-       notP <- notPred sym p
-       p_res    <- checkSatisfiable sym p
-       notp_res <- checkSatisfiable sym notP
-       case (p_res, notp_res) of
-         (Unsat, Unsat) -> return InfeasibleBranch
-         (Unsat, _ )    -> return $! NoBranch False
-         (_    , Unsat) -> return $! NoBranch True
-         (_    , _)     -> return $! SymbolicBranch True
+        pb_neg <- notPred sym pb
+        p_prior <- SB.sbAllAssertions sym
+        p <- andPred sym p_prior pb
+        p_neg <- andPred sym p_prior pb_neg
+        p_res    <- checkSatisfiable sym p
+        notp_res <- checkSatisfiable sym p_neg
+        case (p_res, notp_res) of
+          (Unsat, Unsat) -> return InfeasibleBranch
+          (Unsat, _ )    -> return $! NoBranch False
+          (_    , Unsat) -> return $! NoBranch True
+          (_    , _)     -> return $! SymbolicBranch True
 
   sbGetProofObligations sym = do
     mg <- readIORef (SB.sbStateManager sym)
@@ -583,6 +585,10 @@ instance SB.IsSimpleBuilderState SAWCoreState where
   sbSetProofObligations sym obligs = do
     modifyIORef' (SB.sbStateManager sym) (set proofObligs obligs)
 
-  sbPushBranchPred _ _ = return ()
-  sbBacktrackToState _ _ = return ()
-  sbSwitchToState  _ _ _ = return ()
+  sbPushBranchPred sym p = SB.sbAddAssumption sym p
+  sbBacktrackToState sym old =
+    -- Copy assertions from old state to current state
+    modifyIORef' (SB.sbStateManager sym) (set assertions (old ^. SB.pathState ^. assertions))
+  sbSwitchToState sym _ new =
+    -- Copy assertions from new state to current state
+    modifyIORef' (SB.sbStateManager sym) (set assertions (new ^. SB.pathState ^. assertions))
