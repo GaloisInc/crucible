@@ -34,11 +34,13 @@ module Lang.Crucible.LLVM.MemModel.Common
   , doubleType
   , arrayType
   , mkStruct
+  , mkType
   , typeEnd
   , Field
   , fieldVal
   , fieldPad
   , fieldOffset
+  , mkField
 
     -- * Pointer declarations
   , PtrExpr(..)
@@ -226,6 +228,9 @@ data Field v = Field { fieldOffset :: Offset
 
 fieldVal :: Lens (Field a) (Field b) a b
 fieldVal = lens _fieldVal (\s v -> s { _fieldVal = v })
+
+mkField :: Offset -> v -> Size -> Field v
+mkField = Field
 
 data TypeF v
    = Bitvector Size -- ^ Size of bitvector in bytes (must be > 0).
