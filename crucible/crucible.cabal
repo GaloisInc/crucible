@@ -76,11 +76,11 @@ library
     Lang.Crucible.CFG.Common
     Lang.Crucible.CFG.Core
     Lang.Crucible.CFG.Expr
+    Lang.Crucible.CFG.ExtractSubgraph
     Lang.Crucible.CFG.Generator
     Lang.Crucible.CFG.Reg
     Lang.Crucible.CFG.SSAConversion
     Lang.Crucible.Config
-    Lang.Crucible.ExtractSubgraph
     Lang.Crucible.FunctionHandle
     Lang.Crucible.FunctionName
     Lang.Crucible.MATLAB.Intrinsics.Solver
