@@ -60,7 +60,7 @@ import           Lang.MATLAB.MultiDimArray (ArrayDim, MultiDimArray)
 import qualified Lang.MATLAB.MultiDimArray as MDA
 import           Lang.MATLAB.Utils.Nat as Nat
 
-import           Lang.Crucible.Core
+import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.MatlabValue
 import           Lang.Crucible.Simulator.RegMap
@@ -68,6 +68,7 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.Solver.Symbol (emptySymbol)
+import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.Complex
 import qualified Lang.Crucible.Utils.SymMultiDimArray as SMDA
 

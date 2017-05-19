@@ -34,7 +34,7 @@ import qualified Data.Set as S
 
 import Prelude
 
-import Lang.Crucible.Core
+import Lang.Crucible.CFG.Core
 import Lang.Crucible.Analysis.Fixpoint.Components
 
 -- | A wrapper around widening strategies

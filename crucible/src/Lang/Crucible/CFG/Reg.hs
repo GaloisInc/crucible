@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------
 -- |
--- Module           : Lang.Crucible.RegCFG
+-- Module           : Lang.Crucible.CFG.Reg
 -- Description      : Provides a representation of Crucible programs using
 --                    mutable registers rather than SSA.
 -- Copyright        : (c) Galois, Inc 2014-2016
@@ -18,7 +18,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module Lang.Crucible.RegCFG
+module Lang.Crucible.CFG.Reg
   ( CFG(..)
   , cfgInputTypes
   , cfgReturnType
@@ -51,6 +51,7 @@ module Lang.Crucible.RegCFG
   , TermStmt(..)
   , termStmtInputs
   , termNextLabels
+  , module Lang.Crucible.CFG.Common
   ) where
 
 import qualified Data.Foldable as Fold
@@ -65,8 +66,8 @@ import qualified Data.Set as Set
 import           Data.String
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-import           Lang.Crucible.Core (MSwitch(..))
-import qualified Lang.Crucible.Core as C
+import           Lang.Crucible.CFG.Common
+import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Syntax (IsExpr(..))
@@ -292,13 +293,13 @@ type ValueSet s = Set (Some (Value s))
 
 -- | An expression in RTL representation.
 data Expr s tp
-  = App !(C.App (Expr s) tp)
+  = App !(App (Expr s) tp)
     -- ^ An application of an expression
   | AtomExpr !(Atom s tp)
     -- ^ An evaluated expession
 
 instance Pretty (Expr s tp) where
-  pretty (App a) = C.ppApp pretty a
+  pretty (App a) = ppApp pretty a
   pretty (AtomExpr a) = pretty a
 
 instance Show (Expr s tp) where
@@ -310,12 +311,12 @@ instance IsExpr (Expr s) where
   asApp _ = Nothing
 
 instance IsString (Expr s StringType) where
-  fromString s = app (C.TextLit (fromString s))
+  fromString s = app (TextLit (fromString s))
 
 
 -- | Return type of expression.
 exprType :: Expr s tp -> TypeRepr tp
-exprType (App a)          = C.appType a
+exprType (App a)          = appType a
 exprType (AtomExpr a)     = typeOfAtom a
 
 ------------------------------------------------------------------------
@@ -323,10 +324,10 @@ exprType (AtomExpr a)     = typeOfAtom a
 
 -- | The value of an assigned atom.
 data AtomValue s tp where
-  EvalApp :: !(C.App (Atom s) tp) -> AtomValue s tp
+  EvalApp :: !(App (Atom s) tp) -> AtomValue s tp
   ReadReg :: !(Reg s tp) -> AtomValue s tp
   -- Read from a global vlalue
-  ReadGlobal :: !(C.GlobalVar tp) -> AtomValue s tp
+  ReadGlobal :: !(GlobalVar tp) -> AtomValue s tp
   -- Read from a reference cell
   ReadRef :: !(Atom s (ReferenceType tp)) -> AtomValue s tp
   -- Create a fresh reference cell
@@ -340,7 +341,7 @@ data AtomValue s tp where
 instance Pretty (AtomValue s tp) where
   pretty v =
     case v of
-      EvalApp ap -> C.ppApp pretty ap
+      EvalApp ap -> ppApp pretty ap
       ReadReg r -> pretty r
       ReadGlobal g -> text "global" <+> pretty g
       ReadRef r -> text "!" <> pretty r
@@ -350,9 +351,9 @@ instance Pretty (AtomValue s tp) where
 typeOfAtomValue :: AtomValue s tp -> TypeRepr tp
 typeOfAtomValue v =
   case v of
-    EvalApp a -> C.appType a
+    EvalApp a -> appType a
     ReadReg r -> typeOfReg r
-    ReadGlobal r -> C.globalType r
+    ReadGlobal r -> globalType r
     ReadRef r -> case typeOfAtom r of
                    ReferenceRepr tpr -> tpr
     NewRef a -> ReferenceRepr (typeOfAtom a)
@@ -364,7 +365,7 @@ foldAtomValueInputs f (ReadReg r)     b = f (RegValue r) b
 foldAtomValueInputs _ (ReadGlobal _)  b =  b
 foldAtomValueInputs f (ReadRef r)     b = f (AtomValue r) b
 foldAtomValueInputs f (NewRef a)      b = f (AtomValue a) b
-foldAtomValueInputs f (EvalApp app0)  b = C.foldApp (f . AtomValue) b app0
+foldAtomValueInputs f (EvalApp app0)  b = foldApp (f . AtomValue) b app0
 foldAtomValueInputs f (Call g a _)    b = f (AtomValue g) (foldrFC' (f . AtomValue) b a)
 
 ppAtomBinding :: Atom s tp -> AtomValue s tp -> Doc
@@ -376,7 +377,7 @@ ppAtomBinding a v = pretty a <+> text ":=" <+> pretty v
 -- | Statement in control flow graph.
 data Stmt s
    = forall tp . SetReg     !(Reg s tp)       !(Atom s tp)
-   | forall tp . WriteGlobal  !(C.GlobalVar tp) !(Atom s tp)
+   | forall tp . WriteGlobal  !(GlobalVar tp) !(Atom s tp)
    | forall tp . WriteRef !(Atom s (ReferenceType tp)) !(Atom s tp)
    | forall tp . DefineAtom !(Atom s tp)      !(AtomValue s tp)
    | Print      !(Atom s StringType)
@@ -465,7 +466,7 @@ instance Pretty (TermStmt s ret) where
       MaybeBranch _ c j n -> text "switchMaybe" <+> pretty c <+> pretty j <+> pretty n
       MSwitchStmt e l ->
          text "mswitch" <+> pretty e <+> text "{" <$$>
-           indent 2 (vcat (C.ppMSwitch pp l)) <$$>
+           indent 2 (vcat (ppMSwitch pp l)) <$$>
            indent 2 (text "}")
         where pp nm v = text nm <> text ":" <+> pretty v
       Return e -> text "return" <+> pretty e

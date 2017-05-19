@@ -94,7 +94,8 @@ import qualified Data.Parameterized.Context as Ctx
 import           Lang.MATLAB.MatlabChar
 import           Lang.MATLAB.Utils.Nat (Nat)
 
-import           Lang.Crucible.Core
+import           Lang.Crucible.CFG.Core
+import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.FunctionHandle
 
 ------------------------------------------------------------------------

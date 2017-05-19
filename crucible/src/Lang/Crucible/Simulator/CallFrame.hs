@@ -41,7 +41,7 @@ import           Data.Hashable
 import           Data.Maybe
 import qualified Data.Parameterized.Context as Ctx
 
-import           Lang.Crucible.Core
+import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.ProgramLoc ( ProgramLoc )
 import           Lang.Crucible.Simulator.Intrinsics

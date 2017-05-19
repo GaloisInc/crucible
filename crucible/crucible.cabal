@@ -73,17 +73,19 @@ library
     Lang.Crucible.Analysis.Reachable
     Lang.Crucible.Analysis.Shape
     Lang.Crucible.BaseTypes
-    Lang.Crucible.Core
+    Lang.Crucible.CFG.Common
+    Lang.Crucible.CFG.Core
+    Lang.Crucible.CFG.Expr
+    Lang.Crucible.CFG.Generator
+    Lang.Crucible.CFG.Reg
+    Lang.Crucible.CFG.SSAConversion
     Lang.Crucible.Config
     Lang.Crucible.ExtractSubgraph
     Lang.Crucible.FunctionHandle
     Lang.Crucible.FunctionName
-    Lang.Crucible.Generator
     Lang.Crucible.MATLAB.Intrinsics.Solver
     Lang.Crucible.MATLAB.Types
     Lang.Crucible.ProgramLoc
-    Lang.Crucible.RegCFG
-    Lang.Crucible.SSAConversion
     Lang.Crucible.Simulator.CallFns
     Lang.Crucible.Simulator.CallFrame
     Lang.Crucible.Simulator.Evaluation

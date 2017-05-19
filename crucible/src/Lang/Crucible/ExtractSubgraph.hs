@@ -22,7 +22,7 @@ import           Data.Parameterized.Context as Ctx hiding ((++))
 import           Data.Parameterized.Map as MapF
 import           Data.Set as S
 import           Debug.Trace
-import           Lang.Crucible.Core
+import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.FunctionName
 import           Lang.Crucible.ProgramLoc

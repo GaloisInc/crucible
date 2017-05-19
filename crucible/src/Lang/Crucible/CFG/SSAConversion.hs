@@ -26,7 +26,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
-module Lang.Crucible.SSAConversion
+module Lang.Crucible.CFG.SSAConversion
   ( toSSA
   ) where
 
@@ -47,12 +47,13 @@ import qualified Data.Set as Set
 import           Data.Type.Equality
 
 import           Lang.Crucible.Analysis.Reachable
-import           Lang.Crucible.Core (MSwitch(..))
-import qualified Lang.Crucible.Core as C
+import           Lang.Crucible.CFG.Core (MSwitch(..))
+import qualified Lang.Crucible.CFG.Core as C
+import qualified Lang.Crucible.CFG.Expr as C
+import           Lang.Crucible.CFG.Reg
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.FunctionName (FunctionName)
 import           Lang.Crucible.ProgramLoc
-import           Lang.Crucible.RegCFG
 
 #ifdef UNSAFE_OPS
 import           Data.Coerce

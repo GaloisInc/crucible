@@ -18,7 +18,7 @@ import           Control.Lens
 import qualified Text.LLVM.AST as L
 
 import           Lang.Crucible.Analysis.Postdom
-import           Lang.Crucible.Core
+import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.MemModel

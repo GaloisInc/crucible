@@ -110,7 +110,7 @@ import           System.IO
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           Lang.Crucible.Config
-import           Lang.Crucible.Core
+import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle (FnHandleMap, HandleAllocator)
 import           Lang.Crucible.FunctionName (FunctionName)
 import           Lang.Crucible.ProgramLoc

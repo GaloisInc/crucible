@@ -16,7 +16,7 @@ module Lang.Crucible.Simulator.GlobalState
 
 import qualified Data.Parameterized.Map as MapF
 
-import           Lang.Crucible.Core
+import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.Intrinsics

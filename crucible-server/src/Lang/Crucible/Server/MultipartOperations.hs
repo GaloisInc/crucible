@@ -33,13 +33,13 @@ import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Text as Text
 
 import           Lang.Crucible.Analysis.Postdom
-import qualified Lang.Crucible.Core as C
+import qualified Lang.Crucible.CFG.Core as C
+import qualified Lang.Crucible.CFG.Generator as Gen
+import qualified Lang.Crucible.CFG.Reg as R
+import           Lang.Crucible.CFG.SSAConversion (toSSA)
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.FunctionName
-import qualified Lang.Crucible.Generator as Gen
 import           Lang.Crucible.ProgramLoc
-import qualified Lang.Crucible.RegCFG as R
-import           Lang.Crucible.SSAConversion (toSSA)
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Server.Simulator
 import           Lang.Crucible.Syntax

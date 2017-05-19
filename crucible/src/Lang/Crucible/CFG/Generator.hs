@@ -1,6 +1,6 @@
 ------------------------------------------------------------------------
 -- |
--- Module           : Lang.Crucible.Generator
+-- Module           : Lang.Crucible.CFG.Generator
 -- Description      : Provides a monadic interface for constructing Crucible
 --                    control flow graphs.
 -- Copyright        : (c) Galois, Inc 2014
@@ -31,7 +31,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
-module Lang.Crucible.Generator
+module Lang.Crucible.CFG.Generator
   ( -- * Generator
     Generator
   , getPosition
@@ -85,7 +85,7 @@ module Lang.Crucible.Generator
   -- * Re-exports
   , Ctx.Ctx(..)
   , Position
-  , module Lang.Crucible.RegCFG
+  , module Lang.Crucible.CFG.Reg
   ) where
 
 import           Control.Lens hiding (Index)
@@ -99,10 +99,11 @@ import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 
-import           Lang.Crucible.Core (AnyCFG(..), GlobalVar(..), App(..))
+import           Lang.Crucible.CFG.Core (AnyCFG(..), GlobalVar(..))
+import           Lang.Crucible.CFG.Expr(App(..))
+import           Lang.Crucible.CFG.Reg
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.ProgramLoc
-import           Lang.Crucible.RegCFG
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MonadST
 import           Lang.Crucible.Utils.StateContT
