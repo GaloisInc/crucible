@@ -298,7 +298,7 @@ writeGlobal v e = do
   a <-  mkAtom e
   Generator $ addStmt $ WriteGlobal v a
 
-newUnassignedReg' :: TypeRepr tp -> End h s t init ret (Reg s tp)
+newUnassignedReg' :: TypeRepr tp -> End h s t ret (Reg s tp)
 newUnassignedReg' tp = End $ newUnassignedReg'' tp
 
 newUnassignedReg :: TypeRepr tp -> Generator h s t ret (Reg s tp)
@@ -355,20 +355,20 @@ recordCFG g = Generator $ seenFunctions %= (g:)
 -- The 't' is parameter is for the user-defined state.
 -- The 'init' parameter identifies types for identifiers.
 -- The 'ret' parameter is the return type for the CFG.
-newtype End h s t init ret a = End { unEnd :: StateT (GeneratorState s t ret) (ST h) a }
+newtype End h s t ret a = End { unEnd :: StateT (GeneratorState s t ret) (ST h) a }
   deriving ( Functor
            , Applicative
            , Monad
            , MonadST h
            )
 
-instance MonadState (t s) (End h s t init ret) where
+instance MonadState (t s) (End h s t ret) where
   get = End (use gsState)
   put x = End (gsState .= x)
 
 -- | End the current translation.
-endNow :: ((a -> End h s t init ret ())
-          -> End h s t init ret ())
+endNow :: ((a -> End h s t ret ())
+          -> End h s t ret ())
        -> Generator h s t ret a
 endNow m = Generator $ StateContT $ \c ts -> do
   let f v = End $ do
@@ -377,17 +377,17 @@ endNow m = Generator $ StateContT $ \c ts -> do
   execStateT (unEnd (m f)) ts
 
 -- | Create a new block label
-newLabel :: End h s t init ret (Label s)
+newLabel :: End h s t ret (Label s)
 newLabel = End $ do
   idx <- use gsNextLabel
   gsNextLabel .= idx + 1
   return (Label idx)
 
 -- | Create a new lambda label
-newLambdaLabel :: KnownRepr TypeRepr tp => End h s t init ret (LambdaLabel s tp)
+newLambdaLabel :: KnownRepr TypeRepr tp => End h s t ret (LambdaLabel s tp)
 newLambdaLabel = newLambdaLabel' knownRepr
 
-newLambdaLabel' :: TypeRepr tp -> End h s t init ret (LambdaLabel s tp)
+newLambdaLabel' :: TypeRepr tp -> End h s t ret (LambdaLabel s tp)
 newLambdaLabel' tpr = End $ do
   p <- use gsPosition
   idx <- use gsNextLabel
@@ -407,7 +407,7 @@ newLambdaLabel' tpr = End $ do
 -- final statement.  This returns the user state after the
 -- block is finished.
 endCurrentBlock :: TermStmt s ret
-                -> End h s t init ret ()
+                -> End h s t ret ()
 endCurrentBlock term = End $ do
   gs <- get
   let p = gs^.gsPosition
@@ -422,9 +422,9 @@ endCurrentBlock term = End $ do
 
 -- | Resume execution by jumping to a label.
 resume_  :: Label s -- ^ Label to jump to.
-         -> (() -> End h s t init ret ())
+         -> (() -> End h s t ret ())
             -- ^ Continuation to run.
-         -> End h s t init ret ()
+         -> End h s t ret ()
 resume_ lbl c = End $ do
   checkCurrentUnassigned
   gsCurrent .= Just (initCurrentBlockState Set.empty (LabelID lbl))
@@ -433,9 +433,9 @@ resume_ lbl c = End $ do
 -- | Resume execution by jumping to a lambda label
 resume :: LambdaLabel s r
           -- ^ Label to jump to.
-       -> (Expr s r -> End h s t init ret ())
+       -> (Expr s r -> End h s t ret ())
           -- ^ Continuation to run.
-       -> End h s t init ret ()
+       -> End h s t ret ()
 resume lbl c = End $ do
   let block_id = LambdaID lbl
   checkCurrentUnassigned
@@ -444,7 +444,7 @@ resume lbl c = End $ do
 
 defineSomeBlock :: BlockID s
                 -> Generator h s t ret ()
-                -> End h s t init ret ()
+                -> End h s t ret ()
 defineSomeBlock l next = End $ do
   gs <- get
   let gs_next = gs & gsCurrent .~ Just (initCurrentBlockState Set.empty l)
@@ -460,14 +460,14 @@ defineSomeBlock l next = End $ do
 -- | Define a block with an ordinary label.
 defineBlock :: Label s
             -> Generator h s t ret ()
-            -> End h s t init ret ()
+            -> End h s t ret ()
 defineBlock l next =
   defineSomeBlock (LabelID l) next
 
 -- | Define a block that has a lambda label
 defineLambdaBlock :: LambdaLabel s i
                   -> (Expr s i -> Generator h s t ret ())
-                  -> End h s t init ret ()
+                  -> End h s t ret ()
 defineLambdaBlock l next = do
   let block_id = LambdaID l
   defineSomeBlock block_id $ next (AtomExpr (lambdaAtom l))

@@ -315,7 +315,7 @@ packBase ctp ctx0 asgn k =
 
 typeToRegExpr :: (?lc :: TyCtx.LLVMContext)
               => MemType
-              -> End h s LLVMState init ret (Some (Reg s))
+              -> End h s LLVMState ret (Some (Reg s))
 typeToRegExpr tp = do
   llvmTypeAsRepr tp $ \tpr ->
     Some <$> newUnassignedReg' tpr
@@ -410,7 +410,7 @@ initialState d llvmctx args asgn =
      LLVMState { _identMap = m, _blockInfoMap = Map.empty, llvmContext = llvmctx }
 
 type LLVMGenerator h s ret = Generator h s LLVMState ret
-type LLVMEnd h s init ret  = End h s LLVMState init ret
+type LLVMEnd h s ret  = End h s LLVMState ret
 
 -- | Information about an LLVM basic block
 data LLVMBlockInfo s
@@ -427,10 +427,10 @@ data LLVMBlockInfo s
     , block_phi_map    :: !(Map L.BlockLabel (Seq (L.Ident, L.Type, L.Value)))
     }
 
-buildBlockInfoMap :: L.Define -> End h s LLVMState init ret (Map L.BlockLabel (LLVMBlockInfo s))
+buildBlockInfoMap :: L.Define -> End h s LLVMState ret (Map L.BlockLabel (LLVMBlockInfo s))
 buildBlockInfoMap d = Map.fromList <$> (mapM buildBlockInfo $ L.defBody d)
 
-buildBlockInfo :: L.BasicBlock -> End h s LLVMState init ret (L.BlockLabel, LLVMBlockInfo s)
+buildBlockInfo :: L.BasicBlock -> End h s LLVMState ret (L.BlockLabel, LLVMBlockInfo s)
 buildBlockInfo bb = do
   let phi_map = buildPhiMap (L.bbStmts bb)
   let Just blk_lbl = L.bbLabel bb
@@ -456,13 +456,13 @@ buildPhiMap ss = go ss Map.empty
 --   Because LLVM programs are in SSA form, this will occur in exactly one place.
 --   The type of the register is infered from the instruction that assigns to it
 --   and is recorded in the ident map.
-buildRegMap :: (?lc :: TyCtx.LLVMContext) => IdentMap s -> L.Define -> End h s LLVMState init reg (IdentMap s)
+buildRegMap :: (?lc :: TyCtx.LLVMContext) => IdentMap s -> L.Define -> End h s LLVMState reg (IdentMap s)
 buildRegMap m d = foldM buildRegTypeMap m $ L.defBody d
 
 buildRegTypeMap :: (?lc :: TyCtx.LLVMContext)
                 => IdentMap s
                 -> L.BasicBlock
-                -> End h s LLVMState init ret (IdentMap s)
+                -> End h s LLVMState ret (IdentMap s)
 buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
  where stmt m (L.Effect _ _) = return m
        stmt m (L.Result ident instr _) = do
@@ -2069,7 +2069,7 @@ defineLLVMBlock
         => TypeRepr ret
         -> Map L.BlockLabel (LLVMBlockInfo s)
         -> L.BasicBlock
-        -> LLVMEnd h s init ret ()
+        -> LLVMEnd h s ret ()
 defineLLVMBlock retType lm L.BasicBlock{ L.bbLabel = Just lab, L.bbStmts = stmts } = do
   case Map.lookup lab lm of
     Just bi -> defineBlock (block_label bi) (generateStmts retType lab stmts)
