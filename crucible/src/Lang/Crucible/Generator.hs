@@ -57,6 +57,7 @@ module Lang.Crucible.Generator
   , End
   , endNow
   , newLabel
+  , newLabel'
   , newLambdaLabel
   , newLambdaLabel'
   , endCurrentBlock
@@ -375,12 +376,19 @@ endNow m = Generator $ StateContT $ \c ts -> do
         put =<< liftST (c v s)
   execStateT (unEnd (m f)) ts
 
--- | Create a new block label
-newLabel :: End h s t init ret (Label s)
-newLabel = End $ do
+newLabel'' :: MonadState (GeneratorState s0 t0 ret0) m => m (Label s)
+newLabel'' = do
   idx <- use gsNextLabel
   gsNextLabel .= idx + 1
   return (Label idx)
+
+-- | Create a new block label
+newLabel :: End h s t init ret (Label s)
+newLabel = End $ newLabel''
+
+-- | Create a new block label
+newLabel' :: Generator h s t ret (Label s)
+newLabel' = Generator $ newLabel''
 
 -- | Create a new lambda label
 newLambdaLabel :: KnownRepr TypeRepr tp => End h s t init ret (LambdaLabel s tp)
