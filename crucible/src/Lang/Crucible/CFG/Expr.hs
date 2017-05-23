@@ -1,15 +1,16 @@
-{-
+{- |
 Module           : Lang.Crucible.CFG.Expr
+Description      : Expression syntax definitions
 Copyright        : (c) Galois, Inc 2014-2016
-Maintainer       : Joe Hendrix <jhendrix@galois.com>
 License          : BSD3
+Maintainer       : Joe Hendrix <jhendrix@galois.com>
 
 Define the syntax of Crucible expressions.  Expressions represent
 side-effect free computations that result in terms.  The same
-expression language is used both for registerized CFGs ("Lang.Crucible.RegCFG")
-and for the core SSA-form CFGs ("Lang.Crucible.Core").
+expression language is used both for registerized CFGs ("Lang.Crucible.CFG.Reg")
+and for the core SSA-form CFGs ("Lang.Crucible.CFG.Core").
 
-Evaluation of expressions is defined in module "Lang.Crucible.Simuilator.Evaluation".
+Evaluation of expressions is defined in module "Lang.Crucible.Simulator.Evaluation".
 -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
@@ -47,6 +48,7 @@ module Lang.Crucible.CFG.Expr
   , mapApp
   , foldApp
   , traverseApp
+    -- * Base terms
   , BaseTerm(..)
   ) where
 
@@ -74,6 +76,9 @@ import qualified Lang.Crucible.Utils.Structural as U
 ------------------------------------------------------------------------
 -- BaseTerm
 
+-- | Base terms represent the subset of expressions
+--   of base types, packaged together with a run-time
+--   representation of their type.
 data BaseTerm (f :: CrucibleType -> *) tp
    = BaseTerm { baseTermType :: !(BaseTypeRepr tp)
               , baseTermVal  :: !(f (BaseToType tp))

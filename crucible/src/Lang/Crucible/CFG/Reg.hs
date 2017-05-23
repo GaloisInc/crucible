@@ -19,7 +19,8 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Lang.Crucible.CFG.Reg
-  ( CFG(..)
+  ( -- * CFG
+    CFG(..)
   , cfgInputTypes
   , cfgReturnType
   , SomeCFG(..)
@@ -27,16 +28,19 @@ module Lang.Crucible.CFG.Reg
   , LambdaLabel(..)
   , BlockID(..)
   , Reg(..)
+
     -- * Atoms
   , Atom(..)
   , AtomSource(..)
   , mkInputAtoms
   , AtomValue(..)
   , typeOfAtomValue
+
     -- * Values
   , Value(..)
   , typeOfValue
   , ValueSet
+
     -- * Blocks
   , Block
   , mkBlock
@@ -45,12 +49,18 @@ module Lang.Crucible.CFG.Reg
   , blockTerm
   , blockKnownInputs
   , blockAssignedValues
-  , Expr(..)
-  , exprType
+
+    -- * Statements
   , Stmt(..)
   , TermStmt(..)
   , termStmtInputs
   , termNextLabels
+
+    -- * Expressions
+  , Expr(..)
+  , exprType
+
+    -- * Re-exports
   , module Lang.Crucible.CFG.Common
   ) where
 

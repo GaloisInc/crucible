@@ -1,8 +1,9 @@
-{-
+{- |
 Module           : Lang.Crucible.CFG.Common
+Description      : Common CFG datastructure definitions
 Copyright        : (c) Galois, Inc 2014-2016
-Maintainer       : Joe Hendrix <jhendrix@galois.com>
 License          : BSD3
+Maintainer       : Joe Hendrix <jhendrix@galois.com>
 
 Data structures and operations that are common to both the
 registerized and the SSA form CFG representations.

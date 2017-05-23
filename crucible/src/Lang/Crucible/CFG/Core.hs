@@ -1,8 +1,9 @@
-{-
+{- |
 Module           : Lang.Crucible.CFG.Core
+Description      : SSA-based control flow graphs
 Copyright        : (c) Galois, Inc 2014-2016
-Maintainer       : Joe Hendrix <jhendrix@galois.com>
 License          : BSD3
+Maintainer       : Joe Hendrix <jhendrix@galois.com>
 
 Define a SSA-based control flow graph data structure using a side-effect free
 expression syntax.
@@ -28,11 +29,8 @@ on the place from which you jumped.
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 module Lang.Crucible.CFG.Core
-  ( -- * Types
-    CharVector
-  , module Lang.Crucible.Types
-    -- * CFG
-  , CFG(..)
+  ( -- * CFG
+    CFG(..)
   , SomeCFG(..)
   , HasSomeCFG(..)
   , AnyCFG(..)
@@ -41,17 +39,10 @@ module Lang.Crucible.CFG.Core
   , cfgReturnType
   , CFGPostdom
 
+    -- * Blocks
   , BlockMap
   , getBlock
   , extendBlockMap
-
-  , JumpTarget(..)
-  , extendJumpTarget
-  , jumpTargetID
-  , SwitchTarget(..)
-  , switchTargetID
-  , extendSwitchTarget
-  , extendMSwitch
 
   , BlockID(..)
   , extendBlockID
@@ -64,6 +55,16 @@ module Lang.Crucible.CFG.Core
   , nextBlocks
   , extendBlock
 
+    -- * Jump targets
+  , JumpTarget(..)
+  , extendJumpTarget
+  , jumpTargetID
+  , SwitchTarget(..)
+  , switchTargetID
+  , extendSwitchTarget
+  , extendMSwitch
+
+    -- * Statements
   , StmtSeq(..)
   , firstStmtLoc
   , extendStmtSeq
@@ -77,11 +78,15 @@ module Lang.Crucible.CFG.Core
   , termStmtNextBlocks
   , extendTermStmt
 
+    -- * Expressions
   , Expr(..)
   , Reg(..)
   , extendReg
   , lastReg
 
+    -- * Re-exports
+  , CharVector
+  , module Lang.Crucible.Types
   , module Lang.Crucible.CFG.Common
   , module Data.Parameterized.Classes
   , module Data.Parameterized.Some
@@ -603,6 +608,9 @@ instance Ctx.ApplyEmbedding (StmtSeq blocks ret) where
 ------------------------------------------------------------------------
 -- CFGPostdom
 
+-- | Postdominator information about a CFG.  The assignment maps each block
+--   to the postdominators of the given block.  The postdominators are ordered
+--   with nearest postdominator first.
 type CFGPostdom blocks = Ctx.Assignment (ConstK [Some (BlockID blocks)]) blocks
 
 emptyCFGPostdomInfo :: Ctx.Size blocks -> CFGPostdom blocks
@@ -705,17 +713,23 @@ extendBlockMap = fmapFC extendBlock
 ------------------------------------------------------------------------
 -- CFG
 
--- | A CFG consists of
+-- | A CFG consists of:
 --
 -- * a function handle, uniquely identifying the function this CFG
 -- implements;
 --
 -- * a block map, representing the main CFG data structure;
 --
--- * the identifier of the function entry point; and the runtime
--- representation of the function return type(s).
+-- * and the identifier of the function entry point.
 --
-data CFG blocks init ret
+-- The @blocks@ type parameter maps each block identifier to the
+-- formal arguments it expects.  The @init@ type parameter identifies
+-- the formal arguments of the function represetned by this control-flow graph,
+-- which correspond to the formal arguments of the CFG entry point.
+-- The @ret@ type parameter indicates the return type of the function.
+data CFG (blocks :: Ctx (Ctx CrucibleType))
+         (init :: Ctx CrucibleType)
+         (ret :: CrucibleType)
    = CFG { cfgHandle :: FnHandle init ret
          , cfgBlockMap :: !(BlockMap blocks ret)
          , cfgEntryBlockID :: !(BlockID blocks init)
@@ -749,10 +763,13 @@ ppCFG' :: Bool -- ^ Flag indicates if we should print line numbers
 ppCFG' lineNumbers pdInfo g = vcat (toListFC (ppBlock lineNumbers pdInfo) (cfgBlockMap g))
 
 
--- | Control flow graph with some blocks.
-data SomeCFG init ret where
+-- | Control flow graph with some blocks.  This data type closes
+--   existentially over the @blocks@ type parameter.
+data SomeCFG (init :: Ctx CrucibleType) (ret :: CrucibleType) where
   SomeCFG :: CFG blocks init ret -> SomeCFG init ret
 
+-- | Control flow graph.  This data type closes existentially
+--   over all the type parameters.
 data AnyCFG where
   AnyCFG :: CFG blocks init ret
          -> AnyCFG

@@ -219,7 +219,7 @@ instance MonadState (t s) (Generator h s t ret) where
   get = Generator $ use gsState
   put v = Generator $ gsState .= v
 
--- | Set the current position.
+-- | Get the current position.
 getPosition :: Generator h s t ret Position
 getPosition = Generator $ use gsPosition
 
@@ -280,6 +280,7 @@ mkAtom :: Expr s tp  -> Generator h s t ret (Atom s tp)
 mkAtom (AtomExpr a)   = return a
 mkAtom (App a)        = freshAtom . EvalApp =<< traverseFC mkAtom a
 
+-- | Generate a new virtual register with the given initial value.
 newReg :: Expr s tp -> Generator h s t ret (Reg s tp)
 newReg e = do
   a <- mkAtom e
@@ -298,9 +299,15 @@ writeGlobal v e = do
   a <-  mkAtom e
   Generator $ addStmt $ WriteGlobal v a
 
+-- | Produce a new virtual register without giving it an initial value.
+--   NOTE! If you fail to initialize this register with a subsequent
+--   call to @assignReg@, errors will arise during SSA conversion.
 newUnassignedReg' :: TypeRepr tp -> End h s t ret (Reg s tp)
 newUnassignedReg' tp = End $ newUnassignedReg'' tp
 
+-- | Produce a new virtual register without giving it an initial value.
+--   NOTE! If you fail to initialize this register with a subsequent
+--   call to @assignReg@, errors will arise during SSA conversion.
 newUnassignedReg :: TypeRepr tp -> Generator h s t ret (Reg s tp)
 newUnassignedReg tp = Generator $ newUnassignedReg'' tp
 
@@ -342,6 +349,9 @@ assertExpr b e = do
   e_a <- mkAtom e
   Generator $ addStmt $ Assert b_a e_a
 
+-- | Stash the given CFG away for later retrieval.  This is primarily
+--   used when translating inner and anonymous functions in the
+--   context of an outer function.
 recordCFG :: AnyCFG -> Generator h s t ret ()
 recordCFG g = Generator $ seenFunctions %= (g:)
 
@@ -353,7 +363,6 @@ recordCFG g = Generator $ seenFunctions %= (g:)
 -- The 'h' parameter is the ST index used for 'ST h'
 -- The 's' parameter is part of the CFG.
 -- The 't' is parameter is for the user-defined state.
--- The 'init' parameter identifies types for identifiers.
 -- The 'ret' parameter is the return type for the CFG.
 newtype End h s t ret a = End { unEnd :: StateT (GeneratorState s t ret) (ST h) a }
   deriving ( Functor
@@ -713,10 +722,16 @@ type FunctionDef h t init ret
    . Assignment (Atom s) init
      -> (t s, Generator h s t ret (Expr s ret))
 
-defineFunction :: Position
-               -> FnHandle init ret
-               -> FunctionDef h t init ret
-               -> ST h (SomeCFG init ret, [AnyCFG])
+-- | The main API for generating CFGs for a Crucible function.
+--
+--   The given @FunctionDef@ action is run to generate a registerized
+--   CFG.  The return value of this action is the generated CFG, and a
+--   list of CFGs for any other auxiliary function definitions
+--   generated along the way (e.g., for anonymous or inner functions).
+defineFunction :: Position                 -- ^ Source position for the function
+               -> FnHandle init ret        -- ^ Handle for the generated function
+               -> FunctionDef h t init ret -- ^ Generator action and initial state
+               -> ST h (SomeCFG init ret, [AnyCFG]) -- ^ Generated CFG and inner function definitions
 defineFunction p h f = seq h $ do
   let argTypes = handleArgTypes h
   let c () = return

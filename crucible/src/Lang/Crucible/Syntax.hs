@@ -90,13 +90,14 @@ import           Data.Text (Text)
 import qualified Data.Vector as V
 
 import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Some
 
 import           Lang.MATLAB.MatlabChar
 import           Lang.MATLAB.Utils.Nat (Nat)
 
-import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.Types
 
 ------------------------------------------------------------------------
 -- IsExpr
