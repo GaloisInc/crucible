@@ -54,11 +54,12 @@ import           Data.Parameterized.Some
 
 import           Lang.Crucible.Analysis.Postdom
 import           Lang.Crucible.Config
-import qualified Lang.Crucible.Core as C
+import           Lang.Crucible.CFG.Expr
+import qualified Lang.Crucible.CFG.Core as C
+import qualified Lang.Crucible.CFG.Reg as R
+import           Lang.Crucible.CFG.SSAConversion (toSSA)
 import           Lang.Crucible.FunctionName
 import qualified Lang.Crucible.Proto as P
-import qualified Lang.Crucible.RegCFG as R
-import           Lang.Crucible.SSAConversion (toSSA)
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import qualified Lang.Crucible.Simulator.Evaluation as Sim
 import           Lang.Crucible.Simulator.ExecutionTree
@@ -239,7 +240,7 @@ fulfillApplyPrimitiveRequest sim p_op args res_type = do
       let logLn _ _ = return ()
       sym <- getInterface sim
       r <- Sim.evalApp sym MapF.empty logLn (\(RegEntry _ v) -> return v) a
-      pv <- toProtoValue sim (RegEntry (C.appType a) r)
+      pv <- toProtoValue sim (RegEntry (appType a) r)
       let resp =
            mempty & P.simulatorValueResponse_successful .~ True
                   & P.simulatorValueResponse_value .~ pv

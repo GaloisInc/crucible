@@ -98,7 +98,8 @@ import qualified Data.Vector as V
 import qualified Text.LLVM.AST as L
 
 
-import qualified Lang.Crucible.Core as C
+import           Lang.Crucible.CFG.Expr
+import           Lang.Crucible.CFG.Common
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.Intrinsics
@@ -164,13 +165,13 @@ type LLVMValTypeType = ConcreteType G.Type
 -- It is always a valid pointer, but has no allocated offsets.
 nullPointer :: S.IsExpr e
             => e LLVMPointerType
-nullPointer = S.app $ C.RollRecursive knownSymbol $ S.app $ C.MkStruct
+nullPointer = S.app $ RollRecursive knownSymbol $ S.app $ MkStruct
   (Ctx.empty Ctx.%> NatRepr
              Ctx.%> BVRepr ptrWidth
              Ctx.%> BVRepr ptrWidth)
-  (Ctx.empty Ctx.%> (S.app (C.NatLit 0))
-             Ctx.%> (S.app (C.BVLit ptrWidth 0))
-             Ctx.%> (S.app (C.BVLit ptrWidth 0)))
+  (Ctx.empty Ctx.%> (S.app (NatLit 0))
+             Ctx.%> (S.app (BVLit ptrWidth 0))
+             Ctx.%> (S.app (BVLit ptrWidth 0)))
 
 mkNullPointer
   :: IsSymInterface sym
@@ -209,7 +210,7 @@ newtype GlobalSymbol = GlobalSymbol L.Symbol
 data LLVMMemOps
   = LLVMMemOps
   { llvmDataLayout :: DataLayout
-  , llvmMemVar    :: C.GlobalVar Mem
+  , llvmMemVar    :: GlobalVar Mem
   , llvmMemAlloca :: FnHandle (EmptyCtx ::> Mem ::> BVType PtrWidth)
                               (StructType (EmptyCtx ::> Mem ::> LLVMPointerType))
   , llvmMemPushFrame :: FnHandle (EmptyCtx ::> Mem) Mem
@@ -259,7 +260,7 @@ newMemOps :: HandleAllocator s
           -> DataLayout
           -> ST s LLVMMemOps
 newMemOps halloc dl = do
-  memVar      <- C.freshGlobalVar halloc "llvm_memory" knownRepr
+  memVar      <- freshGlobalVar halloc "llvm_memory" knownRepr
   alloca      <- mkHandle halloc "llvm_alloca"
   pushFrame   <- mkHandle halloc "llvm_pushFrame"
   popFrame    <- mkHandle halloc "llvm_popFrame"

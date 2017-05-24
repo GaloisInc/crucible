@@ -30,7 +30,7 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Map (Pair(..))
 import           Data.Parameterized.TraversableFC
 
-import           Lang.Crucible.Core
+import           Lang.Crucible.CFG.Core
 
 
 ------------------------------------------------------------------------

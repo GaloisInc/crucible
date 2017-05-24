@@ -123,8 +123,10 @@ import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Some
 import Text.PrettyPrint.ANSI.Leijen (pretty)
 
-import           Lang.Crucible.Core (AnyCFG(..))
-import qualified Lang.Crucible.Core as C
+import qualified Lang.Crucible.CFG.Core as C
+import           Lang.Crucible.CFG.Expr
+import           Lang.Crucible.CFG.Generator
+import           Lang.Crucible.CFG.SSAConversion( toSSA )
 import           Lang.Crucible.FunctionName
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.LLVM.MemType
@@ -134,9 +136,7 @@ import           Lang.Crucible.LLVM.MemModel
 import qualified Lang.Crucible.LLVM.MemModel.Common as G
 
 import           Lang.Crucible.ProgramLoc
-import           Lang.Crucible.Generator
 import           Lang.Crucible.Solver.Interface( IsSymInterface )
-import           Lang.Crucible.SSAConversion( toSSA )
 import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
 
@@ -167,7 +167,7 @@ allModuleDeclares m = L.modDeclares m ++ def_decls
 ------------------------------------------------------------------------
 -- Translation results
 
-type ModuleCFGMap = Map L.Symbol AnyCFG
+type ModuleCFGMap = Map L.Symbol C.AnyCFG
 
 -- | The result of translating an LLVM module into Crucible CFGs.
 data ModuleTranslation
@@ -315,7 +315,7 @@ packBase ctp ctx0 asgn k =
 
 typeToRegExpr :: (?lc :: TyCtx.LLVMContext)
               => MemType
-              -> End h s LLVMState init ret (Some (Reg s))
+              -> End h s LLVMState ret (Some (Reg s))
 typeToRegExpr tp = do
   llvmTypeAsRepr tp $ \tpr ->
     Some <$> newUnassignedReg' tpr
@@ -410,7 +410,7 @@ initialState d llvmctx args asgn =
      LLVMState { _identMap = m, _blockInfoMap = Map.empty, llvmContext = llvmctx }
 
 type LLVMGenerator h s ret = Generator h s LLVMState ret
-type LLVMEnd h s init ret  = End h s LLVMState init ret
+type LLVMEnd h s ret  = End h s LLVMState ret
 
 -- | Information about an LLVM basic block
 data LLVMBlockInfo s
@@ -427,10 +427,10 @@ data LLVMBlockInfo s
     , block_phi_map    :: !(Map L.BlockLabel (Seq (L.Ident, L.Type, L.Value)))
     }
 
-buildBlockInfoMap :: L.Define -> End h s LLVMState init ret (Map L.BlockLabel (LLVMBlockInfo s))
+buildBlockInfoMap :: L.Define -> End h s LLVMState ret (Map L.BlockLabel (LLVMBlockInfo s))
 buildBlockInfoMap d = Map.fromList <$> (mapM buildBlockInfo $ L.defBody d)
 
-buildBlockInfo :: L.BasicBlock -> End h s LLVMState init ret (L.BlockLabel, LLVMBlockInfo s)
+buildBlockInfo :: L.BasicBlock -> End h s LLVMState ret (L.BlockLabel, LLVMBlockInfo s)
 buildBlockInfo bb = do
   let phi_map = buildPhiMap (L.bbStmts bb)
   let Just blk_lbl = L.bbLabel bb
@@ -456,13 +456,13 @@ buildPhiMap ss = go ss Map.empty
 --   Because LLVM programs are in SSA form, this will occur in exactly one place.
 --   The type of the register is infered from the instruction that assigns to it
 --   and is recorded in the ident map.
-buildRegMap :: (?lc :: TyCtx.LLVMContext) => IdentMap s -> L.Define -> End h s LLVMState init reg (IdentMap s)
+buildRegMap :: (?lc :: TyCtx.LLVMContext) => IdentMap s -> L.Define -> End h s LLVMState reg (IdentMap s)
 buildRegMap m d = foldM buildRegTypeMap m $ L.defBody d
 
 buildRegTypeMap :: (?lc :: TyCtx.LLVMContext)
                 => IdentMap s
                 -> L.BasicBlock
-                -> End h s LLVMState init ret (IdentMap s)
+                -> End h s LLVMState ret (IdentMap s)
 buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
  where stmt m (L.Effect _ _) = return m
        stmt m (L.Result ident instr _) = do
@@ -521,8 +521,8 @@ transValue ty L.ValUndef =
 transValue _ (L.ValString str) = do
   let eight = knownNat :: NatRepr 8
   let bv8   = BVRepr eight
-  let chars = V.fromList $ map (App . C.BVLit eight . toInteger . fromEnum) $ str
-  return $ BaseExpr (VectorRepr bv8) (App $ C.VectorLit bv8 $ chars)
+  let chars = V.fromList $ map (App . BVLit eight . toInteger . fromEnum) $ str
+  return $ BaseExpr (VectorRepr bv8) (App $ VectorLit bv8 $ chars)
 
 transValue _ (L.ValIdent i) = do
   m <- use identMap
@@ -538,18 +538,18 @@ transValue _ (L.ValIdent i) = do
 transValue (IntType w) (L.ValInteger i) =
   case someNat (fromIntegral w) of
     Just (Some w') | Just LeqProof <- isPosNat w' ->
-      return $ BaseExpr (BVRepr w') (App (C.BVLit w' i))
+      return $ BaseExpr (BVRepr w') (App (BVLit w' i))
     _ -> fail $ unwords ["invalid integer type", show w]
 
 transValue (IntType 1) (L.ValBool b) =
   return $ BaseExpr (BVRepr (knownNat :: NatRepr 1))
-                    (App (C.BoolToBV knownNat (litExpr b)))
+                    (App (BoolToBV knownNat (litExpr b)))
 
 transValue FloatType (L.ValFloat f) =
-  return $ BaseExpr RealValRepr (App (C.RationalLit (toRational f)))
+  return $ BaseExpr RealValRepr (App (RationalLit (toRational f)))
 
 transValue DoubleType (L.ValDouble d) =
-  return $ BaseExpr RealValRepr (App (C.RationalLit (toRational d)))
+  return $ BaseExpr RealValRepr (App (RationalLit (toRational d)))
 
 transValue (StructType _) (L.ValStruct vs) = do
      vs' <- mapM transTypedValue vs
@@ -573,7 +573,7 @@ transValue _ (L.ValSymbol symbol) = do
      memVar <- llvmMemVar . memModelOps . llvmContext <$> get
      resolveGlobal <- litExpr . llvmResolveGlobal . memModelOps . llvmContext <$> get
      mem <- readGlobal memVar
-     let symbol' = app $ C.ConcreteLit $ TypeableValue $ GlobalSymbol symbol
+     let symbol' = app $ ConcreteLit $ TypeableValue $ GlobalSymbol symbol
      ptr <- call resolveGlobal (Ctx.empty Ctx.%> mem Ctx.%> symbol')
      return (BaseExpr LLVMPointerRepr ptr)
 
@@ -596,7 +596,7 @@ transValue _ (L.ValConstExpr cexp) =
       case asScalar b' of
         Scalar (BVRepr w) b'' ->
           llvmTypeAsRepr mty $ \tpr -> do
-            b_e <- mkAtom (App $ C.BVNonzero w b'')
+            b_e <- mkAtom (App $ BVNonzero w b'')
             BaseExpr tpr <$> (endNow $ \c -> do
               r <- newUnassignedReg' tpr
               t_id <- newLabel
@@ -732,7 +732,7 @@ zeroExpand :: forall s a
 zeroExpand (IntType n) k =
    case someNat (fromIntegral n) of
      Just (Some w) | Just LeqProof <- isPosNat w -> do
-       k (BVRepr w) (App (C.BVLit w 0))
+       k (BVRepr w) (App (BVLit w 0))
      _ -> ?err $ unwords ["illegal integer size", show n]
 zeroExpand (StructType si) k =
    unpackArgs (map ZeroExpr tps) $ \ctx asgn -> k (StructRepr ctx) (mkStruct ctx asgn)
@@ -742,8 +742,8 @@ zeroExpand (ArrayType n tp) k =
 zeroExpand (VecType n tp) k =
   llvmTypeAsRepr tp $ \tpr -> unpackVec tpr (replicate (fromIntegral n) (ZeroExpr tp)) $ k (VectorRepr tpr)
 zeroExpand (PtrType _tp) k = k LLVMPointerRepr nullPointer
-zeroExpand FloatType   k  = k RealValRepr (App (C.RationalLit 0))
-zeroExpand DoubleType  k  = k RealValRepr (App (C.RationalLit 0))
+zeroExpand FloatType   k  = k RealValRepr (App (RationalLit 0))
+zeroExpand DoubleType  k  = k RealValRepr (App (RationalLit 0))
 zeroExpand MetadataType _ = ?err "Cannot zero expand metadata"
 
 undefExpand :: (?lc :: TyCtx.LLVMContext, ?err :: String -> a)
@@ -753,7 +753,7 @@ undefExpand :: (?lc :: TyCtx.LLVMContext, ?err :: String -> a)
 undefExpand (IntType n) k =
    case someNat (fromIntegral n) of
      Just (Some w) | Just LeqProof <- isPosNat w ->
-       k (BVRepr w) (App (C.BVUndef w))
+       k (BVRepr w) (App (BVUndef w))
      _ -> error $ unwords ["illegal integer size", show n]
 undefExpand (StructType si) k =
    unpackArgs (map UndefExpr tps) $ \ctx asgn -> k (StructRepr ctx) (mkStruct ctx asgn)
@@ -764,7 +764,7 @@ undefExpand (VecType n tp) k =
   llvmTypeAsRepr tp $ \tpr -> unpackVec tpr (replicate (fromIntegral n) (UndefExpr tp)) $ k (VectorRepr tpr)
 undefExpand tp _ = ?err $ unwords ["cannot undef expand type:", show tp]
 
---undefExpand (L.PtrTo _tp) k = k LLVMPointerRepr (App C.UndefPointer) FIXME?
+--undefExpand (L.PtrTo _tp) k = k LLVMPointerRepr (App UndefPointer) FIXME?
 --undefExpand (L.PrimType (L.FloatType _ft)) _k = error "FIXME undefExpand: float types"
 
 unpackVarArgs :: forall h s ret a
@@ -773,9 +773,9 @@ unpackVarArgs :: forall h s ret a
       )
    => [LLVMExpr s Expr]
    -> LLVMGenerator h s ret (Expr s (VectorType AnyType))
-unpackVarArgs xs = App . C.VectorLit AnyRepr . V.fromList <$> xs'
+unpackVarArgs xs = App . VectorLit AnyRepr . V.fromList <$> xs'
  where xs' = let ?err = fail in
-             mapM (\x -> unpackOne x (\tp x' -> return $ App (C.PackAny tp x'))) xs
+             mapM (\x -> unpackOne x (\tp x' -> return $ App (PackAny tp x'))) xs
 
 -- | Implement the phi-functions along the edge from one LLVM Basic block to another.
 definePhiBlock :: (?lc :: TyCtx.LLVMContext)
@@ -828,7 +828,7 @@ extractElt ty n (ZeroExpr _) i   = do
    let ?err = fail
    zeroExpand ty  $ \tyr ex -> extractElt ty n (BaseExpr tyr ex) i
 extractElt _ n (VecExpr _ vs) i
-  | Scalar (BVRepr _) (App (C.BVLit _ idx)) <- asScalar i
+  | Scalar (BVRepr _) (App (BVLit _ idx)) <- asScalar i
        = do if (fromInteger idx < Seq.length vs) && (fromInteger idx < n)
               then return $ Seq.index vs (fromInteger idx)
               else fail "invalid extractelement instruction (index out of bounds)"
@@ -839,8 +839,8 @@ extractElt ty n (VecExpr _ vs) i = do
 extractElt _ n (BaseExpr (VectorRepr tyr) v) i
   | Scalar (BVRepr w) idx <- asScalar i
   , Just LeqProof <- isPosNat w = do
-      assertExpr (App (C.BVUlt w idx (App (C.BVLit w n)))) "extract element index out of bounds!"
-      return $ BaseExpr tyr (App (C.VectorGetEntry tyr v (App (C.BvToNat w idx))))
+      assertExpr (App (BVUlt w idx (App (BVLit w n)))) "extract element index out of bounds!"
+      return $ BaseExpr tyr (App (VectorGetEntry tyr v (App (BvToNat w idx))))
 extractElt _ _ _ _ = fail $ "invalid extractelement instruction"
 
 
@@ -866,7 +866,7 @@ insertElt ty n (ZeroExpr _) a i   = do
   let ?err = fail
   zeroExpand ty  $ \tyr ex -> insertElt ty n (BaseExpr tyr ex) a i
 insertElt _ n (VecExpr ty vs) a i
-  | Scalar (BVRepr _) (App (C.BVLit _ idx)) <- asScalar i
+  | Scalar (BVRepr _) (App (BVLit _ idx)) <- asScalar i
        = do if (fromInteger idx < Seq.length vs) && (fromInteger idx < n)
               then return $ VecExpr ty $ Seq.adjust (\_ -> a) (fromIntegral idx) vs
               else fail "invalid insertelement instruction (index out of bounds)"
@@ -877,12 +877,12 @@ insertElt ty n (VecExpr _ vs) a i = do
 insertElt _ n (BaseExpr (VectorRepr tyr) v) a i
   | Scalar (BVRepr w) idx <- asScalar i
   , Just LeqProof <- isPosNat w = do
-    assertExpr (App (C.BVUlt w idx (App (C.BVLit w n)))) "insert element index out of bounds!"
+    assertExpr (App (BVUlt w idx (App (BVLit w n)))) "insert element index out of bounds!"
     let ?err = fail
     unpackOne a $ \tyra a' ->
       case testEquality tyr tyra of
         Just Refl ->
-          return $ BaseExpr (VectorRepr tyr) (App (C.VectorSetEntry tyr v (App (C.BvToNat w idx)) a'))
+          return $ BaseExpr (VectorRepr tyr) (App (VectorSetEntry tyr v (App (BvToNat w idx)) a'))
         Nothing -> fail $ "type mismatch in insertelement instruction"
 insertElt _ _ _ _ _ = fail $ "invalid insertelement instruction"
 
@@ -1036,10 +1036,10 @@ callLoad typ expectTy (asScalar -> Scalar LLVMPointerRepr ptr) =
    do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
       memLoad <- litExpr . llvmMemLoad . memModelOps . llvmContext <$> get
       mem  <- readGlobal memVar
-      typ' <- app . C.ConcreteLit . TypeableValue <$> toStorableType typ
+      typ' <- app . ConcreteLit . TypeableValue <$> toStorableType typ
       v <- call memLoad (Ctx.empty Ctx.%> mem Ctx.%> ptr Ctx.%> typ')
       let msg = litExpr (Text.pack ("Expected load to return value of type " ++ show expectTy))
-      let v' = app $ C.FromJustValue expectTy (app $ C.UnpackAny expectTy v) msg
+      let v' = app $ FromJustValue expectTy (app $ UnpackAny expectTy v) msg
       return (BaseExpr expectTy v')
 callLoad _ _ _ =
   fail $ unwords ["Unexpected argument type in callLoad"]
@@ -1056,8 +1056,8 @@ callStore typ (asScalar -> Scalar LLVMPointerRepr ptr) v =
       memVar <- llvmMemVar . memModelOps . llvmContext <$> get
       memStore <- litExpr . llvmMemStore . memModelOps . llvmContext <$> get
       mem  <- readGlobal memVar
-      let v' = app (C.PackAny vtpr vexpr)
-      typ' <- app . C.ConcreteLit . TypeableValue <$> toStorableType typ
+      let v' = app (PackAny vtpr vexpr)
+      typ' <- app . ConcreteLit . TypeableValue <$> toStorableType typ
       mem' <- call memStore (Ctx.empty Ctx.%> mem Ctx.%> ptr Ctx.%> typ' Ctx.%> v')
       writeGlobal memVar mem'
 
@@ -1096,18 +1096,18 @@ calcGEP' (ArrayType bound typ') base (idx : xs) = do
                  | Just Refl <- testEquality w ptrWidth ->
                       return x
                  | Just LeqProof <- testLeq (incNat w) ptrWidth ->
-                      return $ app (C.BVSext ptrWidth w x)
+                      return $ app (BVSext ptrWidth w x)
               _ -> fail $ unwords ["Invalid index value in GEP"]
 
     -- assert that 0 <= idx' <= bound
     --   (yes, <= and not < because of the 1-past-the-end rule)
-    let zero      = App $ C.BVLit ptrWidth 0
-    let bound'    = App $ C.BVLit ptrWidth $ toInteger bound
-    let geZero    = App $ C.BVSle ptrWidth zero idx'
-    let leBound   = App $ C.BVSle ptrWidth idx' bound'
-    let boundTest = App $ C.And geZero leBound
+    let zero      = App $ BVLit ptrWidth 0
+    let bound'    = App $ BVLit ptrWidth $ toInteger bound
+    let geZero    = App $ BVSle ptrWidth zero idx'
+    let leBound   = App $ BVSle ptrWidth idx' bound'
+    let boundTest = App $ And geZero leBound
     assertExpr boundTest
-      (App $ C.TextLit $ Text.pack "Array index out of bounds when calculating getelementpointer")
+      (App $ TextLit $ Text.pack "Array index out of bounds when calculating getelementpointer")
 
     let dl  = TyCtx.llvmDataLayout ?lc
 
@@ -1116,16 +1116,16 @@ calcGEP' (ArrayType bound typ') base (idx : xs) = do
     let isz = fromIntegral $ memTypeSize dl typ'
     unless (isz <= maxSigned ptrWidth)
       (fail $ unwords ["Type size too large for pointer width:", show typ'])
-    let sz  = app $ C.BVLit ptrWidth $ isz
+    let sz  = app $ BVLit ptrWidth $ isz
 
     -- Perform a signed wide multiply and check for overflow
-    let wideMul  = app $ C.BVMul (addNat ptrWidth ptrWidth)
-                           (app $ C.BVSext (addNat ptrWidth ptrWidth) ptrWidth sz)
-                           (app $ C.BVSext (addNat ptrWidth ptrWidth) ptrWidth idx')
-    let off      = app $ C.BVTrunc ptrWidth (addNat ptrWidth ptrWidth) wideMul
-    let wideMul' = app $ C.BVSext (addNat ptrWidth ptrWidth) ptrWidth off
-    assertExpr (app $ C.BVEq (addNat ptrWidth ptrWidth) wideMul wideMul')
-      (App $ C.TextLit $ Text.pack "Multiplication overflow in getelementpointer")
+    let wideMul  = app $ BVMul (addNat ptrWidth ptrWidth)
+                           (app $ BVSext (addNat ptrWidth ptrWidth) ptrWidth sz)
+                           (app $ BVSext (addNat ptrWidth ptrWidth) ptrWidth idx')
+    let off      = app $ BVTrunc ptrWidth (addNat ptrWidth ptrWidth) wideMul
+    let wideMul' = app $ BVSext (addNat ptrWidth ptrWidth) ptrWidth off
+    assertExpr (app $ BVEq (addNat ptrWidth ptrWidth) wideMul wideMul')
+      (App $ TextLit $ Text.pack "Multiplication overflow in getelementpointer")
 
     -- Perform the pointer arithmetic and continue
     base' <- callPtrAddOffset base off
@@ -1137,7 +1137,7 @@ calcGEP' (PtrType (MemType typ')) base (idx : xs) = do
                  | Just Refl <- testEquality w ptrWidth ->
                       return x
                  | Just LeqProof <- testLeq (incNat w) ptrWidth ->
-                      return $ app (C.BVSext ptrWidth w x)
+                      return $ app (BVSext ptrWidth w x)
               _ -> fail $ unwords ["Invalid index value in GEP"]
     let dl  = TyCtx.llvmDataLayout ?lc
 
@@ -1146,16 +1146,16 @@ calcGEP' (PtrType (MemType typ')) base (idx : xs) = do
     let isz = fromIntegral $ memTypeSize dl typ'
     unless (isz <= maxSigned ptrWidth)
       (fail $ unwords ["Type size too large for pointer width:", show typ'])
-    let sz  = app $ C.BVLit ptrWidth $ isz
+    let sz  = app $ BVLit ptrWidth $ isz
 
     -- Perform a signed wide multiply and check for overflow
-    let wideMul = app $ C.BVMul (addNat ptrWidth ptrWidth)
-                           (app $ C.BVSext (addNat ptrWidth ptrWidth) ptrWidth sz)
-                           (app $ C.BVSext (addNat ptrWidth ptrWidth) ptrWidth idx')
-    let off      = app $ C.BVTrunc ptrWidth (addNat ptrWidth ptrWidth) wideMul
-    let wideMul' = app $ C.BVSext (addNat ptrWidth ptrWidth) ptrWidth off
-    assertExpr (app $ C.BVEq (addNat ptrWidth ptrWidth) wideMul wideMul')
-      (App $ C.TextLit $ Text.pack "Multiplication overflow in getelementpointer")
+    let wideMul = app $ BVMul (addNat ptrWidth ptrWidth)
+                           (app $ BVSext (addNat ptrWidth ptrWidth) ptrWidth sz)
+                           (app $ BVSext (addNat ptrWidth ptrWidth) ptrWidth idx')
+    let off      = app $ BVTrunc ptrWidth (addNat ptrWidth ptrWidth) wideMul
+    let wideMul' = app $ BVSext (addNat ptrWidth ptrWidth) ptrWidth off
+    assertExpr (app $ BVEq (addNat ptrWidth ptrWidth) wideMul wideMul')
+      (App $ TextLit $ Text.pack "Multiplication overflow in getelementpointer")
 
     -- Perform the pointer arithmetic and continue
     base' <- callPtrAddOffset base off
@@ -1163,7 +1163,7 @@ calcGEP' (PtrType (MemType typ')) base (idx : xs) = do
 
 calcGEP' (StructType si) base (idx : xs) = do
     idx' <- case asScalar idx of
-              Scalar (BVRepr _w) (asApp -> Just (C.BVLit _ x)) -> return x
+              Scalar (BVRepr _w) (asApp -> Just (BVLit _ x)) -> return x
               _ -> fail $ unwords ["Expected constant value when indexing fields in GEP"]
     case siFieldInfo si (fromInteger idx') of
       Just fi -> do
@@ -1173,7 +1173,7 @@ calcGEP' (StructType si) base (idx : xs) = do
         unless (ioff <= maxSigned ptrWidth)
           (fail $ unwords ["Field offset too large for pointer width in structure:"
                           , show (ppMemType (StructType si))])
-        let off  = app $ C.BVLit ptrWidth $ ioff
+        let off  = app $ BVLit ptrWidth $ ioff
 
         -- Perform the pointer arithmetic and continue
         base' <- callPtrAddOffset base off
@@ -1223,7 +1223,7 @@ translateConversion op x outty =
            (Scalar (BVRepr w) x'', (BVRepr w'))
              | Just LeqProof <- isPosNat w'
              , Just LeqProof <- testLeq (incNat w') w -> do
-                 return (BaseExpr outty'' (App (C.BVTrunc w' w x'')))
+                 return (BaseExpr outty'' (App (BVTrunc w' w x'')))
            _ -> fail $ unwords ["invalid truncation:", show x, show outty]
 
     L.ZExt -> do
@@ -1234,7 +1234,7 @@ translateConversion op x outty =
            (Scalar (BVRepr w) x'', (BVRepr w'))
              | Just LeqProof <- isPosNat w
              , Just LeqProof <- testLeq (incNat w) w' -> do
-                 return (BaseExpr outty'' (App (C.BVZext w' w x'')))
+                 return (BaseExpr outty'' (App (BVZext w' w x'')))
            _ -> fail $ unwords ["invalid zero extension:", show x, show outty]
 
     L.SExt -> do
@@ -1245,7 +1245,7 @@ translateConversion op x outty =
            (Scalar (BVRepr w) x'', BVRepr w')
              | Just LeqProof <- isPosNat w
              , Just LeqProof <- testLeq (incNat w) w' -> do
-                 return (BaseExpr outty'' (App (C.BVSext w' w x'')))
+                 return (BaseExpr outty'' (App (BVSext w' w x'')))
            _ -> fail $ unwords ["invalid sign extension", show x, show outty]
 
     L.BitCast -> do
@@ -1264,7 +1264,7 @@ translateConversion op x outty =
          case (asScalar x', outty'') of
            (Scalar (BVRepr w) x'', RealValRepr) -> do
              return $ BaseExpr RealValRepr
-                        (App $ C.IntegerToReal $ App $ C.NatToInteger $ App $ C.BvToNat w x'')
+                        (App $ IntegerToReal $ App $ NatToInteger $ App $ BvToNat w x'')
 
            _ -> fail $ unwords ["Invalid uitofp:", show op, show x, show outty]
 
@@ -1275,13 +1275,13 @@ translateConversion op x outty =
          case (asScalar x', outty'') of
            (Scalar (BVRepr w) x'', RealValRepr) -> do
              -- is the value negative?
-             t <- AtomExpr <$> mkAtom (App $ C.BVSlt w x'' $ App $ C.BVLit w 0)
+             t <- AtomExpr <$> mkAtom (App $ BVSlt w x'' $ App $ BVLit w 0)
              -- unsigned value of the bitvector as a real
-             v <- AtomExpr <$> mkAtom (App $ C.IntegerToReal $ App $ C.NatToInteger $ App $ C.BvToNat w x'')
+             v <- AtomExpr <$> mkAtom (App $ IntegerToReal $ App $ NatToInteger $ App $ BvToNat w x'')
              -- MAXINT as a real
-             maxint <- AtomExpr <$> mkAtom (App $ C.RationalLit $ fromInteger $ maxUnsigned w)
+             maxint <- AtomExpr <$> mkAtom (App $ RationalLit $ fromInteger $ maxUnsigned w)
              -- z = if neg then (v - MAXINT) else v
-             let z = App $ C.RealIte t (App $ C.RealSub v maxint) v
+             let z = App $ RealIte t (App $ RealSub v maxint) v
              return $ BaseExpr RealValRepr z
 
            _ -> fail $ unwords ["Invalid uitofp:", show op, show x, show outty]
@@ -1377,16 +1377,16 @@ generateInstr retType lab instr assign_f k =
       tp' <- liftMemType tp
       let dl = TyCtx.llvmDataLayout ?lc
       let tp_sz = memTypeSize dl tp'
-      let tp_sz' = app $ C.BVLit ptrWidth $ fromIntegral tp_sz
+      let tp_sz' = app $ BVLit ptrWidth $ fromIntegral tp_sz
       sz <- case num of
                Nothing -> return $ tp_sz'
                Just num' -> do
                   n <- transTypedValue num'
                   case n of
-                     ZeroExpr _ -> return $ app $ C.BVLit ptrWidth 0
+                     ZeroExpr _ -> return $ app $ BVLit ptrWidth 0
                      BaseExpr (BVRepr w) x
                         | Just Refl <- testEquality w ptrWidth ->
-                             return $ app $ C.BVMul ptrWidth x tp_sz'
+                             return $ app $ BVMul ptrWidth x tp_sz'
                      _ -> fail $ "Invalid alloca argument: " ++ show num
       p <- callAlloca sz
       assign_f (BaseExpr LLVMPointerRepr p)
@@ -1465,7 +1465,7 @@ generateInstr retType lab instr assign_f k =
                      llvmRetTypeAsRepr retTy' $ \retTy ->
                        do let expectTy = FunctionHandleRepr (argTypes Ctx.%> varArgsRepr) retTy
                           let msg = litExpr (Text.pack ("Expected function of type " ++ show expectTy))
-                          let v' = app $ C.FromJustValue expectTy (app $ C.UnpackAny expectTy v) msg
+                          let v' = app $ FromJustValue expectTy (app $ UnpackAny expectTy v) msg
                           ret <- call v' (mainArgs' Ctx.%> varArgs')
                           assign_f (BaseExpr retTy ret)
                           k
@@ -1488,7 +1488,7 @@ generateInstr retType lab instr assign_f k =
                      llvmRetTypeAsRepr retTy' $ \retTy ->
                        do let expectTy = FunctionHandleRepr argTypes retTy
                           let msg = litExpr (Text.pack ("Expected function of type " ++ show expectTy))
-                          let v' = app $ C.FromJustValue expectTy (app $ C.UnpackAny expectTy v) msg
+                          let v' = app $ FromJustValue expectTy (app $ UnpackAny expectTy v) msg
                           ret <- call v' args''
                           assign_f (BaseExpr retTy ret)
                           k
@@ -1502,31 +1502,31 @@ generateInstr retType lab instr assign_f k =
                      -> LLVMGenerator h s ret (Expr s (BVType w))
                bitop w a b =
                      case op of
-                         L.And -> return $ App (C.BVAnd w a b)
-                         L.Or  -> return $ App (C.BVOr w a b)
-                         L.Xor -> return $ App (C.BVXor w a b)
+                         L.And -> return $ App (BVAnd w a b)
+                         L.Or  -> return $ App (BVOr w a b)
+                         L.Xor -> return $ App (BVXor w a b)
 
                          L.Shl nuw nsw -> do
-                           let wlit = App (C.BVLit w (natValue w))
-                           assertExpr (App (C.BVUlt w b wlit))
+                           let wlit = App (BVLit w (natValue w))
+                           assertExpr (App (BVUlt w b wlit))
                                       (litExpr "shift amount too large in shl")
 
-                           res <- AtomExpr <$> mkAtom (App (C.BVShl w a b))
+                           res <- AtomExpr <$> mkAtom (App (BVShl w a b))
 
                            let nuwCond expr
                                 | nuw = do
-                                    m <- AtomExpr <$> mkAtom (App (C.BVLshr w res b))
-                                    return $ App $ C.AddSideCondition (BaseBVRepr w)
-                                       (App (C.BVEq w a m))
+                                    m <- AtomExpr <$> mkAtom (App (BVLshr w res b))
+                                    return $ App $ AddSideCondition (BaseBVRepr w)
+                                       (App (BVEq w a m))
                                        "unsigned overflow on shl"
                                        expr
                                 | otherwise = return expr
 
                            let nswCond expr
                                 | nsw = do
-                                    m <- AtomExpr <$> mkAtom (App (C.BVAshr w res b))
-                                    return $ App $ C.AddSideCondition (BaseBVRepr w)
-                                       (App (C.BVEq w a m))
+                                    m <- AtomExpr <$> mkAtom (App (BVAshr w res b))
+                                    return $ App $ AddSideCondition (BaseBVRepr w)
+                                       (App (BVEq w a m))
                                        "signed overflow on shl"
                                        expr
                                 | otherwise = return expr
@@ -1534,17 +1534,17 @@ generateInstr retType lab instr assign_f k =
                            nuwCond =<< nswCond =<< return res
 
                          L.Lshr exact -> do
-                           let wlit = App (C.BVLit w (natValue w))
-                           assertExpr (App (C.BVUlt w b wlit))
+                           let wlit = App (BVLit w (natValue w))
+                           assertExpr (App (BVUlt w b wlit))
                                       (litExpr "shift amount too large in lshr")
 
-                           res <- AtomExpr <$> mkAtom (App (C.BVLshr w a b))
+                           res <- AtomExpr <$> mkAtom (App (BVLshr w a b))
 
                            let exactCond expr
                                 | exact = do
-                                    m <- AtomExpr <$> mkAtom (App (C.BVShl w res b))
-                                    return $ App $ C.AddSideCondition (BaseBVRepr w)
-                                       (App (C.BVEq w a m))
+                                    m <- AtomExpr <$> mkAtom (App (BVShl w res b))
+                                    return $ App $ AddSideCondition (BaseBVRepr w)
+                                       (App (BVEq w a m))
                                        "inexact logical right shift"
                                        expr
                                 | otherwise = return expr
@@ -1553,17 +1553,17 @@ generateInstr retType lab instr assign_f k =
 
                          L.Ashr exact
                            | Just LeqProof <- isPosNat w -> do
-                              let wlit = App (C.BVLit w (natValue w))
-                              assertExpr (App (C.BVUlt w b wlit))
+                              let wlit = App (BVLit w (natValue w))
+                              assertExpr (App (BVUlt w b wlit))
                                          (litExpr "shift amount too large in ashr")
 
-                              res <- AtomExpr <$> mkAtom (App (C.BVAshr w a b))
+                              res <- AtomExpr <$> mkAtom (App (BVAshr w a b))
 
                               let exactCond expr
                                    | exact = do
-                                       m <- AtomExpr <$> mkAtom (App (C.BVShl w res b))
-                                       return $ App $ C.AddSideCondition (BaseBVRepr w)
-                                          (App (C.BVEq w a m))
+                                       m <- AtomExpr <$> mkAtom (App (BVShl w res b))
+                                       return $ App $ AddSideCondition (BaseBVRepr w)
+                                          (App (BVEq w a m))
                                           "inexact arithmetic right shift"
                                           expr
                                    | otherwise = return expr
@@ -1595,64 +1595,64 @@ generateInstr retType lab instr assign_f k =
                      case op of
                             L.Add nuw nsw -> do
                                let nuwCond expr
-                                    | nuw = return $ App $ C.AddSideCondition (BaseBVRepr w)
-                                               (notExpr (App (C.BVCarry w a b)))
+                                    | nuw = return $ App $ AddSideCondition (BaseBVRepr w)
+                                               (notExpr (App (BVCarry w a b)))
                                                "unsigned overflow on addition"
                                                expr
                                     | otherwise = return expr
 
                                let nswCond expr
-                                    | nsw = return $ App $ C.AddSideCondition (BaseBVRepr w)
-                                               (notExpr (App (C.BVSCarry w a b)))
+                                    | nsw = return $ App $ AddSideCondition (BaseBVRepr w)
+                                               (notExpr (App (BVSCarry w a b)))
                                                "signed overflow on addition"
                                                expr
                                     | otherwise = return expr
 
-                               nuwCond =<< nswCond (App (C.BVAdd w a b))
+                               nuwCond =<< nswCond (App (BVAdd w a b))
 
                             L.Sub nuw nsw -> do
                                let nuwCond expr
-                                    | nuw = return $ App $ C.AddSideCondition (BaseBVRepr w)
-                                               (notExpr (App (C.BVUlt w a b)))
+                                    | nuw = return $ App $ AddSideCondition (BaseBVRepr w)
+                                               (notExpr (App (BVUlt w a b)))
                                                "unsigned overflow on subtraction"
                                                expr
                                     | otherwise = return expr
 
                                let nusCond expr
-                                    | nsw = return $ App $ C.AddSideCondition (BaseBVRepr w)
-                                               (notExpr (App (C.BVSBorrow w a b)))
+                                    | nsw = return $ App $ AddSideCondition (BaseBVRepr w)
+                                               (notExpr (App (BVSBorrow w a b)))
                                                "signed overflow on subtraction"
                                                expr
                                     | otherwise = return expr
 
-                               nuwCond =<< nusCond (App (C.BVSub w a b))
+                               nuwCond =<< nusCond (App (BVSub w a b))
 
                             L.Mul nuw nsw -> do
                                let w' = addNat w w
                                Just LeqProof <- return $ isPosNat w'
                                Just LeqProof <- return $ testLeq (incNat w) w'
 
-                               prod <- AtomExpr <$> mkAtom (App (C.BVMul w a b))
+                               prod <- AtomExpr <$> mkAtom (App (BVMul w a b))
                                let nuwCond expr
                                     | nuw = do
-                                        az <- AtomExpr <$> mkAtom (App (C.BVZext w' w a))
-                                        bz <- AtomExpr <$> mkAtom (App (C.BVZext w' w b))
-                                        wideprod <- AtomExpr <$> mkAtom (App (C.BVMul w' az bz))
-                                        prodz <- AtomExpr <$> mkAtom (App (C.BVZext w' w prod))
-                                        return $ App $ C.AddSideCondition (BaseBVRepr w)
-                                               (App (C.BVEq w' wideprod prodz))
+                                        az <- AtomExpr <$> mkAtom (App (BVZext w' w a))
+                                        bz <- AtomExpr <$> mkAtom (App (BVZext w' w b))
+                                        wideprod <- AtomExpr <$> mkAtom (App (BVMul w' az bz))
+                                        prodz <- AtomExpr <$> mkAtom (App (BVZext w' w prod))
+                                        return $ App $ AddSideCondition (BaseBVRepr w)
+                                               (App (BVEq w' wideprod prodz))
                                                "unsigned overflow on multiplication"
                                                expr
                                     | otherwise = return expr
 
                                let nswCond expr
                                     | nsw = do
-                                        as <- AtomExpr <$> mkAtom (App (C.BVSext w' w a))
-                                        bs <- AtomExpr <$> mkAtom (App (C.BVSext w' w b))
-                                        wideprod <- AtomExpr <$> mkAtom (App (C.BVMul w' as bs))
-                                        prods <- AtomExpr <$> mkAtom (App (C.BVSext w' w prod))
-                                        return $ App $ C.AddSideCondition (BaseBVRepr w)
-                                               (App (C.BVEq w' wideprod prods))
+                                        as <- AtomExpr <$> mkAtom (App (BVSext w' w a))
+                                        bs <- AtomExpr <$> mkAtom (App (BVSext w' w b))
+                                        wideprod <- AtomExpr <$> mkAtom (App (BVMul w' as bs))
+                                        prods <- AtomExpr <$> mkAtom (App (BVSext w' w prod))
+                                        return $ App $ AddSideCondition (BaseBVRepr w)
+                                               (App (BVEq w' wideprod prods))
                                                "signed overflow on multiplication"
                                                expr
                                     | otherwise = return expr
@@ -1660,17 +1660,17 @@ generateInstr retType lab instr assign_f k =
                                nuwCond =<< nswCond prod
 
                             L.UDiv exact -> do
-                               let z = App (C.BVLit w 0)
-                               assertExpr (notExpr (App (C.BVEq w z b)))
+                               let z = App (BVLit w 0)
+                               assertExpr (notExpr (App (BVEq w z b)))
                                           (litExpr "unsigned division-by-0")
 
-                               q <- AtomExpr <$> mkAtom (App (C.BVUdiv w a b))
+                               q <- AtomExpr <$> mkAtom (App (BVUdiv w a b))
 
                                let exactCond expr
                                     | exact = do
-                                        m <- AtomExpr <$> mkAtom (App (C.BVMul w q b))
-                                        return $ App $ C.AddSideCondition (BaseBVRepr w)
-                                               (App (C.BVEq w a m))
+                                        m <- AtomExpr <$> mkAtom (App (BVMul w q b))
+                                        return $ App $ AddSideCondition (BaseBVRepr w)
+                                               (App (BVEq w a m))
                                                "inexact result of unsigned division"
                                                expr
                                     | otherwise = return expr
@@ -1679,23 +1679,23 @@ generateInstr retType lab instr assign_f k =
 
                             L.SDiv exact
                               | Just LeqProof <- isPosNat w -> do
-                                 let z      = App (C.BVLit w 0)
-                                 let neg1   = App (C.BVLit w (-1))
-                                 let minInt = App (C.BVLit w (minSigned w))
-                                 assertExpr (notExpr (App (C.BVEq w z b)))
+                                 let z      = App (BVLit w 0)
+                                 let neg1   = App (BVLit w (-1))
+                                 let minInt = App (BVLit w (minSigned w))
+                                 assertExpr (notExpr (App (BVEq w z b)))
                                             (litExpr "signed division-by-0")
-                                 assertExpr (notExpr ((App (C.BVEq w neg1 b))
+                                 assertExpr (notExpr ((App (BVEq w neg1 b))
                                                       .&&
-                                                      (App (C.BVEq w minInt a)) ))
+                                                      (App (BVEq w minInt a)) ))
                                             (litExpr "signed division overflow (yes, really)")
 
-                                 q <- AtomExpr <$> mkAtom (App (C.BVSdiv w a b))
+                                 q <- AtomExpr <$> mkAtom (App (BVSdiv w a b))
 
                                  let exactCond expr
                                       | exact = do
-                                          m <- AtomExpr <$> mkAtom (App (C.BVMul w q b))
-                                          return $ App $ C.AddSideCondition (BaseBVRepr w)
-                                                 (App (C.BVEq w a m))
+                                          m <- AtomExpr <$> mkAtom (App (BVMul w q b))
+                                          return $ App $ AddSideCondition (BaseBVRepr w)
+                                                 (App (BVEq w a m))
                                                  "inexact result of signed division"
                                                  expr
                                       | otherwise = return expr
@@ -1705,24 +1705,24 @@ generateInstr retType lab instr assign_f k =
                               | otherwise -> fail "cannot take the signed quotient of a 0-width bitvector"
 
                             L.URem -> do
-                                 let z = App (C.BVLit w 0)
-                                 assertExpr (notExpr (App (C.BVEq w z b)))
+                                 let z = App (BVLit w 0)
+                                 assertExpr (notExpr (App (BVEq w z b)))
                                             (litExpr "unsigned division-by-0 in urem")
-                                 return $ App (C.BVUrem w a b)
+                                 return $ App (BVUrem w a b)
 
                             L.SRem
                               | Just LeqProof <- isPosNat w -> do
-                                 let z      = App (C.BVLit w 0)
-                                 let neg1   = App (C.BVLit w (-1))
-                                 let minInt = App (C.BVLit w (minSigned w))
-                                 assertExpr (notExpr (App (C.BVEq w z b)))
+                                 let z      = App (BVLit w 0)
+                                 let neg1   = App (BVLit w (-1))
+                                 let minInt = App (BVLit w (minSigned w))
+                                 assertExpr (notExpr (App (BVEq w z b)))
                                             (litExpr "signed division-by-0 in srem")
-                                 assertExpr (notExpr ((App (C.BVEq w neg1 b))
+                                 assertExpr (notExpr ((App (BVEq w neg1 b))
                                                       .&&
-                                                      (App (C.BVEq w minInt a)) ))
+                                                      (App (BVEq w minInt a)) ))
                                             (litExpr "signed division overflow in srem (yes, really)")
 
-                                 return $ App (C.BVSrem w a b)
+                                 return $ App (BVSrem w a b)
 
                               | otherwise -> fail "cannot take the signed remainder of a 0-width bitvector"
 
@@ -1734,12 +1734,15 @@ generateInstr retType lab instr assign_f k =
                fop a b =
                      case op of
                         L.FAdd -> do
-                          return $ App (C.RealAdd a b)
+                          return $ App (RealAdd a b)
                         L.FSub -> do
-                          return $ App (C.RealSub a b)
+                          return $ App (RealSub a b)
                         L.FMul -> do
-                          return $ App (C.RealMul a b)
-                            -- FIXME, implement remaining floating-point operations: FDiv and FRem
+                          return $ App (RealMul a b)
+                        L.FDiv -> do
+                          return $ App (RealDiv a b)
+                        L.FRem -> do
+                          return $ App (RealMod a b)
                         _ -> fail $ unwords ["unsupported floating-point arith operation", show op, show x, show y]
 
            x' <- transTypedValue x
@@ -1767,7 +1770,7 @@ generateInstr retType lab instr assign_f k =
                         assign_f (BaseExpr LLVMPointerRepr ex)
                         k
                       L.Sub _ _ -> do
-                        let off = App (C.BVSub w (App $ C.BVLit w 0) y'')
+                        let off = App (BVSub w (App $ BVLit w 0) y'')
                         ex <- callPtrAddOffset x'' off
                         assign_f (BaseExpr LLVMPointerRepr ex)
                         k
@@ -1803,22 +1806,22 @@ generateInstr retType lab instr assign_f k =
                   -- We assume that values are never NaN, so the ordered and unordered
                   -- operations are the same.
                   case op of
-                    L.Ftrue  -> App (C.BoolLit True)
-                    L.Ffalse -> App (C.BoolLit False)
-                    L.Foeq   -> App (C.RealEq a b)
-                    L.Fueq   -> App (C.RealEq a b)
-                    L.Fone   -> App $ C.Not $ App (C.RealEq a b)
-                    L.Fune   -> App $ C.Not $ App (C.RealEq a b)
-                    L.Folt   -> App (C.RealLt a b)
-                    L.Fult   -> App (C.RealLt a b)
-                    L.Fogt   -> App (C.RealLt b a)
-                    L.Fugt   -> App (C.RealLt b a)
-                    L.Fole   -> App $ C.Not $ App (C.RealLt b a)
-                    L.Fule   -> App $ C.Not $ App (C.RealLt b a)
-                    L.Foge   -> App $ C.Not $ App (C.RealLt a b)
-                    L.Fuge   -> App $ C.Not $ App (C.RealLt a b)
-                    L.Ford   -> App (C.BoolLit True)  -- True if a <> QNAN and b <> QNAN
-                    L.Funo   -> App (C.BoolLit False) -- True if a == QNNA or b == QNAN
+                    L.Ftrue  -> App (BoolLit True)
+                    L.Ffalse -> App (BoolLit False)
+                    L.Foeq   -> App (RealEq a b)
+                    L.Fueq   -> App (RealEq a b)
+                    L.Fone   -> App $ Not $ App (RealEq a b)
+                    L.Fune   -> App $ Not $ App (RealEq a b)
+                    L.Folt   -> App (RealLt a b)
+                    L.Fult   -> App (RealLt a b)
+                    L.Fogt   -> App (RealLt b a)
+                    L.Fugt   -> App (RealLt b a)
+                    L.Fole   -> App $ Not $ App (RealLt b a)
+                    L.Fule   -> App $ Not $ App (RealLt b a)
+                    L.Foge   -> App $ Not $ App (RealLt a b)
+                    L.Fuge   -> App $ Not $ App (RealLt a b)
+                    L.Ford   -> App (BoolLit True)  -- True if a <> QNAN and b <> QNAN
+                    L.Funo   -> App (BoolLit False) -- True if a == QNNA or b == QNAN
 
            x' <- transTypedValue x
            y' <- transTypedValue (L.Typed (L.typedType x) y)
@@ -1826,7 +1829,7 @@ generateInstr retType lab instr assign_f k =
              (Scalar RealValRepr x'',
               Scalar RealValRepr y'') -> do
                 assign_f (BaseExpr (BVRepr (knownNat :: NatRepr 1))
-                                   (App (C.BoolToBV knownNat (cmpf  x'' y''))))
+                                   (App (BoolToBV knownNat (cmpf  x'' y''))))
                 k
 
              _ -> fail $ unwords ["Floating point comparison on incompatible values", show x, show y]
@@ -1839,16 +1842,16 @@ generateInstr retType lab instr assign_f k =
                    -> Expr s BoolType
                opf w a b =
                   case op of
-                     L.Ieq -> App (C.BVEq w a b)
-                     L.Ine -> App (C.Not (App (C.BVEq w a b)))
-                     L.Iult -> App (C.BVUlt w a b)
-                     L.Iule -> App (C.BVUle w a b)
-                     L.Iugt -> App (C.BVUlt w b a)
-                     L.Iuge -> App (C.BVUle w b a)
-                     L.Islt -> App (C.BVSlt w a b)
-                     L.Isle -> App (C.BVSle w a b)
-                     L.Isgt -> App (C.BVSlt w b a)
-                     L.Isge -> App (C.BVSle w b a)
+                     L.Ieq -> App (BVEq w a b)
+                     L.Ine -> App (Not (App (BVEq w a b)))
+                     L.Iult -> App (BVUlt w a b)
+                     L.Iule -> App (BVUle w a b)
+                     L.Iugt -> App (BVUlt w b a)
+                     L.Iuge -> App (BVUle w b a)
+                     L.Islt -> App (BVSlt w a b)
+                     L.Isle -> App (BVSle w a b)
+                     L.Isgt -> App (BVSlt w b a)
+                     L.Isge -> App (BVSle w b a)
 
            x' <- transTypedValue x
            y' <- transTypedValue (L.Typed (L.typedType x) y)
@@ -1858,7 +1861,7 @@ generateInstr retType lab instr assign_f k =
                , Just LeqProof <- isPosNat w -> do
                     assign_f (BaseExpr
                                    (BVRepr (knownNat :: NatRepr 1))
-                                   (App (C.BoolToBV knownNat (opf w x'' y''))))
+                                   (App (BoolToBV knownNat (opf w x'' y''))))
                     k
              (Scalar LLVMPointerRepr x'', Scalar LLVMPointerRepr y'') ->
                 do pEq <- litExpr . llvmPtrEq . memModelOps . llvmContext <$> get
@@ -1872,22 +1875,22 @@ generateInstr retType lab instr assign_f k =
                          return $ isEq
                        L.Ine -> do
                          isEq <- call pEq (Ctx.empty Ctx.%> mem Ctx.%> x'' Ctx.%> y'')
-                         return $ App (C.Not isEq)
+                         return $ App (Not isEq)
                        L.Iule -> do
                          isLe <- call pLe (Ctx.empty Ctx.%> mem Ctx.%> x'' Ctx.%> y'')
                          return $ isLe
                        L.Iult -> do
                          isGe <- call pLe (Ctx.empty Ctx.%> mem Ctx.%> y'' Ctx.%> x'')
-                         return $ App (C.Not isGe)
+                         return $ App (Not isGe)
                        L.Iuge -> do
                          isGe <- call pLe (Ctx.empty Ctx.%> mem Ctx.%> y'' Ctx.%> x'')
                          return $ isGe
                        L.Iugt -> do
                          isLe <- call pLe (Ctx.empty Ctx.%> mem Ctx.%> x'' Ctx.%> y'')
-                         return $ App (C.Not isLe)
+                         return $ App (Not isLe)
                        _ -> fail $ unwords ["signed comparison on pointer values", show x, show y]
                    assign_f (BaseExpr (BVRepr (knownNat :: NatRepr 1))
-                                      (App (C.BoolToBV knownNat res)))
+                                      (App (BoolToBV knownNat res)))
                    k
 
              -- Special case: a pointer can be compared for equality with an integer, as long as
@@ -1895,7 +1898,7 @@ generateInstr retType lab instr assign_f k =
              (Scalar LLVMPointerRepr x'', Scalar (BVRepr wy) y'')
                | Just Refl <- testEquality ptrWidth wy ->
                 do pIsNull <- litExpr . llvmPtrIsNull . memModelOps . llvmContext <$> get
-                   assertExpr (App (C.BVEq ptrWidth y'' (App (C.BVLit ptrWidth 0))))
+                   assertExpr (App (BVEq ptrWidth y'' (App (BVLit ptrWidth 0))))
                               "Attempted to compare a pointer to a non-0 integer value"
                    res <- case op of
                      L.Ieq  -> do
@@ -1903,16 +1906,16 @@ generateInstr retType lab instr assign_f k =
                         return res
                      L.Ine  -> do
                         res <- call pIsNull (Ctx.empty Ctx.%> x'')
-                        return (App (C.Not res))
+                        return (App (Not res))
                      _ -> fail $ unwords ["arithmetic comparison on incompatible values", show x, show y]
-                   assign_f (BaseExpr (BVRepr (knownNat :: NatRepr 1)) (App (C.BoolToBV knownNat res)))
+                   assign_f (BaseExpr (BVRepr (knownNat :: NatRepr 1)) (App (BoolToBV knownNat res)))
                    k
 
              -- Symmetric special case to the above
              (Scalar (BVRepr wx) x'', Scalar LLVMPointerRepr y'')
                | Just Refl <- testEquality ptrWidth wx ->
                 do pIsNull <- litExpr . llvmPtrIsNull . memModelOps . llvmContext <$> get
-                   assertExpr (App (C.BVEq ptrWidth x'' (App (C.BVLit ptrWidth 0))))
+                   assertExpr (App (BVEq ptrWidth x'' (App (BVLit ptrWidth 0))))
                               "Attempted to compare a pointer to a non-0 integer value"
                    res <- case op of
                      L.Ieq  -> do
@@ -1920,9 +1923,9 @@ generateInstr retType lab instr assign_f k =
                         return res
                      L.Ine  -> do
                         res <- call pIsNull (Ctx.empty Ctx.%> y'')
-                        return (App (C.Not res))
+                        return (App (Not res))
                      _ -> fail $ unwords ["arithmetic comparison on incompatible values", show x, show y]
-                   assign_f (BaseExpr (BVRepr (knownNat :: NatRepr 1)) (App (C.BoolToBV knownNat res)))
+                   assign_f (BaseExpr (BVRepr (knownNat :: NatRepr 1)) (App (BoolToBV knownNat res)))
                    k
 
              _ -> fail $ unwords ["arithmetic comparison on incompatible values", show x, show y]
@@ -1935,8 +1938,8 @@ generateInstr retType lab instr assign_f k =
          case asScalar c' of
            Scalar (BVRepr w) e -> do
              let e' = case isPosNat w of
-                        Just LeqProof -> App (C.BVNonzero w e)
-                        Nothing       -> App (C.BoolLit False)
+                        Just LeqProof -> App (BVNonzero w e)
+                        Nothing       -> App (BoolLit False)
              e_a <- mkAtom e'
              endNow $ \cont -> do
                  l1 <- newLabel
@@ -1958,8 +1961,8 @@ generateInstr retType lab instr assign_f k =
         case asScalar v' of
           Scalar (BVRepr w) e -> do
             let e' = case isPosNat w of
-                       Just LeqProof -> App (C.BVNonzero w e)
-                       Nothing -> App (C.BoolLit False)
+                       Just LeqProof -> App (BVNonzero w e)
+                       Nothing -> App (BoolLit False)
             a' <- mkAtom e'
             endNow $ \_ -> do
               phi1 <- newLabel
@@ -1990,10 +1993,10 @@ generateInstr retType lab instr assign_f k =
     L.RetVoid -> case testEquality retType UnitRepr of
                     Just Refl -> do
                        callPopFrame
-                       returnFromFunction (App C.EmptyApp)
+                       returnFromFunction (App EmptyApp)
                     Nothing -> fail $ unwords ["tried to void return from non-void function", show retType]
 
-    _ -> reportError $ App $ C.TextLit $ Text.pack $ unwords ["unsupported instruction", show instr]
+    _ -> reportError $ App $ TextLit $ Text.pack $ unwords ["unsupported instruction", show instr]
 
 -- | Build a switch statement by decomposing it into a linear sequence of branches.
 --   FIXME? this could be more efficent if we sort the list and do binary search instead...
@@ -2007,7 +2010,7 @@ buildSwitch :: (1 <= w, ?lc :: TyCtx.LLVMContext)
 buildSwitch _ _  curr_lab def [] =
    definePhiBlock curr_lab def
 buildSwitch w ex curr_lab def ((i,l):bs) = do
-   let test = App $ C.BVEq w ex $ App $ C.BVLit w i
+   let test = App $ BVEq w ex $ App $ BVLit w i
    test_a <- mkAtom test
    endNow $ \_ -> do
      t_id <- newLabel
@@ -2066,7 +2069,7 @@ defineLLVMBlock
         => TypeRepr ret
         -> Map L.BlockLabel (LLVMBlockInfo s)
         -> L.BasicBlock
-        -> LLVMEnd h s init ret ()
+        -> LLVMEnd h s ret ()
 defineLLVMBlock retType lm L.BasicBlock{ L.bbLabel = Just lab, L.bbStmts = stmts } = do
   case Map.lookup lab lm of
     Just bi -> defineBlock (block_label bi) (generateStmts retType lab stmts)
@@ -2111,7 +2114,7 @@ genDefn defn retType =
 -- | Translate a single LLVM function definition into a crucible CFG.
 transDefine :: LLVMContext
             -> L.Define
-            -> ST h (L.Symbol, AnyCFG)
+            -> ST h (L.Symbol, C.AnyCFG)
 transDefine ctx d = do
   let sym = L.defName d
   let ?lc = llvmTypeCtx ctx
@@ -2126,7 +2129,7 @@ transDefine ctx d = do
                   f = genDefn d retType
       (SomeCFG g,[]) <- defineFunction InternalPos h def
       case toSSA g of
-        C.SomeCFG g_ssa -> return (sym, AnyCFG g_ssa)
+        C.SomeCFG g_ssa -> return (sym, C.AnyCFG g_ssa)
 
 ------------------------------------------------------------------------
 -- initMemProc
@@ -2164,7 +2167,7 @@ initMemProc halloc ctx m = do
                          , llvmContext = ctx
                          }
                     f = do mapM_ genGlobalInit gs_alloc
-                           return (App C.EmptyApp)
+                           return (App EmptyApp)
 
    (SomeCFG g,[]) <- defineFunction InternalPos h def
    return $! toSSA g

@@ -38,7 +38,7 @@ import           System.IO.Error
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           Lang.Crucible.Config
-import           Lang.Crucible.Core
+import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.CallFrame

@@ -28,7 +28,7 @@ import           Data.Parameterized.TraversableF
 import           Data.Parameterized.TraversableFC
 import qualified Data.Set as Set
 
-import           Lang.Crucible.Core
+import           Lang.Crucible.CFG.Core
 
 -- | Convert a block ID to a node
 toNode :: BlockID blocks ctx -> G.Node

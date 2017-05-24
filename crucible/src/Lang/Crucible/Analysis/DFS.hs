@@ -47,7 +47,7 @@ import qualified Data.Sequence as Seq
 import Data.Foldable
 
 import Lang.Crucible.Types
-import Lang.Crucible.Core
+import Lang.Crucible.CFG.Core
 
 type SomeBlockID blocks = Some (BlockID blocks)
 

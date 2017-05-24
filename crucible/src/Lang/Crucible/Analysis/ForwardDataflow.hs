@@ -44,7 +44,8 @@ import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.TraversableFC
 
 import Lang.Crucible.Types
-import Lang.Crucible.Core
+import Lang.Crucible.CFG.Core
+import Lang.Crucible.CFG.Expr
 
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 

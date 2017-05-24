@@ -67,7 +67,7 @@ import           System.IO.Error
 
 import           Lang.Crucible.Analysis.Postdom
 import           Lang.Crucible.Config
-import           Lang.Crucible.Core
+import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.FunctionName
 import           Lang.Crucible.Simulator.CallFns

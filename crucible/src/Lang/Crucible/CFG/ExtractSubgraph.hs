@@ -1,6 +1,6 @@
 ---------------------------------------------------------------------------
 -- |
--- Module          : Lang.Crucible.ExtractSubgraph
+-- Module          : Lang.Crucible.CFG.ExtractSubgraph
 -- Description     : Allows for construction of a function based off a subgraph
 --                   of an SSA-form function, subject to certain constraints
 -- Copyright       : (c) Galois, Inc 2015
@@ -14,7 +14,9 @@
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
-module Lang.Crucible.ExtractSubgraph where
+module Lang.Crucible.CFG.ExtractSubgraph
+  ( extractSubgraph
+  ) where
 
 import           Control.Lens
 import           Control.Monad.ST
@@ -22,18 +24,17 @@ import           Data.Parameterized.Context as Ctx hiding ((++))
 import           Data.Parameterized.Map as MapF
 import           Data.Set as S
 import           Debug.Trace
-import           Lang.Crucible.Core
+import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.FunctionName
 import           Lang.Crucible.ProgramLoc
 
--- given a CFG cfg, a set of blocks cuts that take the return type as their sole
--- argument, and a block bi that takes the CFG's init type as its sole argument,
--- construct a CFG that is a maximal subgraph starting at bi and not entering any
--- block in cuts.  If the original graph would enter a block in cuts, the value
--- passed to that block is returned.  If bi `member` cuts, then whenever the subgraph
--- would transition to bi, it returns the value that would be passed to bi
--- instead.
+-- | Given a CFG @cfg@, a set of blocks @cuts@ that take the return type as their sole
+-- argument, and a block @bi@ that takes the CFG's init type as its sole argument,
+-- construct a CFG that is a maximal subgraph starting at @bi@ and not entering any
+-- block in @cuts@.  If the original graph would enter a block in @cuts@, the value
+-- passed to that block is returned.  If @bi `member` cuts@, then whenever the subgraph
+-- would transition to @bi@, it returns the value that would be passed to @bi@ instead.
 extractSubgraph :: (KnownCtx TypeRepr init, KnownRepr TypeRepr ret)
                 => CFG blocks init ret
                 -> Set (BlockID blocks (EmptyCtx ::> ret))
@@ -52,7 +53,7 @@ extractSubgraph (CFG{cfgBlockMap = orig, cfgEntryBlockID = _origEntry}) cuts bi 
             , cfgHandle = hn
             }
 
--- type for carrying intermediate results through subraph extraction
+-- | Type for carrying intermediate results through subraph extraction
 -- the interesting field is the final one - it holds a callback for transforming
 -- the result of the previous portion of the subgraph extraction into the result
 -- of this subgraph extraction.
@@ -68,8 +69,8 @@ data SubgraphIntermediate old ret init soFar new where
                        -> SubgraphIntermediate old ret init soFar new
 
 
--- The inner loop of subgraph extraction
--- produces a callback with an existential type, in order to hide new
+-- | The inner loop of subgraph extraction
+--   produces a callback with an existential type, in order to hide new
 extractSubgraph' :: KnownRepr TypeRepr ret
                  => BlockMap old ret
                  -> Set (BlockID old (EmptyCtx ::> ret))
