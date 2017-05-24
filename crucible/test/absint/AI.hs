@@ -23,9 +23,10 @@ import qualified Data.Parameterized.Map as PM
 import qualified Lang.Crucible.FunctionHandle as C
 import qualified Lang.Crucible.FunctionName as C
 import qualified Lang.Crucible.ProgramLoc as P
-import qualified Lang.Crucible.Core as C
-import qualified Lang.Crucible.Generator as G
-import qualified Lang.Crucible.SSAConversion as SSA
+import qualified Lang.Crucible.CFG.Core as C
+import qualified Lang.Crucible.CFG.Expr as C
+import qualified Lang.Crucible.CFG.Generator as G
+import qualified Lang.Crucible.CFG.SSAConversion as SSA
 import Lang.Crucible.Syntax
 import Lang.Crucible.Analysis.Fixpoint
 
