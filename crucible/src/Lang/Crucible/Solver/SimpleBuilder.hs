@@ -36,9 +36,7 @@ module Lang.Crucible.Solver.SimpleBuilder
   , appEltId
   , appEltLoc
   , appType
-  , eltId
   , eltLoc
-  , eltApp
   , appEltApp
   , NonceAppElt
   , nonceEltId
@@ -616,12 +614,6 @@ asApp _ = Nothing
 asNonceApp :: Elt t tp -> Maybe (NonceApp t (Elt t) tp)
 asNonceApp (NonceAppElt a) = Just (nonceEltApp a)
 asNonceApp _ = Nothing
-
-eltId  :: AppElt t tp -> Nonce t tp
-eltId = appEltId
-
-eltApp :: AppElt t tp -> App (Elt t) tp
-eltApp = appEltApp
 
 eltLoc :: Elt t tp -> ProgramLoc
 eltLoc (NatElt _ l) = l
