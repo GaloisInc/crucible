@@ -1012,26 +1012,26 @@ class IsSimpleBuilderState st where
   -- | Add an assumption to the current state.
   sbAddAssumption :: SimpleBuilder t st -> BoolElt t -> IO ()
 
-  -- | Return a list of all the assertions
+  -- | Return a list of all the assertions between the given states.
   sbAssertionsBetween :: st t -- ^ Old path state
                       -> st t -- ^ New path state
                       -> Seq (Assertion (BoolElt t))
 
-  -- | Return a list of all the assertions
+  -- | Return a conjunction of all the assertions.
   sbAllAssertions :: SimpleBuilder t st -> IO (BoolElt t)
 
   sbAppendAssertions :: SimpleBuilder t st -> Seq (Assertion (BoolElt t)) -> IO ()
 
-  -- | Get the collection of proof obligations
+  -- | Get the collection of proof obligations.
   sbGetProofObligations :: SimpleBuilder t st -> IO (Seq (Seq (BoolElt t), Assertion (BoolElt t)))
 
-  -- | Set the collection of proof obligations
+  -- | Set the collection of proof obligations.
   sbSetProofObligations :: SimpleBuilder t st -> Seq (Seq (BoolElt t), Assertion (BoolElt t)) -> IO ()
 
   ----------------------------------------------------------------------
   -- Branch manipulations
 
-  -- | Given a Boolean predicate corresponding to a brnahc, this decides
+  -- | Given a Boolean predicate corresponding to a branch, this decides
   -- what the next course of action should be for the branch.
   sbEvalBranch :: SimpleBuilder t st
                -> BoolElt t -- Predicate to branch on.

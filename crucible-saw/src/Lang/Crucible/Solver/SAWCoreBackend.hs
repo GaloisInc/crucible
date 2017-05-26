@@ -27,16 +27,26 @@ import           Data.Ratio
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 
+import qualified Data.ABC.GIA as GIA
+import qualified Data.AIG as AIG
+
 import           Lang.Crucible.BaseTypes
+import           Lang.Crucible.Config
 import           Lang.Crucible.ProgramLoc
+import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
+import           Lang.Crucible.Solver.SatResult
 import qualified Lang.Crucible.Solver.SimpleBuilder as SB
 import           Lang.Crucible.Solver.Symbol
 import qualified Lang.Crucible.Solver.WeightedSum as WSum
 
+import qualified Verifier.SAW.Cryptol.Prims as CryPrims
 import qualified Verifier.SAW.SharedTerm as SC
+import qualified Verifier.SAW.Simulator.BitBlast as BBSim
 import qualified Verifier.SAW.TypedAST as SC
+
+data SAWCruciblePersonality sym = SAWCruciblePersonality
 
 -- | The SAWCoreBackend is a crucible backend that represents symbolic values
 --   as SAWCore terms.
@@ -48,7 +58,17 @@ data SAWCoreState n
     , saw_elt_cache :: SB.IdxCache n SAWElt
     , saw_assertions  :: Seq (Assertion (Pred (SAWCoreBackend n)))
     , saw_obligations :: Seq (Seq (Pred (SAWCoreBackend n)), Assertion (Pred (SAWCoreBackend n)))
+    , saw_config    :: SimConfig SAWCruciblePersonality (SAWCoreBackend n)
     }
+
+sawCheckPathSat :: ConfigOption Bool
+sawCheckPathSat = configOption "saw.check_path_sat"
+
+sawOptions :: Monad m => [ConfigDesc m]
+sawOptions =
+  [ opt sawCheckPathSat False
+    "Check the satisfiability of path conditions on branches"
+  ]
 
 data SAWElt (bt :: BaseType) where
   SAWElt :: !SC.Term -> SAWElt bt
@@ -106,11 +126,12 @@ bindSAWTerm sym bt t = do
 
 newSAWCoreBackend :: SC.SharedContext
                   -> NonceGenerator IO s
+                  -> SimConfig SAWCruciblePersonality (SAWCoreBackend s)
                   -> IO (SAWCoreBackend s)
-newSAWCoreBackend sc gen = do
+newSAWCoreBackend sc gen cfg = do
   inpr <- newIORef Seq.empty
   ch   <- SB.newIdxCache
-  let st = SAWCoreState sc inpr ch Seq.empty Seq.empty
+  let st = SAWCoreState sc inpr ch Seq.empty Seq.empty cfg
   SB.newSimpleBuilder st gen
 
 
@@ -119,8 +140,9 @@ newSAWCoreBackend sc gen = do
 withSAWCoreBackend :: SC.Module -> (forall n. SAWCoreBackend n -> IO a) -> IO a
 withSAWCoreBackend md f = do
   withIONonceGenerator $ \gen -> do
+    cfg <- initialConfig 0 []
     sc   <- SC.mkSharedContext md
-    sym  <- newSAWCoreBackend sc gen
+    sym  <- newSAWCoreBackend sc gen cfg
     f sym
 
 toSC :: SAWCoreBackend n -> SB.Elt n tp -> IO SC.Term
@@ -490,6 +512,25 @@ appendAssumption :: ProgramLoc
 appendAssumption l p s =
   s & assertions %~ (Seq.|> Assertion l p Nothing)
 
+checkSatisfiable :: SAWCoreBackend n
+                 -> (Pred (SAWCoreBackend n))
+                 -> IO (SatResult ())
+checkSatisfiable sym p = do
+  mgr <- readIORef (SB.sbStateManager sym)
+  let cfg = saw_config mgr
+      sc = saw_ctx mgr
+      cache = saw_elt_cache mgr
+  enabled <- getConfigValue sawCheckPathSat cfg
+  case enabled of
+    True -> do
+      t <- evaluateElt sym sc cache p
+      BBSim.withBitBlastedPred GIA.proxy sc CryPrims.bitblastPrims t $ \be lit _shapes -> do
+        satRes <- AIG.checkSat be lit
+        case satRes of
+          AIG.Unsat -> return Unsat
+          _ -> return (Sat ())
+    False -> return (Sat ())
+
 instance SB.IsSimpleBuilderState SAWCoreState where
   sbAddAssumption sym e = do
     case SB.asApp e of
@@ -520,11 +561,22 @@ instance SB.IsSimpleBuilderState SAWCoreState where
     s <- readIORef (SB.sbStateManager sym)
     andAllOf sym folded (view assertPred <$> s^.assertions)
 
-  sbEvalBranch _ p = do
-    case asConstantPred p of
+  sbEvalBranch sym pb = do
+    case asConstantPred pb of
       Just True  -> return $! NoBranch True
       Just False -> return $! NoBranch False
-      Nothing    -> return $! SymbolicBranch True
+      Nothing -> do
+        pb_neg <- notPred sym pb
+        p_prior <- SB.sbAllAssertions sym
+        p <- andPred sym p_prior pb
+        p_neg <- andPred sym p_prior pb_neg
+        p_res    <- checkSatisfiable sym p
+        notp_res <- checkSatisfiable sym p_neg
+        case (p_res, notp_res) of
+          (Unsat, Unsat) -> return InfeasibleBranch
+          (Unsat, _ )    -> return $! NoBranch False
+          (_    , Unsat) -> return $! NoBranch True
+          (_    , _)     -> return $! SymbolicBranch True
 
   sbGetProofObligations sym = do
     mg <- readIORef (SB.sbStateManager sym)
@@ -533,6 +585,10 @@ instance SB.IsSimpleBuilderState SAWCoreState where
   sbSetProofObligations sym obligs = do
     modifyIORef' (SB.sbStateManager sym) (set proofObligs obligs)
 
-  sbPushBranchPred _ _ = return ()
-  sbBacktrackToState _ _ = return ()
-  sbSwitchToState  _ _ _ = return ()
+  sbPushBranchPred sym p = SB.sbAddAssumption sym p
+  sbBacktrackToState sym old =
+    -- Copy assertions from old state to current state
+    modifyIORef' (SB.sbStateManager sym) (set assertions (old ^. SB.pathState ^. assertions))
+  sbSwitchToState sym _ new =
+    -- Copy assertions from new state to current state
+    modifyIORef' (SB.sbStateManager sym) (set assertions (new ^. SB.pathState ^. assertions))
