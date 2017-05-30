@@ -189,7 +189,7 @@ eval ntk (NonceAppElt e) = do
   memoEltNonce ntk (nonceEltId e) $ do
     bitblastPred ntk e
 eval ntk (AppElt a) = do
-  memoEltNonce ntk (eltId a) $ do
+  memoEltNonce ntk (appEltId a) $ do
     bitblastExpr ntk a
 eval ntk (BoundVarElt info) = do
   memoEltNonce ntk (bvarId info) $ do

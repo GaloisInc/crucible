@@ -252,7 +252,7 @@ evaluateElt sym sc cache = f
    go a0@(SB.AppElt a) =
       let nyi :: Monad m => m a
           nyi = fail $ "Expression form not yet implemented in SAWCore backend:\n" ++ show a0 in
-      case SB.eltApp a of
+      case SB.appEltApp a of
 
         SB.TrueBool  -> SAWElt <$> SC.scBool sc True
         SB.FalseBool -> SAWElt <$> SC.scBool sc False

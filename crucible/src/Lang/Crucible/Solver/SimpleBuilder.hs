@@ -2106,7 +2106,7 @@ lookupIdxValue _ IntElt{} = return Nothing
 lookupIdxValue _ RatElt{} = return Nothing
 lookupIdxValue _ BVElt{} = return Nothing
 lookupIdxValue c (NonceAppElt e) = liftIO $ lookupIdx c (nonceEltId e)
-lookupIdxValue c (AppElt e)  = liftIO $ lookupIdx c (eltId e)
+lookupIdxValue c (AppElt e)  = liftIO $ lookupIdx c (appEltId e)
 lookupIdxValue c (BoundVarElt i) = liftIO $ lookupIdx c (bvarId i)
 
 lookupIdx :: IdxCache t f -> Nonce t tp -> IO (Maybe (f tp))
