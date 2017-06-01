@@ -28,36 +28,39 @@ types.
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Solver.SimpleBuilder
-  ( SymExpr
-  , Elt(..)
+  ( -- * Elt
+    Elt(..)
   , asApp
   , iteSize
+  , eltLoc
+  , ppElt
+  , ppEltTop
+  , asConjunction
+  , eltMaybeId
+    -- ** AppElt
   , AppElt
   , appEltId
   , appEltLoc
-  , appType
-  , eltLoc
   , appEltApp
+    -- ** NonceAppElt
   , NonceAppElt
   , nonceEltId
   , nonceEltLoc
   , nonceEltApp
-  , nonceAppType
+    -- ** Type abbreviations
   , BoolElt
   , NatElt
   , IntegerElt
   , RealElt
   , BVElt
   , CplxElt
-  , ppElt
-  , ppEltTop
-  , asConjunction
-  , eltMaybeId
     -- * App
   , App(..)
   , traverseApp
+  , appType
     -- * NonceApp
   , NonceApp(..)
+  , nonceAppType
     -- * Bound Variable information
   , SimpleBoundVar
   , bvarId
@@ -102,6 +105,8 @@ module Lang.Crucible.Solver.SimpleBuilder
   , clearIdxCache
   , idxCacheEval
   , idxCacheEval'
+    -- * Re-exports
+  , SymExpr
   , Lang.Crucible.Solver.Interface.bvWidth
   , Lang.Crucible.Solver.Interface.exprType
   , Lang.MATLAB.Utils.Nat.Nat
@@ -197,6 +202,7 @@ data VarKind
     -- ^ A variable appearing in a uninterpreted constant
 
 -- | Information about bound variables.
+-- Parameter @t@ is a phantom type brand used to track nonces.
 data SimpleBoundVar t (tp :: BaseType) =
   BVar { bvarId  :: {-# UNPACK #-} !(Nonce t tp)
        , bvarLoc :: !ProgramLoc
@@ -220,8 +226,15 @@ instance HashableF (SimpleBoundVar t) where
 ------------------------------------------------------------------------
 -- NonceApp
 
--- | These are applications that may reference nonces.
-data NonceApp t e tp where
+-- | Type @NonceApp t e tp@ encodes the top-level application of an
+-- 'Elt'. It includes expression forms that bind variables (contrast
+-- with 'App').
+--
+-- Parameter @t@ is a phantom type brand used to track nonces.
+-- Parameter @e@ is used everywhere a recursive sub-expression would
+-- go. Uses of the 'NonceApp' type will tie the knot through this
+-- parameter. Parameter @tp@ indicates the type of the expression.
+data NonceApp t (e :: BaseType -> *) (tp :: BaseType) where
   Forall :: !(SimpleBoundVar t tp)
          -> !(e BaseBoolType)
          -> NonceApp t e BaseBoolType
@@ -253,7 +266,18 @@ data NonceApp t e tp where
 ------------------------------------------------------------------------
 -- App
 
-data App e (tp :: BaseType) where
+-- | Type @'App' e tp@ encodes the top-level application of an 'Elt'
+-- expression. It includes first-order expression forms that do not
+-- bind variables (contrast with 'NonceApp').
+
+-- Parameter @e@ is used everywhere a recursive sub-expression would
+-- go. Uses of the 'App' type will tie the knot through this
+-- parameter. Parameter @tp@ indicates the type of the expression.
+--
+-- Note: This type should not be confused with the
+-- 'Lang.Crucible.CFG.Expr.App' type in module
+-- "Lang.Crucible.CFG.Expr".
+data App (e :: BaseType -> *) (tp :: BaseType) where
 
   ------------------------------------------------------------------------
   -- Boolean operations
@@ -572,14 +596,16 @@ data App e (tp :: BaseType) where
             -> !(e (BaseStructType flds))
             -> App e (BaseStructType flds)
 
-data NonceAppElt t tp
+-- | Parameter @t@ is a phantom type brand used to track nonces.
+data NonceAppElt t (tp :: BaseType)
    = NonceAppEltCtor { nonceEltId  :: {-# UNPACK #-} !(Nonce t tp)
                      , nonceEltLoc :: !ProgramLoc
                      , nonceEltApp :: !(NonceApp t (Elt t) tp)
                      , nonceEltAbsValue :: !(AbstractValue tp)
                      }
 
-data AppElt t tp
+-- | Parameter @t@ is a phantom type brand used to track nonces.
+data AppElt t (tp :: BaseType)
    = AppEltCtor { appEltId  :: {-# UNPACK #-} !(Nonce t tp)
                 , appEltLoc :: !ProgramLoc
                 , appEltApp :: !(App (Elt t) tp)
@@ -589,10 +615,15 @@ data AppElt t tp
 ------------------------------------------------------------------------
 -- Elt
 
--- | An expression for the SimpleBuilder backend.
+-- | The main SimpleBuilder expression datastructure. We call the type
+-- 'Elt' because each 'Elt' is an element of a DAG that represents
+-- sub-term sharing. Expressions of type @Elt t tp@ contain nonces of
+-- type @'Nonce' t tp@, which are used to identify shared sub-terms.
 --
--- We call it an 'Elt', because our expressions use explicit sharing and thus an
--- 'Elt' is an element of a DAG that may be shared.
+-- Type parameter @t@ is a phantom type brand used to relate nonces to
+-- a specific nonce generator (similar to the @s@ parameter of the
+-- @ST@ monad). The type index @tp@ of kind 'BaseType' indicates the
+-- type of the values denoted by the given expression.
 data Elt t (tp :: BaseType) where
   NatElt :: {-# UNPACK #-} !Nat -> !ProgramLoc -> Elt t BaseNatType
   IntElt :: !Integer -> !ProgramLoc -> Elt t BaseIntegerType
@@ -605,11 +636,13 @@ data Elt t (tp :: BaseType) where
   -- A bound variable
   BoundVarElt :: !(SimpleBoundVar t tp) -> Elt t tp
 
+-- | Destructor for the 'AppElt' constructor.
 {-# INLINE asApp #-}
 asApp :: Elt t tp -> Maybe (App (Elt t) tp)
 asApp (AppElt a) = Just (appEltApp a)
 asApp _ = Nothing
 
+-- | Destructor for the 'NonceAppElt' constructor.
 {-# INLINE asNonceApp #-}
 asNonceApp :: Elt t tp -> Maybe (NonceApp t (Elt t) tp)
 asNonceApp (NonceAppElt a) = Just (nonceEltApp a)
@@ -686,7 +719,8 @@ instance IsExpr (Elt t) where
 -- SimpleSymFn
 
 -- | This describes information about an undefined or defined function.
-data SymFnInfo t args ret
+-- Parameter @t@ is a phantom type brand used to track nonces.
+data SymFnInfo t (args :: Ctx BaseType) (ret :: BaseType)
    = UninterpFnInfo !(Ctx.Assignment BaseTypeRepr args)
                     !(BaseTypeRepr ret)
      -- ^ Information about the argument type and return type of an uninterpreted function.
@@ -703,6 +737,7 @@ data SymFnInfo t args ret
      -- definition as a simplebuilder elt to enable export to other solvers.
 
 -- | This represents a symbolic function in the simulator.
+-- Parameter @t@ is a phantom type brand used to track nonces.
 data SimpleSymFn t (args :: Ctx BaseType) (ret :: BaseType)
    = SimpleSymFn { symFnId :: !(Nonce t (args ::> ret))
                  -- /\ A unique identifier for the function
@@ -879,6 +914,7 @@ appType a =
 
 -- | EltAllocator provides an interface for creating expressions from
 -- an applications.
+-- Parameter @t@ is a phantom type brand used to track nonces.
 data EltAllocator t
    = EltAllocator { appElt  :: forall tp
                             .  ProgramLoc
@@ -895,9 +931,10 @@ data EltAllocator t
 ------------------------------------------------------------------------
 -- SimpleBuilderPathState
 
-data SimpleBuilderPathState st = SBPS { _pathState :: !st
-                                      , sbpsLoc :: !ProgramLoc
-                                      }
+data SimpleBuilderPathState (st :: *) =
+  SBPS { _pathState :: !st
+       , sbpsLoc :: !ProgramLoc
+       }
 
 pathState :: Simple Lens (SimpleBuilderPathState st) st
 pathState = lens _pathState (\s v -> s { _pathState = v })
@@ -910,9 +947,11 @@ instance HasProgramLoc (SimpleBuilderPathState st) where
 
 -- | A bijective map between vars and their canonical name for printing
 -- purposes.
+-- Parameter @t@ is a phantom type brand used to track nonces.
 type SymbolVarBimap t = Bimap SolverSymbol (SymbolBinding t)
 
 -- | This describes what a given SolverSymbol is associated with.
+-- Parameter @t@ is a phantom type brand used to track nonces.
 data SymbolBinding t
    = forall tp . VarSymbolBinding !(SimpleBoundVar t tp)
      -- ^ Solver
@@ -938,6 +977,7 @@ emptySymbolVarBimap = Bimap.empty
 ------------------------------------------------------------------------
 -- MatlabSolverFn
 
+-- Parameter @t@ is a phantom type brand used to track nonces.
 data MatlabFnWrapper t c where
    MatlabFnWrapper :: !(MatlabSolverFn (Elt t) a r) -> MatlabFnWrapper t (a::> r)
 
@@ -957,6 +997,7 @@ data SimpleSymFnWrapper t c
 -- SimpleBuilder
 
 -- | Cache for storing dag terms.
+-- Parameter @t@ is a phantom type brand used to track nonces.
 data SimpleBuilder t (st :: * -> *)
    = SB { sbTrue  :: !(BoolElt t)
         , sbFalse :: !(BoolElt t)
@@ -992,7 +1033,7 @@ data SimpleBuilder t (st :: * -> *)
         }
 
 -- | Typeclass that simple build state should implement.
-class IsSimpleBuilderState st where
+class IsSimpleBuilderState (st :: * -> *) where
   ----------------------------------------------------------------------
   -- Assertions
 
@@ -2089,8 +2130,10 @@ instance HashableF (App (Elt t)) where
 ------------------------------------------------------------------------
 -- IdxCache
 
--- | An IdxCache is used to map expressions with type @Elt tp@ to values with a
--- corresponding type @f tp@.  It is a mutable map using an IO hash table.
+-- | An IdxCache is used to map expressions with type @Elt t tp@ to
+-- values with a corresponding type @f tp@. It is a mutable map using
+-- an 'IO' hash table. Parameter @t@ is a phantom type brand used to
+-- track nonces.
 newtype IdxCache t (f :: BaseType -> *)
       = IdxCache { cMap :: PH.HashTable RealWorld (Nonce t) f }
 
