@@ -500,7 +500,8 @@ loadRaw sym mem ptr valType = do
         addAssertion sym p'' (AssertFailureSimError errMsg)
         return v'
   where
-    errMsg = "Invalid memory load: " ++ show (G.ppLLVMPtr ptr)
+    errMsg = "Invalid memory load: address " ++ show (G.ppLLVMPtr ptr) ++
+             " at type " ++ show (G.ppType valType)
 
 doLoad :: IsSymInterface sym
   => sym
@@ -511,7 +512,8 @@ doLoad :: IsSymInterface sym
 doLoad sym mem ptr valType = do
     --putStrLn "MEM LOAD"
     let ptr' = translatePtr ptr
-        errMsg = "Invalid memory load: " ++ show (ppPtr ptr)
+        errMsg = "Invalid memory load: address " ++ show (ppPtr ptr) ++
+                 " at type " ++ show (G.ppType valType)
     (p, v) <- G.readMem sym ptrWidth ptr' valType (memImplHeap mem)
     case v of
       Unassigned ->
