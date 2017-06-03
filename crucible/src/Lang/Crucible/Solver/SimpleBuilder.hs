@@ -4,8 +4,15 @@ Copyright   : (c) Galois Inc, 2015-2016
 License     : BSD3
 Maintainer  : jhendrix@galois.com
 
-Declares the main definitions needed by the SimpleBackend and OnlineBackend
-types.
+This module defines a template for instantiating the solver interface
+from "Lang.Crucible.Solver.Interface". Type @'SimpleBuilder' t st@ is
+an instance of class 'IsSymInterface', but using it requires a type
+@st@ in class 'IsSimpleBuilderState'.
+
+Solver interfaces built from 'SimpleBuilder' include the
+'Lang.Crucible.Solver.SimpleBackend.SimpleBackend' and
+'Lang.Crucible.Solver.OnlineBackend.OnlineBackend' types.
+
 -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -28,8 +35,20 @@ types.
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Solver.SimpleBuilder
-  ( -- * Elt
-    Elt(..)
+  ( -- * SimpleBuilder
+    SimpleBuilder
+  , newSimpleBuilder
+  , getSymbolVarBimap
+  , sbMakeElt
+  , sbNonceElt
+  , curProgramLoc
+  , sbUnaryThreshold
+  , sbCacheStartSize
+  , sbBVDomainRangeLimit
+    -- * IsSimpleBuilderState
+  , IsSimpleBuilderState(..)
+    -- * Elt
+  , Elt(..)
   , asApp
   , iteSize
   , eltLoc
@@ -61,6 +80,11 @@ module Lang.Crucible.Solver.SimpleBuilder
     -- * NonceApp
   , NonceApp(..)
   , nonceAppType
+    -- * SimpleBuilderPathState
+  , SimpleBuilderPathState(..)
+  , pathState
+  , sbStateManager
+  , impliesAssert
     -- * Bound Variable information
   , SimpleBoundVar
   , bvarId
@@ -76,25 +100,10 @@ module Lang.Crucible.Solver.SimpleBuilder
   , SymFnInfo(..)
   , symFnArgTypes
   , symFnReturnType
-    -- * SymbolVarBitmap
+    -- * SymbolVarBimap
   , SymbolVarBimap
   , SymbolBinding(..)
   , emptySymbolVarBimap
-    -- * SimpleBuilder
-  , SimpleBuilder
-  , newSimpleBuilder
-  , getSymbolVarBimap
-  , sbMakeElt
-  , sbNonceElt
-  , curProgramLoc
-  , sbUnaryThreshold
-  , sbCacheStartSize
-  , sbBVDomainRangeLimit
-  , SimpleBuilderPathState(..)
-  , pathState
-  , IsSimpleBuilderState(..)
-  , sbStateManager
-  , impliesAssert
     -- * IdxCache
   , IdxCache
   , newIdxCache
@@ -203,6 +212,9 @@ data VarKind
 
 -- | Information about bound variables.
 -- Parameter @t@ is a phantom type brand used to track nonces.
+--
+-- Type @'SimpleBoundVar' t@ instantiates the type family
+-- @'BoundVar' ('SimpleBuilder' t st)@.
 data SimpleBoundVar t (tp :: BaseType) =
   BVar { bvarId  :: {-# UNPACK #-} !(Nonce t tp)
        , bvarLoc :: !ProgramLoc
@@ -269,7 +281,7 @@ data NonceApp t (e :: BaseType -> *) (tp :: BaseType) where
 -- | Type @'App' e tp@ encodes the top-level application of an 'Elt'
 -- expression. It includes first-order expression forms that do not
 -- bind variables (contrast with 'NonceApp').
-
+--
 -- Parameter @e@ is used everywhere a recursive sub-expression would
 -- go. Uses of the 'App' type will tie the knot through this
 -- parameter. Parameter @tp@ indicates the type of the expression.
@@ -596,7 +608,14 @@ data App (e :: BaseType -> *) (tp :: BaseType) where
             -> !(e (BaseStructType flds))
             -> App e (BaseStructType flds)
 
--- | Parameter @t@ is a phantom type brand used to track nonces.
+-- | This type represents 'Elt' values that were built from a
+-- 'NonceApp'.
+--
+-- Parameter @t@ is a phantom type brand used to track nonces.
+--
+-- Selector functions are provided to destruct 'NonceAppElt' values,
+-- but the constructor is kept hidden. The preferred way to construct
+-- an 'Elt' from a 'NonceApp' is to use 'sbNonceElt'.
 data NonceAppElt t (tp :: BaseType)
    = NonceAppEltCtor { nonceEltId  :: {-# UNPACK #-} !(Nonce t tp)
                      , nonceEltLoc :: !ProgramLoc
@@ -604,7 +623,13 @@ data NonceAppElt t (tp :: BaseType)
                      , nonceEltAbsValue :: !(AbstractValue tp)
                      }
 
--- | Parameter @t@ is a phantom type brand used to track nonces.
+-- | This type represents 'Elt' values that were built from an 'App'.
+--
+-- Parameter @t@ is a phantom type brand used to track nonces.
+--
+-- Selector functions are provided to destruct 'AppElt' values, but
+-- the constructor is kept hidden. The preferred way to construct an
+-- 'Elt' from an 'App' is to use 'sbMakeElt'.
 data AppElt t (tp :: BaseType)
    = AppEltCtor { appEltId  :: {-# UNPACK #-} !(Nonce t tp)
                 , appEltLoc :: !ProgramLoc
@@ -624,6 +649,9 @@ data AppElt t (tp :: BaseType)
 -- a specific nonce generator (similar to the @s@ parameter of the
 -- @ST@ monad). The type index @tp@ of kind 'BaseType' indicates the
 -- type of the values denoted by the given expression.
+--
+-- Type @'Elt' t@ instantiates the type family @'SymExpr'
+-- ('SimpleBuilder' t st)@.
 data Elt t (tp :: BaseType) where
   NatElt :: {-# UNPACK #-} !Nat -> !ProgramLoc -> Elt t BaseNatType
   IntElt :: !Integer -> !ProgramLoc -> Elt t BaseIntegerType
@@ -738,6 +766,9 @@ data SymFnInfo t (args :: Ctx BaseType) (ret :: BaseType)
 
 -- | This represents a symbolic function in the simulator.
 -- Parameter @t@ is a phantom type brand used to track nonces.
+--
+-- Type @'SimpleSymFn' t@ instantiates the type family @'SymFn'
+-- ('SimpleBuilder' t st)@.
 data SimpleSymFn t (args :: Ctx BaseType) (ret :: BaseType)
    = SimpleSymFn { symFnId :: !(Nonce t (args ::> ret))
                  -- /\ A unique identifier for the function
@@ -931,6 +962,8 @@ data EltAllocator t
 ------------------------------------------------------------------------
 -- SimpleBuilderPathState
 
+-- | Type @'SimpleBuilderPathState' (st t)@ instantiates the type
+-- family @'SymExpr' ('SimpleBuilder' t st)@.
 data SimpleBuilderPathState (st :: *) =
   SBPS { _pathState :: !st
        , sbpsLoc :: !ProgramLoc
@@ -2308,7 +2341,7 @@ newSimpleBuilder st gen = do
                , sbMatlabFnCache = matlabFnCache
                }
 
--- | Get current variable bindings
+-- | Get current variable bindings.
 getSymbolVarBimap :: SimpleBuilder t st -> IO (SymbolVarBimap t)
 getSymbolVarBimap sym = readIORef (sbVarBindings sym)
 

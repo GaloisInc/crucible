@@ -147,7 +147,7 @@ class ( HasProgramLoc (SymPathState sym)
              -> Pred sym -- Predicate to branch on.
              -> IO (BranchResult sym)
 
-  -- | Get curent state information.
+  -- | Get current state information.
   getCurrentState :: sym -> IO (SymPathState sym)
 
   -- | Reset simulator back to previous state.
