@@ -669,7 +669,7 @@ ppTermExpr t = -- FIXME, do something with the predicate?
 ppType :: Type -> Doc
 ppType tp =
   case typeF tp of
-    Bitvector w -> text ('i': show w)
+    Bitvector w -> text ('i': show (w * 8))
     Float -> text "float"
     Double -> text "double"
     Array n etp -> brackets (text (show n) <+> char 'x' <+> ppType etp)

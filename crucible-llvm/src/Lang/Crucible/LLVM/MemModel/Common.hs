@@ -568,7 +568,7 @@ loadBitvector lo lw so v = do
   case typeF stp of
     Bitvector sw
       | so < lo -> do
-        -- Number of bits to drop.
+        -- Number of bytes to drop.
         let d = lo - so
         -- Store is before load.
         valueLoad lo ltp lo (App (SelectHighBV d (sw - d) v))
