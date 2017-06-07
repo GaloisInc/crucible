@@ -34,6 +34,8 @@ module Lang.Crucible.Simulator.OverrideSim
   , exitExecution
   , readGlobal
   , writeGlobal
+  , readGlobals
+  , writeGlobals
   , newRef
   , readRef
   , writeRef
@@ -194,19 +196,30 @@ bindFnHandle h s = do
 ------------------------------------------------------------------------
 -- Mutable variables
 
-readGlobal :: GlobalVar tp
-           -> OverrideSim p sym rtp args ret (RegValue sym tp)
-readGlobal g = do
-   globals <- use $ stateTree .  actFrame . gpGlobals
-   case lookupGlobal g globals of
-     Just v -> return v
-     Nothing -> fail $ "Attempt to read undefined global " ++ show g
+-- | Read the whole sym global state
+readGlobals :: OverrideSim p sym rtp args ret (SymGlobalState sym)
+readGlobals = use (stateTree . actFrame . gpGlobals)
 
-writeGlobal :: GlobalVar tp
-            -> RegValue sym tp
-            -> OverrideSim p sym rtp args ret ()
-writeGlobal g v = do
-  stateTree . actFrame . gpGlobals %= insertGlobal g v
+-- | Overwrite the whole sym global state
+writeGlobals :: SymGlobalState sym -> OverrideSim p sym rtp args ret ()
+writeGlobals g = stateTree . actFrame . gpGlobals .= g
+
+-- | Read a particular global variable from the global variable state
+readGlobal ::
+  GlobalVar tp                                     {- ^ global variable -} ->
+  OverrideSim p sym rtp args ret (RegValue sym tp) {- ^ current value   -}
+readGlobal k =
+  do globals <- readGlobals
+     case lookupGlobal k globals of
+       Just v  -> return v
+       Nothing -> fail ("Attempt to read undefined global " ++ show k)
+
+-- | Set the value of a particular global variable
+writeGlobal ::
+  GlobalVar tp    {- ^ global variable -} ->
+  RegValue sym tp {- ^ new value       -} ->
+  OverrideSim p sym rtp args ret ()
+writeGlobal g v = stateTree . actFrame . gpGlobals %= insertGlobal g v
 
 
 newRef :: TypeRepr tp
