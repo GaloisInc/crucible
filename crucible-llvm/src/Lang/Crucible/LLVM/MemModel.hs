@@ -492,9 +492,10 @@ loadRaw :: IsSymInterface sym
         -> G.Type
         -> IO (LLVMVal sym PtrWidth)
 loadRaw sym mem ptr valType =
-  do (p,r,v) <- loadRawWithCondition sym mem ptr valType
-     addAssertion sym p r
-     return v
+  do res <- loadRawWithCondition sym mem ptr valType
+     case res of
+       Right (p,r,v) -> v <$ addAssertion sym p r
+       Left e        -> fail e
 
 
 -- | Load an LLVM value from memory. This version of 'loadRaw'
@@ -507,17 +508,20 @@ loadRawWithCondition ::
   LLVMPtr sym PtrWidth {- ^ pointer         -} ->
   G.Type               {- ^ pointed-to type -} ->
 
-  -- | assertion, assertion failure description, dereferenced value
-  IO (Pred sym, SimErrorReason, LLVMVal sym PtrWidth)
+  -- | Either error message or
+  --  (assertion, assertion failure description, dereferenced value)
+  IO (Either
+        String
+        (Pred sym, SimErrorReason, LLVMVal sym PtrWidth))
 loadRawWithCondition sym mem ptr valType =
   do (p,v) <- G.readMem sym ptrWidth ptr valType (memImplHeap mem)
      let errMsg = "Invalid memory load: address " ++ show (G.ppLLVMPtr ptr) ++
                   " at type "                     ++ show (G.ppType valType)
      case v of
-       Unassigned -> fail errMsg
+       Unassigned -> return (Left errMsg)
        PE p' v' ->
          do p'' <- andPred sym p p'
-            return (p'', AssertFailureSimError errMsg, v')
+            return (Right (p'', AssertFailureSimError errMsg, v'))
 
 doLoad :: IsSymInterface sym
   => sym
