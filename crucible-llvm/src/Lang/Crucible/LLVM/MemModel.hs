@@ -73,6 +73,7 @@ module Lang.Crucible.LLVM.MemModel
   , unpackMemValue
   , packMemValue
   , loadRaw
+  , loadRawWithCondition
   , storeRaw
   , mallocRaw
   ) where
@@ -490,18 +491,33 @@ loadRaw :: IsSymInterface sym
         -> LLVMPtr sym PtrWidth
         -> G.Type
         -> IO (LLVMVal sym PtrWidth)
-loadRaw sym mem ptr valType = do
-  (p,v) <- G.readMem sym ptrWidth ptr valType (memImplHeap mem)
-  case v of
-      Unassigned ->
-        fail errMsg
-      PE p' v' -> do
-        p'' <- andPred sym p p'
-        addAssertion sym p'' (AssertFailureSimError errMsg)
-        return v'
-  where
-    errMsg = "Invalid memory load: address " ++ show (G.ppLLVMPtr ptr) ++
-             " at type " ++ show (G.ppType valType)
+loadRaw sym mem ptr valType =
+  do (p,r,v) <- loadRawWithCondition sym mem ptr valType
+     addAssertion sym p r
+     return v
+
+
+-- | Load an LLVM value from memory. This version of 'loadRaw'
+-- returns the side-conditions explicitly so that they can
+-- be conditionally asserted.
+loadRawWithCondition ::
+  IsSymInterface sym   =>
+  sym                  ->
+  MemImpl sym PtrWidth {- ^ LLVM heap       -} ->
+  LLVMPtr sym PtrWidth {- ^ pointer         -} ->
+  G.Type               {- ^ pointed-to type -} ->
+
+  -- | assertion, assertion failure description, dereferenced value
+  IO (Pred sym, SimErrorReason, LLVMVal sym PtrWidth)
+loadRawWithCondition sym mem ptr valType =
+  do (p,v) <- G.readMem sym ptrWidth ptr valType (memImplHeap mem)
+     let errMsg = "Invalid memory load: address " ++ show (G.ppLLVMPtr ptr) ++
+                  " at type "                     ++ show (G.ppType valType)
+     case v of
+       Unassigned -> fail errMsg
+       PE p' v' ->
+         do p'' <- andPred sym p p'
+            return (p'', AssertFailureSimError errMsg, v')
 
 doLoad :: IsSymInterface sym
   => sym
