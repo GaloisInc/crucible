@@ -384,19 +384,24 @@ blockInfoMap = lens _blockInfoMap (\s v -> s { _blockInfoMap = v })
 -- corresponding crucible registers.
 buildIdentMap :: (?lc :: TyCtx.LLVMContext)
               => [L.Typed L.Ident]
+              -> Bool -- ^ varargs
               -> CtxRepr ctx
               -> Ctx.Assignment (Atom s) ctx
               -> IdentMap s
               -> IdentMap s
-buildIdentMap [] ctx _ m
+buildIdentMap ts True ctx asgn m =
+  -- Vararg functions are translated as taking a vector of extra arguments
+  packBase (VectorRepr AnyRepr) ctx asgn $ \_x ctx' asgn' ->
+    buildIdentMap ts False ctx' asgn' m
+buildIdentMap [] _ ctx _ m
   | Ctx.null ctx = m
   | otherwise =
       error "buildIdentMap: passed arguments do not match LLVM input signature"
-buildIdentMap (ti:ts) ctx asgn m = do
+buildIdentMap (ti:ts) _ ctx asgn m = do
   -- ?? FIXME, irrefutable pattern...
   let Just ty = TyCtx.liftMemType (L.typedType ti)
   packType ty ctx asgn $ \x ctx' asgn' ->
-     buildIdentMap ts ctx' asgn' (Map.insert (L.typedValue ti) (Right x) m)
+     buildIdentMap ts False ctx' asgn' (Map.insert (L.typedValue ti) (Right x) m)
 
 -- | Build the initial LLVM generator state upon entry to to the entry point of a function.
 initialState :: L.Define
@@ -406,7 +411,7 @@ initialState :: L.Define
              -> LLVMState s
 initialState d llvmctx args asgn =
    let ?lc = llvmTypeCtx llvmctx in
-   let m = buildIdentMap (reverse (L.defArgs d)) args asgn Map.empty in
+   let m = buildIdentMap (reverse (L.defArgs d)) (L.defVarArgs d) args asgn Map.empty in
      LLVMState { _identMap = m, _blockInfoMap = Map.empty, llvmContext = llvmctx }
 
 type LLVMGenerator h s ret = Generator h s LLVMState ret
