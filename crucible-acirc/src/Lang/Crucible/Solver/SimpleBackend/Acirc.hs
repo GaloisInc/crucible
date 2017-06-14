@@ -83,7 +83,7 @@ memoEltNonce synth n act = do
 generateCircuit :: FilePath -> [Elt t BaseIntegerType] -> IO ()
 generateCircuit fp es = do
   -- First, we create empty data structures for the conversion
-  ref <- newIORef B.emptyBuild
+  ref <- newIORef (B.emptyBuildWithV 1 0) -- initialize the build state with the version
   h   <- liftST H.new
   let synth = Synthesis { synthesisState = ref
                         , synthesisHash  = h
