@@ -38,6 +38,7 @@ import qualified Lang.Crucible.Solver.WeightedSum as WS
 import qualified Circuit as B
 import qualified Circuit.Builder as B
 import qualified Circuit.Format.Acirc as B
+import qualified Types as B
 
 {- | Package up the state we need during `eval`. This includes
 - the memoization table, `synthesisHash`, we use for keeping track
@@ -131,7 +132,7 @@ addBoundVar :: Synthesis t -> Some (SimpleBoundVar t) -> IO ()
 addBoundVar synth (Some bvar) = do
   case bvarType bvar of
     BaseIntegerRepr -> void $ memoEltNonce synth (bvarId bvar) $ return $ do
-      Ref <$> B.input
+      Ref <$> B.inputTyped (Just $ B.Wire B.Integer)
     t -> error $ "Unsupported representation: " ++ show t
 
 -- | Write an intermediate circuit state to a file as a circuit
