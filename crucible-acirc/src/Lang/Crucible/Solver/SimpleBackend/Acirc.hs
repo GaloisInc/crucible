@@ -132,7 +132,7 @@ addBoundVar :: Synthesis t -> Some (SimpleBoundVar t) -> IO ()
 addBoundVar synth (Some bvar) = do
   case bvarType bvar of
     BaseIntegerRepr -> void $ memoEltNonce synth (bvarId bvar) $ return $ do
-      Ref <$> B.inputTyped (Just $ B.Wire B.Integer)
+      Ref <$> B.inputTyped (Just $ B.Vector B.Integer)
     t -> error $ "Unsupported representation: " ++ show t
 
 -- | Write an intermediate circuit state to a file as a circuit
