@@ -1,6 +1,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Lang.Crucible.Solver.SimpleBackend.Acirc
 ( generateCircuit
 ) where
@@ -213,7 +214,13 @@ doApp synth ae = do
                        -- assert (denominator c == 1) $ return $ do
                        --   B.constant (numerator c))
                      ws
-      return $! IntToReal . Ref <$> (B.circSumN =<< ws')
+      return $! do
+        ws'' <- ws'
+        case ws'' of
+          -- Handle the degenerate sum case (eg., +x) by propagating
+          -- the reference to x forward instead of the sum.
+          [x] -> return $! IntToReal (Ref x)
+          _   -> IntToReal . Ref <$> (B.circSumN ws'')
     _ -> fail "Not supported"
 
   where
