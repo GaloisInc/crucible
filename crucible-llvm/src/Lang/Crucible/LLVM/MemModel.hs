@@ -507,12 +507,11 @@ loadRawWithCondition ::
   MemImpl sym PtrWidth {- ^ LLVM heap       -} ->
   LLVMPtr sym PtrWidth {- ^ pointer         -} ->
   G.Type               {- ^ pointed-to type -} ->
-
-  -- | Either error message or
-  --  (assertion, assertion failure description, dereferenced value)
   IO (Either
         String
         (Pred sym, SimErrorReason, LLVMVal sym PtrWidth))
+  -- ^ Either error message or
+  -- (assertion, assertion failure description, dereferenced value)
 loadRawWithCondition sym mem ptr valType =
   do (p,v) <- G.readMem sym ptrWidth ptr valType (memImplHeap mem)
      let errMsg = "Invalid memory load: address " ++ show (G.ppLLVMPtr ptr) ++
