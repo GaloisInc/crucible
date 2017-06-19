@@ -67,8 +67,11 @@ ppSolverSymbolError e =
 -- | This represents a name known to the solver.
 --
 -- We have three types of symbols:
+--
 -- * The empty symbol
+--
 -- * A user symbol
+--
 -- * A system symbol
 --
 -- A user symbol should consist of a letter followed by any combination

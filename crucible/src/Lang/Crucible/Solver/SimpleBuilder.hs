@@ -45,6 +45,7 @@ module Lang.Crucible.Solver.SimpleBuilder
   , sbUnaryThreshold
   , sbCacheStartSize
   , sbBVDomainRangeLimit
+  , sbStateManager
     -- * IsSimpleBuilderState
   , IsSimpleBuilderState(..)
     -- * Elt
@@ -83,7 +84,6 @@ module Lang.Crucible.Solver.SimpleBuilder
     -- * SimpleBuilderPathState
   , SimpleBuilderPathState(..)
   , pathState
-  , sbStateManager
   , impliesAssert
     -- * Bound Variable information
   , SimpleBoundVar
@@ -215,6 +215,10 @@ data VarKind
 --
 -- Type @'SimpleBoundVar' t@ instantiates the type family
 -- @'BoundVar' ('SimpleBuilder' t st)@.
+--
+-- Selector functions are provided to destruct 'SimpleBoundVar'
+-- values, but the constructor is kept hidden. The preferred way to
+-- construct a 'SimpleBoundVar' is to use 'freshBoundVar'.
 data SimpleBoundVar t (tp :: BaseType) =
   BVar { bvarId  :: {-# UNPACK #-} !(Nonce t tp)
        , bvarLoc :: !ProgramLoc
