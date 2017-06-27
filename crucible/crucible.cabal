@@ -46,7 +46,7 @@ library
     io-streams,
     lens,
     mtl,
-    parameterized-utils >= 0.1.9 && < 0.1.10,
+    parameterized-utils >= 0.1.9 && <= 0.1.10,
     process,
     scientific,
     smtLib,
