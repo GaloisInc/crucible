@@ -95,6 +95,7 @@ module Lang.Crucible.Solver.SimpleBuilder
   , VarKind(..)
   , boundVars
   , ppBoundVar
+  , evalBoundVars
     -- * Symbolic Function
   , SimpleSymFn(..)
   , SymFnInfo(..)
