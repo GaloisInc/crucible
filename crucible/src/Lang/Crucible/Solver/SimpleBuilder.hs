@@ -1641,8 +1641,10 @@ ppBoundVar v =
     LatchVarKind   -> ppVar "l" (bvarName v) (bvarId v) (bvarType v)
     UninterpVarKind -> ppVar "c" (bvarName v) (bvarId v) (bvarType v)
 
-instance ShowF (SimpleBoundVar t) where
-  showsF v = shows (ppBoundVar v)
+instance Show (SimpleBoundVar t tp) where
+  show = ppBoundVar
+
+instance ShowF (SimpleBoundVar t)
 
 -- | @AppPPElt@ represents a an application, and it may be let bound.
 data AppPPElt
