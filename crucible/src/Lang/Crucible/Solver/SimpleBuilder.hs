@@ -95,6 +95,7 @@ module Lang.Crucible.Solver.SimpleBuilder
   , VarKind(..)
   , boundVars
   , ppBoundVar
+  , evalBoundVars
     -- * Symbolic Function
   , SimpleSymFn(..)
   , SymFnInfo(..)
@@ -1624,8 +1625,8 @@ boundVars' _ _ = return Set.empty
 ------------------------------------------------------------------------
 -- Pretty printing
 
-ppVar :: String -> Nonce t tp -> BaseTypeRepr tp -> String
-ppVar pr i tp = pr ++ show (indexValue i) ++ ":" ++ ppVarTypeCode tp
+ppVar :: String -> SolverSymbol -> Nonce t tp -> BaseTypeRepr tp -> String
+ppVar pr sym i tp = pr ++ show sym ++ "@" ++ show (indexValue i) ++ ":" ++ ppVarTypeCode tp
 
 instance Show (Elt t tp) where
   show = show . pretty
@@ -1636,10 +1637,14 @@ instance Pretty (Elt t tp) where
 ppBoundVar :: SimpleBoundVar t tp -> String
 ppBoundVar v =
   case bvarKind v of
-    QuantifierVarKind -> ppVar "?" (bvarId  v) (bvarType v)
-    LatchVarKind   -> ppVar "l" (bvarId  v) (bvarType v)
-    UninterpVarKind -> ppVar "c" (bvarId  v) (bvarType v)
+    QuantifierVarKind -> ppVar "?" (bvarName v) (bvarId v) (bvarType v)
+    LatchVarKind   -> ppVar "l" (bvarName v) (bvarId v) (bvarType v)
+    UninterpVarKind -> ppVar "c" (bvarName v) (bvarId v) (bvarType v)
 
+instance Show (SimpleBoundVar t tp) where
+  show = ppBoundVar
+
+instance ShowF (SimpleBoundVar t)
 
 -- | @AppPPElt@ represents a an application, and it may be let bound.
 data AppPPElt
