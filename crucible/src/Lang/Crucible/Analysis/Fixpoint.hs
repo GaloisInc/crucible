@@ -182,10 +182,10 @@ emptyRefSet = RefSet S.empty
 unionRefSets :: RefSet blocks tp -> RefSet blocks tp -> RefSet blocks tp
 unionRefSets (RefSet s1) (RefSet s2) = RefSet (s1 `S.union` s2)
 
-instance ShowF dom => Show (PointAbstraction dom ctx) where
+instance ShowF dom => Show (PointAbstraction blocks dom ctx) where
   show pa = show (_paRegisters pa)
 
-instance ShowF dom => ShowF (PointAbstraction dom)
+instance ShowF dom => ShowF (PointAbstraction blocks dom)
 
 -- | Look up the abstract value of a register at a program point
 lookupAbstractRegValue :: PointAbstraction blocks dom ctx -> Reg ctx tp -> dom tp

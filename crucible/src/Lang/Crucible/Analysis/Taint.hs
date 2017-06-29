@@ -10,7 +10,8 @@ module Lang.Crucible.Analysis.Taint (cfgTaintAnalysis
                                     ,Tainted(..)) where
 
 import Lang.Crucible.Analysis.Fixpoint
-import Lang.Crucible.Core
+import Lang.Crucible.CFG.Core
+import Lang.Crucible.CFG.Expr
 
 import qualified Data.Parameterized.Context as PU
 import qualified Data.Parameterized.TraversableFC as PU
