@@ -6,7 +6,7 @@ import Lang.Crucible.Go.Translation
 import Language.Go.Parser
 import Language.Go.AST
 import Control.Monad.ST
-import Lang.Crucible.Core
+import Lang.Crucible.CFG.Core
 
 main :: IO ()
 main = let ?machineWordWidth = 32 in

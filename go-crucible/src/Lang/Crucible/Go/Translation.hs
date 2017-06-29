@@ -12,10 +12,11 @@ module Lang.Crucible.Go.Translation (translateFunction) where
 import Language.Go.AST
 import Language.Go.Types
 
-import qualified Lang.Crucible.Core as C
-import qualified Lang.Crucible.Generator as Gen
+import qualified Lang.Crucible.CFG.Core as C
+import qualified Lang.Crucible.CFG.Expr as C
+import qualified Lang.Crucible.CFG.Generator as Gen
 import Lang.Crucible.Types
-import Lang.Crucible.SSAConversion( toSSA )
+import Lang.Crucible.CFG.SSAConversion( toSSA )
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.FunctionName (functionNameFromText)
 import Lang.Crucible.ProgramLoc
@@ -197,7 +198,7 @@ graphGenerator body ctxrepr = do
 -- fresh crucible label.
 buildLabelMap :: HashMap Text (Gen.Label s)
               -> Statement SourceRange
-              -> Gen.End h s t init ret (HashMap Text (Gen.Label s))
+              -> Gen.End h s t ret (HashMap Text (Gen.Label s))
 buildLabelMap m stmt =
   case stmt of
     LabeledStmt _ (Label _ labelName) stmt' -> do
