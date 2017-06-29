@@ -393,7 +393,7 @@ assume _ (NonceAppElt e) =
   where
   l = nonceEltLoc e
 assume h b@(AppElt ba) = do
-  let a = eltApp ba in
+  let a = appEltApp ba in
     case a of
       TrueBool    -> return ()
       FalseBool   -> do
@@ -505,7 +505,7 @@ evalReal' _ (NonceAppElt ea) =
   failAt (nonceEltLoc ea) "symbolic functions"
 evalReal' h epr@(AppElt epa) = do
   let l = eltLoc epr
-  case eltApp epa of
+  case appEltApp epa of
 
     RealPart c -> do
       (r :+ _) <- evalCplx h c
@@ -571,7 +571,7 @@ evalInteger' _ (NonceAppElt ea) =
   failAt (nonceEltLoc ea) "symbolic functions"
 evalInteger' h (AppElt epa) = do
   let l = appEltLoc epa
-  case eltApp epa of
+  case appEltApp epa of
     RealToInteger x -> evalReal h x
     _ -> failAt l "The given integer expressions"
 

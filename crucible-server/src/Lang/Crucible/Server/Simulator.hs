@@ -50,7 +50,6 @@ import           Lang.Crucible.FunctionName
 import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Simulator.ExecutionTree
-import           Lang.Crucible.Simulator.MSSim
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Server.CallbackOutputHandle
@@ -78,8 +77,8 @@ instance Hashable PredefinedHandle where
 
 -- | The simulator contains the state associated with the crucible-server
 -- interface.
-data Simulator sym
-   = Simulator { simContext      :: !(IORef (SimContext sym))
+data Simulator p sym
+   = Simulator { simContext      :: !(IORef (SimContext p sym))
                , requestHandle   :: !Handle
                , responseHandle  :: !Handle
                  -- | Maps handle ids to the associated handle.
@@ -91,26 +90,27 @@ data Simulator sym
                , simValueCounter :: !(IORef Word64)
                }
 
-getSimContext :: Simulator sym -> IO (SimContext sym)
+getSimContext :: Simulator p sym -> IO (SimContext p sym)
 getSimContext sim = readIORef (simContext sim)
 
-getHandleAllocator :: Simulator sym -> IO (HandleAllocator RealWorld)
+getHandleAllocator :: Simulator p sym -> IO (HandleAllocator RealWorld)
 getHandleAllocator sim = simHandleAllocator <$> getSimContext sim
 
-getInterface :: Simulator sym -> IO sym
+getInterface :: Simulator p sym -> IO sym
 getInterface sim = (^.ctxSymInterface) <$> getSimContext sim
 
 -- | Create a new Simulator interface
 newSimulator :: IsSymInterface sym
              => sym
-             -> [ConfigDesc (SimConfigMonad sym)] -- ^ Options to use
-             -> [Simulator sym -> IO SomeHandle] -- ^ Predefined function handles to install
+             -> p sym
+             -> [ConfigDesc (SimConfigMonad p sym)] -- ^ Options to use
+             -> [Simulator p sym -> IO SomeHandle] -- ^ Predefined function handles to install
              -> Handle
                 -- ^ Handle for reading requests.
              -> Handle
                 -- ^ Handle for writing responses.
-             -> IO (Simulator sym)
-newSimulator sym opts hdls request_handle response_handle = do
+             -> IO (Simulator p sym)
+newSimulator sym p opts hdls request_handle response_handle = do
   let cb = OutputCallbacks { devCallback = \s -> do
                                sendPrintValue response_handle (decodeUtf8 s)
                            , devClose = return ()
@@ -125,7 +125,7 @@ newSimulator sym opts hdls request_handle response_handle = do
   let bindings = emptyHandleMap
   -- Create new context
   ctxRef <- newIORef $
-    initSimContext sym MapF.empty cfg halloc h bindings
+    initSimContext sym MapF.empty cfg halloc h bindings p
 
   hc <- newIORef Map.empty
   ph <- HIO.new
@@ -144,8 +144,8 @@ newSimulator sym opts hdls request_handle response_handle = do
   return sim
 
 populatePredefHandles :: IsSymInterface sym
-                      => Simulator sym
-                      -> [Simulator sym -> IO SomeHandle]
+                      => Simulator p sym
+                      -> [Simulator p sym -> IO SomeHandle]
                       -> HIO.BasicHashTable PredefinedHandle SomeHandle
                       -> IO ()
 populatePredefHandles _ [] _ = return ()
@@ -155,8 +155,8 @@ populatePredefHandles s (mkh : hs) ph = do
    populatePredefHandles s hs ph
 
 mkPredef :: (KnownCtx TypeRepr  args, KnownRepr TypeRepr ret, IsSymInterface sym)
-         => Override sym args ret
-         -> Simulator sym
+         => Override p sym args ret
+         -> Simulator p sym
          -> IO SomeHandle
 mkPredef ovr s = SomeHandle <$> simOverrideHandle s knownRepr knownRepr ovr
 
@@ -165,7 +165,7 @@ handleRef h = indexValue (handleID h)
 
 -- | Create a handle associated with given arguments, and ensure simulator
 -- can find it when given index.
-simMkHandle :: Simulator sim
+simMkHandle :: Simulator p sim
             -> FunctionName
             -> CtxRepr args
             -> TypeRepr tp
@@ -176,7 +176,7 @@ simMkHandle sim nm args tp = do
   modifyIORef' (handleCache sim) $ Map.insert (handleRef h) (SomeHandle h)
   return h
 
-getHandleBinding :: Simulator sym -> Word64 -> IO SomeHandle
+getHandleBinding :: Simulator p sym -> Word64 -> IO SomeHandle
 getHandleBinding sim r = do
   ms <- readIORef (handleCache sim)
   case Map.lookup r ms of
@@ -184,7 +184,7 @@ getHandleBinding sim r = do
     Nothing -> fail $ "The index " ++ show r ++ " is not associated with a known handle."
 
 -- | Get a predefined handle associated with the entry.
-getPredefinedHandle :: Simulator sym
+getPredefinedHandle :: Simulator p sym
                     -> PredefinedHandle
                     -> IO SomeHandle -- Function to create handle (if needed).
                     -> IO SomeHandle
@@ -200,7 +200,7 @@ getPredefinedHandle sim predef fallback = do
       return h
 
 -- | Send response to crucible-server.
-sendResponse :: HasMessageRep a => Simulator sym -> a -> IO ()
+sendResponse :: HasMessageRep a => Simulator p sym -> a -> IO ()
 sendResponse sim resp = putDelimited (responseHandle sim) resp
 
 toProtoHandleInfo :: FnHandle args rtp -> P.HandleInfo
@@ -211,7 +211,7 @@ toProtoHandleInfo h
   & P.handleInfo_return_type  .~ mkProtoType (handleReturnType h)
 
 -- | Send a response with a predefined handle.
-sendPredefinedHandleResponse :: Simulator sym -> FnHandle args rtp -> IO ()
+sendPredefinedHandleResponse :: Simulator p sym -> FnHandle args rtp -> IO ()
 sendPredefinedHandleResponse sim h = do
   -- Sent response with value and info
   let resp = mempty
@@ -223,24 +223,24 @@ sendPredefinedHandleResponse sim h = do
   sendResponse sim gresp
 
 -- | Respond to a request for a predefined handle.
-respondToPredefinedHandleRequest :: Simulator sym -> PredefinedHandle -> IO SomeHandle -> IO ()
+respondToPredefinedHandleRequest :: Simulator p sym -> PredefinedHandle -> IO SomeHandle -> IO ()
 respondToPredefinedHandleRequest sim predef fallback = do
   SomeHandle h <- getPredefinedHandle sim predef fallback
   sendPredefinedHandleResponse sim h
 
 -- Associate a function with the given handle.
-bindHandleToFunction :: Simulator sym
+bindHandleToFunction :: Simulator p sym
                      -> FnHandle args ret
-                     -> FnState sym args ret
+                     -> FnState p sym args ret
                      -> IO ()
 bindHandleToFunction sim h s =
   modifyIORef' (simContext sim) $
     functionBindings %~ insertHandleMap h s
 
-simOverrideHandle :: Simulator sym
+simOverrideHandle :: Simulator p sym
                   -> CtxRepr args
                   -> TypeRepr tp
-                  -> Override sym args tp
+                  -> Override p sym args tp
                   -> IO (FnHandle args tp)
 simOverrideHandle sim args ret o = do
   h <- simMkHandle sim (overrideName o) args ret
@@ -249,7 +249,7 @@ simOverrideHandle sim args ret o = do
   return h
 
 
-sendExceptionResponse :: Simulator sym
+sendExceptionResponse :: Simulator p sym
                       -> SomeException
                       -> IO ()
 sendExceptionResponse  sim ex = do
@@ -258,7 +258,7 @@ sendExceptionResponse  sim ex = do
             & P.genericResponse_message .~ (Text.pack $ show ex)
   sendResponse sim gresp
 
-sendCallResponse :: Simulator sym
+sendCallResponse :: Simulator p sym
                  -> P.CallResponse
                  -> IO ()
 sendCallResponse sim cresp = do
@@ -268,7 +268,7 @@ sendCallResponse sim cresp = do
   sendResponse sim gresp
 
 sendCallReturnValue :: IsSymInterface sym
-                    => Simulator sym
+                    => Simulator p sym
                     -> P.Value --RegEntry sym tp
                     -> IO ()
 sendCallReturnValue sim pv = do
@@ -276,7 +276,7 @@ sendCallReturnValue sim pv = do
   sendCallResponse sim $ mempty & P.callResponse_code .~ P.CallReturnValue
                                 & P.callResponse_returnVal .~ pv
 
-sendCallAllAborted :: Simulator sym -> IO ()
+sendCallAllAborted :: Simulator p sym -> IO ()
 sendCallAllAborted sim = do
   sendCallResponse sim $ mempty & P.callResponse_code    .~ P.CallAllAborted
 
@@ -286,7 +286,7 @@ sendPrintValue h msg = do
   putDelimited h $ mempty & P.genericResponse_code .~ P.PrintGenResp
                           & P.genericResponse_message .~ msg
 
-sendCallPathAborted :: Simulator sym
+sendCallPathAborted :: Simulator p sym
                     -> P.PathAbortedCode
                     -> String
                     -> [ProgramLoc]
@@ -300,10 +300,10 @@ sendCallPathAborted sim code msg bt = do
                                 & P.callResponse_message    .~ abortMsg
 
 serverErrorHandler :: IsSymInterface sym
-                   => Simulator sym
-                   -> ErrorHandler SimContext sym rtp
+                   => Simulator p sym
+                   -> ErrorHandler p sym rtp
 serverErrorHandler sim = EH $ \e s -> do
-    let t = s^.simTree
+    let t = s^.stateTree
     let frames = activeFrames t
     -- Get location of frame.
     let loc = mapMaybe filterCrucibleFrames frames

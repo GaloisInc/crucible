@@ -60,7 +60,7 @@ import           Lang.MATLAB.MultiDimArray (ArrayDim, MultiDimArray)
 import qualified Lang.MATLAB.MultiDimArray as MDA
 import           Lang.MATLAB.Utils.Nat as Nat
 
-import           Lang.Crucible.Core
+import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.MatlabValue
 import           Lang.Crucible.Simulator.RegMap
@@ -68,6 +68,7 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.Solver.Symbol (emptySymbol)
+import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.Complex
 import qualified Lang.Crucible.Utils.SymMultiDimArray as SMDA
 
@@ -680,6 +681,11 @@ evalApp sym itefns logFn evalSub a0 = do
       i <- evalSub i_expr
       n <- evalSub n_expr
       updateVectorWithSymNat sym (muxRegForType sym itefns rtp) v i n
+    VectorCons _ e_expr v_expr -> do
+      e <- evalSub e_expr
+      v <- evalSub v_expr
+      return $ V.cons e v
+
 
 
     --------------------------------------------------------------------
@@ -870,6 +876,14 @@ evalApp sym itefns logFn evalSub a0 = do
       x <- evalSub xe
       y <- evalSub ye
       realMul sym x y
+    RealDiv xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      realDiv sym x y
+    RealMod xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      realMod sym x y
     RealIte ce te fe -> do
       c <- evalSub ce
       case asConstantPred c of
@@ -1189,6 +1203,10 @@ evalApp sym itefns logFn evalSub a0 = do
 
     BvToNat _ xe -> do
       bvToNat sym =<< evalSub xe
+    BvToInteger _ xe -> do
+      bvToInteger sym =<< evalSub xe
+    SbvToInteger _ xe -> do
+      sbvToInteger sym =<< evalSub xe
     BVUlt _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
@@ -1637,6 +1655,8 @@ evalApp sym itefns logFn evalSub a0 = do
     ShowValue _bt x_expr -> do
       x <- evalSub x_expr
       return $! Text.pack (show (printSymExpr x))
+    AppendString x y ->
+      Text.append <$> evalSub x <*> evalSub y
 
     ---------------------------------------------------------------------
     -- Introspection

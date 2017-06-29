@@ -54,16 +54,17 @@ import           Data.Parameterized.Some
 
 import           Lang.Crucible.Analysis.Postdom
 import           Lang.Crucible.Config
-import qualified Lang.Crucible.Core as C
+import           Lang.Crucible.CFG.Expr
+import qualified Lang.Crucible.CFG.Core as C
+import qualified Lang.Crucible.CFG.Reg as R
+import           Lang.Crucible.CFG.SSAConversion (toSSA)
 import           Lang.Crucible.FunctionName
 import qualified Lang.Crucible.Proto as P
-import qualified Lang.Crucible.RegCFG as R
-import           Lang.Crucible.SSAConversion (toSSA)
-import           Lang.Crucible.Simulator.CallFns
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import qualified Lang.Crucible.Simulator.Evaluation as Sim
 import           Lang.Crucible.Simulator.ExecutionTree
-import           Lang.Crucible.Simulator.MSSim
+import           Lang.Crucible.Simulator.GlobalState
+import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Types
@@ -103,7 +104,7 @@ logMsg = hPutStrLn stderr
 
 
 fulfillUseCFGRequest :: IsSymInterface sym
-                     => Simulator sym
+                     => Simulator p sym
                      -> P.Cfg
                      -> IO ()
 fulfillUseCFGRequest sim pg =
@@ -114,7 +115,7 @@ fulfillUseCFGRequest sim pg =
 
 
 fulfillPrintCFGRequest :: IsSymInterface sym
-                     => Simulator sym
+                     => Simulator p sym
                      -> P.Cfg
                      -> IO ()
 fulfillPrintCFGRequest sim pg =
@@ -130,7 +131,7 @@ fulfillPrintCFGRequest sim pg =
 -- RunCall request
 
 parseArgs :: IsSymInterface sym
-          => Simulator sym
+          => Simulator p sym
           -> CtxRepr ctx
           -> Seq P.Value
           -> IO (Ctx.Assignment (RegEntry sym) ctx)
@@ -148,7 +149,7 @@ parseArgs sim types s =
         Seq.EmptyR -> fail "Expected more arguments"
 
 fulfillRunCallRequest :: IsSymInterface sym
-                      => Simulator sym
+                      => Simulator p sym
                       -> P.Value
                       -> Seq P.Value
                       -> IO ()
@@ -161,10 +162,11 @@ fulfillRunCallRequest sim f_val encoded_args = do
       -- TODO: Redirect standard IO so that we can print messages.
       ctx <- readIORef (simContext sim)
 
+      let simSt = initSimState ctx emptyGlobals (serverErrorHandler sim)
+
       -- Send messages to server with bytestring.
       exec_res <-
-        run ctx emptyGlobals {- FIXME? -}(serverErrorHandler sim) res_tp $ do
-          regValue <$> callFnVal f (RegMap args)
+        runOverrideSim simSt res_tp (regValue <$> callFnVal f (RegMap args))
       case exec_res of
         FinishedExecution ctx' (TotalRes (GlobalPair r _globals)) -> do
           writeIORef (simContext sim) $! ctx'
@@ -187,7 +189,7 @@ fulfillRunCallRequest sim f_val encoded_args = do
 
 fulfillSetVerbosityRequest
     :: IsSymInterface sym
-    => Simulator sym
+    => Simulator p sym
        -- ^ Simulator to run.
     -> Seq P.Value
        -- ^ Verbosity level to set
@@ -211,7 +213,7 @@ fulfillSetVerbosityRequest sim args = do
 -- ApplyPrimitive request
 
 fulfillApplyPrimitiveRequest :: IsSymInterface sym
-                             => Simulator sym
+                             => Simulator p sym
                                 -- ^ Simulator to run.
                              -> P.PrimitiveOp
                                 -- ^ Primitive operation to apply.
@@ -238,7 +240,7 @@ fulfillApplyPrimitiveRequest sim p_op args res_type = do
       let logLn _ _ = return ()
       sym <- getInterface sim
       r <- Sim.evalApp sym MapF.empty logLn (\(RegEntry _ v) -> return v) a
-      pv <- toProtoValue sim (RegEntry (C.appType a) r)
+      pv <- toProtoValue sim (RegEntry (appType a) r)
       let resp =
            mempty & P.simulatorValueResponse_successful .~ True
                   & P.simulatorValueResponse_value .~ pv
@@ -251,7 +253,7 @@ fulfillApplyPrimitiveRequest sim p_op args res_type = do
 ----------------------------------------------------------------------------
 -- GetHandleByName request
 
-fulfillGetHandleByNameRequest :: Simulator sim -> Text -> IO ()
+fulfillGetHandleByNameRequest :: Simulator p sim -> Text -> IO ()
 fulfillGetHandleByNameRequest sim name = do
   respondToPredefinedHandleRequest sim (NamedPredefHandle (functionNameFromText name)) $ do
      -- if the function is not already in the cache, throw an exception
@@ -260,7 +262,7 @@ fulfillGetHandleByNameRequest sim name = do
 ----------------------------------------------------------------------------
 -- GetMultipartStoreHandle request
 
-fulfillGetMultipartStoreHandleRequest :: Simulator sym -> P.HandleInfo -> IO ()
+fulfillGetMultipartStoreHandleRequest :: Simulator p sym -> P.HandleInfo -> IO ()
 fulfillGetMultipartStoreHandleRequest sim hinfo = do
   let c_arg_types = hinfo^.P.handleInfo_arg_types
       c_ret_type  = hinfo^.P.handleInfo_return_type
@@ -306,7 +308,7 @@ fulfillGetMultipartStoreHandleRequest sim hinfo = do
 ----------------------------------------------------------------------------
 -- GetMultipartLoadHandle request
 
-fulfillGetMultipartLoadHandleRequest :: Simulator sym -> P.HandleInfo -> IO ()
+fulfillGetMultipartLoadHandleRequest :: Simulator p sym -> P.HandleInfo -> IO ()
 fulfillGetMultipartLoadHandleRequest sim hinfo = do
   let c_arg_types = hinfo^.P.handleInfo_arg_types
       c_ret_type  = hinfo^.P.handleInfo_return_type
@@ -352,7 +354,7 @@ fulfillGetMultipartLoadHandleRequest sim hinfo = do
 
 printTermOverride :: (IsSymInterface sym)
                   => BaseTypeRepr ty
-                  -> Override sym (EmptyCtx ::> BaseToType ty) UnitType
+                  -> Override p sym (EmptyCtx ::> BaseToType ty) UnitType
 printTermOverride tpr =
   mkOverride (functionNameFromText (Text.pack ("printTerm_"++show tpr))) $ do
     RegMap args <- getOverrideArgs
@@ -365,7 +367,7 @@ printTermOverride tpr =
 
 buildPrintTermOverride
     :: (IsSymInterface sym)
-    => Simulator sym
+    => Simulator p sym
     -> BaseTypeRepr ty
     -> IO SomeHandle
 buildPrintTermOverride sim tpr =
@@ -373,7 +375,7 @@ buildPrintTermOverride sim tpr =
                                    (printTermOverride tpr)
 
 fulfillPrintTermHandleRequest :: IsSymInterface sym
-                              => Simulator sym
+                              => Simulator p sym
                               -> TypeRepr ty
                               -> IO ()
 fulfillPrintTermHandleRequest sim tpr = do
@@ -391,7 +393,7 @@ fulfillPrintTermHandleRequest sim tpr = do
 -- RegisterHandle request
 
 fulfillRegisterHandleRequest :: IsSymInterface sym
-                             => Simulator sym
+                             => Simulator p sym
                              -> P.HandleInfo
                              -> IO ()
 fulfillRegisterHandleRequest sim hinfo = do
@@ -414,8 +416,8 @@ fulfillRegisterHandleRequest sim hinfo = do
 -- main
 
 handleOneRequest :: IsSymInterface sym
-                 => Simulator sym
-                 -> BackendSpecificRequests sym
+                 => Simulator p sym
+                 -> BackendSpecificRequests p sym
                  -> P.Request
                  -> IO ()
 handleOneRequest sim addlRequests request =
@@ -470,24 +472,24 @@ handleOneRequest sim addlRequests request =
 
 
 
-data BackendSpecificRequests sym
+data BackendSpecificRequests p sym
     = BackendSpecificRequests
       { fulfillExportModelRequest
-         :: Simulator sym
+         :: Simulator p sym
          -> P.ExportFormat
          -> Text
          -> Seq P.Value
          -> IO ()
       , fulfillSymbolHandleRequest
-         :: Simulator sym
+         :: Simulator p sym
          -> P.VarType
          -> IO ()
       }
 
 -- | Loop for fulfilling request
 fulfillRequests :: IsSymInterface sym
-                => Simulator sym
-                -> BackendSpecificRequests sym
+                => Simulator p sym
+                -> BackendSpecificRequests p sym
                 -> IO ()
 fulfillRequests sim addlRequests = do
   -- logMsg "Waiting for request"

@@ -44,13 +44,13 @@ import Data.Parameterized.Some
 import Data.Parameterized.TraversableFC
 import Lang.MATLAB.Utils.Nat (integerAsNat)
 
+import           Lang.Crucible.CFG.Expr
+import qualified Lang.Crucible.CFG.Reg as R
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
-import qualified Lang.Crucible.Core as C
 import           Lang.Crucible.Types
 import           Lang.Crucible.ProgramLoc
 import qualified Lang.Crucible.Proto as P
-import qualified Lang.Crucible.RegCFG as R
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Server.ValueConv
 import           Lang.Crucible.Server.Encoding
@@ -265,7 +265,7 @@ addStmt stmt = seq stmt $ do
   let l = pstmt : blockStmts s
   put $! s { blockStmts = l }
 
-addAppStmt :: C.App (R.Atom s) tp -> StmtTrans s r (R.Atom s tp)
+addAppStmt :: App (R.Atom s) tp -> StmtTrans s r (R.Atom s tp)
 addAppStmt app = do
   i <- lift $ use atomIndex
   lift $ atomIndex .= i + 1
@@ -273,7 +273,7 @@ addAppStmt app = do
   let a = R.Atom { R.atomPosition = p
                  , R.atomId = i
                  , R.atomSource = R.Assigned
-                 , R.typeOfAtom = C.appType app
+                 , R.typeOfAtom = appType app
                  }
   addStmt $ R.DefineAtom a (R.EvalApp app)
   return $! a
@@ -283,20 +283,20 @@ transExpr :: P.Expr -> StmtTrans s ret (Some (R.Atom s))
 transExpr pe = do
   case pe^.P.expr_code of
     P.TrueExpr -> do
-      fmap Some $ addAppStmt $ C.BoolLit True
+      fmap Some $ addAppStmt $ BoolLit True
     P.FalseExpr -> do
-      fmap Some $ addAppStmt $ C.BoolLit False
+      fmap Some $ addAppStmt $ BoolLit False
     P.NatExpr -> do
       let i = decodeUnsigned (pe^.P.expr_data)
       case integerAsNat i of
         Nothing -> fail "Integer is too large."
-        Just n -> fmap Some $ addAppStmt $ C.NatLit n
+        Just n -> fmap Some $ addAppStmt $ NatLit n
     P.IntegerExpr -> do
       let i = decodeSigned (pe^.P.expr_data)
-      fmap Some $ addAppStmt $ C.IntLit i
+      fmap Some $ addAppStmt $ IntLit i
     P.RationalExpr -> do
       r <- decodeRational (pe^.P.expr_data)
-      fmap Some $ addAppStmt $ C.RationalLit r
+      fmap Some $ addAppStmt $ RationalLit r
     P.BitvectorExpr -> do
       case someNat (toInteger (pe^.P.expr_width)) of
         Just (Some w) -> do
@@ -304,19 +304,19 @@ transExpr pe = do
             Nothing -> fail $ "Zero width bitvector."
             Just LeqProof -> do
               let i = decodeUnsigned (pe^.P.expr_data)
-              fmap Some $ addAppStmt $ C.BVLit w i
+              fmap Some $ addAppStmt $ BVLit w i
         Nothing -> fail "Width is too large"
     P.StringExpr -> do
       let s = pe^.P.expr_string_lit
-      fmap Some $ addAppStmt $ C.TextLit s
+      fmap Some $ addAppStmt $ TextLit s
     P.UnitExpr -> do
-      fmap Some $ addAppStmt $ C.EmptyApp
+      fmap Some $ addAppStmt $ EmptyApp
     P.FnHandleExpr -> do
       m <- lift $ gets handleMap
       let idx = pe^.P.expr_index
       case Map.lookup idx m of
         Just (SomeHandle h) ->
-          fmap Some $ addAppStmt $ C.HandleLit h
+          fmap Some $ addAppStmt $ HandleLit h
         Nothing -> fail $ "Could not find handle with index " ++ show idx ++ "."
     P.FunctionArgExpr -> do
       lift $ getFnArg (pe^.P.expr_index)
@@ -365,7 +365,7 @@ transStmt block_idx stmt_idx s = do
       let prim_op = s^.P.statement_prim_op
       let res_type = s^.P.statement_result_type
       Some a <- convertToCrucibleApp transExpr transNatExpr prim_op exprs res_type
-      res <- lift $ getStmtResultWithType block_idx stmt_idx (C.appType a)
+      res <- lift $ getStmtResultWithType block_idx stmt_idx (appType a)
       addStmt $ R.DefineAtom res (R.EvalApp a)
     (P.Call,  pf:pargs) -> do
       Some f <- transExpr pf
@@ -478,7 +478,7 @@ mkRegs p base argTypes = V.generate (V.length v) f
                 }
 
 unpackCFG :: IsSymInterface sym
-          => Simulator sym
+          => Simulator p sym
           -> P.Cfg
           -> (forall s init ret. R.CFG s init ret -> IO a)
           -> IO a

@@ -21,14 +21,10 @@ module Lang.Crucible.LLVM.MemModel.Common
 
     -- * Range declarations.
   , Range(..)
-  , isDisjoint
-  , containedBy
-  , rSize
 
     -- * Term declarations
   , Term(..)
   , foldTermM
-  , ShowF(..)
 
     -- * Type declarations
   , Type(..)
@@ -38,44 +34,28 @@ module Lang.Crucible.LLVM.MemModel.Common
   , doubleType
   , arrayType
   , mkStruct
+  , mkType
   , typeEnd
   , Field
   , fieldVal
   , fieldPad
   , fieldOffset
+  , mkField
 
     -- * Pointer declarations
-  , Value
-  , ValueF(..)
-  , store
-  , typeOfValue
+  , PtrExpr(..)
+  , IntExpr(..)
   , Cond(..)
 
-  , Mux
-  , MuxF(..)
-  , muxCond
-  , muxLeaf
-  , reduceMux
-  , subCount
-  , atomCount
-  , EvalContext
-  , evalContext
-  , evalV
-  , eval
-
-  , Var(..)
+  , Mux(..)
 
   , ValueCtor
   , ValueCtorF(..)
-  , valueImports
 
   , BasePreference(..)
 
   , RangeLoad(..)
-  , rangeLoadType
-  , adjustOffset
   , rangeLoad
-  , RangeLoadMux
   , fixedOffsetRangeLoad
   , fixedSizeRangeLoad
   , symbolicRangeLoad
@@ -84,9 +64,7 @@ module Lang.Crucible.LLVM.MemModel.Common
   , ViewF(..)
 
   , ValueLoad(..)
-  , valueLoadType
   , valueLoad
-  , ValueLoadMux
   , symbolicValueLoad
 
   ) where
@@ -110,17 +88,6 @@ type Offset = Size
 data Range = R { rStart :: Addr, _rEnd :: Addr }
   deriving (Eq, Show)
 
-rSize :: Range -> Size
-rSize (R l h) = h - l
-
-containedBy :: Range -> Range -> Bool
-containedBy (R xl xe) (R yl ye) = yl <= xl && xe <= ye
-
--- | Returns true if there are no bytes in intersetion of two ranges.
-isDisjoint :: Range -> Range -> Bool
-isDisjoint (R xl xe) (R yl ye) =
-  xl == xe || yl == ye || xe <= yl || ye <= xl
-
 -- Var
 
 data Term f a = App (f (Term f a))
@@ -134,11 +101,6 @@ instance (ShowF f, Show a)  => Show (Term f a) where
   showsPrec p (App f) = showParen (p >= 10) (showString "App " . showsPrecF 10 f)
   showsPrec p (Var x) = showParen (p >= 10) (showString "Var " . showsPrec 10 x)
 
--- | Traverse over variables in term.
-termVars:: Traversable f => Traversal (Term f a) (Term f b) a b
-termVars f (App a) = App <$> traverse (termVars f) a
-termVars f (Var a) = Var <$> f a
-
 foldTermM :: (Monad m, Traversable f)
           => (a -> m r) -> (f r -> m r) -> Term f a -> m r
 foldTermM f _ (Var v) = f v
@@ -146,174 +108,117 @@ foldTermM f g (App v) = g =<< traverse (foldTermM f g) v
 
 -- Value
 
-data ValueF v = Add v v
-              | Sub v v
-              | CValue Integer
-  deriving (Functor, Foldable, Traversable, Show)
-
-instance ShowF ValueF where
-  showsPrecF = showsPrec
-
-type Value v = Term ValueF v
-
-data Cond v = Eq (Value v) (Value v)
-            | Le (Value v) (Value v)
-            | And (Cond v) (Cond v)
+data PtrExpr
+  = PtrAdd PtrExpr IntExpr
+  | Load
+  | Store
   deriving (Show)
 
-(.==) :: Value v -> Value v -> Cond v
+data IntExpr
+  = PtrDiff PtrExpr PtrExpr
+  | IntAdd IntExpr IntExpr
+  | CValue Integer
+  | StoreSize
+  deriving (Show)
+
+data Cond
+  = PtrEq PtrExpr PtrExpr
+  | PtrLe PtrExpr PtrExpr
+  | IntEq IntExpr IntExpr
+  | IntLe IntExpr IntExpr
+  | And Cond Cond
+  deriving (Show)
+
+(.==) :: PtrExpr -> PtrExpr -> Cond
 infix 4 .==
-(.==) = Eq
+(.==) = PtrEq
 
-(.<=) :: Value v -> Value v -> Cond v
+(.<=) :: PtrExpr -> PtrExpr -> Cond
 infix 4 .<=
-(.<=) = Le
+(.<=) = PtrLe
 
-instance Num (Value v) where
-  App (CValue 0) + x = x
-  x + App (CValue 0) = x
-  x + y = App (Add x y)
+infixl 6 .+
+(.+) :: PtrExpr -> IntExpr -> PtrExpr
+x .+ CValue 0 = x
+x .+ y = PtrAdd x y
 
-  (*)    = error "CValue (*) undefined"
+infixl 6 .-
+(.-) :: PtrExpr -> PtrExpr -> IntExpr
+x .- y = PtrDiff x y
 
-  x - App (CValue 0) = x
-  x - y = App (Sub x y)
-
-  negate = error "CValue negate undefined"
-  abs    = error "CValue abs undefined"
-  signum = error "CValue signum undefined"
-  fromInteger = App . CValue . fromInteger
+intValue :: Integral a => a -> IntExpr
+intValue x = CValue (toInteger x)
 
 -- Muxs
 
-data MuxF c v = Mux c v v
- deriving (Functor, Foldable, Traversable, Show)
+data Mux a = Mux Cond (Mux a) (Mux a) | MuxVar a
+  deriving Show
 
-instance Show c => ShowF (MuxF c) where
-  showsPrecF = showsPrec
+data MuxCase a
+   = MuxCase Cond (Mux a)
+   | DefaultMux (Mux a)
 
-type Mux c a = Term (MuxF c) a
-
--- | Traverse over conditions in mux.
-muxCond :: Traversal (Mux c a) (Mux d a) c d
-muxCond f (App (Mux c x y)) = App <$> (Mux <$> f c <*> muxCond f x <*> muxCond f y)
-muxCond _ (Var a) = pure (Var a)
-
--- | Traverse over leafs in mux.
-muxLeaf :: Traversal (Mux c x) (Mux c y) x y
-muxLeaf = termVars
-
--- | Reduce a mux using the given function for ite.
-reduceMux :: (Applicative m, Monad m) => (c -> a -> a -> m a) -> Mux c a -> m a
-reduceMux f (App (Mux c x y)) = join $
-  f c <$> reduceMux f x <*> reduceMux f y
-reduceMux _ (Var a) = pure a
-
-subCount :: Mux c a -> Int
-subCount (App (Mux _ t f)) = 1 + subCount t + subCount f
-subCount _ = 1
-
-atomCount :: Mux c a -> Int
-atomCount (App (Mux _ t f)) = atomCount t + atomCount f
-atomCount _ = 1
-
-data MuxCase c a
-   = MuxCase c (Mux c a)
-   | DefaultMux (Mux c a)
-
-(|->) :: c -> Mux c a -> MuxCase c a
+(|->) :: Cond -> Mux a -> MuxCase a
 infix 3 |->
 c |-> x = MuxCase c x
 
-always :: Mux c a -> MuxCase c a
+always :: Mux a -> MuxCase a
 always = DefaultMux
 
-try :: MuxCase c a -> Mux c a -> Mux c a
+try :: MuxCase a -> Mux a -> Mux a
 try (DefaultMux x) _ = x
-try (MuxCase c x) y = App (Mux c x y)
+try (MuxCase c x) y = Mux c x y
 
 -- | @iterDown i n f@ generates a formula generates from values starting
 -- from @n@ and incrementing by i until an unconditional formula is returned by @f@.
 iterBy :: (i -> i)
        -> i
-       -> (i -> MuxCase c a)
-       -> Mux c a
+       -> (i -> MuxCase a)
+       -> Mux a
 iterBy i n f =
   case f n of
     DefaultMux x -> x
-    MuxCase c x -> App (Mux c x (iterBy i (i n) f))
+    MuxCase c x -> Mux c x (iterBy i (i n) f)
 
 -- | @iterDown n f@ generates a formula generates from values starting
 -- from @n@ and counting down until an unconditional formula is returned by @f@.
 iterDown :: Num i
          => i
-         -> (i -> MuxCase c a)
-         -> Mux c a
+         -> (i -> MuxCase a)
+         -> Mux a
 iterDown = iterBy (\s -> s - 1)
 
 iterUp :: Num i
        => i
-       -> (i -> MuxCase c a)
-       -> Mux c a
+       -> (i -> MuxCase a)
+       -> Mux a
 iterUp = iterBy (\s -> s + 1)
 
 -- Variable for mem model.
 
-data Var = Load | Store | StoreSize
-  deriving (Show)
+load :: PtrExpr
+load = Load
 
-load :: Value Var
-load = Var Load
+store :: PtrExpr
+store = Store
 
-store :: Value Var
-store = Var Store
+storeSize :: IntExpr
+storeSize = StoreSize
 
-storeSize :: Value Var
-storeSize = Var StoreSize
+loadOffset :: Size -> PtrExpr
+loadOffset n = Load .+ intValue n
 
-loadOffset :: Size -> Value Var
-loadOffset n = load + fromIntegral n
+storeOffset :: Size -> PtrExpr
+storeOffset n = store .+ intValue n
 
-storeOffset :: Size -> Value Var
-storeOffset n = store + fromIntegral n
-
-storeEnd :: Value Var
-storeEnd = store + storeSize
+storeEnd :: PtrExpr
+storeEnd = store .+ storeSize
 
 -- | @loadInStoreRange n@ returns predicate if Store <= Load && Load <= Store + n
-loadInStoreRange :: Size -> Cond Var
-loadInStoreRange 0 = load .== store
-loadInStoreRange n = And (store .<= load)
-                         (load .<= store + fromIntegral n)
-
--- | Contains load start and store range.
-type EvalContext v = Var -> v
-
-evalContext :: Addr -> Type -> Range -> EvalContext Integer
-evalContext l _ (R s se) = assert (s <= se) $ fn
-  where fn Load  = toInteger l
-        fn Store = toInteger s
-        fn StoreSize = toInteger (se - s)
-
-evalV :: (v -> Integer) -> Value v -> Integer
-evalV ec (Var v) = ec v
-evalV ec (App vf) =
-  case vf of
-    Add x y -> evalV ec x + evalV ec y
-    Sub x y -> evalV ec x - evalV ec y
-    CValue c -> c
-
-evalCond :: (v -> Integer) -> Cond v -> Bool
-evalCond ec c =
- case c of
-   Eq x y  -> evalV ec x == evalV ec y
-   Le x y  -> evalV ec x <= evalV ec y
-   And x y -> evalCond ec x && evalCond ec y
-
-eval :: (v -> Integer) -> Mux (Cond v) a -> a
-eval c = evalF
-  where evalF (App (Mux b t f)) = evalF (if evalCond c b then t else f)
-        evalF (Var a) = a
+loadInStoreRange :: Size -> Cond
+loadInStoreRange 0 = Load .== store
+loadInStoreRange n = And (store .<= Load)
+                         (Load .<= store .+ intValue n)
 
 data Field v = Field { fieldOffset :: Offset
                      , _fieldVal    :: v
@@ -323,6 +228,9 @@ data Field v = Field { fieldOffset :: Offset
 
 fieldVal :: Lens (Field a) (Field b) a b
 fieldVal = lens _fieldVal (\s v -> s { _fieldVal = v })
+
+mkField :: Offset -> v -> Size -> Field v
+mkField = Field
 
 data TypeF v
    = Bitvector Size -- ^ Size of bitvector in bytes (must be > 0).
@@ -425,33 +333,6 @@ concatBV xw x yw y = App (ConcatBV xw x yw y)
 singletonArray :: Type -> ValueCtor a -> ValueCtor a
 singletonArray tp e = App (MkArray tp (V.singleton e))
 
--- | Returns imports in a Value Ctor
-valueImports :: ValueCtor a -> [a]
-valueImports = toListOf termVars
-
-typeOfValueF :: ValueCtorF (TypeF Type) -> Maybe Type
-typeOfValueF (ConcatBV xw xtp yw ytp)
-  | Bitvector xw == xtp && Bitvector yw == ytp =
-    return (bitvectorType (xw + yw))
-typeOfValueF (BVToFloat (Bitvector 4)) = return $ mkType Float
-typeOfValueF (BVToDouble (Bitvector 8)) = return $ mkType Double
-typeOfValueF (ConsArray tp tp' n (Array n' etp))
-  | typeF tp == tp' && (n,tp) == (toInteger n', etp) =
-    return (arrayType (fromInteger (n+1)) etp)
-typeOfValueF (AppendArray tp m (Array m' tp0) n (Array n' tp1))
-  | (m,tp) == (toInteger m', tp0)
-    && (n,tp) == (toInteger n', tp1) =
-      return (arrayType (fromInteger (m+n)) tp0)
-typeOfValueF (MkArray tp tps)
-  | allOf folded (== typeF tp) tps =
-    return (arrayType (fromIntegral (V.length tps)) tp)
-typeOfValueF (MkStruct ftps)
-  | V.length ftps > 0 = return (structType (fst <$> ftps))
-typeOfValueF _ = Nothing
-
-typeOfValue :: (a -> Maybe Type) -> ValueCtor a -> Maybe Type
-typeOfValue f = foldTermM f (typeOfValueF . fmap typeF)
-
 -- | Create value of type that splits at a particular byte offset.
 splitTypeValue :: Type   -- ^ Type of value to create
                -> Offset -- ^ Bytes offset to slice type at.
@@ -499,24 +380,20 @@ data BasePreference
 
 -- RangeLoad
 
-data RangeLoad a
+data RangeLoad a b
       -- | Load value from old value.
     = OutOfRange a Type
       -- | In range includes offset relative to store and type.
-    | InRange a Type
-  deriving (Functor, Foldable, Traversable, Show)
+    | InRange b Type
+  deriving (Show)
 
-rangeLoadType :: RangeLoad a -> Type
-rangeLoadType (OutOfRange _ tp) = tp
-rangeLoadType (InRange _ tp) = tp
-
-adjustOffset :: (a -> b)
-             -> (a -> b)
-             -> RangeLoad a -> RangeLoad b
+adjustOffset :: (b -> d)
+             -> (a -> c)
+             -> RangeLoad a b -> RangeLoad c d
 adjustOffset _ outFn (OutOfRange a tp) = OutOfRange (outFn a) tp
-adjustOffset inFn _  (InRange a tp) = InRange (inFn a) tp
+adjustOffset inFn _  (InRange b tp) = InRange (inFn b) tp
 
-rangeLoad :: Addr -> Type -> Range -> ValueCtor (RangeLoad Addr)
+rangeLoad :: Addr -> Type -> Range -> ValueCtor (RangeLoad Addr Addr)
 rangeLoad lo ltp s@(R so se)
    | so == se  = loadFail
    | le <= so  = loadFail
@@ -527,39 +404,39 @@ rangeLoad lo ltp s@(R so se)
  where le = typeEnd lo ltp
        loadFail = Var (OutOfRange lo ltp)
 
-type RangeLoadMux v = Mux (Cond Var) (ValueCtor (RangeLoad v))
+type RangeLoadMux v w = Mux (ValueCtor (RangeLoad v w))
 
 fixedOffsetRangeLoad :: Addr
                      -> Type
                      -> Addr
-                     -> RangeLoadMux Addr
+                     -> RangeLoadMux Addr Addr
 fixedOffsetRangeLoad l tp s
    | s < l = do -- Store is before load.
      let sd = l - s -- Number of bytes load comes after store
-     try (storeSize .<= fromIntegral sd |-> loadFail)
+     try (IntLe storeSize (intValue sd) |-> loadFail)
          (iterUp (sd+1) loadCase)
    | le <= s = loadFail -- No load if load ends before write.
    | otherwise = iterUp 0 loadCase
  where le = typeEnd l tp
-       loadCase i | i < le-s  = storeSize .== fromIntegral i |-> loadVal i
+       loadCase i | i < le-s  = IntEq storeSize (intValue i) |-> loadVal i
                   | otherwise = always $ loadVal i
-       loadVal ssz = Var $ rangeLoad l tp (R s (s+ssz))
-       loadFail = Var $ Var (OutOfRange l tp)
+       loadVal ssz = MuxVar $ rangeLoad l tp (R s (s+ssz))
+       loadFail = MuxVar $ Var (OutOfRange l tp)
 
 -- | @fixLoadBeforeStoreOffset pref i k@ adjusts a pointer value that is relative
 -- the load address into a global pointer.  The code assumes that @load + i == store@.
-fixLoadBeforeStoreOffset :: BasePreference -> Offset -> Offset -> Value Var
+fixLoadBeforeStoreOffset :: BasePreference -> Offset -> Offset -> PtrExpr
 fixLoadBeforeStoreOffset pref i k
-  | pref == FixedStore = store + fromInteger (toInteger k - toInteger i)
-  | otherwise = load + fromIntegral k
+  | pref == FixedStore = store .+ intValue (toInteger k - toInteger i)
+  | otherwise = load .+ intValue k
 
 -- | @fixLoadAfterStoreOffset pref i k@ adjusts a pointer value that is relative
 -- the load address into a global pointer.  The code assumes that @load == store + i@.
-fixLoadAfterStoreOffset :: BasePreference -> Offset -> Offset -> Value Var
+fixLoadAfterStoreOffset :: BasePreference -> Offset -> Offset -> PtrExpr
 fixLoadAfterStoreOffset pref i k = assert (k >= i) $
   case pref of
-    FixedStore -> store + fromIntegral k
-    _          -> load  + fromIntegral (k - i)
+    FixedStore -> store .+ intValue k
+    _          -> load  .+ intValue (k - i)
 
 -- | @loadFromStoreStart pref tp i j@ loads a value of type @tp@ from a range under the
 -- assumptions that @load + i == store@ and @j = i + min(storeSize, typeEnd(tp)@.
@@ -567,16 +444,16 @@ loadFromStoreStart :: BasePreference
                    -> Type
                    -> Offset
                    -> Offset
-                   -> ValueCtor (RangeLoad (Value Var))
+                   -> ValueCtor (RangeLoad PtrExpr IntExpr)
 loadFromStoreStart pref tp i j = adjustOffset inFn outFn <$> rangeLoad 0 tp (R i j)
-  where inFn = fromIntegral
+  where inFn = intValue
         outFn = fixLoadBeforeStoreOffset pref i
 
 fixedSizeRangeLoad :: BasePreference -- ^ Whether addresses are based on store or load.
                    -> Type
                    -> Size
-                   -> RangeLoadMux (Value Var)
-fixedSizeRangeLoad _ tp 0 = Var (Var (OutOfRange load tp))
+                   -> RangeLoadMux PtrExpr IntExpr
+fixedSizeRangeLoad _ tp 0 = MuxVar (Var (OutOfRange load tp))
 fixedSizeRangeLoad pref tp ssz =
   try (loadOffset lsz .<= store |-> loadFail) $
   iterDown lsz prefixL
@@ -597,16 +474,16 @@ fixedSizeRangeLoad pref tp ssz =
          | i < ssz   = load .== storeOffset i |-> storeVal i
          | otherwise = always loadFail
 
-       loadVal i = Var $ loadFromStoreStart pref tp i (i+ssz)
+       loadVal i = MuxVar $ loadFromStoreStart pref tp i (i+ssz)
 
-       storeVal i = Var $ adjustOffset inFn outFn <$> rangeLoad i tp (R 0 ssz)
-         where inFn = fromIntegral
+       storeVal i = MuxVar $ adjustOffset inFn outFn <$> rangeLoad i tp (R 0 ssz)
+         where inFn = intValue
                outFn = fixLoadAfterStoreOffset pref i
 
-       loadSucc = Var (Var (InRange (load - store) tp))
-       loadFail = Var (Var (OutOfRange load tp))
+       loadSucc = MuxVar (Var (InRange (load .- store) tp))
+       loadFail = MuxVar (Var (OutOfRange load tp))
 
-symbolicRangeLoad :: BasePreference -> Type -> RangeLoadMux (Value Var)
+symbolicRangeLoad :: BasePreference -> Type -> RangeLoadMux PtrExpr IntExpr
 symbolicRangeLoad pref tp =
    try (store .<= load |->
          try (loadOffset sz .<= storeEnd |-> loadVal0 sz)
@@ -617,22 +494,22 @@ symbolicRangeLoad pref tp =
         loadIter0 j | j > 0     = loadOffset j .== storeEnd |-> loadVal0 j
                     | otherwise = always loadFail
 
-        loadVal0 j = Var $ adjustOffset inFn outFn <$> rangeLoad 0 tp (R 0 j)
-          where inFn k  = load - store + fromIntegral k
-                outFn k = load + fromIntegral k
+        loadVal0 j = MuxVar $ adjustOffset inFn outFn <$> rangeLoad 0 tp (R 0 j)
+          where inFn k  = IntAdd (PtrDiff load store) (intValue k)
+                outFn k = PtrAdd load (intValue k)
 
         storeAfterLoad i
           | i < sz = loadOffset i .== store |-> loadFromOffset i
           | otherwise = always loadFail
 
         loadFromOffset i = assert (0 < i && i < sz) $
-            try (fromIntegral (sz - i) .<= storeSize |-> loadVal i (i+sz))
+            try (IntLe (intValue (sz - i)) storeSize |-> loadVal i (i+sz))
                 (iterDown (sz-1) f)
-          where f j | j > i = fromIntegral (j-i) .== storeSize |-> loadVal i j
+          where f j | j > i = IntEq (intValue (j-i)) storeSize |-> loadVal i j
                     | otherwise = always loadFail
 
-        loadVal i j = Var $ loadFromStoreStart pref tp i j
-        loadFail = Var (Var (OutOfRange load tp))
+        loadVal i j = MuxVar $ loadFromStoreStart pref tp i j
+        loadFail = MuxVar (Var (OutOfRange load tp))
 
 -- ValueView
 
@@ -678,11 +555,6 @@ data ValueLoad v
   | InvalidMemory Type
   deriving (Functor,Show)
 
-valueLoadType :: ValueLoad a -> Maybe Type
-valueLoadType (OldMemory _ tp) = Just tp
-valueLoadType (LastStore v) = viewType v
-valueLoadType (InvalidMemory tp) = Just tp
-
 loadBitvector :: Addr -> Size -> Addr -> ValueView Type -> ValueCtor (ValueLoad Addr)
 loadBitvector lo lw so v = do
   let le = lo + lw
@@ -696,7 +568,7 @@ loadBitvector lo lw so v = do
   case typeF stp of
     Bitvector sw
       | so < lo -> do
-        -- Number of bits to drop.
+        -- Number of bytes to drop.
         let d = lo - so
         -- Store is before load.
         valueLoad lo ltp lo (App (SelectHighBV d (sw - d) v))
@@ -759,7 +631,7 @@ valueLoad lo ltp so v
        le = typeEnd lo ltp
        se = so + typeSize stp
 
-type ValueLoadMux = Mux (Cond Var) (ValueCtor (ValueLoad (Value Var)))
+type ValueLoadMux = Mux (ValueCtor (ValueLoad PtrExpr))
 
 symbolicValueLoad :: BasePreference -- ^ Whether addresses are based on store or load.
                   -> Type
@@ -774,15 +646,15 @@ symbolicValueLoad pref tp v =
        prefixL i
            | i > 0 =
              loadOffset i .== store |->
-               Var (fmap adjustFn <$> valueLoad 0 tp i v)
+               MuxVar (fmap adjustFn <$> valueLoad 0 tp i v)
            | otherwise = always (iterUp 0 suffixS)
          where adjustFn = fixLoadBeforeStoreOffset pref i
 
        suffixS i
            | i < typeSize stp =
              load .== storeOffset i |->
-               Var (fmap adjustFn <$> valueLoad i tp 0 v)
+               MuxVar (fmap adjustFn <$> valueLoad i tp 0 v)
            | otherwise = always loadFail
          where adjustFn = fixLoadAfterStoreOffset pref i
 
-       loadFail = Var $ Var (OldMemory load tp)
+       loadFail = MuxVar $ Var (OldMemory load tp)

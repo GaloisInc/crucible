@@ -135,6 +135,10 @@ instance SB.IsSimpleBuilderState SimpleBackendState where
   sbSetProofObligations sym obligs = do
     modifyIORef' (SB.sbStateManager sym) (set proofObligs obligs)
 
-  sbPushBranchPred _ _ = return ()
-  sbBacktrackToState _ _ = return ()
-  sbSwitchToState  _ _ _ = return ()
+  sbPushBranchPred sym p = SB.sbAddAssumption sym p
+  sbBacktrackToState sym old =
+    -- Copy assertions from old state to current state
+    modifyIORef' (SB.sbStateManager sym) (set assertions (old ^. SB.pathState ^. assertions))
+  sbSwitchToState sym _ new =
+    -- Copy assertions from new state to current state
+    modifyIORef' (SB.sbStateManager sym) (set assertions (new ^. SB.pathState ^. assertions))

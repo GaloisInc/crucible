@@ -329,7 +329,7 @@ recordEltVars scope (NonceAppElt e0) = do
   memoEltVars (nonceEltId e0) $ do
     recurseNonceAppVars scope e0
 recordEltVars scope (AppElt e0) = do
-  memoEltVars (eltId e0) $ do
+  memoEltVars (appEltId e0) $ do
     recurseEltVars scope e0
 recordEltVars _ (BoundVarElt info) = do
   addFeaturesForVarType (bvarType info)

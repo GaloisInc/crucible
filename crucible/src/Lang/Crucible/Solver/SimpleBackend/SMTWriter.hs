@@ -669,7 +669,7 @@ addCommand conn cmd = do
   -- If the position of the last command differs from the current position, then
   -- write the current position and update the last position.
   when (las /= cur) $ do
-    writeCommand conn $ commentCommand conn $ buildPosition cur
+    writeCommand conn $ commentCommand conn $ Builder.fromText $ Text.pack $ show $ pretty cur
     withWriterState conn $ lastPosition .= cur
 
   writeCommand conn cmd

@@ -36,7 +36,7 @@ import qualified Data.Set as S
 
 import Prelude
 
-import Lang.Crucible.Core
+import Lang.Crucible.CFG.Core
 import Lang.Crucible.Analysis.Fixpoint.Components
 
 -- | A wrapper around widening strategies
@@ -182,8 +182,10 @@ emptyRefSet = RefSet S.empty
 unionRefSets :: RefSet blocks tp -> RefSet blocks tp -> RefSet blocks tp
 unionRefSets (RefSet s1) (RefSet s2) = RefSet (s1 `S.union` s2)
 
-instance (ShowF dom) => ShowF (PointAbstraction blocks dom) where
-  showF pa = showF (_paRegisters pa)
+instance ShowF dom => Show (PointAbstraction dom ctx) where
+  show pa = show (_paRegisters pa)
+
+instance ShowF dom => ShowF (PointAbstraction dom)
 
 -- | Look up the abstract value of a register at a program point
 lookupAbstractRegValue :: PointAbstraction blocks dom ctx -> Reg ctx tp -> dom tp
@@ -685,12 +687,13 @@ data Pointed dom (tp :: CrucibleType) where
   Bottom :: Pointed dom tp
 
 deriving instance (Eq (dom tp)) => Eq (Pointed dom tp)
-deriving instance (Show (dom tp)) => Show (Pointed dom tp)
 
-instance (ShowF dom) => ShowF (Pointed dom) where
-  showF Top = "Top"
-  showF Bottom = "Bottom"
-  showF (Pointed p) = showF p
+instance ShowF dom => Show (Pointed dom tp) where
+  show Top = "Top"
+  show Bottom = "Bottom"
+  show (Pointed p) = showF p
+
+instance ShowF dom => ShowF (Pointed dom)
 
 -- | Construct a 'Pointed' 'Domain' from a pointed join function and
 -- an equality test.

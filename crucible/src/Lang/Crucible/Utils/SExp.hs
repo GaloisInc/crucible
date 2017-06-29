@@ -1,8 +1,8 @@
 {-
 Module           : Lang.Crucible.Utils.SExp
 Copyright        : (c) Galois, Inc 2014
-Maintainer       : Joe Hendrix <jhendrix@galois.com>
 License          : BSD3
+Maintainer       : Joe Hendrix <jhendrix@galois.com>
 
 Provides an interface for parsing simple SExpressions
 returned by SMT solvers.

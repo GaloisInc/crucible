@@ -42,10 +42,10 @@ module Lang.Crucible.LLVM.MemModel
   , LLVMMemOps(..)
   , newMemOps
   , llvmMemIntrinsics
-  , crucibleTermGenerator
   , GlobalMap
   , GlobalSymbol(..)
   , allocGlobals
+  , registerGlobal
   , assertDisjointRegions
   , assertDisjointRegions'
   , doMemcpy
@@ -64,14 +64,16 @@ module Lang.Crucible.LLVM.MemModel
   , loadString
   , loadMaybeString
   , ppMem
+  , SomeFnHandle(..)
 
   -- * Direct API to LLVMVal
   , LLVMVal(..)
-  , LLVMPtrExpr(..)
+  , LLVMPtr(..)
   , coerceAny
   , unpackMemValue
   , packMemValue
   , loadRaw
+  , loadRawWithCondition
   , storeRaw
   , mallocRaw
   ) where
@@ -79,9 +81,7 @@ module Lang.Crucible.LLVM.MemModel
 import           Control.Lens
 import           Control.Monad
 import           Control.Monad.IO.Class
-import           Control.Monad.Trans.Maybe
 import           Control.Monad.ST
-import           Control.Monad.State.Strict
 import           Data.Dynamic
 import           Data.List hiding (group)
 import           Data.IORef
@@ -95,16 +95,16 @@ import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some
-import           Data.Vector( Vector )
 import qualified Data.Vector as V
 import qualified Text.LLVM.AST as L
 
 
-import qualified Lang.Crucible.Core as C
+import           Lang.Crucible.CFG.Expr
+import           Lang.Crucible.CFG.Common
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.Intrinsics
-import           Lang.Crucible.Simulator.MSSim
+import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
@@ -113,6 +113,7 @@ import qualified Lang.Crucible.Syntax as S
 import           Lang.Crucible.LLVM.DataLayout
 import qualified Lang.Crucible.LLVM.MemModel.Common as G
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
+import           Lang.Crucible.LLVM.MemModel.Pointer
 
 --import Debug.Trace as Debug
 
@@ -135,6 +136,7 @@ instance IsRecursiveType "LLVM_pointer" where
   unrollType _ = StructRepr (Ctx.empty Ctx.%> NatRepr Ctx.%> BVRepr ptrWidth Ctx.%> BVRepr ptrWidth)
 
 type Mem = IntrinsicType "LLVM_memory"
+
 memRepr :: TypeRepr Mem
 memRepr = knownRepr
 
@@ -164,13 +166,13 @@ type LLVMValTypeType = ConcreteType G.Type
 -- It is always a valid pointer, but has no allocated offsets.
 nullPointer :: S.IsExpr e
             => e LLVMPointerType
-nullPointer = S.app $ C.RollRecursive knownSymbol $ S.app $ C.MkStruct
+nullPointer = S.app $ RollRecursive knownSymbol $ S.app $ MkStruct
   (Ctx.empty Ctx.%> NatRepr
              Ctx.%> BVRepr ptrWidth
              Ctx.%> BVRepr ptrWidth)
-  (Ctx.empty Ctx.%> (S.app (C.NatLit 0))
-             Ctx.%> (S.app (C.BVLit ptrWidth 0))
-             Ctx.%> (S.app (C.BVLit ptrWidth 0)))
+  (Ctx.empty Ctx.%> (S.app (NatLit 0))
+             Ctx.%> (S.app (BVLit ptrWidth 0))
+             Ctx.%> (S.app (BVLit ptrWidth 0)))
 
 mkNullPointer
   :: IsSymInterface sym
@@ -209,13 +211,14 @@ newtype GlobalSymbol = GlobalSymbol L.Symbol
 data LLVMMemOps
   = LLVMMemOps
   { llvmDataLayout :: DataLayout
-  , llvmMemVar    :: C.GlobalVar Mem
+  , llvmMemVar    :: GlobalVar Mem
   , llvmMemAlloca :: FnHandle (EmptyCtx ::> Mem ::> BVType PtrWidth)
                               (StructType (EmptyCtx ::> Mem ::> LLVMPointerType))
   , llvmMemPushFrame :: FnHandle (EmptyCtx ::> Mem) Mem
   , llvmMemPopFrame :: FnHandle (EmptyCtx ::> Mem) Mem
   , llvmMemLoad  :: FnHandle (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMValTypeType) AnyType
   , llvmMemStore :: FnHandle (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMValTypeType ::> AnyType) Mem
+  , llvmMemLoadHandle :: FnHandle (EmptyCtx ::> Mem ::> LLVMPointerType) AnyType
   , llvmResolveGlobal :: FnHandle (EmptyCtx ::> Mem ::> ConcreteType GlobalSymbol) LLVMPointerType
   , llvmPtrEq :: FnHandle (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMPointerType) BoolType
   , llvmPtrLe :: FnHandle (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMPointerType) BoolType
@@ -226,7 +229,7 @@ data LLVMMemOps
 
 llvmMemIntrinsics :: IsSymInterface sym
                   => LLVMMemOps
-                  -> [FnBinding sym]
+                  -> [FnBinding p sym]
 llvmMemIntrinsics memOps =
   [ useIntrinsic (llvmMemAlloca memOps)
                  memAlloca
@@ -234,6 +237,8 @@ llvmMemIntrinsics memOps =
                  memLoad
   , useIntrinsic (llvmMemStore memOps)
                  memStore
+  , useIntrinsic (llvmMemLoadHandle memOps)
+                 memLoadHandle
   , useIntrinsic (llvmMemPushFrame memOps)
                  memPushFrame
   , useIntrinsic (llvmMemPopFrame memOps)
@@ -256,12 +261,13 @@ newMemOps :: HandleAllocator s
           -> DataLayout
           -> ST s LLVMMemOps
 newMemOps halloc dl = do
-  memVar      <- C.freshGlobalVar halloc "llvm_memory" knownRepr
+  memVar      <- freshGlobalVar halloc "llvm_memory" knownRepr
   alloca      <- mkHandle halloc "llvm_alloca"
   pushFrame   <- mkHandle halloc "llvm_pushFrame"
   popFrame    <- mkHandle halloc "llvm_popFrame"
   load        <- mkHandle halloc "llvm_load"
   store       <- mkHandle halloc "llvm_store"
+  loadHandle  <- mkHandle halloc "llvm_load_handle"
   resolveGlob <- mkHandle halloc "llvm_resolve_global"
   pEq         <- mkHandle halloc "llvm_ptrEq"
   pLe         <- mkHandle halloc "llvm_ptrLe"
@@ -276,6 +282,7 @@ newMemOps halloc dl = do
             , llvmMemPopFrame    = popFrame
             , llvmMemLoad        = load
             , llvmMemStore       = store
+            , llvmMemLoadHandle  = loadHandle
             , llvmResolveGlobal  = resolveGlob
             , llvmPtrEq          = pEq
             , llvmPtrLe          = pLe
@@ -297,7 +304,7 @@ data MemImpl sym w =
   { memImplBlockSource :: BlockSource
   , memImplGlobalMap   :: GlobalMap sym
   , memImplHandleMap   :: Map Integer Dynamic
-  , memImplHeap        :: G.Mem (LLVMPtrExpr (SymExpr sym) w) (Pred sym) (PartExpr (Pred sym) (LLVMVal sym w))
+  , memImplHeap        :: G.Mem sym w
   }
 
 -- NB block numbers start counting at 1 because the null pointer
@@ -309,6 +316,8 @@ emptyMem = do
 
 type GlobalMap sym = Map L.Symbol (RegValue sym LLVMPointerType)
 
+-- | Allocate memory for each global, and register all the resulting
+-- pointers in the 'GlobalMap'.
 allocGlobals :: IsSymInterface sym
              => sym
              -> [(L.Symbol, G.Size)]
@@ -321,17 +330,19 @@ allocGlobal :: IsSymInterface sym
             -> MemImpl sym PtrWidth
             -> (L.Symbol, G.Size)
             -> IO (MemImpl sym PtrWidth)
-allocGlobal sym (MemImpl blockSource gMap hMap mem) (symbol, sz) = do
-  blkNum <- nextBlock blockSource
-  blk <- natLit sym (fromIntegral blkNum)
-  z   <- bvLit sym ptrWidth 0
+allocGlobal sym mem (symbol, sz) = do
   sz' <- bvLit sym ptrWidth (fromIntegral sz)
+  (ptr, mem') <- doMalloc sym mem sz'
+  return (registerGlobal mem' symbol ptr)
 
-  let mem'  = G.allocMem G.GlobalAlloc (LLVMPtr blk sz' z) (LLVMOffset sz') mem
-  let ptr   = RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV sz' Ctx.%> RV z)
+-- | Add an entry to the 'GlobalMap' of the given 'MemImpl'.
+registerGlobal :: MemImpl sym PtrWidth
+               -> L.Symbol
+               -> RegValue sym LLVMPointerType
+               -> MemImpl sym PtrWidth
+registerGlobal (MemImpl blockSource gMap hMap mem) symbol ptr =
   let gMap' = Map.insert symbol ptr gMap
-  return (MemImpl blockSource gMap' hMap mem')
-
+  in MemImpl blockSource gMap' hMap mem
 
 asCrucibleType
   :: G.Type
@@ -373,8 +384,6 @@ unpackMemValue
    -> IO (AnyValue sym)
 unpackMemValue _ (LLVMValPtr blk end off) =
   return $ AnyValue llvmPointerRepr $ RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV end Ctx.%> RV off)
-unpackMemValue _ (LLVMValFunPtr args ret h) = do
-  return $ AnyValue (FunctionHandleRepr args ret) $ h
 unpackMemValue _ (LLVMValInt w x) =
   return $ AnyValue (BVRepr w) x
 unpackMemValue _ (LLVMValReal x) =
@@ -419,8 +428,6 @@ packMemValue _ _ (RecursiveRepr nm) (RolledType xs)
       let RV end = xs^._2
       let RV off = xs^._3
       return $ LLVMValPtr blk end off
-packMemValue _ _ (FunctionHandleRepr args ret) h =
-  return $ LLVMValFunPtr args ret h
 packMemValue sym (G.Type (G.Array sz tp) _) (VectorRepr tpr) vec
   | V.length vec == fromIntegral sz = do
        vec' <- traverse (packMemValue sym tp tpr) vec
@@ -450,12 +457,12 @@ doResolveGlobal _sym mem symbol =
     Just ptr -> return ptr
     Nothing  -> fail $ unwords ["Unable to resolve global symbol", show symbol]
 
-memResolveGlobal :: IntrinsicImpl sym (EmptyCtx ::> Mem ::> ConcreteType GlobalSymbol) LLVMPointerType
+memResolveGlobal :: IntrinsicImpl p sym (EmptyCtx ::> Mem ::> ConcreteType GlobalSymbol) LLVMPointerType
 memResolveGlobal = mkIntrinsic $ \_ sym
   (regValue -> mem)
   (regValue -> (GlobalSymbol symbol)) -> liftIO $ doResolveGlobal sym mem symbol
 
-memLoad :: IntrinsicImpl sym (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMValTypeType) AnyType
+memLoad :: IntrinsicImpl p sym (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMValTypeType) AnyType
 memLoad = mkIntrinsic $ \_ sym
   (regValue -> mem)
   (regValue -> ptr)
@@ -466,14 +473,8 @@ ppMem
   :: IsSymInterface sym
   => sym
   -> RegValue sym Mem
-  -> IO Doc
-ppMem _sym mem = do
-  let pp = G.PP
-           { G.ppPtr  = \_x p -> return $ ppPtrExpr ptrWidth p
-           , G.ppCond = \_x c -> return $ printSymExpr c
-           , G.ppTerm = \_x t -> return $ ppPartTermExpr ptrWidth t
-           }
-  G.ppMem pp (memImplHeap mem)
+  -> Doc
+ppMem _sym mem = G.ppMem (memImplHeap mem)
 
 doDumpMem :: IsSymInterface sym
   => sym
@@ -481,27 +482,45 @@ doDumpMem :: IsSymInterface sym
   -> RegValue sym Mem
   -> IO ()
 doDumpMem sym h mem = do
-  doc <- ppMem sym mem
-  hPutStrLn h (show doc)
+  hPutStrLn h (show (ppMem sym mem))
 
 
 loadRaw :: IsSymInterface sym
         => sym
         -> MemImpl sym PtrWidth
-        -> LLVMPtrExpr (SymExpr sym) PtrWidth
+        -> LLVMPtr sym PtrWidth
         -> G.Type
         -> IO (LLVMVal sym PtrWidth)
-loadRaw sym mem ptr valType = do
-  (p,v) <- G.readMem (crucibleTermGenerator sym ptrWidth) ptr valType (memImplHeap mem)
-  case v of
-      Unassigned ->
-        fail errMsg
-      PE p' v' -> do
-        p'' <- andPred sym p p'
-        addAssertion sym p'' (AssertFailureSimError errMsg)
-        return v'
-  where
-    errMsg = "Invalid memory load: " ++ show (ppPtrExpr ptrWidth ptr)
+loadRaw sym mem ptr valType =
+  do res <- loadRawWithCondition sym mem ptr valType
+     case res of
+       Right (p,r,v) -> v <$ addAssertion sym p r
+       Left e        -> fail e
+
+
+-- | Load an LLVM value from memory. This version of 'loadRaw'
+-- returns the side-conditions explicitly so that they can
+-- be conditionally asserted.
+loadRawWithCondition ::
+  IsSymInterface sym   =>
+  sym                  ->
+  MemImpl sym PtrWidth {- ^ LLVM heap       -} ->
+  LLVMPtr sym PtrWidth {- ^ pointer         -} ->
+  G.Type               {- ^ pointed-to type -} ->
+  IO (Either
+        String
+        (Pred sym, SimErrorReason, LLVMVal sym PtrWidth))
+  -- ^ Either error message or
+  -- (assertion, assertion failure description, dereferenced value)
+loadRawWithCondition sym mem ptr valType =
+  do (p,v) <- G.readMem sym ptrWidth ptr valType (memImplHeap mem)
+     let errMsg = "Invalid memory load: address " ++ show (G.ppLLVMPtr ptr) ++
+                  " at type "                     ++ show (G.ppType valType)
+     case v of
+       Unassigned -> return (Left errMsg)
+       PE p' v' ->
+         do p'' <- andPred sym p p'
+            return (Right (p'', AssertFailureSimError errMsg, v'))
 
 doLoad :: IsSymInterface sym
   => sym
@@ -512,8 +531,9 @@ doLoad :: IsSymInterface sym
 doLoad sym mem ptr valType = do
     --putStrLn "MEM LOAD"
     let ptr' = translatePtr ptr
-        errMsg = "Invalid memory load: " ++ show (ppPtr ptr)
-    (p, v) <- G.readMem (crucibleTermGenerator sym ptrWidth) ptr' valType (memImplHeap mem)
+        errMsg = "Invalid memory load: address " ++ show (ppPtr ptr) ++
+                 " at type " ++ show (G.ppType valType)
+    (p, v) <- G.readMem sym ptrWidth ptr' valType (memImplHeap mem)
     case v of
       Unassigned ->
         fail errMsg
@@ -525,12 +545,12 @@ doLoad sym mem ptr valType = do
 storeRaw :: IsSymInterface sym
   => sym
   -> MemImpl sym PtrWidth
-  -> LLVMPtrExpr (SymExpr sym) PtrWidth
+  -> LLVMPtr sym PtrWidth
   -> G.Type
   -> LLVMVal sym PtrWidth
   -> IO (MemImpl sym PtrWidth)
 storeRaw sym mem ptr valType val = do
-    (p, heap') <- G.writeMem (crucibleTermGenerator sym ptrWidth) ptr valType (PE (truePred sym) val) (memImplHeap mem)
+    (p, heap') <- G.writeMem sym ptrWidth ptr valType (PE (truePred sym) val) (memImplHeap mem)
     addAssertion sym p (AssertFailureSimError "Invalid memory store")
     return mem{ memImplHeap = heap' }
 
@@ -546,11 +566,11 @@ doStore sym mem ptr valType (AnyValue tpr val) = do
     --putStrLn "MEM STORE"
     val' <- packMemValue sym valType tpr val
     let ptr' = translatePtr ptr
-    (p, heap') <- G.writeMem (crucibleTermGenerator sym ptrWidth) ptr' valType (PE (truePred sym) val') (memImplHeap mem)
+    (p, heap') <- G.writeMem sym ptrWidth ptr' valType (PE (truePred sym) val') (memImplHeap mem)
     addAssertion sym p (AssertFailureSimError "Invalid memory store")
     return mem{ memImplHeap = heap' }
 
-memStore :: IntrinsicImpl sym (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMValTypeType ::> AnyType) Mem
+memStore :: IntrinsicImpl p sym (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMValTypeType ::> AnyType) Mem
 memStore = mkIntrinsic $ \_ sym
   (regValue -> mem)
   (regValue -> ptr)
@@ -558,7 +578,21 @@ memStore = mkIntrinsic $ \_ sym
   (regValue -> val) ->
      liftIO $ doStore sym mem ptr valType val
 
-memAlloca :: IntrinsicImpl sym (EmptyCtx ::> Mem ::> BVType PtrWidth)
+data SomeFnHandle where
+  SomeFnHandle :: FnHandle args ret -> SomeFnHandle
+
+memLoadHandle :: IntrinsicImpl p sym (EmptyCtx ::> Mem ::> LLVMPointerType) AnyType
+memLoadHandle = mkIntrinsic $ \_ sym
+  (regValue -> mem)
+  (regValue -> ptr) ->
+     do mhandle <- liftIO $ doLookupHandle sym mem ptr
+        case mhandle of
+          Nothing -> fail "memLoadHandle: not a valid function pointer"
+          Just (SomeFnHandle h) ->
+            do let ty = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
+               return (AnyValue ty (HandleFnVal h))
+
+memAlloca :: IntrinsicImpl p sym (EmptyCtx ::> Mem ::> BVType PtrWidth)
                            (StructType (EmptyCtx ::> Mem ::> LLVMPointerType))
 memAlloca = mkIntrinsic $ \_ sym
   (regValue -> mem)
@@ -571,18 +605,18 @@ memAlloca = mkIntrinsic $ \_ sym
      blk <- liftIO $ natLit sym (fromIntegral blkNum)
      z <- liftIO $ bvLit sym ptrWidth 0
 
-     let heap' = G.allocMem G.StackAlloc (LLVMPtr blk sz z) (LLVMOffset sz) (memImplHeap mem)
+     let heap' = G.allocMem G.StackAlloc (fromInteger blkNum) sz (memImplHeap mem)
      let ptr = RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV sz Ctx.%> RV z)
      return (Ctx.empty Ctx.%> (RV $ mem{ memImplHeap = heap' }) Ctx.%> RV ptr)
 
-memPushFrame :: IntrinsicImpl sym (EmptyCtx ::> Mem) Mem
+memPushFrame :: IntrinsicImpl p sym (EmptyCtx ::> Mem) Mem
 memPushFrame = mkIntrinsic $ \_ _sym
   (regValue -> mem) -> do
      --liftIO $ putStrLn "MEM PUSH FRAME"
      let heap' = G.pushStackFrameMem (memImplHeap mem)
      return mem{ memImplHeap = heap' }
 
-memPopFrame :: IntrinsicImpl sym (EmptyCtx ::> Mem) Mem
+memPopFrame :: IntrinsicImpl p sym (EmptyCtx ::> Mem) Mem
 memPopFrame = mkIntrinsic $ \_ _sym
   (regValue -> mem) -> do
      --liftIO $ putStrLn "MEM POP FRAME"
@@ -591,7 +625,7 @@ memPopFrame = mkIntrinsic $ \_ _sym
 
 
 translatePtr :: RegValue sym LLVMPointerType
-             -> LLVMPtrExpr (SymExpr sym) PtrWidth
+             -> LLVMPtr sym PtrWidth
 translatePtr (RolledType xs) =
    let RV blk = xs^._1 in
    let RV end = xs^._2 in
@@ -599,12 +633,10 @@ translatePtr (RolledType xs) =
    LLVMPtr blk end off
 
 
-translatePtrBack :: LLVMPtrExpr (SymExpr sym) PtrWidth
+translatePtrBack :: LLVMPtr sym PtrWidth
                  -> IO (RegValue sym LLVMPointerType)
 translatePtrBack (LLVMPtr blk end off) =
   return $ RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV end Ctx.%> RV off)
-translatePtrBack (LLVMOffset _) =
-  fail "Expected pointer value, but got offset value instead"
 
 sextendBVTo :: (1 <= w, IsSymInterface sym)
             => sym
@@ -696,7 +728,7 @@ doMalloc sym mem sz = do
   blk <- liftIO $ natLit sym (fromIntegral blkNum)
   z <- liftIO $ bvLit sym ptrWidth 0
 
-  let heap' = G.allocMem G.HeapAlloc (LLVMPtr blk sz z) (LLVMOffset sz) (memImplHeap mem)
+  let heap' = G.allocMem G.HeapAlloc (fromInteger blkNum) sz (memImplHeap mem)
   let ptr = RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV sz Ctx.%> RV z)
   return (ptr, mem{ memImplHeap = heap' })
 
@@ -705,14 +737,14 @@ mallocRaw
   => sym
   -> MemImpl sym PtrWidth
   -> SymExpr sym (BaseBVType PtrWidth)
-  -> IO (LLVMPtrExpr (SymExpr sym) PtrWidth, MemImpl sym PtrWidth)
+  -> IO (LLVMPtr sym PtrWidth, MemImpl sym PtrWidth)
 mallocRaw sym mem sz = do
   blkNum <- nextBlock (memImplBlockSource mem)
   blk <- natLit sym (fromIntegral blkNum)
   z <- bvLit sym ptrWidth 0
 
   let ptr = LLVMPtr blk sz z
-  let heap' = G.allocMem G.HeapAlloc ptr (LLVMOffset sz) (memImplHeap mem)
+  let heap' = G.allocMem G.HeapAlloc (fromInteger blkNum) sz (memImplHeap mem)
   return (ptr, mem{ memImplHeap = heap' })
 
 
@@ -727,7 +759,7 @@ doMallocHandle sym mem x = do
   blk <- liftIO $ natLit sym (fromIntegral blkNum)
   z <- liftIO $ bvLit sym ptrWidth 0
 
-  let heap' = G.allocMem G.HeapAlloc (LLVMPtr blk z z) (LLVMOffset z) (memImplHeap mem)
+  let heap' = G.allocMem G.HeapAlloc (fromInteger blkNum) z (memImplHeap mem)
   let hMap' = Map.insert blkNum (toDyn x) (memImplHandleMap mem)
   let ptr = RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV z Ctx.%> RV z)
 
@@ -757,9 +789,8 @@ doFree
   -> RegValue sym LLVMPointerType
   -> IO (MemImpl sym PtrWidth)
 doFree sym mem ptr = do
-  let tg = crucibleTermGenerator sym ptrWidth
   let ptr'@(LLVMPtr blk _ _) = translatePtr ptr
-  (c, heap') <- G.freeMem tg ptr' (memImplHeap mem)
+  (c, heap') <- G.freeMem sym ptrWidth ptr' (memImplHeap mem)
 
   -- If this pointer is a handle pointer, remove the associated data
   let hMap' =
@@ -789,7 +820,6 @@ doMemset sym _w mem dest val len = do
   --len_doc <- printSymExpr sym len
   --putStrLn $ unwords ["doMemset:", show dest_doc, show val_doc, show len_doc]
 
-  let tg = crucibleTermGenerator sym ptrWidth
   case asUnsignedBV len of
     Nothing -> do
       -- FIXME? can we lift this restriction?
@@ -801,7 +831,7 @@ doMemset sym _w mem dest val len = do
       let val' = LLVMValInt (knownNat :: NatRepr 8) val
       let xs   = V.generate (fromInteger sz) (\_ -> val')
       let arr  = PE (truePred sym) (LLVMValArray (G.bitvectorType 1) xs)
-      (c, heap') <- G.writeMem tg (translatePtr dest) tp arr (memImplHeap mem)
+      (c, heap') <- G.writeMem sym ptrWidth (translatePtr dest) tp arr (memImplHeap mem)
       addAssertion sym c
          (AssertFailureSimError "Invalid region specified in memset")
       return mem{ memImplHeap = heap' }
@@ -819,10 +849,9 @@ doMemcpy
 doMemcpy sym w mem dest src len = do
   let dest' = translatePtr dest
   let src'  = translatePtr src
-  len' <- LLVMOffset <$> sextendBVTo sym w ptrWidth len
-  let tg = crucibleTermGenerator sym ptrWidth
+  len' <- sextendBVTo sym w ptrWidth len
 
-  (c, heap') <- G.copyMem tg dest' src' len' (memImplHeap mem)
+  (c, heap') <- G.copyMem sym ptrWidth dest' src' len' (memImplHeap mem)
 
   addAssertion sym c
      (AssertFailureSimError "Invalid memory region in memcpy")
@@ -839,17 +868,11 @@ ppPtr (RolledType xs) =
         end_doc = printSymExpr end
         off_doc = printSymExpr off
 
-ppPtrExpr :: IsExpr e => NatRepr w -> LLVMPtrExpr e w -> Doc
-ppPtrExpr _w (LLVMPtr blk _ off) = parens $ blk_doc <> ", " <> off_doc
-  where blk_doc = printSymExpr blk
-        off_doc = printSymExpr off
-ppPtrExpr _w (LLVMOffset off) = printSymExpr off
-
-ppAllocs :: IsSymInterface sym => sym -> [G.MemAlloc (LLVMPtrExpr (SymExpr sym) PtrWidth) (Pred sym)] -> IO Doc
+ppAllocs :: IsSymInterface sym => sym -> [G.MemAlloc sym PtrWidth] -> IO Doc
 ppAllocs sym xs = vcat <$> mapM ppAlloc xs
  where ppAlloc (G.Alloc allocTp base sz) = do
-            let base_doc = ppPtrExpr ptrWidth base
-            let sz_doc   = ppPtrExpr ptrWidth sz
+            let base_doc = text (show base)
+            let sz_doc   = printSymExpr sz
             return $ text (show allocTp) <+> base_doc <+> text "SIZE:" <+> sz_doc
        ppAlloc (G.AllocMerge p a1 a2) = do
             a1_doc <- ppAllocs sym a1
@@ -863,13 +886,13 @@ ppAllocs sym xs = vcat <$> mapM ppAlloc xs
                      (indent 2 a2_doc)
 
 
-ptrAddOffsetOverride :: IntrinsicImpl sym (EmptyCtx ::> LLVMPointerType ::> BVType PtrWidth) LLVMPointerType
+ptrAddOffsetOverride :: IntrinsicImpl p sym (EmptyCtx ::> LLVMPointerType ::> BVType PtrWidth) LLVMPointerType
 ptrAddOffsetOverride = mkIntrinsic $ \_ sym
    (regValue -> x)
    (regValue -> off) ->
      liftIO $ doPtrAddOffset sym x off
 
-ptrSubtractOverride :: IntrinsicImpl sym (EmptyCtx ::> LLVMPointerType ::> LLVMPointerType) (BVType PtrWidth)
+ptrSubtractOverride :: IntrinsicImpl p sym (EmptyCtx ::> LLVMPointerType ::> LLVMPointerType) (BVType PtrWidth)
 ptrSubtractOverride = mkIntrinsic $ \_ sym
    (regValue -> x)
    (regValue -> y) ->
@@ -884,11 +907,7 @@ doPtrSubtract
 doPtrSubtract sym x y = do
    let px = translatePtr x
    let py = translatePtr y
-   diff <- ptrSub sym ptrWidth px py
-   case diff of
-     LLVMOffset off -> return off
-     LLVMPtr _ _ _ ->
-       fail "Expected offset as result of subtraction, but got pointer instead"
+   ptrDiff sym ptrWidth px py
 
 doPtrAddOffset
   :: IsSymInterface sym
@@ -898,15 +917,14 @@ doPtrAddOffset
   -> IO (RegValue sym LLVMPointerType)
 doPtrAddOffset sym x off = do
       let px = translatePtr x
-      let poff = LLVMOffset off
-      (v, p') <- ptrCheckedAdd sym ptrWidth px poff
+      (v, p') <- ptrCheckedAdd sym ptrWidth px off
       let x_doc = ppPtr x
       let off_doc = printSymExpr off
       addAssertion sym v
          (AssertFailureSimError $ unlines ["Pointer arithmetic resulted in invalid pointer:", show x_doc, show off_doc])
       translatePtrBack p'
 
-ptrEqOverride :: IntrinsicImpl sym (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMPointerType) BoolType
+ptrEqOverride :: IntrinsicImpl p sym (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMPointerType) BoolType
 ptrEqOverride = mkIntrinsic $ \_ sym
    (regValue -> mem)
    (regValue -> x)
@@ -926,7 +944,7 @@ ptrEqOverride = mkIntrinsic $ \_ sym
       let py = translatePtr y
       ptrEq sym ptrWidth px py
 
-ptrLeOverride :: IntrinsicImpl sym (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMPointerType) BoolType
+ptrLeOverride :: IntrinsicImpl p sym (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMPointerType) BoolType
 ptrLeOverride = mkIntrinsic $ \_ sym
    (regValue -> mem)
    (regValue -> x)
@@ -944,7 +962,7 @@ ptrLeOverride = mkIntrinsic $ \_ sym
       let py = translatePtr y
       ptrLe sym ptrWidth px py
 
-ptrIsNullOverride :: IntrinsicImpl sym (EmptyCtx ::> LLVMPointerType) BoolType
+ptrIsNullOverride :: IntrinsicImpl p sym (EmptyCtx ::> LLVMPointerType) BoolType
 ptrIsNullOverride = mkIntrinsic $ \_ sym
   (regValue -> x) -> liftIO $ ptrIsNull sym x
 
@@ -954,7 +972,7 @@ isValidPointer :: IsSymInterface sym => sym
                -> IO (Pred sym)
 isValidPointer sym p mem = do
    c1 <- ptrIsNull sym p
-   c2 <- G.isValidPointer (crucibleTermGenerator sym ptrWidth) (translatePtr p) (memImplHeap mem)
+   c2 <- G.isValidPointer sym ptrWidth (translatePtr p) (memImplHeap mem)
    orPred sym c1 c2
 
 ptrIsNull :: IsSymInterface sym
@@ -972,81 +990,8 @@ ptrIsNull sym _p@(RolledType x) = do
     andPred sym pblk poff
 
 
-data LLVMPtrExpr e w
-  = LLVMPtr (e BaseNatType)     --  Block number
-            (e (BaseBVType w))  --  End-of-block offset (1 past end of valid bytes)
-            (e (BaseBVType w))  --  Current offset in block
-  | LLVMOffset (e (BaseBVType w))
-
--- NB, this is a somewhat strange Eq instance.  It is used by
--- the Generic memory model module to compare pointers that are
--- known to be concrete base pointers.
--- Thus, we simply assume that the given values are concrete and
--- have offset 0.  This essentially comes down to comparing the
--- allocation block numbers.
-instance IsExpr e => Eq (LLVMPtrExpr e w) where
-  LLVMPtr b1 _ _== LLVMPtr b2 _ _
-    | Just blk1 <- asNat b1
-    , Just blk2 <- asNat b2 = blk1 == blk2
-         --Debug.trace (unwords ["Comparing blocks:",show blk1, show blk2]) $ blk1 == blk2
-  _ == _ = False
-
-
-instance (IsExpr e, OrdF e) => Ord (LLVMPtrExpr e w) where
-  compare (LLVMPtr _ _ _) (LLVMOffset _) = LT
-  compare (LLVMPtr b1 _ off1) (LLVMPtr b2 _ off2) =
-     case compareF b1 b2 of
-       LTF -> LT
-       GTF -> GT
-       EQF -> case compareF off1 off2 of
-                LTF -> LT
-                GTF -> GT
-                EQF -> EQ
-  compare (LLVMOffset _) (LLVMPtr _ _ _) = GT
-  compare (LLVMOffset off1) (LLVMOffset off2) =
-     case compareF off1 off2 of
-       LTF -> LT
-       GTF -> GT
-       EQF -> EQ
-
-data LLVMVal sym w where
-  LLVMValPtr :: SymNat sym -> SymBV sym w -> SymBV sym w -> LLVMVal sym w
-  LLVMValFunPtr :: CtxRepr args -> TypeRepr ret -> FnVal sym args ret -> LLVMVal sym w
-  LLVMValInt :: (1 <= x) => NatRepr x -> SymBV sym x -> LLVMVal sym w
-  LLVMValReal :: SymReal sym -> LLVMVal sym w
-  LLVMValStruct :: Vector (G.Field G.Type, LLVMVal sym w) -> LLVMVal sym w
-  LLVMValArray :: G.Type -> Vector (LLVMVal sym w) -> LLVMVal sym w
-
-ppPartTermExpr
-  :: IsSymInterface sym
-  => NatRepr w
-  -> PartExpr (Pred sym) (LLVMVal sym w)
-  -> Doc
-ppPartTermExpr _w Unassigned = text "<undef>"
-ppPartTermExpr w (PE _p t) = ppTermExpr w t
-
-ppTermExpr
-  :: IsSymInterface sym
-  => NatRepr w
-  -> LLVMVal sym w
-  -> Doc
-ppTermExpr w t = -- FIXME, do something with the predicate?
-  case t of
-    LLVMValPtr base end off -> text "ptr" <> ppPtrExpr w (LLVMPtr base end off)
-    LLVMValFunPtr _args _ret fnval -> text "fun(" <> (text $ show fnval) <> text ")"
-    LLVMValInt _x v -> printSymExpr v
-    LLVMValReal v -> printSymExpr v
-    LLVMValStruct v -> encloseSep lbrace rbrace comma v''
-      where v'  = fmap (over _2 (ppTermExpr w)) (V.toList v)
-            v'' = map (\(fld,doc) ->
-                        group (text "base+" <> text (show $ G.fieldOffset fld) <+> equals <+> doc))
-                      v'
-    LLVMValArray _tp v -> encloseSep lbracket rbracket comma v'
-      where v' = ppTermExpr w <$> V.toList v
-
 instance Show (LLVMVal sym w) where
   show (LLVMValPtr _ _ _) = "<ptr>"
-  show (LLVMValFunPtr _ _ h) = "<fnptr: "++ show h ++">"
   show (LLVMValInt w _ ) = "<int" ++ show w ++ ">"
   show (LLVMValReal _) = "<real>"
   show (LLVMValStruct xs) =
@@ -1057,344 +1002,6 @@ instance Show (LLVMVal sym w) where
     unwords $ [ "[" ]
            ++ intersperse ", " (map show $ V.toList xs)
            ++ [ "]" ]
-
-crucibleTermGenerator
-   :: (1 <= w, IsSymInterface sym)
-   => sym
-   -> NatRepr w
-   -> G.TermGenerator IO (LLVMPtrExpr (SymExpr sym) w)
-                         (Pred sym)
-                         (PartExpr (Pred sym) (LLVMVal sym w))
-crucibleTermGenerator sym w =
-   G.TG
-   { G.tgPtrWidth = fromIntegral $ natValue w
-   , G.tgPtrDecompose = ptrDecompose sym w
-   , G.tgPtrSizeDecompose = ptrSizeDecompose sym w
-   , G.tgConstPtr = \x -> LLVMOffset <$> bvLit sym w (fromIntegral x)
-   , G.tgAddPtr = ptrAdd sym w
-   , G.tgCheckedAddPtr = ptrCheckedAdd sym w
-   , G.tgSubPtr = ptrSub sym w
-
-   , G.tgFalse = falsePred sym
-   , G.tgTrue = truePred sym
-   , G.tgPtrEq = ptrEq sym w
-   , G.tgPtrLe = \x y -> do
-        ans <- ptrLe sym w x y
-        --x_doc <- ppPtrExpr sym w x
-        --y_doc <- ppPtrExpr sym w y
-        --ans_doc <- printSymExpr ans
-        --putStrLn (unwords ["PTR <=", show x_doc, show y_doc, show ans_doc])
-        return ans
-
-   , G.tgAnd = andPred sym
-   , G.tgOr = orPred sym
-   , G.tgMuxCond = itePred sym
-
-   , G.tgUndefValue = \_tp -> return $ Unassigned
-   , G.tgApplyCtorF = applyCtorFLLVMVal sym w
-   , G.tgApplyViewF = applyViewFLLVMVal sym w
-   , G.tgMuxTerm = \c _ -> muxLLVMVal sym w c
-   }
-
-
-
-ptrDecompose :: (1 <= w, IsExprBuilder sym)
-             => sym
-             -> NatRepr w
-             -> LLVMPtrExpr (SymExpr sym) w
-             -> IO (G.AddrDecomposeResult (LLVMPtrExpr (SymExpr sym) w))
-ptrDecompose sym w (LLVMPtr base@(asNat -> Just _) end (asUnsignedBV -> Just off)) = do
-  z <- bvLit sym w 0
-  return (G.ConcreteOffset (LLVMPtr base end z) off)
-ptrDecompose sym w (LLVMPtr base@(asNat -> Just _) end off) = do
-  z <- bvLit sym w 0
-  return $ G.SymbolicOffset (LLVMPtr base end z) (LLVMOffset off)
-ptrDecompose _sym _w p@(LLVMPtr _ _ _) = do
-  return $ G.Symbolic p
-ptrDecompose _ _ (LLVMOffset _) =
-  fail "Attempted to treat raw offset as pointer"
-
-ptrSizeDecompose
-  :: IsExprBuilder sym
-  => sym
-  -> NatRepr w
-  -> LLVMPtrExpr (SymExpr sym) w
-  -> IO (Maybe Integer)
-ptrSizeDecompose _ _ (LLVMOffset (asUnsignedBV -> Just off)) =
-  return (Just off)
-ptrSizeDecompose _ _ _ = return Nothing
-
-
-ptrEq :: (1 <= w, IsSymInterface sym)
-      => sym
-      -> NatRepr w
-      -> LLVMPtrExpr (SymExpr sym) w
-      -> LLVMPtrExpr (SymExpr sym) w
-      -> IO (Pred sym)
-ptrEq sym _w (LLVMPtr base1 _ off1) (LLVMPtr base2 _ off2) = do
-  p1 <- natEq sym base1 base2
-  p2 <- bvEq sym off1 off2
-  andPred sym p1 p2
-ptrEq sym _w (LLVMOffset off1) (LLVMOffset off2) = do
-  bvEq sym off1 off2
-
--- Comparison of a pointer to the null pointer (offset 0) is allowed,
--- but all other direct ptr/offset comparisons are not allowed
-ptrEq sym w (LLVMOffset off) (LLVMPtr _ _ _) = do
-  z <- bvLit sym w 0
-  p <- bvEq sym off z
-  addAssertion sym p (AssertFailureSimError "Invalid attempt to compare a pointer and a raw offset for equality")
-  return (falsePred sym)
-ptrEq sym w (LLVMPtr _ _ _) (LLVMOffset off) = do
-  z <- bvLit sym w 0
-  p <- bvEq sym off z
-  addAssertion sym p (AssertFailureSimError "Invalid attempt to compare a pointer and a raw offset for equality")
-  return (falsePred sym)
-
-ptrLe :: (1 <= w, IsSymInterface sym)
-      => sym
-      -> NatRepr w
-      -> LLVMPtrExpr (SymExpr sym) w
-      -> LLVMPtrExpr (SymExpr sym) w
-      -> IO (Pred sym)
-ptrLe sym _w (LLVMPtr base1 _ off1) (LLVMPtr base2 _ off2) = do
-  p1 <- natEq sym base1 base2
-  addAssertion sym p1 (AssertFailureSimError "Attempted to compare pointers from different allocations")
-  bvSle sym off1 off2
-ptrLe sym _w (LLVMOffset off1) (LLVMOffset off2) = do
-  bvSle sym off1 off2
-ptrLe _ _ _ _ =
-  fail "Invalid attempt to compare a pointer and a raw offset"
-
-
-ptrAdd :: (1 <= w, IsExprBuilder sym)
-       => sym
-       -> NatRepr w
-       -> LLVMPtrExpr (SymExpr sym) w
-       -> LLVMPtrExpr (SymExpr sym) w
-       -> IO (LLVMPtrExpr (SymExpr sym) w)
-ptrAdd sym _w (LLVMPtr base end off1) (LLVMOffset off2) = do
-  off' <- bvAdd sym off1 off2
-  return $ LLVMPtr base end off'
-ptrAdd sym _w (LLVMOffset off1) (LLVMPtr base end off2) = do
-  off' <- bvAdd sym off1 off2
-  return $ LLVMPtr base end off'
-ptrAdd sym _w (LLVMOffset off1) (LLVMOffset off2) = do
-  off' <- bvAdd sym off1 off2
-  return $ LLVMOffset off'
-ptrAdd _sym _w (LLVMPtr _ _ _) (LLVMPtr _ _ _) = do
-  fail "Attempted to add to pointers"
-
-ptrCheckedAdd
-       :: (1 <= w, IsExprBuilder sym)
-       => sym
-       -> NatRepr w
-       -> LLVMPtrExpr (SymExpr sym) w
-       -> LLVMPtrExpr (SymExpr sym) w
-       -> IO (Pred sym, LLVMPtrExpr (SymExpr sym) w)
-ptrCheckedAdd sym w (LLVMPtr base end off1) (LLVMOffset off2) = do
-  z <- bvLit sym w 0
-  (p1, off') <- addSignedOF sym off1 off2
-  p1' <- notPred sym p1
-  p2 <- bvSle sym off' end
-  p3 <- bvSle sym z off'
-  p <- andPred sym p1' =<< andPred sym p2 p3
-  return $ (p, LLVMPtr base end off')
-ptrCheckedAdd sym w (LLVMOffset off1) (LLVMPtr base end off2) = do
-  z <- bvLit sym w 0
-  (p1, off') <- addSignedOF sym off1 off2
-  p1' <- notPred sym p1
-  p2 <- bvSle sym off' end
-  p3 <- bvSle sym z off'
-  p <- andPred sym p1' =<< andPred sym p2 p3
-  return $ (p, LLVMPtr base end off')
-ptrCheckedAdd sym _w (LLVMOffset off1) (LLVMOffset off2) = do
-  (p, off') <- addSignedOF sym off1 off2
-  p' <- notPred sym p
-  return $ (p', LLVMOffset off')
-ptrCheckedAdd _sym _w (LLVMPtr _ _ _) (LLVMPtr _ _ _) = do
-  fail "Attempted to add to pointers"
-
-
-ptrSub :: (1 <= w, IsSymInterface sym)
-       => sym
-       -> NatRepr w
-       -> LLVMPtrExpr (SymExpr sym) w
-       -> LLVMPtrExpr (SymExpr sym) w
-       -> IO (LLVMPtrExpr (SymExpr sym) w)
-ptrSub sym _w (LLVMPtr base1 _ off1) (LLVMPtr base2 _ off2) = do
-  p <- natEq sym base1 base2
-  addAssertion sym p (AssertFailureSimError "Attempted to subtract pointers from different allocations")
-  diff <- bvSub sym off1 off2
-  return (LLVMOffset diff)
-ptrSub sym _w (LLVMOffset off1) (LLVMOffset off2) = do
-  diff <- bvSub sym off1 off2
-  return (LLVMOffset diff)
-ptrSub _sym _w (LLVMOffset _) (LLVMPtr _ _ _) = do
-  fail "Cannot substract pointer value from raw offset"
-ptrSub sym _w (LLVMPtr base end off1) (LLVMOffset off2) = do
-  diff <- bvSub sym off1 off2
-  return (LLVMPtr base end diff)
-
-
-applyCtorFLLVMVal :: forall sym w
-    . (1 <= w, IsSymInterface sym)
-   => sym
-   -> NatRepr w
-   -> G.ValueCtorF (PartExpr (Pred sym) (LLVMVal sym w))
-   -> IO (PartExpr (Pred sym) (LLVMVal sym w))
-applyCtorFLLVMVal sym _w ctor =
-  case ctor of
-    G.ConcatBV low_w  (PE p1 (LLVMValInt low_w' low))
-               high_w (PE p2 (LLVMValInt high_w' high))
-       | fromIntegral (low_w*8)  == natValue low_w' &&
-         fromIntegral (high_w*8) == natValue high_w' -> do
-            bv <- bvConcat sym high low
-            Just LeqProof <- return $ isPosNat (addNat high_w' low_w')
-            p <- andPred sym p1 p2
-            return $ PE p $ LLVMValInt (addNat high_w' low_w') bv
-    G.ConsArray tp (PE p1 hd) n (PE p2 (LLVMValArray tp' vec))
-       | tp == tp' && n == fromIntegral (V.length vec) -> do
-          p <- andPred sym p1 p2
-          return $ PE p $ LLVMValArray tp' (V.cons hd vec)
-    G.AppendArray tp n1 (PE p1 (LLVMValArray tp1 v1)) n2 (PE p2 (LLVMValArray tp2 v2))
-       | tp == tp1 && tp == tp2 &&
-         n1 == fromIntegral (V.length v1) &&
-         n2 == fromIntegral (V.length v2) -> do
-           p <- andPred sym p1 p2
-           return $ PE p $ LLVMValArray tp (v1 V.++ v2)
-    G.MkArray tp vec -> do
-       let f :: PartExpr (Pred sym) (LLVMVal sym w) -> StateT (Pred sym) (MaybeT IO) (LLVMVal sym w)
-           f Unassigned = mzero
-           f (PE p1 x) = do
-               p0 <- get
-               p <- liftIO $ andPred sym p0 p1
-               put p
-               return x
-       x <- runMaybeT $ flip runStateT (truePred sym) $ (traverse f vec)
-       case x of
-         Nothing -> return $ Unassigned
-         Just (vec',p) -> return $ PE p $ LLVMValArray tp vec'
-
-    G.MkStruct vec -> do
-       let f :: (G.Field G.Type, PartExpr (Pred sym) (LLVMVal sym w))
-             -> StateT (Pred sym) (MaybeT IO) (G.Field G.Type, LLVMVal sym w)
-           f (_fld, Unassigned) = mzero
-           f (fld, PE p1 x) = do
-               p0 <- get
-               p <- liftIO $ andPred sym p0 p1
-               put p
-               return (fld, x)
-       x <- runMaybeT $ flip runStateT (truePred sym) $ (traverse f vec)
-       case x of
-         Nothing -> return $ Unassigned
-         Just (vec',p) -> return $ PE p $ LLVMValStruct vec'
-
-    _ -> return $ Unassigned
-
-    -- G.BVToFloat _ ->
-    --    fail "applyCtoreFLLVMVal: Floating point values not supported"
-    -- G.BVToDouble _ ->
-    --    fail "applyCtoreFLLVMVal: Floating point values not supported"
-
-
-applyViewFLLVMVal
-   :: (1 <= w, IsSymInterface sym)
-   => sym
-   -> NatRepr w
-   -> G.ViewF (PartExpr (Pred sym) (LLVMVal sym w))
-   -> IO (PartExpr (Pred sym) (LLVMVal sym w))
-applyViewFLLVMVal sym _wptr v =
-  case v of
-    G.SelectLowBV low hi (PE p (LLVMValInt w bv))
-      | Just (Some (low_w)) <- someNat (fromIntegral low)
-      , Just (Some (hi_w))  <- someNat (fromIntegral hi)
-      , Just LeqProof <- isPosNat low_w
-      , Just Refl <- testEquality (addNat low_w hi_w) w
-      , Just LeqProof <- testLeq low_w w
-      -> do
-        bv' <- bvSelect sym (knownNat :: NatRepr 0) low_w bv
-        return $ PE p $ LLVMValInt low_w bv'
-    G.SelectHighBV low hi (PE p (LLVMValInt w bv))
-      | Just (Some (low_w)) <- someNat (fromIntegral low)
-      , Just (Some (hi_w))  <- someNat (fromIntegral hi)
-      , Just LeqProof <- isPosNat hi_w
-      , Just Refl <- testEquality (addNat low_w hi_w) w
-      -> do
-        bv' <- bvSelect sym low_w hi_w bv
-        return $ PE p $ LLVMValInt hi_w bv'
-    G.FloatToBV _ ->
-      return $ Unassigned
-      --fail "applyViewFLLVM: Floating point values not supported"
-    G.DoubleToBV _ ->
-      return $ Unassigned
-      --fail "applyViewFLLVM: Floating point values not supported"
-    G.ArrayElt sz tp idx (PE p (LLVMValArray tp' vec))
-      | sz == fromIntegral (V.length vec)
-      , 0 <= idx
-      , idx < sz
-      , tp == tp' ->
-        return $ PE p $ (vec V.! fromIntegral idx)
-    G.FieldVal flds idx (PE p (LLVMValStruct vec))
-      | flds == fmap fst vec
-      , 0 <= idx
-      , idx < V.length vec ->
-          return $ PE p $ snd $ (vec V.! idx)
-    _ -> return Unassigned
-
-muxLLVMVal :: forall sym w
-    . (1 <= w, IsSymInterface sym)
-   => sym
-   -> NatRepr w
-   -> Pred sym
-   -> PartExpr (Pred sym) (LLVMVal sym w)
-   -> PartExpr (Pred sym) (LLVMVal sym w)
-   -> IO (PartExpr (Pred sym) (LLVMVal sym w))
-muxLLVMVal sym _w p = mux
- where
-   mux Unassigned Unassigned = return Unassigned
-   mux Unassigned (PE p2 y)  = PE <$> (itePred sym p (falsePred sym) p2) <*> return y
-   mux (PE p1 x) Unassigned  = PE <$> (itePred sym p p1 (falsePred sym)) <*> return x
-   mux (PE p1 x) (PE p2 y) = do
-     mz <- runMaybeT $ muxval x y
-     case mz of
-       Nothing -> return $ Unassigned
-       Just z  -> PE <$> itePred sym p p1 p2 <*> return z
-
-   muxval :: LLVMVal sym w -> LLVMVal sym w -> MaybeT IO (LLVMVal sym w)
-
-   muxval (LLVMValPtr base1 end1 off1) (LLVMValPtr base2 end2 off2) = do
-     base <- liftIO $ natIte sym p base1 base2
-     end  <- liftIO $ bvIte sym p end1 end2
-     off  <- liftIO $ bvIte sym p off1 off2
-     return $ LLVMValPtr base end off
-
-   muxval (LLVMValFunPtr args1 ret1 h1) (LLVMValFunPtr args2 ret2 h2)
-     | Just Refl <- testEquality args1 args2
-     , Just Refl <- testEquality ret1 ret2 = do
-        h' <- liftIO $ muxHandle sym p h1 h2
-        return $ LLVMValFunPtr args1 ret1 h'
-
-   muxval (LLVMValReal x) (LLVMValReal y) = do
-     z  <- liftIO $ realIte sym p x y
-     return $ LLVMValReal z
-
-   muxval (LLVMValInt wx x) (LLVMValInt wy y)
-     | Just Refl <- testEquality wx wy = do
-         z <- liftIO $ bvIte sym p x y
-         return $ LLVMValInt wx z
-
-   muxval (LLVMValStruct fls1) (LLVMValStruct fls2)
-     | fmap fst fls1 == fmap fst fls2 = do
-         fls <- traverse id $ V.zipWith (\(f,x) (_,y) -> (f,) <$> muxval x y) fls1 fls2
-         return $ LLVMValStruct fls
-
-   muxval (LLVMValArray tp1 v1) (LLVMValArray tp2 v2)
-     | tp1 == tp2 && V.length v1 == V.length v2 = do
-         v <- traverse id $ V.zipWith muxval v1 v2
-         return $ LLVMValArray tp1 v
-
-   muxval _ _ = mzero
 
 
 -- | Load a null-terminated string from the memory.  The pointer to read from

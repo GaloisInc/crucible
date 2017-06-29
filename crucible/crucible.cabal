@@ -1,5 +1,5 @@
 Name:          crucible
-Version:       0.2
+Version:       0.3.1
 Author:        Galois Inc.
 Maintainer:    jhendrix@galois.com, rdockins@galois.com
 Copyright:     (c) Galois, Inc 2014-2017
@@ -28,7 +28,7 @@ flag unsafe-operations
 library
   build-depends:
     base >= 4.8 && < 4.10,
-    th-abstraction >=0.1 && <0.2,
+    th-abstraction >=0.1 && <0.3,
     ansi-wl-pprint,
     attoparsec,
     bimap >= 0.2,
@@ -46,7 +46,7 @@ library
     io-streams,
     lens,
     mtl,
-    parameterized-utils >= 0.1.9 && < 0.1.10,
+    parameterized-utils >= 0.1.9 && <= 0.1.10,
     process,
     scientific,
     smtLib,
@@ -74,24 +74,28 @@ library
     Lang.Crucible.Analysis.Shape
     Lang.Crucible.Analysis.Taint
     Lang.Crucible.BaseTypes
-    Lang.Crucible.Core
+    Lang.Crucible.CFG.Common
+    Lang.Crucible.CFG.Core
+    Lang.Crucible.CFG.Expr
+    Lang.Crucible.CFG.ExtractSubgraph
+    Lang.Crucible.CFG.Generator
+    Lang.Crucible.CFG.Reg
+    Lang.Crucible.CFG.SSAConversion
     Lang.Crucible.Config
-    Lang.Crucible.ExtractSubgraph
     Lang.Crucible.FunctionHandle
     Lang.Crucible.FunctionName
-    Lang.Crucible.Generator
     Lang.Crucible.MATLAB.Intrinsics.Solver
     Lang.Crucible.MATLAB.Types
     Lang.Crucible.ProgramLoc
-    Lang.Crucible.RegCFG
-    Lang.Crucible.SSAConversion
     Lang.Crucible.Simulator.CallFns
     Lang.Crucible.Simulator.CallFrame
     Lang.Crucible.Simulator.Evaluation
     Lang.Crucible.Simulator.ExecutionTree
+    Lang.Crucible.Simulator.Frame
     Lang.Crucible.Simulator.Intrinsics
+    Lang.Crucible.Simulator.GlobalState
     Lang.Crucible.Simulator.MatlabValue
-    Lang.Crucible.Simulator.MSSim
+    Lang.Crucible.Simulator.OverrideSim
     Lang.Crucible.Simulator.RegMap
     Lang.Crucible.Simulator.RegValue
     Lang.Crucible.Simulator.VarRecord

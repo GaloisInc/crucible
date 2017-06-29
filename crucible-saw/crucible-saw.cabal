@@ -14,10 +14,13 @@ Description:
 
 library
   build-depends:
+    abcBridge,
+    aig,
     ansi-wl-pprint,
     base >= 4.7 && < 4.10,
     containers,
     crucible >= 0.1,
+    cryptol-verifier,
     directory,
     galois-matlab,
     lens,
@@ -25,6 +28,7 @@ library
     mtl,
     parameterized-utils,
     saw-core >= 0.1,
+    saw-core-aig,
     text,
     transformers,
     vector

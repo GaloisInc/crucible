@@ -21,6 +21,7 @@
 ------------------------------------------------------------------------
 
 {-# LANGUAGE EmptyDataDecls #-}
+{-# LANGUAGE RankNTypes #-}
 module Lang.Crucible.Solver.OnlineBackend
   ( -- * OnlineBackend
     OnlineBackend
@@ -53,7 +54,7 @@ import           System.Process
 
 import qualified Lang.Crucible.Config as CFG
 import           Lang.Crucible.ProgramLoc
-import           Lang.Crucible.Simulator.MSSim (SimConfig)
+import           Lang.Crucible.Simulator.ExecutionTree (SimConfig)
 import           Lang.Crucible.Simulator.SimError
 import qualified Lang.Crucible.Simulator.Utils.Environment as Env
 import           Lang.Crucible.Solver.Adapter
@@ -68,9 +69,9 @@ import           Lang.Crucible.Solver.SimpleBackend.SMTWriter
 import qualified Lang.Crucible.Solver.SimpleBackend.Yices as Yices
 import qualified Lang.Crucible.Solver.SimpleBuilder as SB
 
-type OnlineBackend t = SB.SimpleBuilder t OnlineBackendState
+type OnlineBackend p t = SB.SimpleBuilder t (OnlineBackendState p)
 
-yicesOnlineAdapter :: SolverAdapter OnlineBackendState
+yicesOnlineAdapter :: SolverAdapter (OnlineBackendState p)
 yicesOnlineAdapter =
    Yices.yicesAdapter
    { solver_adapter_check_sat = \sym _ _ p cont -> do
@@ -145,7 +146,7 @@ shutdownYicesProcess yices = do
     ExitFailure x ->
        fail $ "yices exited with unexpected code: "++show x
 
-type OnlineConfig t = SimConfig (OnlineBackend t)
+type OnlineConfig p t = SimConfig p (OnlineBackend p t)
 
 type AssertionSeq t = Seq (Assertion (SB.BoolElt t))
 
@@ -156,18 +157,18 @@ levelPreds f (s,c) = (,) <$> (traverse . assertPred) f s <*> f c
 
 -- | This represents the state of the backend along a given execution.
 -- It contains the current assertions and program location.
-data OnlineBackendState t
+data OnlineBackendState p t
    = OnlineBackendState { _prevAssertionLevels :: !(Seq (PrevAssertionLevel t))
                         , _curAssertionLevel   :: !(AssertionSeq t)
                         , _proofObligs :: Seq (Seq (SB.BoolElt t), Assertion (SB.BoolElt t))
                         , _programLoc  :: !ProgramLoc
                           -- ^ Number of times we have pushed
                         , yicesProc    :: !(IORef (Maybe (Yices.YicesProcess t YicesOnline)))
-                        , config       :: !(Maybe (OnlineConfig t))
+                        , config       :: !(Maybe (OnlineConfig p t))
                         }
 
 -- | Returns an initial execution state.
-initialOnlineBackendState :: IO (OnlineBackendState t)
+initialOnlineBackendState :: IO (OnlineBackendState p t)
 initialOnlineBackendState = do
   procref <- newIORef Nothing
   return $! OnlineBackendState
@@ -180,26 +181,25 @@ initialOnlineBackendState = do
               }
 
 -- | The sequence of accumulated assertion obligations
-proofObligs :: Simple Lens (OnlineBackendState t) (Seq (Seq (SB.BoolElt t), Assertion (SB.BoolElt t)))
+proofObligs :: Simple Lens (OnlineBackendState p t) (Seq (Seq (SB.BoolElt t), Assertion (SB.BoolElt t)))
 proofObligs = lens _proofObligs (\s v -> s { _proofObligs = v })
 
 -- | The assertions from previous levels
-prevAssertionLevels :: Simple Lens (OnlineBackendState t) (Seq (PrevAssertionLevel t))
+prevAssertionLevels :: Simple Lens (OnlineBackendState p t) (Seq (PrevAssertionLevel t))
 prevAssertionLevels = lens _prevAssertionLevels (\s v -> s { _prevAssertionLevels = v })
 
 -- | The current assertion level
-curAssertionLevel :: Simple Lens (OnlineBackendState t) (AssertionSeq t)
+curAssertionLevel :: Simple Lens (OnlineBackendState p t) (AssertionSeq t)
 curAssertionLevel = lens _curAssertionLevel (\s v -> s { _curAssertionLevel = v })
 
--- | The current location in the program.
-programLoc :: Simple Lens (OnlineBackendState t) ProgramLoc
-programLoc = lens _programLoc (\s v -> s { _programLoc = v })
+instance HasProgramLoc (OnlineBackendState p t) where
+  programLoc = lens _programLoc (\s v -> s { _programLoc = v })
 
 appendAssertion :: ProgramLoc
                 -> SB.BoolElt t
                 -> SimErrorReason
-                -> OnlineBackendState t
-                -> OnlineBackendState t
+                -> OnlineBackendState p t
+                -> OnlineBackendState p t
 appendAssertion l p m s =
   let ast = Assertion l p (Just m) in
   s & appendAssertions (Seq.singleton ast)
@@ -209,34 +209,30 @@ appendAssertion l p m s =
 
 appendAssumption :: ProgramLoc
                 -> SB.BoolElt t
-                -> OnlineBackendState t
-                -> OnlineBackendState t
+                -> OnlineBackendState p t
+                -> OnlineBackendState p t
 appendAssumption l p s =
   s & appendAssertions (Seq.singleton (Assertion l p Nothing))
 
 -- | Append assertions to path state.
 appendAssertions :: Seq (Assertion (SB.BoolElt t))
-                 -> OnlineBackendState t
-                 -> OnlineBackendState t
+                 -> OnlineBackendState p t
+                 -> OnlineBackendState p t
 appendAssertions pairs = curAssertionLevel %~ (Seq.>< pairs)
 
-
-instance HasProgramLoc (OnlineBackendState t) where
-  setProgramLoc = set programLoc
-
-setConfig :: OnlineBackend t -> OnlineConfig t -> IO ()
+setConfig :: OnlineBackend p t -> OnlineConfig p t -> IO ()
 setConfig sym cfg = do
   st <- readIORef (SB.sbStateManager sym)
   writeIORef (SB.sbStateManager sym) $! st { config = Just cfg }
 
-getConfig :: OnlineBackend t -> IO (OnlineConfig t)
+getConfig :: OnlineBackend p t -> IO (OnlineConfig p t)
 getConfig sym = do
   st <- readIORef (SB.sbStateManager sym)
   case config st of
     Nothing -> fail "Online backend has not been configured!"
     Just cfg -> return cfg
 
-getYicesProcess :: OnlineBackend t -> IO (Yices.YicesProcess t YicesOnline)
+getYicesProcess :: OnlineBackend p t -> IO (Yices.YicesProcess t YicesOnline)
 getYicesProcess sym = do
   st <- readIORef (SB.sbStateManager sym)
   mproc <- readIORef (yicesProc st)
@@ -252,7 +248,7 @@ getYicesProcess sym = do
       return p
 
 withOnlineBackend :: NonceGenerator IO t
-                  -> (OnlineBackend t -> IO a)
+                  -> (OnlineBackend p t -> IO a)
                   -> IO a
 withOnlineBackend gen action = do
   st <- initialOnlineBackendState
@@ -267,7 +263,7 @@ withOnlineBackend gen action = do
    Right x -> return x
 
 checkSatisfiable
-    :: OnlineBackend t
+    :: OnlineBackend p t
     -> SB.BoolElt t
     -> IO (SatResult ())
 checkSatisfiable sym p = do
@@ -281,11 +277,11 @@ checkSatisfiable sym p = do
 
 
 -- | Get the assertion level of a onlinebackend state backend.
-assertionLevel :: OnlineBackendState t -> Int
+assertionLevel :: OnlineBackendState p t -> Int
 assertionLevel s = Seq.length $ s^.prevAssertionLevels
 
 -- | Backtract to a given assertion level
-backtrackToLevel :: OnlineBackend t -> Int -> IO ()
+backtrackToLevel :: OnlineBackend p t -> Int -> IO ()
 backtrackToLevel sym prev_lvl = do
   -- Get height of current stack
   cur_lvl <- assertionLevel <$> readIORef (SB.sbStateManager sym)
@@ -301,7 +297,7 @@ checkedDropSeq cnt s
   | otherwise = error $ "internal error: checkedDropSeq given bad length"
 
 -- | Get assertions to push
-assertionsToPush :: OnlineBackendState t
+assertionsToPush :: OnlineBackendState p t
                  -> Int -- ^ Current level
                  -> Int -- ^ Assertions already added in current level
                  -> (AssertionSeq t, [(SB.BoolElt t, AssertionSeq t)])
@@ -317,14 +313,14 @@ assertionsToPush s cur_lvl assert_cnt =
 assertToYices :: WriterConn t (Yices.Connection YicesOnline) -> AssertionSeq t -> IO ()
 assertToYices conn = traverse_ (\a -> Yices.assume conn (a^.assertPred))
 
-assertionPreds :: Simple Traversal (OnlineBackendState t) (SB.BoolElt t)
+assertionPreds :: Simple Traversal (OnlineBackendState p t) (SB.BoolElt t)
 assertionPreds f s =
   (\p c -> s & prevAssertionLevels .~ p
              & curAssertionLevel   .~ c)
     <$> (traverse . levelPreds) f (s^.prevAssertionLevels)
     <*> (traverse . assertPred) f (s^.curAssertionLevel)
 
-instance SB.IsSimpleBuilderState OnlineBackendState where
+instance SB.IsSimpleBuilderState (OnlineBackendState p) where
   sbAddAssertion sym p m =
     case asConstantPred p of
       Just True ->

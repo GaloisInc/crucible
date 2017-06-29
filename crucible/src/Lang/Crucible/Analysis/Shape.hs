@@ -56,7 +56,8 @@ import qualified Lang.MATLAB.MultiDimArray as MDA
 import           Lang.MATLAB.Utils.Nat (Nat)
 
 import           Lang.Crucible.Analysis.ForwardDataflow
-import           Lang.Crucible.Core
+import           Lang.Crucible.CFG.Core
+import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.MATLAB.Types
 

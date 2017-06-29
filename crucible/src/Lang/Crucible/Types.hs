@@ -688,16 +688,14 @@ instance Hashable (TypeRepr ty) where
 
 instance Show (FloatInfoRepr flt) where
   showsPrec = $(U.structuralShowsPrec [t|FloatInfoRepr|])
+instance ShowF FloatInfoRepr
 
 instance Pretty (TypeRepr tp) where
   pretty = text . show
+
 instance Show (TypeRepr tp) where
   showsPrec = $(U.structuralShowsPrec [t|TypeRepr|])
-
-instance ShowF FloatInfoRepr where
-  showF = show
-instance ShowF TypeRepr where
-  showF = show
+instance ShowF TypeRepr
 
 
 instance TestEquality FloatInfoRepr where
@@ -719,6 +717,7 @@ instance Hashable (TypeableType x) where
   hashWithSalt s (TypeableType :: TypeableType x) =
     case typeRepFingerprint (typeRep (Proxy :: Proxy x)) of
       Fingerprint f1 f2 -> hashWithSalt (hashWithSalt s f1) f2
+
 instance Show (TypeableType x) where
   show TypeableType = show $ typeRep (Proxy :: Proxy x)
 
@@ -726,8 +725,11 @@ instance Eq (TypeableValue a) where
   TypeableValue a == TypeableValue b = a == b
 instance Ord (TypeableValue a) where
   compare (TypeableValue a) (TypeableValue b) = compare a b
+
 instance Show (TypeableValue a) where
   show (TypeableValue a) = show a
+instance ShowF TypeableValue
+
 instance TestEquality TypeableValue where
   testEquality (TypeableValue x :: TypeableValue xty) (TypeableValue y :: TypeableValue yty) =
     case eqT of
@@ -746,8 +748,7 @@ instance OrdF TypeableValue where
              LT -> LTF
              GT -> GTF
              EQ -> error "compareF for TypeableValue: eqT disagrees with compare"
-instance ShowF TypeableValue where
-  showF (TypeableValue x) = show x
+
 
 instance TestEquality TypeRepr where
   testEquality = $(U.structuralTypeEquality [t|TypeRepr|]

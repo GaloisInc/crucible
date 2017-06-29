@@ -7,6 +7,50 @@ Maintainer       : Joe Hendrix <jhendrix@galois.com>
 Defines interface between the simulator and terms that are sent to the
 SAT or SMT solver.  The simulator can use a richer set of types, but the
 symbolic values must be representable by types supported by this interface.
+
+A solver backend is defined in terms of a type parameter @sym@, which
+is the type that tracks whatever state or context is needed by that
+particular backend. To instantiate the solver interface, one must
+provide several type family definitions and class instances for @sym@:
+
+  [@type 'SymExpr' sym :: 'BaseType' -> *@]
+  Type of symbolic expressions.
+
+  [@type 'BoundVar' sym :: 'BaseType' -> *@]
+  Representation of bound variables in symbolic expressions.
+
+  [@type 'SymFn' sym :: Ctx BaseType -> BaseType -> *@]
+  Representation of symbolic functions.
+
+  [@type 'SymPathState' sym :: *@]
+  Representation of symbolic path conditions.
+
+  [@instance 'IsBoolExprBuilder' sym@]
+  Functions for building boolean formulas.
+
+  [@instance 'IsExprBuilder' sym@]
+  Functions for building expressions of various types.
+
+  [@instance 'IsSymInterface' sym@]
+  Functions for building expressions with bound variables and quantifiers.
+
+  [@instance 'IsBoolSolver' sym@]
+  Functions for managing path conditions and assertions.
+
+  [@instance 'IsPred' ('SymExpr' sym 'BaseBoolType')@]
+  Recognizer for boolean literals.
+
+  [@instance 'IsExpr' ('SymExpr' sym)@]
+  Recognizers for various kinds of literal expressions.
+
+  [@instance 'Lang.Crucible.ProgramLoc.HasProgramLoc' ('SymPathState' sym)@]
+
+  [@instance 'OrdF' ('SymExpr' sym)@]
+
+  [@instance 'TestEquality' ('SymExpr' sym)@]
+
+  [@instance 'HashableF' ('SymExpr' sym)@]
+
 -}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
@@ -23,10 +67,14 @@ symbolic values must be representable by types supported by this interface.
 {-# LANGUAGE TypeOperators #-}
 module Lang.Crucible.Solver.Interface
   ( -- * Interface classes
+    -- ** IsExpr
     IsExpr(..)
+    -- ** IsExprBuilder
   , IsExprBuilder(..)
-  , IsSymInterface(..)
+    -- ** IsSymInterface
   , BoundVar
+  , IsSymInterface(..)
+    -- * Bound variables
   , SymEncoder(..)
   , ArrayResultWrapper(..)
     -- * Type Aliases
@@ -126,17 +174,21 @@ type SymReal sym = SymExpr sym BaseRealType
 -- | Symbolic complex numbers.
 type SymCplx sym = SymExpr sym BaseComplexType
 
+-- | Symbolic structures.
 type SymStruct sym flds = SymExpr sym (BaseStructType flds)
 
--- | Symbolic arrays
+-- | Symbolic arrays.
 type SymArray sym idx b = SymExpr sym (BaseArrayType idx b)
 
+-- | Symbolic bitvectors.
 type SymBV sym n = SymExpr sym (BaseBVType n)
 
 ------------------------------------------------------------------------
--- Type families fo rhte interface.
+-- Type families for the interface.
 
 -- | Type of bound variable associated with symbolic state.
+--
+-- This type is used by some methods in class 'IsSymInterface'.
 type family BoundVar (sym :: *) :: BaseType -> *
 
 ------------------------------------------------------------------------
@@ -253,6 +305,9 @@ instance HashableF e => HashableF (ArrayResultWrapper e idx) where
 -- IsExprBuilder
 
 -- | This class allows the simulator to build symbolic expressions.
+--
+-- Methods of this class refer to type families @'SymExpr' sym@
+-- and @'SymFn' sym@.
 class ( IsBoolExprBuilder sym
       , IsExpr (SymExpr sym)
       , HashableF (SymExpr sym)
@@ -303,13 +358,16 @@ class ( IsBoolExprBuilder sym
   natEq :: sym -> SymNat sym -> SymNat sym -> IO (Pred sym)
   natEq sym x y = isEq sym x y
 
-  -- | 'natLe sym x y' returns 'true' if 'x <= y'.
+  -- | @natLe sym x y@ returns 'true' if @x <= y@.
   natLe :: sym -> SymNat sym -> SymNat sym -> IO (Pred sym)
 
   natLt :: sym -> SymNat sym -> SymNat sym -> IO (Pred sym)
   natLt sym x y = notPred sym =<< natLe sym y x
 
-  -- | Return true if two expressions are equal.
+  -- | Return true if two expressions are equal. The default
+  -- implementation dispatches 'eqPred', 'bvEq', 'natEq', 'intEq',
+  -- 'realEq', 'cplxEq', 'structEq', or 'arrayEq', depending on the
+  -- type.
   isEq :: sym -> SymExpr sym tp -> SymExpr sym tp -> IO (Pred sym)
   isEq sym x y =
     case exprType x of
@@ -322,7 +380,10 @@ class ( IsBoolExprBuilder sym
       BaseStructRepr{} -> structEq sym x y
       BaseArrayRepr{}  -> arrayEq sym x y
 
-  -- | Take the if-then-else of two terms.
+  -- | Take the if-then-else of two expressions. The default
+  -- implementation dispatches 'itePred', 'bvIte', 'natIte', 'intIte',
+  -- 'realIte', 'cplxIte', 'structIte', or 'arrayIte', depending on
+  -- the type.
   baseTypeIte :: sym
               -> Pred sym
               -> SymExpr sym tp
@@ -345,37 +406,37 @@ class ( IsBoolExprBuilder sym
   -- | Create a symbolic integer.
   intLit :: sym -> Integer -> IO (SymInteger sym)
 
-  -- | Negate number.
+  -- | Negate an integer.
   intNeg :: sym -> SymInteger sym -> IO (SymInteger sym)
 
-  -- | Add two numbers.
+  -- | Add two integers.
   intAdd :: sym -> SymInteger sym -> SymInteger sym -> IO (SymInteger sym)
   intAdd sym xi yi = do
     x <- integerToReal sym xi
     y <- integerToReal sym yi
     realToInteger sym =<< realAdd sym x y
 
-  -- | Subtract one number from another.
+  -- | Subtract one integer from another.
   intSub :: sym -> SymInteger sym -> SymInteger sym -> IO (SymInteger sym)
   intSub sym xi yi = do
     x <- integerToReal sym xi
     y <- integerToReal sym yi
     realToInteger sym =<< realSub sym x y
 
-  -- | Multiply one number by another.
+  -- | Multiply one integer by another.
   intMul :: sym -> SymInteger sym -> SymInteger sym -> IO (SymInteger sym)
 
   -- | If-then-else applied to integers.
   intIte :: sym -> Pred sym -> SymInteger sym -> SymInteger sym -> IO (SymInteger sym)
 
-  -- | Integer equality
+  -- | Integer equality.
   intEq  :: sym -> SymInteger sym -> SymInteger sym -> IO (Pred sym)
   intEq = isEq
 
-  -- | Integer less-than-or-equal
+  -- | Integer less-than-or-equal.
   intLe  :: sym -> SymInteger sym -> SymInteger sym -> IO (Pred sym)
 
-  -- | Integer less-than
+  -- | Integer less-than.
   intLt  :: sym -> SymInteger sym -> SymInteger sym -> IO (Pred sym)
   intLt sym x y = notPred sym =<< intLe sym y x
 
@@ -396,7 +457,7 @@ class ( IsBoolExprBuilder sym
            -> SymBV sym v  -- ^ least significant bits
            -> IO (SymBV sym (u+v))
 
-  -- | Select a subsequence from a bitvector
+  -- | Select a subsequence from a bitvector.
   bvSelect :: (1 <= n, idx + n <= w)
            => sym
            -> NatRepr idx  -- ^ Starting index, from 0 as least significant bit
@@ -404,7 +465,7 @@ class ( IsBoolExprBuilder sym
            -> SymBV sym w  -- ^ Bitvector to select from
            -> IO (SymBV sym n)
 
-  -- | 2's complement negation
+  -- | 2's complement negation.
   bvNeg :: (1 <= w)
         => sym
         -> SymBV sym w
@@ -460,13 +521,13 @@ class ( IsBoolExprBuilder sym
          -> SymBV sym w
          -> IO (SymBV sym w)
 
-  -- | This create an expression from a unary bitvector.
+  -- | This creates an expression from a unary bitvector.
   bvUnary :: (1 <= w)
           => sym
           -> UnaryBV (Pred sym) w
           -> IO (SymBV sym w)
 
-  -- | Returns true if the corresponding bit in the bitvector is set
+  -- | Returns true if the corresponding bit in the bitvector is set.
   testBitBV :: (1 <= w)
             => sym
             -> Integer -- ^ Index of bit (0 is the least significant bit)
@@ -477,6 +538,7 @@ class ( IsBoolExprBuilder sym
   bvIsNeg :: (1 <= w) => sym -> SymBV sym w -> IO (Pred sym)
   bvIsNeg sym x = bvSlt sym x =<< bvLit sym (bvWidth x) 0
 
+  -- | If-then-else applied to bitvectors.
   bvIte :: (1 <= w)
         => sym
         -> Pred sym
@@ -500,14 +562,14 @@ class ( IsBoolExprBuilder sym
         -> IO (Pred sym)
   bvNe sym x y = notPred sym =<< bvEq sym x y
 
-  -- | Unsigned <
+  -- | Unsigned less-than.
   bvUlt  :: (1 <= w)
          => sym
          -> SymBV sym w
          -> SymBV sym w
          -> IO (Pred sym)
 
-  -- | Unsigned <=
+  -- | Unsigned less-than-or-equal.
   bvUle  :: (1 <= w)
          => sym
          -> SymBV sym w
@@ -515,77 +577,80 @@ class ( IsBoolExprBuilder sym
          -> IO (Pred sym)
   bvUle sym x y = notPred sym =<< bvUlt sym y x
 
-  -- | Unsigned >=
+  -- | Unsigned greater-than-or-equal.
   bvUge :: (1 <= w) => sym -> SymBV sym w -> SymBV sym w -> IO (Pred sym)
   bvUge sym x y = bvUle sym y x
 
-  -- | Unsigned >
+  -- | Unsigned greater-than.
   bvUgt :: (1 <= w) => sym -> SymBV sym w -> SymBV sym w -> IO (Pred sym)
   bvUgt sym x y = bvUlt sym y x
 
-  -- | Signed <
+  -- | Signed less-than.
   bvSlt :: (1 <= w) => sym -> SymBV sym w -> SymBV sym w -> IO (Pred sym)
 
-  -- | Signed >
+  -- | Signed greater-than.
   bvSgt :: (1 <= w) => sym -> SymBV sym w -> SymBV sym w -> IO (Pred sym)
   bvSgt sym x y = bvSlt sym y x
 
-  -- | Signed <=
+  -- | Signed less-than-or-equal.
   bvSle :: (1 <= w) => sym -> SymBV sym w -> SymBV sym w -> IO (Pred sym)
   bvSle sym x y = notPred sym =<< bvSlt sym y x
 
-  -- | Signed >=
+  -- | Signed greater-than-or-equal.
   bvSge :: (1 <= w) => sym -> SymBV sym w -> SymBV sym w -> IO (Pred sym)
   bvSge sym x y = notPred sym =<< bvSlt sym x y
 
-  -- | returns true if the given bitvector is non-zero
+  -- | returns true if the given bitvector is non-zero.
   bvIsNonzero :: (1 <= w) => sym -> SymBV sym w -> IO (Pred sym)
   bvIsNonzero sym x = do
      let w = bvWidth x
      zro <- bvLit sym w 0
      notPred sym  =<< bvEq sym x zro
 
-  -- | Left-shift
+  -- | Left shift.
   bvShl :: (1 <= w) => sym -> SymBV sym w -> SymBV sym w -> IO (SymBV sym w)
 
-  -- | Logical right shift
+  -- | Logical right shift.
   bvLshr :: (1 <= w) => sym -> SymBV sym w -> SymBV sym w -> IO (SymBV sym w)
 
-  -- | Arithmetic right shift
+  -- | Arithmetic right shift.
   bvAshr :: (1 <= w) => sym -> SymBV sym w -> SymBV sym w -> IO (SymBV sym w)
 
-  -- | Zero-extend a bare bitvector
+  -- | Zero-extend a bitvector.
   bvZext :: (1 <= u, u+1 <= r) => sym -> NatRepr r -> SymBV sym u -> IO (SymBV sym r)
 
-  -- | Sign-extend a bare bitvector
+  -- | Sign-extend a bitvector.
   bvSext :: (1 <= u, u+1 <= r) => sym -> NatRepr r -> SymBV sym u -> IO (SymBV sym r)
 
-  -- | Truncate a bare bitvector
+  -- | Truncate a bitvector.
   bvTrunc :: (1 <= r, r+1 <= w) -- Assert result is less than input.
           => sym
           -> NatRepr r
           -> SymBV sym w
           -> IO (SymBV sym r)
 
+  -- | Bitwise logical and.
   bvAndBits :: (1 <= w)
             => sym
             -> SymBV sym w
             -> SymBV sym w
             -> IO (SymBV sym w)
 
+  -- | Bitwise logical or.
   bvOrBits  :: (1 <= w)
             => sym
             -> SymBV sym w
             -> SymBV sym w
             -> IO (SymBV sym w)
 
+  -- | Bitwise logical exclusive or.
   bvXorBits :: (1 <= w)
             => sym
             -> SymBV sym w
             -> SymBV sym w
             -> IO (SymBV sym w)
 
-  -- | Complement bits in bitvector.
+  -- | Bitwise complement.
   bvNotBits :: (1 <= w) => sym -> SymBV sym w -> IO (SymBV sym w)
 
   -- | @bvSet sym v i p@ returns a bitvector @v'@ where bit @i@ of @v'@ is set to
@@ -628,7 +693,7 @@ class ( IsBoolExprBuilder sym
   minSignedBV :: (1 <= w) => sym -> NatRepr w -> IO (SymBV sym w)
   minSignedBV sym w = bvLit sym w (minSigned w)
 
-  -- | Unsigned add with overflow bit
+  -- | Unsigned add with overflow bit.
   addUnsignedOF :: (1 <= w)
                 => sym
                 -> SymBV sym w
@@ -640,7 +705,8 @@ class ( IsBoolExprBuilder sym
             -- Return that this overflows if x input value is greater than result.
     (,) <$> bvUgt sym x r <*> pure r
 
-  -- | Signed add with overflow bit
+  -- | Signed add with overflow bit. Overflow is true if positive +
+  -- positive = negative, or if negative + negative = positive.
   addSignedOF :: (1 <= w)
               => sym
               -> SymBV sym w
@@ -664,7 +730,8 @@ class ( IsBoolExprBuilder sym
     ov  <- orPred sym ov1 ov2
     return (ov, xy)
 
-  -- | Signed subtract with overflow bit
+  -- | Signed subtract with overflow bit. Overflow is true if positive
+  -- - negative = negative, or if negative - positive = positive.
   subSignedOF :: (1 <= w)
               => sym
               -> SymBV sym w
@@ -678,7 +745,7 @@ class ( IsBoolExprBuilder sym
        ov  <- join (pure (andPred sym) <*> xorPred sym sx sxy <*> xorPred sym sx sy)
        return (ov, xy)
 
-  -- | 'unsignedWideMultiplyBV sym x y' multiplies two unsigned 'w' bit numbers 'x' and 'y'.
+  -- | @unsignedWideMultiplyBV sym x y@ multiplies two unsigned 'w' bit numbers 'x' and 'y'.
   --
   -- It returns a pair containing the top 'w' bits as the first element, and the
   -- lower 'w' bits as the second element.
@@ -703,7 +770,7 @@ class ( IsBoolExprBuilder sym
        hi  <- bvTrunc sym w =<< bvLshr sym s n
        return (hi, lo)
 
-  -- | 'signedWideMultiplyBV sym x y' multiplies two signed 'w' bit numbers 'x' and 'y'.
+  -- | @signedWideMultiplyBV sym x y@ multiplies two signed 'w' bit numbers 'x' and 'y'.
   --
   -- It returns a pair containing the top 'w' bits as the first element, and the
   -- lower 'w' bits as the second element.
@@ -784,7 +851,7 @@ class ( IsBoolExprBuilder sym
   -- | Create an array from an arbitrary symbolic function.
   --
   -- Arrays created this way can typically not be compared
-  -- for equality when provided to simulator.
+  -- for equality when provided to the simulator.
   arrayFromFn :: sym
               -> SymFn sym (idx ::> itp) ret
               -> IO (SymArray sym (idx ::> itp) ret)
@@ -838,6 +905,7 @@ class ( IsBoolExprBuilder sym
           arrayUpdate sym a idx v
     foldlM updateAt a0 (Map.toList (Hash.hashedMap m))
 
+  -- | If-then-else applied to arrays.
   arrayIte :: sym
            -> Pred sym
            -> SymArray sym idx b
@@ -846,7 +914,7 @@ class ( IsBoolExprBuilder sym
 
   -- | Return true if two arrays are equal.
   --
-  -- Not that in the backend, arrays do not have a fixed number of elements, so
+  -- Note that in the backend, arrays do not have a fixed number of elements, so
   -- this equality requires that arrays are equal on all elements.
   arrayEq :: sym
           -> SymArray sym idx b
@@ -873,19 +941,19 @@ class ( IsBoolExprBuilder sym
   ----------------------------------------------------------------------
   -- Lossless (injective) conversions
 
-  -- | Convert natural number to real number.
+  -- | Convert a natural number to an integer.
   natToInteger :: sym -> SymNat sym -> IO (SymInteger sym)
 
-  -- | Convert integer to real number.
+  -- | Convert an integer to a real number.
   integerToReal :: sym -> SymInteger sym -> IO (SymReal sym)
 
-  -- | Return the unsigned value of the given bitvector as an integer
+  -- | Return the unsigned value of the given bitvector as an integer.
   bvToInteger :: (1 <= w) => sym -> SymBV sym w -> IO (SymInteger sym)
 
-  -- | Return the signed value of the given bitvector as an integer
+  -- | Return the signed value of the given bitvector as an integer.
   sbvToInteger :: (1 <= w) => sym -> SymBV sym w -> IO (SymInteger sym)
 
-  -- | Return 1 if the predicate is true; 0 otherwise.
+  -- | Return @1@ if the predicate is true; @0@ otherwise.
   predToBV :: (1 <= w) => sym -> Pred sym -> NatRepr w -> IO (SymBV sym w)
   predToBV sym p w = do
     c1 <- bvLit sym w 1
@@ -895,6 +963,7 @@ class ( IsBoolExprBuilder sym
   ----------------------------------------------------------------------
   -- Lossless combinators
 
+  -- | Convert a natural number to a real number.
   natToReal :: sym -> SymNat sym -> IO (SymReal sym)
   natToReal sym = natToInteger sym >=> integerToReal sym
 
@@ -909,23 +978,23 @@ class ( IsBoolExprBuilder sym
   ----------------------------------------------------------------------
   -- Lossy (non-injective) conversions
 
-  -- | Round real number to integer.
+  -- | Round a real number to an integer.
   -- Numbers are rounded to the nearest representable number, with rounding away from
   -- zero when two integers are equi-distant (e.g., 1.5 rounds to 2).
   realRound :: sym -> SymReal sym -> IO (SymInteger sym)
 
-  -- | Round down to nearest integer that is at most this value.
+  -- | Round down to the nearest integer that is at most this value.
   realFloor :: sym -> SymReal sym -> IO (SymInteger sym)
 
-  -- | Round up to nearest integer that is at least this value.
+  -- | Round up to the nearest integer that is at least this value.
   realCeil :: sym -> SymReal sym -> IO (SymInteger sym)
 
-  -- | Convert an integer to a nearest signed bitvector.
+  -- | Convert an integer to a signed bitvector.
   --
   -- Result is undefined if integer is outside of range.
   integerToSBV :: (1 <= w) => sym -> SymInteger sym -> NatRepr w -> IO (SymBV sym w)
 
-  -- | Convert an integer an unsigned number.
+  -- | Convert an integer to an unsigned bitvector.
   --
   -- Result is undefined if integer is outside of range.
   integerToBV :: (1 <= w) => sym -> SymInteger sym -> NatRepr w -> IO (SymBV sym w)
@@ -933,9 +1002,9 @@ class ( IsBoolExprBuilder sym
   ----------------------------------------------------------------------
   -- Lossy (non-injective) combinators
 
-  -- | Convert integer to natural number.
+  -- | Convert an integer to a natural number.
   --
-  -- For negative numbers, the result is undefined.
+  -- For negative integers, the result is undefined.
   integerToNat :: sym -> SymInteger sym -> IO (SymNat sym)
 
   -- | Convert the unsigned value of a bitvector to a natural.
@@ -945,20 +1014,20 @@ class ( IsBoolExprBuilder sym
   bvToNat sym bv = integerToNat sym =<< bvToInteger sym bv
 
 
-  -- | Convert real number to natural number.
+  -- | Convert a real number to an integer.
   --
   -- This should return some value even if the real argument is not a integer,
   -- but the result result may be arbitrarily chosen.
   realToInteger :: sym -> SymReal sym -> IO (SymInteger sym)
 
-  -- | Convert real number to natural number.
+  -- | Convert a real number to a natural number.
   --
   -- This should return some value even if the real argument is not a natural number,
   -- but the result result may be arbitrarily chosen.
   realToNat :: sym -> SymReal sym -> IO (SymNat sym)
   realToNat sym r = realToInteger sym r >>= integerToNat sym
 
-  -- | Convert a real number to a signed bitvector (asserts number is not complex).
+  -- | Convert a real number to a signed bitvector.
   -- Numbers are rounded to the nearest representable number, with rounding away from
   -- zero when two integers are equi-distant (e.g., 1.5 rounds to 2).
   realToInt  :: (1 <= w) => sym -> SymReal sym -> NatRepr w -> IO (SymBV sym w)
@@ -966,7 +1035,7 @@ class ( IsBoolExprBuilder sym
     i <- realRound sym r
     clampedIntToSBV sym i w
 
-  -- | Convert an integer to a nearest signed bitvector.
+  -- | Convert an integer to the nearest signed bitvector.
   --
   -- Numbers are rounded to the nearest representable number.
   clampedIntToSBV :: (1 <= w) => sym -> SymInteger sym -> NatRepr w -> IO (SymBV sym w)
@@ -987,7 +1056,7 @@ class ( IsBoolExprBuilder sym
           -- Do unclamped conversion.
           integerToSBV sym i w
 
-  -- | Convert an integer to a nearest unsigned bitvector.
+  -- | Convert an integer to the nearest unsigned bitvector.
   --
   -- Numbers are rounded to the nearest representable number.
   clampedIntToBV :: (1 <= w) => sym -> SymInteger sym -> NatRepr w -> IO (SymBV sym w)
@@ -1007,7 +1076,7 @@ class ( IsBoolExprBuilder sym
           -- Do unclamped conversion.
           integerToBV sym i w
 
-  -- | Convert a real number to an unsigned number.
+  -- | Convert a real number to an unsigned bitvector.
   -- Numbers are rounded to the nearest representable number, with rounding away from
   -- zero when two integers are equi-distant (e.g., 1.5 rounds to 2).
   -- When the real is negative the result is zero.
@@ -1023,9 +1092,9 @@ class ( IsBoolExprBuilder sym
   -- input, but we do not enforce this in the Haskell typechecker,
   -- because it turns out to be painful to do so.
 
-  -- | Convert a signed integer to the nearest signed integer with the
-  -- given width.  This clamps the value to min-int or max int when truncated
-  -- the width.
+  -- | Convert a signed bitvector to the nearest signed bitvector with
+  -- the given width. If the resulting width is smaller, this clamps
+  -- the value to min-int or max-int when necessary.
   intSetWidth :: (1 <= m, 1 <= n) => sym -> SymBV sym m -> NatRepr n -> IO (SymBV sym n)
   intSetWidth sym e w = do
     let e_width = bvWidth e
@@ -1048,8 +1117,8 @@ class ( IsBoolExprBuilder sym
         Just LeqProof <- return (testLeq (incNat e_width) w)
         bvSext sym w e
 
-  -- | Convert an unsigned integer to the nearest unsigned integer with
-  -- the given width (clamp on overflow)
+  -- | Convert an unsigned bitvector to the nearest unsigned bitvector with
+  -- the given width (clamp on overflow).
   uintSetWidth :: (1 <= m, 1 <= n) => sym -> SymBV sym m -> NatRepr n -> IO (SymBV sym n)
   uintSetWidth sym e w = do
     let e_width = bvWidth e
@@ -1068,15 +1137,15 @@ class ( IsBoolExprBuilder sym
         Just LeqProof <- return (testLeq (incNat e_width) w)
         bvZext sym w e
 
-  -- | Convert an signed integer to the nearest unsigned integer with
-  -- the given width (clamp on overflow)
+  -- | Convert an signed bitvector to the nearest unsigned bitvector with
+  -- the given width (clamp on overflow).
   intToUInt :: (1 <= m, 1 <= n) => sym -> SymBV sym m -> NatRepr n -> IO (SymBV sym n)
   intToUInt sym e w = do
     p <- bvIsNeg sym e
     iteM bvIte sym p (bvLit sym w 0) (uintSetWidth sym e w)
 
-  -- | Convert an unsigned integer to the nearest signed integer with
-  -- the given width (clamp on overflow)
+  -- | Convert an unsigned bitvector to the nearest signed bitvector with
+  -- the given width (clamp on overflow).
   uintToInt :: (1 <= m, 1 <= n) => sym -> SymBV sym m -> NatRepr n -> IO (SymBV sym n)
   uintToInt sym e w = do
     let n = bvWidth e
@@ -1107,8 +1176,8 @@ class ( IsBoolExprBuilder sym
   -- | Create a constant real literal.
   realLit :: sym -> Rational -> IO (SymReal sym)
 
-  -- | Make a real literal from a scientific value
-  -- May be overriden if we want to avoid overhead of converting scientific value
+  -- | Make a real literal from a scientific value. May be overridden
+  -- if we want to avoid the overhead of converting scientific value
   -- to rational.
   sciLit :: sym -> Scientific -> IO (SymReal sym)
   sciLit sym s = realLit sym (toRational s)
@@ -1117,7 +1186,7 @@ class ( IsBoolExprBuilder sym
   realEq :: sym -> SymReal sym -> SymReal sym -> IO (Pred sym)
   realEq = isEq
 
-  -- | Check non-equality of the real parts of two complex numbers.
+  -- | Check non-equality of two real numbers.
   realNe :: sym -> SymReal sym -> SymReal sym -> IO (Pred sym)
   realNe sym x y = notPred sym =<< realEq sym x y
 
@@ -1136,19 +1205,19 @@ class ( IsBoolExprBuilder sym
   realGt :: sym -> SymReal sym -> SymReal sym -> IO (Pred sym)
   realGt sym x y = realLt sym y x
 
-  -- | If-then-else on real values.
+  -- | If-then-else on real numbers.
   realIte :: sym -> Pred sym -> SymReal sym -> SymReal sym -> IO (SymReal sym)
 
   -- | Negate a real number.
   realNeg :: sym -> SymReal sym -> IO (SymReal sym)
 
-  -- | Add two real numbers
+  -- | Add two real numbers.
   realAdd :: sym -> SymReal sym -> SymReal sym -> IO (SymReal sym)
 
   -- | Evaluate a weighted sum of real values.
   realSum :: sym -> WeightedSum Rational (SymExpr sym) BaseRealType -> IO (SymReal sym)
 
-  -- | Multiply two real numbers
+  -- | Multiply two real numbers.
   realMul :: sym -> SymReal sym -> SymReal sym -> IO (SymReal sym)
 
   -- | Subtract one real from another.
@@ -1161,7 +1230,7 @@ class ( IsBoolExprBuilder sym
 
   -- | @realDiv sym x y@ returns term equivalent to @x/y@.
   --
-  -- The result is undefined when @y@ is non-zero.
+  -- The result is undefined when @y@ is zero.
   realDiv :: sym -> SymReal sym -> SymReal sym -> IO (SymReal sym)
 
   -- | @realMod x y@ returns the value of @x - y * floor(x ./ y)@ when
@@ -1175,10 +1244,10 @@ class ( IsBoolExprBuilder sym
                     =<< realFloor sym
                     =<< realDiv sym x y
 
-  -- | Return predicate that holds if value is an integer.
+  -- | Predicate that holds if the real number is an exact integer.
   isInteger :: sym -> SymReal sym -> IO (Pred sym)
 
-  -- | Return true if real is non-negative.
+  -- | Return true if the real is non-negative.
   realIsNonNeg :: sym -> SymReal sym -> IO (Pred sym)
   realIsNonNeg sym x = realLe sym (realZero sym) x
 
@@ -1223,7 +1292,7 @@ class ( IsBoolExprBuilder sym
     c <- realGe sym x (realZero sym)
     realIte sym c x =<< realNeg sym x
 
-  -- | @reapHypot x y@ returns sqrt(x^2 + y^2)
+  -- | @realHypot x y@ returns sqrt(x^2 + y^2).
   realHypot :: sym -> SymReal sym -> SymReal sym -> IO (SymReal sym)
   realHypot sym x y = do
     case (asRational x, asRational y) of
@@ -1270,11 +1339,11 @@ class ( IsBoolExprBuilder sym
         zi <- realIte sym c xi yi
         mkComplex sym (zr :+ zi)
 
-  -- | Negate a real value
+  -- | Negate a complex number.
   cplxNeg :: sym -> SymCplx sym -> IO (SymCplx sym)
   cplxNeg sym x = mkComplex sym =<< traverse (realNeg sym) =<< cplxGetParts sym x
 
-  -- | Add two real numbers together.
+  -- | Add two complex numbers together.
   cplxAdd :: sym -> SymCplx sym -> SymCplx sym -> IO (SymCplx sym)
   cplxAdd sym x y = do
     xr :+ xi <- cplxGetParts sym x
@@ -1283,7 +1352,7 @@ class ( IsBoolExprBuilder sym
     zi <- realAdd sym xi yi
     mkComplex sym (zr :+ zi)
 
-  -- | Subtract one from another.
+  -- | Subtract one complex number from another.
   cplxSub :: sym -> SymCplx sym -> SymCplx sym -> IO (SymCplx sym)
   cplxSub sym x y = do
     xr :+ xi <- cplxGetParts sym x
@@ -1292,7 +1361,7 @@ class ( IsBoolExprBuilder sym
     zi <- realSub sym xi yi
     mkComplex sym (zr :+ zi)
 
-  -- | Multiply two real numbers together.
+  -- | Multiply two complex numbers together.
   cplxMul :: sym -> SymCplx sym -> SymCplx sym -> IO (SymCplx sym)
   cplxMul sym x y = do
     xr :+ xi <- cplxGetParts sym x
@@ -1303,7 +1372,7 @@ class ( IsBoolExprBuilder sym
     iz <- realAdd sym iz0 =<< realMul sym xr yi
     mkComplex sym (rz :+ iz)
 
-  -- | Compute magnitude of a complex value.
+  -- | Compute the magnitude of a complex number.
   cplxMag :: sym -> SymCplx sym -> IO (SymReal sym)
   cplxMag sym x = do
     (xr :+ xi) <- cplxGetParts sym x
@@ -1339,7 +1408,7 @@ class ( IsBoolExprBuilder sym
         v' <- realIte sym i_part_nonneg v neg_v
         mkComplex sym (u :+ v')
 
-  -- | Compute sin of real value.
+  -- | Compute sine of a complex number.
   cplxSin :: sym -> SymCplx sym -> IO (SymCplx sym)
   cplxSin sym arg = do
     c@(x :+ y) <- cplxGetParts sym arg
@@ -1359,7 +1428,7 @@ class ( IsBoolExprBuilder sym
         i_part <- realMul sym cos_x sinh_y
         mkComplex sym (r_part :+ i_part)
 
-  -- | Compute cos of real value.
+  -- | Compute cosine of a complex number.
   cplxCos :: sym -> SymCplx sym -> IO (SymCplx sym)
   cplxCos sym arg = do
     c@(x :+ y) <- cplxGetParts sym arg
@@ -1379,7 +1448,7 @@ class ( IsBoolExprBuilder sym
         i_part <- realMul sym neg_sin_x sinh_y
         mkComplex sym (r_part :+ i_part)
 
-  -- | Compute tan of real value.
+  -- | Compute tangent of a complex number.
   cplxTan :: sym -> SymCplx sym -> IO (SymCplx sym)
   cplxTan sym arg = do
     c@(x :+ y) <- cplxGetParts sym arg
@@ -1447,7 +1516,7 @@ class ( IsBoolExprBuilder sym
     ic <- realNeg sym i
     mkComplex sym (r :+ ic)
 
-  -- | Returns exponential of input.
+  -- | Returns exponential of a complex number.
   cplxExp :: sym -> SymCplx sym -> IO (SymCplx sym)
   cplxExp sym x = do
     (rx :+ i_part) <- cplxGetParts sym x
@@ -1467,7 +1536,7 @@ class ( IsBoolExprBuilder sym
     pj <- realEq sym xi yi
     andPred sym pr pj
 
-  -- | Check non-equality two complex numbers.
+  -- | Check non-equality of two complex numbers.
   cplxNe :: sym -> SymCplx sym -> SymCplx sym -> IO (Pred sym)
   cplxNe sym x y = do
     xr :+ xi <- cplxGetParts sym x
@@ -1624,6 +1693,9 @@ cplxLogBase base sym x = do
   mkComplex sym z
 
 -- | A function that can be applied to symbolic arguments.
+--
+-- This type is used by some methods in classes 'IsExprBuilder' and
+-- 'IsSymInterface'.
 type family SymFn sym :: Ctx BaseType -> BaseType -> *
 
 -- | This extends the interface for building expressions with operations

@@ -124,7 +124,7 @@ tryEvalGroundElt _ (IntElt c _) = return c
 tryEvalGroundElt _ (RatElt c _) = return c
 tryEvalGroundElt _ (BVElt _ c _) = return c
 tryEvalGroundElt f (NonceAppElt a0) = evalGroundNonceApp (lift . f) (nonceEltApp a0)
-tryEvalGroundElt f (AppElt a0)      = evalGroundApp f (eltApp a0)
+tryEvalGroundElt f (AppElt a0)      = evalGroundApp f (appEltApp a0)
 tryEvalGroundElt _ (BoundVarElt v) =
   case bvarKind v of
     QuantifierVarKind -> fail $ "The ground evaluator does not support bound variables."

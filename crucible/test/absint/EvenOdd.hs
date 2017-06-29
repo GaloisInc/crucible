@@ -12,7 +12,8 @@ module EvenOdd (
 
 import qualified Data.Parameterized.Context as PU
 
-import qualified Lang.Crucible.Core as C
+import qualified Lang.Crucible.CFG.Core as C
+import qualified Lang.Crucible.CFG.Expr as C
 import Lang.Crucible.Analysis.Fixpoint
 
 data EvenOdd (tp :: C.CrucibleType) where

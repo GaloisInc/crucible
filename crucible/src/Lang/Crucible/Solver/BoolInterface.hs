@@ -147,7 +147,7 @@ class ( HasProgramLoc (SymPathState sym)
              -> Pred sym -- Predicate to branch on.
              -> IO (BranchResult sym)
 
-  -- | Get curent state information.
+  -- | Get current state information.
   getCurrentState :: sym -> IO (SymPathState sym)
 
   -- | Reset simulator back to previous state.
@@ -185,10 +185,10 @@ class ( HasProgramLoc (SymPathState sym)
 
   -- | Add an assertion to the current state.
   --
-  -- This may call throw the given SimError if the assertion is unsatisfiable.
+  -- This may throw the given SimError if the assertion is unsatisfiable.
   --
   -- Every assertion added to the system produces a proof obligation. These
-  -- proof obligations can be retrieved via the 'getSafetyConditions' call.
+  -- proof obligations can be retrieved via the 'getProofObligations' call.
   addAssertion :: sym -> Pred sym -> SimErrorReason -> IO ()
 
   -- | Add an assumption to the current state.  Like assertions, assumptions
@@ -203,10 +203,10 @@ class ( HasProgramLoc (SymPathState sym)
     loc <- getCurrentProgramLoc sym
     throwIO (SimError loc msg)
 
-  -- | Get the current path condition a predicate.
+  -- | Get the current path condition as a predicate.
   getAssertionPred :: sym -> IO (Pred sym)
 
-  -- | Get the collection of proof obligations
+  -- | Get the collection of proof obligations.
   getProofObligations :: sym -> IO [([Pred sym], Assertion (Pred sym))]
 
   -- | Set the collection of proof obligations to the given list.  Typically, this is used
