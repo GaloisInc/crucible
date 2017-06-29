@@ -113,6 +113,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import Data.String
 import qualified Data.Text as Text
 import qualified Data.Vector as V
 
@@ -528,7 +529,7 @@ transValue _ (L.ValIdent i) = do
   m <- use identMap
   case Map.lookup i m of
     Nothing -> do
-      fail $ "Could not find identifier " ++ show i ++ "."
+      reportError $ fromString $ "Could not find identifier " ++ show i ++ "."
     Just (Left (Some r)) -> do
       e <- readReg r
       return $ BaseExpr (typeOfReg r) e
@@ -539,7 +540,7 @@ transValue (IntType w) (L.ValInteger i) =
   case someNat (fromIntegral w) of
     Just (Some w') | Just LeqProof <- isPosNat w' ->
       return $ BaseExpr (BVRepr w') (App (BVLit w' i))
-    _ -> fail $ unwords ["invalid integer type", show w]
+    _ -> reportError $ fromString $ unwords ["invalid integer type", show w]
 
 transValue (IntType 1) (L.ValBool b) =
   return $ BaseExpr (BVRepr (knownNat :: NatRepr 1))
@@ -615,15 +616,15 @@ transValue _ (L.ValConstExpr cexp) =
         _ -> fail "expected boolean value in select expression"
 
     L.ConstBlockAddr _funSymbol _blockLabel ->
-      fail "'blockaddress' expressions not supported."
+      reportError "'blockaddress' expressions not supported."
 
-    L.ConstFCmp _ _ _ -> fail "constant comparisons not currently supported"
-    L.ConstICmp _ _ _ -> fail "constant comparisons not currently supported"
-    L.ConstArith _ _ _ -> fail "constant arithmetic not currently supported"
-    L.ConstBit _ _ _ -> fail "constant bit operations not currently supported"
+    L.ConstFCmp _ _ _ -> reportError "constant comparisons not currently supported"
+    L.ConstICmp _ _ _ -> reportError "constant comparisons not currently supported"
+    L.ConstArith _ _ _ -> reportError "constant arithmetic not currently supported"
+    L.ConstBit _ _ _ -> reportError "constant bit operations not currently supported"
 
 transValue ty v =
-  error $ unwords ["unsupported LLVM value:", show v, "of type", show ty]
+  reportError $ fromString $ unwords ["unsupported LLVM value:", show v, "of type", show ty]
 
 
 -- | Assign a packed LLVM expression into the named LLVM register.
@@ -651,32 +652,32 @@ doAssign :: forall h s ret
 doAssign (Some r) (BaseExpr tpr ex) =
    case testEquality (typeOfReg r) tpr of
      Just Refl -> assignReg r ex
-     Nothing -> fail $ unwords ["type mismatch when assigning register", show r, show (typeOfReg r) , show tpr]
+     Nothing -> reportError $ fromString $ unwords ["type mismatch when assigning register", show r, show (typeOfReg r) , show tpr]
 doAssign (Some r) (StructExpr vs) = do
    let ?err = fail
    unpackArgs (map snd $ toList vs) $ \ctx asgn ->
      case testEquality (typeOfReg r) (StructRepr ctx) of
        Just Refl -> assignReg r (mkStruct ctx asgn)
-       Nothing -> fail $ unwords ["type mismatch when assigning structure to register", show r, show (StructRepr ctx)]
+       Nothing -> reportError $ fromString $ unwords ["type mismatch when assigning structure to register", show r, show (StructRepr ctx)]
 doAssign (Some r) (ZeroExpr tp) = do
   let ?err = fail
   zeroExpand tp $ \(tpr :: TypeRepr t) (ex :: Expr s t) ->
     case testEquality (typeOfReg r) tpr of
       Just Refl -> assignReg r ex
-      Nothing -> fail $ "type mismatch when assigning zero value"
+      Nothing -> reportError $ fromString $ "type mismatch when assigning zero value"
 doAssign (Some r) (UndefExpr tp) = do
   let ?err = fail
   undefExpand tp $ \(tpr :: TypeRepr t) (ex :: Expr s t) ->
     case testEquality (typeOfReg r) tpr of
       Just Refl -> assignReg r ex
-      Nothing -> fail $ "type mismatch when assigning undef value"
+      Nothing -> reportError $ fromString $ "type mismatch when assigning undef value"
 doAssign (Some r) (VecExpr tp vs) = do
   let ?err = fail
   llvmTypeAsRepr tp $ \tpr ->
     unpackVec tpr (toList vs) $ \ex ->
       case testEquality (typeOfReg r) (VectorRepr tpr) of
         Just Refl -> assignReg r ex
-        Nothing -> fail $ "type mismatch when assigning vector value"
+        Nothing -> reportError $ fromString $ "type mismatch when assigning vector value"
 
 -- | Given a list of LLVMExpressions, "unpack" them into an assignment
 --   of crucible expressions.
@@ -1370,7 +1371,7 @@ generateInstr retType lab instr assign_f k =
           _ -> fail $ unwords ["expected vector type in insertelement instruction:", show x]
 
     L.ShuffleVector _ _ _ ->
-      fail "FIXME shuffleVector not implemented"
+      reportError "FIXME shuffleVector not implemented"
 
     L.Alloca tp num _align -> do
       -- ?? FIXME assert that the alignment value is appropriate...
@@ -1743,7 +1744,9 @@ generateInstr retType lab instr assign_f k =
                           return $ App (RealDiv a b)
                         L.FRem -> do
                           return $ App (RealMod a b)
-                        _ -> fail $ unwords ["unsupported floating-point arith operation", show op, show x, show y]
+                        _ -> reportError $ fromString $ unwords [ "unsupported floating-point arith operation"
+                                                                , show op, show x, show y
+                                                                ]
 
            x' <- transTypedValue x
            y' <- transTypedValue (L.Typed (L.typedType x) y)
@@ -1775,7 +1778,7 @@ generateInstr retType lab instr assign_f k =
                         assign_f (BaseExpr LLVMPointerRepr ex)
                         k
 
-                      _ -> fail $ unwords ["Unsupported pointer arithmetic operation"]
+                      _ -> reportError $ fromString $ unwords ["Unsupported pointer arithmetic operation"]
 
              (Scalar (BVRepr w) x'',
               Scalar LLVMPointerRepr y'')
@@ -1785,7 +1788,7 @@ generateInstr retType lab instr assign_f k =
                         ex <- callPtrAddOffset y'' x''
                         assign_f (BaseExpr LLVMPointerRepr ex)
                         k
-                      _ -> fail $ unwords ["Unsupported pointer arithmetic operation"]
+                      _ -> reportError $ fromString $ unwords ["Unsupported pointer arithmetic operation"]
 
              (Scalar LLVMPointerRepr x'',
               Scalar LLVMPointerRepr y'') ->
@@ -1794,9 +1797,9 @@ generateInstr retType lab instr assign_f k =
                         ex <- callPtrSubtract x'' y''
                         assign_f (BaseExpr (BVRepr ptrWidth) ex)
                         k
-                      _ -> fail $ unwords ["Unsupported pointer arithmetic operation"]
+                      _ -> reportError $ fromString $ unwords ["Unsupported pointer arithmetic operation"]
 
-             _ -> fail $ unwords ["arithmetic operation on unsupported values", show x, show y]
+             _ -> reportError $ fromString $ unwords ["arithmetic operation on unsupported values", show x, show y]
 
     L.FCmp op x y -> do
            let cmpf :: Expr s RealValType
