@@ -490,10 +490,12 @@ lookupReg reg assignment = (assignment ^. paRegisters) PU.! regIndex reg
 
 
 newtype Ignore a (b::k) = Ignore { _ignoreOut :: a }
- deriving (Eq, Ord, Show)
+ deriving (Eq, Ord)
 
-instance Show a => ShowF (Ignore a) where
-  showF (Ignore x) = show x
+instance Show a => Show (Ignore a tp) where
+  show (Ignore x) = show x
+
+instance Show a => ShowF (Ignore a)
 
 -- Lenses
 

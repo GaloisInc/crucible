@@ -969,9 +969,7 @@ $(return [])
 instance Show (ShapeDom tp) where
   showsPrec = $(structuralShowsPrec [t|ShapeDom|])
 
-instance ShowF ShapeDom where
-  showF = show
-
+instance ShowF ShapeDom
 
 matlabShapeInit :: Ctx.Assignment ShapeDom MatlabFunctionBaseArgs
 matlabShapeInit =

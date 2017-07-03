@@ -118,17 +118,19 @@ symbolicAnalysis =
 -------------------
 
 data KildallPair (a::k -> *) (c :: *) (tp::k) = KP (a tp) c
-newtype Ignore a (b::k) = Ignore { ignoreOut :: a }
- deriving (Eq, Ord, Show)
 
-instance (ShowF a, Show c) => ShowF (KildallPair a c) where
-  showF (KP x y) = "(" ++ showF x ++ ", " ++ show y ++ ")"
 instance (ShowF a, Show c) => Show (KildallPair a c tp) where
-  show = showF
+  show (KP x y) = "(" ++ showF x ++ ", " ++ show y ++ ")"
 
-instance Show a => ShowF (Ignore a) where
-  showF (Ignore x) = show x
+instance (ShowF a, Show c) => ShowF (KildallPair a c)
 
+newtype Ignore a (b::k) = Ignore { ignoreOut :: a }
+ deriving (Eq, Ord)
+
+instance Show a => Show (Ignore a tp) where
+  show (Ignore x) = show x
+
+instance Show a => ShowF (Ignore a)
 
 
 data KildallForward blocks (a :: CrucibleType -> *) c

@@ -177,8 +177,7 @@ instance Pretty (BaseTypeRepr bt) where
   pretty = text . show
 instance Show (BaseTypeRepr bt) where
   showsPrec = $(structuralShowsPrec [t|BaseTypeRepr|])
-instance ShowF BaseTypeRepr where
-  showF = show
+instance ShowF BaseTypeRepr
 
 instance TestEquality BaseTypeRepr where
   testEquality = $(structuralTypeEquality [t|BaseTypeRepr|]

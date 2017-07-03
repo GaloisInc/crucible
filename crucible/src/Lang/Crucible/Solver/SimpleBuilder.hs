@@ -1629,7 +1629,7 @@ ppVar :: String -> SolverSymbol -> Nonce t tp -> BaseTypeRepr tp -> String
 ppVar pr sym i tp = pr ++ show sym ++ "@" ++ show (indexValue i) ++ ":" ++ ppVarTypeCode tp
 
 instance Show (Elt t tp) where
-  show = show . pretty
+  show = show . ppElt
 
 instance Pretty (Elt t tp) where
   pretty = ppElt
@@ -1707,8 +1707,7 @@ ppElt e
          text " in" <+> align (ppEltDoc False r)
   where (bindings,r) = runST (ppElt' e defaultPPEltOpts)
 
-instance ShowF (Elt t) where
-  showsF e = shows (ppElt e)
+instance ShowF (Elt t)
 
 -- | Pretty print the top part of an element.
 ppEltTop :: Elt t tp -> Doc

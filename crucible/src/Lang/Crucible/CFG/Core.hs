@@ -134,8 +134,7 @@ newtype Reg (ctx :: Ctx CrucibleType) (tp :: CrucibleType) = Reg { regIndex :: C
 instance Show (Reg ctx tp) where
   show (Reg i) = '$' : show (Ctx.indexVal i)
 
-instance ShowF (Reg ctx) where
-  showF x = show x
+instance ShowF (Reg ctx)
 
 instance Pretty (Reg ctx tp) where
   pretty = text.show
@@ -204,8 +203,7 @@ instance Pretty (BlockID blocks tp) where
 instance Show (BlockID blocks ctx) where
   show (BlockID i) = '%' : show (Ctx.indexVal i)
 
-instance ShowF (BlockID blocks) where
-  showF x = show x
+instance ShowF (BlockID blocks)
 
 extendBlockID :: Ctx.KnownDiff l r => BlockID l tp -> BlockID r tp
 extendBlockID = BlockID . Ctx.extendIndex . blockIDIndex
@@ -678,8 +676,7 @@ ppBlock' ppLineNumbers b = do
 instance Show (Block blocks ret args) where
   show blk = show $ ppBlock' False blk
 
-instance ShowF (Block blocks ret) where
-  showF = show
+instance ShowF (Block blocks ret)
 
 extendBlock :: Block blocks ret ctx -> Block (blocks ::> new) ret ctx
 #ifdef UNSAFE_OPS

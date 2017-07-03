@@ -287,8 +287,7 @@ instance Show (IndexLit tp) where
   showsPrec p (NatIndexLit i) s = showsPrec p i s
   showsPrec p (BVIndexLit w i) s = showsPrec p i ("::[" ++ shows w (']' : s))
 
-instance ShowF IndexLit where
-  showsF = shows
+instance ShowF IndexLit
 
 newtype ArrayResultWrapper f idx tp =
   ArrayResultWrapper { unwrapArrayResult :: f (BaseArrayType idx tp) }

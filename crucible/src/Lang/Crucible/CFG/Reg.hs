@@ -223,11 +223,10 @@ data Reg s tp
 instance Pretty (Reg s tp) where
   pretty = text . show
 
-instance ShowF (Reg s) where
-  showF = show
-
 instance Show (Reg s tp) where
   show r = 'r' : show (regId r)
+
+instance ShowF (Reg s)
 
 instance TestEquality (Reg s) where
   testEquality x y
@@ -288,8 +287,7 @@ instance Show (Value s tp) where
   show (RegValue  r) = show r
   show (AtomValue a) = show a
 
-instance ShowF (Value s) where
-  showF = show
+instance ShowF (Value s)
 
 typeOfValue :: Value s tp -> TypeRepr tp
 typeOfValue (RegValue r) = typeOfReg r
