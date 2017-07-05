@@ -1111,7 +1111,6 @@ data SimContext personality sym
                   -- | Handle to write messages to.
                 , printHandle            :: !Handle
                 , _functionBindings      :: !(FunctionBindings personality sym)
-
                 , _cruciblePersonality   :: !(personality sym)
                 }
 
