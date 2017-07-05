@@ -73,12 +73,12 @@ sawOptions =
 data SAWElt (bt :: BaseType) where
   SAWElt :: !SC.Term -> SAWElt bt
 
-  -- This is a SAWCore term that represents an integer, but has an
+  -- This is a term that represents an integer, but has an
   -- implicit integer-to-real conversion.
-  IntToRealSAWElt :: !SC.Term -> SAWElt BaseRealType
+  IntToRealSAWElt :: !(SAWElt BaseIntegerType) -> SAWElt BaseRealType
   -- This is a SAWCore term that represents a natural number, but has an
-  -- implicit nat-to-real conversion.
-  NatToRealSAWElt :: !SC.Term -> SAWElt BaseRealType
+  -- implicit nat-to-integer conversion.
+  NatToIntSAWElt :: !(SAWElt BaseNatType) -> SAWElt BaseIntegerType
 
 type SAWCoreBackend n = SB.SimpleBuilder n SAWCoreState
 
@@ -150,18 +150,11 @@ toSC sym elt = do
      st <- readIORef $ SB.sbStateManager sym
      evaluateElt sym (saw_ctx st) (saw_elt_cache st) elt
 
--- | Create a SAWCore term with type 'Integer' from a Haskell Integer.
-scIntLit :: SC.SharedContext -> Integer -> IO SC.Term
-scIntLit sc i
-  | i >= 0 =
-    SC.scNatToInt sc =<< SC.scNat sc (fromInteger i)
-  | otherwise =
-    SC.scIntNeg sc =<< SC.scNatToInt sc =<< SC.scNat sc (fromInteger (negate i))
 
 -- | Return a shared term with type nat from a SAWElt.
 scAsIntElt :: SC.SharedContext -> SAWElt BaseRealType -> IO SC.Term
-scAsIntElt _ (IntToRealSAWElt t) = return t
-scAsIntElt sc (NatToRealSAWElt t) = SC.scNatToInt sc t
+scAsIntElt sc (IntToRealSAWElt (NatToIntSAWElt (SAWElt t))) = SC.scNatToInt sc t
+scAsIntElt _ (IntToRealSAWElt (SAWElt t)) = return t
 scAsIntElt _ SAWElt{} = fail $ "SAWbackend does not support real values."
 
 -- | Create a Real SAWELT value from a Rational.
@@ -174,27 +167,177 @@ scRealLit sc r
   | denominator r /= 1 =
     fail "SAW backend does not support real values"
   | r >= 0 =
-    NatToRealSAWElt <$> SC.scNat sc (fromInteger (numerator r))
+    IntToRealSAWElt . NatToIntSAWElt . SAWElt <$> SC.scNat sc (fromInteger (numerator r))
   | otherwise =
     IntToRealSAWElt <$> scIntLit sc (numerator r)
 
-scAdd :: SC.SharedContext
-      -> SAWElt BaseRealType
-      -> SAWElt BaseRealType
-      -> IO (SAWElt BaseRealType)
-scAdd sc (NatToRealSAWElt x) (NatToRealSAWElt y) = fmap NatToRealSAWElt $
-  SC.scAddNat sc x y
-scAdd sc x y = fmap IntToRealSAWElt $
-  join $ SC.scIntAdd sc <$> scAsIntElt sc x <*> scAsIntElt sc y
+-- | Create a SAWCore term with type 'Integer' from a Haskell Integer.
+scIntLit :: SC.SharedContext -> Integer -> IO (SAWElt BaseIntegerType)
+scIntLit sc i
+  | i >= 0 =
+    SAWElt <$> (SC.scNatToInt sc =<< SC.scNat sc (fromInteger i))
+  | otherwise =
+    SAWElt <$> (SC.scIntNeg sc =<< SC.scNatToInt sc =<< SC.scNat sc (fromInteger (negate i)))
 
-scMul :: SC.SharedContext
-      -> SAWElt BaseRealType
-      -> SAWElt BaseRealType
-      -> IO (SAWElt BaseRealType)
-scMul sc (NatToRealSAWElt x) (NatToRealSAWElt y) = do
-  NatToRealSAWElt <$> SC.scMulNat sc x y
-scMul sc x y = fmap IntToRealSAWElt $ do
-  join $ SC.scIntMul sc <$> scAsIntElt sc x <*> scAsIntElt sc y
+-- | Create a SAWCore term with type 'Nat' from a Haskell Nat.
+scNatLit :: SC.SharedContext -> SB.Nat -> IO (SAWElt BaseNatType)
+scNatLit sc n = SAWElt <$> SC.scNat sc (fromIntegral n)
+
+
+scRealCmpop :: (SC.SharedContext -> SAWElt BaseIntegerType -> SAWElt BaseIntegerType -> IO (SAWElt BaseBoolType))
+            -> SC.SharedContext
+            -> SAWElt BaseRealType
+            -> SAWElt BaseRealType
+            -> IO (SAWElt BaseBoolType)
+scRealCmpop intOp sc (IntToRealSAWElt x) (IntToRealSAWElt y) =
+  intOp sc x y
+scRealCmpop _ _ _ _ =
+  fail "SAW backend does not support real values"
+
+scRealBinop :: (SC.SharedContext -> SAWElt BaseIntegerType -> SAWElt BaseIntegerType -> IO (SAWElt BaseIntegerType))
+            -> SC.SharedContext
+            -> SAWElt BaseRealType
+            -> SAWElt BaseRealType
+            -> IO (SAWElt BaseRealType)
+scRealBinop intOp sc (IntToRealSAWElt x) (IntToRealSAWElt y) =
+  IntToRealSAWElt <$> intOp sc x y
+scRealBinop _ _ _ _ =
+  fail "SAW backend does not support real values"
+
+
+scIntBinop :: (SC.SharedContext -> SAWElt BaseNatType -> SAWElt BaseNatType -> IO (SAWElt BaseNatType)) -- ^ operation on naturals
+           -> (SC.SharedContext -> SC.Term -> SC.Term -> IO SC.Term) -- ^ operation on integers
+           -> SC.SharedContext
+           -> SAWElt BaseIntegerType
+           -> SAWElt BaseIntegerType
+           -> IO (SAWElt BaseIntegerType)
+scIntBinop natOp _intOp sc (NatToIntSAWElt x) (NatToIntSAWElt y) =
+  NatToIntSAWElt <$> natOp sc x y
+scIntBinop _natOp intOp sc (NatToIntSAWElt (SAWElt x)) (SAWElt y) =
+  SAWElt <$> join (intOp sc <$> SC.scNatToInt sc x <*> pure y)
+scIntBinop _natOp intOp sc (SAWElt x) (NatToIntSAWElt (SAWElt y)) =
+  SAWElt <$> join (intOp sc <$> pure x <*> SC.scNatToInt sc y)
+scIntBinop _natOp intOp sc (SAWElt x) (SAWElt y) =
+  SAWElt <$> intOp sc x y
+
+scIntCmpop :: (SC.SharedContext -> SAWElt BaseNatType -> SAWElt BaseNatType -> IO (SAWElt BaseBoolType)) -- ^ operation on naturals
+           -> (SC.SharedContext -> SC.Term -> SC.Term -> IO SC.Term) -- ^ operation on integers
+           -> SC.SharedContext
+           -> SAWElt BaseIntegerType
+           -> SAWElt BaseIntegerType
+           -> IO (SAWElt BaseBoolType)
+scIntCmpop natOp _intOp sc (NatToIntSAWElt x) (NatToIntSAWElt y) =
+  natOp sc x y
+scIntCmpop _natOp intOp sc (NatToIntSAWElt (SAWElt x)) (SAWElt y) =
+  SAWElt <$> join (intOp sc <$> SC.scNatToInt sc x <*> pure y)
+scIntCmpop _natOp intOp sc (SAWElt x) (NatToIntSAWElt (SAWElt y)) =
+  SAWElt <$> join (intOp sc <$> pure x <*> SC.scNatToInt sc y)
+scIntCmpop _natOp intOp sc (SAWElt x) (SAWElt y) =
+  SAWElt <$> intOp sc x y
+
+scAddReal :: SC.SharedContext
+          -> SAWElt BaseRealType
+          -> SAWElt BaseRealType
+          -> IO (SAWElt BaseRealType)
+scAddReal = scRealBinop scAddInt
+
+scAddInt :: SC.SharedContext
+            -> SAWElt BaseIntegerType
+            -> SAWElt BaseIntegerType
+            -> IO (SAWElt BaseIntegerType)
+scAddInt = scIntBinop scAddNat SC.scIntAdd
+
+scAddNat :: SC.SharedContext
+            -> SAWElt BaseNatType
+            -> SAWElt BaseNatType
+            -> IO (SAWElt BaseNatType)
+scAddNat sc (SAWElt x) (SAWElt y) = SAWElt <$> SC.scAddNat sc x y
+
+
+scMulReal :: SC.SharedContext
+             -> SAWElt BaseRealType
+             -> SAWElt BaseRealType
+             -> IO (SAWElt BaseRealType)
+scMulReal = scRealBinop scMulInt
+
+scMulInt :: SC.SharedContext
+            -> SAWElt BaseIntegerType
+            -> SAWElt BaseIntegerType
+            -> IO (SAWElt BaseIntegerType)
+scMulInt = scIntBinop scMulNat SC.scIntMul
+
+scMulNat :: SC.SharedContext
+            -> SAWElt BaseNatType
+            -> SAWElt BaseNatType
+            -> IO (SAWElt BaseNatType)
+scMulNat sc (SAWElt x) (SAWElt y) = SAWElt <$> SC.scMulNat sc x y
+
+scIteReal :: SC.SharedContext
+             -> SC.Term
+             -> SAWElt BaseRealType
+             -> SAWElt BaseRealType
+             -> IO (SAWElt BaseRealType)
+scIteReal sc p = scRealBinop (\sc' -> scIteInt sc' p) sc
+
+scIteInt :: SC.SharedContext
+            -> SC.Term
+            -> SAWElt BaseIntegerType
+            -> SAWElt BaseIntegerType
+            -> IO (SAWElt BaseIntegerType)
+scIteInt sc p = scIntBinop
+    (\sc' -> scIteNat sc' p)
+    (\sc' x y -> SC.scIntegerType sc >>= \tp -> SC.scIte sc' tp p x y)
+    sc
+
+scIteNat :: SC.SharedContext
+            -> SC.Term
+            -> SAWElt BaseNatType
+            -> SAWElt BaseNatType
+            -> IO (SAWElt BaseNatType)
+scIteNat sc p (SAWElt x) (SAWElt y) =
+  SAWElt <$> (SC.scNatType sc >>= \tp -> SC.scIte sc tp p x y)
+
+
+scRealEq :: SC.SharedContext
+         -> SAWElt BaseRealType
+         -> SAWElt BaseRealType
+         -> IO (SAWElt BaseBoolType)
+scRealEq = scRealCmpop scIntEq
+
+scIntEq :: SC.SharedContext
+        -> SAWElt BaseIntegerType
+        -> SAWElt BaseIntegerType
+        -> IO (SAWElt BaseBoolType)
+scIntEq = scIntCmpop scNatEq SC.scIntEq
+
+scNatEq :: SC.SharedContext
+        -> SAWElt BaseNatType
+        -> SAWElt BaseNatType
+        -> IO (SAWElt BaseBoolType)
+scNatEq sc (SAWElt x) (SAWElt y) = SAWElt <$> SC.scEqualNat sc x y
+
+
+scRealLe :: SC.SharedContext
+         -> SAWElt BaseRealType
+         -> SAWElt BaseRealType
+         -> IO (SAWElt BaseBoolType)
+scRealLe = scRealCmpop scIntLe
+
+scIntLe :: SC.SharedContext
+        -> SAWElt BaseIntegerType
+        -> SAWElt BaseIntegerType
+        -> IO (SAWElt BaseBoolType)
+scIntLe = scIntCmpop scNatLe SC.scIntLe
+
+scNatLe :: SC.SharedContext
+        -> SAWElt BaseNatType
+        -> SAWElt BaseNatType
+        -> IO (SAWElt BaseBoolType)
+scNatLe sc (SAWElt x) (SAWElt y) =
+  do lt <- SC.scLtNat sc x y
+     eq <- SC.scEqualNat sc x y
+     SAWElt <$> SC.scOr sc lt eq
+
 
 evaluateElt :: forall n tp
              . SAWCoreBackend n
@@ -219,9 +362,11 @@ evaluateElt sym sc cache = f
    realFail = fail "SAW backend does not support real values"
 
    go :: SB.Elt n tp' -> IO (SAWElt tp')
-   go (SB.NatElt n _)  = SAWElt <$> SC.scNat sc (fromIntegral n)
-   go (SB.IntElt i _)  = SAWElt <$> scIntLit sc i
-   go (SB.RatElt r _)  = scRealLit sc r
+   go (SB.SemiRingLiteral sr x _) =
+     case sr of
+       SB.SemiRingNat  -> SAWElt <$> SC.scNat sc (fromIntegral x)
+       SB.SemiRingInt  -> scIntLit sc x
+       SB.SemiRingReal -> scRealLit sc x
    go (SB.BVElt w i _) = SAWElt <$> SC.scBvConst sc (fromIntegral (natValue w)) i
 
    go (SB.BoundVarElt bv) =
@@ -262,24 +407,42 @@ evaluateElt sym sc cache = f
         SB.IteBool c x y ->
             SAWElt <$> join (SC.scIte sc <$> SC.scBoolType sc <*> f c <*> f x <*> f y)
 
-        SB.RealEq xe ye -> fmap SAWElt $ do
-          xt <- eval xe
-          yt <- eval ye
-          case (xt, yt) of
-            (NatToRealSAWElt xn, NatToRealSAWElt yn) -> do
-              SC.scEqualNat sc xn yn
-            _ -> do
-              join $ SC.scIntEq sc <$> scAsIntElt sc xt <*> scAsIntElt sc yt
-        SB.RealLe xe ye -> fmap SAWElt $ do
-          xt <- eval xe
-          yt <- eval ye
-          case (xt, yt) of
-            (NatToRealSAWElt xn, NatToRealSAWElt yn) -> do
-              lt <- SC.scLtNat sc xn yn
-              eq <- SC.scEqualNat sc xn yn
-              SC.scOr sc lt eq
-            _ -> do
-              join $ SC.scIntLe sc <$> scAsIntElt sc xt <*> scAsIntElt sc yt
+        SB.SemiRingEq sr xe ye ->
+          case sr of
+            SB.SemiRingReal -> join (scRealEq sc <$> eval xe <*> eval ye)
+            SB.SemiRingInt  -> join (scIntEq sc <$> eval xe <*> eval ye)
+            SB.SemiRingNat  -> join (scNatEq sc <$> eval xe <*> eval ye)
+
+        SB.SemiRingLe sr xe ye ->
+          case sr of
+            SB.SemiRingReal -> join (scRealLe sc <$> eval xe <*> eval ye)
+            SB.SemiRingInt  -> join (scIntLe sc <$> eval xe <*> eval ye)
+            SB.SemiRingNat  -> join (scNatLe sc <$> eval xe <*> eval ye)
+
+        SB.SemiRingIte sr c xe ye ->
+          case sr of
+            SB.SemiRingReal -> join (scIteReal sc <$> f c <*> eval xe <*> eval ye)
+            SB.SemiRingInt  -> join (scIteInt  sc <$> f c <*> eval xe <*> eval ye)
+            SB.SemiRingNat  -> join (scIteNat  sc <$> f c <*> eval xe <*> eval ye)
+
+        SB.SemiRingMul sr xe ye ->
+           case sr of
+             SB.SemiRingReal -> join (scMulReal sc <$> eval xe <*> eval ye)
+             SB.SemiRingInt  -> join (scMulInt  sc <$> eval xe <*> eval ye)
+             SB.SemiRingNat  -> join (scMulNat  sc <$> eval xe <*> eval ye)
+
+        SB.SemiRingSum sr ss ->
+          case sr of
+            SB.SemiRingReal -> WSum.eval add smul (scRealLit sc) ss
+               where add mx my = join $ scAddReal sc <$> mx <*> my
+                     smul sm e = join $ scMulReal sc <$> scRealLit sc sm <*> eval e
+            SB.SemiRingInt  -> WSum.eval add smul (scIntLit sc) ss
+               where add mx my = join $ scAddInt sc <$> mx <*> my
+                     smul sm e = join $ scMulInt sc <$> scIntLit sc sm <*> eval e
+            SB.SemiRingNat  -> WSum.eval add smul (scNatLit sc) ss
+               where add mx my = join $ scAddNat sc <$> mx <*> my
+                     smul sm e = join $ scMulNat sc <$> scNatLit sc sm <*> eval e
+
         SB.RealIsInteger{} -> fail "SAW backend does not support real values"
 
         SB.BVTestBit i bv -> fmap SAWElt $ do
@@ -297,22 +460,6 @@ evaluateElt sym sc cache = f
              join (SC.scBvULt sc w <$> f x <*> f y)
 
         SB.ArrayEq _ _ -> fail "SAW backend does not support array equality"
-
-        SB.RealSum rs -> WSum.eval add smul (scRealLit sc) rs
-          where add mx my = join $ scAdd sc <$> mx <*> my
-                smul sm e = join $ scMul sc <$> scRealLit sc sm <*> eval e
-        SB.RealMul x y ->
-          join $ scMul sc <$> eval x <*> eval y
-
-        SB.RealIte c xe ye -> do
-          xt <- eval xe
-          yt <- eval ye
-          case (xt, yt) of
-            (NatToRealSAWElt xn, NatToRealSAWElt yn) -> fmap NatToRealSAWElt $
-              join (SC.scIte sc <$> SC.scNatType sc <*> f c ?? xn ?? yn)
-            (IntToRealSAWElt xi, IntToRealSAWElt yi) -> fmap IntToRealSAWElt $
-              join (SC.scIte sc <$> SC.scIntegerType sc <*> f c ?? xi ?? yi)
-            _ -> realFail
 
         SB.RealDiv{} -> realFail
         SB.IntMod x y -> fmap SAWElt $
@@ -465,7 +612,7 @@ evaluateElt sym sc cache = f
         SB.NatDiv{} -> nyi -- FIXME
         SB.NatToInteger x -> SAWElt <$> (SC.scNatToInt sc =<< f x)
         SB.IntegerToNat{} -> nyi -- FIXME
-        SB.IntegerToReal x -> IntToRealSAWElt <$> f x
+        SB.IntegerToReal x -> IntToRealSAWElt . SAWElt <$> f x
         SB.RealToInteger{} -> nyi -- FIXME
         SB.BVToInteger{} -> nyi -- FIXME
         SB.IntegerToSBV{} -> nyi -- FIXME
