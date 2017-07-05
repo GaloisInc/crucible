@@ -24,6 +24,7 @@ module Lang.Crucible.FunctionHandle
   , -- * Allocate handle.
     HandleAllocator
   , haCounter
+  , newHandleAllocator
   , withHandleAllocator
   , mkHandle
   , mkHandle'
@@ -89,10 +90,13 @@ newtype HandleAllocator s
         }
 
 -- | Create a new handle allocator.
+newHandleAllocator :: MonadST s m => m (HandleAllocator s)
+newHandleAllocator = do
+  HA <$> liftST newNonceGenerator
+
+-- | Create a new handle allocator and run the given computation.
 withHandleAllocator :: MonadST s m => (HandleAllocator s -> m a) -> m a
-withHandleAllocator k = do
-  c <- liftST newNonceGenerator
-  k $! HA{ haCounter = c }
+withHandleAllocator k = newHandleAllocator >>= k
 
 -- | Allocate a new function handle with requested 'args' and 'ret' types
 mkHandle :: (KnownCtx TypeRepr args, KnownRepr TypeRepr ret)
