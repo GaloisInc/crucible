@@ -329,6 +329,9 @@ class ( IsBoolExprBuilder sym
   -- | Multiply one number by another.
   natMul :: sym -> SymNat sym -> SymNat sym -> IO (SymNat sym)
 
+  -- | Evaluate a weighted sum of natural number values
+  natSum :: sym -> WeightedSum (SymExpr sym) BaseNatType -> IO (SymNat sym)
+
   -- | 'natDiv sym x y' performs natural division.
   --
   -- The result is undefined if y equals '0'.
@@ -355,7 +358,6 @@ class ( IsBoolExprBuilder sym
   natIte :: sym -> Pred sym -> SymNat sym -> SymNat sym -> IO (SymNat sym)
 
   natEq :: sym -> SymNat sym -> SymNat sym -> IO (Pred sym)
-  natEq sym x y = isEq sym x y
 
   -- | @natLe sym x y@ returns 'true' if @x <= y@.
   natLe :: sym -> SymNat sym -> SymNat sym -> IO (Pred sym)
@@ -410,27 +412,22 @@ class ( IsBoolExprBuilder sym
 
   -- | Add two integers.
   intAdd :: sym -> SymInteger sym -> SymInteger sym -> IO (SymInteger sym)
-  intAdd sym xi yi = do
-    x <- integerToReal sym xi
-    y <- integerToReal sym yi
-    realToInteger sym =<< realAdd sym x y
 
   -- | Subtract one integer from another.
   intSub :: sym -> SymInteger sym -> SymInteger sym -> IO (SymInteger sym)
-  intSub sym xi yi = do
-    x <- integerToReal sym xi
-    y <- integerToReal sym yi
-    realToInteger sym =<< realSub sym x y
+  intSub sym x y = intAdd sym x =<< intNeg sym y
 
   -- | Multiply one integer by another.
   intMul :: sym -> SymInteger sym -> SymInteger sym -> IO (SymInteger sym)
+
+  -- | Evaluate a weighted sum of integer values
+  intSum :: sym -> WeightedSum (SymExpr sym) BaseIntegerType -> IO (SymInteger sym)
 
   -- | If-then-else applied to integers.
   intIte :: sym -> Pred sym -> SymInteger sym -> SymInteger sym -> IO (SymInteger sym)
 
   -- | Integer equality.
   intEq  :: sym -> SymInteger sym -> SymInteger sym -> IO (Pred sym)
-  intEq = isEq
 
   -- | Integer less-than-or-equal.
   intLe  :: sym -> SymInteger sym -> SymInteger sym -> IO (Pred sym)
@@ -1214,7 +1211,7 @@ class ( IsBoolExprBuilder sym
   realAdd :: sym -> SymReal sym -> SymReal sym -> IO (SymReal sym)
 
   -- | Evaluate a weighted sum of real values.
-  realSum :: sym -> WeightedSum Rational (SymExpr sym) BaseRealType -> IO (SymReal sym)
+  realSum :: sym -> WeightedSum (SymExpr sym) BaseRealType -> IO (SymReal sym)
 
   -- | Multiply two real numbers.
   realMul :: sym -> SymReal sym -> SymReal sym -> IO (SymReal sym)

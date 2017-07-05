@@ -126,9 +126,7 @@ recordElt n = do
 count_subterms' :: Elt t tp -> Counter ()
 count_subterms' e0 =
   case e0 of
-    NatElt{} -> pure ()
-    IntElt{} -> pure ()
-    RatElt{} -> pure ()
+    SemiRingLiteral{} -> pure ()
     BVElt{}  -> pure ()
     AppElt ae -> do
       is_new <- recordElt (appEltId ae)

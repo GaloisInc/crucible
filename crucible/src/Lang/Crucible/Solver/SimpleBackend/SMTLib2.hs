@@ -188,6 +188,10 @@ class SMTLib2Tweaks a where
 instance SMTLib2Tweaks () where
   smtlib2tweaks = ()
 
+toIntegerTerm :: SMTLib2Tweaks a => Integer -> Expr a
+toIntegerTerm x | x >= 0    = T $ decimal x
+                | otherwise = negate (T (decimal (negate x)))
+
 toRealTerm :: SMTLib2Tweaks a => Integer -> Expr a
 toRealTerm x | x >= 0    = T $ decimal x <> ".0"
              | otherwise = negate (T (decimal (negate x) <> ".0"))
@@ -240,6 +244,8 @@ instance SMTLib2Tweaks a => SupportTermOps (Expr a) where
 
   termIntegerToReal x = term_app "to_real" [x]
   termRealToInteger x = term_app "to_int"  [x]
+
+  integerTerm i = toIntegerTerm i
 
   rationalTerm r | d == 1 = toRealTerm n
                  | otherwise = term_app "/" [toRealTerm n, toRealTerm d]
