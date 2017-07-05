@@ -583,10 +583,10 @@ evalApp sym itefns logFn evalSub a0 = do
       x <- evalSub xe
       y <- evalSub ye
       natLt sym x y
-    NatLe x y -> do
-      x' <- evalSub x
-      y' <- evalSub y
-      natLe sym x' y'
+    NatLe xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      natLe sym x y
     NatAdd xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
