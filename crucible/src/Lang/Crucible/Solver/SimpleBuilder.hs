@@ -685,7 +685,7 @@ data AppElt t (tp :: BaseType)
 -- Type @'Elt' t@ instantiates the type family @'SymExpr'
 -- ('SimpleBuilder' t st)@.
 data Elt t (tp :: BaseType) where
-  SemiRingLiteral :: !(SemiRingRepr tp) -> !(WSum.Coefficent tp) -> !ProgramLoc -> Elt t tp
+  SemiRingLiteral :: !(SemiRingRepr tp) -> !(WSum.Coefficient tp) -> !ProgramLoc -> Elt t tp
   BVElt  :: (1 <= w) => !(NatRepr w) -> !Integer -> !ProgramLoc -> Elt t (BaseBVType w)
   -- Application
   AppElt :: {-# UNPACK #-} !(AppElt t tp) -> Elt t tp
@@ -769,7 +769,7 @@ instance IsExpr (Elt t) where
   printSymExpr = pretty
 
 
-asSemiRingLit :: Elt t tp -> Maybe (WSum.Coefficent tp)
+asSemiRingLit :: Elt t tp -> Maybe (WSum.Coefficient tp)
 asSemiRingLit (SemiRingLiteral _sr x _loc) = Just x
 asSemiRingLit _ = Nothing
 
@@ -2337,7 +2337,7 @@ sbNonceElt sym a = do
 
 semiRingLit :: SimpleBuilder t st
             -> SemiRingRepr tp
-            -> WSum.Coefficent tp
+            -> WSum.Coefficient tp
             -> IO (Elt t tp)
 semiRingLit sb sr x = do
   l <- curProgramLoc sb
@@ -3080,7 +3080,7 @@ sbTryUnaryTerm sym u a
 
 -- | This privides a view of a real elt as a weighted sum of values.
 data SumView t tp
-   = ConstantSum !(WSum.Coefficent tp)
+   = ConstantSum !(WSum.Coefficient tp)
    | LinearSum !(WeightedSum (Elt t) tp)
    | GeneralSum
 
@@ -3090,7 +3090,7 @@ viewSum x
   | Just (SemiRingSum _sr s) <- asApp x = LinearSum s
   | otherwise = GeneralSum
 
-asWeightedSum :: WSum.SemiRingCoefficent tp
+asWeightedSum :: WSum.SemiRingCoefficient tp
               => HashableF (Elt t)
               => Elt t tp
               -> WeightedSum (Elt t) tp
@@ -3099,7 +3099,7 @@ asWeightedSum x
   | Just (SemiRingSum _sr s) <- asApp x = s
   | otherwise = WSum.var x
 
-semiRingSum :: WSum.SemiRingCoefficent tp
+semiRingSum :: WSum.SemiRingCoefficient tp
             => SimpleBuilder t st
             -> SemiRingRepr tp
             -> WeightedSum (Elt t) tp
@@ -3112,7 +3112,7 @@ semiRingSum sym sr s
     | otherwise =
       sum' sym sr s
 
-sum' :: WSum.SemiRingCoefficent tp
+sum' :: WSum.SemiRingCoefficient tp
      => SimpleBuilder t st
      -> SemiRingRepr tp
      -> WeightedSum (Elt t) tp
@@ -3120,10 +3120,10 @@ sum' :: WSum.SemiRingCoefficent tp
 sum' sym sr s = sbMakeElt sym $ SemiRingSum sr $ s
 {-# INLINE sum' #-}
 
-scalarMul :: WSum.SemiRingCoefficent tp
+scalarMul :: WSum.SemiRingCoefficient tp
           => SimpleBuilder t st
           -> SemiRingRepr tp
-          -> WSum.Coefficent tp
+          -> WSum.Coefficient tp
           -> Elt t tp
           -> IO (Elt t tp)
 scalarMul sym sr c x
@@ -3138,7 +3138,7 @@ scalarMul sym sr c x
   | otherwise = do
     sum' sym sr (WSum.scaledVar c x)
 
-semiRingIte :: WSum.SemiRingCoefficent tp
+semiRingIte :: WSum.SemiRingCoefficient tp
             => SimpleBuilder t st
             -> SemiRingRepr tp
             -> Elt t BaseBoolType
@@ -3169,7 +3169,7 @@ semiRingIte sym sr c x y
     sbMakeElt sym (SemiRingIte sr c x y)
 
 semiRingLe
-   :: WSum.SemiRingCoefficent tp
+   :: WSum.SemiRingCoefficient tp
    => SimpleBuilder t st
    -> SemiRingRepr tp
    -> Elt t tp
@@ -3220,7 +3220,7 @@ semiRingLe sym sr x y
               SemiRingNat  -> natLe
 
 
-semiRingEq :: WSum.SemiRingCoefficent tp
+semiRingEq :: WSum.SemiRingCoefficient tp
            => SimpleBuilder t st
            -> SemiRingRepr tp
            -> Elt t tp
@@ -3241,7 +3241,7 @@ semiRingEq sym sr x y
     sbMakeElt sym $ SemiRingEq sr (min x y) (max x y)
 
 
-semiRingAdd :: WSum.SemiRingCoefficent tp
+semiRingAdd :: WSum.SemiRingCoefficient tp
             => SimpleBuilder t st
             -> SemiRingRepr tp
             -> Elt t tp
@@ -3270,7 +3270,7 @@ semiRingAdd sym sr x y =
       (GeneralSum, LinearSum ys)   -> semiRingSum sym sr (ys `WSum.addVar` x)
       (GeneralSum, GeneralSum)     -> semiRingSum sym sr (x  `WSum.addVars` y)
 
-semiRingMul :: WSum.SemiRingCoefficent tp
+semiRingMul :: WSum.SemiRingCoefficient tp
             => SimpleBuilder t st
             -> SemiRingRepr tp
             -> Elt t tp

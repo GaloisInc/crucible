@@ -21,7 +21,7 @@ and an offset.
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wwarn #-}
 module Lang.Crucible.Solver.WeightedSum
-  ( SemiRingCoefficent(..)
+  ( SemiRingCoefficient(..)
   , SemiRing
   , semiRingBase
   , SemiRingRepr(..)
@@ -70,17 +70,17 @@ instance HashableF f => Hashable (WrapF f i) where
 traverseWrap :: Functor m => (f i -> m (g i)) -> WrapF f i -> m (WrapF g i)
 traverseWrap f (WrapF x) = WrapF <$> f x
 
-class (Eq (Coefficent tp), Num (Coefficent tp), Hashable (Coefficent tp)) => SemiRingCoefficent tp where
-  type Coefficent tp :: *
+class (Eq (Coefficient tp), Num (Coefficient tp), Hashable (Coefficient tp)) => SemiRingCoefficient tp where
+  type Coefficient tp :: *
 
-type SemiRing f tp = (OrdF f, HashableF f, SemiRingCoefficent tp)
+type SemiRing f tp = (OrdF f, HashableF f, SemiRingCoefficient tp)
 
-instance SemiRingCoefficent BaseRealType where
-  type Coefficent BaseRealType = Rational
-instance SemiRingCoefficent BaseIntegerType where
-  type Coefficent BaseIntegerType = Integer
-instance SemiRingCoefficent BaseNatType where
-  type Coefficent BaseNatType = Nat
+instance SemiRingCoefficient BaseRealType where
+  type Coefficient BaseRealType = Rational
+instance SemiRingCoefficient BaseIntegerType where
+  type Coefficient BaseIntegerType = Integer
+instance SemiRingCoefficient BaseNatType where
+  type Coefficient BaseNatType = Nat
 
 
 data SemiRingRepr (tp :: BaseType) where
@@ -130,15 +130,15 @@ semiRingBase SemiRingReal = BaseRealRepr
 --
 -- The type 'c' is the type for coeffiecients
 data WeightedSum (f :: BaseType -> *) tp
-   = WeightedSum { _sumMap     :: !(Map (WrapF f tp) (Coefficent tp))
-                 , _sumOffset  :: !(Coefficent tp)
+   = WeightedSum { _sumMap     :: !(Map (WrapF f tp) (Coefficient tp))
+                 , _sumOffset  :: !(Coefficient tp)
                  , _sumHash    :: !Int -- ^ precomputed hash of the map part of the weighted sum
                  }
 
-deriving instance (TestEquality f, Eq (Coefficent tp)) => Eq (WeightedSum f tp)
-deriving instance (OrdF f, Ord (Coefficent tp)) => Ord (WeightedSum f tp)
+deriving instance (TestEquality f, Eq (Coefficient tp)) => Eq (WeightedSum f tp)
+deriving instance (OrdF f, Ord (Coefficient tp)) => Ord (WeightedSum f tp)
 
-semiringCompare :: SemiRingRepr tp -> Coefficent tp -> Coefficent tp -> Ordering
+semiringCompare :: SemiRingRepr tp -> Coefficient tp -> Coefficient tp -> Ordering
 semiringCompare SemiRingNat  = compare
 semiringCompare SemiRingInt  = compare
 semiringCompare SemiRingReal = compare
@@ -148,25 +148,25 @@ semiringCompare SemiRingReal = compare
 --
 -- Note. When calling this, one should ensure map values equal to '0'
 -- have been removed.
-unfilteredSum :: SemiRing f tp => Map (WrapF f tp) (Coefficent tp) -> Coefficent tp -> WeightedSum f tp
+unfilteredSum :: SemiRing f tp => Map (WrapF f tp) (Coefficient tp) -> Coefficient tp -> WeightedSum f tp
 unfilteredSum m c = WeightedSum m c (computeHash m)
 
-sumMap :: SemiRing f tp => Simple Lens (WeightedSum f tp) (Map (WrapF f tp) (Coefficent tp))
+sumMap :: SemiRing f tp => Simple Lens (WeightedSum f tp) (Map (WrapF f tp) (Coefficient tp))
 sumMap = lens _sumMap (\w m -> w{ _sumMap = m, _sumHash = computeHash m })
 
-sumOffset :: Simple Lens (WeightedSum f tp) (Coefficent tp)
+sumOffset :: Simple Lens (WeightedSum f tp) (Coefficient tp)
 sumOffset = lens _sumOffset (\s v -> s { _sumOffset = v })
 
 instance SemiRing f tp => Hashable (WeightedSum f tp) where
   hashWithSalt s0 w =
     hashWithSalt (hashWithSalt s0 (_sumOffset w)) (_sumHash w)
 
-computeHash :: SemiRing f tp => Map (WrapF f tp) (Coefficent tp) -> Int
+computeHash :: SemiRing f tp => Map (WrapF f tp) (Coefficient tp) -> Int
 computeHash m = Map.foldlWithKey' h 0 m
     where h s k v = s `xor` hashWithSalt (hash k) v
 
 -- | Attempt to parse weighted sum as a constant
-asConstant :: WeightedSum f tp -> Maybe (Coefficent tp)
+asConstant :: WeightedSum f tp -> Maybe (Coefficient tp)
 asConstant w
   | Map.null (_sumMap w) = Just (_sumOffset w)
   | otherwise = Nothing
@@ -184,7 +184,7 @@ asVar w
 asVar _ = Nothing
 
 -- | Create a sum from a rational value.
-constant :: SemiRing f tp => Coefficent tp -> WeightedSum f tp
+constant :: SemiRing f tp => Coefficient tp -> WeightedSum f tp
 constant = unfilteredSum Map.empty
 
 -- | Traverse the expressions in a weighted sum.
@@ -204,7 +204,7 @@ traverseMapKey f m =
   Map.fromList <$> traverse (_1 f) (Map.toList m)
 
 -- | This returns a variable times a constant.
-scaledVar :: SemiRing f tp => Coefficent tp -> f tp -> WeightedSum f tp
+scaledVar :: SemiRing f tp => Coefficient tp -> f tp -> WeightedSum f tp
 scaledVar s t
   | s == 0 = unfilteredSum Map.empty 0
   | otherwise = unfilteredSum (Map.singleton (WrapF t) s) 0
@@ -249,12 +249,12 @@ addVar x y = x{ _sumMap  = if newval == 0 then Map.delete (WrapF y) m' else m'
    newHash    = hashWithSalt (hash (WrapF y)) newval
 
 -- | Add a rational to the sum.
-addConstant :: SemiRing f tp => WeightedSum f tp -> Coefficent tp -> WeightedSum f tp
+addConstant :: SemiRing f tp => WeightedSum f tp -> Coefficient tp -> WeightedSum f tp
 addConstant x r = x & sumOffset +~ r
 
 -- | Multiply a sum by a rational coefficient.
 scale :: SemiRing f tp
-      => Coefficent tp -> WeightedSum f tp -> WeightedSum f tp
+      => Coefficient tp -> WeightedSum f tp -> WeightedSum f tp
 scale 0 _ = constant 0
 scale c x = x & sumMap    %~ fmap (c*)
               & sumOffset %~ (c*)
@@ -264,9 +264,9 @@ scale c x = x & sumMap    %~ fmap (c*)
 eval :: SemiRing f tp
      => (r -> r -> r)
         -- ^ Addition function
-     -> (Coefficent tp -> f tp -> r)
+     -> (Coefficient tp -> f tp -> r)
         -- ^ Scalar multiply
-     -> (Coefficent tp -> r)
+     -> (Coefficient tp -> r)
         -- ^ Constant evaluation
      -> WeightedSum f tp
      -> r
