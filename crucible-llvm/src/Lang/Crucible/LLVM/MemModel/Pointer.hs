@@ -100,6 +100,29 @@ ptrSizeDecompose _ _ (asUnsignedBV -> Just off) =
 ptrSizeDecompose _ _ _ = return Nothing
 
 
+-- | Test whether pointers point into the same allocation unit.
+ptrComparable ::
+    (1 <= w, IsSymInterface sym) =>
+    sym -> NatRepr w -> LLVMPtr sym w -> LLVMPtr sym w -> IO (Pred sym)
+ptrComparable sym _w (LLVMPtr base1 _ _) (LLVMPtr base2 _ _) =
+  natEq sym base1 base2
+
+-- | Test whether pointers have equal offsets (assuming they point
+-- into the same allocation unit).
+ptrOffsetEq ::
+    (1 <= w, IsSymInterface sym) =>
+    sym -> NatRepr w -> LLVMPtr sym w -> LLVMPtr sym w -> IO (Pred sym)
+ptrOffsetEq sym _w (LLVMPtr _ _ off1) (LLVMPtr _ _ off2) =
+  bvEq sym off1 off2
+
+-- | Test whether the first pointer's address is less than or equal to
+-- the second (assuming they point into the same allocation unit).
+ptrOffsetLe ::
+    (1 <= w, IsSymInterface sym) =>
+    sym -> NatRepr w -> LLVMPtr sym w -> LLVMPtr sym w -> IO (Pred sym)
+ptrOffsetLe sym _w (LLVMPtr _ _ off1) (LLVMPtr _ _ off2) =
+  bvSle sym off1 off2
+
 ptrEq :: (1 <= w, IsSymInterface sym)
       => sym
       -> NatRepr w

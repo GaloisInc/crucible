@@ -122,8 +122,9 @@ data IntExpr
   deriving (Show)
 
 data Cond
-  = PtrEq PtrExpr PtrExpr
-  | PtrLe PtrExpr PtrExpr
+  = PtrComparable PtrExpr PtrExpr -- ^ Are pointers in the same allocation unit
+  | PtrOffsetEq PtrExpr PtrExpr
+  | PtrOffsetLe PtrExpr PtrExpr
   | IntEq IntExpr IntExpr
   | IntLe IntExpr IntExpr
   | And Cond Cond
@@ -131,11 +132,11 @@ data Cond
 
 (.==) :: PtrExpr -> PtrExpr -> Cond
 infix 4 .==
-(.==) = PtrEq
+x .== y = And (PtrComparable x y) (PtrOffsetEq x y)
 
 (.<=) :: PtrExpr -> PtrExpr -> Cond
 infix 4 .<=
-(.<=) = PtrLe
+x .<= y = And (PtrComparable x y) (PtrOffsetLe x y)
 
 infixl 6 .+
 (.+) :: PtrExpr -> IntExpr -> PtrExpr

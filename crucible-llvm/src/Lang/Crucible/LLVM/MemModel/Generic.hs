@@ -124,11 +124,12 @@ genCondVar :: (1 <= w, IsSymInterface sym)
               -> Cond -> IO (Pred sym)
 genCondVar sym w inst c =
   case c of
-    PtrEq x y  -> join $ ptrEq sym w <$> genPtrExpr sym w inst x <*> genPtrExpr sym w inst y
-    PtrLe x y  -> join $ ptrLe sym w <$> genPtrExpr sym w inst x <*> genPtrExpr sym w inst y
-    IntEq x y  -> join $ bvEq sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
-    IntLe x y  -> join $ bvSle sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
-    And x y    -> join $ andPred sym <$> genCondVar sym w inst x <*> genCondVar sym w inst y
+    PtrComparable x y -> join $ ptrComparable sym w <$> genPtrExpr sym w inst x <*> genPtrExpr sym w inst y
+    PtrOffsetEq x y   -> join $ ptrOffsetEq sym w <$> genPtrExpr sym w inst x <*> genPtrExpr sym w inst y
+    PtrOffsetLe x y   -> join $ ptrOffsetLe sym w <$> genPtrExpr sym w inst x <*> genPtrExpr sym w inst y
+    IntEq x y         -> join $ bvEq sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
+    IntLe x y         -> join $ bvSle sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
+    And x y           -> join $ andPred sym <$> genCondVar sym w inst x <*> genCondVar sym w inst y
 
 genValueCtor :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w -> ValueCtor (PartLLVMVal sym w) -> IO (PartLLVMVal sym w)
 genValueCtor sym w = foldTermM return (applyCtorFLLVMVal sym w)
