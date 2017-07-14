@@ -155,7 +155,7 @@ extendReg :: Reg ctx tp -> Reg (ctx ::> r) tp
 extendReg = Reg . Ctx.extendIndex . regIndex
 
 #ifdef UNSAFE_OPS
-instance CoerceableF (Reg ctx) where
+instance CoercibleF (Reg ctx) where
   coerceF x = Data.Coerce.coerce x
 #endif
 

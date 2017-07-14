@@ -220,7 +220,7 @@ insertSwitchInfo   :: LambdaLabel s tp
 lookupSwitchInfo   :: LambdaLabel s tp -> SwitchInfoMap s blocks -> Maybe (SwitchInfo s blocks tp)
 
 #ifdef UNSAFE_OPS
-instance CoerceableF (SwitchInfo s blocks) where
+instance CoercibleF (SwitchInfo s blocks) where
   coerceF x = Data.Coerce.coerce x
 
 newtype SwitchInfoMap s blocks = SwitchInfoMap (MapF (LambdaLabel s) (SwitchInfo s blocks))
