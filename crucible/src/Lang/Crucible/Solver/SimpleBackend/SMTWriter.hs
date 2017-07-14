@@ -37,6 +37,8 @@ module Lang.Crucible.Solver.SimpleBackend.SMTWriter
   ( -- * Type classes
     SupportTermOps(..)
   , SMTWriter(..)
+  , SMTEvalBVArrayFn
+  , SMTEvalBVArrayWrapper(..)
     -- * Terms
   , Term(..)
   , term_app
@@ -2099,6 +2101,17 @@ assume c p = do
     updateProgramLoc c (eltLoc v)
     assumeFormula c f
 
+type SMTEvalBVArrayFn h w v =
+    (1 <= w,
+     1 <= v)
+  => NatRepr w
+  -> NatRepr v
+  -> Term h
+  -> IO (Maybe (GroundArray (Ctx.SingleCtx (BaseBVType w)) (BaseBVType v)))
+
+newtype SMTEvalBVArrayWrapper h =
+  SMTEvalBVArrayWrapper { unEvalBVArrayWrapper :: forall w v. SMTEvalBVArrayFn h w v }
+
 data SMTEvalFunctions h
    = SMTEvalFunctions { smtEvalBool :: Term h -> IO Bool
                         -- ^ Given a SMT term for a Boolean value, this should
@@ -2110,6 +2123,11 @@ data SMTEvalFunctions h
                       , smtEvalReal :: Term h -> IO Rational
                         -- ^ Given a SMT term for real value, this should
                         -- return a rational value for that term.
+                      , smtEvalBvArray :: Maybe (SMTEvalBVArrayWrapper h)
+                        -- ^ If 'Just', a function to read arrays whose domain
+                        -- and codomain are both bitvectors. If 'Nothing',
+                        -- signifies that we should fall back to index-selection
+                        -- representation of arrays.
                       }
 
 -- | Return the terms associated with the given ground index variables.
@@ -2128,7 +2146,7 @@ smtIndicesTerms tps vals = Ctx.forIndexRange 0 sz f []
                       BVTypeMap w -> bvTerm w v
                       _ -> error "Do not yet support other index types."
 
-getSolverVal :: SupportTermOps (Term h)
+getSolverVal :: forall h tp. SupportTermOps (Term h)
               => SMTEvalFunctions h
               -> TypeMap tp
               -> Term h
@@ -2151,10 +2169,17 @@ getSolverVal smtFns ComplexToStructTypeMap tm =
 getSolverVal smtFns ComplexToArrayTypeMap tm =
   (:+) <$> smtEvalReal smtFns (arrayComplexRealPart tm)
        <*> smtEvalReal smtFns (arrayComplexImagPart tm)
-getSolverVal smtFns (PrimArrayTypeMap idx_types eltTp) tm = return $ \i -> do
-  let res = arraySelect tm (smtIndicesTerms idx_types i)
-  getSolverVal smtFns eltTp res
-getSolverVal smtFns (FnArrayTypeMap idx_types eltTp) tm = return $ \i -> do
+getSolverVal smtFns (PrimArrayTypeMap idx_types eltTp) tm
+  | Just (SMTEvalBVArrayWrapper evalBVArray) <- smtEvalBvArray smtFns
+  , Ctx.AssignExtend rest (BVTypeMap w) <- Ctx.view idx_types
+  , Ctx.AssignEmpty <- Ctx.view rest
+  , BVTypeMap v <- eltTp =
+      fromMaybe byIndex <$> evalBVArray w v tm
+  | otherwise = return byIndex
+  where byIndex = ArrayMapping $ \i -> do
+          let res = arraySelect tm (smtIndicesTerms idx_types i)
+          getSolverVal smtFns eltTp res
+getSolverVal smtFns (FnArrayTypeMap idx_types eltTp) tm = return $ ArrayMapping $ \i -> do
   let term = smtFnApp tm (smtIndicesTerms idx_types i)
   getSolverVal smtFns eltTp term
 getSolverVal  smtFns (StructTypeMap flds0) tm =

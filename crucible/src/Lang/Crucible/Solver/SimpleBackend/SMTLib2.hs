@@ -11,6 +11,7 @@
 -- useful for interfacing with solvers that accecpt SMTLib2 as an input language.
 ------------------------------------------------------------------------
 
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -18,8 +19,10 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 module Lang.Crucible.Solver.SimpleBackend.SMTLib2
   ( -- SMTLib special purpose exports
     Writer
@@ -57,8 +60,10 @@ import           Control.Exception
 import           Control.Monad.State.Strict
 import           Data.IORef
 import qualified Data.ByteString.UTF8 as UTF8
+import qualified Data.Map.Strict as Map
 import           Data.Monoid
 import           Data.Parameterized.NatRepr
+import qualified Data.Parameterized.Context as Ctx
 import           Data.Ratio
 import           Data.Set (Set)
 import qualified Data.Set as Set
@@ -74,6 +79,7 @@ import qualified System.IO.Streams.Attoparsec as Streams
 
 import           Prelude hiding (writeFile)
 
+import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
 import           Lang.Crucible.Solver.SimpleBackend.ProblemFeatures
@@ -81,6 +87,7 @@ import           Lang.Crucible.Solver.SimpleBackend.ReadDecimal
 import qualified Lang.Crucible.Solver.SimpleBackend.SMTWriter as SMTWriter
 import           Lang.Crucible.Solver.SimpleBackend.SMTWriter hiding (assume)
 import           Lang.Crucible.Solver.SimpleBuilder
+import           Lang.Crucible.Solver.Interface ( IndexLit(..) )
 import           Lang.Crucible.Utils.SExp
 
 ------------------------------------------------------------------------
@@ -447,6 +454,26 @@ parseBvSolverValue _ (SApp ["_", SAtom ('b':'v':n_str), SAtom _w_str])
     return n
 parseBvSolverValue _ s = fail $ "Could not parse solver value: " ++ show s
 
+parseBvArraySolverValue :: (Monad m,
+                            1 <= w,
+                            1 <= v)
+                        => NatRepr w
+                        -> NatRepr v
+                        -> SExp
+                        -> m (Maybe (GroundArray (Ctx.SingleCtx (BaseBVType w)) (BaseBVType v)))
+parseBvArraySolverValue _ v (SApp [SApp ["as", "const", _], c]) = do
+  c' <- parseBvSolverValue (widthVal v) c
+  return . Just $ ArrayConcrete c' Map.empty
+parseBvArraySolverValue w v (SApp ["store", arr, idx, val]) = do
+  arr' <- parseBvArraySolverValue w v arr
+  case arr' of
+    Just (ArrayConcrete base m) -> do
+      idx' <- BVIndexLit w <$> parseBvSolverValue (widthVal w) idx
+      val' <- parseBvSolverValue (widthVal v) val
+      return . Just $ ArrayConcrete base (Map.insert (Ctx.empty Ctx.%> idx') val' m)
+    _ -> return Nothing
+parseBvArraySolverValue _ _ _ = return Nothing
+
 ------------------------------------------------------------------------
 -- Session
 
@@ -469,7 +496,8 @@ runGetValue s e = do
     Right sexp -> fail $ "Could not parse solver value: " ++ show sexp
 
 -- | This function runs a check sat command
-runCheckSat :: SMTLib2Tweaks b
+runCheckSat :: forall b t a.
+               SMTLib2Tweaks b
             => Session t b
             -> (SatResult (GroundEvalFn t, Maybe (EltRangeBindings t)) -> IO a)
                -- ^ Function for evaluating model.
@@ -489,9 +517,13 @@ runCheckSat s doEval = do
             parseBvSolverValue w =<< runGetValue s tm
       let evalReal tm =
             parseRealSolverValue =<< runGetValue s tm
+      let evalBvArray :: SMTEvalBVArrayFn (Writer b) w v
+          evalBvArray w v tm =
+            parseBvArraySolverValue w v =<< runGetValue s tm
       let evalFns = SMTEvalFunctions { smtEvalBool = evalBool
                                      , smtEvalBV = evalBV
                                      , smtEvalReal = evalReal
+                                     , smtEvalBvArray = Just (SMTEvalBVArrayWrapper evalBvArray)
                                      }
       evalFn <- smtExprGroundEvalFn (sessionWriter s) evalFns
       doEval (Sat (evalFn, Nothing))

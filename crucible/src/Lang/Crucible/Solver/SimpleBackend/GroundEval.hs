@@ -22,6 +22,8 @@
 module Lang.Crucible.Solver.SimpleBackend.GroundEval
   ( GroundValue
   , GroundValueWrapper(..)
+  , GroundArray(..)
+  , lookupArray
   , GroundEvalFn(..)
   , EltRangeBindings
   , tryEvalGroundElt
@@ -36,6 +38,7 @@ import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.Maybe
 import           Data.Bits
 import qualified Data.Map.Strict as Map
+import           Data.Maybe ( fromMaybe )
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.TraversableFC
@@ -53,15 +56,14 @@ import qualified Lang.Crucible.Utils.Hashable as Hash
 import qualified Lang.Crucible.Utils.UnaryBV as UnaryBV
 
 type family GroundValue (tp :: BaseType) where
-  GroundValue BaseBoolType     = Bool
-  GroundValue BaseNatType      = Nat
-  GroundValue BaseIntegerType  = Integer
-  GroundValue BaseRealType     = Rational
-  GroundValue (BaseBVType w)   = Integer
-  GroundValue BaseComplexType  = Complex Rational
-  GroundValue (BaseArrayType idx b)  =
-    Ctx.Assignment GroundValueWrapper idx -> IO (GroundValue b)
-  GroundValue (BaseStructType ctx) = Ctx.Assignment GroundValueWrapper ctx
+  GroundValue BaseBoolType          = Bool
+  GroundValue BaseNatType           = Nat
+  GroundValue BaseIntegerType       = Integer
+  GroundValue BaseRealType          = Rational
+  GroundValue (BaseBVType w)        = Integer
+  GroundValue BaseComplexType       = Complex Rational
+  GroundValue (BaseArrayType idx b) = GroundArray idx b
+  GroundValue (BaseStructType ctx)  = Ctx.Assignment GroundValueWrapper ctx
 
 -- | A function that calculates ground values for elements.
 newtype GroundEvalFn t = GroundEvalFn { groundEval :: forall tp . Elt t tp -> IO (GroundValue tp) }
@@ -72,6 +74,22 @@ type EltRangeBindings t = RealElt t -> IO (Maybe Rational, Maybe Rational)
 
 -- | A newtype wrapper around ground value for use in a cache.
 newtype GroundValueWrapper tp = GVW { unGVW :: GroundValue tp }
+
+-- | A representation of a ground-value array.
+data GroundArray idx b
+  = ArrayMapping (Ctx.Assignment GroundValueWrapper idx -> IO (GroundValue b))
+    -- ^ Lookup function for querying by index
+  | ArrayConcrete (GroundValue b) (Map.Map (Ctx.Assignment IndexLit idx) (GroundValue b))
+    -- ^ Default value and finite map of particular indices
+
+-- | Look up an index in an ground array.
+lookupArray :: Ctx.Assignment BaseTypeRepr idx
+            -> GroundArray idx b
+            -> Ctx.Assignment GroundValueWrapper idx
+            -> IO (GroundValue b)
+lookupArray _ (ArrayMapping f) i = f i
+lookupArray tps (ArrayConcrete base m) i = return $ fromMaybe base (Map.lookup i' m)
+  where i' = fromMaybe (error "lookupArray: not valid indexLits") $ Ctx.zipWithM asIndexLit tps i
 
 asIndexLit :: BaseTypeRepr tp -> GroundValueWrapper tp -> Maybe (IndexLit tp)
 asIndexLit BaseNatRepr    (GVW v) = return $ NatIndexLit v
@@ -94,7 +112,7 @@ defaultValueForType tp =
     BaseIntegerRepr -> 0
     BaseRealRepr    -> 0
     BaseComplexRepr -> 0 :+ 0
-    BaseArrayRepr _ b -> \_ -> return (defaultValueForType b)
+    BaseArrayRepr _ b -> ArrayConcrete (defaultValueForType b) Map.empty
     BaseStructRepr ctx -> fmapFC (GVW . defaultValueForType) ctx
 
 {-# INLINABLE evalGroundElt #-}
@@ -276,14 +294,18 @@ evalGroundApp f0 a0 = do
     ArrayMap idx_types _ m def -> lift $ do
       m' <- traverse f0 (Hash.hashedMap m)
       h <- f0 def
-      let g idx =
-            case (`Map.lookup` m') =<< Ctx.zipWithM asIndexLit idx_types idx of
-              Just r ->  return r
-              Nothing -> h idx
-      return $ g
+      return $ case h of
+        ArrayMapping h' -> ArrayMapping $ \idx ->
+          case (`Map.lookup` m') =<< Ctx.zipWithM asIndexLit idx_types idx of
+            Just r ->  return r
+            Nothing -> h' idx
+        ArrayConcrete d m'' ->
+          -- Map.union is left-biased
+          ArrayConcrete d (Map.union m' m'')
+
     ConstantArray _ _ v -> lift $ do
       val <- f0 v
-      return $ \_ -> return val
+      return $ ArrayConcrete val Map.empty
 
     MuxArray _ _ p x y -> lift $ do
       b <- f0 p
@@ -291,27 +313,35 @@ evalGroundApp f0 a0 = do
 
     SelectArray _ a i -> do
       arr <- f a
+      let arrIdxTps = case exprType a of
+                        BaseArrayRepr idx _ -> idx
       idx <- traverseFC (\e -> GVW <$> f e) i
-      lift $ arr idx
+      lift $ lookupArray arrIdxTps arr idx
 
     UpdateArray _ idx_tps a i v -> do
       arr <- f a
       idx <- traverseFC (\e -> GVW <$> f e) i
-      return $ (\x -> if indicesEq idx_tps idx x then f0 v else arr x)
+      case arr of
+        ArrayMapping arr' -> return . ArrayMapping $ \x ->
+          if indicesEq idx_tps idx x then f0 v else arr' x
+        ArrayConcrete d m -> do
+          val <- f v
+          let idx' = fromMaybe (error "UpdateArray only supported on Nat and BV") $ Ctx.zipWithM asIndexLit idx_tps idx
+          return $ ArrayConcrete d (Map.insert idx' val m)
 
      where indicesEq :: Ctx.Assignment BaseTypeRepr ctx
                      -> Ctx.Assignment GroundValueWrapper ctx
                      -> Ctx.Assignment GroundValueWrapper ctx
                      -> Bool
            indicesEq tps x y =
-             forallIndex (Ctx.size x) $ \j -> do
+             forallIndex (Ctx.size x) $ \j ->
                let GVW xj = x Ctx.! j
-               let GVW yj = y Ctx.! j
-               let tp = tps Ctx.! j
-               case tp of
-                 BaseNatRepr  -> xj == yj
-                 BaseBVRepr _ -> xj == yj
-                 _ -> error $ "We do not yet support UpdateArray on " ++ show tp ++ " indices."
+                   GVW yj = y Ctx.! j
+                   tp = tps Ctx.! j
+               in case tp of
+                    BaseNatRepr  -> xj == yj
+                    BaseBVRepr _ -> xj == yj
+                    _ -> error $ "We do not yet support UpdateArray on " ++ show tp ++ " indices."
 
     ------------------------------------------------------------------------
     -- Conversions

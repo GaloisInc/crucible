@@ -468,6 +468,7 @@ getModel yp = do
   let evalFns = SMTEvalFunctions { smtEvalBool = yicesEvalBool yp
                                  , smtEvalBV   = yicesEvalBV yp
                                  , smtEvalReal = evalReal
+                                 , smtEvalBvArray = Nothing
                                  }
   smtExprGroundEvalFn (yicesConn yp) evalFns
 

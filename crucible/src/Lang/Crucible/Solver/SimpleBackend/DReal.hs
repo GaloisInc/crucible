@@ -127,6 +127,7 @@ getAvgBindings c m = do
   let evalFns = SMTWriter.SMTEvalFunctions { SMTWriter.smtEvalBool = evalBool
                                            , SMTWriter.smtEvalBV = evalBV
                                            , SMTWriter.smtEvalReal = evalReal
+                                           , SMTWriter.smtEvalBvArray = Nothing
                                            }
   SMTWriter.smtExprGroundEvalFn c evalFns
 
@@ -144,6 +145,7 @@ getMaybeEval proj c m = do
   let evalFns = SMTWriter.SMTEvalFunctions { SMTWriter.smtEvalBool = evalBool
                                            , SMTWriter.smtEvalBV = evalBV
                                            , SMTWriter.smtEvalReal = evalReal
+                                           , SMTWriter.smtEvalBvArray = Nothing
                                            }
   GroundEvalFn evalFn <- SMTWriter.smtExprGroundEvalFn c evalFns
   let handler e | isUserError e
