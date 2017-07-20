@@ -22,7 +22,6 @@ import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Parameterized.Map (MapF)
 import qualified Data.Parameterized.Map as MapF
-import           Data.Parameterized.TraversableF
 import           Data.Parameterized.TraversableFC
 import qualified Data.Parameterized.Context as Ctx
 import           Lang.Crucible.CFG.Core
@@ -48,7 +47,6 @@ remapTermStmt m ts =
     Jump jmp -> Jump (remapJumpTarget m jmp)
     Br c x y -> Br c (remapJumpTarget m x) (remapJumpTarget m y)
     MaybeBranch tp r x y -> MaybeBranch tp r (remapSwitchTarget m x) (remapJumpTarget m y)
-    MSwitchStmt r x   -> MSwitchStmt r (fmapF (remapSwitchTarget m) x)
     VariantElim c r a -> VariantElim c r (fmapFC (remapSwitchTarget m) a)
     Return r          -> Return r
     TailCall f c a    -> TailCall f c a

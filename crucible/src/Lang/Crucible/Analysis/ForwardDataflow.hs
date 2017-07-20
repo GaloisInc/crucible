@@ -103,9 +103,6 @@ symbolicAnalysis =
   , kfwd_csame = \x y -> x == y
   , kfwd_br = \_ (Ignore x) y -> let z = symlub x y in (z, z)
   , kfwd_maybe = \_ _ (Ignore x) y -> let z = symlub x y in (z, Ignore x, z)
-  , kfwd_mswitch = \_ (Ignore x) y ->
-          let z = symlub x y
-           in constMSwitch (KP (Ignore x) z)
   , kfwd_reg  = \_ ex asgn -> Ignore $ sym_reg_transfer ex asgn
   , kfwd_expr = \_ ex asgn -> Ignore $ sym_expr_transfer ex asgn
   , kfwd_call = sym_call_transfer
@@ -143,7 +140,6 @@ data KildallForward blocks (a :: CrucibleType -> *) c
     , kfwd_csame    :: c -> c -> Bool
     , kfwd_br       :: forall ctx. Reg ctx BoolType -> a BoolType -> c -> (c, c)
     , kfwd_maybe    :: forall ctx tp. TypeRepr tp -> Reg ctx (MaybeType tp) -> a (MaybeType tp) -> c -> (c, a tp, c)
-    , kfwd_mswitch  :: forall ctx. Reg ctx MatlabValueType -> a MatlabValueType -> c -> MSwitch (KildallPair a c)
     , kfwd_reg      :: !(forall ctx tp. TypeRepr tp -> Reg ctx tp  -> Assignment a ctx -> a tp)
     , kfwd_expr     :: !(forall ctx tp. TypeRepr tp -> Expr ctx tp -> Assignment a ctx -> a tp)
     , kfwd_call     :: forall ctx args ret. CtxRepr args
@@ -224,31 +220,6 @@ kildall_transfer analysis retRepr blk = transfer_seq (_blockStmts blk)
 
        transfer_term (VariantElim _ctx _ex _switch) (_asgn, _c) = do
            fail "FIXME: transfer_term for VariantElim not implemented"
-
-       transfer_term (MSwitchStmt ex switch) (asgn, c) = do
-           let a = kfwd_reg analysis knownRepr ex asgn
-           let ms = kfwd_mswitch analysis ex a c
-           Set.unions <$> sequence
-              [ transfer_switch_branch asgn (matchRealArray ms)   (matchRealArray switch)
-              , transfer_switch_branch asgn (matchIntArray ms)    (matchIntArray switch)
-              , transfer_switch_branch asgn (matchUIntArray ms)   (matchUIntArray switch)
-              , transfer_switch_branch asgn (matchLogicArray ms)  (matchLogicArray switch)
-              , transfer_switch_branch asgn (matchCharArray ms)   (matchCharArray switch)
-              , transfer_switch_branch asgn (matchCellArray ms)   (matchCellArray switch)
-              , transfer_switch_branch asgn (matchStructArray ms) (matchStructArray switch)
-              , transfer_switch_branch asgn (matchHandle ms)      (matchHandle switch)
-              , transfer_switch_branch asgn (matchSymLogicArray ms) (matchSymLogicArray switch)
-              , transfer_switch_branch asgn (matchSymRealArray ms)  (matchSymRealArray switch)
-              , transfer_switch_branch asgn (matchSymCplxArray ms)  (matchSymCplxArray switch)
-              ]
-
-       transfer_switch_branch
-                        :: forall ctx' tp
-                         . Assignment a ctx'
-                        -> KildallPair a c tp
-                        -> SwitchTarget blocks ctx' tp
-                        -> State (Assignment (KildallPair (Assignment a) c) blocks, a ret, c) (Set (Some (BlockID blocks)))
-       transfer_switch_branch asgn (KP a c) tgt = transfer_switch tgt a (asgn, c)
 
        transfer_switch :: forall ctx' tp
                         . SwitchTarget blocks ctx' tp

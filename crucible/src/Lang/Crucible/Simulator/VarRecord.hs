@@ -18,7 +18,6 @@
 {-# LANGUAGE TypeOperators #-}
 module Lang.Crucible.Simulator.VarRecord
   ( VarRecord(..)
-  , varRecordToValue
   , traverseVarRecord
   ) where
 
@@ -26,8 +25,6 @@ import           Data.Parameterized.TraversableFC
 
 import qualified Lang.MATLAB.MultiDimArray as MDA
 
-import           Lang.Crucible.MATLAB.Intrinsics.Solver
-import           Lang.Crucible.Simulator.MatlabValue
 import           Lang.Crucible.Simulator.RegValue (SomeSymbolicBVArray(..))
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Types
@@ -55,23 +52,6 @@ data VarRecord f
   => BVVarScalar !(NatRepr n) !(f (BaseBVType n))
   | RealVarScalar (f BaseRealType)
 
-varRecordToValue :: MatlabSymbolicArrayBuilder sym
-                 => sym
-                 -> VarRecord (SymExpr sym) -> IO (Value sym)
-varRecordToValue _ (CplxVarArray a)        = return $ RealArray a
-varRecordToValue sym (RealVarArray a)      = RealArray <$> traverse (cplxFromReal sym) a
-varRecordToValue _ (SymLogicalVarArray a)  = return $ SymLogicArray a
-varRecordToValue sym (SymIntegerVarArray a ) =
-  symIntegerArrayToMatlab sym a
-varRecordToValue _ (SymRealVarArray a )    = return $ SymRealArray a
-varRecordToValue _ (SymCplxVarArray a )    = return $ SymCplxArray a
-varRecordToValue _ (SymIntVarArray a)      = return $ SymIntArray a
-varRecordToValue _ (SymUIntVarArray a)     = return $ SymUIntArray a
-varRecordToValue _ (LogicalVarArray a)     = return $ LogicArray a
-varRecordToValue _ (IntVarArray  w a)      = return $ intValue w a
-varRecordToValue _ (UIntVarArray w a)      = return $ uintValue w a
-varRecordToValue _ (BVVarScalar w x)       = return $ uintValue w $ MDA.singleton x
-varRecordToValue sym (RealVarScalar x)     = RealArray . MDA.singleton <$> cplxFromReal sym x
 
 traverseVarRecord :: Applicative m
                   => (forall tp . e tp -> m (f tp))

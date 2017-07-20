@@ -32,7 +32,6 @@ module Lang.Crucible.Simulator.Evaluation
   , failIfNothing
   , selectedIndices
   , asConstantIndex
-  , setStructField
   , symDimAsVecN
   , symDimCount
   , symDimNull
@@ -40,6 +39,8 @@ module Lang.Crucible.Simulator.Evaluation
   , indexSymbolic
   , mda_symbolic_lookup
   , mda_symbolic_update
+  , integerAsChar
+  , complexRealAsChar
   ) where
 
 import           Control.Exception (assert)
@@ -52,6 +53,7 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TraversableFC
 import qualified Data.Text as Text
 import qualified Data.Vector as V
+import           Data.Word
 import           Numeric ( showHex )
 
 import qualified Lang.MATLAB.CharVector as CV
@@ -62,7 +64,6 @@ import           Lang.MATLAB.Utils.Nat as Nat
 
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.Simulator.Intrinsics
-import           Lang.Crucible.Simulator.MatlabValue
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
@@ -87,6 +88,30 @@ selectedIndices :: [Bool] -> [Nat]
 selectedIndices l = catMaybes $ zipWith selectIndex l [1..]
   where selectIndex True i  = Just i
         selectIndex False _ = Nothing
+
+------------------------------------------------------------------------
+-- Coercion functions
+
+-- | Returns predicate checking that all complex array predicates are real.
+cplxArrayValuesAreReal :: (IsExprBuilder sym)
+                       => sym
+                       -> MultiDimArray (SymCplx sym)
+                       -> IO (Pred sym)
+cplxArrayValuesAreReal sb a = do
+  eqs <- traverse (isReal sb) a
+  andAllOf sb folded eqs
+
+integerAsChar :: Integer -> Word16
+integerAsChar i = fromInteger ((i `max` 0) `min` (2^(16::Int)-1))
+
+complexRealAsChar :: (Monad m, IsExpr val)
+                  => val BaseComplexType
+                  -> m Word16
+complexRealAsChar v = do
+  case cplxExprAsRational v of
+    -- Check number is printable.
+    Just r | otherwise -> return (integerAsChar (floor r))
+    Nothing -> fail "Symbolic value cannot be interpreted as a character."
 
 ------------------------------------------------------------------------
 -- Evaluating expressions
@@ -424,7 +449,7 @@ logicArrayToIndices sym a = do
 
 charArrayAsPosNat :: IsSymInterface sym
                   => sym
-                  -> CharArray
+                  -> MDA.CharArray
                   -> IO (PartExpr (Pred sym) (MultiDimArray (SymNat sym)))
 charArrayAsPosNat sym a = do
   r <- traverse (natLit sym . fromIntegral . fromEnum) a
@@ -1544,22 +1569,6 @@ evalApp sym itefns logFn evalSub a0 = do
       return $ (\v -> backendPred sym (v /= 0)) <$> a
 
     --------------------------------------------------------------------
-    -- CellArrayType
-
-    UpdateCellEntry a_exp i_exp v_exp -> do
-      v <- evalSub v_exp
-      a <- evalSub a_exp
-      i <- evalSub i_exp
-      case asConstantIndex i of
-        Just ic ->
-          case MDA.set a emptyDoubleValue ic v of
-            Just a' -> return a'
-            Nothing -> fail "In assignments with a single index, the array cannot be resized."
-        Nothing -> fail "Concrete indices required when assigning cell array values."
-    GetVarArgs v_expr cnt -> do
-      MDA.rowVector . V.drop (fromIntegral cnt) <$> evalSub v_expr
-
-    --------------------------------------------------------------------
     -- StructFields
 
     EmptyStructFields -> return V.empty
@@ -1571,24 +1580,6 @@ evalApp sym itefns logFn evalSub a0 = do
       ev <- evalSub e
       sv <- evalSub s_expr
       return $ backendPred sym (ev `V.elem` sv)
-
-    --------------------------------------------------------------------
-    -- MatlabValue
-
-    CplxArrayToMatlab e   -> RealArray      <$> evalSub e
-    MatlabIntArrayToMatlab e  -> IntArray   <$> evalSub e
-    MatlabUIntArrayToMatlab e -> UIntArray  <$> evalSub e
-    LogicArrayToMatlab e  -> LogicArray     <$> evalSub e
-    CharArrayToMatlab e   -> CharArray      <$> evalSub e
-    CellArrayToMatlab e   -> CellArray      <$> evalSub e
-    MatlabStructArrayToMatlab e -> MatlabStructArray <$> evalSub e
-    MatlabObjectArrayToMatlab e -> MatlabObjectArray <$> evalSub e
-    HandleToMatlab e -> FunctionHandle <$> evalSub e
-    SymLogicArrayToMatlab e -> SymLogicArray <$> evalSub e
-    SymRealArrayToMatlab e -> SymRealArray <$> evalSub e
-    SymCplxArrayToMatlab e -> SymCplxArray <$> evalSub e
-    SymIntArrayToMatlab e  -> SymIntArray <$> evalSub e
-    SymUIntArrayToMatlab e -> SymUIntArray <$> evalSub e
 
     ---------------------------------------------------------------------
     -- Struct
@@ -1650,8 +1641,6 @@ evalApp sym itefns logFn evalSub a0 = do
     -- Text
 
     TextLit txt -> return txt
-    AssignmentText nm v -> do
-      Text.pack . (++"\n") . show <$> (ppValue <$> (Text.unpack <$> evalSub nm) <*> evalSub v)
     ShowValue _bt x_expr -> do
       x <- evalSub x_expr
       return $! Text.pack (show (printSymExpr x))

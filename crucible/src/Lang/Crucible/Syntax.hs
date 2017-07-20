@@ -65,8 +65,6 @@ module Lang.Crucible.Syntax
   , vecReplicate
     -- * Function handles
   , closure
-    -- * Values with a default
-  , HasDefaultValue(..)
     -- * IdentValueMap
   , emptyIdentValueMap
   , setIdentValue
@@ -87,6 +85,7 @@ module Lang.Crucible.Syntax
   ) where
 
 import           Data.Text (Text)
+import           Data.Typeable
 import qualified Data.Vector as V
 
 import qualified Data.Parameterized.Context as Ctx
@@ -113,6 +112,9 @@ class IsExpr e where
 -- | An expression that embeds literal values of its type.
 class LitExpr tp ty | tp -> ty where
   litExpr :: IsExpr e => ty -> e tp
+
+instance (Typeable a, Eq a, Ord a, Show a) => LitExpr (ConcreteType a) a where
+  litExpr x = app (ConcreteLit (TypeableValue x))
 
 ------------------------------------------------------------------------
 -- Booleans
@@ -269,9 +271,6 @@ instance ConvertableToNat ComplexRealType where
 instance LitExpr CharType MatlabChar where
   litExpr n = app (MatlabCharLit n)
 
-instance HasDefaultValue CharType where
-  defaultValue = litExpr (MatlabChar 0)
-
 instance EqExpr CharType where
   x .== y = app (MatlabCharEq x y)
 
@@ -334,22 +333,6 @@ closure :: ( IsExpr e
         -> e tp
         -> e (FunctionHandleType args ret)
 closure h a = app (Closure knownRepr knownRepr h knownRepr a)
-
--- | Types with a default value for when arrays are extended.
-class KnownRepr TypeRepr tp => HasDefaultValue tp where
-  defaultValue :: IsExpr e => e tp
-
-instance HasDefaultValue BoolType where
-  defaultValue = false
-
-instance HasDefaultValue IntegerType where
-  defaultValue = litExpr 0
-
-instance HasDefaultValue RealValType where
-  defaultValue = rationalLit 0
-
-instance HasDefaultValue ComplexRealType where
-  defaultValue = realLit 0
 
 
 ----------------------------------------------------------------------

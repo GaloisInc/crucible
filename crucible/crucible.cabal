@@ -71,7 +71,6 @@ library
     Lang.Crucible.Analysis.Fixpoint.Components
     Lang.Crucible.Analysis.Postdom
     Lang.Crucible.Analysis.Reachable
-    Lang.Crucible.Analysis.Shape
     Lang.Crucible.BaseTypes
     Lang.Crucible.CFG.Common
     Lang.Crucible.CFG.Core
@@ -84,7 +83,6 @@ library
     Lang.Crucible.FunctionHandle
     Lang.Crucible.FunctionName
     Lang.Crucible.MATLAB.Intrinsics.Solver
-    Lang.Crucible.MATLAB.Types
     Lang.Crucible.ProgramLoc
     Lang.Crucible.Simulator.CallFns
     Lang.Crucible.Simulator.CallFrame
@@ -93,7 +91,6 @@ library
     Lang.Crucible.Simulator.Frame
     Lang.Crucible.Simulator.Intrinsics
     Lang.Crucible.Simulator.GlobalState
-    Lang.Crucible.Simulator.MatlabValue
     Lang.Crucible.Simulator.OverrideSim
     Lang.Crucible.Simulator.RegMap
     Lang.Crucible.Simulator.RegValue

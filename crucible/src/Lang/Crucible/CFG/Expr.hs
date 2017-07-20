@@ -1075,22 +1075,6 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
                    -> App f LogicArrayType
 
   ----------------------------------------------------------------------
-  -- CellArrayType
-
-  -- Update cell array at a single specific index.
-  -- Throws error when evaluated if the cell entry is out of range,
-  -- or expression contains multiple indices.
-  UpdateCellEntry :: !(f CellArrayType)
-                  -> !(f (VectorType NatType))
-                  -> !(f MatlabValueType)
-                  -> App f CellArrayType
-
-  -- Return arguments after vector in a cell array.
-  GetVarArgs :: !(f (VectorType MatlabValueType))
-             -> !Nat
-             -> App f CellArrayType
-
-  ----------------------------------------------------------------------
   -- StructFields
 
   -- Empty set of struct fields.
@@ -1105,38 +1089,6 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   HasField :: !(f StringType)
            -> !(f (VectorType StringType))
            -> App f BoolType
-
-  ----------------------------------------------------------------------
-  -- MatlabValue
-
-  CplxArrayToMatlab :: !(f CplxArrayType)
-                    -> App f MatlabValueType
-  MatlabIntArrayToMatlab :: !(f MatlabIntArrayType)
-                         -> App f MatlabValueType
-  MatlabUIntArrayToMatlab :: !(f MatlabUIntArrayType)
-                          -> App f MatlabValueType
-  LogicArrayToMatlab :: !(f LogicArrayType)
-                     -> App f MatlabValueType
-  SymLogicArrayToMatlab :: !(f SymLogicArrayType)
-                     -> App f MatlabValueType
-  SymRealArrayToMatlab :: !(f SymRealArrayType)
-                       -> App f MatlabValueType
-  SymCplxArrayToMatlab :: !(f SymCplxArrayType)
-                     -> App f MatlabValueType
-  SymIntArrayToMatlab :: !(f MatlabSymbolicIntArrayType)
-                      -> App f MatlabValueType
-  SymUIntArrayToMatlab :: !(f MatlabSymbolicUIntArrayType)
-                      -> App f MatlabValueType
-  CharArrayToMatlab :: !(f CharArrayType)
-                    -> App f MatlabValueType
-  CellArrayToMatlab :: !(f CellArrayType)
-                 -> App f MatlabValueType
-  MatlabStructArrayToMatlab :: !(f MatlabStructArrayType)
-                            -> App f MatlabValueType
-  MatlabObjectArrayToMatlab :: !(f MatlabObjectArrayType)
-                            -> App f MatlabValueType
-  HandleToMatlab :: !(f MatlabHandleType)
-                 -> App f MatlabValueType
 
   ----------------------------------------------------------------------
   -- WordMap
@@ -1219,11 +1171,6 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
 
   TextLit :: !Text
           -> App f StringType
-
-  -- Assignment statement "nm = v"
-  AssignmentText :: !(f StringType)
-                 -> !(f MatlabValueType)
-                 -> App f StringType
 
   ShowValue :: !(BaseTypeRepr bt)
             -> !(f (BaseToType bt))
@@ -1595,34 +1542,10 @@ appType a0 =
     RealArrayEq{} -> knownRepr
 
     ----------------------------------------------------------------------
-    -- CellArrayType
-    UpdateCellEntry{} -> knownRepr
-    GetVarArgs{} -> knownRepr
-
-    ----------------------------------------------------------------------
     -- StructFields
     EmptyStructFields{} -> knownRepr
     FieldsEq{} -> knownRepr
     HasField{} -> knownRepr
-
-    ----------------------------------------------------------------------
-    -- MatlabValue
-
-    --GetFieldName{} -> knownRepr
-    CplxArrayToMatlab{} -> knownRepr
-    MatlabIntArrayToMatlab{} -> knownRepr
-    MatlabUIntArrayToMatlab{} -> knownRepr
-    LogicArrayToMatlab{} -> knownRepr
-    SymLogicArrayToMatlab{} -> knownRepr
-    SymRealArrayToMatlab{} -> knownRepr
-    SymCplxArrayToMatlab{} -> knownRepr
-    SymIntArrayToMatlab{} -> knownRepr
-    SymUIntArrayToMatlab{} -> knownRepr
-    CharArrayToMatlab{} -> knownRepr
-    CellArrayToMatlab{} -> knownRepr
-    MatlabStructArrayToMatlab{} -> knownRepr
-    MatlabObjectArrayToMatlab{} -> knownRepr
-    HandleToMatlab{} -> knownRepr
 
     ----------------------------------------------------------------------
     -- Struct
@@ -1646,7 +1569,6 @@ appType a0 =
     -- String
 
     TextLit{} -> knownRepr
-    AssignmentText{} -> knownRepr
     ShowValue{} -> knownRepr
     AppendString{} -> knownRepr
 

@@ -49,7 +49,6 @@ import           Lang.Crucible.Simulator.ExecutionTree
 import qualified Lang.Crucible.Simulator.ExecutionTree as Exec
 import           Lang.Crucible.Simulator.Frame
 import           Lang.Crucible.Simulator.GlobalState
-import           Lang.Crucible.Simulator.MatlabValue
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
@@ -264,17 +263,6 @@ jump :: IsSymInterface sym
 jump s (JumpTarget block_id _tp a) =
   jumpToBlock s block_id (evalArgs s a)
 
--- | Jump to a switch target.
---
--- May throw a user error if merging fails.
-jumpToSwitchTarget :: (KnownRepr TypeRepr tp, IsSymInterface sym)
-                   => CrucibleState p sym rtp blocks r args
-                   -> SwitchTarget blocks args tp
-                   -> RegValue sym tp
-                   -> IO (ExecResult p sym rtp)
-jumpToSwitchTarget s (SwitchTarget tgt _tps a) v =
-  jumpToBlock s tgt (assignReg knownRepr v (evalArgs s a))
-{-# NOINLINE jumpToSwitchTarget #-}
 
 symbolicBranch
     :: IsSymInterface sym
@@ -455,36 +443,6 @@ stepTerm s _ (VariantElim ctx e cases) = do
       stepReturnVariantCases s ls
     Just (Some pd_id) -> do
       stepVariantCases s pd_id ls
-stepTerm s _ (MSwitchStmt e cases) = do
-  case evalReg s e of
-    RealArray a -> do
-      return $! jumpToSwitchTarget s (matchRealArray cases) a
-    IntArray a -> do
-      return $! jumpToSwitchTarget s (matchIntArray cases) a
-    UIntArray a -> do
-      return $! jumpToSwitchTarget s (matchUIntArray cases) a
-    LogicArray a -> do
-      return $! jumpToSwitchTarget s (matchLogicArray cases) a
-    CharArray a -> do
-      return $! jumpToSwitchTarget s (matchCharArray cases) a
-    CellArray a -> do
-      return $! jumpToSwitchTarget s (matchCellArray cases) a
-    MatlabStructArray a -> do
-      return $! jumpToSwitchTarget s (matchStructArray cases) a
-    FunctionHandle h -> do
-      return $! jumpToSwitchTarget s (matchHandle cases) h
-    SymLogicArray a -> do
-      return $! jumpToSwitchTarget s (matchSymLogicArray cases) a
-    SymRealArray a ->
-      return $! jumpToSwitchTarget s (matchSymRealArray cases) a
-    SymCplxArray a -> do
-      return $! jumpToSwitchTarget s (matchSymCplxArray cases) a
-    SymIntArray a -> do
-      return $! jumpToSwitchTarget s (matchSymIntArray cases) a
-    SymUIntArray a -> do
-      return $! jumpToSwitchTarget s (matchSymUIntArray cases) a
-    MatlabObjectArray a -> do
-      return $! jumpToSwitchTarget s (matchObjectArray cases) a
 
 stepTerm s _ (Return arg) = do
   return $! returnAndMerge s (evalReg' s arg)

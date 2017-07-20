@@ -68,7 +68,6 @@ import qualified Data.Foldable as Fold
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
-import           Data.Parameterized.TraversableF
 import           Data.Parameterized.TraversableFC
 import           Data.Sequence (Seq)
 import           Data.Set (Set)
@@ -443,9 +442,12 @@ data TermStmt s (ret :: CrucibleType) where
               -> !(LambdaLabel s tp)
               -> !(Label s)
               -> TermStmt s ret
-  -- Switch on a Matlab value.
-  MSwitchStmt :: !(Atom s MatlabValueType)
-              -> !(MSwitch (LambdaLabel s))
+
+  -- Switch on a variant value.  Examine the tag of the variant
+  -- and jump to the appropriate switch target.
+  VariantElim :: !(CtxRepr varctx)
+              -> !(Atom s (VariantType varctx))
+              -> !(Ctx.Assignment (LambdaLabel s) varctx)
               -> TermStmt s ret
 
   -- Return from function.
@@ -472,9 +474,9 @@ instance Pretty (TermStmt s ret) where
       Jump l -> text "jump" <+> pretty l
       Br c x y -> text "branch" <+> pretty c <+> pretty x <+> pretty y
       MaybeBranch _ c j n -> text "switchMaybe" <+> pretty c <+> pretty j <+> pretty n
-      MSwitchStmt e l ->
-         text "mswitch" <+> pretty e <+> text "{" <$$>
-           indent 2 (vcat (ppMSwitch pp l)) <$$>
+      VariantElim _ e l ->
+         text "switch" <+> pretty e <+> text "{" <$$>
+           indent 2 (vcat (ppSwitch pp l)) <$$>
            indent 2 (text "}")
         where pp nm v = text nm <> text ":" <+> pretty v
       Return e -> text "return" <+> pretty e
@@ -482,6 +484,12 @@ instance Pretty (TermStmt s ret) where
         where args = commas (toListFC pretty a)
       ErrorStmt e -> text "error" <+> pretty e
       Output l e -> text "output" <+> pretty l <+> pretty e
+
+
+ppSwitch :: forall tgt ctx. (forall (tp :: CrucibleType). String -> tgt tp -> Doc) -> Ctx.Assignment tgt ctx -> [Doc]
+ppSwitch pp asgn = forIndex (Ctx.size asgn) f mempty
+  where f :: [Doc] -> Ctx.Index ctx (tp :: CrucibleType) -> [Doc]
+        f rs idx = rs Prelude.++ [ pp (show (Ctx.indexVal idx)) (asgn Ctx.! idx)]
 
 -- | Provide all registers in term stmt to fold function.
 foldTermStmtAtoms :: (forall x . Atom s x -> b -> b)
@@ -494,7 +502,7 @@ foldTermStmtAtoms f stmt0 b =
     Output _ e -> f e b
     Br e _ _ -> f e b
     MaybeBranch _ e _ _ -> f e b
-    MSwitchStmt e _ -> f e b
+    VariantElim _ e _ -> f e b
     Return e -> f e b
     TailCall fn _ a -> f fn (foldrFC' f b a)
     ErrorStmt e -> f e b
@@ -517,7 +525,7 @@ termNextLabels s0 =
     Output l _          -> Just [LambdaID l]
     Br _ x y            -> Just [LabelID x, LabelID y]
     MaybeBranch _ _ x y -> Just [LambdaID x, LabelID y]
-    MSwitchStmt _ s     -> Just $ toListF LambdaID s
+    VariantElim _ _ s   -> Just $ toListFC LambdaID s
     Return _            -> Nothing
     TailCall{}          -> Nothing
     ErrorStmt _         -> Just []

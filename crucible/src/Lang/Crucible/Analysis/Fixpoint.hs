@@ -291,7 +291,6 @@ transfer dom interp retRepr blk = transferSeq (_blockStmts blk)
           return S.empty
 
         VariantElim {} -> error "transferTerm: VariantElim terminator not supported"
-        MSwitchStmt {} -> error "transferTerm: MSwitchStmt terminator not supported"
 
 
     transferJump :: forall ctx'
