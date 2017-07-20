@@ -251,12 +251,13 @@ memTypeAlign dl mtp =
     MetadataType -> 0
 
 -- | Information about size, alignment, and fields of a struct.
-data StructInfo = StructInfo { siDataLayout :: !DataLayout
-                             , siIsPacked   :: !Bool
-                             , structSize   :: !Size -- Size in bytes.
-                             , structAlign  :: !Alignment
-                             , siFields     :: !(V.Vector FieldInfo)
-                             }
+data StructInfo = StructInfo
+  { siDataLayout :: !DataLayout
+  , siIsPacked   :: !Bool
+  , structSize   :: !Size -- ^ Size in bytes.
+  , structAlign  :: !Alignment
+  , siFields     :: !(V.Vector FieldInfo)
+  }
   deriving (Show)
 
 instance Eq StructInfo where
@@ -270,11 +271,21 @@ instance Eq StructInfo where
    siFields si1 == siFields si2
 
 
-data FieldInfo = FieldInfo { fiOffset    :: !Offset  -- ^ Byte offset of field relative to start of struct.
-                           , fiType      :: !MemType -- ^ Type of field.
-                           , fiPadding   :: !Size    -- ^ Number of bytes of padding at end of field.
-                           }
-  deriving (Eq, Show)
+data FieldInfo = FieldInfo
+  { fiOffset    :: !Offset  -- ^ Byte offset of field relative to start of struct.
+  , fiType      :: !MemType -- ^ Type of field.
+  , fiPadding   :: !Size    -- ^ Number of bytes of padding at end of field.
+  , fiName      :: String
+  }
+  deriving (Show)
+
+
+instance Eq FieldInfo where
+  x == y = fiOffset  x == fiOffset  y
+        && fiType    x == fiType    y
+        && fiPadding x == fiPadding y
+        && fiName    x == fiName    y
+       -- field names are considered debug info and are not considered
 
 -- | Constructs a function for obtaining target-specific size/alignment
 -- information about structs.  The function produced corresponds to the
@@ -282,8 +293,9 @@ data FieldInfo = FieldInfo { fiOffset    :: !Offset  -- ^ Byte offset of field r
 mkStructInfo :: DataLayout
              -> Bool -- ^ @True@ = packed, @False@ = unpacked
              -> [MemType] -- ^ Field types
+             -> [String] -- ^ Field names
              -> StructInfo
-mkStructInfo dl packed tps0 = go [] 0 a0 tps0
+mkStructInfo dl packed tps0 names0 = go [] 0 a0 tps0 (names0 ++ repeat "")
   where a0 | packed = 0
            | otherwise = aggregateAlignment dl
         -- Padding after each field depends on the alignment of the
@@ -299,9 +311,31 @@ mkStructInfo dl packed tps0 = go [] 0 a0 tps0
         go :: [FieldInfo] -- ^ Fields so far in reverse order.
            -> Size        -- ^ Total size so far (aligned to next element)
            -> Alignment   -- ^ Maximum alignment so far
-           -> [MemType]   -- ^ Fields to process
+           -> [MemType]   -- ^ Field types to process
+           -> [String]    -- ^ Field names to process
            -> StructInfo
-        go flds sz maxAlign [] =
+
+        go flds sz maxAlign (tp:tpl) (name:names) =
+          go (fi:flds) sz' (max maxAlign fieldAlign) tpl names
+
+          where
+            fi = FieldInfo
+                   { fiOffset  = sz
+                   , fiType    = tp
+                   , fiPadding = sz' - e
+                   , fiName    = name
+                   }
+
+            -- End of field for tp
+            e = sz + memTypeSize dl tp
+
+            -- Alignment of next field
+            fieldAlign = nextAlign maxAlign tpl
+
+            -- Size of field at alignment for next thing.
+            sz' = nextPow2Multiple e (fromIntegral fieldAlign)
+
+        go flds sz maxAlign _ _ =
             StructInfo { siDataLayout = dl
                        , siIsPacked = packed
                        , structSize = sz
@@ -309,21 +343,13 @@ mkStructInfo dl packed tps0 = go [] 0 a0 tps0
                        , siFields = V.fromList (reverse flds)
                        }
 
-        go flds sz maxAlign (tp:tpl) = go (fi:flds) sz' (max maxAlign fieldAlign) tpl
-          where fi = FieldInfo { fiOffset = sz
-                               , fiType = tp
-                               , fiPadding = sz' - e
-                               }
-                -- End of field for tp
-                e = sz + memTypeSize dl tp
-                -- Alignment of next field
-                fieldAlign = nextAlign maxAlign tpl
-                -- Size of field at alignment for next thing.
-                sz' = nextPow2Multiple e (fromIntegral fieldAlign)
-
 -- | The types of a struct type's fields.
 siFieldTypes :: StructInfo -> Vector MemType
 siFieldTypes si = fiType <$> siFields si
+
+-- | The types of a struct type's fields.
+siFieldNames :: StructInfo -> Vector String
+siFieldNames si = fiName <$> siFields si
 
 -- | Number of fields in a struct type.
 siFieldCount :: StructInfo -> Int
@@ -364,5 +390,6 @@ siDropLastField :: StructInfo -> Maybe (StructInfo, FieldInfo)
 siDropLastField si
   | V.null (siFields si) = Nothing
   | otherwise = Just (si', V.last (siFields si))
- where si' = mkStructInfo (siDataLayout si) (siIsPacked si) flds'
+ where si' = mkStructInfo (siDataLayout si) (siIsPacked si) flds' nams'
        flds' = V.toList $ V.init $ siFieldTypes si
+       nams' = V.toList $ V.init $ siFieldNames si

@@ -158,7 +158,7 @@ tcType tp0 = do
 tcStruct :: Bool -> [L.Type] -> TC (Maybe StructInfo)
 tcStruct packed fldTys = do
   pdl <- tcsDataLayout <$> get
-  fmap (mkStructInfo pdl packed) . sequence <$> mapM tcMemType fldTys
+  fmap (mkStructInfo pdl packed ?? []) . sequence <$> mapM tcMemType fldTys
 
 type AliasMap = Map Ident SymType
 type MetadataMap = Map Int L.ValMd
