@@ -93,8 +93,8 @@ recordUnsupported tp = modify fn
   where fn tcs = tcs { tcsUnsupported = Set.insert tp (tcsUnsupported tcs) }
 
 -- | Returns the type bound to an identifier.
-tcIdent :: Ident -> TC SymType
-tcIdent i = do
+tcIdent :: MetadataMap -> L.Info -> Ident -> TC SymType
+tcIdent mdMap info i = do
   im <- tcsMap <$> get
   let retUnsupported = tp <$ modify fn
         where tp = UnsupportedType (L.Alias i)
@@ -105,28 +105,28 @@ tcIdent i = do
     Just Active -> retUnsupported
     Just (Pending tp) -> do
         modify (ins Active)
-        stp <- tcType L.Unknown tp
+        stp <- tcType mdMap info tp
         stp <$ modify (ins (Resolved stp))
       where ins v tcs = tcs { tcsMap = Map.insert i v (tcsMap tcs) }
 
-resolveMemType :: SymType -> TC (Maybe MemType)
-resolveMemType = resolve
+resolveMemType :: MetadataMap -> SymType -> TC (Maybe MemType)
+resolveMemType mdMap = resolve
   where resolve (MemType mt) = return (Just mt)
-        resolve (Alias i) = resolve =<< tcIdent i
+        resolve (Alias i) = resolve =<< tcIdent mdMap (L.guessAliasInfo mdMap i) i
         resolve _ = return Nothing
 
-resolveRetType :: SymType -> TC (Maybe RetType)
-resolveRetType = resolve
+resolveRetType :: MetadataMap -> SymType -> TC (Maybe RetType)
+resolveRetType mdMap = resolve
   where resolve (MemType mt) = return (Just (Just mt))
-        resolve (Alias i) = resolve =<< tcIdent i
+        resolve (Alias i) = resolve =<< tcIdent mdMap (L.guessAliasInfo mdMap i) i
         resolve VoidType = return (Just Nothing)
         resolve _ = return Nothing
 
-tcMemType :: L.Info -> L.Type -> TC (Maybe MemType)
-tcMemType info tp = resolveMemType =<< tcType info tp
+tcMemType :: MetadataMap -> L.Info -> L.Type -> TC (Maybe MemType)
+tcMemType mdMap info tp = resolveMemType mdMap =<< tcType mdMap info tp
 
-tcType :: L.Info -> L.Type -> TC SymType
-tcType info tp0 = do
+tcType :: MetadataMap -> L.Info -> L.Type -> TC SymType
+tcType mdMap info tp0 = do
   let badType = UnsupportedType tp0 <$ recordUnsupported tp0
   let maybeApp :: (a -> MemType) -> TC (Maybe a) -> TC SymType
       maybeApp f mmr = maybe badType (return . MemType . f) =<< mmr
@@ -143,26 +143,26 @@ tcType info tp0 = do
         L.Metadata -> return $ MemType MetadataType
         _ -> badType
     L.Alias i -> return (Alias i)
-    L.Array n etp -> maybeApp (ArrayType (fromIntegral n)) $ tcMemType L.Unknown etp
+    L.Array n etp -> maybeApp (ArrayType (fromIntegral n)) $ tcMemType mdMap (L.derefInfo info) etp
     L.FunTy res args va -> do
-      mrt <- resolveRetType =<< tcType L.Unknown res
-      margs <- mapM (tcMemType L.Unknown) args
+      mrt <- resolveRetType mdMap =<< tcType mdMap L.Unknown res
+      margs <- mapM (tcMemType mdMap L.Unknown) args
       maybe badType (return . FunType) $
         FunDecl <$> mrt <*> sequence margs <*> pure va
-    L.PtrTo tp ->  (MemType . PtrType) <$> tcType (L.derefInfo info) tp
-    L.Struct tpl       -> maybeApp StructType $ tcStruct info False tpl
-    L.PackedStruct tpl -> maybeApp StructType $ tcStruct info True  tpl
-    L.Vector n etp -> maybeApp (VecType (fromIntegral n)) $ tcMemType L.Unknown etp
+    L.PtrTo tp ->  (MemType . PtrType) <$> tcType mdMap (L.derefInfo info) tp
+    L.Struct tpl       -> maybeApp StructType $ tcStruct mdMap info False tpl
+    L.PackedStruct tpl -> maybeApp StructType $ tcStruct mdMap info True  tpl
+    L.Vector n etp -> maybeApp (VecType (fromIntegral n)) $ tcMemType mdMap (L.derefInfo info) etp
     L.Opaque -> return OpaqueType
 
 -- | Constructs a function for obtaining target-specific size/alignment
 -- information about structs.  The function produced corresponds to the
 -- StructLayout object constructor in TargetData.cpp.
-tcStruct :: L.Info -> Bool -> [L.Type] -> TC (Maybe StructInfo)
-tcStruct info packed fldTys = do
+tcStruct :: MetadataMap -> L.Info -> Bool -> [L.Type] -> TC (Maybe StructInfo)
+tcStruct mdMap info packed fldTys = do
   pdl <- tcsDataLayout <$> get
   fmap (mkStructInfo pdl packed ?? fieldNames) . sequence
-    <$> zipWithM tcMemType fieldInfos fldTys
+    <$> zipWithM (tcMemType mdMap) fieldInfos fldTys
 
   where
     fieldNames = map fst fieldPairs
@@ -221,7 +221,7 @@ mkLLVMContext dl mdMap decls =
 
   where
     processAlias :: L.Ident -> L.Type -> TC SymType
-    processAlias name val = tcType (L.guessAliasInfo mdMap name) val
+    processAlias name val = tcType mdMap (L.guessAliasInfo mdMap name) val
 
 -- | Utility function to creates an LLVMContext directly from a model.
 llvmContextFromModule :: L.Module -> ([Doc], LLVMContext)
@@ -233,7 +233,7 @@ liftType :: (?lc :: LLVMContext) => L.Type -> Maybe SymType
 liftType tp | null edocs = Just stp
             | otherwise = Nothing
   where m0 = Resolved <$> llvmAliasMap ?lc
-        (edocs,stp) = runTC (llvmDataLayout ?lc) m0 $ tcType L.Unknown tp
+        (edocs,stp) = runTC (llvmDataLayout ?lc) m0 $ tcType (llvmMetadataMap ?lc) L.Unknown tp
 
 liftMemType :: (?lc :: LLVMContext) => L.Type -> Maybe MemType
 liftMemType tp = asMemType =<< liftType tp
