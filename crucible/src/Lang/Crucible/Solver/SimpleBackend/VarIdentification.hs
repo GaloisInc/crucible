@@ -321,9 +321,7 @@ memoEltVars n recurse = do
 
 -- | Record the variables in an element.
 recordEltVars :: Scope -> Elt t tp -> VarRecorder s t ()
-recordEltVars _ RatElt{} = addFeatures useLinearArithmetic
-recordEltVars _ NatElt{} = addFeatures useLinearArithmetic
-recordEltVars _ IntElt{} = addFeatures useLinearArithmetic
+recordEltVars _ SemiRingLiteral{} = addFeatures useLinearArithmetic
 recordEltVars _ BVElt{}  = addFeatures useBitvectors
 recordEltVars scope (NonceAppElt e0) = do
   memoEltVars (nonceEltId e0) $ do

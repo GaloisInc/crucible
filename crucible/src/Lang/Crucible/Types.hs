@@ -119,16 +119,6 @@ module Lang.Crucible.Types
   , TypeableType(..)
   , TypeableValue(..)
 
-    -- * MATLAB-specific Intrinsic types
-  , MatlabValueType
-  , MatlabStructType
-  , MatlabStructArrayType
-  , MatlabHandleType
-  , MatlabObjectType
-  , MatlabObjectArrayType
-  , CellArrayType
-  , IdentValueMapType
-
     -- * Re-exports
   , type Data.Parameterized.Ctx.Ctx
   , Data.Parameterized.Ctx.EmptyCtx
@@ -474,32 +464,6 @@ type SymIntegerArrayType = SymbolicMultiDimArrayType BaseIntegerType
 type SymRealArrayType    = SymbolicMultiDimArrayType BaseRealType
 type SymCplxArrayType    = SymbolicMultiDimArrayType BaseComplexType
 
-----------------------------------------------------------------
--- MATLAB intrinsic types
-
--- These are "intrinsic" types that are still used by the Lang.Crucible.Core
--- AST as builtin types.
---
--- Eventually, they should be moved into MATLAB specific files, but are here
--- for the time being.  The main obstacle to moving them is that MatlabValue
--- has a specialized switch statement 'MSwitchStmt', that would need to be eliminated
--- and replaced with a 'VariantElim' type.
-
-type MatlabValueType       = IntrinsicType "MatlabValue"
-type MatlabStructType      = IntrinsicType "MatlabStruct"
-type MatlabObjectType      = IntrinsicType "MatlabObject"
-
--- The runtime type of MatlabObjectArray and MatlabStructArray
--- has two fields, one is the list of the fields of the struct
--- and the other is the multidimarraytype. That way the runtime
--- can ensure only structs with same set of fields can exist
--- in the same array, similarly for objects.
-type MatlabObjectArrayType = IntrinsicType "MatlabObjectArray"
-type MatlabStructArrayType = IntrinsicType "MatlabStructArray"
-type MatlabHandleType      = IntrinsicType "MatlabHandle"
-
-type CellArrayType = MultiDimArrayType MatlabValueType
-type IdentValueMapType = StringMapType MatlabValueType
 
 ----------------------------------------------------------------
 -- Base Type Injection

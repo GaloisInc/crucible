@@ -181,6 +181,8 @@ instance SupportTermOps (Term (Connection s)) where
   termIntegerToReal = id
   termRealToInteger = id
 
+  integerTerm i = T $ decimal i
+
   rationalTerm r | d == 1    = T $ decimal n
                  | otherwise = T $ app "/" [decimal n, decimal d]
     where n = numerator r

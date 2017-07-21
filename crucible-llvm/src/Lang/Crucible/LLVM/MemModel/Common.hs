@@ -122,8 +122,9 @@ data IntExpr
   deriving (Show)
 
 data Cond
-  = PtrEq PtrExpr PtrExpr
-  | PtrLe PtrExpr PtrExpr
+  = PtrComparable PtrExpr PtrExpr -- ^ Are pointers in the same allocation unit
+  | PtrOffsetEq PtrExpr PtrExpr
+  | PtrOffsetLe PtrExpr PtrExpr
   | IntEq IntExpr IntExpr
   | IntLe IntExpr IntExpr
   | And Cond Cond
@@ -131,11 +132,11 @@ data Cond
 
 (.==) :: PtrExpr -> PtrExpr -> Cond
 infix 4 .==
-(.==) = PtrEq
+x .== y = And (PtrComparable x y) (PtrOffsetEq x y)
 
 (.<=) :: PtrExpr -> PtrExpr -> Cond
 infix 4 .<=
-(.<=) = PtrLe
+x .<= y = And (PtrComparable x y) (PtrOffsetLe x y)
 
 infixl 6 .+
 (.+) :: PtrExpr -> IntExpr -> PtrExpr
@@ -154,71 +155,22 @@ intValue x = CValue (toInteger x)
 data Mux a = Mux Cond (Mux a) (Mux a) | MuxVar a
   deriving Show
 
-data MuxCase a
-   = MuxCase Cond (Mux a)
-   | DefaultMux (Mux a)
-
-(|->) :: Cond -> Mux a -> MuxCase a
-infix 3 |->
-c |-> x = MuxCase c x
-
-always :: Mux a -> MuxCase a
-always = DefaultMux
-
-try :: MuxCase a -> Mux a -> Mux a
-try (DefaultMux x) _ = x
-try (MuxCase c x) y = Mux c x y
-
--- | @iterDown i n f@ generates a formula generates from values starting
--- from @n@ and incrementing by i until an unconditional formula is returned by @f@.
-iterBy :: (i -> i)
-       -> i
-       -> (i -> MuxCase a)
-       -> Mux a
-iterBy i n f =
-  case f n of
-    DefaultMux x -> x
-    MuxCase c x -> Mux c x (iterBy i (i n) f)
-
--- | @iterDown n f@ generates a formula generates from values starting
--- from @n@ and counting down until an unconditional formula is returned by @f@.
-iterDown :: Num i
-         => i
-         -> (i -> MuxCase a)
-         -> Mux a
-iterDown = iterBy (\s -> s - 1)
-
-iterUp :: Num i
-       => i
-       -> (i -> MuxCase a)
-       -> Mux a
-iterUp = iterBy (\s -> s + 1)
-
 -- Variable for mem model.
-
-load :: PtrExpr
-load = Load
-
-store :: PtrExpr
-store = Store
-
-storeSize :: IntExpr
-storeSize = StoreSize
 
 loadOffset :: Size -> PtrExpr
 loadOffset n = Load .+ intValue n
 
 storeOffset :: Size -> PtrExpr
-storeOffset n = store .+ intValue n
+storeOffset n = Store .+ intValue n
 
 storeEnd :: PtrExpr
-storeEnd = store .+ storeSize
+storeEnd = Store .+ StoreSize
 
 -- | @loadInStoreRange n@ returns predicate if Store <= Load && Load <= Store + n
 loadInStoreRange :: Size -> Cond
-loadInStoreRange 0 = Load .== store
-loadInStoreRange n = And (store .<= Load)
-                         (Load .<= store .+ intValue n)
+loadInStoreRange 0 = Load .== Store
+loadInStoreRange n = And (Store .<= Load)
+                         (Load .<= Store .+ intValue n)
 
 data Field v = Field { fieldOffset :: Offset
                      , _fieldVal    :: v
@@ -411,35 +363,36 @@ fixedOffsetRangeLoad :: Addr
                      -> Addr
                      -> RangeLoadMux Addr Addr
 fixedOffsetRangeLoad l tp s
-   | s < l = do -- Store is before load.
-     let sd = l - s -- Number of bytes load comes after store
-     try (IntLe storeSize (intValue sd) |-> loadFail)
-         (iterUp (sd+1) loadCase)
-   | le <= s = loadFail -- No load if load ends before write.
-   | otherwise = iterUp 0 loadCase
- where le = typeEnd l tp
-       loadCase i | i < le-s  = IntEq storeSize (intValue i) |-> loadVal i
-                  | otherwise = always $ loadVal i
-       loadVal ssz = MuxVar $ rangeLoad l tp (R s (s+ssz))
-       loadFail = MuxVar $ Var (OutOfRange l tp)
+  | s < l = do -- Store is before load.
+    let sd = l - s -- Number of bytes load comes after store
+    Mux (IntLe StoreSize (intValue sd)) loadFail (loadCase (sd+1))
+  | le <= s = loadFail -- No load if load ends before write.
+  | otherwise = loadCase 0
+  where
+    le = typeEnd l tp
+    loadCase i
+      | i < le-s  = Mux (IntEq StoreSize (intValue i)) (loadVal i) (loadCase (i+1))
+      | otherwise = loadVal i
+    loadVal ssz = MuxVar (rangeLoad l tp (R s (s+ssz)))
+    loadFail = MuxVar (Var (OutOfRange l tp))
 
 -- | @fixLoadBeforeStoreOffset pref i k@ adjusts a pointer value that is relative
 -- the load address into a global pointer.  The code assumes that @load + i == store@.
 fixLoadBeforeStoreOffset :: BasePreference -> Offset -> Offset -> PtrExpr
 fixLoadBeforeStoreOffset pref i k
-  | pref == FixedStore = store .+ intValue (toInteger k - toInteger i)
-  | otherwise = load .+ intValue k
+  | pref == FixedStore = Store .+ intValue (toInteger k - toInteger i)
+  | otherwise = Load .+ intValue k
 
 -- | @fixLoadAfterStoreOffset pref i k@ adjusts a pointer value that is relative
 -- the load address into a global pointer.  The code assumes that @load == store + i@.
 fixLoadAfterStoreOffset :: BasePreference -> Offset -> Offset -> PtrExpr
 fixLoadAfterStoreOffset pref i k = assert (k >= i) $
   case pref of
-    FixedStore -> store .+ intValue k
-    _          -> load  .+ intValue (k - i)
+    FixedStore -> Store .+ intValue k
+    _          -> Load  .+ intValue (k - i)
 
 -- | @loadFromStoreStart pref tp i j@ loads a value of type @tp@ from a range under the
--- assumptions that @load + i == store@ and @j = i + min(storeSize, typeEnd(tp)@.
+-- assumptions that @load + i == store@ and @j = i + min(StoreSize, typeEnd(tp)@.
 loadFromStoreStart :: BasePreference
                    -> Type
                    -> Offset
@@ -453,63 +406,64 @@ fixedSizeRangeLoad :: BasePreference -- ^ Whether addresses are based on store o
                    -> Type
                    -> Size
                    -> RangeLoadMux PtrExpr IntExpr
-fixedSizeRangeLoad _ tp 0 = MuxVar (Var (OutOfRange load tp))
+fixedSizeRangeLoad _ tp 0 = MuxVar (Var (OutOfRange Load tp))
 fixedSizeRangeLoad pref tp ssz =
-  try (loadOffset lsz .<= store |-> loadFail) $
-  iterDown lsz prefixL
- where lsz = typeEnd 0 tp
+  Mux (loadOffset lsz .<= Store) loadFail (prefixL lsz)
+  where
+    lsz = typeEnd 0 tp
 
-       prefixL i
-         | i > 0     = loadOffset i .== store |-> loadVal i
-         -- Special case where we skip some offsets, it it won't
-         -- make more splitting
-         | lsz <= ssz && pref == NeitherFixed = always $
-           -- Load is contained in storage.
-           try (loadInStoreRange (ssz-lsz) |-> loadSucc) $
-           -- Load extends past end of storage
-           iterUp (ssz-lsz) suffixS
-         | otherwise = always $ iterUp 0 suffixS
+    prefixL i
+      | i > 0 = Mux (loadOffset i .== Store) (loadVal i) (prefixL (i-1))
+      -- Special case where we skip some offsets, it it won't
+      -- make more splitting
+      | lsz <= ssz && pref == NeitherFixed =
+        -- Load is contained in storage.
+        Mux (loadInStoreRange (ssz-lsz)) loadSucc $
+        -- Load extends past end of storage
+        suffixS (ssz-lsz)
+      | otherwise = suffixS 0
 
-       suffixS i
-         | i < ssz   = load .== storeOffset i |-> storeVal i
-         | otherwise = always loadFail
+    suffixS i
+      | i < ssz   = Mux (Load .== storeOffset i) (storeVal i) (suffixS (i+1))
+      | otherwise = loadFail
 
-       loadVal i = MuxVar $ loadFromStoreStart pref tp i (i+ssz)
+    loadVal i = MuxVar (loadFromStoreStart pref tp i (i+ssz))
 
-       storeVal i = MuxVar $ adjustOffset inFn outFn <$> rangeLoad i tp (R 0 ssz)
-         where inFn = intValue
-               outFn = fixLoadAfterStoreOffset pref i
+    storeVal i = MuxVar (adjustOffset inFn outFn <$> rangeLoad i tp (R 0 ssz))
+      where inFn = intValue
+            outFn = fixLoadAfterStoreOffset pref i
 
-       loadSucc = MuxVar (Var (InRange (load .- store) tp))
-       loadFail = MuxVar (Var (OutOfRange load tp))
+    loadSucc = MuxVar (Var (InRange (Load .- Store) tp))
+    loadFail = MuxVar (Var (OutOfRange Load tp))
 
 symbolicRangeLoad :: BasePreference -> Type -> RangeLoadMux PtrExpr IntExpr
 symbolicRangeLoad pref tp =
-   try (store .<= load |->
-         try (loadOffset sz .<= storeEnd |-> loadVal0 sz)
-             (iterDown (sz-1) loadIter0))
-       (iterUp 1 storeAfterLoad)
-  where sz = typeEnd 0 tp
+  Mux (Store .<= Load)
+  (Mux (loadOffset sz .<= storeEnd) (loadVal0 sz) (loadIter0 (sz-1)))
+  (storeAfterLoad 1)
+  where
+    sz = typeEnd 0 tp
 
-        loadIter0 j | j > 0     = loadOffset j .== storeEnd |-> loadVal0 j
-                    | otherwise = always loadFail
+    loadIter0 j
+      | j > 0     = Mux (loadOffset j .== storeEnd) (loadVal0 j) (loadIter0 (j-1))
+      | otherwise = loadFail
 
-        loadVal0 j = MuxVar $ adjustOffset inFn outFn <$> rangeLoad 0 tp (R 0 j)
-          where inFn k  = IntAdd (PtrDiff load store) (intValue k)
-                outFn k = PtrAdd load (intValue k)
+    loadVal0 j = MuxVar $ adjustOffset inFn outFn <$> rangeLoad 0 tp (R 0 j)
+      where inFn k  = IntAdd (PtrDiff Load Store) (intValue k)
+            outFn k = PtrAdd Load (intValue k)
 
-        storeAfterLoad i
-          | i < sz = loadOffset i .== store |-> loadFromOffset i
-          | otherwise = always loadFail
+    storeAfterLoad i
+      | i < sz = Mux (loadOffset i .== Store) (loadFromOffset i) (storeAfterLoad (i+1))
+      | otherwise = loadFail
 
-        loadFromOffset i = assert (0 < i && i < sz) $
-            try (IntLe (intValue (sz - i)) storeSize |-> loadVal i (i+sz))
-                (iterDown (sz-1) f)
-          where f j | j > i = IntEq (intValue (j-i)) storeSize |-> loadVal i j
-                    | otherwise = always loadFail
+    loadFromOffset i =
+      assert (0 < i && i < sz) $
+      Mux (IntLe (intValue (sz - i)) StoreSize) (loadVal i (i+sz)) (f (sz-1))
+      where f j | j > i = Mux (IntEq (intValue (j-i)) StoreSize) (loadVal i j) (f (j-1))
+                | otherwise = loadFail
 
-        loadVal i j = MuxVar $ loadFromStoreStart pref tp i j
-        loadFail = MuxVar (Var (OutOfRange load tp))
+    loadVal i j = MuxVar (loadFromStoreStart pref tp i j)
+    loadFail = MuxVar (Var (OutOfRange Load tp))
 
 -- ValueView
 
@@ -638,23 +592,23 @@ symbolicValueLoad :: BasePreference -- ^ Whether addresses are based on store or
                   -> ValueView Type
                   -> ValueLoadMux
 symbolicValueLoad pref tp v =
-  try (loadOffset lsz .<= store |-> loadFail) $
-  iterDown lsz prefixL
- where lsz = typeEnd 0 tp
-       Just stp = viewType v
+  Mux (loadOffset lsz .<= Store) loadFail (prefixL lsz)
+  where
+    prefixL i
+      | i > 0 =
+        Mux (loadOffset i .== Store)
+        (MuxVar (fmap (fixLoadBeforeStoreOffset pref i) <$> valueLoad 0 tp i v))
+        (prefixL (i - 1))
+      | otherwise = suffixS 0
+    lsz = typeEnd 0 tp
+    Just stp = viewType v
 
-       prefixL i
-           | i > 0 =
-             loadOffset i .== store |->
-               MuxVar (fmap adjustFn <$> valueLoad 0 tp i v)
-           | otherwise = always (iterUp 0 suffixS)
-         where adjustFn = fixLoadBeforeStoreOffset pref i
+    suffixS i
+      | i < typeSize stp =
+        Mux (Load .== storeOffset i)
+        (MuxVar (fmap adjustFn <$> valueLoad i tp 0 v))
+        (suffixS (i + 1))
+      | otherwise = loadFail
+      where adjustFn = fixLoadAfterStoreOffset pref i
 
-       suffixS i
-           | i < typeSize stp =
-             load .== storeOffset i |->
-               MuxVar (fmap adjustFn <$> valueLoad i tp 0 v)
-           | otherwise = always loadFail
-         where adjustFn = fixLoadAfterStoreOffset pref i
-
-       loadFail = MuxVar $ Var (OldMemory load tp)
+    loadFail = MuxVar (Var (OldMemory Load tp))

@@ -47,6 +47,10 @@ module Lang.Crucible.Utils.AbstractDomains
   , natRangeHigh
   , natCheckEq
   , natCheckLe
+  , natRangeAdd
+  , natRangeScalarMul
+  , natRangeMul
+  , natRangeJoin
   , asSingleNatRange
   , unboundedNatRange
   , natRangeToRange
@@ -379,6 +383,32 @@ natRange x y = NatMultiRange x y
 
 natSingleRange :: Nat -> NatValueRange
 natSingleRange = NatSingleRange . toInteger
+
+natRangeAdd :: NatValueRange -> NatValueRange -> NatValueRange
+natRangeAdd (NatSingleRange x)      (NatSingleRange y)      = NatSingleRange (x+y)
+natRangeAdd (NatSingleRange x)      (NatMultiRange loy hiy) = NatMultiRange (x   + loy) ((+) <$> pure x <*> hiy)
+natRangeAdd (NatMultiRange lox hix) (NatSingleRange y)      = NatMultiRange (lox + y)   ((+) <$> hix    <*> pure y)
+natRangeAdd (NatMultiRange lox hix) (NatMultiRange loy hiy) = NatMultiRange (lox + loy) ((+) <$> hix    <*> hiy)
+
+natRangeScalarMul :: Integer -> NatValueRange -> NatValueRange
+natRangeScalarMul x (NatSingleRange y) = NatSingleRange (x * y)
+natRangeScalarMul x (NatMultiRange lo hi) = NatMultiRange (x * lo) ((x*) <$> hi)
+
+natRangeMul :: NatValueRange -> NatValueRange -> NatValueRange
+natRangeMul (NatSingleRange x) y = natRangeScalarMul x y
+natRangeMul x (NatSingleRange y) = natRangeScalarMul y x
+natRangeMul (NatMultiRange lox hix) (NatMultiRange loy hiy) =
+    NatMultiRange (lox * loy) ((*) <$> hix <*> hiy)
+
+-- | Compute the smallest range containing both ranges.
+natRangeJoin :: NatValueRange -> NatValueRange -> NatValueRange
+natRangeJoin (NatSingleRange x) (NatSingleRange y)
+  | x == y = NatSingleRange x
+natRangeJoin x y = NatMultiRange (min lx ly) (maxValueBound ux uy)
+  where lx = natRangeLow x
+        ux = natRangeHigh x
+        ly = natRangeLow y
+        uy = natRangeHigh y
 
 natRangeLow :: NatValueRange -> Integer
 natRangeLow (NatSingleRange x) = x

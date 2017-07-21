@@ -14,6 +14,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
@@ -392,6 +393,7 @@ assume _ (NonceAppElt e) =
     text ":" <$$> indent 2 (pretty (NonceAppElt e))
   where
   l = nonceEltLoc e
+assume _ (SemiRingLiteral sr _ _) = case sr of {}
 assume h b@(AppElt ba) = do
   let a = appEltApp ba in
     case a of
@@ -400,7 +402,11 @@ assume h b@(AppElt ba) = do
         when (isVerb h) $ warnAt l "problem assumes False"
         setUNSAT h
       AndBool x y -> assume h x >> assume h y
-      RealLe x y  -> do
+      SemiRingLe SemiRingInt x y  -> do
+        x' <- evalInteger h x
+        y' <- evalInteger h y
+        appLEq x' y'
+      SemiRingLe SemiRingReal x y  -> do
         x' <- evalReal h x
         y' <- evalReal h y
         appLEq x' y'
@@ -498,7 +504,7 @@ evalReal' :: Handle t -> RealElt t -> IO BLTExpr
 -- Integer variables are supported, but not Real
 evalReal' _ (BoundVarElt v) =
   failAt (bvarLoc v) "Real variables are not supported by BLT."
-evalReal' h (RatElt r _) = do
+evalReal' h (SemiRingLiteral SemiRingReal r _) = do
   when (isVerb h) $ putStrLn ("BLT@evalReal: rational const " ++ show r)
   return (mkBLT r)
 evalReal' _ (NonceAppElt ea) =
@@ -515,16 +521,15 @@ evalReal' h epr@(AppElt epa) = do
       return i
 
     -- support only linear expressions
-    RealMul x y -> do
+    SemiRingMul SemiRingReal x y -> do
       x' <- evalReal h x
       y' <- evalReal h y
       when (isVerb h) $ putStrLn ("real mult " ++ show x' ++ " " ++ show y')
       return $ multBLTE x' y'
 
-    RealSum s -> WSum.eval (liftM2 addBLTE) smul con s
+    SemiRingSum SemiRingReal s -> WSum.eval (liftM2 addBLTE) smul con s
       where smul sm e = multBLTE (mkBLT sm) <$> evalReal h e
             con = return . mkBLT
-
 
     IntegerToReal x ->
       evalInteger h x
@@ -543,7 +548,7 @@ evalReal' h epr@(AppElt epa) = do
           ++ "  " ++ show (ppEltTop epr)
 
 
--- | Cached version of evalReal'. We wrap and unwrap the NameType to be
+-- | Cached version of evalInteger'. We wrap and unwrap the NameType to be
 -- compatible with IdxCache functions in Core.
 evalInteger :: Handle t -> IntegerElt t -> IO BLTExpr
 evalInteger h e = asName <$> idxCacheEval (eltCache h) e (N <$> evalInteger' h e)
@@ -563,7 +568,7 @@ evalInteger' h (BoundVarElt info) =
       stToIO $ PH.insert (varIndices h) (bvarId info) (IntegerVarIndex i)
       return (mkBLT v)
 -- Match integer constant
-evalInteger' h (IntElt i _) = do
+evalInteger' h (SemiRingLiteral SemiRingInt i _) = do
   when (isVerb h) $ putStrLn ("BLT@evalInteger: integer const " ++ show i)
   return $ mkBLT (toRational i)
 -- Match expression
@@ -572,12 +577,25 @@ evalInteger' _ (NonceAppElt ea) =
 evalInteger' h (AppElt epa) = do
   let l = appEltLoc epa
   case appEltApp epa of
+    -- support only linear expressions
+    SemiRingMul SemiRingInt x y -> do
+      x' <- evalInteger h x
+      y' <- evalInteger h y
+      when (isVerb h) $ putStrLn ("integer mult " ++ show x' ++ " " ++ show y')
+      return $ multBLTE x' y'
+
+    SemiRingSum SemiRingInt s -> WSum.eval (liftM2 addBLTE) smul con s
+      where smul sm e = multBLTE (mkBLT sm) <$> evalInteger h e
+            con = return . mkBLT
+
     RealToInteger x -> evalReal h x
+
     _ -> failAt l "The given integer expressions"
 
 -- | Evaluate complex symbolic expressions to their ModelElt type.
 evalCplx :: Handle t -> CplxElt t -> IO (Complex BLTExpr)
 evalCplx _ (BoundVarElt i) = failAt (bvarLoc i) "Complex variables"
+evalCplx _ (SemiRingLiteral sr _ _) = case sr of {}
 evalCplx _ (NonceAppElt ea) =
   failAt (nonceEltLoc ea) "symbolic functions"
 evalCplx h (AppElt ea) =
@@ -586,6 +604,9 @@ evalCplx h (AppElt ea) =
       r' <- evalReal h r
       i' <- evalReal h i
       return (r' :+ i')
+    SemiRingSum sr _ -> case sr of {}
+    SemiRingMul sr _ _ -> case sr of {}
+    SemiRingIte sr _ _ _ -> case sr of {}
     SelectArray{} -> failAt (appEltLoc ea) "symbolic arrays"
     StructField{} -> failAt (appEltLoc ea) "symbolic arrays"
 

@@ -56,8 +56,6 @@ appTheory a0 =
     XorBool{} -> BoolTheory
     IteBool{} -> BoolTheory
 
-    RealEq{} -> LinearArithTheory
-    RealLe{} -> LinearArithTheory
     RealIsInteger{} -> LinearArithTheory
     BVTestBit{} -> BitvectorTheory
     BVEq{} -> BitvectorTheory
@@ -66,25 +64,28 @@ appTheory a0 =
     ArrayEq{} -> ArrayTheory
 
     ----------------------------
+    -- Semiring operations
+    SemiRingMul{} -> NonlinearArithTheory
+    SemiRingSum{} -> LinearArithTheory
+    SemiRingIte{} -> LinearArithTheory
+    SemiRingEq{} -> LinearArithTheory
+    SemiRingLe{} -> LinearArithTheory
+
+    ----------------------------
     -- Nat operations
 
-    NatDiv _ NatElt{} -> LinearArithTheory
+    NatDiv _ SemiRingLiteral{} -> LinearArithTheory
     NatDiv{} -> NonlinearArithTheory
 
     ----------------------------
     -- Integer operations
 
-    IntMod _ NatElt{} -> LinearArithTheory
+    IntMod _ SemiRingLiteral{} -> LinearArithTheory
     IntMod{} -> NonlinearArithTheory
 
     ----------------------------
     -- Real operations
 
-    RealMul RatElt{} _ -> LinearArithTheory
-    RealMul _ RatElt{} -> LinearArithTheory
-    RealMul _ _ -> NonlinearArithTheory
-    RealSum{} -> LinearArithTheory
-    RealIte{} -> LinearArithTheory
     RealDiv{} -> NonlinearArithTheory
     RealSqrt{} -> NonlinearArithTheory
 

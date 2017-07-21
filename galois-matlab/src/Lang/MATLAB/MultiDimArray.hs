@@ -118,6 +118,8 @@ module Lang.MATLAB.MultiDimArray
   , dimsMatch
     -- * Re-exports
   , Nat
+    -- * CharArray
+  , CharArray
   ) where
 
 
@@ -131,6 +133,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as MV
 import qualified Data.Vector.Unboxed as UV
 import qualified Data.Vector.Unboxed.Mutable as UMV
+import Data.Word
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>), empty)
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
@@ -146,6 +149,8 @@ import Data.Traversable (Traversable, sequenceA, traverse)
 
 import qualified Prelude
 import Prelude hiding (null, replicate, unzip, zip, zipWith, (!!), map)
+
+type CharArray = MultiDimArray Word16
 
 -- | Return true if dimensions are the same.
 dimsMatch :: [Nat] -> [Nat] -> Bool

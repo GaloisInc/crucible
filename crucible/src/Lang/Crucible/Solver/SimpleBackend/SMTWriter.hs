@@ -213,6 +213,12 @@ data SMT_Type
    | SMT_FnType [SMT_Type] SMT_Type
   deriving (Eq, Ord)
 
+
+semiRingTypeMap :: SemiRingRepr tp -> TypeMap tp
+semiRingTypeMap SemiRingNat  = NatTypeMap
+semiRingTypeMap SemiRingInt  = IntegerTypeMap
+semiRingTypeMap SemiRingReal = RealTypeMap
+
 data BaseTypeError = ComplexTypeUnsupported
                    | ArrayUnsupported
 
@@ -272,6 +278,9 @@ class Num v => SupportTermOps v where
 
   -- | Convert an integer expression to a real.
   termRealToInteger :: v -> v
+
+  -- | Convert an integer to a term.
+  integerTerm :: Integer -> v
 
   -- | Convert a rational to a term.
   rationalTerm :: Rational -> v
@@ -1449,14 +1458,16 @@ appSMTExpr ae = do
       yb <- mkBaseExpr y
       freshBoundTerm BoolTypeMap $ ite cb xb yb
 
-    RealEq x y -> do
+    SemiRingEq _sr x y -> do
       xb <- mkBaseExpr x
       yb <- mkBaseExpr y
       freshBoundTerm BoolTypeMap $ xb .== yb
-    RealLe x y -> do
+
+    SemiRingLe _sr x y -> do
       xb <- mkBaseExpr x
       yb <- mkBaseExpr y
       freshBoundTerm BoolTypeMap $ xb .<= yb
+
     RealIsInteger r -> do
       rb <- mkBaseExpr r
       freshBoundTerm BoolTypeMap $! realIsInteger rb
@@ -1498,7 +1509,7 @@ appSMTExpr ae = do
 
     NatDiv xe ye -> do
       case ye of
-        NatElt{} -> return ()
+        SemiRingLiteral SemiRingNat _ _ -> return ()
         _ -> checkNonlinearSupport i
 
       x <- mkBaseExpr xe
@@ -1519,33 +1530,54 @@ appSMTExpr ae = do
     ------------------------------------------
     -- Real operations.
 
-    RealMul (RatElt (-1) _) x -> do
+    SemiRingMul SemiRingReal (SemiRingLiteral SemiRingReal (-1) _) x -> do
       xb <- mkBaseExpr x
       freshBoundTerm RealTypeMap $ negate xb
-    RealMul x y -> do
+    SemiRingMul SemiRingInt (SemiRingLiteral SemiRingInt (-1) _) x -> do
+      xb <- mkBaseExpr x
+      freshBoundTerm IntegerTypeMap $ negate xb
+    SemiRingMul sr x y -> do
       case (x,y) of
-        (RatElt{}, _) -> return ()
-        (_, RatElt{}) -> return ()
+        (SemiRingLiteral{}, _) -> return ()
+        (_, SemiRingLiteral{}) -> return ()
         _ -> checkNonlinearSupport i
       xb <- mkBaseExpr x
       yb <- mkBaseExpr y
-      freshBoundTerm RealTypeMap $ xb * yb
-    RealSum rs -> do
-      let smul s e
-            | s ==  1 = (:[]) <$> mkBaseExpr e
-            | s == -1 = (:[]) . negate <$> mkBaseExpr e
-            | otherwise = (:[]) . (rationalTerm s *) <$> mkBaseExpr e
+      freshBoundTerm (semiRingTypeMap sr) $ xb * yb
+
+    SemiRingSum SemiRingNat s -> do
+      let smul c e
+            | c ==  1   = (:[]) <$> mkBaseExpr e
+            | otherwise = (:[]) . (integerTerm (toInteger c) *) <$> mkBaseExpr e
+      freshBoundTerm NatTypeMap . sumExpr
+        =<< WSum.eval (liftM2 (++)) smul (pure . (:[]) . integerTerm . toInteger) s
+
+    SemiRingSum SemiRingInt s -> do
+      let smul c e
+            | c ==  1   = (:[]) <$> mkBaseExpr e
+            | c == -1   = (:[]) . negate <$> mkBaseExpr e
+            | otherwise = (:[]) . (integerTerm c *) <$> mkBaseExpr e
+      freshBoundTerm IntegerTypeMap . sumExpr
+        =<< WSum.eval (liftM2 (++)) smul (pure . (:[]) . integerTerm) s
+
+    SemiRingSum SemiRingReal rs -> do
+      let smul c e
+            | c ==  1 = (:[]) <$> mkBaseExpr e
+            | c == -1 = (:[]) . negate <$> mkBaseExpr e
+            | otherwise = (:[]) . (rationalTerm c *) <$> mkBaseExpr e
       freshBoundTerm RealTypeMap . sumExpr
         =<< WSum.eval (liftM2 (++)) smul (pure . (:[]) . rationalTerm) rs
-    RealIte c x y -> do
+
+    SemiRingIte sr c x y -> do
       cb <- mkBaseExpr c
       xb <- mkBaseExpr x
       yb <- mkBaseExpr y
-      freshBoundTerm RealTypeMap $ ite cb xb yb
+      freshBoundTerm (semiRingTypeMap sr) $ ite cb xb yb
+
     RealDiv xe ye -> do
       x <- mkBaseExpr xe
       case ye of
-        RatElt r _ -> do
+        SemiRingLiteral SemiRingReal r _ -> do
           freshBoundTerm RealTypeMap $ x * rationalTerm (recip r)
         _ -> do
           checkNonlinearSupport i
@@ -1555,7 +1587,7 @@ appSMTExpr ae = do
           return r
     IntMod xe ye -> do
       case ye of
-        NatElt{} -> return ()
+        SemiRingLiteral SemiRingNat _ _ -> return ()
         _ -> checkNonlinearSupport i
 
       x <- mkBaseExpr xe
@@ -1572,6 +1604,7 @@ appSMTExpr ae = do
       addSideCondition "integer mod" $ r .<  y .|| y .== 0
       -- Return name of variable.
       return nm
+
     RealSqrt xe -> do
       checkNonlinearSupport i
 
@@ -2039,13 +2072,13 @@ getSymbolName conn b =
 
 -- | Convert an expression into a SMT Expression.
 mkExpr :: SMTWriter h => Elt t tp -> SMTCollector t h (SMTExpr h tp)
-mkExpr t@(NatElt n _) = do
+mkExpr t@(SemiRingLiteral SemiRingNat n _) = do
   checkLinearSupport t
   return (SMTExpr NatTypeMap (fromIntegral n))
-mkExpr t@(IntElt i _) = do
+mkExpr t@(SemiRingLiteral SemiRingInt i _) = do
   checkLinearSupport t
   return (SMTExpr IntegerTypeMap (fromIntegral i))
-mkExpr t@(RatElt r _) = do
+mkExpr t@(SemiRingLiteral SemiRingReal r _) = do
   checkLinearSupport t
   return (SMTExpr RealTypeMap (rationalTerm r))
 mkExpr (BVElt w x _) =

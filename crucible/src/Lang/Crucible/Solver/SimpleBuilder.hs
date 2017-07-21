@@ -14,6 +14,7 @@ Solver interfaces built from 'SimpleBuilder' include the
 'Lang.Crucible.Solver.OnlineBackend.OnlineBackend' types.
 
 -}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE EmptyDataDecls #-}
@@ -22,6 +23,7 @@ Solver interfaces built from 'SimpleBuilder' include the
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -120,6 +122,7 @@ module Lang.Crucible.Solver.SimpleBuilder
   , Lang.Crucible.Solver.Interface.bvWidth
   , Lang.Crucible.Solver.Interface.exprType
   , Lang.MATLAB.Utils.Nat.Nat
+  , Lang.Crucible.Solver.WeightedSum.SemiRingRepr(..)
   ) where
 
 import           Control.Exception (assert)
@@ -167,7 +170,7 @@ import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Symbol
-import           Lang.Crucible.Solver.WeightedSum (WeightedSum)
+import           Lang.Crucible.Solver.WeightedSum (SemiRing, SemiRingRepr(..), WeightedSum, semiRingBase)
 import qualified Lang.Crucible.Solver.WeightedSum as WSum
 import           Lang.Crucible.Utils.AbstractDomains
 import           Lang.Crucible.Utils.Arithmetic
@@ -309,31 +312,55 @@ data App (e :: BaseType -> *) (tp :: BaseType) where
           -> !(e BaseBoolType)
           -> App e BaseBoolType
 
+  ------------------------------------------------------------------------
+  -- Semiring operations
+
+  -- This represents a weighted sum of other expressions plus an offset.
+  SemiRingSum
+     :: SemiRing e tp
+     => !(SemiRingRepr tp)
+     -> {-# UNPACK #-} !(WeightedSum e tp)
+     -> App e tp
+
+  -- Multiplication of two semiring values
+  --
+  -- The SimpleBuilder should maintain the invariant that neither value is
+  -- a constant, and hence this denotes a non-linear expression.
+  -- Multiplications by scalars should use the 'SemiRingSum' constructor.
+  SemiRingMul
+     :: SemiRing e tp
+     => !(SemiRingRepr tp)
+     -> !(e tp)
+     -> !(e tp)
+     -> App e tp
+
+  -- If/then/else on semiring values.
+  SemiRingIte
+     :: SemiRing e tp
+     => !(SemiRingRepr tp)
+     -> !(e BaseBoolType)
+     -> !(e tp)
+     -> !(e tp)
+     -> App e tp
+
+  SemiRingEq
+     :: SemiRing e tp
+     => !(SemiRingRepr tp)
+     -> !(e tp)
+     -> !(e tp)
+     -> App e BaseBoolType
+
+  SemiRingLe
+     :: SemiRing e tp
+     => !(SemiRingRepr tp)
+     -> !(e tp)
+     -> !(e tp)
+     -> App e BaseBoolType
 
   ------------------------------------------------------------------------
   -- Basic arithmetic operations
 
-  RealEq :: !(e BaseRealType) -> !(e BaseRealType) -> App e BaseBoolType
-  RealLe :: !(e BaseRealType) -> !(e BaseRealType) -> App e BaseBoolType
   RealIsInteger :: !(e BaseRealType) -> App e BaseBoolType
-
-
-  -- This represents a real number as a weighted sum of other expressions plus
-  -- an offset.
-  RealSum :: {-# UNPACK #-} !(WeightedSum Rational e BaseRealType)
-          -> App e BaseRealType
-
-  -- Multiplication of two real numbers
-  --
-  -- The SimpleBuilder should maintain the invariant that neither value is
-  -- a real constant, and hence this denotes a non-linear expression.
-  -- Multiplications by scalars should use the 'RealSum' constructor.
-  RealMul :: !(e BaseRealType) -> !(e BaseRealType) -> App e BaseRealType
-
-  RealIte :: !(e BaseBoolType)
-          -> !(e BaseRealType)
-          -> !(e BaseRealType)
-          -> App e BaseRealType
 
   -- This does natural number division rounded to zero.
   --
@@ -658,9 +685,7 @@ data AppElt t (tp :: BaseType)
 -- Type @'Elt' t@ instantiates the type family @'SymExpr'
 -- ('SimpleBuilder' t st)@.
 data Elt t (tp :: BaseType) where
-  NatElt :: {-# UNPACK #-} !Nat -> !ProgramLoc -> Elt t BaseNatType
-  IntElt :: !Integer -> !ProgramLoc -> Elt t BaseIntegerType
-  RatElt :: {-# UNPACK #-} !Rational -> !ProgramLoc -> Elt t BaseRealType
+  SemiRingLiteral :: !(SemiRingRepr tp) -> !(WSum.Coefficient tp) -> !ProgramLoc -> Elt t tp
   BVElt  :: (1 <= w) => !(NatRepr w) -> !Integer -> !ProgramLoc -> Elt t (BaseBVType w)
   -- Application
   AppElt :: {-# UNPACK #-} !(AppElt t tp) -> Elt t tp
@@ -682,9 +707,7 @@ asNonceApp (NonceAppElt a) = Just (nonceEltApp a)
 asNonceApp _ = Nothing
 
 eltLoc :: Elt t tp -> ProgramLoc
-eltLoc (NatElt _ l) = l
-eltLoc (IntElt _ l) = l
-eltLoc (RatElt _ l) = l
+eltLoc (SemiRingLiteral _ _ l) = l
 eltLoc (BVElt _ _ l) = l
 eltLoc (NonceAppElt a)  = nonceEltLoc a
 eltLoc (AppElt a)   = appEltLoc a
@@ -716,22 +739,20 @@ iteSize e =
     _ -> 0
 
 instance IsExpr (Elt t) where
-  asNat (NatElt n _) = Just n
+  asNat (SemiRingLiteral SemiRingNat n _) = Just n
   asNat _ = Nothing
 
-  asInteger (IntElt n _) = Just n
+  asInteger (SemiRingLiteral SemiRingInt n _) = Just n
   asInteger _ = Nothing
 
-  asRational (RatElt r _) = Just r
+  asRational (SemiRingLiteral SemiRingReal r _) = Just r
   asRational _ = Nothing
 
   asComplex e
     | Just (Cplx c) <- asApp e = traverse asRational c
     | otherwise = Nothing
 
-  exprType NatElt{} = knownRepr
-  exprType IntElt{} = knownRepr
-  exprType RatElt{} = knownRepr
+  exprType (SemiRingLiteral sr _ _) = semiRingBase sr
   exprType (BVElt w _ _) = BaseBVRepr w
   exprType (NonceAppElt e)  = nonceAppType (nonceEltApp e)
   exprType (AppElt e) = appType (appEltApp e)
@@ -746,6 +767,11 @@ instance IsExpr (Elt t) where
   asConstantArray _ = Nothing
 
   printSymExpr = pretty
+
+
+asSemiRingLit :: Elt t tp -> Maybe (WSum.Coefficient tp)
+asSemiRingLit (SemiRingLiteral _sr x _loc) = Just x
+asSemiRingLit _ = Nothing
 
 
 ------------------------------------------------------------------------
@@ -865,8 +891,6 @@ appType a =
     XorBool{} -> knownRepr
     IteBool{} -> knownRepr
 
-    RealEq{} -> knownRepr
-    RealLe{} -> knownRepr
     RealIsInteger{} -> knownRepr
     BVTestBit{} -> knownRepr
     BVEq{}    -> knownRepr
@@ -877,9 +901,12 @@ appType a =
     NatDiv{} -> knownRepr
     IntMod{} -> knownRepr
 
-    RealSum{} -> knownRepr
-    RealMul{} -> knownRepr
-    RealIte{} -> knownRepr
+    SemiRingEq{} -> knownRepr
+    SemiRingLe{} -> knownRepr
+    SemiRingSum sr _ -> semiRingBase sr
+    SemiRingMul sr _ _ -> semiRingBase sr
+    SemiRingIte sr _ _ _ -> semiRingBase sr
+
     RealDiv{} -> knownRepr
     RealSqrt{} -> knownRepr
 
@@ -1228,8 +1255,6 @@ ppApp' a0 = do
     XorBool x y -> ppSExpr "boolXor" [x, y]
     IteBool x y z -> ppITE "boolIte" x y z
 
-    RealEq x y -> ppSExpr "realEq" [x, y]
-    RealLe x y -> ppSExpr "realLe" [x, y]
     RealIsInteger x -> ppSExpr "isInteger" [x]
     BVTestBit i x   -> prettyApp "testBit"  [eltPrettyArg x, showPrettyArg i]
     BVEq  x y   -> ppSExpr "bvEq" [x, y]
@@ -1241,17 +1266,54 @@ ppApp' a0 = do
 
     IntMod x y -> prettyApp "intMod" [eltPrettyArg x, eltPrettyArg y]
 
-    RealMul x y -> ppSExpr "realMul" [x, y]
-    RealSum s -> prettyApp "realSum" (WSum.eval (++) ppEntry ppConstant s)
-      where ppConstant 0 = []
-            ppConstant c = [ stringPrettyArg (ppRat c)]
-            ppEntry 1 e = [ eltPrettyArg e ]
-            ppEntry sm e = [ stringPrettyArg (ppRat sm ++ "*"), eltPrettyArg e ]
-            ppRat r | d == 1 = show n
-                    | otherwise = "(" ++ show n ++ "/" ++ show d ++ ")"
-              where n = numerator r
-                    d = denominator r
-    RealIte x y z -> ppITE "realIte" x y z
+    SemiRingEq sr x y ->
+      case sr of
+        SemiRingReal -> ppSExpr "realEq" [x, y]
+        SemiRingInt  -> ppSExpr "intEq" [x, y]
+        SemiRingNat  -> ppSExpr "natEq" [x, y]
+
+    SemiRingLe sr x y ->
+      case sr of
+        SemiRingReal -> ppSExpr "realLe" [x, y]
+        SemiRingInt  -> ppSExpr "intLe" [x, y]
+        SemiRingNat  -> ppSExpr "natLe" [x, y]
+
+    SemiRingSum sr s ->
+      case sr of
+        SemiRingReal -> prettyApp "realSum" (WSum.eval (++) ppEntry ppConstant s)
+          where ppConstant 0 = []
+                ppConstant c = [ stringPrettyArg (ppRat c) ]
+                ppEntry 1 e = [ eltPrettyArg e ]
+                ppEntry sm e = [ stringPrettyArg (ppRat sm ++ "*"), eltPrettyArg e ]
+                ppRat r | d == 1 = show n
+                        | otherwise = "(" ++ show n ++ "/" ++ show d ++ ")"
+                     where n = numerator r
+                           d = denominator r
+
+        SemiRingInt -> prettyApp "intSum" (WSum.eval (++) ppEntry ppConstant s)
+          where ppConstant 0 = []
+                ppConstant c = [ stringPrettyArg (show c) ]
+                ppEntry 1 e  = [ eltPrettyArg e ]
+                ppEntry sm e = [ stringPrettyArg (show sm ++ "*"), eltPrettyArg e ]
+
+        SemiRingNat  -> prettyApp "natSum" (WSum.eval (++) ppEntry ppConstant s)
+          where ppConstant 0 = []
+                ppConstant c = [ stringPrettyArg (show c) ]
+                ppEntry 1 e  = [ eltPrettyArg e ]
+                ppEntry sm e = [ stringPrettyArg (show sm ++ "*"), eltPrettyArg e ]
+
+    SemiRingMul sr x y ->
+      case sr of
+        SemiRingReal -> ppSExpr "realMul" [x, y]
+        SemiRingInt  -> ppSExpr "intMul" [x, y]
+        SemiRingNat  -> ppSExpr "natMul" [x, y]
+
+    SemiRingIte sr x y z ->
+      case sr of
+        SemiRingReal -> ppITE "realIte" x y z
+        SemiRingInt  -> ppITE "intIte" x y z
+        SemiRingNat  -> ppITE "natIte" x y z
+
     RealDiv x y -> ppSExpr "divReal" [x, y]
     RealSqrt x  -> ppSExpr "sqrt" [x]
 
@@ -1275,13 +1337,6 @@ ppApp' a0 = do
     BVSelect idx n x -> prettyApp "bvSelect" [showPrettyArg idx, showPrettyArg n, eltPrettyArg x]
     BVNeg  _ x   -> ppSExpr "bvNeg" [x]
     BVAdd  _ x y -> ppSExpr "bvAdd" [x, y]
-{-
-    BVSum s -> prettyApp "bvSum" (WSum.eval (++) ppEntry ppConstant s)
-      where ppConstant 0 = []
-            ppConstant c = [ showPrettyArg c ]
-            ppEntry 1 e = [ eltPrettyArg e ]
-            ppEntry sm e = [ stringPrettyArg (show sm ++ "*"), eltPrettyArg e ]
--}
     BVMul  _ x y -> ppSExpr "bvMul" [x, y]
     BVUdiv _ x y -> ppSExpr "bvUdiv" [x, y]
     BVUrem _ x y -> ppSExpr "bvUrem" [x, y]
@@ -1423,9 +1478,15 @@ data Dummy (tp :: k)
 
 instance Eq (Dummy tp) where
   _ == _ = True
+instance EqF Dummy where
+  eqF _ _ = True
+instance TestEquality Dummy where
+  testEquality !_x !_y = error "you made a magic Dummy value!"
 
 instance Ord (Dummy tp) where
   compare _ _ = EQ
+instance OrdF Dummy where
+  compareF !_x !_y = error "you made a magic Dummy value!"
 
 instance HashableF Dummy where
   hashWithSaltF _ _ = 0
@@ -1435,8 +1496,7 @@ instance FoldableFC App where
     where g :: (f tp -> a) -> f tp -> Const a (Dummy tp)
           g f v = Const (f v)
 
-
-traverseApp :: (Applicative m, Ord (f BaseRealType), Eq (f BaseBoolType), HashableF f)
+traverseApp :: (Applicative m, OrdF f, Eq (f (BaseBoolType)), HashableF f)
             => (forall tp. e tp -> m (f tp))
             -> App e utp -> m ((App f) utp)
 traverseApp =
@@ -1447,9 +1507,8 @@ traverseApp =
     , ( ConType [t|Ctx.Assignment BaseTypeRepr|] `TypeApp` AnyType
       , [|(\_ -> pure) |]
       )
-    , ( ConType [t|WeightedSum|] `TypeApp` AnyType `TypeApp` AnyType `TypeApp` AnyType
-      , [| WSum.traverseVars
-         |]
+    , ( ConType [t|WeightedSum|] `TypeApp` AnyType `TypeApp` AnyType
+      , [| WSum.traverseVars |]
       )
     ,  ( ConType [t|Hash.Map |] `TypeApp` AnyType `TypeApp` AnyType `TypeApp` AnyType `TypeApp` AnyType
        , [| Hash.traverseHashedMap |]
@@ -1465,17 +1524,13 @@ traverseApp =
 
 {-# INLINE compareElt #-}
 compareElt :: Elt t x -> Elt t y -> OrderingF x y
-compareElt (NatElt x _) (NatElt y _) = fromOrdering (compare x y)
-compareElt NatElt{} _ = LTF
-compareElt _ NatElt{} = GTF
-
-compareElt (IntElt x _) (IntElt y _) = fromOrdering (compare x y)
-compareElt IntElt{} _ = LTF
-compareElt _ IntElt{} = GTF
-
-compareElt (RatElt x _) (RatElt y _) = fromOrdering (compare x y)
-compareElt RatElt{} _ = LTF
-compareElt _ RatElt{} = GTF
+compareElt (SemiRingLiteral srx x _) (SemiRingLiteral sry y _) =
+  case compareF srx sry of
+    LTF -> LTF
+    EQF -> fromOrdering (WSum.semiringCompare srx x y)
+    GTF -> GTF
+compareElt SemiRingLiteral{} _ = LTF
+compareElt _ SemiRingLiteral{} = GTF
 
 compareElt (BVElt wx x _) (BVElt wy y _) =
   case compareF wx wy of
@@ -1526,9 +1581,11 @@ instance Ord (Elt t tp) where
   compare x y = toOrdering (compareF x y)
 
 instance Hashable (Elt t tp) where
-  hashWithSalt s (NatElt n _)    = hashWithSalt (hashWithSalt s (0::Int)) n
-  hashWithSalt s (IntElt n _)    = hashWithSalt (hashWithSalt s (1::Int)) n
-  hashWithSalt s (RatElt r _)    = hashWithSalt (hashWithSalt s (2::Int)) r
+  hashWithSalt s (SemiRingLiteral sr x _) =
+    case sr of
+      SemiRingNat  -> hashWithSalt (hashWithSalt s (0::Int)) x
+      SemiRingInt  -> hashWithSalt (hashWithSalt s (1::Int)) x
+      SemiRingReal -> hashWithSalt (hashWithSalt s (2::Int)) x
   hashWithSalt s (BVElt w x _) =
     s `hashWithSalt` (3::Int)
       `hashWithSalt` w
@@ -1569,8 +1626,9 @@ incOccurrence visited idx sub = do
     Just i -> H.insert visited idx $! i+1
     Nothing -> sub >> H.insert visited idx 1
 
+-- FIXME... why does this ignore Nat and Int literals?
 countOccurrences' :: forall t tp s . OccurrenceTable s -> Elt t tp -> ST s ()
-countOccurrences' visited (RatElt r _) = do
+countOccurrences' visited (SemiRingLiteral SemiRingReal r _) = do
   incOccurrence visited (RatPPIndex r) $
     return ()
 countOccurrences' visited (AppElt e) = do
@@ -1629,7 +1687,7 @@ ppVar :: String -> SolverSymbol -> Nonce t tp -> BaseTypeRepr tp -> String
 ppVar pr sym i tp = pr ++ show sym ++ "@" ++ show (indexValue i) ++ ":" ++ ppVarTypeCode tp
 
 instance Show (Elt t tp) where
-  show = show . pretty
+  show = show . ppElt
 
 instance Pretty (Elt t tp) where
   pretty = ppElt
@@ -1707,8 +1765,7 @@ ppElt e
          text " in" <+> align (ppEltDoc False r)
   where (bindings,r) = runST (ppElt' e defaultPPEltOpts)
 
-instance ShowF (Elt t) where
-  showsF e = shows (ppElt e)
+instance ShowF (Elt t)
 
 -- | Pretty print the top part of an element.
 ppEltTop :: Elt t tp -> Doc
@@ -1848,16 +1905,18 @@ ppElt' e0 o = do
       -- Collect definitions for all applications that occur multiple times
       -- in term.
       getBindings :: Elt t u -> ST s PPElt
-      getBindings (NatElt n _) = do
-        return $ stringPPElt (show n)
-      getBindings (IntElt n _) = do
-        return $ stringPPElt (show n)
-      getBindings (RatElt r l) = cacheResult (RatPPIndex r) l app
-        where n = numerator r
-              d = denominator r
-              app | d == 1      = prettyApp (fromString (show n)) []
-                  | use_decimal = prettyApp (fromString (show (fromRational r :: Double))) []
-                  | otherwise   = prettyApp "divReal"  [ showPrettyArg n, showPrettyArg d ]
+      getBindings (SemiRingLiteral sr x l) =
+        case sr of
+          SemiRingNat -> do
+            return $ stringPPElt (show x)
+          SemiRingInt -> do
+            return $ stringPPElt (show x)
+          SemiRingReal -> cacheResult (RatPPIndex x) l app
+             where n = numerator x
+                   d = denominator x
+                   app | d == 1      = prettyApp (fromString (show n)) []
+                       | use_decimal = prettyApp (fromString (show (fromRational x :: Double))) []
+                       | otherwise   = prettyApp "divReal"  [ showPrettyArg n, showPrettyArg d ]
       getBindings (BVElt w n _) = do
         return $ stringPPElt $ "0x" ++ (N.showHex n []) ++ ":[" ++ show w ++ "]"
       getBindings (NonceAppElt e) = do
@@ -2000,8 +2059,8 @@ abstractEval sym f a0 = do
                   | Just False <- f y -> absAnd (f c) (f x)
                   | otherwise -> Nothing
 
-    RealEq{} -> Nothing
-    RealLe{} -> Nothing
+    SemiRingEq{} -> Nothing
+    SemiRingLe{} -> Nothing
     RealIsInteger{} -> Nothing
     BVTestBit{} -> Nothing
     BVEq{} -> Nothing
@@ -2014,10 +2073,21 @@ abstractEval sym f a0 = do
 
     NatDiv x _ -> (f x)
     IntMod _ y -> natRange 0 (pred <$> natRangeHigh (f y))
-    RealMul x y -> ravMul (f x) (f y)
-    RealSum s -> WSum.eval ravAdd smul ravSingle s
+
+    SemiRingMul SemiRingInt x y -> mulRange (f x) (f y)
+    SemiRingSum SemiRingInt s -> WSum.eval addRange smul SingleRange s
+      where smul sm e = rangeScalarMul sm (f e)
+    SemiRingIte SemiRingInt _ x y -> joinRange (f x) (f y)
+
+    SemiRingMul SemiRingNat x y -> natRangeMul (f x) (f y)
+    SemiRingSum SemiRingNat s -> WSum.eval natRangeAdd smul natSingleRange s
+      where smul sm e = natRangeScalarMul (toInteger sm) (f e)
+    SemiRingIte SemiRingNat _ x y -> natRangeJoin (f x) (f y)
+
+    SemiRingMul SemiRingReal x y -> ravMul (f x) (f y)
+    SemiRingSum SemiRingReal s -> WSum.eval ravAdd smul ravSingle s
       where smul sm e = ravScalarMul sm (f e)
-    RealIte _ x y -> ravJoin (f x) (f y)
+    SemiRingIte SemiRingReal _ x y -> ravJoin (f x) (f y)
 
     RealDiv _ _ -> ravUnbounded
     RealSqrt _  -> ravUnbounded
@@ -2116,9 +2186,11 @@ abstractEval sym f a0 = do
 
 -- | Get abstract value associated with element.
 eltAbsValue :: Elt t tp -> AbstractValue tp
-eltAbsValue (NatElt c _)    = natSingleRange c
-eltAbsValue (IntElt c _)    = singleRange c
-eltAbsValue (RatElt c _)    = ravSingle c
+eltAbsValue (SemiRingLiteral sr x _) =
+  case sr of
+    SemiRingNat  -> natSingleRange x
+    SemiRingInt  -> singleRange x
+    SemiRingReal -> ravSingle x
 eltAbsValue (BVElt w c _)   = BVD.singleton w c
 eltAbsValue (NonceAppElt e) = nonceEltAbsValue e
 eltAbsValue (AppElt e)      = appEltAbsValue e
@@ -2151,6 +2223,8 @@ appEqF = $(structuralTypeEquality [t|App|]
            , (ConType [t|Ctx.Assignment|] `TypeApp` AnyType `TypeApp` AnyType
              , [|testEquality|])
            , (ConType [t|Ctx.Index|]      `TypeApp` AnyType `TypeApp` AnyType
+             , [|testEquality|])
+           , (ConType [t|SemiRingRepr|] `TypeApp` AnyType
              , [|testEquality|])
            ]
           )
@@ -2186,9 +2260,7 @@ newIdxCache = stToIO $ IdxCache <$> PH.new
 {-# INLINE lookupIdxValue #-}
 -- | Return the value associated to the elt in the index.
 lookupIdxValue :: MonadIO m => IdxCache t f -> Elt t tp -> m (Maybe (f tp))
-lookupIdxValue _ NatElt{} = return Nothing
-lookupIdxValue _ IntElt{} = return Nothing
-lookupIdxValue _ RatElt{} = return Nothing
+lookupIdxValue _ SemiRingLiteral{} = return Nothing
 lookupIdxValue _ BVElt{} = return Nothing
 lookupIdxValue c (NonceAppElt e) = liftIO $ lookupIdx c (nonceEltId e)
 lookupIdxValue c (AppElt e)  = liftIO $ lookupIdx c (appEltId e)
@@ -2212,9 +2284,7 @@ clearIdxCache :: IdxCache t f -> IO ()
 clearIdxCache c = stToIO $ PH.clear (cMap c)
 
 eltMaybeId :: Elt t tp -> Maybe (Nonce t tp)
-eltMaybeId NatElt{} = Nothing
-eltMaybeId IntElt{} = Nothing
-eltMaybeId RatElt{} = Nothing
+eltMaybeId SemiRingLiteral{} = Nothing
 eltMaybeId BVElt{}  = Nothing
 eltMaybeId (NonceAppElt e) = Just $! nonceEltId e
 eltMaybeId (AppElt  e) = Just $! appEltId e
@@ -2264,6 +2334,14 @@ sbNonceElt sym a = do
   s <- readIORef (curAllocator sym)
   pc <- curProgramLoc sym
   nonceElt s pc a (quantAbsEval sym eltAbsValue a)
+
+semiRingLit :: SimpleBuilder t st
+            -> SemiRingRepr tp
+            -> WSum.Coefficient tp
+            -> IO (Elt t tp)
+semiRingLit sb sr x = do
+  l <- curProgramLoc sb
+  return $! SemiRingLiteral sr x l
 
 sbMakeElt :: SimpleBuilder t st -> App (Elt t) tp -> IO (Elt t tp)
 sbMakeElt sym a = do
@@ -2329,7 +2407,7 @@ newSimpleBuilder st gen = do
 
   t <- appElt es initializationLoc TrueBool  (Just True)
   f <- appElt es initializationLoc FalseBool (Just False)
-  let z = RatElt 0 initializationLoc
+  let z = SemiRingLiteral SemiRingReal 0 initializationLoc
   storage_ref   <- newIORef es
   loc_ref       <- newIORef initializationLoc
   bindings_ref  <- newIORef Bimap.empty
@@ -2472,12 +2550,26 @@ reduceApp sym a0 = do
     XorBool x y   -> xorPred sym x y
     IteBool c x y -> itePred sym c x y
 
-    RealEq x y    -> realEq sym x y
-    RealLe x y    -> realLe sym x y
+    SemiRingSum SemiRingNat s -> natSum sym s
+    SemiRingMul SemiRingNat x y -> natMul sym x y
+    SemiRingIte SemiRingNat c x y -> natIte sym c x y
+
+    SemiRingSum SemiRingInt s -> intSum sym s
+    SemiRingMul SemiRingInt x y -> intMul sym x y
+    SemiRingIte SemiRingInt c x y -> intIte sym c x y
+
+    SemiRingEq SemiRingReal x y -> realEq sym x y
+    SemiRingEq SemiRingInt x y -> intEq sym x y
+    SemiRingEq SemiRingNat x y -> natEq sym x y
+
+    SemiRingLe SemiRingReal x y -> realLe sym x y
+    SemiRingLe SemiRingInt x y -> intLe sym x y
+    SemiRingLe SemiRingNat x y -> natLe sym x y
+
     RealIsInteger x -> isInteger sym x
-    RealSum x   -> realSum sym x
-    RealMul x y -> realMul sym x y
-    RealIte c x y -> realIte sym c x y
+    SemiRingSum SemiRingReal s -> realSum sym s
+    SemiRingMul SemiRingReal x y -> realMul sym x y
+    SemiRingIte SemiRingReal c x y -> realIte sym c x y
 
     NatDiv x y  -> natDiv  sym x y
     RealDiv x y -> realDiv sym x y
@@ -2636,9 +2728,7 @@ evalBoundVars' :: forall t st ret
                -> IO (Elt t ret)
 evalBoundVars' tbls sym e0 =
   case e0 of
-    NatElt{} -> return e0
-    IntElt{} -> return e0
-    RatElt{} -> return e0
+    SemiRingLiteral{} -> return e0
     BVElt{}  -> return e0
     AppElt ae -> cachedEval (eltTable tbls) e0 $ do
       let a = appEltApp ae
@@ -2799,11 +2889,6 @@ sbConcreteLookup sym arr0 mcidx idx
     case exprType arr0 of
       BaseArrayRepr _ range ->
         sbMakeElt sym (SelectArray range arr0 idx)
-
-realToSBV :: (1 <= w) => SimpleBuilder t st -> NatRepr w -> RealElt t -> IO (BVElt t w)
-realToSBV sym w r = do
-  i <- realToInteger sym r
-  integerToSBV sym i w
 
 instance IsBoolExprBuilder (SimpleBuilder t st) where
 
@@ -2994,45 +3079,217 @@ sbTryUnaryTerm sym u a
     sbMakeElt sym a
 
 -- | This privides a view of a real elt as a weighted sum of values.
-data SumView t
-   = ConstantSum !Rational
-   | LinearSum !(WeightedSum Rational (Elt t) BaseRealType)
+data SumView t tp
+   = ConstantSum !(WSum.Coefficient tp)
+   | LinearSum !(WeightedSum (Elt t) tp)
    | GeneralSum
 
-viewSum :: RealElt t -> SumView t
+viewSum :: Elt t tp -> SumView t tp
 viewSum x
-  | RatElt r _ <- x = ConstantSum r
-  | Just (RealSum s) <- asApp x = LinearSum s
+  | SemiRingLiteral _sr r _ <- x = ConstantSum r
+  | Just (SemiRingSum _sr s) <- asApp x = LinearSum s
   | otherwise = GeneralSum
 
-asWeightedSum :: HashableF (Elt t)
-              => RealElt t
-              -> WeightedSum Rational (Elt t) BaseRealType
+asWeightedSum :: WSum.SemiRingCoefficient tp
+              => HashableF (Elt t)
+              => Elt t tp
+              -> WeightedSum (Elt t) tp
 asWeightedSum x
-  | RatElt r _ <- x = WSum.constant r
-  | Just (RealSum s) <- asApp x = s
+  | SemiRingLiteral _sr r _ <- x = WSum.constant r
+  | Just (SemiRingSum _sr s) <- asApp x = s
   | otherwise = WSum.var x
 
-realSum' :: SimpleBuilder t st
-            -> WeightedSum Rational (Elt t) BaseRealType
-            -> IO (RealElt t)
-realSum' sym s = sbMakeElt sym $ RealSum $ s
+semiRingSum :: WSum.SemiRingCoefficient tp
+            => SimpleBuilder t st
+            -> SemiRingRepr tp
+            -> WeightedSum (Elt t) tp
+            -> IO (Elt t tp)
+semiRingSum sym sr s
+    | Just c <- WSum.asConstant s =
+      semiRingLit sym sr c
+    | Just r <- WSum.asVar s =
+      return r
+    | otherwise =
+      sum' sym sr s
 
-realScalarMul :: SimpleBuilder t st
-              -> Rational
-              -> RealElt t
-              -> IO (RealElt t)
-realScalarMul sym c x
+sum' :: WSum.SemiRingCoefficient tp
+     => SimpleBuilder t st
+     -> SemiRingRepr tp
+     -> WeightedSum (Elt t) tp
+     -> IO (Elt t tp)
+sum' sym sr s = sbMakeElt sym $ SemiRingSum sr $ s
+{-# INLINE sum' #-}
+
+scalarMul :: WSum.SemiRingCoefficient tp
+          => SimpleBuilder t st
+          -> SemiRingRepr tp
+          -> WSum.Coefficient tp
+          -> Elt t tp
+          -> IO (Elt t tp)
+scalarMul sym sr c x
   | c == 0 =
-    return $! sbZero sym
+    semiRingLit sym sr 0
   | c == 1 =
     return x
-  | Just r <- asRational x =
-    realLit sym (c*r)
-  | Just (RealSum s) <- asApp x =
-    realSum' sym (WSum.scale c s)
+  | Just r <- asSemiRingLit x =
+    semiRingLit sym sr (c*r)
+  | Just (SemiRingSum _sr s) <- asApp x =
+    sum' sym sr (WSum.scale c s)
   | otherwise = do
-    realSum' sym (WSum.scaledVar c x)
+    sum' sym sr (WSum.scaledVar c x)
+
+semiRingIte :: WSum.SemiRingCoefficient tp
+            => SimpleBuilder t st
+            -> SemiRingRepr tp
+            -> Elt t BaseBoolType
+            -> Elt t tp
+            -> Elt t tp
+            -> IO (Elt t tp)
+semiRingIte sym sr c x y
+    -- evaluate as constants
+  | Just True  <- asConstantPred c = return x
+  | Just False <- asConstantPred c = return y
+
+    -- reduce negations
+  | Just (NotBool cn) <- asApp c = semiRingIte sym sr cn y x
+
+    -- remove the ite if the then and else cases are the same
+  | x == y = return x
+
+    -- Try to extract common sum information.
+  | (z, x',y') <- WSum.extractCommon (asWeightedSum x) (asWeightedSum y)
+  , not (WSum.isZero z) = do
+    xr <- semiRingSum sym sr x'
+    yr <- semiRingSum sym sr y'
+    r <- sbMakeElt sym (SemiRingIte sr c xr yr)
+    semiRingSum sym sr $! z `WSum.addVar` r
+
+    -- final fallback, create the ite term
+  | otherwise = do
+    sbMakeElt sym (SemiRingIte sr c x y)
+
+semiRingLe
+   :: WSum.SemiRingCoefficient tp
+   => SimpleBuilder t st
+   -> SemiRingRepr tp
+   -> Elt t tp
+   -> Elt t tp
+   -> IO (Elt t BaseBoolType)
+semiRingLe sym sr x y
+      -- Check for syntactic equality.
+    | x == y = return (truePred sym)
+
+      -- Strength reductions on a non-linear constraint to piecewise linear.
+    | SemiRingLiteral _ 0 _ <- x, Just (SemiRingMul _ u v) <- asApp y = do
+      leNonneg le x sym u v
+      -- Another strength reduction
+    | Just (SemiRingMul _ u v) <- asApp x, SemiRingLiteral _ 0 _ <- y = do
+      leNonpos le y sym u v
+
+      -- Simplify ite expressions when one of the values is ground.
+      -- This appears to occur fairly often in MATLAB due to range checks.
+    | isJust (asSemiRingLit x)
+    , Just (SemiRingIte _sr yc y1 y2) <- asApp y
+    , isJust (asSemiRingLit y1) || isJust (asSemiRingLit y2) = do
+      c1 <- le sym x y1
+      c2 <- le sym x y2
+      itePred sym yc c1 c2
+
+      -- Simplify ite expressions when one of the values is ground.
+      -- This appears to occur fairly often in MATLAB due to range checks.
+    | isJust (asSemiRingLit y)
+    , Just (SemiRingIte _sr xc x1 x2) <- asApp x
+    , isJust (asSemiRingLit x1) || isJust (asSemiRingLit x2) = do
+      c1 <- le sym x1 y
+      c2 <- le sym x2 y
+      itePred sym xc c1 c2
+
+      -- Try to extract common sum information.
+    | (z, x',y') <- WSum.extractCommon (asWeightedSum x) (asWeightedSum y)
+    , not (WSum.isZero z) = do
+      xr <- semiRingSum sym sr x'
+      yr <- semiRingSum sym sr y'
+      le sym xr yr
+
+      -- Default case
+    | otherwise = sbMakeElt sym $ SemiRingLe sr x y
+
+ where le = case sr of
+              SemiRingReal -> realLe
+              SemiRingInt  -> intLe
+              SemiRingNat  -> natLe
+
+
+semiRingEq :: WSum.SemiRingCoefficient tp
+           => SimpleBuilder t st
+           -> SemiRingRepr tp
+           -> Elt t tp
+           -> Elt t tp
+           -> IO (Elt t BaseBoolType)
+semiRingEq sym sr x y
+  -- Check for syntactic equality.
+  | x == y = return (truePred sym)
+
+    -- Try to extract common sum information.
+  | (z, x',y') <- WSum.extractCommon (asWeightedSum x) (asWeightedSum y)
+  , not (WSum.isZero z) = do
+    xr <- semiRingSum sym sr x'
+    yr <- semiRingSum sym sr y'
+    sbMakeElt sym $ SemiRingEq sr (min xr yr) (max xr yr)
+
+  | otherwise = do
+    sbMakeElt sym $ SemiRingEq sr (min x y) (max x y)
+
+
+semiRingAdd :: WSum.SemiRingCoefficient tp
+            => SimpleBuilder t st
+            -> SemiRingRepr tp
+            -> Elt t tp
+            -> Elt t tp
+            -> IO (Elt t tp)
+semiRingAdd sym sr x y =
+    case (viewSum x, viewSum y) of
+      (ConstantSum 0, _) -> return y
+      (_, ConstantSum 0) -> return x
+
+      (ConstantSum xc, ConstantSum yc) ->
+        semiRingLit sym sr (xc + yc)
+
+      (ConstantSum xc, LinearSum ys) ->
+        sum' sym sr (ys `WSum.addConstant` xc)
+      (LinearSum xs, ConstantSum yc) ->
+        sum' sym sr (xs `WSum.addConstant` yc)
+
+      (ConstantSum xc, GeneralSum) -> do
+        sum' sym sr (WSum.var y `WSum.addConstant` xc)
+      (GeneralSum, ConstantSum yc) -> do
+        sum' sym sr (WSum.var x `WSum.addConstant` yc)
+
+      (LinearSum xs, LinearSum ys) -> semiRingSum sym sr (xs `WSum.add` ys)
+      (LinearSum xs, GeneralSum)   -> semiRingSum sym sr (xs `WSum.addVar` y)
+      (GeneralSum, LinearSum ys)   -> semiRingSum sym sr (ys `WSum.addVar` x)
+      (GeneralSum, GeneralSum)     -> semiRingSum sym sr (x  `WSum.addVars` y)
+
+semiRingMul :: WSum.SemiRingCoefficient tp
+            => SimpleBuilder t st
+            -> SemiRingRepr tp
+            -> Elt t tp
+            -> Elt t tp
+            -> IO (Elt t tp)
+semiRingMul sym sr x y
+    | Just xd <- asSemiRingLit x =
+      scalarMul sym sr xd y
+    | Just yd <- asSemiRingLit y =
+      scalarMul sym sr yd x
+      -- (cx*xx) * y = cx*(xx*y)
+    | Just (SemiRingMul _ (SemiRingLiteral _ cx _) xx) <- asApp x = do
+      scalarMul sym sr cx =<< semiRingMul sym sr xx y
+      -- x*(cy*yy) = cy*(x*yy)
+    | Just (SemiRingMul _ (SemiRingLiteral _ cy _) yy) <- asApp y = do
+      scalarMul sym sr cy =<< semiRingMul sym sr x yy
+    | otherwise =
+      sbMakeElt sym $ SemiRingMul sr (min x y) (max x y)
+
 
 -- Add following rule to do a strength reduction on non-linear
 -- constraint non-negative constraint
@@ -3084,9 +3341,6 @@ leNonpos le zero sym u v = do
   andPred sym a b
 
 
-pattern SBVToReal :: () => (1 <= w, tp ~ BaseRealType) => Elt t (BaseBVType w) -> Elt t tp
-pattern SBVToReal x <- (asApp -> Just (IntegerToReal (asApp -> Just (SBVToInteger x))))
-
 
 arrayResultIdxType :: BaseTypeRepr (BaseArrayType (idx ::> itp) d)
                    -> Ctx.Assignment BaseTypeRepr (idx ::> itp)
@@ -3132,7 +3386,7 @@ data NatLit tp = (tp ~ BaseNatType) => NatLit Nat
 asNatBounds :: Ctx.Assignment (Elt t) idx -> Maybe (Ctx.Assignment NatLit idx)
 asNatBounds = traverseFC f
   where f :: Elt t tp -> Maybe (NatLit tp)
-        f (NatElt n _) = Just (NatLit n)
+        f (SemiRingLiteral SemiRingNat n _) = Just (NatLit n)
         f _ = Nothing
 
 foldBoundLeM :: (r -> Nat -> IO r) -> r -> Nat -> IO r
@@ -3182,23 +3436,18 @@ instance IsExprBuilder (SimpleBuilder t st) where
   ----------------------------------------------------------------------
   -- Nat operations.
 
-  natLit sb n = do
-    NatElt n <$> curProgramLoc sb
+  natLit sym n = semiRingLit sym SemiRingNat n
 
-  natAdd sym x y = do
-    xr <- natToReal sym x
-    yr <- natToReal sym y
-    realToNat sym =<< realAdd sym xr yr
+  natAdd sym x y = semiRingAdd sym SemiRingNat x y
 
   natSub sym x y = do
-    xr <- natToReal sym x
-    yr <- natToReal sym y
-    realToNat sym =<< realAdd sym xr =<< realNeg sym yr
+    xr <- natToInteger sym x
+    yr <- natToInteger sym y
+    integerToNat sym =<< intSub sym xr yr
 
-  natMul sym x y = do
-    xr <- natToReal sym x
-    yr <- natToReal sym y
-    realToNat sym =<< realMul sym xr yr
+  natMul sym x y = semiRingMul sym SemiRingNat x y
+
+  natSum sym s = semiRingSum sym SemiRingNat s
 
   natDiv sym x y
     | Just m <- asNat x, Just n <- asNat y = do
@@ -3212,37 +3461,139 @@ instance IsExprBuilder (SimpleBuilder t st) where
     | otherwise = do
       sbMakeElt sym (NatDiv x y)
 
-  natIte sym c x y = do
-    realToNat sym =<< join (realIte sym c <$> natToReal sym x <*> natToReal sym y)
+  natIte sym c x y = semiRingIte sym SemiRingNat c x y
 
-  natEq sym x y =
-    join $ realEq sym <$> natToReal sym x <*> natToReal sym y
+  natEq sym x y
+    | Just b <- natCheckEq (eltAbsValue x) (eltAbsValue y)
+    = return (backendPred sym b)
 
-  natLe sym x y =
-    join $ realLe sym <$> natToReal sym x <*> natToReal sym y
+    | otherwise
+    = semiRingEq sym SemiRingNat x y
+
+  natLe sym x y
+    | Just b <- natCheckLe (eltAbsValue x) (eltAbsValue y)
+    = return (backendPred sym b)
+
+    | otherwise
+    = semiRingLe sym SemiRingNat x y
 
   ----------------------------------------------------------------------
   -- Integer operations.
 
-  intLit sb n = do
-    IntElt n <$> curProgramLoc sb
+  intLit sym n = semiRingLit sym SemiRingInt n
 
-  intNeg sym x = do
-    realToInteger sym =<< realNeg sym =<< integerToReal sym x
+  intNeg sym x = scalarMul sym SemiRingInt (-1) x
 
-  intMul sym xi yi = do
-    x <- integerToReal sym xi
-    y <- integerToReal sym yi
-    realToInteger sym =<< realMul sym x y
+  intAdd sym x y = semiRingAdd sym SemiRingInt x y
 
-  intIte sym c x y =
-    realToInteger sym =<< join (realIte sym c <$> integerToReal sym x <*> integerToReal sym y)
+  intMul sym x y = semiRingMul sym SemiRingInt x y
 
-  intEq sym x y =
-    join $ realEq sym <$> integerToReal sym x <*> integerToReal sym y
+  intSum sym s = semiRingSum sym SemiRingInt s
 
-  intLe sym x y =
-    join $ realLe sym <$> integerToReal sym x <*> integerToReal sym y
+  intIte sym c x y = semiRingIte sym SemiRingInt c x y
+
+  intEq sym x y
+      -- Use range check
+    | Just b <- rangeCheckEq (eltAbsValue x) (eltAbsValue y)
+    = return $ backendPred sym b
+
+      -- FIXME... implement reductions for unsigned bitvectors as well
+
+      -- Reduce to bitvector equality, when possible
+    | Just (SBVToInteger xbv) <- asApp x
+    , Just (SBVToInteger ybv) <- asApp y
+    = let wx = bvWidth xbv
+          wy = bvWidth ybv
+          -- Sign extend to largest bitvector and compare.
+       in case compareNat wx wy of
+            NatLT _ -> do
+              Just LeqProof <- return (testLeq (incNat wx) wy)
+              x' <- bvSext sym wy xbv
+              bvEq sym x' ybv
+            NatEQ ->
+              bvEq sym xbv ybv
+            NatGT _ -> do
+              Just LeqProof <- return (testLeq (incNat wy) wx)
+              y' <- bvSext sym wx ybv
+              bvEq sym xbv y'
+
+    | Just (SBVToInteger xbv) <- asApp x
+    , SemiRingLiteral _ yi _ <- y
+    = let w = bvWidth xbv in
+      if yi < minSigned w || yi > maxSigned w
+         then return (falsePred sym)
+         else bvEq sym xbv =<< bvLit sym w yi
+
+    | SemiRingLiteral _ xi _ <- x
+    , Just (SBVToInteger ybv) <- asApp x
+    = let w = bvWidth ybv in
+      if xi < minSigned w || xi > maxSigned w
+         then return (falsePred sym)
+         else bvEq sym ybv =<< bvLit sym w xi
+
+    | otherwise = semiRingEq sym SemiRingInt x y
+
+  intLe sym x y
+      -- Use abstract domains
+    | Just b <- rangeCheckLe (eltAbsValue x) (eltAbsValue y)
+    = return $ backendPred sym b
+
+      -- FIXME... implement reductions for unsigned bitvectors also...
+
+      -- Check with two bitvectors.
+    | Just (SBVToInteger xbv) <- asApp x
+    , Just (SBVToInteger ybv) <- asApp y
+    = do let wx = bvWidth xbv
+         let wy = bvWidth ybv
+         -- Sign extend to largest bitvector and compare.
+         case compareNat wx wy of
+           NatLT _ -> do
+             Just LeqProof <- return (testLeq (incNat wx) wy)
+             x' <- bvSext sym wy xbv
+             bvSle sym x' ybv
+           NatEQ -> bvSle sym xbv ybv
+           NatGT _ -> do
+             Just LeqProof <- return (testLeq (incNat wy) wx)
+             y' <- bvSext sym wx ybv
+             bvSle sym xbv y'
+
+    | Just (SBVToInteger xbv) <- asApp x
+    , SemiRingLiteral _ yi _ <- y
+    = let w = bvWidth xbv in
+      if | yi < minSigned w -> return (falsePred sym)
+         | yi > maxSigned w -> return (truePred sym)
+         | otherwise -> join (bvSle sym <$> pure xbv <*> bvLit sym w yi)
+
+    | SemiRingLiteral _ xi _ <- x
+    , Just (SBVToInteger ybv) <- asApp x
+    = let w = bvWidth ybv in
+      if | xi < minSigned w -> return (truePred sym)
+         | xi > maxSigned w -> return (falsePred sym)
+         | otherwise -> join (bvSle sym <$> bvLit sym w xi <*> pure ybv)
+
+{-  FIXME? how important are these reductions?
+
+      -- Compare to BV lower bound.
+    | Just (SBVToInteger xbv) <- x = do
+      let w = bvWidth xbv
+      l <- curProgramLoc sym
+      b_max <- realGe sym y (SemiRingLiteral SemiRingReal (toRational (maxSigned w)) l)
+      b_min <- realGe sym y (SemiRingLiteral SemiRingReal (toRational (minSigned w)) l)
+      orPred sym b_max =<< andPred sym b_min =<< (bvSle sym xbv =<< realToSBV sym w y)
+
+      -- Compare to SBV upper bound.
+    | SBVToReal ybv <- y = do
+      let w = bvWidth ybv
+      l <- curProgramLoc sym
+      b_min <- realLe sym x (SemiRingLiteral SemiRingReal (toRational (minSigned w)) l)
+      b_max <- realLe sym x (SemiRingLiteral SemiRingReal (toRational (maxSigned w)) l)
+      orPred sym b_min
+        =<< andPred sym b_max
+        =<< (\xbv -> bvSle sym xbv ybv) =<< realToSBV sym w x
+-}
+
+    | otherwise
+    = semiRingLe sym SemiRingInt x y
 
   intMod sym x y
       -- Not defined when division by 0.
@@ -3921,27 +4272,27 @@ instance IsExprBuilder (SimpleBuilder t st) where
   -- Lossless (injective) conversions
 
   natToInteger sym x
-    | NatElt n l <- x = return $! IntElt (toInteger n) l
+    | SemiRingLiteral SemiRingNat n l <- x = return $! SemiRingLiteral SemiRingInt (toInteger n) l
     | Just (IntegerToNat y) <- asApp x = return y
     | otherwise = sbMakeElt sym (NatToInteger x)
 
   integerToNat sb x
-    | IntElt i l <- x
+    | SemiRingLiteral SemiRingInt i l <- x
     , 0 <= i
     , i <= toInteger (maxBound :: Nat) = do
-      return $! NatElt (fromIntegral (max 0 i)) l
+      return $! SemiRingLiteral SemiRingNat (fromIntegral (max 0 i)) l
     | Just (NatToInteger y) <- asApp x = return y
     | otherwise =
       sbMakeElt sb (IntegerToNat x)
 
   integerToReal sym x
-    | IntElt i l <- x = return $! RatElt (toRational i) l
+    | SemiRingLiteral SemiRingInt i l <- x = return $! SemiRingLiteral SemiRingReal (toRational i) l
     | Just (RealToInteger y) <- asApp x = return y
     | otherwise  = sbMakeElt sym (IntegerToReal x)
 
   realToInteger sym x
       -- Ground case
-    | RatElt r l <- x = return $! IntElt (floor r) l
+    | SemiRingLiteral SemiRingReal r l <- x = return $! SemiRingLiteral SemiRingInt (floor r) l
       -- Match integerToReal
     | Just (IntegerToReal xi) <- asApp x = return xi
       -- Static case
@@ -3956,7 +4307,7 @@ instance IsExprBuilder (SimpleBuilder t st) where
     | Just i <- asSignedBV x = intLit sym i
     | otherwise = sbMakeElt sym (SBVToInteger x)
 
-  integerToSBV sym (IntElt i _) w =
+  integerToSBV sym (SemiRingLiteral SemiRingInt i _) w =
     bvLit sym w i
   integerToSBV sym xr w
     | Just (SBVToInteger r) <- asApp xr = intSetWidth sym r w
@@ -3964,7 +4315,7 @@ instance IsExprBuilder (SimpleBuilder t st) where
     sbMakeElt sym (IntegerToSBV xr w)
 
   integerToBV sym xr w
-    | IntElt i _ <- xr =
+    | SemiRingLiteral SemiRingInt i _ <- xr =
       bvLit sym w $ unsignedClamp w $ toInteger i
     | Just (BVToInteger r) <- asApp xr =
       uintSetWidth sym r w
@@ -3973,7 +4324,7 @@ instance IsExprBuilder (SimpleBuilder t st) where
 
   realRound sym x
       -- Ground case
-    | RatElt r l <- x = return $ IntElt (roundAway r) l
+    | SemiRingLiteral SemiRingReal r l <- x = return $ SemiRingLiteral SemiRingInt (roundAway r) l
       -- Match integerToReal
     | Just (IntegerToReal xi) <- asApp x = return xi
       -- Static case
@@ -3984,7 +4335,7 @@ instance IsExprBuilder (SimpleBuilder t st) where
 
   realFloor sym x
       -- Ground case
-    | RatElt r l <- x = return $ IntElt (floor r) l
+    | SemiRingLiteral SemiRingReal r l <- x = return $ SemiRingLiteral SemiRingInt (floor r) l
       -- Match integerToReal
     | Just (IntegerToReal xi) <- asApp x = return xi
       -- Static case
@@ -3995,7 +4346,7 @@ instance IsExprBuilder (SimpleBuilder t st) where
 
   realCeil sym x
       -- Ground case
-    | RatElt r l <- x = return $ IntElt (ceiling r) l
+    | SemiRingLiteral SemiRingReal r l <- x = return $ SemiRingLiteral SemiRingInt (ceiling r) l
       -- Match integerToReal
     | Just (IntegerToReal xi) <- asApp x = return xi
       -- Static case
@@ -4009,200 +4360,69 @@ instance IsExprBuilder (SimpleBuilder t st) where
 
   realLit sb r = do
     l <- curProgramLoc sb
-    return (RatElt r l)
+    return (SemiRingLiteral SemiRingReal r l)
 
   realZero = sbZero
 
   realEq sym x y
-      -- Check for syntactic equality.
-    | x == y = return (truePred sym)
       -- Use range check
-    | Just b <- ravCheckEq (eltAbsValue x) (eltAbsValue y) = do
-        return $ backendPred sym b
-    | SBVToReal xbv <- x, SBVToReal ybv <- y = do
-      let wx = bvWidth xbv
-      let wy = bvWidth ybv
-      -- Sign extend to largest bitvector and compare.
-      case compareNat wx wy of
-        NatLT _ -> do
-          Just LeqProof <- return (testLeq (incNat wx) wy)
-          x' <- bvSext sym wy xbv
-          bvEq sym x' ybv
-        NatEQ ->
-          bvEq sym xbv ybv
-        NatGT _ -> do
-          Just LeqProof <- return (testLeq (incNat wy) wx)
-          y' <- bvSext sym wx ybv
-          bvEq sym xbv y'
-    | SBVToReal xbv <- x, RatElt yr _ <- y = do
-      let w = bvWidth xbv
-      let yi = numerator yr
-      case () of
-            -- Return false if constant is out of range.
-        _ | denominator yr /= 1 || yi < minSigned w || yi > maxSigned w -> do
-            return (falsePred sym)
-        -- Otherwise use bitvector comparison.
-          | otherwise -> do
-              bvEq sym xbv =<< bvLit sym w yi
-    | SBVToReal xbv <- y, RatElt yr _ <- x = do
-      let w = bvWidth xbv
-      let yi = numerator yr
-      case () of
-            -- Return false if constant is out of range.
-        _ | denominator yr /= 1 || yi < minSigned w || yi > maxSigned w -> do
-            return (falsePred sym)
-        -- Otherwise use bitvector comparison.
-          | otherwise -> do
-              bvEq sym xbv =<< bvLit sym w yi
+    | Just b <- ravCheckEq (eltAbsValue x) (eltAbsValue y)
+    = return $ backendPred sym b
 
-      -- Try to extract common sum information.
-    | (z, x',y') <- WSum.extractCommon (asWeightedSum x) (asWeightedSum y)
-    , not (WSum.isZero z) = do
-      xr <- realSum sym x'
-      yr <- realSum sym y'
-      realEq sym xr yr
+      -- Reduce to integer equality, when possible
+    | Just (IntegerToReal xi) <- asApp x
+    , Just (IntegerToReal yi) <- asApp y
+    = intEq sym xi yi
 
-    | otherwise = do
-      sbMakeElt sym $ RealEq (min x y) (max x y)
+    | Just (IntegerToReal xi) <- asApp x
+    , SemiRingLiteral SemiRingReal yr _ <- y
+    = if denominator yr == 1
+         then intEq sym xi =<< intLit sym (numerator yr)
+         else return (falsePred sym)
+
+    | SemiRingLiteral SemiRingReal xr _ <- x
+    , Just (IntegerToReal yi) <- asApp y
+    = if denominator xr == 1
+         then intEq sym yi =<< intLit sym (numerator xr)
+         else return (falsePred sym)
+
+    | otherwise
+    = semiRingEq sym SemiRingReal x y
 
   realLe sym x y
-      -- Check for syntactic equality.
-    | x == y = return (truePred sym)
       -- Use range check
-    | Just b <- ravCheckLe (eltAbsValue x) (eltAbsValue y) =
-      return $ backendPred sym b
-      -- Check with two bitvectors.
-    | SBVToReal xbv <- x, SBVToReal ybv <- y = do
-      let wx = bvWidth xbv
-      let wy = bvWidth ybv
-      -- Sign extend to largest bitvector and compare.
-      case compareNat wx wy of
-        NatLT _ -> do
-          Just LeqProof <- return (testLeq (incNat wx) wy)
-          x' <- bvSext sym wy xbv
-          bvSle sym x' ybv
-        NatEQ -> bvSle sym xbv ybv
-        NatGT _ -> do
-          Just LeqProof <- return (testLeq (incNat wy) wx)
-          y' <- bvSext sym wx ybv
-          bvSle sym xbv y'
-      -- Compare to BV lower bound.
-    | SBVToReal xbv <- x = do
-      let w = bvWidth xbv
-      l <- curProgramLoc sym
-      b_max <- realGe sym y (RatElt (toRational (maxSigned w)) l)
-      b_min <- realGe sym y (RatElt (toRational (minSigned w)) l)
-      orPred sym b_max =<< andPred sym b_min =<< (bvSle sym xbv =<< realToSBV sym w y)
+    | Just b <- ravCheckLe (eltAbsValue x) (eltAbsValue y)
+    = return $ backendPred sym b
 
-      -- Compare to SBV upper bound.
-    | SBVToReal ybv <- y = do
-      let w = bvWidth ybv
-      l <- curProgramLoc sym
-      b_min <- realLe sym x (RatElt (toRational (minSigned w)) l)
-      b_max <- realLe sym x (RatElt (toRational (maxSigned w)) l)
-      orPred sym b_min
-        =<< andPred sym b_max
-        =<< (\xbv -> bvSle sym xbv ybv) =<< realToSBV sym w x
+      -- Reduce to integer inequality, when possible
+    | Just (IntegerToReal xi) <- asApp x
+    , Just (IntegerToReal yi) <- asApp y
+    = intLe sym xi yi
 
-      -- Strength reductions on a non-linear constraint to piecewise linear.
-    | RatElt 0 _ <- x, Just (RealMul u v) <- asApp y = do
-      leNonneg realLe x sym u v
-      -- Another strength reduction
-    | Just (RealMul u v) <- asApp x, RatElt 0 _ <- y = do
-      leNonpos realLe y sym u v
+      -- if the upper range is a constant, do an integer comparison
+      -- with @floor(y)@
+    | Just (IntegerToReal xi) <- asApp x
+    , SemiRingLiteral SemiRingReal yr _ <- y
+    = join (intLe sym <$> pure xi <*> intLit sym (floor yr))
 
-      -- Simplify ite expressions when one of the values is ground.
-      -- This appears to occur fairly often in MATLAB due to range checks.
-    | isJust (asRational x)
-    , Just (RealIte yc y1 y2) <- asApp y
-    , isJust (asRational y1) || isJust (asRational y2) = do
-      c1 <- realLe sym x y1
-      c2 <- realLe sym x y2
-      itePred sym yc c1 c2
+      -- if the lower range is a constant, do an integer comparison
+      -- with @ceiling(x)@
+    | SemiRingLiteral SemiRingReal xr _ <- x
+    , Just (IntegerToReal yi) <- asApp y
+    = join (intLe sym <$> intLit sym (ceiling xr) <*> pure yi)
 
-      -- Simplify ite expressions when one of the values is ground.
-      -- This appears to occur fairly often in MATLAB due to range checks.
-    | isJust (asRational y)
-    , Just (RealIte xc x1 x2) <- asApp x
-    , isJust (asRational x1) || isJust (asRational x2) = do
-      c1 <- realLe sym x1 y
-      c2 <- realLe sym x2 y
-      itePred sym xc c1 c2
+    | otherwise
+    = semiRingLe sym SemiRingReal x y
 
+  realIte sym c x y = semiRingIte sym SemiRingReal c x y
 
-      -- Try to extract common sum information.
-    | (z, x',y') <- WSum.extractCommon (asWeightedSum x) (asWeightedSum y)
-    , not (WSum.isZero z) = do
-      xr <- realSum sym x'
-      yr <- realSum sym y'
-      realLe sym xr yr
+  realNeg sym x = scalarMul sym SemiRingReal (-1) x
 
-      -- Default case
-    | otherwise = sbMakeElt sym $ RealLe x y
+  realAdd sym x y = semiRingAdd sym SemiRingReal x y
 
-  realIte sym c x y
-    | Just True  <- asConstantPred c = return x
-    | Just False <- asConstantPred c = return y
-    | Just (NotBool cn) <- asApp c = realIte sym cn y x
-    | x == y = return x
+  realMul sym x y = semiRingMul sym SemiRingReal x y
 
-      -- Try to extract common sum information.
-    | (z, x',y') <- WSum.extractCommon (asWeightedSum x) (asWeightedSum y)
-    , not (WSum.isZero z) = do
-      xr <- realSum sym x'
-      yr <- realSum sym y'
-      r <- sbMakeElt sym (RealIte c xr yr)
-      realSum sym $! z `WSum.addVar` r
-
-    | otherwise = do
-      sbMakeElt sym (RealIte c x y)
-
-  realNeg sym x = realScalarMul sym (-1) x
-
-  realAdd sym x y =
-    case (viewSum x, viewSum y) of
-      (ConstantSum 0, _) -> return y
-      (_, ConstantSum 0) -> return x
-
-      (ConstantSum xc, ConstantSum yc) ->
-        realLit sym (xc + yc)
-
-      (ConstantSum xc, LinearSum ys) ->
-        realSum' sym (ys `WSum.addConstant` xc)
-      (LinearSum xs, ConstantSum yc) ->
-        realSum' sym (xs `WSum.addConstant` yc)
-
-      (ConstantSum xc, GeneralSum) -> do
-        realSum' sym (WSum.var y `WSum.addConstant` xc)
-      (GeneralSum, ConstantSum yc) -> do
-        realSum' sym (WSum.var x `WSum.addConstant` yc)
-
-      (LinearSum xs, LinearSum ys) -> realSum sym (xs `WSum.add` ys)
-      (LinearSum xs, GeneralSum)   -> realSum sym (xs `WSum.addVar` y)
-      (GeneralSum, LinearSum ys)   -> realSum sym (ys `WSum.addVar` x)
-      (GeneralSum, GeneralSum)     -> realSum sym (x  `WSum.addVars` y)
-
-  realMul sym x y
-    | Just xd <- asRational x =
-      realScalarMul sym xd y
-    | Just yd <- asRational y =
-      realScalarMul sym yd x
-      -- (cx*xx) * y = cx*(xx*y)
-    | Just (RealMul (RatElt cx _) xx) <- asApp x = do
-      realScalarMul sym cx =<< realMul sym xx y
-      -- x*(cy*yy) = cy*(x*yy)
-    | Just (RealMul (RatElt cy _) yy) <- asApp y = do
-      realScalarMul sym cy =<< realMul sym x yy
-    | otherwise =
-      sbMakeElt sym $ RealMul (min x y) (max x y)
-
-  realSum sym s
-    | Just c <- WSum.asConstant s =
-      realLit sym c
-    | Just r <- WSum.asVar s =
-      return r
-    | otherwise =
-      sbMakeElt sym $ RealSum s
+  realSum sym s = semiRingSum sym SemiRingReal s
 
   realDiv sym x y
     | Just 0 <- asRational x =
@@ -4211,7 +4431,7 @@ instance IsExprBuilder (SimpleBuilder t st) where
       realLit sym (xd / yd)
       -- Handle division by a constant.
     | Just yd <- asRational y, yd /= 0 = do
-      realScalarMul sym (1 / yd) x
+      scalarMul sym SemiRingReal (1 / yd) x
     | otherwise =
       sbMakeElt sym $ RealDiv x y
 
@@ -4224,7 +4444,7 @@ instance IsExprBuilder (SimpleBuilder t st) where
     let sqrt_dbl :: Double -> Double
         sqrt_dbl = sqrt
     case x of
-      RatElt r _
+      SemiRingLiteral SemiRingReal r _
         | r <= 0 -> realLit sym 0
         | Just w <- tryRationalSqrt r -> realLit sym w
         | sbFloatReduce sym -> realLit sym (toRational (sqrt_dbl (fromRational r)))

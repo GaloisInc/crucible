@@ -39,6 +39,7 @@ module Lang.Crucible.LLVM.LLVMContext
   ) where
 
 import           Control.Lens
+import           Control.Monad (zipWithM)
 import           Control.Monad.State (State, runState, MonadState(..), modify)
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -46,8 +47,10 @@ import           Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Vector as V
 import qualified Text.LLVM as L
+import qualified Text.LLVM.DebugUtils as L
 import qualified Text.LLVM.PP as L
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Data.IntMap (IntMap)
 
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.DataLayout
@@ -102,7 +105,7 @@ tcIdent i = do
     Just Active -> retUnsupported
     Just (Pending tp) -> do
         modify (ins Active)
-        stp <- tcType tp
+        stp <- tcType L.Unknown tp
         stp <$ modify (ins (Resolved stp))
       where ins v tcs = tcs { tcsMap = Map.insert i v (tcsMap tcs) }
 
@@ -119,11 +122,11 @@ resolveRetType = resolve
         resolve VoidType = return (Just Nothing)
         resolve _ = return Nothing
 
-tcMemType :: L.Type -> TC (Maybe MemType)
-tcMemType tp = resolveMemType =<< tcType tp
+tcMemType :: L.Info -> L.Type -> TC (Maybe MemType)
+tcMemType info tp = resolveMemType =<< tcType info tp
 
-tcType :: L.Type -> TC SymType
-tcType tp0 = do
+tcType :: L.Info -> L.Type -> TC SymType
+tcType info tp0 = do
   let badType = UnsupportedType tp0 <$ recordUnsupported tp0
   let maybeApp :: (a -> MemType) -> TC (Maybe a) -> TC SymType
       maybeApp f mmr = maybe badType (return . MemType . f) =<< mmr
@@ -140,28 +143,36 @@ tcType tp0 = do
         L.Metadata -> return $ MemType MetadataType
         _ -> badType
     L.Alias i -> return (Alias i)
-    L.Array n etp -> maybeApp (ArrayType (fromIntegral n)) $ tcMemType etp
+    L.Array n etp -> maybeApp (ArrayType (fromIntegral n)) $ tcMemType L.Unknown etp
     L.FunTy res args va -> do
-      mrt <- resolveRetType =<< tcType res
-      margs <- mapM tcMemType args
+      mrt <- resolveRetType =<< tcType L.Unknown res
+      margs <- mapM (tcMemType L.Unknown) args
       maybe badType (return . FunType) $
         FunDecl <$> mrt <*> sequence margs <*> pure va
-    L.PtrTo tp ->  (MemType . PtrType) <$> tcType tp
-    L.Struct tpl       -> maybeApp StructType $ tcStruct False tpl
-    L.PackedStruct tpl -> maybeApp StructType $ tcStruct True  tpl
-    L.Vector n etp -> maybeApp (VecType (fromIntegral n)) $ tcMemType etp
+    L.PtrTo tp ->  (MemType . PtrType) <$> tcType (L.derefInfo info) tp
+    L.Struct tpl       -> maybeApp StructType $ tcStruct info False tpl
+    L.PackedStruct tpl -> maybeApp StructType $ tcStruct info True  tpl
+    L.Vector n etp -> maybeApp (VecType (fromIntegral n)) $ tcMemType L.Unknown etp
     L.Opaque -> return OpaqueType
 
 -- | Constructs a function for obtaining target-specific size/alignment
 -- information about structs.  The function produced corresponds to the
 -- StructLayout object constructor in TargetData.cpp.
-tcStruct :: Bool -> [L.Type] -> TC (Maybe StructInfo)
-tcStruct packed fldTys = do
+tcStruct :: L.Info -> Bool -> [L.Type] -> TC (Maybe StructInfo)
+tcStruct info packed fldTys = do
   pdl <- tcsDataLayout <$> get
-  fmap (mkStructInfo pdl packed) . sequence <$> mapM tcMemType fldTys
+  fmap (mkStructInfo pdl packed ?? fieldNames) . sequence
+    <$> zipWithM tcMemType fieldInfos fldTys
+
+  where
+    fieldNames = map fst fieldPairs
+    fieldInfos = map snd fieldPairs ++ repeat L.Unknown
+    fieldPairs = case info of
+                   L.Structure xs -> xs
+                   _              -> []
 
 type AliasMap = Map Ident SymType
-type MetadataMap = Map Int L.ValMd
+type MetadataMap = IntMap L.ValMd
 
 -- | Provides information about the types in an LLVM bitcode file.
 data LLVMContext = LLVMContext
@@ -182,7 +193,7 @@ lookupAlias :: (?lc :: LLVMContext) => Ident -> Maybe SymType
 lookupAlias i = llvmAliasMap ?lc ^. at i
 
 lookupMetadata :: (?lc :: LLVMContext) => Int -> Maybe L.ValMd
-lookupMetadata x = Map.lookup x (llvmMetadataMap ?lc)
+lookupMetadata x = view (at x) (llvmMetadataMap ?lc)
 
 -- | If argument corresponds to a @MemType@ possibly via aliases,
 -- then return it.  Otherwise, returns @Nothing@.
@@ -203,24 +214,26 @@ asRetType _ = Nothing
 --  Errors reported in first argument.
 mkLLVMContext :: DataLayout -> MetadataMap -> [L.TypeDecl]  -> ([Doc], LLVMContext)
 mkLLVMContext dl mdMap decls =
-    runTC dl (Pending <$> Map.fromList tps) $ do
-      LLVMContext dl mdMap . Map.fromList <$> traverse (_2 tcType) tps
-  where tps = [ (L.typeName d, L.typeValue d) | d <- decls ]
+    let tps = Map.fromList [ (L.typeName d, L.typeValue d) | d <- decls ] in
+    runTC dl (Pending <$> tps) $
+      do aliases <- itraverse processAlias tps
+         pure (LLVMContext dl mdMap aliases)
+
+  where
+    processAlias :: L.Ident -> L.Type -> TC SymType
+    processAlias name val = tcType (L.guessAliasInfo mdMap name) val
 
 -- | Utility function to creates an LLVMContext directly from a model.
 llvmContextFromModule :: L.Module -> ([Doc], LLVMContext)
 llvmContextFromModule mdl = mkLLVMContext dl mdMap (L.modTypes mdl)
   where dl = parseDataLayout $ L.modDataLayout mdl
-        mdMap = Map.fromList
-                 [ (L.umIndex m, L.umValues m)
-                 | m <- L.modUnnamedMd mdl
-                 ]
+        mdMap = L.mkMdMap mdl
 
 liftType :: (?lc :: LLVMContext) => L.Type -> Maybe SymType
 liftType tp | null edocs = Just stp
             | otherwise = Nothing
   where m0 = Resolved <$> llvmAliasMap ?lc
-        (edocs,stp) = runTC (llvmDataLayout ?lc) m0 $ tcType tp
+        (edocs,stp) = runTC (llvmDataLayout ?lc) m0 $ tcType L.Unknown tp
 
 liftMemType :: (?lc :: LLVMContext) => L.Type -> Maybe MemType
 liftMemType tp = asMemType =<< liftType tp

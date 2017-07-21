@@ -137,9 +137,9 @@ evalGroundElt f e =
 tryEvalGroundElt :: (forall u . Elt t u -> IO (GroundValue u))
                  -> Elt t tp
                  -> MaybeT IO (GroundValue tp)
-tryEvalGroundElt _ (NatElt c _) = return c
-tryEvalGroundElt _ (IntElt c _) = return c
-tryEvalGroundElt _ (RatElt c _) = return c
+tryEvalGroundElt _ (SemiRingLiteral SemiRingNat c _) = return c
+tryEvalGroundElt _ (SemiRingLiteral SemiRingInt c _) = return c
+tryEvalGroundElt _ (SemiRingLiteral SemiRingReal c _) = return c
 tryEvalGroundElt _ (BVElt _ c _) = return c
 tryEvalGroundElt f (NonceAppElt a0) = evalGroundNonceApp (lift . f) (nonceEltApp a0)
 tryEvalGroundElt f (AppElt a0)      = evalGroundApp f (appEltApp a0)
@@ -188,8 +188,6 @@ evalGroundApp f0 a0 = do
       xv <- f x
       if xv then f y else f z
 
-    RealEq x y -> (==) <$> f x <*> f y
-    RealLe x y -> (<=) <$> f x <*> f y
     RealIsInteger x -> (\xv -> denominator xv == 1) <$> f x
     BVTestBit i x -> (`testBit` i) <$> f x
     BVEq  x y -> (==) <$> f x <*> f y
@@ -205,16 +203,34 @@ evalGroundApp f0 a0 = do
     NatDiv x y -> g <$> f x <*> f y
       where g _ 0 = 0
             g u v = u `div` v
+
+    SemiRingEq SemiRingReal x y -> (==) <$> f x <*> f y
+    SemiRingEq SemiRingInt  x y -> (==) <$> f x <*> f y
+    SemiRingEq SemiRingNat  x y -> (==) <$> f x <*> f y
+
+    SemiRingLe SemiRingReal x y -> (<=) <$> f x <*> f y
+    SemiRingLe SemiRingInt  x y -> (<=) <$> f x <*> f y
+    SemiRingLe SemiRingNat  x y -> (<=) <$> f x <*> f y
+
+    SemiRingSum SemiRingNat s -> WSum.eval (\x y -> (+) <$> x <*> y) smul pure s
+      where smul sm e = (sm *) <$> f e
+    SemiRingMul SemiRingNat x y -> (*) <$> f x <*> f y
+
     IntMod  x y -> intModu <$> f x <*> f y
       where intModu _ 0 = 0
             intModu i v = fromInteger (i `mod` toInteger v)
-
-    RealMul x y -> (*) <$> f x <*> f y
-    RealSum s -> WSum.eval (\x y -> (+) <$> x <*> y) smul pure s
+    SemiRingSum SemiRingInt s -> WSum.eval (\x y -> (+) <$> x <*> y) smul pure s
       where smul sm e = (sm *) <$> f e
-    RealIte x y z -> do
+    SemiRingMul SemiRingInt x y -> (*) <$> f x <*> f y
+
+    SemiRingMul SemiRingReal x y -> (*) <$> f x <*> f y
+    SemiRingSum SemiRingReal s -> WSum.eval (\x y -> (+) <$> x <*> y) smul pure s
+      where smul sm e = (sm *) <$> f e
+
+    SemiRingIte _sr x y z -> do
       xv <- f x
       if xv then f y else f z
+
     RealDiv x y -> do
       xv <- f x
       yv <- f y

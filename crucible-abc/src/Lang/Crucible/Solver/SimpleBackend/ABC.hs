@@ -181,9 +181,9 @@ memoEltNonce ntk n ev = do
       return r
 
 eval :: Network t s -> Elt t tp -> IO (NameType s tp)
-eval _ (NatElt n _) = return (GroundNat n)
-eval _ (IntElt n _) = return (GroundInt n)
-eval _ (RatElt r _) = return (GroundRat r)
+eval _ (SemiRingLiteral SemiRingNat n _) = return (GroundNat n)
+eval _ (SemiRingLiteral SemiRingInt n _) = return (GroundInt n)
+eval _ (SemiRingLiteral SemiRingReal r _) = return (GroundRat r)
 eval ntk (BVElt w v _) = return $ BV $ AIG.bvFromInteger (gia ntk) (widthVal w) v
 eval ntk (NonceAppElt e) = do
   memoEltNonce ntk (nonceEltId e) $ do
@@ -264,8 +264,6 @@ bitblastExpr h ae = do
     IteBool c x y -> do
       B <$> (join $ GIA.mux g <$> eval' h c <*> eval' h x <*> eval' h y)
 
-    RealEq{} -> realFail
-    RealLe{} -> realFail
     RealIsInteger{} -> realFail
     BVTestBit i xe -> (\v -> B $ v AIG.! i) <$> eval' h xe
     BVEq  x y -> B <$> join (AIG.bvEq g <$> eval' h x <*> eval' h y)
@@ -277,19 +275,30 @@ bitblastExpr h ae = do
     -- Nat operations
 
     NatDiv{} -> natFail
+    SemiRingMul SemiRingNat _ _ -> natFail
+    SemiRingSum SemiRingNat _ -> natFail
+    SemiRingEq SemiRingNat _ _ -> natFail
+    SemiRingLe SemiRingNat _ _ -> natFail
+    SemiRingIte SemiRingNat _ _ _ -> natFail
 
     ------------------------------------------------------------------------
     -- Integer operations
 
     IntMod{}  -> intFail
+    SemiRingMul SemiRingInt _ _ -> intFail
+    SemiRingSum SemiRingInt _ -> intFail
+    SemiRingEq  SemiRingInt _ _ -> intFail
+    SemiRingLe  SemiRingInt _ _ -> intFail
+    SemiRingIte SemiRingInt _ _ _ -> intFail
 
     ------------------------------------------------------------------------
     -- Real value operations
 
-    RealMul{} -> realFail
-    RealSum{} -> realFail
-    RealIte{} -> realFail
-
+    SemiRingMul SemiRingReal _ _ -> realFail
+    SemiRingSum SemiRingReal _ -> realFail
+    SemiRingEq  SemiRingReal _ _ -> realFail
+    SemiRingLe  SemiRingReal _ _ -> realFail
+    SemiRingIte SemiRingReal _ _ _ -> realFail
     RealDiv{} -> realFail
     RealSqrt{} -> realFail
 
