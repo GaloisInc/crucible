@@ -16,7 +16,7 @@ flag enable-hpc
 
 library
   build-depends:
-    base >= 4.7 && < 4.10,
+    base >= 4.7 && < 4.11,
     ansi-wl-pprint,
     deepseq,
     hashable,
