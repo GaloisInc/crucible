@@ -43,6 +43,7 @@ module Lang.Crucible.LLVM.MemType
   , siFieldTypes
   , siFieldOffset
   , siFields
+  , siFieldNames
   , siIndexOfOffset
   , siDropLastField
     -- ** Common memory types.
