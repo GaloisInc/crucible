@@ -281,12 +281,11 @@ data FieldInfo = FieldInfo
   deriving (Show)
 
 
+-- | field names are considered debug info and are not tested for equality
 instance Eq FieldInfo where
   x == y = fiOffset  x == fiOffset  y
         && fiType    x == fiType    y
         && fiPadding x == fiPadding y
-        && fiName    x == fiName    y
-       -- field names are considered debug info and are not considered
 
 -- | Constructs a function for obtaining target-specific size/alignment
 -- information about structs.  The function produced corresponds to the
