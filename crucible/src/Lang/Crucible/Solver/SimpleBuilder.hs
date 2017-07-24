@@ -846,6 +846,11 @@ testSimpleSymFnEq :: SimpleSymFn t a1 r1
                   -> Maybe ((a1::>r1) :~: (a2::>r2))
 testSimpleSymFnEq f g = testEquality (symFnId f) (symFnId g)
 
+
+instance IsSymFn (SimpleSymFn t) where
+  fnArgTypes = symFnArgTypes
+  fnReturnType = symFnReturnType
+
 ------------------------------------------------------------------------
 -- asConjunction
 
