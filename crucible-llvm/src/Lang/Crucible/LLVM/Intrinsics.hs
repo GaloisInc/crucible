@@ -100,8 +100,9 @@ register_llvm_overrides = do
   register_llvm_override llvmObjectsizeOverride_32
   register_llvm_override llvmObjectsizeOverride_64
 
-  -- C standard libraray functions
+  -- C standard library functions
   register_llvm_override llvmMemcpyOverride
+  register_llvm_override llvmMemcpyChkOverride
   register_llvm_override llvmMemmoveOverride
   register_llvm_override llvmMemsetOverride
   register_llvm_override llvmMallocOverride
@@ -403,6 +404,37 @@ llvmMemcpyOverride =
        volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
        Ctx.uncurryAssignment (callMemcpy sym memOps)
                              (args Ctx.%> align Ctx.%> volatile)
+       return $ regValue $ args^._1 -- return first argument
+  )
+
+llvmMemcpyChkOverride
+  :: IsSymInterface sym
+  => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType
+                                ::> LLVMPointerType
+                                ::> BVType PtrWidth
+                                ::> BVType PtrWidth)
+                      LLVMPointerType
+llvmMemcpyChkOverride =
+  let nm = "__memcpy_chk" in
+  ( L.Declare
+    { L.decRetType = L.PtrTo $ L.PrimType L.Void
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo $ L.PrimType L.Void
+                     , L.PtrTo $ L.PrimType L.Void
+                     , L.PrimType $ L.Integer (fromIntegral $ natValue ptrWidth)
+                     , L.PrimType $ L.Integer (fromIntegral $ natValue ptrWidth)
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    }
+  , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
+       sym <- getSymInterface
+       (RegMap args) <- getOverrideArgs
+       let args' = Ctx.empty Ctx.%> (args^._1) Ctx.%> (args^._2) Ctx.%> (args^._3)
+       align    <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
+       volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
+       Ctx.uncurryAssignment (callMemcpy sym memOps)
+                             (args' Ctx.%> align Ctx.%> volatile)
        return $ regValue $ args^._1 -- return first argument
   )
 

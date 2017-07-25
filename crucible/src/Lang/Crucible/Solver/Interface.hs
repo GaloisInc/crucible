@@ -73,6 +73,7 @@ module Lang.Crucible.Solver.Interface
   , IsExprBuilder(..)
     -- ** IsSymInterface
   , BoundVar
+  , IsSymFn(..)
   , IsSymInterface(..)
     -- * Bound variables
   , SymEncoder(..)
@@ -1694,10 +1695,18 @@ cplxLogBase base sym x = do
 -- 'IsSymInterface'.
 type family SymFn sym :: Ctx BaseType -> BaseType -> *
 
+class IsSymFn fn where
+  -- | Get the argument types of a function.
+  fnArgTypes :: fn args ret -> Ctx.Assignment BaseTypeRepr args
+
+  -- | Get the return type of a function.
+  fnReturnType :: fn args ret -> BaseTypeRepr ret
+
 -- | This extends the interface for building expressions with operations
 -- for creating new constants and functions.
 class ( IsBoolSolver sym
       , IsExprBuilder sym
+      , IsSymFn (SymFn sym)
       , OrdF (SymExpr sym)
       ) => IsSymInterface sym where
 

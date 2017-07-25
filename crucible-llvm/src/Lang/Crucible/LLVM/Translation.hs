@@ -2067,6 +2067,13 @@ findFile (L.ValMdRef x) =
       case TyCtx.lookupMetadata y of
         Just (L.ValMdNode [Just (L.ValMdString fname), Just (L.ValMdString _fpath)]) -> fname
         _ -> ""
+    Just (L.ValMdDebugInfo di) ->
+      case di of
+        L.DebugInfoLexicalBlock (L.dilbFile -> Just (L.ValMdDebugInfo (L.DebugInfoFile dif))) ->
+          L.difFilename dif
+        L.DebugInfoSubprogram (L.dispFile -> Just (L.ValMdDebugInfo (L.DebugInfoFile dif))) ->
+          L.difFilename dif
+        _ -> ""
     _ -> ""
 findFile _ = ""
 
