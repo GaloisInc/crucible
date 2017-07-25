@@ -225,7 +225,7 @@ defaultDataLayout = execState defaults dl
           setAt integerInfo  8 0 -- 8-bit values aligned on byte addresses.
           setAt integerInfo 16 1 -- 16-bit values aligned on 2 byte addresses.
           setAt integerInfo 32 2 -- 32-bit values aligned on 4 byte addresses.
-          setAt integerInfo 64 2 -- 64-bit values aligned on 4 byte addresses.
+          setAt integerInfo 64 3 -- 64-bit values aligned on 8 byte addresses.
           -- Default float alignments
           setAt floatInfo  16 1 -- Half is aligned on 2 byte addresses.
           setAt floatInfo  32 2 -- Float is aligned on 4 byte addresses.
@@ -291,8 +291,7 @@ addLayoutSpec ls =
 
 -- | Create parsed data layout from layout spec AST.
 parseDataLayout :: L.DataLayout -> DataLayout
-parseDataLayout dl =
-  execState (mapM_ addLayoutSpec dl) defaultDataLayout
+parseDataLayout dl = execState (mapM_ addLayoutSpec dl) defaultDataLayout
 
 -- | The size of an integer of the given bitwidth, in bytes.
 intWidthSize :: Nat -> Size

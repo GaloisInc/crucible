@@ -43,7 +43,6 @@ module Lang.Crucible.LLVM.MemType
   , siFieldTypes
   , siFieldOffset
   , siFields
-  , siFieldNames
   , siIndexOfOffset
   , siDropLastField
     -- ** Common memory types.
@@ -70,7 +69,6 @@ import Lang.MATLAB.Utils.Nat
 import Lang.Crucible.LLVM.DataLayout
 import Lang.Crucible.LLVM.PrettyPrint
 import Lang.Crucible.Utils.Arithmetic
-
 
 -- | Performs a binary search on a range of ints.
 binarySearch :: (Int -> Ordering)
@@ -276,16 +274,9 @@ data FieldInfo = FieldInfo
   { fiOffset    :: !Offset  -- ^ Byte offset of field relative to start of struct.
   , fiType      :: !MemType -- ^ Type of field.
   , fiPadding   :: !Size    -- ^ Number of bytes of padding at end of field.
-  , fiName      :: String
   }
-  deriving (Show)
+  deriving (Eq, Show)
 
-
--- | field names are considered debug info and are not tested for equality
-instance Eq FieldInfo where
-  x == y = fiOffset  x == fiOffset  y
-        && fiType    x == fiType    y
-        && fiPadding x == fiPadding y
 
 -- | Constructs a function for obtaining target-specific size/alignment
 -- information about structs.  The function produced corresponds to the
@@ -293,11 +284,10 @@ instance Eq FieldInfo where
 mkStructInfo :: DataLayout
              -> Bool -- ^ @True@ = packed, @False@ = unpacked
              -> [MemType] -- ^ Field types
-             -> [String] -- ^ Field names
              -> StructInfo
-mkStructInfo dl packed tps0 names0 = go [] 0 a0 tps0 (names0 ++ repeat "")
-  where a0 | packed = 0
-           | otherwise = aggregateAlignment dl
+mkStructInfo dl packed tps0 = go [] 0 a0 tps0
+  where a0 | packed    = 0
+           | otherwise = nextAlign 0 tps0 `max` aggregateAlignment dl
         -- Padding after each field depends on the alignment of the
         -- type of the next field, if there is one. Padding after the
         -- last field depends on the alignment of the whole struct
@@ -307,23 +297,22 @@ mkStructInfo dl packed tps0 names0 = go [] 0 a0 tps0 (names0 ++ repeat "")
         nextAlign _ _ | packed = 0
         nextAlign maxAlign [] = maxAlign
         nextAlign _ (tp:_) = memTypeAlign dl tp
+
         -- Process fields
         go :: [FieldInfo] -- ^ Fields so far in reverse order.
            -> Size        -- ^ Total size so far (aligned to next element)
            -> Alignment   -- ^ Maximum alignment so far
            -> [MemType]   -- ^ Field types to process
-           -> [String]    -- ^ Field names to process
            -> StructInfo
 
-        go flds sz maxAlign (tp:tpl) (name:names) =
-          go (fi:flds) sz' (max maxAlign fieldAlign) tpl names
+        go flds sz maxAlign (tp:tpl) =
+          go (fi:flds) sz' (max maxAlign fieldAlign) tpl
 
           where
             fi = FieldInfo
                    { fiOffset  = sz
                    , fiType    = tp
                    , fiPadding = sz' - e
-                   , fiName    = name
                    }
 
             -- End of field for tp
@@ -335,7 +324,7 @@ mkStructInfo dl packed tps0 names0 = go [] 0 a0 tps0 (names0 ++ repeat "")
             -- Size of field at alignment for next thing.
             sz' = nextPow2Multiple e (fromIntegral fieldAlign)
 
-        go flds sz maxAlign _ _ =
+        go flds sz maxAlign [] =
             StructInfo { siDataLayout = dl
                        , siIsPacked = packed
                        , structSize = sz
@@ -346,10 +335,6 @@ mkStructInfo dl packed tps0 names0 = go [] 0 a0 tps0 (names0 ++ repeat "")
 -- | The types of a struct type's fields.
 siFieldTypes :: StructInfo -> Vector MemType
 siFieldTypes si = fiType <$> siFields si
-
--- | The types of a struct type's fields.
-siFieldNames :: StructInfo -> Vector String
-siFieldNames si = fiName <$> siFields si
 
 -- | Number of fields in a struct type.
 siFieldCount :: StructInfo -> Int
@@ -390,6 +375,5 @@ siDropLastField :: StructInfo -> Maybe (StructInfo, FieldInfo)
 siDropLastField si
   | V.null (siFields si) = Nothing
   | otherwise = Just (si', V.last (siFields si))
- where si' = mkStructInfo (siDataLayout si) (siIsPacked si) flds' nams'
+ where si' = mkStructInfo (siDataLayout si) (siIsPacked si) flds'
        flds' = V.toList $ V.init $ siFieldTypes si
-       nams' = V.toList $ V.init $ siFieldNames si
