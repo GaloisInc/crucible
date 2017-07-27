@@ -22,7 +22,6 @@ import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Maybe
 import           Control.Monad.State.Strict
-import           Data.Dynamic
 
 import           Data.Parameterized.Classes
 import           Data.Parameterized.NatRepr
