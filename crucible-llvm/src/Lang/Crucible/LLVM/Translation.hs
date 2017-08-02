@@ -1333,7 +1333,7 @@ generateInstr retType lab instr assign_f k =
     -- skip phi instructions, they are handled in definePhiBlock
     L.Phi _ _ -> k
     L.Comment _ -> k
-    L.Unreachable -> reportError "LLVM unrechable code"
+    L.Unreachable -> reportError "LLVM unreachable code"
 
     L.ExtractValue x is -> do
         x' <- transTypedValue x
@@ -1418,7 +1418,7 @@ generateInstr retType lab instr assign_f k =
       vTp <- liftMemType (L.typedType v)
       v' <- transValue vTp (L.typedValue v)
       unless (tp' == PtrType (MemType vTp))
-           (fail "Pointer type does not mach value type in store instruction")
+           (fail "Pointer type does not match value type in store instruction")
       callStore vTp ptr' v'
       k
 
@@ -2007,7 +2007,7 @@ generateInstr retType lab instr assign_f k =
     _ -> reportError $ App $ TextLit $ Text.pack $ unwords ["unsupported instruction", show instr]
 
 -- | Build a switch statement by decomposing it into a linear sequence of branches.
---   FIXME? this could be more efficent if we sort the list and do binary search instead...
+--   FIXME? this could be more efficient if we sort the list and do binary search instead...
 buildSwitch :: (1 <= w, ?lc :: TyCtx.LLVMContext)
             => NatRepr w
             -> Expr s (BVType w) -- ^ The expression to switch on
