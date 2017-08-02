@@ -69,7 +69,7 @@ data AllocType = StackAlloc | HeapAlloc | GlobalAlloc
 -- | Stores writeable memory allocations.
 data MemAlloc sym w
      -- | Allocation with given block ID and number of bytes.
-   = Alloc AllocType Nat (SymBV sym w)
+   = Alloc AllocType Nat (SymBV sym w) String
      -- | The merger of two allocations.
    | AllocMerge (Pred sym) [MemAlloc sym w] [MemAlloc sym w]
 
@@ -390,7 +390,7 @@ isAllocated' :: (IsBoolExprBuilder sym) => sym -> NatRepr w
              -> [MemAlloc sym w]
              -> IO (Pred sym)
 isAllocated' sym _ _ [] = pure (falsePred sym)
-isAllocated' sym w step (Alloc _ a asz:r) = do
+isAllocated' sym w step (Alloc _ a asz _:r) = do
   step a asz (isAllocated' sym w step r)
 isAllocated' sym w step (AllocMerge c xr yr:r) =
   join $ itePred sym c
@@ -488,9 +488,10 @@ copyMem sym w dst src sz m = do
 allocMem :: AllocType -- ^ Type of allocation
          -> Nat -- ^ Block id for allocation
          -> SymBV sym w -- ^ Size
+         -> String -- ^ Source location
          -> Mem sym w
          -> Mem sym w
-allocMem a b sz = memAddAlloc (Alloc a b sz)
+allocMem a b sz loc = memAddAlloc (Alloc a b sz loc)
 
 -- | Allocate space for memory
 allocAndWriteMem :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
@@ -505,7 +506,7 @@ allocAndWriteMem sym w a b tp v m = do
   base <- natLit sym b
   off <- bvLit sym w 0
   let p = LLVMPtr base sz off
-  writeMem' sym w p tp v (m & memAddAlloc (Alloc a b sz))
+  writeMem' sym w p tp v (m & memAddAlloc (Alloc a b sz ""))
 
 pushStackFrameMem :: Mem sym w -> Mem sym w
 pushStackFrameMem = memState %~ StackFrame emptyChanges
@@ -528,9 +529,9 @@ popStackFrameMem m = m & memState %~ popf
 
         popf _ = error "popStackFrameMem given unexpected memory"
 
-        pa (Alloc StackAlloc _ _) = Nothing
-        pa a@(Alloc HeapAlloc _ _) = Just a
-        pa a@(Alloc GlobalAlloc _ _) = Just a
+        pa (Alloc StackAlloc _ _ _) = Nothing
+        pa a@(Alloc HeapAlloc _ _ _) = Just a
+        pa a@(Alloc GlobalAlloc _ _ _) = Just a
         pa (AllocMerge c x y) = Just (AllocMerge c (mapMaybe pa x) (mapMaybe pa y))
 
 freeMem :: forall sym w
@@ -560,7 +561,7 @@ freeMem' sym w p p_decomp m = do
   freeAllocs :: [MemAlloc sym w] -> IO (Pred sym, [MemAlloc sym w])
   freeAllocs [] =
      return ( falsePred sym , [] )
-  freeAllocs (a@(Alloc HeapAlloc b sz) : as) = do
+  freeAllocs (a@(Alloc HeapAlloc b sz _) : as) = do
      case p_decomp of
        ConcreteOffset p' _ poff
          | p' == b -> do
@@ -584,7 +585,7 @@ freeMem' sym w p p_decomp m = do
          c'  <- orPred sym eq c
          return (c', AllocMerge eq [] [a] : as')
 
-  freeAllocs (a@(Alloc _ _ _) : as) = do
+  freeAllocs (a@(Alloc _ _ _ _) : as) = do
      (c, as') <- freeAllocs as
      return (c, a:as')
   freeAllocs (AllocMerge cm x y : as) = do
@@ -693,8 +694,8 @@ ppMerge vpp c x y =
     indent 2 (vcat $ map vpp y)
 
 ppAlloc :: IsExprBuilder sym => MemAlloc sym w -> Doc
-ppAlloc (Alloc atp base sz) =
-  text (show atp) <+> text (show base) <+> printSymExpr sz
+ppAlloc (Alloc atp base sz loc) =
+  text (show atp) <+> text (show base) <+> printSymExpr sz <+> text loc
 ppAlloc (AllocMerge c x y) = do
   text "merge" <$$> ppMerge ppAlloc c x y
 

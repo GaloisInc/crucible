@@ -969,7 +969,8 @@ callAlloca sz = do
    memVar <- llvmMemVar . memModelOps . llvmContext <$> get
    alloca <- litExpr . llvmMemAlloca . memModelOps . llvmContext <$> get
    mem <- readGlobal memVar
-   res <- call alloca (Ctx.empty Ctx.%> mem Ctx.%> sz)
+   loc <- litExpr . Text.pack . show <$> getPosition
+   res <- call alloca (Ctx.empty Ctx.%> mem Ctx.%> sz Ctx.%> loc)
    let mem' = getStruct (Ctx.skip $ Ctx.nextIndex $ Ctx.zeroSize)    res knownRepr
    let p    = getStruct (Ctx.nextIndex $ Ctx.incSize $ Ctx.zeroSize) res knownRepr
    writeGlobal memVar mem'
