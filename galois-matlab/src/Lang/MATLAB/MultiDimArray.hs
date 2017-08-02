@@ -174,6 +174,15 @@ asCons (e:l) = (e,l)
 ------------------------------------------------------------------------
 -- ArrayDim
 
+-- | Datatype representing the dimension specification of a multi-dimensional
+-- array. The arguments to 'Dim' are: number of rows, number of columns, and a
+-- list of the higher dimensions.
+--
+-- For example, the dimensions of a singleton array are represented by
+-- 'Dim 1 1 []'; and an NxM matrix by 'Dim N M []'.
+--
+-- Note that trailing higher dimensions which are equal to 1 are ignored
+-- and/or stripped away by many operations, see 'dimsMatch'.
 data ArrayDim = Dim !Nat !Nat ![Nat]
 
 instance Eq ArrayDim where
