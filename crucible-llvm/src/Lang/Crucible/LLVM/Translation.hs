@@ -2034,7 +2034,7 @@ generateStmts
         -> L.BlockLabel
         -> [L.Stmt]
         -> LLVMGenerator h s ret ()
-generateStmts retType lab = go
+generateStmts retType lab stmts = go (processDbgDeclare stmts)
  where go [] = fail "LLVM basic block ended without a terminating instruction"
        go (x:xs) =
          case x of
@@ -2047,6 +2047,27 @@ generateStmts retType lab = go
            L.Effect instr md -> do
                  setLocation md
                  generateInstr retType lab instr (\_ -> return ()) (go xs)
+
+-- | Search for calls to intrinsic 'llvm.dbg.declare' and copy the
+-- metadata onto the corresponding 'alloca' statement.
+processDbgDeclare :: [L.Stmt] -> [L.Stmt]
+processDbgDeclare = snd . go
+  where
+    go :: [L.Stmt] -> (Map L.Ident [(String, L.ValMd)] , [L.Stmt])
+    go [] = (Map.empty, [])
+    go (stmt : stmts) =
+      let (m, stmts') = go stmts in
+      case stmt of
+        L.Result x instr@L.Alloca{} md ->
+          case Map.lookup x m of
+            Just md' -> (m, L.Result x instr (md' ++ md) : stmts')
+            Nothing -> (m, stmt : stmts')
+              --error $ "Identifier not found: " ++ show x ++ "\nPossible identifiers: " ++ show (Map.keys m)
+        L.Effect (L.Call _ _ (L.ValSymbol "llvm.dbg.declare") (L.Typed _ (L.ValMd (L.ValMdValue (L.Typed _ (L.ValIdent x)))) : _)) md ->
+          (Map.insert x md m, stmt : stmts')
+        L.Effect (L.Call _ _ (L.ValSymbol "llvm.dbg.declare") args) md ->
+          error $ "Ill-formed arguments to llvm.dbg.declare: " ++ show (args, md)
+        _ -> (m, stmt : stmts')
 
 setLocation
   :: (?lc :: TyCtx.LLVMContext)
