@@ -384,19 +384,21 @@ emptyMem = Mem { _memState = EmptyMem emptyChanges
                }
 
 isAllocated' :: (IsBoolExprBuilder sym) => sym -> NatRepr w
-                -- ^ Evaluation function that takes continuation
+                -- | Evaluation function that takes continuation
                 -- for condition if previous check fails.
              -> (Nat -> SymBV sym w -> IO (Pred sym) -> IO (Pred sym))
              -> [MemAlloc sym w]
              -> IO (Pred sym)
-isAllocated' sym _ _ [] = pure (falsePred sym)
-isAllocated' sym w step (Alloc _ a asz _:r) = do
-  step a asz (isAllocated' sym w step r)
-isAllocated' sym w step (AllocMerge c xr yr:r) =
-  join $ itePred sym c
-         <$> isAllocated' sym w step (xr ++ r)
-         <*> isAllocated' sym w step (yr ++ r)
-
+isAllocated' sym _w step = go (pure (falsePred sym))
+  where
+    go fallback [] = fallback
+    go fallback (Alloc _ a asz _ : r) = step a asz (go fallback r)
+    go fallback (AllocMerge _ [] [] : r) = go fallback r
+    go fallback (AllocMerge c xr yr : r) =
+      do p <- go fallback r -- TODO: wrap this in a delay
+         px <- go (return p) xr
+         py <- go (return p) yr
+         itePred sym c px py
 
 -- | @offsetisAllocated sym w b o sz m@ returns condition required to prove range
 -- @[b+o..b+o+sz)@ lays within a single allocation in @m@.  This code assumes
