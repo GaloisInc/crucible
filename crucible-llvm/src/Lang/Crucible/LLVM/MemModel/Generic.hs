@@ -293,7 +293,6 @@ readMem sym w l tp m = do
 -- read (which may be anything if read was unsuccessful).
 readMem' :: forall w sym . (1 <= w, IsSymInterface sym)
          => sym -> NatRepr w
-            -- ^ Functions for primitive operations on addresses, propositions, and values.
          -> (LLVMPtr sym w, AddrDecomposeResult sym w)
             -- ^ Address we are reading along with information about how it was constructed.
          -> Type
@@ -301,27 +300,37 @@ readMem' :: forall w sym . (1 <= w, IsSymInterface sym)
          -> [MemWrite sym w]
             -- ^ List of writes.
          -> IO (Pred sym, PartLLVMVal sym w)
-readMem' sym _ _ tp [] = badLoad sym tp
-readMem' sym w l tp (h:r) = do
-  cache <- newIORef Map.empty
-  let readPrev :: Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (Pred sym, PartLLVMVal sym w)
-      readPrev tp' l' = do
-        m <- readIORef cache
-        case Map.lookup (tp',fst l') m of
-          Just x -> return x
-          Nothing -> do
-            x <- readMem' sym w l' tp' r
-            writeIORef cache $ Map.insert (tp',fst l') x m
-            return x
-  case h of
-    MemCopy dst src sz -> do
-      readMemCopy sym w l tp dst src sz readPrev
-    MemStore dst v stp -> do
-      readMemStore sym w l tp dst v stp readPrev
-    WriteMerge c xr yr -> do
-      join $ tgMuxPair sym w c
-               <$> readMem' sym w l tp (xr++r)
-               <*> readMem' sym w l tp (yr++r)
+readMem' sym w l0 tp0 = go (badLoad sym tp0) l0 tp0
+  where
+    go :: IO (Pred sym, PartLLVMVal sym w) ->
+          (LLVMPtr sym w, AddrDecomposeResult sym w) ->
+          Type ->
+          [MemWrite sym w] ->
+          IO (Pred sym, PartLLVMVal sym w)
+    go fallback _ _ [] = fallback
+    go fallback l tp (h : r) =
+      do cache <- newIORef Map.empty
+         let readPrev :: Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (Pred sym, PartLLVMVal sym w)
+             readPrev tp' l' = do
+               m <- readIORef cache
+               case Map.lookup (tp',fst l') m of
+                 Just x -> return x
+                 Nothing -> do
+                   x <- go fallback l' tp' r
+                   writeIORef cache $ Map.insert (tp',fst l') x m
+                   return x
+         case h of
+           MemCopy dst src sz ->
+             readMemCopy sym w l tp dst src sz readPrev
+           MemStore dst v stp ->
+             readMemStore sym w l tp dst v stp readPrev
+           WriteMerge _ [] [] ->
+             go fallback l tp r
+           WriteMerge c xr yr ->
+             do p <- go fallback l tp r -- TODO: wrap this in a delay
+                x <- go (return p) l tp xr
+                y <- go (return p) l tp yr
+                tgMuxPair sym w c x y
 
 -- | A state of memory as of a stack push, branch, or merge.
 data MemState d =
