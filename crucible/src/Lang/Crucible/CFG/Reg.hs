@@ -89,7 +89,7 @@ commas l = hcat (punctuate (comma <> char ' ') l)
 ------------------------------------------------------------------------
 -- Label
 
--- | A label in a graph.  The type identifies the types of expressions.
+-- | A label for a block that does not expect an input.
 newtype Label s = Label { labelInt :: Int }
 
 instance Eq (Label s) where
