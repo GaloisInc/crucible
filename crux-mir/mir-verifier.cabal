@@ -1,0 +1,46 @@
+name:                mir-verifier
+version:             0.1.0.0
+-- synopsis:
+-- description:
+homepage:            https://github.com/gancherj/mir-verifier#readme
+license:             BSD3
+license-file:        LICENSE
+author:              Joshua Gancher
+maintainer:          jrg358@cornell.edu
+copyright:           2017 Author name here
+category:            Web
+build-type:          Simple
+cabal-version:       >=1.10
+extra-source-files:  README.md
+
+library
+  default-language: Haskell2010
+  build-depends: base >= 4.7 && < 5,
+                       aeson,
+                       ansi-wl-pprint,
+                       bytestring,
+                       text,
+                       unordered-containers,
+                       crucible,
+                       parameterized-utils,
+                       containers,
+                       lens,
+                       vector,
+                       mtl,
+                       galois-matlab,
+                       regex-compat,
+                       regex-base,
+                       crucible-saw,
+                       transformers,
+                       saw-core,
+                       filepath
+  hs-source-dirs: src
+  exposed-modules: Mir.SAWInterface
+
+  other-modules: Mir.Mir,
+                 Mir.Pass,
+                 Mir.Run,
+                 Mir.Trans
+
+
+
