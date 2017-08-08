@@ -59,6 +59,7 @@ import           Data.Parameterized.Some
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Foreign.C.Types
+import           Numeric.Natural
 import           System.Directory
 import           System.IO
 import qualified System.IO.Streams as Streams
@@ -133,7 +134,7 @@ genericSatAdapter =
 type family LitValue s (tp :: BaseType) where
   LitValue s BaseBoolType     = GIA.Lit s
   LitValue s (BaseBVType n)   = AIG.BV (GIA.Lit s)
-  LitValue s BaseNatType      = Nat
+  LitValue s BaseNatType      = Natural
   LitValue s BaseIntegerType  = Integer
   LitValue s BaseRealType     = Rational
   LitValue s BaseComplexType  = Complex Rational
@@ -142,7 +143,7 @@ type family LitValue s (tp :: BaseType) where
 data NameType s (tp :: BaseType) where
   B  :: GIA.Lit s -> NameType s BaseBoolType
   BV :: AIG.BV (GIA.Lit s) -> NameType s (BaseBVType n)
-  GroundNat :: Nat  -> NameType s BaseNatType
+  GroundNat :: Natural -> NameType s BaseNatType
   GroundInt :: Integer -> NameType s BaseIntegerType
   GroundRat :: Rational -> NameType s BaseRealType
   GroundComplex :: Complex Rational -> NameType s BaseComplexType

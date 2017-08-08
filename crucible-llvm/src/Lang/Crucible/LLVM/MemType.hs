@@ -56,6 +56,7 @@ module Lang.Crucible.LLVM.MemType
 import Control.Lens
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Numeric.Natural
 import qualified Text.LLVM as L
 import qualified Text.LLVM.PP as L
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -65,7 +66,6 @@ import Control.Applicative ((<$>))
 import Data.Monoid (Monoid(..))
 #endif
 
-import Lang.MATLAB.Utils.Nat
 import Lang.Crucible.LLVM.DataLayout
 import Lang.Crucible.LLVM.PrettyPrint
 import Lang.Crucible.Utils.Arithmetic
@@ -115,7 +115,7 @@ ppSymType (UnsupportedType tp) = text (show (L.ppType tp))
 
 -- | LLVM types supported by simulator with a defined size and alignment.
 data MemType
-  = IntType Nat
+  = IntType Natural
   | PtrType SymType
   | FloatType
   | DoubleType
@@ -231,7 +231,7 @@ memTypeSize dl mtp =
     StructType si -> structSize si
     MetadataType -> 0
 
-memTypeSizeInBits :: DataLayout -> MemType -> Nat
+memTypeSizeInBits :: DataLayout -> MemType -> Natural
 memTypeSizeInBits dl tp = fromIntegral $ 8 * memTypeSize dl tp
 
 -- | Returns ABI byte alignment constraint in bytes.

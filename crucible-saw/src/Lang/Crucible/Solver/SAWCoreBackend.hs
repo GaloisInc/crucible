@@ -29,6 +29,7 @@ import qualified Data.Sequence as Seq
 
 import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
+import           Numeric.Natural
 
 import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
@@ -180,7 +181,7 @@ scIntLit sc i
     SAWElt <$> (SC.scIntNeg sc =<< SC.scNatToInt sc =<< SC.scNat sc (fromInteger (negate i)))
 
 -- | Create a SAWCore term with type 'Nat' from a Haskell Nat.
-scNatLit :: SC.SharedContext -> SB.Nat -> IO (SAWElt BaseNatType)
+scNatLit :: SC.SharedContext -> Natural -> IO (SAWElt BaseNatType)
 scNatLit sc n = SAWElt <$> SC.scNat sc (fromIntegral n)
 
 

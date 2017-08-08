@@ -32,7 +32,6 @@ library
     Lang.MATLAB.MatlabChar
     Lang.MATLAB.MultiDimArray
     Lang.MATLAB.Utils.List
-    Lang.MATLAB.Utils.Nat
     Lang.MATLAB.Utils.PrettyPrint
 
   ghc-options: -Wall -Werror

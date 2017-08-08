@@ -72,9 +72,9 @@ import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
 import qualified Data.Set as Set
 import qualified Data.Vector as V
+import           Numeric.Natural
 
 import qualified Lang.MATLAB.MultiDimArray as MDA
-import           Lang.MATLAB.Utils.Nat
 
 import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.MATLAB.Intrinsics.Solver
@@ -206,7 +206,7 @@ totalSize sym (SymMultiDimArray sizes _) = do
 -- | Get symbolic dimensions with given number of elements.
 symDimN :: IsSymInterface sym
         => sym
-        -> Nat
+        -> Natural
         -> SymMultiDimArray (SymExpr sym) tp
         -> IO (V.Vector (SymNat sym))
 symDimN sym n0 a = mkSymDimN sym n0 (dim a)
@@ -214,7 +214,7 @@ symDimN sym n0 a = mkSymDimN sym n0 (dim a)
 -- | Get symbolic dimensions with given number of elements.
 mkSymDimN :: IsSymInterface sym
           => sym
-          -> Nat -- ^ Number of elements in vector
+          -> Natural -- ^ Number of elements in vector
           -> NonEmptyAssignment (NatExpr (SymExpr sym))
           -> IO (V.Vector (SymNat sym))
 mkSymDimN sym n0 (NonEmptyAssignment d)

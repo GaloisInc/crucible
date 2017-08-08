@@ -90,9 +90,9 @@ import qualified Data.Vector as V
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
+import           Numeric.Natural
 
 import           Lang.MATLAB.MatlabChar
-import           Lang.MATLAB.Utils.Nat (Nat)
 
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.FunctionHandle
@@ -185,7 +185,7 @@ class NumExpr tp where
 ------------------------------------------------------------------------
 -- Nat
 
-instance LitExpr NatType Nat where
+instance LitExpr NatType Natural where
   litExpr n = app (NatLit n)
 
 instance EqExpr NatType where

@@ -42,7 +42,6 @@ import qualified Data.Parameterized.Context as Ctx
 import Data.HPB
 import Data.Parameterized.Some
 import Data.Parameterized.TraversableFC
-import Lang.MATLAB.Utils.Nat (integerAsNat)
 
 import           Lang.Crucible.CFG.Expr
 import qualified Lang.Crucible.CFG.Reg as R
@@ -288,9 +287,7 @@ transExpr pe = do
       fmap Some $ addAppStmt $ BoolLit False
     P.NatExpr -> do
       let i = decodeUnsigned (pe^.P.expr_data)
-      case integerAsNat i of
-        Nothing -> fail "Integer is too large."
-        Just n -> fmap Some $ addAppStmt $ NatLit n
+      fmap Some $ addAppStmt $ NatLit (fromInteger i)
     P.IntegerExpr -> do
       let i = decodeSigned (pe^.P.expr_data)
       fmap Some $ addAppStmt $ IntLit i

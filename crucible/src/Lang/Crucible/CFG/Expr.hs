@@ -45,6 +45,7 @@ import           Control.Monad.State.Strict
 import           Data.Text (Text)
 import           Data.Vector (Vector)
 import qualified Data.Vector as V
+import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           Data.Parameterized.Classes
@@ -54,7 +55,6 @@ import           Data.Parameterized.TraversableFC
 
 import           Lang.MATLAB.CharVector (CharVector)
 import           Lang.MATLAB.MatlabChar
-import           Lang.MATLAB.Utils.Nat (Nat)
 import           Lang.MATLAB.Utils.PrettyPrint
 
 import           Lang.Crucible.Types
@@ -161,7 +161,7 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- Nat
 
   -- @NatLit n@ returns the value n.
-  NatLit :: !Nat -> App f NatType
+  NatLit :: !Natural -> App f NatType
   -- Equality on natural numbers.
   NatEq :: !(f NatType) -> !(f NatType) -> App f BoolType
   -- Less than on natural numbers.

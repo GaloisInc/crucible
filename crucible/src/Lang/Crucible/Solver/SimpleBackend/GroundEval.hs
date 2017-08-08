@@ -43,8 +43,7 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.TraversableFC
 import           Data.Ratio
-
-import           Lang.MATLAB.Utils.Nat
+import           Numeric.Natural
 
 import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Solver.Interface
@@ -57,7 +56,7 @@ import qualified Lang.Crucible.Utils.UnaryBV as UnaryBV
 
 type family GroundValue (tp :: BaseType) where
   GroundValue BaseBoolType          = Bool
-  GroundValue BaseNatType           = Nat
+  GroundValue BaseNatType           = Natural
   GroundValue BaseIntegerType       = Integer
   GroundValue BaseRealType          = Rational
   GroundValue (BaseBVType w)        = Integer

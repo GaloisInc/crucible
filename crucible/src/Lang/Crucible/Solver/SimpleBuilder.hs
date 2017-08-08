@@ -121,7 +121,6 @@ module Lang.Crucible.Solver.SimpleBuilder
   , SymExpr
   , Lang.Crucible.Solver.Interface.bvWidth
   , Lang.Crucible.Solver.Interface.exprType
-  , Lang.MATLAB.Utils.Nat.Nat
   , Lang.Crucible.Solver.WeightedSum.SemiRingRepr(..)
   ) where
 
@@ -161,6 +160,7 @@ import qualified Data.Text as Text
 import           Data.Word (Word64)
 import           GHC.Generics (Generic)
 import qualified Numeric as N
+import           Numeric.Natural
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
@@ -179,7 +179,6 @@ import           Lang.Crucible.Utils.Complex
 import qualified Lang.Crucible.Utils.Hashable as Hash
 import           Lang.Crucible.Utils.UnaryBV (UnaryBV)
 import qualified Lang.Crucible.Utils.UnaryBV as UnaryBV
-import           Lang.MATLAB.Utils.Nat (Nat)
 
 ------------------------------------------------------------------------
 -- Utilities
@@ -3386,7 +3385,7 @@ concreteArrayEntries = foldlFC' f Set.empty
             Set.union s (Map.keysSet (Hash.hashedMap m))
           | otherwise = s
 
-data NatLit tp = (tp ~ BaseNatType) => NatLit Nat
+data NatLit tp = (tp ~ BaseNatType) => NatLit Natural
 
 asNatBounds :: Ctx.Assignment (Elt t) idx -> Maybe (Ctx.Assignment NatLit idx)
 asNatBounds = traverseFC f
@@ -3394,7 +3393,7 @@ asNatBounds = traverseFC f
         f (SemiRingLiteral SemiRingNat n _) = Just (NatLit n)
         f _ = Nothing
 
-foldBoundLeM :: (r -> Nat -> IO r) -> r -> Nat -> IO r
+foldBoundLeM :: (r -> Natural -> IO r) -> r -> Natural -> IO r
 foldBoundLeM _ r 0 = pure r
 foldBoundLeM f r n = do
   r' <- foldBoundLeM f r (n-1)
@@ -3420,7 +3419,7 @@ foldIndicesInRangeBounds sym f0 a0 bnds0 = do
             h :: (r -> Ctx.Assignment (SymExpr sym) (idx0 ::> BaseNatType) -> IO r)
               -> Ctx.Assignment (SymExpr sym) idx0
               -> r
-              -> Nat
+              -> Natural
               -> IO r
             h f i a j = do
               je <- natLit sym j
@@ -4284,8 +4283,7 @@ instance IsExprBuilder (SimpleBuilder t st) where
   integerToNat sb x
     | SemiRingLiteral SemiRingInt i l <- x
     , 0 <= i
-    , i <= toInteger (maxBound :: Nat) = do
-      return $! SemiRingLiteral SemiRingNat (fromIntegral (max 0 i)) l
+    = return $! SemiRingLiteral SemiRingNat (fromIntegral i) l
     | Just (NatToInteger y) <- asApp x = return y
     | otherwise =
       sbMakeElt sb (IntegerToNat x)

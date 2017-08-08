@@ -82,7 +82,7 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.TraversableFC
 import           Data.Ratio (denominator)
-import           Lang.MATLAB.Utils.Nat (Nat)
+import           Numeric.Natural
 
 import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Utils.BVDomain (BVDomain)
@@ -372,7 +372,7 @@ data NatValueRange
   = NatSingleRange !Integer
   | NatMultiRange !Integer !(ValueBound Integer)
 
-asSingleNatRange :: NatValueRange -> Maybe Nat
+asSingleNatRange :: NatValueRange -> Maybe Natural
 asSingleNatRange (NatSingleRange x) = Just (fromInteger x)
 asSingleNatRange _ = Nothing
 
@@ -381,7 +381,7 @@ natRange x (Inclusive y)
   | x == y = NatSingleRange x
 natRange x y = NatMultiRange x y
 
-natSingleRange :: Nat -> NatValueRange
+natSingleRange :: Natural -> NatValueRange
 natSingleRange = NatSingleRange . toInteger
 
 natRangeAdd :: NatValueRange -> NatValueRange -> NatValueRange
@@ -483,7 +483,7 @@ newtype AbstractValueWrapper tp
 
 type family ConcreteValue (tp::BaseType) :: * where
   ConcreteValue BaseBoolType = Bool
-  ConcreteValue BaseNatType = Nat
+  ConcreteValue BaseNatType = Natural
   ConcreteValue BaseIntegerType = Integer
   ConcreteValue BaseRealType = Rational
   ConcreteValue (BaseBVType w) = Integer

@@ -28,12 +28,12 @@ import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some
 import           Data.Vector( Vector )
 import qualified Data.Vector as V
+import           Numeric.Natural
 
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
 import qualified Lang.Crucible.LLVM.MemModel.Common as G
-import           Lang.MATLAB.Utils.Nat (Nat)
 
 
 type PartLLVMVal sym w = PartExpr (Pred sym) (LLVMVal sym w)
@@ -41,8 +41,8 @@ type PartLLVMVal sym w = PartExpr (Pred sym) (LLVMVal sym w)
 -- | This provides a view of an address as a base + offset when possible.
 data AddrDecomposeResult sym w
   = Symbolic (LLVMPtr sym w)
-  | ConcreteOffset Nat (SymBV sym w) Integer
-  | SymbolicOffset Nat (SymBV sym w) (SymBV sym w)
+  | ConcreteOffset Natural (SymBV sym w) Integer
+  | SymbolicOffset Natural (SymBV sym w) (SymBV sym w)
 --  deriving (Show)
 
 data LLVMPtr sym w

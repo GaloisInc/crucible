@@ -51,9 +51,8 @@ import           Data.Hashable
 import           Data.Maybe
 import           Data.Map (Map)
 import qualified Data.Map as Map
-
 import           Data.Parameterized.Classes
-import           Lang.MATLAB.Utils.Nat
+import           Numeric.Natural
 
 import           Lang.Crucible.BaseTypes
 
@@ -80,7 +79,7 @@ instance SemiRingCoefficient BaseRealType where
 instance SemiRingCoefficient BaseIntegerType where
   type Coefficient BaseIntegerType = Integer
 instance SemiRingCoefficient BaseNatType where
-  type Coefficient BaseNatType = Nat
+  type Coefficient BaseNatType = Natural
 
 
 data SemiRingRepr (tp :: BaseType) where

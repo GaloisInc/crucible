@@ -48,17 +48,17 @@ import Data.Maybe
 import qualified Data.Map as Map
 import Data.Monoid hiding ((<>))
 import qualified Data.Vector as V
+import Numeric.Natural
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import Lang.Crucible.LLVM.MemModel.Common
 import Lang.Crucible.LLVM.MemModel.Pointer
 import Lang.Crucible.Solver.Interface
 import Lang.Crucible.Solver.Partial
-import Lang.MATLAB.Utils.Nat (Nat)
 
 --import Debug.Trace as Debug
 
-adrVar :: AddrDecomposeResult sym w -> Maybe Nat
+adrVar :: AddrDecomposeResult sym w -> Maybe Natural
 adrVar Symbolic{} = Nothing
 adrVar (ConcreteOffset v _ _) = Just v
 adrVar (SymbolicOffset v _ _) = Just v
@@ -69,7 +69,7 @@ data AllocType = StackAlloc | HeapAlloc | GlobalAlloc
 -- | Stores writeable memory allocations.
 data MemAlloc sym w
      -- | Allocation with given block ID and number of bytes.
-   = Alloc AllocType Nat (SymBV sym w) String
+   = Alloc AllocType Natural (SymBV sym w) String
      -- | The merger of two allocations.
    | AllocMerge (Pred sym) [MemAlloc sym w] [MemAlloc sym w]
 
@@ -395,7 +395,7 @@ emptyMem = Mem { _memState = EmptyMem emptyChanges
 isAllocated' :: (IsBoolExprBuilder sym) => sym -> NatRepr w
                 -- | Evaluation function that takes continuation
                 -- for condition if previous check fails.
-             -> (Nat -> SymBV sym w -> IO (Pred sym) -> IO (Pred sym))
+             -> (Natural -> SymBV sym w -> IO (Pred sym) -> IO (Pred sym))
              -> [MemAlloc sym w]
              -> IO (Pred sym)
 isAllocated' sym _w step = go (pure (falsePred sym))
@@ -413,7 +413,7 @@ isAllocated' sym _w step = go (pure (falsePred sym))
 -- @[b+o..b+o+sz)@ lays within a single allocation in @m@.  This code assumes
 -- @sz@ is non-zero, and @b+o@ does not overflow.
 offsetIsAllocated :: (1 <= w, IsSymInterface sym)
-                  => sym -> NatRepr w -> Nat -> LLVMPtr sym w -> SymBV sym w -> Mem sym w -> IO (Pred sym)
+                  => sym -> NatRepr w -> Natural -> LLVMPtr sym w -> SymBV sym w -> Mem sym w -> IO (Pred sym)
 offsetIsAllocated sym w t o sz m = do
   (oc, LLVMPtr _ _ oe) <- ptrCheckedAdd sym w o sz
   let step a asz fallback
@@ -497,7 +497,7 @@ copyMem sym w dst src sz m = do
 
 -- | Allocate space for memory
 allocMem :: AllocType -- ^ Type of allocation
-         -> Nat -- ^ Block id for allocation
+         -> Natural -- ^ Block id for allocation
          -> SymBV sym w -- ^ Size
          -> String -- ^ Source location
          -> Mem sym w
@@ -507,7 +507,7 @@ allocMem a b sz loc = memAddAlloc (Alloc a b sz loc)
 -- | Allocate space for memory
 allocAndWriteMem :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
                  -> AllocType -- ^ Type of allocation
-                 -> Nat -- ^ Block id for allocation
+                 -> Natural -- ^ Block id for allocation
                  -> Type
                  -> PartLLVMVal sym w -- Value to write
                  -> Mem sym w

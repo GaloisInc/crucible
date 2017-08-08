@@ -116,8 +116,6 @@ module Lang.MATLAB.MultiDimArray
   , circshift
     -- * Utilities
   , dimsMatch
-    -- * Re-exports
-  , Nat
     -- * CharArray
   , CharArray
   ) where
@@ -131,21 +129,13 @@ import qualified Data.Monoid as Monoid
 import Data.STRef.Strict
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as MV
-import qualified Data.Vector.Unboxed as UV
-import qualified Data.Vector.Unboxed.Mutable as UMV
 import Data.Word
+import Numeric.Natural
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>), empty)
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import Lang.MATLAB.Utils.List
-import Lang.MATLAB.Utils.Nat
 import Lang.MATLAB.Utils.PrettyPrint
-
-#if !MIN_VERSION_base(4,8,0)
-import Control.Applicative hiding (empty)
-import Data.Foldable (Foldable)
-import Data.Traversable (Traversable, sequenceA, traverse)
-#endif
 
 import qualified Prelude
 import Prelude hiding (null, replicate, unzip, zip, zipWith, (!!), map)
@@ -153,13 +143,13 @@ import Prelude hiding (null, replicate, unzip, zip, zipWith, (!!), map)
 type CharArray = MultiDimArray Word16
 
 -- | Return true if dimensions are the same.
-dimsMatch :: [Nat] -> [Nat] -> Bool
+dimsMatch :: [Natural] -> [Natural] -> Bool
 dimsMatch (x:xl) (y:yl) = x == y && dimsMatch xl yl
 dimsMatch [] l = all (==1) l
 dimsMatch l [] = all (==1) l
 
 -- | Return true if dimensions are the same.
-dimsOrd :: [Nat] -> [Nat] -> Ordering
+dimsOrd :: [Natural] -> [Natural] -> Ordering
 dimsOrd (x:xl) (y:yl) = compare x y Monoid.<> dimsOrd xl yl
 dimsOrd [] (1:l) = dimsOrd [] l
 dimsOrd (1:l) [] = dimsOrd l []
@@ -167,7 +157,7 @@ dimsOrd [] [] = EQ
 dimsOrd [] _ = LT
 dimsOrd _ [] = GT
 
-asCons :: [Nat] -> (Nat,[Nat])
+asCons :: [Natural] -> (Natural,[Natural])
 asCons [] = (1,[])
 asCons (e:l) = (e,l)
 
@@ -183,7 +173,7 @@ asCons (e:l) = (e,l)
 --
 -- Note that trailing higher dimensions which are equal to 1 are ignored
 -- and/or stripped away by many operations, see 'dimsMatch'.
-data ArrayDim = Dim !Nat !Nat ![Nat]
+data ArrayDim = Dim !Natural !Natural ![Natural]
 
 instance Eq ArrayDim where
   Dim rx cx hx == Dim ry cy hy = rx == ry && cx == cy && hx `dimsMatch` hy
@@ -200,11 +190,11 @@ instance Show ArrayDim where
 singletonDim :: ArrayDim
 singletonDim = Dim 1 1 []
 
-matrixDim :: Nat -> Nat -> ArrayDim
+matrixDim :: Natural -> Natural -> ArrayDim
 matrixDim r c = Dim r c []
 
 -- | Removes the value "1" from the end of the list.
-dropTrailing1 :: [Nat] -> [Nat]
+dropTrailing1 :: [Natural] -> [Natural]
 dropTrailing1 [] = []
 dropTrailing1 (1:l) =
   case dropTrailing1 l of
@@ -213,7 +203,7 @@ dropTrailing1 (1:l) =
 dropTrailing1 (x:l) = x:dropTrailing1 l
 
 -- | Create a dimension from a list.
-fromDimList :: [Nat] -> ArrayDim
+fromDimList :: [Natural] -> ArrayDim
 fromDimList l =
   case l of
     []    -> Dim 1 1 []
@@ -236,7 +226,7 @@ removeDim i (Dim r c l0) = assert (i >= 2) $ Dim r c (dropTrailing1 (go (i-2) l0
           | True   = e : go (j-1) l
 
 -- @insertDim i n d@ inserts @n@ as dimension @i@ in @d@.
-insertDim :: Int -> Nat -> ArrayDim -> ArrayDim
+insertDim :: Int -> Natural -> ArrayDim -> ArrayDim
 insertDim 0 n (Dim r c l) = Dim n r (c:l)
 insertDim 1 n (Dim r c l) = Dim r n (c:l)
 insertDim i n (Dim r c l0) = assert (i >= 2) $ seq n $ Dim r c (dropTrailing1 (go (i-2) l0))
@@ -246,12 +236,12 @@ insertDim i n (Dim r c l0) = assert (i >= 2) $ seq n $ Dim r c (dropTrailing1 (g
 
 -- @setDim i n d@ set dimension @i@ in @d@ to @n@.  This will
 -- expand the number of dimensions in @d@ to be at least @i+1@.
-setDim :: Nat -> Nat -> ArrayDim -> ArrayDim
+setDim :: Natural -> Natural -> ArrayDim -> ArrayDim
 setDim 0 n (Dim _ c l) = Dim n c l
 setDim 1 n (Dim r _ l) = Dim r n l
 setDim i n (Dim r c l0) = assert (i >= 2) $ seq n $ Dim r c (dropTrailing1 (go (i-2) l0))
   where -- Recursively evaluate dimensions.
-        go :: Nat -> [Nat] -> [Nat]
+        go :: Natural -> [Natural] -> [Natural]
         go j (asCons -> (e,l))
           | j == 0 = (:l) $! n
           | True   = (e:) $! (go (j-1) l)
@@ -283,26 +273,26 @@ class HasDim d where
 
   -- | Returns total size of array dimensions.
   -- For example, @dimSize "2*3*4"@ returns @24@.
-  dimSize :: d -> Nat
+  dimSize :: d -> Natural
   dimSize (dim -> Dim rcnt ccnt higherdim) = rcnt * ccnt * product higherdim
 
 instance HasDim ArrayDim where
   dim = id
 
 -- | Number of rows.
-rowDim :: HasDim d => d -> Nat
+rowDim :: HasDim d => d -> Natural
 rowDim (dim -> Dim r _ _) = r
 
 -- | Number of columns.
-colDim :: HasDim d => d -> Nat
+colDim :: HasDim d => d -> Natural
 colDim (dim -> Dim _ c _) = c
 
 -- | Sizes in higher dimensions.
-higherDims :: HasDim d => d -> [Nat]
+higherDims :: HasDim d => d -> [Natural]
 higherDims (dim -> Dim _ _ h) = h
 
 -- | Return index of first dimension that has length not equal to one.
-firstNonSingleDim :: HasDim d => d -> Maybe Nat
+firstNonSingleDim :: HasDim d => d -> Maybe Natural
 firstNonSingleDim d = go 1 (asDimList d)
   where go _ [] = Nothing
         go i (e:l) | e /= 1 = Just i
@@ -310,12 +300,12 @@ firstNonSingleDim d = go 1 (asDimList d)
           where j = i+1
 
 -- | Return size of dimension at given index (indices are one-based).
-dimAt :: HasDim d => d -> Nat -> Nat
+dimAt :: HasDim d => d -> Natural -> Natural
 dimAt (dim -> Dim r c l) i
   | i == 0    = error "internal error: Looking up 0-th dimension of an array"
   | i == 1    = r
   | i == 2    = c
-  | otherwise = (l ++ repeat 1) Prelude.!! (natAsInt i - 3)
+  | otherwise = (l ++ repeat 1) Prelude.!! (fromIntegral i - 3)
 
 -- | Returns true if value has no non-singular dimensions
 -- at index 3 or higher.
@@ -339,7 +329,7 @@ isVector :: HasDim d => d -> Bool
 isVector (dim -> Dim r c h) = (r == 1 || c == 1) && Prelude.null h
 
 -- | Return list of dimensions.
-asDimList :: HasDim d => d -> [Nat]
+asDimList :: HasDim d => d -> [Natural]
 asDimList (dim -> Dim rcnt ccnt higherdim) = rcnt : ccnt : higherdim
 
 -- | Resizes a list of dimensions according to the semantics of the
@@ -348,27 +338,27 @@ asDimList (dim -> Dim rcnt ccnt higherdim) = rcnt : ccnt : higherdim
 --   @1@; when shrinking a list of dimensions, all the removed
 --   positions are multiplied onto the last element of the new
 --   truncated list.
-resizeDimList :: Int -> [Nat] -> [Nat]
+resizeDimList :: Int -> [Natural] -> [Natural]
 resizeDimList n _ | n <= 0 = []
 resizeDimList 1 ds = [product ds]
 resizeDimList n [] = Prelude.replicate n 1
 resizeDimList n (d:ds) = d:(resizeDimList (n-1) ds)
 
 -- | Return list of dimensions as resized by @resizeDimList@.
-asDimListN :: HasDim d => Nat -> d -> [Nat]
+asDimListN :: HasDim d => Natural -> d -> [Natural]
 asDimListN c0 d = resizeDimList (fromIntegral c0) (asDimList d)
 
 -- | Return list of dimensions as resized by @resizeDimList@.
-asDimVectorN :: HasDim d => Nat -> d -> V.Vector Nat
+asDimVectorN :: HasDim d => Natural -> d -> V.Vector Natural
 asDimVectorN c0 d = V.fromList $ resizeDimList (fromIntegral c0) (asDimList d)
 
 -- | @splitDim d i@ returns two lists of dimensions, the first
 --   containing those dimensions whose indices are smaller than @i@,
 --   and the second containing those dimensions whose indices are
 --   greater than or equal to @i@.
-splitDim :: HasDim d => d -> Nat -> ([Nat],[Nat])
+splitDim :: HasDim d => d -> Natural -> ([Natural],[Natural])
 splitDim d i =
-  let i' = natAsInt i - 1
+  let i' = fromIntegral i - 1
       (l, r) = splitAt i' (asDimList d)
       l' = take i' $ l ++ repeat 1
    in (l', r)
@@ -382,82 +372,82 @@ ppDim d = encloseSep PP.empty PP.empty (text "*") $ integer . toInteger <$> asDi
 
 -- | An index is a vector of natural numbers used as an index into a
 -- multi-dimensional array.
-newtype Index = Index { unIndex :: UV.Vector Nat }
-  deriving (Eq)
+newtype Index = Index { unIndex :: V.Vector Natural }
+  deriving (Eq, Ord)
 
 indexTake :: Int -> Index -> Index
-indexTake n (Index v) = Index (UV.take n v)
+indexTake n (Index v) = Index (V.take n v)
 
 onDiagonal :: Index -> Bool
-onDiagonal (Index v) | UV.null v = True
+onDiagonal (Index v) | V.null v = True
   | otherwise =
-     let a = v UV.! 0
-      in UV.all (== a) (UV.tail v)
+     let a = v V.! 0
+      in V.all (== a) (V.tail v)
 
 instance Show Index where
-  show (Index v) | UV.null v = "()"
-                 | otherwise = concat $ (\i -> ',' : show i) <$> UV.toList v
+  show (Index v) | V.null v = "()"
+                 | otherwise = concat $ (\i -> ',' : show i) <$> V.toList v
 
 {-# DEPRECATED (!!) "Use !?" #-}
 
-(!!) :: Index -> Int -> Nat
+(!!) :: Index -> Int -> Natural
 (!!) v i = n
-  where Just n = unIndex v UV.!? i
+  where Just n = unIndex v V.!? i
 
 -- | Lookup nat at given position in index.
-(!!?) :: Index -> Int -> Maybe Nat
-(!!?) v i = unIndex v UV.!? i
+(!!?) :: Index -> Int -> Maybe Natural
+(!!?) v i = unIndex v V.!? i
 
-asSingleIndex :: Index -> Maybe Nat
-asSingleIndex (Index i) | UV.length i == 1 = Just (i UV.! 0)
+asSingleIndex :: Index -> Maybe Natural
+asSingleIndex (Index i) | V.length i == 1 = Just (i V.! 0)
                         | otherwise = Nothing
 
 indexLength :: Index -> Int
-indexLength (Index i) = UV.length i
+indexLength (Index i) = V.length i
 
-indexFromList :: [Nat] -> Index
-indexFromList = Index . UV.fromList
+indexFromList :: [Natural] -> Index
+indexFromList = Index . V.fromList
 
-indexFromVector :: V.Vector Nat -> Index
-indexFromVector v = Index (UV.generate (V.length v) (v V.!))
+indexFromVector :: V.Vector Natural -> Index
+indexFromVector v = Index (V.generate (V.length v) (v V.!))
 
-indexToVector :: Index -> V.Vector Nat
-indexToVector (Index v) = V.generate (UV.length v) (v UV.!)
+indexToVector :: Index -> V.Vector Natural
+indexToVector (Index v) = V.generate (V.length v) (v V.!)
 
-indexToList :: Index -> [Nat]
-indexToList = UV.toList . unIndex
+indexToList :: Index -> [Natural]
+indexToList = V.toList . unIndex
 
-indexPair :: Nat -> Nat -> Index
-indexPair i j = Index (UV.fromList [i,j])
+indexPair :: Natural -> Natural -> Index
+indexPair i j = Index (V.fromList [i,j])
 
-asIndexPair :: Index -> Maybe (Nat,Nat)
-asIndexPair (Index v) | UV.length v == 2 = Just (v UV.! 0, v UV.! 1)
+asIndexPair :: Index -> Maybe (Natural,Natural)
+asIndexPair (Index v) | V.length v == 2 = Just (v V.! 0, v V.! 1)
                       | otherwise = Nothing
 
 -- | forIndicesM_ calls the function on each legal index of an arraydim.
 forIndicesM_ :: forall m . Applicative m => ArrayDim -> (Index -> m ()) -> m ()
 forIndicesM_ d _ | null d = pure ()
 forIndicesM_ d f =
-    let dv = UV.fromList (asDimList d)
-     in go dv (UV.replicate (UV.length dv) 1)
+    let dv = V.fromList (asDimList d)
+     in go dv (V.replicate (V.length dv) 1)
   where -- Call f on array value and then try next index.
-        go :: UV.Vector Nat -> UV.Vector Nat -> m ()
+        go :: V.Vector Natural -> V.Vector Natural -> m ()
         go dv idxv = f (Index idxv) *> update dv idxv 0
         -- Increment next index.
         -- Takes counts, current vector and current index.
-        update :: UV.Vector Nat -> UV.Vector Nat -> Int -> m ()
+        update :: V.Vector Natural -> V.Vector Natural -> Int -> m ()
         update dv idxv i
           | i == d_cnt = pure ()
             -- Update at index i if we can.
-          | v < dv UV.! i =
-            let prefix  = UV.replicate i 1
-                postfix = UV.drop (i + 1) idxv
-             in go dv $! (prefix UV.++ UV.cons (v+1) postfix)
+          | v < dv V.! i =
+            let prefix  = V.replicate i 1
+                postfix = V.drop (i + 1) idxv
+             in go dv $! (prefix V.++ V.cons (v+1) postfix)
           | otherwise =
             -- Check to see if we can update at a later index.
             update dv idxv (i+1)
-         where d_cnt = UV.length dv
-               v = idxv UV.! i -- Index at value.
+         where d_cnt = V.length dv
+               v = idxv V.! i -- Index at value.
 {-# INLINABLE forIndicesM_ #-}
 
 ------------------------------------------------------------------------
@@ -493,7 +483,7 @@ singleton v = seq v $
                 }
 
 -- | Returns the identity matrix with the given number of dimensions.
-identity :: Num v => Nat -> MultiDimArray v
+identity :: Num v => Natural -> MultiDimArray v
 identity n = MultiDimArray (matrixDim n n) (V.generate n2 go)
   where n2 = fromIntegral (n*n)
         n' = fromIntegral n
@@ -558,8 +548,8 @@ asRows a =
         v = mdVec a
 
 -- | Convert vector of rows into a MultiDimArray.
-fromRows :: Nat -- ^ Number of rows
-         -> Nat -- ^ Number of columns
+fromRows :: Natural -- ^ Number of rows
+         -> Natural -- ^ Number of columns
          -> V.Vector (V.Vector v)
          -> MultiDimArray v
 fromRows rc cc a
@@ -591,7 +581,7 @@ a ! l =
                        ++ " at array with dimensions " ++ show (dim a) ++ "."
 
 -- | Return the vector of elements along a single row in a 2d array.
-row :: MultiDimArray a -> Nat -> V.Vector a
+row :: MultiDimArray a -> Natural -> V.Vector a
 row a r = assert (Prelude.null (higherDims d))
         $ assert (1 <= r && r <= rowDim d)
         $ V.generate (fromIntegral (colDim d)) eltFn
@@ -599,7 +589,7 @@ row a r = assert (Prelude.null (higherDims d))
         eltFn c = a ! indexPair r (fromIntegral (c+1))
 
 -- | Return the vector of elements along a single column in a 2d array.
-col :: MultiDimArray a -> Nat -> V.Vector a
+col :: MultiDimArray a -> Natural -> V.Vector a
 col a c = assert (Prelude.null (higherDims d))
         $ assert (1 <= c && c <= colDim d)
         $ V.generate (fromIntegral (rowDim d)) eltFn
@@ -607,8 +597,8 @@ col a c = assert (Prelude.null (higherDims d))
         eltFn r = a ! indexPair (fromIntegral (r+1)) c
 
 checkDim :: Monad m
-         => Nat -- ^ Length
-         -> Nat -- ^ Index
+         => Natural -- ^ Length
+         -> Natural -- ^ Index
          -> m ()
 checkDim n i = do
   when (i <= 0) $ fail "Subscript index must be positive."
@@ -616,22 +606,22 @@ checkDim n i = do
 
 -- | Compute index of element in vector given bounds of array and indices to lookup.
 tryEltIndex :: Monad m
-            => [Nat] -- ^ Bounds on dimensions of elements.
+            => [Natural] -- ^ Bounds on dimensions of elements.
             -> Index -- ^ Indices to lookup
-            -> m Nat
-tryEltIndex dl0 (Index idx0) | UV.length idx0 == 0 = return 0
+            -> m Natural
+tryEltIndex dl0 (Index idx0) | V.length idx0 == 0 = return 0
                              | otherwise = go 0 1 dl0 idx0 0
- where go :: Monad m => Nat -> Nat -> [Nat] -> UV.Vector Nat -> Int -> m Nat
-       go o p cl idx j | j + 1 == UV.length idx = do
-         let i = idx UV.! j
+ where go :: Monad m => Natural -> Natural -> [Natural] -> V.Vector Natural -> Int -> m Natural
+       go o p cl idx j | j + 1 == V.length idx = do
+         let i = idx V.! j
          checkDim (product cl) i
          return (o+p*(i-1))
        go o p (c:cl) idx j = do
-         let i = idx UV.! j
+         let i = idx V.! j
          checkDim  c i
          go (o+p*(i-1)) (p*c) cl idx (j+1)
        go o _ [] idx j = do
-         UV.mapM_ (checkDim 1) (UV.drop j idx)
+         V.mapM_ (checkDim 1) (V.drop j idx)
          return o
 {-# INLINABLE tryEltIndex #-}
 
@@ -696,13 +686,13 @@ generate d f = runST $ do
   let dv = V.fromList $ asDimList d
 
   let d_cnt = V.length dv
-  idx_ref <- UMV.replicate d_cnt 1
+  idx_ref <- MV.replicate d_cnt 1
 
   cnt_ref <- newSTRef 0
 
   let go = do
         -- Write array value.
-        idxv <- UV.freeze idx_ref
+        idxv <- V.freeze idx_ref
         i <- readSTRef cnt_ref
         writeSTRef cnt_ref (i+1)
         MV.unsafeWrite mv i $! f (Index idxv)
@@ -710,12 +700,12 @@ generate d f = runST $ do
       update i | i == d_cnt = return ()
       update i = do
         -- Go to next index.
-        v <- UMV.unsafeRead idx_ref i
+        v <- MV.unsafeRead idx_ref i
         if v < dv V.! i then do
-          UMV.unsafeWrite idx_ref i $! (v+1)
+          MV.unsafeWrite idx_ref i $! (v+1)
           go
         else do
-          UMV.unsafeWrite idx_ref i $! 1
+          MV.unsafeWrite idx_ref i $! 1
           update (i+1)
   go
   mdFromVector d <$> V.unsafeFreeze mv
@@ -728,7 +718,7 @@ replicate d v = mdFromVector d (V.replicate n v)
 
 -- | Create a multidimarray by executing the function for each index.
 replicateM :: Applicative m => ArrayDim -> m v -> m (MultiDimArray v)
-replicateM d m = mdFromVector d <$> traverse (\_ -> m) (V.replicate n (0::Nat))
+replicateM d m = mdFromVector d <$> traverse (\_ -> m) (V.replicate n (0::Natural))
   where n = fromIntegral (dimSize d)
 
 -- | Create a multidimarray by executing the function for each index.
@@ -769,26 +759,26 @@ zipWithM f x y = assert (dim x == dim y) $ do
 -- | Given a list of bounds @l@, returns a list of positive integers that are
 -- pairwise less-than-or-equal to the bounds @l@.
 -- e.g. indexList [2,3] = [[1,1],[2,1],[1,2],[2,2],[1,3],[2,3]]
-indexList :: UV.Vector Nat -> [Index]
-indexList d | UV.any (== 0) d = []
+indexList :: V.Vector Natural -> [Index]
+indexList d | V.any (== 0) d = []
 indexList dv0 = Index first : nextIndex first dv0 0
-  where first = UV.replicate (UV.length dv0) 1
-        nextIndex v _ i | i == UV.length v = []
+  where first = V.replicate (V.length dv0) 1
+        nextIndex v _ i | i == V.length v = []
         nextIndex v dv i
             | vi < c =
               let gen_new j | j <  i = 1
                             | j == i = vi+1
-                            | True   = v UV.! j
-                  next = UV.generate (UV.length v) gen_new
+                            | True   = v V.! j
+                  next = V.generate (V.length v) gen_new
                in Index next : nextIndex next dv 0
             | otherwise = nextIndex v dv $! i+1
-         where vi = v UV.! i
-               c  = dv UV.! i
+         where vi = v V.! i
+               c  = dv V.! i
 
 -- | Convert a multidimensional array into a list of 2-dimensional arrays.
 -- The indices in each pair are the higher idmension indices for the array.
 mdAs2dMatrices :: MultiDimArray x -> [(Index, MultiDimArray x)]
-mdAs2dMatrices x = sliceMatrix <$> indexList (UV.fromList (higherDims x))
+mdAs2dMatrices x = sliceMatrix <$> indexList (V.fromList (higherDims x))
   where v = mdVec x
         r = rowDim x
         c = colDim x
@@ -802,7 +792,7 @@ pp2d :: (MultiDimArray x -> Doc)
      -> String -> MultiDimArray x -> Doc
 pp2d pp nm a =
     case higherDims a of
-      [] -> ppM ([] :: [Nat]) a
+      [] -> ppM ([] :: [Natural]) a
       _ ->  vcat $ (\(i,v) -> ppM (indexToList i) v) <$> mdAs2dMatrices a
   where ppM il m = ppNameEqual (nm ++ res) (pp m)
           where res | Prelude.null il = ""
@@ -839,11 +829,11 @@ mdConcatAtDim catDim fv rest
     $ V.enumFromN 0 (fromIntegral (product (drop (catDim+1) (asDimList fv))))
   where -- Get number of elements in low-dimensions.
         -- Extract rows*cols for one set of values.
-        slice1Dim :: Nat -> MultiDimArray v -> V.Vector v
+        slice1Dim :: Natural -> MultiDimArray v -> V.Vector v
         slice1Dim i a = V.slice (fromIntegral (i*lowSize)) (fromIntegral lowSize) (mdVec a)
           where lowSize = product (take (1+catDim) (asDimList a))
         -- Slice dimensions at higher-order index for all values.
-        sliceAllDim :: V.Vector (MultiDimArray v) -> Nat -> V.Vector v
+        sliceAllDim :: V.Vector (MultiDimArray v) -> Natural -> V.Vector v
         sliceAllDim v i = V.concatMap (slice1Dim i) v
         vals = V.fromList (fv:rest)
 
@@ -878,9 +868,9 @@ arrayProduct l@(_:_:_) = a
 --   column.  Returns a pair consisting of the new array and the
 --   uniform length of its elements.
 extractAtDim :: forall a
-              . Nat -- ^ Dimension to extract
+              . Natural -- ^ Dimension to extract
              -> MultiDimArray a -- ^ Input array
-             -> (MultiDimArray (V.Vector a), Nat)
+             -> (MultiDimArray (V.Vector a), Natural)
 extractAtDim n ar = assert (n > 0) $ (mdFromVector d new_elts, q')
   -- We'll be traversing the linear vector that represents the MDA
   -- and gathering elements which have different coordinates in
@@ -950,9 +940,9 @@ extractAtDim n ar = assert (n > 0) $ (mdFromVector d new_elts, q')
 
 -- | Performs the inverse operation of extractAtDim
 mergeAtDim :: forall a
-            . Nat
+            . Natural
            -- ^ Index of dimension
-           -> (MultiDimArray (V.Vector a), Nat)
+           -> (MultiDimArray (V.Vector a), Natural)
            -- ^ The array and its new length in the dimension (each
            --   element of the array must be a vector of this length)
            -> MultiDimArray a
@@ -989,7 +979,7 @@ reduceDim :: Applicative m
              -- ^ Operation for reduction.
           -> MultiDimArray a
              -- ^ Input array
-          -> Nat
+          -> Natural
              -- ^ Dimension to reduce (first dimension starts with 1).
           -> m (MultiDimArray b)
 reduceDim f a i = assert (i > 0) $ traverse f . fst . extractAtDim i $ a
@@ -1052,7 +1042,7 @@ permuteGen (perm,iperm) a = generate sizes ((a!) . permuteIndices)
   where d = dim a
         sizes = permuteDim d perm
 
-        iperm0 = (\v -> v - 1) `UV.map` UV.fromList iperm
+        iperm0 = (\v -> v - 1) `V.map` V.fromList iperm
 
         -- This function computes an old array index given a new array index by applying
         -- the dimension permutation in reverse.
@@ -1066,10 +1056,10 @@ permuteGen (perm,iperm) a = generate sizes ((a!) . permuteIndices)
         -- in the new array; if so, the old dimension must have had size 1, and we return 1.
         permuteIndices :: Index -- new index
                        -> Index -- old index
-        permuteIndices i = Index $ lookupDim `UV.map` iperm0
-           where lookupDim :: Int -> Nat
+        permuteIndices i = Index $ lookupDim `V.map` iperm0
+           where lookupDim :: Int -> Natural
                  lookupDim x
-                  | x < UV.length (unIndex i) = unIndex i UV.! x
+                  | x < V.length (unIndex i) = unIndex i V.! x
                   | otherwise = 1 -- corner case
 
 -- | Permute the elements in an array.
@@ -1106,7 +1096,7 @@ circshift a sl0 = generate (dim a) idxFn
         sl = ensureLength (length dl) 0 sl0
         -- Compute original index location given new index by subtracting
         -- shift from each coordinate.
-        shiftFn :: Nat -> Integer -> Nat -> Nat
+        shiftFn :: Natural -> Integer -> Natural -> Natural
         shiftFn i s n = fromInteger $ 1 + ((toInteger i - s - 1) `mod` toInteger n)
         -- Resolve index in a.
         idxFn il = v

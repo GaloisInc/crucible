@@ -145,9 +145,8 @@ import           Data.Parameterized.NatRepr
 import           Data.Parameterized.TraversableFC
 import           Data.Ratio
 import           Data.Scientific (Scientific)
+import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
-
-import           Lang.MATLAB.Utils.Nat as Nat
 
 import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Simulator.SimError
@@ -197,7 +196,7 @@ type family BoundVar (sym :: *) :: BaseType -> *
 
 class (IsPred (e BaseBoolType)) => IsExpr e where
   -- | Return nat if this is a constant natural number.
-  asNat :: e BaseNatType -> Maybe Nat
+  asNat :: e BaseNatType -> Maybe Natural
   asNat _ = Nothing
 
   -- | Return integer if this is a constant integer.
@@ -239,7 +238,7 @@ class (IsPred (e BaseBoolType)) => IsExpr e where
 -- | This represents a concrete index value, and is used for creating
 -- arrays.
 data IndexLit idx where
-  NatIndexLit :: !Nat -> IndexLit BaseNatType
+  NatIndexLit :: !Natural -> IndexLit BaseNatType
   BVIndexLit :: (1 <= w) => !(NatRepr w) -> !Integer ->  IndexLit (BaseBVType w)
 
 instance Eq (IndexLit tp) where
@@ -317,7 +316,7 @@ class ( IsBoolExprBuilder sym
   -- Nat operations.
 
   -- | A natural number literal.
-  natLit :: sym -> Nat -> IO (SymNat sym)
+  natLit :: sym -> Natural -> IO (SymNat sym)
 
   -- | Add two natural numbers.
   natAdd :: sym -> SymNat sym -> SymNat sym -> IO (SymNat sym)
@@ -1938,13 +1937,13 @@ realExprAsInteger x =
   rationalAsInteger =<< realExprAsRational x
 
 -- | Return value as a constant integer if it exists.
-realExprAsNat :: (IsExpr e, Monad m) => e BaseRealType -> m Nat
+realExprAsNat :: (IsExpr e, Monad m) => e BaseRealType -> m Natural
 realExprAsNat x =
-  integerAsNat =<< rationalAsInteger =<< realExprAsRational x
+  fromInteger <$> (rationalAsInteger =<< realExprAsRational x)
 
 -- | Return value as a constant integer if it exists.
-cplxExprAsNat :: (IsExpr e, Monad m) => e BaseComplexType -> m Nat
-cplxExprAsNat x = integerAsNat =<< cplxExprAsInteger x
+cplxExprAsNat :: (IsExpr e, Monad m) => e BaseComplexType -> m Natural
+cplxExprAsNat x = fromInteger <$> cplxExprAsInteger x
 
 andAllOf :: IsBoolExprBuilder sym
          => sym

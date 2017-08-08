@@ -55,12 +55,12 @@ import qualified Data.Text as Text
 import qualified Data.Vector as V
 import           Data.Word
 import           Numeric ( showHex )
+import           Numeric.Natural
 
 import qualified Lang.MATLAB.CharVector as CV
 import           Lang.MATLAB.MatlabChar
 import           Lang.MATLAB.MultiDimArray (ArrayDim, MultiDimArray)
 import qualified Lang.MATLAB.MultiDimArray as MDA
-import           Lang.MATLAB.Utils.Nat as Nat
 
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.Simulator.Intrinsics
@@ -84,7 +84,7 @@ failIfNothing _  (Just v) = return v
 
 -- | Given a list of Booleans l, @selectedIndices@ returns the indices of
 -- true values in @l@.
-selectedIndices :: [Bool] -> [Nat]
+selectedIndices :: [Bool] -> [Natural]
 selectedIndices l = catMaybes $ zipWith selectIndex l [1..]
   where selectIndex True i  = Just i
         selectIndex False _ = Nothing
@@ -165,7 +165,7 @@ type SymDim sym = V.Vector (SymNat sym)
 symDimAsVecN :: IsExprBuilder sym
              => sym -- ^ Symbolic backend.
              -> SymDim sym -- ^ Vector of dimensions.
-             -> Nat -- ^ Length of result vector
+             -> Natural -- ^ Length of result vector
              -> IO (SymDim sym)
 symDimAsVecN sym v (fromIntegral -> n)
     | l == n = return v
@@ -185,8 +185,8 @@ symDimAsVecN sym v (fromIntegral -> n)
 symDimAt :: IsSymInterface sym
          => sym -- ^ Symbolic backend.
          -> SymDim sym -- ^ Vector of dimensions.
-         -> Nat -- ^ Index to get at
-         -> Nat -- ^ Length of vector
+         -> Natural -- ^ Index to get at
+         -> Natural -- ^ Length of vector
 
          -> IO (SymNat sym)
 symDimAt sym v (fromIntegral -> i) (fromIntegral -> n)
@@ -267,7 +267,7 @@ realArrayIsNonNeg :: IsSymInterface sym
 realArrayIsNonNeg sym a = do
   andAllOf sym folded =<< traverse (realIsNonNeg sym) a
 
-dimBoundsN :: Nat -> MDA.ArrayDim -> [(Nat, Nat)]
+dimBoundsN :: Natural -> MDA.ArrayDim -> [(Natural, Natural)]
 dimBoundsN n d = (1,) <$> MDA.asDimListN (fromIntegral n) d
 
 
@@ -276,9 +276,9 @@ indexSymbolic' :: IsSymInterface sym
                => sym
                -> (Pred sym -> a -> a -> IO a)
                   -- ^ Function for merging valeus
-               -> ([Nat] -> IO a) -- ^ Concrete index function.
-               -> [Nat] -- ^ Values of processed indices (in reverse order)
-               -> [(Nat,Nat)] -- ^ Bounds on remaining indices.
+               -> ([Natural] -> IO a) -- ^ Concrete index function.
+               -> [Natural] -- ^ Values of processed indices (in reverse order)
+               -> [(Natural,Natural)] -- ^ Bounds on remaining indices.
                -> [SymNat sym] -- ^ Remaining indices.
                -> IO a
 indexSymbolic' _ _ f p [] _ = f (reverse p)
@@ -306,8 +306,8 @@ indexSymbolic :: IsSymInterface sym
               => sym
               -> (Pred sym -> a  -> a -> IO a)
                  -- ^ Function for combining results together.
-              -> ([Nat] -> IO a) -- ^ Concrete index function.
-              -> [(Nat,Nat)] -- ^ High and low bounds at the indices.
+              -> ([Natural] -> IO a) -- ^ Concrete index function.
+              -> [(Natural,Natural)] -- ^ High and low bounds at the indices.
               -> [SymNat sym]
               -> IO a
 indexSymbolic sym iteFn f = indexSymbolic' sym iteFn f []
@@ -333,18 +333,18 @@ mda_symbolic_lookup sym ite_fn a idx_v = indexSymbolic sym ite_fn elt_fn bounds 
         idx_l = V.toList idx_v
 
 -- | Compute index of element in vector given bounds of array and indices to lookup.
-getLastIndex :: Nat -- ^ Base offset
-             -> Nat -- ^ What to multiply index by when adding to offset
-             -> [Nat] -- ^ Bounds on dimensions of elements.
-             -> [Nat]  -- ^ Indices to lookup
-             -> Nat
+getLastIndex :: Natural -- ^ Base offset
+             -> Natural -- ^ What to multiply index by when adding to offset
+             -> [Natural] -- ^ Bounds on dimensions of elements.
+             -> [Natural]  -- ^ Indices to lookup
+             -> Natural
 getLastIndex o _ [] [] = o
 getLastIndex o m (d:dl) (i:il) = seq o' $ seq d' $ getLastIndex o' d' dl il
   where o' = o + m * (i-1)
         d' = m * d
 getLastIndex _ _ _ _ = error "getLastIndex given mismatched dimensions."
 
-asIndexVectorN :: MDA.ArrayDim -> MDA.Index -> Nat -> V.Vector Nat
+asIndexVectorN :: MDA.ArrayDim -> MDA.Index -> Natural -> V.Vector Natural
 asIndexVectorN _ _  0 = error "Expected at least one index."
 asIndexVectorN d i0 req
    | n < req = i V.++ V.replicate (fromIntegral (req - n)) 1
@@ -844,7 +844,7 @@ evalApp sym itefns logFn evalSub a0 = do
       traverse cplxToNat =<< evalSub v_expr
     LogicVecToIndex v_expr -> do
       v <- evalSub v_expr
-      let go :: [Nat] -> Int -> IO [Nat]
+      let go :: [Natural] -> Int -> IO [Natural]
           go l i
             | i < V.length v =
               case asConstantPred (v V.! i) of
