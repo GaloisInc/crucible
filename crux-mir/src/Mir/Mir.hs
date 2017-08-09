@@ -86,7 +86,7 @@ data Ty =
       | TyAdt Adt
       | TyUnsupported
       | TyCustom CustomTy
-      | TyParam Int
+      | TyParam Integer
       | TyFnDef DefId Substs
       deriving (Eq, Show)
 
@@ -331,7 +331,7 @@ data Rvalue =
       | CheckedBinaryOp { _cbop :: BinOp, _cbop1 :: Operand, _cbop2 :: Operand }
       | NullaryOp { _nuop :: NullOp, _nty :: Ty }
       | UnaryOp { _unop :: UnOp, _unoperand :: Operand}
-      | Discriminant { _dvar :: Var }
+      | Discriminant { _dvar :: Lvalue }
       | Aggregate { _ak :: AggregateKind, _ops :: [Operand] }
       | RAdtAg AdtAg
       | RCustom CustomAggregate

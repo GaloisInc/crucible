@@ -85,7 +85,7 @@ taggedUnionType = Some $ CT.StructRepr $ Ctx.empty Ctx.%> CT.NatRepr Ctx.%> CT.A
 fieldToRepr :: M.Field -> M.Ty -- convert field to type. Perform the corresponding subtitution if field is a type param.
 fieldToRepr (M.Field _ t substs) = 
     case t of
-      M.TyParam i -> case substs !! i of
+      M.TyParam i -> case substs !! (fromInteger i) of
                         Nothing -> error "bad subst"
                         Just ty -> ty
       ty -> ty
@@ -388,7 +388,10 @@ evalRval (M.BinaryOp binop op1 op2) = transBinOp binop op1 op2
 evalRval (M.CheckedBinaryOp binop op1 op2) = transCheckedBinOp  binop op1 op2
 evalRval (M.NullaryOp nop nty) = transNullaryOp  nop nty
 evalRval (M.UnaryOp uop op) = transUnaryOp  uop op
-evalRval (M.Discriminant dvar) = fail "discriminant unimplement"
+evalRval (M.Discriminant lv) = do
+    e <- evalLvalue lv
+    accessAggregate e 0
+
 evalRval (M.RCustom custom) = transCustomAgg custom
 evalRval (M.Aggregate ak ops) = case ak of
                                    M.AKTuple ->  do
@@ -419,6 +422,24 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.Index i))) = do
       (CT.VectorRepr elt_tp, CT.NatRepr) -> do
           return $ MirExp elt_tp $  S.app $ E.VectorGetEntry elt_tp arr ind
 evalLvalue (M.LProjection (M.LvalueProjection lv M.Deref)) = evalLvalue lv
+evalLvalue (M.LProjection (M.LvalueProjection lv (M.Downcast i))) = do
+    etu <- evalLvalue lv
+    (MirExp e_tp e) <- accessAggregate etu 1 
+    let adt_typ = M.typeOf lv
+    case adt_typ of
+      M.TyAdt (M.Adt _ variants) -> do
+          let tr = variantToRepr $ variants !! (fromInteger i)
+          case tr of
+            Some tr | Just Refl <- testEquality e_tp (CT.AnyRepr) -> 
+                return $ MirExp tr (S.app $ E.FromJustValue tr (S.app $ E.UnpackAny tr e) "bad anytype")
+            _ -> fail $ "bad type: expected anyrepr but got " ++ (show e_tp)
+
+      _ -> fail "expected adt type!"
+
+
+
+
+
 evalLvalue lv = fail $ "unknown lvalue access: " ++ (show lv)
 
 
@@ -494,6 +515,8 @@ transSwitch (MirExp (CT.BoolRepr) e) [v] [t1,t2] =
               doBoolBranch e t1 t2
     else
               doBoolBranch e t2 t1
+transSwitch (MirExp (CT.NatRepr) e) vs ts =
+    doNatBranch e vs ts
 
 transSwitch (MirExp f e) _ _  = error $ "bad switch: " ++ (show f)
 
@@ -504,8 +527,21 @@ doBoolBranch e t f = do
       (Just tb, Just fb) -> G.branch e tb fb
       _ -> error "bad lookup on boolbranch"
 
---
-
+doNatBranch :: R.Expr s CT.NatType -> [Integer] -> [M.BasicBlockInfo] -> MirGenerator h s ret a
+doNatBranch _ _ [i] = do
+    lm <- use labelmap
+    case (Map.lookup i lm) of
+      Just lab -> G.jump lab
+      _ -> fail "bad jump"
+doNatBranch e (v:vs) (i:is) = do
+    let test = S.app $ E.NatEq e $ S.app $ E.NatLit (fromInteger v)
+    test_a <- G.mkAtom test
+    G.endNow $ \_ -> do
+        t_id <- G.newLabel
+        f_id <- G.newLabel
+        G.endCurrentBlock $! R.Br test_a t_id f_id
+        G.defineBlock t_id (jumpToBlock i)
+        G.defineBlock f_id (doNatBranch e vs is)
     
 jumpToBlock :: M.BasicBlockInfo -> MirGenerator h s ret a
 jumpToBlock bbi = do
