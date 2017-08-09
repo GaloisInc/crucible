@@ -187,6 +187,7 @@ setupArg sc sym ecRef tp =
               sargs_ <- Ctx.traverseFC (setupArg sc sym ecRef) ctr -- sargs : Ctx.Assignment (C.RegEntry Sym) ctx
               sargs <- Ctx.traverseWithIndex (\_ e -> return $ C.RV $ C.regValue e) sargs_
               return (C.RegEntry tp sargs)
+          C.AnyRepr -> fail $ "AnyRepr cannot be made symbolic. This is probably due to attempting to extract an ADT."
           _ -> fail $ unwords ["unimp",  show tp]
 
 setupArgs :: SC.SharedContext
