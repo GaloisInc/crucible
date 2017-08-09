@@ -5,6 +5,8 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
+
+
 module Mir.Mir where
 import Data.Aeson
 import qualified Data.HashMap.Lazy as HML 
@@ -81,9 +83,10 @@ data Ty =
       | TySlice Ty
       | TyArray Ty Int
       | TyRef Ty Text -- text is for mutability
-    -- TODO regular adt's
+      | TyAdt Adt
       | TyUnsupported
       | TyCustom CustomTy
+      | TyParam Int
       | TyFnDef DefId Substs
       deriving (Eq, Show)
 
@@ -106,7 +109,33 @@ instance FromJSON Ty where
                                           Just (String "ref") ->  TyRef <$> v .: "ty" <*> v .: "mutability"
                                           Just (String "custom") -> TyCustom <$> v .: "data"
                                           Just (String "fndef") -> TyFnDef <$> v .: "defid" <*> v .: "substs"
+                                          Just (String "adt") -> TyAdt <$> v .: "adt"
+                                          Just (String "param") -> TyParam <$> v .: "param"
                                           _ -> error "unsupported ty"
+
+
+data Adt = Adt {_adtname :: Text, _adtvariants :: [Variant]}
+    deriving (Eq, Show)
+
+instance FromJSON Adt where
+    parseJSON = withObject "Adt" $ \v -> Adt <$> v .: "name" <*> v .: "variants"
+
+data Variant = Variant {_vname :: Text, _vdiscr :: Int, _vfields :: [Field], _vctorkind :: Text}
+    deriving (Eq,Show)
+
+instance FromJSON Variant where
+    parseJSON = withObject "Variant" $ \v -> Variant <$> v .: "name" <*> v .: "discr" <*> v .: "fields" <*> v .: "ctor_kind"
+
+data Field = Field {_fName :: Text, _fty :: Ty, _fsubsts :: [Maybe Ty]}
+    deriving (Show, Eq)
+
+instance FromJSON Field where
+    parseJSON = withObject "Field" $ \v -> Field <$> v .: "name" <*> v .: "ty" <*> v .: "substs"
+
+
+
+
+
 
 data CustomTy =
     RangeTy Ty
@@ -304,6 +333,7 @@ data Rvalue =
       | UnaryOp { _unop :: UnOp, _unoperand :: Operand}
       | Discriminant { _dvar :: Var }
       | Aggregate { _ak :: AggregateKind, _ops :: [Operand] }
+      | RAdtAg AdtAg
       | RCustom CustomAggregate
     deriving (Show,Eq)
 
@@ -334,8 +364,16 @@ instance FromJSON Rvalue where
                                               Just (String "unaryop") -> UnaryOp <$> v .: "uop" <*> v .: "op"
                                               Just (String "discriminant") -> Discriminant <$> v .: "val"
                                               Just (String "aggregate") -> Aggregate <$> v .: "akind" <*> v .: "ops"
+                                              Just (String "adtag") -> RAdtAg <$> v .: "ag"
                                               Just (String "custom") -> RCustom <$> v .: "data"
                                               _ -> error "err"
+
+
+data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand]}
+    deriving (Show, Eq)
+
+instance FromJSON AdtAg where
+    parseJSON = withObject "AdtAg" $ \v -> AdtAg <$> v .: "adt" <*> v .: "variant" <*> v .: "ops"
 
 data Terminator = 
     Goto { _gbb :: BasicBlockInfo}
@@ -428,7 +466,7 @@ data Lvpelem =
       | Index Operand
       | ConstantIndex { _cioffset :: Int, _cimin_len :: Int, _cifrom_end :: Bool }
       | Subslice { _sfrom :: Int, _sto :: Int }
-      | Downcast { _dadt :: AdtDef, _dsize :: Int}
+      | Downcast Integer
       deriving (Show, Eq)
 
 instance PPrint Lvpelem where
@@ -437,7 +475,7 @@ instance PPrint Lvpelem where
     pprint (Index a) = pprint_fn1 "Index" a
     pprint (ConstantIndex a b c) = pprint_fn3 "ConstantIndex" a b c
     pprint (Subslice a b) = pprint_fn2 "Subslice" a b
-    pprint (Downcast a b) = pprint_fn2 "Downcast" a b
+    pprint (Downcast a) = pprint_fn1 "Downcast" a
 
 instance FromJSON Lvpelem where
     parseJSON = withObject "Lvpelem" $ \v -> case (HML.lookup "kind" v) of
@@ -446,7 +484,7 @@ instance FromJSON Lvpelem where
                                                Just (String "index") -> Index <$> v .: "op"
                                                Just (String "constantindex") -> ConstantIndex <$> v .: "offset" <*> v .: "min_length" <*> v .: "from_end"
                                                Just (String "subslice") -> Subslice <$> v .: "from" <*> v .: "to"
-                                               Just (String "downcast") -> Downcast <$> v .: "adt" <*> v .: "size"
+                                               Just (String "downcast") -> Downcast <$> v .: "variant"
 
 data NullOp =
     SizeOf
@@ -611,7 +649,6 @@ instance FromJSON ConstVal where
 data AggregateKind =
     AKArray Ty
       | AKTuple
-      | AKAdt AdtDef Int Substs (Maybe Int)
       | AKClosure DefId ClosureSubsts
       deriving (Show,Eq)
 
@@ -640,7 +677,6 @@ instance FromJSON CustomAggregate where
 instance PPrint Integer where
     pprint = show
 
-type AdtDef = Text
 type DefId = Text
 type Promoted = Text
 type Substs = [Text]

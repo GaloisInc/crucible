@@ -33,7 +33,7 @@ import qualified Lang.Crucible.Syntax as S
 import qualified Data.Map.Strict as Map
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import qualified Lang.Crucible.Types as CT
-import qualified Lang.MATLAB.Utils.Nat as Nat
+import qualified Numeric.Natural as Nat
 import qualified Data.Vector as V
 import qualified Data.Parameterized.Context as Ctx 
 import qualified Text.Regex as Regex
@@ -76,10 +76,27 @@ instance Show (MirExp s) where
 
 type CollectionTranslation = Map.Map Text.Text Core.AnyCFG
 
+taggedUnionType :: Some (CT.TypeRepr)
+taggedUnionType = Some $ CT.StructRepr $ Ctx.empty Ctx.%> CT.NatRepr Ctx.%> CT.AnyRepr
 
 
 -----------
-    
+   
+fieldToRepr :: M.Field -> M.Ty -- convert field to type. Perform the corresponding subtitution if field is a type param.
+fieldToRepr (M.Field _ t substs) = 
+    case t of
+      M.TyParam i -> case substs !! i of
+                        Nothing -> error "bad subst"
+                        Just ty -> ty
+      ty -> ty
+
+variantToRepr :: M.Variant -> Some CT.TypeRepr
+variantToRepr (M.Variant vn vd vfs vct) =
+    tyListToCtx (map fieldToRepr vfs) $ \repr -> Some (CT.StructRepr repr) 
+
+adtToRepr :: M.Adt -> Some CT.TypeRepr
+adtToRepr (M.Adt adtname variants) = taggedUnionType
+
 
 -- Type translation and type-level list utilities
 
@@ -89,7 +106,7 @@ tyToRepr t = case t of
                         M.TyTuple ts -> tyListToCtx ts $ \repr -> Some (CT.StructRepr repr)
                         M.TySlice t ->  tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
                         M.TyArray t _ ->tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
-                        -- TODO struct
+                        M.TyAdt a -> adtToRepr a
                         M.TyInt M.USize -> Some $ CT.NatRepr
                         M.TyInt M.B8 -> Some $ CT.BVRepr (knownNat :: NatRepr 8)
                         M.TyInt M.B16 -> Some $ CT.BVRepr (knownNat :: NatRepr 16)
@@ -161,7 +178,7 @@ transConstVal :: Some CT.TypeRepr -> M.ConstVal -> MirGenerator h s ret (MirExp 
 transConstVal (Some (CT.BVRepr w)) (M.ConstInt i) = return $ MirExp (CT.BVRepr w) (S.app $ E.BVLit w (fromIntegral i))
 transConstVal (Some (CT.BoolRepr)) (M.ConstBool b) = return $ MirExp (CT.BoolRepr) (S.litExpr b)
 transConstVal (Some (CT.NatRepr)) (M.ConstInt i) = do
-    n <- Nat.integerAsNat i
+    let n = fromInteger i
     return $ MirExp CT.NatRepr (S.app $ E.NatLit n)
 transConstVal tp cv = fail $ "fail or unimp constant: " ++ (show tp) ++ " " ++ (show cv)
 
@@ -265,7 +282,7 @@ transUnaryOp uop op = do
 buildRepeat :: M.Operand -> M.ConstUsize -> MirGenerator h s ret (MirExp s)
 buildRepeat op size = do
     (MirExp tp e) <- evalOperand op
-    n <- Nat.integerAsNat size
+    let n = fromInteger size
     return $ MirExp (CT.VectorRepr tp) (S.app $ E.VectorReplicate tp (S.app $ E.NatLit n) e)
 
 buildRepeat_ :: M.Operand -> M.Operand -> MirGenerator h s ret (MirExp s)
@@ -289,6 +306,14 @@ buildArrayLit trep exps = do
 buildTuple :: [MirExp s] -> MirExp s
 buildTuple xs = exp_to_assgn (xs) $ \ctx asgn -> 
     MirExp (CT.StructRepr ctx) (S.app $ E.MkStruct ctx asgn)
+
+buildTaggedUnion :: Integer -> [MirExp s] -> MirExp s
+buildTaggedUnion i es =
+    let v = buildTuple es in
+    case v of
+      MirExp vt ve ->
+        buildTuple [MirExp (CT.NatRepr) (S.app $ E.NatLit (fromInteger i)), MirExp (CT.AnyRepr) (S.app $ E.PackAny vt ve) ]
+
 
 accessAggregate :: MirExp s -> Int -> MirGenerator h s ret (MirExp s)
 accessAggregate (MirExp (CT.StructRepr ctx) ag) i
@@ -375,6 +400,9 @@ evalRval (M.Aggregate ak ops) = case ak of
                                            buildArrayLit repr exps
                                        
                                    _ -> fail "other aggregate build unimp"
+evalRval (M.RAdtAg (M.AdtAg adt agv ops)) = do
+    es <- mapM evalOperand ops
+    return $ buildTaggedUnion agv es
 
 
                        
