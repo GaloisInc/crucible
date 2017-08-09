@@ -1680,8 +1680,11 @@ boundVars' visited (NonceAppElt e) = do
   cache visited (ExprPPIndex idx) $ do
     sums <- sequence (toListFC (boundVars' visited) (nonceEltApp e))
     return $ foldl' Set.union Set.empty sums
-boundVars' _ (BoundVarElt v)
-  | QuantifierVarKind <- bvarKind v = return (Set.singleton (Some v))
+boundVars' visited (BoundVarElt v)
+  | QuantifierVarKind <- bvarKind v = do
+      let idx = indexValue (bvarId v)
+      cache visited (ExprPPIndex idx) $
+        return (Set.singleton (Some v))
 boundVars' _ _ = return Set.empty
 
 ------------------------------------------------------------------------
