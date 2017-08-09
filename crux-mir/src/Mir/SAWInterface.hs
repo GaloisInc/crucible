@@ -1,6 +1,6 @@
 
 
-module Mir.SAWInterface (RustModule, loadMIR, rmTerms) where
+module Mir.SAWInterface (RustModule, loadMIR, extractMIR, rmCFGs) where
 
 import Mir.Run
 import Mir.Mir
@@ -35,9 +35,8 @@ import Control.Monad
 
 
 data RustModule = RustModule {
-    rmTerms :: M.Map T.Text SC.Term
+    rmCFGs :: M.Map T.Text C.AnyCFG
 }
-    deriving Show
 
 
 cleanFnName :: T.Text -> T.Text
@@ -48,6 +47,16 @@ cleanFnName t = T.pack $
         s2 = Regex.subRegex r2 s1 "" in
     s2
 
+extractMIR :: SC.SharedContext -> RustModule -> String -> IO SC.Term
+extractMIR sc rm n = do
+    let cfgmap = rmCFGs rm
+        link = forM_ cfgmap (\(C.AnyCFG cfg) -> C.bindFnHandle (C.cfgHandle cfg) (C.UseCFG cfg $ C.postdomInfo cfg))
+    (C.AnyCFG cfg) <- case (M.lookup (T.pack n) cfgmap) of
+             Just c -> return c
+             _ -> fail $ "Could not find cfg: " ++ n
+    term <- extractFromCFGPure link sc cfg
+    return term    
+
 loadMIR :: SC.SharedContext -> FilePath -> IO RustModule
 loadMIR sc fp = do
     f <- B.readFile fp
@@ -55,11 +64,9 @@ loadMIR sc fp = do
     case c of
       Nothing -> fail $ "Decoding of MIR failed!"
       Just coll -> do
-          let cfgmap = mirToCFG coll (Just (P.passMutRefArgs . P.passRemoveStorage . P.passRemoveBoxNullary))
-              link = forM_ cfgmap (\(C.AnyCFG cfg) -> C.bindFnHandle (C.cfgHandle cfg) (C.UseCFG cfg $ C.postdomInfo cfg))
-          termap_ <- mapM (\(C.AnyCFG cfg) -> extractFromCFGPure link sc cfg) cfgmap
-          let termap = M.fromList $ map (\(k,v) -> (cleanFnName k, v)) $ M.toList termap_
-          return $ RustModule termap
+          let cfgmap_ = mirToCFG coll (Just (P.passMutRefArgs . P.passRemoveStorage . P.passRemoveBoxNullary))
+          let cfgmap = M.fromList $ map (\(k,v) -> (cleanFnName k, v)) $ M.toList cfgmap_
+          return $ RustModule cfgmap
 
 
 
