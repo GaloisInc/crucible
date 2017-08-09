@@ -413,8 +413,18 @@ evalLvalue :: M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalLvalue (M.Tagged l _) = evalLvalue l
 evalLvalue (M.Local var) = lookupVar var
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field ty))) = do
-    ag <- evalLvalue lv
-    accessAggregate ag field
+    case M.typeOf lv of
+      M.TyAdt (M.Adt _ [struct_variant]) -> -- if lv is a struct, extract the struct
+        etu <- evalLvalue lv
+        (MirExp e_tp e) <- accessAggregate etu 1
+        let tr = variantToRepr struct_variant
+        case tr of
+          Some tr | Just Refl <- testEquality e_tp (CT.AnyRepr) ->
+              let struct = MirExp tr (S.app $ E.FromJustValue tr (S.app $ E.UnpackAny tr e) "bad anytype")
+              accessAggregate struct field
+      _ -> -- otherwise, lv is a tuple
+        ag <- evalLvalue lv
+        accessAggregate ag field
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.Index i))) = do
     (MirExp arr_tp arr) <- evalLvalue lv
     (MirExp ind_tp ind) <- evalOperand i
