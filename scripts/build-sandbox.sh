@@ -50,10 +50,12 @@ checkout () {
 }
 
 # GitHub repos (some private, some public) required by the build
-PKG_LIST="abcBridge aig blt saw-core hpb llvm-pretty llvm-pretty-bc-parser parameterized-utils"
+PKG_LIST="GaloisInc/abcBridge GaloisInc/aig GaloisInc/blt \
+          GaloisInc/saw-core GaloisInc/hpb elliottt/llvm-pretty \
+          GaloisInc/llvm-pretty-bc-parser GaloisInc/parameterized-utils"
 
 # Set base GitHub URL for Galois repos if it's not already set
-: ${GITHUB_URL:="git@github.com:GaloisInc"}
+: ${GITHUB_URL:="git@github.com"}
 echo "Using github url: $GITHUB_URL"
 
 # Check if 'stack' is in the path
@@ -71,5 +73,5 @@ fi
 
 # Download GitHub repos
 for pkg in $PKG_LIST; do
-  checkout "$GITHUB_URL/$pkg.git" $pkg
+  checkout "$GITHUB_URL:$pkg.git" ${pkg#*/}
 done
