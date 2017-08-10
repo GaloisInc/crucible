@@ -76,8 +76,8 @@ instance Show (MirExp s) where
 
 type CollectionTranslation = Map.Map Text.Text Core.AnyCFG
 
-taggedUnionType :: Some (CT.TypeRepr)
-taggedUnionType = Some $ CT.StructRepr $ Ctx.empty Ctx.%> CT.NatRepr Ctx.%> CT.AnyRepr
+taggedUnionType :: CT.TypeRepr (CT.StructType (Ctx.EmptyCtx Ctx.::> CT.NatType Ctx.::> CT.AnyType))
+taggedUnionType = CT.StructRepr $ Ctx.empty Ctx.%> CT.NatRepr Ctx.%> CT.AnyRepr
 
 
 -----------
@@ -95,7 +95,7 @@ variantToRepr (M.Variant vn vd vfs vct) =
     tyListToCtx (map fieldToRepr vfs) $ \repr -> Some (CT.StructRepr repr) 
 
 adtToRepr :: M.Adt -> Some CT.TypeRepr
-adtToRepr (M.Adt adtname variants) = taggedUnionType
+adtToRepr (M.Adt adtname variants) = Some $ taggedUnionType
 
 
 -- Type translation and type-level list utilities
@@ -264,7 +264,7 @@ transBinOp bop op1 op2 = do
 transCheckedBinOp ::  M.BinOp -> M.Operand -> M.Operand -> MirGenerator h s ret (MirExp s) -- returns tuple of (result, bool) 
 transCheckedBinOp  a b c = do
     res <- transBinOp a b c
-    return $ buildTuple [res, MirExp (CT.BoolRepr) (S.litExpr False)] -- TODO always succeeds. we could implement this using BVCarry for addition, and a special procedure for multiplication
+    return $ buildTuple [res, MirExp (CT.BoolRepr) (S.litExpr False)] -- This always succeeds, since we're checking correctness. We can also check for overflow if desired.
 
 transNullaryOp ::  M.NullOp -> M.Ty -> MirGenerator h s ret (MirExp s)
 transNullaryOp _ _ = fail "nullop"
@@ -314,6 +314,12 @@ buildTaggedUnion i es =
       MirExp vt ve ->
         buildTuple [MirExp (CT.NatRepr) (S.app $ E.NatLit (fromInteger i)), MirExp (CT.AnyRepr) (S.app $ E.PackAny vt ve) ]
 
+buildTaggedUnion' :: Integer -> MirExp s -> MirExp s -- second argument is already a struct
+buildTaggedUnion' i v = 
+    case v of
+      MirExp vt ve ->
+        buildTuple [MirExp (CT.NatRepr) (S.app $ E.NatLit (fromInteger i)), MirExp (CT.AnyRepr) (S.app $ E.PackAny vt ve) ]
+
 
 accessAggregate :: MirExp s -> Int -> MirGenerator h s ret (MirExp s)
 accessAggregate (MirExp (CT.StructRepr ctx) ag) i
@@ -331,7 +337,7 @@ modifyAggregateIdx (MirExp (CT.StructRepr agctx) ag) (MirExp instr ins) i
       let tpr = agctx Ctx.! idx
       case (testEquality tpr instr) of
           Just Refl -> return $ MirExp (CT.StructRepr agctx) (S.setStruct agctx ag idx ins)
-          _ -> fail "bad modify"
+          _ -> fail "bad modify" 
 
 extendUnsignedBV :: MirExp s -> M.BaseSize -> MirGenerator h s ret (MirExp s)
 extendUnsignedBV (MirExp tp e) b = 
@@ -414,7 +420,7 @@ evalLvalue (M.Tagged l _) = evalLvalue l
 evalLvalue (M.Local var) = lookupVar var
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field ty))) = do 
     case M.typeOf lv of
-      M.TyAdt (M.Adt _ [struct_variant]) -> do -- if lv is a struct, extract the struct. TODO make work. also need to do the assignment case
+      M.TyAdt (M.Adt _ [struct_variant]) -> do -- if lv is a struct, extract the struct. 
         etu <- evalLvalue lv
         (MirExp e_tp e) <- accessAggregate etu 1
         let tr = variantToRepr struct_variant
@@ -487,9 +493,22 @@ assignLvExp lv re = do
         M.Local var -> assignVarExp var re
         M.Static -> fail "static"
         M.LProjection (M.LvalueProjection lv (M.PField field ty)) -> do  
-            ag <- evalLvalue lv
-            new_ag <- modifyAggregateIdx ag re field 
-            assignLvExp lv new_ag
+            case M.typeOf lv of
+              M.TyAdt (M.Adt _ [struct_variant]) -> do 
+                etu <- evalLvalue lv
+                (MirExp e_tp e) <- accessAggregate etu 1
+                let tr = variantToRepr struct_variant
+                case tr of
+                  Some tr | Just Refl <- testEquality e_tp (CT.AnyRepr) -> do
+                      let struct = MirExp tr (S.app $ E.FromJustValue tr (S.app $ E.UnpackAny tr e) "bad anytype")
+                      new_st <- modifyAggregateIdx struct re field
+                      let new_ag = buildTaggedUnion' 0 new_st -- 0 b/c this is a struct so has one variant
+                      assignLvExp lv new_ag
+                      
+              _ -> do
+                ag <- evalLvalue lv 
+                new_ag <- modifyAggregateIdx ag re field 
+                assignLvExp lv new_ag
         M.LProjection (M.LvalueProjection lv (M.Index op)) -> do
             (MirExp arr_tp arr) <- evalLvalue lv
             (MirExp ind_tp ind) <- evalOperand op
