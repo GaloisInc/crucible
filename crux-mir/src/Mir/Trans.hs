@@ -122,6 +122,7 @@ tyToRepr t = case t of
                         M.TyRef t _ -> tyToRepr t -- references are erased! 
                         M.TyChar -> Some $ CT.BVRepr (knownNat :: NatRepr 8) 
                         M.TyCustom custom_t -> customtyToRepr custom_t 
+                        M.TyClosure def_id substs -> Some $ CT.AnyRepr -- Type of closure will eventually be Struct(function handle, struct of args)
                         _ -> error "unknown type?"
 
 tyToReprCont :: forall a. M.Ty -> (forall tp. CT.TypeRepr tp -> a) -> a
@@ -137,6 +138,11 @@ tyListToCtx ts f =  go (map tyToRepr ts) Ctx.empty
        go []       ctx      = f ctx
        go (Some tp:tps) ctx = go tps (ctx Ctx.%> tp)
 
+reprsToCtx :: forall a. [Some CT.TypeRepr] -> (forall ctx. CT.CtxRepr ctx -> a) -> a
+reprsToCtx rs f = go rs Ctx.empty
+ where go :: forall ctx. [Some CT.TypeRepr] -> CT.CtxRepr ctx -> a
+       go []       ctx      = f ctx
+       go (Some tp:tps) ctx = go tps (ctx Ctx.%> tp)
 
 packBase
     :: CT.TypeRepr tp
@@ -407,14 +413,50 @@ evalRval (M.Aggregate ak ops) = case ak of
                                        exps <- mapM evalOperand ops
                                        tyToReprCont ty $ \repr ->
                                            buildArrayLit repr exps
+                                   M.AKClosure defid argsm -> do
+                                       args <- mapM evalOperand ops
+                                       buildClosureHandle defid args
                                        
                                    _ -> fail "other aggregate build unimp"
 evalRval (M.RAdtAg (M.AdtAg adt agv ops)) = do
     es <- mapM evalOperand ops
     return $ buildTaggedUnion agv es
 
+buildClosureHandle :: Text.Text -> [MirExp s] -> MirGenerator h s ret (MirExp s)
+buildClosureHandle funid [arg] = do
+    hmap <- use handlemap
+    case (Map.lookup funid hmap) of
+      (Just (MirHandle fargctx fretrepr fhandle)) -> do
+          let closure_arg = buildTuple [arg]
+          let handle_cl = S.app $ E.HandleLit fhandle
+              handle_cl_ty = CT.FunctionHandleRepr fargctx fretrepr
+              handl = MirExp handle_cl_ty handle_cl
+          let closure_unpack = buildTuple [handl, closure_arg]
+          case closure_unpack of
+            MirExp cl_ty cl ->
+                return $ MirExp (CT.AnyRepr) (S.app $ E.PackAny cl_ty cl)
 
+
+buildClosureHandle _ _ = fail "only caring about unary closures for now"
                        
+
+buildClosureType :: Text.Text -> [M.Ty] -> MirGenerator h s ret (Some (CT.TypeRepr)) -- given def
+buildClosureType defid args = do
+    hmap <- use handlemap
+    case (Map.lookup defid hmap) of
+      (Just (MirHandle fargctx fretrepr fhandle)) -> do
+          -- build type StructRepr [HandleRepr, StructRepr [args types]]
+          tyListToCtx args $ \argsctx -> do
+              let argstruct = CT.StructRepr argsctx
+                  handlerepr = CT.FunctionHandleRepr fargctx fretrepr
+              reprsToCtx [Some handlerepr, Some argstruct] $ \t ->
+                  return $ Some (CT.StructRepr t)
+
+filterMaybes :: [Maybe a] -> [a]
+filterMaybes [] = []
+filterMaybes ((Just a):as) = a : (filterMaybes as)
+filterMaybes ((Nothing):as) = filterMaybes as
+
 evalLvalue :: M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalLvalue (M.Tagged l _) = evalLvalue l
 evalLvalue (M.Local var) = lookupVar var
@@ -428,6 +470,20 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field ty))) = do
           Some tr | Just Refl <- testEquality e_tp (CT.AnyRepr) -> do
               let struct = MirExp tr (S.app $ E.FromJustValue tr (S.app $ E.UnpackAny tr e) "bad anytype")
               accessAggregate struct field
+
+      M.TyClosure defid argsm -> do
+        (MirExp e_tp e) <- evalLvalue lv
+        let args = filterMaybes argsm
+        case testEquality e_tp (CT.AnyRepr) of
+          Just Refl -> do
+              ty <- buildClosureType defid args
+              case ty of
+                Some ty -> do
+                  let unpack_closure = MirExp ty (S.app $ E.FromJustValue ty (S.app $ E.UnpackAny ty e) "bad anytype")
+                  clargs <- accessAggregate unpack_closure 1
+                  accessAggregate clargs field
+          _ -> fail "bad anytype" 
+
       _ -> do -- otherwise, lv is a tuple
         ag <- evalLvalue lv
         accessAggregate ag field
@@ -504,7 +560,7 @@ assignLvExp lv re = do
                       new_st <- modifyAggregateIdx struct re field
                       let new_ag = buildTaggedUnion' 0 new_st -- 0 b/c this is a struct so has one variant
                       assignLvExp lv new_ag
-                      
+              M.TyClosure _ _ -> fail "assign to closure unimp" 
               _ -> do
                 ag <- evalLvalue lv 
                 new_ag <- modifyAggregateIdx ag re field 

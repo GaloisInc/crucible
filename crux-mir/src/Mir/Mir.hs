@@ -88,6 +88,7 @@ data Ty =
       | TyCustom CustomTy
       | TyParam Integer
       | TyFnDef DefId Substs
+      | TyClosure DefId [Maybe Ty]
       deriving (Eq, Show)
 
 class TypeOf a where
@@ -111,6 +112,7 @@ instance FromJSON Ty where
                                           Just (String "fndef") -> TyFnDef <$> v .: "defid" <*> v .: "substs"
                                           Just (String "adt") -> TyAdt <$> v .: "adt"
                                           Just (String "param") -> TyParam <$> v .: "param"
+                                          Just (String "closure") -> TyClosure <$> v .: "defid" <*> v .: "closuresubsts"
                                           _ -> error "unsupported ty"
 
 
@@ -649,7 +651,7 @@ instance FromJSON ConstVal where
 data AggregateKind =
     AKArray Ty
       | AKTuple
-      | AKClosure DefId ClosureSubsts
+      | AKClosure DefId [Maybe Ty]
       deriving (Show,Eq)
 
 instance PPrint AggregateKind where
@@ -661,6 +663,7 @@ instance FromJSON AggregateKind where
     parseJSON = withObject "AggregateKind" $ \v -> case (HML.lookup "kind" v) of
                                                      Just (String "array") -> AKArray <$> v .: "ty"
                                                      Just (String "tuple") -> pure AKTuple
+                                                     Just (String "agclosure") -> AKClosure <$> v .: "defid" <*> v .: "closuresubsts"
                                                      Just (String unk) -> error $ "unimp: " ++ (unpack unk)
 
 data CustomAggregate = 
@@ -833,5 +836,16 @@ isCustomFunc fname
 
   | Just _ <- Regex.matchRegex (Regex.mkRegex "::vec\\[[0-9]+\\]::from_elem\\[[0-9]+\\]") (unpack fname)
     = Just "vec_fromelem"
+
+  -- TODO into_iter
+  --    vec -> (vec, 0)
+  -- TODO into_vec
+  --    (vec, 0) -> vec
+  -- TODO Iterator::map
+  --    ((vec,0), closure) -> (closure of vec, 0)
+  -- TODO Iterator::collect
+  --    (vec, 0) -> vec
+  -- TODO Fn::Call
+  --    
 
   | otherwise = Nothing
