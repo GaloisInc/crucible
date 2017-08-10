@@ -157,6 +157,7 @@ declareFromDefine d =
             , L.decArgs = L.typedType <$> L.defArgs d
             , L.decVarArgs = L.defVarArgs d
             , L.decAttrs   = L.defAttrs d
+            , L.decComdat  = mempty
             }
 
 -- | Return all declarations derived from both external symbols and
@@ -331,7 +332,7 @@ instrResultType instr =
     L.Call _ (L.PtrTo (L.FunTy ty _ _)) _ _ -> ty
     L.Call _ ty _ _ -> error $ unwords ["unexpected function type in call:", show ty]
     L.Alloca ty _ _ -> L.PtrTo ty
-    L.Load x _ -> case L.typedType x of
+    L.Load x _ _ -> case L.typedType x of
                    L.PtrTo ty -> ty
                    _ -> error $ unwords ["load through non-pointer type", show (L.typedType x)]
     L.ICmp _ _ _ -> L.PrimType (L.Integer 1)
@@ -357,6 +358,8 @@ instrResultType instr =
                         _ -> error $ unwords ["extract element of non-vector type", show instr]
     L.InsertElt x _ _ -> L.typedType x
     L.ShuffleVector x _ _ -> L.typedType x
+
+    L.LandingPad x _ _ _ -> x
 
     _ -> error $ unwords ["instrResultType, unsupported instruction:", show instr]
 
@@ -1379,6 +1382,9 @@ generateInstr retType lab instr assign_f k =
     L.ShuffleVector _ _ _ ->
       reportError "FIXME shuffleVector not implemented"
 
+    L.LandingPad _ _ _ _ ->
+      reportError "FIXME landingPad not implemented"
+
     L.Alloca tp num _align -> do
       -- ?? FIXME assert that the alignment value is appropriate...
       tp' <- liftMemType tp
@@ -1399,7 +1405,7 @@ generateInstr retType lab instr assign_f k =
       assign_f (BaseExpr LLVMPointerRepr p)
       k
 
-    L.Load ptr _align -> do
+    L.Load ptr _atomic _align -> do
       -- ?? FIXME assert that the alignment value is appropriate...
       tp'  <- liftMemType (L.typedType ptr)
       ptr' <- transValue tp' (L.typedValue ptr)

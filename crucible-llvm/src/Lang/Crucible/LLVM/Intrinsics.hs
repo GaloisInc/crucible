@@ -206,6 +206,7 @@ llvmLifetimeStartOverride =
     , L.decArgs    = [ L.PrimType $ L.Integer 64, L.PtrTo (L.PrimType $ L.Integer 8) ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \_ -> mkOverride (functionNameFromText (Text.pack nm)) (return ())
   )
@@ -221,6 +222,7 @@ llvmLifetimeEndOverride =
     , L.decArgs    = [ L.PrimType $ L.Integer 64, L.PtrTo (L.PrimType $ L.Integer 8) ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \_ -> mkOverride (functionNameFromText (Text.pack nm)) (return ())
   )
@@ -238,6 +240,7 @@ llvmObjectsizeOverride_32 =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -258,6 +261,7 @@ llvmObjectsizeOverride_64 =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -280,6 +284,7 @@ llvmCallocOverride =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -301,6 +306,7 @@ llvmMallocOverride =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -321,6 +327,7 @@ llvmFreeOverride =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -347,6 +354,7 @@ llvmMemcpyOverride_8_8_32 =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -373,6 +381,7 @@ llvmMemcpyOverride_8_8_64 =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -397,6 +406,7 @@ llvmMemcpyOverride =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -427,6 +437,7 @@ llvmMemcpyChkOverride =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -456,6 +467,7 @@ llvmMemmoveOverride =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -486,6 +498,7 @@ llvmMemmoveOverride_8_8_32 =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -511,6 +524,7 @@ llvmMemmoveOverride_8_8_64 =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -539,6 +553,7 @@ llvmMemsetOverride_8_64 =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -567,6 +582,7 @@ llvmMemsetOverride_8_32 =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -592,6 +608,7 @@ llvmMemsetOverride =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -627,6 +644,7 @@ llvmMemsetChkOverride =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -655,6 +673,7 @@ llvmPutCharOverride =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -674,6 +693,7 @@ llvmPutsOverride =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -696,6 +716,7 @@ llvmPrintfOverride =
                      ]
     , L.decVarArgs = True
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
