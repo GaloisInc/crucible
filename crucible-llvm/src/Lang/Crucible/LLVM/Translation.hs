@@ -1445,67 +1445,11 @@ generateInstr retType lab instr assign_f k =
       assign_f v
       k
 
-    L.Call _tailCall fnTy@(L.PtrTo (L.FunTy lretTy largTys varargs)) fn args
+    L.Call _tailCall (L.PtrTo fnTy) fn args ->
+        callFunctionWithCont fnTy fn args assign_f k
 
-     -- Skip calls to debugging intrinsics.  We might want to support these in some way
-     -- in the future.  However, they take metadata values as arguments, which
-     -- would require some work to support.
-     | L.ValSymbol nm <- fn
-     , nm `elem` [ "llvm.dbg.declare"
-                 , "llvm.dbg.value"
-                 ] -> k
-
-     -- For varargs functions, any arguments beyond the ones found in the function
-     -- declaration are gathered into a vector of 'ANY' type, which is then passed
-     -- as an additional final argument to the underlying Crucible function.  The
-     -- called function is expected to know the types of these additional arguments,
-     -- which it can unpack from the ANY values when it knows those types.
-     | varargs -> do
-           fnTy' <- liftMemType fnTy
-           retTy' <- liftRetType lretTy
-           fn' <- transValue fnTy' fn
-           args' <- mapM transTypedValue args
-           let ?err = fail
-           let (mainArgs, varArgs) = splitAt (length largTys) args'
-           varArgs' <- unpackVarArgs varArgs
-           unpackArgs mainArgs $ \argTypes mainArgs' ->
-             case asScalar fn' of
-                Scalar LLVMPointerRepr ptr ->
-                  do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
-                     memLoadHandle <- litExpr . llvmMemLoadHandle . memModelOps . llvmContext <$> get
-                     mem <- readGlobal memVar
-                     v <- call memLoadHandle (Ctx.empty Ctx.%> mem Ctx.%> ptr)
-                     llvmRetTypeAsRepr retTy' $ \retTy ->
-                       do let expectTy = FunctionHandleRepr (argTypes Ctx.%> varArgsRepr) retTy
-                          let msg = litExpr (Text.pack ("Expected function of type " ++ show expectTy))
-                          let v' = app $ FromJustValue expectTy (app $ UnpackAny expectTy v) msg
-                          ret <- call v' (mainArgs' Ctx.%> varArgs')
-                          assign_f (BaseExpr retTy ret)
-                          k
-                _ -> fail $ unwords ["unsupported function value", show fn]
-
-     -- Ordinary (non varargs) function call
-     | otherwise -> do
-           fnTy' <- liftMemType fnTy
-           retTy' <- liftRetType lretTy
-           fn' <- transValue fnTy' fn
-           args' <- mapM transTypedValue args
-           let ?err = fail
-           unpackArgs args' $ \argTypes args'' ->
-              case asScalar fn' of
-                Scalar LLVMPointerRepr ptr ->
-                  do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
-                     memLoadHandle <- litExpr . llvmMemLoadHandle . memModelOps . llvmContext <$> get
-                     mem <- readGlobal memVar
-                     v <- call memLoadHandle (Ctx.empty Ctx.%> mem Ctx.%> ptr)
-                     llvmRetTypeAsRepr retTy' $ \retTy ->
-                       do let expectTy = FunctionHandleRepr argTypes retTy
-                          let msg = litExpr (Text.pack ("Expected function of type " ++ show expectTy))
-                          let v' = app $ FromJustValue expectTy (app $ UnpackAny expectTy v) msg
-                          ret <- call v' args''
-                          assign_f (BaseExpr retTy ret)
-                          k
-                _ -> fail $ unwords ["unsupported function value", show fn]
+    L.Invoke fnTy fn args normLabel _unwindLabel -> do
+        callFunctionWithCont fnTy fn args assign_f $ definePhiBlock lab normLabel
 
     L.Bit op x y -> do
            let bitop :: (1 <= w)
@@ -2012,6 +1956,75 @@ generateInstr retType lab instr assign_f k =
                     Nothing -> fail $ unwords ["tried to void return from non-void function", show retType]
 
     _ -> reportError $ App $ TextLit $ Text.pack $ unwords ["unsupported instruction", show instr]
+
+callFunctionWithCont :: forall h s ret
+                        . (?lc :: TyCtx.LLVMContext)
+                     => L.Type -> L.Value -> [L.Typed L.Value]
+                     -> (LLVMExpr s Expr -> LLVMGenerator h s ret ())
+                     -> Generator h s LLVMState ret ()
+                     -> Generator h s LLVMState ret ()
+callFunctionWithCont fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f k
+     -- Skip calls to debugging intrinsics.  We might want to support these in some way
+     -- in the future.  However, they take metadata values as arguments, which
+     -- would require some work to support.
+     | L.ValSymbol nm <- fn
+     , nm `elem` [ "llvm.dbg.declare"
+                 , "llvm.dbg.value"
+                 ] = k
+
+     -- For varargs functions, any arguments beyond the ones found in the function
+     -- declaration are gathered into a vector of 'ANY' type, which is then passed
+     -- as an additional final argument to the underlying Crucible function.  The
+     -- called function is expected to know the types of these additional arguments,
+     -- which it can unpack from the ANY values when it knows those types.
+     | varargs = do
+           fnTy' <- liftMemType (L.PtrTo fnTy)
+           retTy' <- liftRetType lretTy
+           fn' <- transValue fnTy' fn
+           args' <- mapM transTypedValue args
+           let ?err = fail
+           let (mainArgs, varArgs) = splitAt (length largTys) args'
+           varArgs' <- unpackVarArgs varArgs
+           unpackArgs mainArgs $ \argTypes mainArgs' ->
+             case asScalar fn' of
+                Scalar LLVMPointerRepr ptr ->
+                  do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
+                     memLoadHandle <- litExpr . llvmMemLoadHandle . memModelOps . llvmContext <$> get
+                     mem <- readGlobal memVar
+                     v <- call memLoadHandle (Ctx.empty Ctx.%> mem Ctx.%> ptr)
+                     llvmRetTypeAsRepr retTy' $ \retTy ->
+                       do let expectTy = FunctionHandleRepr (argTypes Ctx.%> varArgsRepr) retTy
+                          let msg = litExpr (Text.pack ("Expected function of type " ++ show expectTy))
+                          let v' = app $ FromJustValue expectTy (app $ UnpackAny expectTy v) msg
+                          ret <- call v' (mainArgs' Ctx.%> varArgs')
+                          assign_f (BaseExpr retTy ret)
+                          k
+                _ -> fail $ unwords ["unsupported function value", show fn]
+
+     -- Ordinary (non varargs) function call
+     | otherwise = do
+           fnTy' <- liftMemType (L.PtrTo fnTy)
+           retTy' <- liftRetType lretTy
+           fn' <- transValue fnTy' fn
+           args' <- mapM transTypedValue args
+           let ?err = fail
+           unpackArgs args' $ \argTypes args'' ->
+              case asScalar fn' of
+                Scalar LLVMPointerRepr ptr ->
+                  do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
+                     memLoadHandle <- litExpr . llvmMemLoadHandle . memModelOps . llvmContext <$> get
+                     mem <- readGlobal memVar
+                     v <- call memLoadHandle (Ctx.empty Ctx.%> mem Ctx.%> ptr)
+                     llvmRetTypeAsRepr retTy' $ \retTy ->
+                       do let expectTy = FunctionHandleRepr argTypes retTy
+                          let msg = litExpr (Text.pack ("Expected function of type " ++ show expectTy))
+                          let v' = app $ FromJustValue expectTy (app $ UnpackAny expectTy v) msg
+                          ret <- call v' args''
+                          assign_f (BaseExpr retTy ret)
+                          k
+                _ -> fail $ unwords ["unsupported function value", show fn]
+callFunctionWithCont fnTy _fn _args _assign_f _k =
+    reportError $ App $ TextLit $ Text.pack $ unwords ["unsupported function type", show fnTy]
 
 -- | Build a switch statement by decomposing it into a linear sequence of branches.
 --   FIXME? this could be more efficient if we sort the list and do binary search instead...
