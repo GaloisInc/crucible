@@ -37,6 +37,7 @@ import qualified Lang.Crucible.Config as C
 import qualified Lang.Crucible.Simulator.ExecutionTree as C
 import qualified Lang.Crucible.Simulator.GlobalState as C
 import qualified Lang.Crucible.Simulator.OverrideSim as C
+import qualified Lang.Crucible.Simulator.SimError as C
 import qualified Lang.Crucible.Simulator.RegMap as C
 import qualified Lang.Crucible.Simulator.SimError as C
 import qualified Lang.Crucible.Solver.Interface as C hiding (mkStruct)
@@ -131,9 +132,13 @@ extractFromCFGPure setup sc cfg = do
           t <- toSawCore sc sym (gp^.C.gpValue)
           t' <- SC.scAbstractExts sc (toList ecs) t
           return t'
-      C.AbortedResult _ ar -> do
-         fail $ "failure"
+      C.AbortedResult a ar -> do
+          fail $ "aborted failure: " ++ handleAbortedResult ar
 
+
+handleAbortedResult :: C.AbortedResult sym -> String
+handleAbortedResult (C.AbortedExec simerror _) = C.simErrorReasonMsg $ C.simErrorReason simerror
+handleAbortedResult _ = "unknown"
 
 mirToCFG :: [M.Fn] -> Maybe ([M.Fn] -> [M.Fn]) -> Map.Map Text.Text C.AnyCFG
 mirToCFG fns Nothing = mirToCFG fns (Just Pass.passId)
@@ -187,7 +192,7 @@ setupArg sc sym ecRef tp =
               sargs_ <- Ctx.traverseFC (setupArg sc sym ecRef) ctr -- sargs : Ctx.Assignment (C.RegEntry Sym) ctx
               sargs <- Ctx.traverseWithIndex (\_ e -> return $ C.RV $ C.regValue e) sargs_
               return (C.RegEntry tp sargs)
-          C.AnyRepr -> fail $ "AnyRepr cannot be made symbolic. This is probably due to attempting to extract an ADT."
+          C.AnyRepr -> fail $ "AnyRepr cannot be made symbolic. This is probably due to attempting to extract an ADT or closure."
           _ -> fail $ unwords ["unimp",  show tp]
 
 setupArgs :: SC.SharedContext

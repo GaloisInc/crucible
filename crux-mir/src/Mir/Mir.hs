@@ -87,7 +87,7 @@ data Ty =
       | TyUnsupported
       | TyCustom CustomTy
       | TyParam Integer
-      | TyFnDef DefId Substs
+      | TyFnDef DefId [Maybe Ty]
       | TyClosure DefId [Maybe Ty]
       deriving (Eq, Show)
 
@@ -591,7 +591,7 @@ instance FromJSON CastKind where
                                                Just (String "Unsize") -> pure Unsize
                                      
 data Literal =
-    Item DefId Substs
+    Item DefId [Maybe Ty]
       | Value ConstVal
       | LPromoted Promoted
       deriving (Show,Eq)
@@ -617,7 +617,7 @@ data ConstVal =
       | ConstBool Bool
       | ConstChar Char
       | ConstVariant DefId
-      | ConstFunction DefId Substs
+      | ConstFunction DefId [Maybe Ty]
       | ConstStruct
       | ConstTuple [ConstVal]
       | ConstArray [ConstVal]
@@ -682,7 +682,6 @@ instance PPrint Integer where
 
 type DefId = Text
 type Promoted = Text
-type Substs = [Text]
 type ConstUsize = Integer
 type VisibilityScope = Text
 type AssertMessage = Text
@@ -836,6 +835,9 @@ isCustomFunc fname
 
   | Just _ <- Regex.matchRegex (Regex.mkRegex "::vec\\[[0-9]+\\]::from_elem\\[[0-9]+\\]") (unpack fname)
     = Just "vec_fromelem"
+
+  | Just _ <- Regex.matchRegex (Regex.mkRegex "::ops\\[[0-9]+\\]::function\\[[0-9]+\\]::Fn\\[[0-9]+\\]::call\\[[0-9]+\\]") (unpack fname)
+    = Just "call"
 
   -- TODO into_iter
   --    vec -> (vec, 0)
