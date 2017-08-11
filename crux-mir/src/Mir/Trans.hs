@@ -929,6 +929,19 @@ doCustomCall fname ops lv dest
 
      myIfte is_good good_branch bad_branch
      
+ | Just "iter_map" <- M.isCustomFunc fname, [iter, closure] <- ops = do
+     iter_e <- evalOperand iter
+     closure_e <- evalOperand closure
+     iter2 <- performMap (M.typeOf iter) iter_e (M.typeOf closure) closure_e
+     assignLvExp lv iter2
+     jumpToBlock dest
+
+ | Just "iter_collect" <- M.isCustomFunc fname, [o] <- ops = do
+     iter <- evalOperand o
+     v <- accessAggregate iter 0
+     assignLvExp lv v
+     jumpToBlock dest
+     
 
  | Just "call" <- M.isCustomFunc fname,
  [o1, o2] <- ops = do
@@ -962,3 +975,66 @@ doCustomCall fname ops lv dest
 
 transCustomAgg :: M.CustomAggregate -> MirGenerator h s ret (MirExp s)
 transCustomAgg (M.CARange ty f1 f2) = evalRval (M.Aggregate M.AKTuple [f1,f2])
+
+performUntil :: R.Expr s CT.NatType -> (R.Reg s CT.NatType -> MirGenerator h s ret ()) -> MirGenerator h s ret ()
+performUntil n f = do -- perform (f i) for i = 0..n (not inclusive).
+    ind <- G.newReg $ S.app $ E.NatLit 0
+    G.while (PL.InternalPos, test n ind) (PL.InternalPos, (run_incr f) ind)
+            
+   where test :: R.Expr s CT.NatType -> R.Reg s CT.NatType -> MirGenerator h s ret (R.Expr s CT.BoolType)
+         test n r = do
+             i <- G.readReg r
+             return $ S.app $ E.NatLt i n
+
+         run_incr :: (R.Reg s CT.NatType -> MirGenerator h s ret ()) -> (R.Reg s CT.NatType -> MirGenerator h s ret ())
+         run_incr f = \r -> do
+             f r
+             i <- G.readReg r
+             G.assignReg r (S.app $ E.NatAdd i (S.app $ E.NatLit 1))
+             
+performClosureCall :: MirExp s -> MirExp s -> [MirExp s] -> MirGenerator h s ret (MirExp s)
+performClosureCall closure_pack handle args =
+    case handle of
+      MirExp hand_ty handl ->
+          case hand_ty of
+            CT.FunctionHandleRepr fargctx fretrepr ->
+                exp_to_assgn (args ++ [closure_pack]) $ \ctx asgn -> -- this needs to be backwards for perform map below and I'm not sure why; it is forwards for FnCall. 
+                    case (testEquality ctx fargctx) of
+                      Just Refl -> do
+                          ret_e <- G.call handl asgn
+                          return $ MirExp fretrepr ret_e
+                      _ -> fail $ "type error in closurecall testequality: got " ++ (show ctx) ++ ", " ++ (show fargctx)
+            _ -> fail $ "type error in closurecall handlety: was actually " ++ (show hand_ty)
+
+performMap :: M.Ty -> MirExp s -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s) -- return result iterator 
+performMap iterty iter closurety closure = 
+    case (iterty, closurety) of
+      (M.TyCustom (M.IterTy t), M.TyClosure defid clargsm) -> do
+          let clargs = filterMaybes clargsm
+          clty <- buildClosureType defid clargs
+          unpack_closure <- unpackAny clty closure
+          handle <- accessAggregate unpack_closure 0
+          (MirExp (CT.VectorRepr elemty) iter_vec) <- accessAggregate iter 0
+          iter_pos <- accessAggregate iter 1
+          vec_work <- G.newReg $ iter_vec
+          case closure of
+            MirExp clo_ty closure_e -> do
+              closure_reg <- G.newReg $ closure_e -- maps take mutref closures so we need to update the closure each iteration
+              performUntil (S.app $ E.VectorSize iter_vec) $ \ireg -> do
+                  i <- G.readReg ireg
+                  vec <- G.readReg vec_work
+                  clo <- G.readReg closure_reg
+                  let ith_vec = S.app $ E.VectorGetEntry elemty vec i
+                  call_res <- performClosureCall (MirExp clo_ty clo) handle [MirExp elemty ith_vec] 
+                  (MirExp elemty2 ith_vec') <- accessAggregate call_res 0
+                  (MirExp clo'_ty clo') <- accessAggregate call_res 1
+                  case (testEquality elemty elemty2, testEquality clo_ty clo'_ty) of
+                    (Just Refl, Just Refl)-> do
+                      let vec' = S.app $ E.VectorSetEntry elemty vec i ith_vec'
+                      G.assignReg closure_reg clo'
+                      G.assignReg vec_work vec'
+                    _ -> fail $ "type error in performap: " ++ (show elemty) ++ ", " ++ (show elemty2)
+              new_vec <- G.readReg vec_work
+              return $ buildTuple [MirExp (CT.VectorRepr elemty) new_vec, iter_pos]
+          
+      _ -> fail "bad type"

@@ -46,6 +46,7 @@ import qualified Lang.Crucible.Solver.SimpleBuilder as C
 import qualified Lang.Crucible.Solver.Symbol as C
 import qualified Lang.Crucible.CFG.Reg as Reg
 import qualified Data.Parameterized.Context as Ctx
+import qualified Data.Vector as V
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import qualified Data.Parameterized.TraversableFC as Ctx
@@ -156,6 +157,7 @@ toSawCore sc sym (C.RegEntry tp v) =
         C.BVRepr w -> C.toSC sym v
         C.StructRepr ctx -> -- ctx is of type CtxRepr; v is of type Ctx.Assignment (RegValue' sym) ctx
             go_struct ctx v 
+        C.VectorRepr t -> go_vector t v
         _ -> fail $ unwords ["unknown type: ", show tp]
 
    where go_struct :: C.CtxRepr ctx -> Ctx.Assignment (C.RegValue' Sym) ctx -> IO SC.Term
@@ -163,6 +165,12 @@ toSawCore sc sym (C.RegEntry tp v) =
              terms <- asgnCtxToListM cr (Ctx.sizeInt (Ctx.size cr)) as $ \repr val -> toSawCore sc sym (C.RegEntry repr (C.unRV val))
              SC.scTuple sc terms
              
+         go_vector :: C.TypeRepr t -> V.Vector (C.RegValue Sym t) -> IO SC.Term -- This should actually be a sawcore list; this requires one to also have a function from typereprs to terms
+         go_vector tp v = do 
+             let l = V.toList v 
+             rs <- mapM (\e -> toSawCore sc sym (C.RegEntry tp e)) l
+             SC.scTuple sc rs
+
              
 
 

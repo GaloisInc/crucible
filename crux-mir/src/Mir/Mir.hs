@@ -843,6 +843,10 @@ isCustomFunc fname
 
   | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::iterator\\[[0-9]+\\]::Iterator\\[[0-9]+\\]::next\\[[0-9]+\\]") (unpack fname) = Just "iter_next"
 
+  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::iterator\\[[0-9]+\\]::Iterator\\[[0-9]+\\]::map\\[[0-9]+\\]") (unpack fname) = Just "iter_map"
+
+  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::iterator\\[[0-9]+\\]::Iterator\\[[0-9]+\\]::collect\\[[0-9]+\\]") (unpack fname) = Just "iter_collect"
+
   -- TODO into_vec
   --    (vec, 0) -> vec
   -- TODO Iterator::map
