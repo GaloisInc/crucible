@@ -138,11 +138,10 @@ instance FromJSON Field where
 
 
 
-
 data CustomTy =
-    RangeTy Ty
-      | BoxTy Ty
+       BoxTy Ty
       | VecTy Ty
+      | IterTy Ty
 
     deriving (Eq, Show)
 
@@ -151,9 +150,10 @@ instance PPrint CustomTy where
 
 instance FromJSON CustomTy where
     parseJSON = withObject "CustomTy" $ \v -> case (HML.lookup "kind" v) of
-                                                Just (String "Range") -> RangeTy <$> v .: "range_ty"
                                                 Just (String "Box") -> BoxTy <$> v .: "box_ty"
                                                 Just (String "Vec") -> VecTy <$> v .: "vec_ty"
+                                                Just (String "Iter") -> IterTy <$> v .: "iter_ty"
+                                                Just (String s) -> error $ "bad custom: " ++ (unpack s)
 
 
 
@@ -296,7 +296,7 @@ instance TypeOf Lvalue where
               peelType (TyRef t _) = peelType t
               peelType t = t
 
-    typeOf l = error $ "unimp: " ++ (show l)
+    typeOf (LProjection (LvalueProjection base (Downcast i))) = typeOf base
 
 data Lvalue =
     Local { _lvar :: Var}
@@ -839,15 +839,15 @@ isCustomFunc fname
   | Just _ <- Regex.matchRegex (Regex.mkRegex "::ops\\[[0-9]+\\]::function\\[[0-9]+\\]::Fn\\[[0-9]+\\]::call\\[[0-9]+\\]") (unpack fname)
     = Just "call"
 
-  -- TODO into_iter
-  --    vec -> (vec, 0)
+  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::traits\\[[0-9]+\\]::IntoIterator\\[[0-9]+\\]::into_iter\\[[0-9]+\\]") (unpack fname) = Just "into_iter"
+
+  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::iterator\\[[0-9]+\\]::Iterator\\[[0-9]+\\]::next\\[[0-9]+\\]") (unpack fname) = Just "iter_next"
+
   -- TODO into_vec
   --    (vec, 0) -> vec
   -- TODO Iterator::map
   --    ((vec,0), closure) -> (closure of vec, 0)
   -- TODO Iterator::collect
   --    (vec, 0) -> vec
-  -- TODO Fn::Call
-  --    
 
   | otherwise = Nothing

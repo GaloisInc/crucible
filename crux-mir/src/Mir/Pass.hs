@@ -31,7 +31,6 @@ isMutRefTy (TyRef t m) = (m == "mut") ||  isMutRefTy t
 isMutRefTy (TySlice t) = isMutRefTy t
 isMutRefTy (TyArray t _) = isMutRefTy t
 isMutRefTy (TyTuple ts) = foldl (\acc t -> acc || isMutRefTy t) False ts
-isMutRefTy (TyCustom (RangeTy t)) = isMutRefTy t
 isMutRefTy (TyCustom (BoxTy t)) = isMutRefTy t
 isMutRefTy _ = False
 
@@ -285,13 +284,7 @@ processFnCall_ bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_
         if (null mut_cargs) then do
             return ()
         else do  
-            (v, (v0, vrest)) <- mkFnCallVars dest_lv $ map typeOf mut_cargs
-            newb <- newDummyBlock bbi $ BasicBlockData
-                ([Assign dest_lv (Use $ Consume v0)] ++ (zipWith (\c v -> Assign (lValueofOp c) (Use $ Consume v)) mut_cargs vrest))
-                (Goto dest_block) 
-
-            blocks <- use fnBlocks
-            fnBlocks .= Map.insert bbi (BasicBlockData stmts (Call cfunc cargs (Just (Local v, _bbinfo newb)) cclean)) blocks
+            do_mutrefarg_trans bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean)) mut_cargs
 
    where sort_mutrefs :: [Operand] -> Map.Map T.Text [Ty] -> T.Text -> ([Operand], [Operand])
          sort_mutrefs args fnmap fname = case Map.lookup fname fnmap of
@@ -304,17 +297,33 @@ processFnCall_ bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_
                               True -> let (a,b) = go os ts in (o:a, b)
                               False -> let (a,b) = go os ts in (a, o:b)
 
+         processCustomFnCall :: BasicBlockInfo -> BasicBlockData -> State RewriteFnSt ()
+         processCustomFnCall bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean)) 
+          | Just "vec_asmutslice" <- isCustomFunc (funcNameofOp cfunc),
+          [op] <- cargs = do -- collapse return var into input
+              fnsubs <- use fnSubstitutions
+              fnSubstitutions .= Map.insert dest_lv (lValueofOp op) fnsubs
+          | Just "iter_next" <- isCustomFunc (funcNameofOp cfunc), [op] <- cargs = do -- op acts like a mutref. 
+            do_mutrefarg_trans bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean)) [op]
+
+          | otherwise = return ()
+
+         do_mutrefarg_trans :: BasicBlockInfo -> BasicBlockData -> [Operand] -> State RewriteFnSt ()
+         do_mutrefarg_trans bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean)) mut_cargs = do
+            (v, (v0, vrest)) <- mkFnCallVars dest_lv $ map typeOf mut_cargs
+            newb <- newDummyBlock bbi $ BasicBlockData
+                ([Assign dest_lv (Use $ Consume v0)] ++ (zipWith (\c v -> Assign (lValueofOp c) (Use $ Consume v)) mut_cargs vrest))
+                (Goto dest_block) 
+
+            blocks <- use fnBlocks
+            fnBlocks .= Map.insert bbi (BasicBlockData stmts (Call cfunc cargs (Just (Local v, _bbinfo newb)) cclean)) blocks
+
+
+
 processFnCall_ _ _ = return ()
 
 
 
-processCustomFnCall :: BasicBlockInfo -> BasicBlockData -> State RewriteFnSt ()
-processCustomFnCall bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean)) 
-  | Just "vec_asmutslice" <- isCustomFunc (funcNameofOp cfunc),
-  [op] <- cargs = do -- collapse return var into input
-      fnsubs <- use fnSubstitutions
-      fnSubstitutions .= Map.insert dest_lv (lValueofOp op) fnsubs
-  | otherwise = return ()
 
 
 

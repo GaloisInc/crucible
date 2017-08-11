@@ -35,9 +35,10 @@ library
                        saw-core,
                        filepath
   hs-source-dirs: src
-  exposed-modules: Mir.SAWInterface
+  exposed-modules: Mir.SAWInterface,
+                   Mir.Mir
 
-  other-modules: Mir.Mir,
+  other-modules: 
                  Mir.Pass,
                  Mir.Run,
                  Mir.Trans

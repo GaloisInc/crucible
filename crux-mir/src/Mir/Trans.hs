@@ -378,14 +378,21 @@ extendSignedBV (MirExp tp e) b =
             
       _ -> fail "unimplemented unsigned bvext"
 
+
+evalCast' :: M.CastKind -> M.Ty -> MirExp s -> M.Ty -> MirGenerator h s ret (MirExp s)
+evalCast' ck ty1 e ty2  =
+    case (ty1, ty2) of
+      (M.TyUint _, M.TyUint s) -> extendUnsignedBV e s
+      (M.TyInt _, M.TyInt s) -> extendSignedBV e s
+      (a,b) | a == b -> return e
+      (M.TyCustom (M.BoxTy tb1), M.TyCustom (M.BoxTy tb2)) -> evalCast' ck tb1 e tb2
+      (M.TyArray _ _, M.TySlice _) -> return e -- arrays and slices have same denotation
+      (x,y) -> fail $ "unimplemented cast: " ++ (show x) ++ " as " ++ (show y)
+
 evalCast :: M.CastKind -> M.Operand -> M.Ty -> MirGenerator h s ret (MirExp s)
 evalCast ck op ty = do
     e <- evalOperand op
-    
-    case (M.typeOf op, ty) of
-      (M.TyUint _, M.TyUint s) -> extendUnsignedBV e s
-      (M.TyInt _, M.TyInt s) -> extendSignedBV e s
-      _ -> fail "unimplemented cast"
+    evalCast' ck (M.typeOf op) e ty
 
 
 -- Expressions: evaluation of Rvalues and Lvalues
@@ -536,12 +543,12 @@ assignVarRvalue (M.Var vname _ _ _) rv = do
       Nothing -> fail "register name not found"
 
 assignVarExp :: M.Var -> MirExp s -> MirGenerator h s ret ()
-assignVarExp (M.Var vname _ _ _) (MirExp e_ty e) = do
+assignVarExp (M.Var vname _ vty _) (MirExp e_ty e) = do
     vm <- use varmap
     case (Map.lookup vname vm) of
       Just (Left (Some reg)) -> case (testEquality (R.typeOfReg reg) e_ty) of
                            Just Refl -> G.assignReg reg e
-                           _ -> fail $ "type error in assignment: got " ++ (show e_ty) ++ " but expected " ++ (show (R.typeOfReg reg)) ++ " in assignment of " ++ (show vname) ++ " with exp " ++ (show e)
+                           _ -> fail $ "type error in assignment: got " ++ (show e_ty) ++ " but expected " ++ (show (R.typeOfReg reg)) ++ " in assignment of " ++ (show vname) ++ "which has type " ++ (show vty) ++ " with exp " ++ (show e)
       Just (Right _) -> fail "cannot assign to atom"
       Nothing -> fail "register not found"
 
@@ -640,12 +647,19 @@ jumpToBlock bbi = do
       Just lab -> G.jump lab
       _ -> fail "bad jump"
 
+jumpToBlock' :: M.BasicBlockInfo -> MirGenerator h s ret () 
+jumpToBlock' bbi = do
+    lm <- use labelmap
+    case (Map.lookup bbi lm) of
+      Just lab -> G.jump lab
+      _ -> fail "bad jump"
+
 doReturn :: CT.TypeRepr ret -> MirGenerator h s ret a 
 doReturn tr = do
     e <- lookupRetVar tr
     G.returnFromFunction e
 
-
+              
 
 doCall :: Text.Text -> [M.Operand] -> Maybe (M.Lvalue, M.BasicBlockInfo) -> MirGenerator h s ret a
 doCall funid cargs cdest = do
@@ -822,11 +836,37 @@ transCollection fns halloc = do
 -- if we want to be able to insert custom information just before runtime, the below can be dynamic and baked into FnState
 
 customtyToRepr :: M.CustomTy -> Some CT.TypeRepr
-customtyToRepr (M.RangeTy t) = tyToRepr $ M.TyTuple [t, t] -- range is turned into its tuple
 customtyToRepr (M.BoxTy t) = tyToRepr t
 customtyToRepr (M.VecTy t) = tyToRepr $ M.TySlice t
+customtyToRepr (M.IterTy t) = tyToRepr $ M.TyTuple [M.TySlice t, M.TyUint M.USize]
+ 
+mkNone :: MirExp s
+mkNone = 
+    buildTuple [MirExp CT.NatRepr (S.app $ E.NatLit 0), packAny $ buildTuple []]
+
+mkSome :: MirExp s -> MirExp s
+mkSome a = buildTuple [MirExp CT.NatRepr (S.app $ E.NatLit 1), packAny $ buildTuple [a]]
+
+extractVecTy :: forall a t. CT.TypeRepr t -> (forall t2. CT.TypeRepr t2 -> a) -> a 
+extractVecTy (CT.VectorRepr a) f = f a
+extractVecTy _ _ = error "Expected vector type in extraction"
 
 
+
+myIfte :: 
+      R.Expr s CT.BoolType
+     -> MirGenerator h s ret ()
+     -> MirGenerator h s ret ()
+     -> MirGenerator h s ret a
+myIfte e x y = do
+  test_a <- G.mkAtom e
+  G.endNow $ \c -> do
+    t_id <- G.newLabel
+    f_id <- G.newLabel
+
+    G.endCurrentBlock $! R.Br test_a t_id f_id
+    G.defineBlock t_id x
+    G.defineBlock f_id y
 
 doCustomCall :: Text.Text -> [M.Operand] -> M.Lvalue -> M.BasicBlockInfo -> MirGenerator h s ret a
 doCustomCall fname ops lv dest  
@@ -859,6 +899,37 @@ doCustomCall fname ops lv dest
         assignLvExp lv ans
         jumpToBlock dest
 
+ | Just "into_iter" <- M.isCustomFunc fname, -- vec -> (vec, 0)
+    [v] <- ops = do
+        vec <- evalOperand v
+        let t = buildTuple [vec, MirExp (CT.NatRepr) (S.app $ E.NatLit 0)]
+        assignLvExp lv t
+        jumpToBlock dest
+
+ | Just "iter_next" <- M.isCustomFunc fname, [o] <- ops = do
+     iter <- evalOperand o -- iter = struct (vec, pos of nat). if pos < size of vec, return (Some(vec[pos]), (vec, pos+1)). otherwise return (None, (vec, pos))
+     (MirExp (CT.VectorRepr elemty) iter_vec) <- accessAggregate iter 0
+     (MirExp CT.NatRepr iter_pos) <- accessAggregate iter 1
+     let is_good = S.app $ E.NatLt iter_pos (S.app $ E.VectorSize iter_vec)
+         good_ret_1 = mkSome $ MirExp elemty $ S.app $ E.VectorGetEntry elemty iter_vec iter_pos
+         good_ret_2 = buildTuple [MirExp (CT.VectorRepr elemty) iter_vec, MirExp CT.NatRepr (S.app $ E.NatAdd iter_pos (S.app $ E.NatLit 1))]
+         good_ret = buildTuple [good_ret_1, good_ret_2]
+
+         bad_ret_1 = mkNone
+         bad_ret_2 = buildTuple [MirExp (CT.VectorRepr elemty) iter_vec, MirExp CT.NatRepr iter_pos]
+         bad_ret = buildTuple [bad_ret_1, bad_ret_2]
+
+         good_branch = do
+             assignLvExp lv good_ret
+             jumpToBlock' dest
+
+         bad_branch = do
+             assignLvExp lv bad_ret
+             jumpToBlock' dest
+
+     myIfte is_good good_branch bad_branch
+     
+
  | Just "call" <- M.isCustomFunc fname,
  [o1, o2] <- ops = do
 
@@ -885,9 +956,9 @@ doCustomCall fname ops lv dest
 
        _ -> fail "unexpected type in Fn::call!"
 
-     
+ | Just cf <- M.isCustomFunc fname = fail $ "custom function not handled: " ++ (show cf)
 
- | otherwise =  fail $ "not found: " ++ (show fname)
+ | otherwise =  fail $ "not found: " ++ (show $ M.isCustomFunc fname)
 
 transCustomAgg :: M.CustomAggregate -> MirGenerator h s ret (MirExp s)
 transCustomAgg (M.CARange ty f1 f2) = evalRval (M.Aggregate M.AKTuple [f1,f2])
