@@ -998,7 +998,7 @@ performClosureCall closure_pack handle args =
       MirExp hand_ty handl ->
           case hand_ty of
             CT.FunctionHandleRepr fargctx fretrepr ->
-                exp_to_assgn (args ++ [closure_pack]) $ \ctx asgn -> -- this needs to be backwards for perform map below and I'm not sure why; it is forwards for FnCall. 
+                exp_to_assgn (args ++ [closure_pack]) $ \ctx asgn -> -- arguments needs to be backwards for perform map below and I'm not sure why; it is forwards for FnCall. 
                     case (testEquality ctx fargctx) of
                       Just Refl -> do
                           ret_e <- G.call handl asgn

@@ -166,10 +166,15 @@ toSawCore sc sym (C.RegEntry tp v) =
              SC.scTuple sc terms
              
          go_vector :: C.TypeRepr t -> V.Vector (C.RegValue Sym t) -> IO SC.Term -- This should actually be a sawcore list; this requires one to also have a function from typereprs to terms
-         go_vector tp v = do 
-             let l = V.toList v 
-             rs <- mapM (\e -> toSawCore sc sym (C.RegEntry tp e)) l
-             SC.scTuple sc rs
+         go_vector tp v = 
+             case C.asBaseType tp of
+               C.AsBaseType btp -> do
+                   sc_tp <- C.baseSCType sc btp
+                   let l = V.toList v
+                   rs <- mapM (\e -> toSawCore sc sym (C.RegEntry tp e)) l
+                   SC.scVector sc sc_tp rs
+               _ -> fail $ "Cannot return vectors of non-base type"
+             
 
              
 
