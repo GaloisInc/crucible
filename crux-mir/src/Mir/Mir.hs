@@ -53,6 +53,9 @@ instance (PPrint a, PPrint b) => PPrint (a,b) where
 instance PPrint Bool where
     pprint = show
 
+
+-- Aeson is used for JSON deserialization
+
 data BaseSize =
     USize
       | B8
@@ -667,7 +670,7 @@ instance FromJSON AggregateKind where
                                                      Just (String unk) -> error $ "unimp: " ++ (unpack unk)
 
 data CustomAggregate = 
-    CARange Ty Operand Operand
+    CARange Ty Operand Operand -- depreciated but here in case something else needs to go here
     deriving (Show,Eq)
 
 instance PPrint CustomAggregate where
@@ -818,6 +821,8 @@ repl_lv old new v =
 
 --- Custom stuff
 --
+
+-- Custom function calls are converted by hand. The below can probably do away with regex and use [0], but I'm not sure if that would always work
 
 isCustomFunc :: Text -> Maybe Text
 isCustomFunc fname 

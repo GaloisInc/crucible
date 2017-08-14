@@ -69,17 +69,25 @@ type Pass = Collection -> Collection
 passId :: Pass
 passId fns = fns
 
-data RewriteFnSt = RFS { --  state internal to function translation
+
+
+-- Pass for rewriting mutref args to be returned outside; i.e., if I have a function f(x : T1, y : &mut T2, z : T3, w : &mut T4) -> T5, it will be transformed into a function which returns (T5, T2, T4). All function calls are also transformed to handle this. This is done purely at the MIR "syntax" level.
+
+
+-- The algorithm is imperative -- everything is basically modified in place.
+
+data RewriteFnSt = RFS { --  state internal to function translation. 
     _fn_name :: T.Text,
-    _ctr :: Int,
-    _immut_arguments :: Map.Map T.Text Var,
-    _mut_argpairs :: Map.Map T.Text (Var, Var), -- fst will end up in internals, snd will end up in arguments
+    _ctr :: Int, -- counter for fresh variables
+    _immut_arguments :: Map.Map T.Text Var, -- arguments to the function which don't need to be tampered with
+    -- vvv arguments of the form &mut T (or variations thereof.) The translation creates a dummy variable for each one. The dummy variable is the second. fst will end up in internals, snd will end up in arguments 
+    _mut_argpairs :: Map.Map T.Text (Var, Var),
     _ret_ty :: Ty,
-    _internals :: Map.Map T.Text Var,
+    _internals :: Map.Map T.Text Var, -- local variables
     _blocks :: Map.Map T.Text BasicBlockData,
-    _dummyret :: Maybe Var,
-    _fnargsmap :: Map.Map T.Text [Ty],
-    _fnsubstitutions :: Map.Map Lvalue Lvalue
+    _dummyret :: Maybe Var, -- this is where the original return value goes, which will later be aggregated with the mutref values
+    _fnargsmap :: Map.Map T.Text [Ty], -- maps argument names to their types in the function signature
+    _fnsubstitutions :: Map.Map Lvalue Lvalue -- any substitutions which need to take place. all happen at the end
                        }
 
 
@@ -157,10 +165,6 @@ findReturnVar (v:vs) = case v of
 modifyVarTy :: Var -> Ty -> Var
 modifyVarTy (Var a b c d) e = Var a b e d
 
--- Pass for rewriting mutable reference arguments
-
---passRewriteMutRefArg :: Pass
---passRewriteMutRefArg fns = map (\fn -> evalState (rewriteMutRefArgFn fn) (RFS 0)) fns
 
 vars_to_map :: [Var] -> Map.Map T.Text Var
 vars_to_map vs = Map.fromList $ map (\v -> (_varname v, v)) vs
@@ -192,7 +196,7 @@ insertMutvarsIntoInternals = do
 
 
 -- modifyAssignEntryBlock
--- insert statements x := y where x is mut ref arg (now internal), y is corresponding dummy into first block
+-- insert statements x := y where x is mut ref arg (will be internal), y is corresponding dummy into first block
 modifyAssignEntryBlock :: State RewriteFnSt ()
 modifyAssignEntryBlock = do
     blocks <- use fnBlocks
@@ -256,7 +260,9 @@ processReturnBlocks = do
     newblocks <- mapM processReturnBlock_ blocks
     fnBlocks .= newblocks
 
-   
+  
+-- for the example above where f is taken from returning T5 to (T5, T2, T4), mkFnCallVars creates the dummy variable for receiving the (T5, T2, T4)-value, as well as the corresponding destructures.
+
 mkFnCallVars :: Lvalue -> [Ty] -> State RewriteFnSt (Var, (Lvalue, [Lvalue]))
 mkFnCallVars orig_dest mut_tys = do
     let type_list = [typeOf orig_dest] ++ mut_tys
@@ -300,7 +306,7 @@ processFnCall_ bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_
          processCustomFnCall :: BasicBlockInfo -> BasicBlockData -> State RewriteFnSt ()
          processCustomFnCall bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean)) 
           | Just "vec_asmutslice" <- isCustomFunc (funcNameofOp cfunc),
-          [op] <- cargs = do -- collapse return var into input
+          [op] <- cargs = do -- collapse return var into input. 
               fnsubs <- use fnSubstitutions
               fnSubstitutions .= Map.insert dest_lv (lValueofOp op) fnsubs
           | Just "iter_next" <- isCustomFunc (funcNameofOp cfunc), [op] <- cargs = do -- op acts like a mutref. 
@@ -319,14 +325,7 @@ processFnCall_ bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_
             fnBlocks .= Map.insert bbi (BasicBlockData stmts (Call cfunc cargs (Just (Local v, _bbinfo newb)) cclean)) blocks
 
 
-
 processFnCall_ _ _ = return ()
-
-
-
-
-
-
 
 
 
@@ -336,9 +335,7 @@ processFnCalls = do
     forM_ (Map.toList blocks) $ \(k,v) -> do
         processFnCall_ k v
 
-
-
-
+-- use the state to recover the transformed function
 extractFn :: State RewriteFnSt Fn
 extractFn = do
     immut_args <- use fnImmutArguments
@@ -355,6 +352,8 @@ extractFn = do
         fnblocks = map (\(k,v) -> BasicBlock k v) (Map.toList blocks_)
     return $ Fn fname fnargs ret_ty (MirBody (Map.elems internals) fnblocks)
 
+
+-- if there are no mutref args, then the body of the function doesn't need to change
 needsToBeTransformed :: State RewriteFnSt Bool
 needsToBeTransformed = do
     mutargpairs <- use fnMutArgPairs

@@ -46,6 +46,10 @@ import GHC.TypeLits
 
 -- Basic definitions. 
 --
+--  Varmap maps identifiers to registers (if the id corresponds to a local variable), or an atom (if the id corresponds to a function argument)
+--  LabelMap maps identifiers to labels of their corresponding basicblock
+--  HandleMap maps identifiers to their corresponding function handle
+--
 
 
 type VarMap s = Map.Map Text.Text (Either (Some (R.Reg s)) (Some (R.Atom s)))
@@ -67,17 +71,19 @@ handlemap = lens _handlemap (\s v -> s { _handlemap = v})
 type MirGenerator h s ret = G.Generator h s (FnState) ret
 type MirEnd h s ret = G.End h s (FnState) ret
 
-
+-- The main data type for values, bundling the term-lvel type tp along with a crucible expression of type tp.
 data MirExp s where
     MirExp :: CT.TypeRepr tp -> R.Expr s tp -> MirExp s
 
 instance Show (MirExp s) where
     show (MirExp tr e) = (show e) ++ ": " ++ (show tr)
 
-type CollectionTranslation = Map.Map Text.Text Core.AnyCFG
+data MirHandle where
+    MirHandle :: CT.CtxRepr init -> CT.TypeRepr ret -> FH.FnHandle init ret -> MirHandle
 
-taggedUnionType :: CT.TypeRepr (CT.StructType (Ctx.EmptyCtx Ctx.::> CT.NatType Ctx.::> CT.AnyType))
-taggedUnionType = CT.StructRepr $ Ctx.empty Ctx.%> CT.NatRepr Ctx.%> CT.AnyRepr
+instance Show MirHandle where
+    show (MirHandle a b c) = unwords [show a, show b, show c]
+
 
 
 -----------
@@ -97,8 +103,19 @@ variantToRepr (M.Variant vn vd vfs vct) =
 adtToRepr :: M.Adt -> Some CT.TypeRepr
 adtToRepr (M.Adt adtname variants) = Some $ taggedUnionType
 
+taggedUnionType :: CT.TypeRepr (CT.StructType (Ctx.EmptyCtx Ctx.::> CT.NatType Ctx.::> CT.AnyType))
+taggedUnionType = CT.StructRepr $ Ctx.empty Ctx.%> CT.NatRepr Ctx.%> CT.AnyRepr
 
--- Type translation and type-level list utilities
+-- Type translation and type-level list utilities.
+-- Base types are encoded straightforwardly (except for Usize, which is a crucible nat).
+-- References have the exact same semantics as their referent type.
+-- Arrays and slices are both crucible vectors; no difference between them.
+-- Tuples are crucible structs.
+-- Non-custom ADTs are encoded as a tagged union [Nat, Any]. The first component records which injection is currently being stored; the second component is the injection. Structs and enums are encoded the same -- the only difference is that structs have only one summand. (Note that this means that symbolic ADTs don't work yet, since we are working with Anys.)
+--
+-- Closures are encoded as Any, but are internally encoded as [Handle, arguments], where arguments is itself a tuple.
+--
+-- Custom type translation is on the bottom of this file.
 
 tyToRepr :: M.Ty -> Some CT.TypeRepr
 tyToRepr t = case t of
@@ -120,14 +137,17 @@ tyToRepr t = case t of
                         M.TyUint M.B64 -> Some $ CT.BVRepr (knownNat :: NatRepr 64)
                         M.TyUint M.B128 -> Some $ CT.BVRepr (knownNat :: NatRepr 128)
                         M.TyRef t _ -> tyToRepr t -- references are erased! 
-                        M.TyChar -> Some $ CT.BVRepr (knownNat :: NatRepr 8) 
+                        M.TyChar -> Some $ CT.BVRepr (knownNat :: NatRepr 32) -- rust chars are four bytes
                         M.TyCustom custom_t -> customtyToRepr custom_t 
-                        M.TyClosure def_id substs -> Some $ CT.AnyRepr -- Type of closure will eventually be Struct(function handle, struct of args)
+                        M.TyClosure def_id substs -> Some $ CT.AnyRepr 
                         _ -> error "unknown type?"
+
+-- As in the CPS translation, functions which manipulate types must be in CPS form, since type tags are generally hidden underneath an existential.
 
 tyToReprCont :: forall a. M.Ty -> (forall tp. CT.TypeRepr tp -> a) -> a
 tyToReprCont t f = case (tyToRepr t) of
                  Some x -> f x
+
 
 tyListToCtx :: forall a.
                 [M.Ty]
@@ -163,7 +183,12 @@ packBase ctp ctx0 asgn k =
                 ctx'
                 asgn'
 
-unfold_ctx_assgn :: M.Ty -> CT.CtxRepr ctx -> Ctx.Assignment (R.Atom s) ctx -> (forall ctx'. Some (R.Atom s) -> CT.CtxRepr ctx' -> Ctx.Assignment (R.Atom s) ctx' -> a) -> a
+unfold_ctx_assgn 
+    :: M.Ty 
+    -> CT.CtxRepr ctx 
+    -> Ctx.Assignment (R.Atom s) ctx 
+    -> (forall ctx'. Some (R.Atom s) -> CT.CtxRepr ctx' -> Ctx.Assignment (R.Atom s) ctx' -> a) 
+    -> a
 unfold_ctx_assgn tp ctx asgn k =
     tyToReprCont tp $ \repr ->  
         packBase repr ctx asgn k
@@ -198,8 +223,10 @@ lookupVar (M.Var vname _ vty _) = do
       (Just (Left (Some reg)), Some vtr) -> case (CT.testEquality vtr (R.typeOfReg reg)) of
                                        Just CT.Refl -> do {r <- G.readReg reg; return $ MirExp (R.typeOfReg reg) r }
                                        _ -> fail "bad type"
-      (Just (Right (Some atom)), Some vtr) -> do { return $ MirExp (R.typeOfAtom atom) (R.AtomExpr atom) }
+      (Just (Right (Some atom)), Some vtr) -> return $ MirExp (R.typeOfAtom atom) (R.AtomExpr atom) 
       _ -> error "register not found"
+
+-- The return var in the MIR output is always "_0"
 
 lookupRetVar :: CT.TypeRepr ret -> MirGenerator h s ret (R.Expr s ret)
 lookupRetVar tr = do
@@ -274,6 +301,8 @@ transCheckedBinOp  a b c = do
     res <- transBinOp a b c
     return $ buildTuple [res, MirExp (CT.BoolRepr) (S.litExpr False)] -- This always succeeds, since we're checking correctness. We can also check for overflow if desired.
 
+
+-- Nullary ops in rust are used for resource allocation, so are not interpreted
 transNullaryOp ::  M.NullOp -> M.Ty -> MirGenerator h s ret (MirExp s)
 transNullaryOp _ _ = fail "nullop"
 
@@ -286,7 +315,7 @@ transUnaryOp uop op = do
       _ -> fail "bad op or type for unary"
 
 
-
+-- a -> u -> [a;u]
 buildRepeat :: M.Operand -> M.ConstUsize -> MirGenerator h s ret (MirExp s)
 buildRepeat op size = do
     (MirExp tp e) <- evalOperand op
@@ -298,6 +327,8 @@ buildRepeat_ op size = do
     let (M.OpConstant (M.Constant _ (M.Value (M.ConstInt i)))) = size
     buildRepeat op i
 
+
+-- array in haskell -> crucible array
 buildArrayLit :: forall h s tp ret.  CT.TypeRepr tp -> [MirExp s] -> MirGenerator h s ret (MirExp s) 
 buildArrayLit trep exps = do
     vec <- go exps V.empty 
@@ -330,6 +361,7 @@ getAllFields e =
       MirExp (CT.StructRepr ctx) _ -> do
         let s = Ctx.sizeInt (Ctx.size ctx)
         mapM (accessAggregate e) [0..(s-1)]
+      _ -> fail "getallfields of non-struct"
         
 
 accessAggregate :: MirExp s -> Int -> MirGenerator h s ret (MirExp s)
@@ -349,6 +381,9 @@ modifyAggregateIdx (MirExp (CT.StructRepr agctx) ag) (MirExp instr ins) i
       case (testEquality tpr instr) of
           Just Refl -> return $ MirExp (CT.StructRepr agctx) (S.setStruct agctx ag idx ins)
           _ -> fail "bad modify" 
+
+
+-- casts
 
 extendUnsignedBV :: MirExp s -> M.BaseSize -> MirGenerator h s ret (MirExp s)
 extendUnsignedBV (MirExp tp e) b = 
@@ -433,7 +468,7 @@ evalRval (M.RAdtAg (M.AdtAg adt agv ops)) = do
     es <- mapM evalOperand ops
     return $ buildTaggedUnion agv es
 
--- A closure is (packed into an eny) 
+-- A closure is (packed into an any) of the form [handle, arguments] (arguments being those packed into the closure, not the function arguments)
 buildClosureHandle :: Text.Text -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 buildClosureHandle funid args = do
     hmap <- use handlemap
@@ -447,7 +482,7 @@ buildClosureHandle funid args = do
           return $ packAny closure_unpack
 
 
-buildClosureType :: Text.Text -> [M.Ty] -> MirGenerator h s ret (Some (CT.TypeRepr)) -- given def
+buildClosureType :: Text.Text -> [M.Ty] -> MirGenerator h s ret (Some (CT.TypeRepr)) -- get type of closure, in order to unpack the any
 buildClosureType defid args = do
     hmap <- use handlemap
     case (Map.lookup defid hmap) of
@@ -486,7 +521,7 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field ty))) = do
         struct <- unpackAny tr e
         accessAggregate struct field
 
-      M.TyClosure defid argsm -> do
+      M.TyClosure defid argsm -> do -- if lv is a closure, then accessing the ith component means accessing the ith arg in the struct
         e <- evalLvalue lv
         let args = filterMaybes argsm
         clty <- buildClosureType defid args
@@ -497,13 +532,19 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field ty))) = do
       _ -> do -- otherwise, lv is a tuple
         ag <- evalLvalue lv
         accessAggregate ag field
+
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.Index i))) = do
     (MirExp arr_tp arr) <- evalLvalue lv
     (MirExp ind_tp ind) <- evalOperand i
     case (arr_tp, ind_tp) of
       (CT.VectorRepr elt_tp, CT.NatRepr) -> do
           return $ MirExp elt_tp $  S.app $ E.VectorGetEntry elt_tp arr ind
-evalLvalue (M.LProjection (M.LvalueProjection lv M.Deref)) = evalLvalue lv
+      _ -> fail "Bad index"
+
+-- because references are the same as values, deref just passes through
+evalLvalue (M.LProjection (M.LvalueProjection lv M.Deref)) = evalLvalue lv 
+
+-- downcast: extracting the injection from an ADT. This is done in rust after switching on the discriminant.
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.Downcast i))) = do
     etu <- evalLvalue lv
     (MirExp e_tp e) <- accessAggregate etu 1 
@@ -531,6 +572,8 @@ evalLvalue lv = fail $ "unknown lvalue access: " ++ (show lv)
 -- Statements
 --
 
+-- v := rvalue
+--
 assignVarRvalue :: M.Var -> M.Rvalue -> MirGenerator h s ret ()
 assignVarRvalue (M.Var vname _ _ _) rv = do
     vm <- use varmap
@@ -542,6 +585,8 @@ assignVarRvalue (M.Var vname _ _ _) rv = do
       Just (Right _) -> fail "cannot assign to atom"
       Nothing -> fail "register name not found"
 
+-- v := mirexp
+
 assignVarExp :: M.Var -> MirExp s -> MirGenerator h s ret ()
 assignVarExp (M.Var vname _ vty _) (MirExp e_ty e) = do
     vm <- use varmap
@@ -551,6 +596,8 @@ assignVarExp (M.Var vname _ vty _) (MirExp e_ty e) = do
                            _ -> fail $ "type error in assignment: got " ++ (show e_ty) ++ " but expected " ++ (show (R.typeOfReg reg)) ++ " in assignment of " ++ (show vname) ++ "which has type " ++ (show vty) ++ " with exp " ++ (show e)
       Just (Right _) -> fail "cannot assign to atom"
       Nothing -> fail "register not found"
+
+-- lv := mirexp
 
 assignLvExp :: M.Lvalue -> MirExp s -> MirGenerator h s ret ()
 assignLvExp lv re = do
@@ -598,10 +645,9 @@ transStatement :: M.Statement -> MirGenerator h s ret ()
 transStatement (M.Assign lv rv) = do
     re <- evalRval rv
     assignLvExp lv re
-transStatement (M.SetDiscriminant lv i) = fail "setdiscriminant unimp"
+transStatement (M.SetDiscriminant lv i) = fail "setdiscriminant unimp" -- this should just change the first component of the adt
 transStatement _ = return ()
 
--- only works for booleans for now
 transSwitch :: MirExp s -> -- thing switching over
     [Integer] -> -- switch comparisons
         [M.BasicBlockInfo] -> -- jumps
@@ -623,6 +669,8 @@ doBoolBranch e t f = do
     case (Map.lookup t lm, Map.lookup f lm) of
       (Just tb, Just fb) -> G.branch e tb fb
       _ -> error "bad lookup on boolbranch"
+
+-- nat branch: branch by iterating through list
 
 doNatBranch :: R.Expr s CT.NatType -> [Integer] -> [M.BasicBlockInfo] -> MirGenerator h s ret a
 doNatBranch _ _ [i] = do
@@ -660,7 +708,7 @@ doReturn tr = do
     G.returnFromFunction e
 
               
-
+-- regular function calls: closure calls handled later
 doCall :: Text.Text -> [M.Operand] -> Maybe (M.Lvalue, M.BasicBlockInfo) -> MirGenerator h s ret a
 doCall funid cargs cdest = do
     hmap <- use handlemap
@@ -754,8 +802,6 @@ registerBlock tr (M.BasicBlock bbinfo bbdata)  = do
       Just lab -> G.defineBlock lab (translateBlockBody tr bbdata)
       _ -> fail "bad label"
 
--- rettype is threaded through genDefn in LLVM
--- gsState (ie, my Fnstate) is modified in End, and THEN afterwards each block is defined.
 
 -- processing of function body. here each argument is assumed to already be in the varmap
 genDefn' :: M.MirBody -> [M.Var] -> CT.TypeRepr ret -> MirGenerator h s ret (R.Expr s ret) 
@@ -765,7 +811,7 @@ genDefn' body argvars rettype = do
         varmap .= a
         labelmap .= b
         lm <- use labelmap
-        let (M.MirBody vars (enter : blocks)) = body 
+        let (M.MirBody vars (enter : blocks)) = body -- The first block in the list is the entrance block
         let (M.BasicBlock bbi _) = enter
         case (Map.lookup bbi lm ) of
             Just lbl -> G.endCurrentBlock (R.Jump lbl) 
@@ -776,11 +822,6 @@ genDefn' body argvars rettype = do
 genDefn :: M.Fn -> CT.TypeRepr ret -> MirGenerator h s ret (R.Expr s ret)
 genDefn (M.Fn fname fargs fretty fbody) retrepr = genDefn' fbody fargs retrepr
 
-data MirHandle where
-    MirHandle :: CT.CtxRepr init -> CT.TypeRepr ret -> FH.FnHandle init ret -> MirHandle
-
-instance Show MirHandle where
-    show (MirHandle a b c) = unwords [show a, show b, show c]
 
 mkHandleMap :: FH.HandleAllocator s -> [M.Fn] -> ST s (Map.Map Text.Text MirHandle)
 mkHandleMap halloc fns = Map.fromList <$> (mapM (mkHandle halloc) fns) where
@@ -833,12 +874,12 @@ transCollection fns halloc = do
 --- Custom stuff
 --
 
--- if we want to be able to insert custom information just before runtime, the below can be dynamic and baked into FnState
+-- if we want to be able to insert custom information just before runtime, the below can be dynamic, and baked into the Override monad.
 
 customtyToRepr :: M.CustomTy -> Some CT.TypeRepr
-customtyToRepr (M.BoxTy t) = tyToRepr t
-customtyToRepr (M.VecTy t) = tyToRepr $ M.TySlice t
-customtyToRepr (M.IterTy t) = tyToRepr $ M.TyTuple [M.TySlice t, M.TyUint M.USize]
+customtyToRepr (M.BoxTy t) = tyToRepr t -- Box<T> is the same as T
+customtyToRepr (M.VecTy t) = tyToRepr $ M.TySlice t -- Vec<T> is the same as [T]
+customtyToRepr (M.IterTy t) = tyToRepr $ M.TyTuple [M.TySlice t, M.TyUint M.USize] -- Iter<T> => ([T], nat). The second component is the current index into the array, beginning at zero.
  
 mkNone :: MirExp s
 mkNone = 
@@ -852,7 +893,7 @@ extractVecTy (CT.VectorRepr a) f = f a
 extractVecTy _ _ = error "Expected vector type in extraction"
 
 
-
+-- ripped from the generator but with amended types
 myIfte :: 
       R.Expr s CT.BoolType
      -> MirGenerator h s ret ()
@@ -871,19 +912,19 @@ myIfte e x y = do
 doCustomCall :: Text.Text -> [M.Operand] -> M.Lvalue -> M.BasicBlockInfo -> MirGenerator h s ret a
 doCustomCall fname ops lv dest  
   | Just "boxnew" <- M.isCustomFunc fname,
-  [op] <- ops =  do -- box::new
+  [op] <- ops =  do 
         e <- evalOperand op
         assignLvExp lv e
         jumpToBlock dest
 
   | Just "slice_tovec" <- M.isCustomFunc fname, 
-    [op] <- ops = do
+  [op] <- ops = do 
         e <- evalOperand op
         assignLvExp lv e
         jumpToBlock dest
 
   | Just "vec_asmutslice" <- M.isCustomFunc fname,
-    [op] <- ops = do
+  [op] <- ops = do 
         ans <- evalOperand op
         assignLvExp lv ans
         jumpToBlock dest
@@ -893,6 +934,7 @@ doCustomCall fname ops lv dest
         ans <- evalLvalue (M.LProjection (M.LvalueProjection (M.lValueofOp op1) (M.Index op2)))
         assignLvExp lv ans
         jumpToBlock dest
+
  | Just "vec_fromelem" <- M.isCustomFunc fname,
     [elem, u] <- ops = do
         ans <- buildRepeat_ elem u
@@ -943,7 +985,7 @@ doCustomCall fname ops lv dest
      jumpToBlock dest
      
 
- | Just "call" <- M.isCustomFunc fname,
+ | Just "call" <- M.isCustomFunc fname, -- perform call of closure
  [o1, o2] <- ops = do
 
      argtuple <- evalOperand o2
@@ -962,7 +1004,7 @@ doCustomCall fname ops lv dest
                     exp_to_assgn (closure_pack : extra_args) $ \ctx asgn -> 
                         case (testEquality ctx fargctx) of
                           Just Refl -> do
-                             ret_e <- G.call handl asgn
+                              ret_e <- G.call handl asgn 
                              assignLvExp lv (MirExp fretrepr ret_e)
                              jumpToBlock dest
                    _ -> fail $ "bad handle type"
@@ -973,11 +1015,11 @@ doCustomCall fname ops lv dest
 
  | otherwise =  fail $ "not found: " ++ (show $ M.isCustomFunc fname)
 
-transCustomAgg :: M.CustomAggregate -> MirGenerator h s ret (MirExp s)
+transCustomAgg :: M.CustomAggregate -> MirGenerator h s ret (MirExp s) -- depreciated
 transCustomAgg (M.CARange ty f1 f2) = evalRval (M.Aggregate M.AKTuple [f1,f2])
 
 performUntil :: R.Expr s CT.NatType -> (R.Reg s CT.NatType -> MirGenerator h s ret ()) -> MirGenerator h s ret ()
-performUntil n f = do -- perform (f i) for i = 0..n (not inclusive).
+performUntil n f = do -- perform (f i) for i = 0..n (not inclusive). f takes as input a nat register (but shouldn't increment it)
     ind <- G.newReg $ S.app $ E.NatLit 0
     G.while (PL.InternalPos, test n ind) (PL.InternalPos, (run_incr f) ind)
             
@@ -992,7 +1034,8 @@ performUntil n f = do -- perform (f i) for i = 0..n (not inclusive).
              i <- G.readReg r
              G.assignReg r (S.app $ E.NatAdd i (S.app $ E.NatLit 1))
              
-performClosureCall :: MirExp s -> MirExp s -> [MirExp s] -> MirGenerator h s ret (MirExp s)
+-- TODO: this, performMap, and "call" above should be unified. below, closure_pack is at the end of the arg list, while above, closure_pack is at the beginning. I'm not sure why, but both typecheck & work.
+performClosureCall :: MirExp s -> MirExp s -> [MirExp s] -> MirGenerator h s ret (MirExp s) 
 performClosureCall closure_pack handle args =
     case handle of
       MirExp hand_ty handl ->
@@ -1016,18 +1059,18 @@ performMap iterty iter closurety closure =
           handle <- accessAggregate unpack_closure 0
           (MirExp (CT.VectorRepr elemty) iter_vec) <- accessAggregate iter 0
           iter_pos <- accessAggregate iter 1
-          vec_work <- G.newReg $ iter_vec
+          vec_work <- G.newReg $ iter_vec -- register for modifying the vector in place
           case closure of
             MirExp clo_ty closure_e -> do
               closure_reg <- G.newReg $ closure_e -- maps take mutref closures so we need to update the closure each iteration
               performUntil (S.app $ E.VectorSize iter_vec) $ \ireg -> do
-                  i <- G.readReg ireg
-                  vec <- G.readReg vec_work
-                  clo <- G.readReg closure_reg
-                  let ith_vec = S.app $ E.VectorGetEntry elemty vec i
+                  i <- G.readReg ireg -- loop index / index into vec
+                  vec <- G.readReg vec_work -- current state of vector
+                  clo <- G.readReg closure_reg -- current closure
+                  let ith_vec = S.app $ E.VectorGetEntry elemty vec i -- vec[i]
                   call_res <- performClosureCall (MirExp clo_ty clo) handle [MirExp elemty ith_vec] 
-                  (MirExp elemty2 ith_vec') <- accessAggregate call_res 0
-                  (MirExp clo'_ty clo') <- accessAggregate call_res 1
+                  (MirExp elemty2 ith_vec') <- accessAggregate call_res 0 -- new vec[i]
+                  (MirExp clo'_ty clo') <- accessAggregate call_res 1 -- new closure after call
                   case (testEquality elemty elemty2, testEquality clo_ty clo'_ty) of
                     (Just Refl, Just Refl)-> do
                       let vec' = S.app $ E.VectorSetEntry elemty vec i ith_vec'
@@ -1035,6 +1078,6 @@ performMap iterty iter closurety closure =
                       G.assignReg vec_work vec'
                     _ -> fail $ "type error in performap: " ++ (show elemty) ++ ", " ++ (show elemty2)
               new_vec <- G.readReg vec_work
-              return $ buildTuple [MirExp (CT.VectorRepr elemty) new_vec, iter_pos]
+              return $ buildTuple [MirExp (CT.VectorRepr elemty) new_vec, iter_pos] -- we keep iter_pos the same as before. so if I called next() on an iterator and then map(), I'm where I left off. I assume this is right
           
       _ -> fail "bad type"

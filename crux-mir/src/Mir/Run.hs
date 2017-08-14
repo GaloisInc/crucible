@@ -129,7 +129,6 @@ extractFromCFGPure setup sc cfg = do
                   C.PartialRes _ gp _ -> do
                       putStrLn "Symbolic simulation failed along some paths"
                       return gp
-          --t <- C.asSymExpr (gp^.C.gpValue) (C.toSC sym) (fail $ unwords ["Unexpected return type:", show (C.regType (gp^.C.gpValue))])
           t <- toSawCore sc sym (gp^.C.gpValue)
           t' <- SC.scAbstractExts sc (toList ecs) t
           return t'
@@ -179,7 +178,7 @@ toSawCore sc sym (C.RegEntry tp v) =
              
 
 
-
+-- one could perhaps do more about ADTs below by giving the below access to the MIR types
 
 setupArg :: SC.SharedContext
          -> Sym
