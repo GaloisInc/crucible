@@ -71,7 +71,7 @@ library
     Lang.Crucible.Analysis.Fixpoint.Components
     Lang.Crucible.Analysis.Postdom
     Lang.Crucible.Analysis.Reachable
-    Lang.Crucible.Analysis.Shape
+    --Lang.Crucible.Analysis.Shape
     Lang.Crucible.Analysis.Taint
     Lang.Crucible.BaseTypes
     Lang.Crucible.CFG.Common
