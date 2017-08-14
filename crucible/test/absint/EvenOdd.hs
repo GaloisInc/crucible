@@ -23,8 +23,7 @@ data EvenOdd (tp :: C.CrucibleType) where
 deriving instance Eq (EvenOdd tp)
 deriving instance Show (EvenOdd tp)
 
-instance C.ShowF EvenOdd where
-  showF = show
+instance C.ShowF EvenOdd
 
 type EvenOdd' = Pointed EvenOdd
 

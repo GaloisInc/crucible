@@ -6,11 +6,14 @@ Maintainer  : jhendrix@galois.com
 
 Declares newtype wrappers around values to implement Hashable.
 -}
-
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+#if __GLASGOW_HASKELL__ >= 802
+{-# OPTIONS_GHC -Wno-simplifiable-class-constraints #-}
+#endif
 module Lang.Crucible.Utils.Hashable
   ( Vector(..)
   , Map

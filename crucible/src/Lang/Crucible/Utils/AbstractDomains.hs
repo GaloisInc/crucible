@@ -47,6 +47,10 @@ module Lang.Crucible.Utils.AbstractDomains
   , natRangeHigh
   , natCheckEq
   , natCheckLe
+  , natRangeAdd
+  , natRangeScalarMul
+  , natRangeMul
+  , natRangeJoin
   , asSingleNatRange
   , unboundedNatRange
   , natRangeToRange
@@ -78,7 +82,7 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.TraversableFC
 import           Data.Ratio (denominator)
-import           Lang.MATLAB.Utils.Nat (Nat)
+import           Numeric.Natural
 
 import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Utils.BVDomain (BVDomain)
@@ -368,7 +372,7 @@ data NatValueRange
   = NatSingleRange !Integer
   | NatMultiRange !Integer !(ValueBound Integer)
 
-asSingleNatRange :: NatValueRange -> Maybe Nat
+asSingleNatRange :: NatValueRange -> Maybe Natural
 asSingleNatRange (NatSingleRange x) = Just (fromInteger x)
 asSingleNatRange _ = Nothing
 
@@ -377,8 +381,34 @@ natRange x (Inclusive y)
   | x == y = NatSingleRange x
 natRange x y = NatMultiRange x y
 
-natSingleRange :: Nat -> NatValueRange
+natSingleRange :: Natural -> NatValueRange
 natSingleRange = NatSingleRange . toInteger
+
+natRangeAdd :: NatValueRange -> NatValueRange -> NatValueRange
+natRangeAdd (NatSingleRange x)      (NatSingleRange y)      = NatSingleRange (x+y)
+natRangeAdd (NatSingleRange x)      (NatMultiRange loy hiy) = NatMultiRange (x   + loy) ((+) <$> pure x <*> hiy)
+natRangeAdd (NatMultiRange lox hix) (NatSingleRange y)      = NatMultiRange (lox + y)   ((+) <$> hix    <*> pure y)
+natRangeAdd (NatMultiRange lox hix) (NatMultiRange loy hiy) = NatMultiRange (lox + loy) ((+) <$> hix    <*> hiy)
+
+natRangeScalarMul :: Integer -> NatValueRange -> NatValueRange
+natRangeScalarMul x (NatSingleRange y) = NatSingleRange (x * y)
+natRangeScalarMul x (NatMultiRange lo hi) = NatMultiRange (x * lo) ((x*) <$> hi)
+
+natRangeMul :: NatValueRange -> NatValueRange -> NatValueRange
+natRangeMul (NatSingleRange x) y = natRangeScalarMul x y
+natRangeMul x (NatSingleRange y) = natRangeScalarMul y x
+natRangeMul (NatMultiRange lox hix) (NatMultiRange loy hiy) =
+    NatMultiRange (lox * loy) ((*) <$> hix <*> hiy)
+
+-- | Compute the smallest range containing both ranges.
+natRangeJoin :: NatValueRange -> NatValueRange -> NatValueRange
+natRangeJoin (NatSingleRange x) (NatSingleRange y)
+  | x == y = NatSingleRange x
+natRangeJoin x y = NatMultiRange (min lx ly) (maxValueBound ux uy)
+  where lx = natRangeLow x
+        ux = natRangeHigh x
+        ly = natRangeLow y
+        uy = natRangeHigh y
 
 natRangeLow :: NatValueRange -> Integer
 natRangeLow (NatSingleRange x) = x
@@ -453,7 +483,7 @@ newtype AbstractValueWrapper tp
 
 type family ConcreteValue (tp::BaseType) :: * where
   ConcreteValue BaseBoolType = Bool
-  ConcreteValue BaseNatType = Nat
+  ConcreteValue BaseNatType = Natural
   ConcreteValue BaseIntegerType = Integer
   ConcreteValue BaseRealType = Rational
   ConcreteValue (BaseBVType w) = Integer

@@ -73,6 +73,7 @@ module Lang.Crucible.Solver.Interface
   , IsExprBuilder(..)
     -- ** IsSymInterface
   , BoundVar
+  , IsSymFn(..)
   , IsSymInterface(..)
     -- * Bound variables
   , SymEncoder(..)
@@ -144,9 +145,8 @@ import           Data.Parameterized.NatRepr
 import           Data.Parameterized.TraversableFC
 import           Data.Ratio
 import           Data.Scientific (Scientific)
+import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
-
-import           Lang.MATLAB.Utils.Nat as Nat
 
 import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Simulator.SimError
@@ -196,7 +196,7 @@ type family BoundVar (sym :: *) :: BaseType -> *
 
 class (IsPred (e BaseBoolType)) => IsExpr e where
   -- | Return nat if this is a constant natural number.
-  asNat :: e BaseNatType -> Maybe Nat
+  asNat :: e BaseNatType -> Maybe Natural
   asNat _ = Nothing
 
   -- | Return integer if this is a constant integer.
@@ -238,7 +238,7 @@ class (IsPred (e BaseBoolType)) => IsExpr e where
 -- | This represents a concrete index value, and is used for creating
 -- arrays.
 data IndexLit idx where
-  NatIndexLit :: !Nat -> IndexLit BaseNatType
+  NatIndexLit :: !Natural -> IndexLit BaseNatType
   BVIndexLit :: (1 <= w) => !(NatRepr w) -> !Integer ->  IndexLit (BaseBVType w)
 
 instance Eq (IndexLit tp) where
@@ -287,8 +287,7 @@ instance Show (IndexLit tp) where
   showsPrec p (NatIndexLit i) s = showsPrec p i s
   showsPrec p (BVIndexLit w i) s = showsPrec p i ("::[" ++ shows w (']' : s))
 
-instance ShowF IndexLit where
-  showsF = shows
+instance ShowF IndexLit
 
 newtype ArrayResultWrapper f idx tp =
   ArrayResultWrapper { unwrapArrayResult :: f (BaseArrayType idx tp) }
@@ -317,7 +316,7 @@ class ( IsBoolExprBuilder sym
   -- Nat operations.
 
   -- | A natural number literal.
-  natLit :: sym -> Nat -> IO (SymNat sym)
+  natLit :: sym -> Natural -> IO (SymNat sym)
 
   -- | Add two natural numbers.
   natAdd :: sym -> SymNat sym -> SymNat sym -> IO (SymNat sym)
@@ -329,6 +328,9 @@ class ( IsBoolExprBuilder sym
 
   -- | Multiply one number by another.
   natMul :: sym -> SymNat sym -> SymNat sym -> IO (SymNat sym)
+
+  -- | Evaluate a weighted sum of natural number values
+  natSum :: sym -> WeightedSum (SymExpr sym) BaseNatType -> IO (SymNat sym)
 
   -- | 'natDiv sym x y' performs natural division.
   --
@@ -356,7 +358,6 @@ class ( IsBoolExprBuilder sym
   natIte :: sym -> Pred sym -> SymNat sym -> SymNat sym -> IO (SymNat sym)
 
   natEq :: sym -> SymNat sym -> SymNat sym -> IO (Pred sym)
-  natEq sym x y = isEq sym x y
 
   -- | @natLe sym x y@ returns 'true' if @x <= y@.
   natLe :: sym -> SymNat sym -> SymNat sym -> IO (Pred sym)
@@ -411,27 +412,22 @@ class ( IsBoolExprBuilder sym
 
   -- | Add two integers.
   intAdd :: sym -> SymInteger sym -> SymInteger sym -> IO (SymInteger sym)
-  intAdd sym xi yi = do
-    x <- integerToReal sym xi
-    y <- integerToReal sym yi
-    realToInteger sym =<< realAdd sym x y
 
   -- | Subtract one integer from another.
   intSub :: sym -> SymInteger sym -> SymInteger sym -> IO (SymInteger sym)
-  intSub sym xi yi = do
-    x <- integerToReal sym xi
-    y <- integerToReal sym yi
-    realToInteger sym =<< realSub sym x y
+  intSub sym x y = intAdd sym x =<< intNeg sym y
 
   -- | Multiply one integer by another.
   intMul :: sym -> SymInteger sym -> SymInteger sym -> IO (SymInteger sym)
+
+  -- | Evaluate a weighted sum of integer values
+  intSum :: sym -> WeightedSum (SymExpr sym) BaseIntegerType -> IO (SymInteger sym)
 
   -- | If-then-else applied to integers.
   intIte :: sym -> Pred sym -> SymInteger sym -> SymInteger sym -> IO (SymInteger sym)
 
   -- | Integer equality.
   intEq  :: sym -> SymInteger sym -> SymInteger sym -> IO (Pred sym)
-  intEq = isEq
 
   -- | Integer less-than-or-equal.
   intLe  :: sym -> SymInteger sym -> SymInteger sym -> IO (Pred sym)
@@ -1215,7 +1211,7 @@ class ( IsBoolExprBuilder sym
   realAdd :: sym -> SymReal sym -> SymReal sym -> IO (SymReal sym)
 
   -- | Evaluate a weighted sum of real values.
-  realSum :: sym -> WeightedSum Rational (SymExpr sym) BaseRealType -> IO (SymReal sym)
+  realSum :: sym -> WeightedSum (SymExpr sym) BaseRealType -> IO (SymReal sym)
 
   -- | Multiply two real numbers.
   realMul :: sym -> SymReal sym -> SymReal sym -> IO (SymReal sym)
@@ -1698,10 +1694,18 @@ cplxLogBase base sym x = do
 -- 'IsSymInterface'.
 type family SymFn sym :: Ctx BaseType -> BaseType -> *
 
+class IsSymFn fn where
+  -- | Get the argument types of a function.
+  fnArgTypes :: fn args ret -> Ctx.Assignment BaseTypeRepr args
+
+  -- | Get the return type of a function.
+  fnReturnType :: fn args ret -> BaseTypeRepr ret
+
 -- | This extends the interface for building expressions with operations
 -- for creating new constants and functions.
 class ( IsBoolSolver sym
       , IsExprBuilder sym
+      , IsSymFn (SymFn sym)
       , OrdF (SymExpr sym)
       ) => IsSymInterface sym where
 
@@ -1933,13 +1937,13 @@ realExprAsInteger x =
   rationalAsInteger =<< realExprAsRational x
 
 -- | Return value as a constant integer if it exists.
-realExprAsNat :: (IsExpr e, Monad m) => e BaseRealType -> m Nat
+realExprAsNat :: (IsExpr e, Monad m) => e BaseRealType -> m Natural
 realExprAsNat x =
-  integerAsNat =<< rationalAsInteger =<< realExprAsRational x
+  fromInteger <$> (rationalAsInteger =<< realExprAsRational x)
 
 -- | Return value as a constant integer if it exists.
-cplxExprAsNat :: (IsExpr e, Monad m) => e BaseComplexType -> m Nat
-cplxExprAsNat x = integerAsNat =<< cplxExprAsInteger x
+cplxExprAsNat :: (IsExpr e, Monad m) => e BaseComplexType -> m Natural
+cplxExprAsNat x = fromInteger <$> cplxExprAsInteger x
 
 andAllOf :: IsBoolExprBuilder sym
          => sym

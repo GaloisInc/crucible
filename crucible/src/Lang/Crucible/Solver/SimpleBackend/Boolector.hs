@@ -157,6 +157,7 @@ parseBoolectorOutput c out_lines =
       let evalFns = SMTEvalFunctions { smtEvalBool = evalBool
                                      , smtEvalBV = evalBV
                                      , smtEvalReal = evalReal
+                                     , smtEvalBvArray = Nothing
                                      }
       Sat <$> smtExprGroundEvalFn c evalFns
     [] -> fail "Boolector returned no output."

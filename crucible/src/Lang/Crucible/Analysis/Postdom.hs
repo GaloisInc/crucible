@@ -24,7 +24,6 @@ import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe
 import qualified Data.Parameterized.Context as Ctx
-import           Data.Parameterized.TraversableF
 import           Data.Parameterized.TraversableFC
 import qualified Data.Set as Set
 
@@ -155,8 +154,6 @@ validatePostdom g pdInfo = flip execState [] $ do
         MaybeBranch _ _ x y -> do
           validateTarget g pdInfo loc b_pd (switchTargetID x)
           validateTarget g pdInfo loc b_pd (jumpTargetID   y)
-        MSwitchStmt _ s -> do
-          traverseF_  (validateTarget g pdInfo loc b_pd . switchTargetID) s
         VariantElim _ _ s -> do
           traverseFC_ (validateTarget g pdInfo loc b_pd . switchTargetID) s
         Return{} -> do

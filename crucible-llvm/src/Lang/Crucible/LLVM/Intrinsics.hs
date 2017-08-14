@@ -100,10 +100,12 @@ register_llvm_overrides = do
   register_llvm_override llvmObjectsizeOverride_32
   register_llvm_override llvmObjectsizeOverride_64
 
-  -- C standard libraray functions
+  -- C standard library functions
   register_llvm_override llvmMemcpyOverride
+  register_llvm_override llvmMemcpyChkOverride
   register_llvm_override llvmMemmoveOverride
   register_llvm_override llvmMemsetOverride
+  register_llvm_override llvmMemsetChkOverride
   register_llvm_override llvmMallocOverride
   register_llvm_override llvmCallocOverride
   register_llvm_override llvmFreeOverride
@@ -204,6 +206,7 @@ llvmLifetimeStartOverride =
     , L.decArgs    = [ L.PrimType $ L.Integer 64, L.PtrTo (L.PrimType $ L.Integer 8) ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \_ -> mkOverride (functionNameFromText (Text.pack nm)) (return ())
   )
@@ -219,6 +222,7 @@ llvmLifetimeEndOverride =
     , L.decArgs    = [ L.PrimType $ L.Integer 64, L.PtrTo (L.PrimType $ L.Integer 8) ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \_ -> mkOverride (functionNameFromText (Text.pack nm)) (return ())
   )
@@ -236,6 +240,7 @@ llvmObjectsizeOverride_32 =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -256,6 +261,7 @@ llvmObjectsizeOverride_64 =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -278,6 +284,7 @@ llvmCallocOverride =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -299,6 +306,7 @@ llvmMallocOverride =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -319,6 +327,7 @@ llvmFreeOverride =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -345,6 +354,7 @@ llvmMemcpyOverride_8_8_32 =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -371,6 +381,7 @@ llvmMemcpyOverride_8_8_64 =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -395,6 +406,7 @@ llvmMemcpyOverride =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -403,6 +415,38 @@ llvmMemcpyOverride =
        volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
        Ctx.uncurryAssignment (callMemcpy sym memOps)
                              (args Ctx.%> align Ctx.%> volatile)
+       return $ regValue $ args^._1 -- return first argument
+  )
+
+llvmMemcpyChkOverride
+  :: IsSymInterface sym
+  => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType
+                                ::> LLVMPointerType
+                                ::> BVType PtrWidth
+                                ::> BVType PtrWidth)
+                      LLVMPointerType
+llvmMemcpyChkOverride =
+  let nm = "__memcpy_chk" in
+  ( L.Declare
+    { L.decRetType = L.PtrTo $ L.PrimType L.Void
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo $ L.PrimType L.Void
+                     , L.PtrTo $ L.PrimType L.Void
+                     , L.PrimType $ L.Integer (fromIntegral $ natValue ptrWidth)
+                     , L.PrimType $ L.Integer (fromIntegral $ natValue ptrWidth)
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
+       sym <- getSymInterface
+       (RegMap args) <- getOverrideArgs
+       let args' = Ctx.empty Ctx.%> (args^._1) Ctx.%> (args^._2) Ctx.%> (args^._3)
+       align    <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
+       volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
+       Ctx.uncurryAssignment (callMemcpy sym memOps)
+                             (args' Ctx.%> align Ctx.%> volatile)
        return $ regValue $ args^._1 -- return first argument
   )
 
@@ -423,6 +467,7 @@ llvmMemmoveOverride =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -453,6 +498,7 @@ llvmMemmoveOverride_8_8_32 =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -478,6 +524,7 @@ llvmMemmoveOverride_8_8_64 =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -506,6 +553,7 @@ llvmMemsetOverride_8_64 =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -534,6 +582,7 @@ llvmMemsetOverride_8_32 =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -559,6 +608,7 @@ llvmMemsetOverride =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -575,6 +625,41 @@ llvmMemsetOverride =
        return (regValue dest)
   )
 
+llvmMemsetChkOverride
+  :: IsSymInterface sym
+  => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType
+                                ::> BVType 32
+                                ::> BVType PtrWidth
+                                ::> BVType PtrWidth)
+                      LLVMPointerType
+llvmMemsetChkOverride =
+  let nm = "__memset_chk" in
+  ( L.Declare
+    { L.decRetType = L.PtrTo $ L.PrimType L.Void
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo $ L.PrimType L.Void
+                     , L.PrimType $ L.Integer 32
+                     , L.PrimType $ L.Integer (fromIntegral $ natValue ptrWidth)
+                     , L.PrimType $ L.Integer (fromIntegral $ natValue ptrWidth)
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
+       sym <- getSymInterface
+       (RegMap args) <- getOverrideArgs
+       let dest = args^._1
+       val <- liftIO
+            (RegEntry knownRepr <$> bvTrunc sym knownNat (regValue (args^._2)))
+       let len = args^._3
+       align <- liftIO
+          (RegEntry knownRepr <$> bvLit sym knownNat 0)
+       volatile <- liftIO
+          (RegEntry knownRepr <$> bvLit sym knownNat 0)
+       callMemset sym memOps dest val len align volatile
+       return (regValue dest)
+  )
 
 llvmPutCharOverride
   :: IsSymInterface sym
@@ -588,6 +673,7 @@ llvmPutCharOverride =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -607,6 +693,7 @@ llvmPutsOverride =
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
@@ -629,6 +716,7 @@ llvmPrintfOverride =
                      ]
     , L.decVarArgs = True
     , L.decAttrs   = []
+    , L.decComdat  = mempty
     }
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface

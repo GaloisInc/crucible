@@ -40,8 +40,6 @@ import Data.HPB
 import Data.Parameterized.Some
 import qualified Data.Parameterized.Context as Ctx
 
-import Lang.MATLAB.Utils.Nat (integerAsNat)
-
 import           Lang.Crucible.CFG.Expr
 import qualified Lang.Crucible.CFG.Reg as R
 import qualified Lang.Crucible.Proto as P
@@ -110,9 +108,7 @@ fromProtoValue sim v = do
     P.FalseValue -> return $ Some $ RegEntry BoolRepr $ falsePred sym
     P.NatValue -> do
       let i = decodeUnsigned (v^.P.value_data)
-      case integerAsNat i of
-        Just n -> Some . RegEntry NatRepr <$> natLit sym n
-        Nothing -> fail "Integer is too large."
+      Some . RegEntry NatRepr <$> natLit sym (fromInteger i)
     P.IntegerValue -> do
       let i = decodeSigned (v^.P.value_data)
       Some . RegEntry IntegerRepr <$> intLit sym i

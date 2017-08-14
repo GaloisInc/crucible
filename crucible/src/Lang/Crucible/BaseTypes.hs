@@ -52,7 +52,7 @@ module Lang.Crucible.BaseTypes
   , arrayTypeResult
   , module Data.Parameterized.NatRepr
     -- * KnownRepr
-  , KnownRepr(..)
+  , KnownRepr(..)  -- Re-export from 'Data.Parameterized.Classes'
   , KnownCtx
   ) where
 
@@ -65,24 +65,11 @@ import           Data.Parameterized.TH.GADT
 import           GHC.TypeLits
 import           Text.PrettyPrint.ANSI.Leijen
 
-------------------------------------------------------------------------
--- KnownRepr
 
--- | This class is parameterized by a kind @k@ (typically a data
--- kind), a type constructor @f@ of kind @k -> *@ (typically a GADT of
--- singleton types indexed by @k@), and an index parameter @ctx@ of
--- kind @k@.
-class KnownRepr (f :: k -> *) (ctx :: k) where
-  knownRepr :: f ctx
+--------------------------------------------------------------------------------
+-- KnownCtx
 
-instance (KnownRepr (Ctx.Assignment f) ctx, KnownRepr f bt)
-      => KnownRepr (Ctx.Assignment f) (ctx Ctx.::> bt) where
-  knownRepr = knownRepr Ctx.%> knownRepr
-
-instance KnownRepr (Ctx.Assignment f) Ctx.EmptyCtx where
-  knownRepr = Ctx.empty
-
--- | A Context where all the argument types are 'KnownRepr' instances.
+-- | A Context where all the argument types are 'KnownRepr' instances
 type KnownCtx f = KnownRepr (Ctx.Assignment f)
 
 ------------------------------------------------------------------------
@@ -177,8 +164,7 @@ instance Pretty (BaseTypeRepr bt) where
   pretty = text . show
 instance Show (BaseTypeRepr bt) where
   showsPrec = $(structuralShowsPrec [t|BaseTypeRepr|])
-instance ShowF BaseTypeRepr where
-  showF = show
+instance ShowF BaseTypeRepr
 
 instance TestEquality BaseTypeRepr where
   testEquality = $(structuralTypeEquality [t|BaseTypeRepr|]

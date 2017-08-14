@@ -39,7 +39,6 @@ import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import           Data.Parameterized.Context as Ctx hiding ((++))
 import           Data.Parameterized.Some
-import           Data.Parameterized.TraversableF
 import           Data.Parameterized.TraversableFC
 import           Data.Sequence (Seq)
 import           Data.Set (Set)
@@ -47,7 +46,6 @@ import qualified Data.Set as Set
 import           Data.Type.Equality
 
 import           Lang.Crucible.Analysis.Reachable
-import           Lang.Crucible.CFG.Core (MSwitch(..))
 import qualified Lang.Crucible.CFG.Core as C
 import qualified Lang.Crucible.CFG.Expr as C
 import           Lang.Crucible.CFG.Reg
@@ -220,7 +218,7 @@ insertSwitchInfo   :: LambdaLabel s tp
 lookupSwitchInfo   :: LambdaLabel s tp -> SwitchInfoMap s blocks -> Maybe (SwitchInfo s blocks tp)
 
 #ifdef UNSAFE_OPS
-instance CoerceableF (SwitchInfo s blocks) where
+instance CoercibleF (SwitchInfo s blocks) where
   coerceF x = Data.Coerce.coerce x
 
 newtype SwitchInfoMap s blocks = SwitchInfoMap (MapF (LambdaLabel s) (SwitchInfo s blocks))
@@ -594,28 +592,14 @@ resolveTermStmt bi reg_map bindings t0 =
                            e_r
                            (resolveLambdaAsSwitch bi reg_map j)
                            (resolveJumpTarget bi reg_map n)
-    MSwitchStmt e s -> do
+
+    VariantElim ctx e s -> do
       let e_r = resolveAtom reg_map e
       case bindings ! C.regIndex e_r of
-        JustF (C.App (C.CplxArrayToMatlab a)) ->
-             C.Jump (resolveLambdaAsJump bi reg_map (matchRealArray s) a)
-        JustF (C.App (C.MatlabIntArrayToMatlab a)) ->
-             C.Jump (resolveLambdaAsJump bi reg_map (matchIntArray s) a)
-        JustF (C.App (C.MatlabUIntArrayToMatlab a)) ->
-             C.Jump (resolveLambdaAsJump bi reg_map (matchUIntArray s) a)
-        JustF (C.App (C.LogicArrayToMatlab a)) ->
-             C.Jump (resolveLambdaAsJump bi reg_map (matchLogicArray s) a)
-        JustF (C.App (C.CharArrayToMatlab a)) ->
-             C.Jump (resolveLambdaAsJump bi reg_map (matchCharArray s) a)
-        JustF (C.App (C.CellArrayToMatlab a)) ->
-             C.Jump (resolveLambdaAsJump bi reg_map (matchCellArray s) a)
-        JustF (C.App (C.MatlabStructArrayToMatlab a)) ->
-             C.Jump (resolveLambdaAsJump bi reg_map (matchStructArray s) a)
-        JustF (C.App (C.HandleToMatlab h)) ->
-             C.Jump (resolveLambdaAsJump bi reg_map (matchHandle s) h)
-        JustF (C.App (C.MatlabObjectArrayToMatlab a)) ->
-             C.Jump (resolveLambdaAsJump bi reg_map (matchObjectArray s) a)
-        _ -> C.MSwitchStmt e_r (fmapF (resolveLambdaAsSwitch bi reg_map) s)
+        JustF (C.App (C.InjectVariant _ idx x)) ->
+          C.Jump (resolveLambdaAsJump bi reg_map (s Ctx.! idx) x)
+        _ -> C.VariantElim ctx e_r (fmapFC (resolveLambdaAsSwitch bi reg_map) s)
+
     Return e -> C.Return (resolveAtom reg_map e)
     TailCall f ctx args -> do
       C.TailCall (resolveAtom reg_map f) ctx (fmapFC (resolveAtom reg_map) args)

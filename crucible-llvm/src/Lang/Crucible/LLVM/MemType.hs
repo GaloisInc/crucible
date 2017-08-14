@@ -56,6 +56,7 @@ module Lang.Crucible.LLVM.MemType
 import Control.Lens
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Numeric.Natural
 import qualified Text.LLVM as L
 import qualified Text.LLVM.PP as L
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -65,11 +66,9 @@ import Control.Applicative ((<$>))
 import Data.Monoid (Monoid(..))
 #endif
 
-import Lang.MATLAB.Utils.Nat
 import Lang.Crucible.LLVM.DataLayout
 import Lang.Crucible.LLVM.PrettyPrint
 import Lang.Crucible.Utils.Arithmetic
-
 
 -- | Performs a binary search on a range of ints.
 binarySearch :: (Int -> Ordering)
@@ -116,7 +115,7 @@ ppSymType (UnsupportedType tp) = text (show (L.ppType tp))
 
 -- | LLVM types supported by simulator with a defined size and alignment.
 data MemType
-  = IntType Nat
+  = IntType Natural
   | PtrType SymType
   | FloatType
   | DoubleType
@@ -232,7 +231,7 @@ memTypeSize dl mtp =
     StructType si -> structSize si
     MetadataType -> 0
 
-memTypeSizeInBits :: DataLayout -> MemType -> Nat
+memTypeSizeInBits :: DataLayout -> MemType -> Natural
 memTypeSizeInBits dl tp = fromIntegral $ 8 * memTypeSize dl tp
 
 -- | Returns ABI byte alignment constraint in bytes.
@@ -251,12 +250,13 @@ memTypeAlign dl mtp =
     MetadataType -> 0
 
 -- | Information about size, alignment, and fields of a struct.
-data StructInfo = StructInfo { siDataLayout :: !DataLayout
-                             , siIsPacked   :: !Bool
-                             , structSize   :: !Size -- Size in bytes.
-                             , structAlign  :: !Alignment
-                             , siFields     :: !(V.Vector FieldInfo)
-                             }
+data StructInfo = StructInfo
+  { siDataLayout :: !DataLayout
+  , siIsPacked   :: !Bool
+  , structSize   :: !Size -- ^ Size in bytes.
+  , structAlign  :: !Alignment
+  , siFields     :: !(V.Vector FieldInfo)
+  }
   deriving (Show)
 
 instance Eq StructInfo where
@@ -270,11 +270,13 @@ instance Eq StructInfo where
    siFields si1 == siFields si2
 
 
-data FieldInfo = FieldInfo { fiOffset    :: !Offset  -- ^ Byte offset of field relative to start of struct.
-                           , fiType      :: !MemType -- ^ Type of field.
-                           , fiPadding   :: !Size    -- ^ Number of bytes of padding at end of field.
-                           }
+data FieldInfo = FieldInfo
+  { fiOffset    :: !Offset  -- ^ Byte offset of field relative to start of struct.
+  , fiType      :: !MemType -- ^ Type of field.
+  , fiPadding   :: !Size    -- ^ Number of bytes of padding at end of field.
+  }
   deriving (Eq, Show)
+
 
 -- | Constructs a function for obtaining target-specific size/alignment
 -- information about structs.  The function produced corresponds to the
@@ -284,8 +286,8 @@ mkStructInfo :: DataLayout
              -> [MemType] -- ^ Field types
              -> StructInfo
 mkStructInfo dl packed tps0 = go [] 0 a0 tps0
-  where a0 | packed = 0
-           | otherwise = aggregateAlignment dl
+  where a0 | packed    = 0
+           | otherwise = nextAlign 0 tps0 `max` aggregateAlignment dl
         -- Padding after each field depends on the alignment of the
         -- type of the next field, if there is one. Padding after the
         -- last field depends on the alignment of the whole struct
@@ -295,12 +297,33 @@ mkStructInfo dl packed tps0 = go [] 0 a0 tps0
         nextAlign _ _ | packed = 0
         nextAlign maxAlign [] = maxAlign
         nextAlign _ (tp:_) = memTypeAlign dl tp
+
         -- Process fields
         go :: [FieldInfo] -- ^ Fields so far in reverse order.
            -> Size        -- ^ Total size so far (aligned to next element)
            -> Alignment   -- ^ Maximum alignment so far
-           -> [MemType]   -- ^ Fields to process
+           -> [MemType]   -- ^ Field types to process
            -> StructInfo
+
+        go flds sz maxAlign (tp:tpl) =
+          go (fi:flds) sz' (max maxAlign fieldAlign) tpl
+
+          where
+            fi = FieldInfo
+                   { fiOffset  = sz
+                   , fiType    = tp
+                   , fiPadding = sz' - e
+                   }
+
+            -- End of field for tp
+            e = sz + memTypeSize dl tp
+
+            -- Alignment of next field
+            fieldAlign = nextAlign maxAlign tpl
+
+            -- Size of field at alignment for next thing.
+            sz' = nextPow2Multiple e (fromIntegral fieldAlign)
+
         go flds sz maxAlign [] =
             StructInfo { siDataLayout = dl
                        , siIsPacked = packed
@@ -308,18 +331,6 @@ mkStructInfo dl packed tps0 = go [] 0 a0 tps0
                        , structAlign = maxAlign
                        , siFields = V.fromList (reverse flds)
                        }
-
-        go flds sz maxAlign (tp:tpl) = go (fi:flds) sz' (max maxAlign fieldAlign) tpl
-          where fi = FieldInfo { fiOffset = sz
-                               , fiType = tp
-                               , fiPadding = sz' - e
-                               }
-                -- End of field for tp
-                e = sz + memTypeSize dl tp
-                -- Alignment of next field
-                fieldAlign = nextAlign maxAlign tpl
-                -- Size of field at alignment for next thing.
-                sz' = nextPow2Multiple e (fromIntegral fieldAlign)
 
 -- | The types of a struct type's fields.
 siFieldTypes :: StructInfo -> Vector MemType

@@ -62,7 +62,6 @@ module Lang.Crucible.CFG.Core
   , SwitchTarget(..)
   , switchTargetID
   , extendSwitchTarget
-  , extendMSwitch
 
     -- * Statements
   , StmtSeq(..)
@@ -100,7 +99,6 @@ import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Map (Pair(..))
 import           Data.Parameterized.Some
-import           Data.Parameterized.TraversableF
 import           Data.Parameterized.TraversableFC
 import           Data.String
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -134,8 +132,7 @@ newtype Reg (ctx :: Ctx CrucibleType) (tp :: CrucibleType) = Reg { regIndex :: C
 instance Show (Reg ctx tp) where
   show (Reg i) = '$' : show (Ctx.indexVal i)
 
-instance ShowF (Reg ctx) where
-  showF x = show x
+instance ShowF (Reg ctx)
 
 instance Pretty (Reg ctx tp) where
   pretty = text.show
@@ -156,7 +153,7 @@ extendReg :: Reg ctx tp -> Reg (ctx ::> r) tp
 extendReg = Reg . Ctx.extendIndex . regIndex
 
 #ifdef UNSAFE_OPS
-instance CoerceableF (Reg ctx) where
+instance CoercibleF (Reg ctx) where
   coerceF x = Data.Coerce.coerce x
 #endif
 
@@ -204,8 +201,7 @@ instance Pretty (BlockID blocks tp) where
 instance Show (BlockID blocks ctx) where
   show (BlockID i) = '%' : show (Ctx.indexVal i)
 
-instance ShowF (BlockID blocks) where
-  showF x = show x
+instance ShowF (BlockID blocks)
 
 extendBlockID :: Ctx.KnownDiff l r => BlockID l tp -> BlockID r tp
 extendBlockID = BlockID . Ctx.extendIndex . blockIDIndex
@@ -271,11 +267,6 @@ instance Ctx.ExtendContext' (SwitchTarget blocks) where
   extendContext' diff (SwitchTarget dest tys args) =
     SwitchTarget dest tys (fmapFC (Ctx.extendContext' diff) args)
 
-
-extendMSwitch :: Ctx.Diff blocks' blocks
-              -> MSwitch (SwitchTarget blocks' ctx)
-              -> MSwitch (SwitchTarget blocks ctx)
-extendMSwitch diff = fmapF (extendSwitchTarget diff)
 
 ------------------------------------------------------------------------
 -- Stmt
@@ -348,12 +339,6 @@ data TermStmt blocks (ret :: CrucibleType) (ctx :: Ctx CrucibleType) where
               -> !(JumpTarget blocks ctx)
               -> TermStmt blocks rtp ctx
 
-  -- Switch on a Matlab value.  Examine the runtime type of the given
-  -- dynamic expression and jump to the appropriate switch target.
-  MSwitchStmt :: !(Reg ctx MatlabValueType)
-              -> !(MSwitch (SwitchTarget blocks ctx))
-              -> TermStmt blocks ret ctx
-
   -- Switch on a variant value.  Examine the tag of the variant
   -- and jump to the appropriate switch target.
   VariantElim :: !(CtxRepr varctx)
@@ -379,8 +364,6 @@ extendTermStmt diff (Jump tgt) = Jump (extendJumpTarget diff tgt)
 extendTermStmt diff (Br c x y) = Br c (extendJumpTarget diff x) (extendJumpTarget diff y)
 extendTermStmt diff (MaybeBranch tp c x y) =
   MaybeBranch tp c (extendSwitchTarget diff x) (extendJumpTarget diff y)
-extendTermStmt diff (MSwitchStmt e s) =
-  MSwitchStmt e (extendMSwitch diff s)
 extendTermStmt diff (VariantElim ctx e asgn) =
   VariantElim ctx e (fmapFC (extendSwitchTarget diff) asgn)
 extendTermStmt _diff (Return e) = Return e
@@ -395,7 +378,6 @@ termStmtNextBlocks s0 =
     Br          _ x y    -> Just [ jumpTargetID x, jumpTargetID y ]
     MaybeBranch _ _ x y  -> Just [ switchTargetID x, jumpTargetID y ]
     VariantElim _ _ a    -> Just (toListFC switchTargetID a)
-    MSwitchStmt _ s      -> Just (toListF switchTargetID s)
     Return      _        -> Nothing
     TailCall    _ _ _    -> Nothing
     ErrorStmt   _        -> Just []
@@ -421,11 +403,6 @@ instance Pretty (TermStmt blocks ret ctx) where
       text "vswitch" <+> pretty e <+> lbrace <$$>
        indent 2 (vcat branches) <$$>
        rbrace
-    MSwitchStmt e c ->
-      text "switch" <+> pretty e <+> lbrace <$$>
-       indent 2 (
-         vcat ((<> semi) <$> ppMSwitch ppCase c) <$$>
-         rbrace)
     Return e ->
       text "return"
        <+> pretty e
@@ -476,7 +453,6 @@ instance Ctx.ApplyEmbedding (TermStmt blocks ret) where
       Jump jt -> Jump (apC jt)
       Br b jtl jtr -> Br (apC' b) (apC jtl) (apC jtr)
       MaybeBranch tp b swt jt    -> MaybeBranch tp (apC' b) (apC' swt) (apC jt)
-      MSwitchStmt tm targets     -> MSwitchStmt (apC' tm) (fmapF apC' targets)
       VariantElim repr r targets -> VariantElim repr (apC' r) (fmapFC apC' targets)
       Return r -> Return (apC' r)
       TailCall hdl tys args -> TailCall (apC' hdl) tys (fmapFC apC' args)
@@ -498,7 +474,6 @@ instance Ctx.ExtendContext (TermStmt blocks ret) where
       Jump jt -> Jump (extC jt)
       Br b jtl jtr -> Br (extC' b) (extC jtl) (extC jtr)
       MaybeBranch tp b swt jt    -> MaybeBranch tp (extC' b) (extC' swt) (extC jt)
-      MSwitchStmt tm targets     -> MSwitchStmt (extC' tm) (fmapF extC' targets)
       VariantElim repr r targets -> VariantElim repr (extC' r) (fmapFC extC' targets)
       Return r -> Return (extC' r)
       TailCall hdl tys args -> TailCall (extC' hdl) tys (fmapFC extC' args)
@@ -678,8 +653,7 @@ ppBlock' ppLineNumbers b = do
 instance Show (Block blocks ret args) where
   show blk = show $ ppBlock' False blk
 
-instance ShowF (Block blocks ret) where
-  showF = show
+instance ShowF (Block blocks ret)
 
 extendBlock :: Block blocks ret ctx -> Block (blocks ::> new) ret ctx
 #ifdef UNSAFE_OPS

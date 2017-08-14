@@ -212,7 +212,7 @@ data LLVMMemOps
   = LLVMMemOps
   { llvmDataLayout :: DataLayout
   , llvmMemVar    :: GlobalVar Mem
-  , llvmMemAlloca :: FnHandle (EmptyCtx ::> Mem ::> BVType PtrWidth)
+  , llvmMemAlloca :: FnHandle (EmptyCtx ::> Mem ::> BVType PtrWidth ::> StringType)
                               (StructType (EmptyCtx ::> Mem ::> LLVMPointerType))
   , llvmMemPushFrame :: FnHandle (EmptyCtx ::> Mem) Mem
   , llvmMemPopFrame :: FnHandle (EmptyCtx ::> Mem) Mem
@@ -592,11 +592,12 @@ memLoadHandle = mkIntrinsic $ \_ sym
             do let ty = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
                return (AnyValue ty (HandleFnVal h))
 
-memAlloca :: IntrinsicImpl p sym (EmptyCtx ::> Mem ::> BVType PtrWidth)
+memAlloca :: IntrinsicImpl p sym (EmptyCtx ::> Mem ::> BVType PtrWidth ::> StringType)
                            (StructType (EmptyCtx ::> Mem ::> LLVMPointerType))
 memAlloca = mkIntrinsic $ \_ sym
   (regValue -> mem)
-  (regValue -> sz) -> do
+  (regValue -> sz)
+  (regValue -> loc) -> do
      liftIO $ do
        --sz_doc <- printSymExpr sym sz
        --putStrLn $ unwords ["MEM ALLOCA:", show nextBlock, show sz_doc]
@@ -605,7 +606,7 @@ memAlloca = mkIntrinsic $ \_ sym
      blk <- liftIO $ natLit sym (fromIntegral blkNum)
      z <- liftIO $ bvLit sym ptrWidth 0
 
-     let heap' = G.allocMem G.StackAlloc (fromInteger blkNum) sz (memImplHeap mem)
+     let heap' = G.allocMem G.StackAlloc (fromInteger blkNum) sz (show loc) (memImplHeap mem)
      let ptr = RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV sz Ctx.%> RV z)
      return (Ctx.empty Ctx.%> (RV $ mem{ memImplHeap = heap' }) Ctx.%> RV ptr)
 
@@ -728,7 +729,7 @@ doMalloc sym mem sz = do
   blk <- liftIO $ natLit sym (fromIntegral blkNum)
   z <- liftIO $ bvLit sym ptrWidth 0
 
-  let heap' = G.allocMem G.HeapAlloc (fromInteger blkNum) sz (memImplHeap mem)
+  let heap' = G.allocMem G.HeapAlloc (fromInteger blkNum) sz "<malloc>" (memImplHeap mem)
   let ptr = RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV sz Ctx.%> RV z)
   return (ptr, mem{ memImplHeap = heap' })
 
@@ -744,7 +745,7 @@ mallocRaw sym mem sz = do
   z <- bvLit sym ptrWidth 0
 
   let ptr = LLVMPtr blk sz z
-  let heap' = G.allocMem G.HeapAlloc (fromInteger blkNum) sz (memImplHeap mem)
+  let heap' = G.allocMem G.HeapAlloc (fromInteger blkNum) sz "<malloc>" (memImplHeap mem)
   return (ptr, mem{ memImplHeap = heap' })
 
 
@@ -759,7 +760,7 @@ doMallocHandle sym mem x = do
   blk <- liftIO $ natLit sym (fromIntegral blkNum)
   z <- liftIO $ bvLit sym ptrWidth 0
 
-  let heap' = G.allocMem G.HeapAlloc (fromInteger blkNum) z (memImplHeap mem)
+  let heap' = G.allocMem G.HeapAlloc (fromInteger blkNum) z "<malloc>" (memImplHeap mem)
   let hMap' = Map.insert blkNum (toDyn x) (memImplHandleMap mem)
   let ptr = RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV z Ctx.%> RV z)
 
@@ -870,10 +871,10 @@ ppPtr (RolledType xs) =
 
 ppAllocs :: IsSymInterface sym => sym -> [G.MemAlloc sym PtrWidth] -> IO Doc
 ppAllocs sym xs = vcat <$> mapM ppAlloc xs
- where ppAlloc (G.Alloc allocTp base sz) = do
+ where ppAlloc (G.Alloc allocTp base sz loc) = do
             let base_doc = text (show base)
             let sz_doc   = printSymExpr sz
-            return $ text (show allocTp) <+> base_doc <+> text "SIZE:" <+> sz_doc
+            return $ text (show allocTp) <+> base_doc <+> text "SIZE:" <+> sz_doc <+> text loc
        ppAlloc (G.AllocMerge p a1 a2) = do
             a1_doc <- ppAllocs sym a1
             a2_doc <- ppAllocs sym a2

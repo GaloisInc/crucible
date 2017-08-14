@@ -181,6 +181,8 @@ instance SupportTermOps (Term (Connection s)) where
   termIntegerToReal = id
   termRealToInteger = id
 
+  integerTerm i = T $ decimal i
+
   rationalTerm r | d == 1    = T $ decimal n
                  | otherwise = T $ app "/" [decimal n, decimal d]
     where n = numerator r
@@ -468,6 +470,7 @@ getModel yp = do
   let evalFns = SMTEvalFunctions { smtEvalBool = yicesEvalBool yp
                                  , smtEvalBV   = yicesEvalBV yp
                                  , smtEvalReal = evalReal
+                                 , smtEvalBvArray = Nothing
                                  }
   smtExprGroundEvalFn (yicesConn yp) evalFns
 

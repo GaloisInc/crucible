@@ -113,6 +113,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import Data.String
 import qualified Data.Text as Text
 import qualified Data.Vector as V
 
@@ -156,6 +157,7 @@ declareFromDefine d =
             , L.decArgs = L.typedType <$> L.defArgs d
             , L.decVarArgs = L.defVarArgs d
             , L.decAttrs   = L.defAttrs d
+            , L.decComdat  = mempty
             }
 
 -- | Return all declarations derived from both external symbols and
@@ -330,7 +332,7 @@ instrResultType instr =
     L.Call _ (L.PtrTo (L.FunTy ty _ _)) _ _ -> ty
     L.Call _ ty _ _ -> error $ unwords ["unexpected function type in call:", show ty]
     L.Alloca ty _ _ -> L.PtrTo ty
-    L.Load x _ -> case L.typedType x of
+    L.Load x _ _ -> case L.typedType x of
                    L.PtrTo ty -> ty
                    _ -> error $ unwords ["load through non-pointer type", show (L.typedType x)]
     L.ICmp _ _ _ -> L.PrimType (L.Integer 1)
@@ -356,6 +358,8 @@ instrResultType instr =
                         _ -> error $ unwords ["extract element of non-vector type", show instr]
     L.InsertElt x _ _ -> L.typedType x
     L.ShuffleVector x _ _ -> L.typedType x
+
+    L.LandingPad x _ _ _ -> x
 
     _ -> error $ unwords ["instrResultType, unsupported instruction:", show instr]
 
@@ -533,7 +537,7 @@ transValue _ (L.ValIdent i) = do
   m <- use identMap
   case Map.lookup i m of
     Nothing -> do
-      fail $ "Could not find identifier " ++ show i ++ "."
+      reportError $ fromString $ "Could not find identifier " ++ show i ++ "."
     Just (Left (Some r)) -> do
       e <- readReg r
       return $ BaseExpr (typeOfReg r) e
@@ -544,7 +548,7 @@ transValue (IntType w) (L.ValInteger i) =
   case someNat (fromIntegral w) of
     Just (Some w') | Just LeqProof <- isPosNat w' ->
       return $ BaseExpr (BVRepr w') (App (BVLit w' i))
-    _ -> fail $ unwords ["invalid integer type", show w]
+    _ -> reportError $ fromString $ unwords ["invalid integer type", show w]
 
 transValue (IntType 1) (L.ValBool b) =
   return $ BaseExpr (BVRepr (knownNat :: NatRepr 1))
@@ -620,15 +624,15 @@ transValue _ (L.ValConstExpr cexp) =
         _ -> fail "expected boolean value in select expression"
 
     L.ConstBlockAddr _funSymbol _blockLabel ->
-      fail "'blockaddress' expressions not supported."
+      reportError "'blockaddress' expressions not supported."
 
-    L.ConstFCmp _ _ _ -> fail "constant comparisons not currently supported"
-    L.ConstICmp _ _ _ -> fail "constant comparisons not currently supported"
-    L.ConstArith _ _ _ -> fail "constant arithmetic not currently supported"
-    L.ConstBit _ _ _ -> fail "constant bit operations not currently supported"
+    L.ConstFCmp _ _ _ -> reportError "constant comparisons not currently supported"
+    L.ConstICmp _ _ _ -> reportError "constant comparisons not currently supported"
+    L.ConstArith _ _ _ -> reportError "constant arithmetic not currently supported"
+    L.ConstBit _ _ _ -> reportError "constant bit operations not currently supported"
 
 transValue ty v =
-  error $ unwords ["unsupported LLVM value:", show v, "of type", show ty]
+  reportError $ fromString $ unwords ["unsupported LLVM value:", show v, "of type", show ty]
 
 
 -- | Assign a packed LLVM expression into the named LLVM register.
@@ -656,32 +660,32 @@ doAssign :: forall h s ret
 doAssign (Some r) (BaseExpr tpr ex) =
    case testEquality (typeOfReg r) tpr of
      Just Refl -> assignReg r ex
-     Nothing -> fail $ unwords ["type mismatch when assigning register", show r, show (typeOfReg r) , show tpr]
+     Nothing -> reportError $ fromString $ unwords ["type mismatch when assigning register", show r, show (typeOfReg r) , show tpr]
 doAssign (Some r) (StructExpr vs) = do
    let ?err = fail
    unpackArgs (map snd $ toList vs) $ \ctx asgn ->
      case testEquality (typeOfReg r) (StructRepr ctx) of
        Just Refl -> assignReg r (mkStruct ctx asgn)
-       Nothing -> fail $ unwords ["type mismatch when assigning structure to register", show r, show (StructRepr ctx)]
+       Nothing -> reportError $ fromString $ unwords ["type mismatch when assigning structure to register", show r, show (StructRepr ctx)]
 doAssign (Some r) (ZeroExpr tp) = do
   let ?err = fail
   zeroExpand tp $ \(tpr :: TypeRepr t) (ex :: Expr s t) ->
     case testEquality (typeOfReg r) tpr of
       Just Refl -> assignReg r ex
-      Nothing -> fail $ "type mismatch when assigning zero value"
+      Nothing -> reportError $ fromString $ "type mismatch when assigning zero value"
 doAssign (Some r) (UndefExpr tp) = do
   let ?err = fail
   undefExpand tp $ \(tpr :: TypeRepr t) (ex :: Expr s t) ->
     case testEquality (typeOfReg r) tpr of
       Just Refl -> assignReg r ex
-      Nothing -> fail $ "type mismatch when assigning undef value"
+      Nothing -> reportError $ fromString $ "type mismatch when assigning undef value"
 doAssign (Some r) (VecExpr tp vs) = do
   let ?err = fail
   llvmTypeAsRepr tp $ \tpr ->
     unpackVec tpr (toList vs) $ \ex ->
       case testEquality (typeOfReg r) (VectorRepr tpr) of
         Just Refl -> assignReg r ex
-        Nothing -> fail $ "type mismatch when assigning vector value"
+        Nothing -> reportError $ fromString $ "type mismatch when assigning vector value"
 
 -- | Given a list of LLVMExpressions, "unpack" them into an assignment
 --   of crucible expressions.
@@ -968,7 +972,8 @@ callAlloca sz = do
    memVar <- llvmMemVar . memModelOps . llvmContext <$> get
    alloca <- litExpr . llvmMemAlloca . memModelOps . llvmContext <$> get
    mem <- readGlobal memVar
-   res <- call alloca (Ctx.empty Ctx.%> mem Ctx.%> sz)
+   loc <- litExpr . Text.pack . show <$> getPosition
+   res <- call alloca (Ctx.empty Ctx.%> mem Ctx.%> sz Ctx.%> loc)
    let mem' = getStruct (Ctx.skip $ Ctx.nextIndex $ Ctx.zeroSize)    res knownRepr
    let p    = getStruct (Ctx.nextIndex $ Ctx.incSize $ Ctx.zeroSize) res knownRepr
    writeGlobal memVar mem'
@@ -1332,7 +1337,7 @@ generateInstr retType lab instr assign_f k =
     -- skip phi instructions, they are handled in definePhiBlock
     L.Phi _ _ -> k
     L.Comment _ -> k
-    L.Unreachable -> reportError "LLVM unrechable code"
+    L.Unreachable -> reportError "LLVM unreachable code"
 
     L.ExtractValue x is -> do
         x' <- transTypedValue x
@@ -1375,7 +1380,10 @@ generateInstr retType lab instr assign_f k =
           _ -> fail $ unwords ["expected vector type in insertelement instruction:", show x]
 
     L.ShuffleVector _ _ _ ->
-      fail "FIXME shuffleVector not implemented"
+      reportError "FIXME shuffleVector not implemented"
+
+    L.LandingPad _ _ _ _ ->
+      reportError "FIXME landingPad not implemented"
 
     L.Alloca tp num _align -> do
       -- ?? FIXME assert that the alignment value is appropriate...
@@ -1397,7 +1405,7 @@ generateInstr retType lab instr assign_f k =
       assign_f (BaseExpr LLVMPointerRepr p)
       k
 
-    L.Load ptr _align -> do
+    L.Load ptr _atomic _align -> do
       -- ?? FIXME assert that the alignment value is appropriate...
       tp'  <- liftMemType (L.typedType ptr)
       ptr' <- transValue tp' (L.typedValue ptr)
@@ -1417,7 +1425,7 @@ generateInstr retType lab instr assign_f k =
       vTp <- liftMemType (L.typedType v)
       v' <- transValue vTp (L.typedValue v)
       unless (tp' == PtrType (MemType vTp))
-           (fail "Pointer type does not mach value type in store instruction")
+           (fail "Pointer type does not match value type in store instruction")
       callStore vTp ptr' v'
       k
 
@@ -1437,67 +1445,11 @@ generateInstr retType lab instr assign_f k =
       assign_f v
       k
 
-    L.Call _tailCall fnTy@(L.PtrTo (L.FunTy lretTy largTys varargs)) fn args
+    L.Call _tailCall (L.PtrTo fnTy) fn args ->
+        callFunctionWithCont fnTy fn args assign_f k
 
-     -- Skip calls to debugging intrinsics.  We might want to support these in some way
-     -- in the future.  However, they take metadata values as arguments, which
-     -- would require some work to support.
-     | L.ValSymbol nm <- fn
-     , nm `elem` [ "llvm.dbg.declare"
-                 , "llvm.dbg.value"
-                 ] -> k
-
-     -- For varargs functions, any arguments beyond the ones found in the function
-     -- declaration are gathered into a vector of 'ANY' type, which is then passed
-     -- as an additional final argument to the underlying Crucible function.  The
-     -- called function is expected to know the types of these additional arguments,
-     -- which it can unpack from the ANY values when it knows those types.
-     | varargs -> do
-           fnTy' <- liftMemType fnTy
-           retTy' <- liftRetType lretTy
-           fn' <- transValue fnTy' fn
-           args' <- mapM transTypedValue args
-           let ?err = fail
-           let (mainArgs, varArgs) = splitAt (length largTys) args'
-           varArgs' <- unpackVarArgs varArgs
-           unpackArgs mainArgs $ \argTypes mainArgs' ->
-             case asScalar fn' of
-                Scalar LLVMPointerRepr ptr ->
-                  do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
-                     memLoadHandle <- litExpr . llvmMemLoadHandle . memModelOps . llvmContext <$> get
-                     mem <- readGlobal memVar
-                     v <- call memLoadHandle (Ctx.empty Ctx.%> mem Ctx.%> ptr)
-                     llvmRetTypeAsRepr retTy' $ \retTy ->
-                       do let expectTy = FunctionHandleRepr (argTypes Ctx.%> varArgsRepr) retTy
-                          let msg = litExpr (Text.pack ("Expected function of type " ++ show expectTy))
-                          let v' = app $ FromJustValue expectTy (app $ UnpackAny expectTy v) msg
-                          ret <- call v' (mainArgs' Ctx.%> varArgs')
-                          assign_f (BaseExpr retTy ret)
-                          k
-                _ -> fail $ unwords ["unsupported function value", show fn]
-
-     -- Ordinary (non varargs) function call
-     | otherwise -> do
-           fnTy' <- liftMemType fnTy
-           retTy' <- liftRetType lretTy
-           fn' <- transValue fnTy' fn
-           args' <- mapM transTypedValue args
-           let ?err = fail
-           unpackArgs args' $ \argTypes args'' ->
-              case asScalar fn' of
-                Scalar LLVMPointerRepr ptr ->
-                  do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
-                     memLoadHandle <- litExpr . llvmMemLoadHandle . memModelOps . llvmContext <$> get
-                     mem <- readGlobal memVar
-                     v <- call memLoadHandle (Ctx.empty Ctx.%> mem Ctx.%> ptr)
-                     llvmRetTypeAsRepr retTy' $ \retTy ->
-                       do let expectTy = FunctionHandleRepr argTypes retTy
-                          let msg = litExpr (Text.pack ("Expected function of type " ++ show expectTy))
-                          let v' = app $ FromJustValue expectTy (app $ UnpackAny expectTy v) msg
-                          ret <- call v' args''
-                          assign_f (BaseExpr retTy ret)
-                          k
-                _ -> fail $ unwords ["unsupported function value", show fn]
+    L.Invoke fnTy fn args normLabel _unwindLabel -> do
+        callFunctionWithCont fnTy fn args assign_f $ definePhiBlock lab normLabel
 
     L.Bit op x y -> do
            let bitop :: (1 <= w)
@@ -1748,7 +1700,9 @@ generateInstr retType lab instr assign_f k =
                           return $ App (RealDiv a b)
                         L.FRem -> do
                           return $ App (RealMod a b)
-                        _ -> fail $ unwords ["unsupported floating-point arith operation", show op, show x, show y]
+                        _ -> reportError $ fromString $ unwords [ "unsupported floating-point arith operation"
+                                                                , show op, show x, show y
+                                                                ]
 
            x' <- transTypedValue x
            y' <- transTypedValue (L.Typed (L.typedType x) y)
@@ -1780,7 +1734,7 @@ generateInstr retType lab instr assign_f k =
                         assign_f (BaseExpr LLVMPointerRepr ex)
                         k
 
-                      _ -> fail $ unwords ["Unsupported pointer arithmetic operation"]
+                      _ -> reportError $ fromString $ unwords ["Unsupported pointer arithmetic operation"]
 
              (Scalar (BVRepr w) x'',
               Scalar LLVMPointerRepr y'')
@@ -1790,7 +1744,7 @@ generateInstr retType lab instr assign_f k =
                         ex <- callPtrAddOffset y'' x''
                         assign_f (BaseExpr LLVMPointerRepr ex)
                         k
-                      _ -> fail $ unwords ["Unsupported pointer arithmetic operation"]
+                      _ -> reportError $ fromString $ unwords ["Unsupported pointer arithmetic operation"]
 
              (Scalar LLVMPointerRepr x'',
               Scalar LLVMPointerRepr y'') ->
@@ -1799,9 +1753,9 @@ generateInstr retType lab instr assign_f k =
                         ex <- callPtrSubtract x'' y''
                         assign_f (BaseExpr (BVRepr ptrWidth) ex)
                         k
-                      _ -> fail $ unwords ["Unsupported pointer arithmetic operation"]
+                      _ -> reportError $ fromString $ unwords ["Unsupported pointer arithmetic operation"]
 
-             _ -> fail $ unwords ["arithmetic operation on unsupported values", show x, show y]
+             _ -> reportError $ fromString $ unwords ["arithmetic operation on unsupported values", show x, show y]
 
     L.FCmp op x y -> do
            let cmpf :: Expr s RealValType
@@ -2003,8 +1957,77 @@ generateInstr retType lab instr assign_f k =
 
     _ -> reportError $ App $ TextLit $ Text.pack $ unwords ["unsupported instruction", show instr]
 
+callFunctionWithCont :: forall h s ret
+                        . (?lc :: TyCtx.LLVMContext)
+                     => L.Type -> L.Value -> [L.Typed L.Value]
+                     -> (LLVMExpr s Expr -> LLVMGenerator h s ret ())
+                     -> Generator h s LLVMState ret ()
+                     -> Generator h s LLVMState ret ()
+callFunctionWithCont fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f k
+     -- Skip calls to debugging intrinsics.  We might want to support these in some way
+     -- in the future.  However, they take metadata values as arguments, which
+     -- would require some work to support.
+     | L.ValSymbol nm <- fn
+     , nm `elem` [ "llvm.dbg.declare"
+                 , "llvm.dbg.value"
+                 ] = k
+
+     -- For varargs functions, any arguments beyond the ones found in the function
+     -- declaration are gathered into a vector of 'ANY' type, which is then passed
+     -- as an additional final argument to the underlying Crucible function.  The
+     -- called function is expected to know the types of these additional arguments,
+     -- which it can unpack from the ANY values when it knows those types.
+     | varargs = do
+           fnTy' <- liftMemType (L.PtrTo fnTy)
+           retTy' <- liftRetType lretTy
+           fn' <- transValue fnTy' fn
+           args' <- mapM transTypedValue args
+           let ?err = fail
+           let (mainArgs, varArgs) = splitAt (length largTys) args'
+           varArgs' <- unpackVarArgs varArgs
+           unpackArgs mainArgs $ \argTypes mainArgs' ->
+             case asScalar fn' of
+                Scalar LLVMPointerRepr ptr ->
+                  do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
+                     memLoadHandle <- litExpr . llvmMemLoadHandle . memModelOps . llvmContext <$> get
+                     mem <- readGlobal memVar
+                     v <- call memLoadHandle (Ctx.empty Ctx.%> mem Ctx.%> ptr)
+                     llvmRetTypeAsRepr retTy' $ \retTy ->
+                       do let expectTy = FunctionHandleRepr (argTypes Ctx.%> varArgsRepr) retTy
+                          let msg = litExpr (Text.pack ("Expected function of type " ++ show expectTy))
+                          let v' = app $ FromJustValue expectTy (app $ UnpackAny expectTy v) msg
+                          ret <- call v' (mainArgs' Ctx.%> varArgs')
+                          assign_f (BaseExpr retTy ret)
+                          k
+                _ -> fail $ unwords ["unsupported function value", show fn]
+
+     -- Ordinary (non varargs) function call
+     | otherwise = do
+           fnTy' <- liftMemType (L.PtrTo fnTy)
+           retTy' <- liftRetType lretTy
+           fn' <- transValue fnTy' fn
+           args' <- mapM transTypedValue args
+           let ?err = fail
+           unpackArgs args' $ \argTypes args'' ->
+              case asScalar fn' of
+                Scalar LLVMPointerRepr ptr ->
+                  do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
+                     memLoadHandle <- litExpr . llvmMemLoadHandle . memModelOps . llvmContext <$> get
+                     mem <- readGlobal memVar
+                     v <- call memLoadHandle (Ctx.empty Ctx.%> mem Ctx.%> ptr)
+                     llvmRetTypeAsRepr retTy' $ \retTy ->
+                       do let expectTy = FunctionHandleRepr argTypes retTy
+                          let msg = litExpr (Text.pack ("Expected function of type " ++ show expectTy))
+                          let v' = app $ FromJustValue expectTy (app $ UnpackAny expectTy v) msg
+                          ret <- call v' args''
+                          assign_f (BaseExpr retTy ret)
+                          k
+                _ -> fail $ unwords ["unsupported function value", show fn]
+callFunctionWithCont fnTy _fn _args _assign_f _k =
+    reportError $ App $ TextLit $ Text.pack $ unwords ["unsupported function type", show fnTy]
+
 -- | Build a switch statement by decomposing it into a linear sequence of branches.
---   FIXME? this could be more efficent if we sort the list and do binary search instead...
+--   FIXME? this could be more efficient if we sort the list and do binary search instead...
 buildSwitch :: (1 <= w, ?lc :: TyCtx.LLVMContext)
             => NatRepr w
             -> Expr s (BVType w) -- ^ The expression to switch on
@@ -2031,7 +2054,7 @@ generateStmts
         -> L.BlockLabel
         -> [L.Stmt]
         -> LLVMGenerator h s ret ()
-generateStmts retType lab = go
+generateStmts retType lab stmts = go (processDbgDeclare stmts)
  where go [] = fail "LLVM basic block ended without a terminating instruction"
        go (x:xs) =
          case x of
@@ -2044,6 +2067,27 @@ generateStmts retType lab = go
            L.Effect instr md -> do
                  setLocation md
                  generateInstr retType lab instr (\_ -> return ()) (go xs)
+
+-- | Search for calls to intrinsic 'llvm.dbg.declare' and copy the
+-- metadata onto the corresponding 'alloca' statement.
+processDbgDeclare :: [L.Stmt] -> [L.Stmt]
+processDbgDeclare = snd . go
+  where
+    go :: [L.Stmt] -> (Map L.Ident [(String, L.ValMd)] , [L.Stmt])
+    go [] = (Map.empty, [])
+    go (stmt : stmts) =
+      let (m, stmts') = go stmts in
+      case stmt of
+        L.Result x instr@L.Alloca{} md ->
+          case Map.lookup x m of
+            Just md' -> (m, L.Result x instr (md' ++ md) : stmts')
+            Nothing -> (m, stmt : stmts')
+              --error $ "Identifier not found: " ++ show x ++ "\nPossible identifiers: " ++ show (Map.keys m)
+        L.Effect (L.Call _ _ (L.ValSymbol "llvm.dbg.declare") (L.Typed _ (L.ValMd (L.ValMdValue (L.Typed _ (L.ValIdent x)))) : _)) md ->
+          (Map.insert x md m, stmt : stmts')
+        L.Effect (L.Call _ _ (L.ValSymbol "llvm.dbg.declare") args) md ->
+          error $ "Ill-formed arguments to llvm.dbg.declare: " ++ show (args, md)
+        _ -> (m, stmt : stmts')
 
 setLocation
   :: (?lc :: TyCtx.LLVMContext)
@@ -2063,6 +2107,13 @@ findFile (L.ValMdRef x) =
     Just (L.ValMdNode (_:Just (L.ValMdRef y):_)) ->
       case TyCtx.lookupMetadata y of
         Just (L.ValMdNode [Just (L.ValMdString fname), Just (L.ValMdString _fpath)]) -> fname
+        _ -> ""
+    Just (L.ValMdDebugInfo di) ->
+      case di of
+        L.DebugInfoLexicalBlock (L.dilbFile -> Just (L.ValMdDebugInfo (L.DebugInfoFile dif))) ->
+          L.difFilename dif
+        L.DebugInfoSubprogram (L.dispFile -> Just (L.ValMdDebugInfo (L.DebugInfoFile dif))) ->
+          L.difFilename dif
         _ -> ""
     _ -> ""
 findFile _ = ""

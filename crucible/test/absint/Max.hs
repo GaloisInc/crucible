@@ -25,8 +25,7 @@ data Max (tp :: C.CrucibleType) where
 deriving instance Eq (Max tp)
 deriving instance Show (Max tp)
 
-instance C.ShowF Max where
-  showF (Max i) = "Max " ++ show i
+instance C.ShowF Max
 
 type Max' = Pointed Max
 

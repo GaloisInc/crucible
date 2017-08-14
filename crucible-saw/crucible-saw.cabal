@@ -17,7 +17,7 @@ library
     abcBridge,
     aig,
     ansi-wl-pprint,
-    base >= 4.7 && < 4.10,
+    base >= 4.7 && < 4.11,
     containers,
     crucible >= 0.1,
     cryptol-verifier,

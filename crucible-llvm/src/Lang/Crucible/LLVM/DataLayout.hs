@@ -42,8 +42,8 @@ import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
 import Data.Word (Word32, Word64)
 import qualified Text.LLVM as L
+import Numeric.Natural
 
-import Lang.MATLAB.Utils.Nat
 import Lang.Crucible.Utils.Arithmetic
 
 
@@ -59,7 +59,7 @@ type Offset = Word64
 -- e.g., alignment value of 3 indicates the pointer must align on 2^3-byte boundaries.
 type Alignment = Word32
 
-newtype AlignInfo = AT (Map Nat Alignment)
+newtype AlignInfo = AT (Map Natural Alignment)
   deriving (Eq)
 
 -- | Make alignment info containing no alignments.
@@ -67,7 +67,7 @@ emptyAlignInfo :: AlignInfo
 emptyAlignInfo = AT Map.empty
 
 -- | Return alignment exactly at point if any.
-findExact :: Nat -> AlignInfo -> Maybe Alignment
+findExact :: Natural -> AlignInfo -> Maybe Alignment
 findExact w (AT t) = Map.lookup w t
 
 -- | Get alignment for the integer type of the specified bitwidth,
@@ -77,7 +77,7 @@ findExact w (AT t) = Map.lookup w t
 -- none of the specifications are larger than the bitwidth then the
 -- largest integer type is used."
 -- <http://llvm.org/docs/LangRef.html#langref-datalayout>
-integerAlignment :: DataLayout -> Nat -> Alignment
+integerAlignment :: DataLayout -> Natural -> Alignment
 integerAlignment dl w =
   case Map.lookupGE w t of
     Just (_, a) -> a
@@ -92,7 +92,7 @@ integerAlignment dl w =
 -- sought is a vector type, then the largest vector type that is
 -- smaller than the sought vector type will be used as a fall back."
 -- <http://llvm.org/docs/LangRef.html#langref-datalayout>
-vectorAlignment :: DataLayout -> Nat -> Alignment
+vectorAlignment :: DataLayout -> Natural -> Alignment
 vectorAlignment dl w =
   case Map.lookupLE w t of
     Just (_, a) -> a
@@ -100,7 +100,7 @@ vectorAlignment dl w =
   where AT t = dl^.vectorInfo
 
 -- | Get alignment for a float type of the specified bitwidth.
-floatAlignment :: DataLayout -> Nat -> Maybe Alignment
+floatAlignment :: DataLayout -> Natural -> Maybe Alignment
 floatAlignment dl w = Map.lookup w t
   where AT t = dl^.floatInfo
 
@@ -114,13 +114,13 @@ maxAlignmentInTree :: AlignInfo -> Alignment
 maxAlignmentInTree (AT t) = foldrOf folded max 0 t
 
 -- | Update alignment tree
-updateAlign :: Nat
+updateAlign :: Natural
             -> AlignInfo
             -> Maybe Alignment
             -> AlignInfo
 updateAlign w (AT t) ma = AT (Map.alter (const ma) w t)
 
-type instance Index AlignInfo = Nat
+type instance Index AlignInfo = Natural
 type instance IxValue AlignInfo = Alignment
 
 instance Ixed AlignInfo where
@@ -185,7 +185,7 @@ stackInfo = lens _stackInfo (\s v -> s { _stackInfo = v})
 layoutWarnings :: Simple Lens DataLayout [L.LayoutSpec]
 layoutWarnings = lens _layoutWarnings (\s v -> s { _layoutWarnings = v})
 
-ptrBitwidth :: DataLayout -> Nat
+ptrBitwidth :: DataLayout -> Natural
 ptrBitwidth dl = 8 * fromIntegral (dl^.ptrSize)
 
 -- | Reduce the bit level alignment to a byte value, and error if it is not
@@ -198,7 +198,7 @@ fromBits a | w <= 0 = Left $ "Alignment must be a positive number."
   where (w,r) = toInteger a `divMod` 8
 
 -- | Insert alignment into spec.
-setAt :: Simple Lens DataLayout AlignInfo -> Nat -> Alignment -> State DataLayout ()
+setAt :: Simple Lens DataLayout AlignInfo -> Natural -> Alignment -> State DataLayout ()
 setAt f sz a = f . at sz ?= a
 
 -- | The default data layout if no spec is defined. From the LLVM
@@ -225,7 +225,7 @@ defaultDataLayout = execState defaults dl
           setAt integerInfo  8 0 -- 8-bit values aligned on byte addresses.
           setAt integerInfo 16 1 -- 16-bit values aligned on 2 byte addresses.
           setAt integerInfo 32 2 -- 32-bit values aligned on 4 byte addresses.
-          setAt integerInfo 64 2 -- 64-bit values aligned on 4 byte addresses.
+          setAt integerInfo 64 3 -- 64-bit values aligned on 8 byte addresses.
           -- Default float alignments
           setAt floatInfo  16 1 -- Half is aligned on 2 byte addresses.
           setAt floatInfo  32 2 -- Float is aligned on 4 byte addresses.
@@ -249,7 +249,7 @@ maxAlignment dl =
           , maxAlignmentInTree (dl^.stackInfo)
           ]
 
-fromSize :: Int -> Nat
+fromSize :: Int -> Natural
 fromSize i | i < 0 = error $ "Negative size given in data layout."
            | otherwise = fromIntegral i
 
@@ -291,9 +291,8 @@ addLayoutSpec ls =
 
 -- | Create parsed data layout from layout spec AST.
 parseDataLayout :: L.DataLayout -> DataLayout
-parseDataLayout dl =
-  execState (mapM_ addLayoutSpec dl) defaultDataLayout
+parseDataLayout dl = execState (mapM_ addLayoutSpec dl) defaultDataLayout
 
 -- | The size of an integer of the given bitwidth, in bytes.
-intWidthSize :: Nat -> Size
+intWidthSize :: Natural -> Size
 intWidthSize w = (fromIntegral w + 7) `div` 8
