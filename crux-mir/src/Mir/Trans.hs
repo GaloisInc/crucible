@@ -1004,9 +1004,9 @@ doCustomCall fname ops lv dest
                     exp_to_assgn (closure_pack : extra_args) $ \ctx asgn -> 
                         case (testEquality ctx fargctx) of
                           Just Refl -> do
-                              ret_e <- G.call handl asgn 
-                             assignLvExp lv (MirExp fretrepr ret_e)
-                             jumpToBlock dest
+                            ret_e <- G.call handl asgn 
+                            assignLvExp lv (MirExp fretrepr ret_e)
+                            jumpToBlock dest
                    _ -> fail $ "bad handle type"
 
        _ -> fail "unexpected type in Fn::call!"
