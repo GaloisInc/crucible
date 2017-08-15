@@ -2,12 +2,12 @@ name:                mir-verifier
 version:             0.1.0.0
 -- synopsis:
 -- description:
-homepage:            https://github.com/gancherj/mir-verifier#readme
+homepage:            https://github.com/GaloisInc/mir-verifier#readme
 license:             BSD3
 license-file:        LICENSE
 author:              Joshua Gancher
 maintainer:          jrg358@cornell.edu
-copyright:           2017 Author name here
+copyright:           2017 Galois, Inc.
 category:            Web
 build-type:          Simple
 cabal-version:       >=1.10
@@ -41,6 +41,3 @@ library
                  Mir.Pass,
                  Mir.Run,
                  Mir.Trans
-
-
-
