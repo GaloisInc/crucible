@@ -2087,6 +2087,8 @@ processDbgDeclare = snd . go
               --error $ "Identifier not found: " ++ show x ++ "\nPossible identifiers: " ++ show (Map.keys m)
         L.Effect (L.Call _ _ (L.ValSymbol "llvm.dbg.declare") (L.Typed _ (L.ValMd (L.ValMdValue (L.Typed _ (L.ValIdent x)))) : _)) md ->
           (Map.insert x md m, stmt : stmts')
+        L.Effect (L.Call _ _ (L.ValSymbol "llvm.dbg.declare") (L.Typed _ (L.ValMd (L.ValMdValue (L.Typed _ L.ValUndef))) : _)) _md ->
+          (m, stmt:stmts') -- ignore Metadata when ValUndef.
         L.Effect (L.Call _ _ (L.ValSymbol "llvm.dbg.declare") args) md ->
           error $ "Ill-formed arguments to llvm.dbg.declare: " ++ show (args, md)
         _ -> (m, stmt : stmts')
