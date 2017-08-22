@@ -56,6 +56,7 @@ import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
+import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
 
 import           Lang.Crucible.LLVM.DataLayout
@@ -101,6 +102,8 @@ register_llvm_overrides = do
   register_llvm_override llvmObjectsizeOverride_64
 
   -- C standard library functions
+  register_llvm_override llvmAssertRtnOverride
+
   register_llvm_override llvmMemcpyOverride
   register_llvm_override llvmMemcpyChkOverride
   register_llvm_override llvmMemmoveOverride
@@ -269,6 +272,28 @@ llvmObjectsizeOverride_64 =
        Ctx.uncurryAssignment (callObjectsize sym memOps knownNat) args
   )
 
+llvmAssertRtnOverride
+  :: IsSymInterface sym
+  => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType ::> LLVMPointerType ::> BVType 32 ::> LLVMPointerType) UnitType
+llvmAssertRtnOverride =
+  let nm = "__assert_rtn" in
+  ( L.Declare
+    { L.decRetType = L.PrimType $ L.Void
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Integer 8
+                     , L.PtrTo $ L.PrimType $ L.Integer 8
+                     , L.PrimType $ L.Integer 32
+                     , L.PtrTo $ L.PrimType $ L.Integer 8
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  , \_ -> mkOverride (functionNameFromText (Text.pack nm)) $ do
+       sym <- getSymInterface
+       let err = AssertFailureSimError "Call to __assert_rtn"
+       liftIO $ addAssertion sym (falsePred sym) err
+  )
 
 llvmCallocOverride
   :: IsSymInterface sym
