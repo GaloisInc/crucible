@@ -476,7 +476,7 @@ parseBvArraySolverValue w v (SApp ["store", arr, idx, val]) = do
     Just (ArrayConcrete base m) -> do
       idx' <- BVIndexLit w <$> parseBvSolverValue (widthVal w) idx
       val' <- parseBvSolverValue (widthVal v) val
-      return . Just $ ArrayConcrete base (Map.insert (Ctx.empty Ctx.%> idx') val' m)
+      return . Just $ ArrayConcrete base (Map.insert (Ctx.empty Ctx.:> idx') val' m)
     _ -> return Nothing
 parseBvArraySolverValue _ _ _ = return Nothing
 

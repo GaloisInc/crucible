@@ -249,18 +249,18 @@ rowVector sym sn v def = do
   one <- natLit sym 1
   -- Add default to beginning of list as indices are 1-based.
   let entry_fn i = Hash.mapInsert j e
-        where j = Ctx.empty Ctx.%> NatIndexLit 1
-                            Ctx.%> NatIndexLit (fromIntegral i)
+        where j = Ctx.empty Ctx.:> NatIndexLit 1
+                            Ctx.:> NatIndexLit (fromIntegral i)
               Just e = v V.!? (i-1)
 
-  let tps = Ctx.empty Ctx.%> BaseNatRepr
-                      Ctx.%> BaseNatRepr
+  let tps = Ctx.empty Ctx.:> BaseNatRepr
+                      Ctx.:> BaseNatRepr
 
   let entry_map = foldr' entry_fn Hash.mapEmpty [1..V.length v]
   a <-  arrayFromMap sym tps entry_map def
 
-  let idxTypes = Ctx.empty Ctx.%> NatExpr one
-                           Ctx.%> NatExpr sn
+  let idxTypes = Ctx.empty Ctx.:> NatExpr one
+                           Ctx.:> NatExpr sn
   return $! SymMultiDimArray idxTypes a
 
 replicateInt :: Int -> f (tp :: k) -> Some (Ctx.Assignment f)
@@ -268,7 +268,7 @@ replicateInt n v
   | n <= 0 = Some Ctx.empty
   | otherwise =
       case replicateInt (n-1) v of
-        Some a -> Some (a Ctx.%> v)
+        Some a -> Some (a Ctx.:> v)
 
 onlyNatToBaseRepr :: OnlyNatRepr tp -> BaseTypeRepr tp
 onlyNatToBaseRepr OnlyNatRepr = BaseNatRepr
@@ -387,8 +387,8 @@ singleton :: IsExprBuilder sym
           -> IO (SymMultiDimArray (SymExpr sym) tp)
 singleton sym e = do
   n1 <- NatExpr <$> natLit sym 1
-  let sd  = Ctx.empty Ctx.%> n1 Ctx.%> n1
-  let tps = Ctx.empty Ctx.%> BaseNatRepr Ctx.%> BaseNatRepr
+  let sd  = Ctx.empty Ctx.:> n1 Ctx.:> n1
+  let tps = Ctx.empty Ctx.:> BaseNatRepr Ctx.:> BaseNatRepr
   a <- constantArray sym tps e
   return $! SymMultiDimArray sd a
 
@@ -736,8 +736,8 @@ isEq sym elt_pred x@(SymMultiDimArray xi xs) y@(SymMultiDimArray yi ys) = do
             let bnds = fmapFC (\(NatExpr v) -> v) xi
             mkMatlabSolverFn sym $ IndicesInRange tps bnds
 
-          let args = Ctx.empty Ctx.%> ArrayResultWrapper xs
-                               Ctx.%> ArrayResultWrapper ys
+          let args = Ctx.empty Ctx.:> ArrayResultWrapper xs
+                               Ctx.:> ArrayResultWrapper ys
           eq_array <- arrayMap sym elt_pred args
           array_eq <- arrayTrueOnEntries sym isIndex eq_array
           andPred sym dims_eq array_eq
@@ -768,8 +768,8 @@ mapBinToConstL :: IsExprBuilder sym
                  -> IO (SymMultiDimArray (SymExpr sym) ztp)
 mapBinToConstL sym f c (SymMultiDimArray sizes a) = do
   ca <- constantArray sym (fmapFC natTypeRepr sizes) c
-  let args = Ctx.empty Ctx.%> ArrayResultWrapper ca
-                       Ctx.%> ArrayResultWrapper a
+  let args = Ctx.empty Ctx.:> ArrayResultWrapper ca
+                       Ctx.:> ArrayResultWrapper a
   SymMultiDimArray sizes <$> arrayMap sym f args
 
 -- | Apply a binary function to a constant and elements in an array.
@@ -785,8 +785,8 @@ mapBinToConstR :: IsExprBuilder sym
                  -> IO (SymMultiDimArray (SymExpr sym) ztp)
 mapBinToConstR sym f (SymMultiDimArray idx a) c = do
   ca <- constantArray sym (fmapFC (\(NatExpr _) -> BaseNatRepr) idx) c
-  let args = Ctx.empty Ctx.%> ArrayResultWrapper a
-                       Ctx.%> ArrayResultWrapper ca
+  let args = Ctx.empty Ctx.:> ArrayResultWrapper a
+                       Ctx.:> ArrayResultWrapper ca
   SymMultiDimArray idx <$> arrayMap sym f args
 
 

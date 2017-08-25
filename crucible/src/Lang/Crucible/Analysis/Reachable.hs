@@ -106,7 +106,7 @@ insReachable :: BlockMap b r
              -> Some (Ctx.Assignment (Block b r))
              -> Some (BlockID b)
              -> Some (Ctx.Assignment (Block b r))
-insReachable m (Some a) (Some (BlockID block_id)) = Some $ a Ctx.%> (m Ctx.! block_id)
+insReachable m (Some a) (Some (BlockID block_id)) = Some $ a Ctx.:> (m Ctx.! block_id)
 
 
 

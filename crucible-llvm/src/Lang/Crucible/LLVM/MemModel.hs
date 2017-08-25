@@ -29,6 +29,7 @@ module Lang.Crucible.LLVM.MemModel
   ( LLVMPointerType
   , llvmPointerRepr
   , pattern LLVMPointerRepr
+  , pattern LLVMPointer
   , nullPointer
   , mkNullPointer
   , isNullPointer
@@ -131,9 +132,19 @@ pattern LLVMPointerRepr <- RecursiveRepr (testEquality (knownSymbol :: SymbolRep
   where
     LLVMPointerRepr = llvmPointerRepr
 
+pattern LLVMPointer :: RegValue sym NatType
+                    -> RegValue sym (BVType PtrWidth)
+                    -> RegValue sym (BVType PtrWidth)
+                    -> RegValue sym LLVMPointerType
+pattern LLVMPointer blk end off = RolledType (Ctx.Empty Ctx.:> RV blk Ctx.:> RV end Ctx.:> RV off)
+
+-- Oops, this pragma not recognized by GHC < 8.2
+-- {-# COMPLETE LLVMPointer :: RegValue sym LLVMPointerType #-}
+
+
 instance IsRecursiveType "LLVM_pointer" where
   type UnrollType "LLVM_pointer" = StructType (EmptyCtx ::> NatType ::> BVType PtrWidth ::> BVType PtrWidth)
-  unrollType _ = StructRepr (Ctx.empty Ctx.%> NatRepr Ctx.%> BVRepr ptrWidth Ctx.%> BVRepr ptrWidth)
+  unrollType _ = StructRepr (Ctx.empty Ctx.:> NatRepr Ctx.:> BVRepr ptrWidth Ctx.:> BVRepr ptrWidth)
 
 type Mem = IntrinsicType "LLVM_memory"
 
@@ -167,33 +178,28 @@ type LLVMValTypeType = ConcreteType G.Type
 nullPointer :: S.IsExpr e
             => e LLVMPointerType
 nullPointer = S.app $ RollRecursive knownSymbol $ S.app $ MkStruct
-  (Ctx.empty Ctx.%> NatRepr
-             Ctx.%> BVRepr ptrWidth
-             Ctx.%> BVRepr ptrWidth)
-  (Ctx.empty Ctx.%> (S.app (NatLit 0))
-             Ctx.%> (S.app (BVLit ptrWidth 0))
-             Ctx.%> (S.app (BVLit ptrWidth 0)))
+  (Ctx.empty Ctx.:> NatRepr
+             Ctx.:> BVRepr ptrWidth
+             Ctx.:> BVRepr ptrWidth)
+  (Ctx.empty Ctx.:> (S.app (NatLit 0))
+             Ctx.:> (S.app (BVLit ptrWidth 0))
+             Ctx.:> (S.app (BVLit ptrWidth 0)))
 
 mkNullPointer
   :: IsSymInterface sym
   => sym
   -> IO (RegValue sym LLVMPointerType)
 mkNullPointer sym = do
-  zn  <- RV <$> natLit sym 0
-  zbv <- RV <$> bvLit sym ptrWidth 0
-  let rec = (Ctx.empty Ctx.%> zn Ctx.%> zbv Ctx.%> zbv)
-  return $ RolledType rec
+  zn  <- natLit sym 0
+  zbv <- bvLit sym ptrWidth 0
+  return (LLVMPointer zn zbv zbv)
 
 isNullPointer
   :: IsSymInterface sym
   => sym
   -> RegValue sym LLVMPointerType
   -> IO (RegValue sym BoolType)
-isNullPointer sym (RolledType ptr) = do
-  let RV blk = ptr^._1
-  let RV end = ptr^._2
-  let RV off = ptr^._3
-
+isNullPointer sym (LLVMPointer blk end off) = do
   zn  <- natLit sym 0
   zbv <- bvLit sym ptrWidth 0
 
@@ -202,6 +208,8 @@ isNullPointer sym (RolledType ptr) = do
   off_z <- bvEq sym off zbv
 
   andPred sym blk_z =<< andPred sym end_z off_z
+
+isNullPointer _sym _ptr = error "isNullPointer: impossible!"
 
 
 
@@ -366,7 +374,7 @@ asCrucibleType (G.Type tf _) k =
             go ctx [] k' = k' ctx
             go ctx (f:fs) k' =
                  asCrucibleType (f^.G.fieldVal) $ \tpr ->
-                   go (ctx Ctx.%> tpr) fs k'
+                   go (ctx Ctx.:> tpr) fs k'
 
 coerceAny :: IsSymInterface sym
           => sym
@@ -383,7 +391,7 @@ unpackMemValue
    -> LLVMVal sym PtrWidth
    -> IO (AnyValue sym)
 unpackMemValue _ (LLVMValPtr blk end off) =
-  return $ AnyValue llvmPointerRepr $ RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV end Ctx.%> RV off)
+  return $ AnyValue llvmPointerRepr $ RolledType (Ctx.empty Ctx.:> RV blk Ctx.:> RV end Ctx.:> RV off)
 unpackMemValue _ (LLVMValInt w x) =
   return $ AnyValue (BVRepr w) x
 unpackMemValue _ (LLVMValReal x) =
@@ -408,7 +416,7 @@ unpackStruct _ [] ctx fls k = k ctx fls
 unpackStruct sym (v:vs) ctx fls k =
   case v of
     AnyValue tpr x ->
-      unpackStruct sym vs (ctx Ctx.%> tpr) (fls Ctx.%> RV x) k
+      unpackStruct sym vs (ctx Ctx.:> tpr) (fls Ctx.:> RV x) k
 
 
 packMemValue
@@ -422,11 +430,7 @@ packMemValue _ _ (BVRepr w) x =
        return $ LLVMValInt w x
 packMemValue _ _ RealValRepr x =
        return $ LLVMValReal x
-packMemValue _ _ (RecursiveRepr nm) (RolledType xs)
-  | Just Refl <- testEquality nm (knownSymbol :: SymbolRepr "LLVM_pointer") = do
-      let RV blk = xs^._1
-      let RV end = xs^._2
-      let RV off = xs^._3
+packMemValue _ _ LLVMPointerRepr (LLVMPointer blk end off) = do
       return $ LLVMValPtr blk end off
 packMemValue sym (G.Type (G.Array sz tp) _) (VectorRepr tpr) vec
   | V.length vec == fromIntegral sz = do
@@ -607,8 +611,8 @@ memAlloca = mkIntrinsic $ \_ sym
      z <- liftIO $ bvLit sym ptrWidth 0
 
      let heap' = G.allocMem G.StackAlloc (fromInteger blkNum) sz (show loc) (memImplHeap mem)
-     let ptr = RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV sz Ctx.%> RV z)
-     return (Ctx.empty Ctx.%> (RV $ mem{ memImplHeap = heap' }) Ctx.%> RV ptr)
+     let ptr = RolledType (Ctx.empty Ctx.:> RV blk Ctx.:> RV sz Ctx.:> RV z)
+     return (Ctx.empty Ctx.:> (RV $ mem{ memImplHeap = heap' }) Ctx.:> RV ptr)
 
 memPushFrame :: IntrinsicImpl p sym (EmptyCtx ::> Mem) Mem
 memPushFrame = mkIntrinsic $ \_ _sym
@@ -627,17 +631,12 @@ memPopFrame = mkIntrinsic $ \_ _sym
 
 translatePtr :: RegValue sym LLVMPointerType
              -> LLVMPtr sym PtrWidth
-translatePtr (RolledType xs) =
-   let RV blk = xs^._1 in
-   let RV end = xs^._2 in
-   let RV off = xs^._3 in
-   LLVMPtr blk end off
-
+translatePtr (LLVMPointer blk end off) = LLVMPtr blk end off
+translatePtr _ = error "translatePtr: impossible!"
 
 translatePtrBack :: LLVMPtr sym PtrWidth
                  -> IO (RegValue sym LLVMPointerType)
-translatePtrBack (LLVMPtr blk end off) =
-  return $ RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV end Ctx.%> RV off)
+translatePtrBack (LLVMPtr blk end off) = return $ LLVMPointer blk end off
 
 sextendBVTo :: (1 <= w, IsSymInterface sym)
             => sym
@@ -730,7 +729,7 @@ doMalloc sym mem sz = do
   z <- liftIO $ bvLit sym ptrWidth 0
 
   let heap' = G.allocMem G.HeapAlloc (fromInteger blkNum) sz "<malloc>" (memImplHeap mem)
-  let ptr = RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV sz Ctx.%> RV z)
+  let ptr = RolledType (Ctx.empty Ctx.:> RV blk Ctx.:> RV sz Ctx.:> RV z)
   return (ptr, mem{ memImplHeap = heap' })
 
 mallocRaw
@@ -762,7 +761,7 @@ doMallocHandle sym mem x = do
 
   let heap' = G.allocMem G.HeapAlloc (fromInteger blkNum) z "<malloc>" (memImplHeap mem)
   let hMap' = Map.insert blkNum (toDyn x) (memImplHandleMap mem)
-  let ptr = RolledType (Ctx.empty Ctx.%> RV blk Ctx.%> RV z Ctx.%> RV z)
+  let ptr = RolledType (Ctx.empty Ctx.:> RV blk Ctx.:> RV z Ctx.:> RV z)
 
   return (ptr, mem{ memImplHeap = heap', memImplHandleMap = hMap' })
 
@@ -860,14 +859,12 @@ doMemcpy sym w mem dest src len = do
   return mem{ memImplHeap = heap' }
 
 ppPtr :: IsExpr (SymExpr sym) => RegValue sym LLVMPointerType -> Doc
-ppPtr (RolledType xs) =
+ppPtr (LLVMPointer blk end off) =
     text "(" <> blk_doc <> text "," <+> end_doc <> text "," <+> off_doc <> text ")"
-  where RV blk = xs^._1
-        RV end = xs^._2
-        RV off = xs^._3
-        blk_doc = printSymExpr blk
+  where blk_doc = printSymExpr blk
         end_doc = printSymExpr end
         off_doc = printSymExpr off
+ppPtr _ = error "ppPtr: impossible"
 
 ppAllocs :: IsSymInterface sym => sym -> [G.MemAlloc sym PtrWidth] -> IO Doc
 ppAllocs sym xs = vcat <$> mapM ppAlloc xs
@@ -980,16 +977,14 @@ ptrIsNull :: IsSymInterface sym
           => sym
           -> RegValue sym LLVMPointerType
           -> IO (Pred sym)
-ptrIsNull sym _p@(RolledType x) = do
-    let RV blk = x^._1
-    --let RV end = x^._2
-    let RV off = x^._3
+ptrIsNull sym _p@(LLVMPointer blk _end off) = do
     --p_doc <- ppPtr sym p
     --putStrLn $ unwords ["Testing for null pointer:" , show p_doc]
     pblk <- natEq sym blk =<< natLit sym 0
     poff <- bvEq sym off =<< bvLit sym ptrWidth 0
     andPred sym pblk poff
 
+ptrIsNull _sym _p = error "ptrIsNull : impossible!"
 
 instance Show (LLVMVal sym w) where
   show (LLVMValPtr _ _ _) = "<ptr>"

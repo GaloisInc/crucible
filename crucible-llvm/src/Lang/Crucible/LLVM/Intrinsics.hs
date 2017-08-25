@@ -439,7 +439,7 @@ llvmMemcpyOverride =
        align    <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
        volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
        Ctx.uncurryAssignment (callMemcpy sym memOps)
-                             (args Ctx.%> align Ctx.%> volatile)
+                             (args Ctx.:> align Ctx.:> volatile)
        return $ regValue $ args^._1 -- return first argument
   )
 
@@ -467,11 +467,11 @@ llvmMemcpyChkOverride =
   , \memOps -> mkOverride (functionNameFromText (Text.pack nm)) $ do
        sym <- getSymInterface
        (RegMap args) <- getOverrideArgs
-       let args' = Ctx.empty Ctx.%> (args^._1) Ctx.%> (args^._2) Ctx.%> (args^._3)
+       let args' = Ctx.empty Ctx.:> (args^._1) Ctx.:> (args^._2) Ctx.:> (args^._3)
        align    <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
        volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
        Ctx.uncurryAssignment (callMemcpy sym memOps)
-                             (args' Ctx.%> align Ctx.%> volatile)
+                             (args' Ctx.:> align Ctx.:> volatile)
        return $ regValue $ args^._1 -- return first argument
   )
 
@@ -500,7 +500,7 @@ llvmMemmoveOverride =
        align <- liftIO (RegEntry knownRepr <$> bvLit sym knownNat 0)
        volatile <- liftIO (RegEntry knownRepr <$> bvLit sym knownNat 0)
        Ctx.uncurryAssignment (callMemmove sym memOps)
-                             (args Ctx.%> align Ctx.%> volatile)
+                             (args Ctx.:> align Ctx.:> volatile)
        return $ regValue $ args^._1 -- return first argument
   )
 

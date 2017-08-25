@@ -77,7 +77,7 @@ assignReg :: TypeRepr tp
           -> RegValue sym tp
           -> RegMap sym ctx
           -> RegMap sym (ctx ::> tp)
-assignReg tp v (RegMap m) =  RegMap (m Ctx.%> RegEntry tp v)
+assignReg tp v (RegMap m) =  RegMap (m Ctx.:> RegEntry tp v)
 {-# INLINE assignReg #-}
 
 regVal :: RegMap sym ctx

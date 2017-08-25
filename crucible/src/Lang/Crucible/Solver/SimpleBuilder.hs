@@ -3426,7 +3426,7 @@ foldIndicesInRangeBounds sym f0 a0 bnds0 = do
               -> IO r
             h f i a j = do
               je <- natLit sym j
-              f a (i Ctx.%> je)
+              f a (i Ctx.:> je)
 
 {-
 -- | Compute the weighted sum of two bitvectors.

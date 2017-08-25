@@ -388,7 +388,7 @@ inferBlockInfo blocks = seq input_map $ go bi0 blocks
                   let block_id = C.BlockID (nextIndex sz)
                   let lastArg = AtomValue (lambdaAtom l)
                   let binput = BInput { binputID = block_id
-                                      , binputArgs = ra %> lastArg
+                                      , binputArgs = ra :> lastArg
                                       , binputStmts = blockStmts b
                                       , binputTerm = blockTerm b
                                       }
@@ -416,7 +416,7 @@ type RegExprs ctx = Assignment (MaybeF (C.Expr ctx)) ctx
 #ifdef UNSAFE_OPS
 
 extendRegExprs :: MaybeF (C.Expr ctx) tp -> RegExprs ctx ->RegExprs (ctx ::> tp)
-extendRegExprs r e = unsafeCoerce (e %> r)
+extendRegExprs r e = unsafeCoerce (e :> r)
 
 -- | Maps values in mutable representation to the current value in the SSA form.
 newtype TypedRegMap s ctx = TypedRegMap { _typedRegMap :: MapF (Value s) (C.Reg ctx) }
@@ -456,7 +456,7 @@ bindValueReg r cr (TypedRegMap m) = TypedRegMap $ MapF.insert r cr m
 #else
 
 extendRegExprs :: MaybeF (C.Expr ctx) tp -> RegExprs ctx -> RegExprs (ctx ::> tp)
-extendRegExprs r e = fmapFC ext e %> ext r
+extendRegExprs r e = fmapFC ext e :> ext r
  where ext :: MaybeF (C.Expr ctx) tp' -> MaybeF (C.Expr (ctx ::> tp)) tp'
        ext NothingF  = NothingF
        ext (JustF (C.App app)) = JustF (C.App (C.mapApp C.extendReg app))
@@ -547,7 +547,7 @@ resolveLambdaAsJump bi reg_map next_lbl output =
   case lookupSwitchInfo next_lbl (biSwitchInfo bi) of
     Nothing -> error "Could not find label in resolveLambdaAsJump"
     Just (SwitchInfo block_id types inputs) -> do
-      let types' = types %> typeOfAtom (lambdaAtom next_lbl)
+      let types' = types :> typeOfAtom (lambdaAtom next_lbl)
       let args = fmapFC (resolveReg reg_map) inputs
       let args' = args `extend` output
       C.JumpTarget block_id types' args'

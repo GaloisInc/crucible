@@ -223,7 +223,7 @@ llvmTypesAsCtx :: forall a
 llvmTypesAsCtx xs f = go (concatMap llvmTypeToRepr xs) Ctx.empty
  where go :: forall ctx. [Some TypeRepr] -> CtxRepr ctx -> a
        go []       ctx      = f ctx
-       go (Some tp:tps) ctx = go tps (ctx Ctx.%> tp)
+       go (Some tp:tps) ctx = go tps (ctx Ctx.:> tp)
 
 -- | Translate an LLVM type into a crucible type, which is passed into
 --   the given continuation
@@ -275,7 +275,7 @@ llvmDeclToFunHandleRepr decl k =
   llvmTypesAsCtx (fdArgTypes decl) $ \args ->
     llvmRetTypeAsRepr (fdRetType decl) $ \ret ->
       if fdVarArgs decl then
-        k (args Ctx.%> varArgsRepr) ret
+        k (args Ctx.:> varArgsRepr) ret
       else
         k args ret
 
@@ -583,7 +583,7 @@ transValue _ (L.ValSymbol symbol) = do
      resolveGlobal <- litExpr . llvmResolveGlobal . memModelOps . llvmContext <$> get
      mem <- readGlobal memVar
      let symbol' = app $ ConcreteLit $ TypeableValue $ GlobalSymbol symbol
-     ptr <- call resolveGlobal (Ctx.empty Ctx.%> mem Ctx.%> symbol')
+     ptr <- call resolveGlobal (Ctx.empty Ctx.:> mem Ctx.:> symbol')
      return (BaseExpr LLVMPointerRepr ptr)
 
 transValue _ (L.ValConstExpr cexp) =
@@ -703,7 +703,7 @@ unpackArgs = go Ctx.empty Ctx.empty
           -> (forall ctx'. CtxRepr ctx' -> Ctx.Assignment (Expr s) ctx' -> a)
           -> a
        go ctx asgn [] k = k ctx asgn
-       go ctx asgn (v:vs) k = unpackOne v (\tyr ex -> go (ctx Ctx.%> tyr) (asgn Ctx.%> ex) vs k)
+       go ctx asgn (v:vs) k = unpackOne v (\tyr ex -> go (ctx Ctx.:> tyr) (asgn Ctx.:> ex) vs k)
 
 unpackOne
    :: (?lc :: TyCtx.LLVMContext, ?err :: String -> a)
@@ -973,7 +973,7 @@ callAlloca sz = do
    alloca <- litExpr . llvmMemAlloca . memModelOps . llvmContext <$> get
    mem <- readGlobal memVar
    loc <- litExpr . Text.pack . show <$> getPosition
-   res <- call alloca (Ctx.empty Ctx.%> mem Ctx.%> sz Ctx.%> loc)
+   res <- call alloca (Ctx.empty Ctx.:> mem Ctx.:> sz Ctx.:> loc)
    let mem' = getStruct (Ctx.skip $ Ctx.nextIndex $ Ctx.zeroSize)    res knownRepr
    let p    = getStruct (Ctx.nextIndex $ Ctx.incSize $ Ctx.zeroSize) res knownRepr
    writeGlobal memVar mem'
@@ -984,7 +984,7 @@ callPushFrame = do
    memVar <- llvmMemVar . memModelOps . llvmContext <$> get
    pushFrame <- litExpr . llvmMemPushFrame . memModelOps . llvmContext <$> get
    mem  <- readGlobal memVar
-   mem' <- call pushFrame (Ctx.empty Ctx.%> mem)
+   mem' <- call pushFrame (Ctx.empty Ctx.:> mem)
    writeGlobal memVar mem'
 
 callPopFrame :: LLVMGenerator h s ret ()
@@ -992,7 +992,7 @@ callPopFrame = do
    memVar <- llvmMemVar . memModelOps . llvmContext <$> get
    popFrame <- litExpr . llvmMemPopFrame . memModelOps . llvmContext <$> get
    mem  <- readGlobal memVar
-   mem' <- call popFrame (Ctx.empty Ctx.%> mem)
+   mem' <- call popFrame (Ctx.empty Ctx.:> mem)
    writeGlobal memVar mem'
 
 
@@ -1024,7 +1024,7 @@ callPtrAddOffset ::
     -> LLVMGenerator h s ret (Expr s LLVMPointerType)
 callPtrAddOffset base off = do
     ptrAddOff <- litExpr . llvmPtrAddOffset . memModelOps . llvmContext <$> get
-    call ptrAddOff (Ctx.empty Ctx.%> base Ctx.%> off)
+    call ptrAddOff (Ctx.empty Ctx.:> base Ctx.:> off)
 
 
 callPtrSubtract ::
@@ -1034,7 +1034,7 @@ callPtrSubtract ::
     -> LLVMGenerator h s ret (Expr s (BVType PtrWidth))
 callPtrSubtract x y = do
     ptrSub <- litExpr . llvmPtrSubtract . memModelOps . llvmContext <$> get
-    call ptrSub (Ctx.empty Ctx.%> x Ctx.%> y)
+    call ptrSub (Ctx.empty Ctx.:> x Ctx.:> y)
 
 
 callLoad :: (?lc :: TyCtx.LLVMContext)
@@ -1047,7 +1047,7 @@ callLoad typ expectTy (asScalar -> Scalar LLVMPointerRepr ptr) =
       memLoad <- litExpr . llvmMemLoad . memModelOps . llvmContext <$> get
       mem  <- readGlobal memVar
       typ' <- app . ConcreteLit . TypeableValue <$> toStorableType typ
-      v <- call memLoad (Ctx.empty Ctx.%> mem Ctx.%> ptr Ctx.%> typ')
+      v <- call memLoad (Ctx.empty Ctx.:> mem Ctx.:> ptr Ctx.:> typ')
       let msg = litExpr (Text.pack ("Expected load to return value of type " ++ show expectTy))
       let v' = app $ FromJustValue expectTy (app $ UnpackAny expectTy v) msg
       return (BaseExpr expectTy v')
@@ -1068,7 +1068,7 @@ callStore typ (asScalar -> Scalar LLVMPointerRepr ptr) v =
       mem  <- readGlobal memVar
       let v' = app (PackAny vtpr vexpr)
       typ' <- app . ConcreteLit . TypeableValue <$> toStorableType typ
-      mem' <- call memStore (Ctx.empty Ctx.%> mem Ctx.%> ptr Ctx.%> typ' Ctx.%> v')
+      mem' <- call memStore (Ctx.empty Ctx.:> mem Ctx.:> ptr Ctx.:> typ' Ctx.:> v')
       writeGlobal memVar mem'
 
 callStore _ _ _ =
@@ -1830,22 +1830,22 @@ generateInstr retType lab instr assign_f k =
                    res <-
                      case op of
                        L.Ieq -> do
-                         isEq <- call pEq (Ctx.empty Ctx.%> mem Ctx.%> x'' Ctx.%> y'')
+                         isEq <- call pEq (Ctx.empty Ctx.:> mem Ctx.:> x'' Ctx.:> y'')
                          return $ isEq
                        L.Ine -> do
-                         isEq <- call pEq (Ctx.empty Ctx.%> mem Ctx.%> x'' Ctx.%> y'')
+                         isEq <- call pEq (Ctx.empty Ctx.:> mem Ctx.:> x'' Ctx.:> y'')
                          return $ App (Not isEq)
                        L.Iule -> do
-                         isLe <- call pLe (Ctx.empty Ctx.%> mem Ctx.%> x'' Ctx.%> y'')
+                         isLe <- call pLe (Ctx.empty Ctx.:> mem Ctx.:> x'' Ctx.:> y'')
                          return $ isLe
                        L.Iult -> do
-                         isGe <- call pLe (Ctx.empty Ctx.%> mem Ctx.%> y'' Ctx.%> x'')
+                         isGe <- call pLe (Ctx.empty Ctx.:> mem Ctx.:> y'' Ctx.:> x'')
                          return $ App (Not isGe)
                        L.Iuge -> do
-                         isGe <- call pLe (Ctx.empty Ctx.%> mem Ctx.%> y'' Ctx.%> x'')
+                         isGe <- call pLe (Ctx.empty Ctx.:> mem Ctx.:> y'' Ctx.:> x'')
                          return $ isGe
                        L.Iugt -> do
-                         isLe <- call pLe (Ctx.empty Ctx.%> mem Ctx.%> x'' Ctx.%> y'')
+                         isLe <- call pLe (Ctx.empty Ctx.:> mem Ctx.:> x'' Ctx.:> y'')
                          return $ App (Not isLe)
                        _ -> fail $ unwords ["signed comparison on pointer values", show x, show y]
                    assign_f (BaseExpr (BVRepr (knownNat :: NatRepr 1))
@@ -1861,10 +1861,10 @@ generateInstr retType lab instr assign_f k =
                               "Attempted to compare a pointer to a non-0 integer value"
                    res <- case op of
                      L.Ieq  -> do
-                        res <- call pIsNull (Ctx.empty Ctx.%> x'')
+                        res <- call pIsNull (Ctx.empty Ctx.:> x'')
                         return res
                      L.Ine  -> do
-                        res <- call pIsNull (Ctx.empty Ctx.%> x'')
+                        res <- call pIsNull (Ctx.empty Ctx.:> x'')
                         return (App (Not res))
                      _ -> fail $ unwords ["arithmetic comparison on incompatible values", show x, show y]
                    assign_f (BaseExpr (BVRepr (knownNat :: NatRepr 1)) (App (BoolToBV knownNat res)))
@@ -1878,10 +1878,10 @@ generateInstr retType lab instr assign_f k =
                               "Attempted to compare a pointer to a non-0 integer value"
                    res <- case op of
                      L.Ieq  -> do
-                        res <- call pIsNull (Ctx.empty Ctx.%> y'')
+                        res <- call pIsNull (Ctx.empty Ctx.:> y'')
                         return res
                      L.Ine  -> do
-                        res <- call pIsNull (Ctx.empty Ctx.%> y'')
+                        res <- call pIsNull (Ctx.empty Ctx.:> y'')
                         return (App (Not res))
                      _ -> fail $ unwords ["arithmetic comparison on incompatible values", show x, show y]
                    assign_f (BaseExpr (BVRepr (knownNat :: NatRepr 1)) (App (BoolToBV knownNat res)))
