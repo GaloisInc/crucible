@@ -742,8 +742,12 @@ ppCFG' lineNumbers pdInfo g = vcat (toListFC (ppBlock lineNumbers pdInfo) (cfgBl
 data SomeCFG (init :: Ctx CrucibleType) (ret :: CrucibleType) where
   SomeCFG :: CFG blocks init ret -> SomeCFG init ret
 
+instance Show (SomeCFG i r) where show cfg = case cfg of SomeCFG c -> show c
+
 -- | Control flow graph.  This data type closes existentially
 --   over all the type parameters.
 data AnyCFG where
   AnyCFG :: CFG blocks init ret
          -> AnyCFG
+
+instance Show AnyCFG where show cfg = case cfg of AnyCFG c -> show c
