@@ -21,3 +21,8 @@ optional-packages:
   dependencies/llvm-pretty/
   dependencies/parameterized-utils/
   dependencies/saw-core/
+  dependencies/saw-core-aig/
+  dependencies/saw-core-sbv/
+  dependencies/cryptol/
+  dependencies/cryptol-verifier/
+  
