@@ -462,6 +462,10 @@ handleOneRequest sim addlRequests request =
       let format   = request^.P.request_export_format
       fulfillExportModelRequest addlRequests sim format path all_args
 
+    P.CompileVerificationOverride -> do
+      let harness  = request^.P.request_verification_harness
+      fulfillCompileVerificationOverrideRequest addlRequests sim harness
+
     P.ResumeSimulation -> do
       nyi "resumeSimulation"
     P.UseOverride -> do
@@ -483,6 +487,10 @@ data BackendSpecificRequests p sym
       , fulfillSymbolHandleRequest
          :: Simulator p sym
          -> P.VarType
+         -> IO ()
+      , fulfillCompileVerificationOverrideRequest
+         :: Simulator p sym
+         -> P.VerificationHarness
          -> IO ()
       }
 

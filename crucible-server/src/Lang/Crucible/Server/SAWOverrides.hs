@@ -55,7 +55,17 @@ sawBackendRequests =
   BackendSpecificRequests
   { fulfillExportModelRequest = sawFulfillExportModelRequest
   , fulfillSymbolHandleRequest = sawFulfillSymbolHandleRequest
+  , fulfillCompileVerificationOverrideRequest = sawFulfillCompileVerificationOverrideRequest
   }
+
+sawFulfillCompileVerificationOverrideRequest
+   :: forall p n
+    . Simulator p (SAW.SAWCoreBackend n)
+   -> P.VerificationHarness
+   -> IO ()
+sawFulfillCompileVerificationOverrideRequest _sim _harness =
+  do fail "FIXME implement verification harness compilation"
+
 
 sawFulfillExportModelRequest
    :: forall p n
