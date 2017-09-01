@@ -282,29 +282,18 @@ symbolicBranch s verb p x_id x_args y_id y_args = do
   let y_frame = cruciblePausedFrame y_id y_args top_frame
 
   let cur_frame = top_frame^.crucibleTopFrame
-  let sym    = stateSymInterface s
   case cur_frame^.framePostdom of
     Nothing -> do
       when (verb >= 5) $ do
         hPutStrLn (printHandle (s^.stateContext)) $ "Return-dominated symbolic branch"
-      return $ intra_branch s p (Some . x_frame) (Some . y_frame) ReturnTarget
-    Just (Some pd_id)
-      | Just Refl <- x_id `testEquality` pd_id -> do
-        when (verb >= 5) $ do
-          hPutStrLn (printHandle (s^.stateContext)) $ "First branch at postdom"
-        let tgt = BlockTarget pd_id
-        pnot <- notPred sym p
-        return $ completed_branch s pnot (Some . y_frame) x_frame tgt
-      | Just Refl <- y_id `testEquality` pd_id -> do
-        when (verb >= 5) $ do
-          hPutStrLn (printHandle (s^.stateContext)) $ "Second branch at postdom"
-        let tgt = BlockTarget pd_id
-        return $ completed_branch s p    (Some . x_frame) y_frame tgt
-      | otherwise -> do
-        when (verb >= 5) $ do
-          hPutStrLn (printHandle (s^.stateContext)) $ "Neither branch at postdom"
-        let tgt = BlockTarget pd_id
-        return $ intra_branch s p (Some . x_frame) (Some . y_frame) tgt
+      return $ intra_branch s p (\sps -> SomeLabel (x_frame sps) (Just x_id))
+                                (\sps -> SomeLabel (y_frame sps) (Just y_id))
+                                ReturnTarget
+    Just (Some pd_id) ->
+      let tgt = BlockTarget pd_id
+      in return $ intra_branch s p (\sps -> SomeLabel (x_frame sps) (Just x_id))
+                                   (\sps -> SomeLabel (y_frame sps) (Just y_id))
+                                   tgt
 
 data VariantCall sym blocks tp where
   VariantCall :: TypeRepr tp
@@ -344,14 +333,16 @@ stepReturnVariantCases s [] = do
 stepReturnVariantCases s ((p,JumpCall x_id x_args):cs) = do
   let top_frame = s^.stateTree^.actFrame
   let x_frame = cruciblePausedFrame x_id x_args top_frame
-  let y_frame sym_state = Some $ PausedFrame $ PausedValue
-                   { _pausedValue = top_frame
-                   , savedStateInfo
-                     = sym_state
-                     & programLoc .~ frameProgramLoc (top_frame^.crucibleTopFrame)
-                   , resume = \s'' -> join $ stepReturnVariantCases s'' cs
-                   }
-  return $ intra_branch s p (Some . x_frame) y_frame ReturnTarget
+  let y_frame sym_state =
+        SomeLabel (PausedFrame $ PausedValue
+                     { _pausedValue = top_frame
+                     , savedStateInfo
+                       = sym_state
+                       & programLoc .~ frameProgramLoc (top_frame^.crucibleTopFrame)
+                     , resume = \s'' -> join $ stepReturnVariantCases s'' cs
+                     })
+                  Nothing
+  return $ intra_branch s p (\sps -> SomeLabel (x_frame sps) (Just x_id)) y_frame ReturnTarget
 
 stepVariantCases
          :: forall p sym rtp blocks r ctx x
@@ -368,8 +359,6 @@ stepVariantCases s _pd_id [] = do
   return (abortExec err s)
 stepVariantCases s pd_id ((p,JumpCall x_id x_args):cs) = do
   let top_frame = s^.stateTree^.actFrame
-  let sym = stateSymInterface s
-
   let x_frame = cruciblePausedFrame x_id x_args top_frame
   let y_frame s' = PausedValue
                    { _pausedValue = top_frame
@@ -377,15 +366,9 @@ stepVariantCases s pd_id ((p,JumpCall x_id x_args):cs) = do
                        s' & programLoc .~ frameProgramLoc (top_frame^.crucibleTopFrame)
                    , resume = \s'' -> join (stepVariantCases s'' pd_id cs)
                    }
-  let y_frame' = Some . PausedFrame . y_frame
-  case x_id `testEquality` pd_id of
-    Just Refl -> do
-      let tgt = BlockTarget pd_id
-      pnot <- notPred sym p
-      return $ completed_branch s pnot y_frame' x_frame tgt
-    Nothing -> do
-      let tgt = BlockTarget pd_id
-      return $ intra_branch s p (Some . x_frame) y_frame' tgt
+  let y_frame' sym_state = SomeLabel (PausedFrame (y_frame sym_state)) Nothing
+  let tgt = BlockTarget pd_id
+  return $ intra_branch s p (\sps -> SomeLabel (x_frame sps) (Just x_id)) y_frame' tgt
 
 returnAndMerge :: forall p sym rtp blocks r args
                .  IsSymInterface sym

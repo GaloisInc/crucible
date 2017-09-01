@@ -61,10 +61,11 @@ module Lang.Crucible.Simulator.ExecutionTree
   , PausedFrame(..)
     -- ** Branch and merge at return
   , intra_branch
-  , completed_branch
+  , SomeLabel(..)
     -- * High level operations.
   , replaceTailFrame
   , getIntraFrameBranchTarget
+  , tryIntraFrameMerge
   , checkForIntraFrameMerge
   , callFn
   , returnValue
@@ -214,7 +215,7 @@ data AbortedResult sym where
   AbortedExit :: !ExitCode
               -> AbortedResult sym
 
-  -- An aborted exeuction that was ended because path conditions became infeasible
+  -- An aborted execution that was ended because path conditions became infeasible
   AbortedInfeasible :: AbortedResult sym
 
   -- An entire aborted branch.
@@ -383,10 +384,9 @@ pausedValue :: Lens (PausedValue p sym root f a u)
                     v
 pausedValue = lens _pausedValue (\s v -> s { _pausedValue = v })
 
-prependPausedAction :: (sym -> IO ())
-                    -> PausedValue p sym r f a u
-                    -> PausedValue p sym r f a u
-prependPausedAction m v = v { resume = \s -> m (stateSymInterface s) >> resume v s }
+resumed :: Simple Lens (PausedValue p sym root f a u)
+                       (ExecCont    p sym root f a)
+resumed = lens resume (\s v -> s { resume = v })
 
 ------------------------------------------------------------------------
 -- ReurnHandler and CallerCont
@@ -643,6 +643,34 @@ abortPartialResult s pr = stateSolverProof s $ do
                    <*> globalAbortBranch sym muxFns g
   partialValue abtGp pr
 
+-- | Branch with a merge point inside this frame.
+--
+-- If the argument of type @Maybe ('BlockID' b next_args)@ is @Just bid@, and
+-- the target of @bid@ is the same as the post-dominator block, then we will
+-- check for the opportunity to merge with any pending symbolic branch frames.
+-- When all pending merges are complete, run the given computation. If we are
+-- not currently about to execute the post-dominator block for a pending merge,
+-- then simply run the given computation.
+tryIntraFrameMerge
+  :: forall p sym root b r next_args state_args pd_args
+   . ExecCont p sym root (CrucibleLang b r) ('Just next_args)
+     -- ^ What to run for next computation
+  -> CrucibleBranchTarget b pd_args
+     -- ^ The location of the post-dominator block.
+  -> SimState p sym root (CrucibleLang b r) state_args
+    -- ^ Current tree.
+  -> (SimState p sym root (CrucibleLang b r) state_args -> SimState p sym root (CrucibleLang b r) ('Just next_args))
+    -- ^ Operation to perform on the current tree.
+  -> Maybe (BlockID b next_args)
+    -- ^ 'Just' the frame corresponds to a label, 'Nothing' otherwise
+  -> IO (ExecResult p sym root)
+tryIntraFrameMerge active_cont tgt s setter m_bid
+  | Just bid  <- m_bid
+  , Just Refl <- testEquality tgt (BlockTarget bid)
+  = checkForIntraFrameMerge active_cont tgt (s & setter)
+  | otherwise
+  = active_cont (s & setter)
+
 -- | Checks for the opportunity to merge within a frame.
 --
 -- This should be called everytime the current control flow location changes.
@@ -700,14 +728,6 @@ checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $ do
 newtype PausedFrame p sym root f args
       = PausedFrame (PausedValue p sym root f args (TopFrame sym f args))
 
-runWithCurrentState :: SimState p sym r f a
-                    -> ValueFromFrame p sym r f
-                    -> Some (PausedFrame p sym r f)
-                    -> IO (ExecResult p sym r)
-runWithCurrentState s ctx (Some (PausedFrame pf)) = do
-  resume pf $ s & stateTree .~ ActiveTree ctx (TotalRes (pf^.pausedValue))
-{-# INLINABLE runWithCurrentState #-}
-
 pushBranchVal :: (f ~ CrucibleLang b a)
               => SimState p sym root f ma
               -> PausedFrame p sym root f args
@@ -720,65 +740,19 @@ pushBranchVal s (PausedFrame pv) = stateSolverProof s $ do
   gs' <- globalPushBranch sym iTypes gs
   return $! PausedFrame (pv & pausedValue .~ GlobalPair v' gs')
 
--- | Branch with a merge point inside this frame.
---
--- The false branch is known to be at the merge point.
--- This may merge frames, and will call the error handler if merging fails.
-completed_branch :: SimState p sym r (CrucibleLang b a) dc_args
-                    -- ^ Current state
-                 -> Pred sym
-                    -- ^ Predicate on current branch
-                 -> (SymPathState sym -> Some (PausedFrame p sym r (CrucibleLang b a)))
-                    -- ^ Returns exec for true branch.
-                 -> (SymPathState sym -> PausedFrame p sym r (CrucibleLang b a) args)
-                    -- ^ Returns exec for false branch.
-                 -> CrucibleBranchTarget  b args
-                    -- ^ Target to merge at.
-                 -> IO (ExecResult p sym r)
-completed_branch s p t_fn f_fn tgt = stateSolverProof s $ do
-  let ctx = asContFrame (s^.stateTree)
-  let sym = stateSymInterface s
-  r <- evalBranch sym p
-  -- Get current state
-  cur_state <- getCurrentState sym
-  case r of
-    -- If we are symbolic, then we ignore chosen_branch.
-    -- f_fn has already reached the merge point, and thus we must run t_fn next.
-    SymbolicBranch _ -> do
-      -- Pause result.
-      active_frame <- traverseSome (pushBranchVal s) $ t_fn cur_state
-      PausedFrame paused_frame <- pushBranchVal s $ f_fn cur_state
-
-      let set_f sym' = pushBranchPred sym' =<< notPred sym' p
-      let paused_res  = paused_frame & prependPausedAction set_f
-                                     & pausedValue %~ TotalRes
-      -- Mark branch as completed.
-      let ctx' = VFFBranch ctx cur_state p (VFFCompletePath paused_res) tgt
-      -- Execute on true branch.
-      pushBranchPred sym p
-      runWithCurrentState s ctx' active_frame
-
-    NoBranch True -> do
-      sym_state <- getCurrentState sym
-      runWithCurrentState s ctx (t_fn sym_state)
-
-    NoBranch False -> do
-      sym_state <- getCurrentState sym
-      let PausedFrame pf = f_fn sym_state
-      let s' = s & stateTree .~ ActiveTree ctx (TotalRes (pf^.pausedValue))
-      checkForIntraFrameMerge (resume pf) tgt s'
-    InfeasibleBranch ->
-      resumeValueFromFrameAbort s ctx AbortedInfeasible
-{-# INLINABLE completed_branch #-}
+-- | 'Some' frame, together with its 'BlockID'.
+data SomeLabel p sym r b a =
+  forall args. SomeLabel !(PausedFrame p sym r (CrucibleLang b a) ('Just args))
+                         !(Maybe (BlockID b args))
 
 -- | Branch with a merge point inside this frame.
-intra_branch :: SimState p sym r (CrucibleLang b a) dc_args
+intra_branch :: SimState p sym r (CrucibleLang b a) ('Just dc_args)
                 -- ^ Current execution state
              -> Pred sym
                 -- ^ Information about branch
-             -> (SymPathState sym -> Some (PausedFrame p sym r (CrucibleLang b a)))
+             -> (SymPathState sym -> SomeLabel p sym r b a)
                 -- ^ true branch.
-             -> (SymPathState sym -> Some (PausedFrame p sym r (CrucibleLang b a)))
+             -> (SymPathState sym -> SomeLabel p sym r b a)
                 -- ^ false branch.
              -> CrucibleBranchTarget b (args :: Maybe (Ctx CrucibleType))
                 -- ^ Information for merge
@@ -793,26 +767,44 @@ intra_branch s p t_fn f_fn tgt = stateSolverProof s $ do
       -- Get correct predicate
       p' <- predEqConst sym p chosen_branch
       -- Get current state
-      t_frame <- traverseSome (pushBranchVal s) $ t_fn cur_state
-      f_frame <- traverseSome (pushBranchVal s) $ f_fn cur_state
+
+      let t_label = t_fn cur_state
+          f_label = f_fn cur_state
 
       -- Select correct branch
-      case swap_unless chosen_branch (t_frame, f_frame) of
-        (a_state, Some (PausedFrame o_frame)) -> do
+      case swap_unless chosen_branch (t_label, f_label) of
+        (SomeLabel a_state a_id, SomeLabel o_state o_id) -> do
+          a_frame <- pushBranchVal s a_state
+          PausedFrame o_frame <- pushBranchVal s o_state
+
           -- Create context for paused frame.
           let set_f sym' = pushBranchPred sym' =<< notPred sym' p'
-          let o_tree = o_frame & prependPausedAction set_f
-                               & pausedValue %~ TotalRes
+          let o_tree = o_frame & pausedValue %~ TotalRes
+                               & resumed     .~ (\s'' -> do set_f (stateSymInterface s'')
+                                                            tryIntraFrameMerge (resume o_frame)
+                                                               tgt s''
+                                                               id
+                                                               o_id)
           let ctx' = VFFBranch ctx cur_state p' (VFFActivePath o_tree) tgt
           -- Start a_state (where branch pred is p')
           pushBranchPred sym p'
-          runWithCurrentState s ctx' a_state
+          let PausedFrame pf = a_frame
+              setter = stateTree .~ ActiveTree ctx' (TotalRes (pf^.pausedValue))
+          tryIntraFrameMerge (resume pf) tgt s setter a_id
 
     NoBranch chosen_branch -> do
+      -- Get current state
+      let t_label = t_fn cur_state
+          f_label = f_fn cur_state
+
       -- Execute on active branch.
-      let a_state | chosen_branch = t_fn cur_state
-                  | otherwise     = f_fn cur_state
-      runWithCurrentState s ctx a_state
+      let a_label | chosen_branch = t_label
+                  | otherwise     = f_label
+      case a_label of
+        SomeLabel a_state a_id -> do
+          let PausedFrame pf = a_state
+              setter = stateTree .~ ActiveTree ctx (TotalRes (pf^.pausedValue))
+          tryIntraFrameMerge (resume pf) tgt s setter a_id
     InfeasibleBranch ->
       resumeValueFromFrameAbort s ctx AbortedInfeasible
 {-# INLINABLE intra_branch #-}
