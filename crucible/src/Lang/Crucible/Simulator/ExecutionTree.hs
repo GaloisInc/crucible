@@ -421,11 +421,6 @@ data VFFOtherPath p sym root f args
      -- ^ This is a completed execution path.
 
 
--- | Return saved state info associated with other path.
-vffSavedStateInfo :: VFFOtherPath p sym root f args -> SymPathState sym
-vffSavedStateInfo (VFFActivePath   p) = savedStateInfo p
-vffSavedStateInfo (VFFCompletePath p) = savedStateInfo p
-
 -- | @ValueFromFrame p sym root ret f@ contains the context for a simulator with state @s@,
 -- global return type @root@, and top frame with type @f@.
 data ValueFromFrame p sym (root :: *) f where
@@ -707,6 +702,8 @@ checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $ do
             -- Get location where branch occured
             -- Merge results together
             ar <- mergePartialResult s tgt p er (other^.pausedValue)
+            -- Reset the backend path state
+            resetCurrentState sym old_state
             -- Check for more potential merge targets.
             let s' = s & stateTree .~ ActiveTree ctx ar
             checkForIntraFrameMerge active_cont tgt s'
@@ -985,11 +982,12 @@ resumeValueFromFrameAbort s ctx0 ar0 = stateSolverProof s $ do
   let sym = stateSymInterface s
   case ctx0 of
     VFFBranch ctx old_state p some_next tgt -> do
-      -- Restore the old state.
-      switchCurrentState sym old_state (vffSavedStateInfo some_next)
       -- Negate branch condition and add to context.
       pnot <- notPred sym p
       let nextCtx = VFFPartial ctx pnot ar0 True
+
+      -- Reset the backend path state
+      resetCurrentState sym old_state
 
       -- Add assertion that path condition holds
       addAssertion sym pnot FailedPathSimError
@@ -997,10 +995,12 @@ resumeValueFromFrameAbort s ctx0 ar0 = stateSolverProof s $ do
       -- Resume other branch.
       case some_next of
         VFFActivePath   n -> do
+          -- continue executing
           resumeFrame s n nextCtx
         VFFCompletePath pv -> do
           let er = pv^.pausedValue
           let s' = s & stateTree .~ ActiveTree nextCtx er
+          -- check for further merges
           checkForIntraFrameMerge (resume pv) tgt s'
     VFFPartial ctx p ay _ -> do
       resumeValueFromFrameAbort s ctx (AbortedBranch p ar0 ay)
