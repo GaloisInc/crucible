@@ -393,9 +393,9 @@ emptyMem = Mem { _memState = EmptyMem emptyChanges
                }
 
 isAllocated' :: (IsBoolExprBuilder sym) => sym -> NatRepr w
-                -- | Evaluation function that takes continuation
-                -- for condition if previous check fails.
              -> (Natural -> SymBV sym w -> IO (Pred sym) -> IO (Pred sym))
+                -- ^ Evaluation function that takes continuation
+                -- for condition if previous check fails.
              -> [MemAlloc sym w]
              -> IO (Pred sym)
 isAllocated' sym _w step = go (pure (falsePred sym))
