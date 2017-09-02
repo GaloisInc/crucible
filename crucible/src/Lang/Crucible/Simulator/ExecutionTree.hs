@@ -687,9 +687,9 @@ checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $ do
       | Just Refl <- testEquality tgt tgt' -> do
         -- Adjust state info.
         -- Merge the two results together.
+        sym_state <- getCurrentState sym
         case some_next of
           VFFActivePath next -> do
-            sym_state <- getCurrentState sym
             pnot <- notPred sym p
             switchCurrentState sym old_state (savedStateInfo next)
             let paused_res :: PausedPartialFrame p sym root (CrucibleLang b r) args
@@ -704,6 +704,10 @@ checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $ do
             ar <- mergePartialResult s tgt p er (other^.pausedValue)
             -- Reset the backend path state
             resetCurrentState sym old_state
+            -- Mux together the assertions along each branch, and add them
+            -- back to the path conditions
+            mergeState sym p sym_state (savedStateInfo other)
+
             -- Check for more potential merge targets.
             let s' = s & stateTree .~ ActiveTree ctx ar
             checkForIntraFrameMerge active_cont tgt s'
