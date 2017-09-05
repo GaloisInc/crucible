@@ -16,6 +16,14 @@ Description:
 extra-source-files:
   proto/crucible.proto
 
+custom-setup
+  setup-depends:
+    base >= 4.7 && < 5,
+    Cabal >= 1.24,
+    directory,
+    filepath,
+    process
+
 library
   build-depends:
     ansi-wl-pprint,
@@ -25,6 +33,8 @@ library
     crucible >= 0.1,
     crucible-abc,
     crucible-saw,
+    cryptol,
+    cryptol-verifier,
     galois-matlab,
     hashable,
     hashtables,
@@ -54,6 +64,7 @@ library
     Lang.Crucible.Server.Translation
     Lang.Crucible.Server.TypeConv
     Lang.Crucible.Server.ValueConv
+    Lang.Crucible.Server.VerificationHarness
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
