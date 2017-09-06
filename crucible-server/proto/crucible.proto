@@ -1064,19 +1064,19 @@ message VerificationHarness {
 
 message StateSpecification {
   // specification variables
-  repeated VariableSpecification variables = 1;
+  repeated VariableSpecification variable = 1;
 
   // specification register assignments
-  repeated RegisterAssignment register_assignments = 2;
+  repeated RegisterAssignment register_assignment = 2;
 
   // specification memory assignments
-  repeated MemoryAssignment memory_assignments = 3;
+  repeated MemoryAssignment memory_assignment = 3;
 
   // specification variable bindings
-  repeated VariableBinding variable_bindings = 4;
+  repeated VariableBinding variable_binding = 4;
 
   // specification conditions
-  repeated string conditions = 5;
+  repeated string condition = 5;
 }
 
 message VariableSpecification {
@@ -1086,7 +1086,7 @@ message VariableSpecification {
   // The dimensions of the variable.  There must be exactly one
   // or two dimensions, indicating words or vectors of words.
   // The word dimension must be a multiple of 8.
-  repeated uint64 dimensions = 2;
+  repeated uint64 dimension = 2;
 }
 
 message RegisterAssignment {
@@ -1131,7 +1131,7 @@ message VariableReference {
   // The variable reference type
   optional VariableReferenceCode code = 1;
 
-  // An index into the variable specification list,
+  // The name of the variable,
   // for references to user-defined variables
-  optional uint64 var_index = 2;
+  optional string var_name = 2;
 }
