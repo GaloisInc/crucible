@@ -89,6 +89,17 @@ public abstract class Simulator extends ValueCreator<SimulatorValue> {
         }
     }
 
+    protected void getNextAckResponse() throws IOException {
+        Protos.GenericResponse r = getNextResponse();
+
+        switch(r.getCode()) {
+        case AcknowledgementResp:
+            return;
+        }
+
+        throw new IOException( "Expected simulator ACK response!" + r.toString() );
+    }
+
     protected Protos.SimulatorValueResponse getNextSimulatorValueResponse() throws IOException {
         Protos.GenericResponse r = getNextResponse();
         Protos.SimulatorValueResponse svr = r.getSimValResponse();
@@ -667,10 +678,11 @@ public abstract class Simulator extends ValueCreator<SimulatorValue> {
      *
      * @param p procedure to use
      */
-    public synchronized void useCfg(Procedure p) {
+    public synchronized void useCfg(Procedure p) throws IOException {
         issueRequest(Protos.Request.newBuilder()
                      .setCode(Protos.RequestCode.UseCFG)
                      .setCfg(p.getCfgRep()));
+        getNextAckResponse();
     }
 
     /**
@@ -678,10 +690,11 @@ public abstract class Simulator extends ValueCreator<SimulatorValue> {
      *
      * @param p procedure to use
      */
-    public synchronized void printCFG(Procedure p) {
+    public synchronized void printCFG(Procedure p) throws IOException {
         issueRequest(Protos.Request.newBuilder()
                      .setCode(Protos.RequestCode.PrintCFG)
                      .setCfg(p.getCfgRep()));
+        getNextAckResponse();
     }
 
     /**
@@ -700,6 +713,14 @@ public abstract class Simulator extends ValueCreator<SimulatorValue> {
                      .setIndex(h.getUniqueId()));
         // Add override to map for later lookup.
         overrideMap.put(h.getUniqueId(), new OverrideEntry(h, f));
+    }
+
+    public synchronized
+    void compileHarness( VerificationHarness harness ) throws IOException {
+        issueRequest( Protos.Request.newBuilder()
+                      .setCode(Protos.RequestCode.CompileVerificationOverride)
+                      .setVerificationHarness( harness.getRep() ));
+        getNextAckResponse();
     }
 
     /**
@@ -798,6 +819,7 @@ public abstract class Simulator extends ValueCreator<SimulatorValue> {
         issueRequest(Protos.Request.newBuilder()
                      .setCode(Protos.RequestCode.SetVerbosity)
                      .addArg(this.natLiteral(v).getValueRep()));
+        getNextAckResponse();
     }
 
     /**

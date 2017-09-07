@@ -11,6 +11,7 @@
 
 module Lang.Crucible.Server.VerificationHarness where
 
+import           Control.Exception
 import           Control.Lens
 --import           Control.Monad
 import           Data.Foldable
@@ -84,7 +85,7 @@ data VerificationSetupStep ex
 
 instance PP.PP ex => PP.PP (VerificationSetupStep ex) where
   ppPrec _i (BindVariable var ex) =
-     PP.pp var PP.<+> PP.pp ex
+     PP.pp var PP.<+> PP.text ":=" PP.<+> PP.pp ex
   ppPrec _i (RegisterVal off var) =
      PP.text "reg[" PP.<> PP.integer (fromIntegral off) PP.<> PP.text "] :=" PP.<+> PP.pp var
   ppPrec _i (MemPointsTo base off var) =
@@ -121,7 +122,8 @@ data VerificationHarness ex
 
 type ParseExpr = CP.Expr CP.PName
 type TCExpr    = CT.Expr
-type M         = CT.InferM
+--type M         = CT.InferM
+type M         = IO
 
 processHarness ::
    P.VerificationHarness ->
@@ -137,17 +139,23 @@ processHarness rawHarness =
              }
 
 
-
 processPhase ::
    Seq HarnessVarDecl ->
    P.StateSpecification ->
    M (VerificationPhase TCExpr)
 processPhase initVars rawPhase =
   do parsed <- parsePhase rawPhase
-     CT.io $ print $ PP.pp $ parsed
+     --CT.io $ print $ PP.pp $ parsed
      orderPhase =<< tcPhase initVars parsed
 
   --orderPhase <=< tcPhase initVars <=< parsePhase
+
+parseAndShowPhase ::
+   P.StateSpecification ->
+   M Text
+parseAndShowPhase rawPhase =
+   T.pack . PP.render . PP.pp <$> parsePhase rawPhase
+
 
 parsePhase ::
    P.StateSpecification ->
@@ -175,7 +183,7 @@ parseVar vspec =
                [width] | width `mod` 8 == 0 ->
                    return $ HarnessVarWord width
                dims ->
-                   fail $
+                  throwIO $ userError $
                      "Variable " <> T.unpack (C.identText v) <>
                      " declared with disallowed dimensions: " <>
                      show dims
@@ -229,9 +237,8 @@ parseCryptolExpr ::
    M ParseExpr
 parseCryptolExpr expr =
    case CP.parseExpr (LT.fromStrict expr) of
-     Left msg -> fail (show msg)
+     Left msg -> fail (show (CP.ppError msg))
      Right ex -> return ex
-
 
 tcPhase ::
    Seq HarnessVarDecl ->

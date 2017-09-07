@@ -27,6 +27,7 @@ import           Control.Lens
 import           Control.Monad.IO.Class
 import           Data.Foldable (toList)
 import           Data.IORef
+import           Data.Monoid
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import qualified Data.Sequence as Seq
@@ -38,6 +39,7 @@ import           Lang.Crucible.Server.Requests
 import           Lang.Crucible.Server.Simulator
 import           Lang.Crucible.Server.TypeConv
 import           Lang.Crucible.Server.ValueConv
+import           Lang.Crucible.Server.VerificationHarness
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
@@ -58,14 +60,17 @@ sawBackendRequests =
   , fulfillCompileVerificationOverrideRequest = sawFulfillCompileVerificationOverrideRequest
   }
 
+
 sawFulfillCompileVerificationOverrideRequest
    :: forall p n
     . Simulator p (SAW.SAWCoreBackend n)
    -> P.VerificationHarness
    -> IO ()
-sawFulfillCompileVerificationOverrideRequest _sim _harness =
-  do fail "FIXME implement verification harness compilation"
-
+sawFulfillCompileVerificationOverrideRequest sim harness =
+  do pre <- parseAndShowPhase (harness^.P.verificationHarness_prestate_specification)
+     post <- parseAndShowPhase (harness^.P.verificationHarness_poststate_specification)
+     sendTextResponse sim (pre <> post)
+     sendAckResponse sim
 
 sawFulfillExportModelRequest
    :: forall p n

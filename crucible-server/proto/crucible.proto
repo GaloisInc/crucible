@@ -202,6 +202,8 @@ message Request {
   // The destination for an export operation
   optional string export_path = 13;
 
+  // Verification harness to use for the CompileVerificationHarness
+  // request.
   optional VerificationHarness verification_harness = 14;
 }
 
@@ -230,6 +232,10 @@ enum GenericResponseCode {
   // Respond with an Exception.  The message field of the GenericResponse
   // indicates the content of the exception.
   ExceptionGenResp = 5;
+
+  // Respond with an acknowledgement.  This message indicates that the requested
+  // action was taken successfully.  No additional information is transmitted.
+  AcknowledgementResp = 6;
 }
 
 message GenericResponse {

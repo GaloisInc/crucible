@@ -267,6 +267,11 @@ sendCallResponse sim cresp = do
             & P.genericResponse_callResponse .~ cresp
   sendResponse sim gresp
 
+sendAckResponse :: Simulator p sym
+                -> IO ()
+sendAckResponse sim =
+  sendResponse sim (mempty & P.genericResponse_code .~ P.AcknowledgementResp)
+
 sendCallReturnValue :: IsSymInterface sym
                     => Simulator p sym
                     -> P.Value --RegEntry sym tp
@@ -279,6 +284,11 @@ sendCallReturnValue sim pv = do
 sendCallAllAborted :: Simulator p sym -> IO ()
 sendCallAllAborted sim = do
   sendCallResponse sim $ mempty & P.callResponse_code    .~ P.CallAllAborted
+
+sendTextResponse :: Simulator p sym
+                 -> Text
+                 -> IO ()
+sendTextResponse sim msg = sendPrintValue (responseHandle sim) msg
 
 -- | Send message to print value.
 sendPrintValue :: Handle -> Text -> IO ()

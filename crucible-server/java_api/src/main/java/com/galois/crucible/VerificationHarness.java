@@ -53,17 +53,15 @@ public class VerificationHarness {
             build();
     }
 
-    public static Protos.VariableReference stackVar() {
-        return Protos.VariableReference.newBuilder().
-            setCode( Protos.VariableReferenceCode.StackPointerVar ).
-            build();
-    }
+    public static final Protos.VariableReference stackVar =
+        Protos.VariableReference.newBuilder().
+          setCode( Protos.VariableReferenceCode.StackPointerVar ).
+          build();
 
-    public static Protos.VariableReference returnVar() {
-        return Protos.VariableReference.newBuilder().
-            setCode( Protos.VariableReferenceCode.ReturnAddressVar ).
-            build();
-    }
+    public static final Protos.VariableReference returnVar =
+        Protos.VariableReference.newBuilder().
+          setCode( Protos.VariableReferenceCode.ReturnAddressVar ).
+          build();
 
     public class StateSpecification {
         Protos.StateSpecification.Builder specBuilder;
@@ -72,14 +70,16 @@ public class VerificationHarness {
             this.specBuilder = specBuilder;
         }
 
-        public void addVar( String name, int width ) {
+        public Protos.VariableReference addVar( String name, int width ) {
             specBuilder.addVariable( newVar( name, width ) );
+            return userVar( name );
         }
 
-        public void addVar( String name, int elems, int width ) {
+        public Protos.VariableReference addVar( String name, int elems, int width ) {
             specBuilder.addVariable( newVar( name, elems, width ) );
+            return userVar( name );
         }
-        
+
         public void assignRegister( long offset, Protos.VariableReference var ) {
             specBuilder.addRegisterAssignment( newRegisterAssignment( offset, var ) );
         }
@@ -105,11 +105,11 @@ public class VerificationHarness {
         this.innerPrestate  = new StateSpecification( harness.getPrestateSpecificationBuilder() );
         this.innerPoststate = new StateSpecification( harness.getPoststateSpecificationBuilder() );
     }
-    
+
     public Protos.VerificationHarness getRep() {
         return harness.build();
     }
-    
+
     public StateSpecification prestate() {
         return innerPrestate;
     }

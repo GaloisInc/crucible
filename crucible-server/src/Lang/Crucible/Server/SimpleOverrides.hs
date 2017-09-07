@@ -27,6 +27,7 @@ module Lang.Crucible.Server.SimpleOverrides where
 import           Control.Lens
 import           Control.Monad.State.Strict
 import           Data.Foldable (toList)
+import           Data.Monoid
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import           Data.Typeable
@@ -62,6 +63,7 @@ import           Lang.Crucible.Server.Simulator
 import           Lang.Crucible.Server.Requests
 import           Lang.Crucible.Server.TypeConv
 import           Lang.Crucible.Server.ValueConv
+import           Lang.Crucible.Server.VerificationHarness
 
 crucibleServerAdapters :: Typeable st => [SolverAdapter st]
 crucibleServerAdapters =
@@ -215,5 +217,8 @@ sbFulfillSymbolHandleRequest sim proto_tp = do
 
 sbFulfillCompileVerificationOverrideRequest
  :: IsSymInterface sym => Simulator p sym -> P.VerificationHarness -> IO ()
-sbFulfillCompileVerificationOverrideRequest _sym _harness
-  = fail "Simple backend does not support compiling verification overrides"
+sbFulfillCompileVerificationOverrideRequest sim harness =
+  do pre <- parseAndShowPhase (harness^.P.verificationHarness_prestate_specification)
+     post <- parseAndShowPhase (harness^.P.verificationHarness_poststate_specification)
+     sendTextResponse sim (pre <> post)
+     sendAckResponse sim

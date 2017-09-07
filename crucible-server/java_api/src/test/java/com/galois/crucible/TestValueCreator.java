@@ -179,5 +179,28 @@ public class TestValueCreator {
         Assert.assertTrue( ((BoolValue) p).equals( BoolValue.TRUE ) );
     }
 
+    @Test
+    public void testVerificationHarness() throws Exception {
+        sim.addPrintMessageListener(new MessageConsumer(){
+                public void acceptMessage(SimulatorMessage msg) {
+                    System.out.println(msg.toString());
+                }
+            });
+
+        VerificationHarness harness = new VerificationHarness("testHarness");
+        Protos.VariableReference constValue   = harness.prestate().addVar( "constValue", 64 );
+        Protos.VariableReference testVar      = harness.prestate().addVar( "testVar", 16 );
+        Protos.VariableReference testArray    = harness.prestate().addVar( "testArray", 100, 32 );
+        Protos.VariableReference poststateVar = harness.poststate().addVar( "poststateVar", 5, 24 );
+
+        harness.prestate().assignRegister( 0x0, constValue );
+        harness.prestate().assignRegister( 0x8, harness.returnVar );
+        harness.prestate().bindVariable( constValue, "~zero" );
+
+        harness.poststate().assignMemory( VerificationHarness.stackVar, 0x10, poststateVar );
+        harness.poststate().assertCondition( "poststateVar == [0,1,2,3,4]" );
+
+        sim.compileHarness( harness );
+    }
 
 };
