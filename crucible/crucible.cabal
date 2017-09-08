@@ -28,7 +28,6 @@ flag unsafe-operations
 library
   build-depends:
     base >= 4.8 && < 4.11,
-    th-abstraction >=0.1 && <0.3,
     ansi-wl-pprint,
     attoparsec,
     bimap >= 0.2,
@@ -38,9 +37,7 @@ library
     directory,
     fgl,
     filepath,
-    fingertree,
     galois-matlab,
-    ghc-prim,
     hashable,
     hashtables,
     io-streams,
@@ -49,12 +46,11 @@ library
     parameterized-utils >= 0.1.10,
     process,
     scientific,
-    smtLib,
     temporary >= 1.2,
     template-haskell,
     text,
+    th-abstraction >=0.1 && <0.3,
     transformers,
-    unordered-containers,
     utf8-string,
     vector
 
