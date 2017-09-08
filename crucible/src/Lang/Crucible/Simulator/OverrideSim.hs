@@ -271,14 +271,17 @@ initSimState ctx globals eh =
                , _stateTree = singletonTree ae
                }
 
+-- | Create an override from an explicit return type and definition using `OverrideSim`.
 mkOverride' :: FunctionName
             -> TypeRepr ret
             -> (forall r . OverrideSim p sym r args ret (RegValue sym ret))
             -> Override p sym args ret
-mkOverride' nm tp f = Override nm $ \s ->
-  runOverrideSim s tp f
+mkOverride' nm tp f =
+  Override { overrideName = nm
+           , overrideHandler = \s -> runOverrideSim s tp f
+           }
 
-
+-- | Create an override from a statically inferrable return type and definition using `OverrideSim`.
 mkOverride :: KnownRepr TypeRepr ret
            => FunctionName
            -> (forall r . OverrideSim p sym r args ret (RegValue sym ret))
