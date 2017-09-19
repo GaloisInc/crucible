@@ -34,6 +34,7 @@ import           Data.Maybe ( mapMaybe )
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import           Data.Text.Encoding (decodeUtf8)
+import           System.IO.Error
 
 import           GHC.Generics
 import           GHC.IO.Handle
@@ -252,11 +253,15 @@ simOverrideHandle sim args ret o = do
 sendExceptionResponse :: Simulator p sym
                       -> SomeException
                       -> IO ()
-sendExceptionResponse  sim ex = do
+sendExceptionResponse sim ex = do
+  let msg = case fromException ex of
+              Just ioex | isUserError ioex -> Text.pack $ ioeGetErrorString ioex
+              _ -> Text.pack $ displayException ex
   let gresp = mempty
             & P.genericResponse_code .~ P.ExceptionGenResp
-            & P.genericResponse_message .~ (Text.pack $ show ex)
+            & P.genericResponse_message .~ msg
   sendResponse sim gresp
+
 
 sendCallResponse :: Simulator p sym
                  -> P.CallResponse

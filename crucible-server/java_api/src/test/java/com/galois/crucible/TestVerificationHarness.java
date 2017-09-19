@@ -50,7 +50,7 @@ public class TestVerificationHarness {
                 }
             });
 
-        VerificationHarness harness = new VerificationHarness("testHarness");
+        VerificationHarness harness = new VerificationHarness("testHarness", 64, Protos.Endianness.LittleEndian);
         Protos.VariableReference constValue   = harness.prestate().addVar( "constValue", 64 );
         Protos.VariableReference testVar      = harness.prestate().addVar( "testVar", 16 );
         Protos.VariableReference testArray    = harness.prestate().addVar( "testArray", 100, 32 );
@@ -58,10 +58,14 @@ public class TestVerificationHarness {
 
         harness.prestate().assignRegister( 0x0, constValue );
         harness.prestate().assignRegister( 0x8, harness.returnVar );
+        harness.prestate().assignRegister( 0xf, harness.stackVar );
         harness.prestate().bindVariable( constValue, "~zero" );
+        harness.prestate().assignMemory( VerificationHarness.stackVar, 0x00, testArray );
+
+        //harness.prestate().assertCondition( "$$%%!!" );
 
         harness.poststate().assignMemory( VerificationHarness.stackVar, 0x10, poststateVar );
-        harness.poststate().assertCondition( "poststateVar == [0,1,2,3,4]" );
+        //harness.poststate().assertCondition( "poststateVar == [0,1,2,3,4]" );
 
         sim.compileHarness( harness );
     }

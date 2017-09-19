@@ -62,7 +62,6 @@ import           Lang.Crucible.Server.Simulator
 import           Lang.Crucible.Server.Requests
 import           Lang.Crucible.Server.TypeConv
 import           Lang.Crucible.Server.ValueConv
-import           Lang.Crucible.Server.VerificationHarness
 
 crucibleServerAdapters :: Typeable st => [SolverAdapter st]
 crucibleServerAdapters =

@@ -35,6 +35,9 @@ library
     crucible-saw,
     cryptol,
     cryptol-verifier,
+    executable-path,
+    filepath,
+    GraphSCC,
     galois-matlab,
     hashable,
     hashtables,
@@ -55,6 +58,7 @@ library
   exposed-modules:
     Lang.Crucible.Proto
     Lang.Crucible.Server.CallbackOutputHandle
+    Lang.Crucible.Server.CryptolEnv
     Lang.Crucible.Server.Encoding
     Lang.Crucible.Server.MultipartOperations
     Lang.Crucible.Server.Requests
@@ -63,6 +67,7 @@ library
     Lang.Crucible.Server.Simulator
     Lang.Crucible.Server.Translation
     Lang.Crucible.Server.TypeConv
+    Lang.Crucible.Server.TypedTerm
     Lang.Crucible.Server.ValueConv
     Lang.Crucible.Server.VerificationHarness
 
@@ -78,6 +83,7 @@ executable crucible-server
     crucible-abc,
     crucible-saw,
     crucible-server,
+    cryptol-verifier,
     hpb >= 0.1.1,
     lens,
     parameterized-utils >= 0.1.7,

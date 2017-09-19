@@ -99,9 +99,11 @@ public class VerificationHarness {
         }
     }
 
-    public VerificationHarness(String name) {
+    public VerificationHarness(String name, int addrWidth, Protos.Endianness endianness) {
         this.harness = Protos.VerificationHarness.newBuilder();
         harness.setName(name);
+        harness.setAddressWidth(addrWidth);
+        harness.setEndianness(endianness);
         this.innerPrestate  = new StateSpecification( harness.getPrestateSpecificationBuilder() );
         this.innerPoststate = new StateSpecification( harness.getPoststateSpecificationBuilder() );
     }

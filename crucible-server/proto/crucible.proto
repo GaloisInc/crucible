@@ -1066,6 +1066,21 @@ message VerificationHarness {
 
   // Specification of poststate variables, register and memory state
   optional StateSpecification poststate_specification = 3;
+
+  // Address word length, in bits;
+  optional uint64 address_width = 4;
+
+  // Machine endianess
+  optional Endianness endianness = 5;
+}
+
+// Code for indicating which byte-order to assume for verification harnesses
+enum Endianness {
+  // Little-endian byte order
+  LittleEndian = 0;
+
+  // Big-endian byte order
+  BigEndian = 1;
 }
 
 message StateSpecification {
