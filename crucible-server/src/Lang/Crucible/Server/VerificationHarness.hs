@@ -1,4 +1,7 @@
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE PatternGuards #-}
+
 -----------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.Server.VerificationHarness
@@ -16,11 +19,9 @@ import           Control.Exception
 import           Control.Lens
 import           Control.Monad.State.Strict
 import           Control.Monad.Reader
+import           Control.Monad.Writer.Strict
 --import           Control.Monad
 import           Data.Foldable
-import           Data.Graph
-import           Data.Graph.SCC
-import           Data.Monoid
 import qualified Data.Map as Map
 import           Data.Set (Set)
 import qualified Data.Set as Set
@@ -49,7 +50,7 @@ import qualified Lang.Crucible.Proto as P
 
 import           Verifier.SAW.SharedTerm
 import           Lang.Crucible.Server.CryptolEnv
-import           Lang.Crucible.Server.TypedTerm
+--import           Lang.Crucible.Server.TypedTerm
 
 
 type Offset = Word64
@@ -121,6 +122,7 @@ data VerificationPhase id ex
   , phaseSetup :: Seq (VerificationSetupStep id ex)
   , phaseConds :: Seq ex
   }
+ deriving (Functor)
 
 instance (PP.PP id, PP.PP ex) => PP.PP (VerificationPhase id ex) where
   ppPrec _i phase =
@@ -149,6 +151,7 @@ data VerificationHarness id ex
   , verificationPrestate     :: VerificationPhase id ex
   , verificationPoststate    :: VerificationPhase id ex
   }
+ deriving (Functor)
 
 instance (PP.PP id, PP.PP ex) => PP.PP (VerificationHarness id ex) where
   ppPrec _i harness =
@@ -167,7 +170,7 @@ instance (PP.PP id, PP.PP ex) => PP.PP (VerificationHarness id ex) where
     PP.pp (verificationPoststate harness)
 
 type ParseExpr = CP.Expr CP.PName
-type TCExpr    = TypedTerm
+type TCExpr    = (CT.Type, CT.Expr)
 type M         = ReaderT SharedContext (StateT CryptolEnv IO)
 
 io :: IO a -> M a
@@ -346,7 +349,9 @@ declareVar ::
    M (HarnessVarDecl CT.Name)
 declareVar (HarnessVarDecl ident harnessTp) =
   do let tp = harnessTypeToCryptolType harnessTp
-     name <- ReaderT $ \_ -> StateT $ \cryenv -> return $ declareIdent ident tp cryenv
+     cryenv <- get
+     let (name, cryenv') = declareIdent ident tp cryenv
+     put cryenv'
      return $ HarnessVarDecl name harnessTp
 
 
@@ -409,8 +414,7 @@ tcExpr pex tp =
      (cryEnv1, reexpr) <- io $ renameTerm cryEnv pex
      (cryEnv2, tcexpr) <- io $ checkTerm cryEnv1 reexpr tp
      put cryEnv2
-     trm <- io $ translateExpr sc cryEnv2 tcexpr
-     return (reexpr, TypedTerm (CT.Forall [] [] tp) trm)
+     return (reexpr, (tp,tcexpr))
 
 tcCond ::
    ParseExpr ->
@@ -442,52 +446,72 @@ setupStepDef (BindVariable var _)  = return var
 setupStepUses ::
    Set (HarnessVar CT.Name) ->
    VerificationSetupStep CT.Name (CP.Expr CT.Name, TCExpr) ->
-   M [HarnessVar CT.Name]
-setupStepUses _ (RegisterVal _ _) = return []
+   M (Set (HarnessVar CT.Name))
+setupStepUses _ (RegisterVal _ _) = return mempty
 setupStepUses declaredNames (MemPointsTo base _ _) =
-   return $ if Set.member base declaredNames then [base] else []
+   return $ if Set.member base declaredNames then Set.singleton base else mempty
 setupStepUses declaredNames (BindVariable _ (ex,_)) =
-   return . toList . Set.intersection declaredNames . Set.map CryptolVar . CP.namesE $ ex
+   return . Set.intersection declaredNames . Set.map CryptolVar . CP.namesE $ ex
+
+type GraphEdge = (VerificationSetupStep CT.Name TCExpr, HarnessVar CT.Name, Set (HarnessVar CT.Name))
 
 setupStepGraphEdge ::
    Set (HarnessVar CT.Name) ->
    VerificationSetupStep CT.Name (CP.Expr CT.Name, TCExpr) ->
-   M (VerificationSetupStep CT.Name TCExpr, HarnessVar CT.Name, [HarnessVar CT.Name])
+   M GraphEdge
 setupStepGraphEdge declaredNames step =
    do def <- setupStepDef step
       uses <- setupStepUses declaredNames step
       return (fmap snd step, def, uses)
-
-processSCCs ::
-   Set (HarnessVar CT.Name) ->
-   (Vertex -> (VerificationSetupStep CT.Name TCExpr, HarnessVar CT.Name, [HarnessVar CT.Name])) ->
-   [SCC Vertex] ->
-   M (Seq (VerificationSetupStep CT.Name TCExpr))
-processSCCs declaredNames vertMap = go mempty
- where
- go _nms [] =
-    do -- FIXME! check that all declared variables have been defined
-       return mempty
- go nms (AcyclicSCC x : xs) =
-    do let (step, def, uses) = vertMap x
-       --when (Set.member def nms)
-       --     (fail (show (PP.text "Multiple definitions for" PP.<+> PP.pp def)))
-       let undefinedUses = Set.difference (Set.fromList uses) nms
-       unless (Set.null undefinedUses)
-              (fail (show (PP.text "No definition for variables:" PP.<+> PP.hcat (map PP.pp (toList undefinedUses)))))
-       let nms' = Set.insert def nms
-       steps <- go nms' xs
-       return $ step Seq.<| steps
- go _nms (CyclicSCC xs : _) =
-    do let f (_,def,_) = def
-       let vars = map (PP.pp . f . vertMap) xs
-       fail (show (PP.text "Cyclic definition for variables:" PP.<+> PP.hcat vars))
 
 reorderSteps ::
    Set (HarnessVar CT.Name) ->
    Seq (VerificationSetupStep CT.Name (CP.Expr CT.Name, TCExpr)) ->
    M (Seq (VerificationSetupStep CT.Name TCExpr))
 reorderSteps declaredNames steps =
-   do grEdges <- mapM (setupStepGraphEdge declaredNames) (toList steps)
-      let (gr, vertMap, _keyMap) = graphFromEdges grEdges
-      processSCCs declaredNames vertMap (sccList gr)
+   do grEdges <- mapM (setupStepGraphEdge declaredNames) steps
+      (definedNames, steps') <- runWriterT (processEdges mempty grEdges)
+      let undefinedNames = Set.difference declaredNames definedNames
+      unless (Set.null undefinedNames)
+             (fail (show (PP.text "Harness variables declared but not defined:"
+                          PP.<+> PP.hsep (map PP.pp (toList undefinedNames)))))
+      return steps'
+
+processEdges ::
+   Set (HarnessVar CT.Name) ->
+   Seq GraphEdge ->
+   WriterT (Seq (VerificationSetupStep CT.Name TCExpr)) M (Set (HarnessVar CT.Name))
+processEdges definedNames edges
+  | Seq.null edges = return definedNames
+  | otherwise      = go Nothing mempty edges
+
+ where
+ betterCandidate _ Nothing = True
+ betterCandidate (RegisterVal _ _) (Just (MemPointsTo _ _ _,_,_)) = True
+ betterCandidate _ _ = False
+
+ processEdge (step,_,_) = tell (Seq.singleton step)
+
+ maybeSeq Nothing  = mempty
+ maybeSeq (Just x) = Seq.singleton x
+
+ go candidate zs xs = case Seq.viewl xs of
+      edge@(step,def,uses) Seq.:< xs'
+        | Set.isSubsetOf uses definedNames
+        , BindVariable _ _ <- step
+        -> do processEdge edge
+              processEdges (Set.insert def definedNames) (zs <> maybeSeq candidate <> xs')
+
+        | Set.isSubsetOf uses definedNames
+        , betterCandidate step candidate
+        -> go (Just edge) (zs <> maybeSeq candidate) xs'
+
+        | otherwise
+        -> go candidate (zs Seq.|> edge) xs'
+
+      Seq.EmptyL -> case candidate of
+                      Just edge@(_,def,_) ->
+                        do processEdge edge
+                           processEdges (Set.insert def definedNames) zs
+                      Nothing ->
+                           fail "Unable to find an acyclic ordering of harness setup steps"

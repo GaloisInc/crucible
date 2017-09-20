@@ -61,11 +61,12 @@ public class TestVerificationHarness {
         harness.prestate().assignRegister( 0xf, harness.stackVar );
         harness.prestate().bindVariable( constValue, "~zero" );
         harness.prestate().assignMemory( VerificationHarness.stackVar, 0x00, testArray );
+        harness.prestate().bindVariable( testVar, "take (testArray @ constValue)");
 
-        //harness.prestate().assertCondition( "$$%%!!" );
+        harness.prestate().assertCondition( "testVar == 0xabcd" );
 
         harness.poststate().assignMemory( VerificationHarness.stackVar, 0x10, poststateVar );
-        //harness.poststate().assertCondition( "poststateVar == [0,1,2,3,4]" );
+        harness.poststate().bindVariable( poststateVar, "[0,1,2,3,4]" );
 
         sim.compileHarness( harness );
     }

@@ -93,7 +93,7 @@ sawFulfillCompileVerificationOverrideRequest sim harness =
      --     produced by processing a harness are only scoped over the harness itself.
      (_cryEnv',response) <- runM sc cryEnv $
         do harness' <- processHarness harness
-           displayHarness harness'
+           displayHarness (fmap snd harness')
      sendTextResponse sim response
      sendAckResponse sim
 

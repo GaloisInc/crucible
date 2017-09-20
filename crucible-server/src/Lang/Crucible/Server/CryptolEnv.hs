@@ -35,6 +35,7 @@ module Lang.Crucible.Server.CryptolEnv
   , declareIdent
   , typeNoUser
   , schemaNoUser
+  , getNamingEnv
   )
   where
 
@@ -315,8 +316,8 @@ bindIdent ident env = (name, env')
 declareIdent :: Ident -> T.Schema -> CryptolEnv -> (T.Name, CryptolEnv)
 declareIdent ident schema env =
    ( name
-   , env' { eExtraNames = MR.shadowing (MN.singletonE pname name) (eExtraNames env)
-          , eExtraTypes = Map.insert name schema (eExtraTypes env)
+   , env' { eExtraNames = MR.shadowing (MN.singletonE pname name) (eExtraNames env')
+          , eExtraTypes = Map.insert name schema (eExtraTypes env')
           }
    )
   where
