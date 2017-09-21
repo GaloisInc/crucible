@@ -69,7 +69,7 @@ library
     Lang.Crucible.Server.TypeConv
     Lang.Crucible.Server.TypedTerm
     Lang.Crucible.Server.ValueConv
-    Lang.Crucible.Server.VerificationHarness
+    Lang.Crucible.Server.Verification.Harness
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top

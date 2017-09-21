@@ -4,7 +4,7 @@
 
 -----------------------------------------------------------------------
 -- |
--- Module           : Lang.Crucible.Server.VerificationHarness
+-- Module           : Lang.Crucible.Server.Verification.Harness
 -- Copyright        : (c) Galois, Inc 2017
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
@@ -13,7 +13,7 @@
 -- Support for manipulating compositional verification harnesses.
 ------------------------------------------------------------------------
 
-module Lang.Crucible.Server.VerificationHarness where
+module Lang.Crucible.Server.Verification.Harness where
 
 import           Control.Exception
 import           Control.Lens
