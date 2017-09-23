@@ -40,7 +40,8 @@ import           Lang.Crucible.Server.Simulator
 import           Lang.Crucible.Server.TypeConv
 --import           Lang.Crucible.Server.TypedTerm
 import           Lang.Crucible.Server.ValueConv
-import           Lang.Crucible.Server.VerificationHarness
+import           Lang.Crucible.Server.Verification.Harness
+import           Lang.Crucible.Server.Verification.Override
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.OverrideSim
@@ -89,13 +90,18 @@ sawFulfillCompileVerificationOverrideRequest
 sawFulfillCompileVerificationOverrideRequest sim harness =
   do sc <- SAW.sawBackendSharedContext =<< getInterface sim
      cryEnv <- view (cruciblePersonality . sawServerCryptolEnv) <$> readIORef (simContext sim)
-     -- NB: we explicitly throw away the modified cryEnv; the modifications to the environment
-     --     produced by processing a harness are only scoped over the harness itself.
-     (_cryEnv',response) <- runM sc cryEnv $
-        do harness' <- processHarness harness
-           displayHarness (fmap snd harness')
+     (cryEnv',harness') <- runM sc cryEnv $ processHarness harness
+
+     SomeHandle fnhandle <- verificationHarnessOverrideHandle sim cryEnv' harness'
+     let response = displayHarness (fmap snd harness')
+
+     -- NB: we explicitly do not store the modified cryEnv' back into the simContext;
+     -- the modifications to the environment produced by processing a harness are only
+     -- scoped over the harness itself.
+
      sendTextResponse sim response
-     sendAckResponse sim
+     sendPredefinedHandleResponse sim fnhandle
+
 
 sawFulfillExportModelRequest
    :: forall p n

@@ -50,8 +50,6 @@ import qualified Lang.Crucible.Proto as P
 
 import           Verifier.SAW.SharedTerm
 import           Lang.Crucible.Server.CryptolEnv
---import           Lang.Crucible.Server.TypedTerm
-
 
 type Offset = Word64
 
@@ -172,6 +170,7 @@ instance (PP.PP id, PP.PP ex) => PP.PP (VerificationHarness id ex) where
 type ParseExpr = CP.Expr CP.PName
 type TCExpr    = (CT.Type, CT.Expr)
 type M         = ReaderT SharedContext (StateT CryptolEnv IO)
+type ProcessedHarness = VerificationHarness CT.Name TCExpr
 
 io :: IO a -> M a
 io = lift . lift
@@ -181,7 +180,7 @@ runM sc cryEnv m = swap <$> runStateT (runReaderT m sc) cryEnv
 
 processHarness ::
    P.VerificationHarness ->
-   M (VerificationHarness CT.Name TCExpr)
+   M ProcessedHarness
 processHarness rawHarness =
    do let addrWidth = rawHarness^.P.verificationHarness_address_width
       let endianness = case rawHarness^.P.verificationHarness_endianness of
@@ -205,9 +204,9 @@ displayHarness ::
    PP.PP id =>
    PP.PP ex =>
    VerificationHarness id ex ->
-   M Text
+   Text
 displayHarness harness =
-   return . T.pack . PP.render . PP.pp $ harness
+   T.pack . PP.render . PP.pp $ harness
 
 processPhase ::
    Phase ->
@@ -473,17 +472,19 @@ reorderSteps declaredNames steps =
       (definedNames, steps') <- runWriterT (processEdges mempty grEdges)
       let undefinedNames = Set.difference declaredNames definedNames
       unless (Set.null undefinedNames)
-             (fail (show (PP.text "Harness variables declared but not defined:"
-                          PP.<+> PP.hsep (map PP.pp (toList undefinedNames)))))
+             (fail (show (PP.text "The following harness variables were declared, but"
+                          PP.$$
+                          PP.text "either have no definition, or have cyclic definitions:"
+                          PP.$$
+                          PP.nest 4 (PP.vcat (map PP.pp (toList undefinedNames))))))
       return steps'
+
 
 processEdges ::
    Set (HarnessVar CT.Name) ->
    Seq GraphEdge ->
    WriterT (Seq (VerificationSetupStep CT.Name TCExpr)) M (Set (HarnessVar CT.Name))
-processEdges definedNames edges
-  | Seq.null edges = return definedNames
-  | otherwise      = go Nothing mempty edges
+processEdges definedNames edges = go Nothing mempty edges
 
  where
  betterCandidate _ Nothing = True
@@ -514,4 +515,4 @@ processEdges definedNames edges
                         do processEdge edge
                            processEdges (Set.insert def definedNames) zs
                       Nothing ->
-                           fail "Unable to find an acyclic ordering of harness setup steps"
+                        do return definedNames

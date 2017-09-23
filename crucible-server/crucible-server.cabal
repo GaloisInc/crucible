@@ -46,6 +46,8 @@ library
     mtl,
     parameterized-utils >= 0.1.7,
     saw-core,
+    saw-core-sbv,
+    sbv,
     text,
     transformers,
     vector
@@ -70,6 +72,7 @@ library
     Lang.Crucible.Server.TypedTerm
     Lang.Crucible.Server.ValueConv
     Lang.Crucible.Server.Verification.Harness
+    Lang.Crucible.Server.Verification.Override
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
