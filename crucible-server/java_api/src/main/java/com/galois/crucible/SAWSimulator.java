@@ -46,6 +46,16 @@ public final class SAWSimulator extends Simulator {
 	return sim;
     }
 
+    public synchronized
+    FunctionHandle compileHarness( VerificationHarness harness ) throws IOException {
+        issueRequest( Protos.Request.newBuilder()
+                      .setCode(Protos.RequestCode.CompileVerificationOverride)
+                      .setVerificationHarness( harness.getRep() ));
+
+        return predefinedHandleInfoResponse();
+    }
+
+
     /**
      * This writes a SAWCore file representing the given sequence of
      * symbolic values.

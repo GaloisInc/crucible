@@ -80,7 +80,7 @@ public abstract class SomeBlock extends ValueCreator<Expr> {
             throw new NullPointerException(msg);
         }
         if (!v.type().equals(tp)) {
-            String msg = String.format("%s has incorrect type.", nm);
+            String msg = String.format("%s has incorrect type. Expected %s, but got %s", nm, tp.toString(), v.type().toString());
             throw new IllegalArgumentException(msg);
         }
     }

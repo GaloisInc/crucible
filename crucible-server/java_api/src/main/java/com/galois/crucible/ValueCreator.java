@@ -749,7 +749,7 @@ public abstract class ValueCreator<T extends Typed> {
     public T structGet( int idx, T struct ) {
         Type s_ty = struct.type();
         if( !(s_ty.isStruct() ) ) {
-            throw new UnsupportedOperationException("Expected struct value in structGet");
+            throw new UnsupportedOperationException("Expected struct value in structGet, but got" + s_ty.toString());
         }
 
         Type retType = s_ty.typeParam( idx );

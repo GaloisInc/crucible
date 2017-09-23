@@ -715,14 +715,6 @@ public abstract class Simulator extends ValueCreator<SimulatorValue> {
         overrideMap.put(h.getUniqueId(), new OverrideEntry(h, f));
     }
 
-    public synchronized
-    void compileHarness( VerificationHarness harness ) throws IOException {
-        issueRequest( Protos.Request.newBuilder()
-                      .setCode(Protos.RequestCode.CompileVerificationOverride)
-                      .setVerificationHarness( harness.getRep() ));
-        getNextAckResponse();
-    }
-
     /**
      * Add listener that receives evens when message is printed during symbolic execution.
      */
@@ -798,7 +790,7 @@ public abstract class Simulator extends ValueCreator<SimulatorValue> {
         return new FunctionHandle(handleId, displayName, argTypes, returnType);
     }
 
-    private FunctionHandle predefinedHandleInfoResponse() throws IOException {
+    protected FunctionHandle predefinedHandleInfoResponse() throws IOException {
 
         Protos.PredefinedHandleInfo pinfo = getNextPredefHandleResponse();
 
