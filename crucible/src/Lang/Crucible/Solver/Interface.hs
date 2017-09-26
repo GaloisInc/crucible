@@ -503,7 +503,10 @@ class ( IsBoolExprBuilder sym
          -> SymBV sym w
          -> IO (SymBV sym w)
 
-  -- | Signed bitvector division.
+  -- | Signed bitvector division.  The result is truncated to zero.
+  --
+  -- TODO: Document semantics when divisor is zero and case of
+  -- minSigned w / -1 = minSigned w.
   bvSdiv :: (1 <= w)
          => sym
          -> SymBV sym w

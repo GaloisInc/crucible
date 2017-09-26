@@ -848,6 +848,10 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
          -> !(f (BVType w))
          -> App f (BVType w)
 
+  -- | This performs signed division.  The result is truncated to zero.
+  --
+  -- TODO: Document semantics when divisor is zero and case of
+  -- minSigned w / -1 = minSigned w.
   BVSdiv :: (1 <= w)
          => !(NatRepr w)
          -> !(f (BVType w))
