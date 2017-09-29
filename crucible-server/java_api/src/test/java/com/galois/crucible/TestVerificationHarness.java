@@ -28,6 +28,11 @@ public class TestVerificationHarness {
 		if( sim == null ) {
 		    throw new Exception( "unable to launch crucible server executable" );
 		}
+                sim.addPrintMessageListener(new MessageConsumer(){
+                        public void acceptMessage(SimulatorMessage msg) {
+                            System.out.println(msg.toString());
+                        }
+                    });
 	    }
 
 	    @Override
@@ -44,12 +49,6 @@ public class TestVerificationHarness {
 
     @Test
     public void testVerificationHarness() throws Exception {
-        sim.addPrintMessageListener(new MessageConsumer(){
-                public void acceptMessage(SimulatorMessage msg) {
-                    System.out.println(msg.toString());
-                }
-            });
-
         VerificationHarness harness = new VerificationHarness("testHarness", 64, Protos.Endianness.LittleEndian);
         Protos.VariableReference constValue   = harness.prestate().addVar( "constValue", 64 );
         Protos.VariableReference testVar      = harness.prestate().addVar( "testVar", 16 );
@@ -65,10 +64,26 @@ public class TestVerificationHarness {
 
         harness.prestate().assertCondition( "testVar == 0xabcd" );
 
+        Protos.VariableReference poststateStack = harness.poststate().addVar( "poststateStack", 64 );
+
         harness.poststate().assignMemory( VerificationHarness.stackVar, 0x10, poststateVar );
         harness.poststate().bindVariable( poststateVar, "[0,1,2,3,4]" );
+        harness.poststate().bindVariable( poststateStack, "stack + 8");
+        harness.poststate().assignRegister( 0xf, poststateStack );
 
         sim.compileHarness( harness );
     }
+
+    // @Test
+    // public void bogusVerificationHarness() throws Exception {
+    //     VerificationHarness harness = new VerificationHarness("bogusHarness", 64, Protos.Endianness.LittleEndian);
+    //     Protos.VariableReference bogus1 = harness.prestate().addVar( "bogus1", 64 );
+    //     Protos.VariableReference bogus2 = harness.prestate().addVar( "bogus2", 64 );
+
+    //     harness.prestate().bindVariable( bogus1, "bogus2" );
+    //     //        harness.prestate().bindVariable( bogus2, "bogus1" );
+
+    //     sim.compileHarness( harness );
+    // }
 
 };

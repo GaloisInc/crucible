@@ -27,6 +27,7 @@ import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import           Data.String
 import           Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as LT
@@ -89,21 +90,20 @@ data HarnessVar id
   | StackPointerVar
     -- ^ The special built-in variable representing the
     --   current stack pointer
- deriving (Eq, Ord)
+ deriving (Eq, Ord, Functor)
 
 instance PP.PP id => PP.PP (HarnessVar id) where
   ppPrec i x =
      case x of
        CryptolVar nm -> PP.ppPrec i nm
-       ReturnAddressVar -> PP.text "<return>"
-       StackPointerVar  -> PP.text "<stack>"
+       ReturnAddressVar -> PP.text "return"
+       StackPointerVar  -> PP.text "stack"
 
 data VerificationSetupStep id ex
   = BindVariable (HarnessVar id) ex
   | RegisterVal Offset (HarnessVar id)
   | MemPointsTo (HarnessVar id) Offset (HarnessVar id)
  deriving (Functor)
-
 
 
 instance (PP.PP id, PP.PP ex) => PP.PP (VerificationSetupStep id ex) where
@@ -215,23 +215,38 @@ processPhase ::
    P.StateSpecification ->
    M (VerificationPhase CT.Name TCExpr)
 processPhase phase addrWidth _endianness rawPhase =
-   tcPhase phase addrWidth =<< parsePhase phase rawPhase
+   tcPhase phase addrWidth =<< parsePhase phase addrWidth rawPhase
 
 parsePhase ::
    Phase ->
+   Word64 ->
    P.StateSpecification ->
    M (VerificationPhase C.Ident ParseExpr)
-parsePhase phase rawPhase =
+parsePhase phase addrWidth rawPhase =
    do vars  <- mapM parseVar        (rawPhase^.P.stateSpecification_variables)
+      specialDecls <- specialPhaseDecls phase addrWidth
       regs  <- mapM parseRegAssign  (rawPhase^.P.stateSpecification_register_assignments)
       mems  <- mapM parseMemAssign  (rawPhase^.P.stateSpecification_memory_assignments)
       binds <- mapM parseVarBinding (rawPhase^.P.stateSpecification_variable_bindings)
       conds <- mapM (parseCondition phase) (rawPhase^.P.stateSpecification_conditions)
       return VerificationPhase
-             { phaseVars  = vars
+             { phaseVars  = vars <> specialDecls
              , phaseSetup = regs <> mems <> binds
              , phaseConds = conds
              }
+
+specialPhaseDecls ::
+   Phase ->
+   Word64 ->
+   M (Seq (HarnessVarDecl C.Ident))
+specialPhaseDecls Prestate addrWidth =
+  do let htp = HarnessVarWord addrWidth
+     return $ Seq.fromList
+              [ HarnessVarDecl (fromString "stack")  htp
+              , HarnessVarDecl (fromString "return") htp
+              ]
+specialPhaseDecls Poststate _ =
+     return mempty
 
 parseVar ::
    P.VariableSpecification ->
@@ -332,16 +347,14 @@ tcPhase phase addrWidth parsedPhase =
              , phaseConds = conds'
              }
 
+
 declaredVarSet ::
    Phase ->
    Seq (HarnessVarDecl CT.Name) ->
-   Set (HarnessVar CT.Name)
-declaredVarSet phase names = foldr insVar baseSet names
+   Set CT.Name
+declaredVarSet phase names = foldr insVar mempty names
  where
- insVar x s = Set.insert (CryptolVar (harnessVarIdent x)) s
- baseSet = case phase of
-              Prestate -> Set.fromList [StackPointerVar, ReturnAddressVar]
-              Poststate -> mempty
+ insVar x s = Set.insert (harnessVarIdent x) s
 
 declareVar ::
    HarnessVarDecl C.Ident ->
@@ -352,7 +365,6 @@ declareVar (HarnessVarDecl ident harnessTp) =
      let (name, cryenv') = declareIdent ident tp cryenv
      put cryenv'
      return $ HarnessVarDecl name harnessTp
-
 
 tcSetupStep ::
    Word64 ->
@@ -381,28 +393,36 @@ tcHarnessVar ::
   Word64 ->
   HarnessVar C.Ident ->
   M (HarnessVar CT.Name, CT.Type)
-tcHarnessVar addrWidth ReturnAddressVar =
-  do let ty = addressType addrWidth
-     return (ReturnAddressVar, ty)
-tcHarnessVar addrWidth StackPointerVar =
-  do let ty = addressType addrWidth
-     return (StackPointerVar, ty)
-tcHarnessVar _ (CryptolVar ident) =
-  do cryEnv <- get
-     let nameEnv = eExtraNames cryEnv
-     let modEnv  = eModuleEnv cryEnv
-     (res, _ws) <- io $ MM.runModuleM modEnv
-                    (MM.interactive (MB.rename C.interactiveName nameEnv (MR.renameVar (CP.mkUnqual ident))))
-     -- ?? FIXME, what about warnings?
-     case res of
-       Left err -> fail $ "Cryptol error:\n" ++ show (PP.pp err)
-       Right (nm, modEnv') ->
-          case Map.lookup nm (eExtraTypes cryEnv) of
-            Just (CT.Forall [] [] ty) ->
-              do put cryEnv{ eModuleEnv =  modEnv' }
-                 return (CryptolVar nm, ty)
-            _ ->
-              fail ("User harness variable not in scope: " ++ show ident)
+tcHarnessVar addrWidth var =
+  case var of
+    ReturnAddressVar ->
+      do let tp = addressType addrWidth
+         return (ReturnAddressVar, tp)
+    StackPointerVar ->
+      do let tp = addressType addrWidth
+         return (StackPointerVar, tp)
+    CryptolVar ident ->
+      do (nm,tp) <- tcVar ident
+         return (CryptolVar nm, tp)
+
+ where
+  tcVar ident =
+      do cryEnv <- get
+         let nameEnv = eExtraNames cryEnv
+         let modEnv  = eModuleEnv cryEnv
+         (res, _ws) <- io $ MM.runModuleM modEnv
+                        (MM.interactive (MB.rename C.interactiveName nameEnv (MR.renameVar (CP.mkUnqual ident))))
+         -- ?? FIXME, what about warnings?
+         case res of
+           Left err -> fail $ "Cryptol error:\n" ++ show (PP.pp err)
+           Right (nm, modEnv') ->
+              case Map.lookup nm (eExtraTypes cryEnv) of
+                Just (CT.Forall [] [] ty) ->
+                  do put cryEnv{ eModuleEnv =  modEnv' }
+                     return (nm, ty)
+                _ ->
+                  fail ("User harness variable not in scope: " ++ show ident)
+
 tcExpr ::
    ParseExpr ->
    CT.Type ->
@@ -435,27 +455,51 @@ harnessTypeToCryptolType tp = CT.Forall [] [] monotype
                  CT.tSeq (CT.tNum sz) $
                  CT.tBit
 
+resolveSetupVar ::
+   HarnessVar CT.Name ->
+   M CT.Name
+resolveSetupVar var =
+ case var of
+   CryptolVar nm -> return nm
+   StackPointerVar -> renameIdent (fromString "stack")
+   ReturnAddressVar -> renameIdent (fromString "return")
+
+ where
+  renameIdent ident =
+      do cryEnv <- get
+         let nameEnv = eExtraNames cryEnv
+         let modEnv  = eModuleEnv cryEnv
+         (res, _ws) <- io $ MM.runModuleM modEnv
+                        (MM.interactive (MB.rename C.interactiveName nameEnv (MR.renameVar (CP.mkUnqual ident))))
+         -- ?? FIXME, what about warnings?
+         case res of
+           Left err -> fail $ "Cryptol error:\n" ++ show (PP.pp err)
+           Right (nm, modEnv') ->
+                  do put cryEnv{ eModuleEnv =  modEnv' }
+                     return nm
+
 setupStepDef ::
    VerificationSetupStep CT.Name (CP.Expr CT.Name, TCExpr) ->
-   M (HarnessVar CT.Name)
-setupStepDef (RegisterVal _ var)   = return var
-setupStepDef (MemPointsTo _ _ var) = return var
-setupStepDef (BindVariable var _)  = return var
+   M CT.Name
+setupStepDef (RegisterVal _ var)   = resolveSetupVar var
+setupStepDef (MemPointsTo _ _ var) = resolveSetupVar var
+setupStepDef (BindVariable var _)  = resolveSetupVar var
 
 setupStepUses ::
-   Set (HarnessVar CT.Name) ->
+   Set CT.Name ->
    VerificationSetupStep CT.Name (CP.Expr CT.Name, TCExpr) ->
-   M (Set (HarnessVar CT.Name))
+   M (Set CT.Name)
 setupStepUses _ (RegisterVal _ _) = return mempty
 setupStepUses declaredNames (MemPointsTo base _ _) =
-   return $ if Set.member base declaredNames then Set.singleton base else mempty
+   do basenm <- resolveSetupVar base
+      return $ if Set.member basenm declaredNames then Set.singleton basenm else mempty
 setupStepUses declaredNames (BindVariable _ (ex,_)) =
-   return . Set.intersection declaredNames . Set.map CryptolVar . CP.namesE $ ex
+   return . Set.intersection declaredNames . CP.namesE $ ex
 
-type GraphEdge = (VerificationSetupStep CT.Name TCExpr, HarnessVar CT.Name, Set (HarnessVar CT.Name))
+type GraphEdge = (VerificationSetupStep CT.Name TCExpr, CT.Name, Set CT.Name)
 
 setupStepGraphEdge ::
-   Set (HarnessVar CT.Name) ->
+   Set CT.Name ->
    VerificationSetupStep CT.Name (CP.Expr CT.Name, TCExpr) ->
    M GraphEdge
 setupStepGraphEdge declaredNames step =
@@ -464,7 +508,7 @@ setupStepGraphEdge declaredNames step =
       return (fmap snd step, def, uses)
 
 reorderSteps ::
-   Set (HarnessVar CT.Name) ->
+   Set CT.Name ->
    Seq (VerificationSetupStep CT.Name (CP.Expr CT.Name, TCExpr)) ->
    M (Seq (VerificationSetupStep CT.Name TCExpr))
 reorderSteps declaredNames steps =
@@ -481,9 +525,9 @@ reorderSteps declaredNames steps =
 
 
 processEdges ::
-   Set (HarnessVar CT.Name) ->
+   Set CT.Name ->
    Seq GraphEdge ->
-   WriterT (Seq (VerificationSetupStep CT.Name TCExpr)) M (Set (HarnessVar CT.Name))
+   WriterT (Seq (VerificationSetupStep CT.Name TCExpr)) M (Set CT.Name)
 processEdges definedNames edges = go Nothing mempty edges
 
  where
