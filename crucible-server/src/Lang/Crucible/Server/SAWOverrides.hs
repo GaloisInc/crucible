@@ -34,11 +34,16 @@ import qualified Data.Text as Text
 import qualified Data.Vector as V
 
 import qualified Lang.Crucible.Proto as P
+import           Lang.Crucible.Server.CryptolEnv
 import           Lang.Crucible.Server.Requests
 import           Lang.Crucible.Server.Simulator
 import           Lang.Crucible.Server.TypeConv
+--import           Lang.Crucible.Server.TypedTerm
 import           Lang.Crucible.Server.ValueConv
+import           Lang.Crucible.Server.Verification.Harness
+import           Lang.Crucible.Server.Verification.Override
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
+import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
 import qualified Lang.Crucible.Solver.SAWCoreBackend as SAW
@@ -50,12 +55,53 @@ import qualified Verifier.SAW.SharedTerm as SAW
 import qualified Verifier.SAW.Recognizer as SAW
 
 
-sawBackendRequests :: BackendSpecificRequests p (SAW.SAWCoreBackend n)
+data SAWCrucibleServerPersonality sym =
+   SAWCrucibleServerPersonality
+   { _sawServerCryptolEnv :: CryptolEnv
+   }
+
+sawServerCryptolEnv :: Simple Lens (SAWCrucibleServerPersonality sym) CryptolEnv
+sawServerCryptolEnv = lens _sawServerCryptolEnv (\s v -> s{ _sawServerCryptolEnv = v })
+
+initSAWServerPersonality ::
+  SAW.SAWCoreBackend n ->
+  IO (SAWCrucibleServerPersonality (SAW.SAWCoreBackend n))
+initSAWServerPersonality sym =
+  do sc <- SAW.sawBackendSharedContext sym
+     cryEnv <- initCryptolEnv sc
+     return SAWCrucibleServerPersonality
+            { _sawServerCryptolEnv = cryEnv
+            }
+
+sawBackendRequests :: BackendSpecificRequests SAWCrucibleServerPersonality (SAW.SAWCoreBackend n)
 sawBackendRequests =
   BackendSpecificRequests
   { fulfillExportModelRequest = sawFulfillExportModelRequest
   , fulfillSymbolHandleRequest = sawFulfillSymbolHandleRequest
+  , fulfillCompileVerificationOverrideRequest = sawFulfillCompileVerificationOverrideRequest
   }
+
+
+sawFulfillCompileVerificationOverrideRequest
+   :: forall n
+    . Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n)
+   -> P.VerificationHarness
+   -> IO ()
+sawFulfillCompileVerificationOverrideRequest sim harness =
+  do sc <- SAW.sawBackendSharedContext =<< getInterface sim
+     cryEnv <- view (cruciblePersonality . sawServerCryptolEnv) <$> readIORef (simContext sim)
+     (cryEnv',harness') <- runM sc cryEnv $ processHarness harness
+
+     SomeHandle fnhandle <- verificationHarnessOverrideHandle sim cryEnv' harness'
+     let response = displayHarness (fmap snd harness')
+
+     -- NB: we explicitly do not store the modified cryEnv' back into the simContext;
+     -- the modifications to the environment produced by processing a harness are only
+     -- scoped over the harness itself.
+
+     sendTextResponse sim response
+     sendPredefinedHandleResponse sim fnhandle
+
 
 sawFulfillExportModelRequest
    :: forall p n

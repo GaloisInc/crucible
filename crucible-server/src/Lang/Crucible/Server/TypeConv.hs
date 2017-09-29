@@ -287,7 +287,7 @@ mkProtoType tpr =
        mkType1 P.WordMapType (baseToType tp) & P.crucibleType_width .~ fromIntegral (widthVal w)
 
     StructRepr ctx ->
-      mkType P.MaybeType & setTypeParams (mkProtoTypeSeq ctx)
+      mkType P.StructType & setTypeParams (mkProtoTypeSeq ctx)
     IntWidthRepr -> mkType P.IntWidthType
     UIntWidthRepr -> mkType P.UIntWidthType
     StringMapRepr tp -> mkType1 P.StringMapType tp

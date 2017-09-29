@@ -98,6 +98,7 @@ simpleBackendRequests =
   BackendSpecificRequests
   { fulfillExportModelRequest = sbFulfillExportModelRequest
   , fulfillSymbolHandleRequest = sbFulfillSymbolHandleRequest
+  , fulfillCompileVerificationOverrideRequest = sbFulfillCompileVerificationOverrideRequest
   }
 
 ------------------------------------------------------------------------
@@ -208,3 +209,11 @@ sbFulfillSymbolHandleRequest sim proto_tp = do
     let o = symbolicOverride vtp
     let tp = baseToType vtp
     SomeHandle <$> simOverrideHandle sim Ctx.empty tp o
+
+-------------------------------------------------------------------------
+-- Compile verification request
+
+sbFulfillCompileVerificationOverrideRequest
+ :: IsSymInterface sym => Simulator p sym -> P.VerificationHarness -> IO ()
+sbFulfillCompileVerificationOverrideRequest _sim _harness =
+  fail "Thed 'simple' server backend does not support verification harnesses"

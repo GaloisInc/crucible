@@ -106,6 +106,9 @@ enum RequestCode {
   // in the requested format.
   ExportModel = 12;
 
+  // This request takes a verification harness and returns a function handle that
+  // can be used as an override for compositional verification.
+  CompileVerificationOverride = 13;
 
   /////////////////////////////////////////////////////////////////////////////
   // Operations to get predefined handles.
@@ -198,6 +201,10 @@ message Request {
 
   // The destination for an export operation
   optional string export_path = 13;
+
+  // Verification harness to use for the CompileVerificationHarness
+  // request.
+  optional VerificationHarness verification_harness = 14;
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -225,6 +232,10 @@ enum GenericResponseCode {
   // Respond with an Exception.  The message field of the GenericResponse
   // indicates the content of the exception.
   ExceptionGenResp = 5;
+
+  // Respond with an acknowledgement.  This message indicates that the requested
+  // action was taken successfully.  No additional information is transmitted.
+  AcknowledgementResp = 6;
 }
 
 message GenericResponse {
@@ -1011,7 +1022,7 @@ enum PathAbortedCode {
   // Attempted to call a value that does not represent a function
   AbortedNonFunction = 2;
 
-  // An explicit assertion (i.e., one specificly inserted into the a CFG) failed 
+  // An explicit assertion (i.e., one specificly inserted into the a CFG) failed
   AbortedUserAssertFailure = 3;
 }
 
@@ -1040,4 +1051,108 @@ enum CallRequestCode {
   ResumeCall = 1;
   // Stop executing the call and switch back to a paused state (no response needeD).
   AbortCall = 2;
+}
+
+
+/////////////////////////////////////////////////////////////////////////////
+// Messages related to compositional verification
+
+message VerificationHarness {
+  // Human-consumable name to give to the override function
+  optional string name = 1;
+
+  // Specification of prestate variables, register and memory state
+  optional StateSpecification prestate_specification = 2;
+
+  // Specification of poststate variables, register and memory state
+  optional StateSpecification poststate_specification = 3;
+
+  // Address word length, in bits;
+  optional uint64 address_width = 4;
+
+  // Machine endianess
+  optional Endianness endianness = 5;
+}
+
+// Code for indicating which byte-order to assume for verification harnesses
+enum Endianness {
+  // Little-endian byte order
+  LittleEndian = 0;
+
+  // Big-endian byte order
+  BigEndian = 1;
+}
+
+message StateSpecification {
+  // specification variables
+  repeated VariableSpecification variable = 1;
+
+  // specification register assignments
+  repeated RegisterAssignment register_assignment = 2;
+
+  // specification memory assignments
+  repeated MemoryAssignment memory_assignment = 3;
+
+  // specification variable bindings
+  repeated VariableBinding variable_binding = 4;
+
+  // specification conditions
+  repeated string condition = 5;
+}
+
+message VariableSpecification {
+  // The name of the varible, which must be a valid Cryptol identifier.
+  optional string name = 1;
+
+  // The dimensions of the variable.  There must be exactly one
+  // or two dimensions, indicating words or vectors of words.
+  // The word dimension must be a multiple of 8.
+  repeated uint64 dimension = 2;
+}
+
+message RegisterAssignment {
+  // The offset of the register in the register file
+  optional uint64 reg_offset = 1;
+
+  // The index of the specification variable found in this register
+  optional VariableReference value = 2;
+}
+
+message MemoryAssignment {
+  // The base pointer of the memory address
+  optional VariableReference base = 1;
+
+  // An offset from the base pointer
+  optional uint64 offset = 2;
+
+  // The value pointed to at that location
+  optional VariableReference value = 3;
+}
+
+message VariableBinding {
+  // The variable to be bound
+  optional VariableReference var = 1;
+
+  // The cryptol expression to bind to this variable
+  optional string expr = 2;
+}
+
+enum VariableReferenceCode {
+  // The value of the stack pointer
+  StackPointerVar = 1;
+
+  // The value of the return address
+  ReturnAddressVar = 2;
+
+  // The value of a user-defined variable
+  UserVar = 3;
+}
+
+message VariableReference {
+  // The variable reference type
+  optional VariableReferenceCode code = 1;
+
+  // The name of the variable,
+  // for references to user-defined variables
+  optional string var_name = 2;
 }

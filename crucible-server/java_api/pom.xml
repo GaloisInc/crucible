@@ -6,7 +6,7 @@
   <groupId>com.galois</groupId>
   <artifactId>crucible-api</artifactId>
   <packaging>jar</packaging>
-  <version>0.1</version>
+  <version>0.2</version>
 
   <name>Crucible Java API</name>
 

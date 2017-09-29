@@ -136,6 +136,10 @@ newSAWCoreBackend sc gen cfg = do
   SB.newSimpleBuilder st gen
 
 
+sawBackendSharedContext :: SAWCoreBackend n -> IO SC.SharedContext
+sawBackendSharedContext sym =
+  saw_ctx <$> readIORef (SB.sbStateManager sym)
+
 -- | Run a computation with a fresh SAWCoreBackend, in the context of the
 --   given module.
 withSAWCoreBackend :: SC.Module -> (forall n. SAWCoreBackend n -> IO a) -> IO a

@@ -16,6 +16,14 @@ Description:
 extra-source-files:
   proto/crucible.proto
 
+custom-setup
+  setup-depends:
+    base >= 4.7 && < 5,
+    Cabal >= 1.24,
+    directory,
+    filepath,
+    process
+
 library
   build-depends:
     ansi-wl-pprint,
@@ -25,6 +33,11 @@ library
     crucible >= 0.1,
     crucible-abc,
     crucible-saw,
+    cryptol,
+    cryptol-verifier,
+    executable-path,
+    filepath,
+    GraphSCC,
     galois-matlab,
     hashable,
     hashtables,
@@ -33,6 +46,8 @@ library
     mtl,
     parameterized-utils >= 0.1.7,
     saw-core,
+    saw-core-sbv,
+    sbv,
     text,
     transformers,
     vector
@@ -45,6 +60,7 @@ library
   exposed-modules:
     Lang.Crucible.Proto
     Lang.Crucible.Server.CallbackOutputHandle
+    Lang.Crucible.Server.CryptolEnv
     Lang.Crucible.Server.Encoding
     Lang.Crucible.Server.MultipartOperations
     Lang.Crucible.Server.Requests
@@ -53,7 +69,10 @@ library
     Lang.Crucible.Server.Simulator
     Lang.Crucible.Server.Translation
     Lang.Crucible.Server.TypeConv
+    Lang.Crucible.Server.TypedTerm
     Lang.Crucible.Server.ValueConv
+    Lang.Crucible.Server.Verification.Harness
+    Lang.Crucible.Server.Verification.Override
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
@@ -67,6 +86,7 @@ executable crucible-server
     crucible-abc,
     crucible-saw,
     crucible-server,
+    cryptol-verifier,
     hpb >= 0.1.1,
     lens,
     parameterized-utils >= 0.1.7,

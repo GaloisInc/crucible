@@ -179,5 +179,4 @@ public class TestValueCreator {
         Assert.assertTrue( ((BoolValue) p).equals( BoolValue.TRUE ) );
     }
 
-
 };

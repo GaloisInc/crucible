@@ -111,8 +111,8 @@ fulfillUseCFGRequest sim pg =
   unpackCFG sim pg $ \g -> do
   case toSSA g of
     C.SomeCFG g' ->
-      bindHandleToFunction sim (R.cfgHandle g) $! (UseCFG g' (postdomInfo g'))
-
+      do bindHandleToFunction sim (R.cfgHandle g) $! (UseCFG g' (postdomInfo g'))
+         sendAckResponse sim
 
 fulfillPrintCFGRequest :: IsSymInterface sym
                      => Simulator p sym
@@ -126,6 +126,7 @@ fulfillPrintCFGRequest sim pg =
     C.SomeCFG g' -> do
       displayIO h $ renderPretty 1.0 maxBound $ C.ppCFG False g'
       hFlush h
+      sendAckResponse sim
 
 ------------------------------------------------------------------------
 -- RunCall request
@@ -207,6 +208,7 @@ fulfillSetVerbosityRequest sim args = do
       ctx' <- withVerbosity h oldv $ liftIO $ flip execStateT ctx $
                   setConfigValue verbosity cfg (fromIntegral n)
       writeIORef (simContext sim) ctx'
+      sendAckResponse sim
     _ -> fail "expected a natural number argument to SetVerbosity request"
 
 ------------------------------------------------------------------------
@@ -462,6 +464,10 @@ handleOneRequest sim addlRequests request =
       let format   = request^.P.request_export_format
       fulfillExportModelRequest addlRequests sim format path all_args
 
+    P.CompileVerificationOverride -> do
+      let harness  = request^.P.request_verification_harness
+      fulfillCompileVerificationOverrideRequest addlRequests sim harness
+
     P.ResumeSimulation -> do
       nyi "resumeSimulation"
     P.UseOverride -> do
@@ -483,6 +489,10 @@ data BackendSpecificRequests p sym
       , fulfillSymbolHandleRequest
          :: Simulator p sym
          -> P.VarType
+         -> IO ()
+      , fulfillCompileVerificationOverrideRequest
+         :: Simulator p sym
+         -> P.VerificationHarness
          -> IO ()
       }
 
