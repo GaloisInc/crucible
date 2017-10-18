@@ -946,6 +946,7 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
         -> !(f (BVType w))
         -> App f (BVType w)
 
+  -- Given a Boolean, returns one if Boolean is True and zero otherwise.
   BoolToBV :: (1 <= w)
            => !(NatRepr w)
            -> !(f BoolType)
