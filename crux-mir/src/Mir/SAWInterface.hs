@@ -1,5 +1,3 @@
-
-
 module Mir.SAWInterface (RustModule, loadMIR, extractMIR, rmCFGs) where
 
 import Mir.Run
@@ -32,18 +30,15 @@ import qualified Text.Regex as Regex
 
 import Control.Monad
 
-
-
 data RustModule = RustModule {
     rmCFGs :: M.Map T.Text C.AnyCFG
 }
-
 
 cleanFnName :: T.Text -> T.Text
 cleanFnName t = T.pack $
     let r1 = Regex.mkRegex "\\[[0-9]+\\]"
         r2 = Regex.mkRegex "::"
-        s1 = Regex.subRegex r1 (T.unpack t) "" 
+        s1 = Regex.subRegex r1 (T.unpack t) ""
         s2 = Regex.subRegex r2 s1 "" in
     s2
 
@@ -55,7 +50,7 @@ extractMIR sc rm n = do
              Just c -> return c
              _ -> fail $ "Could not find cfg: " ++ n
     term <- extractFromCFGPure link sc cfg
-    return term    
+    return term
 
 loadMIR :: SC.SharedContext -> FilePath -> IO RustModule
 loadMIR sc fp = do
@@ -67,7 +62,3 @@ loadMIR sc fp = do
           let cfgmap_ = mirToCFG coll (Just (P.passMutRefArgs . P.passRemoveStorage . P.passRemoveBoxNullary))
           let cfgmap = M.fromList $ map (\(k,v) -> (cleanFnName k, v)) $ M.toList cfgmap_
           return $ RustModule cfgmap
-
-
-
-

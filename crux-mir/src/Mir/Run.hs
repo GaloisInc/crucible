@@ -13,8 +13,8 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE PartialTypeSignatures #-}
-module Mir.Run (mirToCFG, extractFromCFGPure)
-    where
+module Mir.Run (mirToCFG, extractFromCFGPure) where
+
 import System.IO
 import qualified Mir.Trans as T
 import qualified Data.Map.Strict as Map
@@ -72,7 +72,7 @@ unfoldAssign ctx0 asgn k =
     Ctx.AssignExtend ctx' ctp' ->
           let asgn' = Ctx.init asgn
               idx   = Ctx.nextIndex (Ctx.size asgn')
-           in k ctp' (asgn Ctx.! idx) 
+           in k ctp' (asgn Ctx.! idx)
                 ctx'
                 asgn'
 
@@ -89,18 +89,18 @@ show_regval_assgn ctxrepr asgn = "[" ++ go ctxrepr asgn (Ctx.sizeInt (Ctx.size c
     where go :: forall ctx sym. C.CtxRepr ctx -> Ctx.Assignment (C.RegValue' Sym) ctx -> Int -> String
           go _ _ 0 = ""
           go cr as i = unfoldAssign cr as $ \repr val cr' as' ->
-              go cr' as' (i-1) ++ ", " ++ show_val repr (C.unRV val) 
+              go cr' as' (i-1) ++ ", " ++ show_val repr (C.unRV val)
 
 
 asgnCtxToListM :: (Monad m) => C.CtxRepr ctx -> Int -> Ctx.Assignment f ctx -> (forall tp. C.TypeRepr tp -> f tp -> m a) -> m [a]
 asgnCtxToListM _ 0 _ _ = return []
 asgnCtxToListM cr i as f = unfoldAssign cr as $ \repr val cr' as' -> do
     e <- f repr val
-    rest <- asgnCtxToListM cr' (i-1) as' f 
+    rest <- asgnCtxToListM cr' (i-1) as' f
     return (rest ++ [e])
 
 
-show_regentry :: C.RegEntry Sym ret -> String 
+show_regentry :: C.RegEntry Sym ret -> String
 show_regentry (C.RegEntry tp reg_val) = show_val tp reg_val
 
 print_cfg :: C.AnyCFG -> IO ()
@@ -142,11 +142,11 @@ handleAbortedResult _ = "unknown"
 
 mirToCFG :: [M.Fn] -> Maybe ([M.Fn] -> [M.Fn]) -> Map.Map Text.Text C.AnyCFG
 mirToCFG fns Nothing = mirToCFG fns (Just Pass.passId)
-mirToCFG fns (Just pass) = 
+mirToCFG fns (Just pass) =
     runST $ C.withHandleAllocator (T.transCollection $ pass fns)
 
 toSawCore :: SC.SharedContext -> Sym -> (C.RegEntry Sym tp) -> IO SC.Term
-toSawCore sc sym (C.RegEntry tp v) = 
+toSawCore sc sym (C.RegEntry tp v) =
     case tp of
         C.NatRepr -> C.toSC sym v
         C.IntegerRepr -> C.toSC sym v
@@ -155,7 +155,7 @@ toSawCore sc sym (C.RegEntry tp v) =
         C.BoolRepr -> C.toSC sym v
         C.BVRepr w -> C.toSC sym v
         C.StructRepr ctx -> -- ctx is of type CtxRepr; v is of type Ctx.Assignment (RegValue' sym) ctx
-            go_struct ctx v 
+            go_struct ctx v
         C.VectorRepr t -> go_vector t v
         _ -> fail $ unwords ["unknown type: ", show tp]
 
@@ -163,9 +163,9 @@ toSawCore sc sym (C.RegEntry tp v) =
          go_struct cr as = do
              terms <- asgnCtxToListM cr (Ctx.sizeInt (Ctx.size cr)) as $ \repr val -> toSawCore sc sym (C.RegEntry repr (C.unRV val))
              SC.scTuple sc terms
-             
+
          go_vector :: C.TypeRepr t -> V.Vector (C.RegValue Sym t) -> IO SC.Term -- This should actually be a sawcore list; this requires one to also have a function from typereprs to terms
-         go_vector tp v = 
+         go_vector tp v =
              case C.asBaseType tp of
                C.AsBaseType btp -> do
                    sc_tp <- C.baseSCType sc btp
@@ -173,10 +173,6 @@ toSawCore sc sym (C.RegEntry tp v) =
                    rs <- mapM (\e -> toSawCore sc sym (C.RegEntry tp e)) l
                    SC.scVector sc sc_tp rs
                _ -> fail $ "Cannot return vectors of non-base type"
-             
-
-             
-
 
 -- one could perhaps do more about ADTs below by giving the below access to the MIR types
 

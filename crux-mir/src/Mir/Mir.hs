@@ -6,10 +6,9 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
 
-
 module Mir.Mir where
 import Data.Aeson
-import qualified Data.HashMap.Lazy as HML 
+import qualified Data.HashMap.Lazy as HML
 import qualified Data.ByteString as B
 import qualified Text.Regex as Regex
 import qualified Data.Map.Strict as Map
@@ -17,7 +16,7 @@ import Data.Text (Text, unpack)
 import Data.List
 import System.IO.Unsafe
 
--- NOTE: below, all unwinding calls can be ignored 
+-- NOTE: below, all unwinding calls can be ignored
 --
 --
 
@@ -52,7 +51,6 @@ instance (PPrint a, PPrint b) => PPrint (a,b) where
 
 instance PPrint Bool where
     pprint = show
-
 
 -- Aeson is used for JSON deserialization
 
@@ -105,7 +103,7 @@ instance FromJSON Ty where
                                           Just (String "Bool") -> pure TyBool
                                           Just (String "Char") -> pure TyChar
                                           Just (String "Int") -> TyInt <$> v .: "intkind"
-                                          Just (String "Uint") -> TyUint <$> v .: "uintkind" 
+                                          Just (String "Uint") -> TyUint <$> v .: "uintkind"
                                           Just (String "Unsupported") -> pure TyUnsupported
                                           Just (String "Tuple") -> TyTuple <$> v .: "tys"
                                           Just (String "Slice") -> TySlice <$> v .: "ty"
@@ -136,10 +134,6 @@ data Field = Field {_fName :: Text, _fty :: Ty, _fsubsts :: [Maybe Ty]}
 
 instance FromJSON Field where
     parseJSON = withObject "Field" $ \v -> Field <$> v .: "name" <*> v .: "ty" <*> v .: "substs"
-
-
-
-
 
 data CustomTy =
        BoxTy Ty
@@ -240,7 +234,7 @@ instance FromJSON BasicBlock where
         <$> v .: "blockid"
         <*> v .: "block"
 
-data BasicBlockData = BasicBlockData { 
+data BasicBlockData = BasicBlockData {
     _bbstmts :: [Statement],
     _bbterminator :: Terminator
 }
@@ -259,7 +253,7 @@ instance FromJSON BasicBlockData where
         <$> v .: "data"
         <*>  v .: "terminator"
 
-data Statement = 
+data Statement =
       Assign { _alhs :: Lvalue, _arhs :: Rvalue}
       | SetDiscriminant { _sdlv :: Lvalue, _sdvi :: Int }
       | StorageLive { _sllv :: Lvalue }
@@ -314,7 +308,7 @@ instance Ord Lvalue where
     compare l1 l2 = compare (show l1) (show l2)
 
 instance PPrint Lvalue where
-    pprint (Local v) = pprint v  
+    pprint (Local v) = pprint v
     pprint (Static) = "STATIC"
     pprint (LProjection p) = pprint p
     pprint (Tagged lv t) = (show t) ++ "(" ++ (pprint lv) ++ ")"
@@ -380,7 +374,7 @@ data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand]}
 instance FromJSON AdtAg where
     parseJSON = withObject "AdtAg" $ \v -> AdtAg <$> v .: "adt" <*> v .: "variant" <*> v .: "ops"
 
-data Terminator = 
+data Terminator =
     Goto { _gbb :: BasicBlockInfo}
       | SwitchInt { _sdiscr :: Operand, _switch_ty :: Ty, _svalues :: [Integer], _stargets :: [BasicBlockInfo] }
       | Resume
@@ -388,8 +382,7 @@ data Terminator =
       | Unreachable
       | Drop { _dloc :: Lvalue, _dtarget :: BasicBlockInfo, _dunwind :: Maybe BasicBlockInfo }
       | DropAndReplace { _drloc :: Lvalue, _drval :: Operand, _drtarget :: BasicBlockInfo, _drunwind :: Maybe BasicBlockInfo }
-      | Call { _cfunc :: Operand, _cargs :: [Operand], _cdest :: Maybe (Lvalue, BasicBlockInfo), _cleanup :: Maybe BasicBlockInfo } 
-    
+      | Call { _cfunc :: Operand, _cargs :: [Operand], _cdest :: Maybe (Lvalue, BasicBlockInfo), _cleanup :: Maybe BasicBlockInfo }
       | Assert { _acond :: Operand, _aexpected :: Bool, _amsg :: AssertMessage, _atarget :: BasicBlockInfo, _acleanup :: Maybe BasicBlockInfo}
       deriving (Show,Eq)
 
@@ -419,7 +412,7 @@ instance FromJSON Terminator where
                                                   _ -> error "err"
 
 
-data Operand = 
+data Operand =
     Consume Lvalue
       | OpConstant Constant
       deriving (Show, Eq)
@@ -535,7 +528,7 @@ data BinOp =
     Add
       | Sub
       | Mul
-      | Div 
+      | Div
       | Rem
       | BitXor
       | BitAnd
@@ -592,7 +585,7 @@ instance FromJSON CastKind where
                                                Just (String "ClosureFnPointer") -> pure ClosureFnPointer
                                                Just (String "UnsafeFnPointer") -> pure UnsafeFnPointer
                                                Just (String "Unsize") -> pure Unsize
-                                     
+
 data Literal =
     Item DefId [Maybe Ty]
       | Value ConstVal
@@ -606,7 +599,7 @@ instance PPrint Literal where
 
 instance FromJSON Literal where
     parseJSON = withObject "Literal" $ \v -> case (HML.lookup "kind" v) of
-                                               Just (String "item") -> Item <$> v .: "def_id" <*> v .: "substs" 
+                                               Just (String "item") -> Item <$> v .: "def_id" <*> v .: "substs"
                                                Just (String "value") -> Value <$> v .: "value"
                                                Just (String "promoted") -> LPromoted <$> v .: "index"
 
@@ -669,7 +662,7 @@ instance FromJSON AggregateKind where
                                                      Just (String "agclosure") -> AKClosure <$> v .: "defid" <*> v .: "closuresubsts"
                                                      Just (String unk) -> error $ "unimp: " ++ (unpack unk)
 
-data CustomAggregate = 
+data CustomAggregate =
     CARange Ty Operand Operand -- depreciated but here in case something else needs to go here
     deriving (Show,Eq)
 
@@ -710,7 +703,7 @@ instance ArithTyped Var where
 instance ArithTyped Lvalue where
     arithType (Local var) = arithType var
     arithType Static = Nothing
-    arithType (LProjection (LvalueProjection a (PField f ty))) = arithType ty 
+    arithType (LProjection (LvalueProjection a (PField f ty))) = arithType ty
     arithType _ = error "unimpl arithtype"
 
 instance ArithTyped Operand where
@@ -744,15 +737,13 @@ instance (Replace v Operand, Replace v Lvalue) => Replace v Terminator where
     replace old new (SwitchInt op ty vals targs) = SwitchInt (replace old new op) ty vals targs
     replace old new (Drop loc targ un) = Drop (replace old new loc) targ un
     replace old new (DropAndReplace loc val targ un) = DropAndReplace (replace old new loc) (replace old new val) targ un
-    replace old new (Call f args (Just (d1, d2)) cl) 
+    replace old new (Call f args (Just (d1, d2)) cl)
       = Call (replace old new f) (replace old new args) (Just ((replace old new d1), d2)) cl
     replace old new (Assert cond exp m t cl) = Assert (replace old new cond) exp m t cl
     replace old new t = t
 
-
-
 instance (Replace v Lvalue, Replace v Rvalue) => Replace v Statement where
-    replace old new (Assign lv rv) = Assign (replace old new lv) (replace old new rv) 
+    replace old new (Assign lv rv) = Assign (replace old new lv) (replace old new rv)
     replace old new (SetDiscriminant lv i) = SetDiscriminant (replace old new lv) i
     replace old new (StorageLive l) = StorageLive (replace old new l)
     replace old new (StorageDead l) = StorageDead (replace old new l)
@@ -772,7 +763,7 @@ instance Replace Var Lvalue where
     replace old new (LProjection (LvalueProjection lbase lkind)) = LProjection $ LvalueProjection (replace old new lbase) lkind
 
 instance Replace Lvalue Lvalue where
-    replace old new v = 
+    replace old new v =
         case repl_lv old new v of
           Just c -> c
           _ -> v
@@ -812,7 +803,7 @@ replaceLvalue :: (Replace Lvalue a) => Lvalue -> Lvalue -> a -> a
 replaceLvalue old new a = replace old new a
 
 repl_lv :: Lvalue -> Lvalue -> Lvalue -> Maybe Lvalue -- some light unification
-repl_lv old new v = 
+repl_lv old new v =
     case v of
       LProjection (LvalueProjection lb k) | Just ans <- repl_lv old new lb -> Just $ LProjection (LvalueProjection ans k)
       Tagged lb _ | Just ans <- repl_lv old new lb -> Just ans
@@ -825,7 +816,7 @@ repl_lv old new v =
 -- Custom function calls are converted by hand. The below can probably do away with regex and use [0], but I'm not sure if that would always work
 
 isCustomFunc :: Text -> Maybe Text
-isCustomFunc fname 
+isCustomFunc fname
   | Just _ <- Regex.matchRegex (Regex.mkRegex "::boxed\\[[0-9]+\\]::\\{\\{impl\\}\\}\\[[0-9]+\\]::new\\[[0-9]+\\]") (unpack fname)
     = Just "boxnew"
 
@@ -834,7 +825,7 @@ isCustomFunc fname
 
   | Just _ <- Regex.matchRegex (Regex.mkRegex "::vec\\[[0-9]+\\]::\\{\\{impl\\}\\}\\[[0-9]+\\]::as_mut_slice\\[[0-9]+\\]") (unpack fname)
     = Just "vec_asmutslice"
-        
+
   | Just _ <- Regex.matchRegex (Regex.mkRegex "::ops\\[[0-9]+\\]::index\\[[0-9]+\\]::Index\\[[0-9]+\\]::index\\[[0-9]+\\]") (unpack fname)
     = Just "index"
 
