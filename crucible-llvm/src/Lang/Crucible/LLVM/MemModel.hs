@@ -49,6 +49,7 @@ module Lang.Crucible.LLVM.MemModel
   , registerGlobal
   , assertDisjointRegions
   , assertDisjointRegions'
+  , buildDisjointRegionsAssertion
   , doMemcpy
   , doMemset
   , doMalloc
@@ -666,6 +667,21 @@ assertDisjointRegions'
   -> RegValue sym (BVType w)
   -> IO ()
 assertDisjointRegions' lbl sym w dest dlen src slen = do
+  c <- buildDisjointRegionsAssertion sym w dest dlen src slen
+  addAssertion sym c
+     (AssertFailureSimError ("Memory regions not disjoint in " ++ lbl))
+
+
+buildDisjointRegionsAssertion
+  :: (1 <= w, IsSymInterface sym)
+  => sym
+  -> NatRepr w
+  -> RegValue sym LLVMPointerType
+  -> RegValue sym (BVType w)
+  -> RegValue sym LLVMPointerType
+  -> RegValue sym (BVType w)
+  -> IO (SymExpr sym BaseBoolType)
+buildDisjointRegionsAssertion sym w dest dlen src slen = do
   let LLVMPtr dblk _ doff = translatePtr dest
   let LLVMPtr sblk _ soff = translatePtr src
 
@@ -676,10 +692,8 @@ assertDisjointRegions' lbl sym w dest dlen src slen = do
   destfirst <- bvSle sym dend soff
   srcfirst  <- bvSle sym send doff
 
-  c <- orPred sym diffBlk =<< orPred sym destfirst srcfirst
+  orPred sym diffBlk =<< orPred sym destfirst srcfirst
 
-  addAssertion sym c
-     (AssertFailureSimError ("Memory regions not disjoint in " ++ lbl))
 
 -- | Simpler interface to 'assertDisjointRegions'' where the lengths
 -- of the two regions are equal as used by the memcpy operation.
