@@ -108,12 +108,12 @@ instance FromJSON Ty where
                                           Just (String "Tuple") -> TyTuple <$> v .: "tys"
                                           Just (String "Slice") -> TySlice <$> v .: "ty"
                                           Just (String "Array") -> TyArray <$> v .: "ty" <*> v .: "size"
-                                          Just (String "ref") ->  TyRef <$> v .: "ty" <*> v .: "mutability"
-                                          Just (String "custom") -> TyCustom <$> v .: "data"
-                                          Just (String "fndef") -> TyFnDef <$> v .: "defid" <*> v .: "substs"
-                                          Just (String "adt") -> TyAdt <$> v .: "adt"
-                                          Just (String "param") -> TyParam <$> v .: "param"
-                                          Just (String "closure") -> TyClosure <$> v .: "defid" <*> v .: "closuresubsts"
+                                          Just (String "Ref") ->  TyRef <$> v .: "ty" <*> v .: "mutability"
+                                          Just (String "Custom") -> TyCustom <$> v .: "data"
+                                          Just (String "FnDef") -> TyFnDef <$> v .: "defid" <*> v .: "substs"
+                                          Just (String "Adt") -> TyAdt <$> v .: "adt"
+                                          Just (String "Param") -> TyParam <$> v .: "param"
+                                          Just (String "Closure") -> TyClosure <$> v .: "defid" <*> v .: "closuresubsts"
                                           _ -> error "unsupported ty"
 
 
@@ -315,9 +315,9 @@ instance PPrint Lvalue where
 
 instance FromJSON Lvalue where
     parseJSON = withObject "Lvalue" $ \v -> case (HML.lookup "kind" v) of
-                                              Just (String "local") ->  Local <$> v .: "localvar"
-                                              Just (String "static") -> pure Static
-                                              Just (String "projection") ->  LProjection <$> v .: "data"
+                                              Just (String "Local") ->  Local <$> v .: "localvar"
+                                              Just (String "Static") -> pure Static
+                                              Just (String "Projection") ->  LProjection <$> v .: "data"
                                               _ -> error "kind not found"
 
 data Rvalue =
@@ -352,19 +352,19 @@ instance PPrint Rvalue where
 
 instance FromJSON Rvalue where
     parseJSON = withObject "Rvalue" $ \v -> case (HML.lookup "kind" v) of
-                                              Just (String "use") -> Use <$> v .: "usevar"
-                                              Just (String "repeat") -> Repeat <$> v .: "op" <*> v .: "len"
-                                              Just (String "ref") ->  Ref <$> v .: "borrowkind" <*> v .: "refvar" <*> v .: "region"
-                                              Just (String "len") -> Len <$> v .: "lv"
-                                              Just (String "cast") -> Cast <$> v .: "type" <*> v .: "op" <*> v .: "ty"
-                                              Just (String "binaryop") -> BinaryOp <$> v .: "op" <*> v .: "L" <*> v .: "R"
-                                              Just (String "checkedbinaryop") -> CheckedBinaryOp <$> v .: "op" <*> v .: "L" <*> v .: "R"
-                                              Just (String "nullaryop") -> NullaryOp <$> v .: "op" <*> v .: "ty"
-                                              Just (String "unaryop") -> UnaryOp <$> v .: "uop" <*> v .: "op"
-                                              Just (String "discriminant") -> Discriminant <$> v .: "val"
-                                              Just (String "aggregate") -> Aggregate <$> v .: "akind" <*> v .: "ops"
-                                              Just (String "adtag") -> RAdtAg <$> v .: "ag"
-                                              Just (String "custom") -> RCustom <$> v .: "data"
+                                              Just (String "Use") -> Use <$> v .: "usevar"
+                                              Just (String "Repeat") -> Repeat <$> v .: "op" <*> v .: "len"
+                                              Just (String "Ref") ->  Ref <$> v .: "borrowkind" <*> v .: "refvar" <*> v .: "region"
+                                              Just (String "Len") -> Len <$> v .: "lv"
+                                              Just (String "Cast") -> Cast <$> v .: "type" <*> v .: "op" <*> v .: "ty"
+                                              Just (String "BinaryOp") -> BinaryOp <$> v .: "op" <*> v .: "L" <*> v .: "R"
+                                              Just (String "CheckedBinaryOp") -> CheckedBinaryOp <$> v .: "op" <*> v .: "L" <*> v .: "R"
+                                              Just (String "NullaryOp") -> NullaryOp <$> v .: "op" <*> v .: "ty"
+                                              Just (String "UnaryOp") -> UnaryOp <$> v .: "uop" <*> v .: "op"
+                                              Just (String "Discriminant") -> Discriminant <$> v .: "val"
+                                              Just (String "Aggregate") -> Aggregate <$> v .: "akind" <*> v .: "ops"
+                                              Just (String "AdtAg") -> RAdtAg <$> v .: "ag"
+                                              Just (String "Custom") -> RCustom <$> v .: "data"
                                               _ -> error "err"
 
 
@@ -400,15 +400,15 @@ instance PPrint Terminator where
 
 instance FromJSON Terminator where
     parseJSON = withObject "Terminator" $ \v -> case (HML.lookup "kind" v) of
-                                                  Just (String "goto") -> Goto <$> v .: "target"
-                                                  Just (String "switchint") -> SwitchInt <$> v .: "discr" <*> v .: "switch_ty" <*> v .: "values" <*> v .: "targets"
-                                                  Just (String "resume") -> pure Resume
-                                                  Just (String "return") -> pure Return
-                                                  Just (String "unreachable") -> pure Unreachable
-                                                  Just (String "drop") -> Drop <$> v .: "location" <*> v .: "target" <*> v .: "unwind"
-                                                  Just (String "dropandreplace") -> DropAndReplace <$> v .: "location" <*> v .: "value" <*> v .: "target" <*> v .: "unwind"
-                                                  Just (String "call") ->  Call <$> v .: "func" <*> v .: "args" <*> v .: "destination" <*> v .: "cleanup"
-                                                  Just (String "assert") -> Assert <$> v .: "cond" <*> v .: "expected" <*> v .: "msg" <*> v .: "target" <*> v .: "cleanup"
+                                                  Just (String "Goto") -> Goto <$> v .: "target"
+                                                  Just (String "SwitchInt") -> SwitchInt <$> v .: "discr" <*> v .: "switch_ty" <*> v .: "values" <*> v .: "targets"
+                                                  Just (String "Resume") -> pure Resume
+                                                  Just (String "Return") -> pure Return
+                                                  Just (String "Unreachable") -> pure Unreachable
+                                                  Just (String "Drop") -> Drop <$> v .: "location" <*> v .: "target" <*> v .: "unwind"
+                                                  Just (String "DropAndReplace") -> DropAndReplace <$> v .: "location" <*> v .: "value" <*> v .: "target" <*> v .: "unwind"
+                                                  Just (String "Call") ->  Call <$> v .: "func" <*> v .: "args" <*> v .: "destination" <*> v .: "cleanup"
+                                                  Just (String "Assert") -> Assert <$> v .: "cond" <*> v .: "expected" <*> v .: "msg" <*> v .: "target" <*> v .: "cleanup"
                                                   _ -> error "err"
 
 
@@ -437,8 +437,8 @@ instance PPrint Operand where
 
 instance FromJSON Operand where
     parseJSON = withObject "Operand" $ \v -> case (HML.lookup "kind" v) of
-                                               Just (String "consume") -> Consume <$> v .: "data"
-                                               Just (String "constant") -> OpConstant <$> v .: "data"
+                                               Just (String "Consume") -> Consume <$> v .: "data"
+                                               Just (String "Constant") -> OpConstant <$> v .: "data"
 
 data Constant = Constant { _conty :: Ty, _conliteral :: Literal } deriving (Show, Eq)
 instance TypeOf Constant where
@@ -477,12 +477,12 @@ instance PPrint Lvpelem where
 
 instance FromJSON Lvpelem where
     parseJSON = withObject "Lvpelem" $ \v -> case (HML.lookup "kind" v) of
-                                               Just (String "deref") -> pure Deref
-                                               Just (String "field") -> PField <$> v .: "field" <*> v .: "ty"
-                                               Just (String "index") -> Index <$> v .: "op"
-                                               Just (String "constantindex") -> ConstantIndex <$> v .: "offset" <*> v .: "min_length" <*> v .: "from_end"
-                                               Just (String "subslice") -> Subslice <$> v .: "from" <*> v .: "to"
-                                               Just (String "downcast") -> Downcast <$> v .: "variant"
+                                               Just (String "Deref") -> pure Deref
+                                               Just (String "Field") -> PField <$> v .: "field" <*> v .: "ty"
+                                               Just (String "Index") -> Index <$> v .: "op"
+                                               Just (String "ConstantIndex") -> ConstantIndex <$> v .: "offset" <*> v .: "min_length" <*> v .: "from_end"
+                                               Just (String "Subslice") -> Subslice <$> v .: "from" <*> v .: "to"
+                                               Just (String "Downcast") -> Downcast <$> v .: "variant"
 
 data NullOp =
     SizeOf
@@ -599,9 +599,9 @@ instance PPrint Literal where
 
 instance FromJSON Literal where
     parseJSON = withObject "Literal" $ \v -> case (HML.lookup "kind" v) of
-                                               Just (String "item") -> Item <$> v .: "def_id" <*> v .: "substs"
-                                               Just (String "value") -> Value <$> v .: "value"
-                                               Just (String "promoted") -> LPromoted <$> v .: "index"
+                                               Just (String "Item") -> Item <$> v .: "def_id" <*> v .: "substs"
+                                               Just (String "Value") -> Value <$> v .: "value"
+                                               Just (String "Promoted") -> LPromoted <$> v .: "index"
 
 
 
@@ -637,11 +637,11 @@ instance PPrint ConstVal where
 
 instance FromJSON ConstVal where
     parseJSON = withObject "ConstVal" $ \v -> case (HML.lookup "kind" v) of
-                                                Just (String "int") -> ConstInt <$> v .: "data"
-                                                Just (String "bool") -> ConstBool <$> v .: "data"
-                                                Just (String "tuple") -> ConstTuple <$> v .: "data"
-                                                Just (String "function") -> ConstFunction <$> v .: "fname" <*> v .: "substs"
-                                                Just (String "array") -> ConstArray <$> v .: "data:"
+                                                Just (String "Int") -> ConstInt <$> v .: "data"
+                                                Just (String "Bool") -> ConstBool <$> v .: "data"
+                                                Just (String "Tuple") -> ConstTuple <$> v .: "data"
+                                                Just (String "Function") -> ConstFunction <$> v .: "fname" <*> v .: "substs"
+                                                Just (String "Array") -> ConstArray <$> v .: "data:"
                                                 _ -> error "rest of const unimp"
 
 data AggregateKind =
@@ -657,9 +657,9 @@ instance PPrint AggregateKind where
 
 instance FromJSON AggregateKind where
     parseJSON = withObject "AggregateKind" $ \v -> case (HML.lookup "kind" v) of
-                                                     Just (String "array") -> AKArray <$> v .: "ty"
-                                                     Just (String "tuple") -> pure AKTuple
-                                                     Just (String "agclosure") -> AKClosure <$> v .: "defid" <*> v .: "closuresubsts"
+                                                     Just (String "Array") -> AKArray <$> v .: "ty"
+                                                     Just (String "Tuple") -> pure AKTuple
+                                                     Just (String "AgClosure") -> AKClosure <$> v .: "defid" <*> v .: "closuresubsts"
                                                      Just (String unk) -> error $ "unimp: " ++ (unpack unk)
 
 data CustomAggregate =
@@ -671,7 +671,7 @@ instance PPrint CustomAggregate where
 
 instance FromJSON CustomAggregate where
     parseJSON = withObject "CustomAggregate" $ \v -> case (HML.lookup "kind" v) of
-                                                       Just (String "range") -> CARange <$> v .: "range_ty" <*> v .: "f1" <*> v .: "f2"
+                                                       Just (String "Range") -> CARange <$> v .: "range_ty" <*> v .: "f1" <*> v .: "f2"
 
 instance PPrint Integer where
     pprint = show
