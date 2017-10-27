@@ -55,10 +55,10 @@ extractMIR sc rm n = do
 loadMIR :: SC.SharedContext -> FilePath -> IO RustModule
 loadMIR sc fp = do
     f <- B.readFile fp
-    let c = (J.decode f) :: Maybe Collection
+    let c = (J.eitherDecode f) :: Either String Collection
     case c of
-      Nothing -> fail $ "Decoding of MIR failed!"
-      Just coll -> do
+      Left msg -> fail $ "Decoding of MIR failed: " ++ msg
+      Right coll -> do
           let cfgmap_ = mirToCFG coll (Just (P.passMutRefArgs . P.passRemoveStorage . P.passRemoveBoxNullary))
           let cfgmap = M.fromList $ map (\(k,v) -> (cleanFnName k, v)) $ M.toList cfgmap_
           return $ RustModule cfgmap

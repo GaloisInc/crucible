@@ -25,7 +25,7 @@ import System.IO.Unsafe
 --
 
 isMutRefTy :: Ty -> Bool
-isMutRefTy (TyRef t m) = (m == "mut") ||  isMutRefTy t
+isMutRefTy (TyRef t m) = (m == Mut) ||  isMutRefTy t
 isMutRefTy (TySlice t) = isMutRefTy t
 isMutRefTy (TyArray t _) = isMutRefTy t
 isMutRefTy (TyTuple ts) = foldl (\acc t -> acc || isMutRefTy t) False ts
@@ -50,7 +50,7 @@ isMutRefVar :: Var -> Bool
 isMutRefVar (Var _ _ t _) = isMutRefTy t
 
 changeTyToImmut :: Ty -> Ty
-changeTyToImmut (TyRef c _) =  (TyRef c "immut")
+changeTyToImmut (TyRef c _) =  (TyRef c Immut)
 changeTyToImmut t = t
 
 --
@@ -130,7 +130,7 @@ newDummyBlock prev_name bbd = do
 mkDummyInternal :: Ty -> State RewriteFnSt Var
 mkDummyInternal ty = do
     internals <- use fnInternals
-    let dummyvar = (Var "_dummyret" "immut" ty "scopedum")
+    let dummyvar = (Var "_dummyret" Immut ty "scopedum")
     fnInternals .= Map.insert "_dummyret" dummyvar internals
     return dummyvar
 
@@ -138,7 +138,7 @@ newInternal :: Ty -> State RewriteFnSt Var
 newInternal ty = do
     ctr <- newCtr
     let new_name = T.pack $ "_vd" ++ (show ctr)
-        new_var =  (Var new_name "immut" ty "scopedum")
+        new_var =  (Var new_name Immut ty "scopedum")
     internals <- use fnInternals
     fnInternals .= Map.insert new_name new_var internals
     return new_var

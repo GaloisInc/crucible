@@ -67,13 +67,20 @@ instance PPrint BaseSize where
     pprint = show
 
 instance FromJSON BaseSize where
-    parseJSON = withText "BaseSize" $ \t -> case t of
-                                              "USize" -> pure USize
-                                              "8" -> pure B8
-                                              "16" -> pure B16
-                                              "32" -> pure B32
-                                              "64" -> pure B64
-                                              "128" -> pure B128
+    parseJSON = withObject "BaseSize" $ \t -> case (HML.lookup "kind" t) of
+                                                Just (String "usize") -> pure USize
+                                                Just (String "u8") -> pure B8
+                                                Just (String "u16") -> pure B16
+                                                Just (String "u32") -> pure B32
+                                                Just (String "u64") -> pure B64
+                                                Just (String "u128") -> pure B128
+                                                Just (String "isize") -> pure USize
+                                                Just (String "i8") -> pure B8
+                                                Just (String "i16") -> pure B16
+                                                Just (String "i32") -> pure B32
+                                                Just (String "i64") -> pure B64
+                                                Just (String "i128") -> pure B128
+                                                sz -> fail $ "unknown base size " ++ show sz
 
 data Ty =
     TyBool
@@ -83,7 +90,7 @@ data Ty =
       | TyTuple [Ty]
       | TySlice Ty
       | TyArray Ty Int
-      | TyRef Ty Text -- text is for mutability
+      | TyRef Ty Mutability
       | TyAdt Adt
       | TyUnsupported
       | TyCustom CustomTy
@@ -114,7 +121,7 @@ instance FromJSON Ty where
                                           Just (String "Adt") -> TyAdt <$> v .: "adt"
                                           Just (String "Param") -> TyParam <$> v .: "param"
                                           Just (String "Closure") -> TyClosure <$> v .: "defid" <*> v .: "closuresubsts"
-                                          _ -> error "unsupported ty"
+                                          _ -> fail "unsupported ty"
 
 
 data Adt = Adt {_adtname :: Text, _adtvariants :: [Variant]}
@@ -150,13 +157,26 @@ instance FromJSON CustomTy where
                                                 Just (String "Box") -> BoxTy <$> v .: "box_ty"
                                                 Just (String "Vec") -> VecTy <$> v .: "vec_ty"
                                                 Just (String "Iter") -> IterTy <$> v .: "iter_ty"
-                                                Just (String s) -> error $ "bad custom: " ++ (unpack s)
+                                                Just (String s) -> fail $ "bad custom: " ++ (unpack s)
 
 
+data Mutability
+  = Mut
+  | Immut
+  deriving (Eq, Show)
+
+instance PPrint Mutability where
+    pprint = show
+
+instance FromJSON Mutability where
+    parseJSON = withObject "Mutability" $ \v -> case (HML.lookup "kind" v) of
+                                                Just (String "Mut") -> pure Mut
+                                                Just (String "Not") -> pure Immut
+                                                Just (String s) -> fail $ "bad mutability: " ++ (unpack s)
 
 data Var = Var {
     _varname :: Text,
-    _varmut :: Text,
+    _varmut :: Mutability,
     _varty :: Ty,
     _varscope :: VisibilityScope }
     deriving (Eq, Show)
@@ -171,7 +191,7 @@ instance PPrint Var where
     pprint (Var vn vm vty vs) = j ++ (unpack vn) ++ ": " ++ ( pprint vty)
         where
             j = case vm of
-                  "mut" -> "mut "
+                  Mut -> "mut "
                   _ -> ""
 
 instance FromJSON Var where
@@ -276,7 +296,7 @@ instance FromJSON Statement where
                              Just (String "StorageLive") -> StorageLive <$> v .: "slvar"
                              Just (String "StorageDead") -> StorageDead <$> v .: "sdvar"
                              Just (String "Nop") -> pure Nop
-                             _ -> error "kind not found for statement"
+                             _ -> fail "kind not found for statement"
 instance TypeOf Lvalue where
     typeOf (Tagged lv _) = typeOf lv
     typeOf (Local (Var _ _ t _)) = t
@@ -318,7 +338,7 @@ instance FromJSON Lvalue where
                                               Just (String "Local") ->  Local <$> v .: "localvar"
                                               Just (String "Static") -> pure Static
                                               Just (String "Projection") ->  LProjection <$> v .: "data"
-                                              _ -> error "kind not found"
+                                              _ -> fail "kind not found"
 
 data Rvalue =
     Use { _uop :: Operand }
@@ -365,7 +385,7 @@ instance FromJSON Rvalue where
                                               Just (String "Aggregate") -> Aggregate <$> v .: "akind" <*> v .: "ops"
                                               Just (String "AdtAg") -> RAdtAg <$> v .: "ag"
                                               Just (String "Custom") -> RCustom <$> v .: "data"
-                                              _ -> error "err"
+                                              _ -> fail "unsupported RValue"
 
 
 data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand]}
@@ -409,7 +429,7 @@ instance FromJSON Terminator where
                                                   Just (String "DropAndReplace") -> DropAndReplace <$> v .: "location" <*> v .: "value" <*> v .: "target" <*> v .: "unwind"
                                                   Just (String "Call") ->  Call <$> v .: "func" <*> v .: "args" <*> v .: "destination" <*> v .: "cleanup"
                                                   Just (String "Assert") -> Assert <$> v .: "cond" <*> v .: "expected" <*> v .: "msg" <*> v .: "target" <*> v .: "cleanup"
-                                                  _ -> error "err"
+                                                  _ -> fail "unsupported terminator"
 
 
 data Operand =
@@ -500,7 +520,7 @@ instance FromJSON NullOp where
 data BorrowKind =
     Shared
       | Unique
-      | Mut
+      | Mutable
       deriving (Show,Eq)
 
 instance PPrint BorrowKind where
@@ -510,7 +530,7 @@ instance FromJSON BorrowKind where
     parseJSON = withObject "BorrowKind" $ \v -> case (HML.lookup "kind" v) of
                                              Just (String "Shared") -> pure Shared
                                              Just (String "Unique") -> pure Unique
-                                             Just (String "Mut") -> pure Mut
+                                             Just (String "Mut") -> pure Mutable
 data UnOp =
     Not
       | Neg
@@ -604,10 +624,49 @@ instance FromJSON Literal where
                                                Just (String "Promoted") -> LPromoted <$> v .: "index"
 
 
+data IntLit
+  = U8 Integer
+  | U16 Integer
+  | U32 Integer
+  | U64 Integer
+  | Usize Integer
+  | I8 Integer
+  | I16 Integer
+  | I32 Integer
+  | I64 Integer
+  | Isize Integer
+  deriving (Eq, Show)
+
+instance FromJSON IntLit where
+    parseJSON = withObject "IntLit" $ \v -> case (HML.lookup "kind" v) of
+                                              Just (String "u8") -> U8 <$> v.: "val"
+                                              Just (String "u16") -> U16 <$> v.: "val"
+                                              Just (String "u32") -> U32 <$> v.: "val"
+                                              Just (String "u64") -> U64 <$> v.: "val"
+                                              Just (String "usize") -> Usize <$> v.: "val"
+                                              Just (String "i8") -> I8 <$> v.: "val"
+                                              Just (String "i16") -> I16 <$> v.: "val"
+                                              Just (String "i32") -> I32 <$> v.: "val"
+                                              Just (String "i64") -> I64 <$> v.: "val"
+                                              Just (String "isize") -> Isize <$> v.: "val"
+instance PPrint IntLit where
+  pprint = show
+
+fromIntegerLit :: IntLit -> Integer
+fromIntegerLit (U8 i) = i
+fromIntegerLit (U16 i) = i
+fromIntegerLit (U32 i) = i
+fromIntegerLit (U64 i) = i
+fromIntegerLit (Usize i) = i
+fromIntegerLit (I8 i) = i
+fromIntegerLit (I16 i) = i
+fromIntegerLit (I32 i) = i
+fromIntegerLit (I64 i) = i
+fromIntegerLit (Isize i) = i
 
 data ConstVal =
     ConstFloat Float
-      | ConstInt Integer
+      | ConstInt IntLit
       | ConstStr String
       | ConstByteStr B.ByteString
       | ConstBool Bool
@@ -637,12 +696,12 @@ instance PPrint ConstVal where
 
 instance FromJSON ConstVal where
     parseJSON = withObject "ConstVal" $ \v -> case (HML.lookup "kind" v) of
-                                                Just (String "Int") -> ConstInt <$> v .: "data"
+                                                Just (String "Integral") -> ConstInt <$> v .: "data"
                                                 Just (String "Bool") -> ConstBool <$> v .: "data"
                                                 Just (String "Tuple") -> ConstTuple <$> v .: "data"
                                                 Just (String "Function") -> ConstFunction <$> v .: "fname" <*> v .: "substs"
                                                 Just (String "Array") -> ConstArray <$> v .: "data:"
-                                                _ -> error "rest of const unimp"
+                                                _ -> fail "rest of const unimp"
 
 data AggregateKind =
     AKArray Ty
@@ -660,7 +719,7 @@ instance FromJSON AggregateKind where
                                                      Just (String "Array") -> AKArray <$> v .: "ty"
                                                      Just (String "Tuple") -> pure AKTuple
                                                      Just (String "AgClosure") -> AKClosure <$> v .: "defid" <*> v .: "closuresubsts"
-                                                     Just (String unk) -> error $ "unimp: " ++ (unpack unk)
+                                                     Just (String unk) -> fail $ "unimp: " ++ (unpack unk)
 
 data CustomAggregate =
     CARange Ty Operand Operand -- depreciated but here in case something else needs to go here

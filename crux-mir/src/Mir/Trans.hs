@@ -205,10 +205,11 @@ exp_to_assgn xs =
 --
 
 transConstVal :: Some CT.TypeRepr -> M.ConstVal -> MirGenerator h s ret (MirExp s)
-transConstVal (Some (CT.BVRepr w)) (M.ConstInt i) = return $ MirExp (CT.BVRepr w) (S.app $ E.BVLit w (fromIntegral i))
+transConstVal (Some (CT.BVRepr w)) (M.ConstInt i) =
+    return $ MirExp (CT.BVRepr w) (S.app $ E.BVLit w (fromInteger (M.fromIntegerLit i)))
 transConstVal (Some (CT.BoolRepr)) (M.ConstBool b) = return $ MirExp (CT.BoolRepr) (S.litExpr b)
 transConstVal (Some (CT.NatRepr)) (M.ConstInt i) = do
-    let n = fromInteger i
+    let n = fromInteger (M.fromIntegerLit i)
     return $ MirExp CT.NatRepr (S.app $ E.NatLit n)
 transConstVal tp cv = fail $ "fail or unimp constant: " ++ (show tp) ++ " " ++ (show cv)
 
@@ -322,7 +323,7 @@ buildRepeat op size = do
 buildRepeat_ :: M.Operand -> M.Operand -> MirGenerator h s ret (MirExp s)
 buildRepeat_ op size = do
     let (M.OpConstant (M.Constant _ (M.Value (M.ConstInt i)))) = size
-    buildRepeat op i
+    buildRepeat op (M.fromIntegerLit i)
 
 
 -- array in haskell -> crucible array
