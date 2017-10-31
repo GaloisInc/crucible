@@ -331,6 +331,8 @@ instrResultType instr =
     L.Conv _ _ ty -> ty
     L.Call _ (L.PtrTo (L.FunTy ty _ _)) _ _ -> ty
     L.Call _ ty _ _ -> error $ unwords ["unexpected function type in call:", show ty]
+    L.Invoke (L.FunTy ty _ _) _ _ _ _ -> ty
+    L.Invoke ty _ _ _ _ -> error $ unwords ["unexpected function type in invoke:", show ty]
     L.Alloca ty _ _ -> L.PtrTo ty
     L.Load x _ _ -> case L.typedType x of
                    L.PtrTo ty -> ty
