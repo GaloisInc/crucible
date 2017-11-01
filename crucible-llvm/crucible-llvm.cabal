@@ -27,7 +27,7 @@ library
     lens,
     llvm-pretty >= 0.7.1.1 && < 0.7.2,
     mtl,
-    parameterized-utils >= 0.1.9 && < 0.1.11,
+    parameterized-utils >= 0.1.9 && < 0.2,
     template-haskell,
     text,
     transformers,
