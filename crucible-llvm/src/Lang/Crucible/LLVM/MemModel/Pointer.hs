@@ -268,8 +268,8 @@ applyViewFLLVMVal
 applyViewFLLVMVal sym _wptr v =
   case v of
     G.SelectLowBV low hi (PE p (LLVMValInt w bv))
-      | Just (Some (low_w)) <- someNat (fromIntegral low)
-      , Just (Some (hi_w))  <- someNat (fromIntegral hi)
+      | Just (Some (low_w)) <- someNat (fromIntegral (8*low))
+      , Just (Some (hi_w))  <- someNat (fromIntegral (8*hi))
       , Just LeqProof <- isPosNat low_w
       , Just Refl <- testEquality (addNat low_w hi_w) w
       , Just LeqProof <- testLeq low_w w
@@ -277,8 +277,8 @@ applyViewFLLVMVal sym _wptr v =
         bv' <- bvSelect sym (knownNat :: NatRepr 0) low_w bv
         return $ PE p $ LLVMValInt low_w bv'
     G.SelectHighBV low hi (PE p (LLVMValInt w bv))
-      | Just (Some (low_w)) <- someNat (fromIntegral low)
-      , Just (Some (hi_w))  <- someNat (fromIntegral hi)
+      | Just (Some (low_w)) <- someNat (fromIntegral (8*low))
+      , Just (Some (hi_w))  <- someNat (fromIntegral (8*hi))
       , Just LeqProof <- isPosNat hi_w
       , Just Refl <- testEquality (addNat low_w hi_w) w
       -> do
