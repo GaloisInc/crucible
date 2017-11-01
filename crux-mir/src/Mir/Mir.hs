@@ -701,6 +701,7 @@ instance FromJSON IntLit where
                                               Just (String "i32") -> I32 <$> v.: "val"
                                               Just (String "i64") -> I64 <$> v.: "val"
                                               Just (String "isize") -> Isize <$> v.: "val"
+                                              _ -> fail "invalid int literal"
 instance PPrint IntLit where
   pprint = show
 
@@ -716,8 +717,18 @@ fromIntegerLit (I32 i) = i
 fromIntegerLit (I64 i) = i
 fromIntegerLit (Isize i) = i
 
+data FloatLit
+  = FloatLit FloatKind String
+  deriving (Eq, Show)
+
+instance FromJSON FloatLit where
+    parseJSON = withObject "FloatLit" $ \v -> FloatLit <$> v .: "ty" <*> v.: "bits"
+
+instance PPrint FloatLit where
+  pprint = show
+
 data ConstVal =
-    ConstFloat Float
+    ConstFloat FloatLit
       | ConstInt IntLit
       | ConstStr String
       | ConstByteStr B.ByteString
@@ -751,10 +762,12 @@ instance FromJSON ConstVal where
                                                 Just (String "Integral") -> ConstInt <$> v .: "data"
                                                 Just (String "Bool") -> ConstBool <$> v .: "data"
                                                 Just (String "Char") -> ConstChar <$> v .: "data"
+                                                Just (String "Float") -> ConstFloat <$> v .: "data"
                                                 Just (String "Tuple") -> ConstTuple <$> v .: "data"
                                                 Just (String "Function") -> ConstFunction <$> v .: "fname" <*> v .: "substs"
                                                 Just (String "Array") -> ConstArray <$> v .: "data"
                                                 Just (String "Str") -> ConstStr <$> v .: "data"
+                                                Just (String "ByteStr") -> pure $ ConstByteStr "" -- TODO
                                                 r -> fail $ "const unimp: " ++ show r
 
 data AggregateKind =
