@@ -80,7 +80,21 @@ instance FromJSON BaseSize where
                                                 Just (String "i32") -> pure B32
                                                 Just (String "i64") -> pure B64
                                                 Just (String "i128") -> pure B128
-                                                sz -> fail $ "unknown base size " ++ show sz
+                                                sz -> fail $ "unknown base size: " ++ show sz
+
+data FloatKind
+  = F32
+  | F64
+  deriving (Eq, Show)
+
+instance PPrint FloatKind where
+    pprint = show
+
+instance FromJSON FloatKind where
+    parseJSON = withObject "FloatKind" $ \t -> case (HML.lookup "kind" t) of
+                                                 Just (String "f32") -> pure F32
+                                                 Just (String "f64") -> pure F64
+                                                 sz -> fail $ "unknown float type: " ++ show sz
 
 data Ty =
     TyBool
@@ -91,12 +105,18 @@ data Ty =
       | TySlice Ty
       | TyArray Ty Int
       | TyRef Ty Mutability
-      | TyAdt Adt
+      | TyAdt DefId [Maybe Ty]
       | TyUnsupported
       | TyCustom CustomTy
       | TyParam Integer
       | TyFnDef DefId [Maybe Ty]
       | TyClosure DefId [Maybe Ty]
+      | TyStr
+      | TyFnPtr -- TODO
+      | TyProjection -- TODO
+      | TyDynamic DefId
+      | TyRawPtr Ty Mutability
+      | TyFloat FloatKind
       deriving (Eq, Show)
 
 class TypeOf a where
@@ -118,10 +138,16 @@ instance FromJSON Ty where
                                           Just (String "Ref") ->  TyRef <$> v .: "ty" <*> v .: "mutability"
                                           Just (String "Custom") -> TyCustom <$> v .: "data"
                                           Just (String "FnDef") -> TyFnDef <$> v .: "defid" <*> v .: "substs"
-                                          Just (String "Adt") -> TyAdt <$> v .: "adt"
+                                          Just (String "Adt") -> TyAdt <$> v .: "name" <*> v .: "substs"
                                           Just (String "Param") -> TyParam <$> v .: "param"
                                           Just (String "Closure") -> TyClosure <$> v .: "defid" <*> v .: "closuresubsts"
-                                          _ -> fail "unsupported ty"
+                                          Just (String "Str") -> pure TyStr
+                                          Just (String "FnPtr") -> pure TyFnPtr -- TODO
+                                          Just (String "Projection") -> pure TyProjection -- TODO
+                                          Just (String "Dynamic") -> TyDynamic <$> v .: "data"
+                                          Just (String "RawPtr") -> TyRawPtr <$> v .: "ty" <*> v .: "mutability"
+                                          Just (String "Float") -> TyFloat <$> v .: "size"
+                                          r -> fail $ "unsupported ty: " ++ show r
 
 
 data Adt = Adt {_adtname :: Text, _adtvariants :: [Variant]}
@@ -130,7 +156,31 @@ data Adt = Adt {_adtname :: Text, _adtvariants :: [Variant]}
 instance FromJSON Adt where
     parseJSON = withObject "Adt" $ \v -> Adt <$> v .: "name" <*> v .: "variants"
 
-data Variant = Variant {_vname :: Text, _vdiscr :: Int, _vfields :: [Field], _vctorkind :: Text}
+data VariantDiscr
+  = Explicit DefId
+  | Relative Int
+  deriving (Eq, Show)
+
+instance FromJSON VariantDiscr where
+    parseJSON = withObject "VariantDiscr" $ \v -> case (HML.lookup "kind" v) of
+                                                    Just (String "Explicit") -> Explicit <$> v .: "name"
+                                                    Just (String "Relative") -> Relative <$> v .: "index"
+                                                    _ -> fail "unspported variant discriminator"
+
+data CtorKind
+  = FnKind
+  | ConstKind
+  | FictiveKind
+  deriving (Eq, Show)
+
+instance FromJSON CtorKind where
+    parseJSON = withObject "CtorKind" $ \v -> case (HML.lookup "kind" v) of
+                                                Just (String "Fn") -> pure FnKind
+                                                Just (String "Const") -> pure ConstKind
+                                                Just (String "Fictive") -> pure FictiveKind
+                                                _ -> fail "unspported constructor kind"
+
+data Variant = Variant {_vname :: Text, _vdiscr :: VariantDiscr, _vfields :: [Field], _vctorkind :: CtorKind}
     deriving (Eq,Show)
 
 instance FromJSON Variant where
@@ -170,7 +220,9 @@ instance PPrint Mutability where
 
 instance FromJSON Mutability where
     parseJSON = withObject "Mutability" $ \v -> case (HML.lookup "kind" v) of
+                                                Just (String "MutMutable") -> pure Mut
                                                 Just (String "Mut") -> pure Mut
+                                                Just (String "MutImmutable") -> pure Immut
                                                 Just (String "Not") -> pure Immut
                                                 Just (String s) -> fail $ "bad mutability: " ++ (unpack s)
 
@@ -396,7 +448,7 @@ instance FromJSON AdtAg where
 
 data Terminator =
     Goto { _gbb :: BasicBlockInfo}
-      | SwitchInt { _sdiscr :: Operand, _switch_ty :: Ty, _svalues :: [Integer], _stargets :: [BasicBlockInfo] }
+      | SwitchInt { _sdiscr :: Operand, _switch_ty :: Ty, _svalues :: [Maybe Integer], _stargets :: [BasicBlockInfo] }
       | Resume
       | Return
       | Unreachable
@@ -698,10 +750,12 @@ instance FromJSON ConstVal where
     parseJSON = withObject "ConstVal" $ \v -> case (HML.lookup "kind" v) of
                                                 Just (String "Integral") -> ConstInt <$> v .: "data"
                                                 Just (String "Bool") -> ConstBool <$> v .: "data"
+                                                Just (String "Char") -> ConstChar <$> v .: "data"
                                                 Just (String "Tuple") -> ConstTuple <$> v .: "data"
                                                 Just (String "Function") -> ConstFunction <$> v .: "fname" <*> v .: "substs"
-                                                Just (String "Array") -> ConstArray <$> v .: "data:"
-                                                _ -> fail "rest of const unimp"
+                                                Just (String "Array") -> ConstArray <$> v .: "data"
+                                                Just (String "Str") -> ConstStr <$> v .: "data"
+                                                r -> fail $ "const unimp: " ++ show r
 
 data AggregateKind =
     AKArray Ty
@@ -718,7 +772,7 @@ instance FromJSON AggregateKind where
     parseJSON = withObject "AggregateKind" $ \v -> case (HML.lookup "kind" v) of
                                                      Just (String "Array") -> AKArray <$> v .: "ty"
                                                      Just (String "Tuple") -> pure AKTuple
-                                                     Just (String "AgClosure") -> AKClosure <$> v .: "defid" <*> v .: "closuresubsts"
+                                                     Just (String "Closure") -> AKClosure <$> v .: "defid" <*> v .: "closuresubsts"
                                                      Just (String unk) -> fail $ "unimp: " ++ (unpack unk)
 
 data CustomAggregate =

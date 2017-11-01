@@ -19,6 +19,7 @@ import qualified Mir.Mir as M
 import Control.Monad
 import Control.Monad.ST
 import Control.Lens hiding (op)
+import Data.Maybe
 import System.IO.Unsafe
 import qualified Data.Text as Text
 import qualified Lang.Crucible.CFG.Generator as G
@@ -120,7 +121,7 @@ tyToRepr t = case t of
                         M.TyTuple ts -> tyListToCtx ts $ \repr -> Some (CT.StructRepr repr)
                         M.TySlice t ->  tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
                         M.TyArray t _ ->tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
-                        M.TyAdt a -> adtToRepr a
+                        -- M.TyAdt a -> adtToRepr a
                         M.TyInt M.USize -> Some $ CT.NatRepr
                         M.TyInt M.B8 -> Some $ CT.BVRepr (knownNat :: NatRepr 8)
                         M.TyInt M.B16 -> Some $ CT.BVRepr (knownNat :: NatRepr 16)
@@ -505,6 +506,7 @@ filterMaybes ((Nothing):as) = filterMaybes as
 evalLvalue :: M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalLvalue (M.Tagged l _) = evalLvalue l
 evalLvalue (M.Local var) = lookupVar var
+{-
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field ty))) = do
     case M.typeOf lv of
       M.TyAdt (M.Adt _ [struct_variant]) -> do -- if lv is a struct, extract the struct.
@@ -525,7 +527,7 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field ty))) = do
       _ -> do -- otherwise, lv is a tuple
         ag <- evalLvalue lv
         accessAggregate ag field
-
+-}
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.Index i))) = do
     (MirExp arr_tp arr) <- evalLvalue lv
     (MirExp ind_tp ind) <- evalOperand i
@@ -538,6 +540,7 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.Index i))) = do
 evalLvalue (M.LProjection (M.LvalueProjection lv M.Deref)) = evalLvalue lv
 
 -- downcast: extracting the injection from an ADT. This is done in rust after switching on the discriminant.
+{-
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.Downcast i))) = do
     etu <- evalLvalue lv
     (MirExp e_tp e) <- accessAggregate etu 1
@@ -551,7 +554,7 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.Downcast i))) = do
             _ -> fail $ "bad type: expected anyrepr but got " ++ (show e_tp)
 
       _ -> fail "expected adt type!"
-
+-}
 
 
 
@@ -600,7 +603,8 @@ assignLvExp lv re = do
         M.Static -> fail "static"
         M.LProjection (M.LvalueProjection lv (M.PField field ty)) -> do
             case M.typeOf lv of
-              M.TyAdt (M.Adt _ [struct_variant]) -> do
+              M.TyAdt _ _ -> fail "assign to Adt unimp" {-
+              M.TyAdt (M.Adt _ [struct_variant]) ->
                 etu <- evalLvalue lv
                 (MirExp e_tp e) <- accessAggregate etu 1
                 let tr = variantToRepr struct_variant
@@ -609,7 +613,7 @@ assignLvExp lv re = do
                       let struct = MirExp tr (S.app $ E.FromJustValue tr (S.app $ E.UnpackAny tr e) "bad anytype")
                       new_st <- modifyAggregateIdx struct re field
                       let new_ag = buildTaggedUnion' 0 new_st -- 0 b/c this is a struct so has one variant
-                      assignLvExp lv new_ag
+                      assignLvExp lv new_ag -}
 
               M.TyClosure _ _ -> fail "assign to closure unimp"
 
@@ -722,9 +726,9 @@ doCall funid cargs cdest = do
 
 transTerminator :: M.Terminator -> CT.TypeRepr ret -> MirGenerator h s ret a
 transTerminator (M.Goto bbi) _ = jumpToBlock bbi
-transTerminator (M.SwitchInt swop swty svals stargs) _ = do
+transTerminator (M.SwitchInt swop swty svals stargs) _ | all isJust svals = do
     s <- evalOperand swop
-    transSwitch s svals stargs
+    transSwitch s (catMaybes svals) stargs
 transTerminator (M.Return) tr = doReturn tr
 transTerminator (M.DropAndReplace dlv dop dtarg _) _ = do
     transStatement (M.Assign dlv (M.Use dop))
