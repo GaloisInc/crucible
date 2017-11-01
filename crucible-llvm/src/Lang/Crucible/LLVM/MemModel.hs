@@ -340,7 +340,7 @@ allocGlobal :: IsSymInterface sym
             -> (L.Symbol, G.Size)
             -> IO (MemImpl sym PtrWidth)
 allocGlobal sym mem (symbol, sz) = do
-  sz' <- bvLit sym ptrWidth (fromIntegral sz)
+  sz' <- bvLit sym ptrWidth (G.bytesToInteger sz)
   (ptr, mem') <- doMalloc sym mem sz'
   return (registerGlobal mem' symbol ptr)
 
@@ -360,7 +360,7 @@ asCrucibleType
 asCrucibleType (G.Type tf _) k =
   case tf of
     G.Bitvector sz ->
-       case someNat (fromIntegral sz * 8) of
+       case someNat (G.bytesToBits sz) of
          Just (Some w)
            | Just LeqProof <- isPosNat w -> k (BVRepr w)
          _ -> error $ unwords ["invalid bitvector size", show sz]

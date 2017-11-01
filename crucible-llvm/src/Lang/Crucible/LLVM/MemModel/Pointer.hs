@@ -73,8 +73,8 @@ data LLVMVal sym w where
   LLVMValArray :: G.Type -> Vector (LLVMVal sym w) -> LLVMVal sym w
 
 
-ptrConst :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> G.Size -> IO (SymBV sym w)
-ptrConst sym w x = bvLit sym w (fromIntegral x)
+ptrConst :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> G.Addr -> IO (SymBV sym w)
+ptrConst sym w x = bvLit sym w (G.bytesToInteger x)
 
 ptrDecompose :: (1 <= w, IsExprBuilder sym)
              => sym
@@ -208,8 +208,8 @@ applyCtorFLLVMVal sym _w ctor =
   case ctor of
     G.ConcatBV low_w  (PE p1 (LLVMValInt low_w' low))
                high_w (PE p2 (LLVMValInt high_w' high))
-       | fromIntegral (low_w*8)  == natValue low_w' &&
-         fromIntegral (high_w*8) == natValue high_w' ->
+       | G.bytesToBits low_w  == natValue low_w' &&
+         G.bytesToBits high_w == natValue high_w' ->
            do bv <- bvConcat sym high low
               Just LeqProof <- return $ isPosNat (addNat high_w' low_w')
               p <- andPred sym p1 p2
@@ -268,8 +268,8 @@ applyViewFLLVMVal
 applyViewFLLVMVal sym _wptr v =
   case v of
     G.SelectLowBV low hi (PE p (LLVMValInt w bv))
-      | Just (Some (low_w)) <- someNat (fromIntegral (8*low))
-      , Just (Some (hi_w))  <- someNat (fromIntegral (8*hi))
+      | Just (Some (low_w)) <- someNat (G.bytesToBits low)
+      , Just (Some (hi_w))  <- someNat (G.bytesToBits hi)
       , Just LeqProof <- isPosNat low_w
       , Just Refl <- testEquality (addNat low_w hi_w) w
       , Just LeqProof <- testLeq low_w w
@@ -277,8 +277,8 @@ applyViewFLLVMVal sym _wptr v =
         bv' <- bvSelect sym (knownNat :: NatRepr 0) low_w bv
         return $ PE p $ LLVMValInt low_w bv'
     G.SelectHighBV low hi (PE p (LLVMValInt w bv))
-      | Just (Some (low_w)) <- someNat (fromIntegral (8*low))
-      , Just (Some (hi_w))  <- someNat (fromIntegral (8*hi))
+      | Just (Some (low_w)) <- someNat (G.bytesToBits low)
+      , Just (Some (hi_w))  <- someNat (G.bytesToBits hi)
       , Just LeqProof <- isPosNat hi_w
       , Just Refl <- testEquality (addNat low_w hi_w) w
       -> do

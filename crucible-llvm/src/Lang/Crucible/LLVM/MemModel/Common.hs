@@ -13,11 +13,17 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
 module Lang.Crucible.LLVM.MemModel.Common
   ( Addr
   , Size
+  , Bytes
+  , bytesToBits
+  , bytesToInteger
+  , toBytes
+  , bitsToBytes
 
     -- * Range declarations.
   , Range(..)
@@ -78,11 +84,27 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word
 
-type Addr = Word64
+-- | A newtype for expressing numbers of bytes.
+--   This newtype is expicitly introduced to avoid confusion
+--   between widths expressed as numbers of bits vs numbers of bytes.
+newtype Bytes = Bytes { unBytes :: Word64 }
+ deriving (Eq,Ord,Show,Num)
 
-type Size = Addr
+bytesToBits :: Bytes -> Integer
+bytesToBits (Bytes n) = 8 * toInteger n
 
-type Offset = Size
+bytesToInteger :: Bytes -> Integer
+bytesToInteger (Bytes n) = toInteger n
+
+toBytes :: Integral a => a -> Bytes
+toBytes = Bytes . fromIntegral
+
+bitsToBytes :: Integral a => a -> Bytes
+bitsToBytes n = Bytes ( (fromIntegral n + 7) `div` 8 )
+
+type Addr = Bytes
+type Size = Bytes
+type Offset = Bytes
 
 -- | @WR i j@ denotes that the write should store in range [i..j).
 data Range = R { rStart :: Addr, _rEnd :: Addr }
@@ -147,8 +169,8 @@ infixl 6 .-
 (.-) :: PtrExpr -> PtrExpr -> IntExpr
 x .- y = PtrDiff x y
 
-intValue :: Integral a => a -> IntExpr
-intValue x = CValue (toInteger x)
+intValue :: Bytes -> IntExpr
+intValue (Bytes n) = CValue (toInteger n)
 
 -- Muxs
 
@@ -157,43 +179,43 @@ data Mux a = Mux Cond (Mux a) (Mux a) | MuxVar a
 
 -- Variable for mem model.
 
-loadOffset :: Size -> PtrExpr
+loadOffset :: Bytes -> PtrExpr
 loadOffset n = Load .+ intValue n
 
-storeOffset :: Size -> PtrExpr
+storeOffset :: Bytes -> PtrExpr
 storeOffset n = Store .+ intValue n
 
 storeEnd :: PtrExpr
 storeEnd = Store .+ StoreSize
 
 -- | @loadInStoreRange n@ returns predicate if Store <= Load && Load <= Store + n
-loadInStoreRange :: Size -> Cond
-loadInStoreRange 0 = Load .== Store
+loadInStoreRange :: Bytes -> Cond
+loadInStoreRange (Bytes 0) = Load .== Store
 loadInStoreRange n = And (Store .<= Load)
                          (Load .<= Store .+ intValue n)
 
 data Field v = Field { fieldOffset :: Offset
-                     , _fieldVal    :: v
-                     , fieldPad    :: Size
+                     , _fieldVal   :: v
+                     , fieldPad    :: Bytes
                      }
  deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Typeable)
 
 fieldVal :: Lens (Field a) (Field b) a b
 fieldVal = lens _fieldVal (\s v -> s { _fieldVal = v })
 
-mkField :: Offset -> v -> Size -> Field v
+mkField :: Offset -> v -> Bytes -> Field v
 mkField = Field
 
 data TypeF v
-   = Bitvector Size -- ^ Size of bitvector in bytes (must be > 0).
+   = Bitvector Bytes -- ^ Size of bitvector in bytes (must be > 0).
    | Float
    | Double
-   | Array Size v
+   | Array Word64 v
    | Struct (Vector (Field v))
  deriving (Eq,Ord,Show,Typeable)
 
 data Type = Type { typeF :: TypeF Type
-                 , typeSize :: Size
+                 , typeSize :: Bytes
                  }
   deriving (Eq,Ord,Typeable)
 
@@ -213,10 +235,10 @@ mkType tf = Type tf $
     Bitvector w -> w
     Float -> 4
     Double -> 8
-    Array n e -> n * typeSize e
+    Array n e -> (Bytes n) * typeSize e
     Struct flds -> assert (V.length flds > 0) (fieldEnd (V.last flds))
 
-bitvectorType :: Size -> Type
+bitvectorType :: Bytes -> Type
 bitvectorType w = Type (Bitvector w) w
 
 floatType :: Type
@@ -225,14 +247,14 @@ floatType = mkType Float
 doubleType :: Type
 doubleType = mkType Double
 
-arrayType :: Size -> Type -> Type
-arrayType n e = Type (Array n e) (n * typeSize e)
+arrayType :: Word64 -> Type -> Type
+arrayType n e = Type (Array n e) ((Bytes n) * typeSize e)
 
 structType :: V.Vector (Field Type) -> Type
 structType flds = assert (V.length flds > 0) $
   Type (Struct flds) (fieldEnd (V.last flds))
 
-mkStruct :: V.Vector (Type,Size) -> Type
+mkStruct :: V.Vector (Type,Bytes) -> Type
 mkStruct l = structType (evalState (traverse fldFn l) 0)
   where fldFn (tp,p) = do
           o <- get
@@ -249,12 +271,12 @@ typeEnd a tp = seq a $
     Bitvector w -> a + w
     Float -> a + 4
     Double -> a + 8
-    Array n etp -> typeEnd (a + (n-1) * typeSize etp) etp
+    Array n etp -> typeEnd (a + Bytes (n-1) * (typeSize etp)) etp
     Struct flds -> typeEnd (a + fieldOffset f) (f^.fieldVal)
       where f = V.last flds
 
 -- | Returns end of field including padding bytes.
-fieldEnd :: Field Type -> Size
+fieldEnd :: Field Type -> Bytes
 fieldEnd f = fieldOffset f + typeSize (f^.fieldVal) + fieldPad f
 
 -- Value constructor
@@ -264,7 +286,7 @@ data ValueCtorF v
      -- The first bitvector contains values stored at the low-order bytes
      -- while the second contains values at the high-order bytes.  Thus, the
      -- meaning of this depends on the endianness of the target architecture.
-     ConcatBV Size v Size v
+     ConcatBV Bytes v Bytes v
    | BVToFloat v
    | BVToDouble v
      -- | Cons one value to beginning of array.
@@ -279,7 +301,7 @@ instance ShowF ValueCtorF where
 
 type ValueCtor a = Term ValueCtorF a
 
-concatBV :: Size -> ValueCtor a -> Size -> ValueCtor a -> ValueCtor a
+concatBV :: Bytes -> ValueCtor a -> Bytes -> ValueCtor a -> ValueCtor a
 concatBV xw x yw y = App (ConcatBV xw x yw y)
 
 singletonArray :: Type -> ValueCtor a -> ValueCtor a
@@ -299,14 +321,14 @@ splitTypeValue tp d subFn = assert (d > 0) $
     Double -> App (BVToDouble (subFn 0 (bitvectorType 8)))
     Array n0 etp -> assert (n0 > 0) $ do
       let esz = typeSize etp
-      let (c,part) = assert (esz > 0) $ d `divMod` esz
+      let (c,part) = assert (esz > 0) $ unBytes d `divMod` unBytes esz
       let result
             | c > 0 = assert (c < n0) $
               App $ AppendArray etp
                                 (toInteger c)
                                 (subFn 0 (arrayType c etp))
                                 (toInteger (n0 - c))
-                                (consPartial (c * esz) (n0 - c))
+                                (consPartial ((Bytes c) * esz) (n0 - c))
             | otherwise = consPartial 0 n0
           consPartial o n
             | part == 0 = subFn o (arrayType n etp)
@@ -380,7 +402,7 @@ fixedOffsetRangeLoad l tp s
 -- the load address into a global pointer.  The code assumes that @load + i == store@.
 fixLoadBeforeStoreOffset :: BasePreference -> Offset -> Offset -> PtrExpr
 fixLoadBeforeStoreOffset pref i k
-  | pref == FixedStore = Store .+ intValue (toInteger k - toInteger i)
+  | pref == FixedStore = Store .+ intValue (k - i)
   | otherwise = Load .+ intValue k
 
 -- | @fixLoadAfterStoreOffset pref i k@ adjusts a pointer value that is relative
@@ -404,7 +426,7 @@ loadFromStoreStart pref tp i j = adjustOffset inFn outFn <$> rangeLoad 0 tp (R i
 
 fixedSizeRangeLoad :: BasePreference -- ^ Whether addresses are based on store or load.
                    -> Type
-                   -> Size
+                   -> Bytes
                    -> RangeLoadMux PtrExpr IntExpr
 fixedSizeRangeLoad _ tp 0 = MuxVar (Var (OutOfRange Load tp))
 fixedSizeRangeLoad pref tp ssz =
@@ -472,13 +494,13 @@ type ValueView v = Term ViewF v
 data ViewF v
      -- | Select low-order bytes in the bitvector.
      -- The sizes include the number of low bytes, and the number of high bytes.
-   = SelectLowBV Size Size v
+   = SelectLowBV Bytes Bytes v
      -- | Select the given number of high-order bytes in the bitvector.
      -- The sizes include the number of low bytes, and the number of high bytes.
-   | SelectHighBV Size Size v
+   | SelectHighBV Bytes Bytes v
    | FloatToBV v
    | DoubleToBV v
-   | ArrayElt Size Type Offset v
+   | ArrayElt Word64 Type Word64 v
 
    | FieldVal (Vector (Field Type)) Int v
   deriving (Show, Functor, Foldable, Traversable)
@@ -509,7 +531,7 @@ data ValueLoad v
   | InvalidMemory Type
   deriving (Functor,Show)
 
-loadBitvector :: Addr -> Size -> Addr -> ValueView Type -> ValueCtor (ValueLoad Addr)
+loadBitvector :: Addr -> Bytes -> Addr -> ValueView Type -> ValueCtor (ValueLoad Addr)
 loadBitvector lo lw so v = do
   let le = lo + lw
   let ltp = bitvectorType lw
@@ -534,12 +556,12 @@ loadBitvector lo lw so v = do
     Array n tp -> snd $ foldl1 cv (val <$> r)
       where cv (wx,x) (wy,y) = (wx + wy, concatBV wx x wy y)
             esz = typeSize tp
-            c0 = assert (esz > 0) $ (lo - so) `div` esz
-            (c1,p1) = (le - so) `divMod` esz
+            c0 = assert (esz > 0) $ unBytes (lo - so) `div` unBytes esz
+            (c1,p1) = unBytes (le - so) `divMod` unBytes esz
             -- Get range of indices to read.
             r | p1 == 0 = assert (c1 > c0) [c0..c1-1]
               | otherwise = assert (c1 >= c0) [c0..c1]
-            val i = retValue (so+i*esz) (App (ArrayElt n tp i v))
+            val i = retValue (so+(Bytes i)*esz) (App (ArrayElt n tp i v))
     Struct sflds -> assert (not (null r)) $ snd $ foldl1 cv r
       where cv (wx,x) (wy,y) = (wx+wy, concatBV wx x wy y)
             r = concat (zipWith val [0..] (V.toList sflds))

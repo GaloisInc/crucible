@@ -115,7 +115,7 @@ genIntExpr sym w f@(_load, _store, size) expr =
       e1' <- genIntExpr sym w f e1
       e2' <- genIntExpr sym w f e2
       bvAdd sym e1' e2'
-    CValue i -> bvLit sym w i
+    CValue i -> bvLit sym w (toInteger i)
     StoreSize -> return size
 
 genCondVar :: (1 <= w, IsSymInterface sym)
@@ -196,7 +196,7 @@ readMemCopy sym w (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
       | lv == sv -> do
       let subFn :: RangeLoad Addr Addr -> IO (Pred sym, PartLLVMVal sym w)
           subFn (OutOfRange o tp') = do lv' <- natLit sym lv
-                                        o' <- bvLit sym w (toInteger o)
+                                        o' <- bvLit sym w (bytesToInteger o)
                                         readPrev tp' (LLVMPtr lv' le o')
           subFn (InRange    o tp') = readPrev tp' =<< tgAddPtrC sym w src o
       case szd of
@@ -244,7 +244,7 @@ readMemStore :: forall sym w .
                -- ^ A callback function for when reading fails.
             -> IO (Pred sym, PartLLVMVal sym w)
 readMemStore sym w (l,ld) ltp (d,dd) t stp readPrev' = do
-  ssz <- bvLit sym w (toInteger (typeSize stp))
+  ssz <- bvLit sym w (bytesToInteger (typeSize stp))
   let varFn = (l, d, ssz)
   let readPrev tp p = readPrev' tp . (p,) =<< ptrDecompose sym w p
   case (ld, dd) of
@@ -253,7 +253,7 @@ readMemStore sym w (l,ld) ltp (d,dd) t stp readPrev' = do
       | lv == sv -> do
       let subFn :: ValueLoad Addr -> IO (Pred sym, PartLLVMVal sym w)
           subFn (OldMemory o tp')   = do lv' <- natLit sym lv
-                                         o' <- bvLit sym w (toInteger o)
+                                         o' <- bvLit sym w (bytesToInteger o)
                                          readPrev tp' (LLVMPtr lv' le o')
           subFn (LastStore v)       = (truePred sym,) <$> applyView sym w t v
           subFn (InvalidMemory tp') = badLoad sym tp'
@@ -465,7 +465,7 @@ writeMem :: (1 <= w, IsSymInterface sym)
          -> Mem sym w
          -> IO (Pred sym, Mem sym w)
 writeMem sym w p tp v m = do
-  (,) <$> (do sz <- bvLit sym w (toInteger (typeEnd 0 tp))
+  (,) <$> (do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
               isAllocated sym w p sz m)
       <*> writeMem' sym w p tp v m
 
@@ -513,7 +513,7 @@ allocAndWriteMem :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
                  -> Mem sym w
                  -> IO (Mem sym w)
 allocAndWriteMem sym w a b tp v m = do
-  sz <- bvLit sym w (toInteger (typeEnd 0 tp))
+  sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
   base <- natLit sym b
   off <- bvLit sym w 0
   let p = LLVMPtr base sz off

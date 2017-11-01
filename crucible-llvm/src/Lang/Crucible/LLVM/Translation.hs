@@ -1006,8 +1006,8 @@ toStorableType :: Monad m
                -> m G.Type
 toStorableType mt =
   case mt of
-    IntType n -> return $ G.bitvectorType ((fromIntegral n+7) `div` 8)
-    PtrType _ -> return $ G.bitvectorType ((fromIntegral (natValue ptrWidth)) `div` 8)
+    IntType n -> return $ G.bitvectorType (G.bitsToBytes n)
+    PtrType _ -> return $ G.bitvectorType (G.bitsToBytes (natValue ptrWidth))
     FloatType -> return $ G.floatType
     DoubleType -> return $ G.doubleType
     ArrayType n x -> G.arrayType (fromIntegral n) <$> toStorableType x
@@ -1017,7 +1017,7 @@ toStorableType mt =
       where transField :: Monad m => FieldInfo -> m (G.Type, G.Size)
             transField fi = do
                t <- toStorableType $ fiType fi
-               return (t, fiPadding fi)
+               return (t, G.toBytes (fiPadding fi))
 
 callPtrAddOffset ::
     (?lc :: TyCtx.LLVMContext)
@@ -2305,7 +2305,7 @@ initializeMemory sym llvm_ctx m = do
    gs_alloc <- mapM (\g -> do
                         ty <- liftMemType $ L.globalType g
                         let sz = memTypeSize dl ty
-                        return (L.globalSym g, sz))
+                        return (L.globalSym g, G.toBytes sz))
                     gs
    allocGlobals sym gs_alloc mem
 
