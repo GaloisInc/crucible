@@ -25,6 +25,7 @@ module Lang.Crucible.Simulator.RegValue
   , CanMux(..)
   , RegValue'(..)
   , VariantBranch(..)
+  , injectVariant
   , MuxFn
 
     -- * Register values
@@ -370,6 +371,18 @@ muxStruct recf ctx = \p x y ->
 -- RegValue Variant instance
 
 newtype VariantBranch sym tp = VB { unVB :: PartExpr (Pred sym) (RegValue sym tp) }
+
+injectVariant ::
+  IsSymInterface sym =>
+  sym ->
+  CtxRepr ctx ->
+  Ctx.Index ctx tp ->
+  RegValue sym tp ->
+  RegValue sym (VariantType ctx)
+injectVariant sym ctxRepr idx val =
+  let voidVariant = Ctx.generate (Ctx.size ctxRepr) (\_ -> VB Unassigned)
+      branch = VB (PE (truePred sym) val)
+   in Ctx.update idx branch voidVariant
 
 {-# INLINE muxVariant #-}
 muxVariant

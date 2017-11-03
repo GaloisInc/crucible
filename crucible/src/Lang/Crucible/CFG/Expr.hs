@@ -1133,6 +1133,11 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
             -> !(f tp)
             -> App f (VariantType ctx)
 
+  ProjectVariant :: !(CtxRepr ctx)
+                 -> !(Ctx.Index ctx tp)
+                 -> !(f (VariantType ctx))
+                 -> App f (MaybeType tp)
+
   ----------------------------------------------------------------------
   -- Struct
 
@@ -1563,6 +1568,7 @@ appType a0 =
     -- Variants
 
     InjectVariant ctx _ _ -> VariantRepr ctx
+    ProjectVariant ctx idx _ -> MaybeRepr (ctx Ctx.! idx)
 
     ----------------------------------------------------------------------
     -- StringMap
