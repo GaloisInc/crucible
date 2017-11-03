@@ -506,13 +506,13 @@ filterMaybes ((Nothing):as) = filterMaybes as
 evalLvalue :: M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalLvalue (M.Tagged l _) = evalLvalue l
 evalLvalue (M.Local var) = lookupVar var
-{-
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field ty))) = do
     case M.typeOf lv of
-      M.TyAdt (M.Adt _ [struct_variant]) -> do -- if lv is a struct, extract the struct.
+      M.TyAdt _ [struct_variant] -> do -- if lv is a struct, extract the struct.
         etu <- evalLvalue lv
         e <- accessAggregate etu 1
-        let tr = variantToRepr struct_variant
+        -- TODO: proper error message instead of fromJust
+        let tr = fromJust (tyToRepr <$> struct_variant)
         struct <- unpackAny tr e
         accessAggregate struct field
 
@@ -527,7 +527,6 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field ty))) = do
       _ -> do -- otherwise, lv is a tuple
         ag <- evalLvalue lv
         accessAggregate ag field
--}
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.Index i))) = do
     (MirExp arr_tp arr) <- evalLvalue lv
     (MirExp ind_tp ind) <- evalOperand i
@@ -540,21 +539,19 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.Index i))) = do
 evalLvalue (M.LProjection (M.LvalueProjection lv M.Deref)) = evalLvalue lv
 
 -- downcast: extracting the injection from an ADT. This is done in rust after switching on the discriminant.
-{-
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.Downcast i))) = do
     etu <- evalLvalue lv
     (MirExp e_tp e) <- accessAggregate etu 1
     let adt_typ = M.typeOf lv
     case adt_typ of
-      M.TyAdt (M.Adt _ variants) -> do
-          let tr = variantToRepr $ variants !! (fromInteger i)
+      M.TyAdt _ variants -> do
+          let tr = tyToRepr <$> variants !! (fromInteger i)
           case tr of
-            Some tr | Just Refl <- testEquality e_tp (CT.AnyRepr) ->
+            Just (Some tr) | Just Refl <- testEquality e_tp (CT.AnyRepr) ->
                 return $ MirExp tr (S.app $ E.FromJustValue tr (S.app $ E.UnpackAny tr e) "bad anytype")
             _ -> fail $ "bad type: expected anyrepr but got " ++ (show e_tp)
 
       _ -> fail "expected adt type!"
--}
 
 
 
