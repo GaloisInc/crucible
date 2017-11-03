@@ -66,6 +66,8 @@ instance (IsSymInterface sym) => Ord (LLVMPtr sym w) where
           EQF -> EQ
 
 data LLVMVal sym w where
+  -- NOTE! The block number '0' is special, and indicates that this value is actually a
+  -- bitvector of machine word width, rather than an acutal pointer!
   LLVMValPtr :: SymNat sym -> SymBV sym w -> SymBV sym w -> LLVMVal sym w
   LLVMValInt :: (1 <= x) => NatRepr x -> SymBV sym x -> LLVMVal sym w
   LLVMValReal :: SymReal sym -> LLVMVal sym w
