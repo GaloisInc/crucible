@@ -109,6 +109,7 @@ import Control.Lens hiding (op)
 import Control.Monad.ST
 import Data.Foldable (toList)
 import Data.Int
+import qualified Data.List as List
 import Data.Maybe
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -191,6 +192,14 @@ data LLVMExpr s f where
    UndefExpr  :: MemType -> LLVMExpr s f
    VecExpr    :: MemType -> Seq (LLVMExpr s f) -> LLVMExpr s f
    StructExpr :: Seq (MemType, LLVMExpr s f) -> LLVMExpr s f
+
+instance C.ShowF (f s) => Show (LLVMExpr s f) where
+  show (BaseExpr _ x)   = C.showF x
+  show (ZeroExpr mt)    = "<zero :" ++ show mt ++ ">"
+  show (UndefExpr mt)   = "<undef :" ++ show mt ++ ">"
+  show (VecExpr _mt xs) = "[" ++ concat (List.intersperse ", " (map show (toList xs))) ++ "]"
+  show (StructExpr xs)  = "{" ++ concat (List.intersperse ", " (map f (toList xs))) ++ "}"
+    where f (_mt,x) = show x
 
 -----------------------------------------------------------------------------------------
 -- Type translations
@@ -563,7 +572,7 @@ transValue (IntType w) (L.ValInteger i) =
     Just (Some w') | Just LeqProof <- isPosNat w' ->
       return $ BaseExpr (BVRepr w') (App (BVLit w' i))
 
-    _ -> reportError $ fromString $ unwords ["invalid integer type", show w]
+    _ -> fail $ unwords ["invalid integer type", show w]
 
 transValue (IntType 1) (L.ValBool b) =
   return $ BaseExpr (BVRepr (knownNat :: NatRepr 1))
@@ -1175,7 +1184,9 @@ calcGEP' (ArrayType bound typ') base (idx : xs) = do
                       return x
                  | Just LeqProof <- testLeq (incNat w) ptrWidth ->
                       AtomExpr <$> mkAtom (app (BVSext ptrWidth w x))
-              _ -> fail $ unwords ["Invalid index value in GEP"]
+              Scalar tp x ->
+                   fail $ unwords ["Invalid index value in GEP", show tp, show x]
+              _ -> fail $ unwords ["Invalid index value in GEP", show idx]
 
     -- assert that 0 <= idx' <= bound
     --   (yes, <= and not < because of the 1-past-the-end rule)
@@ -1211,12 +1222,13 @@ calcGEP' (ArrayType bound typ') base (idx : xs) = do
 
 calcGEP' (PtrType (MemType typ')) base (idx : xs) = do
     idx' <- case asScalar idx of
+              Scalar LLVMPointerRepr x -> pointerAsBitvectorExpr x
               Scalar (BVRepr w) x
                  | Just Refl <- testEquality w ptrWidth ->
                       return x
                  | Just LeqProof <- testLeq (incNat w) ptrWidth ->
                       return $ app (BVSext ptrWidth w x)
-              _ -> fail $ unwords ["Invalid index value in GEP"]
+              _ -> fail $ unwords ["Invalid index value in GEP", show idx]
     let dl  = TyCtx.llvmDataLayout ?lc
 
     -- Calculate the size of the elemement memtype and check that it fits
@@ -1556,8 +1568,10 @@ intop op w a b =
 
 caseptr
   :: TypeRepr a
-  -> (Expr s (BVType 64) -> LLVMGenerator h s ret (Expr s a))
-  -> (Expr s (StructType (EmptyCtx ::> NatType ::> BVType 64 ::> BVType 64)) -> LLVMGenerator h s ret (Expr s a))
+  -> (Expr s (BVType 64) ->
+      LLVMGenerator h s ret (Expr s a))
+  -> (Expr s (StructType (EmptyCtx ::> NatType ::> BVType 64 ::> BVType 64)) ->
+      LLVMGenerator h s ret (Expr s a))
   -> Expr s LLVMPointerType
   -> LLVMGenerator h s ret (Expr s a)
 

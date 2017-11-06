@@ -53,6 +53,20 @@ data LLVMPtr sym w
 instance (IsSymInterface sym) => Eq (LLVMPtr sym w) where
   x == y = compare x y == EQ
 
+muxLLVMPtr ::
+  (1 <= w) =>
+  IsSymInterface sym =>
+  sym ->
+  Pred sym ->
+  LLVMPtr sym w ->
+  LLVMPtr sym w ->
+  IO (LLVMPtr sym w)
+muxLLVMPtr sym p (LLVMPtr b1 end1 off1) (LLVMPtr b2 end2 off2) =
+  do b   <- natIte sym p b1 b2
+     end <- bvIte sym p end1 end2
+     off <- bvIte sym p off1 off2
+     return $ LLVMPtr b end off
+
 -- | This is a syntactic ordering used for map lookups.
 instance (IsSymInterface sym) => Ord (LLVMPtr sym w) where
   compare (LLVMPtr b1 _ off1) (LLVMPtr b2 _ off2) =
@@ -64,6 +78,9 @@ instance (IsSymInterface sym) => Ord (LLVMPtr sym w) where
           LTF -> LT
           GTF -> GT
           EQF -> EQ
+
+ptrToPtrVal :: LLVMPtr sym w -> LLVMVal sym w
+ptrToPtrVal (LLVMPtr blk end off) = LLVMValPtr blk end off
 
 data LLVMVal sym w where
   -- NOTE! The block number '0' is special, and indicates that this value is actually a

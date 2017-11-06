@@ -481,19 +481,13 @@ packMemValue _ _ RealValRepr x =
        return $ LLVMValReal x
 
 packMemValue sym _ LLVMPointerRepr ptr =
-  do let endf (blk,end,off) = LLVMValPtr blk end off
-     let muxf s p (b1,e1,x1) (b2,e2,x2) =
-           do b <- natIte s p b1 b2
-              e <- bvIte s p e1 e2
-              x <- bvIte s p x1 x2
-              return (b,e,x)
-     endf <$> llvmPointerCases sym muxf
-                 (\bv -> do z  <- natLit sym 0
-                            bz <- bvLit sym ptrWidth 0
-                            return $ (z, bz, bv))
-                 (\blk end off ->
-                            return $ (blk, end, off))
-                 ptr
+  ptrToPtrVal <$> llvmPointerCases sym muxLLVMPtr
+                      (\bv -> do z  <- natLit sym 0
+                                 bz <- bvLit sym ptrWidth 0
+                                 return $ LLVMPtr z bz bv)
+                      (\blk end off ->
+                                 return $ LLVMPtr blk end off)
+                      ptr
 
 packMemValue sym (G.Type (G.Array sz tp) _) (VectorRepr tpr) vec
   | V.length vec == fromIntegral sz = do
@@ -597,8 +591,8 @@ doLoad :: IsSymInterface sym
   -> IO (RegValue sym AnyType)
 doLoad sym mem ptr valType = do
     --putStrLn "MEM LOAD"
-    let ptr' = translatePtr ptr
-        errMsg = "Invalid memory load: address " ++ show (ppPtr ptr) ++
+    ptr' <- translatePtr sym ptr
+    let errMsg = "Invalid memory load: address " ++ show (ppPtr ptr) ++
                  " at type " ++ show (G.ppType valType)
     (p, v) <- G.readMem sym ptrWidth ptr' valType (memImplHeap mem)
     case v of
@@ -632,7 +626,7 @@ doStore :: IsSymInterface sym
 doStore sym mem ptr valType (AnyValue tpr val) = do
     --putStrLn "MEM STORE"
     val' <- packMemValue sym valType tpr val
-    let ptr' = translatePtr ptr
+    ptr' <- translatePtr sym ptr
     (p, heap') <- G.writeMem sym ptrWidth ptr' valType (PE (truePred sym) val') (memImplHeap mem)
     addAssertion sym p (AssertFailureSimError "Invalid memory store")
     return mem{ memImplHeap = heap' }
@@ -692,18 +686,21 @@ memPopFrame = mkIntrinsic $ \_ _sym
      return $ mem{ memImplHeap = heap' }
 
 
-translatePtr :: RegValue sym LLVMPointerType
-             -> LLVMPtr sym PtrWidth
--- FIXME
---translatePtr (LLVMPointer blk end off) = LLVMPtr blk end off
-translatePtr _ = error "translatePtr: impossible!"
+translatePtr :: IsSymInterface sym
+             => sym
+             -> RegValue sym LLVMPointerType
+             -> IO (LLVMPtr sym PtrWidth)
+translatePtr sym ptr =
+  llvmPointerCases sym muxLLVMPtr
+    (\_bv -> fail "Expected pointer value")
+    (\blk end off -> return $ LLVMPtr blk end off)
+    ptr
 
 translatePtrBack ::
   IsSymInterface sym =>
   sym ->
   LLVMPtr sym PtrWidth ->
   IO (RegValue sym LLVMPointerType)
---translatePtrBack (LLVMPtr blk end off) = return $ LLVMPointer blk end off
 translatePtrBack sym (LLVMPtr blk end off) = return $ llvmPointer sym blk end off
 
 
@@ -750,8 +747,8 @@ buildDisjointRegionsAssertion
   -> RegValue sym (BVType w)
   -> IO (SymExpr sym BaseBoolType)
 buildDisjointRegionsAssertion sym w dest dlen src slen = do
-  let LLVMPtr dblk _ doff = translatePtr dest
-  let LLVMPtr sblk _ soff = translatePtr src
+  LLVMPtr dblk _ doff <- translatePtr sym dest
+  LLVMPtr sblk _ soff <- translatePtr sym src
 
   dend <- bvAdd sym doff =<< sextendBVTo sym w ptrWidth dlen
   send <- bvAdd sym soff =<< sextendBVTo sym w ptrWidth slen
@@ -853,8 +850,8 @@ doLookupHandle
   -> MemImpl sym PtrWidth
   -> RegValue sym LLVMPointerType
   -> IO (Maybe a)
-doLookupHandle _sym mem ptr = do
-  let (LLVMPtr blk _ _) = translatePtr ptr
+doLookupHandle sym mem ptr = do
+  LLVMPtr blk _ _ <- translatePtr sym ptr
   case asNat blk of
     Just i ->
       case Map.lookup (toInteger i) (memImplHandleMap mem) of
@@ -870,7 +867,7 @@ doFree
   -> RegValue sym LLVMPointerType
   -> IO (MemImpl sym PtrWidth)
 doFree sym mem ptr = do
-  let ptr'@(LLVMPtr blk _ _) = translatePtr ptr
+  ptr'@(LLVMPtr blk _ _) <- translatePtr sym ptr
   (c, heap') <- G.freeMem sym ptrWidth ptr' (memImplHeap mem)
 
   -- If this pointer is a handle pointer, remove the associated data
@@ -912,7 +909,8 @@ doMemset sym _w mem dest val len = do
       let val' = LLVMValInt (knownNat :: NatRepr 8) val
       let xs   = V.generate (fromInteger sz) (\_ -> val')
       let arr  = PE (truePred sym) (LLVMValArray (G.bitvectorType 1) xs)
-      (c, heap') <- G.writeMem sym ptrWidth (translatePtr dest) tp arr (memImplHeap mem)
+      ptr <- translatePtr sym dest
+      (c, heap') <- G.writeMem sym ptrWidth ptr tp arr (memImplHeap mem)
       addAssertion sym c
          (AssertFailureSimError "Invalid region specified in memset")
       return mem{ memImplHeap = heap' }
@@ -928,8 +926,8 @@ doMemcpy
   -> RegValue sym (BVType w)
   -> IO (MemImpl sym PtrWidth)
 doMemcpy sym w mem dest src len = do
-  let dest' = translatePtr dest
-  let src'  = translatePtr src
+  dest' <- translatePtr sym dest
+  src'  <- translatePtr sym src
   len' <- sextendBVTo sym w ptrWidth len
 
   (c, heap') <- G.copyMem sym ptrWidth dest' src' len' (memImplHeap mem)
@@ -940,6 +938,8 @@ doMemcpy sym w mem dest src len = do
   return mem{ memImplHeap = heap' }
 
 ppPtr :: IsExpr (SymExpr sym) => RegValue sym LLVMPointerType -> Doc
+
+-- FIXME!!
 -- ppPtr (LLVMPointer blk end off) =
 --     text "(" <> blk_doc <> text "," <+> end_doc <> text "," <+> off_doc <> text ")"
 --   where blk_doc = printSymExpr blk
@@ -984,8 +984,8 @@ doPtrSubtract
   -> RegValue sym LLVMPointerType
   -> IO (RegValue sym (BVType PtrWidth))
 doPtrSubtract sym x y = do
-   let px = translatePtr x
-   let py = translatePtr y
+   px <- translatePtr sym x
+   py <- translatePtr sym y
    ptrDiff sym ptrWidth px py
 
 doPtrAddOffset
@@ -995,7 +995,7 @@ doPtrAddOffset
   -> RegValue sym (BVType PtrWidth)
   -> IO (RegValue sym LLVMPointerType)
 doPtrAddOffset sym x off = do
-      let px = translatePtr x
+      px <- translatePtr sym x
       (v, p') <- ptrCheckedAdd sym ptrWidth px off
       let x_doc = ppPtr x
       let off_doc = printSymExpr off
@@ -1019,8 +1019,8 @@ ptrEqOverride = mkIntrinsic $ \_ sym
       addAssertion sym v2
          (AssertFailureSimError $ unlines ["Invalid pointer compared for equality:", show y_doc, show allocs_doc])
 
-      let px = translatePtr x
-      let py = translatePtr y
+      px <- translatePtr sym x
+      py <- translatePtr sym y
       ptrEq sym ptrWidth px py
 
 ptrLeOverride :: IntrinsicImpl p sym (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMPointerType) BoolType
@@ -1037,8 +1037,8 @@ ptrLeOverride = mkIntrinsic $ \_ sym
       addAssertion sym v2
          (AssertFailureSimError $ unwords ["Invalid pointer compared for ordering:", show y_doc])
 
-      let px = translatePtr x
-      let py = translatePtr y
+      px <- translatePtr sym x
+      py <- translatePtr sym y
       ptrLe sym ptrWidth px py
 
 ptrIsNullOverride :: IntrinsicImpl p sym (EmptyCtx ::> LLVMPointerType) BoolType
@@ -1050,22 +1050,20 @@ isValidPointer :: IsSymInterface sym => sym
                -> RegValue sym Mem
                -> IO (Pred sym)
 isValidPointer sym p mem = do
-   c1 <- ptrIsNull sym p
-   c2 <- G.isValidPointer sym ptrWidth (translatePtr p) (memImplHeap mem)
-   orPred sym c1 c2
+   llvmPointerCases sym itePred
+     (\bv          -> notPred sym =<< bvIsNonzero sym bv)
+     (\blk end off -> G.isValidPointer sym ptrWidth (LLVMPtr blk end off) (memImplHeap mem))
+     p
 
 ptrIsNull :: IsSymInterface sym
           => sym
           -> RegValue sym LLVMPointerType
           -> IO (Pred sym)
--- ptrIsNull sym _p@(LLVMPointer blk _end off) = do
---     --p_doc <- ppPtr sym p
---     --putStrLn $ unwords ["Testing for null pointer:" , show p_doc]
---     pblk <- natEq sym blk =<< natLit sym 0
---     poff <- bvEq sym off =<< bvLit sym ptrWidth 0
---     andPred sym pblk poff
-
-ptrIsNull _sym _p = error "ptrIsNull : impossible!"
+ptrIsNull sym p =
+  llvmPointerCases sym itePred
+    (\bv -> notPred sym =<< bvIsNonzero sym bv)
+    (\_ _ _ -> return $ falsePred sym)
+    p
 
 instance Show (LLVMVal sym w) where
   show (LLVMValPtr _ _ _) = "<ptr>"
