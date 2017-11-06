@@ -312,6 +312,8 @@ instance Pretty (Expr s tp) where
 instance Show (Expr s tp) where
   show e = show (pretty e)
 
+instance ShowF (Expr s)
+
 instance IsExpr (Expr s) where
   app = App
   asApp (App x) = Just x
