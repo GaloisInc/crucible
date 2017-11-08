@@ -12,13 +12,6 @@
 -- are 1) mapping LLVM types onto Crucible types in a sensible way and 2)
 -- translating the phi-instructions of LLVM's SSA form.
 --
--- The translation of the LLVM types themselves is not so difficult;
--- however, navigating the fact that Crucible expressions are strongly
--- typed at the Haskell level, whereas the LLVM types are not makes for
--- some slightly strange programming idioms.  In particular, all the
--- functions that do the type translation are written in a polymorphic
--- continuation-passing style.
---
 -- To handle the translation of phi-functions, we first perform a
 -- pre-pass over all the LLVM basic blocks looking for phi-functions
 -- and build a datastructure that tells us what assignments to make
@@ -99,10 +92,10 @@ module Lang.Crucible.LLVM.Translation
   , llvmIntrinsicTypes
   , llvmIntrinsics
   , initializeMemory
-  , LLVMInt
   , toStorableType
-  ) where
 
+  , module Lang.Crucible.LLVM.Translation.Types
+  ) where
 
 import Control.Monad.State.Strict
 import Control.Lens hiding (op)
@@ -137,36 +130,12 @@ import           Lang.Crucible.LLVM.Intrinsics
 import qualified Lang.Crucible.LLVM.LLVMContext as TyCtx
 import           Lang.Crucible.LLVM.MemModel
 import qualified Lang.Crucible.LLVM.MemModel.Common as G
+import           Lang.Crucible.LLVM.Translation.Types
 
 import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Solver.Interface( IsSymInterface )
 import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
-
-type LLVMInt w = BVType w
-type VarArgs   = VectorType AnyType
-
-varArgsRepr :: TypeRepr VarArgs
-varArgsRepr = VectorRepr AnyRepr
-
-------------------------------------------------------------------------
--- LLVM AST utilities
-
-declareFromDefine :: L.Define -> L.Declare
-declareFromDefine d =
-  L.Declare { L.decRetType = L.defRetType d
-            , L.decName = L.defName d
-            , L.decArgs = L.typedType <$> L.defArgs d
-            , L.decVarArgs = L.defVarArgs d
-            , L.decAttrs   = L.defAttrs d
-            , L.decComdat  = mempty
-            }
-
--- | Return all declarations derived from both external symbols and
--- internal definitions.
-allModuleDeclares :: L.Module -> [L.Declare]
-allModuleDeclares m = L.modDeclares m ++ def_decls
-  where def_decls = declareFromDefine <$> L.modDefines m
 
 ------------------------------------------------------------------------
 -- Translation results
@@ -201,8 +170,6 @@ instance C.ShowF (f s) => Show (LLVMExpr s f) where
   show (StructExpr xs)  = "{" ++ concat (List.intersperse ", " (map f (toList xs))) ++ "}"
     where f (_mt,x) = show x
 
------------------------------------------------------------------------------------------
--- Type translations
 
 data ScalarView s where
   Scalar    :: TypeRepr tp -> Expr s tp -> ScalarView s
@@ -222,78 +189,6 @@ asScalar (UndefExpr llvmtp)
   = let ?err = error
      in undefExpand llvmtp $ \tpr ex -> Scalar tpr ex
 asScalar _ = NotScalar
-
--- | Translate a list of LLVM expressions into a crucible type context,
---   which is passed into the given continuation.
-llvmTypesAsCtx :: forall a
-                . (?lc :: TyCtx.LLVMContext)
-               => [MemType]
-               -> (forall ctx. CtxRepr ctx -> a)
-               -> a
-llvmTypesAsCtx xs f = go (concatMap llvmTypeToRepr xs) Ctx.empty
- where go :: forall ctx. [Some TypeRepr] -> CtxRepr ctx -> a
-       go []       ctx      = f ctx
-       go (Some tp:tps) ctx = go tps (ctx Ctx.:> tp)
-
--- | Translate an LLVM type into a crucible type, which is passed into
---   the given continuation
-llvmTypeAsRepr :: forall a
-                . (?lc :: TyCtx.LLVMContext)
-               => MemType
-               -> (forall tp. TypeRepr tp -> a)
-               -> a
-llvmTypeAsRepr xs f = go (llvmTypeToRepr xs)
- where go :: [Some TypeRepr] -> a
-       go []       = f UnitRepr
-       go [Some x] = f x
-
-       go _ = error $ unwords ["llvmTypesAsRepr: expected a single value type", show xs]
-
--- | Translate an LLVM return type into a crucible type, which is passed into
---   the given continuation
-llvmRetTypeAsRepr :: forall a
-                   . (?lc :: TyCtx.LLVMContext)
-                  => Maybe MemType
-                  -> (forall tp. TypeRepr tp -> a)
-                  -> a
-llvmRetTypeAsRepr Nothing   f = f UnitRepr
-llvmRetTypeAsRepr (Just tp) f = llvmTypeAsRepr tp f
-
--- | Actually perform the type translation
-llvmTypeToRepr :: (?lc :: TyCtx.LLVMContext) => MemType -> [Some TypeRepr]
-llvmTypeToRepr (ArrayType _ tp)  = [llvmTypeAsRepr tp (\t -> Some (VectorRepr t))]
-llvmTypeToRepr (VecType _ tp)    = [llvmTypeAsRepr tp (\t-> Some (VectorRepr t))]
-llvmTypeToRepr (StructType si)   = [llvmTypesAsCtx tps (\ts -> Some (StructRepr ts))]
-  where tps = map fiType $ toList $ siFields si
-llvmTypeToRepr (PtrType _)   = [Some LLVMPointerRepr]
-llvmTypeToRepr FloatType     = [Some RealValRepr]
-llvmTypeToRepr DoubleType    = [Some RealValRepr]
---llvmTypeToRepr FloatType   = [Some (FloatRepr SingleFloatRepr)]
---llvmTypeToRepr DoubleType  = [Some (FloatRepr DoubleFloatRepr)]
-llvmTypeToRepr MetadataType = []
-llvmTypeToRepr (IntType n) =
-   case someNat (fromIntegral n) of
-      -- NB! Special case! All integer types that are the same width as pointers are
-      -- interpreted as pointer types!  The LLVMPointer Crucible type is a disjoint
-      -- union of raw bitvectors and actual pointers.
-      Just (Some w) | Just Refl <- testEquality w ptrWidth -> [Some LLVMPointerRepr]
-
-      Just (Some w) | Just LeqProof <- isPosNat w -> [Some (BVRepr w)]
-
-      _ -> error $ unwords ["invalid integer width",show n]
-
-llvmDeclToFunHandleRepr
-   :: (?lc :: TyCtx.LLVMContext)
-   => FunDecl
-   -> (forall args ret. CtxRepr args -> TypeRepr ret -> a)
-   -> a
-llvmDeclToFunHandleRepr decl k =
-  llvmTypesAsCtx (fdArgTypes decl) $ \args ->
-    llvmRetTypeAsRepr (fdRetType decl) $ \ret ->
-      if fdVarArgs decl then
-        k (args Ctx.:> varArgsRepr) ret
-      else
-        k args ret
 
 -- | Given an LLVM type and a type context and a register assignment,
 --   peel off the rightmost register from the assignment, which is
@@ -502,24 +397,6 @@ buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
 
 ---------------------------------------------------------------------------
 -- Translations
-
-liftRetType :: (?lc :: TyCtx.LLVMContext, Monad m)
-            => L.Type
-            -> m (Maybe MemType)
-liftRetType t =
-  case TyCtx.liftRetType t of
-    Just mt -> return mt
-    Nothing -> fail $ unwords ["Expected return type: ", show t]
-
-
-liftMemType :: (?lc :: TyCtx.LLVMContext, Monad m)
-            => L.Type
-            -> m MemType
-liftMemType t =
-  case TyCtx.liftMemType t of
-    Just mt -> return mt
-    Nothing -> fail $ unwords ["Expected memory type: ", show t]
-
 transTypedValue :: (?lc :: TyCtx.LLVMContext)
                 => L.Typed L.Value
                 -> LLVMGenerator h s ret (LLVMExpr s Expr)

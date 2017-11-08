@@ -50,6 +50,7 @@ library
     Lang.Crucible.LLVM.PrettyPrint
     Lang.Crucible.LLVM.Printf
     Lang.Crucible.LLVM.Translation
+    Lang.Crucible.LLVM.Translation.Types
 
   ghc-options: -Wall -Werror
   ghc-prof-options: -O2 -fprof-auto-top
