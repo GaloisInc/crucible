@@ -121,91 +121,14 @@ import           Lang.Crucible.LLVM.DataLayout
 import qualified Lang.Crucible.LLVM.MemModel.Common as G
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.MemModel.Pointer
-import           Lang.Crucible.LLVM.Translation.Types
 
 --import Debug.Trace as Debug
-
-
-llvmPointer ::
-  IsSymInterface sym =>
-  sym ->
-  RegValue sym NatType ->
-  RegValue sym (BVType PtrWidth) ->
-  RegValue sym (BVType PtrWidth) ->
-  RegValue sym LLVMPointerType
-llvmPointer sym blk end off =
-  RolledType $ injectVariant sym knownRepr (Ctx.natIndex @1) $
-    (Ctx.empty Ctx.:> RV blk Ctx.:> RV end Ctx.:> RV off)
-
-llvmPointer_bv ::
-  IsSymInterface sym =>
-  sym ->
-  RegValue sym (BVType PtrWidth) ->
-  RegValue sym LLVMPointerType
-llvmPointer_bv sym bv =
-  RolledType $ injectVariant sym knownRepr (Ctx.natIndex @0) bv
-
-llvmPointerCases ::
-  IsSymInterface sym =>
-  sym ->
-  (sym -> Pred sym -> a -> a -> IO a) ->
-  (RegValue sym (BVType PtrWidth) -> IO a) ->
-  (RegValue sym NatType ->
-   RegValue sym (BVType PtrWidth) ->
-   RegValue sym (BVType PtrWidth) ->
-   IO a) ->
-  RegValue sym LLVMPointerType ->
-  IO a
-llvmPointerCases sym muxFn bvCase ptrCase (RolledType v) =
-  case (v^._1, v^._2) of
-    (VB (PE pbv bv), VB Unassigned) ->
-      do a <- bvCase bv
-         addAssertion sym pbv PatternMatchFailureSimError
-         return a
-    (VB Unassigned, VB (PE pptr (Ctx.Empty Ctx.:> RV blk Ctx.:> RV end Ctx.:> RV off))) ->
-      do a <- ptrCase blk end off
-         addAssertion sym pptr PatternMatchFailureSimError
-         return a
-    (VB (PE pbv bv), VB (PE pptr (Ctx.Empty Ctx.:> RV blk Ctx.:> RV end Ctx.:> RV off))) ->
-      do abv  <- bvCase bv
-         aptr <- ptrCase blk end off
-         a <- muxFn sym pbv abv aptr
-         p <- orPred sym pbv pptr
-         addAssertion sym p PatternMatchFailureSimError
-         return a
-    _ ->
-      addFailedAssertion sym PatternMatchFailureSimError
-
-projectLLVM_bv ::
-  IsSymInterface sym =>
-  sym ->
-  RegValue sym LLVMPointerType ->
-  IO (RegValue sym (BVType PtrWidth))
-projectLLVM_bv sym (RolledType vs) =
-  case vs^._1 of
-    VB (PE p bv) ->
-      do addAssertion sym p PatternMatchFailureSimError
-         return bv
-    _ -> addFailedAssertion sym PatternMatchFailureSimError
-
-projectLLVM_pointer ::
-  IsSymInterface sym =>
-  sym ->
-  RegValue sym LLVMPointerType ->
-  IO (LLVMPtr sym PtrWidth)
-projectLLVM_pointer sym (RolledType vs) =
-  case vs^._2 of
-    VB (PE p (Ctx.Empty Ctx.:> RV blk Ctx.:> RV end Ctx.:> RV off)) ->
-      do addAssertion sym p PatternMatchFailureSimError
-         return (LLVMPtr blk end off)
-    _ -> addFailedAssertion sym PatternMatchFailureSimError
 
 
 type Mem = IntrinsicType "LLVM_memory"
 
 memRepr :: TypeRepr Mem
 memRepr = knownRepr
-
 
 instance IntrinsicClass sym "LLVM_memory" where
   type Intrinsic sym "LLVM_memory" = MemImpl sym PtrWidth

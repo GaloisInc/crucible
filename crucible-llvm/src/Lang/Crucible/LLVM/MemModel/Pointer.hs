@@ -10,33 +10,178 @@
 
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Lang.Crucible.LLVM.MemModel.Pointer where
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+module Lang.Crucible.LLVM.MemModel.Pointer
+( -- * Pointer bitwidth
+  PtrWidth
+, ptrWidth
 
+  -- * Crucible pointer representation
+, LLVMPointerType
+, llvmPointerRepr
+, pattern LLVMPointerRepr
+, llvmPointer
+, llvmPointer_bv
+, llvmPointerCases
+, projectLLVM_bv
+, projectLLVM_pointer
+
+  -- * LLVM Value representation
+, LLVMVal(..)
+, PartLLVMVal
+, applyCtorFLLVMVal
+, applyViewFLLVMVal
+, muxLLVMVal
+
+  -- * Operations on valid pointers
+, LLVMPtr(..)
+, AddrDecomposeResult(..)
+, muxLLVMPtr
+, ptrToPtrVal
+, ptrConst
+, ptrDecompose
+, ptrSizeDecompose
+, ptrComparable
+, ptrOffsetEq
+, ptrOffsetLe
+, ptrEq
+, ptrLe
+, ptrAdd
+, ptrCheckedAdd
+, ptrDiff
+, ptrSub
+) where
+
+import           Control.Lens
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Maybe
 import           Control.Monad.State.Strict
 
 import           Data.Parameterized.Classes
+import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some
 import           Data.Vector( Vector )
 import qualified Data.Vector as V
 import           Numeric.Natural
 
+import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
+import           Lang.Crucible.Types
 import qualified Lang.Crucible.LLVM.MemModel.Common as G
 
 
-type PartLLVMVal sym w = PartExpr (Pred sym) (LLVMVal sym w)
+type PtrWidth = 64
+ptrWidth :: NatRepr PtrWidth
+ptrWidth = knownNat
+
+type LLVMPointerType = RecursiveType "LLVM_pointer"
+llvmPointerRepr :: TypeRepr LLVMPointerType
+llvmPointerRepr = knownRepr
+
+instance IsRecursiveType "LLVM_pointer" where
+  type UnrollType "LLVM_pointer" =
+     VariantType (EmptyCtx ::>
+       BVType PtrWidth ::>
+       StructType (EmptyCtx ::> NatType ::> BVType PtrWidth ::> BVType PtrWidth))
+  unrollType _ =
+     VariantRepr (Ctx.empty Ctx.:>
+       BVRepr ptrWidth Ctx.:>
+       StructRepr (Ctx.empty Ctx.:>NatRepr Ctx.:> BVRepr ptrWidth Ctx.:> BVRepr ptrWidth))
+
+
+pattern LLVMPointerRepr :: () => (ty ~ LLVMPointerType) => TypeRepr ty
+pattern LLVMPointerRepr <- RecursiveRepr (testEquality (knownSymbol :: SymbolRepr "LLVM_pointer") -> Just Refl)
+  where
+    LLVMPointerRepr = llvmPointerRepr
+
+llvmPointer ::
+  IsSymInterface sym =>
+  sym ->
+  RegValue sym NatType ->
+  RegValue sym (BVType PtrWidth) ->
+  RegValue sym (BVType PtrWidth) ->
+  RegValue sym LLVMPointerType
+llvmPointer sym blk end off =
+  RolledType $ injectVariant sym knownRepr (Ctx.natIndex @1) $
+    (Ctx.empty Ctx.:> RV blk Ctx.:> RV end Ctx.:> RV off)
+
+llvmPointer_bv ::
+  IsSymInterface sym =>
+  sym ->
+  RegValue sym (BVType PtrWidth) ->
+  RegValue sym LLVMPointerType
+llvmPointer_bv sym bv =
+  RolledType $ injectVariant sym knownRepr (Ctx.natIndex @0) bv
+
+llvmPointerCases ::
+  IsSymInterface sym =>
+  sym ->
+  (sym -> Pred sym -> a -> a -> IO a) ->
+  (RegValue sym (BVType PtrWidth) -> IO a) ->
+  (RegValue sym NatType ->
+   RegValue sym (BVType PtrWidth) ->
+   RegValue sym (BVType PtrWidth) ->
+   IO a) ->
+  RegValue sym LLVMPointerType ->
+  IO a
+llvmPointerCases sym muxFn bvCase ptrCase (RolledType v) =
+  case (v^._1, v^._2) of
+    (VB (PE pbv bv), VB Unassigned) ->
+      do a <- bvCase bv
+         addAssertion sym pbv PatternMatchFailureSimError
+         return a
+    (VB Unassigned, VB (PE pptr (Ctx.Empty Ctx.:> RV blk Ctx.:> RV end Ctx.:> RV off))) ->
+      do a <- ptrCase blk end off
+         addAssertion sym pptr PatternMatchFailureSimError
+         return a
+    (VB (PE pbv bv), VB (PE pptr (Ctx.Empty Ctx.:> RV blk Ctx.:> RV end Ctx.:> RV off))) ->
+      do abv  <- bvCase bv
+         aptr <- ptrCase blk end off
+         a <- muxFn sym pbv abv aptr
+         p <- orPred sym pbv pptr
+         addAssertion sym p PatternMatchFailureSimError
+         return a
+    _ ->
+      addFailedAssertion sym PatternMatchFailureSimError
+
+projectLLVM_bv ::
+  IsSymInterface sym =>
+  sym ->
+  RegValue sym LLVMPointerType ->
+  IO (RegValue sym (BVType PtrWidth))
+projectLLVM_bv sym (RolledType vs) =
+  case vs^._1 of
+    VB (PE p bv) ->
+      do addAssertion sym p PatternMatchFailureSimError
+         return bv
+    _ -> addFailedAssertion sym PatternMatchFailureSimError
+
+projectLLVM_pointer ::
+  IsSymInterface sym =>
+  sym ->
+  RegValue sym LLVMPointerType ->
+  IO (LLVMPtr sym PtrWidth)
+projectLLVM_pointer sym (RolledType vs) =
+  case vs^._2 of
+    VB (PE p (Ctx.Empty Ctx.:> RV blk Ctx.:> RV end Ctx.:> RV off)) ->
+      do addAssertion sym p PatternMatchFailureSimError
+         return (LLVMPtr blk end off)
+    _ -> addFailedAssertion sym PatternMatchFailureSimError
+
 
 -- | This provides a view of an address as a base + offset when possible.
 data AddrDecomposeResult sym w
@@ -91,6 +236,7 @@ data LLVMVal sym w where
   LLVMValStruct :: Vector (G.Field G.Type, LLVMVal sym w) -> LLVMVal sym w
   LLVMValArray :: G.Type -> Vector (LLVMVal sym w) -> LLVMVal sym w
 
+type PartLLVMVal sym w = PartExpr (Pred sym) (LLVMVal sym w)
 
 ptrConst :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> G.Addr -> IO (SymBV sym w)
 ptrConst sym w x = bvLit sym w (G.bytesToInteger x)

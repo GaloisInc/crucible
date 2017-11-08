@@ -9,8 +9,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
-
-{-# OPTIONS_GHC -fno-warn-orphans #-}
 -----------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.LLVM.Translation.Types
@@ -60,40 +58,14 @@ import           Data.Parameterized.Some
 import           Lang.Crucible.Types
 
 import qualified Lang.Crucible.LLVM.LLVMContext as TyCtx
+import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemType
-
 
 
 type VarArgs   = VectorType AnyType
 
 varArgsRepr :: TypeRepr VarArgs
 varArgsRepr = VectorRepr AnyRepr
-
-
-type PtrWidth = 64
-ptrWidth :: NatRepr PtrWidth
-ptrWidth = knownNat
-
-type LLVMPointerType = RecursiveType "LLVM_pointer"
-llvmPointerRepr :: TypeRepr LLVMPointerType
-llvmPointerRepr = knownRepr
-
-instance IsRecursiveType "LLVM_pointer" where
-  type UnrollType "LLVM_pointer" =
-     VariantType (EmptyCtx ::>
-       BVType PtrWidth ::>
-       StructType (EmptyCtx ::> NatType ::> BVType PtrWidth ::> BVType PtrWidth))
-  unrollType _ =
-     VariantRepr (Ctx.empty Ctx.:>
-       BVRepr ptrWidth Ctx.:>
-       StructRepr (Ctx.empty Ctx.:>NatRepr Ctx.:> BVRepr ptrWidth Ctx.:> BVRepr ptrWidth))
-
-
-pattern LLVMPointerRepr :: () => (ty ~ LLVMPointerType) => TypeRepr ty
-pattern LLVMPointerRepr <- RecursiveRepr (testEquality (knownSymbol :: SymbolRepr "LLVM_pointer") -> Just Refl)
-  where
-    LLVMPointerRepr = llvmPointerRepr
-
 
 ------------------------------------------------------------------------
 -- LLVM AST utilities

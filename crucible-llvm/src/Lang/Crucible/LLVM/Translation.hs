@@ -251,7 +251,7 @@ instrResultType instr =
     L.ICmp _ _ _ -> L.PrimType (L.Integer 1)
     L.FCmp _ _ _ -> L.PrimType (L.Integer 1)
     L.Phi tp _   -> tp
-    L.GEP _ _ _  -> L.PtrTo (L.PrimType (L.Integer 8)) -- FIXME? Is this OK?
+    L.GEP _ _ _  -> L.PtrTo (L.PrimType (L.Integer 8))
     L.Select _ x _ -> L.typedType x
 
     L.ExtractValue x idxes -> go (L.typedType x) idxes
