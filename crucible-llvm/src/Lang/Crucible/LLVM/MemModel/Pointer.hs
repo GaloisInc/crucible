@@ -284,8 +284,14 @@ applyViewFLLVMVal
    -> NatRepr w
    -> G.ViewF (PartLLVMVal sym w)
    -> IO (PartLLVMVal sym w)
-applyViewFLLVMVal sym _wptr v =
+applyViewFLLVMVal sym wptr v =
   case v of
+    G.SelectLowBV low hi (PE p (LLVMValPtr blk _end off))
+      -> do p' <- andPred sym p =<< natEq sym blk =<< natLit sym 0
+            applyViewFLLVMVal sym wptr (G.SelectLowBV low hi (PE p' (LLVMValInt wptr off)))
+    G.SelectHighBV low hi (PE p (LLVMValPtr blk _end off))
+      -> do p' <- andPred sym p =<< natEq sym blk =<< natLit sym 0
+            applyViewFLLVMVal sym wptr (G.SelectHighBV low hi (PE p' (LLVMValInt wptr off)))
     G.SelectLowBV low hi (PE p (LLVMValInt w bv))
       | Just (Some (low_w)) <- someNat (G.bytesToBits low)
       , Just (Some (hi_w))  <- someNat (G.bytesToBits hi)
