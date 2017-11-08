@@ -938,14 +938,15 @@ doMemcpy sym w mem dest src len = do
   return mem{ memImplHeap = heap' }
 
 ppPtr :: IsExpr (SymExpr sym) => RegValue sym LLVMPointerType -> Doc
-
--- FIXME!!
--- ppPtr (LLVMPointer blk end off) =
---     text "(" <> blk_doc <> text "," <+> end_doc <> text "," <+> off_doc <> text ")"
---   where blk_doc = printSymExpr blk
---         end_doc = printSymExpr end
---         off_doc = printSymExpr off
-ppPtr _ = error "ppPtr: impossible"
+ppPtr (RolledType vs) =
+  case (vs^._1, vs^._2) of
+    (VB Unassigned, VB (PE _p (Ctx.Empty Ctx.:> RV blk Ctx.:> RV end Ctx.:> RV off))) ->
+     let blk_doc = printSymExpr blk
+         end_doc = printSymExpr end
+         off_doc = printSymExpr off
+      in text "(" <> blk_doc <> text "," <+> end_doc <> text "," <+> off_doc <> text ")"
+    (VB (PE _p bv), VB Unassigned) -> printSymExpr bv
+    _ -> text "<ptr ???>"
 
 ppAllocs :: IsSymInterface sym => sym -> [G.MemAlloc sym PtrWidth] -> IO Doc
 ppAllocs sym xs = vcat <$> mapM ppAlloc xs
