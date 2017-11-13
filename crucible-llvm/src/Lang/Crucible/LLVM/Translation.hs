@@ -441,7 +441,7 @@ transValue _ (L.ValIdent i) = do
 
 transValue (IntType w) (L.ValInteger i) =
   case someNat (fromIntegral w) of
-    -- | Special case for ingeters of pointer width!
+    -- Special case for integers of pointer width!
     Just (Some w') | Just Refl <- testEquality w' ptrWidth ->
       return $ BaseExpr LLVMPointerRepr $
          bitvectorAsPointerExpr $
@@ -641,7 +641,7 @@ zeroExpand :: forall s a
            -> a
 zeroExpand (IntType w) k =
   case someNat (fromIntegral w) of
-    -- | Special case for ingeters of pointer width!
+    -- Special case for integers of pointer width!
     Just (Some w') | Just Refl <- testEquality w' ptrWidth ->
       k LLVMPointerRepr $
          bitvectorAsPointerExpr $
@@ -670,7 +670,7 @@ undefExpand :: (?lc :: TyCtx.LLVMContext, ?err :: String -> a)
             -> a
 undefExpand (IntType w) k =
   case someNat (fromIntegral w) of
-    -- | Special case for ingeters of pointer width!
+    -- Special case for integers of pointer width!
     Just (Some w') | Just Refl <- testEquality w' ptrWidth ->
       k LLVMPointerRepr $
          bitvectorAsPointerExpr $
