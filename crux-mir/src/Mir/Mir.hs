@@ -14,7 +14,8 @@ import qualified Text.Regex as Regex
 import qualified Data.Map.Strict as Map
 import Data.Text (Text, unpack)
 import Data.List
-import System.IO.Unsafe
+
+import GHC.Stack
 
 -- NOTE: below, all unwinding calls can be ignored
 --
@@ -489,7 +490,7 @@ data Operand =
       | OpConstant Constant
       deriving (Show, Eq)
 
-lValueofOp :: Operand -> Lvalue
+lValueofOp :: HasCallStack => Operand -> Lvalue
 lValueofOp (Consume lv) = lv
 lValueofOp l = error $ "bad lvalue of op: " ++ (show l)
 

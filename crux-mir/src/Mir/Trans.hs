@@ -14,6 +14,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 
+{-# OPTIONS_GHC -Wincomplete-patterns #-}
 module Mir.Trans where
 import qualified Mir.Mir as M
 import Control.Monad
@@ -43,6 +44,7 @@ import Data.Parameterized.NatRepr
 import Data.Parameterized.Some
 import GHC.TypeLits
 
+import GHC.Stack
 
 -- Basic definitions.
 --
@@ -115,7 +117,7 @@ taggedUnionType = CT.StructRepr $ Ctx.empty Ctx.%> CT.NatRepr Ctx.%> CT.AnyRepr
 --
 -- Custom type translation is on the bottom of this file.
 
-tyToRepr :: M.Ty -> Some CT.TypeRepr
+tyToRepr :: HasCallStack => M.Ty -> Some CT.TypeRepr
 tyToRepr t = case t of
                         M.TyBool -> Some CT.BoolRepr
                         M.TyTuple ts -> tyListToCtx ts $ \repr -> Some (CT.StructRepr repr)
@@ -134,20 +136,23 @@ tyToRepr t = case t of
                         M.TyUint M.B32 -> Some $ CT.BVRepr (knownNat :: NatRepr 32)
                         M.TyUint M.B64 -> Some $ CT.BVRepr (knownNat :: NatRepr 64)
                         M.TyUint M.B128 -> Some $ CT.BVRepr (knownNat :: NatRepr 128)
-                        M.TyRef t _ -> tyToRepr t -- references are erased!
+                        M.TyRef t M.Immut -> tyToRepr t -- immutable references are erased!
+                        M.TyRef t M.Mut   -> tyToReprCont t $ \repr -> Some (CT.ReferenceRepr repr)
                         M.TyChar -> Some $ CT.BVRepr (knownNat :: NatRepr 32) -- rust chars are four bytes
                         M.TyCustom custom_t -> customtyToRepr custom_t
                         M.TyClosure def_id substs -> Some $ CT.AnyRepr
-                        _ -> error "unknown type?"
+                        M.TyStr -> Some $ CT.StringRepr
+                        _ -> error $ unwords ["unknown type?", show t]
 
 -- As in the CPS translation, functions which manipulate types must be in CPS form, since type tags are generally hidden underneath an existential.
 
-tyToReprCont :: forall a. M.Ty -> (forall tp. CT.TypeRepr tp -> a) -> a
+tyToReprCont :: forall a. HasCallStack => M.Ty -> (forall tp. HasCallStack => CT.TypeRepr tp -> a) -> a
 tyToReprCont t f = case (tyToRepr t) of
                  Some x -> f x
 
 
 tyListToCtx :: forall a.
+                HasCallStack =>
                 [M.Ty]
                -> (forall ctx. CT.CtxRepr ctx -> a)
                -> a
@@ -182,7 +187,8 @@ packBase ctp ctx0 asgn k =
                 asgn'
 
 unfold_ctx_assgn
-    :: M.Ty
+    :: HasCallStack =>
+       M.Ty
     -> CT.CtxRepr ctx
     -> Ctx.Assignment (R.Atom s) ctx
     -> (forall ctx'. Some (R.Atom s) -> CT.CtxRepr ctx' -> Ctx.Assignment (R.Atom s) ctx' -> a)
@@ -191,7 +197,7 @@ unfold_ctx_assgn tp ctx asgn k =
     tyToReprCont tp $ \repr ->
         packBase repr ctx asgn k
 
-exp_to_assgn :: [MirExp s] -> (forall ctx. CT.CtxRepr ctx -> Ctx.Assignment (R.Expr s) ctx -> a) -> a
+exp_to_assgn :: HasCallStack => [MirExp s] -> (forall ctx. CT.CtxRepr ctx -> Ctx.Assignment (R.Expr s) ctx -> a) -> a
 exp_to_assgn xs =
     go Ctx.empty Ctx.empty xs
         where go :: CT.CtxRepr ctx -> Ctx.Assignment (R.Expr s) ctx -> [MirExp s] -> (forall ctx'. CT.CtxRepr ctx' -> Ctx.Assignment (R.Expr s) ctx' -> a) -> a
@@ -205,13 +211,17 @@ exp_to_assgn xs =
 -- Expressions: variables and constants
 --
 
-transConstVal :: Some CT.TypeRepr -> M.ConstVal -> MirGenerator h s ret (MirExp s)
+transConstVal :: HasCallStack => Some CT.TypeRepr -> M.ConstVal -> MirGenerator h s ret (MirExp s)
 transConstVal (Some (CT.BVRepr w)) (M.ConstInt i) =
     return $ MirExp (CT.BVRepr w) (S.app $ E.BVLit w (fromInteger (M.fromIntegerLit i)))
 transConstVal (Some (CT.BoolRepr)) (M.ConstBool b) = return $ MirExp (CT.BoolRepr) (S.litExpr b)
-transConstVal (Some (CT.NatRepr)) (M.ConstInt i) = do
-    let n = fromInteger (M.fromIntegerLit i)
-    return $ MirExp CT.NatRepr (S.app $ E.NatLit n)
+transConstVal (Some (CT.NatRepr)) (M.ConstInt i) =
+    do let n = fromInteger (M.fromIntegerLit i)
+       return $ MirExp CT.NatRepr (S.app $ E.NatLit n)
+transConstVal (Some (CT.StringRepr)) (M.ConstStr str) =
+    do let t = Text.pack str
+       return $ MirExp CT.StringRepr (S.litExpr t)
+
 transConstVal tp cv = fail $ "fail or unimp constant: " ++ (show tp) ++ " " ++ (show cv)
 
 
@@ -290,6 +300,7 @@ transBinOp bop op1 op2 = do
             M.Sub -> return $ MirExp CT.NatRepr (S.app $ E.NatSub e1 e2)
             M.Mul -> return $ MirExp CT.NatRepr (S.app $ E.NatMul e1 e2)
             M.Ne -> return $ MirExp CT.BoolRepr (S.app $ E.Not $ S.app $ E.NatEq e1 e2)
+            _ -> fail "bad natural number binop"
 
       (_, _) -> fail $ "bad or unimplemented type: " ++ (show bop) ++ ", " ++ (show me1) ++ ", " ++ (show me2)
 
@@ -428,7 +439,7 @@ evalCast ck op ty = do
 
 -- Expressions: evaluation of Rvalues and Lvalues
 
-evalRval :: M.Rvalue -> MirGenerator h s ret (MirExp s)
+evalRval :: HasCallStack => M.Rvalue -> MirGenerator h s ret (MirExp s)
 evalRval (M.Use op) = evalOperand op
 evalRval (M.Repeat op size) = buildRepeat op size
 evalRval (M.Ref bk lv _) = evalLvalue lv
@@ -703,7 +714,7 @@ doReturn tr = do
 
 
 -- regular function calls: closure calls handled later
-doCall :: Text.Text -> [M.Operand] -> Maybe (M.Lvalue, M.BasicBlockInfo) -> MirGenerator h s ret a
+doCall :: HasCallStack => Text.Text -> [M.Operand] -> Maybe (M.Lvalue, M.BasicBlockInfo) -> MirGenerator h s ret a
 doCall funid cargs cdest = do
     hmap <- use handlemap
     case (Map.lookup funid hmap, cdest) of
@@ -721,7 +732,7 @@ doCall funid cargs cdest = do
 
       _ -> fail "bad dest"
 
-transTerminator :: M.Terminator -> CT.TypeRepr ret -> MirGenerator h s ret a
+transTerminator :: HasCallStack => M.Terminator -> CT.TypeRepr ret -> MirGenerator h s ret a
 transTerminator (M.Goto bbi) _ = jumpToBlock bbi
 transTerminator (M.SwitchInt swop swty svals stargs) _ | all isJust svals = do
     s <- evalOperand swop
@@ -739,18 +750,18 @@ transTerminator t tr = fail $ "unknown terminator: " ++ (show t)
 
 --- translation of toplevel glue ---
 
-tyToFreshReg :: M.Ty -> MirEnd h s ret (Some (R.Reg s))
+tyToFreshReg :: HasCallStack => M.Ty -> MirEnd h s ret (Some (R.Reg s))
 tyToFreshReg t = do
     tyToReprCont t $ \tp ->
         Some <$> G.newUnassignedReg' tp
 
-buildIdentMapRegs_ :: [(Text.Text, M.Ty)] -> MirEnd h s ret (VarMap s)
+buildIdentMapRegs_ :: HasCallStack => [(Text.Text, M.Ty)] -> MirEnd h s ret (VarMap s)
 buildIdentMapRegs_ pairs = foldM f Map.empty pairs
     where f map_ (varname, varty) = do
             r <- tyToFreshReg varty
             return $ Map.insert varname (Left r) map_
 
-buildIdentMapRegs :: forall h s ret. M.MirBody -> [M.Var] -> MirEnd h s ret (VarMap s)
+buildIdentMapRegs :: forall h s ret. HasCallStack => M.MirBody -> [M.Var] -> MirEnd h s ret (VarMap s)
 buildIdentMapRegs (M.MirBody vars _) argvars =
     buildIdentMapRegs_ (map (\(M.Var name _ ty _) -> (name,ty)) (vars ++ argvars))
 
@@ -762,7 +773,7 @@ buildLabel (M.BasicBlock bi _) = do
     lab <- G.newLabel
     return (bi, lab)
 
-buildFnState :: M.MirBody -> [M.Var] -> MirEnd h s ret (FnState s)
+buildFnState :: HasCallStack => M.MirBody -> [M.Var] -> MirEnd h s ret (FnState s)
 buildFnState body argvars = do
     lm <- buildLabelMap body
     hm <- use handlemap
@@ -785,7 +796,7 @@ initFnState vars argsrepr args hmap =
 
 
 -- do the statements and then the terminator
-translateBlockBody :: CT.TypeRepr ret -> M.BasicBlockData -> MirGenerator h s ret ()
+translateBlockBody :: HasCallStack => CT.TypeRepr ret -> M.BasicBlockData -> MirGenerator h s ret ()
 translateBlockBody tr (M.BasicBlockData stmts terminator) = (mapM_ transStatement stmts) >> (transTerminator terminator tr)
 
 --
@@ -798,7 +809,7 @@ registerBlock tr (M.BasicBlock bbinfo bbdata)  = do
 
 
 -- processing of function body. here each argument is assumed to already be in the varmap
-genDefn' :: M.MirBody -> [M.Var] -> CT.TypeRepr ret -> MirGenerator h s ret (R.Expr s ret)
+genDefn' :: HasCallStack => M.MirBody -> [M.Var] -> CT.TypeRepr ret -> MirGenerator h s ret (R.Expr s ret)
 genDefn' body argvars rettype = do
     G.endNow $ \_ -> do
         (FnState a b c) <- buildFnState body argvars -- argvars are registers
@@ -813,11 +824,11 @@ genDefn' body argvars rettype = do
         mapM_ (registerBlock rettype) (enter : blocks)
 
 
-genDefn :: M.Fn -> CT.TypeRepr ret -> MirGenerator h s ret (R.Expr s ret)
+genDefn :: HasCallStack => M.Fn -> CT.TypeRepr ret -> MirGenerator h s ret (R.Expr s ret)
 genDefn (M.Fn fname fargs fretty fbody) retrepr = genDefn' fbody fargs retrepr
 
 
-mkHandleMap :: FH.HandleAllocator s -> [M.Fn] -> ST s (Map.Map Text.Text MirHandle)
+mkHandleMap :: HasCallStack => FH.HandleAllocator s -> [M.Fn] -> ST s (Map.Map Text.Text MirHandle)
 mkHandleMap halloc fns = Map.fromList <$> (mapM (mkHandle halloc) fns) where
     mkHandle :: FH.HandleAllocator s -> M.Fn -> ST s (Text.Text, MirHandle)
     mkHandle halloc (M.Fn fname fargs fretty fbody) =
@@ -835,7 +846,7 @@ mkHandleMap halloc fns = Map.fromList <$> (mapM (mkHandle halloc) fns) where
 -- transDefine: make CFG using genDefn (with type info coming from above), using initial state from initState; return (fname, CFG)
 
 
-transDefine :: Map.Map Text.Text MirHandle -> M.Fn -> ST h (Text.Text, Core.AnyCFG)
+transDefine :: HasCallStack => Map.Map Text.Text MirHandle -> M.Fn -> ST h (Text.Text, Core.AnyCFG)
 transDefine hmap fn =
     let (M.Fn fname fargs _ _) = fn in
         case (Map.lookup fname hmap) of
@@ -856,7 +867,7 @@ transDefine hmap fn =
 
 
 -- transCollection: initialize map of fn names to FnHandles.
-transCollection :: [M.Fn] -> FH.HandleAllocator s -> ST s (Map.Map Text.Text Core.AnyCFG)
+transCollection :: HasCallStack => [M.Fn] -> FH.HandleAllocator s -> ST s (Map.Map Text.Text Core.AnyCFG)
 transCollection fns halloc = do
     hmap <- mkHandleMap halloc fns
     pairs <- mapM (transDefine hmap) fns
@@ -903,7 +914,7 @@ myIfte e x y = do
     G.defineBlock t_id x
     G.defineBlock f_id y
 
-doCustomCall :: Text.Text -> [M.Operand] -> M.Lvalue -> M.BasicBlockInfo -> MirGenerator h s ret a
+doCustomCall :: HasCallStack => Text.Text -> [M.Operand] -> M.Lvalue -> M.BasicBlockInfo -> MirGenerator h s ret a
 doCustomCall fname ops lv dest
   | Just "boxnew" <- M.isCustomFunc fname,
   [op] <- ops =  do
