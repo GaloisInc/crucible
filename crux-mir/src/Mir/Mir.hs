@@ -253,7 +253,15 @@ instance FromJSON Var where
         <*>  v .: "ty"
         <*>  v .: "scope"
 
-type Collection = [Fn]
+data Collection = Collection {
+    functions :: [Fn],
+    adts :: [Adt]
+}
+
+instance FromJSON Collection where
+    parseJSON = withObject "Collection" $ \v -> Collection
+        <$>  v .: "fns"
+        <*> v .: "adts"
 
 data Fn = Fn {
     _fname :: Text,

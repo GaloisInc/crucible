@@ -59,6 +59,6 @@ loadMIR sc fp = do
     case c of
       Left msg -> fail $ "Decoding of MIR failed: " ++ msg
       Right coll -> do
-          let cfgmap_ = mirToCFG coll (Just (P.passMutRefArgs . P.passRemoveStorage . P.passRemoveBoxNullary))
+          let cfgmap_ = mirToCFG (functions coll) (Just (P.passMutRefArgs . P.passRemoveStorage . P.passRemoveBoxNullary))
           let cfgmap = M.fromList $ map (\(k,v) -> (cleanFnName k, v)) $ M.toList cfgmap_
           return $ RustModule cfgmap

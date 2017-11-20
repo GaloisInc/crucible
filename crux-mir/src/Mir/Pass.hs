@@ -61,7 +61,7 @@ ints_list i | i > 0 = (ints_list (i - 1)) ++ [i]
             | i < 0 = error "bad intslist"
 --
 
-type Pass = Collection -> Collection
+type Pass = [Fn] -> [Fn]
 
 passId :: Pass
 passId fns = fns
