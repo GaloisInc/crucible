@@ -539,7 +539,9 @@ storeRaw :: IsSymInterface sym
   -> IO (MemImpl sym PtrWidth)
 storeRaw sym mem ptr valType val = do
     (p, heap') <- G.writeMem sym ptrWidth ptr valType (PE (truePred sym) val) (memImplHeap mem)
-    addAssertion sym p (AssertFailureSimError "Invalid memory store")
+    let errMsg = "Invalid memory store: address " ++ show (G.ppLLVMPtr ptr) ++
+                 " at type " ++ show (G.ppType valType)
+    addAssertion sym p (AssertFailureSimError errMsg)
     return mem{ memImplHeap = heap' }
 
 
@@ -552,10 +554,12 @@ doStore :: IsSymInterface sym
   -> IO (RegValue sym Mem)
 doStore sym mem ptr valType (AnyValue tpr val) = do
     --putStrLn "MEM STORE"
+    let errMsg = "Invalid memory store: address " ++ show (ppPtr ptr) ++
+                 " at type " ++ show (G.ppType valType)
     val' <- packMemValue sym valType tpr val
     ptr' <- translatePtr sym ptr
     (p, heap') <- G.writeMem sym ptrWidth ptr' valType (PE (truePred sym) val') (memImplHeap mem)
-    addAssertion sym p (AssertFailureSimError "Invalid memory store")
+    addAssertion sym p (AssertFailureSimError errMsg)
     return mem{ memImplHeap = heap' }
 
 memStore :: IntrinsicImpl p sym (EmptyCtx ::> Mem ::> LLVMPointerType ::> LLVMValTypeType ::> AnyType) Mem
@@ -803,11 +807,12 @@ doFree sym mem ptr = do
          Just i  -> Map.delete (toInteger i) (memImplHandleMap mem)
          Nothing -> memImplHandleMap mem
 
+  let errMsg = "Invalid free (double free or invalid pointer): address " ++ show (ppPtr ptr)
+
   -- NB: free is defined and has no effect if passed a null pointer
   isNull <- ptrIsNull sym ptr
   c' <- orPred sym c isNull
-  addAssertion sym c'
-     (AssertFailureSimError "Invalid free (double free or invalid pointer)")
+  addAssertion sym c' (AssertFailureSimError errMsg)
   return mem{ memImplHeap = heap', memImplHandleMap = hMap' }
 
 doMemset
