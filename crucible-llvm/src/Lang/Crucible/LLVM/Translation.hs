@@ -2109,7 +2109,8 @@ generateStmts retType lab stmts = go (processDbgDeclare stmts)
                  generateInstr retType lab instr (\_ -> return ()) (go xs)
 
 -- | Search for calls to intrinsic 'llvm.dbg.declare' and copy the
--- metadata onto the corresponding 'alloca' statement.
+-- metadata onto the corresponding 'alloca' statement.  Also copy
+-- metadata backwards from 'bitcast' statements toward 'alloca'.
 processDbgDeclare :: [L.Stmt] -> [L.Stmt]
 processDbgDeclare = snd . go
   where
@@ -2123,11 +2124,19 @@ processDbgDeclare = snd . go
             Just md' -> (m, L.Result x instr (md' ++ md) : stmts')
             Nothing -> (m, stmt : stmts')
               --error $ "Identifier not found: " ++ show x ++ "\nPossible identifiers: " ++ show (Map.keys m)
+
+        L.Result x (L.Conv L.BitCast (L.Typed _ (L.ValIdent y)) _) md ->
+          let md' = md ++ fromMaybe [] (Map.lookup x m)
+              m'  = Map.alter (Just . maybe md' (md'++)) y m
+           in (m', stmt:stmts)
+
         L.Effect (L.Call _ _ (L.ValSymbol "llvm.dbg.declare") (L.Typed _ (L.ValMd (L.ValMdValue (L.Typed _ (L.ValIdent x)))) : _)) md ->
           (Map.insert x md m, stmt : stmts')
+
         -- This is needlessly fragile. Let's just ignore debug declarations we don't understand.
         -- L.Effect (L.Call _ _ (L.ValSymbol "llvm.dbg.declare") args) md ->
         --  error $ "Ill-formed arguments to llvm.dbg.declare: " ++ show (args, md)
+
         _ -> (m, stmt : stmts')
 
 setLocation
@@ -2140,6 +2149,11 @@ setLocation (("dbg",L.ValMdLoc dl):_) = do
        col  = fromIntegral $ L.dlCol dl
        file = Text.pack $ findFile $ L.dlScope dl
     in setPosition (SourcePos file ln col)
+setLocation (("dbg",L.ValMdDebugInfo (L.DebugInfoSubprogram subp)) :_)
+  | Just file' <- L.dispFile subp
+  = do let ln = fromIntegral $ L.dispLine subp
+       let file = Text.pack $ findFile file'
+       setPosition (SourcePos file ln 0)
 setLocation (_:xs) = setLocation xs
 
 findFile :: (?lc :: TyCtx.LLVMContext) => L.ValMd -> String
@@ -2190,6 +2204,7 @@ genDefn defn retType =
     ( L.BasicBlock{ L.bbLabel = Nothing } : _ ) -> fail $ unwords ["entry block has no label"]
     ( L.BasicBlock{ L.bbLabel = Just entry_lab } : _ ) -> do
       callPushFrame
+      setLocation $ Map.toList (L.defMetadata defn)
       endNow $ \_ -> do
         bim <- buildBlockInfoMap defn
         blockInfoMap .= bim
