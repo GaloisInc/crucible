@@ -301,9 +301,9 @@ allocGlobal :: IsSymInterface sym
             -> MemImpl sym PtrWidth
             -> (L.Symbol, G.Size)
             -> IO (MemImpl sym PtrWidth)
-allocGlobal sym mem (symbol, sz) = do
+allocGlobal sym mem (symbol@(L.Symbol sym_str), sz) = do
   sz' <- bvLit sym ptrWidth (G.bytesToInteger sz)
-  (ptr, mem') <- doMalloc sym mem sz'
+  (ptr, mem') <- doMalloc sym G.GlobalAlloc sym_str mem sz'
   return (registerGlobal mem' symbol ptr)
 
 -- | Add an entry to the 'GlobalMap' of the given 'MemImpl'.
@@ -711,7 +711,7 @@ doCalloc sym mem sz num = do
      (AssertFailureSimError "Multiplication overflow in calloc()")
 
   z <- bvLit sym knownNat 0
-  (ptr, mem') <- doMalloc sym mem sz'
+  (ptr, mem') <- doMalloc sym G.HeapAlloc "<calloc>" mem sz'
   mem'' <- doMemset sym ptrWidth mem' ptr z sz'
   return (ptr, mem'')
 
@@ -719,10 +719,12 @@ doCalloc sym mem sz num = do
 doMalloc
   :: IsSymInterface sym
   => sym
+  -> G.AllocType
+  -> String
   -> MemImpl sym PtrWidth
   -> RegValue sym (BVType PtrWidth)
   -> IO (RegValue sym LLVMPointerType, MemImpl sym PtrWidth)
-doMalloc sym mem sz = do
+doMalloc sym allocType loc mem sz = do
   --sz_doc <- printSymExpr sym sz
   --putStrLn $ unwords ["doMalloc", show nextBlock, show sz_doc]
 
@@ -730,7 +732,7 @@ doMalloc sym mem sz = do
   blk <- liftIO $ natLit sym (fromIntegral blkNum)
   z <- liftIO $ bvLit sym ptrWidth 0
 
-  let heap' = G.allocMem G.HeapAlloc (fromInteger blkNum) sz "<malloc>" (memImplHeap mem)
+  let heap' = G.allocMem allocType (fromInteger blkNum) sz loc (memImplHeap mem)
   let ptr = llvmPointer sym blk sz z
   return (ptr, mem{ memImplHeap = heap' })
 
@@ -753,15 +755,17 @@ mallocRaw sym mem sz = do
 doMallocHandle
   :: (Typeable a, IsSymInterface sym)
   => sym
+  -> G.AllocType
+  -> String
   -> MemImpl sym PtrWidth
   -> a
   -> IO (RegValue sym LLVMPointerType, MemImpl sym PtrWidth)
-doMallocHandle sym mem x = do
+doMallocHandle sym allocType loc mem x = do
   blkNum <- nextBlock (memImplBlockSource mem)
   blk <- liftIO $ natLit sym (fromIntegral blkNum)
   z <- liftIO $ bvLit sym ptrWidth 0
 
-  let heap' = G.allocMem G.HeapAlloc (fromInteger blkNum) z "<malloc>" (memImplHeap mem)
+  let heap' = G.allocMem allocType (fromInteger blkNum) z loc (memImplHeap mem)
   let hMap' = Map.insert blkNum (toDyn x) (memImplHandleMap mem)
   let ptr = llvmPointer sym blk z z
   return (ptr, mem{ memImplHeap = heap', memImplHandleMap = hMap' })

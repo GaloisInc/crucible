@@ -66,6 +66,7 @@ import           Lang.Crucible.LLVM.DataLayout
 import qualified Lang.Crucible.LLVM.LLVMContext as TyCtx
 import           Lang.Crucible.LLVM.MemModel
 import qualified Lang.Crucible.LLVM.MemModel.Common as G
+import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.Printf
 import           Lang.Crucible.LLVM.Translation.Types
 import           Lang.Crucible.Utils.MonadST
@@ -823,7 +824,7 @@ callMalloc sym memOps
            (regValue -> sz) = do
   --liftIO $ putStrLn "MEM MALLOC"
   mem <- readGlobal (llvmMemVar memOps)
-  (p, mem') <- liftIO $ doMalloc sym mem sz
+  (p, mem') <- liftIO $ doMalloc sym G.HeapAlloc "<malloc>" mem sz
   writeGlobal (llvmMemVar memOps) mem'
   return p
 

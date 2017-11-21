@@ -130,6 +130,7 @@ import           Lang.Crucible.LLVM.Intrinsics
 import qualified Lang.Crucible.LLVM.LLVMContext as TyCtx
 import           Lang.Crucible.LLVM.MemModel
 import qualified Lang.Crucible.LLVM.MemModel.Common as G
+import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.Translation.Types
 
 import           Lang.Crucible.ProgramLoc
@@ -2351,6 +2352,6 @@ allocLLVMHandleInfo :: IsSymInterface sym
                     -> MemImpl sym PtrWidth
                     -> (L.Symbol, LLVMHandleInfo)
                     -> IO (MemImpl sym PtrWidth)
-allocLLVMHandleInfo sym mem (symbol, LLVMHandleInfo _ h) =
-  do (ptr, mem') <- doMallocHandle sym mem (SomeFnHandle h)
+allocLLVMHandleInfo sym mem (symbol@(L.Symbol sym_str), LLVMHandleInfo _ h) =
+  do (ptr, mem') <- doMallocHandle sym G.GlobalAlloc sym_str mem (SomeFnHandle h)
      return (registerGlobal mem' symbol ptr)
