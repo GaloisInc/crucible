@@ -193,6 +193,16 @@ data Field = Field {_fName :: Text, _fty :: Ty, _fsubsts :: [Maybe Ty]}
 instance FromJSON Field where
     parseJSON = withObject "Field" $ \v -> Field <$> v .: "name" <*> v .: "ty" <*> v .: "substs"
 
+
+isMutRefTy :: Ty -> Bool
+isMutRefTy (TyRef t m) = (m == Mut) ||  isMutRefTy t
+isMutRefTy (TySlice t) = isMutRefTy t
+isMutRefTy (TyArray t _) = isMutRefTy t
+isMutRefTy (TyTuple ts) = foldl (\acc t -> acc || isMutRefTy t) False ts
+isMutRefTy (TyCustom (BoxTy t)) = isMutRefTy t
+isMutRefTy _ = False
+
+
 data CustomTy =
        BoxTy Ty
       | VecTy Ty

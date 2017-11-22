@@ -1,6 +1,21 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
+
+-----------------------------------------------------------------------
+-- |
+-- Module           : Mir.Pass.CollapseRefs
+-- Description      : Rewriting pass for collapsing redundant reference moves
+-- Copyright        : (c) Galois, Inc 2017
+-- License          : BSD3
+-- Stability        : provisional
+--
+-- This module implements a MIR rewriting pass that eliminates move
+-- assignments of owened or reference values.  Such moves simply introduce
+-- new names for the previous values (while at the same time invalidating
+-- the old names for mutable or owned values).  We unwind these renamings
+-- so that statements instead refer the the originating value or reference.
+-----------------------------------------------------------------------
 module Mir.Pass.CollapseRefs
 ( passCollapseRefs
 ) where
@@ -12,7 +27,6 @@ import qualified Data.Map.Strict as Map
 import Data.List
 
 import Mir.Mir
-import Mir.Pass
 
 import GHC.Stack
 
@@ -22,7 +36,7 @@ mapTransClosure m = Map.map (\v -> mapIterate m v) m
                              Just g -> mapIterate m g
                              Nothing -> v
 
-passCollapseRefs :: HasCallStack => Pass
+passCollapseRefs :: HasCallStack => Collection -> Collection
 passCollapseRefs fns = map (\(Fn a b c (MirBody d blocks)) -> Fn a b c (MirBody d (pcr_ blocks))) fns
 
 pcr_ :: HasCallStack => [BasicBlock] -> [BasicBlock]

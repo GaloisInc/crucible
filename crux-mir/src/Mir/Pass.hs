@@ -4,7 +4,11 @@
 module Mir.Pass (
     Pass,
     passId,
-    isMutRefTy
+    passCollapseRefs,
+    passMutRefReturnStatic,
+    passRemoveBoxNullary,
+    passRemoveStorage,
+    passMutRefArgs
 ) where
 
 import Mir.Mir
@@ -13,28 +17,23 @@ import Data.List
 import Control.Lens hiding (op)
 import qualified Data.Text as T
 import qualified Data.Map.Strict as Map
---import System.IO.Unsafe
 
 import GHC.Stack
 
-import qualified Debug.Trace as Debug
-
+import Mir.Pass.CollapseRefs( passCollapseRefs )
+import Mir.Pass.MutRefReturnStatic( passMutRefReturnStatic )
+import Mir.Pass.RemoveBoxNullary( passRemoveBoxNullary )
+import Mir.Pass.RemoveStorage( passRemoveStorage )
+import Mir.Pass.RewriteMutRef( passRewriteMutRefArg )
 
 type Pass = Collection -> Collection
 
 passId :: Pass
 passId fns = fns
 
+passMutRefArgs :: HasCallStack => Pass
+passMutRefArgs = passRewriteMutRefArg . passCollapseRefs
 
-
-
-isMutRefTy :: Ty -> Bool
-isMutRefTy (TyRef t m) = (m == Mut) ||  isMutRefTy t
-isMutRefTy (TySlice t) = isMutRefTy t
-isMutRefTy (TyArray t _) = isMutRefTy t
-isMutRefTy (TyTuple ts) = foldl (\acc t -> acc || isMutRefTy t) False ts
-isMutRefTy (TyCustom (BoxTy t)) = isMutRefTy t
-isMutRefTy _ = False
 
 
 -- mir utitiles

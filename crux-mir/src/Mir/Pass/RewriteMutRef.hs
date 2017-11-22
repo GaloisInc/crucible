@@ -1,8 +1,21 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
+-----------------------------------------------------------------------
+-- |
+-- Module           : Mir.Pass.RewriteMutRef
+-- Description      : Rewriting pass for eliminating mutable reference arguments
+-- Copyright        : (c) Galois, Inc 2017
+-- License          : BSD3
+-- Stability        : provisional
+--
+-- This module implements a MIR rewriting pass that eliminates in/out
+-- argument passing via mutable references. Function definitions and
+-- call sites are rewriten to instead take owned values as arguments
+-- and return (possibly updated) owned values as return values.
+-----------------------------------------------------------------------
 module Mir.Pass.RewriteMutRef
-( passMutRefArgs
+( passRewriteMutRefArg
 ) where
  
 import Control.Lens hiding (op)
@@ -12,7 +25,6 @@ import qualified Data.Map.Strict as Map
 import Data.List
 
 import Mir.Mir
-import Mir.Pass
 import Mir.Pass.CollapseRefs
 
 import GHC.Stack
@@ -37,9 +49,6 @@ mutref_to_immut (Var vn vm vty vsc) = Var (T.pack $ (T.unpack vn) ++ "d") vm (ch
 changeTyToImmut :: Ty -> Ty
 changeTyToImmut (TyRef c _) =  (TyRef c Immut)
 changeTyToImmut t = t
-
-passMutRefArgs :: HasCallStack => Pass
-passMutRefArgs = passRewriteMutRefArg . passCollapseRefs
 
 -- Pass for rewriting mutref args to be returned outside; i.e., if I
 -- have a function f(x : T1, y : &mut T2, z : T3, w : &mut T4) -> T5,
@@ -311,5 +320,5 @@ rewriteMutRefArgFn = do
     processFnCalls
     extractFn
 
-passRewriteMutRefArg :: HasCallStack => Pass
+passRewriteMutRefArg :: HasCallStack => Collection -> Collection
 passRewriteMutRefArg fns = map (\fn -> evalState (rewriteMutRefArgFn) (buildRewriteSt fn fns)) fns

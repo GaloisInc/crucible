@@ -1,6 +1,18 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
+
+-----------------------------------------------------------------------
+-- |
+-- Module           : Mir.Pass.RemoveStorage
+-- Description      : Rewriting pass for removing Storage annotations
+-- Copyright        : (c) Galois, Inc 2017
+-- License          : BSD3
+-- Stability        : provisional
+--
+-- This module implements a MIR rewriting pass that eliminates calls
+-- to the `StorageLive` and `StorageDead` primtives.
+-----------------------------------------------------------------------
 module Mir.Pass.RemoveStorage
 ( passRemoveStorage
 ) where
@@ -12,12 +24,11 @@ import qualified Data.Map.Strict as Map
 import Data.List
 
 import Mir.Mir
-import Mir.Pass
 
 import GHC.Stack
 
 -- remove storageDead / storageAlive calls
-passRemoveStorage :: Pass
+passRemoveStorage :: Collection -> Collection
 passRemoveStorage fns = map (\(Fn a b c (MirBody d blocks)) -> Fn a b c (MirBody d (prs_ blocks))) fns
 
 prs_ :: [BasicBlock] -> [BasicBlock]
