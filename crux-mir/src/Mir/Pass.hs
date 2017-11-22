@@ -26,7 +26,7 @@ import Mir.Pass.RemoveBoxNullary( passRemoveBoxNullary )
 import Mir.Pass.RemoveStorage( passRemoveStorage )
 import Mir.Pass.RewriteMutRef( passRewriteMutRefArg )
 
-type Pass = Collection -> Collection
+type Pass = [Fn] -> [Fn]
 
 passId :: Pass
 passId fns = fns

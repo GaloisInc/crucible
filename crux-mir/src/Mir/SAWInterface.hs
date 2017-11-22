@@ -67,7 +67,7 @@ loadMIR sc fp = do
       Left msg -> fail $ "Decoding of MIR failed: " ++ msg
       Right coll -> do
           let passes = P.passMutRefArgs . P.passRemoveStorage . P.passRemoveBoxNullary
-          let coll' = passes coll
+          let coll' = passes (functions coll)
           mapM_ (putStrLn . pprint) coll'
           let cfgmap_ = mirToCFG coll Nothing
           let cfgmap = M.fromList $ map (\(k,v) -> (cleanFnName k, v)) $ M.toList cfgmap_
