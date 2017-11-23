@@ -39,6 +39,9 @@ module Lang.Crucible.CFG.Generator
   , withPosition
   , readGlobal
   , writeGlobal
+  , newRef
+  , readRef
+  , writeRef
   , newReg
   , newUnassignedReg
   , newUnassignedReg'
@@ -298,6 +301,22 @@ writeGlobal :: GlobalVar tp -> Expr s tp -> Generator h s t ret ()
 writeGlobal v e = do
   a <-  mkAtom e
   Generator $ addStmt $ WriteGlobal v a
+
+readRef :: Expr s (ReferenceType tp) -> Generator h s t ret (Expr s tp)
+readRef ref = do
+  r <- mkAtom ref
+  AtomExpr <$> freshAtom (ReadRef r)
+
+writeRef :: Expr s (ReferenceType tp) -> Expr s tp -> Generator h s t ret ()
+writeRef ref val = do
+  r <- mkAtom ref
+  v <- mkAtom val
+  Generator $ addStmt (WriteRef r v)
+
+newRef :: Expr s tp -> Generator h s t ret (Expr s (ReferenceType tp))
+newRef val = do
+  v <- mkAtom val
+  AtomExpr <$> freshAtom (NewRef v)
 
 -- | Produce a new virtual register without giving it an initial value.
 --   NOTE! If you fail to initialize this register with a subsequent
