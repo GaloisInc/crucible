@@ -21,6 +21,8 @@ import Control.Monad
 import Control.Monad.ST
 import Control.Lens hiding (op)
 import Data.Maybe
+import Data.Set (Set)
+import qualified Data.Set as Set
 import System.IO.Unsafe
 import qualified Data.Text as Text
 import qualified Lang.Crucible.CFG.Generator as G
@@ -53,8 +55,17 @@ import GHC.Stack
 --  HandleMap maps identifiers to their corresponding function handle
 --
 
+data VarInfo s tp where
+  VarRegister  :: R.Reg s tp -> VarInfo s tp
+  VarReference :: R.Reg s (CT.ReferenceType (CT.MaybeType tp)) -> VarInfo s tp
+  VarAtom      :: R.Atom s tp -> VarInfo s tp
 
-type VarMap s = Map.Map Text.Text (Either (Some (R.Reg s)) (Some (R.Atom s)))
+varInfoRepr :: VarInfo s tp -> CT.TypeRepr tp
+varInfoRepr (VarRegister reg) = R.typeOfReg reg
+varInfoRepr (VarReference reg) = case R.typeOfReg reg of CT.ReferenceRepr (CT.MaybeRepr tp) -> tp
+varInfoRepr (VarAtom a) = R.typeOfAtom a
+
+type VarMap s = Map.Map Text.Text (Some (VarInfo s))
 type LabelMap s = Map.Map M.BasicBlockInfo (R.Label s)
 data FnState s = FnState { _varmap :: !(VarMap s),
                            _labelmap :: !(LabelMap s),
@@ -84,7 +95,7 @@ data MirHandle where
     MirHandle :: CT.CtxRepr init -> CT.TypeRepr ret -> FH.FnHandle init ret -> MirHandle
 
 instance Show MirHandle where
-    show (MirHandle a b c) = unwords [show a, show b, show c]
+    show (MirHandle a b c) = show (a, b, c)
 
 -----------
 
@@ -137,7 +148,7 @@ tyToRepr t = case t of
                         M.TyUint M.B64 -> Some $ CT.BVRepr (knownNat :: NatRepr 64)
                         M.TyUint M.B128 -> Some $ CT.BVRepr (knownNat :: NatRepr 128)
                         M.TyRef t M.Immut -> tyToRepr t -- immutable references are erased!
-                        M.TyRef t M.Mut   -> tyToReprCont t $ \repr -> Some (CT.ReferenceRepr repr)
+                        M.TyRef t M.Mut   -> tyToReprCont t $ \repr -> Some (CT.ReferenceRepr (CT.MaybeRepr repr))
                         M.TyChar -> Some $ CT.BVRepr (knownNat :: NatRepr 32) -- rust chars are four bytes
                         M.TyCustom custom_t -> customtyToRepr custom_t
                         M.TyClosure def_id substs -> Some $ CT.AnyRepr
@@ -229,11 +240,22 @@ lookupVar :: M.Var -> MirGenerator h s ret (MirExp s)
 lookupVar (M.Var vname _ vty _) = do
     vm <- use varmap
     case (Map.lookup vname vm, tyToRepr vty) of
-      (Just (Left (Some reg)), Some vtr) -> case (CT.testEquality vtr (R.typeOfReg reg)) of
-                                       Just CT.Refl -> do {r <- G.readReg reg; return $ MirExp (R.typeOfReg reg) r }
-                                       _ -> fail "bad type"
-      (Just (Right (Some atom)), Some vtr) -> return $ MirExp (R.typeOfAtom atom) (R.AtomExpr atom)
-      _ -> error "register not found"
+      (Just (Some varinfo), Some vtr)
+        | Just CT.Refl <- CT.testEquality vtr (varInfoRepr varinfo) ->
+            case varinfo of
+              VarRegister reg ->
+                do r <- G.readReg reg
+                   return $ MirExp vtr r
+              VarReference reg ->
+                do r <- G.readRef =<< G.readReg reg
+                   let msg = "Attempted to read an uninitialized reference variable"
+                   r' <- G.assertedJustExpr r (S.litExpr msg)
+                   return $ MirExp vtr r'
+              VarAtom a ->
+                do return $ MirExp vtr (R.AtomExpr a)
+
+        | otherwise -> fail "bad type in lookupVar"
+      _ -> fail "register not found"
 
 -- The return var in the MIR output is always "_0"
 
@@ -241,9 +263,18 @@ lookupRetVar :: CT.TypeRepr ret -> MirGenerator h s ret (R.Expr s ret)
 lookupRetVar tr = do
     vm <- use varmap
     case (Map.lookup "_0" vm) of
-      Just (Left (Some reg)) -> case (CT.testEquality tr (R.typeOfReg reg)) of
-                           Just CT.Refl -> do {r <- G.readReg reg; return r}
-                           _ -> fail "bad type"
+      Just (Some varinfo)
+        | Just CT.Refl <- CT.testEquality tr (varInfoRepr varinfo) ->
+            case varinfo of
+              VarRegister reg ->
+                do G.readReg reg
+              VarReference reg ->
+                do r <- G.readRef =<< G.readReg reg
+                   let msg = "Attempted to read an uninitialized reference variable at return"
+                   G.assertedJustExpr r (S.litExpr msg)
+              VarAtom a ->
+                do return (R.AtomExpr a)
+
       _ -> fail "reg not found in retvar"
 
 
@@ -442,6 +473,20 @@ evalCast ck op ty = do
 evalRval :: HasCallStack => M.Rvalue -> MirGenerator h s ret (MirExp s)
 evalRval (M.Use op) = evalOperand op
 evalRval (M.Repeat op size) = buildRepeat op size
+evalRval (M.Ref bk lv _) =
+  case bk of
+    M.Shared  -> evalLvalue lv
+    M.Mutable ->
+      case lv of
+        M.Local (M.Var nm _ _ _) ->
+          do vm <- use varmap
+             case Map.lookup nm vm of
+               Just (Some (VarReference reg)) ->
+                 do r <- G.readReg reg
+                    return $ MirExp (R.typeOfReg reg) r
+               _ -> fail "Mutable reference-taken variable not backed by reference!"
+        _ -> fail "FIXME! evalRval, Ref for non-local lvars"
+    M.Unique  -> fail "FIXME! Unique reference not implemented"
 evalRval (M.Ref bk lv _) = evalLvalue lv
 evalRval (M.Len lv) = do
     (MirExp t e) <- evalLvalue lv
@@ -546,8 +591,15 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.Index i))) = do
           return $ MirExp elt_tp $  S.app $ E.VectorGetEntry elt_tp arr ind
       _ -> fail "Bad index"
 
--- because references are the same as values, deref just passes through
-evalLvalue (M.LProjection (M.LvalueProjection lv M.Deref)) = evalLvalue lv
+evalLvalue (M.LProjection (M.LvalueProjection lv M.Deref)) =
+   do MirExp ref_ty ref <- evalLvalue lv
+      case ref_ty of
+        CT.ReferenceRepr (CT.MaybeRepr tp) ->
+           do r <- G.readRef ref
+              let msg = "Attempted to read an uninitialized reference value"
+              r' <- G.assertedJustExpr r (S.litExpr msg)
+              return $ MirExp tp r'
+        _ -> fail $ unwords ["Expected reference value in dereference", show lv]
 
 -- downcast: extracting the injection from an ADT. This is done in rust after switching on the discriminant.
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.Downcast i))) = do
@@ -583,22 +635,35 @@ assignVarRvalue (M.Var vname _ _ _) rv = do
     vm <- use varmap
     (MirExp rv_ty rv_exp) <- evalRval rv
     case (Map.lookup vname vm) of
-      Just (Left (Some reg)) -> case (testEquality (R.typeOfReg reg) rv_ty) of
-                           Just Refl -> G.assignReg reg rv_exp
-                           _ -> fail $ "type error in assignment: got " ++ (show rv_ty) ++ " but expected " ++ (show (R.typeOfReg reg))
-      Just (Right _) -> fail "cannot assign to atom"
+      Just (Some varinfo)
+        | Just CT.Refl <- testEquality rv_ty (varInfoRepr varinfo) ->
+           case varinfo of
+             VarRegister reg ->
+                do G.assignReg reg rv_exp
+             VarReference reg ->
+                do r <- G.readReg reg
+                   G.writeRef r (S.app (E.JustValue rv_ty rv_exp))
+             VarAtom _ -> fail "cannot assign to atom"
       Nothing -> fail "register name not found"
 
 -- v := mirexp
 
-assignVarExp :: M.Var -> MirExp s -> MirGenerator h s ret ()
+assignVarExp :: HasCallStack => M.Var -> MirExp s -> MirGenerator h s ret ()
 assignVarExp (M.Var vname _ vty _) (MirExp e_ty e) = do
     vm <- use varmap
     case (Map.lookup vname vm) of
-      Just (Left (Some reg)) -> case (testEquality (R.typeOfReg reg) e_ty) of
-                           Just Refl -> G.assignReg reg e
-                           _ -> fail $ "type error in assignment: got " ++ (show e_ty) ++ " but expected " ++ (show (R.typeOfReg reg)) ++ " in assignment of " ++ (show vname) ++ "which has type " ++ (show vty) ++ " with exp " ++ (show e)
-      Just (Right _) -> fail "cannot assign to atom"
+      Just (Some varinfo)
+        | Just CT.Refl <- testEquality e_ty (varInfoRepr varinfo) ->
+            case varinfo of
+              VarRegister reg ->
+                do G.assignReg reg e
+              VarReference reg ->
+                do r <- G.readReg reg
+                   G.writeRef r (S.app (E.JustValue e_ty e))
+              VarAtom _ ->
+                do fail "Cannot assign to atom"
+        | otherwise ->
+            fail $ "type error in assignment: got " ++ (show e_ty) ++ " but expected " ++ (show (varInfoRepr varinfo)) ++ " in assignment of " ++ (show vname) ++ "which has type " ++ (show vty) ++ " with exp " ++ (show e)
       Nothing -> fail "register not found"
 
 -- lv := mirexp
@@ -643,15 +708,47 @@ assignLvExp lv re = do
                         Nothing -> fail "bad type in assign"
                   _ -> fail $ "bad type in assign"
         M.LProjection (M.LvalueProjection lv (M.Deref)) ->
-            assignLvExp lv re
+            do MirExp ref_tp ref <- evalLvalue lv
+               case (ref_tp, re) of
+                 (CT.ReferenceRepr (CT.MaybeRepr tp), MirExp tp' e)
+                   | Just CT.Refl <- testEquality tp tp' ->
+                        do G.writeRef ref (S.app (E.JustValue tp e))
+                 _ -> fail $ unwords ["Type mismatch when assigning through a reference", show lv, ":=", show re]
+
         _ -> fail $ "rest assign unimp: " ++ (show lv) ++ ", " ++ (show re)
 
+storageLive :: M.Lvalue -> MirGenerator h s ret ()
+storageLive (M.Local (M.Var nm _ _ _)) =
+  do vm <- use varmap
+     case Map.lookup nm vm of
+       Just (Some varinfo@(VarReference reg)) ->
+         do r <- G.newRef (S.app (E.NothingValue (varInfoRepr varinfo)))
+            G.assignReg reg r
+       _ -> return ()
+
+storageLive _ = return () -- FIXME!
+
+
+storageDead :: M.Lvalue -> MirGenerator h s ret ()
+storageDead (M.Local (M.Var nm _ _ _)) =
+  do vm <- use varmap
+     case Map.lookup nm vm of
+       Just (Some varinfo@(VarReference reg)) ->
+         do ref <- G.readReg reg
+            G.dropRef ref
+       _ -> return ()
+
+
 transStatement :: M.Statement -> MirGenerator h s ret ()
-transStatement (M.Assign lv rv) = do
-    re <- evalRval rv
-    assignLvExp lv re
+transStatement (M.Assign lv rv) =
+  do re <- evalRval rv
+     assignLvExp lv re
+transStatement (M.StorageLive lv) =
+  do storageLive lv
+transStatement (M.StorageDead lv) =
+  do storageDead lv
 transStatement (M.SetDiscriminant lv i) = fail "setdiscriminant unimp" -- this should just change the first component of the adt
-transStatement _ = return ()
+transStatement M.Nop = return ()
 
 transSwitch :: MirExp s -> -- thing switching over
     [Integer] -> -- switch comparisons
@@ -755,15 +852,35 @@ tyToFreshReg t = do
     tyToReprCont t $ \tp ->
         Some <$> G.newUnassignedReg' tp
 
-buildIdentMapRegs_ :: HasCallStack => [(Text.Text, M.Ty)] -> MirEnd h s ret (VarMap s)
-buildIdentMapRegs_ pairs = foldM f Map.empty pairs
-    where f map_ (varname, varty) = do
-            r <- tyToFreshReg varty
-            return $ Map.insert varname (Left r) map_
+
+buildIdentMapRegs_ :: HasCallStack => Set Text.Text -> [(Text.Text, M.Ty)] -> MirEnd h s ret (VarMap s)
+buildIdentMapRegs_ addressTakenVars pairs = foldM f Map.empty pairs
+  where
+  f map_ (varname, varty)
+    | varname `Set.member` addressTakenVars =
+        tyToReprCont varty $ \tp ->
+           do reg <- G.newUnassignedReg' (CT.ReferenceRepr (CT.MaybeRepr tp))
+              return $ Map.insert varname (Some (VarReference reg)) map_
+    | otherwise =
+        do Some r <- tyToFreshReg varty
+           return $ Map.insert varname (Some (VarRegister r)) map_
+
+addrTakenVars :: M.BasicBlock -> Set Text.Text
+addrTakenVars bb = mconcat (map f (M._bbstmts (M._bbdata bb)))
+ where
+ f (M.Assign _ (M.Ref M.Mutable lv _)) = g lv
+ f _ = mempty
+
+ g (M.Local (M.Var nm _ _ _)) = Set.singleton nm
+ g (M.LProjection (M.LvalueProjection lv _)) = g lv
+ g (M.Tagged lv _) = g lv
+ g _ = mempty
 
 buildIdentMapRegs :: forall h s ret. HasCallStack => M.MirBody -> [M.Var] -> MirEnd h s ret (VarMap s)
-buildIdentMapRegs (M.MirBody vars _) argvars =
-    buildIdentMapRegs_ (map (\(M.Var name _ ty _) -> (name,ty)) (vars ++ argvars))
+buildIdentMapRegs (M.MirBody vars blocks) argvars =
+    buildIdentMapRegs_ addressTakenVars (map (\(M.Var name _ ty _) -> (name,ty)) (vars ++ argvars))
+ where
+   addressTakenVars = mconcat (map addrTakenVars blocks)
 
 buildLabelMap :: forall h s ret. M.MirBody -> MirEnd h s ret (LabelMap s)
 buildLabelMap (M.MirBody _ blocks) = Map.fromList <$> (mapM buildLabel blocks)
@@ -789,10 +906,8 @@ initFnState vars argsrepr args hmap =
             | Ctx.null ctx = m
             | otherwise = error "wrong number of args"
           go ((name,ti):ts) ctx asgn m =
-            unfold_ctx_assgn ti ctx asgn $ \atom ctx' asgn' ->
-                 go ts ctx' asgn' (Map.insert name (Right atom) m)
-
-
+            unfold_ctx_assgn ti ctx asgn $ \(Some atom) ctx' asgn' ->
+                 go ts ctx' asgn' (Map.insert name (Some (VarAtom atom)) m)
 
 
 -- do the statements and then the terminator
@@ -861,10 +976,9 @@ transDefine hmap fn =
                       f = genDefn fn rettype
               (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos handle def
               case SSA.toSSA g of
-                Core.SomeCFG g_ssa -> return (fname, Core.AnyCFG g_ssa)
-
-
-
+                Core.SomeCFG g_ssa ->
+--                  Debug.trace (show g_ssa) $
+                  return (fname, Core.AnyCFG g_ssa)
 
 -- transCollection: initialize map of fn names to FnHandles.
 transCollection :: HasCallStack => [M.Fn] -> FH.HandleAllocator s -> ST s (Map.Map Text.Text Core.AnyCFG)
@@ -872,8 +986,6 @@ transCollection fns halloc = do
     hmap <- mkHandleMap halloc fns
     pairs <- mapM (transDefine hmap) fns
     return $ Map.fromList pairs
-
-
 
 
 --- Custom stuff
