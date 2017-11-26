@@ -412,7 +412,7 @@ instance FromJSON Lvalue where
                                               _ -> fail "kind not found"
 
 data Rvalue =
-    Use { _uop :: Operand }
+        Use { _uop :: Operand }
       | Repeat { _rop :: Operand, _rlen :: ConstUsize }
       | Ref { _rbk :: BorrowKind, _rvar :: Lvalue, _rregion :: Text }
       | Len { _lenvar :: Lvalue }
@@ -576,7 +576,7 @@ instance FromJSON Lvpelem where
                                                Just (String "Downcast") -> Downcast <$> v .: "variant"
 
 data NullOp =
-    SizeOf
+        SizeOf
       | Box
       deriving (Show,Eq)
 
@@ -589,7 +589,7 @@ instance FromJSON NullOp where
                                              Just (String "Box") -> pure Box
 
 data BorrowKind =
-    Shared
+        Shared
       | Unique
       | Mutable
       deriving (Show,Eq)

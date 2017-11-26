@@ -320,5 +320,5 @@ rewriteMutRefArgFn = do
     processFnCalls
     extractFn
 
-passRewriteMutRefArg :: HasCallStack => Collection -> Collection
+passRewriteMutRefArg :: HasCallStack => [Fn] -> [Fn]
 passRewriteMutRefArg fns = map (\fn -> evalState (rewriteMutRefArgFn) (buildRewriteSt fn fns)) fns

@@ -72,7 +72,7 @@ retrieve_static_mut_return (Fn fname fargs fretty (MirBody internals blocks)) =
     error "unimplemented" -- find most recent arg index assigned to return variable. the code is guaranteed to be straightline by now, so we can just iterate backwards through the blocks.
 
 
-passMutRefReturnStatic :: Collection -> Collection
+passMutRefReturnStatic :: [Fn] -> [Fn]
 passMutRefReturnStatic fns = map (\fn -> runReader (mrrs fn) (build_mrrs_st fns)) fns
 
 mrrs :: Fn -> Reader MrrsSt Fn

@@ -28,7 +28,7 @@ import Mir.Mir
 import GHC.Stack
 
 -- remove storageDead / storageAlive calls
-passRemoveStorage :: Collection -> Collection
+passRemoveStorage :: [Fn] -> [Fn]
 passRemoveStorage fns = map (\(Fn a b c (MirBody d blocks)) -> Fn a b c (MirBody d (prs_ blocks))) fns
 
 prs_ :: [BasicBlock] -> [BasicBlock]

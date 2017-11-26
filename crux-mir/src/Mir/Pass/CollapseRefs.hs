@@ -36,7 +36,7 @@ mapTransClosure m = Map.map (\v -> mapIterate m v) m
                              Just g -> mapIterate m g
                              Nothing -> v
 
-passCollapseRefs :: HasCallStack => Collection -> Collection
+passCollapseRefs :: HasCallStack => [Fn] -> [Fn]
 passCollapseRefs fns = map (\(Fn a b c (MirBody d blocks)) -> Fn a b c (MirBody d (pcr_ blocks))) fns
 
 pcr_ :: HasCallStack => [BasicBlock] -> [BasicBlock]
