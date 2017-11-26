@@ -102,6 +102,7 @@ stmtDiff stmt =
     NewRefCell {}    -> Ctx.knownDiff
     ReadRefCell {}   -> Ctx.knownDiff
     WriteRefCell {}  -> Ctx.knownDiff
+    DropRefCell {}   -> Ctx.knownDiff
     Assert {}        -> Ctx.knownDiff
 
 -- | This appends two @StmtSeq@, throwing away the @TermStmt@ from the first @StmtSeq@

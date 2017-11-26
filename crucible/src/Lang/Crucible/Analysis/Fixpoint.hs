@@ -248,7 +248,8 @@ transfer dom interp retRepr blk = transferSeq (_blockStmts blk)
 
         NewRefCell {} -> error "transferStmt: NewRefCell not supported"
         ReadRefCell {} -> error "transferStmt: ReadRefCell not supported"
-        WriteRefCell {} -> error "transferStmt: WriterRefCell not supported"
+        WriteRefCell {} -> error "transferStmt: WriteRefCell not supported"
+        DropRefCell {} -> error "transferStmt: DropRefCell not supported"
 
     transferTerm :: forall ctx'
                   . TermStmt blocks ret ctx'

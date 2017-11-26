@@ -687,6 +687,10 @@ resolveStmts nm bi sz reg_map bindings appMap (Posd p s0:rest) t = do
       C.ConsStmt pl
                  (C.WriteRefCell (resolveAtom reg_map r) (resolveAtom reg_map a))
                  (resolveStmts nm bi sz reg_map bindings appMap rest t)
+    DropRef r -> do
+      C.ConsStmt pl
+                 (C.DropRefCell (resolveAtom reg_map r))
+                 (resolveStmts nm bi sz reg_map bindings appMap rest t)
     DefineAtom a av -> do
       case av of
         ReadReg r -> do

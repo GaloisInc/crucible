@@ -551,25 +551,30 @@ loopCrucible' s_ref verb = do
           let v = evalReg s x
           r <- liftST (freshRefCell halloc tpr)
           continueCrucible s_ref verb $
-            s & stateTree . actFrame . gpGlobals %~ insertRef r v
+            s & stateTree . actFrame . gpGlobals %~ insertRef sym r v
               & stateCrucibleFrame %~ extendFrame (ReferenceRepr tpr) r rest
         ReadRefCell x -> do
           let ref = evalReg s x
-          case lookupRef ref (s^.stateTree^.actFrame^.gpGlobals) of
-            Just v ->
-              continueCrucible s_ref verb $
-                s & stateCrucibleFrame %~ extendFrame (refType ref) v rest
-            Nothing ->
-              fail "Attempted to read undefined reference cell"
+          let msg = ReadBeforeWriteSimError "Attempted to read uninitialized reference cell"
+          v <- readPartExpr sym (lookupRef ref (s^.stateTree^.actFrame^.gpGlobals)) msg
+          continueCrucible s_ref verb $
+             s & stateCrucibleFrame %~ extendFrame (refType ref) v rest
         WriteRefCell x y -> do
           let ref = evalReg s x
           let v   = evalReg s y
           continueCrucible s_ref verb $
-            s & stateTree . actFrame . gpGlobals %~ insertRef ref v
+            s & stateTree . actFrame . gpGlobals %~ insertRef sym ref v
+              & stateCrucibleFrame  . frameStmts .~ rest
+        DropRefCell x -> do
+          let ref = evalReg s x
+          continueCrucible s_ref verb $
+            s & stateTree . actFrame . gpGlobals %~ dropRef ref
               & stateCrucibleFrame  . frameStmts .~ rest
         ReadGlobal global_var -> do
           case lookupGlobal global_var (top_frame^.gpGlobals) of
-            Nothing -> fail $ "Attempt to read undefined global " ++ show global_var
+            Nothing ->
+              do let msg = ReadBeforeWriteSimError $ "Attempt to read undefined global " ++ show global_var
+                 addFailedAssertion sym msg
             Just v ->
               continueCrucible s_ref verb $
                 s & stateCrucibleFrame %~ extendFrame (globalType global_var) v rest

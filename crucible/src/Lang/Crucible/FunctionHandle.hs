@@ -134,6 +134,11 @@ freshRefCell :: HandleAllocator s
 freshRefCell ha tpr =
   RefCell tpr <$> freshNonce (haCounter ha)
 
+instance Show (RefCell tp) where
+  show (RefCell _ n) = show n
+
+instance ShowF RefCell where
+
 instance TestEquality RefCell where
   testEquality (RefCell _ x) (RefCell _ y) =
     case testEquality x y of

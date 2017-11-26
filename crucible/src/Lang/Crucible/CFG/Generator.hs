@@ -42,6 +42,7 @@ module Lang.Crucible.CFG.Generator
   , newRef
   , readRef
   , writeRef
+  , dropRef
   , newReg
   , newUnassignedReg
   , newUnassignedReg'
@@ -312,6 +313,11 @@ writeRef ref val = do
   r <- mkAtom ref
   v <- mkAtom val
   Generator $ addStmt (WriteRef r v)
+
+dropRef :: Expr s (ReferenceType tp) -> Generator h s t ret ()
+dropRef ref = do
+  r <- mkAtom ref
+  Generator $ addStmt (DropRef r)
 
 newRef :: Expr s tp -> Generator h s t ret (Expr s (ReferenceType tp))
 newRef val = do

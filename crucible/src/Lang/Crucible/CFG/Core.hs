@@ -313,6 +313,10 @@ data Stmt (ctx :: Ctx CrucibleType) (ctx' :: Ctx CrucibleType) where
                -> !(Reg ctx tp)
                -> Stmt ctx ctx
 
+  -- Deallocate the storage associated with a reference cell
+  DropRefCell  :: !(Reg ctx (ReferenceType tp))
+               -> Stmt ctx ctx
+
   -- Assert a boolean condition.  If the condition fails, print the given string.
   Assert :: !(Reg ctx BoolType) -> !(Reg ctx StringType) -> Stmt ctx ctx
 
@@ -436,7 +440,8 @@ applyEmbeddingStmt ctxe stmt =
                             (Ctx.extendEmbeddingBoth ctxe)
     ReadRefCell r     -> Pair (ReadRefCell (reg r))
                               (Ctx.extendEmbeddingBoth ctxe)
-    WriteRefCell r r' ->  Pair (WriteRefCell (reg r) (reg r')) ctxe
+    WriteRefCell r r' -> Pair (WriteRefCell (reg r) (reg r')) ctxe
+    DropRefCell r     -> Pair (DropRefCell (reg r)) ctxe
     Assert b str      -> Pair (Assert (reg b) (reg str)) ctxe
   where
     reg :: forall tp. Reg ctx tp -> Reg ctx' tp
@@ -531,6 +536,7 @@ nextStmtHeight h s =
     NewRefCell{} -> Ctx.incSize h
     ReadRefCell{} -> Ctx.incSize h
     WriteRefCell{} -> h
+    DropRefCell{}  -> h
     Assert{} -> h
 
 ppStmt :: Ctx.Size ctx -> Stmt ctx ctx' -> Doc
@@ -547,6 +553,7 @@ ppStmt r s =
     NewRefCell _ e -> ppReg r <+> text "=" <+> ppFn "newref" [ pretty e ]
     ReadRefCell e -> ppReg r <+> text "= !" <> pretty e
     WriteRefCell r1 r2 -> pretty r1 <+> text ":=" <+> pretty r2
+    DropRefCell r1 -> text "drop" <+> pretty r1
     Assert c e -> ppFn "assert" [ pretty c, pretty e]
 
 prefixLineNum :: Bool -> ProgramLoc -> Doc -> Doc

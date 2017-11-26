@@ -388,6 +388,7 @@ data Stmt s
    = forall tp . SetReg     !(Reg s tp)       !(Atom s tp)
    | forall tp . WriteGlobal  !(GlobalVar tp) !(Atom s tp)
    | forall tp . WriteRef !(Atom s (ReferenceType tp)) !(Atom s tp)
+   | forall tp . DropRef  !(Atom s (ReferenceType tp))
    | forall tp . DefineAtom !(Atom s tp)      !(AtomValue s tp)
    | Print      !(Atom s StringType)
      -- | Assert that the given expression is true.
@@ -399,6 +400,7 @@ instance Pretty (Stmt s) where
       SetReg r e     -> pretty r <+> text ":=" <+> pretty e
       WriteGlobal g r  -> text "global" <+> pretty g <+> text ":=" <+> pretty r
       WriteRef r v -> text "ref" <+> pretty r <+> text ":=" <+> pretty v
+      DropRef r    -> text "drop" <+> pretty r
       DefineAtom a v -> ppAtomBinding a v
       Print  v   -> text "print"  <+> pretty v
       Assert c m -> text "assert" <+> pretty c <+> pretty m
@@ -412,6 +414,7 @@ stmtAssignedValue s =
     DefineAtom a _ -> Just (Some (AtomValue a))
     WriteGlobal{} -> Nothing
     WriteRef{} -> Nothing
+    DropRef{} -> Nothing
     Print{} -> Nothing
     Assert{} -> Nothing
 
@@ -422,6 +425,7 @@ foldStmtInputs f s b =
     SetReg _ e     -> f (AtomValue e) b
     WriteGlobal _ a  -> f (AtomValue a) b
     WriteRef r a -> f (AtomValue r) (f (AtomValue a) b)
+    DropRef r    -> f (AtomValue r) b
     DefineAtom _ v -> foldAtomValueInputs f v b
     Print  e     -> f (AtomValue e) b
     Assert c m   -> f (AtomValue c) (f (AtomValue m) b)
