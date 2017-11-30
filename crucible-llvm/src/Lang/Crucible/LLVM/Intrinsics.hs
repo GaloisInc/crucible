@@ -78,7 +78,7 @@ llvmIntrinsicTypes =
 
 llvmIntrinsics :: HandleAllocator s
                -> DataLayout
-               -> ST s (LLVMMemOps, AnyFnBindings)
+               -> ST s (LLVMMemOps PtrWidth, AnyFnBindings)
 llvmIntrinsics halloc dl = do
   memOps <- newMemOps halloc dl
   let fns = AnyFnBindings (llvmMemIntrinsics memOps)
@@ -142,7 +142,7 @@ data LLVMContext
    = LLVMContext
    { -- | Map LLVM symbols to their associated state.
      _symbolMap  :: !SymbolHandleMap
-   , memModelOps :: !LLVMMemOps
+   , memModelOps :: !(LLVMMemOps PtrWidth)
    , llvmTypeCtx :: TyCtx.LLVMContext
    , llvmFnBindings :: AnyFnBindings
    }
@@ -174,7 +174,7 @@ data LLVMOverride p sym args ret =
   { llvmOverride_declare :: L.Declare
   , llvmOverride_def ::
        forall rtp args' ret'.
-         LLVMMemOps ->
+         LLVMMemOps PtrWidth ->
          sym ->
          Ctx.Assignment (RegEntry sym) args ->
          OverrideSim p sym rtp args' ret' (RegValue sym ret)
@@ -230,7 +230,7 @@ transformLLVMRet _sym ret ret'
 
 build_llvm_override ::
   IsSymInterface sym =>
-  LLVMMemOps ->
+  LLVMMemOps PtrWidth ->
   sym ->
   FunctionName ->
   CtxRepr args  -> TypeRepr ret ->
@@ -816,7 +816,7 @@ llvmPrintfOverride =
 callMalloc
   :: IsSymInterface sym
   => sym
-  -> LLVMMemOps
+  -> LLVMMemOps PtrWidth
   -> RegEntry sym (BVType PtrWidth)
   -> OverrideSim p sym r args ret (RegValue sym LLVMPointerType)
 callMalloc sym memOps
@@ -831,7 +831,7 @@ callMalloc sym memOps
 callCalloc
   :: IsSymInterface sym
   => sym
-  -> LLVMMemOps
+  -> LLVMMemOps PtrWidth
   -> RegEntry sym (BVType PtrWidth)
   -> RegEntry sym (BVType PtrWidth)
   -> OverrideSim p sym r args ret (RegValue sym LLVMPointerType)
@@ -848,7 +848,7 @@ callCalloc sym memOps
 callFree
   :: IsSymInterface sym
   => sym
-  -> LLVMMemOps
+  -> LLVMMemOps PtrWidth
   -> RegEntry sym LLVMPointerType
   -> OverrideSim p sym r args ret ()
 callFree sym memOps
@@ -862,7 +862,7 @@ callFree sym memOps
 callMemcpy
   :: IsSymInterface sym
   => sym
-  -> LLVMMemOps
+  -> LLVMMemOps PtrWidth
   -> RegEntry sym LLVMPointerType
   -> RegEntry sym LLVMPointerType
   -> RegEntry sym (BVType w)
@@ -888,7 +888,7 @@ callMemcpy sym memOps
 callMemmove
   :: IsSymInterface sym
   => sym
-  -> LLVMMemOps
+  -> LLVMMemOps PtrWidth
   -> RegEntry sym LLVMPointerType
   -> RegEntry sym LLVMPointerType
   -> RegEntry sym (BVType w)
@@ -909,7 +909,7 @@ callMemmove sym memOps
 callMemset
   :: IsSymInterface sym
   => sym
-  -> LLVMMemOps
+  -> LLVMMemOps PtrWidth
   -> RegEntry sym LLVMPointerType
   -> RegEntry sym (BVType 8)
   -> RegEntry sym (BVType w)
@@ -949,7 +949,7 @@ callMemset sym memOps
 callObjectsize
   :: (1 <= w, IsSymInterface sym)
   => sym
-  -> LLVMMemOps
+  -> LLVMMemOps PtrWidth
   -> NatRepr w
   -> RegEntry sym LLVMPointerType
   -> RegEntry sym (BVType 1)
@@ -970,7 +970,7 @@ callObjectsize sym _memOps w
 callPutChar
   :: IsSymInterface sym
   => sym
-  -> LLVMMemOps
+  -> LLVMMemOps PtrWidth
   -> RegEntry sym (BVType 32)
   -> OverrideSim p sym r args ret (RegValue sym (BVType 32))
 callPutChar _sym _memOps
@@ -984,7 +984,7 @@ callPutChar _sym _memOps
 callPuts
   :: IsSymInterface sym
   => sym
-  -> LLVMMemOps
+  -> LLVMMemOps PtrWidth
   -> RegEntry sym LLVMPointerType
   -> OverrideSim p sym r args ret (RegValue sym (BVType 32))
 callPuts sym memOps
@@ -1000,7 +1000,7 @@ callPuts sym memOps
 callPrintf
   :: IsSymInterface sym
   => sym
-  -> LLVMMemOps
+  -> LLVMMemOps PtrWidth
   -> RegEntry sym LLVMPointerType
   -> RegEntry sym (VectorType AnyType)
   -> OverrideSim p sym r args ret (RegValue sym (BVType 32))
