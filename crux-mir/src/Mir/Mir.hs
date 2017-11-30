@@ -33,6 +33,9 @@ pprint_fn2 fn a b = fn ++ "(" ++ (pprint a) ++ ", " ++ (pprint b) ++ ");"
 pprint_fn3 :: (PPrint a, PPrint b, PPrint c) => String -> a -> b -> c -> String
 pprint_fn3 fn a b c = fn ++ "(" ++ (pprint a) ++ ", " ++ (pprint b) ++ ", " ++ (pprint c) ++ ");"
 
+pprint_fn4 :: (PPrint a, PPrint b, PPrint c, PPrint d) => String -> a -> b -> c -> d -> String
+pprint_fn4 fn a b c d = fn ++ "(" ++ (pprint a) ++ ", " ++ (pprint b) ++ ", " ++ (pprint c) ++ ", " ++ (pprint d) ++ ");"
+
 instance PPrint a => PPrint (Maybe a) where
     pprint (Just a) = pprint a
     pprint Nothing = ""
@@ -157,10 +160,18 @@ data Adt = Adt {_adtname :: Text, _adtvariants :: [Variant]}
 instance FromJSON Adt where
     parseJSON = withObject "Adt" $ \v -> Adt <$> v .: "name" <*> v .: "variants"
 
+instance PPrint Adt where
+   pprint (Adt nm vs) = pprint_fn2 "Adt" nm vs
+
+
 data VariantDiscr
   = Explicit DefId
   | Relative Int
   deriving (Eq, Show)
+
+instance PPrint VariantDiscr where
+  pprint (Explicit a) = pprint_fn1 "Explicit" a
+  pprint (Relative a) = pprint_fn1 "Relative" a
 
 instance FromJSON VariantDiscr where
     parseJSON = withObject "VariantDiscr" $ \v -> case (HML.lookup "kind" v) of
@@ -181,8 +192,14 @@ instance FromJSON CtorKind where
                                                 Just (String "Fictive") -> pure FictiveKind
                                                 _ -> fail "unspported constructor kind"
 
+instance PPrint CtorKind where
+  pprint = show
+
 data Variant = Variant {_vname :: Text, _vdiscr :: VariantDiscr, _vfields :: [Field], _vctorkind :: CtorKind}
     deriving (Eq,Show)
+
+instance PPrint Variant where
+  pprint (Variant nm dscr flds knd) = pprint_fn4 "Variant" nm dscr flds knd
 
 instance FromJSON Variant where
     parseJSON = withObject "Variant" $ \v -> Variant <$> v .: "name" <*> v .: "discr" <*> v .: "fields" <*> v .: "ctor_kind"
@@ -190,12 +207,15 @@ instance FromJSON Variant where
 data Field = Field {_fName :: Text, _fty :: Ty, _fsubsts :: [Maybe Ty]}
     deriving (Show, Eq)
 
+instance PPrint Field where
+    pprint (Field nm ty sbs) = pprint_fn3 "Field" nm ty sbs
+
 instance FromJSON Field where
     parseJSON = withObject "Field" $ \v -> Field <$> v .: "name" <*> v .: "ty" <*> v .: "substs"
 
 
 isMutRefTy :: Ty -> Bool
-isMutRefTy (TyRef t m) = (m == Mut) ||  isMutRefTy t
+isMutRefTy (TyRef t m) = (m == Mut) || isMutRefTy t
 isMutRefTy (TySlice t) = isMutRefTy t
 isMutRefTy (TyArray t _) = isMutRefTy t
 isMutRefTy (TyTuple ts) = foldl (\acc t -> acc || isMutRefTy t) False ts
@@ -427,12 +447,21 @@ data Rvalue =
       | RCustom CustomAggregate
     deriving (Show,Eq)
 
+instance TypeOf Rvalue where
+  typeOf (Use a) = typeOf a
+  typeOf (Repeat a sz) = TyArray (typeOf a) (fromIntegral sz)
+  typeOf (Ref Shared lv _)  = TyRef (typeOf lv) Immut
+  typeOf (Ref Mutable lv _) = TyRef (typeOf lv) Mut
+  typeOf (Ref Unique lv _) = error "FIXME? type of Unique reference?"
+  typeOf (Len _) = TyUint USize
+  typeOf (Cast _ _ ty) = ty
+
 
 instance PPrint Rvalue where
     pprint (Use a) = pprint_fn1 "Use" a
     pprint (Repeat a b) = pprint_fn2 "Repeat" a b
-    pprint (Ref a b _) = pprint_fn2 "Ref" a b
-    pprint (Len a) = pprint_fn1 "Ref" a
+    pprint (Ref a b c) = pprint_fn3 "Ref" a b c
+    pprint (Len a) = pprint_fn1 "Len" a
     pprint (Cast a b c) = pprint_fn3 "Cast" a b c
     pprint (BinaryOp a b c) = pprint_fn3 "BinaryOp" a b c
     pprint (CheckedBinaryOp a b c) = pprint_fn3 "CheckedBinaryOp" a b c
@@ -440,6 +469,8 @@ instance PPrint Rvalue where
     pprint (UnaryOp a b) = pprint_fn2 "UnaryOp" a b
     pprint (Discriminant a) = pprint_fn1 "Discriminant" a
     pprint (Aggregate a b) = pprint_fn2 "Aggregate" a b
+    pprint (RAdtAg a) = pprint_fn1 "RAdtAg" a
+    pprint (RCustom a) = pprint_fn1 "RCustom" a
 
 instance FromJSON Rvalue where
     parseJSON = withObject "Rvalue" $ \v -> case (HML.lookup "kind" v) of
@@ -461,6 +492,9 @@ instance FromJSON Rvalue where
 
 data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand]}
     deriving (Show, Eq)
+
+instance PPrint AdtAg where
+  pprint (AdtAg adt i ops) = pprint_fn3 "AdtAg" adt i ops
 
 instance FromJSON AdtAg where
     parseJSON = withObject "AdtAg" $ \v -> AdtAg <$> v .: "adt" <*> v .: "variant" <*> v .: "ops"
