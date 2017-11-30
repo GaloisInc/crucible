@@ -125,9 +125,9 @@ pushBranchForType :: forall sym tp
               -> IO (RegValue sym tp)
 pushBranchForType s iTypes p =
   case p of
-    IntrinsicRepr nm ->
+    IntrinsicRepr nm ctx ->
        case MapF.lookup nm iTypes of
-         Just IntrinsicMuxFn -> pushBranchIntrinsic s nm
+         Just IntrinsicMuxFn -> pushBranchIntrinsic s nm ctx
          Nothing ->
            fail $ unwords ["Unknown intrinsic type:", show nm]
 
@@ -146,9 +146,9 @@ abortBranchForType :: forall sym tp
               -> IO (RegValue sym tp)
 abortBranchForType s iTypes p =
   case p of
-    IntrinsicRepr nm ->
+    IntrinsicRepr nm ctx ->
        case MapF.lookup nm iTypes of
-         Just IntrinsicMuxFn -> abortBranchIntrinsic s nm
+         Just IntrinsicMuxFn -> abortBranchIntrinsic s nm ctx
          Nothing ->
            fail $ unwords ["Unknown intrinsic type:", show nm]
 
@@ -204,9 +204,9 @@ muxRegForType s itefns p =
      MatlabSymbolicIntArrayRepr -> muxReg s p
      MatlabSymbolicUIntArrayRepr -> muxReg s p
      RecursiveRepr nm -> muxRecursive (muxRegForType s itefns) nm
-     IntrinsicRepr nm ->
+     IntrinsicRepr nm ctx ->
        case MapF.lookup nm itefns of
-         Just IntrinsicMuxFn -> muxIntrinsic s nm
+         Just IntrinsicMuxFn -> muxIntrinsic s nm ctx
          Nothing ->
            fail $ unwords ["Unknown intrinsic type:", show nm]
 

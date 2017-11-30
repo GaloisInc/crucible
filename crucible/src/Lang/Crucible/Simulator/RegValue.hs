@@ -93,7 +93,7 @@ type family RegValue (sym :: *) (tp :: CrucibleType) :: * where
   RegValue sym IntWidthType = IntWidth
   RegValue sym UIntWidthType = UIntWidth
   RegValue sym (RecursiveType nm) = RolledType sym nm
-  RegValue sym (IntrinsicType nm) = Intrinsic sym nm
+  RegValue sym (IntrinsicType nm ctx) = Intrinsic sym nm ctx
   RegValue sym (MultiDimArrayType tp) = MultiDimArray (RegValue sym tp)
   RegValue sym (SymbolicMultiDimArrayType bt) = SMDA.SymMultiDimArray (SymExpr sym) bt
   RegValue sym MatlabIntType = SomeInt sym
