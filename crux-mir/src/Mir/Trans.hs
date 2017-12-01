@@ -50,14 +50,8 @@ import GHC.TypeLits
 
 import GHC.Stack
 
--- Basic definitions.
---
---  Varmap maps identifiers to registers (if the id corresponds to a local variable), or an atom (if the id corresponds to a function argument)
---  LabelMap maps identifiers to labels of their corresponding basicblock
---  HandleMap maps identifiers to their corresponding function handle
---
-
 type MirReference tp = CT.ReferenceType (CT.MaybeType tp)
+
 type MirSlice tp     = CT.StructType (CT.EmptyCtx CT.::>
                            MirReference (CT.VectorType tp) CT.::>
                            CT.NatType CT.::>
@@ -75,6 +69,14 @@ pattern MirReferenceRepr :: () => tp' ~ MirReference tp => CT.TypeRepr tp -> CT.
 pattern MirReferenceRepr tp <- CT.ReferenceRepr (CT.MaybeRepr tp)
  where MirReferenceRepr tp = CT.ReferenceRepr (CT.MaybeRepr tp)
 
+-- Basic definitions.
+--
+
+
+--
+
+-- | Varmap maps identifiers to registers (if the id corresponds to a local variable), or an atom (if the id corresponds to a function argument)
+type VarMap s = Map.Map Text.Text (Some (VarInfo s))
 data VarInfo s tp where
   VarRegister  :: R.Reg s tp -> VarInfo s tp
   VarReference :: R.Reg s (MirReference tp) -> VarInfo s tp
@@ -88,11 +90,22 @@ varInfoRepr (VarReference reg) =
     _ -> error "impossible: varInfoRepr"
 varInfoRepr (VarAtom a) = R.typeOfAtom a
 
-type VarMap s = Map.Map Text.Text (Some (VarInfo s))
+
+-- | LabelMap maps identifiers to labels of their corresponding basicblock
 type LabelMap s = Map.Map M.BasicBlockInfo (R.Label s)
+
+-- | HandleMap maps identifiers to their corresponding function handle
+type HandleMap = Map.Map Text.Text MirHandle
+data MirHandle where
+    MirHandle :: CT.CtxRepr init -> CT.TypeRepr ret -> FH.FnHandle init ret -> MirHandle
+
+instance Show MirHandle where
+    show (MirHandle a b c) = show (a, b, c)
+
+-- | Generator state for MIR translation
 data FnState s = FnState { _varmap :: !(VarMap s),
                            _labelmap :: !(LabelMap s),
-                           _handlemap :: !(Map.Map Text.Text MirHandle) }
+                           _handlemap :: !HandleMap }
 
 varmap :: Simple Lens (FnState s) (VarMap s)
 varmap = lens _varmap (\s v -> s { _varmap = v})
@@ -100,29 +113,25 @@ varmap = lens _varmap (\s v -> s { _varmap = v})
 labelmap :: Simple Lens (FnState s) (LabelMap s)
 labelmap = lens _labelmap (\s v -> s { _labelmap = v})
 
-handlemap :: Simple Lens (FnState s) (Map.Map Text.Text MirHandle)
+handlemap :: Simple Lens (FnState s) HandleMap
 handlemap = lens _handlemap (\s v -> s { _handlemap = v})
 
 
 type MirGenerator h s ret = G.Generator h s (FnState) ret
 type MirEnd h s ret = G.End h s (FnState) ret
 
--- The main data type for values, bundling the term-lvel type tp along with a crucible expression of type tp.
+-- | The main data type for values, bundling the term-lvel type tp along with a crucible expression of type tp.
 data MirExp s where
     MirExp :: CT.TypeRepr tp -> R.Expr s tp -> MirExp s
 
 instance Show (MirExp s) where
     show (MirExp tr e) = (show e) ++ ": " ++ (show tr)
 
-data MirHandle where
-    MirHandle :: CT.CtxRepr init -> CT.TypeRepr ret -> FH.FnHandle init ret -> MirHandle
-
-instance Show MirHandle where
-    show (MirHandle a b c) = show (a, b, c)
 
 -----------
 
-fieldToRepr :: M.Field -> M.Ty -- convert field to type. Perform the corresponding subtitution if field is a type param.
+-- | Convert field to type. Perform the corresponding subtitution if field is a type param.
+fieldToRepr :: M.Field -> M.Ty
 fieldToRepr (M.Field _ t substs) =
     case t of
       M.TyParam i -> case substs !! (fromInteger i) of
@@ -153,31 +162,31 @@ taggedUnionType = CT.StructRepr $ Ctx.empty Ctx.%> CT.NatRepr Ctx.%> CT.AnyRepr
 
 tyToRepr :: HasCallStack => M.Ty -> Some CT.TypeRepr
 tyToRepr t = case t of
-                        M.TyBool -> Some CT.BoolRepr
-                        M.TyTuple ts ->  tyListToCtx ts $ \repr -> Some (CT.StructRepr repr)
-                        M.TyArray t _sz -> tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
-                        -- M.TyAdt a -> adtToRepr a
-                        M.TyInt M.USize -> Some $ CT.NatRepr
-                        M.TyInt M.B8 -> Some $ CT.BVRepr (knownNat :: NatRepr 8)
-                        M.TyInt M.B16 -> Some $ CT.BVRepr (knownNat :: NatRepr 16)
-                        M.TyInt M.B32 -> Some $ CT.BVRepr (knownNat :: NatRepr 32)
-                        M.TyInt M.B64 -> Some $ CT.BVRepr (knownNat :: NatRepr 64)
-                        M.TyInt M.B128 -> Some $ CT.BVRepr (knownNat :: NatRepr 128)
-                        M.TyUint M.USize -> Some $ CT.NatRepr
-                        M.TyUint M.B8 -> Some $ CT.BVRepr (knownNat :: NatRepr 8)
-                        M.TyUint M.B16 -> Some $ CT.BVRepr (knownNat :: NatRepr 16)
-                        M.TyUint M.B32 -> Some $ CT.BVRepr (knownNat :: NatRepr 32)
-                        M.TyUint M.B64 -> Some $ CT.BVRepr (knownNat :: NatRepr 64)
-                        M.TyUint M.B128 -> Some $ CT.BVRepr (knownNat :: NatRepr 128)
-                        M.TyRef (M.TySlice t) M.Immut -> tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
-                        M.TyRef (M.TySlice t) M.Mut   -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
-                        M.TyRef t M.Immut -> tyToRepr t -- immutable references are erased!
-                        M.TyRef t M.Mut   -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
-                        M.TyChar -> Some $ CT.BVRepr (knownNat :: NatRepr 32) -- rust chars are four bytes
-                        M.TyCustom custom_t -> customtyToRepr custom_t
-                        M.TyClosure def_id substs -> Some $ CT.AnyRepr
-                        M.TyStr -> Some $ CT.StringRepr
-                        _ -> error $ unwords ["unknown type?", show t]
+               M.TyBool -> Some CT.BoolRepr
+               M.TyTuple ts ->  tyListToCtx ts $ \repr -> Some (CT.StructRepr repr)
+               M.TyArray t _sz -> tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
+               M.TyInt M.USize -> Some $ CT.NatRepr
+               M.TyInt M.B8 -> Some $ CT.BVRepr (knownNat :: NatRepr 8)
+               M.TyInt M.B16 -> Some $ CT.BVRepr (knownNat :: NatRepr 16)
+               M.TyInt M.B32 -> Some $ CT.BVRepr (knownNat :: NatRepr 32)
+               M.TyInt M.B64 -> Some $ CT.BVRepr (knownNat :: NatRepr 64)
+               M.TyInt M.B128 -> Some $ CT.BVRepr (knownNat :: NatRepr 128)
+               M.TyUint M.USize -> Some $ CT.NatRepr
+               M.TyUint M.B8 -> Some $ CT.BVRepr (knownNat :: NatRepr 8)
+               M.TyUint M.B16 -> Some $ CT.BVRepr (knownNat :: NatRepr 16)
+               M.TyUint M.B32 -> Some $ CT.BVRepr (knownNat :: NatRepr 32)
+               M.TyUint M.B64 -> Some $ CT.BVRepr (knownNat :: NatRepr 64)
+               M.TyUint M.B128 -> Some $ CT.BVRepr (knownNat :: NatRepr 128)
+               M.TyRef (M.TySlice t) M.Immut -> tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
+               M.TyRef (M.TySlice t) M.Mut   -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
+               M.TyRef t M.Immut -> tyToRepr t -- immutable references are erased!
+               M.TyRef t M.Mut   -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
+               M.TyChar -> Some $ CT.BVRepr (knownNat :: NatRepr 32) -- rust chars are four bytes
+               M.TyCustom custom_t -> customtyToRepr custom_t
+               M.TyClosure def_id substs -> Some $ CT.AnyRepr
+               M.TyStr -> Some $ CT.StringRepr
+               -- M.TyAdt a -> adtToRepr a
+               _ -> error $ unwords ["unknown type?", show t]
 
 -- As in the CPS translation, functions which manipulate types must be in CPS form, since type tags are generally hidden underneath an existential.
 
@@ -447,6 +456,9 @@ modifyAggregateIdx (MirExp (CT.StructRepr agctx) ag) (MirExp instr ins) i
           Just Refl -> return $ MirExp (CT.StructRepr agctx) (S.setStruct agctx ag idx ins)
           _ -> fail "bad modify"
 
+modifyAggregateIdx (MirExp ty _) _ _ =
+  do fail ("modfiyAggregateIdx: Expected Crucible structure type, but got:" ++ show ty)
+
 
 -- casts
 
@@ -533,7 +545,6 @@ evalRval (M.Ref bk lv _) =
                _ -> fail "Mutable reference-taken variable not backed by reference!"
         _ -> fail "FIXME! evalRval, Ref for non-local lvars"
     M.Unique  -> fail "FIXME! Unique reference not implemented"
-evalRval (M.Ref bk lv _) = evalLvalue lv
 
 evalRval (M.Len lv) =
   case lv of
@@ -581,26 +592,31 @@ buildClosureHandle :: Text.Text -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 buildClosureHandle funid args = do
     hmap <- use handlemap
     case (Map.lookup funid hmap) of
-      (Just (MirHandle fargctx fretrepr fhandle)) -> do
+      Just (MirHandle fargctx fretrepr fhandle) -> do
           let closure_arg = buildTuple args
           let handle_cl = S.app $ E.HandleLit fhandle
               handle_cl_ty = CT.FunctionHandleRepr fargctx fretrepr
               handl = MirExp handle_cl_ty handle_cl
           let closure_unpack = buildTuple [handl, closure_arg]
           return $ packAny closure_unpack
+      _ ->
+       do fail ("buildClosureHandle: unknmown function: " ++ show funid)
 
 
 buildClosureType :: Text.Text -> [M.Ty] -> MirGenerator h s ret (Some (CT.TypeRepr)) -- get type of closure, in order to unpack the any
 buildClosureType defid args = do
     hmap <- use handlemap
     case (Map.lookup defid hmap) of
-      (Just (MirHandle fargctx fretrepr fhandle)) -> do
+      Just (MirHandle fargctx fretrepr fhandle) -> do
           -- build type StructRepr [HandleRepr, StructRepr [args types]]
           tyListToCtx args $ \argsctx -> do
               let argstruct = CT.StructRepr argsctx
                   handlerepr = CT.FunctionHandleRepr fargctx fretrepr
               reprsToCtx [Some handlerepr, Some argstruct] $ \t ->
                   return $ Some (CT.StructRepr t)
+      _ ->
+       do fail ("buildClosureType: unknmown function: " ++ show defid)
+
 
 unpackAny :: Some CT.TypeRepr -> MirExp s -> MirGenerator h s ret (MirExp s)
 unpackAny tr (MirExp e_tp e) =
@@ -823,8 +839,8 @@ storageLive (M.Local (M.Var nm _ _ _)) =
             G.assignReg reg r
        _ -> return ()
 
-storageLive _ = return () -- FIXME!
-
+storageLive lv =
+  do fail ("FIXME: unimplemented 'storageLive': " ++ M.pprint lv)
 
 storageDead :: M.Lvalue -> MirGenerator h s ret ()
 storageDead (M.Local (M.Var nm _ _ _)) =
@@ -834,6 +850,8 @@ storageDead (M.Local (M.Var nm _ _ _)) =
          do ref <- G.readReg reg
             G.dropRef ref
        _ -> return ()
+storageDead lv =
+  do fail ("FIXME: unimplement 'storageDead': " ++ M.pprint lv)
 
 
 transStatement :: HasCallStack => M.Statement -> MirGenerator h s ret ()
@@ -870,7 +888,6 @@ doBoolBranch e t f = do
       _ -> error "bad lookup on boolbranch"
 
 -- nat branch: branch by iterating through list
-
 doNatBranch :: R.Expr s CT.NatType -> [Integer] -> [M.BasicBlockInfo] -> MirGenerator h s ret a
 doNatBranch _ _ [i] = do
     lm <- use labelmap
@@ -886,6 +903,8 @@ doNatBranch e (v:vs) (i:is) = do
         G.endCurrentBlock $! R.Br test_a t_id f_id
         G.defineBlock t_id (jumpToBlock i)
         G.defineBlock f_id (doNatBranch e vs is)
+doNatBranch _ _ _ =
+    fail "doNatBranch: improper switch!"
 
 jumpToBlock :: M.BasicBlockInfo -> MirGenerator h s ret a
 jumpToBlock bbi = do
@@ -1100,6 +1119,7 @@ customtyToRepr :: M.CustomTy -> Some CT.TypeRepr
 customtyToRepr (M.BoxTy t) = tyToRepr t -- Box<T> is the same as T
 --customtyToRepr (M.VecTy t) = tyToRepr $ M.TySlice t -- Vec<T> is the same as [T]
 customtyToRepr (M.IterTy t) = tyToRepr $ M.TyTuple [M.TySlice t, M.TyUint M.USize] -- Iter<T> => ([T], nat). The second component is the current index into the array, beginning at zero.
+customtyToRepr ty = error ("FIXME: unimplement custom type: " ++ M.pprint ty)
 
 mkNone :: MirExp s
 mkNone =
@@ -1227,6 +1247,8 @@ doCustomCall fname ops lv dest
                             ret_e <- G.call handl asgn
                             assignLvExp lv Nothing (MirExp fretrepr ret_e)
                             jumpToBlock dest
+                          Nothing ->
+                            fail "type mismatch in call"
                    _ -> fail $ "bad handle type"
 
        _ -> fail "unexpected type in Fn::call!"

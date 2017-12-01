@@ -6,6 +6,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
 
+{-# OPTIONS_GHC -Wincomplete-patterns #-}
 module Mir.Mir where
 import Data.Aeson
 import qualified Data.HashMap.Lazy as HML
@@ -238,8 +239,7 @@ instance FromJSON CustomTy where
                                                 Just (String "Box") -> BoxTy <$> v .: "box_ty"
                                                 Just (String "Vec") -> VecTy <$> v .: "vec_ty"
                                                 Just (String "Iter") -> IterTy <$> v .: "iter_ty"
-                                                Just (String s) -> fail $ "bad custom: " ++ (unpack s)
-
+                                                x -> fail $ "bad custom type: " ++ show x
 
 data Mutability
   = Mut
@@ -255,7 +255,7 @@ instance FromJSON Mutability where
                                                 Just (String "Mut") -> pure Mut
                                                 Just (String "MutImmutable") -> pure Immut
                                                 Just (String "Not") -> pure Immut
-                                                Just (String s) -> fail $ "bad mutability: " ++ (unpack s)
+                                                x -> fail $ "bad mutability: " ++ show x
 
 data Var = Var {
     _varname :: Text,
@@ -389,22 +389,11 @@ instance FromJSON Statement where
                              Just (String "Nop") -> pure Nop
                              _ -> fail "kind not found for statement"
 instance TypeOf Lvalue where
-    typeOf (Tagged lv _) = typeOf lv
-    typeOf (Local (Var _ _ t _)) = t
-    typeOf Static = error "static"
-    typeOf (LProjection (LvalueProjection base (PField _ t))) = t
-    typeOf (LProjection (LvalueProjection base Deref)) = peelType $ typeOf base
-        where peelType :: Ty -> Ty
-              peelType (TyRef t _) = t
-              peelType t = t
-    typeOf (LProjection (LvalueProjection base (Index ind))) = peelType $ typeOf base
-        where peelType :: Ty -> Ty
-              peelType (TyArray t _) = t
-              peelType (TySlice t) = t
-              peelType (TyRef t _) = peelType t
-              peelType t = t
-
-    typeOf (LProjection (LvalueProjection base (Downcast i))) = typeOf base
+  typeOf lv = case lv of
+    Static              -> error "typeOf: static"
+    Tagged lv' _        -> typeOf lv'
+    Local (Var _ _ t _) -> t
+    LProjection proj    -> typeOf proj
 
 data Lvalue =
     Local { _lvar :: Var}
@@ -452,10 +441,11 @@ instance TypeOf Rvalue where
   typeOf (Repeat a sz) = TyArray (typeOf a) (fromIntegral sz)
   typeOf (Ref Shared lv _)  = TyRef (typeOf lv) Immut
   typeOf (Ref Mutable lv _) = TyRef (typeOf lv) Mut
-  typeOf (Ref Unique lv _) = error "FIXME? type of Unique reference?"
+  typeOf (Ref Unique lv _)  = error "FIXME? type of Unique reference?"
   typeOf (Len _) = TyUint USize
   typeOf (Cast _ _ ty) = ty
-
+  typeOf (NullaryOp _op ty) = ty
+  typeOf rv = error ("typeOf Rvalue unimplemented: " ++ pprint rv)
 
 instance PPrint Rvalue where
     pprint (Use a) = pprint_fn1 "Use" a
@@ -564,6 +554,7 @@ instance FromJSON Operand where
     parseJSON = withObject "Operand" $ \v -> case (HML.lookup "kind" v) of
                                                Just (String "Consume") -> Consume <$> v .: "data"
                                                Just (String "Constant") -> OpConstant <$> v .: "data"
+                                               x -> fail ("base operand: " ++ show x)
 
 data Constant = Constant { _conty :: Ty, _conliteral :: Literal } deriving (Show, Eq)
 instance TypeOf Constant where
@@ -582,6 +573,28 @@ instance PPrint LvalueProjection where
 
 instance FromJSON LvalueProjection where
     parseJSON = withObject "LvalueProjection" $ \v -> LvalueProjection <$> v .: "base" <*> v .: "data"
+
+
+instance TypeOf LvalueProjection where
+  typeOf (LvalueProjection base kind) =
+    case kind of
+      PField _ t      -> t
+      Deref           -> peelRef (typeOf base)
+      Index{}         -> peelIdx (typeOf base)
+      ConstantIndex{} -> peelIdx (typeOf base)
+      Downcast{}      -> typeOf base
+      Subslice{}      -> TySlice (peelIdx (typeOf base))
+
+   where
+   peelRef :: Ty -> Ty
+   peelRef (TyRef t _) = t
+   peelRef t = t
+
+   peelIdx :: Ty -> Ty
+   peelIdx (TyArray t _) = t
+   peelIdx (TySlice t)   = t
+   peelIdx (TyRef t m)   = TyRef (peelIdx t) m
+   peelIdx t             = t
 
 data Lvpelem =
     Deref
@@ -608,6 +621,7 @@ instance FromJSON Lvpelem where
                                                Just (String "ConstantIndex") -> ConstantIndex <$> v .: "offset" <*> v .: "min_length" <*> v .: "from_end"
                                                Just (String "Subslice") -> Subslice <$> v .: "from" <*> v .: "to"
                                                Just (String "Downcast") -> Downcast <$> v .: "variant"
+                                               x -> fail ("bad lvpelem: " ++ show x)
 
 data NullOp =
         SizeOf
@@ -621,6 +635,7 @@ instance FromJSON NullOp where
     parseJSON = withObject "NullOp" $ \v -> case (HML.lookup "kind" v) of
                                              Just (String "SizeOf") -> pure SizeOf
                                              Just (String "Box") -> pure Box
+                                             x -> fail ("bad nullOp: " ++ show x)
 
 data BorrowKind =
         Shared
@@ -636,6 +651,7 @@ instance FromJSON BorrowKind where
                                              Just (String "Shared") -> pure Shared
                                              Just (String "Unique") -> pure Unique
                                              Just (String "Mut") -> pure Mutable
+                                             x -> fail ("bad borrowKind: " ++ show x)
 data UnOp =
     Not
       | Neg
@@ -648,6 +664,7 @@ instance FromJSON UnOp where
     parseJSON = withObject "UnOp" $ \v -> case (HML.lookup "kind" v) of
                                              Just (String "Not") -> pure Not
                                              Just (String "Neg") -> pure Neg
+                                             x -> fail ("bad unOp: " ++ show x)
 
 data BinOp =
     Add
@@ -691,6 +708,7 @@ instance FromJSON BinOp where
                                              Just (String "Ge") -> pure Ge
                                              Just (String "Gt") -> pure Gt
                                              Just (String "Offset") -> pure Offset
+                                             x -> fail ("bad binop: " ++ show x)
 
 data CastKind =
     Misc
@@ -710,6 +728,7 @@ instance FromJSON CastKind where
                                                Just (String "ClosureFnPointer") -> pure ClosureFnPointer
                                                Just (String "UnsafeFnPointer") -> pure UnsafeFnPointer
                                                Just (String "Unsize") -> pure Unsize
+                                               x -> fail ("bad CastKind: " ++ show x)
 
 data Literal =
     Item DefId [Maybe Ty]
@@ -727,6 +746,7 @@ instance FromJSON Literal where
                                                Just (String "Item") -> Item <$> v .: "def_id" <*> v .: "substs"
                                                Just (String "Value") -> Value <$> v .: "value"
                                                Just (String "Promoted") -> LPromoted <$> v .: "index"
+                                               x -> fail ("bad Literal: " ++ show x)
 
 
 data IntLit
@@ -809,6 +829,8 @@ instance PPrint ConstVal where
         pcs = mconcat $ Data.List.intersperse ", " (Prelude.map pprint cs)
     pprint (ConstRepeat cv i) = "["++(pprint cv)++"; " ++ (show i) ++ "]"
     pprint (ConstFunction a b) = show a
+    pprint ConstStruct = "ConstStruct"
+
 
 instance FromJSON ConstVal where
     parseJSON = withObject "ConstVal" $ \v -> case (HML.lookup "kind" v) of
@@ -840,6 +862,7 @@ instance FromJSON AggregateKind where
                                                      Just (String "Tuple") -> pure AKTuple
                                                      Just (String "Closure") -> AKClosure <$> v .: "defid" <*> v .: "closuresubsts"
                                                      Just (String unk) -> fail $ "unimp: " ++ (unpack unk)
+                                                     x -> fail ("bad AggregateKind: " ++ show x)
 
 data CustomAggregate =
     CARange Ty Operand Operand -- depreciated but here in case something else needs to go here
@@ -851,6 +874,7 @@ instance PPrint CustomAggregate where
 instance FromJSON CustomAggregate where
     parseJSON = withObject "CustomAggregate" $ \v -> case (HML.lookup "kind" v) of
                                                        Just (String "Range") -> CARange <$> v .: "range_ty" <*> v .: "f1" <*> v .: "f2"
+                                                       x -> fail ("bad CustomAggregate: " ++ show x)
 
 instance PPrint Integer where
     pprint = show
