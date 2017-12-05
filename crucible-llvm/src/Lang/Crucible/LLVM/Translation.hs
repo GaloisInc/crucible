@@ -406,7 +406,7 @@ transTypedValue v = do
    transValue tp (L.typedValue v)
 
 -- | Translate an LLVM Value into an expression.
-transValue :: (?lc :: TyCtx.LLVMContext)
+transValue :: forall h s ret. (?lc :: TyCtx.LLVMContext)
            => MemType
            -> L.Value
            -> LLVMGenerator h s ret (LLVMExpr s Expr)
@@ -504,26 +504,29 @@ transValue _ (L.ValConstExpr cexp) =
       x' <- transTypedValue x
       y' <- transTypedValue y
       mty <- liftMemType (L.typedType x)
+
+      let constSelect :: (1 <= w) => NatRepr w -> Expr s (BVType w) -> Generator h s LLVMState ret (LLVMExpr s Expr)
+          constSelect w bv =
+                llvmTypeAsRepr mty $ \tpr -> do
+                   b_e <- mkAtom (App $ BVNonzero w bv)
+                   BaseExpr tpr <$> (endNow $ \c -> do
+                     r <- newUnassignedReg' tpr
+                     t_id <- newLabel
+                     f_id <- newLabel
+                     c_id <- newLambdaLabel' tpr
+
+                     endCurrentBlock (Br b_e t_id f_id)
+                     defineBlock t_id $ do
+                        doAssign (Some r) x'
+                        jumpToLambda c_id =<< readReg r
+                     defineBlock t_id $ do
+                        doAssign (Some r) y'
+                        jumpToLambda c_id =<< readReg r
+                     resume c_id c)
       case asScalar b' of
-        Scalar (BVRepr w) b'' ->
-          llvmTypeAsRepr mty $ \tpr -> do
-            b_e <- mkAtom (App $ BVNonzero w b'')
-            BaseExpr tpr <$> (endNow $ \c -> do
-              r <- newUnassignedReg' tpr
-              t_id <- newLabel
-              f_id <- newLabel
-              c_id <- newLambdaLabel' tpr
-
-              endCurrentBlock (Br b_e t_id f_id)
-              defineBlock t_id $ do
-                 doAssign (Some r) x'
-                 jumpToLambda c_id =<< readReg r
-              defineBlock t_id $ do
-                 doAssign (Some r) y'
-                 jumpToLambda c_id =<< readReg r
-              resume c_id c)
-
-        _ -> fail "expected boolean value in select expression"
+          Scalar (BVRepr w) bv -> constSelect w bv
+          Scalar LLVMPointerRepr ptr -> constSelect ptrWidth =<< pointerAsBitvectorExpr ptr
+          _ -> fail "expected boolean value in select expression"
 
     L.ConstBlockAddr _funSymbol _blockLabel ->
       reportError "'blockaddress' expressions not supported."
@@ -757,7 +760,7 @@ pointerAsBitvectorExpr ex =
 
 -- | Given an LLVM expression of vector type, select out the ith element.
 extractElt
-    :: (?lc :: TyCtx.LLVMContext)
+    :: forall h s ret. (?lc :: TyCtx.LLVMContext)
     => MemType    -- ^ type contained in the vector
     -> Integer   -- ^ size of the vector
     -> LLVMExpr s Expr -- ^ vector expression
@@ -775,10 +778,21 @@ extractElt ty n (ZeroExpr _) i   = do
    let ?err = fail
    zeroExpand ty  $ \tyr ex -> extractElt ty n (BaseExpr tyr ex) i
 extractElt _ n (VecExpr _ vs) i
-  | Scalar (BVRepr _) (App (BVLit _ idx)) <- asScalar i
-       = do if (fromInteger idx < Seq.length vs) && (fromInteger idx < n)
-              then return $ Seq.index vs (fromInteger idx)
-              else fail "invalid extractelement instruction (index out of bounds)"
+  | Scalar LLVMPointerRepr (App (RollRecursive _ (App (InjectVariant _ idx x)))) <- asScalar i
+  , Just Refl <- testEquality idx (Ctx.natIndex @0)
+  , App (BVLit _ x') <- x
+  = constantExtract x'
+
+  | Scalar (BVRepr _) (App (BVLit _ x)) <- asScalar i
+  = constantExtract x
+
+ where
+ constantExtract :: Integer -> LLVMGenerator h s ret (LLVMExpr s Expr)
+ constantExtract idx =
+    if (fromInteger idx < Seq.length vs) && (fromInteger idx < n)
+        then return $ Seq.index vs (fromInteger idx)
+        else fail "invalid extractelement instruction (index out of bounds)"
+
 extractElt ty n (VecExpr _ vs) i = do
    let ?err = fail
    llvmTypeAsRepr ty $ \tyr -> unpackVec tyr (toList vs) $
@@ -820,10 +834,20 @@ insertElt ty n (ZeroExpr _) a i   = do
   let ?err = fail
   zeroExpand ty  $ \tyr ex -> insertElt ty n (BaseExpr tyr ex) a i
 insertElt _ n (VecExpr ty vs) a i
-  | Scalar (BVRepr _) (App (BVLit _ idx)) <- asScalar i
-       = do if (fromInteger idx < Seq.length vs) && (fromInteger idx < n)
-              then return $ VecExpr ty $ Seq.adjust (\_ -> a) (fromIntegral idx) vs
-              else fail "invalid insertelement instruction (index out of bounds)"
+  | Scalar LLVMPointerRepr (App (RollRecursive _ (App (InjectVariant _ idx x)))) <- asScalar i
+  , Just Refl <- testEquality idx (Ctx.natIndex @0)
+  , App (BVLit _ x') <- x
+  = constantInsert x'
+
+  | Scalar (BVRepr _) (App (BVLit _ x)) <- asScalar i
+  = constantInsert x
+ where
+ constantInsert :: Integer -> LLVMGenerator h s ret (LLVMExpr s Expr)
+ constantInsert idx =
+     if (fromInteger idx < Seq.length vs) && (fromInteger idx < n)
+       then return $ VecExpr ty $ Seq.adjust (\_ -> a) (fromIntegral idx) vs
+       else fail "invalid insertelement instruction (index out of bounds)"
+
 insertElt ty n (VecExpr _ vs) a i = do
    let ?err = fail
    llvmTypeAsRepr ty $ \tyr -> unpackVec tyr (toList vs) $
@@ -1251,30 +1275,38 @@ translateConversion op x outty =
     L.UiToFp -> do
        outty' <- liftMemType outty
        x' <- transTypedValue x
+       let promoteToFp :: (1 <= w) => NatRepr w -> Expr s (BVType w) -> LLVMExpr s Expr
+           promoteToFp w bv = BaseExpr RealValRepr (App $ IntegerToReal $ App $ NatToInteger $ App $ BvToNat w bv)
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
+           (Scalar LLVMPointerRepr x'', RealValRepr) ->
+             promoteToFp ptrWidth <$> pointerAsBitvectorExpr x''
            (Scalar (BVRepr w) x'', RealValRepr) -> do
-             return $ BaseExpr RealValRepr
-                        (App $ IntegerToReal $ App $ NatToInteger $ App $ BvToNat w x'')
+             return $ promoteToFp w x''
 
            _ -> fail $ unwords ["Invalid uitofp:", show op, show x, show outty]
 
     L.SiToFp -> do
        outty' <- liftMemType outty
        x' <- transTypedValue x
+       let promoteToFp :: (1 <= w) => NatRepr w -> Expr s (BVType w) -> LLVMGenerator h s ret (LLVMExpr s Expr)
+           promoteToFp w bv =
+             do -- is the value negative?
+                t <- AtomExpr <$> mkAtom (App $ BVSlt w bv $ App $ BVLit w 0)
+                -- unsigned value of the bitvector as a real
+                v <- AtomExpr <$> mkAtom (App $ IntegerToReal $ App $ NatToInteger $ App $ BvToNat w bv)
+                -- MAXINT as a real
+                maxint <- AtomExpr <$> mkAtom (App $ RationalLit $ fromInteger $ maxUnsigned w)
+                -- z = if neg then (v - MAXINT) else v
+                let z = App $ RealIte t (App $ RealSub v maxint) v
+                return $ BaseExpr RealValRepr z
+
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
-           (Scalar (BVRepr w) x'', RealValRepr) -> do
-             -- is the value negative?
-             t <- AtomExpr <$> mkAtom (App $ BVSlt w x'' $ App $ BVLit w 0)
-             -- unsigned value of the bitvector as a real
-             v <- AtomExpr <$> mkAtom (App $ IntegerToReal $ App $ NatToInteger $ App $ BvToNat w x'')
-             -- MAXINT as a real
-             maxint <- AtomExpr <$> mkAtom (App $ RationalLit $ fromInteger $ maxUnsigned w)
-             -- z = if neg then (v - MAXINT) else v
-             let z = App $ RealIte t (App $ RealSub v maxint) v
-             return $ BaseExpr RealValRepr z
-
+           (Scalar LLVMPointerRepr x'', RealValRepr) ->
+             promoteToFp ptrWidth =<< pointerAsBitvectorExpr x''
+           (Scalar (BVRepr w) x'', RealValRepr) ->
+             promoteToFp w x''
            _ -> fail $ unwords ["Invalid uitofp:", show op, show x, show outty]
 
     L.FpToUi -> do
@@ -1918,7 +1950,7 @@ generateInstr retType lab instr assign_f k =
                    k
              _ -> fail $ unwords ["arithmetic comparison on incompatible values", show x, show y]
 
-    -- FIXME, reimplement the select operation using expression if/then/else rather than branching...
+    -- FIXME? reimplement the select operation using expression if/then/else rather than branching...
     L.Select c x y -> do
          c' <- transTypedValue c
          x' <- transTypedValue x
