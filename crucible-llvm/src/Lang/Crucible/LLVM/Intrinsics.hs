@@ -105,6 +105,8 @@ register_llvm_overrides = do
   register_llvm_override llvmObjectsizeOverride_32
   register_llvm_override llvmObjectsizeOverride_64
 
+  register_llvm_override llvmCtlz32
+
   -- C standard library functions
   register_llvm_override llvmAssertRtnOverride
 
@@ -629,6 +631,26 @@ llvmMemmoveOverride_8_8_64 =
   (\memOps sym args -> Ctx.uncurryAssignment (callMemmove sym memOps) args)
 
 
+llvmCtlz32
+  :: IsSymInterface sym
+  => LLVMOverride p sym (EmptyCtx ::> BVType 32 ::> BVType 1)
+                        (BVType 32)
+llvmCtlz32 =
+  let nm = "llvm.ctlz.i32" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType $ L.Integer 32
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PrimType $ L.Integer 32
+                     , L.PrimType $ L.Integer 1
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (\memOps sym args -> Ctx.uncurryAssignment (callCtlz sym memOps) args)
+
 llvmMemsetOverride_8_64
   :: IsSymInterface sym
   => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType
@@ -967,6 +989,32 @@ callObjectsize sym _memOps w
     n <- bvNotBits sym z -- NB: -1 is the boolean negation of zero
     bvIte sym t z n
 
+
+callCtlz
+  :: (1 <= w, IsSymInterface sym)
+  => sym
+  -> LLVMMemOps
+  -> RegEntry sym (BVType w)
+  -> RegEntry sym (BVType 1)
+  -> OverrideSim p sym r args ret (RegValue sym (BVType w))
+callCtlz sym _memOps
+  (regValue -> val)
+  (regValue -> isZeroUndef) = liftIO $
+    do isNonzero <- bvIsNonzero sym val
+       zeroOK    <- notPred sym =<< bvIsNonzero sym isZeroUndef
+       p <- orPred sym isNonzero zeroOK
+       addAssertion sym p (AssertFailureSimError "Ctlz called with disallowed zero value")
+       -- FIXME: implement CTLZ as a SimpleBuilder primitive
+       go (0 :: Integer)
+ where
+ w = bvWidth val
+ go i
+   | i < natValue w =
+       do c  <- testBitBV sym (natValue w - i - 1) val
+          i' <- bvLit sym w i
+          x  <- go $! (i+1)
+          bvIte sym c i' x
+   | otherwise = bvLit sym w (natValue w)
 
 callPutChar
   :: IsSymInterface sym
