@@ -112,7 +112,7 @@ data Ty =
       | TyFnDef DefId [Maybe Ty]
       | TyClosure DefId [Maybe Ty]
       | TyStr
-      | TyFnPtr -- TODO
+      | TyFnPtr FnSig
       | TyProjection -- TODO
       | TyDynamic DefId
       | TyRawPtr Ty Mutability
@@ -142,13 +142,19 @@ instance FromJSON Ty where
                                           Just (String "Param") -> TyParam <$> v .: "param"
                                           Just (String "Closure") -> TyClosure <$> v .: "defid" <*> v .: "closuresubsts"
                                           Just (String "Str") -> pure TyStr
-                                          Just (String "FnPtr") -> pure TyFnPtr -- TODO
+                                          Just (String "FnPtr") -> TyFnPtr <$> v .: "signature"
                                           Just (String "Projection") -> pure TyProjection -- TODO
                                           Just (String "Dynamic") -> TyDynamic <$> v .: "data"
                                           Just (String "RawPtr") -> TyRawPtr <$> v .: "ty" <*> v .: "mutability"
                                           Just (String "Float") -> TyFloat <$> v .: "size"
                                           r -> fail $ "unsupported ty: " ++ show r
 
+
+data FnSig = FnSig [Ty] Ty
+    deriving (Eq, Show)
+
+instance FromJSON FnSig where
+    parseJSON = withObject "FnSig" $ \v -> FnSig <$> v .: "inputs" <*> v .: "output"
 
 data Adt = Adt {_adtname :: Text, _adtvariants :: [Variant]}
     deriving (Eq, Show)
@@ -255,13 +261,15 @@ instance FromJSON Var where
 
 data Collection = Collection {
     functions :: [Fn],
-    adts :: [Adt]
+    adts :: [Adt],
+    traits :: [Trait]
 }
 
 instance FromJSON Collection where
     parseJSON = withObject "Collection" $ \v -> Collection
         <$>  v .: "fns"
         <*> v .: "adts"
+        <*> v .: "traits"
 
 data Fn = Fn {
     _fname :: Text,
@@ -817,6 +825,27 @@ type VisibilityScope = Text
 type AssertMessage = Text
 type ClosureSubsts = Text
 type BasicBlockInfo = Text
+
+data Trait =
+    Trait [TraitItem]
+    deriving (Eq, Show)
+
+instance FromJSON Trait where
+    parseJSON = withObject "Trait" $ \v -> Trait <$> v .: "items"
+
+data TraitItem
+    = TraitMethod Text FnSig
+    | TraitType Text
+    | TraitConst Text Ty
+    deriving (Eq, Show)
+
+instance FromJSON TraitItem where
+    parseJSON = withObject "TraitItem" $ \v ->
+                case (HML.lookup "kind" v) of
+                  Just (String "Method") -> TraitMethod <$> v .: "name" <*> v .: "signature"
+                  Just (String "Type") -> TraitType <$> v .: "name"
+                  Just (String "Const") -> TraitConst <$> v .: "name" <*> v .: "type"
+                  Just (String unk) -> fail $ "unknown trait item type: " ++ (unpack unk)
 
 --- aux functions ---
 --
