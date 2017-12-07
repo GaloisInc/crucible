@@ -288,7 +288,9 @@ data CrucibleType where
    -- Core crucible provides no operations on intrinsic types; they must be provided
    -- as built-in override functions.  See the `IntrinsicClass` typeclass
    -- and the `Intrinsic` type family defined in "Lang.Crucible.Simulator.Intrinsics".
-   IntrinsicType :: Symbol -> CrucibleType
+   --
+   -- The context of crucible types are type arguments to the intrinsic type.
+   IntrinsicType :: Symbol -> Ctx CrucibleType -> CrucibleType
 
    -- A multidimensional array of values.  These arrays are "external" arrays
    -- that exist only in the simulator.  Array dimensions are not tracked statically,
@@ -377,7 +379,7 @@ type RecursiveType = 'RecursiveType -- ^ @:: 'Symbol' -> 'CrucibleType'@.
 -- the 'Lang.Crucible.Simulator.Intrinsics.IntrinsicClass' typeclass
 -- and the 'Lang.Crucible.Simulator.Intrinsics.Intrinsic' type family
 -- defined in "Lang.Crucible.Simulator.Intrinsics".
-type IntrinsicType = 'IntrinsicType -- ^ @:: 'Symbol' -> 'CrucibleType'@.
+type IntrinsicType ctx = 'IntrinsicType ctx -- ^ @:: 'Symbol' -> 'Ctx CrucibleType' -> 'CrucibleType'@.
 
 -- | The type of mutable reference cells.
 type ReferenceType = 'ReferenceType -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
@@ -515,8 +517,9 @@ data TypeRepr (tp::CrucibleType) where
    RealValRepr :: TypeRepr RealValType
    ComplexRealRepr :: TypeRepr ComplexRealType
    BVRepr :: (1 <= n) => !(NatRepr n) -> TypeRepr (BVType n)
-   IntrinsicRepr :: SymbolRepr nm
-                 -> TypeRepr (IntrinsicType nm)
+   IntrinsicRepr :: !(SymbolRepr nm)
+                 -> !(CtxRepr TypeRepr ctx)
+                 -> TypeRepr (IntrinsicType nm ctx)
    RecursiveRepr :: IsRecursiveType nm
                  => SymbolRepr nm
                  -> TypeRepr (RecursiveType nm)

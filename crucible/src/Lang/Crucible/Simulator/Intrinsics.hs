@@ -19,21 +19,23 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 module Lang.Crucible.Simulator.Intrinsics
-  (     -- * Intrinsic types
+  ( -- * Intrinsic types
     IntrinsicClass(..)
   , IntrinsicMuxFn(..)
   , IntrinsicTypes
   ) where
 
+import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.SymbolRepr
 import qualified GHC.TypeLits
 
+import           Lang.Crucible.Types
 import           Lang.Crucible.Solver.BoolInterface
-
 
 -- | Type family for intrinsic type representations.  Intrinsic types
 --   are identified by a type-level `Symbol`, and this typeclass allows
@@ -54,7 +56,7 @@ import           Lang.Crucible.Solver.BoolInterface
 class IntrinsicClass (sym :: *) (nm :: GHC.TypeLits.Symbol) where
   -- | The `Intrinsic` type family defines, for a given backend and symbol name,
   --   the runtime implementation of that Crucible intrisnic type.
-  type Intrinsic (sym :: *) (nm :: GHC.TypeLits.Symbol) :: *
+  type Intrinsic (sym :: *) (nm :: GHC.TypeLits.Symbol) (ctx :: Ctx CrucibleType) :: *
 
   -- | The push branch function is called when an intrinsic value is
   --   passed through a symbolic branch.  This allows it to to any
@@ -64,27 +66,30 @@ class IntrinsicClass (sym :: *) (nm :: GHC.TypeLits.Symbol) where
   pushBranchIntrinsic
                :: sym
                -> SymbolRepr nm
-               -> Intrinsic sym nm
-               -> IO (Intrinsic sym nm)
-  pushBranchIntrinsic _ _ = return
+               -> CtxRepr TypeRepr ctx
+               -> Intrinsic sym nm ctx
+               -> IO (Intrinsic sym nm ctx)
+  pushBranchIntrinsic _ _ _ = return
 
   -- | The abort branch function is called when an intrinsic value
   --   reaches a merge point, but the sibling branch has aborted.
   abortBranchIntrinsic
                :: sym
                -> SymbolRepr nm
-               -> Intrinsic sym nm
-               -> IO (Intrinsic sym nm)
-  abortBranchIntrinsic _ _ = return
+               -> CtxRepr TypeRepr ctx
+               -> Intrinsic sym nm ctx
+               -> IO (Intrinsic sym nm ctx)
+  abortBranchIntrinsic _ _ _ = return
 
   -- | The `muxIntrinsic` method defines the if-then-else operation that is used
   --   when paths are merged in the simulator and intrinsic types need to be used.
   muxIntrinsic :: sym
                -> SymbolRepr nm
+               -> CtxRepr TypeRepr ctx
                -> Pred sym
-               -> Intrinsic sym nm
-               -> Intrinsic sym nm
-               -> IO (Intrinsic sym nm)
+               -> Intrinsic sym nm ctx
+               -> Intrinsic sym nm ctx
+               -> IO (Intrinsic sym nm ctx)
 
 
 -- | The `IntrinsicMuxFn` datatype allows an `IntrinsicClass` instance
