@@ -47,7 +47,7 @@ removeTags :: [Operand] -> [Operand]
 removeTags = map (\(Consume ( Tagged lv _)) -> Consume lv)
 
 isMutRefVar :: Var -> Bool
-isMutRefVar (Var _ _ t _) = isMutRefTy t
+isMutRefVar (Var _ _ t _ _) = isMutRefTy t
 
 changeTyToImmut :: Ty -> Ty
 changeTyToImmut (TyRef c _) =  (TyRef c Immut)
@@ -130,7 +130,7 @@ newDummyBlock prev_name bbd = do
 mkDummyInternal :: Ty -> State RewriteFnSt Var
 mkDummyInternal ty = do
     internals <- use fnInternals
-    let dummyvar = (Var "_dummyret" Immut ty "scopedum")
+    let dummyvar = (Var "_dummyret" Immut ty "scopedum" "<dummy pos>")
     fnInternals .= Map.insert "_dummyret" dummyvar internals
     return dummyvar
 
@@ -138,7 +138,7 @@ newInternal :: Ty -> State RewriteFnSt Var
 newInternal ty = do
     ctr <- newCtr
     let new_name = T.pack $ "_vd" ++ (show ctr)
-        new_var =  (Var new_name Immut ty "scopedum")
+        new_var =  (Var new_name Immut ty "scopedum" "<dummy pos>")
     internals <- use fnInternals
     fnInternals .= Map.insert new_name new_var internals
     return new_var
@@ -146,24 +146,24 @@ newInternal ty = do
 removeReturnVar :: [Var] -> [Var]
 removeReturnVar [] = []
 removeReturnVar (v:vs) = case v of
-                           (Var "_0" _ _ _) -> vs
+                           (Var "_0" _ _ _ _) -> vs
                            _ -> v : (removeReturnVar vs)
 
 findReturnVar :: [Var] -> Var
 findReturnVar [] = error "return var not found!"
 findReturnVar (v:vs) = case v of
-                         (Var "_0" _ _ _) -> v
+                         (Var "_0" _ _ _ _) -> v
                          _ -> findReturnVar vs
 
 modifyVarTy :: Var -> Ty -> Var
-modifyVarTy (Var a b c d) e = Var a b e d
+modifyVarTy (Var a b c d p) e = Var a b e d p
 
 
 vars_to_map :: [Var] -> Map.Map T.Text Var
 vars_to_map vs = Map.fromList $ map (\v -> (_varname v, v)) vs
 
 mutref_to_immut :: Var -> Var
-mutref_to_immut (Var vn vm vty vsc) = Var (T.pack $ (T.unpack vn) ++ "d") vm (changeTyToImmut vty) vsc
+mutref_to_immut (Var vn vm vty vsc vp) = Var (T.pack $ (T.unpack vn) ++ "d") vm (changeTyToImmut vty) vsc vp
 
 -- buildRewriteSt
 -- build initial rewrite state
@@ -196,7 +196,7 @@ modifyAssignEntryBlock = do
                         Just b -> b
                         Nothing -> error "entry block not found"
 
-        new_asgns = Map.elems $ Map.map (\(vmut, vimmut) -> Assign (Local vmut) (Use $ Consume $ Local vimmut)) mutpairs
+        new_asgns = Map.elems $ Map.map (\(vmut, vimmut) -> Assign (Local vmut) (Use $ Consume $ Local vimmut) "<dummy pos>") mutpairs
         new_bbd = BasicBlockData (new_asgns ++ entry_stmts) ei
     fnBlocks .= Map.insert (T.pack "bb0") new_bbd blocks
 
@@ -231,7 +231,7 @@ mkPreReturnAssgn = do
     let muts = Map.elems $ Map.map fst mutpairs
     Just dummyret <- use fnDummyRet
     let (Just retvar) = Map.lookup "_0" internals
-    return $ Assign (Local retvar) (Aggregate AKTuple $  [Consume (Local dummyret)] ++ (map (Consume . Local) muts))
+    return $ Assign (Local retvar) (Aggregate AKTuple $  [Consume (Local dummyret)] ++ (map (Consume . Local) muts)) "<dummy pos>"
 
 processReturnBlock_ :: BasicBlockData -> State RewriteFnSt BasicBlockData
 processReturnBlock_ (BasicBlockData stmts Return) = do
@@ -304,7 +304,8 @@ processFnCall_ bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_
          do_mutrefarg_trans bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean)) mut_cargs = do
             (v, (v0, vrest)) <- mkFnCallVars dest_lv $ map typeOf mut_cargs
             newb <- newDummyBlock bbi $ BasicBlockData
-                ([Assign dest_lv (Use $ Consume v0)] ++ (zipWith (\c v -> Assign (lValueofOp c) (Use $ Consume v)) mut_cargs vrest))
+                ([Assign dest_lv (Use $ Consume v0) "<dummy pos>"] ++
+                 (zipWith (\c v -> Assign (lValueofOp c) (Use $ Consume v) "<dummy pos>") mut_cargs vrest))
                 (Goto dest_block)
 
             blocks <- use fnBlocks
@@ -363,7 +364,7 @@ passRemoveBoxNullary fns = map (\(Fn a b c (MirBody d blocks)) -> Fn a b c (MirB
 removeBoxNullary :: BasicBlock -> BasicBlock
 removeBoxNullary (BasicBlock bbi (BasicBlockData stmts term)) =
     let stmts' = filter (\stmt -> case stmt of
-                Assign _ (NullaryOp Box _) -> False
+                Assign _ (NullaryOp Box _) _ -> False
                 _ -> True) stmts
     in BasicBlock bbi (BasicBlockData stmts' term)
 
@@ -384,7 +385,7 @@ registerStmt :: Statement -> State (Map.Map Lvalue Lvalue) ()
 registerStmt stmt = do
     refmap <- get
     case stmt of
-      Assign lv rv ->
+      Assign lv rv _ ->
           if (Map.notMember lv refmap) then
               case (typeOf lv) of
                   TyRef _ _ ->

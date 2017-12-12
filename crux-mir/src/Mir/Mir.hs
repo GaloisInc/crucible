@@ -236,17 +236,18 @@ data Var = Var {
     _varname :: Text,
     _varmut :: Mutability,
     _varty :: Ty,
-    _varscope :: VisibilityScope }
+    _varscope :: VisibilityScope,
+    _varpos :: String }
     deriving (Eq, Show)
 
 instance Ord Var where
-    compare (Var n _ _ _) (Var m _ _ _) = compare n m
+    compare (Var n _ _ _ _) (Var m _ _ _ _) = compare n m
 
 instance TypeOf Var where
-    typeOf (Var _ _ t _) = t
+    typeOf (Var _ _ t _ _) = t
 
 instance PPrint Var where
-    pprint (Var vn vm vty vs) = j ++ (unpack vn) ++ ": " ++ ( pprint vty)
+    pprint (Var vn vm vty vs _) = j ++ (unpack vn) ++ ": " ++ ( pprint vty)
         where
             j = case vm of
                   Mut -> "mut "
@@ -255,9 +256,10 @@ instance PPrint Var where
 instance FromJSON Var where
     parseJSON = withObject "Var" $ \v -> Var
         <$>  v .: "name"
-        <*> v .: "mut"
+        <*>  v .: "mut"
         <*>  v .: "ty"
         <*>  v .: "scope"
+        <*>  v .: "pos"
 
 data Collection = Collection {
     functions :: [Fn],
@@ -342,7 +344,8 @@ instance FromJSON BasicBlockData where
         <*>  v .: "terminator"
 
 data Statement =
-      Assign { _alhs :: Lvalue, _arhs :: Rvalue}
+      Assign { _alhs :: Lvalue, _arhs :: Rvalue, _apos :: String}
+      -- TODO: the rest of these variants also have positions
       | SetDiscriminant { _sdlv :: Lvalue, _sdvi :: Int }
       | StorageLive { _sllv :: Lvalue }
       | StorageDead { _sdlv :: Lvalue }
@@ -351,7 +354,7 @@ data Statement =
 
 
 instance PPrint Statement where
-    pprint (Assign lhs rhs) = (pprint lhs) ++ " = " ++ (pprint rhs) ++ ";"
+    pprint (Assign lhs rhs _) = (pprint lhs) ++ " = " ++ (pprint rhs) ++ ";"
     pprint (SetDiscriminant lhs rhs) = (pprint lhs) ++ " = " ++ (pprint rhs) ++ ";"
     pprint (StorageLive l) = pprint_fn1 "StorageLive" l
     pprint (StorageDead l) = pprint_fn1 "StorageDead" l
@@ -359,7 +362,7 @@ instance PPrint Statement where
 
 instance FromJSON Statement where
     parseJSON = withObject "Statement" $ \v -> case (HML.lookup "kind" v) of
-                             Just (String "Assign") ->  Assign <$> v.: "lhs" <*> v .: "rhs"
+                             Just (String "Assign") ->  Assign <$> v.: "lhs" <*> v .: "rhs" <*> v .: "pos"
                              Just (String "SetDiscriminant") -> SetDiscriminant <$> v .: "lvalue" <*> v .: "variant_index"
                              Just (String "StorageLive") -> StorageLive <$> v .: "slvar"
                              Just (String "StorageDead") -> StorageDead <$> v .: "sdvar"
@@ -367,7 +370,7 @@ instance FromJSON Statement where
                              _ -> fail "kind not found for statement"
 instance TypeOf Lvalue where
     typeOf (Tagged lv _) = typeOf lv
-    typeOf (Local (Var _ _ t _)) = t
+    typeOf (Local (Var _ _ t _ _)) = t
     typeOf Static = error "static"
     typeOf (LProjection (LvalueProjection base (PField _ t))) = t
     typeOf (LProjection (LvalueProjection base Deref)) = peelType $ typeOf base
@@ -861,7 +864,7 @@ instance ArithTyped Ty where
     arithType _ = Nothing
 
 instance ArithTyped Var where
-    arithType (Var _ _ ty _) = arithType ty
+    arithType (Var _ _ ty _ _) = arithType ty
 
 instance ArithTyped Lvalue where
     arithType (Local var) = arithType var
@@ -906,7 +909,7 @@ instance (Replace v Operand, Replace v Lvalue) => Replace v Terminator where
     replace old new t = t
 
 instance (Replace v Lvalue, Replace v Rvalue) => Replace v Statement where
-    replace old new (Assign lv rv) = Assign (replace old new lv) (replace old new rv)
+    replace old new (Assign lv rv p) = Assign (replace old new lv) (replace old new rv) p
     replace old new (SetDiscriminant lv i) = SetDiscriminant (replace old new lv) i
     replace old new (StorageLive l) = StorageLive (replace old new l)
     replace old new (StorageDead l) = StorageDead (replace old new l)

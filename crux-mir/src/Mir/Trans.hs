@@ -216,7 +216,7 @@ transConstVal tp cv = fail $ "fail or unimp constant: " ++ (show tp) ++ " " ++ (
 
 
 lookupVar :: M.Var -> MirGenerator h s ret (MirExp s)
-lookupVar (M.Var vname _ vty _) = do
+lookupVar (M.Var vname _ vty _ _) = do
     vm <- use varmap
     case (Map.lookup vname vm, tyToRepr vty) of
       (Just (Left (Some reg)), Some vtr) -> case (CT.testEquality vtr (R.typeOfReg reg)) of
@@ -568,7 +568,7 @@ evalLvalue lv = fail $ "unknown lvalue access: " ++ (show lv)
 -- v := rvalue
 --
 assignVarRvalue :: M.Var -> M.Rvalue -> MirGenerator h s ret ()
-assignVarRvalue (M.Var vname _ _ _) rv = do
+assignVarRvalue (M.Var vname _ _ _ _) rv = do
     vm <- use varmap
     (MirExp rv_ty rv_exp) <- evalRval rv
     case (Map.lookup vname vm) of
@@ -581,7 +581,7 @@ assignVarRvalue (M.Var vname _ _ _) rv = do
 -- v := mirexp
 
 assignVarExp :: M.Var -> MirExp s -> MirGenerator h s ret ()
-assignVarExp (M.Var vname _ vty _) (MirExp e_ty e) = do
+assignVarExp (M.Var vname _ vty _ _) (MirExp e_ty e) = do
     vm <- use varmap
     case (Map.lookup vname vm) of
       Just (Left (Some reg)) -> case (testEquality (R.typeOfReg reg) e_ty) of
@@ -636,7 +636,7 @@ assignLvExp lv re = do
         _ -> fail $ "rest assign unimp: " ++ (show lv) ++ ", " ++ (show re)
 
 transStatement :: M.Statement -> MirGenerator h s ret ()
-transStatement (M.Assign lv rv) = do
+transStatement (M.Assign lv rv _) = do
     re <- evalRval rv
     assignLvExp lv re
 transStatement (M.SetDiscriminant lv i) = fail "setdiscriminant unimp" -- this should just change the first component of the adt
@@ -728,7 +728,7 @@ transTerminator (M.SwitchInt swop swty svals stargs) _ | all isJust svals = do
     transSwitch s (catMaybes svals) stargs
 transTerminator (M.Return) tr = doReturn tr
 transTerminator (M.DropAndReplace dlv dop dtarg _) _ = do
-    transStatement (M.Assign dlv (M.Use dop))
+    transStatement (M.Assign dlv (M.Use dop) "<dummy pos>")
     jumpToBlock dtarg
 transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction funid funsubsts))))  cargs cretdest _) _ = doCall funid cargs cretdest  -- cleanup ignored
 transTerminator (M.Assert cond expected msg target cleanup) _ = jumpToBlock target -- asserts are ignored; is this the right thing to do? in a sense it is
@@ -752,7 +752,7 @@ buildIdentMapRegs_ pairs = foldM f Map.empty pairs
 
 buildIdentMapRegs :: forall h s ret. M.MirBody -> [M.Var] -> MirEnd h s ret (VarMap s)
 buildIdentMapRegs (M.MirBody vars _) argvars =
-    buildIdentMapRegs_ (map (\(M.Var name _ ty _) -> (name,ty)) (vars ++ argvars))
+    buildIdentMapRegs_ (map (\(M.Var name _ ty _ _) -> (name,ty)) (vars ++ argvars))
 
 buildLabelMap :: forall h s ret. M.MirBody -> MirEnd h s ret (LabelMap s)
 buildLabelMap (M.MirBody _ blocks) = Map.fromList <$> (mapM buildLabel blocks)
@@ -821,7 +821,7 @@ mkHandleMap :: FH.HandleAllocator s -> [M.Fn] -> ST s (Map.Map Text.Text MirHand
 mkHandleMap halloc fns = Map.fromList <$> (mapM (mkHandle halloc) fns) where
     mkHandle :: FH.HandleAllocator s -> M.Fn -> ST s (Text.Text, MirHandle)
     mkHandle halloc (M.Fn fname fargs fretty fbody) =
-        fnInfoToReprs (map (\(M.Var _ _ t _) -> t) fargs) fretty $ \argctx retrepr -> do
+        fnInfoToReprs (map (\(M.Var _ _ t _ _) -> t) fargs) fretty $ \argctx retrepr -> do
             h <- FH.mkHandle' halloc (FN.functionNameFromText fname) argctx retrepr
             let mh = MirHandle argctx retrepr h
             return (fname, mh)
@@ -841,7 +841,7 @@ transDefine hmap fn =
         case (Map.lookup fname hmap) of
           Nothing -> fail "bad handle!!"
           Just (MirHandle argctx retrepr (handle :: FH.FnHandle args ret)) -> do
-              let argtups = map (\(M.Var n _ t _) -> (n,t)) fargs
+              let argtups = map (\(M.Var n _ t _ _) -> (n,t)) fargs
               let argtypes = FH.handleArgTypes handle
               let rettype = FH.handleReturnType handle
               let def :: G.FunctionDef handle FnState args ret
