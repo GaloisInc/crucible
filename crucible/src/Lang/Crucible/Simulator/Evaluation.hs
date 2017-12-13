@@ -677,8 +677,8 @@ evalApp sym itefns logFn evalSub a0 = do
     ----------------------------------------------------------------------
     -- Recursive Types
 
-    RollRecursive _ e   -> RolledType <$> evalSub e
-    UnrollRecursive _ e -> unroll <$> evalSub e
+    RollRecursive _ _ e   -> RolledType <$> evalSub e
+    UnrollRecursive _ _ e -> unroll <$> evalSub e
 
     ----------------------------------------------------------------------
     -- Vector

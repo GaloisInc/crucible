@@ -64,7 +64,7 @@ data RegEntry sym tp = RegEntry { regType :: !(TypeRepr tp)
 
 -- | A set of registers in an execution frame.
 newtype RegMap sym (ctx :: Ctx CrucibleType)
-      = RegMap (Ctx.Assignment (RegEntry sym) ctx)
+      = RegMap { regMap :: Ctx.Assignment (RegEntry sym) ctx }
 
 regMapSize :: RegMap sym ctx -> Ctx.Size ctx
 regMapSize (RegMap s) = Ctx.size s
@@ -203,7 +203,7 @@ muxRegForType s itefns p =
      SymbolicStructRepr{}        -> structIte s
      MatlabSymbolicIntArrayRepr -> muxReg s p
      MatlabSymbolicUIntArrayRepr -> muxReg s p
-     RecursiveRepr nm -> muxRecursive (muxRegForType s itefns) nm
+     RecursiveRepr nm ctx -> muxRecursive (muxRegForType s itefns) nm ctx
      IntrinsicRepr nm ctx ->
        case MapF.lookup nm itefns of
          Just IntrinsicMuxFn -> muxIntrinsic s nm ctx

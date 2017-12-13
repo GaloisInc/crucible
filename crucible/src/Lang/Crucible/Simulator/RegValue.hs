@@ -92,7 +92,7 @@ type family RegValue (sym :: *) (tp :: CrucibleType) :: * where
   RegValue sym (WordMapType w tp) = WordMap sym w tp
   RegValue sym IntWidthType = IntWidth
   RegValue sym UIntWidthType = UIntWidth
-  RegValue sym (RecursiveType nm) = RolledType sym nm
+  RegValue sym (RecursiveType nm ctx) = RolledType sym nm ctx
   RegValue sym (IntrinsicType nm ctx) = Intrinsic sym nm ctx
   RegValue sym (MultiDimArrayType tp) = MultiDimArray (RegValue sym tp)
   RegValue sym (SymbolicMultiDimArrayType bt) = SMDA.SymMultiDimArray (SymExpr sym) bt
@@ -343,7 +343,7 @@ muxStringMap sym = \f c x y -> do
 ------------------------------------------------------------------------
 -- RegValue Recursive instance
 
-newtype RolledType sym nm = RolledType { unroll :: RegValue sym (UnrollType nm) }
+newtype RolledType sym nm ctx = RolledType { unroll :: RegValue sym (UnrollType nm ctx) }
 
 
 {-# INLINE muxRecursive #-}
@@ -351,9 +351,10 @@ muxRecursive
    :: IsRecursiveType nm
    => (forall tp. TypeRepr tp -> ValMuxFn sym tp)
    -> SymbolRepr nm
-   -> ValMuxFn sym (RecursiveType nm)
-muxRecursive recf = \nm p x y -> do
-   RolledType <$> recf (unrollType nm) p (unroll x) (unroll y)
+   -> CtxRepr ctx
+   -> ValMuxFn sym (RecursiveType nm ctx)
+muxRecursive recf = \nm ctx p x y -> do
+   RolledType <$> recf (unrollType nm ctx) p (unroll x) (unroll y)
 
 ------------------------------------------------------------------------
 -- RegValue Struct instance

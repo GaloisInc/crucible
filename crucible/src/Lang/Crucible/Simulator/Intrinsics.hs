@@ -27,12 +27,13 @@ module Lang.Crucible.Simulator.Intrinsics
     IntrinsicClass(..)
   , IntrinsicMuxFn(..)
   , IntrinsicTypes
+  , typeError
   ) where
 
-import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.SymbolRepr
 import qualified GHC.TypeLits
+import           GHC.Stack
 
 import           Lang.Crucible.Types
 import           Lang.Crucible.Solver.BoolInterface
@@ -66,7 +67,7 @@ class IntrinsicClass (sym :: *) (nm :: GHC.TypeLits.Symbol) where
   pushBranchIntrinsic
                :: sym
                -> SymbolRepr nm
-               -> CtxRepr TypeRepr ctx
+               -> CtxRepr ctx
                -> Intrinsic sym nm ctx
                -> IO (Intrinsic sym nm ctx)
   pushBranchIntrinsic _ _ _ = return
@@ -76,7 +77,7 @@ class IntrinsicClass (sym :: *) (nm :: GHC.TypeLits.Symbol) where
   abortBranchIntrinsic
                :: sym
                -> SymbolRepr nm
-               -> CtxRepr TypeRepr ctx
+               -> CtxRepr ctx
                -> Intrinsic sym nm ctx
                -> IO (Intrinsic sym nm ctx)
   abortBranchIntrinsic _ _ _ = return
@@ -85,7 +86,7 @@ class IntrinsicClass (sym :: *) (nm :: GHC.TypeLits.Symbol) where
   --   when paths are merged in the simulator and intrinsic types need to be used.
   muxIntrinsic :: sym
                -> SymbolRepr nm
-               -> CtxRepr TypeRepr ctx
+               -> CtxRepr ctx
                -> Pred sym
                -> Intrinsic sym nm ctx
                -> Intrinsic sym nm ctx
@@ -109,3 +110,13 @@ data IntrinsicMuxFn (sym :: *) (nm :: Symbol) where
 --    values.  Such a map is useful for providing access to intrinsic type implementations
 --   that are not known statically at compile time.
 type IntrinsicTypes sym = MapF.MapF SymbolRepr (IntrinsicMuxFn sym)
+
+
+-- | Utility function for reporting errors when improper Crucible type arguments
+--   are applied to an intrinsic type symbol.
+typeError :: HasCallStack => SymbolRepr nm -> CtxRepr ctx -> b
+typeError nm ctx =
+  error $ unlines [ "Panic! internal Crucible type error"
+                  , "Named type constructor '" ++ show nm ++ "' applied to incorrect arguments:"
+                  , show ctx
+                  ]

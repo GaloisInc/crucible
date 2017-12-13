@@ -29,8 +29,7 @@ module Lang.Crucible.MATLAB.Intrinsics.Solver
 import           Control.Monad (join)
 import           Data.Hashable
 import           Data.Parameterized.Classes
-import qualified Data.Parameterized.Context as Ctx
-import           Data.Parameterized.Ctx
+import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TH.GADT
 import           Data.Parameterized.TraversableFC
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -103,8 +102,8 @@ data MatlabSolverFn (f :: BaseType -> *) args ret where
 
   -- 'IndicesInRange tps upper_bounds' returns a predicate that is true if all the arguments
   -- (which must be natural numbers) are between 1 and the given upper bounds (inclusive).
-  IndicesInRange :: !(Ctx.Assignment OnlyNatRepr (idx ::> itp))
-                 -> !(Ctx.Assignment f (idx ::> itp))
+  IndicesInRange :: !(Assignment OnlyNatRepr (idx ::> itp))
+                 -> !(Assignment f (idx ::> itp))
                     -- Upper bounds on indices
                  -> MatlabSolverFn f (idx ::> itp) BaseBoolType
 
@@ -139,7 +138,7 @@ traverseMatlabSolverFn f fn_id =
     IsEqFn tp            -> pure $ IsEqFn tp
 
 -- | Get arg tpyes of solver fn.
-matlabSolverArgTypes :: MatlabSolverFn f args ret -> Ctx.Assignment BaseTypeRepr args
+matlabSolverArgTypes :: MatlabSolverFn f args ret -> Assignment BaseTypeRepr args
 matlabSolverArgTypes f =
   case f of
     IsIntegerFn          -> knownRepr
@@ -158,7 +157,7 @@ matlabSolverArgTypes f =
     NatSeqFn{}           -> knownRepr
     IndicesInRange tps _ -> fmapFC toBaseTypeRepr tps
     RealSeqFn _ _        -> knownRepr
-    IsEqFn tp            -> Ctx.empty Ctx.%> tp Ctx.%> tp
+    IsEqFn tp            -> Empty :> tp :> tp
 
 -- | Get return type of solver fn.
 matlabSolverReturnType :: MatlabSolverFn f args ret -> BaseTypeRepr ret
@@ -217,7 +216,7 @@ testSolverFnEq = $(structuralTypeEquality [t|MatlabSolverFn|]
                    , ( ConType [t|NatRepr|] `TypeApp` AnyType
                      , [|testEquality|]
                      )
-                   , ( ConType [t|Ctx.Assignment|] `TypeApp` AnyType `TypeApp` AnyType
+                   , ( ConType [t|Assignment|] `TypeApp` AnyType `TypeApp` AnyType
                      , [|testEquality|]
                      )
                    , ( ConType [t|BaseTypeRepr|] `TypeApp` AnyType
@@ -237,41 +236,41 @@ evalMatlabSolverFn :: forall sym args ret
                    .  IsExprBuilder sym
                    => MatlabSolverFn (SymExpr sym) args ret
                    -> sym
-                   -> Ctx.Assignment (SymExpr sym) args
+                   -> Assignment (SymExpr sym) args
                    -> IO (SymExpr sym ret)
 evalMatlabSolverFn f sym =
   case f of
-    IsIntegerFn      -> Ctx.uncurryAssignment $ isInteger sym
-    CplxIsRealFn     -> Ctx.uncurryAssignment $ isReal sym
-    NatLeFn          -> Ctx.uncurryAssignment $ natLe sym
-    IntLeFn          -> Ctx.uncurryAssignment $ intLe sym
-    BVToNatFn{}      -> Ctx.uncurryAssignment $ bvToNat sym
-    SBVToIntegerFn{} -> Ctx.uncurryAssignment $ sbvToInteger sym
-    NatToIntegerFn   -> Ctx.uncurryAssignment $ natToInteger sym
-    IntegerToNatFn   -> Ctx.uncurryAssignment $ integerToNat sym
-    IntegerToRealFn  -> Ctx.uncurryAssignment $ integerToReal sym
-    RealToIntegerFn  -> Ctx.uncurryAssignment $ realToInteger sym
-    RealToComplexFn  -> Ctx.uncurryAssignment $ cplxFromReal sym
-    RealPartOfCplxFn -> Ctx.uncurryAssignment $ getRealPart sym
-    PredToIntegerFn  -> Ctx.uncurryAssignment $ \p ->
+    IsIntegerFn      -> uncurryAssignment $ isInteger sym
+    CplxIsRealFn     -> uncurryAssignment $ isReal sym
+    NatLeFn          -> uncurryAssignment $ natLe sym
+    IntLeFn          -> uncurryAssignment $ intLe sym
+    BVToNatFn{}      -> uncurryAssignment $ bvToNat sym
+    SBVToIntegerFn{} -> uncurryAssignment $ sbvToInteger sym
+    NatToIntegerFn   -> uncurryAssignment $ natToInteger sym
+    IntegerToNatFn   -> uncurryAssignment $ integerToNat sym
+    IntegerToRealFn  -> uncurryAssignment $ integerToReal sym
+    RealToIntegerFn  -> uncurryAssignment $ realToInteger sym
+    RealToComplexFn  -> uncurryAssignment $ cplxFromReal sym
+    RealPartOfCplxFn -> uncurryAssignment $ getRealPart sym
+    PredToIntegerFn  -> uncurryAssignment $ \p ->
       iteM intIte sym p (intLit sym 1) (intLit sym 0)
-    NatSeqFn base inc   -> Ctx.uncurryAssignment $ \idx _ -> do
-      natAdd sym base =<< natMul sym inc idx
-    RealSeqFn base inc -> Ctx.uncurryAssignment $ \_ idx -> do
-      realAdd sym base =<< realMul sym inc =<< natToReal sym idx
+    NatSeqFn b inc   -> uncurryAssignment $ \idx _ -> do
+      natAdd sym b =<< natMul sym inc idx
+    RealSeqFn b inc -> uncurryAssignment $ \_ idx -> do
+      realAdd sym b =<< realMul sym inc =<< natToReal sym idx
     IndicesInRange tps0 bnds0 -> \args ->
         Ctx.forIndex (Ctx.size tps0) (g tps0 bnds0 args) (pure (truePred sym))
-      where g :: Ctx.Assignment OnlyNatRepr ctx
-              -> Ctx.Assignment (SymExpr sym) ctx
-              -> Ctx.Assignment (SymExpr sym) ctx
+      where g :: Assignment OnlyNatRepr ctx
+              -> Assignment (SymExpr sym) ctx
+              -> Assignment (SymExpr sym) ctx
               -> IO (Pred sym)
-              -> Ctx.Index ctx tp
+              -> Index ctx tp
               -> IO (Pred sym)
             g tps bnds args m i = do
               case tps Ctx.! i of
                 OnlyNatRepr -> do
-                  let v = args Ctx.! i
-                  let bnd = bnds Ctx.! i
+                  let v = args ! i
+                  let bnd = bnds ! i
                   one <- natLit sym 1
                   p <- join $ andPred sym <$> natLe sym one v <*> natLe sym v bnd
                   andPred sym p =<< m
