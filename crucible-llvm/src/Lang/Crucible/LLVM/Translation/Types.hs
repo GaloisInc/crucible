@@ -37,9 +37,8 @@ module Lang.Crucible.LLVM.Translation.Types
 , llvmRetTypeAsRepr
 , llvmDeclToFunHandleRepr
 , PtrWidth
-, ptrWidth
+, ptrWidth64
 , LLVMPointerType
-, llvmPointerRepr
 , pattern LLVMPointerRepr
 , declareFromDefine
 , allModuleDeclares
@@ -161,7 +160,7 @@ llvmTypeToRepr (ArrayType _ tp)  = [llvmTypeAsRepr tp (\t -> Some (VectorRepr t)
 llvmTypeToRepr (VecType _ tp)    = [llvmTypeAsRepr tp (\t-> Some (VectorRepr t))]
 llvmTypeToRepr (StructType si)   = [llvmTypesAsCtx tps (\ts -> Some (StructRepr ts))]
   where tps = map fiType $ toList $ siFields si
-llvmTypeToRepr (PtrType _)   = [Some LLVMPointerRepr]
+llvmTypeToRepr (PtrType _)   = [Some (LLVMPointerRepr ptrWidth64)]
 llvmTypeToRepr FloatType     = [Some RealValRepr]
 llvmTypeToRepr DoubleType    = [Some RealValRepr]
 --llvmTypeToRepr FloatType   = [Some (FloatRepr SingleFloatRepr)]
@@ -169,15 +168,11 @@ llvmTypeToRepr DoubleType    = [Some RealValRepr]
 llvmTypeToRepr MetadataType = []
 llvmTypeToRepr (IntType n) =
    case someNat (fromIntegral n) of
-      -- NB! Special case! All integer types that are the same width as pointers are
-      -- interpreted as pointer types!  The LLVMPointer Crucible type is a disjoint
-      -- union of raw bitvectors and actual pointers.
-      Just (Some w) | Just Refl <- testEquality w ptrWidth -> [Some LLVMPointerRepr]
-
-      Just (Some w) | Just LeqProof <- isPosNat w -> [Some (BVRepr w)]
-
+      Just (Some w) | Just LeqProof <- isPosNat w -> [Some (LLVMPointerRepr w)]
       _ -> error $ unwords ["invalid integer width",show n]
 
+-- | Compute the function Crucible function signature
+--   that corresponds to the given LLVM function declaration.
 llvmDeclToFunHandleRepr
    :: (?lc :: TyCtx.LLVMContext)
    => FunDecl

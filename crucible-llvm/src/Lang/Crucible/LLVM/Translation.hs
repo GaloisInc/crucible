@@ -75,6 +75,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -98,7 +99,7 @@ module Lang.Crucible.LLVM.Translation
   ) where
 
 import Control.Monad.State.Strict
-import Control.Lens hiding (op)
+import Control.Lens hiding (op, (:>) )
 import Control.Monad.ST
 import Data.Foldable (toList)
 import Data.Int
@@ -115,6 +116,7 @@ import qualified Data.Vector as V
 import qualified Text.LLVM.AST as L
 
 import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Context ( pattern (:>) )
 
 import Data.Parameterized.Some
 import Text.PrettyPrint.ANSI.Leijen (pretty)
@@ -442,19 +444,13 @@ transValue _ (L.ValIdent i) = do
 
 transValue (IntType w) (L.ValInteger i) =
   case someNat (fromIntegral w) of
-    -- Special case for integers of pointer width!
-    Just (Some w') | Just Refl <- testEquality w' ptrWidth ->
-      return $ BaseExpr LLVMPointerRepr $
-         bitvectorAsPointerExpr $
-         App $ BVLit ptrWidth i
     Just (Some w') | Just LeqProof <- isPosNat w' ->
-      return $ BaseExpr (BVRepr w') (App (BVLit w' i))
-
+      return $ BaseExpr (LLVMPointerRepr w') (BitvectorAsPointerExpr w' (App (BVLit w' i)))
     _ -> fail $ unwords ["invalid integer type", show w]
 
 transValue (IntType 1) (L.ValBool b) =
-  return $ BaseExpr (BVRepr (knownNat :: NatRepr 1))
-                    (App (BoolToBV knownNat (litExpr b)))
+  return $ BaseExpr (LLVMPointerRepr (knownNat :: NatRepr 1))
+                    (BitvectorAsPointerExpr knownRepr (App (BoolToBV knownNat (litExpr b))))
 
 transValue FloatType (L.ValFloat f) =
   return $ BaseExpr RealValRepr (App (RationalLit (toRational f)))
@@ -485,8 +481,8 @@ transValue _ (L.ValSymbol symbol) = do
      resolveGlobal <- litExpr . llvmResolveGlobal . memModelOps . llvmContext <$> get
      mem <- readGlobal memVar
      let symbol' = app $ ConcreteLit $ TypeableValue $ GlobalSymbol symbol
-     ptr <- call resolveGlobal (Ctx.empty Ctx.:> mem Ctx.:> symbol')
-     return (BaseExpr LLVMPointerRepr ptr)
+     ptr <- call resolveGlobal (Ctx.Empty :> mem :> symbol')
+     return (BaseExpr (LLVMPointerRepr ptrWidth64) ptr)
 
 transValue _ (L.ValConstExpr cexp) =
   case cexp of
@@ -498,7 +494,7 @@ transValue _ (L.ValConstExpr cexp) =
       base' <- transTypedValue base
       elts' <- mapM transTypedValue elts
       typ <- liftMemType (L.typedType base)
-      BaseExpr LLVMPointerRepr <$> calcGEP typ base' elts'
+      BaseExpr (LLVMPointerRepr ptrWidth64) <$> calcGEP typ base' elts'
     L.ConstSelect b x y -> do
       b' <- transTypedValue b
       x' <- transTypedValue x
@@ -524,8 +520,9 @@ transValue _ (L.ValConstExpr cexp) =
                         jumpToLambda c_id =<< readReg r
                      resume c_id c)
       case asScalar b' of
-          Scalar (BVRepr w) bv -> constSelect w bv
-          Scalar LLVMPointerRepr ptr -> constSelect ptrWidth =<< pointerAsBitvectorExpr ptr
+          Scalar (LLVMPointerRepr w) ptr
+            | Just Refl <- testEquality w ptrWidth64 ->
+                constSelect w =<< pointerAsBitvectorExpr w ptr
           _ -> fail "expected boolean value in select expression"
 
     L.ConstBlockAddr _funSymbol _blockLabel ->
@@ -601,14 +598,14 @@ unpackArgs :: forall s a
    => [LLVMExpr s Expr]
    -> (forall ctx. CtxRepr ctx -> Ctx.Assignment (Expr s) ctx -> a)
    -> a
-unpackArgs = go Ctx.empty Ctx.empty
+unpackArgs = go Ctx.Empty Ctx.Empty
  where go :: CtxRepr ctx
           -> Ctx.Assignment (Expr s) ctx
           -> [LLVMExpr s Expr]
           -> (forall ctx'. CtxRepr ctx' -> Ctx.Assignment (Expr s) ctx' -> a)
           -> a
        go ctx asgn [] k = k ctx asgn
-       go ctx asgn (v:vs) k = unpackOne v (\tyr ex -> go (ctx Ctx.:> tyr) (asgn Ctx.:> ex) vs k)
+       go ctx asgn (v:vs) k = unpackOne v (\tyr ex -> go (ctx :> tyr) (asgn :> ex) vs k)
 
 unpackOne
    :: (?lc :: TyCtx.LLVMContext, ?err :: String -> a)
@@ -645,14 +642,10 @@ zeroExpand :: forall s a
            -> a
 zeroExpand (IntType w) k =
   case someNat (fromIntegral w) of
-    -- Special case for integers of pointer width!
-    Just (Some w') | Just Refl <- testEquality w' ptrWidth ->
-      k LLVMPointerRepr $
-         bitvectorAsPointerExpr $
-         App $ BVLit ptrWidth 0
-
     Just (Some w') | Just LeqProof <- isPosNat w' ->
-      k (BVRepr w') (App (BVLit w' 0))
+      k (LLVMPointerRepr w') $
+         BitvectorAsPointerExpr w' $
+         App $ BVLit w' 0
 
     _ -> ?err $ unwords ["illegal integer size", show w]
 
@@ -663,7 +656,7 @@ zeroExpand (ArrayType n tp) k =
   llvmTypeAsRepr tp $ \tpr -> unpackVec tpr (replicate (fromIntegral n) (ZeroExpr tp)) $ k (VectorRepr tpr)
 zeroExpand (VecType n tp) k =
   llvmTypeAsRepr tp $ \tpr -> unpackVec tpr (replicate (fromIntegral n) (ZeroExpr tp)) $ k (VectorRepr tpr)
-zeroExpand (PtrType _tp) k = k LLVMPointerRepr nullPointer
+zeroExpand (PtrType _tp) k = k (LLVMPointerRepr ptrWidth64) nullPointer
 zeroExpand FloatType   k  = k RealValRepr (App (RationalLit 0))
 zeroExpand DoubleType  k  = k RealValRepr (App (RationalLit 0))
 zeroExpand MetadataType _ = ?err "Cannot zero expand metadata"
@@ -675,19 +668,16 @@ undefExpand :: (?lc :: TyCtx.LLVMContext, ?err :: String -> a)
 undefExpand (IntType w) k =
   case someNat (fromIntegral w) of
     -- Special case for integers of pointer width!
-    Just (Some w') | Just Refl <- testEquality w' ptrWidth ->
-      k LLVMPointerRepr $
-         bitvectorAsPointerExpr $
-         App $ BVUndef ptrWidth
-
     Just (Some w') | Just LeqProof <- isPosNat w' ->
-      k (BVRepr w') (App (BVUndef w'))
+      k (LLVMPointerRepr w') $
+         BitvectorAsPointerExpr w' $
+         App $ BVUndef w'
 
     _ -> ?err $ unwords ["illegal integer size", show w]
 undefExpand (PtrType _tp) k =
-  k LLVMPointerRepr $
-         bitvectorAsPointerExpr $
-         App $ BVUndef ptrWidth
+  k (LLVMPointerRepr ptrWidth64) $
+       BitvectorAsPointerExpr ptrWidth64 $
+       App $ BVUndef ptrWidth64
 undefExpand (StructType si) k =
    unpackArgs (map UndefExpr tps) $ \ctx asgn -> k (StructRepr ctx) (mkStruct ctx asgn)
  where tps = map fiType $ toList $ siFields si
@@ -740,23 +730,34 @@ definePhiBlock l l' = do
        assignPhi (ident,t_v) = do
            assignLLVMReg ident t_v
 
-bitvectorAsPointerExpr
-    :: Expr s (BVType PtrWidth)
-    -> Expr s LLVMPointerType
-bitvectorAsPointerExpr ex =
-   App $ RollRecursive knownRepr $
-   App $ InjectVariant knownRepr (Ctx.natIndex @0) $ ex
+pattern BitvectorAsPointerExpr
+    :: (1 <= w)
+    => NatRepr w
+    -> Expr s (BVType w)
+    -> Expr s (LLVMPointerType w)
+pattern BitvectorAsPointerExpr w ex <-
+   App (RollRecursive _ (Ctx.Empty :> BVRepr w)
+  (App (MkStruct (Ctx.Empty :> NatRepr :> BVRepr _)
+                  (Ctx.Empty :> (App (NatLit 0)) :> ex))))
+ where BitvectorAsPointerExpr w ex =
+          App (RollRecursive knownRepr (Ctx.Empty :> BVRepr w)
+          (App (MkStruct (Ctx.Empty :> NatRepr :> BVRepr w)
+                    (Ctx.Empty :> (App (NatLit 0)) :> ex))))
 
 pointerAsBitvectorExpr
-    :: Expr s LLVMPointerType
-    -> LLVMGenerator h s ret (Expr s (BVType PtrWidth))
-pointerAsBitvectorExpr (App (RollRecursive _ (App (InjectVariant _ idx x))))
-  | Just Refl <- testEquality idx (Ctx.natIndex @0) = return x
-pointerAsBitvectorExpr ex =
-  AtomExpr <$> mkAtom (
-     App $ flip (FromJustValue knownRepr) (App $ TextLit "expected integer value") $
-     App $ ProjectVariant knownRepr (Ctx.natIndex @0) $
-     App $ UnrollRecursive knownRepr ex)
+    :: (1 <= w)
+    => NatRepr w
+    -> Expr s (LLVMPointerType w)
+    -> LLVMGenerator h s ret (Expr s (BVType w))
+pointerAsBitvectorExpr _ (BitvectorAsPointerExpr _ ex) =
+     return ex
+pointerAsBitvectorExpr w ex =
+  do ex' <- forceEvaluation (App (UnrollRecursive knownRepr (Ctx.Empty :> BVRepr w) ex))
+     let blk = App (GetStruct ex' (Ctx.natIndex @0) NatRepr)
+     let off = App (GetStruct ex' (Ctx.natIndex @1) (BVRepr w))
+     assertExpr (blk .== litExpr 0)
+                (litExpr "Expected bitvector, but found pointer")
+     return off
 
 -- | Given an LLVM expression of vector type, select out the ith element.
 extractElt
@@ -778,13 +779,9 @@ extractElt ty n (ZeroExpr _) i   = do
    let ?err = fail
    zeroExpand ty  $ \tyr ex -> extractElt ty n (BaseExpr tyr ex) i
 extractElt _ n (VecExpr _ vs) i
-  | Scalar LLVMPointerRepr (App (RollRecursive _ (App (InjectVariant _ idx x)))) <- asScalar i
-  , Just Refl <- testEquality idx (Ctx.natIndex @0)
+  | Scalar (LLVMPointerRepr _) (BitvectorAsPointerExpr _ x) <- asScalar i
   , App (BVLit _ x') <- x
   = constantExtract x'
-
-  | Scalar (BVRepr _) (App (BVLit _ x)) <- asScalar i
-  = constantExtract x
 
  where
  constantExtract :: Integer -> LLVMGenerator h s ret (LLVMExpr s Expr)
@@ -799,14 +796,10 @@ extractElt ty n (VecExpr _ vs) i = do
       \ex -> extractElt ty n (BaseExpr (VectorRepr tyr) ex) i
 extractElt _ n (BaseExpr (VectorRepr tyr) v) i =
   do idx <- case asScalar i of
-                   Scalar (BVRepr w) x
-                     | Just LeqProof <- isPosNat w ->
-                     do assertExpr (App (BVUlt w x (App (BVLit w n)))) "extract element index out of bounds!"
-                        return $ App (BvToNat w x)
-                   Scalar LLVMPointerRepr x ->
-                     do bv <- pointerAsBitvectorExpr x
-                        assertExpr (App (BVUlt ptrWidth bv (App (BVLit ptrWidth n)))) "extract element index out of bounds!"
-                        return $ App (BvToNat ptrWidth bv)
+                   Scalar (LLVMPointerRepr w) x ->
+                     do bv <- pointerAsBitvectorExpr w x
+                        assertExpr (App (BVUlt w bv (App (BVLit w n)))) "extract element index out of bounds!"
+                        return $ App (BvToNat w bv)
                    _ ->
                      fail $ "invalid extractelement instruction"
      return $ BaseExpr tyr (App (VectorGetEntry tyr v idx))
@@ -833,14 +826,11 @@ insertElt ty n (UndefExpr _) a i  = do
 insertElt ty n (ZeroExpr _) a i   = do
   let ?err = fail
   zeroExpand ty  $ \tyr ex -> insertElt ty n (BaseExpr tyr ex) a i
+
 insertElt _ n (VecExpr ty vs) a i
-  | Scalar LLVMPointerRepr (App (RollRecursive _ (App (InjectVariant _ idx x)))) <- asScalar i
-  , Just Refl <- testEquality idx (Ctx.natIndex @0)
+  | Scalar (LLVMPointerRepr _) (BitvectorAsPointerExpr _ x) <- asScalar i
   , App (BVLit _ x') <- x
   = constantInsert x'
-
-  | Scalar (BVRepr _) (App (BVLit _ x)) <- asScalar i
-  = constantInsert x
  where
  constantInsert :: Integer -> LLVMGenerator h s ret (LLVMExpr s Expr)
  constantInsert idx =
@@ -855,14 +845,10 @@ insertElt ty n (VecExpr _ vs) a i = do
 insertElt _ n (BaseExpr (VectorRepr tyr) v) a i =
   do (idx :: Expr s NatType)
          <- case asScalar i of
-                   Scalar (BVRepr w) x
-                     | Just LeqProof <- isPosNat w ->
-                     do assertExpr (App (BVUlt w x (App (BVLit w n)))) "insert element index out of bounds!"
-                        return $ App (BvToNat w x)
-                   Scalar LLVMPointerRepr x ->
-                     do bv <- pointerAsBitvectorExpr x
-                        assertExpr (App (BVUlt ptrWidth bv (App (BVLit ptrWidth n)))) "insert element index out of bounds!"
-                        return $ App (BvToNat ptrWidth bv)
+                   Scalar (LLVMPointerRepr w) x ->
+                     do bv <- pointerAsBitvectorExpr w x
+                        assertExpr (App (BVUlt w bv (App (BVLit w n)))) "insert element index out of bounds!"
+                        return $ App (BvToNat w bv)
                    _ ->
                      fail $ "invalid insertelement instruction"
      let ?err = fail
@@ -943,15 +929,30 @@ insertValue (VecExpr tp vs) v (i:is)
 insertValue _ _ _ = fail "invalid insertValue instruction"
 
 
+callIsNull
+   :: (1 <= w)
+   => NatRepr w
+   -> Expr s (LLVMPointerType w)
+   -> LLVMGenerator h s ret (Expr s BoolType)
+callIsNull w (BitvectorAsPointerExpr _ bv) =
+  case bv of
+    App (BVLit _ 0) -> return true
+    _ -> return (App (BVEq w bv (App (BVLit w 0))))
+callIsNull w ex =
+   do ex' <- forceEvaluation (App (UnrollRecursive knownRepr (Ctx.Empty :> BVRepr w) ex))
+      let blk = App (GetStruct ex' (Ctx.natIndex @0) NatRepr)
+      let off = App (GetStruct ex' (Ctx.natIndex @1) (BVRepr w))
+      return (blk .== litExpr 0 .&& (App (BVEq w off (App (BVLit w 0)))))
+
 callAlloca
    :: Expr s (BVType PtrWidth)
-   -> LLVMGenerator h s ret (Expr s LLVMPointerType)
+   -> LLVMGenerator h s ret (Expr s (LLVMPointerType PtrWidth))
 callAlloca sz = do
    memVar <- llvmMemVar . memModelOps . llvmContext <$> get
    alloca <- litExpr . llvmMemAlloca . memModelOps . llvmContext <$> get
    mem <- readGlobal memVar
    loc <- litExpr . Text.pack . show <$> getPosition
-   res <- call alloca (Ctx.empty Ctx.:> mem Ctx.:> sz Ctx.:> loc)
+   res <- call alloca (Ctx.Empty :> mem :> sz :> loc)
    let mem' = getStruct (Ctx.skip $ Ctx.nextIndex $ Ctx.zeroSize)    res knownRepr
    let p    = getStruct (Ctx.nextIndex $ Ctx.incSize $ Ctx.zeroSize) res knownRepr
    writeGlobal memVar mem'
@@ -962,7 +963,7 @@ callPushFrame = do
    memVar <- llvmMemVar . memModelOps . llvmContext <$> get
    pushFrame <- litExpr . llvmMemPushFrame . memModelOps . llvmContext <$> get
    mem  <- readGlobal memVar
-   mem' <- call pushFrame (Ctx.empty Ctx.:> mem)
+   mem' <- call pushFrame (Ctx.Empty :> mem)
    writeGlobal memVar mem'
 
 callPopFrame :: LLVMGenerator h s ret ()
@@ -970,7 +971,7 @@ callPopFrame = do
    memVar <- llvmMemVar . memModelOps . llvmContext <$> get
    popFrame <- litExpr . llvmMemPopFrame . memModelOps . llvmContext <$> get
    mem  <- readGlobal memVar
-   mem' <- call popFrame (Ctx.empty Ctx.:> mem)
+   mem' <- call popFrame (Ctx.Empty :> mem)
    writeGlobal memVar mem'
 
 
@@ -983,7 +984,7 @@ toStorableType :: Monad m
 toStorableType mt =
   case mt of
     IntType n -> return $ G.bitvectorType (G.bitsToBytes n)
-    PtrType _ -> return $ G.bitvectorType (G.bitsToBytes (natValue ptrWidth))
+    PtrType _ -> return $ G.bitvectorType (G.bitsToBytes (natValue ptrWidth64))
     FloatType -> return $ G.floatType
     DoubleType -> return $ G.doubleType
     ArrayType n x -> G.arrayType (fromIntegral n) <$> toStorableType x
@@ -997,22 +998,25 @@ toStorableType mt =
 
 callPtrAddOffset ::
     (?lc :: TyCtx.LLVMContext)
-    => Expr s LLVMPointerType
+    => Expr s (LLVMPointerType PtrWidth)
     -> Expr s (BVType PtrWidth)
-    -> LLVMGenerator h s ret (Expr s LLVMPointerType)
+    -> LLVMGenerator h s ret (Expr s (LLVMPointerType PtrWidth))
 callPtrAddOffset base off = do
+    memVar <- llvmMemVar . memModelOps . llvmContext <$> get
+    mem  <- readGlobal memVar
     ptrAddOff <- litExpr . llvmPtrAddOffset . memModelOps . llvmContext <$> get
-    call ptrAddOff (Ctx.empty Ctx.:> base Ctx.:> off)
-
+    call ptrAddOff (Ctx.Empty :> mem :> base :> off)
 
 callPtrSubtract ::
     (?lc :: TyCtx.LLVMContext)
-    => Expr s LLVMPointerType
-    -> Expr s LLVMPointerType
+    => Expr s (LLVMPointerType PtrWidth)
+    -> Expr s (LLVMPointerType PtrWidth)
     -> LLVMGenerator h s ret (Expr s (BVType PtrWidth))
 callPtrSubtract x y = do
+    memVar <- llvmMemVar . memModelOps . llvmContext <$> get
+    mem  <- readGlobal memVar
     ptrSub <- litExpr . llvmPtrSubtract . memModelOps . llvmContext <$> get
-    call ptrSub (Ctx.empty Ctx.:> x Ctx.:> y)
+    call ptrSub (Ctx.Empty :> mem :> x :> y)
 
 
 callLoad :: (?lc :: TyCtx.LLVMContext)
@@ -1020,12 +1024,12 @@ callLoad :: (?lc :: TyCtx.LLVMContext)
          -> TypeRepr tp
          -> LLVMExpr s Expr
          -> LLVMGenerator h s ret (LLVMExpr s Expr)
-callLoad typ expectTy (asScalar -> Scalar LLVMPointerRepr ptr) =
+callLoad typ expectTy (asScalar -> Scalar (LLVMPointerRepr w) ptr) | Just Refl <- testEquality w ptrWidth64 =
    do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
       memLoad <- litExpr . llvmMemLoad . memModelOps . llvmContext <$> get
       mem  <- readGlobal memVar
       typ' <- app . ConcreteLit . TypeableValue <$> toStorableType typ
-      v <- call memLoad (Ctx.empty Ctx.:> mem Ctx.:> ptr Ctx.:> typ')
+      v <- call memLoad (Ctx.Empty :> mem :> ptr :> typ')
       let msg = litExpr (Text.pack ("Expected load to return value of type " ++ show expectTy))
       let v' = app $ FromJustValue expectTy (app $ UnpackAny expectTy v) msg
       return (BaseExpr expectTy v')
@@ -1037,7 +1041,7 @@ callStore :: (?lc :: TyCtx.LLVMContext)
           -> LLVMExpr s Expr
           -> LLVMExpr s Expr
           -> LLVMGenerator h s ret ()
-callStore typ (asScalar -> Scalar LLVMPointerRepr ptr) v =
+callStore typ (asScalar -> Scalar (LLVMPointerRepr w) ptr) v | Just Refl <- testEquality w ptrWidth64 =
 
  do let ?err = fail
     unpackOne v $ \vtpr vexpr -> do
@@ -1046,7 +1050,7 @@ callStore typ (asScalar -> Scalar LLVMPointerRepr ptr) v =
       mem  <- readGlobal memVar
       let v' = app (PackAny vtpr vexpr)
       typ' <- app . ConcreteLit . TypeableValue <$> toStorableType typ
-      mem' <- call memStore (Ctx.empty Ctx.:> mem Ctx.:> ptr Ctx.:> typ' Ctx.:> v')
+      mem' <- call memStore (Ctx.Empty :> mem :> ptr :> typ' :> v')
       writeGlobal memVar mem'
 
 callStore _ _ _ =
@@ -1057,9 +1061,10 @@ calcGEP :: (?lc :: TyCtx.LLVMContext)
         => MemType
         -> LLVMExpr s Expr
         -> [LLVMExpr s Expr]
-        -> LLVMGenerator h s ret (Expr s LLVMPointerType)
-calcGEP typ@(PtrType _) (asScalar -> Scalar LLVMPointerRepr base) xs@(_ : _) =
-        calcGEP' typ base xs
+        -> LLVMGenerator h s ret (Expr s (LLVMPointerType PtrWidth))
+calcGEP typ@(PtrType _) (asScalar -> Scalar (LLVMPointerRepr w) base) xs@(_ : _)
+  | Just Refl <- testEquality w ptrWidth64 = calcGEP' typ base xs
+
 -- FIXME: support for vector base arguments
 calcGEP typ _base _xs = do
    fail $ unwords ["Invalid base argument type in GEP", show typ]
@@ -1067,9 +1072,9 @@ calcGEP typ _base _xs = do
 
 calcGEP' :: (?lc :: TyCtx.LLVMContext)
          => MemType
-         -> Expr s LLVMPointerType
+         -> Expr s (LLVMPointerType PtrWidth)
          -> [LLVMExpr s Expr]
-         -> LLVMGenerator h s ret (Expr s LLVMPointerType)
+         -> LLVMGenerator h s ret (Expr s (LLVMPointerType PtrWidth))
 
 calcGEP' _typ base [] = return base
 
@@ -1080,22 +1085,22 @@ calcGEP' (PtrType (Alias ident)) base xs =
 
 calcGEP' (ArrayType bound typ') base (idx : xs) = do
     idx' <- case asScalar idx of
-              Scalar LLVMPointerRepr x -> pointerAsBitvectorExpr x
-              Scalar (BVRepr w) x
-                 | Just Refl <- testEquality w ptrWidth ->
-                      return x
-                 | Just LeqProof <- testLeq (incNat w) ptrWidth ->
-                      AtomExpr <$> mkAtom (app (BVSext ptrWidth w x))
+              Scalar (LLVMPointerRepr w) x
+                 | Just Refl <- testEquality w ptrWidth64 ->
+                      pointerAsBitvectorExpr w x
+                 | Just LeqProof <- testLeq (incNat w) ptrWidth64 ->
+                   do x' <- pointerAsBitvectorExpr w x
+                      AtomExpr <$> mkAtom (app (BVSext ptrWidth64 w x'))
               Scalar tp x ->
                    fail $ unwords ["Invalid index value in GEP", show tp, show x]
               _ -> fail $ unwords ["Invalid index value in GEP", show idx]
 
     -- assert that 0 <= idx' <= bound
     --   (yes, <= and not < because of the 1-past-the-end rule)
-    let zero      = App $ BVLit ptrWidth 0
-    let bound'    = App $ BVLit ptrWidth $ toInteger bound
-    let geZero    = App $ BVSle ptrWidth zero idx'
-    let leBound   = App $ BVSle ptrWidth idx' bound'
+    let zero      = App $ BVLit ptrWidth64 0
+    let bound'    = App $ BVLit ptrWidth64 $ toInteger bound
+    let geZero    = App $ BVSle ptrWidth64 zero idx'
+    let leBound   = App $ BVSle ptrWidth64 idx' bound'
     let boundTest = App $ And geZero leBound
     assertExpr boundTest
       (App $ TextLit $ Text.pack "Array index out of bounds when calculating getelementpointer")
@@ -1105,17 +1110,17 @@ calcGEP' (ArrayType bound typ') base (idx : xs) = do
     -- Calculate the size of the elemement memtype and check that it fits
     -- in the pointer width
     let isz = fromIntegral $ memTypeSize dl typ'
-    unless (isz <= maxSigned ptrWidth)
+    unless (isz <= maxSigned ptrWidth64)
       (fail $ unwords ["Type size too large for pointer width:", show typ'])
-    let sz  = app $ BVLit ptrWidth $ isz
+    let sz  = app $ BVLit ptrWidth64 $ isz
 
     -- Perform a signed wide multiply and check for overflow
-    let wideMul  = app $ BVMul (addNat ptrWidth ptrWidth)
-                           (app $ BVSext (addNat ptrWidth ptrWidth) ptrWidth sz)
-                           (app $ BVSext (addNat ptrWidth ptrWidth) ptrWidth idx')
-    let off      = app $ BVTrunc ptrWidth (addNat ptrWidth ptrWidth) wideMul
-    let wideMul' = app $ BVSext (addNat ptrWidth ptrWidth) ptrWidth off
-    assertExpr (app $ BVEq (addNat ptrWidth ptrWidth) wideMul wideMul')
+    let wideMul  = app $ BVMul (addNat ptrWidth64 ptrWidth64)
+                           (app $ BVSext (addNat ptrWidth64 ptrWidth64) ptrWidth64 sz)
+                           (app $ BVSext (addNat ptrWidth64 ptrWidth64) ptrWidth64 idx')
+    let off      = app $ BVTrunc ptrWidth64 (addNat ptrWidth64 ptrWidth64) wideMul
+    let wideMul' = app $ BVSext (addNat ptrWidth64 ptrWidth64) ptrWidth64 off
+    assertExpr (app $ BVEq (addNat ptrWidth64 ptrWidth64) wideMul wideMul')
       (App $ TextLit $ Text.pack "Multiplication overflow in getelementpointer")
 
     -- Perform the pointer arithmetic and continue
@@ -1124,29 +1129,29 @@ calcGEP' (ArrayType bound typ') base (idx : xs) = do
 
 calcGEP' (PtrType (MemType typ')) base (idx : xs) = do
     idx' <- case asScalar idx of
-              Scalar LLVMPointerRepr x -> pointerAsBitvectorExpr x
-              Scalar (BVRepr w) x
-                 | Just Refl <- testEquality w ptrWidth ->
-                      return x
-                 | Just LeqProof <- testLeq (incNat w) ptrWidth ->
-                      return $ app (BVSext ptrWidth w x)
+              Scalar (LLVMPointerRepr w) x
+                 | Just Refl <- testEquality w ptrWidth64 ->
+                      pointerAsBitvectorExpr w x
+                 | Just LeqProof <- testLeq (incNat w) ptrWidth64 ->
+                   do x' <- pointerAsBitvectorExpr w x
+                      return $ app (BVSext ptrWidth64 w x')
               _ -> fail $ unwords ["Invalid index value in GEP", show idx]
     let dl  = TyCtx.llvmDataLayout ?lc
 
     -- Calculate the size of the elemement memtype and check that it fits
     -- in the pointer width
     let isz = fromIntegral $ memTypeSize dl typ'
-    unless (isz <= maxSigned ptrWidth)
+    unless (isz <= maxSigned ptrWidth64)
       (fail $ unwords ["Type size too large for pointer width:", show typ'])
-    let sz  = app $ BVLit ptrWidth $ isz
+    let sz  = app $ BVLit ptrWidth64 $ isz
 
     -- Perform a signed wide multiply and check for overflow
-    let wideMul = app $ BVMul (addNat ptrWidth ptrWidth)
-                           (app $ BVSext (addNat ptrWidth ptrWidth) ptrWidth sz)
-                           (app $ BVSext (addNat ptrWidth ptrWidth) ptrWidth idx')
-    let off      = app $ BVTrunc ptrWidth (addNat ptrWidth ptrWidth) wideMul
-    let wideMul' = app $ BVSext (addNat ptrWidth ptrWidth) ptrWidth off
-    assertExpr (app $ BVEq (addNat ptrWidth ptrWidth) wideMul wideMul')
+    let wideMul = app $ BVMul (addNat ptrWidth64 ptrWidth64)
+                           (app $ BVSext (addNat ptrWidth64 ptrWidth64) ptrWidth64 sz)
+                           (app $ BVSext (addNat ptrWidth64 ptrWidth64) ptrWidth64 idx')
+    let off      = app $ BVTrunc ptrWidth64 (addNat ptrWidth64 ptrWidth64) wideMul
+    let wideMul' = app $ BVSext (addNat ptrWidth64 ptrWidth64) ptrWidth64 off
+    assertExpr (app $ BVEq (addNat ptrWidth64 ptrWidth64) wideMul wideMul')
       (App $ TextLit $ Text.pack "Multiplication overflow in getelementpointer")
 
     -- Perform the pointer arithmetic and continue
@@ -1155,19 +1160,17 @@ calcGEP' (PtrType (MemType typ')) base (idx : xs) = do
 
 calcGEP' (StructType si) base (idx : xs) = do
     idx' <- case asScalar idx of
-              Scalar (BVRepr _w) (asApp -> Just (BVLit _ x)) -> return x
-              Scalar LLVMPointerRepr (App (RollRecursive _ (App (InjectVariant _ i (App (BVLit _ x))))))
-                | Just Refl <- testEquality i (Ctx.natIndex @0) -> return x
+              Scalar (LLVMPointerRepr _w) (BitvectorAsPointerExpr _ (asApp -> Just (BVLit _ x))) -> return x
               _ -> fail $ unwords ["Expected constant value when indexing fields in GEP"]
     case siFieldInfo si (fromInteger idx') of
       Just fi -> do
         -- Get the field offset and check that it fits
         -- in the pointer width
         let ioff = fromIntegral $ fiOffset fi
-        unless (ioff <= maxSigned ptrWidth)
+        unless (ioff <= maxSigned ptrWidth64)
           (fail $ unwords ["Field offset too large for pointer width in structure:"
                           , show (ppMemType (StructType si))])
-        let off  = app $ BVLit ptrWidth $ ioff
+        let off  = app $ BVLit ptrWidth64 $ ioff
 
         -- Perform the pointer arithmetic and continue
         base' <- callPtrAddOffset base off
@@ -1193,7 +1196,9 @@ translateConversion op x outty =
        x' <- transTypedValue x
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
-           (Scalar LLVMPointerRepr _, LLVMPointerRepr) -> return x'
+           (Scalar (LLVMPointerRepr w) _, LLVMPointerRepr w')
+              | Just Refl <- testEquality w ptrWidth64
+              , Just Refl <- testEquality w' ptrWidth64 -> return x'
            (Scalar t v, a)   ->
                fail ("integer-to-pointer conversion failed: "
                        ++ show v ++ " : " ++ show (pretty t) ++ " -to- " ++ show (pretty a))
@@ -1204,7 +1209,9 @@ translateConversion op x outty =
        x' <- transTypedValue x
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
-           (Scalar LLVMPointerRepr _, LLVMPointerRepr) -> return x'
+           (Scalar (LLVMPointerRepr w) _, LLVMPointerRepr w')
+              | Just Refl <- testEquality w ptrWidth64
+              , Just Refl <- testEquality w' ptrWidth64 -> return x'
            _ -> fail "pointer-to-integer conversion failed"
 
     L.Trunc -> do
@@ -1212,17 +1219,12 @@ translateConversion op x outty =
        x' <- transTypedValue x
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
-           (Scalar LLVMPointerRepr x'', BVRepr w')
-             | Just LeqProof <- testLeq (incNat w') ptrWidth -> do
-                 bv <- pointerAsBitvectorExpr x''
-                 return (BaseExpr outty'' (App (BVTrunc w' ptrWidth bv)))
-           (Scalar (BVRepr w) x'', LLVMPointerRepr)
-             | Just LeqProof <- testLeq (incNat ptrWidth) w -> do
-                 return (BaseExpr outty'' (bitvectorAsPointerExpr (App (BVTrunc ptrWidth w x''))))
-           (Scalar (BVRepr w) x'', (BVRepr w'))
+           (Scalar (LLVMPointerRepr w) x'', (LLVMPointerRepr w'))
              | Just LeqProof <- isPosNat w'
-             , Just LeqProof <- testLeq (incNat w') w -> do
-                 return (BaseExpr outty'' (App (BVTrunc w' w x'')))
+             , Just LeqProof <- testLeq (incNat w') w ->
+                 do x_bv <- pointerAsBitvectorExpr w x''
+                    let bv' = App (BVTrunc w' w x_bv)
+                    return (BaseExpr outty'' (BitvectorAsPointerExpr w' bv'))
            _ -> fail $ unwords ["invalid truncation:", show x, show outty]
 
     L.ZExt -> do
@@ -1230,18 +1232,12 @@ translateConversion op x outty =
        x' <- transTypedValue x
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
-           (Scalar LLVMPointerRepr x'', BVRepr w')
-             | Just LeqProof <- testLeq (incNat ptrWidth) w' -> do
-                 bv <- pointerAsBitvectorExpr x''
-                 return (BaseExpr outty'' (App (BVZext w' ptrWidth bv)))
-           (Scalar (BVRepr w) x'', LLVMPointerRepr)
+           (Scalar (LLVMPointerRepr w) x'', (LLVMPointerRepr w'))
              | Just LeqProof <- isPosNat w
-             , Just LeqProof <- testLeq (incNat w) ptrWidth -> do
-                 return (BaseExpr outty'' (bitvectorAsPointerExpr (App (BVZext ptrWidth w x''))))
-           (Scalar (BVRepr w) x'', (BVRepr w'))
-             | Just LeqProof <- isPosNat w
-             , Just LeqProof <- testLeq (incNat w) w' -> do
-                 return (BaseExpr outty'' (App (BVZext w' w x'')))
+             , Just LeqProof <- testLeq (incNat w) w' ->
+                 do x_bv <- pointerAsBitvectorExpr w x''
+                    let bv' = App (BVZext w' w x_bv)
+                    return (BaseExpr outty'' (BitvectorAsPointerExpr w' bv'))
            _ -> fail $ unwords ["invalid zero extension:", show x, show outty]
 
     L.SExt -> do
@@ -1249,18 +1245,12 @@ translateConversion op x outty =
        x' <- transTypedValue x
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
-           (Scalar LLVMPointerRepr x'', BVRepr w')
-             | Just LeqProof <- testLeq (incNat ptrWidth) w' -> do
-                 bv <- pointerAsBitvectorExpr x''
-                 return (BaseExpr outty'' (App (BVSext w' ptrWidth bv)))
-           (Scalar (BVRepr w) x'', LLVMPointerRepr)
-             | Just LeqProof <- isPosNat w
-             , Just LeqProof <- testLeq (incNat w) ptrWidth -> do
-                 return (BaseExpr outty'' (bitvectorAsPointerExpr (App (BVSext ptrWidth w x''))))
-           (Scalar (BVRepr w) x'', BVRepr w')
+           (Scalar (LLVMPointerRepr w) x'', (LLVMPointerRepr w'))
              | Just LeqProof <- isPosNat w
              , Just LeqProof <- testLeq (incNat w) w' -> do
-                 return (BaseExpr outty'' (App (BVSext w' w x'')))
+                 do x_bv <- pointerAsBitvectorExpr w x''
+                    let bv' = App (BVSext w' w x_bv)
+                    return (BaseExpr outty'' (BitvectorAsPointerExpr w' bv'))
            _ -> fail $ unwords ["invalid sign extension", show x, show outty]
 
     L.BitCast -> do
@@ -1279,10 +1269,8 @@ translateConversion op x outty =
            promoteToFp w bv = BaseExpr RealValRepr (App $ IntegerToReal $ App $ NatToInteger $ App $ BvToNat w bv)
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
-           (Scalar LLVMPointerRepr x'', RealValRepr) ->
-             promoteToFp ptrWidth <$> pointerAsBitvectorExpr x''
-           (Scalar (BVRepr w) x'', RealValRepr) -> do
-             return $ promoteToFp w x''
+           (Scalar (LLVMPointerRepr w) x'', RealValRepr) -> do
+             promoteToFp w <$> pointerAsBitvectorExpr w x''
 
            _ -> fail $ unwords ["Invalid uitofp:", show op, show x, show outty]
 
@@ -1303,10 +1291,8 @@ translateConversion op x outty =
 
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
-           (Scalar LLVMPointerRepr x'', RealValRepr) ->
-             promoteToFp ptrWidth =<< pointerAsBitvectorExpr x''
-           (Scalar (BVRepr w) x'', RealValRepr) ->
-             promoteToFp w x''
+           (Scalar (LLVMPointerRepr w) x'', RealValRepr) ->
+             promoteToFp w =<< pointerAsBitvectorExpr w x''
            _ -> fail $ unwords ["Invalid uitofp:", show op, show x, show outty]
 
     L.FpToUi -> do
@@ -1476,30 +1462,38 @@ intop op w a b =
 
              _ -> fail $ unwords ["unsupported integer arith operation", show op]
 
+
 caseptr
-  :: TypeRepr a
-  -> (Expr s (BVType 64) ->
+  :: (1 <= w)
+  => NatRepr w
+  -> TypeRepr a
+  -> (Expr s (BVType w) ->
       LLVMGenerator h s ret (Expr s a))
-  -> (Expr s (StructType (EmptyCtx ::> NatType ::> BVType 64 ::> BVType 64)) ->
+  -> (Expr s NatType -> Expr s (BVType w) ->
       LLVMGenerator h s ret (Expr s a))
-  -> Expr s LLVMPointerType
+  -> Expr s (LLVMPointerType w)
   -> LLVMGenerator h s ret (Expr s a)
 
-caseptr _tpr bvCase ptrCase (App (RollRecursive _ (App (InjectVariant _ i x))))
-  | Just Refl <- testEquality (Ctx.natIndex @0) i = bvCase x
-  | Just Refl <- testEquality (Ctx.natIndex @1) i = ptrCase x
-  | otherwise = fail ("Impossible, unknown pointer value index: " ++ show i)
+caseptr _w _tpr bvCase ptrCase
+    (App (RollRecursive _ (Ctx.Empty :> BVRepr _)
+    (App (MkStruct (Ctx.Empty :> NatRepr :> BVRepr _)
+                   (Ctx.Empty :> blk :> off)))))
+  | Just (NatLit 0) <- asApp blk = bvCase off
+  | Just (NatLit _) <- asApp blk = ptrCase blk off
 
-caseptr tpr bvCase ptrCase x =
-  do a_x <- mkAtom (app (UnrollRecursive knownRepr x))
+caseptr w tpr bvCase ptrCase x =
+  do a_x <- forceEvaluation (app (UnrollRecursive knownRepr (Ctx.Empty :> BVRepr w) x))
+     blk <- forceEvaluation (app (GetStruct a_x (Ctx.natIndex @0) NatRepr))
+     off <- forceEvaluation (app (GetStruct a_x (Ctx.natIndex @1) (BVRepr w)))
+     cond <- mkAtom (blk .== litExpr 0)
      endNow $ \c ->
-       do bv_label  <- newLambdaLabel
-          ptr_label <- newLambdaLabel
+       do bv_label  <- newLabel
+          ptr_label <- newLabel
           c_label   <- newLambdaLabel' tpr
-          endCurrentBlock (VariantElim knownRepr a_x (Ctx.Empty Ctx.:> bv_label Ctx.:> ptr_label))
+          endCurrentBlock (Br cond bv_label ptr_label)
 
-          defineLambdaBlock bv_label  (\bv -> bvCase bv >>= jumpToLambda c_label)
-          defineLambdaBlock ptr_label (\ptr -> ptrCase ptr >>= jumpToLambda c_label)
+          defineBlock bv_label  (bvCase off >>= jumpToLambda c_label)
+          defineBlock ptr_label (ptrCase blk off >>= jumpToLambda c_label)
           resume c_label c
 
 intcmp :: (1 <= w)
@@ -1523,20 +1517,20 @@ intcmp w op a b =
 
 pointerCmp
    :: L.ICmpOp
-   -> Expr s LLVMPointerType
-   -> Expr s LLVMPointerType
+   -> Expr s (LLVMPointerType PtrWidth)
+   -> Expr s (LLVMPointerType PtrWidth)
    -> LLVMGenerator h s ret (Expr s BoolType)
 pointerCmp op x y =
-  caseptr knownRepr
+  caseptr ptrWidth64 knownRepr
     (\x_bv ->
-      caseptr knownRepr
-        (\y_bv   -> return $ intcmp ptrWidth op x_bv y_bv)
-        (\_y_ptr -> ptr_bv_compare x_bv y)
+      caseptr ptrWidth64 knownRepr
+        (\y_bv   -> return $ intcmp ptrWidth64 op x_bv y_bv)
+        (\_ _ -> ptr_bv_compare x_bv y)
         y)
-    (\_x_ptr ->
-      caseptr knownRepr
+    (\_ _ ->
+      caseptr ptrWidth64 knownRepr
         (\y_bv   -> ptr_bv_compare y_bv x)
-        (\_y_ptr -> ptrOp)
+        (\_ _    -> ptrOp)
         y)
     x
  where
@@ -1544,15 +1538,14 @@ pointerCmp op x y =
   -- Special case: a pointer can be compared for equality with an integer, as long as
   -- that integer is 0, representing the null pointer.
   ptr_bv_compare bv ptr =
-    do pIsNull <- litExpr . llvmPtrIsNull . memModelOps . llvmContext <$> get
-       assertExpr (App (BVEq ptrWidth bv (App (BVLit ptrWidth 0))))
+    do assertExpr (App (BVEq ptrWidth64 bv (App (BVLit ptrWidth64 0))))
                   "Attempted to compare a pointer to a non-0 integer value"
        case op of
          L.Ieq  -> do
-            res <- call pIsNull (Ctx.empty Ctx.:> ptr)
+            res <- callIsNull ptrWidth64 ptr
             return res
          L.Ine  -> do
-            res <- call pIsNull (Ctx.empty Ctx.:> ptr)
+            res <- callIsNull ptrWidth64 ptr
             return (App (Not res))
          _ -> reportError "arithmetic comparison on incompatible values"
 
@@ -1563,22 +1556,22 @@ pointerCmp op x y =
        mem <- readGlobal memVar
        case op of
          L.Ieq -> do
-           isEq <- call pEq (Ctx.empty Ctx.:> mem Ctx.:> x Ctx.:> y)
+           isEq <- call pEq (Ctx.Empty :> mem :> x :> y)
            return $ isEq
          L.Ine -> do
-           isEq <- call pEq (Ctx.empty Ctx.:> mem Ctx.:> x Ctx.:> y)
+           isEq <- call pEq (Ctx.Empty :> mem :> x :> y)
            return $ App (Not isEq)
          L.Iule -> do
-           isLe <- call pLe (Ctx.empty Ctx.:> mem Ctx.:> x Ctx.:> y)
+           isLe <- call pLe (Ctx.Empty :> mem :> x :> y)
            return $ isLe
          L.Iult -> do
-           isGe <- call pLe (Ctx.empty Ctx.:> mem Ctx.:> y Ctx.:> x)
+           isGe <- call pLe (Ctx.Empty :> mem :> y :> x)
            return $ App (Not isGe)
          L.Iuge -> do
-           isGe <- call pLe (Ctx.empty Ctx.:> mem Ctx.:> y Ctx.:> x)
+           isGe <- call pLe (Ctx.Empty :> mem :> y :> x)
            return $ isGe
          L.Iugt -> do
-           isLe <- call pLe (Ctx.empty Ctx.:> mem Ctx.:> x Ctx.:> y)
+           isLe <- call pLe (Ctx.Empty :> mem :> x :> y)
            return $ App (Not isLe)
          _ -> reportError "signed comparison on pointer values"
 
@@ -1586,40 +1579,40 @@ pointerCmp op x y =
 pointerOp
    :: (?lc :: TyCtx.LLVMContext)
    => L.ArithOp
-   -> Expr s LLVMPointerType
-   -> Expr s LLVMPointerType
-   -> LLVMGenerator h s ret (Expr s LLVMPointerType)
+   -> Expr s (LLVMPointerType PtrWidth)
+   -> Expr s (LLVMPointerType PtrWidth)
+   -> LLVMGenerator h s ret (Expr s (LLVMPointerType PtrWidth))
 pointerOp op x y =
-  caseptr knownRepr
+  caseptr ptrWidth64 knownRepr
     (\x_bv  ->
-      caseptr knownRepr
-        (\y_bv  -> bitvectorAsPointerExpr <$> intop op ptrWidth x_bv y_bv)
-        (\y_ptr -> bv_ptr_op x_bv y_ptr)
+      caseptr ptrWidth64 knownRepr
+        (\y_bv  -> BitvectorAsPointerExpr ptrWidth64 <$> intop op ptrWidth64 x_bv y_bv)
+        (\_ _   -> bv_ptr_op x_bv)
         y)
-    (\x_ptr ->
-      caseptr knownRepr
-        (\y_bv  -> ptr_bv_op x_ptr y_bv)
-        (\y_ptr -> ptr_ptr_op x_ptr y_ptr)
+    (\_ _ ->
+      caseptr ptrWidth64 knownRepr
+        (\y_bv  -> ptr_bv_op y_bv)
+        (\_ _   -> ptr_ptr_op)
       y)
     x
  where
-  ptr_bv_op _x_ptr y_bv =
+  ptr_bv_op y_bv =
     case op of
       L.Add _ _ ->
            callPtrAddOffset x y_bv
       L.Sub _ _ ->
-        do let off = App (BVSub ptrWidth (App $ BVLit ptrWidth 0) y_bv)
+        do let off = App (BVSub ptrWidth64 (App $ BVLit ptrWidth64 0) y_bv)
            callPtrAddOffset x off
       _ -> reportError "Invalid pointer operation"
 
-  bv_ptr_op x_bv _y_ptr =
+  bv_ptr_op x_bv =
     case op of
       L.Add _ _ -> callPtrAddOffset y x_bv
       _ -> reportError "Invalid pointer operation"
 
-  ptr_ptr_op _x _y =
+  ptr_ptr_op =
     case op of
-      L.Sub _ _ -> bitvectorAsPointerExpr <$> callPtrSubtract x y
+      L.Sub _ _ -> BitvectorAsPointerExpr ptrWidth64 <$> callPtrSubtract x y
       _ -> reportError "Invalid pointer operation"
 
 
@@ -1693,19 +1686,20 @@ generateInstr retType lab instr assign_f k =
       tp' <- liftMemType tp
       let dl = TyCtx.llvmDataLayout ?lc
       let tp_sz = memTypeSize dl tp'
-      let tp_sz' = app $ BVLit ptrWidth $ fromIntegral tp_sz
+      let tp_sz' = app $ BVLit ptrWidth64 $ fromIntegral tp_sz
       sz <- case num of
                Nothing -> return $ tp_sz'
                Just num' -> do
                   n <- transTypedValue num'
                   case n of
-                     ZeroExpr _ -> return $ app $ BVLit ptrWidth 0
-                     BaseExpr (BVRepr w) x
-                        | Just Refl <- testEquality w ptrWidth ->
-                             return $ app $ BVMul ptrWidth x tp_sz'
+                     ZeroExpr _ -> return $ app $ BVLit ptrWidth64 0
+                     BaseExpr (LLVMPointerRepr w) x
+                        | Just Refl <- testEquality w ptrWidth64 ->
+                            do x' <- pointerAsBitvectorExpr w x
+                               return $ app $ BVMul ptrWidth64 x' tp_sz'
                      _ -> fail $ "Invalid alloca argument: " ++ show num
       p <- callAlloca sz
-      assign_f (BaseExpr LLVMPointerRepr p)
+      assign_f (BaseExpr (LLVMPointerRepr ptrWidth64) p)
       k
 
     L.Load ptr _atomic _align -> do
@@ -1740,7 +1734,7 @@ generateInstr retType lab instr assign_f k =
       elts' <- mapM transTypedValue elts
       typ <- liftMemType (L.typedType base)
       p <- calcGEP typ base' elts'
-      assign_f (BaseExpr LLVMPointerRepr p)
+      assign_f (BaseExpr (LLVMPointerRepr ptrWidth64) p)
       k
 
     L.Conv op x outty -> do
@@ -1835,20 +1829,15 @@ generateInstr retType lab instr assign_f k =
            x' <- transTypedValue x
            y' <- transTypedValue (L.Typed (L.typedType x) y)
            case (asScalar x', asScalar y') of
-             (Scalar LLVMPointerRepr x'',
-              Scalar LLVMPointerRepr y'') -> do
-                xbv <- pointerAsBitvectorExpr x''
-                ybv <- pointerAsBitvectorExpr y''
-                ex  <- bitop ptrWidth xbv ybv
-                assign_f (BaseExpr LLVMPointerRepr (bitvectorAsPointerExpr ex))
-                k
-             (Scalar ty@(BVRepr w)  x'',
-              Scalar    (BVRepr w') y'')
+             (Scalar (LLVMPointerRepr w) x'',
+              Scalar (LLVMPointerRepr w') y'')
                | Just Refl <- testEquality w w'
                , Just LeqProof <- isPosNat w -> do
-                    ex <- bitop w x'' y''
-                    assign_f (BaseExpr ty ex)
-                    k
+                  xbv <- pointerAsBitvectorExpr w x''
+                  ybv <- pointerAsBitvectorExpr w y''
+                  ex  <- bitop w xbv ybv
+                  assign_f (BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w ex))
+                  k
 
              _ -> fail $ unwords ["bitwise operation on unsupported values", show x, show y]
 
@@ -1875,23 +1864,25 @@ generateInstr retType lab instr assign_f k =
            x' <- transTypedValue x
            y' <- transTypedValue (L.Typed (L.typedType x) y)
            case (asScalar x', asScalar y') of
-             (Scalar ty@(BVRepr w)  x'',
-              Scalar    (BVRepr w') y'')
-               | Just LeqProof <- isPosNat w
-               , Just Refl <- testEquality w w' -> do
-                 ex <- intop op w x'' y''
-                 assign_f (BaseExpr ty ex)
-                 k
+             (Scalar ty@(LLVMPointerRepr w)  x'',
+              Scalar    (LLVMPointerRepr w') y'')
+               | Just Refl <- testEquality w ptrWidth64
+               , Just Refl <- testEquality w w' ->
+                 do z <- pointerOp op x'' y''
+                    assign_f (BaseExpr ty z)
+                    k
+
+               | Just Refl <- testEquality w w' ->
+                 do xbv <- pointerAsBitvectorExpr w x''
+                    ybv <- pointerAsBitvectorExpr w y''
+                    z   <- intop op w xbv ybv
+                    assign_f (BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w z))
+                    k
+
              (Scalar RealValRepr x'',
               Scalar RealValRepr y'') -> do
                  ex <- fop x'' y''
                  assign_f (BaseExpr RealValRepr ex)
-                 k
-
-             (Scalar LLVMPointerRepr x'',
-              Scalar LLVMPointerRepr y'') -> do
-                 ex <- pointerOp op x'' y''
-                 assign_f (BaseExpr LLVMPointerRepr ex)
                  k
 
              _ -> reportError $ fromString $ unwords ["arithmetic operation on unsupported values", show x, show y]
@@ -1926,8 +1917,8 @@ generateInstr retType lab instr assign_f k =
            case (asScalar x', asScalar y') of
              (Scalar RealValRepr x'',
               Scalar RealValRepr y'') -> do
-                assign_f (BaseExpr (BVRepr (knownNat :: NatRepr 1))
-                                   (App (BoolToBV knownNat (cmpf  x'' y''))))
+                assign_f (BaseExpr (LLVMPointerRepr (knownNat :: NatRepr 1))
+                                   (BitvectorAsPointerExpr knownNat (App (BoolToBV knownNat (cmpf  x'' y'')))))
                 k
 
              _ -> fail $ unwords ["Floating point comparison on incompatible values", show x, show y]
@@ -1936,18 +1927,21 @@ generateInstr retType lab instr assign_f k =
            x' <- transTypedValue x
            y' <- transTypedValue (L.Typed (L.typedType x) y)
            case (asScalar x', asScalar y') of
-             (Scalar (BVRepr w) x'', Scalar (BVRepr w') y'')
-               | Just Refl <- testEquality w w'
-               , Just LeqProof <- isPosNat w -> do
-                    assign_f (BaseExpr
-                                   (BVRepr (knownNat :: NatRepr 1))
-                                   (App (BoolToBV knownNat (intcmp w op x'' y''))))
-                    k
-             (Scalar LLVMPointerRepr x'', Scalar LLVMPointerRepr y'') ->
-                do b <- pointerCmp op x'' y''
-                   assign_f (BaseExpr (BVRepr (knownNat :: NatRepr 1))
-                                      (App (BoolToBV knownNat b)))
-                   k
+             (Scalar (LLVMPointerRepr w) x'', Scalar (LLVMPointerRepr w') y'')
+                | Just Refl <- testEquality w w'
+                , Just Refl <- testEquality w ptrWidth64
+                -> do b <- pointerCmp op x'' y''
+                      assign_f (BaseExpr (LLVMPointerRepr (knownNat :: NatRepr 1))
+                                         (BitvectorAsPointerExpr knownNat (App (BoolToBV knownNat b))))
+                      k
+                | Just Refl <- testEquality w w'
+                -> do xbv <- pointerAsBitvectorExpr w x''
+                      ybv <- pointerAsBitvectorExpr w y''
+                      let b = intcmp w op xbv ybv
+                      assign_f (BaseExpr (LLVMPointerRepr (knownNat :: NatRepr 1))
+                                         (BitvectorAsPointerExpr knownNat (App (BoolToBV knownNat b))))
+                      k
+
              _ -> fail $ unwords ["arithmetic comparison on incompatible values", show x, show y]
 
     -- FIXME? reimplement the select operation using expression if/then/else rather than branching...
@@ -1956,14 +1950,7 @@ generateInstr retType lab instr assign_f k =
          x' <- transTypedValue x
          y' <- transTypedValue (L.Typed (L.typedType x) y)
          e' <- case asScalar c' of
-                 Scalar (BVRepr w) e -> do
-                   case isPosNat w of
-                      Just LeqProof -> return $ App (BVNonzero w e)
-                      Nothing       -> return $ App (BoolLit False)
-                 Scalar LLVMPointerRepr e -> do
-                   pIsNull <- litExpr . llvmPtrIsNull . memModelOps . llvmContext <$> get
-                   res <- call pIsNull (Ctx.empty Ctx.:> e)
-                   return $ (App (Not res))
+                 Scalar (LLVMPointerRepr w) e -> notExpr <$> callIsNull w e
                  _ -> fail "expected boolean condition on select"
 
          e_a <- mkAtom e'
@@ -1983,15 +1970,9 @@ generateInstr retType lab instr assign_f k =
     L.Br v l1 l2 -> do
         v' <- transTypedValue v
         e' <- case asScalar v' of
-                 Scalar (BVRepr w) e -> do
-                   case isPosNat w of
-                      Just LeqProof -> return $ App (BVNonzero w e)
-                      Nothing       -> return $ App (BoolLit False)
-                 Scalar LLVMPointerRepr e -> do
-                   pIsNull <- litExpr . llvmPtrIsNull . memModelOps . llvmContext <$> get
-                   res <- call pIsNull (Ctx.empty Ctx.:> e)
-                   return $ (App (Not res))
-                 _ -> fail "expected boolean condition on branch!"
+                 Scalar (LLVMPointerRepr w) e -> notExpr <$> callIsNull w e
+                 _ -> fail "expected boolean condition on branch"
+
         a' <- mkAtom e'
         endNow $ \_ -> do
           phi1 <- newLabel
@@ -2001,15 +1982,12 @@ generateInstr retType lab instr assign_f k =
           defineBlock phi1 (definePhiBlock lab l1)
           defineBlock phi2 (definePhiBlock lab l2)
 
-
     L.Switch x def branches -> do
         x' <- transTypedValue x
         case asScalar x' of
-          Scalar (BVRepr w) x'' | Just LeqProof <- isPosNat w ->
-            buildSwitch w x'' lab def branches
-          Scalar LLVMPointerRepr x'' ->
-            do bv <- pointerAsBitvectorExpr x''
-               buildSwitch ptrWidth bv lab def branches
+          Scalar (LLVMPointerRepr w) x'' ->
+            do bv <- pointerAsBitvectorExpr w x''
+               buildSwitch w bv lab def branches
           _ -> fail $ unwords ["expected integer value in switch", show instr]
 
     L.Ret v -> do v' <- transTypedValue v
@@ -2059,16 +2037,16 @@ callFunctionWithCont fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f k
            varArgs' <- unpackVarArgs varArgs
            unpackArgs mainArgs $ \argTypes mainArgs' ->
              case asScalar fn' of
-                Scalar LLVMPointerRepr ptr ->
+                Scalar (LLVMPointerRepr w) ptr | Just Refl <- testEquality w ptrWidth64 ->
                   do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
                      memLoadHandle <- litExpr . llvmMemLoadHandle . memModelOps . llvmContext <$> get
                      mem <- readGlobal memVar
-                     v <- call memLoadHandle (Ctx.empty Ctx.%> mem Ctx.%> ptr)
+                     v <- call memLoadHandle (Ctx.Empty :> mem :> ptr)
                      llvmRetTypeAsRepr retTy' $ \retTy ->
-                       do let expectTy = FunctionHandleRepr (argTypes Ctx.%> varArgsRepr) retTy
+                       do let expectTy = FunctionHandleRepr (argTypes :> varArgsRepr) retTy
                           let msg = litExpr (Text.pack ("Expected function of type " ++ show expectTy))
                           let v' = app $ FromJustValue expectTy (app $ UnpackAny expectTy v) msg
-                          ret <- call v' (mainArgs' Ctx.%> varArgs')
+                          ret <- call v' (mainArgs' :> varArgs')
                           assign_f (BaseExpr retTy ret)
                           k
                 _ -> fail $ unwords ["unsupported function value", show fn]
@@ -2082,11 +2060,11 @@ callFunctionWithCont fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f k
            let ?err = fail
            unpackArgs args' $ \argTypes args'' ->
               case asScalar fn' of
-                Scalar LLVMPointerRepr ptr ->
+                Scalar (LLVMPointerRepr w) ptr | Just Refl <- testEquality w ptrWidth64 ->
                   do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
                      memLoadHandle <- litExpr . llvmMemLoadHandle . memModelOps . llvmContext <$> get
                      mem <- readGlobal memVar
-                     v <- call memLoadHandle (Ctx.empty Ctx.%> mem Ctx.%> ptr)
+                     v <- call memLoadHandle (Ctx.Empty :> mem :> ptr)
                      llvmRetTypeAsRepr retTy' $ \retTy ->
                        do let expectTy = FunctionHandleRepr argTypes retTy
                           let msg = litExpr (Text.pack ("Expected function of type " ++ show expectTy))
@@ -2377,7 +2355,7 @@ initializeMemory
    => sym
    -> LLVMContext
    -> L.Module
-   -> IO (MemImpl sym PtrWidth)
+   -> IO (MemImpl sym)
 initializeMemory sym llvm_ctx m = do
    -- Allocate function handles
    let handles = Map.assocs (_symbolMap llvm_ctx)
@@ -2396,9 +2374,9 @@ initializeMemory sym llvm_ctx m = do
 
 allocLLVMHandleInfo :: IsSymInterface sym
                     => sym
-                    -> MemImpl sym PtrWidth
+                    -> MemImpl sym
                     -> (L.Symbol, LLVMHandleInfo)
-                    -> IO (MemImpl sym PtrWidth)
+                    -> IO (MemImpl sym)
 allocLLVMHandleInfo sym mem (symbol@(L.Symbol sym_str), LLVMHandleInfo _ h) =
   do (ptr, mem') <- doMallocHandle sym G.GlobalAlloc sym_str mem (SomeFnHandle h)
      return (registerGlobal mem' symbol ptr)
