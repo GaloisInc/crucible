@@ -730,6 +730,20 @@ definePhiBlock l l' = do
        assignPhi (ident,t_v) = do
            assignLLVMReg ident t_v
 
+pattern PointerExpr
+    :: (1 <= w)
+    => NatRepr w
+    -> Expr s NatType
+    -> Expr s (BVType w)
+    -> Expr s (LLVMPointerType w)
+pattern PointerExpr w blk off <-
+   App (RollRecursive _ (Ctx.Empty :> BVRepr w)
+  (App (MkStruct _ (Ctx.Empty :> blk :> off))))
+ where PointerExpr w blk off =
+          App (RollRecursive knownRepr (Ctx.Empty :> BVRepr w)
+          (App (MkStruct (Ctx.Empty :> NatRepr :> BVRepr w)
+                    (Ctx.Empty :> blk :> off))))
+
 pattern BitvectorAsPointerExpr
     :: (1 <= w)
     => NatRepr w
@@ -737,8 +751,8 @@ pattern BitvectorAsPointerExpr
     -> Expr s (LLVMPointerType w)
 pattern BitvectorAsPointerExpr w ex <-
    App (RollRecursive _ (Ctx.Empty :> BVRepr w)
-  (App (MkStruct (Ctx.Empty :> NatRepr :> BVRepr _)
-                  (Ctx.Empty :> (App (NatLit 0)) :> ex))))
+  (App (MkStruct _ (Ctx.Empty :> (App (NatLit 0)) :> ex))))
+
  where BitvectorAsPointerExpr w ex =
           App (RollRecursive knownRepr (Ctx.Empty :> BVRepr w)
           (App (MkStruct (Ctx.Empty :> NatRepr :> BVRepr w)
@@ -1462,7 +1476,6 @@ intop op w a b =
 
              _ -> fail $ unwords ["unsupported integer arith operation", show op]
 
-
 caseptr
   :: (1 <= w)
   => NatRepr w
@@ -1474,27 +1487,30 @@ caseptr
   -> Expr s (LLVMPointerType w)
   -> LLVMGenerator h s ret (Expr s a)
 
-caseptr _w _tpr bvCase ptrCase
-    (App (RollRecursive _ (Ctx.Empty :> BVRepr _)
-    (App (MkStruct (Ctx.Empty :> NatRepr :> BVRepr _)
-                   (Ctx.Empty :> blk :> off)))))
-  | Just (NatLit 0) <- asApp blk = bvCase off
-  | Just (NatLit _) <- asApp blk = ptrCase blk off
-
 caseptr w tpr bvCase ptrCase x =
-  do a_x <- forceEvaluation (app (UnrollRecursive knownRepr (Ctx.Empty :> BVRepr w) x))
-     blk <- forceEvaluation (app (GetStruct a_x (Ctx.natIndex @0) NatRepr))
-     off <- forceEvaluation (app (GetStruct a_x (Ctx.natIndex @1) (BVRepr w)))
-     cond <- mkAtom (blk .== litExpr 0)
-     endNow $ \c ->
-       do bv_label  <- newLabel
-          ptr_label <- newLabel
-          c_label   <- newLambdaLabel' tpr
-          endCurrentBlock (Br cond bv_label ptr_label)
+  case x of
+    PointerExpr _ blk off ->
+      case asApp blk of
+        Just (NatLit 0) -> bvCase off
+        Just (NatLit _) -> ptrCase blk off
+        _               -> ptrSwitch blk off
 
-          defineBlock bv_label  (bvCase off >>= jumpToLambda c_label)
-          defineBlock ptr_label (ptrCase blk off >>= jumpToLambda c_label)
-          resume c_label c
+    _ -> do a_x <- forceEvaluation (app (UnrollRecursive knownRepr (Ctx.Empty :> BVRepr w) x))
+            blk <- forceEvaluation (app (GetStruct a_x (Ctx.natIndex @0) NatRepr))
+            off <- forceEvaluation (app (GetStruct a_x (Ctx.natIndex @1) (BVRepr w)))
+            ptrSwitch blk off
+  where
+  ptrSwitch blk off =
+    do cond <- mkAtom (blk .== litExpr 0)
+       endNow $ \c ->
+         do bv_label  <- newLabel
+            ptr_label <- newLabel
+            c_label   <- newLambdaLabel' tpr
+            endCurrentBlock (Br cond bv_label ptr_label)
+
+            defineBlock bv_label  (bvCase off >>= jumpToLambda c_label)
+            defineBlock ptr_label (ptrCase blk off >>= jumpToLambda c_label)
+            resume c_label c
 
 intcmp :: (1 <= w)
     => NatRepr w
