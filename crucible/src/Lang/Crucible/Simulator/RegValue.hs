@@ -51,6 +51,7 @@ module Lang.Crucible.Simulator.RegValue
   ) where
 
 import           Control.Monad
+import           Control.Monad.Trans.Class
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Proxy
@@ -246,21 +247,7 @@ mergePartExpr :: IsBoolExprBuilder sym
               -> PartExpr (Pred sym) v
               -> PartExpr (Pred sym) v
               -> IO (PartExpr (Pred sym) v)
-mergePartExpr sym fn pt x y =
-  case (x,y) of
-    (PE px vx, PE py vy) -> do
-      p' <- itePred sym pt px py
-      v' <- fn pt vx vy
-      return (PE p' v')
-    (PE px vx, Unassigned) -> do
-      p' <- andPred sym pt px
-      return (PE p' vx)
-    (Unassigned, PE py vy) -> do
-      pf <- notPred sym pt
-      p' <- andPred sym pf py
-      return (PE p' vy)
-    (Unassigned, Unassigned) ->
-      return Unassigned
+mergePartExpr sym fn c = mergePartial sym (\a b -> lift (fn c a b)) c
 
 instance (IsBoolExprBuilder sym, CanMux sym tp) => CanMux sym (MaybeType tp) where
   {-# INLINE muxReg #-}

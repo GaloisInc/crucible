@@ -27,6 +27,7 @@ module Lang.Crucible.Solver.Partial
  , returnMaybe
  , returnPartial
  , addCondition
+ , mergePartial
  ) where
 
 import Control.Monad.IO.Class
@@ -69,6 +70,36 @@ readPartExpr sym Unassigned msg = do
 readPartExpr sym (PE p v) msg = do
   addAssertion sym p msg
   return v
+
+------------------------------------------------------------------------
+-- Merge
+
+mergePartial :: (IsBoolExprBuilder sym, MonadIO m) =>
+  sym ->
+  (a -> a -> PartialT sym m a) ->
+  Pred sym ->
+  PartExpr (Pred sym) a ->
+  PartExpr (Pred sym) a ->
+  m (PartExpr (Pred sym) a)
+
+{-# SPECIALIZE mergePartial ::
+      IsBoolExprBuilder sym =>
+      sym ->
+      (a -> a -> PartialT sym IO a) ->
+      Pred sym ->
+      PartExpr (Pred sym) a ->
+      PartExpr (Pred sym) a ->
+      IO (PartExpr (Pred sym) a)   #-}
+
+mergePartial _ _ _ Unassigned Unassigned =
+     return Unassigned
+mergePartial sym _ c (PE px x) Unassigned =
+     PE <$> liftIO (andPred sym px c) <*> return x
+mergePartial sym _ c Unassigned (PE py y) =
+     PE <$> liftIO (andPred sym py =<< notPred sym c) <*> return y
+mergePartial sym f c (PE px x) (PE py y) =
+  do p <- liftIO (itePred sym c px py)
+     runPartialT sym p (f x y)
 
 ------------------------------------------------------------------------
 -- PartialT
