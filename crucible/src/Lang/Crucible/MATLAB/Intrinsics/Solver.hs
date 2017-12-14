@@ -158,7 +158,7 @@ matlabSolverArgTypes f =
     NatSeqFn{}           -> knownRepr
     IndicesInRange tps _ -> fmapFC toBaseTypeRepr tps
     RealSeqFn _ _        -> knownRepr
-    IsEqFn tp            -> Ctx.empty Ctx.%> tp Ctx.%> tp
+    IsEqFn tp            -> Ctx.empty Ctx.:> tp Ctx.:> tp
 
 -- | Get return type of solver fn.
 matlabSolverReturnType :: MatlabSolverFn f args ret -> BaseTypeRepr ret
