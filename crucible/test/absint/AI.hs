@@ -94,7 +94,7 @@ type Max' = Pointed Max
 eo_p1 :: TestCase h EvenOdd'
 eo_p1 = TC { tcDef = \ia -> (Ignore, gen ia)
            , tcHandle = genHandle
-           , tcAssignment = PU.empty PU.%> Pointed Even
+           , tcAssignment = PU.empty PU.:> Pointed Even
            , tcGlobals = PM.empty
            , tcCheck = check
            , tcDom = evenOddDom
@@ -124,7 +124,7 @@ eo_p1 = TC { tcDef = \ia -> (Ignore, gen ia)
 eo_p2 :: TestCase h EvenOdd'
 eo_p2 = TC { tcDef = \ia -> (Ignore, gen ia)
            , tcHandle = genHandle
-           , tcAssignment = PU.empty PU.%> Pointed Even
+           , tcAssignment = PU.empty PU.:> Pointed Even
            , tcGlobals = PM.empty
            , tcCheck = check
            , tcDom = evenOddDom
@@ -155,7 +155,7 @@ eo_p2 = TC { tcDef = \ia -> (Ignore, gen ia)
 eo_p3 :: TestCase h EvenOdd'
 eo_p3 = TC { tcDef = \ia -> (Ignore, gen ia)
            , tcHandle = genHandle
-           , tcAssignment = PU.empty PU.%> Pointed Even
+           , tcAssignment = PU.empty PU.:> Pointed Even
            , tcGlobals = PM.empty
            , tcCheck = check
            , tcDom = evenOddDom
@@ -188,7 +188,7 @@ eo_p3 = TC { tcDef = \ia -> (Ignore, gen ia)
 eo_p4 :: TestCase h EvenOdd'
 eo_p4 = TC { tcDef = \ia -> (Ignore, gen ia)
            , tcHandle = genHandle
-           , tcAssignment = PU.empty PU.%> Pointed Even
+           , tcAssignment = PU.empty PU.:> Pointed Even
            , tcGlobals = PM.empty
            , tcCheck = check
            , tcDom = evenOddDom
@@ -221,7 +221,7 @@ eo_p4 = TC { tcDef = \ia -> (Ignore, gen ia)
 max_p1 :: TestCase h Max'
 max_p1 = TC { tcDef = \ia -> (Ignore, gen ia)
             , tcHandle = genHandle
-            , tcAssignment = PU.empty PU.%> Pointed (Max 5)
+            , tcAssignment = PU.empty PU.:> Pointed (Max 5)
             , tcGlobals = PM.empty
             , tcCheck = check
             , tcDom = maxDom
@@ -250,7 +250,7 @@ max_p1 = TC { tcDef = \ia -> (Ignore, gen ia)
 max_p2 :: TestCase h Max'
 max_p2 = TC { tcDef = \ia -> (Ignore, gen ia)
             , tcHandle = genHandle
-            , tcAssignment = PU.empty PU.%> Pointed (Max 5)
+            , tcAssignment = PU.empty PU.:> Pointed (Max 5)
             , tcGlobals = PM.empty
             , tcCheck = check
             , tcDom = maxDom
