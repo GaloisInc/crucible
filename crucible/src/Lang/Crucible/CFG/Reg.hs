@@ -319,14 +319,14 @@ instance IsExpr (Expr s) where
   asApp (App x) = Just x
   asApp _ = Nothing
 
+  -- exprType :: Expr s tp -> TypeRepr tp
+  exprType (App a)          = appType a
+  exprType (AtomExpr a)     = typeOfAtom a
+
 instance IsString (Expr s StringType) where
   fromString s = app (TextLit (fromString s))
 
 
--- | Return type of expression.
-exprType :: Expr s tp -> TypeRepr tp
-exprType (App a)          = appType a
-exprType (AtomExpr a)     = typeOfAtom a
 
 ------------------------------------------------------------------------
 -- AtomValue
