@@ -36,10 +36,8 @@ module Lang.Crucible.LLVM.Translation.Types
 , llvmTypeAsRepr
 , llvmRetTypeAsRepr
 , llvmDeclToFunHandleRepr
-, PtrWidth
-, ptrWidth
 , LLVMPointerType
-, llvmPointerRepr
+, pattern PtrWidth
 , pattern LLVMPointerRepr
 , declareFromDefine
 , allModuleDeclares
@@ -121,8 +119,8 @@ liftDeclare decl =
 
 -- | Translate a list of LLVM expressions into a crucible type context,
 --   which is passed into the given continuation.
-llvmTypesAsCtx :: forall a
-                . (?lc :: TyCtx.LLVMContext)
+llvmTypesAsCtx :: forall a wptr
+                . (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr)
                => [MemType]
                -> (forall ctx. CtxRepr ctx -> a)
                -> a
@@ -133,8 +131,8 @@ llvmTypesAsCtx xs f = go (concatMap llvmTypeToRepr xs) Ctx.empty
 
 -- | Translate an LLVM type into a crucible type, which is passed into
 --   the given continuation
-llvmTypeAsRepr :: forall a
-                . (?lc :: TyCtx.LLVMContext)
+llvmTypeAsRepr :: forall a wptr
+                . (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr)
                => MemType
                -> (forall tp. TypeRepr tp -> a)
                -> a
@@ -147,8 +145,8 @@ llvmTypeAsRepr xs f = go (llvmTypeToRepr xs)
 
 -- | Translate an LLVM return type into a crucible type, which is passed into
 --   the given continuation
-llvmRetTypeAsRepr :: forall a
-                   . (?lc :: TyCtx.LLVMContext)
+llvmRetTypeAsRepr :: forall a wptr
+                   . (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr)
                   => Maybe MemType
                   -> (forall tp. TypeRepr tp -> a)
                   -> a
@@ -156,12 +154,12 @@ llvmRetTypeAsRepr Nothing   f = f UnitRepr
 llvmRetTypeAsRepr (Just tp) f = llvmTypeAsRepr tp f
 
 -- | Actually perform the type translation
-llvmTypeToRepr :: (?lc :: TyCtx.LLVMContext) => MemType -> [Some TypeRepr]
+llvmTypeToRepr :: (HasPtrWidth wptr, ?lc :: TyCtx.LLVMContext) => MemType -> [Some TypeRepr]
 llvmTypeToRepr (ArrayType _ tp)  = [llvmTypeAsRepr tp (\t -> Some (VectorRepr t))]
 llvmTypeToRepr (VecType _ tp)    = [llvmTypeAsRepr tp (\t-> Some (VectorRepr t))]
 llvmTypeToRepr (StructType si)   = [llvmTypesAsCtx tps (\ts -> Some (StructRepr ts))]
   where tps = map fiType $ toList $ siFields si
-llvmTypeToRepr (PtrType _)   = [Some LLVMPointerRepr]
+llvmTypeToRepr (PtrType _)   = [Some (LLVMPointerRepr PtrWidth)]
 llvmTypeToRepr FloatType     = [Some RealValRepr]
 llvmTypeToRepr DoubleType    = [Some RealValRepr]
 --llvmTypeToRepr FloatType   = [Some (FloatRepr SingleFloatRepr)]
@@ -169,17 +167,13 @@ llvmTypeToRepr DoubleType    = [Some RealValRepr]
 llvmTypeToRepr MetadataType = []
 llvmTypeToRepr (IntType n) =
    case someNat (fromIntegral n) of
-      -- NB! Special case! All integer types that are the same width as pointers are
-      -- interpreted as pointer types!  The LLVMPointer Crucible type is a disjoint
-      -- union of raw bitvectors and actual pointers.
-      Just (Some w) | Just Refl <- testEquality w ptrWidth -> [Some LLVMPointerRepr]
-
-      Just (Some w) | Just LeqProof <- isPosNat w -> [Some (BVRepr w)]
-
+      Just (Some w) | Just LeqProof <- isPosNat w -> [Some (LLVMPointerRepr w)]
       _ -> error $ unwords ["invalid integer width",show n]
 
+-- | Compute the function Crucible function signature
+--   that corresponds to the given LLVM function declaration.
 llvmDeclToFunHandleRepr
-   :: (?lc :: TyCtx.LLVMContext)
+   :: (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr)
    => FunDecl
    -> (forall args ret. CtxRepr args -> TypeRepr ret -> a)
    -> a

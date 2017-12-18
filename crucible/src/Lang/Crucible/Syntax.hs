@@ -105,6 +105,7 @@ import           Lang.Crucible.Types
 class IsExpr e where
   app   :: App e tp -> e tp
   asApp :: e tp -> Maybe (App e tp)
+  exprType :: e tp -> TypeRepr tp
 
 ------------------------------------------------------------------------
 -- LitExpr
@@ -362,15 +363,16 @@ mkStruct tps asgn = app (MkStruct tps asgn)
 getStruct :: (IsExpr e)
           => Ctx.Index ctx tp
           -> e (StructType ctx)
-          -> TypeRepr tp
           -> e tp
-getStruct i s tp
+getStruct i s
   | Just (MkStruct _ asgn) <- asApp s = asgn Ctx.! i
   | Just (SetStruct _ s' i' x) <- asApp s =
       case testEquality i i' of
         Just Refl -> x
-        Nothing -> getStruct i s' tp
-  | otherwise = app (GetStruct s i tp)
+        Nothing -> getStruct i s'
+  | otherwise =
+      case exprType s of
+        StructRepr tps -> app (GetStruct s i (tps Ctx.! i))
 
 setStruct :: IsExpr e
           => CtxRepr ctx

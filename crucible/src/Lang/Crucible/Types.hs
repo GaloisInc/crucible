@@ -33,6 +33,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeSynonymInstances #-}
@@ -40,6 +41,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Types
   ( -- * CrucibleType data kind
     type CrucibleType
@@ -97,6 +99,8 @@ module Lang.Crucible.Types
 
   , IntWidth(..)
   , UIntWidth(..)
+
+  , pattern KnownBV
 
     -- * Derived constructors for kind CrucibleType
   , StructFieldsType
@@ -638,6 +642,13 @@ instance KnownRepr TypeRepr tp => KnownRepr TypeRepr (MultiDimArrayType tp) wher
 
 instance KnownRepr BaseTypeRepr bt => KnownRepr TypeRepr (SymbolicMultiDimArrayType bt) where
   knownRepr = SymbolicMultiDimArrayRepr knownRepr
+
+
+-- | Pattern synonym specifying bitvector TypeReprs.  Intended to be use
+--   with type applications, e.g., @KnownBV \@32@.
+pattern KnownBV :: forall n. (1 <= n, KnownNat n) => TypeRepr (BVType n)
+pattern KnownBV <- BVRepr (testEquality (knownRepr :: NatRepr n) -> Just Refl)
+  where KnownBV = knownRepr
 
 ------------------------------------------------------------------------
 -- Misc typeclass instances

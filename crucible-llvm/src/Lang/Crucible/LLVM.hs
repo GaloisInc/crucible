@@ -37,8 +37,8 @@ registerModuleFn (_,AnyCFG cfg) = do
 
 
 llvmGlobals
-   :: LLVMContext
-   -> MemImpl sym PtrWidth
+   :: LLVMContext wptr
+   -> MemImpl sym
    -> SymGlobalState sym
 llvmGlobals ctx mem = emptyGlobals & insertGlobal var mem
   where var = llvmMemVar $ memModelOps ctx
