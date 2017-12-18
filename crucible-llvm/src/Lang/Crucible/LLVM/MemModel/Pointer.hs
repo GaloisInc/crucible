@@ -8,11 +8,14 @@
 -- Stability        : provisional
 ------------------------------------------------------------------------
 
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
@@ -24,18 +27,22 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Lang.Crucible.LLVM.MemModel.Pointer
 ( -- * Pointer bitwidth
-  PtrWidth
-, ptrWidth64
+  HasPtrWidth
+, pattern PtrWidth
+, withPtrWidth
 
   -- * Crucible pointer representation
 , LLVMPointerType
 , LLVMPtr
 , pattern LLVMPointerRepr
+, pattern PtrRepr
 , pattern LLVMPointer
+, pattern SizeT
 , muxLLVMPtr
 , ptrWidth
 , projectLLVM_bv
 , llvmPointer_bv
+, mkNullPointer
 
   -- * LLVM Value representation
 , LLVMVal(..)
@@ -58,6 +65,7 @@ module Lang.Crucible.LLVM.MemModel.Pointer
 , ptrAdd
 , ptrDiff
 , ptrSub
+, ptrIsNull
 ) where
 
 import           Control.Monad
@@ -83,9 +91,20 @@ import qualified Lang.Crucible.LLVM.MemModel.Common as G
 
 import           GHC.TypeLits
 
-type PtrWidth = 64
-ptrWidth64 :: NatRepr PtrWidth
-ptrWidth64 = knownNat
+-- | This constraint captures the idea that there is a distinguished
+--   pointer width in scope which is appropriate according to the C
+--   notion of pointer, and object size. In particular, it must be at
+--   least 16-bits wide (as required for the @size_t@ type).
+type HasPtrWidth w = (1 <= w, 16 <= w, ?ptrWidth :: NatRepr w)
+
+pattern PtrWidth :: HasPtrWidth w => w ~ w' => NatRepr w'
+pattern PtrWidth <- (testEquality ?ptrWidth -> Just Refl)
+  where PtrWidth = ?ptrWidth
+
+withPtrWidth :: forall w a. (16 <= w) => NatRepr w -> (HasPtrWidth w => a) -> a
+withPtrWidth w a =
+  case leqTrans (LeqProof :: LeqProof 1 16) (LeqProof :: LeqProof 16 w) of
+    LeqProof -> let ?ptrWidth = w in a
 
 -- | Crucible type of pointers/bitvector values of width @w@.
 type LLVMPointerType w = RecursiveType "LLVM_pointer" (EmptyCtx ::> BVType w)
@@ -112,6 +131,16 @@ pattern LLVMPointerRepr w <- RecursiveRepr (testEquality (knownSymbol :: SymbolR
   where
     LLVMPointerRepr w = RecursiveRepr knownSymbol (Ctx.Empty Ctx.:> BVRepr w)
 
+-- | This pattern creates/matches against the TypeRepr for LLVM pointer values
+--   that are of the distinguished pointer width.
+pattern PtrRepr :: HasPtrWidth wptr => (ty ~ LLVMPointerType wptr) => TypeRepr ty
+pattern PtrRepr = LLVMPointerRepr PtrWidth
+
+-- | This pattern creates/matches against the TypeRepr for raw bitvector values
+--   that are of the distinguished pointer width.
+pattern SizeT :: HasPtrWidth wptr => (ty ~ BVType wptr) => TypeRepr ty
+pattern SizeT = BVRepr PtrWidth
+
 -- | This pattern synonym gives an easy way to construct/deconstruct runtime values of @LLVMPointerType@.
 pattern LLVMPointer :: RegValue sym NatType -> RegValue sym (BVType w) -> RegValue sym (LLVMPointerType w)
 pattern LLVMPointer blk offset = RolledType (Ctx.Empty Ctx.:> RV blk Ctx.:> RV offset)
@@ -134,6 +163,10 @@ llvmPointer_bv :: IsSymInterface sym
 llvmPointer_bv sym bv =
   do blk0 <- natLit sym 0
      return (LLVMPointer blk0 bv)
+
+-- | Produce the distinguished null pointer value
+mkNullPointer :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w -> IO (RegValue sym (LLVMPointerType w))
+mkNullPointer sym w = llvmPointer_bv sym =<< bvLit sym w 0
 
 -- | Mux function specialized to LLVM pointer values
 muxLLVMPtr ::
@@ -287,6 +320,16 @@ ptrSub sym _w (LLVMPointer base off1) off2 =
   do diff <- bvSub sym off1 off2
      return (LLVMPointer base diff)
 
+-- | Test if a pointer value is the null pointer
+ptrIsNull :: (1 <= w, IsSymInterface sym)
+          => sym
+          -> NatRepr w
+          -> LLVMPtr sym w
+          -> IO (Pred sym)
+ptrIsNull sym _w (LLVMPointer blk off) =
+  do pblk <- natEq sym blk =<< natLit sym 0
+     poff <- bvEq sym off =<< bvLit sym (bvWidth off) 0
+     andPred sym pblk poff
 
 -- | Compute the actual value of a value constructor expression.
 applyCtorFLLVMVal :: forall sym
