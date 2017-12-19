@@ -1515,8 +1515,8 @@ intcmp :: (1 <= w)
     -> Expr s BoolType
 intcmp w op a b =
    case op of
-      L.Ieq -> App (BVEq w a b)
-      L.Ine -> App (Not (App (BVEq w a b)))
+      L.Ieq  -> App (BVEq w a b)
+      L.Ine  -> App (Not (App (BVEq w a b)))
       L.Iult -> App (BVUlt w a b)
       L.Iule -> App (BVUle w a b)
       L.Iugt -> App (BVUlt w b a)
@@ -1558,7 +1558,7 @@ pointerCmp op x y =
          L.Ine  -> do
             res <- callIsNull PtrWidth ptr
             return (App (Not res))
-         _ -> reportError "arithmetic comparison on incompatible values"
+         _ -> reportError $ litExpr $ Text.pack $ unwords ["arithmetic comparison on incompatible values", show op, show x, show y]
 
   ptrOp =
     do pEq <- litExpr . llvmPtrEq . memModelOps . llvmContext <$> get
@@ -1584,8 +1584,7 @@ pointerCmp op x y =
          L.Iugt -> do
            isLe <- call pLe (Ctx.Empty :> mem :> x :> y)
            return $ App (Not isLe)
-         _ -> reportError "signed comparison on pointer values"
-
+         _ -> reportError $ litExpr $ Text.pack $ unwords ["signed comparison on pointer values", show op, show x, show y]
 
 pointerOp
    :: L.ArithOp
@@ -1613,18 +1612,19 @@ pointerOp op x y =
       L.Sub _ _ ->
         do let off = App (BVSub PtrWidth (App $ BVLit PtrWidth 0) y_bv)
            callPtrAddOffset x off
-      _ -> reportError "Invalid pointer operation"
+      _ -> err
 
   bv_ptr_op x_bv =
     case op of
       L.Add _ _ -> callPtrAddOffset y x_bv
-      _ -> reportError "Invalid pointer operation"
+      _ -> err
 
   ptr_ptr_op =
     case op of
       L.Sub _ _ -> BitvectorAsPointerExpr PtrWidth <$> callPtrSubtract x y
-      _ -> reportError "Invalid pointer operation"
+      _ -> err
 
+  err = reportError $ litExpr $ Text.pack $ unwords ["Invalid pointer operation", show op, show x, show y]
 
 -- | Do the heavy lifting of translating LLVM instructions to crucible code.
 generateInstr :: forall h s wptr ret
