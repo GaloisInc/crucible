@@ -147,7 +147,7 @@ adtToRepr :: M.Adt -> Some CT.TypeRepr
 adtToRepr (M.Adt adtname variants) = Some $ taggedUnionType
 
 taggedUnionType :: CT.TypeRepr (CT.StructType (Ctx.EmptyCtx Ctx.::> CT.NatType Ctx.::> CT.AnyType))
-taggedUnionType = CT.StructRepr $ Ctx.empty Ctx.%> CT.NatRepr Ctx.%> CT.AnyRepr
+taggedUnionType = CT.StructRepr $ Ctx.empty Ctx.:> CT.NatRepr Ctx.:> CT.AnyRepr
 
 -- Type translation and type-level list utilities.
 -- Base types are encoded straightforwardly (except for Usize, which is a crucible nat).
@@ -203,13 +203,13 @@ tyListToCtx :: forall a.
 tyListToCtx ts f =  go (map tyToRepr ts) Ctx.empty
  where go :: forall ctx. [Some CT.TypeRepr] -> CT.CtxRepr ctx -> a
        go []       ctx      = f ctx
-       go (Some tp:tps) ctx = go tps (ctx Ctx.%> tp)
+       go (Some tp:tps) ctx = go tps (ctx Ctx.:> tp)
 
 reprsToCtx :: forall a. [Some CT.TypeRepr] -> (forall ctx. CT.CtxRepr ctx -> a) -> a
 reprsToCtx rs f = go rs Ctx.empty
  where go :: forall ctx. [Some CT.TypeRepr] -> CT.CtxRepr ctx -> a
        go []       ctx      = f ctx
-       go (Some tp:tps) ctx = go tps (ctx Ctx.%> tp)
+       go (Some tp:tps) ctx = go tps (ctx Ctx.:> tp)
 
 packBase
     :: CT.TypeRepr tp
@@ -246,7 +246,7 @@ exp_to_assgn xs =
     go Ctx.empty Ctx.empty xs
         where go :: CT.CtxRepr ctx -> Ctx.Assignment (R.Expr s) ctx -> [MirExp s] -> (forall ctx'. CT.CtxRepr ctx' -> Ctx.Assignment (R.Expr s) ctx' -> a) -> a
               go ctx asgn [] k = k ctx asgn
-              go ctx asgn ((MirExp tyr ex):vs) k = go (ctx Ctx.%> tyr) (asgn Ctx.%> ex) vs k
+              go ctx asgn ((MirExp tyr ex):vs) k = go (ctx Ctx.:> tyr) (asgn Ctx.:> ex) vs k
 
 
 -- Expressions
@@ -442,7 +442,7 @@ accessAggregate :: MirExp s -> Int -> MirGenerator h s ret (MirExp s)
 accessAggregate (MirExp (CT.StructRepr ctx) ag) i
  | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
      let tpr = ctx Ctx.! idx
-     return $ MirExp tpr (S.getStruct idx ag tpr)
+     return $ MirExp tpr (S.getStruct idx ag)
 accessAggregate a b = fail $ "invalid access: " ++ (show a) ++ ", " ++ (show b)
 
 modifyAggregateIdx :: MirExp s -> -- aggregate to modify
@@ -553,7 +553,7 @@ evalRval (M.Len lv) =
       -> do MirExp t e <- evalLvalue lv'
             case t of
               MirSliceRepr tp' ->
-                do let end = S.getStruct (Ctx.natIndex @2) e CT.NatRepr
+                do let end = S.getStruct (Ctx.natIndex @2) e
                    return $ MirExp CT.NatRepr end
               _ -> fail "Expected mutable slice value"
     _ ->
@@ -792,9 +792,9 @@ assignLvExp lv re_tp re = do
                  (MirSliceRepr el_tp, CT.NatRepr)
                    | Just Refl <- testEquality r_tp el_tp
                    -> do let ctx   = Ctx.Empty Ctx.:> MirReferenceRepr (CT.VectorRepr el_tp) Ctx.:> CT.NatRepr Ctx.:> CT.NatRepr
-                         let ref   = S.getStruct (Ctx.natIndex @0) slice (MirReferenceRepr (CT.VectorRepr el_tp))
-                         let start = S.getStruct (Ctx.natIndex @1) slice CT.NatRepr
-                         let len   = S.getStruct (Ctx.natIndex @2) slice CT.NatRepr
+                         let ref   = S.getStruct (Ctx.natIndex @0) slice
+                         let start = S.getStruct (Ctx.natIndex @1) slice
+                         let len   = S.getStruct (Ctx.natIndex @2) slice
                          G.assertExpr (ind S..< len) (S.litExpr "Index out of range")
                          let ind'  = start S..+ ind
                          marr <- G.readRef ref
