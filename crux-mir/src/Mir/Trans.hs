@@ -166,13 +166,13 @@ tyToRepr t = case t of
                M.TyBool -> Some CT.BoolRepr
                M.TyTuple ts ->  tyListToCtx ts $ \repr -> Some (CT.StructRepr repr)
                M.TyArray t _sz -> tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
-               M.TyInt M.USize -> Some $ CT.NatRepr
+               M.TyInt M.USize -> Some $ CT.NatRepr -- FIXME!
                M.TyInt M.B8 -> Some $ CT.BVRepr (knownNat :: NatRepr 8)
                M.TyInt M.B16 -> Some $ CT.BVRepr (knownNat :: NatRepr 16)
                M.TyInt M.B32 -> Some $ CT.BVRepr (knownNat :: NatRepr 32)
                M.TyInt M.B64 -> Some $ CT.BVRepr (knownNat :: NatRepr 64)
                M.TyInt M.B128 -> Some $ CT.BVRepr (knownNat :: NatRepr 128)
-               M.TyUint M.USize -> Some $ CT.NatRepr
+               M.TyUint M.USize -> Some $ CT.NatRepr -- FIXME!
                M.TyUint M.B8 -> Some $ CT.BVRepr (knownNat :: NatRepr 8)
                M.TyUint M.B16 -> Some $ CT.BVRepr (knownNat :: NatRepr 16)
                M.TyUint M.B32 -> Some $ CT.BVRepr (knownNat :: NatRepr 32)
@@ -186,7 +186,9 @@ tyToRepr t = case t of
                M.TyCustom custom_t -> customtyToRepr custom_t
                M.TyClosure def_id substs -> Some $ CT.AnyRepr
                M.TyStr -> Some $ CT.StringRepr
-               -- M.TyAdt a -> adtToRepr a
+               M.TyAdt _defid _tyargs -> Some $ taggedUnionType
+               M.TyFloat _ -> Some $ CT.RealValRepr
+               M.TyParam _ -> Some $ CT.AnyRepr -- FIXME??
                _ -> error $ unwords ["unknown type?", show t]
 
 -- As in the CPS translation, functions which manipulate types must be in CPS form, since type tags are generally hidden underneath an existential.
@@ -561,7 +563,7 @@ evalRval (M.Ref bk lv _) =
                  do r <- G.readReg reg
                     return $ MirExp (R.typeOfReg reg) r
                _ -> fail ("Mutable reference-taken variable not backed by reference! " <> show nm <> " at " <> Text.unpack pos)
-        _ -> fail "FIXME! evalRval, Ref for non-local lvars"
+        _ -> fail ("FIXME! evalRval, Ref for non-local lvars" ++ show lv)
     M.Unique  -> fail "FIXME! Unique reference not implemented"
 
 evalRval (M.Len lv) =
