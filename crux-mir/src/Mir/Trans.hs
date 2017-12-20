@@ -24,6 +24,7 @@ import Control.Monad.ST
 import Control.Lens hiding (op)
 import Data.Maybe
 import Data.Set (Set)
+import Numeric
 import qualified Data.Set as Set
 import System.IO.Unsafe
 import qualified Data.Text as Text
@@ -249,6 +250,23 @@ exp_to_assgn xs =
               go ctx asgn ((MirExp tyr ex):vs) k = go (ctx Ctx.:> tyr) (asgn Ctx.:> ex) vs k
 
 
+parsePosition :: Text.Text -> PL.Position
+parsePosition posText = 
+  case Text.split (==':') posText of
+    [fname,line,col,_line2,_col2]
+      | (l,[]):_ <- readDec (Text.unpack line)
+      , (c,[]):_ <- readDec (Text.unpack col)
+      -> PL.SourcePos fname l c
+    [fname,line,col]
+      | (l,[]):_ <- readDec (Text.unpack line)
+      , (c,[]):_ <- readDec (Text.unpack col)
+      -> PL.SourcePos fname l c
+    _ -> PL.OtherPos posText
+
+
+setPosition :: Text.Text -> MirGenerator h s ret ()
+setPosition = G.setPosition . parsePosition
+
 -- Expressions
 
 
@@ -270,7 +288,7 @@ transConstVal tp cv = fail $ "fail or unimp constant: " ++ (show tp) ++ " " ++ (
 
 
 lookupVar :: M.Var -> MirGenerator h s ret (MirExp s)
-lookupVar (M.Var vname _ vty _ _) = do
+lookupVar (M.Var vname _ vty _ pos) = do
     vm <- use varmap
     case (Map.lookup vname vm, tyToRepr vty) of
       (Just (Some varinfo), Some vtr)
@@ -281,14 +299,14 @@ lookupVar (M.Var vname _ vty _ _) = do
                    return $ MirExp vtr r
               VarReference reg ->
                 do r <- G.readRef =<< G.readReg reg
-                   let msg = "Attempted to read an uninitialized reference variable"
+                   let msg = ("Attempted to read an uninitialized reference variable: " <> vname <> " at " <> pos)
                    r' <- G.assertedJustExpr r (S.litExpr msg)
                    return $ MirExp vtr r'
               VarAtom a ->
                 do return $ MirExp vtr (R.AtomExpr a)
 
-        | otherwise -> fail "bad type in lookupVar"
-      _ -> fail "register not found"
+        | otherwise -> fail ("bad type in lookupVar: " <> show vname <> " at " <> Text.unpack pos)
+      _ -> fail ("register not found: " <> show vname <> " at " <> Text.unpack pos)
 
 -- The return var in the MIR output is always "_0"
 
@@ -542,7 +560,7 @@ evalRval (M.Ref bk lv _) =
                Just (Some (VarReference reg)) ->
                  do r <- G.readReg reg
                     return $ MirExp (R.typeOfReg reg) r
-               _ -> fail "Mutable reference-taken variable not backed by reference!"
+               _ -> fail ("Mutable reference-taken variable not backed by reference! " <> show nm <> " at " <> Text.unpack pos)
         _ -> fail "FIXME! evalRval, Ref for non-local lvars"
     M.Unique  -> fail "FIXME! Unique reference not implemented"
 
@@ -746,10 +764,10 @@ assignVarExp (M.Var vname _ vty _ pos) _ (MirExp e_ty e) = do
                 do r <- G.readReg reg
                    G.writeRef r (S.app (E.JustValue e_ty e))
               VarAtom _ ->
-                do fail "Cannot assign to atom"
+                do fail ("Cannot assign to atom: " <> show vname <> " at " <> Text.unpack pos)
         | otherwise ->
-            fail $ "type error in assignment: got " ++ (show e_ty) ++ " but expected " ++ (show (varInfoRepr varinfo)) ++ " in assignment of " ++ (show vname) ++ " which has type " ++ (show vty) ++ " with exp " ++ (show e)
-      Nothing -> fail ("register not found: " ++ show vname)
+            fail $ "type error in assignment: got " ++ (show e_ty) ++ " but expected " ++ (show (varInfoRepr varinfo)) ++ " in assignment of " ++ (show vname) ++ " which has type " ++ (show vty) ++ " with exp " ++ (show e) ++ " at" ++ (Text.unpack pos)
+      Nothing -> fail ("register not found: " ++ show vname ++ " at " ++ Text.unpack pos)
 
 -- lv := mirexp
 
@@ -855,8 +873,9 @@ storageDead lv =
 
 
 transStatement :: HasCallStack => M.Statement -> MirGenerator h s ret ()
-transStatement (M.Assign lv rv _pos) =
-  do re <- evalRval rv
+transStatement (M.Assign lv rv pos) =
+  do setPosition pos
+     re <- evalRval rv
      assignLvExp lv (Just (M.typeOf rv)) re
 transStatement (M.StorageLive lv) =
   do storageLive lv

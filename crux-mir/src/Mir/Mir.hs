@@ -268,7 +268,7 @@ data Var = Var {
     _varmut :: Mutability,
     _varty :: Ty,
     _varscope :: VisibilityScope,
-    _varpos :: String }
+    _varpos :: Text }
     deriving (Eq, Show)
 
 instance Ord Var where
@@ -375,7 +375,7 @@ instance FromJSON BasicBlockData where
         <*>  v .: "terminator"
 
 data Statement =
-      Assign { _alhs :: Lvalue, _arhs :: Rvalue, _apos :: String}
+      Assign { _alhs :: Lvalue, _arhs :: Rvalue, _apos :: Text }
       -- TODO: the rest of these variants also have positions
       | SetDiscriminant { _sdlv :: Lvalue, _sdvi :: Int }
       | StorageLive { _sllv :: Lvalue }

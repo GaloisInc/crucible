@@ -137,7 +137,7 @@ extractFromCFGPure setup sc cfg = do
 
 
 handleAbortedResult :: C.AbortedResult sym -> String
-handleAbortedResult (C.AbortedExec simerror _) = C.simErrorReasonMsg $ C.simErrorReason simerror
+handleAbortedResult (C.AbortedExec simerror _) = show $ C.ppSimError simerror
 handleAbortedResult _ = "unknown"
 
 mirToCFG :: [M.Fn] -> Maybe ([M.Fn] -> [M.Fn]) -> Map.Map Text.Text C.AnyCFG
