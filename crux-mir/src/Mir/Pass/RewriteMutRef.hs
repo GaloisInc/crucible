@@ -37,13 +37,13 @@ ints_list i | i > 0 = (ints_list (i - 1)) ++ [i]
 
 
 modifyVarTy :: Var -> Ty -> Var
-modifyVarTy (Var a b c d) e = Var a b e d
+modifyVarTy (Var a b c d pos) e = Var a b e d pos
 
 vars_to_map :: [Var] -> Map.Map T.Text Var
 vars_to_map vs = Map.fromList $ map (\v -> (_varname v, v)) vs
 
 mutref_to_immut :: Var -> Var
-mutref_to_immut (Var vn vm vty vsc) = Var (T.pack $ (T.unpack vn) ++ "d") vm (changeTyToImmut vty) vsc
+mutref_to_immut (Var vn vm vty vsc pos) = Var (T.pack $ (T.unpack vn) ++ "d") vm (changeTyToImmut vty) vsc pos
 
 
 changeTyToImmut :: Ty -> Ty
@@ -118,7 +118,7 @@ newDummyBlock prev_name bbd = do
 mkDummyInternal :: Ty -> State RewriteFnSt Var
 mkDummyInternal ty = do
     internals <- use fnInternals
-    let dummyvar = (Var "_dummyret" Immut ty "scopedum")
+    let dummyvar = (Var "_dummyret" Immut ty "scopedum" "internal")
     fnInternals .= Map.insert "_dummyret" dummyvar internals
     return dummyvar
 
@@ -126,7 +126,7 @@ newInternal :: Ty -> State RewriteFnSt Var
 newInternal ty = do
     ctr <- newCtr
     let new_name = T.pack $ "_vd" ++ (show ctr)
-        new_var =  (Var new_name Immut ty "scopedum")
+        new_var =  (Var new_name Immut ty "scopedum" "internal")
     internals <- use fnInternals
     fnInternals .= Map.insert new_name new_var internals
     return new_var
@@ -162,7 +162,7 @@ modifyAssignEntryBlock = do
                         Just b -> b
                         Nothing -> error "entry block not found"
 
-        new_asgns = Map.elems $ Map.map (\(vmut, vimmut) -> Assign (Local vmut) (Use $ Consume $ Local vimmut)) mutpairs
+        new_asgns = Map.elems $ Map.map (\(vmut, vimmut) -> Assign (Local vmut) (Use $ Consume $ Local vimmut) "internal") mutpairs
         new_bbd = BasicBlockData (new_asgns ++ entry_stmts) ei
     fnBlocks .= Map.insert (T.pack "bb0") new_bbd blocks
 
@@ -197,7 +197,7 @@ mkPreReturnAssgn = do
     let muts = Map.elems $ Map.map fst mutpairs
     Just dummyret <- use fnDummyRet
     let (Just retvar) = Map.lookup "_0" internals
-    return $ Assign (Local retvar) (Aggregate AKTuple $  [Consume (Local dummyret)] ++ (map (Consume . Local) muts))
+    return $ Assign (Local retvar) (Aggregate AKTuple $  [Consume (Local dummyret)] ++ (map (Consume . Local) muts)) "internal"
 
 processReturnBlock_ :: BasicBlockData -> State RewriteFnSt BasicBlockData
 processReturnBlock_ (BasicBlockData stmts Return) = do
@@ -270,7 +270,8 @@ processFnCall_ bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_
          do_mutrefarg_trans bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean)) mut_cargs = do
             (v, (v0, vrest)) <- mkFnCallVars dest_lv $ map typeOf mut_cargs
             newb <- newDummyBlock bbi $ BasicBlockData
-                ([Assign dest_lv (Use $ Consume v0)] ++ (zipWith (\c v -> Assign (lValueofOp c) (Use $ Consume v)) mut_cargs vrest))
+                ([Assign dest_lv (Use $ Consume v0) "internal"] ++
+                 (zipWith (\c v -> Assign (lValueofOp c) (Use $ Consume v) "internal") mut_cargs vrest))
                 (Goto dest_block)
 
             blocks <- use fnBlocks

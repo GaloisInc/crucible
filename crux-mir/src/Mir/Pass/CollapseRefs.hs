@@ -46,7 +46,7 @@ registerStmt :: HasCallStack => Statement -> State (Map.Map Lvalue Lvalue) ()
 registerStmt stmt = do
     refmap <- get
     case stmt of
-      Assign lv rv ->
+      Assign lv rv _pos ->
           if (Map.notMember lv refmap) then
               case (typeOf lv) of
                   TyRef _ _ ->

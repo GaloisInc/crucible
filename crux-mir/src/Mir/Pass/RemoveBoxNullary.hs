@@ -33,7 +33,7 @@ passRemoveBoxNullary fns = map (\(Fn a b c (MirBody d blocks)) -> Fn a b c (MirB
 removeBoxNullary :: BasicBlock -> BasicBlock
 removeBoxNullary (BasicBlock bbi (BasicBlockData stmts term)) =
     let stmts' = filter (\stmt -> case stmt of
-                Assign _ (NullaryOp Box _) -> False
+                Assign _ (NullaryOp Box _) _ -> False
                 _ -> True) stmts
     in BasicBlock bbi (BasicBlockData stmts' term)
 

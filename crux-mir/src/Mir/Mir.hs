@@ -117,7 +117,7 @@ data Ty =
       | TyFnDef DefId [Maybe Ty]
       | TyClosure DefId [Maybe Ty]
       | TyStr
-      | TyFnPtr -- TODO
+      | TyFnPtr FnSig
       | TyProjection -- TODO
       | TyDynamic DefId
       | TyRawPtr Ty Mutability
@@ -147,13 +147,19 @@ instance FromJSON Ty where
                                           Just (String "Param") -> TyParam <$> v .: "param"
                                           Just (String "Closure") -> TyClosure <$> v .: "defid" <*> v .: "closuresubsts"
                                           Just (String "Str") -> pure TyStr
-                                          Just (String "FnPtr") -> pure TyFnPtr -- TODO
+                                          Just (String "FnPtr") -> TyFnPtr <$> v .: "signature"
                                           Just (String "Projection") -> pure TyProjection -- TODO
                                           Just (String "Dynamic") -> TyDynamic <$> v .: "data"
                                           Just (String "RawPtr") -> TyRawPtr <$> v .: "ty" <*> v .: "mutability"
                                           Just (String "Float") -> TyFloat <$> v .: "size"
                                           r -> fail $ "unsupported ty: " ++ show r
 
+
+data FnSig = FnSig [Ty] Ty
+    deriving (Eq, Show)
+
+instance FromJSON FnSig where
+    parseJSON = withObject "FnSig" $ \v -> FnSig <$> v .: "inputs" <*> v .: "output"
 
 data Adt = Adt {_adtname :: Text, _adtvariants :: [Variant]}
     deriving (Eq, Show)
@@ -261,17 +267,18 @@ data Var = Var {
     _varname :: Text,
     _varmut :: Mutability,
     _varty :: Ty,
-    _varscope :: VisibilityScope }
+    _varscope :: VisibilityScope,
+    _varpos :: String }
     deriving (Eq, Show)
 
 instance Ord Var where
-    compare (Var n _ _ _) (Var m _ _ _) = compare n m
+    compare (Var n _ _ _ _) (Var m _ _ _ _) = compare n m
 
 instance TypeOf Var where
-    typeOf (Var _ _ t _) = t
+    typeOf (Var _ _ t _ _) = t
 
 instance PPrint Var where
-    pprint (Var vn vm vty vs) = j ++ (unpack vn) ++ ": " ++ ( pprint vty)
+    pprint (Var vn vm vty vs _) = j ++ (unpack vn) ++ ": " ++ ( pprint vty)
         where
             j = case vm of
                   Mut -> "mut "
@@ -280,19 +287,22 @@ instance PPrint Var where
 instance FromJSON Var where
     parseJSON = withObject "Var" $ \v -> Var
         <$>  v .: "name"
-        <*> v .: "mut"
+        <*>  v .: "mut"
         <*>  v .: "ty"
         <*>  v .: "scope"
+        <*>  v .: "pos"
 
 data Collection = Collection {
     functions :: [Fn],
-    adts :: [Adt]
+    adts :: [Adt],
+    traits :: [Trait]
 }
 
 instance FromJSON Collection where
     parseJSON = withObject "Collection" $ \v -> Collection
         <$>  v .: "fns"
         <*> v .: "adts"
+        <*> v .: "traits"
 
 data Fn = Fn {
     _fname :: Text,
@@ -365,7 +375,8 @@ instance FromJSON BasicBlockData where
         <*>  v .: "terminator"
 
 data Statement =
-      Assign { _alhs :: Lvalue, _arhs :: Rvalue}
+      Assign { _alhs :: Lvalue, _arhs :: Rvalue, _apos :: String}
+      -- TODO: the rest of these variants also have positions
       | SetDiscriminant { _sdlv :: Lvalue, _sdvi :: Int }
       | StorageLive { _sllv :: Lvalue }
       | StorageDead { _sdlv :: Lvalue }
@@ -374,7 +385,7 @@ data Statement =
 
 
 instance PPrint Statement where
-    pprint (Assign lhs rhs) = (pprint lhs) ++ " = " ++ (pprint rhs) ++ ";"
+    pprint (Assign lhs rhs _) = (pprint lhs) ++ " = " ++ (pprint rhs) ++ ";"
     pprint (SetDiscriminant lhs rhs) = (pprint lhs) ++ " = " ++ (pprint rhs) ++ ";"
     pprint (StorageLive l) = pprint_fn1 "StorageLive" l
     pprint (StorageDead l) = pprint_fn1 "StorageDead" l
@@ -382,7 +393,7 @@ instance PPrint Statement where
 
 instance FromJSON Statement where
     parseJSON = withObject "Statement" $ \v -> case (HML.lookup "kind" v) of
-                             Just (String "Assign") ->  Assign <$> v.: "lhs" <*> v .: "rhs"
+                             Just (String "Assign") ->  Assign <$> v.: "lhs" <*> v .: "rhs" <*> v .: "pos"
                              Just (String "SetDiscriminant") -> SetDiscriminant <$> v .: "lvalue" <*> v .: "variant_index"
                              Just (String "StorageLive") -> StorageLive <$> v .: "slvar"
                              Just (String "StorageDead") -> StorageDead <$> v .: "sdvar"
@@ -390,10 +401,10 @@ instance FromJSON Statement where
                              _ -> fail "kind not found for statement"
 instance TypeOf Lvalue where
   typeOf lv = case lv of
-    Static              -> error "typeOf: static"
-    Tagged lv' _        -> typeOf lv'
-    Local (Var _ _ t _) -> t
-    LProjection proj    -> typeOf proj
+    Static                -> error "typeOf: static"
+    Tagged lv' _          -> typeOf lv'
+    Local (Var _ _ t _ _) -> t
+    LProjection proj      -> typeOf proj
 
 data Lvalue =
     Local { _lvar :: Var}
@@ -887,6 +898,27 @@ type AssertMessage = Text
 type ClosureSubsts = Text
 type BasicBlockInfo = Text
 
+data Trait =
+    Trait [TraitItem]
+    deriving (Eq, Show)
+
+instance FromJSON Trait where
+    parseJSON = withObject "Trait" $ \v -> Trait <$> v .: "items"
+
+data TraitItem
+    = TraitMethod Text FnSig
+    | TraitType Text
+    | TraitConst Text Ty
+    deriving (Eq, Show)
+
+instance FromJSON TraitItem where
+    parseJSON = withObject "TraitItem" $ \v ->
+                case (HML.lookup "kind" v) of
+                  Just (String "Method") -> TraitMethod <$> v .: "name" <*> v .: "signature"
+                  Just (String "Type") -> TraitType <$> v .: "name"
+                  Just (String "Const") -> TraitConst <$> v .: "name" <*> v .: "type"
+                  Just (String unk) -> fail $ "unknown trait item type: " ++ (unpack unk)
+
 --- aux functions ---
 --
 
@@ -901,7 +933,7 @@ instance ArithTyped Ty where
     arithType _ = Nothing
 
 instance ArithTyped Var where
-    arithType (Var _ _ ty _) = arithType ty
+    arithType (Var _ _ ty _ _) = arithType ty
 
 instance ArithTyped Lvalue where
     arithType (Local var) = arithType var
@@ -946,7 +978,7 @@ instance (Replace v Operand, Replace v Lvalue) => Replace v Terminator where
     replace old new t = t
 
 instance (Replace v Lvalue, Replace v Rvalue) => Replace v Statement where
-    replace old new (Assign lv rv) = Assign (replace old new lv) (replace old new rv)
+    replace old new (Assign lv rv p) = Assign (replace old new lv) (replace old new rv) p
     replace old new (SetDiscriminant lv i) = SetDiscriminant (replace old new lv) i
     replace old new (StorageLive l) = StorageLive (replace old new l)
     replace old new (StorageDead l) = StorageDead (replace old new l)

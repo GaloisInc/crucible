@@ -270,7 +270,7 @@ transConstVal tp cv = fail $ "fail or unimp constant: " ++ (show tp) ++ " " ++ (
 
 
 lookupVar :: M.Var -> MirGenerator h s ret (MirExp s)
-lookupVar (M.Var vname _ vty _) = do
+lookupVar (M.Var vname _ vty _ _) = do
     vm <- use varmap
     case (Map.lookup vname vm, tyToRepr vty) of
       (Just (Some varinfo), Some vtr)
@@ -536,7 +536,7 @@ evalRval (M.Ref bk lv _) =
     M.Shared  -> evalLvalue lv
     M.Mutable ->
       case lv of
-        M.Local (M.Var nm _ _ _) ->
+        M.Local (M.Var nm _ _ _ pos) ->
           do vm <- use varmap
              case Map.lookup nm vm of
                Just (Some (VarReference reg)) ->
@@ -724,17 +724,17 @@ assignVarExp :: HasCallStack => M.Var -> Maybe M.Ty -> MirExp s -> MirGenerator 
 -- invariant guarantee given by the borrow checker is that, so long as the immutable
 -- reference is live, the value will not change.  This justifies immediately deferencing
 -- the pointer to get out the value within.
-assignVarExp v@(M.Var vnamd _ (M.TyRef lhs_ty M.Immut) _) (Just (M.TyRef rhs_ty M.Mut)) (MirExp (MirReferenceRepr e_ty) e) =
+assignVarExp v@(M.Var vnamd _ (M.TyRef lhs_ty M.Immut) _ pos) (Just (M.TyRef rhs_ty M.Mut)) (MirExp (MirReferenceRepr e_ty) e) =
   case lhs_ty of
     M.TySlice _ ->
          do fail "FIXME! implement implict cast from mutable slice to immutable slice"
     _ ->
          do r <- G.readRef e
-            let msg = "Attempted to read an uninitialized reference value"
+            let msg = ("Attempted to read an uninitialized reference value: " <> vnamd <> " at " <> pos)
             r' <- G.assertedJustExpr r (S.litExpr msg)
             assignVarExp v Nothing (MirExp e_ty r')
 
-assignVarExp (M.Var vname _ vty _) _ (MirExp e_ty e) = do
+assignVarExp (M.Var vname _ vty _ pos) _ (MirExp e_ty e) = do
     vm <- use varmap
     case (Map.lookup vname vm) of
       Just (Some varinfo)
@@ -831,7 +831,7 @@ assignLvExp lv re_tp re = do
         _ -> fail $ "rest assign unimp: " ++ (show lv) ++ ", " ++ (show re)
 
 storageLive :: M.Lvalue -> MirGenerator h s ret ()
-storageLive (M.Local (M.Var nm _ _ _)) =
+storageLive (M.Local (M.Var nm _ _ _ _)) =
   do vm <- use varmap
      case Map.lookup nm vm of
        Just (Some varinfo@(VarReference reg)) ->
@@ -843,7 +843,7 @@ storageLive lv =
   do fail ("FIXME: unimplemented 'storageLive': " ++ M.pprint lv)
 
 storageDead :: M.Lvalue -> MirGenerator h s ret ()
-storageDead (M.Local (M.Var nm _ _ _)) =
+storageDead (M.Local (M.Var nm _ _ _ _)) =
   do vm <- use varmap
      case Map.lookup nm vm of
        Just (Some varinfo@(VarReference reg)) ->
@@ -855,7 +855,7 @@ storageDead lv =
 
 
 transStatement :: HasCallStack => M.Statement -> MirGenerator h s ret ()
-transStatement (M.Assign lv rv) =
+transStatement (M.Assign lv rv _pos) =
   do re <- evalRval rv
      assignLvExp lv (Just (M.typeOf rv)) re
 transStatement (M.StorageLive lv) =
@@ -954,7 +954,7 @@ transTerminator (M.SwitchInt swop swty svals stargs) _ | all isJust svals = do
 transTerminator (M.Return) tr =
     doReturn tr
 transTerminator (M.DropAndReplace dlv dop dtarg _) _ = do
-    transStatement (M.Assign dlv (M.Use dop))
+    transStatement (M.Assign dlv (M.Use dop) "<dummy pos>")
     jumpToBlock dtarg
 transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction funid funsubsts))))  cargs cretdest _) _ =
     doCall funid cargs cretdest  -- cleanup ignored
@@ -975,7 +975,6 @@ tyToFreshReg t = do
     tyToReprCont t $ \tp ->
         Some <$> G.newUnassignedReg' tp
 
-
 buildIdentMapRegs_ :: HasCallStack => Set Text.Text -> [(Text.Text, M.Ty)] -> MirEnd h s ret (VarMap s)
 buildIdentMapRegs_ addressTakenVars pairs = foldM f Map.empty pairs
   where
@@ -991,17 +990,17 @@ buildIdentMapRegs_ addressTakenVars pairs = foldM f Map.empty pairs
 addrTakenVars :: M.BasicBlock -> Set Text.Text
 addrTakenVars bb = mconcat (map f (M._bbstmts (M._bbdata bb)))
  where
- f (M.Assign _ (M.Ref M.Mutable lv _)) = g lv
+ f (M.Assign _ (M.Ref M.Mutable lv _) _) = g lv
  f _ = mempty
 
- g (M.Local (M.Var nm _ _ _)) = Set.singleton nm
+ g (M.Local (M.Var nm _ _ _ _)) = Set.singleton nm
  g (M.LProjection (M.LvalueProjection lv _)) = g lv
  g (M.Tagged lv _) = g lv
  g _ = mempty
 
 buildIdentMapRegs :: forall h s ret. HasCallStack => M.MirBody -> [M.Var] -> MirEnd h s ret (VarMap s)
 buildIdentMapRegs (M.MirBody vars blocks) argvars =
-    buildIdentMapRegs_ addressTakenVars (map (\(M.Var name _ ty _) -> (name,ty)) (vars ++ argvars))
+    buildIdentMapRegs_ addressTakenVars (map (\(M.Var name _ ty _ _) -> (name,ty)) (vars ++ argvars))
  where
    addressTakenVars = mconcat (map addrTakenVars blocks)
 
@@ -1070,7 +1069,7 @@ mkHandleMap :: HasCallStack => FH.HandleAllocator s -> [M.Fn] -> ST s (Map.Map T
 mkHandleMap halloc fns = Map.fromList <$> (mapM (mkHandle halloc) fns) where
     mkHandle :: FH.HandleAllocator s -> M.Fn -> ST s (Text.Text, MirHandle)
     mkHandle halloc (M.Fn fname fargs fretty fbody) =
-        fnInfoToReprs (map (\(M.Var _ _ t _) -> t) fargs) fretty $ \argctx retrepr -> do
+        fnInfoToReprs (map (\(M.Var _ _ t _ _) -> t) fargs) fretty $ \argctx retrepr -> do
             h <- FH.mkHandle' halloc (FN.functionNameFromText fname) argctx retrepr
             let mh = MirHandle argctx retrepr h
             return (fname, mh)
@@ -1090,7 +1089,7 @@ transDefine hmap fn =
         case (Map.lookup fname hmap) of
           Nothing -> fail "bad handle!!"
           Just (MirHandle argctx retrepr (handle :: FH.FnHandle args ret)) -> do
-              let argtups = map (\(M.Var n _ t _) -> (n,t)) fargs
+              let argtups = map (\(M.Var n _ t _ _) -> (n,t)) fargs
               let argtypes = FH.handleArgTypes handle
               let rettype = FH.handleReturnType handle
               let def :: G.FunctionDef handle FnState args ret
