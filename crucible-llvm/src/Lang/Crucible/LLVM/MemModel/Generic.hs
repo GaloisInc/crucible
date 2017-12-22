@@ -144,6 +144,63 @@ genCondVar sym w inst c =
     IntLe x y         -> join $ bvSle sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
     And x y           -> join $ andPred sym <$> genCondVar sym w inst x <*> genCondVar sym w inst y
 
+genValueCtor :: forall sym .
+  IsSymInterface sym => sym ->
+  ValueCtor (PartLLVMVal sym) ->
+  IO (PartLLVMVal sym)
+genValueCtor sym v =
+  case v of
+    ValueCtorVar x -> return x
+    ConcatBV low_w vcl high_w vch ->
+      do vl <- genValueCtor sym vcl
+         vh <- genValueCtor sym vch
+         bvConcatPartLLVMVal sym low_w vl high_w vh
+    ConsArray tp vc1 n vc2 ->
+      do lv1 <- genValueCtor sym vc1
+         lv2 <- genValueCtor sym vc2
+         consArrayPartLLVMVal sym tp lv1 n lv2
+    AppendArray tp n1 vc1 n2 vc2 ->
+      do lv1 <- genValueCtor sym vc1
+         lv2 <- genValueCtor sym vc2
+         appendArrayPartLLVMVal sym tp n1 lv1 n2 lv2
+    MkArray tp vv ->
+      do vec <- traverse (genValueCtor sym) vv
+         mkArrayPartLLVMVal sym tp vec
+    MkStruct vv ->
+      do vec <- traverse (traverse (genValueCtor sym)) vv
+         mkStructPartLLVMVal sym vec
+    BVToFloat _ ->
+      return Unassigned
+      -- fail "genValueCtor: Floating point values not supported"
+    BVToDouble _ ->
+      return Unassigned
+      -- fail "genValueCtor: Floating point values not supported"
+
+-- | Compute the actual value of a value deconstructor expression.
+applyView ::
+  IsSymInterface sym => sym ->
+  PartLLVMVal sym ->
+  ValueView ->
+  IO (PartLLVMVal sym)
+applyView sym t val =
+  case val of
+    ValueViewVar _ ->
+      return t
+    SelectLowBV low hi v ->
+      selectLowBvPartLLVMVal sym low hi =<< applyView sym t v
+    SelectHighBV low hi v ->
+      selectHighBvPartLLVMVal sym low hi =<< applyView sym t v
+    FloatToBV _ ->
+      return Unassigned
+      --fail "applyView: Floating point values not supported"
+    DoubleToBV _ ->
+      return Unassigned
+      --fail "applyView: Floating point values not supported"
+    ArrayElt sz tp idx v ->
+      arrayEltPartLLVMVal sz tp idx =<< applyView sym t v
+    FieldVal flds idx v ->
+      fieldValPartLLVMVal flds idx =<< applyView sym t v
+
 -- | Join all conditions in fold together.
 tgAll :: (IsBoolExprBuilder sym) => sym
       -> Getting (Dual (Endo (Pred sym -> IO (Pred sym)))) s (Pred sym)
@@ -467,7 +524,7 @@ isAllocated sym w (llvmPointerView -> (blk, off)) sz m = do
             | Just Refl <- testEquality w (bvWidth asz) =
                  do sameBlock <- natEq sym blk =<< natLit sym a
                     inRange   <- bvUle sym sz end
-                    okNow     <- andPred sym sameBlock inRange  
+                    okNow     <- andPred sym sameBlock inRange
                     case asConstantPred okNow of
                       Just True  -> return okNow
                       Just False -> fallback
