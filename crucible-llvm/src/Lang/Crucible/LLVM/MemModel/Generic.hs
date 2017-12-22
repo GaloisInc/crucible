@@ -135,9 +135,6 @@ genCondVar sym w inst c =
     IntLe x y         -> join $ bvSle sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
     And x y           -> join $ andPred sym <$> genCondVar sym w inst x <*> genCondVar sym w inst y
 
-genValueCtor :: (IsSymInterface sym) => sym -> ValueCtor (PartLLVMVal sym) -> IO (PartLLVMVal sym)
-genValueCtor sym = foldTermM return (applyCtorFLLVMVal sym)
-
 -- | Join all conditions in fold together.
 tgAll :: (IsBoolExprBuilder sym) => sym
       -> Getting (Dual (Endo (Pred sym -> IO (Pred sym)))) s (Pred sym)

@@ -48,7 +48,7 @@ module Lang.Crucible.LLVM.MemModel.Pointer
   -- * LLVM Value representation
 , LLVMVal(..)
 , PartLLVMVal
-, applyCtorFLLVMVal
+, genValueCtor
 , applyView
 , muxLLVMVal
 
@@ -111,7 +111,7 @@ withPtrWidth w a =
 type LLVMPointerType w = RecursiveType "LLVM_pointer" (EmptyCtx ::> BVType w)
 type LLVMPtr sym w = RegValue sym (LLVMPointerType w)
 
--- | Type familiy defining how @LLVMPointerType@ unfolds.
+-- | Type family defining how @LLVMPointerType@ unfolds.
 type family LLVMPointerImpl ctx where
   LLVMPointerImpl (EmptyCtx ::> BVType w) = StructType (EmptyCtx ::> NatType ::> BVType w)
   LLVMPointerImpl ctx = TypeError ('Text "LLVM_pointer expects a single argument of BVType, but was given" ':<>:
@@ -332,18 +332,22 @@ ptrIsNull sym _w (LLVMPointer blk off) =
      poff <- bvEq sym off =<< bvLit sym (bvWidth off) 0
      andPred sym pblk poff
 
--- | Compute the actual value of a value constructor expression.
-applyCtorFLLVMVal :: forall sym
-    . IsSymInterface sym
-   => sym
-   -> G.ValueCtorF (PartLLVMVal sym)
-   -> IO (PartLLVMVal sym)
-applyCtorFLLVMVal sym ctor =
-  case ctor of
-    G.ConcatBV low_w  (PE p1 (LLVMValInt blk_low low))
-               high_w (PE p2 (LLVMValInt blk_high high))
-       | G.bytesToBits low_w  == natValue low_w' &&
-         G.bytesToBits high_w == natValue high_w' ->
+
+genValueCtor :: forall sym .
+  IsSymInterface sym =>
+  sym ->
+  G.ValueCtor (PartLLVMVal sym) ->
+  IO (PartLLVMVal sym)
+
+genValueCtor _sym (G.ValueCtorVar x) = return x
+
+genValueCtor sym (G.ConcatBV low_w vcl high_w vch) =
+  do vl <- genValueCtor sym vcl
+     vh <- genValueCtor sym vch
+     case (vl, vh) of
+       (PE p1 (LLVMValInt blk_low low), PE p2 (LLVMValInt blk_high high))
+         | G.bytesToBits low_w  == natValue low_w' &&
+           G.bytesToBits high_w == natValue high_w' ->
            do blk0   <- natLit sym 0
               p_blk1 <- natEq sym blk_low blk0
               p_blk2 <- natEq sym blk_high blk0
@@ -351,51 +355,69 @@ applyCtorFLLVMVal sym ctor =
               p <- andPred sym p1 =<< andPred sym p2 =<< andPred sym p_blk1 p_blk2
               bv <- bvConcat sym high low
               return $ PE p $ LLVMValInt blk0 bv
-      where low_w' = bvWidth low
-            high_w' = bvWidth high
-    G.ConsArray tp (PE p1 hd) n (PE p2 (LLVMValArray tp' vec))
-       | tp == tp' && n == fromIntegral (V.length vec) ->
-           do p <- andPred sym p1 p2
-              return $ PE p $ LLVMValArray tp' (V.cons hd vec)
-    G.AppendArray tp n1 (PE p1 (LLVMValArray tp1 v1)) n2 (PE p2 (LLVMValArray tp2 v2))
-       | tp == tp1 && tp == tp2 &&
-         n1 == fromIntegral (V.length v1) &&
-         n2 == fromIntegral (V.length v2) ->
-           do p <- andPred sym p1 p2
-              return $ PE p $ LLVMValArray tp (v1 V.++ v2)
-    G.MkArray tp vec ->
-      do let f :: PartLLVMVal sym -> StateT (Pred sym) (MaybeT IO) (LLVMVal sym)
-             f Unassigned = mzero
-             f (PE p1 x) =
-               do p0 <- get
-                  p <- liftIO $ andPred sym p0 p1
-                  put p
-                  return x
-         x <- runMaybeT $ flip runStateT (truePred sym) $ (traverse f vec)
-         case x of
-           Nothing -> return $ Unassigned
-           Just (vec',p) -> return $ PE p $ LLVMValArray tp vec'
+         where low_w' = bvWidth low
+               high_w' = bvWidth high
+       _ -> return Unassigned
 
-    G.MkStruct vec ->
-      do let f :: (G.Field G.Type, PartLLVMVal sym)
-               -> StateT (Pred sym) (MaybeT IO) (G.Field G.Type, LLVMVal sym)
-             f (_fld, Unassigned) = mzero
-             f (fld, PE p1 x) = do
-                 p0 <- get
-                 p <- liftIO $ andPred sym p0 p1
-                 put p
-                 return (fld, x)
-         x <- runMaybeT $ flip runStateT (truePred sym) $ (traverse f vec)
-         case x of
-           Nothing -> return $ Unassigned
-           Just (vec',p) -> return $ PE p $ LLVMValStruct vec'
+genValueCtor sym (G.ConsArray tp vc1 n vc2) =
+  do lv1 <- genValueCtor sym vc1
+     lv2 <- genValueCtor sym vc2
+     case (lv1, lv2) of
+       (PE p1 hd, PE p2 (LLVMValArray tp' vec))
+         | tp == tp' && n == fromIntegral (V.length vec) ->
+             do p <- andPred sym p1 p2
+                return $ PE p $ LLVMValArray tp' (V.cons hd vec)
+       _ -> return Unassigned
 
-    _ -> return $ Unassigned
+genValueCtor sym (G.AppendArray tp n1 vc1 n2 vc2) =
+  do lv1 <- genValueCtor sym vc1
+     lv2 <- genValueCtor sym vc2
+     case (lv1, lv2) of
+       (PE p1 (LLVMValArray tp1 v1), PE p2 (LLVMValArray tp2 v2))
+         | tp == tp1 && tp == tp2 &&
+           n1 == fromIntegral (V.length v1) &&
+           n2 == fromIntegral (V.length v2) ->
+             do p <- andPred sym p1 p2
+                return $ PE p $ LLVMValArray tp (v1 V.++ v2)
+       _ -> return Unassigned
 
-    -- G.BVToFloat _ ->
-    --    fail "applyCtoreFLLVMVal: Floating point values not supported"
-    -- G.BVToDouble _ ->
-    --    fail "applyCtoreFLLVMVal: Floating point values not supported"
+genValueCtor sym (G.MkArray tp vv) =
+  do vec <- traverse (genValueCtor sym) vv
+     let f :: PartLLVMVal sym -> StateT (Pred sym) (MaybeT IO) (LLVMVal sym)
+         f Unassigned = mzero
+         f (PE p1 x) =
+           do p0 <- get
+              p <- liftIO $ andPred sym p0 p1
+              put p
+              return x
+     x <- runMaybeT $ flip runStateT (truePred sym) $ (traverse f vec)
+     case x of
+       Nothing -> return $ Unassigned
+       Just (vec',p) -> return $ PE p $ LLVMValArray tp vec'
+
+genValueCtor sym (G.MkStruct vv) =
+  do vec <- traverse (traverse (genValueCtor sym)) vv
+     let f :: (G.Field G.Type, PartLLVMVal sym)
+           -> StateT (Pred sym) (MaybeT IO) (G.Field G.Type, LLVMVal sym)
+         f (_fld, Unassigned) = mzero
+         f (fld, PE p1 x) = do
+             p0 <- get
+             p <- liftIO $ andPred sym p0 p1
+             put p
+             return (fld, x)
+     x <- runMaybeT $ flip runStateT (truePred sym) $ (traverse f vec)
+     case x of
+       Nothing -> return $ Unassigned
+       Just (vec',p) -> return $ PE p $ LLVMValStruct vec'
+
+genValueCtor _sym (G.BVToFloat _) =
+  return Unassigned
+  -- fail "genValueCtor: Floating point values not supported"
+
+genValueCtor _sym (G.BVToDouble _) =
+  return Unassigned
+  -- fail "genValueCtor: Floating point values not supported"
+
 
 
 -- | Compute the actual value of a value deconstructor expression.
