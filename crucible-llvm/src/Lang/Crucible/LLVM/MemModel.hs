@@ -33,7 +33,6 @@ module Lang.Crucible.LLVM.MemModel
   , pattern LLVMPointerRepr
   , pattern PtrWidth
   , ptrWidth
-  , ppPtr
   , Mem
   , memRepr
   , MemImpl
@@ -63,8 +62,9 @@ module Lang.Crucible.LLVM.MemModel
   , doResolveGlobal
   , loadString
   , loadMaybeString
-  , ppMem
   , SomeFnHandle(..)
+  , G.ppPtr
+  , ppMem
 
   -- * Direct API to LLVMVal
   , LLVMVal(..)
@@ -446,20 +446,16 @@ memLoad =
       (regValue -> valType) ->
         liftIO $ doLoad sym mem ptr valType
 
-ppMem
-  :: IsSymInterface sym
-  => sym
-  -> RegValue sym Mem
-  -> Doc
-ppMem _sym mem = G.ppMem (memImplHeap mem)
+ppMem :: IsExprBuilder sym => RegValue sym Mem -> Doc
+ppMem mem = G.ppMem (memImplHeap mem)
 
-doDumpMem :: IsSymInterface sym
-  => sym
-  -> Handle
+doDumpMem
+  :: IsExprBuilder sym
+  => Handle
   -> RegValue sym Mem
   -> IO ()
-doDumpMem sym h mem = do
-  hPutStrLn h (show (ppMem sym mem))
+doDumpMem h mem = do
+  hPutStrLn h (show (ppMem mem))
 
 
 loadRaw :: (IsSymInterface sym, HasPtrWidth wptr)
@@ -491,7 +487,7 @@ loadRawWithCondition ::
   -- (assertion, assertion failure description, dereferenced value)
 loadRawWithCondition sym mem ptr valType =
   do (p,v) <- G.readMem sym PtrWidth ptr valType (memImplHeap mem)
-     let errMsg = "Invalid memory load: address " ++ show (G.ppLLVMPtr ptr) ++
+     let errMsg = "Invalid memory load: address " ++ show (G.ppPtr ptr) ++
                   " at type "                     ++ show (G.ppType valType)
      case v of
        Unassigned -> return (Left errMsg)
@@ -507,7 +503,7 @@ doLoad :: (IsSymInterface sym, HasPtrWidth wptr)
   -> IO (RegValue sym AnyType)
 doLoad sym mem ptr valType = do
     --putStrLn "MEM LOAD"
-    let errMsg = "Invalid memory load: address " ++ show (ppPtr ptr) ++
+    let errMsg = "Invalid memory load: address " ++ show (G.ppPtr ptr) ++
                  " at type " ++ show (G.ppType valType)
     (p, v) <- G.readMem sym PtrWidth ptr valType (memImplHeap mem)
     case v of
@@ -527,7 +523,7 @@ storeRaw :: (IsSymInterface sym, HasPtrWidth wptr)
   -> IO (MemImpl sym)
 storeRaw sym mem ptr valType val = do
     (p, heap') <- G.writeMem sym PtrWidth ptr valType (PE (truePred sym) val) (memImplHeap mem)
-    let errMsg = "Invalid memory store: address " ++ show (G.ppLLVMPtr ptr) ++
+    let errMsg = "Invalid memory store: address " ++ show (G.ppPtr ptr) ++
                  " at type " ++ show (G.ppType valType)
     addAssertion sym p (AssertFailureSimError errMsg)
     return mem{ memImplHeap = heap' }
@@ -542,7 +538,7 @@ doStore :: (IsSymInterface sym, HasPtrWidth wptr)
   -> IO (RegValue sym Mem)
 doStore sym mem ptr valType (AnyValue tpr val) = do
     --putStrLn "MEM STORE"
-    let errMsg = "Invalid memory store: address " ++ show (ppPtr ptr) ++
+    let errMsg = "Invalid memory store: address " ++ show (G.ppPtr ptr) ++
                  " at type " ++ show (G.ppType valType)
     val' <- packMemValue sym valType tpr val
     (p, heap') <- G.writeMem sym PtrWidth ptr valType (PE (truePred sym) val') (memImplHeap mem)
@@ -798,7 +794,7 @@ doFree sym mem ptr = do
          Just i  -> Map.delete (toInteger i) (memImplHandleMap mem)
          Nothing -> memImplHandleMap mem
 
-  let errMsg = "Invalid free (double free or invalid pointer): address " ++ show (ppPtr ptr)
+  let errMsg = "Invalid free (double free or invalid pointer): address " ++ show (G.ppPtr ptr)
 
   -- NB: free is defined and has no effect if passed a null pointer
   isNull <- ptrIsNull sym PtrWidth ptr
@@ -858,31 +854,6 @@ doMemcpy sym w mem dest src len = do
 
   return mem{ memImplHeap = heap' }
 
-ppPtr :: IsExpr (SymExpr sym) => RegValue sym (LLVMPointerType wptr) -> Doc
-ppPtr (LLVMPointer blk bv)
-  | Just 0 <- asNat blk = printSymExpr bv
-  | otherwise =
-     let blk_doc = printSymExpr blk
-         off_doc = printSymExpr bv
-      in text "(" <> blk_doc <> text "," <+> off_doc <> text ")"
-
-ppAllocs :: IsSymInterface sym => sym -> [G.MemAlloc sym] -> IO Doc
-ppAllocs sym xs = vcat <$> mapM ppAlloc xs
- where ppAlloc (G.Alloc allocTp base sz loc) = do
-            let base_doc = text (show base)
-            let sz_doc   = printSymExpr sz
-            return $ text (show allocTp) <+> base_doc <+> text "SIZE:" <+> sz_doc <+> text loc
-       ppAlloc (G.AllocMerge p a1 a2) = do
-            a1_doc <- ppAllocs sym a1
-            a2_doc <- ppAllocs sym a2
-            return $ text "if" <+> printSymExpr p <+> text "then"
-                     <$$>
-                     (indent 2 a1_doc)
-                     <$$>
-                     text "else"
-                     <$$>
-                     (indent 2 a2_doc)
-
 
 ptrAddOffsetOverride :: HasPtrWidth wptr =>
   LLVMIntrinsicImpl p sym (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> BVType wptr) (LLVMPointerType wptr)
@@ -928,7 +899,7 @@ doPtrAddOffset
 doPtrAddOffset sym m x off = do
    x' <- ptrAdd sym PtrWidth x off
    v  <- isValidPointer sym x' m
-   let x_doc = ppPtr x
+   let x_doc = G.ppPtr x
    let off_doc = printSymExpr off
    addAssertion sym v
        (AssertFailureSimError $ unlines ["Pointer arithmetic resulted in invalid pointer:", show x_doc, show off_doc])
@@ -944,9 +915,9 @@ ptrEqOverride =
       (regValue -> mem)
       (regValue -> x)
       (regValue -> y) -> liftIO $ do
-         allocs_doc <- ppAllocs sym (G.memAllocs (memImplHeap mem))
-         let x_doc = ppPtr x
-         let y_doc = ppPtr y
+         let allocs_doc = G.ppAllocs (G.memAllocs (memImplHeap mem))
+         let x_doc = G.ppPtr x
+         let y_doc = G.ppPtr y
 
          v1 <- isValidPointer sym x mem
          v2 <- isValidPointer sym y mem
@@ -967,8 +938,8 @@ ptrLeOverride =
       (regValue -> mem)
       (regValue -> x)
       (regValue -> y) -> liftIO $ do
-         let x_doc = ppPtr x
-             y_doc = ppPtr y
+         let x_doc = G.ppPtr x
+             y_doc = G.ppPtr y
          v1 <- isValidPointer sym x mem
          v2 <- isValidPointer sym y mem
          addAssertion sym v1

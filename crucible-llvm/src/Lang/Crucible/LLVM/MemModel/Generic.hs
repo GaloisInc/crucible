@@ -8,6 +8,7 @@
 -- Stability        : provisional
 ------------------------------------------------------------------------
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -18,6 +19,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Lang.Crucible.LLVM.MemModel.Generic
   ( Mem
@@ -37,9 +39,15 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , branchMem
   , branchAbortMem
   , mergeMem
-  , ppMem
+
+    -- * Pretty printing
   , ppType
-  , ppLLVMPtr
+  , ppPtr
+  , ppAlloc
+  , ppAllocs
+  , ppWrite
+  , ppMemChanges
+  , ppMem
   ) where
 
 import Control.Lens
@@ -47,7 +55,7 @@ import Control.Monad
 import Data.IORef
 import Data.Maybe
 import qualified Data.Map as Map
-import Data.Monoid hiding ((<>))
+import           Data.Monoid hiding ((<>))
 import qualified Data.Vector as V
 import Numeric.Natural
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -300,11 +308,13 @@ instance (TestEquality (SymExpr sym)) => Eq (CacheEntry sym w) where
 
 instance IsSymInterface sym => Ord (CacheEntry sym w) where
   compare (CacheEntry tp1 blk1 off1) (CacheEntry tp2 blk2 off2) =
-    compare tp1 tp2 <> toOrdering (compareF blk1 blk2) <> toOrdering (compareF off1 off2)
+    compare tp1 tp2
+      `mappend` toOrdering (compareF blk1 blk2)
+      `mappend` toOrdering (compareF off1 off2)
 
 
 toCacheEntry :: Type -> LLVMPtr sym w -> CacheEntry sym w
-toCacheEntry tp (LLVMPointer blk bv) = CacheEntry tp blk bv
+toCacheEntry tp (llvmPointerView -> (blk, bv)) = CacheEntry tp blk bv
 
 -- | Read a value from memory given a list of writes.
 --
@@ -448,7 +458,7 @@ isAllocated :: forall sym w. (1 <= w, IsSymInterface sym)
             -> SymBV sym w
             -> Mem sym
             -> IO (Pred sym)
-isAllocated sym w (LLVMPointer blk off) sz m = do
+isAllocated sym w (llvmPointerView -> (blk, off)) sz m = do
    do (ov, end) <- addUnsignedOF sym off sz
       let step :: forall w'. Natural -> SymBV sym w' -> IO (Pred sym) -> IO (Pred sym)
           step a asz fallback
@@ -691,13 +701,13 @@ mergeMem c x y =
 --------------------------------------------------------------------------------
 -- Pretty printing
 
-ppLLVMPtr :: IsExpr (SymExpr sym) => LLVMPtr sym w -> Doc
-ppLLVMPtr (LLVMPointer blk off) =
-    case asNat blk of
-      Just 0 -> off_doc
-      _ -> parens $ blk_doc <> ", " <> off_doc
-  where blk_doc = printSymExpr blk
-        off_doc = printSymExpr off
+ppPtr :: IsExpr (SymExpr sym) => LLVMPtr sym wptr -> Doc
+ppPtr (llvmPointerView -> (blk, bv))
+  | Just 0 <- asNat blk = printSymExpr bv
+  | otherwise =
+     let blk_doc = printSymExpr blk
+         off_doc = printSymExpr bv
+      in text "(" <> blk_doc <> text "," <+> off_doc <> text ")"
 
 ppPartTermExpr
   :: IsExprBuilder sym
@@ -712,7 +722,7 @@ ppTermExpr
   -> Doc
 ppTermExpr t = -- FIXME, do something with the predicate?
   case t of
-    LLVMValInt base off -> ppLLVMPtr @sym (LLVMPointer base off)
+    LLVMValInt base off -> ppPtr @sym (LLVMPointer base off)
     LLVMValReal v -> printSymExpr v
     LLVMValStruct v -> encloseSep lbrace rbrace comma v''
       where v'  = fmap (over _2 ppTermExpr) (V.toList v)
@@ -754,11 +764,14 @@ ppAlloc (Alloc atp base sz loc) =
 ppAlloc (AllocMerge c x y) = do
   text "merge" <$$> ppMerge ppAlloc c x y
 
+ppAllocs :: IsExprBuilder sym => [MemAlloc sym] -> Doc
+ppAllocs xs = vcat $ map ppAlloc xs
+
 ppWrite :: IsExprBuilder sym => MemWrite sym -> Doc
 ppWrite (MemCopy (d,_) s (l,_)) = do
-  text "memcopy" <+> ppLLVMPtr d <+> ppLLVMPtr s <+> printSymExpr l
+  text "memcopy" <+> ppPtr d <+> ppPtr s <+> printSymExpr l
 ppWrite (MemStore (d,_) v _) = do
-  char '*' <> ppLLVMPtr d <+> text ":=" <+> ppPartTermExpr v
+  char '*' <> ppPtr d <+> text ":=" <+> ppPartTermExpr v
 ppWrite (WriteMerge c x y) = do
   text "merge" <$$> ppMerge ppWrite c x y
 

@@ -8,6 +8,7 @@
 -- Stability        : provisional
 ------------------------------------------------------------------------
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
@@ -26,6 +27,15 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+
+-- GHC 8.0 doesn't understand the COMPLETE pragma,
+-- so we just kill the incomplete pattern warning
+-- instead :-(
+#if MIN_VERSION_base(4,10,0)
+#else
+{-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
+#endif
+
 module Lang.Crucible.LLVM.MemModel.Pointer
 ( -- * Pointer bitwidth
   HasPtrWidth
@@ -38,6 +48,7 @@ module Lang.Crucible.LLVM.MemModel.Pointer
 , pattern LLVMPointerRepr
 , pattern PtrRepr
 , pattern LLVMPointer
+, llvmPointerView
 , pattern SizeT
 , muxLLVMPtr
 , ptrWidth
@@ -146,7 +157,16 @@ pattern SizeT = BVRepr PtrWidth
 -- | This pattern synonym gives an easy way to construct/deconstruct runtime values of @LLVMPointerType@.
 pattern LLVMPointer :: RegValue sym NatType -> RegValue sym (BVType w) -> RegValue sym (LLVMPointerType w)
 pattern LLVMPointer blk offset = RolledType (Ctx.Empty Ctx.:> RV blk Ctx.:> RV offset)
+
+-- The COMPLETE pragma was not defined until ghc 8.2.*
+#if MIN_VERSION_base(4,10,0)
 {-# COMPLETE LLVMPointer #-}
+#endif
+
+-- | Alternative to the @LLVMPointer@ pattern synonym, this function can be used as a view
+--   consturctor instead to silence incomplete pattern warnings.
+llvmPointerView :: RegValue sym (LLVMPointerType w) -> (RegValue sym NatType, RegValue sym (BVType w))
+llvmPointerView (RolledType (Ctx.Empty Ctx.:> RV blk Ctx.:> RV offset)) = (blk, offset)
 
 -- | Compute the width of a pointer value
 ptrWidth :: IsExprBuilder sym => LLVMPtr sym w -> NatRepr w
@@ -187,7 +207,6 @@ muxLLVMPtr sym p (LLVMPointer b1 off1) (LLVMPointer b2 off2) =
 -- | Coerce a @LLVMPtr@ value into memory-storable @LLVMVal@
 ptrToPtrVal :: (1 <= w) => LLVMPtr sym w -> LLVMVal sym
 ptrToPtrVal (LLVMPointer blk off) = LLVMValInt blk off
-
 
 -- | This provides a view of an address as a base + offset when possible.
 data AddrDecomposeResult sym w
@@ -496,13 +515,6 @@ muxLLVMVal :: forall sym
    -> IO (PartLLVMVal sym)
 muxLLVMVal sym p = mergePartial sym muxval p
   where
-    -- mux Unassigned Unassigned = return Unassigned
-    -- mux Unassigned (PE p2 y)  = PE <$> (itePred sym p (falsePred sym) p2) <*> return y
-    -- mux (PE p1 x) Unassigned  = PE <$> (itePred sym p p1 (falsePred sym)) <*> return x
-    -- mux (PE p1 x) (PE p2 y) =
-    --   do p' <- itePred p p1 p2
-    --      runPartialT sym p' (muxval x y)
-
     muxval :: LLVMVal sym -> LLVMVal sym -> PartialT sym IO (LLVMVal sym)
 
     muxval (LLVMValInt base1 off1) (LLVMValInt base2 off2)

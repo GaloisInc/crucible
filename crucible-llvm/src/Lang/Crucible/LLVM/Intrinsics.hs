@@ -1214,7 +1214,7 @@ printfOps sym valist =
   , printfGetPointer = \i ->
      case valist V.!? (i-1) of
        Just (AnyValue PtrRepr ptr) ->
-         return $ show (ppPtr ptr)
+         return $ show (G.ppPtr ptr)
        Just (AnyValue tpr _) ->
          fail $ unwords ["Type mismatch in printf.  Expected void*, but got:", show tpr]
        Nothing ->
