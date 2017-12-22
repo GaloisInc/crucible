@@ -100,6 +100,7 @@ stmtDiff stmt =
     ReadGlobal {}    -> Ctx.knownDiff
     WriteGlobal {}   -> Ctx.knownDiff
     NewRefCell {}    -> Ctx.knownDiff
+    NewEmptyRefCell{}-> Ctx.knownDiff
     ReadRefCell {}   -> Ctx.knownDiff
     WriteRefCell {}  -> Ctx.knownDiff
     DropRefCell {}   -> Ctx.knownDiff

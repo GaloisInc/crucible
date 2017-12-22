@@ -246,6 +246,7 @@ transfer dom interp retRepr blk = transferSeq (_blockStmts blk)
           let assignment' = interpWriteGlobal interp gv reg assignment
           in maybe assignment (joinPointAbstractions dom assignment) assignment'
 
+        NewEmptyRefCell{} -> error "transferStmt: NewEmptyRefCell not supported"
         NewRefCell {} -> error "transferStmt: NewRefCell not supported"
         ReadRefCell {} -> error "transferStmt: ReadRefCell not supported"
         WriteRefCell {} -> error "transferStmt: WriteRefCell not supported"

@@ -27,8 +27,8 @@ import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
 
 newtype GlobalEntry (sym :: *) (tp :: CrucibleType) = GlobalEntry { globalEntryValue :: RegValue sym tp }
-newtype RefCellContents (sym :: *) (tp :: CrucibleType)
-  = RefCellContents { _refCellContents :: (Pred sym, RegValue sym tp) }
+data RefCellContents (sym :: *) (tp :: CrucibleType)
+  = RefCellContents !(Pred sym) !(RegValue sym tp)
 
 ------------------------------------------------------------------------
 -- SymGlobalState
@@ -63,7 +63,7 @@ insertGlobal g v gst = gst{ globalMap = MapF.insert g (GlobalEntry v) (globalMap
 -- | Lookup the value of a reference cell in the state
 lookupRef :: RefCell tp -> SymGlobalState sym -> PartExpr (Pred sym) (RegValue sym tp)
 lookupRef r gst =
-  maybe Unassigned (\(RefCellContents (p,x)) -> PE p x) $ MapF.lookup r (globalReferenceMap gst)
+  maybe Unassigned (\(RefCellContents p x) -> PE p x) $ MapF.lookup r (globalReferenceMap gst)
 
 -- | Set the value of a reference cell in the state
 insertRef :: IsSymInterface sym
@@ -73,7 +73,7 @@ insertRef :: IsSymInterface sym
           -> SymGlobalState sym
           -> SymGlobalState sym
 insertRef sym r v gst =
-   let x = RefCellContents (truePred sym, v) in
+   let x = RefCellContents (truePred sym) v in
    gst{ globalReferenceMap = MapF.insert r x (globalReferenceMap gst) }
 
 dropRef :: RefCell tp
@@ -96,10 +96,10 @@ globalPushBranch sym iTypes (GlobalState d g refs) = do
                      (globalEntryValue e))
          g
   refs' <- MapF.traverseWithKey
-            (\r (RefCellContents (p,e)) -> 
+            (\r (RefCellContents p e) ->
                    do e' <- pushBranchForType sym iTypes
                               (refType r) e
-                      return (RefCellContents (p,e')))
+                      return (RefCellContents p e'))
             refs
 
   --loc <- getCurrentProgramLoc sym
@@ -121,10 +121,10 @@ globalAbortBranch sym iTypes (GlobalState d g refs)
                          (globalEntryValue e))
              g
       refs' <- MapF.traverseWithKey
-                (\r (RefCellContents (p,e)) -> 
+                (\r (RefCellContents p e) ->
                       do e' <- abortBranchForType sym iTypes
                                   (refType r) e
-                         return (RefCellContents (p,e')))
+                         return (RefCellContents p e'))
                 refs
 
       --loc <- getCurrentProgramLoc sym
@@ -160,24 +160,24 @@ globalMuxFn sym iteFns c (GlobalState dx x refs_x) (GlobalState dy y refs_y)
                  -> RefCellContents sym tp
                  -> RefCellContents sym tp
                  -> IO (Maybe (RefCellContents sym tp))
-          muxRef r (RefCellContents (pu,u)) (RefCellContents (pv,v)) =
+          muxRef r (RefCellContents pu u) (RefCellContents pv v) =
             do uv <- muxRegForType sym iteFns (refType r) c u v
                p <- itePred sym c pu pv
-               return . Just . RefCellContents $ (p,uv)
+               return . Just $ RefCellContents p uv
 
           refLeft :: MapF.MapF RefCell (RefCellContents sym) -> IO (MapF.MapF RefCell (RefCellContents sym))
           refLeft m = traverseF f m
            where f :: RefCellContents sym tp -> IO (RefCellContents sym tp)
-                 f (RefCellContents (p,z)) =
+                 f (RefCellContents p z) =
                       do p' <- andPred sym c p
-                         return . RefCellContents $ (p',z)
+                         return $ RefCellContents p' z
 
           refRight :: MapF.MapF RefCell (RefCellContents sym) -> IO (MapF.MapF RefCell (RefCellContents sym))
           refRight m = do cnot <- notPred sym c; traverseF (f cnot) m
            where f :: Pred sym -> RefCellContents sym tp -> IO (RefCellContents sym tp)
-                 f cnot (RefCellContents (p,z)) =
+                 f cnot (RefCellContents p z) =
                       do p' <- andPred sym cnot p
-                         return . RefCellContents $ (p',z)
+                         return $ RefCellContents p' z
 
           checkNullMap :: MapF.MapF GlobalVar (GlobalEntry sym)
                        -> IO (MapF.MapF GlobalVar (GlobalEntry sym))

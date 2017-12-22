@@ -553,6 +553,11 @@ loopCrucible' s_ref verb = do
           continueCrucible s_ref verb $
             s & stateTree . actFrame . gpGlobals %~ insertRef sym r v
               & stateCrucibleFrame %~ extendFrame (ReferenceRepr tpr) r rest
+        NewEmptyRefCell tpr -> do
+          let halloc = simHandleAllocator ctx
+          r <- liftST (freshRefCell halloc tpr)
+          continueCrucible s_ref verb $
+            s & stateCrucibleFrame %~ extendFrame (ReferenceRepr tpr) r rest
         ReadRefCell x -> do
           let ref = evalReg s x
           let msg = ReadBeforeWriteSimError "Attempted to read uninitialized reference cell"

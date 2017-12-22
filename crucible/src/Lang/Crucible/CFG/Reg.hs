@@ -341,6 +341,8 @@ data AtomValue s tp where
   ReadRef :: !(Atom s (ReferenceType tp)) -> AtomValue s tp
   -- Create a fresh reference cell
   NewRef :: !(Atom s tp) -> AtomValue s (ReferenceType tp)
+  -- Create a fresh empty reference cell
+  NewEmptyRef :: !(TypeRepr tp) -> AtomValue s (ReferenceType tp)
 
   Call :: !(Atom s (FunctionHandleType args ret))
        -> !(Assignment (Atom s) args)
@@ -355,6 +357,7 @@ instance Pretty (AtomValue s tp) where
       ReadGlobal g -> text "global" <+> pretty g
       ReadRef r -> text "!" <> pretty r
       NewRef a -> text "newref" <+> pretty a
+      NewEmptyRef tp -> text "emptyref" <+> pretty tp
       Call f args _ -> pretty f <> parens (commas (toListFC pretty args))
 
 typeOfAtomValue :: AtomValue s tp -> TypeRepr tp
@@ -366,13 +369,15 @@ typeOfAtomValue v =
     ReadRef r -> case typeOfAtom r of
                    ReferenceRepr tpr -> tpr
     NewRef a -> ReferenceRepr (typeOfAtom a)
+    NewEmptyRef tp -> ReferenceRepr tp
     Call _ _ r -> r
 
 -- | Fold over all values in an 'AtomValue'.
 foldAtomValueInputs :: (forall x . Value s x -> b -> b) -> AtomValue s tp -> b -> b
 foldAtomValueInputs f (ReadReg r)     b = f (RegValue r) b
-foldAtomValueInputs _ (ReadGlobal _)  b =  b
+foldAtomValueInputs _ (ReadGlobal _)  b = b
 foldAtomValueInputs f (ReadRef r)     b = f (AtomValue r) b
+foldAtomValueInputs _ (NewEmptyRef _) b = b
 foldAtomValueInputs f (NewRef a)      b = f (AtomValue a) b
 foldAtomValueInputs f (EvalApp app0)  b = foldApp (f . AtomValue) b app0
 foldAtomValueInputs f (Call g a _)    b = f (AtomValue g) (foldrFC' (f . AtomValue) b a)
