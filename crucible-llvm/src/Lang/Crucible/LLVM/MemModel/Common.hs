@@ -14,6 +14,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
 module Lang.Crucible.LLVM.MemModel.Common
@@ -66,8 +67,7 @@ module Lang.Crucible.LLVM.MemModel.Common
   , fixedSizeRangeLoad
   , symbolicRangeLoad
 
-  , ValueView
-  , ViewF(..)
+  , ValueView(..)
 
   , ValueLoad(..)
   , valueLoad
@@ -489,54 +489,66 @@ symbolicRangeLoad pref tp =
 
 -- ValueView
 
-type ValueView v = Term ViewF v
+-- | Represents a projection of a sub-component out of a larger LLVM value.
+data ValueView
+  = ValueViewVar Type
+    -- | Select low-order bytes in the bitvector.
+    -- The sizes include the number of low bytes, and the number of high bytes.
+  | SelectLowBV Bytes Bytes ValueView
+    -- | Select the given number of high-order bytes in the bitvector.
+    -- The sizes include the number of low bytes, and the number of high bytes.
+  | SelectHighBV Bytes Bytes ValueView
+  | FloatToBV ValueView
+  | DoubleToBV ValueView
+  | ArrayElt Word64 Type Word64 ValueView
 
-data ViewF v
-     -- | Select low-order bytes in the bitvector.
-     -- The sizes include the number of low bytes, and the number of high bytes.
-   = SelectLowBV Bytes Bytes v
-     -- | Select the given number of high-order bytes in the bitvector.
-     -- The sizes include the number of low bytes, and the number of high bytes.
-   | SelectHighBV Bytes Bytes v
-   | FloatToBV v
-   | DoubleToBV v
-   | ArrayElt Word64 Type Word64 v
+  | FieldVal (Vector (Field Type)) Int ValueView
+  deriving Show
 
-   | FieldVal (Vector (Field Type)) Int v
-  deriving (Show, Functor, Foldable, Traversable)
-
-instance ShowF ViewF where
-  showsPrecF = showsPrec
-
-viewOpType :: ViewF (TypeF Type) -> Maybe Type
-viewOpType (SelectLowBV  u v tp) | Bitvector (u + v) == tp = pure $ bitvectorType u
-viewOpType (SelectHighBV u v tp) | Bitvector (u + v) == tp = pure $ bitvectorType v
-viewOpType (FloatToBV tp)        | Float == tp  = pure $ bitvectorType 4
-viewOpType (DoubleToBV tp)       | Double == tp = pure $ bitvectorType 8
-viewOpType (ArrayElt n etp i tp) | i < n && Array n etp == tp = pure $ etp
-viewOpType (FieldVal v i     tp) | Struct v == tp          = view fieldVal <$> (v V.!? i)
-viewOpType _ = Nothing
-
-viewType :: ValueView Type -> Maybe Type
-viewType = foldTermM return (viewOpType . fmap typeF)
+viewType :: ValueView -> Maybe Type
+viewType (ValueViewVar tp) = Just tp
+viewType (SelectLowBV u v vv) =
+  do tp <- typeF <$> viewType vv
+     guard (Bitvector (u + v) == tp)
+     pure $ bitvectorType u
+viewType (SelectHighBV u v vv) =
+  do tp <- typeF <$> viewType vv
+     guard (Bitvector (u + v) == tp)
+     pure $ bitvectorType v
+viewType (FloatToBV vv) =
+  do tp <- typeF <$> viewType vv
+     guard (Float == tp)
+     pure $ bitvectorType 4
+viewType (DoubleToBV vv) =
+  do tp <- typeF <$> viewType vv
+     guard (Double == tp)
+     pure $ bitvectorType 8
+viewType (ArrayElt n etp i vv) =
+  do tp <- typeF <$> viewType vv
+     guard (i < n && Array n etp == tp)
+     pure $ etp
+viewType (FieldVal v i vv) =
+  do tp <- typeF <$> viewType vv
+     guard (Struct v == tp)
+     view fieldVal <$> (v V.!? i)
 
 -- ValueLoad
 
 data ValueLoad v
   = -- Old memory that was used
     OldMemory v Type
-  | LastStore (ValueView Type)
+  | LastStore ValueView
     -- | Indicates load touches memory that is invalid, and can't be
     -- read.
   | InvalidMemory Type
   deriving (Functor,Show)
 
-loadBitvector :: Addr -> Bytes -> Addr -> ValueView Type -> ValueCtor (ValueLoad Addr)
+loadBitvector :: Addr -> Bytes -> Addr -> ValueView -> ValueCtor (ValueLoad Addr)
 loadBitvector lo lw so v = do
   let le = lo + lw
   let ltp = bitvectorType lw
   let stp = fromMaybe (error ("loadBitvector given bad view " ++ show v)) (viewType v)
-  let retValue eo v' = (sz',valueLoad lo' (bitvectorType sz') eo v')
+  let retValue eo v' = (sz', valueLoad lo' (bitvectorType sz') eo v')
         where etp = fromMaybe (error ("Bad view " ++ show v')) (viewType v')
               esz = typeSize etp
               lo' = max lo eo
@@ -547,12 +559,12 @@ loadBitvector lo lw so v = do
         -- Number of bytes to drop.
         let d = lo - so
         -- Store is before load.
-        valueLoad lo ltp lo (App (SelectHighBV d (sw - d) v))
+        valueLoad lo ltp lo (SelectHighBV d (sw - d) v)
       | otherwise -> assert (lo == so && lw < sw) $
         -- Load ends before store ends.
-        valueLoad lo ltp so (App (SelectLowBV lw (sw - lw) v))
-    Float -> valueLoad lo ltp lo (App (FloatToBV v))
-    Double -> valueLoad lo ltp lo (App (DoubleToBV v))
+        valueLoad lo ltp so (SelectLowBV lw (sw - lw) v)
+    Float -> valueLoad lo ltp lo (FloatToBV v)
+    Double -> valueLoad lo ltp lo (DoubleToBV v)
     Array n tp -> snd $ foldl1 cv (val <$> r)
       where cv (wx,x) (wy,y) = (wx + wy, concatBV wx x wy y)
             esz = typeSize tp
@@ -561,7 +573,7 @@ loadBitvector lo lw so v = do
             -- Get range of indices to read.
             r | p1 == 0 = assert (c1 > c0) [c0..c1-1]
               | otherwise = assert (c1 >= c0) [c0..c1]
-            val i = retValue (so+(Bytes i)*esz) (App (ArrayElt n tp i v))
+            val i = retValue (so+(Bytes i)*esz) (ArrayElt n tp i v)
     Struct sflds -> assert (not (null r)) $ snd $ foldl1 cv r
       where cv (wx,x) (wy,y) = (wx+wy, concatBV wx x wy y)
             r = concat (zipWith val [0..] (V.toList sflds))
@@ -570,7 +582,7 @@ loadBitvector lo lw so v = do
                     ee = eo + typeSize (f^.fieldVal)
                     v1 | le <= eo = v2
                        | ee <= lo = v2
-                       | otherwise = retValue eo (App (FieldVal sflds i v)) : v2
+                       | otherwise = retValue eo (FieldVal sflds i v) : v2
                     v2 | fieldPad f == 0 = []   -- Return no padding.
                        | le <= ee = [] -- Nothing of load ends before padding.
                          -- Nothing if padding ends before load begins.
@@ -582,7 +594,7 @@ loadBitvector lo lw so v = do
 
 -- | @valueLoad lo ltp so v@ returns a value with type @ltp@ from reading the
 -- value @v@.  The load address is @lo@ and the stored address is @so@.
-valueLoad :: Addr -> Type -> Addr -> ValueView Type -> ValueCtor (ValueLoad Addr)
+valueLoad :: Addr -> Type -> Addr -> ValueView -> ValueCtor (ValueLoad Addr)
 valueLoad lo ltp so v
   | le <= so = Var (OldMemory lo ltp) -- Load ends before store
   | se <= lo = Var (OldMemory lo ltp) -- Store ends before load
@@ -611,7 +623,7 @@ type ValueLoadMux = Mux (ValueCtor (ValueLoad PtrExpr))
 
 symbolicValueLoad :: BasePreference -- ^ Whether addresses are based on store or load.
                   -> Type
-                  -> ValueView Type
+                  -> ValueView
                   -> ValueLoadMux
 symbolicValueLoad pref tp v =
   Mux (loadOffset lsz .<= Store) loadFail (prefixL lsz)

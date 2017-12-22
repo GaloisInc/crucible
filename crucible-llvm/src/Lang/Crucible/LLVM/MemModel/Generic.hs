@@ -138,9 +138,6 @@ genCondVar sym w inst c =
 genValueCtor :: (IsSymInterface sym) => sym -> ValueCtor (PartLLVMVal sym) -> IO (PartLLVMVal sym)
 genValueCtor sym = foldTermM return (applyCtorFLLVMVal sym)
 
-applyView :: (IsSymInterface sym) => sym -> PartLLVMVal sym -> ValueView Type -> IO (PartLLVMVal sym)
-applyView sym t = foldTermM (\_ -> return t) (applyViewFLLVMVal sym)
-
 -- | Join all conditions in fold together.
 tgAll :: (IsBoolExprBuilder sym) => sym
       -> Getting (Dual (Endo (Pred sym -> IO (Pred sym)))) s (Pred sym)
@@ -261,7 +258,7 @@ readMemStore sym w (l,ld) ltp (d,dd) t stp readPrev' = do
                                          readPrev tp' (LLVMPointer lv' o')
           subFn (LastStore v)       = (truePred sym,) <$> applyView sym t v
           subFn (InvalidMemory tp') = badLoad sym tp'
-      let vcr = valueLoad (fromInteger lo) ltp (fromInteger so) (Var stp)
+      let vcr = valueLoad (fromInteger lo) ltp (fromInteger so) (ValueViewVar stp)
       evalValueCtor sym =<< traverse subFn vcr
     -- We know variables are disjoint.
     _ | Just lv <- adrVar ld
@@ -279,7 +276,7 @@ readMemStore sym w (l,ld) ltp (d,dd) t stp readPrev' = do
                | ConcreteOffset{} <- ld = FixedLoad
                | otherwise = NeitherFixed
       evalMuxValueCtor sym w varFn subFn $
-        symbolicValueLoad pref ltp (Var stp)
+        symbolicValueLoad pref ltp (ValueViewVar stp)
 
 readMem :: (1 <= w, IsSymInterface sym)
         => sym -> NatRepr w

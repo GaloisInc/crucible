@@ -13,6 +13,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
@@ -48,7 +49,7 @@ module Lang.Crucible.LLVM.MemModel.Pointer
 , LLVMVal(..)
 , PartLLVMVal
 , applyCtorFLLVMVal
-, applyViewFLLVMVal
+, applyView
 , muxLLVMVal
 
   -- * Operations on valid pointers
@@ -398,14 +399,18 @@ applyCtorFLLVMVal sym ctor =
 
 
 -- | Compute the actual value of a value deconstructor expression.
-applyViewFLLVMVal
-   :: IsSymInterface sym
-   => sym
-   -> G.ViewF (PartLLVMVal sym)
-   -> IO (PartLLVMVal sym)
-applyViewFLLVMVal sym v =
-  case v of
-    G.SelectLowBV low hi (PE p (LLVMValInt blk bv))
+applyView ::
+  IsSymInterface sym =>
+  sym ->
+  PartLLVMVal sym ->
+  G.ValueView ->
+  IO (PartLLVMVal sym)
+
+applyView _sym t (G.ValueViewVar _) = return t
+
+applyView sym t (G.SelectLowBV low hi v) =
+  applyView sym t v >>= \case
+    PE p (LLVMValInt blk bv)
       | Just (Some (low_w)) <- someNat (G.bytesToBits low)
       , Just (Some (hi_w))  <- someNat (G.bytesToBits hi)
       , Just LeqProof <- isPosNat low_w
@@ -415,8 +420,11 @@ applyViewFLLVMVal sym v =
             bv' <- bvSelect sym (knownNat :: NatRepr 0) low_w bv
             return $ PE p' $ LLVMValInt blk bv'
      where w = bvWidth bv
+    _ -> return Unassigned
 
-    G.SelectHighBV low hi (PE p (LLVMValInt blk bv))
+applyView sym t (G.SelectHighBV low hi v) =
+  applyView sym t v >>= \case
+    PE p (LLVMValInt blk bv)
       | Just (Some (low_w)) <- someNat (G.bytesToBits low)
       , Just (Some (hi_w))  <- someNat (G.bytesToBits hi)
       , Just LeqProof <- isPosNat hi_w
@@ -425,20 +433,29 @@ applyViewFLLVMVal sym v =
             bv' <- bvSelect sym low_w hi_w bv
             return $ PE p' $ LLVMValInt blk bv'
      where w = bvWidth bv
+    _ -> return Unassigned
 
-    G.FloatToBV _ ->
-      return $ Unassigned
-      --fail "applyViewFLLVM: Floating point values not supported"
-    G.DoubleToBV _ ->
-      return $ Unassigned
-      --fail "applyViewFLLVM: Floating point values not supported"
-    G.ArrayElt sz tp idx (PE p (LLVMValArray tp' vec))
+applyView _sym _t (G.FloatToBV _) =
+  return Unassigned
+  --fail "applyView: Floating point values not supported"
+
+applyView _sym _t (G.DoubleToBV _) =
+  return Unassigned
+  --fail "applyView: Floating point values not supported"
+
+applyView sym t (G.ArrayElt sz tp idx v) =
+  applyView sym t v >>= \case
+    PE p (LLVMValArray tp' vec)
       | sz == fromIntegral (V.length vec)
       , 0 <= idx
       , idx < sz
       , tp == tp' ->
         return $ PE p $ (vec V.! fromIntegral idx)
-    G.FieldVal flds idx (PE p (LLVMValStruct vec))
+    _ -> return Unassigned
+
+applyView sym t (G.FieldVal flds idx v) =
+  applyView sym t v >>= \case
+    PE p (LLVMValStruct vec)
       | flds == fmap fst vec
       , 0 <= idx
       , idx < V.length vec ->
