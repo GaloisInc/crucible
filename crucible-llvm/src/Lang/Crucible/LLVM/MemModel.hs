@@ -30,6 +30,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Lang.Crucible.LLVM.MemModel
   ( LLVMPointerType
+  , LLVM
   , pattern LLVMPointerRepr
   , pattern PtrWidth
   , ptrWidth
@@ -173,18 +174,20 @@ data LLVMMemOps wptr
   }
 
 
+type LLVM = ()
+
 data LLVMIntrinsicImpl p sym args ret =
   LLVMIntrinsicImpl
   { llvmIntrinsicName     :: FunctionName
   , llvmIntrinsicArgTypes :: CtxRepr args
   , llvmIntrinsicRetType  :: TypeRepr ret
-  , llvmIntrinsicImpl     :: IntrinsicImpl p sym args ret
+  , llvmIntrinsicImpl     :: IntrinsicImpl p sym LLVM args ret
   }
 
 useLLVMIntrinsic :: IsSymInterface sym
                  => FnHandle args ret
                  -> LLVMIntrinsicImpl p sym args ret
-                 -> FnBinding p sym
+                 -> FnBinding p sym LLVM
 useLLVMIntrinsic hdl impl = useIntrinsic hdl (llvmIntrinsicImpl impl)
 
 mkLLVMHandle :: HandleAllocator s
@@ -199,7 +202,7 @@ mkLLVMHandle halloc impl =
 
 llvmMemIntrinsics :: (IsSymInterface sym, HasPtrWidth wptr)
                   => LLVMMemOps wptr
-                  -> [FnBinding p sym]
+                  -> [FnBinding p sym LLVM]
 llvmMemIntrinsics memOps =
   [ useLLVMIntrinsic (llvmMemAlloca memOps)
                      memAlloca

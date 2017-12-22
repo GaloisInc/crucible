@@ -71,6 +71,7 @@ library
     Lang.Crucible.CFG.Common
     Lang.Crucible.CFG.Core
     Lang.Crucible.CFG.Expr
+    Lang.Crucible.CFG.Extension
     Lang.Crucible.CFG.ExtractSubgraph
     Lang.Crucible.CFG.Generator
     Lang.Crucible.CFG.Reg

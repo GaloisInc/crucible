@@ -42,16 +42,16 @@ data OverrideFrame sym (ret :: CrucibleType) args
 ------------------------------------------------------------------------
 -- SimFrame
 
-data SimFrame sym l (args :: Maybe (Ctx CrucibleType)) where
+data SimFrame sym ext l (args :: Maybe (Ctx CrucibleType)) where
   OF :: !(OverrideFrame sym ret args)
-     -> SimFrame sym (OverrideLang args ret) 'Nothing
-  MF :: !(CallFrame sym blocks ret args)
-     -> SimFrame sym (CrucibleLang blocks ret) ('Just args)
+     -> SimFrame sym ext (OverrideLang args ret) 'Nothing
+  MF :: !(CallFrame sym ext blocks ret args)
+     -> SimFrame sym ext (CrucibleLang blocks ret) ('Just args)
   RF :: !(RegEntry sym ret)
-     -> SimFrame sym (CrucibleLang blocks ret) 'Nothing
+     -> SimFrame sym ext (CrucibleLang blocks ret) 'Nothing
 
-overrideSimFrame :: Lens (SimFrame sym (OverrideLang a r) 'Nothing)
-                         (SimFrame sym (OverrideLang a r) 'Nothing)
+overrideSimFrame :: Lens (SimFrame sym ext (OverrideLang a r) 'Nothing)
+                         (SimFrame sym ext (OverrideLang a r) 'Nothing)
                          (OverrideFrame sym r a)
                          (OverrideFrame sym r a)
 overrideSimFrame f (OF g) = OF <$> f g

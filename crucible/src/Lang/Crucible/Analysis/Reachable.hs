@@ -54,8 +54,8 @@ remapTermStmt m ts =
 
 remapBlock :: MapF (BlockID b) (BlockID b')
            -> BlockID b' ctx
-           -> Block b r ctx
-           -> Block b' r ctx
+           -> Block ext b r ctx
+           -> Block ext b' r ctx
 remapBlock m nm b =
   Block { blockID = nm
         , blockInputs = blockInputs b
@@ -66,8 +66,8 @@ remapBlock m nm b =
               (_blockStmts b)
         }
 
-mkOldMap :: forall b b' r
-         .  Ctx.Assignment (Block b r) b'
+mkOldMap :: forall ext b b' r
+         .  Ctx.Assignment (Block ext b r) b'
          -> MapF (BlockID b) (BlockID b')
 mkOldMap a = Ctx.forIndex (Ctx.size a) f MapF.empty
   where f :: MapF (BlockID b) (BlockID b')
@@ -76,21 +76,21 @@ mkOldMap a = Ctx.forIndex (Ctx.size a) f MapF.empty
         f m new_index = MapF.insert (blockID b) (BlockID new_index) m
           where b = a Ctx.! new_index
 
-remapBlockMap :: forall b b' ret
+remapBlockMap :: forall ext b b' ret
                . MapF (BlockID b) (BlockID b')
-              -> Ctx.Assignment (Block b ret) b'
+              -> Ctx.Assignment (Block ext b ret) b'
                  -- ^ Map new blocks to old block IDs.
-              -> BlockMap b' ret
+              -> BlockMap ext b' ret
 remapBlockMap oldToNew newToOld = Ctx.generate (Ctx.size newToOld) $ f
-  where f :: Ctx.Index b' ctx -> Block b' ret ctx
+  where f :: Ctx.Index b' ctx -> Block ext b' ret ctx
         f i = remapBlock oldToNew (BlockID i) (newToOld Ctx.! i)
 
-exploreReachable :: BlockMap blocks ret
+exploreReachable :: BlockMap ext blocks ret
                  -> BlockID blocks init
                  -> Map (Some (BlockID blocks)) Int
 exploreReachable m d = exploreReachable' m [Some d] Map.empty
 
-exploreReachable' :: BlockMap blocks ret
+exploreReachable' :: BlockMap ext blocks ret
                   -> [Some (BlockID blocks)]
                   -> Map (Some (BlockID blocks)) Int
                   -> Map (Some (BlockID blocks)) Int
@@ -102,15 +102,15 @@ exploreReachable' m (Some h:l) r =
       let b = getBlock h m
       exploreReachable' m (nextBlocks b ++ l) (Map.insert (Some h) 1 r)
 
-insReachable :: BlockMap b r
-             -> Some (Ctx.Assignment (Block b r))
+insReachable :: BlockMap ext b r
+             -> Some (Ctx.Assignment (Block ext b r))
              -> Some (BlockID b)
-             -> Some (Ctx.Assignment (Block b r))
+             -> Some (Ctx.Assignment (Block ext b r))
 insReachable m (Some a) (Some (BlockID block_id)) = Some $ a Ctx.:> (m Ctx.! block_id)
 
 
 
-reachableCFG :: CFG blocks init ret -> SomeCFG init ret
+reachableCFG :: CFG ext blocks init ret -> SomeCFG ext init ret
 reachableCFG g =
     case foldl (insReachable old_map) (Some Ctx.empty) (Map.keys reachables) of
       Some newToOld ->

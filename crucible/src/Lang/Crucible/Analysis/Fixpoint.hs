@@ -67,10 +67,10 @@ data Domain (dom :: CrucibleType -> *) =
          }
 
 -- | Transfer functions for each statement type
-data Interpretation (dom :: CrucibleType -> *) =
+data Interpretation ext (dom :: CrucibleType -> *) =
   Interpretation { interpExpr       :: forall ctx tp
                                      . TypeRepr tp
-                                    -> Expr ctx tp
+                                    -> Expr ext ctx tp
                                     -> PointAbstraction dom ctx
                                     -> (Maybe (PointAbstraction dom ctx), dom tp)
                  , interpCall       :: forall ctx args ret
@@ -191,23 +191,23 @@ equalPointAbstractions dom pa1 pa2 =
 
 -- | Apply the transfer functions from an interpretation to a block,
 -- given a starting set of abstract values.
-transfer :: forall dom blocks ret ctx
+transfer :: forall ext dom blocks ret ctx
           . Domain dom
-         -> Interpretation dom
+         -> Interpretation ext dom
          -> TypeRepr ret
-         -> Block blocks ret ctx
+         -> Block ext blocks ret ctx
          -> PointAbstraction dom ctx
          -> M dom blocks ret (S.Set (Some (BlockID blocks)))
 transfer dom interp retRepr blk = transferSeq (_blockStmts blk)
   where
     transferSeq :: forall ctx'
-                 . StmtSeq blocks ret ctx'
+                 . StmtSeq ext blocks ret ctx'
                 -> PointAbstraction dom ctx'
                 -> M dom blocks ret (S.Set (Some (BlockID blocks)))
     transferSeq (ConsStmt _loc stmt ss) = transferSeq ss . transferStmt stmt
     transferSeq (TermStmt _loc term) = transferTerm term
 
-    transferStmt :: forall ctx1 ctx2 . Stmt ctx1 ctx2 -> PointAbstraction dom ctx1 -> PointAbstraction dom ctx2
+    transferStmt :: forall ctx1 ctx2 . Stmt ext ctx1 ctx2 -> PointAbstraction dom ctx1 -> PointAbstraction dom ctx2
     transferStmt s assignment =
       case s of
         SetReg tp ex ->
@@ -350,12 +350,12 @@ isVisited bid = do
 -- 1) For each block in the CFG, the abstraction computed at the *entry* to the block
 --
 -- 2) The final abstract value for the value returned by the function
-forwardFixpoint :: forall dom blocks ret init
+forwardFixpoint :: forall ext dom blocks ret init
                  . Domain dom
                 -- ^ The domain of abstract values
-                -> Interpretation dom
+                -> Interpretation ext dom
                 -- ^ The transfer functions for each statement type
-                -> CFG blocks init ret
+                -> CFG ext blocks init ret
                 -- ^ The function to analyze
                 -> PM.MapF GlobalVar dom
                 -- ^ Assignments of abstract values to global variables at the function start
@@ -385,7 +385,7 @@ forwardFixpoint dom interp cfg globals0 assignment0 =
 
 -- | Inspect the 'Domain' definition to determine which iteration
 -- strategy the caller requested.
-iterationStrategy :: Domain dom -> (Interpretation dom -> CFG blocks init ret -> M dom blocks ret ())
+iterationStrategy :: Domain dom -> (Interpretation ext dom -> CFG ext blocks init ret -> M dom blocks ret ())
 iterationStrategy dom =
   case domIter dom of
     WTOWidening s op -> wtoIteration (Just (WideningStrategy s, WideningOperator op)) dom
@@ -398,10 +398,10 @@ iterationStrategy dom =
 --
 -- The worklist is actually processed by taking the lowest-numbered
 -- block in a set as the next work item.
-worklistIteration :: forall dom blocks ret init
+worklistIteration :: forall ext dom blocks ret init
                    . Domain dom
-                  -> Interpretation dom
-                  -> CFG blocks init ret
+                  -> Interpretation ext dom
+                  -> CFG ext blocks init ret
                   -> M dom blocks ret ()
 worklistIteration dom interp cfg =
   loop (S.singleton (Some (cfgEntryBlockID cfg)))
@@ -413,7 +413,7 @@ worklistIteration dom interp cfg =
           assignment <- lookupAssignment idx
           visit (getBlock target (cfgBlockMap cfg)) assignment worklist'
 
-    visit :: Block blocks ret ctx
+    visit :: Block ext blocks ret ctx
           -> PointAbstraction dom ctx
           -> S.Set (Some (BlockID blocks))
           -> M dom blocks ret ()
@@ -430,12 +430,12 @@ worklistIteration dom interp cfg =
 -- heads of their respective strongly connected components.  Those
 -- block heads are suitable locations to apply widening operators
 -- (which can be provided to this iterator).
-wtoIteration :: forall dom blocks ret init
+wtoIteration :: forall ext dom blocks ret init
               . Maybe (WideningStrategy, WideningOperator dom)
               -- ^ An optional widening operator
              -> Domain dom
-             -> Interpretation dom
-             -> CFG blocks init ret
+             -> Interpretation ext dom
+             -> CFG ext blocks init ret
              -> M dom blocks ret ()
 wtoIteration mWiden dom interp cfg = loop (computeOrdering cfg)
   where
@@ -470,7 +470,7 @@ wtoIteration mWiden dom interp cfg = loop (computeOrdering cfg)
           processSCC (Some hbid) comps (iterNum + 1)
 
 -- | Compute a weak topological order for the wto fixpoint iteration
-computeOrdering :: CFG blocks init ret
+computeOrdering :: CFG ext blocks init ret
                 -> [WTOComponent (Some (BlockID blocks))]
 computeOrdering cfg = weakTopologicalOrdering successors (Some block0)
   where

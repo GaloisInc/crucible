@@ -10,9 +10,11 @@
 -- This module provides functions for calling overrides and Crucible CFGS.
 ------------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
@@ -39,6 +41,7 @@ import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           Lang.Crucible.Config
 import           Lang.Crucible.CFG.Core
+import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.CallFrame
@@ -55,39 +58,39 @@ import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.Utils.MonadST
 
-crucibleSimFrame :: Lens (SimFrame sym (CrucibleLang blocks r) ('Just args))
-                         (SimFrame sym (CrucibleLang blocks r) ('Just args'))
-                         (CallFrame sym blocks r args)
-                         (CallFrame sym blocks r args')
+crucibleSimFrame :: Lens (SimFrame sym ext (CrucibleLang blocks r) ('Just args))
+                         (SimFrame sym ext (CrucibleLang blocks r) ('Just args'))
+                         (CallFrame sym ext blocks r args)
+                         (CallFrame sym ext blocks r args')
 crucibleSimFrame f (MF c) = MF <$> f c
 
-crucibleTopFrame ::  Lens (TopFrame sym (CrucibleLang blocks r) ('Just args))
-                          (TopFrame sym (CrucibleLang blocks r) ('Just args'))
-                          (CallFrame sym blocks r args)
-                          (CallFrame sym blocks r args')
+crucibleTopFrame ::  Lens (TopFrame sym ext (CrucibleLang blocks r) ('Just args))
+                          (TopFrame sym ext (CrucibleLang blocks r) ('Just args'))
+                          (CallFrame sym ext blocks r args)
+                          (CallFrame sym ext blocks r args')
 crucibleTopFrame = gpValue . crucibleSimFrame
 
-stateCrucibleFrame :: Lens (SimState p sym rtp (CrucibleLang blocks r) ('Just a))
-                           (SimState p sym rtp (CrucibleLang blocks r) ('Just a'))
-                           (CallFrame sym blocks r a)
-                           (CallFrame sym blocks r a')
+stateCrucibleFrame :: Lens (SimState p sym ext rtp (CrucibleLang blocks r) ('Just a))
+                           (SimState p sym ext rtp (CrucibleLang blocks r) ('Just a'))
+                           (CallFrame sym ext blocks r a)
+                           (CallFrame sym ext blocks r a')
 stateCrucibleFrame = stateTree . actFrame . crucibleTopFrame
 {-# INLINE stateCrucibleFrame #-}
 
 ------------------------------------------------------------------------
 -- resolveCallFrame
 
-data SomeSimFrame p sym ret where
-  SomeOF :: Override p sym args ret
+data SomeSimFrame p sym ext ret where
+  SomeOF :: Override p sym ext args ret
          -> OverrideFrame sym ret args
-         -> SomeSimFrame p sym ret
-  SomeCF :: CallFrame sym blocks ret args
-         -> SomeSimFrame p sym ret
+         -> SomeSimFrame p sym ext ret
+  SomeCF :: CallFrame sym ext blocks ret args
+         -> SomeSimFrame p sym ext ret
 
-resolveCallFrame :: FunctionBindings p sym
+resolveCallFrame :: FunctionBindings p sym ext
                  -> FnVal sym args ret
                  -> RegMap sym args
-                 -> SomeSimFrame p sym ret
+                 -> SomeSimFrame p sym ext ret
 resolveCallFrame bindings c0 args =
   case c0 of
     ClosureFnVal c tp v -> do
@@ -108,16 +111,17 @@ resolveCallFrame bindings c0 args =
 -- callFromAny
 
 -- | Call back function returning from a call.
-type ExecReturn p sym root l caller_args ret new_args
+type ExecReturn p sym ext root l caller_args ret new_args
   =  ret
      -- ^ Value returned by solver.
-  -> SimFrame sym l caller_args
+  -> SimFrame sym ext l caller_args
      -- ^ Frame
-  -> Exec.ReturnHandler p sym root l new_args
+  -> Exec.ReturnHandler p sym ext root l new_args
 
-returnToCrucible :: TypeRepr ret
-                 -> StmtSeq blocks r (ctx ::> ret)
-                 -> ExecReturn p sym
+returnToCrucible :: IsSyntaxExtension ext
+                 => TypeRepr ret
+                 -> StmtSeq ext blocks r (ctx ::> ret)
+                 -> ExecReturn p sym ext
                                root
                                (CrucibleLang blocks r)
                                ('Just ctx)
@@ -128,33 +132,33 @@ returnToCrucible ret stmts = \v (MF f) ->
       c s = loopCrucible (s & stateTree . actFrame . gpValue .~ MF f')
    in (MF f', c)
 
-tailReturnToCrucible :: forall p sym root blocks ctx r
+tailReturnToCrucible :: forall p sym ext root blocks ctx r
                       . IsSymInterface sym
-                     => ExecReturn p sym
+                     => ExecReturn p sym ext
                                root
                                (CrucibleLang blocks r)
                                ctx
                                (RegEntry sym r)
                                'Nothing
 tailReturnToCrucible = \v _ ->
-  let c :: ExecCont p sym root (CrucibleLang blocks r) 'Nothing
+  let c :: ExecCont p sym ext root (CrucibleLang blocks r) 'Nothing
       c s = case s^.stateTree^.actFrame^.gpValue of
               RF v' -> returnAndMerge s v'
    in (RF v, c)
 
-returnToOverride :: (ret -> ExecCont p sym rtp (OverrideLang args r) 'Nothing)
+returnToOverride :: (ret -> ExecCont p sym ext rtp (OverrideLang args r) 'Nothing)
                     -- ^ Continuation to run next.
-                 -> ExecReturn p sym rtp (OverrideLang args r) 'Nothing ret 'Nothing
+                 -> ExecReturn p sym ext rtp (OverrideLang args r) 'Nothing ret 'Nothing
 returnToOverride c = \v (OF o) -> (OF o, c v)
 
 
 ------------------------------------------------------------------------
 -- CrucibleState
 
-type CrucibleState p sym rtp blocks ret args
-   = SimState p sym rtp (CrucibleLang blocks ret) ('Just args)
+type CrucibleState p sym ext rtp blocks ret args
+   = SimState p sym ext rtp (CrucibleLang blocks ret) ('Just args)
 
-evalLogFn :: CrucibleState p sym rtp blocks r ctx
+evalLogFn :: CrucibleState p sym ext rtp blocks r ctx
           -> Int
           -> String
           -> IO ()
@@ -167,26 +171,29 @@ evalLogFn s n msg = do
     hFlush h
 
 -- | Evaluate an expression.
-evalReg :: CrucibleState p sym rtp blocks r ctx
+evalReg :: CrucibleState p sym ext rtp blocks r ctx
         -> Reg ctx tp
         -> RegValue sym tp
 evalReg s r = frameRegs (s^.stateCrucibleFrame) `regVal` r
 
 -- | Evaluate an expression.
-evalReg' :: CrucibleState p sym rtp blocks r ctx
+evalReg' :: CrucibleState p sym ext rtp blocks r ctx
         -> Reg ctx tp
         -> RegEntry sym tp
 evalReg' s r = frameRegs (s^.stateCrucibleFrame) `regVal'` r
 
 -- | Evaluate an expression.
-evalExpr :: forall p sym ctx tp rtp blocks r
-          . IsSymInterface sym
-         => CrucibleState p sym rtp blocks r ctx
-         -> Expr ctx tp
+evalExpr :: forall p sym ext ctx tp rtp blocks r
+          . (IsSymInterface sym, IsSyntaxExtension ext)
+         => CrucibleState p sym ext rtp blocks r ctx
+         -> Expr ext ctx tp
          -> IO (RegValue sym tp)
 evalExpr s (App a) = do
   let iteFns = stateIntrinsicTypes s
-  r <- evalApp (stateSymInterface s) iteFns (evalLogFn s) (\r -> return $ evalReg s r) a
+  r <- evalApp (stateSymInterface s) iteFns (evalLogFn s)
+               (extensionEval (extensionImpl (s^.stateContext)))
+               (\r -> return $ evalReg s r)
+               a
   return $! r
 
 ------------------------------------------------------------------------
@@ -208,7 +215,7 @@ data JumpCall sym blocks where
            -> JumpCall sym blocks
 
 evalJumpTarget :: IsSymInterface sym
-               => CrucibleState p sym rtp blocks r ctx
+               => CrucibleState p sym ext rtp blocks r ctx
                -> JumpTarget blocks ctx
                -> JumpCall sym blocks
 evalJumpTarget s (JumpTarget tgt _ a) = JumpCall tgt (evalArgs s a)
@@ -222,7 +229,7 @@ data SwitchCall sym blocks tp where
              -> SwitchCall sym blocks tp
 
 evalSwitchTarget :: IsSymInterface sym
-                  => CrucibleState p sym rtp blocks r ctx
+                  => CrucibleState p sym ext rtp blocks r ctx
                   -> SwitchTarget blocks ctx tp
                   -> SwitchCall sym blocks tp
 evalSwitchTarget s (SwitchTarget tgt _tp a) = do
@@ -256,17 +263,17 @@ checkStateConsistency s (BlockID block_id) = do
 -- | Jump to given block.
 --
 -- May throw a user error if merging fails.
-jump :: IsSymInterface sym
-      => CrucibleState p sym rtp blocks r args
+jump :: (IsSymInterface sym, IsSyntaxExtension ext)
+      => CrucibleState p sym ext rtp blocks r args
       -> JumpTarget blocks args
-      -> IO (ExecResult p sym rtp)
+      -> IO (ExecResult p sym ext rtp)
 jump s (JumpTarget block_id _tp a) =
   jumpToBlock s block_id (evalArgs s a)
 
 
 symbolicBranch
-    :: IsSymInterface sym
-    => CrucibleState p sym rtp blocks ret ctx
+    :: (IsSymInterface sym, IsSyntaxExtension ext)
+    => CrucibleState p sym ext rtp blocks ret ctx
     -> Int
     -> Pred sym
     -> BlockID blocks args
@@ -274,7 +281,7 @@ symbolicBranch
     -> BlockID blocks args'
     -> RegMap sym args'
        -- ^ Registers for false state.
-    -> IO (IO (ExecResult p sym rtp))
+    -> IO (IO (ExecResult p sym ext rtp))
 symbolicBranch s verb p x_id x_args y_id y_args = do
   let top_frame = s^.stateTree^.actFrame
 
@@ -301,12 +308,12 @@ data VariantCall sym blocks tp where
               -> SwitchCall sym blocks tp
               -> VariantCall sym blocks tp
 
-cruciblePausedFrame :: HasProgramLoc (SymPathState sym)
+cruciblePausedFrame :: (IsSyntaxExtension ext, HasProgramLoc (SymPathState sym))
                     => BlockID b new_args
                     -> RegMap sym new_args
-                    -> GlobalPair sym (SimFrame sym (CrucibleLang b r) ('Just a))
+                    -> GlobalPair sym (SimFrame sym ext (CrucibleLang b r) ('Just a))
                     -> SymPathState sym
-                    -> Exec.PausedFrame p sym
+                    -> Exec.PausedFrame p sym ext
                        rtp
                        (CrucibleLang b r)
                        ('Just new_args)
@@ -315,15 +322,15 @@ cruciblePausedFrame x_id x_args top_frame s =
    in PausedFrame $
       PausedValue { _pausedValue = cf
                   , savedStateInfo  = s & programLoc .~ frameProgramLoc (cf^.crucibleTopFrame)
-                  , resume = loopCrucible
+                  , resume = loopCrucible 
                   }
 
 stepReturnVariantCases
-         :: forall p sym rtp blocks r ctx
-          . IsSymInterface sym
-         => CrucibleState p sym rtp blocks r ctx
+         :: forall p sym ext rtp blocks r ctx
+          . (IsSymInterface sym, IsSyntaxExtension ext)
+         => CrucibleState p sym ext rtp blocks r ctx
          -> [(Pred sym, JumpCall sym blocks)]
-         -> IO (IO (ExecResult p sym rtp))
+         -> IO (IO (ExecResult p sym ext rtp))
 stepReturnVariantCases s [] = do
   let top_frame = s^.stateTree^.actFrame
   let loc = frameProgramLoc (top_frame^.crucibleTopFrame)
@@ -345,12 +352,12 @@ stepReturnVariantCases s ((p,JumpCall x_id x_args):cs) = do
   return $ intra_branch s p (\sps -> SomeLabel (x_frame sps) (Just x_id)) y_frame ReturnTarget
 
 stepVariantCases
-         :: forall p sym rtp blocks r ctx x
-          . IsSymInterface sym
-         => CrucibleState p sym rtp blocks r ctx
+         :: forall p sym ext rtp blocks r ctx x
+          . (IsSymInterface sym, IsSyntaxExtension ext)
+         => CrucibleState p sym ext rtp blocks r ctx
          -> BlockID blocks x
          -> [(Pred sym, JumpCall sym blocks)]
-         -> IO (IO (ExecResult p sym rtp))
+         -> IO (IO (ExecResult p sym ext rtp))
 stepVariantCases s _pd_id [] = do
   let top_frame = s^.stateTree^.actFrame
   let loc = frameProgramLoc (top_frame^.crucibleTopFrame)
@@ -370,26 +377,26 @@ stepVariantCases s pd_id ((p,JumpCall x_id x_args):cs) = do
   let tgt = BlockTarget pd_id
   return $ intra_branch s p (\sps -> SomeLabel (x_frame sps) (Just x_id)) y_frame' tgt
 
-returnAndMerge :: forall p sym rtp blocks r args
+returnAndMerge :: forall p sym ext rtp blocks r args
                .  IsSymInterface sym
-               => SimState p sym rtp (CrucibleLang blocks r) args
+               => SimState p sym ext rtp (CrucibleLang blocks r) args
                -> RegEntry sym r
-               -> IO (ExecResult p sym rtp)
+               -> IO (ExecResult p sym ext rtp)
 returnAndMerge s arg = do
   let s' = s & stateTree . actFrame . gpValue .~ RF arg
-  let cont :: ExecCont p sym rtp (CrucibleLang b r) 'Nothing
+  let cont :: ExecCont p sym ext rtp (CrucibleLang b r) 'Nothing
       cont st = do
         case st^.stateTree^.actFrame^.gpValue of
            RF v -> returnValue st v
   checkForIntraFrameMerge cont ReturnTarget s'
 
 {-# INLINABLE stepTerm #-}
-stepTerm :: forall p sym rtp blocks r ctx
-          . IsSymInterface sym
-         => CrucibleState p sym rtp blocks r ctx
+stepTerm :: forall p sym ext rtp blocks r ctx
+          . (IsSymInterface sym, IsSyntaxExtension ext)
+         => CrucibleState p sym ext rtp blocks r ctx
          -> Int  -- ^ Verbosity
          -> TermStmt blocks r ctx
-         -> IO (IO (ExecResult p sym rtp))
+         -> IO (IO (ExecResult p sym ext rtp))
 stepTerm s _ (Jump tgt) = do
   return $! jump s tgt
 stepTerm s verb (Br c x y)
@@ -476,8 +483,8 @@ evalArgs' m0 args = RegMap (fmapFC (getEntry m0) args)
         getEntry (RegMap m) r = m Ctx.! regIndex r
 {-# NOINLINE evalArgs' #-}
 
-evalArgs :: forall p sym rtp blocks r ctx args
-           . CrucibleState p sym rtp blocks r ctx
+evalArgs :: forall p sym ext rtp blocks r ctx args
+           . CrucibleState p sym ext rtp blocks r ctx
           -> Ctx.Assignment (Reg ctx) args
           -> RegMap sym args
 evalArgs s args = evalArgs' (frameRegs (s^.stateCrucibleFrame)) args
@@ -487,8 +494,9 @@ evalArgs s args = evalArgs' (frameRegs (s^.stateCrucibleFrame)) args
 -- and runs it to completion.
 --
 -- It catches exceptions if a step throws an exception.
-loopCrucible :: CrucibleState p sym rtp blocks r ctx
-             -> IO (ExecResult p sym rtp)
+loopCrucible :: IsSyntaxExtension ext
+             => CrucibleState p sym ext rtp blocks r ctx
+             -> IO (ExecResult p sym ext rtp)
 loopCrucible s = stateSolverProof s $ do
   s_ref <- newIORef (SomeState s)
   let cfg = simConfig (s^.stateContext)
@@ -506,15 +514,15 @@ loopCrucible s = stateSolverProof s $ do
      ]
   next
 
-data SomeState p sym rtp where
-  SomeState :: !(CrucibleState p sym rtp blocks r ctx) -> SomeState p sym rtp
+data SomeState p sym ext rtp where
+  SomeState :: !(CrucibleState p sym ext rtp blocks r ctx) -> SomeState p sym ext rtp
 
 
-continueCrucible :: IsSymInterface sym
-                 => IORef (SomeState p sym rtp)
+continueCrucible :: (IsSymInterface sym, IsSyntaxExtension ext)
+                 => IORef (SomeState p sym ext rtp)
                  -> Int
-                 -> CrucibleState p sym rtp blocks r ctx
-                 -> IO (IO (ExecResult p sym rtp))
+                 -> CrucibleState p sym ext rtp blocks r ctx
+                 -> IO (IO (ExecResult p sym ext rtp))
 continueCrucible s_ref verb s = do
   writeIORef s_ref $! SomeState s
   loopCrucible' s_ref verb
@@ -522,10 +530,10 @@ continueCrucible s_ref verb s = do
 -- | Internal loop for running the simulator.
 --
 -- This is allowed to throw user execeptions or SimError.
-loopCrucible' :: IsSymInterface sym
-              => IORef (SomeState p sym rtp) -- ^ A reference to the current state value.
+loopCrucible' :: (IsSymInterface sym, IsSyntaxExtension ext)
+              => IORef (SomeState p sym ext rtp) -- ^ A reference to the current state value.
               -> Int -- ^ Current verbosity
-              -> IO (IO (ExecResult p sym rtp))
+              -> IO (IO (ExecResult p sym ext rtp))
 loopCrucible' s_ref verb = do
   SomeState s <- readIORef s_ref
   let ctx = s^.stateContext
@@ -603,11 +611,11 @@ loopCrucible' s_ref verb = do
           addAssertion sym c (AssertFailureSimError (Text.unpack m))
           continueCrucible s_ref verb $ s & stateCrucibleFrame  . frameStmts .~ rest
 
-jumpToBlock :: IsSymInterface sym
-             => SimState p sym rtp (CrucibleLang blocks r) ('Just a)
+jumpToBlock :: (IsSymInterface sym, IsSyntaxExtension ext)
+             => SimState p sym ext rtp (CrucibleLang blocks r) ('Just a)
              -> BlockID blocks args
              -> RegMap sym args
-             -> IO (ExecResult p sym rtp)
+             -> IO (ExecResult p sym ext rtp)
 jumpToBlock s block_id args = do
   let s' = s & stateCrucibleFrame %~ setFrameBlock block_id args
   let cont s2 = loopCrucible s2

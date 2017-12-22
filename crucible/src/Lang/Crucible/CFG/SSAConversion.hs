@@ -113,29 +113,29 @@ instance Ord (Input s) where
 ------------------------------------------------------------------------
 -- BlockInput
 
-data BlockInput s blocks ret args
+data BlockInput ext s blocks ret args
   = BInput { binputID         :: !(C.BlockID blocks args)
              -- | Arguments expected by block.
            , binputArgs       :: !(Assignment (Value s) args)
-           , binputStmts      :: !(Seq (Posd (Stmt s)))
+           , binputStmts      :: !(Seq (Posd (Stmt ext s)))
            , binputTerm       :: !(Posd (TermStmt s ret))
            }
 
 
-type BlockInputAssignment s blocks ret
-   = Assignment (BlockInput s blocks ret)
+type BlockInputAssignment ext s blocks ret
+   = Assignment (BlockInput ext s blocks ret)
 
 #ifdef UNSAFE_OPS
-extBlockInputAssignment :: BlockInputAssignment s blocks ret a
-                        -> BlockInputAssignment s (blocks ::> tp) ret a
+extBlockInputAssignment :: BlockInputAssignment ext s blocks ret a
+                        -> BlockInputAssignment ext s (blocks ::> tp) ret a
 extBlockInputAssignment = Data.Coerce.coerce
 #else
-extBlockInputAssignment :: BlockInputAssignment s blocks ret a
-                        -> BlockInputAssignment s (blocks ::> tp) ret a
+extBlockInputAssignment :: BlockInputAssignment ext s blocks ret a
+                        -> BlockInputAssignment ext s (blocks ::> tp) ret a
 extBlockInputAssignment = fmapFC extBlockInput
 
-extBlockInput :: BlockInput s blocks ret args
-              -> BlockInput s (blocks ::> tp) ret args
+extBlockInput :: BlockInput ext s blocks ret args
+              -> BlockInput ext s (blocks ::> tp) ret args
 extBlockInput bi = bi { binputID = C.extendBlockID (binputID bi) }
 #endif
 
@@ -261,17 +261,17 @@ extSwitchInfo (SwitchInfo b typs a) = SwitchInfo (C.extendBlockID b) typs a
 ------------------------------------------------------------------------
 -- PredMap
 
-newtype PredMap s ret = PredMap (Map (BlockID s) [Block s ret])
+newtype PredMap ext s ret = PredMap (Map (BlockID s) [Block ext s ret])
 
-instance Show (PredMap s ret) where
+instance Show (PredMap ext s ret) where
   show (PredMap m) = show (fmap blockID <$> m)
 
 -- | Return labels that may jump to given label.
-getPredecessorLabels :: BlockID s -> PredMap s ret -> [Block s ret]
+getPredecessorLabels :: BlockID s -> PredMap ext s ret -> [Block ext s ret]
 getPredecessorLabels l (PredMap m) = fromMaybe [] (Map.lookup l m)
 
 -- | Maps each block to the set of blocks that jump to it.
-blockPredMap :: [Block s ret] -> PredMap s ret
+blockPredMap :: [Block ext s ret] -> PredMap ext s ret
 blockPredMap l = PredMap (Set.toList <$> nextSetMap pairs)
   where pairs = [ (n, b)
                 | b <- l
@@ -284,19 +284,19 @@ blockPredMap l = PredMap (Set.toList <$> nextSetMap pairs)
 type BlockInputMap s = Map (BlockID s) (Set (Input s))
 
 -- | Return inputs expected by block.
-inputsForBlock :: Block s ret
+inputsForBlock :: Block ext s ret
                -> Set (Input s)
 inputsForBlock b = Set.map (mkInput (blockID b)) (blockKnownInputs b)
 
 -- | Define map that maps labels to the set of registers they need.
-initialInputMap :: [Block s ret] -> BlockInputMap s
+initialInputMap :: [Block ext s ret] -> BlockInputMap s
 initialInputMap blocks = Map.fromList $
   [ (blockID b, inputsForBlock b)
   | b <- blocks
   ]
 
 -- | Return map that stores arguments needed by each block.
-completeInputs :: forall s ret . [Block s ret] -> BlockInputMap s
+completeInputs :: forall ext s ret . [Block ext s ret] -> BlockInputMap s
 completeInputs blocks = do
   let block_map =  Map.fromList [ (blockID b, b) | b <- blocks ]
   -- pred_map maps each label to its predecessors.
@@ -311,7 +311,7 @@ completeInputs blocks = do
           Just (next_label, rest_labels) -> do
             let Just inputs = Map.lookup next_label input_map
 
-            let resolve_pred :: [Block s ret]
+            let resolve_pred :: [Block ext s ret]
                              -> Set (BlockID s)
                              -> BlockInputMap s
                              -> BlockInputMap s
@@ -339,23 +339,23 @@ completeInputs blocks = do
 -- Infer information about SSA.
 
 -- | Information that is statically inferred from the block structure.
-data BlockInfo s ret blocks
-   = BI { biBlocks     :: !(Assignment (BlockInput s blocks ret) blocks)
+data BlockInfo ext s ret blocks
+   = BI { biBlocks     :: !(Assignment (BlockInput ext s blocks ret) blocks)
         , biJumpInfo   :: !(JumpInfoMap s blocks)
         , biSwitchInfo :: !(SwitchInfoMap s blocks)
         }
 
 -- | This infers the information given a set of blocks.
-inferBlockInfo :: forall s ret . [Block s ret] -> Some (BlockInfo s ret)
+inferBlockInfo :: forall ext s ret . [Block ext s ret] -> Some (BlockInfo ext s ret)
 inferBlockInfo blocks = seq input_map $ go bi0 blocks
   where input_map = completeInputs blocks
         bi0 = BI { biBlocks = empty
                  , biJumpInfo = emptyJumpInfoMap
                  , biSwitchInfo = emptySwitchInfoMap
                  }
-        go :: BlockInfo s ret blocks
-           -> [Block s ret]
-           -> Some (BlockInfo s ret)
+        go :: BlockInfo ext s ret blocks
+           -> [Block ext s ret]
+           -> Some (BlockInfo ext s ret)
         go bi [] = Some bi
         go bi (b:rest) = do
           let sz = size (biBlocks bi)
@@ -411,11 +411,11 @@ data MaybeF f tp where
 
 -- | Map each core SSA binding to the expression that generated it if it
 -- was generated by an expression.
-type RegExprs ctx = Assignment (MaybeF (C.Expr ctx)) ctx
+type RegExprs ext ctx = Assignment (MaybeF (C.Expr ext ctx)) ctx
 
 #ifdef UNSAFE_OPS
 
-extendRegExprs :: MaybeF (C.Expr ctx) tp -> RegExprs ctx ->RegExprs (ctx ::> tp)
+extendRegExprs :: MaybeF (C.Expr ext ctx) tp -> RegExprs ext ctx -> RegExprs ext (ctx ::> tp)
 extendRegExprs r e = unsafeCoerce (e :> r)
 
 -- | Maps values in mutable representation to the current value in the SSA form.
@@ -455,7 +455,7 @@ bindValueReg r cr (TypedRegMap m) = TypedRegMap $ MapF.insert r cr m
 
 #else
 
-extendRegExprs :: MaybeF (C.Expr ctx) tp -> RegExprs ctx -> RegExprs (ctx ::> tp)
+extendRegExprs :: MaybeF (C.Expr ext ctx) tp -> RegExprs ext ctx -> RegExprs ext (ctx ::> tp)
 extendRegExprs r e = fmapFC ext e :> ext r
  where ext :: MaybeF (C.Expr ctx) tp' -> MaybeF (C.Expr (ctx ::> tp)) tp'
        ext NothingF  = NothingF
@@ -526,7 +526,7 @@ copyValue
 copyValue r r' m = bindValueReg r (resolveReg m r') m
 
 
-resolveJumpTarget :: BlockInfo s ret blocks
+resolveJumpTarget :: BlockInfo ext s ret blocks
                   -> TypedRegMap s ctx
                   -> Label s
                   -> C.JumpTarget blocks ctx
@@ -538,7 +538,7 @@ resolveJumpTarget bi reg_map next_lbl = do
       C.JumpTarget next_id types args
 
 -- | Resolve a lambda label into a typed jump target.
-resolveLambdaAsJump :: BlockInfo s ret blocks
+resolveLambdaAsJump :: BlockInfo ext s ret blocks
                     -> TypedRegMap s ctx
                     -> LambdaLabel s tp
                     -> C.Reg ctx tp
@@ -553,7 +553,7 @@ resolveLambdaAsJump bi reg_map next_lbl output =
       C.JumpTarget block_id types' args'
 
 -- | Resolve a lambda label into a typed switch target.
-resolveLambdaAsSwitch :: BlockInfo s ret blocks
+resolveLambdaAsSwitch :: BlockInfo ext s ret blocks
                       -> TypedRegMap s ctx
                       -> LambdaLabel s tp
                       -> C.SwitchTarget blocks ctx tp
@@ -565,9 +565,9 @@ resolveLambdaAsSwitch bi reg_map next_lbl =
       C.SwitchTarget block_id types args
 
 -- | Resolve an untyped terminal statement to a typed one.
-resolveTermStmt :: BlockInfo s ret blocks
+resolveTermStmt :: BlockInfo ext s ret blocks
                 -> TypedRegMap s ctx
-                -> RegExprs ctx
+                -> RegExprs ext ctx
                    -- ^ Maps registers to associated expressions.
                 -> TermStmt s ret
                 -> C.TermStmt blocks ret ctx
@@ -609,40 +609,43 @@ resolveTermStmt bi reg_map bindings t0 =
 
 #ifdef UNSAFE_OPS
 -- | Maps applications of register so
-type AppRegMap ctx = MapF (C.App (C.Reg ctx)) (C.Reg ctx)
+type AppRegMap ext ctx = MapF (C.App ext (C.Reg ctx)) (C.Reg ctx)
 
-appRegMap_extend :: AppRegMap ctx -> AppRegMap (ctx ::> tp)
-appRegMap_extend = Data.Coerce.coerce
+appRegMap_extend :: AppRegMap ext ctx -> AppRegMap ext (ctx ::> tp)
+appRegMap_extend = unsafeCoerce --Data.Coerce.coerce 
 
-appRegMap_insert :: C.App (C.Reg ctx) tp
+appRegMap_insert :: OrdFC (C.ExprExtension ext)
+                 => C.App ext (C.Reg ctx) tp
                  -> C.Reg (ctx ::> tp) tp
-                 -> AppRegMap ctx
-                 -> AppRegMap (ctx ::> tp)
-appRegMap_insert k v m = MapF.insert (Data.Coerce.coerce k) v (appRegMap_extend m)
+                 -> AppRegMap ext ctx
+                 -> AppRegMap ext (ctx ::> tp)
+appRegMap_insert k v m = MapF.insert (unsafeCoerce k) v (appRegMap_extend m)
 
-appRegMap_lookup :: C.App (C.Reg ctx) tp
-                 -> AppRegMap ctx
+appRegMap_lookup :: OrdFC (C.ExprExtension ext)
+                 => C.App ext (C.Reg ctx) tp
+                 -> AppRegMap ext ctx
                  -> Maybe (C.Reg ctx tp)
 appRegMap_lookup = MapF.lookup
 
-appRegMap_empty :: AppRegMap ctx
+appRegMap_empty :: AppRegMap ext ctx
 appRegMap_empty = MapF.empty
 #else
-type AppRegMap ctx = Map (Some (C.App (C.Reg ctx))) (SomeReg ctx)
+type AppRegMap ext ctx = Map (Some (C.App ext (C.Reg ctx))) (SomeReg ctx)
 
-appRegMap_extend :: AppRegMap ctx -> AppRegMap (ctx ::> tp)
+appRegMap_extend :: AppRegMap ext ctx -> AppRegMap ext (ctx ::> tp)
 appRegMap_extend = Map.fromList . fmap f . Map.toList
  where f (Some app, SomeReg tp reg) = (Some (C.mapApp C.extendReg app), SomeReg tp (C.extendReg reg))
 
-appRegMap_insert :: C.App (C.Reg ctx) tp
+appRegMap_insert :: OrdFC (C.ExprExtension ext)
+                 => C.App ext (C.Reg ctx) tp
                  -> C.Reg (ctx::>tp) tp
-                 -> AppRegMap ctx
-                 -> AppRegMap (ctx ::> tp)
+                 -> AppRegMap ext ctx
+                 -> AppRegMap ext (ctx ::> tp)
 appRegMap_insert k v m =
   Map.insert (Some (C.mapApp C.extendReg k)) (SomeReg (C.appType k) v) (appRegMap_extend m)
 
-appRegMap_lookup :: C.App (C.Reg ctx) tp
-                 -> AppRegMap ctx
+appRegMap_lookup :: C.App ext (C.Reg ctx) tp
+                 -> AppRegMap ext ctx
                  -> Maybe (C.Reg ctx tp)
 appRegMap_lookup app m =
   case Map.lookup (Some app) m of
@@ -652,24 +655,25 @@ appRegMap_lookup app m =
      _ -> error "appRegMap_lookup: impossible!"
 
 
-appRegMap_empty :: AppRegMap ctx
+appRegMap_empty :: AppRegMap ext ctx
 appRegMap_empty = Map.empty
 
 #endif
 
 -- | Resolve a list of statements to a typed list.
-resolveStmts :: FunctionName
-             -> BlockInfo s ret blocks
+resolveStmts :: C.IsSyntaxExtension ext
+             => FunctionName
+             -> BlockInfo ext s ret blocks
              -> Size ctx
              -> TypedRegMap s ctx
-             -> RegExprs ctx
+             -> RegExprs ext ctx
                 -- ^ Maps registers back to the expression that generated them (if any)
-             -> AppRegMap ctx
+             -> AppRegMap ext ctx
                 -- ^ Maps applications to register that stores their value.
                 -- Used to eliminate redundant operations.
-             -> [Posd (Stmt s)]
+             -> [Posd (Stmt ext s)]
              -> Posd (TermStmt s ret)
-             -> C.StmtSeq blocks ret ctx
+             -> C.StmtSeq ext blocks ret ctx
 resolveStmts nm bi _ reg_map bindings _ [] (Posd p t) = do
   C.TermStmt (mkProgramLoc nm p)
              (resolveTermStmt bi reg_map bindings t)
@@ -763,17 +767,18 @@ resolveStmts nm bi sz reg_map bindings appMap (Posd p s0:rest) t = do
                  (resolveStmts nm bi sz reg_map bindings appMap rest t)
 
 
-data SomeBlockMap ret where
-  SomeBlockMap :: C.BlockMap blocks ret -> SomeBlockMap ret
+data SomeBlockMap ext ret where
+  SomeBlockMap :: C.BlockMap ext blocks ret -> SomeBlockMap ext ret
 
-resolveBlockMap :: forall s ret
-                 . FunctionName
-                -> [Block s ret]
-                -> SomeBlockMap ret
+resolveBlockMap :: forall ext s ret
+                 . C.IsSyntaxExtension ext
+                => FunctionName
+                -> [Block ext s ret]
+                -> SomeBlockMap ext ret
 resolveBlockMap nm blocks = do
-  let resolveBlock :: BlockInfo s ret blocks
-                   -> BlockInput s blocks ret args
-                   -> C.Block blocks ret args
+  let resolveBlock :: BlockInfo ext s ret blocks
+                   -> BlockInput ext s blocks ret args
+                   -> C.Block ext blocks ret args
       resolveBlock bi bin = do
         let sz = size (binputArgs bin)
         let regs = regMapFromAssignment (binputArgs bin)
@@ -795,8 +800,9 @@ resolveBlockMap nm blocks = do
 -- | Convert a CFG in RTL form into a Core CFG in SSA form.
 --
 -- This prunes the CFG so that only reachable blocks are returned.
-toSSA :: CFG s init ret
-      -> C.SomeCFG init ret
+toSSA :: C.IsSyntaxExtension ext
+      => CFG ext s init ret
+      -> C.SomeCFG ext init ret
 toSSA g = do
   let h = cfgHandle g
   let initTypes = cfgInputTypes g

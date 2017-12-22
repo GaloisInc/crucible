@@ -34,18 +34,18 @@ toNode :: BlockID blocks ctx -> G.Node
 toNode (BlockID b) = 1 + Ctx.indexVal b
 
 -- | Create
-reverseEdge :: Int -> Block blocks ret ctx -> G.LEdge ()
+reverseEdge :: Int -> Block ext blocks ret ctx -> G.LEdge ()
 reverseEdge d b = (d, toNode (blockID b), ())
 
 -- | For a given block with out edges l, return edges from
 -- each block in @l@ to @b@.
-inEdges :: Block blocks ret ctx -> [G.LEdge ()]
+inEdges :: Block ext blocks ret ctx -> [G.LEdge ()]
 inEdges b =
   case withBlockTermStmt b (\_ -> termStmtNextBlocks) of
     Nothing -> [reverseEdge 0 b]
     Just l -> (\(Some n) -> toNode n `reverseEdge` b) <$> l
 
-inEdgeGraph :: BlockMap blocks ret -> G.UGr
+inEdgeGraph :: BlockMap ext blocks ret -> G.UGr
 inEdgeGraph m = G.mkGraph ((,()) <$> nodes) edges
   where nodes = 0 : toListFC (toNode . blockID) m
         edges = foldrFC (\b -> (inEdges b ++)) [] m
@@ -60,14 +60,14 @@ reachableSubgraph initNode g = G.mkGraph nl el
         keepEdge (s,e,_) = keepNode s && keepNode e
         el = filter keepEdge (G.labEdges g)
 
-nodeToBlockIDMap :: BlockMap blocks ret
+nodeToBlockIDMap :: BlockMap ext blocks ret
                  -> Map G.Node (Some (BlockID blocks))
 nodeToBlockIDMap =
   foldrFC (\b -> Map.insert (toNode (blockID b)) (Some (blockID b)))
           Map.empty
 
-postdomMap :: forall blocks ret
-            . BlockMap blocks ret
+postdomMap :: forall ext blocks ret
+            . BlockMap ext blocks ret
            -> Map (Some (BlockID blocks)) [Some (BlockID blocks)]
 postdomMap m = r
   where g0 = inEdgeGraph m
@@ -85,18 +85,18 @@ postdomMap m = r
           , let Just pd_id = Map.lookup pd idMap
           ]
 
-postdomAssignment :: forall blocks ret . BlockMap blocks ret -> CFGPostdom blocks
+postdomAssignment :: forall ext blocks ret . BlockMap ext blocks ret -> CFGPostdom blocks
 postdomAssignment m = fmapFC go m
   where pd = postdomMap m
-        go :: Block blocks ret c -> ConstK [Some (BlockID blocks)] c
+        go :: Block ext blocks ret c -> ConstK [Some (BlockID blocks)] c
         go b = ConstK $ fromMaybe [] (Map.lookup (Some (blockID b)) pd)
 
 -- | Compute posstdom information for CFG.
-postdomInfo :: CFG b i r -> CFGPostdom b
+postdomInfo :: CFG ext b i r -> CFGPostdom b
 postdomInfo g = postdomAssignment (cfgBlockMap g)
 
 
-blockEndsWithError :: Block blocks ret args -> Bool
+blockEndsWithError :: Block ext blocks ret args -> Bool
 blockEndsWithError b =
   withBlockTermStmt b $ \_ ts ->
     case ts of
@@ -107,7 +107,7 @@ addErrorIf :: Bool -> String -> State [String] ()
 addErrorIf True msg = modify $ (msg:)
 addErrorIf False _ = return ()
 
-validateTarget :: CFG blocks init ret
+validateTarget :: CFG ext blocks init ret
                -> CFGPostdom blocks
                -> String
                -- ^ Identifier for error.
@@ -135,7 +135,7 @@ validateTarget g pdInfo src src_postdoms (Some tgt)
   where tgt_block = getBlock tgt (cfgBlockMap g)
         ConstK tgt_postdoms = pdInfo Ctx.! blockIDIndex tgt
 
-validatePostdom :: CFG blocks init ret
+validatePostdom :: CFG ext blocks init ret
                 -> CFGPostdom blocks
                 -> [String]
 validatePostdom g pdInfo = flip execState [] $ do

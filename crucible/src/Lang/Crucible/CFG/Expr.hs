@@ -14,12 +14,14 @@ Evaluation of expressions is defined in module "Lang.Crucible.Simulator.Evaluati
 -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- This option is here because, without it, GHC takes an extremely
 -- long time (forever?) to compile this module with profiling enabled.
@@ -31,13 +33,12 @@ Evaluation of expressions is defined in module "Lang.Crucible.Simulator.Evaluati
 module Lang.Crucible.CFG.Expr
   ( -- * App
     App(..)
-  , appType
-  , ppApp
   , mapApp
   , foldApp
   , traverseApp
     -- * Base terms
   , BaseTerm(..)
+  , module Lang.Crucible.CFG.Extension
   ) where
 
 import           Control.Monad.Identity
@@ -57,6 +58,7 @@ import           Lang.MATLAB.CharVector (CharVector)
 import           Lang.MATLAB.MatlabChar
 import           Lang.MATLAB.Utils.PrettyPrint
 
+import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.Types
 import           Lang.Crucible.FunctionHandle
 import qualified Lang.Crucible.Utils.Structural as U
@@ -72,17 +74,21 @@ data BaseTerm (f :: CrucibleType -> *) tp
               , baseTermVal  :: !(f (BaseToType tp))
               }
 
-instance TestEquality f => TestEquality (BaseTerm f) where
-  testEquality (BaseTerm _ x) (BaseTerm _ y) = do
-    Refl <- testEquality x y
+instance TestEqualityFC BaseTerm where
+  testEqualityFC testF (BaseTerm _ x) (BaseTerm _ y) = do
+    Refl <- testF x y
     return Refl
+instance TestEquality f => TestEquality (BaseTerm f) where
+  testEquality = testEqualityFC testEquality
 
-instance OrdF f => OrdF (BaseTerm f) where
-  compareF (BaseTerm _ x) (BaseTerm _ y) = do
-    case compareF x y of
+instance OrdFC BaseTerm where
+  compareFC cmpF (BaseTerm _ x) (BaseTerm _ y) = do
+    case cmpF x y of
       LTF -> LTF
       GTF -> GTF
       EQF -> EQF
+instance OrdF f => OrdF (BaseTerm f) where
+  compareF = compareFC compareF
 
 instance FunctorFC BaseTerm where
   fmapFC = fmapFCDefault
@@ -103,12 +109,17 @@ instance TraversableFC BaseTerm where
 -- by the given expression form. Parameter @f@ is used everywhere a
 -- recursive sub-expression would go.  Uses of the 'App' type will
 -- tie the knot through this parameter.
-data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
+data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
+
+  ----------------------------------------------------------------------
+  -- Syntax Extension 
+
+  ExtensionApp :: !(ExprExtension ext f tp) -> App ext f tp
 
   ----------------------------------------------------------------------
   -- ()
 
-  EmptyApp :: App f UnitType
+  EmptyApp :: App ext f UnitType
 
   ----------------------------------------------------------------------
   -- Any
@@ -116,115 +127,115 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- Build an ANY type package.
   PackAny :: !(TypeRepr tp)
           -> !(f tp)
-          -> App f AnyType
+          -> App ext f AnyType
 
   -- Attempt to open an ANY type. Return the contained
   -- value if it has the given type; otherwise return Nothing.
   UnpackAny :: !(TypeRepr tp)
             -> !(f AnyType)
-            -> App f (MaybeType tp)
+            -> App ext f (MaybeType tp)
 
   ----------------------------------------------------------------------
   -- Concrete
 
   -- Constructs a literal of concrete type
   ConcreteLit :: !(TypeableValue a)
-              -> App f (ConcreteType a)
+              -> App ext f (ConcreteType a)
 
   ---------------------------------------------------------------------
   -- Bool
 
-  BoolLit :: !Bool -> App f BoolType
+  BoolLit :: !Bool -> App ext f BoolType
 
   Not :: !(f BoolType)
-      -> App f BoolType
+      -> App ext f BoolType
 
   And :: !(f BoolType)
       -> !(f BoolType)
-      -> App f BoolType
+      -> App ext f BoolType
   Or  :: !(f BoolType)
       -> !(f BoolType)
-      -> App f BoolType
+      -> App ext f BoolType
 
   -- Exclusive or of Boolean values.
   BoolXor :: !(f BoolType)
           -> !(f BoolType)
-          -> App f BoolType
+          -> App ext f BoolType
 
   -- Exclusive or of Boolean values.
   BoolIte :: !(f BoolType)
           -> !(f BoolType)
           -> !(f BoolType)
-          -> App f BoolType
+          -> App ext f BoolType
 
   ----------------------------------------------------------------------
   -- Nat
 
   -- @NatLit n@ returns the value n.
-  NatLit :: !Natural -> App f NatType
+  NatLit :: !Natural -> App ext f NatType
   -- Equality on natural numbers.
-  NatEq :: !(f NatType) -> !(f NatType) -> App f BoolType
+  NatEq :: !(f NatType) -> !(f NatType) -> App ext f BoolType
   -- Less than on natural numbers.
-  NatLt :: !(f NatType) -> !(f NatType) -> App f BoolType
+  NatLt :: !(f NatType) -> !(f NatType) -> App ext f BoolType
   -- Less than or equal on natural numbers.
-  NatLe :: !(f NatType) -> !(f NatType) -> App f BoolType
+  NatLe :: !(f NatType) -> !(f NatType) -> App ext f BoolType
   -- Add two natural numbers.
-  NatAdd :: !(f NatType) -> !(f NatType) -> App f NatType
+  NatAdd :: !(f NatType) -> !(f NatType) -> App ext f NatType
   -- @NatSub x y@ equals @x - y@.
   -- The result is undefined if the @x@ is less than @y@.
-  NatSub :: !(f NatType) -> !(f NatType) -> App f NatType
+  NatSub :: !(f NatType) -> !(f NatType) -> App ext f NatType
   -- Multiply two natural numbers.
-  NatMul :: !(f NatType) -> !(f NatType) -> App f NatType
+  NatMul :: !(f NatType) -> !(f NatType) -> App ext f NatType
 
   ----------------------------------------------------------------------
   -- Integer
 
   -- Create a singleton real array from a numeric literal.
-  IntLit :: !Integer -> App f IntegerType
+  IntLit :: !Integer -> App ext f IntegerType
   -- Add two integers.
-  IntAdd :: !(f IntegerType) -> !(f IntegerType) -> App f IntegerType
+  IntAdd :: !(f IntegerType) -> !(f IntegerType) -> App ext f IntegerType
   -- Subtract one integer from another.
-  IntSub :: !(f IntegerType) -> !(f IntegerType) -> App f IntegerType
+  IntSub :: !(f IntegerType) -> !(f IntegerType) -> App ext f IntegerType
   -- Multiple two integers.
-  IntMul :: !(f IntegerType) -> !(f IntegerType) -> App f IntegerType
+  IntMul :: !(f IntegerType) -> !(f IntegerType) -> App ext f IntegerType
 
-  IntEq :: !(f IntegerType) -> !(f IntegerType) -> App f BoolType
-  IntLt :: !(f IntegerType) -> !(f IntegerType) -> App f BoolType
+  IntEq :: !(f IntegerType) -> !(f IntegerType) -> App ext f BoolType
+  IntLt :: !(f IntegerType) -> !(f IntegerType) -> App ext f BoolType
 
   ----------------------------------------------------------------------
   -- RealVal
 
   -- A real constant
-  RationalLit :: !Rational -> App f RealValType
+  RationalLit :: !Rational -> App ext f RealValType
 
   -- Add two natural numbers.
-  RealAdd :: !(f RealValType) -> !(f RealValType) -> App f RealValType
+  RealAdd :: !(f RealValType) -> !(f RealValType) -> App ext f RealValType
   -- Subtract one number from another.
-  RealSub :: !(f RealValType) -> !(f RealValType) -> App f RealValType
+  RealSub :: !(f RealValType) -> !(f RealValType) -> App ext f RealValType
   -- Multiple two numbers.
-  RealMul :: !(f RealValType) -> !(f RealValType) -> App f RealValType
+  RealMul :: !(f RealValType) -> !(f RealValType) -> App ext f RealValType
   -- Divide two numbers.
-  RealDiv :: !(f RealValType) -> !(f RealValType) -> App f RealValType
+  RealDiv :: !(f RealValType) -> !(f RealValType) -> App ext f RealValType
   -- Compute the "real modulus", which is @x - y * floor(x ./ y)@ when
   -- @y@ is not zero and @x@ when @y@ is zero.
-  RealMod :: !(f RealValType) -> !(f RealValType) -> App f RealValType
+  RealMod :: !(f RealValType) -> !(f RealValType) -> App ext f RealValType
 
   -- Return first or second number depending on condition.
-  RealIte :: !(f BoolType) -> !(f RealValType) -> !(f RealValType) -> App f RealValType
+  RealIte :: !(f BoolType) -> !(f RealValType) -> !(f RealValType) -> App ext f RealValType
 
-  RealEq :: !(f RealValType) -> !(f RealValType) -> App f BoolType
-  RealLt :: !(f RealValType) -> !(f RealValType) -> App f BoolType
+  RealEq :: !(f RealValType) -> !(f RealValType) -> App ext f BoolType
+  RealLt :: !(f RealValType) -> !(f RealValType) -> App ext f BoolType
   -- Return true if real value is integer.
-  RealIsInteger :: !(f RealValType) -> App f BoolType
+  RealIsInteger :: !(f RealValType) -> App ext f BoolType
 
   ----------------------------------------------------------------------
   -- Maybe
 
   JustValue :: !(TypeRepr tp)
             -> !(f tp)
-            -> App f (MaybeType tp)
+            -> App ext f (MaybeType tp)
 
-  NothingValue :: !(TypeRepr tp) -> App f (MaybeType tp)
+  NothingValue :: !(TypeRepr tp) -> App ext f (MaybeType tp)
 
   -- This is a partial operation with given a maybe value returns the
   -- value if is defined and otherwise fails with the given error message.
@@ -235,7 +246,7 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   FromJustValue :: !(TypeRepr tp)
                 -> !(f (MaybeType tp))
                 -> !(f StringType)
-                -> App f tp
+                -> App ext f tp
 
 
   ----------------------------------------------------------------------
@@ -244,7 +255,7 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
                    -> !(f (BoolType))
                    -> String
                    -> !(f (BaseToType bt))
-                   -> App f (BaseToType bt)
+                   -> App ext f (BaseToType bt)
 
   ----------------------------------------------------------------------
   -- Recursive Types
@@ -252,82 +263,82 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
                 => !(SymbolRepr nm)
                 -> !(CtxRepr ctx)
                 -> !(f (UnrollType nm ctx))
-                -> App f (RecursiveType nm ctx)
+                -> App ext f (RecursiveType nm ctx)
 
   UnrollRecursive
                 :: IsRecursiveType nm
                 => !(SymbolRepr nm)
                 -> !(CtxRepr ctx)
                 -> !(f (RecursiveType nm ctx))
-                -> App f (UnrollType nm ctx)
+                -> App ext f (UnrollType nm ctx)
 
   ----------------------------------------------------------------------
   -- Vector
 
   -- Vector literal.
-  VectorLit :: !(TypeRepr tp) -> !(Vector (f tp)) -> App f (VectorType tp)
+  VectorLit :: !(TypeRepr tp) -> !(Vector (f tp)) -> App ext f (VectorType tp)
 
   -- Create an vector of constants.
   VectorReplicate :: !(TypeRepr tp)
                   -> !(f NatType)
                   -> !(f tp)
-                  -> App f (VectorType tp)
+                  -> App ext f (VectorType tp)
 
   -- Return true if vector is empty.
   VectorIsEmpty :: !(f (VectorType tp))
-                -> App f BoolType
+                -> App ext f BoolType
 
   -- Size of vector
-  VectorSize :: !(f (VectorType tp)) -> App f NatType
+  VectorSize :: !(f (VectorType tp)) -> App ext f NatType
 
   -- Return value stored in given entry.
   VectorGetEntry :: !(TypeRepr tp)
                  -> !(f (VectorType tp))
                  -> !(f NatType)
-                 -> App f tp
+                 -> App ext f tp
 
   -- Update vector at given entry.
   VectorSetEntry :: !(TypeRepr tp)
                  -> !(f (VectorType tp))
                  -> !(f NatType)
                  -> !(f tp)
-                 -> App f (VectorType tp)
+                 -> App ext f (VectorType tp)
 
   -- Cons an element onto the front of the vector
   VectorCons :: !(TypeRepr tp)
              -> !(f tp)
              -> !(f (VectorType tp))
-             -> App f (VectorType tp)
+             -> App ext f (VectorType tp)
 
   -----------------------------
   -- SymbolicMultiDimArray
 
 
   MatlabSymArrayDim :: !(f (SymbolicMultiDimArrayType tp))
-                      -> App f ArrayDimType
+                      -> App ext f ArrayDimType
 
   -- Create an array of containing a single value.
   MatlabSymArrayReplicate :: !(BaseTypeRepr tp)
                           -> !(f ArrayDimType)
                           -> !(f (BaseToType tp))
-                          -> App f (SymbolicMultiDimArrayType tp)
+                          -> App ext f (SymbolicMultiDimArrayType tp)
 
   -- Get value in array at index.
   MatlabSymArrayLookup :: !(BaseTypeRepr bt)
                        -> !(f (SymbolicMultiDimArrayType  bt))
                        -> !(f (VectorType NatType))
-                       -> App f (BaseToType bt)
+                       -> App ext f (BaseToType bt)
 
   -- Set value of array at index.
   MatlabSymArrayUpdate :: !(BaseTypeRepr bt)
                        -> !(f (SymbolicMultiDimArrayType  bt))
                        -> !(f (VectorType NatType))
                        -> !(f (BaseToType bt))
-                       -> App f (SymbolicMultiDimArrayType bt)
+                       -> App ext f (SymbolicMultiDimArrayType bt)
   -- Project array as a single scalar value if it is one.
   MatlabSymArrayAsSingleton :: !(BaseTypeRepr bt)
                             -> !(f (SymbolicMultiDimArrayType bt))
-                            -> App f (MaybeType (BaseToType bt))
+                            -> App ext f (MaybeType (BaseToType bt))
 
   -- This resizes the array to given dimensions.
   --
@@ -338,48 +349,48 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
                        -> !(f (SymbolicMultiDimArrayType bt))
                        -> !(f ArrayDimType)
                        -> !(f (BaseToType bt)) -- The default value.
-                       -> App f (SymbolicMultiDimArrayType bt)
+                       -> App ext f (SymbolicMultiDimArrayType bt)
 
   -- Index array at the given indices.
   -- This function is not defined outside the array bounds.
   MatlabSymIndexArray :: !(BaseTypeRepr tp)
                       -> !(f (SymbolicMultiDimArrayType tp))
                       -> !(f MultiDimArrayIndexType)
-                      -> App f (MultiDimArrayType (BaseToType tp))
+                      -> App ext f (MultiDimArrayType (BaseToType tp))
 
   -- Index a symbolic multidim array at the given symbolic indices.
   MatlabSymArraySymIndex :: !(BaseTypeRepr tp)
                          -> !(f (SymbolicMultiDimArrayType tp))
                          -> !(V.Vector (f (SymbolicMultiDimArrayType BaseNatType)))
-                         -> App f (SymbolicMultiDimArrayType tp)
+                         -> App ext f (SymbolicMultiDimArrayType tp)
 
   -- Convert a MATLAB symbolic array into a MATLAB external
   -- multidimensional-array.
   MatlabSymArrayExternalize
                 :: !(BaseTypeRepr tp)
                 -> !(f (SymbolicMultiDimArrayType tp))
-                -> App f (MultiDimArrayType (BaseToType tp))
+                -> App ext f (MultiDimArrayType (BaseToType tp))
 
   -- Convert a MATLAB external multidimensional array into a
   -- symbolic array.
   MatlabArrayInternalize
                 :: !(BaseTypeRepr tp)
                 -> !(f (MultiDimArrayType (BaseToType tp)))
-                -> App f (SymbolicMultiDimArrayType tp)
+                -> App ext f (SymbolicMultiDimArrayType tp)
 
   --------------------------------------------------------------------
   -- MultiDimArray
 
   -- Empty array
-  ArrayEmpty :: !(TypeRepr tp) -> App f (MultiDimArrayType tp)
+  ArrayEmpty :: !(TypeRepr tp) -> App ext f (MultiDimArrayType tp)
   -- Create an array of constants.
   ArrayReplicate :: !(TypeRepr tp)
                  -> !(f ArrayDimType)
                  -> !(f tp)
-                 -> App f (MultiDimArrayType tp)
+                 -> App ext f (MultiDimArrayType tp)
   -- Return dimension of array.
   ArrayDim   :: !(f (MultiDimArrayType tp))
-             -> App f ArrayDimType
+             -> App ext f ArrayDimType
 
   -- This resizes the array to given dimensions.
   --
@@ -390,53 +401,53 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
               -> !(f (MultiDimArrayType tp))
               -> !(f ArrayDimType)
               -> !(f tp) -- Default value
-              -> App f (MultiDimArrayType tp)
+              -> App ext f (MultiDimArrayType tp)
   -- Get value in array at 1-based index of vectors.
   ArrayLookup :: !(TypeRepr tp)
               -> !(f (MultiDimArrayType tp))
               -> !(f (VectorType NatType))
-              -> App f tp
+              -> App ext f tp
   -- Set value of array at index.
   ArrayUpdate :: !(TypeRepr tp)
               -> !(f (MultiDimArrayType tp))
               -> !(f (VectorType NatType))
               -> !(f tp)
-              -> App f (MultiDimArrayType tp)
+              -> App ext f (MultiDimArrayType tp)
   -- Project array as a single scalar value if it is one.
   ArrayAsSingleton :: !(TypeRepr tp)
                    -> !(f (MultiDimArrayType tp))
-                   -> App f (MaybeType tp)
+                   -> App ext f (MaybeType tp)
 
   -- Index array at the given indices.
   -- This function is not defined outside the array bounds.
   IndexArray :: !(TypeRepr tp)
              -> !(f (MultiDimArrayType tp))
              -> !(f MultiDimArrayIndexType)
-             -> App f (MultiDimArrayType  tp)
+             -> App ext f (MultiDimArrayType  tp)
   -- Get value in array at a single specific index.
   -- Not defined when evaluated if the cell entry is out of range,
   -- or expression contains multiple indices.
   ArrayEntry :: !(TypeRepr tp)
              -> !(f (MultiDimArrayType tp))
              -> !(f (VectorType NatType))
-             -> App f tp
+             -> App ext f tp
 
   -- @ArrayProduct _ v@ converts a vector of multidimensional arrays into
   -- a multidimensional array of vectors.
   ArrayProduct :: !(TypeRepr tp)
                -> !(Vector (f (MultiDimArrayType tp)))
-               -> App f (MultiDimArrayType (VectorType tp))
+               -> App ext f (MultiDimArrayType (VectorType tp))
 
   -- Return the vector associated with a multi-dimensional array
   MultiDimArrayToVec :: !(TypeRepr tp)
                      -> !(f (MultiDimArrayType tp))
-                     -> App f (VectorType tp)
+                     -> App ext f (VectorType tp)
 
   -- Index an external multidim array at the given symbolic indices.
   MatlabExtArraySymIndex :: !(TypeRepr tp)
                          -> !(f (MultiDimArrayType tp))
                          -> !(V.Vector (f (SymbolicMultiDimArrayType BaseNatType)))
-                         -> App f (MultiDimArrayType tp)
+                         -> App ext f (MultiDimArrayType tp)
 
   ----------------------------------------------------------------------
   -- Conversion to vector based indexing.
@@ -446,7 +457,7 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- This is partial, and requires that all values in the array are
   -- non-negative integers.
   CplxVecToNat :: !(f (VectorType ComplexRealType))
-                 -> App f (VectorType NatType)
+                 -> App ext f (VectorType NatType)
 
   -- @LogicVecToIndex@ converts the vector of predicates to a vector of
   -- natural numbers.
@@ -454,31 +465,31 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- The resulting vector contains the 1-based index of each true
   -- value in the vector.
   LogicVecToIndex :: !(f (VectorType BoolType))
-                  -> App f (VectorType NatType)
+                  -> App ext f (VectorType NatType)
 
   -- @MatlabCharVecToIndex@ converts the vector to a vector of natural numbers.
   -- This is partial, and requires that all values in the array are
   -- non-negative integers.
   MatlabCharVecToNat :: !(f (VectorType CharType))
-                     -> App f (VectorType NatType)
+                     -> App ext f (VectorType NatType)
 
   -- @MatlabIntArrayToIndex@ converts the vector to a vector of natural numbers.
   -- This is partial, and requires that all values in the array are
   -- non-negative integers.
   MatlabIntArrayToNat :: !(f MatlabIntArrayType)
-                      -> App f (VectorType NatType)
+                      -> App ext f (VectorType NatType)
 
   -- @MatlabUIntArrayToIndex@ converts the vector to a vector of natural numbers.
   -- This is partial, and requires that all values in the array are
   -- non-negative integers.
   MatlabUIntArrayToNat :: !(f MatlabUIntArrayType)
-                       -> App f (VectorType NatType)
+                       -> App ext f (VectorType NatType)
 
   ----------------------------------------------------------------------
   -- Handle
 
   HandleLit :: !(FnHandle args ret)
-            -> App f (FunctionHandleType args ret)
+            -> App ext f (FunctionHandleType args ret)
 
   -- Create a closure that captures the last argument.
   Closure :: !(CtxRepr args)
@@ -486,52 +497,52 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
           -> !(f (FunctionHandleType (args::>tp) ret))
           -> !(TypeRepr tp)
           -> !(f tp)
-          -> App f (FunctionHandleType args ret)
+          -> App ext f (FunctionHandleType args ret)
 
   ----------------------------------------------------------------------
   -- PosNat
 
   -- EnumTo n creates a column array with n columns containing values 1 to n.
   EnumTo :: !(f NatType)
-         -> App f (MultiDimArrayType NatType)
+         -> App ext f (MultiDimArrayType NatType)
 
   ----------------------------------------------------------------------
   -- Conversions
 
   -- @NatToInteger@ convert a natural number to an integer.
-  NatToInteger :: !(f NatType) -> App f IntegerType
+  NatToInteger :: !(f NatType) -> App ext f IntegerType
 
   -- @IntegerToReal@ convert an integer to a real.
-  IntegerToReal :: !(f IntegerType) -> App f RealValType
+  IntegerToReal :: !(f IntegerType) -> App ext f RealValType
 
   -- @RealToNat@ convert a non-negative real integer to natural number.
   -- This is partial, and requires that the input be a non-negative real
   -- integer.
   RealToNat :: !(f RealValType)
-            -> App f NatType
+            -> App ext f NatType
 
   ----------------------------------------------------------------------
   -- ComplexReal
 
   -- Create complex number from two real numbers.
-  Complex :: !(f RealValType) -> !(f RealValType) -> App f ComplexRealType
-  RealPart :: !(f ComplexRealType) -> App f RealValType
-  ImagPart :: !(f ComplexRealType) -> App f RealValType
+  Complex :: !(f RealValType) -> !(f RealValType) -> App ext f ComplexRealType
+  RealPart :: !(f ComplexRealType) -> App ext f RealValType
+  ImagPart :: !(f ComplexRealType) -> App ext f RealValType
 
   ----------------------------------------------------------------------
   -- MatlabChar
 
   MatlabCharLit :: !MatlabChar
-                -> App f CharType
+                -> App ext f CharType
 
   -- Compare of two characters are equal.
   MatlabCharEq :: !(f CharType)
                -> !(f CharType)
-               -> App f BoolType
+               -> App ext f BoolType
 
   -- Convert a Matlab character (16-bit word) to a natural number.
   -- This is total.
-  MatlabCharToNat :: !(f CharType) -> App f NatType
+  MatlabCharToNat :: !(f CharType) -> App ext f NatType
 
   ----------------------------------------------------------------------
   -- CplxArrayType
@@ -539,80 +550,80 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- Compare real arrays (arrays with different dimensions are not equal).
   CplxArrayEq  :: !(f CplxArrayType)
                -> !(f CplxArrayType)
-               -> App f BoolType
+               -> App ext f BoolType
   -- Return true if all entries in array are real values (i.e. have 0 in imaginary part).
-  CplxArrayIsReal :: !(f CplxArrayType) -> App f BoolType
+  CplxArrayIsReal :: !(f CplxArrayType) -> App ext f BoolType
 
 
   CplxArrayToRealArray :: !(f CplxArrayType)
-                       -> App f RealArrayType
+                       -> App ext f RealArrayType
 
   CharArrayToIntegerArray  :: !(f (CharArrayType))
-                          -> App f IntegerArrayType
+                          -> App ext f IntegerArrayType
   LogicArrayToIntegerArray :: !(f (LogicArrayType))
-                          -> App f IntegerArrayType
+                          -> App ext f IntegerArrayType
   IntArrayToIntegerArray :: !(f (MatlabIntArrayType))
-                          -> App f IntegerArrayType
+                          -> App ext f IntegerArrayType
   UIntArrayToIntegerArray :: !(f (MatlabUIntArrayType))
-                          -> App f IntegerArrayType
+                          -> App ext f IntegerArrayType
 
   -- Converts a real array to an integer array.
   --
   -- Result is undefined if real values are not integers.
   RealArrayToIntegerArray :: !(f RealArrayType)
-                       -> App f IntegerArrayType
+                       -> App ext f IntegerArrayType
 
   CplxArrayToIntegerArray :: !(f CplxArrayType)
-                       -> App f IntegerArrayType
+                       -> App ext f IntegerArrayType
 
   RealArrayToCplxArray  :: !(f RealArrayType)
-                        -> App f CplxArrayType
+                        -> App ext f CplxArrayType
   IntegerArrayToCplxArray :: !(f IntegerArrayType)
-                          -> App f CplxArrayType
+                          -> App ext f CplxArrayType
   IntArrayToCplxArray   :: !(f MatlabIntArrayType)
-                        -> App f CplxArrayType
+                        -> App ext f CplxArrayType
   UIntArrayToCplxArray  :: !(f MatlabUIntArrayType)
-                        -> App f CplxArrayType
+                        -> App ext f CplxArrayType
   LogicArrayToCplxArray :: !(f LogicArrayType)
-                        -> App f CplxArrayType
+                        -> App ext f CplxArrayType
   CharArrayToCplxArray  :: !(f CharArrayType)
-                        -> App f CplxArrayType
+                        -> App ext f CplxArrayType
   CplxArrayAsPosNat :: !(f CplxArrayType)
-                      -> App f (MaybeType (MultiDimArrayType NatType))
+                      -> App ext f (MaybeType (MultiDimArrayType NatType))
 
   ----------------------------------------------------------------------
   -- IntWidth
 
   -- Return width of int array.
   IntArrayWidth  :: !(f MatlabIntArrayType)
-                 -> App f IntWidthType
+                 -> App ext f IntWidthType
 
   ----------------------------------------------------------------------
   -- MatlabInt
 
   -- Create an expression from a constant.
-  MatlabIntLit :: (1 <= n) => NatRepr n -> Integer -> App f MatlabIntType
+  MatlabIntLit :: (1 <= n) => NatRepr n -> Integer -> App ext f MatlabIntType
   -- Check if two values are equal.
-  MatlabIntEq :: !(f MatlabIntType) -> !(f MatlabIntType) -> App f BoolType
+  MatlabIntEq :: !(f MatlabIntType) -> !(f MatlabIntType) -> App ext f BoolType
   -- Check if one value is less than another.
-  MatlabIntLt :: !(f MatlabIntType) -> !(f MatlabIntType) -> App f BoolType
+  MatlabIntLt :: !(f MatlabIntType) -> !(f MatlabIntType) -> App ext f BoolType
   -- Check is value is positive.
-  MatlabIntIsPos :: !(f MatlabIntType) -> App f BoolType
+  MatlabIntIsPos :: !(f MatlabIntType) -> App ext f BoolType
   -- Convert to a natural number.
   -- Undefined on negative numbers.
-  MatlabIntToNat :: !(f MatlabIntType) -> App f NatType
+  MatlabIntToNat :: !(f MatlabIntType) -> App ext f NatType
 
   ----------------------------------------------------------------------
   -- IntArrayType
 
   -- Create empty int array with same width as input type.
   MatlabIntArrayEmpty :: !(f IntWidthType)
-                      -> App f MatlabIntArrayType
+                      -> App ext f MatlabIntArrayType
   -- Create a single element array.
   MatlabIntArraySingleton :: !(f MatlabIntType)
-                          -> App f MatlabIntArrayType
+                          -> App ext f MatlabIntArrayType
   MatlabIntArrayDim :: !(f MatlabIntArrayType)
-                    -> App f ArrayDimType
+                    -> App ext f ArrayDimType
 
   -- This resizes the array to given dimensions.
   --
@@ -621,62 +632,62 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- all have the value of 0.
   MatlabIntArrayResize :: !(f MatlabIntArrayType)
                        -> !(f ArrayDimType)
-                       -> App f MatlabIntArrayType
+                       -> App ext f MatlabIntArrayType
   MatlabIntArrayLookup :: !(f MatlabIntArrayType)
                        -> !(f (VectorType NatType))
-                       -> App f MatlabIntType
+                       -> App ext f MatlabIntType
   MatlabIntArrayUpdate :: !(f MatlabIntArrayType)
                        -> !(f (VectorType NatType))
                        -> !(f MatlabIntType)
-                       -> App f MatlabIntArrayType
+                       -> App ext f MatlabIntArrayType
   MatlabIntArrayAsSingleton :: !(f MatlabIntArrayType)
-                      -> App f (MaybeType MatlabIntType)
+                      -> App ext f (MaybeType MatlabIntType)
   MatlabIntArrayIndex :: !(f MatlabIntArrayType)
                       -> !(f MultiDimArrayIndexType)
-                      -> App f MatlabIntArrayType
+                      -> App ext f MatlabIntArrayType
   -- Compare int arrays (arrays with different dimensions are not equal).
   MatlabIntArrayEq   :: !(f MatlabIntArrayType)
                      -> !(f MatlabIntArrayType)
-                     -> App f BoolType
+                     -> App ext f BoolType
   MatlabIntArrayAsPosNat :: !(f MatlabIntArrayType)
-                           -> App f (MaybeType (MultiDimArrayType NatType))
+                           -> App ext f (MaybeType (MultiDimArrayType NatType))
 
   CplxArrayToMatlabInt :: !(f CplxArrayType)
                        -> !(f IntWidthType)
-                       -> App f MatlabIntArrayType
+                       -> App ext f MatlabIntArrayType
   MatlabIntArraySetWidth  :: !(f MatlabIntArrayType)
                           -> !(f IntWidthType)
-                          -> App f MatlabIntArrayType
+                          -> App ext f MatlabIntArrayType
   MatlabUIntArrayToInt :: !(f MatlabUIntArrayType)
                        -> !(f IntWidthType)
-                       -> App f MatlabIntArrayType
+                       -> App ext f MatlabIntArrayType
   LogicArrayToMatlabInt :: !(f LogicArrayType)
                         -> !(f IntWidthType)
-                        -> App f MatlabIntArrayType
+                        -> App ext f MatlabIntArrayType
   CharArrayToMatlabInt :: !(f CharArrayType)
                        -> !(f IntWidthType)
-                       -> App f MatlabIntArrayType
+                       -> App ext f MatlabIntArrayType
 
   ----------------------------------------------------------------------
   -- UIntWidth
 
   -- Return width of uint array.
   UIntArrayWidth :: !(f MatlabUIntArrayType)
-                 -> App f UIntWidthType
+                 -> App ext f UIntWidthType
 
   ----------------------------------------------------------------------
   -- MatlabUInt
 
   -- Create an expression from a constant.
-  MatlabUIntLit :: (1 <= n) => NatRepr n -> Integer -> App f MatlabUIntType
+  MatlabUIntLit :: (1 <= n) => NatRepr n -> Integer -> App ext f MatlabUIntType
   -- Check if two values are equal.
-  MatlabUIntEq :: !(f MatlabUIntType) -> !(f MatlabUIntType) -> App f BoolType
+  MatlabUIntEq :: !(f MatlabUIntType) -> !(f MatlabUIntType) -> App ext f BoolType
   -- Check if one value is less than another.
-  MatlabUIntLt :: !(f MatlabUIntType) -> !(f MatlabUIntType) -> App f BoolType
+  MatlabUIntLt :: !(f MatlabUIntType) -> !(f MatlabUIntType) -> App ext f BoolType
   -- Check is value is positive.
-  MatlabUIntIsPos :: !(f MatlabUIntType) -> App f BoolType
+  MatlabUIntIsPos :: !(f MatlabUIntType) -> App ext f BoolType
   -- Convert a MatlabUInt to a natural number.
-  MatlabUIntToNat :: !(f MatlabUIntType) -> App f NatType
+  MatlabUIntToNat :: !(f MatlabUIntType) -> App ext f NatType
 
 
   ----------------------------------------------------------------------
@@ -689,29 +700,29 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- all have the value of 0.
   MatlabSymIntArrayResize :: !(f MatlabSymbolicIntArrayType)
                           -> !(f ArrayDimType)
-                          -> App f MatlabSymbolicIntArrayType
+                          -> App ext f MatlabSymbolicIntArrayType
   MatlabSymIntArrayLookup :: !(f MatlabSymbolicIntArrayType)
                           -> !(f (VectorType NatType))
-                          -> App f MatlabIntType
+                          -> App ext f MatlabIntType
   MatlabSymIntArrayUpdate :: !(f MatlabSymbolicIntArrayType)
                           -> !(f (VectorType NatType))
                           -> !(f MatlabIntType)
-                          -> App f MatlabSymbolicIntArrayType
+                          -> App ext f MatlabSymbolicIntArrayType
   MatlabSymIntArrayAsSingleton :: !(f MatlabSymbolicIntArrayType)
-                      -> App f (MaybeType MatlabIntType)
+                      -> App ext f (MaybeType MatlabIntType)
 
   SymIntArrayWidth
              :: !(f MatlabSymbolicIntArrayType)
-             -> App f IntWidthType
+             -> App ext f IntWidthType
 
   SymIndexIntArray
              :: !(f (MatlabSymbolicIntArrayType))
              -> !(f MultiDimArrayIndexType)
-             -> App f MatlabIntArrayType
+             -> App ext f MatlabIntArrayType
 
   MatlabSymbolicIntArrayDim
              :: !(f (MatlabSymbolicIntArrayType))
-             -> App f (ArrayDimType)
+             -> App ext f (ArrayDimType)
 
   -- This resizes the array to given dimensions.
   --
@@ -720,45 +731,45 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- all have the value of 0.
   MatlabSymUIntArrayResize :: !(f MatlabSymbolicUIntArrayType)
                            -> !(f ArrayDimType)
-                           -> App f MatlabSymbolicUIntArrayType
+                           -> App ext f MatlabSymbolicUIntArrayType
   MatlabSymUIntArrayLookup :: !(f MatlabSymbolicUIntArrayType)
                            -> !(f (VectorType NatType))
-                           -> App f MatlabUIntType
+                           -> App ext f MatlabUIntType
   MatlabSymUIntArrayUpdate :: !(f MatlabSymbolicUIntArrayType)
                            -> !(f (VectorType NatType))
                            -> !(f MatlabUIntType)
-                           -> App f MatlabSymbolicUIntArrayType
+                           -> App ext f MatlabSymbolicUIntArrayType
   MatlabSymUIntArrayAsSingleton :: !(f MatlabSymbolicUIntArrayType)
-                      -> App f (MaybeType MatlabUIntType)
+                      -> App ext f (MaybeType MatlabUIntType)
 
   SymUIntArrayWidth
              :: !(f MatlabSymbolicUIntArrayType)
-             -> App f UIntWidthType
+             -> App ext f UIntWidthType
 
   SymIndexUIntArray
              :: !(f (MatlabSymbolicUIntArrayType))
              -> !(f MultiDimArrayIndexType)
-             -> App f MatlabUIntArrayType
+             -> App ext f MatlabUIntArrayType
 
   MatlabSymbolicUIntArrayDim
              :: !(f (MatlabSymbolicUIntArrayType))
-             -> App f (ArrayDimType)
+             -> App ext f (ArrayDimType)
 
   SymIntArrayExternalize
                 :: !(f MatlabSymbolicIntArrayType)
-                -> App f MatlabIntArrayType
+                -> App ext f MatlabIntArrayType
 
   SymUIntArrayExternalize
                 :: !(f MatlabSymbolicUIntArrayType)
-                -> App f MatlabUIntArrayType
+                -> App ext f MatlabUIntArrayType
 
   ----------------------------------------------------------------------
   -- BV
 
   -- generate an "undefined" bitvector value
-  BVUndef :: (1 <= w) => NatRepr w -> App f (BVType w)
+  BVUndef :: (1 <= w) => NatRepr w -> App ext f (BVType w)
 
-  BVLit :: (1 <= w) => NatRepr w -> Integer -> App f (BVType w)
+  BVLit :: (1 <= w) => NatRepr w -> Integer -> App ext f (BVType w)
 
   -- concatenate two bitvectors
   BVConcat :: (1 <= u, 1 <= v, 1 <= u+v)
@@ -766,7 +777,7 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
            -> !(NatRepr v)
            -> !(f (BVType u))       -- Most significant bits
            -> !(f (BVType v))       -- Least significant bits
-           -> App f (BVType (u+v))
+           -> App ext f (BVType (u+v))
 
   -- BVSelect idx n bv choses bits [idx, .. , idx+n-1] from bitvector bv.
   -- The resulting bitvector will have width n.
@@ -776,79 +787,79 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
            -> !(NatRepr len)
            -> !(NatRepr w)
            -> !(f (BVType w))
-           -> App f (BVType len)
+           -> App ext f (BVType len)
 
   BVTrunc :: (1 <= r, r+1 <= w)
           => !(NatRepr r)
           -> !(NatRepr w)
           -> !(f (BVType w))
-          -> App f (BVType r)
+          -> App ext f (BVType r)
 
   BVZext :: (1 <= w, 1 <= r, w+1 <= r)
          => !(NatRepr r)
          -> !(NatRepr w)
          -> !(f (BVType w))
-         -> App f (BVType r)
+         -> App ext f (BVType r)
 
   BVSext :: (1 <= w, 1 <= r, w+1 <= r)
          => !(NatRepr r)
          -> !(NatRepr w)
          -> !(f (BVType w))
-         -> App f (BVType r)
+         -> App ext f (BVType r)
 
   BVEq  :: (1 <= w)
         => !(NatRepr w)
         -> !(f (BVType w))
         -> !(f (BVType w))
-        -> App f BoolType
+        -> App ext f BoolType
 
   -- Complement bits in bitvector.
   BVNot :: (1 <= w)
         => !(NatRepr w)
         -> !(f (BVType w))
-        -> App f (BVType w)
+        -> App ext f (BVType w)
 
   BVAnd :: (1 <= w)
         => !(NatRepr w)
         -> !(f (BVType w))
         -> !(f (BVType w))
-        -> App f (BVType w)
+        -> App ext f (BVType w)
 
   BVOr  :: (1 <= w)
         => !(NatRepr w)
         -> !(f (BVType w))
         -> !(f (BVType w))
-        -> App f (BVType w)
+        -> App ext f (BVType w)
 
   BVXor :: (1 <= w)
         => !(NatRepr w)
         -> !(f (BVType w))
         -> !(f (BVType w))
-        -> App f (BVType w)
+        -> App ext f (BVType w)
 
   BVAdd :: (1 <= w)
         => !(NatRepr w)
         -> !(f (BVType w))
         -> !(f (BVType w))
-        -> App f (BVType w)
+        -> App ext f (BVType w)
 
   BVSub :: (1 <= w)
         => !(NatRepr w)
         -> !(f (BVType w))
         -> !(f (BVType w))
-        -> App f (BVType w)
+        -> App ext f (BVType w)
 
   BVMul :: (1 <= w)
         => !(NatRepr w)
         -> !(f (BVType w))
         -> !(f (BVType w))
-        -> App f (BVType w)
+        -> App ext f (BVType w)
 
   BVUdiv :: (1 <= w)
          => !(NatRepr w)
          -> !(f (BVType w))
          -> !(f (BVType w))
-         -> App f (BVType w)
+         -> App ext f (BVType w)
 
   -- | This performs signed division.  The result is truncated to zero.
   --
@@ -858,43 +869,43 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
          => !(NatRepr w)
          -> !(f (BVType w))
          -> !(f (BVType w))
-         -> App f (BVType w)
+         -> App ext f (BVType w)
 
   BVUrem :: (1 <= w)
          => !(NatRepr w)
          -> !(f (BVType w))
          -> !(f (BVType w))
-         -> App f (BVType w)
+         -> App ext f (BVType w)
 
   BVSrem :: (1 <= w)
          => !(NatRepr w)
          -> !(f (BVType w))
          -> !(f (BVType w))
-         -> App f (BVType w)
+         -> App ext f (BVType w)
 
   BVUle :: (1 <= w)
         => !(NatRepr w)
         -> !(f (BVType w))
         -> !(f (BVType w))
-        -> App f BoolType
+        -> App ext f BoolType
 
   BVUlt :: (1 <= w)
         => !(NatRepr w)
         -> !(f (BVType w))
         -> !(f (BVType w))
-        -> App f BoolType
+        -> App ext f BoolType
 
   BVSle :: (1 <= w)
         => !(NatRepr w)
         -> !(f (BVType w))
         -> !(f (BVType w))
-        -> App f BoolType
+        -> App ext f BoolType
 
   BVSlt :: (1 <= w)
         => !(NatRepr w)
         -> !(f (BVType w))
         -> !(f (BVType w))
-        -> App f BoolType
+        -> App ext f BoolType
 
   -- True if the unsigned addition of the two given bitvectors
   -- has a carry-out; that is, if the unsigned addition overflows.
@@ -902,7 +913,7 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
           => !(NatRepr w)
           -> !(f (BVType w))
           -> !(f (BVType w))
-          -> App f BoolType
+          -> App ext f BoolType
 
   -- True if the signed addition of the two given bitvectors
   -- has a signed overflow condition.
@@ -910,7 +921,7 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
            => !(NatRepr w)
            -> !(f (BVType w))
            -> !(f (BVType w))
-           -> App f BoolType
+           -> App ext f BoolType
 
   -- True if the signed subtraction of the two given bitvectors
   -- has a signed overflow condition.
@@ -918,76 +929,76 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
             => !(NatRepr w)
             -> !(f (BVType w))
             -> !(f (BVType w))
-            -> App f BoolType
+            -> App ext f BoolType
 
   -- Perform a left-shift
   BVShl :: (1 <= w)
         => !(NatRepr w)
         -> !(f (BVType w)) -- Value to shift
         -> !(f (BVType w)) -- The shift amount as an unsigned integer.
-        -> App f (BVType w)
+        -> App ext f (BVType w)
 
   -- Perform a logical shift right
   BVLshr :: (1 <= w)
          => !(NatRepr w)
          -> !(f (BVType w)) -- Value to shift
          -> !(f (BVType w)) -- The shift amount as an unsigned integer.
-         -> App f (BVType w)
+         -> App ext f (BVType w)
 
   -- Perform a signed shift right (if the
   BVAshr :: (1 <= w)
          => !(NatRepr w)
          -> !(f (BVType w)) -- Value to shift
          -> !(f (BVType w)) -- The shift amount as an unsigned integer.
-         -> App f (BVType w)
+         -> App ext f (BVType w)
 
   BVIte :: (1 <= w)
         => !(f BoolType)
         -> !(NatRepr w)
         -> !(f (BVType w))
         -> !(f (BVType w))
-        -> App f (BVType w)
+        -> App ext f (BVType w)
 
   -- Given a Boolean, returns one if Boolean is True and zero otherwise.
   BoolToBV :: (1 <= w)
            => !(NatRepr w)
            -> !(f BoolType)
-           -> App f (BVType w)
+           -> App ext f (BVType w)
 
   -- Return the unsigned value of the given bitvector as an integer
   BvToInteger :: (1 <= w)
               => !(NatRepr w)
               -> !(f (BVType w))
-              -> App f IntegerType
+              -> App ext f IntegerType
 
   -- Return the signed value of the given bitvector as an integer
   SbvToInteger :: (1 <= w)
                => !(NatRepr w)
                -> !(f (BVType w))
-               -> App f IntegerType
+               -> App ext f IntegerType
 
   -- Return the unsigned value of the given bitvector as a nat
   BvToNat :: (1 <= w)
           => !(NatRepr w)
           -> !(f (BVType w))
-          -> App f NatType
+          -> App ext f NatType
 
   BVNonzero :: (1 <= w)
             => !(NatRepr w)
             -> !(f (BVType w))
-            -> App f BoolType
+            -> App ext f BoolType
 
   ----------------------------------------------------------------------
   -- UIntArrayType
 
   -- Create empty uint array with same width as input type.
   MatlabUIntArrayEmpty :: !(f UIntWidthType)
-                       -> App f MatlabUIntArrayType
+                       -> App ext f MatlabUIntArrayType
   -- Create a single element array.
   MatlabUIntArraySingleton :: !(f MatlabUIntType)
-                           -> App f MatlabUIntArrayType
+                           -> App ext f MatlabUIntArrayType
   MatlabUIntArrayDim :: !(f MatlabUIntArrayType)
-                     -> App f ArrayDimType
+                     -> App ext f ArrayDimType
 
   -- This resizes the array to given dimensions.
   --
@@ -996,42 +1007,42 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- all have the value of 0.
   MatlabUIntArrayResize :: !(f MatlabUIntArrayType)
                         -> !(f ArrayDimType)
-                        -> App f MatlabUIntArrayType
+                        -> App ext f MatlabUIntArrayType
   -- Index uint array at index.
   MatlabUIntArrayLookup :: !(f MatlabUIntArrayType)
                         -> !(f (VectorType NatType))
-                        -> App f MatlabUIntType
+                        -> App ext f MatlabUIntType
   -- Set value of array at index.
   MatlabUIntArrayUpdate :: !(f MatlabUIntArrayType)
                         -> !(f (VectorType NatType))
                         -> !(f MatlabUIntType)
-                        -> App f MatlabUIntArrayType
+                        -> App ext f MatlabUIntArrayType
   MatlabUIntArrayAsSingleton :: !(f MatlabUIntArrayType)
-                             -> App f (MaybeType MatlabUIntType)
+                             -> App ext f (MaybeType MatlabUIntType)
   MatlabUIntArrayIndex :: !(f MatlabUIntArrayType)
                        -> !(f MultiDimArrayIndexType)
-                       -> App f MatlabUIntArrayType
+                       -> App ext f MatlabUIntArrayType
   -- Compare uint arrays (arrays with different dimensions are not equal).
   MatlabUIntArrayEq :: !(f MatlabUIntArrayType)
                     -> !(f MatlabUIntArrayType)
-                    -> App f BoolType
+                    -> App ext f BoolType
   MatlabUIntArrayAsPosNat :: !(f MatlabUIntArrayType)
-                            -> App f (MaybeType (MultiDimArrayType NatType))
+                            -> App ext f (MaybeType (MultiDimArrayType NatType))
   CplxArrayToMatlabUInt :: !(f CplxArrayType)
                         -> !(f UIntWidthType)
-                        -> App f MatlabUIntArrayType
+                        -> App ext f MatlabUIntArrayType
   MatlabIntArrayToUInt :: !(f MatlabIntArrayType)
                        -> !(f UIntWidthType)
-                       -> App f MatlabUIntArrayType
+                       -> App ext f MatlabUIntArrayType
   MatlabUIntArraySetWidth :: !(f MatlabUIntArrayType)
                           -> !(f UIntWidthType)
-                          -> App f MatlabUIntArrayType
+                          -> App ext f MatlabUIntArrayType
   LogicArrayToMatlabUInt :: !(f LogicArrayType)
                          -> !(f UIntWidthType)
-                         -> App f MatlabUIntArrayType
+                         -> App ext f MatlabUIntArrayType
   CharArrayToMatlabUInt :: !(f CharArrayType)
                         -> !(f UIntWidthType)
-                        -> App f MatlabUIntArrayType
+                        -> App ext f MatlabUIntArrayType
 
   ----------------------------------------------------------------------
   -- LogicArrayType
@@ -1039,63 +1050,63 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- Compare Boolean arrays (arrays with different dimensions are not equal).
   LogicArrayEq :: !(f LogicArrayType)
                -> !(f LogicArrayType)
-               -> App f BoolType
+               -> App ext f BoolType
   LogicArrayToIndices :: !(f LogicArrayType)
-                      -> App f (MultiDimArrayType NatType)
+                      -> App ext f (MultiDimArrayType NatType)
   CplxArrayToLogic :: !(f CplxArrayType)
-                   -> App f LogicArrayType
+                   -> App ext f LogicArrayType
   IntegerArrayToLogic :: !(f IntegerArrayType)
-                      -> App f LogicArrayType
+                      -> App ext f LogicArrayType
   RealArrayToLogic :: !(f RealArrayType)
-                      -> App f LogicArrayType
+                      -> App ext f LogicArrayType
   MatlabIntArrayToLogic :: !(f MatlabIntArrayType)
-                        -> App f LogicArrayType
+                        -> App ext f LogicArrayType
   MatlabUIntArrayToLogic :: !(f MatlabUIntArrayType)
-                         -> App f LogicArrayType
+                         -> App ext f LogicArrayType
   -- Return true if all entries in array are true.
   AllEntriesAreTrue :: !(f LogicArrayType)
-                    -> App f BoolType
+                    -> App ext f BoolType
 
   ----------------------------------------------------------------------
   -- CharArrayType
 
   -- A character array literal (also called a string).
   CharVectorLit :: !CharVector
-                -> App f CharArrayType
+                -> App ext f CharArrayType
 
   IntegerArrayEq :: !(f (IntegerArrayType))
                  -> !(f (IntegerArrayType))
-                 -> App f BoolType
+                 -> App ext f BoolType
   RealArrayEq :: !(f (RealArrayType))
               -> !(f (RealArrayType))
-              -> App f BoolType
+              -> App ext f BoolType
 
   -- Compare char arrays (arrays with different dimensions are not equal).
   CharArrayEq :: !(f CharArrayType)
               -> !(f CharArrayType)
-              -> App f BoolType
+              -> App ext f BoolType
   CplxArrayToChar :: !(f CplxArrayType)
-                  -> App f CharArrayType
+                  -> App ext f CharArrayType
   CharArrayAsPosNat :: !(f CharArrayType)
-                      -> App f (MaybeType (MultiDimArrayType NatType))
+                      -> App ext f (MaybeType (MultiDimArrayType NatType))
   CharArrayToLogic :: !(f CharArrayType)
-                   -> App f LogicArrayType
+                   -> App ext f LogicArrayType
 
   ----------------------------------------------------------------------
   -- StructFields
 
   -- Empty set of struct fields.
-  EmptyStructFields :: App f (VectorType StringType)
+  EmptyStructFields :: App ext f (VectorType StringType)
 
   -- Return true if fields are equal.
   FieldsEq :: !(f (VectorType StringType))
            -> !(f (VectorType StringType))
-           -> App f BoolType
+           -> App ext f BoolType
 
   -- Return true if field is in set.
   HasField :: !(f StringType)
            -> !(f (VectorType StringType))
-           -> App f BoolType
+           -> App ext f BoolType
 
   ----------------------------------------------------------------------
   -- WordMap
@@ -1103,7 +1114,7 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   EmptyWordMap :: (1 <= w)
                => !(NatRepr w)
                -> !(BaseTypeRepr tp)
-               -> App f (WordMapType w tp)
+               -> App ext f (WordMapType w tp)
 
   InsertWordMap :: (1 <= w)
                 => !(NatRepr w)
@@ -1111,13 +1122,13 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
                 -> !(f (BVType w))
                 -> !(f (BaseToType tp))
                 -> !(f (WordMapType w tp))
-                -> App f (WordMapType w tp)
+                -> App ext f (WordMapType w tp)
 
   LookupWordMap :: (1 <= w)
                 => !(BaseTypeRepr tp)
                 -> !(f (BVType w))
                 -> !(f (WordMapType w tp))
-                -> App f (BaseToType tp)
+                -> App ext f (BaseToType tp)
 
   LookupWordMapWithDefault
                 :: (1 <= w)
@@ -1125,7 +1136,7 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
                 -> !(f (BVType w))
                 -> !(f (WordMapType w tp))
                 -> !(f (BaseToType tp))
-                -> App f (BaseToType tp)
+                -> App ext f (BaseToType tp)
 
   ----------------------------------------------------------------------
   -- Variants
@@ -1133,64 +1144,64 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   InjectVariant :: !(CtxRepr ctx)
             -> !(Ctx.Index ctx tp)
             -> !(f tp)
-            -> App f (VariantType ctx)
+            -> App ext f (VariantType ctx)
 
   ProjectVariant :: !(CtxRepr ctx)
                  -> !(Ctx.Index ctx tp)
                  -> !(f (VariantType ctx))
-                 -> App f (MaybeType tp)
+                 -> App ext f (MaybeType tp)
 
   ----------------------------------------------------------------------
   -- Struct
 
   MkStruct :: !(CtxRepr ctx)
            -> !(Ctx.Assignment f ctx)
-           -> App f (StructType ctx)
+           -> App ext f (StructType ctx)
 
   GetStruct :: !(f (StructType ctx))
             -> !(Ctx.Index ctx tp)
             -> !(TypeRepr tp)
-            -> App f tp
+            -> App ext f tp
 
   SetStruct :: !(CtxRepr ctx)
             -> !(f (StructType ctx))
             -> !(Ctx.Index ctx tp)
             -> !(f tp)
-            -> App f (StructType ctx)
+            -> App ext f (StructType ctx)
 
   ----------------------------------------------------------------------
   -- StringMapType
 
   -- Initialize the ident value map to the given value.
   EmptyStringMap :: !(TypeRepr tp)
-                 -> App f (StringMapType tp)
+                 -> App ext f (StringMapType tp)
 
   -- Lookup the value of a string in a string map.
   LookupStringMapEntry :: !(TypeRepr tp)
                        -> !(f (StringMapType tp))
                        -> !(f StringType)
-                       -> App f (MaybeType tp)
+                       -> App ext f (MaybeType tp)
 
   -- Update the name of the ident value map with the given value.
   InsertStringMapEntry :: !(TypeRepr tp)
                        -> !(f (StringMapType tp))
                        -> !(f StringType)
                        -> !(f (MaybeType tp))
-                       -> App f (StringMapType tp)
+                       -> App ext f (StringMapType tp)
 
   ----------------------------------------------------------------------
   -- String
 
   TextLit :: !Text
-          -> App f StringType
+          -> App ext f StringType
 
   ShowValue :: !(BaseTypeRepr bt)
             -> !(f (BaseToType bt))
-            -> App f StringType
+            -> App ext f StringType
 
   AppendString :: !(f StringType)
                -> !(f StringType)
-               -> App f StringType
+               -> App ext f StringType
 
 
 ----------------------------------------------------------------------
@@ -1199,13 +1210,13 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   SymArrayLookup   :: !(BaseTypeRepr b)
                    -> !(f (SymbolicArrayType (idx ::> tp) b))
                    -> !(Ctx.Assignment (BaseTerm f) (idx ::> tp))
-                   -> App f (BaseToType b)
+                   -> App ext f (BaseToType b)
 
   SymArrayUpdate   :: !(BaseTypeRepr b)
                    -> !(f (SymbolicArrayType (idx ::> itp) b))
                    -> !(Ctx.Assignment (BaseTerm f) (idx ::> itp))
                    -> !(f (BaseToType b))
-                   -> App f (SymbolicArrayType (idx ::> itp) b)
+                   -> App ext f (SymbolicArrayType (idx ::> itp) b)
 
   ------------------------------------------------------------------------
   -- Introspection
@@ -1216,13 +1227,18 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- used for evil; try to avoid the temptation.
   IsConcrete :: !(BaseTypeRepr b)
              -> f (BaseToType b)
-             -> App f BoolType
+             -> App ext f BoolType
 
 
 -- | Compute a run-time representation of the type of an application.
-appType :: App f tp -> TypeRepr tp
-appType a0 =
-  case a0 of
+instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
+  -- appType :: App ext f tp -> TypeRepr tp
+  appType a0 =
+   case a0 of
+    ---------------------------------------------------------------------
+    -- Extension
+    ExtensionApp x -> appType x
+
     ----------------------------------------------------------------------
     -- ()
     EmptyApp -> knownRepr
@@ -1608,24 +1624,25 @@ compareFnHandle x y = do
     GTF -> GTF
     EQF -> EQF
 
-testVector :: TestEquality f => Vector (f tp) -> Vector (f tp) -> Maybe (Int :~: Int)
-testVector x y = do
-  case V.zipWithM_ testEquality x y of
+testVector :: (forall x y. f x -> f y -> Maybe (x :~: y))
+           -> Vector (f tp) -> Vector (f tp) -> Maybe (Int :~: Int)
+testVector testF x y = do
+  case V.zipWithM_ testF x y of
     Just () -> Just Refl
     Nothing -> Nothing
 
-compareVector :: OrdF f => Vector (f tp) -> Vector (f tp) -> OrderingF Int Int
-compareVector x y
+compareVector :: forall f tp. (forall x y. f x -> f y -> OrderingF x y)
+              -> Vector (f tp) -> Vector (f tp) -> OrderingF Int Int
+compareVector cmpF x y
     | V.length x < V.length y = LTF
     | V.length x > V.length y = GTF
     | otherwise = V.foldr go EQF (V.zip x y)
-  where go :: OrdF f => (f tp, f tp) -> OrderingF Int Int -> OrderingF Int Int
+  where go :: forall z. (f z, f z) -> OrderingF Int Int -> OrderingF Int Int
         go (u,v) r =
-          case compareF u v of
+          case cmpF u v of
             LTF -> LTF
             GTF -> GTF
             EQF -> r
-
 
 -- Force app to be in context.
 $(return [])
@@ -1638,14 +1655,17 @@ ppBaseTermAssignment :: (forall u . f u -> Doc)
                      -> Doc
 ppBaseTermAssignment pp v = brackets (commas (toListFC (pp . baseTermVal) v))
 
-
--- | Pretty print an application.
-ppApp :: (forall a . f a -> Doc) -> App f b -> Doc
-ppApp = $(U.structuralPretty [t|App|]
+instance PrettyApp (ExprExtension ext) => PrettyApp (App ext) where
+  --ppApp :: (forall a . f a -> Doc) -> App ext f b -> Doc
+  ppApp = $(U.structuralPretty [t|App|]
           [ ( U.ConType [t|Ctx.Assignment|]
-              `U.TypeApp` (U.ConType [t|BaseTerm|] `U.TypeApp` U.DataArg 0)
+              `U.TypeApp` (U.ConType [t|BaseTerm|] `U.TypeApp` U.DataArg 1)
               `U.TypeApp` U.AnyType
             , [| ppBaseTermAssignment |]
+            )
+          , (U.ConType [t|ExprExtension|] `U.TypeApp`
+                  U.DataArg 0 `U.TypeApp` U.DataArg 1 `U.TypeApp` U.AnyType,
+              [| ppApp |]
             )
           , ( U.ConType [t|Vector|] `U.TypeApp` U.AnyType
             , [| \pp v -> brackets (commas (fmap pp v)) |]
@@ -1663,17 +1683,21 @@ traverseBaseTerm f = traverseFC (traverseFC f)
 
 -- | Traversal that performs the given action on each immediate
 -- subterm of an application. Used for the 'TraversableFC' instance.
-traverseApp :: Applicative m
+traverseApp :: (TraversableFC (ExprExtension ext), Applicative m)
             => (forall u . f u -> m (g u))
-            -> App f tp -> m (App g tp)
+            -> App ext f tp -> m (App ext g tp)
 traverseApp =
   $(U.structuralTraversal [t|App|]
      [
-       ( U.ConType [t|Ctx.Assignment|] `U.TypeApp` (U.DataArg 0) `U.TypeApp` U.AnyType
+       ( U.ConType [t|Ctx.Assignment|] `U.TypeApp` (U.DataArg 1) `U.TypeApp` U.AnyType
        , [|traverseFC|]
        )
+     , (U.ConType [t|ExprExtension|] `U.TypeApp`
+             U.DataArg 0 `U.TypeApp` U.DataArg 1 `U.TypeApp` U.AnyType,
+         [| traverseFC |]
+       )
      , ( U.ConType [t|Ctx.Assignment|]
-         `U.TypeApp` (U.ConType [t|BaseTerm|] `U.TypeApp` (U.DataArg 0))
+         `U.TypeApp` (U.ConType [t|BaseTerm|] `U.TypeApp` (U.DataArg 1))
          `U.TypeApp` U.AnyType
        , [| traverseBaseTerm |]
        )
@@ -1682,67 +1706,92 @@ traverseApp =
 ------------------------------------------------------------------------------
 -- Parameterized Eq and Ord instances
 
-instance TestEquality f => TestEquality (App f) where
-  testEquality = $(U.structuralTypeEquality [t|App|]
-                   [ (U.DataArg 0                   `U.TypeApp` U.AnyType, [|testEquality|])
+instance TestEqualityFC (ExprExtension ext) => TestEqualityFC (App ext) where
+  testEqualityFC testSubterm
+      = $(U.structuralTypeEquality [t|App|]
+                   [ (U.DataArg 1                   `U.TypeApp` U.AnyType, [|testSubterm|])
+                   , (U.ConType [t|ExprExtension|] `U.TypeApp`
+                           U.DataArg 0 `U.TypeApp` U.DataArg 1 `U.TypeApp` U.AnyType,
+                       [|testEqualityFC testSubterm|]
+                     )
                    , (U.ConType [t|NatRepr |]       `U.TypeApp` U.AnyType, [|testEquality|])
                    , (U.ConType [t|SymbolRepr |]    `U.TypeApp` U.AnyType, [|testEquality|])
                    , (U.ConType [t|TypeRepr|]       `U.TypeApp` U.AnyType, [|testEquality|])
                    , (U.ConType [t|BaseTypeRepr|]  `U.TypeApp` U.AnyType, [|testEquality|])
                    , (U.ConType [t|TypeableValue|]  `U.TypeApp` U.AnyType, [|testEquality|])
-                   , (U.ConType [t|Ctx.Assignment|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType
-                     , [| testEquality |]
+                   , (U.ConType [t|Ctx.Assignment|] `U.TypeApp`
+                         (U.ConType [t|BaseTerm|] `U.TypeApp` U.AnyType) `U.TypeApp` U.AnyType
+                     , [| testEqualityFC (testEqualityFC testSubterm) |]
+                     )
+                   , (U.ConType [t|Ctx.Assignment|] `U.TypeApp` U.DataArg 1 `U.TypeApp` U.AnyType
+                     , [| testEqualityFC testSubterm |]
                      )
                    , (U.ConType [t|CtxRepr|] `U.TypeApp` U.AnyType
                      , [| testEquality |]
                      )
                    , (U.ConType [t|Ctx.Index|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testEquality|])
                    , (U.ConType [t|FnHandle|]  `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testFnHandle|])
-                   , (U.ConType [t|Vector|]    `U.TypeApp` U.AnyType, [|testVector|])
+                   , (U.ConType [t|Vector|]    `U.TypeApp` U.AnyType, [|testVector testSubterm|])
                    ]
                   )
 
-instance OrdF f => OrdF (App f) where
-  compareF = $(U.structuralTypeOrd [t|App|]
-                   [ (U.DataArg 0            `U.TypeApp` U.AnyType, [|compareF|])
+instance (TestEqualityFC (ExprExtension ext), TestEquality f) => TestEquality (App ext f) where
+  testEquality = testEqualityFC testEquality
+
+instance OrdFC (ExprExtension ext) => OrdFC (App ext) where
+  compareFC compareSubterm
+        = $(U.structuralTypeOrd [t|App|]
+                   [ (U.DataArg 1            `U.TypeApp` U.AnyType, [|compareSubterm|])
+                   , (U.ConType [t|ExprExtension|] `U.TypeApp`
+                           U.DataArg 0 `U.TypeApp` U.DataArg 1 `U.TypeApp` U.AnyType,
+                       [|compareFC compareSubterm|]
+                     )
                    , (U.ConType [t|NatRepr |] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|SymbolRepr |] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|BaseTypeRepr|] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|TypeableValue|] `U.TypeApp` U.AnyType, [|compareF|])
-                   , ( U.ConType [t|Ctx.Assignment|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType
-                     , [| compareF |]
+                   , (U.ConType [t|Ctx.Assignment|] `U.TypeApp`
+                         (U.ConType [t|BaseTerm|] `U.TypeApp` U.AnyType) `U.TypeApp` U.AnyType
+                     , [| compareFC (compareFC compareSubterm) |]
+                     )
+                   , (U.ConType [t|Ctx.Assignment|] `U.TypeApp` U.DataArg 1 `U.TypeApp` U.AnyType
+                     , [| compareFC compareSubterm |]
                      )
                    , ( U.ConType [t|CtxRepr|] `U.TypeApp` U.AnyType
                      , [| compareF |]
                      )
                    , (U.ConType [t|Ctx.Index|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|FnHandle|]  `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareFnHandle|])
-                   , (U.ConType [t|Vector|]    `U.TypeApp` U.AnyType, [|compareVector|])
+                   , (U.ConType [t|Vector|]    `U.TypeApp` U.AnyType, [|compareVector compareSubterm|])
                    ]
                   )
+instance (OrdFC (ExprExtension ext), OrdF f) => OrdF (App ext f) where
+  compareF = compareFC compareF
 
 -------------------------------------------------------------------------------------
 -- Traversals and such
 
-instance FunctorFC App where
+instance TraversableFC (ExprExtension ext) => FunctorFC (App ext) where
   fmapFC = fmapFCDefault
 
-instance FoldableFC App where
+instance TraversableFC (ExprExtension ext) => FoldableFC (App ext) where
   foldMapFC = foldMapFCDefault
 
-instance TraversableFC App where
+instance TraversableFC (ExprExtension ext) => TraversableFC (App ext) where
   traverseFC = traverseApp
 
 -- | Fold over an application.
-foldApp :: (forall x . f x -> r -> r)
+foldApp :: TraversableFC (ExprExtension ext)
+        => (forall x . f x -> r -> r)
         -> r
-        -> App f tp
+        -> App ext f tp
         -> r
 foldApp f0 r0 a = execState (traverseApp (go f0) a) r0
   where go f v = v <$ modify (f v)
 
 -- | Map a Crucible-type-preserving function over the immediate
 -- subterms of an application.
-mapApp :: (forall u . f u -> g u) -> App f tp -> App g tp
+mapApp :: TraversableFC (ExprExtension ext)
+       => (forall u . f u -> g u) -> App ext f tp -> App ext g tp
 mapApp f a = runIdentity (traverseApp (pure . f) a)

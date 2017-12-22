@@ -10,6 +10,7 @@
 -- This module provides operations evaluating Crucible expressions.
 ------------------------------------------------------------------------
 {-# LANGUAGE DoAndIfThenElse #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
@@ -25,6 +26,7 @@ module Lang.Crucible.Simulator.Evaluation
   , matlabIntArrayAsPosNat
   , matlabUIntArrayAsPosNat
   , logicArrayToIndices
+  , EvalAppFunc
   , evalApp
   , dimLit
   , asDimLit
@@ -526,20 +528,25 @@ updateVectorWithSymNat sym iteFn v si new_val = do
             iteFn c new_val (v V.! j)
       V.generateM n setFn
 
+type EvalAppFunc sym app = forall f.
+  (forall tp. f tp -> IO (RegValue sym tp)) ->
+  (forall tp. app f tp -> IO (RegValue sym tp))
+
 {-# INLINE evalApp #-}
 -- | Evaluate the application.
-evalApp :: forall sym f tp
+evalApp :: forall sym ext
          . IsSymInterface sym
         => sym
         -> IntrinsicTypes sym
         -> (Int -> String -> IO ())
            -- ^ Function for logging messages.
-        -> (forall utp . f utp -> IO (RegValue sym utp))
-           -- ^ Evaluation function for arguments.
-        -> App f tp
-        -> IO (RegValue sym tp)
-evalApp sym itefns logFn evalSub a0 = do
+        -> EvalAppFunc sym (ExprExtension ext)
+        -> EvalAppFunc sym (App ext)
+evalApp sym itefns logFn evalExt evalSub a0 = do
   case a0 of
+
+    ----------------------------------------------------------------------
+    ExtensionApp x -> evalExt evalSub x
 
     ----------------------------------------------------------------------
     -- ()

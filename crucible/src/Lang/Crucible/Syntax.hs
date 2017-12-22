@@ -20,6 +20,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE GADTs #-}
@@ -103,8 +104,9 @@ import           Lang.Crucible.Types
 
 -- | A typeclass for injecting applications into expressions.
 class IsExpr e where
-  app   :: App e tp -> e tp
-  asApp :: e tp -> Maybe (App e tp)
+  type ExprExt e :: *
+  app   :: App (ExprExt e) e tp -> e tp
+  asApp :: e tp -> Maybe (App (ExprExt e) e tp)
   exprType :: e tp -> TypeRepr tp
 
 ------------------------------------------------------------------------

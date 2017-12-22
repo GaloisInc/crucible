@@ -70,37 +70,37 @@ instance Show SomeHandle where
 -- CallFrame
 
 -- | A call frame for a crucible block.
-data CallFrame sym blocks ret args
+data CallFrame sym ext blocks ret args
    = CallFrame { frameHandle     :: SomeHandle
                  -- ^ Handle to control flow graph for the current frame.
-               , frameBlockMap   :: !(BlockMap blocks ret)
+               , frameBlockMap   :: !(BlockMap ext blocks ret)
                  -- ^ Block map for current control flow graph.
                , framePostdomMap :: !(CFGPostdom blocks)
                  -- ^ Post-dominator map for control flow graph associated with this
                  -- function.
                , frameReturnType :: !(TypeRepr ret)
                , frameRegs       :: !(RegMap sym args)
-               , _frameStmts     :: !(StmtSeq blocks ret args)
+               , _frameStmts     :: !(StmtSeq ext blocks ret args)
                , _framePostdom   :: !(Maybe (Some (BlockID blocks)))
                }
 
 -- | List of statements to execute next.
-frameStmts :: Simple Lens (CallFrame sym blocks ret ctx) (StmtSeq blocks ret ctx)
+frameStmts :: Simple Lens (CallFrame sym ext blocks ret ctx) (StmtSeq ext blocks ret ctx)
 frameStmts = lens _frameStmts (\s v -> s { _frameStmts = v })
 {-# INLINE frameStmts #-}
 
 -- | List of statements to execute next.
-framePostdom :: Simple Lens (CallFrame sym blocks ret ctx) (Maybe (Some (BlockID blocks)))
+framePostdom :: Simple Lens (CallFrame sym ext blocks ret ctx) (Maybe (Some (BlockID blocks)))
 framePostdom = lens _framePostdom (\s v -> s { _framePostdom = v })
 
 -- | Create a new call frame.
-mkCallFrame :: CFG blocks init ret
+mkCallFrame :: CFG ext blocks init ret
                -- ^ Control flow graph
             -> CFGPostdom blocks
                -- ^ Post dominator information.
             -> RegMap sym init
                -- ^ Initial arguments
-            -> CallFrame sym blocks ret init
+            -> CallFrame sym ext blocks ret init
 mkCallFrame g pdInfo args = do
   let BlockID block_id = cfgEntryBlockID g
   let b = cfgBlockMap g Ctx.! block_id
@@ -115,13 +115,13 @@ mkCallFrame g pdInfo args = do
             }
 
 -- | Return program location associated with frame.
-frameProgramLoc :: CallFrame sym blocks ret ctx -> ProgramLoc
+frameProgramLoc :: CallFrame sym ext blocks ret ctx -> ProgramLoc
 frameProgramLoc cf = firstStmtLoc (cf^.frameStmts)
 
 setFrameBlock :: BlockID blocks args
               -> RegMap sym args
-              -> CallFrame sym blocks ret ctx
-              -> CallFrame sym blocks ret args
+              -> CallFrame sym ext blocks ret ctx
+              -> CallFrame sym ext blocks ret args
 setFrameBlock (BlockID block_id) args f = f'
     where b = frameBlockMap f Ctx.! block_id
           ConstK pd = framePostdomMap f Ctx.! block_id
@@ -133,9 +133,9 @@ setFrameBlock (BlockID block_id) args f = f'
 -- | Extend frame with new register.
 extendFrame :: TypeRepr tp
             -> RegValue sym tp
-            -> StmtSeq blocks ret (ctx ::> tp)
-            -> CallFrame sym blocks ret ctx
-            -> CallFrame sym blocks ret (ctx ::> tp)
+            -> StmtSeq ext blocks ret (ctx ::> tp)
+            -> CallFrame sym ext blocks ret ctx
+            -> CallFrame sym ext blocks ret (ctx ::> tp)
 extendFrame tp v s f = f { frameRegs = assignReg tp v (frameRegs f)
                          , _frameStmts = s
                          }
@@ -143,7 +143,7 @@ extendFrame tp v s f = f { frameRegs = assignReg tp v (frameRegs f)
 mergeCallFrame :: IsSymInterface sym
                => sym
                -> IntrinsicTypes sym
-               -> MuxFn (Pred sym) (CallFrame sym blocks ret args)
+               -> MuxFn (Pred sym) (CallFrame sym ext blocks ret args)
 mergeCallFrame s iteFns p xcf ycf = do
   r <- mergeRegs s iteFns p (frameRegs xcf) (frameRegs ycf)
   return $ xcf { frameRegs = r }
