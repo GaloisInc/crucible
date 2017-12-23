@@ -37,48 +37,55 @@
 #endif
 
 module Lang.Crucible.LLVM.MemModel.Pointer
-( -- * Pointer bitwidth
-  HasPtrWidth
-, pattern PtrWidth
-, withPtrWidth
+  ( -- * Pointer bitwidth
+    HasPtrWidth
+  , pattern PtrWidth
+  , withPtrWidth
 
-  -- * Crucible pointer representation
-, LLVMPointerType
-, LLVMPtr
-, pattern LLVMPointerRepr
-, pattern PtrRepr
-, pattern LLVMPointer
-, llvmPointerView
-, pattern SizeT
-, muxLLVMPtr
-, ptrWidth
-, projectLLVM_bv
-, llvmPointer_bv
-, mkNullPointer
+    -- * Crucible pointer representation
+  , LLVMPointerType
+  , LLVMPtr
+  , pattern LLVMPointerRepr
+  , pattern PtrRepr
+  , pattern LLVMPointer
+  , llvmPointerView
+  , pattern SizeT
+  , muxLLVMPtr
+  , ptrWidth
+  , projectLLVM_bv
+  , llvmPointer_bv
+  , mkNullPointer
 
-  -- * LLVM Value representation
-, LLVMVal(..)
-, PartLLVMVal
-, genValueCtor
-, applyView
-, muxLLVMVal
+    -- * LLVM Value representation
+  , LLVMVal(..)
+  , PartLLVMVal
+  , bvConcatPartLLVMVal
+  , consArrayPartLLVMVal
+  , appendArrayPartLLVMVal
+  , mkArrayPartLLVMVal
+  , mkStructPartLLVMVal
+  , selectLowBvPartLLVMVal
+  , selectHighBvPartLLVMVal
+  , arrayEltPartLLVMVal
+  , fieldValPartLLVMVal
+  , muxLLVMVal
 
-  -- * Operations on valid pointers
-, AddrDecomposeResult(..)
-, ptrToPtrVal
-, constOffset
-, ptrDecompose
-, ptrSizeDecompose
-, ptrComparable
-, ptrOffsetEq
-, ptrOffsetLe
-, ptrEq
-, ptrLe
-, ptrAdd
-, ptrDiff
-, ptrSub
-, ptrIsNull
-) where
+    -- * Operations on valid pointers
+  , AddrDecomposeResult(..)
+  , ptrToPtrVal
+  , constOffset
+  , ptrDecompose
+  , ptrSizeDecompose
+  , ptrComparable
+  , ptrOffsetEq
+  , ptrOffsetLe
+  , ptrEq
+  , ptrLe
+  , ptrAdd
+  , ptrDiff
+  , ptrSub
+  , ptrIsNull
+  ) where
 
 import           Control.Monad
 import           Control.Monad.IO.Class
@@ -91,6 +98,7 @@ import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some
 import           Data.Vector( Vector )
 import qualified Data.Vector as V
+import           Data.Word (Word64)
 import           Numeric.Natural
 
 import           Lang.Crucible.Simulator.Intrinsics
@@ -99,7 +107,6 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.Types
-import qualified Lang.Crucible.LLVM.MemModel.Common as G
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
 
 import           GHC.TypeLits
@@ -228,8 +235,6 @@ data LLVMVal sym where
   LLVMValStruct :: Vector (G.Field G.Type, LLVMVal sym) -> LLVMVal sym
   LLVMValArray :: G.Type -> Vector (LLVMVal sym) -> LLVMVal sym
 
-type PartLLVMVal sym = PartExpr (Pred sym) (LLVMVal sym)
-
 -- | Generate a concrete offset value from an @Addr@ value.
 constOffset :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> G.Addr -> IO (SymBV sym w)
 constOffset sym w x = bvLit sym w (G.bytesToInteger x)
@@ -353,57 +358,74 @@ ptrIsNull sym _w (LLVMPointer blk off) =
      andPred sym pblk poff
 
 
-genValueCtor :: forall sym .
-  IsSymInterface sym =>
-  sym ->
-  G.ValueCtor (PartLLVMVal sym) ->
+----------------------------------------------------------------------
+-- PartLLVMVal
+
+-- | Partial LLVM values.
+type PartLLVMVal sym = PartExpr (Pred sym) (LLVMVal sym)
+
+-- TODO: Many of the size/type arguments to the following PartLLVMVal
+-- operations are unnecessary and maybe they should be removed.
+
+-- | Concatenate partial LLVM bitvector values. The least-significant
+-- (low) bytes are given first.
+bvConcatPartLLVMVal ::
+  IsSymInterface sym => sym ->
+  G.Bytes -> PartLLVMVal sym ->
+  G.Bytes -> PartLLVMVal sym ->
   IO (PartLLVMVal sym)
+bvConcatPartLLVMVal sym
+  low_w (PE p1 (LLVMValInt blk_low low))
+  high_w (PE p2 (LLVMValInt blk_high high))
+  | G.bytesToBits low_w  == natValue low_w' &&
+    G.bytesToBits high_w == natValue high_w' =
+      do blk0   <- natLit sym 0
+         p_blk1 <- natEq sym blk_low blk0
+         p_blk2 <- natEq sym blk_high blk0
+         Just LeqProof <- return $ isPosNat (addNat high_w' low_w')
+         p <- andPred sym p1 =<< andPred sym p2 =<< andPred sym p_blk1 p_blk2
+         bv <- bvConcat sym high low
+         return $ PE p $ LLVMValInt blk0 bv
+    where low_w' = bvWidth low
+          high_w' = bvWidth high
+bvConcatPartLLVMVal _ _ _ _ _ = return Unassigned
 
-genValueCtor _sym (G.ValueCtorVar x) = return x
+-- | Cons an element onto a partial LLVM array value.
+consArrayPartLLVMVal ::
+  IsSymInterface sym => sym ->
+  G.Type -> PartLLVMVal sym ->
+  Integer -> PartLLVMVal sym ->
+  IO (PartLLVMVal sym)
+consArrayPartLLVMVal sym tp (PE p1 hd) n (PE p2 (LLVMValArray tp' vec))
+  | tp == tp' && n == fromIntegral (V.length vec) =
+    do p <- andPred sym p1 p2
+       return $ PE p $ LLVMValArray tp' (V.cons hd vec)
+consArrayPartLLVMVal _ _ _ _ _ = return Unassigned
 
-genValueCtor sym (G.ConcatBV low_w vcl high_w vch) =
-  do vl <- genValueCtor sym vcl
-     vh <- genValueCtor sym vch
-     case (vl, vh) of
-       (PE p1 (LLVMValInt blk_low low), PE p2 (LLVMValInt blk_high high))
-         | G.bytesToBits low_w  == natValue low_w' &&
-           G.bytesToBits high_w == natValue high_w' ->
-           do blk0   <- natLit sym 0
-              p_blk1 <- natEq sym blk_low blk0
-              p_blk2 <- natEq sym blk_high blk0
-              Just LeqProof <- return $ isPosNat (addNat high_w' low_w')
-              p <- andPred sym p1 =<< andPred sym p2 =<< andPred sym p_blk1 p_blk2
-              bv <- bvConcat sym high low
-              return $ PE p $ LLVMValInt blk0 bv
-         where low_w' = bvWidth low
-               high_w' = bvWidth high
-       _ -> return Unassigned
+-- | Append two partial LLVM array values.
+appendArrayPartLLVMVal ::
+  IsSymInterface sym => sym ->
+  G.Type ->
+  Integer -> PartLLVMVal sym ->
+  Integer -> PartLLVMVal sym ->
+  IO (PartLLVMVal sym)
+appendArrayPartLLVMVal sym tp
+  n1 (PE p1 (LLVMValArray tp1 v1))
+  n2 (PE p2 (LLVMValArray tp2 v2))
+  | tp == tp1 && tp == tp2 &&
+    n1 == fromIntegral (V.length v1) &&
+    n2 == fromIntegral (V.length v2) =
+      do p <- andPred sym p1 p2
+         return $ PE p $ LLVMValArray tp (v1 V.++ v2)
+appendArrayPartLLVMVal _ _ _ _ _ _ = return Unassigned
 
-genValueCtor sym (G.ConsArray tp vc1 n vc2) =
-  do lv1 <- genValueCtor sym vc1
-     lv2 <- genValueCtor sym vc2
-     case (lv1, lv2) of
-       (PE p1 hd, PE p2 (LLVMValArray tp' vec))
-         | tp == tp' && n == fromIntegral (V.length vec) ->
-             do p <- andPred sym p1 p2
-                return $ PE p $ LLVMValArray tp' (V.cons hd vec)
-       _ -> return Unassigned
-
-genValueCtor sym (G.AppendArray tp n1 vc1 n2 vc2) =
-  do lv1 <- genValueCtor sym vc1
-     lv2 <- genValueCtor sym vc2
-     case (lv1, lv2) of
-       (PE p1 (LLVMValArray tp1 v1), PE p2 (LLVMValArray tp2 v2))
-         | tp == tp1 && tp == tp2 &&
-           n1 == fromIntegral (V.length v1) &&
-           n2 == fromIntegral (V.length v2) ->
-             do p <- andPred sym p1 p2
-                return $ PE p $ LLVMValArray tp (v1 V.++ v2)
-       _ -> return Unassigned
-
-genValueCtor sym (G.MkArray tp vv) =
-  do vec <- traverse (genValueCtor sym) vv
-     let f :: PartLLVMVal sym -> StateT (Pred sym) (MaybeT IO) (LLVMVal sym)
+-- | Make a partial LLVM array value.
+mkArrayPartLLVMVal :: forall sym .
+  IsSymInterface sym => sym ->
+  G.Type -> Vector (PartLLVMVal sym) ->
+  IO (PartLLVMVal sym)
+mkArrayPartLLVMVal sym tp vec =
+  do let f :: PartLLVMVal sym -> StateT (Pred sym) (MaybeT IO) (LLVMVal sym)
          f Unassigned = mzero
          f (PE p1 x) =
            do p0 <- get
@@ -415,9 +437,13 @@ genValueCtor sym (G.MkArray tp vv) =
        Nothing -> return $ Unassigned
        Just (vec',p) -> return $ PE p $ LLVMValArray tp vec'
 
-genValueCtor sym (G.MkStruct vv) =
-  do vec <- traverse (traverse (genValueCtor sym)) vv
-     let f :: (G.Field G.Type, PartLLVMVal sym)
+-- | Make a partial LLVM struct value.
+mkStructPartLLVMVal :: forall sym .
+  IsSymInterface sym => sym ->
+  Vector (G.Field G.Type, PartLLVMVal sym) ->
+  IO (PartLLVMVal sym)
+mkStructPartLLVMVal sym vec =
+  do let f :: (G.Field G.Type, PartLLVMVal sym)
            -> StateT (Pred sym) (MaybeT IO) (G.Field G.Type, LLVMVal sym)
          f (_fld, Unassigned) = mzero
          f (fld, PE p1 x) = do
@@ -430,80 +456,65 @@ genValueCtor sym (G.MkStruct vv) =
        Nothing -> return $ Unassigned
        Just (vec',p) -> return $ PE p $ LLVMValStruct vec'
 
-genValueCtor _sym (G.BVToFloat _) =
-  return Unassigned
-  -- fail "genValueCtor: Floating point values not supported"
-
-genValueCtor _sym (G.BVToDouble _) =
-  return Unassigned
-  -- fail "genValueCtor: Floating point values not supported"
-
-
-
--- | Compute the actual value of a value deconstructor expression.
-applyView ::
-  IsSymInterface sym =>
-  sym ->
+-- | Select the low bytes of a partial LLVM bitvector value.
+selectLowBvPartLLVMVal ::
+  IsSymInterface sym => sym ->
+  G.Bytes -> G.Bytes ->
   PartLLVMVal sym ->
-  G.ValueView ->
   IO (PartLLVMVal sym)
+selectLowBvPartLLVMVal sym low hi (PE p (LLVMValInt blk bv))
+  | Just (Some (low_w)) <- someNat (G.bytesToBits low)
+  , Just (Some (hi_w))  <- someNat (G.bytesToBits hi)
+  , Just LeqProof <- isPosNat low_w
+  , Just Refl <- testEquality (addNat low_w hi_w) w
+  , Just LeqProof <- testLeq low_w w =
+    do p' <- andPred sym p =<< natEq sym blk =<< natLit sym 0
+       bv' <- bvSelect sym (knownNat :: NatRepr 0) low_w bv
+       return $ PE p' (LLVMValInt blk bv')
+  where w = bvWidth bv
+selectLowBvPartLLVMVal _ _ _ _ = return Unassigned
 
-applyView _sym t (G.ValueViewVar _) = return t
+-- | Select the low bytes of a partial LLVM bitvector value.
+selectHighBvPartLLVMVal ::
+  IsSymInterface sym => sym ->
+  G.Bytes -> G.Bytes ->
+  PartLLVMVal sym ->
+  IO (PartLLVMVal sym)
+selectHighBvPartLLVMVal sym low hi (PE p (LLVMValInt blk bv))
+  | Just (Some (low_w)) <- someNat (G.bytesToBits low)
+  , Just (Some (hi_w))  <- someNat (G.bytesToBits hi)
+  , Just LeqProof <- isPosNat hi_w
+  , Just Refl <- testEquality (addNat low_w hi_w) w =
+    do p' <- andPred sym p =<< natEq sym blk =<< natLit sym 0
+       bv' <- bvSelect sym low_w hi_w bv
+       return $ PE p' $ LLVMValInt blk bv'
+  where w = bvWidth bv
+selectHighBvPartLLVMVal _ _ _ _ = return Unassigned
 
-applyView sym t (G.SelectLowBV low hi v) =
-  applyView sym t v >>= \case
-    PE p (LLVMValInt blk bv)
-      | Just (Some (low_w)) <- someNat (G.bytesToBits low)
-      , Just (Some (hi_w))  <- someNat (G.bytesToBits hi)
-      , Just LeqProof <- isPosNat low_w
-      , Just Refl <- testEquality (addNat low_w hi_w) w
-      , Just LeqProof <- testLeq low_w w
-      -> do p' <- andPred sym p =<< natEq sym blk =<< natLit sym 0
-            bv' <- bvSelect sym (knownNat :: NatRepr 0) low_w bv
-            return $ PE p' $ LLVMValInt blk bv'
-     where w = bvWidth bv
-    _ -> return Unassigned
+-- | Look up an element in a partial LLVM array value.
+arrayEltPartLLVMVal ::
+  Word64 -> G.Type -> Word64 ->
+  PartLLVMVal sym ->
+  IO (PartLLVMVal sym)
+arrayEltPartLLVMVal sz tp idx (PE p (LLVMValArray tp' vec))
+  | sz == fromIntegral (V.length vec)
+  , 0 <= idx
+  , idx < sz
+  , tp == tp' =
+    return $ PE p (vec V.! fromIntegral idx)
+arrayEltPartLLVMVal _ _ _ _ = return Unassigned
 
-applyView sym t (G.SelectHighBV low hi v) =
-  applyView sym t v >>= \case
-    PE p (LLVMValInt blk bv)
-      | Just (Some (low_w)) <- someNat (G.bytesToBits low)
-      , Just (Some (hi_w))  <- someNat (G.bytesToBits hi)
-      , Just LeqProof <- isPosNat hi_w
-      , Just Refl <- testEquality (addNat low_w hi_w) w
-      -> do p' <- andPred sym p =<< natEq sym blk =<< natLit sym 0
-            bv' <- bvSelect sym low_w hi_w bv
-            return $ PE p' $ LLVMValInt blk bv'
-     where w = bvWidth bv
-    _ -> return Unassigned
-
-applyView _sym _t (G.FloatToBV _) =
-  return Unassigned
-  --fail "applyView: Floating point values not supported"
-
-applyView _sym _t (G.DoubleToBV _) =
-  return Unassigned
-  --fail "applyView: Floating point values not supported"
-
-applyView sym t (G.ArrayElt sz tp idx v) =
-  applyView sym t v >>= \case
-    PE p (LLVMValArray tp' vec)
-      | sz == fromIntegral (V.length vec)
-      , 0 <= idx
-      , idx < sz
-      , tp == tp' ->
-        return $ PE p $ (vec V.! fromIntegral idx)
-    _ -> return Unassigned
-
-applyView sym t (G.FieldVal flds idx v) =
-  applyView sym t v >>= \case
-    PE p (LLVMValStruct vec)
-      | flds == fmap fst vec
-      , 0 <= idx
-      , idx < V.length vec ->
-          return $ PE p $ snd $ (vec V.! idx)
-    _ -> return Unassigned
-
+-- | Look up a field in a partial LLVM struct value.
+fieldValPartLLVMVal ::
+  (Vector (G.Field G.Type)) -> Int ->
+  PartLLVMVal sym ->
+  IO (PartLLVMVal sym)
+fieldValPartLLVMVal flds idx (PE p (LLVMValStruct vec))
+  | flds == fmap fst vec
+  , 0 <= idx
+  , idx < V.length vec =
+    return $ PE p $ snd $ (vec V.! idx)
+fieldValPartLLVMVal _ _ _ = return Unassigned
 
 -- | Mux partial LLVM values
 muxLLVMVal :: forall sym
