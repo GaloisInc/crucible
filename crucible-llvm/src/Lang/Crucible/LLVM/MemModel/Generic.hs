@@ -523,7 +523,7 @@ isAllocated sym w (llvmPointerView -> (blk, off)) sz m = do
             -- allocation covers the required range.
             | Just Refl <- testEquality w (bvWidth asz) =
                  do sameBlock <- natEq sym blk =<< natLit sym a
-                    inRange   <- bvUle sym sz end
+                    inRange   <- bvUle sym end asz
                     okNow     <- andPred sym sameBlock inRange
                     case asConstantPred okNow of
                       Just True  -> return okNow
