@@ -653,29 +653,21 @@ popStackFrameMem m = m & memState %~ popf
         pa a@(Alloc GlobalAlloc _ _ _) = Just a
         pa (AllocMerge c x y) = Just (AllocMerge c (mapMaybe pa x) (mapMaybe pa y))
 
-freeMem :: forall sym w
-         . (1 <= w, IsSymInterface sym)
-        => sym -> NatRepr w
-        -> LLVMPtr sym w -- ^ Base of allocation to free
-        -> Mem sym
-        -> IO (Pred sym, Mem sym)
-freeMem sym w p m =
-  freeMem' sym w p (ptrDecompose sym w p) m
-
 -- FIXME? This could perhaps be more efficient.  Right now we
 -- will traverse almost the entire memory on every free, even
 -- if we concretely find the corresponding allocation early.
-freeMem' :: forall sym w
-         . (1 <= w, IsSymInterface sym)
-        => sym -> NatRepr w
-        -> LLVMPtr sym w
-        -> AddrDecomposeResult sym w -- ^ Base of allocation to free
-        -> Mem sym
-        -> IO (Pred sym, Mem sym)
-freeMem' sym w p p_decomp m = do
-    (c, st') <- freeSt (m^.memState)
-    return (c, m & memState .~ st')
- where
+freeMem :: forall sym w .
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w ->
+  LLVMPtr sym w {- ^ Base of allocation to free -} ->
+  Mem sym ->
+  IO (Pred sym, Mem sym)
+freeMem sym w p m =
+  do (c, st') <- freeSt (m^.memState)
+     return (c, m & memState .~ st')
+  where
+  p_decomp = ptrDecompose sym w p
+
   freeAllocs :: [MemAlloc sym] -> IO (Pred sym, [MemAlloc sym])
   freeAllocs [] =
      return ( falsePred sym , [] )
