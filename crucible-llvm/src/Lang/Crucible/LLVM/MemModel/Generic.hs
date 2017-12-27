@@ -252,7 +252,7 @@ readMemCopy :: forall sym w .
             -> (Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (Pred sym, PartLLVMVal sym))
             -> IO (Pred sym, PartLLVMVal sym)
 readMemCopy sym w (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
-  let readPrev tp' p = readPrev' tp' . (p,) =<< ptrDecompose sym w p
+  let readPrev tp' p = readPrev' tp' (p, ptrDecompose sym w p)
   let varFn = (l, d, sz)
   case (ld, dd) of
     -- Offset if known
@@ -310,7 +310,7 @@ readMemStore :: forall sym w .
 readMemStore sym w (l,ld) ltp (d,dd) t stp readPrev' = do
   ssz <- bvLit sym w (bytesToInteger (typeSize stp))
   let varFn = (l, d, ssz)
-  let readPrev tp p = readPrev' tp . (p,) =<< ptrDecompose sym w p
+  let readPrev tp p = readPrev' tp (p, ptrDecompose sym w p)
   case (ld, dd) of
     -- Offset if known
     (ConcreteOffset lv lo, ConcreteOffset sv so)
@@ -348,7 +348,7 @@ readMem :: (1 <= w, IsSymInterface sym)
         -> Mem sym
         -> IO (Pred sym, PartLLVMVal sym)
 readMem sym w l tp m = do
-  ld <- ptrDecompose sym w l
+  let ld = ptrDecompose sym w l
   sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
   p  <- isAllocated sym w l sz m
   (p', val) <- readMem' sym w (l,ld) tp (memWrites m)
@@ -574,7 +574,7 @@ writeMem :: (1 <= w, IsSymInterface sym)
 writeMem sym w p tp v m = do
   (,) <$> (do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
               isAllocated sym w p sz m)
-      <*> writeMem' sym w p tp v m
+      <*> return (writeMem' sym w p tp v m)
 
 -- | Write memory without checking if it is allocated.
 writeMem' :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
@@ -582,9 +582,9 @@ writeMem' :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
           -> Type
           -> LLVMVal sym
           -> Mem sym
-          -> IO (Mem sym)
-writeMem' sym w p tp v m = addWrite <$> ptrDecompose sym w p
-  where addWrite pd = m & memAddWrite (MemStore (p,pd) v tp)
+          -> Mem sym
+writeMem' sym w p tp v m =
+  m & memAddWrite (MemStore (p, ptrDecompose sym w p) v tp)
 
 -- | Perform a mem copy.
 copyMem :: (1 <= w, IsSymInterface sym)
@@ -597,9 +597,9 @@ copyMem :: (1 <= w, IsSymInterface sym)
 copyMem sym w dst src sz m = do
   (,) <$> (join $ andPred sym <$> isAllocated sym w dst sz m
                               <*> isAllocated sym w src sz m)
-      <*> (do dstd <- ptrDecompose sym w dst
-              szd <- ptrSizeDecompose sym w sz
-              return $ m & memAddWrite (MemCopy (dst,dstd) src (sz,szd)))
+      <*> (do let dstd = ptrDecompose sym w dst
+              let szd = ptrSizeDecompose sym w sz
+              return $ m & memAddWrite (MemCopy (dst, dstd) src (sz, szd)))
 
 
 -- | Allocate space for memory
@@ -625,7 +625,7 @@ allocAndWriteMem sym w a b tp loc v m = do
   base <- natLit sym b
   off <- bvLit sym w 0
   let p = LLVMPointer base off
-  writeMem' sym w p tp v (m & memAddAlloc (Alloc a b sz loc))
+  return (writeMem' sym w p tp v (m & memAddAlloc (Alloc a b sz loc)))
 
 pushStackFrameMem :: Mem sym -> Mem sym
 pushStackFrameMem = memState %~ StackFrame emptyChanges
@@ -659,9 +659,8 @@ freeMem :: forall sym w
         -> LLVMPtr sym w -- ^ Base of allocation to free
         -> Mem sym
         -> IO (Pred sym, Mem sym)
-freeMem sym w p m = do
-  p' <- ptrDecompose sym w p
-  freeMem' sym w p p' m
+freeMem sym w p m =
+  freeMem' sym w p (ptrDecompose sym w p) m
 
 -- FIXME? This could perhaps be more efficient.  Right now we
 -- will traverse almost the entire memory on every free, even

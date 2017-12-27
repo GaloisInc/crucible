@@ -241,28 +241,26 @@ constOffset sym w x = bvLit sym w (G.bytesToInteger x)
 
 -- | Examine a pointer and determine how much concrete information is
 --   contained therein.
-ptrDecompose :: (1 <= w, IsExprBuilder sym)
-             => sym
-             -> NatRepr w
-             -> LLVMPtr sym w
-             -> IO (AddrDecomposeResult sym w)
+ptrDecompose ::
+  (1 <= w, IsExprBuilder sym) =>
+  sym -> NatRepr w ->
+  LLVMPtr sym w ->
+  AddrDecomposeResult sym w
 ptrDecompose _sym _w (LLVMPointer (asNat -> Just b) (asUnsignedBV -> Just off)) =
-  return $ ConcreteOffset b off
+  ConcreteOffset b off
 ptrDecompose _sym _w (LLVMPointer (asNat -> Just b) off) =
-  return $ SymbolicOffset b off
+  SymbolicOffset b off
 ptrDecompose _sym _w p =
-  return $ Symbolic p
+  Symbolic p
 
 -- | Determine if the given bitvector value is a concrete offset
-ptrSizeDecompose
-  :: IsExprBuilder sym
-  => sym
-  -> NatRepr w
-  -> SymBV sym w
-  -> IO (Maybe Integer)
-ptrSizeDecompose _ _ (asUnsignedBV -> Just off) =
-  return (Just off)
-ptrSizeDecompose _ _ _ = return Nothing
+ptrSizeDecompose ::
+  IsExprBuilder sym =>
+  sym -> NatRepr w ->
+  SymBV sym w ->
+  Maybe Integer
+ptrSizeDecompose _ _ (asUnsignedBV -> Just off) = Just off
+ptrSizeDecompose _ _ _ = Nothing
 
 
 -- | Test whether pointers point into the same allocation unit.
