@@ -91,7 +91,7 @@ data MemWrite sym
     -- [dst..dst+len).
   = forall w. MemCopy (LLVMPtr sym w, AddrDecomposeResult sym w) (LLVMPtr sym w) (SymBV sym w, Maybe Integer)
     -- | Memstore is given address was written, value, and type of value.
-  | forall w. MemStore (LLVMPtr sym w, AddrDecomposeResult sym w) (PartLLVMVal sym) Type
+  | forall w. MemStore (LLVMPtr sym w, AddrDecomposeResult sym w) (LLVMVal sym) Type
     -- | The merger of two memories.
   | WriteMerge (Pred sym) [MemWrite sym] [MemWrite sym]
 
@@ -300,7 +300,7 @@ readMemStore :: forall sym w .
                -- ^ The type we are reading.
             -> (LLVMPtr sym w, AddrDecomposeResult sym w)
                -- ^ The store we are reading from.
-            -> PartLLVMVal sym
+            -> LLVMVal sym
                -- ^ The value that was stored.
             -> Type
                -- ^ The type of value that was written.
@@ -319,7 +319,7 @@ readMemStore sym w (l,ld) ltp (d,dd) t stp readPrev' = do
           subFn (OldMemory o tp')   = do lv' <- natLit sym lv
                                          o' <- bvLit sym w (bytesToInteger o)
                                          readPrev tp' (LLVMPointer lv' o')
-          subFn (LastStore v)       = (truePred sym,) <$> applyView sym t v
+          subFn (LastStore v)       = (truePred sym,) <$> applyView sym (PE (truePred sym) t) v
           subFn (InvalidMemory tp') = badLoad sym tp'
       let vcr = valueLoad (fromInteger lo) ltp (fromInteger so) (ValueViewVar stp)
       evalValueCtor sym =<< traverse subFn vcr
@@ -333,7 +333,7 @@ readMemStore sym w (l,ld) ltp (d,dd) t stp readPrev' = do
           subFn (OldMemory o tp')   = do
                      readPrev tp' =<< genPtrExpr sym w varFn o
           subFn (LastStore v)       = do
-                     (truePred sym,) <$> applyView sym t v
+                     (truePred sym,) <$> applyView sym (PE (truePred sym) t) v
           subFn (InvalidMemory tp') = badLoad sym tp'
       let pref | ConcreteOffset{} <- dd = FixedStore
                | ConcreteOffset{} <- ld = FixedLoad
@@ -409,7 +409,7 @@ readMem' sym w l0 tp0 = go (badLoad sym tp0) l0 tp0
            MemCopy dst src sz ->
              case testEquality (ptrWidth (fst dst)) w of
                Just Refl -> readMemCopy sym w l tp dst src sz readPrev
-               Nothing   -> readPrev tp l 
+               Nothing   -> readPrev tp l
            MemStore dst v stp ->
              case testEquality (ptrWidth (fst dst)) w of
                Just Refl -> readMemStore sym w l tp dst v stp readPrev
@@ -568,7 +568,7 @@ writeMem :: (1 <= w, IsSymInterface sym)
          => sym -> NatRepr w
          -> LLVMPtr sym w
          -> Type
-         -> PartLLVMVal sym
+         -> LLVMVal sym
          -> Mem sym
          -> IO (Pred sym, Mem sym)
 writeMem sym w p tp v m = do
@@ -580,7 +580,7 @@ writeMem sym w p tp v m = do
 writeMem' :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
           -> LLVMPtr sym w
           -> Type
-          -> PartLLVMVal sym
+          -> LLVMVal sym
           -> Mem sym
           -> IO (Mem sym)
 writeMem' sym w p tp v m = addWrite <$> ptrDecompose sym w p
@@ -617,7 +617,7 @@ allocAndWriteMem :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
                  -> Natural -- ^ Block id for allocation
                  -> Type
                  -> String -- ^ Source location
-                 -> PartLLVMVal sym -- ^ Value to write
+                 -> LLVMVal sym -- ^ Value to write
                  -> Mem sym
                  -> IO (Mem sym)
 allocAndWriteMem sym w a b tp loc v m = do
@@ -766,13 +766,6 @@ ppPtr (llvmPointerView -> (blk, bv))
          off_doc = printSymExpr bv
       in text "(" <> blk_doc <> text "," <+> off_doc <> text ")"
 
-ppPartTermExpr
-  :: IsExprBuilder sym
-  => PartExpr (Pred sym) (LLVMVal sym)
-  -> Doc
-ppPartTermExpr Unassigned = text "<undef>"
-ppPartTermExpr (PE _p t) = ppTermExpr t
-
 ppTermExpr
   :: forall sym. IsExprBuilder sym
   => LLVMVal sym
@@ -828,7 +821,7 @@ ppWrite :: IsExprBuilder sym => MemWrite sym -> Doc
 ppWrite (MemCopy (d,_) s (l,_)) = do
   text "memcopy" <+> ppPtr d <+> ppPtr s <+> printSymExpr l
 ppWrite (MemStore (d,_) v _) = do
-  char '*' <> ppPtr d <+> text ":=" <+> ppPartTermExpr v
+  char '*' <> ppPtr d <+> text ":=" <+> ppTermExpr v
 ppWrite (WriteMerge c x y) = do
   text "merge" <$$> ppMerge ppWrite c x y
 

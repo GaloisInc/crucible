@@ -522,7 +522,7 @@ storeRaw :: (IsSymInterface sym, HasPtrWidth wptr)
   -> LLVMVal sym
   -> IO (MemImpl sym)
 storeRaw sym mem ptr valType val = do
-    (p, heap') <- G.writeMem sym PtrWidth ptr valType (PE (truePred sym) val) (memImplHeap mem)
+    (p, heap') <- G.writeMem sym PtrWidth ptr valType val (memImplHeap mem)
     let errMsg = "Invalid memory store: address " ++ show (G.ppPtr ptr) ++
                  " at type " ++ show (G.ppType valType)
     addAssertion sym p (AssertFailureSimError errMsg)
@@ -541,7 +541,7 @@ doStore sym mem ptr valType (AnyValue tpr val) = do
     let errMsg = "Invalid memory store: address " ++ show (G.ppPtr ptr) ++
                  " at type " ++ show (G.ppType valType)
     val' <- packMemValue sym valType tpr val
-    (p, heap') <- G.writeMem sym PtrWidth ptr valType (PE (truePred sym) val') (memImplHeap mem)
+    (p, heap') <- G.writeMem sym PtrWidth ptr valType val' (memImplHeap mem)
     addAssertion sym p (AssertFailureSimError errMsg)
     return mem{ memImplHeap = heap' }
 
@@ -828,7 +828,7 @@ doMemset sym _w mem dest val len = do
       blk0 <- natLit sym 0
       let val' = LLVMValInt blk0 val
       let xs   = V.generate (fromInteger sz) (\_ -> val')
-      let arr  = PE (truePred sym) (LLVMValArray (G.bitvectorType 1) xs)
+      let arr  = LLVMValArray (G.bitvectorType 1) xs
       (c, heap') <- G.writeMem sym PtrWidth dest tp arr (memImplHeap mem)
       addAssertion sym c
          (AssertFailureSimError "Invalid region specified in memset")
