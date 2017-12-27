@@ -91,7 +91,7 @@ data MemWrite sym
     -- [dst..dst+len).
   = forall w. MemCopy (LLVMPtr sym w, AddrDecomposeResult sym w) (LLVMPtr sym w) (SymBV sym w, Maybe Integer)
     -- | Memstore is given address was written, value, and type of value.
-  | forall w. MemStore (LLVMPtr sym w, AddrDecomposeResult sym w) (PartLLVMVal sym) Type
+  | forall w. MemStore (LLVMPtr sym w, AddrDecomposeResult sym w) (LLVMVal sym) Type
     -- | The merger of two memories.
   | WriteMerge (Pred sym) [MemWrite sym] [MemWrite sym]
 
@@ -143,6 +143,63 @@ genCondVar sym w inst c =
     IntEq x y         -> join $ bvEq sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
     IntLe x y         -> join $ bvSle sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
     And x y           -> join $ andPred sym <$> genCondVar sym w inst x <*> genCondVar sym w inst y
+
+genValueCtor :: forall sym .
+  IsSymInterface sym => sym ->
+  ValueCtor (PartLLVMVal sym) ->
+  IO (PartLLVMVal sym)
+genValueCtor sym v =
+  case v of
+    ValueCtorVar x -> return x
+    ConcatBV low_w vcl high_w vch ->
+      do vl <- genValueCtor sym vcl
+         vh <- genValueCtor sym vch
+         bvConcatPartLLVMVal sym low_w vl high_w vh
+    ConsArray tp vc1 n vc2 ->
+      do lv1 <- genValueCtor sym vc1
+         lv2 <- genValueCtor sym vc2
+         consArrayPartLLVMVal sym tp lv1 n lv2
+    AppendArray tp n1 vc1 n2 vc2 ->
+      do lv1 <- genValueCtor sym vc1
+         lv2 <- genValueCtor sym vc2
+         appendArrayPartLLVMVal sym tp n1 lv1 n2 lv2
+    MkArray tp vv ->
+      do vec <- traverse (genValueCtor sym) vv
+         mkArrayPartLLVMVal sym tp vec
+    MkStruct vv ->
+      do vec <- traverse (traverse (genValueCtor sym)) vv
+         mkStructPartLLVMVal sym vec
+    BVToFloat _ ->
+      return Unassigned
+      -- fail "genValueCtor: Floating point values not supported"
+    BVToDouble _ ->
+      return Unassigned
+      -- fail "genValueCtor: Floating point values not supported"
+
+-- | Compute the actual value of a value deconstructor expression.
+applyView ::
+  IsSymInterface sym => sym ->
+  PartLLVMVal sym ->
+  ValueView ->
+  IO (PartLLVMVal sym)
+applyView sym t val =
+  case val of
+    ValueViewVar _ ->
+      return t
+    SelectLowBV low hi v ->
+      selectLowBvPartLLVMVal sym low hi =<< applyView sym t v
+    SelectHighBV low hi v ->
+      selectHighBvPartLLVMVal sym low hi =<< applyView sym t v
+    FloatToBV _ ->
+      return Unassigned
+      --fail "applyView: Floating point values not supported"
+    DoubleToBV _ ->
+      return Unassigned
+      --fail "applyView: Floating point values not supported"
+    ArrayElt sz tp idx v ->
+      arrayEltPartLLVMVal sz tp idx =<< applyView sym t v
+    FieldVal flds idx v ->
+      fieldValPartLLVMVal flds idx =<< applyView sym t v
 
 -- | Join all conditions in fold together.
 tgAll :: (IsBoolExprBuilder sym) => sym
@@ -243,7 +300,7 @@ readMemStore :: forall sym w .
                -- ^ The type we are reading.
             -> (LLVMPtr sym w, AddrDecomposeResult sym w)
                -- ^ The store we are reading from.
-            -> PartLLVMVal sym
+            -> LLVMVal sym
                -- ^ The value that was stored.
             -> Type
                -- ^ The type of value that was written.
@@ -262,7 +319,7 @@ readMemStore sym w (l,ld) ltp (d,dd) t stp readPrev' = do
           subFn (OldMemory o tp')   = do lv' <- natLit sym lv
                                          o' <- bvLit sym w (bytesToInteger o)
                                          readPrev tp' (LLVMPointer lv' o')
-          subFn (LastStore v)       = (truePred sym,) <$> applyView sym t v
+          subFn (LastStore v)       = (truePred sym,) <$> applyView sym (PE (truePred sym) t) v
           subFn (InvalidMemory tp') = badLoad sym tp'
       let vcr = valueLoad (fromInteger lo) ltp (fromInteger so) (ValueViewVar stp)
       evalValueCtor sym =<< traverse subFn vcr
@@ -276,7 +333,7 @@ readMemStore sym w (l,ld) ltp (d,dd) t stp readPrev' = do
           subFn (OldMemory o tp')   = do
                      readPrev tp' =<< genPtrExpr sym w varFn o
           subFn (LastStore v)       = do
-                     (truePred sym,) <$> applyView sym t v
+                     (truePred sym,) <$> applyView sym (PE (truePred sym) t) v
           subFn (InvalidMemory tp') = badLoad sym tp'
       let pref | ConcreteOffset{} <- dd = FixedStore
                | ConcreteOffset{} <- ld = FixedLoad
@@ -352,7 +409,7 @@ readMem' sym w l0 tp0 = go (badLoad sym tp0) l0 tp0
            MemCopy dst src sz ->
              case testEquality (ptrWidth (fst dst)) w of
                Just Refl -> readMemCopy sym w l tp dst src sz readPrev
-               Nothing   -> readPrev tp l 
+               Nothing   -> readPrev tp l
            MemStore dst v stp ->
              case testEquality (ptrWidth (fst dst)) w of
                Just Refl -> readMemStore sym w l tp dst v stp readPrev
@@ -466,8 +523,8 @@ isAllocated sym w (llvmPointerView -> (blk, off)) sz m = do
             -- allocation covers the required range.
             | Just Refl <- testEquality w (bvWidth asz) =
                  do sameBlock <- natEq sym blk =<< natLit sym a
-                    inRange   <- bvUle sym sz end
-                    okNow     <- andPred sym sameBlock inRange  
+                    inRange   <- bvUle sym end asz
+                    okNow     <- andPred sym sameBlock inRange
                     case asConstantPred okNow of
                       Just True  -> return okNow
                       Just False -> fallback
@@ -511,7 +568,7 @@ writeMem :: (1 <= w, IsSymInterface sym)
          => sym -> NatRepr w
          -> LLVMPtr sym w
          -> Type
-         -> PartLLVMVal sym
+         -> LLVMVal sym
          -> Mem sym
          -> IO (Pred sym, Mem sym)
 writeMem sym w p tp v m = do
@@ -523,7 +580,7 @@ writeMem sym w p tp v m = do
 writeMem' :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
           -> LLVMPtr sym w
           -> Type
-          -> PartLLVMVal sym
+          -> LLVMVal sym
           -> Mem sym
           -> IO (Mem sym)
 writeMem' sym w p tp v m = addWrite <$> ptrDecompose sym w p
@@ -560,7 +617,7 @@ allocAndWriteMem :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
                  -> Natural -- ^ Block id for allocation
                  -> Type
                  -> String -- ^ Source location
-                 -> PartLLVMVal sym -- ^ Value to write
+                 -> LLVMVal sym -- ^ Value to write
                  -> Mem sym
                  -> IO (Mem sym)
 allocAndWriteMem sym w a b tp loc v m = do
@@ -709,13 +766,6 @@ ppPtr (llvmPointerView -> (blk, bv))
          off_doc = printSymExpr bv
       in text "(" <> blk_doc <> text "," <+> off_doc <> text ")"
 
-ppPartTermExpr
-  :: IsExprBuilder sym
-  => PartExpr (Pred sym) (LLVMVal sym)
-  -> Doc
-ppPartTermExpr Unassigned = text "<undef>"
-ppPartTermExpr (PE _p t) = ppTermExpr t
-
 ppTermExpr
   :: forall sym. IsExprBuilder sym
   => LLVMVal sym
@@ -771,7 +821,7 @@ ppWrite :: IsExprBuilder sym => MemWrite sym -> Doc
 ppWrite (MemCopy (d,_) s (l,_)) = do
   text "memcopy" <+> ppPtr d <+> ppPtr s <+> printSymExpr l
 ppWrite (MemStore (d,_) v _) = do
-  char '*' <> ppPtr d <+> text ":=" <+> ppPartTermExpr v
+  char '*' <> ppPtr d <+> text ":=" <+> ppTermExpr v
 ppWrite (WriteMerge c x y) = do
   text "merge" <$$> ppMerge ppWrite c x y
 

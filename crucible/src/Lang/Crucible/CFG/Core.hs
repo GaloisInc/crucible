@@ -305,6 +305,10 @@ data Stmt ext (ctx :: Ctx CrucibleType) (ctx' :: Ctx CrucibleType) where
              -> !(Reg ctx tp)
              -> Stmt ext ctx (ctx ::> ReferenceType tp)
 
+  -- Allocate a new, unassigned reference cell
+  NewEmptyRefCell :: !(TypeRepr tp)
+                  -> Stmt ctx (ctx ::> ReferenceType tp)
+
   -- Read the current value of a reference cell
   ReadRefCell :: !(Reg ctx (ReferenceType tp))
               -> Stmt ext ctx (ctx ::> tp)
@@ -313,6 +317,10 @@ data Stmt ext (ctx :: Ctx CrucibleType) (ctx' :: Ctx CrucibleType) where
   WriteRefCell :: !(Reg ctx (ReferenceType tp))
                -> !(Reg ctx tp)
                -> Stmt ext ctx ctx
+
+  -- Deallocate the storage associated with a reference cell
+  DropRefCell  :: !(Reg ctx (ReferenceType tp))
+               -> Stmt ctx ctx
 
   -- Assert a boolean condition.  If the condition fails, print the given string.
   Assert :: !(Reg ctx BoolType) -> !(Reg ctx StringType) -> Stmt ext ctx ctx
@@ -436,9 +444,12 @@ applyEmbeddingStmt ctxe stmt =
     WriteGlobal var r -> Pair (WriteGlobal var (reg r)) ctxe
     NewRefCell tp r -> Pair (NewRefCell tp (reg r))
                             (Ctx.extendEmbeddingBoth ctxe)
+    NewEmptyRefCell tp -> Pair (NewEmptyRefCell tp)
+                               (Ctx.extendEmbeddingBoth ctxe)
     ReadRefCell r     -> Pair (ReadRefCell (reg r))
                               (Ctx.extendEmbeddingBoth ctxe)
-    WriteRefCell r r' ->  Pair (WriteRefCell (reg r) (reg r')) ctxe
+    WriteRefCell r r' -> Pair (WriteRefCell (reg r) (reg r')) ctxe
+    DropRefCell r     -> Pair (DropRefCell (reg r)) ctxe
     Assert b str      -> Pair (Assert (reg b) (reg str)) ctxe
   where
     reg :: forall tp. Reg ctx tp -> Reg ctx' tp
@@ -531,8 +542,10 @@ nextStmtHeight h s =
     ReadGlobal{} -> Ctx.incSize h
     WriteGlobal{} -> h
     NewRefCell{} -> Ctx.incSize h
+    NewEmptyRefCell{} ->Ctx.incSize h
     ReadRefCell{} -> Ctx.incSize h
     WriteRefCell{} -> h
+    DropRefCell{}  -> h
     Assert{} -> h
 
 ppStmt :: PrettyApp (ExprExtension ext) => Ctx.Size ctx -> Stmt ext ctx ctx' -> Doc
@@ -547,8 +560,10 @@ ppStmt r s =
     ReadGlobal v -> text "read" <+> ppReg r <+> pretty v
     WriteGlobal v e -> text "write" <+> pretty v <+> pretty e
     NewRefCell _ e -> ppReg r <+> text "=" <+> ppFn "newref" [ pretty e ]
+    NewEmptyRefCell tp -> ppReg r <+> text "=" <+> ppFn "emptyref" [ pretty tp ]
     ReadRefCell e -> ppReg r <+> text "= !" <> pretty e
     WriteRefCell r1 r2 -> pretty r1 <+> text ":=" <+> pretty r2
+    DropRefCell r1 -> text "drop" <+> pretty r1
     Assert c e -> ppFn "assert" [ pretty c, pretty e]
 
 prefixLineNum :: Bool -> ProgramLoc -> Doc -> Doc

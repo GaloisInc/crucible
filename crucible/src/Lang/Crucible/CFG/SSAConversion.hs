@@ -691,6 +691,10 @@ resolveStmts nm bi sz reg_map bindings appMap (Posd p s0:rest) t = do
       C.ConsStmt pl
                  (C.WriteRefCell (resolveAtom reg_map r) (resolveAtom reg_map a))
                  (resolveStmts nm bi sz reg_map bindings appMap rest t)
+    DropRef r -> do
+      C.ConsStmt pl
+                 (C.DropRefCell (resolveAtom reg_map r))
+                 (resolveStmts nm bi sz reg_map bindings appMap rest t)
     DefineAtom a av -> do
       case av of
         ReadReg r -> do
@@ -718,6 +722,17 @@ resolveStmts nm bi sz reg_map bindings appMap (Posd p s0:rest) t = do
           C.ConsStmt pl
                      (C.NewRefCell (typeOfAtom v) v')
                      (resolveStmts nm bi sz' reg_map' bindings' appMap' rest t)
+        NewEmptyRef tp -> do
+          let sz' = incSize sz
+          let reg_map'  = reg_map  & assignRegister (AtomValue a) sz
+          -- No expression to associate with this value.
+          let bindings' = bindings & extendRegExprs NothingF
+          -- No App to memoize in this case.
+          let appMap'   = appMap   & appRegMap_extend
+          -- Resolve the atom
+          C.ConsStmt pl
+                     (C.NewEmptyRefCell tp)
+                     (resolveStmts nm bi sz' reg_map' bindings' appMap' rest t)
         ReadRef r -> do
           let sz' = incSize sz
           let reg_map'  = reg_map  & assignRegister (AtomValue a) sz
@@ -730,7 +745,6 @@ resolveStmts nm bi sz reg_map bindings appMap (Posd p s0:rest) t = do
           C.ConsStmt pl
                      (C.ReadRefCell r')
                      (resolveStmts nm bi sz' reg_map' bindings' appMap' rest t)
-
         EvalApp (fmapFC (resolveAtom reg_map) -> e)
           | Just cr <- appRegMap_lookup e appMap -> do
             let reg_map' = bindValueReg (AtomValue a) cr reg_map

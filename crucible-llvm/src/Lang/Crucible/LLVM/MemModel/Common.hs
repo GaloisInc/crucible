@@ -462,12 +462,10 @@ valueLoad lo ltp so v
        le = typeEnd lo ltp
        se = so + typeSize stp
 
-type ValueLoadMux = Mux (ValueCtor (ValueLoad PtrExpr))
-
 symbolicValueLoad :: BasePreference -- ^ Whether addresses are based on store or load.
                   -> Type
                   -> ValueView
-                  -> ValueLoadMux
+                  -> Mux (ValueCtor (ValueLoad PtrExpr))
 symbolicValueLoad pref tp v =
   Mux (loadOffset lsz .<= Store) loadFail (prefixL lsz)
   where

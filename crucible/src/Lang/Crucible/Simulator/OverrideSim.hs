@@ -79,7 +79,9 @@ import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.Frame
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.RegMap
+import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
+import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.Utils.MonadST
 import           Lang.Crucible.Utils.MonadVerbosity
 import           Lang.Crucible.Utils.StateContT
@@ -223,7 +225,8 @@ writeGlobal ::
 writeGlobal g v = stateTree . actFrame . gpGlobals %= insertGlobal g v
 
 
-newRef :: TypeRepr tp
+newRef :: IsSymInterface sym
+       => TypeRepr tp
        -> RegValue sym tp
        -> OverrideSim p sym ext rtp args ret (RefCell tp)
 newRef tpr v = do
@@ -233,18 +236,22 @@ newRef tpr v = do
    writeRef r v
    return r
 
-readRef :: RefCell tp
+readRef :: IsSymInterface sym
+        => RefCell tp
         -> OverrideSim p sym ext rtp args ret (RegValue sym tp)
 readRef r = do
+   sym <- getSymInterface
    globals <- use $ stateTree . actFrame . gpGlobals
-   case lookupRef r globals of
-     Just v -> return v
-     Nothing -> fail $ "Attempt to read undefined reference cell"
+   let msg = ReadBeforeWriteSimError "Attempt to read undefined reference cell"
+   liftIO $ readPartExpr sym (lookupRef r globals) msg
 
-writeRef :: RefCell tp
+writeRef :: IsSymInterface sym
+         => RefCell tp
          -> RegValue sym tp
          -> OverrideSim p sym ext rtp args ret ()
-writeRef r v = stateTree . actFrame . gpGlobals %= insertRef r v
+writeRef r v =
+  do sym <- getSymInterface
+     stateTree . actFrame . gpGlobals %= insertRef sym r v
 
 ------------------------------------------------------------------------
 -- Override utilities

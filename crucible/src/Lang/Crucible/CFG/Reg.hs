@@ -344,6 +344,8 @@ data AtomValue ext s tp where
   ReadRef :: !(Atom s (ReferenceType tp)) -> AtomValue ext s tp
   -- Create a fresh reference cell
   NewRef :: !(Atom s tp) -> AtomValue ext s (ReferenceType tp)
+  -- Create a fresh empty reference cell
+  NewEmptyRef :: !(TypeRepr tp) -> AtomValue ext s (ReferenceType tp)
 
   Call :: !(Atom s (FunctionHandleType args ret))
        -> !(Assignment (Atom s) args)
@@ -358,6 +360,7 @@ instance PrettyApp (ExprExtension ext) => Pretty (AtomValue ext s tp) where
       ReadGlobal g -> text "global" <+> pretty g
       ReadRef r -> text "!" <> pretty r
       NewRef a -> text "newref" <+> pretty a
+      NewEmptyRef tp -> text "emptyref" <+> pretty tp
       Call f args _ -> pretty f <> parens (commas (toListFC pretty args))
 
 typeOfAtomValue :: TypeApp (ExprExtension ext) => AtomValue ext s tp -> TypeRepr tp
@@ -369,6 +372,7 @@ typeOfAtomValue v =
     ReadRef r -> case typeOfAtom r of
                    ReferenceRepr tpr -> tpr
     NewRef a -> ReferenceRepr (typeOfAtom a)
+    NewEmptyRef tp -> ReferenceRepr tp
     Call _ _ r -> r
 
 -- | Fold over all values in an 'AtomValue'.
@@ -377,6 +381,7 @@ foldAtomValueInputs :: TraversableFC (ExprExtension ext)
 foldAtomValueInputs f (ReadReg r)     b = f (RegValue r) b
 foldAtomValueInputs _ (ReadGlobal _)  b = b
 foldAtomValueInputs f (ReadRef r)     b = f (AtomValue r) b
+foldAtomValueInputs _ (NewEmptyRef _) b = b
 foldAtomValueInputs f (NewRef a)      b = f (AtomValue a) b
 foldAtomValueInputs f (EvalApp app0)  b = foldApp (f . AtomValue) b app0
 foldAtomValueInputs f (Call g a _)    b = f (AtomValue g) (foldrFC' (f . AtomValue) b a)
@@ -392,6 +397,7 @@ data Stmt ext s
    = forall tp . SetReg     !(Reg s tp)       !(Atom s tp)
    | forall tp . WriteGlobal  !(GlobalVar tp) !(Atom s tp)
    | forall tp . WriteRef !(Atom s (ReferenceType tp)) !(Atom s tp)
+   | forall tp . DropRef  !(Atom s (ReferenceType tp))
    | forall tp . DefineAtom !(Atom s tp)      !(AtomValue ext s tp)
    | Print      !(Atom s StringType)
      -- | Assert that the given expression is true.
@@ -403,6 +409,7 @@ instance PrettyApp (ExprExtension ext) => Pretty (Stmt ext s) where
       SetReg r e     -> pretty r <+> text ":=" <+> pretty e
       WriteGlobal g r  -> text "global" <+> pretty g <+> text ":=" <+> pretty r
       WriteRef r v -> text "ref" <+> pretty r <+> text ":=" <+> pretty v
+      DropRef r    -> text "drop" <+> pretty r
       DefineAtom a v -> ppAtomBinding a v
       Print  v   -> text "print"  <+> pretty v
       Assert c m -> text "assert" <+> pretty c <+> pretty m
@@ -416,6 +423,7 @@ stmtAssignedValue s =
     DefineAtom a _ -> Just (Some (AtomValue a))
     WriteGlobal{} -> Nothing
     WriteRef{} -> Nothing
+    DropRef{} -> Nothing
     Print{} -> Nothing
     Assert{} -> Nothing
 
@@ -426,6 +434,7 @@ foldStmtInputs f s b =
     SetReg _ e     -> f (AtomValue e) b
     WriteGlobal _ a  -> f (AtomValue a) b
     WriteRef r a -> f (AtomValue r) (f (AtomValue a) b)
+    DropRef r    -> f (AtomValue r) b
     DefineAtom _ v -> foldAtomValueInputs f v b
     Print  e     -> f (AtomValue e) b
     Assert c m   -> f (AtomValue c) (f (AtomValue m) b)

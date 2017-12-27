@@ -20,6 +20,7 @@
 {-# LANGUAGE DeriveTraversable #-}
 module Lang.Crucible.ProgramLoc
   ( Position(..)
+  , sourcePos
   , startOfFile
   , ppNoFileName
   , Posd(..)
@@ -50,6 +51,8 @@ data Position
    = SourcePos !Text !Int !Int
      -- | A binary position containing a filename and address in memory.
    | BinaryPos !Text !Word64
+     -- | Some unstructured position information that doesn't fit into the other categories.
+   | OtherPos !Text
      -- | Generated internally by the simulator, or otherwise unknown.
    | InternalPos
   deriving (Eq, Ord)
@@ -60,6 +63,7 @@ instance Show Position where
 instance NFData Position where
   rnf (SourcePos t l c) = rnf (t,l,c)
   rnf (BinaryPos t a)   = rnf (t,a)
+  rnf (OtherPos t)      = rnf t
   rnf InternalPos       = ()
 
 sourcePos :: FilePath -> Int -> Int -> Position
@@ -76,6 +80,7 @@ instance PP.Pretty Position where
   pretty (BinaryPos path addr) =
     PP.text (Text.unpack path) PP.<> PP.colon PP.<>
       PP.text "0x" PP.<> PP.text (showHex addr "")
+  pretty (OtherPos txt) = PP.text (Text.unpack txt)
   pretty InternalPos = PP.text "internal"
 
 ppNoFileName :: Position -> PP.Doc
@@ -83,6 +88,8 @@ ppNoFileName (SourcePos _ l c) =
   PP.int l PP.<> PP.colon PP.<> PP.int c
 ppNoFileName (BinaryPos _ addr) =
   PP.text (showHex addr "")
+ppNoFileName (OtherPos msg) =
+  PP.text (Text.unpack msg)
 ppNoFileName InternalPos = PP.text "internal"
 
 ------------------------------------------------------------------------
@@ -122,5 +129,3 @@ mkProgramLoc = ProgramLoc
 
 class HasProgramLoc v where
   programLoc :: Simple Lens v ProgramLoc
---  getProgramLoc :: v -> ProgramLoc
---  setProgramLoc :: ProgramLoc -> v -> v
