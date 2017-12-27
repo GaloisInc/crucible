@@ -306,13 +306,13 @@ writeGlobal v e = do
   Generator $ addStmt $ WriteGlobal v a
 
 -- | Read the current value of a reference cell.
-readRef :: Expr s (ReferenceType tp) -> Generator h s t ret (Expr s tp)
+readRef :: IsSyntaxExtension ext => Expr ext s (ReferenceType tp) -> Generator ext h s t ret (Expr ext s tp)
 readRef ref = do
   r <- mkAtom ref
   AtomExpr <$> freshAtom (ReadRef r)
 
 -- | Write the given value into the reference cell.
-writeRef :: Expr s (ReferenceType tp) -> Expr s tp -> Generator h s t ret ()
+writeRef :: IsSyntaxExtension ext => Expr ext s (ReferenceType tp) -> Expr ext s tp -> Generator ext h s t ret ()
 writeRef ref val = do
   r <- mkAtom ref
   v <- mkAtom val
@@ -321,20 +321,20 @@ writeRef ref val = do
 -- | Deallocate the given reference cell, returning it to an uninialized state.
 --   The reference cell can still be used; subsequent writes will succeed,
 --   and reads will succeed if some value is written first.
-dropRef :: Expr s (ReferenceType tp) -> Generator h s t ret ()
+dropRef :: IsSyntaxExtension ext => Expr ext s (ReferenceType tp) -> Generator ext h s t ret ()
 dropRef ref = do
   r <- mkAtom ref
   Generator $ addStmt (DropRef r)
 
 -- | Generate a new reference cell with the given initial contents.
-newRef :: Expr s tp -> Generator h s t ret (Expr s (ReferenceType tp))
+newRef :: IsSyntaxExtension ext => Expr ext s tp -> Generator ext h s t ret (Expr ext s (ReferenceType tp))
 newRef val = do
   v <- mkAtom val
   AtomExpr <$> freshAtom (NewRef v)
 
 -- | Generate a new empty reference cell.  If an unassigned reference is later
 --   read, it will generate a runtime error.
-newEmptyRef :: TypeRepr tp -> Generator h s t ret (Expr s (ReferenceType tp))
+newEmptyRef :: IsSyntaxExtension ext => TypeRepr tp -> Generator ext h s t ret (Expr ext s (ReferenceType tp))
 newEmptyRef tp =
   AtomExpr <$> freshAtom (NewEmptyRef tp)
 

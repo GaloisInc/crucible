@@ -307,7 +307,7 @@ data Stmt ext (ctx :: Ctx CrucibleType) (ctx' :: Ctx CrucibleType) where
 
   -- Allocate a new, unassigned reference cell
   NewEmptyRefCell :: !(TypeRepr tp)
-                  -> Stmt ctx (ctx ::> ReferenceType tp)
+                  -> Stmt ext ctx (ctx ::> ReferenceType tp)
 
   -- Read the current value of a reference cell
   ReadRefCell :: !(Reg ctx (ReferenceType tp))
@@ -320,7 +320,7 @@ data Stmt ext (ctx :: Ctx CrucibleType) (ctx' :: Ctx CrucibleType) where
 
   -- Deallocate the storage associated with a reference cell
   DropRefCell  :: !(Reg ctx (ReferenceType tp))
-               -> Stmt ctx ctx
+               -> Stmt ext ctx ctx
 
   -- Assert a boolean condition.  If the condition fails, print the given string.
   Assert :: !(Reg ctx BoolType) -> !(Reg ctx StringType) -> Stmt ext ctx ctx
