@@ -155,9 +155,6 @@ returnToOverride c = \v (OF o) -> (OF o, c v)
 ------------------------------------------------------------------------
 -- CrucibleState
 
-type CrucibleState p sym ext rtp blocks ret args
-   = SimState p sym ext rtp (CrucibleLang blocks ret) ('Just args)
-
 evalLogFn :: CrucibleState p sym ext rtp blocks r ctx
           -> Int
           -> String
@@ -517,7 +514,6 @@ loopCrucible s = stateSolverProof s $ do
 data SomeState p sym ext rtp where
   SomeState :: !(CrucibleState p sym ext rtp blocks r ctx) -> SomeState p sym ext rtp
 
-
 continueCrucible :: (IsSymInterface sym, IsSyntaxExtension ext)
                  => IORef (SomeState p sym ext rtp)
                  -> Int
@@ -599,6 +595,11 @@ loopCrucible' s_ref verb = do
         SetReg tp e -> do
           v <- evalExpr s e
           continueCrucible s_ref verb $ s & stateCrucibleFrame %~ extendFrame tp v rest
+        ExtendAssign estmt -> do
+          let estmt' = fmapFC (evalReg' s) estmt
+          let tp     = appType estmt
+          (s',v) <- extensionExec (extensionImpl (s^.stateContext)) estmt' s
+          continueCrucible s_ref verb $ s' & stateCrucibleFrame %~ extendFrame tp v rest
         CallHandle ret_type fnExpr _types arg_exprs -> do
           let hndl = evalReg s fnExpr
           let args = evalArgs s arg_exprs

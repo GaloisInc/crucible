@@ -180,6 +180,7 @@ kildall_transfer analysis retRepr blk = transfer_seq (_blockStmts blk)
             in (Ctx.extend asgn a', c)
        transfer_stmt (Print _) asgn = asgn
        transfer_stmt (ReadGlobal gv) (asgn, c) = (Ctx.extend asgn (kfwd_rdglobal analysis gv), c)
+       transfer_stmt ExtendAssign{} _ = error "extension statement!"
        transfer_stmt NewRefCell{} _ = error "forward dataflow: reference cell!"
        transfer_stmt ReadRefCell{} _ = error "forward dataflow: reference cell!"
        transfer_stmt WriteRefCell{} _ = error "forward dataflow: reference cell!"

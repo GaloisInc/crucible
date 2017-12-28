@@ -35,6 +35,7 @@ import qualified Data.Set as S
 import Prelude
 
 import Lang.Crucible.CFG.Core
+import Lang.Crucible.CFG.Extension
 import Lang.Crucible.Analysis.Fixpoint.Components
 
 -- | A wrapper around widening strategies
@@ -71,6 +72,10 @@ data Interpretation ext (dom :: CrucibleType -> *) =
   Interpretation { interpExpr       :: forall ctx tp
                                      . TypeRepr tp
                                     -> Expr ext ctx tp
+                                    -> PointAbstraction dom ctx
+                                    -> (Maybe (PointAbstraction dom ctx), dom tp)
+                 , interpExt        :: forall ctx tp
+                                     . StmtExtension ext (Reg ctx) tp
                                     -> PointAbstraction dom ctx
                                     -> (Maybe (PointAbstraction dom ctx), dom tp)
                  , interpCall       :: forall ctx args ret
@@ -212,6 +217,11 @@ transfer dom interp retRepr blk = transferSeq (_blockStmts blk)
       case s of
         SetReg tp ex ->
           let (assignment', absVal) = interpExpr interp tp ex assignment
+              assignment'' = maybe assignment (joinPointAbstractions dom assignment) assignment'
+          in extendRegisters absVal assignment''
+
+        ExtendAssign estmt ->
+          let (assignment', absVal) = interpExt interp estmt assignment
               assignment'' = maybe assignment (joinPointAbstractions dom assignment) assignment'
           in extendRegisters absVal assignment''
 

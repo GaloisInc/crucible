@@ -700,6 +700,17 @@ resolveStmts nm bi sz reg_map bindings appMap (Posd p s0:rest) t = do
         ReadReg r -> do
           let reg_map' = reg_map & copyValue (AtomValue a) (RegValue r)
           resolveStmts nm bi sz reg_map' bindings appMap rest t
+        EvalExt estmt -> do
+          let estmt' = fmapFC (resolveAtom reg_map) estmt
+          let sz' = incSize sz
+          let reg_map'  = reg_map & assignRegister (AtomValue a) sz
+          -- No expression to associate with this value.
+          let bindings' = bindings & extendRegExprs NothingF
+          -- No App to memoize in this case.
+          let appMap'   = appMap   & appRegMap_extend
+          C.ConsStmt pl
+                     (C.ExtendAssign estmt')
+                     (resolveStmts nm bi sz' reg_map' bindings' appMap' rest t)
         ReadGlobal v -> do
           let sz' = incSize sz
           let reg_map'  = reg_map  & assignRegister (AtomValue a) sz

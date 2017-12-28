@@ -51,6 +51,7 @@ module Lang.Crucible.CFG.Generator
   , assignReg
   , modifyReg
   , modifyRegM
+  , extensionStmt
   , forceEvaluation
   , addPrintStmt
   , call
@@ -106,6 +107,7 @@ import qualified Data.Set as Set
 
 import           Lang.Crucible.CFG.Core (AnyCFG(..), GlobalVar(..))
 import           Lang.Crucible.CFG.Expr(App(..), IsSyntaxExtension)
+import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.CFG.Reg
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.ProgramLoc
@@ -529,6 +531,15 @@ defineLambdaBlock l next = do
 -- | Evaluate an expression, so that it can be more efficiently evaluated later.
 forceEvaluation :: IsSyntaxExtension ext => Expr ext s tp -> Generator ext h s t ret (Expr ext s tp)
 forceEvaluation e = AtomExpr <$> mkAtom e
+
+-- | Add a statement from the syntax extension to the current basic block.
+extensionStmt ::
+   IsSyntaxExtension ext =>
+   StmtExtension ext (Expr ext s) tp ->
+   Generator ext h s t ret (Expr ext s tp)
+extensionStmt stmt = do
+   stmt' <- traverseFC mkAtom stmt
+   AtomExpr <$> freshAtom (EvalExt stmt')
 
 -- | Call a function.
 call :: IsSyntaxExtension ext

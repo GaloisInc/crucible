@@ -307,14 +307,14 @@ data Expr ext s tp
   | AtomExpr !(Atom s tp)
     -- ^ An evaluated expession
 
-instance PrettyApp (ExprExtension ext) => Pretty (Expr ext s tp) where
+instance PrettyExt ext => Pretty (Expr ext s tp) where
   pretty (App a) = ppApp pretty a
   pretty (AtomExpr a) = pretty a
 
-instance PrettyApp (ExprExtension ext) => Show (Expr ext s tp) where
+instance PrettyExt ext => Show (Expr ext s tp) where
   show e = show (pretty e)
 
-instance PrettyApp (ExprExtension ext) => ShowF (Expr ext s)
+instance PrettyExt ext => ShowF (Expr ext s)
 
 instance TypeApp (ExprExtension ext) => IsExpr (Expr ext s) where
   type ExprExt (Expr ext s) = ext
@@ -336,8 +336,12 @@ instance IsString (Expr ext s StringType) where
 
 -- | The value of an assigned atom.
 data AtomValue ext s tp where
+  -- Evaluate an expression
   EvalApp :: !(App ext (Atom s) tp) -> AtomValue ext s tp
+  -- Read a value from a register
   ReadReg :: !(Reg s tp) -> AtomValue ext s tp
+  -- Evaluate an extension statement
+  EvalExt :: !(StmtExtension ext (Atom s) tp) -> AtomValue ext s tp
   -- Read from a global vlalue
   ReadGlobal :: !(GlobalVar tp) -> AtomValue ext s tp
   -- Read from a reference cell
@@ -352,10 +356,11 @@ data AtomValue ext s tp where
        -> !(TypeRepr ret)
        -> AtomValue ext s ret
 
-instance PrettyApp (ExprExtension ext) => Pretty (AtomValue ext s tp) where
+instance PrettyExt ext => Pretty (AtomValue ext s tp) where
   pretty v =
     case v of
       EvalApp ap -> ppApp pretty ap
+      EvalExt st -> ppApp pretty st
       ReadReg r -> pretty r
       ReadGlobal g -> text "global" <+> pretty g
       ReadRef r -> text "!" <> pretty r
@@ -363,10 +368,12 @@ instance PrettyApp (ExprExtension ext) => Pretty (AtomValue ext s tp) where
       NewEmptyRef tp -> text "emptyref" <+> pretty tp
       Call f args _ -> pretty f <> parens (commas (toListFC pretty args))
 
-typeOfAtomValue :: TypeApp (ExprExtension ext) => AtomValue ext s tp -> TypeRepr tp
+typeOfAtomValue :: (TypeApp (StmtExtension ext) , TypeApp (ExprExtension ext))
+                => AtomValue ext s tp -> TypeRepr tp
 typeOfAtomValue v =
   case v of
     EvalApp a -> appType a
+    EvalExt stmt -> appType stmt
     ReadReg r -> typeOfReg r
     ReadGlobal r -> globalType r
     ReadRef r -> case typeOfAtom r of
@@ -376,9 +383,11 @@ typeOfAtomValue v =
     Call _ _ r -> r
 
 -- | Fold over all values in an 'AtomValue'.
-foldAtomValueInputs :: TraversableFC (ExprExtension ext)
-                    => (forall x . Value s x -> b -> b) -> AtomValue ext s tp -> b -> b
+foldAtomValueInputs :: TraverseExt ext
+                    => (forall x . Value s x -> b -> b)
+                    -> AtomValue ext s tp -> b -> b
 foldAtomValueInputs f (ReadReg r)     b = f (RegValue r) b
+foldAtomValueInputs f (EvalExt stmt)  b = foldrFC (f . AtomValue) b stmt
 foldAtomValueInputs _ (ReadGlobal _)  b = b
 foldAtomValueInputs f (ReadRef r)     b = f (AtomValue r) b
 foldAtomValueInputs _ (NewEmptyRef _) b = b
@@ -386,7 +395,7 @@ foldAtomValueInputs f (NewRef a)      b = f (AtomValue a) b
 foldAtomValueInputs f (EvalApp app0)  b = foldApp (f . AtomValue) b app0
 foldAtomValueInputs f (Call g a _)    b = f (AtomValue g) (foldrFC' (f . AtomValue) b a)
 
-ppAtomBinding :: PrettyApp (ExprExtension ext) => Atom s tp -> AtomValue ext s tp -> Doc
+ppAtomBinding :: PrettyExt ext => Atom s tp -> AtomValue ext s tp -> Doc
 ppAtomBinding a v = pretty a <+> text ":=" <+> pretty v
 
 ------------------------------------------------------------------------
@@ -403,7 +412,7 @@ data Stmt ext s
      -- | Assert that the given expression is true.
    | Assert !(Atom s BoolType) !(Atom s StringType)
 
-instance PrettyApp (ExprExtension ext) => Pretty (Stmt ext s) where
+instance PrettyExt ext => Pretty (Stmt ext s) where
   pretty s =
     case s of
       SetReg r e     -> pretty r <+> text ":=" <+> pretty e
@@ -428,7 +437,7 @@ stmtAssignedValue s =
     Assert{} -> Nothing
 
 -- | Fold all registers that are inputs tostmt.
-foldStmtInputs :: TraversableFC (ExprExtension ext) => (forall x . Value s x -> b -> b) -> Stmt ext s -> b -> b
+foldStmtInputs :: TraverseExt ext => (forall x . Value s x -> b -> b) -> Stmt ext s -> b -> b
 foldStmtInputs f s b =
   case s of
     SetReg _ e     -> f (AtomValue e) b
@@ -571,13 +580,13 @@ instance Eq (Block ext s ret) where
 instance Ord (Block ext s ret) where
   compare x y = compare (blockID x) (blockID y)
 
-instance PrettyApp (ExprExtension ext) => Pretty (Block ext s ret) where
+instance PrettyExt ext => Pretty (Block ext s ret) where
   pretty b = text (show (blockID b)) <$$> indent 2 stmts
     where stmts = vcat (pretty . pos_val <$> Fold.toList (blockStmts b)) <$$>
                   pretty (pos_val (blockTerm b))
 
 mkBlock :: forall ext s ret
-         . TraversableFC (ExprExtension ext)
+         . TraverseExt ext
         => BlockID s
         -> ValueSet s -- ^ Extra inputs to block (only non-empty for initial block)
         -> Seq (Posd (Stmt ext s))
@@ -633,10 +642,10 @@ cfgInputTypes g = handleArgTypes (cfgHandle g)
 cfgReturnType :: CFG ext s init ret -> TypeRepr ret
 cfgReturnType g = handleReturnType (cfgHandle g)
 
-instance PrettyApp (ExprExtension ext) => Show (CFG ext s init ret) where
+instance PrettyExt ext => Show (CFG ext s init ret) where
   show = show . pretty
 
-instance PrettyApp (ExprExtension ext) => Pretty (CFG ext s init ret) where
+instance PrettyExt ext => Pretty (CFG ext s init ret) where
   pretty g = do
     let nm = text (show (handleName (cfgHandle g)))
     let inputs = mkInputAtoms InternalPos (cfgInputTypes g)

@@ -281,6 +281,10 @@ data Stmt ext (ctx :: Ctx CrucibleType) (ctx' :: Ctx CrucibleType) where
          -> !(Expr ext ctx tp)
          -> Stmt ext ctx (ctx ::> tp)
 
+  -- Assign a register via an extension statement
+  ExtendAssign :: !(StmtExtension ext (Reg ctx) tp)
+               -> Stmt ext ctx (ctx ::> tp)
+
   -- Statement used for evaluating function calls
   CallHandle :: !(TypeRepr ret)                          -- The type of the return value(s)
              -> !(Reg ctx (FunctionHandleType args ret)) -- The function handle to call
@@ -424,13 +428,18 @@ instance Pretty (TermStmt blocks ret ctx) where
 
 
 applyEmbeddingStmt :: forall ext ctx ctx' sctx.
-                      TraversableFC (ExprExtension ext) =>
-                      Ctx.CtxEmbedding ctx ctx' -> Stmt ext ctx sctx
-                      -> Pair (Stmt ext ctx') (Ctx.CtxEmbedding sctx)
+                      TraverseExt ext =>
+                      Ctx.CtxEmbedding ctx ctx' ->
+                      Stmt ext ctx sctx ->
+                      Pair (Stmt ext ctx') (Ctx.CtxEmbedding sctx)
 applyEmbeddingStmt ctxe stmt =
   case stmt of
     SetReg tp e -> Pair (SetReg tp (Ctx.applyEmbedding' ctxe e))
                         (Ctx.extendEmbeddingBoth ctxe)
+
+    ExtendAssign estmt ->
+       Pair (ExtendAssign (fmapFC (Ctx.applyEmbedding' ctxe) estmt))
+            (Ctx.extendEmbeddingBoth ctxe)
 
     CallHandle ret hdl tys args ->
       Pair (CallHandle ret (reg hdl) tys (fmapFC reg args))
@@ -537,6 +546,7 @@ nextStmtHeight :: Ctx.Size ctx -> Stmt ext ctx ctx' -> Ctx.Size ctx'
 nextStmtHeight h s =
   case s of
     SetReg{} -> Ctx.incSize h
+    ExtendAssign{} -> Ctx.incSize h
     CallHandle{} -> Ctx.incSize h
     Print{} -> h
     ReadGlobal{} -> Ctx.incSize h
@@ -548,10 +558,11 @@ nextStmtHeight h s =
     DropRefCell{}  -> h
     Assert{} -> h
 
-ppStmt :: PrettyApp (ExprExtension ext) => Ctx.Size ctx -> Stmt ext ctx ctx' -> Doc
+ppStmt :: PrettyExt ext => Ctx.Size ctx -> Stmt ext ctx ctx' -> Doc
 ppStmt r s =
   case s of
     SetReg _ e -> ppReg r <+> text "=" <+> pretty e
+    ExtendAssign s' -> ppReg r <+> text "=" <+> ppApp pretty s'
     CallHandle _ h _ args ->
       ppReg r <+> text "= call"
               <+> pretty h <> parens (commas (ppAssignment args))
@@ -570,7 +581,7 @@ prefixLineNum :: Bool -> ProgramLoc -> Doc -> Doc
 prefixLineNum True pl d = text "%" <+> ppNoFileName (plSourceLoc pl) <$$> d
 prefixLineNum False _ d = d
 
-ppStmtSeq :: PrettyApp (ExprExtension ext) => Bool -> Ctx.Size ctx -> StmtSeq ext blocks ret ctx -> Doc
+ppStmtSeq :: PrettyExt ext => Bool -> Ctx.Size ctx -> StmtSeq ext blocks ret ctx -> Doc
 ppStmtSeq ppLineNum h (ConsStmt pl s r) =
   prefixLineNum ppLineNum pl (ppStmt h s) <$$>
   ppStmtSeq ppLineNum (nextStmtHeight h s) r
@@ -588,7 +599,7 @@ extendStmtSeq diff (TermStmt p s) = TermStmt p (extendTermStmt diff s)
 #endif
 
 
-instance TraversableFC (ExprExtension ext) => Ctx.ApplyEmbedding (StmtSeq ext blocks ret) where
+instance TraverseExt ext => Ctx.ApplyEmbedding (StmtSeq ext blocks ret) where
   applyEmbedding ctxe (ConsStmt loc stmt rest) =
     case applyEmbeddingStmt ctxe stmt of
       Pair stmt' ctxe' -> ConsStmt loc stmt' (Ctx.applyEmbedding ctxe' rest)
@@ -644,7 +655,7 @@ nextBlocks b =
 blockInputCount :: Block ext blocks ret ctx -> Ctx.Size ctx
 blockInputCount b = Ctx.size (blockInputs b)
 
-ppBlock :: PrettyApp (ExprExtension ext)
+ppBlock :: PrettyExt ext
         => Bool
            -- ^ Print line numbers.
         -> CFGPostdom blocks
@@ -659,7 +670,7 @@ ppBlock ppLineNumbers pda b = do
         | otherwise = text "% postdom" <+> hsep (viewSome pretty <$> pd)
   pretty (blockID b) <$$> indent 2 (stmts <$$> postdom)
 
-ppBlock' :: PrettyApp (ExprExtension ext)
+ppBlock' :: PrettyExt ext
          => Bool
            -- ^ Print line numbers.
           -> Block ext blocks ret ctx
@@ -669,10 +680,10 @@ ppBlock' ppLineNumbers b = do
   let stmts = ppStmtSeq ppLineNumbers (blockInputCount b) (b^.blockStmts)
   pretty (blockID b) <$$> indent 2 stmts
 
-instance PrettyApp (ExprExtension ext) => Show (Block ext blocks ret args) where
+instance PrettyExt ext => Show (Block ext blocks ret args) where
   show blk = show $ ppBlock' False blk
 
-instance PrettyApp (ExprExtension ext) => ShowF (Block ext blocks ret)
+instance PrettyExt ext => ShowF (Block ext blocks ret)
 
 extendBlock :: Block ext blocks ret ctx -> Block ext (blocks ::> new) ret ctx
 #ifdef UNSAFE_OPS
@@ -739,11 +750,11 @@ cfgReturnType g = handleReturnType (cfgHandle g)
 class HasSomeCFG f ext init ret | f -> ext, f -> init, f -> ret where
   getCFG :: f b -> SomeCFG ext init ret
 
-instance PrettyApp (ExprExtension ext) => Show (CFG ext blocks init ret) where
+instance PrettyExt ext => Show (CFG ext blocks init ret) where
   show g = show (ppCFG True g)
 
 -- | Pretty print a CFG.
-ppCFG :: PrettyApp (ExprExtension ext)
+ppCFG :: PrettyExt ext
       => Bool -- ^ Flag indicates if we should print line numbers
       -> CFG ext blocks init ret
       -> Doc
@@ -751,7 +762,7 @@ ppCFG lineNumbers g = ppCFG' lineNumbers (emptyCFGPostdomInfo sz) g
   where sz = Ctx.size (cfgBlockMap g)
 
 -- | Pretty print CFG with postdom information.
-ppCFG' :: PrettyApp (ExprExtension ext)
+ppCFG' :: PrettyExt ext
        => Bool -- ^ Flag indicates if we should print line numbers
        -> CFGPostdom blocks
        -> CFG ext blocks init ret
@@ -764,7 +775,8 @@ ppCFG' lineNumbers pdInfo g = vcat (toListFC (ppBlock lineNumbers pdInfo) (cfgBl
 data SomeCFG ext (init :: Ctx CrucibleType) (ret :: CrucibleType) where
   SomeCFG :: CFG ext blocks init ret -> SomeCFG ext init ret
 
-instance PrettyApp (ExprExtension ext) => Show (SomeCFG ext i r) where show cfg = case cfg of SomeCFG c -> show c
+instance PrettyExt ext => Show (SomeCFG ext i r)
+  where show cfg = case cfg of SomeCFG c -> show c
 
 -- | Control flow graph.  This data type closes existentially
 --   over all the type parameters.
@@ -772,4 +784,5 @@ data AnyCFG ext where
   AnyCFG :: CFG ext blocks init ret
          -> AnyCFG ext
 
-instance PrettyApp (ExprExtension ext) => Show (AnyCFG ext) where show cfg = case cfg of AnyCFG c -> show c
+instance PrettyExt ext => Show (AnyCFG ext) where
+  show cfg = case cfg of AnyCFG c -> show c

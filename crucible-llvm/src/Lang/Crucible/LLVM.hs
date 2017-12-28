@@ -46,8 +46,9 @@ llvmGlobals
 llvmGlobals ctx mem = emptyGlobals & insertGlobal var mem
   where var = llvmMemVar $ memModelOps ctx
 
-llvmExtensionImpl :: ExtensionImpl sym LLVM
+llvmExtensionImpl :: ExtensionImpl p sym LLVM
 llvmExtensionImpl =
   ExtensionImpl
   { extensionEval = \_ -> \case
+  , extensionExec = \case
   }

@@ -43,7 +43,7 @@ import           Lang.Crucible.CFG.Extension
 -- result of the statement, if any) along with a context diff which
 -- describes any new variables.
 annotateCFGStmts ::
-   TraversableFC (ExprExtension ext) =>
+   TraverseExt ext =>
    (forall cin cout. Some (BlockID blocks) -> Ctx.Size cout -> Stmt ext cin cout -> Maybe (StmtSeq ext blocks UnitType cout))
   -- ^ This is the annotation function.  The resulting @StmtSeq@ gets
   -- spliced in after the statement so that they can inspect the
@@ -60,7 +60,7 @@ mapCFGBlocks f cfg = cfg { cfgBlockMap = fmapFC f (cfgBlockMap cfg) }
 
 annotateBlockStmts ::
   forall ext blocks ret ctx.
-  TraversableFC (ExprExtension ext) =>
+  TraverseExt ext =>
   (forall cin cout. Some (BlockID blocks) -> Ctx.Size cout -> Stmt ext cin cout -> Maybe (StmtSeq ext blocks UnitType cout))
   -- ^ This is the annotation function.  Annotation statements go
   -- after the statement so that they can inspect the result if
@@ -97,6 +97,7 @@ stmtDiff :: Stmt ext ctx ctx' -> Ctx.Diff ctx ctx'
 stmtDiff stmt =
   case stmt of
     SetReg {}        -> Ctx.knownDiff
+    ExtendAssign{}   -> Ctx.knownDiff
     CallHandle {}    -> Ctx.knownDiff
     Print {}         -> Ctx.knownDiff
     ReadGlobal {}    -> Ctx.knownDiff

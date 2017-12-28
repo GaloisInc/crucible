@@ -75,6 +75,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , branchConditions
     -- * SimState
   , SimState(..)
+  , CrucibleState
   , stateTree
   , IsSymInterfaceProof
   , ErrorHandler(..)
@@ -1093,12 +1094,22 @@ type family FrameRetType (f :: *) :: CrucibleType where
   FrameRetType (CrucibleLang b r) = r
   FrameRetType (OverrideLang b r) = r
 
+type CrucibleState p sym ext rtp blocks ret args
+   = SimState p sym ext rtp (CrucibleLang blocks ret) ('Just args)
+
 -- | A map from function handles to their semantics.
 type FunctionBindings p sym ext = FnHandleMap (FnState p sym ext)
 
-data ExtensionImpl sym ext
+type EvalStmtFunc p sym ext =
+  forall rtp blocks r ctx tp'.
+    StmtExtension ext (RegEntry sym) tp' ->
+    CrucibleState p sym ext rtp blocks r ctx ->
+    IO (CrucibleState p sym ext rtp blocks r ctx, RegValue sym tp')
+
+data ExtensionImpl p sym ext
   = ExtensionImpl
     { extensionEval :: EvalAppFunc sym (ExprExtension ext)
+    , extensionExec :: EvalStmtFunc p sym ext
     }
 
 ------------------------------------------------------------------------
@@ -1115,7 +1126,7 @@ data SimContext personality sym ext
                 , simHandleAllocator     :: !(HandleAllocator RealWorld)
                   -- | Handle to write messages to.
                 , printHandle            :: !Handle
-                , extensionImpl          :: ExtensionImpl sym ext
+                , extensionImpl          :: ExtensionImpl personality sym ext
                 , _functionBindings      :: !(FunctionBindings personality sym ext)
                 , _cruciblePersonality   :: !(personality sym)
                 }
@@ -1162,7 +1173,7 @@ initSimContext :: IsSymInterface sym
                -> HandleAllocator RealWorld
                -> Handle -- ^ Handle to write output to
                -> FunctionBindings personality sym ext
-               -> ExtensionImpl sym ext
+               -> ExtensionImpl personality sym ext
                -> personality sym
                -> SimContext personality sym ext
 initSimContext sym muxFns cfg halloc h bindings extImpl personality =
