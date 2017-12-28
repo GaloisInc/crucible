@@ -58,7 +58,10 @@ import Data.Word
 --   This newtype is explicitly introduced to avoid confusion
 --   between widths expressed as numbers of bits vs numbers of bytes.
 newtype Bytes = Bytes { unBytes :: Word64 }
-  deriving (Eq, Ord, Num, Show)
+  deriving (Eq, Ord, Num)
+
+instance Show Bytes where
+  show (Bytes n) = show n
 
 bytesToBits :: Bytes -> Integer
 bytesToBits (Bytes n) = 8 * toInteger n
