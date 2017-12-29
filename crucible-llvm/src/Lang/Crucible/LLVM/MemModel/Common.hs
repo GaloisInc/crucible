@@ -268,7 +268,7 @@ loadFromStoreStart pref tp i j = adjustOffset inFn outFn <$> rangeLoad 0 tp (R i
 fixedSizeRangeLoad :: BasePreference -- ^ Whether addresses are based on store or load.
                    -> Type
                    -> Bytes
-                   -> RangeLoadMux PtrExpr IntExpr
+                   -> Mux (ValueCtor (RangeLoad PtrExpr IntExpr))
 fixedSizeRangeLoad _ tp 0 = MuxVar (ValueCtorVar (OutOfRange Load tp))
 fixedSizeRangeLoad pref tp ssz =
   Mux (loadOffset lsz .<= Store) loadFail (prefixL lsz)
@@ -299,7 +299,7 @@ fixedSizeRangeLoad pref tp ssz =
     loadSucc = MuxVar (ValueCtorVar (InRange (Load .- Store) tp))
     loadFail = MuxVar (ValueCtorVar (OutOfRange Load tp))
 
-symbolicRangeLoad :: BasePreference -> Type -> RangeLoadMux PtrExpr IntExpr
+symbolicRangeLoad :: BasePreference -> Type -> Mux (ValueCtor (RangeLoad PtrExpr IntExpr))
 symbolicRangeLoad pref tp =
   Mux (Store .<= Load)
   (Mux (loadOffset sz .<= storeEnd) (loadVal0 sz) (loadIter0 (sz-1)))
