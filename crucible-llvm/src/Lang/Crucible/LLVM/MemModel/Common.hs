@@ -221,12 +221,10 @@ rangeLoad lo ltp s@(R so se)
  where le = typeEnd lo ltp
        loadFail = ValueCtorVar (OutOfRange lo ltp)
 
-type RangeLoadMux v w = Mux (ValueCtor (RangeLoad v w))
-
 fixedOffsetRangeLoad :: Addr
                      -> Type
                      -> Addr
-                     -> RangeLoadMux Addr Addr
+                     -> Mux (ValueCtor (RangeLoad Addr Addr))
 fixedOffsetRangeLoad l tp s
   | s < l = do -- Store is before load.
     let sd = l - s -- Number of bytes load comes after store
