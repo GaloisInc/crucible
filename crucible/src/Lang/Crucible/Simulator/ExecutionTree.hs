@@ -94,6 +94,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , FunctionBindings
   , FnState(..)
   , ExtensionImpl(..)
+  , EvalStmtFunc
     -- * Utilities
   , stateSymInterface
   , stateSolverProof
@@ -542,8 +543,8 @@ pushCrucibleFrame :: forall sym ext b r a
                   -> SimFrame sym ext (CrucibleLang b r) a
                   -> IO (SimFrame sym ext (CrucibleLang b r) a)
 pushCrucibleFrame sym muxFns (MF x) = do
-  r' <- pushBranchRegs sym muxFns (frameRegs x)
-  return $! MF x{ frameRegs = r' }
+  r' <- pushBranchRegs sym muxFns (x^.frameRegs)
+  return $! MF (x & frameRegs .~ r')
 pushCrucibleFrame sym muxFns (RF x) = do
   x' <- pushBranchRegEntry sym muxFns x
   return $! RF x'
@@ -555,8 +556,8 @@ popCrucibleFrame :: IsExprBuilder sym
                  -> SimFrame sym ext (CrucibleLang b r') a'
                  -> IO (SimFrame sym ext (CrucibleLang b r') a')
 popCrucibleFrame sym intrinsicFns (MF x') = do
-  r' <- abortBranchRegs sym intrinsicFns (frameRegs x')
-  return $! MF x' { frameRegs = r' }
+  r' <- abortBranchRegs sym intrinsicFns (x'^.frameRegs)
+  return $! MF (x' & frameRegs .~ r')
 popCrucibleFrame sym intrinsicFns (RF x') =
   RF <$> abortBranchRegEntry sym intrinsicFns x'
 
@@ -579,8 +580,8 @@ mergeCrucibleFrame sym muxFns tgt p x0 y0 =
     BlockTarget _b_id -> do
       let x = fromJustCallFrame x0
       let y = fromJustCallFrame y0
-      z <- mergeRegs sym muxFns p (frameRegs x) (frameRegs y)
-      pure $! MF (x { frameRegs = z })
+      z <- mergeRegs sym muxFns p (x^.frameRegs) (y^.frameRegs)
+      pure $! MF (x & frameRegs .~ z)
     ReturnTarget -> do
       let x = fromNothingCallFrame x0
       let y = fromNothingCallFrame y0
@@ -1102,8 +1103,8 @@ type FunctionBindings p sym ext = FnHandleMap (FnState p sym ext)
 
 type EvalStmtFunc p sym ext =
   forall rtp blocks r ctx tp'.
-    StmtExtension ext (RegEntry sym) tp' ->
     CrucibleState p sym ext rtp blocks r ctx ->
+    StmtExtension ext (RegEntry sym) tp' ->
     IO (CrucibleState p sym ext rtp blocks r ctx, RegValue sym tp')
 
 data ExtensionImpl p sym ext

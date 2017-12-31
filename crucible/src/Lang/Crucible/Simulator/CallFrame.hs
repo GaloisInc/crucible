@@ -79,7 +79,7 @@ data CallFrame sym ext blocks ret args
                  -- ^ Post-dominator map for control flow graph associated with this
                  -- function.
                , frameReturnType :: !(TypeRepr ret)
-               , frameRegs       :: !(RegMap sym args)
+               , _frameRegs      :: !(RegMap sym args)
                , _frameStmts     :: !(StmtSeq ext blocks ret args)
                , _framePostdom   :: !(Maybe (Some (BlockID blocks)))
                }
@@ -88,6 +88,9 @@ data CallFrame sym ext blocks ret args
 frameStmts :: Simple Lens (CallFrame sym ext blocks ret ctx) (StmtSeq ext blocks ret ctx)
 frameStmts = lens _frameStmts (\s v -> s { _frameStmts = v })
 {-# INLINE frameStmts #-}
+
+frameRegs :: Simple Lens (CallFrame sym ext blocks ret args) (RegMap sym args)
+frameRegs = lens _frameRegs (\s v -> s { _frameRegs = v })
 
 -- | List of statements to execute next.
 framePostdom :: Simple Lens (CallFrame sym ext blocks ret ctx) (Maybe (Some (BlockID blocks)))
@@ -109,7 +112,7 @@ mkCallFrame g pdInfo args = do
             , frameBlockMap = cfgBlockMap g
             , framePostdomMap = pdInfo
             , frameReturnType = cfgReturnType g
-            , frameRegs     = args
+            , _frameRegs     = args
             , _frameStmts   = b^.blockStmts
             , _framePostdom = listToMaybe pd
             }
@@ -125,7 +128,7 @@ setFrameBlock :: BlockID blocks args
 setFrameBlock (BlockID block_id) args f = f'
     where b = frameBlockMap f Ctx.! block_id
           ConstK pd = framePostdomMap f Ctx.! block_id
-          f' = f { frameRegs =  args
+          f' = f { _frameRegs =  args
                  , _frameStmts = b^.blockStmts
                  , _framePostdom  = listToMaybe pd
                  }
@@ -136,7 +139,7 @@ extendFrame :: TypeRepr tp
             -> StmtSeq ext blocks ret (ctx ::> tp)
             -> CallFrame sym ext blocks ret ctx
             -> CallFrame sym ext blocks ret (ctx ::> tp)
-extendFrame tp v s f = f { frameRegs = assignReg tp v (frameRegs f)
+extendFrame tp v s f = f { _frameRegs = assignReg tp v (_frameRegs f)
                          , _frameStmts = s
                          }
 
@@ -145,5 +148,5 @@ mergeCallFrame :: IsSymInterface sym
                -> IntrinsicTypes sym
                -> MuxFn (Pred sym) (CallFrame sym ext blocks ret args)
 mergeCallFrame s iteFns p xcf ycf = do
-  r <- mergeRegs s iteFns p (frameRegs xcf) (frameRegs ycf)
-  return $ xcf { frameRegs = r }
+  r <- mergeRegs s iteFns p (_frameRegs xcf) (_frameRegs ycf)
+  return $ xcf { _frameRegs = r }

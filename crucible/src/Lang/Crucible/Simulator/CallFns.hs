@@ -26,6 +26,10 @@ module Lang.Crucible.Simulator.CallFns
   , returnToOverride
   , SomeSimFrame(..)
   , resolveCallFrame
+
+  , stateCrucibleFrame
+  , crucibleSimFrame
+  , crucibleTopFrame
   ) where
 
 import           Control.Exception
@@ -171,13 +175,13 @@ evalLogFn s n msg = do
 evalReg :: CrucibleState p sym ext rtp blocks r ctx
         -> Reg ctx tp
         -> RegValue sym tp
-evalReg s r = frameRegs (s^.stateCrucibleFrame) `regVal` r
+evalReg s r = (s^.stateCrucibleFrame.frameRegs) `regVal` r
 
 -- | Evaluate an expression.
 evalReg' :: CrucibleState p sym ext rtp blocks r ctx
         -> Reg ctx tp
         -> RegEntry sym tp
-evalReg' s r = frameRegs (s^.stateCrucibleFrame) `regVal'` r
+evalReg' s r = (s^.stateCrucibleFrame.frameRegs) `regVal'` r
 
 -- | Evaluate an expression.
 evalExpr :: forall p sym ext ctx tp rtp blocks r
@@ -484,7 +488,7 @@ evalArgs :: forall p sym ext rtp blocks r ctx args
            . CrucibleState p sym ext rtp blocks r ctx
           -> Ctx.Assignment (Reg ctx) args
           -> RegMap sym args
-evalArgs s args = evalArgs' (frameRegs (s^.stateCrucibleFrame)) args
+evalArgs s args = evalArgs' (s^.stateCrucibleFrame.frameRegs) args
 {-# INLINE evalArgs #-}
 
 -- | This continuation starts with a state with an active crucible frame
@@ -547,7 +551,7 @@ loopCrucible' s_ref verb = do
     ConsStmt pl stmt rest -> do
       setCurrentProgramLoc sym pl
       when (verb >= 4) $ do
-        let sz = regMapSize (frameRegs cf)
+        let sz = regMapSize (cf^.frameRegs)
         ppStmtAndLoc h (frameHandle cf) pl (ppStmt sz stmt)
       case stmt of
         NewRefCell tpr x -> do
@@ -598,7 +602,7 @@ loopCrucible' s_ref verb = do
         ExtendAssign estmt -> do
           let estmt' = fmapFC (evalReg' s) estmt
           let tp     = appType estmt
-          (s',v) <- extensionExec (extensionImpl (s^.stateContext)) estmt' s
+          (s',v) <- extensionExec (extensionImpl (s^.stateContext)) s estmt'
           continueCrucible s_ref verb $ s' & stateCrucibleFrame %~ extendFrame tp v rest
         CallHandle ret_type fnExpr _types arg_exprs -> do
           let hndl = evalReg s fnExpr

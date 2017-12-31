@@ -50,5 +50,5 @@ llvmExtensionImpl :: ExtensionImpl p sym LLVM
 llvmExtensionImpl =
   ExtensionImpl
   { extensionEval = \_ -> \case
-  , extensionExec = \case
+  , extensionExec = \_ -> \case
   }

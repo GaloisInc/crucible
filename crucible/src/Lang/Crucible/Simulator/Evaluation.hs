@@ -43,6 +43,9 @@ module Lang.Crucible.Simulator.Evaluation
   , mda_symbolic_update
   , integerAsChar
   , complexRealAsChar
+  , indexVectorWithSymNat
+  , adjustVectorWithSymNat
+  , updateVectorWithSymNat
   ) where
 
 import           Control.Exception (assert)
@@ -514,9 +517,26 @@ updateVectorWithSymNat :: IsExprBuilder sym
                           -- ^ New value to assign
                        -> IO (V.Vector a)
 updateVectorWithSymNat sym iteFn v si new_val = do
+  adjustVectorWithSymNat sym iteFn v si (\_ -> return new_val)
+
+-- | Update a vector at a given natural number index.
+adjustVectorWithSymNat :: IsExprBuilder sym
+                       => sym
+                          -- ^ Symbolic backend
+                       -> (Pred sym -> a -> a -> IO a)
+                          -- ^ Ite function
+                       -> V.Vector a
+                          -- ^ Vector to update
+                       -> SymNat sym
+                          -- ^ Index to update
+                       -> (a -> IO a)
+                          -- ^ Adjustment function to apply
+                       -> IO (V.Vector a)
+adjustVectorWithSymNat sym iteFn v si adj = do
   let n = V.length v
   case asNat si of
     Just i | i < fromIntegral n -> do
+             new_val <- adj (v V.! fromIntegral i)
              return $ v V.// [(fromIntegral i, new_val)]
            | otherwise -> fail $
                "internal: Illegal index " ++ show i ++ " given to updateVectorWithSymNat"
@@ -525,7 +545,12 @@ updateVectorWithSymNat sym iteFn v si new_val = do
             -- Compare si and j.
             c <- natEq sym si =<< natLit sym (fromIntegral j)
             -- Select old value or new value
-            iteFn c new_val (v V.! j)
+            case asConstantPred c of
+              Just True  -> adj (v V.! j)
+              Just False -> return (v V.! j)
+              Nothing ->
+                do new_val <- adj (v V.! j)
+                   iteFn c new_val (v V.! j)
       V.generateM n setFn
 
 type EvalAppFunc sym app = forall f.

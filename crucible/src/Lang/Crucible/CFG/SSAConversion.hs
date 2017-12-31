@@ -841,7 +841,8 @@ toSSA g = do
           case C.blockInputs b `testEquality` initTypes of
             Nothing -> error $
               "Input block type " ++ show (C.blockInputs b)
-              ++ " does not match expected " ++ show initTypes ++ "."
+              ++ " does not match expected " ++ show initTypes
+              ++ ":\nwhile SSA converting function " ++ show h
             Just Refl -> do
               let g' = C.CFG { C.cfgHandle = h
                              , C.cfgBlockMap = block_map
