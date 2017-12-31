@@ -39,6 +39,7 @@ library
                    Mir.Mir
 
   other-modules: 
+                 Mir.Intrinsics,
                  Mir.Pass,
                  Mir.Pass.CollapseRefs,
                  Mir.Pass.MutRefReturnStatic,

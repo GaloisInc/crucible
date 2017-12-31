@@ -1,6 +1,7 @@
 module Mir.SAWInterface (RustModule, loadMIR, extractMIR, rmCFGs) where
 
 import Mir.Run
+import Mir.Intrinsics
 import Mir.Mir
 import Mir.Pass as P
 import Mir.Pass.CollapseRefs as P
@@ -38,7 +39,7 @@ import GHC.Stack
 
 
 data RustModule = RustModule {
-    rmCFGs :: M.Map T.Text C.AnyCFG
+    rmCFGs :: M.Map T.Text (C.AnyCFG MIR)
 }
 
 cleanFnName :: T.Text -> T.Text
@@ -68,8 +69,9 @@ loadMIR sc fp = do
       Right coll -> do
           --let passes = P.passMutRefArgs . P.passRemoveStorage . P.passRemoveBoxNullary
           let passes = P.passRemoveBoxNullary
-          let coll' = passes (functions coll)
-          -- mapM_ (putStrLn . pprint) coll'
-          let cfgmap_ = mirToCFG coll' Nothing
+          let fns = passes (functions coll)
+          -- DEBUGGING print functions
+          -- mapM_ (putStrLn . pprint) fns
+          let cfgmap_ = mirToCFG (adts coll) fns Nothing
           let cfgmap = M.fromList $ map (\(k,v) -> (cleanFnName k, v)) $ M.toList cfgmap_
           return $ RustModule cfgmap

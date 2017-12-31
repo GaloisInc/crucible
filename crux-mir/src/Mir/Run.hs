@@ -50,7 +50,10 @@ import qualified Data.Vector as V
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import qualified Data.Parameterized.TraversableFC as Ctx
+
+import           Mir.Intrinsics
 import qualified Mir.Pass as Pass
+
 
 import qualified Control.Monad.Trans.State.Strict as SState
 
@@ -59,7 +62,7 @@ type Sym = C.SAWCoreBackend GlobalNonceGenerator
 type SimContext = C.SimContext C.SAWCruciblePersonality Sym
 type SimGlobalState = C.SymGlobalState Sym
 
-type SymOverride arg_ctx ret = C.OverrideSim C.SAWCruciblePersonality Sym (C.RegEntry Sym ret) arg_ctx ret ()
+type SymOverride arg_ctx ret = C.OverrideSim C.SAWCruciblePersonality Sym MIR (C.RegEntry Sym ret) arg_ctx ret ()
 
 unfoldAssign ::
      C.CtxRepr ctx
@@ -103,20 +106,20 @@ asgnCtxToListM cr i as f = unfoldAssign cr as $ \repr val cr' as' -> do
 show_regentry :: C.RegEntry Sym ret -> String
 show_regentry (C.RegEntry tp reg_val) = show_val tp reg_val
 
-print_cfg :: C.AnyCFG -> IO ()
+print_cfg :: C.AnyCFG MIR -> IO ()
 print_cfg cfg = case cfg of
                      C.AnyCFG c -> print $ C.ppCFG False c
 
 
 
-extractFromCFGPure :: SymOverride Ctx.EmptyCtx ret -> SC.SharedContext -> C.CFG blocks argctx ret -> IO SC.Term -- no global variables
+extractFromCFGPure :: SymOverride Ctx.EmptyCtx ret -> SC.SharedContext -> C.CFG MIR blocks argctx ret -> IO SC.Term -- no global variables
 extractFromCFGPure setup sc cfg = do
     let h = C.cfgHandle cfg
     config <- C.initialConfig 0 C.sawOptions
     sym <- C.newSAWCoreBackend sc globalNonceGenerator config
     halloc <- C.newHandleAllocator
     (ecs, args) <- setupArgs sc sym h
-    let simctx = C.initSimContext sym MapF.empty config halloc stdout C.emptyHandleMap C.SAWCruciblePersonality
+    let simctx = C.initSimContext sym MapF.empty config halloc stdout C.emptyHandleMap mirExtImpl C.SAWCruciblePersonality
         simst = C.initSimState simctx C.emptyGlobals C.defaultErrorHandler
         osim = do
             setup
@@ -136,14 +139,14 @@ extractFromCFGPure setup sc cfg = do
           fail $ "aborted failure: " ++ handleAbortedResult ar
 
 
-handleAbortedResult :: C.AbortedResult sym -> String
+handleAbortedResult :: C.AbortedResult sym MIR -> String
 handleAbortedResult (C.AbortedExec simerror _) = show $ C.ppSimError simerror
 handleAbortedResult _ = "unknown"
 
-mirToCFG :: [M.Fn] -> Maybe ([M.Fn] -> [M.Fn]) -> Map.Map Text.Text C.AnyCFG
-mirToCFG fns Nothing = mirToCFG fns (Just Pass.passId)
-mirToCFG fns (Just pass) =
-    runST $ C.withHandleAllocator (T.transCollection $ pass fns)
+mirToCFG :: [M.Adt] -> [M.Fn] -> Maybe ([M.Fn] -> [M.Fn]) -> Map.Map Text.Text (C.AnyCFG MIR)
+mirToCFG adts fns Nothing = mirToCFG adts fns (Just Pass.passId)
+mirToCFG adts fns (Just pass) =
+    runST $ C.withHandleAllocator (T.transCollection adts $ pass fns)
 
 toSawCore :: SC.SharedContext -> Sym -> (C.RegEntry Sym tp) -> IO SC.Term
 toSawCore sc sym (C.RegEntry tp v) =
