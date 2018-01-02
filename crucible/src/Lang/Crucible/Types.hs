@@ -386,7 +386,7 @@ type RecursiveType = 'RecursiveType -- ^ @:: 'Symbol' -> 'Ctx' 'CrucibleType' ->
 -- the 'Lang.Crucible.Simulator.Intrinsics.IntrinsicClass' typeclass
 -- and the 'Lang.Crucible.Simulator.Intrinsics.Intrinsic' type family
 -- defined in "Lang.Crucible.Simulator.Intrinsics".
-type IntrinsicType ctx = 'IntrinsicType ctx -- ^ @:: 'Symbol' -> 'Ctx CrucibleType' -> 'CrucibleType'@.
+type IntrinsicType ctx = 'IntrinsicType ctx -- ^ @:: 'Symbol' -> 'Ctx' 'CrucibleType' -> 'CrucibleType'@.
 
 -- | The type of mutable reference cells.
 type ReferenceType = 'ReferenceType -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
