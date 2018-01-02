@@ -377,7 +377,7 @@ type IntWidthType = 'IntWidthType -- ^ @:: 'CrucibleType'@.
 -- have to mention the recursive type being defined; in which case,
 -- the type is simply a new named type which is isomorphic to its
 -- definition.
-type RecursiveType = 'RecursiveType -- ^ @:: 'Symbol' -> 'CrucibleType'@.
+type RecursiveType = 'RecursiveType -- ^ @:: 'Symbol' -> 'Ctx' 'CrucibleType' -> 'CrucibleType'@.
 
 -- | Named intrinsic types. Intrinsic types are a way to extend the
 -- Crucible type system after-the-fact and add new type
