@@ -486,14 +486,12 @@ loadRawWithCondition ::
   -- ^ Either error message or
   -- (assertion, assertion failure description, dereferenced value)
 loadRawWithCondition sym mem ptr valType =
-  do (p,v) <- G.readMem sym PtrWidth ptr valType (memImplHeap mem)
+  do v <- G.readMem sym PtrWidth ptr valType (memImplHeap mem)
      let errMsg = "Invalid memory load: address " ++ show (G.ppPtr ptr) ++
                   " at type "                     ++ show (G.ppType valType)
      case v of
        Unassigned -> return (Left errMsg)
-       PE p' v' ->
-         do p'' <- andPred sym p p'
-            return (Right (p'', AssertFailureSimError errMsg, v'))
+       PE p' v' -> return (Right (p', AssertFailureSimError errMsg, v'))
 
 doLoad :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
@@ -505,13 +503,12 @@ doLoad sym mem ptr valType = do
     --putStrLn "MEM LOAD"
     let errMsg = "Invalid memory load: address " ++ show (G.ppPtr ptr) ++
                  " at type " ++ show (G.ppType valType)
-    (p, v) <- G.readMem sym PtrWidth ptr valType (memImplHeap mem)
+    v <- G.readMem sym PtrWidth ptr valType (memImplHeap mem)
     case v of
       Unassigned ->
         fail errMsg
       PE p' v' -> do
-        p'' <- andPred sym p p'
-        addAssertion sym p'' (AssertFailureSimError errMsg)
+        addAssertion sym p' (AssertFailureSimError errMsg)
         unpackMemValue sym v'
 
 storeRaw :: (IsSymInterface sym, HasPtrWidth wptr)
