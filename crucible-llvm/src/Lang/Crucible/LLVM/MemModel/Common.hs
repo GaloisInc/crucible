@@ -165,15 +165,9 @@ splitTypeValue tp d subFn = assert (d > 0) $
     Array n0 etp -> assert (n0 > 0) $ do
       let esz = typeSize etp
       let (c,part) = assert (esz > 0) $ unBytes d `divMod` unBytes esz
-      let result
-            | c > 0 = assert (c < n0) $
-              AppendArray etp
-                          (toInteger c)
-                          (subFn 0 (arrayType c etp))
-                          (toInteger (n0 - c))
-                          (consPartial ((Bytes c) * esz) (n0 - c))
-            | otherwise = consPartial 0 n0
-          consPartial o n
+      let n = n0 - c
+      let o = d - Bytes part -- (Bytes c) * esz
+      let consPartial
             | part == 0 = subFn o (arrayType n etp)
             | n > 1 =
                 ConsArray etp
@@ -182,6 +176,14 @@ splitTypeValue tp d subFn = assert (d > 0) $
                           (subFn (o+esz) (arrayType (n-1) etp))
             | otherwise = assert (n == 1) $
                 singletonArray etp (subFn o etp)
+      let result
+            | c > 0 = assert (c < n0) $
+              AppendArray etp
+                          (toInteger c)
+                          (subFn 0 (arrayType c etp))
+                          (toInteger n)
+                          consPartial
+            | otherwise = consPartial
       result
     Struct flds -> MkStruct (fldFn <$> flds)
       where fldFn fld = (fld, subFn (fieldOffset fld) (fld^.fieldVal))
