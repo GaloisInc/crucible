@@ -49,7 +49,8 @@ import           Control.Monad
 import qualified Data.Foldable as Fold
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
-import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Classes
+import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TraversableFC
 import qualified Data.Text as Text
 import qualified Data.Vector as V
@@ -85,7 +86,7 @@ failIfNothing _  (Just v) = return v
 -- | Given a list of Booleans l, @selectedIndices@ returns the indices of
 -- true values in @l@.
 selectedIndices :: [Bool] -> [Natural]
-selectedIndices l = catMaybes $ zipWith selectIndex l [1..]
+selectedIndices l = catMaybes $ Prelude.zipWith selectIndex l [1..]
   where selectIndex True i  = Just i
         selectIndex False _ = Nothing
 
@@ -1593,7 +1594,7 @@ evalApp sym itefns logFn evalSub a0 = do
     SetStruct _ st idx x -> do
       struct <- evalSub st
       v <- evalSub x
-      return $ Ctx.update idx (RV v) struct
+      return $ struct & ixF idx .~ RV v
 
     ----------------------------------------------------------------------
     -- Variant

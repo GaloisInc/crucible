@@ -37,7 +37,6 @@ import qualified Data.Foldable as Fold
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
-import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
 import           Data.Sequence (Seq)
@@ -54,11 +53,15 @@ import           Lang.Crucible.FunctionName (FunctionName)
 import           Lang.Crucible.ProgramLoc
 
 #ifdef UNSAFE_OPS
-import           Data.Coerce
+-- We deliberately import Context.Unsafe as it is the only one that supports
+-- the unsafe coerces between an index and its extension.
+import           Data.Parameterized.Context.Unsafe as Ctx (Assignment)
+import           Data.Parameterized.Context as Ctx hiding (Assignment)
 import           Data.Parameterized.Map (MapF)
-import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Map as MapF
 import           Unsafe.Coerce
+#else
+import           Data.Parameterized.Context as Ctx
 #endif
 
 ------------------------------------------------------------------------
@@ -128,7 +131,7 @@ type BlockInputAssignment s blocks ret
 #ifdef UNSAFE_OPS
 extBlockInputAssignment :: BlockInputAssignment s blocks ret a
                         -> BlockInputAssignment s (blocks ::> tp) ret a
-extBlockInputAssignment = Data.Coerce.coerce
+extBlockInputAssignment = unsafeCoerce
 #else
 extBlockInputAssignment :: BlockInputAssignment s blocks ret a
                         -> BlockInputAssignment s (blocks ::> tp) ret a
@@ -144,7 +147,7 @@ extBlockInput bi = bi { binputID = C.extendBlockID (binputID bi) }
 
 inferRegAssignment :: Set (Input s)
                    -> Some (Assignment (Value s))
-inferRegAssignment s = fromList (inputValue <$> Set.toList s)
+inferRegAssignment s = Ctx.fromList (inputValue <$> Set.toList s)
 
 ------------------------------------------------------------------------
 -- JumpInfo
@@ -157,13 +160,15 @@ data JumpInfo s blocks where
 
 
 emptyJumpInfoMap :: JumpInfoMap s blocks
-extJumpInfoMap :: JumpInfoMap s blocks -> JumpInfoMap s (blocks ::> args)
 lookupJumpInfo :: Label s -> JumpInfoMap s blocks -> Maybe (JumpInfo s blocks)
 insertJumpInfo :: Label s -> JumpInfo s blocks -> JumpInfoMap s blocks -> JumpInfoMap s blocks
 
 #ifdef UNSAFE_OPS
 type JumpInfoMap s blocks = Map (Label s) (JumpInfo s blocks)
-extJumpInfoMap = Data.Coerce.coerce
+
+extJumpInfoMap :: JumpInfoMap s blocks -> JumpInfoMap s (blocks ::> args)
+extJumpInfoMap = unsafeCoerce
+
 
 emptyJumpInfoMap = Map.empty
 lookupJumpInfo = Map.lookup
@@ -180,6 +185,7 @@ data JumpInfoMap s blocks
 
 emptyJumpInfoMap = JumpInfoMap noDiff Map.empty Map.empty
 
+extJumpInfoMap :: JumpInfoMap s blocks -> JumpInfoMap s (blocks ::> args)
 extJumpInfoMap (JumpInfoMap diff mp _) =
   let diff' = extendRight diff
    in JumpInfoMap diff' mp (fmap (extJumpInfo diff') mp)
@@ -208,9 +214,6 @@ data SwitchInfo s blocks tp where
 
 emptySwitchInfoMap :: SwitchInfoMap s blocks
 
-extSwitchInfoMap   :: SwitchInfoMap s blocks
-                   -> SwitchInfoMap s (blocks ::> args)
-
 insertSwitchInfo   :: LambdaLabel s tp
                    -> SwitchInfo s blocks tp
                    -> SwitchInfoMap s blocks
@@ -218,13 +221,19 @@ insertSwitchInfo   :: LambdaLabel s tp
 lookupSwitchInfo   :: LambdaLabel s tp -> SwitchInfoMap s blocks -> Maybe (SwitchInfo s blocks tp)
 
 #ifdef UNSAFE_OPS
+{-
 instance CoercibleF (SwitchInfo s blocks) where
   coerceF x = Data.Coerce.coerce x
+-}
 
 newtype SwitchInfoMap s blocks = SwitchInfoMap (MapF (LambdaLabel s) (SwitchInfo s blocks))
 
 emptySwitchInfoMap = SwitchInfoMap MapF.empty
-extSwitchInfoMap = Data.Coerce.coerce
+
+extSwitchInfoMap   :: SwitchInfoMap s blocks
+                   -> SwitchInfoMap s (blocks ::> args)
+extSwitchInfoMap = unsafeCoerce
+
 insertSwitchInfo l si (SwitchInfoMap m) = SwitchInfoMap (MapF.insert l si m)
 lookupSwitchInfo l (SwitchInfoMap m) = MapF.lookup l m
 
@@ -238,6 +247,8 @@ mapSomeSI f (SomeSwitchInfo tp si) = SomeSwitchInfo tp (f si)
 
 emptySwitchInfoMap = SwitchInfoMap Map.empty
 
+extSwitchInfoMap   :: SwitchInfoMap s blocks
+                   -> SwitchInfoMap s (blocks ::> args)
 extSwitchInfoMap (SwitchInfoMap m) =
    SwitchInfoMap $ fmap (mapSomeSI extSwitchInfo) m
 
@@ -443,7 +454,7 @@ regMapFromAssignment a = TypedRegMap $ forIndex (size a) go MapF.empty
 
 extendRegMap :: TypedRegMap s ctx
              -> TypedRegMap s (ctx ::> tp)
-extendRegMap = Data.Coerce.coerce
+extendRegMap = unsafeCoerce
 
 -- | Assign existing register to atom in typed RegMap.
 bindValueReg
@@ -608,17 +619,16 @@ resolveTermStmt bi reg_map bindings t0 =
     Output l e -> C.Jump (resolveLambdaAsJump bi reg_map l (resolveAtom reg_map e))
 
 #ifdef UNSAFE_OPS
--- | Maps applications of register so
 type AppRegMap ctx = MapF (C.App (C.Reg ctx)) (C.Reg ctx)
 
 appRegMap_extend :: AppRegMap ctx -> AppRegMap (ctx ::> tp)
-appRegMap_extend = Data.Coerce.coerce
+appRegMap_extend = unsafeCoerce
 
 appRegMap_insert :: C.App (C.Reg ctx) tp
                  -> C.Reg (ctx ::> tp) tp
                  -> AppRegMap ctx
                  -> AppRegMap (ctx ::> tp)
-appRegMap_insert k v m = MapF.insert (Data.Coerce.coerce k) v (appRegMap_extend m)
+appRegMap_insert k v m = MapF.insert (fmapFC C.extendReg k) v (appRegMap_extend m)
 
 appRegMap_lookup :: C.App (C.Reg ctx) tp
                  -> AppRegMap ctx

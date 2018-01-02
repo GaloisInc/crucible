@@ -35,7 +35,7 @@ module Lang.Crucible.Utils.SymMultiDimArray
   , encoder
   , encoderFromValue
   , muxArray
-  , singleton
+  , Lang.Crucible.Utils.SymMultiDimArray.singleton
   , asSingleton
   , lookup
   , lookupConcrete
@@ -62,12 +62,12 @@ module Lang.Crucible.Utils.SymMultiDimArray
   ) where
 
 import           Control.Exception (assert)
-import           Control.Lens
+import           Control.Lens hiding (Empty, (:>))
 import           Control.Monad.State.Strict
 import           Data.Foldable
 import           Data.Maybe
 import           Data.Parameterized.Classes
-import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
 import qualified Data.Set as Set
@@ -500,9 +500,9 @@ lookupArray sym a idx_vec
           where Just e = idx_vec V.!? i
     case Ctx.generateSome (V.length idx_vec) getExpr of
       Some idx_vec' -> do
-        case Ctx.view idx_vec' of
-          Ctx.AssignEmpty -> error "Internal: lookupArray given bad size"
-          Ctx.AssignExtend _ _ -> do
+        case idx_vec' of
+          Empty -> error "Internal: lookupArray given bad size"
+          _ :> _ -> do
             sizes_ctx <- traverseFC (\(NatExpr i) -> NatExpr <$> totalSize sym i) idx_vec'
 
             -- Create bound variables used in array.

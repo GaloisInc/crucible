@@ -368,9 +368,10 @@ injectVariant ::
   RegValue sym tp ->
   RegValue sym (VariantType ctx)
 injectVariant sym ctxRepr idx val =
-  let voidVariant = Ctx.generate (Ctx.size ctxRepr) (\_ -> VB Unassigned)
-      branch = VB (PE (truePred sym) val)
-   in Ctx.update idx branch voidVariant
+  Ctx.generate (Ctx.size ctxRepr) $ \j ->
+    case testEquality j idx of
+      Just Refl -> VB (PE (truePred sym) val)
+      Nothing -> VB Unassigned
 
 {-# INLINE muxVariant #-}
 muxVariant

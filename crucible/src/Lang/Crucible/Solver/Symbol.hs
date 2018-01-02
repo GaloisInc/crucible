@@ -1,11 +1,12 @@
 {-|
-Module      : Lang.Crucible.Solver.Symbol
 Copyright   : (c) Galois Inc, 2015
 License     : BSD3
 Maintainer  : jhendrix@galois.com
 
-Declares a symbol that can be used as an identifier and is legal in all the
-output formats supported.
+This defines a datatype for representing identifiers that can be
+used with Crucible.  These must start with an ASCII letter and can consist
+of any characters in the set @['a'-'z' 'A'-'Z' '0'-'9' '_']@ as long as the
+result is not an SMTLIB or Yices keyword.
 -}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Lang.Crucible.Solver.Symbol

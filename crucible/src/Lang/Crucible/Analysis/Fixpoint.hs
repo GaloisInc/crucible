@@ -23,19 +23,20 @@ module Lang.Crucible.Analysis.Fixpoint (
   pointed
   ) where
 
-import Control.Applicative
-import Control.Lens.Operators ( (^.), (%~), (%=) )
+import           Control.Applicative
+import           Control.Lens.Operators ( (^.), (%=), (.~), (&) )
 import qualified Control.Monad.State.Strict as St
 import qualified Data.Functor.Identity as I
+import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as PU
-import qualified Data.Parameterized.TraversableFC as PU
 import qualified Data.Parameterized.Map as PM
+import qualified Data.Parameterized.TraversableFC as PU
 import qualified Data.Set as S
 
-import Prelude
+import           Prelude
 
-import Lang.Crucible.CFG.Core
-import Lang.Crucible.Analysis.Fixpoint.Components
+import           Lang.Crucible.CFG.Core
+import           Lang.Crucible.Analysis.Fixpoint.Components
 
 -- | A wrapper around widening strategies
 data WideningStrategy = WideningStrategy (Int -> Bool)
@@ -326,7 +327,7 @@ transfer dom interp retRepr blk = transferSeq (_blockStmts blk)
         True -> return S.empty
         False -> do
           markVisited target
-          isFuncAbstr %= (faRegs %~ PU.update idx new)
+          isFuncAbstr %= (faRegs . ixF idx .~ new)
           return (S.singleton (Some target))
 
 markVisited :: BlockID blocks ctx -> M dom blocks ret ()
@@ -376,7 +377,9 @@ forwardFixpoint dom interp cfg globals0 assignment0 =
                          }
       s0 = IterationState { _isRetAbstr = domBottom dom
                           , _isFuncAbstr =
-                            FunctionAbstraction { _faRegs = PU.update idx pa0 $ PU.generate (PU.size (cfgBlockMap cfg)) freshAssignment
+                            FunctionAbstraction { _faRegs =
+                                                    PU.generate (PU.size (cfgBlockMap cfg)) freshAssignment
+                                                      & ixF idx .~ pa0
                                                 , _faRet = domBottom dom
                                                 }
                           , _processedOnce = S.empty
@@ -467,7 +470,7 @@ wtoIteration mWiden dom interp cfg = loop (computeOrdering cfg)
             Just (WideningStrategy strat, WideningOperator widen)
               | strat iterNum -> do
                   let headInputW = zipPAWith widen headInput0 headInput1
-                  isFuncAbstr %= (faRegs %~ PU.update idx headInputW)
+                  isFuncAbstr %= (faRegs . ixF idx .~ headInputW)
             _ -> return ()
           processSCC (Some hbid) comps (iterNum + 1)
 

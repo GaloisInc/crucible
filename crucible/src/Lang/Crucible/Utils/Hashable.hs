@@ -84,16 +84,6 @@ instance (Eq (Ctx.Assignment k i), Eq (vf vi)) => Eq (Map k i vf vi) where
 instance (Ord (Ctx.Assignment k i), Ord (vf vi)) => Ord (Map k i vf vi) where
   compare x y = compare (hmMap x) (hmMap y)
 
---instance Functor (Map k) where
---  fmap = fmapHashedMap
---  {-# INLINE fmap #-}
-
--- fmapHashedMap :: (HashableF k, HashableF vf)
---               => (forall vi. a vi -> b vi)
---               -> Map k i a vi
---               -> Map k i b vi
--- fmapHashedMap f m = mkMap (fmap f (hmMap m))
-
 mkMap :: (HashableF k, HashableF vf)
       => Map.Map (Ctx.Assignment k i) (vf vi)
       -> Map k i vf vi

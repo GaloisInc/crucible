@@ -53,7 +53,6 @@ module Lang.Crucible.CFG.Core
   , blockStmts
   , withBlockTermStmt
   , nextBlocks
-  , extendBlock
 
     -- * Jump targets
   , JumpTarget(..)
@@ -66,7 +65,6 @@ module Lang.Crucible.CFG.Core
     -- * Statements
   , StmtSeq(..)
   , firstStmtLoc
-  , extendStmtSeq
   , stmtSeqTermStmt
   , Stmt(..)
   , ppStmt
@@ -75,7 +73,6 @@ module Lang.Crucible.CFG.Core
 
   , TermStmt(..)
   , termStmtNextBlocks
-  , extendTermStmt
 
     -- * Expressions
   , Expr(..)
@@ -92,31 +89,35 @@ module Lang.Crucible.CFG.Core
   , module Lang.Crucible.Utils.ConstK
   ) where
 
-import           Control.Applicative
-import           Control.Lens
-import           Data.Maybe
-import           Data.Parameterized.Classes
-import qualified Data.Parameterized.Context as Ctx
-import           Data.Parameterized.Map (Pair(..))
-import           Data.Parameterized.Some
-import           Data.Parameterized.TraversableFC
-import           Data.String
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import Control.Applicative
+import Control.Lens
+import Data.Maybe
+import Data.Parameterized.Classes
+import Data.Parameterized.Map (Pair(..))
+import Data.Parameterized.Some
+import Data.Parameterized.TraversableFC
+import Data.String
+import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-import           Lang.MATLAB.CharVector (CharVector)
-import           Lang.MATLAB.Utils.PrettyPrint
+import Lang.MATLAB.CharVector (CharVector)
+import Lang.MATLAB.Utils.PrettyPrint
 
-import           Lang.Crucible.CFG.Common
-import           Lang.Crucible.CFG.Expr
-import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.ProgramLoc
-import           Lang.Crucible.Types
-import           Lang.Crucible.Utils.ConstK
+import Lang.Crucible.CFG.Common
+import Lang.Crucible.CFG.Expr
+import Lang.Crucible.FunctionHandle
+import Lang.Crucible.ProgramLoc
+import Lang.Crucible.Types
+import Lang.Crucible.Utils.ConstK
 
 #ifdef UNSAFE_OPS
-import qualified Data.Coerce
+-- We deliberately import Context.Unsafe as it is the only one that supports
+-- the unsafe coerces between an index and its extension.
+import Data.Parameterized.Context as Ctx hiding (Assignment)
+import Data.Parameterized.Context.Unsafe as Ctx (Assignment)
+import Unsafe.Coerce
+#else
+import Data.Parameterized.Context as Ctx
 #endif
-
 
 ------------------------------------------------------------------------
 -- Reg
@@ -130,32 +131,27 @@ newtype Reg (ctx :: Ctx CrucibleType) (tp :: CrucibleType) = Reg { regIndex :: C
   deriving (Eq, TestEquality, Ord, OrdF)
 
 instance Show (Reg ctx tp) where
-  show (Reg i) = '$' : show (Ctx.indexVal i)
+  show (Reg i) = '$' : show (indexVal i)
 
 instance ShowF (Reg ctx)
 
 instance Pretty (Reg ctx tp) where
   pretty = text.show
 
-instance Ctx.ApplyEmbedding' Reg where
-  applyEmbedding' ctxe r = Reg $ Ctx.applyEmbedding' ctxe (regIndex r)
+instance ApplyEmbedding' Reg where
+  applyEmbedding' ctxe r = Reg $ applyEmbedding' ctxe (regIndex r)
 
-instance Ctx.ExtendContext' Reg where
-  extendContext' diff r = Reg $ Ctx.extendContext' diff (regIndex r)
+instance ExtendContext' Reg where
+  extendContext' diff r = Reg $ extendContext' diff (regIndex r)
 
 -- | Finds the value of the most-recently introduced register in scope.
-lastReg :: Ctx.KnownContext ctx => Reg (ctx ::> tp) tp
-lastReg = Reg (Ctx.nextIndex Ctx.knownSize)
+lastReg :: KnownContext ctx => Reg (ctx ::> tp) tp
+lastReg = Reg (nextIndex knownSize)
 
 -- | Extend the set of registers in scope for a given register value
 --   without changing its index or type.
 extendReg :: Reg ctx tp -> Reg (ctx ::> r) tp
-extendReg = Reg . Ctx.extendIndex . regIndex
-
-#ifdef UNSAFE_OPS
-instance CoercibleF (Reg ctx) where
-  coerceF x = Data.Coerce.coerce x
-#endif
+extendReg = Reg . extendIndex . regIndex
 
 ------------------------------------------------------------------------
 -- Expr
@@ -170,14 +166,14 @@ instance IsString (Expr ctx StringType) where
 instance Pretty (Expr ctx tp) where
   pretty (App a) = ppApp pretty a
 
-ppAssignment :: Ctx.Assignment (Reg ctx) args -> [Doc]
+ppAssignment :: Assignment (Reg ctx) args -> [Doc]
 ppAssignment = toListFC pretty
 
-instance Ctx.ApplyEmbedding' Expr where
-  applyEmbedding' ctxe (App e) = App (mapApp (Ctx.applyEmbedding' ctxe) e)
+instance ApplyEmbedding' Expr where
+  applyEmbedding' ctxe (App e) = App (mapApp (applyEmbedding' ctxe) e)
 
-instance Ctx.ExtendContext' Expr where
-  extendContext' diff (App e) = App (mapApp (Ctx.extendContext' diff) e)
+instance ExtendContext' Expr where
+  extendContext' diff (App e) = App (mapApp (extendContext' diff) e)
 
 ------------------------------------------------------------------------
 -- BlockID
@@ -196,18 +192,18 @@ instance OrdF (BlockID blocks) where
   compareF (BlockID x) (BlockID y) = compareF x y
 
 instance Pretty (BlockID blocks tp) where
-  pretty (BlockID i) = char '%' <> int (Ctx.indexVal i)
+  pretty (BlockID i) = char '%' <> int (indexVal i)
 
 instance Show (BlockID blocks ctx) where
-  show (BlockID i) = '%' : show (Ctx.indexVal i)
+  show (BlockID i) = '%' : show (indexVal i)
 
 instance ShowF (BlockID blocks)
 
-extendBlockID :: Ctx.KnownDiff l r => BlockID l tp -> BlockID r tp
-extendBlockID = BlockID . Ctx.extendIndex . blockIDIndex
+extendBlockID :: KnownDiff l r => BlockID l tp -> BlockID r tp
+extendBlockID = BlockID . extendIndex . blockIDIndex
 
-extendBlockID' :: Ctx.Diff l r -> BlockID l tp -> BlockID r tp
-extendBlockID' e = BlockID . Ctx.extendIndex' e . blockIDIndex
+extendBlockID' :: Diff l r -> BlockID l tp -> BlockID r tp
+extendBlockID' e = BlockID . extendIndex' e . blockIDIndex
 
 ------------------------------------------------------------------------
 -- JumpTarget
@@ -216,7 +212,7 @@ extendBlockID' e = BlockID . Ctx.extendIndex' e . blockIDIndex
 data JumpTarget blocks ctx where
      JumpTarget :: !(BlockID blocks args)            -- BlockID to jump to
                 -> !(CtxRepr args)                   -- expected argument types
-                -> !(Ctx.Assignment (Reg ctx) args) -- jump target actual arguments
+                -> !(Assignment (Reg ctx) args) -- jump target actual arguments
                 -> JumpTarget blocks ctx
 
 instance Pretty (JumpTarget blocks ctx) where
@@ -225,16 +221,16 @@ instance Pretty (JumpTarget blocks ctx) where
 jumpTargetID :: JumpTarget blocks ctx -> Some (BlockID blocks)
 jumpTargetID (JumpTarget tgt _ _) = Some tgt
 
-extendJumpTarget :: Ctx.Diff blocks' blocks -> JumpTarget blocks' ctx -> JumpTarget blocks ctx
+extendJumpTarget :: Diff blocks' blocks -> JumpTarget blocks' ctx -> JumpTarget blocks ctx
 extendJumpTarget diff (JumpTarget b tps a) = JumpTarget (extendBlockID' diff b) tps a
 
-instance Ctx.ApplyEmbedding (JumpTarget blocks) where
+instance ApplyEmbedding (JumpTarget blocks) where
   applyEmbedding ctxe (JumpTarget dest tys args) =
-    JumpTarget dest tys (fmapFC (Ctx.applyEmbedding' ctxe) args)
+    JumpTarget dest tys (fmapFC (applyEmbedding' ctxe) args)
 
-instance Ctx.ExtendContext (JumpTarget blocks) where
+instance ExtendContext (JumpTarget blocks) where
   extendContext diff (JumpTarget dest tys args) =
-    JumpTarget dest tys (fmapFC (Ctx.extendContext' diff) args)
+    JumpTarget dest tys (fmapFC (extendContext' diff) args)
 
 ------------------------------------------------------------------------
 -- SwitchTarget
@@ -243,7 +239,7 @@ instance Ctx.ExtendContext (JumpTarget blocks) where
 data SwitchTarget blocks ctx tp where
   SwitchTarget :: !(BlockID blocks (args ::> tp))   -- BlockID to jump to
                -> !(CtxRepr args)                   -- expected argument types
-               -> !(Ctx.Assignment (Reg ctx) args) -- switch target actual arguments
+               -> !(Assignment (Reg ctx) args) -- switch target actual arguments
                -> SwitchTarget blocks ctx tp
 
 switchTargetID :: SwitchTarget blocks ctx tp -> Some (BlockID blocks)
@@ -253,19 +249,19 @@ ppCase :: String -> SwitchTarget blocks ctx tp -> Doc
 ppCase nm (SwitchTarget tgt _ a) =
   text nm <+> text "->" <+> pretty tgt <> parens (commas (ppAssignment a))
 
-extendSwitchTarget :: Ctx.Diff blocks' blocks
+extendSwitchTarget :: Diff blocks' blocks
                    -> SwitchTarget blocks' ctx tp
                    -> SwitchTarget blocks ctx tp
 extendSwitchTarget diff (SwitchTarget b tps a) =
     SwitchTarget (extendBlockID' diff b) tps a
 
-instance Ctx.ApplyEmbedding' (SwitchTarget blocks) where
+instance ApplyEmbedding' (SwitchTarget blocks) where
   applyEmbedding' ctxe (SwitchTarget dest tys args) =
-    SwitchTarget dest tys (fmapFC (Ctx.applyEmbedding' ctxe) args)
+    SwitchTarget dest tys (fmapFC (applyEmbedding' ctxe) args)
 
-instance Ctx.ExtendContext' (SwitchTarget blocks) where
+instance ExtendContext' (SwitchTarget blocks) where
   extendContext' diff (SwitchTarget dest tys args) =
-    SwitchTarget dest tys (fmapFC (Ctx.extendContext' diff) args)
+    SwitchTarget dest tys (fmapFC (extendContext' diff) args)
 
 
 ------------------------------------------------------------------------
@@ -284,7 +280,7 @@ data Stmt (ctx :: Ctx CrucibleType) (ctx' :: Ctx CrucibleType) where
   CallHandle :: !(TypeRepr ret)                          -- The type of the return value(s)
              -> !(Reg ctx (FunctionHandleType args ret)) -- The function handle to call
              -> !(CtxRepr args)                          -- The expected types of the arguments
-             -> !(Ctx.Assignment (Reg ctx) args)         -- The actual arguments to the call
+             -> !(Assignment (Reg ctx) args)         -- The actual arguments to the call
              -> Stmt ctx (ctx ::> ret)
 
   -- Print a message out to the console
@@ -351,7 +347,7 @@ data TermStmt blocks (ret :: CrucibleType) (ctx :: Ctx CrucibleType) where
   -- and jump to the appropriate switch target.
   VariantElim :: !(CtxRepr varctx)
               -> !(Reg ctx (VariantType varctx))
-              -> !(Ctx.Assignment (SwitchTarget blocks ctx) varctx)
+              -> !(Assignment (SwitchTarget blocks ctx) varctx)
               -> TermStmt blocks ret ctx
 
   -- Return from function, providing the return value(s).
@@ -361,13 +357,14 @@ data TermStmt blocks (ret :: CrucibleType) (ctx :: Ctx CrucibleType) where
   -- End block with a tail call.
   TailCall :: !(Reg ctx (FunctionHandleType args ret))
            -> !(CtxRepr args)
-           -> !(Ctx.Assignment (Reg ctx) args)
+           -> !(Assignment (Reg ctx) args)
            -> TermStmt blocks ret ctx
 
   -- Block ends with an error.
   ErrorStmt :: !(Reg ctx StringType) -> TermStmt blocks ret ctx
 
-extendTermStmt :: Ctx.Diff blocks' blocks -> TermStmt blocks' ret ctx -> TermStmt blocks ret ctx
+#ifndef UNSAFE_OPS
+extendTermStmt :: Diff blocks' blocks -> TermStmt blocks' ret ctx -> TermStmt blocks ret ctx
 extendTermStmt diff (Jump tgt) = Jump (extendJumpTarget diff tgt)
 extendTermStmt diff (Br c x y) = Br c (extendJumpTarget diff x) (extendJumpTarget diff y)
 extendTermStmt diff (MaybeBranch tp c x y) =
@@ -377,6 +374,7 @@ extendTermStmt diff (VariantElim ctx e asgn) =
 extendTermStmt _diff (Return e) = Return e
 extendTermStmt _diff (TailCall h tps args) = TailCall h tps args
 extendTermStmt _diff (ErrorStmt e) = ErrorStmt e
+#endif
 
 -- | Return the set of possible next blocks from a TermStmt
 termStmtNextBlocks :: TermStmt b ret ctx -> Maybe [Some (BlockID b)]
@@ -423,21 +421,21 @@ instance Pretty (TermStmt blocks ret ctx) where
 
 
 applyEmbeddingStmt :: forall ctx ctx' sctx.
-                      Ctx.CtxEmbedding ctx ctx' -> Stmt ctx sctx
-                      -> Pair (Stmt ctx') (Ctx.CtxEmbedding sctx)
+                      CtxEmbedding ctx ctx' -> Stmt ctx sctx
+                      -> Pair (Stmt ctx') (CtxEmbedding sctx)
 applyEmbeddingStmt ctxe stmt =
   case stmt of
-    SetReg tp e -> Pair (SetReg tp (Ctx.applyEmbedding' ctxe e))
-                        (Ctx.extendEmbeddingBoth ctxe)
+    SetReg tp e -> Pair (SetReg tp (applyEmbedding' ctxe e))
+                        (extendEmbeddingBoth ctxe)
 
     CallHandle ret hdl tys args ->
       Pair (CallHandle ret (reg hdl) tys (fmapFC reg args))
-           (Ctx.extendEmbeddingBoth ctxe)
+           (extendEmbeddingBoth ctxe)
 
     Print str -> Pair (Print (reg str)) ctxe
 
     ReadGlobal var -> Pair (ReadGlobal var)
-                           (Ctx.extendEmbeddingBoth ctxe)
+                           (extendEmbeddingBoth ctxe)
 
     WriteGlobal var r -> Pair (WriteGlobal var (reg r)) ctxe
     NewRefCell tp r -> Pair (NewRefCell tp (reg r))
@@ -451,12 +449,12 @@ applyEmbeddingStmt ctxe stmt =
     Assert b str      -> Pair (Assert (reg b) (reg str)) ctxe
   where
     reg :: forall tp. Reg ctx tp -> Reg ctx' tp
-    reg = Ctx.applyEmbedding' ctxe
+    reg = applyEmbedding' ctxe
 
 
-instance Ctx.ApplyEmbedding (TermStmt blocks ret) where
+instance ApplyEmbedding (TermStmt blocks ret) where
   applyEmbedding :: forall ctx ctx'.
-                    Ctx.CtxEmbedding ctx ctx'
+                    CtxEmbedding ctx ctx'
                     -> TermStmt blocks ret ctx
                     -> TermStmt blocks ret ctx'
   applyEmbedding ctxe term =
@@ -469,15 +467,15 @@ instance Ctx.ApplyEmbedding (TermStmt blocks ret) where
       TailCall hdl tys args -> TailCall (apC' hdl) tys (fmapFC apC' args)
       ErrorStmt r -> ErrorStmt (apC' r)
     where
-      apC' :: forall f v. Ctx.ApplyEmbedding' f => f ctx v -> f ctx' v
-      apC' = Ctx.applyEmbedding' ctxe
+      apC' :: forall f v. ApplyEmbedding' f => f ctx v -> f ctx' v
+      apC' = applyEmbedding' ctxe
 
-      apC :: forall f. Ctx.ApplyEmbedding  f => f ctx -> f ctx'
-      apC  = Ctx.applyEmbedding  ctxe
+      apC :: forall f. ApplyEmbedding  f => f ctx -> f ctx'
+      apC  = applyEmbedding  ctxe
 
-instance Ctx.ExtendContext (TermStmt blocks ret) where
+instance ExtendContext (TermStmt blocks ret) where
   extendContext :: forall ctx ctx'.
-                    Ctx.Diff ctx ctx'
+                    Diff ctx ctx'
                     -> TermStmt blocks ret ctx
                     -> TermStmt blocks ret ctx'
   extendContext diff term =
@@ -490,11 +488,11 @@ instance Ctx.ExtendContext (TermStmt blocks ret) where
       TailCall hdl tys args -> TailCall (extC' hdl) tys (fmapFC extC' args)
       ErrorStmt r -> ErrorStmt (extC' r)
     where
-      extC' :: forall f v. Ctx.ExtendContext' f => f ctx v -> f ctx' v
-      extC' = Ctx.extendContext' diff
+      extC' :: forall f v. ExtendContext' f => f ctx v -> f ctx' v
+      extC' = extendContext' diff
 
-      extC :: forall f. Ctx.ExtendContext  f => f ctx -> f ctx'
-      extC  = Ctx.extendContext  diff
+      extC :: forall f. ExtendContext  f => f ctx -> f ctx'
+      extC  = extendContext  diff
 
 
 ------------------------------------------------------------------------
@@ -528,16 +526,16 @@ stmtSeqTermStmt :: Functor f
 stmtSeqTermStmt f (ConsStmt l s t) = ConsStmt l s <$> stmtSeqTermStmt f t
 stmtSeqTermStmt f (TermStmt p t) = f (p, t)
 
-ppReg :: Ctx.Size ctx -> Doc
-ppReg h = text "$" <> int (Ctx.sizeInt h)
+ppReg :: Size ctx -> Doc
+ppReg h = text "$" <> int (sizeInt h)
 
-nextStmtHeight :: Ctx.Size ctx -> Stmt ctx ctx' -> Ctx.Size ctx'
+nextStmtHeight :: Size ctx -> Stmt ctx ctx' -> Size ctx'
 nextStmtHeight h s =
   case s of
-    SetReg{} -> Ctx.incSize h
-    CallHandle{} -> Ctx.incSize h
+    SetReg{} -> incSize h
+    CallHandle{} -> incSize h
     Print{} -> h
-    ReadGlobal{} -> Ctx.incSize h
+    ReadGlobal{} -> incSize h
     WriteGlobal{} -> h
     NewRefCell{} -> Ctx.incSize h
     NewEmptyRefCell{} ->Ctx.incSize h
@@ -546,7 +544,7 @@ nextStmtHeight h s =
     DropRefCell{}  -> h
     Assert{} -> h
 
-ppStmt :: Ctx.Size ctx -> Stmt ctx ctx' -> Doc
+ppStmt :: Size ctx -> Stmt ctx ctx' -> Doc
 ppStmt r s =
   case s of
     SetReg _ e -> ppReg r <+> text "=" <+> pretty e
@@ -568,7 +566,7 @@ prefixLineNum :: Bool -> ProgramLoc -> Doc -> Doc
 prefixLineNum True pl d = text "%" <+> ppNoFileName (plSourceLoc pl) <$$> d
 prefixLineNum False _ d = d
 
-ppStmtSeq :: Bool -> Ctx.Size ctx -> StmtSeq blocks ret ctx -> Doc
+ppStmtSeq :: Bool -> Size ctx -> StmtSeq blocks ret ctx -> Doc
 ppStmtSeq ppLineNum h (ConsStmt pl s r) =
   prefixLineNum ppLineNum pl (ppStmt h s) <$$>
   ppStmtSeq ppLineNum (nextStmtHeight h s) r
@@ -576,22 +574,19 @@ ppStmtSeq ppLineNum _ (TermStmt pl s) =
   prefixLineNum ppLineNum pl (pretty s)
 
 
-#ifdef UNSAFE_OPS
-extendStmtSeq :: Ctx.Diff blocks' blocks -> StmtSeq blocks' ret ctx -> StmtSeq blocks ret ctx
-extendStmtSeq _ s = Data.Coerce.coerce s
-#else
-extendStmtSeq :: Ctx.Diff blocks' blocks -> StmtSeq blocks' ret ctx -> StmtSeq blocks ret ctx
+#ifndef UNSAFE_OPS
+extendStmtSeq :: Diff blocks' blocks -> StmtSeq blocks' ret ctx -> StmtSeq blocks ret ctx
 extendStmtSeq diff (ConsStmt p s l) = ConsStmt p s (extendStmtSeq diff l)
 extendStmtSeq diff (TermStmt p s) = TermStmt p (extendTermStmt diff s)
 #endif
 
 
-instance Ctx.ApplyEmbedding (StmtSeq blocks ret) where
+instance ApplyEmbedding (StmtSeq blocks ret) where
   applyEmbedding ctxe (ConsStmt loc stmt rest) =
     case applyEmbeddingStmt ctxe stmt of
-      Pair stmt' ctxe' -> ConsStmt loc stmt' (Ctx.applyEmbedding ctxe' rest)
+      Pair stmt' ctxe' -> ConsStmt loc stmt' (applyEmbedding ctxe' rest)
   applyEmbedding ctxe (TermStmt loc term) =
-    TermStmt loc (Ctx.applyEmbedding ctxe term)
+    TermStmt loc (applyEmbedding ctxe term)
 
 
 
@@ -601,9 +596,9 @@ instance Ctx.ApplyEmbedding (StmtSeq blocks ret) where
 -- | Postdominator information about a CFG.  The assignment maps each block
 --   to the postdominators of the given block.  The postdominators are ordered
 --   with nearest postdominator first.
-type CFGPostdom blocks = Ctx.Assignment (ConstK [Some (BlockID blocks)]) blocks
+type CFGPostdom blocks = Assignment (ConstK [Some (BlockID blocks)]) blocks
 
-emptyCFGPostdomInfo :: Ctx.Size blocks -> CFGPostdom blocks
+emptyCFGPostdomInfo :: Size blocks -> CFGPostdom blocks
 emptyCFGPostdomInfo sz = Ctx.replicate sz (ConstK [])
 
 
@@ -639,8 +634,8 @@ nextBlocks b =
   withBlockTermStmt b (\_ s -> fromMaybe [] (termStmtNextBlocks s))
 
 
-blockInputCount :: Block blocks ret ctx -> Ctx.Size ctx
-blockInputCount b = Ctx.size (blockInputs b)
+blockInputCount :: Block blocks ret ctx -> Size ctx
+blockInputCount b = size (blockInputs b)
 
 ppBlock :: Bool
            -- ^ Print line numbers.
@@ -650,9 +645,9 @@ ppBlock :: Bool
         -> Doc
 ppBlock ppLineNumbers pda b = do
   let stmts = ppStmtSeq ppLineNumbers (blockInputCount b) (b^.blockStmts)
-  let ConstK pd = pda Ctx.! blockIDIndex (blockID b)
+  let ConstK pd = pda ! blockIDIndex (blockID b)
   let postdom
-        | null pd = text "% no postdom"
+        | Prelude.null pd = text "% no postdom"
         | otherwise = text "% postdom" <+> hsep (viewSome pretty <$> pd)
   pretty (blockID b) <$$> indent 2 (stmts <$$> postdom)
 
@@ -670,14 +665,12 @@ instance Show (Block blocks ret args) where
 
 instance ShowF (Block blocks ret)
 
+#ifndef UNSAFE_OPS
 extendBlock :: Block blocks ret ctx -> Block (blocks ::> new) ret ctx
-#ifdef UNSAFE_OPS
-extendBlock b = Data.Coerce.coerce b
-#else
 extendBlock b =
   Block { blockID = extendBlockID (blockID b)
         , blockInputs = blockInputs b
-        , _blockStmts = extendStmtSeq Ctx.knownDiff (b^.blockStmts)
+        , _blockStmts = extendStmtSeq knownDiff (b^.blockStmts)
         }
 #endif
 
@@ -685,17 +678,17 @@ extendBlock b =
 -- BlockMap
 
 -- | A mapping from block indices to CFG blocks
-type BlockMap blocks ret = Ctx.Assignment (Block blocks ret) blocks
+type BlockMap blocks ret = Assignment (Block blocks ret) blocks
 
 getBlock :: BlockID blocks args
          -> BlockMap blocks ret
          -> Block blocks ret args
-getBlock (BlockID i) m = m Ctx.! i
+getBlock (BlockID i) m = m ! i
 
-extendBlockMap :: Ctx.Assignment (Block blocks ret) b
-               -> Ctx.Assignment (Block (blocks ::> args) ret) b
+extendBlockMap :: Assignment (Block blocks ret) b
+               -> Assignment (Block (blocks ::> args) ret) b
 #ifdef UNSAFE_OPS
-extendBlockMap = Data.Coerce.coerce
+extendBlockMap = unsafeCoerce
 #else
 extendBlockMap = fmapFC extendBlock
 #endif
@@ -742,7 +735,7 @@ ppCFG :: Bool -- ^ Flag indicates if we should print line numbers
       -> CFG blocks init ret
       -> Doc
 ppCFG lineNumbers g = ppCFG' lineNumbers (emptyCFGPostdomInfo sz) g
-  where sz = Ctx.size (cfgBlockMap g)
+  where sz = size (cfgBlockMap g)
 
 -- | Pretty print CFG with postdom information.
 ppCFG' :: Bool -- ^ Flag indicates if we should print line numbers

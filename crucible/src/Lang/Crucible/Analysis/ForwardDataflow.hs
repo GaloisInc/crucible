@@ -33,21 +33,20 @@
 ------------------------------------------------------------------------
 module Lang.Crucible.Analysis.ForwardDataflow where
 
-import Prelude hiding (foldr)
-import Data.Set (Set)
-import qualified Data.Set as Set
-
-import Control.Monad.State.Strict
-
-import Data.Parameterized.Context ( Assignment )
+import           Control.Lens
+import           Control.Monad.State.Strict
+import           Data.Parameterized.Context ( Assignment )
 import qualified Data.Parameterized.Context as Ctx
-import Data.Parameterized.TraversableFC
+import           Data.Parameterized.TraversableFC
+import           Data.Set (Set)
+import qualified Data.Set as Set
+import           Prelude hiding (foldr)
+import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-import Lang.Crucible.Types
-import Lang.Crucible.CFG.Core
-import Lang.Crucible.CFG.Expr
 
-import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Lang.Crucible.Types
+import           Lang.Crucible.CFG.Core
+import           Lang.Crucible.CFG.Expr
 
 import qualified Debug.Trace as Debug
 
@@ -255,7 +254,7 @@ kildall_transfer analysis retRepr blk = transfer_seq (_blockStmts blk)
            let same = samex && kfwd_csame analysis oldc newc
            if same
                then return Set.empty
-               else do put (Ctx.update idx (KP new newc) x, r, rc)
+               else do put (x & ixF idx .~ KP new newc, r, rc)
                        return (Set.singleton (Some tgt))
 
 
@@ -274,8 +273,10 @@ kildall_forward analysis cfg (asgn0,c0) =
                              (blockInputs (getBlock (BlockID i) (cfgBlockMap cfg)))
 
      in execState (loop (Set.singleton (Some initblk)))
-                  ( Ctx.update idx (KP asgn0 c0) $
-                       Ctx.generate (Ctx.size (cfgBlockMap cfg)) (\i -> KP (freshAsgn i) (kfwd_cbot analysis))
+                  ( Ctx.generate (Ctx.size (cfgBlockMap cfg)) $ \i ->
+                      case testEquality i idx of
+                        Just Refl -> KP asgn0 c0
+                        Nothing -> KP (freshAsgn i) (kfwd_cbot analysis)
                   , kfwd_bot analysis
                   , kfwd_cbot analysis
                   )
