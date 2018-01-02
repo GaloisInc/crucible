@@ -284,7 +284,7 @@ data CrucibleType where
    -- you must provide an instances of the IsRecursiveType class that gives
    -- the unfolding of this recursive type.  The RollRecursive and UnrollRecursive
    -- operations witness the isomorphism between a recursive type and its one-step
-   -- unrolling.  Similar to Haskell's newtype, recursive types do not necessarly
+   -- unrolling.  Similar to Haskell's newtype, recursive types do not necessarily
    -- have to mention the recursive type being defined; in which case, the type
    -- is simply a new named type which is isomorphic to its definition.
    RecursiveType :: Symbol -> Ctx CrucibleType -> CrucibleType
@@ -370,10 +370,10 @@ type IntWidthType = 'IntWidthType -- ^ @:: 'CrucibleType'@.
 -- | Named recursive types, named by the given symbol. To use
 -- recursive types you must provide an instance of the
 -- 'IsRecursiveType' class that gives the unfolding of this recursive
--- type. The 'Lang.Crucible.Core.RollRecursive' and
--- 'Lang.Crucible.Core.UnrollRecursive' operations witness the
+-- type. The 'Lang.Crucible.CFG.Expr.RollRecursive' and
+-- 'Lang.Crucible.CFG.Expr.UnrollRecursive' operations witness the
 -- isomorphism between a recursive type and its one-step unrolling.
--- Similar to Haskell's @newtype@, recursive types to not necessarily
+-- Similar to Haskell's @newtype@, recursive types do not necessarily
 -- have to mention the recursive type being defined; in which case,
 -- the type is simply a new named type which is isomorphic to its
 -- definition.
