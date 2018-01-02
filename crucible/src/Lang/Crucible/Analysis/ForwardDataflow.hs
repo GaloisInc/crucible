@@ -28,7 +28,7 @@
 -- We calculate a fixpoint of a given analysis via the straightforward
 -- method of iterating the transfer function until no more updates occur.
 --
--- Our current method for doing this is quite naive, and more effiecent
+-- Our current method for doing this is quite naive, and more efficient
 -- methods exist.
 ------------------------------------------------------------------------
 module Lang.Crucible.Analysis.ForwardDataflow where
@@ -177,6 +177,7 @@ kildall_transfer analysis retRepr blk = transfer_seq (_blockStmts blk)
        transfer_stmt (Print _) asgn = asgn
        transfer_stmt (ReadGlobal gv) (asgn, c) = (Ctx.extend asgn (kfwd_rdglobal analysis gv), c)
        transfer_stmt NewRefCell{} _ = error "forward dataflow: reference cell!"
+       transfer_stmt NewEmptyRefCell{} _ = error "forward dataflow: reference cell!"
        transfer_stmt ReadRefCell{} _ = error "forward dataflow: reference cell!"
        transfer_stmt WriteRefCell{} _ = error "forward dataflow: reference cell!"
        transfer_stmt DropRefCell{} _ = error "forward dataflow: reference cell!"
