@@ -92,6 +92,9 @@ data MemWrite sym
     -- | The merger of two memories.
   | WriteMerge (Pred sym) [MemWrite sym] [MemWrite sym]
 
+--------------------------------------------------------------------------------
+-- Reading from memory
+
 tgAddPtrC :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> LLVMPtr sym w -> Addr -> IO (LLVMPtr sym w)
 tgAddPtrC sym w x y = ptrAdd sym w x =<< constOffset sym w y
 
@@ -400,43 +403,40 @@ readMem' sym w l0 tp0 = go (badLoad sym tp0) l0 tp0
                 y <- go (return p) l tp yr
                 muxLLVMVal sym c x y
 
+--------------------------------------------------------------------------------
+
 -- | A state of memory as of a stack push, branch, or merge.
-data MemState d =
+data Mem sym =
     -- | Represents initial memory and changes since then.
     -- Changes are stored in order, with more recent changes closer to the head
     -- of the list.
-    EmptyMem d
+    EmptyMem (MemChanges sym)
     -- | Represents a push of a stack frame,  and changes since that stack push.
     -- Changes are stored in order, with more recent changes closer to the head
     -- of the list.
-  | StackFrame d (MemState d)
+  | StackFrame (MemChanges sym) (Mem sym)
     -- | Represents a push of a branch frame, and changes since that branch.
     -- Changes are stored in order, with more recent changes closer to the head
     -- of the list.
-  | BranchFrame d (MemState d)
+  | BranchFrame (MemChanges sym) (Mem sym)
 
-memStateLastChanges :: Simple Lens (MemState d) d
-memStateLastChanges f s0 =
+type MemChanges sym = ([MemAlloc sym], [MemWrite sym])
+
+memLastChanges :: Simple Lens (Mem sym) (MemChanges sym)
+memLastChanges f s0 =
   case s0 of
     EmptyMem l -> EmptyMem <$> f l
     StackFrame l s  -> flip StackFrame s  <$> f l
     BranchFrame l s -> flip BranchFrame s <$> f l
 
-type MemChanges sym = ([MemAlloc sym], [MemWrite sym])
-
 prependChanges :: MemChanges sym -> MemChanges sym -> MemChanges sym
 prependChanges (xa,xw) (ya,yw) = (xa ++ ya, xw ++ yw)
 
 muxChanges :: Pred sym -> MemChanges sym -> MemChanges sym -> MemChanges sym
-muxChanges c (xa,xw) (ya,yw) = ([AllocMerge c xa ya],[WriteMerge c xw yw])
-
-data Mem sym = Mem { _memState :: MemState (MemChanges sym) }
-
-memState :: Simple Lens (Mem sym) (MemState ([MemAlloc sym], [MemWrite sym]))
-memState = lens _memState (\s v -> s { _memState = v })
+muxChanges c (xa,xw) (ya,yw) = ([AllocMerge c xa ya], [WriteMerge c xw yw])
 
 memChanges :: (MemChanges sym -> [d]) -> Mem sym -> [d]
-memChanges f m = go (m^.memState)
+memChanges f m = go m
   where go (EmptyMem l)      = f l
         go (StackFrame l s)  = f l ++ go s
         go (BranchFrame l s) = f l ++ go s
@@ -448,17 +448,19 @@ memWrites :: Mem sym -> [MemWrite sym]
 memWrites = memChanges snd
 
 memAddAlloc :: MemAlloc sym -> Mem sym -> Mem sym
-memAddAlloc x = memState . memStateLastChanges . _1 %~ (x:)
+memAddAlloc x = memLastChanges . _1 %~ (x:)
 
 memAddWrite :: MemWrite sym -> Mem sym -> Mem sym
-memAddWrite x = memState . memStateLastChanges . _2 %~ (x:)
+memAddWrite x = memLastChanges . _2 %~ (x:)
 
 emptyChanges :: MemChanges sym
 emptyChanges = ([],[])
 
 emptyMem :: Mem sym
-emptyMem = Mem { _memState = EmptyMem emptyChanges
-               }
+emptyMem = EmptyMem emptyChanges
+
+--------------------------------------------------------------------------------
+-- Pointer validity
 
 isAllocated' :: (IsExpr (SymExpr sym), IsBoolExprBuilder sym) =>
              sym
@@ -542,6 +544,9 @@ isValidPointer sym w p m = do
    isAllocated sym w p sz m
    -- NB We call isAllocated with a size of 0.
 
+--------------------------------------------------------------------------------
+-- Other memory operations
+
 writeMem :: (1 <= w, IsSymInterface sym)
          => sym -> NatRepr w
          -> LLVMPtr sym w
@@ -606,11 +611,11 @@ allocAndWriteMem sym w a b tp loc v m = do
   return (writeMem' sym w p tp v (m & memAddAlloc (Alloc a b sz loc)))
 
 pushStackFrameMem :: Mem sym -> Mem sym
-pushStackFrameMem = memState %~ StackFrame emptyChanges
+pushStackFrameMem = StackFrame emptyChanges
 
 popStackFrameMem :: Mem sym -> Mem sym
-popStackFrameMem m = m & memState %~ popf
-  where popf (StackFrame (a,w) s) = s & memStateLastChanges %~ prependChanges c
+popStackFrameMem m = popf m
+  where popf (StackFrame (a,w) s) = s & memLastChanges %~ prependChanges c
           where c = (mapMaybe pa a, w)
 
         -- WARNING: The following code executes a stack pop underneath a branch
@@ -640,9 +645,7 @@ freeMem :: forall sym w .
   LLVMPtr sym w {- ^ Base of allocation to free -} ->
   Mem sym ->
   IO (Pred sym, Mem sym)
-freeMem sym w p m =
-  do (c, st') <- freeSt (m^.memState)
-     return (c, m & memState .~ st')
+freeMem sym w p m = freeSt m
   where
   p_decomp = ptrDecompose sym w p
 
@@ -690,8 +693,7 @@ freeMem sym w p m =
       (c,a') <- freeAllocs a
       return (c, (a', w'))
 
-  freeSt :: MemState (MemChanges sym)
-         -> IO (Pred sym, MemState (MemChanges sym))
+  freeSt :: Mem sym -> IO (Pred sym, Mem sym)
   freeSt (StackFrame ch st) = do
             (c1,ch') <- freeCh ch
             (c2,st') <- freeSt st
@@ -708,19 +710,18 @@ freeMem sym w p m =
 
 
 branchMem :: Mem sym -> Mem sym
-branchMem = memState %~ BranchFrame emptyChanges
+branchMem m = BranchFrame emptyChanges m
 
 branchAbortMem :: Mem sym -> Mem sym
-branchAbortMem = memState %~ popf
-  where popf (BranchFrame c s) = s & memStateLastChanges %~ prependChanges c
+branchAbortMem = popf
+  where popf (BranchFrame c s) = s & memLastChanges %~ prependChanges c
         popf _ = error "branchAbortMem given unexpected memory"
 
 mergeMem :: Pred sym -> Mem sym -> Mem sym -> Mem sym
 mergeMem c x y =
-  case (x^.memState, y^.memState) of
+  case (x, y) of
     (BranchFrame a s, BranchFrame b _) ->
-      let s' = s & memStateLastChanges %~ prependChanges (muxChanges c a b)
-       in x & memState .~ s'
+      s & memLastChanges %~ prependChanges (muxChanges c a b)
     _ -> error "mergeMem given unexpected memories"
 
 
@@ -801,7 +802,7 @@ ppMemChanges (al,wl) =
   text "Writes:" <$$>
   indent 2 (vcat (map ppWrite wl))
 
-ppMemState :: (d -> Doc) -> MemState d -> Doc
+ppMemState :: (MemChanges sym -> Doc) -> Mem sym -> Doc
 ppMemState f (EmptyMem d) = do
   text "Base memory" <$$> indent 2 (f d)
 ppMemState f (StackFrame d ms) = do
@@ -814,4 +815,4 @@ ppMemState f (BranchFrame d ms) = do
     ppMemState f ms
 
 ppMem :: IsExprBuilder sym => Mem sym -> Doc
-ppMem m = ppMemState ppMemChanges (m^.memState)
+ppMem m = ppMemState ppMemChanges m
