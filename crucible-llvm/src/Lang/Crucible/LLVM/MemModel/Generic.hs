@@ -45,8 +45,6 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , ppPtr
   , ppAlloc
   , ppAllocs
-  , ppWrite
-  , ppMemChanges
   , ppMem
   ) where
 
