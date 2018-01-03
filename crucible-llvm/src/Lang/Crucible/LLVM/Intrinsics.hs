@@ -227,20 +227,18 @@ transformLLVMArgs :: forall m p sym args args'.
   CtxRepr args' ->
   CtxRepr args ->
   m (ArgTransformer p sym args args')
-transformLLVMArgs sym args' args =
-  case (Ctx.view args', Ctx.view args) of
-    (Ctx.AssignEmpty, Ctx.AssignEmpty) ->
-      return (ArgTransformer (\_ -> return Ctx.Empty))
-    (Ctx.AssignExtend rest' tp', Ctx.AssignExtend rest tp) ->
-      do return (ArgTransformer
-           (\z -> case Ctx.view z of
-                    Ctx.AssignExtend xs x ->
-                      do (ValTransformer f)  <- transformLLVMRet sym tp tp'
-                         (ArgTransformer fs) <- transformLLVMArgs sym rest' rest
-                         xs' <- fs xs
-                         x'  <- RegEntry tp' <$> f (regValue x)
-                         return (xs' :> x')))
-    _ -> fail "transformLLVMArgs: argument shape mismatch!"
+transformLLVMArgs _ Empty Empty =
+  return (ArgTransformer (\_ -> return Ctx.Empty))
+transformLLVMArgs sym (rest' :> tp') (rest :> tp) = do
+  return (ArgTransformer
+           (\(xs Ctx.:> x) ->
+              do (ValTransformer f)  <- transformLLVMRet sym tp tp'
+                 (ArgTransformer fs) <- transformLLVMArgs sym rest' rest
+                 xs' <- fs xs
+                 x'  <- RegEntry tp' <$> f (regValue x)
+                 pure (xs' :> x')))
+transformLLVMArgs _ _ _ =
+  fail "transformLLVMArgs: argument shape mismatch!"
 
 transformLLVMRet ::
   (IsSymInterface sym, Monad m) =>

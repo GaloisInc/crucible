@@ -138,7 +138,7 @@ type family LLVMPointerImpl ctx where
 
 instance IsRecursiveType "LLVM_pointer" where
   type UnrollType "LLVM_pointer" ctx = LLVMPointerImpl ctx
-  unrollType _nm (Ctx.view -> Ctx.AssignExtend (Ctx.view -> Ctx.AssignEmpty) (BVRepr w)) =
+  unrollType _nm (Ctx.Empty Ctx.:> (BVRepr w)) =
             StructRepr (Ctx.empty Ctx.:> NatRepr Ctx.:> BVRepr w)
   unrollType nm ctx = typeError nm ctx
 

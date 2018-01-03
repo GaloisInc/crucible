@@ -218,9 +218,9 @@ packBase
     -> (forall ctx'. Some (Atom s) -> CtxRepr ctx' -> Ctx.Assignment (Atom s) ctx' -> a)
     -> a
 packBase ctp ctx0 asgn k =
-  case Ctx.view ctx0 of
-    Ctx.AssignEmpty -> error "packType: ran out of actual arguments!"
-    Ctx.AssignExtend ctx' ctp' ->
+  case ctx0 of
+    Ctx.Empty -> error "packType: ran out of actual arguments!"
+    ctx' Ctx.:> ctp' ->
       case testEquality ctp ctp' of
         Nothing -> error $ unwords ["crucible type mismatch",show ctp,show ctp']
         Just Refl ->
