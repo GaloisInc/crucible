@@ -18,6 +18,7 @@ module Lang.Crucible.LLVM.DataLayout
   ( Size
   , Offset
   , Alignment
+  , padToAlignment
     -- * Data layout declarations.
   , DataLayout
   , EndianForm(..)
@@ -57,7 +58,13 @@ type Offset = Word64
 
 -- | Alignments must be a power of two, so we just store the exponent.
 -- e.g., alignment value of 3 indicates the pointer must align on 2^3-byte boundaries.
-type Alignment = Word32
+newtype Alignment = Alignment Word32
+  deriving (Eq, Ord, Num, Show)
+
+-- | @padToAlignment x a@ returns the smallest value greater than or
+-- equal to @x@ that is aligned to a multiple of @a@.
+padToAlignment :: Integral a => a -> Alignment -> a
+padToAlignment x (Alignment n) = fromInteger (nextPow2Multiple (toInteger x) (fromIntegral n))
 
 newtype AlignInfo = AT (Map Natural Alignment)
   deriving (Eq)
