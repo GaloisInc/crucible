@@ -998,7 +998,7 @@ toStorableType mt =
     FloatType -> return $ G.floatType
     DoubleType -> return $ G.doubleType
     ArrayType n x -> G.arrayType (fromIntegral n) <$> toStorableType x
-    VecType _ _ -> fail "Cannot directly store vector types (FIXME?)"
+    VecType n x -> G.arrayType (fromIntegral n) <$> toStorableType x
     MetadataType -> fail "toStorableType: Cannot store metadata values"
     StructType si -> G.mkStruct <$> traverse transField (siFields si)
       where transField :: Monad m => FieldInfo -> m (G.Type, G.Size)
