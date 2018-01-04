@@ -127,6 +127,7 @@ import           Lang.Crucible.CFG.Generator
 import           Lang.Crucible.CFG.SSAConversion( toSSA )
 import           Lang.Crucible.FunctionName
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Intrinsics
 import qualified Lang.Crucible.LLVM.LLVMContext as TyCtx
@@ -1029,17 +1030,19 @@ callPtrSubtract x y = do
 callLoad :: MemType
          -> TypeRepr tp
          -> LLVMExpr s Expr
+         -> Alignment
          -> LLVMGenerator h s wptr ret (LLVMExpr s Expr)
-callLoad typ expectTy (asScalar -> Scalar PtrRepr ptr) =
+callLoad typ expectTy (asScalar -> Scalar PtrRepr ptr) align =
    do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
       memLoad <- litExpr . llvmMemLoad . memModelOps . llvmContext <$> get
       mem  <- readGlobal memVar
       typ' <- app . ConcreteLit . TypeableValue <$> toStorableType typ
-      v <- call memLoad (Ctx.Empty :> mem :> ptr :> typ')
+      let align' = litExpr align
+      v <- call memLoad (Ctx.Empty :> mem :> ptr :> typ' :> align')
       let msg = litExpr (Text.pack ("Expected load to return value of type " ++ show expectTy))
       let v' = app $ FromJustValue expectTy (app $ UnpackAny expectTy v) msg
       return (BaseExpr expectTy v')
-callLoad _ _ _ =
+callLoad _ _ _ _ =
   fail $ unwords ["Unexpected argument type in callLoad"]
 
 callStore :: MemType
@@ -1712,14 +1715,15 @@ generateInstr retType lab instr assign_f k =
       assign_f (BaseExpr (LLVMPointerRepr PtrWidth) p)
       k
 
-    L.Load ptr _atomic _align -> do
-      -- ?? FIXME assert that the alignment value is appropriate...
+    L.Load ptr _atomic align -> do
       tp'  <- liftMemType (L.typedType ptr)
       ptr' <- transValue tp' (L.typedValue ptr)
       case tp' of
         PtrType (MemType resTy) ->
           llvmTypeAsRepr resTy $ \expectTy -> do
-            res <- callLoad resTy expectTy ptr'
+            let a0 = memTypeAlign (TyCtx.llvmDataLayout ?lc) resTy
+            let align' = fromMaybe a0 (toAlignment . G.toBytes =<< align)
+            res <- callLoad resTy expectTy ptr' align'
             assign_f res
             k
         _ ->

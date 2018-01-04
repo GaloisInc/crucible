@@ -152,8 +152,11 @@ instance IntrinsicClass sym "LLVM_memory" where
         --putStrLn "MEM ABORT BRANCH"
         return $ MemImpl nxt gMap hMap $ G.branchAbortMem m
 
--- | @'RegValue' sym 'LLVMValTypeType'@ = 'G.Type'.
+-- | @'RegValue' sym 'LLVMValTypeType'@ is equivalent to 'G.Type'.
 type LLVMValTypeType = ConcreteType G.Type
+
+-- | @'RegValue' sym 'AlignmentType'@ is equivalent to 'Alignment'.
+type AlignmentType = ConcreteType Alignment
 
 newtype GlobalSymbol = GlobalSymbol L.Symbol
   deriving (Typeable, Eq, Ord, Show)
@@ -166,7 +169,7 @@ data LLVMMemOps wptr
                               (StructType (EmptyCtx ::> Mem ::> LLVMPointerType wptr))
   , llvmMemPushFrame :: FnHandle (EmptyCtx ::> Mem) Mem
   , llvmMemPopFrame :: FnHandle (EmptyCtx ::> Mem) Mem
-  , llvmMemLoad  :: FnHandle (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> LLVMValTypeType) AnyType
+  , llvmMemLoad  :: FnHandle (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> LLVMValTypeType ::> AlignmentType) AnyType
   , llvmMemStore :: FnHandle (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> LLVMValTypeType ::> AnyType) Mem
   , llvmMemLoadHandle :: FnHandle (EmptyCtx ::> Mem ::> LLVMPointerType wptr) AnyType
   , llvmResolveGlobal :: FnHandle (EmptyCtx ::> Mem ::> ConcreteType GlobalSymbol) (LLVMPointerType wptr)
@@ -441,16 +444,18 @@ memResolveGlobal =
        (regValue -> (GlobalSymbol symbol)) -> liftIO $ doResolveGlobal sym mem symbol
 
 memLoad :: HasPtrWidth wptr =>
-  LLVMIntrinsicImpl p sym (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> LLVMValTypeType) AnyType
+  LLVMIntrinsicImpl p sym
+    (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> LLVMValTypeType ::> AlignmentType) AnyType
 memLoad =
   LLVMIntrinsicImpl
     "llvm_load"
-    (Empty :> memRepr :> PtrRepr :> knownRepr) AnyRepr $
+    (Empty :> memRepr :> PtrRepr :> knownRepr :> knownRepr) AnyRepr $
     mkIntrinsic $ \_ sym
       (regValue -> mem)
       (regValue -> ptr)
-      (regValue -> valType) ->
-        liftIO $ doLoad sym mem ptr valType
+      (regValue -> valType)
+      (regValue -> alignment) ->
+        liftIO $ doLoad sym mem ptr valType alignment
 
 ppMem :: IsExprBuilder sym => RegValue sym Mem -> Doc
 ppMem mem = G.ppMem (memImplHeap mem)
@@ -505,8 +510,9 @@ doLoad :: (IsSymInterface sym, HasPtrWidth wptr)
   -> RegValue sym Mem
   -> RegValue sym (LLVMPointerType wptr) {- ^ pointer to load from -}
   -> RegValue sym LLVMValTypeType        {- ^ type of value to load -}
+  -> RegValue sym AlignmentType          {- ^ pointer alignment -}
   -> IO (RegValue sym AnyType)
-doLoad sym mem ptr valType = do
+doLoad sym mem ptr valType _align = do
     --putStrLn "MEM LOAD"
     let errMsg = "Invalid memory load: address " ++ show (G.ppPtr ptr) ++
                  " at type " ++ show (G.ppType valType)
@@ -998,7 +1004,7 @@ loadString sym mem = go id
   go :: ([Word8] -> [Word8]) -> RegValue sym (LLVMPointerType wptr) -> Maybe Int -> IO [Word8]
   go f _ (Just 0) = return $ f []
   go f p maxChars = do
-     v <- doLoad sym mem p (G.bitvectorType 1) -- one byte
+     v <- doLoad sym mem p (G.bitvectorType 1) 0 -- one byte, no alignment
      case v of
        AnyValue (BVRepr w) x
          | Just Refl <- testEquality w (knownNat :: NatRepr 8) ->
