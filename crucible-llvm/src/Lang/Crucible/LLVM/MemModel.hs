@@ -1006,16 +1006,17 @@ loadString sym mem = go id
   go f p maxChars = do
      v <- doLoad sym mem p (G.bitvectorType 1) 0 -- one byte, no alignment
      case v of
-       AnyValue (BVRepr w) x
+       AnyValue (LLVMPointerRepr w) x
          | Just Refl <- testEquality w (knownNat :: NatRepr 8) ->
-            case asUnsignedBV x of
-              Just 0 -> return $ f []
-              Just c -> do
-                  let c' :: Word8 = toEnum $ fromInteger c
-                  p' <- doPtrAddOffset sym mem p =<< bvLit sym PtrWidth 1
-                  go (f . (c':)) p' (fmap (\n -> n - 1) maxChars)
-              Nothing ->
-                fail "Symbolic value encountered when loading a string"
+            do x' <- projectLLVM_bv sym x
+               case asUnsignedBV x' of
+                 Just 0 -> return $ f []
+                 Just c -> do
+                     let c' :: Word8 = toEnum $ fromInteger c
+                     p' <- doPtrAddOffset sym mem p =<< bvLit sym PtrWidth 1
+                     go (f . (c':)) p' (fmap (\n -> n - 1) maxChars)
+                 Nothing ->
+                   fail "Symbolic value encountered when loading a string"
        _ -> fail "Invalid value encountered when loading a string"
 
 
