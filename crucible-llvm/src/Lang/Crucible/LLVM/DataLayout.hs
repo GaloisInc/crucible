@@ -15,8 +15,10 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.LLVM.DataLayout
-  ( Alignment
+  ( -- * Alignments
+    Alignment
   , padToAlignment
+  , toAlignment
     -- * Data layout declarations.
   , DataLayout
   , EndianForm(..)
@@ -59,6 +61,12 @@ newtype Alignment = Alignment Word32
 -- equal to @x@ that is aligned to @a@.
 padToAlignment :: Bytes -> Alignment -> Bytes
 padToAlignment x (Alignment n) = fromInteger (nextPow2Multiple (bytesToInteger x) (fromIntegral n))
+
+-- | Convert a number of bytes into an alignment, if it is a power of 2.
+toAlignment :: Bytes -> Maybe Alignment
+toAlignment (Bytes x)
+  | isPow2 x = Just (fromIntegral (lg x))
+  | otherwise = Nothing
 
 newtype AlignInfo = AT (Map Natural Alignment)
   deriving (Eq)
