@@ -39,6 +39,7 @@ library
 
   exposed-modules:
     Lang.Crucible.LLVM
+    Lang.Crucible.LLVM.Bytes
     Lang.Crucible.LLVM.DataLayout
     Lang.Crucible.LLVM.Intrinsics
     Lang.Crucible.LLVM.LLVMContext

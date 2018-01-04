@@ -130,6 +130,7 @@ import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Intrinsics
 import qualified Lang.Crucible.LLVM.LLVMContext as TyCtx
+import qualified Lang.Crucible.LLVM.Bytes as G
 import           Lang.Crucible.LLVM.MemModel
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
@@ -1002,7 +1003,7 @@ toStorableType mt =
       where transField :: Monad m => FieldInfo -> m (G.Type, G.Size)
             transField fi = do
                t <- toStorableType $ fiType fi
-               return (t, G.toBytes (fiPadding fi))
+               return (t, fiPadding fi)
 
 callPtrAddOffset ::
        Expr s (LLVMPointerType wptr)
@@ -1109,9 +1110,9 @@ calcGEP' (ArrayType bound typ') base (idx : xs) = do
 
     let dl  = TyCtx.llvmDataLayout ?lc
 
-    -- Calculate the size of the elemement memtype and check that it fits
+    -- Calculate the size of the element memtype and check that it fits
     -- in the pointer width
-    let isz = fromIntegral $ memTypeSize dl typ'
+    let isz = G.bytesToInteger $ memTypeSize dl typ'
     unless (isz <= maxSigned PtrWidth)
       (fail $ unwords ["Type size too large for pointer width:", show typ'])
 
@@ -1147,7 +1148,7 @@ calcGEP' (PtrType (MemType typ')) base (idx : xs) = do
 
     -- Calculate the size of the elemement memtype and check that it fits
     -- in the pointer width
-    let isz = fromIntegral $ memTypeSize dl typ'
+    let isz = G.bytesToInteger $ memTypeSize dl typ'
     unless (isz <= maxSigned PtrWidth)
       (fail $ unwords ["Type size too large for pointer width:", show typ'])
     let sz :: Expr s (BVType wptr)
@@ -1176,7 +1177,7 @@ calcGEP' (StructType si) base (idx : xs) = do
       Just fi -> do
         -- Get the field offset and check that it fits
         -- in the pointer width
-        let ioff = fromIntegral $ fiOffset fi
+        let ioff = G.bytesToInteger $ fiOffset fi
         unless (ioff <= maxSigned PtrWidth)
           (fail $ unwords ["Field offset too large for pointer width in structure:"
                           , show (ppMemType (StructType si))])
@@ -1695,7 +1696,7 @@ generateInstr retType lab instr assign_f k =
       tp' <- liftMemType tp
       let dl = TyCtx.llvmDataLayout ?lc
       let tp_sz = memTypeSize dl tp'
-      let tp_sz' = app $ BVLit PtrWidth $ fromIntegral tp_sz
+      let tp_sz' = app $ BVLit PtrWidth $ G.bytesToInteger tp_sz
       sz <- case num of
                Nothing -> return $ tp_sz'
                Just num' -> do
@@ -2376,7 +2377,7 @@ initializeMemory sym llvm_ctx m = do
    gs_alloc <- mapM (\g -> do
                         ty <- liftMemType $ L.globalType g
                         let sz = memTypeSize dl ty
-                        return (L.globalSym g, G.toBytes sz))
+                        return (L.globalSym g, sz))
                     gs
    allocGlobals sym gs_alloc mem
 

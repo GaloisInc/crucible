@@ -54,6 +54,7 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word
 
+import Lang.Crucible.LLVM.Bytes
 import Lang.Crucible.LLVM.MemModel.Type
 
 -- | @WR i j@ denotes that the write should store in range [i..j).
