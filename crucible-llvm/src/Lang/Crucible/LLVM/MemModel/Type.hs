@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------
 -- |
--- Module           : Lang.Crucible.LLVM.MemModel.Common
+-- Module           : Lang.Crucible.LLVM.MemModel.Type
 -- Description      : Representation of storable types used by the memory model
 -- Copyright        : (c) Galois, Inc 2011-2016
 -- License          : BSD3
@@ -18,18 +18,8 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 
 module Lang.Crucible.LLVM.MemModel.Type
-  ( -- * Bytes
-    Bytes(..)
-  , Addr
-  , Size
-  , Offset
-  , bytesToBits
-  , bytesToInteger
-  , toBytes
-  , bitsToBytes
-
-    -- * Storable types
-  , Type(..)
+  ( -- * Storable types
+    Type(..)
   , TypeF(..)
   , bitvectorType
   , floatType
@@ -54,30 +44,7 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word
 
--- | A newtype for expressing numbers of bytes.
---   This newtype is explicitly introduced to avoid confusion
---   between widths expressed as numbers of bits vs numbers of bytes.
-newtype Bytes = Bytes { unBytes :: Word64 }
-  deriving (Eq, Ord, Num)
-
-instance Show Bytes where
-  show (Bytes n) = show n
-
-bytesToBits :: Bytes -> Integer
-bytesToBits (Bytes n) = 8 * toInteger n
-
-bytesToInteger :: Bytes -> Integer
-bytesToInteger (Bytes n) = toInteger n
-
-toBytes :: Integral a => a -> Bytes
-toBytes = Bytes . fromIntegral
-
-bitsToBytes :: Integral a => a -> Bytes
-bitsToBytes n = Bytes ( (fromIntegral n + 7) `div` 8 )
-
-type Addr = Bytes
-type Size = Bytes
-type Offset = Bytes
+import Lang.Crucible.LLVM.Bytes
 
 data Field v =
   Field

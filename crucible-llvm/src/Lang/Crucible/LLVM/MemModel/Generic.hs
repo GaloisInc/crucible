@@ -59,6 +59,7 @@ import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import Data.Parameterized.Classes
 
+import Lang.Crucible.LLVM.Bytes
 import Lang.Crucible.LLVM.MemModel.Type
 import Lang.Crucible.LLVM.MemModel.Common
 import Lang.Crucible.LLVM.MemModel.Pointer
