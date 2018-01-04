@@ -1,6 +1,6 @@
 -- |
 -- Module           : Lang.Crucible.LLVM.Intrinsics
--- Description      : Override definitions for LLVM intrisic and basic
+-- Description      : Override definitions for LLVM intrinsic and basic
 --                    library functions
 -- Copyright        : (c) Galois, Inc 2015-2016
 -- License          : BSD3
