@@ -30,6 +30,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Lang.Crucible.LLVM.MemModel
   ( LLVMPointerType
+  , LLVMValTypeType
   , pattern LLVMPointerRepr
   , pattern PtrWidth
   , ptrWidth
@@ -40,7 +41,6 @@ module Lang.Crucible.LLVM.MemModel
   , LLVMMemOps(..)
   , newMemOps
   , llvmMemIntrinsics
-  , GlobalMap
   , GlobalSymbol(..)
   , allocGlobals
   , registerGlobal
@@ -120,6 +120,8 @@ import GHC.Stack
 
 --import Debug.Trace as Debug
 
+-- | The 'CrucibleType' of an LLVM memory. @'RegValue' sym 'Mem'@ is
+-- implemented as @'MemImpl' sym@.
 type Mem = IntrinsicType "LLVM_memory" EmptyCtx
 
 memRepr :: TypeRepr Mem
@@ -150,10 +152,11 @@ instance IntrinsicClass sym "LLVM_memory" where
         --putStrLn "MEM ABORT BRANCH"
         return $ MemImpl nxt gMap hMap $ G.branchAbortMem m
 
+-- | @'RegValue' sym 'LLVMValTypeType'@ = 'G.Type'.
 type LLVMValTypeType = ConcreteType G.Type
 
 newtype GlobalSymbol = GlobalSymbol L.Symbol
- deriving (Typeable, Eq, Ord, Show)
+  deriving (Typeable, Eq, Ord, Show)
 
 data LLVMMemOps wptr
   = LLVMMemOps
@@ -266,6 +269,8 @@ nextBlock :: BlockSource -> IO Integer
 nextBlock (BlockSource ref) =
   atomicModifyIORef' ref (\n -> (n+1, n))
 
+-- | The implementation of an LLVM memory, containing an
+-- allocation-block source, global map, handle map, and heap.
 data MemImpl sym =
   MemImpl
   { memImplBlockSource :: BlockSource
@@ -286,7 +291,7 @@ data SomePointer sym = forall w. SomePointer !(RegValue sym (LLVMPointerType w))
 type GlobalMap sym = Map L.Symbol (SomePointer sym)
 
 -- | Allocate memory for each global, and register all the resulting
--- pointers in the 'GlobalMap'.
+-- pointers in the global map.
 allocGlobals :: (IsSymInterface sym, HasPtrWidth wptr)
              => sym
              -> [(L.Symbol, G.Size)]
@@ -304,7 +309,7 @@ allocGlobal sym mem (symbol@(L.Symbol sym_str), sz) = do
   (ptr, mem') <- doMalloc sym G.GlobalAlloc sym_str mem sz'
   return (registerGlobal mem' symbol ptr)
 
--- | Add an entry to the 'GlobalMap' of the given 'MemImpl'.
+-- | Add an entry to the global map of the given 'MemImpl'.
 registerGlobal :: MemImpl sym
                -> L.Symbol
                -> RegValue sym (LLVMPointerType wptr)
@@ -450,6 +455,7 @@ memLoad =
 ppMem :: IsExprBuilder sym => RegValue sym Mem -> Doc
 ppMem mem = G.ppMem (memImplHeap mem)
 
+-- | Pretty print a memory state to the given handle.
 doDumpMem
   :: IsExprBuilder sym
   => Handle
@@ -497,8 +503,8 @@ loadRawWithCondition sym mem ptr valType =
 doLoad :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> RegValue sym Mem
-  -> RegValue sym (LLVMPointerType wptr)
-  -> RegValue sym LLVMValTypeType
+  -> RegValue sym (LLVMPointerType wptr) {- ^ pointer to load from -}
+  -> RegValue sym LLVMValTypeType        {- ^ type of value to load -}
   -> IO (RegValue sym AnyType)
 doLoad sym mem ptr valType = do
     --putStrLn "MEM LOAD"
@@ -530,9 +536,9 @@ storeRaw sym mem ptr valType val = do
 doStore :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> RegValue sym Mem
-  -> RegValue sym (LLVMPointerType wptr)
-  -> RegValue sym LLVMValTypeType
-  -> RegValue sym AnyType
+  -> RegValue sym (LLVMPointerType wptr) {- ^ pointer to store into -}
+  -> RegValue sym LLVMValTypeType        {- ^ type of value to store -}
+  -> RegValue sym AnyType                {- ^ value to store -}
   -> IO (RegValue sym Mem)
 doStore sym mem ptr valType (AnyValue tpr val) = do
     --putStrLn "MEM STORE"
@@ -891,8 +897,8 @@ doPtrAddOffset
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> RegValue sym Mem
-  -> RegValue sym (LLVMPointerType wptr)
-  -> RegValue sym (BVType wptr)
+  -> RegValue sym (LLVMPointerType wptr) {- ^ base pointer -}
+  -> RegValue sym (BVType wptr)          {- ^ offset -}
   -> IO (RegValue sym (LLVMPointerType wptr))
 doPtrAddOffset sym m x off = do
    x' <- ptrAdd sym PtrWidth x off
