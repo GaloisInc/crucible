@@ -40,7 +40,6 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Classes
 import           Data.Parameterized.TraversableFC
 
-
 -- | A newtype wrapper around a vector.
 --
 -- Solely implemented for a 'Hashable' instance.

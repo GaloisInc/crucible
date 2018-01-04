@@ -129,7 +129,6 @@ library
     Lang.Crucible.Utils.BVDomain.Map
     Lang.Crucible.Utils.Complex
     Lang.Crucible.Utils.CoreRewrite
-    Lang.Crucible.Utils.ConstK
     Lang.Crucible.Utils.Hashable
     Lang.Crucible.Utils.LeqMap
     Lang.Crucible.Utils.MonadST

@@ -86,7 +86,6 @@ module Lang.Crucible.CFG.Core
   , module Lang.Crucible.CFG.Common
   , module Data.Parameterized.Classes
   , module Data.Parameterized.Some
-  , module Lang.Crucible.Utils.ConstK
   ) where
 
 import Control.Applicative
@@ -107,7 +106,6 @@ import Lang.Crucible.CFG.Expr
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.ProgramLoc
 import Lang.Crucible.Types
-import Lang.Crucible.Utils.ConstK
 
 #ifdef UNSAFE_OPS
 -- We deliberately import Context.Unsafe as it is the only one that supports
@@ -183,7 +181,7 @@ instance ExtendContext' Expr where
 --   it expects to find in registers from its calling locations.
 newtype BlockID (blocks :: Ctx (Ctx CrucibleType)) (tp :: Ctx CrucibleType)
       = BlockID { blockIDIndex :: Ctx.Index blocks tp }
-  deriving ( Eq, Ord)
+  deriving (Eq, Ord)
 
 instance TestEquality (BlockID blocks) where
   testEquality (BlockID x) (BlockID y) = testEquality x y
@@ -596,10 +594,10 @@ instance ApplyEmbedding (StmtSeq blocks ret) where
 -- | Postdominator information about a CFG.  The assignment maps each block
 --   to the postdominators of the given block.  The postdominators are ordered
 --   with nearest postdominator first.
-type CFGPostdom blocks = Assignment (ConstK [Some (BlockID blocks)]) blocks
+type CFGPostdom blocks = Assignment (Const [Some (BlockID blocks)]) blocks
 
 emptyCFGPostdomInfo :: Size blocks -> CFGPostdom blocks
-emptyCFGPostdomInfo sz = Ctx.replicate sz (ConstK [])
+emptyCFGPostdomInfo sz = Ctx.replicate sz (Const [])
 
 
 ------------------------------------------------------------------------
@@ -645,7 +643,7 @@ ppBlock :: Bool
         -> Doc
 ppBlock ppLineNumbers pda b = do
   let stmts = ppStmtSeq ppLineNumbers (blockInputCount b) (b^.blockStmts)
-  let ConstK pd = pda ! blockIDIndex (blockID b)
+  let Const pd = pda ! blockIDIndex (blockID b)
   let postdom
         | Prelude.null pd = text "% no postdom"
         | otherwise = text "% postdom" <+> hsep (viewSome pretty <$> pd)

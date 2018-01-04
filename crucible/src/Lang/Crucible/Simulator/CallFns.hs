@@ -238,7 +238,7 @@ checkStateConsistency s (BlockID block_id) = do
   case getIntraFrameBranchTarget (s^.stateTree^.actContext) of
     Nothing -> return ()
     Just (Some tgt) -> do
-      let ConstK _pd = framePostdomMap f Ctx.! block_id
+      let Const _pd = framePostdomMap f Ctx.! block_id
       case branchTarget tgt of
         ReturnTarget -> return ()
           -- FIXME? I'm not sure ignoring this situation is correct...

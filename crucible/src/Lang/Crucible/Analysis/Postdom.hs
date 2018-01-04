@@ -19,6 +19,7 @@ module Lang.Crucible.Analysis.Postdom
   ) where
 
 import           Control.Monad.State
+import           Data.Functor.Const
 import qualified Data.Graph.Inductive as G
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -88,8 +89,8 @@ postdomMap m = r
 postdomAssignment :: forall blocks ret . BlockMap blocks ret -> CFGPostdom blocks
 postdomAssignment m = fmapFC go m
   where pd = postdomMap m
-        go :: Block blocks ret c -> ConstK [Some (BlockID blocks)] c
-        go b = ConstK $ fromMaybe [] (Map.lookup (Some (blockID b)) pd)
+        go :: Block blocks ret c -> Const [Some (BlockID blocks)] c
+        go b = Const $ fromMaybe [] (Map.lookup (Some (blockID b)) pd)
 
 -- | Compute posstdom information for CFG.
 postdomInfo :: CFG b i r -> CFGPostdom b
@@ -120,7 +121,7 @@ validateTarget _ pdInfo src (Some pd:src_postdoms) (Some tgt)
   | isJust (testEquality pd tgt) =
       addErrorIf (src_postdoms /= tgt_postdoms) $
         "Unexpected postdominators from " ++ src ++ " to " ++ show tgt ++ "."
-  where ConstK tgt_postdoms = pdInfo Ctx.! blockIDIndex tgt
+  where Const tgt_postdoms = pdInfo Ctx.! blockIDIndex tgt
 validateTarget g pdInfo src src_postdoms (Some tgt)
   | blockEndsWithError tgt_block =
     return ()
@@ -133,14 +134,14 @@ validateTarget g pdInfo src src_postdoms (Some tgt)
       addErrorIf (src_postdoms /= tgt_prefix) $
         "Unexpected postdominators from " ++ src ++ " to " ++ show tgt ++ "."
   where tgt_block = getBlock tgt (cfgBlockMap g)
-        ConstK tgt_postdoms = pdInfo Ctx.! blockIDIndex tgt
+        Const tgt_postdoms = pdInfo Ctx.! blockIDIndex tgt
 
 validatePostdom :: CFG blocks init ret
                 -> CFGPostdom blocks
                 -> [String]
 validatePostdom g pdInfo = flip execState [] $ do
   forMFC_ (cfgBlockMap g) $ \b -> do
-    let ConstK b_pd = pdInfo Ctx.! blockIDIndex (blockID b)
+    let Const b_pd = pdInfo Ctx.! blockIDIndex (blockID b)
     let loc = show (cfgHandle g) ++ show (blockID b)
     mapM_ (validateTarget g pdInfo loc b_pd) (nextBlocks b)
 

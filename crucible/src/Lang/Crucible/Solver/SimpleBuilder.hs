@@ -543,7 +543,6 @@ data App (e :: BaseType -> *) (tp :: BaseType) where
            -> !(e (BaseBVType w))
            -> App e (BaseBVType w)
 
-
   ------------------------------------------------------------------------
   -- Array operations
 
@@ -3826,7 +3825,6 @@ instance IsExprBuilder (SimpleBuilder t st) where
     , Just (BVAdd w (asUnsignedBV -> Just j) y_r) <- asApp y = do
       c <- bvLit sym w (i - j)
       bvEq sym c y_r
-
 
     | Just (BVAdd w (asUnsignedBV -> Just i) x_r) <- asApp x
     , Just j <- asUnsignedBV y = do
