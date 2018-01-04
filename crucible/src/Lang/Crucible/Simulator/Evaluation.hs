@@ -466,9 +466,9 @@ dimLit sym d = traverse (natLit sym) (V.fromList (MDA.asDimList d))
 
 -- | Evaluate an indexTermterm to an index value.
 evalBase :: sym
-          -> (forall utp . f utp -> IO (RegValue sym utp))
-          -> BaseTerm f vtp
-          -> IO (SymExpr sym vtp)
+         -> (forall utp . f utp -> IO (RegValue sym utp))
+         -> BaseTerm f vtp
+         -> IO (SymExpr sym vtp)
 evalBase _ evalSub (BaseTerm tp e) =
   case tp of
     BaseBoolRepr    -> evalSub e
@@ -542,6 +542,21 @@ evalApp :: forall sym f tp
 evalApp sym itefns logFn evalSub a0 = do
   case a0 of
 
+    BaseIsEq tp xe ye -> do
+      x <- evalBase sym evalSub (BaseTerm tp xe)
+      y <- evalBase sym evalSub (BaseTerm tp ye)
+      isEq sym x y
+
+    BaseIte tp ce xe ye -> do
+      c <- evalSub ce
+      case asConstantPred c of
+        Just True  -> evalSub xe
+        Just False -> evalSub ye
+        Nothing -> do
+          x <- evalBase sym evalSub (BaseTerm tp xe)
+          y <- evalBase sym evalSub (BaseTerm tp ye)
+          baseTypeIte sym c x y
+
     ----------------------------------------------------------------------
     -- ()
 
@@ -587,24 +602,11 @@ evalApp sym itefns logFn evalSub a0 = do
       xv <- evalSub x
       yv <- evalSub y
       xorPred sym xv yv
-    BoolIte ce x y -> do
-      c <- evalSub ce
-      case asConstantPred c of
-        Just True  -> evalSub x
-        Just False -> evalSub y
-        Nothing -> do
-          t <- evalSub x
-          f <- evalSub y
-          itePred sym c t f
 
     ----------------------------------------------------------------------
     -- Nat
 
     NatLit n -> natLit sym n
-    NatEq xe ye -> do
-      x <- evalSub xe
-      y <- evalSub ye
-      natEq sym x y
     NatLt xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
@@ -630,10 +632,6 @@ evalApp sym itefns logFn evalSub a0 = do
     -- Int
 
     IntLit n -> intLit sym n
-    IntEq xe ye -> do
-      x <- evalSub xe
-      y <- evalSub ye
-      intEq sym x y
     IntLt xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
@@ -711,8 +709,6 @@ evalApp sym itefns logFn evalSub a0 = do
       e <- evalSub e_expr
       v <- evalSub v_expr
       return $ V.cons e v
-
-
 
     --------------------------------------------------------------------
     -- Symbolic Arrays
@@ -910,19 +906,6 @@ evalApp sym itefns logFn evalSub a0 = do
       x <- evalSub xe
       y <- evalSub ye
       realMod sym x y
-    RealIte ce te fe -> do
-      c <- evalSub ce
-      case asConstantPred c of
-        Just True  -> evalSub te
-        Just False -> evalSub fe
-        Nothing -> do
-          t <- evalSub te
-          f <- evalSub fe
-          realIte sym c t f
-    RealEq x_expr y_expr -> do
-      x <- evalSub x_expr
-      y <- evalSub y_expr
-      realEq sym x y
     RealLt x_expr y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
@@ -1180,10 +1163,6 @@ evalApp sym itefns logFn evalSub a0 = do
     BVSext w' _ xe -> do
       x <- evalSub xe
       bvSext sym w' x
-    BVEq _ xe ye -> do
-      x <- evalSub xe
-      y <- evalSub ye
-      bvEq sym x y
     BVNot _ xe ->
       bvNotBits sym =<< evalSub xe
     BVAnd _ xe ye -> do
@@ -1281,11 +1260,6 @@ evalApp sym itefns logFn evalSub a0 = do
       x <- evalSub xe
       y <- evalSub ye
       bvSle sym x y
-    BVIte ce _ xe ye -> do
-      c <- evalSub ce
-      x <- evalSub xe
-      y <- evalSub ye
-      bvIte sym c x y
 
     --------------------------------------------------------------------
     -- Symbolic (u)int arrays

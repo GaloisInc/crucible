@@ -14,11 +14,12 @@ Evaluation of expressions is defined in module "Lang.Crucible.Simulator.Evaluati
 -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
 
 -- This option is here because, without it, GHC takes an extremely
@@ -36,6 +37,13 @@ module Lang.Crucible.CFG.Expr
   , mapApp
   , foldApp
   , traverseApp
+  , pattern BVEq
+  , pattern NatEq
+  , pattern IntEq
+  , pattern RealEq
+  , pattern BoolIte
+  , pattern RealIte
+  , pattern BVIte
     -- * Base terms
   , BaseTerm(..)
   ) where
@@ -96,6 +104,34 @@ instance TraversableFC BaseTerm where
 ------------------------------------------------------------------------
 -- App
 
+-- | Equality on bitvectors
+pattern BVEq :: () => (1 <= w, tp ~ BoolType) => NatRepr w -> f (BVType w) -> f (BVType w) -> App f tp
+pattern BVEq w x y = BaseIsEq (BaseBVRepr w) x y
+
+-- | Equality on natural numbers.
+pattern NatEq :: () => (tp ~ BoolType) => f NatType -> f NatType -> App f tp
+pattern NatEq x y = BaseIsEq BaseNatRepr x y
+
+-- | Equality on integers
+pattern IntEq :: () => (tp ~ BoolType) => f IntegerType -> f IntegerType -> App f tp
+pattern IntEq x y = BaseIsEq BaseIntegerRepr x y
+
+-- | Equality on real numbers.
+pattern RealEq :: () => (tp ~ BoolType) => f RealValType -> f RealValType -> App f tp
+pattern RealEq x y = BaseIsEq BaseRealRepr x y
+
+-- | Return first or second value depending on condition.
+pattern BoolIte :: () => (tp ~ BoolType) => f BoolType -> f tp -> f tp -> App f tp
+pattern BoolIte c x y = BaseIte BaseBoolRepr c x y
+
+-- | Return first or second number depending on condition.
+pattern RealIte :: () => (tp ~ RealValType) => f BoolType -> f tp -> f tp -> App f tp
+pattern RealIte c x y = BaseIte BaseRealRepr c x y
+
+-- | Return first or second value depending on condition.
+pattern BVIte :: () => (1 <= w, tp ~ BVType w) => f BoolType -> NatRepr w -> f tp -> f tp -> App f tp
+pattern BVIte c w x y = BaseIte (BaseBVRepr w) c x y
+
 -- | The main Crucible expression datastructure, defined as a
 -- multisorted algebra. Type @'App' f tp@ encodes the top-level
 -- application of a Crucible expression. The type parameter @tp@ is a
@@ -104,6 +140,22 @@ instance TraversableFC BaseTerm where
 -- recursive sub-expression would go.  Uses of the 'App' type will
 -- tie the knot through this parameter.
 data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
+
+  ----------------------------------------------------------------------
+  -- Polymorphic
+
+  -- | Return true fi two base types are equal.
+  BaseIsEq :: !(BaseTypeRepr tp)
+           -> !(f (BaseToType tp))
+           -> !(f (BaseToType tp))
+           -> App f BoolType
+
+  -- | Select one or other
+  BaseIte :: !(BaseTypeRepr tp)
+          -> !(f BoolType)
+          -> !(f (BaseToType tp))
+          -> !(f (BaseToType tp))
+          -> App f (BaseToType tp)
 
   ----------------------------------------------------------------------
   -- ()
@@ -151,19 +203,11 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
           -> !(f BoolType)
           -> App f BoolType
 
-  -- Exclusive or of Boolean values.
-  BoolIte :: !(f BoolType)
-          -> !(f BoolType)
-          -> !(f BoolType)
-          -> App f BoolType
-
   ----------------------------------------------------------------------
   -- Nat
 
   -- @NatLit n@ returns the value n.
   NatLit :: !Natural -> App f NatType
-  -- Equality on natural numbers.
-  NatEq :: !(f NatType) -> !(f NatType) -> App f BoolType
   -- Less than on natural numbers.
   NatLt :: !(f NatType) -> !(f NatType) -> App f BoolType
   -- Less than or equal on natural numbers.
@@ -188,7 +232,6 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- Multiple two integers.
   IntMul :: !(f IntegerType) -> !(f IntegerType) -> App f IntegerType
 
-  IntEq :: !(f IntegerType) -> !(f IntegerType) -> App f BoolType
   IntLt :: !(f IntegerType) -> !(f IntegerType) -> App f BoolType
 
   ----------------------------------------------------------------------
@@ -209,10 +252,6 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- @y@ is not zero and @x@ when @y@ is zero.
   RealMod :: !(f RealValType) -> !(f RealValType) -> App f RealValType
 
-  -- Return first or second number depending on condition.
-  RealIte :: !(f BoolType) -> !(f RealValType) -> !(f RealValType) -> App f RealValType
-
-  RealEq :: !(f RealValType) -> !(f RealValType) -> App f BoolType
   RealLt :: !(f RealValType) -> !(f RealValType) -> App f BoolType
   -- Return true if real value is integer.
   RealIsInteger :: !(f RealValType) -> App f BoolType
@@ -556,6 +595,13 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   UIntArrayToIntegerArray :: !(f (MatlabUIntArrayType))
                           -> App f IntegerArrayType
 
+  IntegerArrayEq :: !(f IntegerArrayType)
+                 -> !(f IntegerArrayType)
+                 -> App f BoolType
+  RealArrayEq :: !(f RealArrayType)
+              -> !(f RealArrayType)
+              -> App f BoolType
+
   -- Converts a real array to an integer array.
   --
   -- Result is undefined if real values are not integers.
@@ -796,12 +842,6 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
          -> !(f (BVType w))
          -> App f (BVType r)
 
-  BVEq  :: (1 <= w)
-        => !(NatRepr w)
-        -> !(f (BVType w))
-        -> !(f (BVType w))
-        -> App f BoolType
-
   -- Complement bits in bitvector.
   BVNot :: (1 <= w)
         => !(NatRepr w)
@@ -941,13 +981,6 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
          -> !(f (BVType w)) -- The shift amount as an unsigned integer.
          -> App f (BVType w)
 
-  BVIte :: (1 <= w)
-        => !(f BoolType)
-        -> !(NatRepr w)
-        -> !(f (BVType w))
-        -> !(f (BVType w))
-        -> App f (BVType w)
-
   -- Given a Boolean, returns one if Boolean is True and zero otherwise.
   BoolToBV :: (1 <= w)
            => !(NatRepr w)
@@ -1062,13 +1095,6 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- A character array literal (also called a string).
   CharVectorLit :: !CharVector
                 -> App f CharArrayType
-
-  IntegerArrayEq :: !(f (IntegerArrayType))
-                 -> !(f (IntegerArrayType))
-                 -> App f BoolType
-  RealArrayEq :: !(f (RealArrayType))
-              -> !(f (RealArrayType))
-              -> App f BoolType
 
   -- Compare char arrays (arrays with different dimensions are not equal).
   CharArrayEq :: !(f CharArrayType)
@@ -1223,6 +1249,8 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
 appType :: App f tp -> TypeRepr tp
 appType a0 =
   case a0 of
+    BaseIsEq{} -> knownRepr
+    BaseIte tp _ _ _ -> baseToType tp
     ----------------------------------------------------------------------
     -- ()
     EmptyApp -> knownRepr
@@ -1240,11 +1268,9 @@ appType a0 =
     And{} -> knownRepr
     Or{} -> knownRepr
     BoolXor{} -> knownRepr
-    BoolIte{} -> knownRepr
     ----------------------------------------------------------------------
     -- Nat
     NatLit{} -> knownRepr
-    NatEq{} -> knownRepr
     NatLt{} -> knownRepr
     NatLe{} -> knownRepr
     NatAdd{} -> knownRepr
@@ -1256,7 +1282,6 @@ appType a0 =
     IntAdd{} -> knownRepr
     IntSub{} -> knownRepr
     IntMul{} -> knownRepr
-    IntEq{} -> knownRepr
     IntLt{} -> knownRepr
 
     ----------------------------------------------------------------------
@@ -1267,8 +1292,6 @@ appType a0 =
     RealMul{} -> knownRepr
     RealDiv{} -> knownRepr
     RealMod{} -> knownRepr
-    RealIte{} -> knownRepr
-    RealEq{} -> knownRepr
     RealLt{} -> knownRepr
     RealIsInteger{} -> knownRepr
 
@@ -1479,7 +1502,6 @@ appType a0 =
     BVZext w _ _ -> BVRepr w
     BVSext w _ _ -> BVRepr w
 
-    BVEq{} -> knownRepr
     BVNot w _ -> BVRepr w
     BVAnd w _ _ -> BVRepr w
     BVOr  w _ _ -> BVRepr w
@@ -1501,7 +1523,6 @@ appType a0 =
     BVShl w _ _ -> BVRepr w
     BVLshr w _ _ -> BVRepr w
     BVAshr w _ _ -> BVRepr w
-    BVIte _ w _ _ -> BVRepr w
 
     BoolToBV w _ -> BVRepr w
     BvToNat{} -> knownRepr
