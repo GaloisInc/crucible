@@ -39,6 +39,12 @@ library
                    Mir.Mir
 
   other-modules: 
+                 Mir.Intrinsics,
                  Mir.Pass,
+                 Mir.Pass.CollapseRefs,
+                 Mir.Pass.MutRefReturnStatic,
+                 Mir.Pass.RewriteMutRef,
+                 Mir.Pass.RemoveStorage,
+                 Mir.Pass.RemoveBoxNullary,
                  Mir.Run,
                  Mir.Trans

@@ -1,8 +1,13 @@
 module Mir.SAWInterface (RustModule, loadMIR, extractMIR, rmCFGs) where
 
 import Mir.Run
+import Mir.Intrinsics
 import Mir.Mir
 import Mir.Pass as P
+import Mir.Pass.CollapseRefs as P
+import Mir.Pass.RewriteMutRef as P
+import Mir.Pass.RemoveStorage as P
+import Mir.Pass.RemoveBoxNullary as P
 import System.IO
 import System.FilePath
 import qualified Data.Text as T
@@ -30,8 +35,11 @@ import qualified Text.Regex as Regex
 
 import Control.Monad
 
+import GHC.Stack
+
+
 data RustModule = RustModule {
-    rmCFGs :: M.Map T.Text C.AnyCFG
+    rmCFGs :: M.Map T.Text (C.AnyCFG MIR)
 }
 
 cleanFnName :: T.Text -> T.Text
@@ -52,13 +60,18 @@ extractMIR sc rm n = do
     term <- extractFromCFGPure link sc cfg
     return term
 
-loadMIR :: SC.SharedContext -> FilePath -> IO RustModule
+loadMIR :: HasCallStack => SC.SharedContext -> FilePath -> IO RustModule
 loadMIR sc fp = do
     f <- B.readFile fp
     let c = (J.eitherDecode f) :: Either String Collection
     case c of
       Left msg -> fail $ "Decoding of MIR failed: " ++ msg
       Right coll -> do
-          let cfgmap_ = mirToCFG (functions coll) (Just (P.passMutRefArgs . P.passRemoveStorage . P.passRemoveBoxNullary))
+          --let passes = P.passMutRefArgs . P.passRemoveStorage . P.passRemoveBoxNullary
+          let passes = P.passRemoveBoxNullary
+          let fns = passes (functions coll)
+          -- DEBUGGING print functions
+          -- mapM_ (putStrLn . pprint) fns
+          let cfgmap_ = mirToCFG (adts coll) fns Nothing
           let cfgmap = M.fromList $ map (\(k,v) -> (cleanFnName k, v)) $ M.toList cfgmap_
           return $ RustModule cfgmap

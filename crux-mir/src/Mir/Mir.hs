@@ -6,6 +6,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
 
+{-# OPTIONS_GHC -Wincomplete-patterns #-}
 module Mir.Mir where
 import Data.Aeson
 import qualified Data.HashMap.Lazy as HML
@@ -14,7 +15,8 @@ import qualified Text.Regex as Regex
 import qualified Data.Map.Strict as Map
 import Data.Text (Text, unpack)
 import Data.List
-import System.IO.Unsafe
+
+import GHC.Stack
 
 -- NOTE: below, all unwinding calls can be ignored
 --
@@ -31,6 +33,9 @@ pprint_fn2 fn a b = fn ++ "(" ++ (pprint a) ++ ", " ++ (pprint b) ++ ");"
 
 pprint_fn3 :: (PPrint a, PPrint b, PPrint c) => String -> a -> b -> c -> String
 pprint_fn3 fn a b c = fn ++ "(" ++ (pprint a) ++ ", " ++ (pprint b) ++ ", " ++ (pprint c) ++ ");"
+
+pprint_fn4 :: (PPrint a, PPrint b, PPrint c, PPrint d) => String -> a -> b -> c -> d -> String
+pprint_fn4 fn a b c d = fn ++ "(" ++ (pprint a) ++ ", " ++ (pprint b) ++ ", " ++ (pprint c) ++ ", " ++ (pprint d) ++ ");"
 
 instance PPrint a => PPrint (Maybe a) where
     pprint (Just a) = pprint a
@@ -162,10 +167,18 @@ data Adt = Adt {_adtname :: Text, _adtvariants :: [Variant]}
 instance FromJSON Adt where
     parseJSON = withObject "Adt" $ \v -> Adt <$> v .: "name" <*> v .: "variants"
 
+instance PPrint Adt where
+   pprint (Adt nm vs) = pprint_fn2 "Adt" nm vs
+
+
 data VariantDiscr
   = Explicit DefId
   | Relative Int
   deriving (Eq, Show)
+
+instance PPrint VariantDiscr where
+  pprint (Explicit a) = pprint_fn1 "Explicit" a
+  pprint (Relative a) = pprint_fn1 "Relative" a
 
 instance FromJSON VariantDiscr where
     parseJSON = withObject "VariantDiscr" $ \v -> case (HML.lookup "kind" v) of
@@ -186,8 +199,14 @@ instance FromJSON CtorKind where
                                                 Just (String "Fictive") -> pure FictiveKind
                                                 _ -> fail "unspported constructor kind"
 
+instance PPrint CtorKind where
+  pprint = show
+
 data Variant = Variant {_vname :: Text, _vdiscr :: VariantDiscr, _vfields :: [Field], _vctorkind :: CtorKind}
     deriving (Eq,Show)
+
+instance PPrint Variant where
+  pprint (Variant nm dscr flds knd) = pprint_fn4 "Variant" nm dscr flds knd
 
 instance FromJSON Variant where
     parseJSON = withObject "Variant" $ \v -> Variant <$> v .: "name" <*> v .: "discr" <*> v .: "fields" <*> v .: "ctor_kind"
@@ -195,8 +214,21 @@ instance FromJSON Variant where
 data Field = Field {_fName :: Text, _fty :: Ty, _fsubsts :: [Maybe Ty]}
     deriving (Show, Eq)
 
+instance PPrint Field where
+    pprint (Field nm ty sbs) = pprint_fn3 "Field" nm ty sbs
+
 instance FromJSON Field where
     parseJSON = withObject "Field" $ \v -> Field <$> v .: "name" <*> v .: "ty" <*> v .: "substs"
+
+
+isMutRefTy :: Ty -> Bool
+isMutRefTy (TyRef t m) = (m == Mut) || isMutRefTy t
+isMutRefTy (TySlice t) = isMutRefTy t
+isMutRefTy (TyArray t _) = isMutRefTy t
+isMutRefTy (TyTuple ts) = foldl (\acc t -> acc || isMutRefTy t) False ts
+isMutRefTy (TyCustom (BoxTy t)) = isMutRefTy t
+isMutRefTy _ = False
+
 
 data CustomTy =
        BoxTy Ty
@@ -213,8 +245,7 @@ instance FromJSON CustomTy where
                                                 Just (String "Box") -> BoxTy <$> v .: "box_ty"
                                                 Just (String "Vec") -> VecTy <$> v .: "vec_ty"
                                                 Just (String "Iter") -> IterTy <$> v .: "iter_ty"
-                                                Just (String s) -> fail $ "bad custom: " ++ (unpack s)
-
+                                                x -> fail $ "bad custom type: " ++ show x
 
 data Mutability
   = Mut
@@ -230,14 +261,14 @@ instance FromJSON Mutability where
                                                 Just (String "Mut") -> pure Mut
                                                 Just (String "MutImmutable") -> pure Immut
                                                 Just (String "Not") -> pure Immut
-                                                Just (String s) -> fail $ "bad mutability: " ++ (unpack s)
+                                                x -> fail $ "bad mutability: " ++ show x
 
 data Var = Var {
     _varname :: Text,
     _varmut :: Mutability,
     _varty :: Ty,
     _varscope :: VisibilityScope,
-    _varpos :: String }
+    _varpos :: Text }
     deriving (Eq, Show)
 
 instance Ord Var where
@@ -344,7 +375,7 @@ instance FromJSON BasicBlockData where
         <*>  v .: "terminator"
 
 data Statement =
-      Assign { _alhs :: Lvalue, _arhs :: Rvalue, _apos :: String}
+      Assign { _alhs :: Lvalue, _arhs :: Rvalue, _apos :: Text }
       -- TODO: the rest of these variants also have positions
       | SetDiscriminant { _sdlv :: Lvalue, _sdvi :: Int }
       | StorageLive { _sllv :: Lvalue }
@@ -369,22 +400,11 @@ instance FromJSON Statement where
                              Just (String "Nop") -> pure Nop
                              _ -> fail "kind not found for statement"
 instance TypeOf Lvalue where
-    typeOf (Tagged lv _) = typeOf lv
-    typeOf (Local (Var _ _ t _ _)) = t
-    typeOf Static = error "static"
-    typeOf (LProjection (LvalueProjection base (PField _ t))) = t
-    typeOf (LProjection (LvalueProjection base Deref)) = peelType $ typeOf base
-        where peelType :: Ty -> Ty
-              peelType (TyRef t _) = t
-              peelType t = t
-    typeOf (LProjection (LvalueProjection base (Index ind))) = peelType $ typeOf base
-        where peelType :: Ty -> Ty
-              peelType (TyArray t _) = t
-              peelType (TySlice t) = t
-              peelType (TyRef t _) = peelType t
-              peelType t = t
-
-    typeOf (LProjection (LvalueProjection base (Downcast i))) = typeOf base
+  typeOf lv = case lv of
+    Static                -> error "typeOf: static"
+    Tagged lv' _          -> typeOf lv'
+    Local (Var _ _ t _ _) -> t
+    LProjection proj      -> typeOf proj
 
 data Lvalue =
     Local { _lvar :: Var}
@@ -412,7 +432,7 @@ instance FromJSON Lvalue where
                                               _ -> fail "kind not found"
 
 data Rvalue =
-    Use { _uop :: Operand }
+        Use { _uop :: Operand }
       | Repeat { _rop :: Operand, _rlen :: ConstUsize }
       | Ref { _rbk :: BorrowKind, _rvar :: Lvalue, _rregion :: Text }
       | Len { _lenvar :: Lvalue }
@@ -427,12 +447,22 @@ data Rvalue =
       | RCustom CustomAggregate
     deriving (Show,Eq)
 
+instance TypeOf Rvalue where
+  typeOf (Use a) = typeOf a
+  typeOf (Repeat a sz) = TyArray (typeOf a) (fromIntegral sz)
+  typeOf (Ref Shared lv _)  = TyRef (typeOf lv) Immut
+  typeOf (Ref Mutable lv _) = TyRef (typeOf lv) Mut
+  typeOf (Ref Unique lv _)  = error "FIXME? type of Unique reference?"
+  typeOf (Len _) = TyUint USize
+  typeOf (Cast _ _ ty) = ty
+  typeOf (NullaryOp _op ty) = ty
+  typeOf rv = error ("typeOf Rvalue unimplemented: " ++ pprint rv)
 
 instance PPrint Rvalue where
     pprint (Use a) = pprint_fn1 "Use" a
     pprint (Repeat a b) = pprint_fn2 "Repeat" a b
-    pprint (Ref a b _) = pprint_fn2 "Ref" a b
-    pprint (Len a) = pprint_fn1 "Ref" a
+    pprint (Ref a b c) = pprint_fn3 "Ref" a b c
+    pprint (Len a) = pprint_fn1 "Len" a
     pprint (Cast a b c) = pprint_fn3 "Cast" a b c
     pprint (BinaryOp a b c) = pprint_fn3 "BinaryOp" a b c
     pprint (CheckedBinaryOp a b c) = pprint_fn3 "CheckedBinaryOp" a b c
@@ -440,6 +470,8 @@ instance PPrint Rvalue where
     pprint (UnaryOp a b) = pprint_fn2 "UnaryOp" a b
     pprint (Discriminant a) = pprint_fn1 "Discriminant" a
     pprint (Aggregate a b) = pprint_fn2 "Aggregate" a b
+    pprint (RAdtAg a) = pprint_fn1 "RAdtAg" a
+    pprint (RCustom a) = pprint_fn1 "RCustom" a
 
 instance FromJSON Rvalue where
     parseJSON = withObject "Rvalue" $ \v -> case (HML.lookup "kind" v) of
@@ -461,6 +493,9 @@ instance FromJSON Rvalue where
 
 data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand]}
     deriving (Show, Eq)
+
+instance PPrint AdtAg where
+  pprint (AdtAg adt i ops) = pprint_fn3 "AdtAg" adt i ops
 
 instance FromJSON AdtAg where
     parseJSON = withObject "AdtAg" $ \v -> AdtAg <$> v .: "adt" <*> v .: "variant" <*> v .: "ops"
@@ -508,7 +543,7 @@ data Operand =
       | OpConstant Constant
       deriving (Show, Eq)
 
-lValueofOp :: Operand -> Lvalue
+lValueofOp :: HasCallStack => Operand -> Lvalue
 lValueofOp (Consume lv) = lv
 lValueofOp l = error $ "bad lvalue of op: " ++ (show l)
 
@@ -530,6 +565,7 @@ instance FromJSON Operand where
     parseJSON = withObject "Operand" $ \v -> case (HML.lookup "kind" v) of
                                                Just (String "Consume") -> Consume <$> v .: "data"
                                                Just (String "Constant") -> OpConstant <$> v .: "data"
+                                               x -> fail ("base operand: " ++ show x)
 
 data Constant = Constant { _conty :: Ty, _conliteral :: Literal } deriving (Show, Eq)
 instance TypeOf Constant where
@@ -548,6 +584,28 @@ instance PPrint LvalueProjection where
 
 instance FromJSON LvalueProjection where
     parseJSON = withObject "LvalueProjection" $ \v -> LvalueProjection <$> v .: "base" <*> v .: "data"
+
+
+instance TypeOf LvalueProjection where
+  typeOf (LvalueProjection base kind) =
+    case kind of
+      PField _ t      -> t
+      Deref           -> peelRef (typeOf base)
+      Index{}         -> peelIdx (typeOf base)
+      ConstantIndex{} -> peelIdx (typeOf base)
+      Downcast{}      -> typeOf base
+      Subslice{}      -> TySlice (peelIdx (typeOf base))
+
+   where
+   peelRef :: Ty -> Ty
+   peelRef (TyRef t _) = t
+   peelRef t = t
+
+   peelIdx :: Ty -> Ty
+   peelIdx (TyArray t _) = t
+   peelIdx (TySlice t)   = t
+   peelIdx (TyRef t m)   = TyRef (peelIdx t) m
+   peelIdx t             = t
 
 data Lvpelem =
     Deref
@@ -574,9 +632,10 @@ instance FromJSON Lvpelem where
                                                Just (String "ConstantIndex") -> ConstantIndex <$> v .: "offset" <*> v .: "min_length" <*> v .: "from_end"
                                                Just (String "Subslice") -> Subslice <$> v .: "from" <*> v .: "to"
                                                Just (String "Downcast") -> Downcast <$> v .: "variant"
+                                               x -> fail ("bad lvpelem: " ++ show x)
 
 data NullOp =
-    SizeOf
+        SizeOf
       | Box
       deriving (Show,Eq)
 
@@ -587,9 +646,10 @@ instance FromJSON NullOp where
     parseJSON = withObject "NullOp" $ \v -> case (HML.lookup "kind" v) of
                                              Just (String "SizeOf") -> pure SizeOf
                                              Just (String "Box") -> pure Box
+                                             x -> fail ("bad nullOp: " ++ show x)
 
 data BorrowKind =
-    Shared
+        Shared
       | Unique
       | Mutable
       deriving (Show,Eq)
@@ -602,6 +662,7 @@ instance FromJSON BorrowKind where
                                              Just (String "Shared") -> pure Shared
                                              Just (String "Unique") -> pure Unique
                                              Just (String "Mut") -> pure Mutable
+                                             x -> fail ("bad borrowKind: " ++ show x)
 data UnOp =
     Not
       | Neg
@@ -614,6 +675,7 @@ instance FromJSON UnOp where
     parseJSON = withObject "UnOp" $ \v -> case (HML.lookup "kind" v) of
                                              Just (String "Not") -> pure Not
                                              Just (String "Neg") -> pure Neg
+                                             x -> fail ("bad unOp: " ++ show x)
 
 data BinOp =
     Add
@@ -657,6 +719,7 @@ instance FromJSON BinOp where
                                              Just (String "Ge") -> pure Ge
                                              Just (String "Gt") -> pure Gt
                                              Just (String "Offset") -> pure Offset
+                                             x -> fail ("bad binop: " ++ show x)
 
 data CastKind =
     Misc
@@ -676,6 +739,7 @@ instance FromJSON CastKind where
                                                Just (String "ClosureFnPointer") -> pure ClosureFnPointer
                                                Just (String "UnsafeFnPointer") -> pure UnsafeFnPointer
                                                Just (String "Unsize") -> pure Unsize
+                                               x -> fail ("bad CastKind: " ++ show x)
 
 data Literal =
     Item DefId [Maybe Ty]
@@ -693,6 +757,7 @@ instance FromJSON Literal where
                                                Just (String "Item") -> Item <$> v .: "def_id" <*> v .: "substs"
                                                Just (String "Value") -> Value <$> v .: "value"
                                                Just (String "Promoted") -> LPromoted <$> v .: "index"
+                                               x -> fail ("bad Literal: " ++ show x)
 
 
 data IntLit
@@ -775,6 +840,8 @@ instance PPrint ConstVal where
         pcs = mconcat $ Data.List.intersperse ", " (Prelude.map pprint cs)
     pprint (ConstRepeat cv i) = "["++(pprint cv)++"; " ++ (show i) ++ "]"
     pprint (ConstFunction a b) = show a
+    pprint ConstStruct = "ConstStruct"
+
 
 instance FromJSON ConstVal where
     parseJSON = withObject "ConstVal" $ \v -> case (HML.lookup "kind" v) of
@@ -806,6 +873,7 @@ instance FromJSON AggregateKind where
                                                      Just (String "Tuple") -> pure AKTuple
                                                      Just (String "Closure") -> AKClosure <$> v .: "defid" <*> v .: "closuresubsts"
                                                      Just (String unk) -> fail $ "unimp: " ++ (unpack unk)
+                                                     x -> fail ("bad AggregateKind: " ++ show x)
 
 data CustomAggregate =
     CARange Ty Operand Operand -- depreciated but here in case something else needs to go here
@@ -817,6 +885,7 @@ instance PPrint CustomAggregate where
 instance FromJSON CustomAggregate where
     parseJSON = withObject "CustomAggregate" $ \v -> case (HML.lookup "kind" v) of
                                                        Just (String "Range") -> CARange <$> v .: "range_ty" <*> v .: "f1" <*> v .: "f2"
+                                                       x -> fail ("bad CustomAggregate: " ++ show x)
 
 instance PPrint Integer where
     pprint = show
