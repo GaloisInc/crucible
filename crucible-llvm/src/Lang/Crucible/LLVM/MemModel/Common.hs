@@ -57,7 +57,7 @@ import Data.Word
 import Lang.Crucible.LLVM.Bytes
 import Lang.Crucible.LLVM.MemModel.Type
 
--- | @WR i j@ denotes that the write should store in range [i..j).
+-- | @R i j@ denotes that the write should store in range [i..j).
 data Range = R { rStart :: Addr, _rEnd :: Addr }
   deriving (Eq, Show)
 
@@ -129,6 +129,8 @@ loadInStoreRange n = And (Store .<= Load)
 
 -- Value constructor
 
+-- | Describes how to construct a larger LLVM value as a combination
+-- of smaller components.
 data ValueCtor a
   = ValueCtorVar a
     -- | Concatenates two bitvectors.
@@ -200,11 +202,16 @@ data BasePreference
 
 -- RangeLoad
 
+-- | A 'RangeLoad' describes different kinds of memory loads in the
+-- context of a byte range copied into an old memory.
 data RangeLoad a b
-      -- | Load value from old value.
-    = OutOfRange a Type
-      -- | In range includes offset relative to store and type.
-    | InRange b Type
+  = OutOfRange a Type
+    -- ^ Load from an address range disjoint from the copied bytes.
+    -- The arguments represent the address and type of the load.
+  | InRange b Type
+    -- ^ Load consists of bytes within the copied range. The first
+    -- argument represents the offset relative to the start of the
+    -- copied bytes.
   deriving (Show)
 
 adjustOffset :: (b -> d)
@@ -213,7 +220,13 @@ adjustOffset :: (b -> d)
 adjustOffset _ outFn (OutOfRange a tp) = OutOfRange (outFn a) tp
 adjustOffset inFn _  (InRange b tp) = InRange (inFn b) tp
 
-rangeLoad :: Addr -> Type -> Range -> ValueCtor (RangeLoad Addr Addr)
+-- | Decomposes a single load after a memcopy into a combination of
+-- simple value loads.
+rangeLoad ::
+  Addr  {- ^ load offset  -} ->
+  Type  {- ^ load type    -} ->
+  Range {- ^ copied range -} ->
+  ValueCtor (RangeLoad Addr Addr)
 rangeLoad lo ltp s@(R so se)
    | so == se  = loadFail
    | le <= so  = loadFail
@@ -376,15 +389,16 @@ viewType (FieldVal v i vv) =
      guard (Struct v == tp)
      view fieldVal <$> (v V.!? i)
 
--- ValueLoad
-
+-- | A 'ValueLoad' describes different kinds of memory loads in the
+-- context of a new value stored into an old memory.
 data ValueLoad v
-  = -- Old memory that was used
-    OldMemory v Type
+  = OldMemory v Type
+    -- ^ Load from an address range disjoint from the stored value.
+    -- The arguments represent the address and type of the load.
   | LastStore ValueView
-    -- | Indicates load touches memory that is invalid, and can't be
-    -- read.
+    -- ^ Load consists of valid bytes within the stored value.
   | InvalidMemory Type
+    -- ^ Load touches invalid memory (e.g. trying to read struct padding bytes as a bitvector).
   deriving (Functor,Show)
 
 loadBitvector :: Addr -> Bytes -> Addr -> ValueView -> ValueCtor (ValueLoad Addr)
@@ -436,9 +450,14 @@ loadBitvector lo lw so v = do
                             tpPad  = bitvectorType p
                             badMem = InvalidMemory tpPad
 
--- | @valueLoad lo ltp so v@ returns a value with type @ltp@ from reading the
--- value @v@.  The load address is @lo@ and the stored address is @so@.
-valueLoad :: Addr -> Type -> Addr -> ValueView -> ValueCtor (ValueLoad Addr)
+-- | Decomposes a single load after a store into a combination of
+-- simple value loads.
+valueLoad ::
+  Addr      {- ^ load address         -} ->
+  Type      {- ^ load type            -} ->
+  Addr      {- ^ store address        -} ->
+  ValueView {- ^ view of stored value -} ->
+  ValueCtor (ValueLoad Addr)
 valueLoad lo ltp so v
   | le <= so = ValueCtorVar (OldMemory lo ltp) -- Load ends before store
   | se <= lo = ValueCtorVar (OldMemory lo ltp) -- Store ends before load
