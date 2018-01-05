@@ -114,6 +114,7 @@ import qualified Data.Text as Text
 import qualified Data.Vector as V
 
 import qualified Text.LLVM.AST as L
+import qualified Text.LLVM.PP as L
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Context ( pattern (:>) )
@@ -127,9 +128,11 @@ import           Lang.Crucible.CFG.Generator
 import           Lang.Crucible.CFG.SSAConversion( toSSA )
 import           Lang.Crucible.FunctionName
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Intrinsics
 import qualified Lang.Crucible.LLVM.LLVMContext as TyCtx
+import qualified Lang.Crucible.LLVM.Bytes as G
 import           Lang.Crucible.LLVM.MemModel
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
@@ -218,9 +221,9 @@ packBase
     -> (forall ctx'. Some (Atom s) -> CtxRepr ctx' -> Ctx.Assignment (Atom s) ctx' -> a)
     -> a
 packBase ctp ctx0 asgn k =
-  case Ctx.view ctx0 of
-    Ctx.AssignEmpty -> error "packType: ran out of actual arguments!"
-    Ctx.AssignExtend ctx' ctp' ->
+  case ctx0 of
+    Ctx.Empty -> error "packType: ran out of actual arguments!"
+    ctx' Ctx.:> ctp' ->
       case testEquality ctp ctp' of
         Nothing -> error $ unwords ["crucible type mismatch",show ctp,show ctp']
         Just Refl ->
@@ -260,23 +263,23 @@ instrResultType instr =
          where go tp [] = tp
                go (L.Array n tp') (i:is)
                    | i < n = go tp' is
-                   | otherwise = error $ unwords ["invalid index into array type", show instr]
+                   | otherwise = error $ unwords ["invalid index into array type", showInstr instr]
                go (L.Struct tps) (i:is) =
                       case drop (fromIntegral i) tps of
                         (tp':_) -> go tp' is
-                        [] -> error $ unwords ["invalid index into struct type", show instr]
-               go _ _ = error $ unwords ["invalid type in extract value instruction", show instr]
+                        [] -> error $ unwords ["invalid index into struct type", showInstr instr]
+               go _ _ = error $ unwords ["invalid type in extract value instruction", showInstr instr]
 
     L.InsertValue x _ _ -> L.typedType x
     L.ExtractElt x _ -> case L.typedType x of
                         L.Vector _ tp -> tp
-                        _ -> error $ unwords ["extract element of non-vector type", show instr]
+                        _ -> error $ unwords ["extract element of non-vector type", showInstr instr]
     L.InsertElt x _ _ -> L.typedType x
     L.ShuffleVector x _ _ -> L.typedType x
 
     L.LandingPad x _ _ _ -> x
 
-    _ -> error $ unwords ["instrResultType, unsupported instruction:", show instr]
+    _ -> error $ unwords ["instrResultType, unsupported instruction:", showInstr instr]
 
 ------------------------------------------------------------------------
 -- LLVMState
@@ -486,7 +489,7 @@ transValue _ (L.ValSymbol symbol) = do
 transValue _ (L.ValConstExpr cexp) =
   case cexp of
     L.ConstConv op x outty ->
-      translateConversion op x outty
+      translateConversion Nothing op x outty
     L.ConstGEP _inBounds _resType [] ->
       fail "empty getelementpointer expression"
     L.ConstGEP _inBounds _resType (base:elts) -> do
@@ -774,23 +777,24 @@ pointerAsBitvectorExpr w ex =
 -- | Given an LLVM expression of vector type, select out the ith element.
 extractElt
     :: forall h s wptr ret.
-       MemType    -- ^ type contained in the vector
+       L.Instr
+    -> MemType    -- ^ type contained in the vector
     -> Integer   -- ^ size of the vector
     -> LLVMExpr s -- ^ vector expression
     -> LLVMExpr s -- ^ index expression
     -> LLVMGenerator h s wptr ret (LLVMExpr s)
-extractElt ty _ _ (UndefExpr _)  =
+extractElt _ ty _ _ (UndefExpr _)  =
    return $ UndefExpr ty
-extractElt ty n v (ZeroExpr zty) = do
+extractElt instr ty n v (ZeroExpr zty) = do
    let ?err = fail
-   zeroExpand zty $ \tyr ex -> extractElt ty n v (BaseExpr tyr ex)
-extractElt ty n (UndefExpr _) i  = do
+   zeroExpand zty $ \tyr ex -> extractElt instr ty n v (BaseExpr tyr ex)
+extractElt instr ty n (UndefExpr _) i  = do
    let ?err = fail
-   undefExpand ty $ \tyr ex -> extractElt ty n (BaseExpr tyr ex) i
-extractElt ty n (ZeroExpr _) i   = do
+   undefExpand ty $ \tyr ex -> extractElt instr ty n (BaseExpr tyr ex) i
+extractElt instr ty n (ZeroExpr _) i   = do
    let ?err = fail
-   zeroExpand ty  $ \tyr ex -> extractElt ty n (BaseExpr tyr ex) i
-extractElt _ n (VecExpr _ vs) i
+   zeroExpand ty  $ \tyr ex -> extractElt instr ty n (BaseExpr tyr ex) i
+extractElt instr _ n (VecExpr _ vs) i
   | Scalar (LLVMPointerRepr _) (BitvectorAsPointerExpr _ x) <- asScalar i
   , App (BVLit _ x') <- x
   = constantExtract x'
@@ -800,46 +804,46 @@ extractElt _ n (VecExpr _ vs) i
  constantExtract idx =
     if (fromInteger idx < Seq.length vs) && (fromInteger idx < n)
         then return $ Seq.index vs (fromInteger idx)
-        else fail "invalid extractelement instruction (index out of bounds)"
+        else fail (unlines ["invalid extractelement instruction (index out of bounds)", showInstr instr])
 
-extractElt ty n (VecExpr _ vs) i = do
+extractElt instr ty n (VecExpr _ vs) i = do
    let ?err = fail
    llvmTypeAsRepr ty $ \tyr -> unpackVec tyr (toList vs) $
-      \ex -> extractElt ty n (BaseExpr (VectorRepr tyr) ex) i
-extractElt _ n (BaseExpr (VectorRepr tyr) v) i =
+      \ex -> extractElt instr ty n (BaseExpr (VectorRepr tyr) ex) i
+extractElt instr _ n (BaseExpr (VectorRepr tyr) v) i =
   do idx <- case asScalar i of
                    Scalar (LLVMPointerRepr w) x ->
                      do bv <- pointerAsBitvectorExpr w x
                         assertExpr (App (BVUlt w bv (App (BVLit w n)))) "extract element index out of bounds!"
                         return $ App (BvToNat w bv)
                    _ ->
-                     fail $ "invalid extractelement instruction"
+                     fail (unlines ["invalid extractelement instruction", showInstr instr])
      return $ BaseExpr tyr (App (VectorGetEntry tyr v idx))
 
-extractElt _ _ _ _ = fail $ "invalid extractelement instruction"
+extractElt instr _ _ _ _ = fail (unlines ["invalid extractelement instruction", showInstr instr])
 
 
 -- | Given an LLVM expression of vector type, insert a new element at location ith element.
 insertElt :: forall h s wptr ret.
-       MemType            -- ^ type contained in the vector
+       L.Instr            -- ^ Actual instruction
+    -> MemType            -- ^ type contained in the vector
     -> Integer            -- ^ size of the vector
     -> LLVMExpr s    -- ^ vector expression
     -> LLVMExpr s    -- ^ element to insert
     -> LLVMExpr s    -- ^ index expression
     -> LLVMGenerator h s wptr ret (LLVMExpr s)
-insertElt ty _ _ _ (UndefExpr _)  = do
+insertElt _ ty _ _ _ (UndefExpr _) = do
    return $ UndefExpr ty
-insertElt ty n v a (ZeroExpr zty) = do
+insertElt instr ty n v a (ZeroExpr zty) = do
    let ?err = fail
-   zeroExpand zty $ \tyr ex -> insertElt ty n v a (BaseExpr tyr ex)
-insertElt ty n (UndefExpr _) a i  = do
-  let ?err = fail
-  undefExpand ty $ \tyr ex -> insertElt ty n (BaseExpr tyr ex) a i
-insertElt ty n (ZeroExpr _) a i   = do
-  let ?err = fail
-  zeroExpand ty  $ \tyr ex -> insertElt ty n (BaseExpr tyr ex) a i
+   zeroExpand zty $ \tyr ex -> insertElt instr ty n v a (BaseExpr tyr ex)
 
-insertElt _ n (VecExpr ty vs) a i
+insertElt instr ty n (UndefExpr _) a i  = do
+  insertElt instr ty n (VecExpr ty (Seq.replicate (fromInteger n) (UndefExpr ty))) a i
+insertElt instr ty n (ZeroExpr _) a i   = do
+  insertElt instr ty n (VecExpr ty (Seq.replicate (fromInteger n) (ZeroExpr ty))) a i
+
+insertElt instr _ n (VecExpr ty vs) a i
   | Scalar (LLVMPointerRepr _) (BitvectorAsPointerExpr _ x) <- asScalar i
   , App (BVLit _ x') <- x
   = constantInsert x'
@@ -848,14 +852,14 @@ insertElt _ n (VecExpr ty vs) a i
  constantInsert idx =
      if (fromInteger idx < Seq.length vs) && (fromInteger idx < n)
        then return $ VecExpr ty $ Seq.adjust (\_ -> a) (fromIntegral idx) vs
-       else fail "invalid insertelement instruction (index out of bounds)"
+       else fail (unlines ["invalid insertelement instruction (index out of bounds)", showInstr instr])
 
-insertElt ty n (VecExpr _ vs) a i = do
+insertElt instr ty n (VecExpr _ vs) a i = do
    let ?err = fail
    llvmTypeAsRepr ty $ \tyr -> unpackVec tyr (toList vs) $
-        \ex -> insertElt ty n (BaseExpr (VectorRepr tyr) ex) a i
+        \ex -> insertElt instr ty n (BaseExpr (VectorRepr tyr) ex) a i
 
-insertElt _ n (BaseExpr (VectorRepr tyr) v) a i =
+insertElt instr _ n (BaseExpr (VectorRepr tyr) v) a i =
   do (idx :: Expr LLVM s NatType)
          <- case asScalar i of
                    Scalar (LLVMPointerRepr w) x ->
@@ -863,14 +867,14 @@ insertElt _ n (BaseExpr (VectorRepr tyr) v) a i =
                         assertExpr (App (BVUlt w bv (App (BVLit w n)))) "insert element index out of bounds!"
                         return $ App (BvToNat w bv)
                    _ ->
-                     fail $ "invalid insertelement instruction"
+                     fail (unlines ["invalid insertelement instruction", showInstr instr, show i])
      let ?err = fail
      unpackOne a $ \tyra a' ->
       case testEquality tyr tyra of
         Just Refl ->
           return $ BaseExpr (VectorRepr tyr) (App (VectorSetEntry tyr v idx a'))
-        Nothing -> fail $ "type mismatch in insertelement instruction"
-insertElt _ _ _ _ _ = fail $ "invalid insertelement instruction"
+        Nothing -> fail (unlines ["type mismatch in insertelement instruction", showInstr instr])
+insertElt instr _tp n v a i = fail (unlines ["invalid insertelement instruction", showInstr instr, show n, show v, show a, show i])
 
 -- Given an LLVM expression of vector or structure type, select out the
 -- element indicated by the sequence of given concrete indices.
@@ -996,13 +1000,13 @@ toStorableType mt =
     FloatType -> return $ G.floatType
     DoubleType -> return $ G.doubleType
     ArrayType n x -> G.arrayType (fromIntegral n) <$> toStorableType x
-    VecType _ _ -> fail "Cannot directly store vector types (FIXME?)"
+    VecType n x -> G.arrayType (fromIntegral n) <$> toStorableType x
     MetadataType -> fail "toStorableType: Cannot store metadata values"
     StructType si -> G.mkStruct <$> traverse transField (siFields si)
       where transField :: Monad m => FieldInfo -> m (G.Type, G.Size)
             transField fi = do
                t <- toStorableType $ fiType fi
-               return (t, G.toBytes (fiPadding fi))
+               return (t, fiPadding fi)
 
 callPtrAddOffset ::
        Expr LLVM s (LLVMPointerType wptr)
@@ -1028,17 +1032,19 @@ callPtrSubtract x y = do
 callLoad :: MemType
          -> TypeRepr tp
          -> LLVMExpr s
+         -> Alignment
          -> LLVMGenerator h s wptr ret (LLVMExpr s)
-callLoad typ expectTy (asScalar -> Scalar PtrRepr ptr) =
+callLoad typ expectTy (asScalar -> Scalar PtrRepr ptr) align =
    do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
       memLoad <- litExpr . llvmMemLoad . memModelOps . llvmContext <$> get
       mem  <- readGlobal memVar
       typ' <- app . ConcreteLit . TypeableValue <$> toStorableType typ
-      v <- call memLoad (Ctx.Empty :> mem :> ptr :> typ')
+      let align' = litExpr align
+      v <- call memLoad (Ctx.Empty :> mem :> ptr :> typ' :> align')
       let msg = litExpr (Text.pack ("Expected load to return value of type " ++ show expectTy))
       let v' = app $ FromJustValue expectTy (app $ UnpackAny expectTy v) msg
       return (BaseExpr expectTy v')
-callLoad _ _ _ =
+callLoad _ _ _ _ =
   fail $ unwords ["Unexpected argument type in callLoad"]
 
 callStore :: MemType
@@ -1109,9 +1115,9 @@ calcGEP' (ArrayType bound typ') base (idx : xs) = do
 
     let dl  = TyCtx.llvmDataLayout ?lc
 
-    -- Calculate the size of the elemement memtype and check that it fits
+    -- Calculate the size of the element memtype and check that it fits
     -- in the pointer width
-    let isz = fromIntegral $ memTypeSize dl typ'
+    let isz = G.bytesToInteger $ memTypeSize dl typ'
     unless (isz <= maxSigned PtrWidth)
       (fail $ unwords ["Type size too large for pointer width:", show typ'])
 
@@ -1147,7 +1153,7 @@ calcGEP' (PtrType (MemType typ')) base (idx : xs) = do
 
     -- Calculate the size of the elemement memtype and check that it fits
     -- in the pointer width
-    let isz = fromIntegral $ memTypeSize dl typ'
+    let isz = G.bytesToInteger $ memTypeSize dl typ'
     unless (isz <= maxSigned PtrWidth)
       (fail $ unwords ["Type size too large for pointer width:", show typ'])
     let sz :: Expr LLVM s (BVType wptr)
@@ -1176,7 +1182,7 @@ calcGEP' (StructType si) base (idx : xs) = do
       Just fi -> do
         -- Get the field offset and check that it fits
         -- in the pointer width
-        let ioff = fromIntegral $ fiOffset fi
+        let ioff = G.bytesToInteger $ fiOffset fi
         unless (ioff <= maxSigned PtrWidth)
           (fail $ unwords ["Field offset too large for pointer width in structure:"
                           , show (ppMemType (StructType si))])
@@ -1194,11 +1200,13 @@ calcGEP' tp _ _ =
 
 
 translateConversion
-  :: L.ConvOp
+  :: Maybe L.Instr
+  -> L.ConvOp
   -> L.Typed L.Value
   -> L.Type
   -> LLVMGenerator h s wptr ret (LLVMExpr s)
-translateConversion op x outty =
+translateConversion instr op x outty =
+ let showI = maybe "" showInstr instr in
  case op of
     L.IntToPtr -> do
        outty' <- liftMemType outty
@@ -1209,9 +1217,11 @@ translateConversion op x outty =
               | Just Refl <- testEquality w PtrWidth
               , Just Refl <- testEquality w' PtrWidth -> return x'
            (Scalar t v, a)   ->
-               fail ("integer-to-pointer conversion failed: "
-                       ++ show v ++ " : " ++ show (pretty t) ++ " -to- " ++ show (pretty a))
-           (NotScalar, _) -> fail ("integer-to-pointer conversion failed: non scalar")
+               fail (unlines ["integer-to-pointer conversion failed: "
+                             , showI
+                             , show v ++ " : " ++ show (pretty t) ++ " -to- " ++ show (pretty a)
+                             ])
+           (NotScalar, _) -> fail (unlines ["integer-to-pointer conversion failed: non scalar", showI])
 
     L.PtrToInt -> do
        outty' <- liftMemType outty
@@ -1221,7 +1231,7 @@ translateConversion op x outty =
            (Scalar (LLVMPointerRepr w) _, LLVMPointerRepr w')
               | Just Refl <- testEquality w PtrWidth
               , Just Refl <- testEquality w' PtrWidth -> return x'
-           _ -> fail "pointer-to-integer conversion failed"
+           _ -> fail (unlines ["pointer-to-integer conversion failed", showI])
 
     L.Trunc -> do
        outty' <- liftMemType outty
@@ -1234,7 +1244,7 @@ translateConversion op x outty =
                  do x_bv <- pointerAsBitvectorExpr w x''
                     let bv' = App (BVTrunc w' w x_bv)
                     return (BaseExpr outty'' (BitvectorAsPointerExpr w' bv'))
-           _ -> fail $ unwords ["invalid truncation:", show x, show outty]
+           _ -> fail (unlines [unwords ["invalid truncation:", show x, show outty], showI])
 
     L.ZExt -> do
        outty' <- liftMemType outty
@@ -1247,7 +1257,7 @@ translateConversion op x outty =
                  do x_bv <- pointerAsBitvectorExpr w x''
                     let bv' = App (BVZext w' w x_bv)
                     return (BaseExpr outty'' (BitvectorAsPointerExpr w' bv'))
-           _ -> fail $ unwords ["invalid zero extension:", show x, show outty]
+           _ -> fail (unlines [unwords ["invalid zero extension:", show x, show outty], showI])
 
     L.SExt -> do
        outty' <- liftMemType outty
@@ -1260,7 +1270,7 @@ translateConversion op x outty =
                  do x_bv <- pointerAsBitvectorExpr w x''
                     let bv' = App (BVSext w' w x_bv)
                     return (BaseExpr outty'' (BitvectorAsPointerExpr w' bv'))
-           _ -> fail $ unwords ["invalid sign extension", show x, show outty]
+           _ -> fail (unlines [unwords ["invalid sign extension", show x, show outty], showI])
 
     L.BitCast -> do
        outty' <- liftMemType outty
@@ -1269,7 +1279,7 @@ translateConversion op x outty =
          case asScalar x' of
            Scalar tyx _ | Just Refl <- testEquality tyx outty'' ->
              return x'
-           _ -> fail $ unlines ["invalid bitcast", show x, show outty, show outty'']
+           _ -> fail (unlines ["invalid bitcast", showI, show x, show outty, show outty''])
 
     L.UiToFp -> do
        outty' <- liftMemType outty
@@ -1281,7 +1291,7 @@ translateConversion op x outty =
            (Scalar (LLVMPointerRepr w) x'', RealValRepr) -> do
              promoteToFp w <$> pointerAsBitvectorExpr w x''
 
-           _ -> fail $ unwords ["Invalid uitofp:", show op, show x, show outty]
+           _ -> fail (unlines [unwords ["Invalid uitofp:", show op, show x, show outty], showI])
 
     L.SiToFp -> do
        outty' <- liftMemType outty
@@ -1302,7 +1312,7 @@ translateConversion op x outty =
          case (asScalar x', outty'') of
            (Scalar (LLVMPointerRepr w) x'', RealValRepr) ->
              promoteToFp w =<< pointerAsBitvectorExpr w x''
-           _ -> fail $ unwords ["Invalid uitofp:", show op, show x, show outty]
+           _ -> fail (unlines [unwords ["Invalid uitofp:", show op, show x, show outty], showI])
 
     L.FpToUi -> do
        reportError "Not Yet Implemented: FpToUi"
@@ -1316,7 +1326,7 @@ translateConversion op x outty =
          case (asScalar x', outty'') of
            (Scalar RealValRepr x'', RealValRepr) -> do
              return $ BaseExpr RealValRepr x''
-           _ -> fail $ unwords ["Invalid fptrunc:", show op, show x, show outty]
+           _ -> fail (unlines [unwords ["Invalid fptrunc:", show op, show x, show outty], showI])
 
     L.FpExt -> do
        outty' <- liftMemType outty
@@ -1325,7 +1335,7 @@ translateConversion op x outty =
          case (asScalar x', outty'') of
            (Scalar RealValRepr x'', RealValRepr) -> do
              return $ BaseExpr RealValRepr x''
-           _ -> fail $ unwords ["Invalid fpext:", show op, show x, show outty]
+           _ -> fail (unlines [unwords ["Invalid fpext:", show op, show x, show outty], showI])
 
 
 intop :: (1 <= w)
@@ -1664,7 +1674,7 @@ generateInstr retType lab instr assign_f k =
             x'' <- transValue (VecType (fromIntegral n) ty') x'
             i'  <- transValue (IntType 64) i               -- FIXME? this is a bit of a hack, since the llvm-pretty
                                                            -- AST doesn't track the size of the index value
-            y <- extractElt ty' (fromIntegral n) x'' i'
+            y <- extractElt instr ty' (fromIntegral n) x'' i'
             assign_f y
             k
 
@@ -1678,7 +1688,7 @@ generateInstr retType lab instr assign_f k =
             v'  <- transTypedValue v
             i'  <- transValue (IntType 64) i                -- FIXME? this is a bit of a hack, since the llvm-pretty
                                                             -- AST doesn't track the size of the index value
-            y <- insertElt ty' (fromIntegral n) x'' v' i'
+            y <- insertElt instr ty' (fromIntegral n) x'' v' i'
             assign_f y
             k
 
@@ -1695,7 +1705,7 @@ generateInstr retType lab instr assign_f k =
       tp' <- liftMemType tp
       let dl = TyCtx.llvmDataLayout ?lc
       let tp_sz = memTypeSize dl tp'
-      let tp_sz' = app $ BVLit PtrWidth $ fromIntegral tp_sz
+      let tp_sz' = app $ BVLit PtrWidth $ G.bytesToInteger tp_sz
       sz <- case num of
                Nothing -> return $ tp_sz'
                Just num' -> do
@@ -1711,14 +1721,15 @@ generateInstr retType lab instr assign_f k =
       assign_f (BaseExpr (LLVMPointerRepr PtrWidth) p)
       k
 
-    L.Load ptr _atomic _align -> do
-      -- ?? FIXME assert that the alignment value is appropriate...
+    L.Load ptr _atomic align -> do
       tp'  <- liftMemType (L.typedType ptr)
       ptr' <- transValue tp' (L.typedValue ptr)
       case tp' of
         PtrType (MemType resTy) ->
           llvmTypeAsRepr resTy $ \expectTy -> do
-            res <- callLoad resTy expectTy ptr'
+            let a0 = memTypeAlign (TyCtx.llvmDataLayout ?lc) resTy
+            let align' = fromMaybe a0 (toAlignment . G.toBytes =<< align)
+            res <- callLoad resTy expectTy ptr' align'
             assign_f res
             k
         _ ->
@@ -1747,7 +1758,7 @@ generateInstr retType lab instr assign_f k =
       k
 
     L.Conv op x outty -> do
-      v <- translateConversion op x outty
+      v <- translateConversion (Just instr) op x outty
       assign_f v
       k
 
@@ -1997,7 +2008,7 @@ generateInstr retType lab instr assign_f k =
           Scalar (LLVMPointerRepr w) x'' ->
             do bv <- pointerAsBitvectorExpr w x''
                buildSwitch w bv lab def branches
-          _ -> fail $ unwords ["expected integer value in switch", show instr]
+          _ -> fail $ unwords ["expected integer value in switch", showInstr instr]
 
     L.Ret v -> do v' <- transTypedValue v
                   let ?err = fail
@@ -2014,7 +2025,10 @@ generateInstr retType lab instr assign_f k =
                        returnFromFunction (App EmptyApp)
                     Nothing -> fail $ unwords ["tried to void return from non-void function", show retType]
 
-    _ -> reportError $ App $ TextLit $ Text.pack $ unwords ["unsupported instruction", show instr]
+    _ -> reportError $ App $ TextLit $ Text.pack $ unwords ["unsupported instruction", showInstr instr]
+
+showInstr :: L.Instr -> String
+showInstr i = show (L.ppLLVM38 (L.ppInstr i))
 
 callFunctionWithCont :: forall h s wptr ret.
                         L.Type -> L.Value -> [L.Typed L.Value]
@@ -2376,7 +2390,7 @@ initializeMemory sym llvm_ctx m = do
    gs_alloc <- mapM (\g -> do
                         ty <- liftMemType $ L.globalType g
                         let sz = memTypeSize dl ty
-                        return (L.globalSym g, G.toBytes sz))
+                        return (L.globalSym g, sz))
                     gs
    allocGlobals sym gs_alloc mem
 

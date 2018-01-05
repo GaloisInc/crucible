@@ -54,6 +54,7 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word
 
+import Lang.Crucible.LLVM.Bytes
 import Lang.Crucible.LLVM.MemModel.Type
 
 -- | @WR i j@ denotes that the write should store in range [i..j).
@@ -165,15 +166,9 @@ splitTypeValue tp d subFn = assert (d > 0) $
     Array n0 etp -> assert (n0 > 0) $ do
       let esz = typeSize etp
       let (c,part) = assert (esz > 0) $ unBytes d `divMod` unBytes esz
-      let result
-            | c > 0 = assert (c < n0) $
-              AppendArray etp
-                          (toInteger c)
-                          (subFn 0 (arrayType c etp))
-                          (toInteger (n0 - c))
-                          (consPartial ((Bytes c) * esz) (n0 - c))
-            | otherwise = consPartial 0 n0
-          consPartial o n
+      let n = n0 - c
+      let o = d - Bytes part -- (Bytes c) * esz
+      let consPartial
             | part == 0 = subFn o (arrayType n etp)
             | n > 1 =
                 ConsArray etp
@@ -182,6 +177,14 @@ splitTypeValue tp d subFn = assert (d > 0) $
                           (subFn (o+esz) (arrayType (n-1) etp))
             | otherwise = assert (n == 1) $
                 singletonArray etp (subFn o etp)
+      let result
+            | c > 0 = assert (c < n0) $
+              AppendArray etp
+                          (toInteger c)
+                          (subFn 0 (arrayType c etp))
+                          (toInteger n)
+                          consPartial
+            | otherwise = consPartial
       result
     Struct flds -> MkStruct (fldFn <$> flds)
       where fldFn fld = (fld, subFn (fieldOffset fld) (fld^.fieldVal))
@@ -221,12 +224,10 @@ rangeLoad lo ltp s@(R so se)
  where le = typeEnd lo ltp
        loadFail = ValueCtorVar (OutOfRange lo ltp)
 
-type RangeLoadMux v w = Mux (ValueCtor (RangeLoad v w))
-
 fixedOffsetRangeLoad :: Addr
                      -> Type
                      -> Addr
-                     -> RangeLoadMux Addr Addr
+                     -> Mux (ValueCtor (RangeLoad Addr Addr))
 fixedOffsetRangeLoad l tp s
   | s < l = do -- Store is before load.
     let sd = l - s -- Number of bytes load comes after store
@@ -270,7 +271,7 @@ loadFromStoreStart pref tp i j = adjustOffset inFn outFn <$> rangeLoad 0 tp (R i
 fixedSizeRangeLoad :: BasePreference -- ^ Whether addresses are based on store or load.
                    -> Type
                    -> Bytes
-                   -> RangeLoadMux PtrExpr IntExpr
+                   -> Mux (ValueCtor (RangeLoad PtrExpr IntExpr))
 fixedSizeRangeLoad _ tp 0 = MuxVar (ValueCtorVar (OutOfRange Load tp))
 fixedSizeRangeLoad pref tp ssz =
   Mux (loadOffset lsz .<= Store) loadFail (prefixL lsz)
@@ -301,7 +302,7 @@ fixedSizeRangeLoad pref tp ssz =
     loadSucc = MuxVar (ValueCtorVar (InRange (Load .- Store) tp))
     loadFail = MuxVar (ValueCtorVar (OutOfRange Load tp))
 
-symbolicRangeLoad :: BasePreference -> Type -> RangeLoadMux PtrExpr IntExpr
+symbolicRangeLoad :: BasePreference -> Type -> Mux (ValueCtor (RangeLoad PtrExpr IntExpr))
 symbolicRangeLoad pref tp =
   Mux (Store .<= Load)
   (Mux (loadOffset sz .<= storeEnd) (loadVal0 sz) (loadIter0 (sz-1)))

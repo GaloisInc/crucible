@@ -14,6 +14,7 @@ Solver interfaces built from 'SimpleBuilder' include the
 'Lang.Crucible.Solver.OnlineBackend.OnlineBackend' types.
 
 -}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -125,7 +126,7 @@ module Lang.Crucible.Solver.SimpleBuilder
   ) where
 
 import           Control.Exception (assert)
-import           Control.Lens hiding (asIndex)
+import           Control.Lens hiding (asIndex, (:>), Empty)
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.ST
@@ -140,8 +141,7 @@ import           Data.IORef
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import           Data.Parameterized.Classes
-import qualified Data.Parameterized.Context as Ctx
-import           Data.Parameterized.Ctx
+import           Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.HashTable as PH
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Nonce
@@ -542,7 +542,6 @@ data App (e :: BaseType -> *) (tp :: BaseType) where
            -> !(e (BaseBVType w))
            -> !(e (BaseBVType w))
            -> App e (BaseBVType w)
-
 
   ------------------------------------------------------------------------
   -- Array operations
@@ -1766,7 +1765,7 @@ defaultPPEltOpts =
 -- | Pretty print an 'Elt' using let bindings to create the term.
 ppElt :: Elt t tp -> Doc
 ppElt e
-     | null bindings = ppEltDoc False r
+     | Prelude.null bindings = ppEltDoc False r
      | otherwise =
          text "let" <+> align (vcat bindings) PP.<$>
          text " in" <+> align (ppEltDoc False r)
@@ -1857,7 +1856,7 @@ ppElt' e0 o = do
                 -> Text
                 -> [PrettyArg (Elt t)]
                 -> ST s AppPPElt
-      renderApp idx loc nm args = assert (not (null args)) $ do
+      renderApp idx loc nm args = assert (not (Prelude.null args)) $ do
         elts0 <- traverse renderArg args
         -- Get width not including parenthesis of outer app.
         let total_width = Text.length nm + sum ((\e -> 1 + ppEltLength e) <$> elts0)
@@ -3410,9 +3409,9 @@ foldIndicesInRangeBounds :: forall sym idx r
                          -> Ctx.Assignment NatLit idx
                          -> IO r
 foldIndicesInRangeBounds sym f0 a0 bnds0 = do
-  case Ctx.view bnds0 of
-    Ctx.AssignEmpty -> f0 a0 Ctx.empty
-    Ctx.AssignExtend bnds (NatLit b) -> foldIndicesInRangeBounds sym (g f0) a0 bnds
+  case bnds0 of
+    Ctx.Empty -> f0 a0 Ctx.empty
+    bnds Ctx.:> NatLit b -> foldIndicesInRangeBounds sym (g f0) a0 bnds
       where g :: (r -> Ctx.Assignment (SymExpr sym) (idx0 ::> BaseNatType) -> IO r)
               -> r
               -> Ctx.Assignment (SymExpr sym) idx0
@@ -3427,6 +3426,10 @@ foldIndicesInRangeBounds sym f0 a0 bnds0 = do
             h f i a j = do
               je <- natLit sym j
               f a (i Ctx.:> je)
+#if !MIN_VERSION_base(4,10,0)
+    -- This should never happen, but silences a warning.
+    _ -> error "internal: invalid index to foldIndicesInRangeBounds"
+#endif
 
 {-
 -- | Compute the weighted sum of two bitvectors.
@@ -3822,7 +3825,6 @@ instance IsExprBuilder (SimpleBuilder t st) where
     , Just (BVAdd w (asUnsignedBV -> Just j) y_r) <- asApp y = do
       c <- bvLit sym w (i - j)
       bvEq sym c y_r
-
 
     | Just (BVAdd w (asUnsignedBV -> Just i) x_r) <- asApp x
     , Just j <- asUnsignedBV y = do

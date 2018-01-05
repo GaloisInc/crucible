@@ -45,8 +45,6 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , ppPtr
   , ppAlloc
   , ppAllocs
-  , ppWrite
-  , ppMemChanges
   , ppMem
   ) where
 
@@ -55,13 +53,13 @@ import Control.Monad
 import Data.IORef
 import Data.Maybe
 import qualified Data.Map as Map
-import           Data.Monoid hiding ((<>))
 import qualified Data.Vector as V
 import Numeric.Natural
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import Data.Parameterized.Classes
 
+import Lang.Crucible.LLVM.Bytes
 import Lang.Crucible.LLVM.MemModel.Type
 import Lang.Crucible.LLVM.MemModel.Common
 import Lang.Crucible.LLVM.MemModel.Pointer
@@ -95,11 +93,14 @@ data MemWrite sym
     -- | The merger of two memories.
   | WriteMerge (Pred sym) [MemWrite sym] [MemWrite sym]
 
+--------------------------------------------------------------------------------
+-- Reading from memory
+
 tgAddPtrC :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> LLVMPtr sym w -> Addr -> IO (LLVMPtr sym w)
 tgAddPtrC sym w x y = ptrAdd sym w x =<< constOffset sym w y
 
-badLoad :: (IsBoolExprBuilder sym) => sym -> Type -> IO (Pred sym, PartLLVMVal sym)
-badLoad sym _tp = return (falsePred sym, Unassigned)
+badLoad :: (IsBoolExprBuilder sym) => sym -> Type -> IO (PartLLVMVal sym)
+badLoad _sym _tp = return Unassigned
 
 genPtrExpr :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w
            -> (LLVMPtr sym w, LLVMPtr sym w, SymBV sym w)
@@ -201,45 +202,22 @@ applyView sym t val =
     FieldVal flds idx v ->
       fieldValPartLLVMVal flds idx =<< applyView sym t v
 
--- | Join all conditions in fold together.
-tgAll :: (IsBoolExprBuilder sym) => sym
-      -> Getting (Dual (Endo (Pred sym -> IO (Pred sym)))) s (Pred sym)
-      -> s
-      -> IO (Pred sym)
-tgAll sym fld = foldrMOf fld (andPred sym) (truePred sym)
-
-tgMuxPair :: IsSymInterface sym => sym
-          -> Pred sym
-          -> (Pred sym, PartLLVMVal sym)
-          -> (Pred sym, PartLLVMVal sym)
-          -> IO (Pred sym, PartLLVMVal sym)
-tgMuxPair sym c (xc,xt) (yc,yt) =
-  (,) <$> itePred sym c xc yc
-      <*> muxLLVMVal sym c xt yt
-
-evalValueCtor :: (IsSymInterface sym) => sym
-              -> ValueCtor (Pred sym, PartLLVMVal sym)
-              -> IO (Pred sym, PartLLVMVal sym)
-evalValueCtor sym vc =
-   (,) <$> tgAll sym (traverse . _1) vc
-       <*> genValueCtor sym (snd <$> vc)
-
 evalMuxValueCtor :: forall u sym w .
                     (1 <= w, IsSymInterface sym) => sym -> NatRepr w
                     -- Evaluation function
                  -> (LLVMPtr sym w, LLVMPtr sym w, SymBV sym w)
                     -- Function for reading specific subranges.
-                 -> (u -> IO (Pred sym, PartLLVMVal sym))
+                 -> (u -> IO (PartLLVMVal sym))
                  -> Mux (ValueCtor u)
-                 -> IO (Pred sym, PartLLVMVal sym)
+                 -> IO (PartLLVMVal sym)
 evalMuxValueCtor sym _w _vf subFn (MuxVar v) =
   do v' <- traverse subFn v
-     evalValueCtor sym v'
+     genValueCtor sym v'
 evalMuxValueCtor sym w vf subFn (Mux c t1 t2) =
   do c' <- genCondVar sym w vf c
      t1' <- evalMuxValueCtor sym w vf subFn t1
      t2' <- evalMuxValueCtor sym w vf subFn t2
-     tgMuxPair sym c' t1' t2'
+     muxLLVMVal sym c' t1' t2'
 
 readMemCopy :: forall sym w .
                (1 <= w, IsSymInterface sym)
@@ -249,8 +227,8 @@ readMemCopy :: forall sym w .
             -> (LLVMPtr sym w, AddrDecomposeResult sym w)
             -> LLVMPtr sym w
             -> (SymBV sym w, Maybe Integer)
-            -> (Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (Pred sym, PartLLVMVal sym))
-            -> IO (Pred sym, PartLLVMVal sym)
+            -> (Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (PartLLVMVal sym))
+            -> IO (PartLLVMVal sym)
 readMemCopy sym w (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
   let readPrev tp' p = readPrev' tp' (p, ptrDecompose sym w p)
   let varFn = (l, d, sz)
@@ -258,7 +236,7 @@ readMemCopy sym w (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
     -- Offset if known
     (ConcreteOffset lv lo, ConcreteOffset sv so)
       | lv == sv -> do
-      let subFn :: RangeLoad Addr Addr -> IO (Pred sym, PartLLVMVal sym)
+      let subFn :: RangeLoad Addr Addr -> IO (PartLLVMVal sym)
           subFn (OutOfRange o tp') = do lv' <- natLit sym lv
                                         o' <- bvLit sym w (bytesToInteger o)
                                         readPrev tp' (LLVMPointer lv' o')
@@ -267,7 +245,7 @@ readMemCopy sym w (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
         Just csz -> do
           let s = R (fromInteger so) (fromInteger (so + csz))
           let vcr = rangeLoad (fromInteger lo) tp s
-          evalValueCtor sym =<< traverse subFn vcr
+          genValueCtor sym =<< traverse subFn vcr
         _ ->
           evalMuxValueCtor sym w varFn subFn $
             fixedOffsetRangeLoad (fromInteger lo) tp (fromInteger so)
@@ -277,7 +255,7 @@ readMemCopy sym w (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
       , lv /= sv -> readPrev' tp (l,ld)
       -- Symbolic offsets
     _ -> do
-      let subFn :: RangeLoad PtrExpr IntExpr -> IO (Pred sym, PartLLVMVal sym)
+      let subFn :: RangeLoad PtrExpr IntExpr -> IO (PartLLVMVal sym)
           subFn (OutOfRange o tp') =
             readPrev tp' =<< genPtrExpr sym w varFn o
           subFn (InRange o tp') =
@@ -304,9 +282,9 @@ readMemStore :: forall sym w .
                -- ^ The value that was stored.
             -> Type
                -- ^ The type of value that was written.
-            -> (Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (Pred sym, PartLLVMVal sym))
+            -> (Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (PartLLVMVal sym))
                -- ^ A callback function for when reading fails.
-            -> IO (Pred sym, PartLLVMVal sym)
+            -> IO (PartLLVMVal sym)
 readMemStore sym w (l,ld) ltp (d,dd) t stp readPrev' = do
   ssz <- bvLit sym w (bytesToInteger (typeSize stp))
   let varFn = (l, d, ssz)
@@ -315,25 +293,23 @@ readMemStore sym w (l,ld) ltp (d,dd) t stp readPrev' = do
     -- Offset if known
     (ConcreteOffset lv lo, ConcreteOffset sv so)
       | lv == sv -> do
-      let subFn :: ValueLoad Addr -> IO (Pred sym, PartLLVMVal sym)
+      let subFn :: ValueLoad Addr -> IO (PartLLVMVal sym)
           subFn (OldMemory o tp')   = do lv' <- natLit sym lv
                                          o' <- bvLit sym w (bytesToInteger o)
                                          readPrev tp' (LLVMPointer lv' o')
-          subFn (LastStore v)       = (truePred sym,) <$> applyView sym (PE (truePred sym) t) v
+          subFn (LastStore v)       = applyView sym (PE (truePred sym) t) v
           subFn (InvalidMemory tp') = badLoad sym tp'
       let vcr = valueLoad (fromInteger lo) ltp (fromInteger so) (ValueViewVar stp)
-      evalValueCtor sym =<< traverse subFn vcr
+      genValueCtor sym =<< traverse subFn vcr
     -- We know variables are disjoint.
     _ | Just lv <- adrVar ld
       , Just sv <- adrVar dd
       , lv /= sv -> readPrev' ltp (l,ld)
       -- Symbolic offsets
     _ -> do
-      let subFn :: ValueLoad PtrExpr -> IO (Pred sym, PartLLVMVal sym)
-          subFn (OldMemory o tp')   = do
-                     readPrev tp' =<< genPtrExpr sym w varFn o
-          subFn (LastStore v)       = do
-                     (truePred sym,) <$> applyView sym (PE (truePred sym) t) v
+      let subFn :: ValueLoad PtrExpr -> IO (PartLLVMVal sym)
+          subFn (OldMemory o tp')   = readPrev tp' =<< genPtrExpr sym w varFn o
+          subFn (LastStore v)       = applyView sym (PE (truePred sym) t) v
           subFn (InvalidMemory tp') = badLoad sym tp'
       let pref | ConcreteOffset{} <- dd = FixedStore
                | ConcreteOffset{} <- ld = FixedLoad
@@ -346,15 +322,21 @@ readMem :: (1 <= w, IsSymInterface sym)
         -> LLVMPtr sym w
         -> Type
         -> Mem sym
-        -> IO (Pred sym, PartLLVMVal sym)
+        -> IO (PartLLVMVal sym)
 readMem sym w l tp m = do
   let ld = ptrDecompose sym w l
   sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
   p  <- isAllocated sym w l sz m
-  (p', val) <- readMem' sym w (l,ld) tp (memWrites m)
-  p'' <- andPred sym p p'
-  return (p'', val)
+  val <- readMem' sym w (l,ld) tp (memWrites m)
+  val' <- andPartVal sym p val
+  return val'
 
+andPartVal :: IsSymInterface sym => sym -> Pred sym -> PartLLVMVal sym -> IO (PartLLVMVal sym)
+andPartVal sym p val =
+  case val of
+    Unassigned -> return Unassigned
+    PE p' v    -> do p'' <- andPred sym p p'
+                     return (PE p'' v)
 
 data CacheEntry sym w =
   CacheEntry !(Type) !(SymNat sym) !(SymBV sym w)
@@ -385,18 +367,18 @@ readMem' :: forall w sym . (1 <= w, IsSymInterface sym)
             -- ^ The type to read from memory.
          -> [MemWrite sym]
             -- ^ List of writes.
-         -> IO (Pred sym, PartLLVMVal sym)
+         -> IO (PartLLVMVal sym)
 readMem' sym w l0 tp0 = go (badLoad sym tp0) l0 tp0
   where
-    go :: IO (Pred sym, PartLLVMVal sym) ->
+    go :: IO (PartLLVMVal sym) ->
           (LLVMPtr sym w, AddrDecomposeResult sym w) ->
           Type ->
           [MemWrite sym] ->
-          IO (Pred sym, PartLLVMVal sym)
+          IO (PartLLVMVal sym)
     go fallback _ _ [] = fallback
     go fallback l tp (h : r) =
       do cache <- newIORef Map.empty
-         let readPrev :: Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (Pred sym, PartLLVMVal sym)
+         let readPrev :: Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (PartLLVMVal sym)
              readPrev tp' l' = do
                m <- readIORef cache
                case Map.lookup (toCacheEntry tp' (fst l')) m of
@@ -420,45 +402,42 @@ readMem' sym w l0 tp0 = go (badLoad sym tp0) l0 tp0
              do p <- go fallback l tp r -- TODO: wrap this in a delay
                 x <- go (return p) l tp xr
                 y <- go (return p) l tp yr
-                tgMuxPair sym c x y
+                muxLLVMVal sym c x y
+
+--------------------------------------------------------------------------------
 
 -- | A state of memory as of a stack push, branch, or merge.
-data MemState d =
+data Mem sym =
     -- | Represents initial memory and changes since then.
     -- Changes are stored in order, with more recent changes closer to the head
     -- of the list.
-    EmptyMem d
+    EmptyMem (MemChanges sym)
     -- | Represents a push of a stack frame,  and changes since that stack push.
     -- Changes are stored in order, with more recent changes closer to the head
     -- of the list.
-  | StackFrame d (MemState d)
+  | StackFrame (MemChanges sym) (Mem sym)
     -- | Represents a push of a branch frame, and changes since that branch.
     -- Changes are stored in order, with more recent changes closer to the head
     -- of the list.
-  | BranchFrame d (MemState d)
+  | BranchFrame (MemChanges sym) (Mem sym)
 
-memStateLastChanges :: Simple Lens (MemState d) d
-memStateLastChanges f s0 =
+type MemChanges sym = ([MemAlloc sym], [MemWrite sym])
+
+memLastChanges :: Simple Lens (Mem sym) (MemChanges sym)
+memLastChanges f s0 =
   case s0 of
     EmptyMem l -> EmptyMem <$> f l
     StackFrame l s  -> flip StackFrame s  <$> f l
     BranchFrame l s -> flip BranchFrame s <$> f l
 
-type MemChanges sym = ([MemAlloc sym], [MemWrite sym])
-
 prependChanges :: MemChanges sym -> MemChanges sym -> MemChanges sym
 prependChanges (xa,xw) (ya,yw) = (xa ++ ya, xw ++ yw)
 
 muxChanges :: Pred sym -> MemChanges sym -> MemChanges sym -> MemChanges sym
-muxChanges c (xa,xw) (ya,yw) = ([AllocMerge c xa ya],[WriteMerge c xw yw])
-
-data Mem sym = Mem { _memState :: MemState (MemChanges sym) }
-
-memState :: Simple Lens (Mem sym) (MemState ([MemAlloc sym], [MemWrite sym]))
-memState = lens _memState (\s v -> s { _memState = v })
+muxChanges c (xa,xw) (ya,yw) = ([AllocMerge c xa ya], [WriteMerge c xw yw])
 
 memChanges :: (MemChanges sym -> [d]) -> Mem sym -> [d]
-memChanges f m = go (m^.memState)
+memChanges f m = go m
   where go (EmptyMem l)      = f l
         go (StackFrame l s)  = f l ++ go s
         go (BranchFrame l s) = f l ++ go s
@@ -470,17 +449,19 @@ memWrites :: Mem sym -> [MemWrite sym]
 memWrites = memChanges snd
 
 memAddAlloc :: MemAlloc sym -> Mem sym -> Mem sym
-memAddAlloc x = memState . memStateLastChanges . _1 %~ (x:)
+memAddAlloc x = memLastChanges . _1 %~ (x:)
 
 memAddWrite :: MemWrite sym -> Mem sym -> Mem sym
-memAddWrite x = memState . memStateLastChanges . _2 %~ (x:)
+memAddWrite x = memLastChanges . _2 %~ (x:)
 
 emptyChanges :: MemChanges sym
 emptyChanges = ([],[])
 
 emptyMem :: Mem sym
-emptyMem = Mem { _memState = EmptyMem emptyChanges
-               }
+emptyMem = EmptyMem emptyChanges
+
+--------------------------------------------------------------------------------
+-- Pointer validity
 
 isAllocated' :: (IsExpr (SymExpr sym), IsBoolExprBuilder sym) =>
              sym
@@ -564,6 +545,9 @@ isValidPointer sym w p m = do
    isAllocated sym w p sz m
    -- NB We call isAllocated with a size of 0.
 
+--------------------------------------------------------------------------------
+-- Other memory operations
+
 writeMem :: (1 <= w, IsSymInterface sym)
          => sym -> NatRepr w
          -> LLVMPtr sym w
@@ -628,11 +612,11 @@ allocAndWriteMem sym w a b tp loc v m = do
   return (writeMem' sym w p tp v (m & memAddAlloc (Alloc a b sz loc)))
 
 pushStackFrameMem :: Mem sym -> Mem sym
-pushStackFrameMem = memState %~ StackFrame emptyChanges
+pushStackFrameMem = StackFrame emptyChanges
 
 popStackFrameMem :: Mem sym -> Mem sym
-popStackFrameMem m = m & memState %~ popf
-  where popf (StackFrame (a,w) s) = s & memStateLastChanges %~ prependChanges c
+popStackFrameMem m = popf m
+  where popf (StackFrame (a,w) s) = s & memLastChanges %~ prependChanges c
           where c = (mapMaybe pa a, w)
 
         -- WARNING: The following code executes a stack pop underneath a branch
@@ -662,9 +646,7 @@ freeMem :: forall sym w .
   LLVMPtr sym w {- ^ Base of allocation to free -} ->
   Mem sym ->
   IO (Pred sym, Mem sym)
-freeMem sym w p m =
-  do (c, st') <- freeSt (m^.memState)
-     return (c, m & memState .~ st')
+freeMem sym w p m = freeSt m
   where
   p_decomp = ptrDecompose sym w p
 
@@ -712,8 +694,7 @@ freeMem sym w p m =
       (c,a') <- freeAllocs a
       return (c, (a', w'))
 
-  freeSt :: MemState (MemChanges sym)
-         -> IO (Pred sym, MemState (MemChanges sym))
+  freeSt :: Mem sym -> IO (Pred sym, Mem sym)
   freeSt (StackFrame ch st) = do
             (c1,ch') <- freeCh ch
             (c2,st') <- freeSt st
@@ -730,19 +711,18 @@ freeMem sym w p m =
 
 
 branchMem :: Mem sym -> Mem sym
-branchMem = memState %~ BranchFrame emptyChanges
+branchMem m = BranchFrame emptyChanges m
 
 branchAbortMem :: Mem sym -> Mem sym
-branchAbortMem = memState %~ popf
-  where popf (BranchFrame c s) = s & memStateLastChanges %~ prependChanges c
+branchAbortMem = popf
+  where popf (BranchFrame c s) = s & memLastChanges %~ prependChanges c
         popf _ = error "branchAbortMem given unexpected memory"
 
 mergeMem :: Pred sym -> Mem sym -> Mem sym -> Mem sym
 mergeMem c x y =
-  case (x^.memState, y^.memState) of
+  case (x, y) of
     (BranchFrame a s, BranchFrame b _) ->
-      let s' = s & memStateLastChanges %~ prependChanges (muxChanges c a b)
-       in x & memState .~ s'
+      s & memLastChanges %~ prependChanges (muxChanges c a b)
     _ -> error "mergeMem given unexpected memories"
 
 
@@ -823,7 +803,7 @@ ppMemChanges (al,wl) =
   text "Writes:" <$$>
   indent 2 (vcat (map ppWrite wl))
 
-ppMemState :: (d -> Doc) -> MemState d -> Doc
+ppMemState :: (MemChanges sym -> Doc) -> Mem sym -> Doc
 ppMemState f (EmptyMem d) = do
   text "Base memory" <$$> indent 2 (f d)
 ppMemState f (StackFrame d ms) = do
@@ -836,4 +816,4 @@ ppMemState f (BranchFrame d ms) = do
     ppMemState f ms
 
 ppMem :: IsExprBuilder sym => Mem sym -> Doc
-ppMem m = ppMemState ppMemChanges (m^.memState)
+ppMem m = ppMemState ppMemChanges m

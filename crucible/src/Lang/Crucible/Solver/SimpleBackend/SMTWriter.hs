@@ -2204,8 +2204,7 @@ getSolverVal smtFns ComplexToArrayTypeMap tm =
        <*> smtEvalReal smtFns (arrayComplexImagPart tm)
 getSolverVal smtFns (PrimArrayTypeMap idx_types eltTp) tm
   | Just (SMTEvalBVArrayWrapper evalBVArray) <- smtEvalBvArray smtFns
-  , Ctx.AssignExtend rest (BVTypeMap w) <- Ctx.view idx_types
-  , Ctx.AssignEmpty <- Ctx.view rest
+  , Ctx.Empty Ctx.:> (BVTypeMap w) <- idx_types
   , BVTypeMap v <- eltTp =
       fromMaybe byIndex <$> evalBVArray w v tm
   | otherwise = return byIndex

@@ -107,6 +107,7 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.Types
+import qualified Lang.Crucible.LLVM.Bytes as G
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
 
 import           GHC.TypeLits
@@ -138,13 +139,13 @@ type family LLVMPointerImpl ctx where
 
 instance IsRecursiveType "LLVM_pointer" where
   type UnrollType "LLVM_pointer" ctx = LLVMPointerImpl ctx
-  unrollType _nm (Ctx.view -> Ctx.AssignExtend (Ctx.view -> Ctx.AssignEmpty) (BVRepr w)) =
+  unrollType _nm (Ctx.Empty Ctx.:> (BVRepr w)) =
             StructRepr (Ctx.empty Ctx.:> NatRepr Ctx.:> BVRepr w)
   unrollType nm ctx = typeError nm ctx
 
 
--- | This pattern synonym makes it easy to build and destruct runtime representatives
---   of @LLVMPointerType w@.
+-- | This pattern synonym makes it easy to build and destruct runtime
+--   representatives of @'LLVMPointerType' w@.
 pattern LLVMPointerRepr :: () => (1 <= w, ty ~ LLVMPointerType w) => NatRepr w -> TypeRepr ty
 pattern LLVMPointerRepr w <- RecursiveRepr (testEquality (knownSymbol :: SymbolRepr "LLVM_pointer") -> Just Refl)
                                            (Ctx.Empty Ctx.:> BVRepr w)
@@ -175,7 +176,7 @@ pattern LLVMPointer blk offset = RolledType (Ctx.Empty Ctx.:> RV blk Ctx.:> RV o
 llvmPointerView :: RegValue sym (LLVMPointerType w) -> (RegValue sym NatType, RegValue sym (BVType w))
 llvmPointerView (LLVMPointer blk offset) = (blk, offset)
 
--- | Compute the width of a pointer value
+-- | Compute the width of a pointer value.
 ptrWidth :: IsExprBuilder sym => LLVMPtr sym w -> NatRepr w
 ptrWidth (LLVMPointer _blk bv) = bvWidth bv
 
@@ -211,7 +212,7 @@ muxLLVMPtr sym p (LLVMPointer b1 off1) (LLVMPointer b2 off2) =
      off <- bvIte sym p off1 off2
      return $ LLVMPointer b off
 
--- | Coerce a @LLVMPtr@ value into memory-storable @LLVMVal@
+-- | Coerce a @LLVMPtr@ value into a memory-storable @LLVMVal@.
 ptrToPtrVal :: (1 <= w) => LLVMPtr sym w -> LLVMVal sym
 ptrToPtrVal (LLVMPointer blk off) = LLVMValInt blk off
 
@@ -366,7 +367,8 @@ type PartLLVMVal sym = PartExpr (Pred sym) (LLVMVal sym)
 -- operations are unnecessary and maybe they should be removed.
 
 -- | Concatenate partial LLVM bitvector values. The least-significant
--- (low) bytes are given first.
+-- (low) bytes are given first. The allocation block number of each
+-- argument is asserted to equal 0, indicating non-pointers.
 bvConcatPartLLVMVal ::
   IsSymInterface sym => sym ->
   G.Bytes -> PartLLVMVal sym ->
@@ -454,7 +456,9 @@ mkStructPartLLVMVal sym vec =
        Nothing -> return $ Unassigned
        Just (vec',p) -> return $ PE p $ LLVMValStruct vec'
 
--- | Select the low bytes of a partial LLVM bitvector value.
+-- | Select the low bytes of a partial LLVM bitvector value. The
+-- allocation block number of the argument is asserted to equal 0,
+-- indicating a non-pointer.
 selectLowBvPartLLVMVal ::
   IsSymInterface sym => sym ->
   G.Bytes -> G.Bytes ->
@@ -472,7 +476,9 @@ selectLowBvPartLLVMVal sym low hi (PE p (LLVMValInt blk bv))
   where w = bvWidth bv
 selectLowBvPartLLVMVal _ _ _ _ = return Unassigned
 
--- | Select the low bytes of a partial LLVM bitvector value.
+-- | Select the high bytes of a partial LLVM bitvector value. The
+-- allocation block number of the argument is asserted to equal 0,
+-- indicating a non-pointer.
 selectHighBvPartLLVMVal ::
   IsSymInterface sym => sym ->
   G.Bytes -> G.Bytes ->
@@ -514,7 +520,7 @@ fieldValPartLLVMVal flds idx (PE p (LLVMValStruct vec))
     return $ PE p $ snd $ (vec V.! idx)
 fieldValPartLLVMVal _ _ _ = return Unassigned
 
--- | Mux partial LLVM values
+-- | Mux partial LLVM values.
 muxLLVMVal :: forall sym
     . IsSymInterface sym
    => sym

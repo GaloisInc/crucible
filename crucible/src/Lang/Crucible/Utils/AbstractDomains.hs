@@ -78,7 +78,7 @@ module Lang.Crucible.Utils.AbstractDomains
   ) where
 
 import           Control.Exception (assert)
-import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.TraversableFC
 import           Data.Ratio (denominator)

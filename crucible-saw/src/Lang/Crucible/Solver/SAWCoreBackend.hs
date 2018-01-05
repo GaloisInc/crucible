@@ -91,7 +91,7 @@ baseSCType ctx bt =
     BaseNatRepr  -> SC.scNatType ctx
     BaseIntegerRepr -> SC.scIntegerType ctx
     BaseArrayRepr indexTypes range ->
-      case Ctx.view indexTypes of
+      case Ctx.viewAssign indexTypes of
         Ctx.AssignExtend b dom -> do
           when (not (Ctx.null b)) $ do
             fail $ "SAW backend only supports single element arrays."
@@ -568,7 +568,7 @@ evaluateElt sym sc cache = f
         SB.ArrayMap{} -> fail "FIXME SAW backend does not support ArrayMap."
 
         SB.ConstantArray indexTypes _range v -> fmap SAWElt $ do
-          case Ctx.view indexTypes of
+          case Ctx.viewAssign indexTypes of
             Ctx.AssignExtend b dom -> do
               when (not (Ctx.null b)) $ do
                 fail $ "SAW backend only supports single element arrays."
@@ -579,7 +579,7 @@ evaluateElt sym sc cache = f
               SC.scLambda sc "_" ty v'
 
         SB.SelectArray _ arr indexTerms -> fmap SAWElt $ do
-          case Ctx.view indexTerms of
+          case Ctx.viewAssign indexTerms of
             Ctx.AssignExtend b idx -> do
               when (not (Ctx.null b)) $ do
                 fail $ "SAW backend only supports single element arrays."
@@ -587,7 +587,7 @@ evaluateElt sym sc cache = f
               join $ SC.scApply sc <$> f arr <*> f idx
 
         SB.MuxArray indexTypes range p x y -> fmap SAWElt $ do
-          case Ctx.view indexTypes of
+          case Ctx.viewAssign indexTypes of
             Ctx.AssignExtend b dom -> do
               when (not (Ctx.null b)) $ do
                 fail $ "SAW backend only supports single element arrays."
@@ -600,7 +600,7 @@ evaluateElt sym sc cache = f
           rangeTy <- baseSCType sc range
           arr' <- f arr
           v'   <- f v
-          case Ctx.view indexTerms of
+          case Ctx.viewAssign indexTerms of
             Ctx.AssignExtend b idx -> do
               when (not (Ctx.null b)) $ do
                 fail $ "SAW backend only supports single element arrays."

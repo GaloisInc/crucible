@@ -85,12 +85,13 @@ module Lang.Crucible.Syntax
   , littleEndianStore
   ) where
 
+import           Control.Lens
+import           Data.Parameterized.Classes
+import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Some
 import           Data.Text (Text)
 import           Data.Typeable
 import qualified Data.Vector as V
-
-import qualified Data.Parameterized.Context as Ctx
-import           Data.Parameterized.Some
 import           Numeric.Natural
 
 import           Lang.MATLAB.MatlabChar
@@ -383,7 +384,7 @@ setStruct :: IsExpr e
           -> e tp
           -> e (StructType ctx)
 setStruct tps s i x
-  | Just (MkStruct _ asgn) <- asApp s = app (MkStruct tps (Ctx.update i x asgn))
+  | Just (MkStruct _ asgn) <- asApp s = app (MkStruct tps (asgn & ixF i .~ x))
   | otherwise = app (SetStruct tps s i x)
 
 

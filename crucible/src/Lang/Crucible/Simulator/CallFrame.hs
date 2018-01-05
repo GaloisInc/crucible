@@ -107,7 +107,7 @@ mkCallFrame :: CFG ext blocks init ret
 mkCallFrame g pdInfo args = do
   let BlockID block_id = cfgEntryBlockID g
   let b = cfgBlockMap g Ctx.! block_id
-  let ConstK pd = pdInfo Ctx.! block_id
+  let pd = getConst $ pdInfo Ctx.! block_id
   CallFrame { frameHandle   = SomeHandle (cfgHandle g)
             , frameBlockMap = cfgBlockMap g
             , framePostdomMap = pdInfo
@@ -127,7 +127,7 @@ setFrameBlock :: BlockID blocks args
               -> CallFrame sym ext blocks ret args
 setFrameBlock (BlockID block_id) args f = f'
     where b = frameBlockMap f Ctx.! block_id
-          ConstK pd = framePostdomMap f Ctx.! block_id
+          Const pd = framePostdomMap f Ctx.! block_id
           f' = f { _frameRegs =  args
                  , _frameStmts = b^.blockStmts
                  , _framePostdom  = listToMaybe pd
