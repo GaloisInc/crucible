@@ -67,7 +67,7 @@ import           Control.Monad.State.Strict
 import           Data.Foldable
 import           Data.Maybe
 import           Data.Parameterized.Classes
-import           Data.Parameterized.Context as Ctx
+import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
 import qualified Data.Set as Set
@@ -501,8 +501,8 @@ lookupArray sym a idx_vec
     case Ctx.generateSome (V.length idx_vec) getExpr of
       Some idx_vec' -> do
         case idx_vec' of
-          Empty -> error "Internal: lookupArray given bad size"
-          _ :> _ -> do
+          Ctx.Empty -> error "Internal: lookupArray given bad size"
+          _ Ctx.:> _ -> do
             sizes_ctx <- traverseFC (\(NatExpr i) -> NatExpr <$> totalSize sym i) idx_vec'
 
             -- Create bound variables used in array.
