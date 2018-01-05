@@ -30,6 +30,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Lang.Crucible.LLVM.MemModel
   ( LLVMPointerType
+  , LLVM
   , LLVMValTypeType
   , pattern LLVMPointerRepr
   , pattern PtrWidth
@@ -180,18 +181,20 @@ data LLVMMemOps wptr
   }
 
 
+type LLVM = ()
+
 data LLVMIntrinsicImpl p sym args ret =
   LLVMIntrinsicImpl
   { llvmIntrinsicName     :: FunctionName
   , llvmIntrinsicArgTypes :: CtxRepr args
   , llvmIntrinsicRetType  :: TypeRepr ret
-  , llvmIntrinsicImpl     :: IntrinsicImpl p sym args ret
+  , llvmIntrinsicImpl     :: IntrinsicImpl p sym LLVM args ret
   }
 
 useLLVMIntrinsic :: IsSymInterface sym
                  => FnHandle args ret
                  -> LLVMIntrinsicImpl p sym args ret
-                 -> FnBinding p sym
+                 -> FnBinding p sym LLVM
 useLLVMIntrinsic hdl impl = useIntrinsic hdl (llvmIntrinsicImpl impl)
 
 mkLLVMHandle :: HandleAllocator s
@@ -206,7 +209,7 @@ mkLLVMHandle halloc impl =
 
 llvmMemIntrinsics :: (IsSymInterface sym, HasPtrWidth wptr)
                   => LLVMMemOps wptr
-                  -> [FnBinding p sym]
+                  -> [FnBinding p sym LLVM]
 llvmMemIntrinsics memOps =
   [ useLLVMIntrinsic (llvmMemAlloca memOps)
                      memAlloca
@@ -1006,16 +1009,17 @@ loadString sym mem = go id
   go f p maxChars = do
      v <- doLoad sym mem p (G.bitvectorType 1) 0 -- one byte, no alignment
      case v of
-       AnyValue (BVRepr w) x
+       AnyValue (LLVMPointerRepr w) x
          | Just Refl <- testEquality w (knownNat :: NatRepr 8) ->
-            case asUnsignedBV x of
-              Just 0 -> return $ f []
-              Just c -> do
-                  let c' :: Word8 = toEnum $ fromInteger c
-                  p' <- doPtrAddOffset sym mem p =<< bvLit sym PtrWidth 1
-                  go (f . (c':)) p' (fmap (\n -> n - 1) maxChars)
-              Nothing ->
-                fail "Symbolic value encountered when loading a string"
+            do x' <- projectLLVM_bv sym x
+               case asUnsignedBV x' of
+                 Just 0 -> return $ f []
+                 Just c -> do
+                     let c' :: Word8 = toEnum $ fromInteger c
+                     p' <- doPtrAddOffset sym mem p =<< bvLit sym PtrWidth 1
+                     go (f . (c':)) p' (fmap (\n -> n - 1) maxChars)
+                 Nothing ->
+                   fail "Symbolic value encountered when loading a string"
        _ -> fail "Invalid value encountered when loading a string"
 
 

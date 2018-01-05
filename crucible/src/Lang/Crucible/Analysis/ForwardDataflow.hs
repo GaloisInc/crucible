@@ -31,7 +31,9 @@
 -- Our current method for doing this is quite naive, and more efficient
 -- methods exist.
 ------------------------------------------------------------------------
-module Lang.Crucible.Analysis.ForwardDataflow where
+module Lang.Crucible.Analysis.ForwardDataflow
+{-# DEPRECATED "Lang.Crucible.Analysis.Fixpoint is a better implementation of these ideas" #-}
+where
 
 import           Control.Lens
 import           Control.Monad.State.Strict
@@ -55,7 +57,8 @@ data SymDom = Dead | Symbolic | Concrete
   deriving (Eq, Ord, Show)
 
 symbolicResults
-   :: CFG blocks init ret
+   :: IsSyntaxExtension ext
+   => CFG ext blocks init ret
    -- -> Assignment (Ignore SymDom) init
    -> String
    -- -> (Assignment (KildallPair (Assignment (Ignore SymDom)) SymDom) blocks, Ignore SymDom ret, SymDom)
@@ -74,7 +77,7 @@ symlub Concrete Concrete = Concrete
 sym_reg_transfer :: Reg ctx tp -> Assignment (Ignore SymDom) ctx -> SymDom
 sym_reg_transfer reg asgn = ignoreOut $ asgn Ctx.! (regIndex reg)
 
-sym_expr_transfer :: Expr ctx tp -> Assignment (Ignore SymDom) ctx -> SymDom
+sym_expr_transfer :: IsSyntaxExtension ext => Expr ext ctx tp -> Assignment (Ignore SymDom) ctx -> SymDom
 sym_expr_transfer (App a) asgn
   = foldApp (\r z -> symlub z $ sym_reg_transfer r asgn) Dead a
 
@@ -91,7 +94,7 @@ sym_call_transfer
 sym_call_transfer _ _ ex _ _
   = Debug.trace (show $ pretty ex) $ Ignore Symbolic
 
-symbolicAnalysis :: KildallForward blocks (Ignore SymDom) SymDom
+symbolicAnalysis :: IsSyntaxExtension ext => KildallForward ext blocks (Ignore SymDom) SymDom
 symbolicAnalysis =
   KildallForward
   { kfwd_lub = \(Ignore x) (Ignore y) -> Ignore (symlub x y)
@@ -129,7 +132,7 @@ instance Show a => Show (Ignore a tp) where
 instance Show a => ShowF (Ignore a)
 
 
-data KildallForward blocks (a :: CrucibleType -> *) c
+data KildallForward ext blocks (a :: CrucibleType -> *) c
   = KildallForward
     { kfwd_lub      :: forall tp. a tp -> a tp -> a tp
     , kfwd_bot      :: forall tp. a tp
@@ -140,7 +143,7 @@ data KildallForward blocks (a :: CrucibleType -> *) c
     , kfwd_br       :: forall ctx. Reg ctx BoolType -> a BoolType -> c -> (c, c)
     , kfwd_maybe    :: forall ctx tp. TypeRepr tp -> Reg ctx (MaybeType tp) -> a (MaybeType tp) -> c -> (c, a tp, c)
     , kfwd_reg      :: !(forall ctx tp. TypeRepr tp -> Reg ctx tp  -> Assignment a ctx -> a tp)
-    , kfwd_expr     :: !(forall ctx tp. TypeRepr tp -> Expr ctx tp -> Assignment a ctx -> a tp)
+    , kfwd_expr     :: !(forall ctx tp. TypeRepr tp -> Expr ext ctx tp -> Assignment a ctx -> a tp)
     , kfwd_call     :: forall ctx args ret. CtxRepr args
                                          -> TypeRepr ret
                                          -> Reg ctx (FunctionHandleType args ret)
@@ -152,22 +155,22 @@ data KildallForward blocks (a :: CrucibleType -> *) c
     }
 
 kildall_transfer
-   :: forall a c blocks ret ctx
-    . KildallForward blocks a c
+   :: forall ext a c blocks ret ctx
+    . KildallForward ext blocks a c
    -> TypeRepr ret
-   -> Block blocks ret ctx
+   -> Block ext blocks ret ctx
    -> (Assignment a ctx, c)
    -> State (Assignment (KildallPair (Assignment a) c) blocks, a ret, c) (Set (Some (BlockID blocks)))
 kildall_transfer analysis retRepr blk = transfer_seq (_blockStmts blk)
  where transfer_seq :: forall ctx'
-                     . StmtSeq blocks ret ctx'
+                     . StmtSeq ext blocks ret ctx'
                     -> (Assignment a ctx', c)
                     -> State (Assignment (KildallPair (Assignment a) c) blocks, a ret, c) (Set (Some (BlockID blocks)))
 
        transfer_seq (ConsStmt _loc stmt ss) x = transfer_seq ss (transfer_stmt stmt x)
        transfer_seq (TermStmt _loc term) x = transfer_term term x
 
-       transfer_stmt :: forall ctx1 ctx2. Stmt ctx1 ctx2 -> (Assignment a ctx1, c) -> (Assignment a ctx2, c)
+       transfer_stmt :: forall ctx1 ctx2. Stmt ext ctx1 ctx2 -> (Assignment a ctx1, c) -> (Assignment a ctx2, c)
        transfer_stmt (SetReg tp ex) (asgn, c) = (Ctx.extend asgn (kfwd_expr analysis tp ex asgn), c)
        transfer_stmt (CallHandle rettp ex argstp actuals) (asgn, c) =
            let xs = Ctx.zipWith (\tp act -> kfwd_reg analysis tp act asgn) argstp actuals
@@ -176,11 +179,13 @@ kildall_transfer analysis retRepr blk = transfer_seq (_blockStmts blk)
             in (Ctx.extend asgn a', c)
        transfer_stmt (Print _) asgn = asgn
        transfer_stmt (ReadGlobal gv) (asgn, c) = (Ctx.extend asgn (kfwd_rdglobal analysis gv), c)
+       transfer_stmt ExtendAssign{} _ = error "extension statement!"
        transfer_stmt NewRefCell{} _ = error "forward dataflow: reference cell!"
        transfer_stmt NewEmptyRefCell{} _ = error "forward dataflow: reference cell!"
        transfer_stmt ReadRefCell{} _ = error "forward dataflow: reference cell!"
        transfer_stmt WriteRefCell{} _ = error "forward dataflow: reference cell!"
        transfer_stmt DropRefCell{} _ = error "forward dataflow: reference cell!"
+       transfer_stmt NewEmptyRefCell{} _ = error "forward dataflow: reference cell!"
        transfer_stmt (WriteGlobal _ _) asgnc = asgnc -- FIXME? need to check something here, perhaps?
        transfer_stmt (Assert _ _) asgnc = asgnc -- FIXME? is it useful to remember assertions some way?
 
@@ -261,9 +266,9 @@ kildall_transfer analysis retRepr blk = transfer_seq (_blockStmts blk)
 
 
 kildall_forward
-  :: forall a c blocks ret init
-   . KildallForward blocks a c
-  -> CFG blocks init ret
+  :: forall ext a c blocks ret init
+   . KildallForward ext blocks a c
+  -> CFG ext blocks init ret
   -> (Assignment a init, c)
   -> (Assignment (KildallPair (Assignment a) c) blocks, a ret, c)
 kildall_forward analysis cfg (asgn0,c0) =
@@ -282,7 +287,7 @@ kildall_forward analysis cfg (asgn0,c0) =
                   , kfwd_cbot analysis
                   )
 
-  where visit :: Block blocks ret ctx
+  where visit :: Block ext blocks ret ctx
               -> (Assignment a ctx, c)
               -> Set (Some (BlockID blocks))
               -> State (Assignment (KildallPair (Assignment a) c) blocks, a ret, c) ()

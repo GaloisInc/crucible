@@ -1,3 +1,5 @@
+{-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE LambdaCase #-}
 -----------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.LLVM
@@ -11,6 +13,7 @@ module Lang.Crucible.LLVM
 ( registerModuleFn
 , llvmGlobals
 , register_llvm_overrides
+, llvmExtensionImpl
 )
 where
 
@@ -28,8 +31,8 @@ import           Lang.Crucible.Simulator.OverrideSim
 
 
 registerModuleFn
-   :: (L.Symbol, AnyCFG)
-   -> OverrideSim p sym rtp l a ()
+   :: (L.Symbol, AnyCFG LLVM)
+   -> OverrideSim p sym LLVM rtp l a ()
 registerModuleFn (_,AnyCFG cfg) = do
   let h = cfgHandle cfg
       s = UseCFG cfg (postdomInfo cfg)
@@ -42,3 +45,10 @@ llvmGlobals
    -> SymGlobalState sym
 llvmGlobals ctx mem = emptyGlobals & insertGlobal var mem
   where var = llvmMemVar $ memModelOps ctx
+
+llvmExtensionImpl :: ExtensionImpl p sym LLVM
+llvmExtensionImpl =
+  ExtensionImpl
+  { extensionEval = \_ -> \case
+  , extensionExec = \_ -> \case
+  }
