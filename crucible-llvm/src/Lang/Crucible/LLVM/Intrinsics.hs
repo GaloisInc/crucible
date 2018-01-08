@@ -1,6 +1,6 @@
 -- |
 -- Module           : Lang.Crucible.LLVM.Intrinsics
--- Description      : Override definitions for LLVM intrisic and basic
+-- Description      : Override definitions for LLVM intrinsic and basic
 --                    library functions
 -- Copyright        : (c) Galois, Inc 2015-2016
 -- License          : BSD3
@@ -88,7 +88,7 @@ llvmIntrinsicTypes =
 llvmIntrinsics :: HasPtrWidth wptr
                => HandleAllocator s
                -> DataLayout
-               -> ST s (LLVMMemOps wptr, AnyFnBindings)
+               -> ST s (LLVMMemOps wptr, AnyFnBindings LLVM)
 llvmIntrinsics halloc dl = do
   memOps <- newMemOps halloc dl
   let fns = AnyFnBindings (llvmMemIntrinsics memOps)
@@ -96,7 +96,7 @@ llvmIntrinsics halloc dl = do
 
 
 register_llvm_overrides :: (IsSymInterface sym, HasPtrWidth wptr)
-                        => StateT (LLVMContext wptr) (OverrideSim p sym rtp l a) ()
+                        => StateT (LLVMContext wptr) (OverrideSim p sym LLVM rtp l a) ()
 register_llvm_overrides = do
   -- Register translation intrinsics
   AnyFnBindings fns <- llvmFnBindings <$> get
@@ -162,7 +162,7 @@ data LLVMContext wptr
    , llvmPtrWidth   :: forall a. (16 <= wptr => NatRepr wptr -> a) -> a
    , memModelOps    :: !(LLVMMemOps wptr)
    , _llvmTypeCtx    :: TyCtx.LLVMContext
-   , llvmFnBindings :: AnyFnBindings
+   , llvmFnBindings :: AnyFnBindings LLVM
    }
 
 symbolMap :: Simple Lens (LLVMContext wptr) SymbolHandleMap
@@ -207,19 +207,19 @@ data LLVMOverride p sym wptr args ret =
          LLVMMemOps wptr ->
          sym ->
          Ctx.Assignment (RegEntry sym) args ->
-         OverrideSim p sym rtp args' ret' (RegValue sym ret)
+         OverrideSim p sym LLVM rtp args' ret' (RegValue sym ret)
   }
 
 
 newtype ArgTransformer p sym args args' =
   ArgTransformer { applyArgTransformer :: (forall rtp l a.
     Ctx.Assignment (RegEntry sym) args ->
-    OverrideSim p sym rtp l a (Ctx.Assignment (RegEntry sym) args')) }
+    OverrideSim p sym LLVM rtp l a (Ctx.Assignment (RegEntry sym) args')) }
 
 newtype ValTransformer p sym tp tp' =
   ValTransformer { applyValTransformer :: (forall rtp l a.
     RegValue sym tp ->
-    OverrideSim p sym rtp l a (RegValue sym tp')) }
+    OverrideSim p sym LLVM rtp l a (RegValue sym tp')) }
 
 transformLLVMArgs :: forall m p sym args args'.
   (IsSymInterface sym, Monad m) =>
@@ -270,8 +270,8 @@ build_llvm_override ::
   CtxRepr args' ->
   TypeRepr ret' ->
   (forall rtp' l' a'. Ctx.Assignment (RegEntry sym) args ->
-   OverrideSim p sym rtp' l' a' (RegValue sym ret)) ->
-  OverrideSim p sym rtp l a (Override p sym args' ret')
+   OverrideSim p sym LLVM rtp' l' a' (RegValue sym ret)) ->
+  OverrideSim p sym LLVM rtp l a (Override p sym LLVM args' ret')
 build_llvm_override sym fnm args ret args' ret' llvmOverride =
   do fargs <- transformLLVMArgs sym args args'
      fret  <- transformLLVMRet  sym ret  ret'
@@ -282,7 +282,7 @@ build_llvm_override sym fnm args ret args' ret' llvmOverride =
 register_llvm_override :: forall p args ret sym wptr l a rtp
                        . (IsSymInterface sym, HasPtrWidth wptr)
                       => LLVMOverride p sym wptr args ret
-                      -> StateT (LLVMContext wptr) (OverrideSim p sym rtp l a) ()
+                      -> StateT (LLVMContext wptr) (OverrideSim p sym LLVM rtp l a) ()
 register_llvm_override llvmOverride = do
   llvmctx <- get
   let decl = llvmOverride_declare llvmOverride
@@ -945,7 +945,7 @@ callMalloc
   => sym
   -> LLVMMemOps wptr
   -> RegEntry sym (BVType wptr)
-  -> OverrideSim p sym r args ret (RegValue sym (LLVMPointerType wptr))
+  -> OverrideSim p sym LLVM r args ret (RegValue sym (LLVMPointerType wptr))
 callMalloc sym memOps
            (regValue -> sz) = do
   --liftIO $ putStrLn "MEM MALLOC"
@@ -961,7 +961,7 @@ callCalloc
   -> LLVMMemOps wptr
   -> RegEntry sym (BVType wptr)
   -> RegEntry sym (BVType wptr)
-  -> OverrideSim p sym r args ret (RegValue sym (LLVMPointerType wptr))
+  -> OverrideSim p sym LLVM r args ret (RegValue sym (LLVMPointerType wptr))
 callCalloc sym memOps
            (regValue -> sz)
            (regValue -> num) = do
@@ -977,7 +977,7 @@ callFree
   => sym
   -> LLVMMemOps wptr
   -> RegEntry sym (LLVMPointerType wptr)
-  -> OverrideSim p sym r args ret ()
+  -> OverrideSim p sym LLVM r args ret ()
 callFree sym memOps
            (regValue -> ptr) = do
   --liftIO $ putStrLn "MEM FREE"
@@ -995,7 +995,7 @@ callMemcpy
   -> RegEntry sym (BVType w)
   -> RegEntry sym (BVType 32)
   -> RegEntry sym (BVType 1)
-  -> OverrideSim p sym r args ret ()
+  -> OverrideSim p sym LLVM r args ret ()
 callMemcpy sym memOps
            (regValue -> dest)
            (regValue -> src)
@@ -1021,7 +1021,7 @@ callMemmove
   -> RegEntry sym (BVType w)
   -> RegEntry sym (BVType 32)
   -> RegEntry sym (BVType 1)
-  -> OverrideSim p sym r args ret ()
+  -> OverrideSim p sym LLVM r args ret ()
 callMemmove sym memOps
            (regValue -> dest)
            (regValue -> src)
@@ -1042,7 +1042,7 @@ callMemset
   -> RegEntry sym (BVType w)
   -> RegEntry sym (BVType 32)
   -> RegEntry sym (BVType 1)
-  -> OverrideSim p sym r args ret ()
+  -> OverrideSim p sym LLVM r args ret ()
 callMemset sym memOps
            (regValue -> dest)
            (regValue -> val)
@@ -1080,7 +1080,7 @@ callObjectsize
   -> NatRepr w
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (BVType 1)
-  -> OverrideSim p sym r args ret (RegValue sym (BVType w))
+  -> OverrideSim p sym LLVM r args ret (RegValue sym (BVType w))
 callObjectsize sym _memOps w
   (regValue -> _ptr)
   (regValue -> flag) = liftIO $ do
@@ -1100,7 +1100,7 @@ callCtlz
   -> LLVMMemOps wptr
   -> RegEntry sym (BVType w)
   -> RegEntry sym (BVType 1)
-  -> OverrideSim p sym r args ret (RegValue sym (BVType w))
+  -> OverrideSim p sym LLVM r args ret (RegValue sym (BVType w))
 callCtlz sym _memOps
   (regValue -> val)
   (regValue -> isZeroUndef) = liftIO $
@@ -1125,7 +1125,7 @@ callPutChar
   => sym
   -> LLVMMemOps wptr
   -> RegEntry sym (BVType 32)
-  -> OverrideSim p sym r args ret (RegValue sym (BVType 32))
+  -> OverrideSim p sym LLVM r args ret (RegValue sym (BVType 32))
 callPutChar _sym _memOps
  (regValue -> ch) = do
     h <- printHandle <$> getContext
@@ -1139,7 +1139,7 @@ callPuts
   => sym
   -> LLVMMemOps wptr
   -> RegEntry sym (LLVMPointerType wptr)
-  -> OverrideSim p sym r args ret (RegValue sym (BVType 32))
+  -> OverrideSim p sym LLVM r args ret (RegValue sym (BVType 32))
 callPuts sym memOps
   (regValue -> strPtr) = do
     mem <- readGlobal (llvmMemVar memOps)
@@ -1156,7 +1156,7 @@ callPrintf
   -> LLVMMemOps wptr
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (VectorType AnyType)
-  -> OverrideSim p sym r args ret (RegValue sym (BVType 32))
+  -> OverrideSim p sym LLVM r args ret (RegValue sym (BVType 32))
 callPrintf sym memOps
   (regValue -> strPtr)
   (regValue -> valist) = do

@@ -30,6 +30,8 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Lang.Crucible.LLVM.MemModel
   ( LLVMPointerType
+  , LLVM
+  , LLVMValTypeType
   , pattern LLVMPointerRepr
   , pattern PtrWidth
   , ptrWidth
@@ -40,7 +42,6 @@ module Lang.Crucible.LLVM.MemModel
   , LLVMMemOps(..)
   , newMemOps
   , llvmMemIntrinsics
-  , GlobalMap
   , GlobalSymbol(..)
   , allocGlobals
   , registerGlobal
@@ -120,6 +121,8 @@ import GHC.Stack
 
 --import Debug.Trace as Debug
 
+-- | The 'CrucibleType' of an LLVM memory. @'RegValue' sym 'Mem'@ is
+-- implemented as @'MemImpl' sym@.
 type Mem = IntrinsicType "LLVM_memory" EmptyCtx
 
 memRepr :: TypeRepr Mem
@@ -150,10 +153,14 @@ instance IntrinsicClass sym "LLVM_memory" where
         --putStrLn "MEM ABORT BRANCH"
         return $ MemImpl nxt gMap hMap $ G.branchAbortMem m
 
+-- | @'RegValue' sym 'LLVMValTypeType'@ is equivalent to 'G.Type'.
 type LLVMValTypeType = ConcreteType G.Type
 
+-- | @'RegValue' sym 'AlignmentType'@ is equivalent to 'Alignment'.
+type AlignmentType = ConcreteType Alignment
+
 newtype GlobalSymbol = GlobalSymbol L.Symbol
- deriving (Typeable, Eq, Ord, Show)
+  deriving (Typeable, Eq, Ord, Show)
 
 data LLVMMemOps wptr
   = LLVMMemOps
@@ -163,7 +170,7 @@ data LLVMMemOps wptr
                               (StructType (EmptyCtx ::> Mem ::> LLVMPointerType wptr))
   , llvmMemPushFrame :: FnHandle (EmptyCtx ::> Mem) Mem
   , llvmMemPopFrame :: FnHandle (EmptyCtx ::> Mem) Mem
-  , llvmMemLoad  :: FnHandle (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> LLVMValTypeType) AnyType
+  , llvmMemLoad  :: FnHandle (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> LLVMValTypeType ::> AlignmentType) AnyType
   , llvmMemStore :: FnHandle (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> LLVMValTypeType ::> AnyType) Mem
   , llvmMemLoadHandle :: FnHandle (EmptyCtx ::> Mem ::> LLVMPointerType wptr) AnyType
   , llvmResolveGlobal :: FnHandle (EmptyCtx ::> Mem ::> ConcreteType GlobalSymbol) (LLVMPointerType wptr)
@@ -174,18 +181,20 @@ data LLVMMemOps wptr
   }
 
 
+type LLVM = ()
+
 data LLVMIntrinsicImpl p sym args ret =
   LLVMIntrinsicImpl
   { llvmIntrinsicName     :: FunctionName
   , llvmIntrinsicArgTypes :: CtxRepr args
   , llvmIntrinsicRetType  :: TypeRepr ret
-  , llvmIntrinsicImpl     :: IntrinsicImpl p sym args ret
+  , llvmIntrinsicImpl     :: IntrinsicImpl p sym LLVM args ret
   }
 
 useLLVMIntrinsic :: IsSymInterface sym
                  => FnHandle args ret
                  -> LLVMIntrinsicImpl p sym args ret
-                 -> FnBinding p sym
+                 -> FnBinding p sym LLVM
 useLLVMIntrinsic hdl impl = useIntrinsic hdl (llvmIntrinsicImpl impl)
 
 mkLLVMHandle :: HandleAllocator s
@@ -200,7 +209,7 @@ mkLLVMHandle halloc impl =
 
 llvmMemIntrinsics :: (IsSymInterface sym, HasPtrWidth wptr)
                   => LLVMMemOps wptr
-                  -> [FnBinding p sym]
+                  -> [FnBinding p sym LLVM]
 llvmMemIntrinsics memOps =
   [ useLLVMIntrinsic (llvmMemAlloca memOps)
                      memAlloca
@@ -266,6 +275,8 @@ nextBlock :: BlockSource -> IO Integer
 nextBlock (BlockSource ref) =
   atomicModifyIORef' ref (\n -> (n+1, n))
 
+-- | The implementation of an LLVM memory, containing an
+-- allocation-block source, global map, handle map, and heap.
 data MemImpl sym =
   MemImpl
   { memImplBlockSource :: BlockSource
@@ -286,7 +297,7 @@ data SomePointer sym = forall w. SomePointer !(RegValue sym (LLVMPointerType w))
 type GlobalMap sym = Map L.Symbol (SomePointer sym)
 
 -- | Allocate memory for each global, and register all the resulting
--- pointers in the 'GlobalMap'.
+-- pointers in the global map.
 allocGlobals :: (IsSymInterface sym, HasPtrWidth wptr)
              => sym
              -> [(L.Symbol, G.Size)]
@@ -304,7 +315,7 @@ allocGlobal sym mem (symbol@(L.Symbol sym_str), sz) = do
   (ptr, mem') <- doMalloc sym G.GlobalAlloc sym_str mem sz'
   return (registerGlobal mem' symbol ptr)
 
--- | Add an entry to the 'GlobalMap' of the given 'MemImpl'.
+-- | Add an entry to the global map of the given 'MemImpl'.
 registerGlobal :: MemImpl sym
                -> L.Symbol
                -> RegValue sym (LLVMPointerType wptr)
@@ -436,20 +447,23 @@ memResolveGlobal =
        (regValue -> (GlobalSymbol symbol)) -> liftIO $ doResolveGlobal sym mem symbol
 
 memLoad :: HasPtrWidth wptr =>
-  LLVMIntrinsicImpl p sym (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> LLVMValTypeType) AnyType
+  LLVMIntrinsicImpl p sym
+    (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> LLVMValTypeType ::> AlignmentType) AnyType
 memLoad =
   LLVMIntrinsicImpl
     "llvm_load"
-    (Empty :> memRepr :> PtrRepr :> knownRepr) AnyRepr $
+    (Empty :> memRepr :> PtrRepr :> knownRepr :> knownRepr) AnyRepr $
     mkIntrinsic $ \_ sym
       (regValue -> mem)
       (regValue -> ptr)
-      (regValue -> valType) ->
-        liftIO $ doLoad sym mem ptr valType
+      (regValue -> valType)
+      (regValue -> alignment) ->
+        liftIO $ doLoad sym mem ptr valType alignment
 
 ppMem :: IsExprBuilder sym => RegValue sym Mem -> Doc
 ppMem mem = G.ppMem (memImplHeap mem)
 
+-- | Pretty print a memory state to the given handle.
 doDumpMem
   :: IsExprBuilder sym
   => Handle
@@ -497,10 +511,11 @@ loadRawWithCondition sym mem ptr valType =
 doLoad :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> RegValue sym Mem
-  -> RegValue sym (LLVMPointerType wptr)
-  -> RegValue sym LLVMValTypeType
+  -> RegValue sym (LLVMPointerType wptr) {- ^ pointer to load from -}
+  -> RegValue sym LLVMValTypeType        {- ^ type of value to load -}
+  -> RegValue sym AlignmentType          {- ^ pointer alignment -}
   -> IO (RegValue sym AnyType)
-doLoad sym mem ptr valType = do
+doLoad sym mem ptr valType _align = do
     --putStrLn "MEM LOAD"
     let errMsg = "Invalid memory load: address " ++ show (G.ppPtr ptr) ++
                  " at type " ++ show (G.ppType valType)
@@ -530,9 +545,9 @@ storeRaw sym mem ptr valType val = do
 doStore :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> RegValue sym Mem
-  -> RegValue sym (LLVMPointerType wptr)
-  -> RegValue sym LLVMValTypeType
-  -> RegValue sym AnyType
+  -> RegValue sym (LLVMPointerType wptr) {- ^ pointer to store into -}
+  -> RegValue sym LLVMValTypeType        {- ^ type of value to store -}
+  -> RegValue sym AnyType                {- ^ value to store -}
   -> IO (RegValue sym Mem)
 doStore sym mem ptr valType (AnyValue tpr val) = do
     --putStrLn "MEM STORE"
@@ -891,8 +906,8 @@ doPtrAddOffset
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> RegValue sym Mem
-  -> RegValue sym (LLVMPointerType wptr)
-  -> RegValue sym (BVType wptr)
+  -> RegValue sym (LLVMPointerType wptr) {- ^ base pointer -}
+  -> RegValue sym (BVType wptr)          {- ^ offset -}
   -> IO (RegValue sym (LLVMPointerType wptr))
 doPtrAddOffset sym m x off = do
    x' <- ptrAdd sym PtrWidth x off
@@ -992,18 +1007,19 @@ loadString sym mem = go id
   go :: ([Word8] -> [Word8]) -> RegValue sym (LLVMPointerType wptr) -> Maybe Int -> IO [Word8]
   go f _ (Just 0) = return $ f []
   go f p maxChars = do
-     v <- doLoad sym mem p (G.bitvectorType 1) -- one byte
+     v <- doLoad sym mem p (G.bitvectorType 1) 0 -- one byte, no alignment
      case v of
-       AnyValue (BVRepr w) x
+       AnyValue (LLVMPointerRepr w) x
          | Just Refl <- testEquality w (knownNat :: NatRepr 8) ->
-            case asUnsignedBV x of
-              Just 0 -> return $ f []
-              Just c -> do
-                  let c' :: Word8 = toEnum $ fromInteger c
-                  p' <- doPtrAddOffset sym mem p =<< bvLit sym PtrWidth 1
-                  go (f . (c':)) p' (fmap (\n -> n - 1) maxChars)
-              Nothing ->
-                fail "Symbolic value encountered when loading a string"
+            do x' <- projectLLVM_bv sym x
+               case asUnsignedBV x' of
+                 Just 0 -> return $ f []
+                 Just c -> do
+                     let c' :: Word8 = toEnum $ fromInteger c
+                     p' <- doPtrAddOffset sym mem p =<< bvLit sym PtrWidth 1
+                     go (f . (c':)) p' (fmap (\n -> n - 1) maxChars)
+                 Nothing ->
+                   fail "Symbolic value encountered when loading a string"
        _ -> fail "Invalid value encountered when loading a string"
 
 

@@ -61,7 +61,7 @@ data DFSEdgeType
 
 -- | Function to update the traversal state when we have finished visiting
 --   all of a nodes's reachable children.
-type DFSNodeFunc blocks a = forall ret ctx. Block blocks ret ctx -> a -> a
+type DFSNodeFunc ext blocks a = forall ret ctx. Block ext blocks ret ctx -> a -> a
 
 -- | Function to update the traversal state when traversing an edge.
 type DFSEdgeFunc blocks a = DFSEdgeType -> SomeBlockID blocks -> SomeBlockID blocks -> a -> a
@@ -70,7 +70,7 @@ type DFSEdgeFunc blocks a = DFSEdgeType -> SomeBlockID blocks -> SomeBlockID blo
 -- | Use depth-first search to calculate a set of all the block IDs that
 --   are the target of some back-edge, i.e., a set of nodes through which
 --   every loop passes.
-dfs_backedge_targets :: CFG blocks init ret -> Set (SomeBlockID blocks)
+dfs_backedge_targets :: CFG ext blocks init ret -> Set (SomeBlockID blocks)
 dfs_backedge_targets =
   dfs (\_ x -> x)
       (\et _ m x ->
@@ -81,7 +81,7 @@ dfs_backedge_targets =
 
 
 -- | Compute a sequence of all the back edges found in a depth-first search of the given CFG.
-dfs_backedges :: CFG blocks init ret -> Seq (SomeBlockID blocks, SomeBlockID blocks)
+dfs_backedges :: CFG ext blocks init ret -> Seq (SomeBlockID blocks, SomeBlockID blocks)
 dfs_backedges =
   dfs (\_ x -> x)
       (\et n m x ->
@@ -98,21 +98,21 @@ dfs_backedges_string = unlines . map showEdge . toList . dfs_backedges
 -}
 
 -- | Compute a sequence of all the edges visited in a depth-first search of the given CFG.
-dfs_list :: CFG blocks init ret -> Seq (DFSEdgeType, SomeBlockID blocks, SomeBlockID blocks)
+dfs_list :: CFG ext blocks init ret -> Seq (DFSEdgeType, SomeBlockID blocks, SomeBlockID blocks)
 dfs_list =
   dfs (\_ x -> x)
       (\et n m x -> x Seq.|> (et,n,m))
       Seq.empty
 
 -- | Compute a postorder traversal of all the reachable nodes in the CFG
-dfs_postorder :: CFG blocks init ret -> Seq (SomeBlockID blocks)
+dfs_postorder :: CFG ext blocks init ret -> Seq (SomeBlockID blocks)
 dfs_postorder =
   dfs (\blk x -> x Seq.|> (Some (blockID blk)))
       (\_ _ _ x -> x)
       Seq.empty
 
 -- | Compute a preorder traversal of all the reachable nodes in the CFG
-dfs_preorder :: CFG blocks init ret -> Seq (SomeBlockID blocks)
+dfs_preorder :: CFG ext blocks init ret -> Seq (SomeBlockID blocks)
 dfs_preorder =
   dfs (\_ x -> x)
       (\et _n m x ->
@@ -158,10 +158,10 @@ dfs_list_string = unlines . map showEdge . toList . dfs_list
 --   After a DFS is completed, all visited nodes will be in the black set; any nodes not in the
 --   black set are unreachable from the initial node.
 
-dfs :: DFSNodeFunc blocks a
+dfs :: DFSNodeFunc ext blocks a
     -> DFSEdgeFunc blocks a
     -> a
-    -> CFG blocks init ret
+    -> CFG ext blocks init ret
     -> a
 dfs visit edge x cfg =
    fst $ run_dfs
@@ -175,10 +175,10 @@ dfs visit edge x cfg =
 
 -- | Low-level depth-first search function.  This exposes more of the moving parts
 --   than `dfs` for algorithms that need more access to the guts.
-run_dfs :: forall blocks a ret cxt
-         . DFSNodeFunc blocks a      -- ^ action to take after a visit is finished
+run_dfs :: forall ext blocks a ret cxt
+         . DFSNodeFunc ext blocks a      -- ^ action to take after a visit is finished
         -> DFSEdgeFunc blocks a      -- ^ action to take for each edge
-        -> BlockMap blocks ret       -- ^ CFG blocks to search
+        -> BlockMap ext blocks ret       -- ^ CFG blocks to search
         -> Set (SomeBlockID blocks)  -- ^ ancestor nodes
         -> BlockID blocks cxt        -- ^ a white node to visit
         -> (a, Set (SomeBlockID blocks)) -- ^ Partially-computed value and initial black set
@@ -200,7 +200,7 @@ run_dfs visit edge bm = visit_id
            in (visit block x', Set.insert (Some i) black')
 
        visit_block :: Set (SomeBlockID blocks)
-                   -> Block blocks ret ctx
+                   -> Block ext blocks ret ctx
                    -> (a, Set (SomeBlockID blocks))
                    -> (a, Set (SomeBlockID blocks))
        visit_block an block =

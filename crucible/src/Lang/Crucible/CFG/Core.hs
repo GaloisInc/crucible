@@ -28,6 +28,7 @@ on the place from which you jumped.
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Lang.Crucible.CFG.Core
   ( -- * CFG
     CFG(..)
@@ -155,22 +156,22 @@ extendReg = Reg . extendIndex . regIndex
 -- Expr
 
 -- | An expression is just an App applied to some registers.
-newtype Expr (ctx :: Ctx CrucibleType) (tp :: CrucibleType)
-      = App (App (Reg ctx) tp)
+newtype Expr ext (ctx :: Ctx CrucibleType) (tp :: CrucibleType)
+      = App (App ext (Reg ctx) tp)
 
-instance IsString (Expr ctx StringType) where
+instance IsString (Expr ext ctx StringType) where
   fromString  = App . TextLit . fromString
 
-instance Pretty (Expr ctx tp) where
+instance PrettyApp (ExprExtension ext) => Pretty (Expr ext ctx tp) where
   pretty (App a) = ppApp pretty a
 
 ppAssignment :: Assignment (Reg ctx) args -> [Doc]
 ppAssignment = toListFC pretty
 
-instance ApplyEmbedding' Expr where
+instance TraversableFC (ExprExtension ext) => ApplyEmbedding' (Expr ext) where
   applyEmbedding' ctxe (App e) = App (mapApp (applyEmbedding' ctxe) e)
 
-instance ExtendContext' Expr where
+instance TraversableFC (ExprExtension ext) => ExtendContext' (Expr ext) where
   extendContext' diff (App e) = App (mapApp (extendContext' diff) e)
 
 ------------------------------------------------------------------------
@@ -268,55 +269,59 @@ instance ExtendContext' (SwitchTarget blocks) where
 -- | A sequential statement that does not affect the
 -- program location within the current block or leave the current
 -- block.
-data Stmt (ctx :: Ctx CrucibleType) (ctx' :: Ctx CrucibleType) where
+data Stmt ext (ctx :: Ctx CrucibleType) (ctx' :: Ctx CrucibleType) where
   -- Assign the value of a register
   SetReg :: !(TypeRepr tp)
-         -> !(Expr ctx tp)
-         -> Stmt ctx (ctx ::> tp)
+         -> !(Expr ext ctx tp)
+         -> Stmt ext ctx (ctx ::> tp)
+
+  -- Assign a register via an extension statement
+  ExtendAssign :: !(StmtExtension ext (Reg ctx) tp)
+               -> Stmt ext ctx (ctx ::> tp)
 
   -- Statement used for evaluating function calls
   CallHandle :: !(TypeRepr ret)                          -- The type of the return value(s)
              -> !(Reg ctx (FunctionHandleType args ret)) -- The function handle to call
              -> !(CtxRepr args)                          -- The expected types of the arguments
-             -> !(Assignment (Reg ctx) args)         -- The actual arguments to the call
-             -> Stmt ctx (ctx ::> ret)
+             -> !(Assignment (Reg ctx) args)             -- The actual arguments to the call
+             -> Stmt ext ctx (ctx ::> ret)
 
   -- Print a message out to the console
-  Print :: !(Reg ctx StringType) -> Stmt ctx ctx
+  Print :: !(Reg ctx StringType) -> Stmt ext ctx ctx
 
   -- Read a global variable.
   ReadGlobal :: !(GlobalVar tp)
-             -> Stmt ctx (ctx ::> tp)
+             -> Stmt ext ctx (ctx ::> tp)
 
   -- Write to a global variable.
   WriteGlobal :: !(GlobalVar tp)
               -> !(Reg ctx tp)
-              -> Stmt ctx ctx
+              -> Stmt ext ctx ctx
 
   -- Allocate a new reference cell
   NewRefCell :: !(TypeRepr tp)
              -> !(Reg ctx tp)
-             -> Stmt ctx (ctx ::> ReferenceType tp)
+             -> Stmt ext ctx (ctx ::> ReferenceType tp)
 
   -- Allocate a new, unassigned reference cell
   NewEmptyRefCell :: !(TypeRepr tp)
-                  -> Stmt ctx (ctx ::> ReferenceType tp)
+                  -> Stmt ext ctx (ctx ::> ReferenceType tp)
 
   -- Read the current value of a reference cell
   ReadRefCell :: !(Reg ctx (ReferenceType tp))
-              -> Stmt ctx (ctx ::> tp)
+              -> Stmt ext ctx (ctx ::> tp)
 
   -- Write the current value of a reference cell
   WriteRefCell :: !(Reg ctx (ReferenceType tp))
                -> !(Reg ctx tp)
-               -> Stmt ctx ctx
+               -> Stmt ext ctx ctx
 
   -- Deallocate the storage associated with a reference cell
   DropRefCell  :: !(Reg ctx (ReferenceType tp))
-               -> Stmt ctx ctx
+               -> Stmt ext ctx ctx
 
   -- Assert a boolean condition.  If the condition fails, print the given string.
-  Assert :: !(Reg ctx BoolType) -> !(Reg ctx StringType) -> Stmt ctx ctx
+  Assert :: !(Reg ctx BoolType) -> !(Reg ctx StringType) -> Stmt ext ctx ctx
 
 ------------------------------------------------------------------------
 -- TermStmt
@@ -418,13 +423,19 @@ instance Pretty (TermStmt blocks ret ctx) where
       text "error" <+> pretty msg
 
 
-applyEmbeddingStmt :: forall ctx ctx' sctx.
-                      CtxEmbedding ctx ctx' -> Stmt ctx sctx
-                      -> Pair (Stmt ctx') (CtxEmbedding sctx)
+applyEmbeddingStmt :: forall ext ctx ctx' sctx.
+                      TraverseExt ext =>
+                      CtxEmbedding ctx ctx' ->
+                      Stmt ext ctx sctx ->
+                      Pair (Stmt ext ctx') (CtxEmbedding sctx)
 applyEmbeddingStmt ctxe stmt =
   case stmt of
     SetReg tp e -> Pair (SetReg tp (applyEmbedding' ctxe e))
                         (extendEmbeddingBoth ctxe)
+
+    ExtendAssign estmt ->
+       Pair (ExtendAssign (fmapFC (Ctx.applyEmbedding' ctxe) estmt))
+            (Ctx.extendEmbeddingBoth ctxe)
 
     CallHandle ret hdl tys args ->
       Pair (CallHandle ret (reg hdl) tys (fmapFC reg args))
@@ -498,17 +509,17 @@ instance ExtendContext (TermStmt blocks ret) where
 
 -- | A sequence of straight-line program statements that end with
 --   a terminating statement (return, jump, etc).
-data StmtSeq blocks (ret :: CrucibleType) ctx where
+data StmtSeq ext blocks (ret :: CrucibleType) ctx where
   ConsStmt :: !ProgramLoc
-           -> !(Stmt ctx ctx')
-           -> !(StmtSeq blocks ret ctx')
-           -> StmtSeq blocks ret ctx
+           -> !(Stmt ext ctx ctx')
+           -> !(StmtSeq ext blocks ret ctx')
+           -> StmtSeq ext blocks ret ctx
   TermStmt :: !ProgramLoc
            -> !(TermStmt blocks ret ctx)
-           -> (StmtSeq blocks ret ctx)
+           -> (StmtSeq ext blocks ret ctx)
 
 -- | Return the location of a statement.
-firstStmtLoc :: StmtSeq b r ctx -> ProgramLoc
+firstStmtLoc :: StmtSeq ext b r ctx -> ProgramLoc
 firstStmtLoc (ConsStmt pl _ _) = pl
 firstStmtLoc (TermStmt pl _) = pl
 
@@ -518,19 +529,20 @@ firstStmtLoc (TermStmt pl _) = pl
 stmtSeqTermStmt :: Functor f
                 => (forall ctx
                     . (ProgramLoc, TermStmt b ret ctx)
-                    -> f (StmtSeq b' ret ctx))
-                -> StmtSeq b ret args
-                -> f (StmtSeq b' ret args)
+                    -> f (StmtSeq ext b' ret ctx))
+                -> StmtSeq ext b ret args
+                -> f (StmtSeq ext b' ret args)
 stmtSeqTermStmt f (ConsStmt l s t) = ConsStmt l s <$> stmtSeqTermStmt f t
 stmtSeqTermStmt f (TermStmt p t) = f (p, t)
 
 ppReg :: Size ctx -> Doc
 ppReg h = text "$" <> int (sizeInt h)
 
-nextStmtHeight :: Size ctx -> Stmt ctx ctx' -> Size ctx'
+nextStmtHeight :: Size ctx -> Stmt ext ctx ctx' -> Size ctx'
 nextStmtHeight h s =
   case s of
     SetReg{} -> incSize h
+    ExtendAssign{} -> incSize h
     CallHandle{} -> incSize h
     Print{} -> h
     ReadGlobal{} -> incSize h
@@ -542,10 +554,11 @@ nextStmtHeight h s =
     DropRefCell{}  -> h
     Assert{} -> h
 
-ppStmt :: Size ctx -> Stmt ctx ctx' -> Doc
+ppStmt :: PrettyExt ext => Size ctx -> Stmt ext ctx ctx' -> Doc
 ppStmt r s =
   case s of
     SetReg _ e -> ppReg r <+> text "=" <+> pretty e
+    ExtendAssign s' -> ppReg r <+> text "=" <+> ppApp pretty s'
     CallHandle _ h _ args ->
       ppReg r <+> text "= call"
               <+> pretty h <> parens (commas (ppAssignment args))
@@ -564,7 +577,7 @@ prefixLineNum :: Bool -> ProgramLoc -> Doc -> Doc
 prefixLineNum True pl d = text "%" <+> ppNoFileName (plSourceLoc pl) <$$> d
 prefixLineNum False _ d = d
 
-ppStmtSeq :: Bool -> Size ctx -> StmtSeq blocks ret ctx -> Doc
+ppStmtSeq :: PrettyExt ext => Bool -> Size ctx -> StmtSeq ext blocks ret ctx -> Doc
 ppStmtSeq ppLineNum h (ConsStmt pl s r) =
   prefixLineNum ppLineNum pl (ppStmt h s) <$$>
   ppStmtSeq ppLineNum (nextStmtHeight h s) r
@@ -573,13 +586,13 @@ ppStmtSeq ppLineNum _ (TermStmt pl s) =
 
 
 #ifndef UNSAFE_OPS
-extendStmtSeq :: Diff blocks' blocks -> StmtSeq blocks' ret ctx -> StmtSeq blocks ret ctx
+extendStmtSeq :: Diff blocks' blocks -> StmtSeq ext blocks' ret ctx -> StmtSeq ext blocks ret ctx
 extendStmtSeq diff (ConsStmt p s l) = ConsStmt p s (extendStmtSeq diff l)
 extendStmtSeq diff (TermStmt p s) = TermStmt p (extendTermStmt diff s)
 #endif
 
 
-instance ApplyEmbedding (StmtSeq blocks ret) where
+instance TraverseExt ext => ApplyEmbedding (StmtSeq ext blocks ret) where
   applyEmbedding ctxe (ConsStmt loc stmt rest) =
     case applyEmbeddingStmt ctxe stmt of
       Pair stmt' ctxe' -> ConsStmt loc stmt' (applyEmbedding ctxe' rest)
@@ -604,41 +617,42 @@ emptyCFGPostdomInfo sz = Ctx.replicate sz (Const [])
 -- Block
 
 -- | A basic block within a function.  Note: postdominators are precalculated.
-data Block (blocks :: Ctx (Ctx CrucibleType)) (ret :: CrucibleType) ctx
+data Block ext (blocks :: Ctx (Ctx CrucibleType)) (ret :: CrucibleType) ctx
    = Block { blockID        :: !(BlockID blocks ctx)
              -- ^ The unique identifier of this block
            , blockInputs    :: !(CtxRepr ctx)
              -- ^ The expected types of the formal arguments to this block
-           , _blockStmts    :: !(StmtSeq blocks ret ctx)
+           , _blockStmts    :: !(StmtSeq ext blocks ret ctx)
              -- ^ The sequence of statements in this block
            }
 
-blockStmts :: Simple Lens (Block b r c) (StmtSeq b r c)
+blockStmts :: Simple Lens (Block ext b r c) (StmtSeq ext b r c)
 blockStmts = lens _blockStmts (\b s -> b { _blockStmts = s })
 
 -- | Return location of start of block.
-blockLoc :: Block blocks ret ctx -> ProgramLoc
+blockLoc :: Block ext blocks ret ctx -> ProgramLoc
 blockLoc b = firstStmtLoc (b^.blockStmts)
 
 -- | Get the terminal statement of a basic block.  This is implemented
 -- in a CPS style due to the block context.
-withBlockTermStmt :: Block blocks ret args
+withBlockTermStmt :: Block ext blocks ret args
                   -> (forall ctx . ProgramLoc -> TermStmt blocks ret ctx -> r)
                   -> r
 withBlockTermStmt b f = getConst (stmtSeqTermStmt (Const . uncurry f) (b^.blockStmts))
 
-nextBlocks :: Block b r a -> [Some (BlockID b)]
+nextBlocks :: Block ext b r a -> [Some (BlockID b)]
 nextBlocks b =
   withBlockTermStmt b (\_ s -> fromMaybe [] (termStmtNextBlocks s))
 
 
-blockInputCount :: Block blocks ret ctx -> Size ctx
+blockInputCount :: Block ext blocks ret ctx -> Size ctx
 blockInputCount b = size (blockInputs b)
 
-ppBlock :: Bool
+ppBlock :: PrettyExt ext
+        => Bool
            -- ^ Print line numbers.
         -> CFGPostdom blocks
-        -> Block blocks ret ctx
+        -> Block ext blocks ret ctx
            -- ^ Block to print.
         -> Doc
 ppBlock ppLineNumbers pda b = do
@@ -649,22 +663,23 @@ ppBlock ppLineNumbers pda b = do
         | otherwise = text "% postdom" <+> hsep (viewSome pretty <$> pd)
   pretty (blockID b) <$$> indent 2 (stmts <$$> postdom)
 
-ppBlock' :: Bool
+ppBlock' :: PrettyExt ext
+         => Bool
            -- ^ Print line numbers.
-          -> Block blocks ret ctx
+          -> Block ext blocks ret ctx
             -- ^ Block to print.
          -> Doc
 ppBlock' ppLineNumbers b = do
   let stmts = ppStmtSeq ppLineNumbers (blockInputCount b) (b^.blockStmts)
   pretty (blockID b) <$$> indent 2 stmts
 
-instance Show (Block blocks ret args) where
+instance PrettyExt ext => Show (Block ext blocks ret args) where
   show blk = show $ ppBlock' False blk
 
-instance ShowF (Block blocks ret)
+instance PrettyExt ext => ShowF (Block ext blocks ret)
 
 #ifndef UNSAFE_OPS
-extendBlock :: Block blocks ret ctx -> Block (blocks ::> new) ret ctx
+extendBlock :: Block ext blocks ret ctx -> Block ext (blocks ::> new) ret ctx
 extendBlock b =
   Block { blockID = extendBlockID (blockID b)
         , blockInputs = blockInputs b
@@ -676,15 +691,15 @@ extendBlock b =
 -- BlockMap
 
 -- | A mapping from block indices to CFG blocks
-type BlockMap blocks ret = Assignment (Block blocks ret) blocks
+type BlockMap ext blocks ret = Assignment (Block ext blocks ret) blocks
 
 getBlock :: BlockID blocks args
-         -> BlockMap blocks ret
-         -> Block blocks ret args
-getBlock (BlockID i) m = m ! i
+         -> BlockMap ext blocks ret
+         -> Block ext blocks ret args
+getBlock (BlockID i) m = m Ctx.! i
 
-extendBlockMap :: Assignment (Block blocks ret) b
-               -> Assignment (Block (blocks ::> args) ret) b
+extendBlockMap :: Assignment (Block ext blocks ret) b
+               -> Assignment (Block ext (blocks ::> args) ret) b
 #ifdef UNSAFE_OPS
 extendBlockMap = unsafeCoerce
 #else
@@ -707,53 +722,58 @@ extendBlockMap = fmapFC extendBlock
 -- the formal arguments of the function represetned by this control-flow graph,
 -- which correspond to the formal arguments of the CFG entry point.
 -- The @ret@ type parameter indicates the return type of the function.
-data CFG (blocks :: Ctx (Ctx CrucibleType))
+data CFG (ext :: *)
+         (blocks :: Ctx (Ctx CrucibleType))
          (init :: Ctx CrucibleType)
          (ret :: CrucibleType)
    = CFG { cfgHandle :: FnHandle init ret
-         , cfgBlockMap :: !(BlockMap blocks ret)
+         , cfgBlockMap :: !(BlockMap ext blocks ret)
          , cfgEntryBlockID :: !(BlockID blocks init)
          }
 
-cfgArgTypes :: CFG blocks init ret -> CtxRepr init
+cfgArgTypes :: CFG ext blocks init ret -> CtxRepr init
 cfgArgTypes g = handleArgTypes (cfgHandle g)
 
-cfgReturnType :: CFG blocks init ret -> TypeRepr ret
+cfgReturnType :: CFG ext blocks init ret -> TypeRepr ret
 cfgReturnType g = handleReturnType (cfgHandle g)
 
 -- | Class for types that embed a CFG of some sort.
-class HasSomeCFG f init ret | f -> init, f -> ret where
-  getCFG :: f b -> SomeCFG init ret
+class HasSomeCFG f ext init ret | f -> ext, f -> init, f -> ret where
+  getCFG :: f b -> SomeCFG ext init ret
 
-instance Show (CFG blocks init ret) where
+instance PrettyExt ext => Show (CFG ext blocks init ret) where
   show g = show (ppCFG True g)
 
 -- | Pretty print a CFG.
-ppCFG :: Bool -- ^ Flag indicates if we should print line numbers
-      -> CFG blocks init ret
+ppCFG :: PrettyExt ext
+      => Bool -- ^ Flag indicates if we should print line numbers
+      -> CFG ext blocks init ret
       -> Doc
 ppCFG lineNumbers g = ppCFG' lineNumbers (emptyCFGPostdomInfo sz) g
   where sz = size (cfgBlockMap g)
 
 -- | Pretty print CFG with postdom information.
-ppCFG' :: Bool -- ^ Flag indicates if we should print line numbers
+ppCFG' :: PrettyExt ext
+       => Bool -- ^ Flag indicates if we should print line numbers
        -> CFGPostdom blocks
-       -> CFG blocks init ret
+       -> CFG ext blocks init ret
        -> Doc
 ppCFG' lineNumbers pdInfo g = vcat (toListFC (ppBlock lineNumbers pdInfo) (cfgBlockMap g))
 
 
 -- | Control flow graph with some blocks.  This data type closes
 --   existentially over the @blocks@ type parameter.
-data SomeCFG (init :: Ctx CrucibleType) (ret :: CrucibleType) where
-  SomeCFG :: CFG blocks init ret -> SomeCFG init ret
+data SomeCFG ext (init :: Ctx CrucibleType) (ret :: CrucibleType) where
+  SomeCFG :: CFG ext blocks init ret -> SomeCFG ext init ret
 
-instance Show (SomeCFG i r) where show cfg = case cfg of SomeCFG c -> show c
+instance PrettyExt ext => Show (SomeCFG ext i r)
+  where show cfg = case cfg of SomeCFG c -> show c
 
 -- | Control flow graph.  This data type closes existentially
 --   over all the type parameters.
-data AnyCFG where
-  AnyCFG :: CFG blocks init ret
-         -> AnyCFG
+data AnyCFG ext where
+  AnyCFG :: CFG ext blocks init ret
+         -> AnyCFG ext
 
-instance Show AnyCFG where show cfg = case cfg of AnyCFG c -> show c
+instance PrettyExt ext => Show (AnyCFG ext) where
+  show cfg = case cfg of AnyCFG c -> show c
