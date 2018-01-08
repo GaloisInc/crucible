@@ -41,6 +41,7 @@ library
     Lang.Crucible.LLVM
     Lang.Crucible.LLVM.Bytes
     Lang.Crucible.LLVM.DataLayout
+    Lang.Crucible.LLVM.Extension
     Lang.Crucible.LLVM.Intrinsics
     Lang.Crucible.LLVM.LLVMContext
     Lang.Crucible.LLVM.MemModel
@@ -53,6 +54,7 @@ library
     Lang.Crucible.LLVM.Printf
     Lang.Crucible.LLVM.Translation
     Lang.Crucible.LLVM.Translation.Types
+    Lang.Crucible.LLVM.Types
 
   ghc-options: -Wall -Werror
   ghc-prof-options: -O2 -fprof-auto-top

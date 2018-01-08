@@ -10,7 +10,8 @@
 -- Stability        : provisional
 ------------------------------------------------------------------------
 module Lang.Crucible.LLVM
-( registerModuleFn
+( LLVM
+, registerModuleFn
 , llvmGlobals
 , register_llvm_overrides
 , llvmExtensionImpl
@@ -31,8 +32,8 @@ import           Lang.Crucible.Simulator.OverrideSim
 
 
 registerModuleFn
-   :: (L.Symbol, AnyCFG LLVM)
-   -> OverrideSim p sym LLVM rtp l a ()
+   :: (L.Symbol, AnyCFG (LLVM wptr))
+   -> OverrideSim p sym (LLVM wptr) rtp l a ()
 registerModuleFn (_,AnyCFG cfg) = do
   let h = cfgHandle cfg
       s = UseCFG cfg (postdomInfo cfg)
@@ -46,9 +47,9 @@ llvmGlobals
 llvmGlobals ctx mem = emptyGlobals & insertGlobal var mem
   where var = llvmMemVar $ memModelOps ctx
 
-llvmExtensionImpl :: ExtensionImpl p sym LLVM
+llvmExtensionImpl :: ExtensionImpl p sym (LLVM wptr)
 llvmExtensionImpl =
   ExtensionImpl
   { extensionEval = \_ -> \case
-  , extensionExec = \_ -> \case
+  , extensionExec = llvmStatementExec
   }

@@ -30,7 +30,6 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Lang.Crucible.LLVM.MemModel
   ( LLVMPointerType
-  , LLVM
   , LLVMValTypeType
   , pattern LLVMPointerRepr
   , pattern PtrWidth
@@ -43,6 +42,7 @@ module Lang.Crucible.LLVM.MemModel
   , newMemOps
   , llvmMemIntrinsics
   , GlobalSymbol(..)
+  , llvmStatementExec
   , allocGlobals
   , registerGlobal
   , assertDisjointRegions
@@ -105,6 +105,7 @@ import           Lang.Crucible.CFG.Common
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.FunctionName
 import           Lang.Crucible.Types
+import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
@@ -112,21 +113,16 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.LLVM.DataLayout
+import           Lang.Crucible.LLVM.Extension
 import qualified Lang.Crucible.LLVM.Bytes as G
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.MemModel.Pointer
+import           Lang.Crucible.LLVM.Types
 
 import GHC.Stack
 
 --import Debug.Trace as Debug
-
--- | The 'CrucibleType' of an LLVM memory. @'RegValue' sym 'Mem'@ is
--- implemented as @'MemImpl' sym@.
-type Mem = IntrinsicType "LLVM_memory" EmptyCtx
-
-memRepr :: TypeRepr Mem
-memRepr = knownRepr
 
 instance IntrinsicClass sym "LLVM_memory" where
   type Intrinsic sym "LLVM_memory" ctx = MemImpl sym
@@ -159,9 +155,6 @@ type LLVMValTypeType = ConcreteType G.Type
 -- | @'RegValue' sym 'AlignmentType'@ is equivalent to 'Alignment'.
 type AlignmentType = ConcreteType Alignment
 
-newtype GlobalSymbol = GlobalSymbol L.Symbol
-  deriving (Typeable, Eq, Ord, Show)
-
 data LLVMMemOps wptr
   = LLVMMemOps
   { llvmDataLayout :: DataLayout
@@ -180,25 +173,27 @@ data LLVMMemOps wptr
   , llvmPtrSubtract :: FnHandle (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> LLVMPointerType wptr) (BVType wptr)
   }
 
+llvmStatementExec :: EvalStmtFunc p sym (LLVM wptr)
+llvmStatementExec _cst _stmt =
+  fail "LLVM Statement Exec: IMPLEMENT ME! (FIXME)"
 
-type LLVM = ()
 
-data LLVMIntrinsicImpl p sym args ret =
+data LLVMIntrinsicImpl p sym wptr args ret =
   LLVMIntrinsicImpl
   { llvmIntrinsicName     :: FunctionName
   , llvmIntrinsicArgTypes :: CtxRepr args
   , llvmIntrinsicRetType  :: TypeRepr ret
-  , llvmIntrinsicImpl     :: IntrinsicImpl p sym LLVM args ret
+  , llvmIntrinsicImpl     :: IntrinsicImpl p sym (LLVM wptr) args ret
   }
 
 useLLVMIntrinsic :: IsSymInterface sym
                  => FnHandle args ret
-                 -> LLVMIntrinsicImpl p sym args ret
-                 -> FnBinding p sym LLVM
+                 -> LLVMIntrinsicImpl p sym wptr args ret
+                 -> FnBinding p sym (LLVM wptr)
 useLLVMIntrinsic hdl impl = useIntrinsic hdl (llvmIntrinsicImpl impl)
 
 mkLLVMHandle :: HandleAllocator s
-             -> LLVMIntrinsicImpl p sym args ret
+             -> LLVMIntrinsicImpl p sym wptr args ret
              -> ST s (FnHandle args ret)
 mkLLVMHandle halloc impl =
   mkHandle' halloc
@@ -209,7 +204,7 @@ mkLLVMHandle halloc impl =
 
 llvmMemIntrinsics :: (IsSymInterface sym, HasPtrWidth wptr)
                   => LLVMMemOps wptr
-                  -> [FnBinding p sym LLVM]
+                  -> [FnBinding p sym (LLVM wptr)]
 llvmMemIntrinsics memOps =
   [ useLLVMIntrinsic (llvmMemAlloca memOps)
                      memAlloca
@@ -436,7 +431,7 @@ doResolveGlobal _sym mem symbol =
     _ -> fail $ unwords ["Unable to resolve global symbol", show symbol]
 
 memResolveGlobal :: HasPtrWidth wptr =>
-  LLVMIntrinsicImpl p sym (EmptyCtx ::> Mem ::> ConcreteType GlobalSymbol) (LLVMPointerType wptr)
+  LLVMIntrinsicImpl p sym wptr (EmptyCtx ::> Mem ::> ConcreteType GlobalSymbol) (LLVMPointerType wptr)
 memResolveGlobal =
   LLVMIntrinsicImpl
     "llvm_resolve_global"
@@ -447,7 +442,7 @@ memResolveGlobal =
        (regValue -> (GlobalSymbol symbol)) -> liftIO $ doResolveGlobal sym mem symbol
 
 memLoad :: HasPtrWidth wptr =>
-  LLVMIntrinsicImpl p sym
+  LLVMIntrinsicImpl p sym wptr
     (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> LLVMValTypeType ::> AlignmentType) AnyType
 memLoad =
   LLVMIntrinsicImpl
@@ -559,7 +554,7 @@ doStore sym mem ptr valType (AnyValue tpr val) = do
     return mem{ memImplHeap = heap' }
 
 memStore :: HasPtrWidth wptr =>
-  LLVMIntrinsicImpl p sym (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> LLVMValTypeType ::> AnyType) Mem
+  LLVMIntrinsicImpl p sym wptr (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> LLVMValTypeType ::> AnyType) Mem
 memStore =
   LLVMIntrinsicImpl
     "llvm_store"
@@ -575,7 +570,7 @@ data SomeFnHandle where
   SomeFnHandle :: FnHandle args ret -> SomeFnHandle
 
 memLoadHandle :: HasPtrWidth wptr =>
-  LLVMIntrinsicImpl p sym (EmptyCtx ::> Mem ::> LLVMPointerType wptr) AnyType
+  LLVMIntrinsicImpl p sym wptr (EmptyCtx ::> Mem ::> LLVMPointerType wptr) AnyType
 memLoadHandle =
   LLVMIntrinsicImpl
     "llvm_load_handle"
@@ -591,7 +586,7 @@ memLoadHandle =
                    return (AnyValue ty (HandleFnVal h))
 
 memAlloca :: HasPtrWidth wptr =>
-   LLVMIntrinsicImpl p sym (EmptyCtx ::> Mem ::> BVType wptr ::> StringType)
+   LLVMIntrinsicImpl p sym wptr (EmptyCtx ::> Mem ::> BVType wptr ::> StringType)
                            (StructType (EmptyCtx ::> Mem ::> LLVMPointerType wptr))
 memAlloca =
   LLVMIntrinsicImpl
@@ -614,7 +609,7 @@ memAlloca =
            let ptr = LLVMPointer blk z
            return (Ctx.empty Ctx.:> (RV $ mem{ memImplHeap = heap' }) Ctx.:> RV ptr)
 
-memPushFrame :: LLVMIntrinsicImpl p sym (EmptyCtx ::> Mem) Mem
+memPushFrame :: LLVMIntrinsicImpl p sym wptr (EmptyCtx ::> Mem) Mem
 memPushFrame =
   LLVMIntrinsicImpl "llvm_pushFrame" knownRepr knownRepr $
   mkIntrinsic $ \_ _sym
@@ -623,7 +618,7 @@ memPushFrame =
      let heap' = G.pushStackFrameMem (memImplHeap mem)
      return mem{ memImplHeap = heap' }
 
-memPopFrame :: LLVMIntrinsicImpl p sym (EmptyCtx ::> Mem) Mem
+memPopFrame :: LLVMIntrinsicImpl p sym wptr (EmptyCtx ::> Mem) Mem
 memPopFrame =
   LLVMIntrinsicImpl "llvm_popFrame "knownRepr knownRepr $
   mkIntrinsic $ \_ _sym
@@ -869,7 +864,7 @@ doMemcpy sym w mem dest src len = do
 
 
 ptrAddOffsetOverride :: HasPtrWidth wptr =>
-  LLVMIntrinsicImpl p sym (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> BVType wptr) (LLVMPointerType wptr)
+  LLVMIntrinsicImpl p sym wptr (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> BVType wptr) (LLVMPointerType wptr)
 ptrAddOffsetOverride =
    LLVMIntrinsicImpl
      "llvm_ptrAdd"
@@ -881,7 +876,7 @@ ptrAddOffsetOverride =
          liftIO $ doPtrAddOffset sym m x off
 
 ptrSubtractOverride :: HasPtrWidth wptr =>
-  LLVMIntrinsicImpl p sym (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> LLVMPointerType wptr) (BVType wptr)
+  LLVMIntrinsicImpl p sym wptr (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> LLVMPointerType wptr) (BVType wptr)
 ptrSubtractOverride =
   LLVMIntrinsicImpl
     "llvm_ptrSub"
@@ -919,7 +914,7 @@ doPtrAddOffset sym m x off = do
    return x'
 
 ptrEqOverride :: HasPtrWidth wptr =>
-  LLVMIntrinsicImpl p sym (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> LLVMPointerType wptr) BoolType
+  LLVMIntrinsicImpl p sym wptr (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> LLVMPointerType wptr) BoolType
 ptrEqOverride =
   LLVMIntrinsicImpl
     "llvm_ptrEq"
@@ -942,7 +937,7 @@ ptrEqOverride =
          ptrEq sym PtrWidth x y
 
 ptrLeOverride :: HasPtrWidth wptr =>
-  LLVMIntrinsicImpl p sym (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> LLVMPointerType wptr) BoolType
+  LLVMIntrinsicImpl p sym wptr (EmptyCtx ::> Mem ::> LLVMPointerType wptr ::> LLVMPointerType wptr) BoolType
 ptrLeOverride =
   LLVMIntrinsicImpl
     "llvm_ptrLe"
