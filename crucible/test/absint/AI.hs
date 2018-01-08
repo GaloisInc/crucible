@@ -43,10 +43,10 @@ aiTests = T.testGroup "Abstract Interpretation" [
   runTest "max_p2" (const max_p2)
   ]
 
-runTest :: String -> (forall h . () -> TestCase h dom) -> T.TestTree
+runTest :: C.IsSyntaxExtension ext => String -> (forall h . () -> TestCase h ext dom) -> T.TestTree
 runTest name tc = T.testCase name $ runST $ testAI (tc ())
 
-testAI :: TestCase h dom -> ST h T.Assertion
+testAI :: C.IsSyntaxExtension ext => TestCase h ext dom -> ST h T.Assertion
 testAI TC { tcHandle = hdl
           , tcDef = def
           , tcGlobals = g
@@ -69,16 +69,16 @@ testAI TC { tcHandle = hdl
             return $ forwardFixpoint dom' interp cfg' g a0
       return (check cfg' assignment' rabs mWorklist)
 
-data TestCase h dom =
+data (C.IsSyntaxExtension ext) => TestCase h ext dom =
   forall init ret t .
-  TC { tcDef :: G.FunctionDef h t init ret
+  TC { tcDef :: G.FunctionDef ext h t init ret
      , tcHandle :: ST h (C.FnHandle init ret)
      , tcDom :: Domain dom
-     , tcInterp :: Interpretation dom
+     , tcInterp :: Interpretation ext dom
      , tcAssignment :: PU.Assignment dom init
      , tcGlobals :: PM.MapF C.GlobalVar dom
      , tcCheck :: forall blocks tp
-                . C.CFG blocks init ret
+                . C.CFG ext blocks init ret
                -> PU.Assignment (PointAbstraction dom) blocks
                -> dom tp
                -> Maybe (PU.Assignment (PointAbstraction dom) blocks, dom tp)
@@ -91,7 +91,7 @@ genHandle = C.withHandleAllocator $ \ha -> C.mkHandle ha C.startFunctionName
 type EvenOdd' = Pointed EvenOdd
 type Max' = Pointed Max
 
-eo_p1 :: TestCase h EvenOdd'
+eo_p1 :: TestCase h EOExt EvenOdd'
 eo_p1 = TC { tcDef = \ia -> (Ignore, gen ia)
            , tcHandle = genHandle
            , tcAssignment = PU.empty PU.:> Pointed Even
@@ -109,7 +109,7 @@ eo_p1 = TC { tcDef = \ia -> (Ignore, gen ia)
 
     gen initialAssignment = do
       r0 <- G.newReg (intLitReg 0)
-      let x = initialAssignment PU.! PU.base
+      let x = initialAssignment PU.! PU.baseIndex
       let c = app (atom x `C.IntLt` litExpr 5)
       G.ifte_ c (then_ r0) (else_ r0)
       rval <- G.readReg r0
@@ -121,7 +121,7 @@ eo_p1 = TC { tcDef = \ia -> (Ignore, gen ia)
     else_ r0 = do
       G.assignReg r0 (litExpr 10)
 
-eo_p2 :: TestCase h EvenOdd'
+eo_p2 :: TestCase h EOExt EvenOdd'
 eo_p2 = TC { tcDef = \ia -> (Ignore, gen ia)
            , tcHandle = genHandle
            , tcAssignment = PU.empty PU.:> Pointed Even
@@ -140,7 +140,7 @@ eo_p2 = TC { tcDef = \ia -> (Ignore, gen ia)
 
     gen initialAssignment = do
       r0 <- G.newReg (intLitReg 0)
-      let x = initialAssignment PU.! PU.base
+      let x = initialAssignment PU.! PU.baseIndex
       let c = app (atom x `C.IntLt` litExpr 5)
       G.ifte_ c (then_ r0) (else_ r0)
       rval <- G.readReg r0
@@ -152,7 +152,7 @@ eo_p2 = TC { tcDef = \ia -> (Ignore, gen ia)
     else_ r0 = do
       G.assignReg r0 (litExpr 10)
 
-eo_p3 :: TestCase h EvenOdd'
+eo_p3 :: TestCase h EOExt EvenOdd'
 eo_p3 = TC { tcDef = \ia -> (Ignore, gen ia)
            , tcHandle = genHandle
            , tcAssignment = PU.empty PU.:> Pointed Even
@@ -171,7 +171,7 @@ eo_p3 = TC { tcDef = \ia -> (Ignore, gen ia)
     gen initialAssignment = do
       r0 <- G.newReg (intLitReg 0)
       r1 <- G.newReg (intLitReg 0)
-      let x = initialAssignment PU.! PU.base
+      let x = initialAssignment PU.! PU.baseIndex
       let c = app (atom x `C.IntLt` litExpr 5)
       G.ifte_ c (then_ r0 r1) (else_ r0 r1)
       rval <- G.readReg r1
@@ -185,7 +185,7 @@ eo_p3 = TC { tcDef = \ia -> (Ignore, gen ia)
       v <- G.readReg r0
       G.assignReg r1 (app (v `C.IntAdd` litExpr 10))
 
-eo_p4 :: TestCase h EvenOdd'
+eo_p4 :: TestCase h EOExt EvenOdd'
 eo_p4 = TC { tcDef = \ia -> (Ignore, gen ia)
            , tcHandle = genHandle
            , tcAssignment = PU.empty PU.:> Pointed Even
@@ -204,7 +204,7 @@ eo_p4 = TC { tcDef = \ia -> (Ignore, gen ia)
     gen initialAssignment = do
       r0 <- G.newReg (intLitReg 0)
       r1 <- G.newReg (intLitReg 0)
-      let x = initialAssignment PU.! PU.base
+      let x = initialAssignment PU.! PU.baseIndex
       let c = app (atom x `C.IntLt` litExpr 5)
       G.ifte_ c (then_ r0 r1) (else_ r0 r1)
       rval <- G.readReg r1
@@ -218,7 +218,7 @@ eo_p4 = TC { tcDef = \ia -> (Ignore, gen ia)
       v <- G.readReg r0
       G.assignReg r1 (app (v `C.IntAdd` litExpr 11))
 
-max_p1 :: TestCase h Max'
+max_p1 :: TestCase h SyntaxExt Max'
 max_p1 = TC { tcDef = \ia -> (Ignore, gen ia)
             , tcHandle = genHandle
             , tcAssignment = PU.empty PU.:> Pointed (Max 5)
@@ -232,7 +232,7 @@ max_p1 = TC { tcDef = \ia -> (Ignore, gen ia)
       T.assertEqual "retVal" (Pointed (Max 11)) rabs
 
     gen initialAssignment = do
-      let x = initialAssignment PU.! PU.base
+      let x = initialAssignment PU.! PU.baseIndex
       let c = app (atom x `C.IntLt` litExpr 5)
       r0 <- G.newReg (atom x)
       G.ifte_ c (then_ r0) (else_ r0)
@@ -247,7 +247,7 @@ max_p1 = TC { tcDef = \ia -> (Ignore, gen ia)
       v <- G.readReg r0
       G.assignReg r0 (app (v `C.IntAdd` litExpr 6))
 
-max_p2 :: TestCase h Max'
+max_p2 :: TestCase h SyntaxExt Max'
 max_p2 = TC { tcDef = \ia -> (Ignore, gen ia)
             , tcHandle = genHandle
             , tcAssignment = PU.empty PU.:> Pointed (Max 5)
@@ -261,7 +261,7 @@ max_p2 = TC { tcDef = \ia -> (Ignore, gen ia)
       T.assertEqual "retVal" Top rabs
 
     gen initialAssignment = do
-      let x = initialAssignment PU.! PU.base
+      let x = initialAssignment PU.! PU.baseIndex
       r0 <- G.newReg (atom x)
       G.while (P.InternalPos, test r0) (P.InternalPos, body r0)
       rval <- G.readReg r0
@@ -276,10 +276,10 @@ max_p2 = TC { tcDef = \ia -> (Ignore, gen ia)
       G.assignReg r0 (app (v `C.IntAdd` litExpr 1))
 
 
-intLitReg :: Integer -> G.Expr s C.IntegerType
+intLitReg :: C.IsSyntaxExtension exp => Integer -> G.Expr exp s C.IntegerType
 intLitReg i = litExpr i
 
-atom :: G.Atom s tp -> G.Expr s tp
+atom :: G.Atom s tp -> G.Expr exp s tp
 atom = G.AtomExpr
 
 data Ignore i = Ignore

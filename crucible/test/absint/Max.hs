@@ -8,7 +8,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE StandaloneDeriving #-}
 module Max (
-  Max(..),
+  Max(..), SyntaxExt,
   maxDom,
   maxInterp
   ) where
@@ -36,8 +36,11 @@ maxDom = d { domIter = WTOWidening (>10) w }
     j (Max i1) (Max i2) = Pointed (Max (max i1 i2))
     w _ _ = Top
 
-maxInterp :: Interpretation Max'
+type SyntaxExt = ()
+
+maxInterp :: Interpretation SyntaxExt Max'
 maxInterp = Interpretation { interpExpr = mExpr
+                           , interpExt = undefined
                            , interpCall = mCall
                            , interpReadGlobal = mRdGlobal
                            , interpWriteGlobal = mWrGlobal
@@ -46,7 +49,7 @@ maxInterp = Interpretation { interpExpr = mExpr
                            }
 
 mExpr :: C.TypeRepr tp
-        -> C.Expr ctx tp
+        -> C.Expr ext ctx tp
         -> PointAbstraction Max' ctx
         -> (Maybe (PointAbstraction Max' ctx), Max' tp)
 mExpr _tr (C.App e) abstr =
