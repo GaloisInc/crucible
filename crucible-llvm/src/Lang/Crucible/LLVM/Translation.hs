@@ -222,7 +222,6 @@ packBase
     -> a
 packBase ctp ctx0 asgn k =
   case ctx0 of
-    Ctx.Empty -> error "packType: ran out of actual arguments!"
     ctx' Ctx.:> ctp' ->
       case testEquality ctp ctp' of
         Nothing -> error $ unwords ["crucible type mismatch",show ctp,show ctp']
@@ -232,6 +231,7 @@ packBase ctp ctx0 asgn k =
            in k (Some (asgn Ctx.! idx))
                 ctx'
                 asgn'
+    _ -> error "packType: ran out of actual arguments!"
 
 typeToRegExpr :: MemType -> LLVMEnd h s wptr ret (Some (Reg s))
 typeToRegExpr tp = do
