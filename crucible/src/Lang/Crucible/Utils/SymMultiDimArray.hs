@@ -18,6 +18,8 @@ that support a theory of arrays or a theory of uninterpreted functions.
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE PatternSynonyms #-}
+
 module Lang.Crucible.Utils.SymMultiDimArray
   ( -- * SymMultiDimArray
     SymMultiDimArray(..)
@@ -67,7 +69,8 @@ import           Control.Monad.State.Strict
 import           Data.Foldable
 import           Data.Maybe
 import           Data.Parameterized.Classes
-import           Data.Parameterized.Context as Ctx
+import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Context ( pattern Empty, pattern (:>) )
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
 import qualified Data.Set as Set
