@@ -55,6 +55,7 @@ import qualified Data.Vector as V
 import Data.Word
 
 import Lang.Crucible.LLVM.Bytes
+import Lang.Crucible.LLVM.DataLayout
 import Lang.Crucible.LLVM.MemModel.Type
 
 -- | @R i j@ denotes that the write should store in range [i..j).
@@ -482,27 +483,34 @@ valueLoad lo ltp so v
        le = typeEnd lo ltp
        se = so + typeSize stp
 
-symbolicValueLoad :: BasePreference -- ^ Whether addresses are based on store or load.
-                  -> Type
-                  -> ValueView
-                  -> Mux (ValueCtor (ValueLoad PtrExpr))
-symbolicValueLoad pref tp v =
-  Mux (loadOffset lsz .<= Store) loadFail (prefixL lsz)
+symbolicValueLoad ::
+  BasePreference {- ^ whether addresses are based on store or load -} ->
+  Type           {- ^ load type            -} ->
+  ValueView      {- ^ view of stored value -} ->
+  Alignment      {- ^ alignment of store and load -} ->
+  Mux (ValueCtor (ValueLoad PtrExpr))
+symbolicValueLoad pref tp v alignment =
+  Mux (loadOffset lsz .<= Store) loadFail (prefixL stride (suffixS 0))
   where
-    prefixL i
-      | i > 0 =
-        Mux (loadOffset i .== Store)
-        (MuxVar (fmap (fixLoadBeforeStoreOffset pref i) <$> valueLoad 0 tp i v))
-        (prefixL (i - 1))
-      | otherwise = suffixS 0
+    stride = fromAlignment alignment
     lsz = typeEnd 0 tp
     Just stp = viewType v
 
+    prefixL :: Bytes -> Mux (ValueCtor (ValueLoad PtrExpr)) -> Mux (ValueCtor (ValueLoad PtrExpr))
+    prefixL i m
+      | i < lsz =
+        prefixL (i + stride) $
+        Mux (loadOffset i .== Store)
+        (MuxVar (fmap adjustFn <$> valueLoad 0 tp i v)) m
+      | otherwise = m
+      where adjustFn = fixLoadBeforeStoreOffset pref i
+
+    suffixS :: Bytes -> Mux (ValueCtor (ValueLoad PtrExpr))
     suffixS i
       | i < typeSize stp =
         Mux (Load .== storeOffset i)
         (MuxVar (fmap adjustFn <$> valueLoad i tp 0 v))
-        (suffixS (i + 1))
+        (suffixS (i + stride))
       | otherwise = loadFail
       where adjustFn = fixLoadAfterStoreOffset pref i
 

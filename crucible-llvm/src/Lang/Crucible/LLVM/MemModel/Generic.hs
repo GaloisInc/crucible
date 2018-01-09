@@ -60,6 +60,7 @@ import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import Data.Parameterized.Classes
 
 import Lang.Crucible.LLVM.Bytes
+import Lang.Crucible.LLVM.DataLayout
 import Lang.Crucible.LLVM.MemModel.Type
 import Lang.Crucible.LLVM.MemModel.Common
 import Lang.Crucible.LLVM.MemModel.Pointer
@@ -282,10 +283,12 @@ readMemStore :: forall sym w .
                -- ^ The value that was stored.
             -> Type
                -- ^ The type of value that was written.
+            -> Alignment
+               -- ^ The alignment of the pointer we are reading from
             -> (Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (PartLLVMVal sym))
                -- ^ A callback function for when reading fails.
             -> IO (PartLLVMVal sym)
-readMemStore sym w (l,ld) ltp (d,dd) t stp readPrev' = do
+readMemStore sym w (l,ld) ltp (d,dd) t stp loadAlign readPrev' = do
   ssz <- bvLit sym w (bytesToInteger (typeSize stp))
   let varFn = (l, d, ssz)
   let readPrev tp p = readPrev' tp (p, ptrDecompose sym w p)
@@ -314,20 +317,30 @@ readMemStore sym w (l,ld) ltp (d,dd) t stp readPrev' = do
       let pref | ConcreteOffset{} <- dd = FixedStore
                | ConcreteOffset{} <- ld = FixedLoad
                | otherwise = NeitherFixed
+      let ctz :: Integer -> Alignment
+          ctz x | x == 0 = 64 -- maximum alignment
+                | odd x = 0
+                | otherwise = 1 + ctz (x `div` 2)
+      let storeAlign =
+            case dd of
+              ConcreteOffset _ x -> ctz x
+              _                  -> 0
+      let align' = min loadAlign storeAlign
       evalMuxValueCtor sym w varFn subFn $
-        symbolicValueLoad pref ltp (ValueViewVar stp)
+        symbolicValueLoad pref ltp (ValueViewVar stp) align'
 
 readMem :: (1 <= w, IsSymInterface sym)
         => sym -> NatRepr w
         -> LLVMPtr sym w
         -> Type
+        -> Alignment
         -> Mem sym
         -> IO (PartLLVMVal sym)
-readMem sym w l tp m = do
+readMem sym w l tp alignment m = do
   let ld = ptrDecompose sym w l
   sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
   p  <- isAllocated sym w l sz m
-  val <- readMem' sym w (l,ld) tp (memWrites m)
+  val <- readMem' sym w (l,ld) tp alignment (memWrites m)
   val' <- andPartVal sym p val
   return val'
 
@@ -365,10 +378,11 @@ readMem' :: forall w sym . (1 <= w, IsSymInterface sym)
             -- ^ Address we are reading along with information about how it was constructed.
          -> Type
             -- ^ The type to read from memory.
+         -> Alignment -- ^ Alignment of pointer to read from
          -> [MemWrite sym]
             -- ^ List of writes.
          -> IO (PartLLVMVal sym)
-readMem' sym w l0 tp0 = go (badLoad sym tp0) l0 tp0
+readMem' sym w l0 tp0 alignment = go (badLoad sym tp0) l0 tp0
   where
     go :: IO (PartLLVMVal sym) ->
           (LLVMPtr sym w, AddrDecomposeResult sym w) ->
@@ -394,7 +408,7 @@ readMem' sym w l0 tp0 = go (badLoad sym tp0) l0 tp0
                Nothing   -> readPrev tp l
            MemStore dst v stp ->
              case testEquality (ptrWidth (fst dst)) w of
-               Just Refl -> readMemStore sym w l tp dst v stp readPrev
+               Just Refl -> readMemStore sym w l tp dst v stp alignment readPrev
                Nothing   -> readPrev tp l
            WriteMerge _ [] [] ->
              go fallback l tp r
