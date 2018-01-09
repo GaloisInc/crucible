@@ -312,6 +312,42 @@ class ( IsBoolExprBuilder sym
       , HashableF (SymExpr sym)
       ) => IsExprBuilder sym where
 
+  -- | Return true if two expressions are equal. The default
+  -- implementation dispatches 'eqPred', 'bvEq', 'natEq', 'intEq',
+  -- 'realEq', 'cplxEq', 'structEq', or 'arrayEq', depending on the
+  -- type.
+  isEq :: sym -> SymExpr sym tp -> SymExpr sym tp -> IO (Pred sym)
+  isEq sym x y =
+    case exprType x of
+      BaseBoolRepr     -> eqPred sym x y
+      BaseBVRepr{}     -> bvEq sym x y
+      BaseNatRepr      -> natEq sym x y
+      BaseIntegerRepr  -> intEq sym x y
+      BaseRealRepr     -> realEq sym x y
+      BaseComplexRepr  -> cplxEq sym x y
+      BaseStructRepr{} -> structEq sym x y
+      BaseArrayRepr{}  -> arrayEq sym x y
+
+  -- | Take the if-then-else of two expressions. The default
+  -- implementation dispatches 'itePred', 'bvIte', 'natIte', 'intIte',
+  -- 'realIte', 'cplxIte', 'structIte', or 'arrayIte', depending on
+  -- the type.
+  baseTypeIte :: sym
+              -> Pred sym
+              -> SymExpr sym tp
+              -> SymExpr sym tp
+              -> IO (SymExpr sym tp)
+  baseTypeIte sym c x y =
+    case exprType x of
+      BaseBoolRepr     -> itePred   sym c x y
+      BaseBVRepr{}     -> bvIte     sym c x y
+      BaseNatRepr      -> natIte    sym c x y
+      BaseIntegerRepr  -> intIte    sym c x y
+      BaseRealRepr     -> realIte   sym c x y
+      BaseComplexRepr  -> cplxIte   sym c x y
+      BaseStructRepr{} -> structIte sym c x y
+      BaseArrayRepr{}  -> arrayIte  sym c x y
+
   ----------------------------------------------------------------------
   -- Nat operations.
 
@@ -364,42 +400,6 @@ class ( IsBoolExprBuilder sym
 
   natLt :: sym -> SymNat sym -> SymNat sym -> IO (Pred sym)
   natLt sym x y = notPred sym =<< natLe sym y x
-
-  -- | Return true if two expressions are equal. The default
-  -- implementation dispatches 'eqPred', 'bvEq', 'natEq', 'intEq',
-  -- 'realEq', 'cplxEq', 'structEq', or 'arrayEq', depending on the
-  -- type.
-  isEq :: sym -> SymExpr sym tp -> SymExpr sym tp -> IO (Pred sym)
-  isEq sym x y =
-    case exprType x of
-      BaseBoolRepr     -> eqPred sym x y
-      BaseBVRepr{}     -> bvEq sym x y
-      BaseNatRepr      -> natEq sym x y
-      BaseIntegerRepr  -> intEq sym x y
-      BaseRealRepr     -> realEq sym x y
-      BaseComplexRepr  -> cplxEq sym x y
-      BaseStructRepr{} -> structEq sym x y
-      BaseArrayRepr{}  -> arrayEq sym x y
-
-  -- | Take the if-then-else of two expressions. The default
-  -- implementation dispatches 'itePred', 'bvIte', 'natIte', 'intIte',
-  -- 'realIte', 'cplxIte', 'structIte', or 'arrayIte', depending on
-  -- the type.
-  baseTypeIte :: sym
-              -> Pred sym
-              -> SymExpr sym tp
-              -> SymExpr sym tp
-              -> IO (SymExpr sym tp)
-  baseTypeIte sym c x y =
-    case exprType x of
-      BaseBoolRepr     -> itePred   sym c x y
-      BaseBVRepr{}     -> bvIte     sym c x y
-      BaseNatRepr      -> natIte    sym c x y
-      BaseIntegerRepr  -> intIte    sym c x y
-      BaseRealRepr     -> realIte   sym c x y
-      BaseComplexRepr  -> cplxIte   sym c x y
-      BaseStructRepr{} -> structIte sym c x y
-      BaseArrayRepr{}  -> arrayIte  sym c x y
 
   ----------------------------------------------------------------------
   -- Integer operations

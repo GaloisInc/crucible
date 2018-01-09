@@ -185,7 +185,6 @@ kildall_transfer analysis retRepr blk = transfer_seq (_blockStmts blk)
        transfer_stmt ReadRefCell{} _ = error "forward dataflow: reference cell!"
        transfer_stmt WriteRefCell{} _ = error "forward dataflow: reference cell!"
        transfer_stmt DropRefCell{} _ = error "forward dataflow: reference cell!"
-       transfer_stmt NewEmptyRefCell{} _ = error "forward dataflow: reference cell!"
        transfer_stmt (WriteGlobal _ _) asgnc = asgnc -- FIXME? need to check something here, perhaps?
        transfer_stmt (Assert _ _) asgnc = asgnc -- FIXME? is it useful to remember assertions some way?
 

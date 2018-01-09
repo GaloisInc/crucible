@@ -13,9 +13,10 @@ and for the core SSA-form CFGs ("Lang.Crucible.CFG.Core").
 Evaluation of expressions is defined in module "Lang.Crucible.Simulator.Evaluation".
 -}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -36,6 +37,13 @@ module Lang.Crucible.CFG.Expr
   , mapApp
   , foldApp
   , traverseApp
+  , pattern BVEq
+  , pattern NatEq
+  , pattern IntEq
+  , pattern RealEq
+  , pattern BoolIte
+  , pattern RealIte
+  , pattern BVIte
     -- * Base terms
   , BaseTerm(..)
   , module Lang.Crucible.CFG.Extension
@@ -102,6 +110,34 @@ instance TraversableFC BaseTerm where
 ------------------------------------------------------------------------
 -- App
 
+-- | Equality on bitvectors
+pattern BVEq :: () => (1 <= w, tp ~ BoolType) => NatRepr w -> f (BVType w) -> f (BVType w) -> App ext f tp
+pattern BVEq w x y = BaseIsEq (BaseBVRepr w) x y
+
+-- | Equality on natural numbers.
+pattern NatEq :: () => (tp ~ BoolType) => f NatType -> f NatType -> App ext f tp
+pattern NatEq x y = BaseIsEq BaseNatRepr x y
+
+-- | Equality on integers
+pattern IntEq :: () => (tp ~ BoolType) => f IntegerType -> f IntegerType -> App ext f tp
+pattern IntEq x y = BaseIsEq BaseIntegerRepr x y
+
+-- | Equality on real numbers.
+pattern RealEq :: () => (tp ~ BoolType) => f RealValType -> f RealValType -> App ext f tp
+pattern RealEq x y = BaseIsEq BaseRealRepr x y
+
+-- | Return first or second value depending on condition.
+pattern BoolIte :: () => (tp ~ BoolType) => f BoolType -> f tp -> f tp -> App ext f tp
+pattern BoolIte c x y = BaseIte BaseBoolRepr c x y
+
+-- | Return first or second number depending on condition.
+pattern RealIte :: () => (tp ~ RealValType) => f BoolType -> f tp -> f tp -> App ext f tp
+pattern RealIte c x y = BaseIte BaseRealRepr c x y
+
+-- | Return first or second value depending on condition.
+pattern BVIte :: () => (1 <= w, tp ~ BVType w) => f BoolType -> NatRepr w -> f tp -> f tp -> App ext f tp
+pattern BVIte c w x y = BaseIte (BaseBVRepr w) c x y
+
 -- | The main Crucible expression datastructure, defined as a
 -- multisorted algebra. Type @'App' f tp@ encodes the top-level
 -- application of a Crucible expression. The type parameter @tp@ is a
@@ -112,9 +148,25 @@ instance TraversableFC BaseTerm where
 data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
 
   ----------------------------------------------------------------------
-  -- Syntax Extension 
+  -- Syntax Extension
 
   ExtensionApp :: !(ExprExtension ext f tp) -> App ext f tp
+
+  ----------------------------------------------------------------------
+  -- Polymorphic
+
+  -- | Return true fi two base types are equal.
+  BaseIsEq :: !(BaseTypeRepr tp)
+           -> !(f (BaseToType tp))
+           -> !(f (BaseToType tp))
+           -> App ext f BoolType
+
+  -- | Select one or other
+  BaseIte :: !(BaseTypeRepr tp)
+          -> !(f BoolType)
+          -> !(f (BaseToType tp))
+          -> !(f (BaseToType tp))
+          -> App ext f (BaseToType tp)
 
   ----------------------------------------------------------------------
   -- ()
@@ -162,19 +214,11 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
           -> !(f BoolType)
           -> App ext f BoolType
 
-  -- Exclusive or of Boolean values.
-  BoolIte :: !(f BoolType)
-          -> !(f BoolType)
-          -> !(f BoolType)
-          -> App ext f BoolType
-
   ----------------------------------------------------------------------
   -- Nat
 
   -- @NatLit n@ returns the value n.
   NatLit :: !Natural -> App ext f NatType
-  -- Equality on natural numbers.
-  NatEq :: !(f NatType) -> !(f NatType) -> App ext f BoolType
   -- Less than on natural numbers.
   NatLt :: !(f NatType) -> !(f NatType) -> App ext f BoolType
   -- Less than or equal on natural numbers.
@@ -199,7 +243,6 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- Multiple two integers.
   IntMul :: !(f IntegerType) -> !(f IntegerType) -> App ext f IntegerType
 
-  IntEq :: !(f IntegerType) -> !(f IntegerType) -> App ext f BoolType
   IntLt :: !(f IntegerType) -> !(f IntegerType) -> App ext f BoolType
 
   ----------------------------------------------------------------------
@@ -220,10 +263,6 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- @y@ is not zero and @x@ when @y@ is zero.
   RealMod :: !(f RealValType) -> !(f RealValType) -> App ext f RealValType
 
-  -- Return first or second number depending on condition.
-  RealIte :: !(f BoolType) -> !(f RealValType) -> !(f RealValType) -> App ext f RealValType
-
-  RealEq :: !(f RealValType) -> !(f RealValType) -> App ext f BoolType
   RealLt :: !(f RealValType) -> !(f RealValType) -> App ext f BoolType
   -- Return true if real value is integer.
   RealIsInteger :: !(f RealValType) -> App ext f BoolType
@@ -567,6 +606,13 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   UIntArrayToIntegerArray :: !(f (MatlabUIntArrayType))
                           -> App ext f IntegerArrayType
 
+  IntegerArrayEq :: !(f IntegerArrayType)
+                 -> !(f IntegerArrayType)
+                 -> App ext f BoolType
+  RealArrayEq :: !(f RealArrayType)
+              -> !(f RealArrayType)
+              -> App ext f BoolType
+
   -- Converts a real array to an integer array.
   --
   -- Result is undefined if real values are not integers.
@@ -807,12 +853,6 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
          -> !(f (BVType w))
          -> App ext f (BVType r)
 
-  BVEq  :: (1 <= w)
-        => !(NatRepr w)
-        -> !(f (BVType w))
-        -> !(f (BVType w))
-        -> App ext f BoolType
-
   -- Complement bits in bitvector.
   BVNot :: (1 <= w)
         => !(NatRepr w)
@@ -952,13 +992,6 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
          -> !(f (BVType w)) -- The shift amount as an unsigned integer.
          -> App ext f (BVType w)
 
-  BVIte :: (1 <= w)
-        => !(f BoolType)
-        -> !(NatRepr w)
-        -> !(f (BVType w))
-        -> !(f (BVType w))
-        -> App ext f (BVType w)
-
   -- Given a Boolean, returns one if Boolean is True and zero otherwise.
   BoolToBV :: (1 <= w)
            => !(NatRepr w)
@@ -1073,13 +1106,6 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- A character array literal (also called a string).
   CharVectorLit :: !CharVector
                 -> App ext f CharArrayType
-
-  IntegerArrayEq :: !(f (IntegerArrayType))
-                 -> !(f (IntegerArrayType))
-                 -> App ext f BoolType
-  RealArrayEq :: !(f (RealArrayType))
-              -> !(f (RealArrayType))
-              -> App ext f BoolType
 
   -- Compare char arrays (arrays with different dimensions are not equal).
   CharArrayEq :: !(f CharArrayType)
@@ -1235,6 +1261,8 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
   -- appType :: App ext f tp -> TypeRepr tp
   appType a0 =
    case a0 of
+    BaseIsEq{} -> knownRepr
+    BaseIte tp _ _ _ -> baseToType tp
     ---------------------------------------------------------------------
     -- Extension
     ExtensionApp x -> appType x
@@ -1256,11 +1284,9 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     And{} -> knownRepr
     Or{} -> knownRepr
     BoolXor{} -> knownRepr
-    BoolIte{} -> knownRepr
     ----------------------------------------------------------------------
     -- Nat
     NatLit{} -> knownRepr
-    NatEq{} -> knownRepr
     NatLt{} -> knownRepr
     NatLe{} -> knownRepr
     NatAdd{} -> knownRepr
@@ -1272,7 +1298,6 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     IntAdd{} -> knownRepr
     IntSub{} -> knownRepr
     IntMul{} -> knownRepr
-    IntEq{} -> knownRepr
     IntLt{} -> knownRepr
 
     ----------------------------------------------------------------------
@@ -1283,8 +1308,6 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     RealMul{} -> knownRepr
     RealDiv{} -> knownRepr
     RealMod{} -> knownRepr
-    RealIte{} -> knownRepr
-    RealEq{} -> knownRepr
     RealLt{} -> knownRepr
     RealIsInteger{} -> knownRepr
 
@@ -1495,7 +1518,6 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     BVZext w _ _ -> BVRepr w
     BVSext w _ _ -> BVRepr w
 
-    BVEq{} -> knownRepr
     BVNot w _ -> BVRepr w
     BVAnd w _ _ -> BVRepr w
     BVOr  w _ _ -> BVRepr w
@@ -1517,7 +1539,6 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     BVShl w _ _ -> BVRepr w
     BVLshr w _ _ -> BVRepr w
     BVAshr w _ _ -> BVRepr w
-    BVIte _ w _ _ -> BVRepr w
 
     BoolToBV w _ -> BVRepr w
     BvToNat{} -> knownRepr

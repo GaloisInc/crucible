@@ -5,7 +5,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE StandaloneDeriving #-}
 module EvenOdd (
-  EvenOdd(..),
+  EvenOdd(..), EOExt,
   evenOddDom,
   evenOddInterp
   ) where
@@ -35,8 +35,11 @@ evenOddDom = pointed j (==)
     j Even Even = Pointed Even
     j Odd Odd = Pointed Odd
 
-evenOddInterp :: Interpretation EvenOdd'
+type EOExt = ()
+
+evenOddInterp :: Interpretation EOExt EvenOdd'
 evenOddInterp = Interpretation { interpExpr = eoIExpr
+                               , interpExt = undefined
                                , interpCall = eoICall
                                , interpReadGlobal = eoIRdGlobal
                                , interpWriteGlobal = eoIWrGlobal
@@ -45,7 +48,7 @@ evenOddInterp = Interpretation { interpExpr = eoIExpr
                                }
 
 eoIExpr :: C.TypeRepr tp
-        -> C.Expr ctx tp
+        -> C.Expr ext ctx tp
         -> PointAbstraction EvenOdd' ctx
         -> (Maybe (PointAbstraction EvenOdd' ctx), EvenOdd' tp)
 eoIExpr _tr (C.App e) abstr =
