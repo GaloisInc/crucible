@@ -20,6 +20,8 @@
 ------------------------------------------------------------------------
 module Lang.Crucible.LLVM.Extension
 ( LLVM
+, ArchWidth
+, X86
 ) where
 
 import           GHC.TypeLits
@@ -37,10 +39,17 @@ import           Lang.Crucible.LLVM.MemModel.Pointer
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import           Lang.Crucible.LLVM.Types
 
-data LLVM (wptr :: Nat)
 
-type instance ExprExtension (LLVM wptr) = EmptyExprExtension
-type instance StmtExtension (LLVM wptr) = LLVMStmt wptr
+type family ArchWidth (arch :: *) :: Nat
+
+data LLVM (arch :: *)
+
+type instance ExprExtension (LLVM arch) = EmptyExprExtension
+type instance StmtExtension (LLVM arch) = LLVMStmt (ArchWidth arch)
+
+data X86 (wptr :: Nat)
+
+type instance ArchWidth (X86 wptr) = wptr
 
 data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> *) :: CrucibleType -> * where
   LLVM_PushFrame :: !(f Mem) -> LLVMStmt wptr f Mem
@@ -153,4 +162,4 @@ instance TraversableFC (LLVMStmt wptr) where
     $(U.structuralTraversal [t|LLVMStmt|] [])
 
 
-instance (1 <= wptr) => IsSyntaxExtension (LLVM wptr)
+instance (1 <= ArchWidth arch) => IsSyntaxExtension (LLVM arch)

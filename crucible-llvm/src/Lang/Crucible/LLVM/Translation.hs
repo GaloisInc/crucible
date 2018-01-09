@@ -130,6 +130,7 @@ import           Lang.Crucible.CFG.SSAConversion( toSSA )
 import           Lang.Crucible.FunctionName
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.LLVM.DataLayout
+import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Intrinsics
 import qualified Lang.Crucible.LLVM.LLVMContext as TyCtx
@@ -167,14 +168,14 @@ transContext = lens _transContext (\s v -> s{ _transContext = v})
 -- | An intermediate form of LLVM expressions that retains some structure
 --   that would otherwise be more difficult to retain if we translated directly
 --   into crucible expressions.
-data LLVMExpr s wptr where
-   BaseExpr   :: TypeRepr tp -> Expr (LLVM wptr) s tp -> LLVMExpr s wptr
-   ZeroExpr   :: MemType -> LLVMExpr s wptr
-   UndefExpr  :: MemType -> LLVMExpr s wptr
-   VecExpr    :: MemType -> Seq (LLVMExpr s wptr) -> LLVMExpr s wptr
-   StructExpr :: Seq (MemType, LLVMExpr s wptr) -> LLVMExpr s wptr
+data LLVMExpr s arch where
+   BaseExpr   :: TypeRepr tp -> Expr (LLVM arch) s tp -> LLVMExpr s arch
+   ZeroExpr   :: MemType -> LLVMExpr s arch
+   UndefExpr  :: MemType -> LLVMExpr s arch
+   VecExpr    :: MemType -> Seq (LLVMExpr s arch) -> LLVMExpr s arch
+   StructExpr :: Seq (MemType, LLVMExpr s arch) -> LLVMExpr s arch
 
-instance Show (LLVMExpr s wptr) where
+instance Show (LLVMExpr s arch) where
   show (BaseExpr _ x)   = C.showF x
   show (ZeroExpr mt)    = "<zero :" ++ show mt ++ ">"
   show (UndefExpr mt)   = "<undef :" ++ show mt ++ ">"
@@ -183,15 +184,15 @@ instance Show (LLVMExpr s wptr) where
     where f (_mt,x) = show x
 
 
-data ScalarView s wptr where
-  Scalar    :: TypeRepr tp -> Expr (LLVM wptr) s tp -> ScalarView s wptr
-  NotScalar :: ScalarView s wptr
+data ScalarView s arch where
+  Scalar    :: TypeRepr tp -> Expr (LLVM arch) s tp -> ScalarView s arch
+  NotScalar :: ScalarView s arch
 
 -- | Examine an LLVM expression and return the corresponding
 --   crucible expression, if it is a scalar.
-asScalar :: (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr)
-         => LLVMExpr s wptr
-         -> ScalarView s wptr
+asScalar :: (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+         => LLVMExpr s arch
+         -> ScalarView s arch
 asScalar (BaseExpr tp xs)
   = Scalar tp xs
 asScalar (ZeroExpr llvmtp)
@@ -238,7 +239,7 @@ packBase ctp ctx0 asgn k =
                 asgn'
     _ -> error "packType: ran out of actual arguments!"
 
-typeToRegExpr :: MemType -> LLVMEnd h s wptr ret (Some (Reg s))
+typeToRegExpr :: MemType -> LLVMEnd h s arch ret (Some (Reg s))
 typeToRegExpr tp = do
   llvmTypeAsRepr tp $ \tpr ->
     Some <$> newUnassignedReg' tpr
@@ -292,18 +293,18 @@ instrResultType instr =
 -- | Maps identifiers to an associated register or defined expression.
 type IdentMap s = Map L.Ident (Either (Some (Reg s)) (Some (Atom s)))
 
-data LLVMState wptr s
+data LLVMState arch s
    = LLVMState
    { -- | Map from identifiers to associated register shape
      _identMap :: !(IdentMap s)
    , _blockInfoMap :: !(Map L.BlockLabel (LLVMBlockInfo s))
-   , llvmContext :: LLVMContext wptr
+   , llvmContext :: LLVMContext arch
    }
 
-identMap :: Simple Lens (LLVMState wptr s) (IdentMap s)
+identMap :: Simple Lens (LLVMState arch s) (IdentMap s)
 identMap = lens _identMap (\s v -> s { _identMap = v })
 
-blockInfoMap :: Simple Lens (LLVMState wptr s) (Map L.BlockLabel (LLVMBlockInfo s))
+blockInfoMap :: Simple Lens (LLVMState arch s) (Map L.BlockLabel (LLVMBlockInfo s))
 blockInfoMap = lens _blockInfoMap (\s v -> s { _blockInfoMap = v })
 
 -- Given a list of LLVM formal parameters and a corresponding crucible
@@ -331,20 +332,20 @@ buildIdentMap (ti:ts) _ ctx asgn m = do
      buildIdentMap ts False ctx' asgn' (Map.insert (L.typedValue ti) (Right x) m)
 
 -- | Build the initial LLVM generator state upon entry to to the entry point of a function.
-initialState :: (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr)
+initialState :: (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr, wptr ~ ArchWidth arch)
              => L.Define
-             -> LLVMContext wptr
+             -> LLVMContext arch
              -> CtxRepr args
              -> Ctx.Assignment (Atom s) args
-             -> LLVMState wptr s
+             -> LLVMState arch s
 initialState d llvmctx args asgn =
    let m = buildIdentMap (reverse (L.defArgs d)) (L.defVarArgs d) args asgn Map.empty in
      LLVMState { _identMap = m, _blockInfoMap = Map.empty, llvmContext = llvmctx }
 
-type LLVMGenerator h s wptr ret a =
-  (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr) => Generator (LLVM wptr) h s (LLVMState wptr) ret a
-type LLVMEnd h s wptr ret a =
-  (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr) => End (LLVM wptr) h s (LLVMState wptr) ret a
+type LLVMGenerator h s arch ret a =
+  (?lc :: TyCtx.LLVMContext, HasPtrWidth (ArchWidth arch)) => Generator (LLVM arch) h s (LLVMState arch) ret a
+type LLVMEnd h s arch ret a =
+  (?lc :: TyCtx.LLVMContext, HasPtrWidth (ArchWidth arch)) => End (LLVM arch) h s (LLVMState arch) ret a
 
 -- | Information about an LLVM basic block
 data LLVMBlockInfo s
@@ -361,10 +362,10 @@ data LLVMBlockInfo s
     , block_phi_map    :: !(Map L.BlockLabel (Seq (L.Ident, L.Type, L.Value)))
     }
 
-buildBlockInfoMap :: L.Define -> LLVMEnd h s wptr ret (Map L.BlockLabel (LLVMBlockInfo s))
+buildBlockInfoMap :: L.Define -> LLVMEnd h s arch ret (Map L.BlockLabel (LLVMBlockInfo s))
 buildBlockInfoMap d = Map.fromList <$> (mapM buildBlockInfo $ L.defBody d)
 
-buildBlockInfo :: L.BasicBlock -> LLVMEnd h s wptr ret (L.BlockLabel, LLVMBlockInfo s)
+buildBlockInfo :: L.BasicBlock -> LLVMEnd h s arch ret (L.BlockLabel, LLVMBlockInfo s)
 buildBlockInfo bb = do
   let phi_map = buildPhiMap (L.bbStmts bb)
   let Just blk_lbl = L.bbLabel bb
@@ -390,12 +391,12 @@ buildPhiMap ss = go ss Map.empty
 --   Because LLVM programs are in SSA form, this will occur in exactly one place.
 --   The type of the register is infered from the instruction that assigns to it
 --   and is recorded in the ident map.
-buildRegMap :: IdentMap s -> L.Define -> LLVMEnd h s wptr reg (IdentMap s)
+buildRegMap :: IdentMap s -> L.Define -> LLVMEnd h s arch reg (IdentMap s)
 buildRegMap m d = foldM buildRegTypeMap m $ L.defBody d
 
 buildRegTypeMap :: IdentMap s
                 -> L.BasicBlock
-                -> LLVMEnd h s wptr ret (IdentMap s)
+                -> LLVMEnd h s arch ret (IdentMap s)
 buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
  where stmt m (L.Effect _ _) = return m
        stmt m (L.Result ident instr _) = do
@@ -409,16 +410,16 @@ buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
 ---------------------------------------------------------------------------
 -- Translations
 transTypedValue :: L.Typed L.Value
-                -> LLVMGenerator h s wptr ret (LLVMExpr s wptr)
+                -> LLVMGenerator h s arch ret (LLVMExpr s arch)
 transTypedValue v = do
    tp <- liftMemType $ L.typedType v
    transValue tp (L.typedValue v)
 
 -- | Translate an LLVM Value into an expression.
-transValue :: forall h s wptr ret.
+transValue :: forall h s arch ret.
               MemType
            -> L.Value
-           -> LLVMGenerator h s wptr ret (LLVMExpr s wptr)
+           -> LLVMGenerator h s arch ret (LLVMExpr s arch)
 
 transValue ty L.ValZeroInit =
   return $ ZeroExpr ty
@@ -508,7 +509,7 @@ transValue _ (L.ValConstExpr cexp) =
       y' <- transTypedValue y
       mty <- liftMemType (L.typedType x)
 
-      let constSelect :: (1 <= w) => NatRepr w -> Expr (LLVM wptr) s (BVType w) -> LLVMGenerator h s wptr ret (LLVMExpr s wptr)
+      let constSelect :: (1 <= w) => NatRepr w -> Expr (LLVM arch) s (BVType w) -> LLVMGenerator h s arch ret (LLVMExpr s arch)
           constSelect w bv =
                 llvmTypeAsRepr mty $ \tpr -> do
                    b_e <- mkAtom (App $ BVNonzero w bv)
@@ -546,8 +547,8 @@ transValue ty v =
 -- | Assign a packed LLVM expression into the named LLVM register.
 assignLLVMReg
         :: L.Ident
-        -> LLVMExpr s wptr
-        -> LLVMGenerator h s wptr ret ()
+        -> LLVMExpr s arch
+        -> LLVMGenerator h s arch ret ()
 assignLLVMReg ident rhs = do
   st <- get
   let idMap = st^.identMap
@@ -559,10 +560,10 @@ assignLLVMReg ident rhs = do
 
 -- | Given a register and an expression shape, assign the expressions in the right-hand-side
 --   into the register left-hand side.
-doAssign :: forall h s wptr ret.
+doAssign :: forall h s arch ret.
       Some (Reg s)
-   -> LLVMExpr s wptr -- ^ the RHS values to assign
-   -> LLVMGenerator h s wptr ret ()
+   -> LLVMExpr s arch -- ^ the RHS values to assign
+   -> LLVMGenerator h s arch ret ()
 doAssign (Some r) (BaseExpr tpr ex) =
    case testEquality (typeOfReg r) tpr of
      Just Refl -> assignReg r ex
@@ -575,13 +576,13 @@ doAssign (Some r) (StructExpr vs) = do
        Nothing -> reportError $ fromString $ unwords ["type mismatch when assigning structure to register", show r, show (StructRepr ctx)]
 doAssign (Some r) (ZeroExpr tp) = do
   let ?err = fail
-  zeroExpand tp $ \(tpr :: TypeRepr t) (ex :: Expr (LLVM wptr) s t) ->
+  zeroExpand tp $ \(tpr :: TypeRepr t) (ex :: Expr (LLVM arch) s t) ->
     case testEquality (typeOfReg r) tpr of
       Just Refl -> assignReg r ex
       Nothing -> reportError $ fromString $ "type mismatch when assigning zero value"
 doAssign (Some r) (UndefExpr tp) = do
   let ?err = fail
-  undefExpand tp $ \(tpr :: TypeRepr t) (ex :: Expr (LLVM wptr) s t) ->
+  undefExpand tp $ \(tpr :: TypeRepr t) (ex :: Expr (LLVM arch) s t) ->
     case testEquality (typeOfReg r) tpr of
       Just Refl -> assignReg r ex
       Nothing -> reportError $ fromString $ "type mismatch when assigning undef value"
@@ -595,27 +596,27 @@ doAssign (Some r) (VecExpr tp vs) = do
 
 -- | Given a list of LLVMExpressions, "unpack" them into an assignment
 --   of crucible expressions.
-unpackArgs :: forall s a wptr
+unpackArgs :: forall s a arch
     . (?lc :: TyCtx.LLVMContext
       ,?err :: String -> a
-      , HasPtrWidth wptr
+      ,HasPtrWidth (ArchWidth arch)
       )
-   => [LLVMExpr s wptr]
-   -> (forall ctx. CtxRepr ctx -> Ctx.Assignment (Expr (LLVM wptr) s) ctx -> a)
+   => [LLVMExpr s arch]
+   -> (forall ctx. CtxRepr ctx -> Ctx.Assignment (Expr (LLVM arch) s) ctx -> a)
    -> a
 unpackArgs = go Ctx.Empty Ctx.Empty
  where go :: CtxRepr ctx
-          -> Ctx.Assignment (Expr (LLVM wptr) s) ctx
-          -> [LLVMExpr s wptr]
-          -> (forall ctx'. CtxRepr ctx' -> Ctx.Assignment (Expr (LLVM wptr) s) ctx' -> a)
+          -> Ctx.Assignment (Expr (LLVM arch) s) ctx
+          -> [LLVMExpr s arch]
+          -> (forall ctx'. CtxRepr ctx' -> Ctx.Assignment (Expr (LLVM arch) s) ctx' -> a)
           -> a
        go ctx asgn [] k = k ctx asgn
        go ctx asgn (v:vs) k = unpackOne v (\tyr ex -> go (ctx :> tyr) (asgn :> ex) vs k)
 
 unpackOne
-   :: (?lc :: TyCtx.LLVMContext, ?err :: String -> a, HasPtrWidth wptr)
-   => LLVMExpr s wptr
-   -> (forall tpr. TypeRepr tpr -> Expr (LLVM wptr) s tpr -> a)
+   :: (?lc :: TyCtx.LLVMContext, ?err :: String -> a, HasPtrWidth (ArchWidth arch))
+   => LLVMExpr s arch
+   -> (forall tpr. TypeRepr tpr -> Expr (LLVM arch) s tpr -> a)
    -> a
 unpackOne (BaseExpr tyr ex) k = k tyr ex
 unpackOne (UndefExpr tp) k = undefExpand tp k
@@ -626,24 +627,24 @@ unpackOne (StructExpr vs) k =
 unpackOne (VecExpr tp vs) k =
   llvmTypeAsRepr tp $ \tpr -> unpackVec tpr (toList (Seq.reverse vs)) $ k (VectorRepr tpr)
 
-unpackVec :: forall tpr s wptr a
-    . (?lc :: TyCtx.LLVMContext, ?err :: String -> a, HasPtrWidth wptr)
+unpackVec :: forall tpr s arch a
+    . (?lc :: TyCtx.LLVMContext, ?err :: String -> a, HasPtrWidth (ArchWidth arch))
    => TypeRepr tpr
-   -> [LLVMExpr s wptr]
-   -> (Expr (LLVM wptr) s (VectorType tpr) -> a)
+   -> [LLVMExpr s arch]
+   -> (Expr (LLVM arch) s (VectorType tpr) -> a)
    -> a
 unpackVec tpr = go []
-  where go :: [Expr (LLVM wptr) s tpr] -> [LLVMExpr s wptr] -> (Expr (LLVM wptr) s (VectorType tpr) -> a) -> a
+  where go :: [Expr (LLVM arch) s tpr] -> [LLVMExpr s arch] -> (Expr (LLVM arch) s (VectorType tpr) -> a) -> a
         go vs [] k = k (vectorLit tpr $ V.fromList vs)
         go vs (x:xs) k = unpackOne x $ \tpr' v ->
                            case testEquality tpr tpr' of
                              Just Refl -> go (v:vs) xs k
                              Nothing -> ?err $ unwords ["type mismatch in array value", show tpr, show tpr']
 
-zeroExpand :: forall s wptr a
-            . (?lc :: TyCtx.LLVMContext, ?err :: String -> a, HasPtrWidth wptr)
+zeroExpand :: forall s arch a
+            . (?lc :: TyCtx.LLVMContext, ?err :: String -> a, HasPtrWidth (ArchWidth arch))
            => MemType
-           -> (forall tp. TypeRepr tp -> Expr (LLVM wptr) s tp -> a)
+           -> (forall tp. TypeRepr tp -> Expr (LLVM arch) s tp -> a)
            -> a
 zeroExpand (IntType w) k =
   case someNat (fromIntegral w) of
@@ -673,9 +674,9 @@ nullPointer = app $ RollRecursive knownSymbol (Ctx.Empty Ctx.:> BVRepr PtrWidth)
           (Ctx.Empty :> NatRepr :> BVRepr PtrWidth)
           (Ctx.Empty :> litExpr 0 :> app (BVLit PtrWidth 0))
 
-undefExpand :: (?lc :: TyCtx.LLVMContext, ?err :: String -> a, HasPtrWidth wptr)
+undefExpand :: (?lc :: TyCtx.LLVMContext, ?err :: String -> a, HasPtrWidth (ArchWidth arch))
             => MemType
-            -> (forall tp. TypeRepr tp -> Expr (LLVM wptr) s tp -> a)
+            -> (forall tp. TypeRepr tp -> Expr (LLVM arch) s tp -> a)
             -> a
 undefExpand (IntType w) k =
   case someNat (fromIntegral w) of
@@ -698,10 +699,10 @@ undefExpand tp _ = ?err $ unwords ["cannot undef expand type:", show tp]
 
 --undefExpand (L.PrimType (L.FloatType _ft)) _k = error "FIXME undefExpand: float types"
 
-unpackVarArgs :: forall h s wptr ret a
-    . (?err :: String -> a)
-   => [LLVMExpr s wptr]
-   -> LLVMGenerator h s wptr ret (Expr (LLVM wptr) s (VectorType AnyType))
+unpackVarArgs :: forall h s arch ret a
+    . (?err :: String -> a, HasPtrWidth (ArchWidth arch))
+   => [LLVMExpr s arch]
+   -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (VectorType AnyType))
 unpackVarArgs xs = App . VectorLit AnyRepr . V.fromList <$> xs'
  where xs' = let ?err = fail in
              mapM (\x -> unpackOne x (\tp x' -> return $ App (PackAny tp x'))) xs
@@ -709,7 +710,7 @@ unpackVarArgs xs = App . VectorLit AnyRepr . V.fromList <$> xs'
 -- | Implement the phi-functions along the edge from one LLVM Basic block to another.
 definePhiBlock :: L.BlockLabel      -- ^ The LLVM source basic block
                -> L.BlockLabel      -- ^ The LLVM target basic block
-               -> LLVMGenerator h s wptr ret ()
+               -> LLVMGenerator h s arch ret ()
 definePhiBlock l l' = do
   bim <- use blockInfoMap
   case Map.lookup l' bim of
@@ -739,9 +740,9 @@ definePhiBlock l l' = do
 pattern PointerExpr
     :: (1 <= w)
     => NatRepr w
-    -> Expr (LLVM wptr) s NatType
-    -> Expr (LLVM wptr) s (BVType w)
-    -> Expr (LLVM wptr) s (LLVMPointerType w)
+    -> Expr (LLVM arch) s NatType
+    -> Expr (LLVM arch) s (BVType w)
+    -> Expr (LLVM arch) s (LLVMPointerType w)
 pattern PointerExpr w blk off <-
    App (RollRecursive _ (Ctx.Empty :> BVRepr w)
   (App (MkStruct _ (Ctx.Empty :> blk :> off))))
@@ -753,8 +754,8 @@ pattern PointerExpr w blk off <-
 pattern BitvectorAsPointerExpr
     :: (1 <= w)
     => NatRepr w
-    -> Expr (LLVM wptr) s (BVType w)
-    -> Expr (LLVM wptr) s (LLVMPointerType w)
+    -> Expr (LLVM arch) s (BVType w)
+    -> Expr (LLVM arch) s (LLVMPointerType w)
 pattern BitvectorAsPointerExpr w ex <-
    App (RollRecursive _ (Ctx.Empty :> BVRepr w)
   (App (MkStruct _ (Ctx.Empty :> (App (NatLit 0)) :> ex))))
@@ -767,8 +768,8 @@ pattern BitvectorAsPointerExpr w ex <-
 pointerAsBitvectorExpr
     :: (1 <= w)
     => NatRepr w
-    -> Expr (LLVM wptr) s (LLVMPointerType w)
-    -> LLVMGenerator h s wptr ret (Expr (LLVM wptr) s (BVType w))
+    -> Expr (LLVM arch) s (LLVMPointerType w)
+    -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (BVType w))
 pointerAsBitvectorExpr _ (BitvectorAsPointerExpr _ ex) =
      return ex
 pointerAsBitvectorExpr w ex =
@@ -781,13 +782,13 @@ pointerAsBitvectorExpr w ex =
 
 -- | Given an LLVM expression of vector type, select out the ith element.
 extractElt
-    :: forall h s wptr ret.
+    :: forall h s arch ret.
        L.Instr
     -> MemType    -- ^ type contained in the vector
     -> Integer   -- ^ size of the vector
-    -> LLVMExpr s wptr  -- ^ vector expression
-    -> LLVMExpr s wptr -- ^ index expression
-    -> LLVMGenerator h s wptr ret (LLVMExpr s wptr)
+    -> LLVMExpr s arch  -- ^ vector expression
+    -> LLVMExpr s arch -- ^ index expression
+    -> LLVMGenerator h s arch ret (LLVMExpr s arch)
 extractElt _ ty _ _ (UndefExpr _)  =
    return $ UndefExpr ty
 extractElt instr ty n v (ZeroExpr zty) = do
@@ -805,7 +806,7 @@ extractElt instr _ n (VecExpr _ vs) i
   = constantExtract x'
 
  where
- constantExtract :: Integer -> LLVMGenerator h s wptr ret (LLVMExpr s wptr)
+ constantExtract :: Integer -> LLVMGenerator h s arch ret (LLVMExpr s arch)
  constantExtract idx =
     if (fromInteger idx < Seq.length vs) && (fromInteger idx < n)
         then return $ Seq.index vs (fromInteger idx)
@@ -829,14 +830,14 @@ extractElt instr _ _ _ _ = fail (unlines ["invalid extractelement instruction", 
 
 
 -- | Given an LLVM expression of vector type, insert a new element at location ith element.
-insertElt :: forall h s wptr ret.
+insertElt :: forall h s arch ret.
        L.Instr            -- ^ Actual instruction
     -> MemType            -- ^ type contained in the vector
     -> Integer            -- ^ size of the vector
-    -> LLVMExpr s wptr    -- ^ vector expression
-    -> LLVMExpr s wptr    -- ^ element to insert
-    -> LLVMExpr s wptr    -- ^ index expression
-    -> LLVMGenerator h s wptr ret (LLVMExpr s wptr)
+    -> LLVMExpr s arch    -- ^ vector expression
+    -> LLVMExpr s arch    -- ^ element to insert
+    -> LLVMExpr s arch    -- ^ index expression
+    -> LLVMGenerator h s arch ret (LLVMExpr s arch)
 insertElt _ ty _ _ _ (UndefExpr _) = do
    return $ UndefExpr ty
 insertElt instr ty n v a (ZeroExpr zty) = do
@@ -853,7 +854,7 @@ insertElt instr _ n (VecExpr ty vs) a i
   , App (BVLit _ x') <- x
   = constantInsert x'
  where
- constantInsert :: Integer -> LLVMGenerator h s wptr ret (LLVMExpr s wptr)
+ constantInsert :: Integer -> LLVMGenerator h s arch ret (LLVMExpr s arch)
  constantInsert idx =
      if (fromInteger idx < Seq.length vs) && (fromInteger idx < n)
        then return $ VecExpr ty $ Seq.adjust (\_ -> a) (fromIntegral idx) vs
@@ -865,7 +866,7 @@ insertElt instr ty n (VecExpr _ vs) a i = do
         \ex -> insertElt instr ty n (BaseExpr (VectorRepr tyr) ex) a i
 
 insertElt instr _ n (BaseExpr (VectorRepr tyr) v) a i =
-  do (idx :: Expr (LLVM wptr) s NatType)
+  do (idx :: Expr (LLVM arch) s NatType)
          <- case asScalar i of
                    Scalar (LLVMPointerRepr w) x ->
                      do bv <- pointerAsBitvectorExpr w x
@@ -884,9 +885,9 @@ insertElt instr _tp n v a i = fail (unlines ["invalid insertelement instruction"
 -- Given an LLVM expression of vector or structure type, select out the
 -- element indicated by the sequence of given concrete indices.
 extractValue
-    :: LLVMExpr s wptr  -- ^ aggregate expression
+    :: LLVMExpr s arch  -- ^ aggregate expression
     -> [Int32]     -- ^ sequence of indices
-    -> LLVMGenerator h s wptr ret (LLVMExpr s wptr)
+    -> LLVMGenerator h s arch ret (LLVMExpr s arch)
 extractValue v [] = return v
 extractValue (UndefExpr (StructType si)) is =
    extractValue (StructExpr $ Seq.fromList $ map (\tp -> (tp, UndefExpr tp)) tps) is
@@ -912,10 +913,10 @@ extractValue _ _ = fail "invalid extractValue instruction"
 -- Given an LLVM expression of vector or structure type, insert a new element in the posistion
 -- given by the concrete indices.
 insertValue
-    :: LLVMExpr s wptr  -- ^ aggregate expression
-    -> LLVMExpr s wptr  -- ^ element to insert
+    :: LLVMExpr s arch  -- ^ aggregate expression
+    -> LLVMExpr s arch  -- ^ element to insert
     -> [Int32]     -- ^ sequence of concrete indices
-    -> LLVMGenerator h s wptr ret (LLVMExpr s wptr)
+    -> LLVMGenerator h s arch ret (LLVMExpr s arch)
 insertValue _ v [] = return v
 insertValue (UndefExpr (StructType si)) v is =
    insertValue (StructExpr $ Seq.fromList $ map (\tp -> (tp, UndefExpr tp)) tps) v is
@@ -952,8 +953,8 @@ insertValue _ _ _ = fail "invalid insertValue instruction"
 callIsNull
    :: (1 <= w)
    => NatRepr w
-   -> Expr (LLVM wptr) s (LLVMPointerType w)
-   -> LLVMGenerator h s wptr ret (Expr (LLVM wptr) s BoolType)
+   -> Expr (LLVM arch) s (LLVMPointerType w)
+   -> LLVMGenerator h s arch ret (Expr (LLVM arch) s BoolType)
 callIsNull w (BitvectorAsPointerExpr _ bv) =
   case bv of
     App (BVLit _ 0) -> return true
@@ -965,8 +966,9 @@ callIsNull w ex =
       return (blk .== litExpr 0 .&& (App (BVEq w off (App (BVLit w 0)))))
 
 callAlloca
-   :: Expr (LLVM wptr) s (BVType wptr)
-   -> LLVMGenerator h s wptr ret (Expr (LLVM wptr) s (LLVMPointerType wptr))
+   :: wptr ~ ArchWidth arch
+   => Expr (LLVM arch) s (BVType wptr)
+   -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
 callAlloca sz = do
    memVar <- llvmMemVar . memModelOps . llvmContext <$> get
    alloca <- litExpr . llvmMemAlloca . memModelOps . llvmContext <$> get
@@ -978,7 +980,7 @@ callAlloca sz = do
    writeGlobal memVar mem'
    return p
 
-callPushFrame :: LLVMGenerator h s wptr ret ()
+callPushFrame :: LLVMGenerator h s arch ret ()
 callPushFrame = do
    memVar <- llvmMemVar . memModelOps . llvmContext <$> get
    pushFrame <- litExpr . llvmMemPushFrame . memModelOps . llvmContext <$> get
@@ -986,7 +988,7 @@ callPushFrame = do
    mem' <- call pushFrame (Ctx.Empty :> mem)
    writeGlobal memVar mem'
 
-callPopFrame :: LLVMGenerator h s wptr ret ()
+callPopFrame :: LLVMGenerator h s arch ret ()
 callPopFrame = do
    memVar <- llvmMemVar . memModelOps . llvmContext <$> get
    popFrame <- litExpr . llvmMemPopFrame . memModelOps . llvmContext <$> get
@@ -1014,9 +1016,10 @@ toStorableType mt =
                return (t, fiPadding fi)
 
 callPtrAddOffset ::
-       Expr (LLVM wptr) s (LLVMPointerType wptr)
-    -> Expr (LLVM wptr) s (BVType wptr)
-    -> LLVMGenerator h s wptr ret (Expr (LLVM wptr) s (LLVMPointerType wptr))
+       wptr ~ ArchWidth arch
+    => Expr (LLVM arch) s (LLVMPointerType wptr)
+    -> Expr (LLVM arch) s (BVType wptr)
+    -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
 callPtrAddOffset base off = do
     memVar <- llvmMemVar . memModelOps . llvmContext <$> get
     mem  <- readGlobal memVar
@@ -1024,9 +1027,10 @@ callPtrAddOffset base off = do
     call ptrAddOff (Ctx.Empty :> mem :> base :> off)
 
 callPtrSubtract ::
-       Expr (LLVM wptr) s (LLVMPointerType wptr)
-    -> Expr (LLVM wptr) s (LLVMPointerType wptr)
-    -> LLVMGenerator h s wptr ret (Expr (LLVM wptr) s (BVType wptr))
+       wptr ~ ArchWidth arch
+    => Expr (LLVM arch) s (LLVMPointerType wptr)
+    -> Expr (LLVM arch) s (LLVMPointerType wptr)
+    -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (BVType wptr))
 callPtrSubtract x y = do
     memVar <- llvmMemVar . memModelOps . llvmContext <$> get
     mem  <- readGlobal memVar
@@ -1036,9 +1040,9 @@ callPtrSubtract x y = do
 
 callLoad :: MemType
          -> TypeRepr tp
-         -> LLVMExpr s wptr
+         -> LLVMExpr s arch
          -> Alignment
-         -> LLVMGenerator h s wptr ret (LLVMExpr s wptr)
+         -> LLVMGenerator h s arch ret (LLVMExpr s arch)
 callLoad typ expectTy (asScalar -> Scalar PtrRepr ptr) align =
    do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
       memLoad <- litExpr . llvmMemLoad . memModelOps . llvmContext <$> get
@@ -1053,9 +1057,9 @@ callLoad _ _ _ _ =
   fail $ unwords ["Unexpected argument type in callLoad"]
 
 callStore :: MemType
-          -> LLVMExpr s wptr
-          -> LLVMExpr s wptr
-          -> LLVMGenerator h s wptr ret ()
+          -> LLVMExpr s arch
+          -> LLVMExpr s arch
+          -> LLVMGenerator h s arch ret ()
 callStore typ (asScalar -> Scalar PtrRepr ptr) v =
  do let ?err = fail
     unpackOne v $ \vtpr vexpr -> do
@@ -1071,10 +1075,11 @@ callStore _ _ _ =
   fail $ unwords ["Unexpected argument type in callStore"]
 
 
-calcGEP :: MemType
-        -> LLVMExpr s wptr
-        -> [LLVMExpr s wptr]
-        -> LLVMGenerator h s wptr ret (Expr (LLVM wptr) s (LLVMPointerType wptr))
+calcGEP :: wptr ~ ArchWidth arch
+        => MemType
+        -> LLVMExpr s arch
+        -> [LLVMExpr s arch]
+        -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
 calcGEP typ@(PtrType _) (asScalar -> Scalar PtrRepr base) xs@(_ : _) =
    calcGEP' typ base xs
 
@@ -1083,11 +1088,12 @@ calcGEP typ _base _xs = do
    fail $ unwords ["Invalid base argument type in GEP", show typ]
 
 
-calcGEP' :: forall h s wptr ret.
-            MemType
-         -> Expr (LLVM wptr) s (LLVMPointerType wptr)
-         -> [LLVMExpr s wptr]
-         -> LLVMGenerator h s wptr ret (Expr (LLVM wptr) s (LLVMPointerType wptr))
+calcGEP' :: forall h s arch wptr ret.
+            wptr ~ ArchWidth arch
+         => MemType
+         -> Expr (LLVM arch) s (LLVMPointerType wptr)
+         -> [LLVMExpr s arch]
+         -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
 
 calcGEP' _typ base [] = return base
 
@@ -1126,7 +1132,7 @@ calcGEP' (ArrayType bound typ') base (idx : xs) = do
     unless (isz <= maxSigned PtrWidth)
       (fail $ unwords ["Type size too large for pointer width:", show typ'])
 
-    let sz :: Expr (LLVM wptr) s (BVType wptr)
+    let sz :: Expr (LLVM arch) s (BVType wptr)
         sz  = app $ BVLit PtrWidth $ isz
 
     -- Perform a signed wide multiply and check for overflow
@@ -1145,7 +1151,7 @@ calcGEP' (ArrayType bound typ') base (idx : xs) = do
     calcGEP' typ' base' xs
 
 calcGEP' (PtrType (MemType typ')) base (idx : xs) = do
-    (idx' :: Expr (LLVM wptr) s (BVType wptr))
+    (idx' :: Expr (LLVM arch) s (BVType wptr))
        <- case asScalar idx of
               Scalar (LLVMPointerRepr w) x
                  | Just Refl <- testEquality w PtrWidth ->
@@ -1161,7 +1167,7 @@ calcGEP' (PtrType (MemType typ')) base (idx : xs) = do
     let isz = G.bytesToInteger $ memTypeSize dl typ'
     unless (isz <= maxSigned PtrWidth)
       (fail $ unwords ["Type size too large for pointer width:", show typ'])
-    let sz :: Expr (LLVM wptr) s (BVType wptr)
+    let sz :: Expr (LLVM arch) s (BVType wptr)
         sz  = app $ BVLit PtrWidth $ isz
 
     -- Perform a signed wide multiply and check for overflow
@@ -1209,7 +1215,7 @@ translateConversion
   -> L.ConvOp
   -> L.Typed L.Value
   -> L.Type
-  -> LLVMGenerator h s wptr ret (LLVMExpr s wptr)
+  -> LLVMGenerator h s arch ret (LLVMExpr s arch)
 translateConversion instr op x outty =
  let showI = maybe "" showInstr instr in
  case op of
@@ -1289,7 +1295,7 @@ translateConversion instr op x outty =
     L.UiToFp -> do
        outty' <- liftMemType outty
        x' <- transTypedValue x
-       let promoteToFp :: (1 <= w) => NatRepr w -> Expr (LLVM wptr) s (BVType w) -> LLVMExpr s wptr
+       let promoteToFp :: (1 <= w) => NatRepr w -> Expr (LLVM arch) s (BVType w) -> LLVMExpr s arch
            promoteToFp w bv = BaseExpr RealValRepr (App $ IntegerToReal $ App $ NatToInteger $ App $ BvToNat w bv)
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
@@ -1301,7 +1307,7 @@ translateConversion instr op x outty =
     L.SiToFp -> do
        outty' <- liftMemType outty
        x' <- transTypedValue x
-       let promoteToFp :: (1 <= w) => NatRepr w -> Expr (LLVM wptr) s (BVType w) -> LLVMGenerator h s wptr ret (LLVMExpr s wptr)
+       let promoteToFp :: (1 <= w) => NatRepr w -> Expr (LLVM arch) s (BVType w) -> LLVMGenerator h s arch ret (LLVMExpr s arch)
            promoteToFp w bv =
              do -- is the value negative?
                 t <- AtomExpr <$> mkAtom (App $ BVSlt w bv $ App $ BVLit w 0)
@@ -1346,9 +1352,9 @@ translateConversion instr op x outty =
 intop :: (1 <= w)
       => L.ArithOp
       -> NatRepr w
-      -> Expr (LLVM wptr) s (BVType w)
-      -> Expr (LLVM wptr) s (BVType w)
-      -> LLVMGenerator h s wptr ret (Expr (LLVM wptr) s (BVType w))
+      -> Expr (LLVM arch) s (BVType w)
+      -> Expr (LLVM arch) s (BVType w)
+      -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (BVType w))
 intop op w a b =
       case op of
              L.Add nuw nsw -> do
@@ -1490,12 +1496,12 @@ caseptr
   :: (1 <= w)
   => NatRepr w
   -> TypeRepr a
-  -> (Expr (LLVM wptr) s (BVType w) ->
-      LLVMGenerator h s wptr ret (Expr (LLVM wptr) s a))
-  -> (Expr (LLVM wptr) s NatType -> Expr (LLVM wptr) s (BVType w) ->
-      LLVMGenerator h s wptr ret (Expr (LLVM wptr) s a))
-  -> Expr (LLVM wptr) s (LLVMPointerType w)
-  -> LLVMGenerator h s wptr ret (Expr (LLVM wptr) s a)
+  -> (Expr (LLVM arch) s (BVType w) ->
+      LLVMGenerator h s arch ret (Expr (LLVM arch) s a))
+  -> (Expr (LLVM arch) s NatType -> Expr (LLVM arch) s (BVType w) ->
+      LLVMGenerator h s arch ret (Expr (LLVM arch) s a))
+  -> Expr (LLVM arch) s (LLVMPointerType w)
+  -> LLVMGenerator h s arch ret (Expr (LLVM arch) s a)
 
 caseptr w tpr bvCase ptrCase x =
   case x of
@@ -1525,9 +1531,9 @@ caseptr w tpr bvCase ptrCase x =
 intcmp :: (1 <= w)
     => NatRepr w
     -> L.ICmpOp
-    -> Expr (LLVM wptr) s (BVType w)
-    -> Expr (LLVM wptr) s (BVType w)
-    -> Expr (LLVM wptr) s BoolType
+    -> Expr (LLVM arch) s (BVType w)
+    -> Expr (LLVM arch) s (BVType w)
+    -> Expr (LLVM arch) s BoolType
 intcmp w op a b =
    case op of
       L.Ieq  -> App (BVEq w a b)
@@ -1542,10 +1548,11 @@ intcmp w op a b =
       L.Isge -> App (BVSle w b a)
 
 pointerCmp
-   :: L.ICmpOp
-   -> Expr (LLVM wptr) s (LLVMPointerType wptr)
-   -> Expr (LLVM wptr) s (LLVMPointerType wptr)
-   -> LLVMGenerator h s wptr ret (Expr (LLVM wptr) s BoolType)
+   :: wptr ~ ArchWidth arch
+   => L.ICmpOp
+   -> Expr (LLVM arch) s (LLVMPointerType wptr)
+   -> Expr (LLVM arch) s (LLVMPointerType wptr)
+   -> LLVMGenerator h s arch ret (Expr (LLVM arch) s BoolType)
 pointerCmp op x y =
   caseptr PtrWidth knownRepr
     (\x_bv ->
@@ -1602,10 +1609,11 @@ pointerCmp op x y =
          _ -> reportError $ litExpr $ Text.pack $ unwords ["signed comparison on pointer values", show op, show x, show y]
 
 pointerOp
-   :: L.ArithOp
-   -> Expr (LLVM wptr) s (LLVMPointerType wptr)
-   -> Expr (LLVM wptr) s (LLVMPointerType wptr)
-   -> LLVMGenerator h s wptr ret (Expr (LLVM wptr) s (LLVMPointerType wptr))
+   :: wptr ~ ArchWidth arch
+   => L.ArithOp
+   -> Expr (LLVM arch) s (LLVMPointerType wptr)
+   -> Expr (LLVM arch) s (LLVMPointerType wptr)
+   -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
 pointerOp op x y =
   caseptr PtrWidth PtrRepr
     (\x_bv  ->
@@ -1642,16 +1650,16 @@ pointerOp op x y =
   err = reportError $ litExpr $ Text.pack $ unwords ["Invalid pointer operation", show op, show x, show y]
 
 -- | Do the heavy lifting of translating LLVM instructions to crucible code.
-generateInstr :: forall h s wptr ret
+generateInstr :: forall h s arch ret
          . TypeRepr ret     -- ^ Type of the function return value
         -> L.BlockLabel     -- ^ The label of the current LLVM basic block
         -> L.Instr          -- ^ The instruction to translate
-        -> (LLVMExpr s wptr -> LLVMGenerator h s wptr ret ())
+        -> (LLVMExpr s arch -> LLVMGenerator h s arch ret ())
                             -- ^ A continuation to assign the produced value of this instruction to a register
-        -> LLVMGenerator h s wptr ret ()  -- ^ A continuation for translating the remaining statements in this function.
+        -> LLVMGenerator h s arch ret ()  -- ^ A continuation for translating the remaining statements in this function.
                                    --   Straightline instructions should enter this continuation,
                                    --   but block-terminating instructions should not.
-        -> LLVMGenerator h s wptr ret ()
+        -> LLVMGenerator h s arch ret ()
 generateInstr retType lab instr assign_f k =
   case instr of
     -- skip phi instructions, they are handled in definePhiBlock
@@ -1776,9 +1784,9 @@ generateInstr retType lab instr assign_f k =
     L.Bit op x y -> do
            let bitop :: (1 <= w)
                      => NatRepr w
-                     -> Expr (LLVM wptr) s (BVType w)
-                     -> Expr (LLVM wptr) s (BVType w)
-                     -> LLVMGenerator h s wptr ret (Expr (LLVM wptr) s (BVType w))
+                     -> Expr (LLVM arch) s (BVType w)
+                     -> Expr (LLVM arch) s (BVType w)
+                     -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (BVType w))
                bitop w a b =
                      case op of
                          L.And -> return $ App (BVAnd w a b)
@@ -1867,9 +1875,9 @@ generateInstr retType lab instr assign_f k =
              _ -> fail $ unwords ["bitwise operation on unsupported values", show x, show y]
 
     L.Arith op x y -> do
-           let fop :: Expr (LLVM wptr) s RealValType
-                   -> Expr (LLVM wptr) s RealValType
-                   -> LLVMGenerator h s wptr ret (Expr (LLVM wptr) s RealValType)
+           let fop :: Expr (LLVM arch) s RealValType
+                   -> Expr (LLVM arch) s RealValType
+                   -> LLVMGenerator h s arch ret (Expr (LLVM arch) s RealValType)
                fop a b =
                      case op of
                         L.FAdd -> do
@@ -1913,9 +1921,9 @@ generateInstr retType lab instr assign_f k =
              _ -> reportError $ fromString $ unwords ["arithmetic operation on unsupported values", show x, show y]
 
     L.FCmp op x y -> do
-           let cmpf :: Expr (LLVM wptr) s RealValType
-                    -> Expr (LLVM wptr) s RealValType
-                    -> Expr (LLVM wptr) s BoolType
+           let cmpf :: Expr (LLVM arch) s RealValType
+                    -> Expr (LLVM arch) s RealValType
+                    -> Expr (LLVM arch) s BoolType
                cmpf a b =
                   -- We assume that values are never NaN, so the ordered and unordered
                   -- operations are the same.
@@ -2035,11 +2043,11 @@ generateInstr retType lab instr assign_f k =
 showInstr :: L.Instr -> String
 showInstr i = show (L.ppLLVM38 (L.ppInstr i))
 
-callFunctionWithCont :: forall h s wptr ret.
+callFunctionWithCont :: forall h s arch ret.
                         L.Type -> L.Value -> [L.Typed L.Value]
-                     -> (LLVMExpr s wptr -> LLVMGenerator h s wptr ret ())
-                     -> LLVMGenerator h s wptr ret ()
-                     -> LLVMGenerator h s wptr ret ()
+                     -> (LLVMExpr s arch -> LLVMGenerator h s arch ret ())
+                     -> LLVMGenerator h s arch ret ()
+                     -> LLVMGenerator h s arch ret ()
 callFunctionWithCont fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f k
      -- Skip calls to debugging intrinsics.  We might want to support these in some way
      -- in the future.  However, they take metadata values as arguments, which
@@ -2107,11 +2115,11 @@ callFunctionWithCont fnTy _fn _args _assign_f _k =
 --   FIXME? this could be more efficient if we sort the list and do binary search instead...
 buildSwitch :: (1 <= w)
             => NatRepr w
-            -> Expr (LLVM wptr) s (BVType w) -- ^ The expression to switch on
+            -> Expr (LLVM arch) s (BVType w) -- ^ The expression to switch on
             -> L.BlockLabel        -- ^ The label of the current basic block
             -> L.BlockLabel        -- ^ The label of the default basic block if no other branch applies
             -> [(Integer, L.BlockLabel)] -- ^ The switch labels
-            -> LLVMGenerator h s wptr ret ()
+            -> LLVMGenerator h s arch ret ()
 buildSwitch _ _  curr_lab def [] =
    definePhiBlock curr_lab def
 buildSwitch w ex curr_lab def ((i,l):bs) = do
@@ -2129,7 +2137,7 @@ generateStmts
         :: TypeRepr ret
         -> L.BlockLabel
         -> [L.Stmt]
-        -> LLVMGenerator h s wptr ret ()
+        -> LLVMGenerator h s arch ret ()
 generateStmts retType lab stmts = go (processDbgDeclare stmts)
  where go [] = fail "LLVM basic block ended without a terminating instruction"
        go (x:xs) =
@@ -2177,7 +2185,7 @@ processDbgDeclare = snd . go
 
 setLocation
   :: [(String,L.ValMd)]
-  -> LLVMGenerator h s wptr ret ()
+  -> LLVMGenerator h s arch ret ()
 setLocation [] = return ()
 setLocation (("dbg",L.ValMdLoc dl):_) = do
    let ln   = fromIntegral $ L.dlLine dl
@@ -2214,7 +2222,7 @@ defineLLVMBlock
         :: TypeRepr ret
         -> Map L.BlockLabel (LLVMBlockInfo s)
         -> L.BasicBlock
-        -> LLVMEnd h s wptr ret ()
+        -> LLVMEnd h s arch ret ()
 defineLLVMBlock retType lm L.BasicBlock{ L.bbLabel = Just lab, L.bbStmts = stmts } = do
   case Map.lookup lab lm of
     Just bi -> defineBlock (block_label bi) (generateStmts retType lab stmts)
@@ -2230,7 +2238,7 @@ defineLLVMBlock _ _ _ = fail "LLVM basic block has no label!"
 --   point.  It is inconvenient to avoid doing this when using the Generator interface.
 genDefn :: L.Define
         -> TypeRepr ret
-        -> LLVMGenerator h s wptr ret (Expr (LLVM wptr) s ret)
+        -> LLVMGenerator h s arch ret (Expr (LLVM arch) s ret)
 genDefn defn retType =
   case L.defBody defn of
     [] -> fail "LLVM define with no blocks!"
@@ -2257,11 +2265,11 @@ genDefn defn retType =
 -- transDefine
 --
 -- | Translate a single LLVM function definition into a crucible CFG.
-transDefine :: forall h wptr.
-               (HasPtrWidth wptr)
-            => LLVMContext wptr
+transDefine :: forall h arch wptr.
+               (HasPtrWidth wptr, wptr ~ ArchWidth arch)
+            => LLVMContext arch
             -> L.Define
-            -> ST h (L.Symbol, C.AnyCFG (LLVM wptr))
+            -> ST h (L.Symbol, C.AnyCFG (LLVM arch))
 transDefine ctx d = do
   let sym = L.defName d
   let ?lc = ctx^.llvmTypeCtx
@@ -2270,7 +2278,7 @@ transDefine ctx d = do
     Just (LLVMHandleInfo _ (h :: FnHandle args ret)) -> do
       let argTypes = handleArgTypes h
       let retType  = handleReturnType h
-      let def :: FunctionDef (LLVM wptr) h (LLVMState wptr) args ret
+      let def :: FunctionDef (LLVM arch) h (LLVMState arch) args ret
           def inputs = (s, f)
             where s = initialState d ctx argTypes inputs
                   f = genDefn d retType
@@ -2292,12 +2300,12 @@ genGlobalInit (sym,ty,Just v) = do
   callStore ty ptr v'
 
 
-initMemProc :: forall s wptr.
-               HasPtrWidth wptr
+initMemProc :: forall s arch wptr.
+               (HasPtrWidth wptr, wptr ~ ArchWidth arch)
             => HandleAllocator s
-            -> LLVMContext wptr
+            -> LLVMContext arch
             -> L.Module
-            -> ST s (C.SomeCFG (LLVM wptr) EmptyCtx UnitType)
+            -> ST s (C.SomeCFG (LLVM arch) EmptyCtx UnitType)
 initMemProc halloc ctx m = do
    let gs = L.modGlobals m
    let ?lc = ctx^.llvmTypeCtx
@@ -2306,7 +2314,7 @@ initMemProc halloc ctx m = do
                         ty <- liftMemType $ L.globalType g
                         return (L.globalSym g, ty, L.globalValue g))
                     gs
-   let def :: FunctionDef (LLVM wptr) s (LLVMState wptr) EmptyCtx UnitType
+   let def :: FunctionDef (LLVM arch) s (LLVMState arch) EmptyCtx UnitType
        def _inputs = (st, f)
               where st = LLVMState
                          { _identMap = Map.empty
@@ -2324,11 +2332,11 @@ initMemProc halloc ctx m = do
 
 -- | Insert a declaration into the symbol handleMap if a handle for that
 --   symbol does not already exist.
-insDeclareHandle :: HasPtrWidth wptr
+insDeclareHandle :: (HasPtrWidth wptr, wptr ~ ArchWidth arch)
                  => HandleAllocator s
-                 -> LLVMContext wptr
+                 -> LLVMContext arch
                  -> L.Declare
-                 -> ST s (LLVMContext wptr)
+                 -> ST s (LLVMContext arch)
 insDeclareHandle halloc ctx decl = do
    let s@(L.Symbol sbl) = L.decName decl
    case Map.lookup s (ctx^.symbolMap) of
@@ -2379,9 +2387,9 @@ translateModule halloc m = do
 -- `ModuleTranslation` produced by `translateModule` to set
 -- the values of global variables.
 initializeMemory
-   :: (IsSymInterface sym, HasPtrWidth wptr)
+   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
    => sym
-   -> LLVMContext wptr
+   -> LLVMContext arch
    -> L.Module
    -> IO (MemImpl sym)
 initializeMemory sym llvm_ctx m = do
