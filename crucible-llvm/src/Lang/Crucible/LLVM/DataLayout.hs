@@ -19,6 +19,7 @@ module Lang.Crucible.LLVM.DataLayout
     Alignment
   , padToAlignment
   , toAlignment
+  , fromAlignment
     -- * Data layout declarations.
   , DataLayout
   , EndianForm(..)
@@ -67,6 +68,10 @@ toAlignment :: Bytes -> Maybe Alignment
 toAlignment (Bytes x)
   | isPow2 x = Just (fromIntegral (lg x))
   | otherwise = Nothing
+
+-- | Convert an alignment to a number of bytes.
+fromAlignment :: Alignment -> Bytes
+fromAlignment (Alignment n) = Bytes (2 ^ n)
 
 newtype AlignInfo = AT (Map Natural Alignment)
   deriving (Eq)
