@@ -53,6 +53,8 @@ library
     Lang.Crucible.LLVM.Printf
     Lang.Crucible.LLVM.Translation
     Lang.Crucible.LLVM.Translation.Types
+    Lang.Crucible.LLVM.Arch.X86
+    Lang.Crucible.LLVM.Arch.Util
 
   ghc-options: -Wall -Werror
   ghc-prof-options: -O2 -fprof-auto-top

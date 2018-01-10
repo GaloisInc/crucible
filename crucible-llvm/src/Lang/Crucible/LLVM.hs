@@ -28,6 +28,9 @@ import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.OverrideSim
+import           Lang.Crucible.Solver.Interface(IsSymInterface)
+
+import qualified Lang.Crucible.LLVM.Arch.X86 as X86
 
 
 registerModuleFn
@@ -46,9 +49,9 @@ llvmGlobals
 llvmGlobals ctx mem = emptyGlobals & insertGlobal var mem
   where var = llvmMemVar $ memModelOps ctx
 
-llvmExtensionImpl :: ExtensionImpl p sym LLVM
-llvmExtensionImpl =
+llvmExtensionImpl :: IsSymInterface sym => sym -> ExtensionImpl p sym LLVM
+llvmExtensionImpl sym =
   ExtensionImpl
-  { extensionEval = \_ -> \case
+  { extensionEval = X86.eval sym
   , extensionExec = \_ -> \case
   }

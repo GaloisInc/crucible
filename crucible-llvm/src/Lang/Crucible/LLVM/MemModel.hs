@@ -26,6 +26,7 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE EmptyDataDecls #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Lang.Crucible.LLVM.MemModel
@@ -101,6 +102,7 @@ import           Data.Parameterized.Some
 import qualified Data.Vector as V
 import qualified Text.LLVM.AST as L
 
+import qualified Lang.Crucible.CFG.Extension as Ext
 import           Lang.Crucible.CFG.Common
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.FunctionName
@@ -116,6 +118,7 @@ import qualified Lang.Crucible.LLVM.Bytes as G
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.MemModel.Pointer
+import           Lang.Crucible.LLVM.Arch.X86(ExtX86)
 
 import GHC.Stack
 
@@ -181,7 +184,12 @@ data LLVMMemOps wptr
   }
 
 
-type LLVM = ()
+data LLVM
+
+instance Ext.IsSyntaxExtension LLVM
+type instance Ext.StmtExtension LLVM = Ext.EmptyStmtExtension
+type instance Ext.ExprExtension LLVM = ExtX86
+
 
 data LLVMIntrinsicImpl p sym args ret =
   LLVMIntrinsicImpl
