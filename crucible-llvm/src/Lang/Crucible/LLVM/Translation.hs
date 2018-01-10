@@ -92,7 +92,6 @@ module Lang.Crucible.LLVM.Translation
   , symbolMap
   , translateModule
   , llvmIntrinsicTypes
-  , llvmIntrinsics
   , initializeMemory
   , toStorableType
 
@@ -486,10 +485,8 @@ transValue (VecType _ tp) (L.ValVector _ vs) = do
 
 transValue _ (L.ValSymbol symbol) = do
      memVar <- llvmMemVar . memModelOps . llvmContext <$> get
-     resolveGlobal <- litExpr . llvmResolveGlobal . memModelOps . llvmContext <$> get
      mem <- readGlobal memVar
-     let symbol' = app $ ConcreteLit $ TypeableValue $ GlobalSymbol symbol
-     ptr <- call resolveGlobal (Ctx.Empty :> mem :> symbol')
+     ptr <- extensionStmt (LLVM_ResolveGlobal ?ptrWidth mem (GlobalSymbol symbol))
      return (BaseExpr PtrRepr ptr)
 
 transValue _ (L.ValConstExpr cexp) =
@@ -971,10 +968,9 @@ callAlloca
    -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
 callAlloca sz = do
    memVar <- llvmMemVar . memModelOps . llvmContext <$> get
-   alloca <- litExpr . llvmMemAlloca . memModelOps . llvmContext <$> get
    mem <- readGlobal memVar
-   loc <- litExpr . Text.pack . show <$> getPosition
-   res <- call alloca (Ctx.Empty :> mem :> sz :> loc)
+   loc <- show <$> getPosition
+   res <- extensionStmt (LLVM_Alloca ?ptrWidth mem sz loc)
    let mem' = getStruct (Ctx.natIndex @0) res
    let p    = getStruct (Ctx.natIndex @1) res
    writeGlobal memVar mem'
@@ -983,19 +979,16 @@ callAlloca sz = do
 callPushFrame :: LLVMGenerator h s arch ret ()
 callPushFrame = do
    memVar <- llvmMemVar . memModelOps . llvmContext <$> get
-   pushFrame <- litExpr . llvmMemPushFrame . memModelOps . llvmContext <$> get
    mem  <- readGlobal memVar
-   mem' <- call pushFrame (Ctx.Empty :> mem)
+   mem' <- extensionStmt (LLVM_PushFrame mem)
    writeGlobal memVar mem'
 
 callPopFrame :: LLVMGenerator h s arch ret ()
 callPopFrame = do
    memVar <- llvmMemVar . memModelOps . llvmContext <$> get
-   popFrame <- litExpr . llvmMemPopFrame . memModelOps . llvmContext <$> get
    mem  <- readGlobal memVar
-   mem' <- call popFrame (Ctx.Empty :> mem)
+   mem' <- extensionStmt (LLVM_PopFrame mem)
    writeGlobal memVar mem'
-
 
 toStorableType :: (Monad m, HasPtrWidth wptr)
                => MemType
@@ -1023,8 +1016,7 @@ callPtrAddOffset ::
 callPtrAddOffset base off = do
     memVar <- llvmMemVar . memModelOps . llvmContext <$> get
     mem  <- readGlobal memVar
-    ptrAddOff <- litExpr . llvmPtrAddOffset . memModelOps . llvmContext <$> get
-    call ptrAddOff (Ctx.Empty :> mem :> base :> off)
+    extensionStmt (LLVM_PtrAddOffset ?ptrWidth mem base off)
 
 callPtrSubtract ::
        wptr ~ ArchWidth arch
@@ -1034,9 +1026,7 @@ callPtrSubtract ::
 callPtrSubtract x y = do
     memVar <- llvmMemVar . memModelOps . llvmContext <$> get
     mem  <- readGlobal memVar
-    pSub <- litExpr . llvmPtrSubtract . memModelOps . llvmContext <$> get
-    call pSub (Ctx.Empty :> mem :> x :> y)
-
+    extensionStmt (LLVM_PtrSubtract ?ptrWidth mem x y)
 
 callLoad :: MemType
          -> TypeRepr tp
@@ -1045,11 +1035,9 @@ callLoad :: MemType
          -> LLVMGenerator h s arch ret (LLVMExpr s arch)
 callLoad typ expectTy (asScalar -> Scalar PtrRepr ptr) align =
    do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
-      memLoad <- litExpr . llvmMemLoad . memModelOps . llvmContext <$> get
       mem  <- readGlobal memVar
-      typ' <- app . ConcreteLit . TypeableValue <$> toStorableType typ
-      let align' = litExpr align
-      v <- call memLoad (Ctx.Empty :> mem :> ptr :> typ' :> align')
+      typ' <- toStorableType typ
+      v <- extensionStmt (LLVM_Load mem ptr typ' align)
       let msg = litExpr (Text.pack ("Expected load to return value of type " ++ show expectTy))
       let v' = app $ FromJustValue expectTy (app $ UnpackAny expectTy v) msg
       return (BaseExpr expectTy v')
@@ -1059,19 +1047,19 @@ callLoad _ _ _ _ =
 callStore :: MemType
           -> LLVMExpr s arch
           -> LLVMExpr s arch
+          -> Alignment
           -> LLVMGenerator h s arch ret ()
-callStore typ (asScalar -> Scalar PtrRepr ptr) v =
+callStore typ (asScalar -> Scalar PtrRepr ptr) v align =
  do let ?err = fail
     unpackOne v $ \vtpr vexpr -> do
       memVar <- llvmMemVar . memModelOps . llvmContext <$> get
-      memStore <- litExpr . llvmMemStore . memModelOps . llvmContext <$> get
       mem  <- readGlobal memVar
       let v' = app (PackAny vtpr vexpr)
-      typ' <- app . ConcreteLit . TypeableValue <$> toStorableType typ
-      mem' <- call memStore (Ctx.Empty :> mem :> ptr :> typ' :> v')
+      typ' <- toStorableType typ
+      mem' <- extensionStmt (LLVM_Store mem ptr typ' align v')
       writeGlobal memVar mem'
 
-callStore _ _ _ =
+callStore _ _ _ _ =
   fail $ unwords ["Unexpected argument type in callStore"]
 
 
@@ -1583,28 +1571,26 @@ pointerCmp op x y =
          _ -> reportError $ litExpr $ Text.pack $ unwords ["arithmetic comparison on incompatible values", show op, show x, show y]
 
   ptrOp =
-    do pEq <- litExpr . llvmPtrEq . memModelOps . llvmContext <$> get
-       pLe <- litExpr . llvmPtrLe . memModelOps . llvmContext <$> get
-       memVar <- llvmMemVar . memModelOps . llvmContext <$> get
+    do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
        mem <- readGlobal memVar
        case op of
          L.Ieq -> do
-           isEq <- call pEq (Ctx.Empty :> mem :> x :> y)
+           isEq <- extensionStmt (LLVM_PtrEq mem x y)
            return $ isEq
          L.Ine -> do
-           isEq <- call pEq (Ctx.Empty :> mem :> x :> y)
+           isEq <- extensionStmt (LLVM_PtrEq mem x y)
            return $ App (Not isEq)
          L.Iule -> do
-           isLe <- call pLe (Ctx.Empty :> mem :> x :> y)
+           isLe <- extensionStmt (LLVM_PtrLe mem x y)
            return $ isLe
          L.Iult -> do
-           isGe <- call pLe (Ctx.Empty :> mem :> y :> x)
+           isGe <- extensionStmt (LLVM_PtrLe mem y x)
            return $ App (Not isGe)
          L.Iuge -> do
-           isGe <- call pLe (Ctx.Empty :> mem :> y :> x)
+           isGe <- extensionStmt (LLVM_PtrLe mem y x)
            return $ isGe
          L.Iugt -> do
-           isLe <- call pLe (Ctx.Empty :> mem :> x :> y)
+           isLe <- extensionStmt (LLVM_PtrLe mem x y)
            return $ App (Not isLe)
          _ -> reportError $ litExpr $ Text.pack $ unwords ["signed comparison on pointer values", show op, show x, show y]
 
@@ -1748,16 +1734,22 @@ generateInstr retType lab instr assign_f k =
         _ ->
           fail $ unwords ["Invalid argument type on load", show ptr]
 
-    L.Store v ptr _align -> do
-      -- ?? FIXME assert that the alignment value is appropriate...
+    L.Store v ptr align -> do
       tp'  <- liftMemType (L.typedType ptr)
       ptr' <- transValue tp' (L.typedValue ptr)
-      vTp <- liftMemType (L.typedType v)
-      v' <- transValue vTp (L.typedValue v)
-      unless (tp' == PtrType (MemType vTp))
-           (fail "Pointer type does not match value type in store instruction")
-      callStore vTp ptr' v'
-      k
+      case tp' of
+        PtrType (MemType resTy) ->
+          do let a0 = memTypeAlign (TyCtx.llvmDataLayout ?lc) resTy
+             let align' = fromMaybe a0 (toAlignment . G.toBytes =<< align)
+ 
+             vTp <- liftMemType (L.typedType v)
+             v' <- transValue vTp (L.typedValue v)
+             unless (resTy == vTp)
+                (fail "Pointer type does not match value type in store instruction")
+             callStore vTp ptr' v' align'
+             k
+        _ ->
+          fail $ unwords ["Invalid argument type on store", show ptr]
 
     -- NB We treat every GEP as though it has the "inbounds" flag set;
     --    thus, the calculation of out-of-bounds pointers results in
@@ -2074,9 +2066,8 @@ callFunctionWithCont fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f k
              case asScalar fn' of
                 Scalar PtrRepr ptr ->
                   do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
-                     memLoadHandle <- litExpr . llvmMemLoadHandle . memModelOps . llvmContext <$> get
                      mem <- readGlobal memVar
-                     v <- call memLoadHandle (Ctx.Empty :> mem :> ptr)
+                     v <- extensionStmt (LLVM_LoadHandle mem ptr)
                      llvmRetTypeAsRepr retTy' $ \retTy ->
                        do let expectTy = FunctionHandleRepr (argTypes :> varArgsRepr) retTy
                           let msg = litExpr (Text.pack ("Expected function of type " ++ show expectTy))
@@ -2097,9 +2088,8 @@ callFunctionWithCont fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f k
               case asScalar fn' of
                 Scalar PtrRepr ptr ->
                   do memVar <- llvmMemVar . memModelOps . llvmContext <$> get
-                     memLoadHandle <- litExpr . llvmMemLoadHandle . memModelOps . llvmContext <$> get
                      mem <- readGlobal memVar
-                     v <- call memLoadHandle (Ctx.Empty :> mem :> ptr)
+                     v <- extensionStmt (LLVM_LoadHandle mem ptr)
                      llvmRetTypeAsRepr retTy' $ \retTy ->
                        do let expectTy = FunctionHandleRepr argTypes retTy
                           let msg = litExpr (Text.pack ("Expected function of type " ++ show expectTy))
@@ -2297,8 +2287,8 @@ genGlobalInit (_sym,_ty,Nothing) =
 genGlobalInit (sym,ty,Just v) = do
   ptr <- transValue ty (L.ValSymbol sym)
   v'  <- transValue ty v
-  callStore ty ptr v'
-
+  let align = memTypeAlign (TyCtx.llvmDataLayout ?lc) ty
+  callStore ty ptr v' align
 
 initMemProc :: forall s arch wptr.
                (HasPtrWidth wptr, wptr ~ ArchWidth arch)

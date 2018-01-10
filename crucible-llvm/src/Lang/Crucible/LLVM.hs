@@ -1,5 +1,6 @@
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TypeFamilies #-}
 -----------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.LLVM
@@ -24,16 +25,18 @@ import qualified Text.LLVM.AST as L
 import           Lang.Crucible.Analysis.Postdom
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.MemModel
+import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.OverrideSim
 
 
 registerModuleFn
-   :: (L.Symbol, AnyCFG (LLVM wptr))
-   -> OverrideSim p sym (LLVM wptr) rtp l a ()
+   :: (L.Symbol, AnyCFG (LLVM arch))
+   -> OverrideSim p sym (LLVM arch) rtp l a ()
 registerModuleFn (_,AnyCFG cfg) = do
   let h = cfgHandle cfg
       s = UseCFG cfg (postdomInfo cfg)
@@ -41,13 +44,13 @@ registerModuleFn (_,AnyCFG cfg) = do
 
 
 llvmGlobals
-   :: LLVMContext wptr
+   :: LLVMContext arch
    -> MemImpl sym
    -> SymGlobalState sym
 llvmGlobals ctx mem = emptyGlobals & insertGlobal var mem
   where var = llvmMemVar $ memModelOps ctx
 
-llvmExtensionImpl :: ExtensionImpl p sym (LLVM wptr)
+llvmExtensionImpl :: HasPtrWidth (ArchWidth arch) => ExtensionImpl p sym (LLVM arch)
 llvmExtensionImpl =
   ExtensionImpl
   { extensionEval = \_ -> \case

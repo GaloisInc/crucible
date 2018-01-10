@@ -30,7 +30,6 @@
 module Lang.Crucible.LLVM.Intrinsics
 ( LLVM
 , llvmIntrinsicTypes
-, llvmIntrinsics
 , LLVMHandleInfo(..)
 , LLVMContext(..)
 , LLVMOverride(..)
@@ -50,7 +49,6 @@ import           Control.Monad.ST
 import           Control.Monad.State
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import           Data.Proxy
 import qualified Data.Text as Text
 import qualified Data.Vector as V
 import           System.IO
@@ -88,23 +86,10 @@ llvmIntrinsicTypes =
    MapF.insert (knownSymbol :: SymbolRepr "LLVM_memory") IntrinsicMuxFn $
    MapF.empty
 
-llvmIntrinsics :: forall arch s wptr. (HasPtrWidth wptr, wptr ~ ArchWidth arch)
-               => HandleAllocator s
-               -> DataLayout
-               -> ST s (LLVMMemOps wptr, AnyFnBindings (LLVM arch))
-llvmIntrinsics halloc dl = do
-  memOps <- newMemOps (Proxy @arch) halloc dl
-  let fns = AnyFnBindings (llvmMemIntrinsics memOps)
-  return (memOps, fns)
-
 
 register_llvm_overrides :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
                         => StateT (LLVMContext arch) (OverrideSim p sym (LLVM arch) rtp l a) ()
 register_llvm_overrides = do
-  -- Register translation intrinsics
-  AnyFnBindings fns <- llvmFnBindings <$> get
-  lift $ mapM_ registerFnBinding fns
-
   -- LLVM Compiler intrinsics
   register_llvm_override llvmLifetimeStartOverride
   register_llvm_override llvmLifetimeEndOverride
@@ -165,7 +150,6 @@ data LLVMContext arch
    , llvmPtrWidth   :: forall a. (16 <= (ArchWidth arch) => NatRepr (ArchWidth arch) -> a) -> a
    , memModelOps    :: !(LLVMMemOps (ArchWidth arch))
    , _llvmTypeCtx   :: TyCtx.LLVMContext
-   , llvmFnBindings :: AnyFnBindings (LLVM arch)
    }
 
 symbolMap :: Simple Lens (LLVMContext arch) SymbolHandleMap
@@ -187,13 +171,13 @@ mkLLVMContext halloc m = do
   case someNat (toInteger (ptrBitwidth dl)) of
     Just (Some (wptr :: NatRepr wptr)) | Just LeqProof <- testLeq (knownNat @16) wptr ->
       withPtrWidth wptr $
-        do (memOps, fns) <- llvmIntrinsics @(X86 wptr) halloc dl
-           let ctx = LLVMContext
+        do memOps <- newMemOps halloc dl
+           let ctx :: LLVMContext (X86 wptr)
+               ctx = LLVMContext
                      { _symbolMap = Map.empty
                      , memModelOps = memOps
                      , llvmPtrWidth = \x -> x wptr
                      , _llvmTypeCtx = typeCtx
-                     , llvmFnBindings = fns
                      }
            return (Some ctx)
     _ ->
@@ -805,8 +789,8 @@ llvmMemsetOverride :: forall p sym arch wptr.
      (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
          (EmptyCtx ::> LLVMPointerType wptr
-                 ::> BVType wptr
-                 ::> BVType wptr)
+                   ::> BVType 32
+                   ::> BVType wptr)
          (LLVMPointerType wptr)
 llvmMemsetOverride =
   let nm = "memset" in
@@ -815,7 +799,7 @@ llvmMemsetOverride =
     { L.decRetType = L.PtrTo $ L.PrimType $ L.Void
     , L.decName    = L.Symbol nm
     , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Void
-                     , llvmSizeT
+                     , L.PrimType $ L.Integer 32
                      , llvmSizeT
                      ]
     , L.decVarArgs = False
@@ -823,7 +807,7 @@ llvmMemsetOverride =
     , L.decComdat  = mempty
     }
   )
-  (Empty :> PtrRepr :> SizeT :> SizeT)
+  (Empty :> PtrRepr :> KnownBV @32 :> SizeT)
   PtrRepr
   (\memOps sym args ->
     do LeqProof <- return (leqTrans @9 @16 @wptr LeqProof LeqProof)

@@ -21,13 +21,16 @@
 module Lang.Crucible.LLVM.Extension
 ( LLVM
 , ArchWidth
-, X86
+, type LLVMArch
+, type X86
+, LLVMStmt(..)
 ) where
 
 import           GHC.TypeLits
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           Data.Parameterized.Classes
+import           Data.Parameterized.Context
 import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.TraversableFC
 
@@ -39,21 +42,26 @@ import           Lang.Crucible.LLVM.MemModel.Pointer
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import           Lang.Crucible.LLVM.Types
 
+data LLVMArch = X86 Nat
+type X86 = 'X86
 
-type family ArchWidth (arch :: *) :: Nat
+type family ArchWidth (arch :: LLVMArch) :: Nat where
+  ArchWidth (X86 wptr) = wptr
 
-data LLVM (arch :: *)
+data LLVM (arch :: LLVMArch)
 
 type instance ExprExtension (LLVM arch) = EmptyExprExtension
 type instance StmtExtension (LLVM arch) = LLVMStmt (ArchWidth arch)
 
-data X86 (wptr :: Nat)
-
-type instance ArchWidth (X86 wptr) = wptr
-
 data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> *) :: CrucibleType -> * where
   LLVM_PushFrame :: !(f Mem) -> LLVMStmt wptr f Mem
   LLVM_PopFrame  :: !(f Mem) -> LLVMStmt wptr f Mem
+  LLVM_Alloca ::
+     !(NatRepr wptr) ->
+     !(f Mem) ->
+     !(f (BVType wptr)) ->
+     !String ->
+     LLVMStmt wptr f (StructType (EmptyCtx ::> Mem ::> LLVMPointerType wptr))
   LLVM_Load ::
      !(f Mem) -> 
      !(f (LLVMPointerType wptr)) ->
@@ -105,6 +113,7 @@ instance (1 <= wptr) => TypeApp (LLVMStmt wptr) where
   appType = \case
     LLVM_PushFrame{} -> knownRepr
     LLVM_PopFrame{} -> knownRepr
+    LLVM_Alloca w _ _ _ -> StructRepr (Empty :> memRepr :> LLVMPointerRepr w)
     LLVM_Load{} -> knownRepr
     LLVM_Store{} -> knownRepr
     LLVM_LoadHandle{} -> knownRepr
@@ -120,6 +129,8 @@ instance PrettyApp (LLVMStmt wptr) where
        text "pushFrame" <+> pp m
     LLVM_PopFrame m  ->
        text "popFrame" <+> pp m
+    LLVM_Alloca _ m sz loc ->
+       text "alloca" <+> pp m <+> pp sz <+> text loc
     LLVM_Load m ptr tp a ->
        text "load" <+> pp m <+> pp ptr <+> text (show tp) <+> text (show a)
     LLVM_Store m ptr tp a v ->
