@@ -197,6 +197,16 @@ asScalar (UndefExpr llvmtp)
      in undefExpand llvmtp $ \tpr ex -> Scalar tpr ex
 asScalar _ = NotScalar
 
+-- | Turn the expression into an explicit vector.
+asVector :: LLVMExpr s -> Maybe (Seq (LLVMExpr s))
+asVector v =
+  case v of
+    ZeroExpr (VecType n t)  -> Just (Seq.replicate n (ZeroExpr t))
+    UndefExpr (VecType n t) -> Just (Seq.replicate n (UndefExpr t))
+    VecExpr _ s             -> Just s
+    _                       -> Nothing
+
+
 -- | Given an LLVM type and a type context and a register assignment,
 --   peel off the rightmost register from the assignment, which is
 --   expected to match the given LLVM type.  Pass the register and
@@ -1694,8 +1704,40 @@ generateInstr retType lab instr assign_f k =
 
           _ -> fail $ unwords ["expected vector type in insertelement instruction:", show x]
 
-    L.ShuffleVector _ _ _ ->
-      reportError "FIXME shuffleVector not implemented"
+    L.ShuffleVector sV1 sV2 sIxes ->
+      case (L.typedType sV1, L.typedType sIxes) of
+        (L.Vector m ty, L.Vector n (L.PrimType (L.Integer 32))) ->
+          do elTy <- liftMemType ty
+             let inL :: Num a => a
+                 inL  = fromIntegral n
+                 inV  = VecType inL elTy
+                 outL :: Num a => a
+                 outL = fromIntegral m
+                 outV = VecType outL elTy
+
+             Just v1 <- asVector <$> transValue inV (L.typedValue sV1)
+             Just v2 <- asVector <$> transValue inV sV2
+
+             -- we don't expand this one, so that "undefined" stays as "undefined"
+             -- rather than becoming a sequence of "undefined"s.  Not sure if that matters.
+             ixes <- transValue (VecType outL (IntType 32)) (L.typedValue sIxes)
+             case ixes of
+               UndefExpr {} -> assign_f (UndefExpr outV)
+               _ -> do let getV x =
+                             case asScalar x of
+                               Scalar _ (App (BVLit _ i))
+                                 | i < 0     -> UndefExpr elTy
+                                 | i < inL   -> Seq.index v1 (fromIntegral i)
+                                 | i < 2*inL -> Seq.index v2 (fromIntegral (i - inL))
+
+                               _ -> UndefExpr elTy
+
+                       let Just is = asVector ixes
+                       assign_f (VecExpr elTy (getV <$> is))
+             k
+
+        (t1,t2) -> fail $ unlines ["[shuffle] Type error", show t1, show t2 ]
+
 
     L.LandingPad _ _ _ _ ->
       reportError "FIXME landingPad not implemented"
