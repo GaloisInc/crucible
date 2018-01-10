@@ -219,6 +219,14 @@ evalMuxValueCtor sym w vf subFn (Mux c t1 t2) =
      t1' <- evalMuxValueCtor sym w vf subFn t1
      t2' <- evalMuxValueCtor sym w vf subFn t2
      muxLLVMVal sym c' t1' t2'
+evalMuxValueCtor sym w vf subFn (MuxTable p1 p2 m t) =
+  Map.foldrWithKey f (evalMuxValueCtor sym w vf subFn t) m
+  where
+    f n t1 k =
+      do c' <- genCondVar sym w vf (PtrOffsetEq (PtrAdd p1 (CValue (bytesToInteger n))) p2)
+         t1' <- evalMuxValueCtor sym w vf subFn t1
+         t2' <- k
+         muxLLVMVal sym c' t1' t2'
 
 readMemCopy :: forall sym w .
                (1 <= w, IsSymInterface sym)
