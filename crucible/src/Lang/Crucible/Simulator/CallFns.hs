@@ -191,8 +191,9 @@ evalExpr :: forall p sym ext ctx tp rtp blocks r
          -> IO (RegValue sym tp)
 evalExpr s (App a) = do
   let iteFns = stateIntrinsicTypes s
-  r <- evalApp (stateSymInterface s) iteFns (evalLogFn s)
-               (extensionEval (extensionImpl (s^.stateContext)))
+  let sym = stateSymInterface s
+  r <- evalApp sym iteFns (evalLogFn s)
+               (extensionEval (extensionImpl (s^.stateContext)) sym)
                (\r -> return $ evalReg s r)
                a
   return $! r
@@ -602,7 +603,7 @@ loopCrucible' s_ref verb = do
         ExtendAssign estmt -> do
           let estmt' = fmapFC (evalReg' s) estmt
           let tp     = appType estmt
-          (s',v) <- extensionExec (extensionImpl (s^.stateContext)) s estmt'
+          (v,s') <- extensionExec (extensionImpl (s^.stateContext)) estmt' s
           continueCrucible s_ref verb $ s' & stateCrucibleFrame %~ extendFrame tp v rest
         CallHandle ret_type fnExpr _types arg_exprs -> do
           let hndl = evalReg s fnExpr

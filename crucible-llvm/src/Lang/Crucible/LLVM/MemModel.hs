@@ -150,35 +150,32 @@ instance IntrinsicClass sym "LLVM_memory" where
 -- | Top-level evaluation function for LLVM extension statements.
 --   LLVM extension statements are used to implement the memory model operations.
 llvmStatementExec :: HasPtrWidth (ArchWidth arch) => EvalStmtFunc p sym (LLVM arch)
-llvmStatementExec cst stmt =
-  do let sym = stateSymInterface cst
-     let gs  = cst ^. stateTree.actFrame.gpGlobals
-     (r, gs') <- stateSolverProof cst (runStateT (evalStmt sym stmt) gs)
-     let cst' = cst & stateTree.actFrame.gpGlobals .~ gs'
-     return (cst', r)
+llvmStatementExec stmt cst =
+  let sym = stateSymInterface cst
+   in stateSolverProof cst (runStateT (evalStmt sym stmt) cst)
 
 -- | Actual workhorse function for evaluating LLVM extension statements.
 --   The semantics are explicitly organized as a state transformer monad
 --   that modifes the global state of the simulator; this captures the
 --   memory accessing effects of these statements.
-evalStmt :: forall sym wptr tp.
+evalStmt :: forall p sym ext rtp blocks ret args wptr tp.
   (IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
   LLVMStmt wptr (RegEntry sym) tp ->
-  StateT (SymGlobalState sym) IO (RegValue sym tp)
+  StateT (CrucibleState p sym ext rtp blocks ret args) IO (RegValue sym tp)
 evalStmt sym = eval
  where
-  getMem :: GlobalVar Mem -> StateT (SymGlobalState sym) IO (RegValue sym Mem)
+  getMem :: GlobalVar Mem -> StateT (CrucibleState p sym ext rtp blocks ret args) IO (RegValue sym Mem)
   getMem mvar =
-    do gs <- get
+    do gs <- use (stateTree.actFrame.gpGlobals)
        case lookupGlobal mvar gs of
-              Just mem -> return mem
-              Nothing  -> fail ("Global heap value not initialized!: " ++ show mvar)
+         Just mem -> return mem
+         Nothing  -> fail ("Global heap value not initialized!: " ++ show mvar)
 
-  setMem :: GlobalVar Mem -> RegValue sym Mem -> StateT (SymGlobalState sym) IO ()
-  setMem mvar mem = modify (insertGlobal mvar mem)
+  setMem :: GlobalVar Mem -> RegValue sym Mem -> StateT (CrucibleState p sym ext rtp blocks ret args) IO ()
+  setMem mvar mem = stateTree.actFrame.gpGlobals %= insertGlobal mvar mem
 
-  eval :: LLVMStmt wptr (RegEntry sym) tp -> StateT (SymGlobalState sym) IO (RegValue sym tp)
+  eval :: LLVMStmt wptr (RegEntry sym) tp -> StateT (CrucibleState p sym ext rtp blocks ret args) IO (RegValue sym tp)
   eval (LLVM_PushFrame mvar) =
      do mem <- getMem mvar
         let heap' = G.pushStackFrameMem (memImplHeap mem)
