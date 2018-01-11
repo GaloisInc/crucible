@@ -479,7 +479,7 @@ loadRawWithCondition ::
   -- ^ Either error message or
   -- (assertion, assertion failure description, dereferenced value)
 loadRawWithCondition sym mem ptr valType =
-  do v <- G.readMem sym PtrWidth ptr valType (memImplHeap mem)
+  do v <- G.readMem sym PtrWidth ptr valType 0 (memImplHeap mem)
      let errMsg = "Invalid memory load: address " ++ show (G.ppPtr ptr) ++
                   " at type "                     ++ show (G.ppType valType)
      case v of
@@ -493,11 +493,11 @@ doLoad :: (IsSymInterface sym, HasPtrWidth wptr)
   -> G.Type
   -> Alignment
   -> IO (RegValue sym AnyType)
-doLoad sym mem ptr valType _align = do
+doLoad sym mem ptr valType alignment = do
     --putStrLn "MEM LOAD"
     let errMsg = "Invalid memory load: address " ++ show (G.ppPtr ptr) ++
                  " at type " ++ show (G.ppType valType)
-    v <- G.readMem sym PtrWidth ptr valType (memImplHeap mem)
+    v <- G.readMem sym PtrWidth ptr valType alignment (memImplHeap mem)
     case v of
       Unassigned ->
         fail errMsg
