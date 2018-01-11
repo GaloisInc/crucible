@@ -1348,6 +1348,57 @@ translateConversion instr op x outty =
            _ -> fail (unlines [unwords ["Invalid fpext:", show op, show x, show outty], showI])
 
 
+data SomeBV s where
+  SomeBV :: (1 <= n) => NatRepr n -> Expr LLVM s (BVType n) -> SomeBV s
+
+
+-- | Join the elements of a vector into a single bit-vector value.
+vecJoin :: (?lc::TyCtx.LLVMContext,HasPtrWidth w) => Seq (LLVMExpr s) -> Maybe (SomeBV s)
+vecJoin exprs = go (toList exprs)
+  where
+  lay = TyCtx.llvmDataLayout ?lc
+
+  go :: [LLVMExpr s] -> Maybe (SomeBV s)
+  go xs =
+    do (a,ys) <- List.uncons xs
+       Scalar (BVRepr n) e1 <- return (asScalar a)
+       if null ys
+         then do LeqProof <- testLeq (knownNat @1) n
+                 return (SomeBV n e1)
+         else do SomeBV m e2 <- go ys
+                 let p1 = leqProof (knownNat @0) n
+                     p2 = leqProof (knownNat @1) m
+                 (LeqProof,LeqProof) <- return (leqAdd2 p1 p2, leqAdd2 p2 p1)
+                 return $! case lay ^. intLayout of
+                             LittleEndian -> SomeBV (addNat m n) (App (BVConcat m n e2 e1))
+                             BigEndian    -> SomeBV (addNat n m) (App (BVConcat n m e1 e2))
+
+
+vecSplit :: forall s n w. (?lc::TyCtx.LLVMContext,HasPtrWidth w, 1 <= n) =>
+  NatRepr n -> LLVMExpr s -> Maybe [SomeBV s]
+vecSplit elLen expr =
+  do Scalar (BVRepr totLen) e <- return (asScalar expr)
+     let getEl :: Integer -> Maybe [SomeBV s]
+         getEl i = do Some j <- someNat i
+                      let offset = natMultiply j elLen
+                          end    = addNat offset elLen
+                      case testLeq end totLen of
+                        Just LeqProof ->
+                          do rest <- getEl (i + 1)
+                             let x = SomeBV elLen (App (BVSelect offset elLen totLen e))
+                             return (x : rest)
+                        Nothing ->
+                          do Refl <- testEquality offset totLen
+                             return []
+     els <- getEl 0
+     return $! case lay ^. intLayout of
+                 LittleEndian -> els
+                 BigEndian    -> reverse els
+  where
+  lay = TyCtx.llvmDataLayout ?lc
+
+
+
 intop :: (1 <= w)
       => L.ArithOp
       -> NatRepr w
@@ -2071,6 +2122,9 @@ generateInstr retType lab instr assign_f k =
 
 showInstr :: L.Instr -> String
 showInstr i = show (L.ppLLVM38 (L.ppInstr i))
+
+
+
 
 callFunctionWithCont :: forall h s wptr ret.
                         L.Type -> L.Value -> [L.Typed L.Value]
