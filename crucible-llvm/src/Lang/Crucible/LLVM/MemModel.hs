@@ -82,6 +82,7 @@ import           Control.Lens hiding (Empty, (:>))
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.ST
+import           Control.Monad.Trans.State
 import           Data.Dynamic
 import           Data.List hiding (group)
 import           Data.IORef
@@ -103,6 +104,7 @@ import           Lang.Crucible.CFG.Common
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.ExecutionTree
+import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
@@ -152,53 +154,79 @@ data LLVMMemOps (wptr :: Nat)
   }
 
 llvmStatementExec :: HasPtrWidth (ArchWidth arch) => EvalStmtFunc p sym (LLVM arch)
-llvmStatementExec cst stmt = 
-  do let sym = stateSymInterface cst 
-     r <- stateSolverProof cst (evalStmt sym stmt)
-     return (cst, r)
+llvmStatementExec cst stmt =
+  do let sym = stateSymInterface cst
+     let gs  = cst ^. stateTree.actFrame.gpGlobals
+     (r, gs') <- stateSolverProof cst (runStateT (evalStmt sym stmt) gs)
+     let cst' = cst & stateTree.actFrame.gpGlobals .~ gs'
+     return (cst', r)
 
-evalStmt ::
+evalStmt :: forall sym wptr tp.
   (IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
   LLVMStmt wptr (RegEntry sym) tp ->
-  IO (RegValue sym tp)
-evalStmt sym = \case
-  LLVM_PushFrame (regValue -> mem) ->
-     do let heap' = G.pushStackFrameMem (memImplHeap mem)
-        return mem{ memImplHeap = heap' }
+  StateT (SymGlobalState sym) IO (RegValue sym tp)
+evalStmt sym = eval
+ where
+  getMem :: GlobalVar Mem -> StateT (SymGlobalState sym) IO (RegValue sym Mem)
+  getMem mvar =
+    do gs <- get
+       case lookupGlobal mvar gs of
+              Just mem -> return mem
+              Nothing  -> fail ("Global heap value not initialized!: " ++ show mvar)
 
-  LLVM_PopFrame (regValue -> mem) ->
-     do let heap' = G.popStackFrameMem (memImplHeap mem)
-        return mem{ memImplHeap = heap' }
+  setMem :: GlobalVar Mem -> RegValue sym Mem -> StateT (SymGlobalState sym) IO ()
+  setMem mvar mem = modify (insertGlobal mvar mem)
 
-  LLVM_Alloca _w (regValue -> mem) (regValue -> sz) loc ->
-     do blkNum <- nextBlock (memImplBlockSource mem)
+  eval :: LLVMStmt wptr (RegEntry sym) tp -> StateT (SymGlobalState sym) IO (RegValue sym tp)
+  eval (LLVM_PushFrame mvar) =
+     do mem <- getMem mvar
+        let heap' = G.pushStackFrameMem (memImplHeap mem)
+        setMem mvar mem{ memImplHeap = heap' }
+
+  eval (LLVM_PopFrame mvar) =
+     do mem <- getMem mvar
+        let heap' = G.popStackFrameMem (memImplHeap mem)
+        setMem mvar mem{ memImplHeap = heap' }
+
+  eval (LLVM_Alloca _w mvar (regValue -> sz) loc) =
+     do mem <- getMem mvar
+        blkNum <- liftIO $ nextBlock (memImplBlockSource mem)
         blk <- liftIO $ natLit sym (fromIntegral blkNum)
         z <- liftIO $ bvLit sym PtrWidth 0
 
         let heap' = G.allocMem G.StackAlloc (fromInteger blkNum) sz (show loc) (memImplHeap mem)
         let ptr = LLVMPointer blk z
-        return (Ctx.empty Ctx.:> (RV $ mem{ memImplHeap = heap' }) Ctx.:> RV ptr)
 
-  LLVM_Load (regValue -> mem) (regValue -> ptr) valType alignment ->
-     do doLoad sym mem ptr valType alignment
+        setMem mvar mem{ memImplHeap = heap' }
+        return ptr
 
-  LLVM_Store (regValue -> mem) (regValue -> ptr) valType _alignment (regValue -> val) ->
-     do doStore sym mem ptr valType val
+  eval (LLVM_Load mvar (regValue -> ptr) valType alignment) =
+     do mem <- getMem mvar
+        liftIO $ doLoad sym mem ptr valType alignment
 
-  LLVM_LoadHandle (regValue -> mem) (regValue -> ptr) ->
-     do mhandle <- doLookupHandle sym mem ptr
+  eval (LLVM_Store mvar (regValue -> ptr) valType _alignment (regValue -> val)) =
+     do mem <- getMem mvar
+        mem' <- liftIO $ doStore sym mem ptr valType val
+        setMem mvar mem'
+
+  eval (LLVM_LoadHandle mvar (regValue -> ptr)) =
+     do mem <- getMem mvar
+        mhandle <- liftIO $ doLookupHandle sym mem ptr
         case mhandle of
            Nothing -> fail "LoadHandle: not a valid function pointer"
            Just (SomeFnHandle h) ->
              do let ty = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
                 return (AnyValue ty (HandleFnVal h))
 
-  LLVM_ResolveGlobal _w (regValue -> mem) (GlobalSymbol symbol) ->
-     do doResolveGlobal sym mem symbol
+  eval (LLVM_ResolveGlobal _w mvar (GlobalSymbol symbol)) =
+     do mem <- getMem mvar
+        liftIO $ doResolveGlobal sym mem symbol
 
-  LLVM_PtrEq (regValue -> mem) (regValue -> x) (regValue -> y) ->
-     do let allocs_doc = G.ppAllocs (G.memAllocs (memImplHeap mem))
+  eval (LLVM_PtrEq mvar (regValue -> x) (regValue -> y)) = do
+     mem <- getMem mvar
+     liftIO $ do
+        let allocs_doc = G.ppAllocs (G.memAllocs (memImplHeap mem))
         let x_doc = G.ppPtr x
         let y_doc = G.ppPtr y
 
@@ -211,8 +239,10 @@ evalStmt sym = \case
 
         ptrEq sym PtrWidth x y
 
-  LLVM_PtrLe (regValue -> mem) (regValue -> x) (regValue -> y) ->
-    do let x_doc = G.ppPtr x
+  eval (LLVM_PtrLe mvar (regValue -> x) (regValue -> y)) = do
+    mem <- getMem mvar
+    liftIO $ do
+       let x_doc = G.ppPtr x
            y_doc = G.ppPtr y
        v1 <- isValidPointer sym x mem
        v2 <- isValidPointer sym y mem
@@ -222,12 +252,13 @@ evalStmt sym = \case
           (AssertFailureSimError $ unwords ["Invalid pointer compared for ordering:", show y_doc])
        ptrLe sym PtrWidth x y
 
-  LLVM_PtrAddOffset _w (regValue -> mem) (regValue -> x) (regValue -> y) ->
-    do doPtrAddOffset sym mem x y
+  eval (LLVM_PtrAddOffset _w mvar (regValue -> x) (regValue -> y)) =
+    do mem <- getMem mvar
+       liftIO $ doPtrAddOffset sym mem x y
 
-  LLVM_PtrSubtract _w (regValue -> mem) (regValue -> x) (regValue -> y) ->
-    do doPtrSubtract sym mem x y
-
+  eval (LLVM_PtrSubtract _w mvar (regValue -> x) (regValue -> y)) =
+    do mem <- getMem mvar
+       liftIO $ doPtrSubtract sym mem x y
 
 newMemOps :: forall s wptr. HasPtrWidth wptr
           => HandleAllocator s
