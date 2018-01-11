@@ -198,13 +198,16 @@ asScalar (UndefExpr llvmtp)
 asScalar _ = NotScalar
 
 -- | Turn the expression into an explicit vector.
-asVector :: LLVMExpr s -> Maybe (Seq (LLVMExpr s))
-asVector v =
+asVectorWithType :: LLVMExpr s -> Maybe (MemType, Seq (LLVMExpr s))
+asVectorWithType v =
   case v of
-    ZeroExpr (VecType n t)  -> Just (Seq.replicate n (ZeroExpr t))
-    UndefExpr (VecType n t) -> Just (Seq.replicate n (UndefExpr t))
-    VecExpr _ s             -> Just s
+    ZeroExpr (VecType n t)  -> Just (t, Seq.replicate n (ZeroExpr t))
+    UndefExpr (VecType n t) -> Just (t, Seq.replicate n (UndefExpr t))
+    VecExpr t s             -> Just (t, s)
     _                       -> Nothing
+
+asVector :: LLVMExpr s -> Maybe (Seq (LLVMExpr s))
+asVector = fmap snd . asVectorWithType
 
 
 -- | Given an LLVM type and a type context and a register assignment,
@@ -1285,11 +1288,7 @@ translateConversion instr op x outty =
     L.BitCast -> do
        outty' <- liftMemType outty
        x' <- transTypedValue x
-       llvmTypeAsRepr outty' $ \outty'' ->
-         case asScalar x' of
-           Scalar tyx _ | Just Refl <- testEquality tyx outty'' ->
-             return x'
-           _ -> fail (unlines ["invalid bitcast", showI, show x, show outty, show outty''])
+       bitCast x' outty'
 
     L.UiToFp -> do
        outty' <- liftMemType outty
@@ -1348,55 +1347,136 @@ translateConversion instr op x outty =
            _ -> fail (unlines [unwords ["Invalid fpext:", show op, show x, show outty], showI])
 
 
-data SomeBV s where
-  SomeBV :: (1 <= n) => NatRepr n -> Expr LLVM s (BVType n) -> SomeBV s
+--------------------------------------------------------------------------------
+-- Bit Cast
+
+
+bitCast :: (?lc::TyCtx.LLVMContext,HasPtrWidth wptr) =>
+          LLVMExpr s ->
+          MemType ->
+          LLVMGenerator h s wptr ret (LLVMExpr s)
+bitCast expr tgtT =
+  llvmTypeAsRepr tgtT $ \cruT ->    -- Crucible version of the type
+
+  -- First check if we are casting anything at all
+  case asScalar expr of
+    Scalar tyx _ | Just Refl <- testEquality tyx cruT -> return expr  -- no cast
+    _ -> mb $
+      case tgtT of
+
+        -- Vector to bit-vector
+        IntType {} | Just (_,es) <- mbEls ->
+          do res@(BaseExpr ty _) <- vecJoin es
+             Refl <- testEquality ty cruT
+             return res
+
+        VecType len ty@(IntType w1)
+          | w1 > 0 ->
+            do VectorRepr (BVRepr n) <- return cruT
+               vs <- case mbEls of
+                       Nothing -> vecSplit n expr
+                       Just (IntType w2, es)
+                         | w1 > w2   -> vecSplitVec n es
+                         | otherwise -> vecJoinVec es (fromIntegral (div w2 w1))
+                       _ -> err ["*** Source must be a vector of bit-vectors."]
+
+               guard (length vs == len)
+               return $ VecExpr ty $ Seq.fromList vs
+
+          | otherwise ->
+            err [ "*** We cannot cast to a vector of 0-length bit-vectors." ]
+
+        _ -> err [ "*** We can only to cast to a bit-vector,"
+                 , "*** or a vector of bit-vectors." ]
+
+
+  where
+  mb    = maybe (err [ "*** Invalid coercion." ]) return
+  mbEls = do (ty,se) <- asVectorWithType expr
+             return (ty, toList se)
+  err msg = fail $ unlines ("[bitCast] Failed to perform cast:" : msg)
 
 
 -- | Join the elements of a vector into a single bit-vector value.
-vecJoin :: (?lc::TyCtx.LLVMContext,HasPtrWidth w) => Seq (LLVMExpr s) -> Maybe (SomeBV s)
-vecJoin exprs = go (toList exprs)
-  where
-  lay = TyCtx.llvmDataLayout ?lc
+-- The resulting bit-vector would be of length at least one.
+vecJoin ::
+  (?lc::TyCtx.LLVMContext,HasPtrWidth w) =>
+  [LLVMExpr s] {- ^ Join these vector elements -} ->
+  Maybe (LLVMExpr s)
+vecJoin exprs =
+  do (a,ys) <- List.uncons exprs
+     Scalar (BVRepr n) e1 <- return (asScalar a)
+     if null ys
+       then do LeqProof <- testLeq (knownNat @1) n
+               return (BaseExpr (BVRepr n) e1)
+       else do BaseExpr (BVRepr m) e2 <- vecJoin ys
+               let p1 = leqProof (knownNat @0) n
+                   p2 = leqProof (knownNat @1) m
+               (LeqProof,LeqProof) <- return (leqAdd2 p1 p2, leqAdd2 p2 p1)
+               let bits u v x y = bitVal (addNat u v) (BVConcat u v x y)
+               return $! case TyCtx.llvmDataLayout ?lc ^. intLayout of
+                           LittleEndian -> bits m n e2 e1
+                           BigEndian    -> bits n m e1 e2
 
-  go :: [LLVMExpr s] -> Maybe (SomeBV s)
-  go xs =
-    do (a,ys) <- List.uncons xs
-       Scalar (BVRepr n) e1 <- return (asScalar a)
-       if null ys
-         then do LeqProof <- testLeq (knownNat @1) n
-                 return (SomeBV n e1)
-         else do SomeBV m e2 <- go ys
-                 let p1 = leqProof (knownNat @0) n
-                     p2 = leqProof (knownNat @1) m
-                 (LeqProof,LeqProof) <- return (leqAdd2 p1 p2, leqAdd2 p2 p1)
-                 return $! case lay ^. intLayout of
-                             LittleEndian -> SomeBV (addNat m n) (App (BVConcat m n e2 e1))
-                             BigEndian    -> SomeBV (addNat n m) (App (BVConcat n m e1 e2))
+-- | Join the elements in a vector,
+-- to get a shorter vector with larger elements.
+vecJoinVec ::
+  (?lc::TyCtx.LLVMContext,HasPtrWidth w) =>
+  [ LLVMExpr s ] {- ^ Input vector -} ->
+  Int            {- ^ Number of els. to join to get 1 el. of result -} ->
+  Maybe [ LLVMExpr s ]
+vecJoinVec exprs n = mapM vecJoin =<< chunk n exprs
+
+-- | Split a list into sub-lists of the given length.
+-- Fails if the list does not divide exactly.
+chunk :: Int -> [a] -> Maybe [[a]]
+chunk n xs = case xs of
+               [] -> Just []
+               _  -> case splitAt n xs of
+                       (_,[])  -> Nothing
+                       (as,bs) -> (as :) <$> chunk n bs
+
+bitVal :: (1 <= n) => NatRepr n ->
+                  App LLVM (Expr LLVM s) (BVType n) ->
+                  LLVMExpr s
+bitVal n e = BaseExpr (BVRepr n) (App e)
 
 
+-- | Split a single bit-vector value into a vector of value of the given width.
 vecSplit :: forall s n w. (?lc::TyCtx.LLVMContext,HasPtrWidth w, 1 <= n) =>
-  NatRepr n -> LLVMExpr s -> Maybe [SomeBV s]
+  NatRepr n  {- ^ Length of a single element -} ->
+  LLVMExpr s {- ^ Bit-vector value -} ->
+  Maybe [ LLVMExpr s ]
 vecSplit elLen expr =
   do Scalar (BVRepr totLen) e <- return (asScalar expr)
-     let getEl :: Integer -> Maybe [SomeBV s]
-         getEl i = do Some j <- someNat i
-                      let offset = natMultiply j elLen
-                          end    = addNat offset elLen
-                      case testLeq end totLen of
-                        Just LeqProof ->
-                          do rest <- getEl (i + 1)
-                             let x = SomeBV elLen (App (BVSelect offset elLen totLen e))
-                             return (x : rest)
-                        Nothing ->
-                          do Refl <- testEquality offset totLen
-                             return []
-     els <- getEl 0
+     let getEl :: NatRepr offset -> Maybe [ LLVMExpr s ]
+         getEl offset = let end = addNat offset elLen
+                        in case testLeq end totLen of
+                             Just LeqProof ->
+                               do rest <- getEl end
+                                  let x = bitVal elLen
+                                            (BVSelect offset elLen totLen e)
+                                  return (x : rest)
+                             Nothing ->
+                               do Refl <- testEquality offset totLen
+                                  return []
+     els <- getEl (knownNat @0)
+     -- in `els` the least significant chunk is first
+
      return $! case lay ^. intLayout of
                  LittleEndian -> els
                  BigEndian    -> reverse els
   where
   lay = TyCtx.llvmDataLayout ?lc
 
+-- | Split the elements in a vector,
+-- to get a longer vector with smaller element.
+vecSplitVec ::
+  (?lc::TyCtx.LLVMContext,HasPtrWidth w, 1 <= n) =>
+  NatRepr n    {- ^ Length of a single element in the new vector -} ->
+  [LLVMExpr s] {- ^ Vector to split -} ->
+  Maybe [ LLVMExpr s ]
+vecSplitVec n es = concat <$> mapM (vecSplit n) es
 
 
 intop :: (1 <= w)
