@@ -48,7 +48,7 @@ llvmGlobals
    -> MemImpl sym
    -> SymGlobalState sym
 llvmGlobals ctx mem = emptyGlobals & insertGlobal var mem
-  where var = llvmMemVar $ memModelOps ctx
+  where var = llvmMemVar $ ctx
 
 llvmExtensionImpl :: HasPtrWidth (ArchWidth arch) => ExtensionImpl p sym (LLVM arch)
 llvmExtensionImpl =

@@ -59,6 +59,7 @@ import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Some
 
+import           Lang.Crucible.CFG.Common
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.FunctionName
 import           Lang.Crucible.Types
@@ -148,7 +149,7 @@ data LLVMContext arch
    { -- | Map LLVM symbols to their associated state.
      _symbolMap     :: !SymbolHandleMap
    , llvmPtrWidth   :: forall a. (16 <= (ArchWidth arch) => NatRepr (ArchWidth arch) -> a) -> a
-   , memModelOps    :: !(LLVMMemOps (ArchWidth arch))
+   , llvmMemVar     :: GlobalVar Mem
    , _llvmTypeCtx   :: TyCtx.LLVMContext
    }
 
@@ -171,11 +172,11 @@ mkLLVMContext halloc m = do
   case someNat (toInteger (ptrBitwidth dl)) of
     Just (Some (wptr :: NatRepr wptr)) | Just LeqProof <- testLeq (knownNat @16) wptr ->
       withPtrWidth wptr $
-        do memOps <- newMemOps halloc dl
+        do mvar <- mkMemVar halloc
            let ctx :: LLVMContext (X86 wptr)
                ctx = LLVMContext
                      { _symbolMap = Map.empty
-                     , memModelOps = memOps
+                     , llvmMemVar   = mvar
                      , llvmPtrWidth = \x -> x wptr
                      , _llvmTypeCtx = typeCtx
                      }
@@ -191,7 +192,7 @@ data LLVMOverride p sym arch args ret =
   , llvmOverride_ret  :: TypeRepr ret
   , llvmOverride_def ::
        forall rtp args' ret'.
-         LLVMMemOps (ArchWidth arch) ->
+         GlobalVar Mem ->
          sym ->
          Ctx.Assignment (RegEntry sym) args ->
          OverrideSim p sym (LLVM arch) rtp args' ret' (RegValue sym ret)
@@ -278,7 +279,7 @@ register_llvm_override llvmOverride = do
 
   sym <- lift $ getSymInterface
 
-  let memOps = memModelOps llvmctx
+  let mvar = llvmMemVar llvmctx
   let overrideArgs = llvmOverride_args llvmOverride
   let overrideRet  = llvmOverride_ret llvmOverride
 
@@ -287,7 +288,7 @@ register_llvm_override llvmOverride = do
   decl' <- liftDeclare decl
   llvmDeclToFunHandleRepr decl' $ \derivedArgs derivedRet -> do
     o <- lift $ build_llvm_override sym fnm overrideArgs overrideRet derivedArgs derivedRet
-                  (llvmOverride_def llvmOverride memOps sym)
+                  (llvmOverride_def llvmOverride mvar sym)
     case Map.lookup nm (llvmctx^.symbolMap) of
       Just (LLVMHandleInfo _decl' h) -> do
         case testEquality (handleArgTypes h) derivedArgs of
@@ -930,70 +931,70 @@ llvmPrintfOverride =
 callMalloc
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => sym
-  -> LLVMMemOps wptr
+  -> GlobalVar Mem
   -> RegEntry sym (BVType wptr)
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (LLVMPointerType wptr))
-callMalloc sym memOps
+callMalloc sym mvar
            (regValue -> sz) = do
   --liftIO $ putStrLn "MEM MALLOC"
-  mem <- readGlobal (llvmMemVar memOps)
+  mem <- readGlobal mvar
   (p, mem') <- liftIO $ doMalloc sym G.HeapAlloc "<malloc>" mem sz
-  writeGlobal (llvmMemVar memOps) mem'
+  writeGlobal mvar mem'
   return p
 
 
 callCalloc
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => sym
-  -> LLVMMemOps wptr
+  -> GlobalVar Mem
   -> RegEntry sym (BVType wptr)
   -> RegEntry sym (BVType wptr)
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (LLVMPointerType wptr))
-callCalloc sym memOps
+callCalloc sym mvar
            (regValue -> sz)
            (regValue -> num) = do
   --liftIO $ putStrLn "MEM CALLOC"
-  mem <- readGlobal (llvmMemVar memOps)
+  mem <- readGlobal mvar
   (p, mem') <- liftIO $ doCalloc sym mem sz num
-  writeGlobal (llvmMemVar memOps) mem'
+  writeGlobal mvar mem'
   return p
 
 
 callFree
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => sym
-  -> LLVMMemOps wptr
+  -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> OverrideSim p sym (LLVM arch) r args ret ()
-callFree sym memOps
+callFree sym mvar
            (regValue -> ptr) = do
   --liftIO $ putStrLn "MEM FREE"
-  mem <- readGlobal (llvmMemVar memOps)
+  mem <- readGlobal mvar
   mem' <- liftIO $ doFree sym mem ptr
-  writeGlobal (llvmMemVar memOps) mem'
+  writeGlobal mvar mem'
 
 
 callMemcpy
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => sym
-  -> LLVMMemOps wptr
+  -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (BVType w)
   -> RegEntry sym (BVType 32)
   -> RegEntry sym (BVType 1)
   -> OverrideSim p sym (LLVM arch) r args ret ()
-callMemcpy sym memOps
+callMemcpy sym mvar
            (regValue -> dest)
            (regValue -> src)
            (RegEntry (BVRepr w) len)
            _align _volatile = do
   -- FIXME? add assertions about alignment
   --liftIO $ putStrLn "MEM COPY"
-  mem <- readGlobal (llvmMemVar memOps)
+  mem <- readGlobal mvar
   liftIO $ assertDisjointRegions sym w dest src len
   mem' <- liftIO $ doMemcpy sym w mem dest src len
-  writeGlobal (llvmMemVar memOps) mem'
+  writeGlobal mvar mem'
 
 -- NB the only difference between memcpy and memove
 -- is that memmove does not assert that the memory
@@ -1002,44 +1003,44 @@ callMemcpy sym memOps
 callMemmove
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => sym
-  -> LLVMMemOps wptr
+  -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (BVType w)
   -> RegEntry sym (BVType 32)
   -> RegEntry sym (BVType 1)
   -> OverrideSim p sym (LLVM arch) r args ret ()
-callMemmove sym memOps
+callMemmove sym mvar
            (regValue -> dest)
            (regValue -> src)
            (RegEntry (BVRepr w) len)
            _align _volatile = do
   -- FIXME? add assertions about alignment
   --liftIO $ putStrLn "MEM MOVE"
-  mem <- readGlobal (llvmMemVar memOps)
+  mem <- readGlobal mvar
   mem' <- liftIO $ doMemcpy sym w mem dest src len
-  writeGlobal (llvmMemVar memOps) mem'
+  writeGlobal mvar mem'
 
 callMemset
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => sym
-  -> LLVMMemOps wptr
+  -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (BVType 8)
   -> RegEntry sym (BVType w)
   -> RegEntry sym (BVType 32)
   -> RegEntry sym (BVType 1)
   -> OverrideSim p sym (LLVM arch) r args ret ()
-callMemset sym memOps
+callMemset sym mvar
            (regValue -> dest)
            (regValue -> val)
            (RegEntry (BVRepr w) len)
            _align _volatile = do
   -- FIXME? add assertions about alignment
   --liftIO $ putStrLn "MEM SET"
-  mem <- readGlobal (llvmMemVar memOps)
+  mem <- readGlobal mvar
   mem' <- liftIO $ doMemset sym w mem dest val len
-  writeGlobal (llvmMemVar memOps) mem'
+  writeGlobal mvar mem'
 
 -- Excerpt from the LLVM documentation:
 --
@@ -1063,12 +1064,12 @@ callMemset sym memOps
 callObjectsize
   :: (1 <= w, IsSymInterface sym)
   => sym
-  -> LLVMMemOps wptr
+  -> GlobalVar Mem
   -> NatRepr w
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (BVType 1)
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType w))
-callObjectsize sym _memOps w
+callObjectsize sym _mvar w
   (regValue -> _ptr)
   (regValue -> flag) = liftIO $ do
     -- Ignore the pointer value, and just return the value for unknown, as
@@ -1084,11 +1085,11 @@ callObjectsize sym _memOps w
 callCtlz
   :: (1 <= w, IsSymInterface sym)
   => sym
-  -> LLVMMemOps wptr
+  -> GlobalVar Mem
   -> RegEntry sym (BVType w)
   -> RegEntry sym (BVType 1)
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType w))
-callCtlz sym _memOps
+callCtlz sym _mvar
   (regValue -> val)
   (regValue -> isZeroUndef) = liftIO $
     do isNonzero <- bvIsNonzero sym val
@@ -1110,10 +1111,10 @@ callCtlz sym _memOps
 callPutChar
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
-  -> LLVMMemOps wptr
+  -> GlobalVar Mem
   -> RegEntry sym (BVType 32)
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType 32))
-callPutChar _sym _memOps
+callPutChar _sym _mvar
  (regValue -> ch) = do
     h <- printHandle <$> getContext
     let chval = maybe '?' (toEnum . fromInteger) (asUnsignedBV ch)
@@ -1124,12 +1125,12 @@ callPutChar _sym _memOps
 callPuts
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
-  -> LLVMMemOps wptr
+  -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType 32))
-callPuts sym memOps
+callPuts sym mvar
   (regValue -> strPtr) = do
-    mem <- readGlobal (llvmMemVar memOps)
+    mem <- readGlobal mvar
     str <- liftIO $ loadString sym mem strPtr Nothing
     h <- printHandle <$> getContext
     liftIO $ hPutStrLn h (UTF8.toString str)
@@ -1140,20 +1141,20 @@ callPuts sym memOps
 callPrintf
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
-  -> LLVMMemOps wptr
+  -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (VectorType AnyType)
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType 32))
-callPrintf sym memOps
+callPrintf sym mvar
   (regValue -> strPtr)
   (regValue -> valist) = do
-    mem <- readGlobal (llvmMemVar memOps)
+    mem <- readGlobal mvar
     formatStr <- liftIO $ loadString sym mem strPtr Nothing
     case parseDirectives formatStr of
       Left err -> fail err
       Right ds -> do
         ((str, n), mem') <- liftIO $ runStateT (executeDirectives (printfOps sym valist) ds) mem
-        writeGlobal (llvmMemVar memOps) mem'
+        writeGlobal mvar mem'
         h <- printHandle <$> getContext
         liftIO $ hPutStr h str
         liftIO $ bvLit sym knownNat (toInteger n)
@@ -1214,31 +1215,32 @@ printfOps sym valist =
                  let w8 = knownNat :: NatRepr 8
                  let tp = G.bitvectorType 1
                  x <- liftIO (llvmPointer_bv sym =<< bvLit sym w8 (toInteger v))
-                 mem' <- liftIO $ doStore sym mem ptr tp (AnyValue (LLVMPointerRepr w8) x)
+                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w8) tp x
                  put mem'
               Len_Short -> do
                  let w16 = knownNat :: NatRepr 16
                  let tp = G.bitvectorType 2
                  x <- liftIO (llvmPointer_bv sym =<< bvLit sym w16 (toInteger v))
-                 mem' <- liftIO $ doStore sym mem ptr tp (AnyValue (LLVMPointerRepr w16) x)
+                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w16) tp x
                  put mem'
               Len_NoMod -> do
                  let w32  = knownNat :: NatRepr 32
                  let tp = G.bitvectorType 4
                  x <- liftIO (llvmPointer_bv sym =<< bvLit sym w32 (toInteger v))
-                 mem' <- liftIO $ doStore sym mem ptr tp (AnyValue (LLVMPointerRepr w32) x)
+                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w32) tp x
                  put mem'
               Len_Long  -> do
                  let w64 = knownNat :: NatRepr 64
                  let tp = G.bitvectorType 8
                  x <- liftIO (llvmPointer_bv sym =<< bvLit sym w64 (toInteger v))
-                 mem' <- liftIO $ doStore sym mem ptr tp (AnyValue (LLVMPointerRepr w64) x)
+                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w64) tp x
                  put mem'
               _ ->
                 fail $ unwords ["Unsupported size modifier in %n conversion:", show len]
 
        Just (AnyValue tpr _) ->
          fail $ unwords ["Type mismatch in printf.  Expected void*, but got:", show tpr]
+
        Nothing ->
          fail $ unwords ["Out-of-bounds argument access in printf:", show i]
   }

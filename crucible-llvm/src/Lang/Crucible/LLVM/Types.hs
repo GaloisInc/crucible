@@ -33,6 +33,7 @@ module Lang.Crucible.LLVM.Types
   , HasPtrWidth
   , pattern PtrWidth
   , GlobalSymbol(..)
+  , globalSymbolName
   ) where
 
 import           GHC.TypeLits
@@ -49,6 +50,9 @@ import           Lang.Crucible.Types
 
 newtype GlobalSymbol = GlobalSymbol L.Symbol
   deriving (Typeable, Eq, Ord, Show)
+
+globalSymbolName :: GlobalSymbol -> String
+globalSymbolName (GlobalSymbol (L.Symbol nm)) = nm
 
 -- | The 'CrucibleType' of an LLVM memory. @'RegValue' sym 'Mem'@ is
 -- implemented as @'MemImpl' sym@.

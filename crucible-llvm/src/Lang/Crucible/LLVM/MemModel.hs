@@ -38,8 +38,7 @@ module Lang.Crucible.LLVM.MemModel
   , memRepr
   , MemImpl
   , emptyMem
-  , LLVMMemOps(..)
-  , newMemOps
+  , mkMemVar
   , GlobalSymbol(..)
   , llvmStatementExec
   , allocGlobals
@@ -102,6 +101,7 @@ import qualified Text.LLVM.AST as L
 
 import           Lang.Crucible.CFG.Common
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
@@ -147,12 +147,8 @@ instance IntrinsicClass sym "LLVM_memory" where
         --putStrLn "MEM ABORT BRANCH"
         return $ MemImpl nxt gMap hMap $ G.branchAbortMem m
 
-data LLVMMemOps (wptr :: Nat)
-  = LLVMMemOps
-  { llvmDataLayout :: DataLayout
-  , llvmMemVar    :: GlobalVar Mem
-  }
-
+-- | Top-level evaluation function for LLVM extension statements.
+--   LLVM extension statements are used to implement the memory model operations.
 llvmStatementExec :: HasPtrWidth (ArchWidth arch) => EvalStmtFunc p sym (LLVM arch)
 llvmStatementExec cst stmt =
   do let sym = stateSymInterface cst
@@ -161,6 +157,10 @@ llvmStatementExec cst stmt =
      let cst' = cst & stateTree.actFrame.gpGlobals .~ gs'
      return (cst', r)
 
+-- | Actual workhorse function for evaluating LLVM extension statements.
+--   The semantics are explicitly organized as a state transformer monad
+--   that modifes the global state of the simulator; this captures the
+--   memory accessing effects of these statements.
 evalStmt :: forall sym wptr tp.
   (IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
@@ -201,23 +201,27 @@ evalStmt sym = eval
         setMem mvar mem{ memImplHeap = heap' }
         return ptr
 
-  eval (LLVM_Load mvar (regValue -> ptr) valType alignment) =
+  eval (LLVM_Load mvar (regValue -> ptr) tpr valType alignment) =
      do mem <- getMem mvar
-        liftIO $ doLoad sym mem ptr valType alignment
+        liftIO $ (coerceAny sym tpr =<< doLoad sym mem ptr valType alignment)
 
-  eval (LLVM_Store mvar (regValue -> ptr) valType _alignment (regValue -> val)) =
+  eval (LLVM_Store mvar (regValue -> ptr) tpr valType _alignment (regValue -> val)) =
      do mem <- getMem mvar
-        mem' <- liftIO $ doStore sym mem ptr valType val
+        mem' <- liftIO $ doStore sym mem ptr tpr valType val
         setMem mvar mem'
 
-  eval (LLVM_LoadHandle mvar (regValue -> ptr)) =
+  eval (LLVM_LoadHandle mvar (regValue -> ptr) args ret) =
      do mem <- getMem mvar
         mhandle <- liftIO $ doLookupHandle sym mem ptr
         case mhandle of
            Nothing -> fail "LoadHandle: not a valid function pointer"
-           Just (SomeFnHandle h) ->
-             do let ty = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
-                return (AnyValue ty (HandleFnVal h))
+           Just (SomeFnHandle h)
+             | Just Refl <- testEquality handleTp expectedTp -> return (HandleFnVal h)
+             | otherwise ->
+                 fail $ unlines ["Expected function handle of type " ++ show expectedTp
+                                ,"but found handle of type " ++ show handleTp]
+            where handleTp   = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
+                  expectedTp = FunctionHandleRepr args ret
 
   eval (LLVM_ResolveGlobal _w mvar (GlobalSymbol symbol)) =
      do mem <- getMem mvar
@@ -260,17 +264,9 @@ evalStmt sym = eval
     do mem <- getMem mvar
        liftIO $ doPtrSubtract sym mem x y
 
-newMemOps :: forall s wptr. HasPtrWidth wptr
-          => HandleAllocator s
-          -> DataLayout
-          -> ST s (LLVMMemOps wptr)
-newMemOps halloc dl = do
-  memVar      <- freshGlobalVar halloc "llvm_memory" knownRepr
-  let ops = LLVMMemOps
-            { llvmDataLayout     = dl
-            , llvmMemVar         = memVar
-            }
-  return ops
+mkMemVar :: HandleAllocator s
+         -> ST s (GlobalVar Mem)
+mkMemVar halloc = freshGlobalVar halloc "llvm_memory" knownRepr
 
 newtype BlockSource = BlockSource (IORef Integer)
 
@@ -356,10 +352,14 @@ coerceAny :: (HasCallStack, IsSymInterface sym)
           -> TypeRepr tpr
           -> AnyValue sym
           -> IO (RegValue sym tpr)
-coerceAny _sym tpr (AnyValue tpr' x)
+coerceAny sym tpr (AnyValue tpr' x)
   | Just Refl <- testEquality tpr tpr' = return x
-  | otherwise = error $ unwords ["coerceAny: cannot coerce from", show tpr', "to", show tpr]
-
+  | otherwise =
+      do loc <- getCurrentProgramLoc sym
+         fail $ unlines [unwords ["coerceAny: cannot coerce from", show tpr', "to", show tpr]
+                        , "in: " ++ show (plFunction loc)
+                        , "at: " ++ show (plSourceLoc loc)
+                        ]
 
 unpackMemValue
    :: (HasCallStack, IsSymInterface sym)
@@ -524,10 +524,11 @@ doStore :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> RegValue sym Mem
   -> RegValue sym (LLVMPointerType wptr) {- ^ pointer to store into -}
+  -> TypeRepr tp
   -> G.Type                              {- ^ type of value to store -}
-  -> RegValue sym AnyType                {- ^ value to store -}
+  -> RegValue sym tp                     {- ^ value to store -}
   -> IO (RegValue sym Mem)
-doStore sym mem ptr valType (AnyValue tpr val) = do
+doStore sym mem ptr tpr valType val = do
     --putStrLn "MEM STORE"
     let errMsg = "Invalid memory store: address " ++ show (G.ppPtr ptr) ++
                  " at type " ++ show (G.ppType valType)

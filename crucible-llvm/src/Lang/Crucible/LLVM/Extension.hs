@@ -54,8 +54,12 @@ type instance ExprExtension (LLVM arch) = EmptyExprExtension
 type instance StmtExtension (LLVM arch) = LLVMStmt (ArchWidth arch)
 
 data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> *) :: CrucibleType -> * where
-  LLVM_PushFrame :: !(GlobalVar Mem) -> LLVMStmt wptr f UnitType
-  LLVM_PopFrame  :: !(GlobalVar Mem) -> LLVMStmt wptr f UnitType
+  LLVM_PushFrame ::
+     !(GlobalVar Mem) ->
+     LLVMStmt wptr f UnitType
+  LLVM_PopFrame ::
+     !(GlobalVar Mem) ->
+     LLVMStmt wptr f UnitType
   LLVM_Alloca ::
      !(NatRepr wptr) ->
      !(GlobalVar Mem) ->
@@ -65,20 +69,24 @@ data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> *) :: CrucibleType -> * where
   LLVM_Load ::
      !(GlobalVar Mem) ->
      !(f (LLVMPointerType wptr)) ->
+     !(TypeRepr tp) ->
      !G.Type ->
      !Alignment ->
-     LLVMStmt wptr f AnyType
+     LLVMStmt wptr f tp
   LLVM_Store ::
      !(GlobalVar Mem) ->
      !(f (LLVMPointerType wptr)) ->
+     !(TypeRepr tp) ->
      !G.Type ->
      !Alignment ->
-     !(f AnyType) ->
+     !(f tp) ->
      LLVMStmt wptr f UnitType
   LLVM_LoadHandle ::
      !(GlobalVar Mem) ->
      !(f (LLVMPointerType wptr)) ->
-     LLVMStmt wptr f AnyType
+     !(CtxRepr args) ->
+     !(TypeRepr ret) ->
+     LLVMStmt wptr f (FunctionHandleType args ret)
   LLVM_ResolveGlobal ::
      !(NatRepr wptr) ->
      !(GlobalVar Mem) ->
@@ -114,9 +122,9 @@ instance (1 <= wptr) => TypeApp (LLVMStmt wptr) where
     LLVM_PushFrame{} -> knownRepr
     LLVM_PopFrame{} -> knownRepr
     LLVM_Alloca w _ _ _ -> LLVMPointerRepr w
-    LLVM_Load{} -> knownRepr
+    LLVM_Load _ _ tp _ _  -> tp
     LLVM_Store{} -> knownRepr
-    LLVM_LoadHandle{} -> knownRepr
+    LLVM_LoadHandle _ _ args ret -> FunctionHandleRepr args ret
     LLVM_ResolveGlobal w _ _ -> LLVMPointerRepr w
     LLVM_PtrEq{} -> knownRepr
     LLVM_PtrLe{} -> knownRepr
@@ -131,14 +139,14 @@ instance PrettyApp (LLVMStmt wptr) where
        text "popFrame" <+> text (show mvar)
     LLVM_Alloca _ mvar sz loc ->
        text "alloca" <+> text (show mvar) <+> pp sz <+> text loc
-    LLVM_Load mvar ptr tp a ->
+    LLVM_Load mvar ptr _tpr tp a ->
        text "load" <+> text (show mvar) <+> pp ptr <+> text (show tp) <+> text (show a)
-    LLVM_Store mvar ptr tp a v ->
+    LLVM_Store mvar ptr _tpr tp a v ->
        text "store" <+> text (show mvar) <+> pp ptr <+> text (show tp) <+> text (show a) <+> pp v
-    LLVM_LoadHandle mvar ptr ->
-       text "loadFunctionHandle" <+> text (show mvar) <+> pp ptr
-    LLVM_ResolveGlobal _ mvar s ->
-       text "resolveGlobal" <+> text (show mvar) <+> text (show s)
+    LLVM_LoadHandle mvar ptr args ret ->
+       text "loadFunctionHandle" <+> text (show mvar) <+> pp ptr <+> text "as" <+> text (show (FunctionHandleRepr args ret))
+    LLVM_ResolveGlobal _ mvar gs ->
+       text "resolveGlobal" <+> text (show mvar) <+> text (show (globalSymbolName gs))
     LLVM_PtrEq mvar x y ->
        text "ptrEq" <+> text (show mvar) <+> pp x <+> pp y
     LLVM_PtrLe mvar x y ->
@@ -154,6 +162,8 @@ instance TestEqualityFC (LLVMStmt wptr) where
        [(U.DataArg 1 `U.TypeApp` U.AnyType, [|testSubterm|])
        ,(U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
        ,(U.ConType [t|GlobalVar|] `U.TypeApp` U.AnyType, [|testEquality|])
+       ,(U.ConType [t|CtxRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
+       ,(U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
        ])
 
 instance OrdFC (LLVMStmt wptr) where
@@ -162,6 +172,8 @@ instance OrdFC (LLVMStmt wptr) where
        [(U.DataArg 1 `U.TypeApp` U.AnyType, [|compareSubterm|])
        ,(U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|compareF|])
        ,(U.ConType [t|GlobalVar|] `U.TypeApp` U.AnyType, [|compareF|])
+       ,(U.ConType [t|CtxRepr|] `U.TypeApp` U.AnyType, [|compareF|])
+       ,(U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|compareF|])
        ])
 
 instance FunctorFC (LLVMStmt wptr) where

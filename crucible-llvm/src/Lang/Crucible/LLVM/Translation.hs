@@ -971,7 +971,7 @@ callAlloca sz = do
    extensionStmt (LLVM_Alloca ?ptrWidth memVar sz loc)
 
 getMemVar :: LLVMGenerator h s arch reg (GlobalVar Mem)
-getMemVar = llvmMemVar . memModelOps . llvmContext <$> get
+getMemVar = llvmMemVar . llvmContext <$> get
 
 callPushFrame :: LLVMGenerator h s arch ret ()
 callPushFrame = do
@@ -1027,10 +1027,8 @@ callLoad :: MemType
 callLoad typ expectTy (asScalar -> Scalar PtrRepr ptr) align =
    do memVar <- getMemVar
       typ' <- toStorableType typ
-      v <- extensionStmt (LLVM_Load memVar ptr typ' align)
-      let msg = litExpr (Text.pack ("Expected load to return value of type " ++ show expectTy))
-      let v' = app $ FromJustValue expectTy (app $ UnpackAny expectTy v) msg
-      return (BaseExpr expectTy v')
+      v <- extensionStmt (LLVM_Load memVar ptr expectTy typ' align)
+      return (BaseExpr expectTy v)
 callLoad _ _ _ _ =
   fail $ unwords ["Unexpected argument type in callLoad"]
 
@@ -1043,9 +1041,8 @@ callStore typ (asScalar -> Scalar PtrRepr ptr) v align =
  do let ?err = fail
     unpackOne v $ \vtpr vexpr -> do
       memVar <- getMemVar
-      let v' = app (PackAny vtpr vexpr)
       typ' <- toStorableType typ
-      void $ extensionStmt (LLVM_Store memVar ptr typ' align v')
+      void $ extensionStmt (LLVM_Store memVar ptr vtpr typ' align vexpr)
 
 callStore _ _ _ _ =
   fail $ unwords ["Unexpected argument type in callStore"]
@@ -2034,6 +2031,8 @@ callFunctionWithCont fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f k
      | L.ValSymbol nm <- fn
      , nm `elem` [ "llvm.dbg.declare"
                  , "llvm.dbg.value"
+                 , "llvm.lifetime.start"
+                 , "llvm.lifetime.end"
                  ] = k
 
      -- For varargs functions, any arguments beyond the ones found in the function
@@ -2050,17 +2049,14 @@ callFunctionWithCont fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f k
            let (mainArgs, varArgs) = splitAt (length largTys) args'
            varArgs' <- unpackVarArgs varArgs
            unpackArgs mainArgs $ \argTypes mainArgs' ->
+            llvmRetTypeAsRepr retTy' $ \retTy ->
              case asScalar fn' of
                 Scalar PtrRepr ptr ->
                   do memVar <- getMemVar
-                     v <- extensionStmt (LLVM_LoadHandle memVar ptr)
-                     llvmRetTypeAsRepr retTy' $ \retTy ->
-                       do let expectTy = FunctionHandleRepr (argTypes :> varArgsRepr) retTy
-                          let msg = litExpr (Text.pack ("Expected function of type " ++ show expectTy))
-                          let v' = app $ FromJustValue expectTy (app $ UnpackAny expectTy v) msg
-                          ret <- call v' (mainArgs' :> varArgs')
-                          assign_f (BaseExpr retTy ret)
-                          k
+                     v <- extensionStmt (LLVM_LoadHandle memVar ptr (argTypes :> varArgsRepr) retTy)
+                     ret <- call v (mainArgs' :> varArgs')
+                     assign_f (BaseExpr retTy ret)
+                     k
                 _ -> fail $ unwords ["unsupported function value", show fn]
 
      -- Ordinary (non varargs) function call
@@ -2071,17 +2067,15 @@ callFunctionWithCont fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f k
            args' <- mapM transTypedValue args
            let ?err = fail
            unpackArgs args' $ \argTypes args'' ->
+            llvmRetTypeAsRepr retTy' $ \retTy ->
               case asScalar fn' of
                 Scalar PtrRepr ptr ->
                   do memVar <- getMemVar
-                     v <- extensionStmt (LLVM_LoadHandle memVar ptr)
-                     llvmRetTypeAsRepr retTy' $ \retTy ->
-                       do let expectTy = FunctionHandleRepr argTypes retTy
-                          let msg = litExpr (Text.pack ("Expected function of type " ++ show expectTy))
-                          let v' = app $ FromJustValue expectTy (app $ UnpackAny expectTy v) msg
-                          ret <- call v' args''
-                          assign_f (BaseExpr retTy ret)
-                          k
+                     v <- extensionStmt (LLVM_LoadHandle memVar ptr argTypes retTy)
+                     ret <- call v args''
+                     assign_f (BaseExpr retTy ret)
+                     k
+
                 _ -> fail $ unwords ["unsupported function value", show fn]
 callFunctionWithCont fnTy _fn _args _assign_f _k =
     reportError $ App $ TextLit $ Text.pack $ unwords ["unsupported function type", show fnTy]
