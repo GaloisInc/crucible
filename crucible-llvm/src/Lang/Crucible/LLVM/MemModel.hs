@@ -368,7 +368,7 @@ unpackMemValue
 -- If the block number is 0, we know this is a raw bitvector, and not an actual pointer.
 unpackMemValue _sym (LLVMValInt blk bv)
   = return . AnyValue (LLVMPointerRepr (bvWidth bv)) $ LLVMPointer blk bv
-unpackMemValue _ (LLVMValReal x) =
+unpackMemValue _ (LLVMValReal _ x) =
   return $ AnyValue RealValRepr x
 unpackMemValue sym (LLVMValStruct xs) = do
   xs' <- traverse (unpackMemValue sym . snd) $ V.toList xs
@@ -400,17 +400,26 @@ packMemValue
    -> TypeRepr tp
    -> RegValue sym tp
    -> IO (LLVMVal sym)
-packMemValue _ _ RealValRepr x =
-       return $ LLVMValReal x
-packMemValue sym _ (BVRepr _w) bv =
-    do blk0 <- natLit sym 0
-       return $ LLVMValInt blk0 bv
-packMemValue _sym _ (LLVMPointerRepr _w) (LLVMPointer blk off) =
+packMemValue _ (G.Type G.Float _) RealValRepr x =
+       return $ LLVMValReal SingleSize x
+
+packMemValue _ (G.Type G.Double _) RealValRepr x =
+       return $ LLVMValReal DoubleSize x
+
+packMemValue sym (G.Type (G.Bitvector bytes) _) (BVRepr w) bv
+  | G.bytesToBits bytes == toInteger (natValue w) =
+      do blk0 <- natLit sym 0
+         return $ LLVMValInt blk0 bv
+
+packMemValue _sym (G.Type (G.Bitvector bytes) _) (LLVMPointerRepr w) (LLVMPointer blk off)
+  | G.bytesToBits bytes == toInteger (natValue w) =
        return $ LLVMValInt blk off
+
 packMemValue sym (G.Type (G.Array sz tp) _) (VectorRepr tpr) vec
   | V.length vec == fromIntegral sz = do
        vec' <- traverse (packMemValue sym tp tpr) vec
        return $ LLVMValArray tp vec'
+
 packMemValue sym (G.Type (G.Struct fls) _) (StructRepr ctx) xs = do
   fls' <- V.generateM (V.length fls) $ \i -> do
               let fl = fls V.! i
@@ -422,8 +431,12 @@ packMemValue sym (G.Type (G.Struct fls) _) (StructRepr ctx) xs = do
                   return (fl, val')
                 _ -> fail "packMemValue: actual value has insufficent structure fields"
   return $ LLVMValStruct fls'
-packMemValue _ _ _ _ =
-  fail "Unexpected values in packMemValue"
+
+packMemValue _ stTy crTy _ =
+  fail $ unlines [ "Type mismatch when storing value."
+                 , "Expected storable type: " ++ show stTy
+                 , "but got incompatible crucible type: " ++ show crTy
+                 ]
 
 doResolveGlobal
   :: (IsSymInterface sym, HasPtrWidth wptr)
@@ -819,7 +832,8 @@ instance IsExpr (SymExpr sym) => Show (LLVMVal sym) where
   show (LLVMValInt blk w)
     | Just 0 <- asNat blk = "<int" ++ show (bvWidth w) ++ ">"
     | otherwise = "<ptr " ++ show (bvWidth w) ++ ">"
-  show (LLVMValReal _) = "<real>"
+  show (LLVMValReal SingleSize _) = "<float>"
+  show (LLVMValReal DoubleSize _) = "<double>"
   show (LLVMValStruct xs) =
     unwords $ [ "{" ]
            ++ intersperse ", " (map (show . snd) $ V.toList xs)

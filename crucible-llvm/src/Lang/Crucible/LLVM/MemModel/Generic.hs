@@ -758,7 +758,7 @@ ppTermExpr
 ppTermExpr t = -- FIXME, do something with the predicate?
   case t of
     LLVMValInt base off -> ppPtr @sym (LLVMPointer base off)
-    LLVMValReal v -> printSymExpr v
+    LLVMValReal _ v -> printSymExpr v
     LLVMValStruct v -> encloseSep lbrace rbrace comma v''
       where v'  = fmap (over _2 ppTermExpr) (V.toList v)
             v'' = map (\(fld,doc) ->

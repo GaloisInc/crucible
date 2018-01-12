@@ -56,6 +56,8 @@ module Lang.Crucible.LLVM.MemModel.Pointer
     -- * LLVM Value representation
   , LLVMVal(..)
   , PartLLVMVal
+  , FloatSize(..)
+  , llvmValStorableType
   , bvConcatPartLLVMVal
   , consArrayPartLLVMVal
   , appendArrayPartLLVMVal
@@ -167,6 +169,11 @@ data AddrDecomposeResult sym w
   | SymbolicOffset Natural (SymBV sym w) -- ^ A pointer with a concrete base value, but symbolic offset
   | ConcreteOffset Natural Integer       -- ^ A totally concrete pointer value
 
+data FloatSize
+  = SingleSize
+  | DoubleSize
+ deriving (Eq,Ord,Show)
+
 -- | This datatype describes the variety of values that can be stored in
 --   the LLVM heap.
 data LLVMVal sym where
@@ -177,9 +184,17 @@ data LLVMVal sym where
   -- numbers correspond to pointer values, where the 'SymBV' value is an
   -- offset from the base pointer of the allocation.
   LLVMValInt :: (1 <= w) => SymNat sym -> SymBV sym w -> LLVMVal sym
-  LLVMValReal :: SymReal sym -> LLVMVal sym
+  LLVMValReal :: FloatSize -> SymReal sym -> LLVMVal sym
   LLVMValStruct :: Vector (G.Field G.Type, LLVMVal sym) -> LLVMVal sym
   LLVMValArray :: G.Type -> Vector (LLVMVal sym) -> LLVMVal sym
+
+llvmValStorableType :: IsExprBuilder sym => LLVMVal sym -> G.Type
+llvmValStorableType v = case v of
+  LLVMValInt _ bv -> G.bitvectorType (G.bitsToBytes (natValue (bvWidth bv)))
+  LLVMValReal SingleSize _ -> G.floatType
+  LLVMValReal DoubleSize _ -> G.doubleType
+  LLVMValStruct fs -> G.structType (fmap fst fs)
+  LLVMValArray tp vs -> G.arrayType (fromIntegral (V.length vs)) tp
 
 -- | Generate a concrete offset value from an @Addr@ value.
 constOffset :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> G.Addr -> IO (SymBV sym w)
@@ -483,9 +498,9 @@ muxLLVMVal sym p = mergePartial sym muxval p
            off  <- liftIO $ bvIte sym p off1 off2
            return $ LLVMValInt base off
 
-    muxval (LLVMValReal x) (LLVMValReal y) =
+    muxval (LLVMValReal xsz x) (LLVMValReal ysz y) | xsz == ysz =
       do z <- liftIO $ realIte sym p x y
-         return $ LLVMValReal z
+         return $ LLVMValReal xsz z
 
     muxval (LLVMValStruct fls1) (LLVMValStruct fls2)
       | fmap fst fls1 == fmap fst fls2 = do
