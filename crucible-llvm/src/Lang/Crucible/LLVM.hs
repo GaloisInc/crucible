@@ -53,6 +53,6 @@ llvmGlobals ctx mem = emptyGlobals & insertGlobal var mem
 llvmExtensionImpl :: HasPtrWidth (ArchWidth arch) => ExtensionImpl p sym (LLVM arch)
 llvmExtensionImpl =
   ExtensionImpl
-  { extensionEval = \_ -> \case
+  { extensionEval = \_ _ -> \case
   , extensionExec = llvmStatementExec
   }

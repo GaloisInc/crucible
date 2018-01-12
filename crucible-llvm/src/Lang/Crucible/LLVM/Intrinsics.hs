@@ -148,6 +148,7 @@ data LLVMContext arch
    = LLVMContext
    { -- | Map LLVM symbols to their associated state.
      _symbolMap     :: !SymbolHandleMap
+   , llvmArch       :: ArchRepr arch
    , llvmPtrWidth   :: forall a. (16 <= (ArchWidth arch) => NatRepr (ArchWidth arch) -> a) -> a
    , llvmMemVar     :: GlobalVar Mem
    , _llvmTypeCtx   :: TyCtx.LLVMContext
@@ -173,9 +174,13 @@ mkLLVMContext halloc m = do
     Just (Some (wptr :: NatRepr wptr)) | Just LeqProof <- testLeq (knownNat @16) wptr ->
       withPtrWidth wptr $
         do mvar <- mkMemVar halloc
+           let archRepr = X86Repr wptr -- FIXME! we should select the architecture based on
+                                       -- the target triple, but llvm-pretty doesn't capture this
+                                       -- currently.
            let ctx :: LLVMContext (X86 wptr)
                ctx = LLVMContext
                      { _symbolMap = Map.empty
+                     , llvmArch     = archRepr
                      , llvmMemVar   = mvar
                      , llvmPtrWidth = \x -> x wptr
                      , _llvmTypeCtx = typeCtx
@@ -253,7 +258,7 @@ build_llvm_override ::
   IsSymInterface sym =>
   sym ->
   FunctionName ->
-  CtxRepr args  ->
+  CtxRepr args ->
   TypeRepr ret ->
   CtxRepr args' ->
   TypeRepr ret' ->

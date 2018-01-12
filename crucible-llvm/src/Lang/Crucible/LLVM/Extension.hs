@@ -19,10 +19,14 @@
 -- Syntax extension definitions for LLVM
 ------------------------------------------------------------------------
 module Lang.Crucible.LLVM.Extension
-( LLVM
-, ArchWidth
+( -- * LLVM Architecutre representations
+  LLVM
 , type LLVMArch
 , type X86
+, ArchWidth
+, ArchRepr(..)
+
+  -- * LLVM Extension Statements
 , LLVMStmt(..)
 ) where
 
@@ -42,80 +46,152 @@ import           Lang.Crucible.LLVM.MemModel.Pointer
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import           Lang.Crucible.LLVM.Types
 
+-- | Data kind for representing LLVM architectures.
+--   Currently only X86 variants are supported.
 data LLVMArch = X86 Nat
+
+-- | LLVM Architecture tag for X86 variants
+--
+--   @X86 :: Nat -> LLVMArch@
 type X86 = 'X86
 
+-- | Data family defining the native machine word size
+--   for a given architecture.
 type family ArchWidth (arch :: LLVMArch) :: Nat where
   ArchWidth (X86 wptr) = wptr
 
+-- | Runtime representation of architectures.
+data ArchRepr (arch :: LLVMArch) where
+  X86Repr :: NatRepr w -> ArchRepr (X86 w)
+
+-- | The Crucible extension type marker for LLVM.
 data LLVM (arch :: LLVMArch)
 
 type instance ExprExtension (LLVM arch) = EmptyExprExtension
 type instance StmtExtension (LLVM arch) = LLVMStmt (ArchWidth arch)
 
+-- | Extension statements for LLVM.  These statements represent the operations
+--   necessary to interact with the LLVM memory model.
 data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> *) :: CrucibleType -> * where
+
+  -- | Indicate the beginning of a new stack frame upon entry to a function.
   LLVM_PushFrame ::
-     !(GlobalVar Mem) ->
+     !(GlobalVar Mem) {- Memory global variable -} ->
      LLVMStmt wptr f UnitType
+
+  -- | Indicate the end of the current stack frame upon exit from a function.
   LLVM_PopFrame ::
-     !(GlobalVar Mem) ->
+     !(GlobalVar Mem) {- Memory global variable -} ->
      LLVMStmt wptr f UnitType
+
+  -- | Allocate a new memory object in the current stack frame.  This memory
+  --   will be automatically deallocated when the corresponding PopFrame
+  --   statement is executed.
   LLVM_Alloca ::
-     !(NatRepr wptr) ->
-     !(GlobalVar Mem) ->
-     !(f (BVType wptr)) ->
-     !String ->
+     !(NatRepr wptr)       {- Pointer width -} ->
+     !(GlobalVar Mem)      {- Memory global variable -} ->
+     !(f (BVType wptr))    {- Number of bytes to allocate -} ->
+     !String               {- Location string to identify this allocation for debugging purposes -} ->
      LLVMStmt wptr f (LLVMPointerType wptr)
+
+  -- | Load a value from the memory.  The load is defined only if
+  --   the given pointer is a live pointer; if the bytes in the memory
+  --   at that location can be read and reconstructed into a value of the
+  --   desired type; and if the given pointer is actually aligned according
+  --   to the given alignment value.
   LLVM_Load ::
-     !(GlobalVar Mem) ->
-     !(f (LLVMPointerType wptr)) ->
-     !(TypeRepr tp) ->
-     !G.Type ->
-     !Alignment ->
+     !(GlobalVar Mem)            {- Memory global variable -} ->
+     !(f (LLVMPointerType wptr)) {- Pointer to load from -} ->
+     !(TypeRepr tp)              {- Expected crucible type of the result -} ->
+     !G.Type                     {- Storable type -} ->
+     !Alignment                  {- Assumed alignment of the pointer -} ->
      LLVMStmt wptr f tp
+
+  -- | Store a value in to the memory.  The store is defined only if the given
+  --   pointer is a live pointer; if the given value fits into the memory object
+  --   at the location pointed to; and the given pointer is aligned according
+  --   to the given alignment value.
   LLVM_Store ::
-     !(GlobalVar Mem) ->
-     !(f (LLVMPointerType wptr)) ->
-     !(TypeRepr tp) ->
-     !G.Type ->
-     !Alignment ->
-     !(f tp) ->
+     !(GlobalVar Mem)            {- Memory global variable -} ->
+     !(f (LLVMPointerType wptr)) {- Pointer to store at -} ->
+     !(TypeRepr tp)              {- Crucible type of the value being stored -} ->
+     !G.Type                     {- Storable type of the value -} ->
+     !Alignment                  {- Assumed alignment of the pointer -} ->
+     !(f tp)                     {- Value to store -} ->
      LLVMStmt wptr f UnitType
+
+  -- | Load the Crucible function handle that corresponds to a function pointer value.
+  --   This load is defined only if the given pointer was previously allocated as
+  --   a function pointer value and associated with a Crucible function handle of
+  --   the expected type.
   LLVM_LoadHandle ::
-     !(GlobalVar Mem) ->
-     !(f (LLVMPointerType wptr)) ->
-     !(CtxRepr args) ->
-     !(TypeRepr ret) ->
+     !(GlobalVar Mem)            {- Memory global variable -} ->
+     !(f (LLVMPointerType wptr)) {- Pointer to load from -} ->
+     !(CtxRepr args)             {- Expected argument types of the function -} ->
+     !(TypeRepr ret)             {- Expected return type of the function -} ->
      LLVMStmt wptr f (FunctionHandleType args ret)
+
+  -- | Resolve the given global symbol name to a pointer value.
   LLVM_ResolveGlobal ::
-     !(NatRepr wptr) ->
-     !(GlobalVar Mem) ->
-     GlobalSymbol ->
+     !(NatRepr wptr)      {- Pointer width -} ->
+     !(GlobalVar Mem)     {- Memory global variable -} ->
+     GlobalSymbol         {- The symbol to resolve -} ->
      LLVMStmt wptr f (LLVMPointerType wptr)
+
+  -- | Test two pointer values for equality.
+  --   Note! This operation is defined only
+  --   in case both pointers are live or null.
   LLVM_PtrEq ::
-     !(GlobalVar Mem) ->
-     !(f (LLVMPointerType wptr)) ->
-     !(f (LLVMPointerType wptr)) ->
+     !(GlobalVar Mem)            {- Pointer width -} ->
+     !(f (LLVMPointerType wptr)) {- First pointer to compare -} ->
+     !(f (LLVMPointerType wptr)) {- First pointer to compare -} ->
      LLVMStmt wptr f BoolType
+
+  -- | Test two pointer values for ordering.
+  --   Note! This operation is only defined if
+  --   both pointers are live pointers into the
+  --   same memory object.
   LLVM_PtrLe ::
-     !(GlobalVar Mem) ->
-     !(f (LLVMPointerType wptr)) ->
-     !(f (LLVMPointerType wptr)) ->
+     !(GlobalVar Mem)            {- Pointer width -} ->
+     !(f (LLVMPointerType wptr)) {- First pointer to compare -} ->
+     !(f (LLVMPointerType wptr)) {- First pointer to compare -} ->
      LLVMStmt wptr f BoolType
+
+  -- | Add an offset value to a pointer.
+  --   Note! This operation is only defined if both
+  --   the input pointer is a live pointer, and
+  --   the resulting computed pointer remains in the bounds
+  --   of its associated memory object (or one past the end).
   LLVM_PtrAddOffset ::
-     !(NatRepr wptr) ->
-     !(GlobalVar Mem) ->
-     !(f (LLVMPointerType wptr)) ->
-     !(f (BVType wptr)) ->
+     !(NatRepr wptr)             {- Pointer width -} ->
+     !(GlobalVar Mem)            {- Memory global variable -} ->
+     !(f (LLVMPointerType wptr)) {- Pointer value -} ->
+     !(f (BVType wptr))          {- Offset value -} ->
      LLVMStmt wptr f (LLVMPointerType wptr)
+
+  -- | Compute the offset between two pointer values.
+  --   Note! This operation is only defined if both potiners
+  --   are live pointers into the same memory object.
   LLVM_PtrSubtract ::
-     !(NatRepr wptr) ->
-     !(GlobalVar Mem) ->
-     !(f (LLVMPointerType wptr)) ->
-     !(f (LLVMPointerType wptr)) ->
+     !(NatRepr wptr)             {- Pointer width -} ->
+     !(GlobalVar Mem)            {- Memory global value -} ->
+     !(f (LLVMPointerType wptr)) {- First pointer -} ->
+     !(f (LLVMPointerType wptr)) {- Second pointer -} ->
      LLVMStmt wptr f (BVType wptr)
 
 $(return [])
+
+instance TestEquality ArchRepr where
+  testEquality =
+    $(U.structuralTypeEquality [t|ArchRepr|]
+        [ (U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
+        ])
+
+instance OrdF ArchRepr where
+  compareF =
+    $(U.structuralTypeOrd [t|ArchRepr|]
+        [ (U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|compareF|])
+        ])
 
 instance (1 <= wptr) => TypeApp (LLVMStmt wptr) where
   appType = \case
@@ -185,6 +261,5 @@ instance FoldableFC (LLVMStmt wptr) where
 instance TraversableFC (LLVMStmt wptr) where
   traverseFC =
     $(U.structuralTraversal [t|LLVMStmt|] [])
-
 
 instance (1 <= ArchWidth arch) => IsSyntaxExtension (LLVM arch)

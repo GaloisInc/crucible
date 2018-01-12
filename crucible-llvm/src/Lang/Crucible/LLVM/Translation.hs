@@ -148,17 +148,17 @@ import           Lang.Crucible.Types
 ------------------------------------------------------------------------
 -- Translation results
 
-type ModuleCFGMap wptr = Map L.Symbol (C.AnyCFG (LLVM wptr))
+type ModuleCFGMap arch = Map L.Symbol (C.AnyCFG (LLVM arch))
 
 -- | The result of translating an LLVM module into Crucible CFGs.
-data ModuleTranslation wptr
+data ModuleTranslation arch
    = ModuleTranslation
-      { cfgMap :: ModuleCFGMap wptr
-      , initMemoryCFG :: C.SomeCFG (LLVM wptr) EmptyCtx UnitType
-      , _transContext :: LLVMContext wptr
+      { cfgMap :: ModuleCFGMap arch
+      , initMemoryCFG :: C.SomeCFG (LLVM arch) EmptyCtx UnitType
+      , _transContext :: LLVMContext arch
       }
 
-transContext :: Simple Lens (ModuleTranslation wptr) (LLVMContext wptr)
+transContext :: Simple Lens (ModuleTranslation arch) (LLVMContext arch)
 transContext = lens _transContext (\s v -> s{ _transContext = v})
 
 -------------------------------------------------------------------------
