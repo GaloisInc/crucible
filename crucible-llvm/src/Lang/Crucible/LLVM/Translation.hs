@@ -1827,27 +1827,21 @@ generateInstr retType lab instr assign_f k =
                  inV  = VecType inL elTy
                  outL :: Num a => a
                  outL = fromIntegral m
-                 outV = VecType outL elTy
 
              Just v1 <- asVector <$> transValue inV (L.typedValue sV1)
              Just v2 <- asVector <$> transValue inV sV2
+             Just is <- asVector <$> transValue (VecType outL (IntType 32)) (L.typedValue sIxes)
 
-             -- we don't expand this one, so that "undefined" stays as "undefined"
-             -- rather than becoming a sequence of "undefined"s.  Not sure if that matters.
-             ixes <- transValue (VecType outL (IntType 32)) (L.typedValue sIxes)
-             case ixes of
-               UndefExpr {} -> assign_f (UndefExpr outV)
-               _ -> do let getV x =
-                             case asScalar x of
-                               Scalar _ (App (BVLit _ i))
-                                 | i < 0     -> UndefExpr elTy
-                                 | i < inL   -> Seq.index v1 (fromIntegral i)
-                                 | i < 2*inL -> Seq.index v2 (fromIntegral (i - inL))
+             let getV x =
+                   case asScalar x of
+                     Scalar _ (App (BVLit _ i))
+                       | i < 0     -> UndefExpr elTy
+                       | i < inL   -> Seq.index v1 (fromIntegral i)
+                       | i < 2*inL -> Seq.index v2 (fromIntegral (i - inL))
 
-                               _ -> UndefExpr elTy
+                     _ -> UndefExpr elTy
 
-                       let Just is = asVector ixes
-                       assign_f (VecExpr elTy (getV <$> is))
+             assign_f (VecExpr elTy (getV <$> is))
              k
 
         (t1,t2) -> fail $ unlines ["[shuffle] Type error", show t1, show t2 ]
