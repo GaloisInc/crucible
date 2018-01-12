@@ -24,9 +24,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE UndecidableInstances #-}
-
-{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- GHC 8.0 doesn't understand the COMPLETE pragma,
 -- so we just kill the incomplete pattern warning
@@ -47,11 +44,11 @@ module Lang.Crucible.LLVM.MemModel.Pointer
   , LLVMPtr
   , pattern LLVMPointerRepr
   , pattern PtrRepr
-  , pattern LLVMPointer
-  , llvmPointerView
   , pattern SizeT
-  , muxLLVMPtr
+  , pattern LLVMPointer
   , ptrWidth
+  , llvmPointerView
+  , muxLLVMPtr
   , projectLLVM_bv
   , llvmPointer_bv
   , mkNullPointer
@@ -101,7 +98,6 @@ import qualified Data.Vector as V
 import           Data.Word (Word64)
 import           Numeric.Natural
 
-import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
@@ -109,58 +105,7 @@ import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.Types
 import qualified Lang.Crucible.LLVM.Bytes as G
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
-
-import           GHC.TypeLits
-
--- | This constraint captures the idea that there is a distinguished
---   pointer width in scope which is appropriate according to the C
---   notion of pointer, and object size. In particular, it must be at
---   least 16-bits wide (as required for the @size_t@ type).
-type HasPtrWidth w = (1 <= w, 16 <= w, ?ptrWidth :: NatRepr w)
-
-pattern PtrWidth :: HasPtrWidth w => w ~ w' => NatRepr w'
-pattern PtrWidth <- (testEquality ?ptrWidth -> Just Refl)
-  where PtrWidth = ?ptrWidth
-
-withPtrWidth :: forall w a. (16 <= w) => NatRepr w -> (HasPtrWidth w => a) -> a
-withPtrWidth w a =
-  case leqTrans (LeqProof :: LeqProof 1 16) (LeqProof :: LeqProof 16 w) of
-    LeqProof -> let ?ptrWidth = w in a
-
--- | Crucible type of pointers/bitvector values of width @w@.
-type LLVMPointerType w = RecursiveType "LLVM_pointer" (EmptyCtx ::> BVType w)
-type LLVMPtr sym w = RegValue sym (LLVMPointerType w)
-
--- | Type family defining how @LLVMPointerType@ unfolds.
-type family LLVMPointerImpl ctx where
-  LLVMPointerImpl (EmptyCtx ::> BVType w) = StructType (EmptyCtx ::> NatType ::> BVType w)
-  LLVMPointerImpl ctx = TypeError ('Text "LLVM_pointer expects a single argument of BVType, but was given" ':<>:
-                                   'ShowType ctx)
-
-instance IsRecursiveType "LLVM_pointer" where
-  type UnrollType "LLVM_pointer" ctx = LLVMPointerImpl ctx
-  unrollType _nm (Ctx.Empty Ctx.:> (BVRepr w)) =
-            StructRepr (Ctx.empty Ctx.:> NatRepr Ctx.:> BVRepr w)
-  unrollType nm ctx = typeError nm ctx
-
-
--- | This pattern synonym makes it easy to build and destruct runtime
---   representatives of @'LLVMPointerType' w@.
-pattern LLVMPointerRepr :: () => (1 <= w, ty ~ LLVMPointerType w) => NatRepr w -> TypeRepr ty
-pattern LLVMPointerRepr w <- RecursiveRepr (testEquality (knownSymbol :: SymbolRepr "LLVM_pointer") -> Just Refl)
-                                           (Ctx.Empty Ctx.:> BVRepr w)
-  where
-    LLVMPointerRepr w = RecursiveRepr knownSymbol (Ctx.Empty Ctx.:> BVRepr w)
-
--- | This pattern creates/matches against the TypeRepr for LLVM pointer values
---   that are of the distinguished pointer width.
-pattern PtrRepr :: HasPtrWidth wptr => (ty ~ LLVMPointerType wptr) => TypeRepr ty
-pattern PtrRepr = LLVMPointerRepr PtrWidth
-
--- | This pattern creates/matches against the TypeRepr for raw bitvector values
---   that are of the distinguished pointer width.
-pattern SizeT :: HasPtrWidth wptr => (ty ~ BVType wptr) => TypeRepr ty
-pattern SizeT = BVRepr PtrWidth
+import           Lang.Crucible.LLVM.Types
 
 -- | This pattern synonym gives an easy way to construct/deconstruct runtime values of @LLVMPointerType@.
 pattern LLVMPointer :: RegValue sym NatType -> RegValue sym (BVType w) -> RegValue sym (LLVMPointerType w)
