@@ -19,16 +19,19 @@
 -- Syntax extension definitions for LLVM
 ------------------------------------------------------------------------
 module Lang.Crucible.LLVM.Extension
-( -- * LLVM Architecutre representations
-  LLVM
-, type LLVMArch
-, type X86
-, ArchWidth
-, ArchRepr(..)
+  ( -- * LLVM Architecutre representations
+    LLVM
+  , type LLVMArch
+  , type X86
+  , ArchWidth
+  , ArchRepr(..)
 
-  -- * LLVM Extension Statements
-, LLVMStmt(..)
-) where
+    -- * LLVM Extension Expression
+  , LLVMExtensionExpr(..)
+
+    -- * LLVM Extension Statements
+  , LLVMStmt(..)
+  ) where
 
 import           GHC.TypeLits
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -41,10 +44,12 @@ import           Lang.Crucible.CFG.Common
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.Types
 
+import           Lang.Crucible.LLVM.Arch.X86 as X86
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import           Lang.Crucible.LLVM.Types
+
 
 -- | Data kind for representing LLVM architectures.
 --   Currently only X86 variants are supported.
@@ -55,7 +60,7 @@ data LLVMArch = X86 Nat
 --   @X86 :: Nat -> LLVMArch@
 type X86 = 'X86
 
--- | Data family defining the native machine word size
+-- | Type family defining the native machine word size
 --   for a given architecture.
 type family ArchWidth (arch :: LLVMArch) :: Nat where
   ArchWidth (X86 wptr) = wptr
@@ -67,8 +72,11 @@ data ArchRepr (arch :: LLVMArch) where
 -- | The Crucible extension type marker for LLVM.
 data LLVM (arch :: LLVMArch)
 
-type instance ExprExtension (LLVM arch) = EmptyExprExtension
+type instance ExprExtension (LLVM arch) = LLVMExtensionExpr arch
 type instance StmtExtension (LLVM arch) = LLVMStmt (ArchWidth arch)
+
+data LLVMExtensionExpr (arch :: LLVMArch) :: (CrucibleType -> *) -> (CrucibleType -> *) where
+  X86Expr :: !(X86.ExtX86 f t) -> LLVMExtensionExpr (X86 wptr) f t
 
 -- | Extension statements for LLVM.  These statements represent the operations
 --   necessary to interact with the LLVM memory model.
@@ -192,6 +200,36 @@ instance OrdF ArchRepr where
     $(U.structuralTypeOrd [t|ArchRepr|]
         [ (U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|compareF|])
         ])
+
+instance TypeApp (LLVMExtensionExpr arch) where
+  appType (X86Expr ex) = appType ex
+
+instance PrettyApp (LLVMExtensionExpr arch) where
+  ppApp pp (X86Expr ex) = ppApp pp ex
+
+instance TestEqualityFC (LLVMExtensionExpr arch) where
+  testEqualityFC testSubterm =
+    $(U.structuralTypeEquality [t|LLVMExtensionExpr|]
+       [ (U.ConType [t|X86.ExtX86|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testEqualityFC testSubterm|])
+       ])
+
+instance OrdFC (LLVMExtensionExpr arch) where
+  compareFC testSubterm =
+    $(U.structuralTypeOrd [t|LLVMExtensionExpr|]
+       [ (U.ConType [t|X86.ExtX86|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareFC testSubterm|])
+       ])
+
+instance FunctorFC (LLVMExtensionExpr arch) where
+  fmapFC = fmapFCDefault
+
+instance FoldableFC (LLVMExtensionExpr arch) where
+  foldMapFC = foldMapFCDefault
+
+instance TraversableFC (LLVMExtensionExpr arch) where
+  traverseFC = $(U.structuralTraversal [t|LLVMExtensionExpr|]
+     [(U.ConType [t|X86.ExtX86|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|traverseFC|])
+     ])
+
 
 instance (1 <= wptr) => TypeApp (LLVMStmt wptr) where
   appType = \case

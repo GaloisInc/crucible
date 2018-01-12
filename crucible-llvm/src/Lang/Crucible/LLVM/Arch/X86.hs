@@ -36,12 +36,13 @@ data AVXOp1 = VShiftL Word8     -- ^ Shift left by this many bytes
 
 data ExtX86 :: (CrucibleType -> *) -> CrucibleType -> * where
 
+  {- | Unary operation on a vector.  Should have no side effects. -}
   VOp1 :: (1 <= n) =>
-     !(NatRepr n)        -> {- ^ width of input/result -}
-     !AVXOp1             -> {- ^ do this operation -}
-     !(f (BVType n))     -> {- ^ on this thing -}
+     !(NatRepr n)        -> {- width of input/result -}
+     !AVXOp1             -> {- do this operation -}
+     !(f (BVType n))     -> {- on this thing -}
      ExtX86 f (BVType n)
-  {- ^ Unary operation on a vector.  Should have no side effects. -}
+
 
 
 eval :: forall sym f tp.

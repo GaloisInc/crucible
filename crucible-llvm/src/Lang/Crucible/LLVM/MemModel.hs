@@ -100,7 +100,6 @@ import           Data.Parameterized.Some
 import qualified Data.Vector as V
 import qualified Text.LLVM.AST as L
 
-import qualified Lang.Crucible.CFG.Extension as Ext
 import           Lang.Crucible.CFG.Common
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.ProgramLoc
@@ -119,7 +118,6 @@ import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.Types
-import           Lang.Crucible.LLVM.Arch.X86(ExtX86)
 
 import GHC.Stack
 

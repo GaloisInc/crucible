@@ -25,6 +25,7 @@ import qualified Text.LLVM.AST as L
 import           Lang.Crucible.Analysis.Postdom
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.LLVM.Arch
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.MemModel
@@ -32,9 +33,7 @@ import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.OverrideSim
-import           Lang.Crucible.Solver.Interface(IsSymInterface)
 
-import qualified Lang.Crucible.LLVM.Arch.X86 as X86
 
 
 registerModuleFn
@@ -53,9 +52,9 @@ llvmGlobals
 llvmGlobals ctx mem = emptyGlobals & insertGlobal var mem
   where var = llvmMemVar $ ctx
 
-llvmExtensionImpl :: HasPtrWidth wptr => ExtensionImpl p sym (LLVM (X86 wptr))
+llvmExtensionImpl :: HasPtrWidth (ArchWidth arch) => ExtensionImpl p sym (LLVM arch)
 llvmExtensionImpl =
   ExtensionImpl
-  { extensionEval = X86.eval
+  { extensionEval = llvmExtensionEval
   , extensionExec = llvmStatementExec
   }

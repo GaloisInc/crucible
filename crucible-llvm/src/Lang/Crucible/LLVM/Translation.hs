@@ -203,7 +203,7 @@ asScalar (UndefExpr llvmtp)
 asScalar _ = NotScalar
 
 -- | Turn the expression into an explicit vector.
-asVectorWithType :: LLVMExpr s -> Maybe (MemType, Seq (LLVMExpr s))
+asVectorWithType :: LLVMExpr s arch -> Maybe (MemType, Seq (LLVMExpr s arch))
 asVectorWithType v =
   case v of
     ZeroExpr (VecType n t)  -> Just (t, Seq.replicate n (ZeroExpr t))
@@ -211,7 +211,7 @@ asVectorWithType v =
     VecExpr t s             -> Just (t, s)
     _                       -> Nothing
 
-asVector :: LLVMExpr s -> Maybe (Seq (LLVMExpr s))
+asVector :: LLVMExpr s arch -> Maybe (Seq (LLVMExpr s arch))
 asVector = fmap snd . asVectorWithType
 
 
@@ -1335,10 +1335,10 @@ translateConversion instr op x outty =
 -- Bit Cast
 
 
-bitCast :: (?lc::TyCtx.LLVMContext,HasPtrWidth wptr) =>
-          LLVMExpr s ->
+bitCast :: (?lc::TyCtx.LLVMContext,HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+          LLVMExpr s arch ->
           MemType ->
-          LLVMGenerator h s wptr ret (LLVMExpr s)
+          LLVMGenerator h s arch ret (LLVMExpr s arch)
 bitCast expr tgtT =
   llvmTypeAsRepr tgtT $ \cruT ->    -- Crucible version of the type
 
@@ -1384,9 +1384,9 @@ bitCast expr tgtT =
 -- | Join the elements of a vector into a single bit-vector value.
 -- The resulting bit-vector would be of length at least one.
 vecJoin ::
-  (?lc::TyCtx.LLVMContext,HasPtrWidth w) =>
-  [LLVMExpr s] {- ^ Join these vector elements -} ->
-  Maybe (LLVMExpr s)
+  (?lc::TyCtx.LLVMContext,HasPtrWidth w, w ~ ArchWidth arch) =>
+  [LLVMExpr s arch] {- ^ Join these vector elements -} ->
+  Maybe (LLVMExpr s arch)
 vecJoin exprs =
   do (a,ys) <- List.uncons exprs
      Scalar (BVRepr n) e1 <- return (asScalar a)
@@ -1405,10 +1405,10 @@ vecJoin exprs =
 -- | Join the elements in a vector,
 -- to get a shorter vector with larger elements.
 vecJoinVec ::
-  (?lc::TyCtx.LLVMContext,HasPtrWidth w) =>
-  [ LLVMExpr s ] {- ^ Input vector -} ->
+  (?lc::TyCtx.LLVMContext,HasPtrWidth w, w ~ ArchWidth arch) =>
+  [ LLVMExpr s arch ] {- ^ Input vector -} ->
   Int            {- ^ Number of els. to join to get 1 el. of result -} ->
-  Maybe [ LLVMExpr s ]
+  Maybe [ LLVMExpr s arch ]
 vecJoinVec exprs n = mapM vecJoin =<< chunk n exprs
 
 -- | Split a list into sub-lists of the given length.
@@ -1421,19 +1421,19 @@ chunk n xs = case xs of
                        (as,bs) -> (as :) <$> chunk n bs
 
 bitVal :: (1 <= n) => NatRepr n ->
-                  App LLVM (Expr LLVM s) (BVType n) ->
-                  LLVMExpr s
+                  App (LLVM arch) (Expr (LLVM arch) s) (BVType n) ->
+                  LLVMExpr s arch
 bitVal n e = BaseExpr (BVRepr n) (App e)
 
 
 -- | Split a single bit-vector value into a vector of value of the given width.
-vecSplit :: forall s n w. (?lc::TyCtx.LLVMContext,HasPtrWidth w, 1 <= n) =>
+vecSplit :: forall s n w arch. (?lc::TyCtx.LLVMContext,HasPtrWidth w, w ~ ArchWidth arch, 1 <= n) =>
   NatRepr n  {- ^ Length of a single element -} ->
-  LLVMExpr s {- ^ Bit-vector value -} ->
-  Maybe [ LLVMExpr s ]
+  LLVMExpr s arch {- ^ Bit-vector value -} ->
+  Maybe [ LLVMExpr s arch ]
 vecSplit elLen expr =
   do Scalar (BVRepr totLen) e <- return (asScalar expr)
-     let getEl :: NatRepr offset -> Maybe [ LLVMExpr s ]
+     let getEl :: NatRepr offset -> Maybe [ LLVMExpr s arch ]
          getEl offset = let end = addNat offset elLen
                         in case testLeq end totLen of
                              Just LeqProof ->
@@ -1456,10 +1456,10 @@ vecSplit elLen expr =
 -- | Split the elements in a vector,
 -- to get a longer vector with smaller element.
 vecSplitVec ::
-  (?lc::TyCtx.LLVMContext,HasPtrWidth w, 1 <= n) =>
-  NatRepr n    {- ^ Length of a single element in the new vector -} ->
-  [LLVMExpr s] {- ^ Vector to split -} ->
-  Maybe [ LLVMExpr s ]
+  (?lc::TyCtx.LLVMContext,HasPtrWidth w, w ~ ArchWidth arch, 1 <= n) =>
+  NatRepr n          {- ^ Length of a single element in the new vector -} ->
+  [LLVMExpr s arch ] {- ^ Vector to split -} ->
+  Maybe [ LLVMExpr s arch ]
 vecSplitVec n es = concat <$> mapM (vecSplit n) es
 
 
