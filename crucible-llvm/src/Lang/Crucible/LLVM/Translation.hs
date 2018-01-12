@@ -2017,51 +2017,11 @@ generateInstr retType lab instr assign_f k =
 
              _ -> fail $ unwords ["bitwise operation on unsupported values", show x, show y]
 
-    L.Arith op x y -> do
-           let fop :: Expr (LLVM arch) s RealValType
-                   -> Expr (LLVM arch) s RealValType
-                   -> LLVMGenerator h s arch ret (Expr (LLVM arch) s RealValType)
-               fop a b =
-                     case op of
-                        L.FAdd -> do
-                          return $ App (RealAdd a b)
-                        L.FSub -> do
-                          return $ App (RealSub a b)
-                        L.FMul -> do
-                          return $ App (RealMul a b)
-                        L.FDiv -> do
-                          return $ App (RealDiv a b)
-                        L.FRem -> do
-                          return $ App (RealMod a b)
-                        _ -> reportError $ fromString $ unwords [ "unsupported floating-point arith operation"
-                                                                , show op, show x, show y
-                                                                ]
-
-           x' <- transTypedValue x
-           y' <- transTypedValue (L.Typed (L.typedType x) y)
-           case (asScalar x', asScalar y') of
-             (Scalar ty@(LLVMPointerRepr w)  x'',
-              Scalar    (LLVMPointerRepr w') y'')
-               | Just Refl <- testEquality w PtrWidth
-               , Just Refl <- testEquality w w' ->
-                 do z <- pointerOp op x'' y''
-                    assign_f (BaseExpr ty z)
-                    k
-
-               | Just Refl <- testEquality w w' ->
-                 do xbv <- pointerAsBitvectorExpr w x''
-                    ybv <- pointerAsBitvectorExpr w y''
-                    z   <- intop op w xbv ybv
-                    assign_f (BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w z))
-                    k
-
-             (Scalar RealValRepr x'',
-              Scalar RealValRepr y'') -> do
-                 ex <- fop x'' y''
-                 assign_f (BaseExpr RealValRepr ex)
-                 k
-
-             _ -> reportError $ fromString $ unwords ["arithmetic operation on unsupported values", show x, show y]
+    L.Arith op x y ->
+      do x' <- transTypedValue x
+         y' <- transTypedValue (L.Typed (L.typedType x) y)
+         assign_f =<< arithOp op x' y'
+         k
 
     L.FCmp op x y -> do
            let cmpf :: Expr (LLVM arch) s RealValType
@@ -2182,6 +2142,65 @@ generateInstr retType lab instr assign_f k =
                     Nothing -> fail $ unwords ["tried to void return from non-void function", show retType]
 
     _ -> reportError $ App $ TextLit $ Text.pack $ unwords ["unsupported instruction", showInstr instr]
+
+
+
+arithOp :: L.ArithOp -> LLVMExpr s arch -> LLVMExpr s arch ->
+         LLVMGenerator h s arch ret (LLVMExpr s arch)
+arithOp op x y =
+  case (asScalar x, asScalar y) of
+    (Scalar ty@(LLVMPointerRepr w)  x',
+     Scalar    (LLVMPointerRepr w') y')
+      | Just Refl <- testEquality w PtrWidth
+      , Just Refl <- testEquality w w' ->
+        do z <- pointerOp op x' y'
+           return (BaseExpr ty z)
+
+      | Just Refl <- testEquality w w' ->
+        do xbv <- pointerAsBitvectorExpr w x'
+           ybv <- pointerAsBitvectorExpr w y'
+           z   <- intop op w xbv ybv
+           return (BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w z))
+
+    (Scalar RealValRepr x',
+     Scalar RealValRepr y') -> do
+        ex <- fop x' y'
+        return (BaseExpr RealValRepr ex)
+
+    _ | Just (t,xs) <- asVectorWithType x
+      , Just ys     <- asVector y ->
+        VecExpr t <$> sequence (Seq.zipWith (arithOp op) xs ys)
+
+    _ -> reportError
+           $ fromString
+           $ unwords ["arithmetic operation on unsupported values",
+                         show x, show y]
+
+  where
+  fop :: Expr (LLVM arch) s RealValType ->
+         Expr (LLVM arch) s RealValType ->
+         LLVMGenerator h s arch ret (Expr (LLVM arch) s RealValType)
+  fop a b =
+    case op of
+       L.FAdd ->
+         return (App (RealAdd a b))
+       L.FSub ->
+         return (App (RealSub a b))
+       L.FMul ->
+         return (App (RealMul a b))
+       L.FDiv ->
+         return (App (RealDiv a b))
+       L.FRem -> do
+         return (App (RealMod a b))
+       _ -> reportError
+              $ fromString
+              $ unwords [ "unsupported floating-point arith operation"
+                        , show op, show x, show y
+                        ]
+
+
+
+
 
 showInstr :: L.Instr -> String
 showInstr i = show (L.ppLLVM38 (L.ppInstr i))
