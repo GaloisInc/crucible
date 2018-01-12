@@ -39,6 +39,8 @@ library
 
   exposed-modules:
     Lang.Crucible.LLVM
+    Lang.Crucible.LLVM.Arch.X86
+    Lang.Crucible.LLVM.Arch.Util
     Lang.Crucible.LLVM.Bytes
     Lang.Crucible.LLVM.DataLayout
     Lang.Crucible.LLVM.Extension
