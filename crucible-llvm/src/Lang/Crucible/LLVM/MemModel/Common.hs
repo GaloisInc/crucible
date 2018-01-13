@@ -49,6 +49,8 @@ module Lang.Crucible.LLVM.MemModel.Common
 import Control.Exception (assert)
 import Control.Lens
 import Control.Monad.State
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Maybe
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -108,7 +110,14 @@ intValue (Bytes n) = CValue (toInteger n)
 
 -- Muxs
 
-data Mux a = Mux Cond (Mux a) (Mux a) | MuxVar a
+data Mux a
+  = Mux Cond (Mux a) (Mux a)
+  | MuxTable PtrExpr PtrExpr (Map Bytes (Mux a)) (Mux a)
+    -- ^ 'MuxTable' encodes a lookup table: @'MuxTable' p1 p2
+    -- 'Map.empty' z@ is equivalent to @z@, and @'MuxTable' p1 p2
+    -- ('Map.insert' (i, x) m) z@ is equivalent to @'Mux' (p1 '.+'
+    -- 'intValue' i '.==' p2) x ('MuxTable' p1 p2 m z)@.
+  | MuxVar a
   deriving Show
 
 -- Variable for mem model.
@@ -490,28 +499,29 @@ symbolicValueLoad ::
   Alignment      {- ^ alignment of store and load -} ->
   Mux (ValueCtor (ValueLoad PtrExpr))
 symbolicValueLoad pref tp v alignment =
-  Mux (loadOffset lsz .<= Store) loadFail (prefixL stride (suffixS 0))
+  Mux (loadOffset lsz .<= Store) loadFail $
+  MuxTable Load Store (prefixTable stride) $
+  MuxTable Store Load (suffixTable 0) loadFail
   where
     stride = fromAlignment alignment
     lsz = typeEnd 0 tp
     Just stp = viewType v
 
-    prefixL :: Bytes -> Mux (ValueCtor (ValueLoad PtrExpr)) -> Mux (ValueCtor (ValueLoad PtrExpr))
-    prefixL i m
-      | i < lsz =
-        prefixL (i + stride) $
-        Mux (loadOffset i .== Store)
-        (MuxVar (fmap adjustFn <$> valueLoad 0 tp i v)) m
-      | otherwise = m
+    prefixTable :: Bytes -> Map Bytes (Mux (ValueCtor (ValueLoad PtrExpr)))
+    prefixTable i
+      | i < lsz = Map.insert i
+        (MuxVar (fmap adjustFn <$> valueLoad 0 tp i v))
+        (prefixTable (i + stride))
+      | otherwise = Map.empty
       where adjustFn = fixLoadBeforeStoreOffset pref i
 
-    suffixS :: Bytes -> Mux (ValueCtor (ValueLoad PtrExpr))
-    suffixS i
+    suffixTable :: Bytes -> Map Bytes (Mux (ValueCtor (ValueLoad PtrExpr)))
+    suffixTable i
       | i < typeSize stp =
-        Mux (Load .== storeOffset i)
+        Map.insert i
         (MuxVar (fmap adjustFn <$> valueLoad i tp 0 v))
-        (suffixS (i + stride))
-      | otherwise = loadFail
+        (suffixTable (i + stride))
+      | otherwise = Map.empty
       where adjustFn = fixLoadAfterStoreOffset pref i
 
     loadFail = MuxVar (ValueCtorVar (OldMemory Load tp))

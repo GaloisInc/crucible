@@ -203,14 +203,16 @@ applyView sym t val =
     FieldVal flds idx v ->
       fieldValPartLLVMVal flds idx =<< applyView sym t v
 
-evalMuxValueCtor :: forall u sym w .
-                    (1 <= w, IsSymInterface sym) => sym -> NatRepr w
-                    -- Evaluation function
-                 -> (LLVMPtr sym w, LLVMPtr sym w, SymBV sym w)
-                    -- Function for reading specific subranges.
-                 -> (u -> IO (PartLLVMVal sym))
-                 -> Mux (ValueCtor u)
-                 -> IO (PartLLVMVal sym)
+evalMuxValueCtor ::
+  forall u sym w .
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w ->
+  -- | Evaluation function
+  (LLVMPtr sym w, LLVMPtr sym w, SymBV sym w) ->
+  -- | Function for reading specific subranges.
+  (u -> IO (PartLLVMVal sym)) ->
+  Mux (ValueCtor u) ->
+  IO (PartLLVMVal sym)
 evalMuxValueCtor sym _w _vf subFn (MuxVar v) =
   do v' <- traverse subFn v
      genValueCtor sym v'
@@ -219,6 +221,46 @@ evalMuxValueCtor sym w vf subFn (Mux c t1 t2) =
      t1' <- evalMuxValueCtor sym w vf subFn t1
      t2' <- evalMuxValueCtor sym w vf subFn t2
      muxLLVMVal sym c' t1' t2'
+evalMuxValueCtor sym w vf subFn (MuxTable a b m t) =
+  do m' <- traverse (evalMuxValueCtor sym w vf subFn) m
+     t' <- evalMuxValueCtor sym w vf subFn t
+     result <- Map.foldrWithKey f (return t') m'
+     p' <- simplPred (Map.assocs (fmap predOf m')) (predOf t')
+     case result of
+       Unassigned -> return Unassigned
+       PE _ v     -> return (PE p' v) -- replace predicate with simplified one
+  where
+    f :: Bytes -> PartLLVMVal sym -> IO (PartLLVMVal sym) -> IO (PartLLVMVal sym)
+    f n t1 k =
+      do c' <- genCondVar sym w vf (PtrOffsetEq (aOffset n) b)
+         t2 <- k
+         muxLLVMVal sym c' t1 t2
+
+    aOffset :: Bytes -> PtrExpr
+    aOffset n = PtrAdd a (CValue (bytesToInteger n))
+
+    predOf :: PartLLVMVal sym -> Pred sym
+    predOf Unassigned = falsePred sym
+    predOf (PE p _) = p
+
+    samePred :: Pred sym -> Pred sym -> Bool
+    samePred p1 p2 =
+      case (asConstantPred p1, asConstantPred p2) of
+        (Just b1, Just b2) -> b1 == b2
+        _ -> False
+
+    simplPred :: [(Bytes, Pred sym)] -> Pred sym -> IO (Pred sym)
+    simplPred [] p0 = return p0
+    simplPred ((n, p) : xps) p0 =
+      do let (xps1, xps2) = span (samePred p . snd) xps
+         let c = if null xps1
+                 then PtrOffsetEq (aOffset n) b
+                 else And (PtrOffsetLe (aOffset n) b)
+                          (PtrOffsetLe b (aOffset (fst (last xps1))))
+         c' <- genCondVar sym w vf c
+         p' <- simplPred xps2 p0
+         itePred sym c' p p'
+
 
 readMemCopy :: forall sym w .
                (1 <= w, IsSymInterface sym)
