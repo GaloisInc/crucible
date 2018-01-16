@@ -31,6 +31,7 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , allocAndWriteMem
   , readMem
   , isValidPointer
+  , isAligned
   , writeMem
   , copyMem
   , pushStackFrameMem
@@ -58,6 +59,7 @@ import Numeric.Natural
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import Data.Parameterized.Classes
+import Data.Parameterized.Some
 
 import Lang.Crucible.LLVM.Bytes
 import Lang.Crucible.LLVM.DataLayout
@@ -381,7 +383,9 @@ readMem :: (1 <= w, IsSymInterface sym)
 readMem sym w l tp alignment m = do
   let ld = ptrDecompose sym w l
   sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
-  p  <- isAllocated sym w l sz m
+  p1 <- isAllocated sym w l sz m
+  p2 <- isAligned sym w l alignment
+  p <- andPred sym p1 p2
   val <- readMem' sym w (l,ld) tp alignment (memWrites m)
   val' <- andPartVal sym p val
   return val'
@@ -600,6 +604,26 @@ isValidPointer sym w p m = do
    sz <- constOffset sym w 0
    isAllocated sym w p sz m
    -- NB We call isAllocated with a size of 0.
+
+-- | Generate a predicate asserting that the given pointer satisfies
+-- the specified alignment constraint.
+isAligned ::
+  forall sym w .
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w ->
+  LLVMPtr sym w ->
+  Alignment ->
+  IO (Pred sym)
+isAligned sym _w _p a
+  | a == 0 = return (truePred sym)
+isAligned sym w (LLVMPointer _blk offset) a
+  | Just (Some bits) <- someNat (alignmentToExponent a)
+  , Just LeqProof <- isPosNat bits
+  , Just LeqProof <- testLeq bits w =
+    do lowbits <- bvSelect sym (knownNat :: NatRepr 0) bits offset
+       bvEq sym lowbits =<< bvLit sym bits 0
+isAligned sym _ _ _ =
+  return (falsePred sym)
 
 --------------------------------------------------------------------------------
 -- Other memory operations
