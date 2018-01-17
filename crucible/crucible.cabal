@@ -52,7 +52,8 @@ library
     th-abstraction >=0.1 && <0.3,
     transformers,
     utf8-string,
-    vector
+    vector,
+    ghc-prim
 
   default-language: Haskell2010
   default-extensions:
@@ -122,6 +123,7 @@ library
     Lang.Crucible.Solver.WeightedSum
     Lang.Crucible.Syntax
     Lang.Crucible.Types
+    Lang.Crucible.Vector
     Lang.Crucible.Utils.AbstractDomains
     Lang.Crucible.Utils.Arithmetic
     Lang.Crucible.Utils.BitSet
