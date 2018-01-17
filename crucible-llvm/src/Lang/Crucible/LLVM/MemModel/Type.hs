@@ -25,6 +25,7 @@ module Lang.Crucible.LLVM.MemModel.Type
   , floatType
   , doubleType
   , arrayType
+  , structType
   , mkStruct
   , mkType
   , typeEnd

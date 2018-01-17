@@ -1103,13 +1103,13 @@ type FunctionBindings p sym ext = FnHandleMap (FnState p sym ext)
 
 type EvalStmtFunc p sym ext =
   forall rtp blocks r ctx tp'.
-    CrucibleState p sym ext rtp blocks r ctx ->
     StmtExtension ext (RegEntry sym) tp' ->
-    IO (CrucibleState p sym ext rtp blocks r ctx, RegValue sym tp')
+    CrucibleState p sym ext rtp blocks r ctx ->
+    IO (RegValue sym tp', CrucibleState p sym ext rtp blocks r ctx)
 
 data ExtensionImpl p sym ext
   = ExtensionImpl
-    { extensionEval :: EvalAppFunc sym (ExprExtension ext)
+    { extensionEval :: IsSymInterface sym => sym -> EvalAppFunc sym (ExprExtension ext)
     , extensionExec :: EvalStmtFunc p sym ext
     }
 

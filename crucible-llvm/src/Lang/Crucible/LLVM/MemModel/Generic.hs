@@ -31,6 +31,7 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , allocAndWriteMem
   , readMem
   , isValidPointer
+  , isAligned
   , writeMem
   , copyMem
   , pushStackFrameMem
@@ -58,8 +59,10 @@ import Numeric.Natural
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import Data.Parameterized.Classes
+import Data.Parameterized.Some
 
 import Lang.Crucible.LLVM.Bytes
+import Lang.Crucible.LLVM.DataLayout
 import Lang.Crucible.LLVM.MemModel.Type
 import Lang.Crucible.LLVM.MemModel.Common
 import Lang.Crucible.LLVM.MemModel.Pointer
@@ -202,14 +205,16 @@ applyView sym t val =
     FieldVal flds idx v ->
       fieldValPartLLVMVal flds idx =<< applyView sym t v
 
-evalMuxValueCtor :: forall u sym w .
-                    (1 <= w, IsSymInterface sym) => sym -> NatRepr w
-                    -- Evaluation function
-                 -> (LLVMPtr sym w, LLVMPtr sym w, SymBV sym w)
-                    -- Function for reading specific subranges.
-                 -> (u -> IO (PartLLVMVal sym))
-                 -> Mux (ValueCtor u)
-                 -> IO (PartLLVMVal sym)
+evalMuxValueCtor ::
+  forall u sym w .
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w ->
+  -- | Evaluation function
+  (LLVMPtr sym w, LLVMPtr sym w, SymBV sym w) ->
+  -- | Function for reading specific subranges.
+  (u -> IO (PartLLVMVal sym)) ->
+  Mux (ValueCtor u) ->
+  IO (PartLLVMVal sym)
 evalMuxValueCtor sym _w _vf subFn (MuxVar v) =
   do v' <- traverse subFn v
      genValueCtor sym v'
@@ -218,6 +223,46 @@ evalMuxValueCtor sym w vf subFn (Mux c t1 t2) =
      t1' <- evalMuxValueCtor sym w vf subFn t1
      t2' <- evalMuxValueCtor sym w vf subFn t2
      muxLLVMVal sym c' t1' t2'
+evalMuxValueCtor sym w vf subFn (MuxTable a b m t) =
+  do m' <- traverse (evalMuxValueCtor sym w vf subFn) m
+     t' <- evalMuxValueCtor sym w vf subFn t
+     result <- Map.foldrWithKey f (return t') m'
+     p' <- simplPred (Map.assocs (fmap predOf m')) (predOf t')
+     case result of
+       Unassigned -> return Unassigned
+       PE _ v     -> return (PE p' v) -- replace predicate with simplified one
+  where
+    f :: Bytes -> PartLLVMVal sym -> IO (PartLLVMVal sym) -> IO (PartLLVMVal sym)
+    f n t1 k =
+      do c' <- genCondVar sym w vf (PtrOffsetEq (aOffset n) b)
+         t2 <- k
+         muxLLVMVal sym c' t1 t2
+
+    aOffset :: Bytes -> PtrExpr
+    aOffset n = PtrAdd a (CValue (bytesToInteger n))
+
+    predOf :: PartLLVMVal sym -> Pred sym
+    predOf Unassigned = falsePred sym
+    predOf (PE p _) = p
+
+    samePred :: Pred sym -> Pred sym -> Bool
+    samePred p1 p2 =
+      case (asConstantPred p1, asConstantPred p2) of
+        (Just b1, Just b2) -> b1 == b2
+        _ -> False
+
+    simplPred :: [(Bytes, Pred sym)] -> Pred sym -> IO (Pred sym)
+    simplPred [] p0 = return p0
+    simplPred ((n, p) : xps) p0 =
+      do let (xps1, xps2) = span (samePred p . snd) xps
+         let c = if null xps1
+                 then PtrOffsetEq (aOffset n) b
+                 else And (PtrOffsetLe (aOffset n) b)
+                          (PtrOffsetLe b (aOffset (fst (last xps1))))
+         c' <- genCondVar sym w vf c
+         p' <- simplPred xps2 p0
+         itePred sym c' p p'
+
 
 readMemCopy :: forall sym w .
                (1 <= w, IsSymInterface sym)
@@ -282,10 +327,12 @@ readMemStore :: forall sym w .
                -- ^ The value that was stored.
             -> Type
                -- ^ The type of value that was written.
+            -> Alignment
+               -- ^ The alignment of the pointer we are reading from
             -> (Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (PartLLVMVal sym))
                -- ^ A callback function for when reading fails.
             -> IO (PartLLVMVal sym)
-readMemStore sym w (l,ld) ltp (d,dd) t stp readPrev' = do
+readMemStore sym w (l,ld) ltp (d,dd) t stp loadAlign readPrev' = do
   ssz <- bvLit sym w (bytesToInteger (typeSize stp))
   let varFn = (l, d, ssz)
   let readPrev tp p = readPrev' tp (p, ptrDecompose sym w p)
@@ -314,20 +361,32 @@ readMemStore sym w (l,ld) ltp (d,dd) t stp readPrev' = do
       let pref | ConcreteOffset{} <- dd = FixedStore
                | ConcreteOffset{} <- ld = FixedLoad
                | otherwise = NeitherFixed
+      let ctz :: Integer -> Alignment
+          ctz x | x == 0 = 64 -- maximum alignment
+                | odd x = 0
+                | otherwise = 1 + ctz (x `div` 2)
+      let storeAlign =
+            case dd of
+              ConcreteOffset _ x -> ctz x
+              _                  -> 0
+      let align' = min loadAlign storeAlign
       evalMuxValueCtor sym w varFn subFn $
-        symbolicValueLoad pref ltp (ValueViewVar stp)
+        symbolicValueLoad pref ltp (ValueViewVar stp) align'
 
 readMem :: (1 <= w, IsSymInterface sym)
         => sym -> NatRepr w
         -> LLVMPtr sym w
         -> Type
+        -> Alignment
         -> Mem sym
         -> IO (PartLLVMVal sym)
-readMem sym w l tp m = do
+readMem sym w l tp alignment m = do
   let ld = ptrDecompose sym w l
   sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
-  p  <- isAllocated sym w l sz m
-  val <- readMem' sym w (l,ld) tp (memWrites m)
+  p1 <- isAllocated sym w l sz m
+  p2 <- isAligned sym w l alignment
+  p <- andPred sym p1 p2
+  val <- readMem' sym w (l,ld) tp alignment (memWrites m)
   val' <- andPartVal sym p val
   return val'
 
@@ -365,10 +424,11 @@ readMem' :: forall w sym . (1 <= w, IsSymInterface sym)
             -- ^ Address we are reading along with information about how it was constructed.
          -> Type
             -- ^ The type to read from memory.
+         -> Alignment -- ^ Alignment of pointer to read from
          -> [MemWrite sym]
             -- ^ List of writes.
          -> IO (PartLLVMVal sym)
-readMem' sym w l0 tp0 = go (badLoad sym tp0) l0 tp0
+readMem' sym w l0 tp0 alignment = go (badLoad sym tp0) l0 tp0
   where
     go :: IO (PartLLVMVal sym) ->
           (LLVMPtr sym w, AddrDecomposeResult sym w) ->
@@ -394,7 +454,7 @@ readMem' sym w l0 tp0 = go (badLoad sym tp0) l0 tp0
                Nothing   -> readPrev tp l
            MemStore dst v stp ->
              case testEquality (ptrWidth (fst dst)) w of
-               Just Refl -> readMemStore sym w l tp dst v stp readPrev
+               Just Refl -> readMemStore sym w l tp dst v stp alignment readPrev
                Nothing   -> readPrev tp l
            WriteMerge _ [] [] ->
              go fallback l tp r
@@ -544,6 +604,26 @@ isValidPointer sym w p m = do
    sz <- constOffset sym w 0
    isAllocated sym w p sz m
    -- NB We call isAllocated with a size of 0.
+
+-- | Generate a predicate asserting that the given pointer satisfies
+-- the specified alignment constraint.
+isAligned ::
+  forall sym w .
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w ->
+  LLVMPtr sym w ->
+  Alignment ->
+  IO (Pred sym)
+isAligned sym _w _p a
+  | a == 0 = return (truePred sym)
+isAligned sym w (LLVMPointer _blk offset) a
+  | Just (Some bits) <- someNat (alignmentToExponent a)
+  , Just LeqProof <- isPosNat bits
+  , Just LeqProof <- testLeq bits w =
+    do lowbits <- bvSelect sym (knownNat :: NatRepr 0) bits offset
+       bvEq sym lowbits =<< bvLit sym bits 0
+isAligned sym _ _ _ =
+  return (falsePred sym)
 
 --------------------------------------------------------------------------------
 -- Other memory operations
@@ -744,7 +824,7 @@ ppTermExpr
 ppTermExpr t = -- FIXME, do something with the predicate?
   case t of
     LLVMValInt base off -> ppPtr @sym (LLVMPointer base off)
-    LLVMValReal v -> printSymExpr v
+    LLVMValReal _ v -> printSymExpr v
     LLVMValStruct v -> encloseSep lbrace rbrace comma v''
       where v'  = fmap (over _2 ppTermExpr) (V.toList v)
             v'' = map (\(fld,doc) ->

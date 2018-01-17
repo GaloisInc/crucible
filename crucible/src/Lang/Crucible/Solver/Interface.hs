@@ -607,13 +607,22 @@ class ( IsBoolExprBuilder sym
      notPred sym  =<< bvEq sym x zro
 
   -- | Left shift.
-  bvShl :: (1 <= w) => sym -> SymBV sym w -> SymBV sym w -> IO (SymBV sym w)
+  bvShl :: (1 <= w) => sym ->
+                       SymBV sym w {- ^ Shift this -} ->
+                       SymBV sym w {- ^ Amount to shift by -} ->
+                       IO (SymBV sym w)
 
   -- | Logical right shift.
-  bvLshr :: (1 <= w) => sym -> SymBV sym w -> SymBV sym w -> IO (SymBV sym w)
+  bvLshr :: (1 <= w) => sym ->
+                        SymBV sym w {- ^ Shift this -} ->
+                        SymBV sym w {- ^ Amount to shift by -} ->
+                        IO (SymBV sym w)
 
   -- | Arithmetic right shift.
-  bvAshr :: (1 <= w) => sym -> SymBV sym w -> SymBV sym w -> IO (SymBV sym w)
+  bvAshr :: (1 <= w) => sym ->
+                        SymBV sym w {- ^ Shift this -} ->
+                        SymBV sym w {- ^ Amount to shift by -} ->
+                        IO (SymBV sym w)
 
   -- | Zero-extend a bitvector.
   bvZext :: (1 <= u, u+1 <= r) => sym -> NatRepr r -> SymBV sym u -> IO (SymBV sym r)

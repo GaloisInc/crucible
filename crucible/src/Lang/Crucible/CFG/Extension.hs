@@ -72,14 +72,12 @@ type TraverseExt ext =
 --   extensions is left to a later phase.  See the @ExtensionImpl@
 --   record defined in "Lang.Crucible.Simulator.ExecutionTree".
 class
-   ( ShowFC (ExprExtension ext)
-   , TestEqualityFC (ExprExtension ext)
+   ( TestEqualityFC (ExprExtension ext)
    , OrdFC (ExprExtension ext)
    , TraversableFC (ExprExtension ext)
    , PrettyApp (ExprExtension ext)
    , TypeApp (ExprExtension ext)
 
-   , ShowFC (ExprExtension ext)
    , TestEqualityFC (StmtExtension ext)
    , OrdFC (StmtExtension ext)
    , TraversableFC (StmtExtension ext)
