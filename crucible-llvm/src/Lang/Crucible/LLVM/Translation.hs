@@ -1061,85 +1061,68 @@ callStore _ _ _ _ =
   fail $ unwords ["Unexpected argument type in callStore"]
 
 
-calcGEP :: wptr ~ ArchWidth arch
-        => MemType
-        -> LLVMExpr s arch
-        -> [LLVMExpr s arch]
-        -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
-calcGEP typ@(PtrType _) (asScalar -> Scalar PtrRepr base) xs@(_ : _) =
-   calcGEP' typ base xs
+
+calcGEP ::
+  wptr ~ ArchWidth arch =>
+  MemType ->
+  LLVMExpr s arch ->
+  [LLVMExpr s arch] ->
+  LLVMGenerator h s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
+
+calcGEP (PtrType (Alias ident)) base xs =
+  case TyCtx.lookupAlias ident of
+    Just ty -> calcGEP (PtrType ty) base xs
+    Nothing -> fail $ unwords ["Unable to resolve type alias", show ident]
+
+calcGEP (PtrType (MemType mtp)) (asScalar -> Scalar PtrRepr base) (x:xs) =
+  do base' <- calcGEP_array mtp base x
+     calcGEP' mtp base' xs
+
+calcGEP _typ _base [] =
+   fail $ unwords ["GEP must be supplied with at least one index value"]
 
 -- FIXME: support for vector base arguments
 calcGEP typ _base _xs = do
    fail $ unwords ["Invalid base argument type in GEP", show typ]
 
 
-calcGEP' :: forall h s arch wptr ret.
-            wptr ~ ArchWidth arch
-         => MemType
-         -> Expr (LLVM arch) s (LLVMPointerType wptr)
-         -> [LLVMExpr s arch]
-         -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
 
-calcGEP' _typ base [] = return base
+calcGEP' ::
+  wptr ~ ArchWidth arch =>
+  MemType ->
+  Expr (LLVM arch) s (LLVMPointerType wptr) ->
+  [LLVMExpr s arch] ->
+  LLVMGenerator h s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
 
-calcGEP' (PtrType (Alias ident)) base xs =
-  case TyCtx.lookupAlias ident of
-    Just ty -> calcGEP' (PtrType ty) base xs
-    Nothing -> fail $ unwords ["Unable to resolve type alias", show ident]
+calcGEP' _typ base [] =
+  do return base
 
-calcGEP' (ArrayType bound typ') base (idx : xs) = do
-    idx' <- case asScalar idx of
-              Scalar (LLVMPointerRepr w) x
-                 | Just Refl <- testEquality w PtrWidth ->
-                      pointerAsBitvectorExpr PtrWidth x
-                 | Just LeqProof <- testLeq (incNat w) PtrWidth ->
-                   do x' <- pointerAsBitvectorExpr w x
-                      AtomExpr <$> mkAtom (app (BVSext PtrWidth w x'))
-              Scalar tp x ->
-                   fail $ unwords ["Invalid index value in GEP", show tp, show x]
-              _ -> fail $ unwords ["Invalid index value in GEP", show idx]
+calcGEP' (PtrType _) _base _xs =
+  do fail "Pointer types not allowed in the internal type structure of getelementpointer"
 
-    -- assert that 0 <= idx' <= bound
-    --   (yes, <= and not < because of the 1-past-the-end rule)
-    let zero      = App $ BVLit PtrWidth 0
-    let bound'    = App $ BVLit PtrWidth $ toInteger bound
-    let geZero    = App $ BVSle PtrWidth zero idx'
-    let leBound   = App $ BVSle PtrWidth idx' bound'
-    let boundTest = App $ And geZero leBound
-    assertExpr boundTest
-      (App $ TextLit $ Text.pack "Array index out of bounds when calculating getelementpointer")
+calcGEP' (ArrayType _bound typ) base (idx : xs) = do
+  do base' <- calcGEP_array typ base idx
+     calcGEP' typ base' xs
 
-    let dl  = TyCtx.llvmDataLayout ?lc
+calcGEP' (StructType si) base (idx : xs) = do
+  do (typ', base') <- calcGEP_struct si base idx
+     calcGEP' typ' base' xs
 
-    -- Calculate the size of the element memtype and check that it fits
-    -- in the pointer width
-    let isz = G.bytesToInteger $ memTypeSize dl typ'
-    unless (isz <= maxSigned PtrWidth)
-      (fail $ unwords ["Type size too large for pointer width:", show typ'])
+calcGEP' tp _ _ =
+  do fail $ unwords ["calcGEP': invalid arguments", show tp]
 
-    let sz :: Expr (LLVM arch) s (BVType wptr)
-        sz  = app $ BVLit PtrWidth $ isz
 
-    -- maximum index to prevent multiplication overflow
-    let maxidx = maxSigned PtrWidth `div` isz
 
-    -- Check whether a multiply would overflow
-    let maxidx' :: Expr (LLVM arch) s (BVType wptr)
-        maxidx' = app $ BVLit PtrWidth $ maxidx
-    when (maxidx < toInteger bound) $
-      assertExpr (app $ BVSle PtrWidth idx' maxidx')
-        (App $ TextLit $ Text.pack "Multiplication overflow in getelementpointer")
-
-    -- Perform the multiply
-    let off = app $ BVMul PtrWidth sz idx'
-
-    -- Perform the pointer arithmetic and continue
-    base' <- callPtrAddOffset base off
-    calcGEP' typ' base' xs
-
-calcGEP' (PtrType (MemType typ')) base (idx : xs) = do
-    (idx' :: Expr (LLVM arch) s (BVType wptr))
+calcGEP_array :: forall wptr arch h s ret.
+  wptr ~ ArchWidth arch =>
+  MemType {- ^ Type of the array elements -} ->
+  Expr (LLVM arch) s (LLVMPointerType wptr) {- ^ Base pointer -} ->
+  LLVMExpr s arch {- ^ index value -} ->
+  LLVMGenerator h s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
+calcGEP_array typ base idx =
+  do -- sign-extend the index value if necessary to make it
+     -- the same width as a pointer
+     (idx' :: Expr (LLVM arch) s (BVType wptr))
        <- case asScalar idx of
               Scalar (LLVMPointerRepr w) x
                  | Just Refl <- testEquality w PtrWidth ->
@@ -1148,55 +1131,62 @@ calcGEP' (PtrType (MemType typ')) base (idx : xs) = do
                    do x' <- pointerAsBitvectorExpr w x
                       return $ app (BVSext PtrWidth w x')
               _ -> fail $ unwords ["Invalid index value in GEP", show idx]
-    let dl  = TyCtx.llvmDataLayout ?lc
 
-    -- Calculate the size of the element memtype and check that it fits
-    -- in the pointer width
-    let isz = G.bytesToInteger $ memTypeSize dl typ'
-    unless (isz <= maxSigned PtrWidth)
-      (fail $ unwords ["Type size too large for pointer width:", show typ'])
-    let sz :: Expr (LLVM arch) s (BVType wptr)
-        sz  = app $ BVLit PtrWidth $ isz
+     -- Calculate the size of the element memtype and check that it fits
+     -- in the pointer width
+     let dl  = TyCtx.llvmDataLayout ?lc
+     let isz = G.bytesToInteger $ memTypeSize dl typ
+     unless (isz <= maxSigned PtrWidth)
+       (fail $ unwords ["Type size too large for pointer width:", show typ])
 
-    -- maximum index to prevent multiplication overflow
-    let maxidx = maxSigned PtrWidth `div` isz
+     -- Compute safe upper and lower bounds for the index value to prevent multiplication
+     -- overflow.  Note that `minidx <= idx <= maxidx` iff `MININT <= (isz * idx) <= MAXINT`
+     -- when `isz` and `idx` are considered as infinite precision integers.
+     -- This property holds only if we use `quot` (which rounds toward 0) for the
+     -- divisions in the following definitions.
 
-    -- Check whether a multiply would overflow
-    let maxidx' :: Expr (LLVM arch) s (BVType wptr)
-        maxidx' = app $ BVLit PtrWidth $ maxidx
-    assertExpr (app $ BVSle PtrWidth idx' maxidx')
-      (App $ TextLit $ Text.pack "Multiplication overflow in getelementpointer")
+     -- maximum and minimum indices to prevent multiplication overflow
+     let maxidx = maxSigned PtrWidth `quot` isz
+     let minidx = minSigned PtrWidth `quot` isz
 
-    -- Perform the multiply
-    let off = app $ BVMul PtrWidth sz idx'
+     -- Assert the necessary range condition
+     assertExpr ((app $ BVSle PtrWidth (app $ BVLit PtrWidth minidx) idx') .&&
+                 (app $ BVSle PtrWidth idx' (app $ BVLit PtrWidth maxidx)))
+                (litExpr "Multiplication overflow in getelementpointer")
 
-    -- Perform the pointer arithmetic and continue
-    base' <- callPtrAddOffset base off
-    calcGEP' typ' base' xs
+     -- Perform the multiply
+     let off = app $ BVMul PtrWidth (app $ BVLit PtrWidth isz) idx'
 
-calcGEP' (StructType si) base (idx : xs) = do
-    idx' <- case asScalar idx of
-              Scalar (LLVMPointerRepr _w) (BitvectorAsPointerExpr _ (asApp -> Just (BVLit _ x))) -> return x
-              _ -> fail $ unwords ["Expected constant value when indexing fields in GEP"]
-    case siFieldInfo si (fromInteger idx') of
-      Just fi -> do
-        -- Get the field offset and check that it fits
-        -- in the pointer width
-        let ioff = G.bytesToInteger $ fiOffset fi
-        unless (ioff <= maxSigned PtrWidth)
-          (fail $ unwords ["Field offset too large for pointer width in structure:"
-                          , show (ppMemType (StructType si))])
-        let off  = app $ BVLit PtrWidth $ ioff
+     -- Perform the pointer offset arithmetic
+     callPtrAddOffset base off
 
-        -- Perform the pointer arithmetic and continue
-        base' <- callPtrAddOffset base off
-        let typ' = fiType fi
-        calcGEP' typ' base' xs
-      Nothing ->
-        fail $ unwords ["Invalid field index", show idx', "for structure", show (ppMemType (StructType si))]
 
-calcGEP' tp _ _ =
-    fail $ unwords ["calcGEP': invalid arguments", show tp]
+calcGEP_struct ::
+  wptr ~ ArchWidth arch =>
+  StructInfo ->
+  Expr (LLVM arch) s (LLVMPointerType wptr) ->
+  LLVMExpr s arch ->
+  LLVMGenerator h s arch ret (MemType, Expr (LLVM arch) s (LLVMPointerType wptr))
+calcGEP_struct si base idx =
+  do idx' <- case asScalar idx of
+               Scalar (LLVMPointerRepr _w) (BitvectorAsPointerExpr _ (asApp -> Just (BVLit _ x))) -> return x
+               _ -> fail $ unwords ["Expected constant value when indexing structure fields in GEP"]
+     case siFieldInfo si (fromInteger idx') of
+       Just fi -> do
+         -- Get the field offset and check that it fits
+         -- in the pointer width
+         let ioff = G.bytesToInteger $ fiOffset fi
+         unless (ioff <= maxSigned PtrWidth)
+           (fail $ unwords ["Field offset too large for pointer width in structure:"
+                           , show (ppMemType (StructType si))])
+         let off  = app $ BVLit PtrWidth $ ioff
+
+         -- Perform the pointer arithmetic and continue
+         base' <- callPtrAddOffset base off
+         return (fiType fi, base')
+
+       Nothing ->
+         fail $ unwords ["Invalid field index", show idx', "for structure", show (ppMemType (StructType si))]
 
 
 translateConversion
@@ -1895,7 +1885,7 @@ generateInstr retType lab instr assign_f k =
         PtrType (MemType resTy) ->
           do let a0 = memTypeAlign (TyCtx.llvmDataLayout ?lc) resTy
              let align' = fromMaybe a0 (toAlignment . G.toBytes =<< align)
- 
+
              vTp <- liftMemType (L.typedType v)
              v' <- transValue vTp (L.typedValue v)
              unless (resTy == vTp)
