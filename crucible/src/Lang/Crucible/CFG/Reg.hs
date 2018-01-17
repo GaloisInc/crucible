@@ -155,9 +155,10 @@ instance Ord (BlockID s) where
 -- | Identifies what generated atom.
 data AtomSource s tp
    = Assigned
-     -- Input argument to function.  They are ordered before other blocks.
+     -- | Input argument to function.  They are ordered before other
+     -- inputs to a program.
    | FnInput
-     -- The value passed into a lambda label.  This must appear after
+     -- | Value passed into a lambda label.  This must appear after
      -- other expressions.
    | LambdaArg !(LambdaLabel s tp)
 
