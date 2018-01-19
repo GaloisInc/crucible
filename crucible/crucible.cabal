@@ -143,6 +143,7 @@ library
     Lang.Crucible.Utils.Structural
     Lang.Crucible.Utils.SymMultiDimArray
     Lang.Crucible.Utils.UnaryBV
+    Lang.Crucible.Utils.Endian
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
