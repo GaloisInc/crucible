@@ -8,7 +8,7 @@ module Lang.Crucible.Vector
     -- * Construction
   , vecFromList
   , vecFromBV
-  , vecSlice
+  , vecAppend
 
     -- * Query
   , vecLength
@@ -16,7 +16,10 @@ module Lang.Crucible.Vector
   , vecElemAt
   , vecElemAtMaybe
   , vecElemAtUnsafe
+
+    -- * Sub sequences
   , vecUncons
+  , vecSlice
 
     -- * Maps
   , vecZip
