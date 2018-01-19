@@ -11,7 +11,8 @@ module Lang.Crucible.Vector
   , vecSlice
 
     -- * Query
-  , vecLenght
+  , vecLength
+  , vecLengthInt
   , vecElemAt
   , vecElemAtMaybe
   , vecElemAtUnsafe
@@ -61,10 +62,15 @@ data Vector n a where
 
 -- | Length of the vector.
 -- @O(1)@
-vecLenght :: Vector n a -> NatRepr n
-vecLenght (Vector xs) =
+vecLength :: Vector n a -> NatRepr n
+vecLength (Vector xs) =
   unsafeCoerce (fromIntegral (Vector.length xs) :: Integer)
-{-# INLINE vecLenght #-}
+{-# INLINE vecLength #-}
+
+-- | The length of the vector as an int.
+vecLengthInt :: Vector n a -> Int
+vecLengthInt (Vector xs) = Vector.length xs
+{-# Inline vecLengthInt #-}
 
 vecElemAt :: ((i+1) <= n) => NatRepr i -> Vector n a -> a
 vecElemAt n (Vector xs) = xs Vector.! widthVal n
@@ -94,7 +100,7 @@ vecUncons :: forall n a.
                   Vector n a -> (a, Either (n :~: 1) (Vector (n-1) a))
 vecUncons v@(Vector xs) = (Vector.head xs, mbTail)
   where
-  n = vecLenght v
+  n = vecLength v
 
   mbTail :: Either (n :~: 1) (Vector (n - 1) a)
   mbTail = case testStrictLeq (knownNat @1) n of
@@ -166,7 +172,7 @@ vecShuffle f (Vector xs) = Vector ys
 vecRotateL :: Int -> Vector n a -> Vector n a
 vecRotateL !n xs = vecShuffle rotL xs
   where
-  !len   = widthVal (vecLenght xs)
+  !len   = vecLengthInt xs
   rotL i = (i + n) `mod` len          -- `len` is known to be >= 1
 {-# Inline vecRotateL #-}
 
@@ -176,7 +182,7 @@ vecRotateL !n xs = vecShuffle rotL xs
 vecRotateR :: Int -> Vector n a -> Vector n a
 vecRotateR !n xs = vecShuffle rotR xs
   where
-  !len   = widthVal (vecLenght xs)
+  !len   = vecLengthInt xs
   rotR i = (i - n) `mod` len        -- `len` is known to be >= 1
 {-# Inline vecRotateR #-}
 
@@ -208,7 +214,7 @@ vecShiftR !x a (Vector xs) = Vector ys
 
 vecAppend :: Vector m a -> Vector n a -> Vector (m + n) a
 vecAppend v1@(Vector xs) v2@(Vector ys) =
-  case leqAddPos (vecLenght v1) (vecLenght v2) of { LeqProof ->
+  case leqAddPos (vecLength v1) (vecLength v2) of { LeqProof ->
     Vector (xs Vector.++ ys)
   }
 {-# Inline vecAppend #-}
@@ -277,11 +283,11 @@ vecJoinWith jn w = fst . go
     case vecUncons exprs of
       (a, Left Refl) -> (a, w)
       (a, Right rest) ->
-        let vLen = vecLenght rest         in
+        let vLen = vecLength rest         in
         case vecNonEmpty rest             of { LeqProof ->
         case leqMulPos vLen w             of { LeqProof ->
         case vecNonEmpty exprs            of { LeqProof ->
-        case lemmaMul w (vecLenght exprs) of { Refl ->
+        case lemmaMul w (vecLength exprs) of { Refl ->
         let (res,sz) = go rest            in
           (jn sz a res, addNat w sz) }}}}
 {-# Inline vecJoinWith #-}
@@ -315,18 +321,19 @@ vecSplitWith select n w val = Vector (Vector.create initializer)
     do LeqProof <- return (leqMulPos n w)
        LeqProof <- return (leqMulMono n w)
 
+
        v <- MVector.new (widthVal n)
-       let fill :: NatRepr i -> ST s ()
-           fill i =
+       let fill :: Int -> NatRepr i -> ST s ()
+           fill loc i =
              let end = addNat i w in
              case testLeq end inLen of
                Just LeqProof ->
-                 do MVector.write v (widthVal n) (select inLen i val)
-                    fill end
+                 do MVector.write v loc (select inLen i val)
+                    fill (loc + 1) end
                Nothing -> return ()
 
 
-       fill (knownNat @0)
+       fill 0 (knownNat @0)
        return v
 
   inLen :: NatRepr (n * w)
@@ -368,7 +375,7 @@ vecJoinVecBV :: (IsExpr f, 1 <= i, 1 <= w, 1 <= n) =>
   Vector (n * i) (f (BVType w)) ->
   Vector n (f (BVType (i * w)))
 vecJoinVecBV e w i xs =
-  vecJoinBV e w <$> vecSplit (divNat (vecLenght xs) i) i xs
+  vecJoinBV e w <$> vecSplit (divNat (vecLength xs) i) i xs
 {-# Inline vecJoinVecBV #-}
 
 
