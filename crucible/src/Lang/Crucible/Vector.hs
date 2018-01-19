@@ -8,6 +8,8 @@ module Lang.Crucible.Vector
     -- * Construction
   , vecFromList
   , vecFromListUnsafe
+  , vecFromBV
+  , vecSlice
 
     -- * Query
   , vecLenght
@@ -27,9 +29,15 @@ module Lang.Crucible.Vector
   , vecShiftR
 
     -- * Splitting and joining
-  , vecJoin
   , vecJoinWith
+  , vecSplitWith
+
+  , vecJoinBV
+  , vecJoinVecBV
+  , vecSplitVecBV
+
   , vecSplit
+  , vecJoin
 
   ) where
 
@@ -118,6 +126,16 @@ vecFromListUnsafe :: (1 <= n) => NatRepr n -> [a] -> Vector n a
 vecFromListUnsafe n xs = Vector n (Vector.fromList xs)
 {-# INLINE vecFromListUnsafe #-}
 
+-- | Extract a subvector of the given vector.
+vecSlice :: (i + w <= n, 1 <= w) =>
+            NatRepr i {- ^ Start index -} ->
+            NatRepr w {- ^ Width of sub-vector -} ->
+            Vector n a -> Vector w a
+vecSlice i w (Vector _ xs) =
+  Vector w (Vector.slice (widthVal i) (widthVal w) xs)
+{-# INLINE vecSlice #-}
+
+
 
 
 --------------------------------------------------------------------------------
@@ -191,6 +209,14 @@ vecShiftR !x a (Vector n xs) = Vector n ys
                                     in if j < 0 then a else xs Vector.! j)
 {-# Inline vecShiftR #-}
 
+-------------------------------------------------------------------------------i
+
+vecAppend :: Vector m a -> Vector n a -> Vector (m + n) a
+vecAppend (Vector m xs) (Vector n ys) =
+  case leqAdd (leqProof (knownNat @1) m) n of { LeqProof ->
+    Vector (addNat m n) (xs Vector.++ ys)
+  }
+
 --------------------------------------------------------------------------------
 
 
@@ -200,9 +226,9 @@ lemmaMul = unsafeCoerce Refl
 {- | Join the bit-vectors in a vector into a single large bit-vector.
 The "Endian" parameter indicates which way to join the elemnts:
 "LittleEndian" indicates that low vector indexes are less significant. -}
-vecJoin :: forall f n w.  (1 <= w, IsExpr f) =>
+vecJoinBV :: forall f n w.  (1 <= w, IsExpr f) =>
             Endian ->  NatRepr w -> Vector n (f (BVType w)) -> f (BVType (n * w))
-vecJoin endian w xs = ys
+vecJoinBV endian w xs = ys
   where
   xs' = coerceVec xs
 
@@ -260,18 +286,18 @@ vecJoinWith jn w = fst . go
 
 
 -- | Split a bit-vector into a vector of bit-vectors.
-vecSplit :: forall f w n.
+vecFromBV :: forall f w n.
   (IsExpr f, 1 <= w, 1 <= n) =>
   NatRepr n -> NatRepr w -> f (BVType (n * w)) -> Vector n (f (BVType w))
 
-vecSplit n w xs = coerceVec (vecSplitWith sel n w (Bits xs))
+vecFromBV n w xs = coerceVec (vecSplitWith sel n w (Bits xs))
   where
   sel :: (i + w <= n * w) =>
           NatRepr (n * w) -> NatRepr i -> Bits f (n * w) -> Bits f w
   sel totL i (Bits val) =
     case leqMulPos n w of { LeqProof ->
        Bits (app (BVSelect i w totL val)) }
-{-# Inline vecSplit #-}
+{-# Inline vecFromBV #-}
 
 
 -- | Split a bit-vector into a vector of bit-vectors.
@@ -306,9 +332,51 @@ vecSplitWith select n w val = Vector n (Vector.create initializer)
 {-# Inline vecSplitWith #-}
 
 
+newtype Vec a n = Vec (Vector n a)
+
+vSlice :: (i + w <= l, 1 <= w) =>
+  NatRepr w -> NatRepr l -> NatRepr i -> Vec a l -> Vec a w
+vSlice w _ i (Vec xs) = Vec (vecSlice i w xs)
+{-# Inline vSlice #-}
+
+vAppend :: NatRepr n -> Vec a m -> Vec a n -> Vec a (m + n)
+vAppend _ (Vec xs) (Vec ys) = Vec (vecAppend xs ys)
+{-# Inline vAppend #-}
+
+-- | Split a vector into a vector of vectors.
+vecSplit :: (1 <= w, 1 <= n) =>
+        NatRepr n -> NatRepr w -> Vector (n * w) a -> Vector n (Vector w a)
+vecSplit n w xs = coerceVec (vecSplitWith (vSlice w) n w (Vec xs))
+{-# Inline vecSplit #-}
+
+-- | Join a vector of vectors into a single vector.
+vecJoin :: (1 <= w) => NatRepr w -> Vector n (Vector w a) -> Vector (n * w) a
+vecJoin w xs = ys
+  where Vec ys = vecJoinWith vAppend w (coerceVec xs)
+{-# Inline vecJoin #-}
 
 
--- vecJoinVec :: Vector (n * i) (f (BVType w)) -> Vector n (f (BVType (i * w)))
--- vecSplitVec :: Vector n (f (BVType (i * w)) -> Vector (n*i) (f (BVType w))
+
+-- | Turn a vector of bit-vectors,
+-- into a shorter vector of longer bit-vectors.
+vecJoinVecBV :: (IsExpr f, 1 <= i, 1 <= w, 1 <= n) =>
+  Endian              {- ^ How to append bit-vectors -} ->
+  NatRepr w           {- ^ Width of bit-vectors in input -} ->
+  NatRepr i           {- ^ Number of bit-vectors to join togeter -} ->
+  Vector (n * i) (f (BVType w)) ->
+  Vector n (f (BVType (i * w)))
+vecJoinVecBV e w i xs =
+  vecJoinBV e w <$> vecSplit (divNat (vecLenght xs) i) i xs
+{-# Inline vecJoinBV #-}
+
+
+-- | Turn a vector of large bit-vectors,
+-- into a longer vector of shorter bit-vectors.
+vecSplitVecBV :: (IsExpr f, 1 <= i, 1 <= w) =>
+  NatRepr i {- ^ Split bit-vectors in this many parts -} ->
+  NatRepr w {- ^ Length of bit-vectors in the result -} ->
+  Vector n (f (BVType (i * w))) -> Vector (n*i) (f (BVType w))
+vecSplitVecBV i w xs = vecJoin i (vecFromBV i w <$> xs)
+
 
 
