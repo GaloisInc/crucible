@@ -22,6 +22,7 @@ extension methods (e.g., override functions).
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 module Lang.Crucible.CFG.Extension
@@ -72,30 +73,32 @@ type TraverseExt ext =
 --   extensions is left to a later phase.  See the @ExtensionImpl@
 --   record defined in "Lang.Crucible.Simulator.ExecutionTree".
 class
-   ( TestEqualityFC (ExprExtension ext)
-   , OrdFC (ExprExtension ext)
+   ( OrdFC (ExprExtension ext)
    , TraversableFC (ExprExtension ext)
    , PrettyApp (ExprExtension ext)
    , TypeApp (ExprExtension ext)
-
-   , TestEqualityFC (StmtExtension ext)
-   , OrdFC (StmtExtension ext)
    , TraversableFC (StmtExtension ext)
    , PrettyApp (StmtExtension ext)
    , TypeApp (StmtExtension ext)
    ) =>
    IsSyntaxExtension ext
 
--- | The empty expression syntax extension, which adds no new syntacitic forms.
-data EmptyExprExtension :: (CrucibleType -> *) -> (CrucibleType -> *) where
+-- | The empty expression syntax extension, which adds no new syntactic forms.
+data EmptyExprExtension :: (CrucibleType -> *) -> (CrucibleType -> *)
+
+deriving instance Show (EmptyExprExtension f tp)
+
 type instance ExprExtension () = EmptyExprExtension
 
--- | The empty statement syntax extension, which adds no new syntacitic forms.
+-- | The empty statement syntax extension, which adds no new syntactic forms.
 data EmptyStmtExtension :: (CrucibleType -> *) -> (CrucibleType -> *) where
+
+deriving instance Show (EmptyStmtExtension f tp)
+
 type instance StmtExtension () = EmptyStmtExtension
 
 instance ShowFC EmptyExprExtension where
-  showFC _ = \case
+
 instance TestEqualityFC EmptyExprExtension where
   testEqualityFC _ = \case
 instance OrdFC EmptyExprExtension where
@@ -114,7 +117,7 @@ instance TypeApp EmptyExprExtension where
   appType = \case
 
 instance ShowFC EmptyStmtExtension where
-  showFC _ = \case
+
 instance TestEqualityFC EmptyStmtExtension where
   testEqualityFC _ = \case
 instance OrdFC EmptyStmtExtension where

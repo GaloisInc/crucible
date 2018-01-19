@@ -1121,16 +1121,18 @@ calcGEP' (ArrayType bound typ') base (idx : xs) = do
     let sz :: Expr (LLVM arch) s (BVType wptr)
         sz  = app $ BVLit PtrWidth $ isz
 
-    -- Perform a signed wide multiply and check for overflow
-    Just LeqProof <- return (testLeq (knownNat @1) (addNat PtrWidth PtrWidth))
-    Just LeqProof <- return (testLeq (addNat PtrWidth (knownNat @1)) (addNat PtrWidth PtrWidth))
-    let wideMul  = app $ BVMul (addNat PtrWidth PtrWidth)
-                           (app $ BVSext (addNat PtrWidth PtrWidth) PtrWidth sz)
-                           (app $ BVSext (addNat PtrWidth PtrWidth) PtrWidth idx')
-    let off      = app $ BVTrunc PtrWidth (addNat PtrWidth PtrWidth) wideMul
-    let wideMul' = app $ BVSext (addNat PtrWidth PtrWidth) PtrWidth off
-    assertExpr (app $ BVEq (addNat PtrWidth PtrWidth) wideMul wideMul')
-      (App $ TextLit $ Text.pack "Multiplication overflow in getelementpointer")
+    -- maximum index to prevent multiplication overflow
+    let maxidx = maxSigned PtrWidth `div` isz
+
+    -- Check whether a multiply would overflow
+    let maxidx' :: Expr (LLVM arch) s (BVType wptr)
+        maxidx' = app $ BVLit PtrWidth $ maxidx
+    when (maxidx < toInteger bound) $
+      assertExpr (app $ BVSle PtrWidth idx' maxidx')
+        (App $ TextLit $ Text.pack "Multiplication overflow in getelementpointer")
+
+    -- Perform the multiply
+    let off = app $ BVMul PtrWidth sz idx'
 
     -- Perform the pointer arithmetic and continue
     base' <- callPtrAddOffset base off
@@ -1148,7 +1150,7 @@ calcGEP' (PtrType (MemType typ')) base (idx : xs) = do
               _ -> fail $ unwords ["Invalid index value in GEP", show idx]
     let dl  = TyCtx.llvmDataLayout ?lc
 
-    -- Calculate the size of the elemement memtype and check that it fits
+    -- Calculate the size of the element memtype and check that it fits
     -- in the pointer width
     let isz = G.bytesToInteger $ memTypeSize dl typ'
     unless (isz <= maxSigned PtrWidth)
@@ -1156,16 +1158,17 @@ calcGEP' (PtrType (MemType typ')) base (idx : xs) = do
     let sz :: Expr (LLVM arch) s (BVType wptr)
         sz  = app $ BVLit PtrWidth $ isz
 
-    -- Perform a signed wide multiply and check for overflow
-    Just LeqProof <- return (testLeq (knownNat @1) (addNat PtrWidth PtrWidth))
-    Just LeqProof <- return (testLeq (addNat PtrWidth (knownNat @1)) (addNat PtrWidth PtrWidth))
-    let wideMul = app $ BVMul (addNat PtrWidth PtrWidth)
-                           (app $ BVSext (addNat PtrWidth PtrWidth) PtrWidth sz)
-                           (app $ BVSext (addNat PtrWidth PtrWidth) PtrWidth idx')
-    let off      = app $ BVTrunc PtrWidth (addNat PtrWidth PtrWidth) wideMul
-    let wideMul' = app $ BVSext (addNat PtrWidth PtrWidth) PtrWidth off
-    assertExpr (app $ BVEq (addNat PtrWidth PtrWidth) wideMul wideMul')
+    -- maximum index to prevent multiplication overflow
+    let maxidx = maxSigned PtrWidth `div` isz
+
+    -- Check whether a multiply would overflow
+    let maxidx' :: Expr (LLVM arch) s (BVType wptr)
+        maxidx' = app $ BVLit PtrWidth $ maxidx
+    assertExpr (app $ BVSle PtrWidth idx' maxidx')
       (App $ TextLit $ Text.pack "Multiplication overflow in getelementpointer")
+
+    -- Perform the multiply
+    let off = app $ BVMul PtrWidth sz idx'
 
     -- Perform the pointer arithmetic and continue
     base' <- callPtrAddOffset base off
