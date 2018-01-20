@@ -170,6 +170,12 @@ mkLLVMContext halloc m = do
                            ++
                            map show errs
   let dl = TyCtx.llvmDataLayout typeCtx
+
+  -- FIXME! The memory model currently makes little-endian assumptions!
+  case dl^.intLayout of
+    LittleEndian -> return ()
+    BigEndian    -> fail "The LLVM translator currently only supports little endian architectures"
+
   case someNat (toInteger (ptrBitwidth dl)) of
     Just (Some (wptr :: NatRepr wptr)) | Just LeqProof <- testLeq (knownNat @16) wptr ->
       withPtrWidth wptr $
