@@ -1,11 +1,17 @@
 -----------------------------------------------------------------------
 -- |
--- Module           : Lang.Crucible.LLVM.Translation.GEP
--- Description      : Intermediate representation of GEP instructions
+-- Module           : Lang.Crucible.LLVM.Translation.Constant
+-- Description      : LLVM constant expression evaluation and GEPs
 -- Copyright        : (c) Galois, Inc 2014-2015
 -- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
+--
+-- This module provides translation-time evaluation of constant
+-- expressions.  It also provides an intermediate representation
+-- for GEP (getelementpointer) instructions that makes more explicit
+-- the places where vectorization may occur, as well as resolving type
+-- sizes and field offsets.
 -----------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyDataDecls #-}
@@ -24,16 +30,23 @@
 {-# LANGUAGE ViewPatterns #-}
 
 module Lang.Crucible.LLVM.Translation.Constant
-  ( LLVMConst(..)
+  ( -- * Representation of LLVM constant values
+    LLVMConst(..)
+  , boolConst
+  , intConst
+
+    -- * Translations from LLVM syntax to constant values
   , transConstant
   , transConstant'
   , transConstantExpr
+
+    -- * Intermediate representation for GEP
   , GEP(..)
   , GEPResult(..)
   , translateGEP
+
+    -- * Utility functions
   , showInstr
-  , boolConst
-  , intConst
   ) where
 
 import           Control.Monad
@@ -57,9 +70,14 @@ import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Translation.Types
 
+-- | Pretty print an LLVM instruction
 showInstr :: L.Instr -> String
 showInstr i = show (L.ppLLVM38 (L.ppInstr i))
 
+-- | Intermediate representation of a GEP.  
+--   A @GEP n expr@ is a representation of a GEP with
+--   @n@ parallel vector lanes with expressions represented
+--   by @expr@ values.
 data GEP (n :: Nat) (expr :: *) where
   -- | Start a GEP with a single base pointer
   GEP_scalar_base  :: expr -> GEP 1 expr
@@ -101,6 +119,10 @@ instance Traversable (GEP n) where
     GEP_index_each mt gep' idx   -> GEP_index_each mt <$> traverse f gep' <*> f idx
     GEP_index_vector mt gep' idx -> GEP_index_vector mt <$> traverse f gep' <*> f idx
 
+-- | The result of a GEP instruction translation.  It records the number
+--   of parallel vector lanes in the resulting instruction, the resulting
+--   memory type of the instruction, and the sequence of sub-operations
+--   required to compute the GEP instruction.
 data GEPResult expr where
   GEPResult :: (1 <= n) => NatRepr n -> MemType -> GEP n expr -> GEPResult expr
 
@@ -114,6 +136,9 @@ instance Traversable GEPResult where
   traverse f (GEPResult n mt gep) = GEPResult n mt <$> traverse f gep
 
 
+-- | Given the data for an LLVM getelementpointer instruction,
+--   preprocess the instruction into a @GEPResult@, checking
+--   types, computing vectorization lanes, etc.
 translateGEP :: forall wptr m.
   (?lc :: TyCtx.LLVMContext, MonadFail m, HasPtrWidth wptr) =>
   Bool ->
@@ -195,6 +220,7 @@ translateGEP inbounds base elts =
         _ -> badGEP
 
 
+-- | Translation-time LLVM constant values.
 data LLVMConst where
   ZeroConst     :: !MemType -> LLVMConst
   IntConst      :: (1 <= w) => !(NatRepr w) -> !Integer -> LLVMConst
@@ -206,11 +232,17 @@ data LLVMConst where
   SymbolConst   :: !L.Symbol -> !Integer -> LLVMConst
   PtrToIntConst :: !LLVMConst -> LLVMConst
 
+-- | Create an LLVM constant value from a boolean.
 boolConst :: Bool -> LLVMConst
 boolConst False = IntConst (knownNat @1) 0
 boolConst True = IntConst (knownNat @1) 1
 
-intConst :: MonadFail m => Natural -> Integer -> m LLVMConst
+-- | Create an LLVM contant of a given width.
+intConst ::
+  MonadFail m =>
+  Natural {- ^ width of the integer constant -} ->
+  Integer {- ^ value of the integer constant -} ->
+  m LLVMConst
 intConst n x
   | Just (Some w) <- someNat (fromIntegral n)
   , Just LeqProof <- isPosNat w
@@ -218,6 +250,8 @@ intConst n x
 intConst n _
   = fail ("Invalid integer width: " ++ show n)
 
+-- | Compute the constant value of an expression.  Fail if the
+--   given value does not represent a constant.
 transConstant ::
   (?lc :: TyCtx.LLVMContext, MonadFail m, HasPtrWidth wptr) =>
   L.Typed L.Value ->
@@ -226,7 +260,8 @@ transConstant (L.Typed tp v) =
   do mt <- liftMemType tp
      transConstant' mt v
 
--- | Translate an LLVM Value into a constant value.
+-- | Compute the constant value of an expression.  Fail if the
+--   given value does not represent a constant.
 transConstant' ::
   (?lc :: TyCtx.LLVMContext, MonadFail m, HasPtrWidth wptr) =>
   MemType ->
@@ -264,6 +299,8 @@ transConstant' tp val =
                  , show val
                  ]
 
+
+-- | Evaluate a GEP instruction to a constant value.
 evalConstGEP :: forall m wptr.
   (?lc :: TyCtx.LLVMContext, MonadFail m, HasPtrWidth wptr) =>
   GEPResult LLVMConst ->
@@ -762,6 +799,8 @@ asDouble (DoubleConst x) = return x
 asDouble _ = fail "Expected double constant"
 
 
+-- | Compute the value of a constant expression.  Fails if
+--   the expression does not actually represent a constant value.
 transConstantExpr ::
   (?lc :: TyCtx.LLVMContext, MonadFail m, HasPtrWidth wptr) =>
   MemType ->
