@@ -428,14 +428,14 @@ readMem' :: forall w sym . (1 <= w, IsSymInterface sym)
          -> [MemWrite sym]
             -- ^ List of writes.
          -> IO (PartLLVMVal sym)
-readMem' sym w l0 tp0 alignment = go (badLoad sym tp0) l0 tp0
+readMem' sym w l0 tp0 alignment = go (\tp _l -> badLoad sym tp) l0 tp0
   where
-    go :: IO (PartLLVMVal sym) ->
+    go :: (Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (PartLLVMVal sym)) ->
           (LLVMPtr sym w, AddrDecomposeResult sym w) ->
           Type ->
           [MemWrite sym] ->
           IO (PartLLVMVal sym)
-    go fallback _ _ [] = fallback
+    go fallback l tp [] = fallback tp l
     go fallback l tp (h : r) =
       do cache <- newIORef Map.empty
          let readPrev :: Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (PartLLVMVal sym)
@@ -459,9 +459,8 @@ readMem' sym w l0 tp0 alignment = go (badLoad sym tp0) l0 tp0
            WriteMerge _ [] [] ->
              go fallback l tp r
            WriteMerge c xr yr ->
-             do p <- go fallback l tp r -- TODO: wrap this in a delay
-                x <- go (return p) l tp xr
-                y <- go (return p) l tp yr
+             do x <- go readPrev l tp xr
+                y <- go readPrev l tp yr
                 muxLLVMVal sym c x y
 
 --------------------------------------------------------------------------------

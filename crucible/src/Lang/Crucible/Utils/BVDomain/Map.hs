@@ -62,7 +62,7 @@ module Lang.Crucible.Utils.BVDomain.Map
   ) where
 
 import           Control.Exception (assert)
-import           Control.Lens ((&), over, both)
+import           Control.Lens ((&))
 import qualified Data.Bits as Bits
 import           Data.Bits hiding (testBit, xor)
 import qualified Data.Foldable as Fold
@@ -88,7 +88,10 @@ rangeSize w = 2^(natValue w)
 -- BVDomain Parameters
 
 -- | Parameters for a domain
-newtype BVDomainParams = DP { rangeLimit :: Int }
+newtype BVDomainParams = DP {
+    -- | The maximum number of ranges in a bvdomain
+    rangeLimit :: Int
+  }
 
 defaultBVDomainParams :: BVDomainParams
 defaultBVDomainParams = DP { rangeLimit = 2 }
@@ -569,10 +572,25 @@ sext params uw x w = do
     LeqProof -> fromList "sext" params w $ do
       signedToUnsignedRanges w (toSignedRanges uw x)
 
+-- | Truncate a domain to a smaller domain.
 trunc :: (1 <= u, u+1 <= w) => BVDomainParams -> BVDomain w -> NatRepr u -> BVDomain u
-trunc params x w =
-  fromList "trunc" params w $ do
-    fmap (over both (toUnsigned w)) (toList x)
+trunc params x w
+    -- If the width exceeds maxInt, then just return anything (otherwise we can't even shift.
+  | natValue w > toInteger (maxBound :: Int) = any w
+  | otherwise =
+    let mapRange :: (Integer, Integer) -> Maybe (Integer, Integer)
+        mapRange (lbound, ubound)
+            -- If the upper bits are the same, then truncation is fine.
+            | high_lbound == high_ubound = Just (low_lbound, low_ubound)
+            -- Otherwise truncation fails.
+            | otherwise = Nothing
+          where high_lbound = lbound `shiftR` fromInteger (natValue w)
+                high_ubound = ubound `shiftR` fromInteger (natValue w)
+                low_lbound  = maxUnsigned w .&. lbound
+                low_ubound  = maxUnsigned w .&. ubound
+     in case mapM mapRange (toList x) of
+          Just l  -> fromList "trunc" params w l
+          Nothing -> any w
 
 -- | Complement bits in range.
 not :: (1 <= w) => NatRepr w -> BVDomain w -> BVDomain w
