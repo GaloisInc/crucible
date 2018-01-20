@@ -56,6 +56,7 @@ library
     Lang.Crucible.LLVM.PrettyPrint
     Lang.Crucible.LLVM.Printf
     Lang.Crucible.LLVM.Translation
+    Lang.Crucible.LLVM.Translation.Constant
     Lang.Crucible.LLVM.Translation.Types
     Lang.Crucible.LLVM.Types
 
