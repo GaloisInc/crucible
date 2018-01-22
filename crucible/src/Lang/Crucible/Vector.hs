@@ -5,25 +5,29 @@
 module Lang.Crucible.Vector
   ( Vector
 
-    -- * Construction
+    -- * Lists
   , fromList
-  , fromBV
-  , append
+  , toList
 
-    -- * Query
+    -- * Length
   , length
   , nonEmpty
   , lengthInt
+
+  -- * Indexing
   , elemAt
   , elemAtMaybe
   , elemAtUnsafe
-  , toList
+
+  -- * Update
+  , insertAt
+  , insertAtMaybe
 
     -- * Sub sequences
   , uncons
   , slice
 
-    -- * Maps
+    -- * Zipping
   , zipWith
 
     -- * Reorder
@@ -34,15 +38,20 @@ module Lang.Crucible.Vector
   , shiftR
 
     -- * Splitting and joining
+    -- * General
   , joinWith
   , splitWith
 
-  , joinBV
+    -- ** Bit-vectors
+  , fromBV
+  , toBV
   , joinVecBV
   , splitVecBV
 
+    -- ** Vectors
   , split
   , join
+  , append
 
   ) where
 
@@ -97,6 +106,24 @@ elemAtUnsafe :: Int -> Vector n a -> a
 elemAtUnsafe n (Vector xs) = xs Vector.! n
 {-# INLINE elemAtUnsafe #-}
 
+
+-- | Insert an element at the given vector position.
+-- @O(n)@.
+insertAt :: ((i + 1) <= n) => NatRepr i -> a -> Vector n a -> Vector n a
+insertAt n a (Vector xs) = Vector (Vector.unsafeUpd xs [(widthVal n,a)])
+
+-- | Insert an element at the given index.
+-- Return 'Nothing' if the element is outside the vector bounds.
+insertAtMaybe :: Int -> a -> Vector n a -> Maybe (Vector n a)
+insertAtMaybe n a (Vector xs)
+  | 0 <= n && n < Vector.length xs =
+                              Just (Vector (Vector.unsafeUpd xs [(n,a)]))
+  | otherwise = Nothing
+
+
+
+
+
 -- | Proof that the length of this vector is not 0.
 nonEmpty :: Vector n a -> LeqProof 1 n
 nonEmpty (Vector _) = LeqProof
@@ -148,6 +175,13 @@ slice i w (Vector xs) = Vector (Vector.slice (widthVal i) (widthVal w) xs)
 instance Functor (Vector n) where
   fmap f (Vector xs) = Vector (Vector.map f xs)
   {-# Inline fmap #-}
+
+instance Foldable (Vector n) where
+  foldMap f (Vector xs) = foldMap f xs
+
+instance Traversable (Vector n) where
+  traverse f (Vector xs) = Vector <$> traverse f xs
+  {-# Inline traverse #-}
 
 -- | Zip two vectors, potentially changing types.
 -- @O(n)@
@@ -235,11 +269,11 @@ lemmaMul = unsafeCoerce Refl
 {- | Join the bit-vectors in a vector into a single large bit-vector.
 The "Endian" parameter indicates which way to join the elemnts:
 "LittleEndian" indicates that low vector indexes are less significant. -}
-joinBV :: forall f n w.  (1 <= w, IsExpr f) =>
+toBV :: forall f n w.  (1 <= w, IsExpr f) =>
   Endian ->
   NatRepr w ->
   Vector n (f (BVType w)) -> f (BVType (n * w))
-joinBV endian w xs = ys
+toBV endian w xs = ys
   where
   xs' = coerceVec xs
 
@@ -249,7 +283,7 @@ joinBV endian w xs = ys
           BigEndian    -> jnBig w
 
   Bits ys = joinWith jn w xs'
-{-# Inline joinBV #-}
+{-# Inline toBV #-}
 
 coerceVec :: Coercible a b => Vector n a -> Vector n b
 coerceVec = coerce
@@ -378,8 +412,7 @@ joinVecBV :: (IsExpr f, 1 <= i, 1 <= w, 1 <= n) =>
   NatRepr i           {- ^ Number of bit-vectors to join togeter -} ->
   Vector (n * i) (f (BVType w)) ->
   Vector n (f (BVType (i * w)))
-joinVecBV e w i xs =
-  joinBV e w <$> split (divNat (length xs) i) i xs
+joinVecBV e w i xs = toBV e w <$> split (divNat (length xs) i) i xs
 {-# Inline joinVecBV #-}
 
 
