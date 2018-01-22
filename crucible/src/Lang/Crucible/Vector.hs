@@ -6,41 +6,43 @@ module Lang.Crucible.Vector
   ( Vector
 
     -- * Construction
-  , vecFromList
-  , vecFromBV
-  , vecAppend
+  , fromList
+  , fromBV
+  , append
 
     -- * Query
-  , vecLength
-  , vecLengthInt
-  , vecElemAt
-  , vecElemAtMaybe
-  , vecElemAtUnsafe
+  , length
+  , nonEmpty
+  , lengthInt
+  , elemAt
+  , elemAtMaybe
+  , elemAtUnsafe
+  , toList
 
     -- * Sub sequences
-  , vecUncons
-  , vecSlice
+  , uncons
+  , slice
 
     -- * Maps
-  , vecZip
+  , zipWith
 
     -- * Reorder
-  , vecShuffle
-  , vecRotateL
-  , vecRotateR
-  , vecShiftL
-  , vecShiftR
+  , shuffle
+  , rotateL
+  , rotateR
+  , shiftL
+  , shiftR
 
     -- * Splitting and joining
-  , vecJoinWith
-  , vecSplitWith
+  , joinWith
+  , splitWith
 
-  , vecJoinBV
-  , vecJoinVecBV
-  , vecSplitVecBV
+  , joinBV
+  , joinVecBV
+  , splitVecBV
 
-  , vecSplit
-  , vecJoin
+  , split
+  , join
 
   ) where
 
@@ -52,6 +54,7 @@ import Data.Parameterized.NatRepr
 import Data.Proxy
 import Unsafe.Coerce
 import Data.Coerce
+import Prelude hiding (length,zipWith)
 
 import Lang.Crucible.Types
 import Lang.Crucible.Syntax
@@ -62,56 +65,56 @@ import Lang.Crucible.Utils.Endian
 data Vector n a where
   Vector :: (1 <= n) => !(Vector.Vector a) -> Vector n a
 
+-- | Get the elements of the vector as a list, lowest index first.
+toList :: Vector n a -> [a]
+toList (Vector v) = Vector.toList v
+{-# Inline toList #-}
 
 -- | Length of the vector.
 -- @O(1)@
-vecLength :: Vector n a -> NatRepr n
-vecLength (Vector xs) =
-  unsafeCoerce (fromIntegral (Vector.length xs) :: Integer)
-{-# INLINE vecLength #-}
+length :: Vector n a -> NatRepr n
+length (Vector xs) = unsafeCoerce (fromIntegral (Vector.length xs) :: Integer)
+{-# INLINE length #-}
 
--- | The length of the vector as an int.
-vecLengthInt :: Vector n a -> Int
-vecLengthInt (Vector xs) = Vector.length xs
-{-# Inline vecLengthInt #-}
+-- | The length of the vector as an "Int".
+lengthInt :: Vector n a -> Int
+lengthInt (Vector xs) = Vector.length xs
+{-# Inline lengthInt #-}
 
-vecElemAt :: ((i+1) <= n) => NatRepr i -> Vector n a -> a
-vecElemAt n (Vector xs) = xs Vector.! widthVal n
+elemAt :: ((i+1) <= n) => NatRepr i -> Vector n a -> a
+elemAt n (Vector xs) = xs Vector.! widthVal n
 
 -- | Get the element at the given index.
 -- @O(1)@
-vecElemAtMaybe :: Int -> Vector n a -> Maybe a
-vecElemAtMaybe n (Vector xs) = xs Vector.!? n
-{-# INLINE vecElemAt #-}
+elemAtMaybe :: Int -> Vector n a -> Maybe a
+elemAtMaybe n (Vector xs) = xs Vector.!? n
+{-# INLINE elemAt #-}
 
 -- | Get the element at the given index.
 -- Raises an exception if the element is not in the vector's domain.
 -- @O(1)@
-vecElemAtUnsafe :: Int -> Vector n a -> a
-vecElemAtUnsafe n (Vector xs) = xs Vector.! n
-{-# INLINE vecElemAtUnsafe #-}
+elemAtUnsafe :: Int -> Vector n a -> a
+elemAtUnsafe n (Vector xs) = xs Vector.! n
+{-# INLINE elemAtUnsafe #-}
 
 -- | Proof that the length of this vector is not 0.
-vecNonEmpty :: Vector n a -> LeqProof 1 n
-vecNonEmpty (Vector _) = LeqProof
-{-# Inline vecNonEmpty #-}
+nonEmpty :: Vector n a -> LeqProof 1 n
+nonEmpty (Vector _) = LeqProof
+{-# Inline nonEmpty #-}
 
 
 
 -- | Remove the first element of the vector, and return the rest, if any.
-vecUncons :: forall n a.
-                  Vector n a -> (a, Either (n :~: 1) (Vector (n-1) a))
-vecUncons v@(Vector xs) = (Vector.head xs, mbTail)
+uncons :: forall n a.  Vector n a -> (a, Either (n :~: 1) (Vector (n-1) a))
+uncons v@(Vector xs) = (Vector.head xs, mbTail)
   where
-  n = vecLength v
-
   mbTail :: Either (n :~: 1) (Vector (n - 1) a)
-  mbTail = case testStrictLeq (knownNat @1) n of
+  mbTail = case testStrictLeq (knownNat @1) (length v) of
              Left n2_leq_n ->
                do LeqProof <- return (leqSub2 n2_leq_n (leqRefl (knownNat @1)))
                   return (Vector (Vector.tail xs))
              Right Refl    -> Left Refl
-{-# Inline vecUncons #-}
+{-# Inline uncons #-}
 
 
 --------------------------------------------------------------------------------
@@ -120,22 +123,22 @@ vecUncons v@(Vector xs) = (Vector.head xs, mbTail)
 -- Returns "Nothing" if the input list does not have the right number of
 -- elements.
 -- @O(n)@.
-vecFromList :: (1 <= n) => NatRepr n -> [a] -> Maybe (Vector n a)
-vecFromList n xs
+fromList :: (1 <= n) => NatRepr n -> [a] -> Maybe (Vector n a)
+fromList n xs
   | widthVal n == Vector.length v = Just (Vector v)
   | otherwise                     = Nothing
   where
   v = Vector.fromList xs
-{-# INLINE vecFromList #-}
+{-# INLINE fromList #-}
 
 
 -- | Extract a subvector of the given vector.
-vecSlice :: (i + w <= n, 1 <= w) =>
+slice :: (i + w <= n, 1 <= w) =>
             NatRepr i {- ^ Start index -} ->
             NatRepr w {- ^ Width of sub-vector -} ->
             Vector n a -> Vector w a
-vecSlice i w (Vector xs) = Vector (Vector.slice (widthVal i) (widthVal w) xs)
-{-# INLINE vecSlice #-}
+slice i w (Vector xs) = Vector (Vector.slice (widthVal i) (widthVal w) xs)
+{-# INLINE slice #-}
 
 
 
@@ -148,9 +151,9 @@ instance Functor (Vector n) where
 
 -- | Zip two vectors, potentially changing types.
 -- @O(n)@
-vecZip :: (a -> b -> c) -> Vector n a -> Vector n b -> Vector n c
-vecZip f (Vector xs) (Vector ys) = Vector (Vector.zipWith f xs ys)
-{-# INLINE vecZip #-}
+zipWith :: (a -> b -> c) -> Vector n a -> Vector n b -> Vector n c
+zipWith f (Vector xs) (Vector ys) = Vector (Vector.zipWith f xs ys)
+{-# INLINE zipWith #-}
 
 
 --------------------------------------------------------------------------------
@@ -162,65 +165,65 @@ vecZip f (Vector xs) (Vector ys) = Vector (Vector.zipWith f xs ys)
           in the result.
 @O(n)@
 -}
-vecShuffle :: (Int -> Int) -> Vector n a -> Vector n a
-vecShuffle f (Vector xs) = Vector ys
+shuffle :: (Int -> Int) -> Vector n a -> Vector n a
+shuffle f (Vector xs) = Vector ys
   where
   ys = Vector.generate (Vector.length xs) (\i -> xs Vector.! f i)
-{-# Inline vecShuffle #-}
+{-# Inline shuffle #-}
 
 
 -- | Rotate "left".  The first element of the vector is on the "left", so
 -- rotate left moves all elemnts toward the corresponding smaller index.
 -- Elements that fall off the beginning end up at the end.
-vecRotateL :: Int -> Vector n a -> Vector n a
-vecRotateL !n xs = vecShuffle rotL xs
+rotateL :: Int -> Vector n a -> Vector n a
+rotateL !n xs = shuffle rotL xs
   where
-  !len   = vecLengthInt xs
+  !len   = lengthInt xs
   rotL i = (i + n) `mod` len          -- `len` is known to be >= 1
-{-# Inline vecRotateL #-}
+{-# Inline rotateL #-}
 
 -- | Rotate "right".  The first element of the vector is on the "left", so
 -- rotate right moves all elemnts toward the corresponding larger index.
 -- Elements that fall off the end, end up at the beginning.
-vecRotateR :: Int -> Vector n a -> Vector n a
-vecRotateR !n xs = vecShuffle rotR xs
+rotateR :: Int -> Vector n a -> Vector n a
+rotateR !n xs = shuffle rotR xs
   where
-  !len   = vecLengthInt xs
+  !len   = lengthInt xs
   rotR i = (i - n) `mod` len        -- `len` is known to be >= 1
-{-# Inline vecRotateR #-}
+{-# Inline rotateR #-}
 
 {- | Move all elements towards smaller indexes.
-Elements that "fall" off the front are ignored.
+Elements that fall off the front are ignored.
 Empty slots are filled in with the given element.
 @O(n)@. -}
-vecShiftL :: Int -> a -> Vector n a -> Vector n a
-vecShiftL x a (Vector xs) = Vector ys
+shiftL :: Int -> a -> Vector n a -> Vector n a
+shiftL !x a (Vector xs) = Vector ys
   where
   !len = Vector.length xs
-  ys    = Vector.generate len (\i -> let j = i + x
-                                     in if j >= len then a else xs Vector.! j)
-{-# Inline vecShiftL #-}
+  ys   = Vector.generate len (\i -> let j = i + x
+                                    in if j >= len then a else xs Vector.! j)
+{-# Inline shiftL #-}
 
 {- | Move all elements towards the larger indexes.
 Elements that "fall" off the end are ignored.
 Empty slots are filled in with the given element.
 @O(n)@. -}
-vecShiftR :: Int -> a -> Vector n a -> Vector n a
-vecShiftR !x a (Vector xs) = Vector ys
+shiftR :: Int -> a -> Vector n a -> Vector n a
+shiftR !x a (Vector xs) = Vector ys
   where
   !len = Vector.length xs
   ys   = Vector.generate len (\i -> let j = i - x
                                     in if j < 0 then a else xs Vector.! j)
-{-# Inline vecShiftR #-}
+{-# Inline shiftR #-}
 
 -------------------------------------------------------------------------------i
 
-vecAppend :: Vector m a -> Vector n a -> Vector (m + n) a
-vecAppend v1@(Vector xs) v2@(Vector ys) =
-  case leqAddPos (vecLength v1) (vecLength v2) of { LeqProof ->
+append :: Vector m a -> Vector n a -> Vector (m + n) a
+append v1@(Vector xs) v2@(Vector ys) =
+  case leqAddPos (length v1) (length v2) of { LeqProof ->
     Vector (xs Vector.++ ys)
   }
-{-# Inline vecAppend #-}
+{-# Inline append #-}
 
 
 --------------------------------------------------------------------------------
@@ -232,11 +235,11 @@ lemmaMul = unsafeCoerce Refl
 {- | Join the bit-vectors in a vector into a single large bit-vector.
 The "Endian" parameter indicates which way to join the elemnts:
 "LittleEndian" indicates that low vector indexes are less significant. -}
-vecJoinBV :: forall f n w.  (1 <= w, IsExpr f) =>
+joinBV :: forall f n w.  (1 <= w, IsExpr f) =>
   Endian ->
   NatRepr w ->
   Vector n (f (BVType w)) -> f (BVType (n * w))
-vecJoinBV endian w xs = ys
+joinBV endian w xs = ys
   where
   xs' = coerceVec xs
 
@@ -245,8 +248,8 @@ vecJoinBV endian w xs = ys
           LittleEndian -> jnLittle w
           BigEndian    -> jnBig w
 
-  Bits ys = vecJoinWith jn w xs'
-{-# Inline vecJoinBV #-}
+  Bits ys = joinWith jn w xs'
+{-# Inline joinBV #-}
 
 coerceVec :: Coercible a b => Vector n a -> Vector n b
 coerceVec = coerce
@@ -273,57 +276,55 @@ jnLittle la lb (Bits a) (Bits b) =
 
 
 -- | Join a vector of values, using the given function.
-vecJoinWith ::
+joinWith ::
   forall f n w.
   (1 <= w) =>
   (forall l. (1 <= l) => NatRepr l -> f w -> f l -> f (w + l)) ->
   NatRepr w -> Vector n (f w) -> f (n * w)
 
-vecJoinWith jn w = fst . go
+joinWith jn w = fst . go
   where
   go :: forall l. Vector l (f w) -> (f (l * w), NatRepr (l * w))
   go exprs =
-    case vecUncons exprs of
+    case uncons exprs of
       (a, Left Refl) -> (a, w)
       (a, Right rest) ->
-        let vLen = vecLength rest         in
-        case vecNonEmpty rest             of { LeqProof ->
-        case leqMulPos vLen w             of { LeqProof ->
-        case vecNonEmpty exprs            of { LeqProof ->
-        case lemmaMul w (vecLength exprs) of { Refl ->
+        case nonEmpty rest                of { LeqProof ->
+        case leqMulPos (length rest) w    of { LeqProof ->
+        case nonEmpty exprs               of { LeqProof ->
+        case lemmaMul w (length exprs)    of { Refl ->
         let (res,sz) = go rest            in
           (jn sz a res, addNat w sz) }}}}
-{-# Inline vecJoinWith #-}
+{-# Inline joinWith #-}
 
 
 -- | Split a bit-vector into a vector of bit-vectors.
-vecFromBV :: forall f w n.
+fromBV :: forall f w n.
   (IsExpr f, 1 <= w, 1 <= n) =>
   NatRepr n -> NatRepr w -> f (BVType (n * w)) -> Vector n (f (BVType w))
 
-vecFromBV n w xs = coerceVec (vecSplitWith sel n w (Bits xs))
+fromBV n w xs = coerceVec (splitWith sel n w (Bits xs))
   where
   sel :: (i + w <= n * w) =>
           NatRepr (n * w) -> NatRepr i -> Bits f (n * w) -> Bits f w
   sel totL i (Bits val) =
     case leqMulPos n w of { LeqProof ->
        Bits (app (BVSelect i w totL val)) }
-{-# Inline vecFromBV #-}
+{-# Inline fromBV #-}
 
 
 -- | Split a bit-vector into a vector of bit-vectors.
-vecSplitWith :: forall f w n.
+splitWith :: forall f w n.
   (1 <= w, 1 <= n) =>
   (forall i. (i + w <= n * w) =>
              NatRepr (n * w) -> NatRepr i -> f (n * w) -> f w) ->
   NatRepr n -> NatRepr w -> f (n * w) -> Vector n (f w)
-vecSplitWith select n w val = Vector (Vector.create initializer)
+splitWith select n w val = Vector (Vector.create initializer)
   where
   initializer :: forall s. ST s (MVector s (f w))
   initializer =
     do LeqProof <- return (leqMulPos n w)
        LeqProof <- return (leqMulMono n w)
-
 
        v <- MVector.new (widthVal n)
        let fill :: Int -> NatRepr i -> ST s ()
@@ -341,54 +342,54 @@ vecSplitWith select n w val = Vector (Vector.create initializer)
 
   inLen :: NatRepr (n * w)
   inLen = natMultiply n w
-{-# Inline vecSplitWith #-}
+{-# Inline splitWith #-}
 
 
 newtype Vec a n = Vec (Vector n a)
 
 vSlice :: (i + w <= l, 1 <= w) =>
   NatRepr w -> NatRepr l -> NatRepr i -> Vec a l -> Vec a w
-vSlice w _ i (Vec xs) = Vec (vecSlice i w xs)
+vSlice w _ i (Vec xs) = Vec (slice i w xs)
 {-# Inline vSlice #-}
 
 vAppend :: NatRepr n -> Vec a m -> Vec a n -> Vec a (m + n)
-vAppend _ (Vec xs) (Vec ys) = Vec (vecAppend xs ys)
+vAppend _ (Vec xs) (Vec ys) = Vec (append xs ys)
 {-# Inline vAppend #-}
 
 -- | Split a vector into a vector of vectors.
-vecSplit :: (1 <= w, 1 <= n) =>
+split :: (1 <= w, 1 <= n) =>
         NatRepr n -> NatRepr w -> Vector (n * w) a -> Vector n (Vector w a)
-vecSplit n w xs = coerceVec (vecSplitWith (vSlice w) n w (Vec xs))
-{-# Inline vecSplit #-}
+split n w xs = coerceVec (splitWith (vSlice w) n w (Vec xs))
+{-# Inline split #-}
 
 -- | Join a vector of vectors into a single vector.
-vecJoin :: (1 <= w) => NatRepr w -> Vector n (Vector w a) -> Vector (n * w) a
-vecJoin w xs = ys
-  where Vec ys = vecJoinWith vAppend w (coerceVec xs)
-{-# Inline vecJoin #-}
+join :: (1 <= w) => NatRepr w -> Vector n (Vector w a) -> Vector (n * w) a
+join w xs = ys
+  where Vec ys = joinWith vAppend w (coerceVec xs)
+{-# Inline join #-}
 
 
 
 -- | Turn a vector of bit-vectors,
 -- into a shorter vector of longer bit-vectors.
-vecJoinVecBV :: (IsExpr f, 1 <= i, 1 <= w, 1 <= n) =>
+joinVecBV :: (IsExpr f, 1 <= i, 1 <= w, 1 <= n) =>
   Endian              {- ^ How to append bit-vectors -} ->
   NatRepr w           {- ^ Width of bit-vectors in input -} ->
   NatRepr i           {- ^ Number of bit-vectors to join togeter -} ->
   Vector (n * i) (f (BVType w)) ->
   Vector n (f (BVType (i * w)))
-vecJoinVecBV e w i xs =
-  vecJoinBV e w <$> vecSplit (divNat (vecLength xs) i) i xs
-{-# Inline vecJoinVecBV #-}
+joinVecBV e w i xs =
+  joinBV e w <$> split (divNat (length xs) i) i xs
+{-# Inline joinVecBV #-}
 
 
 -- | Turn a vector of large bit-vectors,
 -- into a longer vector of shorter bit-vectors.
-vecSplitVecBV :: (IsExpr f, 1 <= i, 1 <= w) =>
+splitVecBV :: (IsExpr f, 1 <= i, 1 <= w) =>
   NatRepr i {- ^ Split bit-vectors in this many parts -} ->
   NatRepr w {- ^ Length of bit-vectors in the result -} ->
   Vector n (f (BVType (i * w))) -> Vector (n*i) (f (BVType w))
-vecSplitVecBV i w xs = vecJoin i (vecFromBV i w <$> xs)
-{-# Inline vecSplitVecBV #-}
+splitVecBV i w xs = join i (fromBV i w <$> xs)
+{-# Inline splitVecBV #-}
 
 
