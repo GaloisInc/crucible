@@ -95,6 +95,7 @@ module Lang.Crucible.CFG.Generator
   ) where
 
 import           Control.Lens hiding (Index)
+import qualified Control.Monad.Fail as F
 import           Control.Monad.State.Strict
 import qualified Data.Foldable as Fold
 import           Data.Maybe
@@ -222,6 +223,9 @@ instance Monad (Generator ext h s t ret) where
   fail msg = Generator $ do
      p <- use gsPosition
      fail $ "at " ++ show p ++ ": " ++ msg
+
+instance F.MonadFail (Generator ext h s t ret) where
+  fail = fail
 
 instance MonadState (t s) (Generator ext h s t ret) where
   get = Generator $ use gsState
@@ -413,6 +417,9 @@ newtype End ext h s t ret a = End { unEnd :: StateT (GeneratorState ext s t ret)
            , Monad
            , MonadST h
            )
+
+instance F.MonadFail (End ext h s t ret) where
+  fail = fail
 
 instance MonadState (t s) (End ext h s t ret) where
   get = End (use gsState)
