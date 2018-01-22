@@ -29,6 +29,8 @@ module Lang.Crucible.Vector
 
     -- * Zipping
   , zipWith
+  , zipWithM
+  , zipWithM_
 
     -- * Reorder
   , shuffle
@@ -107,21 +109,18 @@ elemAtUnsafe n (Vector xs) = xs Vector.! n
 {-# INLINE elemAtUnsafe #-}
 
 
--- | Insert an element at the given vector position.
+-- | Insert an element at the given index.
 -- @O(n)@.
 insertAt :: ((i + 1) <= n) => NatRepr i -> a -> Vector n a -> Vector n a
 insertAt n a (Vector xs) = Vector (Vector.unsafeUpd xs [(widthVal n,a)])
 
 -- | Insert an element at the given index.
 -- Return 'Nothing' if the element is outside the vector bounds.
+-- @O(n)@.
 insertAtMaybe :: Int -> a -> Vector n a -> Maybe (Vector n a)
 insertAtMaybe n a (Vector xs)
-  | 0 <= n && n < Vector.length xs =
-                              Just (Vector (Vector.unsafeUpd xs [(n,a)]))
+  | 0 <= n && n < Vector.length xs = Just (Vector (Vector.unsafeUpd xs [(n,a)]))
   | otherwise = Nothing
-
-
-
 
 
 -- | Proof that the length of this vector is not 0.
@@ -187,7 +186,17 @@ instance Traversable (Vector n) where
 -- @O(n)@
 zipWith :: (a -> b -> c) -> Vector n a -> Vector n b -> Vector n c
 zipWith f (Vector xs) (Vector ys) = Vector (Vector.zipWith f xs ys)
-{-# INLINE zipWith #-}
+{-# Inline zipWith #-}
+
+zipWithM :: Monad m => (a -> b -> m c) ->
+                       Vector n a -> Vector n b -> m (Vector n c)
+zipWithM f (Vector xs) (Vector ys) = Vector <$> Vector.zipWithM f xs ys
+{-# Inline zipWithM #-}
+
+zipWithM_ :: Monad m => (a -> b -> m ()) -> Vector n a -> Vector n b -> m ()
+zipWithM_ f (Vector xs) (Vector ys) = Vector.zipWithM_ f xs ys
+{-# Inline zipWithM_ #-}
+
 
 
 --------------------------------------------------------------------------------
