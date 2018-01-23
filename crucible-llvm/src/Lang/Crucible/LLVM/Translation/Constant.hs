@@ -82,40 +82,39 @@ data GEP (n :: Nat) (expr :: *) where
   -- | Start a GEP with a single base pointer
   GEP_scalar_base  :: expr -> GEP 1 expr
 
-  -- | Start a GEP with a vector of base pointers
+  -- | Start a GEP with a vector of @n@ base pointers
   GEP_vector_base  :: NatRepr n -> expr -> GEP n expr
 
   -- | Copy a scalar base vector pointwise into a
-  --   vector of length n.
+  --   vector of length @n@.
   GEP_scatter      :: NatRepr n -> GEP 1 expr -> GEP n expr
 
   -- | Add the offset corresponding to the given field
   --   pointwise to each pointer
   GEP_field        :: FieldInfo -> GEP n expr -> GEP n expr
 
-  -- | Add an offset corresponding to indexing n*size
-  --   bytes pointwise to each pointer
+  -- | Add an offset corresponding to the given array index
+  --   (multiplied by the given type size) pointwise to the pointers
+  --   in each lane.
   GEP_index_each   :: MemType -> GEP n expr -> expr -> GEP n expr
 
   -- | Given a vector of offsets (whose length must match
-  --   the vector of pointers), multiply each one by the
+  --   the number of lanes), multiply each one by the
   --   type size, and add the offsets to the corresponding
   --   pointers.
   GEP_index_vector :: MemType -> GEP n expr -> expr -> GEP n expr
 
-
 instance Functor (GEP n) where
   fmap = fmapDefault
-
 instance Foldable (GEP n) where
   foldMap = foldMapDefault
 
 instance Traversable (GEP n) where
   traverse f gep = case gep of
-    GEP_scalar_base x      -> GEP_scalar_base <$> f x
-    GEP_vector_base n x    -> GEP_vector_base n <$> f x
-    GEP_scatter n gep'        -> GEP_scatter n <$> traverse f gep'
-    GEP_field fi gep'       -> GEP_field fi <$> traverse f gep'
+    GEP_scalar_base x            -> GEP_scalar_base <$> f x
+    GEP_vector_base n x          -> GEP_vector_base n <$> f x
+    GEP_scatter n gep'           -> GEP_scatter n <$> traverse f gep'
+    GEP_field fi gep'            -> GEP_field fi <$> traverse f gep'
     GEP_index_each mt gep' idx   -> GEP_index_each mt <$> traverse f gep' <*> f idx
     GEP_index_vector mt gep' idx -> GEP_index_vector mt <$> traverse f gep' <*> f idx
 
@@ -128,7 +127,6 @@ data GEPResult expr where
 
 instance Functor GEPResult where
   fmap = fmapDefault
-
 instance Foldable GEPResult where
   foldMap = foldMapDefault
 
@@ -141,64 +139,97 @@ instance Traversable GEPResult where
 --   types, computing vectorization lanes, etc.
 translateGEP :: forall wptr m.
   (?lc :: TyCtx.LLVMContext, MonadFail m, HasPtrWidth wptr) =>
-  Bool ->
-  L.Typed L.Value ->
-  [L.Typed L.Value] ->
+  Bool              {- ^ inbounds flag -} ->
+  L.Typed L.Value   {- ^ base pointer expression -} ->
+  [L.Typed L.Value] {- ^ index arguments -} ->
   m (GEPResult (L.Typed L.Value))
+
 translateGEP _ _ [] =
   fail "getelementpointer must have at least one index"
 
 translateGEP inbounds base elts =
   do mt <- liftMemType (L.typedType base)
+     -- Input value to a GEP must have a pointer type (or be a vector of pointer
+     -- types), and the pointed-to type must be representable as a memory type.
+     -- The resulting memory type drives the interpretation of the GEP arguments.
      case mt of
+       -- Vector base case, with as many lanes as there are input pointers
        VecType n (PtrType baseSymType)
          | Just baseMemType <- TyCtx.asMemType baseSymType
          , Just (Some lanes) <- someNat (toInteger n)
          , Just LeqProof <- isPosNat lanes
          ->  let mt' = ArrayType 0 baseMemType in
              go lanes mt' (GEP_vector_base lanes base) elts
+
+       -- Scalar base case with exactly 1 lane
        PtrType baseSymType
          | Just baseMemType <- TyCtx.asMemType baseSymType
          ->  let mt' = ArrayType 0 baseMemType in
              go (knownNat @1) mt' (GEP_scalar_base base) elts
+
        _ -> badGEP
  where
  badGEP :: m a
  badGEP = fail $ unlines [ "Invalid GEP", showInstr (L.GEP inbounds base elts) ]
 
+ -- This auxilary function builds up the intermediate GEP mini-instructions that compute
+ -- the overall GEP, as well as the resulting memory type of the final pointers and the
+ -- number of vector lanes eventually computed by the GEP.
  go ::
    (1 <= lanes) =>
-   NatRepr lanes ->
-   MemType ->
-   GEP lanes (L.Typed L.Value) ->
-   [L.Typed L.Value] ->
+   NatRepr lanes               {- Number of lanes of the GEP so far -} -> 
+   MemType                     {- Memory type of the incomming pointer(s) -} ->
+   GEP lanes (L.Typed L.Value) {- parital GEP computation -} ->
+   [L.Typed L.Value]           {- remaining arguments to process -} ->
    m (GEPResult (L.Typed L.Value))
 
+ -- Final step, all arguments are used up, return the GEPResult
  go lanes mt gep [] = return (GEPResult lanes mt gep)
 
+ -- Resolve one offset value and recurse
  go lanes mt gep (off:xs) =
    do offt <- liftMemType (L.typedType off)
+      -- The meaning of the offset depends on the static type of the intermediate result
       case mt of
+        -- If it is an array type, the offset should be considered an array index, or
+        -- vector of array indices.  
         ArrayType _ mt' ->
           case offt of
+            -- Single array index, apply pointwise to all intermediate pointers
             IntType _
               -> go lanes mt' (GEP_index_each mt' gep off) xs
+
+            -- Vector of indices, matching the current number of lanes, apply
+            -- each offset to the corresponding base pointer
             VecType n (IntType _)
               | natValue lanes == toInteger n
               -> go lanes mt' (GEP_index_vector mt' gep off) xs
+
+            -- Vector of indices, with a single incomming base pointer.  Scatter
+            -- the base pointer across the correct number of lanes, and then
+            -- apply the vector of offsets componentwise.
             VecType n (IntType _)
               | Just (Some n') <- someNat (toInteger n)
               , Just LeqProof <- isPosNat n'
               , Just Refl <- testEquality lanes (knownNat @1)
               -> go n' mt' (GEP_index_vector mt' (GEP_scatter n' gep) off) xs
 
+            -- Otherwise, some sort of mismatch occured.
             _ -> badGEP
 
+        -- If it is a structure type, the index must be a constant value that indicates
+        -- which field (counting from 0) is to be indexed.
         StructType si ->
           do off' <- transConstant' offt (L.typedValue off)
              case off' of
+               -- Special case for the zero value
                ZeroConst (IntType _) -> goidx 0
+
+               -- Single index; compute the corresponding field.
                IntConst _ idx -> goidx idx
+
+               -- Special case.  A vector of indices is allowed, but it must be of the correct
+               -- number of lanes, and each (constant) index must be the same value.
                VectorConst (IntType _) (i@(IntConst _ idx) : is) | all (same i) is -> goidx idx
                  where
                  same :: LLVMConst -> LLVMConst -> Bool
@@ -206,14 +237,15 @@ translateGEP inbounds base elts =
                    | Just Refl <- testEquality wx wy = x == y
                  same _ _ = False
 
+               -- Otherwise, invalid GEP instruction
                _ -> badGEP
 
+                  -- using the information from the struct type, figure out which
+                  -- field is indicated
             where goidx idx | 0 <= idx && idx < toInteger (V.length flds) =
-                       go lanes mt' (GEP_field fi gep) xs
-                     where idx' = fromInteger idx
-                           flds = siFields si
-                           fi   = flds V.! idx'
-                           mt'  = fiType fi
+                       go lanes (fiType fi) (GEP_field fi gep) xs
+                     where flds = siFields si
+                           fi   = flds V.! (fromInteger idx)
 
                   goidx _ = badGEP
 
@@ -222,14 +254,24 @@ translateGEP inbounds base elts =
 
 -- | Translation-time LLVM constant values.
 data LLVMConst where
+  -- | A constant value consisting of all zero bits.
   ZeroConst     :: !MemType -> LLVMConst
+  -- | A constant integer value, with bit-width @w@.  The integer should
+  --   be understood as a value modulo @2^w@.
   IntConst      :: (1 <= w) => !(NatRepr w) -> !Integer -> LLVMConst
+  -- | A constant floating point value.
   FloatConst    :: !Float -> LLVMConst
+  -- | A constant double value.
   DoubleConst   :: !Double -> LLVMConst
+  -- | A constant array value.
   ArrayConst    :: !MemType -> [LLVMConst] -> LLVMConst
+  -- | A constant vector value.
   VectorConst   :: !MemType -> [LLVMConst] -> LLVMConst
+  -- | A constant structure value.
   StructConst   :: !StructInfo -> [LLVMConst] -> LLVMConst
+  -- | A pointer value, consisting of a concrete offset from a global symbol.
   SymbolConst   :: !L.Symbol -> !Integer -> LLVMConst
+  -- | A special marker for pointer constants that have been cast as an integer type.
   PtrToIntConst :: !LLVMConst -> LLVMConst
 
 -- | Create an LLVM constant value from a boolean.
@@ -237,11 +279,12 @@ boolConst :: Bool -> LLVMConst
 boolConst False = IntConst (knownNat @1) 0
 boolConst True = IntConst (knownNat @1) 1
 
--- | Create an LLVM contant of a given width.
+-- | Create an LLVM contant of a given width.  The resulting integer
+--   constant value will be the unsigned integer value @n mod 2^w@.
 intConst ::
   MonadFail m =>
-  Natural {- ^ width of the integer constant -} ->
-  Integer {- ^ value of the integer constant -} ->
+  Natural {- ^ width of the integer constant, @w@ -} ->
+  Integer {- ^ value of the integer constant, @n@ -} ->
   m LLVMConst
 intConst n x
   | Just (Some w) <- someNat (fromIntegral n)
@@ -283,19 +326,25 @@ transConstant' tp L.ValZeroInit =
   return (ZeroConst tp)
 transConstant' (PtrType stp) L.ValNull =
   return (ZeroConst (PtrType stp))
-transConstant' (VecType n tp) (L.ValVector _tp xs) | n == length xs =
-  VectorConst tp <$> traverse (transConstant' tp) xs
-transConstant' (ArrayType n tp) (L.ValArray _tp xs) | n == length xs =
-  ArrayConst tp <$> traverse (transConstant' tp) xs
-transConstant' (StructType si) (L.ValStruct xs) | not (siIsPacked si) =
-  StructConst si <$> traverse transConstant xs
-transConstant' (StructType si) (L.ValPackedStruct xs) | siIsPacked si =
-  StructConst si <$> traverse transConstant xs
+transConstant' (VecType n tp) (L.ValVector _tp xs)
+  | n == length xs
+  = VectorConst tp <$> traverse (transConstant' tp) xs
+transConstant' (ArrayType n tp) (L.ValArray _tp xs)
+  | n == length xs
+  = ArrayConst tp <$> traverse (transConstant' tp) xs
+transConstant' (StructType si) (L.ValStruct xs)
+  | not (siIsPacked si)
+  , V.length (siFields si) == length xs
+  = StructConst si <$> traverse transConstant xs
+transConstant' (StructType si) (L.ValPackedStruct xs)
+  | siIsPacked si
+  , V.length (siFields si) == length xs
+  = StructConst si <$> traverse transConstant xs
 
 transConstant' tp (L.ValConstExpr cexpr) = transConstantExpr tp cexpr
 
 transConstant' tp val =
-  fail $ unlines ["Cannot compute constant value for expression of type " ++ show tp
+  fail $ unlines ["Cannot compute constant value for expression of type: " ++ show tp
                  , show val
                  ]
 
@@ -323,41 +372,56 @@ evalConstGEP (GEPResult lanes finalMemType gep0) =
        unless (x' <= maxUnsigned ?ptrWidth)
               (fail "Computed offset overflow in constant GEP")
        return x'
-  asOffset _ _ =
-    fail "Expected offset value in constant GEP"
+  asOffset _ _ = fail "Expected offset value in constant GEP"
 
   addOffset :: Integer -> LLVMConst -> m LLVMConst
   addOffset x (SymbolConst sym off) = return (SymbolConst sym (off+x))
   addOffset _ _ = fail "Expected symbol constant in constant GEP"
 
+  -- Given a processed GEP instruction, compute the sequence of output
+  -- pointer values that result from the instruction.  If the GEP is
+  -- scalar-valued, then the result will be a list of one element.
   go :: GEP n LLVMConst -> m [LLVMConst]
+
+  -- Scalar base, return a list containing just the base value.
   go (GEP_scalar_base base)
     = return [base]
 
+  -- Vector base, deconstruct the input value and return the
+  -- corresponding values.
   go (GEP_vector_base n x)
     = asVectorOf (fromInteger (natValue n)) return x
 
+  -- Scatter a scalar input across n lanes
   go (GEP_scatter n gep)
     = do ps <- go gep
          case ps of
            [p] -> return (replicate (fromInteger (natValue n)) p)
            _   -> fail "vector length mismatch in GEP scatter"
 
+  -- Add the offset corresponding to the given field across
+  -- all the lanes of the GEP
   go (GEP_field fi gep)
     = do ps <- go gep
          let i = bytesToInteger (fiOffset fi)
          traverse (addOffset i) ps
 
+  -- Compute the offset corresponding to the given array index
+  -- and add that offest across all the lanes of the GEP
   go (GEP_index_each mt gep x)
     = do ps <- go gep
          i  <- asOffset mt x
          traverse (addOffset i) ps
 
+  -- For each index in the input vector, compute and offset according
+  -- to the given memory type and add the corresponding offset across
+  -- each lane of the GEP componentwise.
   go (GEP_index_vector mt gep x)
     = do ps <- go gep
          is <- asVectorOf (length ps) (asOffset mt) x
          zipWithM addOffset is ps
 
+-- | Evaluate a floating point comparison.
 evalFcmp ::
   RealFloat a =>
   L.FCmpOp ->
@@ -383,6 +447,7 @@ evalFcmp op x y = boolConst $ case op of
  unordered = isNaN x || isNaN y
  ordered   = not unordered
 
+-- | Evaluate an integer comparison.
 evalIcmp ::
   (1 <= w) =>
   L.ICmpOp ->
@@ -406,6 +471,7 @@ evalIcmp op w x y = boolConst $ case op of
  sx = toSigned w x
  sy = toSigned w y
 
+-- | Evaluate an arithmetic operation.
 evalArith ::
   (MonadFail m, HasPtrWidth wptr) =>
   L.ArithOp ->
@@ -419,6 +485,7 @@ evalArith op FloatType (ArithF x) (ArithF y) = FloatConst <$> evalFarith op x y
 evalArith op DoubleType (ArithD x) (ArithD y) = DoubleConst <$> evalFarith op x y
 evalArith _ _ _ _ = fail "arithmetic arugment mistmatch"
 
+-- | Evaluate a floating-point operation.
 evalFarith ::
   (RealFrac a, MonadFail m) =>
   L.ArithOp ->
@@ -432,6 +499,7 @@ evalFarith op x y =
     L.FRem -> return (mod' x y)
     _ -> fail "Encountered integer arithmetic operation applied to floating point arguments"
 
+-- | Evaluate an integer or pointer arithmetic operation.
 evalIarith ::
   (1 <= w, MonadFail m, HasPtrWidth wptr) =>
   L.ArithOp ->
@@ -459,6 +527,7 @@ evalIarith op w (ArithPtr symx x) (ArithPtr symy y)
   | otherwise
   = fail "Illegal operation applied to pointer argument"
 
+-- | Evaluate an integer (non-pointer) arithmetic operation.
 evalIarith' ::
   (1 <= w, MonadFail m) =>
   L.ArithOp ->
@@ -527,6 +596,7 @@ evalIarith' op w x y = do
 
     _ -> fail "Floating point operation applied to integer arguments"
 
+-- | Evaluate a bitwise operation on integer values.
 evalBitwise ::
   (1 <= w, MonadFail m) =>
   L.BitOp ->
@@ -558,6 +628,7 @@ evalBitwise op w x y = IntConst w <$>
                  (fail "Exact left shift failed")
             return (toUnsigned w z)
 
+-- | Evaluate a conversion operation on constants.
 evalConv ::
   (?lc :: TyCtx.LLVMContext, MonadFail m, HasPtrWidth wptr) =>
   L.ConstExpr ->
@@ -678,12 +749,13 @@ evalConv expr op mt x = case op of
  where badExp msg = fail $ unlines [msg, show expr]
 
 
+-- | Evaluate a bitcast
 evalBitCast ::
   MonadFail m =>
-  L.ConstExpr ->  
-  MemType ->
-  LLVMConst ->
-  MemType ->
+  L.ConstExpr {- ^ original expression to evaluate -} ->  
+  MemType     {- ^ input expressio type -} ->
+  LLVMConst   {- ^ input expression -} ->
+  MemType     {- ^ desired output type -} ->
   m LLVMConst
 evalBitCast expr xty x toty =
   case (xty, toty) of
@@ -737,10 +809,14 @@ asVectorOf n f (VectorConst _ xs)
 asVectorOf n _ _
   = fail ("Expected vector constant value of length: " ++ show n)
 
+-- | Type representing integer-like things.  These are either actual
+--   integer constants, or constant offsets from global symbols.
 data ArithInt where
   ArithInt :: Integer -> ArithInt
   ArithPtr :: L.Symbol -> Integer -> ArithInt
 
+-- | A constant value to which arithmetic operation can be applied.
+--   These are integers, pointers, floats and doubles.
 data Arith where
   ArithI :: ArithInt -> Arith
   ArithF :: Float -> Arith
@@ -748,8 +824,9 @@ data Arith where
 
 asArithInt ::
   (MonadFail m, HasPtrWidth wptr) =>
-  Natural ->
-  LLVMConst -> m ArithInt
+  Natural   {- ^ expected integer width -} ->
+  LLVMConst {- ^ constant value -} ->
+  m ArithInt
 asArithInt n (ZeroConst (IntType m))
   | n == m
   = return (ArithInt 0)
@@ -764,8 +841,9 @@ asArithInt _ _
 
 asArith ::
   (MonadFail m, HasPtrWidth wptr) =>
-  MemType ->
-  LLVMConst -> m Arith
+  MemType   {- ^ expected type -} ->
+  LLVMConst {- ^ constant value -} ->
+  m Arith
 asArith (IntType n) x = ArithI <$> asArithInt n x
 asArith FloatType x   = ArithF <$> asFloat x
 asArith DoubleType x  = ArithD <$> asDouble x
@@ -773,8 +851,9 @@ asArith _ _ = fail "Expected arithmetic type"
 
 asInt ::
   MonadFail m =>
-  Natural ->
-  LLVMConst -> m Integer
+  Natural   {- ^ expected integer width -} ->
+  LLVMConst {- ^ constant value -} ->
+  m Integer
 asInt n (ZeroConst (IntType m))
   | n == m
   = return 0
@@ -786,14 +865,16 @@ asInt n _
 
 asFloat ::
   MonadFail m =>
-  LLVMConst -> m Float
+  LLVMConst {- ^ constant value -} ->
+  m Float
 asFloat (ZeroConst FloatType) = return 0
 asFloat (FloatConst x) = return x
 asFloat _ = fail "Expected floating point constant"
 
 asDouble ::
   MonadFail m =>
-  LLVMConst -> m Double
+  LLVMConst {- ^ constant value -} ->
+  m Double
 asDouble (ZeroConst DoubleType) = return 0
 asDouble (DoubleConst x) = return x
 asDouble _ = fail "Expected double constant"
