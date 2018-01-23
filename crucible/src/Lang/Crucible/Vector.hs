@@ -4,7 +4,6 @@
 -- | A vector fixed-size vector of typed elements.
 module Lang.Crucible.Vector
   ( Vector
-
     -- * Lists
   , fromList
   , toList
@@ -40,7 +39,7 @@ module Lang.Crucible.Vector
   , shiftR
 
     -- * Splitting and joining
-    -- * General
+    -- ** General
   , joinWith
   , splitWith
 
@@ -322,7 +321,8 @@ jnLittle la lb (Bits a) (Bits b) =
 joinWith ::
   forall f n w.
   (1 <= w) =>
-  (forall l. (1 <= l) => NatRepr l -> f w -> f l -> f (w + l)) ->
+  (forall l. (1 <= l) => NatRepr l -> f w -> f l -> f (w + l))
+  {- ^ A function for appending contained elements -} ->
   NatRepr w -> Vector n (f w) -> f (n * w)
 
 joinWith jn w = fst . go
@@ -360,7 +360,8 @@ fromBV n w xs = coerceVec (splitWith sel n w (Bits xs))
 splitWith :: forall f w n.
   (1 <= w, 1 <= n) =>
   (forall i. (i + w <= n * w) =>
-             NatRepr (n * w) -> NatRepr i -> f (n * w) -> f w) ->
+             NatRepr (n * w) -> NatRepr i -> f (n * w) -> f w)
+  {- ^ A function for slicing out a chunk of length @w@, starting at @i@ -} ->
   NatRepr n -> NatRepr w -> f (n * w) -> Vector n (f w)
 splitWith select n w val = Vector (Vector.create initializer)
   where
