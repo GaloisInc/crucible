@@ -2532,14 +2532,16 @@ initializeMemory
    -> L.Module
    -> IO (MemImpl sym)
 initializeMemory sym llvm_ctx m = do
+   -- Create initial memory of appropriate endianness
+   let ?lc = llvm_ctx^.llvmTypeCtx
+   let dl = TyCtx.llvmDataLayout ?lc
+   let endianness = dl^.intLayout
+   mem0 <- emptyMem endianness
    -- Allocate function handles
    let handles = Map.assocs (_symbolMap llvm_ctx)
-   mem0 <- emptyMem
    mem <- foldM (allocLLVMHandleInfo sym) mem0 handles
    -- Allocate global values
    let gs = L.modGlobals m
-   let ?lc = llvm_ctx^.llvmTypeCtx
-   let dl = TyCtx.llvmDataLayout ?lc
    gs_alloc <- mapM (\g -> do
                         ty <- liftMemType $ L.globalType g
                         let sz = memTypeSize dl ty

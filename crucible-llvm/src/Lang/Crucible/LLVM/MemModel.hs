@@ -285,10 +285,10 @@ data MemImpl sym =
 -- | Produce a fresh empty memory.
 --   NB, we start counting allocation blocks at '1'.
 --   Block number 0 is reserved for representing raw bitvectors.
-emptyMem :: IO (MemImpl sym)
-emptyMem = do
+emptyMem :: EndianForm -> IO (MemImpl sym)
+emptyMem endianness = do
   blkRef <- newIORef 1
-  return $ MemImpl (BlockSource blkRef) Map.empty Map.empty G.emptyMem
+  return $ MemImpl (BlockSource blkRef) Map.empty Map.empty (G.emptyMem endianness)
 
 data SomePointer sym = forall w. SomePointer !(RegValue sym (LLVMPointerType w))
 type GlobalMap sym = Map L.Symbol (SomePointer sym)
