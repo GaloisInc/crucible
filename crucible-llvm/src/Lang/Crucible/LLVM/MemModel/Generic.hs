@@ -150,28 +150,31 @@ genCondVar sym w inst c =
 
 genValueCtor :: forall sym .
   IsSymInterface sym => sym ->
+  EndianForm ->
   ValueCtor (PartLLVMVal sym) ->
   IO (PartLLVMVal sym)
-genValueCtor sym v =
+genValueCtor sym end v =
   case v of
     ValueCtorVar x -> return x
     ConcatBV low_w vcl high_w vch ->
-      do vl <- genValueCtor sym vcl
-         vh <- genValueCtor sym vch
-         bvConcatPartLLVMVal sym low_w vl high_w vh
+      do vl <- genValueCtor sym end vcl
+         vh <- genValueCtor sym end vch
+         case end of
+           BigEndian    -> bvConcatPartLLVMVal sym high_w vh low_w vl
+           LittleEndian -> bvConcatPartLLVMVal sym low_w vl high_w vh
     ConsArray tp vc1 n vc2 ->
-      do lv1 <- genValueCtor sym vc1
-         lv2 <- genValueCtor sym vc2
+      do lv1 <- genValueCtor sym end vc1
+         lv2 <- genValueCtor sym end vc2
          consArrayPartLLVMVal sym tp lv1 n lv2
     AppendArray tp n1 vc1 n2 vc2 ->
-      do lv1 <- genValueCtor sym vc1
-         lv2 <- genValueCtor sym vc2
+      do lv1 <- genValueCtor sym end vc1
+         lv2 <- genValueCtor sym end vc2
          appendArrayPartLLVMVal sym tp n1 lv1 n2 lv2
     MkArray tp vv ->
-      do vec <- traverse (genValueCtor sym) vv
+      do vec <- traverse (genValueCtor sym end) vv
          mkArrayPartLLVMVal sym tp vec
     MkStruct vv ->
-      do vec <- traverse (traverse (genValueCtor sym)) vv
+      do vec <- traverse (traverse (genValueCtor sym end)) vv
          mkStructPartLLVMVal sym vec
     BVToFloat _ ->
       return Unassigned
@@ -216,21 +219,22 @@ evalMuxValueCtor ::
   forall u sym w .
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w ->
+  EndianForm ->
   (LLVMPtr sym w, LLVMPtr sym w, SymBV sym w) {- ^ Evaluation function -} ->
   (u -> IO (PartLLVMVal sym)) {- ^ Function for reading specific subranges -} ->
   Mux (ValueCtor u) ->
   IO (PartLLVMVal sym)
-evalMuxValueCtor sym _w _vf subFn (MuxVar v) =
+evalMuxValueCtor sym _w end _vf subFn (MuxVar v) =
   do v' <- traverse subFn v
-     genValueCtor sym v'
-evalMuxValueCtor sym w vf subFn (Mux c t1 t2) =
+     genValueCtor sym end v'
+evalMuxValueCtor sym w end vf subFn (Mux c t1 t2) =
   do c' <- genCondVar sym w vf c
-     t1' <- evalMuxValueCtor sym w vf subFn t1
-     t2' <- evalMuxValueCtor sym w vf subFn t2
+     t1' <- evalMuxValueCtor sym w end vf subFn t1
+     t2' <- evalMuxValueCtor sym w end vf subFn t2
      muxLLVMVal sym c' t1' t2'
-evalMuxValueCtor sym w vf subFn (MuxTable a b m t) =
-  do m' <- traverse (evalMuxValueCtor sym w vf subFn) m
-     t' <- evalMuxValueCtor sym w vf subFn t
+evalMuxValueCtor sym w end vf subFn (MuxTable a b m t) =
+  do m' <- traverse (evalMuxValueCtor sym w end vf subFn) m
+     t' <- evalMuxValueCtor sym w end vf subFn t
      result <- Map.foldrWithKey f (return t') m'
      p' <- simplPred (Map.assocs (fmap predOf m')) (predOf t')
      case result of
@@ -272,6 +276,7 @@ evalMuxValueCtor sym w vf subFn (MuxTable a b m t) =
 readMemCopy :: forall sym w .
                (1 <= w, IsSymInterface sym)
             => sym -> NatRepr w
+            -> EndianForm
             -> (LLVMPtr sym w, AddrDecomposeResult sym w)
             -> Type
             -> (LLVMPtr sym w, AddrDecomposeResult sym w)
@@ -279,7 +284,7 @@ readMemCopy :: forall sym w .
             -> (SymBV sym w, Maybe Integer)
             -> (Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (PartLLVMVal sym))
             -> IO (PartLLVMVal sym)
-readMemCopy sym w (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
+readMemCopy sym w end (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
   let readPrev tp' p = readPrev' tp' (p, ptrDecompose sym w p)
   let varFn = (l, d, sz)
   case (ld, dd) of
@@ -295,9 +300,9 @@ readMemCopy sym w (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
         Just csz -> do
           let s = R (fromInteger so) (fromInteger (so + csz))
           let vcr = rangeLoad (fromInteger lo) tp s
-          genValueCtor sym =<< traverse subFn vcr
+          genValueCtor sym end =<< traverse subFn vcr
         _ ->
-          evalMuxValueCtor sym w varFn subFn $
+          evalMuxValueCtor sym w end varFn subFn $
             fixedOffsetRangeLoad (fromInteger lo) tp (fromInteger so)
     -- We know variables are disjoint.
     _ | Just lv <- adrVar ld
@@ -317,7 +322,7 @@ readMemCopy sym w (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
                    fixedSizeRangeLoad pref tp (fromInteger csz)
                | otherwise =
                    symbolicRangeLoad pref tp
-      evalMuxValueCtor sym w varFn subFn mux0
+      evalMuxValueCtor sym w end varFn subFn mux0
 
 readMemStore :: forall sym w .
                (1 <= w, IsSymInterface sym)
@@ -353,7 +358,7 @@ readMemStore sym w end (l,ld) ltp (d,dd) t stp loadAlign readPrev' = do
           subFn (LastStore v)       = applyView sym end (PE (truePred sym) t) v
           subFn (InvalidMemory tp') = badLoad sym tp'
       let vcr = valueLoad (fromInteger lo) ltp (fromInteger so) (ValueViewVar stp)
-      genValueCtor sym =<< traverse subFn vcr
+      genValueCtor sym end =<< traverse subFn vcr
     -- We know variables are disjoint.
     _ | Just lv <- adrVar ld
       , Just sv <- adrVar dd
@@ -376,7 +381,7 @@ readMemStore sym w end (l,ld) ltp (d,dd) t stp loadAlign readPrev' = do
               ConcreteOffset _ x -> ctz x
               _                  -> 0
       let align' = min loadAlign storeAlign
-      evalMuxValueCtor sym w varFn subFn $
+      evalMuxValueCtor sym w end varFn subFn $
         symbolicValueLoad pref ltp (ValueViewVar stp) align'
 
 readMem :: (1 <= w, IsSymInterface sym)
@@ -457,7 +462,7 @@ readMem' sym w end l0 tp0 alignment = go (\tp _l -> badLoad sym tp) l0 tp0
          case h of
            MemCopy dst src sz ->
              case testEquality (ptrWidth (fst dst)) w of
-               Just Refl -> readMemCopy sym w l tp dst src sz readPrev
+               Just Refl -> readMemCopy sym w end l tp dst src sz readPrev
                Nothing   -> readPrev tp l
            MemStore dst v stp ->
              case testEquality (ptrWidth (fst dst)) w of
