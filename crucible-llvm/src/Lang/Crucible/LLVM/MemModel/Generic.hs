@@ -209,10 +209,8 @@ evalMuxValueCtor ::
   forall u sym w .
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w ->
-  -- | Evaluation function
-  (LLVMPtr sym w, LLVMPtr sym w, SymBV sym w) ->
-  -- | Function for reading specific subranges.
-  (u -> IO (PartLLVMVal sym)) ->
+  (LLVMPtr sym w, LLVMPtr sym w, SymBV sym w) {- ^ Evaluation function -} ->
+  (u -> IO (PartLLVMVal sym)) {- ^ Function for reading specific subranges -} ->
   Mux (ValueCtor u) ->
   IO (PartLLVMVal sym)
 evalMuxValueCtor sym _w _vf subFn (MuxVar v) =
