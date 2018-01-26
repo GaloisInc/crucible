@@ -16,7 +16,7 @@ library
     ansi-wl-pprint,
     attoparsec,
     bytestring,
-    containers >= 0.5.0.0,
+    containers >= 0.5.8.0,
     crucible,
     deepseq,
     directory,
