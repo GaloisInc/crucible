@@ -645,6 +645,8 @@ isAligned sym _ _ _ =
 --------------------------------------------------------------------------------
 -- Other memory operations
 
+-- | Write a value to memory. The returned 'Pred' asserts that the
+-- pointer falls within an allocated memory region.
 writeMem :: (1 <= w, IsSymInterface sym)
          => sym -> NatRepr w
          -> LLVMPtr sym w
@@ -657,7 +659,7 @@ writeMem sym w p tp v m = do
               isAllocated sym w p sz m)
       <*> return (writeMem' sym w p tp v m)
 
--- | Write memory without checking if it is allocated.
+-- | Write memory without checking whether it is allocated.
 writeMem' :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
           -> LLVMPtr sym w
           -> Type
@@ -667,7 +669,8 @@ writeMem' :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
 writeMem' sym w p tp v m =
   m & memAddWrite (MemStore (p, ptrDecompose sym w p) v tp)
 
--- | Perform a mem copy.
+-- | Perform a mem copy. The returned 'Pred' asserts that the source
+-- and destination pointers both fall within allocated memory regions.
 copyMem :: (1 <= w, IsSymInterface sym)
          => sym -> NatRepr w
          -> LLVMPtr sym w -- ^ Dest
@@ -683,7 +686,7 @@ copyMem sym w dst src sz m = do
               return $ m & memAddWrite (MemCopy (dst, dstd) src (sz, szd)))
 
 
--- | Allocate space for memory
+-- | Allocate a new empty memory region.
 allocMem :: AllocType -- ^ Type of allocation
          -> Natural -- ^ Block id for allocation
          -> SymBV sym w -- ^ Size
@@ -692,7 +695,7 @@ allocMem :: AllocType -- ^ Type of allocation
          -> Mem sym
 allocMem a b sz loc = memAddAlloc (Alloc a b sz loc)
 
--- | Allocate space for memory
+-- | Allocate and initialize a new memory region.
 allocAndWriteMem :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
                  -> AllocType -- ^ Type of allocation
                  -> Natural -- ^ Block id for allocation
