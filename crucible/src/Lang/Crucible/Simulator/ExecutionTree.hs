@@ -1163,6 +1163,10 @@ instance Monad (SimConfigMonad p sym) where
 instance MonadIO (SimConfigMonad p sym) where
   liftIO m = SimConfigMonad (liftIO m)
 
+instance MonadVerbosity (SimConfigMonad p sym) where
+  getVerbosity = SimConfigMonad getVerbosity
+  showWarning msg = SimConfigMonad $ showWarning msg
+
 ------------------------------------------------------------------------
 -- SimContext utilities
 
