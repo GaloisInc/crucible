@@ -165,7 +165,7 @@ symbolicOverride :: forall p n tp
                  -> [Int]
                  -> SAW.Term
                  -> TypeRepr tp
-                 -> Override p (SAW.SAWCoreBackend n) EmptyCtx tp
+                 -> Override p (SAW.SAWCoreBackend n) () EmptyCtx tp
 symbolicOverride sc dims0 sawTp0 tpr0 = do
   mkOverride' "symbolic" tpr0 $ do
     sym <- getSymInterface

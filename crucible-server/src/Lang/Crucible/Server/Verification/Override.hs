@@ -26,9 +26,9 @@ import           Control.Monad.IO.Class
 import           Data.Foldable
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import           Data.Proxy
+--import           Data.Proxy
 import           Data.Word
-import           Numeric
+--import           Numeric
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
@@ -41,7 +41,7 @@ import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.FunctionName
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Simulator.RegMap
-import           Lang.Crucible.Simulator.SimError
+--import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
@@ -51,7 +51,7 @@ import qualified Lang.Crucible.Solver.SAWCoreBackend as SAW
 import qualified Verifier.SAW.Simulator.SBV as SBV (sbvSolveBasic, toWord)
 import qualified Data.SBV.Dynamic as SBV (svAsInteger)
 
-import           Verifier.SAW.Cryptol
+--import           Verifier.SAW.Cryptol
 import           Verifier.SAW.Conversion
 import           Verifier.SAW.Rewriter
 import           Verifier.SAW.SharedTerm
@@ -60,7 +60,7 @@ import           Verifier.SAW.TypedAST
 import           Lang.Crucible.Server.CryptolEnv
 import           Lang.Crucible.Server.MultipartOperations
 import           Lang.Crucible.Server.Simulator
-import           Lang.Crucible.Server.TypedTerm
+--import           Lang.Crucible.Server.TypedTerm
 import           Lang.Crucible.Server.Verification.Harness
 
 
@@ -95,7 +95,7 @@ verificationHarnessOverrideHandle sim cryEnv harness =
          fail ("Improper address width given for verification harness: " ++ show addrWidth)
 
 type N p n r w a =
-   OverrideSim p (SAW.SAWCoreBackend n) r (VerifState w) (StructType (VerifState w)) a
+   OverrideSim p (SAW.SAWCoreBackend n) () r (VerifState w) (StructType (VerifState w)) a
 
 verificationHarnessOverride ::
    (1 <= w) =>
@@ -109,7 +109,7 @@ verificationHarnessOverride sim w sc cryEnv harness =
    do args <- getOverrideArgs
       case args of
         RegMap (Ctx.Empty Ctx.:> (regValue -> regs) Ctx.:> (regValue -> mem) Ctx.:> (regValue -> _pc)) ->
-          do sym <- getSymInterface
+          do _sym <- getSymInterface
              let prestateVarTypes = computeVarTypes Prestate harness
              let poststateVarTypes = computeVarTypes Poststate harness `Map.union` prestateVarTypes
              let endianness = verificationEndianness harness
@@ -573,8 +573,8 @@ assumeEquiv ::
    Term ->
    SubstTerm sym ->
    N p n r w ()
-assumeEquiv tp tm tm' =
-  do sym <- getSymInterface
+assumeEquiv _tp _tm _tm' =
+  do _sym <- getSymInterface
      fail "FIXME! implement assumeEquiv"
 
 assertEquiv ::
@@ -582,8 +582,8 @@ assertEquiv ::
    Term ->
    SubstTerm sym ->
    N p n r w ()
-assertEquiv tp tm tm' =
-  do sym <- getSymInterface
+assertEquiv _tp _tm _tm' =
+  do _sym <- getSymInterface
      fail "FIXME! implement assertEquiv"
 
 

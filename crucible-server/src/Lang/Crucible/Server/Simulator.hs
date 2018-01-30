@@ -12,6 +12,7 @@
 
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PatternGuards #-}
@@ -79,7 +80,7 @@ instance Hashable PredefinedHandle where
 -- | The simulator contains the state associated with the crucible-server
 -- interface.
 data Simulator p sym
-   = Simulator { simContext      :: !(IORef (SimContext p sym))
+   = Simulator { simContext      :: !(IORef (SimContext p sym ()))
                , requestHandle   :: !Handle
                , responseHandle  :: !Handle
                  -- | Maps handle ids to the associated handle.
@@ -91,7 +92,7 @@ data Simulator p sym
                , simValueCounter :: !(IORef Word64)
                }
 
-getSimContext :: Simulator p sym -> IO (SimContext p sym)
+getSimContext :: Simulator p sym -> IO (SimContext p sym ())
 getSimContext sim = readIORef (simContext sim)
 
 getHandleAllocator :: Simulator p sym -> IO (HandleAllocator RealWorld)
@@ -124,9 +125,12 @@ newSimulator sym p opts hdls request_handle response_handle = do
   withHandleAllocator $ \halloc -> do
 
   let bindings = emptyHandleMap
+  let extImpl :: ExtensionImpl p sym ()
+      extImpl = ExtensionImpl (\_sym _f x -> case x of) (\x -> case x of)
+
   -- Create new context
   ctxRef <- newIORef $
-    initSimContext sym MapF.empty cfg halloc h bindings p
+    initSimContext sym MapF.empty cfg halloc h bindings extImpl p
 
   hc <- newIORef Map.empty
   ph <- HIO.new
@@ -156,7 +160,7 @@ populatePredefHandles s (mkh : hs) ph = do
    populatePredefHandles s hs ph
 
 mkPredef :: (KnownCtx TypeRepr  args, KnownRepr TypeRepr ret, IsSymInterface sym)
-         => Override p sym args ret
+         => Override p sym () args ret
          -> Simulator p sym
          -> IO SomeHandle
 mkPredef ovr s = SomeHandle <$> simOverrideHandle s knownRepr knownRepr ovr
@@ -232,7 +236,7 @@ respondToPredefinedHandleRequest sim predef fallback = do
 -- Associate a function with the given handle.
 bindHandleToFunction :: Simulator p sym
                      -> FnHandle args ret
-                     -> FnState p sym args ret
+                     -> FnState p sym () args ret
                      -> IO ()
 bindHandleToFunction sim h s =
   modifyIORef' (simContext sim) $
@@ -241,7 +245,7 @@ bindHandleToFunction sim h s =
 simOverrideHandle :: Simulator p sym
                   -> CtxRepr args
                   -> TypeRepr tp
-                  -> Override p sym args tp
+                  -> Override p sym () args tp
                   -> IO (FnHandle args tp)
 simOverrideHandle sim args ret o = do
   h <- simMkHandle sim (overrideName o) args ret
@@ -316,7 +320,7 @@ sendCallPathAborted sim code msg bt = do
 
 serverErrorHandler :: IsSymInterface sym
                    => Simulator p sym
-                   -> ErrorHandler p sym rtp
+                   -> ErrorHandler p sym () rtp
 serverErrorHandler sim = EH $ \e s -> do
     let t = s^.stateTree
     let frames = activeFrames t

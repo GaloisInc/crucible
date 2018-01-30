@@ -30,7 +30,6 @@ import qualified Data.Sequence as Seq
 import           Data.String
 import           Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Lazy as LT
 import           Data.Tuple
 import           Data.Word
 
@@ -316,7 +315,7 @@ parseCryptolExpr ::
    Text ->
    M ParseExpr
 parseCryptolExpr nm expr =
-   case CP.parseExpr (LT.fromStrict expr) of
+   case CP.parseExpr expr of
      Left parseErr -> fail msg
         where
         msg = unlines [ ""
@@ -352,7 +351,7 @@ declaredVarSet ::
    Phase ->
    Seq (HarnessVarDecl CT.Name) ->
    Set CT.Name
-declaredVarSet phase names = foldr insVar mempty names
+declaredVarSet _phase names = foldr insVar mempty names
  where
  insVar x s = Set.insert (harnessVarIdent x) s
 
@@ -375,12 +374,12 @@ tcSetupStep addrWidth (BindVariable hvar ex) =
      ex'   <- tcExpr ex tp
      return $ BindVariable hvar' ex'
 tcSetupStep addrWidth (RegisterVal offset hvar) =
-  do (hvar', tp) <- tcHarnessVar addrWidth hvar
+  do (hvar', _tp) <- tcHarnessVar addrWidth hvar
 -- FIXME, check type, should have tp == [addrWidth]
      return $ RegisterVal offset hvar'
 tcSetupStep addrWidth (MemPointsTo base offset val) =
-  do (base', baseTp) <- tcHarnessVar addrWidth base
-     (val' , valTp)  <- tcHarnessVar addrWidth val
+  do (base', _baseTp) <- tcHarnessVar addrWidth base
+     (val' , _valTp)  <- tcHarnessVar addrWidth val
 -- FIXME, check types:
 --     should have baseTp == [addrWidth]
 --     valTp... does it need any checks?
@@ -410,7 +409,7 @@ tcHarnessVar addrWidth var =
       do cryEnv <- get
          let nameEnv = eExtraNames cryEnv
          let modEnv  = eModuleEnv cryEnv
-         (res, _ws) <- io $ MM.runModuleM modEnv
+         (res, _ws) <- io $ MM.runModuleM (defaultEvalOpts, modEnv)
                         (MM.interactive (MB.rename C.interactiveName nameEnv (MR.renameVar (CP.mkUnqual ident))))
          -- ?? FIXME, what about warnings?
          case res of
@@ -428,7 +427,7 @@ tcExpr ::
    CT.Type ->
    M (CP.Expr CT.Name, TCExpr)
 tcExpr pex tp =
-  do sc <- ask
+  do _sc <- ask
      cryEnv <- get
      (cryEnv1, reexpr) <- io $ renameTerm cryEnv pex
      (cryEnv2, tcexpr) <- io $ checkTerm cryEnv1 reexpr tp
@@ -469,7 +468,7 @@ resolveSetupVar var =
       do cryEnv <- get
          let nameEnv = eExtraNames cryEnv
          let modEnv  = eModuleEnv cryEnv
-         (res, _ws) <- io $ MM.runModuleM modEnv
+         (res, _ws) <- io $ MM.runModuleM (defaultEvalOpts, modEnv)
                         (MM.interactive (MB.rename C.interactiveName nameEnv (MR.renameVar (CP.mkUnqual ident))))
          -- ?? FIXME, what about warnings?
          case res of
@@ -504,8 +503,8 @@ setupStepGraphEdge ::
    M GraphEdge
 setupStepGraphEdge declaredNames step =
    do def <- setupStepDef step
-      uses <- setupStepUses declaredNames step
-      return (fmap snd step, def, uses)
+      us <- setupStepUses declaredNames step
+      return (fmap snd step, def, us)
 
 reorderSteps ::
    Set CT.Name ->
@@ -541,13 +540,13 @@ processEdges definedNames edges = go Nothing mempty edges
  maybeSeq (Just x) = Seq.singleton x
 
  go candidate zs xs = case Seq.viewl xs of
-      edge@(step,def,uses) Seq.:< xs'
-        | Set.isSubsetOf uses definedNames
+      edge@(step,def,us) Seq.:< xs'
+        | Set.isSubsetOf us definedNames
         , BindVariable _ _ <- step
         -> do processEdge edge
               processEdges (Set.insert def definedNames) (zs <> maybeSeq candidate <> xs')
 
-        | Set.isSubsetOf uses definedNames
+        | Set.isSubsetOf us definedNames
         , betterCandidate step candidate
         -> go (Just edge) (zs <> maybeSeq candidate) xs'
 

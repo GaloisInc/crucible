@@ -74,10 +74,10 @@ multipartStoreFn sim addrWidth cellWidth valWidth num = do
     let nameStr = ("multipartStore_"++(show addrWidth)++"_"++(show cellWidth)++"_"++(show num))
     let name = functionNameFromText $ Text.pack nameStr
     let argsRepr = Ctx.empty
-                   Ctx.%> BoolRepr
-                   Ctx.%> BVRepr addrWidth
-                   Ctx.%> BVRepr valWidth
-                   Ctx.%> WordMapRepr addrWidth (BaseBVRepr cellWidth)
+                   Ctx.:> BoolRepr
+                   Ctx.:> BVRepr addrWidth
+                   Ctx.:> BVRepr valWidth
+                   Ctx.:> WordMapRepr addrWidth (BaseBVRepr cellWidth)
     let retRepr = WordMapRepr addrWidth (BaseBVRepr cellWidth)
     h <- simMkHandle sim name argsRepr retRepr
     (R.SomeCFG regCfg, _) <- stToIO $ Gen.defineFunction InternalPos h fndef
@@ -86,7 +86,7 @@ multipartStoreFn sim addrWidth cellWidth valWidth num = do
         bindHandleToFunction sim h (UseCFG cfg (postdomInfo cfg))
         return h
 
- where fndef :: Gen.FunctionDef RealWorld
+ where fndef :: Gen.FunctionDef () RealWorld
                                 Maybe
                                 (EmptyCtx
                                  ::> BoolType
@@ -144,10 +144,10 @@ multipartLoadFn sim addrWidth cellWidth valWidth num = do
     let nameStr = ("multipartLoad_"++(show addrWidth)++"_"++(show cellWidth)++"_"++(show num))
     let name = functionNameFromText $ Text.pack nameStr
     let argsRepr = Ctx.empty
-                   Ctx.%> BoolRepr
-                   Ctx.%> BVRepr addrWidth
-                   Ctx.%> WordMapRepr addrWidth (BaseBVRepr cellWidth)
-                   Ctx.%> MaybeRepr (BVRepr cellWidth)
+                   Ctx.:> BoolRepr
+                   Ctx.:> BVRepr addrWidth
+                   Ctx.:> WordMapRepr addrWidth (BaseBVRepr cellWidth)
+                   Ctx.:> MaybeRepr (BVRepr cellWidth)
     let retRepr = BVRepr valWidth
     h <- simMkHandle sim name argsRepr retRepr
     (R.SomeCFG regCfg, _) <- stToIO $ Gen.defineFunction InternalPos h fndef
@@ -156,7 +156,7 @@ multipartLoadFn sim addrWidth cellWidth valWidth num = do
         bindHandleToFunction sim h (UseCFG cfg (postdomInfo cfg))
         return h
 
- where fndef :: Gen.FunctionDef RealWorld
+ where fndef :: Gen.FunctionDef () RealWorld
                                Maybe
                                (EmptyCtx
                                ::> BoolType

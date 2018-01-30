@@ -12,6 +12,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
@@ -137,7 +138,7 @@ parseArgs :: IsSymInterface sym
           -> Seq P.Value
           -> IO (Ctx.Assignment (RegEntry sym) ctx)
 parseArgs sim types s =
-  case Ctx.view types of
+  case Ctx.viewAssign types of
     Ctx.AssignEmpty -> do
       when (not (Seq.null s)) $ do
         fail $ "More arguments than expected."
@@ -205,7 +206,7 @@ fulfillSetVerbosityRequest sim args = do
       let cfg = simConfig ctx
       let h   = printHandle ctx
       oldv <- getConfigValue verbosity cfg
-      ctx' <- withVerbosity h oldv $ liftIO $ flip execStateT ctx $
+      ctx' <- withVerbosity h oldv $ liftIO $ flip execStateT ctx $ runSimConfigMonad $
                   setConfigValue verbosity cfg (fromIntegral n)
       writeIORef (simContext sim) ctx'
       sendAckResponse sim
@@ -241,7 +242,7 @@ fulfillApplyPrimitiveRequest sim p_op args res_type = do
     Right (Some a) -> do
       let logLn _ _ = return ()
       sym <- getInterface sim
-      r <- Sim.evalApp sym MapF.empty logLn (\(RegEntry _ v) -> return v) a
+      r <- Sim.evalApp sym MapF.empty logLn (\_ x -> case x of) (\(RegEntry _ v) -> return v) a
       pv <- toProtoValue sim (RegEntry (appType a) r)
       let resp =
            mempty & P.simulatorValueResponse_successful .~ True
@@ -356,7 +357,7 @@ fulfillGetMultipartLoadHandleRequest sim hinfo = do
 
 printTermOverride :: (IsSymInterface sym)
                   => BaseTypeRepr ty
-                  -> Override p sym (EmptyCtx ::> BaseToType ty) UnitType
+                  -> Override p sym () (EmptyCtx ::> BaseToType ty) UnitType
 printTermOverride tpr =
   mkOverride (functionNameFromText (Text.pack ("printTerm_"++show tpr))) $ do
     RegMap args <- getOverrideArgs
@@ -373,7 +374,7 @@ buildPrintTermOverride
     -> BaseTypeRepr ty
     -> IO SomeHandle
 buildPrintTermOverride sim tpr =
-  SomeHandle <$> simOverrideHandle sim (Ctx.empty Ctx.%> baseToType tpr) UnitRepr
+  SomeHandle <$> simOverrideHandle sim (Ctx.empty Ctx.:> baseToType tpr) UnitRepr
                                    (printTermOverride tpr)
 
 fulfillPrintTermHandleRequest :: IsSymInterface sym

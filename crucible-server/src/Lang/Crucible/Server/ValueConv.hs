@@ -13,6 +13,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
@@ -86,7 +87,7 @@ class HasTypeRepr f where
 instance HasTypeRepr (RegEntry sym) where
   getTypeRepr (RegEntry tp _) = tp
 
-instance HasTypeRepr (R.Expr s) where
+instance HasTypeRepr (R.Expr () s) where
   getTypeRepr = R.exprType
 
 instance HasTypeRepr (R.Atom s) where
@@ -196,7 +197,7 @@ regValueFromProto sim v tp = do
 -- convertToCrucibleApp
 
 -- | A binary operation on bitvectores.
-type BVBinOp f n r = NatRepr n -> f (BVType n) -> f (BVType n) -> App f r
+type BVBinOp f n r = NatRepr n -> f (BVType n) -> f (BVType n) -> App () f r
 
 -- | A symbolic bitvector expression with some bitwidth.
 data SomeBV f = forall n . (1 <= n) => SomeBV (NatRepr n) (f (BVType n))
@@ -210,7 +211,7 @@ convertToCrucibleApp :: (Applicative m, Monad m, HasTypeRepr f)
                      -> P.PrimitiveOp
                      -> Seq a
                      -> P.CrucibleType
-                     -> m (Some (App f))
+                     -> m (Some (App () f))
 convertToCrucibleApp evalVal evalNatRepr prim_op args res_type = do
   Some res_tp <- fromProtoType res_type
   convertToCrucibleApp' evalVal evalNatRepr prim_op args res_tp
@@ -223,7 +224,7 @@ convertToCrucibleApp' :: forall a f res_tp m
                       -> P.PrimitiveOp
                       -> Seq a
                       -> TypeRepr res_tp
-                      -> m (Some (App f))
+                      -> m (Some (App () f))
 convertToCrucibleApp' evalVal evalNatRepr prim_op args result_type = do
   let getArgs :: Monad m => Int -> m [a]
       getArgs n | Seq.length args == n = return $ Fold.toList args
@@ -261,11 +262,11 @@ convertToCrucibleApp' evalVal evalNatRepr prim_op args result_type = do
   let defCoerce :: KnownRepr TypeRepr tp => a -> m (f tp)
       defCoerce v = evalTypedValue knownRepr v
 
-  let def :: m (App f tp) -> m (Some (App f))
+  let def :: m (App () f tp) -> m (Some (App () f))
       def a = Some <$> a
 
   let bvBinOp :: (forall n . (1 <= n) => BVBinOp f n (BVType n))
-              -> m (Some (App f))
+              -> m (Some (App () f))
       bvBinOp f = do
         [x, y] <- getArgs 2
         SomeSBV n xr <- evalSBV x
@@ -274,7 +275,7 @@ convertToCrucibleApp' evalVal evalNatRepr prim_op args result_type = do
         return $ Some $ f n xr yr
 
   let bvsBinOp :: (forall n . (1 <= n) => BVBinOp f n (BVType n))
-               -> m (Some (App f))
+               -> m (Some (App () f))
       bvsBinOp f = do
         [x, y] <- getArgs 2
         SomeSBV n xr <- evalSBV x
@@ -283,7 +284,7 @@ convertToCrucibleApp' evalVal evalNatRepr prim_op args result_type = do
         return $ Some $ f n xr yr
 
   let bvRel :: (forall n . (1 <= n) => BVBinOp f n BoolType)
-            -> m (Some (App f))
+            -> m (Some (App () f))
       bvRel f = do
         [x, y] <- getArgs 2
         SomeSBV n xr <- evalSBV x
@@ -291,7 +292,7 @@ convertToCrucibleApp' evalVal evalNatRepr prim_op args result_type = do
         return $ Some $ f n xr yr
 
   let bvsRel :: (forall n . (1 <= n) => BVBinOp f n BoolType)
-             -> m (Some (App f))
+             -> m (Some (App () f))
       bvsRel f = do
         [x, y] <- getArgs 2
         SomeSBV n xr <- evalSBV x

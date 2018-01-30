@@ -130,7 +130,7 @@ fromProtoTypeSeq s0 = do
     s Seq.:> tp -> do
       Some ctx <- fromProtoTypeSeq s
       Some rep <- fromProtoType tp
-      return $ Some $ ctx Ctx.%> rep
+      return $ Some $ ctx Ctx.:> rep
 
 fromProtoType :: Monad m => P.CrucibleType -> m (Some TypeRepr)
 fromProtoType tp = do
@@ -224,7 +224,7 @@ fromProtoType tp = do
     P.MatlabIntArrayType  -> return $ Some MatlabIntArrayRepr
     P.MatlabUIntArrayType -> return $ Some MatlabUIntArrayRepr
     P.MatlabValueType     ->
-      return $ Some (IntrinsicRepr (knownSymbol :: SymbolRepr "MatlabValue"))
+      return $ Some (IntrinsicRepr (knownSymbol :: SymbolRepr "MatlabValue") Ctx.Empty)
 
 ------------------------------------------------------------------------
 -- Generating a protocol buffer type.
@@ -299,7 +299,7 @@ mkProtoType tpr =
 
     MatlabIntArrayRepr  -> mkType P.MatlabIntArrayType
     MatlabUIntArrayRepr -> mkType P.MatlabUIntArrayType
-    IntrinsicRepr sym
+    IntrinsicRepr sym _ctx
       | Just Refl <- testEquality sym (knownSymbol :: SymbolRepr "MatlabValue")
       -> mkType P.MatlabValueType
 
