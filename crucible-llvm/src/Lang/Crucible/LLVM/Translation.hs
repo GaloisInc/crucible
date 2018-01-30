@@ -508,8 +508,8 @@ transValue ty@(IntType _) L.ValNull =
 
 transValue _ (L.ValString str) = do
   let eight = knownNat :: NatRepr 8
-  let bv8   = BVRepr eight
-  let chars = V.fromList $ map (App . BVLit eight . toInteger . fromEnum) $ str
+  let bv8   = LLVMPointerRepr eight
+  let chars = V.fromList $ map (BitvectorAsPointerExpr eight . App . BVLit eight . toInteger . fromEnum) $ str
   return $ BaseExpr (VectorRepr bv8) (App $ VectorLit bv8 $ chars)
 
 transValue _ (L.ValIdent i) = do
