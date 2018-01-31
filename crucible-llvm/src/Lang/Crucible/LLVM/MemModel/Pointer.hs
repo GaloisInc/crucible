@@ -416,9 +416,9 @@ mkStructPartLLVMVal sym vec =
        Nothing -> return $ Unassigned
        Just (vec',p) -> return $ PE p $ LLVMValStruct vec'
 
--- | Select the low bytes of a partial LLVM bitvector value. The
--- allocation block number of the argument is asserted to equal 0,
--- indicating a non-pointer.
+-- | Select some of the least significant bytes of a partial LLVM
+-- bitvector value. The allocation block number of the argument is
+-- asserted to equal 0, indicating a non-pointer.
 selectLowBvPartLLVMVal ::
   IsSymInterface sym => sym ->
   G.Bytes -> G.Bytes ->
@@ -436,9 +436,9 @@ selectLowBvPartLLVMVal sym low hi (PE p (LLVMValInt blk bv))
   where w = bvWidth bv
 selectLowBvPartLLVMVal _ _ _ _ = return Unassigned
 
--- | Select the high bytes of a partial LLVM bitvector value. The
--- allocation block number of the argument is asserted to equal 0,
--- indicating a non-pointer.
+-- | Select some of the most significant bytes of a partial LLVM
+-- bitvector value. The allocation block number of the argument is
+-- asserted to equal 0, indicating a non-pointer.
 selectHighBvPartLLVMVal ::
   IsSymInterface sym => sym ->
   G.Bytes -> G.Bytes ->

@@ -144,8 +144,8 @@ loadInStoreRange n = And (Store .<= Load)
 data ValueCtor a
   = ValueCtorVar a
     -- | Concatenates two bitvectors.
-    -- The first bitvector contains values stored at the low-order bytes
-    -- while the second contains values at the high-order bytes.  Thus, the
+    -- The first bitvector contains values stored at the low-address bytes
+    -- while the second contains values at the high-address bytes. Thus, the
     -- meaning of this depends on the endianness of the target architecture.
   | ConcatBV Bytes (ValueCtor a) Bytes (ValueCtor a)
   | BVToFloat (ValueCtor a)
@@ -359,12 +359,12 @@ symbolicRangeLoad pref tp =
 -- | Represents a projection of a sub-component out of a larger LLVM value.
 data ValueView
   = ValueViewVar Type
-    -- | Select low-order bytes in the bitvector.
+    -- | Select low-address bytes in the bitvector.
     -- The sizes include the number of low bytes, and the number of high bytes.
-  | SelectLowBV Bytes Bytes ValueView
-    -- | Select the given number of high-order bytes in the bitvector.
+  | SelectPrefixBV Bytes Bytes ValueView
+    -- | Select the given number of high-address bytes in the bitvector.
     -- The sizes include the number of low bytes, and the number of high bytes.
-  | SelectHighBV Bytes Bytes ValueView
+  | SelectSuffixBV Bytes Bytes ValueView
   | FloatToBV ValueView
   | DoubleToBV ValueView
   | ArrayElt Word64 Type Word64 ValueView
@@ -374,11 +374,11 @@ data ValueView
 
 viewType :: ValueView -> Maybe Type
 viewType (ValueViewVar tp) = Just tp
-viewType (SelectLowBV u v vv) =
+viewType (SelectPrefixBV u v vv) =
   do tp <- typeF <$> viewType vv
      guard (Bitvector (u + v) == tp)
      pure $ bitvectorType u
-viewType (SelectHighBV u v vv) =
+viewType (SelectSuffixBV u v vv) =
   do tp <- typeF <$> viewType vv
      guard (Bitvector (u + v) == tp)
      pure $ bitvectorType v
@@ -427,10 +427,10 @@ loadBitvector lo lw so v = do
         -- Number of bytes to drop.
         let d = lo - so
         -- Store is before load.
-        valueLoad lo ltp lo (SelectHighBV d (sw - d) v)
+        valueLoad lo ltp lo (SelectSuffixBV d (sw - d) v)
       | otherwise -> assert (lo == so && lw < sw) $
         -- Load ends before store ends.
-        valueLoad lo ltp so (SelectLowBV lw (sw - lw) v)
+        valueLoad lo ltp so (SelectPrefixBV lw (sw - lw) v)
     Float -> valueLoad lo ltp lo (FloatToBV v)
     Double -> valueLoad lo ltp lo (DoubleToBV v)
     Array n tp -> snd $ foldl1 cv (val <$> r)

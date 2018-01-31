@@ -285,10 +285,10 @@ data MemImpl sym =
 -- | Produce a fresh empty memory.
 --   NB, we start counting allocation blocks at '1'.
 --   Block number 0 is reserved for representing raw bitvectors.
-emptyMem :: IO (MemImpl sym)
-emptyMem = do
+emptyMem :: EndianForm -> IO (MemImpl sym)
+emptyMem endianness = do
   blkRef <- newIORef 1
-  return $ MemImpl (BlockSource blkRef) Map.empty Map.empty G.emptyMem
+  return $ MemImpl (BlockSource blkRef) Map.empty Map.empty (G.emptyMem endianness)
 
 data SomePointer sym = forall w. SomePointer !(RegValue sym (LLVMPointerType w))
 type GlobalMap sym = Map L.Symbol (SomePointer sym)
@@ -461,7 +461,8 @@ doDumpMem
 doDumpMem h mem = do
   hPutStrLn h (show (ppMem mem))
 
-
+-- | Load an LLVM value from memory. Also assert that the pointer is
+-- valid and the result value is not undefined.
 loadRaw :: (IsSymInterface sym, HasPtrWidth wptr)
         => sym
         -> MemImpl sym
@@ -501,8 +502,8 @@ doLoad :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> RegValue sym Mem
   -> RegValue sym (LLVMPointerType wptr) {- ^ pointer to load from -}
-  -> G.Type
-  -> Alignment
+  -> G.Type {- ^ type of value to load -}
+  -> Alignment {- ^ assumed pointer alignment -}
   -> IO (RegValue sym AnyType)
 doLoad sym mem ptr valType alignment = do
     --putStrLn "MEM LOAD"
@@ -519,9 +520,9 @@ doLoad sym mem ptr valType alignment = do
 storeRaw :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> MemImpl sym
-  -> LLVMPtr sym wptr
-  -> G.Type
-  -> LLVMVal sym
+  -> LLVMPtr sym wptr {- ^ pointer to store into -}
+  -> G.Type           {- ^ type of value to store -}
+  -> LLVMVal sym      {- ^ value to store -}
   -> IO (MemImpl sym)
 storeRaw sym mem ptr valType val = do
     (p, heap') <- G.writeMem sym PtrWidth ptr valType val (memImplHeap mem)
@@ -541,12 +542,8 @@ doStore :: (IsSymInterface sym, HasPtrWidth wptr)
   -> IO (RegValue sym Mem)
 doStore sym mem ptr tpr valType val = do
     --putStrLn "MEM STORE"
-    let errMsg = "Invalid memory store: address " ++ show (G.ppPtr ptr) ++
-                 " at type " ++ show (G.ppType valType)
     val' <- packMemValue sym valType tpr val
-    (p, heap') <- G.writeMem sym PtrWidth ptr valType val' (memImplHeap mem)
-    addAssertion sym p (AssertFailureSimError errMsg)
-    return mem{ memImplHeap = heap' }
+    storeRaw sym mem ptr valType val'
 
 data SomeFnHandle where
   SomeFnHandle :: FnHandle args ret -> SomeFnHandle
@@ -622,12 +619,14 @@ assertDisjointRegions sym w dest src len =
   assertDisjointRegions' "memcpy" sym w dest len src len
 
 
+-- | Allocate and zero a memory region with /size * number/ bytes.
+-- Also assert that the multiplication does not overflow.
 doCalloc
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> MemImpl sym
-  -> RegValue sym (BVType wptr)
-  -> RegValue sym (BVType wptr)
+  -> RegValue sym (BVType wptr) {- ^ size -}
+  -> RegValue sym (BVType wptr) {- ^ number -}
   -> IO (RegValue sym (LLVMPointerType wptr), MemImpl sym)
 doCalloc sym mem sz num = do
   (ov, sz') <- unsignedWideMultiplyBV sym sz num
@@ -640,62 +639,57 @@ doCalloc sym mem sz num = do
   mem'' <- doMemset sym PtrWidth mem' ptr z sz'
   return (ptr, mem'')
 
-
+-- | Allocate a memory region.
 doMalloc
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
-  -> G.AllocType
-  -> String
+  -> G.AllocType {- ^ stack, heap, or global -}
+  -> String {- ^ source location for use in error messages -}
   -> MemImpl sym
-  -> RegValue sym (BVType wptr)
+  -> RegValue sym (BVType wptr) {- ^ allocation size -}
   -> IO (RegValue sym (LLVMPointerType wptr), MemImpl sym)
 doMalloc sym allocType loc mem sz = do
   --sz_doc <- printSymExpr sym sz
   --putStrLn $ unwords ["doMalloc", show nextBlock, show sz_doc]
 
   blkNum <- nextBlock (memImplBlockSource mem)
-  blk <- liftIO $ natLit sym (fromIntegral blkNum)
-  z <- liftIO $ bvLit sym PtrWidth 0
+  blk <- natLit sym (fromIntegral blkNum)
+  z <- bvLit sym PtrWidth 0
 
   let heap' = G.allocMem allocType (fromInteger blkNum) sz loc (memImplHeap mem)
   let ptr = LLVMPointer blk z
   return (ptr, mem{ memImplHeap = heap' })
 
+-- | Allocate a memory region on the heap, with no source location info.
 mallocRaw
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> MemImpl sym
   -> SymExpr sym (BaseBVType wptr)
   -> IO (LLVMPtr sym wptr, MemImpl sym)
-mallocRaw sym mem sz = do
-  blkNum <- nextBlock (memImplBlockSource mem)
-  blk <- natLit sym (fromIntegral blkNum)
-  z <- bvLit sym PtrWidth 0
+mallocRaw sym mem sz =
+  doMalloc sym G.HeapAlloc "<malloc>" mem sz
 
-  let ptr = LLVMPointer blk z
-  let heap' = G.allocMem G.HeapAlloc (fromInteger blkNum) sz "<malloc>" (memImplHeap mem)
-  return (ptr, mem{ memImplHeap = heap' })
-
-
+-- | Allocate a memory region for the given handle.
 doMallocHandle
   :: (Typeable a, IsSymInterface sym, HasPtrWidth wptr)
   => sym
-  -> G.AllocType
-  -> String
+  -> G.AllocType {- ^ stack, heap, or global -}
+  -> String {- ^ source location for use in error messages -}
   -> MemImpl sym
-  -> a
+  -> a {- ^ handle -}
   -> IO (RegValue sym (LLVMPointerType wptr), MemImpl sym)
 doMallocHandle sym allocType loc mem x = do
   blkNum <- nextBlock (memImplBlockSource mem)
-  blk <- liftIO $ natLit sym (fromIntegral blkNum)
-  z <- liftIO $ bvLit sym PtrWidth 0
+  blk <- natLit sym (fromIntegral blkNum)
+  z <- bvLit sym PtrWidth 0
 
   let heap' = G.allocMem allocType (fromInteger blkNum) z loc (memImplHeap mem)
   let hMap' = Map.insert blkNum (toDyn x) (memImplHandleMap mem)
   let ptr = LLVMPointer blk z
   return (ptr, mem{ memImplHeap = heap', memImplHandleMap = hMap' })
 
-
+-- | Look up the handle associated with the given pointer, if any.
 doLookupHandle
   :: (Typeable a, IsSymInterface sym, HasPtrWidth wptr)
   => sym
@@ -711,6 +705,9 @@ doLookupHandle _sym mem ptr = do
         Nothing -> return Nothing
     _ -> return Nothing
 
+-- | Free the memory region pointed to by the given pointer. Also
+-- assert that the pointer either points to the beginning of an
+-- allocated region, or is null. Freeing a null pointer has no effect.
 doFree
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym

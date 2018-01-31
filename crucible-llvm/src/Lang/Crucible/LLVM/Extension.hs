@@ -19,7 +19,7 @@
 -- Syntax extension definitions for LLVM
 ------------------------------------------------------------------------
 module Lang.Crucible.LLVM.Extension
-  ( -- * LLVM Architecutre representations
+  ( -- * LLVM Architecture representations
     LLVM
   , type LLVMArch
   , type X86
@@ -178,7 +178,7 @@ data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> *) :: CrucibleType -> * where
      LLVMStmt wptr f (LLVMPointerType wptr)
 
   -- | Compute the offset between two pointer values.
-  --   Note! This operation is only defined if both potiners
+  --   Note! This operation is only defined if both pointers
   --   are live pointers into the same memory object.
   LLVM_PtrSubtract ::
      !(NatRepr wptr)             {- Pointer width -} ->

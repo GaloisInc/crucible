@@ -168,6 +168,8 @@ slice i w (Vector xs) = Vector (Vector.slice (widthVal i) (widthVal w) xs)
 
 
 
+
+
 --------------------------------------------------------------------------------
 
 instance Functor (Vector n) where
@@ -260,6 +262,7 @@ shiftR !x a (Vector xs) = Vector ys
 
 -------------------------------------------------------------------------------i
 
+-- | Append two vectors. The first one is at lower indexes in the result.
 append :: Vector m a -> Vector n a -> Vector (m + n) a
 append v1@(Vector xs) v2@(Vector ys) =
   case leqAddPos (length v1) (length v2) of { LeqProof ->
@@ -299,6 +302,7 @@ coerceVec = coerce
 newtype Bits f n = Bits (f (BVType n))
 
 
+-- | Earlier indexes are more signficant.
 jnBig :: (IsExpr f, 1 <= a, 1 <= b) =>
          NatRepr a -> NatRepr b ->
          Bits f a -> Bits f b -> Bits f (a + b)
@@ -307,6 +311,7 @@ jnBig la lb (Bits a) (Bits b) =
     Bits (app (BVConcat la lb a b)) }
 {-# Inline jnBig #-}
 
+-- | Earlier indexes are less signficant.
 jnLittle :: (IsExpr f, 1 <= a, 1 <= b) =>
             NatRepr a -> NatRepr b ->
             Bits f a -> Bits f b -> Bits f (a + b)
@@ -317,12 +322,21 @@ jnLittle la lb (Bits a) (Bits b) =
 {-# Inline jnLittle #-}
 
 
+
+
+
+
+
+
+
 -- | Join a vector of values, using the given function.
 joinWith ::
   forall f n w.
   (1 <= w) =>
   (forall l. (1 <= l) => NatRepr l -> f w -> f l -> f (w + l))
-  {- ^ A function for appending contained elements -} ->
+  {- ^ A function for appending contained elements.
+       Earlier vector indexes are the first argument of the join function.
+       Pass a different function to implmenet little/big endian behaviors -} ->
   NatRepr w -> Vector n (f w) -> f (n * w)
 
 joinWith jn w = fst . go
@@ -344,49 +358,63 @@ joinWith jn w = fst . go
 -- | Split a bit-vector into a vector of bit-vectors.
 fromBV :: forall f w n.
   (IsExpr f, 1 <= w, 1 <= n) =>
+  Endian ->
   NatRepr n -> NatRepr w -> f (BVType (n * w)) -> Vector n (f (BVType w))
 
-fromBV n w xs = coerceVec (splitWith sel n w (Bits xs))
+fromBV e n w xs = coerceVec (splitWith e sel n w (Bits xs))
   where
   sel :: (i + w <= n * w) =>
           NatRepr (n * w) -> NatRepr i -> Bits f (n * w) -> Bits f w
   sel totL i (Bits val) =
     case leqMulPos n w of { LeqProof ->
-       Bits (app (BVSelect i w totL val)) }
+      Bits (app (BVSelect i w totL val)) }
 {-# Inline fromBV #-}
 
 
+
+
 -- | Split a bit-vector into a vector of bit-vectors.
+-- If "LittleEndian", then less significant bits go into smaller indexes.
+-- If "BigEndian", then less significant bits go into larger indexes.
 splitWith :: forall f w n.
   (1 <= w, 1 <= n) =>
+  Endian ->
   (forall i. (i + w <= n * w) =>
              NatRepr (n * w) -> NatRepr i -> f (n * w) -> f w)
   {- ^ A function for slicing out a chunk of length @w@, starting at @i@ -} ->
   NatRepr n -> NatRepr w -> f (n * w) -> Vector n (f w)
-splitWith select n w val = Vector (Vector.create initializer)
+splitWith endian select n w val = Vector (Vector.create initializer)
   where
+  len          = widthVal n
+  start :: Int
+  next :: Int -> Int
+  (start,next) = case endian of
+                   LittleEndian -> (0, succ)
+                   BigEndian    -> (len - 1, pred)
+
   initializer :: forall s. ST s (MVector s (f w))
   initializer =
     do LeqProof <- return (leqMulPos n w)
        LeqProof <- return (leqMulMono n w)
 
-       v <- MVector.new (widthVal n)
+       v <- MVector.new len
        let fill :: Int -> NatRepr i -> ST s ()
            fill loc i =
              let end = addNat i w in
              case testLeq end inLen of
                Just LeqProof ->
                  do MVector.write v loc (select inLen i val)
-                    fill (loc + 1) end
+                    fill (next loc) end
                Nothing -> return ()
 
 
-       fill 0 (knownNat @0)
+       fill start (knownNat @0)
        return v
 
   inLen :: NatRepr (n * w)
   inLen = natMultiply n w
 {-# Inline splitWith #-}
+
 
 
 newtype Vec a n = Vec (Vector n a)
@@ -396,6 +424,8 @@ vSlice :: (i + w <= l, 1 <= w) =>
 vSlice w _ i (Vec xs) = Vec (slice i w xs)
 {-# Inline vSlice #-}
 
+-- | Append the two bit vectors.  The first argument is
+-- at the lower indexes of the resulting vector.
 vAppend :: NatRepr n -> Vec a m -> Vec a n -> Vec a (m + n)
 vAppend _ (Vec xs) (Vec ys) = Vec (append xs ys)
 {-# Inline vAppend #-}
@@ -403,7 +433,7 @@ vAppend _ (Vec xs) (Vec ys) = Vec (append xs ys)
 -- | Split a vector into a vector of vectors.
 split :: (1 <= w, 1 <= n) =>
         NatRepr n -> NatRepr w -> Vector (n * w) a -> Vector n (Vector w a)
-split n w xs = coerceVec (splitWith (vSlice w) n w (Vec xs))
+split n w xs = coerceVec (splitWith LittleEndian (vSlice w) n w (Vec xs))
 {-# Inline split #-}
 
 -- | Join a vector of vectors into a single vector.
@@ -429,10 +459,11 @@ joinVecBV e w i xs = toBV e w <$> split (divNat (length xs) i) i xs
 -- | Turn a vector of large bit-vectors,
 -- into a longer vector of shorter bit-vectors.
 splitVecBV :: (IsExpr f, 1 <= i, 1 <= w) =>
+  Endian ->
   NatRepr i {- ^ Split bit-vectors in this many parts -} ->
   NatRepr w {- ^ Length of bit-vectors in the result -} ->
   Vector n (f (BVType (i * w))) -> Vector (n*i) (f (BVType w))
-splitVecBV i w xs = join i (fromBV i w <$> xs)
+splitVecBV e i w xs = join i (fromBV e i w <$> xs)
 {-# Inline splitVecBV #-}
 
 

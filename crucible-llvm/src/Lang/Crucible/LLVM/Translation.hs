@@ -508,8 +508,8 @@ transValue ty@(IntType _) L.ValNull =
 
 transValue _ (L.ValString str) = do
   let eight = knownNat :: NatRepr 8
-  let bv8   = BVRepr eight
-  let chars = V.fromList $ map (App . BVLit eight . toInteger . fromEnum) $ str
+  let bv8   = LLVMPointerRepr eight
+  let chars = V.fromList $ map (BitvectorAsPointerExpr eight . App . BVLit eight . toInteger . fromEnum) $ str
   return $ BaseExpr (VectorRepr bv8) (App $ VectorLit bv8 $ chars)
 
 transValue _ (L.ValIdent i) = do
@@ -2532,14 +2532,16 @@ initializeMemory
    -> L.Module
    -> IO (MemImpl sym)
 initializeMemory sym llvm_ctx m = do
+   -- Create initial memory of appropriate endianness
+   let ?lc = llvm_ctx^.llvmTypeCtx
+   let dl = TyCtx.llvmDataLayout ?lc
+   let endianness = dl^.intLayout
+   mem0 <- emptyMem endianness
    -- Allocate function handles
    let handles = Map.assocs (_symbolMap llvm_ctx)
-   mem0 <- emptyMem
    mem <- foldM (allocLLVMHandleInfo sym) mem0 handles
    -- Allocate global values
    let gs = L.modGlobals m
-   let ?lc = llvm_ctx^.llvmTypeCtx
-   let dl = TyCtx.llvmDataLayout ?lc
    gs_alloc <- mapM (\g -> do
                         ty <- liftMemType $ L.globalType g
                         let sz = memTypeSize dl ty

@@ -888,8 +888,9 @@ transConstantExpr ::
   L.ConstExpr ->
   m LLVMConst
 transConstantExpr _mt expr = case expr of
-  L.ConstGEP _ _ [] -> badExp "Constant GEP must have at least two arguments"
-  L.ConstGEP inbounds _ (base:exps) ->
+  L.ConstGEP _ _ _ [] -> badExp "Constant GEP must have at least two arguments"
+  L.ConstGEP _ (Just _) _ _ -> badExp "NYI: Constant GEP with `inrange`"
+  L.ConstGEP inbounds Nothing _ (base:exps) ->
     do gep <- translateGEP inbounds base exps
        gep' <- traverse transConstant gep
        evalConstGEP gep'
