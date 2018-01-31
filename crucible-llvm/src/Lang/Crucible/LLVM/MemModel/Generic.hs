@@ -25,6 +25,7 @@ module Lang.Crucible.LLVM.MemModel.Generic
   ( Mem
   , emptyMem
   , AllocType(..)
+  , Mutability(..)
   , MemAlloc(..)
   , memAllocs
   , allocMem
@@ -33,6 +34,7 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , isValidPointer
   , isAligned
   , writeMem
+  , writeConstMem
   , copyMem
   , pushStackFrameMem
   , popStackFrameMem
@@ -80,10 +82,16 @@ adrVar (SymbolicOffset v _) = Just v
 data AllocType = StackAlloc | HeapAlloc | GlobalAlloc
   deriving (Show)
 
+data Mutability = Mutable | Immutable
+  deriving (Eq, Show)
+
 -- | Stores writeable memory allocations.
 data MemAlloc sym
-     -- | Allocation with given block ID and number of bytes.
-   = forall w. Alloc AllocType Natural (SymBV sym w) String
+     -- | Allocation with given block ID and number of bytes. The
+     -- 'Mutability' indicates whether the region is read-only. The
+     -- 'String' contains source location information for use in error
+     -- messages.
+   = forall w. Alloc AllocType Natural (SymBV sym w) Mutability String
      -- | The merger of two allocations.
    | AllocMerge (Pred sym) [MemAlloc sym] [MemAlloc sym]
 
@@ -540,40 +548,18 @@ emptyMem e = Mem { memEndianForm = e, _memState = EmptyMem emptyChanges }
 --------------------------------------------------------------------------------
 -- Pointer validity
 
-isAllocated' :: (IsExpr (SymExpr sym), IsBoolExprBuilder sym) =>
-             sym
-             -> (forall w. Natural -> SymBV sym w -> IO (Pred sym) -> IO (Pred sym))
-                -- ^ Evaluation function that takes continuation
-                -- for condition if previous check fails.
-             -> [MemAlloc sym]
-             -> IO (Pred sym)
-isAllocated' sym step = go (pure (falsePred sym))
-  where
-    go fallback [] = fallback
-    go fallback (Alloc _ a asz _ : r)    = step a asz (go fallback r)
-    go fallback (AllocMerge _ [] [] : r) = go fallback r
-    go fallback (AllocMerge c xr yr : r) =
-      do p <- go fallback r -- TODO: wrap this in a delay
-         px <- go (return p) xr
-         py <- go (return p) yr
-         itePred sym c px py
-
--- | @isAllocated sym w p sz m@ returns condition required to prove range
--- @[p..p+sz)@ lies within a single allocation in @m@.
---
--- NB this algorithm is set up to explicitly allow both zero size allocations
--- and zero-size chunks to be checked for validity.  When 'sz' is 0, every pointer
--- that is inside the range of the allocation OR ONE PAST THE END are considered
--- "allocated"; this is intended, as it captures C's behavior regarding valid
--- pointers.
-isAllocated :: forall sym w. (1 <= w, IsSymInterface sym)
-            => sym
-            -> NatRepr w
-            -> LLVMPtr sym w
-            -> SymBV sym w
-            -> Mem sym
-            -> IO (Pred sym)
-isAllocated sym w (llvmPointerView -> (blk, off)) sz m = do
+-- This function is parameterized by a predicate on the mutability, so
+-- it can optionally be restricted to mutable regions only.
+isAllocatedMut ::
+  forall sym w .
+  (1 <= w, IsSymInterface sym) =>
+  (Mutability -> Bool) ->
+  sym -> NatRepr w     ->
+  LLVMPtr sym w        ->
+  SymBV sym w          ->
+  Mem sym              ->
+  IO (Pred sym)
+isAllocatedMut mutOk sym w (llvmPointerView -> (blk, off)) sz m = do
    do (ov, end) <- addUnsignedOF sym off sz
       let step :: forall w'. Natural -> SymBV sym w' -> IO (Pred sym) -> IO (Pred sym)
           step a asz fallback
@@ -602,10 +588,53 @@ isAllocated sym w (llvmPointerView -> (blk, off)) sz m = do
       -- It is an error if the offset+size calculation overflows.
       case asConstantPred ov of
         Just True  -> return (falsePred sym)
-        Just False -> isAllocated' sym step (memAllocs m)
+        Just False -> isAllocated' sym step mutOk (memAllocs m)
         Nothing    ->
           do nov <- notPred sym ov
-             andPred sym nov =<< isAllocated' sym step (memAllocs m)
+             andPred sym nov =<< isAllocated' sym step mutOk (memAllocs m)
+
+isAllocated' :: (IsExpr (SymExpr sym), IsBoolExprBuilder sym) =>
+             sym
+             -> (forall w. Natural -> SymBV sym w -> IO (Pred sym) -> IO (Pred sym))
+                -- ^ Evaluation function that takes continuation
+                -- for condition if previous check fails.
+             -> (Mutability -> Bool)
+             -> [MemAlloc sym]
+             -> IO (Pred sym)
+isAllocated' sym step mutOk = go (pure (falsePred sym))
+  where
+    go fallback [] = fallback
+    go fallback (Alloc _ a asz mut _ : r)
+      | mutOk mut = step a asz (go fallback r)
+      | otherwise = go fallback r
+    go fallback (AllocMerge _ [] [] : r) = go fallback r
+    go fallback (AllocMerge c xr yr : r) =
+      do p <- go fallback r -- TODO: wrap this in a delay
+         px <- go (return p) xr
+         py <- go (return p) yr
+         itePred sym c px py
+
+-- | @isAllocated sym w p sz m@ returns condition required to prove range
+-- @[p..p+sz)@ lies within a single allocation in @m@.
+--
+-- NB this algorithm is set up to explicitly allow both zero size allocations
+-- and zero-size chunks to be checked for validity.  When 'sz' is 0, every pointer
+-- that is inside the range of the allocation OR ONE PAST THE END are considered
+-- "allocated"; this is intended, as it captures C's behavior regarding valid
+-- pointers.
+isAllocated :: forall sym w. (1 <= w, IsSymInterface sym)
+            => sym
+            -> NatRepr w
+            -> LLVMPtr sym w
+            -> SymBV sym w
+            -> Mem sym
+            -> IO (Pred sym)
+isAllocated = isAllocatedMut (const True)
+
+isAllocatedMutable ::
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w -> LLVMPtr sym w -> SymBV sym w -> Mem sym -> IO (Pred sym)
+isAllocatedMutable = isAllocatedMut (== Mutable)
 
 -- | @isValidPointer sym w b m@ returns condition required to prove range
 --   that @p@ is a valid pointer in @m@.  This means that @p@ is in the
@@ -646,7 +675,7 @@ isAligned sym _ _ _ =
 -- Other memory operations
 
 -- | Write a value to memory. The returned 'Pred' asserts that the
--- pointer falls within an allocated memory region.
+-- pointer falls within an allocated mutable memory region.
 writeMem :: (1 <= w, IsSymInterface sym)
          => sym -> NatRepr w
          -> LLVMPtr sym w
@@ -654,10 +683,27 @@ writeMem :: (1 <= w, IsSymInterface sym)
          -> LLVMVal sym
          -> Mem sym
          -> IO (Pred sym, Mem sym)
-writeMem sym w p tp v m = do
-  (,) <$> (do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
-              isAllocated sym w p sz m)
-      <*> return (writeMem' sym w p tp v m)
+writeMem sym w ptr tp v m =
+  do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
+     p <- isAllocatedMutable sym w ptr sz m
+     return (p, writeMem' sym w ptr tp v m)
+
+-- | Write a value to any memory region, mutable or immutable. The
+-- returned 'Pred' asserts that the pointer falls within an allocated
+-- memory region.
+writeConstMem ::
+  (1 <= w, IsSymInterface sym) =>
+  sym           ->
+  NatRepr w     ->
+  LLVMPtr sym w ->
+  Type          ->
+  LLVMVal sym   ->
+  Mem sym       ->
+  IO (Pred sym, Mem sym)
+writeConstMem sym w ptr tp v m =
+  do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
+     p <- isAllocated sym w ptr sz m
+     return (p, writeMem' sym w ptr tp v m)
 
 -- | Write memory without checking whether it is allocated.
 writeMem' :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
@@ -690,26 +736,28 @@ copyMem sym w dst src sz m = do
 allocMem :: AllocType -- ^ Type of allocation
          -> Natural -- ^ Block id for allocation
          -> SymBV sym w -- ^ Size
+         -> Mutability -- ^ Is block read-only
          -> String -- ^ Source location
          -> Mem sym
          -> Mem sym
-allocMem a b sz loc = memAddAlloc (Alloc a b sz loc)
+allocMem a b sz mut loc = memAddAlloc (Alloc a b sz mut loc)
 
 -- | Allocate and initialize a new memory region.
 allocAndWriteMem :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
                  -> AllocType -- ^ Type of allocation
                  -> Natural -- ^ Block id for allocation
                  -> Type
+                 -> Mutability -- ^ Is block read-only
                  -> String -- ^ Source location
                  -> LLVMVal sym -- ^ Value to write
                  -> Mem sym
                  -> IO (Mem sym)
-allocAndWriteMem sym w a b tp loc v m = do
+allocAndWriteMem sym w a b tp mut loc v m = do
   sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
   base <- natLit sym b
   off <- bvLit sym w 0
   let p = LLVMPointer base off
-  return (writeMem' sym w p tp v (m & memAddAlloc (Alloc a b sz loc)))
+  return (writeMem' sym w p tp v (m & memAddAlloc (Alloc a b sz mut loc)))
 
 pushStackFrameMem :: Mem sym -> Mem sym
 pushStackFrameMem = memState %~ StackFrame emptyChanges
@@ -732,9 +780,9 @@ popStackFrameMem m = m & memState %~ popf
 
         popf _ = error "popStackFrameMem given unexpected memory"
 
-        pa (Alloc StackAlloc _ _ _) = Nothing
-        pa a@(Alloc HeapAlloc _ _ _) = Just a
-        pa a@(Alloc GlobalAlloc _ _ _) = Just a
+        pa (Alloc StackAlloc _ _ _ _) = Nothing
+        pa a@(Alloc HeapAlloc _ _ _ _) = Just a
+        pa a@(Alloc GlobalAlloc _ _ _ _) = Just a
         pa (AllocMerge c x y) = Just (AllocMerge c (mapMaybe pa x) (mapMaybe pa y))
 
 -- FIXME? This could perhaps be more efficient.  Right now we
@@ -755,7 +803,7 @@ freeMem sym w p m =
   freeAllocs :: [MemAlloc sym] -> IO (Pred sym, [MemAlloc sym])
   freeAllocs [] =
      return ( falsePred sym , [] )
-  freeAllocs (a@(Alloc HeapAlloc b _sz _) : as) = do
+  freeAllocs (a@(Alloc HeapAlloc b _sz _ro _) : as) = do
      case p_decomp of
        ConcreteOffset p' poff
          | p' == b -> do
@@ -779,7 +827,7 @@ freeMem sym w p m =
          c'  <- orPred sym eq c
          return (c', AllocMerge eq [] [a] : as')
 
-  freeAllocs (a@(Alloc _ _ _ _) : as) = do
+  freeAllocs (a@(Alloc _ _ _ _ _) : as) = do
      (c, as') <- freeAllocs as
      return (c, a:as')
 
@@ -883,8 +931,8 @@ ppMerge vpp c x y =
     indent 2 (vcat $ map vpp y)
 
 ppAlloc :: IsExprBuilder sym => MemAlloc sym -> Doc
-ppAlloc (Alloc atp base sz loc) =
-  text (show atp) <+> text (show base) <+> printSymExpr sz <+> text loc
+ppAlloc (Alloc atp base sz mut loc) =
+  text (show atp) <+> text (show base) <+> printSymExpr sz <+> text (show mut) <+> text loc
 ppAlloc (AllocMerge c x y) = do
   text "merge" <$$> ppMerge ppAlloc c x y
 
