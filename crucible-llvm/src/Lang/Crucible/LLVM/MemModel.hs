@@ -542,12 +542,8 @@ doStore :: (IsSymInterface sym, HasPtrWidth wptr)
   -> IO (RegValue sym Mem)
 doStore sym mem ptr tpr valType val = do
     --putStrLn "MEM STORE"
-    let errMsg = "Invalid memory store: address " ++ show (G.ppPtr ptr) ++
-                 " at type " ++ show (G.ppType valType)
     val' <- packMemValue sym valType tpr val
-    (p, heap') <- G.writeMem sym PtrWidth ptr valType val' (memImplHeap mem)
-    addAssertion sym p (AssertFailureSimError errMsg)
-    return mem{ memImplHeap = heap' }
+    storeRaw sym mem ptr valType val'
 
 data SomeFnHandle where
   SomeFnHandle :: FnHandle args ret -> SomeFnHandle
@@ -671,15 +667,8 @@ mallocRaw
   -> MemImpl sym
   -> SymExpr sym (BaseBVType wptr)
   -> IO (LLVMPtr sym wptr, MemImpl sym)
-mallocRaw sym mem sz = do
-  blkNum <- nextBlock (memImplBlockSource mem)
-  blk <- natLit sym (fromIntegral blkNum)
-  z <- bvLit sym PtrWidth 0
-
-  let ptr = LLVMPointer blk z
-  let heap' = G.allocMem G.HeapAlloc (fromInteger blkNum) sz "<malloc>" (memImplHeap mem)
-  return (ptr, mem{ memImplHeap = heap' })
-
+mallocRaw sym mem sz =
+  doMalloc sym G.HeapAlloc "<malloc>" mem sz
 
 -- | Allocate a memory region for the given handle.
 doMallocHandle
