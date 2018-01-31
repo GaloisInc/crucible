@@ -461,7 +461,8 @@ doDumpMem
 doDumpMem h mem = do
   hPutStrLn h (show (ppMem mem))
 
-
+-- | Load an LLVM value from memory. Also assert that the pointer is
+-- valid and the result value is not undefined.
 loadRaw :: (IsSymInterface sym, HasPtrWidth wptr)
         => sym
         -> MemImpl sym
@@ -519,9 +520,9 @@ doLoad sym mem ptr valType alignment = do
 storeRaw :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> MemImpl sym
-  -> LLVMPtr sym wptr
-  -> G.Type
-  -> LLVMVal sym
+  -> LLVMPtr sym wptr {- ^ pointer to store into -}
+  -> G.Type           {- ^ type of value to store -}
+  -> LLVMVal sym      {- ^ value to store -}
   -> IO (MemImpl sym)
 storeRaw sym mem ptr valType val = do
     (p, heap') <- G.writeMem sym PtrWidth ptr valType val (memImplHeap mem)
