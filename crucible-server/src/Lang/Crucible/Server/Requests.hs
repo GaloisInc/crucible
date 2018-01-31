@@ -21,6 +21,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Lang.Crucible.Server.Requests
   ( logMsg
@@ -185,6 +186,62 @@ fulfillRunCallRequest sim f_val encoded_args = do
              "Could not interpret first argument as function."
              []
       sendCallAllAborted sim
+
+------------------------------------------------------------------------
+-- GetConfigValue request
+
+fulfillGetConfigValueRequest
+    :: IsSymInterface sym
+    => Simulator p sym
+       -- ^ Simulator to run.
+    -> Text
+       -- ^ Name of the configuration setting
+    -> IO ()
+fulfillGetConfigValueRequest sim nm =
+  do ctx <- getSimContext sim
+     let cfg = simConfig ctx
+     let sym = ctx^.ctxSymInterface
+     readConfigValue sym nm cfg $ \tpr v ->
+       do pv <- toProtoValue sim (RegEntry tpr v)
+          let resp =
+               mempty & P.simulatorValueResponse_successful .~ True
+                      & P.simulatorValueResponse_value .~ pv
+          let gresp =
+               mempty & P.genericResponse_code .~ P.SimulatorValueGenResp
+                      & P.genericResponse_simValResponse .~ resp
+          sendResponse sim gresp
+
+------------------------------------------------------------------------
+-- SetConfigValue request
+
+fulfillSetConfigValueRequest
+    :: IsSymInterface sym
+    => Simulator p sym
+       -- ^ Simulator to run.
+    -> Text
+       -- ^ Name of the configuration setting
+    -> Seq P.Value
+       -- ^ Value of the configuration setting
+    -> IO ()
+fulfillSetConfigValueRequest sim nm vals =
+  do ctx <- getSimContext sim
+     let cfg = simConfig ctx
+     let sym = ctx^.ctxSymInterface
+     case Seq.viewl vals of
+       val Seq.:< (Seq.null -> True) ->
+         do Some (RegEntry tpr v) <- fromProtoValue sim val
+            ctx' <- flip execStateT ctx $ runSimConfigMonad $
+                      writeConfigValue sym nm cfg $ \tpr' ->
+                        case testEquality tpr tpr' of
+                          Just Refl -> return v
+                          Nothing   -> fail $ unlines [ "Expected value of type " ++ show tpr'
+                                                      , "when setting configuration value " ++ show nm
+                                                      , "but was given a value of type " ++ show tpr
+                                                      ]
+            writeIORef (simContext sim) ctx'
+            sendAckResponse sim
+
+       _ -> fail "Expected a single argument for SetConfigValue"
 
 ------------------------------------------------------------------------
 -- SetVerbosity request
@@ -441,6 +498,13 @@ handleOneRequest sim addlRequests request =
     P.SetVerbosity -> do
       let args = request^.P.request_args
       fulfillSetVerbosityRequest sim args
+    P.GetConfigValue -> do
+      let nm   = request^.P.request_config_setting_name
+      fulfillGetConfigValueRequest sim nm
+    P.SetConfigValue -> do
+      let nm   = request^.P.request_config_setting_name
+      let args = request^.P.request_args
+      fulfillSetConfigValueRequest sim nm args
     P.ApplyPrimitive -> do
       let p_op = request^.P.request_prim_op
       let args = request^.P.request_args

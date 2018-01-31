@@ -732,7 +732,7 @@ public abstract class Simulator extends ValueCreator<SimulatorValue> {
     }
 
     /** Read a simulator value from the protocol buffer format. */
-    private static
+    protected static
     SimulatorValue fromProtosValue(Protos.Value v, Type expectedType) {
         // Declare local variables so intance variables are assigned once.
         switch (v.getCode()) {

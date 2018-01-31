@@ -86,7 +86,7 @@ runSAWSimulator hin hout =
                    & P.handShakeResponse_code .~ P.HandShakeOK
      SAW.withSAWCoreBackend scm $ \(sym :: SAW.SAWCoreBackend n) ->
        do sawState <- initSAWServerPersonality sym
-          s <- newSimulator sym sawState [] [] hin hout
+          s <- newSimulator sym sawState sawServerOptions sawServerOverrides hin hout
 
           putDelimited hout ok_resp
           -- Enter loop to start reading commands.

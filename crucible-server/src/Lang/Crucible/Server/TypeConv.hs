@@ -66,7 +66,10 @@ fromProtoPos p =
           addr = p^.P.position_addr
           nm   = p^.P.position_functionName
        in mkProgramLoc (functionNameFromText nm) $ BinaryPos path addr
-
+    P.OtherPos ->
+      let str  = p^.P.position_value
+          nm   = p^.P.position_functionName
+       in mkProgramLoc (functionNameFromText nm) $ OtherPos str
 
 toProtoPos :: ProgramLoc -> P.Position
 toProtoPos pl =
@@ -85,6 +88,9 @@ toProtoPos pl =
              & P.position_path .~ path
              & P.position_addr .~ fromIntegral addr
              & P.position_functionName .~ functionName (plFunction pl)
+    OtherPos str ->
+      mempty & P.position_code  .~ P.OtherPos
+             & P.position_value .~ str
 
 ------------------------------------------------------------------------
 -- Type conversion
@@ -240,7 +246,7 @@ setTypeParams params = P.crucibleType_params .~ params
 
 ctxReprToSeq :: CtxRepr ctx -> Seq (Some TypeRepr)
 ctxReprToSeq c =
-  case Ctx.view c of
+  case Ctx.viewAssign c of
     Ctx.AssignEmpty -> Seq.empty
     Ctx.AssignExtend ctx r -> ctxReprToSeq ctx Seq.|> Some r
 

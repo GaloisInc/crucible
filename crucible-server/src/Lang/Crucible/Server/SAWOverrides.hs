@@ -33,6 +33,7 @@ import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import qualified Data.Vector as V
 
+import           Lang.Crucible.Config
 import qualified Lang.Crucible.Proto as P
 import           Lang.Crucible.Server.CryptolEnv
 import           Lang.Crucible.Server.Requests
@@ -54,6 +55,11 @@ import qualified Verifier.SAW.ExternalFormat as SAW
 import qualified Verifier.SAW.SharedTerm as SAW
 import qualified Verifier.SAW.Recognizer as SAW
 
+sawServerOptions :: [ConfigDesc (SimConfigMonad SAWCrucibleServerPersonality (SAW.SAWCoreBackend n))]
+sawServerOptions = SAW.sawOptions
+
+sawServerOverrides :: [Simulator p (SAW.SAWCoreBackend n) -> IO SomeHandle]
+sawServerOverrides = []
 
 data SAWCrucibleServerPersonality sym =
    SAWCrucibleServerPersonality

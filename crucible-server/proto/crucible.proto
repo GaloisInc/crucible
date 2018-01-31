@@ -110,6 +110,15 @@ enum RequestCode {
   // can be used as an override for compositional verification.
   CompileVerificationOverride = 13;
 
+  // Request the current setting of a configuration value.  Use the
+  // Request.config_setting_name field to identify the setting of interest.
+  GetConfigValue = 14;
+
+  // Set a configuration value.  Use the Request.config_setting_name field to
+  // identify the setting of interest, and use the Request.arg field for the
+  // value to set.
+  SetConfigValue = 15;
+
   /////////////////////////////////////////////////////////////////////////////
   // Operations to get predefined handles.
 
@@ -205,6 +214,10 @@ message Request {
   // Verification harness to use for the CompileVerificationHarness
   // request.
   optional VerificationHarness verification_harness = 14;
+
+  // Name of the configuration value being read or written by a
+  // get or set option request
+  optional string config_setting_name = 15;
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -767,6 +780,10 @@ enum PositionCode {
   // Position.path contains the full path to the binary.
   // Position.addr contains the address when loaded into memory.
   BinaryPos = 2;
+  // Unstructured string position.
+  // Position.pos_string contains an arbitrary string describing the
+  // program position.
+  OtherPos = 3;
 }
 
 // A position in the code.
@@ -777,6 +794,7 @@ message Position {
   optional uint64 col  = 4;
   optional uint64 addr = 5;
   optional string functionName = 6;
+  optional string value = 7;
 }
 
 message Cfg {
