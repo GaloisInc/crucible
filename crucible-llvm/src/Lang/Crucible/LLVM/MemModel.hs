@@ -236,10 +236,13 @@ evalStmt sym = eval
 
         v1 <- isValidPointer sym x mem
         v2 <- isValidPointer sym y mem
+        v3 <- G.notAliasable sym x y (memImplHeap mem)
         addAssertion sym v1
            (AssertFailureSimError $ unlines ["Invalid pointer compared for equality:", show x_doc, show allocs_doc])
         addAssertion sym v2
            (AssertFailureSimError $ unlines ["Invalid pointer compared for equality:", show y_doc, show allocs_doc])
+        addAssertion sym v3
+           (AssertFailureSimError $ unlines ["Const pointers compared for equality:", show x_doc, show y_doc, show allocs_doc])
 
         ptrEq sym PtrWidth x y
 

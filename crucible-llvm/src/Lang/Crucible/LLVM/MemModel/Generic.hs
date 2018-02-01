@@ -33,6 +33,7 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , readMem
   , isValidPointer
   , isAligned
+  , notAliasable
   , writeMem
   , writeConstMem
   , copyMem
@@ -670,6 +671,42 @@ isAligned sym w (LLVMPointer _blk offset) a
        bvEq sym lowbits =<< bvLit sym bits 0
 isAligned sym _ _ _ =
   return (falsePred sym)
+
+-- | The LLVM memory model generally does not allow for different
+-- memory regions to alias each other: Pointers with different
+-- allocation block numbers will compare as definitely unequal.
+-- However, it does allow two /immutable/ memory regions to alias each
+-- other. To make this sound, equality comparisons between pointers to
+-- different immutable memory regions must not evaluate to false.
+-- Therefore pointer equality comparisons assert that the pointers are
+-- not aliasable: they must not point to two different immutable
+-- blocks.
+notAliasable ::
+  forall sym w .
+  (1 <= w, IsSymInterface sym) =>
+  sym ->
+  LLVMPtr sym w ->
+  LLVMPtr sym w ->
+  Mem sym ->
+  IO (Pred sym)
+notAliasable sym (LLVMPointer blk1 _) (LLVMPointer blk2 _) mem =
+  do p0 <- natEq sym blk1 blk2
+     p1 <- isMutable blk1 (memAllocs mem)
+     p2 <- isMutable blk2 (memAllocs mem)
+     orPred sym p0 =<< orPred sym p1 p2
+  where
+    isMutable _blk [] = return (falsePred sym)
+    isMutable blk (Alloc _ _ _ Immutable _ : r) = isMutable blk r
+    isMutable blk (Alloc _ a _ Mutable _ : r) =
+      do p1 <- natEq sym blk =<< natLit sym a
+         p2 <- isMutable blk r
+         orPred sym p1 p2
+    isMutable blk (AllocMerge c x y : r) =
+      do px <- isMutable blk x
+         py <- isMutable blk y
+         p1 <- itePred sym c px py
+         p2 <- isMutable blk r
+         orPred sym p1 p2
 
 --------------------------------------------------------------------------------
 -- Other memory operations
