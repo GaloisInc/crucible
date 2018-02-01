@@ -46,6 +46,12 @@ public final class SAWSimulator extends Simulator {
 	return sim;
     }
 
+    /**
+     * Set whether path satisfiablity checking is enabled in the symbolic simulator.
+     *
+     * @param pathSat The new setting value
+     * @throws IOException If an I/O error occurs while communicating with the crucible server.
+     */
     public synchronized void setPathSatChecking( boolean pathSat ) throws IOException {
         SimulatorValue pathSatVal = pathSat ? BoolValue.TRUE : BoolValue.FALSE;
 
@@ -57,6 +63,13 @@ public final class SAWSimulator extends Simulator {
         getNextAckResponse();
     }
 
+    /**
+     * Get whether path satisfiablity checking is currently enabled in the symbolic simulator.
+     *
+     * @returns The current setting of the path satisfiability configuration value.
+     * @throws IOException If an I/O error occurs while communicating with the crucible server.
+     * @throws SimulatorFailedException if an unexpected (non-boolean) value is returned by the server.
+     */
     public synchronized boolean getPathSatChecking() throws IOException {
         issueRequest( Protos.Request.newBuilder()
                       .setCode(Protos.RequestCode.GetConfigValue)
