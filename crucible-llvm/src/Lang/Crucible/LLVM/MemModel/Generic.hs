@@ -689,7 +689,7 @@ notAliasable ::
   LLVMPtr sym w ->
   Mem sym ->
   IO (Pred sym)
-notAliasable sym (LLVMPointer blk1 _) (LLVMPointer blk2 _) mem =
+notAliasable sym (llvmPointerView -> (blk1, _)) (llvmPointerView -> (blk2, _)) mem =
   do p0 <- natEq sym blk1 blk2
      p1 <- isMutable blk1 (memAllocs mem)
      p2 <- isMutable blk2 (memAllocs mem)
