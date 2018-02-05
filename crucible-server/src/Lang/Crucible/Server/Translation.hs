@@ -300,7 +300,7 @@ transExpr pe = do
           case isPosNat w of
             Nothing -> fail $ "Zero width bitvector."
             Just LeqProof -> do
-              let i = decodeUnsigned (pe^.P.expr_data)
+              let i = decodeSigned (pe^.P.expr_data)
               fmap Some $ addAppStmt $ BVLit w i
         Nothing -> fail "Width is too large"
     P.StringExpr -> do
