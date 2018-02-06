@@ -75,7 +75,9 @@ module Lang.Crucible.LLVM.MemModel
   , loadRaw
   , loadRawWithCondition
   , storeRaw
+  , storeConstRaw
   , mallocRaw
+  , mallocConstRaw
   ) where
 
 import           Control.Lens hiding (Empty, (:>))
@@ -193,7 +195,7 @@ evalStmt sym = eval
         blk <- liftIO $ natLit sym (fromIntegral blkNum)
         z <- liftIO $ bvLit sym PtrWidth 0
 
-        let heap' = G.allocMem G.StackAlloc (fromInteger blkNum) sz (show loc) (memImplHeap mem)
+        let heap' = G.allocMem G.StackAlloc (fromInteger blkNum) sz G.Mutable (show loc) (memImplHeap mem)
         let ptr = LLVMPointer blk z
 
         setMem mvar mem{ memImplHeap = heap' }
@@ -234,10 +236,13 @@ evalStmt sym = eval
 
         v1 <- isValidPointer sym x mem
         v2 <- isValidPointer sym y mem
+        v3 <- G.notAliasable sym x y (memImplHeap mem)
         addAssertion sym v1
            (AssertFailureSimError $ unlines ["Invalid pointer compared for equality:", show x_doc, show allocs_doc])
         addAssertion sym v2
            (AssertFailureSimError $ unlines ["Invalid pointer compared for equality:", show y_doc, show allocs_doc])
+        addAssertion sym v3
+           (AssertFailureSimError $ unlines ["Const pointers compared for equality:", show x_doc, show y_doc, show allocs_doc])
 
         ptrEq sym PtrWidth x y
 
@@ -309,7 +314,7 @@ allocGlobal :: (IsSymInterface sym, HasPtrWidth wptr)
             -> IO (MemImpl sym)
 allocGlobal sym mem (symbol@(L.Symbol sym_str), sz) = do
   sz' <- bvLit sym PtrWidth (G.bytesToInteger sz)
-  (ptr, mem') <- doMalloc sym G.GlobalAlloc sym_str mem sz'
+  (ptr, mem') <- doMalloc sym G.GlobalAlloc G.Mutable sym_str mem sz' -- TODO
   return (registerGlobal mem' symbol ptr)
 
 -- | Add an entry to the global map of the given 'MemImpl'.
@@ -498,6 +503,8 @@ loadRawWithCondition sym mem ptr valType =
        Unassigned -> return (Left errMsg)
        PE p' v' -> return (Right (p', AssertFailureSimError errMsg, v'))
 
+-- | Load a 'RegValue' from memory. Also assert that the pointer is
+-- valid and aligned, and that the loaded value is defined.
 doLoad :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> RegValue sym Mem
@@ -517,6 +524,8 @@ doLoad sym mem ptr valType alignment = do
         addAssertion sym p' (AssertFailureSimError errMsg)
         unpackMemValue sym v'
 
+-- | Store an LLVM value in memory. Also assert that the pointer is
+-- valid and points to a mutable memory region.
 storeRaw :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> MemImpl sym
@@ -531,7 +540,25 @@ storeRaw sym mem ptr valType val = do
     addAssertion sym p (AssertFailureSimError errMsg)
     return mem{ memImplHeap = heap' }
 
+-- | Store an LLVM value in memory. The pointed-to memory region may
+-- be either mutable or immutable; thus 'storeConstRaw' can be used to
+-- initialize read-only memory regions.
+storeConstRaw :: (IsSymInterface sym, HasPtrWidth wptr)
+  => sym
+  -> MemImpl sym
+  -> LLVMPtr sym wptr {- ^ pointer to store into -}
+  -> G.Type           {- ^ type of value to store -}
+  -> LLVMVal sym      {- ^ value to store -}
+  -> IO (MemImpl sym)
+storeConstRaw sym mem ptr valType val = do
+    (p, heap') <- G.writeConstMem sym PtrWidth ptr valType val (memImplHeap mem)
+    let errMsg = "Invalid memory store: address " ++ show (G.ppPtr ptr) ++
+                 " at type " ++ show (G.ppType valType)
+    addAssertion sym p (AssertFailureSimError errMsg)
+    return mem{ memImplHeap = heap' }
 
+-- | Store a 'RegValue' in memory. Also assert that the pointer is
+-- valid and points to a mutable memory region.
 doStore :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> RegValue sym Mem
@@ -635,7 +662,7 @@ doCalloc sym mem sz num = do
      (AssertFailureSimError "Multiplication overflow in calloc()")
 
   z <- bvLit sym knownNat 0
-  (ptr, mem') <- doMalloc sym G.HeapAlloc "<calloc>" mem sz'
+  (ptr, mem') <- doMalloc sym G.HeapAlloc G.Mutable "<calloc>" mem sz'
   mem'' <- doMemset sym PtrWidth mem' ptr z sz'
   return (ptr, mem'')
 
@@ -644,19 +671,16 @@ doMalloc
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> G.AllocType {- ^ stack, heap, or global -}
+  -> G.Mutability {- ^ whether region is read-only -}
   -> String {- ^ source location for use in error messages -}
   -> MemImpl sym
   -> RegValue sym (BVType wptr) {- ^ allocation size -}
   -> IO (RegValue sym (LLVMPointerType wptr), MemImpl sym)
-doMalloc sym allocType loc mem sz = do
-  --sz_doc <- printSymExpr sym sz
-  --putStrLn $ unwords ["doMalloc", show nextBlock, show sz_doc]
-
+doMalloc sym allocType mut loc mem sz = do
   blkNum <- nextBlock (memImplBlockSource mem)
   blk <- natLit sym (fromIntegral blkNum)
   z <- bvLit sym PtrWidth 0
-
-  let heap' = G.allocMem allocType (fromInteger blkNum) sz loc (memImplHeap mem)
+  let heap' = G.allocMem allocType (fromInteger blkNum) sz mut loc (memImplHeap mem)
   let ptr = LLVMPointer blk z
   return (ptr, mem{ memImplHeap = heap' })
 
@@ -668,7 +692,17 @@ mallocRaw
   -> SymExpr sym (BaseBVType wptr)
   -> IO (LLVMPtr sym wptr, MemImpl sym)
 mallocRaw sym mem sz =
-  doMalloc sym G.HeapAlloc "<malloc>" mem sz
+  doMalloc sym G.HeapAlloc G.Mutable "<malloc>" mem sz
+
+-- | Allocate a read-only memory region on the heap, with no source location info.
+mallocConstRaw
+  :: (IsSymInterface sym, HasPtrWidth wptr)
+  => sym
+  -> MemImpl sym
+  -> SymExpr sym (BaseBVType wptr)
+  -> IO (LLVMPtr sym wptr, MemImpl sym)
+mallocConstRaw sym mem sz =
+  doMalloc sym G.HeapAlloc G.Immutable "<malloc>" mem sz
 
 -- | Allocate a memory region for the given handle.
 doMallocHandle
@@ -684,7 +718,7 @@ doMallocHandle sym allocType loc mem x = do
   blk <- natLit sym (fromIntegral blkNum)
   z <- bvLit sym PtrWidth 0
 
-  let heap' = G.allocMem allocType (fromInteger blkNum) z loc (memImplHeap mem)
+  let heap' = G.allocMem allocType (fromInteger blkNum) z G.Mutable loc (memImplHeap mem)
   let hMap' = Map.insert blkNum (toDyn x) (memImplHandleMap mem)
   let ptr = LLVMPointer blk z
   return (ptr, mem{ memImplHeap = heap', memImplHandleMap = hMap' })

@@ -944,7 +944,7 @@ callMalloc sym mvar
            (regValue -> sz) = do
   --liftIO $ putStrLn "MEM MALLOC"
   mem <- readGlobal mvar
-  (p, mem') <- liftIO $ doMalloc sym G.HeapAlloc "<malloc>" mem sz
+  (p, mem') <- liftIO $ doMalloc sym G.HeapAlloc G.Mutable "<malloc>" mem sz
   writeGlobal mvar mem'
   return p
 
