@@ -37,14 +37,14 @@ library
   hs-source-dirs: src
   exposed-modules: Mir.SAWInterface,
                    Mir.Mir
+                   Mir.Pass,
+                   Mir.Pass.CollapseRefs,
+                   Mir.Pass.MutRefReturnStatic,
+                   Mir.Pass.RewriteMutRef,
+                   Mir.Pass.RemoveStorage,
+                   Mir.Pass.RemoveBoxNullary
 
   other-modules: 
                  Mir.Intrinsics,
-                 Mir.Pass,
-                 Mir.Pass.CollapseRefs,
-                 Mir.Pass.MutRefReturnStatic,
-                 Mir.Pass.RewriteMutRef,
-                 Mir.Pass.RemoveStorage,
-                 Mir.Pass.RemoveBoxNullary,
                  Mir.Run,
                  Mir.Trans
