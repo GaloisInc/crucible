@@ -38,7 +38,7 @@ import qualified Lang.Crucible.CFG.Expr as E
 import qualified Lang.Crucible.CFG.Core as Core
 import qualified Lang.Crucible.Syntax as S
 import qualified Data.Map.Strict as Map
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (<>))
 import qualified Lang.Crucible.Types as CT
 import qualified Numeric.Natural as Nat
 import qualified Data.Vector as V
@@ -48,6 +48,7 @@ import qualified Text.Regex.Base as Regex
 import Data.Parameterized.NatRepr
 import Data.Parameterized.Some
 import GHC.TypeLits
+import Data.Monoid
 
 import GHC.Stack
 
