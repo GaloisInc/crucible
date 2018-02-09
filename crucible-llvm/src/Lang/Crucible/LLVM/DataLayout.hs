@@ -149,7 +149,7 @@ instance At AlignInfo where
 
 -- | Flags byte orientation of target machine.
 data EndianForm = BigEndian | LittleEndian
-  deriving (Eq)
+  deriving (Eq,Show)
 
 -- | Parsed data layout
 data DataLayout
