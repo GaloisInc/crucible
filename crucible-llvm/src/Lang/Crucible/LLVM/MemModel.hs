@@ -65,6 +65,7 @@ module Lang.Crucible.LLVM.MemModel
   , SomeFnHandle(..)
   , G.ppPtr
   , ppMem
+  , isValidPointer
 
   -- * Direct API to LLVMVal
   , LLVMVal(..)
