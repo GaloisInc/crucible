@@ -66,6 +66,7 @@ module Lang.Crucible.LLVM.MemModel
   , G.ppPtr
   , ppMem
   , isValidPointer
+  , memEndian
 
   -- * Direct API to LLVMVal
   , LLVMVal(..)
@@ -287,6 +288,9 @@ data MemImpl sym =
   , memImplHandleMap   :: Map Integer Dynamic
   , memImplHeap        :: G.Mem sym
   }
+
+memEndian :: MemImpl sym -> EndianForm
+memEndian = G.memEndian . memImplHeap
 
 -- | Produce a fresh empty memory.
 --   NB, we start counting allocation blocks at '1'.

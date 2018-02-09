@@ -28,6 +28,7 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , Mutability(..)
   , MemAlloc(..)
   , memAllocs
+  , memEndian
   , allocMem
   , allocAndWriteMem
   , readMem
@@ -545,6 +546,9 @@ emptyChanges = ([],[])
 
 emptyMem :: EndianForm -> Mem sym
 emptyMem e = Mem { memEndianForm = e, _memState = EmptyMem emptyChanges }
+
+memEndian :: Mem sym -> EndianForm
+memEndian = memEndianForm
 
 --------------------------------------------------------------------------------
 -- Pointer validity
