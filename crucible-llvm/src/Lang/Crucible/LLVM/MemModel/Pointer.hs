@@ -80,6 +80,7 @@ module Lang.Crucible.LLVM.MemModel.Pointer
   , ptrOffsetLe
   , ptrEq
   , ptrLe
+  , ptrLt
   , ptrAdd
   , ptrDiff
   , ptrSub
@@ -268,6 +269,19 @@ ptrLe sym _w (LLVMPointer base1 off1) (LLVMPointer base2 off2) =
   do p1 <- natEq sym base1 base2
      addAssertion sym p1 (AssertFailureSimError "Attempted to compare pointers from different allocations")
      bvUle sym off1 off2
+
+ptrLt :: (1 <= w, IsSymInterface sym)
+      => sym
+      -> NatRepr w
+      -> LLVMPtr sym w
+      -> LLVMPtr sym w
+      -> IO (Pred sym)
+ptrLt sym _w (LLVMPointer base1 off1) (LLVMPointer base2 off2) =
+  do p1 <- natEq sym base1 base2
+     addAssertion sym p1 (AssertFailureSimError "Attempted to compare pointers from different allocations")
+     bvUlt sym off1 off2
+
+
 
 -- | Add an offset to a pointer.
 ptrAdd :: (1 <= w, IsExprBuilder sym)
