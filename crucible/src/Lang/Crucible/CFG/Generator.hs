@@ -565,26 +565,6 @@ newLambdaLabelG' tpr = Generator $ do
                }
   return $! lbl
 
-{-
--- | Define the current block by defining the position and
--- final statement.  This returns the user state after the
--- block is finished.
-endCurrentBlock :: IsSyntaxExtension ext
-                => TermStmt s ret
-                -> End ext h s t ret ()
-endCurrentBlock term = End $ do
-  gs <- get
-  let p = gs^.gsPosition
-  let Just cbs = gs^.gsCurrent
-  -- Clear current state.
-  gsCurrent .= Nothing
-  -- Define block
-  let b = mkBlock (cbsBlockID cbs) (cbsInputValues cbs) (cbs^.cbsStmts) (Posd p term)
-  -- Store block
-  seq b $ do
-  gsBlocks %= (Seq.|> b)
--}
-
 -- | End the translation of the current block, and then start a new
 -- block with the given label.
 resume_ ::
