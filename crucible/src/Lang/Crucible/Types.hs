@@ -82,7 +82,14 @@ module Lang.Crucible.Types
   , SymbolicArrayType
 
     -- * FloatInfo data kind
-  , FloatInfo(..)
+  , FloatInfo
+    -- ** Constructors for kind FloatInfo
+  , HalfFloat
+  , SingleFloat
+  , DoubleFloat
+  , QuadFloat
+  , X86_80Float
+  , DoubleDoubleFloat
   , FloatInfoRepr(..)
     -- * IsRecursiveType
   , IsRecursiveType(..)
@@ -200,14 +207,14 @@ data FloatInfo where
   DoubleFloat       :: FloatInfo  --  64 bit binary IEEE754
   QuadFloat         :: FloatInfo  -- 128 bit binary IEEE754
   X86_80Float       :: FloatInfo  -- X86 80-bit extended floats
-  DoubleDoubleFloat :: FloatInfo -- 2 64-bit floats fused in the "double-double" style
+  DoubleDoubleFloat :: FloatInfo  -- 2 64-bit floats fused in the "double-double" style
 
-type HalfFloat   = 'HalfFloat
-type SingleFloat = 'SingleFloat
-type DoubleFloat = 'DoubleFloat
-type QuadFloat   = 'QuadFloat
-type X86_80Float = 'X86_80Float
-type DoubleDoubleFloat = 'DoubleDoubleFloat
+type HalfFloat   = 'HalfFloat   -- ^  16 bit binary IEEE754.
+type SingleFloat = 'SingleFloat -- ^  32 bit binary IEEE754.
+type DoubleFloat = 'DoubleFloat -- ^  64 bit binary IEEE754.
+type QuadFloat   = 'QuadFloat   -- ^ 128 bit binary IEEE754.
+type X86_80Float = 'X86_80Float -- ^ X86 80-bit extended floats.
+type DoubleDoubleFloat = 'DoubleDoubleFloat -- ^ Two 64-bit floats fused in the "double-double" style.
 
 -- | A family of value-level representatives for floating-point types.
 data FloatInfoRepr (flt::FloatInfo) where
