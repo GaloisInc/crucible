@@ -541,7 +541,7 @@ termStmtInputs stmt = foldTermStmtAtoms (Set.insert . Some . AtomValue) stmt Set
 
 
 -- | Returns the next labels for the given block.  Error statements
--- have no next labels, while return/tail calls statements return Nothing.
+-- have no next labels, while return/tail call statements return 'Nothing'.
 termNextLabels :: TermStmt s ret
                -> Maybe [BlockID s]
 termNextLabels s0 =
@@ -571,7 +571,7 @@ data Block ext s (ret :: CrucibleType)
              -- It does not include the lambda reg for lambda blocks.
            , blockKnownInputs  :: !(ValueSet s)
              -- | Registers assigned by statements in block.
-             -- This is a field so that it's value can be memoized.
+             -- This is a field so that its value can be memoized.
            , blockAssignedValues :: !(ValueSet s)
            }
 

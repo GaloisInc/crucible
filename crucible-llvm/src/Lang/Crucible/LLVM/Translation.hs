@@ -410,7 +410,7 @@ buildBlockInfo bb = do
                                 })
 
 -- Given the statements in a basic block, find all the phi instructions and
--- compute the list of assignments that must be made for each predicessor block.
+-- compute the list of assignments that must be made for each predecessor block.
 buildPhiMap :: [L.Stmt] -> Map L.BlockLabel (Seq (L.Ident, L.Type, L.Value))
 buildPhiMap ss = go ss Map.empty
  where go (L.Result ident (L.Phi tp xs) _ : stmts) m = go stmts (go' ident tp xs m)
@@ -424,7 +424,7 @@ buildPhiMap ss = go ss Map.empty
 -- | This function pre-computes the types of all the crucible registers by scanning
 --   through each basic block and finding the place where that register is assigned.
 --   Because LLVM programs are in SSA form, this will occur in exactly one place.
---   The type of the register is infered from the instruction that assigns to it
+--   The type of the register is inferred from the instruction that assigns to it
 --   and is recorded in the ident map.
 buildRegMap :: IdentMap s -> L.Define -> LLVMEnd h s arch reg (IdentMap s)
 buildRegMap m d = foldM buildRegTypeMap m $ L.defBody d
