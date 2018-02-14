@@ -414,7 +414,7 @@ inferBlockInfo blocks = seq input_map $ go bi0 blocks
                   go bi' rest
 
 ------------------------------------------------------------------------
--- Translates from RTL with inference inforamtion to SSA.
+-- Translates from RTL with inference information to SSA.
 
 data MaybeF f tp where
   JustF :: f tp -> MaybeF f tp
@@ -520,7 +520,7 @@ bindValueReg r cr (TypedRegMap m) =
 
 #endif
 
--- | Assign new register to value in tpyed reg map.
+-- | Assign new register to value in typed reg map.
 assignRegister
     :: Value s tp
     -> Size ctx
