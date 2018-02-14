@@ -379,8 +379,6 @@ initialState d llvmctx args asgn =
 
 type LLVMGenerator h s arch ret a =
   (?lc :: TyCtx.LLVMContext, HasPtrWidth (ArchWidth arch)) => Generator (LLVM arch) h s (LLVMState arch) ret a
-type LLVMEnd h s arch ret a =
-  (?lc :: TyCtx.LLVMContext, HasPtrWidth (ArchWidth arch)) => End (LLVM arch) h s (LLVMState arch) ret a
 
 -- | Information about an LLVM basic block
 data LLVMBlockInfo s
@@ -404,7 +402,7 @@ buildBlockInfo :: L.BasicBlock -> LLVMGenerator h s arch ret (L.BlockLabel, LLVM
 buildBlockInfo bb = do
   let phi_map = buildPhiMap (L.bbStmts bb)
   let Just blk_lbl = L.bbLabel bb
-  lab <- newLabelG
+  lab <- newLabel
   return (blk_lbl, LLVMBlockInfo{ block_phi_map = phi_map
                                 , block_label = lab
                                 })
@@ -1623,13 +1621,12 @@ caseptr w tpr bvCase ptrCase x =
   where
   ptrSwitch blk off =
     do cond <- mkAtom (blk .== litExpr 0)
-       bv_label  <- newLabelG
-       ptr_label <- newLabelG
-       resume (Br cond bv_label ptr_label) $
-         do c_label  <- newLambdaLabel' tpr
-            defineBlock bv_label  (bvCase off >>= jumpToLambda c_label)
-            defineBlock ptr_label (ptrCase blk off >>= jumpToLambda c_label)
-            return c_label
+       bv_label  <- newLabel
+       ptr_label <- newLabel
+       c_label  <- newLambdaLabel' tpr
+       defineBlock bv_label  (bvCase off >>= jumpToLambda c_label)
+       defineBlock ptr_label (ptrCase blk off >>= jumpToLambda c_label)
+       resume (Br cond bv_label ptr_label) c_label
 
 intcmp :: (1 <= w)
     => NatRepr w
@@ -2086,13 +2083,11 @@ generateInstr retType lab instr assign_f k =
                  Scalar (LLVMPointerRepr w) e -> notExpr <$> callIsNull w e
                  _ -> fail "expected boolean condition on branch"
 
-        a' <- mkAtom e'
-        phi1 <- newLabelG
-        phi2 <- newLabelG
-        resume_ (Br a' phi1 phi2) $ do
-          defineBlock phi1 (definePhiBlock lab l1)
-          return phi2
-        definePhiBlock lab l2
+        phi1 <- newLabel
+        phi2 <- newLabel
+        defineBlock phi1 (definePhiBlock lab l1)
+        defineBlock phi2 (definePhiBlock lab l2)
+        branch e' phi1 phi2
 
     L.Switch x def branches -> do
         x' <- transTypedValue x
@@ -2250,13 +2245,11 @@ buildSwitch _ _  curr_lab def [] =
    definePhiBlock curr_lab def
 buildSwitch w ex curr_lab def ((i,l):bs) = do
    let test = App $ BVEq w ex $ App $ BVLit w i
-   test_a <- mkAtom test
-   t_id <- newLabelG
-   f_id <- newLabelG
-   resume_ (Br test_a t_id f_id) $ do
-     defineBlock t_id (definePhiBlock curr_lab l)
-     return f_id
-   buildSwitch w ex curr_lab def bs
+   t_id <- newLabel
+   f_id <- newLabel
+   defineBlock t_id (definePhiBlock curr_lab l)
+   defineBlock f_id (buildSwitch w ex curr_lab def bs)
+   branch test t_id f_id
 
 -- | Generate crucible code for each LLVM statement in turn.
 generateStmts
@@ -2348,7 +2341,7 @@ defineLLVMBlock
         :: TypeRepr ret
         -> Map L.BlockLabel (LLVMBlockInfo s)
         -> L.BasicBlock
-        -> LLVMEnd h s arch ret ()
+        -> LLVMGenerator h s arch ret ()
 defineLLVMBlock retType lm L.BasicBlock{ L.bbLabel = Just lab, L.bbStmts = stmts } = do
   case Map.lookup lab lm of
     Just bi -> defineBlock (block_label bi) (generateStmts retType lab stmts)
@@ -2382,9 +2375,9 @@ genDefn defn retType =
 
       case Map.lookup entry_lab bim of
         Nothing -> fail $ unwords ["entry label not found in label map:", show entry_lab]
-        Just entry_bi ->
-          endCurrentBlock (Jump (block_label entry_bi)) $
+        Just entry_bi -> do
           mapM_ (defineLLVMBlock retType bim) (L.defBody defn)
+          terminateEarly =<< jump (block_label entry_bi)
 
 ------------------------------------------------------------------------
 -- transDefine
