@@ -803,7 +803,7 @@ resolveStmts nm bi sz reg_map bindings appMap (Posd p s0:rest) t = do
 
 
 data SomeBlockMap ext ret where
-  SomeBlockMap :: C.BlockMap ext blocks ret -> SomeBlockMap ext ret
+  SomeBlockMap :: Ctx.Index blocks tp -> C.BlockMap ext blocks ret -> SomeBlockMap ext ret
 
 resolveBlockMap :: forall ext s ret
                  . C.IsSyntaxExtension ext
@@ -827,7 +827,10 @@ resolveBlockMap nm blocks = do
                 }
   case inferBlockInfo blocks of
     Some bi ->
-      SomeBlockMap $ fmapFC (resolveBlock bi) (biBlocks bi)
+      case lookupJumpInfo (Label 0) (biJumpInfo bi) of
+        Nothing -> error "Missing initial block."
+        Just (JumpInfo (C.BlockID idx) _ _) ->
+          SomeBlockMap idx $ fmapFC (resolveBlock bi) (biBlocks bi)
 
 ------------------------------------------------------------------------
 -- SomeCFG
@@ -843,10 +846,7 @@ toSSA g = do
   let initTypes = cfgInputTypes g
   let blocks = cfgBlocks g
   case resolveBlockMap (handleName h) blocks of
-    SomeBlockMap block_map ->
-      case intIndex 0 (size block_map) of
-        Nothing -> error "Empty list of blocks."
-        Just (Some idx) -> do
+    SomeBlockMap idx block_map -> do
           let b = block_map ! idx
           case C.blockInputs b `testEquality` initTypes of
             Nothing -> error $
