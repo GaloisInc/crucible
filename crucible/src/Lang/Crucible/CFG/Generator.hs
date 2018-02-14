@@ -70,6 +70,7 @@ module Lang.Crucible.CFG.Generator
   , newLambdaLabelG'
   , defineBlock
   , defineLambdaBlock
+  , endCurrentBlock
   , resume
   , resume_
   , branch
@@ -505,6 +506,17 @@ newLambdaLabelG' tpr = Generator $ do
                }
   return $! lbl
 
+-- | End the translation of the current block, and then perform some
+-- additional actions.
+endCurrentBlock ::
+  IsSyntaxExtension ext =>
+  TermStmt s ret ->
+  End ext h s t ret () ->
+  Generator ext h s t ret a
+endCurrentBlock term m =
+  Generator $ StateContT $ \_cont gs0 ->
+  do execStateT (unEnd m) (terminateBlock term gs0)
+
 -- | End the translation of the current block, and then start a new
 -- block with the given label.
 resume_ ::
@@ -625,6 +637,12 @@ branch e x_id y_id = do
 ------------------------------------------------------------------------
 -- Combinators
 
+terminateEarly ::
+  IsSyntaxExtension ext => TermStmt s ret -> Generator ext h s t ret a
+terminateEarly term =
+  Generator $ StateContT $ \_cont gs ->
+  return (terminateBlock term gs)
+
 -- | Return from this function.
 returnFromFunction ::
   IsSyntaxExtension ext =>
@@ -636,10 +654,10 @@ returnFromFunction e = do
 -- | Report error message.
 reportError ::
   IsSyntaxExtension ext =>
-  Expr ext s StringType -> Generator ext h s t ret (TermStmt s ret)
+  Expr ext s StringType -> Generator ext h s t ret a
 reportError e = do
   e_a <- mkAtom e
-  return (ErrorStmt e_a)
+  terminateEarly (ErrorStmt e_a)
 
 -- | If-then-else. Produces a 'Br' statement.
 ifte :: (IsSyntaxExtension ext, KnownRepr TypeRepr tp)
