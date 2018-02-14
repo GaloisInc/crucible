@@ -115,6 +115,7 @@ import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MonadST
+import           Lang.Crucible.Utils.StateContT
 
 ------------------------------------------------------------------------
 -- CurrentBlockState
@@ -231,7 +232,11 @@ terminateBlock term gs =
 -- The 'a' parameter is the value returned by the monad.
 
 newtype Generator ext h s t ret a
-      = Generator { unGenerator :: StateT (GeneratorState ext s t ret) (ST h) a }
+      = Generator { unGenerator :: StateContT (GeneratorState ext s t ret)
+                                              (IxGeneratorState ext s t ret ())
+                                              (ST h)
+                                              a
+                  }
   deriving ( Functor
            , Applicative
            , MonadST h
@@ -508,11 +513,11 @@ resume_ ::
   End ext h s t ret (Label s) ->
   Generator ext h s t ret ()
 resume_ term m =
-  Generator $ StateT $ \gs0 ->
+  Generator $ StateContT $ \cont gs0 ->
   do let gs1 = terminateBlock term gs0
      (lbl, gs2) <- runStateT (unEnd m) gs1
      let gs3 = startBlock (LabelID lbl) gs2
-     return ((), gs3)
+     cont () gs3
 
 -- | End the translation of the current block, and then start a new
 -- lambda block with the given label.
@@ -522,11 +527,11 @@ resume ::
   End ext h s t ret (LambdaLabel s tp) ->
   Generator ext h s t ret (Expr ext s tp)
 resume term m =
-  Generator $ StateT $ \gs0 ->
+  Generator $ StateContT $ \cont gs0 ->
   do let gs1 = terminateBlock term gs0
      (lbl, gs2) <- runStateT (unEnd m) gs1
      let gs3 = startBlock (LambdaID lbl) gs2
-     return (AtomExpr (lambdaAtom lbl), gs3)
+     cont (AtomExpr (lambdaAtom lbl)) gs3
 
 defineSomeBlock ::
   IsSyntaxExtension ext =>
@@ -536,11 +541,11 @@ defineSomeBlock ::
 defineSomeBlock l next =
   End $ StateT $ \gs0 ->
   do let gs1 = startBlock l gs0
-     (term, gs2) <- runStateT (unGenerator next) gs1
-     let gs3 = terminateBlock term gs2
+     let cont term gs = return (terminateBlock term gs)
+     gs2 <- runStateContT (unGenerator next) cont gs1
      -- Reset current block and state.
-     let gs4 = gs3 & gsPosition .~ gs0^.gsPosition
-     return ((), gs4)
+     let gs3 = gs2 & gsPosition .~ gs0^.gsPosition
+     return ((), gs3)
 
 -- | Define a block with an ordinary label.
 defineBlock ::
@@ -836,6 +841,6 @@ defineFunction p h f = seq h $ do
               , _seenFunctions = []
               }
   let go = returnFromFunction =<< action
-  (term, ts2) <- runStateT (unGenerator go) $! ts
-  let ts' = terminateBlock term ts2
+  let cont term gs = return (terminateBlock term gs)
+  ts' <- runStateContT (unGenerator go) cont $! ts
   return (SomeCFG (cfgFromGenerator h ts'), ts'^.seenFunctions)
