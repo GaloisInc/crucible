@@ -187,85 +187,22 @@ seenFunctions :: Simple Lens (IxGeneratorState ext s t r i) [AnyCFG ext]
 seenFunctions = lens _seenFunctions (\s v -> s { _seenFunctions = v })
 
 ------------------------------------------------------------------------
--- Indexed Generator
-
-newtype IxGenerator ext h s t ret i j a =
-  IxGenerator
-  { unIxGenerator :: IxGeneratorState ext s t ret i ->
-                     ST h (a, IxGeneratorState ext s t ret j)
-  }
-
-instance Functor (IxGenerator ext h s t ret i j) where
-  fmap f m = IxGenerator $ \s -> unIxGenerator m s >>= \(x, s') -> return (f x, s')
-
-instance Applicative (IxGenerator ext h s t ret i i) where
-  pure = pureIxGenerator
-  (<*>) = apIxGenerator
-
-instance Monad (IxGenerator ext h s t ret i i) where
-  return = pureIxGenerator
-  (>>=) = bindIxGenerator
-  fail e = IxGenerator $ \_ -> fail e
-
-instance MonadST h (IxGenerator ext h s t ret i i) where
-  liftST = liftIxGenerator
-
-instance MonadState (IxGeneratorState ext s t ret i) (IxGenerator ext h s t ret i i) where
-  get = getIxGenerator
-  put = putIxGenerator
-
-pureIxGenerator :: a -> IxGenerator ext h s t ret i i a
-pureIxGenerator x = IxGenerator $ \s -> return (x, s)
-
-apIxGenerator ::
-  IxGenerator ext h s t ret i j (a -> b) ->
-  IxGenerator ext h s t ret j k a ->
-  IxGenerator ext h s t ret i k b
-apIxGenerator f x =
-  bindIxGenerator f $ \f' ->
-  bindIxGenerator x $ \x' ->
-  pureIxGenerator (f' x')
-
-bindIxGenerator ::
-  IxGenerator ext h s t ret i j a ->
-  (a -> IxGenerator ext h s t ret j k b) ->
-  IxGenerator ext h s t ret i k b
-bindIxGenerator m k =
-  IxGenerator $ \s ->
-  do (a, s') <- unIxGenerator m s
-     unIxGenerator (k a) s'
-
-liftIxGenerator :: ST h a -> IxGenerator ext h s t ret i i a
-liftIxGenerator m =
-  IxGenerator $ \s ->
-  do a <- m
-     return (a, s)
-
-getIxGenerator :: IxGenerator ext h s t ret i i (IxGeneratorState ext s t ret i)
-getIxGenerator = IxGenerator $ \s -> return (s, s)
-
-putIxGenerator :: IxGeneratorState ext s t ret j -> IxGenerator ext h s t ret i j ()
-putIxGenerator s' = IxGenerator $ \_ -> return ((), s')
-
-----------------------------------------------------------------------
 
 startBlock ::
   BlockID s ->
-  IxGenerator ext h s t ret () (CurrentBlockState ext s) ()
-startBlock l =
-  IxGenerator $ \gs ->
-  do let gs' = gs & gsCurrent .~ initCurrentBlockState Set.empty l
-     return ((), gs')
+  IxGeneratorState ext s t ret () ->
+  GeneratorState ext s t ret
+startBlock l gs =
+  gs & gsCurrent .~ initCurrentBlockState Set.empty l
 
 -- | Define the current block by defining the position and final
--- statement. The final user state is the user state after the block
--- is finished.
+-- statement.
 terminateBlock ::
   IsSyntaxExtension ext =>
   TermStmt s ret ->
-  IxGenerator ext h s t ret (CurrentBlockState ext s) () ()
-terminateBlock term =
-  IxGenerator $ \gs ->
+  GeneratorState ext s t ret ->
+  IxGeneratorState ext s t ret ()
+terminateBlock term gs =
   do let p = gs^.gsPosition
      let cbs = gs^.gsCurrent
      -- Define block
@@ -273,7 +210,7 @@ terminateBlock term =
      -- Store block
      let gs' = gs & gsCurrent .~ ()
                   & gsBlocks  %~ (Seq.|> b)
-     seq b $ return ((), gs')
+     seq b gs'
 
 ------------------------------------------------------------------------
 -- Generator
@@ -293,14 +230,12 @@ terminateBlock term =
 -- The 'ret' parameter is the return type of the CFG.
 -- The 'a' parameter is the value returned by the monad.
 
-newtype Generator ext h s t ret a =
-  Generator
-  { unGenerator :: IxGenerator ext h s t ret
-                   (CurrentBlockState ext s)
-                   (CurrentBlockState ext s)
-                   a
-  }
-  deriving (Functor, Applicative)
+newtype Generator ext h s t ret a
+      = Generator { unGenerator :: StateT (GeneratorState ext s t ret) (ST h) a }
+  deriving ( Functor
+           , Applicative
+           , MonadST h
+           )
 
 instance Monad (Generator ext h s t ret) where
   return  = Generator . return
@@ -497,7 +432,7 @@ recordCFG g = Generator $ seenFunctions %= (g:)
 -- The 't' is parameter is for the user-defined state.
 -- The 'ret' parameter is the return type for the CFG.
 
-newtype End ext h s t ret a = End { unEnd :: IxGenerator ext h s t ret () () a }
+newtype End ext h s t ret a = End { unEnd :: StateT (IxGeneratorState ext s t ret ()) (ST h) a }
   deriving ( Functor
            , Applicative
            , Monad
@@ -573,24 +508,25 @@ resume_ ::
   End ext h s t ret (Label s) ->
   Generator ext h s t ret ()
 resume_ term m =
-  Generator $
-  bindIxGenerator (terminateBlock term) $ \ () ->
-  bindIxGenerator (unEnd m) $ \ lbl ->
-  startBlock (LabelID lbl)
+  Generator $ StateT $ \gs0 ->
+  do let gs1 = terminateBlock term gs0
+     (lbl, gs2) <- runStateT (unEnd m) gs1
+     let gs3 = startBlock (LabelID lbl) gs2
+     return ((), gs3)
 
 -- | End the translation of the current block, and then start a new
 -- lambda block with the given label.
 resume ::
   IsSyntaxExtension ext =>
   TermStmt s ret ->
-  End ext h s t ret (LambdaLabel s r) ->
-  Generator ext h s t ret (Expr ext s r)
+  End ext h s t ret (LambdaLabel s tp) ->
+  Generator ext h s t ret (Expr ext s tp)
 resume term m =
-  Generator $
-  bindIxGenerator (terminateBlock term) $ \ () ->
-  bindIxGenerator (unEnd m) $ \ lbl ->
-  bindIxGenerator (startBlock (LambdaID lbl)) $ \ () ->
-  pureIxGenerator (AtomExpr (lambdaAtom lbl))
+  Generator $ StateT $ \gs0 ->
+  do let gs1 = terminateBlock term gs0
+     (lbl, gs2) <- runStateT (unEnd m) gs1
+     let gs3 = startBlock (LambdaID lbl) gs2
+     return (AtomExpr (lambdaAtom lbl), gs3)
 
 defineSomeBlock ::
   IsSyntaxExtension ext =>
@@ -598,16 +534,13 @@ defineSomeBlock ::
   Generator ext h s t ret (TermStmt s ret) ->
   End ext h s t ret ()
 defineSomeBlock l next =
-  End $
-  bindIxGenerator getIxGenerator $ \gs ->
-  bindIxGenerator (startBlock l) $ \() ->
-  bindIxGenerator (unGenerator next) $ \term ->
-  bindIxGenerator (terminateBlock term) $ \() ->
-  bindIxGenerator getIxGenerator $ \gs' ->
-  -- Reset current block and state.
-  put $ gs' & gsCurrent  .~ gs^.gsCurrent
-            & gsPosition .~ gs^.gsPosition
-            & gsState    .~ gs^.gsState
+  End $ StateT $ \gs0 ->
+  do let gs1 = startBlock l gs0
+     (term, gs2) <- runStateT (unGenerator next) gs1
+     let gs3 = terminateBlock term gs2
+     -- Reset current block and state.
+     let gs4 = gs3 & gsPosition .~ gs0^.gsPosition
+     return ((), gs4)
 
 -- | Define a block with an ordinary label.
 defineBlock ::
@@ -903,5 +836,6 @@ defineFunction p h f = seq h $ do
               , _seenFunctions = []
               }
   let go = returnFromFunction =<< action
-  ((), ts') <- unIxGenerator (bindIxGenerator (unGenerator go) terminateBlock) $! ts
+  (term, ts2) <- runStateT (unGenerator go) $! ts
+  let ts' = terminateBlock term ts2
   return (SomeCFG (cfgFromGenerator h ts'), ts'^.seenFunctions)
