@@ -1216,11 +1216,11 @@ transDefine am hmap fn =
                   return (fname, Core.AnyCFG g_ssa)
 
 -- transCollection: initialize map of fn names to FnHandles.
-transCollection :: HasCallStack => [M.Adt] -> [M.Fn] -> FH.HandleAllocator s -> ST s (Map.Map Text.Text (Core.AnyCFG MIR))
-transCollection adts fns halloc = do
-    let am = Map.fromList [ (nm, vs) | M.Adt nm vs <- adts ]
-    hmap <- mkHandleMap halloc fns
-    pairs <- mapM (transDefine am hmap) fns
+transCollection :: HasCallStack => M.Collection -> FH.HandleAllocator s -> ST s (Map.Map Text.Text (Core.AnyCFG MIR))
+transCollection col halloc = do
+    let am = Map.fromList [ (nm, vs) | M.Adt nm vs <- M.adts col ]
+    hmap <- mkHandleMap halloc (M.functions col)
+    pairs <- mapM (transDefine am hmap) (M.functions col)
     return $ Map.fromList pairs
 
 --- Custom stuff

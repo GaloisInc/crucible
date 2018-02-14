@@ -66,12 +66,11 @@ loadMIR sc fp = do
     let c = (J.eitherDecode f) :: Either String Collection
     case c of
       Left msg -> fail $ "Decoding of MIR failed: " ++ msg
-      Right coll -> do
+      Right col -> do
           --let passes = P.passMutRefArgs . P.passRemoveStorage . P.passRemoveBoxNullary
           let passes = P.passRemoveBoxNullary
-          let fns = passes (functions coll)
           -- DEBUGGING print functions
           -- mapM_ (putStrLn . pprint) fns
-          let cfgmap_ = mirToCFG (adts coll) fns Nothing
+          let cfgmap_ = mirToCFG col (Just passes)
           let cfgmap = M.fromList $ map (\(k,v) -> (cleanFnName k, v)) $ M.toList cfgmap_
           return $ RustModule cfgmap

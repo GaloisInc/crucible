@@ -143,10 +143,10 @@ handleAbortedResult :: C.AbortedResult sym MIR -> String
 handleAbortedResult (C.AbortedExec simerror _) = show $ C.ppSimError simerror
 handleAbortedResult _ = "unknown"
 
-mirToCFG :: [M.Adt] -> [M.Fn] -> Maybe ([M.Fn] -> [M.Fn]) -> Map.Map Text.Text (C.AnyCFG MIR)
-mirToCFG adts fns Nothing = mirToCFG adts fns (Just Pass.passId)
-mirToCFG adts fns (Just pass) =
-    runST $ C.withHandleAllocator (T.transCollection adts $ pass fns)
+mirToCFG :: M.Collection ->  Maybe ([M.Fn] -> [M.Fn]) -> Map.Map Text.Text (C.AnyCFG MIR)
+mirToCFG col Nothing = mirToCFG col (Just Pass.passId)
+mirToCFG col (Just pass) =
+    runST $ C.withHandleAllocator $ T.transCollection col {M.functions = pass $ M.functions col}
 
 toSawCore :: SC.SharedContext -> Sym -> (C.RegEntry Sym tp) -> IO SC.Term
 toSawCore sc sym (C.RegEntry tp v) =
