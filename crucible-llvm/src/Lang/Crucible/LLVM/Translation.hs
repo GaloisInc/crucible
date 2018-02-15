@@ -1624,7 +1624,7 @@ caseptr w tpr bvCase ptrCase x =
        c_label  <- newLambdaLabel' tpr
        bv_label <- defineBlockLabel (bvCase off >>= jumpToLambda c_label)
        ptr_label <- defineBlockLabel (ptrCase blk off >>= jumpToLambda c_label)
-       resume (Br cond bv_label ptr_label) c_label
+       continueLambda (Br cond bv_label ptr_label) c_label
 
 intcmp :: (1 <= w)
     => NatRepr w

@@ -77,8 +77,8 @@ module Lang.Crucible.CFG.Generator
   , FunctionDef
   , defineFunction
     -- * Control-flow combinators
-  , resume
-  , resume_
+  , continue
+  , continueLambda
   , whenCond
   , unlessCond
   , ifte
@@ -457,12 +457,12 @@ newLambdaLabel' tpr = Generator $ do
 
 -- | End the translation of the current block, and then start a new
 -- block with the given label.
-resume_ ::
+continue ::
   IsSyntaxExtension ext =>
   TermStmt s ret ->
   Label s ->
   Generator ext h s t ret ()
-resume_ term lbl =
+continue term lbl =
   Generator $ StateContT $ \cont gs0 ->
   do let gs1 = terminateBlock term gs0
      let gs2 = startBlock (LabelID lbl) gs1
@@ -470,12 +470,12 @@ resume_ term lbl =
 
 -- | End the translation of the current block, and then start a new
 -- lambda block with the given label.
-resume ::
+continueLambda ::
   IsSyntaxExtension ext =>
   TermStmt s ret ->
   LambdaLabel s tp ->
   Generator ext h s t ret (Expr ext s tp)
-resume term lbl =
+continueLambda term lbl =
   Generator $ StateContT $ \cont gs0 ->
   do let gs1 = terminateBlock term gs0
      let gs2 = startBlock (LambdaID lbl) gs1
@@ -620,7 +620,7 @@ ifte e x y = do
   c_id <- newLambdaLabel
   x_id <- defineBlockLabel $ x >>= jumpToLambda c_id
   y_id <- defineBlockLabel $ y >>= jumpToLambda c_id
-  resume (Br e_a x_id y_id) c_id
+  continueLambda (Br e_a x_id y_id) c_id
 
 -- | Statement-level if-then-else.
 ifte_ :: IsSyntaxExtension ext
@@ -633,7 +633,7 @@ ifte_ e x y = do
   c_id <- newLabel
   x_id <- defineBlockLabel $ x >> jump c_id
   y_id <- defineBlockLabel $ y >> jump c_id
-  resume_ (Br e_a x_id y_id) c_id
+  continue (Br e_a x_id y_id) c_id
 
 -- | Expression-level if-then-else with a monadic condition.
 ifteM :: (IsSyntaxExtension ext, KnownRepr TypeRepr tp)
@@ -652,7 +652,7 @@ whenCond e x = do
   e_a <- mkAtom e
   c_id <- newLabel
   t_id <- defineBlockLabel $ x >> jump c_id
-  resume_ (Br e_a t_id c_id) c_id
+  continue (Br e_a t_id c_id) c_id
 
 -- | Run a computation when a condition is false.
 unlessCond :: IsSyntaxExtension ext
@@ -663,7 +663,7 @@ unlessCond e x = do
   e_a <- mkAtom e
   c_id <- newLabel
   f_id <- defineBlockLabel $ x >> jump c_id
-  resume_ (Br e_a c_id f_id) c_id
+  continue (Br e_a c_id f_id) c_id
 
 data MatchMaybe j r
    = MatchMaybe
@@ -686,7 +686,7 @@ caseMaybe v retType cases = do
   c_id <- newLambdaLabel' retType
   defineLambdaBlock j_id $ onJust cases >=> jumpToLambda c_id
   defineBlock       n_id $ onNothing cases >>= jumpToLambda c_id
-  resume (MaybeBranch etp v_a j_id n_id) c_id
+  continueLambda (MaybeBranch etp v_a j_id n_id) c_id
 
 -- | Evaluate different statements by cases over a @Maybe@ value.
 caseMaybe_ :: IsSyntaxExtension ext
@@ -702,7 +702,7 @@ caseMaybe_ v cases = do
   c_id <- newLabel
   defineLambdaBlock j_id $ \e -> onJust cases e >> jump c_id
   defineBlock       n_id $ onNothing cases >> jump c_id
-  resume_ (MaybeBranch etp v_a j_id n_id) c_id
+  continue (MaybeBranch etp v_a j_id n_id) c_id
 
 -- | Return the argument of a @Just@ value, or call 'reportError' if
 -- the value is @Nothing@.
@@ -719,7 +719,7 @@ fromJustExpr e msg = do
   c_id <- newLambdaLabel' etp
   defineLambdaBlock j_id $ jumpToLambda c_id
   defineBlock       n_id $ reportError msg
-  resume (MaybeBranch etp e_a j_id n_id) c_id
+  continueLambda (MaybeBranch etp e_a j_id n_id) c_id
 
 -- | This asserts that the value in the expression is a @Just@ value, and
 -- returns the underlying value.
@@ -752,7 +752,7 @@ while (pcond,cond) (pbody,body) = do
       body
       jump cond_lbl
 
-  resume_ (Jump cond_lbl) exit_lbl
+  continue (Jump cond_lbl) exit_lbl
 
 ------------------------------------------------------------------------
 -- CFG
