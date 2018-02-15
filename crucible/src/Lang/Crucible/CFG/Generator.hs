@@ -63,6 +63,7 @@ module Lang.Crucible.CFG.Generator
   , newLambdaLabel
   , newLambdaLabel'
     -- * Block-terminating statements
+    -- $termstmt
   , jump
   , jumpToLambda
   , branch
@@ -90,7 +91,6 @@ module Lang.Crucible.CFG.Generator
   , fromJustExpr
   , assertedJustExpr
   , while
-  , terminateEarly
   -- * Re-exports
   , Ctx.Ctx(..)
   , Position
@@ -282,6 +282,9 @@ freshValueIndex = do
   gsNextValue .= n+1
   return n
 
+----------------------------------------------------------------------
+-- Expressions and statements
+
 newUnassignedReg'' :: MonadState (IxGeneratorState ext s r ret i) m => TypeRepr tp -> m (Reg s tp)
 newUnassignedReg'' tp = do
   p <- use gsPosition
@@ -426,6 +429,7 @@ recordCFG :: AnyCFG ext -> Generator ext h s t ret ()
 recordCFG g = Generator $ seenFunctions %= (g:)
 
 ------------------------------------------------------------------------
+-- Labels
 
 -- | Create a new block label.
 newLabel :: Generator ext h s t ret (Label s)
@@ -454,6 +458,9 @@ newLambdaLabel' tpr = Generator $ do
                , typeOfAtom = tpr
                }
   return $! lbl
+
+----------------------------------------------------------------------
+-- Defining blocks
 
 -- | End the translation of the current block, and then start a new
 -- block with the given label.
@@ -559,30 +566,13 @@ call' h args = do
       args_a <- traverseFC mkAtom args
       freshAtom $ Call h_a args_a retType
 
--- | Jump to the given label.
-jump :: IsSyntaxExtension ext => Label s -> Generator ext h s t ret (TermStmt s ret)
-jump l = return (Jump l)
+----------------------------------------------------------------------
+-- Block-terminating statements
 
--- | Jump to the given label with output.
-jumpToLambda :: IsSyntaxExtension ext => LambdaLabel s tp -> Expr ext s tp -> Generator ext h s t ret (TermStmt s ret)
-jumpToLambda lbl v = do
-  v_a <- mkAtom v
-  return (Output lbl v_a)
-
--- | Branch between blocks.
-branch :: IsSyntaxExtension ext
-       => Expr ext s BoolType
-       -> Label s
-       -> Label s
-       -> Generator ext h s t ret (TermStmt s ret)
-branch (App (Not e)) x_id y_id = do
-  branch e y_id x_id
-branch e x_id y_id = do
-  a <- mkAtom e
-  return (Br a x_id y_id)
-
-------------------------------------------------------------------------
--- Combinators
+-- $termstmt The following operations produce block-terminating
+-- statements, and have early termination behavior in the 'Generator'
+-- monad: Like 'fail', they have polymorphic return types and cause
+-- any following monadic actions to be skipped.
 
 -- | End the current block with the given terminal statement, and skip
 -- the rest of the 'Generator' computation.
@@ -592,22 +582,51 @@ terminateEarly term =
   Generator $ StateContT $ \_cont gs ->
   return (terminateBlock term gs)
 
--- | Return from this function.
+-- | Jump to the given label.
+jump :: IsSyntaxExtension ext => Label s -> Generator ext h s t ret a
+jump l = terminateEarly (Jump l)
+
+-- | Jump to the given label with output.
+jumpToLambda ::
+  IsSyntaxExtension ext =>
+  LambdaLabel s tp ->
+  Expr ext s tp ->
+  Generator ext h s t ret a
+jumpToLambda lbl v = do
+  v_a <- mkAtom v
+  terminateEarly (Output lbl v_a)
+
+-- | Branch between blocks.
+branch ::
+  IsSyntaxExtension ext =>
+  Expr ext s BoolType {- ^ condition -} ->
+  Label s             {- ^ true label -} ->
+  Label s             {- ^ false label -} ->
+  Generator ext h s t ret a
+branch (App (Not e)) x_id y_id = do
+  branch e y_id x_id
+branch e x_id y_id = do
+  a <- mkAtom e
+  terminateEarly (Br a x_id y_id)
+
+-- | Return from this function with the given return value.
 returnFromFunction ::
   IsSyntaxExtension ext =>
-  Expr ext s ret -> Generator ext h s t ret (TermStmt s ret)
+  Expr ext s ret -> Generator ext h s t ret a
 returnFromFunction e = do
   e_a <- mkAtom e
-  return (Return e_a)
+  terminateEarly (Return e_a)
 
--- | Report error message, and skip the rest of the 'Generator'
--- computation.
+-- | Report error message.
 reportError ::
   IsSyntaxExtension ext =>
   Expr ext s StringType -> Generator ext h s t ret a
 reportError e = do
   e_a <- mkAtom e
   terminateEarly (ErrorStmt e_a)
+
+------------------------------------------------------------------------
+-- Combinators
 
 -- | Expression-level if-then-else.
 ifte :: (IsSyntaxExtension ext, KnownRepr TypeRepr tp)

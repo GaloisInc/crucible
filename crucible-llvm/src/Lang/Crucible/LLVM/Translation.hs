@@ -2373,7 +2373,7 @@ genDefn defn retType =
         Nothing -> fail $ unwords ["entry label not found in label map:", show entry_lab]
         Just entry_bi -> do
           mapM_ (defineLLVMBlock retType bim) (L.defBody defn)
-          terminateEarly =<< jump (block_label entry_bi)
+          jump (block_label entry_bi)
 
 ------------------------------------------------------------------------
 -- transDefine
