@@ -164,6 +164,9 @@ data IxGeneratorState ext s (t :: * -> *) ret i
 type GeneratorState ext s t ret =
   IxGeneratorState ext s t ret (CurrentBlockState ext s)
 
+type EndState ext s t ret =
+  IxGeneratorState ext s t ret ()
+
 -- | List of previously processed blocks.
 gsBlocks :: Simple Lens (IxGeneratorState ext s t ret i) (Seq (Block ext s ret))
 gsBlocks = lens _gsBlocks (\s v -> s { _gsBlocks = v })
@@ -189,14 +192,14 @@ gsState :: Simple Lens (IxGeneratorState ext s t ret i) (t s)
 gsState = lens _gsState (\s v -> s { _gsState = v })
 
 -- | List of functions seen by current generator.
-seenFunctions :: Simple Lens (IxGeneratorState ext s t r i) [AnyCFG ext]
+seenFunctions :: Simple Lens (IxGeneratorState ext s t ret i) [AnyCFG ext]
 seenFunctions = lens _seenFunctions (\s v -> s { _seenFunctions = v })
 
 ------------------------------------------------------------------------
 
 startBlock ::
   BlockID s ->
-  IxGeneratorState ext s t ret () ->
+  EndState ext s t ret ->
   GeneratorState ext s t ret
 startBlock l gs =
   gs & gsCurrent .~ initCurrentBlockState Set.empty l
@@ -207,7 +210,7 @@ terminateBlock ::
   IsSyntaxExtension ext =>
   TermStmt s ret ->
   GeneratorState ext s t ret ->
-  IxGeneratorState ext s t ret ()
+  EndState ext s t ret
 terminateBlock term gs =
   do let p = gs^.gsPosition
      let cbs = gs^.gsCurrent
@@ -238,7 +241,7 @@ terminateBlock term gs =
 
 newtype Generator ext h s t ret a
       = Generator { unGenerator :: StateContT (GeneratorState ext s t ret)
-                                              (IxGeneratorState ext s t ret ())
+                                              (EndState ext s t ret)
                                               (ST h)
                                               a
                   }
@@ -267,10 +270,9 @@ instance MonadState (t s) (Generator ext h s t ret) where
 -- 'terminateEarly'.
 runGenerator ::
   Generator ext h s t ret Void ->
-  (GeneratorState ext s t ret) ->
-  ST h (IxGeneratorState ext s t ret ())
-runGenerator m gs =
-  runStateContT (unGenerator m) absurd gs
+  GeneratorState ext s t ret ->
+  ST h (EndState ext s t ret)
+runGenerator m gs = runStateContT (unGenerator m) absurd gs
 
 -- | Get the current position.
 getPosition :: Generator ext h s t ret Position
@@ -284,51 +286,49 @@ setPosition p = Generator $ gsPosition .= p
 withPosition :: Position
              -> Generator ext h s t ret a
              -> Generator ext h s t ret a
-withPosition p m = do
-  old_pos <- getPosition
-  setPosition p
-  v <- m
-  setPosition old_pos
-  return v
+withPosition p m =
+  do old_pos <- getPosition
+     setPosition p
+     v <- m
+     setPosition old_pos
+     return v
 
-freshValueIndex :: MonadState (IxGeneratorState ext s t ret i) m => m Int
-freshValueIndex = do
-  n <- use gsNextValue
-  gsNextValue .= n+1
-  return n
+freshValueIndex :: Generator ext h s t ret Int
+freshValueIndex =
+  Generator $
+  do n <- use gsNextValue
+     gsNextValue .= n+1
+     return n
+
+freshLabelIndex :: Generator ext h s t ret Int
+freshLabelIndex =
+  Generator $
+  do n <- use gsNextLabel
+     gsNextLabel .= n+1
+     return n
 
 ----------------------------------------------------------------------
 -- Expressions and statements
 
-newUnassignedReg'' :: MonadState (IxGeneratorState ext s r ret i) m => TypeRepr tp -> m (Reg s tp)
-newUnassignedReg'' tp = do
-  p <- use gsPosition
-  n <- freshValueIndex
-  return $! Reg { regPosition = p
-                , regId = n
-                , typeOfReg = tp
-                }
-
-addStmt :: MonadState (GeneratorState ext s r ret) m => Stmt ext s -> m ()
-addStmt s = do
-  p <- use gsPosition
-  cbs <- use gsCurrent
-  let ps = Posd p s
-  seq ps $ do
-  let cbs' = cbs & cbsStmts %~ (Seq.|> ps)
-  seq cbs' $ gsCurrent .= cbs'
+addStmt :: Stmt ext s -> Generator ext h s t ret ()
+addStmt s =
+  do p <- getPosition
+     cbs <- Generator $ use gsCurrent
+     let ps = Posd p s
+     let cbs' = cbs & cbsStmts %~ (Seq.|> ps)
+     seq ps $ seq cbs' $ Generator $ gsCurrent .= cbs'
 
 freshAtom :: IsSyntaxExtension ext => AtomValue ext s tp -> Generator ext h s t ret (Atom s tp)
-freshAtom av = Generator $ do
-  p <- use gsPosition
-  i <- freshValueIndex
-  let atom = Atom { atomPosition = p
-                  , atomId = i
-                  , atomSource = Assigned
-                  , typeOfAtom = typeOfAtomValue av
-                  }
-  addStmt $ DefineAtom atom av
-  return atom
+freshAtom av =
+  do p <- getPosition
+     i <- freshValueIndex
+     let atom = Atom { atomPosition = p
+                     , atomId = i
+                     , atomSource = Assigned
+                     , typeOfAtom = typeOfAtomValue av
+                     }
+     addStmt (DefineAtom atom av)
+     return atom
 
 -- | Create an atom equivalent to the given expression if it is
 -- not already an 'AtomExpr'.
@@ -336,51 +336,42 @@ mkAtom :: IsSyntaxExtension ext => Expr ext s tp -> Generator ext h s t ret (Ato
 mkAtom (AtomExpr a)   = return a
 mkAtom (App a)        = freshAtom . EvalApp =<< traverseFC mkAtom a
 
--- | Generate a new virtual register with the given initial value.
-newReg :: IsSyntaxExtension ext => Expr ext s tp -> Generator ext h s t ret (Reg s tp)
-newReg e = do
-  a <- mkAtom e
-  Generator $ do
-    r <- newUnassignedReg'' (typeOfAtom a)
-    addStmt (SetReg r a)
-    return r
-
 -- | Read a global variable.
 readGlobal :: IsSyntaxExtension ext => GlobalVar tp -> Generator ext h s t ret (Expr ext s tp)
 readGlobal v = AtomExpr <$> freshAtom (ReadGlobal v)
 
 -- | Write to a global variable.
 writeGlobal :: IsSyntaxExtension ext => GlobalVar tp -> Expr ext s tp -> Generator ext h s t ret ()
-writeGlobal v e = do
-  a <-  mkAtom e
-  Generator $ addStmt $ WriteGlobal v a
+writeGlobal v e =
+  do a <- mkAtom e
+     addStmt (WriteGlobal v a)
 
 -- | Read the current value of a reference cell.
 readRef :: IsSyntaxExtension ext => Expr ext s (ReferenceType tp) -> Generator ext h s t ret (Expr ext s tp)
-readRef ref = do
-  r <- mkAtom ref
-  AtomExpr <$> freshAtom (ReadRef r)
+readRef ref =
+  do r <- mkAtom ref
+     AtomExpr <$> freshAtom (ReadRef r)
 
 -- | Write the given value into the reference cell.
 writeRef :: IsSyntaxExtension ext => Expr ext s (ReferenceType tp) -> Expr ext s tp -> Generator ext h s t ret ()
-writeRef ref val = do
-  r <- mkAtom ref
-  v <- mkAtom val
-  Generator $ addStmt (WriteRef r v)
+writeRef ref val =
+  do r <- mkAtom ref
+     v <- mkAtom val
+     addStmt (WriteRef r v)
 
 -- | Deallocate the given reference cell, returning it to an uninialized state.
 --   The reference cell can still be used; subsequent writes will succeed,
 --   and reads will succeed if some value is written first.
 dropRef :: IsSyntaxExtension ext => Expr ext s (ReferenceType tp) -> Generator ext h s t ret ()
-dropRef ref = do
-  r <- mkAtom ref
-  Generator $ addStmt (DropRef r)
+dropRef ref =
+  do r <- mkAtom ref
+     addStmt (DropRef r)
 
 -- | Generate a new reference cell with the given initial contents.
 newRef :: IsSyntaxExtension ext => Expr ext s tp -> Generator ext h s t ret (Expr ext s (ReferenceType tp))
-newRef val = do
-  v <- mkAtom val
-  AtomExpr <$> freshAtom (NewRef v)
+newRef val =
+  do v <- mkAtom val
+     AtomExpr <$> freshAtom (NewRef v)
 
 -- | Generate a new empty reference cell.  If an unassigned reference is later
 --   read, it will generate a runtime error.
@@ -388,11 +379,24 @@ newEmptyRef :: IsSyntaxExtension ext => TypeRepr tp -> Generator ext h s t ret (
 newEmptyRef tp =
   AtomExpr <$> freshAtom (NewEmptyRef tp)
 
+-- | Generate a new virtual register with the given initial value.
+newReg :: IsSyntaxExtension ext => Expr ext s tp -> Generator ext h s t ret (Reg s tp)
+newReg e =
+  do r <- newUnassignedReg (exprType e)
+     assignReg r e
+     return r
+
 -- | Produce a new virtual register without giving it an initial value.
 --   NOTE! If you fail to initialize this register with a subsequent
 --   call to @assignReg@, errors will arise during SSA conversion.
 newUnassignedReg :: TypeRepr tp -> Generator ext h s t ret (Reg s tp)
-newUnassignedReg tp = Generator $ newUnassignedReg'' tp
+newUnassignedReg tp =
+  do p <- getPosition
+     n <- freshValueIndex
+     return $! Reg { regPosition = p
+                   , regId = n
+                   , typeOfReg = tp
+                   }
 
 -- | Get the current value of a register.
 readReg :: IsSyntaxExtension ext => Reg s tp -> Generator ext h s t ret (Expr ext s tp)
@@ -400,31 +404,31 @@ readReg r = AtomExpr <$> freshAtom (ReadReg r)
 
 -- | Update the value of a register.
 assignReg :: IsSyntaxExtension ext => Reg s tp -> Expr ext s tp -> Generator ext h s t ret ()
-assignReg r e = do
-  a <-  mkAtom e
-  Generator $ addStmt $ SetReg r a
+assignReg r e =
+  do a <- mkAtom e
+     addStmt (SetReg r a)
 
 -- | Modify the value of a register.
 modifyReg :: IsSyntaxExtension ext => Reg s tp -> (Expr ext s tp -> Expr ext s tp) -> Generator ext h s t ret ()
-modifyReg r f = do
-  v <- readReg r
-  assignReg r $! f v
+modifyReg r f =
+  do v <- readReg r
+     assignReg r $! f v
 
 -- | Modify the value of a register.
 modifyRegM :: IsSyntaxExtension ext
            => Reg s tp
            -> (Expr ext s tp -> Generator ext h s t ret (Expr ext s tp))
            -> Generator ext h s t ret ()
-modifyRegM r f = do
-  v <- readReg r
-  v' <- f v
-  assignReg r v'
+modifyRegM r f =
+  do v <- readReg r
+     v' <- f v
+     assignReg r v'
 
 -- | Add a statement to print a value.
 addPrintStmt :: IsSyntaxExtension ext => Expr ext s StringType -> Generator ext h s t ret ()
-addPrintStmt e = do
-  e_a <- mkAtom e
-  Generator $ addStmt (Print e_a)
+addPrintStmt e =
+  do e_a <- mkAtom e
+     addStmt (Print e_a)
 
 -- | Add an assert statement.
 assertExpr ::
@@ -432,10 +436,10 @@ assertExpr ::
   Expr ext s BoolType {- ^ assertion -} ->
   Expr ext s StringType {- ^ error message -} ->
   Generator ext h s t ret ()
-assertExpr b e = do
-  b_a <- mkAtom b
-  e_a <- mkAtom e
-  Generator $ addStmt $ Assert b_a e_a
+assertExpr b e =
+  do b_a <- mkAtom b
+     e_a <- mkAtom e
+     addStmt (Assert b_a e_a)
 
 -- | Stash the given CFG away for later retrieval.  This is primarily
 --   used when translating inner and anonymous functions in the
@@ -448,10 +452,7 @@ recordCFG g = Generator $ seenFunctions %= (g:)
 
 -- | Create a new block label.
 newLabel :: Generator ext h s t ret (Label s)
-newLabel = Generator $ do
-  idx <- use gsNextLabel
-  gsNextLabel .= idx + 1
-  return (Label idx)
+newLabel = Label <$> freshLabelIndex
 
 -- | Create a new lambda label.
 newLambdaLabel :: KnownRepr TypeRepr tp => Generator ext h s t ret (LambdaLabel s tp)
@@ -459,20 +460,17 @@ newLambdaLabel = newLambdaLabel' knownRepr
 
 -- | Create a new lambda label, using an explicit 'TypeRepr'.
 newLambdaLabel' :: TypeRepr tp -> Generator ext h s t ret (LambdaLabel s tp)
-newLambdaLabel' tpr = Generator $ do
-  p <- use gsPosition
-  idx <- use gsNextLabel
-  gsNextLabel .= idx + 1
-
-  i <- freshValueIndex
-
-  let lbl = LambdaLabel idx a
-      a = Atom { atomPosition = p
-               , atomId = i
-               , atomSource = LambdaArg lbl
-               , typeOfAtom = tpr
-               }
-  return $! lbl
+newLambdaLabel' tpr =
+  do p <- getPosition
+     idx <- freshLabelIndex
+     i <- freshValueIndex
+     let lbl = LambdaLabel idx a
+         a = Atom { atomPosition = p
+                  , atomId = i
+                  , atomSource = LambdaArg lbl
+                  , typeOfAtom = tpr
+                  }
+     return $! lbl
 
 ----------------------------------------------------------------------
 -- Defining blocks
