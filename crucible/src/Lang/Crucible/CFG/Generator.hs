@@ -72,6 +72,7 @@ module Lang.Crucible.CFG.Generator
     -- * Defining blocks
   , defineBlock
   , defineLambdaBlock
+  , defineBlockLabel
   , recordCFG
   , FunctionDef
   , defineFunction
@@ -501,8 +502,8 @@ defineBlock ::
   Label s ->
   Generator ext h s t ret (TermStmt s ret) ->
   Generator ext h s t ret ()
-defineBlock l next =
-  defineSomeBlock (LabelID l) next
+defineBlock l action =
+  defineSomeBlock (LabelID l) action
 
 -- | Define a block that has a lambda label.
 defineLambdaBlock ::
@@ -510,8 +511,18 @@ defineLambdaBlock ::
   LambdaLabel s i ->
   (Expr ext s i -> Generator ext h s t ret (TermStmt s ret)) ->
   Generator ext h s t ret ()
-defineLambdaBlock l next = do
-  defineSomeBlock (LambdaID l) $ next (AtomExpr (lambdaAtom l))
+defineLambdaBlock l action =
+  defineSomeBlock (LambdaID l) (action (AtomExpr (lambdaAtom l)))
+
+-- | Define a block with a fresh label, returning the label.
+defineBlockLabel ::
+  IsSyntaxExtension ext =>
+  Generator ext h s t ret (TermStmt s ret) ->
+  Generator ext h s t ret (Label s)
+defineBlockLabel action =
+  do l <- newLabel
+     defineBlock l action
+     return l
 
 ------------------------------------------------------------------------
 -- Generator interface
@@ -606,11 +617,9 @@ ifte :: (IsSyntaxExtension ext, KnownRepr TypeRepr tp)
      -> Generator ext h s t ret (Expr ext s tp)
 ifte e x y = do
   e_a <- mkAtom e
-  x_id <- newLabel
-  y_id <- newLabel
   c_id <- newLambdaLabel
-  defineBlock x_id $ x >>= jumpToLambda c_id
-  defineBlock y_id $ y >>= jumpToLambda c_id
+  x_id <- defineBlockLabel $ x >>= jumpToLambda c_id
+  y_id <- defineBlockLabel $ y >>= jumpToLambda c_id
   resume (Br e_a x_id y_id) c_id
 
 -- | Statement-level if-then-else.
@@ -621,11 +630,9 @@ ifte_ :: IsSyntaxExtension ext
       -> Generator ext h s t ret ()
 ifte_ e x y = do
   e_a <- mkAtom e
-  x_id <- newLabel
-  y_id <- newLabel
   c_id <- newLabel
-  defineBlock x_id $ x >> jump c_id
-  defineBlock y_id $ y >> jump c_id
+  x_id <- defineBlockLabel $ x >> jump c_id
+  y_id <- defineBlockLabel $ y >> jump c_id
   resume_ (Br e_a x_id y_id) c_id
 
 -- | Expression-level if-then-else with a monadic condition.
@@ -643,9 +650,8 @@ whenCond :: IsSyntaxExtension ext
          -> Generator ext h s t ret ()
 whenCond e x = do
   e_a <- mkAtom e
-  t_id <- newLabel
   c_id <- newLabel
-  defineBlock t_id $ x >> jump c_id
+  t_id <- defineBlockLabel $ x >> jump c_id
   resume_ (Br e_a t_id c_id) c_id
 
 -- | Run a computation when a condition is false.
@@ -655,9 +661,8 @@ unlessCond :: IsSyntaxExtension ext
            -> Generator ext h s t ret ()
 unlessCond e x = do
   e_a <- mkAtom e
-  f_id <- newLabel
   c_id <- newLabel
-  defineBlock f_id $ x >> jump c_id
+  f_id <- defineBlockLabel $ x >> jump c_id
   resume_ (Br e_a c_id f_id) c_id
 
 data MatchMaybe j r

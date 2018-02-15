@@ -1621,11 +1621,9 @@ caseptr w tpr bvCase ptrCase x =
   where
   ptrSwitch blk off =
     do cond <- mkAtom (blk .== litExpr 0)
-       bv_label  <- newLabel
-       ptr_label <- newLabel
        c_label  <- newLambdaLabel' tpr
-       defineBlock bv_label  (bvCase off >>= jumpToLambda c_label)
-       defineBlock ptr_label (ptrCase blk off >>= jumpToLambda c_label)
+       bv_label <- defineBlockLabel (bvCase off >>= jumpToLambda c_label)
+       ptr_label <- defineBlockLabel (ptrCase blk off >>= jumpToLambda c_label)
        resume (Br cond bv_label ptr_label) c_label
 
 intcmp :: (1 <= w)
@@ -2083,10 +2081,8 @@ generateInstr retType lab instr assign_f k =
                  Scalar (LLVMPointerRepr w) e -> notExpr <$> callIsNull w e
                  _ -> fail "expected boolean condition on branch"
 
-        phi1 <- newLabel
-        phi2 <- newLabel
-        defineBlock phi1 (definePhiBlock lab l1)
-        defineBlock phi2 (definePhiBlock lab l2)
+        phi1 <- defineBlockLabel (definePhiBlock lab l1)
+        phi2 <- defineBlockLabel (definePhiBlock lab l2)
         branch e' phi1 phi2
 
     L.Switch x def branches -> do
