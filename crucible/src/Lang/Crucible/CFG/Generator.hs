@@ -109,6 +109,7 @@ import           Data.Parameterized.TraversableFC
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
+import           Data.Void
 
 import           Lang.Crucible.CFG.Core (AnyCFG(..), GlobalVar(..))
 import           Lang.Crucible.CFG.Expr(App(..), IsSyntaxExtension)
@@ -493,13 +494,12 @@ continueLambda term lbl =
 defineSomeBlock ::
   IsSyntaxExtension ext =>
   BlockID s ->
-  Generator ext h s t ret (TermStmt s ret) ->
+  Generator ext h s t ret Void ->
   Generator ext h s t ret ()
 defineSomeBlock l next =
   Generator $ StateContT $ \cont gs0 ->
   do let gs1 = startBlock l (gs0 & gsCurrent .~ ())
-     let finish term gs = return (terminateBlock term gs)
-     gs2 <- runStateContT (unGenerator next) finish gs1
+     gs2 <- runStateContT (unGenerator next) absurd gs1
      -- Reset current block and state.
      let gs3 = gs2 & gsPosition .~ gs0^.gsPosition
                    & gsCurrent .~ gs0^.gsCurrent
@@ -509,7 +509,7 @@ defineSomeBlock l next =
 defineBlock ::
   IsSyntaxExtension ext =>
   Label s ->
-  Generator ext h s t ret (TermStmt s ret) ->
+  (forall a. Generator ext h s t ret a) ->
   Generator ext h s t ret ()
 defineBlock l action =
   defineSomeBlock (LabelID l) action
@@ -518,7 +518,7 @@ defineBlock l action =
 defineLambdaBlock ::
   IsSyntaxExtension ext =>
   LambdaLabel s i ->
-  (Expr ext s i -> Generator ext h s t ret (TermStmt s ret)) ->
+  (forall a. Expr ext s i -> Generator ext h s t ret a) ->
   Generator ext h s t ret ()
 defineLambdaBlock l action =
   defineSomeBlock (LambdaID l) (action (AtomExpr (lambdaAtom l)))
@@ -526,7 +526,7 @@ defineLambdaBlock l action =
 -- | Define a block with a fresh label, returning the label.
 defineBlockLabel ::
   IsSyntaxExtension ext =>
-  Generator ext h s t ret (TermStmt s ret) ->
+  (forall a. Generator ext h s t ret a) ->
   Generator ext h s t ret (Label s)
 defineBlockLabel action =
   do l <- newLabel

@@ -727,7 +727,7 @@ unpackVarArgs xs = App . VectorLit AnyRepr . V.fromList <$> xs'
 -- | Implement the phi-functions along the edge from one LLVM Basic block to another.
 definePhiBlock :: L.BlockLabel      -- ^ The LLVM source basic block
                -> L.BlockLabel      -- ^ The LLVM target basic block
-               -> LLVMGenerator h s arch ret (TermStmt s ret)
+               -> LLVMGenerator h s arch ret a
 definePhiBlock l l' = do
   bim <- use blockInfoMap
   case Map.lookup l' bim of
@@ -1745,16 +1745,16 @@ pointerOp op x y =
   err = reportError $ litExpr $ Text.pack $ unwords ["Invalid pointer operation", show op, show x, show y]
 
 -- | Do the heavy lifting of translating LLVM instructions to crucible code.
-generateInstr :: forall h s arch ret
+generateInstr :: forall h s arch ret a
          . TypeRepr ret     -- ^ Type of the function return value
         -> L.BlockLabel     -- ^ The label of the current LLVM basic block
         -> L.Instr          -- ^ The instruction to translate
         -> (LLVMExpr s arch -> LLVMGenerator h s arch ret ())
                             -- ^ A continuation to assign the produced value of this instruction to a register
-        -> LLVMGenerator h s arch ret (TermStmt s ret)  -- ^ A continuation for translating the remaining statements in this function.
+        -> LLVMGenerator h s arch ret a  -- ^ A continuation for translating the remaining statements in this function.
                                    --   Straightline instructions should enter this continuation,
                                    --   but block-terminating instructions should not.
-        -> LLVMGenerator h s arch ret (TermStmt s ret)
+        -> LLVMGenerator h s arch ret a
 generateInstr retType lab instr assign_f k =
   case instr of
     -- skip phi instructions, they are handled in definePhiBlock
@@ -1806,10 +1806,10 @@ generateInstr retType lab instr assign_f k =
       case (L.typedType sV1, L.typedType sIxes) of
         (L.Vector m ty, L.Vector n (L.PrimType (L.Integer 32))) ->
           do elTy <- liftMemType ty
-             let inL :: Num a => a
+             let inL :: Num b => b
                  inL  = fromIntegral n
                  inV  = VecType inL elTy
-                 outL :: Num a => a
+                 outL :: Num b => b
                  outL = fromIntegral m
 
              Just v1 <- asVector <$> transValue inV (L.typedValue sV1)
@@ -2167,11 +2167,11 @@ arithOp op x y =
 
 
 
-callFunctionWithCont :: forall h s arch ret.
+callFunctionWithCont :: forall h s arch ret a.
                         L.Type -> L.Value -> [L.Typed L.Value]
                      -> (LLVMExpr s arch -> LLVMGenerator h s arch ret ())
-                     -> LLVMGenerator h s arch ret (TermStmt s ret)
-                     -> LLVMGenerator h s arch ret (TermStmt s ret)
+                     -> LLVMGenerator h s arch ret a
+                     -> LLVMGenerator h s arch ret a
 callFunctionWithCont fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f k
      -- Skip calls to debugging intrinsics.  We might want to support these in some way
      -- in the future.  However, they take metadata values as arguments, which
@@ -2236,7 +2236,7 @@ buildSwitch :: (1 <= w)
             -> L.BlockLabel        -- ^ The label of the current basic block
             -> L.BlockLabel        -- ^ The label of the default basic block if no other branch applies
             -> [(Integer, L.BlockLabel)] -- ^ The switch labels
-            -> LLVMGenerator h s arch ret (TermStmt s ret)
+            -> LLVMGenerator h s arch ret a
 buildSwitch _ _  curr_lab def [] =
    definePhiBlock curr_lab def
 buildSwitch w ex curr_lab def ((i,l):bs) = do
@@ -2252,7 +2252,7 @@ generateStmts
         :: TypeRepr ret
         -> L.BlockLabel
         -> [L.Stmt]
-        -> LLVMGenerator h s arch ret (TermStmt s ret)
+        -> LLVMGenerator h s arch ret a
 generateStmts retType lab stmts = go (processDbgDeclare stmts)
  where go [] = fail "LLVM basic block ended without a terminating instruction"
        go (x:xs) =
