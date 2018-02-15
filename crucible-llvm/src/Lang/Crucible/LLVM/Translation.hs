@@ -1620,11 +1620,11 @@ caseptr w tpr bvCase ptrCase x =
             ptrSwitch blk off
   where
   ptrSwitch blk off =
-    do cond <- mkAtom (blk .== litExpr 0)
+    do let cond = (blk .== litExpr 0)
        c_label  <- newLambdaLabel' tpr
        bv_label <- defineBlockLabel (bvCase off >>= jumpToLambda c_label)
        ptr_label <- defineBlockLabel (ptrCase blk off >>= jumpToLambda c_label)
-       continueLambda (Br cond bv_label ptr_label) c_label
+       continueLambda c_label (branch cond bv_label ptr_label)
 
 intcmp :: (1 <= w)
     => NatRepr w

@@ -73,6 +73,7 @@ module Lang.Crucible.CFG.Generator
   , branchVariant
   , tailCall
     -- * Defining blocks
+    -- $define
   , defineBlock
   , defineLambdaBlock
   , defineBlockLabel
@@ -259,6 +260,17 @@ instance F.MonadFail (Generator ext h s t ret) where
 instance MonadState (t s) (Generator ext h s t ret) where
   get = Generator $ use gsState
   put v = Generator $ gsState .= v
+
+-- This function only works for 'Generator' actions that terminate
+-- early, i.e. do not call their continuation. This includes actions
+-- that end with block-terminating statements defined with
+-- 'terminateEarly'.
+runGenerator ::
+  Generator ext h s t ret Void ->
+  (GeneratorState ext s t ret) ->
+  ST h (IxGeneratorState ext s t ret ())
+runGenerator m gs =
+  runStateContT (unGenerator m) absurd gs
 
 -- | Get the current position.
 getPosition :: Generator ext h s t ret Position
@@ -465,31 +477,34 @@ newLambdaLabel' tpr = Generator $ do
 ----------------------------------------------------------------------
 -- Defining blocks
 
--- | End the translation of the current block, and then start a new
--- block with the given label.
+-- $define The block-defining commands should be used with a
+-- 'Generator' action ending with a block-terminating statement, which
+-- gives it a polymorphic type.
+
+-- | End the translation of the current block, and then continue
+-- generating a new block with the given label.
 continue ::
   IsSyntaxExtension ext =>
-  TermStmt s ret ->
-  Label s ->
+  Label s {- ^ label for new block -} ->
+  (forall a. Generator ext h s t ret a) {- ^ action to end current block -} ->
   Generator ext h s t ret ()
-continue term lbl =
-  Generator $ StateContT $ \cont gs0 ->
-  do let gs1 = terminateBlock term gs0
-     let gs2 = startBlock (LabelID lbl) gs1
-     cont () gs2
+continue lbl action =
+  Generator $ StateContT $ \cont gs ->
+  do gs' <- runGenerator action gs
+     cont () (startBlock (LabelID lbl) gs')
 
--- | End the translation of the current block, and then start a new
--- lambda block with the given label.
+-- | End the translation of the current block, and then continue
+-- generating a new lambda block with the given label. The return
+-- value is the argument to the lambda block.
 continueLambda ::
   IsSyntaxExtension ext =>
-  TermStmt s ret ->
-  LambdaLabel s tp ->
+  LambdaLabel s tp {- ^ label for new block -} ->
+  (forall a. Generator ext h s t ret a) {- ^ action to end current block -} ->
   Generator ext h s t ret (Expr ext s tp)
-continueLambda term lbl =
-  Generator $ StateContT $ \cont gs0 ->
-  do let gs1 = terminateBlock term gs0
-     let gs2 = startBlock (LambdaID lbl) gs1
-     cont (AtomExpr (lambdaAtom lbl)) gs2
+continueLambda lbl action =
+  Generator $ StateContT $ \cont gs ->
+  do gs' <- runGenerator action gs
+     cont (AtomExpr (lambdaAtom lbl)) (startBlock (LambdaID lbl) gs')
 
 defineSomeBlock ::
   IsSyntaxExtension ext =>
@@ -499,7 +514,7 @@ defineSomeBlock ::
 defineSomeBlock l next =
   Generator $ StateContT $ \cont gs0 ->
   do let gs1 = startBlock l (gs0 & gsCurrent .~ ())
-     gs2 <- runStateContT (unGenerator next) absurd gs1
+     gs2 <- runGenerator next gs1
      -- Reset current block and state.
      let gs3 = gs2 & gsPosition .~ gs0^.gsPosition
                    & gsCurrent .~ gs0^.gsCurrent
@@ -517,8 +532,8 @@ defineBlock l action =
 -- | Define a block that has a lambda label.
 defineLambdaBlock ::
   IsSyntaxExtension ext =>
-  LambdaLabel s i ->
-  (forall a. Expr ext s i -> Generator ext h s t ret a) ->
+  LambdaLabel s tp ->
+  (forall a. Expr ext s tp -> Generator ext h s t ret a) ->
   Generator ext h s t ret ()
 defineLambdaBlock l action =
   defineSomeBlock (LambdaID l) (action (AtomExpr (lambdaAtom l)))
@@ -676,11 +691,10 @@ ifte :: (IsSyntaxExtension ext, KnownRepr TypeRepr tp)
      -> Generator ext h s t ret (Expr ext s tp) -- ^ false branch
      -> Generator ext h s t ret (Expr ext s tp)
 ifte e x y = do
-  e_a <- mkAtom e
   c_id <- newLambdaLabel
   x_id <- defineBlockLabel $ x >>= jumpToLambda c_id
   y_id <- defineBlockLabel $ y >>= jumpToLambda c_id
-  continueLambda (Br e_a x_id y_id) c_id
+  continueLambda c_id (branch e x_id y_id)
 
 -- | Statement-level if-then-else.
 ifte_ :: IsSyntaxExtension ext
@@ -689,11 +703,10 @@ ifte_ :: IsSyntaxExtension ext
       -> Generator ext h s t ret () -- ^ false branch
       -> Generator ext h s t ret ()
 ifte_ e x y = do
-  e_a <- mkAtom e
   c_id <- newLabel
   x_id <- defineBlockLabel $ x >> jump c_id
   y_id <- defineBlockLabel $ y >> jump c_id
-  continue (Br e_a x_id y_id) c_id
+  continue c_id (branch e x_id y_id)
 
 -- | Expression-level if-then-else with a monadic condition.
 ifteM :: (IsSyntaxExtension ext, KnownRepr TypeRepr tp)
@@ -709,10 +722,9 @@ whenCond :: IsSyntaxExtension ext
          -> Generator ext h s t ret ()
          -> Generator ext h s t ret ()
 whenCond e x = do
-  e_a <- mkAtom e
   c_id <- newLabel
   t_id <- defineBlockLabel $ x >> jump c_id
-  continue (Br e_a t_id c_id) c_id
+  continue c_id (branch e t_id c_id)
 
 -- | Run a computation when a condition is false.
 unlessCond :: IsSyntaxExtension ext
@@ -720,10 +732,9 @@ unlessCond :: IsSyntaxExtension ext
            -> Generator ext h s t ret ()
            -> Generator ext h s t ret ()
 unlessCond e x = do
-  e_a <- mkAtom e
   c_id <- newLabel
   f_id <- defineBlockLabel $ x >> jump c_id
-  continue (Br e_a c_id f_id) c_id
+  continue c_id (branch e c_id f_id)
 
 data MatchMaybe j r
    = MatchMaybe
@@ -738,7 +749,6 @@ caseMaybe :: IsSyntaxExtension ext
           -> MatchMaybe (Expr ext s tp) (Generator ext h s t ret (Expr ext s r)) {- ^ case branches -}
           -> Generator ext h s t ret (Expr ext s r)
 caseMaybe v retType cases = do
-  v_a <- mkAtom v
   let etp = case exprType v of
               MaybeRepr etp' -> etp'
   j_id <- newLambdaLabel' etp
@@ -746,7 +756,7 @@ caseMaybe v retType cases = do
   c_id <- newLambdaLabel' retType
   defineLambdaBlock j_id $ onJust cases >=> jumpToLambda c_id
   defineBlock       n_id $ onNothing cases >>= jumpToLambda c_id
-  continueLambda (MaybeBranch etp v_a j_id n_id) c_id
+  continueLambda c_id (branchMaybe v j_id n_id)
 
 -- | Evaluate different statements by cases over a @Maybe@ value.
 caseMaybe_ :: IsSyntaxExtension ext
@@ -754,7 +764,6 @@ caseMaybe_ :: IsSyntaxExtension ext
            -> MatchMaybe (Expr ext s tp) (Generator ext h s t ret ()) {- ^ case branches -}
            -> Generator ext h s t ret ()
 caseMaybe_ v cases = do
-  v_a <- mkAtom v
   let etp = case exprType v of
               MaybeRepr etp' -> etp'
   j_id <- newLambdaLabel' etp
@@ -762,7 +771,7 @@ caseMaybe_ v cases = do
   c_id <- newLabel
   defineLambdaBlock j_id $ \e -> onJust cases e >> jump c_id
   defineBlock       n_id $ onNothing cases >> jump c_id
-  continue (MaybeBranch etp v_a j_id n_id) c_id
+  continue c_id (branchMaybe v j_id n_id)
 
 -- | Return the argument of a @Just@ value, or call 'reportError' if
 -- the value is @Nothing@.
@@ -771,7 +780,6 @@ fromJustExpr :: IsSyntaxExtension ext
              -> Expr ext s StringType {- ^ error message -}
              -> Generator ext h s t ret (Expr ext s tp)
 fromJustExpr e msg = do
-  e_a <- mkAtom e
   let etp = case exprType e of
               MaybeRepr etp' -> etp'
   j_id <- newLambdaLabel' etp
@@ -779,7 +787,7 @@ fromJustExpr e msg = do
   c_id <- newLambdaLabel' etp
   defineLambdaBlock j_id $ jumpToLambda c_id
   defineBlock       n_id $ reportError msg
-  continueLambda (MaybeBranch etp e_a j_id n_id) c_id
+  continueLambda c_id (branchMaybe e j_id n_id)
 
 -- | This asserts that the value in the expression is a @Just@ value, and
 -- returns the underlying value.
@@ -812,7 +820,7 @@ while (pcond,cond) (pbody,body) = do
       body
       jump cond_lbl
 
-  continue (Jump cond_lbl) exit_lbl
+  continue exit_lbl (jump cond_lbl)
 
 ------------------------------------------------------------------------
 -- CFG
@@ -858,7 +866,5 @@ defineFunction p h f = seq h $ do
               , _gsState = init_state
               , _seenFunctions = []
               }
-  let go = returnFromFunction =<< action
-  let cont term gs = return (terminateBlock term gs)
-  ts' <- runStateContT (unGenerator go) cont $! ts
+  ts' <- runGenerator (action >>= returnFromFunction) $! ts
   return (SomeCFG (cfgFromGenerator h ts'), ts'^.seenFunctions)
