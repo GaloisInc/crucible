@@ -899,11 +899,11 @@ type ClosureSubsts = Text
 type BasicBlockInfo = Text
 
 data Trait =
-    Trait [TraitItem]
+    Trait Text [TraitItem]
     deriving (Eq, Show)
 
 instance FromJSON Trait where
-    parseJSON = withObject "Trait" $ \v -> Trait <$> v .: "items"
+    parseJSON = withObject "Trait" $ \v -> Trait <$> v .: "name" <*> v .: "items"
 
 data TraitItem
     = TraitMethod Text FnSig
