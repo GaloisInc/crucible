@@ -918,6 +918,8 @@ instance FromJSON TraitItem where
                   Just (String "Type") -> TraitType <$> v .: "name"
                   Just (String "Const") -> TraitConst <$> v .: "name" <*> v .: "type"
                   Just (String unk) -> fail $ "unknown trait item type: " ++ (unpack unk)
+                  Just x -> fail $ "Incorrect format of the kind field in TraitItem: " ++ (show x)
+                  _ -> fail "Missing kind field in TraitItem"
 
 --- aux functions ---
 --
