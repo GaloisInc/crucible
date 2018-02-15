@@ -3,7 +3,7 @@
 -- Module           : Lang.Crucible.CFG.Generator
 -- Description      : Provides a monadic interface for constructing Crucible
 --                    control flow graphs.
--- Copyright        : (c) Galois, Inc 2014
+-- Copyright        : (c) Galois, Inc 2014-2018
 -- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
@@ -38,6 +38,13 @@ module Lang.Crucible.CFG.Generator
   , getPosition
   , setPosition
   , withPosition
+    -- * Expressions and statements
+  , newReg
+  , newUnassignedReg
+  , readReg
+  , assignReg
+  , modifyReg
+  , modifyRegM
   , readGlobal
   , writeGlobal
   , newRef
@@ -45,37 +52,34 @@ module Lang.Crucible.CFG.Generator
   , readRef
   , writeRef
   , dropRef
-  , newReg
-  , newUnassignedReg
-  , readReg
-  , assignReg
-  , modifyReg
-  , modifyRegM
-  , extensionStmt
-  , forceEvaluation
-  , addPrintStmt
   , call
+  , assertExpr
+  , addPrintStmt
+  , extensionStmt
   , mkAtom
-  , recordCFG
-  , FunctionDef
-  , defineFunction
-    -- * Low-level terminal expressions.
+  , forceEvaluation
+    -- * Labels
   , newLabel
   , newLambdaLabel
   , newLambdaLabel'
-  , defineBlock
-  , defineLambdaBlock
-  , resume
-  , resume_
-  , branch
-    -- * Combinators
+    -- * Block-terminating statements
   , jump
   , jumpToLambda
+  , branch
   , returnFromFunction
   , reportError
+    -- TODO: functions for MaybeBranch, VariantElim, TailCall
+    -- * Defining blocks
+  , defineBlock
+  , defineLambdaBlock
+  , recordCFG
+  , FunctionDef
+  , defineFunction
+    -- * Control-flow combinators
+  , resume
+  , resume_
   , whenCond
   , unlessCond
-  , assertExpr
   , ifte
   , ifte_
   , ifteM
@@ -308,7 +312,7 @@ freshAtom av = Generator $ do
   return atom
 
 -- | Create an atom equivalent to the given expression if it is
--- not already an atom.
+-- not already an 'AtomExpr'.
 mkAtom :: IsSyntaxExtension ext => Expr ext s tp -> Generator ext h s t ret (Atom s tp)
 mkAtom (AtomExpr a)   = return a
 mkAtom (App a)        = freshAtom . EvalApp =<< traverseFC mkAtom a
@@ -404,7 +408,11 @@ addPrintStmt e = do
   Generator $ addStmt (Print e_a)
 
 -- | Add an assert statement.
-assertExpr :: IsSyntaxExtension ext => Expr ext s BoolType -> Expr ext s StringType -> Generator ext h s t ret ()
+assertExpr ::
+  IsSyntaxExtension ext =>
+  Expr ext s BoolType {- ^ assertion -} ->
+  Expr ext s StringType {- ^ error message -} ->
+  Generator ext h s t ret ()
 assertExpr b e = do
   b_a <- mkAtom b
   e_a <- mkAtom e
@@ -429,6 +437,7 @@ newLabel = Generator $ do
 newLambdaLabel :: KnownRepr TypeRepr tp => Generator ext h s t ret (LambdaLabel s tp)
 newLambdaLabel = newLambdaLabel' knownRepr
 
+-- | Create a new lambda label, using an explicit 'TypeRepr'.
 newLambdaLabel' :: TypeRepr tp -> Generator ext h s t ret (LambdaLabel s tp)
 newLambdaLabel' tpr = Generator $ do
   p <- use gsPosition
@@ -507,7 +516,7 @@ defineLambdaBlock l next = do
 ------------------------------------------------------------------------
 -- Generator interface
 
--- | Evaluate an expression, so that it can be more efficiently evaluated later.
+-- | Evaluate an expression to an 'AtomExpr', so that it can be reused multiple times later.
 forceEvaluation :: IsSyntaxExtension ext => Expr ext s tp -> Generator ext h s t ret (Expr ext s tp)
 forceEvaluation e = AtomExpr <$> mkAtom e
 
@@ -522,8 +531,8 @@ extensionStmt stmt = do
 
 -- | Call a function.
 call :: IsSyntaxExtension ext
-        => Expr ext s (FunctionHandleType args ret)
-        -> Assignment (Expr ext s) args
+        => Expr ext s (FunctionHandleType args ret) {- ^ function to call -}
+        -> Assignment (Expr ext s) args {- ^ function arguments -}
         -> Generator ext h s t r (Expr ext s ret)
 call h args = AtomExpr <$> call' h args
 
@@ -539,11 +548,11 @@ call' h args = do
       args_a <- traverseFC mkAtom args
       freshAtom $ Call h_a args_a retType
 
--- | Jump to given label.
+-- | Jump to the given label.
 jump :: IsSyntaxExtension ext => Label s -> Generator ext h s t ret (TermStmt s ret)
 jump l = return (Jump l)
 
--- | Jump to label with output.
+-- | Jump to the given label with output.
 jumpToLambda :: IsSyntaxExtension ext => LambdaLabel s tp -> Expr ext s tp -> Generator ext h s t ret (TermStmt s ret)
 jumpToLambda lbl v = do
   v_a <- mkAtom v
@@ -564,6 +573,8 @@ branch e x_id y_id = do
 ------------------------------------------------------------------------
 -- Combinators
 
+-- | End the current block with the given terminal statement, and skip
+-- the rest of the 'Generator' computation.
 terminateEarly ::
   IsSyntaxExtension ext => TermStmt s ret -> Generator ext h s t ret a
 terminateEarly term =
@@ -578,7 +589,8 @@ returnFromFunction e = do
   e_a <- mkAtom e
   return (Return e_a)
 
--- | Report error message.
+-- | Report error message, and skip the rest of the 'Generator'
+-- computation.
 reportError ::
   IsSyntaxExtension ext =>
   Expr ext s StringType -> Generator ext h s t ret a
@@ -586,11 +598,11 @@ reportError e = do
   e_a <- mkAtom e
   terminateEarly (ErrorStmt e_a)
 
--- | If-then-else. Produces a 'Br' statement.
+-- | Expression-level if-then-else.
 ifte :: (IsSyntaxExtension ext, KnownRepr TypeRepr tp)
      => Expr ext s BoolType
-     -> Generator ext h s t ret (Expr ext s tp) -- ^ @true@ branch
-     -> Generator ext h s t ret (Expr ext s tp) -- ^ @false@ branch
+     -> Generator ext h s t ret (Expr ext s tp) -- ^ true branch
+     -> Generator ext h s t ret (Expr ext s tp) -- ^ false branch
      -> Generator ext h s t ret (Expr ext s tp)
 ifte e x y = do
   e_a <- mkAtom e
@@ -601,17 +613,11 @@ ifte e x y = do
   defineBlock y_id $ y >>= jumpToLambda c_id
   resume (Br e_a x_id y_id) c_id
 
-ifteM :: (IsSyntaxExtension ext, KnownRepr TypeRepr tp)
-     => Generator ext h s t ret (Expr ext s BoolType)
-     -> Generator ext h s t ret (Expr ext s tp)
-     -> Generator ext h s t ret (Expr ext s tp)
-     -> Generator ext h s t ret (Expr ext s tp)
-ifteM em x y = do { m <- em; ifte m x y }
-
+-- | Statement-level if-then-else.
 ifte_ :: IsSyntaxExtension ext
       => Expr ext s BoolType
-      -> Generator ext h s t ret ()
-      -> Generator ext h s t ret ()
+      -> Generator ext h s t ret () -- ^ true branch
+      -> Generator ext h s t ret () -- ^ false branch
       -> Generator ext h s t ret ()
 ifte_ e x y = do
   e_a <- mkAtom e
@@ -621,6 +627,14 @@ ifte_ e x y = do
   defineBlock x_id $ x >> jump c_id
   defineBlock y_id $ y >> jump c_id
   resume_ (Br e_a x_id y_id) c_id
+
+-- | Expression-level if-then-else with a monadic condition.
+ifteM :: (IsSyntaxExtension ext, KnownRepr TypeRepr tp)
+     => Generator ext h s t ret (Expr ext s BoolType)
+     -> Generator ext h s t ret (Expr ext s tp) -- ^ true branch
+     -> Generator ext h s t ret (Expr ext s tp) -- ^ false branch
+     -> Generator ext h s t ret (Expr ext s tp)
+ifteM em x y = do { m <- em; ifte m x y }
 
 -- | Run a computation when a condition is true.
 whenCond :: IsSyntaxExtension ext
@@ -652,10 +666,11 @@ data MatchMaybe j r
    , onNothing :: r
    }
 
+-- | Compute an expression by cases over a @Maybe@ value.
 caseMaybe :: IsSyntaxExtension ext
-          => Expr ext s (MaybeType tp)
-          -> TypeRepr r
-          -> MatchMaybe (Expr ext s tp) (Generator ext h s t ret (Expr ext s r))
+          => Expr ext s (MaybeType tp) {- ^ expression to scrutinize -}
+          -> TypeRepr r {- ^ result type -}
+          -> MatchMaybe (Expr ext s tp) (Generator ext h s t ret (Expr ext s r)) {- ^ case branches -}
           -> Generator ext h s t ret (Expr ext s r)
 caseMaybe v retType cases = do
   v_a <- mkAtom v
@@ -668,9 +683,10 @@ caseMaybe v retType cases = do
   defineBlock       n_id $ onNothing cases >>= jumpToLambda c_id
   resume (MaybeBranch etp v_a j_id n_id) c_id
 
+-- | Evaluate different statements by cases over a @Maybe@ value.
 caseMaybe_ :: IsSyntaxExtension ext
-           => Expr ext s (MaybeType tp)
-           -> MatchMaybe (Expr ext s tp) (Generator ext h s t ret ())
+           => Expr ext s (MaybeType tp) {- ^ expression to scrutinize -}
+           -> MatchMaybe (Expr ext s tp) (Generator ext h s t ret ()) {- ^ case branches -}
            -> Generator ext h s t ret ()
 caseMaybe_ v cases = do
   v_a <- mkAtom v
@@ -683,9 +699,11 @@ caseMaybe_ v cases = do
   defineBlock       n_id $ onNothing cases >> jump c_id
   resume_ (MaybeBranch etp v_a j_id n_id) c_id
 
+-- | Return the argument of a @Just@ value, or call 'reportError' if
+-- the value is @Nothing@.
 fromJustExpr :: IsSyntaxExtension ext
              => Expr ext s (MaybeType tp)
-             -> Expr ext s StringType
+             -> Expr ext s StringType {- ^ error message -}
              -> Generator ext h s t ret (Expr ext s tp)
 fromJustExpr e msg = do
   e_a <- mkAtom e
@@ -702,16 +720,17 @@ fromJustExpr e msg = do
 -- returns the underlying value.
 assertedJustExpr :: IsSyntaxExtension ext
                  => Expr ext s (MaybeType tp)
-                 -> Expr ext s StringType
+                 -> Expr ext s StringType {- ^ error message -}
                  -> Generator ext h s t ret (Expr ext s tp)
 assertedJustExpr e msg =
   case exprType e of
     MaybeRepr tp ->
       forceEvaluation $! App (FromJustValue tp e msg)
 
+-- | Execute the loop body as long as the test condition is true.
 while :: IsSyntaxExtension ext
-      => (Position, Generator ext h s t ret (Expr ext s BoolType))
-      -> (Position, Generator ext h s t ret ())
+      => (Position, Generator ext h s t ret (Expr ext s BoolType)) {- ^ test condition -}
+      -> (Position, Generator ext h s t ret ()) {- ^ loop body -}
       -> Generator ext h s t ret ()
 while (pcond,cond) (pbody,body) = do
   cond_lbl <- newLabel
@@ -751,8 +770,8 @@ type FunctionDef ext h t init ret =
 -- | The main API for generating CFGs for a Crucible function.
 --
 --   The given @FunctionDef@ action is run to generate a registerized
---   CFG.  The return value of this action is the generated CFG, and a
---   list of CFGs for any other auxiliary function definitions
+--   CFG. The return value of @defineFunction@ is the generated CFG,
+--   and a list of CFGs for any other auxiliary function definitions
 --   generated along the way (e.g., for anonymous or inner functions).
 defineFunction :: IsSyntaxExtension ext
                => Position                 -- ^ Source position for the function
