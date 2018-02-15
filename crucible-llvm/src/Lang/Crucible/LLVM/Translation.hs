@@ -253,10 +253,10 @@ packBase ctp ctx0 asgn k =
                 asgn'
     _ -> error "packType: ran out of actual arguments!"
 
-typeToRegExpr :: MemType -> LLVMEnd h s arch ret (Some (Reg s))
+typeToRegExpr :: MemType -> LLVMGenerator h s arch ret (Some (Reg s))
 typeToRegExpr tp = do
   llvmTypeAsRepr tp $ \tpr ->
-    Some <$> newUnassignedReg' tpr
+    Some <$> newUnassignedReg tpr
 
 
 instrResultType ::
@@ -379,8 +379,6 @@ initialState d llvmctx args asgn =
 
 type LLVMGenerator h s arch ret a =
   (?lc :: TyCtx.LLVMContext, HasPtrWidth (ArchWidth arch)) => Generator (LLVM arch) h s (LLVMState arch) ret a
-type LLVMEnd h s arch ret a =
-  (?lc :: TyCtx.LLVMContext, HasPtrWidth (ArchWidth arch)) => End (LLVM arch) h s (LLVMState arch) ret a
 
 -- | Information about an LLVM basic block
 data LLVMBlockInfo s
@@ -397,10 +395,10 @@ data LLVMBlockInfo s
     , block_phi_map    :: !(Map L.BlockLabel (Seq (L.Ident, L.Type, L.Value)))
     }
 
-buildBlockInfoMap :: L.Define -> LLVMEnd h s arch ret (Map L.BlockLabel (LLVMBlockInfo s))
+buildBlockInfoMap :: L.Define -> LLVMGenerator h s arch ret (Map L.BlockLabel (LLVMBlockInfo s))
 buildBlockInfoMap d = Map.fromList <$> (mapM buildBlockInfo $ L.defBody d)
 
-buildBlockInfo :: L.BasicBlock -> LLVMEnd h s arch ret (L.BlockLabel, LLVMBlockInfo s)
+buildBlockInfo :: L.BasicBlock -> LLVMGenerator h s arch ret (L.BlockLabel, LLVMBlockInfo s)
 buildBlockInfo bb = do
   let phi_map = buildPhiMap (L.bbStmts bb)
   let Just blk_lbl = L.bbLabel bb
@@ -426,12 +424,12 @@ buildPhiMap ss = go ss Map.empty
 --   Because LLVM programs are in SSA form, this will occur in exactly one place.
 --   The type of the register is inferred from the instruction that assigns to it
 --   and is recorded in the ident map.
-buildRegMap :: IdentMap s -> L.Define -> LLVMEnd h s arch reg (IdentMap s)
+buildRegMap :: IdentMap s -> L.Define -> LLVMGenerator h s arch reg (IdentMap s)
 buildRegMap m d = foldM buildRegTypeMap m $ L.defBody d
 
 buildRegTypeMap :: IdentMap s
                 -> L.BasicBlock
-                -> LLVMEnd h s arch ret (IdentMap s)
+                -> LLVMGenerator h s arch ret (IdentMap s)
 buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
  where stmt m (L.Effect _ _) = return m
        stmt m (L.Result ident instr _) = do
@@ -729,7 +727,7 @@ unpackVarArgs xs = App . VectorLit AnyRepr . V.fromList <$> xs'
 -- | Implement the phi-functions along the edge from one LLVM Basic block to another.
 definePhiBlock :: L.BlockLabel      -- ^ The LLVM source basic block
                -> L.BlockLabel      -- ^ The LLVM target basic block
-               -> LLVMGenerator h s arch ret ()
+               -> LLVMGenerator h s arch ret a
 definePhiBlock l l' = do
   bim <- use blockInfoMap
   case Map.lookup l' bim of
@@ -1622,16 +1620,11 @@ caseptr w tpr bvCase ptrCase x =
             ptrSwitch blk off
   where
   ptrSwitch blk off =
-    do cond <- mkAtom (blk .== litExpr 0)
-       endNow $ \c ->
-         do bv_label  <- newLabel
-            ptr_label <- newLabel
-            c_label   <- newLambdaLabel' tpr
-            endCurrentBlock (Br cond bv_label ptr_label)
-
-            defineBlock bv_label  (bvCase off >>= jumpToLambda c_label)
-            defineBlock ptr_label (ptrCase blk off >>= jumpToLambda c_label)
-            resume c_label c
+    do let cond = (blk .== litExpr 0)
+       c_label  <- newLambdaLabel' tpr
+       bv_label <- defineBlockLabel (bvCase off >>= jumpToLambda c_label)
+       ptr_label <- defineBlockLabel (ptrCase blk off >>= jumpToLambda c_label)
+       continueLambda c_label (branch cond bv_label ptr_label)
 
 intcmp :: (1 <= w)
     => NatRepr w
@@ -1752,16 +1745,16 @@ pointerOp op x y =
   err = reportError $ litExpr $ Text.pack $ unwords ["Invalid pointer operation", show op, show x, show y]
 
 -- | Do the heavy lifting of translating LLVM instructions to crucible code.
-generateInstr :: forall h s arch ret
+generateInstr :: forall h s arch ret a
          . TypeRepr ret     -- ^ Type of the function return value
         -> L.BlockLabel     -- ^ The label of the current LLVM basic block
         -> L.Instr          -- ^ The instruction to translate
         -> (LLVMExpr s arch -> LLVMGenerator h s arch ret ())
                             -- ^ A continuation to assign the produced value of this instruction to a register
-        -> LLVMGenerator h s arch ret ()  -- ^ A continuation for translating the remaining statements in this function.
+        -> LLVMGenerator h s arch ret a  -- ^ A continuation for translating the remaining statements in this function.
                                    --   Straightline instructions should enter this continuation,
                                    --   but block-terminating instructions should not.
-        -> LLVMGenerator h s arch ret ()
+        -> LLVMGenerator h s arch ret a
 generateInstr retType lab instr assign_f k =
   case instr of
     -- skip phi instructions, they are handled in definePhiBlock
@@ -1813,10 +1806,10 @@ generateInstr retType lab instr assign_f k =
       case (L.typedType sV1, L.typedType sIxes) of
         (L.Vector m ty, L.Vector n (L.PrimType (L.Integer 32))) ->
           do elTy <- liftMemType ty
-             let inL :: Num a => a
+             let inL :: Num b => b
                  inL  = fromIntegral n
                  inV  = VecType inL elTy
-                 outL :: Num a => a
+                 outL :: Num b => b
                  outL = fromIntegral m
 
              Just v1 <- asVector <$> transValue inV (L.typedValue sV1)
@@ -2069,7 +2062,6 @@ generateInstr retType lab instr assign_f k =
 
              _ -> fail $ unwords ["arithmetic comparison on incompatible values", show x, show y]
 
-    -- FIXME? reimplement the select operation using expression if/then/else rather than branching...
     L.Select c x y -> do
          c' <- transTypedValue c
          x' <- transTypedValue x
@@ -2078,16 +2070,7 @@ generateInstr retType lab instr assign_f k =
                  Scalar (LLVMPointerRepr w) e -> notExpr <$> callIsNull w e
                  _ -> fail "expected boolean condition on select"
 
-         e_a <- mkAtom e'
-         endNow $ \cont -> do
-             l1 <- newLabel
-             l2 <- newLabel
-             c_lab <- newLabel
-
-             endCurrentBlock (Br e_a l1 l2)
-             defineBlock l1 (assign_f x' >> jump c_lab)
-             defineBlock l2 (assign_f y' >> jump c_lab)
-             resume_ c_lab cont
+         ifte_ e' (assign_f x') (assign_f y')
          k
 
     L.Jump l' -> definePhiBlock lab l'
@@ -2098,14 +2081,9 @@ generateInstr retType lab instr assign_f k =
                  Scalar (LLVMPointerRepr w) e -> notExpr <$> callIsNull w e
                  _ -> fail "expected boolean condition on branch"
 
-        a' <- mkAtom e'
-        endNow $ \_ -> do
-          phi1 <- newLabel
-          phi2 <- newLabel
-          endCurrentBlock (Br a' phi1 phi2)
-
-          defineBlock phi1 (definePhiBlock lab l1)
-          defineBlock phi2 (definePhiBlock lab l2)
+        phi1 <- defineBlockLabel (definePhiBlock lab l1)
+        phi2 <- defineBlockLabel (definePhiBlock lab l2)
+        branch e' phi1 phi2
 
     L.Switch x def branches -> do
         x' <- transTypedValue x
@@ -2189,11 +2167,11 @@ arithOp op x y =
 
 
 
-callFunctionWithCont :: forall h s arch ret.
+callFunctionWithCont :: forall h s arch ret a.
                         L.Type -> L.Value -> [L.Typed L.Value]
                      -> (LLVMExpr s arch -> LLVMGenerator h s arch ret ())
-                     -> LLVMGenerator h s arch ret ()
-                     -> LLVMGenerator h s arch ret ()
+                     -> LLVMGenerator h s arch ret a
+                     -> LLVMGenerator h s arch ret a
 callFunctionWithCont fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f k
      -- Skip calls to debugging intrinsics.  We might want to support these in some way
      -- in the future.  However, they take metadata values as arguments, which
@@ -2258,25 +2236,23 @@ buildSwitch :: (1 <= w)
             -> L.BlockLabel        -- ^ The label of the current basic block
             -> L.BlockLabel        -- ^ The label of the default basic block if no other branch applies
             -> [(Integer, L.BlockLabel)] -- ^ The switch labels
-            -> LLVMGenerator h s arch ret ()
+            -> LLVMGenerator h s arch ret a
 buildSwitch _ _  curr_lab def [] =
    definePhiBlock curr_lab def
 buildSwitch w ex curr_lab def ((i,l):bs) = do
    let test = App $ BVEq w ex $ App $ BVLit w i
-   test_a <- mkAtom test
-   endNow $ \_ -> do
-     t_id <- newLabel
-     f_id <- newLabel
-     endCurrentBlock $! Br test_a t_id f_id
-     defineBlock t_id (definePhiBlock curr_lab l)
-     defineBlock f_id (buildSwitch w ex curr_lab def bs)
+   t_id <- newLabel
+   f_id <- newLabel
+   defineBlock t_id (definePhiBlock curr_lab l)
+   defineBlock f_id (buildSwitch w ex curr_lab def bs)
+   branch test t_id f_id
 
 -- | Generate crucible code for each LLVM statement in turn.
 generateStmts
         :: TypeRepr ret
         -> L.BlockLabel
         -> [L.Stmt]
-        -> LLVMGenerator h s arch ret ()
+        -> LLVMGenerator h s arch ret a
 generateStmts retType lab stmts = go (processDbgDeclare stmts)
  where go [] = fail "LLVM basic block ended without a terminating instruction"
        go (x:xs) =
@@ -2361,7 +2337,7 @@ defineLLVMBlock
         :: TypeRepr ret
         -> Map L.BlockLabel (LLVMBlockInfo s)
         -> L.BasicBlock
-        -> LLVMEnd h s arch ret ()
+        -> LLVMGenerator h s arch ret ()
 defineLLVMBlock retType lm L.BasicBlock{ L.bbLabel = Just lab, L.bbStmts = stmts } = do
   case Map.lookup lab lm of
     Just bi -> defineBlock (block_label bi) (generateStmts retType lab stmts)
@@ -2385,20 +2361,19 @@ genDefn defn retType =
     ( L.BasicBlock{ L.bbLabel = Just entry_lab } : _ ) -> do
       callPushFrame
       setLocation $ Map.toList (L.defMetadata defn)
-      endNow $ \_ -> do
-        bim <- buildBlockInfoMap defn
-        blockInfoMap .= bim
 
-        im <- use identMap
-        im' <- buildRegMap im defn
-        identMap .= im'
+      bim <- buildBlockInfoMap defn
+      blockInfoMap .= bim
 
-        case Map.lookup entry_lab bim of
-           Nothing -> fail $ unwords ["entry label not found in label map:", show entry_lab]
-           Just entry_bi ->
-              endCurrentBlock (Jump (block_label entry_bi))
+      im <- use identMap
+      im' <- buildRegMap im defn
+      identMap .= im'
 
-        mapM_ (defineLLVMBlock retType bim) (L.defBody defn)
+      case Map.lookup entry_lab bim of
+        Nothing -> fail $ unwords ["entry label not found in label map:", show entry_lab]
+        Just entry_bi -> do
+          mapM_ (defineLLVMBlock retType bim) (L.defBody defn)
+          jump (block_label entry_bi)
 
 ------------------------------------------------------------------------
 -- transDefine

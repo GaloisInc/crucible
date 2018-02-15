@@ -3,7 +3,7 @@
 -- Module           : Lang.Crucible.CFG.Generator
 -- Description      : Provides a monadic interface for constructing Crucible
 --                    control flow graphs.
--- Copyright        : (c) Galois, Inc 2014
+-- Copyright        : (c) Galois, Inc 2014-2018
 -- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
@@ -38,6 +38,13 @@ module Lang.Crucible.CFG.Generator
   , getPosition
   , setPosition
   , withPosition
+    -- * Expressions and statements
+  , newReg
+  , newUnassignedReg
+  , readReg
+  , assignReg
+  , modifyReg
+  , modifyRegM
   , readGlobal
   , writeGlobal
   , newRef
@@ -45,41 +52,39 @@ module Lang.Crucible.CFG.Generator
   , readRef
   , writeRef
   , dropRef
-  , newReg
-  , newUnassignedReg
-  , newUnassignedReg'
-  , readReg
-  , assignReg
-  , modifyReg
-  , modifyRegM
-  , extensionStmt
-  , forceEvaluation
-  , addPrintStmt
   , call
+  , assertExpr
+  , addPrintStmt
+  , extensionStmt
   , mkAtom
-  , recordCFG
-  , FunctionDef
-  , defineFunction
-    -- * Low-level terminal expressions.
-  , End
-  , endNow
+  , forceEvaluation
+    -- * Labels
   , newLabel
   , newLambdaLabel
   , newLambdaLabel'
-  , endCurrentBlock
-  , defineBlock
-  , defineLambdaBlock
-  , resume
-  , resume_
-  , branch
-    -- * Combinators
+    -- * Block-terminating statements
+    -- $termstmt
   , jump
   , jumpToLambda
+  , branch
   , returnFromFunction
   , reportError
+  , branchMaybe
+  , branchVariant
+  , tailCall
+    -- * Defining blocks
+    -- $define
+  , defineBlock
+  , defineLambdaBlock
+  , defineBlockLabel
+  , recordCFG
+  , FunctionDef
+  , defineFunction
+    -- * Control-flow combinators
+  , continue
+  , continueLambda
   , whenCond
   , unlessCond
-  , assertExpr
   , ifte
   , ifte_
   , ifteM
@@ -99,13 +104,13 @@ import           Control.Lens hiding (Index)
 import qualified Control.Monad.Fail as F
 import           Control.Monad.State.Strict
 import qualified Data.Foldable as Fold
-import           Data.Maybe
 import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
+import           Data.Void
 
 import           Lang.Crucible.CFG.Core (AnyCFG(..), GlobalVar(..))
 import           Lang.Crucible.CFG.Expr(App(..), IsSyntaxExtension)
@@ -146,49 +151,72 @@ cbsStmts = lens _cbsStmts (\s v -> s { _cbsStmts = v })
 -- GeneratorState
 
 -- | State for translating within a basic block.
-data GeneratorState ext s (t :: * -> *) ret
-   = GS { _gsBlocks    :: !(Seq (Block ext s ret))
-        , _gsNextLabel :: !Int
-        , _gsNextValue :: !Int
-        , _gsCurrent   :: !(Maybe (CurrentBlockState ext s))
-        , _gsPosition  :: !Position
-        , _gsState     :: !(t s)
-        , _seenFunctions :: ![AnyCFG ext]
-        }
+data IxGeneratorState ext s (t :: * -> *) ret i
+  = GS { _gsBlocks    :: !(Seq (Block ext s ret))
+       , _gsNextLabel :: !Int
+       , _gsNextValue :: !Int
+       , _gsCurrent   :: !i
+       , _gsPosition  :: !Position
+       , _gsState     :: !(t s)
+       , _seenFunctions :: ![AnyCFG ext]
+       }
+
+type GeneratorState ext s t ret =
+  IxGeneratorState ext s t ret (CurrentBlockState ext s)
 
 -- | List of previously processed blocks.
-gsBlocks :: Simple Lens (GeneratorState ext s t ret) (Seq (Block ext s ret))
+gsBlocks :: Simple Lens (IxGeneratorState ext s t ret i) (Seq (Block ext s ret))
 gsBlocks = lens _gsBlocks (\s v -> s { _gsBlocks = v })
 
 -- | Index of next label.
-gsNextLabel :: Simple Lens (GeneratorState ext s t ret) Int
+gsNextLabel :: Simple Lens (IxGeneratorState ext s t ret i) Int
 gsNextLabel = lens _gsNextLabel (\s v -> s { _gsNextLabel = v })
 
 -- | Index used for register and atom identifiers.
-gsNextValue :: Simple Lens (GeneratorState ext s t ret) Int
+gsNextValue :: Simple Lens (IxGeneratorState ext s t ret i) Int
 gsNextValue = lens _gsNextValue (\s v -> s { _gsNextValue = v })
 
 -- | Information about current block.
-gsCurrent :: Simple Lens (GeneratorState ext s t ret) (Maybe (CurrentBlockState ext s))
+gsCurrent :: Lens (IxGeneratorState ext s t ret i) (IxGeneratorState ext s t ret j) i j
 gsCurrent = lens _gsCurrent (\s v -> s { _gsCurrent = v })
 
--- | Current Statements translated so far in this block.
-gsPosition :: Simple Lens (GeneratorState ext s t ret) Position
+-- | Current source position.
+gsPosition :: Simple Lens (IxGeneratorState ext s t ret i) Position
 gsPosition = lens _gsPosition (\s v -> s { _gsPosition = v })
 
--- | State for current block.  This gets reset between blocks.
-gsState :: Simple Lens (GeneratorState ext s t ret) (t s)
+-- | User state for current block. This gets reset between blocks.
+gsState :: Simple Lens (IxGeneratorState ext s t ret i) (t s)
 gsState = lens _gsState (\s v -> s { _gsState = v })
 
 -- | List of functions seen by current generator.
-seenFunctions :: Simple Lens (GeneratorState ext s t r) [AnyCFG ext]
+seenFunctions :: Simple Lens (IxGeneratorState ext s t r i) [AnyCFG ext]
 seenFunctions = lens _seenFunctions (\s v -> s { _seenFunctions = v })
 
-checkCurrentUnassigned :: MonadState (GeneratorState ext s t ret) m => m ()
-checkCurrentUnassigned = do
-  mc <- use gsCurrent
-  when (isJust mc) $ do
-    error "Current block is still assigned."
+------------------------------------------------------------------------
+
+startBlock ::
+  BlockID s ->
+  IxGeneratorState ext s t ret () ->
+  GeneratorState ext s t ret
+startBlock l gs =
+  gs & gsCurrent .~ initCurrentBlockState Set.empty l
+
+-- | Define the current block by defining the position and final
+-- statement.
+terminateBlock ::
+  IsSyntaxExtension ext =>
+  TermStmt s ret ->
+  GeneratorState ext s t ret ->
+  IxGeneratorState ext s t ret ()
+terminateBlock term gs =
+  do let p = gs^.gsPosition
+     let cbs = gs^.gsCurrent
+     -- Define block
+     let b = mkBlock (cbsBlockID cbs) (cbsInputValues cbs) (cbs^.cbsStmts) (Posd p term)
+     -- Store block
+     let gs' = gs & gsCurrent .~ ()
+                  & gsBlocks  %~ (Seq.|> b)
+     seq b gs'
 
 ------------------------------------------------------------------------
 -- Generator
@@ -207,9 +235,10 @@ checkCurrentUnassigned = do
 -- state.  It is reset at each block.
 -- The 'ret' parameter is the return type of the CFG.
 -- The 'a' parameter is the value returned by the monad.
+
 newtype Generator ext h s t ret a
       = Generator { unGenerator :: StateContT (GeneratorState ext s t ret)
-                                              (GeneratorState ext s t ret)
+                                              (IxGeneratorState ext s t ret ())
                                               (ST h)
                                               a
                   }
@@ -232,6 +261,17 @@ instance MonadState (t s) (Generator ext h s t ret) where
   get = Generator $ use gsState
   put v = Generator $ gsState .= v
 
+-- This function only works for 'Generator' actions that terminate
+-- early, i.e. do not call their continuation. This includes actions
+-- that end with block-terminating statements defined with
+-- 'terminateEarly'.
+runGenerator ::
+  Generator ext h s t ret Void ->
+  (GeneratorState ext s t ret) ->
+  ST h (IxGeneratorState ext s t ret ())
+runGenerator m gs =
+  runStateContT (unGenerator m) absurd gs
+
 -- | Get the current position.
 getPosition :: Generator ext h s t ret Position
 getPosition = Generator $ use gsPosition
@@ -251,13 +291,16 @@ withPosition p m = do
   setPosition old_pos
   return v
 
-freshValueIndex :: MonadState (GeneratorState ext s t ret) m => m Int
+freshValueIndex :: MonadState (IxGeneratorState ext s t ret i) m => m Int
 freshValueIndex = do
   n <- use gsNextValue
   gsNextValue .= n+1
   return n
 
-newUnassignedReg'' :: MonadState (GeneratorState ext s r ret) m => TypeRepr tp -> m (Reg s tp)
+----------------------------------------------------------------------
+-- Expressions and statements
+
+newUnassignedReg'' :: MonadState (IxGeneratorState ext s r ret i) m => TypeRepr tp -> m (Reg s tp)
 newUnassignedReg'' tp = do
   p <- use gsPosition
   n <- freshValueIndex
@@ -266,14 +309,14 @@ newUnassignedReg'' tp = do
                 , typeOfReg = tp
                 }
 
-addStmt :: MonadState (GeneratorState ext s t ret) m => Stmt ext s -> m ()
+addStmt :: MonadState (GeneratorState ext s r ret) m => Stmt ext s -> m ()
 addStmt s = do
   p <- use gsPosition
-  Just cbs <- use gsCurrent
+  cbs <- use gsCurrent
   let ps = Posd p s
   seq ps $ do
   let cbs' = cbs & cbsStmts %~ (Seq.|> ps)
-  seq cbs' $ gsCurrent .= Just cbs'
+  seq cbs' $ gsCurrent .= cbs'
 
 freshAtom :: IsSyntaxExtension ext => AtomValue ext s tp -> Generator ext h s t ret (Atom s tp)
 freshAtom av = Generator $ do
@@ -288,7 +331,7 @@ freshAtom av = Generator $ do
   return atom
 
 -- | Create an atom equivalent to the given expression if it is
--- not already an atom.
+-- not already an 'AtomExpr'.
 mkAtom :: IsSyntaxExtension ext => Expr ext s tp -> Generator ext h s t ret (Atom s tp)
 mkAtom (AtomExpr a)   = return a
 mkAtom (App a)        = freshAtom . EvalApp =<< traverseFC mkAtom a
@@ -348,12 +391,6 @@ newEmptyRef tp =
 -- | Produce a new virtual register without giving it an initial value.
 --   NOTE! If you fail to initialize this register with a subsequent
 --   call to @assignReg@, errors will arise during SSA conversion.
-newUnassignedReg' :: TypeRepr tp -> End ext h s t ret (Reg s tp)
-newUnassignedReg' tp = End $ newUnassignedReg'' tp
-
--- | Produce a new virtual register without giving it an initial value.
---   NOTE! If you fail to initialize this register with a subsequent
---   call to @assignReg@, errors will arise during SSA conversion.
 newUnassignedReg :: TypeRepr tp -> Generator ext h s t ret (Reg s tp)
 newUnassignedReg tp = Generator $ newUnassignedReg'' tp
 
@@ -390,7 +427,11 @@ addPrintStmt e = do
   Generator $ addStmt (Print e_a)
 
 -- | Add an assert statement.
-assertExpr :: IsSyntaxExtension ext => Expr ext s BoolType -> Expr ext s StringType -> Generator ext h s t ret ()
+assertExpr ::
+  IsSyntaxExtension ext =>
+  Expr ext s BoolType {- ^ assertion -} ->
+  Expr ext s StringType {- ^ error message -} ->
+  Generator ext h s t ret ()
 assertExpr b e = do
   b_a <- mkAtom b
   e_a <- mkAtom e
@@ -403,52 +444,22 @@ recordCFG :: AnyCFG ext -> Generator ext h s t ret ()
 recordCFG g = Generator $ seenFunctions %= (g:)
 
 ------------------------------------------------------------------------
--- End
-
--- | A low-level interface for defining transitions between basic blocks.
---
--- The 'ext' parameter indicates the syntax extension.
--- The 'h' parameter is the ST index used for @'ST' h@.
--- The 's' parameter is part of the CFG.
--- The 't' is parameter is for the user-defined state.
--- The 'ret' parameter is the return type for the CFG.
-newtype End ext h s t ret a = End { unEnd :: StateT (GeneratorState ext s t ret) (ST h) a }
-  deriving ( Functor
-           , Applicative
-           , Monad
-           , MonadST h
-           )
-
-instance F.MonadFail (End ext h s t ret) where
-  fail = fail
-
-instance MonadState (t s) (End ext h s t ret) where
-  get = End (use gsState)
-  put x = End (gsState .= x)
-
--- | End the current translation.
-endNow :: ((a -> End ext h s t ret ())
-          -> End ext h s t ret ())
-       -> Generator ext h s t ret a
-endNow m = Generator $ StateContT $ \c ts -> do
-  let f v = End $ do
-        s <- get
-        put =<< liftST (c v s)
-  execStateT (unEnd (m f)) ts
+-- Labels
 
 -- | Create a new block label.
-newLabel :: End ext h s t ret (Label s)
-newLabel = End $ do
+newLabel :: Generator ext h s t ret (Label s)
+newLabel = Generator $ do
   idx <- use gsNextLabel
   gsNextLabel .= idx + 1
   return (Label idx)
 
 -- | Create a new lambda label.
-newLambdaLabel :: KnownRepr TypeRepr tp => End ext h s t ret (LambdaLabel s tp)
+newLambdaLabel :: KnownRepr TypeRepr tp => Generator ext h s t ret (LambdaLabel s tp)
 newLambdaLabel = newLambdaLabel' knownRepr
 
-newLambdaLabel' :: TypeRepr tp -> End ext h s t ret (LambdaLabel s tp)
-newLambdaLabel' tpr = End $ do
+-- | Create a new lambda label, using an explicit 'TypeRepr'.
+newLambdaLabel' :: TypeRepr tp -> Generator ext h s t ret (LambdaLabel s tp)
+newLambdaLabel' tpr = Generator $ do
   p <- use gsPosition
   idx <- use gsNextLabel
   gsNextLabel .= idx + 1
@@ -463,80 +474,84 @@ newLambdaLabel' tpr = End $ do
                }
   return $! lbl
 
--- | Define the current block by defining the position and
--- final statement.  This returns the user state after the
--- block is finished.
-endCurrentBlock :: IsSyntaxExtension ext
-                => TermStmt s ret
-                -> End ext h s t ret ()
-endCurrentBlock term = End $ do
-  gs <- get
-  let p = gs^.gsPosition
-  let Just cbs = gs^.gsCurrent
-  -- Clear current state.
-  gsCurrent .= Nothing
-  -- Define block
-  let b = mkBlock (cbsBlockID cbs) (cbsInputValues cbs) (cbs^.cbsStmts) (Posd p term)
-  -- Store block
-  seq b $ do
-  gsBlocks %= (Seq.|> b)
+----------------------------------------------------------------------
+-- Defining blocks
 
--- | Resume execution by jumping to a label.
-resume_  :: Label s -- ^ Label to jump to.
-         -> (() -> End ext h s t ret ())
-            -- ^ Continuation to run.
-         -> End ext h s t ret ()
-resume_ lbl c = End $ do
-  checkCurrentUnassigned
-  gsCurrent .= Just (initCurrentBlockState Set.empty (LabelID lbl))
-  unEnd $ c ()
+-- $define The block-defining commands should be used with a
+-- 'Generator' action ending with a block-terminating statement, which
+-- gives it a polymorphic type.
 
--- | Resume execution by jumping to a lambda label.
-resume :: LambdaLabel s r
-          -- ^ Label to jump to.
-       -> (Expr ext s r -> End ext h s t ret ())
-          -- ^ Continuation to run.
-       -> End ext h s t ret ()
-resume lbl c = End $ do
-  let block_id = LambdaID lbl
-  checkCurrentUnassigned
-  gsCurrent .= Just (initCurrentBlockState Set.empty block_id)
-  unEnd $ c (AtomExpr (lambdaAtom lbl))
+-- | End the translation of the current block, and then continue
+-- generating a new block with the given label.
+continue ::
+  IsSyntaxExtension ext =>
+  Label s {- ^ label for new block -} ->
+  (forall a. Generator ext h s t ret a) {- ^ action to end current block -} ->
+  Generator ext h s t ret ()
+continue lbl action =
+  Generator $ StateContT $ \cont gs ->
+  do gs' <- runGenerator action gs
+     cont () (startBlock (LabelID lbl) gs')
 
-defineSomeBlock :: BlockID s
-                -> Generator ext h s t ret ()
-                -> End ext h s t ret ()
-defineSomeBlock l next = End $ do
-  gs <- get
-  let gs_next = gs & gsCurrent .~ Just (initCurrentBlockState Set.empty l)
-  let c_next _ gs' =
-        let p' = gs'^.gsPosition
-         in error $ "Block at " ++ show p' ++ " ended without terminating."
-  gs' <- liftST $ runStateContT (unGenerator next) c_next gs_next
-  -- Reset current block and state.
-  put $ gs' & gsCurrent  .~ gs^.gsCurrent
-            & gsPosition .~ gs^.gsPosition
-            & gsState    .~ gs^.gsState
+-- | End the translation of the current block, and then continue
+-- generating a new lambda block with the given label. The return
+-- value is the argument to the lambda block.
+continueLambda ::
+  IsSyntaxExtension ext =>
+  LambdaLabel s tp {- ^ label for new block -} ->
+  (forall a. Generator ext h s t ret a) {- ^ action to end current block -} ->
+  Generator ext h s t ret (Expr ext s tp)
+continueLambda lbl action =
+  Generator $ StateContT $ \cont gs ->
+  do gs' <- runGenerator action gs
+     cont (AtomExpr (lambdaAtom lbl)) (startBlock (LambdaID lbl) gs')
+
+defineSomeBlock ::
+  IsSyntaxExtension ext =>
+  BlockID s ->
+  Generator ext h s t ret Void ->
+  Generator ext h s t ret ()
+defineSomeBlock l next =
+  Generator $ StateContT $ \cont gs0 ->
+  do let gs1 = startBlock l (gs0 & gsCurrent .~ ())
+     gs2 <- runGenerator next gs1
+     -- Reset current block and state.
+     let gs3 = gs2 & gsPosition .~ gs0^.gsPosition
+                   & gsCurrent .~ gs0^.gsCurrent
+     cont () gs3
 
 -- | Define a block with an ordinary label.
-defineBlock :: Label s
-            -> Generator ext h s t ret ()
-            -> End ext h s t ret ()
-defineBlock l next =
-  defineSomeBlock (LabelID l) next
+defineBlock ::
+  IsSyntaxExtension ext =>
+  Label s ->
+  (forall a. Generator ext h s t ret a) ->
+  Generator ext h s t ret ()
+defineBlock l action =
+  defineSomeBlock (LabelID l) action
 
 -- | Define a block that has a lambda label.
-defineLambdaBlock :: LambdaLabel s i
-                  -> (Expr ext s i -> Generator ext h s t ret ())
-                  -> End ext h s t ret ()
-defineLambdaBlock l next = do
-  let block_id = LambdaID l
-  defineSomeBlock block_id $ next (AtomExpr (lambdaAtom l))
+defineLambdaBlock ::
+  IsSyntaxExtension ext =>
+  LambdaLabel s tp ->
+  (forall a. Expr ext s tp -> Generator ext h s t ret a) ->
+  Generator ext h s t ret ()
+defineLambdaBlock l action =
+  defineSomeBlock (LambdaID l) (action (AtomExpr (lambdaAtom l)))
+
+-- | Define a block with a fresh label, returning the label.
+defineBlockLabel ::
+  IsSyntaxExtension ext =>
+  (forall a. Generator ext h s t ret a) ->
+  Generator ext h s t ret (Label s)
+defineBlockLabel action =
+  do l <- newLabel
+     defineBlock l action
+     return l
 
 ------------------------------------------------------------------------
 -- Generator interface
 
--- | Evaluate an expression, so that it can be more efficiently evaluated later.
+-- | Evaluate an expression to an 'AtomExpr', so that it can be reused multiple times later.
 forceEvaluation :: IsSyntaxExtension ext => Expr ext s tp -> Generator ext h s t ret (Expr ext s tp)
 forceEvaluation e = AtomExpr <$> mkAtom e
 
@@ -551,8 +566,8 @@ extensionStmt stmt = do
 
 -- | Call a function.
 call :: IsSyntaxExtension ext
-        => Expr ext s (FunctionHandleType args ret)
-        -> Assignment (Expr ext s) args
+        => Expr ext s (FunctionHandleType args ret) {- ^ function to call -}
+        -> Assignment (Expr ext s) args {- ^ function arguments -}
         -> Generator ext h s t r (Expr ext s ret)
 call h args = AtomExpr <$> call' h args
 
@@ -568,90 +583,138 @@ call' h args = do
       args_a <- traverseFC mkAtom args
       freshAtom $ Call h_a args_a retType
 
--- | Jump to given label.
-jump :: IsSyntaxExtension ext => Label s -> Generator ext h s t ret a
-jump l = do
-  endNow $ \_ -> do
-    endCurrentBlock (Jump l)
+----------------------------------------------------------------------
+-- Block-terminating statements
 
--- | Jump to label with output.
-jumpToLambda :: IsSyntaxExtension ext => LambdaLabel s tp -> Expr ext s tp -> Generator ext h s t ret a
+-- $termstmt The following operations produce block-terminating
+-- statements, and have early termination behavior in the 'Generator'
+-- monad: Like 'fail', they have polymorphic return types and cause
+-- any following monadic actions to be skipped.
+
+-- | End the current block with the given terminal statement, and skip
+-- the rest of the 'Generator' computation.
+terminateEarly ::
+  IsSyntaxExtension ext => TermStmt s ret -> Generator ext h s t ret a
+terminateEarly term =
+  Generator $ StateContT $ \_cont gs ->
+  return (terminateBlock term gs)
+
+-- | Jump to the given label.
+jump :: IsSyntaxExtension ext => Label s -> Generator ext h s t ret a
+jump l = terminateEarly (Jump l)
+
+-- | Jump to the given label with output.
+jumpToLambda ::
+  IsSyntaxExtension ext =>
+  LambdaLabel s tp ->
+  Expr ext s tp ->
+  Generator ext h s t ret a
 jumpToLambda lbl v = do
   v_a <- mkAtom v
-  endNow $ \_ -> do
-    endCurrentBlock (Output lbl v_a)
+  terminateEarly (Output lbl v_a)
 
 -- | Branch between blocks.
-branch :: IsSyntaxExtension ext
-       => Expr ext s BoolType
-       -> Label s
-       -> Label s
-       -> Generator ext h s t ret a
+branch ::
+  IsSyntaxExtension ext =>
+  Expr ext s BoolType {- ^ condition -} ->
+  Label s             {- ^ true label -} ->
+  Label s             {- ^ false label -} ->
+  Generator ext h s t ret a
 branch (App (Not e)) x_id y_id = do
   branch e y_id x_id
 branch e x_id y_id = do
   a <- mkAtom e
-  endNow $ \_ -> do
-    endCurrentBlock (Br a x_id y_id)
+  terminateEarly (Br a x_id y_id)
+
+-- | Return from this function with the given return value.
+returnFromFunction ::
+  IsSyntaxExtension ext =>
+  Expr ext s ret -> Generator ext h s t ret a
+returnFromFunction e = do
+  e_a <- mkAtom e
+  terminateEarly (Return e_a)
+
+-- | Report an error message.
+reportError ::
+  IsSyntaxExtension ext =>
+  Expr ext s StringType -> Generator ext h s t ret a
+reportError e = do
+  e_a <- mkAtom e
+  terminateEarly (ErrorStmt e_a)
+
+-- | Branch between blocks based on a @Maybe@ value.
+branchMaybe ::
+  IsSyntaxExtension ext =>
+  Expr ext s (MaybeType tp) ->
+  LambdaLabel s tp {- ^ label for @Just@ -} ->
+  Label s          {- ^ label for @Nothing@ -} ->
+  Generator ext h s t ret a
+branchMaybe v l1 l2 =
+  case exprType v of
+    MaybeRepr etp ->
+      do v_a <- mkAtom v
+         terminateEarly (MaybeBranch etp v_a l1 l2)
+
+-- | Switch on a variant value. Examine the tag of the variant and
+-- jump to the appropriate switch target.
+branchVariant ::
+  IsSyntaxExtension ext =>
+  Expr ext s (VariantType varctx) {- ^ value to scrutinize -} ->
+  Assignment (LambdaLabel s) varctx {- ^ target labels -} ->
+  Generator ext h s t ret a
+branchVariant v lbls =
+  case exprType v of
+    VariantRepr typs ->
+      do v_a <- mkAtom v
+         terminateEarly (VariantElim typs v_a lbls)
+
+-- | End a block with a tail call to a function.
+tailCall ::
+  IsSyntaxExtension ext =>
+  Expr ext s (FunctionHandleType args ret) {- ^ function to call -} ->
+  Assignment (Expr ext s) args {- ^ function arguments -} ->
+  Generator ext h s t ret a
+tailCall h args =
+  case exprType h of
+    FunctionHandleRepr argTypes _retType ->
+      do h_a <- mkAtom h
+         args_a <- traverseFC mkAtom args
+         terminateEarly (TailCall h_a argTypes args_a)
 
 ------------------------------------------------------------------------
 -- Combinators
 
--- | Return from this function.
-returnFromFunction :: IsSyntaxExtension ext => Expr ext s ret -> Generator ext h s t ret a
-returnFromFunction e = do
-  e_a <- mkAtom e
-  endNow $ \_ -> do
-    endCurrentBlock (Return e_a)
-
--- | Report error message.
-reportError :: IsSyntaxExtension ext => Expr ext s StringType -> Generator ext h s t ret a
-reportError e = do
-  e_a <- mkAtom e
-  endNow $ \_ -> do
-    endCurrentBlock (ErrorStmt e_a)
-
--- | If-then-else. Produces a 'Br' statement.
+-- | Expression-level if-then-else.
 ifte :: (IsSyntaxExtension ext, KnownRepr TypeRepr tp)
      => Expr ext s BoolType
-     -> Generator ext h s t ret (Expr ext s tp) -- ^ @true@ branch
-     -> Generator ext h s t ret (Expr ext s tp) -- ^ @false@ branch
+     -> Generator ext h s t ret (Expr ext s tp) -- ^ true branch
+     -> Generator ext h s t ret (Expr ext s tp) -- ^ false branch
      -> Generator ext h s t ret (Expr ext s tp)
 ifte e x y = do
-  e_a <- mkAtom e
-  endNow $ \c -> do
-    x_id <- newLabel
-    y_id <- newLabel
-    c_id <- newLambdaLabel
+  c_id <- newLambdaLabel
+  x_id <- defineBlockLabel $ x >>= jumpToLambda c_id
+  y_id <- defineBlockLabel $ y >>= jumpToLambda c_id
+  continueLambda c_id (branch e x_id y_id)
 
-    endCurrentBlock (Br e_a x_id y_id)
-    defineBlock x_id $ x >>= jumpToLambda c_id
-    defineBlock y_id $ y >>= jumpToLambda c_id
-    resume c_id c
-
-ifteM :: (IsSyntaxExtension ext, KnownRepr TypeRepr tp)
-     => Generator ext h s t ret (Expr ext s BoolType)
-     -> Generator ext h s t ret (Expr ext s tp)
-     -> Generator ext h s t ret (Expr ext s tp)
-     -> Generator ext h s t ret (Expr ext s tp)
-ifteM em x y = do { m <- em; ifte m x y }
-
+-- | Statement-level if-then-else.
 ifte_ :: IsSyntaxExtension ext
       => Expr ext s BoolType
-      -> Generator ext h s t ret ()
-      -> Generator ext h s t ret ()
+      -> Generator ext h s t ret () -- ^ true branch
+      -> Generator ext h s t ret () -- ^ false branch
       -> Generator ext h s t ret ()
 ifte_ e x y = do
-  e_a <- mkAtom e
-  endNow $ \c -> do
-    x_id <- newLabel
-    y_id <- newLabel
-    c_id <- newLabel
+  c_id <- newLabel
+  x_id <- defineBlockLabel $ x >> jump c_id
+  y_id <- defineBlockLabel $ y >> jump c_id
+  continue c_id (branch e x_id y_id)
 
-    endCurrentBlock (Br e_a x_id y_id)
-    defineBlock x_id $ x >> jump c_id
-    defineBlock y_id $ y >> jump c_id
-    resume_ c_id c
+-- | Expression-level if-then-else with a monadic condition.
+ifteM :: (IsSyntaxExtension ext, KnownRepr TypeRepr tp)
+     => Generator ext h s t ret (Expr ext s BoolType)
+     -> Generator ext h s t ret (Expr ext s tp) -- ^ true branch
+     -> Generator ext h s t ret (Expr ext s tp) -- ^ false branch
+     -> Generator ext h s t ret (Expr ext s tp)
+ifteM em x y = do { m <- em; ifte m x y }
 
 -- | Run a computation when a condition is true.
 whenCond :: IsSyntaxExtension ext
@@ -659,14 +722,9 @@ whenCond :: IsSyntaxExtension ext
          -> Generator ext h s t ret ()
          -> Generator ext h s t ret ()
 whenCond e x = do
-  e_a <- mkAtom e
-  endNow $ \c -> do
-    t_id <- newLabel
-    c_id <- newLabel
-
-    endCurrentBlock $! Br e_a t_id c_id
-    defineBlock t_id $ x >> jump c_id
-    resume_ c_id c
+  c_id <- newLabel
+  t_id <- defineBlockLabel $ x >> jump c_id
+  continue c_id (branch e t_id c_id)
 
 -- | Run a computation when a condition is false.
 unlessCond :: IsSyntaxExtension ext
@@ -674,14 +732,9 @@ unlessCond :: IsSyntaxExtension ext
            -> Generator ext h s t ret ()
            -> Generator ext h s t ret ()
 unlessCond e x = do
-  e_a <- mkAtom e
-  endNow $ \c -> do
-    f_id <- newLabel
-    c_id <- newLabel
-
-    endCurrentBlock  $ Br e_a c_id f_id
-    defineBlock f_id $ x >> jump c_id
-    resume_ c_id c
+  c_id <- newLabel
+  f_id <- defineBlockLabel $ x >> jump c_id
+  continue c_id (branch e c_id f_id)
 
 data MatchMaybe j r
    = MatchMaybe
@@ -689,97 +742,91 @@ data MatchMaybe j r
    , onNothing :: r
    }
 
+-- | Compute an expression by cases over a @Maybe@ value.
 caseMaybe :: IsSyntaxExtension ext
-          => Expr ext s (MaybeType tp)
-          -> TypeRepr r
-          -> MatchMaybe (Expr ext s tp) (Generator ext h s t ret (Expr ext s r))
+          => Expr ext s (MaybeType tp) {- ^ expression to scrutinize -}
+          -> TypeRepr r {- ^ result type -}
+          -> MatchMaybe (Expr ext s tp) (Generator ext h s t ret (Expr ext s r)) {- ^ case branches -}
           -> Generator ext h s t ret (Expr ext s r)
 caseMaybe v retType cases = do
-  v_a <- mkAtom v
   let etp = case exprType v of
               MaybeRepr etp' -> etp'
-  endNow $ \c -> do
-    j_id <- newLambdaLabel' etp
-    n_id <- newLabel
-    c_id <- newLambdaLabel' retType
+  j_id <- newLambdaLabel' etp
+  n_id <- newLabel
+  c_id <- newLambdaLabel' retType
+  defineLambdaBlock j_id $ onJust cases >=> jumpToLambda c_id
+  defineBlock       n_id $ onNothing cases >>= jumpToLambda c_id
+  continueLambda c_id (branchMaybe v j_id n_id)
 
-    endCurrentBlock $ MaybeBranch etp v_a j_id n_id
-    defineLambdaBlock j_id $ onJust cases >=> jumpToLambda c_id
-    defineBlock       n_id $ onNothing cases >>= jumpToLambda c_id
-    resume c_id c
-
+-- | Evaluate different statements by cases over a @Maybe@ value.
 caseMaybe_ :: IsSyntaxExtension ext
-           => Expr ext s (MaybeType tp)
-           -> MatchMaybe (Expr ext s tp) (Generator ext h s t ret ())
+           => Expr ext s (MaybeType tp) {- ^ expression to scrutinize -}
+           -> MatchMaybe (Expr ext s tp) (Generator ext h s t ret ()) {- ^ case branches -}
            -> Generator ext h s t ret ()
 caseMaybe_ v cases = do
-  v_a <- mkAtom v
   let etp = case exprType v of
               MaybeRepr etp' -> etp'
-  endNow $ \c -> do
-    j_id <- newLambdaLabel' etp
-    n_id <- newLabel
-    c_id <- newLabel
+  j_id <- newLambdaLabel' etp
+  n_id <- newLabel
+  c_id <- newLabel
+  defineLambdaBlock j_id $ \e -> onJust cases e >> jump c_id
+  defineBlock       n_id $ onNothing cases >> jump c_id
+  continue c_id (branchMaybe v j_id n_id)
 
-    endCurrentBlock $ MaybeBranch etp v_a j_id n_id
-    defineLambdaBlock j_id $ \e -> onJust cases e >> jump c_id
-    defineBlock       n_id $ onNothing cases >> jump c_id
-    resume_ c_id c
-
+-- | Return the argument of a @Just@ value, or call 'reportError' if
+-- the value is @Nothing@.
 fromJustExpr :: IsSyntaxExtension ext
              => Expr ext s (MaybeType tp)
-             -> Expr ext s StringType
+             -> Expr ext s StringType {- ^ error message -}
              -> Generator ext h s t ret (Expr ext s tp)
 fromJustExpr e msg = do
   let etp = case exprType e of
               MaybeRepr etp' -> etp'
-  caseMaybe e etp MatchMaybe
-    { onJust = return
-    , onNothing = reportError msg
-    }
+  j_id <- newLambdaLabel' etp
+  n_id <- newLabel
+  c_id <- newLambdaLabel' etp
+  defineLambdaBlock j_id $ jumpToLambda c_id
+  defineBlock       n_id $ reportError msg
+  continueLambda c_id (branchMaybe e j_id n_id)
 
 -- | This asserts that the value in the expression is a @Just@ value, and
 -- returns the underlying value.
 assertedJustExpr :: IsSyntaxExtension ext
                  => Expr ext s (MaybeType tp)
-                 -> Expr ext s StringType
+                 -> Expr ext s StringType {- ^ error message -}
                  -> Generator ext h s t ret (Expr ext s tp)
 assertedJustExpr e msg =
   case exprType e of
     MaybeRepr tp ->
       forceEvaluation $! App (FromJustValue tp e msg)
 
+-- | Execute the loop body as long as the test condition is true.
 while :: IsSyntaxExtension ext
-      => (Position, Generator ext h s t ret (Expr ext s BoolType))
-      -> (Position, Generator ext h s t ret ())
+      => (Position, Generator ext h s t ret (Expr ext s BoolType)) {- ^ test condition -}
+      -> (Position, Generator ext h s t ret ()) {- ^ loop body -}
       -> Generator ext h s t ret ()
 while (pcond,cond) (pbody,body) = do
-  endNow $ \cont -> do
-    cond_lbl <- newLabel
-    loop_lbl <- newLabel
-    exit_lbl <- newLabel
+  cond_lbl <- newLabel
+  loop_lbl <- newLabel
+  exit_lbl <- newLabel
 
-    p <- End $ use gsPosition
-    endCurrentBlock (Jump cond_lbl)
-
-    End $ gsPosition .= pcond
+  withPosition pcond $
     defineBlock cond_lbl $ do
       b <- cond
       branch b loop_lbl exit_lbl
 
-    End $ gsPosition .= pbody
+  withPosition pbody $
     defineBlock loop_lbl $ do
       body
       jump cond_lbl
-    -- Reset position
-    End $ gsPosition .= p
-    resume_ exit_lbl cont
+
+  continue exit_lbl (jump cond_lbl)
 
 ------------------------------------------------------------------------
 -- CFG
 
 cfgFromGenerator :: FnHandle init ret
-                 -> GeneratorState ext s t ret
+                 -> IxGeneratorState ext s t ret i
                  -> CFG ext s init ret
 cfgFromGenerator h s =
   CFG { cfgHandle = h
@@ -788,16 +835,16 @@ cfgFromGenerator h s =
 
 -- | Given the arguments, this returns the initial state, and an action for
 -- computing the return value.
-type FunctionDef ext h t init ret
-   = forall s
-   . Assignment (Atom s) init
-     -> (t s, Generator ext h s t ret (Expr ext s ret))
+type FunctionDef ext h t init ret =
+  forall s .
+  Assignment (Atom s) init ->
+  (t s, Generator ext h s t ret (Expr ext s ret))
 
 -- | The main API for generating CFGs for a Crucible function.
 --
 --   The given @FunctionDef@ action is run to generate a registerized
---   CFG.  The return value of this action is the generated CFG, and a
---   list of CFGs for any other auxiliary function definitions
+--   CFG. The return value of @defineFunction@ is the generated CFG,
+--   and a list of CFGs for any other auxiliary function definitions
 --   generated along the way (e.g., for anonymous or inner functions).
 defineFunction :: IsSyntaxExtension ext
                => Position                 -- ^ Source position for the function
@@ -806,7 +853,6 @@ defineFunction :: IsSyntaxExtension ext
                -> ST h (SomeCFG ext init ret, [AnyCFG ext]) -- ^ Generated CFG and inner function definitions
 defineFunction p h f = seq h $ do
   let argTypes = handleArgTypes h
-  let c () = return
 
   let inputs = mkInputAtoms p argTypes
   let inputSet = Set.fromList (toListFC (Some . AtomValue) inputs)
@@ -815,11 +861,10 @@ defineFunction p h f = seq h $ do
   let ts = GS { _gsBlocks = Seq.empty
               , _gsNextLabel = 1
               , _gsNextValue  = Ctx.sizeInt (Ctx.size argTypes)
-              , _gsCurrent = Just cbs
+              , _gsCurrent = cbs
               , _gsPosition = p
               , _gsState = init_state
               , _seenFunctions = []
               }
-  let go = returnFromFunction =<< action
-  ts' <- runStateContT (unGenerator go) c $! ts
+  ts' <- runGenerator (action >>= returnFromFunction) $! ts
   return (SomeCFG (cfgFromGenerator h ts'), ts'^.seenFunctions)
