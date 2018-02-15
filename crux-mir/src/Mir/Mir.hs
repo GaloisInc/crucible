@@ -296,7 +296,7 @@ data Collection = Collection {
     functions :: [Fn],
     adts :: [Adt],
     traits :: [Trait]
-}
+} deriving (Show, Eq)
 
 instance FromJSON Collection where
     parseJSON = withObject "Collection" $ \v -> Collection
