@@ -69,7 +69,9 @@ module Lang.Crucible.CFG.Generator
   , branch
   , returnFromFunction
   , reportError
-    -- TODO: functions for MaybeBranch, VariantElim, TailCall
+  , branchMaybe
+  , branchVariant
+  , tailCall
     -- * Defining blocks
   , defineBlock
   , defineLambdaBlock
@@ -617,13 +619,52 @@ returnFromFunction e = do
   e_a <- mkAtom e
   terminateEarly (Return e_a)
 
--- | Report error message.
+-- | Report an error message.
 reportError ::
   IsSyntaxExtension ext =>
   Expr ext s StringType -> Generator ext h s t ret a
 reportError e = do
   e_a <- mkAtom e
   terminateEarly (ErrorStmt e_a)
+
+-- | Branch between blocks based on a @Maybe@ value.
+branchMaybe ::
+  IsSyntaxExtension ext =>
+  Expr ext s (MaybeType tp) ->
+  LambdaLabel s tp {- ^ label for @Just@ -} ->
+  Label s          {- ^ label for @Nothing@ -} ->
+  Generator ext h s t ret a
+branchMaybe v l1 l2 =
+  case exprType v of
+    MaybeRepr etp ->
+      do v_a <- mkAtom v
+         terminateEarly (MaybeBranch etp v_a l1 l2)
+
+-- | Switch on a variant value. Examine the tag of the variant and
+-- jump to the appropriate switch target.
+branchVariant ::
+  IsSyntaxExtension ext =>
+  Expr ext s (VariantType varctx) {- ^ value to scrutinize -} ->
+  Assignment (LambdaLabel s) varctx {- ^ target labels -} ->
+  Generator ext h s t ret a
+branchVariant v lbls =
+  case exprType v of
+    VariantRepr typs ->
+      do v_a <- mkAtom v
+         terminateEarly (VariantElim typs v_a lbls)
+
+-- | End a block with a tail call to a function.
+tailCall ::
+  IsSyntaxExtension ext =>
+  Expr ext s (FunctionHandleType args ret) {- ^ function to call -} ->
+  Assignment (Expr ext s) args {- ^ function arguments -} ->
+  Generator ext h s t ret a
+tailCall h args =
+  case exprType h of
+    FunctionHandleRepr argTypes _retType ->
+      do h_a <- mkAtom h
+         args_a <- traverseFC mkAtom args
+         terminateEarly (TailCall h_a argTypes args_a)
 
 ------------------------------------------------------------------------
 -- Combinators
