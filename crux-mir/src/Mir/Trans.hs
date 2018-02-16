@@ -43,6 +43,7 @@ import qualified Lang.Crucible.Types as CT
 import qualified Numeric.Natural as Nat
 import qualified Data.Vector as V
 import qualified Data.Parameterized.Context as Ctx
+import qualified Data.Parameterized.TraversableFC as Ctx
 import qualified Text.Regex as Regex
 import qualified Text.Regex.Base as Regex
 import Data.Parameterized.NatRepr
@@ -94,19 +95,32 @@ type LabelMap s = Map.Map M.BasicBlockInfo (R.Label s)
 
 type AdtMap = Map.Map Text.Text [M.Variant]
 
+type TraitMap = Map.Map Text.Text {- ^ trait name-} TraitImpls
+data TraitImpls = forall ctx. TraitImpls
+  {_vtableTyRepr :: CT.TypeRepr (CT.StructType ctx)
+   -- ^ Describes the types of Crucible structs that store the VTable
+   -- of implementations
+  ,_methodIndex :: Map.Map Text.Text (Some (Ctx.Index ctx))
+   -- ^ Tells which fields (indices) of the struct correspond to
+   -- method names of the given trait
+  ,_vtables :: forall s. Map.Map Text.Text {- ^ type name-} (Core.Expr MIR s (CT.StructType ctx)) {- ^ VTable -}
+   -- ^ gives vtables for each type implementing a given trait
+  }
+
 -- | HandleMap maps identifiers to their corresponding function handle
 type HandleMap = Map.Map Text.Text MirHandle
 data MirHandle where
-    MirHandle :: CT.CtxRepr init -> CT.TypeRepr ret -> FH.FnHandle init ret -> MirHandle
+    MirHandle :: FH.FnHandle init ret -> MirHandle
 
 instance Show MirHandle where
-    show (MirHandle a b c) = show (a, b, c)
+    show (MirHandle c) = show c
 
 -- | Generator state for MIR translation
 data FnState s = FnState { _varmap :: !(VarMap s),
                            _labelmap :: !(LabelMap s),
                            _handlemap :: !HandleMap,
-                           _adtMap :: !AdtMap
+                           _adtMap :: !AdtMap,
+                           _traitMap :: !TraitMap
                          }
 
 varmap :: Simple Lens (FnState s) (VarMap s)
@@ -124,7 +138,7 @@ adtMap = lens _adtMap (\s v -> s { _adtMap = v })
 type MirGenerator h s ret = G.Generator MIR h s (FnState) ret
 type MirEnd h s ret = G.End MIR h s (FnState) ret
 
--- | The main data type for values, bundling the term-lvel type tp along with a crucible expression of type tp.
+-- | The main data type for values, bundling the term-level type tp along with a crucible expression of type tp.
 data MirExp s where
     MirExp :: CT.TypeRepr tp -> R.Expr MIR s tp -> MirExp s
 
@@ -708,10 +722,10 @@ buildClosureHandle :: Text.Text -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 buildClosureHandle funid args = do
     hmap <- use handlemap
     case (Map.lookup funid hmap) of
-      Just (MirHandle fargctx fretrepr fhandle) -> do
+      Just (MirHandle fhandle) -> do
           let closure_arg = buildTuple args
           let handle_cl = S.app $ E.HandleLit fhandle
-              handle_cl_ty = CT.FunctionHandleRepr fargctx fretrepr
+              handle_cl_ty = FH.handleType fhandle
               handl = MirExp handle_cl_ty handle_cl
           let closure_unpack = buildTuple [handl, closure_arg]
           return $ packAny closure_unpack
@@ -723,11 +737,11 @@ buildClosureType :: Text.Text -> [M.Ty] -> MirGenerator h s ret (Some (CT.TypeRe
 buildClosureType defid args = do
     hmap <- use handlemap
     case (Map.lookup defid hmap) of
-      Just (MirHandle fargctx fretrepr fhandle) -> do
+      Just (MirHandle fhandle) -> do
           -- build type StructRepr [HandleRepr, StructRepr [args types]]
           tyListToCtx args $ \argsctx -> do
               let argstruct = CT.StructRepr argsctx
-                  handlerepr = CT.FunctionHandleRepr fargctx fretrepr
+                  handlerepr = FH.handleType fhandle
               reprsToCtx [Some handlerepr, Some argstruct] $ \t ->
                   return $ Some (CT.StructRepr t)
       _ ->
@@ -1046,13 +1060,15 @@ doCall :: HasCallStack => Text.Text -> [M.Operand] -> Maybe (M.Lvalue, M.BasicBl
 doCall funid cargs cdest = do
     hmap <- use handlemap
     case (Map.lookup funid hmap, cdest) of
-      (Just (MirHandle fargctx fretrepr fhandle), Just (dest_lv, jdest)) -> do
+      (Just (MirHandle fhandle), Just (dest_lv, jdest)) -> do
           exps <- mapM evalOperand cargs
+          let fargctx = FH.handleArgTypes fhandle
+          let fret    = FH.handleReturnType fhandle
           exp_to_assgn exps $ \ctx asgn -> do
             case (testEquality ctx fargctx) of
               Just Refl -> do
                 ret_e <- G.call (S.app $ E.HandleLit fhandle) asgn
-                assignLvExp dest_lv Nothing (MirExp fretrepr ret_e)
+                assignLvExp dest_lv Nothing (MirExp fret ret_e)
                 jumpToBlock jdest
               _ -> fail $ "type error in call: args " ++ (show ctx) ++ " vs function params " ++ (show fargctx) ++ " while calling " ++ (show funid)
 
@@ -1135,9 +1151,9 @@ buildFnState body argvars = do
     vm' <- buildIdentMapRegs body argvars
     varmap %= Map.union vm'
 
-initFnState :: AdtMap -> [(Text.Text, M.Ty)] -> CT.CtxRepr args -> Ctx.Assignment (R.Atom s) args -> Map.Map Text.Text MirHandle -> FnState s
-initFnState am vars argsrepr args hmap =
-    FnState (go (reverse vars) argsrepr args Map.empty) (Map.empty) hmap am
+initFnState :: AdtMap -> TraitMap -> [(Text.Text, M.Ty)] -> CT.CtxRepr args -> Ctx.Assignment (R.Atom s) args -> Map.Map Text.Text MirHandle -> FnState s
+initFnState am tm vars argsrepr args hmap =
+    FnState (go (reverse vars) argsrepr args Map.empty) (Map.empty) hmap am tm
     where go :: [(Text.Text, M.Ty)] -> CT.CtxRepr args -> Ctx.Assignment (R.Atom s) args -> VarMap s -> VarMap s
           go [] ctx _ m
             | Ctx.null ctx = m
@@ -1185,7 +1201,7 @@ mkHandleMap halloc fns = Map.fromList <$> (mapM (mkHandle halloc) fns) where
     mkHandle halloc (M.Fn fname fargs fretty fbody) =
         fnInfoToReprs (map (\(M.Var _ _ t _ _) -> t) fargs) fretty $ \argctx retrepr -> do
             h <- FH.mkHandle' halloc (FN.functionNameFromText fname) argctx retrepr
-            let mh = MirHandle argctx retrepr h
+            let mh = MirHandle h
             return (fname, mh)
 
     fnInfoToReprs :: forall a. [M.Ty] -> M.Ty -> (forall argctx ret. CT.CtxRepr argctx -> CT.TypeRepr ret -> a) -> a
@@ -1197,31 +1213,77 @@ mkHandleMap halloc fns = Map.fromList <$> (mapM (mkHandle halloc) fns) where
 -- transDefine: make CFG using genDefn (with type info coming from above), using initial state from initState; return (fname, CFG)
 
 
-transDefine :: HasCallStack => AdtMap -> Map.Map Text.Text MirHandle -> M.Fn -> ST h (Text.Text, Core.AnyCFG MIR)
-transDefine am hmap fn =
-    let (M.Fn fname fargs _ _) = fn in
-        case (Map.lookup fname hmap) of
-          Nothing -> fail "bad handle!!"
-          Just (MirHandle argctx retrepr (handle :: FH.FnHandle args ret)) -> do
-              let argtups = map (\(M.Var n _ t _ _) -> (n,t)) fargs
-              let argtypes = FH.handleArgTypes handle
-              let rettype = FH.handleReturnType handle
-              let def :: G.FunctionDef MIR handle FnState args ret
-                  def inputs = (s,f) where
-                      s = initFnState am argtups argtypes inputs hmap
-                      f = genDefn fn rettype
-              (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos handle def
-              case SSA.toSSA g of
-                Core.SomeCFG g_ssa ->
-                  return (fname, Core.AnyCFG g_ssa)
+transDefine :: HasCallStack => AdtMap -> TraitMap -> Map.Map Text.Text MirHandle -> M.Fn -> ST h (Text.Text, Core.AnyCFG MIR)
+transDefine am tm hmap fn@(M.Fn fname fargs _ _) =
+  case (Map.lookup fname hmap) of
+    Nothing -> fail "bad handle!!"
+    Just (MirHandle (handle :: FH.FnHandle args ret)) -> do
+      let argtups = map (\(M.Var n _ t _ _) -> (n,t)) fargs
+      let argtypes = FH.handleArgTypes handle
+      let rettype = FH.handleReturnType handle
+      let def :: G.FunctionDef MIR handle FnState args ret
+          def inputs = (s,f) where
+            s = initFnState am tm argtups argtypes inputs hmap
+            f = genDefn fn rettype
+      (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos handle def
+      case SSA.toSSA g of
+        Core.SomeCFG g_ssa -> return (fname, Core.AnyCFG g_ssa)
 
 -- transCollection: initialize map of fn names to FnHandles.
 transCollection :: HasCallStack => M.Collection -> FH.HandleAllocator s -> ST s (Map.Map Text.Text (Core.AnyCFG MIR))
 transCollection col halloc = do
     let am = Map.fromList [ (nm, vs) | M.Adt nm vs <- M.adts col ]
     hmap <- mkHandleMap halloc (M.functions col)
-    pairs <- mapM (transDefine am hmap) (M.functions col)
+    let tm = buildTraitMap col hmap
+    pairs <- mapM (transDefine am tm hmap) (M.functions col)
     return $ Map.fromList pairs
+
+-- | Build the mapping from traits and types that implement them to VTables
+buildTraitMap :: M.Collection -> Map.Map Text.Text MirHandle -> TraitMap 
+buildTraitMap col hmap = Map.fromList [(tname, mkTraitImplementations col hmap trait) | trait@(M.Trait tname _) <- M.traits col]
+
+-- | Construct 'TraitImpls' for each trait. Involves finding data
+-- types that implement a given trait and functions that implement
+-- each method for a data type and building VTables for each
+-- data-type/trait pair.
+mkTraitImplementations :: M.Collection -> Map.Map Text.Text MirHandle -> M.Trait
+                       -> TraitImpls
+mkTraitImplementations col hmap (M.Trait tname titems) =
+  case vtTraitRepr of
+    Some tr -> TraitImpls
+      {_vtableTyRepr = CT.StructRepr $ Ctx.fmapFC mreprToFHandle tr
+      ,_methodIndex = Ctx.forIndex (Ctx.size tr) (\mp idx -> Map.insert (mreprToName (tr Ctx.! idx)) (Some idx) mp) Map.empty
+      ,_vtables = undefined
+      }
+  where vtTraitRepr :: Some TraitRepr
+        vtTraitRepr = foldl go (Some Ctx.empty) [(tname, tsig) | (M.TraitMethod tname tsig) <- titems] 
+        go :: Some TraitRepr -> (Text.Text, M.FnSig) -> Some TraitRepr
+        go (Some tr) (mname, M.FnSig argtys retty) = undefined
+        toMethodRepr :: Text.Text -> [M.Ty] -> M.Ty -> Some MethodRepr
+        toMethodRepr name argtys retty =
+          case (tyToRepr retty, reprsToCtx (map tyToRepr argtys) Some) of
+            (Some retrepr, Some argrepr) ->
+              Some $ MethodRepr name argrepr retrepr
+          --    StructRepr  :: !(CtxRepr ctx) -> TypeRepr (StructType  ctx)
+type TraitRepr = Ctx.Assignment MethodRepr
+
+data MethodRepr (mty :: CT.CrucibleType) where
+  MethodRepr :: !Text.Text -> !(CT.CtxRepr ctx) -> !(CT.TypeRepr ret) -> MethodRepr (CT.FunctionHandleType ctx ret)
+
+mreprToFHandle :: MethodRepr t -> CT.TypeRepr t
+mreprToFHandle (MethodRepr _ ctr tyr) = CT.FunctionHandleRepr ctr tyr
+
+mreprToName :: MethodRepr t -> Text.Text
+mreprToName (MethodRepr mname _ _) = mname
+
+-- | Given the mapping from method names to indices and a mapping of
+-- method names to function handles, build a Crucible struct that
+-- represents the VTable.
+buildVTable :: Text.Text -- ^ type name
+            -> Map.Map Text.Text (Ctx.Index ctx tp) -- ^ mapping from method names to VTable indices
+            -> Map.Map Text.Text MirHandle -- ^ mapping from function names to function handles
+            -> (Core.Expr MIR s (CT.StructType ctx), CT.TypeRepr (CT.StructType ctx))
+buildVTable tyn vtableIndices funHandles  = undefined
 
 --- Custom stuff
 --

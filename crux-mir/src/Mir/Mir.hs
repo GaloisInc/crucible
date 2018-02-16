@@ -898,8 +898,7 @@ type AssertMessage = Text
 type ClosureSubsts = Text
 type BasicBlockInfo = Text
 
-data Trait =
-    Trait Text [TraitItem]
+data Trait = Trait Text [TraitItem]
     deriving (Eq, Show)
 
 instance FromJSON Trait where
