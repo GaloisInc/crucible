@@ -1663,3 +1663,13 @@ evalApp sym itefns logFn evalExt evalSub a0 = do
     IsConcrete _ v -> do
       x <- baseIsConcrete sym =<< evalSub v
       return $! if x then truePred sym else falsePred sym
+
+    ---------------------------------------------------------------------
+    -- References
+
+    ReferenceEq _ ref1 ref2 -> do
+      cell1 <- evalSub ref1
+      cell2 <- evalSub ref2
+      case testEquality cell1 cell2 of
+        Just Refl -> return (truePred sym)
+        Nothing -> return (falsePred sym)

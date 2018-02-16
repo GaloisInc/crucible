@@ -1255,6 +1255,15 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
              -> f (BaseToType b)
              -> App ext f BoolType
 
+  ------------------------------------------------------------------------
+  -- References
+
+  -- Check whether two references are equal.
+  ReferenceEq :: !(TypeRepr tp)
+              -> !(f (ReferenceType tp))
+              -> !(f (ReferenceType tp))
+              -> App ext f BoolType
+
 
 -- | Compute a run-time representation of the type of an application.
 instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
@@ -1626,6 +1635,11 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     -- Introspection
 
     IsConcrete _ _ -> knownRepr
+
+    ------------------------------------------------------------------------
+    -- References
+
+    ReferenceEq{} -> knownRepr
 
 
 ----------------------------------------------------------------------------
