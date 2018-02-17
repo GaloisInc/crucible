@@ -1264,7 +1264,26 @@ mkTraitImplementations col hmap (M.Trait tname titems) =
           case (tyToRepr retty, reprsToCtx (map tyToRepr argtys) Some) of
             (Some retrepr, Some argrepr) ->
               Some $ MethodRepr name argrepr retrepr
-          --    StructRepr  :: !(CtxRepr ctx) -> TypeRepr (StructType  ctx)
+
+-- | Scan the function declarations to find ones that look like they
+-- implement a given trait. Record the type and function identifiers
+-- in a map (from type names to method names to names of implementing
+-- functions). The relation between methods and their implementations
+-- is not straightforward in MIR. The name of the function
+-- implementating a method 'foo' of a trait 'Bar' by a type 'Tar'
+-- looks like: '::{{impl}}[n]::foo[m]'. This function uses a heuristic
+-- and looks at the names and the type of the first argument ('self')
+-- of all the function declarations to figure out which ones could be
+-- implementations of methods. Currently the scanning is slow, but can
+-- be improved by preprocessing the function declarations to make it
+-- faster to search for all the functions that have names that look
+-- like those of method implementations.
+getTraitImplementations :: [M.Fn] -> M.Trait -> Map.Map Text.Text (Map.Map Text.Text Text.Text)
+getTraitImplementations funs (M.Trait tname titems) =
+  let possibleImpls = filter canBeImpl funs
+      canBeImpl fn = undefined
+  in  undefined
+              
 type TraitRepr = Ctx.Assignment MethodRepr
 
 data MethodRepr (mty :: CT.CrucibleType) where
@@ -1279,11 +1298,20 @@ mreprToName (MethodRepr mname _ _) = mname
 -- | Given the mapping from method names to indices and a mapping of
 -- method names to function handles, build a Crucible struct that
 -- represents the VTable.
-buildVTable :: Text.Text -- ^ type name
-            -> Map.Map Text.Text (Ctx.Index ctx tp) -- ^ mapping from method names to VTable indices
-            -> Map.Map Text.Text MirHandle -- ^ mapping from function names to function handles
-            -> (Core.Expr MIR s (CT.StructType ctx), CT.TypeRepr (CT.StructType ctx))
-buildVTable tyn vtableIndices funHandles  = undefined
+buildVTable :: forall ctx s. Ctx.KnownContext ctx
+            => Text.Text -- ^ type name
+            -> Map.Map Text.Text (Some (Ctx.Index ctx))
+            -- ^ mapping from method names to VTable indices
+            -> CT.CtxRepr ctx -- ^ A representation of the vtable context
+            -> Map.Map Text.Text MirHandle
+            -- ^ mapping from function names to function handles
+            -> R.Expr MIR s (CT.StructType ctx)
+buildVTable tyn vtableIndices vtableCtx funHandles = undefined
+  R.App $ E.MkStruct vtableCtx $ Ctx.generate Ctx.knownSize getMethodHandle
+  where getMethodHandle :: Ctx.Index ctx tp -> f tp
+        getMethodHandle = undefined
+        implementationMethods :: Map.Map Text.Text MirHandle
+        implementationMethods = undefined
 
 --- Custom stuff
 --
