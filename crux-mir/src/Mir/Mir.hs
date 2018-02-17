@@ -319,7 +319,7 @@ instance PPrint Fn where
 
 instance FromJSON Fn where
     parseJSON = withObject "Fn" $ \v -> Fn
-        <$>  v .: "name"
+        <$> v .: "name"
         <*> v .: "args"
         <*> v .: "return_ty"
         <*> v .: "body"
