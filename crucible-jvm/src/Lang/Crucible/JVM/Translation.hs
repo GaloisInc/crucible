@@ -158,7 +158,7 @@ jsCFG = lens _jsCFG (\s v -> s { _jsCFG = v })
 type JVMGenerator h s ret = Generator JVM h s (JVMState ret) ret
 
 -- | Indicate that CFG generation failed due to ill-formed JVM code.
-jvmFail :: Monad m => String -> m a
+jvmFail :: String -> JVMGenerator h s ret a
 jvmFail msg = fail msg
 
 newJVMReg :: JVMValue s -> JVMGenerator h s ret (JVMReg s)
@@ -208,6 +208,15 @@ writeRegisters :: JVMRegisters s -> JVMExprFrame s -> JVMGenerator h s ret ()
 writeRegisters rs vs =
   do saveStack (rs^.operandStack) (vs^.operandStack)
      saveLocals (rs^.localVariables) (vs^.localVariables)
+
+forceJVMValue :: JVMValue s -> JVMGenerator h s ret (JVMValue s)
+forceJVMValue val =
+  case val of
+    DValue v -> DValue <$> forceEvaluation v
+    FValue v -> FValue <$> forceEvaluation v
+    IValue v -> IValue <$> forceEvaluation v
+    LValue v -> LValue <$> forceEvaluation v
+    RValue v -> RValue <$> forceEvaluation v
 
 w32 :: NatRepr 32
 w32 = knownNat
@@ -305,6 +314,9 @@ getLabelAtPC pc =
 -- local variable array at each instruction.
 type JVMStmtGen h s ret = StateT (JVMExprFrame s) (JVMGenerator h s ret)
 
+sgFail :: String -> JVMStmtGen h s ret a
+sgFail msg = fail msg
+
 getStack :: JVMStmtGen h s ret [JVMValue s]
 getStack = use operandStack
 
@@ -315,15 +327,16 @@ popValue :: JVMStmtGen h s ret (JVMValue s)
 popValue =
   do vs <- getStack
      case vs of
-       [] -> jvmFail "popValue: empty stack"
+       [] -> sgFail "popValue: empty stack"
        (v : vs') ->
          do putStack vs'
             return v
 
 pushValue :: JVMValue s -> JVMStmtGen h s ret ()
 pushValue v =
-  do vs <- getStack
-     putStack (v : vs)
+  do v' <- lift $ forceJVMValue v
+     vs <- getStack
+     putStack (v' : vs)
 
 pushValues :: [JVMValue s] -> JVMStmtGen h s ret ()
 pushValues vs =
@@ -343,7 +356,7 @@ isType2 = not . isType1
 popType1 :: JVMStmtGen h s ret (JVMValue s)
 popType1 =
   do v <- popValue
-     if isType1 v then return v else jvmFail "popType1"
+     if isType1 v then return v else sgFail "popType1"
 
 popType2 :: JVMStmtGen h s ret [JVMValue s]
 popType2 =
@@ -354,42 +367,42 @@ popType2 =
        v1 : v2 : vs' | isType1 v1 && isType1 v2 ->
          putStack vs' >> return [v1, v2]
        _ ->
-         jvmFail "popType2"
+         sgFail "popType2"
+
+fromIValue :: JVMValue s -> JVMStmtGen h s ret (JVMInt s)
+fromIValue (IValue v) = return v
+fromIValue _ = sgFail "fromIValue"
+
+fromLValue :: JVMValue s -> JVMStmtGen h s ret (JVMLong s)
+fromLValue (LValue v) = return v
+fromLValue _ = sgFail "fromLValue"
+
+fromDValue :: JVMValue s -> JVMStmtGen h s ret (JVMDouble s)
+fromDValue (DValue v) = return v
+fromDValue _ = sgFail "fromDValue"
+
+fromFValue :: JVMValue s -> JVMStmtGen h s ret (JVMFloat s)
+fromFValue (FValue v) = return v
+fromFValue _ = sgFail "fromFValue"
+
+fromRValue :: JVMValue s -> JVMStmtGen h s ret (JVMRef s)
+fromRValue (RValue v) = return v
+fromRValue _ = sgFail "fromRValue"
 
 iPop :: JVMStmtGen h s ret (JVMInt s)
-iPop =
-  do v <- popValue
-     case v of
-       IValue i -> return i
-       _ -> jvmFail "iPop"
+iPop = popValue >>= fromIValue
 
 lPop :: JVMStmtGen h s ret (JVMLong s)
-lPop =
-  do v <- popValue
-     case v of
-       LValue l -> return l
-       _ -> jvmFail "lPop"
+lPop = popValue >>= fromLValue
 
 rPop :: JVMStmtGen h s ret (JVMRef s)
-rPop =
-  do v <- popValue
-     case v of
-       RValue r -> return r
-       _ -> jvmFail "rPop"
+rPop = popValue >>= fromRValue
 
 dPop :: JVMStmtGen h s ret (JVMDouble s)
-dPop =
-  do v <- popValue
-     case v of
-       DValue d -> return d
-       _ -> jvmFail "dPop"
+dPop = popValue >>= fromDValue
 
 fPop :: JVMStmtGen h s ret (JVMFloat s)
-fPop =
-  do v <- popValue
-     case v of
-       FValue f -> return f
-       _ -> jvmFail "fPop"
+fPop = popValue >>= fromFValue
 
 iPush :: JVMInt s -> JVMStmtGen h s ret ()
 iPush i = pushValue (IValue i)
@@ -404,37 +417,43 @@ dPush :: JVMDouble s -> JVMStmtGen h s ret ()
 dPush d = pushValue (DValue d)
 
 guardArray :: JVMRef s -> JVMInt s -> JVMStmtGen h s ret ()
-guardArray _ _ = fail "guardArray"
+guardArray _ _ = sgFail "guardArray"
 
 pushArrayValue :: JVMRef s -> JVMInt s -> JVMStmtGen h s ret ()
-pushArrayValue _ _ = fail "pushArrayValue"
+pushArrayValue _ _ = sgFail "pushArrayValue"
 
 assertTrueM :: t0 -> [Char] -> JVMStmtGen h s ret ()
-assertTrueM _ _ = fail "assertTrueM"
+assertTrueM _ _ = sgFail "assertTrueM"
 
 isValidEltOfArray :: JVMRef s -> JVMRef s -> t0
 isValidEltOfArray _ _ = error "isValidEltOfArray"
 
 setArrayValue :: JVMRef s -> JVMInt s -> t1 -> JVMStmtGen h s ret ()
-setArrayValue _ _ _ = fail "setArrayValue"
-
-getLocal :: J.LocalVariableIndex -> JVMStmtGen h s ret (JVMValue s)
-getLocal _ = fail "getLocal"
-
-throwIfRefNull :: JVMRef s -> JVMStmtGen h s ret ()
-throwIfRefNull _ = fail "throwIfRefNull"
-
-arrayLength :: JVMRef s -> JVMStmtGen h s ret (JVMInt s)
-arrayLength _ = fail "arrayLength"
+setArrayValue _ _ _ = sgFail "setArrayValue"
 
 setLocal :: J.LocalVariableIndex -> JVMValue s -> JVMStmtGen h s ret ()
-setLocal _ _ = fail "setLocal"
+setLocal idx v =
+  do v' <- lift $ forceJVMValue v
+     localVariables %= Map.insert idx v'
+
+getLocal :: J.LocalVariableIndex -> JVMStmtGen h s ret (JVMValue s)
+getLocal idx =
+  do vs <- use localVariables
+     case Map.lookup idx vs of
+       Just v -> return v
+       Nothing -> sgFail "getLocal"
+
+throwIfRefNull :: JVMRef s -> JVMStmtGen h s ret ()
+throwIfRefNull _ = sgFail "throwIfRefNull"
+
+arrayLength :: JVMRef s -> JVMStmtGen h s ret (JVMInt s)
+arrayLength _ = sgFail "arrayLength"
 
 throw :: JVMRef s -> JVMStmtGen h s ret ()
-throw _ = fail "throw"
+throw _ = sgFail "throw"
 
 byteArrayVal :: JVMRef s -> JVMInt s -> JVMStmtGen h s ret (JVMInt s0)
-byteArrayVal _ _ = fail "byteArrayVal"
+byteArrayVal _ _ = sgFail "byteArrayVal"
 
 rNull :: JVMRef s
 rNull = App (NothingValue knownRepr)
@@ -457,7 +476,7 @@ nextPC :: J.PC -> JVMStmtGen h s ret J.PC
 nextPC pc =
   do cfg <- lift $ use jsCFG
      case J.nextPC cfg pc of
-       Nothing -> fail "nextPC"
+       Nothing -> sgFail "nextPC"
        Just pc' -> return pc'
 
 ----------------------------------------------------------------------
@@ -465,9 +484,9 @@ nextPC pc =
 -- | Do the heavy lifting of translating JVM instructions to crucible code.
 generateInstruction ::
   forall h s ret.
-  (J.PC, J.Instruction) {- ^ instruction to translate -} ->
+  (J.PC, J.Instruction) ->
   JVMStmtGen h s ret ()
-generateInstruction {-lab-} (pc, instr) =
+generateInstruction (pc, instr) =
   case instr of
     -- Type conversion instructions
     J.D2f -> unary dPop fPush floatFromDouble
@@ -558,42 +577,43 @@ generateInstruction {-lab-} (pc, instr) =
         J.Float v    -> fPush (fConst v)
         J.Integer v  -> iPush (iConst (toInteger v))
         J.Long v     -> lPush (lConst (toInteger v))
-        J.String _v  -> fail "ldc string" -- pushValue . RValue =<< refFromString v
-        J.ClassRef _ -> fail "ldc class" -- pushValue . RValue =<< getClassObject c
+        J.String _v  -> sgFail "ldc string" -- pushValue . RValue =<< refFromString v
+        J.ClassRef _ -> sgFail "ldc class" -- pushValue . RValue =<< getClassObject c
 
     -- Object creation and manipulation
     J.New _name ->
-      do fail "new" -- pushValue . RValue =<< newObject name
+      do sgFail "new" -- pushValue . RValue =<< newObject name
     J.Newarray _arrayType ->
       do _count <- iPop
-         fail "newarray" --assertFalseM (count `iLt` iConst 0) "java/lang/NegativeArraySizeException"
+         sgFail "newarray" --assertFalseM (count `iLt` iConst 0) "java/lang/NegativeArraySizeException"
          --pushValue . RValue =<< newMultiArray arrayType [count]
     J.Multianewarray _arrayType dimensions ->
-      do counts <- return . reverse =<< sequence (replicate (fromIntegral dimensions) iPop)
+      do counts <- reverse <$> sequence (replicate (fromIntegral dimensions) iPop)
          forM_ counts $ \_count -> do
-           fail "multianewarray" -- assertFalseM (count `iLt` iConst 0) "java/lang/NegativeArraySizeException"
-         fail "multianewarray" --pushValue . RValue =<< newMultiArray arrayType counts
+           sgFail "multianewarray" -- assertFalseM (count `iLt` iConst 0) "java/lang/NegativeArraySizeException"
+         sgFail "multianewarray" --pushValue . RValue =<< newMultiArray arrayType counts
     J.Getfield _fldId ->
       do objectRef <- rPop
          throwIfRefNull objectRef
-         fail "getfield" --cb <- getCodebase
+         sgFail "getfield" --cb <- getCodebase
          --pushInstanceFieldValue objectRef =<< liftIO (locateField cb fldId)
     J.Getstatic _fieldId ->
-      do fail "getstatic" --initializeClass $ J.fieldIdClass fieldId
+      do sgFail "getstatic" --initializeClass $ J.fieldIdClass fieldId
          --pushStaticFieldValue fieldId
     J.Putfield fldId ->
       do val <- popValue
          objectRef <- rPop
          throwIfRefNull objectRef
          --cb <- getCodebase
-         _value <- case (J.fieldIdType fldId, val) of
-                     (J.BooleanType, IValue i) -> return (IValue (boolFromInt  i))
-                     (J.ByteType,    IValue i) -> return (IValue (byteFromInt  i))
-                     (J.CharType,    IValue i) -> return (IValue (charFromInt  i))
-                     (J.ShortType,   IValue i) -> return (IValue (shortFromInt i))
-                     _ -> return val
-         fail "putfield" --fld <- liftIO $ locateField cb fldId
-         --fail "putfield" --setInstanceFieldValue objectRef fld value
+         _val' <-
+           case (J.fieldIdType fldId, val) of
+             (J.BooleanType, IValue i) -> return (IValue (boolFromInt  i))
+             (J.ByteType,    IValue i) -> return (IValue (byteFromInt  i))
+             (J.CharType,    IValue i) -> return (IValue (charFromInt  i))
+             (J.ShortType,   IValue i) -> return (IValue (shortFromInt i))
+             _ -> return val
+         sgFail "putfield" --fld <- liftIO $ locateField cb fldId
+         --sgFail "putfield" --setInstanceFieldValue objectRef fld value
     J.Putstatic fieldId ->
       do --initializeClass $ J.fieldIdClass fieldId
          _value <-
@@ -603,7 +623,7 @@ generateInstruction {-lab-} (pc, instr) =
              J.CharType    -> return . IValue . charFromInt =<< iPop
              J.ShortType   -> return . IValue . shortFromInt =<< iPop
              _             -> popValue
-         fail "putstatic" --setStaticFieldValue fieldId value
+         sgFail "putstatic" --setStaticFieldValue fieldId value
 
     -- Load an array component onto the operand stack
     J.Baload ->
@@ -786,8 +806,8 @@ generateInstruction {-lab-} (pc, instr) =
       do vs <- get
          lbl <- lift $ processBlockAtPC pc' vs
          lift $ jump lbl
-    J.Jsr _pc' -> fail "generateInstruction: jsr/ret not supported"
-    J.Ret _idx -> fail "ret" --warning "jsr/ret not implemented"
+    J.Jsr _pc' -> sgFail "generateInstruction: jsr/ret not supported"
+    J.Ret _idx -> sgFail "ret" --warning "jsr/ret not implemented"
 
     -- Method invocation and return instructions
     J.Invokevirtual   _type      _methodKey -> undefined
@@ -818,15 +838,15 @@ generateInstruction {-lab-} (pc, instr) =
          --throw objectRef
     J.Checkcast _tp ->
       do objectRef <- rPop
-         () <- fail "checkcast" --assertTrueM (isNull objectRef ||| objectRef `hasType` tp) "java/lang/ClassCastException"
+         () <- sgFail "checkcast" --assertTrueM (isNull objectRef ||| objectRef `hasType` tp) "java/lang/ClassCastException"
          pushValue $ RValue objectRef
     J.Iinc idx constant ->
-      do IValue value <- getLocal idx -- FIXME: pattern binding may fail
+      do value <- getLocal idx >>= fromIValue
          let constValue = iConst (fromIntegral constant)
          setLocal idx (IValue (App (BVAdd w32 value constValue)))
     J.Instanceof _tp ->
       do _objectRef <- rPop
-         fail "instanceof" -- objectRef `instanceOf` tp
+         sgFail "instanceof" -- objectRef `instanceOf` tp
     J.Monitorenter ->
       do void rPop
     J.Monitorexit ->
@@ -895,7 +915,7 @@ returnInstr pop =
   do retType <- lift $ jsRetType <$> get
      case testEquality retType (knownRepr :: TypeRepr tp) of
        Just Refl -> pop >>= (lift . returnFromFunction)
-       Nothing -> fail "ireturn: type mismatch"
+       Nothing -> sgFail "ireturn: type mismatch"
 
 ----------------------------------------------------------------------
 -- Basic Value Operations
