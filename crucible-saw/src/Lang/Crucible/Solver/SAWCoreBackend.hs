@@ -21,6 +21,7 @@ import           Control.Exception ( assert, throw )
 import           Control.Lens
 import           Control.Monad
 import           Data.IORef
+import qualified Data.Map as Map
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Nonce
 import           Data.Ratio
@@ -42,7 +43,6 @@ import qualified Lang.Crucible.Solver.SimpleBuilder as SB
 import           Lang.Crucible.Solver.Symbol
 import qualified Lang.Crucible.Solver.WeightedSum as WSum
 
-import qualified Verifier.SAW.Cryptol.Prims as CryPrims
 import qualified Verifier.SAW.SharedTerm as SC
 import qualified Verifier.SAW.Simulator.BitBlast as BBSim
 import qualified Verifier.SAW.TypedAST as SC
@@ -676,7 +676,8 @@ checkSatisfiable sym p = do
   case enabled of
     True -> do
       t <- evaluateElt sym sc cache p
-      BBSim.withBitBlastedPred GIA.proxy sc CryPrims.bitblastPrims t $ \be lit _shapes -> do
+      let bbPrims = const Map.empty
+      BBSim.withBitBlastedPred GIA.proxy sc bbPrims t $ \be lit _shapes -> do
         satRes <- AIG.checkSat be lit
         case satRes of
           AIG.Unsat -> return Unsat
