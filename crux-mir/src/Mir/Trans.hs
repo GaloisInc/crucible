@@ -15,6 +15,7 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 {-# OPTIONS_GHC -Wincomplete-patterns #-}
 module Mir.Trans where
@@ -107,6 +108,8 @@ data TraitImpls = forall ctx. TraitImpls
    -- ^ gives vtables for each type implementing a given trait
   }
 
+makeLenses ''TraitImpls
+
 -- | HandleMap maps identifiers to their corresponding function handle
 type HandleMap = Map.Map Text.Text MirHandle
 data MirHandle where
@@ -123,17 +126,7 @@ data FnState s = FnState { _varmap :: !(VarMap s),
                            _traitMap :: !TraitMap
                          }
 
-varmap :: Simple Lens (FnState s) (VarMap s)
-varmap = lens _varmap (\s v -> s { _varmap = v})
-
-labelmap :: Simple Lens (FnState s) (LabelMap s)
-labelmap = lens _labelmap (\s v -> s { _labelmap = v})
-
-handlemap :: Simple Lens (FnState s) HandleMap
-handlemap = lens _handlemap (\s v -> s { _handlemap = v})
-
-adtMap :: Simple Lens (FnState s) AdtMap
-adtMap = lens _adtMap (\s v -> s { _adtMap = v })
+makeLenses ''FnState
 
 type MirGenerator h s ret = G.Generator MIR h s (FnState) ret
 type MirEnd h s ret = G.End MIR h s (FnState) ret
