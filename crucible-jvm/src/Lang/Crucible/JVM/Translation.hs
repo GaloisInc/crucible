@@ -1069,7 +1069,7 @@ data JVMHandleInfo where
 
 data JVMContext =
   JVMContext {
-    symbolMap :: Map (J.ClassName, String) JVMHandleInfo
+    symbolMap :: Map (J.ClassName, J.MethodKey) JVMHandleInfo
   }
 
 ----------------------------------------------------------------------
@@ -1111,7 +1111,7 @@ generateMethod cn method ctx asgn =
 defineMethod ::
   JVMContext -> J.ClassName -> J.Method -> ST h (C.AnyCFG JVM)
 defineMethod ctx cn method =
-  case Map.lookup (cn, J.methodName method) (symbolMap ctx) of
+  case Map.lookup (cn, J.methodKey method) (symbolMap ctx) of
     Nothing -> fail "internal error: Could not find method"
     Just (JVMHandleInfo _ (h :: FnHandle args ret)) ->
       do let argTypes = handleArgTypes h
