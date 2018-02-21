@@ -1058,7 +1058,7 @@ initialJVMExprFrame cn method ctx asgn = JVMFrame [] locals
     static = J.methodIsStatic method
     args' = if static then args else J.ClassType cn : args
     vals = reverse (packTypes (reverse args') ctx asgn)
-    idxs = map (J.localIndexOfParameter method) (take (length args) [0..])
+    idxs = J.methodParameterIndexes method
     idxs' = if static then idxs else 0 : idxs
     locals = Map.fromList (zip idxs' vals)
 
