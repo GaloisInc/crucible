@@ -26,6 +26,7 @@ Stability        : provisional
 module Lang.Crucible.JVM.Translation where
 
 import Control.Monad.State.Strict
+import Control.Monad.ST
 import Control.Lens hiding (op, (:>))
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -33,8 +34,14 @@ import qualified Data.Map.Strict as Map
 import qualified Language.JVM.Parser as J
 import qualified Language.JVM.CFG as J
 
+import qualified Data.Parameterized.Context as Ctx
+
+import qualified Lang.Crucible.CFG.Core as C
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Generator
+import           Lang.Crucible.CFG.SSAConversion (toSSA)
+import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.ProgramLoc (Position(InternalPos))
 import           Lang.Crucible.Types
 
 -------------------------------------------------------------------------
@@ -108,7 +115,6 @@ localVariables = lens _localVariables (\s v -> s{ _localVariables = v})
 
 type JVMExprFrame s = JVMFrame (JVMValue s)
 type JVMRegisters s = JVMFrame (JVMReg s)
-
 
 ----------------------------------------------------------------------
 -- JVMRef
@@ -996,3 +1002,124 @@ fSub = error "dAdd"
 fMul = error "dAdd"
 fDiv = error "dAdd"
 fRem = error "dAdd"
+
+----------------------------------------------------------------------
+
+-- | Given a JVM type and a type context and a register assignment,
+-- peel off the rightmost register from the assignment, which is
+-- expected to match the given LLVM type. Pass the register and the
+-- remaining type and register context to the given continuation.
+--
+-- This procedure is used to set up the initial state of the registers
+-- at the entry point of a function.
+packTypes ::
+  [J.Type] ->
+  CtxRepr ctx ->
+  Ctx.Assignment (Atom s) ctx ->
+  [JVMValue s]
+packTypes [] ctx _asgn
+  | Ctx.null ctx = []
+  | otherwise = error "packTypes: arguments do not match JVM types"
+packTypes (t : ts) ctx asgn =
+  jvmTypeAsRepr t $ \mkVal ctp ->
+  case ctx of
+    ctx' Ctx.:> ctp' ->
+      case testEquality ctp ctp' of
+        Nothing -> error $ unwords ["crucible type mismatch", show ctp, show ctp']
+        Just Refl ->
+          mkVal (AtomExpr (Ctx.last asgn)) : packTypes ts ctx' (Ctx.init asgn)
+  where
+    jvmTypeAsRepr ::
+      J.Type ->
+      (forall tp. (Expr JVM s tp -> JVMValue s) -> TypeRepr tp -> [JVMValue s]) ->
+      [JVMValue s]
+    jvmTypeAsRepr ty k =
+      case ty of
+        J.ArrayType _ -> k RValue (knownRepr :: TypeRepr JVMRefType)
+        J.BooleanType -> k IValue (knownRepr :: TypeRepr JVMIntType)
+        J.ByteType    -> k IValue (knownRepr :: TypeRepr JVMIntType)
+        J.CharType    -> k IValue (knownRepr :: TypeRepr JVMIntType)
+        J.ClassType _ -> k RValue (knownRepr :: TypeRepr JVMRefType)
+        J.DoubleType  -> k DValue (knownRepr :: TypeRepr JVMDoubleType)
+        J.FloatType   -> k FValue (knownRepr :: TypeRepr JVMFloatType)
+        J.IntType     -> k IValue (knownRepr :: TypeRepr JVMIntType)
+        J.LongType    -> k LValue (knownRepr :: TypeRepr JVMLongType)
+        J.ShortType   -> k IValue (knownRepr :: TypeRepr JVMIntType)
+
+initialJVMExprFrame ::
+  J.ClassName ->
+  J.Method ->
+  CtxRepr ctx ->
+  Ctx.Assignment (Atom s) ctx ->
+  JVMExprFrame s
+initialJVMExprFrame cn method ctx asgn = JVMFrame [] locals
+  where
+    args = J.methodParameterTypes method
+    static = J.methodIsStatic method
+    args' = if static then args else J.ClassType cn : args
+    vals = reverse (packTypes (reverse args') ctx asgn)
+    idxs = map (J.localIndexOfParameter method) (take (length args) [0..])
+    idxs' = if static then idxs else 0 : idxs
+    locals = Map.fromList (zip idxs' vals)
+
+----------------------------------------------------------------------
+
+data JVMHandleInfo where
+  JVMHandleInfo :: J.Method -> FnHandle init ret -> JVMHandleInfo
+
+data JVMContext =
+  JVMContext {
+    symbolMap :: Map (J.ClassName, String) JVMHandleInfo
+  }
+
+----------------------------------------------------------------------
+
+-- | Build the initial JVM generator state upon entry to to the entry
+-- point of a method.
+initialState :: J.Method -> TypeRepr ret -> JVMState ret s
+initialState method ret =
+  JVMState {
+    _jsLabelMap = Map.empty,
+    _jsFrameMap = Map.empty,
+    _jsCFG = methodCFG method,
+    jsRetType = ret
+  }
+
+methodCFG :: J.Method -> J.CFG
+methodCFG method =
+  case J.methodBody method of
+    J.Code _ _ cfg _ _ _ _ -> cfg
+    _                      -> error ("Method " ++ show method ++ " has no body")
+
+generateMethod ::
+  J.ClassName ->
+  J.Method ->
+  CtxRepr init ->
+  Ctx.Assignment (Atom s) init ->
+  JVMGenerator h s ret a
+generateMethod cn method ctx asgn =
+  do let cfg = methodCFG method
+     let bbLabel bb = (,) (J.bbId bb) <$> newLabel
+     lbls <- traverse bbLabel (J.allBBs cfg)
+     jsLabelMap .= Map.fromList lbls
+     bb0 <- maybe (jvmFail "no entry block") return (J.bbById cfg J.BBIdEntry)
+     let vs0 = initialJVMExprFrame cn method ctx asgn
+     rs0 <- newRegisters vs0
+     generateBasicBlock bb0 rs0
+
+-- | Translate a single JVM method into a crucible CFG.
+defineMethod ::
+  JVMContext -> J.ClassName -> J.Method -> ST h (C.AnyCFG JVM)
+defineMethod ctx cn method =
+  case Map.lookup (cn, J.methodName method) (symbolMap ctx) of
+    Nothing -> fail "internal error: Could not find method"
+    Just (JVMHandleInfo _ (h :: FnHandle args ret)) ->
+      do let argTypes = handleArgTypes h
+         let retType  = handleReturnType h
+         let def :: FunctionDef JVM h (JVMState ret) args ret
+             def inputs = (s, f)
+               where s = initialState method retType
+                     f = generateMethod cn method argTypes inputs
+         (SomeCFG g, []) <- defineFunction InternalPos h def
+         case toSSA g of
+           C.SomeCFG g_ssa -> return (C.AnyCFG g_ssa)
