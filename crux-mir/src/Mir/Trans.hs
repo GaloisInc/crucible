@@ -38,6 +38,7 @@ import qualified Lang.Crucible.CFG.Expr as E
 import qualified Lang.Crucible.CFG.Core as Core
 import qualified Lang.Crucible.Syntax as S
 import qualified Data.Map.Strict as Map
+import qualified Data.IntMap.Strict as IntMap
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (<>))
 import qualified Lang.Crucible.Types as CT
 import qualified Numeric.Natural as Nat
@@ -1211,20 +1212,35 @@ mreprToName (MethodRepr mname _ _) = mname
 -- | Given the mapping from method names to indices and a mapping of
 -- method names to function handles, build a Crucible struct that
 -- represents the VTable.
-buildVTable :: forall ctx s. Ctx.KnownContext ctx
-            => Text.Text -- ^ type name
-            -> Map.Map Text.Text (Some (Ctx.Index ctx))
-            -- ^ mapping from method names to VTable indices
-            -> CT.CtxRepr ctx -- ^ A representation of the vtable context
-            -> Map.Map Text.Text MirHandle
+buildVTable :: forall ctx s. Map.Map Text.Text MirHandle
             -- ^ mapping from function names to function handles
+            -> TraitRepr ctx
+            -> CT.CtxRepr ctx
+            -> Text.Text -- ^ trait name
+            -> Text.Text -- ^ type name
+            -> Map.Map Text.Text Text.Text
+            -- ^ Map from method names to implementing function names
             -> R.Expr MIR s (CT.StructType ctx)
-buildVTable tyn vtableIndices vtableCtx funHandles = undefined
-  R.App $ E.MkStruct vtableCtx $ Ctx.generate Ctx.knownSize getMethodHandle
-  where getMethodHandle :: Ctx.Index ctx tp -> f tp
-        getMethodHandle = undefined
+buildVTable funHandles tr ctxr trn tyn methodImpls =
+  R.App $ E.MkStruct ctxr $ Ctx.fmapFC getMethodHandle tr
+  where getMethodHandle :: MethodRepr ty -> R.Expr MIR s ty
+        getMethodHandle mr@(MethodRepr mname _ _) = R.App $ fromJust $
+          do fname <- Map.lookup mname methodImpls
+             MirHandle fhandle <- Map.lookup fname funHandles
+             case testEquality (FH.handleType fhandle) (mreprToFHandle mr) of
+               Just Refl -> return $ E.HandleLit fhandle
+               Nothing -> error $ Text.unpack $
+                 Text.unwords ["Error while building the VTable for instance "
+                              ,tyn
+                              ," of trait "
+                              ,trn
+                              ,". Function "
+                              ,fname
+                              ," implementing method "
+                              ,mname
+                              ," has an incorrect type signature."]
         implementationMethods :: Map.Map Text.Text MirHandle
-        implementationMethods = undefined
+        implementationMethods = Map.map (fromJust . (`Map.lookup` funHandles)) methodImpls
 
 --- Custom stuff
 --
