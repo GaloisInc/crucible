@@ -5,6 +5,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 {-# OPTIONS_GHC -Wincomplete-patterns #-}
 module Mir.Mir where
@@ -15,6 +16,7 @@ import qualified Text.Regex as Regex
 import qualified Data.Map.Strict as Map
 import Data.Text (Text, unpack)
 import Data.List
+import Control.Lens (makeLenses)
 
 import GHC.Stack
 
@@ -293,10 +295,11 @@ instance FromJSON Var where
         <*>  v .: "pos"
 
 data Collection = Collection {
-    functions :: [Fn],
-    adts :: [Adt],
-    traits :: [Trait]
+    _functions :: [Fn],
+    _adts :: [Adt],
+    _traits :: [Trait]
 } deriving (Show, Eq)
+
 
 instance FromJSON Collection where
     parseJSON = withObject "Collection" $ \v -> Collection
@@ -1087,3 +1090,8 @@ isCustomFunc fname
   --    (vec, 0) -> vec
 
   | otherwise = Nothing
+
+
+makeLenses ''Var
+makeLenses ''Collection
+makeLenses ''Fn

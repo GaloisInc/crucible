@@ -15,7 +15,6 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE PartialTypeSignatures #-}
-{-# LANGUAGE TemplateHaskell #-}
 
 {-# OPTIONS_GHC -Wincomplete-patterns #-}
 module Mir.Trans where
@@ -56,88 +55,8 @@ import GHC.Stack
 
 import Mir.Intrinsics
 
-type MirSlice tp     = CT.StructType (CT.EmptyCtx CT.::>
-                           MirReferenceType (CT.VectorType tp) CT.::>
-                           CT.NatType CT.::>
-                           CT.NatType)
-
-pattern MirSliceRepr :: () => tp' ~ MirSlice tp => CT.TypeRepr tp -> CT.TypeRepr tp'
-pattern MirSliceRepr tp <- CT.StructRepr
-     (Ctx.view -> Ctx.AssignExtend (Ctx.view -> Ctx.AssignExtend (Ctx.view -> Ctx.AssignExtend (Ctx.view -> Ctx.AssignEmpty)
-         (MirReferenceRepr (CT.VectorRepr tp)))
-         CT.NatRepr)
-         CT.NatRepr)
- where MirSliceRepr tp = CT.StructRepr (Ctx.Empty Ctx.:> MirReferenceRepr (CT.VectorRepr tp) Ctx.:> CT.NatRepr Ctx.:> CT.NatRepr)
-
--- Basic definitions.
---
-
-
---
-
--- | Varmap maps identifiers to registers (if the id corresponds to a local variable), or an atom (if the id corresponds to a function argument)
-type VarMap s = Map.Map Text.Text (Some (VarInfo s))
-data VarInfo s tp where
-  VarRegister  :: R.Reg s tp -> VarInfo s tp
-  VarReference :: R.Reg s (MirReferenceType tp) -> VarInfo s tp
-  VarAtom      :: R.Atom s tp -> VarInfo s tp
-
-varInfoRepr :: VarInfo s tp -> CT.TypeRepr tp
-varInfoRepr (VarRegister reg) = R.typeOfReg reg
-varInfoRepr (VarReference reg) =
-  case R.typeOfReg reg of
-    MirReferenceRepr tp -> tp
-    _ -> error "impossible: varInfoRepr"
-varInfoRepr (VarAtom a) = R.typeOfAtom a
-
-
--- | LabelMap maps identifiers to labels of their corresponding basicblock
-type LabelMap s = Map.Map M.BasicBlockInfo (R.Label s)
-
-type AdtMap = Map.Map Text.Text [M.Variant]
-
-type TraitMap = Map.Map Text.Text {- ^ trait name-} TraitImpls
-data TraitImpls = forall ctx. TraitImpls
-  {_vtableTyRepr :: CT.TypeRepr (CT.StructType ctx)
-   -- ^ Describes the types of Crucible structs that store the VTable
-   -- of implementations
-  ,_methodIndex :: Map.Map Text.Text (Some (Ctx.Index ctx))
-   -- ^ Tells which fields (indices) of the struct correspond to
-   -- method names of the given trait
-  ,_vtables :: forall s. Map.Map Text.Text {- ^ type name-} (Core.Expr MIR s (CT.StructType ctx)) {- ^ VTable -}
-   -- ^ gives vtables for each type implementing a given trait
-  }
-
-makeLenses ''TraitImpls
-
--- | HandleMap maps identifiers to their corresponding function handle
-type HandleMap = Map.Map Text.Text MirHandle
-data MirHandle where
-    MirHandle :: FH.FnHandle init ret -> MirHandle
-
-instance Show MirHandle where
-    show (MirHandle c) = show c
-
--- | Generator state for MIR translation
-data FnState s = FnState { _varmap :: !(VarMap s),
-                           _labelmap :: !(LabelMap s),
-                           _handlemap :: !HandleMap,
-                           _adtMap :: !AdtMap,
-                           _traitMap :: !TraitMap
-                         }
-
-makeLenses ''FnState
-
 type MirGenerator h s ret = G.Generator MIR h s (FnState) ret
 type MirEnd h s ret = G.End MIR h s (FnState) ret
-
--- | The main data type for values, bundling the term-level type tp along with a crucible expression of type tp.
-data MirExp s where
-    MirExp :: CT.TypeRepr tp -> R.Expr MIR s tp -> MirExp s
-
-instance Show (MirExp s) where
-    show (MirExp tr e) = (show e) ++ ": " ++ (show tr)
-
 
 -----------
 
@@ -341,7 +260,7 @@ transConstVal tp cv = fail $ "fail or unimp constant: " ++ (show tp) ++ " " ++ (
 
 lookupVar :: M.Var -> MirGenerator h s ret (MirExp s)
 lookupVar (M.Var vname _ vty _ pos) = do
-    vm <- use varmap
+    vm <- use varMap
     case (Map.lookup vname vm, tyToRepr vty) of
       (Just (Some varinfo), Some vtr)
         | Just CT.Refl <- CT.testEquality vtr (varInfoRepr varinfo) ->
@@ -362,7 +281,7 @@ lookupVar (M.Var vname _ vty _ pos) = do
 
 lookupRetVar :: CT.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
 lookupRetVar tr = do
-    vm <- use varmap
+    vm <- use varMap
     case (Map.lookup "_0" vm) of
       Just (Some varinfo)
         | Just CT.Refl <- CT.testEquality tr (varInfoRepr varinfo) ->
@@ -598,7 +517,7 @@ evalRefLvalue :: M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalRefLvalue lv =
       case lv of
         M.Local (M.Var nm _ _ _ pos) ->
-          do vm <- use varmap
+          do vm <- use varMap
              case Map.lookup nm vm of
                Just (Some (VarReference reg)) ->
                  do r <- G.readReg reg
@@ -713,7 +632,7 @@ evalRval (M.RAdtAg (M.AdtAg adt agv ops)) = do
 -- A closure is (packed into an any) of the form [handle, arguments] (arguments being those packed into the closure, not the function arguments)
 buildClosureHandle :: Text.Text -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 buildClosureHandle funid args = do
-    hmap <- use handlemap
+    hmap <- use handleMap
     case (Map.lookup funid hmap) of
       Just (MirHandle fhandle) -> do
           let closure_arg = buildTuple args
@@ -728,7 +647,7 @@ buildClosureHandle funid args = do
 
 buildClosureType :: Text.Text -> [M.Ty] -> MirGenerator h s ret (Some (CT.TypeRepr)) -- get type of closure, in order to unpack the any
 buildClosureType defid args = do
-    hmap <- use handlemap
+    hmap <- use handleMap
     case (Map.lookup defid hmap) of
       Just (MirHandle fhandle) -> do
           -- build type StructRepr [HandleRepr, StructRepr [args types]]
@@ -858,7 +777,7 @@ assignVarExp v@(M.Var vnamd _ (M.TyRef lhs_ty M.Immut) _ pos) (Just (M.TyRef rhs
             assignVarExp v Nothing (MirExp e_ty r)
 
 assignVarExp (M.Var vname _ vty _ pos) _ (MirExp e_ty e) = do
-    vm <- use varmap
+    vm <- use varMap
     case (Map.lookup vname vm) of
       Just (Some varinfo)
         | Just CT.Refl <- testEquality e_ty (varInfoRepr varinfo) ->
@@ -954,7 +873,7 @@ assignLvExp lv re_tp re = do
 
 storageLive :: M.Lvalue -> MirGenerator h s ret ()
 storageLive (M.Local (M.Var nm _ _ _ _)) =
-  do vm <- use varmap
+  do vm <- use varMap
      case Map.lookup nm vm of
        Just (Some varinfo@(VarReference reg)) ->
          do r <- newMirRef (varInfoRepr varinfo)
@@ -966,7 +885,7 @@ storageLive lv =
 
 storageDead :: M.Lvalue -> MirGenerator h s ret ()
 storageDead (M.Local (M.Var nm _ _ _ _)) =
-  do vm <- use varmap
+  do vm <- use varMap
      case Map.lookup nm vm of
        Just (Some varinfo@(VarReference reg)) ->
          do dropMirRef =<< G.readReg reg
@@ -1004,7 +923,7 @@ transSwitch (MirExp f e) _ _  = error $ "bad switch: " ++ (show f)
 
 doBoolBranch :: R.Expr MIR s CT.BoolType -> M.BasicBlockInfo -> M.BasicBlockInfo -> MirGenerator h s ret a
 doBoolBranch e t f = do
-    lm <- use labelmap
+    lm <- use labelMap
     case (Map.lookup t lm, Map.lookup f lm) of
       (Just tb, Just fb) -> G.branch e tb fb
       _ -> error "bad lookup on boolbranch"
@@ -1012,7 +931,7 @@ doBoolBranch e t f = do
 -- nat branch: branch by iterating through list
 doNatBranch :: R.Expr MIR s CT.NatType -> [Integer] -> [M.BasicBlockInfo] -> MirGenerator h s ret a
 doNatBranch _ _ [i] = do
-    lm <- use labelmap
+    lm <- use labelMap
     case (Map.lookup i lm) of
       Just lab -> G.jump lab
       _ -> fail "bad jump"
@@ -1030,14 +949,14 @@ doNatBranch _ _ _ =
 
 jumpToBlock :: M.BasicBlockInfo -> MirGenerator h s ret a
 jumpToBlock bbi = do
-    lm <- use labelmap
+    lm <- use labelMap
     case (Map.lookup bbi lm) of
       Just lab -> G.jump lab
       _ -> fail "bad jump"
 
 jumpToBlock' :: M.BasicBlockInfo -> MirGenerator h s ret ()
 jumpToBlock' bbi = do
-    lm <- use labelmap
+    lm <- use labelMap
     case (Map.lookup bbi lm) of
       Just lab -> G.jump lab
       _ -> fail "bad jump"
@@ -1051,7 +970,7 @@ doReturn tr = do
 -- regular function calls: closure calls handled later
 doCall :: HasCallStack => Text.Text -> [M.Operand] -> Maybe (M.Lvalue, M.BasicBlockInfo) -> MirGenerator h s ret a
 doCall funid cargs cdest = do
-    hmap <- use handlemap
+    hmap <- use handleMap
     case (Map.lookup funid hmap, cdest) of
       (Just (MirHandle fhandle), Just (dest_lv, jdest)) -> do
           exps <- mapM evalOperand cargs
@@ -1139,10 +1058,10 @@ buildLabel (M.BasicBlock bi _) = do
 buildFnState :: HasCallStack => M.MirBody -> [M.Var] -> MirEnd h s ret ()
 buildFnState body argvars = do
     lm <- buildLabelMap body
-    labelmap .= lm
+    labelMap .= lm
 
     vm' <- buildIdentMapRegs body argvars
-    varmap %= Map.union vm'
+    varMap %= Map.union vm'
 
 initFnState :: AdtMap -> TraitMap -> [(Text.Text, M.Ty)] -> CT.CtxRepr args -> Ctx.Assignment (R.Atom s) args -> Map.Map Text.Text MirHandle -> FnState s
 initFnState am tm vars argsrepr args hmap =
@@ -1163,7 +1082,7 @@ translateBlockBody tr (M.BasicBlockData stmts terminator) = (mapM_ transStatemen
 --
 registerBlock :: CT.TypeRepr ret -> M.BasicBlock -> MirEnd h s ret ()
 registerBlock tr (M.BasicBlock bbinfo bbdata)  = do
-    lm <- use labelmap
+    lm <- use labelMap
     case (Map.lookup bbinfo lm) of
       Just lab -> G.defineBlock lab (translateBlockBody tr bbdata)
       _ -> fail "bad label"
@@ -1175,7 +1094,7 @@ genDefn' :: HasCallStack =>
 genDefn' body argvars rettype = do
     G.endNow $ \_ -> do
         buildFnState body argvars -- argvars are registers
-        lm <- use labelmap
+        lm <- use labelMap
         let (M.MirBody vars (enter : blocks)) = body -- The first block in the list is the entrance block
         let (M.BasicBlock bbi _) = enter
         case (Map.lookup bbi lm) of
@@ -1206,7 +1125,7 @@ mkHandleMap halloc fns = Map.fromList <$> (mapM (mkHandle halloc) fns) where
 -- transDefine: make CFG using genDefn (with type info coming from above), using initial state from initState; return (fname, CFG)
 
 
-transDefine :: HasCallStack => AdtMap -> TraitMap -> Map.Map Text.Text MirHandle -> M.Fn -> ST h (Text.Text, Core.AnyCFG MIR)
+transDefine :: forall h. HasCallStack => AdtMap -> TraitMap -> Map.Map Text.Text MirHandle -> M.Fn -> ST h (Text.Text, Core.AnyCFG MIR)
 transDefine am tm hmap fn@(M.Fn fname fargs _ _) =
   case (Map.lookup fname hmap) of
     Nothing -> fail "bad handle!!"
@@ -1225,38 +1144,39 @@ transDefine am tm hmap fn@(M.Fn fname fargs _ _) =
 -- transCollection: initialize map of fn names to FnHandles.
 transCollection :: HasCallStack => M.Collection -> FH.HandleAllocator s -> ST s (Map.Map Text.Text (Core.AnyCFG MIR))
 transCollection col halloc = do
-    let am = Map.fromList [ (nm, vs) | M.Adt nm vs <- M.adts col ]
-    hmap <- mkHandleMap halloc (M.functions col)
+    let am = Map.fromList [ (nm, vs) | M.Adt nm vs <- col^.M.adts ]
+    hmap <- mkHandleMap halloc (col^.M.functions)
     let tm = buildTraitMap col hmap
-    pairs <- mapM (transDefine am tm hmap) (M.functions col)
+    pairs <- mapM (transDefine am tm hmap) (col^.M.functions)
     return $ Map.fromList pairs
 
 -- | Build the mapping from traits and types that implement them to VTables
-buildTraitMap :: M.Collection -> Map.Map Text.Text MirHandle -> TraitMap 
-buildTraitMap col hmap = Map.fromList [(tname, mkTraitImplementations col hmap trait) | trait@(M.Trait tname _) <- M.traits col]
+buildTraitMap :: M.Collection -> Map.Map Text.Text MirHandle -> TraitMap
+buildTraitMap col hmap = TraitMap $ Map.fromList [(tname, mkTraitImplementations col hmap trait) | trait@(M.Trait tname _) <- col^.M.traits]
 
 -- | Construct 'TraitImpls' for each trait. Involves finding data
 -- types that implement a given trait and functions that implement
 -- each method for a data type and building VTables for each
 -- data-type/trait pair.
 mkTraitImplementations :: M.Collection -> Map.Map Text.Text MirHandle -> M.Trait
-                       -> TraitImpls
-mkTraitImplementations col hmap (M.Trait tname titems) =
+                       -> Some (TraitImpls s)
+mkTraitImplementations col hmap t@(M.Trait tname titems) =
   case vtTraitRepr of
-    Some tr -> TraitImpls
-      {_vtableTyRepr = CT.StructRepr $ Ctx.fmapFC mreprToFHandle tr
-      ,_methodIndex = Ctx.forIndex (Ctx.size tr) (\mp idx -> Map.insert (mreprToName (tr Ctx.! idx)) (Some idx) mp) Map.empty
-      ,_vtables = undefined
-      }
+    Some tr ->
+      let ctxr = Ctx.fmapFC mreprToFHandle tr
+      in Some $ traitImpls (CT.StructRepr ctxr) (Ctx.forIndex (Ctx.size tr) (\mp idx -> Map.insert (mreprToName (tr Ctx.! idx)) (Some idx) mp) Map.empty) $ Map.mapWithKey (buildVTable hmap tr ctxr tname) impls
   where vtTraitRepr :: Some TraitRepr
         vtTraitRepr = foldl go (Some Ctx.empty) [(tname, tsig) | (M.TraitMethod tname tsig) <- titems] 
         go :: Some TraitRepr -> (Text.Text, M.FnSig) -> Some TraitRepr
-        go (Some tr) (mname, M.FnSig argtys retty) = undefined
+        go (Some tr) (mname, M.FnSig argtys retty) =
+          case toMethodRepr mname argtys retty of
+            Some mr -> Some $ Ctx.extend tr mr
         toMethodRepr :: Text.Text -> [M.Ty] -> M.Ty -> Some MethodRepr
         toMethodRepr name argtys retty =
           case (tyToRepr retty, reprsToCtx (map tyToRepr argtys) Some) of
             (Some retrepr, Some argrepr) ->
               Some $ MethodRepr name argrepr retrepr
+        impls = getTraitImplementations (col^.M.functions) t
 
 -- | Scan the function declarations to find ones that look like they
 -- implement a given trait. Record the type and function identifiers

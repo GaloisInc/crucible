@@ -27,7 +27,8 @@
 {-# OPTIONS_GHC -Wincomplete-patterns #-}
 
 module Mir.Intrinsics
-( MirReferenceSymbol
+( -- * Internal implementation types
+  MirReferenceSymbol
 , MirReferenceType
 , pattern MirReferenceRepr
 , MirReference(..)
@@ -35,6 +36,29 @@ module Mir.Intrinsics
 , muxRefPath
 , muxRef
 , TaggedUnion
+, MirSlice
+, pattern MirSliceRepr
+  -- * Translation-specific types
+, VarMap
+, VarInfo (..)
+, varInfoRepr
+, LabelMap
+, AdtMap
+, TraitMap (..)
+, TraitImpls (..)
+, vtableTyRepr
+, methodIndex
+, vtables
+, traitImpls
+, FnState (..)
+, MirExp (..)
+, MirHandle (..)
+, HandleMap
+, varMap
+, labelMap
+, adtMap
+, handleMap
+, traitMap
   -- * MIR Syntax extension
 , MIR
 , MirStmt(..)
@@ -42,10 +66,12 @@ module Mir.Intrinsics
 ) where
 
 import           GHC.TypeLits
-import           Control.Lens hiding (Empty, (:>), Index)
+import           Control.Lens hiding (Empty, (:>), Index, view)
 import           Control.Monad
 import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.Maybe
+import qualified Data.Map.Strict as Map
+import qualified Data.Text as Text
 
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
@@ -55,10 +81,12 @@ import           Data.Parameterized.TraversableFC
 import qualified Data.Parameterized.TH.GADT as U
 
 import           Lang.Crucible.CFG.Extension
+import           Lang.Crucible.CFG.Generator hiding (dropRef)
+import           Lang.Crucible.CFG.Reg
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.CallFns
-import           Lang.Crucible.Simulator.ExecutionTree
+import           Lang.Crucible.Simulator.ExecutionTree hiding (FnState)
 import           Lang.Crucible.Simulator.Evaluation
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Intrinsics
@@ -69,6 +97,8 @@ import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.Utils.MonadST
 import qualified Lang.Crucible.Utils.Structural as U
+
+import           Mir.Mir
 
 
 type MirReferenceSymbol = "MirReference"
@@ -339,3 +369,92 @@ mirExtImpl = ExtensionImpl
              { extensionEval = \_ -> \case
              , extensionExec = execMirStmt
              }
+
+
+type MirSlice tp     = StructType (EmptyCtx ::>
+                           MirReferenceType (VectorType tp) ::>
+                           NatType ::>
+                           NatType)
+
+pattern MirSliceRepr :: () => tp' ~ MirSlice tp => TypeRepr tp -> TypeRepr tp'
+pattern MirSliceRepr tp <- StructRepr
+     (view -> AssignExtend (view -> AssignExtend (view -> AssignExtend (view -> AssignEmpty)
+         (MirReferenceRepr (VectorRepr tp)))
+         NatRepr)
+         NatRepr)
+ where MirSliceRepr tp = StructRepr (Empty :> MirReferenceRepr (VectorRepr tp) :> NatRepr :> NatRepr)
+
+
+-- Basic definitions.
+--
+
+
+--
+
+-- | Varmap maps identifiers to registers (if the id corresponds to a local variable), or an atom (if the id corresponds to a function argument)
+type VarMap s = Map.Map Text.Text (Some (VarInfo s))
+data VarInfo s tp where
+  VarRegister  :: Reg s tp -> VarInfo s tp
+  VarReference :: Reg s (MirReferenceType tp) -> VarInfo s tp
+  VarAtom      :: Atom s tp -> VarInfo s tp
+
+varInfoRepr :: VarInfo s tp -> TypeRepr tp
+varInfoRepr (VarRegister reg) = typeOfReg reg
+varInfoRepr (VarReference reg) =
+  case typeOfReg reg of
+    MirReferenceRepr tp -> tp
+    _ -> error "impossible: varInfoRepr"
+varInfoRepr (VarAtom a) = typeOfAtom a
+
+
+-- | LabelMap maps identifiers to labels of their corresponding basicblock
+type LabelMap s = Map.Map BasicBlockInfo (Label s)
+
+type AdtMap = Map.Map Text.Text [Variant]
+
+data TraitMap = forall s. TraitMap (Map.Map Text.Text {- ^ trait name-} (Some (TraitImpls s)))
+data TraitImpls s ctx = TraitImpls
+  {_vtableTyRepr :: TypeRepr (StructType ctx)
+   -- ^ Describes the types of Crucible structs that store the VTable
+   -- of implementations
+  ,_methodIndex :: Map.Map Text.Text (Some (Index ctx))
+   -- ^ Tells which fields (indices) of the struct correspond to
+   -- method names of the given trait
+  ,_vtables :: Map.Map Text.Text {- ^ type name-} (Expr MIR s (StructType ctx)) {- ^ VTable -}
+   -- ^ gives vtables for each type implementing a given trait
+  }
+
+traitImpls :: TypeRepr (StructType ctx) -> Map.Map Text.Text (Some (Index ctx)) -> Map.Map Text.Text {- ^ type name-} (Expr MIR s (StructType ctx)) -> TraitImpls s ctx
+traitImpls str midx vtbls = TraitImpls {_vtableTyRepr = str
+                                       ,_methodIndex = midx
+                                       ,_vtables = vtbls
+                                       }
+
+makeLenses ''TraitImpls
+
+-- | HandleMap maps identifiers to their corresponding function handle
+type HandleMap = Map.Map Text.Text MirHandle
+data MirHandle where
+    MirHandle :: FnHandle init ret -> MirHandle
+
+instance Show MirHandle where
+    show (MirHandle c) = show c
+
+-- | Generator state for MIR translation
+data FnState s = FnState { _varMap :: !(VarMap s),
+                           _labelMap :: !(LabelMap s),
+                           _handleMap :: !HandleMap,
+                           _adtMap :: !AdtMap,
+                           _traitMap :: !TraitMap
+                         }
+
+
+
+-- | The main data type for values, bundling the term-level type tp along with a crucible expression of type tp.
+data MirExp s where
+    MirExp :: TypeRepr tp -> Expr MIR s tp -> MirExp s
+
+instance Show (MirExp s) where
+    show (MirExp tr e) = (show e) ++ ": " ++ (show tr)
+
+makeLenses ''FnState

@@ -146,7 +146,7 @@ handleAbortedResult _ = "unknown"
 mirToCFG :: M.Collection ->  Maybe ([M.Fn] -> [M.Fn]) -> Map.Map Text.Text (C.AnyCFG MIR)
 mirToCFG col Nothing = mirToCFG col (Just Pass.passId)
 mirToCFG col (Just pass) =
-    runST $ C.withHandleAllocator $ T.transCollection col {M.functions = pass $ M.functions col}
+    runST $ C.withHandleAllocator $ T.transCollection $ col &M.functions %~ pass
 
 toSawCore :: SC.SharedContext -> Sym -> (C.RegEntry Sym tp) -> IO SC.Term
 toSawCore sc sym (C.RegEntry tp v) =
