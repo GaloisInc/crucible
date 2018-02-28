@@ -3,20 +3,17 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Lang.Crucible.Solver.SimpleBackend.Acirc
-( generateCircuit
+( SimulationResult(..)
+, generateCircuit
 ) where
 
 import           Data.Tuple ( swap )
 import           Data.Ratio ( denominator, numerator )
 import           Data.IORef ( IORef, newIORef, readIORef, writeIORef, atomicModifyIORef )
-import           Data.Set ( Set )
-import qualified Data.Set as S
-import qualified Data.Foldable as Fold
 
-import           Control.Lens ( (^.) )
 import           Control.Exception ( assert )
 import           Control.Monad ( void )
-import           Control.Monad.ST ( RealWorld, runST )
+import           Control.Monad.ST ( RealWorld )
 import           Control.Monad.State ( runState, execState )
 
 -- Crucible imports
@@ -30,16 +27,12 @@ import           Lang.Crucible.Utils.MonadST ( liftST )
 import           Lang.Crucible.Solver.SimpleBuilder ( Elt(..), SimpleBoundVar(..), VarKind(..)
                                                     , App(..), AppElt(..)
                                                     , eltId, appEltApp )
-import           Lang.Crucible.Solver.SimpleBackend.VarIdentification ( CollectedVarInfo, Scope(..)
-                                                                      , collectVarInfo, recordEltVars
-                                                                      , uninterpConstants)
 import qualified Lang.Crucible.Solver.WeightedSum as WS
 
 -- Acirc imports
 import qualified Circuit as B
 import qualified Circuit.Builder as B
 import qualified Circuit.Format.Acirc as B
-import qualified Types as B
 
 {- | Package up the state we need during `eval`. This includes
 - the memoization table, `synthesisHash`, we use for keeping track
@@ -55,6 +48,14 @@ data NameType (tp :: BaseType) where
   IntToReal :: NameType BaseIntegerType -> NameType BaseRealType
   GroundInt :: Integer -> NameType BaseIntegerType
   Ref       :: B.Ref   -> NameType BaseIntegerType
+
+-- | Holds the results of a simulation run. This should be passed to
+-- generateCircuit.
+data SimulationResult a = SimulationResult
+  { srInputs :: [a] -- ^ Tracks the expected inputs, in order, so that input wires can be
+                    --   added correctly.
+  , srTerms  :: [a] -- ^ The terms resulting from the simulation. The circuit is built from these.
+  }
 
 -- | memoization function.
 --   * Takes the synthesis state
@@ -78,11 +79,23 @@ memoEltNonce synth n act = do
       liftST $ H.insert h n name
       return name
 
--- | Top level function for generating the circuit. Takes the crucible term and
+-- | A version of memoEltNonce that works for non-bound varables like an
+-- concrete value. See 'addConstantValue' for more details.
+memoElt :: Synthesis t
+        -> IO (B.Builder (NameType tp))
+        -> IO (NameType tp)
+memoElt synth act = do
+  a    <- act
+  name <- atomicModifyIORef (synthesisState synth)
+                            (swap . runState a)
+  return name
+
+-- | Top level function for generating the circuit. Takes a SimulationResult
+-- containing the inputs to the circuit as well as the crucible terms and
 -- writes the circuit description to a file.
 -- The basetype of the second argument must be BaseIntegerType
-generateCircuit :: FilePath -> [Elt t BaseIntegerType] -> IO ()
-generateCircuit fp es = do
+generateCircuit :: FilePath -> SimulationResult (Elt t BaseIntegerType) -> IO ()
+generateCircuit fp (SimulationResult { srInputs = is, srTerms = es }) = do
   -- First, we create empty data structures for the conversion
   ref <- newIORef (B.emptyBuildWithV 1 0) -- initialize the build state with the version
   h   <- liftST H.new
@@ -91,8 +104,7 @@ generateCircuit fp es = do
                         }
   -- Second, the next step is to find all the inputs to the computation so that
   -- we can create the circuit inputs.
-  let vars = S.unions (map ((^.uninterpConstants) . eltVarInfo) es)
-  recordUninterpConstants synth vars
+  recordInputs synth is
   -- Third, generate the structure of the circuit from the crucible term
   names <- mapM (eval synth) es
   mapM_ (synthesize synth) names
@@ -114,19 +126,21 @@ generateCircuit fp es = do
             Ref r -> B.output r
     writeIORef (synthesisState synth) st'
 
--- Elt and CollectedVarInfo are Crucible types
--- CollectedVarInfo is a wrapper type for an existantial type
+-- | Record all the inputs to the function/circuit in the memo table
+recordInputs :: Synthesis t -> [Elt t BaseIntegerType] -> IO ()
+recordInputs synth vars = do
+  mapM_ (addInput synth) vars
 
--- | Gather up the variables that correspond to inputs
-eltVarInfo :: Elt t tp -> CollectedVarInfo t
-eltVarInfo e = runST $ collectVarInfo $ recordEltVars ExistsOnly e
-
--- Some is also a wrapper type
-
--- | Given a set of bound variables, generates inputs for them in the circuit
-recordUninterpConstants :: Synthesis t -> Set (Some (SimpleBoundVar t)) -> IO ()
-recordUninterpConstants synth vars = do
-  mapM_ (addBoundVar synth) (Fold.toList vars)
+-- | Add an individual input to the memo table
+addInput :: Synthesis t -> Elt t BaseIntegerType -> IO ()
+addInput synth var = do
+  case var of
+    BoundVarElt bvar -> addBoundVar synth (Some bvar)
+    -- TODO: ASKROB: Does this make sense? Don't we need to
+    -- note down the input? Well, shouldn't need to because it should never
+    -- come up again since it's unused in the circuit.
+    IntElt _i _loc   -> addConstantValue synth
+    t -> error $ "Unsupported representation: " ++ show t
 
 -- | Add a individual bound variable as a circuit input
 addBoundVar :: Synthesis t -> Some (SimpleBoundVar t) -> IO ()
@@ -135,6 +149,16 @@ addBoundVar synth (Some bvar) = do
     BaseIntegerRepr -> void $ memoEltNonce synth (bvarId bvar) $ return $ do
       Ref <$> B.inputTyped (Just $ B.Vector B.Integer)
     t -> error $ "Unsupported representation: " ++ show t
+
+-- | This is for handling a special case of inputs. Sometimes the parameters are
+-- fixed and known, but we still want the function/circuit to take values in
+-- those places as "inputs". In this case, we want the circuit to declare wires
+-- for them but not connect them to the rest of the circuit. So we have a
+-- special case where we put them in the memo table but otherwise throw away
+-- their references.
+addConstantValue :: Synthesis t -> IO ()
+addConstantValue synth = void $ memoElt synth $ return $ do
+  Ref <$> B.inputTyped (Just $ B.Vector B.Integer)
 
 -- | Write an intermediate circuit state to a file as a circuit
 writeCircuit :: FilePath -> B.BuildSt -> IO ()
@@ -204,15 +228,14 @@ doApp synth ae = do
                          case numerator c of
                            1  -> return [t']
                            -1 -> (:[]) <$> B.circNeg t'
-                           _  -> error "We can only support multiplication of 1 and -1 constants")
-                           -- TODO: Code below is for when we can support constants
-                           -- _ -> do c' <- B.constant (numerator c)
-                           --         B.circMul c' t')
+                           -- Code below is for when we can support constants
+                           _ -> do c' <- B.constant (numerator c)
+                                   (:[]) <$> B.circMul c' t')
                      -- just a constant
-                     (\c -> error "We cannot support raw literals")
-                       -- TODO: Code below is for when we can support constants
-                       -- assert (denominator c == 1) $ return $ do
-                       --   B.constant (numerator c))
+                     (\c -> error "We cannot support raw literals"
+                       -- Code below is for when we can support constants
+                       assert (denominator c == 1) $ do
+                         B.constant (numerator c))
                      ws
       return $! do
         ws'' <- ws'
@@ -221,7 +244,7 @@ doApp synth ae = do
           -- the reference to x forward instead of the sum.
           [x] -> return $! IntToReal (Ref x)
           _   -> IntToReal . Ref <$> (B.circSumN ws'')
-    _ -> fail "Not supported"
+    x -> fail $ "Not supported: " ++ show x
 
   where
   intToReal :: NameType BaseRealType -> NameType BaseIntegerType
