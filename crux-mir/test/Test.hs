@@ -102,9 +102,9 @@ testDir dir = do
   let gen f | "." `isPrefixOf` takeBaseName f = return Nothing
       gen f | takeExtension f == ".rs" = return (Just (testCaseSteps name (oracleTest dir name)))
         where name = (takeBaseName f)
-      gen f = doesDirectoryExist f >>= \case
+      gen f = doesDirectoryExist (dir </> f) >>= \case
         False -> return Nothing
-        True -> Just <$> testDir f
+        True -> Just <$> testDir (dir </> f)
   fs <- listDirectory dir
   tcs <- mapM gen fs
   return (testGroup (takeBaseName dir) (catMaybes tcs))
