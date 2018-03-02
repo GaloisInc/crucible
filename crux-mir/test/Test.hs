@@ -82,7 +82,8 @@ oracleTest dir name step = do
   step "Parsing oracle output at inferred type"
   oracle <- case parse (parseRustFV ty) "oracleOut" oracleOut of
     Left e -> error $ "error parsing Rust output: " ++ show e
-    Right fv -> FV.scFiniteValue sc fv
+    Right (Just fv) -> FV.scFiniteValue sc fv
+    Right Nothing -> assertFailure "panics not yet handled"
 
   step "Comparing oracle output"
   eq <- SC.scEq sc oracle app
@@ -98,7 +99,6 @@ suite = testGroup "mir-verifier tests" <$> sequence
 
 testDir :: FilePath -> IO TestTree
 testDir dir = do
-  putStrLn dir
   let gen f | "." `isPrefixOf` takeBaseName f = return Nothing
       gen f | takeExtension f == ".rs" = return (Just (testCaseSteps name (oracleTest dir name)))
         where name = (takeBaseName f)
@@ -110,15 +110,18 @@ testDir dir = do
   return (testGroup (takeBaseName dir) (catMaybes tcs))
 
 -- | Parse the Rust program output into a finite value at a given type
-parseRustFV :: FV.FiniteType -> Parser FV.FiniteValue
-parseRustFV ft = case ft of
-  FV.FTBit ->
-    string "true" *> pure (FV.FVBit True)
-    <|> string "false" *> pure (FV.FVBit False)
-    <?> "boolean"
-  FV.FTVec w FV.FTBit -> do
-    i <- read <$> many1 digit
-    return (FV.FVWord w i)
-  FV.FTVec _n _elt -> error "unimplemented"
-  FV.FTTuple _elts -> error "unimplemented"
-  FV.FTRec _fields -> error "unimplemented"
+parseRustFV :: FV.FiniteType -> Parser (Maybe FV.FiniteValue)
+parseRustFV ft = panic <|> (Just <$> p)
+  where
+    panic = string "<<PANIC>>" *> pure Nothing
+    p = case ft of
+          FV.FTBit ->
+            string "true" *> pure (FV.FVBit True)
+            <|> string "false" *> pure (FV.FVBit False)
+            <?> "boolean"
+          FV.FTVec w FV.FTBit -> do
+            i <- read <$> many1 digit
+            return (FV.FVWord w i)
+          FV.FTVec _n _elt -> error "unimplemented"
+          FV.FTTuple _elts -> error "unimplemented"
+          FV.FTRec _fields -> error "unimplemented"
