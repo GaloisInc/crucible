@@ -21,12 +21,14 @@ import           Control.Exception ( assert, throw )
 import           Control.Lens
 import           Control.Monad
 import           Data.IORef
+import           Data.Map ( Map )
 import qualified Data.Map as Map
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Nonce
 import           Data.Ratio
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import           Data.Word(Word64)
 
 import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
@@ -55,6 +57,11 @@ data SAWCoreState n
   = SAWCoreState
     { saw_ctx       :: SC.SharedContext                         -- ^ the main SAWCore datastructure for building shared terms
     , saw_inputs    :: IORef (Seq (SC.ExtCns SC.Term ))  -- ^ a record of all the symbolic input variables created so far,
+
+    , saw_symMap :: !(Map Word64 (SC.SharedContext -> [SC.Term] -> IO SC.Term))
+      {- ^ What to do with uninterpred functions.
+          The key is the "indexValue" of the "symFunId" for the function -}
+
                                                                   --   in the order they were created
     , saw_elt_cache :: SB.IdxCache n SAWElt
     , saw_assertions  :: Seq (Assertion (Pred (SAWCoreBackend n)))
@@ -129,10 +136,26 @@ newSAWCoreBackend :: SC.SharedContext
                   -> NonceGenerator IO s
                   -> SimConfig SAWCruciblePersonality (SAWCoreBackend s)
                   -> IO (SAWCoreBackend s)
-newSAWCoreBackend sc gen cfg = do
+newSAWCoreBackend sc gen cfg = newSAWCoreBackendWithSym sc gen cfg Map.empty
+
+newSAWCoreBackendWithSym ::
+  SC.SharedContext ->
+  NonceGenerator IO s ->
+  SimConfig SAWCruciblePersonality (SAWCoreBackend s) ->
+  Map Word64 (SC.SharedContext -> [SC.Term] -> IO SC.Term) ->
+  IO (SAWCoreBackend s)
+newSAWCoreBackendWithSym sc gen cfg symFns = do
   inpr <- newIORef Seq.empty
   ch   <- SB.newIdxCache
-  let st = SAWCoreState sc inpr ch Seq.empty Seq.empty cfg
+  let st = SAWCoreState
+              { saw_ctx = sc
+              , saw_inputs = inpr
+              , saw_symMap = symFns
+              , saw_elt_cache = ch
+              , saw_assertions = Seq.empty
+              , saw_obligations = Seq.empty
+              , saw_config = cfg
+              }
   SB.newSimpleBuilder st gen
 
 
@@ -344,6 +367,22 @@ scNatLe sc (SAWElt x) (SAWElt y) =
      SAWElt <$> SC.scOr sc lt eq
 
 
+-- | Note: first element in the result is the right-most value in the assignment
+evaluateAsgn ::
+  SAWCoreBackend n ->
+  SC.SharedContext ->
+  SB.IdxCache n SAWElt ->
+  Ctx.Assignment (SB.Elt n) args ->
+  IO [SC.Term]
+evaluateAsgn sym sc cache xs =
+  case xs of
+    Ctx.Empty -> return []
+    ys Ctx.:> x ->
+      do v  <- evaluateElt sym sc cache x
+         vs <- evaluateAsgn sym sc cache ys
+         return (v:vs)
+
+
 evaluateElt :: forall n tp
              . SAWCoreBackend n
             -> SC.SharedContext
@@ -396,8 +435,14 @@ evaluateElt sym sc cache = f
           fail "SAW backend does not support symbolic arrays"
         SB.ArrayTrueOnEntries{} ->
           fail "SAW backend does not support symbolic arrays"
-        SB.FnApp{} ->
-          fail "SAW backend does not support symbolic functions"
+        SB.FnApp fn asgn ->
+          do st <- readIORef (SB.sbStateManager sym)
+             case Map.lookup (indexValue (SB.symFnId fn)) (saw_symMap st) of
+               Nothing -> fail ("Unknown symbolic function: " ++ show fn)
+               Just mk ->
+                 do ts <- evaluateAsgn sym sc cache asgn
+                    SAWElt <$> mk sc ts
+
 
    go a0@(SB.AppElt a) =
       let nyi :: Monad m => m a
