@@ -56,13 +56,14 @@ data SAWCruciblePersonality sym = SAWCruciblePersonality
 data SAWCoreState n
   = SAWCoreState
     { saw_ctx       :: SC.SharedContext                         -- ^ the main SAWCore datastructure for building shared terms
-    , saw_inputs    :: IORef (Seq (SC.ExtCns SC.Term ))  -- ^ a record of all the symbolic input variables created so far,
+    , saw_inputs    :: IORef (Seq (SC.ExtCns SC.Term ))
+      -- ^ a record of all the symbolic input variables created so far,
+      --   in the order they were created
 
     , saw_symMap :: !(Map Word64 (SC.SharedContext -> [SC.Term] -> IO SC.Term))
-      {- ^ What to do with uninterpred functions.
-          The key is the "indexValue" of the "symFunId" for the function -}
+      -- ^ What to do with uninterpred functions.
+      -- The key is the "indexValue" of the "symFunId" for the function
 
-                                                                  --   in the order they were created
     , saw_elt_cache :: SB.IdxCache n SAWElt
     , saw_assertions  :: Seq (Assertion (Pred (SAWCoreBackend n)))
     , saw_obligations :: Seq (Seq (Pred (SAWCoreBackend n)), Assertion (Pred (SAWCoreBackend n)))
@@ -132,31 +133,36 @@ bindSAWTerm sym bt t = do
   SB.insertIdxValue (saw_elt_cache st) (SB.bvarId bv) (SAWElt t)
   return sbVar
 
-newSAWCoreBackend :: SC.SharedContext
-                  -> NonceGenerator IO s
-                  -> SimConfig SAWCruciblePersonality (SAWCoreBackend s)
-                  -> IO (SAWCoreBackend s)
-newSAWCoreBackend sc gen cfg = newSAWCoreBackendWithSym sc gen cfg Map.empty
-
-newSAWCoreBackendWithSym ::
+newSAWCoreBackend ::
   SC.SharedContext ->
   NonceGenerator IO s ->
   SimConfig SAWCruciblePersonality (SAWCoreBackend s) ->
-  Map Word64 (SC.SharedContext -> [SC.Term] -> IO SC.Term) ->
   IO (SAWCoreBackend s)
-newSAWCoreBackendWithSym sc gen cfg symFns = do
+newSAWCoreBackend sc gen cfg = do
   inpr <- newIORef Seq.empty
   ch   <- SB.newIdxCache
   let st = SAWCoreState
               { saw_ctx = sc
               , saw_inputs = inpr
-              , saw_symMap = symFns
+              , saw_symMap = Map.empty
               , saw_elt_cache = ch
               , saw_assertions = Seq.empty
               , saw_obligations = Seq.empty
               , saw_config = cfg
               }
   SB.newSimpleBuilder st gen
+
+-- | Register an interpretation for a symbolic function.
+-- This is not used during simulation, but rather, when we translate
+-- crucible values back into SAW.
+sawRegisterSymFunInterp ::
+  SAWCoreBackend n ->
+  SB.SimpleSymFn n args ret ->
+  (SC.SharedContext -> [SC.Term] -> IO SC.Term) ->
+  IO ()
+sawRegisterSymFunInterp sym f i =
+  modifyIORef (SB.sbStateManager sym) $ \s ->
+      s { saw_symMap = Map.insert (indexValue (SB.symFnId f)) i (saw_symMap s) }
 
 
 sawBackendSharedContext :: SAWCoreBackend n -> IO SC.SharedContext
