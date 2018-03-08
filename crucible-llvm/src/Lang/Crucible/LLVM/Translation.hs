@@ -1365,10 +1365,15 @@ bitCast expr tgtT =
 
 
   where
-  mb    = maybe (err [ "*** Invalid coercion." ]) return
+  mb    = maybe (err [ "*** Invalid coercion of expression"
+                     , indent (show expr)
+                     , "to type"
+                     , indent (show tgtT)
+                     ]) return
   mbEls = do (ty,se) <- asVectorWithType expr
              return (ty, toList se)
   err msg = fail $ unlines ("[bitCast] Failed to perform cast:" : msg)
+  indent msg = "  " ++ msg
 
 
 -- | Join the elements of a vector into a single bit-vector value.
