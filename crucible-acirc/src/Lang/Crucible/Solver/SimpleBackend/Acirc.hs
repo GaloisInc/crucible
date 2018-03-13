@@ -242,6 +242,7 @@ doApp synth ae = do
                            _ -> do c' <- B.constant (numerator c)
                                    (:[]) <$> B.circMul c' t')
                      -- just a constant
+                     -- TODO what's up with this error
                      (\c -> error "We cannot support raw literals"
                        -- Code below is for when we can support constants
                        assert (denominator c == 1) $ do
