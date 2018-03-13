@@ -15,7 +15,7 @@ import           Data.IORef ( IORef, newIORef, readIORef, writeIORef, atomicModi
 import           Control.Exception ( assert )
 import           Control.Monad ( void )
 import           Control.Monad.ST ( RealWorld )
-import           Control.Monad.State ( runState, execState )
+import           Control.Monad.State ( runState )
 import qualified Data.Text as T
 
 -- Crucible imports
@@ -55,7 +55,6 @@ data Synthesis t = Synthesis
 -- | This represents the simplified terms from crucible.
 data NameType (tp :: BaseType) where
   IntToReal :: NameType BaseIntegerType -> NameType BaseRealType
-  GroundInt :: Integer -> NameType BaseIntegerType
   Ref       :: B.Ref   -> NameType BaseIntegerType
 
 -- | Holds the results of a simulation run. This should be passed to
@@ -122,18 +121,16 @@ generateCircuit fp (SimulationResult { srInputs = is, srTerms = es }) = do
   writeCircuit fp st'
   where
   synthesize :: Synthesis t -> NameType BaseIntegerType -> IO ()
-  synthesize synth name = do
-    st <- readIORef (synthesisState synth)
-    -- now we need to generate the circuit's output
-    let st' = flip execState st $
-          case name of
-            GroundInt n -> do
-              {- this int is our constant output from the circuit -}
-              constantRef <- B.constant n
-              B.output constantRef
-              {- this is the output wire of our circuit -}
-            Ref r -> B.output r
-    writeIORef (synthesisState synth) st'
+  synthesize synth name = buildStep synth $
+    case name of Ref r -> B.output r
+
+buildStep :: Synthesis t -> B.Builder a -> IO a
+buildStep synth a = do
+  st <- readIORef (synthesisState synth)
+  -- now we need to generate the circuit's output
+  let (c, st') = runState a st
+  writeIORef (synthesisState synth) st'
+  return c
 
 -- | Record all the inputs to the function/circuit in the memo table
 recordInputs :: Synthesis t -> [Elt t BaseIntegerType] -> IO ()
@@ -195,7 +192,9 @@ eval synth (BoundVarElt bvar) = do
         error "Latches are not supported in arithmetic circuits."
       UninterpVarKind ->
         error "Uninterpreted variable that was not defined."
-eval _ (IntElt n _)   = return (GroundInt n)
+eval synth (IntElt n _)   = buildStep synth $ do
+  constantRef <- B.constant n
+  return (Ref constantRef)
 eval synth (AppElt a) = do
   memoEltNonce synth (eltId a) $ do
     doApp synth a
