@@ -38,6 +38,7 @@ library
     crucible >= 0.1,
     lens,
     mtl,
+    text,
     parameterized-utils,
     circuit-synthesis
   hs-source-dirs:      src

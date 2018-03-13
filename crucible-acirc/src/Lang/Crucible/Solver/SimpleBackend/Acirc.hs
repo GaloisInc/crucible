@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Lang.Crucible.Solver.SimpleBackend.Acirc
 ( SimulationResult(..)
 , generateCircuit
@@ -15,18 +16,26 @@ import           Control.Exception ( assert )
 import           Control.Monad ( void )
 import           Control.Monad.ST ( RealWorld )
 import           Control.Monad.State ( runState, execState )
+import qualified Data.Text as T
 
 -- Crucible imports
 import           Data.Parameterized.HashTable (HashTable)
 import qualified Data.Parameterized.HashTable as H
 import           Data.Parameterized.Nonce ( Nonce )
 import           Data.Parameterized.Some ( Some(..) )
+import qualified Data.Parameterized.Context as Ctx
+-- import qualified Data.Parameterized.Context.Safe as Ctx
 import           Lang.Crucible.BaseTypes ( BaseType, BaseIntegerType, BaseTypeRepr(..)
                                          , BaseRealType )
 import           Lang.Crucible.Utils.MonadST ( liftST )
 import           Lang.Crucible.Solver.SimpleBuilder ( Elt(..), SimpleBoundVar(..), VarKind(..)
                                                     , App(..), AppElt(..)
-                                                    , eltId, appEltApp )
+                                                    , NonceApp(..)
+                                                    , NonceAppElt(..)
+                                                    , eltId, appEltApp, nonceEltId
+                                                    , nonceEltApp, symFnName
+                                                    , symFnReturnType )
+import           Lang.Crucible.Solver.Symbol ( solverSymbolAsText )
 import qualified Lang.Crucible.Solver.WeightedSum as WS
 
 -- Acirc imports
@@ -172,7 +181,9 @@ eval :: Synthesis t -> Elt t tp -> IO (NameType tp)
 eval _ NatElt{}       = fail "Naturals not supported"
 eval _ RatElt{}       = fail "Rationals not supported"
 eval _ BVElt{}        = fail "BitVector not supported"
-eval _ NonceAppElt{}  = fail "Nonce application not supported"
+eval synth (NonceAppElt app)  = do
+  memoEltNonce synth (nonceEltId app) $ do
+    doNonceApp synth app
 eval synth (BoundVarElt bvar) = do
   -- Bound variables should already be handled before
   -- calling eval. See `recordUninterpConstants`.
@@ -250,3 +261,23 @@ doApp synth ae = do
   intToReal :: NameType BaseRealType -> NameType BaseIntegerType
   intToReal (IntToReal m) = m
 
+-- | Process an application term and returns the Acirc action that creates the
+-- corresponding circuitry.
+doNonceApp :: Synthesis t -> NonceAppElt t tp -> IO (B.Builder (NameType tp))
+doNonceApp synth ae =
+  case nonceEltApp ae of
+    FnApp fn args -> case T.unpack (solverSymbolAsText (symFnName fn)) of
+      "julia_shiftRight!" -> case symFnReturnType fn of
+        BaseIntegerRepr -> do
+          let sz = Ctx.size args
+          case (Ctx.intIndex 0 sz, Ctx.intIndex 1 sz) of
+            (Just (Some zero), Just (Some one)) -> do
+              let baseArg = args Ctx.! zero
+                  byArg   = args Ctx.! one
+              Ref base <- eval synth baseArg
+              Ref by   <- eval synth byArg
+              return (Ref <$> B.circRShift base by)
+            _ -> fail "The improbable happened: Wrong number of arguments to shift right"
+        _ -> fail "The improbable happened: shift right should only return Integer type"
+      x -> fail $ "Not supported: " ++ show x
+    _ -> fail $ "Not supported"
