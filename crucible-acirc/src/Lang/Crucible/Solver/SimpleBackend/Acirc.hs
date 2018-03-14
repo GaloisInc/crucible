@@ -153,7 +153,7 @@ addBoundVar :: Synthesis t -> Some (SimpleBoundVar t) -> IO ()
 addBoundVar synth (Some bvar) = do
   case bvarType bvar of
     BaseIntegerRepr -> void $ memoEltNonce synth (bvarId bvar) $ return $ do
-      Ref <$> B.inputTyped (Just $ B.Vector B.Integer)
+      Ref <$> B.inputTyped (Just $ B.Wire B.Plaintext)
     t -> error $ "Unsupported representation: " ++ show t
 
 -- | This is for handling a special case of inputs. Sometimes the parameters are
@@ -164,7 +164,7 @@ addBoundVar synth (Some bvar) = do
 -- their references.
 addConstantValue :: Synthesis t -> IO ()
 addConstantValue synth = void $ memoElt synth $ return $ do
-  Ref <$> B.inputTyped (Just $ B.Vector B.Integer)
+  Ref <$> B.inputTyped (Just $ B.Wire B.Plaintext)
 
 -- | Write an intermediate circuit state to a file as a circuit
 writeCircuit :: FilePath -> B.BuildSt -> IO ()
