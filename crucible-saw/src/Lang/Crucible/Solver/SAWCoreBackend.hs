@@ -29,6 +29,7 @@ import           Data.Ratio
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.Word(Word64)
+import qualified Data.Text as Text
 
 import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
@@ -423,7 +424,9 @@ evaluateElt sym sc cache = f
       case SB.bvarKind bv of
         SB.UninterpVarKind -> do
            tp <- baseSCType sc (SB.bvarType bv)
-           SAWElt <$> sawCreateVar sym "x" tp
+           -- SAWElt <$> sawCreateVar sym "x" tp
+           SAWElt <$> sawCreateVar sym nm tp
+             where nm = Text.unpack $ solverSymbolAsText $ SB.bvarName bv
         SB.LatchVarKind ->
           fail $ unwords ["SAW backend does not support latch variables"]
         SB.QuantifierVarKind ->
