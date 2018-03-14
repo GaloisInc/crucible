@@ -193,7 +193,7 @@ eval synth (BoundVarElt bvar) = do
       UninterpVarKind ->
         error "Uninterpreted variable that was not defined."
 eval synth (IntElt n _)   = buildStep synth $ do
-  constantRef <- B.constant n
+  constantRef <- B.constantType n (Just (B.Wire B.Integer))
   return (Ref constantRef)
 eval synth (AppElt a) = do
   memoEltNonce synth (eltId a) $ do
@@ -239,7 +239,7 @@ doApp synth ae = do
                            1  -> return [t']
                            -1 -> (:[]) <$> B.circNeg t'
                            -- Code below is for when we can support constants
-                           _ -> do c' <- B.constant (numerator c)
+                           _ -> do c' <- B.constantType (numerator c) (Just (B.Wire B.Integer))
                                    (:[]) <$> B.circMul c' t')
                      -- just a constant
                      -- TODO what's up with this error
