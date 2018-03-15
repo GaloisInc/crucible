@@ -20,6 +20,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Simulator.RegValue
   ( RegValue
   , CanMux(..)
@@ -31,6 +32,7 @@ module Lang.Crucible.Simulator.RegValue
     -- * Register values
   , AnyValue(..)
   , FnVal(..)
+  , fnValType
   , RolledType(..)
   , SomeInt(..)
   , SomeUInt(..)
@@ -67,7 +69,7 @@ import qualified Lang.Crucible.Utils.SymMultiDimArray as SMDA
 import           Lang.MATLAB.MultiDimArray (MultiDimArray)
 import qualified Lang.MATLAB.MultiDimArray as MDA
 
-import           Lang.Crucible.FunctionHandle (FnHandle, handleName, RefCell)
+import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.FunctionName
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Solver.Interface
@@ -125,9 +127,15 @@ closureFunctionName :: FnVal sym args res -> FunctionName
 closureFunctionName (ClosureFnVal c _ _) = closureFunctionName c
 closureFunctionName (HandleFnVal h) = handleName h
 
+fnValType :: FnVal sym args res -> TypeRepr (FunctionHandleType args res)
+fnValType (HandleFnVal h) = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
+fnValType (ClosureFnVal fn _ _) =
+  case fnValType fn of
+    FunctionHandleRepr (args Ctx.:> _) r -> FunctionHandleRepr args r
+    _ -> error "fnValType: impossible!"
+
 instance Show (FnVal sym a r) where
   show = show . closureFunctionName
-
 
 -- | Version of muxfn specialized to CanMux.
 type ValMuxFn sym tp = MuxFn (Pred sym) (RegValue sym tp)
