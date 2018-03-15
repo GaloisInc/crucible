@@ -29,9 +29,12 @@ import           Data.Foldable (toList)
 import           Data.IORef
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
+import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import qualified Data.Vector as V
+import           System.Directory
+import           System.FilePath
 
 import           Lang.Crucible.Config
 import qualified Lang.Crucible.Proto as P
@@ -45,8 +48,10 @@ import           Lang.Crucible.Server.Verification.Harness
 import           Lang.Crucible.Server.Verification.Override
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Simulator.ExecutionTree
+import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
+import           Lang.Crucible.Solver.Interface
 import qualified Lang.Crucible.Solver.SAWCoreBackend as SAW
 import qualified Lang.Crucible.Solver.SimpleBuilder as SB
 import           Lang.Crucible.Types
@@ -85,6 +90,7 @@ sawBackendRequests =
   { fulfillExportModelRequest = sawFulfillExportModelRequest
   , fulfillSymbolHandleRequest = sawFulfillSymbolHandleRequest
   , fulfillCompileVerificationOverrideRequest = sawFulfillCompileVerificationOverrideRequest
+  , fullfillSimulateVerificationHarnessRequest = sawFulfillSimulateVerificationHarnessRequest
   }
 
 
@@ -96,17 +102,108 @@ sawFulfillCompileVerificationOverrideRequest
 sawFulfillCompileVerificationOverrideRequest sim harness =
   do sc <- SAW.sawBackendSharedContext =<< getInterface sim
      cryEnv <- view (cruciblePersonality . sawServerCryptolEnv) <$> readIORef (simContext sim)
-     (cryEnv',harness') <- runM sc cryEnv $ processHarness harness
 
-     SomeHandle fnhandle <- verificationHarnessOverrideHandle sim cryEnv' harness'
-     let response = displayHarness (fmap snd harness')
-
+     (cryEnv',harness') <- processHarness sc cryEnv harness
      -- NB: we explicitly do not store the modified cryEnv' back into the simContext;
      -- the modifications to the environment produced by processing a harness are only
      -- scoped over the harness itself.
 
-     sendTextResponse sim response
-     sendPredefinedHandleResponse sim fnhandle
+     let addrWidth = verificationAddressWidth harness'
+     let regFileWidth = verificationRegFileWidth harness'
+
+     case someNat (toInteger regFileWidth) of
+       Just (Some rw) | Just LeqProof <- isPosNat rw ->
+         case someNat (toInteger addrWidth) of
+           Just (Some w) | Just LeqProof <- isPosNat w ->
+
+              do fnhandle <- verificationHarnessOverrideHandle sim rw w cryEnv' harness'
+                 let response = displayHarness (fmap snd harness')
+
+                 sendTextResponse sim response
+                 sendPredefinedHandleResponse sim fnhandle
+
+           _ -> fail ("Improper address width given for verification harness: " ++ show addrWidth)
+       _ -> fail ("Improper register file width given for verification harness: " ++ show regFileWidth)
+
+
+sawFulfillSimulateVerificationHarnessRequest ::
+  Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
+  P.VerificationHarness ->
+  P.VerificationSimulateOptions ->
+  IO ()
+sawFulfillSimulateVerificationHarnessRequest sim harness opts =
+  do sym <- getInterface sim
+     ctx <- readIORef (simContext sim)
+
+     -- clear any proof obligations that might be hanging around
+     SB.sbSetProofObligations sym mempty
+
+     sc <- SAW.sawBackendSharedContext sym
+     let cryEnv = ctx^.cruciblePersonality.sawServerCryptolEnv
+
+     (cryEnv', harness') <- processHarness sc cryEnv harness
+     -- NB: we explicitly do not store the modified cryEnv' back into the simContext;
+     -- the modifications to the environment produced by processing a harness are only
+     -- scoped over the harness itself.
+
+     let addrWidth = verificationAddressWidth harness'
+     let regFileWidth = verificationRegFileWidth harness'
+
+     case someNat (toInteger regFileWidth) of
+       Just (Some rw) | Just LeqProof <- isPosNat rw ->
+         case someNat (toInteger addrWidth) of
+           Just (Some w) | Just LeqProof <- isPosNat w ->
+             do pc  <- regValue <$> (checkedRegEntry (BVRepr w) =<< fromProtoValue sim (opts^.P.verificationSimulateOptions_start_pc))
+                sp  <- regValue <$> (checkedRegEntry (BVRepr w) =<< fromProtoValue sim (opts^.P.verificationSimulateOptions_start_stack))
+                ret <- regValue <$> (checkedRegEntry (BVRepr w) =<< fromProtoValue sim (opts^.P.verificationSimulateOptions_return_address))
+                fn  <- regValue <$> (checkedRegEntry (verifFnRepr rw w) =<< fromProtoValue sim (opts^.P.verificationSimulateOptions_program))
+
+                let simSt = initSimState ctx emptyGlobals (serverErrorHandler sim)
+
+                exec_res <- runOverrideSim simSt UnitRepr (simulateHarness sim rw w sc cryEnv' harness' pc sp ret fn)
+                case exec_res of
+                  FinishedExecution ctx' (TotalRes (GlobalPair _r _globals)) -> do
+                    writeIORef (simContext sim) $! ctx'
+                    handleProofObligations sim sym opts
+                  FinishedExecution ctx' (PartialRes _ (GlobalPair _r _globals) _) -> do
+                    writeIORef (simContext sim) $! ctx'
+                    handleProofObligations sim sym opts
+                  AbortedResult ctx' _ -> do
+                    writeIORef (simContext sim) $! ctx'
+                    sendCallAllAborted sim
+
+           _ -> fail ("Improper address width given for verification harness: " ++ show addrWidth)
+       _ -> fail ("Improper register file width given for verification harness: " ++ show regFileWidth)
+
+handleProofObligations ::
+  Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
+  SAW.SAWCoreBackend n ->
+  P.VerificationSimulateOptions ->
+  IO ()
+handleProofObligations sim sym opts =
+  do obls <- SB.sbGetProofObligations sym
+     SB.sbSetProofObligations sym mempty
+     dirPath <- makeAbsolute (Text.unpack (opts^.P.verificationSimulateOptions_output_directory))
+     createDirectoryIfMissing True dirPath
+     if opts^.P.verificationSimulateOptions_separate_obligations
+        then handleSeparateProofObligations sim sym dirPath obls
+        else handleSingleProofObligation sim sym dirPath obls
+
+handleSeparateProofObligations ::
+  Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
+  SAW.SAWCoreBackend n ->
+  FilePath ->
+  Seq (Seq (Pred (SAW.SAWCoreBackend n)), Assertion (Pred (SAW.SAWCoreBackend n))) ->
+  IO ()
+handleSeparateProofObligations sim sym dir obls = fail "FIXME!"
+
+handleSingleProofObligation ::
+  Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
+  SAW.SAWCoreBackend n ->
+  FilePath ->
+  Seq (Seq (Pred (SAW.SAWCoreBackend n)), Assertion (Pred (SAW.SAWCoreBackend n))) ->
+  IO ()
+handleSingleProofObligation sim sym dir obls = fail "FIXME!"
 
 
 sawFulfillExportModelRequest

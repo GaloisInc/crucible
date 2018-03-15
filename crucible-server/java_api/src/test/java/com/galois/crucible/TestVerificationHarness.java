@@ -49,7 +49,7 @@ public class TestVerificationHarness {
 
     @Test
     public void testVerificationHarness() throws Exception {
-        VerificationHarness harness = new VerificationHarness("testHarness", 64, Protos.Endianness.LittleEndian);
+        VerificationHarness harness = new VerificationHarness("testHarness", 14, 64, Protos.Endianness.LittleEndian);
         Protos.VariableReference constValue   = harness.prestate().addVar( "constValue", 64 );
         Protos.VariableReference testVar      = harness.prestate().addVar( "testVar", 16 );
         Protos.VariableReference testArray    = harness.prestate().addVar( "testArray", 100, 32 );

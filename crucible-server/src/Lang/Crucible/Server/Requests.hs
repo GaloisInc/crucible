@@ -533,6 +533,11 @@ handleOneRequest sim addlRequests request =
       let harness  = request^.P.request_verification_harness
       fulfillCompileVerificationOverrideRequest addlRequests sim harness
 
+    P.SimulateVerificationHarness -> do
+      let harness  = request^.P.request_verification_harness
+      let opts     = request^.P.request_verification_sim_options
+      fullfillSimulateVerificationHarnessRequest addlRequests sim harness opts
+
     P.ResumeSimulation -> do
       nyi "resumeSimulation"
     P.UseOverride -> do
@@ -558,6 +563,11 @@ data BackendSpecificRequests p sym
       , fulfillCompileVerificationOverrideRequest
          :: Simulator p sym
          -> P.VerificationHarness
+         -> IO ()
+      , fullfillSimulateVerificationHarnessRequest
+         :: Simulator p sym
+         -> P.VerificationHarness
+         -> P.VerificationSimulateOptions
          -> IO ()
       }
 

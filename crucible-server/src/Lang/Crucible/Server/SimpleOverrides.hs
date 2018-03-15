@@ -99,6 +99,7 @@ simpleBackendRequests =
   { fulfillExportModelRequest = sbFulfillExportModelRequest
   , fulfillSymbolHandleRequest = sbFulfillSymbolHandleRequest
   , fulfillCompileVerificationOverrideRequest = sbFulfillCompileVerificationOverrideRequest
+  , fullfillSimulateVerificationHarnessRequest = sbFulfillSimulateVerificationHarnessRequest
   }
 
 ------------------------------------------------------------------------
@@ -216,4 +217,9 @@ sbFulfillSymbolHandleRequest sim proto_tp = do
 sbFulfillCompileVerificationOverrideRequest
  :: IsSymInterface sym => Simulator p sym -> P.VerificationHarness -> IO ()
 sbFulfillCompileVerificationOverrideRequest _sim _harness =
-  fail "Thed 'simple' server backend does not support verification harnesses"
+  fail "The 'simple' server backend does not support verification harnesses"
+
+sbFulfillSimulateVerificationHarnessRequest
+ :: IsSymInterface sym => Simulator p sym -> P.VerificationHarness -> P.VerificationSimulateOptions -> IO ()
+sbFulfillSimulateVerificationHarnessRequest _sim _harness _opts =
+  fail "The 'simple' server backend does not support verification harnesses"

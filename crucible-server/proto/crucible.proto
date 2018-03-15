@@ -119,6 +119,9 @@ enum RequestCode {
   // value to set.
   SetConfigValue = 15;
 
+  // Request that the simulator use a verification harness to simulate some code.
+  SimulateVerificationHarness = 16;
+
   /////////////////////////////////////////////////////////////////////////////
   // Operations to get predefined handles.
 
@@ -212,13 +215,18 @@ message Request {
   optional string export_path = 13;
 
   // Verification harness to use for the CompileVerificationHarness
-  // request.
+  // request, or SimulateVerificationHarness request
   optional VerificationHarness verification_harness = 14;
 
   // Name of the configuration value being read or written by a
   // get or set option request
   optional string config_setting_name = 15;
+
+  // Additional options necessary to setup verification simulations and
+  // define what to do with the simulation products.
+  optional VerificationSimulateOptions verification_sim_options = 16;
 }
+
 
 ////////////////////////////////////////////////////////////////////////
 // Responses
@@ -1090,6 +1098,12 @@ message VerificationHarness {
 
   // Machine endianess
   optional Endianness endianness = 5;
+
+  // Register file width, in bits;
+  optional uint64 reg_file_width = 6;
+
+  // Optional function output term
+  optional string output_expr = 7;
 }
 
 // Code for indicating which byte-order to assume for verification harnesses
@@ -1173,4 +1187,33 @@ message VariableReference {
   // The name of the variable,
   // for references to user-defined variables
   optional string var_name = 2;
+}
+
+////////////////////////////////////////////////////////////////////////
+//
+// Additional data about setting up simulation and where to deposit
+// simulation results
+
+message VerificationSimulateOptions {
+  // Starting PC value for simulation
+  optional Value start_pc = 1;
+
+  // Starting stack pointer value for simulation
+  optional Value start_stack = 2;
+
+  // Return pointer value for simulation
+  optional Value return_address = 3;
+
+  // Function handle for the program to simulate
+  optional Value program = 4;
+
+  // Directory where to write output SAWCore terms
+  optional string output_directory = 5;
+
+  // Should we produce proof obligations for side-conditions and
+  // postconditions, etc?
+  // optional bool output_proof_obligations = 6;
+
+  // Shoule proof obligations be split into separate files?
+  optional bool separate_obligations = 7;
 }

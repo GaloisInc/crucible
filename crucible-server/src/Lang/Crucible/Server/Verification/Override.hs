@@ -19,16 +19,35 @@
 -- mode.
 ------------------------------------------------------------------------
 
-module Lang.Crucible.Server.Verification.Override where
+module Lang.Crucible.Server.Verification.Override
+  ( -- * High-level interface to harness overrides
+    VerifState
+  , verifStateRepr
+  , VerificationOverrideFnHandle
+  , verifFnRepr
+  , verificationHarnessOverrideHandle
+
+    -- * Low-level interface
+  , N
+  , Subst
+  , SubstTerm(..)
+  , termToSubstTerm
+  , computeVarTypes
+  , assertEquiv
+  , assumeEquiv
+  , computeVariableSubstitution
+  , phaseUpdate
+  , assumeConditions
+  , assertConditions
+  , simulateHarness
+  ) where
 
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Data.Foldable
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
---import           Data.Proxy
 import           Data.Word
---import           Numeric
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
@@ -41,8 +60,8 @@ import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.FunctionName
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Simulator.RegMap
---import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Simulator.OverrideSim
+import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
 
@@ -51,7 +70,6 @@ import qualified Lang.Crucible.Solver.SAWCoreBackend as SAW
 import qualified Verifier.SAW.Simulator.SBV as SBV (sbvSolveBasic, toWord)
 import qualified Data.SBV.Dynamic as SBV (svAsInteger)
 
---import           Verifier.SAW.Cryptol
 import           Verifier.SAW.Conversion
 import           Verifier.SAW.Rewriter
 import           Verifier.SAW.SharedTerm
@@ -64,71 +82,112 @@ import           Lang.Crucible.Server.Simulator
 import           Lang.Crucible.Server.Verification.Harness
 
 
-type VerifState w =
+type VerifState rw w =
   EmptyCtx ::>
-  WordMapType w (BaseBVType 8) ::> -- Register file
-  WordMapType w (BaseBVType 8) ::> -- Memory
-  BVType w                         -- PC
+  WordMapType rw (BaseBVType 8) ::> -- Register file
+  WordMapType w  (BaseBVType 8) ::> -- Memory
+  BVType w                          -- PC
 
-type VerificationOverrideFnHandle w =
-  FnHandle (VerifState w) (StructType (VerifState w))
+type VerificationOverrideFnHandle rw w =
+   FnHandle (VerifState rw w) (StructType (VerifState rw w))
 
-verifStateRepr :: (1 <= w) => NatRepr w -> CtxRepr (VerifState w)
-verifStateRepr w = Ctx.empty Ctx.:> WordMapRepr w knownRepr Ctx.:> WordMapRepr w knownRepr Ctx.:> BVRepr w
+verifStateRepr :: (1 <= w, 1 <= rw) => NatRepr rw -> NatRepr w -> CtxRepr (VerifState rw w)
+verifStateRepr rw w = Ctx.empty Ctx.:> WordMapRepr rw knownRepr Ctx.:> WordMapRepr w knownRepr Ctx.:> BVRepr w
 
+verifFnRepr :: (1 <= w, 1 <= rw) =>
+   NatRepr rw ->
+   NatRepr w ->
+   TypeRepr (FunctionHandleType (VerifState rw w) (StructType (VerifState rw w)))
+verifFnRepr rw w = FunctionHandleRepr (verifStateRepr rw w) (StructRepr (verifStateRepr rw w))
+
+-- | Given a processed harness, compute a verification override, bind it to
+--   a fresh function handle, and return that handle.  The address bus width
+--   and register file width are fixed by the given NatReprs.
 verificationHarnessOverrideHandle ::
+  (1 <= w, 1 <= rw) =>
   Simulator p (SAW.SAWCoreBackend n) ->
+  NatRepr rw ->
+  NatRepr w ->
   CryptolEnv ->
   ProcessedHarness ->
-  IO SomeHandle
-verificationHarnessOverrideHandle sim cryEnv harness =
+  IO (VerificationOverrideFnHandle rw w)
+verificationHarnessOverrideHandle sim rw w cryEnv harness =
   do sc <- SAW.sawBackendSharedContext =<< getInterface sim
      let nm = functionNameFromText (verificationOverrideName harness)
-     let addrWidth = verificationAddressWidth harness
-     case someNat (fromIntegral addrWidth) of
-       Just (Some w) | Just LeqProof <- isPosNat w ->
-         SomeHandle <$>
-            (simOverrideHandle sim (verifStateRepr w) (StructRepr (verifStateRepr w))
-              (mkOverride' nm (StructRepr (verifStateRepr w))
-                (verificationHarnessOverride sim w sc cryEnv harness)))
-       _ ->
-         fail ("Improper address width given for verification harness: " ++ show addrWidth)
+     simOverrideHandle sim (verifStateRepr rw w) (StructRepr (verifStateRepr rw w))
+           (mkOverride' nm (StructRepr (verifStateRepr rw w))
+              (verificationHarnessOverride sim rw w sc cryEnv harness))
 
-type N p n r w a =
-   OverrideSim p (SAW.SAWCoreBackend n) () r (VerifState w) (StructType (VerifState w)) a
+type N p n r args ret a =
+   OverrideSim p (SAW.SAWCoreBackend n) () r args ret a
 
+-- | Define the behavior of a verification override.  First, bind the values of all the
+--   verification harness variables from the prestate.
 verificationHarnessOverride ::
-   (1 <= w) =>
+   (1 <= w, 1 <= rw) =>
    Simulator p (SAW.SAWCoreBackend n) ->
+   NatRepr rw ->
    NatRepr w ->
    SharedContext ->
    CryptolEnv ->
    ProcessedHarness ->
-   N p n r w (RegValue (SAW.SAWCoreBackend n) (StructType (VerifState w)))
-verificationHarnessOverride sim w sc cryEnv harness =
+   N p n r (VerifState rw w) ret (RegValue (SAW.SAWCoreBackend n) (StructType (VerifState rw w)))
+verificationHarnessOverride sim rw w sc cryEnv harness =
    do args <- getOverrideArgs
       case args of
         RegMap (Ctx.Empty Ctx.:> (regValue -> regs) Ctx.:> (regValue -> mem) Ctx.:> (regValue -> _pc)) ->
-          do _sym <- getSymInterface
-             let prestateVarTypes = computeVarTypes Prestate harness
+          do let prestateVarTypes = computeVarTypes Prestate harness
              let poststateVarTypes = computeVarTypes Poststate harness `Map.union` prestateVarTypes
              let endianness = verificationEndianness harness
-             (sub,cryEnv') <- computeVariableSubstitution sim w sc endianness cryEnv
-                                       prestateVarTypes (verificationPrestate harness) regs mem
+             let sub0 = Map.empty
+             sym <- getSymInterface
 
-             (_,_,regs',mem') <- updatePoststate sim w sc poststateVarTypes endianness
-                                   (verificationPoststate harness) (sub,cryEnv',regs,mem)
+             (sub,cryEnv') <- computeVariableSubstitution sim sym rw w sc endianness cryEnv
+                                       prestateVarTypes (verificationPrestate harness) regs mem sub0
+             assertConditions sc cryEnv' (verificationPrestate harness)
 
-             pc' <- lookupWord w ReturnAddressVar sub
-             -- FIXME!! Update regs and memory
+             (_sub'',cryEnv'',regs',mem') <- phaseUpdate sim sym rw w sc poststateVarTypes endianness
+                                                (verificationPoststate harness) (sub,cryEnv',regs,mem)
+             assumeConditions sc cryEnv'' (verificationPoststate harness)
+
+             pc' <- lookupWord sym w ReturnAddressVar sub
              return (Ctx.Empty Ctx.:> RV regs' Ctx.:> RV mem' Ctx.:> RV pc')
 
         _ -> fail "Impossible! failed to deconstruct verification override arguments"
 
+assertConditions ::
+   SharedContext ->
+   CryptolEnv ->
+   VerificationPhase CT.Name TCExpr ->
+   N p n r args ret ()
+assertConditions sc cryEnv phase =
+   do sym <- getSymInterface
+      forM_ (toList (phaseConds phase)) $ \(tp, ex) -> liftIO $
+        do unless (CT.tIsBit tp) $ fail "Verification harness precondition does not have type 'Bit'"
+           tm <- translateExpr sc cryEnv ex
+           x  <- SAW.bindSAWTerm sym BaseBoolRepr tm
+           addAssertion sym x (AssertFailureSimError "Verification override precondition")
 
-updatePoststate ::
-   (1 <= w) =>
+
+assumeConditions ::
+   SharedContext ->
+   CryptolEnv ->
+   VerificationPhase CT.Name TCExpr ->
+   N p n r args ret ()
+assumeConditions sc cryEnv phase =
+   do sym <- getSymInterface
+      forM_ (toList (phaseConds phase)) $ \(tp, ex) -> liftIO $
+        do unless (CT.tIsBit tp) $ fail "Verification harness postcondition does not have type 'Bit'"
+           tm <- translateExpr sc cryEnv ex
+           x  <- SAW.bindSAWTerm sym BaseBoolRepr tm
+           addAssumption sym x
+
+
+phaseUpdate ::
+   (1 <= w, 1 <= rw) =>
    Simulator p (SAW.SAWCoreBackend n) ->
+   SAW.SAWCoreBackend n ->
+   NatRepr rw ->
    NatRepr w ->
    SharedContext ->
    Map (HarnessVar CT.Name) HarnessVarType ->
@@ -136,15 +195,16 @@ updatePoststate ::
    VerificationPhase CT.Name TCExpr ->
    ( Subst (SAW.SAWCoreBackend n)
    , CryptolEnv
-   , WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8)
+   , WordMap (SAW.SAWCoreBackend n) rw (BaseBVType 8)
    , WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8)
    ) ->
-   N p n r w ( Subst (SAW.SAWCoreBackend n)
-             , CryptolEnv
-             , WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8)
-             , WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8)
-             )
-updatePoststate sim w sc varTypes endianness phase = \x -> foldM go x (toList (phaseSetup phase))
+   N p n r args ret
+     ( Subst (SAW.SAWCoreBackend n)
+     , CryptolEnv
+     , WordMap (SAW.SAWCoreBackend n) rw (BaseBVType 8)
+     , WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8)
+     )
+phaseUpdate sim sym rw w sc varTypes endianness phase = \x -> foldM go x (toList (phaseSetup phase))
  where
 
   updateSub var tm x sub cryEnv regs mem =
@@ -160,12 +220,12 @@ updatePoststate sim w sc varTypes endianness phase = \x -> foldM go x (toList (p
       case Map.lookup var varTypes of
         Just htp ->
           do tm <- liftIO $ translateExpr sc cryEnv ex
-             x <- termToSubstTerm sc htp tm
+             x <- termToSubstTerm sym sc htp tm
              case Map.lookup var sub of
                Nothing ->
                  do updateSub var tm x sub cryEnv regs mem
                Just tm' ->
-                 do assumeEquiv htp tm tm'
+                 do assumeEquiv sym htp tm tm'
                     return (sub, cryEnv, regs, mem)
         Nothing ->
           fail (show (PP.text "Impossible! Unknown type for variable: " PP.<+> PP.pp var))
@@ -177,11 +237,11 @@ updatePoststate sim w sc varTypes endianness phase = \x -> foldM go x (toList (p
             Just tm' ->
               do Just (Some valSize) <- return (someNat (toInteger n))
                  Just LeqProof <- return (isPosNat valSize)
-                 bv <- substTermAsBV valSize tm'
-                 regs' <- writeReg sim w offset n endianness (SomeBV bv) regs
+                 bv <- substTermAsBV sym valSize tm'
+                 regs' <- writeReg sim rw offset n endianness (SomeBV bv) regs
                  return (sub,cryEnv,regs',mem)
             Nothing ->
-              fail (show (PP.text "No definition for poststate variable" PP.<+> PP.pp var PP.<+> PP.text "before assignment to register"))
+              fail (show (PP.text "No definition for variable" PP.<+> PP.pp var PP.<+> PP.text "before assignment to register"))
         Just (HarnessVarArray _ _ ) ->
            fail (show (PP.text "Cannot write array types to registers for variable: " PP.<+> PP.pp var))
         Nothing ->
@@ -194,14 +254,13 @@ updatePoststate sim w sc varTypes endianness phase = \x -> foldM go x (toList (p
             Just (HarnessVarWord n) ->
               case Map.lookup val sub of
                 Just valtm ->
-                   do sym <- getSymInterface
-                      baseAddr <- substTermAsBV w basetm
+                   do baseAddr <- substTermAsBV sym w basetm
                       off <- liftIO $ bvLit sym w (toInteger offset)
                       addr <- liftIO (bvAdd sym baseAddr off)
 
                       Just (Some x) <- return (someNat (toInteger n))
                       Just LeqProof <- return (isPosNat x)
-                      bv <- substTermAsBV x valtm
+                      bv <- substTermAsBV sym x valtm
                       mem' <- writeMap sim w addr n endianness (SomeBV bv) mem
                       return (sub,cryEnv,regs,mem')
 
@@ -214,13 +273,14 @@ updatePoststate sim w sc varTypes endianness phase = \x -> foldM go x (toList (p
 
 lookupWord ::
    (1 <= w) =>
+   SAW.SAWCoreBackend n ->
    NatRepr w ->
    HarnessVar CT.Name ->
    Subst (SAW.SAWCoreBackend n) ->
-   N p n r w (SymBV (SAW.SAWCoreBackend n) w)
-lookupWord w var sub =
+   N p n r args ret (SymBV (SAW.SAWCoreBackend n) w)
+lookupWord sym w var sub =
   case Map.lookup var sub of
-    Just subtm -> substTermAsBV w subtm
+    Just subtm -> substTermAsBV sym w subtm
     Nothing -> fail (show (PP.text "Undefined variable" PP.<+> PP.pp var))
 
 computeVarTypes ::
@@ -247,19 +307,22 @@ data SubstTerm sym where
 --  SubstArray :: (1 <= w) -> NatRepr w -> Seq (SymExpr sym (BaseBVType w)) -> SubstTerm sym
 
 computeVariableSubstitution ::
-   (1 <= w) =>
+   (1 <= rw, 1 <= w) =>
    Simulator p (SAW.SAWCoreBackend n) ->
+   SAW.SAWCoreBackend n ->
+   NatRepr rw ->
    NatRepr w ->
    SharedContext ->
    Endianness ->
    CryptolEnv ->
    Map (HarnessVar CT.Name) HarnessVarType ->
    VerificationPhase CT.Name TCExpr ->
+   WordMap (SAW.SAWCoreBackend n) rw (BaseBVType 8) ->
    WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8) ->
-   WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8) ->
-   N p n r w (Subst (SAW.SAWCoreBackend n), CryptolEnv)
-computeVariableSubstitution sim w sc endianness cryEnv0 varTypes phase regs mem =
-    foldM go (Map.empty, cryEnv0) (toList (phaseSetup phase))
+   Subst (SAW.SAWCoreBackend n) ->
+   N p n r args ret (Subst (SAW.SAWCoreBackend n), CryptolEnv)
+computeVariableSubstitution sim sym rw w sc endianness cryEnv0 varTypes phase regs mem sub0 =
+    foldM go (sub0, cryEnv0) (toList (phaseSetup phase))
 
   where
   updateSub var tm x sub cryEnv =
@@ -275,12 +338,12 @@ computeVariableSubstitution sim w sc endianness cryEnv0 varTypes phase regs mem 
       case Map.lookup var varTypes of
         Just htp ->
           do tm <- liftIO $ translateExpr sc cryEnv ex
-             x <- termToSubstTerm sc htp tm
+             x <- termToSubstTerm sym sc htp tm
              case Map.lookup var sub of
                Nothing ->
                  do updateSub var tm x sub cryEnv
                Just tm' ->
-                 do assertEquiv htp tm tm'
+                 do assertEquiv sym htp tm tm'
                     return (sub, cryEnv)
         Nothing ->
           fail (show (PP.text "Impossible! Unknown type for variable: " PP.<+> PP.pp var))
@@ -288,14 +351,13 @@ computeVariableSubstitution sim w sc endianness cryEnv0 varTypes phase regs mem 
     RegisterVal off var ->
       case Map.lookup var varTypes of
         Just (HarnessVarWord n) ->
-          do SomeBV x <- readReg sim w off n endianness regs
-             sym <- getSymInterface
+          do SomeBV x <- readReg sim rw off n endianness regs
              tm <- liftIO $ SAW.toSC sym x
              case Map.lookup var sub of
                Nothing ->
                  do updateSub var tm (SubstWord x) sub cryEnv
                Just tm' ->
-                 do assertEquiv (HarnessVarWord n) tm tm'
+                 do assertEquiv sym (HarnessVarWord n) tm tm'
                     return (sub,cryEnv)
 
         Just (HarnessVarArray _ _ ) ->
@@ -309,8 +371,7 @@ computeVariableSubstitution sim w sc endianness cryEnv0 varTypes phase regs mem 
           do -- FIXME check that base is actually a address pointer
              case Map.lookup base sub of
                Just basetm ->
-                    do sym <- getSymInterface
-                       baseAddr <- substTermAsBV w basetm
+                    do baseAddr <- substTermAsBV sym w basetm
                        off <- liftIO $ bvLit sym w (toInteger offset)
                        addr <- liftIO (bvAdd sym baseAddr off)
                        SomeBV x <- readMap sim w addr n endianness mem
@@ -319,7 +380,7 @@ computeVariableSubstitution sim w sc endianness cryEnv0 varTypes phase regs mem 
                          Nothing ->
                            do updateSub var tm (SubstWord x) sub cryEnv
                          Just tm' ->
-                           do assertEquiv (HarnessVarWord n) tm tm'
+                           do assertEquiv sym (HarnessVarWord n) tm tm'
                               return (sub,cryEnv)
 
                Nothing ->
@@ -332,13 +393,13 @@ computeVariableSubstitution sim w sc endianness cryEnv0 varTypes phase regs mem 
            fail (show (PP.text "Impossible! Unknown type for variable: " PP.<+> PP.pp var))
 
 termToSubstTerm ::
+   SAW.SAWCoreBackend n ->
    SharedContext ->
    HarnessVarType ->
    Term ->
-   N p n r w (SubstTerm (SAW.SAWCoreBackend n))
-termToSubstTerm sc (HarnessVarWord n) tm =
-  do sym <- getSymInterface
-     x <- liftIO $ termAsConcrete sc tm
+   N p n r args ret (SubstTerm (SAW.SAWCoreBackend n))
+termToSubstTerm sym sc (HarnessVarWord n) tm =
+  do x <- liftIO $ termAsConcrete sc tm
      case x of
        Just i  -> do Just (Some w) <- return (someNat (toInteger n))
                      Just LeqProof <- return (isPosNat w)
@@ -346,23 +407,22 @@ termToSubstTerm sc (HarnessVarWord n) tm =
                      return (SubstWord bv)
        Nothing -> return (SubstTerm tm)
 
--- FIXME?
-termToSubstTerm _ (HarnessVarArray _ _) tm = return (SubstTerm tm)
+-- FIXME? try to extract concrete values?
+termToSubstTerm _ _ (HarnessVarArray _ _) tm = return (SubstTerm tm)
 
 
 substTermAsBV ::
-   (1 <= x) =>
+   (1 <= x, MonadIO m) =>
+   SAW.SAWCoreBackend n ->
    NatRepr x ->
    SubstTerm (SAW.SAWCoreBackend n) ->
-   N p n r w (SymBV (SAW.SAWCoreBackend n) x)
-substTermAsBV w (SubstTerm tm) =
-   do sym <- getSymInterface
-      liftIO $ SAW.bindSAWTerm sym (BaseBVRepr w) tm
-substTermAsBV w (SubstWord x) =
+   m (SymBV (SAW.SAWCoreBackend n) x)
+substTermAsBV sym w (SubstTerm tm) =
+   do liftIO $ SAW.bindSAWTerm sym (BaseBVRepr w) tm
+substTermAsBV _sym w (SubstWord x) =
     case testEquality w (bvWidth x) of
       Just Refl -> return x
       Nothing -> fail ("BV width mismatch " ++ show (w,bvWidth x))
-
 
 -- Try to render the given SAWCore term, assumed to represent
 -- a bitvector, as a concrete value.
@@ -407,68 +467,68 @@ basic_ss sc = do
 
 
 readReg ::
-   (1 <= w) =>
+   (1 <= rw) =>
    Simulator p (SAW.SAWCoreBackend n) ->
-   NatRepr w ->
+   NatRepr rw ->
    Offset ->
    Word64 ->
    Endianness ->
-   WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8) ->
-   N p n r w (SomeBV (SAW.SAWCoreBackend n))
-readReg sim w offset size endianness regs =
+   WordMap (SAW.SAWCoreBackend n) rw (BaseBVType 8) ->
+   N p n r args ret (SomeBV (SAW.SAWCoreBackend n))
+readReg sim rw offset size endianness regs =
    do sym <- getSymInterface
-      addr <- liftIO $ bvLit sym w (toInteger offset)
-      readMap sim w addr size endianness regs
+      addr <- liftIO $ bvLit sym rw (toInteger offset)
+      readMap sim rw addr size endianness regs
 
 writeReg ::
-   (1 <= w) =>
+   (1 <= rw) =>
    Simulator p (SAW.SAWCoreBackend n) ->
-   NatRepr w ->
+   NatRepr rw ->
    Offset ->
    Word64 ->
    Endianness ->
    SomeBV (SAW.SAWCoreBackend n) ->
-   WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8) ->
-   N p n r w (WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8))
-writeReg sim w offset size endianness val regs =
+   WordMap (SAW.SAWCoreBackend n) rw (BaseBVType 8) ->
+   N p n r args ret (WordMap (SAW.SAWCoreBackend n) rw (BaseBVType 8))
+writeReg sim rw offset size endianness val regs =
   do sym <- getSymInterface
-     addr <- liftIO $ bvLit sym w (toInteger offset)
-     writeMap sim w addr size endianness val regs
+     addr <- liftIO $ bvLit sym rw (toInteger offset)
+     writeMap sim rw addr size endianness val regs
 
 writeMap ::
-   (1 <= w) =>
+   (1 <= x) =>
    Simulator p (SAW.SAWCoreBackend n) ->
-   NatRepr w ->
-   SymBV (SAW.SAWCoreBackend n) w ->
+   NatRepr x ->
+   SymBV (SAW.SAWCoreBackend n) x ->
    Word64 ->
    Endianness ->
    SomeBV (SAW.SAWCoreBackend n) ->
-   WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8) ->
-   N p n r w (WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8))
+   WordMap (SAW.SAWCoreBackend n) x (BaseBVType 8) ->
+   N p n r args ret (WordMap (SAW.SAWCoreBackend n) x (BaseBVType 8))
 
-writeMap sim w addr size endianness (SomeBV val) wordmap
+writeMap sim x addr size endianness (SomeBV val) wordmap
    | r == 0
    , Just (Some valWidth) <- (someNat (toInteger size))
    , Just Refl <- testEquality valWidth (bvWidth val)
    , Just LeqProof <- (isPosNat valWidth)
    =   do sym <- getSymInterface
           SomeHandle h <- liftIO $
-             getPredefinedHandle sim (MultiPartStoreHandle (fromIntegral (natValue w)) 8 (fromIntegral bytes)) $
-                SomeHandle <$> multipartStoreFn sim w (knownRepr :: NatRepr 8) valWidth (fromIntegral bytes)
+             getPredefinedHandle sim (MultiPartStoreHandle (fromIntegral (natValue x)) 8 (fromIntegral bytes)) $
+                SomeHandle <$> multipartStoreFn sim x (knownRepr :: NatRepr 8) valWidth (fromIntegral bytes)
           Just Refl <- return (testEquality
                           (handleArgTypes h)
                           (Ctx.Empty Ctx.:>
                            BoolRepr Ctx.:>
-                           BVRepr w Ctx.:>
+                           BVRepr x Ctx.:>
                            BVRepr valWidth Ctx.:>
-                           WordMapRepr w (BaseBVRepr (knownRepr :: NatRepr 8))))
+                           WordMapRepr x (BaseBVRepr (knownRepr :: NatRepr 8))))
           Just Refl <- return (testEquality (handleReturnType h)
-                           (WordMapRepr w (BaseBVRepr (knownRepr :: NatRepr 8))))
+                           (WordMapRepr x (BaseBVRepr (knownRepr :: NatRepr 8))))
           let endianBool = case endianness of BigEndian -> truePred sym; LittleEndian -> falsePred sym
           let args = Ctx.Empty Ctx.:> RegEntry knownRepr endianBool
-                               Ctx.:> RegEntry (BVRepr w) addr
+                               Ctx.:> RegEntry (BVRepr x) addr
                                Ctx.:> RegEntry (BVRepr valWidth) val
-                               Ctx.:> RegEntry (WordMapRepr w (BaseBVRepr knownRepr)) wordmap
+                               Ctx.:> RegEntry (WordMapRepr x (BaseBVRepr knownRepr)) wordmap
           regValue <$> callFnVal (HandleFnVal h) (RegMap args)
 
    | otherwise = fail ("Invalid arguments to writeMap")
@@ -476,36 +536,35 @@ writeMap sim w addr size endianness (SomeBV val) wordmap
    (bytes,r) = divMod size 8
 
 
-
 readMap ::
-   (1 <= w) =>
+   (1 <= x) =>
    Simulator p (SAW.SAWCoreBackend n) ->
-   NatRepr w ->
-   SymBV (SAW.SAWCoreBackend n) w ->
+   NatRepr x ->
+   SymBV (SAW.SAWCoreBackend n) x ->
    Word64 ->
    Endianness ->
-   WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8) ->
-   N p n r w (SomeBV (SAW.SAWCoreBackend n))
-readMap sim w addr size endianness wordmap
+   WordMap (SAW.SAWCoreBackend n) x (BaseBVType 8) ->
+   N p n r args ret (SomeBV (SAW.SAWCoreBackend n))
+readMap sim x addr size endianness wordmap
    | r == 0 =
        do sym <- getSymInterface
           Just (Some valWidth) <- return (someNat (toInteger size))
           Just LeqProof <- return (isPosNat valWidth)
           SomeHandle h <- liftIO $
-             getPredefinedHandle sim (MultiPartLoadHandle (fromIntegral (natValue w)) 8 (fromIntegral bytes)) $
-                SomeHandle <$> multipartLoadFn sim w (knownRepr :: NatRepr 8) valWidth (fromIntegral bytes)
+             getPredefinedHandle sim (MultiPartLoadHandle (fromIntegral (natValue x)) 8 (fromIntegral bytes)) $
+                SomeHandle <$> multipartLoadFn sim x (knownRepr :: NatRepr 8) valWidth (fromIntegral bytes)
           Just Refl <- return (testEquality
                           (handleArgTypes h)
                           (Ctx.Empty Ctx.:>
                            BoolRepr Ctx.:>
-                           BVRepr w Ctx.:>
-                           WordMapRepr w (BaseBVRepr (knownRepr :: NatRepr 8)) Ctx.:>
+                           BVRepr x Ctx.:>
+                           WordMapRepr x (BaseBVRepr (knownRepr :: NatRepr 8)) Ctx.:>
                            MaybeRepr (BVRepr (knownRepr :: NatRepr 8))))
           Just Refl <- return (testEquality (handleReturnType h) (BVRepr valWidth))
           let endianBool = case endianness of BigEndian -> truePred sym; LittleEndian -> falsePred sym
           let args = Ctx.Empty Ctx.:> RegEntry knownRepr endianBool
-                               Ctx.:> RegEntry (BVRepr w) addr
-                               Ctx.:> RegEntry (WordMapRepr w (BaseBVRepr knownRepr)) wordmap
+                               Ctx.:> RegEntry (BVRepr x) addr
+                               Ctx.:> RegEntry (WordMapRepr x (BaseBVRepr knownRepr)) wordmap
                                Ctx.:> RegEntry (MaybeRepr (BVRepr knownRepr)) Unassigned
           SomeBV . regValue <$> callFnVal (HandleFnVal h) (RegMap args)
 
@@ -569,22 +628,89 @@ wordMapLoad sym w n endianness num idx map
 -}
 
 assumeEquiv ::
+   MonadIO m =>
+   SAW.SAWCoreBackend n ->
    HarnessVarType ->
    Term ->
-   SubstTerm sym ->
-   N p n r w ()
-assumeEquiv _tp _tm _tm' =
-  do _sym <- getSymInterface
-     fail "FIXME! implement assumeEquiv"
+   SubstTerm (SAW.SAWCoreBackend n) ->
+   m ()
+assumeEquiv sym hvt tm subTm =
+     case hvt of
+       HarnessVarWord n
+         | Just (Some w) <- someNat (toInteger n)
+         , Just LeqProof <- isPosNat w
+         -> do tm' <- liftIO $ SAW.bindSAWTerm sym (BaseBVRepr w) tm
+               subTm' <- substTermAsBV sym w subTm
+               eq  <- liftIO $ bvEq sym tm' subTm'
+               liftIO $ addAssumption sym eq
+         | otherwise -> fail ("Invalid word width in assumeEquiv" ++ show n)
+
+       HarnessVarArray _elems _n ->
+         fail "FIXME assumeEquiv for arrays"
+
 
 assertEquiv ::
+   MonadIO m =>
+   SAW.SAWCoreBackend n ->
    HarnessVarType ->
    Term ->
-   SubstTerm sym ->
-   N p n r w ()
-assertEquiv _tp _tm _tm' =
-  do _sym <- getSymInterface
-     fail "FIXME! implement assertEquiv"
+   SubstTerm (SAW.SAWCoreBackend n) ->
+   m ()
+assertEquiv sym hvt tm subTm =
+     case hvt of
+       HarnessVarWord n
+         | Just (Some w) <- someNat (toInteger n)
+         , Just LeqProof <- isPosNat w
+         -> do tm' <- liftIO $ SAW.bindSAWTerm sym (BaseBVRepr w) tm
+               subTm' <- substTermAsBV sym w subTm
+               eq  <- liftIO $ bvEq sym tm' subTm'
+               liftIO $ addAssertion sym eq (AssertFailureSimError "Equality condition failed")
+         | otherwise -> fail ("Invalid word width in assertEquiv" ++ show n)
+
+       HarnessVarArray _elems _n ->
+         fail "FIXME assertEquiv for arrays"
+
+
+simulateHarness ::
+  (1 <= w, 1 <= rw) =>
+  Simulator p (SAW.SAWCoreBackend n) ->
+  NatRepr rw ->
+  NatRepr w ->
+  SharedContext ->
+  CryptolEnv ->
+  ProcessedHarness ->
+  SymBV (SAW.SAWCoreBackend n) w {- ^ PC -} ->
+  SymBV (SAW.SAWCoreBackend n) w {- ^ Stack pointer -} ->
+  SymBV (SAW.SAWCoreBackend n) w {- ^ Return address -} ->
+  FnVal (SAW.SAWCoreBackend n) (VerifState rw w) (StructType (VerifState rw w)) ->
+  OverrideSim p (SAW.SAWCoreBackend n) () r args ret ()
+simulateHarness sim rw w sc cryEnv harness pc stack ret fn =
+  do sym <- liftIO $ getInterface sim
+     let prestateVarTypes = computeVarTypes Prestate harness
+     let poststateVarTypes = computeVarTypes Poststate harness `Map.union` prestateVarTypes
+     let endianness = verificationEndianness harness
+     let sub0 = Map.fromList
+                  [ (StackPointerVar,  SubstWord stack)
+                  , (ReturnAddressVar, SubstWord ret)
+                  ]
+     regs0 <- liftIO $ emptyWordMap sym rw knownRepr
+     mem0  <- liftIO $ emptyWordMap sym w knownRepr
+     (sub, cryEnv', regs, mem) <- phaseUpdate sim sym rw w sc prestateVarTypes endianness
+                                      (verificationPrestate harness) (sub0,cryEnv,regs0,mem0)
+     assumeConditions sc cryEnv' (verificationPrestate harness)
+
+     res <- callFnVal' fn (Ctx.Empty Ctx.:> RV regs Ctx.:> RV mem Ctx.:> RV pc)
+
+     case res of
+        Ctx.Empty Ctx.:> RV regs' Ctx.:> RV mem' Ctx.:> RV _pc' ->
+          do (_sub', cryEnv'') <- computeVariableSubstitution sim sym rw w sc endianness cryEnv'
+                                    poststateVarTypes (verificationPoststate harness) regs' mem' sub
+             assertConditions sc cryEnv'' (verificationPoststate harness)
+
+             -- FIXME, ugh, it's annoying to deal with this...
+             --traverse (\x -> liftIO $ translateExpr sc cryEnv'' (snd x)) (verificationOutput harness)
+
+        _ -> fail "Impossible! failed to deconstruct verification result!"
 
 
 {-
