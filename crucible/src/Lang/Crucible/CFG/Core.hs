@@ -719,7 +719,7 @@ extendBlockMap = fmapFC extendBlock
 --
 -- The @blocks@ type parameter maps each block identifier to the
 -- formal arguments it expects.  The @init@ type parameter identifies
--- the formal arguments of the function represetned by this control-flow graph,
+-- the formal arguments of the function represented by this control-flow graph,
 -- which correspond to the formal arguments of the CFG entry point.
 -- The @ret@ type parameter indicates the return type of the function.
 data CFG (ext :: *)

@@ -16,22 +16,14 @@ library
   build-depends:
     abcBridge,
     aig,
-    ansi-wl-pprint,
     base >= 4.7 && < 4.11,
     containers,
     crucible >= 0.1,
-    cryptol-verifier,
-    directory,
-    galois-matlab,
     lens,
-    llvm-pretty,
-    mtl,
+    text,
     parameterized-utils,
     saw-core >= 0.1,
-    saw-core-aig,
-    text,
-    transformers,
-    vector
+    saw-core-aig
 
   hs-source-dirs: src
 
