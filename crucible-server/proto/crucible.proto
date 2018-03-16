@@ -708,28 +708,11 @@ enum CrucibleTypeId {
   // for each value it may contain.
   StructType = 19;
 
-  // A concrete positive integer.
-  IntWidthType = 20;
-  // A concrete non-negative integer.
-  UIntWidthType = 21;
+  // NB: There is deliberately a gap here in the numbering from 20-31
+  // where other, now unused, types used to be.
 
   // A parametric type mapping strings to partial values.
   StringMapType = 32;
-  // A MATLAB multi-dimensional array of values.  This expects a parameter with the type.
-  MultiDimArrayType = 22;
-
-  // A signed matlab int.
-  MatlabIntType = 23;
-  // An unsigned matlab int.
-  MatlabUIntType = 24;
-
-  // An array of signed Matlab bitvector integers.
-  MatlabIntArrayType = 25;
-  // An array of unsigned Matlab bitvector integers.
-  MatlabUIntArrayType = 26;
-
-  // A Matlab value
-  MatlabValueType = 27;
 
   // A WordMap, which is a finite partial map from bitvectors to values
   WordMapType = 34;
@@ -740,6 +723,7 @@ message CrucibleType {
   required CrucibleTypeId id = 1;
   // Width for bitvector type.
   optional uint64 width = 2;
+  // Type parameters, if any
   repeated CrucibleType param = 3;
 }
 

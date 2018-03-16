@@ -126,7 +126,7 @@ newSimulator sym p opts hdls request_handle response_handle = do
 
   let bindings = emptyHandleMap
   let extImpl :: ExtensionImpl p sym ()
-      extImpl = ExtensionImpl (\_sym _f x -> case x of) (\x -> case x of)
+      extImpl = ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x -> case x of)
 
   -- Create new context
   ctxRef <- newIORef $

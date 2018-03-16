@@ -210,27 +210,11 @@ fromProtoType tp = do
             _ -> error $ unwords ["Invalid word map type: ", show etp]
         _ -> error "Could not parse bitwidth."
 
-    P.IntWidthType  -> return $ Some IntWidthRepr
-    P.UIntWidthType -> return $ Some UIntWidthRepr
-
     P.StringMapType -> do
       when (Seq.length params /= 1) $ do
         fail $ "Expected single parameter to StringMapType"
       Some etp <- fromProtoType (params `Seq.index` 0)
       return $ Some $ StringMapRepr etp
-    P.MultiDimArrayType -> do
-      when (Seq.length params /= 1) $ do
-        fail $ "Expected single parameter to MultiDimArrayType"
-      Some etp <- fromProtoType (params `Seq.index` 0)
-      return $ Some $ MultiDimArrayRepr etp
-
-    P.MatlabIntType  -> return $ Some MatlabIntRepr
-    P.MatlabUIntType -> return $ Some MatlabUIntRepr
-
-    P.MatlabIntArrayType  -> return $ Some MatlabIntArrayRepr
-    P.MatlabUIntArrayType -> return $ Some MatlabUIntArrayRepr
-    P.MatlabValueType     ->
-      return $ Some (IntrinsicRepr (knownSymbol :: SymbolRepr "MatlabValue") Ctx.Empty)
 
 ------------------------------------------------------------------------
 -- Generating a protocol buffer type.
@@ -294,19 +278,7 @@ mkProtoType tpr =
 
     StructRepr ctx ->
       mkType P.StructType & setTypeParams (mkProtoTypeSeq ctx)
-    IntWidthRepr -> mkType P.IntWidthType
-    UIntWidthRepr -> mkType P.UIntWidthType
+
     StringMapRepr tp -> mkType1 P.StringMapType tp
-
-    MultiDimArrayRepr tp -> mkType1 P.MultiDimArrayType tp
-
-    MatlabIntRepr  -> mkType P.MatlabIntType
-    MatlabUIntRepr -> mkType P.MatlabUIntType
-
-    MatlabIntArrayRepr  -> mkType P.MatlabIntArrayType
-    MatlabUIntArrayRepr -> mkType P.MatlabUIntArrayType
-    IntrinsicRepr sym _ctx
-      | Just Refl <- testEquality sym (knownSymbol :: SymbolRepr "MatlabValue")
-      -> mkType P.MatlabValueType
 
     _ -> error $ unwords ["crucible-server: type not yet supported", show tpr]
