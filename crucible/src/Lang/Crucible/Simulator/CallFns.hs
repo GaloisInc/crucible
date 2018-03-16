@@ -192,8 +192,9 @@ evalExpr :: forall p sym ext ctx tp rtp blocks r
 evalExpr s (App a) = do
   let iteFns = stateIntrinsicTypes s
   let sym = stateSymInterface s
-  r <- evalApp sym iteFns (evalLogFn s)
-               (extensionEval (extensionImpl (s^.stateContext)) sym)
+  let logFn = evalLogFn s
+  r <- evalApp sym iteFns logFn
+               (extensionEval (extensionImpl (s^.stateContext)) sym iteFns logFn)
                (\r -> return $ evalReg s r)
                a
   return $! r
