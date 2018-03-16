@@ -1109,7 +1109,7 @@ type EvalStmtFunc p sym ext =
 
 data ExtensionImpl p sym ext
   = ExtensionImpl
-    { extensionEval :: IsSymInterface sym => sym -> EvalAppFunc sym (ExprExtension ext)
+    { extensionEval :: IsSymInterface sym => sym -> IntrinsicTypes sym -> (Int -> String -> IO ()) -> EvalAppFunc sym (ExprExtension ext)
     , extensionExec :: EvalStmtFunc p sym ext
     }
 

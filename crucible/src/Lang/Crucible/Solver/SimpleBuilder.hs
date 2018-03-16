@@ -3193,7 +3193,7 @@ semiRingLe sym sr x y
       leNonpos le y sym u v
 
       -- Simplify ite expressions when one of the values is ground.
-      -- This appears to occur fairly often in MATLAB due to range checks.
+      -- This appears to occur fairly often due to range checks.
     | isJust (asSemiRingLit x)
     , Just (SemiRingIte _sr yc y1 y2) <- asApp y
     , isJust (asSemiRingLit y1) || isJust (asSemiRingLit y2) = do
@@ -3202,7 +3202,7 @@ semiRingLe sym sr x y
       itePred sym yc c1 c2
 
       -- Simplify ite expressions when one of the values is ground.
-      -- This appears to occur fairly often in MATLAB due to range checks.
+      -- This appears to occur fairly often due to range checks.
     | isJust (asSemiRingLit y)
     , Just (SemiRingIte _sr xc x1 x2) <- asApp x
     , isJust (asSemiRingLit x1) || isJust (asSemiRingLit x2) = do

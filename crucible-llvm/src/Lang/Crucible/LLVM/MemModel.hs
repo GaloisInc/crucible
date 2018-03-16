@@ -134,7 +134,7 @@ instance IntrinsicClass sym "LLVM_memory" where
   -- This should be the case as memories are only supposed to allocate globals at
   -- startup, not during program execution.  We could check that the maps match,
   -- but that would be expensive...
-  muxIntrinsic _sym _nm _ p mem1 mem2 =
+  muxIntrinsic _sym _iTypes _nm _ p mem1 mem2 =
      do let MemImpl blockSource gMap1 hMap1 m1 = mem1
         let MemImpl _blockSource _gMap2 hMap2 m2 = mem2
         --putStrLn "MEM MERGE"
@@ -142,12 +142,12 @@ instance IntrinsicClass sym "LLVM_memory" where
                    (Map.union hMap1 hMap2)
                    (G.mergeMem p m1 m2)
 
-  pushBranchIntrinsic _sym _nm _ctx mem =
+  pushBranchIntrinsic _sym _iTypes _nm _ctx mem =
      do let MemImpl nxt gMap hMap m = mem
         --putStrLn "MEM PUSH BRANCH"
         return $ MemImpl nxt gMap hMap $ G.branchMem m
 
-  abortBranchIntrinsic _sym _nm _ctx mem =
+  abortBranchIntrinsic _sym _iTypes _nm _ctx mem =
      do let MemImpl nxt gMap hMap m = mem
         --putStrLn "MEM ABORT BRANCH"
         return $ MemImpl nxt gMap hMap $ G.branchAbortMem m
