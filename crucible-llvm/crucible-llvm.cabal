@@ -20,7 +20,6 @@ library
     crucible,
     deepseq,
     directory,
-    galois-matlab,
     ghc-prim,
     hashable,
     hashtables,
