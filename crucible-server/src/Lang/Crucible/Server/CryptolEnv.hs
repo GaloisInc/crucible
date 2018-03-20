@@ -556,7 +556,10 @@ defaultEvalOpts = E.EvalOpts quietLogger E.defaultPPOpts
 
 moduleCmdResult :: M.ModuleRes a -> IO (a, ME.ModuleEnv)
 moduleCmdResult (res, ws) = do
-  mapM_ (print . pp) ws
+  --mapM_ (print . pp) ws
   case res of
     Right (a, me) -> return (a, me)
-    Left err      -> fail $ "Cryptol error:\n" ++ show (pp err) -- X.throwIO (ModuleSystemError err)
+    Left err      ->
+      fail $ unlines (["Cryptol error:\n" ++ show (pp err)] ++ map (show . pp) ws)
+
+-- X.throwIO (ModuleSystemError err)
