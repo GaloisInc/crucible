@@ -97,7 +97,7 @@ checkedRegEntry :: (Monad m, HasTypeRepr f)
 checkedRegEntry tp (Some r) =
   case testEquality tp (getTypeRepr r) of
     Just Refl -> return r
-    Nothing -> fail "Unexpected type for protocol value."
+    Nothing -> fail $ unwords ["Unexpected type for protocol value. Expected", show tp, "but got", show (getTypeRepr r)]
 
 fromProtoValue :: IsSymInterface sym => Simulator p sym -> P.Value -> IO (Some (RegEntry sym))
 fromProtoValue sim v = do

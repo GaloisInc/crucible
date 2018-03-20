@@ -135,9 +135,6 @@ sawFulfillSimulateVerificationHarnessRequest sim harness opts =
   do sym <- getInterface sim
      ctx <- readIORef (simContext sim)
 
-     -- clear any proof obligations that might be hanging around
-     SB.sbSetProofObligations sym mempty
-
      sc <- SAW.sawBackendSharedContext sym
      let cryEnv = ctx^.cruciblePersonality.sawServerCryptolEnv
 
@@ -149,31 +146,35 @@ sawFulfillSimulateVerificationHarnessRequest sim harness opts =
      let addrWidth = verificationAddressWidth harness'
      let regFileWidth = verificationRegFileWidth harness'
 
-     case someNat (toInteger regFileWidth) of
-       Just (Some rw) | Just LeqProof <- isPosNat rw ->
-         case someNat (toInteger addrWidth) of
-           Just (Some w) | Just LeqProof <- isPosNat w ->
-             do pc  <- regValue <$> (checkedRegEntry (BVRepr w) =<< fromProtoValue sim (opts^.P.verificationSimulateOptions_start_pc))
-                sp  <- regValue <$> (checkedRegEntry (BVRepr w) =<< fromProtoValue sim (opts^.P.verificationSimulateOptions_start_stack))
-                ret <- regValue <$> (checkedRegEntry (BVRepr w) =<< fromProtoValue sim (opts^.P.verificationSimulateOptions_return_address))
-                fn  <- regValue <$> (checkedRegEntry (verifFnRepr rw w) =<< fromProtoValue sim (opts^.P.verificationSimulateOptions_program))
+     -- Clear all proof-management context and restore it afterwards
+     SAW.inFreshNamingContext sym $
+       case someNat (toInteger regFileWidth) of
+         Just (Some rw) | Just LeqProof <- isPosNat rw ->
+           case someNat (toInteger addrWidth) of
+             Just (Some w) | Just LeqProof <- isPosNat w ->
+               do pc  <- regValue <$> (checkedRegEntry (BVRepr w) =<< fromProtoValue sim (opts^.P.verificationSimulateOptions_start_pc))
+                  sp  <- regValue <$> (checkedRegEntry (BVRepr w) =<< fromProtoValue sim (opts^.P.verificationSimulateOptions_start_stack))
+                  ret <- regValue <$> (checkedRegEntry (BVRepr w) =<< fromProtoValue sim (opts^.P.verificationSimulateOptions_return_address))
+                  fn  <- regValue <$> (checkedRegEntry (verifFnRepr rw w) =<< fromProtoValue sim (opts^.P.verificationSimulateOptions_program))
 
-                let simSt = initSimState ctx emptyGlobals (serverErrorHandler sim)
+                  let simSt = initSimState ctx emptyGlobals (serverErrorHandler sim)
 
-                exec_res <- runOverrideSim simSt UnitRepr (simulateHarness sim rw w sc cryEnv' harness' pc sp ret fn)
-                case exec_res of
-                  FinishedExecution ctx' (TotalRes (GlobalPair _r _globals)) -> do
-                    writeIORef (simContext sim) $! ctx'
-                    handleProofObligations sim sym opts
-                  FinishedExecution ctx' (PartialRes _ (GlobalPair _r _globals) _) -> do
-                    writeIORef (simContext sim) $! ctx'
-                    handleProofObligations sim sym opts
-                  AbortedResult ctx' _ -> do
-                    writeIORef (simContext sim) $! ctx'
-                    sendCallAllAborted sim
+                  exec_res <- runOverrideSim simSt UnitRepr (simulateHarness sim rw w sc cryEnv' harness' pc sp ret fn)
 
-           _ -> fail ("Improper address width given for verification harness: " ++ show addrWidth)
-       _ -> fail ("Improper register file width given for verification harness: " ++ show regFileWidth)
+                  case exec_res of
+                    FinishedExecution ctx' (TotalRes (GlobalPair _r _globals)) -> do
+                      sendTextResponse sim "Finished!"
+                      writeIORef (simContext sim) $! ctx'
+                    FinishedExecution ctx' (PartialRes _ (GlobalPair _r _globals) _) -> do
+                      sendTextResponse sim "Finished, some paths aborted!"
+                      writeIORef (simContext sim) $! ctx'
+                    AbortedResult ctx' _ -> do
+                      sendTextResponse sim "All paths aborted!"
+                      writeIORef (simContext sim) $! ctx'
+                  handleProofObligations sim sym opts
+
+             _ -> fail ("Improper address width given for verification harness: " ++ show addrWidth)
+         _ -> fail ("Improper register file width given for verification harness: " ++ show regFileWidth)
 
 handleProofObligations ::
   Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
@@ -188,6 +189,7 @@ handleProofObligations sim sym opts =
      if opts^.P.verificationSimulateOptions_separate_obligations
         then handleSeparateProofObligations sim sym dirPath obls
         else handleSingleProofObligation sim sym dirPath obls
+     sendAckResponse sim
 
 handleSeparateProofObligations ::
   Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
@@ -195,7 +197,7 @@ handleSeparateProofObligations ::
   FilePath ->
   Seq (Seq (Pred (SAW.SAWCoreBackend n)), Assertion (Pred (SAW.SAWCoreBackend n))) ->
   IO ()
-handleSeparateProofObligations sim sym dir obls = fail "FIXME!"
+handleSeparateProofObligations sim sym dir obls = fail "FIXME separate proof obligations!"
 
 handleSingleProofObligation ::
   Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
@@ -203,8 +205,24 @@ handleSingleProofObligation ::
   FilePath ->
   Seq (Seq (Pred (SAW.SAWCoreBackend n)), Assertion (Pred (SAW.SAWCoreBackend n))) ->
   IO ()
-handleSingleProofObligation sim sym dir obls = fail "FIXME!"
+handleSingleProofObligation sim sym dir obls =
+  do createDirectoryIfMissing True {- create parents -} dir
+     preds <- mapM (sequentToSC sym) obls
+     totalPred <- andAllOf sym folded preds
+     sc <- SAW.sawBackendSharedContext sym
+     exts <- toList <$> SAW.getInputs sym
+     finalPred <- SAW.scAbstractExts sc exts =<< SAW.toSC sym totalPred
 
+     let fname = dir </> "obligations.saw"
+     writeFile fname (SAW.scWriteExternal finalPred)
+
+sequentToSC ::
+  SAW.SAWCoreBackend n ->
+  (Seq (Pred (SAW.SAWCoreBackend n)), Assertion (Pred (SAW.SAWCoreBackend n))) ->
+  IO (Pred (SAW.SAWCoreBackend n))
+sequentToSC sym (assumes, assert) =
+  do assume <- andAllOf sym folded assumes
+     impliesPred sym assume (assert^.assertPred)
 
 sawFulfillExportModelRequest
    :: forall p n

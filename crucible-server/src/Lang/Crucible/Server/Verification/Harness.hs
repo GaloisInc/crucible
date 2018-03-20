@@ -278,6 +278,9 @@ doProcessHarness rawHarness =
       let endianness = case rawHarness^.P.verificationHarness_endianness of
                            P.BigEndian -> BigEndian
                            P.LittleEndian -> LittleEndian
+
+      mapM_ loadCryptolSource (rawHarness^.P.verificationHarness_cryptol_sources)
+
       prestate  <- processPhase Prestate addrWidth endianness
                       (rawHarness^.P.verificationHarness_prestate_specification)
       poststate <- processPhase Poststate addrWidth endianness
@@ -294,6 +297,18 @@ doProcessHarness rawHarness =
              , verificationEndianness   = endianness
              , verificationOutput       = output
              }
+
+loadCryptolSource :: Text -> M ()
+loadCryptolSource fname =
+  do sc   <- ask
+     cenv <- get
+     let im = Import
+              { iModule = Left $ T.unpack fname
+              , iAs = Nothing
+              , iSpec = Nothing
+              }
+     cenv' <- io $ importModule sc cenv im
+     put cenv'
 
 displayHarness ::
    PP.PP id =>

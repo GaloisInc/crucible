@@ -105,6 +105,19 @@ public final class SAWSimulator extends Simulator {
     }
 
 
+    public synchronized void produceVerificationGoals( VerificationHarness harness, VerificationOptions verifOpts )
+        throws IOException
+    {
+        issueRequest( Protos.Request.newBuilder()
+                      .setCode(Protos.RequestCode.SimulateVerificationHarness)
+                      .setVerificationHarness(harness.getRep())
+                      .setVerificationSimOptions(verifOpts.getRep()) );
+
+        // Wait for the server to finish
+        getNextAckResponse();
+    }
+
+
     /**
      * This writes a SAWCore file representing the given sequence of
      * symbolic values.
@@ -125,6 +138,6 @@ public final class SAWSimulator extends Simulator {
         issueRequest(b);
 
         // Wait for the server to finish
-        Protos.CallResponse r = getNextCallResponse();
+        getNextAckResponse();
     }
 }

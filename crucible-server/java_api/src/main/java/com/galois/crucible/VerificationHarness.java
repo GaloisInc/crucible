@@ -109,6 +109,10 @@ public class VerificationHarness {
         this.innerPoststate = new StateSpecification( harness.getPoststateSpecificationBuilder() );
     }
 
+    public void addCryptolSource( String fname ) {
+        harness.addCryptolSource( fname );
+    }
+
     public Protos.VerificationHarness getRep() {
         return harness.build();
     }

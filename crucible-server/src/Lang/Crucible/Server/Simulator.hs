@@ -46,7 +46,6 @@ import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Nonce.Unsafe (indexValue)
 import           Data.Parameterized.Some
 
-import           Lang.Crucible.Config
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.FunctionName
 import           Lang.Crucible.ProgramLoc
@@ -104,23 +103,20 @@ getInterface sim = (^.ctxSymInterface) <$> getSimContext sim
 -- | Create a new Simulator interface
 newSimulator :: IsSymInterface sym
              => sym
+             -> SimConfig p sym
              -> p sym
-             -> [ConfigDesc (SimConfigMonad p sym)] -- ^ Options to use
              -> [Simulator p sym -> IO SomeHandle] -- ^ Predefined function handles to install
              -> Handle
                 -- ^ Handle for reading requests.
              -> Handle
                 -- ^ Handle for writing responses.
              -> IO (Simulator p sym)
-newSimulator sym p opts hdls request_handle response_handle = do
+newSimulator sym cfg p hdls request_handle response_handle = do
   let cb = OutputCallbacks { devCallback = \s -> do
                                sendPrintValue response_handle (decodeUtf8 s)
                            , devClose = return ()
                            }
   h <- mkCallbackOutputHandle "crucible-server" cb
-
-  let initVerbosity = 0
-  cfg <- initialConfig initVerbosity opts
 
   withHandleAllocator $ \halloc -> do
 

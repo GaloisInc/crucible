@@ -1088,6 +1088,9 @@ message VerificationHarness {
 
   // Optional function output term
   optional string output_expr = 7;
+
+  // Cryptol specification files
+  repeated string cryptol_source = 8;
 }
 
 // Code for indicating which byte-order to assume for verification harnesses

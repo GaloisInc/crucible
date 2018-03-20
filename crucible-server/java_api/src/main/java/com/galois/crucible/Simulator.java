@@ -97,7 +97,7 @@ public abstract class Simulator extends ValueCreator<SimulatorValue> {
             return;
         }
 
-        throw new IOException( "Expected simulator ACK response!" + r.toString() );
+        throw new IOException( "Expected simulator ACK response!\n" + r.toString() );
     }
 
     protected Protos.SimulatorValueResponse getNextSimulatorValueResponse() throws IOException {

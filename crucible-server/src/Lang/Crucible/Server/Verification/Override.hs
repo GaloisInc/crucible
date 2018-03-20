@@ -62,6 +62,7 @@ import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Solver.Symbol
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
 
@@ -84,15 +85,16 @@ import           Lang.Crucible.Server.Verification.Harness
 
 type VerifState rw w =
   EmptyCtx ::>
+  BVType w ::>                      -- PC
   WordMapType rw (BaseBVType 8) ::> -- Register file
-  WordMapType w  (BaseBVType 8) ::> -- Memory
-  BVType w                          -- PC
+  WordMapType w  (BaseBVType 8)     -- Memory
+
 
 type VerificationOverrideFnHandle rw w =
    FnHandle (VerifState rw w) (StructType (VerifState rw w))
 
 verifStateRepr :: (1 <= w, 1 <= rw) => NatRepr rw -> NatRepr w -> CtxRepr (VerifState rw w)
-verifStateRepr rw w = Ctx.empty Ctx.:> WordMapRepr rw knownRepr Ctx.:> WordMapRepr w knownRepr Ctx.:> BVRepr w
+verifStateRepr rw w = Ctx.empty Ctx.:> BVRepr w Ctx.:> WordMapRepr rw knownRepr Ctx.:> WordMapRepr w knownRepr 
 
 verifFnRepr :: (1 <= w, 1 <= rw) =>
    NatRepr rw ->
@@ -135,7 +137,7 @@ verificationHarnessOverride ::
 verificationHarnessOverride sim rw w sc cryEnv harness =
    do args <- getOverrideArgs
       case args of
-        RegMap (Ctx.Empty Ctx.:> (regValue -> regs) Ctx.:> (regValue -> mem) Ctx.:> (regValue -> _pc)) ->
+        RegMap (Ctx.Empty Ctx.:> (regValue -> _pc) Ctx.:> (regValue -> regs) Ctx.:> (regValue -> mem)) ->
           do let prestateVarTypes = computeVarTypes Prestate harness
              let poststateVarTypes = computeVarTypes Poststate harness `Map.union` prestateVarTypes
              let endianness = verificationEndianness harness
@@ -151,7 +153,7 @@ verificationHarnessOverride sim rw w sc cryEnv harness =
              assumeConditions sc cryEnv'' (verificationPoststate harness)
 
              pc' <- lookupWord sym w ReturnAddressVar sub
-             return (Ctx.Empty Ctx.:> RV regs' Ctx.:> RV mem' Ctx.:> RV pc')
+             return (Ctx.Empty Ctx.:> RV pc' Ctx.:> RV regs' Ctx.:> RV mem')
 
         _ -> fail "Impossible! failed to deconstruct verification override arguments"
 
@@ -241,7 +243,15 @@ phaseUpdate sim sym rw w sc varTypes endianness phase = \x -> foldM go x (toList
                  regs' <- writeReg sim rw offset n endianness (SomeBV bv) regs
                  return (sub,cryEnv,regs',mem)
             Nothing ->
-              fail (show (PP.text "No definition for variable" PP.<+> PP.pp var PP.<+> PP.text "before assignment to register"))
+              do Just (Some valSize) <- return (someNat (toInteger n))
+                 Just LeqProof <- return (isPosNat valSize)
+                 --Right smb <- return $ userSymbol (show (PP.pp var))
+                 let smb = emptySymbol
+                 bv <- liftIO $ freshConstant sym smb (BaseBVRepr valSize)
+                 tm <- liftIO $ SAW.toSC sym bv
+                 regs' <- writeReg sim rw offset n endianness (SomeBV bv) regs
+                 updateSub var tm (SubstWord bv) sub cryEnv regs' mem
+
         Just (HarnessVarArray _ _ ) ->
            fail (show (PP.text "Cannot write array types to registers for variable: " PP.<+> PP.pp var))
         Nothing ->
@@ -252,17 +262,23 @@ phaseUpdate sim sym rw w sc varTypes endianness phase = \x -> foldM go x (toList
         Just basetm ->
           case Map.lookup val varTypes of
             Just (HarnessVarWord n) ->
-              case Map.lookup val sub of
-                Just valtm ->
-                   do baseAddr <- substTermAsBV sym w basetm
-                      off <- liftIO $ bvLit sym w (toInteger offset)
-                      addr <- liftIO (bvAdd sym baseAddr off)
-
-                      Just (Some x) <- return (someNat (toInteger n))
-                      Just LeqProof <- return (isPosNat x)
-                      bv <- substTermAsBV sym x valtm
-                      mem' <- writeMap sim w addr n endianness (SomeBV bv) mem
-                      return (sub,cryEnv,regs,mem')
+              do baseAddr <- substTermAsBV sym w basetm
+                 off <- liftIO $ bvLit sym w (toInteger offset)
+                 addr <- liftIO (bvAdd sym baseAddr off)
+                 Just (Some x) <- return (someNat (toInteger n))
+                 Just LeqProof <- return (isPosNat x)
+                 case Map.lookup val sub of
+                   Just valtm ->
+                     do bv <- substTermAsBV sym x valtm
+                        mem' <- writeMap sim w addr n endianness (SomeBV bv) mem
+                        return (sub,cryEnv,regs,mem')
+                   Nothing ->
+                     do --Right smb <- return $ userSymbol (show (PP.pp val))
+                        let smb = emptySymbol
+                        bv <- liftIO $ freshConstant sym smb (BaseBVRepr x)
+                        tm <- liftIO $ SAW.toSC sym bv
+                        mem' <- writeMap sim w addr n endianness (SomeBV bv) mem
+                        updateSub val tm (SubstWord bv) sub cryEnv regs mem'
 
             Just (HarnessVarArray _ _) ->
               fail (show (PP.text "FIXME! Implement array memory writes!: " PP.<+> PP.pp val))
@@ -699,12 +715,14 @@ simulateHarness sim rw w sc cryEnv harness pc stack ret fn =
                                       (verificationPrestate harness) (sub0,cryEnv,regs0,mem0)
      assumeConditions sc cryEnv' (verificationPrestate harness)
 
-     res <- callFnVal' fn (Ctx.Empty Ctx.:> RV regs Ctx.:> RV mem Ctx.:> RV pc)
+
+     res <- callFnVal' fn (Ctx.Empty Ctx.:> RV pc Ctx.:> RV regs Ctx.:> RV mem)
 
      case res of
-        Ctx.Empty Ctx.:> RV regs' Ctx.:> RV mem' Ctx.:> RV _pc' ->
+        Ctx.Empty Ctx.:> RV _pc' Ctx.:> RV regs' Ctx.:> RV mem' ->
           do (_sub', cryEnv'') <- computeVariableSubstitution sim sym rw w sc endianness cryEnv'
                                     poststateVarTypes (verificationPoststate harness) regs' mem' sub
+
              assertConditions sc cryEnv'' (verificationPoststate harness)
 
              -- FIXME, ugh, it's annoying to deal with this...
