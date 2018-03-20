@@ -17,7 +17,7 @@
 
 module Lang.Crucible.Solver.SAWCoreBackend where
 
-import           Control.Exception ( assert, throw )
+import           Control.Exception ( assert, throw, bracket )
 import           Control.Lens
 import           Control.Monad
 import           Data.IORef
@@ -68,7 +68,7 @@ data SAWCoreState n
     , saw_elt_cache :: SB.IdxCache n SAWElt
     , saw_assertions  :: Seq (Assertion (Pred (SAWCoreBackend n)))
     , saw_obligations :: Seq (Seq (Pred (SAWCoreBackend n)), Assertion (Pred (SAWCoreBackend n)))
-    , saw_config    :: SimConfig SAWCruciblePersonality (SAWCoreBackend n)
+    , saw_config    :: forall a. ConfigOption a -> IO a
     }
 
 sawCheckPathSat :: ConfigOption Bool
@@ -91,6 +91,46 @@ data SAWElt (bt :: BaseType) where
   NatToIntSAWElt :: !(SAWElt BaseNatType) -> SAWElt BaseIntegerType
 
 type SAWCoreBackend n = SB.SimpleBuilder n SAWCoreState
+
+
+-- | Run the given IO action with the given SAW backend.
+--   While while running the action, the SAW backend is
+--   set up with a fresh naming context.  This means that all
+--   symbolic inputs, symMap entries, element cache entires,
+--   assertions and proof obligations start empty while
+--   running the action.  After the action completes, the 
+--   state of these fields is restored.
+inFreshNamingContext :: SAWCoreBackend n -> IO a -> IO a
+inFreshNamingContext sym f =
+  do old <- readIORef (SB.sbStateManager sym)
+     bracket (mkNew old) (restore old) action
+
+ where
+ action new =
+   do writeIORef (SB.sbStateManager sym) new
+      f
+
+ restore old _new =
+   do writeIORef (SB.sbStateManager sym) old
+
+ mkNew old =
+   do ch <- SB.newIdxCache
+      iref <- newIORef mempty
+      let new = SAWCoreState
+                { saw_ctx = saw_ctx old
+                , saw_inputs = iref
+                , saw_symMap = mempty
+                , saw_elt_cache = ch
+                , saw_assertions = mempty
+                , saw_obligations = mempty
+                , saw_config = saw_config old
+                }
+      return new
+
+getInputs :: SAWCoreBackend n -> IO (Seq (SC.ExtCns SC.Term))
+getInputs sym =
+  do st <- readIORef (SB.sbStateManager sym)
+     readIORef (saw_inputs st)
 
 baseSCType :: SC.SharedContext -> BaseTypeRepr tp -> IO SC.Term
 baseSCType ctx bt =
@@ -137,7 +177,7 @@ bindSAWTerm sym bt t = do
 newSAWCoreBackend ::
   SC.SharedContext ->
   NonceGenerator IO s ->
-  SimConfig SAWCruciblePersonality (SAWCoreBackend s) ->
+  SimConfig p (SAWCoreBackend s) ->
   IO (SAWCoreBackend s)
 newSAWCoreBackend sc gen cfg = do
   inpr <- newIORef Seq.empty
@@ -149,7 +189,7 @@ newSAWCoreBackend sc gen cfg = do
               , saw_elt_cache = ch
               , saw_assertions = Seq.empty
               , saw_obligations = Seq.empty
-              , saw_config = cfg
+              , saw_config = \opt -> getConfigValue opt cfg
               }
   SB.newSimpleBuilder st gen
 
@@ -170,15 +210,6 @@ sawBackendSharedContext :: SAWCoreBackend n -> IO SC.SharedContext
 sawBackendSharedContext sym =
   saw_ctx <$> readIORef (SB.sbStateManager sym)
 
--- | Run a computation with a fresh SAWCoreBackend, in the context of the
---   given module.
-withSAWCoreBackend :: SC.Module -> (forall n. SAWCoreBackend n -> IO a) -> IO a
-withSAWCoreBackend md f = do
-  withIONonceGenerator $ \gen -> do
-    cfg <- initialConfig 0 []
-    sc   <- SC.mkSharedContext md
-    sym  <- newSAWCoreBackend sc gen cfg
-    f sym
 
 toSC :: SAWCoreBackend n -> SB.Elt n tp -> IO SC.Term
 toSC sym elt = do
@@ -723,10 +754,9 @@ checkSatisfiable :: SAWCoreBackend n
                  -> IO (SatResult ())
 checkSatisfiable sym p = do
   mgr <- readIORef (SB.sbStateManager sym)
-  let cfg = saw_config mgr
-      sc = saw_ctx mgr
+  let sc = saw_ctx mgr
       cache = saw_elt_cache mgr
-  enabled <- getConfigValue sawCheckPathSat cfg
+  enabled <- saw_config mgr sawCheckPathSat
   case enabled of
     True -> do
       t <- evaluateElt sym sc cache p
