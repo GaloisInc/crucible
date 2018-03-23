@@ -60,7 +60,7 @@ showCryptolModule (CryptolModule sm tm) =
        "Type Synonyms" : "=============" : map showTSyn (Map.elems sm) ++ [""]) ++
     "Symbols" : "=======" : map showBinding (Map.assocs tm)
   where
-    showTSyn (C.TySyn name params _props rhs) =
+    showTSyn (C.TySyn name params _props rhs _doc) =
       "    " ++ unwords (pretty (nameIdent name) : map pretty params) ++ " = " ++ pretty rhs
     showBinding (name, TypedTerm schema _) =
       "    " ++ pretty (nameIdent name) ++ " : " ++ pretty schema

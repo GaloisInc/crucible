@@ -1,5 +1,5 @@
 Name:          crucible
-Version:       0.3.1
+Version:       0.3.2
 Author:        Galois Inc.
 Maintainer:    jhendrix@galois.com, rdockins@galois.com
 Copyright:     (c) Galois, Inc 2014-2017
@@ -37,7 +37,6 @@ library
     directory,
     fgl,
     filepath,
-    galois-matlab,
     hashable,
     hashtables,
     io-streams,
@@ -92,7 +91,6 @@ library
     Lang.Crucible.Simulator.OverrideSim
     Lang.Crucible.Simulator.RegMap
     Lang.Crucible.Simulator.RegValue
-    Lang.Crucible.Simulator.VarRecord
     Lang.Crucible.Simulator.SimError
     Lang.Crucible.Simulator.Utils.Environment
     Lang.Crucible.Solver.Adapter
@@ -132,18 +130,20 @@ library
     Lang.Crucible.Utils.BVDomain.Map
     Lang.Crucible.Utils.Complex
     Lang.Crucible.Utils.CoreRewrite
+    Lang.Crucible.Utils.Endian
     Lang.Crucible.Utils.Hashable
     Lang.Crucible.Utils.LeqMap
     Lang.Crucible.Utils.MonadST
     Lang.Crucible.Utils.MonadVerbosity
     Lang.Crucible.Utils.OnlyNatRepr
+    Lang.Crucible.Utils.PrettyPrint
     Lang.Crucible.Utils.SExp
     Lang.Crucible.Utils.StateContT
     Lang.Crucible.Utils.Streams
     Lang.Crucible.Utils.Structural
-    Lang.Crucible.Utils.SymMultiDimArray
     Lang.Crucible.Utils.UnaryBV
-    Lang.Crucible.Utils.Endian
+
+
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top

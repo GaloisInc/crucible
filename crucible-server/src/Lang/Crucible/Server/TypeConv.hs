@@ -66,7 +66,10 @@ fromProtoPos p =
           addr = p^.P.position_addr
           nm   = p^.P.position_functionName
        in mkProgramLoc (functionNameFromText nm) $ BinaryPos path addr
-
+    P.OtherPos ->
+      let str  = p^.P.position_value
+          nm   = p^.P.position_functionName
+       in mkProgramLoc (functionNameFromText nm) $ OtherPos str
 
 toProtoPos :: ProgramLoc -> P.Position
 toProtoPos pl =
@@ -85,6 +88,9 @@ toProtoPos pl =
              & P.position_path .~ path
              & P.position_addr .~ fromIntegral addr
              & P.position_functionName .~ functionName (plFunction pl)
+    OtherPos str ->
+      mempty & P.position_code  .~ P.OtherPos
+             & P.position_value .~ str
 
 ------------------------------------------------------------------------
 -- Type conversion
@@ -130,7 +136,7 @@ fromProtoTypeSeq s0 = do
     s Seq.:> tp -> do
       Some ctx <- fromProtoTypeSeq s
       Some rep <- fromProtoType tp
-      return $ Some $ ctx Ctx.%> rep
+      return $ Some $ ctx Ctx.:> rep
 
 fromProtoType :: Monad m => P.CrucibleType -> m (Some TypeRepr)
 fromProtoType tp = do
@@ -204,27 +210,11 @@ fromProtoType tp = do
             _ -> error $ unwords ["Invalid word map type: ", show etp]
         _ -> error "Could not parse bitwidth."
 
-    P.IntWidthType  -> return $ Some IntWidthRepr
-    P.UIntWidthType -> return $ Some UIntWidthRepr
-
     P.StringMapType -> do
       when (Seq.length params /= 1) $ do
         fail $ "Expected single parameter to StringMapType"
       Some etp <- fromProtoType (params `Seq.index` 0)
       return $ Some $ StringMapRepr etp
-    P.MultiDimArrayType -> do
-      when (Seq.length params /= 1) $ do
-        fail $ "Expected single parameter to MultiDimArrayType"
-      Some etp <- fromProtoType (params `Seq.index` 0)
-      return $ Some $ MultiDimArrayRepr etp
-
-    P.MatlabIntType  -> return $ Some MatlabIntRepr
-    P.MatlabUIntType -> return $ Some MatlabUIntRepr
-
-    P.MatlabIntArrayType  -> return $ Some MatlabIntArrayRepr
-    P.MatlabUIntArrayType -> return $ Some MatlabUIntArrayRepr
-    P.MatlabValueType     ->
-      return $ Some (IntrinsicRepr (knownSymbol :: SymbolRepr "MatlabValue"))
 
 ------------------------------------------------------------------------
 -- Generating a protocol buffer type.
@@ -240,7 +230,7 @@ setTypeParams params = P.crucibleType_params .~ params
 
 ctxReprToSeq :: CtxRepr ctx -> Seq (Some TypeRepr)
 ctxReprToSeq c =
-  case Ctx.view c of
+  case Ctx.viewAssign c of
     Ctx.AssignEmpty -> Seq.empty
     Ctx.AssignExtend ctx r -> ctxReprToSeq ctx Seq.|> Some r
 
@@ -288,19 +278,7 @@ mkProtoType tpr =
 
     StructRepr ctx ->
       mkType P.StructType & setTypeParams (mkProtoTypeSeq ctx)
-    IntWidthRepr -> mkType P.IntWidthType
-    UIntWidthRepr -> mkType P.UIntWidthType
+
     StringMapRepr tp -> mkType1 P.StringMapType tp
-
-    MultiDimArrayRepr tp -> mkType1 P.MultiDimArrayType tp
-
-    MatlabIntRepr  -> mkType P.MatlabIntType
-    MatlabUIntRepr -> mkType P.MatlabUIntType
-
-    MatlabIntArrayRepr  -> mkType P.MatlabIntArrayType
-    MatlabUIntArrayRepr -> mkType P.MatlabUIntArrayType
-    IntrinsicRepr sym
-      | Just Refl <- testEquality sym (knownSymbol :: SymbolRepr "MatlabValue")
-      -> mkType P.MatlabValueType
 
     _ -> error $ unwords ["crucible-server: type not yet supported", show tpr]

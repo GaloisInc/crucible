@@ -26,12 +26,14 @@ import           Data.Parameterized.Nonce
 import           Lang.Crucible.Solver.SimpleBackend
 import qualified Lang.Crucible.Solver.SAWCoreBackend as SAW
 
+import           Lang.Crucible.Config
 import qualified Lang.Crucible.Proto as P
 import           Lang.Crucible.Server.Requests
 import           Lang.Crucible.Server.Simulator
 import           Lang.Crucible.Server.SAWOverrides
 import           Lang.Crucible.Server.SimpleOverrides
 
+import qualified Verifier.SAW.SharedTerm as SAW
 import qualified Verifier.SAW.TypedAST as SAW
 import qualified Verifier.SAW.Prelude as SAW
 import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
@@ -84,13 +86,15 @@ runSAWSimulator hin hout =
                SAW.emptyModule (SAW.mkModuleName ["CryptolServer"])
      let ok_resp = mempty
                    & P.handShakeResponse_code .~ P.HandShakeOK
-     SAW.withSAWCoreBackend scm $ \(sym :: SAW.SAWCoreBackend n) ->
-       do sawState <- initSAWServerPersonality sym
-          s <- newSimulator sym sawState [] [] hin hout
-
-          putDelimited hout ok_resp
-          -- Enter loop to start reading commands.
-          fulfillRequests s sawBackendRequests
+     withIONonceGenerator $ \gen -> do
+       cfg <- initialConfig 0 sawServerOptions
+       sc <- SAW.mkSharedContext scm
+       sym <- SAW.newSAWCoreBackend sc gen cfg
+       sawState <- initSAWServerPersonality sym
+       s <- newSimulator sym cfg sawState sawServerOverrides hin hout
+       putDelimited hout ok_resp
+       -- Enter loop to start reading commands.
+       fulfillRequests s sawBackendRequests
 
 runSimpleSimulator :: Handle -> Handle -> IO ()
 runSimpleSimulator hin hout = do
@@ -98,7 +102,8 @@ runSimpleSimulator hin hout = do
     let ok_resp = mempty
                   & P.handShakeResponse_code .~ P.HandShakeOK
     sym <- newSimpleBackend gen
-    s <- newSimulator sym CrucibleServerPersonality simpleServerOptions simpleServerOverrides hin hout
+    cfg <- initialConfig 0 simpleServerOptions
+    s <- newSimulator sym cfg CrucibleServerPersonality simpleServerOverrides hin hout
     -- Enter loop to start reading commands.
     putDelimited hout ok_resp
     fulfillRequests s simpleBackendRequests

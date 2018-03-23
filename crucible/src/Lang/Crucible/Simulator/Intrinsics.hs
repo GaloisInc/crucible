@@ -66,25 +66,28 @@ class IntrinsicClass (sym :: *) (nm :: GHC.TypeLits.Symbol) where
   --   abort or mux call.
   pushBranchIntrinsic
                :: sym
+               -> IntrinsicTypes sym
                -> SymbolRepr nm
                -> CtxRepr ctx
                -> Intrinsic sym nm ctx
                -> IO (Intrinsic sym nm ctx)
-  pushBranchIntrinsic _ _ _ = return
+  pushBranchIntrinsic _ _ _ _ = return
 
   -- | The abort branch function is called when an intrinsic value
   --   reaches a merge point, but the sibling branch has aborted.
   abortBranchIntrinsic
                :: sym
+               -> IntrinsicTypes sym
                -> SymbolRepr nm
                -> CtxRepr ctx
                -> Intrinsic sym nm ctx
                -> IO (Intrinsic sym nm ctx)
-  abortBranchIntrinsic _ _ _ = return
+  abortBranchIntrinsic _ _ _ _ = return
 
   -- | The `muxIntrinsic` method defines the if-then-else operation that is used
   --   when paths are merged in the simulator and intrinsic types need to be used.
   muxIntrinsic :: sym
+               -> IntrinsicTypes sym
                -> SymbolRepr nm
                -> CtxRepr ctx
                -> Pred sym

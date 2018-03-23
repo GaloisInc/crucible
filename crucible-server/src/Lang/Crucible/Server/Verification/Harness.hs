@@ -1,7 +1,13 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE PatternGuards #-}
-
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 -----------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.Server.Verification.Harness
@@ -13,7 +19,25 @@
 -- Support for manipulating compositional verification harnesses.
 ------------------------------------------------------------------------
 
-module Lang.Crucible.Server.Verification.Harness where
+module Lang.Crucible.Server.Verification.Harness
+  ( -- * Verification Harness data types
+    Offset
+  , HarnessVarType(..)
+  , harnessToCryptolType
+  , HarnessVarDecl(..)
+  , HarnessVar(..)
+  , Phase(..)
+  , VerificationSetupStep(..)
+  , VerificationPhase(..)
+  , Endianness(..)
+  , VerificationHarness(..)
+  , displayHarness
+
+    -- * Parsing and preparing verification harnesses
+  , ProcessedHarness
+  , TCExpr
+  , processHarness
+  ) where
 
 import           Control.Exception
 import           Control.Lens
@@ -30,7 +54,6 @@ import qualified Data.Sequence as Seq
 import           Data.String
 import           Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Lazy as LT
 import           Data.Tuple
 import           Data.Word
 
@@ -54,6 +77,7 @@ import           Lang.Crucible.Server.CryptolEnv
 
 type Offset = Word64
 
+-- | The types of values that can be involved in a verification harness
 data HarnessVarType
   = HarnessVarWord Word64
     -- ^ A bitvector variable, with the given width.
@@ -63,6 +87,8 @@ data HarnessVarType
     --   with the given number of elements and word width.
     --   INVARIANT: the width is a multple of 8.
 
+-- | Compute the Cryptol type that corresponds to the given
+--   harness type.
 harnessToCryptolType :: HarnessVarType -> CT.Type
 harnessToCryptolType (HarnessVarWord n) =
     CT.tWord (CT.tNum n)
@@ -72,6 +98,8 @@ harnessToCryptolType (HarnessVarArray elems n) =
 instance PP.PP HarnessVarType where
   ppPrec i = PP.ppPrec i . harnessToCryptolType
 
+-- | A harness variable declaration, consisting of an identifier
+--   and a harness type.
 data HarnessVarDecl id
   = HarnessVarDecl
   { harnessVarIdent :: id
@@ -81,6 +109,8 @@ data HarnessVarDecl id
 instance PP.PP id => PP.PP (HarnessVarDecl id) where
   ppPrec _i x = PP.pp (harnessVarIdent x) PP.<+> PP.text "::" PP.<+> PP.pp (harnessVarType x)
 
+
+-- | A variable that can appear in harness setup steps.
 data HarnessVar id
   = CryptolVar id
     -- ^ A user-declared variable
@@ -99,12 +129,27 @@ instance PP.PP id => PP.PP (HarnessVar id) where
        ReturnAddressVar -> PP.text "return"
        StackPointerVar  -> PP.text "stack"
 
+-- | Verification setup steps capture the steps that are necessary
+--   to setup/check the state of registers and memory before/after
+--   running a verification, or when using a specification as an override.
+--
+--   Each of the setup steps below cause a harness variable to be set to
+--   a particular value.  The semantics of this are such that, if the variable
+--   is already set to some value, an equality constraint is generated to state
+--   that the old value is equal to the new value.
 data VerificationSetupStep id ex
   = BindVariable (HarnessVar id) ex
+    -- ^ The given harness variable is assigned the given expression.
   | RegisterVal Offset (HarnessVar id)
-  | MemPointsTo (HarnessVar id) Offset (HarnessVar id)
- deriving (Functor)
+    -- ^ Fetch the value of the given register offset into the given harness variable.
+    --   The number of bytes fetched from the register file is determined by the type
+    --   of the harness variable.
 
+  | MemPointsTo (HarnessVar id) Offset (HarnessVar id)
+    -- ^ The first harness var argument is interpreted as a base pointer value; the given
+    --   offset is added to this value, and the value in memory is fetched and bound to the
+    --   value of the second harness variable.
+ deriving (Functor)
 
 instance (PP.PP id, PP.PP ex) => PP.PP (VerificationSetupStep id ex) where
   ppPrec _i (BindVariable var ex) =
@@ -114,6 +159,11 @@ instance (PP.PP id, PP.PP ex) => PP.PP (VerificationSetupStep id ex) where
   ppPrec _i (MemPointsTo base off var) =
      PP.pp base PP.<+> PP.text "+" PP.<+> PP.integer (fromIntegral off) PP.<+> PP.text "|->" PP.<+> PP.pp var
 
+-- | A verification phase represents either the pre or post condition of a verification.
+--   In either case, some fresh variables may be introduced, and their values bound using
+--   the verification setup steps.  Finally, some general logical conditions can be asserted
+--   as pre/post conditions.  In preconditions, such conditions will be assumed, whereas they
+--   will be asserted as proof obligations in postconditions.
 data VerificationPhase id ex
   = VerificationPhase
   { phaseVars  :: Seq (HarnessVarDecl id)
@@ -136,18 +186,37 @@ instance (PP.PP id, PP.PP ex) => PP.PP (VerificationPhase id ex) where
      PP.$$
      PP.vcat (map PP.pp $ toList (phaseConds phase))
 
+-- | Is the architecture big or little endian?
 data Endianness
   = LittleEndian
   | BigEndian
  deriving (Eq, Ord, Show)
 
+-- | A verification harness represents a function specification.
+--   These harness may be used in two different modes
+--
+--   First, they can be used to perform a verification.  In this case,
+--   the prestate phase is used to set up a fresh memory and register
+--   state, before symbolically executing the program.  After the program
+--   termiantes, the poststate phase is used to fetch values from the final
+--   register and memory state and to collect proof obligations.
+--
+--   Secondly, verification harness can be used to construct "override" functions.
+--   These functions render the function specification as callable subroutines
+--   that simply implement the specification semantics.  In this mode, the prestate
+--   is used to fetch values from the register file and memory and collect proof
+--   obligiations (that the call site satisfies the preconditions).  Then, the
+--   poststate phase is used to update the memory and register file.  Any generated
+--   equalities or postconditions are asserted, and control is returned to the caller.
 data VerificationHarness id ex
   = VerificationHarness
-  { verificationOverrideName :: Text
-  , verificationAddressWidth :: Word64
-  , verificationEndianness   :: Endianness
-  , verificationPrestate     :: VerificationPhase id ex
-  , verificationPoststate    :: VerificationPhase id ex
+  { verificationOverrideName :: Text   -- ^ Human-readable name
+  , verificationRegFileWidth :: Word64 -- ^ Number of bits required to address a register
+  , verificationAddressWidth :: Word64 -- ^ Number of bits in a pointer for the architecture (must be a multiple of 8)
+  , verificationEndianness   :: Endianness -- ^ Big or little endian?
+  , verificationPrestate     :: VerificationPhase id ex -- ^ Function prestate
+  , verificationPoststate    :: VerificationPhase id ex -- ^ Function poststate
+  , verificationOutput       :: Maybe ex                -- ^ Optional function output (for term extraction)
   }
  deriving (Functor)
 
@@ -156,6 +225,8 @@ instance (PP.PP id, PP.PP ex) => PP.PP (VerificationHarness id ex) where
     PP.text ("==== Harness: " ++ (T.unpack (verificationOverrideName harness)) ++ " ====")
     PP.$$
     PP.text ( "Address width: " ++ show (verificationAddressWidth harness) ++
+              "     " ++
+              "Register file width: " ++ show (verificationRegFileWidth harness) ++
               "     " ++
               "Endianness: " ++ show (verificationEndianness harness))
     PP.$$
@@ -166,6 +237,12 @@ instance (PP.PP id, PP.PP ex) => PP.PP (VerificationHarness id ex) where
     PP.text "=== Poststate ==="
     PP.$$
     PP.pp (verificationPoststate harness)
+    PP.<>
+    case (verificationOutput harness) of
+      Nothing -> PP.empty
+      Just o  -> PP.empty PP.$$
+                 PP.text "=== Output ==="
+                 PP.$$ PP.pp o
 
 type ParseExpr = CP.Expr CP.PName
 type TCExpr    = (CT.Type, CT.Expr)
@@ -178,18 +255,37 @@ io = lift . lift
 runM :: SharedContext -> CryptolEnv -> M a -> IO (CryptolEnv, a)
 runM sc cryEnv m = swap <$> runStateT (runReaderT m sc) cryEnv
 
+-- | Take the wire format for harness and plug the various pieces into
+--   the processed verification harness data structure.
+--
+--   Among other tasks, this involve parsing and typechecking any embedded
+--   Cryptol expressions in the verification setup steps.  This may have
+--   the effect of adding new Cryptol variables to the supplied CryptolEnv.
 processHarness ::
+  SharedContext ->
+  CryptolEnv ->
+  P.VerificationHarness ->
+  IO (CryptolEnv, ProcessedHarness)
+processHarness sc env h = runM sc env (doProcessHarness h)
+
+
+doProcessHarness ::
    P.VerificationHarness ->
    M ProcessedHarness
-processHarness rawHarness =
+doProcessHarness rawHarness =
    do let addrWidth = rawHarness^.P.verificationHarness_address_width
+      let regFileWidth = rawHarness^.P.verificationHarness_reg_file_width
       let endianness = case rawHarness^.P.verificationHarness_endianness of
                            P.BigEndian -> BigEndian
                            P.LittleEndian -> LittleEndian
+
+      mapM_ loadCryptolSource (rawHarness^.P.verificationHarness_cryptol_sources)
+
       prestate  <- processPhase Prestate addrWidth endianness
                       (rawHarness^.P.verificationHarness_prestate_specification)
       poststate <- processPhase Poststate addrWidth endianness
                       (rawHarness^.P.verificationHarness_poststate_specification)
+      output    <- processOutputExpr (rawHarness^.P.verificationHarness_output_expr)
       unless (addrWidth `mod` 8 == 0 && addrWidth > 0)
              (fail $ "Invalid address width: " ++ show addrWidth)
       return VerificationHarness
@@ -197,8 +293,22 @@ processHarness rawHarness =
              , verificationPrestate     = prestate
              , verificationPoststate    = poststate
              , verificationAddressWidth = addrWidth
+             , verificationRegFileWidth = regFileWidth
              , verificationEndianness   = endianness
+             , verificationOutput       = output
              }
+
+loadCryptolSource :: Text -> M ()
+loadCryptolSource fname =
+  do sc   <- ask
+     cenv <- get
+     let im = Import
+              { iModule = Left $ T.unpack fname
+              , iAs = Nothing
+              , iSpec = Nothing
+              }
+     cenv' <- io $ importModule sc cenv im
+     put cenv'
 
 displayHarness ::
    PP.PP id =>
@@ -207,6 +317,20 @@ displayHarness ::
    Text
 displayHarness harness =
    T.pack . PP.render . PP.pp $ harness
+
+processOutputExpr ::
+   Text ->
+   M (Maybe TCExpr)
+processOutputExpr rawex
+  | T.null rawex = return Nothing
+  | otherwise    = Just <$>
+  do cryEnv <- get
+     pex <- parseCryptolExpr "extraction output term" rawex
+     (cryEnv', sch, ex) <- io $ inferTerm cryEnv pex
+     put cryEnv'
+     case CT.isMono sch of
+       Nothing -> fail "Expected monomorphic type in extraction output term"
+       Just ty -> return (ty, ex)
 
 processPhase ::
    Phase ->
@@ -235,6 +359,11 @@ parsePhase phase addrWidth rawPhase =
              , phaseConds = conds
              }
 
+-- | Certain special variables are automatically brought into scopte in the prestate
+--   of a function verification.  These are the stack pointer (which is usually located
+--   in a register which is known according to the platform ABI) and the return address,
+--   which is generally found either in a distinguished location on the stack or in
+--   a distinguished register.
 specialPhaseDecls ::
    Phase ->
    Word64 ->
@@ -316,7 +445,7 @@ parseCryptolExpr ::
    Text ->
    M ParseExpr
 parseCryptolExpr nm expr =
-   case CP.parseExpr (LT.fromStrict expr) of
+   case CP.parseExpr expr of
      Left parseErr -> fail msg
         where
         msg = unlines [ ""
@@ -332,6 +461,10 @@ phaseName :: Phase -> String
 phaseName Prestate = "prestate"
 phaseName Poststate = "poststate"
 
+-- | Given verification phase that has been parsed off the wire, we need to
+--   typecheck the raw Cryptol AST.  We first declare all the phase variables
+--   with their associated types.  Then we typecheck the setup steps, and reorder
+--   them (see reorderSteps).  Finally, logical conditions are typechecked.
 tcPhase ::
    Phase ->
    Word64 ->
@@ -352,7 +485,7 @@ declaredVarSet ::
    Phase ->
    Seq (HarnessVarDecl CT.Name) ->
    Set CT.Name
-declaredVarSet phase names = foldr insVar mempty names
+declaredVarSet _phase names = foldr insVar mempty names
  where
  insVar x s = Set.insert (harnessVarIdent x) s
 
@@ -375,12 +508,12 @@ tcSetupStep addrWidth (BindVariable hvar ex) =
      ex'   <- tcExpr ex tp
      return $ BindVariable hvar' ex'
 tcSetupStep addrWidth (RegisterVal offset hvar) =
-  do (hvar', tp) <- tcHarnessVar addrWidth hvar
+  do (hvar', _tp) <- tcHarnessVar addrWidth hvar
 -- FIXME, check type, should have tp == [addrWidth]
      return $ RegisterVal offset hvar'
 tcSetupStep addrWidth (MemPointsTo base offset val) =
-  do (base', baseTp) <- tcHarnessVar addrWidth base
-     (val' , valTp)  <- tcHarnessVar addrWidth val
+  do (base', _baseTp) <- tcHarnessVar addrWidth base
+     (val' , _valTp)  <- tcHarnessVar addrWidth val
 -- FIXME, check types:
 --     should have baseTp == [addrWidth]
 --     valTp... does it need any checks?
@@ -410,7 +543,7 @@ tcHarnessVar addrWidth var =
       do cryEnv <- get
          let nameEnv = eExtraNames cryEnv
          let modEnv  = eModuleEnv cryEnv
-         (res, _ws) <- io $ MM.runModuleM modEnv
+         (res, _ws) <- io $ MM.runModuleM (defaultEvalOpts, modEnv)
                         (MM.interactive (MB.rename C.interactiveName nameEnv (MR.renameVar (CP.mkUnqual ident))))
          -- ?? FIXME, what about warnings?
          case res of
@@ -428,12 +561,12 @@ tcExpr ::
    CT.Type ->
    M (CP.Expr CT.Name, TCExpr)
 tcExpr pex tp =
-  do sc <- ask
-     cryEnv <- get
+  do cryEnv <- get
      (cryEnv1, reexpr) <- io $ renameTerm cryEnv pex
      (cryEnv2, tcexpr) <- io $ checkTerm cryEnv1 reexpr tp
      put cryEnv2
      return (reexpr, (tp,tcexpr))
+
 
 tcCond ::
    ParseExpr ->
@@ -469,7 +602,7 @@ resolveSetupVar var =
       do cryEnv <- get
          let nameEnv = eExtraNames cryEnv
          let modEnv  = eModuleEnv cryEnv
-         (res, _ws) <- io $ MM.runModuleM modEnv
+         (res, _ws) <- io $ MM.runModuleM (defaultEvalOpts, modEnv)
                         (MM.interactive (MB.rename C.interactiveName nameEnv (MR.renameVar (CP.mkUnqual ident))))
          -- ?? FIXME, what about warnings?
          case res of
@@ -504,12 +637,31 @@ setupStepGraphEdge ::
    M GraphEdge
 setupStepGraphEdge declaredNames step =
    do def <- setupStepDef step
-      uses <- setupStepUses declaredNames step
-      return (fmap snd step, def, uses)
+      us <- setupStepUses declaredNames step
+      return (fmap snd step, def, us)
 
+
+--  | This function reorders verification setps to ensure that,
+--    whenever possible, variables are defined before they are used
+--    (which minimizes the creation of fresh variables); and then to
+--    prefer variable binding statements, then register lookup
+--    statements, then memory points-to statements for defining the
+--    values of variables.  This generally improves the results of
+--    symbolic execution by making variable bindings more concrete.
+--
+--    This process works by scanning the verification setup steps in order,
+--    and selecting the "best" step to perform next, and removing it from the
+--    list.  A verification step can only be performed if all the variables
+--    it depends on are already defined.  This process continues until no more
+--    steps can be performed.  If there are any remaining steps still in the work
+--    list, this means that some variables have no definition, or are part
+--    of a cycle of definitions.
+--
+--    FIXME? Rather than failing on cyclic definitions, we probably ought to break
+--    the cycle by introducing a new symbolic constant...
 reorderSteps ::
-   Set CT.Name ->
-   Seq (VerificationSetupStep CT.Name (CP.Expr CT.Name, TCExpr)) ->
+   Set CT.Name {- ^ All delcared names in scope -} ->
+   Seq (VerificationSetupStep CT.Name (CP.Expr CT.Name, TCExpr)) {- ^ setup setups to reorder -} ->
    M (Seq (VerificationSetupStep CT.Name TCExpr))
 reorderSteps declaredNames steps =
    do grEdges <- mapM (setupStepGraphEdge declaredNames) steps
@@ -541,13 +693,13 @@ processEdges definedNames edges = go Nothing mempty edges
  maybeSeq (Just x) = Seq.singleton x
 
  go candidate zs xs = case Seq.viewl xs of
-      edge@(step,def,uses) Seq.:< xs'
-        | Set.isSubsetOf uses definedNames
+      edge@(step,def,us) Seq.:< xs'
+        | Set.isSubsetOf us definedNames
         , BindVariable _ _ <- step
         -> do processEdge edge
               processEdges (Set.insert def definedNames) (zs <> maybeSeq candidate <> xs')
 
-        | Set.isSubsetOf uses definedNames
+        | Set.isSubsetOf us definedNames
         , betterCandidate step candidate
         -> go (Just edge) (zs <> maybeSeq candidate) xs'
 

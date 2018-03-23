@@ -36,6 +36,7 @@ module Lang.Crucible.Server.CryptolEnv
   , typeNoUser
   , schemaNoUser
   , getNamingEnv
+  , defaultEvalOpts
   )
   where
 
@@ -44,7 +45,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Maybe (fromMaybe)
-import Data.Text.Lazy (Text, pack)
+import Data.Text (Text, pack)
 
 import System.Environment (lookupEnv)
 import System.Environment.Executable (splitExecutablePath)
@@ -54,6 +55,7 @@ import Verifier.SAW.SharedTerm (SharedContext, Term, incVars)
 
 import qualified Verifier.SAW.Cryptol as C
 
+import qualified Cryptol.Eval as E
 import qualified Cryptol.Parser as P
 import qualified Cryptol.Parser.AST as P
 import qualified Cryptol.Parser.Position as P
@@ -69,6 +71,7 @@ import qualified Cryptol.TypeCheck.Solve as TS
 import qualified Cryptol.ModuleSystem as M
 import qualified Cryptol.ModuleSystem.Base as MB
 import qualified Cryptol.ModuleSystem.Env as ME
+import qualified Cryptol.ModuleSystem.Exports as MEx
 import qualified Cryptol.ModuleSystem.Interface as MI
 import qualified Cryptol.ModuleSystem.Monad as MM
 import qualified Cryptol.ModuleSystem.NamingEnv as MN
@@ -77,6 +80,7 @@ import qualified Cryptol.ModuleSystem.Renamer as MR
 
 import Cryptol.Utils.PP
 import Cryptol.Utils.Ident (Ident, preludeName, packIdent, interactiveName)
+import Cryptol.Utils.Logger (quietLogger)
 
 import Lang.Crucible.Server.TypedTerm
 
@@ -197,7 +201,7 @@ translateExpr sc env expr = do
   let ifaceDecls = getAllIfaceDecls modEnv
   (types, _) <- liftModuleM modEnv $ do
     prims <- MB.getPrimMap
-    TM.inpVars `fmap` MB.genInferInput P.emptyRange prims ifaceDecls
+    TM.inpVars `fmap` MB.genInferInput P.emptyRange prims MI.noIfaceParams ifaceDecls
   let types' = Map.union (eExtraTypes env) types
   let terms = eTermEnv env
   let cryEnv = C.emptyEnv
@@ -212,7 +216,7 @@ translateDeclGroups sc env dgs = do
   let ifaceDecls = getAllIfaceDecls modEnv
   (types, _) <- liftModuleM modEnv $ do
     prims <- MB.getPrimMap
-    TM.inpVars `fmap` MB.genInferInput P.emptyRange prims ifaceDecls
+    TM.inpVars `fmap` MB.genInferInput P.emptyRange prims MI.noIfaceParams ifaceDecls
   let types' = Map.union (eExtraTypes env) types
   let terms = eTermEnv env
   let cryEnv = C.emptyEnv
@@ -250,18 +254,18 @@ loadCryptolModule sc env path = do
   let ifaceDecls = getAllIfaceDecls modEnv'
   (types, modEnv'') <- liftModuleM modEnv' $ do
     prims <- MB.getPrimMap
-    TM.inpVars `fmap` MB.genInferInput P.emptyRange prims ifaceDecls
+    TM.inpVars `fmap` MB.genInferInput P.emptyRange prims MI.noIfaceParams ifaceDecls
 
   -- Regenerate SharedTerm environment.
   let oldTermEnv = eTermEnv env
   newTermEnv <- genTermEnv sc modEnv''
-  let names = P.eBinds (T.mExports m) -- :: Set T.Name
+  let names = MEx.eBinds (T.mExports m) -- :: Set T.Name
   let tm' = Map.filterWithKey (\k _ -> Set.member k names) $
             Map.intersectionWith TypedTerm types newTermEnv
   let env' = env { eModuleEnv = modEnv''
                  , eTermEnv = Map.union newTermEnv oldTermEnv
                  }
-  let sm' = Map.filterWithKey (\k _ -> Set.member k (P.eTypes (T.mExports m))) (T.mTySyns m)
+  let sm' = Map.filterWithKey (\k _ -> Set.member k (T.eTypes (T.mExports m))) (T.mTySyns m)
   return (CryptolModule sm' tm', env')
 
 bindCryptolModule :: (P.ModName, CryptolModule) -> CryptolEnv -> CryptolEnv
@@ -343,7 +347,7 @@ bindType (ident, T.Forall [] [] ty) env =
   where
     pname = P.mkUnqual ident
     (name, env') = bindIdent ident env
-    tysyn = T.TySyn name [] [] ty
+    tysyn = T.TySyn name [] [] ty Nothing
 bindType _ env = env -- only monomorphic types may be bound
 
 bindInteger :: (Ident, Integer) -> CryptolEnv -> CryptolEnv
@@ -354,7 +358,7 @@ bindInteger (ident, n) env =
   where
     pname = P.mkUnqual ident
     (name, env') = bindIdent ident env
-    tysyn = T.TySyn name [] [] (T.tNum n)
+    tysyn = T.TySyn name [] [] (T.tNum n) Nothing
 
 --------------------------------------------------------------------------------
 
@@ -394,7 +398,7 @@ checkTerm env re expectedType = do
     let ifDecls = getAllIfaceDecls modEnv
     let range = fromMaybe P.emptyRange (P.getLoc re)
     prims <- MB.getPrimMap
-    tcEnv <- MB.genInferInput range prims ifDecls
+    tcEnv <- MB.genInferInput range prims MI.noIfaceParams ifDecls
     let tcEnv' = tcEnv { TM.inpVars = Map.union (eExtraTypes env) (TM.inpVars tcEnv)
                        , TM.inpTSyns = Map.union (eExtraTSyns env) (TM.inpTSyns tcEnv)
                        }
@@ -427,7 +431,7 @@ inferTerm env pexpr = do
     let ifDecls = getAllIfaceDecls modEnv
     let range = fromMaybe P.emptyRange (P.getLoc re)
     prims <- MB.getPrimMap
-    tcEnv <- MB.genInferInput range prims ifDecls
+    tcEnv <- MB.genInferInput range prims MI.noIfaceParams ifDecls
     let tcEnv' = tcEnv { TM.inpVars = Map.union (eExtraTypes env) (TM.inpVars tcEnv)
                        , TM.inpTSyns = Map.union (eExtraTSyns env) (TM.inpTSyns tcEnv)
                        }
@@ -465,12 +469,12 @@ parseDecls sc env input = do
     (rdecls :: [P.TopDecl T.Name]) <- MM.interactive (MB.rename interactiveName nameEnv (traverse MR.rename topdecls))
 
     -- Create a Module to contain the declarations
-    let rmodule = P.Module (P.Located P.emptyRange interactiveName) [] rdecls
+    let rmodule = P.Module (P.Located P.emptyRange interactiveName) Nothing [] rdecls
 
     -- Infer types
     let range = fromMaybe P.emptyRange (P.getLoc rdecls)
     prims <- MB.getPrimMap
-    tcEnv <- MB.genInferInput range prims ifaceDecls
+    tcEnv <- MB.genInferInput range prims MI.noIfaceParams ifaceDecls
     let tcEnv' = tcEnv { TM.inpVars = Map.union (eExtraTypes env) (TM.inpVars tcEnv)
                        , TM.inpTSyns = Map.union (eExtraTSyns env) (TM.inpTSyns tcEnv)
                        }
@@ -507,7 +511,7 @@ parseSchema env input = do
     let ifDecls = getAllIfaceDecls modEnv
     let range = fromMaybe P.emptyRange (P.getLoc rschema)
     prims <- MB.getPrimMap
-    tcEnv <- MB.genInferInput range prims ifDecls
+    tcEnv <- MB.genInferInput range prims MI.noIfaceParams ifDecls
     let tcEnv' = tcEnv { TM.inpTSyns = Map.union (eExtraTSyns env) (TM.inpTSyns tcEnv) }
     let infer =
           case rschema of
@@ -515,7 +519,7 @@ parseSchema env input = do
               let k = Nothing -- allow either kind KNum or KType
               (t', goals) <- TM.collectGoals $ TK.checkType t k
               return (T.Forall [] [] t', goals)
-            _ -> TK.checkSchema rschema
+            _ -> TK.checkSchema True rschema
     out <- MM.io (TM.runInferM tcEnv' infer)
     (schema, _goals) <- MM.interactive (runInferOutput out)
     --mapM_ (MM.io . print . TP.ppWithNames TP.emptyNameMap) goals
@@ -545,11 +549,17 @@ schemaNoUser (T.Forall params props ty) = T.Forall params props (typeNoUser ty)
 ------------------------------------------------------------
 
 liftModuleM :: ME.ModuleEnv -> MM.ModuleM a -> IO (a, ME.ModuleEnv)
-liftModuleM env m = MM.runModuleM env m >>= moduleCmdResult
+liftModuleM env m = MM.runModuleM (defaultEvalOpts, env) m >>= moduleCmdResult
+
+defaultEvalOpts :: E.EvalOpts
+defaultEvalOpts = E.EvalOpts quietLogger E.defaultPPOpts
 
 moduleCmdResult :: M.ModuleRes a -> IO (a, ME.ModuleEnv)
 moduleCmdResult (res, ws) = do
-  mapM_ (print . pp) ws
+  --mapM_ (print . pp) ws
   case res of
     Right (a, me) -> return (a, me)
-    Left err      -> fail $ "Cryptol error:\n" ++ show (pp err) -- X.throwIO (ModuleSystemError err)
+    Left err      ->
+      fail $ unlines (["Cryptol error:\n" ++ show (pp err)] ++ map (show . pp) ws)
+
+-- X.throwIO (ModuleSystemError err)
