@@ -879,12 +879,14 @@ instance IsExpr (SymExpr sym) => Show (LLVMVal sym) where
            ++ intersperse ", " (map show $ V.toList xs)
            ++ [ "]" ]
 
--- | Load a null-terminated string from the memory.  The pointer to read from
--- must be concrete and nonnull.  Moreover, we require all the characters in
--- the string to be concrete.  Otherwise it is very difficult to tell when the string
--- has terminated.  If a maximum number of characters is provided, no more than that
--- number of charcters will be read.  In either case, `loadString` will stop reading
--- if it encounters a null-terminator.
+-- | Load a null-terminated string from the memory.
+--
+-- The pointer to read from must be concrete and nonnull.  Moreover,
+-- we require all the characters in the string to be concrete.
+-- Otherwise it is very difficult to tell when the string has
+-- terminated.  If a maximum number of characters is provided, no more
+-- than that number of charcters will be read.  In either case,
+-- `loadString` will stop reading if it encounters a null-terminator.
 loadString :: forall sym wptr
    . (IsSymInterface sym, HasPtrWidth wptr)
   => sym
