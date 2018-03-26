@@ -24,6 +24,7 @@ import qualified Data.Parameterized.HashTable as H
 import           Data.Parameterized.Nonce ( NonceGenerator, Nonce )
 import           Data.Parameterized.Some ( Some(..) )
 import qualified Data.Parameterized.Context as Ctx
+import qualified Data.Parameterized.TraversableFC as Ctx
 -- import qualified Data.Parameterized.Context.Safe as Ctx
 import           Lang.Crucible.BaseTypes ( BaseType, BaseIntegerType, BaseTypeRepr(..)
                                          , BaseRealType )
@@ -153,7 +154,7 @@ addBoundVar :: Synthesis t -> Some (SimpleBoundVar t) -> IO ()
 addBoundVar synth (Some bvar) = do
   case bvarType bvar of
     BaseIntegerRepr -> void $ memoEltNonce synth (bvarId bvar) $ return $ do
-      Ref <$> B.inputTyped (Just $ B.Vector B.Integer)
+      Ref <$> B.inputTyped (Just $ B.Wire B.Ciphertext)
     t -> error $ "Unsupported representation: " ++ show t
 
 -- | This is for handling a special case of inputs. Sometimes the parameters are
@@ -164,7 +165,7 @@ addBoundVar synth (Some bvar) = do
 -- their references.
 addConstantValue :: Synthesis t -> IO ()
 addConstantValue synth = void $ memoElt synth $ return $ do
-  Ref <$> B.inputTyped (Just $ B.Vector B.Integer)
+  Ref <$> B.inputTyped (Just $ B.Wire B.Ciphertext)
 
 -- | Write an intermediate circuit state to a file as a circuit
 writeCircuit :: FilePath -> B.BuildSt -> IO ()
@@ -266,6 +267,7 @@ doApp synth ae = do
 doNonceApp :: Synthesis t -> NonceAppElt t tp -> IO (B.Builder (NameType tp))
 doNonceApp synth ae =
   case nonceEltApp ae of
+    -- Right-shift uninterp function
     FnApp fn args -> case T.unpack (solverSymbolAsText (symFnName fn)) of
       "julia_shiftRight!" -> case symFnReturnType fn of
         BaseIntegerRepr -> do
@@ -278,6 +280,14 @@ doNonceApp synth ae =
               Ref by   <- eval synth byArg
               return (Ref <$> B.circRShift base by)
             _ -> fail "The improbable happened: Wrong number of arguments to shift right"
+        _ -> fail "The improbable happened: shift right should only return Integer type"
+      -- dot-product uninterp function
+      "julia_dotProd!" -> case symFnReturnType fn of
+        BaseIntegerRepr -> do
+          let sz = Ctx.size args
+          xs <- Ctx.traverseFC (eval synth) args
+          let args = Ctx.toListFC (\(Ref x) -> x) xs
+          return (Ref <$> B.circDotProd args)
         _ -> fail "The improbable happened: shift right should only return Integer type"
       x -> fail $ "Not supported: " ++ show x
     _ -> fail $ "Not supported"
