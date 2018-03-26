@@ -30,6 +30,7 @@ import qualified Data.Parameterized.HashTable as H
 import           Data.Parameterized.Nonce ( NonceGenerator, freshNonce, Nonce, indexValue )
 import           Data.Parameterized.Some ( Some(..) )
 import qualified Data.Parameterized.Context as Ctx
+import qualified Data.Parameterized.TraversableFC as Ctx
 -- import qualified Data.Parameterized.Context.Safe as Ctx
 import           Lang.Crucible.BaseTypes ( BaseType, BaseIntegerType, BaseTypeRepr(..)
                                          , BaseRealType )
@@ -279,6 +280,7 @@ doApp synth ae = do
 doNonceApp :: Synthesis t -> NonceAppElt t tp -> IO (NameType tp)
 doNonceApp synth ae =
   case nonceEltApp ae of
+    -- Right-shift uninterp function
     FnApp fn args -> case T.unpack (solverSymbolAsText (symFnName fn)) of
       "julia_shiftRight!" -> case symFnReturnType fn of
         BaseIntegerRepr -> do
@@ -291,6 +293,14 @@ doNonceApp synth ae =
               Ref by   <- eval synth byArg
               Ref <$> writeRShift synth (indexValue (nonceEltId ae)) base by
             _ -> fail "The improbable happened: Wrong number of arguments to shift right"
+        _ -> fail "The improbable happened: shift right should only return Integer type"
+      -- dot-product uninterp function
+      "julia_dotProd!" -> case symFnReturnType fn of
+        BaseIntegerRepr -> do
+          let sz = Ctx.size args
+          xs <- Ctx.traverseFC (eval synth) args
+          let args = Ctx.toListFC (\(Ref x) -> x) xs
+          Ref <$> writeDotProd synth (indexValue (nonceEltId ae)) args
         _ -> fail "The improbable happened: shift right should only return Integer type"
       x -> fail $ "Not supported: " ++ show x
     _ -> fail $ "Not supported"
@@ -327,6 +337,12 @@ writeConstant synth val = do
                 "%d const @ Integer %d\n"
                 (indexValue wireId) val
     return (Ref (indexValue wireId))
+  return out
+
+writeDotProd :: Synthesis t -> Word64 -> [Word64] -> IO Word64
+writeDotProd synth out args = do
+  let str = show out ++ " o " ++ concatMap (\x -> show x ++ " ") args
+  Sys.hPutStrLn (synthesisOut synth) str
   return out
 
 writeOutput :: Synthesis t -> [Word64] -> IO ()
