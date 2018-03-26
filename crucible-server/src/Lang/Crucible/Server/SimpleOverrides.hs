@@ -99,6 +99,7 @@ simpleBackendRequests =
   { fulfillExportModelRequest = sbFulfillExportModelRequest
   , fulfillSymbolHandleRequest = sbFulfillSymbolHandleRequest
   , fulfillCompileVerificationOverrideRequest = sbFulfillCompileVerificationOverrideRequest
+  , fullfillSimulateVerificationHarnessRequest = sbFulfillSimulateVerificationHarnessRequest
   }
 
 ------------------------------------------------------------------------
@@ -107,7 +108,7 @@ simpleBackendRequests =
 type CheckSatArgs = EmptyCtx ::> BoolType
 
 -- | Returns override for creating a given variable associated with the given type.
-checkSatWithAbcOverride :: Override p (SimpleBackend n) CheckSatArgs BoolType
+checkSatWithAbcOverride :: Override p (SimpleBackend n) () CheckSatArgs BoolType
 checkSatWithAbcOverride = do
   mkOverride "checkSatWithAbc" $ do
     RegMap args <- getOverrideArgs
@@ -122,7 +123,7 @@ checkSatWithAbcOverride = do
 -- CheckSatWithYicesHandle Request
 
 -- | Returns override for creating a given variable associated with the given type.
-checkSatWithYicesOverride :: Override p (SimpleBackend n) CheckSatArgs BoolType
+checkSatWithYicesOverride :: Override p (SimpleBackend n) () CheckSatArgs BoolType
 checkSatWithYicesOverride = do
   mkOverride "checkSatWithYices" $ do
     RegMap args <- getOverrideArgs
@@ -141,7 +142,7 @@ type WriteSMTLIB2Args
    ::> StringType
    ::> BoolType
 
-writeSMTLib2Override :: Override p (SimpleBackend n) WriteSMTLIB2Args UnitType
+writeSMTLib2Override :: Override p (SimpleBackend n) () WriteSMTLIB2Args UnitType
 writeSMTLib2Override = do
   mkOverride "write_SMTLIB2" $ do
     RegMap args <- getOverrideArgs
@@ -154,7 +155,7 @@ writeSMTLib2Override = do
 -----------------------------------------------------------------------------------------
 -- WriteYicesHandle request
 
-writeYicesOverride :: Override p (SimpleBackend n) WriteSMTLIB2Args UnitType
+writeYicesOverride :: Override p (SimpleBackend n) () WriteSMTLIB2Args UnitType
 writeYicesOverride = do
   mkOverride "write_yices" $ do
     RegMap args <- getOverrideArgs
@@ -193,7 +194,7 @@ sbFulfillExportModelRequest _sim P.ExportSAW _path _vals = do
 -- SymbolHandle request
 
 -- | Returns override for creating a given variable associated with the given type.
-symbolicOverride :: IsSymInterface sym => BaseTypeRepr tp -> Override p sym EmptyCtx (BaseToType tp)
+symbolicOverride :: IsSymInterface sym => BaseTypeRepr tp -> Override p sym () EmptyCtx (BaseToType tp)
 symbolicOverride tp = do
   mkOverride' "symbolic" (baseToType tp) $ do
     sym <- getSymInterface
@@ -216,4 +217,9 @@ sbFulfillSymbolHandleRequest sim proto_tp = do
 sbFulfillCompileVerificationOverrideRequest
  :: IsSymInterface sym => Simulator p sym -> P.VerificationHarness -> IO ()
 sbFulfillCompileVerificationOverrideRequest _sim _harness =
-  fail "Thed 'simple' server backend does not support verification harnesses"
+  fail "The 'simple' server backend does not support verification harnesses"
+
+sbFulfillSimulateVerificationHarnessRequest
+ :: IsSymInterface sym => Simulator p sym -> P.VerificationHarness -> P.VerificationSimulateOptions -> IO ()
+sbFulfillSimulateVerificationHarnessRequest _sim _harness _opts =
+  fail "The 'simple' server backend does not support verification harnesses"

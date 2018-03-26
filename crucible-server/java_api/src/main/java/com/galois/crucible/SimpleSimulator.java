@@ -209,6 +209,6 @@ public final class SimpleSimulator extends Simulator {
         issueRequest(b);
 
         // Wait for the server to finish
-        Protos.CallResponse r = getNextCallResponse();
+        getNextAckResponse();
     }
 }

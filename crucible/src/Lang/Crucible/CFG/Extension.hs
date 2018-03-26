@@ -98,7 +98,7 @@ deriving instance Show (EmptyStmtExtension f tp)
 type instance StmtExtension () = EmptyStmtExtension
 
 instance ShowFC EmptyExprExtension where
-
+  showsPrecFC _ _ = \case
 instance TestEqualityFC EmptyExprExtension where
   testEqualityFC _ = \case
 instance OrdFC EmptyExprExtension where
@@ -117,7 +117,7 @@ instance TypeApp EmptyExprExtension where
   appType = \case
 
 instance ShowFC EmptyStmtExtension where
-
+  showsPrecFC _ _ = \case
 instance TestEqualityFC EmptyStmtExtension where
   testEqualityFC _ = \case
 instance OrdFC EmptyStmtExtension where

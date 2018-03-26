@@ -20,6 +20,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Simulator.RegValue
   ( RegValue
   , CanMux(..)
@@ -31,16 +32,12 @@ module Lang.Crucible.Simulator.RegValue
     -- * Register values
   , AnyValue(..)
   , FnVal(..)
+  , fnValType
   , RolledType(..)
-  , SomeInt(..)
-  , SomeUInt(..)
-  , SomeBVArray(..)
-  , SomeSymbolicBVArray(..)
 
     -- * Value mux functions
   , ValMuxFn
   , eqMergeFn
-  , mdaMuxFn
   , mergePartExpr
   , muxRecursive
   , muxStringMap
@@ -63,11 +60,7 @@ import           GHC.TypeLits
 
 import qualified Data.Parameterized.Context as Ctx
 
-import qualified Lang.Crucible.Utils.SymMultiDimArray as SMDA
-import           Lang.MATLAB.MultiDimArray (MultiDimArray)
-import qualified Lang.MATLAB.MultiDimArray as MDA
-
-import           Lang.Crucible.FunctionHandle (FnHandle, handleName, RefCell)
+import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.FunctionName
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Solver.Interface
@@ -91,18 +84,8 @@ type family RegValue (sym :: *) (tp :: CrucibleType) :: * where
   RegValue sym (VariantType ctx) = Ctx.Assignment (VariantBranch sym) ctx
   RegValue sym (ReferenceType a) = RefCell a
   RegValue sym (WordMapType w tp) = WordMap sym w tp
-  RegValue sym IntWidthType = IntWidth
-  RegValue sym UIntWidthType = UIntWidth
   RegValue sym (RecursiveType nm ctx) = RolledType sym nm ctx
   RegValue sym (IntrinsicType nm ctx) = Intrinsic sym nm ctx
-  RegValue sym (MultiDimArrayType tp) = MultiDimArray (RegValue sym tp)
-  RegValue sym (SymbolicMultiDimArrayType bt) = SMDA.SymMultiDimArray (SymExpr sym) bt
-  RegValue sym MatlabIntType = SomeInt sym
-  RegValue sym MatlabUIntType = SomeUInt sym
-  RegValue sym MatlabIntArrayType = SomeBVArray (SymExpr sym)
-  RegValue sym MatlabUIntArrayType = SomeBVArray (SymExpr sym)
-  RegValue sym MatlabSymbolicIntArrayType = SomeSymbolicBVArray (SymExpr sym)
-  RegValue sym MatlabSymbolicUIntArrayType = SomeSymbolicBVArray (SymExpr sym)
   RegValue sym (StringMapType tp) = Map Text (PartExpr (Pred sym) (RegValue sym tp))
 
 -- | A newtype wrapper around RegValue.  This is wrapper necessary because
@@ -125,9 +108,17 @@ closureFunctionName :: FnVal sym args res -> FunctionName
 closureFunctionName (ClosureFnVal c _ _) = closureFunctionName c
 closureFunctionName (HandleFnVal h) = handleName h
 
+fnValType :: FnVal sym args res -> TypeRepr (FunctionHandleType args res)
+fnValType (HandleFnVal h) = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
+fnValType (ClosureFnVal fn _ _) =
+  case fnValType fn of
+    FunctionHandleRepr allArgs r ->
+      case allArgs of
+        args Ctx.:> _ -> FunctionHandleRepr args r
+--    _ -> error "fnValType: impossible!"
+
 instance Show (FnVal sym a r) where
   show = show . closureFunctionName
-
 
 -- | Version of muxfn specialized to CanMux.
 type ValMuxFn sym tp = MuxFn (Pred sym) (RegValue sym tp)
@@ -218,24 +209,9 @@ instance (IsExprBuilder sym, KnownNat w, KnownRepr BaseTypeRepr tp)
 ------------------------------------------------------------------------
 -- RegValue MatlabChar instance
 
-
 instance CanMux sym CharType where
   {-# INLINE muxReg #-}
   muxReg _ = \_ -> eqMergeFn "characters"
-
-------------------------------------------------------------------------
--- RegValue IntWidth instance
-
-instance CanMux sb IntWidthType where
-  {-# INLINE muxReg #-}
-  muxReg _ = \_ -> eqMergeFn "int width"
-
-------------------------------------------------------------------------
--- RegValue UIntWidth instance
-
-instance CanMux sym UIntWidthType where
-  {-# INLINE muxReg #-}
-  muxReg _ = \_ -> eqMergeFn "uint width"
 
 ------------------------------------------------------------------------
 -- RegValue Maybe instance
@@ -256,40 +232,6 @@ instance (IsBoolExprBuilder sym, CanMux sym tp) => CanMux sym (MaybeType tp) whe
      in mergePartExpr s f
 
 ------------------------------------------------------------------------
--- RegValue MultDimArray instance
-
-{-# INLINE mdaMuxFn #-}
-mdaMuxFn :: IsPred p => MuxFn p v -> MuxFn p (MultiDimArray v)
-mdaMuxFn f p x y
-  | Just b <- asConstantPred p = pure $! if b then x else y
-  | MDA.dim x == MDA.dim y = MDA.zipWithM (f p) x y
-  | otherwise = fail "Cannot merge arrays with different dimensions."
-
-instance (IsExprBuilder sym, CanMux sym tp)
-      => CanMux sym (MultiDimArrayType tp) where
-  {-# INLINE muxReg #-}
-  muxReg s = \_ -> mdaMuxFn (muxReg s (Proxy :: Proxy tp))
-
-data SomeSymbolicBVArray f where
-  SomeSymbolicBVArray :: (1 <= w)
-                      => NatRepr w
-                      -> SMDA.SymMultiDimArray f (BaseBVType w)
-                      -> SomeSymbolicBVArray f
-
-instance IsExprBuilder sym => CanMux sym MatlabSymbolicIntArrayType where
-  muxReg s _ c (SomeSymbolicBVArray wx x) (SomeSymbolicBVArray wy y)
-    | Just Refl <- testEquality wx wy
-      = SomeSymbolicBVArray wx <$> SMDA.muxArray s c x y
-    | otherwise = fail $ unwords ["Cannot mux symbolic int arrays with different widths", show wx, show wy]
-
-
-instance IsExprBuilder sym => CanMux sym MatlabSymbolicUIntArrayType where
-  muxReg s _ c (SomeSymbolicBVArray wx x) (SomeSymbolicBVArray wy y)
-    | Just Refl <- testEquality wx wy
-      = SomeSymbolicBVArray wx <$> SMDA.muxArray s c x y
-    | otherwise = fail $ unwords ["Cannot mux symbolic uint arrays with different widths", show wx, show wy]
-
-------------------------------------------------------------------------
 -- RegValue FunctionHandleType instance
 
 -- TODO: Figure out how to actually compare these.
@@ -303,7 +245,6 @@ muxHandle :: IsPred (Pred sym)
 muxHandle _ c x y
   | Just b <- asConstantPred c = pure $! if b then x else y
   | otherwise = return x
-
 
 instance IsExprBuilder sym => CanMux sym (FunctionHandleType a r) where
   {-# INLINE muxReg #-}
@@ -387,59 +328,3 @@ muxVariant sym recf ctx = \p x y ->
                 p
                 (unVB (x Ctx.! i))
                 (unVB (y Ctx.! i))
-
-
--------------------------
--- RegValue signed MatlabBV instance
-
-data SomeInt sym where
-  SomeInt :: (1 <= w) => NatRepr w -> SymBV sym w -> SomeInt sym
-
-instance IsExprBuilder sym => CanMux sym MatlabIntType where
-  {-# INLINE muxReg #-}
-  muxReg s = \_ c (SomeInt w x) (SomeInt w' y) ->
-       case testEquality w w' of
-         Nothing -> fail "cannot merge MATAB ints of different widths"
-         Just Refl -> SomeInt w <$> bvIte s c x y
-
--------------------------
--- RegValue unsigned MatlabBV instance
-
-data SomeUInt sym where
-  SomeUInt :: (1 <= w) => NatRepr w -> SymBV sym w -> SomeUInt sym
-
-instance IsExprBuilder sym => CanMux sym MatlabUIntType where
-  {-# INLINE muxReg #-}
-  muxReg s = \_ c (SomeUInt w x) (SomeUInt w' y) ->
-       case testEquality w w' of
-         Nothing -> fail "cannot merge MATAB uints of different widths"
-         Just Refl -> SomeUInt w <$> bvIte s c x y
-
-------------------------------------------------------------------------
--- SomeBVArray
-
-data SomeBVArray (v :: BaseType -> *) where
-  SomeBVArray :: (1 <= n)
-              => !(NatRepr n)
-              -> !(MultiDimArray (v (BaseBVType n)))
-              -> SomeBVArray v
-
-instance MDA.HasDim (SomeBVArray val) where
-   dim (SomeBVArray _ a) = MDA.dim a
-
---------------------
--- RegValue BV Array instances
-
-instance IsExprBuilder sym => CanMux sym MatlabIntArrayType where
-  {-# INLINE muxReg #-}
-  muxReg s = \_ c (SomeBVArray w x) (SomeBVArray w' y) ->
-    case testEquality w w' of
-      Nothing -> fail "cannot merge MATAB int arrays of different widths"
-      Just Refl -> SomeBVArray w <$> mdaMuxFn (bvIte s) c x y
-
-instance IsExprBuilder sym => CanMux sym MatlabUIntArrayType where
-  {-# INLINE muxReg #-}
-  muxReg s = \_ c (SomeBVArray w x) (SomeBVArray w' y) ->
-    case testEquality w w' of
-      Nothing -> fail "cannot merge MATABu int arrays of different widths"
-      Just Refl -> SomeBVArray w <$> mdaMuxFn (bvIte s) c x y

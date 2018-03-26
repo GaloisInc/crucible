@@ -74,10 +74,10 @@ multipartStoreFn sim addrWidth cellWidth valWidth num = do
     let nameStr = ("multipartStore_"++(show addrWidth)++"_"++(show cellWidth)++"_"++(show num))
     let name = functionNameFromText $ Text.pack nameStr
     let argsRepr = Ctx.empty
-                   Ctx.%> BoolRepr
-                   Ctx.%> BVRepr addrWidth
-                   Ctx.%> BVRepr valWidth
-                   Ctx.%> WordMapRepr addrWidth (BaseBVRepr cellWidth)
+                   Ctx.:> BoolRepr
+                   Ctx.:> BVRepr addrWidth
+                   Ctx.:> BVRepr valWidth
+                   Ctx.:> WordMapRepr addrWidth (BaseBVRepr cellWidth)
     let retRepr = WordMapRepr addrWidth (BaseBVRepr cellWidth)
     h <- simMkHandle sim name argsRepr retRepr
     (R.SomeCFG regCfg, _) <- stToIO $ Gen.defineFunction InternalPos h fndef
@@ -86,7 +86,7 @@ multipartStoreFn sim addrWidth cellWidth valWidth num = do
         bindHandleToFunction sim h (UseCFG cfg (postdomInfo cfg))
         return h
 
- where fndef :: Gen.FunctionDef RealWorld
+ where fndef :: Gen.FunctionDef () RealWorld
                                 Maybe
                                 (EmptyCtx
                                  ::> BoolType
@@ -96,22 +96,19 @@ multipartStoreFn sim addrWidth cellWidth valWidth num = do
                                 )
                                (WordMapType addrWidth (BaseBVType cellWidth))
 
-       fndef regs = ( Nothing, Gen.endNow $ \_ -> do
-                          let endianFlag = regs^._1
+       fndef regs = ( Nothing,
+                       do let endianFlag = R.AtomExpr (regs^._1)
                           let basePtr    = R.AtomExpr (regs^._2)
                           let v          = R.AtomExpr (regs^._3)
                           let wordMap    = R.AtomExpr (regs^._4)
 
-                          be <- Gen.newLabel
-                          le <- Gen.newLabel
-
-                          Gen.endCurrentBlock (R.Br endianFlag be le)
-                          Gen.defineBlock be $ Gen.returnFromFunction $
-                                bigEndianStore addrWidth cellWidth valWidth num basePtr v wordMap
-                          Gen.defineBlock le $ Gen.returnFromFunction $
+                          be <- Gen.defineBlockLabel $ Gen.returnFromFunction $
+                                  bigEndianStore addrWidth cellWidth valWidth num basePtr v wordMap
+                          le <- Gen.defineBlockLabel $ Gen.returnFromFunction $
                                 littleEndianStore addrWidth cellWidth valWidth num basePtr v wordMap
-                    )
 
+                          Gen.branch endianFlag be le
+                    )
 
 -- | This function constructs a crucible function for loading multibyte
 --   values from a word map.  It supports both big- and
@@ -144,10 +141,10 @@ multipartLoadFn sim addrWidth cellWidth valWidth num = do
     let nameStr = ("multipartLoad_"++(show addrWidth)++"_"++(show cellWidth)++"_"++(show num))
     let name = functionNameFromText $ Text.pack nameStr
     let argsRepr = Ctx.empty
-                   Ctx.%> BoolRepr
-                   Ctx.%> BVRepr addrWidth
-                   Ctx.%> WordMapRepr addrWidth (BaseBVRepr cellWidth)
-                   Ctx.%> MaybeRepr (BVRepr cellWidth)
+                   Ctx.:> BoolRepr
+                   Ctx.:> BVRepr addrWidth
+                   Ctx.:> WordMapRepr addrWidth (BaseBVRepr cellWidth)
+                   Ctx.:> MaybeRepr (BVRepr cellWidth)
     let retRepr = BVRepr valWidth
     h <- simMkHandle sim name argsRepr retRepr
     (R.SomeCFG regCfg, _) <- stToIO $ Gen.defineFunction InternalPos h fndef
@@ -156,7 +153,7 @@ multipartLoadFn sim addrWidth cellWidth valWidth num = do
         bindHandleToFunction sim h (UseCFG cfg (postdomInfo cfg))
         return h
 
- where fndef :: Gen.FunctionDef RealWorld
+ where fndef :: Gen.FunctionDef () RealWorld
                                Maybe
                                (EmptyCtx
                                ::> BoolType
@@ -166,11 +163,11 @@ multipartLoadFn sim addrWidth cellWidth valWidth num = do
                                )
                                (BVType valWidth)
 
-       fndef args = ( Nothing, Gen.endNow $ \_ -> do
-                          let endianFlag = args^._1
+       fndef args = ( Nothing,
+                       do let endianFlag = R.AtomExpr (args^._1)
                           let basePtr    = R.AtomExpr (args^._2)
                           let wordMap    = R.AtomExpr (args^._3)
-                          let maybeDefVal = args^._4
+                          let maybeDefVal = R.AtomExpr (args^._4)
 
                           be       <- Gen.newLabel
                           le       <- Gen.newLabel
@@ -179,13 +176,9 @@ multipartLoadFn sim addrWidth cellWidth valWidth num = do
                           be_def   <- Gen.newLambdaLabel' (BVRepr cellWidth)
                           le_def   <- Gen.newLambdaLabel' (BVRepr cellWidth)
 
-                          Gen.endCurrentBlock (R.Br endianFlag be le)
+                          Gen.defineBlock be $ Gen.branchMaybe maybeDefVal be_def be_nodef
 
-                          Gen.defineBlock be $ Gen.endNow $ \_ -> Gen.endCurrentBlock $
-                                R.MaybeBranch (BVRepr cellWidth) maybeDefVal be_def be_nodef
-
-                          Gen.defineBlock le $ Gen.endNow $ \_ -> Gen.endCurrentBlock $
-                                R.MaybeBranch (BVRepr cellWidth) maybeDefVal le_def le_nodef
+                          Gen.defineBlock le $ Gen.branchMaybe maybeDefVal le_def le_nodef
 
                           Gen.defineBlock be_nodef $ Gen.returnFromFunction $
                                bigEndianLoad addrWidth cellWidth valWidth num basePtr wordMap
@@ -198,4 +191,6 @@ multipartLoadFn sim addrWidth cellWidth valWidth num = do
 
                           Gen.defineLambdaBlock le_def $ \def -> Gen.returnFromFunction $
                                littleEndianLoadDef addrWidth cellWidth valWidth num basePtr wordMap def
+
+                          Gen.branch endianFlag be le
                     )

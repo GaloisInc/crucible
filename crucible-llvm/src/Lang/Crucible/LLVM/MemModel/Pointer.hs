@@ -24,6 +24,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 -- GHC 8.0 doesn't understand the COMPLETE pragma,
 -- so we just kill the incomplete pattern warning
@@ -85,12 +86,17 @@ module Lang.Crucible.LLVM.MemModel.Pointer
   , ptrDiff
   , ptrSub
   , ptrIsNull
+
+    -- * Pretty printing
+  , ppPtr
   ) where
 
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Maybe
 import           Control.Monad.State.Strict
+
+import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
@@ -130,9 +136,13 @@ ptrWidth (LLVMPointer _blk bv) = bvWidth bv
 
 -- | Assert that the given LLVM pointer value is actually a raw bitvector and extract its value.
 projectLLVM_bv :: IsSymInterface sym => sym -> RegValue sym (LLVMPointerType w) -> IO (RegValue sym (BVType w))
-projectLLVM_bv sym (LLVMPointer blk bv) =
+projectLLVM_bv sym ptr@(LLVMPointer blk bv) =
   do p <- natEq sym blk =<< natLit sym 0
-     addAssertion sym p (AssertFailureSimError "Pointer value coerced to bitvector")
+     addAssertion sym p $
+        AssertFailureSimError $ unlines
+          [ "Pointer value coerced to bitvector:"
+          , "*** " ++ show (ppPtr ptr)
+          ]
      return bv
 
 -- | Convert a raw bitvector value into an LLVM pointer value.
@@ -527,3 +537,14 @@ muxLLVMVal sym p = mergePartial sym muxval p
           return $ LLVMValArray tp1 v
 
     muxval _ _ = returnUnassigned
+
+
+ppPtr :: IsExpr (SymExpr sym) => LLVMPtr sym wptr -> Doc
+ppPtr (llvmPointerView -> (blk, bv))
+  | Just 0 <- asNat blk = printSymExpr bv
+  | otherwise =
+     let blk_doc = printSymExpr blk
+         off_doc = printSymExpr bv
+      in text "(" <> blk_doc <> text "," <+> off_doc <> text ")"
+
+

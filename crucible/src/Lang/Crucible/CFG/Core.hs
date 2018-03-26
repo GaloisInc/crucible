@@ -82,7 +82,6 @@ module Lang.Crucible.CFG.Core
   , lastReg
 
     -- * Re-exports
-  , CharVector
   , module Lang.Crucible.Types
   , module Lang.Crucible.CFG.Common
   , module Data.Parameterized.Classes
@@ -99,14 +98,12 @@ import Data.Parameterized.TraversableFC
 import Data.String
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-import Lang.MATLAB.CharVector (CharVector)
-import Lang.MATLAB.Utils.PrettyPrint
-
 import Lang.Crucible.CFG.Common
 import Lang.Crucible.CFG.Expr
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.ProgramLoc
 import Lang.Crucible.Types
+import Lang.Crucible.Utils.PrettyPrint
 
 #ifdef UNSAFE_OPS
 -- We deliberately import Context.Unsafe as it is the only one that supports

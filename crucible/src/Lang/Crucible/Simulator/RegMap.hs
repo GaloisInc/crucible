@@ -52,7 +52,6 @@ import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Types
-import qualified Lang.Crucible.Utils.SymMultiDimArray as SMDA
 
 ------------------------------------------------------------------------
 -- RegMap
@@ -127,7 +126,7 @@ pushBranchForType s iTypes p =
   case p of
     IntrinsicRepr nm ctx ->
        case MapF.lookup nm iTypes of
-         Just IntrinsicMuxFn -> pushBranchIntrinsic s nm ctx
+         Just IntrinsicMuxFn -> pushBranchIntrinsic s iTypes nm ctx
          Nothing ->
            fail $ unwords ["Unknown intrinsic type:", show nm]
 
@@ -148,7 +147,7 @@ abortBranchForType s iTypes p =
   case p of
     IntrinsicRepr nm ctx ->
        case MapF.lookup nm iTypes of
-         Just IntrinsicMuxFn -> abortBranchIntrinsic s nm ctx
+         Just IntrinsicMuxFn -> abortBranchIntrinsic s iTypes nm ctx
          Nothing ->
            fail $ unwords ["Unknown intrinsic type:", show nm]
 
@@ -173,14 +172,7 @@ muxRegForType s itefns p =
      ComplexRealRepr   -> muxReg s p
      CharRepr          -> muxReg s p
      BoolRepr          -> muxReg s p
-     IntWidthRepr      -> muxReg s p
-     UIntWidthRepr     -> muxReg s p
      StringRepr        -> muxReg s p
-
-     MatlabIntRepr     -> muxReg s p
-     MatlabUIntRepr    -> muxReg s p
-     MatlabIntArrayRepr  -> muxReg s p
-     MatlabUIntArrayRepr -> muxReg s p
 
      ConcreteRepr TypeableType -> muxConcrete s
      AnyRepr -> muxAny s itefns
@@ -197,16 +189,12 @@ muxRegForType s itefns p =
      MaybeRepr r          -> mergePartExpr s (muxRegForType s itefns r)
      VectorRepr r         -> muxVector (muxRegForType s itefns r)
      StringMapRepr r      -> muxStringMap s (muxRegForType s itefns r)
-     MultiDimArrayRepr r  -> mdaMuxFn (muxRegForType s itefns r)
-     SymbolicMultiDimArrayRepr _ -> SMDA.muxArray s
      SymbolicArrayRepr{}         -> arrayIte s
      SymbolicStructRepr{}        -> structIte s
-     MatlabSymbolicIntArrayRepr -> muxReg s p
-     MatlabSymbolicUIntArrayRepr -> muxReg s p
      RecursiveRepr nm ctx -> muxRecursive (muxRegForType s itefns) nm ctx
      IntrinsicRepr nm ctx ->
        case MapF.lookup nm itefns of
-         Just IntrinsicMuxFn -> muxIntrinsic s nm ctx
+         Just IntrinsicMuxFn -> muxIntrinsic s itefns nm ctx
          Nothing ->
            fail $ unwords ["Unknown intrinsic type:", show nm]
 

@@ -43,6 +43,7 @@ module Lang.Crucible.Simulator.OverrideSim
   , withSimContext
   , callCFG
   , callFnVal
+  , callFnVal'
     -- * Function bindings
   , FnBinding(..)
   , fnBindingsFromList
@@ -320,6 +321,18 @@ callFnVal cl args = do
         overrideHandler o $ s & stateTree %~ callFn (returnToOverride c) (OF f)
       SomeCF f -> do
         loopCrucible $ s & stateTree %~ callFn (returnToOverride c) (MF f)
+
+-- | Call a function with the given arguments.  Provide the arguments as an
+--   @Assignment@ instead of as a @RegMap@.
+callFnVal' ::
+  IsSyntaxExtension ext =>
+  FnVal sym args ret ->
+  Ctx.Assignment (RegValue' sym) args ->
+  OverrideSim p sym ext rtp a r (RegValue sym ret)
+callFnVal' cl args =
+  do let FunctionHandleRepr tps _ = fnValType cl
+     let args' = Ctx.zipWith (\tp (RV x) -> RegEntry tp x) tps args
+     regValue <$> callFnVal cl (RegMap args')
 
 -- | Call a control flow graph from OverrideSim.
 --

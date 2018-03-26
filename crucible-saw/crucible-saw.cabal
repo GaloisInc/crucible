@@ -20,6 +20,7 @@ library
     containers,
     crucible >= 0.1,
     lens,
+    text,
     parameterized-utils,
     saw-core >= 0.1,
     saw-core-aig

@@ -921,13 +921,6 @@ mergeMem c x y =
 --------------------------------------------------------------------------------
 -- Pretty printing
 
-ppPtr :: IsExpr (SymExpr sym) => LLVMPtr sym wptr -> Doc
-ppPtr (llvmPointerView -> (blk, bv))
-  | Just 0 <- asNat blk = printSymExpr bv
-  | otherwise =
-     let blk_doc = printSymExpr blk
-         off_doc = printSymExpr bv
-      in text "(" <> blk_doc <> text "," <+> off_doc <> text ")"
 
 ppTermExpr
   :: forall sym. IsExprBuilder sym

@@ -1147,20 +1147,21 @@ calcGEP_array typ base idx =
      unless (isz <= maxSigned PtrWidth)
        (fail $ unwords ["Type size too large for pointer width:", show typ])
 
-     -- Compute safe upper and lower bounds for the index value to prevent multiplication
-     -- overflow.  Note that `minidx <= idx <= maxidx` iff `MININT <= (isz * idx) <= MAXINT`
-     -- when `isz` and `idx` are considered as infinite precision integers.
-     -- This property holds only if we use `quot` (which rounds toward 0) for the
-     -- divisions in the following definitions.
+     unless (isz == 0) $ do
+       -- Compute safe upper and lower bounds for the index value to prevent multiplication
+       -- overflow.  Note that `minidx <= idx <= maxidx` iff `MININT <= (isz * idx) <= MAXINT`
+       -- when `isz` and `idx` are considered as infinite precision integers.
+       -- This property holds only if we use `quot` (which rounds toward 0) for the
+       -- divisions in the following definitions.
 
-     -- maximum and minimum indices to prevent multiplication overflow
-     let maxidx = maxSigned PtrWidth `quot` isz
-     let minidx = minSigned PtrWidth `quot` isz
+       -- maximum and minimum indices to prevent multiplication overflow
+       let maxidx = maxSigned PtrWidth `quot` (max isz 1)
+       let minidx = minSigned PtrWidth `quot` (max isz 1)
 
-     -- Assert the necessary range condition
-     assertExpr ((app $ BVSle PtrWidth (app $ BVLit PtrWidth minidx) idx') .&&
-                 (app $ BVSle PtrWidth idx' (app $ BVLit PtrWidth maxidx)))
-                (litExpr "Multiplication overflow in getelementpointer")
+       -- Assert the necessary range condition
+       assertExpr ((app $ BVSle PtrWidth (app $ BVLit PtrWidth minidx) idx') .&&
+                   (app $ BVSle PtrWidth idx' (app $ BVLit PtrWidth maxidx)))
+                  (litExpr "Multiplication overflow in getelementpointer")
 
      -- Perform the multiply
      let off = app $ BVMul PtrWidth (app $ BVLit PtrWidth isz) idx'
@@ -1364,10 +1365,15 @@ bitCast expr tgtT =
 
 
   where
-  mb    = maybe (err [ "*** Invalid coercion." ]) return
+  mb    = maybe (err [ "*** Invalid coercion of expression"
+                     , indent (show expr)
+                     , "to type"
+                     , indent (show tgtT)
+                     ]) return
   mbEls = do (ty,se) <- asVectorWithType expr
              return (ty, toList se)
   err msg = fail $ unlines ("[bitCast] Failed to perform cast:" : msg)
+  indent msg = "  " ++ msg
 
 
 -- | Join the elements of a vector into a single bit-vector value.

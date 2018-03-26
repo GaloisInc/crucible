@@ -36,7 +36,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 module Lang.Crucible.BaseTypes
   ( -- * BaseType data kind
-    type BaseType
+    type BaseType(..)
     -- ** Constructors for kind BaseType
   , BaseBoolType
   , BaseIntegerType
@@ -65,7 +65,6 @@ import           Data.Parameterized.TH.GADT
 import           GHC.TypeLits
 import           Text.PrettyPrint.ANSI.Leijen
 
-
 --------------------------------------------------------------------------------
 -- KnownCtx
 
@@ -75,18 +74,29 @@ type KnownCtx f = KnownRepr (Ctx.Assignment f)
 ------------------------------------------------------------------------
 -- BaseType
 
--- | This data kind enumerates the Crucible base types, which are
--- types that may appear in solver expressions.
+-- | This data kind enumerates the Crucible solver interface types,
+-- which are types that may be represented symbolically.
 data BaseType
+     -- | @BaseBoolType@ denotes Boolean values.
    = BaseBoolType
-   | BaseIntegerType
+     -- | @BaseNatType@ denotes a natural number.
    | BaseNatType
+     -- | @BaseIntegerType@ denotes an integer.
+   | BaseIntegerType
+     -- | @BaseRealType@ denotes a real number.
    | BaseRealType
+     -- | @BaseBVType n@ denotes a bitvector with @n@-bits.
    | BaseBVType GHC.TypeLits.Nat
+     -- | @BaseComplexType@ denotes a complex number with real components.
    | BaseComplexType
-     -- An aggregate type containing a sequence of values of the
-     -- given types.
+     -- | @BaseStructType tps@ denotes a sequence of values with types @tps@.
    | BaseStructType (Ctx.Ctx BaseType)
+     -- | @BaseArrayType itps rtp@ denotes a function mapping indices @itps@
+     -- to values of type @rtp@.
+     --
+     -- It does not have bounds as one would normally expect from an
+     -- array in a programming language, but the solver does provide
+     -- operations for doing pointwise updates.
    | BaseArrayType  (Ctx.Ctx BaseType) BaseType
 
 type BaseBoolType    = 'BaseBoolType    -- ^ @:: 'BaseType'@.
@@ -101,7 +111,7 @@ type BaseArrayType   = 'BaseArrayType   -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseTy
 ------------------------------------------------------------------------
 -- BaseTypeRepr
 
--- | A runtime representation of a solver base type. Parameter @bt@
+-- | A runtime representation of a solver interface type. Parameter @bt@
 -- has kind 'BaseType'.
 data BaseTypeRepr (bt::BaseType) :: * where
    BaseBoolRepr :: BaseTypeRepr BaseBoolType

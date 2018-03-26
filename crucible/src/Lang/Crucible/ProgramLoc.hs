@@ -112,7 +112,7 @@ data ProgramLoc
    = ProgramLoc { plFunction :: {-# UNPACK #-} !FunctionName
                 , plSourceLoc :: !Position
                 }
- deriving (Eq, Ord)
+ deriving (Show, Eq, Ord)
 
 -- | Location for initialization code
 initializationLoc :: ProgramLoc

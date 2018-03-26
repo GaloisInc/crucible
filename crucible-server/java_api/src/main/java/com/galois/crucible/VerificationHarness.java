@@ -99,13 +99,18 @@ public class VerificationHarness {
         }
     }
 
-    public VerificationHarness(String name, int addrWidth, Protos.Endianness endianness) {
+    public VerificationHarness(String name, int regFileWidth, int addrWidth, Protos.Endianness endianness) {
         this.harness = Protos.VerificationHarness.newBuilder();
         harness.setName(name);
+        harness.setRegFileWidth(regFileWidth);
         harness.setAddressWidth(addrWidth);
         harness.setEndianness(endianness);
         this.innerPrestate  = new StateSpecification( harness.getPrestateSpecificationBuilder() );
         this.innerPoststate = new StateSpecification( harness.getPoststateSpecificationBuilder() );
+    }
+
+    public void addCryptolSource( String fname ) {
+        harness.addCryptolSource( fname );
     }
 
     public Protos.VerificationHarness getRep() {

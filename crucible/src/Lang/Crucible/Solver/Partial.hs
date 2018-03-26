@@ -16,6 +16,7 @@ which is a symbolic generalization of the 'Maybe' monad.
 module Lang.Crucible.Solver.Partial
  ( -- * PartExpr
    PartExpr(..)
+ , mkPE
  , justPartExpr
  , maybePartExpr
  , joinMaybePE
@@ -43,6 +44,12 @@ data PartExpr p v
         }
    | Unassigned
  deriving ( Functor, Foldable, Traversable )
+
+mkPE :: IsPred p => p -> a -> PartExpr p a
+mkPE p v =
+  case asConstantPred p of
+    Just False -> Unassigned
+    _ -> PE p v
 
 -- | Create a part expression from a value that is always defined.
 justPartExpr :: IsBoolExprBuilder sym
