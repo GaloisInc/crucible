@@ -24,6 +24,7 @@ import qualified Data.Parameterized.HashTable as H
 import           Data.Parameterized.Nonce ( Nonce )
 import           Data.Parameterized.Some ( Some(..) )
 import qualified Data.Parameterized.Context as Ctx
+import qualified Data.Parameterized.TraversableFC as Ctx
 -- import qualified Data.Parameterized.Context.Safe as Ctx
 import           Lang.Crucible.BaseTypes ( BaseType, BaseIntegerType, BaseTypeRepr(..)
                                          , BaseRealType )
@@ -266,6 +267,7 @@ doApp synth ae = do
 doNonceApp :: Synthesis t -> NonceAppElt t tp -> IO (B.Builder (NameType tp))
 doNonceApp synth ae =
   case nonceEltApp ae of
+    -- Right-shift uninterp function
     FnApp fn args -> case T.unpack (solverSymbolAsText (symFnName fn)) of
       "julia_shiftRight!" -> case symFnReturnType fn of
         BaseIntegerRepr -> do
@@ -278,6 +280,14 @@ doNonceApp synth ae =
               Ref by   <- eval synth byArg
               return (Ref <$> B.circRShift base by)
             _ -> fail "The improbable happened: Wrong number of arguments to shift right"
+        _ -> fail "The improbable happened: shift right should only return Integer type"
+      -- dot-product uninterp function
+      "julia_dotProd!" -> case symFnReturnType fn of
+        BaseIntegerRepr -> do
+          let sz = Ctx.size args
+          xs <- Ctx.traverseFC (eval synth) args
+          let args = Ctx.toListFC (\(Ref x) -> x) xs
+          return (Ref <$> B.circDotProd args)
         _ -> fail "The improbable happened: shift right should only return Integer type"
       x -> fail $ "Not supported: " ++ show x
     _ -> fail $ "Not supported"
