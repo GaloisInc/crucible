@@ -46,6 +46,7 @@ library
 
   exposed-modules:
     Lang.Crucible.Solver.SimpleBackend.Acirc
+    Lang.Crucible.Solver.SimpleBackend.Acirc.Streaming
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top

@@ -1,17 +1,23 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
-module Lang.Crucible.Solver.SimpleBackend.Acirc
+module Lang.Crucible.Solver.SimpleBackend.Acirc.Streaming
 ( SimulationResult(..)
 , generateCircuit
 ) where
 
+import           Data.Maybe
+import qualified Data.Map.Strict as M
 import           Data.Tuple ( swap )
+import           Data.Word  ( Word64 )
 import           Data.Ratio ( denominator, numerator )
 import           Data.IORef ( IORef, newIORef, readIORef, writeIORef, atomicModifyIORef )
 
+import qualified System.IO as Sys
+import qualified Text.Printf as Sys
 import           Control.Exception ( assert )
 import           Control.Monad ( void )
 import           Control.Monad.ST ( RealWorld )
@@ -21,7 +27,7 @@ import qualified Data.Text as T
 -- Crucible imports
 import           Data.Parameterized.HashTable (HashTable)
 import qualified Data.Parameterized.HashTable as H
-import           Data.Parameterized.Nonce ( NonceGenerator, Nonce )
+import           Data.Parameterized.Nonce ( NonceGenerator, freshNonce, Nonce, indexValue )
 import           Data.Parameterized.Some ( Some(..) )
 import qualified Data.Parameterized.Context as Ctx
 -- import qualified Data.Parameterized.Context.Safe as Ctx
@@ -32,30 +38,27 @@ import           Lang.Crucible.Solver.SimpleBuilder ( Elt(..), SimpleBoundVar(..
                                                     , App(..), AppElt(..)
                                                     , NonceApp(..)
                                                     , NonceAppElt(..)
-                                                    , eltId, appEltApp, nonceEltId
+                                                    , eltId, eltMaybeId, appEltApp, nonceEltId
                                                     , nonceEltApp, symFnName
                                                     , symFnReturnType )
 import           Lang.Crucible.Solver.Symbol ( solverSymbolAsText )
 import qualified Lang.Crucible.Solver.WeightedSum as WS
 
--- Acirc imports
-import qualified Circuit as B
-import qualified Circuit.Builder as B
-import qualified Circuit.Format.Acirc as B
-
 {- | Package up the state we need during `eval`. This includes
 - the memoization table, `synthesisHash`, we use for keeping track
 - of wires and gates. -}
 data Synthesis t = Synthesis
-  { synthesisState :: IORef B.BuildSt -- ^ BuildSt contains the intermediate representation for Acirc 
-  , synthesisHash  :: HashTable RealWorld (Nonce t) NameType -- ^ memo table from ids (`Nonce`) to evaluated
+  { synthesisHash      :: HashTable RealWorld (Nonce t) NameType -- ^ memo table from ids (`Nonce`) to evaluated
                                                              -- form (`NameType`)
+  , synthesisConstants :: IORef (M.Map Integer (Nonce t BaseIntegerType)) -- maps constants to their wire id
+  , synthesisOut       :: Sys.Handle
+  , synthesisGen       :: NonceGenerator IO t
   }
 
 -- | This represents the simplified terms from crucible.
 data NameType (tp :: BaseType) where
   IntToReal :: NameType BaseIntegerType -> NameType BaseRealType
-  Ref       :: B.Ref   -> NameType BaseIntegerType
+  Ref       :: Word64   -> NameType BaseIntegerType
 
 -- | Holds the results of a simulation run. This should be passed to
 -- generateCircuit.
@@ -73,7 +76,7 @@ data SimulationResult a = SimulationResult
 --   Returns the simplified term for the nonce.
 memoEltNonce :: Synthesis t
              -> Nonce t tp
-             -> IO (B.Builder (NameType tp))
+             -> IO (NameType tp)
              -> IO (NameType tp)
 memoEltNonce synth n act = do
   let h = synthesisHash synth
@@ -81,80 +84,82 @@ memoEltNonce synth n act = do
   case mn of
     Just m  -> return m -- The id was found in the memo table
     Nothing -> do
-      a    <- act
-      name <- atomicModifyIORef (synthesisState synth)
-                                (swap . runState a)
+      name <- act
       liftST $ H.insert h n name
       return name
+
+memoConstNonce :: Synthesis t
+               -> Integer
+               -> (Nonce t BaseIntegerType -> IO (NameType BaseIntegerType))
+               -> IO (NameType BaseIntegerType)
+memoConstNonce synth val act = do
+  m <- readIORef (synthesisConstants synth)
+  case M.lookup val m of
+    Just wireId -> return (Ref (indexValue wireId))
+    Nothing     -> do
+      n <- freshNonce (synthesisGen synth)
+      atomicModifyIORef (synthesisConstants synth) $ \m' ->
+        (M.insert val n m', ())
+      memoEltNonce synth n (act n)
 
 -- | A version of memoEltNonce that works for non-bound varables like an
 -- concrete value. See 'addConstantValue' for more details.
 memoElt :: Synthesis t
-        -> IO (B.Builder (NameType tp))
+        -> IO (NameType tp)
         -> IO (NameType tp)
 memoElt synth act = do
-  a    <- act
-  name <- atomicModifyIORef (synthesisState synth)
-                            (swap . runState a)
+  name <- act
   return name
 
--- | Top level function for generating the circuit. Takes a SimulationResult
--- containing the inputs to the circuit as well as the crucible terms and
--- writes the circuit description to a file.
--- The basetype of the second argument must be BaseIntegerType
 generateCircuit :: NonceGenerator IO t -> FilePath -> SimulationResult (Elt t BaseIntegerType) -> IO ()
-generateCircuit _gen fp (SimulationResult { srInputs = is, srTerms = es }) = do
-  -- First, we create empty data structures for the conversion
-  ref <- newIORef (B.emptyBuildWithV 1 0) -- initialize the build state with the version
-  h   <- liftST H.new
-  let synth = Synthesis { synthesisState = ref
-                        , synthesisHash  = h
-                        }
-  -- Second, the next step is to find all the inputs to the computation so that
-  -- we can create the circuit inputs.
-  recordInputs synth is
-  -- Third, generate the structure of the circuit from the crucible term
-  names <- mapM (eval synth) es
-  mapM_ (synthesize synth) names
-  -- Finally, we have the final circuit and we can write it to the output file.
-  st' <- readIORef (synthesisState synth)
-  writeCircuit fp st'
+generateCircuit gen fp (SimulationResult { srInputs = is, srTerms = es }) =
+  Sys.withFile fp Sys.WriteMode $ \h -> do
+    -- First, we create empty data structures for the conversion
+    table     <- liftST H.new
+    constants <- newIORef M.empty
+    let synth = Synthesis { synthesisOut       = h
+                          , synthesisHash      = table
+                          , synthesisGen       = gen
+                          , synthesisConstants = constants
+                          }
+    writeHeader synth
+    recordInputs synth is
+    names <- mapM (eval synth) es
+    writeCircuit synth es
+    writeOutputs synth names
   where
-  synthesize :: Synthesis t -> NameType BaseIntegerType -> IO ()
-  synthesize synth name = buildStep synth $
-    case name of Ref r -> B.output r
+  writeOutputs :: Synthesis t -> [NameType BaseIntegerType] -> IO ()
+  writeOutputs synth names = writeOutput synth wireIds
+    where
+    wireIds = catMaybes (map wireId names)
+  wireId :: NameType BaseIntegerType -> Maybe Word64
+  wireId (Ref r) = Just r
+  wireId _       = Nothing
+  
+writeHeader :: Synthesis t -> IO ()
+writeHeader synth = Sys.hPutStrLn (synthesisOut synth) "v1.0"
 
-buildStep :: Synthesis t -> B.Builder a -> IO a
-buildStep synth a = do
-  st <- readIORef (synthesisState synth)
-  -- now we need to generate the circuit's output
-  let (c, st') = runState a st
-  writeIORef (synthesisState synth) st'
-  return c
-
--- | Record all the inputs to the function/circuit in the memo table
 recordInputs :: Synthesis t -> [Elt t BaseIntegerType] -> IO ()
 recordInputs synth vars = do
-  mapM_ (addInput synth) vars
+  mapM_ (addInput synth) (zip vars [0..])
 
--- | Add an individual input to the memo table
-addInput :: Synthesis t -> Elt t BaseIntegerType -> IO ()
-addInput synth var = do
+addInput :: Synthesis t -> (Elt t BaseIntegerType, Word64) -> IO ()
+addInput synth (var, inputId) = do
   case var of
-    BoundVarElt bvar -> addBoundVar synth (Some bvar)
-    -- TODO: ASKROB: Does this make sense? Don't we need to
-    -- note down the input? Well, shouldn't need to because it should never
-    -- come up again since it's unused in the circuit.
-    IntElt _i _loc   -> addConstantValue synth
-    t -> error $ "Unsupported representation: " ++ show t
+    BoundVarElt bvar  -> addBoundVar synth (Some bvar) inputId
+    IntElt _i _loc    -> addConstantInput synth inputId
+    t -> error $ "addInput: Unsupported representation: " ++ show t
 
--- | Add a individual bound variable as a circuit input
-addBoundVar :: Synthesis t -> Some (SimpleBoundVar t) -> IO ()
-addBoundVar synth (Some bvar) = do
+addBoundVar :: Synthesis t -> Some (SimpleBoundVar t) -> Word64 -> IO ()
+addBoundVar synth (Some bvar) inputId = do
   case bvarType bvar of
-    BaseIntegerRepr -> void $ memoEltNonce synth (bvarId bvar) $ return $ do
-      Ref <$> B.inputTyped (Just $ B.Vector B.Integer)
-    t -> error $ "Unsupported representation: " ++ show t
+    BaseIntegerRepr -> void $ memoEltNonce synth (bvarId bvar) $ do
+      writeInput synth (indexValue (bvarId bvar)) inputId
+
+writeInput :: Synthesis t -> Word64 -> Word64 -> IO (NameType BaseIntegerType)
+writeInput synth out id = do
+  Sys.hPrintf (synthesisOut synth) "%d input %d @ [Integer]\n" out id
+  return (Ref out)
 
 -- | This is for handling a special case of inputs. Sometimes the parameters are
 -- fixed and known, but we still want the function/circuit to take values in
@@ -162,18 +167,24 @@ addBoundVar synth (Some bvar) = do
 -- for them but not connect them to the rest of the circuit. So we have a
 -- special case where we put them in the memo table but otherwise throw away
 -- their references.
-addConstantValue :: Synthesis t -> IO ()
-addConstantValue synth = void $ memoElt synth $ return $ do
-  Ref <$> B.inputTyped (Just $ B.Vector B.Integer)
+addConstantInput :: Synthesis t -> Word64 -> IO ()
+addConstantInput synth id = void $ memoElt synth $ do
+  out <- freshNonce (synthesisGen synth)
+  Sys.hPrintf (synthesisOut synth) "%d input %d @ [Integer]\n" (indexValue out) id
+  return (Ref (indexValue out))
 
--- | Write an intermediate circuit state to a file as a circuit
-writeCircuit :: FilePath -> B.BuildSt -> IO ()
-writeCircuit fp st = B.writeAcirc fp (B.bs_circ st)
+addConstantValue :: Synthesis t -> Integer -> IO ()
+addConstantValue synth val =
+  void $ memoConstNonce synth val $ \wireId -> do
+    Sys.hPrintf (synthesisOut synth)
+                "%d const @ Integer %d\n"
+                (indexValue wireId)
+                val
+    return (Ref (indexValue wireId))
 
---
+writeCircuit :: Synthesis t -> [Elt t tp] -> IO ()
+writeCircuit synth es = mapM_ (eval synth) es
 
--- | Construct the bulk of a circuit from a crucible term.
--- This doesn't handle inputs and outputs.
 eval :: Synthesis t -> Elt t tp -> IO (NameType tp)
 eval _ NatElt{}       = fail "Naturals not supported"
 eval _ RatElt{}       = fail "Rationals not supported"
@@ -192,69 +203,71 @@ eval synth (BoundVarElt bvar) = do
         error "Latches are not supported in arithmetic circuits."
       UninterpVarKind ->
         error "Uninterpreted variable that was not defined."
-eval synth (IntElt n _)   = buildStep synth $ do
-  constantRef <- B.constantType n (Just (B.Wire B.Integer))
-  return (Ref constantRef)
+eval synth (IntElt n _)   = Ref <$> writeConstant synth n
 eval synth (AppElt a) = do
   memoEltNonce synth (eltId a) $ do
     doApp synth a
 
 -- | Process an application term and returns the Acirc action that creates the
 -- corresponding circuitry.
-doApp :: Synthesis t -> AppElt t tp -> IO (B.Builder (NameType tp))
+doApp :: Synthesis t -> AppElt t tp -> IO (NameType tp)
 doApp synth ae = do
   case appEltApp ae of
     -- Internally crucible converts integers to reals. We need to
     -- undo that, as we only support integers.
     RealToInteger n -> do
       n' <- eval synth n
-      return $! return (intToReal n') -- TODO: rename `intToReal`
+      return $! intToReal n' -- TODO: rename `intToReal`
     IntegerToReal n -> do
       n' <- eval synth n
-      return $! return (IntToReal n')
+      return $! IntToReal n'
     RealMul n m -> do
       -- Like the first case above, we know that for our purposes these are
       -- really computations on integers. So we do the necessary conversions
       -- here.
       IntToReal (Ref n') <- eval synth n
       IntToReal (Ref m') <- eval synth m
-      return (IntToReal . Ref <$> B.circMul n' m')
+      let aeId = indexValue (eltId ae)
+      IntToReal . Ref <$> writeMul synth aeId n' m'
     RealSum ws -> do
       -- This is by far the trickiest case.  Crucible stores sums as weighted
       -- sums. This representation is basically a set of coefficients that are
       -- meant to be multiplied with some sums.
       ws' <- WS.eval (\r1 r2 -> do
-                       r1' <- r1
-                       r2' <- r2
-                       return $ do
-                         r1'' <- r1'
-                         r2'' <- r2'
-                         return $! r1'' ++ r2'')
+                     r1' <- r1
+                     r2' <- r2
+                     return $! r1' ++ r2')
                      -- coefficient case
                      (\c t -> do
                        IntToReal (Ref t') <- eval synth t
-                       assert (denominator c == 1) $ return $ do
+                       assert (denominator c == 1) $ do
                          -- simplify products to simple addition, when we can
                          case numerator c of
                            1  -> return [t']
-                           -1 -> (:[]) <$> B.circNeg t'
+                           -1 -> let Just tId = eltMaybeId t
+                                 in (:[]) <$> writeNeg synth (indexValue tId) t'
                            -- Code below is for when we can support constants
-                           _ -> do c' <- B.constantType (numerator c) (Just (B.Wire B.Integer))
-                                   (:[]) <$> B.circMul c' t')
+                           _ -> do
+                             c'    <- writeConstant synth (numerator c)
+                             let Just tId = eltMaybeId t
+                             (:[]) <$> writeMul synth (indexValue tId) c' t'
+                         )
                      -- just a constant
                      -- TODO what's up with this error
                      (\c -> error "We cannot support raw literals"
                        -- Code below is for when we can support constants
-                       assert (denominator c == 1) $ do
-                         B.constant (numerator c))
+                       -- assert (denominator c == 1) $ do
+                       --   B.constant (numerator c)
+                     )
                      ws
-      return $! do
-        ws'' <- ws'
-        case ws'' of
-          -- Handle the degenerate sum case (eg., +x) by propagating
-          -- the reference to x forward instead of the sum.
-          [x] -> return $! IntToReal (Ref x)
-          _   -> IntToReal . Ref <$> (B.circSumN ws'')
+      -- ws'' <- (ws' :: IO [_])
+      case ws' of
+        -- Handle the degenerate sum case (eg., +x) by propagating
+        -- the reference to x forward instead of the sum.
+        [x] -> return (IntToReal (Ref x))
+        _   -> do
+          let aeId = indexValue (eltId ae)
+          IntToReal . Ref <$> writeSumN synth aeId ws'
     x -> fail $ "Not supported: " ++ show x
 
   where
@@ -263,7 +276,7 @@ doApp synth ae = do
 
 -- | Process an application term and returns the Acirc action that creates the
 -- corresponding circuitry.
-doNonceApp :: Synthesis t -> NonceAppElt t tp -> IO (B.Builder (NameType tp))
+doNonceApp :: Synthesis t -> NonceAppElt t tp -> IO (NameType tp)
 doNonceApp synth ae =
   case nonceEltApp ae of
     FnApp fn args -> case T.unpack (solverSymbolAsText (symFnName fn)) of
@@ -276,8 +289,47 @@ doNonceApp synth ae =
                   byArg   = args Ctx.! one
               Ref base <- eval synth baseArg
               Ref by   <- eval synth byArg
-              return (Ref <$> B.circRShift base by)
+              Ref <$> writeRShift synth (indexValue (nonceEltId ae)) base by
             _ -> fail "The improbable happened: Wrong number of arguments to shift right"
         _ -> fail "The improbable happened: shift right should only return Integer type"
       x -> fail $ "Not supported: " ++ show x
     _ -> fail $ "Not supported"
+
+-- Circuit generation functions
+
+writeMul :: Synthesis t -> Word64 -> Word64 -> Word64 -> IO Word64
+writeMul synth out in1 in2 = do
+  Sys.hPrintf (synthesisOut synth) "%d * %d %d\n" out in1 in2
+  return out
+
+writeNeg :: Synthesis t -> Word64 -> Word64 -> IO Word64
+writeNeg synth out ref = do
+  Sys.hPrintf (synthesisOut synth) "%d - %d\n" out ref
+  return out
+
+writeSumN :: Synthesis t -> Word64 -> [Word64] -> IO Word64
+writeSumN synth out args = do
+  let str = show out ++ " + " ++ concatMap (\x -> show x ++ " ") args
+  Sys.hPutStrLn (synthesisOut synth) str
+  return out
+
+writeRShift :: Synthesis t -> Word64 -> Word64 -> Word64 -> IO Word64
+writeRShift synth out base by = do
+  Sys.hPrintf (synthesisOut synth)
+              "%d >> %d %d\n"
+              out base by
+  return out
+
+writeConstant :: Synthesis t -> Integer -> IO Word64
+writeConstant synth val = do
+  Ref out <- memoConstNonce synth val $ \wireId -> do
+    Sys.hPrintf (synthesisOut synth)
+                "%d const @ Integer %d\n"
+                (indexValue wireId) val
+    return (Ref (indexValue wireId))
+  return out
+
+writeOutput :: Synthesis t -> [Word64] -> IO ()
+writeOutput synth refs = do
+  let str = ":output " ++ concatMap (\x -> show x ++ " ") refs
+  Sys.hPutStrLn (synthesisOut synth) str
