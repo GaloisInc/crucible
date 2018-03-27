@@ -25,11 +25,13 @@ module Lang.Crucible.Vector
     -- * Sub sequences
   , uncons
   , slice
+  , Lang.Crucible.Vector.take
 
     -- * Zipping
   , zipWith
   , zipWithM
   , zipWithM_
+  , interlieve
 
     -- * Reorder
   , shuffle
@@ -165,8 +167,11 @@ slice :: (i + w <= n, 1 <= w) =>
 slice i w (Vector xs) = Vector (Vector.slice (widthVal i) (widthVal w) xs)
 {-# INLINE slice #-}
 
-
-
+-- | Take the front (lower-indexes) part of the vector.
+take :: forall n x a. (1 <= n) => NatRepr n -> Vector (n + x) a -> Vector n a
+take | LeqProof <- prf = slice (knownNat @0)
+  where
+  prf = leqAdd (leqRefl (Proxy @n)) (Proxy @x)
 
 
 
@@ -198,6 +203,16 @@ zipWithM_ :: Monad m => (a -> b -> m ()) -> Vector n a -> Vector n b -> m ()
 zipWithM_ f (Vector xs) (Vector ys) = Vector.zipWithM_ f xs ys
 {-# Inline zipWithM_ #-}
 
+{- | Interlieve two vectors.  The elements of the first vector are
+at even indexes in the result, the elements of the second are at odd indexes. -}
+interlieve ::
+  forall n a. (1 <= n) => Vector n a -> Vector n a -> Vector (2 * n) a
+interlieve (Vector xs) (Vector ys)
+  | LeqProof <- leqMulPos (Proxy @2) (Proxy @n) = Vector zs
+  where
+  len = Vector.length xs + Vector.length ys
+  zs  = Vector.generate len (\i -> let v = if even i then xs else ys
+                                   in v Vector.! (i `div` 2))
 
 
 --------------------------------------------------------------------------------
