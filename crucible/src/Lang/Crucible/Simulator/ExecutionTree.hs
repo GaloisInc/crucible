@@ -292,7 +292,7 @@ partialValue f (PartialRes p x r) = (\y -> PartialRes p y r) <$> f x
 
 mergeAbortedBranch :: Pred sym
                    -> AbortedResult sym ext
-                   -> AbortedResult sym ext 
+                   -> AbortedResult sym ext
                    -> AbortedResult sym ext
 mergeAbortedBranch _ (AbortedExit ec) _ = AbortedExit ec
 mergeAbortedBranch _ _ (AbortedExit ec) = AbortedExit ec
@@ -1166,6 +1166,7 @@ instance MonadIO (SimConfigMonad p sym) where
 instance MonadVerbosity (SimConfigMonad p sym) where
   getVerbosity = SimConfigMonad getVerbosity
   showWarning msg = SimConfigMonad $ showWarning msg
+  getLogFunction = SimConfigMonad $ getLogFunction
 
 ------------------------------------------------------------------------
 -- SimContext utilities

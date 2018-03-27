@@ -53,6 +53,7 @@ module Lang.Crucible.Types
   , NatType
   , IntegerType
   , RealValType
+  , SymbolicStructType
   , ComplexRealType
   , BVType
   , FloatType
@@ -72,7 +73,7 @@ module Lang.Crucible.Types
   , SymbolicArrayType
 
     -- * FloatInfo data kind
-  , FloatInfo
+  , FloatInfo(..)
     -- ** Constructors for kind FloatInfo
   , HalfFloat
   , SingleFloat
@@ -102,17 +103,16 @@ module Lang.Crucible.Types
   , TypeableValue(..)
 
     -- * Re-exports
-  , type Data.Parameterized.Ctx.Ctx
-  , Data.Parameterized.Ctx.EmptyCtx
-  , (Data.Parameterized.Ctx.::>)
-
+--  , type Data.Parameterized.Ctx.Ctx
+--  , Data.Parameterized.Ctx.EmptyCtx
+--  , (Data.Parameterized.Ctx.::>)
+  , module Data.Parameterized.Ctx
   , module Data.Parameterized.NatRepr
   , module Data.Parameterized.SymbolRepr
   , module Lang.Crucible.BaseTypes
   ) where
 
 import           Data.Hashable
-import           Data.Maybe
 import           Data.Type.Equality
 import           Data.Typeable
 import           GHC.Fingerprint.Type
@@ -181,30 +181,29 @@ class IsRecursiveType (nm::Symbol) where
 type CtxRepr = Ctx.Assignment TypeRepr
 
 -- | This data kind describes the types of values and expressions that
---   can occur in Crucible CFGs.  Sometimes these correspond to objects that
---   exist in source-level programs, and some correspond only to intermediate
---   values introduced in translations.
+--   can occur in Crucible CFGs.
 data CrucibleType where
-   -- An injection of all base types into crucible types
+   -- | An injection of solver interface types into Crucible types
    BaseToType :: BaseType -> CrucibleType
 
-   -- A dynamic type that can contain values of any type.
+   -- | A dynamic type that can contain values of any type.
    AnyType :: CrucibleType
 
-   -- A Crucible type that lifts an arbitrary Haskell type, provided
-   -- it supplies Typeable, Eq, Ord and Show instances.
-   -- Values of concrete types do not support nontrivial symbolic path merging.
+   -- | A Crucible type that lifts an arbitrary Haskell type, provided
+   -- it supplies `Typeable`, `Eq`, `Ord` and `Show` instances.
+   -- Values of concrete types do not support nontrivial symbolic path
+   -- merging.
    ConcreteType :: a -> CrucibleType
 
-   -- A type containing a single value "Unit"
+   -- | A type containing a single value "Unit"
    UnitType :: CrucibleType
-   -- A type index for floating point numbers
+   -- | A type index for floating point numbers
    FloatType :: FloatInfo -> CrucibleType
-   -- A single character, as a 16-bit wide char.
+   -- | A single character, as a 16-bit wide char.
    CharType :: CrucibleType
-   -- A sequence of Unicode characters.
+   -- | A sequence of Unicode characters.
    StringType :: CrucibleType
-   -- A function handle taking a context of formal arguments and a return type
+   -- | A function handle taking a context of formal arguments and a return type
    FunctionHandleType :: Ctx CrucibleType -> CrucibleType -> CrucibleType
 
    -- The Maybe type lifted into crucible expressions

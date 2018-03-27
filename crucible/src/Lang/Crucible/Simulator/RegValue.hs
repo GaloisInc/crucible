@@ -112,8 +112,10 @@ fnValType :: FnVal sym args res -> TypeRepr (FunctionHandleType args res)
 fnValType (HandleFnVal h) = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
 fnValType (ClosureFnVal fn _ _) =
   case fnValType fn of
-    FunctionHandleRepr (args Ctx.:> _) r -> FunctionHandleRepr args r
-    _ -> error "fnValType: impossible!"
+    FunctionHandleRepr allArgs r ->
+      case allArgs of
+        args Ctx.:> _ -> FunctionHandleRepr args r
+--    _ -> error "fnValType: impossible!"
 
 instance Show (FnVal sym a r) where
   show = show . closureFunctionName

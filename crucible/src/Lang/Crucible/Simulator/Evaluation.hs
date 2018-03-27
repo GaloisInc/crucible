@@ -35,7 +35,6 @@ module Lang.Crucible.Simulator.Evaluation
 import           Control.Exception (assert)
 import           Control.Lens
 import           Control.Monad
-import qualified Data.Foldable as Fold
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import           Data.Parameterized.Classes
@@ -132,13 +131,6 @@ indexSymbolic :: IsSymInterface sym
               -> [SymNat sym]
               -> IO a
 indexSymbolic sym iteFn f = indexSymbolic' sym iteFn f []
-
--- | Add checks to confirm each argument is at least one.
-checkAtLeast1 :: (IsExprBuilder sym, Traversable f) => sym -> f (SymNat sym) -> IO (Pred sym)
-checkAtLeast1 sym s = do
-  c0 <- natLit sym 0
-  andAllOf sym folded =<< traverse (natLt sym c0) s
-
 
 -- | Evaluate an indexTermterm to an index value.
 evalBase :: sym
@@ -239,7 +231,7 @@ evalApp :: forall sym ext
            -- ^ Function for logging messages.
         -> EvalAppFunc sym (ExprExtension ext)
         -> EvalAppFunc sym (App ext)
-evalApp sym itefns logFn evalExt evalSub a0 = do
+evalApp sym itefns _logFn evalExt evalSub a0 = do
   case a0 of
 
     BaseIsEq tp xe ye -> do

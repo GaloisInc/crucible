@@ -1,3 +1,6 @@
+Introduction
+-------------
+
 Crucible is a language-agnostic library for performing forward
 symbolic execution of imperative programs.  It provides a collection of
 data-structures and APIs for expressing programs as control-flow
@@ -37,10 +40,45 @@ In addition, there is the following library/executable package:
 [pb]: https://developers.google.com/protocol-buffers/ "Protocol Buffers"
 
 
-The development of major features and additions to `crucible` is done in separate branches of the repository, all of which are based off `master` and merge back into it when completed. Minor features and bug fixes are done in the `master` branch. Naming of feature branches is free-form.
+The development of major features and additions to `crucible` is done
+in separate branches of the repository, all of which are based off
+`master` and merge back into it when completed. Minor features and bug
+fixes are done in the `master` branch. Naming of feature branches is
+free-form.
 
-To use `stack` to build crucible, you can use the shell script
-`scripts/build-sandbox.sh` to retrieve the appropriate repos for
-building.
+Each library is BSD-licensed (see the `LICENSE` file in a project
+directory for details).
 
-Each library is BSD-licensed (see the `LICENSE` file in a project directory for details).
+Quick start
+-------------
+
+
+Crucible is mainly intended to be used as a libarary for other
+downstream projects.  As such, the build system infrastructure in this
+repository is relatively minimal. Downstream projects are expected to
+do the primary work of tracking dependencies, and mantaining a
+coherent working set of git submodules, etc.
+
+However, for convenience, we provide here some basic support for
+building crucible in place.
+
+To fetch all the latest git versions of immediate dependencies of
+libraries in this repository, use the `scripts/build-sandbox.sh` shell
+script.  You will find it most convenient to setup public-key login
+for GitHub before you perform this step.
+
+Now, you may use either `stack` or `cabal new-build` to compile the
+libraries, as you prefer.
+
+```
+./scripts/build-sandbox.sh
+stack setup
+stack build
+```
+
+```
+./scripts/build-sandbox.sh
+cabal update
+cabal new-configure
+cabal new-build all
+```
