@@ -11,17 +11,15 @@ module Lang.Crucible.Solver.SimpleBackend.Acirc.Streaming
 
 import           Data.Maybe
 import qualified Data.Map.Strict as M
-import           Data.Tuple ( swap )
 import           Data.Word  ( Word64 )
 import           Data.Ratio ( denominator, numerator )
-import           Data.IORef ( IORef, newIORef, readIORef, writeIORef, atomicModifyIORef )
+import           Data.IORef ( IORef, newIORef, readIORef, atomicModifyIORef )
 
 import qualified System.IO as Sys
 import qualified Text.Printf as Sys
 import           Control.Exception ( assert )
 import           Control.Monad ( void )
 import           Control.Monad.ST ( RealWorld )
-import           Control.Monad.State ( runState )
 import qualified Data.Text as T
 
 -- Crucible imports
@@ -108,7 +106,7 @@ memoConstNonce synth val act = do
 memoElt :: Synthesis t
         -> IO (NameType tp)
         -> IO (NameType tp)
-memoElt synth act = do
+memoElt _synth act = do
   name <- act
   return name
 
@@ -130,12 +128,11 @@ generateCircuit gen fp (SimulationResult { srInputs = is, srTerms = es }) =
     writeOutputs synth names
   where
   writeOutputs :: Synthesis t -> [NameType BaseIntegerType] -> IO ()
-  writeOutputs synth names = writeOutput synth wireIds
+  writeOutputs synth names = writeOutputLine synth wireIds
     where
     wireIds = catMaybes (map wireId names)
   wireId :: NameType BaseIntegerType -> Maybe Word64
   wireId (Ref r) = Just r
-  wireId _       = Nothing
   
 writeHeader :: Synthesis t -> IO ()
 writeHeader synth = Sys.hPutStrLn (synthesisOut synth) "v1.0"
@@ -156,10 +153,11 @@ addBoundVar synth (Some bvar) inputId = do
   case bvarType bvar of
     BaseIntegerRepr -> void $ memoEltNonce synth (bvarId bvar) $ do
       writeInput synth (indexValue (bvarId bvar)) inputId
+    t -> error $ "addBoundVar: Unsupported representation: " ++ show t
 
 writeInput :: Synthesis t -> Word64 -> Word64 -> IO (NameType BaseIntegerType)
-writeInput synth out id = do
-  Sys.hPrintf (synthesisOut synth) "%d input %d @ [Integer]\n" out id
+writeInput synth out inpId = do
+  Sys.hPrintf (synthesisOut synth) "%d input %d @ ciphertext\n" out inpId
   return (Ref out)
 
 -- | This is for handling a special case of inputs. Sometimes the parameters are
@@ -169,19 +167,10 @@ writeInput synth out id = do
 -- special case where we put them in the memo table but otherwise throw away
 -- their references.
 addConstantInput :: Synthesis t -> Word64 -> IO ()
-addConstantInput synth id = void $ memoElt synth $ do
+addConstantInput synth inpId = void $ memoElt synth $ do
   out <- freshNonce (synthesisGen synth)
-  Sys.hPrintf (synthesisOut synth) "%d input %d @ [Integer]\n" (indexValue out) id
+  Sys.hPrintf (synthesisOut synth) "%d input %d @ ciphertext\n" (indexValue out) inpId
   return (Ref (indexValue out))
-
-addConstantValue :: Synthesis t -> Integer -> IO ()
-addConstantValue synth val =
-  void $ memoConstNonce synth val $ \wireId -> do
-    Sys.hPrintf (synthesisOut synth)
-                "%d const @ Integer %d\n"
-                (indexValue wireId)
-                val
-    return (Ref (indexValue wireId))
 
 writeCircuit :: Synthesis t -> [Elt t tp] -> IO ()
 writeCircuit synth es = mapM_ (eval synth) es
@@ -255,7 +244,7 @@ doApp synth ae = do
                          )
                      -- just a constant
                      -- TODO what's up with this error
-                     (\c -> error "We cannot support raw literals"
+                     (\_c -> error "We cannot support raw literals"
                        -- Code below is for when we can support constants
                        -- assert (denominator c == 1) $ do
                        --   B.constant (numerator c)
@@ -297,10 +286,9 @@ doNonceApp synth ae =
       -- dot-product uninterp function
       "julia_dotProd!" -> case symFnReturnType fn of
         BaseIntegerRepr -> do
-          let sz = Ctx.size args
           xs <- Ctx.traverseFC (eval synth) args
-          let args = Ctx.toListFC (\(Ref x) -> x) xs
-          Ref <$> writeDotProd synth (indexValue (nonceEltId ae)) args
+          let args' = Ctx.toListFC (\(Ref x) -> x) xs
+          Ref <$> writeDotProd synth (indexValue (nonceEltId ae)) args'
         _ -> fail "The improbable happened: shift right should only return Integer type"
       x -> fail $ "Not supported: " ++ show x
     _ -> fail $ "Not supported"
@@ -345,7 +333,7 @@ writeDotProd synth out args = do
   Sys.hPutStrLn (synthesisOut synth) str
   return out
 
-writeOutput :: Synthesis t -> [Word64] -> IO ()
-writeOutput synth refs = do
-  let str = ":output " ++ concatMap (\x -> show x ++ " ") refs
+writeOutputLine :: Synthesis t -> [Word64] -> IO ()
+writeOutputLine synth refs = do
+  let str = ":outputs " ++ concatMap (\x -> show x ++ " ") refs
   Sys.hPutStrLn (synthesisOut synth) str
