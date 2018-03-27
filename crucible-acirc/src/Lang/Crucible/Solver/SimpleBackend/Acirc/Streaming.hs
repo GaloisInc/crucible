@@ -250,7 +250,6 @@ doApp synth ae = do
                        --   B.constant (numerator c)
                      )
                      ws
-      -- ws'' <- (ws' :: IO [_])
       case ws' of
         -- Handle the degenerate sum case (eg., +x) by propagating
         -- the reference to x forward instead of the sum.
