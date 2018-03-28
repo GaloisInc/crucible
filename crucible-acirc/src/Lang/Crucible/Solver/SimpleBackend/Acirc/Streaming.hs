@@ -122,11 +122,13 @@ generateCircuit gen fp (SimulationResult { srInputs = is, srTerms = es }) =
                           , synthesisConstants = constants
                           }
     writeHeader synth
-    recordInputs synth is
+    recordInputs synth (filter isBoundVar is)
     names <- mapM (eval synth) es
     writeCircuit synth es
     writeOutputs synth names
   where
+  isBoundVar BoundVarElt{} = True
+  isBoundVar _             = False
   writeOutputs :: Synthesis t -> [NameType BaseIntegerType] -> IO ()
   writeOutputs synth names = writeOutputLine synth wireIds
     where
