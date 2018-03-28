@@ -145,7 +145,9 @@ addInput :: Synthesis t -> (Elt t BaseIntegerType, Word64) -> IO ()
 addInput synth (var, inputId) = do
   case var of
     BoundVarElt bvar  -> addBoundVar synth (Some bvar) inputId
-    IntElt _i _loc    -> addConstantInput synth inputId
+    -- We used to add dummy parameters to the circuit for constants,
+    -- but this is no longer necessary.
+    IntElt _i _loc    -> {- addConstantInput synth inputId -} return ()
     t -> error $ "addInput: Unsupported representation: " ++ show t
 
 addBoundVar :: Synthesis t -> Some (SimpleBoundVar t) -> Word64 -> IO ()

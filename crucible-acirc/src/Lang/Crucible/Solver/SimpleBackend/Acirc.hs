@@ -143,10 +143,9 @@ addInput :: Synthesis t -> Elt t BaseIntegerType -> IO ()
 addInput synth var = do
   case var of
     BoundVarElt bvar -> addBoundVar synth (Some bvar)
-    -- TODO: ASKROB: Does this make sense? Don't we need to
-    -- note down the input? Well, shouldn't need to because it should never
-    -- come up again since it's unused in the circuit.
-    IntElt _i _loc   -> addConstantValue synth
+    -- We used to add dummy parameters to the circuit for constants,
+    -- but this is no longer necessary.
+    IntElt _i _loc   -> {- addConstantValue synth -} return ()
     t -> error $ "Unsupported representation: " ++ show t
 
 -- | Add a individual bound variable as a circuit input
