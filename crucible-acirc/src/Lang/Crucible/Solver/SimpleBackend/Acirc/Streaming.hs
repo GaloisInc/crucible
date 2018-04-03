@@ -238,8 +238,10 @@ doApp synth ae = do
                          -- simplify products to simple addition, when we can
                          case numerator c of
                            1  -> return [t']
-                           -1 -> let Just tId = eltMaybeId t
-                                 in (:[]) <$> writeNeg synth (indexValue tId) t'
+                           -1 -> do
+                             out <- freshNonce (synthesisGen synth)
+                             Ref out' <- memoEltNonce synth out $ return (Ref (indexValue out))
+                             (:[]) <$> writeNeg synth out' t'
                            -- Code below is for when we can support constants
                            _ -> do
                              c'    <- writeConstant synth (numerator c)
