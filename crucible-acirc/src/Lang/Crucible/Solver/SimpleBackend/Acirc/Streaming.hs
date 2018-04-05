@@ -198,9 +198,140 @@ eval synth (BoundVarElt bvar) = do
       UninterpVarKind ->
         error "Uninterpreted variable that was not defined."
 eval synth (IntElt n _)   = Ref <$> writeConstant synth n
-eval synth (AppElt a) = do
+eval synth (AppElt a)     = do
   memoEltNonce synth (eltId a) $ do
-    doApp synth a
+    -- TODO: expose this through the front-end
+    case False of
+      False -> doApp synth a
+      True  -> do
+        r <- doAppFlatten synth a
+        case r of
+          Left  nt   -> return nt
+          Right elts -> case appEltApp a of
+            RealMul{}         -> do
+              ns <- traverse (\(Some x) -> doNameType synth x) elts
+              IntToReal . Ref <$> writeMulN synth (indexValue (eltId a)) ns
+            _ -> error "eval: improbable happened: doAppFlatten should have handle this case"
+        where
+        -- TODO: this probably needs to do a lot more. See the
+        -- same function inside `evalForProd` for more.
+        doNameType :: Synthesis t -> NameType tp -> IO Word64
+        doNameType _synth (Ref n) = return $! n
+        doNameType _synth (IntToReal r) = doNameType _synth r
+
+evalForProd :: Synthesis t -> Elt t tp
+            -> IO (Either (NameType tp) [Some NameType])
+evalForProd _     NatElt{}           = fail "Naturals not supported"
+evalForProd _     RatElt{}           = fail "Rationals not supported"
+evalForProd _     BVElt{}            = fail "BitVector not supported"
+evalForProd synth (NonceAppElt app)  = do
+  nt <- memoEltNonce synth (nonceEltId app) $ do
+    doNonceApp synth app
+  return $! Left nt
+evalForProd synth (BoundVarElt bvar) = do
+  nt <- memoEltNonce synth (bvarId bvar) $ do
+    case bvarKind bvar of
+      QuantifierVarKind ->
+        error "Bound variable is not defined."
+      LatchVarKind ->
+        error "Latches are not supported in arithmetic circuits."
+      UninterpVarKind ->
+        error "Uninterpreted variable that was not defined."
+  return $! Left nt
+evalForProd synth (IntElt n _)       = do
+  -- TODO: should this really write the constant??
+  n' <- writeConstant synth n
+  return $! Left (Ref n')
+evalForProd synth (AppElt a) = do
+  r <- doAppFlatten synth a
+  case r of
+    Left  nt   -> return $! Left nt
+    Right elts -> case appEltApp a of
+      RealMul{} -> return $! Right elts
+      _         -> do
+        ns <- traverse (\(Some x) -> doNameType synth x) elts
+        void $ writeMulN synth (indexValue (eltId a)) ns
+        return $! r
+  where
+  -- TODO: this seems suspiciously simple, if you're debugging
+  -- missing output in your circuit. Be suspicious of this function.
+  doNameType :: Synthesis t -> NameType tp -> IO Word64
+  doNameType _synth (Ref n) = return $! n
+  doNameType _synth (IntToReal r) = doNameType _synth r
+
+-- | Process an application term and returns the Acirc action that creates the
+-- corresponding circuitry.
+doAppFlatten :: Synthesis t -> AppElt t tp
+             -> IO (Either (NameType tp) [Some NameType])
+doAppFlatten synth ae = do
+  case appEltApp ae of
+    -- Internally crucible converts integers to reals. We need to
+    -- undo that, as we only support integers.
+    RealToInteger n -> do
+      n' <- eval synth n
+      return $! Left (intToReal n') -- TODO: rename `intToReal`
+    IntegerToReal n -> do
+      n' <- eval synth n
+      return $! Left (IntToReal n')
+    RealMul n m -> do
+      -- Unlike the normal `doApp`, we need to return the intermediate
+      -- terms and NOT write the gate yet. That needs to happen at a higher
+      -- level.
+      let extract (Left x)   = [Some x]
+          extract (Right xs) = xs
+      ns <- evalForProd synth n
+      ms <- evalForProd synth m
+      return $! Right $ extract ns ++ extract ms
+    RealSum ws -> do
+      -- This is by far the trickiest case.  Crucible stores sums as weighted
+      -- sums. This representation is basically a set of coefficients that are
+      -- meant to be multiplied with some sums.
+      ws' <- WS.eval (\r1 r2 -> do
+                     r1' <- r1
+                     r2' <- r2
+                     return $! r1' ++ r2')
+                     -- coefficient case
+                     (\c t -> do
+                       IntToReal (Ref t') <- eval synth t
+                       assert (denominator c == 1) $ do
+                         -- simplify products to simple addition, when we can
+                         case numerator c of
+                           1  -> return [t']
+                           -1 -> do
+                             out <- freshNonce (synthesisGen synth)
+                             Ref out' <- memoEltNonce synth out $ return (Ref (indexValue out))
+                             (:[]) <$> writeNeg synth out' t'
+                           -- Code below is for when we can support constants
+                           _ -> do
+--                              ts <- evalForProd synth t
+--                              c' <- writeConstant synth (numerator c)
+--                              let Just tId = eltMaybeId t
+--                              (:[]) <$> writeMulN synth (indexValue tId) (c':ts)
+                             c'    <- writeConstant synth (numerator c)
+                             let Just tId = eltMaybeId t
+                             (:[]) <$> writeMul synth (indexValue tId) c' t'
+                         )
+                     -- just a constant
+                     -- TODO what's up with this error
+                     (\_c -> error "We cannot support raw literals"
+                       -- Code below is for when we can support constants
+                       -- assert (denominator c == 1) $ do
+                       --   B.constant (numerator c)
+                     )
+                     ws
+      case ws' of
+        -- Handle the degenerate sum case (eg., +x) by propagating
+        -- the reference to x forward instead of the sum.
+        [x] -> return $! Left $! IntToReal (Ref x)
+        _   -> do
+          let aeId = indexValue (eltId ae)
+          s <- writeSumN synth aeId ws'
+          return $! Left $! IntToReal (Ref s)
+    x -> fail $ "Not supported: " ++ show x
+
+  where
+  intToReal :: NameType BaseRealType -> NameType BaseIntegerType
+  intToReal (IntToReal m) = m
 
 -- | Process an application term and returns the Acirc action that creates the
 -- corresponding circuitry.
@@ -303,6 +434,12 @@ doNonceApp synth ae =
 writeMul :: Synthesis t -> Word64 -> Word64 -> Word64 -> IO Word64
 writeMul synth out in1 in2 = do
   Sys.hPrintf (synthesisOut synth) "%d * %d %d\n" out in1 in2
+  return out
+
+writeMulN :: Synthesis t -> Word64 -> [Word64] -> IO Word64
+writeMulN synth out args = do
+  let str = show out ++ " * " ++ concatMap (\x -> show x ++ " ") args
+  Sys.hPutStrLn (synthesisOut synth) str
   return out
 
 writeNeg :: Synthesis t -> Word64 -> Word64 -> IO Word64
