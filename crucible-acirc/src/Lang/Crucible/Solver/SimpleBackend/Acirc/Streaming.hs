@@ -10,6 +10,7 @@ module Lang.Crucible.Solver.SimpleBackend.Acirc.Streaming
 , generateCircuit
 ) where
 
+import           Data.List ( intercalate )
 import           Data.Maybe
 import qualified Data.Map.Strict as M
 import           Data.Word  ( Word64 )
@@ -443,7 +444,7 @@ writeMul synth out in1 in2 = do
 
 writeMulN :: Synthesis t -> Word64 -> [Word64] -> IO Word64
 writeMulN synth out args = do
-  let str = show out ++ " * " ++ concatMap (\x -> show x ++ " ") args
+  let str = intercalate " " (show out : "*" : map show args)
   Sys.hPutStrLn (synthesisOut synth) str
   return out
 
@@ -454,7 +455,7 @@ writeNeg synth out ref = do
 
 writeSumN :: Synthesis t -> Word64 -> [Word64] -> IO Word64
 writeSumN synth out args = do
-  let str = show out ++ " + " ++ concatMap (\x -> show x ++ " ") args
+  let str = intercalate " " (show out : "+" : map show args)
   Sys.hPutStrLn (synthesisOut synth) str
   return out
 
@@ -476,11 +477,11 @@ writeConstant synth val = do
 
 writeDotProd :: Synthesis t -> Word64 -> [Word64] -> IO Word64
 writeDotProd synth out args = do
-  let str = show out ++ " o " ++ concatMap (\x -> show x ++ " ") args
+  let str = intercalate " " (show out:"o":map show args)
   Sys.hPutStrLn (synthesisOut synth) str
   return out
 
 writeOutputLine :: Synthesis t -> [Word64] -> IO ()
 writeOutputLine synth refs = do
-  let str = ":outputs " ++ concatMap (\x -> show x ++ " ") refs
+  let str = intercalate " " (":outputs" : map show refs)
   Sys.hPutStrLn (synthesisOut synth) str
