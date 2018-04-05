@@ -6,6 +6,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 module Lang.Crucible.Solver.SimpleBackend.Acirc.Streaming
 ( SimulationResult(..)
+, Option(..)
 , generateCircuit
 ) where
 
@@ -52,6 +53,7 @@ data Synthesis t = Synthesis
   , synthesisConstants :: IORef (M.Map Integer (Nonce t BaseIntegerType)) -- maps constants to their wire id
   , synthesisOut       :: Sys.Handle
   , synthesisGen       :: NonceGenerator IO t
+  , synthesisOptions   :: [Option]
   }
 
 -- | This represents the simplified terms from crucible.
@@ -67,6 +69,8 @@ data SimulationResult a = SimulationResult
   , srTerms  :: [a] -- ^ The terms resulting from the simulation. The circuit is built from these.
   }
 
+data Option = FlattenProducts
+  deriving (Read, Show, Eq, Ord)
 -- | memoization function.
 --   * Takes the synthesis state
 --   * id of the term (nonce)
@@ -110,8 +114,8 @@ memoElt _synth act = do
   name <- act
   return name
 
-generateCircuit :: NonceGenerator IO t -> FilePath -> SimulationResult (Elt t BaseIntegerType) -> IO ()
-generateCircuit gen fp (SimulationResult { srInputs = is, srTerms = es }) =
+generateCircuit :: NonceGenerator IO t -> FilePath -> [Option] -> SimulationResult (Elt t BaseIntegerType) -> IO ()
+generateCircuit gen fp opts (SimulationResult { srInputs = is, srTerms = es }) =
   Sys.withFile fp Sys.WriteMode $ \h -> do
     -- First, we create empty data structures for the conversion
     table     <- liftST H.new
@@ -120,6 +124,7 @@ generateCircuit gen fp (SimulationResult { srInputs = is, srTerms = es }) =
                           , synthesisHash      = table
                           , synthesisGen       = gen
                           , synthesisConstants = constants
+                          , synthesisOptions   = opts
                           }
     writeHeader synth
     recordInputs synth (filter isBoundVar is)
@@ -201,7 +206,7 @@ eval synth (IntElt n _)   = Ref <$> writeConstant synth n
 eval synth (AppElt a)     = do
   memoEltNonce synth (eltId a) $ do
     -- TODO: expose this through the front-end
-    case False of
+    case any (==FlattenProducts) (synthesisOptions synth) of
       False -> doApp synth a
       True  -> do
         r <- doAppFlatten synth a
