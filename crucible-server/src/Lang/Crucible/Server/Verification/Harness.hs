@@ -140,6 +140,10 @@ instance PP.PP id => PP.PP (HarnessVar id) where
 data VerificationSetupStep id ex
   = BindVariable (HarnessVar id) ex
     -- ^ The given harness variable is assigned the given expression.
+
+  | DeclareFreshVariable id
+    -- ^ Create a fresh symbolic value and bind it to the named harness variable.
+
   | RegisterVal Offset (HarnessVar id)
     -- ^ Fetch the value of the given register offset into the given harness variable.
     --   The number of bytes fetched from the register file is determined by the type
@@ -154,6 +158,8 @@ data VerificationSetupStep id ex
 instance (PP.PP id, PP.PP ex) => PP.PP (VerificationSetupStep id ex) where
   ppPrec _i (BindVariable var ex) =
      PP.pp var PP.<+> PP.text ":=" PP.<+> PP.pp ex
+  ppPrec _ (DeclareFreshVariable var) =
+     PP.pp var PP.<+> PP.text ":=" PP.<+> PP.text "<fresh>"
   ppPrec _i (RegisterVal off var) =
      PP.text "reg[" PP.<> PP.integer (fromIntegral off) PP.<> PP.text "] :=" PP.<+> PP.pp var
   ppPrec _i (MemPointsTo base off var) =
@@ -246,14 +252,14 @@ instance (PP.PP id, PP.PP ex) => PP.PP (VerificationHarness id ex) where
 
 type ParseExpr = CP.Expr CP.PName
 type TCExpr    = (CT.Type, CT.Expr)
-type M         = ReaderT SharedContext (StateT CryptolEnv IO)
+type M         = ReaderT (String -> IO (), SharedContext) (StateT CryptolEnv IO)
 type ProcessedHarness = VerificationHarness CT.Name TCExpr
 
 io :: IO a -> M a
 io = lift . lift
 
-runM :: SharedContext -> CryptolEnv -> M a -> IO (CryptolEnv, a)
-runM sc cryEnv m = swap <$> runStateT (runReaderT m sc) cryEnv
+runM :: (String -> IO ()) -> SharedContext -> CryptolEnv -> M a -> IO (CryptolEnv, a)
+runM hout sc cryEnv m = swap <$> runStateT (runReaderT m (hout,sc)) cryEnv
 
 -- | Take the wire format for harness and plug the various pieces into
 --   the processed verification harness data structure.
@@ -262,11 +268,12 @@ runM sc cryEnv m = swap <$> runStateT (runReaderT m sc) cryEnv
 --   Cryptol expressions in the verification setup steps.  This may have
 --   the effect of adding new Cryptol variables to the supplied CryptolEnv.
 processHarness ::
+  (String -> IO ()) ->
   SharedContext ->
   CryptolEnv ->
   P.VerificationHarness ->
   IO (CryptolEnv, ProcessedHarness)
-processHarness sc env h = runM sc env (doProcessHarness h)
+processHarness hout sc env h = runM hout sc env (doProcessHarness h)
 
 
 doProcessHarness ::
@@ -300,7 +307,7 @@ doProcessHarness rawHarness =
 
 loadCryptolSource :: Text -> M ()
 loadCryptolSource fname =
-  do sc   <- ask
+  do (_,sc)   <- ask
      cenv <- get
      let im = Import
               { iModule = Left $ T.unpack fname
@@ -471,9 +478,11 @@ tcPhase ::
    VerificationPhase C.Ident ParseExpr ->
    M (VerificationPhase CT.Name TCExpr)
 tcPhase phase addrWidth parsedPhase =
-   do vars'  <- traverse declareVar (phaseVars parsedPhase)
-      steps' <- reorderSteps (declaredVarSet phase vars') =<< traverse (tcSetupStep addrWidth) (phaseSetup parsedPhase)
-      conds' <- traverse tcCond (phaseConds parsedPhase)
+   do vars'   <- traverse declareVar (phaseVars parsedPhase)
+      tcSteps <- traverse (tcSetupStep addrWidth) (phaseSetup parsedPhase)
+      let varSetupSteps = fmap (DeclareFreshVariable . harnessVarIdent) vars'
+      steps'  <- reorderSteps (declaredVarSet phase vars') (varSetupSteps <> tcSteps)
+      conds'  <- traverse tcCond (phaseConds parsedPhase)
       return VerificationPhase
              { phaseVars  = vars'
              , phaseSetup = steps'
@@ -503,6 +512,9 @@ tcSetupStep ::
    Word64 ->
    VerificationSetupStep C.Ident ParseExpr ->
    M (VerificationSetupStep CT.Name (CP.Expr CT.Name, TCExpr))
+tcSetupStep _addrWidth (DeclareFreshVariable var) =
+  do (var', _tp) <- tcVar var
+     return $ DeclareFreshVariable var'
 tcSetupStep addrWidth (BindVariable hvar ex) =
   do (hvar', tp) <- tcHarnessVar addrWidth hvar
      ex'   <- tcExpr ex tp
@@ -538,14 +550,19 @@ tcHarnessVar addrWidth var =
       do (nm,tp) <- tcVar ident
          return (CryptolVar nm, tp)
 
- where
-  tcVar ident =
-      do cryEnv <- get
+
+tcVar ::
+  C.Ident ->
+  M (CT.Name, CT.Type)
+tcVar ident =
+      do (hout,_) <- ask
+         cryEnv <- get
          let nameEnv = eExtraNames cryEnv
          let modEnv  = eModuleEnv cryEnv
-         (res, _ws) <- io $ MM.runModuleM (defaultEvalOpts, modEnv)
+         (res, ws) <- io $ MM.runModuleM (defaultEvalOpts, modEnv)
                         (MM.interactive (MB.rename C.interactiveName nameEnv (MR.renameVar (CP.mkUnqual ident))))
-         -- ?? FIXME, what about warnings?
+         unless (null ws) $ io $
+           mapM_ (hout . show . PP.pp) ws
          case res of
            Left err -> fail $ "Cryptol error:\n" ++ show (PP.pp err)
            Right (nm, modEnv') ->
@@ -599,12 +616,14 @@ resolveSetupVar var =
 
  where
   renameIdent ident =
-      do cryEnv <- get
+      do (hout,_) <- ask
+         cryEnv <- get
          let nameEnv = eExtraNames cryEnv
          let modEnv  = eModuleEnv cryEnv
-         (res, _ws) <- io $ MM.runModuleM (defaultEvalOpts, modEnv)
+         (res, ws) <- io $ MM.runModuleM (defaultEvalOpts, modEnv)
                         (MM.interactive (MB.rename C.interactiveName nameEnv (MR.renameVar (CP.mkUnqual ident))))
-         -- ?? FIXME, what about warnings?
+         unless (null ws) $ io $
+           mapM_ (hout . show . PP.pp) ws
          case res of
            Left err -> fail $ "Cryptol error:\n" ++ show (PP.pp err)
            Right (nm, modEnv') ->
@@ -617,17 +636,20 @@ setupStepDef ::
 setupStepDef (RegisterVal _ var)   = resolveSetupVar var
 setupStepDef (MemPointsTo _ _ var) = resolveSetupVar var
 setupStepDef (BindVariable var _)  = resolveSetupVar var
+setupStepDef (DeclareFreshVariable var) = return var
 
 setupStepUses ::
    Set CT.Name ->
    VerificationSetupStep CT.Name (CP.Expr CT.Name, TCExpr) ->
    M (Set CT.Name)
+setupStepUses _ (DeclareFreshVariable _) = return mempty
 setupStepUses _ (RegisterVal _ _) = return mempty
 setupStepUses declaredNames (MemPointsTo base _ _) =
    do basenm <- resolveSetupVar base
       return $ if Set.member basenm declaredNames then Set.singleton basenm else mempty
 setupStepUses declaredNames (BindVariable _ (ex,_)) =
    return . Set.intersection declaredNames . CP.namesE $ ex
+
 
 type GraphEdge = (VerificationSetupStep CT.Name TCExpr, CT.Name, Set CT.Name)
 
@@ -657,8 +679,8 @@ setupStepGraphEdge declaredNames step =
 --    list, this means that some variables have no definition, or are part
 --    of a cycle of definitions.
 --
---    FIXME? Rather than failing on cyclic definitions, we probably ought to break
---    the cycle by introducing a new symbolic constant...
+--    If a literal cycle of definitions is actually desired, the front-end should
+--    introduce a "DeclareFreshVariable" step to break the cycle.
 reorderSteps ::
    Set CT.Name {- ^ All delcared names in scope -} ->
    Seq (VerificationSetupStep CT.Name (CP.Expr CT.Name, TCExpr)) {- ^ setup setups to reorder -} ->
@@ -684,8 +706,18 @@ processEdges definedNames edges = go Nothing mempty edges
 
  where
  betterCandidate _ Nothing = True
+
+ -- selecting a value from memory or registers is to be preferred to declaring
+ -- a fresh symbolic value
+ betterCandidate (RegisterVal _ _) (Just (DeclareFreshVariable _,_,_)) = True
+ betterCandidate (MemPointsTo _ _ _) (Just (DeclareFreshVariable _,_,_)) = True
+
+ -- selecting from a register is generally a better way to define a value than
+ -- selecting from memory
  betterCandidate (RegisterVal _ _) (Just (MemPointsTo _ _ _,_,_)) = True
+
  betterCandidate _ _ = False
+
 
  processEdge (step,_,_) = tell (Seq.singleton step)
 
@@ -694,18 +726,31 @@ processEdges definedNames edges = go Nothing mempty edges
 
  go candidate zs xs = case Seq.viewl xs of
       edge@(step,def,us) Seq.:< xs'
+        -- Drop variable declarations if they declare names that have
+        -- already been given definitions
+        | DeclareFreshVariable v <- step
+        , v `Set.member` definedNames
+        -> go candidate zs xs'
+
+        -- Immediately select a variable definition step if all the variables
+        -- it refers to are already defined
         | Set.isSubsetOf us definedNames
         , BindVariable _ _ <- step
         -> do processEdge edge
               processEdges (Set.insert def definedNames) (zs <> maybeSeq candidate <> xs')
 
+        -- Tentatively select a non-variable-binding step if all the variables it
+        -- refers to are already defined
         | Set.isSubsetOf us definedNames
         , betterCandidate step candidate
         -> go (Just edge) (zs <> maybeSeq candidate) xs'
 
+        -- In all other cases, continue searching down the worklist
         | otherwise
         -> go candidate (zs Seq.|> edge) xs'
 
+      -- We've reached the end of the worklist.  Process the candidate edge we tenatively
+      -- chose earlier, or finish if no candidate was chosen.
       Seq.EmptyL -> case candidate of
                       Just edge@(_,def,_) ->
                         do processEdge edge
