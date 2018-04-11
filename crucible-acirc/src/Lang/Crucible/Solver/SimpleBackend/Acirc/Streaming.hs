@@ -318,11 +318,10 @@ doAppFlatten synth ae = do
                              (:[]) <$> writeMul synth (indexValue tId) c' t'
                          )
                      -- just a constant
-                     -- TODO what's up with this error
-                     (\_c -> error "We cannot support raw literals"
+                     (\c -> do
                        -- Code below is for when we can support constants
-                       -- assert (denominator c == 1) $ do
-                       --   B.constant (numerator c)
+                       assert (denominator c == 1) $ do
+                         (:[]) <$> writeConstant synth (numerator c)
                      )
                      ws
       case ws' of
@@ -386,11 +385,10 @@ doApp synth ae = do
                              (:[]) <$> writeMul synth (indexValue tId) c' t'
                          )
                      -- just a constant
-                     -- TODO what's up with this error
-                     (\_c -> error "We cannot support raw literals"
+                     (\c -> do
                        -- Code below is for when we can support constants
-                       -- assert (denominator c == 1) $ do
-                       --   B.constant (numerator c)
+                       assert (denominator c == 1) $ do
+                         (:[]) <$> writeConstant synth (numerator c)
                      )
                      ws
       case ws' of
