@@ -329,8 +329,9 @@ doAppFlatten synth ae = do
         -- the reference to x forward instead of the sum.
         [x] -> return $! Left $! IntToReal (Ref x)
         _   -> do
-          let aeId = indexValue (eltId ae)
-          s <- writeSumN synth aeId ws'
+          out <- freshNonce (synthesisGen synth)
+          Ref out' <- memoEltNonce synth out $ return (Ref (indexValue out))
+          s <- writeSumN synth out' ws'
           return $! Left $! IntToReal (Ref s)
     x -> fail $ "Not supported: " ++ show x
 
@@ -396,8 +397,9 @@ doApp synth ae = do
         -- the reference to x forward instead of the sum.
         [x] -> return (IntToReal (Ref x))
         _   -> do
-          let aeId = indexValue (eltId ae)
-          IntToReal . Ref <$> writeSumN synth aeId ws'
+          out <- freshNonce (synthesisGen synth)
+          Ref out' <- memoEltNonce synth out $ return (Ref (indexValue out))
+          IntToReal . Ref <$> writeSumN synth out' ws'
     x -> fail $ "Not supported: " ++ show x
 
   where
