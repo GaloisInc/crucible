@@ -641,21 +641,6 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
         PE p v -> do
           muxRegForType sym itefns (baseToType tp) p v d
 
-    -- --------------------------------------------------------------------
-    -- -- StructFields
-
-    -- EmptyStructFields -> return V.empty
-
-    -- FieldsEq x y -> do
-    --   xv <- evalSub x
-    --   yv <- evalSub y
-    --   stringEq sym xv yv
-
-    -- HasField e s_expr -> do
-    --   ev <- evalSub e
-    --   sv <- evalSub s_expr
-    --   return $ backendPred sym (ev `V.elem` sv)
-
     ---------------------------------------------------------------------
     -- Struct
 

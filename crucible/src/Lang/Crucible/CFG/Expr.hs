@@ -595,23 +595,6 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
             -> !(f (BVType w))
             -> App ext f BoolType
 
-
-  -- ----------------------------------------------------------------------
-  -- -- StructFields
-
-  -- -- Empty set of struct fields.
-  -- EmptyStructFields :: App ext f (VectorType StringType)
-
-  -- -- Return true if fields are equal.
-  -- FieldsEq :: !(f (VectorType StringType))
-  --          -> !(f (VectorType StringType))
-  --          -> App ext f BoolType
-
-  -- -- Return true if field is in set.
-  -- HasField :: !(f StringType)
-  --          -> !(f (VectorType StringType))
-  --          -> App ext f BoolType
-
   ----------------------------------------------------------------------
   -- WordMap
 
@@ -895,12 +878,6 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     BVNonzero{} -> knownRepr
     BVSelect _ n _ _ -> BVRepr n
     BVConcat w1 w2 _ _ -> BVRepr (addNat w1 w2)
-
-    ----------------------------------------------------------------------
-    -- -- StructFields
-    -- EmptyStructFields{} -> knownRepr
-    -- FieldsEq{} -> knownRepr
-    -- HasField{} -> knownRepr
 
     ----------------------------------------------------------------------
     -- Struct
