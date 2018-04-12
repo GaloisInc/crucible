@@ -201,8 +201,6 @@ data CrucibleType where
    FloatType :: FloatInfo -> CrucibleType
    -- | A single character, as a 16-bit wide char.
    CharType :: CrucibleType
-   -- | A sequence of Unicode characters.
-   StringType :: CrucibleType
    -- | A function handle taking a context of formal arguments and a return type
    FunctionHandleType :: Ctx CrucibleType -> CrucibleType -> CrucibleType
 
@@ -251,6 +249,7 @@ type BoolType        = BaseToType BaseBoolType    -- ^ @:: 'CrucibleType'@.
 type BVType w        = BaseToType (BaseBVType w)  -- ^ @:: 'Nat' -> 'CrucibleType'@.
 type ComplexRealType = BaseToType BaseComplexType -- ^ @:: 'CrucibleType'@.
 type IntegerType     = BaseToType BaseIntegerType -- ^ @:: 'CrucibleType'@.
+type StringType      = BaseToType BaseStringType  -- ^ @:: 'CrucibleType'@.
 type NatType         = BaseToType BaseNatType     -- ^ @:: 'CrucibleType'@.
 type RealValType     = BaseToType BaseRealType    -- ^ @:: 'CrucibleType'@.
 type SymbolicArrayType idx xs = BaseToType (BaseArrayType idx xs) -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseType' -> 'CrucibleType'@.
@@ -303,9 +302,6 @@ type MaybeType = 'MaybeType -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
 -- | A partial map from strings to values.
 type StringMapType = 'StringMapType -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
 
--- | A sequence of Unicode characters.
-type StringType = 'StringType -- ^ @:: 'CrucibleType'@.
-
 -- | A structure is an aggregate type consisting of a sequence of
 -- values. The type of each value is known statically.
 type StructType = 'StructType -- ^ @:: 'Ctx' 'CrucibleType' -> 'CrucibleType'@.
@@ -334,6 +330,7 @@ baseToType bt =
     BaseIntegerRepr -> IntegerRepr
     BaseNatRepr -> NatRepr
     BaseRealRepr -> RealValRepr
+    BaseStringRepr -> StringRepr
     BaseBVRepr w -> BVRepr w
     BaseComplexRepr -> ComplexRealRepr
     BaseArrayRepr idx xs -> SymbolicArrayRepr idx xs
@@ -350,6 +347,7 @@ asBaseType tp =
     IntegerRepr -> AsBaseType BaseIntegerRepr
     NatRepr -> AsBaseType BaseNatRepr
     RealValRepr -> AsBaseType BaseRealRepr
+    StringRepr -> AsBaseType BaseStringRepr
     BVRepr w -> AsBaseType (BaseBVRepr w)
     ComplexRealRepr -> AsBaseType BaseComplexRepr
     SymbolicArrayRepr idx xs ->
@@ -421,7 +419,6 @@ instance KnownRepr FloatInfoRepr DoubleDoubleFloat where knownRepr = DoubleDoubl
 instance KnownRepr TypeRepr AnyType             where knownRepr = AnyRepr
 instance KnownRepr TypeRepr UnitType            where knownRepr = UnitRepr
 instance KnownRepr TypeRepr CharType            where knownRepr = CharRepr
-instance KnownRepr TypeRepr StringType          where knownRepr = StringRepr
 
 instance (Eq a, Ord a, Typeable a, Show a) => KnownRepr TypeRepr (ConcreteType a) where
   knownRepr = ConcreteRepr TypeableType

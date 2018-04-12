@@ -144,6 +144,7 @@ evalBase _ evalSub (BaseTerm tp e) =
     BaseNatRepr     -> evalSub e
     BaseIntegerRepr -> evalSub e
     BaseRealRepr    -> evalSub e
+    BaseStringRepr  -> evalSub e
     BaseComplexRepr -> evalSub e
     BaseStructRepr  _ -> evalSub e
     BaseArrayRepr _ _ -> evalSub e
@@ -359,7 +360,9 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
         PE (asConstantPred -> Just True) v -> return v
         _ -> do
           msg <- evalSub msg_expr
-          readPartExpr sym maybe_val (GenericSimError (Text.unpack msg))
+          case asString msg of
+            Just msg' -> readPartExpr sym maybe_val (GenericSimError (Text.unpack msg'))
+            Nothing -> fail "Expected concrete string in fromJustValue"
 
     ----------------------------------------------------------------------
     -- Side conditions
@@ -638,18 +641,20 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
         PE p v -> do
           muxRegForType sym itefns (baseToType tp) p v d
 
-    --------------------------------------------------------------------
-    -- StructFields
+    -- --------------------------------------------------------------------
+    -- -- StructFields
 
-    EmptyStructFields -> return V.empty
-    FieldsEq x y -> do
-      xv <- evalSub x
-      yv <- evalSub y
-      return $ backendPred sym (xv == yv)
-    HasField e s_expr -> do
-      ev <- evalSub e
-      sv <- evalSub s_expr
-      return $ backendPred sym (ev `V.elem` sv)
+    -- EmptyStructFields -> return V.empty
+
+    -- FieldsEq x y -> do
+    --   xv <- evalSub x
+    --   yv <- evalSub y
+    --   stringEq sym xv yv
+
+    -- HasField e s_expr -> do
+    --   ev <- evalSub e
+    --   sv <- evalSub s_expr
+    --   return $ backendPred sym (ev `V.elem` sv)
 
     ---------------------------------------------------------------------
     -- Struct
@@ -683,22 +688,28 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     LookupStringMapEntry _ m_expr i_expr -> do
       i <- evalSub i_expr
       m <- evalSub m_expr
-      return $ joinMaybePE (Map.lookup i m)
+      case asString i of
+        Just i' -> return $ joinMaybePE (Map.lookup i' m)
+        Nothing -> fail "Expected concrete string in lookupStringMapEntry"
     InsertStringMapEntry _ m_expr i_expr v_expr -> do
       m <- evalSub m_expr
       i <- evalSub i_expr
       v <- evalSub v_expr
-      return $ Map.insert i v m
+      case asString i of
+        Just i' -> return $ Map.insert i' v m
+        Nothing -> fail "Expected concrete string in insertStringMapEntry"
 
     --------------------------------------------------------------------
     -- Text
 
-    TextLit txt -> return txt
+    TextLit txt -> stringLit sym txt
     ShowValue _bt x_expr -> do
       x <- evalSub x_expr
-      return $! Text.pack (show (printSymExpr x))
-    AppendString x y ->
-      Text.append <$> evalSub x <*> evalSub y
+      stringLit sym (Text.pack (show (printSymExpr x)))
+    AppendString x y -> do
+      x' <- evalSub x
+      y' <- evalSub y
+      stringConcat sym x' y'
 
     ---------------------------------------------------------------------
     -- Introspection

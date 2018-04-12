@@ -76,7 +76,6 @@ type family RegValue (sym :: *) (tp :: CrucibleType) :: * where
   RegValue sym (ConcreteType a) = a
   RegValue sym UnitType = ()
   RegValue sym CharType = Word16
-  RegValue sym StringType = Text
   RegValue sym (FunctionHandleType a r) = FnVal sym a r
   RegValue sym (MaybeType tp) = PartExpr (Pred sym) (RegValue sym tp)
   RegValue sym (VectorType tp) = V.Vector (RegValue sym tp)
@@ -177,12 +176,9 @@ instance IsExprBuilder sym => CanMux sym ComplexRealType where
   {-# INLINE muxReg #-}
   muxReg s = \_ -> cplxIte s
 
-------------------------------------------------------------------------
--- RegValue String instance
-
-instance CanMux sym StringType where
+instance IsExprBuilder sym => CanMux sym StringType where
   {-# INLINE muxReg #-}
-  muxReg _ = \ _ -> eqMergeFn "strings"
+  muxReg s = \_ -> stringIte s
 
 ------------------------------------------------------------------------
 -- RegValue Vector instance

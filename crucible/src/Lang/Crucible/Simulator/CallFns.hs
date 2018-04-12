@@ -325,7 +325,7 @@ cruciblePausedFrame x_id x_args top_frame s =
    in PausedFrame $
       PausedValue { _pausedValue = cf
                   , savedStateInfo  = s & programLoc .~ frameProgramLoc (cf^.crucibleTopFrame)
-                  , resume = loopCrucible 
+                  , resume = loopCrucible
                   }
 
 stepReturnVariantCases
@@ -475,7 +475,10 @@ stepTerm s _ (TailCall fnExpr _types arg_exprs) = do
           return $! loopCrucible s'
 
 stepTerm s _ (ErrorStmt msg) = do
-  fail (Text.unpack (evalReg s msg))
+  let msg' = evalReg s msg
+  case asString msg' of
+    Just txt -> fail (Text.unpack txt)
+    Nothing  -> fail (show (printSymExpr msg'))
 
 evalArgs' :: forall sym ctx args
            . RegMap sym ctx
@@ -619,13 +622,19 @@ loopCrucible' s_ref verb = do
               continueCrucible s_ref verb $ s'
         Print e -> do
           let msg = evalReg s e
-          hPutStr h (Text.unpack msg)
+              msg' = case asString msg of
+                       Just txt -> Text.unpack txt
+                       _ -> show (printSymExpr msg)
+          hPutStr h msg'
           hFlush h
           continueCrucible s_ref verb $ s & stateCrucibleFrame  . frameStmts .~ rest
         Assert c_expr msg_expr -> do
           let c = evalReg s c_expr
-          let m = evalReg s msg_expr
-          addAssertion sym c (AssertFailureSimError (Text.unpack m))
+          let msg = evalReg s msg_expr
+              msg' = case asString msg of
+                       Just txt -> Text.unpack txt
+                       _ -> show (printSymExpr msg)
+          addAssertion sym c (AssertFailureSimError msg')
           continueCrucible s_ref verb $ s & stateCrucibleFrame  . frameStmts .~ rest
 
 jumpToBlock :: (IsSymInterface sym, IsSyntaxExtension ext)

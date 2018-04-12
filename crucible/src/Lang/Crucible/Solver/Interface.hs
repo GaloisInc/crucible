@@ -83,6 +83,7 @@ module Lang.Crucible.Solver.Interface
   , SymNat
   , SymInteger
   , SymReal
+  , SymString
   , SymCplx
   , SymStruct
   , SymBV
@@ -145,6 +146,7 @@ import           Data.Parameterized.NatRepr
 import           Data.Parameterized.TraversableFC
 import           Data.Ratio
 import           Data.Scientific (Scientific)
+import           Data.Text (Text)
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
 
@@ -183,6 +185,9 @@ type SymArray sym idx b = SymExpr sym (BaseArrayType idx b)
 -- | Symbolic bitvectors.
 type SymBV sym n = SymExpr sym (BaseBVType n)
 
+-- | Symbolic strings.
+type SymString sym = SymExpr sym BaseStringType
+
 ------------------------------------------------------------------------
 -- Type families for the interface.
 
@@ -216,6 +221,9 @@ class (IsPred (e BaseBoolType)) => IsExpr e where
 
   asSignedBV   :: (1 <= w) => e (BaseBVType w) -> Maybe Integer
   asSignedBV _ = Nothing
+
+  asString :: e BaseStringType -> Maybe Text
+  asString _ = Nothing
 
   -- | Return value if this is an array of constants.
   asConstantArray :: e (BaseArrayType idx bt) -> Maybe (e bt)
@@ -325,6 +333,7 @@ class ( IsBoolExprBuilder sym
       BaseIntegerRepr  -> intEq sym x y
       BaseRealRepr     -> realEq sym x y
       BaseComplexRepr  -> cplxEq sym x y
+      BaseStringRepr   -> stringEq sym x y
       BaseStructRepr{} -> structEq sym x y
       BaseArrayRepr{}  -> arrayEq sym x y
 
@@ -344,6 +353,7 @@ class ( IsBoolExprBuilder sym
       BaseNatRepr      -> natIte    sym c x y
       BaseIntegerRepr  -> intIte    sym c x y
       BaseRealRepr     -> realIte   sym c x y
+      BaseStringRepr   -> stringIte sym c x y
       BaseComplexRepr  -> cplxIte   sym c x y
       BaseStructRepr{} -> structIte sym c x y
       BaseArrayRepr{}  -> arrayIte  sym c x y
@@ -1176,6 +1186,24 @@ class ( IsBoolExprBuilder sym
         bvZext sym w e
 
   ----------------------------------------------------------------------
+  -- String operations
+
+  -- | Create a concrete string literal
+  stringLit :: sym -> Text -> IO (SymString sym)
+
+  -- | Check the equality of two strings
+  stringEq :: sym -> SymString sym -> SymString sym -> IO (Pred sym)
+
+  -- | If-then-else on strings.
+  stringIte :: sym -> Pred sym -> SymString sym -> SymString sym -> IO (SymString sym)
+
+  -- | Concatenate two strings
+  stringConcat :: sym -> SymString sym -> SymString sym -> IO (SymString sym)
+
+  -- | Compute the length of a string
+  stringLength :: sym -> SymString sym -> IO (SymNat sym)
+
+  ----------------------------------------------------------------------
   -- Real operations
 
   -- | Return real number 0.
@@ -1844,6 +1872,7 @@ baseIsConcrete sym x =
     BaseIntegerRepr -> return $ isJust $ asInteger x
     BaseBVRepr _    -> return $ isJust $ asUnsignedBV x
     BaseRealRepr    -> return $ isJust $ asRational x
+    BaseStringRepr  -> return $ isJust $ asString x
     BaseComplexRepr -> return $ isJust $ asComplex x
     BaseStructRepr (flds ::Ctx.Assignment BaseTypeRepr ctx) ->
         Ctx.forIndex (Ctx.size flds) f (return True)
@@ -1867,6 +1896,7 @@ baseDefaultValue sym bt =
     BaseBVRepr w    -> bvLit sym w 0
     BaseRealRepr    -> return $! realZero sym
     BaseComplexRepr -> mkComplexLit sym (0 :+ 0)
+    BaseStringRepr  -> stringLit sym mempty
     BaseStructRepr flds -> do
       let f :: BaseTypeRepr tp -> IO (SymExpr sym tp)
           f v = baseDefaultValue sym v

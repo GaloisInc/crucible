@@ -77,6 +77,7 @@ module Lang.Crucible.Solver.SimpleBuilder
   , RealElt
   , BVElt
   , CplxElt
+  , StringElt
     -- * App
   , App(..)
   , traverseApp
@@ -685,6 +686,7 @@ data AppElt t (tp :: BaseType)
 data Elt t (tp :: BaseType) where
   SemiRingLiteral :: !(SemiRingRepr tp) -> !(WSum.Coefficient tp) -> !ProgramLoc -> Elt t tp
   BVElt  :: (1 <= w) => !(NatRepr w) -> !Integer -> !ProgramLoc -> Elt t (BaseBVType w)
+  StringElt :: !Text -> !ProgramLoc -> Elt t BaseStringType
   -- Application
   AppElt :: {-# UNPACK #-} !(AppElt t tp) -> Elt t tp
   -- An atomic predicate
@@ -707,6 +709,7 @@ asNonceApp _ = Nothing
 eltLoc :: Elt t tp -> ProgramLoc
 eltLoc (SemiRingLiteral _ _ l) = l
 eltLoc (BVElt _ _ l) = l
+eltLoc (StringElt _ l) = l
 eltLoc (NonceAppElt a)  = nonceEltLoc a
 eltLoc (AppElt a)   = appEltLoc a
 eltLoc (BoundVarElt v) = bvarLoc v
@@ -728,6 +731,7 @@ type BVElt t n = Elt t (BaseBVType n)
 type IntegerElt t = Elt t BaseIntegerType
 type RealElt t = Elt t BaseRealType
 type CplxElt t = Elt t BaseComplexType
+type StringElt t = Elt t BaseStringType
 
 iteSize :: Elt t tp -> Integer
 iteSize e =
@@ -752,6 +756,7 @@ instance IsExpr (Elt t) where
 
   exprType (SemiRingLiteral sr _ _) = semiRingBase sr
   exprType (BVElt w _ _) = BaseBVRepr w
+  exprType (StringElt _ _) = BaseStringRepr
   exprType (NonceAppElt e)  = nonceAppType (nonceEltApp e)
   exprType (AppElt e) = appType (appEltApp e)
   exprType (BoundVarElt i) = bvarType i
@@ -760,6 +765,9 @@ instance IsExpr (Elt t) where
   asUnsignedBV _ = Nothing
 
   asSignedBV x = toSigned (bvWidth x) <$> asUnsignedBV x
+
+  asString (StringElt x _) = Just x
+  asString _ = Nothing
 
   asConstantArray (asApp -> Just (ConstantArray _ _ def)) = Just def
   asConstantArray _ = Nothing
@@ -1188,6 +1196,7 @@ ppVarTypeCode tp =
     BaseBVRepr _    -> "bv"
     BaseIntegerRepr -> "i"
     BaseRealRepr    -> "r"
+    BaseStringRepr  -> "s"
     BaseComplexRepr -> "c"
     BaseArrayRepr _ _ -> "a"
     BaseStructRepr _ -> "struct"
@@ -1543,6 +1552,10 @@ compareElt (BVElt wx x _) (BVElt wy y _) =
 compareElt BVElt{} _ = LTF
 compareElt _ BVElt{} = GTF
 
+compareElt (StringElt x _) (StringElt y _) = fromOrdering (compare x y)
+compareElt StringElt{} _ = LTF
+compareElt _ StringElt{} = GTF
+
 compareElt (NonceAppElt x) (NonceAppElt y) = compareF x y
 compareElt NonceAppElt{} _ = LTF
 compareElt _ NonceAppElt{} = GTF
@@ -1593,9 +1606,10 @@ instance Hashable (Elt t tp) where
     s `hashWithSalt` (3::Int)
       `hashWithSalt` w
       `hashWithSalt` x
-  hashWithSalt s (AppElt x)      = hashWithSalt (hashWithSalt s (4::Int)) (appEltId x)
-  hashWithSalt s (NonceAppElt x)     = s `hashWithSalt` (5::Int) `hashWithSalt` (nonceEltId x)
-  hashWithSalt s (BoundVarElt x) = hashWithSalt (hashWithSalt s (6::Int)) x
+  hashWithSalt s (StringElt x _) = hashWithSalt (hashWithSalt s (4::Int)) x
+  hashWithSalt s (AppElt x)      = hashWithSalt (hashWithSalt s (5::Int)) (appEltId x)
+  hashWithSalt s (NonceAppElt x) = hashWithSalt (hashWithSalt s (6::Int)) (nonceEltId x)
+  hashWithSalt s (BoundVarElt x) = hashWithSalt (hashWithSalt s (7::Int)) x
 
 instance PH.HashableF (Elt t) where
   hashWithSaltF = hashWithSalt
@@ -1925,6 +1939,8 @@ ppElt' e0 o = do
                        | otherwise   = prettyApp "divReal"  [ showPrettyArg n, showPrettyArg d ]
       getBindings (BVElt w n _) = do
         return $ stringPPElt $ "0x" ++ (N.showHex n []) ++ ":[" ++ show w ++ "]"
+      getBindings (StringElt x _) = do
+        return $ stringPPElt $ (show x)
       getBindings (NonceAppElt e) = do
         cacheResult (ExprPPIndex (indexValue (nonceEltId e))) (nonceEltLoc e)
           =<< ppNonceApp bindFn (nonceEltApp e)
@@ -2197,6 +2213,7 @@ eltAbsValue (SemiRingLiteral sr x _) =
     SemiRingNat  -> natSingleRange x
     SemiRingInt  -> singleRange x
     SemiRingReal -> ravSingle x
+eltAbsValue (StringElt{})   = ()
 eltAbsValue (BVElt w c _)   = BVD.singleton w c
 eltAbsValue (NonceAppElt e) = nonceEltAbsValue e
 eltAbsValue (AppElt e)      = appEltAbsValue e
@@ -2268,6 +2285,7 @@ newIdxCache = stToIO $ IdxCache <$> PH.new
 lookupIdxValue :: MonadIO m => IdxCache t f -> Elt t tp -> m (Maybe (f tp))
 lookupIdxValue _ SemiRingLiteral{} = return Nothing
 lookupIdxValue _ BVElt{} = return Nothing
+lookupIdxValue _ StringElt{} = return Nothing
 lookupIdxValue c (NonceAppElt e) = liftIO $ lookupIdx c (nonceEltId e)
 lookupIdxValue c (AppElt e)  = liftIO $ lookupIdx c (appEltId e)
 lookupIdxValue c (BoundVarElt i) = liftIO $ lookupIdx c (bvarId i)
@@ -2292,6 +2310,7 @@ clearIdxCache c = stToIO $ PH.clear (cMap c)
 eltMaybeId :: Elt t tp -> Maybe (Nonce t tp)
 eltMaybeId SemiRingLiteral{} = Nothing
 eltMaybeId BVElt{}  = Nothing
+eltMaybeId StringElt{} = Nothing
 eltMaybeId (NonceAppElt e) = Just $! nonceEltId e
 eltMaybeId (AppElt  e) = Just $! appEltId e
 eltMaybeId (BoundVarElt e) = Just $! bvarId e
@@ -2736,6 +2755,7 @@ evalBoundVars' tbls sym e0 =
   case e0 of
     SemiRingLiteral{} -> return e0
     BVElt{}  -> return e0
+    StringElt{} -> return e0
     AppElt ae -> cachedEval (eltTable tbls) e0 $ do
       let a = appEltApp ae
       a' <- traverseApp (evalBoundVars' tbls sym) a
@@ -4132,6 +4152,44 @@ instance IsExprBuilder (SimpleBuilder t st) where
     | otherwise =
       case exprType x of
         BaseStructRepr flds -> sbMakeElt sym $ StructIte flds p x y
+
+  --------------------------------------------------------------------
+  -- String operations
+
+  stringLit sym txt =
+    do l <- curProgramLoc sym
+       return $! StringElt txt l
+
+  stringEq sym x y
+    | Just x' <- asString x
+    , Just y' <- asString y
+    = if x' == y' then return (truePred sym) else return (falsePred sym)
+  stringEq _ _ _
+    = fail "Expected concrete strings in stringEq"
+
+  stringIte _sym c x y
+    | Just c' <- asConstantPred c
+    = if c' then return x else return y
+  stringIte _sym _c x y
+    | Just x' <- asString x
+    , Just y' <- asString y
+    , x' == y'
+    = return x
+  stringIte _sym _c _x _y
+    = fail "Cannot merge distinct concrete strings"
+
+  stringConcat sym x y
+    | Just x' <- asString x
+    , Just y' <- asString y
+    = stringLit sym (x' <> y')
+  stringConcat _ _ _
+    = fail "Expected concrete strings in stringConcat"
+
+  stringLength sym x
+    | Just x' <- asString x
+    = do natLit sym (fromIntegral (Text.length x'))
+  stringLength _ _
+    = fail "Expected concrete strings in stringLength"
 
   --------------------------------------------------------------------
   -- Symbolic array operations
