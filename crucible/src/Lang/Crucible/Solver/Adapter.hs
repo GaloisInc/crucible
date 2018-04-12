@@ -15,11 +15,15 @@ module Lang.Crucible.Solver.Adapter
   ( SolverAdapter(..)
   , defaultWriteSMTLIB2Features
   , defaultSolverAdapter
+  , solverAdapterOptions
   ) where
 
 import           Data.Bits
-import           Data.Typeable
+import           Data.IORef
+import qualified Data.Map as Map
+import qualified Data.Text as T
 import           System.IO
+import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
@@ -55,7 +59,7 @@ data SolverAdapter st =
     -- | Write an SMTLib2 problem instance onto the given handle, incorporating
     --   any solver-specific tweaks appropriate to this solver
   , solver_adapter_write_smt2 :: !(forall t . SimpleBuilder t st -> Handle -> BoolElt t -> IO ())
-  } deriving (Typeable)
+  }
 
 
 instance Show (SolverAdapter st) where
@@ -76,3 +80,21 @@ defaultWriteSMTLIB2Features
 
 defaultSolverAdapter :: ConfigOption BaseStringType
 defaultSolverAdapter = configOption BaseStringRepr "default_solver"
+
+
+solverAdapterOptions ::
+  [SolverAdapter st] ->
+  IO ([ConfigDesc], IO (SolverAdapter st))
+solverAdapterOptions [] = fail "No solver adapters specified!"
+solverAdapterOptions xs@(def:_) =
+  do ref <- newIORef def
+     let opts = lopt ref : concatMap solver_adapter_config_options xs
+     return (opts, readIORef ref)
+
+ where
+ f ref x = (T.pack (solver_adapter_name x), (PP.empty, writeIORef ref x >> return optOK))
+ vals ref = Map.fromList (map (f ref) xs)
+ lopt ref = optList defaultSolverAdapter
+                        (vals ref)
+                        (Just (PP.text "Indicates which solver to use for check-sat queries"))
+                        (Just (T.pack (solver_adapter_name def)))
