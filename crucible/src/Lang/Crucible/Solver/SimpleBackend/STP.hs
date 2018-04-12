@@ -9,46 +9,50 @@
 --
 -- STP-specific tweaks to the basic SMTLib2 solver interface.
 ------------------------------------------------------------------------
+{-# LANGUAGE OverloadedStrings #-}
 module Lang.Crucible.Solver.SimpleBackend.STP
   ( STP
   , stpAdapter
   ) where
 
 import           Control.Concurrent
+import           Control.Lens ((&))
+import qualified Data.Text as Text
 import           System.Exit
 import qualified System.IO.Streams as Streams
 import           System.Process
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
+import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
 import           Lang.Crucible.Solver.Adapter
+import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.ProcessUtils
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
 import           Lang.Crucible.Solver.SimpleBackend.ProblemFeatures
 import qualified Lang.Crucible.Solver.SimpleBackend.SMTLib2 as SMT2
 import           Lang.Crucible.Solver.SimpleBuilder
-import           Lang.Crucible.Utils.MonadVerbosity
 import           Lang.Crucible.Utils.Streams
 
 data STP = STP
 
 -- | Path to stp
-stpPath :: ConfigOption FilePath
-stpPath = configOption "stp.path"
+stpPath :: ConfigOption BaseStringType
+stpPath = configOption knownRepr "stp.path"
 
-stpRandomSeed :: ConfigOption Int
-stpRandomSeed = configOption "stp.random-seed"
+stpRandomSeed :: ConfigOption BaseIntegerType
+stpRandomSeed = configOption knownRepr "stp.random-seed"
 
-intWithRangeOpt :: Monad m => ConfigOption Int -> Int -> Int -> ConfigDesc m
-intWithRangeOpt nm lo hi = mkOpt nm Nothing sty PP.empty
-  where sty = integralWithRangeOptSty (Inclusive lo) (Inclusive hi)
+intWithRangeOpt :: ConfigOption BaseIntegerType -> Integer -> Integer -> ConfigDesc
+intWithRangeOpt nm lo hi = mkOpt nm sty Nothing
+  where sty = integerWithRangeOptSty (Inclusive lo) (Inclusive hi)
 
-stpOptions :: MonadVerbosity m => [ConfigDesc m]
+stpOptions :: [ConfigDesc]
 stpOptions =
-  [ mkOpt stpPath (Just "stp")
-          executablePathOptSty
-          "Path to STP executable."
+  [ mkOpt stpPath 
+          (executablePathOptSty & set_opt_value (ConcreteString "stp"))
+          (Just (PP.text "Path to STP executable."))
   , intWithRangeOpt stpRandomSeed (negate (2^(30::Int)-1)) (2^(30::Int)-1)
   ]
 
@@ -65,15 +69,14 @@ instance SMT2.SMTLib2Tweaks STP where
   smtlib2tweaks = STP
 
 checkSat
-   :: Monad m
-   => SimpleBuilder t st
-   -> Config m
+   :: SimpleBuilder t st
+   -> Config
    -> (Int -> String -> IO ())
    -> BoolElt t
    -> (SatResult (GroundEvalFn t, Maybe (EltRangeBindings t)) -> IO a)
    -> IO a
 checkSat sym cfg logLn p cont = do
-  solver_path <- findSolverPath =<< getConfigValue stpPath cfg
+  solver_path <- findSolverPath . Text.unpack . fromConcreteString =<< getConfigValue' stpPath cfg
   withSTP sym solver_path (logLn 2) $ \s -> do
     -- Assume the predicate holds.
     SMT2.assume (SMT2.sessionWriter s) p

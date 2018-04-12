@@ -128,6 +128,7 @@ count_subterms' e0 =
   case e0 of
     SemiRingLiteral{} -> pure ()
     BVElt{}  -> pure ()
+    StringElt{} -> pure ()
     AppElt ae -> do
       is_new <- recordElt (appEltId ae)
       when is_new $ do

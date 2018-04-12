@@ -43,6 +43,7 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.TraversableFC
 import           Data.Ratio
+import           Data.Text (Text)
 import           Numeric.Natural
 
 import           Lang.Crucible.BaseTypes
@@ -61,6 +62,7 @@ type family GroundValue (tp :: BaseType) where
   GroundValue BaseRealType          = Rational
   GroundValue (BaseBVType w)        = Integer
   GroundValue BaseComplexType       = Complex Rational
+  GroundValue BaseStringType        = Text
   GroundValue (BaseArrayType idx b) = GroundArray idx b
   GroundValue (BaseStructType ctx)  = Ctx.Assignment GroundValueWrapper ctx
 
@@ -111,6 +113,7 @@ defaultValueForType tp =
     BaseIntegerRepr -> 0
     BaseRealRepr    -> 0
     BaseComplexRepr -> 0 :+ 0
+    BaseStringRepr  -> mempty
     BaseArrayRepr _ b -> ArrayConcrete (defaultValueForType b) Map.empty
     BaseStructRepr ctx -> fmapFC (GVW . defaultValueForType) ctx
 
@@ -140,6 +143,7 @@ tryEvalGroundElt _ (SemiRingLiteral SemiRingNat c _) = return c
 tryEvalGroundElt _ (SemiRingLiteral SemiRingInt c _) = return c
 tryEvalGroundElt _ (SemiRingLiteral SemiRingReal c _) = return c
 tryEvalGroundElt _ (BVElt _ c _) = return c
+tryEvalGroundElt _ (StringElt x _) = return x
 tryEvalGroundElt f (NonceAppElt a0) = evalGroundNonceApp (lift . f) (nonceEltApp a0)
 tryEvalGroundElt f (AppElt a0)      = evalGroundApp f (appEltApp a0)
 tryEvalGroundElt _ (BoundVarElt v) =

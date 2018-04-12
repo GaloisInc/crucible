@@ -62,7 +62,7 @@ module Lang.Crucible.Solver.SimpleBackend.Yices
 import           Control.Concurrent (ThreadId, forkIO, killThread)
 import           Control.Concurrent.Chan
 import           Control.Exception (assert, bracket, bracket_, catch, throwIO, try)
-import           Control.Lens ((^.))
+import           Control.Lens ((^.), (&))
 import           Control.Monad
 import           Data.Bits
 import           Data.Foldable (toList)
@@ -73,20 +73,22 @@ import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.String (fromString)
 import           Data.Text (Text)
+import qualified Data.Text as Text
 import qualified Data.Text.IO as Text
 import qualified Data.Text.Lazy as LazyText
 import           Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
 import           Data.Text.Lazy.Builder.Int (decimal)
-import           Data.Typeable (Typeable, eqT)
 import           System.Exit
 import           System.IO
 import           System.IO.Error
 import           System.Process
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
+import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
 import           Lang.Crucible.Solver.Adapter
+import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.ProcessUtils
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
@@ -95,7 +97,6 @@ import           Lang.Crucible.Solver.SimpleBackend.SMTLib2 (writeDefaultSMT2)
 import           Lang.Crucible.Solver.SimpleBackend.SMTWriter as SMTWriter
 import           Lang.Crucible.Solver.SimpleBackend.VarIdentification
 import           Lang.Crucible.Solver.SimpleBuilder
-import           Lang.Crucible.Utils.MonadVerbosity
 import qualified Lang.Crucible.Solver.Utils.PolyRoot as Root
 
 
@@ -105,18 +106,18 @@ import qualified Lang.Crucible.Solver.Utils.PolyRoot as Root
 newtype Connection s = Connection ()
 
 -- | Attempt to interpret a Config value as a Yices value.
-asYicesConfigValue :: forall ty . Typeable ty => ty -> Maybe Builder
-asYicesConfigValue v
-  | Just (Refl :: ty :~: Bool) <- eqT =
-    Just $! if v then "true" else "false"
-  | Just (Refl :: ty :~: Float) <- eqT = do
-    let r = toRational v
-    Just $ decimal (numerator r) <> "/" <> decimal (denominator r)
-  | Just (Refl :: ty :~: Int) <- eqT =
-    return $ decimal v
-  | Just (Refl :: ty :~: Text) <- eqT =
-    return $ Builder.fromText v
-  | otherwise = Nothing
+asYicesConfigValue :: ConcreteVal tp -> Maybe Builder
+asYicesConfigValue v = case v of
+  ConcreteBool x ->
+      return (if x then "true" else "false")
+  ConcreteReal x -> 
+      return $ decimal (numerator x) <> "/" <> decimal (denominator x)
+  ConcreteInteger x ->
+      return $ decimal x
+  ConcreteString x ->
+      return $ Builder.fromText x
+  _ ->
+      Nothing
 
 ------------------------------------------------------------------------
 -- Expr
@@ -369,8 +370,8 @@ sendCheckExistsForall c = addCommand c checkExistsForallCommand
 assertForall :: WriterConn t (Connection s) -> [(Text, YicesType)] -> Expr s -> IO ()
 assertForall c vars e = addCommand c (assertForallCommand vars e)
 
-setParam :: WriterConn t (Connection s) -> ConfigValue m -> IO ()
-setParam c (ConfigValue o _ val) =
+setParam :: WriterConn t (Connection s) -> ConfigValue -> IO ()
+setParam c (ConfigValue o val) =
   case configOptionNameParts o of
     [yicesName, nm] | yicesName == "yices" ->
       case asYicesConfigValue val of
@@ -380,7 +381,7 @@ setParam c (ConfigValue o _ val) =
           fail $ unwords ["Unknown Yices parameter type:", show nm]
     _ -> fail $ unwords ["not a Yices parameter", configOptionName o]
 
-setYicesParams :: Monad m => WriterConn t (Connection s) -> Config m -> IO ()
+setYicesParams :: WriterConn t (Connection s) -> Config -> IO ()
 setYicesParams conn cfg = do
    params <- getConfigValues "yices" cfg
    forM_ params $ setParam conn
@@ -560,17 +561,18 @@ yicesAdapter =
    }
 
 -- | Path to yices
-yicesPath :: ConfigOption FilePath
-yicesPath = configOption "yices_path"
+yicesPath :: ConfigOption BaseStringType
+yicesPath = configOption knownRepr "yices_path"
 
 -- | Path to yices
-yicesEfSolver :: ConfigOption Bool
-yicesEfSolver = configOption "yices_ef-solver"
+yicesEfSolver :: ConfigOption BaseBoolType
+yicesEfSolver = configOption knownRepr "yices_ef-solver"
 
-yicesOptions :: MonadVerbosity m => [ConfigDesc m]
+yicesOptions :: [ConfigDesc]
 yicesOptions =
-  [ mkOpt yicesPath (Just "yices") executablePathOptSty
-    ("Yices executable path" :: String)
+  [ mkOpt yicesPath
+    (executablePathOptSty & set_opt_value (ConcreteString "yices"))
+    (Just (PP.text "Yices executable path"))
   , booleanOpt' yicesEfSolver
   ]
   ++ yicesInternalOptions
@@ -593,45 +595,40 @@ yicesEFGenModes = Set.fromList
   , "projection"
   ]
 
-booleanOpt :: Monad m => String -> ConfigDesc m
-booleanOpt nm = booleanOpt' (configOption ("yices."++nm))
+booleanOpt :: String -> ConfigDesc
+booleanOpt nm = booleanOpt' (configOption BaseBoolRepr ("yices."++nm))
 
-booleanOpt' :: Monad m => ConfigOption Bool -> ConfigDesc m
-booleanOpt' cfg =
-  mkOpt cfg
-        Nothing
+booleanOpt' :: ConfigOption BaseBoolType -> ConfigDesc
+booleanOpt' o =
+  mkOpt o
         boolOptSty
-        PP.empty
+        Nothing
 
-floatWithRangeOpt :: Monad m => String -> Float -> Float -> ConfigDesc m
+floatWithRangeOpt :: String -> Rational -> Rational -> ConfigDesc
 floatWithRangeOpt nm lo hi =
-  mkOpt (configOption $ "yices."++nm)
-        Nothing
+  mkOpt (configOption BaseRealRepr $ "yices."++nm)
         (realWithRangeOptSty (Inclusive lo) (Inclusive hi))
-        PP.empty
+        Nothing
 
-floatWithMinOpt :: Monad m => String -> Bound Float -> ConfigDesc m
+floatWithMinOpt :: String -> Bound Rational -> ConfigDesc
 floatWithMinOpt nm lo =
-  mkOpt (configOption $ "yices."++nm)
-        Nothing
+  mkOpt (configOption BaseRealRepr $ "yices."++nm)
         (realWithMinOptSty lo)
-        PP.empty
+        Nothing
 
-intWithRangeOpt :: Monad m => String -> Int -> Int -> ConfigDesc m
+intWithRangeOpt :: String -> Integer -> Integer -> ConfigDesc
 intWithRangeOpt nm lo hi =
-  mkOpt (configOption $ "yices."++nm)
+  mkOpt (configOption BaseIntegerRepr $ "yices."++nm)
+        (integerWithRangeOptSty (Inclusive lo) (Inclusive hi))
         Nothing
-        (integralWithRangeOptSty (Inclusive lo) (Inclusive hi))
-        PP.empty
 
-enumOpt :: Monad m => String -> Set Text -> ConfigDesc m
+enumOpt :: String -> Set Text -> ConfigDesc
 enumOpt nm xs =
-  mkOpt (configOption $ "yices."++nm)
-        Nothing
+  mkOpt (configOption BaseStringRepr $ "yices."++nm)
         (enumOptSty xs)
-        PP.empty
+        Nothing
 
-yicesInternalOptions :: Monad m => [ConfigDesc m]
+yicesInternalOptions :: [ConfigDesc]
 yicesInternalOptions =
   [ booleanOpt "var-elim"
   , booleanOpt "arith-elim"
@@ -699,9 +696,8 @@ checkSupportedByYices p = do
   return $! varInfo^.problemFeatures
 
 -- | Write a yices file that checks the satisfiability of the given predicate.
-writeYicesFile :: Monad m
-               => SimpleBuilder t st -- ^ Builder for getting current bindings.
-               -> Config m           -- ^ Configuration for Yices options
+writeYicesFile :: SimpleBuilder t st -- ^ Builder for getting current bindings.
+               -> Config             -- ^ Configuration for Yices options
                -> FilePath           -- ^ Path to file
                -> BoolElt t          -- ^ Predicate to check
                -> IO ()
@@ -789,15 +785,14 @@ readAllLines hr = go LazyText.empty
                                  `LazyText.snoc` '\n'
 
 -- | Run writer and get a yices result.
-runYicesInOverride :: Monad m
-                   => SimpleBuilder t st
-                   -> Config m
+runYicesInOverride :: SimpleBuilder t st
+                   -> Config
                    -> (Int -> String -> IO ())
                    -> BoolElt t
                    -> (SatResult (GroundEvalFn t) -> IO a)
                    -> IO a
 runYicesInOverride sym cfg logLn condition resultFn = do
-  yices_path <- findSolverPath =<< getConfigValue yicesPath cfg
+  yices_path <- findSolverPath . Text.unpack . fromConcreteString =<< getConfigValue' yicesPath cfg
   logLn 2 "Calling Yices to check sat"
   -- Check Problem features
   features <- checkSupportedByYices condition

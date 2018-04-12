@@ -25,6 +25,7 @@ module Lang.Crucible.Solver.SimpleBackend.DReal
 
 import           Control.Concurrent
 import           Control.Exception
+import           Control.Lens ((&))
 import           Control.Monad
 import           Data.Attoparsec.ByteString.Char8 hiding (try)
 import qualified Data.ByteString as BS
@@ -32,6 +33,7 @@ import qualified Data.ByteString.UTF8 as UTF8
 import           Data.Char hiding (isSpace)
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import qualified Data.Text as T
 import           Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as Text
 import qualified Data.Text.Lazy.Builder as Builder
@@ -45,9 +47,12 @@ import qualified System.IO.Streams as Streams
 import qualified System.IO.Streams.Attoparsec as Streams
 import           System.IO.Temp
 import           System.Process
+import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
+import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
 import           Lang.Crucible.Solver.Adapter
+import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.ProcessUtils
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
@@ -55,19 +60,19 @@ import           Lang.Crucible.Solver.SimpleBackend.ProblemFeatures
 import qualified Lang.Crucible.Solver.SimpleBackend.SMTLib2 as SMT2
 import qualified Lang.Crucible.Solver.SimpleBackend.SMTWriter as SMTWriter
 import           Lang.Crucible.Solver.SimpleBuilder
-import           Lang.Crucible.Utils.MonadVerbosity
 import           Lang.Crucible.Utils.Streams (logErrorStream)
 
 data DReal = DReal
 
 -- | Path to dReal
-drealPath :: ConfigOption FilePath
-drealPath = configOption "dreal_path"
+drealPath :: ConfigOption BaseStringType
+drealPath = configOption knownRepr "dreal_path"
 
-drealOptions :: MonadVerbosity m => [ConfigDesc m]
+drealOptions :: [ConfigDesc]
 drealOptions =
-  [ mkOpt drealPath (Just "dreal") executablePathOptSty
-    ("Path to dReal executable" :: String)
+  [ mkOpt drealPath 
+    (executablePathOptSty & set_opt_value (ConcreteString "dreal"))
+    (Just (PP.text "Path to dReal executable"))
   ]
 
 drealAdapter :: SolverAdapter st
@@ -229,15 +234,14 @@ parseNextWord = do
   UTF8.toString <$> takeWhile1 isAlphaNum
 
 runDRealInOverride
-   :: Monad m
-   => SimpleBuilder t st
-   -> Config m
+   :: SimpleBuilder t st
+   -> Config
    -> (Int -> String -> IO ())
    -> BoolElt t   -- ^ proposition to check
    -> (SatResult (SMT2.WriterConn t (SMT2.Writer DReal), DRealBindings) -> IO a)
    -> IO a
 runDRealInOverride sym cfg logLn p modelFn = do
-  solver_path <- findSolverPath =<< getConfigValue drealPath cfg
+  solver_path <- findSolverPath . T.unpack . fromConcreteString =<< getConfigValue' drealPath cfg
   withSystemTempDirectory "dReal.tmp" $ \tmpdir ->
       withProcessHandles solver_path ["-model"] (Just tmpdir) $ \(in_h, out_h, err_h, ph) -> do
 

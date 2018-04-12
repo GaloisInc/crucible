@@ -22,6 +22,7 @@ module Lang.Crucible.Solver.SimpleBackend.ProblemFeatures
   , useSymbolicArrays
   , useComplexArithmetic
   , useStructs
+  , useStrings
   , hasProblemFeature
   ) where
 
@@ -44,6 +45,7 @@ newtype ProblemFeatures = ProblemFeatures Word64
 --  6 : Uses quantifiers (should also set bit 4)
 --  7 : Uses symbolic arrays or complex numbers.
 --  8 : Uses structs
+--  9 : Uses strings
 
 noFeatures :: ProblemFeatures
 noFeatures = ProblemFeatures 0
@@ -93,6 +95,12 @@ useSymbolicArrays = ProblemFeatures 0x180
 -- in Yices.
 useStructs :: ProblemFeatures
 useStructs = ProblemFeatures 0x280
+
+-- | Indicates whether the problem uses strings
+--
+--   Strings have some symbolic support in CVC4 and Z3.
+useStrings :: ProblemFeatures
+useStrings = ProblemFeatures 0x200
 
 hasProblemFeature :: ProblemFeatures -> ProblemFeatures -> Bool
 hasProblemFeature x y = (x .&. y) == y

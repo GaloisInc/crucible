@@ -21,13 +21,13 @@ import           Data.Bits
 import           Data.Typeable
 import           System.IO
 
+import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
 import           Lang.Crucible.Solver.SimpleBackend.ProblemFeatures
 import           Lang.Crucible.Solver.SimpleBuilder
 
-import           Lang.Crucible.Utils.MonadVerbosity
 
 data SolverAdapter st =
   SolverAdapter
@@ -35,7 +35,7 @@ data SolverAdapter st =
 
     -- | Configuration options relevant to this solver adapter
   , solver_adapter_config_options
-        :: !(forall m . MonadVerbosity m => [ConfigDesc m])
+        :: ![ConfigDesc]
 
     -- | Operation to check the satisfiability of a formula.
     --   The second argument is a callback that calculates the ultimate result from
@@ -44,10 +44,9 @@ data SolverAdapter st =
     --   callback completes, so any necessary information should be extracted from
     --   them before returning.
   , solver_adapter_check_sat
-        :: !(forall m t a
-         . Monad m
-        => SimpleBuilder t st
-        -> Config m
+        :: !(forall t a.
+           SimpleBuilder t st
+        -> Config
         -> (Int -> String -> IO ())
         -> BoolElt t
         -> (SatResult (GroundEvalFn t, Maybe (EltRangeBindings t)) -> IO a)
@@ -75,5 +74,5 @@ defaultWriteSMTLIB2Features
   .|. useQuantifiers
   .|. useSymbolicArrays
 
-defaultSolverAdapter :: Typeable st => ConfigOption (SolverAdapter st)
-defaultSolverAdapter = configOption "default_solver"
+defaultSolverAdapter :: ConfigOption BaseStringType
+defaultSolverAdapter = configOption BaseStringRepr "default_solver"

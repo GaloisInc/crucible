@@ -89,8 +89,6 @@ module Lang.Crucible.Simulator.ExecutionTree
   , ctxSymInterface
   , functionBindings
   , cruciblePersonality
-  , SimConfig
-  , SimConfigMonad(..)
   , FunctionBindings
   , FnState(..)
   , ExtensionImpl(..)
@@ -127,6 +125,7 @@ import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Utils.MonadVerbosity
@@ -259,7 +258,7 @@ ppExceptionContext frames = PP.vcat (map pp (init frames))
 abortTree :: SimError -> SimState p sym ext rtp f args -> IO (ExecResult p sym ext rtp)
 abortTree e s = do
   let t = s^.stateTree
-  v <- getConfigValue verbosity (simConfig (s^.stateContext))
+  v <- maybe 0 fromConcreteInteger <$> getConfigValue verbosity (simConfig (s^.stateContext))
   when (v > 0) $ do
     let frames = activeFrames t
     let msg = ppSimError e PP.<$$> PP.indent 2 (ppExceptionContext frames)
@@ -1122,7 +1121,7 @@ data SimContext personality sym ext
                 , ctxSolverProof         :: !(forall a . IsSymInterfaceProof sym a)
                 , ctxIntrinsicTypes      :: !(IntrinsicTypes sym)
 
-                , simConfig              :: !(SimConfig personality sym)
+                , simConfig              :: !Config
                   -- | Allocator for function handles
                 , simHandleAllocator     :: !(HandleAllocator RealWorld)
                   -- | Handle to write messages to.
@@ -1146,28 +1145,6 @@ data FnState p sym ext (args :: Ctx CrucibleType) (ret :: CrucibleType)
    = UseOverride !(Override p sym ext args ret)
    | forall blocks . UseCFG !(CFG ext blocks args ret) !(CFGPostdom blocks)
 
-newtype SimConfigMonad p sym a =
-    SimConfigMonad { runSimConfigMonad :: forall ext. StateT (SimContext p sym ext) IO a }
- deriving (Functor)
-type SimConfig p sym = Config (SimConfigMonad p sym)
-
-instance Applicative (SimConfigMonad p sym) where
-  pure x = SimConfigMonad (pure x)
-  SimConfigMonad f <*> SimConfigMonad x = SimConfigMonad (f <*> x)
-
-instance Monad (SimConfigMonad p sym) where
-  return = pure
-  SimConfigMonad x >>= f =
-    SimConfigMonad (x >>= runSimConfigMonad . f)
-
-instance MonadIO (SimConfigMonad p sym) where
-  liftIO m = SimConfigMonad (liftIO m)
-
-instance MonadVerbosity (SimConfigMonad p sym) where
-  getVerbosity = SimConfigMonad getVerbosity
-  showWarning msg = SimConfigMonad $ showWarning msg
-  getLogFunction = SimConfigMonad $ getLogFunction
-
 ------------------------------------------------------------------------
 -- SimContext utilities
 
@@ -1175,7 +1152,7 @@ instance MonadVerbosity (SimConfigMonad p sym) where
 initSimContext :: IsSymInterface sym
                => sym
                -> IntrinsicTypes sym
-               -> SimConfig personality sym
+               -> Config
                -> HandleAllocator RealWorld
                -> Handle -- ^ Handle to write output to
                -> FunctionBindings personality sym ext
@@ -1211,7 +1188,8 @@ cruciblePersonality = lens _cruciblePersonality (\s v -> s{ _cruciblePersonality
 instance MonadVerbosity (StateT (SimContext p sym ext) IO) where
   getVerbosity = do
     cfg <- gets simConfig
-    liftIO $ getConfigValue verbosity cfg
+    v <- maybe 0 fromConcreteInteger <$> liftIO (getConfigValue verbosity cfg)
+    return (fromInteger v)
 
   getLogFunction = do
     h <- gets printHandle
@@ -1220,6 +1198,7 @@ instance MonadVerbosity (StateT (SimContext p sym ext) IO) where
       when (n <= verb) $ do
         hPutStr h msg
         hFlush h
+
   showWarning msg = do
     h <- gets printHandle
     liftIO $ hPutStrLn h msg

@@ -48,16 +48,17 @@ import qualified Data.Map as Map
 import           Data.Parameterized.Nonce
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import qualified Data.Text as T
 import           System.Exit
 import           System.IO
 import           System.Process
 
 import qualified Lang.Crucible.Config as CFG
 import           Lang.Crucible.ProgramLoc
-import           Lang.Crucible.Simulator.ExecutionTree (SimConfig)
 import           Lang.Crucible.Simulator.SimError
 import qualified Lang.Crucible.Simulator.Utils.Environment as Env
 import           Lang.Crucible.Solver.Adapter
+import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.ProblemFeatures
@@ -93,9 +94,9 @@ yicesOnlineAdapter =
 
 data YicesOnline
 
-startYicesProcess :: Monad m => CFG.Config m -> IO (Yices.YicesProcess t s)
+startYicesProcess :: CFG.Config -> IO (Yices.YicesProcess t s)
 startYicesProcess cfg = do
-  yices_prepath <- CFG.getConfigValue Yices.yicesPath cfg
+  yices_prepath <- T.unpack . fromConcreteString <$> CFG.getConfigValue' Yices.yicesPath cfg
   yices_path <- Env.findExecutable =<< Env.expandEnvironmentPath Map.empty yices_prepath
 
   let args = ["--mode=push-pop"]
@@ -146,8 +147,6 @@ shutdownYicesProcess yices = do
     ExitFailure x ->
        fail $ "yices exited with unexpected code: "++show x
 
-type OnlineConfig p t = SimConfig p (OnlineBackend p t)
-
 type AssertionSeq t = Seq (Assertion (SB.BoolElt t))
 
 type PrevAssertionLevel t =  (AssertionSeq t, SB.BoolElt t)
@@ -164,7 +163,7 @@ data OnlineBackendState p t
                         , _programLoc  :: !ProgramLoc
                           -- ^ Number of times we have pushed
                         , yicesProc    :: !(IORef (Maybe (Yices.YicesProcess t YicesOnline)))
-                        , config       :: !(Maybe (OnlineConfig p t))
+                        , config       :: !(Maybe CFG.Config)
                         }
 
 -- | Returns an initial execution state.
@@ -220,12 +219,12 @@ appendAssertions :: Seq (Assertion (SB.BoolElt t))
                  -> OnlineBackendState p t
 appendAssertions pairs = curAssertionLevel %~ (Seq.>< pairs)
 
-setConfig :: OnlineBackend p t -> OnlineConfig p t -> IO ()
+setConfig :: OnlineBackend p t -> CFG.Config -> IO ()
 setConfig sym cfg = do
   st <- readIORef (SB.sbStateManager sym)
   writeIORef (SB.sbStateManager sym) $! st { config = Just cfg }
 
-getConfig :: OnlineBackend p t -> IO (OnlineConfig p t)
+getConfig :: OnlineBackend p t -> IO CFG.Config
 getConfig sym = do
   st <- readIORef (SB.sbStateManager sym)
   case config st of
