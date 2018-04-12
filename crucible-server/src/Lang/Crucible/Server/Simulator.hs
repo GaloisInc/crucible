@@ -46,6 +46,7 @@ import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Nonce.Unsafe (indexValue)
 import           Data.Parameterized.Some
 
+import           Lang.Crucible.Config
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.FunctionName
 import           Lang.Crucible.ProgramLoc
@@ -103,7 +104,7 @@ getInterface sim = (^.ctxSymInterface) <$> getSimContext sim
 -- | Create a new Simulator interface
 newSimulator :: IsSymInterface sym
              => sym
-             -> SimConfig p sym
+             -> Config
              -> p sym
              -> [Simulator p sym -> IO SomeHandle] -- ^ Predefined function handles to install
              -> Handle

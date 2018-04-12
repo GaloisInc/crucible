@@ -72,6 +72,7 @@ import           Data.Int (Int64)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe, isJust)
+import qualified Data.Text as T
 import           Data.Traversable
 import           Data.Typeable
 import           System.IO (hPutStrLn, stderr)
@@ -83,6 +84,7 @@ import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
 import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Solver.Adapter
+import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
 import           Lang.Crucible.Solver.SimpleBuilder
@@ -92,12 +94,12 @@ import           Lang.Crucible.Utils.Complex
 import           BLT.Binding
 
 -- | BLT's parameter string, parsed by the function 'parseBLTParams' below.
-bltParams :: ConfigOption String
-bltParams = configOption "blt_params"
+bltParams :: ConfigOption BaseStringType
+bltParams = configOption BaseStringRepr "blt_params"
 
-bltOptions :: Monad m => [ConfigDesc m]
+bltOptions :: [ConfigDesc]
 bltOptions =
-  [ opt         bltParams         ""
+  [ opt         bltParams         (ConcreteString "")
     (text "Command-line parameters to send to BLT")
   ]
 
@@ -113,13 +115,12 @@ bltAdapter =
        fail "BLT backend does not support writing SMTLIB2 files."
    }
 
-runBLTInOverride :: Monad m
-                 => Config m
+runBLTInOverride :: Config
                  -> BoolElt t -- ^ proposition to check
                  -> (SatResult (GroundEvalFn t) -> IO a)
                  -> IO a
 runBLTInOverride cfg p contFn = do
-  epar <- parseBLTParams <$> getConfigValue bltParams cfg
+  epar <- parseBLTParams . T.unpack . fromConcreteString <$> getConfigValue' bltParams cfg
   par  <- either fail return epar
   withHandle par $ \h -> do
     assume h p

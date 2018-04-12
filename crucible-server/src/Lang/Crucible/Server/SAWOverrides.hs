@@ -60,7 +60,7 @@ import qualified Verifier.SAW.ExternalFormat as SAW
 import qualified Verifier.SAW.SharedTerm as SAW
 import qualified Verifier.SAW.Recognizer as SAW
 
-sawServerOptions :: [ConfigDesc (SimConfigMonad SAWCrucibleServerPersonality (SAW.SAWCoreBackend n))]
+sawServerOptions :: [ConfigDesc]
 sawServerOptions = SAW.sawOptions
 
 sawServerOverrides :: [Simulator p (SAW.SAWCoreBackend n) -> IO SomeHandle]

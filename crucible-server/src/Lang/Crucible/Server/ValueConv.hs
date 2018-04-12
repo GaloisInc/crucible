@@ -124,7 +124,7 @@ fromProtoValue sim v = do
         _ -> error "Width is too large"
     P.StringValue -> do
       let s = v^.P.value_string_lit
-      return $ Some $ RegEntry StringRepr s
+      Some . RegEntry StringRepr <$> stringLit sym s
     P.UnitValue -> do
       return $ Some $ RegEntry UnitRepr ()
     P.FnHandleValue -> do
@@ -156,9 +156,10 @@ toProtoValue sim e@(RegEntry tp v) =
       return $ mempty & P.value_code  .~ P.BitvectorValue
                       & P.value_width .~ fromInteger wv
                       & P.value_data  .~ toByteString (encodeSigned r)
-    StringRepr -> do
-      return $ mempty & P.value_code .~ P.StringValue
-                      & P.value_string_lit .~ v
+    StringRepr
+      | Just txt <- asString v -> do
+          return $ mempty & P.value_code .~ P.StringValue
+                          & P.value_string_lit .~ txt
     UnitRepr -> do
       return $ mempty & P.value_code .~ P.UnitValue
     FunctionHandleRepr _ _

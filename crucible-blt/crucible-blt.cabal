@@ -23,6 +23,7 @@ library
     crucible >= 0.1,
     lens >= 1.2,
     parameterized-utils,
+    text,
     transformers
 
   hs-source-dirs: src

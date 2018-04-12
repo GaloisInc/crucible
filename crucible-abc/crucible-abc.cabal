@@ -29,6 +29,7 @@ library
     mtl,
     parameterized-utils,
     process,
+    text,
     transformers,
     unordered-containers,
     utf8-string

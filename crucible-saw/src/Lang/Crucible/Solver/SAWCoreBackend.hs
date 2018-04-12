@@ -38,8 +38,8 @@ import           Numeric.Natural
 import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
 import           Lang.Crucible.ProgramLoc
-import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.SatResult
 import qualified Lang.Crucible.Solver.SimpleBuilder as SB
@@ -68,15 +68,15 @@ data SAWCoreState n
     , saw_elt_cache :: SB.IdxCache n SAWElt
     , saw_assertions  :: Seq (Assertion (Pred (SAWCoreBackend n)))
     , saw_obligations :: Seq (Seq (Pred (SAWCoreBackend n)), Assertion (Pred (SAWCoreBackend n)))
-    , saw_config    :: forall a. ConfigOption a -> IO a
+    , saw_config    :: forall tp. ConfigOption tp -> IO (Maybe (ConcreteVal tp))
     }
 
-sawCheckPathSat :: ConfigOption Bool
-sawCheckPathSat = configOption "saw.check_path_sat"
+sawCheckPathSat :: ConfigOption BaseBoolType
+sawCheckPathSat = configOption BaseBoolRepr "saw.check_path_sat"
 
-sawOptions :: Monad m => [ConfigDesc m]
+sawOptions :: [ConfigDesc]
 sawOptions =
-  [ opt sawCheckPathSat False
+  [ opt sawCheckPathSat (ConcreteBool False)
     "Check the satisfiability of path conditions on branches"
   ]
 
@@ -146,6 +146,7 @@ baseSCType ctx bt =
             fail $ "SAW backend only supports single element arrays."
           join $ SC.scFun ctx <$> baseSCType ctx dom
                               <*> baseSCType ctx range
+    BaseStringRepr   -> fail "SAW backend does not support string values: baseSCType"
     BaseComplexRepr  -> fail "SAW backend does not support complex values: baseSCType"
     BaseRealRepr     -> fail "SAW backend does not support real values: baseSCType"
     BaseStructRepr _ -> fail "FIXME baseSCType for structures"
@@ -177,7 +178,7 @@ bindSAWTerm sym bt t = do
 newSAWCoreBackend ::
   SC.SharedContext ->
   NonceGenerator IO s ->
-  SimConfig p (SAWCoreBackend s) ->
+  Config ->
   IO (SAWCoreBackend s)
 newSAWCoreBackend sc gen cfg = do
   inpr <- newIORef Seq.empty
@@ -189,7 +190,7 @@ newSAWCoreBackend sc gen cfg = do
               , saw_elt_cache = ch
               , saw_assertions = Seq.empty
               , saw_obligations = Seq.empty
-              , saw_config = \opt -> getConfigValue opt cfg
+              , saw_config = \o -> getConfigValue o cfg
               }
   SB.newSimpleBuilder st gen
 
@@ -450,6 +451,8 @@ evaluateElt sym sc cache = f
        SB.SemiRingInt  -> scIntLit sc x
        SB.SemiRingReal -> scRealLit sc x
    go (SB.BVElt w i _) = SAWElt <$> SC.scBvConst sc (fromIntegral (natValue w)) i
+
+   go (SB.StringElt{}) = fail "SAW backend does not support string values"
 
    go (SB.BoundVarElt bv) =
       case SB.bvarKind bv of
@@ -758,7 +761,7 @@ checkSatisfiable sym p = do
       cache = saw_elt_cache mgr
   enabled <- saw_config mgr sawCheckPathSat
   case enabled of
-    True -> do
+    Just (ConcreteBool True) -> do
       t <- evaluateElt sym sc cache p
       let bbPrims = const Map.empty
       BBSim.withBitBlastedPred GIA.proxy sc bbPrims t $ \be lit _shapes -> do
@@ -766,7 +769,7 @@ checkSatisfiable sym p = do
         case satRes of
           AIG.Unsat -> return Unsat
           _ -> return (Sat ())
-    False -> return (Sat ())
+    _ -> return (Sat ())
 
 instance SB.IsSimpleBuilderState SAWCoreState where
   sbAddAssumption sym e = do
