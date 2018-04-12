@@ -95,6 +95,7 @@ library
     Lang.Crucible.Simulator.Utils.Environment
     Lang.Crucible.Solver.Adapter
     Lang.Crucible.Solver.BoolInterface
+    Lang.Crucible.Solver.Concrete
     Lang.Crucible.Solver.Interface
     Lang.Crucible.Solver.OnlineBackend
     Lang.Crucible.Solver.Partial
