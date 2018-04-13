@@ -29,8 +29,6 @@ module Lang.Crucible.Solver.Concrete
   ( ConcreteVal(..)
   , concreteType
   , ppConcrete
-  , asConcrete
-  , concreteToSym
 
     -- * Concrete projections
   , fromConcreteBool
@@ -58,8 +56,6 @@ import           Data.Parameterized.TH.GADT
 import           Data.Parameterized.TraversableFC
 
 import           Lang.Crucible.BaseTypes
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Utils.Complex
 
 data ConcreteVal tp where
@@ -161,38 +157,3 @@ ppConcrete = \case
                          PP.<> PP.comma
                          PP.<> doc
                          PP.<> PP.text ")"
-
-
-asConcrete :: IsExpr e => e tp -> Maybe (ConcreteVal tp)
-asConcrete x =
-  case exprType x of
-    BaseBoolRepr    -> ConcreteBool <$> asConstantPred x
-    BaseNatRepr    -> ConcreteNat <$> asNat x
-    BaseIntegerRepr -> ConcreteInteger <$> asInteger x
-    BaseRealRepr    -> ConcreteReal <$> asRational x
-    BaseStringRepr -> ConcreteString <$> asString x
-    BaseComplexRepr -> ConcreteComplex <$> asComplex x
-    BaseBVRepr w    -> ConcreteBV w <$> asUnsignedBV x
-    BaseStructRepr _ -> Nothing -- FIXME?
-    BaseArrayRepr _ _ -> Nothing -- FIXME?
-
-
-concreteToSym :: IsExprBuilder sym => sym -> ConcreteVal tp -> IO (SymExpr sym tp)
-concreteToSym sym = \case
-   ConcreteBool True    -> return (truePred sym)
-   ConcreteBool False   -> return (falsePred sym)
-   ConcreteNat x        -> natLit sym x
-   ConcreteInteger x    -> intLit sym x
-   ConcreteReal x       -> realLit sym x
-   ConcreteString x     -> stringLit sym x
-   ConcreteComplex x    -> mkComplexLit sym x
-   ConcreteBV w x       -> bvLit sym w x
-   ConcreteStruct xs    -> mkStruct sym =<< traverseFC (concreteToSym sym) xs
-   ConcreteArray idxTy def xs0 -> go (Map.toAscList xs0) =<< constantArray sym idxTy =<< concreteToSym sym def
-     where
-     go [] arr = return arr
-     go ((i,x):xs) arr =
-        do arr' <- go xs arr
-           i' <- traverseFC (concreteToSym sym) i
-           x' <- concreteToSym sym x
-           arrayUpdate sym arr' i' x'

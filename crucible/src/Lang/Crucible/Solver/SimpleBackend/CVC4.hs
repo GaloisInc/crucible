@@ -19,7 +19,6 @@ import           Control.Concurrent
 import           Control.Lens ((&))
 import           Control.Monad (void)
 import           Data.String
-import qualified Data.Text as T
 import           System.Exit
 import           System.IO
 import qualified System.IO.Streams as Streams
@@ -30,6 +29,7 @@ import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
 import           Lang.Crucible.Solver.Adapter
 import           Lang.Crucible.Solver.Concrete
+import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.ProcessUtils
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
@@ -95,13 +95,12 @@ writeCVC4SMT2File sym h p = do
 
 runCVC4InOverride
    :: SimpleBuilder t st
-   -> Config
    -> (Int -> String -> IO ())
    -> BoolElt t
    -> (SatResult (GroundEvalFn t, Maybe (EltRangeBindings t)) -> IO a)
    -> IO a
-runCVC4InOverride sym cfg logLn p cont = do
-  solver_path <- findSolverPath . T.unpack . fromConcreteString =<< getConfigValue' cvc4Path cfg
+runCVC4InOverride sym logLn p cont = do
+  solver_path <- findSolverPath cvc4Path (getConfiguration sym)
   withCVC4 sym solver_path (logLn 2) $ \s -> do
     -- Assume the predicate holds.
     SMT2.assume (SMT2.sessionWriter s) p

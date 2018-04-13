@@ -33,7 +33,6 @@ import qualified Data.ByteString.UTF8 as UTF8
 import           Data.Char hiding (isSpace)
 import           Data.Map (Map)
 import qualified Data.Map as Map
-import qualified Data.Text as T
 import           Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as Text
 import qualified Data.Text.Lazy.Builder as Builder
@@ -53,6 +52,7 @@ import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
 import           Lang.Crucible.Solver.Adapter
 import           Lang.Crucible.Solver.Concrete
+import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.ProcessUtils
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
@@ -80,8 +80,8 @@ drealAdapter =
   SolverAdapter
   { solver_adapter_name = "dreal"
   , solver_adapter_config_options = drealOptions
-  , solver_adapter_check_sat = \sym cfg logLn p cont ->
-      runDRealInOverride sym cfg logLn p $ \res ->
+  , solver_adapter_check_sat = \sym logLn p cont ->
+      runDRealInOverride sym logLn p $ \res ->
          case res of
            Sat (c,m) -> do
              evalFn <- getAvgBindings c m
@@ -235,13 +235,12 @@ parseNextWord = do
 
 runDRealInOverride
    :: SimpleBuilder t st
-   -> Config
    -> (Int -> String -> IO ())
    -> BoolElt t   -- ^ proposition to check
    -> (SatResult (SMT2.WriterConn t (SMT2.Writer DReal), DRealBindings) -> IO a)
    -> IO a
-runDRealInOverride sym cfg logLn p modelFn = do
-  solver_path <- findSolverPath . T.unpack . fromConcreteString =<< getConfigValue' drealPath cfg
+runDRealInOverride sym logLn p modelFn = do
+  solver_path <- findSolverPath drealPath (getConfiguration sym)
   withSystemTempDirectory "dReal.tmp" $ \tmpdir ->
       withProcessHandles solver_path ["-model"] (Just tmpdir) $ \(in_h, out_h, err_h, ph) -> do
 

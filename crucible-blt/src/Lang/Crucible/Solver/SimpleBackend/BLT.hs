@@ -85,6 +85,7 @@ import           Lang.Crucible.Config
 import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Solver.Adapter
 import           Lang.Crucible.Solver.Concrete
+import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
 import           Lang.Crucible.Solver.SimpleBuilder
@@ -108,8 +109,8 @@ bltAdapter =
    SolverAdapter
    { solver_adapter_name = "blt"
    , solver_adapter_config_options = bltOptions
-   , solver_adapter_check_sat = \_ cfg _ p cont ->
-           runBLTInOverride cfg p $ \res ->
+   , solver_adapter_check_sat = \sym _ p cont ->
+           runBLTInOverride (getConfiguration sym) p $ \res ->
              cont (fmap (\x -> (x, Nothing)) res)
    , solver_adapter_write_smt2 = \_ _ _ -> do
        fail "BLT backend does not support writing SMTLIB2 files."

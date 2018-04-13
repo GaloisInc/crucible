@@ -175,7 +175,8 @@ getPathConditions = do
 
 instance MonadVerbosity (OverrideSim p sym ext rtp args ret) where
   getVerbosity = do
-    cfg <- simConfig <$> getContext
+    ctx <- getContext
+    let cfg = ctxSolverProof ctx (getConfiguration (ctx^.ctxSymInterface))
     v <- maybe 0 fromConcreteInteger <$> liftIO (getConfigValue verbosity cfg)
     return (fromInteger v)
 

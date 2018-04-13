@@ -24,7 +24,6 @@ import           Control.Monad
 import qualified Data.ByteString.UTF8 as UTF8
 import           Data.Map (Map)
 import qualified Data.Map as Map
-import qualified Data.Text as T
 import           Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as Text
 import qualified Data.Text.Lazy.Builder as Builder
@@ -38,6 +37,7 @@ import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
 import           Lang.Crucible.Solver.Adapter
 import           Lang.Crucible.Solver.Concrete
+import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.ProcessUtils
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
@@ -66,8 +66,8 @@ boolectorAdapter =
   SolverAdapter
   { solver_adapter_name = "boolector"
   , solver_adapter_config_options = boolectorOptions
-  , solver_adapter_check_sat = \sym cfg logLn p cont -> do
-      res <- runBoolectorInOverride sym cfg logLn p
+  , solver_adapter_check_sat = \sym logLn p cont -> do
+      res <- runBoolectorInOverride sym logLn p
       cont (fmap (\x -> (x,Nothing)) res)
   , solver_adapter_write_smt2 =
       SMT2.writeDefaultSMT2 () "Boolector" defaultWriteSMTLIB2Features
@@ -77,13 +77,12 @@ instance SMT2.SMTLib2Tweaks Boolector where
   smtlib2tweaks = Boolector
 
 runBoolectorInOverride :: SimpleBuilder t st
-                       -> Config
                        -> (Int -> String -> IO ())
                        -> BoolElt t
                        -> IO (SatResult (GroundEvalFn t))
-runBoolectorInOverride sym cfg logLn p  = do
+runBoolectorInOverride sym logLn p  = do
   -- Get boolector path.
-  path <- findSolverPath . T.unpack . fromConcreteString =<< getConfigValue' boolectorPath cfg
+  path <- findSolverPath boolectorPath (getConfiguration sym)
   withProcessHandles path ["-m"] Nothing $ \(in_h, out_h, err_h, ph) -> do
       -- Log stderr to output.
       err_stream <- Streams.handleToInputStream err_h

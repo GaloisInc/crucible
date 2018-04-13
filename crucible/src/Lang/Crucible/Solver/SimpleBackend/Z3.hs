@@ -22,7 +22,6 @@ import           Control.Concurrent
 import           Control.Lens ((&))
 import           Control.Monad.State.Strict
 import           Data.Bits
-import qualified Data.Text as Text
 import           System.Exit
 import           System.IO
 import qualified System.IO.Streams as Streams
@@ -33,6 +32,7 @@ import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
 import           Lang.Crucible.Solver.Adapter
 import           Lang.Crucible.Solver.Concrete
+import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.ProcessUtils
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
@@ -100,13 +100,12 @@ writeZ3SMT2File = SMT2.writeDefaultSMT2 Z3 "Z3" z3Features
 
 runZ3InOverride
    :: SimpleBuilder t st
-   -> Config
    -> (Int -> String -> IO ())
    -> BoolElt t
    -> (SatResult (GroundEvalFn t, Maybe (EltRangeBindings t)) -> IO a)
    -> IO a
-runZ3InOverride sym cfg logLn p cont = do
-  z3_path <- findSolverPath . Text.unpack . fromConcreteString =<< getConfigValue' z3Path cfg
+runZ3InOverride sym logLn p cont = do
+  z3_path <- findSolverPath z3Path (getConfiguration sym)
   withZ3 sym z3_path (logLn 2) $ \s -> do
     -- Assume the predicate holds.
     SMT2.assume (SMT2.sessionWriter s) p

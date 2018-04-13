@@ -58,6 +58,7 @@ provide several type family definitions and class instances for @sym@:
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PolyKinds #-}
@@ -97,6 +98,10 @@ module Lang.Crucible.Solver.Interface
   , muxWordMap
   , insertWordMap
   , lookupWordMap
+    -- * Concrete values
+  , asConcrete
+  , concreteToSym
+
     -- * Utilities
   , mkRational
   , mkReal
@@ -153,6 +158,7 @@ import           Text.PrettyPrint.ANSI.Leijen (Doc)
 import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.BoolInterface as BoolInterface
+import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.Partial (PartExpr(..))
 import           Lang.Crucible.Solver.Symbol
 import           Lang.Crucible.Solver.WeightedSum (WeightedSum)
@@ -2003,6 +2009,43 @@ isReal :: IsExprBuilder sym => sym -> SymCplx sym -> IO (Pred sym)
 isReal sym v = do
   i <- getImagPart sym v
   realEq sym i (realZero sym)
+
+--------------------------------------------------------------------------
+-- Relationship to concrete values
+
+asConcrete :: IsExpr e => e tp -> Maybe (ConcreteVal tp)
+asConcrete x =
+  case exprType x of
+    BaseBoolRepr    -> ConcreteBool <$> asConstantPred x
+    BaseNatRepr    -> ConcreteNat <$> asNat x
+    BaseIntegerRepr -> ConcreteInteger <$> asInteger x
+    BaseRealRepr    -> ConcreteReal <$> asRational x
+    BaseStringRepr -> ConcreteString <$> asString x
+    BaseComplexRepr -> ConcreteComplex <$> asComplex x
+    BaseBVRepr w    -> ConcreteBV w <$> asUnsignedBV x
+    BaseStructRepr _ -> Nothing -- FIXME?
+    BaseArrayRepr _ _ -> Nothing -- FIXME?
+
+
+concreteToSym :: IsExprBuilder sym => sym -> ConcreteVal tp -> IO (SymExpr sym tp)
+concreteToSym sym = \case
+   ConcreteBool True    -> return (truePred sym)
+   ConcreteBool False   -> return (falsePred sym)
+   ConcreteNat x        -> natLit sym x
+   ConcreteInteger x    -> intLit sym x
+   ConcreteReal x       -> realLit sym x
+   ConcreteString x     -> stringLit sym x
+   ConcreteComplex x    -> mkComplexLit sym x
+   ConcreteBV w x       -> bvLit sym w x
+   ConcreteStruct xs    -> mkStruct sym =<< traverseFC (concreteToSym sym) xs
+   ConcreteArray idxTy def xs0 -> go (Map.toAscList xs0) =<< constantArray sym idxTy =<< concreteToSym sym def
+     where
+     go [] arr = return arr
+     go ((i,x):xs) arr =
+        do arr' <- go xs arr
+           i' <- traverseFC (concreteToSym sym) i
+           x' <- concreteToSym sym x
+           arrayUpdate sym arr' i' x'
 
 ------------------------------------------------------------------------
 -- muxIntegerRange

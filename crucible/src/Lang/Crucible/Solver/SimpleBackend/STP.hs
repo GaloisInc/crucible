@@ -17,7 +17,6 @@ module Lang.Crucible.Solver.SimpleBackend.STP
 
 import           Control.Concurrent
 import           Control.Lens ((&))
-import qualified Data.Text as Text
 import           System.Exit
 import qualified System.IO.Streams as Streams
 import           System.Process
@@ -27,6 +26,7 @@ import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
 import           Lang.Crucible.Solver.Adapter
 import           Lang.Crucible.Solver.Concrete
+import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.ProcessUtils
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
@@ -70,13 +70,12 @@ instance SMT2.SMTLib2Tweaks STP where
 
 checkSat
    :: SimpleBuilder t st
-   -> Config
    -> (Int -> String -> IO ())
    -> BoolElt t
    -> (SatResult (GroundEvalFn t, Maybe (EltRangeBindings t)) -> IO a)
    -> IO a
-checkSat sym cfg logLn p cont = do
-  solver_path <- findSolverPath . Text.unpack . fromConcreteString =<< getConfigValue' stpPath cfg
+checkSat sym logLn p cont = do
+  solver_path <- findSolverPath stpPath (getConfiguration sym)
   withSTP sym solver_path (logLn 2) $ \s -> do
     -- Assume the predicate holds.
     SMT2.assume (SMT2.sessionWriter s) p

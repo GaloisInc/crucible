@@ -68,7 +68,6 @@ data SAWCoreState n
     , saw_elt_cache :: SB.IdxCache n SAWElt
     , saw_assertions  :: Seq (Assertion (Pred (SAWCoreBackend n)))
     , saw_obligations :: Seq (Seq (Pred (SAWCoreBackend n)), Assertion (Pred (SAWCoreBackend n)))
-    , saw_config    :: forall tp. ConfigOption tp -> IO (Maybe (ConcreteVal tp))
     }
 
 sawCheckPathSat :: ConfigOption BaseBoolType
@@ -123,7 +122,6 @@ inFreshNamingContext sym f =
                 , saw_elt_cache = ch
                 , saw_assertions = mempty
                 , saw_obligations = mempty
-                , saw_config = saw_config old
                 }
       return new
 
@@ -178,9 +176,8 @@ bindSAWTerm sym bt t = do
 newSAWCoreBackend ::
   SC.SharedContext ->
   NonceGenerator IO s ->
-  Config ->
   IO (SAWCoreBackend s)
-newSAWCoreBackend sc gen cfg = do
+newSAWCoreBackend sc gen = do
   inpr <- newIORef Seq.empty
   ch   <- SB.newIdxCache
   let st = SAWCoreState
@@ -190,7 +187,6 @@ newSAWCoreBackend sc gen cfg = do
               , saw_elt_cache = ch
               , saw_assertions = Seq.empty
               , saw_obligations = Seq.empty
-              , saw_config = \o -> getConfigValue o cfg
               }
   SB.newSimpleBuilder st gen
 
@@ -759,7 +755,7 @@ checkSatisfiable sym p = do
   mgr <- readIORef (SB.sbStateManager sym)
   let sc = saw_ctx mgr
       cache = saw_elt_cache mgr
-  enabled <- saw_config mgr sawCheckPathSat
+  enabled <- getConfigValue sawCheckPathSat (getConfiguration sym)
   case enabled of
     Just (ConcreteBool True) -> do
       t <- evaluateElt sym sc cache p

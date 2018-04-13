@@ -98,6 +98,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , stateSolverProof
   , stateIntrinsicTypes
   , stateOverrideFrame
+  , stateGetConfiguration
   , mssRunErrorHandler
   , mssRunGenericErrorHandler
   ) where
@@ -128,7 +129,6 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Utils.MonadVerbosity
 
 
 -- | @swap_unless b (x,y)@ returns @(x,y)@ when @b@ is @True@ and
@@ -258,7 +258,8 @@ ppExceptionContext frames = PP.vcat (map pp (init frames))
 abortTree :: SimError -> SimState p sym ext rtp f args -> IO (ExecResult p sym ext rtp)
 abortTree e s = do
   let t = s^.stateTree
-  v <- maybe 0 fromConcreteInteger <$> getConfigValue verbosity (simConfig (s^.stateContext))
+  let cfg = stateGetConfiguration s
+  v <- maybe 0 fromConcreteInteger <$> getConfigValue verbosity cfg
   when (v > 0) $ do
     let frames = activeFrames t
     let msg = ppSimError e PP.<$$> PP.indent 2 (ppExceptionContext frames)
@@ -1120,8 +1121,6 @@ data SimContext personality sym ext
    = SimContext { _ctxSymInterface       :: !sym
                 , ctxSolverProof         :: !(forall a . IsSymInterfaceProof sym a)
                 , ctxIntrinsicTypes      :: !(IntrinsicTypes sym)
-
-                , simConfig              :: !Config
                   -- | Allocator for function handles
                 , simHandleAllocator     :: !(HandleAllocator RealWorld)
                   -- | Handle to write messages to.
@@ -1152,18 +1151,16 @@ data FnState p sym ext (args :: Ctx CrucibleType) (ret :: CrucibleType)
 initSimContext :: IsSymInterface sym
                => sym
                -> IntrinsicTypes sym
-               -> Config
                -> HandleAllocator RealWorld
                -> Handle -- ^ Handle to write output to
                -> FunctionBindings personality sym ext
                -> ExtensionImpl personality sym ext
                -> personality sym
                -> SimContext personality sym ext
-initSimContext sym muxFns cfg halloc h bindings extImpl personality =
+initSimContext sym muxFns halloc h bindings extImpl personality =
   SimContext { _ctxSymInterface     = sym
              , ctxSolverProof       = \a -> a
              , ctxIntrinsicTypes    = muxFns
-             , simConfig            = cfg
              , simHandleAllocator   = halloc
              , printHandle          = h
              , extensionImpl        = extImpl
@@ -1181,28 +1178,6 @@ functionBindings = lens _functionBindings (\s v -> s { _functionBindings = v })
 cruciblePersonality :: Simple Lens (SimContext p sym ext) (p sym)
 cruciblePersonality = lens _cruciblePersonality (\s v -> s{ _cruciblePersonality = v })
 
-
-------------------------------------------------------------------------
--- MonadVerbosity instance
-
-instance MonadVerbosity (StateT (SimContext p sym ext) IO) where
-  getVerbosity = do
-    cfg <- gets simConfig
-    v <- maybe 0 fromConcreteInteger <$> liftIO (getConfigValue verbosity cfg)
-    return (fromInteger v)
-
-  getLogFunction = do
-    h <- gets printHandle
-    verb <- getVerbosity
-    return $ \n msg -> do
-      when (n <= verb) $ do
-        hPutStr h msg
-        hFlush h
-
-  showWarning msg = do
-    h <- gets printHandle
-    liftIO $ hPutStrLn h msg
-    liftIO $ hFlush h
 
 ------------------------------------------------------------------------
 -- SimState
@@ -1251,6 +1226,9 @@ stateSolverProof s = ctxSolverProof (s^.stateContext)
 
 stateIntrinsicTypes :: SimState p sym ext r f args -> IntrinsicTypes sym
 stateIntrinsicTypes s = ctxIntrinsicTypes (s^.stateContext)
+
+stateGetConfiguration :: SimState p sym ext r f args -> Config
+stateGetConfiguration s = stateSolverProof s (getConfiguration (stateSymInterface s))
 
 ------------------------------------------------------------------------
 -- HasSimState instance

@@ -33,6 +33,7 @@ import Control.Lens
 import Control.Monad.IO.Class
 
 import Lang.Crucible.BaseTypes
+import Lang.Crucible.Config
 import Lang.Crucible.ProgramLoc
 import Lang.Crucible.Simulator.SimError
 
@@ -137,6 +138,9 @@ assertPred = lens _assertPred (\s v -> s { _assertPred = v })
 -- within an assertion context.
 class ( HasProgramLoc (SymPathState sym)
       ) => IsBoolSolver sym where
+
+  -- | Retrieve the configuration object corresponding to this solver interface.
+  getConfiguration :: sym -> Config
 
   ----------------------------------------------------------------------
   -- Branch manipulations

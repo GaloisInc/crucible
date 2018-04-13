@@ -166,7 +166,7 @@ evalLogFn :: CrucibleState p sym ext rtp blocks r ctx
           -> IO ()
 evalLogFn s n msg = do
   let h = printHandle (s^.stateContext)
-  let cfg = simConfig (s^.stateContext)
+  let cfg = stateGetConfiguration s
   verb <- getConfigValue verbosity cfg
   case verb of
     Just (ConcreteInteger v) ->
@@ -509,7 +509,7 @@ loopCrucible :: IsSyntaxExtension ext
              -> IO (ExecResult p sym ext rtp)
 loopCrucible s = stateSolverProof s $ do
   s_ref <- newIORef (SomeState s)
-  let cfg = simConfig (s^.stateContext)
+  let cfg = stateGetConfiguration s
   verb <- maybe 0 (fromInteger . fromConcreteInteger) <$> getConfigValue verbosity cfg
   next <- catches (loopCrucible' s_ref verb)
      [ Handler $ \(e::IOException) -> do

@@ -33,8 +33,6 @@ module Lang.Crucible.Solver.OnlineBackend
   , programLoc
   , getYicesProcess
   , Yices.YicesProcess(..)
-  , setConfig
-  , getConfig
   , yicesOnlineAdapter
   ) where
 
@@ -44,11 +42,9 @@ import           Control.Monad.State
 import           Data.Bits
 import           Data.Foldable
 import           Data.IORef
-import qualified Data.Map as Map
 import           Data.Parameterized.Nonce
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
-import qualified Data.Text as T
 import           System.Exit
 import           System.IO
 import           System.Process
@@ -56,10 +52,9 @@ import           System.Process
 import qualified Lang.Crucible.Config as CFG
 import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.SimError
-import qualified Lang.Crucible.Simulator.Utils.Environment as Env
 import           Lang.Crucible.Solver.Adapter
-import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.Interface
+import qualified Lang.Crucible.Solver.ProcessUtils as Proc
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.ProblemFeatures
 import           Lang.Crucible.Solver.SimpleBackend.SMTWriter
@@ -75,7 +70,7 @@ type OnlineBackend p t = SB.SimpleBuilder t (OnlineBackendState p)
 yicesOnlineAdapter :: SolverAdapter (OnlineBackendState p)
 yicesOnlineAdapter =
    Yices.yicesAdapter
-   { solver_adapter_check_sat = \sym _ _ p cont -> do
+   { solver_adapter_check_sat = \sym _ p cont -> do
         yproc <- getYicesProcess sym
         let c = Yices.yicesConn yproc
 
@@ -96,9 +91,7 @@ data YicesOnline
 
 startYicesProcess :: CFG.Config -> IO (Yices.YicesProcess t s)
 startYicesProcess cfg = do
-  yices_prepath <- T.unpack . fromConcreteString <$> CFG.getConfigValue' Yices.yicesPath cfg
-  yices_path <- Env.findExecutable =<< Env.expandEnvironmentPath Map.empty yices_prepath
-
+  yices_path <- Proc.findSolverPath Yices.yicesPath cfg
   let args = ["--mode=push-pop"]
 
   let create_proc
@@ -163,7 +156,6 @@ data OnlineBackendState p t
                         , _programLoc  :: !ProgramLoc
                           -- ^ Number of times we have pushed
                         , yicesProc    :: !(IORef (Maybe (Yices.YicesProcess t YicesOnline)))
-                        , config       :: !(Maybe CFG.Config)
                         }
 
 -- | Returns an initial execution state.
@@ -176,7 +168,6 @@ initialOnlineBackendState = do
               , _proofObligs = Seq.empty
               , _programLoc = initializationLoc
               , yicesProc = procref
-              , config = Nothing
               }
 
 -- | The sequence of accumulated assertion obligations
@@ -219,18 +210,6 @@ appendAssertions :: Seq (Assertion (SB.BoolElt t))
                  -> OnlineBackendState p t
 appendAssertions pairs = curAssertionLevel %~ (Seq.>< pairs)
 
-setConfig :: OnlineBackend p t -> CFG.Config -> IO ()
-setConfig sym cfg = do
-  st <- readIORef (SB.sbStateManager sym)
-  writeIORef (SB.sbStateManager sym) $! st { config = Just cfg }
-
-getConfig :: OnlineBackend p t -> IO CFG.Config
-getConfig sym = do
-  st <- readIORef (SB.sbStateManager sym)
-  case config st of
-    Nothing -> fail "Online backend has not been configured!"
-    Just cfg -> return cfg
-
 getYicesProcess :: OnlineBackend p t -> IO (Yices.YicesProcess t YicesOnline)
 getYicesProcess sym = do
   st <- readIORef (SB.sbStateManager sym)
@@ -239,7 +218,7 @@ getYicesProcess sym = do
     Just p -> do
       return p
     Nothing -> do
-      cfg <- getConfig sym
+      let cfg = getConfiguration sym
       p <- startYicesProcess cfg
       -- set up Yices parameters
       Yices.setYicesParams (Yices.yicesConn p) cfg

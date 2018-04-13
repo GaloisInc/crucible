@@ -201,8 +201,8 @@ fulfillGetConfigValueRequest
     -> IO ()
 fulfillGetConfigValueRequest sim nm =
   do ctx <- getSimContext sim
-     let cfg = simConfig ctx
      let sym = ctx^.ctxSymInterface
+         cfg = getConfiguration sym
      readConfigValue nm cfg $ \case
          Just v -> 
            do e <- concreteToSym sym v
@@ -234,7 +234,9 @@ fulfillSetConfigValueRequest
        -- ^ Value of the configuration setting
     -> IO ()
 fulfillSetConfigValueRequest sim nm vals =
-  do cfg <- simConfig <$> getSimContext sim
+  do ctx <- getSimContext sim
+     let sym = ctx^.ctxSymInterface
+         cfg = getConfiguration sym
      case Seq.viewl vals of
        val Seq.:< (Seq.null -> True) ->
          do Some (RegEntry tpr v) <- fromProtoValue sim val
@@ -272,7 +274,7 @@ fulfillSetVerbosityRequest sim args = do
   case v of
     Some (RegEntry NatRepr nv) | Just n <- asNat nv -> do
       ctx <- readIORef (simContext sim)
-      let cfg = simConfig ctx
+      let cfg = getConfiguration (ctx^.ctxSymInterface)
       let h   = printHandle ctx
       oldv <- fromInteger . fromConcreteInteger <$> getConfigValue' verbosity cfg
       ws <- withVerbosity h oldv $ liftIO (setConfigValue verbosity cfg (ConcreteInteger (fromIntegral n)))

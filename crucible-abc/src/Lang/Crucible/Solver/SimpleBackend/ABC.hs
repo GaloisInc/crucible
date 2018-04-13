@@ -74,6 +74,7 @@ import           Lang.Crucible.ProgramLoc
 import qualified Lang.Crucible.Simulator.Utils.Environment as Env
 import           Lang.Crucible.Solver.Adapter
 import           Lang.Crucible.Solver.Concrete
+import           Lang.Crucible.Solver.Interface (getConfiguration)
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
 import           Lang.Crucible.Solver.SimpleBackend.VarIdentification
@@ -97,8 +98,8 @@ abcAdapter =
    SolverAdapter
    { solver_adapter_name = "abc"
    , solver_adapter_config_options = abcOptions
-   , solver_adapter_check_sat = \_ ctx logLn p cont -> do
-           res <- checkSat ctx logLn p
+   , solver_adapter_check_sat = \sym logLn p cont -> do
+           res <- checkSat (getConfiguration sym) logLn p
            cont (fmap (\x -> (x,Nothing)) res)
    , solver_adapter_write_smt2 = \_ _ _ -> do
        fail "ABC backend does not support writing SMTLIB2 files."
@@ -120,7 +121,8 @@ genericSatAdapter =
    SolverAdapter
    { solver_adapter_name = "sat"
    , solver_adapter_config_options = genericSatOptions
-   , solver_adapter_check_sat = \_ cfg logLn p cont -> do
+   , solver_adapter_check_sat = \sym logLn p cont -> do
+       let cfg = getConfiguration sym
        cmd <- T.unpack . fromConcreteString <$> getConfigValue' satCommand cfg
        let mkCommand path = do
              let var_map = Map.fromList [("1",path)]

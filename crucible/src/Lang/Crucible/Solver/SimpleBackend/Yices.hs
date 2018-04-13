@@ -73,7 +73,6 @@ import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.String (fromString)
 import           Data.Text (Text)
-import qualified Data.Text as Text
 import qualified Data.Text.IO as Text
 import qualified Data.Text.Lazy as LazyText
 import           Data.Text.Lazy.Builder (Builder)
@@ -89,6 +88,7 @@ import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
 import           Lang.Crucible.Solver.Adapter
 import           Lang.Crucible.Solver.Concrete
+import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.ProcessUtils
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
@@ -554,8 +554,8 @@ yicesAdapter =
    SolverAdapter
    { solver_adapter_name = "yices"
    , solver_adapter_config_options = yicesOptions
-   , solver_adapter_check_sat = \sym cfg logLn p cont ->
-       runYicesInOverride sym cfg logLn p (cont . fmap (\x -> (x,Nothing)))
+   , solver_adapter_check_sat = \sym logLn p cont ->
+       runYicesInOverride sym logLn p (cont . fmap (\x -> (x,Nothing)))
    , solver_adapter_write_smt2 =
        writeDefaultSMT2 () "YICES"  yicesSMT2Features
    }
@@ -786,13 +786,13 @@ readAllLines hr = go LazyText.empty
 
 -- | Run writer and get a yices result.
 runYicesInOverride :: SimpleBuilder t st
-                   -> Config
                    -> (Int -> String -> IO ())
                    -> BoolElt t
                    -> (SatResult (GroundEvalFn t) -> IO a)
                    -> IO a
-runYicesInOverride sym cfg logLn condition resultFn = do
-  yices_path <- findSolverPath . Text.unpack . fromConcreteString =<< getConfigValue' yicesPath cfg
+runYicesInOverride sym logLn condition resultFn = do
+  let cfg = getConfiguration sym
+  yices_path <- findSolverPath yicesPath cfg
   logLn 2 "Calling Yices to check sat"
   -- Check Problem features
   features <- checkSupportedByYices condition

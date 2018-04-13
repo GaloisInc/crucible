@@ -166,6 +166,7 @@ import qualified Text.PrettyPrint.ANSI.Leijen as PP
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           Lang.Crucible.BaseTypes
+import qualified Lang.Crucible.Config as CFG
 import           Lang.Crucible.MATLAB.Intrinsics.Solver
 import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.SimError
@@ -1079,6 +1080,8 @@ data SimpleBuilder t (st :: * -> *)
         , sbFalse :: !(BoolElt t)
           -- | Constant zero.
         , sbZero  :: !(RealElt t)
+          -- | Configuration object for this symbolic backend
+        , sbConfiguration :: !CFG.Config
           -- | Flag used to tell the backend whether to evaluate
           -- ground rational values as double precision floats when
           -- a function cannot be evaluated as a rational.
@@ -2419,6 +2422,9 @@ sbFreshIndex sb = freshNonce (eltCounter sb)
 sbFreshSymFnNonce :: SimpleBuilder t st -> IO (Nonce t (ctx:: Ctx BaseType))
 sbFreshSymFnNonce sb = freshNonce (eltCounter sb)
 
+sbConfigOptions :: [CFG.ConfigDesc]
+sbConfigOptions = [] -- FIXME? move unary thhreshold, BVDomainRangeLimit, etc in here
+
 newSimpleBuilder :: IsSimpleBuilderState st
                  => st t
                     -- ^ Current state for simple builder.
@@ -2433,6 +2439,7 @@ newSimpleBuilder st gen = do
   t <- appElt es initializationLoc TrueBool  (Just True)
   f <- appElt es initializationLoc FalseBool (Just False)
   let z = SemiRingLiteral SemiRingReal 0 initializationLoc
+  cfg <- CFG.initialConfig 0 sbConfigOptions
   storage_ref   <- newIORef es
   loc_ref       <- newIORef initializationLoc
   bindings_ref  <- newIORef Bimap.empty
@@ -2440,6 +2447,7 @@ newSimpleBuilder st gen = do
   return $! SB { sbTrue  = t
                , sbFalse = f
                , sbZero = z
+               , sbConfiguration = cfg
                , sbFloatReduce = True
                , _sbUnaryThreshold = 0
                , _sbBVDomainRangeLimit = 2
@@ -3002,6 +3010,8 @@ instance IsBoolExprBuilder (SimpleBuilder t st) where
 instance IsBoolSolver (SimpleBuilder t st) where
 
   evalBranch sym p = sbStateManagerIsBoolSolver sym $ sbEvalBranch sym p
+
+  getConfiguration = sbConfiguration
 
   getCurrentState sym = do
     s <- readIORef (sbStateManager sym)

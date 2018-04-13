@@ -50,7 +50,6 @@ data SolverAdapter st =
   , solver_adapter_check_sat
         :: !(forall t a.
            SimpleBuilder t st
-        -> Config
         -> (Int -> String -> IO ())
         -> BoolElt t
         -> (SatResult (GroundEvalFn t, Maybe (EltRangeBindings t)) -> IO a)

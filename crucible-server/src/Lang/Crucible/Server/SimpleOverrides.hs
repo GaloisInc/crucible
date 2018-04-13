@@ -103,7 +103,7 @@ checkSatWithAbcOverride = do
     let p = regValue $ args^._1
     sym <- getSymInterface
     logLn <- getLogFunction
-    cfg <- simConfig <$> getContext
+    let cfg = getConfiguration sym
     r <- liftIO $ ABC.checkSat cfg logLn p
     return $ backendPred sym (isSat r)
 
@@ -118,8 +118,7 @@ checkSatWithYicesOverride = do
     let p = regValue $ args^._1
     sym <- getSymInterface
     logLn <- getLogFunction
-    cfg <- simConfig <$> getContext
-    r <- liftIO $ Yices.runYicesInOverride sym cfg logLn p (return . isSat)
+    r <- liftIO $ Yices.runYicesInOverride sym logLn p (return . isSat)
     return $ backendPred sym r
 
 ------------------------------------------------------------------------
@@ -157,7 +156,7 @@ writeYicesOverride = do
     case asString file_nm of
       Just path -> do
         let sym = ctx^.ctxSymInterface
-        let cfg = simConfig ctx
+        let cfg = getConfiguration sym
         liftIO $ Yices.writeYicesFile sym cfg (Text.unpack path) p
       Nothing -> do
         fail "Expected concrete file name in write_yices override"
