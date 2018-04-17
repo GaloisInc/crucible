@@ -383,6 +383,7 @@ addTheoryFeatures th =
     BitvectorTheory       -> addFeatures useBitvectors
     ArrayTheory           -> addFeatures useSymbolicArrays
     StructTheory          -> addFeatures useStructs
+    StringTheory          -> addFeatures useStrings
     QuantifierTheory -> return ()
     FnTheory         -> return ()
 
