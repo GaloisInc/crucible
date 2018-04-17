@@ -65,9 +65,9 @@ import           Lang.Crucible.Solver.SimpleBackend.SMTWriter
 import qualified Lang.Crucible.Solver.SimpleBackend.Yices as Yices
 import qualified Lang.Crucible.Solver.SimpleBuilder as SB
 
-type OnlineBackend p t = SB.SimpleBuilder t (OnlineBackendState p)
+type OnlineBackend t = SB.SimpleBuilder t OnlineBackendState
 
-yicesOnlineAdapter :: SolverAdapter (OnlineBackendState p)
+yicesOnlineAdapter :: SolverAdapter OnlineBackendState
 yicesOnlineAdapter =
    Yices.yicesAdapter
    { solver_adapter_check_sat = \sym _ p cont -> do
@@ -149,7 +149,7 @@ levelPreds f (s,c) = (,) <$> (traverse . assertPred) f s <*> f c
 
 -- | This represents the state of the backend along a given execution.
 -- It contains the current assertions and program location.
-data OnlineBackendState p t
+data OnlineBackendState t
    = OnlineBackendState { _prevAssertionLevels :: !(Seq (PrevAssertionLevel t))
                         , _curAssertionLevel   :: !(AssertionSeq t)
                         , _proofObligs :: Seq (Seq (SB.BoolElt t), Assertion (SB.BoolElt t))
@@ -159,7 +159,7 @@ data OnlineBackendState p t
                         }
 
 -- | Returns an initial execution state.
-initialOnlineBackendState :: IO (OnlineBackendState p t)
+initialOnlineBackendState :: IO (OnlineBackendState t)
 initialOnlineBackendState = do
   procref <- newIORef Nothing
   return $! OnlineBackendState
@@ -171,25 +171,25 @@ initialOnlineBackendState = do
               }
 
 -- | The sequence of accumulated assertion obligations
-proofObligs :: Simple Lens (OnlineBackendState p t) (Seq (Seq (SB.BoolElt t), Assertion (SB.BoolElt t)))
+proofObligs :: Simple Lens (OnlineBackendState t) (Seq (Seq (SB.BoolElt t), Assertion (SB.BoolElt t)))
 proofObligs = lens _proofObligs (\s v -> s { _proofObligs = v })
 
 -- | The assertions from previous levels
-prevAssertionLevels :: Simple Lens (OnlineBackendState p t) (Seq (PrevAssertionLevel t))
+prevAssertionLevels :: Simple Lens (OnlineBackendState t) (Seq (PrevAssertionLevel t))
 prevAssertionLevels = lens _prevAssertionLevels (\s v -> s { _prevAssertionLevels = v })
 
 -- | The current assertion level
-curAssertionLevel :: Simple Lens (OnlineBackendState p t) (AssertionSeq t)
+curAssertionLevel :: Simple Lens (OnlineBackendState t) (AssertionSeq t)
 curAssertionLevel = lens _curAssertionLevel (\s v -> s { _curAssertionLevel = v })
 
-instance HasProgramLoc (OnlineBackendState p t) where
+instance HasProgramLoc (OnlineBackendState t) where
   programLoc = lens _programLoc (\s v -> s { _programLoc = v })
 
 appendAssertion :: ProgramLoc
                 -> SB.BoolElt t
                 -> SimErrorReason
-                -> OnlineBackendState p t
-                -> OnlineBackendState p t
+                -> OnlineBackendState t
+                -> OnlineBackendState t
 appendAssertion l p m s =
   let ast = Assertion l p (Just m) in
   s & appendAssertions (Seq.singleton ast)
@@ -199,18 +199,18 @@ appendAssertion l p m s =
 
 appendAssumption :: ProgramLoc
                 -> SB.BoolElt t
-                -> OnlineBackendState p t
-                -> OnlineBackendState p t
+                -> OnlineBackendState t
+                -> OnlineBackendState t
 appendAssumption l p s =
   s & appendAssertions (Seq.singleton (Assertion l p Nothing))
 
 -- | Append assertions to path state.
 appendAssertions :: Seq (Assertion (SB.BoolElt t))
-                 -> OnlineBackendState p t
-                 -> OnlineBackendState p t
+                 -> OnlineBackendState t
+                 -> OnlineBackendState t
 appendAssertions pairs = curAssertionLevel %~ (Seq.>< pairs)
 
-getYicesProcess :: OnlineBackend p t -> IO (Yices.YicesProcess t YicesOnline)
+getYicesProcess :: OnlineBackend t -> IO (Yices.YicesProcess t YicesOnline)
 getYicesProcess sym = do
   st <- readIORef (SB.sbStateManager sym)
   mproc <- readIORef (yicesProc st)
@@ -226,7 +226,7 @@ getYicesProcess sym = do
       return p
 
 withOnlineBackend :: NonceGenerator IO t
-                  -> (OnlineBackend p t -> IO a)
+                  -> (OnlineBackend t -> IO a)
                   -> IO a
 withOnlineBackend gen action = do
   st <- initialOnlineBackendState
@@ -241,7 +241,7 @@ withOnlineBackend gen action = do
    Right x -> return x
 
 checkSatisfiable
-    :: OnlineBackend p t
+    :: OnlineBackend t
     -> SB.BoolElt t
     -> IO (SatResult ())
 checkSatisfiable sym p = do
@@ -255,11 +255,11 @@ checkSatisfiable sym p = do
 
 
 -- | Get the assertion level of a onlinebackend state backend.
-assertionLevel :: OnlineBackendState p t -> Int
+assertionLevel :: OnlineBackendState t -> Int
 assertionLevel s = Seq.length $ s^.prevAssertionLevels
 
 -- | Backtract to a given assertion level
-backtrackToLevel :: OnlineBackend p t -> Int -> IO ()
+backtrackToLevel :: OnlineBackend t -> Int -> IO ()
 backtrackToLevel sym prev_lvl = do
   -- Get height of current stack
   cur_lvl <- assertionLevel <$> readIORef (SB.sbStateManager sym)
@@ -275,7 +275,7 @@ checkedDropSeq cnt s
   | otherwise = error $ "internal error: checkedDropSeq given bad length"
 
 -- | Get assertions to push
-assertionsToPush :: OnlineBackendState p t
+assertionsToPush :: OnlineBackendState t
                  -> Int -- ^ Current level
                  -> Int -- ^ Assertions already added in current level
                  -> (AssertionSeq t, [(SB.BoolElt t, AssertionSeq t)])
@@ -291,14 +291,14 @@ assertionsToPush s cur_lvl assert_cnt =
 assertToYices :: WriterConn t (Yices.Connection YicesOnline) -> AssertionSeq t -> IO ()
 assertToYices conn = traverse_ (\a -> Yices.assume conn (a^.assertPred))
 
-assertionPreds :: Simple Traversal (OnlineBackendState p t) (SB.BoolElt t)
+assertionPreds :: Simple Traversal (OnlineBackendState t) (SB.BoolElt t)
 assertionPreds f s =
   (\p c -> s & prevAssertionLevels .~ p
              & curAssertionLevel   .~ c)
     <$> (traverse . levelPreds) f (s^.prevAssertionLevels)
     <*> (traverse . assertPred) f (s^.curAssertionLevel)
 
-instance SB.IsSimpleBuilderState (OnlineBackendState p) where
+instance SB.IsSimpleBuilderState OnlineBackendState where
   sbAddAssertion sym p m =
     case asConstantPred p of
       Just True ->
