@@ -8,6 +8,8 @@ Maintainer       : Joe Hendrix <jhendrix@galois.com>
 Data structures and operations that are common to both the
 registerized and the SSA form CFG representations.
 -}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 module Lang.Crucible.CFG.Common
@@ -31,7 +33,7 @@ import           Lang.Crucible.Types
 -- GlobalVar
 
 -- | A global variable.
-data GlobalVar tp
+data GlobalVar (tp :: CrucibleType)
    = GlobalVar { globalNonce :: {-# UNPACK #-} !(Nonce tp)
                , globalName  :: !Text
                , globalType  :: !(TypeRepr tp)
