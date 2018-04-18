@@ -38,6 +38,7 @@ import           Control.Lens
 import           Control.Monad
 import           Control.Monad.State.Strict
 import           Data.IORef
+import           Data.Foldable (toList)
 import           Data.Typeable
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
@@ -203,23 +204,24 @@ fulfillGetConfigValueRequest sim nm =
   do ctx <- getSimContext sim
      let sym = ctx^.ctxSymInterface
          cfg = getConfiguration sym
-     readConfigValue nm cfg $ \case
-         Just v -> 
-           do e <- concreteToSym sym v
-              pv <- toProtoValue sim (RegEntry (baseToType (concreteType v)) e)
-              let resp =
-                   mempty & P.simulatorValueResponse_successful .~ True
-                          & P.simulatorValueResponse_value .~ pv
-              let gresp =
-                   mempty & P.genericResponse_code .~ P.SimulatorValueGenResp
-                          & P.genericResponse_simValResponse .~ resp
-              sendResponse sim gresp
-         Nothing ->    
-           do let msg = "Config option " <> nm <> " is not set."
-                  gresp =
-                    mempty & P.genericResponse_code .~ P.ExceptionGenResp
-                           & P.genericResponse_message .~ msg
-              sendResponse sim gresp
+     Some optSetting <- getOptionSettingFromText nm cfg
+     getOption optSetting >>= \case
+       Just v ->
+         do e <- concreteToSym sym v
+            pv <- toProtoValue sim (RegEntry (baseToType (concreteType v)) e)
+            let resp =
+                 mempty & P.simulatorValueResponse_successful .~ True
+                        & P.simulatorValueResponse_value .~ pv
+            let gresp =
+                 mempty & P.genericResponse_code .~ P.SimulatorValueGenResp
+                        & P.genericResponse_simValResponse .~ resp
+            sendResponse sim gresp
+       Nothing ->
+         do let msg = "Config option " <> nm <> " is not set."
+                gresp =
+                  mempty & P.genericResponse_code .~ P.ExceptionGenResp
+                         & P.genericResponse_message .~ msg
+            sendResponse sim gresp
 
 ------------------------------------------------------------------------
 -- SetConfigValue request
@@ -240,20 +242,29 @@ fulfillSetConfigValueRequest sim nm vals =
      case Seq.viewl vals of
        val Seq.:< (Seq.null -> True) ->
          do Some (RegEntry tpr v) <- fromProtoValue sim val
-            ws <- writeConfigValue nm cfg $ \tpr' ->
-                    case testEquality tpr (baseToType tpr') of
-                      Just Refl
-                        | Just x <- asConcrete v -> return x
-                        | otherwise ->
-                               fail $ unlines [ "Expected concrete value of type " ++ show tpr'
-                                              , "but was given a symbolic value."
-                                              ]
-                      Nothing   -> fail $ unlines [ "Expected value of type " ++ show tpr'
-                                                  , "when setting configuration value " ++ show nm
-                                                  , "but was given a value of type " ++ show tpr
-                                                  ]
-            unless (null ws) (sendTextResponse sim (Text.unlines (map (Text.pack . show) ws)))
-            sendAckResponse sim
+            Some optSetting <- getOptionSettingFromText nm cfg
+            let tpr' = baseToType (configOptionType (optionSettingName optSetting))
+            case testEquality tpr tpr' of
+              Just Refl
+                | Just x <- asConcrete v ->
+                    do res <- setOption optSetting x
+                       case optionSetError res of
+                         Just msg -> fail (show msg)
+                         Nothing ->
+                           do let ws = toList (optionSetWarnings res)
+                              unless (null ws)
+                                     (sendTextResponse sim (Text.unlines (map (Text.pack . show) ws)))
+                              sendAckResponse sim
+
+                | otherwise ->
+                      fail $ unlines [ "Expected concrete value of type " ++ show tpr'
+                                     , "but was given a symbolic value."
+                                     ]
+
+              Nothing   -> fail $ unlines [ "Expected value of type " ++ show tpr'
+                                          , "when setting configuration value " ++ show nm
+                                          , "but was given a value of type " ++ show tpr
+                                          ]
 
        _ -> fail "Expected a single argument for SetConfigValue"
 
@@ -276,8 +287,9 @@ fulfillSetVerbosityRequest sim args = do
       ctx <- readIORef (simContext sim)
       let cfg = getConfiguration (ctx^.ctxSymInterface)
       let h   = printHandle ctx
-      oldv <- fromInteger . fromConcreteInteger <$> getConfigValue' verbosity cfg
-      ws <- withVerbosity h oldv $ liftIO (setConfigValue verbosity cfg (ConcreteInteger (fromIntegral n)))
+      verbSetting <- getOptionSetting verbosity cfg
+      oldv <- fromInteger <$> liftIO (getOpt verbSetting)
+      ws <- withVerbosity h oldv $ liftIO (setOpt verbSetting (toInteger n))
       unless (null ws) (sendTextResponse sim (Text.unlines (map (Text.pack . show) ws)))
       sendAckResponse sim
     _ -> fail "expected a natural number argument to SetVerbosity request"

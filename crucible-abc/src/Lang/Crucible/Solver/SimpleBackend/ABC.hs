@@ -123,7 +123,7 @@ genericSatAdapter =
    , solver_adapter_config_options = genericSatOptions
    , solver_adapter_check_sat = \sym logLn p cont -> do
        let cfg = getConfiguration sym
-       cmd <- T.unpack . fromConcreteString <$> getConfigValue' satCommand cfg
+       cmd <- T.unpack <$> (getOpt =<< getOptionSetting satCommand cfg)
        let mkCommand path = do
              let var_map = Map.fromList [("1",path)]
              Env.expandEnvironmentPath var_map cmd
@@ -611,7 +611,7 @@ checkSat :: Config
 checkSat cfg logLn e = do
   -- Get variables in expression.
   let vars = predicateVarInfo e
-  max_qbf_iter <- fromInteger . fromConcreteInteger <$> getConfigValue' abcQbfIterations cfg
+  max_qbf_iter <- fromInteger <$> (getOpt =<< getOptionSetting abcQbfIterations cfg)
   checkSupportedByAbc vars
   checkNoLatches vars
   withNetwork $ \ntk -> do

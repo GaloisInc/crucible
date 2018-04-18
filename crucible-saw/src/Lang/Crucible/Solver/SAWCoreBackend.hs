@@ -755,9 +755,9 @@ checkSatisfiable sym p = do
   mgr <- readIORef (SB.sbStateManager sym)
   let sc = saw_ctx mgr
       cache = saw_elt_cache mgr
-  enabled <- getConfigValue sawCheckPathSat (getConfiguration sym)
+  enabled <- getMaybeOpt =<< getOptionSetting sawCheckPathSat (getConfiguration sym)
   case enabled of
-    Just (ConcreteBool True) -> do
+    Just True -> do
       t <- evaluateElt sym sc cache p
       let bbPrims = const Map.empty
       BBSim.withBitBlastedPred GIA.proxy sc bbPrims t $ \be lit _shapes -> do

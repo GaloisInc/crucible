@@ -19,7 +19,6 @@ module Lang.Crucible.Solver.SimpleBackend.Z3
        ) where
 
 import           Control.Concurrent
-import           Control.Lens ((&))
 import           Control.Monad.State.Strict
 import           Data.Bits
 import           System.Exit
@@ -50,9 +49,11 @@ z3Path = configOption knownRepr "z3_path"
 
 z3Options :: [ConfigDesc]
 z3Options =
-  [ mkOpt z3Path
-    (executablePathOptSty & set_opt_value (ConcreteString "z3"))
-    (Just (PP.text "Z3 executable path"))
+  [ mkOpt
+      z3Path
+      executablePathOptSty
+      (Just (PP.text "Z3 executable path"))
+      (Just (ConcreteString "z3"))
   ]
 
 z3Adapter :: SolverAdapter st

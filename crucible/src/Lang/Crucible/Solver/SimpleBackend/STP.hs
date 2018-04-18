@@ -16,7 +16,6 @@ module Lang.Crucible.Solver.SimpleBackend.STP
   ) where
 
 import           Control.Concurrent
-import           Control.Lens ((&))
 import           System.Exit
 import qualified System.IO.Streams as Streams
 import           System.Process
@@ -45,14 +44,15 @@ stpRandomSeed :: ConfigOption BaseIntegerType
 stpRandomSeed = configOption knownRepr "stp.random-seed"
 
 intWithRangeOpt :: ConfigOption BaseIntegerType -> Integer -> Integer -> ConfigDesc
-intWithRangeOpt nm lo hi = mkOpt nm sty Nothing
+intWithRangeOpt nm lo hi = mkOpt nm sty Nothing Nothing
   where sty = integerWithRangeOptSty (Inclusive lo) (Inclusive hi)
 
 stpOptions :: [ConfigDesc]
 stpOptions =
   [ mkOpt stpPath 
-          (executablePathOptSty & set_opt_value (ConcreteString "stp"))
+          executablePathOptSty
           (Just (PP.text "Path to STP executable."))
+          (Just (ConcreteString "stp"))
   , intWithRangeOpt stpRandomSeed (negate (2^(30::Int)-1)) (2^(30::Int)-1)
   ]
 

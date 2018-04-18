@@ -67,8 +67,11 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PolyKinds #-}
@@ -91,9 +94,13 @@ module Lang.Crucible.Config
   , optWarn
   , optErr
 
+    -- * Option settings
+  , OptionSetting(..)
+  , Opt(..)
+
     -- * Defining option styles
   , OptionStyle(..)
-  , set_opt_value
+  , set_opt_default
   , set_opt_onset
   , Bound(..)
   , boolOptSty
@@ -107,6 +114,7 @@ module Lang.Crucible.Config
   , integerWithMinOptSty
   , integerWithMaxOptSty
   , enumOptSty
+  , listOptSty
   , executablePathOptSty
 
     -- * Describing configuration options
@@ -116,20 +124,14 @@ module Lang.Crucible.Config
   , optV
   , optU
   , optUV
-  , optList
-  , optListStr
-  , optListShow
 
     -- * Building and manipulating configurations
   , Config
   , initialConfig
   , extendConfig
 
-  , getConfigValue
-  , getConfigValue'
-  , setConfigValue
-  , readConfigValue
-  , writeConfigValue
+  , getOptionSetting
+  , getOptionSettingFromText
 
   , ConfigValue(..)
   , getConfigValues
@@ -143,14 +145,15 @@ module Lang.Crucible.Config
 import           Control.Applicative (Const(..))
 import           Control.Exception
 import           Control.Lens ((&))
-import           Control.Monad.Fail (MonadFail)
 import           Control.Monad.Identity
 import           Control.Monad.IO.Class
 import           Control.Monad.Writer.Strict hiding ((<>))
+import           Data.Maybe
 import           Data.Typeable
 import           Data.Foldable (toList)
 import           Data.IORef
 import           Data.List.NonEmpty (NonEmpty(..))
+import           Data.Parameterized.Some
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.Semigroup (Semigroup(..))
@@ -160,6 +163,7 @@ import           Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Text (Text)
 import qualified Data.Text as Text
+import           Numeric.Natural
 import           System.IO.Error ( ioeGetErrorString )
 
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (<>))
@@ -253,6 +257,15 @@ optErr x = OptionSetResult{ optionSetError = Just x, optionSetWarnings = mempty 
 optWarn :: Doc -> OptionSetResult
 optWarn x = OptionSetResult{ optionSetError = Nothing, optionSetWarnings = Seq.singleton x }
 
+
+data OptionSetting tp =
+  OptionSetting
+  { optionSettingName :: ConfigOption tp
+  , getOption :: IO (Maybe (ConcreteVal tp))
+  , setOption :: ConcreteVal tp -> IO OptionSetResult
+  }
+
+
 -- | An option defines some metadata about how a configuration option behaves.
 --   It contains a base Crucible type representation, which defines the runtime type
 --   that is expected for setting and querying this option at runtime
@@ -281,8 +294,8 @@ data OptionStyle tp =
     --   about this option.  This message should contain information relevant to all options in this
     --   style (e.g., its range of expected values), not necessarily information about a specific option.
 
-  , opt_value :: Maybe (ConcreteVal tp)
-    -- ^ This gives the value for the option
+  , opt_default_value :: Maybe (ConcreteVal tp)
+    -- ^ This gives the default value for the option
   }
 
 defaultOpt :: BaseTypeRepr tp -> OptionStyle tp
@@ -291,7 +304,7 @@ defaultOpt tp =
   { opt_type = tp
   , opt_onset = \_ _ -> return mempty
   , opt_help = empty
-  , opt_value = Nothing
+  , opt_default_value = Nothing
   }
 
 set_opt_onset :: (Maybe (ConcreteVal tp) -> ConcreteVal tp -> IO OptionSetResult)
@@ -304,10 +317,10 @@ set_opt_help :: Doc
              -> OptionStyle tp
 set_opt_help v s = s { opt_help = v }
 
-set_opt_value :: ConcreteVal tp
+set_opt_default :: ConcreteVal tp
               -> OptionStyle tp
               -> OptionStyle tp
-set_opt_value v s = s { opt_value = Just v }
+set_opt_default v s = s { opt_default_value = Just v }
 
 
 -- | An inclusive or exclusive bound.
@@ -417,6 +430,22 @@ enumOptSty elts = stringOptSty & set_opt_onset vf
                             text ", expected one of:" <+>
                             align (sep (map (text . Text.unpack) $ Set.toList elts))
 
+listOptSty
+  :: Map Text (IO OptionSetResult)
+  -> OptionStyle BaseStringType
+listOptSty values =  stringOptSty & set_opt_onset vf
+                                  & set_opt_help help
+  where help = group (text "one of: " <+> align (sep $ map (dquotes . text . Text.unpack . fst) $ Map.toList values))
+        vf :: Maybe (ConcreteVal BaseStringType) -> ConcreteVal BaseStringType -> IO OptionSetResult
+        vf _ (ConcreteString x) =
+         case Map.lookup x values of
+           Just check -> check
+           Nothing -> return $ optErr $
+                            text "invalid setting" <+> text (show x) <+>
+                            text ", expected one of:" <+>
+                            align (sep (map (text . Text.unpack . fst) $ Map.toList values))
+
+
 -- | A configuration style for options that are expected to be paths to an executable
 --   image.  Configuration options with this style generate a warning message if set to a
 --   value that cannot be resolved to an absolute path to an executable file in the
@@ -434,54 +463,41 @@ executablePathOptSty = stringOptSty & set_opt_onset vf
 
 
 data ConfigDesc where
-  NormalConfigDesc :: ConfigOption tp -> OptionStyle tp -> Maybe Doc -> ConfigDesc
-  ListConfigDesc   :: ConfigOption BaseStringType -> ListOption -> ConfigDesc
-
-data ListOption =
-  ListOption
-  { listopt_values :: Map Text (Doc, IO OptionSetResult)
-  , listopt_help   :: Maybe Doc
-  , listopt_value  :: Maybe Text
-  }
-
-checkListOption :: Text -> ListOption -> Text -> IO OptionSetResult
-checkListOption fullname lopt val =
-  case Map.lookup val (listopt_values lopt) of
-    Nothing -> return $ optErr (text ("Unknown value for option " ++ Text.unpack fullname ++ ": " ++ Text.unpack val))
-    Just (_, check) -> check
+  ConfigDesc :: ConfigOption tp -> OptionStyle tp -> Maybe Doc -> ConfigDesc
 
 -- | The most general method for construcing a normal `ConfigDesc`.
 mkOpt :: ConfigOption tp     -- ^ Fixes the name and the type of this option
       -> OptionStyle tp      -- ^ Define the style of this option
       -> Maybe Doc           -- ^ Help text
+      -> Maybe (ConcreteVal tp)
       -> ConfigDesc
-mkOpt = NormalConfigDesc
+mkOpt o sty h def = ConfigDesc o sty{ opt_default_value = def } h
 
 -- | Construct an option using a default style with a given initial value
 opt :: Pretty help
     => ConfigOption tp      -- ^ Fixes the name and the type of this option
-    -> ConcreteVal tp       -- ^ Initial value for the option
+    -> ConcreteVal tp       -- ^ Default value for the option
     -> help                 -- ^ An informational message describing this option
     -> ConfigDesc
-opt o a help = mkOpt o (defaultOpt (configOptionType o)
-                           & set_opt_value a)
+opt o a help = mkOpt o (defaultOpt (configOptionType o))
                        (Just (pretty help))
+                       (Just a)
 
 -- | Construct an option using a default style with a given initial value.
 --   Also provide a validation function to check new values as they are set.
 optV :: forall tp help
       . Pretty help
      => ConfigOption tp      -- ^ Fixes the name and the type of this option
-     -> ConcreteVal tp       -- ^ Initial value for the option
+     -> ConcreteVal tp       -- ^ Default value for the option
      -> (ConcreteVal tp -> Maybe help)
          -- ^ Validation function.  Return `Just err` if the value to set
          --   is not valid.
      -> help                -- ^ An informational message describing this option
      -> ConfigDesc
 optV o a vf h = mkOpt o (defaultOpt (configOptionType o)
-                           & set_opt_onset onset
-                           & set_opt_value a)
+                           & set_opt_onset onset)
                         (Just (pretty h))
+                        (Just a)
 
    where onset :: Maybe (ConcreteVal tp) -> ConcreteVal tp -> IO OptionSetResult
          onset _ x = case vf x of
@@ -493,7 +509,7 @@ optU :: Pretty help
      => ConfigOption tp    -- ^ Fixes the name and the type of this option
      -> help               -- ^ An informational message describing this option
      -> ConfigDesc
-optU o h = mkOpt o (defaultOpt (configOptionType o)) (Just (pretty h))
+optU o h = mkOpt o (defaultOpt (configOptionType o)) (Just (pretty h)) Nothing
 
 -- | Construct an option using a default style with no initial value.
 --   Also provide a validation function to check new values as they are set.
@@ -506,52 +522,17 @@ optUV :: forall help tp.
 optUV o vf h = mkOpt o (defaultOpt (configOptionType o)
                             & set_opt_onset onset)
                        (Just (pretty h))
+                       Nothing
    where onset :: Maybe (ConcreteVal tp) -> ConcreteVal tp -> IO OptionSetResult
          onset _ x = case vf x of
                        Nothing -> return optOK
                        Just z  -> return $ optErr $ pretty z
 
--- | Construct a list configuration option.
-optList :: Pretty help
-        => ConfigOption BaseStringType -- ^ Fixes the name and the type of this option
-        -> Map Text (help, IO OptionSetResult)
-                             -- ^ Define the names and help descriptions, and an action to
-                             --    run when the option is selected
-        -> Maybe help        -- ^ An informational message describing this option
-        -> Maybe Text        -- ^ Initial value for the option
-        -> ConfigDesc
-optList lopt vs0 h0 val = ListConfigDesc lopt (ListOption (fmap pp vs0) (fmap pretty h0) val)
- where
- pp (d,v) = (pretty d, v)
-
--- | Construct a list configuration option from a list of values.
---   The `Show` instance will be used to construct the strings by which
---   the values will be selected.  No help string will be associated to
---   each individual setting.
-optListShow :: (Show a, Pretty help)
-            => ConfigOption BaseStringType -- ^ Fixes the name and the type of this option
-            -> [a]               -- ^ List of possible settings for this option
-            -> help              -- ^ An informational message describing this option
-            -> ConfigDesc
-optListShow o xs h =
-  optList o (Map.fromList (map (\x -> (Text.pack (show x), (empty, return mempty))) xs)) (Just (pretty h)) Nothing
-
-
--- | Construct a list configuration option from a list of strings.
-optListStr :: Pretty help
-           => ConfigOption BaseStringType -- ^ Fixes the name and the type of this option
-           -> [String]             -- ^ List of possible settings for this option
-           -> help                 -- ^ An informational message describing this option
-           -> ConfigDesc
-optListStr o xs h =
-  optList o (Map.fromList (map (\x -> (Text.pack x, (empty, return mempty))) xs)) (Just (pretty h)) Nothing
-
 ------------------------------------------------------------------------
 -- ConfigState
 
 data ConfigLeaf where
-  NormalLeaf :: !(OptionStyle tp) -> Maybe Doc -> ConfigLeaf
-  ListLeaf   :: !(ListOption) -> ConfigLeaf
+  ConfigLeaf :: !(OptionStyle tp) -> IORef (Maybe (ConcreteVal tp)) -> Maybe Doc -> ConfigLeaf
 
 data ConfigTrie where
   ConfigTrie ::
@@ -566,7 +547,7 @@ freshLeaf [] l     = ConfigTrie (Just l) mempty
 freshLeaf (a:as) l = ConfigTrie Nothing (Map.singleton a (freshLeaf as l))
 
 adjustConfigTrie :: Functor t => [Text] -> (Maybe ConfigLeaf -> t (Maybe ConfigLeaf)) -> Maybe (ConfigTrie) -> t (Maybe ConfigTrie)
-adjustConfigTrie     as f Nothing                   = fmap (freshLeaf as) <$> f Nothing
+adjustConfigTrie     as f Nothing                 = fmap (freshLeaf as) <$> f Nothing
 adjustConfigTrie (a:as) f (Just (ConfigTrie x m)) = Just . ConfigTrie x <$> adjustConfigMap a as f m
 adjustConfigTrie     [] f (Just (ConfigTrie x m)) = g <$> f x
   where g Nothing | Map.null m = Nothing
@@ -590,44 +571,16 @@ traverseSubtree ps0 f = go ps0 []
      where g (ConfigTrie x m) = ConfigTrie x <$> go ps (p:revPath) m
 
 
-mergeLeaf :: MonadFail m => [Text] -> ConfigLeaf -> ConfigLeaf -> m ConfigLeaf
-mergeLeaf path = merge
+insertOption :: MonadIO m => ConfigDesc -> ConfigMap -> m ConfigMap
+insertOption (ConfigDesc (ConfigOption _tp (p:|ps)) sty h) m = adjustConfigMap p ps f m
   where
-  showPath = Text.unpack (Text.intercalate "." path)
+  f Nothing  =
+       do ref <- liftIO (newIORef (opt_default_value sty))
+          return (Just (ConfigLeaf sty ref h))
+  f (Just _) = fail ("Option " ++ showPath ++ " already exists")
 
-  merge (ListLeaf x) (ListLeaf y) = ListLeaf <$> mergeListOption x y
-  merge _ _ = fail ("Option " ++ showPath ++ " already exists")
+  showPath = Text.unpack (Text.intercalate "." (p:ps))
 
-  mergeListOption xs ys
-   | Set.null xykeys = return $
-        ListOption
-        { listopt_help = listopt_help xs <> listopt_help ys
-        , listopt_values = Map.union (listopt_values xs) (listopt_values ys)
-        , listopt_value = listopt_value xs <> listopt_value ys
-        }
-
-   | otherwise =
-       fail ("List options overlap in " ++ showPath ++ ":\n" ++
-                (Text.unpack (Text.intercalate ", " (Set.toList xykeys))))
-
-    where
-    xykeys = Set.intersection xkeys ykeys
-    xkeys = Map.keysSet (listopt_values xs)
-    ykeys = Map.keysSet (listopt_values ys)
-
-
-insertOption :: MonadFail m => ConfigDesc -> ConfigMap -> m ConfigMap
-insertOption desc = adjustConfigMap p ps f
-  where
-  ((p:|ps),leaf) = case desc of
-                       NormalConfigDesc (ConfigOption _ d) x h -> (d, NormalLeaf x h)
-                       ListConfigDesc   (ConfigOption _ d) x   -> (d, ListLeaf x)
-
-  f Nothing  = return (Just leaf)
-  f (Just x) = Just <$> mergeLeaf (p:ps) x leaf
-
---deleteOption :: ConfigOption tp -> ConfigMap -> ConfigMap
---deleteOption (ConfigOption _ (p:|ps)) = runIdentity . adjustConfigMap p ps (\_ -> return Nothing)
 
 ------------------------------------------------------------------------
 -- Config
@@ -670,143 +623,86 @@ builtInOpts initialVerbosity =
         (text "Verbosity of the simulator: higher values produce more detailed informational and debugging output.")
   ]
 
--- | Given the bare text name of a configuration option,
---   set its value.  This operation is intended to be used
---   to implement operations that access configuration options
---   from inside the Crucible simulator.
---
---   The returned @Doc@ values represent any warnings generated
---   while setting the configuration option.
-writeConfigValue
-        :: MonadIO m
-        => Text            -- ^ The name of the option to set
-        -> Config          -- ^ The configuration object to modify
-        -> (forall tp. BaseTypeRepr tp -> m (ConcreteVal tp))
-           -- ^ An operation to produce the new value for the option.
-           --   This operation will be given the run-time type representative
-           --   for the expected crucible type of the option.
-        -> m [Doc]
-writeConfigValue fullName (Config cfg) produceNewVal =
-  case splitPath fullName of
-    Nothing -> fail "writeConfigValue: empty config option"
-    Just (x:|xs) ->
-      do m <- liftIO (readIORef cfg)
-         (m',res) <- runWriterT (adjustConfigMap x xs f m)
-         case optionSetError res of
-           Just msg -> fail (show msg)
-           Nothing  ->
-             do liftIO (writeIORef cfg m')
-                return (toList (optionSetWarnings res))
+class Opt tp a | tp -> a where
+  getMaybeOpt:: OptionSetting tp -> IO (Maybe a)
+  trySetOpt :: OptionSetting tp -> a -> IO OptionSetResult
+
+  setOpt :: OptionSetting tp -> a -> IO [Doc]
+  setOpt x v = trySetOpt x v >>= checkOptSetResult
+
+  getOpt :: OptionSetting tp -> IO a
+  getOpt x = maybe (fail msg) return =<< getMaybeOpt x
+    where msg = "Option is not set: " ++ show (optionSettingName x)
+
+checkOptSetResult :: OptionSetResult -> IO [Doc]
+checkOptSetResult res =
+  case optionSetError res of
+    Just msg -> fail (show msg)
+    Nothing -> return (toList (optionSetWarnings res))
+
+instance Opt BaseStringType Text where
+  getMaybeOpt x = fmap fromConcreteString <$> getOption x
+  trySetOpt x v = setOption x (ConcreteString v)
+
+instance Opt BaseNatType Natural where
+  getMaybeOpt x = fmap fromConcreteNat <$> getOption x
+  trySetOpt x v = setOption x (ConcreteNat v)
+
+instance Opt BaseIntegerType Integer where
+  getMaybeOpt x = fmap fromConcreteInteger <$> getOption x
+  trySetOpt x v = setOption x (ConcreteInteger v)
+
+instance Opt BaseBoolType Bool where
+  getMaybeOpt x = fmap fromConcreteBool <$> getOption x
+  trySetOpt x v = setOption x (ConcreteBool v)
+
+getOptionSetting ::
+  ConfigOption tp ->
+  Config ->
+  IO (OptionSetting tp)
+getOptionSetting o@(ConfigOption tp (p:|ps)) (Config cfg) =
+  getConst . adjustConfigMap p ps f =<< readIORef cfg
  where
- f Nothing =
-     do tell (optErr (text ("Unknown option: " ++ (Text.unpack fullName))))
-        return Nothing
- f (Just (NormalLeaf lopt h)) =
-     do val <- lift (produceNewVal (opt_type lopt))
-        tell =<< liftIO (opt_onset lopt (opt_value lopt) val)
-        return (Just (NormalLeaf lopt{ opt_value = Just val } h))
- f (Just (ListLeaf lopt)) =
-     do ConcreteString val <- lift (produceNewVal BaseStringRepr)
-        tell =<< liftIO (checkListOption fullName lopt val)
-        return (Just (ListLeaf lopt{ listopt_value = Just val }))
+  f Nothing  = Const (fail $ "Option not found: " ++ show o)
+  f (Just x) = Const (leafToSetting x)
 
--- | Given the bare text name of a configuration option, read its current value.
---   This operation is intended to be used
---   to implement operations that access configuration options
---   from inside the Crucible simulator.  This operation will fall the `fail`
---   method of monad `m` if the specified option does not have a current value.
-readConfigValue
-        :: forall m a
-         . MonadIO m
-        => Text            -- ^ The name of the option to set
-        -> Config          -- ^ The configuration object to modify
-        -> (forall tp. Maybe (ConcreteVal tp) -> m a)
-                           -- ^ A continuation to run.  The continuation
-                           --   is given the run-time type representative of the
-                           --   Crucible type of this option, and its current value.
-        -> m a
-readConfigValue fullName (Config cfg) k = do
-  case splitPath fullName of
-    Nothing ->
-         fail "readConfigValue: empty config option"
-    Just (x:|xs) ->
-      do m <- liftIO (readIORef cfg)
-         getConst (adjustConfigMap x xs f m)
+  leafToSetting (ConfigLeaf sty ref _h)
+    | Just Refl <- testEquality (opt_type sty) tp = return $
+      OptionSetting
+      { optionSettingName = o
+      , getOption  = readIORef ref
+      , setOption = \v ->
+          do old <- readIORef ref
+             res <- opt_onset sty old v
+             unless (isJust (optionSetError res)) (writeIORef ref (Just v))
+             return res
+      }
+    | otherwise = fail ("Type mismatch retriving option " ++ show o ++
+                         "\nExpected: " ++ show tp ++ " but found " ++ show (opt_type sty))
 
- where
- f Nothing = Const (fail ("Unknown option: " ++ (Text.unpack fullName)))
- f (Just (NormalLeaf lopt _)) = Const (k (opt_value lopt))
- f (Just (ListLeaf lopt))     = Const (k (fmap ConcreteString (listopt_value lopt)))
+getOptionSettingFromText ::
+  Text ->
+  Config ->
+  IO (Some OptionSetting)
+getOptionSettingFromText nm (Config cfg) =
+   case splitPath nm of
+     Nothing -> fail "Illegal empty name for option"
+     Just (p:|ps) -> getConst . adjustConfigMap p ps (f (p:|ps)) =<< readIORef cfg
+  where
+  f (p:|ps) Nothing  = Const (fail $ "Option not found: " ++ (Text.unpack (Text.intercalate "." (p:ps))))
+  f path (Just x) = Const (leafToSetting path x)
 
+  leafToSetting path (ConfigLeaf sty ref _h) = return $
+    Some OptionSetting
+         { optionSettingName = ConfigOption (opt_type sty) path
+         , getOption = readIORef ref
+         , setOption = \v ->
+             do old <- readIORef ref
+                res <- opt_onset sty old v
+                unless (isJust (optionSetError res)) (writeIORef ref (Just v))
+                return res
+         }
 
--- | Read the current value of a configuration option.
-getConfigValue' :: ConfigOption tp
-                -> Config
-                -> IO (ConcreteVal tp)
-getConfigValue' o cfg =
-  do v <- getConfigValue o cfg
-     case v of
-       Nothing -> fail ("Option " ++ show o ++ " is not set")
-       Just x  -> return x
-
--- | Read the current value of a configuration option.
-getConfigValue :: ConfigOption tp
-               -> Config
-               -> IO (Maybe (ConcreteVal tp))
-getConfigValue o@(ConfigOption tp (x:|xs)) (Config cfg) =
-  do m <- liftIO (readIORef cfg)
-     getConst (adjustConfigMap x xs f m)
- where
- f Nothing = Const (fail ("Unknown option: " ++ show o))
- f (Just (NormalLeaf lopt _h)) =
-     case testEquality tp (opt_type lopt) of
-       Nothing   -> Const (fail ("getConfigValue: type mismatch in option " ++ show o ++
-                                 "\nExpected " ++ show tp ++ " but found " ++ show (opt_type lopt)))
-       Just Refl -> Const (return (opt_value lopt))
- f (Just (ListLeaf lopt)) =
-     case testEquality tp BaseStringRepr of
-       Nothing   -> Const (fail ("getConfigValue: type mismatch in option " ++ show o ++
-                                 "\nExpected " ++ show tp ++ " but found string."))
-       Just Refl -> Const (return (fmap ConcreteString (listopt_value lopt)))
-
-
--- | Set the value of a configuration option.
-setConfigValue :: ConfigOption tp
-               -> Config
-               -> ConcreteVal tp
-               -> IO [Doc]
-setConfigValue o@(ConfigOption tp (x:|xs)) (Config cfg) newval =
-  do m <- liftIO (readIORef cfg)
-     (m',res) <- runWriterT (adjustConfigMap x xs f m)
-     case optionSetError res of
-       Just msg -> fail (show msg)
-       Nothing  ->
-         do liftIO (writeIORef cfg m')
-            return (toList (optionSetWarnings res))
- where
- f Nothing =
-     do tell (optErr (text ("Unknown option: " ++ show o)))
-        return Nothing
-
- f (Just (NormalLeaf lopt h)) =
-     case testEquality tp (opt_type lopt) of
-       Nothing   ->
-         do tell (optErr (text ("setConfigValue: type mismatch in option " ++ show o ++
-                            "\nExpected " ++ show tp ++ " but found " ++ show (opt_type lopt))))
-            return (Just (NormalLeaf lopt h))
-       Just Refl ->
-         do tell =<< liftIO (opt_onset lopt (opt_value lopt) newval)
-            return (Just (NormalLeaf lopt{ opt_value = Just newval } h))
-
- f (Just (ListLeaf lopt)) =
-     case newval of
-       ConcreteString newstr ->
-         do tell =<< liftIO (checkListOption (configOptionText o) lopt newstr)
-            return (Just (ListLeaf lopt{ listopt_value = Just newstr }))
-       _ ->
-         do tell (optErr (text ("setConfigValue: type mismatch in option " ++ show o ++
-                                "\nExpected " ++ show tp ++ " but found string value.")))
-            return (Just (ListLeaf lopt))
 
 data ConfigValue where
   ConfigValue :: ConfigOption tp -> ConcreteVal tp -> ConfigValue
@@ -815,42 +711,34 @@ getConfigValues :: Text -> Config -> IO [ConfigValue]
 getConfigValues prefix (Config cfg) =
   do m <- readIORef cfg
      let ps = Text.splitOn "." prefix
-         f (p:path) (NormalLeaf lopt _) =
-            case opt_value lopt of
-              Nothing -> mempty
-              Just x  -> Const (Seq.singleton (ConfigValue (ConfigOption (opt_type lopt) (p:|path)) x))
-         f (p:path) (ListLeaf lopt) =
-            case listopt_value lopt of
-              Nothing -> mempty
-              Just x  -> Const (Seq.singleton (ConfigValue (ConfigOption BaseStringRepr (p:|path)) (ConcreteString x)))
-     return $! toList (getConst (traverseSubtree ps f m))
+         f :: [Text] -> ConfigLeaf -> WriterT (Seq ConfigValue) IO ConfigLeaf
+         f [] _ = fail $ "getConfigValues: illegal empty option name"
+         f (p:path) l@(ConfigLeaf sty ref _h) =
+            do liftIO (readIORef ref) >>= \case
+                 Just x  -> tell (Seq.singleton (ConfigValue (ConfigOption (opt_type sty) (p:|path)) x))
+                 Nothing -> return ()
+               return l
+     toList <$> execWriterT (traverseSubtree ps f m)
 
 ppSetting :: [Text] -> Maybe (ConcreteVal tp) -> Doc
 ppSetting nm v = fill 30 (text (Text.unpack (Text.intercalate "." nm))
                            <> maybe empty (\x -> text " = " <> ppConcrete x) v
                          )
+ppOption :: [Text] -> OptionStyle tp -> Maybe (ConcreteVal tp) -> Maybe Doc -> Doc
+ppOption nm sty x help =
+   group (ppSetting nm x <//> indent 2 (opt_help sty)) <$$> maybe empty (indent 2) help
 
-ppOption :: [Text] -> OptionStyle tp -> Maybe Doc -> Doc
-ppOption nm lopt help =
-   group (ppSetting nm (opt_value lopt) <//> indent 2 (opt_help lopt)) <$$> maybe empty (indent 2) help
-
-ppListOption :: [Text] -> ListOption -> Doc
-ppListOption nm lopt =
-   group (ppSetting nm (fmap ConcreteString (listopt_value lopt)) </> maybe empty (indent 2) (listopt_help lopt))
-     <$$> indent 4 (sep (map listhelp (Map.toList (listopt_values lopt))))
-
- where
- listhelp (x, (help,_)) = text (Text.unpack x) <//> indent 4 help
-
-ppConfigLeaf :: [Text] -> ConfigLeaf -> Doc
-ppConfigLeaf nm (NormalLeaf lopt help) = ppOption nm lopt help
-ppConfigLeaf nm (ListLeaf lopt) = ppListOption nm lopt
+ppConfigLeaf :: [Text] -> ConfigLeaf -> IO Doc
+ppConfigLeaf nm (ConfigLeaf sty ref help) =
+  do x <- readIORef ref
+     return $ ppOption nm sty x help
 
 configHelp :: Text -> Config -> IO [Doc]
 configHelp prefix (Config cfg) =
   do m <- readIORef cfg
      let ps = Text.splitOn "." prefix
-         f :: [Text] -> ConfigLeaf -> Const (Seq Doc) ConfigLeaf
-         f nm leaf = Const (Seq.singleton (ppConfigLeaf nm leaf))
-         docs = getConst (traverseSubtree ps f m)
-     return $! toList docs
+         f :: [Text] -> ConfigLeaf -> WriterT (Seq Doc) IO ConfigLeaf
+         f nm leaf = do d <- liftIO (ppConfigLeaf nm leaf)
+                        tell (Seq.singleton d)
+                        return leaf
+     toList <$> (execWriterT (traverseSubtree ps f m))

@@ -25,7 +25,6 @@ module Lang.Crucible.Solver.SimpleBackend.DReal
 
 import           Control.Concurrent
 import           Control.Exception
-import           Control.Lens ((&))
 import           Control.Monad
 import           Data.Attoparsec.ByteString.Char8 hiding (try)
 import qualified Data.ByteString as BS
@@ -70,9 +69,11 @@ drealPath = configOption knownRepr "dreal_path"
 
 drealOptions :: [ConfigDesc]
 drealOptions =
-  [ mkOpt drealPath 
-    (executablePathOptSty & set_opt_value (ConcreteString "dreal"))
-    (Just (PP.text "Path to dReal executable"))
+  [ mkOpt
+      drealPath 
+      executablePathOptSty
+      (Just (PP.text "Path to dReal executable"))
+      (Just (ConcreteString "dreal"))
   ]
 
 drealAdapter :: SolverAdapter st

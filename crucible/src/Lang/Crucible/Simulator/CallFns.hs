@@ -58,7 +58,6 @@ import           Lang.Crucible.Simulator.Frame
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.Utils.MonadST
@@ -167,12 +166,11 @@ evalLogFn :: CrucibleState p sym ext rtp blocks r ctx
 evalLogFn s n msg = do
   let h = printHandle (s^.stateContext)
   let cfg = stateGetConfiguration s
-  verb <- getConfigValue verbosity cfg
+  verb <- getMaybeOpt =<< getOptionSetting verbosity cfg
   case verb of
-    Just (ConcreteInteger v) ->
-      when (v >= toInteger n) $ do
-        hPutStr h msg
-        hFlush h
+    Just v | v >= toInteger n -> 
+      do hPutStr h msg
+         hFlush h
     _ -> return ()
 
 -- | Evaluate an expression.
@@ -510,8 +508,8 @@ loopCrucible :: IsSyntaxExtension ext
 loopCrucible s = stateSolverProof s $ do
   s_ref <- newIORef (SomeState s)
   let cfg = stateGetConfiguration s
-  verb <- maybe 0 (fromInteger . fromConcreteInteger) <$> getConfigValue verbosity cfg
-  next <- catches (loopCrucible' s_ref verb)
+  verb <- getOpt =<< getOptionSetting verbosity cfg
+  next <- catches (loopCrucible' s_ref (fromInteger verb))
      [ Handler $ \(e::IOException) -> do
           SomeState s' <- readIORef s_ref
           if isUserError e then

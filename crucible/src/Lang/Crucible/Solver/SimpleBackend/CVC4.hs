@@ -16,7 +16,6 @@ module Lang.Crucible.Solver.SimpleBackend.CVC4
   ) where
 
 import           Control.Concurrent
-import           Control.Lens ((&))
 import           Control.Monad (void)
 import           Data.String
 import           System.Exit
@@ -41,7 +40,7 @@ import           Lang.Crucible.Utils.Streams
 
 
 intWithRangeOpt :: ConfigOption BaseIntegerType -> Integer -> Integer -> ConfigDesc
-intWithRangeOpt nm lo hi = mkOpt nm sty Nothing
+intWithRangeOpt nm lo hi = mkOpt nm sty Nothing Nothing
   where sty = integerWithRangeOptSty (Inclusive lo) (Inclusive hi)
 
 data CVC4 = CVC4
@@ -56,8 +55,9 @@ cvc4RandomSeed = configOption knownRepr "cvc4.random-seed"
 cvc4Options :: [ConfigDesc]
 cvc4Options =
   [ mkOpt cvc4Path
-          (executablePathOptSty & set_opt_value (ConcreteString "cvc4"))
+          executablePathOptSty
           (Just (PP.text "Path to CVC4 executable"))
+          (Just (ConcreteString "cvc4"))
   , intWithRangeOpt cvc4RandomSeed (negate (2^(30::Int)-1)) (2^(30::Int)-1)
   ]
 

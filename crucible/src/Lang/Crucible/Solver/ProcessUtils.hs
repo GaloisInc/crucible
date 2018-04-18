@@ -28,7 +28,6 @@ import           System.Process
 import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
 import qualified Lang.Crucible.Simulator.Utils.Environment as Env
-import           Lang.Crucible.Solver.Concrete
 
 -- | Utility function that runs a solver specified by the given
 -- config setting within a context.  Errors can then be attributed
@@ -40,7 +39,7 @@ resolveSolverPath path = do
 
 findSolverPath :: ConfigOption BaseStringType -> Config -> IO FilePath
 findSolverPath o cfg =
-  do v <- fromConcreteString <$> getConfigValue' o cfg
+  do v <- getOpt =<< getOptionSetting o cfg
      resolveSolverPath (T.unpack v)
 
 -- | This runs a given external binary, providing the process handle and handles to

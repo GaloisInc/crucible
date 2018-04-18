@@ -19,7 +19,6 @@ module Lang.Crucible.Solver.SimpleBackend.Boolector
   ) where
 
 import           Control.Concurrent
-import           Control.Lens ((&))
 import           Control.Monad
 import qualified Data.ByteString.UTF8 as UTF8
 import           Data.Map (Map)
@@ -56,9 +55,11 @@ boolectorPath = configOption knownRepr "boolector_path"
 
 boolectorOptions :: [ConfigDesc]
 boolectorOptions =
-  [ mkOpt boolectorPath
-      (executablePathOptSty & set_opt_value (ConcreteString "boolector"))
+  [ mkOpt
+      boolectorPath
+      executablePathOptSty
       (Just (PP.text "Path to boolector executable"))
+      (Just (ConcreteString "boolector"))
   ]
 
 boolectorAdapter :: SolverAdapter st

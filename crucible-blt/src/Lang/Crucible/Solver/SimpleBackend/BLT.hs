@@ -121,7 +121,7 @@ runBLTInOverride :: Config
                  -> (SatResult (GroundEvalFn t) -> IO a)
                  -> IO a
 runBLTInOverride cfg p contFn = do
-  epar <- parseBLTParams . T.unpack . fromConcreteString <$> getConfigValue' bltParams cfg
+  epar <- parseBLTParams . T.unpack <$> (getOpt =<< getOptionSetting bltParams cfg)
   par  <- either fail return epar
   withHandle par $ \h -> do
     assume h p

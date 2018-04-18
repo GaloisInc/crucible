@@ -126,7 +126,6 @@ import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
 
@@ -259,7 +258,7 @@ abortTree :: SimError -> SimState p sym ext rtp f args -> IO (ExecResult p sym e
 abortTree e s = do
   let t = s^.stateTree
   let cfg = stateGetConfiguration s
-  v <- maybe 0 fromConcreteInteger <$> getConfigValue verbosity cfg
+  v <- getOpt =<< getOptionSetting verbosity cfg
   when (v > 0) $ do
     let frames = activeFrames t
     let msg = ppSimError e PP.<$$> PP.indent 2 (ppExceptionContext frames)

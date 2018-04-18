@@ -21,6 +21,7 @@ Solver interfaces built from 'SimpleBuilder' include the
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -49,6 +50,13 @@ module Lang.Crucible.Solver.SimpleBuilder
   , sbCacheStartSize
   , sbBVDomainRangeLimit
   , sbStateManager
+
+    -- ** configuration options
+  , unaryThresholdOption
+  , bvdomainRangeLimitOption
+  , cacheStartSizeOption
+  , cacheTerms
+
     -- * IsSimpleBuilderState
   , IsSimpleBuilderState(..)
     -- * Elt
@@ -170,6 +178,7 @@ import qualified Lang.Crucible.Config as CFG
 import           Lang.Crucible.MATLAB.Intrinsics.Solver
 import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Symbol
 import           Lang.Crucible.Solver.WeightedSum (SemiRing, SemiRingRepr(..), WeightedSum, semiRingBase)
@@ -1088,11 +1097,11 @@ data SimpleBuilder t (st :: * -> *)
         , sbFloatReduce :: !Bool
           -- | The maximum number of distinct values a term may have and use the
           -- unary representation.
-        , _sbUnaryThreshold :: !Int
+        , sbUnaryThreshold :: !(CFG.OptionSetting BaseIntegerType)
           -- | The maximum number of distinct ranges in a BVDomain expression.
-        , _sbBVDomainRangeLimit :: !Int
+        , sbBVDomainRangeLimit :: !(CFG.OptionSetting BaseIntegerType)
           -- | The starting size when building a new cache
-        , _sbCacheStartSize :: !Int
+        , sbCacheStartSize :: !(CFG.OptionSetting BaseIntegerType)
           -- | Counter to generate new unique identifiers for elements and functions.
         , eltCounter :: !(NonceGenerator IO t)
           -- | Reference to current allocator for expressions.
@@ -1168,21 +1177,11 @@ type instance SymPathState (SimpleBuilder t st) = SimpleBuilderPathState (st t)
 type instance SymExpr (SimpleBuilder t st) = Elt t
 type instance BoundVar (SimpleBuilder t st) = SimpleBoundVar t
 
--- | The maximum number of distinct values a term may have and use the
--- unary representation.
-sbUnaryThreshold :: Simple Lens (SimpleBuilder t st) Int
-sbUnaryThreshold = lens _sbUnaryThreshold (\s v -> s { _sbUnaryThreshold = v })
+sbBVDomainParams :: SimpleBuilder t st -> IO (BVD.BVDomainParams)
+sbBVDomainParams sym =
+  do rl <- CFG.getOpt (sbBVDomainRangeLimit sym)
+     return BVD.DP { BVD.rangeLimit = fromInteger rl }
 
-sbCacheStartSize :: Simple Lens (SimpleBuilder t st) Int
-sbCacheStartSize = lens _sbCacheStartSize (\s v -> s { _sbCacheStartSize = v })
-
--- | The maximum number of distinct ranges in a BVDomain expression.
-sbBVDomainRangeLimit :: Simple Lens (SimpleBuilder t st) Int
-sbBVDomainRangeLimit = lens _sbBVDomainRangeLimit (\s v -> s { _sbBVDomainRangeLimit = v })
-
-sbBVDomainParams :: SimpleBuilder t st -> BVD.BVDomainParams
-sbBVDomainParams sym = BVD.DP { BVD.rangeLimit = sym^.sbBVDomainRangeLimit
-                              }
 
 -- Dummy declaration splice to bring App into template haskell scope.
 $(return [])
@@ -2061,12 +2060,11 @@ quantAbsEval _ f q =
     ArrayTrueOnEntries _ a -> f a
     FnApp g _           -> unconstrainedAbsValue (symFnReturnType g)
 
-abstractEval :: SimpleBuilder t st
+abstractEval :: BVD.BVDomainParams
              -> (forall u . Elt t u -> AbstractValue u)
              -> App (Elt t) tp
              -> AbstractValue tp
-abstractEval sym f a0 = do
-  let bvParams = sbBVDomainParams sym
+abstractEval bvParams f a0 = do
   case a0 of
 
     ------------------------------------------------------------------------
@@ -2374,8 +2372,9 @@ semiRingLit sb sr x = do
 sbMakeElt :: SimpleBuilder t st -> App (Elt t) tp -> IO (Elt t tp)
 sbMakeElt sym a = do
   s <- readIORef (curAllocator sym)
-  let v = abstractEval sym eltAbsValue a
+  params <- sbBVDomainParams sym
   pc <- curProgramLoc sym
+  let v = abstractEval params eltAbsValue a
   case appType a of
     -- Check if abstract interpretation concludes this is a constant.
     BaseBoolRepr | Just b <- v -> return $ backendPred sym b
@@ -2422,8 +2421,96 @@ sbFreshIndex sb = freshNonce (eltCounter sb)
 sbFreshSymFnNonce :: SimpleBuilder t st -> IO (Nonce t (ctx:: Ctx BaseType))
 sbFreshSymFnNonce sb = freshNonce (eltCounter sb)
 
-sbConfigOptions :: [CFG.ConfigDesc]
-sbConfigOptions = [] -- FIXME? move unary thhreshold, BVDomainRangeLimit, etc in here
+------------------------------------------------------------------------
+-- Configuration option for controlling the maximum number of value a unary
+-- threshold may have.
+
+-- | Maximum number of values in unary bitvector encoding.
+--
+--   This option is named \"backend.unary_threshold\"
+unaryThresholdOption :: CFG.ConfigOption BaseIntegerType
+unaryThresholdOption = CFG.configOption BaseIntegerRepr "backend.unary_threshold"
+
+-- | The configuration option for setting the maximum number of
+-- values a unary threshold may have.
+unaryThresholdDesc :: CFG.ConfigDesc
+unaryThresholdDesc = CFG.mkOpt unaryThresholdOption sty help (Just (ConcreteInteger 0))
+  where sty = CFG.integerWithMinOptSty (CFG.Inclusive 0)
+        help = Just (text "Maximum number of values in unary bitvector encoding.")
+
+------------------------------------------------------------------------
+-- Configuration option for controlling how many disjoint ranges
+-- should be allowed in bitvector domains.
+
+-- | Maximum number of ranges in bitvector abstract domains.
+--
+--   This option is named \"backend.bvdomain_range_limit\"
+bvdomainRangeLimitOption :: CFG.ConfigOption BaseIntegerType
+bvdomainRangeLimitOption = CFG.configOption BaseIntegerRepr "backend.bvdomain_range_limit"
+
+bvdomainRangeLimitDesc :: CFG.ConfigDesc
+bvdomainRangeLimitDesc = CFG.mkOpt bvdomainRangeLimitOption sty help (Just (ConcreteInteger 2))
+  where sty = CFG.integerWithMinOptSty (CFG.Inclusive 0)
+        help = Just (text "Maximum number of ranges in bitvector domains.")
+
+------------------------------------------------------------------------
+-- Cache start size
+
+-- | Starting size for element cache when caching is enabled.
+--
+--   This option is named \"backend.cache_start_size\"
+cacheStartSizeOption :: CFG.ConfigOption BaseIntegerType
+cacheStartSizeOption = CFG.configOption BaseIntegerRepr "backend.cache_start_size"
+
+-- | The configuration option for setting the size of the initial hash set
+-- used by simple builder
+cacheStartSizeDesc :: CFG.ConfigDesc
+cacheStartSizeDesc = CFG.mkOpt cacheStartSizeOption sty help (Just (ConcreteInteger 100000))
+  where sty = CFG.integerWithMinOptSty (CFG.Inclusive 0)
+        help = Just (text "Starting size for element cache")
+
+------------------------------------------------------------------------
+-- Cache terms
+
+-- | Indicates if we should cache terms.  When enabled, hash-consing
+--   is used to find and deduplicate common subexpressions.
+--
+--   This option is named \"use_cache\"
+cacheTerms :: CFG.ConfigOption BaseBoolType
+cacheTerms = CFG.configOption BaseBoolRepr "use_cache"
+
+cacheOptStyle ::
+  NonceGenerator IO t ->
+  IORef (EltAllocator t) ->
+  CFG.OptionSetting BaseIntegerType ->
+  CFG.OptionStyle BaseBoolType
+cacheOptStyle gen storageRef szSetting =
+  CFG.boolOptSty & CFG.set_opt_onset
+        (\mb b -> f (fmap fromConcreteBool mb) (fromConcreteBool b) >> return CFG.optOK)
+ where
+ f :: Maybe Bool -> Bool -> IO ()
+ f mb b | mb /= Just b = if b then start else stop
+        | otherwise = return ()
+
+ stop  = do s <- newStorage gen
+            writeIORef storageRef s
+
+ start = do sz <- CFG.getOpt szSetting
+            s <- newCachedStorage gen (fromInteger sz)
+            writeIORef storageRef s
+
+cacheOptDesc ::
+  NonceGenerator IO t ->
+  IORef (EltAllocator t) ->
+  CFG.OptionSetting BaseIntegerType ->
+  CFG.ConfigDesc
+cacheOptDesc gen storageRef szSetting =
+  CFG.mkOpt
+    cacheTerms
+    (cacheOptStyle gen storageRef szSetting)
+    (Just (text "Use hash-consing during term construction"))
+    (Just (ConcreteBool False))
+
 
 newSimpleBuilder :: IsSimpleBuilderState st
                  => st t
@@ -2439,19 +2526,31 @@ newSimpleBuilder st gen = do
   t <- appElt es initializationLoc TrueBool  (Just True)
   f <- appElt es initializationLoc FalseBool (Just False)
   let z = SemiRingLiteral SemiRingReal 0 initializationLoc
-  cfg <- CFG.initialConfig 0 sbConfigOptions
+
   storage_ref   <- newIORef es
   loc_ref       <- newIORef initializationLoc
   bindings_ref  <- newIORef Bimap.empty
   matlabFnCache <- stToIO $ PH.new
+
+  -- Set up configuration options
+  cfg <- CFG.initialConfig 0
+           [ unaryThresholdDesc
+           , bvdomainRangeLimitDesc
+           , cacheStartSizeDesc
+           ]
+  unarySetting       <- CFG.getOptionSetting unaryThresholdOption cfg
+  domainRangeSetting <- CFG.getOptionSetting bvdomainRangeLimitOption cfg
+  cacheStartSetting  <- CFG.getOptionSetting cacheStartSizeOption cfg
+  CFG.extendConfig [cacheOptDesc gen storage_ref cacheStartSetting] cfg
+
   return $! SB { sbTrue  = t
                , sbFalse = f
                , sbZero = z
                , sbConfiguration = cfg
                , sbFloatReduce = True
-               , _sbUnaryThreshold = 0
-               , _sbBVDomainRangeLimit = 2
-               , _sbCacheStartSize = sz
+               , sbUnaryThreshold = unarySetting
+               , sbBVDomainRangeLimit = domainRangeSetting
+               , sbCacheStartSize = cacheStartSetting
                , eltCounter = gen
                , curAllocator = storage_ref
                , sbStateManager = st_ref
@@ -2474,8 +2573,8 @@ sbStopCaching sb = do
 -- | Restart caching applications in backend (clears cache if it is currently caching).
 sbRestartCaching :: SimpleBuilder t st -> IO ()
 sbRestartCaching sb = do
-  let sz = sb^.sbCacheStartSize
-  s <- newCachedStorage (eltCounter sb) sz
+  sz <- CFG.getOpt (sbCacheStartSize sb)
+  s <- newCachedStorage (eltCounter sb) (fromInteger sz)
   writeIORef (curAllocator sb) s
 
 -- | @impliesAssert sym b a@ returns the assertions that hold
@@ -3093,23 +3192,24 @@ instance IsBoolSolver (SimpleBuilder t st) where
 ----------------------------------------------------------------------
 -- Expression builder instances
 
-asUnaryBV :: SimpleBuilder t st
+asUnaryBV :: (?unaryThreshold :: Int)
+          => SimpleBuilder t st
           -> BVElt t n
           -> Maybe (UnaryBV (BoolElt t) n)
 asUnaryBV sym e
   | Just (BVUnaryTerm u) <- asApp e = Just u
-  | sym^.sbUnaryThreshold == 0 = Nothing
+  | ?unaryThreshold == 0 = Nothing
   | BVElt w v _ <- e = Just $ UnaryBV.constant sym w v
   | otherwise = Nothing
 
 -- | This create a unary bitvector representing if the size is not too large.
-sbTryUnaryTerm :: (1 <= w)
+sbTryUnaryTerm :: (1 <= w, ?unaryThreshold :: Int)
                => SimpleBuilder t st
                -> UnaryBV (BoolElt t) w
                -> App (Elt t) (BaseBVType w)
                -> IO (BVElt t w)
 sbTryUnaryTerm sym u a
-  | UnaryBV.size u < sym^.sbUnaryThreshold =
+  | UnaryBV.size u < ?unaryThreshold =
     bvUnary sym u
   | otherwise =
     sbMakeElt sym a
@@ -3832,15 +3932,17 @@ instance IsExprBuilder (SimpleBuilder t st) where
     | x == y = return x
     | Just (NotBool cn) <- asApp c = bvIte sym cn y x
 
-    | Just ux <- asUnaryBV sym x
-    , Just uy <- asUnaryBV sym y = do
-      uz <- UnaryBV.mux sym c ux uy
-      let sz = 1 + iteSize x + iteSize y
-      sbTryUnaryTerm sym uz (BVIte (bvWidth x) sz c x y)
-
     | otherwise = do
-      let sz = 1 + iteSize x + iteSize y
-      sbMakeElt sym $ BVIte (bvWidth x) sz c x y
+        ut <- CFG.getOpt (sbUnaryThreshold sym)
+        let ?unaryThreshold = fromInteger ut
+        if | Just ux <- asUnaryBV sym x
+           , Just uy <- asUnaryBV sym y ->
+             do uz <- UnaryBV.mux sym c ux uy
+                let sz = 1 + iteSize x + iteSize y
+                sbTryUnaryTerm sym uz (BVIte (bvWidth x) sz c x y)
+           | otherwise ->
+             do let sz = 1 + iteSize x + iteSize y
+                sbMakeElt sym $ BVIte (bvWidth x) sz c x y
 
   bvEq sym x y
     | Just xc <- asUnsignedBV x
@@ -3868,12 +3970,14 @@ instance IsExprBuilder (SimpleBuilder t st) where
       z_r <- bvAdd sym z_c x_r
       bvEq sym z_r y_r
 
-    | Just ux <- asUnaryBV sym x
-    , Just uy <- asUnaryBV sym y = do
-      UnaryBV.eq sym ux uy
-
     | otherwise = do
-      sbMakeElt sym $ BVEq (min x y) (max x y)
+        ut <- CFG.getOpt (sbUnaryThreshold sym)
+        let ?unaryThreshold = fromInteger ut
+        if | Just ux <- asUnaryBV sym x
+           , Just uy <- asUnaryBV sym y
+           -> UnaryBV.eq sym ux uy
+           | otherwise
+           -> sbMakeElt sym $ BVEq (min x y) (max x y)
 
   bvSlt sym x y
     | Just xc <- asSignedBV x
@@ -3883,12 +3987,14 @@ instance IsExprBuilder (SimpleBuilder t st) where
       return $! backendPred sym b
     | x == y = return (falsePred sym)
 
-      -- Unary values.
-    | Just ux <- asUnaryBV sym x
-    , Just uy <- asUnaryBV sym y = do
-      UnaryBV.slt sym ux uy
-
-    | otherwise = sbMakeElt sym $ BVSlt x y
+    | otherwise = do
+        ut <- CFG.getOpt (sbUnaryThreshold sym)
+        let ?unaryThreshold = fromInteger ut
+        if | Just ux <- asUnaryBV sym x
+           , Just uy <- asUnaryBV sym y
+           -> UnaryBV.slt sym ux uy
+           | otherwise
+           -> sbMakeElt sym $ BVSlt x y
 
   bvUlt sym x y
     | Just xc <- asUnsignedBV x
@@ -3899,12 +4005,15 @@ instance IsExprBuilder (SimpleBuilder t st) where
     | x == y =
       return $! falsePred sym
 
-      -- Unary values.
-    | Just ux <- asUnaryBV sym x
-    , Just uy <- asUnaryBV sym y = do
-      UnaryBV.ult sym ux uy
+    | otherwise = do
+        ut <- CFG.getOpt (sbUnaryThreshold sym)
+        let ?unaryThreshold = fromInteger ut
+        if | Just ux <- asUnaryBV sym x
+           , Just uy <- asUnaryBV sym y
+           -> UnaryBV.ult sym ux uy
 
-    | otherwise = sbMakeElt sym $ BVUlt x y
+           | otherwise
+           -> sbMakeElt sym $ BVUlt x y
 
   bvShl sym x y
    | Just i <- asUnsignedBV x, Just n <- asUnsignedBV y = do
@@ -4069,12 +4178,14 @@ instance IsExprBuilder (SimpleBuilder t st) where
     | Just i <- asSignedBV x = bvLit sym (bvWidth x) (-i)
     | Just (BVNeg _ y) <- asApp x = return y
 
-      -- Negate a unary bitvector.
-    | Just ux <- asUnaryBV sym x = do
-      uz <- UnaryBV.neg sym ux
-      sbTryUnaryTerm sym uz (BVNeg (bvWidth x) x)
-
-    | otherwise = sbMakeElt sym $ BVNeg (bvWidth x) x
+    | otherwise =
+        do ut <- CFG.getOpt (sbUnaryThreshold sym)
+           let ?unaryThreshold = fromInteger ut
+           if | Just ux <- asUnaryBV sym x
+              -> do uz <- UnaryBV.neg sym ux
+                    sbTryUnaryTerm sym uz (BVNeg (bvWidth x) x)
+              | otherwise
+              -> sbMakeElt sym $ BVNeg (bvWidth x) x
 
   bvAdd sym x y
     | Just 0 <- asUnsignedBV x = return y
@@ -4103,13 +4214,15 @@ instance IsExprBuilder (SimpleBuilder t st) where
       z_r <- bvAdd sym x_r y_r
       bvAdd sym z_c z_r
 
-    | Just ux <- asUnaryBV sym x
-    , Just uy <- asUnaryBV sym y = do
-      uz <- UnaryBV.add sym ux uy
-      sbTryUnaryTerm sym uz (BVAdd (bvWidth x) (min x y) (max x y))
-
     | otherwise =
-      sbMakeElt sym $ BVAdd (bvWidth x) (min x y) (max x y)
+        do ut <- CFG.getOpt (sbUnaryThreshold sym)
+           let ?unaryThreshold = fromInteger ut
+           if | Just ux <- asUnaryBV sym x
+              , Just uy <- asUnaryBV sym y
+              -> do uz <- UnaryBV.add sym ux uy
+                    sbTryUnaryTerm sym uz (BVAdd (bvWidth x) (min x y) (max x y))
+              | otherwise
+              -> sbMakeElt sym $ BVAdd (bvWidth x) (min x y) (max x y)
 
   bvMul sym x y
     | Just 0 <- asUnsignedBV x = return x

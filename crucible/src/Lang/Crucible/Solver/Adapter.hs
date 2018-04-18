@@ -27,6 +27,7 @@ import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
+import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
 import           Lang.Crucible.Solver.SimpleBackend.ProblemFeatures
@@ -87,13 +88,13 @@ solverAdapterOptions ::
 solverAdapterOptions [] = fail "No solver adapters specified!"
 solverAdapterOptions xs@(def:_) =
   do ref <- newIORef def
-     let opts = lopt ref : concatMap solver_adapter_config_options xs
+     let opts = sty ref : concatMap solver_adapter_config_options xs
      return (opts, readIORef ref)
 
  where
- f ref x = (T.pack (solver_adapter_name x), (PP.empty, writeIORef ref x >> return optOK))
+ f ref x = (T.pack (solver_adapter_name x), writeIORef ref x >> return optOK)
  vals ref = Map.fromList (map (f ref) xs)
- lopt ref = optList defaultSolverAdapter
-                        (vals ref)
-                        (Just (PP.text "Indicates which solver to use for check-sat queries"))
-                        (Just (T.pack (solver_adapter_name def)))
+ sty ref = mkOpt defaultSolverAdapter
+                 (listOptSty (vals ref))
+                 (Just (PP.text "Indicates which solver to use for check-sat queries"))
+                 (Just (ConcreteString (T.pack (solver_adapter_name def))))

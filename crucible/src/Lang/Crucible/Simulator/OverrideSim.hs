@@ -81,7 +81,6 @@ import           Lang.Crucible.Simulator.Frame
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.Utils.MonadST
@@ -177,7 +176,7 @@ instance MonadVerbosity (OverrideSim p sym ext rtp args ret) where
   getVerbosity = do
     ctx <- getContext
     let cfg = ctxSolverProof ctx (getConfiguration (ctx^.ctxSymInterface))
-    v <- maybe 0 fromConcreteInteger <$> liftIO (getConfigValue verbosity cfg)
+    v <- liftIO (getOpt =<< getOptionSetting verbosity cfg)
     return (fromInteger v)
 
   getLogFunction = do

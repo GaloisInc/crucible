@@ -62,7 +62,7 @@ module Lang.Crucible.Solver.SimpleBackend.Yices
 import           Control.Concurrent (ThreadId, forkIO, killThread)
 import           Control.Concurrent.Chan
 import           Control.Exception (assert, bracket, bracket_, catch, throwIO, try)
-import           Control.Lens ((^.), (&))
+import           Control.Lens ((^.))
 import           Control.Monad
 import           Data.Bits
 import           Data.Foldable (toList)
@@ -570,9 +570,11 @@ yicesEfSolver = configOption knownRepr "yices_ef-solver"
 
 yicesOptions :: [ConfigDesc]
 yicesOptions =
-  [ mkOpt yicesPath
-    (executablePathOptSty & set_opt_value (ConcreteString "yices"))
-    (Just (PP.text "Yices executable path"))
+  [ mkOpt
+      yicesPath
+      executablePathOptSty
+      (Just (PP.text "Yices executable path"))
+      (Just (ConcreteString "yices"))
   , booleanOpt' yicesEfSolver
   ]
   ++ yicesInternalOptions
@@ -603,11 +605,13 @@ booleanOpt' o =
   mkOpt o
         boolOptSty
         Nothing
+        Nothing
 
 floatWithRangeOpt :: String -> Rational -> Rational -> ConfigDesc
 floatWithRangeOpt nm lo hi =
   mkOpt (configOption BaseRealRepr $ "yices."++nm)
         (realWithRangeOptSty (Inclusive lo) (Inclusive hi))
+        Nothing
         Nothing
 
 floatWithMinOpt :: String -> Bound Rational -> ConfigDesc
@@ -615,17 +619,20 @@ floatWithMinOpt nm lo =
   mkOpt (configOption BaseRealRepr $ "yices."++nm)
         (realWithMinOptSty lo)
         Nothing
+        Nothing
 
 intWithRangeOpt :: String -> Integer -> Integer -> ConfigDesc
 intWithRangeOpt nm lo hi =
   mkOpt (configOption BaseIntegerRepr $ "yices."++nm)
         (integerWithRangeOptSty (Inclusive lo) (Inclusive hi))
         Nothing
+        Nothing
 
 enumOpt :: String -> Set Text -> ConfigDesc
 enumOpt nm xs =
   mkOpt (configOption BaseStringRepr $ "yices."++nm)
         (enumOptSty xs)
+        Nothing
         Nothing
 
 yicesInternalOptions :: [ConfigDesc]
