@@ -66,17 +66,17 @@ sawServerOptions = SAW.sawOptions
 sawServerOverrides :: [Simulator p (SAW.SAWCoreBackend n) -> IO SomeHandle]
 sawServerOverrides = []
 
-data SAWCrucibleServerPersonality sym =
+data SAWCrucibleServerPersonality =
    SAWCrucibleServerPersonality
    { _sawServerCryptolEnv :: CryptolEnv
    }
 
-sawServerCryptolEnv :: Simple Lens (SAWCrucibleServerPersonality sym) CryptolEnv
+sawServerCryptolEnv :: Simple Lens SAWCrucibleServerPersonality CryptolEnv
 sawServerCryptolEnv = lens _sawServerCryptolEnv (\s v -> s{ _sawServerCryptolEnv = v })
 
 initSAWServerPersonality ::
   SAW.SAWCoreBackend n ->
-  IO (SAWCrucibleServerPersonality (SAW.SAWCoreBackend n))
+  IO SAWCrucibleServerPersonality
 initSAWServerPersonality sym =
   do sc <- SAW.sawBackendSharedContext sym
      cryEnv <- initCryptolEnv sc

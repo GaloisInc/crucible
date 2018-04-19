@@ -93,6 +93,7 @@ module Lang.Crucible.Config
   , optOK
   , optWarn
   , optErr
+  , checkOptSetResult
 
     -- * Option settings
   , OptionSetting(..)

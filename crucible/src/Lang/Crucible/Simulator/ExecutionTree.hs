@@ -1116,7 +1116,7 @@ data ExtensionImpl p sym ext
 -- SimContext
 
 -- | Global context for state.
-data SimContext personality sym ext
+data SimContext (personality :: *) (sym :: *) (ext :: *)
    = SimContext { _ctxSymInterface       :: !sym
                 , ctxSolverProof         :: !(forall a . IsSymInterfaceProof sym a)
                 , ctxIntrinsicTypes      :: !(IntrinsicTypes sym)
@@ -1126,7 +1126,7 @@ data SimContext personality sym ext
                 , printHandle            :: !Handle
                 , extensionImpl          :: ExtensionImpl personality sym ext
                 , _functionBindings      :: !(FunctionBindings personality sym ext)
-                , _cruciblePersonality   :: !(personality sym)
+                , _cruciblePersonality   :: !personality
                 }
 
 -- | A definition of function semantics.
@@ -1154,7 +1154,7 @@ initSimContext :: IsSymInterface sym
                -> Handle -- ^ Handle to write output to
                -> FunctionBindings personality sym ext
                -> ExtensionImpl personality sym ext
-               -> personality sym
+               -> personality
                -> SimContext personality sym ext
 initSimContext sym muxFns halloc h bindings extImpl personality =
   SimContext { _ctxSymInterface     = sym
@@ -1174,7 +1174,7 @@ ctxSymInterface = lens _ctxSymInterface (\s v -> s { _ctxSymInterface = v })
 functionBindings :: Simple Lens (SimContext p sym ext) (FunctionBindings p sym ext)
 functionBindings = lens _functionBindings (\s v -> s { _functionBindings = v })
 
-cruciblePersonality :: Simple Lens (SimContext p sym ext) (p sym)
+cruciblePersonality :: Simple Lens (SimContext p sym ext) p
 cruciblePersonality = lens _cruciblePersonality (\s v -> s{ _cruciblePersonality = v })
 
 

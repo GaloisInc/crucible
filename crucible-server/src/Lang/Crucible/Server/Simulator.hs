@@ -105,7 +105,7 @@ getInterface sim = (^.ctxSymInterface) <$> getSimContext sim
 newSimulator :: IsSymInterface sym
              => sym
              -> [ConfigDesc]
-             -> p sym
+             -> p
              -> [Simulator p sym -> IO SomeHandle] -- ^ Predefined function handles to install
              -> Handle
                 -- ^ Handle for reading requests.
