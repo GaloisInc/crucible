@@ -2520,7 +2520,7 @@ newSimpleBuilder :: IsSimpleBuilderState st
                  ->  IO (SimpleBuilder t st)
 newSimpleBuilder st gen = do
   st_ref <- newIORef st
-  es <- newStorage (eltCounter sb)
+  es <- newStorage gen
 
   t <- appElt es initializationLoc TrueBool  (Just True)
   f <- appElt es initializationLoc FalseBool (Just False)

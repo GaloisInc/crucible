@@ -166,6 +166,7 @@ import qualified Data.Map.Strict as Map
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Numeric.Natural
+import           System.IO ( Handle, hPutStr )
 import           System.IO.Error ( ioeGetErrorString )
 
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (<>))
@@ -626,11 +627,11 @@ builtInOpts initialVerbosity =
   ]
 
 verbosityLogger :: Config -> Handle -> IO (Int -> String -> IO ())
-verbosityLogger cfg h = do
-  verb <- getOptionSetting verbosity
-  return $ \n msg ->
-    v <- getOpt verb
-    when (toInteger n >= v) (hPutStr h msg)
+verbosityLogger cfg h =
+  do verb <- getOptionSetting verbosity cfg
+     return $ \n msg ->
+       do v <- getOpt verb
+          when (toInteger n >= v) (hPutStr h msg)
 
 
 class Opt tp a | tp -> a where
