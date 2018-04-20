@@ -2519,9 +2519,8 @@ newSimpleBuilder :: IsSimpleBuilderState st
                     -- ^ Nonce generator for names
                  ->  IO (SimpleBuilder t st)
 newSimpleBuilder st gen = do
-  let sz = 100000
   st_ref <- newIORef st
-  es <- newCachedStorage gen sz
+  es <- newStorage (eltCounter sb)
 
   t <- appElt es initializationLoc TrueBool  (Just True)
   f <- appElt es initializationLoc FalseBool (Just False)
