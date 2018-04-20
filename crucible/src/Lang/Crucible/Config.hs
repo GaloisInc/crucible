@@ -141,6 +141,7 @@ module Lang.Crucible.Config
 
   -- * Concrete default options
   , verbosity
+  , verbosityLogger
   ) where
 
 import           Control.Applicative (Const(..))
@@ -623,6 +624,14 @@ builtInOpts initialVerbosity =
         (ConcreteInteger initialVerbosity)
         (text "Verbosity of the simulator: higher values produce more detailed informational and debugging output.")
   ]
+
+verbosityLogger :: Config -> Handle -> IO (Int -> String -> IO ())
+verbosityLogger cfg h = do
+  verb <- getOptionSetting verbosity
+  return $ \n msg ->
+    v <- getOpt verb
+    when (toInteger n >= v) (hPutStr h msg)
+
 
 class Opt tp a | tp -> a where
   getMaybeOpt:: OptionSetting tp -> IO (Maybe a)
