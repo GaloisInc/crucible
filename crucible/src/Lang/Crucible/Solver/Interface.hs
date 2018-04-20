@@ -121,6 +121,7 @@ module Lang.Crucible.Solver.Interface
   , baseDefaultValue
 
   , andAllOf
+  , orOneOf
   , predToReal
   , backendPred
   , isNonZero
@@ -1999,6 +2000,13 @@ andAllOf :: IsBoolExprBuilder sym
          -> s
          -> IO (Pred sym)
 andAllOf sym f s = foldlMOf f (andPred sym) (truePred sym) s
+
+orOneOf :: IsBoolExprBuilder sym
+         => sym
+         -> Fold s (Pred sym)
+         -> s
+         -> IO (Pred sym)
+orOneOf sym f s = foldlMOf f (orPred sym) (falsePred sym) s
 
 -- | Return predicate that holds if value is non-zero.
 isNonZero :: IsExprBuilder sym => sym -> SymCplx sym -> IO (Pred sym)
