@@ -704,12 +704,12 @@ checkSupportedByYices p = do
 
 -- | Write a yices file that checks the satisfiability of the given predicate.
 writeYicesFile :: SimpleBuilder t st -- ^ Builder for getting current bindings.
-               -> Config             -- ^ Configuration for Yices options
                -> FilePath           -- ^ Path to file
                -> BoolElt t          -- ^ Predicate to check
                -> IO ()
-writeYicesFile sym cfg path p = do
+writeYicesFile sym path p = do
   withFile path WriteMode $ \h -> do
+    let cfg = getConfiguration sym
     let varInfo = predicateVarInfo p
     -- check whether to use ef-solve
     let features = varInfo^.problemFeatures

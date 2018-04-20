@@ -156,8 +156,7 @@ writeYicesOverride = do
     case asString file_nm of
       Just path -> do
         let sym = ctx^.ctxSymInterface
-        let cfg = getConfiguration sym
-        liftIO $ Yices.writeYicesFile sym cfg (Text.unpack path) p
+        liftIO $ Yices.writeYicesFile sym (Text.unpack path) p
       Nothing -> do
         fail "Expected concrete file name in write_yices override"
 
