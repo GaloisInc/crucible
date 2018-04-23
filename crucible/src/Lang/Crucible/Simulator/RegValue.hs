@@ -298,7 +298,7 @@ muxStruct recf ctx = \p x y ->
 newtype VariantBranch sym tp = VB { unVB :: PartExpr (Pred sym) (RegValue sym tp) }
 
 injectVariant ::
-  IsSymInterface sym =>
+  IsExprBuilder sym =>
   sym ->
   CtxRepr ctx ->
   Ctx.Index ctx tp ->

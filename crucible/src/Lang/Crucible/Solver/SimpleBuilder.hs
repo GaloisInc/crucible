@@ -51,6 +51,12 @@ module Lang.Crucible.Solver.SimpleBuilder
   , sbBVDomainRangeLimit
   , sbStateManager
 
+    -- * Specialized representations
+  , bvUnary
+  , natSum
+  , intSum
+  , realSum
+
     -- ** configuration options
   , unaryThresholdOption
   , bvdomainRangeLimitOption
@@ -179,6 +185,7 @@ import           Lang.Crucible.MATLAB.Intrinsics.Solver
 import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Concrete
+import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Symbol
 import           Lang.Crucible.Solver.WeightedSum (SemiRing, SemiRingRepr(..), WeightedSum, semiRingBase)
@@ -2668,7 +2675,7 @@ betaReduce sym f args =
     MatlabSolverFnInfo fn_id _ _ -> do
       evalMatlabSolverFn fn_id sym args
 
-reduceApp :: IsExprBuilder sym
+reduceApp :: (IsExprBuilder sym, sym ~ SimpleBuilder t st)
           => sym
           -> App (SymExpr sym) tp
           -> IO (SymExpr sym tp)
@@ -3022,6 +3029,8 @@ sbConcreteLookup sym arr0 mcidx idx
       BaseArrayRepr _ range ->
         sbMakeElt sym (SelectArray range arr0 idx)
 
+
+
 instance IsBoolExprBuilder (SimpleBuilder t st) where
 
   truePred  = sbTrue
@@ -3109,8 +3118,6 @@ instance IsBoolSolver (SimpleBuilder t st) where
 
   evalBranch sym p = sbStateManagerIsBoolSolver sym $ sbEvalBranch sym p
 
-  getConfiguration = sbConfiguration
-
   getCurrentState sym = do
     s <- readIORef (sbStateManager sym)
     l <- readIORef (sbProgramLoc sym)
@@ -3190,6 +3197,26 @@ instance IsBoolSolver (SimpleBuilder t st) where
 
 ----------------------------------------------------------------------
 -- Expression builder instances
+
+-- | Evaluate a weighted sum of natural number values
+natSum :: SimpleBuilder t st -> WeightedSum (Elt t) BaseNatType -> IO (NatElt t)
+natSum sym s = semiRingSum sym SemiRingNat s
+
+-- | Evaluate a weighted sum of integer values
+intSum :: SimpleBuilder t st -> WeightedSum (Elt t) BaseIntegerType -> IO (IntegerElt t)
+intSum sym s = semiRingSum sym SemiRingInt s
+
+-- | Evaluate a weighted sum of real values.
+realSum :: SimpleBuilder t st -> WeightedSum (Elt t) BaseRealType -> IO (RealElt t)
+realSum sym s = semiRingSum sym SemiRingReal s
+
+
+bvUnary :: (1 <= w) => SimpleBuilder t st -> UnaryBV (BoolElt t) w -> IO (BVElt t w)
+bvUnary sym u
+    | Just v <-  UnaryBV.asConstant u =
+      bvLit sym (UnaryBV.width u) v
+    | otherwise =
+      sbMakeElt sym (BVUnaryTerm u)
 
 asUnaryBV :: (?unaryThreshold :: Int)
           => SimpleBuilder t st
@@ -3586,8 +3613,6 @@ instance IsExprBuilder (SimpleBuilder t st) where
 
   natMul sym x y = semiRingMul sym SemiRingNat x y
 
-  natSum sym s = semiRingSum sym SemiRingNat s
-
   natDiv sym x y
     | Just m <- asNat x, Just n <- asNat y = do
       natLit sym (m `div` n)
@@ -3626,8 +3651,6 @@ instance IsExprBuilder (SimpleBuilder t st) where
   intAdd sym x y = semiRingAdd sym SemiRingInt x y
 
   intMul sym x y = semiRingMul sym SemiRingInt x y
-
-  intSum sym s = semiRingSum sym SemiRingInt s
 
   intIte sym c x y = semiRingIte sym SemiRingInt c x y
 
@@ -4250,12 +4273,6 @@ instance IsExprBuilder (SimpleBuilder t st) where
   bvSdiv = bvSignedBinOp div BVSdiv
   bvSrem = bvSignedBinOp rem BVSrem
 
-  bvUnary sym u
-    | Just v <-  UnaryBV.asConstant u =
-      bvLit sym (UnaryBV.width u) v
-    | otherwise =
-      sbMakeElt sym (BVUnaryTerm u)
-
   mkStruct sym args = do
     sbMakeElt sym $ StructCtor (fmapFC exprType args) args
 
@@ -4610,8 +4627,6 @@ instance IsExprBuilder (SimpleBuilder t st) where
 
   realMul sym x y = semiRingMul sym SemiRingReal x y
 
-  realSum sym s = semiRingSum sym SemiRingReal s
-
   realDiv sym x y
     | Just 0 <- asRational x =
       return x
@@ -4706,7 +4721,9 @@ instance IsExprBuilder (SimpleBuilder t st) where
     (:+) <$> sbMakeElt sym (RealPart x)
          <*> sbMakeElt sym (ImagPart x)
 
-instance IsSymInterface (SimpleBuilder t st) where
+instance IsSymbolicExprBuilder (SimpleBuilder t st) where
+  getConfiguration = sbConfiguration
+
   stopCaching = sbStopCaching
   restartCaching = sbRestartCaching
 

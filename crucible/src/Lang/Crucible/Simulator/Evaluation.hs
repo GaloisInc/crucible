@@ -50,6 +50,7 @@ import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.Solver.Symbol (emptySymbol)
@@ -92,7 +93,7 @@ complexRealAsChar v = do
 
 
 -- | Helper method for implementing 'indexSymbolic'
-indexSymbolic' :: IsSymInterface sym
+indexSymbolic' :: (IsSymInterface sym, IsBoolSolver sym)
                => sym
                -> (Pred sym -> a -> a -> IO a)
                   -- ^ Function for merging valeus
@@ -122,7 +123,7 @@ indexSymbolic' sym iteFn f p ((l,h):nl) (si:il) = do
 -- This function takes a list of symbolic indices as natural numbers
 -- along with a pair of lower and upper bounds for each index.
 -- It assumes that the indices are all in range.
-indexSymbolic :: IsSymInterface sym
+indexSymbolic :: (IsSymInterface sym, IsBoolSolver sym)
               => sym
               -> (Pred sym -> a  -> a -> IO a)
                  -- ^ Function for combining results together.
@@ -225,7 +226,7 @@ type EvalAppFunc sym app = forall f.
 {-# INLINE evalApp #-}
 -- | Evaluate the application.
 evalApp :: forall sym ext
-         . IsSymInterface sym
+         . (IsSymInterface sym, IsBoolSolver sym)
         => sym
         -> IntrinsicTypes sym
         -> (Int -> String -> IO ())

@@ -53,6 +53,7 @@ import qualified Lang.Crucible.Config as CFG
 import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.Adapter
+import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
 import qualified Lang.Crucible.Solver.ProcessUtils as Proc
 import           Lang.Crucible.Solver.SatResult

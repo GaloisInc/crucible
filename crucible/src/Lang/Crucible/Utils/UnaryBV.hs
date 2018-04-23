@@ -63,7 +63,7 @@ import           Data.Parameterized.Classes
 import           Data.Parameterized.NatRepr
 import qualified GHC.TypeLits as Type
 
-import           Lang.Crucible.Solver.BoolInterface
+import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Utils.BVDomain (BVDomain)
 import qualified Lang.Crucible.Utils.BVDomain as BVD
 

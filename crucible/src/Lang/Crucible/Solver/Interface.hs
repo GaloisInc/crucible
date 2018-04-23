@@ -54,6 +54,9 @@ provide several type family definitions and class instances for @sym@:
 -}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -69,17 +72,21 @@ provide several type family definitions and class instances for @sym@:
 module Lang.Crucible.Solver.Interface
   ( -- * Interface classes
     -- ** IsExpr
-    IsExpr(..)
+    IsPred(..)
+  , IsExpr(..)
     -- ** IsExprBuilder
+  , SymExpr
+  , IsBoolExprBuilder(..)
   , IsExprBuilder(..)
     -- ** IsSymInterface
   , BoundVar
   , IsSymFn(..)
-  , IsSymInterface(..)
+  , IsSymbolicExprBuilder(..)
     -- * Bound variables
   , SymEncoder(..)
   , ArrayResultWrapper(..)
     -- * Type Aliases
+  , Pred
   , SymFn
   , SymNat
   , SymInteger
@@ -103,12 +110,11 @@ module Lang.Crucible.Solver.Interface
   , concreteToSym
 
     -- * Utilities
+  , PartExpr(..)
+  , itePredM
   , mkRational
   , mkReal
   , iteM
-  , cplxDiv
-  , cplxLog
-  , cplxLogBase
 
   , realExprAsInteger
   , realExprAsNat
@@ -126,8 +132,6 @@ module Lang.Crucible.Solver.Interface
   , backendPred
   , isNonZero
   , isReal
-  , addAssertionM
-  , assertIsInteger
 
   , baseIsConcrete
 
@@ -135,13 +139,13 @@ module Lang.Crucible.Solver.Interface
   , muxIntegerRange
 
   , module Data.Parameterized.NatRepr
-  , module BoolInterface
   , Lang.Crucible.Solver.Symbol.SolverSymbol
   ) where
 
 import           Control.Exception (assert)
 import           Control.Lens
 import           Control.Monad
+import           Control.Monad.IO.Class
 import           Data.Foldable
 import           Data.Hashable
 import qualified Data.Map as Map
@@ -157,19 +161,18 @@ import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
 
 import           Lang.Crucible.BaseTypes
-import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.BoolInterface as BoolInterface
+import           Lang.Crucible.Config
 import           Lang.Crucible.Solver.Concrete
-import           Lang.Crucible.Solver.Partial (PartExpr(..))
 import           Lang.Crucible.Solver.Symbol
-import           Lang.Crucible.Solver.WeightedSum (WeightedSum)
+--import           Lang.Crucible.Solver.WeightedSum (WeightedSum)
 import           Lang.Crucible.Utils.Arithmetic
 import           Lang.Crucible.Utils.Complex
-import           Lang.Crucible.Utils.UnaryBV
 import qualified Lang.Crucible.Utils.Hashable as Hash
 
 ------------------------------------------------------------------------
 -- SymExpr names
+
+type Pred sym = SymExpr sym BaseBoolType
 
 -- | Symbolic natural numbers.
 type SymNat sym = SymExpr sym BaseNatType
@@ -198,10 +201,71 @@ type SymString sym = SymExpr sym BaseStringType
 ------------------------------------------------------------------------
 -- Type families for the interface.
 
+-- | The class for expressions.
+type family SymExpr (sym :: *) :: BaseType -> *
+
+
+------------------------------------------------------------------------
+-- IsPred
+
+class IsPred v where
+  -- | Evaluate if predicate is constant.
+  asConstantPred :: v -> Maybe Bool
+  asConstantPred _ = Nothing
+
 -- | Type of bound variable associated with symbolic state.
 --
 -- This type is used by some methods in class 'IsSymInterface'.
 type family BoundVar (sym :: *) :: BaseType -> *
+
+------------------------------------------------------------------------
+-- IsBoolSolver
+
+-- | @IsBoolExprBuilder@ has methods for constructing
+--   symbolic expressions of boolean type.
+class IsBoolExprBuilder sym where
+  truePred  :: sym -> Pred sym
+  falsePred :: sym -> Pred sym
+
+  notPred :: sym -> Pred sym -> IO (Pred sym)
+
+  andPred :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
+
+  orPred  :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
+  orPred sym x y = do
+    xn <- notPred sym x
+    yn <- notPred sym y
+    notPred sym =<< andPred sym xn yn
+
+  impliesPred :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
+  impliesPred sym x y = do
+    nx <- notPred sym x
+    orPred sym y nx
+
+  xorPred :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
+
+  eqPred  :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
+  eqPred sym x y = notPred sym =<< xorPred sym x y
+
+  -- | Perform ite on a predicate.
+  itePred :: sym -> Pred sym -> Pred sym -> Pred sym -> IO (Pred sym)
+
+
+-- | Perform an ite on a predicate lazily.
+itePredM :: (IsPred (Pred sym), IsBoolExprBuilder sym, MonadIO m)
+         => sym
+         -> Pred sym
+         -> m (Pred sym)
+         -> m (Pred sym)
+         -> m (Pred sym)
+itePredM sym c mx my =
+  case asConstantPred c of
+    Just True -> mx
+    Just False -> my
+    Nothing -> do
+      x <- mx
+      y <- my
+      liftIO $ itePred sym c x y
 
 ------------------------------------------------------------------------
 -- IsExpr
@@ -315,6 +379,15 @@ instance TestEquality f => TestEquality (ArrayResultWrapper f idx) where
 instance HashableF e => HashableF (ArrayResultWrapper e idx) where
   hashWithSaltF s (ArrayResultWrapper v) = hashWithSaltF s v
 
+-- | A partial value represents a value that may or may not be assigned.
+data PartExpr p v
+   = PE { _pePred :: !p
+        , _peValue :: !v
+        }
+   | Unassigned
+ deriving ( Functor, Foldable, Traversable )
+
+
 ------------------------------------------------------------------------
 -- IsExprBuilder
 
@@ -382,9 +455,6 @@ class ( IsBoolExprBuilder sym
   -- | Multiply one number by another.
   natMul :: sym -> SymNat sym -> SymNat sym -> IO (SymNat sym)
 
-  -- | Evaluate a weighted sum of natural number values
-  natSum :: sym -> WeightedSum (SymExpr sym) BaseNatType -> IO (SymNat sym)
-
   -- | 'natDiv sym x y' performs natural division.
   --
   -- The result is undefined if y equals '0'.
@@ -436,9 +506,6 @@ class ( IsBoolExprBuilder sym
 
   -- | Multiply one integer by another.
   intMul :: sym -> SymInteger sym -> SymInteger sym -> IO (SymInteger sym)
-
-  -- | Evaluate a weighted sum of integer values
-  intSum :: sym -> WeightedSum (SymExpr sym) BaseIntegerType -> IO (SymInteger sym)
 
   -- | If-then-else applied to integers.
   intIte :: sym -> Pred sym -> SymInteger sym -> SymInteger sym -> IO (SymInteger sym)
@@ -536,12 +603,6 @@ class ( IsBoolExprBuilder sym
          -> SymBV sym w
          -> SymBV sym w
          -> IO (SymBV sym w)
-
-  -- | This creates an expression from a unary bitvector.
-  bvUnary :: (1 <= w)
-          => sym
-          -> UnaryBV (Pred sym) w
-          -> IO (SymBV sym w)
 
   -- | Returns true if the corresponding bit in the bitvector is set.
   testBitBV :: (1 <= w)
@@ -1257,9 +1318,6 @@ class ( IsBoolExprBuilder sym
   -- | Add two real numbers.
   realAdd :: sym -> SymReal sym -> SymReal sym -> IO (SymReal sym)
 
-  -- | Evaluate a weighted sum of real values.
-  realSum :: sym -> WeightedSum (SymExpr sym) BaseRealType -> IO (SymReal sym)
-
   -- | Multiply two real numbers.
   realMul :: sym -> SymReal sym -> SymReal sym -> IO (SymReal sym)
 
@@ -1663,77 +1721,6 @@ iteM ite sym p mx my = do
     Just False -> my
     Nothing -> join $ ite sym p <$> mx <*> my
 
--- | Divide one number by another.
---
--- Adds assertion on divide by zero.
-cplxDiv :: (IsExprBuilder sym, IsBoolSolver sym)
-        => sym
-        -> SymCplx sym
-        -> SymCplx sym
-        -> IO (SymCplx sym)
-cplxDiv sym x y = do
-  addAssertionM sym (isNonZero sym y) (GenericSimError "Divide by zero")
-  xr :+ xi <- cplxGetParts sym x
-  yc@(yr :+ yi) <- cplxGetParts sym y
-  case asRational <$> yc of
-    (_ :+ Just 0) -> do
-      zc <- (:+) <$> realDiv sym xr yr <*> realDiv sym xi yr
-      mkComplex sym zc
-    (Just 0 :+ _) -> do
-      zc <- (:+) <$> realDiv sym xi yi <*> realDiv sym xr yi
-      mkComplex sym zc
-    _ -> do
-      yr_abs <- realMul sym yr yr
-      yi_abs <- realMul sym yi yi
-      y_abs <- realAdd sym yr_abs yi_abs
-
-      zr_1 <- realMul sym xr yr
-      zr_2 <- realMul sym xi yi
-      zr <- realAdd sym zr_1 zr_2
-
-      zi_1 <- realMul sym xi yr
-      zi_2 <- realMul sym xr yi
-      zi <- realSub sym zi_1 zi_2
-
-      zc <- (:+) <$> realDiv sym zr y_abs <*> realDiv sym zi y_abs
-      mkComplex sym zc
-
--- | Helper function that returns logarithm of input.
---
--- This operation adds an assertion that the input is non-zero.
-cplxLog' :: (IsExprBuilder sym, IsBoolSolver sym)
-         => sym -> SymCplx sym -> IO (Complex (SymReal sym))
-cplxLog' sym x = do
-  let err = GenericSimError "Input to log must be non-zero."
-  addAssertionM sym (isNonZero sym x) err
-  xr :+ xi <- cplxGetParts sym x
-  -- Get the magnitude of the value.
-  xm <- realHypot sym xr xi
-  -- Get angle of complex number.
-  xa <- realAtan2 sym xi xr
-  -- Get log of magnitude
-  zr <- realLog sym xm
-  return $! zr :+ xa
-
--- | Returns logarithm of input.
---
--- This operation adds an assertion that the input is non-zero.
-cplxLog :: (IsExprBuilder sym, IsBoolSolver sym)
-        => sym -> SymCplx sym -> IO (SymCplx sym)
-cplxLog sym x = mkComplex sym =<< cplxLog' sym x
-
--- | Returns logarithm of input at a given base.
---
--- This operation adds an assertion that the input is non-zero.
-cplxLogBase :: (IsExprBuilder sym, IsBoolSolver sym)
-            => Rational
-            -> sym
-            -> SymCplx sym
-            -> IO (SymCplx sym)
-cplxLogBase base sym x = do
-  b <- realLog sym =<< realLit sym base
-  z <- traverse (\r -> realDiv sym r b) =<< cplxLog' sym x
-  mkComplex sym z
 
 -- | A function that can be applied to symbolic arguments.
 --
@@ -1750,11 +1737,14 @@ class IsSymFn fn where
 
 -- | This extends the interface for building expressions with operations
 -- for creating new constants and functions.
-class ( IsBoolSolver sym
+class ( IsBoolExprBuilder sym
       , IsExprBuilder sym
       , IsSymFn (SymFn sym)
       , OrdF (SymExpr sym)
-      ) => IsSymInterface sym where
+      ) => IsSymbolicExprBuilder sym where
+
+  -- | Retrieve the configuration object corresponding to this solver interface.
+  getConfiguration :: sym -> Config
 
   ----------------------------------------------------------------------
   -- Caching operations.
@@ -1912,15 +1902,6 @@ baseDefaultValue sym bt =
       elt <- baseDefaultValue sym bt'
       constantArray sym idx elt
 
-addAssertionM :: IsBoolSolver sym
-              => sym
-              -> IO (Pred sym)
-              -> SimErrorReason
-              -> IO ()
-addAssertionM sym pf msg = do
-  p <- pf
-  addAssertion sym p msg
-
 -- | Return predicate equivalent to a Boolean.
 backendPred :: IsBoolExprBuilder sym => sym -> Bool -> Pred sym
 backendPred sym True  = truePred  sym
@@ -1971,14 +1952,6 @@ rationalAsInteger r = do
   when (denominator r /= 1) $ do
     fail "Value is not an integer."
   return (numerator r)
-
-assertIsInteger :: IsSymInterface sym
-                => sym
-                -> SymReal sym
-                -> SimErrorReason
-                -> IO ()
-assertIsInteger sym v msg = do
-  addAssertionM sym (isInteger sym v) msg
 
 -- | Return value as a constant integer if it exists.
 realExprAsInteger :: (IsExpr e, Monad m) => e BaseRealType -> m Integer

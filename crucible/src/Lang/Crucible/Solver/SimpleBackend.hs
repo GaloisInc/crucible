@@ -34,6 +34,7 @@ import qualified Data.Sequence as Seq
 
 import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.SimpleBuilder (BoolElt)
 import qualified Lang.Crucible.Solver.SimpleBuilder as SB

@@ -7,6 +7,7 @@ Maintainer  : Joe Hendrix <jhendrix@galois.com>
 This module provides a minimalistic interface for manipulating Boolean formulas
 and execution contexts in the symbolic simulator.
 -}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -16,88 +17,29 @@ and execution contexts in the symbolic simulator.
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilies #-}
 module Lang.Crucible.Solver.BoolInterface
-  ( IsPred(..)
-  , SymExpr
-  , Pred
-  , SymPathState
+  ( SymPathState
   , BranchResult(..)
   , IsBoolExprBuilder(..)
   , IsBoolSolver(..)
   , Assertion(..)
   , assertPred
-  , itePredM
+  , IsSymInterface
+    -- * Utilities
+  , addAssertionM
+  , assertIsInteger
+  , cplxDiv
+  , cplxLog
+  , cplxLogBase
+  , readPartExpr
   ) where
 
 import Control.Exception (throwIO)
 import Control.Lens
-import Control.Monad.IO.Class
 
-import Lang.Crucible.BaseTypes
-import Lang.Crucible.Config
 import Lang.Crucible.ProgramLoc
 import Lang.Crucible.Simulator.SimError
-
--- | The class for expressions.
-type family SymExpr (sym :: *) :: BaseType -> *
-
-type Pred sym = SymExpr sym BaseBoolType
-
-------------------------------------------------------------------------
--- IsPred
-
-class IsPred v where
-  -- | Evaluate if predicate is constant.
-  asConstantPred :: v -> Maybe Bool
-  asConstantPred _ = Nothing
-
-------------------------------------------------------------------------
--- IsBoolSolver
-
--- | @IsBoolExprBuilder@ has methods for constructing
---   symbolic expressions of boolean type.
-class IsBoolExprBuilder sym where
-  truePred  :: sym -> Pred sym
-  falsePred :: sym -> Pred sym
-
-  notPred :: sym -> Pred sym -> IO (Pred sym)
-
-  andPred :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
-
-  orPred  :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
-  orPred sym x y = do
-    xn <- notPred sym x
-    yn <- notPred sym y
-    notPred sym =<< andPred sym xn yn
-
-  impliesPred :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
-  impliesPred sym x y = do
-    nx <- notPred sym x
-    orPred sym y nx
-
-  xorPred :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
-
-  eqPred  :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
-  eqPred sym x y = notPred sym =<< xorPred sym x y
-
-  -- | Perform ite on a predicate.
-  itePred :: sym -> Pred sym -> Pred sym -> Pred sym -> IO (Pred sym)
-
-
--- | Perform an ite on a predicate lazily.
-itePredM :: (IsPred (Pred sym), IsBoolExprBuilder sym, MonadIO m)
-         => sym
-         -> Pred sym
-         -> m (Pred sym)
-         -> m (Pred sym)
-         -> m (Pred sym)
-itePredM sym c mx my =
-  case asConstantPred c of
-    Just True -> mx
-    Just False -> my
-    Nothing -> do
-      x <- mx
-      y <- my
-      liftIO $ itePred sym c x y
+import Lang.Crucible.Solver.Interface
+import Lang.Crucible.Utils.Complex
 
 -- | State in the backend associated with a particular execution path.
 -- This is useful
@@ -134,13 +76,12 @@ data Assertion pred
 assertPred :: Simple Lens (Assertion pred) pred
 assertPred = lens _assertPred (\s v -> s { _assertPred = v })
 
+type IsSymInterface sym = (IsBoolSolver sym, IsSymbolicExprBuilder sym)
+
 -- | A Boolean solver has function for building up terms, and operating
 -- within an assertion context.
 class ( HasProgramLoc (SymPathState sym)
       ) => IsBoolSolver sym where
-
-  -- | Retrieve the configuration object corresponding to this solver interface.
-  getConfiguration :: sym -> Config
 
   ----------------------------------------------------------------------
   -- Branch manipulations
@@ -232,3 +173,105 @@ class ( HasProgramLoc (SymPathState sym)
   getAssertionsSince sym old = do
     cur <- getCurrentState sym
     getAssertionsBetween sym old cur
+
+
+addAssertionM :: IsBoolSolver sym
+              => sym
+              -> IO (Pred sym)
+              -> SimErrorReason
+              -> IO ()
+addAssertionM sym pf msg = do
+  p <- pf
+  addAssertion sym p msg
+
+-- | Divide one number by another.
+--
+-- Adds assertion on divide by zero.
+cplxDiv :: (IsExprBuilder sym, IsBoolSolver sym)
+        => sym
+        -> SymCplx sym
+        -> SymCplx sym
+        -> IO (SymCplx sym)
+cplxDiv sym x y = do
+  addAssertionM sym (isNonZero sym y) (GenericSimError "Divide by zero")
+  xr :+ xi <- cplxGetParts sym x
+  yc@(yr :+ yi) <- cplxGetParts sym y
+  case asRational <$> yc of
+    (_ :+ Just 0) -> do
+      zc <- (:+) <$> realDiv sym xr yr <*> realDiv sym xi yr
+      mkComplex sym zc
+    (Just 0 :+ _) -> do
+      zc <- (:+) <$> realDiv sym xi yi <*> realDiv sym xr yi
+      mkComplex sym zc
+    _ -> do
+      yr_abs <- realMul sym yr yr
+      yi_abs <- realMul sym yi yi
+      y_abs <- realAdd sym yr_abs yi_abs
+
+      zr_1 <- realMul sym xr yr
+      zr_2 <- realMul sym xi yi
+      zr <- realAdd sym zr_1 zr_2
+
+      zi_1 <- realMul sym xi yr
+      zi_2 <- realMul sym xr yi
+      zi <- realSub sym zi_1 zi_2
+
+      zc <- (:+) <$> realDiv sym zr y_abs <*> realDiv sym zi y_abs
+      mkComplex sym zc
+
+-- | Helper function that returns logarithm of input.
+--
+-- This operation adds an assertion that the input is non-zero.
+cplxLog' :: (IsExprBuilder sym, IsBoolSolver sym)
+         => sym -> SymCplx sym -> IO (Complex (SymReal sym))
+cplxLog' sym x = do
+  let err = GenericSimError "Input to log must be non-zero."
+  addAssertionM sym (isNonZero sym x) err
+  xr :+ xi <- cplxGetParts sym x
+  -- Get the magnitude of the value.
+  xm <- realHypot sym xr xi
+  -- Get angle of complex number.
+  xa <- realAtan2 sym xi xr
+  -- Get log of magnitude
+  zr <- realLog sym xm
+  return $! zr :+ xa
+
+-- | Returns logarithm of input.
+--
+-- This operation adds an assertion that the input is non-zero.
+cplxLog :: (IsExprBuilder sym, IsBoolSolver sym)
+        => sym -> SymCplx sym -> IO (SymCplx sym)
+cplxLog sym x = mkComplex sym =<< cplxLog' sym x
+
+-- | Returns logarithm of input at a given base.
+--
+-- This operation adds an assertion that the input is non-zero.
+cplxLogBase :: (IsExprBuilder sym, IsBoolSolver sym)
+            => Rational
+            -> sym
+            -> SymCplx sym
+            -> IO (SymCplx sym)
+cplxLogBase base sym x = do
+  b <- realLog sym =<< realLit sym base
+  z <- traverse (\r -> realDiv sym r b) =<< cplxLog' sym x
+  mkComplex sym z
+
+
+assertIsInteger :: (IsBoolSolver sym, IsExprBuilder sym)
+                => sym
+                -> SymReal sym
+                -> SimErrorReason
+                -> IO ()
+assertIsInteger sym v msg = do
+  addAssertionM sym (isInteger sym v) msg
+
+readPartExpr :: IsBoolSolver sym
+             => sym
+             -> PartExpr (Pred sym) v
+             -> SimErrorReason
+             -> IO v
+readPartExpr sym Unassigned msg = do
+  addFailedAssertion sym msg
+readPartExpr sym (PE p v) msg = do
+  addAssertion sym p msg
+  return v

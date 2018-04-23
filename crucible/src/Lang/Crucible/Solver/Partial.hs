@@ -20,7 +20,6 @@ module Lang.Crucible.Solver.Partial
  , justPartExpr
  , maybePartExpr
  , joinMaybePE
- , readPartExpr
    -- * PartialT
  , PartialT
  , runPartialT
@@ -34,16 +33,7 @@ module Lang.Crucible.Solver.Partial
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 
-import Lang.Crucible.Simulator.SimError
-import Lang.Crucible.Solver.BoolInterface
-
--- | A partial value represents a value that may or may not be assigned.
-data PartExpr p v
-   = PE { _pePred :: !p
-        , _peValue :: !v
-        }
-   | Unassigned
- deriving ( Functor, Foldable, Traversable )
+import Lang.Crucible.Solver.Interface
 
 mkPE :: IsPred p => p -> a -> PartExpr p a
 mkPE p v =
@@ -66,17 +56,6 @@ maybePartExpr sym (Just r) = justPartExpr sym r
 joinMaybePE :: Maybe (PartExpr p v) -> PartExpr p v
 joinMaybePE Nothing = Unassigned
 joinMaybePE (Just pe) = pe
-
-readPartExpr :: IsBoolSolver sym
-             => sym
-             -> PartExpr (Pred sym) v
-             -> SimErrorReason
-             -> IO v
-readPartExpr sym Unassigned msg = do
-  addFailedAssertion sym msg
-readPartExpr sym (PE p v) msg = do
-  addAssertion sym p msg
-  return v
 
 ------------------------------------------------------------------------
 -- Merge
@@ -175,9 +154,6 @@ returnPartial (PE q a) =
   where resolve r = case asConstantPred r of
                       Just False -> Unassigned
                       _ -> PE r a
-
-
-
 
 -- | Add an extra condition to the current partial computation.
 addCondition :: (IsPred (Pred sym), IsBoolExprBuilder sym, MonadIO m)
