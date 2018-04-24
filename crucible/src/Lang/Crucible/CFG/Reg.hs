@@ -8,9 +8,13 @@
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
 --
--- This module defines CFGs which feature mutable registers, in contrast
--- to the Core CFGs, which are in SSA form.  Register CFGs can be
--- translated into SSA registers using the SSAConversion module.
+-- This module defines CFGs that feature mutable registers, in
+-- contrast to the Core CFGs ("Lang.Crucible.CFG.Core"), which are in
+-- SSA form. Register CFGs can be translated into SSA CFGs using the
+-- "Lang.Crucible.CFG.SSAConversion" module.
+--
+-- Module "Lang.Crucible.CFG.Generator" provides a high-level monadic
+-- interface for producing register CFGs.
 ------------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -152,8 +156,8 @@ instance Ord (BlockID s) where
 -----------------------------------------------------------------------
 -- AtomSource
 
--- | Identifies what generated atom.
-data AtomSource s tp
+-- | Identifies what generated an atom.
+data AtomSource s (tp :: CrucibleType)
    = Assigned
      -- | Input argument to function.  They are ordered before other
      -- inputs to a program.
@@ -167,13 +171,13 @@ data AtomSource s tp
 
 -- | An expression in the control flow graph with a unique identifier.
 -- Unlike registers, atoms must be assigned exactly once.
-data Atom s tp
+data Atom s (tp :: CrucibleType)
    = Atom { atomPosition :: !Position
             -- ^ Position where register was declared (used for debugging).
           , atomId :: !Int
             -- ^ Unique identifier for atom.
           , atomSource :: !(AtomSource s tp)
-            -- ^ Application used to defined expression.
+            -- ^ How the atom expression was defined.
           , typeOfAtom :: !(TypeRepr tp)
           }
 
@@ -213,7 +217,7 @@ instance Pretty (Atom s tp) where
 -- Reg
 
 -- | A mutable value in the control flow graph.
-data Reg s tp
+data Reg s (tp :: CrucibleType)
    = Reg { -- | Position where register was declared (used for debugging).
            regPosition :: !Position
            -- | Unique identifier for register.
@@ -270,7 +274,8 @@ instance OrdF (LambdaLabel s) where
 ------------------------------------------------------------------------
 -- SomeValue and ValueSet
 
-data Value s tp
+-- | A value is either a register or an atom.
+data Value s (tp :: CrucibleType)
    = RegValue  !(Reg s tp)
    | AtomValue !(Atom s tp)
 
@@ -295,14 +300,14 @@ typeOfValue :: Value s tp -> TypeRepr tp
 typeOfValue (RegValue r) = typeOfReg r
 typeOfValue (AtomValue a) = typeOfAtom a
 
--- | A set of values
+-- | A set of values.
 type ValueSet s = Set (Some (Value s))
 
 ------------------------------------------------------------------------
 -- Expr
 
 -- | An expression in RTL representation.
-data Expr ext s tp
+data Expr ext s (tp :: CrucibleType)
   = App !(App ext (Expr ext s) tp)
     -- ^ An application of an expression
   | AtomExpr !(Atom s tp)
@@ -336,7 +341,7 @@ instance IsString (Expr ext s StringType) where
 -- AtomValue
 
 -- | The value of an assigned atom.
-data AtomValue ext s tp where
+data AtomValue ext s (tp :: CrucibleType) where
   -- Evaluate an expression
   EvalApp :: !(App ext (Atom s) tp) -> AtomValue ext s tp
   -- Read a value from a register
@@ -452,6 +457,7 @@ foldStmtInputs f s b =
 ------------------------------------------------------------------------
 -- TermStmt
 
+-- | Statement that terminates a basic block in a control flow graph.
 data TermStmt s (ret :: CrucibleType) where
   -- Jump to the given block.
   Jump :: !(Label s)
@@ -533,7 +539,7 @@ foldTermStmtAtoms f stmt0 b =
     ErrorStmt e -> f e b
 
 
--- | Returns set of registers appearing as inputs to terminal
+-- | Returns the set of registers appearing as inputs to a terminal
 -- statement.
 termStmtInputs :: TermStmt s ret
                -> ValueSet s
@@ -632,7 +638,11 @@ mkBlock block_id inputs stmts term =
 -- CFG
 
 -- | A CFG using registers instead of SSA form.
-data CFG ext s init ret
+--
+-- Parameter @ext@ is the syntax extension, @s@ is a phantom type
+-- parameter identifying a particular CFG, @init@ is the list of input
+-- types of the CFG, and @ret@ is the return type.
+data CFG ext s (init :: Ctx CrucibleType) (ret :: CrucibleType)
    = CFG { cfgHandle :: !(FnHandle init ret)
          , cfgBlocks :: !([Block ext s ret])
          }

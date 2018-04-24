@@ -18,8 +18,8 @@
 #
 # Installation:
 #
-# Execute this script from the `crucible-public` source repo. This will checkout all needed
-# Galois dependencies in `$PWD/dependencies` and execute a build.
+# Execute this script from the top level of the `crucible-public` source repo.
+# This will checkout all needed Galois dependencies in `$PWD/dependencies`.
 #
 # Options:
 #
@@ -51,21 +51,15 @@ checkout () {
 
 # GitHub repos (some private, some public) required by the build
 PKG_LIST="GaloisInc/abcBridge GaloisInc/aig GaloisInc/blt \
-          GaloisInc/saw-core GaloisInc/hpb elliottt/llvm-pretty \
+          GaloisInc/saw-core GaloisInc/saw-core-aig GaloisInc/saw-core-sbv \
+	  GaloisInc/hpb elliottt/llvm-pretty \
+	  GaloisInc/cryptol GaloisInc/cryptol-verifier \
+	  elliottt/llvm-pretty \
           GaloisInc/llvm-pretty-bc-parser GaloisInc/parameterized-utils"
 
 # Set base GitHub URL for Galois repos if it's not already set
 : ${GITHUB_URL:="git@github.com"}
 echo "Using github url: $GITHUB_URL"
-
-# Check if 'stack' is in the path
-if  type stack >/dev/null 2>&1; then
-    echo "Found stack"
-else
-    echo >&2 "I require 'stack' but it's not installed. Aborting."
-    echo >&2 "Stack available at: http://docs.haskellstack.org/en/stable/install_and_upgrade"
-    exit 1
-fi
 
 if [ ! -d "dependencies" ]; then
   mkdir -p "dependencies"

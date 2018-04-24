@@ -42,11 +42,15 @@ module Lang.Crucible.Server.Verification.Override
   , simulateHarness
   ) where
 
+import           Control.Lens (folded)
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Data.Foldable
+import           Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import qualified Data.Text as T
 import           Data.Word
 
 import qualified Data.Parameterized.Context as Ctx
@@ -62,7 +66,6 @@ import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.Symbol
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
 
@@ -94,7 +97,7 @@ type VerificationOverrideFnHandle rw w =
    FnHandle (VerifState rw w) (StructType (VerifState rw w))
 
 verifStateRepr :: (1 <= w, 1 <= rw) => NatRepr rw -> NatRepr w -> CtxRepr (VerifState rw w)
-verifStateRepr rw w = Ctx.empty Ctx.:> BVRepr w Ctx.:> WordMapRepr rw knownRepr Ctx.:> WordMapRepr w knownRepr 
+verifStateRepr rw w = Ctx.empty Ctx.:> BVRepr w Ctx.:> WordMapRepr rw knownRepr Ctx.:> WordMapRepr w knownRepr
 
 verifFnRepr :: (1 <= w, 1 <= rw) =>
    NatRepr rw ->
@@ -185,7 +188,37 @@ assumeConditions sc cryEnv phase =
            addAssumption sym x
 
 
-phaseUpdate ::
+createFreshHarnessVar ::
+  SAW.SAWCoreBackend n ->
+  HarnessVar CT.Name ->
+  HarnessVarType ->
+  IO (SubstTerm (SAW.SAWCoreBackend n), Term)
+createFreshHarnessVar sym var (HarnessVarWord n) =
+  do Just (Some valSize) <- return (someNat (toInteger n))
+     Just LeqProof <- return (isPosNat valSize)
+     sc <- SAW.sawBackendSharedContext sym
+     sawtp <- scBitvector sc (fromIntegral n)
+     let nm = show (PP.pp var)
+     tm <- SAW.sawCreateVar sym nm sawtp
+     bv <- SAW.bindSAWTerm sym (BaseBVRepr valSize) tm
+     return (SubstWord bv, tm)
+
+createFreshHarnessVar sym var (HarnessVarArray elems n) =
+  do Just (Some valSize) <- return (someNat (toInteger n))
+     Just LeqProof <- return (isPosNat valSize)
+     sc <- SAW.sawBackendSharedContext sym
+     elemtp <- scBitvector sc (fromIntegral n)
+     elems' <- scNat sc (fromIntegral elems)
+     sawtp  <- scVecType sc elems' elemtp
+     let nm = show (PP.pp var)
+     tm <- SAW.sawCreateVar sym nm sawtp
+     tms <- forM [0..elems-1] $ \i ->
+               do i' <- scNat sc (fromIntegral i)
+                  scAt sc elems' elemtp tm i'
+     bvs <- mapM (SAW.bindSAWTerm sym (BaseBVRepr valSize)) tms
+     return (SubstArray valSize (Seq.fromList bvs), tm)
+
+phaseUpdate :: forall p n r args ret w rw.
    (1 <= w, 1 <= rw) =>
    Simulator p (SAW.SAWCoreBackend n) ->
    SAW.SAWCoreBackend n ->
@@ -218,6 +251,20 @@ phaseUpdate sim sym rw w sc varTypes endianness phase = \x -> foldM go x (toList
          return (sub', cryEnv', regs, mem)
 
   go (sub,cryEnv,regs,mem) step = case step of
+    DeclareFreshVariable var ->
+      let hvar = CryptolVar var in
+      case Map.lookup hvar sub of
+        Just _ ->
+          -- If the variable already has a definition, just discard this directive
+          do return (sub,cryEnv,regs,mem)
+        Nothing ->
+          case Map.lookup hvar varTypes of
+            Just htp ->
+              do (subTm,tm) <- liftIO $ createFreshHarnessVar sym hvar htp
+                 updateSub hvar tm subTm sub cryEnv regs mem
+            Nothing ->
+              fail (show (PP.text "Impossible! Unknown type for variable: " PP.<+> PP.pp var))
+
     BindVariable var (_tp,ex) ->
       case Map.lookup var varTypes of
         Just htp ->
@@ -235,22 +282,18 @@ phaseUpdate sim sym rw w sc varTypes endianness phase = \x -> foldM go x (toList
     RegisterVal offset var ->
       case Map.lookup var varTypes of
         Just (HarnessVarWord n) ->
-          case Map.lookup var sub of
-            Just tm' ->
-              do Just (Some valSize) <- return (someNat (toInteger n))
-                 Just LeqProof <- return (isPosNat valSize)
-                 bv <- substTermAsBV sym valSize tm'
-                 regs' <- writeReg sim rw offset n endianness (SomeBV bv) regs
-                 return (sub,cryEnv,regs',mem)
-            Nothing ->
-              do Just (Some valSize) <- return (someNat (toInteger n))
-                 Just LeqProof <- return (isPosNat valSize)
-                 --Right smb <- return $ userSymbol (show (PP.pp var))
-                 let smb = emptySymbol
-                 bv <- liftIO $ freshConstant sym smb (BaseBVRepr valSize)
-                 tm <- liftIO $ SAW.toSC sym bv
-                 regs' <- writeReg sim rw offset n endianness (SomeBV bv) regs
-                 updateSub var tm (SubstWord bv) sub cryEnv regs' mem
+          do Just (Some valSize) <- return (someNat (toInteger n))
+             Just LeqProof <- return (isPosNat valSize)
+             case Map.lookup var sub of
+               Just substTm ->
+                 do bv <- substTermAsBV sym valSize substTm
+                    regs' <- writeReg sim rw offset n endianness (SomeBV bv) regs
+                    return (sub,cryEnv,regs',mem)
+               Nothing ->
+                 do (substTm, tm) <- liftIO $ createFreshHarnessVar sym var (HarnessVarWord n)
+                    bv <- substTermAsBV sym valSize substTm
+                    regs' <- writeReg sim rw offset n endianness (SomeBV bv) regs
+                    updateSub var tm substTm sub cryEnv regs' mem
 
         Just (HarnessVarArray _ _ ) ->
            fail (show (PP.text "Cannot write array types to registers for variable: " PP.<+> PP.pp var))
@@ -273,19 +316,105 @@ phaseUpdate sim sym rw w sc varTypes endianness phase = \x -> foldM go x (toList
                         mem' <- writeMap sim w addr n endianness (SomeBV bv) mem
                         return (sub,cryEnv,regs,mem')
                    Nothing ->
-                     do --Right smb <- return $ userSymbol (show (PP.pp val))
-                        let smb = emptySymbol
-                        bv <- liftIO $ freshConstant sym smb (BaseBVRepr x)
-                        tm <- liftIO $ SAW.toSC sym bv
+                     do (valtm, tm) <- liftIO $ createFreshHarnessVar sym val (HarnessVarWord n)
+                        bv <- substTermAsBV sym x valtm
                         mem' <- writeMap sim w addr n endianness (SomeBV bv) mem
-                        updateSub val tm (SubstWord bv) sub cryEnv regs mem'
+                        updateSub val tm valtm sub cryEnv regs mem'
 
-            Just (HarnessVarArray _ _) ->
-              fail (show (PP.text "FIXME! Implement array memory writes!: " PP.<+> PP.pp val))
+            Just (HarnessVarArray elems n) ->
+              do baseAddr <- substTermAsBV sym w basetm
+                 off <- liftIO $ bvLit sym w (toInteger offset)
+                 addr <- liftIO (bvAdd sym baseAddr off)
+                 Just (Some x) <- return (someNat (toInteger n))
+                 Just LeqProof <- return (isPosNat x)
+                 case Map.lookup val sub of
+                   Just valtm ->
+                     do mem' <- writeArray sim sym w addr endianness elems n x valtm mem
+                        return (sub,cryEnv,regs,mem')
+                   Nothing ->
+                     do (valtm, tm) <- liftIO $ createFreshHarnessVar sym val (HarnessVarArray elems n)
+                        mem' <- writeArray sim sym w addr endianness elems n x valtm mem
+                        updateSub val tm valtm sub cryEnv regs mem'
+
             Nothing ->
               fail (show (PP.text "Impossible! Unknown type for variable: " PP.<+> PP.pp val))
         Nothing ->
           fail (show (PP.text "Base pointer not defined" PP.<+> PP.pp base))
+
+substTermAsArray ::
+   (MonadIO m, 1 <= x) =>
+   SAW.SAWCoreBackend n ->
+   Word64 ->
+   NatRepr x ->
+   SubstTerm (SAW.SAWCoreBackend n) ->
+   m (Seq (SymBV (SAW.SAWCoreBackend n) x))
+substTermAsArray _sym elems x (SubstArray x' vs)
+  | Just Refl <- testEquality x x'
+  , Seq.length vs == fromIntegral elems
+  = return vs
+
+substTermAsArray sym elems x (SubstTerm tm)
+  = liftIO $
+      do sc <- SAW.sawBackendSharedContext sym
+         elemtp <- scBitvector sc (fromIntegral (natValue x))
+         elems' <- scNat sc (fromIntegral elems)
+         tms <- forM [0..elems-1] $ \i ->
+                   do i' <- scNat sc (fromIntegral i)
+                      v <- scAt sc elems' elemtp tm i'
+                      SAW.bindSAWTerm sym (BaseBVRepr x) v
+         return (Seq.fromList tms)
+
+substTermAsArray _sym _elems _x _
+  = fail "Expected array value"
+
+readArray ::
+   (1 <= w, 1 <= x) =>
+   Simulator p (SAW.SAWCoreBackend n) ->
+   SAW.SAWCoreBackend n ->
+   NatRepr w ->
+   SymBV (SAW.SAWCoreBackend n) w ->
+   Endianness ->
+   Word64 ->
+   Word64 ->
+   NatRepr x ->
+   WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8) ->
+   N p n r args ret (Seq (SymBV (SAW.SAWCoreBackend n) x))
+readArray sim sym w addr endianness elems n x mem =
+  Seq.fromList <$> (forM [ 0 .. elems-1 ] $ \i ->
+    do off   <- liftIO $ bvLit sym w (toInteger i * toInteger (n `div` 8))
+       addr' <- liftIO $ bvAdd sym addr off
+       SomeBV v <- readMap sim w addr' n endianness mem
+       case testEquality (bvWidth v) x of
+         Just Refl -> return v
+         Nothing   -> fail "Size mismatch in readArray")
+
+
+writeArray ::
+   (1 <= w, 1 <= x) =>
+   Simulator p (SAW.SAWCoreBackend n) ->
+   SAW.SAWCoreBackend n ->
+   NatRepr w ->
+   SymBV (SAW.SAWCoreBackend n) w ->
+   Endianness ->
+   Word64 ->
+   Word64 ->
+   NatRepr x ->
+   SubstTerm (SAW.SAWCoreBackend n) ->
+   WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8) ->
+   N p n r args ret (WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8))
+writeArray sim sym w addr endianness elems n x val mem0 =
+   do vals <- substTermAsArray sym elems x val
+      foldM
+        (\mem (i,v) ->
+          do off <- liftIO $ bvLit sym w (toInteger i * toInteger (n `div` 8))
+             addr' <- liftIO $ bvAdd sym addr off
+             liftIO (sendTextResponse sim (T.pack ("WriteArray: " ++ show (printSymExpr addr'))))
+             writeMap sim w addr' n endianness (SomeBV v) mem
+        )
+        mem0
+        (zip [ 0 .. (elems-1) ] (toList vals))
+
+
 
 lookupWord ::
    (1 <= w) =>
@@ -318,11 +447,11 @@ computeVarTypes ph harness = Map.fromList pairs
 type Subst sym = Map (HarnessVar CT.Name) (SubstTerm sym)
 
 data SubstTerm sym where
-  SubstWord  :: (1 <= w) => SymExpr sym (BaseBVType w) -> SubstTerm sym
   SubstTerm  :: Term -> SubstTerm sym
---  SubstArray :: (1 <= w) -> NatRepr w -> Seq (SymExpr sym (BaseBVType w)) -> SubstTerm sym
+  SubstWord  :: (1 <= w) => SymExpr sym (BaseBVType w) -> SubstTerm sym
+  SubstArray :: (1 <= w) => NatRepr w -> Seq (SymExpr sym (BaseBVType w)) -> SubstTerm sym
 
-computeVariableSubstitution ::
+computeVariableSubstitution :: forall p n r args ret w rw.
    (1 <= rw, 1 <= w) =>
    Simulator p (SAW.SAWCoreBackend n) ->
    SAW.SAWCoreBackend n ->
@@ -350,6 +479,18 @@ computeVariableSubstitution sim sym rw w sc endianness cryEnv0 varTypes phase re
          return (sub', cryEnv')
 
   go (sub, cryEnv) step = case step of
+    DeclareFreshVariable var ->
+      let hvar = CryptolVar var in
+      case Map.lookup hvar sub of
+         Just _ -> return (sub,cryEnv)
+         Nothing ->
+           case Map.lookup hvar varTypes of
+             Just htp ->
+               do (subTm, tm) <- liftIO $ createFreshHarnessVar sym hvar htp
+                  updateSub hvar tm subTm sub cryEnv
+             Nothing ->
+               fail (show (PP.text "Impossible! Unknown type for variable: " PP.<+> PP.pp var))
+
     BindVariable var (_tp,ex) ->
       case Map.lookup var varTypes of
         Just htp ->
@@ -403,10 +544,39 @@ computeVariableSubstitution sim sym rw w sc endianness cryEnv0 varTypes phase re
                  fail (show (PP.text "Base pointer not defined"
                              PP.<+> PP.pp base))
 
-        Just (HarnessVarArray _ _ ) ->
-           fail (show (PP.text "FIXME! Implement array memory reads!: " PP.<+> PP.pp var))
+        Just (HarnessVarArray elems n) ->
+             case Map.lookup base sub of
+               Just basetm ->
+                    do baseAddr <- substTermAsBV sym w basetm
+                       off <- liftIO $ bvLit sym w (toInteger offset)
+                       addr <- liftIO (bvAdd sym baseAddr off)
+                       Just (Some valSize) <- return (someNat (toInteger n))
+                       Just LeqProof <- return (isPosNat valSize)
+                       vals <- readArray sim sym w addr endianness elems n valSize mem
+                       tm   <- liftIO $ arrayAsTerm sym n vals
+                       case Map.lookup var sub of
+                         Nothing ->
+                           do updateSub var tm (SubstArray valSize vals) sub cryEnv
+                         Just tm' ->
+                           do assertEquiv sym (HarnessVarArray elems n) tm tm'
+                              return (sub,cryEnv)
+
+               Nothing ->
+                 fail (show (PP.text "Base pointer not defined"
+                             PP.<+> PP.pp base))
+
         Nothing ->
            fail (show (PP.text "Impossible! Unknown type for variable: " PP.<+> PP.pp var))
+
+arrayAsTerm ::
+   SAW.SAWCoreBackend n ->
+   Word64 ->
+   Seq (SymBV (SAW.SAWCoreBackend n) x) ->
+   IO Term
+arrayAsTerm sym n vals =
+  do sc <- SAW.sawBackendSharedContext sym
+     elemtp <- scBitvector sc (fromIntegral n)
+     scVector sc elemtp =<< mapM (SAW.toSC sym) (toList vals)
 
 termToSubstTerm ::
    SAW.SAWCoreBackend n ->
@@ -439,6 +609,8 @@ substTermAsBV _sym w (SubstWord x) =
     case testEquality w (bvWidth x) of
       Just Refl -> return x
       Nothing -> fail ("BV width mismatch " ++ show (w,bvWidth x))
+substTermAsBV _sym _w (SubstArray _ _) =
+   fail "Expected a bitvector term, but got an array"
 
 -- Try to render the given SAWCore term, assumed to represent
 -- a bitvector, as a concrete value.
@@ -592,56 +764,6 @@ readMap sim x addr size endianness wordmap
 data SomeBV sym where
   SomeBV :: forall sym w. (1 <= w) => SymExpr sym (BaseBVType w) -> SomeBV sym
 
-{-
-concatBVs ::
-   forall sym.
-   IsExprBuilder sym =>
-   sym ->
-   [SomeBV sym] ->
-   IO (SomeBV sym)
-concatBVs sym [] = fail "cannot concat an empty sequence of bitvectors"
-concatBVs sym (x:xs) = go x xs
- where
- go acc [] = return acc
- go (SomeBV (acc :: SymExpr sym (BaseBVType a)))
-    (SomeBV (h   :: SymExpr sym (BaseBVType b)) : t) =
-     let proof :: LeqProof 1 (a+b)
-         proof = leqAdd (leqProof (Proxy :: Proxy 1) (Proxy :: Proxy a)) (Proxy :: Proxy b)
-      in withLeqProof proof $
-          do z <- bvConcat sym acc h
-             go (SomeBV z) t
-
-wordMapLoad ::
-   (1 <= w) =>
-   (1 <= n) =>
-   IsSymInterface sym =>
-   sym ->
-   NatRepr w ->
-   NatRepr n ->
-   Endianness ->
-   Integer ->
-   SymBV sym w ->
-   WordMap sym w (BaseBVType n) ->
-   IO (SomeBV sym)
-wordMapLoad sym w n endianness num idx map
-  | num < 1 = fail "Must load at least one byte"
-  | otherwise =
-      do cells <- mapM (\off -> do i <- bvAdd sym idx =<< bvLit sym w off
-                                   x <- lookupWordMap sym w (BaseBVRepr n) i map
-                                   let msg = "WordMap: read an undefined index" ++
-                                              case asUnsignedBV i of
-                                                Nothing  -> ""
-                                                Just idx -> " 0x" ++ showHex idx ""
-                                   let ex = ReadBeforeWriteSimError msg
-                                   SomeBV <$> readPartExpr sym x ex)
-                       offsets
-         concatBVs sym cells
-
-  where
-   offsets = case endianness of
-               BigEndian    -> [0 .. num-1]
-               LittleEndian -> reverse [0 .. num-1]
--}
 
 assumeEquiv ::
    MonadIO m =>
@@ -661,9 +783,15 @@ assumeEquiv sym hvt tm subTm =
                liftIO $ addAssumption sym eq
          | otherwise -> fail ("Invalid word width in assumeEquiv" ++ show n)
 
-       HarnessVarArray _elems _n ->
-         fail "FIXME assumeEquiv for arrays"
-
+       HarnessVarArray elems n
+         | Just (Some w) <- someNat (toInteger n)
+         , Just LeqProof <- isPosNat w
+         -> do vals  <- substTermAsArray sym elems w (SubstTerm tm)
+               vals' <- substTermAsArray sym elems w subTm
+               eq <- liftIO (andAllOf sym folded =<<
+                       zipWithM (\v v' -> bvEq sym v v') (toList vals) (toList vals'))
+               liftIO $ addAssumption sym eq
+         | otherwise -> fail ("Invalid word width in assumeEquiv" ++ show n)
 
 assertEquiv ::
    MonadIO m =>
@@ -683,9 +811,15 @@ assertEquiv sym hvt tm subTm =
                liftIO $ addAssertion sym eq (AssertFailureSimError "Equality condition failed")
          | otherwise -> fail ("Invalid word width in assertEquiv" ++ show n)
 
-       HarnessVarArray _elems _n ->
-         fail "FIXME assertEquiv for arrays"
-
+       HarnessVarArray elems n
+         | Just (Some w) <- someNat (toInteger n)
+         , Just LeqProof <- isPosNat w
+         -> do vals  <- substTermAsArray sym elems w (SubstTerm tm)
+               vals' <- substTermAsArray sym elems w subTm
+               eq <- liftIO (andAllOf sym folded =<<
+                       zipWithM (\v v' -> bvEq sym v v') (toList vals) (toList vals'))
+               liftIO $ addAssertion sym eq (AssertFailureSimError "Equality condition failed")
+         | otherwise -> fail ("Invalid word width in assertEquiv" ++ show n)
 
 simulateHarness ::
   (1 <= w, 1 <= rw) =>
@@ -729,12 +863,3 @@ simulateHarness sim rw w sc cryEnv harness pc stack ret fn =
              --traverse (\x -> liftIO $ translateExpr sc cryEnv'' (snd x)) (verificationOutput harness)
 
         _ -> fail "Impossible! failed to deconstruct verification result!"
-
-
-{-
-data VerificationSetupStep id ex
-  = BindVariable (HarnessVar id) ex
-  | RegisterVal Offset (HarnessVar id)
-  | MemPointsTo (HarnessVar id) Offset (HarnessVar id)
- deriving (Functor)
--}

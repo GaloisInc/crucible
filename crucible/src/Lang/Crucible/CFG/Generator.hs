@@ -35,6 +35,9 @@
 module Lang.Crucible.CFG.Generator
   ( -- * Generator
     Generator
+  , FunctionDef
+  , defineFunction
+    -- * Positions
   , getPosition
   , setPosition
   , withPosition
@@ -78,8 +81,6 @@ module Lang.Crucible.CFG.Generator
   , defineLambdaBlock
   , defineBlockLabel
   , recordCFG
-  , FunctionDef
-  , defineFunction
     -- * Control-flow combinators
   , continue
   , continueLambda
@@ -235,11 +236,11 @@ terminateBlock term gs =
 -- The 'h' parameter is the parameter for the underlying ST monad.
 -- The 's' parameter is the phantom parameter for CFGs.
 -- The 't' parameter is the parameterized type that allows user-defined
--- state.  It is reset at each block.
+-- state.
 -- The 'ret' parameter is the return type of the CFG.
 -- The 'a' parameter is the value returned by the monad.
 
-newtype Generator ext h s t ret a
+newtype Generator ext h s (t :: * -> *) (ret :: CrucibleType) a
       = Generator { unGenerator :: StateContT (GeneratorState ext s t ret)
                                               (EndState ext s t ret)
                                               (ST h)

@@ -102,8 +102,9 @@ sawFulfillCompileVerificationOverrideRequest
 sawFulfillCompileVerificationOverrideRequest sim harness =
   do sc <- SAW.sawBackendSharedContext =<< getInterface sim
      cryEnv <- view (cruciblePersonality . sawServerCryptolEnv) <$> readIORef (simContext sim)
+     let hout = sendTextResponse sim . Text.pack
 
-     (cryEnv',harness') <- processHarness sc cryEnv harness
+     (cryEnv',harness') <- processHarness hout sc cryEnv harness
      -- NB: we explicitly do not store the modified cryEnv' back into the simContext;
      -- the modifications to the environment produced by processing a harness are only
      -- scoped over the harness itself.
@@ -134,11 +135,12 @@ sawFulfillSimulateVerificationHarnessRequest ::
 sawFulfillSimulateVerificationHarnessRequest sim harness opts =
   do sym <- getInterface sim
      ctx <- readIORef (simContext sim)
+     let hout = sendTextResponse sim . Text.pack
 
      sc <- SAW.sawBackendSharedContext sym
      let cryEnv = ctx^.cruciblePersonality.sawServerCryptolEnv
 
-     (cryEnv', harness') <- processHarness sc cryEnv harness
+     (cryEnv', harness') <- processHarness hout sc cryEnv harness
      -- NB: we explicitly do not store the modified cryEnv' back into the simContext;
      -- the modifications to the environment produced by processing a harness are only
      -- scoped over the harness itself.
