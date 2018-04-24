@@ -279,7 +279,7 @@ evalMatlabSolverFn f sym =
 
 -- | This class is provides functions needed to implement the symbolic
 -- array intrinsic functions
-class IsSymbolicExprBuilder sym => MatlabSymbolicArrayBuilder sym where
+class IsSymExprBuilder sym => MatlabSymbolicArrayBuilder sym where
 
   -- | Create a Matlab solver function from its prototype.
   mkMatlabSolverFn :: sym

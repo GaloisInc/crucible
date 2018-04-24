@@ -22,23 +22,11 @@ provide several type family definitions and class instances for @sym@:
   [@type 'SymFn' sym :: Ctx BaseType -> BaseType -> *@]
   Representation of symbolic functions.
 
-  [@type 'SymPathState' sym :: *@]
-  Representation of symbolic path conditions.
-
-  [@instance 'IsBoolExprBuilder' sym@]
-  Functions for building boolean formulas.
-
   [@instance 'IsExprBuilder' sym@]
   Functions for building expressions of various types.
 
-  [@instance 'IsSymInterface' sym@]
+  [@instance 'IsSymExprBuilder' sym@]
   Functions for building expressions with bound variables and quantifiers.
-
-  [@instance 'IsBoolSolver' sym@]
-  Functions for managing path conditions and assertions.
-
-  [@instance 'IsPred' ('SymExpr' sym 'BaseBoolType')@]
-  Recognizer for boolean literals.
 
   [@instance 'IsExpr' ('SymExpr' sym)@]
   Recognizers for various kinds of literal expressions.
@@ -50,7 +38,6 @@ provide several type family definitions and class instances for @sym@:
   [@instance 'TestEquality' ('SymExpr' sym)@]
 
   [@instance 'HashableF' ('SymExpr' sym)@]
-
 -}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
@@ -72,16 +59,14 @@ provide several type family definitions and class instances for @sym@:
 module Lang.Crucible.Solver.Interface
   ( -- * Interface classes
     -- ** IsExpr
-    IsPred(..)
-  , IsExpr(..)
+    IsExpr(..)
     -- ** IsExprBuilder
   , SymExpr
-  , IsBoolExprBuilder(..)
   , IsExprBuilder(..)
     -- ** IsSymInterface
   , BoundVar
   , IsSymFn(..)
-  , IsSymbolicExprBuilder(..)
+  , IsSymExprBuilder(..)
     -- * Bound variables
   , SymEncoder(..)
   , ArrayResultWrapper(..)
@@ -162,6 +147,7 @@ import           Text.PrettyPrint.ANSI.Leijen (Doc)
 
 import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
+import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.Symbol
 --import           Lang.Crucible.Solver.WeightedSum (WeightedSum)
@@ -204,55 +190,17 @@ type SymString sym = SymExpr sym BaseStringType
 -- | The class for expressions.
 type family SymExpr (sym :: *) :: BaseType -> *
 
-
 ------------------------------------------------------------------------
--- IsPred
-
-class IsPred v where
-  -- | Evaluate if predicate is constant.
-  asConstantPred :: v -> Maybe Bool
-  asConstantPred _ = Nothing
-
 -- | Type of bound variable associated with symbolic state.
 --
--- This type is used by some methods in class 'IsSymInterface'.
+-- This type is used by some methods in class 'IsSymExprBuilder'.
 type family BoundVar (sym :: *) :: BaseType -> *
 
 ------------------------------------------------------------------------
 -- IsBoolSolver
 
--- | @IsBoolExprBuilder@ has methods for constructing
---   symbolic expressions of boolean type.
-class IsBoolExprBuilder sym where
-  truePred  :: sym -> Pred sym
-  falsePred :: sym -> Pred sym
-
-  notPred :: sym -> Pred sym -> IO (Pred sym)
-
-  andPred :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
-
-  orPred  :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
-  orPred sym x y = do
-    xn <- notPred sym x
-    yn <- notPred sym y
-    notPred sym =<< andPred sym xn yn
-
-  impliesPred :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
-  impliesPred sym x y = do
-    nx <- notPred sym x
-    orPred sym y nx
-
-  xorPred :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
-
-  eqPred  :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
-  eqPred sym x y = notPred sym =<< xorPred sym x y
-
-  -- | Perform ite on a predicate.
-  itePred :: sym -> Pred sym -> Pred sym -> Pred sym -> IO (Pred sym)
-
-
 -- | Perform an ite on a predicate lazily.
-itePredM :: (IsPred (Pred sym), IsBoolExprBuilder sym, MonadIO m)
+itePredM :: (IsExpr (SymExpr sym), IsExprBuilder sym, MonadIO m)
          => sym
          -> Pred sym
          -> m (Pred sym)
@@ -270,7 +218,11 @@ itePredM sym c mx my =
 ------------------------------------------------------------------------
 -- IsExpr
 
-class (IsPred (e BaseBoolType)) => IsExpr e where
+class IsExpr e where
+  -- | Evaluate if predicate is constant.
+  asConstantPred :: e BaseBoolType -> Maybe Bool
+  asConstantPred _ = Nothing
+
   -- | Return nat if this is a constant natural number.
   asNat :: e BaseNatType -> Maybe Natural
   asNat _ = Nothing
@@ -395,10 +347,21 @@ data PartExpr p v
 --
 -- Methods of this class refer to type families @'SymExpr' sym@
 -- and @'SymFn' sym@.
-class ( IsBoolExprBuilder sym
-      , IsExpr (SymExpr sym)
+class ( IsExpr (SymExpr sym)
       , HashableF (SymExpr sym)
       ) => IsExprBuilder sym where
+
+  -- | Retrieve the configuration object corresponding to this solver interface.
+  getConfiguration :: sym -> Config
+
+  ----------------------------------------------------------------------
+  -- Program location operations
+
+  -- | Get current location of program for term creation purposes.
+  getCurrentProgramLoc :: sym -> IO ProgramLoc
+
+  -- | Set current location of program for term creation purposes.
+  setCurrentProgramLoc :: sym -> ProgramLoc -> IO ()
 
   -- | Return true if two expressions are equal. The default
   -- implementation dispatches 'eqPred', 'bvEq', 'natEq', 'intEq',
@@ -437,6 +400,36 @@ class ( IsBoolExprBuilder sym
       BaseComplexRepr  -> cplxIte   sym c x y
       BaseStructRepr{} -> structIte sym c x y
       BaseArrayRepr{}  -> arrayIte  sym c x y
+
+  ----------------------------------------------------------------------
+  -- Boolean operations.
+
+  truePred  :: sym -> Pred sym
+  falsePred :: sym -> Pred sym
+
+  notPred :: sym -> Pred sym -> IO (Pred sym)
+
+  andPred :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
+
+  orPred  :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
+  orPred sym x y = do
+    xn <- notPred sym x
+    yn <- notPred sym y
+    notPred sym =<< andPred sym xn yn
+
+  impliesPred :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
+  impliesPred sym x y = do
+    nx <- notPred sym x
+    orPred sym y nx
+
+  xorPred :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
+
+  eqPred  :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
+  eqPred sym x y = notPred sym =<< xorPred sym x y
+
+  -- | Perform ite on a predicate.
+  itePred :: sym -> Pred sym -> Pred sym -> Pred sym -> IO (Pred sym)
+
 
   ----------------------------------------------------------------------
   -- Nat operations.
@@ -1737,24 +1730,10 @@ class IsSymFn fn where
 
 -- | This extends the interface for building expressions with operations
 -- for creating new constants and functions.
-class ( IsBoolExprBuilder sym
-      , IsExprBuilder sym
+class ( IsExprBuilder sym
       , IsSymFn (SymFn sym)
       , OrdF (SymExpr sym)
-      ) => IsSymbolicExprBuilder sym where
-
-  -- | Retrieve the configuration object corresponding to this solver interface.
-  getConfiguration :: sym -> Config
-
-  ----------------------------------------------------------------------
-  -- Caching operations.
-
-  -- | Stop caching applications.
-  stopCaching :: sym -> IO ()
-
-  -- | Restart caching applications.
-  -- (clears cache if it is currently caching).
-  restartCaching :: sym -> IO ()
+      ) => IsSymExprBuilder sym where
 
   ----------------------------------------------------------------------
   -- Fresh variables
@@ -1903,7 +1882,7 @@ baseDefaultValue sym bt =
       constantArray sym idx elt
 
 -- | Return predicate equivalent to a Boolean.
-backendPred :: IsBoolExprBuilder sym => sym -> Bool -> Pred sym
+backendPred :: IsExprBuilder sym => sym -> Bool -> Pred sym
 backendPred sym True  = truePred  sym
 backendPred sym False = falsePred sym
 
@@ -1967,14 +1946,14 @@ realExprAsNat x =
 cplxExprAsNat :: (IsExpr e, Monad m) => e BaseComplexType -> m Natural
 cplxExprAsNat x = fromInteger <$> cplxExprAsInteger x
 
-andAllOf :: IsBoolExprBuilder sym
+andAllOf :: IsExprBuilder sym
          => sym
          -> Fold s (Pred sym)
          -> s
          -> IO (Pred sym)
 andAllOf sym f s = foldlMOf f (andPred sym) (truePred sym) s
 
-orOneOf :: IsBoolExprBuilder sym
+orOneOf :: IsExprBuilder sym
          => sym
          -> Fold s (Pred sym)
          -> s

@@ -50,7 +50,7 @@ import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Types
 import           Lang.Crucible.ProgramLoc
 import qualified Lang.Crucible.Proto as P
-import           Lang.Crucible.Solver.Interface
+import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Server.ValueConv
 import           Lang.Crucible.Server.Encoding
 import           Lang.Crucible.Server.Simulator

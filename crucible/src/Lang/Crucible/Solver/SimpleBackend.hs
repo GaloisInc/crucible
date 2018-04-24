@@ -20,20 +20,14 @@ module Lang.Crucible.Solver.SimpleBackend
   , newSimpleBackend
     -- * SimpleBackendState
   , SimpleBackendState
-  , assertions
-  , appendAssertion
-  , appendAssertions
   ) where
 
-import           Control.Exception ( assert, throw )
 import           Control.Lens
 import           Data.IORef
 import           Data.Parameterized.Nonce
-import           Data.Sequence (Seq)
-import qualified Data.Sequence as Seq
 
-import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Solver.AssumptionStack as AS
 import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.SimpleBuilder (BoolElt)
@@ -45,101 +39,59 @@ type SimpleBackend t = SB.SimpleBuilder t SimpleBackendState
 -- SimpleBackendState
 
 -- | This represents the state of the backend along a given execution.
--- It contains the current assertions and program location.
-data SimpleBackendState t
-      = SimpleBackendState { _assertions  :: Seq (Assertion (BoolElt t))
-                           , _proofObligs :: Seq (Seq (BoolElt t), Assertion (BoolElt t))
-                           }
+-- It contains the current assertion stack.
+
+newtype SimpleBackendState t
+      = SimpleBackendState { sbAssumptionStack :: AssumptionStack (BoolElt t) t SimErrorReason }
 
 -- | Returns an initial execution state.
-initialSimpleBackendState :: SimpleBackendState t
-initialSimpleBackendState
-     = SimpleBackendState { _assertions = Seq.empty
-                          , _proofObligs = Seq.empty
-                          }
-
--- | The set of active assumptions in the program.
-assertions :: Simple Lens (SimpleBackendState t) (Seq (Assertion (BoolElt t)))
-assertions = lens _assertions (\s v -> s { _assertions = v })
-
--- | The sequence of accumulated assertion obligations
-proofObligs :: Simple Lens (SimpleBackendState t) (Seq (Seq (BoolElt t), Assertion (BoolElt t)))
-proofObligs = lens _proofObligs (\s v -> s { _proofObligs = v })
-
-appendAssertion :: ProgramLoc
-                -> BoolElt t
-                -> SimErrorReason
-                -> SimpleBackendState t
-                -> SimpleBackendState t
-appendAssertion l p m s =
-  let ast = Assertion l p (Just m) in
-  s & assertions  %~ (Seq.|> ast)
-    & proofObligs %~ (Seq.|> (fmap (^.assertPred) (s^.assertions), ast))
-
-appendAssumption :: ProgramLoc
-                 -> BoolElt t
-                 -> SimpleBackendState t
-                 -> SimpleBackendState t
-appendAssumption l p s =
-  s & assertions %~ (Seq.|> Assertion l p Nothing)
-
--- | Append assertions to path state.
-appendAssertions :: Seq (Assertion (BoolElt t))
-                 -> SimpleBackendState t
-                 -> SimpleBackendState t
-appendAssertions pairs = assertions %~ (Seq.>< pairs)
+initialSimpleBackendState :: NonceGenerator IO t -> IO (SimpleBackendState t)
+initialSimpleBackendState gen = SimpleBackendState <$> initAssumptionStack gen
 
 newSimpleBackend :: NonceGenerator IO t
                  -> IO (SimpleBackend t)
-newSimpleBackend = SB.newSimpleBuilder initialSimpleBackendState
+newSimpleBackend gen =
+  do st <- initialSimpleBackendState gen
+     SB.newSimpleBuilder st gen
+
+getAssumptionStack :: SimpleBackend t -> IO (AssumptionStack (BoolElt t) t SimErrorReason)
+getAssumptionStack sym = sbAssumptionStack <$> readIORef (SB.sbStateManager sym)
 
 instance SB.IsSimpleBuilderState SimpleBackendState where
   sbAddAssertion sym e m = do
-    case SB.asApp e of
-      Just SB.TrueBool -> return ()
-      Just SB.FalseBool -> do
-        loc <- getCurrentProgramLoc sym
-        throw (SimError loc m)
-      _ -> do
-        loc <- getCurrentProgramLoc sym
-        modifyIORef' (SB.sbStateManager sym) $ appendAssertion loc e m
+    loc <- SB.curProgramLoc sym
+    stk <- getAssumptionStack sym
+    assert (Assertion loc e (Just m)) stk
 
   sbAddAssumption sym e = do
-    case SB.asApp e of
-      Just SB.TrueBool -> return ()
-      _ -> do
-        loc <- getCurrentProgramLoc sym
-        modifyIORef' (SB.sbStateManager sym) $ appendAssumption loc e
+    stk <- getAssumptionStack sym
+    assume e stk
 
-  sbAppendAssertions sym s = do
-    modifyIORef' (SB.sbStateManager sym) $ appendAssertions s
+  sbAddAssumptions sym ps = do
+    stk <- getAssumptionStack sym
+    appendAssumptions ps stk
 
-  sbAssertionsBetween old cur =
-    assert (old_cnt <= Seq.length a) $ Seq.drop old_cnt a
-    where a = cur^.assertions
-          old_cnt = Seq.length $ old^.assertions
+  sbAllAssumptions sym = do
+    stk <- getAssumptionStack sym
+    ps <- collectAssumptions stk
+    andAllOf sym folded ps
 
-  sbAllAssertions sym = do
-    s <- readIORef (SB.sbStateManager sym)
-    andAllOf sym folded (view assertPred <$> s^.assertions)
-
-  sbEvalBranch _ p = do
-    case asConstantPred p of
-      Just True  -> return $! NoBranch True
-      Just False -> return $! NoBranch False
-      Nothing    -> return $! SymbolicBranch True
+  sbEvalBranch _ _ =
+    return $! SymbolicBranch True
 
   sbGetProofObligations sym = do
-    mg <- readIORef (SB.sbStateManager sym)
-    return $ mg^.proofObligs
+    stk <- getAssumptionStack sym
+    AS.getProofObligations stk
 
   sbSetProofObligations sym obligs = do
-    modifyIORef' (SB.sbStateManager sym) (set proofObligs obligs)
+    stk <- getAssumptionStack sym
+    AS.setProofObligations obligs stk
 
-  sbPushBranchPred sym p = SB.sbAddAssumption sym p
-  sbBacktrackToState sym old =
-    -- Copy assertions from old state to current state
-    modifyIORef' (SB.sbStateManager sym) (set assertions (old ^. SB.pathState ^. assertions))
-  sbSwitchToState sym _ new =
-    -- Copy assertions from new state to current state
-    modifyIORef' (SB.sbStateManager sym) (set assertions (new ^. SB.pathState ^. assertions))
+  sbPushAssumptionFrame sym = do
+    stk <- getAssumptionStack sym
+    pushFrame stk
+
+  sbPopAssumptionFrame sym ident = do
+    stk <- getAssumptionStack sym
+    frm <- popFrame ident stk
+    readIORef (assumeFrameCond frm)

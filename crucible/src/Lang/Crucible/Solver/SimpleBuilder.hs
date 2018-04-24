@@ -50,6 +50,9 @@ module Lang.Crucible.Solver.SimpleBuilder
   , sbCacheStartSize
   , sbBVDomainRangeLimit
   , sbStateManager
+  , eltCounter
+  , startCaching
+  , stopCaching
 
     -- * Specialized representations
   , bvUnary
@@ -99,9 +102,7 @@ module Lang.Crucible.Solver.SimpleBuilder
     -- * NonceApp
   , NonceApp(..)
   , nonceAppType
-    -- * SimpleBuilderPathState
-  , SimpleBuilderPathState(..)
-  , pathState
+
   , impliesAssert
     -- * Bound Variable information
   , SimpleBoundVar
@@ -140,7 +141,7 @@ module Lang.Crucible.Solver.SimpleBuilder
   , Lang.Crucible.Solver.WeightedSum.SemiRingRepr(..)
   ) where
 
-import           Control.Exception (assert)
+import qualified Control.Exception as Ex
 import           Control.Lens hiding (asIndex, (:>), Empty)
 import           Control.Monad
 import           Control.Monad.IO.Class
@@ -184,6 +185,7 @@ import qualified Lang.Crucible.Config as CFG
 import           Lang.Crucible.MATLAB.Intrinsics.Solver
 import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Solver.AssumptionStack ( FrameIdent, ProofGoal(..) )
 import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
@@ -757,7 +759,16 @@ iteSize e =
     Just (BVIte _ sz _ _ _) -> sz
     _ -> 0
 
+{-# INLINE boolEltAsBool #-}
+boolEltAsBool :: BoolElt t -> Maybe Bool
+boolEltAsBool e
+  | Just TrueBool  <- asApp e = Just True
+  | Just FalseBool <- asApp e = Just False
+  | otherwise = Nothing
+
 instance IsExpr (Elt t) where
+  asConstantPred = boolEltAsBool
+
   asNat (SemiRingLiteral SemiRingNat n _) = Just n
   asNat _ = Nothing
 
@@ -1020,22 +1031,6 @@ data EltAllocator t
                   }
 
 ------------------------------------------------------------------------
--- SimpleBuilderPathState
-
--- | Type @'SimpleBuilderPathState' (st t)@ instantiates the type
--- family @'SymExpr' ('SimpleBuilder' t st)@.
-data SimpleBuilderPathState (st :: *) =
-  SBPS { _pathState :: !st
-       , sbpsLoc :: !ProgramLoc
-       }
-
-pathState :: Simple Lens (SimpleBuilderPathState st) st
-pathState = lens _pathState (\s v -> s { _pathState = v })
-
-instance HasProgramLoc (SimpleBuilderPathState st) where
-  programLoc = lens sbpsLoc (\s l -> s { sbpsLoc = l })
-
-------------------------------------------------------------------------
 -- SymbolVarBimap
 
 -- | A bijective map between vars and their canonical name for printing
@@ -1113,12 +1108,11 @@ data SimpleBuilder t (st :: * -> *)
         , eltCounter :: !(NonceGenerator IO t)
           -- | Reference to current allocator for expressions.
         , curAllocator :: !(IORef (EltAllocator t))
+          -- | The current program location
+        , sbProgramLoc :: !(IORef ProgramLoc)
           -- | Additional state maintained by the state manager
         , sbStateManager :: !(IORef (st t))
           -- | Current location in program.
-        , sbProgramLoc  :: !(IORef ProgramLoc)
-          -- | Provides a bi-jective mapping between names and
-          -- bound variables.
         , sbVarBindings :: !(IORef (SymbolVarBimap t))
           -- | Provides access to typeclass instance for @st@.
         , sbStateManagerIsBoolSolver :: forall x. (IsSimpleBuilderState st => x) -> x
@@ -1140,21 +1134,16 @@ class IsSimpleBuilderState (st :: * -> *) where
   -- | Add an assumption to the current state.
   sbAddAssumption :: SimpleBuilder t st -> BoolElt t -> IO ()
 
-  -- | Return a list of all the assertions between the given states.
-  sbAssertionsBetween :: st t -- ^ Old path state
-                      -> st t -- ^ New path state
-                      -> Seq (Assertion (BoolElt t))
+  sbAddAssumptions :: SimpleBuilder t st -> Seq (BoolElt t) -> IO () 
 
-  -- | Return a conjunction of all the assertions.
-  sbAllAssertions :: SimpleBuilder t st -> IO (BoolElt t)
-
-  sbAppendAssertions :: SimpleBuilder t st -> Seq (Assertion (BoolElt t)) -> IO ()
+  -- | Return a conjunction of all the path assumptions
+  sbAllAssumptions :: SimpleBuilder t st -> IO (BoolElt t)
 
   -- | Get the collection of proof obligations.
-  sbGetProofObligations :: SimpleBuilder t st -> IO (Seq (Seq (BoolElt t), Assertion (BoolElt t)))
+  sbGetProofObligations :: SimpleBuilder t st -> IO (Seq (ProofGoal (BoolElt t) SimErrorReason))
 
   -- | Set the collection of proof obligations.
-  sbSetProofObligations :: SimpleBuilder t st -> Seq (Seq (BoolElt t), Assertion (BoolElt t)) -> IO ()
+  sbSetProofObligations :: SimpleBuilder t st -> (Seq (ProofGoal (BoolElt t) SimErrorReason)) -> IO ()
 
   ----------------------------------------------------------------------
   -- Branch manipulations
@@ -1165,24 +1154,15 @@ class IsSimpleBuilderState (st :: * -> *) where
                -> BoolElt t -- Predicate to branch on.
                -> IO (BranchResult (SimpleBuilder t st))
 
-  -- | Push a branch predicate to the current state.
-  sbPushBranchPred :: SimpleBuilder t st -> BoolElt t -> IO ()
+  sbPushAssumptionFrame :: SimpleBuilder t st -> IO (FrameIdent t)
 
-  -- | Backtrack to a previous state.
-  sbBacktrackToState :: SimpleBuilder t st
-                     -> SimpleBuilderPathState (st t)
-                     -> IO ()
+  sbPopAssumptionFrame :: SimpleBuilder t st -> FrameIdent t -> IO (Seq (BoolElt t))
 
-  -- | Backtrack to a previous state.
-  sbSwitchToState :: SimpleBuilder t st
-                  -> SimpleBuilderPathState (st t)
-                  -> SimpleBuilderPathState (st t)
-                  -> IO ()
 
 type instance SymFn (SimpleBuilder t st) = SimpleSymFn t
-type instance SymPathState (SimpleBuilder t st) = SimpleBuilderPathState (st t)
 type instance SymExpr (SimpleBuilder t st) = Elt t
 type instance BoundVar (SimpleBuilder t st) = SimpleBoundVar t
+type instance FrameIdentifier (SimpleBuilder t st) = FrameIdent t
 
 sbBVDomainParams :: SimpleBuilder t st -> IO (BVD.BVDomainParams)
 sbBVDomainParams sym =
@@ -1879,7 +1859,7 @@ ppElt' e0 o = do
                 -> Text
                 -> [PrettyArg (Elt t)]
                 -> ST s AppPPElt
-      renderApp idx loc nm args = assert (not (Prelude.null args)) $ do
+      renderApp idx loc nm args = Ex.assert (not (Prelude.null args)) $ do
         elts0 <- traverse renderArg args
         -- Get width not including parenthesis of outer app.
         let total_width = Text.length nm + sum ((\e -> 1 + ppEltLength e) <$> elts0)
@@ -2533,10 +2513,11 @@ newSimpleBuilder st gen = do
   f <- appElt es initializationLoc FalseBool (Just False)
   let z = SemiRingLiteral SemiRingReal 0 initializationLoc
 
-  storage_ref   <- newIORef es
   loc_ref       <- newIORef initializationLoc
+  storage_ref   <- newIORef es
   bindings_ref  <- newIORef Bimap.empty
   matlabFnCache <- stToIO $ PH.new
+
 
   -- Set up configuration options
   cfg <- CFG.initialConfig 0
@@ -2557,10 +2538,10 @@ newSimpleBuilder st gen = do
                , sbUnaryThreshold = unarySetting
                , sbBVDomainRangeLimit = domainRangeSetting
                , sbCacheStartSize = cacheStartSetting
+               , sbProgramLoc = loc_ref
                , eltCounter = gen
                , curAllocator = storage_ref
                , sbStateManager = st_ref
-               , sbProgramLoc   = loc_ref
                , sbVarBindings = bindings_ref
                , sbStateManagerIsBoolSolver = \x -> x
                , sbMatlabFnCache = matlabFnCache
@@ -2571,24 +2552,25 @@ getSymbolVarBimap :: SimpleBuilder t st -> IO (SymbolVarBimap t)
 getSymbolVarBimap sym = readIORef (sbVarBindings sym)
 
 -- | Stop caching applications in backend.
-sbStopCaching :: SimpleBuilder t st -> IO ()
-sbStopCaching sb = do
+stopCaching :: SimpleBuilder t st -> IO ()
+stopCaching sb = do
   s <- newStorage (eltCounter sb)
   writeIORef (curAllocator sb) s
 
 -- | Restart caching applications in backend (clears cache if it is currently caching).
-sbRestartCaching :: SimpleBuilder t st -> IO ()
-sbRestartCaching sb = do
+startCaching :: SimpleBuilder t st -> IO ()
+startCaching sb = do
   sz <- CFG.getOpt (sbCacheStartSize sb)
   s <- newCachedStorage (eltCounter sb) (fromInteger sz)
   writeIORef (curAllocator sb) s
+
 
 -- | @impliesAssert sym b a@ returns the assertions that hold
 -- if @b@ is false or all the assertions in @a@ are true.
 impliesAssert :: SimpleBuilder t st
               -> BoolElt t
-              -> Seq (Assertion (BoolElt t))
-              -> IO (Seq (Assertion (BoolElt t)))
+              -> Seq (Assertion (BoolElt t) SimErrorReason)
+              -> IO (Seq (Assertion (BoolElt t) SimErrorReason))
 impliesAssert sym c = go Seq.empty
   where --
         go prev next =
@@ -2601,16 +2583,6 @@ impliesAssert sym c = go Seq.empty
                 Just TrueBool -> go prev new
                 _ -> go (prev Seq.|> (a & assertPred .~ p')) new
 
-
-{-# INLINE boolEltAsBool #-}
-boolEltAsBool :: BoolElt t -> Maybe Bool
-boolEltAsBool e
-  | Just TrueBool  <- asApp e = Just True
-  | Just FalseBool <- asApp e = Just False
-  | otherwise = Nothing
-
-instance IsPred (BoolElt t) where
-  asConstantPred = boolEltAsBool
 
 bvBinOp1 :: (1 <= w)
          => (Integer -> Integer -> Integer)
@@ -3030,170 +3002,63 @@ sbConcreteLookup sym arr0 mcidx idx
         sbMakeElt sym (SelectArray range arr0 idx)
 
 
-
-instance IsBoolExprBuilder (SimpleBuilder t st) where
-
-  truePred  = sbTrue
-  falsePred = sbFalse
-
-  notPred sym x
-    | Just TrueBool  <- asApp x = return $! falsePred sym
-    | Just FalseBool <- asApp x = return $! truePred sym
-    | Just (NotBool xn) <- asApp x = return xn
-    | otherwise = sbMakeElt sym (NotBool x)
-
-  andPred sym x y
-    | Just True  <- asConstantPred x = return y
-    | Just False <- asConstantPred x = return x
-    | Just True  <- asConstantPred y = return x
-    | Just False <- asConstantPred y = return y
-    | x == y = return x
-
-    | Just (NotBool xn) <- asApp x, xn == y =
-      return (falsePred sym)
-    | Just (NotBool yn) <- asApp y, yn == x =
-      return (falsePred sym)
-    | Just (AndBool x1 x2) <- asApp x, (x1 == y || x2 == y) = return x
-    | Just (AndBool y1 y2) <- asApp y, (y1 == x || y2 == x) = return y
-
-    | otherwise = sbMakeElt sym (AndBool (min x y) (max x y))
-
-  xorPred sym x y
-    | Just True  <- asConstantPred x = notPred sym y
-    | Just False <- asConstantPred x = return y
-    | Just True  <- asConstantPred y = notPred sym x
-    | Just False <- asConstantPred y = return x
-    | x == y = return $ falsePred sym
-
-    | Just (NotBool xn) <- asApp x
-    , Just (NotBool yn) <- asApp y = do
-      sbMakeElt sym (XorBool xn yn)
-
-    | Just (NotBool xn) <- asApp x = do
-      notPred sym =<< sbMakeElt sym (XorBool xn y)
-
-    | Just (NotBool yn) <- asApp y = do
-      notPred sym =<< sbMakeElt sym (XorBool x yn)
-
-    | otherwise = do
-      sbMakeElt sym (XorBool x y)
-
-  itePred sb c x y
-      -- ite c c y = c || y
-    | c == x = orPred sb c y
-      -- ite c x c = c && x
-    | c == y = andPred sb c x
-      -- ite c x x = x
-    | x == y = return x
-      -- ite 1 x y = x
-    | Just True  <- asConstantPred c = return x
-      -- ite 0 x y = y
-    | Just False <- asConstantPred c = return y
-      -- ite !c x y = c y x
-    | Just (NotBool cn) <- asApp c   = itePred sb cn y x
-      -- ite c 1 y = c || y
-    | Just True  <- asConstantPred x = orPred sb c y
-      -- ite c 0 y = !c && y
-    | Just False <- asConstantPred x = do
-      andPred sb y =<< sbMakeElt sb (NotBool c)
-      -- ite c x 1 = !c || x
-      --             !(c && !x)
-    | Just True  <- asConstantPred y = do
-      notPred sb =<< andPred sb c =<< notPred sb x
-      -- ite c x 0 = c && x
-    | Just False <- asConstantPred y = do
-      andPred sb c x
-      -- ite c (!x) (!y) = !(ite c x y)
-    | Just (NotBool xn) <- asApp x
-    , Just (NotBool yn) <- asApp y = do
-      notPred sb =<< itePred sb c xn yn
-      -- Default case
-    | otherwise = sbMakeElt sb $ IteBool c x y
-
 -----------------------------------------------------------------------
 -- Defer to the enclosed state manager for IsBoolSolver operations
 -- and datatypes
 
 instance IsBoolSolver (SimpleBuilder t st) where
 
-  evalBranch sym p = sbStateManagerIsBoolSolver sym $ sbEvalBranch sym p
+  evalBranch sym p =
+    case asConstantPred p of
+      Just True  -> return $! NoBranch True
+      Just False -> return $! NoBranch False
+      Nothing    ->
+        sbStateManagerIsBoolSolver sym $
+          sbEvalBranch sym p
 
-  getCurrentState sym = do
-    s <- readIORef (sbStateManager sym)
-    l <- readIORef (sbProgramLoc sym)
-    return $! SBPS s l
-  resetCurrentState sym prev_state = sbStateManagerIsBoolSolver sym $ do
-    sbBacktrackToState sym prev_state
-    -- Update state variables
-    writeIORef (sbStateManager sym) $! (prev_state^.pathState)
-    writeIORef (sbProgramLoc sym) $! sbpsLoc prev_state
-  switchCurrentState sym prev_state next_state  = do
-    sbStateManagerIsBoolSolver sym $ do
-    sbSwitchToState sym prev_state next_state
-    writeIORef (sbStateManager sym) $! (prev_state^.pathState)
-    writeIORef (sbProgramLoc sym) $! sbpsLoc next_state
+  addAssertion sb e m =
+    case asConstantPred e of
+      Just True  -> return ()
+      Just False -> addFailedAssertion sb m
+      _ ->
+        sbStateManagerIsBoolSolver sb $
+          sbAddAssertion sb e m
 
-  pushBranchPred sym p = sbStateManagerIsBoolSolver sym $
-    sbPushBranchPred sym p
+  addAssumption sb e =
+    case asConstantPred e of
+      Just True  -> return ()
+      Just False -> addFailedAssertion sb InfeasibleBranchError
+      _ ->
+        sbStateManagerIsBoolSolver sb $
+          sbAddAssumption sb e
 
-  mergeState sym true_pred true_state false_state =
-    sbStateManagerIsBoolSolver sym $ do
-
-    old_ps <- getCurrentState sym
-
-    let true_ps   = true_state^.pathState
-    let false_ps  = false_state^.pathState
-
-    let pre_state = old_ps^.pathState
-
-    -- Drop assertions that were already present at branch.
-    let cur_aseq  = sbAssertionsBetween pre_state true_ps
-    t_aseq <- impliesAssert sym true_pred  cur_aseq
-
-    let neg_aseq  = sbAssertionsBetween pre_state false_ps
-    false_pred <- notPred sym true_pred
-    f_aseq <- impliesAssert sym false_pred neg_aseq
-
-    sbAppendAssertions sym (t_aseq Seq.>< f_aseq)
-
-  ----------------------------------------------------------------------
-  -- Program location operations
-
-  getCurrentProgramLoc = curProgramLoc
-  setCurrentProgramLoc sym l = writeIORef (sbProgramLoc sym) $! l
-
-  ----------------------------------------------------------------------
-  -- Assertion
-
-  addAssertion sb =
+  addAssumptions sb =
     sbStateManagerIsBoolSolver sb $
-      sbAddAssertion sb
+      sbAddAssumptions sb
 
-  addAssumption sb =
-    sbStateManagerIsBoolSolver sb $
-      sbAddAssumption sb
+  addFailedAssertion sym msg = do
+    loc <- getCurrentProgramLoc sym
+    Ex.throwIO (SimError loc msg)
 
-  getAssertionPred sb =
+  pushAssumptionFrame sb =
     sbStateManagerIsBoolSolver sb $
-      sbAllAssertions sb
+      sbPushAssumptionFrame sb
 
-  getAssertionsBetween sb old cur = do
+  popAssumptionFrame sb i =
     sbStateManagerIsBoolSolver sb $
-      return $ toList $ sbAssertionsBetween (old^.pathState) (cur^.pathState)
+      sbPopAssumptionFrame sb i
+
+  getPathCondition sb =
+    sbStateManagerIsBoolSolver sb $
+      sbAllAssumptions sb
 
   getProofObligations sb = do
     sbStateManagerIsBoolSolver sb $ do
-      obligs <- sbGetProofObligations sb
-      return [ (toList hyps, goal)
-             | (hyps,goal) <- toList obligs
-             ]
+      sbGetProofObligations sb
 
   setProofObligations sb obligs = do
     sbStateManagerIsBoolSolver sb $ do
-      sbSetProofObligations sb $ Seq.fromList
-        [ (Seq.fromList hyps, goal)
-        | (hyps, goal) <- obligs
-        ]
+      sbSetProofObligations sb obligs
 
 ----------------------------------------------------------------------
 -- Expression builder instances
@@ -3462,7 +3327,7 @@ semiRingMul sym sr x y
 -- -> not (u > 0 & v < 0) & not (u < 0 & v > 0)
 -- -> (u <= 0 | v >= 0) & (u >= 0 | v <= 0)
 -- -> (u <= 0 | 0 <= v) & (0 <= u | v <= 0)
-leNonneg :: IsBoolExprBuilder sym
+leNonneg :: IsExprBuilder sym
          => (sym -> a -> a -> IO (Pred sym)) -- ^ Less than or equal
          -> a -- ^ zero
          -> sym
@@ -3486,7 +3351,7 @@ leNonneg le zero sym u v = do
 -- -> not (u > 0 & v > 0 | u < 0 & v < 0)
 -- -> not (u > 0 & v > 0) & not (u < 0 & v < 0)
 -- -> (u <= 0 | v <= 0) & (u >= 0 | v >= 0)
-leNonpos :: IsBoolExprBuilder sym
+leNonpos :: IsExprBuilder sym
          => (sym -> a -> a -> IO (Pred sym)) -- ^ Less than or equal
          -> a -- ^ zero
          -> sym
@@ -3598,6 +3463,93 @@ bvSum = undefined
 -}
 
 instance IsExprBuilder (SimpleBuilder t st) where
+  getConfiguration = sbConfiguration
+
+  ----------------------------------------------------------------------
+  -- Program location operations
+
+  getCurrentProgramLoc = curProgramLoc
+  setCurrentProgramLoc sym l = writeIORef (sbProgramLoc sym) l
+
+  ----------------------------------------------------------------------
+  -- Bool operations.
+
+  truePred  = sbTrue
+  falsePred = sbFalse
+
+  notPred sym x
+    | Just TrueBool  <- asApp x = return $! falsePred sym
+    | Just FalseBool <- asApp x = return $! truePred sym
+    | Just (NotBool xn) <- asApp x = return xn
+    | otherwise = sbMakeElt sym (NotBool x)
+
+  andPred sym x y
+    | Just True  <- asConstantPred x = return y
+    | Just False <- asConstantPred x = return x
+    | Just True  <- asConstantPred y = return x
+    | Just False <- asConstantPred y = return y
+    | x == y = return x
+
+    | Just (NotBool xn) <- asApp x, xn == y =
+      return (falsePred sym)
+    | Just (NotBool yn) <- asApp y, yn == x =
+      return (falsePred sym)
+    | Just (AndBool x1 x2) <- asApp x, (x1 == y || x2 == y) = return x
+    | Just (AndBool y1 y2) <- asApp y, (y1 == x || y2 == x) = return y
+
+    | otherwise = sbMakeElt sym (AndBool (min x y) (max x y))
+
+  xorPred sym x y
+    | Just True  <- asConstantPred x = notPred sym y
+    | Just False <- asConstantPred x = return y
+    | Just True  <- asConstantPred y = notPred sym x
+    | Just False <- asConstantPred y = return x
+    | x == y = return $ falsePred sym
+
+    | Just (NotBool xn) <- asApp x
+    , Just (NotBool yn) <- asApp y = do
+      sbMakeElt sym (XorBool xn yn)
+
+    | Just (NotBool xn) <- asApp x = do
+      notPred sym =<< sbMakeElt sym (XorBool xn y)
+
+    | Just (NotBool yn) <- asApp y = do
+      notPred sym =<< sbMakeElt sym (XorBool x yn)
+
+    | otherwise = do
+      sbMakeElt sym (XorBool x y)
+
+  itePred sb c x y
+      -- ite c c y = c || y
+    | c == x = orPred sb c y
+      -- ite c x c = c && x
+    | c == y = andPred sb c x
+      -- ite c x x = x
+    | x == y = return x
+      -- ite 1 x y = x
+    | Just True  <- asConstantPred c = return x
+      -- ite 0 x y = y
+    | Just False <- asConstantPred c = return y
+      -- ite !c x y = c y x
+    | Just (NotBool cn) <- asApp c   = itePred sb cn y x
+      -- ite c 1 y = c || y
+    | Just True  <- asConstantPred x = orPred sb c y
+      -- ite c 0 y = !c && y
+    | Just False <- asConstantPred x = do
+      andPred sb y =<< sbMakeElt sb (NotBool c)
+      -- ite c x 1 = !c || x
+      --             !(c && !x)
+    | Just True  <- asConstantPred y = do
+      notPred sb =<< andPred sb c =<< notPred sb x
+      -- ite c x 0 = c && x
+    | Just False <- asConstantPred y = do
+      andPred sb c x
+      -- ite c (!x) (!y) = !(ite c x y)
+    | Just (NotBool xn) <- asApp x
+    , Just (NotBool yn) <- asApp y = do
+      notPred sb =<< itePred sb c xn yn
+      -- Default case
+    | otherwise = sbMakeElt sb $ IteBool c x y
 
   ----------------------------------------------------------------------
   -- Nat operations.
@@ -4721,12 +4673,7 @@ instance IsExprBuilder (SimpleBuilder t st) where
     (:+) <$> sbMakeElt sym (RealPart x)
          <*> sbMakeElt sym (ImagPart x)
 
-instance IsSymbolicExprBuilder (SimpleBuilder t st) where
-  getConfiguration = sbConfiguration
-
-  stopCaching = sbStopCaching
-  restartCaching = sbRestartCaching
-
+instance IsSymExprBuilder (SimpleBuilder t st) where
   freshConstant sym nm tp = do
     v <- sbMakeBoundVar sym nm tp UninterpVarKind
     updateVarBinding sym nm (VarSymbolBinding v)
@@ -4786,6 +4733,7 @@ instance IsSymbolicExprBuilder (SimpleBuilder t st) where
      MatlabSolverFnInfo f _ _ -> do
        evalMatlabSolverFn f sym args
      _ -> sbNonceElt sym $! FnApp fn args
+
 
 --------------------------------------------------------------------------------
 -- MatlabSymbolicArrayBuilder instance

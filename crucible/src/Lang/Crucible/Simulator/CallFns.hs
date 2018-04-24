@@ -298,13 +298,13 @@ symbolicBranch s verb p x_id x_args y_id y_args = do
     Nothing -> do
       when (verb >= 5) $ do
         hPutStrLn (printHandle (s^.stateContext)) $ "Return-dominated symbolic branch"
-      return $ intra_branch s p (\sps -> SomeLabel (x_frame sps) (Just x_id))
-                                (\sps -> SomeLabel (y_frame sps) (Just y_id))
+      return $ intra_branch s p (SomeLabel x_frame (Just x_id))
+                                (SomeLabel y_frame (Just y_id))
                                 ReturnTarget
     Just (Some pd_id) ->
       let tgt = BlockTarget pd_id
-      in return $ intra_branch s p (\sps -> SomeLabel (x_frame sps) (Just x_id))
-                                   (\sps -> SomeLabel (y_frame sps) (Just y_id))
+      in return $ intra_branch s p (SomeLabel x_frame (Just x_id))
+                                   (SomeLabel y_frame (Just y_id))
                                    tgt
 
 data VariantCall sym blocks tp where
@@ -313,20 +313,18 @@ data VariantCall sym blocks tp where
               -> SwitchCall sym blocks tp
               -> VariantCall sym blocks tp
 
-cruciblePausedFrame :: (IsSyntaxExtension ext, HasProgramLoc (SymPathState sym))
+cruciblePausedFrame :: IsSyntaxExtension ext
                     => BlockID b new_args
                     -> RegMap sym new_args
                     -> GlobalPair sym (SimFrame sym ext (CrucibleLang b r) ('Just a))
-                    -> SymPathState sym
                     -> Exec.PausedFrame p sym ext
                        rtp
                        (CrucibleLang b r)
                        ('Just new_args)
-cruciblePausedFrame x_id x_args top_frame s =
+cruciblePausedFrame x_id x_args top_frame =
   let cf = top_frame & crucibleTopFrame %~ setFrameBlock x_id x_args
    in PausedFrame $
       PausedValue { _pausedValue = cf
-                  , savedStateInfo  = s & programLoc .~ frameProgramLoc (cf^.crucibleTopFrame)
                   , resume = loopCrucible
                   }
 
@@ -345,16 +343,13 @@ stepReturnVariantCases s [] = do
 stepReturnVariantCases s ((p,JumpCall x_id x_args):cs) = do
   let top_frame = s^.stateTree^.actFrame
   let x_frame = cruciblePausedFrame x_id x_args top_frame
-  let y_frame sym_state =
+  let y_frame =
         SomeLabel (PausedFrame $ PausedValue
                      { _pausedValue = top_frame
-                     , savedStateInfo
-                       = sym_state
-                       & programLoc .~ frameProgramLoc (top_frame^.crucibleTopFrame)
                      , resume = \s'' -> join $ stepReturnVariantCases s'' cs
                      })
                   Nothing
-  return $ intra_branch s p (\sps -> SomeLabel (x_frame sps) (Just x_id)) y_frame ReturnTarget
+  return $ intra_branch s p (SomeLabel x_frame (Just x_id)) y_frame ReturnTarget
 
 stepVariantCases
          :: forall p sym ext rtp blocks r ctx x
@@ -372,15 +367,13 @@ stepVariantCases s _pd_id [] = do
 stepVariantCases s pd_id ((p,JumpCall x_id x_args):cs) = do
   let top_frame = s^.stateTree^.actFrame
   let x_frame = cruciblePausedFrame x_id x_args top_frame
-  let y_frame s' = PausedValue
-                   { _pausedValue = top_frame
-                   , savedStateInfo =
-                       s' & programLoc .~ frameProgramLoc (top_frame^.crucibleTopFrame)
-                   , resume = \s'' -> join (stepVariantCases s'' pd_id cs)
-                   }
-  let y_frame' sym_state = SomeLabel (PausedFrame (y_frame sym_state)) Nothing
+  let y_frame = PausedValue
+                { _pausedValue = top_frame
+                , resume = \s'' -> join (stepVariantCases s'' pd_id cs)
+                }
+  let y_frame' = SomeLabel (PausedFrame y_frame) Nothing
   let tgt = BlockTarget pd_id
-  return $ intra_branch s p (\sps -> SomeLabel (x_frame sps) (Just x_id)) y_frame' tgt
+  return $ intra_branch s p (SomeLabel x_frame (Just x_id)) y_frame' tgt
 
 returnAndMerge :: forall p sym ext rtp blocks r args
                .  IsSymInterface sym

@@ -70,9 +70,8 @@ import Lang.Crucible.LLVM.DataLayout
 import Lang.Crucible.LLVM.MemModel.Type
 import Lang.Crucible.LLVM.MemModel.Common
 import Lang.Crucible.LLVM.MemModel.Pointer
+import Lang.Crucible.Solver.BoolInterface
 import Lang.Crucible.Solver.Interface
-import Lang.Crucible.Solver.Partial
-
 
 --import Debug.Trace as Debug
 
@@ -112,7 +111,7 @@ data MemWrite sym
 tgAddPtrC :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> LLVMPtr sym w -> Addr -> IO (LLVMPtr sym w)
 tgAddPtrC sym w x y = ptrAdd sym w x =<< constOffset sym w y
 
-badLoad :: (IsBoolExprBuilder sym) => sym -> Type -> IO (PartLLVMVal sym)
+badLoad :: (IsExprBuilder sym) => sym -> Type -> IO (PartLLVMVal sym)
 badLoad _sym _tp = return Unassigned
 
 genPtrExpr :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w
@@ -598,7 +597,7 @@ isAllocatedMut mutOk sym w (llvmPointerView -> (blk, off)) sz m = do
           do nov <- notPred sym ov
              andPred sym nov =<< isAllocated' sym step mutOk (memAllocs m)
 
-isAllocated' :: (IsExpr (SymExpr sym), IsBoolExprBuilder sym) =>
+isAllocated' :: (IsExpr (SymExpr sym), IsExprBuilder sym) =>
              sym
              -> (forall w. Natural -> SymBV sym w -> IO (Pred sym) -> IO (Pred sym))
                 -- ^ Evaluation function that takes continuation

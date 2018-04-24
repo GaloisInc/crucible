@@ -99,7 +99,7 @@ checkedRegEntry tp (Some r) =
     Just Refl -> return r
     Nothing -> fail $ unwords ["Unexpected type for protocol value. Expected", show tp, "but got", show (getTypeRepr r)]
 
-fromProtoValue :: IsSymInterface sym => Simulator p sym -> P.Value -> IO (Some (RegEntry sym))
+fromProtoValue :: IsSymExprBuilder sym => Simulator p sym -> P.Value -> IO (Some (RegEntry sym))
 fromProtoValue sim v = do
   sym <- getInterface sim
   case v^.P.value_code of
@@ -131,7 +131,7 @@ fromProtoValue sim v = do
       SomeHandle h <- getHandleBinding sim (v^.P.value_index)
       return $ Some $ RegEntry (handleType h) (HandleFnVal h)
 
-toProtoValue :: IsSymInterface sym => Simulator p sym -> RegEntry sym tp -> IO P.Value
+toProtoValue :: IsSymExprBuilder sym => Simulator p sym -> RegEntry sym tp -> IO P.Value
 toProtoValue sim e@(RegEntry tp v) =
   case tp of
     BoolRepr

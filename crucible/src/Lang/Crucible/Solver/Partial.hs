@@ -33,21 +33,22 @@ module Lang.Crucible.Solver.Partial
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 
+import Lang.Crucible.BaseTypes
 import Lang.Crucible.Solver.Interface
 
-mkPE :: IsPred p => p -> a -> PartExpr p a
+mkPE :: IsExpr p => p BaseBoolType -> a -> PartExpr (p BaseBoolType) a
 mkPE p v =
   case asConstantPred p of
     Just False -> Unassigned
     _ -> PE p v
 
 -- | Create a part expression from a value that is always defined.
-justPartExpr :: IsBoolExprBuilder sym
+justPartExpr :: IsExprBuilder sym
              => sym -> v -> PartExpr (Pred sym) v
 justPartExpr sym = PE (truePred sym)
 
 -- | Create a part expression from a maybe value.
-maybePartExpr :: IsBoolExprBuilder sym
+maybePartExpr :: IsExprBuilder sym
               => sym -> Maybe a -> PartExpr (Pred sym) a
 maybePartExpr _ Nothing = Unassigned
 maybePartExpr sym (Just r) = justPartExpr sym r
@@ -60,7 +61,7 @@ joinMaybePE (Just pe) = pe
 ------------------------------------------------------------------------
 -- Merge
 
-mergePartial :: (IsBoolExprBuilder sym, MonadIO m) =>
+mergePartial :: (IsExprBuilder sym, MonadIO m) =>
   sym ->
   (a -> a -> PartialT sym m a) ->
   Pred sym ->
@@ -69,7 +70,7 @@ mergePartial :: (IsBoolExprBuilder sym, MonadIO m) =>
   m (PartExpr (Pred sym) a)
 
 {-# SPECIALIZE mergePartial ::
-      IsBoolExprBuilder sym =>
+      IsExprBuilder sym =>
       sym ->
       (a -> a -> PartialT sym IO a) ->
       Pred sym ->
@@ -143,7 +144,7 @@ returnMaybe (Just a) = PartialT $ \_ p -> pure (PE p a)
 --
 -- This joins the partial expression with the current constraints on the
 -- current computation.
-returnPartial :: (IsPred (Pred sym), IsBoolExprBuilder sym, MonadIO m)
+returnPartial :: (IsExprBuilder sym, MonadIO m)
               => PartExpr (Pred sym) a
               -> PartialT sym m a
 returnPartial Unassigned = returnUnassigned
@@ -156,7 +157,7 @@ returnPartial (PE q a) =
                       _ -> PE r a
 
 -- | Add an extra condition to the current partial computation.
-addCondition :: (IsPred (Pred sym), IsBoolExprBuilder sym, MonadIO m)
+addCondition :: (IsExprBuilder sym, MonadIO m)
               => Pred sym
               -> PartialT sym m ()
 addCondition q = returnPartial (PE q ())

@@ -17,7 +17,7 @@
 
 module Lang.Crucible.Solver.SAWCoreBackend where
 
-import           Control.Exception ( assert, throw, bracket )
+import           Control.Exception ( throw, bracket )
 import           Control.Lens
 import           Control.Monad
 import           Data.IORef
@@ -37,8 +37,9 @@ import           Numeric.Natural
 
 import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
-import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Solver.AssumptionStack as AS
+import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.SatResult
@@ -66,8 +67,8 @@ data SAWCoreState n
       -- The key is the "indexValue" of the "symFunId" for the function
 
     , saw_elt_cache :: SB.IdxCache n SAWElt
-    , saw_assertions  :: Seq (Assertion (Pred (SAWCoreBackend n)))
-    , saw_obligations :: Seq (Seq (Pred (SAWCoreBackend n)), Assertion (Pred (SAWCoreBackend n)))
+
+    , saw_assumptions :: AssumptionStack (SB.BoolElt n) n SimErrorReason
     }
 
 sawCheckPathSat :: ConfigOption BaseBoolType
@@ -78,6 +79,9 @@ sawOptions =
   [ opt sawCheckPathSat (ConcreteBool False)
     "Check the satisfiability of path conditions on branches"
   ]
+
+getAssumptionStack :: SAWCoreBackend n -> IO (AssumptionStack (SB.BoolElt n) n SimErrorReason)
+getAssumptionStack sym = saw_assumptions <$> readIORef (SB.sbStateManager sym)
 
 data SAWElt (bt :: BaseType) where
   SAWElt :: !SC.Term -> SAWElt bt
@@ -102,7 +106,7 @@ type SAWCoreBackend n = SB.SimpleBuilder n SAWCoreState
 inFreshNamingContext :: SAWCoreBackend n -> IO a -> IO a
 inFreshNamingContext sym f =
   do old <- readIORef (SB.sbStateManager sym)
-     bracket (mkNew old) (restore old) action
+     bracket (mkNew (SB.eltCounter sym) old) (restore old) action
 
  where
  action new =
@@ -112,16 +116,16 @@ inFreshNamingContext sym f =
  restore old _new =
    do writeIORef (SB.sbStateManager sym) old
 
- mkNew old =
+ mkNew gen old =
    do ch <- SB.newIdxCache
       iref <- newIORef mempty
+      stk <- initAssumptionStack gen
       let new = SAWCoreState
                 { saw_ctx = saw_ctx old
                 , saw_inputs = iref
                 , saw_symMap = mempty
                 , saw_elt_cache = ch
-                , saw_assertions = mempty
-                , saw_obligations = mempty
+                , saw_assumptions = stk
                 }
       return new
 
@@ -180,13 +184,13 @@ newSAWCoreBackend ::
 newSAWCoreBackend sc gen = do
   inpr <- newIORef Seq.empty
   ch   <- SB.newIdxCache
+  stk  <- initAssumptionStack gen
   let st = SAWCoreState
               { saw_ctx = sc
               , saw_inputs = inpr
               , saw_symMap = Map.empty
               , saw_elt_cache = ch
-              , saw_assertions = Seq.empty
-              , saw_obligations = Seq.empty
+              , saw_assumptions = stk
               }
   SB.newSimpleBuilder st gen
 
@@ -717,37 +721,6 @@ evaluateElt sym sc cache = f
         SB.StructField{} -> nyi -- FIXME
         SB.StructIte{} -> nyi -- FIXME
 
--- | The current location in the program.
-assertions :: Simple Lens (SAWCoreState n) (Seq.Seq (Assertion (Pred (SAWCoreBackend n))))
-assertions = lens saw_assertions (\s v -> s { saw_assertions = v })
-
--- | The sequence of accumulated assertion obligations
-proofObligs :: Simple Lens (SAWCoreState n) (Seq (Seq (Pred (SAWCoreBackend n)), Assertion (Pred (SAWCoreBackend n))))
-proofObligs = lens saw_obligations (\s v -> s { saw_obligations = v })
-
-appendAssertion :: ProgramLoc
-                -> Pred (SAWCoreBackend n)
-                -> SimErrorReason
-                -> SAWCoreState n
-                -> SAWCoreState n
-appendAssertion l p m s =
-  let ast = Assertion l p (Just m) in
-  s & assertions %~ (Seq.|> ast)
-    & proofObligs %~ (Seq.|> (fmap (^.assertPred) (s^.assertions), ast))
-
--- | Append assertions to path state.
-appendAssertions :: Seq (Assertion (Pred (SAWCoreBackend n)))
-                 -> SAWCoreState n
-                 -> SAWCoreState n
-appendAssertions pairs = assertions %~ (Seq.>< pairs)
-
-appendAssumption :: ProgramLoc
-                 -> Pred (SAWCoreBackend n)
-                 -> SAWCoreState n
-                 -> SAWCoreState n
-appendAssumption l p s =
-  s & assertions %~ (Seq.|> Assertion l p Nothing)
-
 checkSatisfiable :: SAWCoreBackend n
                  -> (Pred (SAWCoreBackend n))
                  -> IO (SatResult ())
@@ -768,34 +741,32 @@ checkSatisfiable sym p = do
     _ -> return (Sat ())
 
 instance SB.IsSimpleBuilderState SAWCoreState where
-  sbAddAssumption sym e = do
-    case SB.asApp e of
-      Just SB.TrueBool -> return ()
-      _ -> do
-        loc <- getCurrentProgramLoc sym
-        modifyIORef' (SB.sbStateManager sym) $ appendAssumption loc e
-
   sbAddAssertion sym e m = do
     case SB.asApp e of
       Just SB.TrueBool -> return ()
       Just SB.FalseBool -> do
-        loc <- getCurrentProgramLoc sym
+        loc <- SB.curProgramLoc sym
         throw (SimError loc m)
       _ -> do
-        loc <- getCurrentProgramLoc sym
-        modifyIORef' (SB.sbStateManager sym) $ appendAssertion loc e m
+        loc <- SB.curProgramLoc sym
+        stk <- getAssumptionStack sym
+        AS.assert (Assertion loc e (Just m)) stk
 
-  sbAppendAssertions sym s = do
-    modifyIORef' (SB.sbStateManager sym) $ appendAssertions s
+  sbAddAssumption sym e = do
+    case SB.asApp e of
+      Just SB.TrueBool -> return ()
+      _ -> do
+        stk <- getAssumptionStack sym
+        AS.assume e stk
 
-  sbAssertionsBetween old cur =
-    assert (old_cnt <= Seq.length a) $ Seq.drop old_cnt a
-    where a = cur^.assertions
-          old_cnt = Seq.length $ old^.assertions
+  sbAddAssumptions sym es = do
+    stk <- getAssumptionStack sym
+    AS.appendAssumptions es stk
 
-  sbAllAssertions sym = do
-    s <- readIORef (SB.sbStateManager sym)
-    andAllOf sym folded (view assertPred <$> s^.assertions)
+  sbAllAssumptions sym = do
+    stk <- getAssumptionStack sym
+    ps <- AS.collectAssumptions stk
+    andAllOf sym folded ps
 
   sbEvalBranch sym pb = do
     case asConstantPred pb of
@@ -803,9 +774,9 @@ instance SB.IsSimpleBuilderState SAWCoreState where
       Just False -> return $! NoBranch False
       Nothing -> do
         pb_neg <- notPred sym pb
-        p_prior <- SB.sbAllAssertions sym
-        p <- andPred sym p_prior pb
-        p_neg <- andPred sym p_prior pb_neg
+        p_prior <- SB.sbAllAssumptions sym
+        p        <- andPred sym p_prior pb
+        p_neg    <- andPred sym p_prior pb_neg
         p_res    <- checkSatisfiable sym p
         notp_res <- checkSatisfiable sym p_neg
         case (p_res, notp_res) of
@@ -815,16 +786,18 @@ instance SB.IsSimpleBuilderState SAWCoreState where
           (_    , _)     -> return $! SymbolicBranch True
 
   sbGetProofObligations sym = do
-    mg <- readIORef (SB.sbStateManager sym)
-    return $ mg^.proofObligs
+    stk <- getAssumptionStack sym
+    AS.getProofObligations stk
 
   sbSetProofObligations sym obligs = do
-    modifyIORef' (SB.sbStateManager sym) (set proofObligs obligs)
+    stk <- getAssumptionStack sym
+    AS.setProofObligations obligs stk
 
-  sbPushBranchPred sym p = SB.sbAddAssumption sym p
-  sbBacktrackToState sym old =
-    -- Copy assertions from old state to current state
-    modifyIORef' (SB.sbStateManager sym) (set assertions (old ^. SB.pathState ^. assertions))
-  sbSwitchToState sym _ new =
-    -- Copy assertions from new state to current state
-    modifyIORef' (SB.sbStateManager sym) (set assertions (new ^. SB.pathState ^. assertions))
+  sbPushAssumptionFrame sym = do
+    stk <- getAssumptionStack sym
+    AS.pushFrame stk
+
+  sbPopAssumptionFrame sym ident = do
+    stk <- getAssumptionStack sym
+    frm <- AS.popFrame ident stk
+    readIORef (assumeFrameCond frm)

@@ -156,7 +156,7 @@ instance CanMux sym UnitType where
 ------------------------------------------------------------------------
 -- RegValue instance for base types
 
-instance IsBoolExprBuilder sym => CanMux sym BoolType where
+instance IsExprBuilder sym => CanMux sym BoolType where
   {-# INLINE muxReg #-}
   muxReg s = const $ itePred s
 
@@ -212,7 +212,7 @@ instance CanMux sym CharType where
 ------------------------------------------------------------------------
 -- RegValue Maybe instance
 
-mergePartExpr :: IsBoolExprBuilder sym
+mergePartExpr :: IsExprBuilder sym
               => sym
               -> (Pred sym -> v -> v -> IO v)
               -> Pred sym
@@ -221,7 +221,7 @@ mergePartExpr :: IsBoolExprBuilder sym
               -> IO (PartExpr (Pred sym) v)
 mergePartExpr sym fn c = mergePartial sym (\a b -> lift (fn c a b)) c
 
-instance (IsBoolExprBuilder sym, CanMux sym tp) => CanMux sym (MaybeType tp) where
+instance (IsExprBuilder sym, CanMux sym tp) => CanMux sym (MaybeType tp) where
   {-# INLINE muxReg #-}
   muxReg s = \_ -> do
     let f = muxReg s (Proxy :: Proxy tp)
@@ -232,7 +232,7 @@ instance (IsBoolExprBuilder sym, CanMux sym tp) => CanMux sym (MaybeType tp) whe
 
 -- TODO: Figure out how to actually compare these.
 {-# INLINE muxHandle #-}
-muxHandle :: IsPred (Pred sym)
+muxHandle :: IsExpr (SymExpr sym)
           => sym
           -> Pred sym
           -> FnVal sym a r
