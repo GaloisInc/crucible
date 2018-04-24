@@ -9,6 +9,7 @@ Stability        : provisional
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE KindSignatures #-}
@@ -19,9 +20,11 @@ Stability        : provisional
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -haddock #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Lang.Crucible.JVM.Translation where
 
@@ -44,14 +47,13 @@ import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.ProgramLoc (Position(InternalPos))
 import           Lang.Crucible.Types
 
--------------------------------------------------------------------------
--- JVMValue
+----------------------------------------------------------------------
+-- JVM types
 
 -- | JVM extension.
 type JVM = () -- TODO
 
-type JVMObjectType = UnitType -- FIXME: This should be a CrucibleType
-                              -- representation of JVM objects
+type JVMObjectType = RecursiveType "JVM_object" EmptyCtx
 
 type JVMDoubleType = FloatType DoubleFloat
 type JVMFloatType  = FloatType SingleFloat
@@ -59,6 +61,54 @@ type JVMIntType    = BVType 32
 type JVMLongType   = BVType 64
 type JVMRefType    = MaybeType (ReferenceType JVMObjectType)
 
+type JVMInstanceType = UnitType -- FIXME: this should be a
+                                -- representation of a class instance,
+                                -- with a table of fields.
+
+type JVMObjectCtx =
+  EmptyCtx
+  ::> VectorType JVMDoubleType
+  ::> VectorType JVMFloatType
+  ::> VectorType JVMIntType
+  ::> VectorType JVMLongType
+  ::> VectorType JVMRefType
+  ::> JVMInstanceType
+
+type JVMObjectImpl = VariantType JVMObjectCtx
+
+instance IsRecursiveType "JVM_object" where
+  type UnrollType "JVM_object" ctx = JVMObjectImpl
+  unrollType _nm _ctx = knownRepr :: TypeRepr JVMObjectImpl
+
+----------------------------------------------------------------------
+
+tagD :: Ctx.Index JVMObjectCtx (VectorType JVMDoubleType)
+tagD =
+  Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $
+  Ctx.skipIndex $ Ctx.nextIndex Ctx.zeroSize
+
+tagF :: Ctx.Index JVMObjectCtx (VectorType JVMFloatType)
+tagF =
+  Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $
+  Ctx.nextIndex $ Ctx.incSize Ctx.zeroSize
+
+tagI :: Ctx.Index JVMObjectCtx (VectorType JVMIntType)
+tagI =
+  Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $ Ctx.nextIndex $
+  Ctx.incSize $ Ctx.incSize Ctx.zeroSize
+
+tagL :: Ctx.Index JVMObjectCtx (VectorType JVMLongType)
+tagL =
+  Ctx.skipIndex $ Ctx.skipIndex $ Ctx.nextIndex $ Ctx.incSize $
+  Ctx.incSize $ Ctx.incSize Ctx.zeroSize
+
+tagR :: Ctx.Index JVMObjectCtx (VectorType JVMRefType)
+tagR =
+  Ctx.skipIndex $ Ctx.nextIndex $ Ctx.incSize $ Ctx.incSize $
+  Ctx.incSize $ Ctx.incSize Ctx.zeroSize
+
+----------------------------------------------------------------------
+-- JVMValue
 
 type JVMBool   s = Expr JVM s BoolType
 type JVMDouble s = Expr JVM s JVMDoubleType
@@ -66,6 +116,7 @@ type JVMFloat  s = Expr JVM s JVMFloatType
 type JVMInt    s = Expr JVM s JVMIntType
 type JVMLong   s = Expr JVM s JVMLongType
 type JVMRef    s = Expr JVM s JVMRefType
+type JVMObject s = Expr JVM s JVMObjectType
 
 {-
 data JVMValue f
@@ -202,7 +253,9 @@ saveLocals ::
   Map J.LocalVariableIndex (JVMReg s) ->
   Map J.LocalVariableIndex (JVMValue s) ->
   JVMGenerator h s ret ()
-saveLocals rs vs = undefined rs vs
+saveLocals rs vs
+  | Map.keys rs == Map.keys vs = sequence_ (Map.intersectionWith writeJVMReg rs vs)
+  | otherwise                  = jvmFail "saveLocals"
 
 newRegisters :: JVMExprFrame s -> JVMGenerator h s ret (JVMRegisters s)
 newRegisters = traverse newJVMReg
@@ -223,6 +276,12 @@ forceJVMValue val =
     IValue v -> IValue <$> forceEvaluation v
     LValue v -> LValue <$> forceEvaluation v
     RValue v -> RValue <$> forceEvaluation v
+
+w8 :: NatRepr 8
+w8 = knownNat
+
+w16 :: NatRepr 16
+w16 = knownNat
 
 w32 :: NatRepr 32
 w32 = knownNat
@@ -320,8 +379,12 @@ getLabelAtPC pc =
 -- local variable array at each instruction.
 type JVMStmtGen h s ret = StateT (JVMExprFrame s) (JVMGenerator h s ret)
 
+-- | Indicate that CFG generation failed due to ill-formed JVM code.
 sgFail :: String -> JVMStmtGen h s ret a
-sgFail msg = fail msg
+sgFail msg = lift $ jvmFail msg
+
+sgUnimplemented :: String -> JVMStmtGen h s ret a
+sgUnimplemented msg = sgFail $ "unimplemented: " ++ msg
 
 getStack :: JVMStmtGen h s ret [JVMValue s]
 getStack = use operandStack
@@ -423,19 +486,16 @@ dPush :: JVMDouble s -> JVMStmtGen h s ret ()
 dPush d = pushValue (DValue d)
 
 guardArray :: JVMRef s -> JVMInt s -> JVMStmtGen h s ret ()
-guardArray _ _ = sgFail "guardArray"
+guardArray _ _ = sgUnimplemented "guardArray"
 
 pushArrayValue :: JVMRef s -> JVMInt s -> JVMStmtGen h s ret ()
-pushArrayValue _ _ = sgFail "pushArrayValue"
+pushArrayValue _ _ = sgUnimplemented "pushArrayValue"
 
 assertTrueM :: t0 -> [Char] -> JVMStmtGen h s ret ()
-assertTrueM _ _ = sgFail "assertTrueM"
-
-isValidEltOfArray :: JVMRef s -> JVMRef s -> t0
-isValidEltOfArray _ _ = error "isValidEltOfArray"
+assertTrueM _ _ = sgUnimplemented "assertTrueM"
 
 setArrayValue :: JVMRef s -> JVMInt s -> t1 -> JVMStmtGen h s ret ()
-setArrayValue _ _ _ = sgFail "setArrayValue"
+setArrayValue _ _ _ = sgUnimplemented "setArrayValue"
 
 setLocal :: J.LocalVariableIndex -> JVMValue s -> JVMStmtGen h s ret ()
 setLocal idx v =
@@ -450,16 +510,16 @@ getLocal idx =
        Nothing -> sgFail "getLocal"
 
 throwIfRefNull :: JVMRef s -> JVMStmtGen h s ret ()
-throwIfRefNull _ = sgFail "throwIfRefNull"
+throwIfRefNull _ = sgUnimplemented "throwIfRefNull"
 
 arrayLength :: JVMRef s -> JVMStmtGen h s ret (JVMInt s)
-arrayLength _ = sgFail "arrayLength"
+arrayLength _ = sgUnimplemented "arrayLength"
 
 throw :: JVMRef s -> JVMStmtGen h s ret ()
-throw _ = sgFail "throw"
+throw _ = sgUnimplemented "throw"
 
 byteArrayVal :: JVMRef s -> JVMInt s -> JVMStmtGen h s ret (JVMInt s0)
-byteArrayVal _ _ = sgFail "byteArrayVal"
+byteArrayVal _ _ = sgUnimplemented "byteArrayVal"
 
 rNull :: JVMRef s
 rNull = App (NothingValue knownRepr)
@@ -583,28 +643,28 @@ generateInstruction (pc, instr) =
         J.Float v    -> fPush (fConst v)
         J.Integer v  -> iPush (iConst (toInteger v))
         J.Long v     -> lPush (lConst (toInteger v))
-        J.String _v  -> sgFail "ldc string" -- pushValue . RValue =<< refFromString v
-        J.ClassRef _ -> sgFail "ldc class" -- pushValue . RValue =<< getClassObject c
+        J.String _v  -> sgUnimplemented "ldc string" -- pushValue . RValue =<< refFromString v
+        J.ClassRef _ -> sgUnimplemented "ldc class" -- pushValue . RValue =<< getClassObject c
 
     -- Object creation and manipulation
     J.New _name ->
-      do sgFail "new" -- pushValue . RValue =<< newObject name
+      do sgUnimplemented "new" -- pushValue . RValue =<< newObject name
     J.Newarray _arrayType ->
       do _count <- iPop
-         sgFail "newarray" --assertFalseM (count `iLt` iConst 0) "java/lang/NegativeArraySizeException"
+         sgUnimplemented "newarray" --assertFalseM (count `iLt` iConst 0) "java/lang/NegativeArraySizeException"
          --pushValue . RValue =<< newMultiArray arrayType [count]
     J.Multianewarray _arrayType dimensions ->
       do counts <- reverse <$> sequence (replicate (fromIntegral dimensions) iPop)
          forM_ counts $ \_count -> do
-           sgFail "multianewarray" -- assertFalseM (count `iLt` iConst 0) "java/lang/NegativeArraySizeException"
-         sgFail "multianewarray" --pushValue . RValue =<< newMultiArray arrayType counts
+           sgUnimplemented "multianewarray" -- assertFalseM (count `iLt` iConst 0) "java/lang/NegativeArraySizeException"
+         sgUnimplemented "multianewarray" --pushValue . RValue =<< newMultiArray arrayType counts
     J.Getfield _fldId ->
       do objectRef <- rPop
          throwIfRefNull objectRef
-         sgFail "getfield" --cb <- getCodebase
+         sgUnimplemented "getfield" --cb <- getCodebase
          --pushInstanceFieldValue objectRef =<< liftIO (locateField cb fldId)
     J.Getstatic _fieldId ->
-      do sgFail "getstatic" --initializeClass $ J.fieldIdClass fieldId
+      do sgUnimplemented "getstatic" --initializeClass $ J.fieldIdClass fieldId
          --pushStaticFieldValue fieldId
     J.Putfield fldId ->
       do val <- popValue
@@ -618,7 +678,7 @@ generateInstruction (pc, instr) =
              (J.CharType,    IValue i) -> return (IValue (charFromInt  i))
              (J.ShortType,   IValue i) -> return (IValue (shortFromInt i))
              _ -> return val
-         sgFail "putfield" --fld <- liftIO $ locateField cb fldId
+         sgUnimplemented "putfield" --fld <- liftIO $ locateField cb fldId
          --sgFail "putfield" --setInstanceFieldValue objectRef fld value
     J.Putstatic fieldId ->
       do --initializeClass $ J.fieldIdClass fieldId
@@ -629,101 +689,27 @@ generateInstruction (pc, instr) =
              J.CharType    -> return . IValue . charFromInt =<< iPop
              J.ShortType   -> return . IValue . shortFromInt =<< iPop
              _             -> popValue
-         sgFail "putstatic" --setStaticFieldValue fieldId value
+         sgUnimplemented "putstatic" --setStaticFieldValue fieldId value
 
     -- Load an array component onto the operand stack
-    J.Baload ->
-      do idx <- iPop
-         arrayRef <- rPop
-         guardArray arrayRef idx
-         pushArrayValue arrayRef idx
-    J.Caload ->
-      do idx <- iPop
-         arrayRef <- rPop
-         guardArray arrayRef idx
-         pushArrayValue arrayRef idx
-    J.Saload ->
-      do idx <- iPop
-         arrayRef <- rPop
-         guardArray arrayRef idx
-         pushArrayValue arrayRef idx
-    J.Iaload ->
-      do idx <- iPop
-         arrayRef <- rPop
-         guardArray arrayRef idx
-         pushArrayValue arrayRef idx
-    J.Laload ->
-      do idx <- iPop
-         arrayRef <- rPop
-         guardArray arrayRef idx
-         pushArrayValue arrayRef idx
-    J.Faload ->
-      do idx <- iPop
-         arrayRef <- rPop
-         guardArray arrayRef idx
-         pushArrayValue arrayRef idx
-    J.Daload ->
-      do idx <- iPop
-         arrayRef <- rPop
-         guardArray arrayRef idx
-         pushArrayValue arrayRef idx
-    J.Aaload ->
-      do idx <- iPop
-         arrayRef <- rPop
-         guardArray arrayRef idx
-         pushArrayValue arrayRef idx
+    J.Baload -> aloadInstr tagI IValue -- byte
+    J.Caload -> aloadInstr tagI IValue -- char
+    J.Saload -> aloadInstr tagI IValue -- short
+    J.Iaload -> aloadInstr tagI IValue
+    J.Laload -> aloadInstr tagL LValue
+    J.Faload -> aloadInstr tagF FValue
+    J.Daload -> aloadInstr tagD DValue
+    J.Aaload -> aloadInstr tagR RValue
 
     -- Store a value from the operand stack as an array component
-    J.Bastore ->
-      do value <- iPop
-         idx <- iPop
-         arrayRef <- rPop
-         guardArray arrayRef idx
-         fixedVal <- byteArrayVal arrayRef value
-         setArrayValue arrayRef idx (IValue fixedVal)
-    J.Castore ->
-      do value <- iPop
-         idx <- iPop
-         arrayRef <- rPop
-         guardArray arrayRef idx
-         setArrayValue arrayRef idx (IValue (charFromInt value))
-    J.Sastore ->
-      do value <- iPop
-         idx <- iPop
-         arrayRef <- rPop
-         guardArray arrayRef idx
-         setArrayValue arrayRef idx (IValue (shortFromInt value))
-    J.Iastore ->
-      do value <- iPop
-         idx <- iPop
-         arrayRef <- rPop
-         guardArray arrayRef idx
-         setArrayValue arrayRef idx (IValue value)
-    J.Lastore ->
-      do value <- lPop
-         idx <- iPop
-         arrayRef <- rPop
-         guardArray arrayRef idx
-         setArrayValue arrayRef idx (LValue value)
-    J.Fastore ->
-      do value <- fPop
-         idx <- iPop
-         arrayRef <- rPop
-         guardArray arrayRef idx
-         setArrayValue arrayRef idx (FValue value)
-    J.Dastore ->
-      do value <- dPop
-         idx <- iPop
-         arrayRef <- rPop
-         guardArray arrayRef idx
-         setArrayValue arrayRef idx (DValue value)
-    J.Aastore ->
-      do value <- rPop
-         idx <- iPop
-         arrayRef <- rPop
-         guardArray arrayRef idx
-         assertTrueM (isValidEltOfArray value arrayRef) "java/lang/ArrayStoreException"
-         setArrayValue arrayRef idx (RValue value)
+    J.Bastore -> iPop >>= astoreInstr tagI byteFromInt
+    J.Castore -> iPop >>= astoreInstr tagI charFromInt
+    J.Sastore -> iPop >>= astoreInstr tagI shortFromInt
+    J.Iastore -> iPop >>= astoreInstr tagI id
+    J.Lastore -> lPop >>= astoreInstr tagL id
+    J.Fastore -> fPop >>= astoreInstr tagF id
+    J.Dastore -> dPop >>= astoreInstr tagD id
+    J.Aastore -> rPop >>= astoreInstr tagR id
 
     -- Stack management instructions
     J.Pop ->
@@ -806,8 +792,8 @@ generateInstruction (pc, instr) =
     J.Ifgt pc' -> ifInstr pc pc' $ \a -> App (BVSlt w32 iZero a)
     J.Ifle pc' -> ifInstr pc pc' $ \a -> App (BVSle w32 a iZero)
 
-    J.Tableswitch {} -> undefined -- PC Int32 Int32 [PC]
-    J.Lookupswitch {} -> undefined -- PC {-default -} [(Int32,PC)] {- (key, target) -}
+    J.Tableswitch {} -> sgUnimplemented "Tableswitch" -- PC Int32 Int32 [PC]
+    J.Lookupswitch {} -> sgUnimplemented "Lookupswitch" -- PC {-default -} [(Int32,PC)] {- (key, target) -}
     J.Goto pc' ->
       do vs <- get
          lbl <- lift $ processBlockAtPC pc' vs
@@ -816,11 +802,11 @@ generateInstruction (pc, instr) =
     J.Ret _idx -> sgFail "ret" --warning "jsr/ret not implemented"
 
     -- Method invocation and return instructions
-    J.Invokevirtual   _type      _methodKey -> undefined
-    J.Invokeinterface _className _methodKey -> undefined
-    J.Invokespecial   _type      _methodKey -> undefined
-    J.Invokestatic    _className _methodKey -> undefined
-    J.Invokedynamic   _word16 -> undefined
+    J.Invokevirtual   _type      _methodKey -> sgUnimplemented "Invokevirtual"
+    J.Invokeinterface _className _methodKey -> sgUnimplemented "Invokeinterface"
+    J.Invokespecial   _type      _methodKey -> sgUnimplemented "Invokespecial"
+    J.Invokestatic    _className _methodKey -> sgUnimplemented "Invokestatic"
+    J.Invokedynamic   _word16 -> sgUnimplemented "Invokedynamic"
 
     J.Ireturn -> returnInstr iPop
     J.Lreturn -> returnInstr lPop
@@ -844,7 +830,7 @@ generateInstruction (pc, instr) =
          --throw objectRef
     J.Checkcast _tp ->
       do objectRef <- rPop
-         () <- sgFail "checkcast" --assertTrueM (isNull objectRef ||| objectRef `hasType` tp) "java/lang/ClassCastException"
+         () <- sgUnimplemented "checkcast" --assertTrueM (isNull objectRef ||| objectRef `hasType` tp) "java/lang/ClassCastException"
          pushValue $ RValue objectRef
     J.Iinc idx constant ->
       do value <- getLocal idx >>= fromIValue
@@ -852,7 +838,7 @@ generateInstruction (pc, instr) =
          setLocal idx (IValue (App (BVAdd w32 value constValue)))
     J.Instanceof _tp ->
       do _objectRef <- rPop
-         sgFail "instanceof" -- objectRef `instanceOf` tp
+         sgUnimplemented "instanceof" -- objectRef `instanceOf` tp
     J.Monitorenter ->
       do void rPop
     J.Monitorexit ->
@@ -879,6 +865,43 @@ binary pop1 pop2 push op =
   do value2 <- pop2
      value1 <- pop1
      push (value1 `op` value2)
+
+aloadInstr ::
+  KnownRepr TypeRepr t =>
+  Ctx.Index JVMObjectCtx (VectorType t) ->
+  (Expr JVM s t -> JVMValue s) ->
+  JVMStmtGen h s ret ()
+aloadInstr tag mkVal =
+  do idx <- iPop
+     arrayRef <- rPop
+     rawRef <- lift $ assertedJustExpr arrayRef "null dereference"
+     obj <- lift $ readRef rawRef
+     let uobj = App (UnrollRecursive knownRepr knownRepr obj)
+     let marr = App (ProjectVariant knownRepr tag uobj)
+     arr <- lift $ assertedJustExpr marr "aload: not a valid array"
+     -- TODO: assert 0 <= idx < length arr
+     let x = App (VectorGetEntry knownRepr arr (App (BvToNat w32 idx)))
+     pushValue (mkVal x)
+
+astoreInstr ::
+  KnownRepr TypeRepr t =>
+  Ctx.Index JVMObjectCtx (VectorType t) ->
+  (Expr JVM s t -> Expr JVM s t) ->
+  Expr JVM s t ->
+  JVMStmtGen h s ret ()
+astoreInstr tag f val =
+  do idx <- iPop
+     arrayRef <- rPop
+     rawRef <- lift $ assertedJustExpr arrayRef "null dereference"
+     obj <- lift $ readRef rawRef
+     let uobj = App (UnrollRecursive knownRepr knownRepr obj)
+     let marr = App (ProjectVariant knownRepr tag uobj)
+     arr <- lift $ assertedJustExpr marr "astore: not a valid array"
+     -- TODO: assert 0 <= idx < length arr
+     let arr' = App (VectorSetEntry knownRepr arr (App (BvToNat w32 idx)) (f val))
+     let uobj' = App (InjectVariant knownRepr tag arr')
+     let obj' = App (RollRecursive knownRepr knownRepr uobj')
+     lift $ writeRef rawRef obj'
 
 icmpInstr ::
   J.PC {- ^ previous PC -} ->
@@ -927,7 +950,7 @@ returnInstr pop =
 -- Basic Value Operations
 
 charFromInt :: JVMInt s -> JVMInt s
-charFromInt _ = error "charFromInt"
+charFromInt i = App (BVZext w32 w16 (App (BVTrunc w16 w32 i)))
 
 floatFromDouble :: JVMDouble s -> JVMFloat s
 floatFromDouble _ = error "floatFromDouble"
@@ -951,7 +974,7 @@ boolFromInt :: JVMInt s -> JVMInt s
 boolFromInt _ = error "boolFromInt"
 
 byteFromInt :: JVMInt s -> JVMInt s
-byteFromInt _ = error "byteFromInt"
+byteFromInt i = App (BVSext w32 w8 (App (BVTrunc w8 w32 i)))
 
 doubleFromInt :: JVMInt s -> JVMDouble s
 doubleFromInt _ = error "doubleFromInt"
@@ -963,7 +986,7 @@ longFromInt :: JVMInt s -> JVMLong s
 longFromInt _ = error "longFromInt"
 
 shortFromInt :: JVMInt s -> JVMInt s
-shortFromInt _ = error "shortFromInt"
+shortFromInt i = App (BVSext w32 w16 (App (BVTrunc w16 w32 i)))
 
 doubleFromLong :: JVMLong s -> JVMDouble s
 doubleFromLong _ = error "doubleFromLong"
