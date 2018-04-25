@@ -524,7 +524,6 @@ throwIfRefNull ::
 throwIfRefNull r = lift $ assertedJustExpr r "null dereference"
 
 projectVariant ::
-  KnownRepr TypeRepr tp =>
   KnownRepr (Ctx.Assignment TypeRepr) ctx =>
   Ctx.Index ctx tp ->
   Expr JVM s (VariantType ctx) ->
@@ -532,6 +531,13 @@ projectVariant ::
 projectVariant tag var =
   do let mx = App (ProjectVariant knownRepr tag var)
      lift $ assertedJustExpr mx "incorrect variant"
+
+injectVariant ::
+  KnownRepr (Ctx.Assignment TypeRepr) ctx =>
+  Ctx.Index ctx tp ->
+  Expr JVM s tp ->
+  Expr JVM s (VariantType ctx)
+injectVariant tag val = App (InjectVariant knownRepr tag val)
 
 arrayLength :: Expr JVM s JVMArrayType -> JVMInt s
 arrayLength arr = App (GetStruct arr tag1 knownRepr)
@@ -688,23 +694,35 @@ generateInstruction (pc, instr) =
            J.IntType     -> iPush =<< projectVariant tagI val
            J.LongType    -> lPush =<< projectVariant tagL val
            J.ShortType   -> iPush =<< projectVariant tagI val
-    J.Getstatic _fieldId ->
-      do sgUnimplemented "getstatic" --initializeClass $ J.fieldIdClass fieldId
-         --pushStaticFieldValue fieldId
     J.Putfield fldId ->
       do val <- popValue
          objectRef <- rPop
-         _rawRef <- throwIfRefNull objectRef
-         --cb <- getCodebase
-         _val' <-
-           case (J.fieldIdType fldId, val) of
-             (J.BooleanType, IValue i) -> return (IValue (boolFromInt  i))
-             (J.ByteType,    IValue i) -> return (IValue (byteFromInt  i))
-             (J.CharType,    IValue i) -> return (IValue (charFromInt  i))
-             (J.ShortType,   IValue i) -> return (IValue (shortFromInt i))
-             _ -> return val
-         sgUnimplemented "putfield" --fld <- liftIO $ locateField cb fldId
-         --sgFail "putfield" --setInstanceFieldValue objectRef fld value
+         rawRef <- throwIfRefNull objectRef
+         obj <- lift $ readRef rawRef
+         let uobj = App (UnrollRecursive knownRepr knownRepr obj)
+         let minst = App (ProjectVariant knownRepr tag1 uobj)
+         inst <- lift $ assertedJustExpr minst "putfield: not a valid class instance"
+         var <-
+           case J.fieldIdType fldId of
+             J.BooleanType -> injectVariant tagI <$> fmap boolFromInt (fromIValue val)
+             J.ArrayType _ -> injectVariant tagR <$> fromRValue val
+             J.ByteType    -> injectVariant tagI <$> fmap byteFromInt (fromIValue val)
+             J.CharType    -> injectVariant tagI <$> fmap charFromInt (fromIValue val)
+             J.ClassType _ -> injectVariant tagR <$> fromRValue val
+             J.DoubleType  -> injectVariant tagD <$> fromDValue val
+             J.FloatType   -> injectVariant tagF <$> fromFValue val
+             J.IntType     -> injectVariant tagI <$> fromIValue val
+             J.LongType    -> injectVariant tagL <$> fromLValue val
+             J.ShortType   -> injectVariant tagI <$> fmap shortFromInt (fromIValue val)
+         let key = App (TextLit (fromString (J.fieldIdName fldId)))
+         let mvar = App (JustValue knownRepr var)
+         let inst' = App (InsertStringMapEntry knownRepr inst key mvar)
+         let uobj' = App (InjectVariant knownRepr tag1 inst')
+         let obj' = App (RollRecursive knownRepr knownRepr uobj')
+         lift $ writeRef rawRef obj'
+    J.Getstatic _fieldId ->
+      do sgUnimplemented "getstatic" --initializeClass $ J.fieldIdClass fieldId
+         --pushStaticFieldValue fieldId
     J.Putstatic fieldId ->
       do --initializeClass $ J.fieldIdClass fieldId
          _value <-
