@@ -11,6 +11,7 @@ packages:
   crucible-llvm/
   crucible-saw/
   crucible-server/
+  crucible-c/
   galois-matlab/
 
 optional-packages:
