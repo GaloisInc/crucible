@@ -31,6 +31,7 @@ module Lang.Crucible.JVM.Translation where
 import Control.Monad.State.Strict
 import Control.Monad.ST
 import Control.Lens hiding (op, (:>))
+import Data.Int (Int32)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.String (fromString)
@@ -862,8 +863,10 @@ generateInstruction (pc, instr) =
     J.Ifgt pc' -> ifInstr pc pc' $ \a -> App (BVSlt w32 iZero a)
     J.Ifle pc' -> ifInstr pc pc' $ \a -> App (BVSle w32 a iZero)
 
-    J.Tableswitch {} -> sgUnimplemented "Tableswitch" -- PC Int32 Int32 [PC]
-    J.Lookupswitch {} -> sgUnimplemented "Lookupswitch" -- PC {-default -} [(Int32,PC)] {- (key, target) -}
+    J.Tableswitch pc' lo _hi pcs ->
+      do iPop >>= switchInstr pc' (zip [lo ..] pcs)
+    J.Lookupswitch pc' table ->
+      do iPop >>= switchInstr pc' table
     J.Goto pc' ->
       do vs <- get
          lbl <- lift $ processBlockAtPC pc' vs
@@ -1037,6 +1040,21 @@ branchIf cond pc_t pc_f =
      lbl_t <- lift $ processBlockAtPC pc_t vs
      lbl_f <- lift $ processBlockAtPC pc_f vs
      lift $ branch cond lbl_t lbl_f
+
+switchInstr ::
+  J.PC {- ^ default target -} ->
+  [(Int32, J.PC)] {- ^ jump table -} ->
+  JVMInt s {- ^ scrutinee -} ->
+  JVMStmtGen h s ret ()
+switchInstr def [] _ =
+  do vs <- get
+     lift $ processBlockAtPC def vs >>= jump
+switchInstr def ((i, pc) : table) x =
+  do vs <- get
+     l <- lift $ processBlockAtPC pc vs
+     let cond = App (BVEq w32 x (iConst (toInteger i)))
+     lift $ whenCond cond (jump l)
+     switchInstr def table x
 
 returnInstr ::
   forall h s ret tp.
