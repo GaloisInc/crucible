@@ -61,54 +61,66 @@ type JVMIntType    = BVType 32
 type JVMLongType   = BVType 64
 type JVMRefType    = MaybeType (ReferenceType JVMObjectType)
 
+-- | A JVM value is either a double, float, int, long, or reference.
+type JVMValueType = VariantType JVMValueCtx
+
+type JVMValueCtx =
+  EmptyCtx
+  ::> JVMDoubleType
+  ::> JVMFloatType
+  ::> JVMIntType
+  ::> JVMLongType
+  ::> JVMRefType
+
 type JVMInstanceType = UnitType -- FIXME: this should be a
                                 -- representation of a class instance,
                                 -- with a table of fields.
 
--- | An array is a length paired with a vector.
-type JVMArrayType t = StructType (EmptyCtx ::> JVMIntType ::> VectorType t)
+-- | An array is a length paired with a vector of values.
+type JVMArrayType =
+  StructType (EmptyCtx ::> JVMIntType ::> VectorType JVMValueType)
 
-type JVMObjectCtx =
-  EmptyCtx
-  ::> JVMArrayType JVMDoubleType
-  ::> JVMArrayType JVMFloatType
-  ::> JVMArrayType JVMIntType
-  ::> JVMArrayType JVMLongType
-  ::> JVMArrayType JVMRefType
-  ::> JVMInstanceType
-
-type JVMObjectImpl = VariantType JVMObjectCtx
+-- | An object is either a class instance or an array.
+type JVMObjectImpl =
+  VariantType (EmptyCtx ::> JVMInstanceType ::> JVMArrayType)
 
 instance IsRecursiveType "JVM_object" where
   type UnrollType "JVM_object" ctx = JVMObjectImpl
   unrollType _nm _ctx = knownRepr :: TypeRepr JVMObjectImpl
 
 ----------------------------------------------------------------------
+-- Index values for sums and products
 
-tagD :: Ctx.Index JVMObjectCtx (JVMArrayType JVMDoubleType)
+tagD :: Ctx.Index JVMValueCtx JVMDoubleType
 tagD =
-  Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $
+  Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $
   Ctx.skipIndex $ Ctx.nextIndex Ctx.zeroSize
 
-tagF :: Ctx.Index JVMObjectCtx (JVMArrayType JVMFloatType)
+tagF :: Ctx.Index JVMValueCtx JVMFloatType
 tagF =
-  Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $
+  Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $
   Ctx.nextIndex $ Ctx.incSize Ctx.zeroSize
 
-tagI :: Ctx.Index JVMObjectCtx (JVMArrayType JVMIntType)
+tagI :: Ctx.Index JVMValueCtx JVMIntType
 tagI =
-  Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $ Ctx.nextIndex $
+  Ctx.skipIndex $ Ctx.skipIndex $ Ctx.nextIndex $
   Ctx.incSize $ Ctx.incSize Ctx.zeroSize
 
-tagL :: Ctx.Index JVMObjectCtx (JVMArrayType JVMLongType)
+tagL :: Ctx.Index JVMValueCtx JVMLongType
 tagL =
-  Ctx.skipIndex $ Ctx.skipIndex $ Ctx.nextIndex $ Ctx.incSize $
+  Ctx.skipIndex $ Ctx.nextIndex $ Ctx.incSize $
   Ctx.incSize $ Ctx.incSize Ctx.zeroSize
 
-tagR :: Ctx.Index JVMObjectCtx (JVMArrayType JVMRefType)
+tagR :: Ctx.Index JVMValueCtx JVMRefType
 tagR =
-  Ctx.skipIndex $ Ctx.nextIndex $ Ctx.incSize $ Ctx.incSize $
+  Ctx.nextIndex $ Ctx.incSize $ Ctx.incSize $
   Ctx.incSize $ Ctx.incSize Ctx.zeroSize
+
+tag1 :: Ctx.Index (EmptyCtx ::> a ::> b) a
+tag1 = Ctx.skipIndex (Ctx.nextIndex Ctx.zeroSize)
+
+tag2 :: Ctx.Index (EmptyCtx ::> a ::> b) b
+tag2 = Ctx.nextIndex (Ctx.incSize Ctx.zeroSize)
 
 ----------------------------------------------------------------------
 -- JVMValue
@@ -507,9 +519,8 @@ throwIfRefNull ::
   JVMRef s -> JVMStmtGen h s ret (Expr JVM s (ReferenceType JVMObjectType))
 throwIfRefNull r = lift $ assertedJustExpr r "null dereference"
 
-arrayLength :: KnownRepr TypeRepr t => Expr JVM s (JVMArrayType t) -> JVMInt s
-arrayLength arr = App (GetStruct arr tag knownRepr)
-  where tag = Ctx.skipIndex (Ctx.nextIndex Ctx.zeroSize)
+arrayLength :: Expr JVM s JVMArrayType -> JVMInt s
+arrayLength arr = App (GetStruct arr tag1 knownRepr)
 
 throw :: JVMRef s -> JVMStmtGen h s ret ()
 throw _ = sgUnimplemented "throw"
@@ -642,32 +653,7 @@ generateInstruction (pc, instr) =
     -- Object creation and manipulation
     J.New _name ->
       do sgUnimplemented "new" -- pushValue . RValue =<< newObject name
-    J.Newarray arrayType ->
-      do count <- iPop
-         let nonneg = App (BVSle w32 (iConst 0) count)
-         lift $ assertExpr nonneg "java/lang/NegativeArraySizeException"
-         -- FIXME: why doesn't jvm-parser just store the element type?
-         case arrayType of
-           J.ArrayType elemType ->
-             case elemType of
-               J.BooleanType -> newarrayInstr tagI count (iConst 0)
-               J.ArrayType _ -> sgFail "newarray: invalid element type"
-               J.ByteType    -> newarrayInstr tagI count (iConst 0)
-               J.CharType    -> newarrayInstr tagI count (iConst 0)
-               J.ClassType _ -> sgFail "newarray: invalid element type"
-               J.DoubleType  -> newarrayInstr tagD count (dConst 0)
-               J.FloatType   -> newarrayInstr tagF count (fConst 0)
-               J.IntType     -> newarrayInstr tagI count (iConst 0)
-               J.LongType    -> newarrayInstr tagL count (lConst 0)
-               J.ShortType   -> newarrayInstr tagI count (iConst 0)
-           _ -> sgFail "newarray: expected array type"
-    J.Multianewarray _elemType dimensions ->
-      do counts <- reverse <$> sequence (replicate (fromIntegral dimensions) iPop)
-         forM_ counts $ \count -> do
-           let nonneg = App (BVSle w32 (iConst 0) count)
-           lift $ assertExpr nonneg "java/lang/NegativeArraySizeException"
-         sgUnimplemented "multianewarray" --pushValue . RValue =<< newMultiArray arrayType counts
-    J.Getfield _fldId ->
+    J.Getfield fldId ->
       do objectRef <- rPop
          _rawRef <- throwIfRefNull objectRef
          sgUnimplemented "getfield" --cb <- getCodebase
@@ -699,6 +685,33 @@ generateInstruction (pc, instr) =
              J.ShortType   -> return . IValue . shortFromInt =<< iPop
              _             -> popValue
          sgUnimplemented "putstatic" --setStaticFieldValue fieldId value
+
+    -- Array creation and manipulation
+    J.Newarray arrayType ->
+      do count <- iPop
+         let nonneg = App (BVSle w32 (iConst 0) count)
+         lift $ assertExpr nonneg "java/lang/NegativeArraySizeException"
+         -- FIXME: why doesn't jvm-parser just store the element type?
+         case arrayType of
+           J.ArrayType elemType ->
+             case elemType of
+               J.BooleanType -> newarrayInstr tagI count (iConst 0)
+               J.ArrayType _ -> sgFail "newarray: invalid element type"
+               J.ByteType    -> newarrayInstr tagI count (iConst 0)
+               J.CharType    -> newarrayInstr tagI count (iConst 0)
+               J.ClassType _ -> sgFail "newarray: invalid element type"
+               J.DoubleType  -> newarrayInstr tagD count (dConst 0)
+               J.FloatType   -> newarrayInstr tagF count (fConst 0)
+               J.IntType     -> newarrayInstr tagI count (iConst 0)
+               J.LongType    -> newarrayInstr tagL count (lConst 0)
+               J.ShortType   -> newarrayInstr tagI count (iConst 0)
+           _ -> sgFail "newarray: expected array type"
+    J.Multianewarray _elemType dimensions ->
+      do counts <- reverse <$> sequence (replicate (fromIntegral dimensions) iPop)
+         forM_ counts $ \count -> do
+           let nonneg = App (BVSle w32 (iConst 0) count)
+           lift $ assertExpr nonneg "java/lang/NegativeArraySizeException"
+         sgUnimplemented "multianewarray" --pushValue . RValue =<< newMultiArray arrayType counts
 
     -- Load an array component onto the operand stack
     J.Baload -> aloadInstr tagI IValue -- byte
@@ -834,20 +847,11 @@ generateInstruction (pc, instr) =
          let uobj = App (UnrollRecursive knownRepr knownRepr obj)
          len <- lift $
            do k <- newLambdaLabel
-              lD <- defineLambdaBlockLabel (jumpToLambda k . arrayLength)
-              lF <- defineLambdaBlockLabel (jumpToLambda k . arrayLength)
-              lI <- defineLambdaBlockLabel (jumpToLambda k . arrayLength)
-              lL <- defineLambdaBlockLabel (jumpToLambda k . arrayLength)
-              lR <- defineLambdaBlockLabel (jumpToLambda k . arrayLength)
-              lO <- defineLambdaBlockLabel (\_ -> reportError (App (TextLit "arraylength")))
-              let labels =
-                    Ctx.empty
-                    `Ctx.extend` lD
-                    `Ctx.extend` lF
-                    `Ctx.extend` lI
-                    `Ctx.extend` lL
-                    `Ctx.extend` lR
-                    `Ctx.extend` lO
+              l1 <- newLambdaLabel
+              l2 <- newLambdaLabel
+              defineLambdaBlock l1 (\_ -> reportError (App (TextLit "arraylength")))
+              defineLambdaBlock l2 (jumpToLambda k . arrayLength)
+              let labels = Ctx.empty `Ctx.extend` l1 `Ctx.extend` l2
               continueLambda k (branchVariant uobj labels)
          iPush len
     J.Athrow ->
@@ -896,15 +900,16 @@ binary pop1 pop2 push op =
 
 newarrayInstr ::
   KnownRepr TypeRepr t =>
-  Ctx.Index JVMObjectCtx (JVMArrayType t) ->
+  Ctx.Index JVMValueCtx t ->
   JVMInt s ->
   Expr JVM s t ->
   JVMStmtGen h s ret ()
-newarrayInstr tag count val =
-  do let vec = App (VectorReplicate knownRepr (App (BvToNat w32 count)) val)
+newarrayInstr tag count x =
+  do let val = App (InjectVariant knownRepr tag x)
+     let vec = App (VectorReplicate knownRepr (App (BvToNat w32 count)) val)
      let ctx = Ctx.empty `Ctx.extend` count `Ctx.extend` vec
      let arr = App (MkStruct knownRepr ctx)
-     let uobj = App (InjectVariant knownRepr tag arr)
+     let uobj = App (InjectVariant knownRepr tag2 arr)
      let obj = App (RollRecursive knownRepr knownRepr uobj)
      rawRef <- lift $ newRef obj
      let ref = App (JustValue knownRepr rawRef)
@@ -912,7 +917,7 @@ newarrayInstr tag count val =
 
 aloadInstr ::
   KnownRepr TypeRepr t =>
-  Ctx.Index JVMObjectCtx (JVMArrayType t) ->
+  Ctx.Index JVMValueCtx t ->
   (Expr JVM s t -> JVMValue s) ->
   JVMStmtGen h s ret ()
 aloadInstr tag mkVal =
@@ -921,34 +926,35 @@ aloadInstr tag mkVal =
      rawRef <- throwIfRefNull arrayRef
      obj <- lift $ readRef rawRef
      let uobj = App (UnrollRecursive knownRepr knownRepr obj)
-     let marr = App (ProjectVariant knownRepr tag uobj)
+     let marr = App (ProjectVariant knownRepr tag2 uobj)
      arr <- lift $ assertedJustExpr marr "aload: not a valid array"
-     let tagV = Ctx.nextIndex (Ctx.incSize Ctx.zeroSize)
-     let vec = App (GetStruct arr tagV knownRepr)
+     let vec = App (GetStruct arr tag2 knownRepr)
      -- TODO: assert 0 <= idx < length arr
-     let x = App (VectorGetEntry knownRepr vec (App (BvToNat w32 idx)))
+     let val = App (VectorGetEntry knownRepr vec (App (BvToNat w32 idx)))
+     let mx = App (ProjectVariant knownRepr tag val)
+     x <- lift $ assertedJustExpr mx "aload: invalid element type"
      pushValue (mkVal x)
 
 astoreInstr ::
   KnownRepr TypeRepr t =>
-  Ctx.Index JVMObjectCtx (JVMArrayType t) ->
+  Ctx.Index JVMValueCtx t ->
   (Expr JVM s t -> Expr JVM s t) ->
   Expr JVM s t ->
   JVMStmtGen h s ret ()
-astoreInstr tag f val =
+astoreInstr tag f x =
   do idx <- iPop
      arrayRef <- rPop
      rawRef <- throwIfRefNull arrayRef
      obj <- lift $ readRef rawRef
      let uobj = App (UnrollRecursive knownRepr knownRepr obj)
-     let marr = App (ProjectVariant knownRepr tag uobj)
+     let marr = App (ProjectVariant knownRepr tag2 uobj)
      arr <- lift $ assertedJustExpr marr "astore: not a valid array"
-     let tagV = Ctx.nextIndex (Ctx.incSize Ctx.zeroSize)
-     let vec = App (GetStruct arr tagV knownRepr)
+     let vec = App (GetStruct arr tag2 knownRepr)
      -- TODO: assert 0 <= idx < length arr
-     let vec' = App (VectorSetEntry knownRepr vec (App (BvToNat w32 idx)) (f val))
-     let arr' = App (SetStruct knownRepr arr tagV vec')
-     let uobj' = App (InjectVariant knownRepr tag arr')
+     let val = App (InjectVariant knownRepr tag (f x))
+     let vec' = App (VectorSetEntry knownRepr vec (App (BvToNat w32 idx)) val)
+     let arr' = App (SetStruct knownRepr arr tag2 vec')
+     let uobj' = App (InjectVariant knownRepr tag2 arr')
      let obj' = App (RollRecursive knownRepr knownRepr uobj')
      lift $ writeRef rawRef obj'
 
