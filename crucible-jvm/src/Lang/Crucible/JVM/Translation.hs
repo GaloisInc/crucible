@@ -642,14 +642,30 @@ generateInstruction (pc, instr) =
     -- Object creation and manipulation
     J.New _name ->
       do sgUnimplemented "new" -- pushValue . RValue =<< newObject name
-    J.Newarray _arrayType ->
-      do _count <- iPop
-         sgUnimplemented "newarray" --assertFalseM (count `iLt` iConst 0) "java/lang/NegativeArraySizeException"
-         --pushValue . RValue =<< newMultiArray arrayType [count]
-    J.Multianewarray _arrayType dimensions ->
+    J.Newarray arrayType ->
+      do count <- iPop
+         let nonneg = App (BVSle w32 (iConst 0) count)
+         lift $ assertExpr nonneg "java/lang/NegativeArraySizeException"
+         -- FIXME: why doesn't jvm-parser just store the element type?
+         case arrayType of
+           J.ArrayType elemType ->
+             case elemType of
+               J.BooleanType -> newarrayInstr tagI count (iConst 0)
+               J.ArrayType _ -> newarrayInstr tagR count rNull
+               J.ByteType    -> newarrayInstr tagI count (iConst 0)
+               J.CharType    -> newarrayInstr tagI count (iConst 0)
+               J.ClassType _ -> newarrayInstr tagR count rNull
+               J.DoubleType  -> newarrayInstr tagD count (dConst 0)
+               J.FloatType   -> newarrayInstr tagF count (fConst 0)
+               J.IntType     -> newarrayInstr tagI count (iConst 0)
+               J.LongType    -> newarrayInstr tagL count (lConst 0)
+               J.ShortType   -> newarrayInstr tagI count (iConst 0)
+           _ -> sgFail "newarray: expected array type"
+    J.Multianewarray _elemType dimensions ->
       do counts <- reverse <$> sequence (replicate (fromIntegral dimensions) iPop)
-         forM_ counts $ \_count -> do
-           sgUnimplemented "multianewarray" -- assertFalseM (count `iLt` iConst 0) "java/lang/NegativeArraySizeException"
+         forM_ counts $ \count -> do
+           let nonneg = App (BVSle w32 (iConst 0) count)
+           lift $ assertExpr nonneg "java/lang/NegativeArraySizeException"
          sgUnimplemented "multianewarray" --pushValue . RValue =<< newMultiArray arrayType counts
     J.Getfield _fldId ->
       do objectRef <- rPop
@@ -877,6 +893,22 @@ binary pop1 pop2 push op =
   do value2 <- pop2
      value1 <- pop1
      push (value1 `op` value2)
+
+newarrayInstr ::
+  KnownRepr TypeRepr t =>
+  Ctx.Index JVMObjectCtx (JVMArrayType t) ->
+  JVMInt s ->
+  Expr JVM s t ->
+  JVMStmtGen h s ret ()
+newarrayInstr tag count val =
+  do let vec = App (VectorReplicate knownRepr (App (BvToNat w32 count)) val)
+     let ctx = Ctx.empty `Ctx.extend` count `Ctx.extend` vec
+     let arr = App (MkStruct knownRepr ctx)
+     let uobj = App (InjectVariant knownRepr tag arr)
+     let obj = App (RollRecursive knownRepr knownRepr uobj)
+     rawRef <- lift $ newRef obj
+     let ref = App (JustValue knownRepr rawRef)
+     pushValue (RValue ref)
 
 aloadInstr ::
   KnownRepr TypeRepr t =>
