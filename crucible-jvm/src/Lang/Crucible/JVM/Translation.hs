@@ -65,13 +65,16 @@ type JVMInstanceType = UnitType -- FIXME: this should be a
                                 -- representation of a class instance,
                                 -- with a table of fields.
 
+-- | An array is a length paired with a vector.
+type JVMArrayType t = StructType (EmptyCtx ::> JVMIntType ::> VectorType t)
+
 type JVMObjectCtx =
   EmptyCtx
-  ::> VectorType JVMDoubleType
-  ::> VectorType JVMFloatType
-  ::> VectorType JVMIntType
-  ::> VectorType JVMLongType
-  ::> VectorType JVMRefType
+  ::> JVMArrayType JVMDoubleType
+  ::> JVMArrayType JVMFloatType
+  ::> JVMArrayType JVMIntType
+  ::> JVMArrayType JVMLongType
+  ::> JVMArrayType JVMRefType
   ::> JVMInstanceType
 
 type JVMObjectImpl = VariantType JVMObjectCtx
@@ -82,27 +85,27 @@ instance IsRecursiveType "JVM_object" where
 
 ----------------------------------------------------------------------
 
-tagD :: Ctx.Index JVMObjectCtx (VectorType JVMDoubleType)
+tagD :: Ctx.Index JVMObjectCtx (JVMArrayType JVMDoubleType)
 tagD =
   Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $
   Ctx.skipIndex $ Ctx.nextIndex Ctx.zeroSize
 
-tagF :: Ctx.Index JVMObjectCtx (VectorType JVMFloatType)
+tagF :: Ctx.Index JVMObjectCtx (JVMArrayType JVMFloatType)
 tagF =
   Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $
   Ctx.nextIndex $ Ctx.incSize Ctx.zeroSize
 
-tagI :: Ctx.Index JVMObjectCtx (VectorType JVMIntType)
+tagI :: Ctx.Index JVMObjectCtx (JVMArrayType JVMIntType)
 tagI =
   Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $ Ctx.nextIndex $
   Ctx.incSize $ Ctx.incSize Ctx.zeroSize
 
-tagL :: Ctx.Index JVMObjectCtx (VectorType JVMLongType)
+tagL :: Ctx.Index JVMObjectCtx (JVMArrayType JVMLongType)
 tagL =
   Ctx.skipIndex $ Ctx.skipIndex $ Ctx.nextIndex $ Ctx.incSize $
   Ctx.incSize $ Ctx.incSize Ctx.zeroSize
 
-tagR :: Ctx.Index JVMObjectCtx (VectorType JVMRefType)
+tagR :: Ctx.Index JVMObjectCtx (JVMArrayType JVMRefType)
 tagR =
   Ctx.skipIndex $ Ctx.nextIndex $ Ctx.incSize $ Ctx.incSize $
   Ctx.incSize $ Ctx.incSize Ctx.zeroSize
@@ -332,7 +335,7 @@ generateBasicBlock bb rs =
      -- Translate all instructions
      evalStateT (mapM_ generateInstruction (J.bbInsts bb)) vs
      -- There should have been a block-terminating instruction
-     fail "generateBasicBlock: unreachable"
+     jvmFail "generateBasicBlock: no terminal instruction"
 
 -- | Prepare for a branch or jump to the given address, by generating
 -- a transition block to copy the values into the appropriate
@@ -485,17 +488,8 @@ fPush f = pushValue (FValue f)
 dPush :: JVMDouble s -> JVMStmtGen h s ret ()
 dPush d = pushValue (DValue d)
 
-guardArray :: JVMRef s -> JVMInt s -> JVMStmtGen h s ret ()
-guardArray _ _ = sgUnimplemented "guardArray"
-
-pushArrayValue :: JVMRef s -> JVMInt s -> JVMStmtGen h s ret ()
-pushArrayValue _ _ = sgUnimplemented "pushArrayValue"
-
 assertTrueM :: t0 -> [Char] -> JVMStmtGen h s ret ()
 assertTrueM _ _ = sgUnimplemented "assertTrueM"
-
-setArrayValue :: JVMRef s -> JVMInt s -> t1 -> JVMStmtGen h s ret ()
-setArrayValue _ _ _ = sgUnimplemented "setArrayValue"
 
 setLocal :: J.LocalVariableIndex -> JVMValue s -> JVMStmtGen h s ret ()
 setLocal idx v =
@@ -509,17 +503,16 @@ getLocal idx =
        Just v -> return v
        Nothing -> sgFail "getLocal"
 
-throwIfRefNull :: JVMRef s -> JVMStmtGen h s ret ()
-throwIfRefNull _ = sgUnimplemented "throwIfRefNull"
+throwIfRefNull ::
+  JVMRef s -> JVMStmtGen h s ret (Expr JVM s (ReferenceType JVMObjectType))
+throwIfRefNull r = lift $ assertedJustExpr r "null dereference"
 
-arrayLength :: JVMRef s -> JVMStmtGen h s ret (JVMInt s)
-arrayLength _ = sgUnimplemented "arrayLength"
+arrayLength :: KnownRepr TypeRepr t => Expr JVM s (JVMArrayType t) -> JVMInt s
+arrayLength arr = App (GetStruct arr tag knownRepr)
+  where tag = Ctx.skipIndex (Ctx.nextIndex Ctx.zeroSize)
 
 throw :: JVMRef s -> JVMStmtGen h s ret ()
 throw _ = sgUnimplemented "throw"
-
-byteArrayVal :: JVMRef s -> JVMInt s -> JVMStmtGen h s ret (JVMInt s0)
-byteArrayVal _ _ = sgUnimplemented "byteArrayVal"
 
 rNull :: JVMRef s
 rNull = App (NothingValue knownRepr)
@@ -660,7 +653,7 @@ generateInstruction (pc, instr) =
          sgUnimplemented "multianewarray" --pushValue . RValue =<< newMultiArray arrayType counts
     J.Getfield _fldId ->
       do objectRef <- rPop
-         throwIfRefNull objectRef
+         _rawRef <- throwIfRefNull objectRef
          sgUnimplemented "getfield" --cb <- getCodebase
          --pushInstanceFieldValue objectRef =<< liftIO (locateField cb fldId)
     J.Getstatic _fieldId ->
@@ -669,7 +662,7 @@ generateInstruction (pc, instr) =
     J.Putfield fldId ->
       do val <- popValue
          objectRef <- rPop
-         throwIfRefNull objectRef
+         _rawRef <- throwIfRefNull objectRef
          --cb <- getCodebase
          _val' <-
            case (J.fieldIdType fldId, val) of
@@ -820,8 +813,27 @@ generateInstruction (pc, instr) =
       do pushValue (RValue rNull)
     J.Arraylength ->
       do arrayRef <- rPop
-         throwIfRefNull arrayRef
-         iPush =<< arrayLength arrayRef
+         rawRef <- throwIfRefNull arrayRef
+         obj <- lift $ readRef rawRef
+         let uobj = App (UnrollRecursive knownRepr knownRepr obj)
+         len <- lift $
+           do k <- newLambdaLabel
+              lD <- defineLambdaBlockLabel (jumpToLambda k . arrayLength)
+              lF <- defineLambdaBlockLabel (jumpToLambda k . arrayLength)
+              lI <- defineLambdaBlockLabel (jumpToLambda k . arrayLength)
+              lL <- defineLambdaBlockLabel (jumpToLambda k . arrayLength)
+              lR <- defineLambdaBlockLabel (jumpToLambda k . arrayLength)
+              lO <- defineLambdaBlockLabel (\_ -> reportError (App (TextLit "arraylength")))
+              let labels =
+                    Ctx.empty
+                    `Ctx.extend` lD
+                    `Ctx.extend` lF
+                    `Ctx.extend` lI
+                    `Ctx.extend` lL
+                    `Ctx.extend` lR
+                    `Ctx.extend` lO
+              continueLambda k (branchVariant uobj labels)
+         iPush len
     J.Athrow ->
       do _objectRef <- rPop
          -- For now, we assert that exceptions won't happen
@@ -868,37 +880,42 @@ binary pop1 pop2 push op =
 
 aloadInstr ::
   KnownRepr TypeRepr t =>
-  Ctx.Index JVMObjectCtx (VectorType t) ->
+  Ctx.Index JVMObjectCtx (JVMArrayType t) ->
   (Expr JVM s t -> JVMValue s) ->
   JVMStmtGen h s ret ()
 aloadInstr tag mkVal =
   do idx <- iPop
      arrayRef <- rPop
-     rawRef <- lift $ assertedJustExpr arrayRef "null dereference"
+     rawRef <- throwIfRefNull arrayRef
      obj <- lift $ readRef rawRef
      let uobj = App (UnrollRecursive knownRepr knownRepr obj)
      let marr = App (ProjectVariant knownRepr tag uobj)
      arr <- lift $ assertedJustExpr marr "aload: not a valid array"
+     let tagV = Ctx.nextIndex (Ctx.incSize Ctx.zeroSize)
+     let vec = App (GetStruct arr tagV knownRepr)
      -- TODO: assert 0 <= idx < length arr
-     let x = App (VectorGetEntry knownRepr arr (App (BvToNat w32 idx)))
+     let x = App (VectorGetEntry knownRepr vec (App (BvToNat w32 idx)))
      pushValue (mkVal x)
 
 astoreInstr ::
   KnownRepr TypeRepr t =>
-  Ctx.Index JVMObjectCtx (VectorType t) ->
+  Ctx.Index JVMObjectCtx (JVMArrayType t) ->
   (Expr JVM s t -> Expr JVM s t) ->
   Expr JVM s t ->
   JVMStmtGen h s ret ()
 astoreInstr tag f val =
   do idx <- iPop
      arrayRef <- rPop
-     rawRef <- lift $ assertedJustExpr arrayRef "null dereference"
+     rawRef <- throwIfRefNull arrayRef
      obj <- lift $ readRef rawRef
      let uobj = App (UnrollRecursive knownRepr knownRepr obj)
      let marr = App (ProjectVariant knownRepr tag uobj)
      arr <- lift $ assertedJustExpr marr "astore: not a valid array"
+     let tagV = Ctx.nextIndex (Ctx.incSize Ctx.zeroSize)
+     let vec = App (GetStruct arr tagV knownRepr)
      -- TODO: assert 0 <= idx < length arr
-     let arr' = App (VectorSetEntry knownRepr arr (App (BvToNat w32 idx)) (f val))
+     let vec' = App (VectorSetEntry knownRepr vec (App (BvToNat w32 idx)) (f val))
+     let arr' = App (SetStruct knownRepr arr tagV vec')
      let uobj' = App (InjectVariant knownRepr tag arr')
      let obj' = App (RollRecursive knownRepr knownRepr uobj')
      lift $ writeRef rawRef obj'
@@ -1146,3 +1163,13 @@ defineMethod ctx cn method =
          (SomeCFG g, []) <- defineFunction InternalPos h def
          case toSSA g of
            C.SomeCFG g_ssa -> return (C.AnyCFG g_ssa)
+
+-- | Define a block with a fresh lambda label, returning the label.
+defineLambdaBlockLabel ::
+  (IsSyntaxExtension ext, KnownRepr TypeRepr tp) =>
+  (forall a. Expr ext s tp -> Generator ext h s t ret a) ->
+  Generator ext h s t ret (LambdaLabel s tp)
+defineLambdaBlockLabel action =
+  do l <- newLambdaLabel
+     defineLambdaBlock l action
+     return l
