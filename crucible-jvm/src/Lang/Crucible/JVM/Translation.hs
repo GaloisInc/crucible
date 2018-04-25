@@ -33,6 +33,7 @@ import Control.Monad.ST
 import Control.Lens hiding (op, (:>))
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.String (fromString)
 
 import qualified Language.JVM.Parser as J
 import qualified Language.JVM.CFG as J
@@ -72,9 +73,9 @@ type JVMValueCtx =
   ::> JVMLongType
   ::> JVMRefType
 
-type JVMInstanceType = UnitType -- FIXME: this should be a
-                                -- representation of a class instance,
-                                -- with a table of fields.
+-- | A class instance contains a table of fields.
+-- TODO: Should also have a pointer to the class.
+type JVMInstanceType = StringMapType JVMValueType
 
 -- | An array is a length paired with a vector of values.
 type JVMArrayType =
@@ -500,6 +501,9 @@ fPush f = pushValue (FValue f)
 dPush :: JVMDouble s -> JVMStmtGen h s ret ()
 dPush d = pushValue (DValue d)
 
+rPush :: JVMRef s -> JVMStmtGen h s ret ()
+rPush r = pushValue (RValue r)
+
 assertTrueM :: t0 -> [Char] -> JVMStmtGen h s ret ()
 assertTrueM _ _ = sgUnimplemented "assertTrueM"
 
@@ -518,6 +522,16 @@ getLocal idx =
 throwIfRefNull ::
   JVMRef s -> JVMStmtGen h s ret (Expr JVM s (ReferenceType JVMObjectType))
 throwIfRefNull r = lift $ assertedJustExpr r "null dereference"
+
+projectVariant ::
+  KnownRepr TypeRepr tp =>
+  KnownRepr (Ctx.Assignment TypeRepr) ctx =>
+  Ctx.Index ctx tp ->
+  Expr JVM s (VariantType ctx) ->
+  JVMStmtGen h s ret (Expr JVM s tp)
+projectVariant tag var =
+  do let mx = App (ProjectVariant knownRepr tag var)
+     lift $ assertedJustExpr mx "incorrect variant"
 
 arrayLength :: Expr JVM s JVMArrayType -> JVMInt s
 arrayLength arr = App (GetStruct arr tag1 knownRepr)
@@ -655,9 +669,25 @@ generateInstruction (pc, instr) =
       do sgUnimplemented "new" -- pushValue . RValue =<< newObject name
     J.Getfield fldId ->
       do objectRef <- rPop
-         _rawRef <- throwIfRefNull objectRef
-         sgUnimplemented "getfield" --cb <- getCodebase
-         --pushInstanceFieldValue objectRef =<< liftIO (locateField cb fldId)
+         rawRef <- throwIfRefNull objectRef
+         obj <- lift $ readRef rawRef
+         let uobj = App (UnrollRecursive knownRepr knownRepr obj)
+         let minst = App (ProjectVariant knownRepr tag1 uobj)
+         inst <- lift $ assertedJustExpr minst "getfield: not a valid class instance"
+         let key = App (TextLit (fromString (J.fieldIdName fldId)))
+         let mval = App (LookupStringMapEntry knownRepr inst key)
+         val <- lift $ assertedJustExpr mval "getfield: field not found"
+         case J.fieldIdType fldId of
+           J.BooleanType -> iPush =<< projectVariant tagI val
+           J.ArrayType _ -> rPush =<< projectVariant tagR val
+           J.ByteType    -> iPush =<< projectVariant tagI val
+           J.CharType    -> iPush =<< projectVariant tagI val
+           J.ClassType _ -> rPush =<< projectVariant tagR val
+           J.DoubleType  -> dPush =<< projectVariant tagD val
+           J.FloatType   -> fPush =<< projectVariant tagF val
+           J.IntType     -> iPush =<< projectVariant tagI val
+           J.LongType    -> lPush =<< projectVariant tagL val
+           J.ShortType   -> iPush =<< projectVariant tagI val
     J.Getstatic _fieldId ->
       do sgUnimplemented "getstatic" --initializeClass $ J.fieldIdClass fieldId
          --pushStaticFieldValue fieldId
@@ -839,7 +869,7 @@ generateInstruction (pc, instr) =
 
     -- Other XXXXX
     J.Aconst_null ->
-      do pushValue (RValue rNull)
+      do rPush rNull
     J.Arraylength ->
       do arrayRef <- rPop
          rawRef <- throwIfRefNull arrayRef
@@ -913,7 +943,7 @@ newarrayInstr tag count x =
      let obj = App (RollRecursive knownRepr knownRepr uobj)
      rawRef <- lift $ newRef obj
      let ref = App (JustValue knownRepr rawRef)
-     pushValue (RValue ref)
+     rPush ref
 
 aloadInstr ::
   KnownRepr TypeRepr t =>
