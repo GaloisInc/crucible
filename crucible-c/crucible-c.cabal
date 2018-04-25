@@ -24,7 +24,9 @@ executable crucible-c
     Error,
     Goal,
     Overrides,
-    Model
+    Model,
+    Clang
+
 
   build-depends:
     base >= 4.8 && < 4.12,
@@ -36,7 +38,9 @@ executable crucible-c
     crucible-llvm,
     llvm-pretty,
     llvm-pretty-bc-parser,
-    parameterized-utils
+    parameterized-utils,
+    filepath,
+    process
 
 
   ghc-options: -Wall

@@ -10,6 +10,7 @@ import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)
 import System.IO(hPutStrLn,stdout,stderr)
 import System.Environment(getProgName,getArgs)
+import System.FilePath(takeExtension)
 
 import Control.Monad.State(evalStateT)
 
@@ -26,8 +27,7 @@ import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
 
 import Lang.Crucible.Config(initialConfig)
 import Lang.Crucible.Types
-import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..)
-                             , cfgArgTypes)
+import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
 import Lang.Crucible.Simulator.RegMap(emptyRegMap,regValue)
 import Lang.Crucible.Simulator.ExecutionTree
@@ -56,43 +56,46 @@ import Goal
 import Types
 import Overrides
 import Model
+import Clang
 
 
 main :: IO ()
 main =
   do args <- getArgs
      case args of
-       [file,fun] ->
-         do simulate file (checkFun fun)
-            putStrLn "Valid."
+       [file] | takeExtension file == ".bc" -> checkBC file
+       file : incs ->
+          do let outFile = "compiled.bc"
+             genBitCode incs file outFile
+             checkBC outFile
           `catch` \e -> do hPutStrLn stderr (ppError e)
                            case e of
                              FailedToProve _ (Just c) ->
                                do let cfile = "counter-example.c"
-                                  writeFile cfile
-                                    $ unlines [ setCounterFunc fun, c ]
+                                  writeFile cfile c
                                   hPutStrLn stderr
                                      ("Counter example in " ++ show cfile)
                              _ -> return ()
 
        _ -> do p <- getProgName
-               hPutStrLn stderr ("Usage: " ++ p ++ " FILE FUN")
+               hPutStrLn stderr $ unlines
+                  [ "Usage:"
+                  , "  " ++ p ++ " FILE.bc"
+                  , "  " ++ p ++ " FILE.c INC_DIR1 INC_DIR2 ..."
+                  ]
 
-setCounterFunc :: String -> String
-setCounterFunc f = unlines
-  [ "#include <crucible.h>"
-  , "#include <stddef.h>"
-  , "extern void " ++ f ++ "(void);"
-  , "void (*crucible_counter_example_function)(void) = " ++ f ++ ";"
-  ]
+checkBC :: FilePath -> IO ()
+checkBC file =
+  do simulate file (checkFun "main")
+     putStrLn "Valid."
 
 
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::
-  (ArchOk arch, IsSymInterface b) =>
+  (ArchOk arch, IsSymInterface sym) =>
   HandleAllocator RealWorld ->
-  b ->
-  IO (SimCtxt b arch)
+  sym ->
+  IO (SimCtxt sym arch)
 setupSimCtxt halloc sym =
   withPtrWidth ?ptrWidth $
   do let verbosity = 0
@@ -118,10 +121,10 @@ parseLLVM file =
 
 
 setupMem ::
-  (ArchOk arch, IsSymInterface scope) =>
+  (ArchOk arch, IsSymInterface sym) =>
   LLVMContext arch ->
   ModuleTranslation arch ->
-  OverM scope arch ()
+  OverM sym arch ()
 setupMem ctx mtrans =
   do -- register the callable override functions
      evalStateT register_llvm_overrides ctx

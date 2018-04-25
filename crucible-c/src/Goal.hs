@@ -25,15 +25,15 @@ prover :: SolverAdapter s
 prover = z3Adapter
 
 
-data Goal b = Goal
-  { gAssumes :: [Formula b]
-  , gShows   :: Assertion (Formula b)
+data Goal sym = Goal
+  { gAssumes :: [Pred sym]
+  , gShows   :: Assertion (Pred sym)
   }
 
-mkGoal :: ([Formula b], Assertion (Formula b)) -> Goal b
+mkGoal :: ([Pred sym], Assertion (Pred sym)) -> Goal sym
 mkGoal (as,p) = Goal { gAssumes = as, gShows = p }
 
-obligGoal :: (IsBoolExprBuilder b) => b -> Goal b -> IO (Pred b)
+obligGoal :: (IsBoolExprBuilder sym) => sym -> Goal sym -> IO (Pred sym)
 obligGoal sym g = foldM imp (gShows g ^. assertPred) (gAssumes g)
   where
   imp p a = impliesPred sym a p
@@ -47,7 +47,7 @@ proveGoal ctxt g =
          cfg = simConfig ctxt
      p <- notPred sym =<< obligGoal sym g
 
-     let say n x = putStrLn ("[" ++ show n ++ "] " ++ x)
+     let say _n _x = return () -- putStrLn ("[" ++ show n ++ "] " ++ x)
      solver_adapter_check_sat prover sym cfg say p $ \res ->
         case res of
           Unsat -> return ()

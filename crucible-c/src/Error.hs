@@ -27,6 +27,7 @@ data Error =
   | BadFun
   | MissingFun String
   | Bug String
+  | ClangError Int String String
 
 instance Show Error where
   show = show . ppError
@@ -49,6 +50,14 @@ ppError err =
     BadFun -> "Function should have no arguments"
     MissingFun nm -> "Cannot find code for " ++ show nm
     Bug x -> x
+    ClangError n sout serr ->
+      unlines $ [ "`clang` compilation failed."
+                , "*** Exit code: " ++ show n
+                , "*** Standard out:"
+                ] ++
+                [ "   " ++ l | l <- lines sout ] ++
+                [ "*** Standard error:" ] ++
+                [ "   " ++ l | l <- lines serr ]
 
 ppErr :: AbortedResult sym ext -> String
 ppErr aberr =

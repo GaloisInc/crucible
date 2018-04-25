@@ -23,7 +23,7 @@ import Lang.Crucible.Types
 import Lang.Crucible.FunctionName(functionNameFromText)
 import Lang.Crucible.CFG.Core(GlobalVar)
 import Lang.Crucible.FunctionHandle (handleArgTypes,handleReturnType)
-import Lang.Crucible.Simulator.RegMap(RegMap(..),regValue)
+import Lang.Crucible.Simulator.RegMap(RegMap(..),regValue,RegValue)
 import Lang.Crucible.Simulator.ExecutionTree
         ( FnState(..)
         , cruciblePersonality
@@ -116,10 +116,10 @@ regOver ctxt n argT retT x =
 --------------------------------------------------------------------------------
 
 mkFresh ::
-  (IsSymInterface b) =>
+  (IsSymInterface sym) =>
   String ->
   BaseTypeRepr ty ->
-  OverM b arch (Val b (BaseToType ty))
+  OverM sym arch (RegValue sym (BaseToType ty))
 mkFresh nm ty =
   do sym  <- getSymInterface
      name <- case userSymbol nm of
@@ -132,17 +132,17 @@ mkFresh nm ty =
 
 
 lib_fresh_i8 ::
-  (ArchOk arch, IsSymInterface b) =>
-  Fun b arch (EmptyCtx ::> TPtr arch) (TBits 8)
+  (ArchOk arch, IsSymInterface sym) =>
+  Fun sym arch (EmptyCtx ::> TPtr arch) (TBits 8)
 lib_fresh_i8 =
   do x <- mkFresh "X" (BaseBVRepr (knownNat @8))
      sym <- getSymInterface
      liftIO (llvmPointer_bv sym x)
 
 lib_assume ::
-  (ArchOk arch, IsSymInterface b) =>
-  Fun b arch (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32)
-                  UnitType
+  (ArchOk arch, IsSymInterface sym) =>
+  Fun sym arch (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32)
+               UnitType
 lib_assume =
   do RegMap (Empty :> p :> _file :> _line) <- getOverrideArgs
      sym  <- getSymInterface
@@ -152,9 +152,9 @@ lib_assume =
 
 
 lib_assert ::
-  (ArchOk arch, IsSymInterface b) =>
+  (ArchOk arch, IsSymInterface sym) =>
   GlobalVar Mem ->
-  Fun b arch (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32) UnitType
+  Fun sym arch (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32) UnitType
 lib_assert mvar =
   do RegMap (Empty :> p :> pFile :> line) <- getOverrideArgs
      sym  <- getSymInterface
@@ -173,19 +173,16 @@ lib_assert mvar =
 
 
 sv_comp_fresh_i32 ::
-  (ArchOk arch, IsSymInterface b) =>
-  Fun b arch EmptyCtx (TBits 32)
+  (ArchOk arch, IsSymInterface sym) =>
+  Fun sym arch EmptyCtx (TBits 32)
 sv_comp_fresh_i32 =
-  do sym <- getSymInterface
-     name <- case userSymbol "X" of
-               Left err -> fail (show err)
-               Right a  -> return a
-     liftIO (llvmPointer_bv sym =<<
-                freshConstant sym name (BaseBVRepr (knownNat @32)))
+  do x <- mkFresh "X" (BaseBVRepr (knownNat @32))
+     sym <- getSymInterface
+     liftIO (llvmPointer_bv sym x)
 
 sv_comp_assume ::
-  (ArchOk arch, IsSymInterface b) =>
-  Fun b arch (EmptyCtx ::> TBits 32) UnitType
+  (ArchOk arch, IsSymInterface sym) =>
+  Fun sym arch (EmptyCtx ::> TBits 32) UnitType
 sv_comp_assume =
   do RegMap (Empty :> p) <- getOverrideArgs
      sym  <- getSymInterface
@@ -194,8 +191,8 @@ sv_comp_assume =
                  addAssumption sym =<< notPred sym =<< bvEq sym cond zero
 
 sv_comp_error ::
-  (ArchOk arch, IsSymInterface b) =>
-  Fun b arch (EmptyCtx ::> VectorType AnyType) UnitType
+  (ArchOk arch, IsSymInterface sym) =>
+  Fun sym arch (EmptyCtx ::> VectorType AnyType) UnitType
 sv_comp_error =
   do sym  <- getSymInterface
      let rsn = AssertFailureSimError "Called __VERIFIER_error"

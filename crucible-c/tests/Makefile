@@ -5,8 +5,9 @@ CFLGASG=-I $(INCLUDES) -c -Wall -emit-llvm
 
 .PHONY: run all clean counter-example
 
-counter-example:
-	$(CLANG) -g -I $(INCLUDES) crucible.c counter-example.c example1.c
+counter-example: byte_add.bc
+	$(CLANG) -g -I $(INCLUDES) \
+          ../c-src/sv-comp.c ../counter-example.c byte_add.bc
 
 run: example1.bc
 	saw crucible-c.saw
