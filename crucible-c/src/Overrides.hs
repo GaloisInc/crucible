@@ -99,7 +99,7 @@ regOver ctxt n argT retT x =
                  registerFnBinding (FnBinding h (UseOverride over))
            _ ->
              throwError $ Bug $ unlines
-                [ "[bug] Invalid type for implemenattion of " ++ show n
+                [ "[bug] Invalid type for implementation of " ++ show n
                 , "*** Expected: " ++ showF (handleArgTypes h) ++
                             " -> " ++ showF (handleReturnType h)
                 , "*** Actual:   " ++ showF argT ++
