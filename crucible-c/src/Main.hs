@@ -150,8 +150,8 @@ checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> Code scope arch
 checkFun nm mp =
   case Map.lookup (fromString nm) mp of
     Just (AnyCFG anyCfg) ->
-      case (cfgArgTypes anyCfg, cfgReturnType anyCfg) of
-        (Empty, UnitRepr) -> regValue <$> callCFG anyCfg emptyRegMap
+      case cfgArgTypes anyCfg of
+        Empty -> (regValue <$> callCFG anyCfg emptyRegMap) >> return ()
         _ -> throwError BadFun
     Nothing -> throwError (MissingFun nm)
 
