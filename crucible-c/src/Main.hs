@@ -64,11 +64,26 @@ main =
        [file,fun] ->
          do simulate file (checkFun fun)
             putStrLn "Valid."
-          `catch` \e -> hPutStrLn stderr (ppError e)
+          `catch` \e -> do hPutStrLn stderr (ppError e)
+                           case e of
+                             FailedToProve _ (Just c) ->
+                               do let cfile = "counter-example.c"
+                                  writeFile cfile
+                                    $ unlines [ setCounterFunc fun, c ]
+                                  hPutStrLn stderr
+                                     ("Counter example in " ++ show cfile)
+                             _ -> return ()
 
        _ -> do p <- getProgName
                hPutStrLn stderr ("Usage: " ++ p ++ " FILE FUN")
 
+setCounterFunc :: String -> String
+setCounterFunc f = unlines
+  [ "#include <crucible.h>"
+  , "#include <stddef.h>"
+  , "extern void " ++ f ++ "(void);"
+  , "void (*crucible_counter_example_function)(void) = " ++ f ++ ";"
+  ]
 
 
 -- | Create a simulator context for the given architecture.
@@ -103,7 +118,10 @@ parseLLVM file =
 
 
 setupMem ::
-  ArchOk arch => LLVMContext arch -> ModuleTranslation arch -> Code scope arch
+  ArchOk arch =>
+  LLVMContext arch ->
+  ModuleTranslation arch ->
+  OverM scope arch ()
 setupMem ctx mtrans =
   do -- register the callable override functions
      evalStateT register_llvm_overrides ctx
@@ -119,7 +137,7 @@ setupMem ctx mtrans =
 
 simulate ::
   FilePath ->
-  (forall scope arch. ArchOk arch => ModuleCFGMap arch -> Code scope arch) ->
+  (forall scope arch. ArchOk arch => ModuleCFGMap arch -> OverM scope arch ())->
   IO ()
 simulate file k =
   do llvm_mod   <- parseLLVM file
@@ -146,7 +164,7 @@ simulate file k =
               mapM_ (proveGoal ctx' . mkGoal) =<< getProofObligations sym
             AbortedResult _ err -> throwError (SimFail err)
 
-checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> Code scope arch
+checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM scope arch ()
 checkFun nm mp =
   case Map.lookup (fromString nm) mp of
     Just (AnyCFG anyCfg) ->

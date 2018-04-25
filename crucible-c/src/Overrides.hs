@@ -11,7 +11,7 @@ import Data.String(fromString)
 import qualified Data.Map as Map
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
-import Control.Lens((^.))
+import Control.Lens((^.),(%=))
 import Control.Monad.IO.Class(liftIO)
 
 import Data.Parameterized.Classes(showF)
@@ -24,7 +24,11 @@ import Lang.Crucible.FunctionName(functionNameFromText)
 import Lang.Crucible.CFG.Core(GlobalVar)
 import Lang.Crucible.FunctionHandle (handleArgTypes,handleReturnType)
 import Lang.Crucible.Simulator.RegMap(RegMap(..),regValue)
-import Lang.Crucible.Simulator.ExecutionTree(FnState(..))
+import Lang.Crucible.Simulator.ExecutionTree
+        ( FnState(..)
+        , cruciblePersonality
+        , stateContext
+        )
 import Lang.Crucible.Simulator.OverrideSim
         ( mkOverride'
         , getSymInterface
@@ -54,6 +58,7 @@ import Lang.Crucible.LLVM.MemModel.Pointer(llvmPointer_bv, projectLLVM_bv)
 
 import Error
 import Types
+import Model
 
 
 
@@ -61,7 +66,7 @@ tPtr :: HasPtrWidth w => TypeRepr (LLVMPointerType w)
 tPtr = LLVMPointerRepr ?ptrWidth
 
 setupOverrides ::
-  ArchOk arch => LLVMContext arch -> Code scope arch
+  ArchOk arch => LLVMContext arch -> OverM scope arch ()
 setupOverrides ctxt =
   do let mvar = llvmMemVar ctxt
      regOver ctxt "crucible_int8_t"
@@ -77,7 +82,7 @@ regOver ::
   Assignment TypeRepr args ->
   TypeRepr ret ->
   Fun scope arch args ret ->
-  Code scope arch
+  OverM scope arch ()
 regOver ctxt n argT retT x =
   do let lnm = fromString n
          nm  = functionNameFromText (fromString n)
@@ -102,14 +107,26 @@ regOver ctxt n argT retT x =
 
 --------------------------------------------------------------------------------
 
+mkFresh ::
+  String ->
+  BaseTypeRepr ty ->
+  OverM scope arch (Val scope (BaseToType ty))
+mkFresh nm ty =
+  do sym  <- getSymInterface
+     name <- case userSymbol nm of
+               Left err -> fail (show err) -- XXX
+               Right a  -> return a
+     elt <- liftIO (freshConstant sym name ty)
+     stateContext.cruciblePersonality %= addVar ty elt
+     return elt
+
+
+
 lib_fresh_i8 :: ArchOk arch => Fun scope arch (EmptyCtx ::> TPtr arch) (TBits 8)
 lib_fresh_i8 =
-  do sym <- getSymInterface
-     name <- case userSymbol "X" of
-               Left err -> fail (show err)
-               Right a  -> return a
-     liftIO (llvmPointer_bv sym =<<
-                freshConstant sym name (BaseBVRepr (knownNat @8)))
+  do x <- mkFresh "X" (BaseBVRepr (knownNat @8))
+     sym <- getSymInterface
+     liftIO (llvmPointer_bv sym x)
 
 lib_assume ::
   ArchOk arch => Fun scope arch

@@ -9,13 +9,15 @@ import Lang.Crucible.Solver.SimpleBackend.Z3(z3Adapter)
 import Lang.Crucible.Solver.SatResult(SatResult(..))
 
 
-import Lang.Crucible.Simulator.ExecutionTree(ctxSymInterface, simConfig)
+import Lang.Crucible.Simulator.ExecutionTree
+        (ctxSymInterface, simConfig, cruciblePersonality)
 
 import Lang.Crucible.Solver.BoolInterface
         (notPred,impliesPred, Assertion, assertPred, assertMsg)
 
 import Error
 import Types
+import Model
 
 
 prover :: SolverAdapter SimpleBackendState
@@ -40,12 +42,18 @@ proveGoal ctxt g =
   do let sym = ctxt ^. ctxSymInterface
          cfg = simConfig ctxt
      p <- notPred sym =<< obligGoal sym g
-     let say _n _x = return ()
+
+     let say n x = putStrLn ("[" ++ show n ++ "] " ++ x)
      solver_adapter_check_sat prover sym cfg say p $ \res ->
         case res of
           Unsat -> return ()
-          Sat (_evalFn,_mbRng) -> throwError (FailedToProve (assertMsg a))
-          _     -> throwError (FailedToProve (assertMsg a))
+          Sat (evalFn,_mbRng) ->
+            do let model = ctxt ^. cruciblePersonality
+               str <- ppModel evalFn model
+               throwError (FailedToProve (assertMsg a) (Just str))
+          _     -> throwError (FailedToProve (assertMsg a) Nothing)
 
   where a = gShows g
+
+
 
