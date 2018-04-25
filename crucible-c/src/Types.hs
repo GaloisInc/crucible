@@ -4,7 +4,6 @@ module Types where
 
 import Lang.Crucible.Solver.SimpleBackend(SimpleBackend)
 import Lang.Crucible.Solver.BoolInterface(Pred)
-import Lang.Crucible.Types(UnitType, EmptyCtx)
 import Lang.Crucible.Simulator.RegMap(RegValue)
 import Lang.Crucible.Simulator.OverrideSim(OverrideSim)
 import Lang.Crucible.Simulator.ExecutionTree(SimContext)
@@ -22,7 +21,20 @@ type ArchOk arch    = HasPtrWidth (ArchWidth arch)
 type TPtr arch      = LLVMPointerType (ArchWidth arch)
 type TBits n        = LLVMPointerType n
 type Formula b      = Pred b
+type Val b t        = RegValue b t
 
+-- | The instane of the override monad we use,
+-- when we don't care about the context of the surrounding function.
+type OverM scope arch a =
+  forall r args ret.
+  OverrideSim
+    Model
+    (SimpleBackend scope)                  -- the backend
+    (LLVM arch)                            -- LLVM extensions
+    r
+    args
+    ret
+    a
 
 -- | This is the instance of the 'OverrideSim' monad that we use.
 type Fun scope arch args ret =
@@ -34,9 +46,7 @@ type Fun scope arch args ret =
     r
     args
     ret
-    (RegValue (SimpleBackend scope) ret)
+    (Val (SimpleBackend scope) ret)
 
--- | Special case of 'Fun' with no arguments or return type
-type Code scope arch = Fun scope arch EmptyCtx UnitType
 
 

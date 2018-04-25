@@ -21,6 +21,7 @@ throwError x = liftIO (throwIO x)
 data Error =
     LLVMParseError LLVM.Error
   | FailedToProve (Maybe SimErrorReason)
+                  (Maybe String) -- Counter example as C functions.
   | forall b arch.
       SimFail (AbortedResult b (LLVM arch))
   | BadFun
@@ -39,9 +40,9 @@ ppError :: Error -> String
 ppError err =
   case err of
     LLVMParseError e -> formatError e
-    FailedToProve mb -> case mb of
-                          Nothing -> "Assertion failed." -- shouldn't happen
-                          Just s  -> simErrorReasonMsg s
+    FailedToProve mb _ -> case mb of
+                            Nothing -> "Assertion failed." -- shouldn't happen
+                            Just s  -> simErrorReasonMsg s
     SimFail (AbortedExec e _)
       | AssertFailureSimError x <- simErrorReason e -> x
     SimFail x -> unlines ["Error during simulation:", ppErr x]

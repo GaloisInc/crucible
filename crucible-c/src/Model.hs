@@ -1,48 +1,69 @@
 {-# Language DataKinds #-}
 {-# Language TemplateHaskell #-}
 {-# Language Rank2Types #-}
+{-# Language TypeFamilies #-}
 module Model where
 
-import Control.Lens(makeLenses, (<&>), (^.), (&), (.~), Lens')
+import Data.List(intercalate)
+import Data.Parameterized.TraversableF(traverseF)
+import Data.Parameterized.Map (MapF)
+import qualified Data.Parameterized.Map as MapF
+import Control.Exception(throw)
 
-import Lang.Crucible.Types(BaseBVType)
-import Lang.Crucible.Solver.SimpleBuilder(Elt)
+import Lang.Crucible.Types(BaseTypeRepr(..),BaseToType)
+import Lang.Crucible.Simulator.RegMap(RegValue)
+import Lang.Crucible.Solver.SimpleBackend(SimpleBackend)
+import Lang.Crucible.Solver.SimpleBackend.GroundEval
+        (GroundValue,GroundEvalFn(..))
 
-data Model scope = Model
-  { _model_i8 :: Vars scope (BaseBVType 8)
-  }
+import Error
 
-emptyModel :: Model scope
-emptyModel = Model { _model_i8 = emptyVars }
+newtype Model sym   = Model (MapF BaseTypeRepr (Vars sym))
+newtype Vars sym ty = Vars [ RegValue sym (BaseToType ty) ]
+newtype Vals ty     = Vals [ GroundValue ty ]
+
+emptyModel :: Model sym
+emptyModel = Model MapF.empty
+
+addVar ::
+  BaseTypeRepr ty -> RegValue sym (BaseToType ty) -> Model sym -> Model sym
+addVar k v (Model mp) = Model (MapF.insertWith jn k (Vars [ v ]) mp)
+  where jn (Vars new) (Vars old) = Vars (new ++ old)
+
+evalVars :: GroundEvalFn scope -> Vars (SimpleBackend scope) ty -> IO (Vals ty)
+evalVars ev (Vars xs) = Vals . reverse <$> mapM (groundEval ev) xs
+
+evalModel ::
+  GroundEvalFn scope ->
+  Model (SimpleBackend scope) ->
+  IO (MapF BaseTypeRepr Vals)
+evalModel ev (Model mp) = traverseF (evalVars ev) mp
 
 
-data Vars scope ty = Vars
-  { nextVar       :: !Int
-  , generatedVars :: [ Elt scope ty ]
-  }
+--------------------------------------------------------------------------------
 
-emptyVars :: Vars scope ty
-emptyVars = Vars { nextVar = 0, generatedVars = [] }
 
-makeLenses ''Model
+ppVals :: BaseTypeRepr ty -> Vals ty -> String
+ppVals ty (Vals xs) =
+  case ty of
+    BaseBVRepr n ->
+      let cty = "int" ++ show n ++ "_t"
+      in unlines
+          [ "size_t crucible_values_number_" ++ cty ++
+                   " = " ++ show (length xs) ++ ";"
+          , cty ++ " crucible_values_" ++ cty ++ "[] = { " ++
+                intercalate "," (map show xs) ++ " };"
+          ]
+    _ -> throw (Bug ("Type not implemented: " ++ show ty))
 
-newVar ::
-  Functor m =>
-  (Int -> m (Elt scope ty)) ->
-  Vars scope ty -> m (Elt scope ty, Vars scope ty)
-newVar mk v =
-  mk var <&> \elt -> ( elt
-                     , v { nextVar = var + 1
-                         , generatedVars = elt : generatedVars v
-                         }
-                      )
-  where var = nextVar v
+ppModel ::
+  GroundEvalFn scope -> Model (SimpleBackend scope) -> IO String
+ppModel ev m =
+  do vals <- evalModel ev m
+     return $ unlines
+            $ MapF.foldrWithKey (\k v rest -> ppVals k v : rest) [] vals
 
-modelNewVar ::
-  Functor m =>
-  Lens' (Model scope) (Vars scope ty) ->
-  (Int -> m (Elt scope ty)) ->
-  Model scope -> m (Elt scope ty, Model scope)
-modelNewVar l mk m = newVar mk (m ^. l) <&> \(e,v1) -> (e, m & l .~ v1)
+
+
 
 
