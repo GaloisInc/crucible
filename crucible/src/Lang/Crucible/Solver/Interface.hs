@@ -217,7 +217,8 @@ class (IsPred (e BaseBoolType)) => IsExpr e where
   asSignedBV   :: (1 <= w) => e (BaseBVType w) -> Maybe Integer
   asSignedBV _ = Nothing
 
-  -- | Return value if this is an array of constants.
+  -- | Return the unique element value if this is a constant array,
+  -- such as one made with 'constantArray'.
   asConstantArray :: e (BaseArrayType idx bt) -> Maybe (e bt)
   asConstantArray _ = Nothing
 
@@ -368,20 +369,21 @@ class ( IsBoolExprBuilder sym
   -- | Evaluate a weighted sum of natural number values
   natSum :: sym -> WeightedSum (SymExpr sym) BaseNatType -> IO (SymNat sym)
 
-  -- | 'natDiv sym x y' performs natural division.
+  -- | @'natDiv' sym x y@ performs division on naturals.
   --
-  -- The result is undefined if y equals '0'.
+  -- The result is undefined if @y@ equals @0@.
   --
   -- 'natDiv' and 'natMod' satisfy the property that given
+  --
+  -- @
   --   d <- natDiv sym x y
   --   m <- natMod sym x y
+  -- @
   --
-  --  We have that
-  --    1. y > 0 => y * d + m = x
-  --    2. y > 0 => m < y
+  --  and @y > 0@, we have that @y * d + m = x@ and @m < y@.
   natDiv :: sym -> SymNat sym -> SymNat sym -> IO (SymNat sym)
 
-  -- | @natMod sym x y@ returns `x mod y`.
+  -- | @'natMod' sym x y@ returns @x@ mod @y@.
   --
   -- See 'natDiv' for a description of the properties the return
   -- value is expected to satisfy.
@@ -395,7 +397,7 @@ class ( IsBoolExprBuilder sym
 
   natEq :: sym -> SymNat sym -> SymNat sym -> IO (Pred sym)
 
-  -- | @natLe sym x y@ returns 'true' if @x <= y@.
+  -- | @'natLe' sym x y@ returns @true@ if @x <= y@.
   natLe :: sym -> SymNat sym -> SymNat sym -> IO (Pred sym)
 
   natLt :: sym -> SymNat sym -> SymNat sym -> IO (Pred sym)
@@ -404,7 +406,7 @@ class ( IsBoolExprBuilder sym
   ----------------------------------------------------------------------
   -- Integer operations
 
-  -- | Create a symbolic integer.
+  -- | Create an integer literal.
   intLit :: sym -> Integer -> IO (SymInteger sym)
 
   -- | Negate an integer.
@@ -436,7 +438,7 @@ class ( IsBoolExprBuilder sym
   intLt  :: sym -> SymInteger sym -> SymInteger sym -> IO (Pred sym)
   intLt sym x y = notPred sym =<< intLe sym y x
 
-  -- | @intMod x y@ returns the value of @x - y * floor(x ./ y)@ when
+  -- | @intMod x y@ returns the value of @x - y * floor(x / y)@ when
   -- @y@ is not zero, and undefined when @y@ is zero.
   intMod :: sym -> SymInteger sym -> SymNat sym -> IO (SymNat sym)
 
@@ -885,7 +887,7 @@ class ( IsBoolExprBuilder sym
 
   -- | Create an array from a map of concrete indices to values.
   --
-  -- This is implemented, but designed to be overriden for efficiency.
+  -- This is implemented, but designed to be overridden for efficiency.
   arrayFromMap :: sym
                -> Ctx.Assignment BaseTypeRepr (idx ::> itp)
                   -- ^ Types for indices
@@ -1241,7 +1243,7 @@ class ( IsBoolExprBuilder sym
   -- The result is undefined when @y@ is zero.
   realDiv :: sym -> SymReal sym -> SymReal sym -> IO (SymReal sym)
 
-  -- | @realMod x y@ returns the value of @x - y * floor(x ./ y)@ when
+  -- | @realMod x y@ returns the value of @x - y * floor(x / y)@ when
   -- @y@ is not zero and @x@ when @y@ is zero.
   realMod :: sym -> SymReal sym -> SymReal sym -> IO (SymReal sym)
   realMod sym x y = do
@@ -1769,9 +1771,10 @@ class ( IsBoolSolver sym
   ----------------------------------------------------------------------
   -- SymFn operations.
 
-  -- | Return a function defined by an expresion over bound variables.
-  -- This allows the user to provide a predicate for determining whether
-  -- to evaluate the function.
+  -- | Return a function defined by an expression over bound
+  -- variables. The predicate argument allows the user to specify when
+  -- an application of the function should be unfolded and evaluated,
+  -- e.g. to perform constant folding.
   definedFn :: sym
             -- ^ Symbolic interface
             -> SolverSymbol
@@ -1784,14 +1787,14 @@ class ( IsBoolSolver sym
                -- ^ Predicate for checking if we should evaluate function.
             -> IO (SymFn sym args ret)
 
-  -- | Return a function defined by Haskell computation over symbolic expressions
+  -- | Return a function defined by Haskell computation over symbolic expressions.
   inlineDefineFun :: Ctx.CurryAssignmentClass args
                   => sym
                      -- ^ Symbolic interface
                   -> SolverSymbol
                   -- ^ The name to give a function (need not be unique)
                   -> Ctx.Assignment BaseTypeRepr args
-                  -- ^ Arguments for function1
+                  -- ^ Arguments for function
 
                   -> Ctx.CurryAssignment args (SymExpr sym) (IO (SymExpr sym ret))
                   -- ^ Operation defining result of defined function.
@@ -1804,7 +1807,7 @@ class ( IsBoolSolver sym
     -- Define function
     definedFn sym nm vars r (\_ -> False)
 
-  -- | Create a potentially partial new uninterpreted function
+  -- | Create a new uninterpreted function.
   freshTotalUninterpFn :: forall args ret
                         .  sym
                           -- ^ Symbolic interface
@@ -1816,7 +1819,7 @@ class ( IsBoolSolver sym
                            -- ^ Return type of function
                        -> IO (SymFn sym args ret)
 
-  -- | Apply a set of arguments to an symbolic function.
+  -- | Apply a set of arguments to a symbolic function.
   --
   -- This will automatically add assertions to the current context stating that
   -- the preconditions hold.

@@ -1,7 +1,9 @@
 {-|
+Module      : Lang.Crucible.Simulator.OverrideSim
+Description : The main simulation monad
 Copyright   : (c) Galois, Inc 2014-2016
+License     : BSD3
 Maintainer  : Joe Hendrix <jhendrix@galois.com>
-License     : AllRightsReserved
 
 Define the main simulation monad 'OverrideSim' and basic operations on it.
 -}
@@ -20,39 +22,45 @@ Define the main simulation monad 'OverrideSim' and basic operations on it.
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 module Lang.Crucible.Simulator.OverrideSim
-  ( -- * OverrideSim
+  ( -- * Monad definition
     OverrideSim(..)
   , runOverrideSim
-  , Lang.Crucible.Simulator.ExecutionTree.Override
-  , mkOverride
-  , mkOverride'
   , initSimState
+    -- * Monad operations
+  , withSimContext
   , getContext
   , getSymInterface
   , getPathConditions
   , bindFnHandle
   , exitExecution
+  , getOverrideArgs
+    -- * Function calls
+  , callCFG
+  , callFnVal
+  , callFnVal'
+    -- * Global variables
   , readGlobal
   , writeGlobal
   , readGlobals
   , writeGlobals
+    -- * References
   , newRef
   , readRef
   , writeRef
-  , getOverrideArgs
-  , withSimContext
-  , callCFG
-  , callFnVal
-  , callFnVal'
     -- * Function bindings
   , FnBinding(..)
   , fnBindingsFromList
   , registerFnBinding
   , AnyFnBindings(..)
+    -- * Overrides
+  , mkOverride
+  , mkOverride'
     -- * Intrinsic implementations
   , IntrinsicImpl
   , mkIntrinsic
   , useIntrinsic
+    -- * Re-exports
+  , Lang.Crucible.Simulator.ExecutionTree.Override
   ) where
 
 import           Control.Exception
@@ -94,14 +102,15 @@ import           Lang.Crucible.Utils.StateContT
 --
 -- Type parameters:
 --
+--   * 'p'    the "personality", i.e. user-defined state parameterized by @sym@
 --   * 'sym'  the symbolic backend
+--   * 'ext'  the syntax extension ("Lang.Crucible.CFG.Extension")
 --   * 'rtp'  global return type
---   * 'l'    frame type (CrucibleLang or OverrideLang); sometimes written 'f'
---   * 'args' local context (changes in CrucibleLang, it is the argument type for
---            the basic block, it doesn't change in OverrideLang)
+--   * 'args' argument types for the current frame
+--   * 'ret'  return type of the current frame
 --   * 'a'    the value type
 --
-newtype OverrideSim p sym ext rtp args ret a
+newtype OverrideSim (p :: * -> *) sym ext rtp (args :: Ctx CrucibleType) (ret :: CrucibleType) a
       = Sim { unSim :: StateContT (SimState p sym ext rtp (OverrideLang args ret) 'Nothing)
                                   (ExecResult p sym ext rtp)
                                   IO
@@ -189,7 +198,7 @@ instance MonadVerbosity (OverrideSim p sym ext rtp args ret) where
     hPutStrLn h msg
     hFlush h
 
--- | Associate a definition with the given handle.
+-- | Associate a definition (either an 'Override' or a 'CFG') with the given handle.
 bindFnHandle -- :: (KnownCtx TypeRepr args, KnownRepr TypeRepr ret)
                   :: FnHandle args ret
                   -> FnState p sym ext args ret
@@ -200,7 +209,7 @@ bindFnHandle h s = do
 ------------------------------------------------------------------------
 -- Mutable variables
 
--- | Read the whole sym global state
+-- | Read the whole sym global state.
 readGlobals :: OverrideSim p sym ext rtp args ret (SymGlobalState sym)
 readGlobals = use (stateTree . actFrame . gpGlobals)
 
@@ -208,7 +217,7 @@ readGlobals = use (stateTree . actFrame . gpGlobals)
 writeGlobals :: SymGlobalState sym -> OverrideSim p sym ext rtp args ret ()
 writeGlobals g = stateTree . actFrame . gpGlobals .= g
 
--- | Read a particular global variable from the global variable state
+-- | Read a particular global variable from the global variable state.
 readGlobal ::
   GlobalVar tp                                     {- ^ global variable -} ->
   OverrideSim p sym ext rtp args ret (RegValue sym tp) {- ^ current value   -}
@@ -218,7 +227,7 @@ readGlobal k =
        Just v  -> return v
        Nothing -> fail ("Attempt to read undefined global " ++ show k)
 
--- | Set the value of a particular global variable
+-- | Set the value of a particular global variable.
 writeGlobal ::
   GlobalVar tp    {- ^ global variable -} ->
   RegValue sym tp {- ^ new value       -} ->
@@ -257,18 +266,22 @@ writeRef r v =
 ------------------------------------------------------------------------
 -- Override utilities
 
+-- | Run an override sim.
 runOverrideSim :: SimState p sym ext rtp (OverrideLang args tp) 'Nothing
+                  -- ^ initial state
                -> TypeRepr tp
+                  -- ^ return type
                -> OverrideSim p sym ext rtp args tp (RegValue sym tp)
+                  -- ^ action to run
                -> IO (ExecResult p sym ext rtp)
 runOverrideSim s0 tp m = do
   runStateContT (unSim m) (\v s -> returnValue s (RegEntry tp v)) s0
 
--- | Run an override sim.
+-- | Create an initial 'SimState'.
 initSimState :: SimContext p sym ext
              -> SymGlobalState sym
-             -- ^ Global state
-             -> ErrorHandler p sym ext  (RegEntry sym ret)
+             -- ^ state of global variables
+             -> ErrorHandler p sym ext (RegEntry sym ret)
              -> SimState p sym ext (RegEntry sym ret) (OverrideLang EmptyCtx ret) 'Nothing
 initSimState ctx globals eh =
   let startFrame = OverrideFrame { override = startFunctionName
