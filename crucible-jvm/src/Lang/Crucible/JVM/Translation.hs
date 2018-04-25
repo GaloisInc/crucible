@@ -651,10 +651,10 @@ generateInstruction (pc, instr) =
            J.ArrayType elemType ->
              case elemType of
                J.BooleanType -> newarrayInstr tagI count (iConst 0)
-               J.ArrayType _ -> newarrayInstr tagR count rNull
+               J.ArrayType _ -> sgFail "newarray: invalid element type"
                J.ByteType    -> newarrayInstr tagI count (iConst 0)
                J.CharType    -> newarrayInstr tagI count (iConst 0)
-               J.ClassType _ -> newarrayInstr tagR count rNull
+               J.ClassType _ -> sgFail "newarray: invalid element type"
                J.DoubleType  -> newarrayInstr tagD count (dConst 0)
                J.FloatType   -> newarrayInstr tagF count (fConst 0)
                J.IntType     -> newarrayInstr tagI count (iConst 0)
