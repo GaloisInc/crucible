@@ -15,14 +15,13 @@ import Lang.Crucible.LLVM.Types(HasPtrWidth)
 import Model
 
 -- | A simulator context for an arch
-type SimCtxt scope arch =
-  SimContext Model (SimpleBackend scope) (LLVM arch)
+type SimCtxt scope arch = SimContext Model scope (LLVM arch)
 
 -- | This happens quite a lot, so just a shorter name
 type ArchOk arch    = HasPtrWidth (ArchWidth arch)
 type TPtr arch      = LLVMPointerType (ArchWidth arch)
 type TBits n        = LLVMPointerType n
-type Formula scope  = Pred (SimpleBackend scope)
+type Formula b      = Pred b
 
 
 -- | This is the instance of the 'OverrideSim' monad that we use.

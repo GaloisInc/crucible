@@ -8,7 +8,6 @@ import Data.Typeable(cast)
 import Data.LLVM.BitCode (formatError)
 import qualified Data.LLVM.BitCode as LLVM
 
-import Lang.Crucible.Solver.SimpleBackend (SimpleBackend)
 
 import Lang.Crucible.Simulator.ExecutionTree (AbortedResult(..))
 import Lang.Crucible.Simulator.SimError
@@ -22,8 +21,8 @@ throwError x = liftIO (throwIO x)
 data Error =
     LLVMParseError LLVM.Error
   | FailedToProve (Maybe SimErrorReason)
-  | forall scope arch.
-      SimFail (AbortedResult (SimpleBackend scope) (LLVM arch))
+  | forall b arch.
+      SimFail (AbortedResult b (LLVM arch))
   | BadFun
   | MissingFun String
   | Bug String

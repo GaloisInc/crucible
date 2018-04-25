@@ -5,6 +5,7 @@ import Control.Monad(foldM)
 
 import Lang.Crucible.Solver.SimpleBackend(SimpleBackend, SimpleBackendState)
 import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
+import Lang.Crucible.Solver.BoolInterface(IsBoolExprBuilder, Pred)
 import Lang.Crucible.Solver.SimpleBackend.Z3(z3Adapter)
 import Lang.Crucible.Solver.SatResult(SatResult(..))
 
@@ -22,20 +23,23 @@ prover :: SolverAdapter SimpleBackendState
 prover = z3Adapter
 
 
-data Goal scope = Goal
-  { gAssumes :: [Formula scope]
-  , gShows   :: Assertion (Formula scope)
+data Goal b = Goal
+  { gAssumes :: [Formula b]
+  , gShows   :: Assertion (Formula b)
   }
 
-mkGoal :: ([Formula scope], Assertion (Formula scope)) -> Goal scope
+mkGoal :: ([Formula b], Assertion (Formula b)) -> Goal b
 mkGoal (as,p) = Goal { gAssumes = as, gShows = p }
 
-obligGoal :: SimpleBackend scope -> Goal scope -> IO (Formula scope)
+obligGoal :: (IsBoolExprBuilder b) => b -> Goal b -> IO (Pred b)
 obligGoal sym g = foldM imp (gShows g ^. assertPred) (gAssumes g)
   where
   imp p a = impliesPred sym a p
 
-proveGoal :: SimCtxt scope arch -> Goal scope -> IO ()
+proveGoal ::
+  SimCtxt (SimpleBackend scope) arch ->
+  Goal (SimpleBackend scope) ->
+  IO ()
 proveGoal ctxt g =
   do let sym = ctxt ^. ctxSymInterface
          cfg = simConfig ctxt

@@ -13,25 +13,25 @@ import System.Environment(getProgName,getArgs)
 
 import Control.Monad.State(evalStateT)
 
-import Data.Parameterized.Nonce(NonceGenerator,withIONonceGenerator)
+import Data.Parameterized.Nonce(withIONonceGenerator)
 import Data.Parameterized.Some(Some(..))
 import Data.Parameterized.Context(pattern Empty)
 
 import Text.LLVM.AST(Module)
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 
-import Lang.Crucible.Solver.SimpleBackend (newSimpleBackend)
+import Lang.Crucible.Solver.SimpleBackend (SimpleBackend, newSimpleBackend)
 import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
 
 
 import Lang.Crucible.Config(initialConfig)
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..)
-                             , cfgArgTypes, cfgReturnType)
+                             , cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
 import Lang.Crucible.Simulator.RegMap(emptyRegMap,regValue)
 import Lang.Crucible.Simulator.ExecutionTree
-        ( initSimContext, ctxSymInterface, defaultErrorHandler
+        ( initSimContext, defaultErrorHandler
         , ExecResult(..)
         )
 import Lang.Crucible.Simulator.OverrideSim
@@ -75,13 +75,12 @@ main =
 setupSimCtxt ::
   ArchOk arch =>
   HandleAllocator RealWorld ->
-  NonceGenerator IO scope ->
-  IO (SimCtxt scope arch)
-setupSimCtxt halloc nonceG =
+  SimpleBackend scope ->
+  IO (SimCtxt (SimpleBackend scope) arch)
+setupSimCtxt halloc sym =
   withPtrWidth ?ptrWidth $
   do let verbosity = 0
      cfg <- initialConfig verbosity (solver_adapter_config_options prover)
-     sym <- newSimpleBackend nonceG
      return (initSimContext
                   sym
                   llvmIntrinsicTypes
@@ -130,8 +129,8 @@ simulate file k =
      llvmPtrWidth llvmCtxt $ \ptrW ->
        withPtrWidth ptrW $
        withIONonceGenerator $ \nonceGen ->
-       do simctx <- setupSimCtxt halloc nonceGen
-          let sym = simctx ^. ctxSymInterface
+       do sym <- newSimpleBackend nonceGen
+          simctx <- setupSimCtxt halloc sym
           mem  <- initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
           let simSt  = initSimState simctx globSt defaultErrorHandler
