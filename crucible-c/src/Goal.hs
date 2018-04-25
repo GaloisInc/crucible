@@ -3,11 +3,11 @@ module Goal where
 import Control.Lens((^.))
 import Control.Monad(foldM)
 
-import Lang.Crucible.Solver.SimpleBuilder(SimpleBuilder)
 import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
 import Lang.Crucible.Solver.BoolInterface(IsBoolExprBuilder, Pred)
-import Lang.Crucible.Solver.SimpleBackend.Z3(z3Adapter)
 import Lang.Crucible.Solver.SatResult(SatResult(..))
+import Lang.Crucible.Solver.OnlineBackend
+        (OnlineBackend,yicesOnlineAdapter,OnlineBackendState)
 
 
 import Lang.Crucible.Simulator.ExecutionTree
@@ -21,8 +21,8 @@ import Types
 import Model
 
 
-prover :: SolverAdapter s
-prover = z3Adapter
+prover :: SolverAdapter (OnlineBackendState s)
+prover = yicesOnlineAdapter
 
 
 data Goal sym = Goal
@@ -39,8 +39,8 @@ obligGoal sym g = foldM imp (gShows g ^. assertPred) (gAssumes g)
   imp p a = impliesPred sym a p
 
 proveGoal ::
-  SimCtxt (SimpleBuilder t st) arch ->
-  Goal (SimpleBuilder t st) ->
+  SimCtxt (OnlineBackend t p) arch ->
+  Goal (OnlineBackend t p) ->
   IO ()
 proveGoal ctxt g =
   do let sym = ctxt ^. ctxSymInterface

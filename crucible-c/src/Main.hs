@@ -21,7 +21,8 @@ import Data.Parameterized.Context(pattern Empty)
 import Text.LLVM.AST(Module)
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 
-import Lang.Crucible.Solver.SimpleBackend (newSimpleBackend)
+-- import Lang.Crucible.Solver.SimpleBackend (newSimpleBackend)
+import Lang.Crucible.Solver.OnlineBackend(withOnlineBackend,setConfig)
 import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
 
 
@@ -31,7 +32,7 @@ import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
 import Lang.Crucible.Simulator.RegMap(emptyRegMap,regValue)
 import Lang.Crucible.Simulator.ExecutionTree
-        ( initSimContext, defaultErrorHandler
+        ( initSimContext, defaultErrorHandler, simConfig
         , ExecResult(..)
         )
 import Lang.Crucible.Simulator.OverrideSim
@@ -151,8 +152,9 @@ simulate file k =
      llvmPtrWidth llvmCtxt $ \ptrW ->
        withPtrWidth ptrW $
        withIONonceGenerator $ \nonceGen ->
-       do sym <- newSimpleBackend nonceGen
-          simctx <- setupSimCtxt halloc sym
+       withOnlineBackend nonceGen $ \sym ->
+       do simctx <- setupSimCtxt halloc sym
+          setConfig sym (simConfig simctx)
           mem  <- initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
           let simSt  = initSimState simctx globSt defaultErrorHandler
