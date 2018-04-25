@@ -43,7 +43,7 @@ import Lang.Crucible.Simulator.SimError (SimErrorReason(..))
 import Lang.Crucible.Solver.Symbol(userSymbol)
 import Lang.Crucible.Solver.Interface
           (freshConstant, bvLit, bvEq, asUnsignedBV)
-import Lang.Crucible.Solver.BoolInterface (addAssertion,addAssumption,notPred)
+import Lang.Crucible.Solver.BoolInterface (addAssertion,addAssumption,notPred,falsePred)
 
 import Lang.Crucible.LLVM.Translation
         ( LLVMContext, LLVMHandleInfo(..)
@@ -75,6 +75,12 @@ setupOverrides ctxt =
         (Empty :> knownRepr :> tPtr :> knownRepr) knownRepr lib_assume
      regOver ctxt "crucible_assert"
         (Empty :> knownRepr :> tPtr :> knownRepr) knownRepr (lib_assert mvar)
+     regOver ctxt "__VERIFIER_nondet_uint"
+        Empty knownRepr sv_comp_fresh_i32
+     regOver ctxt "__VERIFIER_assume"
+        (Empty :> knownRepr) knownRepr sv_comp_assume
+     regOver ctxt "__VERIFIER_error"
+        (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_error
 
 regOver ::
   LLVMContext arch ->
@@ -98,7 +104,7 @@ regOver ctxt n argT retT x =
                  registerFnBinding (FnBinding h (UseOverride over))
            _ ->
              throwError $ Bug $ unlines
-                [ "[bug] Invalid type for implemenattion of " ++ show n
+                [ "[bug] Invalid type for implementation of " ++ show n
                 , "*** Expected: " ++ showF (handleArgTypes h) ++
                             " -> " ++ showF (handleReturnType h)
                 , "*** Actual:   " ++ showF argT ++
@@ -160,3 +166,31 @@ lib_assert mvar =
                  check <- notPred sym =<< bvEq sym cond zero
                  addAssertion sym check rsn
 
+
+sv_comp_fresh_i32 :: ArchOk arch => Fun scope arch EmptyCtx (TBits 32)
+sv_comp_fresh_i32 =
+  do sym <- getSymInterface
+     name <- case userSymbol "X" of
+               Left err -> fail (show err)
+               Right a  -> return a
+     liftIO (llvmPointer_bv sym =<<
+                freshConstant sym name (BaseBVRepr (knownNat @32)))
+
+sv_comp_assume ::
+  ArchOk arch => Fun scope arch
+                   (EmptyCtx ::> TBits 32)
+                   UnitType
+sv_comp_assume =
+  do RegMap (Empty :> p) <- getOverrideArgs
+     sym  <- getSymInterface
+     liftIO $ do cond <- projectLLVM_bv sym (regValue p)
+                 zero <- bvLit sym knownRepr 0
+                 addAssumption sym =<< notPred sym =<< bvEq sym cond zero
+
+sv_comp_error ::
+  ArchOk arch =>
+  Fun scope arch (EmptyCtx ::> VectorType AnyType) UnitType
+sv_comp_error =
+  do sym  <- getSymInterface
+     let rsn = AssertFailureSimError "Called __VERIFIER_error"
+     liftIO $ addAssertion sym (falsePred sym) rsn

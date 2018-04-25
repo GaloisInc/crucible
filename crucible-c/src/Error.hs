@@ -47,7 +47,7 @@ ppError err =
     SimFail (AbortedExec e _)
       | AssertFailureSimError x <- simErrorReason e -> x
     SimFail x -> unlines ["Error during simulation:", ppErr x]
-    BadFun -> "Function should have no arguments and no result"
+    BadFun -> "Function should have no arguments"
     MissingFun nm -> "Cannot find code for " ++ show nm
     Bug x -> x
 
