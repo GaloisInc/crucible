@@ -21,12 +21,13 @@
 ------------------------------------------------------------------------
 
 {-# LANGUAGE EmptyDataDecls #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RankNTypes #-}
 module Lang.Crucible.Solver.OnlineBackend
   ( -- * OnlineBackend
     OnlineBackend
   , withOnlineBackend
-    -- * OnlineBackendState
+    -- * OnlineBackendStatex
   , OnlineBackendState
   , getYicesProcess
   , Yices.YicesProcess(..)
@@ -35,6 +36,7 @@ module Lang.Crucible.Solver.OnlineBackend
 
 import           Control.Exception ( SomeException, throwIO, try )
 import           Control.Lens
+import           Control.Monad
 import           Data.Bits
 import           Data.Foldable
 import           Data.IORef
@@ -137,7 +139,7 @@ shutdownYicesProcess yices = do
 -- | This represents the state of the backend along a given execution.
 -- It contains the current assertions and program location.
 data OnlineBackendState t
-   = OnlineBackendState { assumptionStack :: !(AssumptionStack (SB.BoolElt t) t SimErrorReason)
+   = OnlineBackendState { assumptionStack :: !(AssumptionStack (SB.BoolElt t) SimErrorReason)
                           -- ^ Number of times we have pushed
                         , yicesProc    :: !(IORef (Maybe (Yices.YicesProcess t YicesOnline)))
                         }
@@ -152,7 +154,7 @@ initialOnlineBackendState gen = do
               , yicesProc = procref
               }
 
-getAssumptionStack :: OnlineBackend t -> IO (AssumptionStack (SB.BoolElt t) t SimErrorReason)
+getAssumptionStack :: OnlineBackend t -> IO (AssumptionStack (SB.BoolElt t) SimErrorReason)
 getAssumptionStack sym = assumptionStack <$> readIORef (SB.sbStateManager sym)
 
 getYicesProcess :: OnlineBackend t -> IO (Yices.YicesProcess t YicesOnline)
@@ -167,6 +169,7 @@ getYicesProcess sym = do
       p <- startYicesProcess cfg
       -- set up Yices parameters
       Yices.setYicesParams (Yices.yicesConn p) cfg
+      Yices.push (Yices.yicesConn p)
       writeIORef (yicesProc st) (Just p)
       return p
 
@@ -198,25 +201,33 @@ checkSatisfiable sym p = do
      assumeFormula c p_smtexpr
      Yices.check yproc
 
-instance SB.IsSimpleBuilderState OnlineBackendState where
-  sbAddAssertion sym p m = do
-    loc <- SB.curProgramLoc sym
-    conn <- Yices.yicesConn <$> getYicesProcess sym
-    stk <- getAssumptionStack sym
-    -- Record assertion
-    assert (Assertion loc p (Just m)) stk
-    -- Send assertion to yices
-    Yices.assume conn p
+instance IsBoolSolver (OnlineBackend t) where
+  addAssertion sym p m = do
+    case asConstantPred p of
+      Just True  -> return ()
+      Just False -> addFailedAssertion sym m
+      _ ->
+        do loc <- SB.curProgramLoc sym
+           conn <- Yices.yicesConn <$> getYicesProcess sym
+           stk <- getAssumptionStack sym
+           -- Record assertion
+           assert (Assertion loc p (Just m)) stk
+           -- Send assertion to yices
+           Yices.assume conn p
 
-  sbAddAssumption sym p = do
-    conn <- Yices.yicesConn <$> getYicesProcess sym
-    stk <- getAssumptionStack sym
-    -- Record assumption
-    assume p stk
-    -- Send assertion to yices
-    Yices.assume conn p
+  addAssumption sym p = do
+    case asConstantPred p of
+      Just True  -> return ()
+      Just False -> addFailedAssertion sym InfeasibleBranchError
+      _ ->
+        do conn <- Yices.yicesConn <$> getYicesProcess sym
+           stk <- getAssumptionStack sym
+           -- Record assumption
+           assume p stk
+           -- Send assertion to yices
+           Yices.assume conn p
 
-  sbAddAssumptions sym a = do
+  addAssumptions sym a = do
     -- Tell Yices of assertions
     conn <- Yices.yicesConn <$> getYicesProcess sym
     mapM_ (Yices.assume conn) (toList a)
@@ -224,40 +235,66 @@ instance SB.IsSimpleBuilderState OnlineBackendState where
     stk <- getAssumptionStack sym
     appendAssumptions a stk
 
-  sbAllAssumptions sym = do
+  getPathCondition sym = do
     stk <- getAssumptionStack sym
     ps <- collectAssumptions stk
     andAllOf sym folded ps
 
-  sbEvalBranch sym p = do
-    notP <- notPred sym p
+  evalBranch sym p = do
+    case asConstantPred p of
+      Just True  -> return $! NoBranch True
+      Just False -> return $! NoBranch False
+      Nothing ->
+        do notP <- notPred sym p
+           p_res    <- checkSatisfiable sym p
+           notp_res <- checkSatisfiable sym notP
+           case (p_res, notp_res) of
+             (Unsat, Unsat) -> return InfeasibleBranch
+             (Unsat, _ )    -> return $ NoBranch False
+             (_    , Unsat) -> return $ NoBranch True
+             (_    , _)     -> return $ SymbolicBranch True
 
-    p_res    <- checkSatisfiable sym p
-    notp_res <- checkSatisfiable sym notP
-    case (p_res, notp_res) of
-      (Unsat, Unsat) -> return InfeasibleBranch
-      (Unsat, _ )    -> return $ NoBranch False
-      (_    , Unsat) -> return $ NoBranch True
-      (_    , _)     -> return $ SymbolicBranch True
-
-  sbPushAssumptionFrame sym = do
+  pushAssumptionFrame sym = do
     conn <- Yices.yicesConn <$> getYicesProcess sym
     stk <- getAssumptionStack sym
     Yices.push conn
     pushFrame stk
 
-  sbPopAssumptionFrame sym ident = do
+  popAssumptionFrame sym ident = do
     conn <- Yices.yicesConn <$> getYicesProcess sym
     stk <- getAssumptionStack sym
+    h <- stackHeight stk
     frm <- popFrame ident stk
     ps <- readIORef (assumeFrameCond frm)
     Yices.pop conn
+    when (h == 0) (Yices.push conn)
     return ps
 
-  sbGetProofObligations sym = do
+  getProofObligations sym = do
     stk <- getAssumptionStack sym
     AS.getProofObligations stk
 
-  sbSetProofObligations sym obligs = do
+  setProofObligations sym obligs = do
     stk <- getAssumptionStack sym
     AS.setProofObligations obligs stk
+
+  addFailedAssertion sym msg = do
+    loc <- getCurrentProgramLoc sym
+    throwIO (SimError loc msg)
+
+  cloneAssumptionState sym = do
+    stk <- getAssumptionStack sym
+    AS.cloneAssumptionStack stk
+
+  restoreAssumptionState sym stk = do
+    conn <- Yices.yicesConn <$> getYicesProcess sym
+    oldstk <- getAssumptionStack sym
+    h <- stackHeight oldstk
+    -- NB, pop h+1 times
+    forM_ [0 .. h] $ \_ -> Yices.pop conn
+
+    frms   <- AS.allAssumptionFrames stk
+    forM_ (toList frms) $ \frm ->
+      do Yices.push conn
+         ps <- readIORef (assumeFrameCond frm)
+         forM_ (toList ps) (Yices.assume conn)

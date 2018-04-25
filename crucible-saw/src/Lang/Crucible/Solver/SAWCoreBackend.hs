@@ -10,6 +10,7 @@
 -- This module provides a Crucible backend that produces SAWCore terms.
 ------------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -17,7 +18,7 @@
 
 module Lang.Crucible.Solver.SAWCoreBackend where
 
-import           Control.Exception ( throw, bracket )
+import           Control.Exception ( bracket, throwIO )
 import           Control.Lens
 import           Control.Monad
 import           Data.IORef
@@ -68,7 +69,7 @@ data SAWCoreState n
 
     , saw_elt_cache :: SB.IdxCache n SAWElt
 
-    , saw_assumptions :: AssumptionStack (SB.BoolElt n) n SimErrorReason
+    , saw_assumptions :: AssumptionStack (SB.BoolElt n) SimErrorReason
     }
 
 sawCheckPathSat :: ConfigOption BaseBoolType
@@ -80,7 +81,7 @@ sawOptions =
     "Check the satisfiability of path conditions on branches"
   ]
 
-getAssumptionStack :: SAWCoreBackend n -> IO (AssumptionStack (SB.BoolElt n) n SimErrorReason)
+getAssumptionStack :: SAWCoreBackend n -> IO (AssumptionStack (SB.BoolElt n) SimErrorReason)
 getAssumptionStack sym = saw_assumptions <$> readIORef (SB.sbStateManager sym)
 
 data SAWElt (bt :: BaseType) where
@@ -101,7 +102,7 @@ type SAWCoreBackend n = SB.SimpleBuilder n SAWCoreState
 --   set up with a fresh naming context.  This means that all
 --   symbolic inputs, symMap entries, element cache entires,
 --   assertions and proof obligations start empty while
---   running the action.  After the action completes, the 
+--   running the action.  After the action completes, the
 --   state of these fields is restored.
 inFreshNamingContext :: SAWCoreBackend n -> IO a -> IO a
 inFreshNamingContext sym f =
@@ -740,64 +741,75 @@ checkSatisfiable sym p = do
           _ -> return (Sat ())
     _ -> return (Sat ())
 
-instance SB.IsSimpleBuilderState SAWCoreState where
-  sbAddAssertion sym e m = do
-    case SB.asApp e of
-      Just SB.TrueBool -> return ()
-      Just SB.FalseBool -> do
-        loc <- SB.curProgramLoc sym
-        throw (SimError loc m)
-      _ -> do
-        loc <- SB.curProgramLoc sym
-        stk <- getAssumptionStack sym
-        AS.assert (Assertion loc e (Just m)) stk
+instance IsBoolSolver (SAWCoreBackend n) where
+  addAssertion sym e m = do
+    case asConstantPred e of
+      Just True  -> return ()
+      Just False -> addFailedAssertion sym m
+      _ ->
+        do loc <- SB.curProgramLoc sym
+           stk <- getAssumptionStack sym
+           AS.assert (Assertion loc e (Just m)) stk
 
-  sbAddAssumption sym e = do
-    case SB.asApp e of
-      Just SB.TrueBool -> return ()
-      _ -> do
-        stk <- getAssumptionStack sym
-        AS.assume e stk
+  addAssumption sym e = do
+    case asConstantPred e of
+      Just True  -> return ()
+      Just False -> addFailedAssertion sym InfeasibleBranchError
+      _ ->
+        do stk <- getAssumptionStack sym
+           assume e stk
 
-  sbAddAssumptions sym es = do
+  addFailedAssertion sym msg = do
+    loc <- getCurrentProgramLoc sym
+    throwIO (SimError loc msg)
+
+  addAssumptions sym ps = do
     stk <- getAssumptionStack sym
-    AS.appendAssumptions es stk
+    AS.appendAssumptions ps stk
 
-  sbAllAssumptions sym = do
+  getPathCondition sym = do
     stk <- getAssumptionStack sym
     ps <- AS.collectAssumptions stk
     andAllOf sym folded ps
 
-  sbEvalBranch sym pb = do
-    case asConstantPred pb of
+  evalBranch sym p0 =
+    case asConstantPred p0 of
       Just True  -> return $! NoBranch True
       Just False -> return $! NoBranch False
-      Nothing -> do
-        pb_neg <- notPred sym pb
-        p_prior <- SB.sbAllAssumptions sym
-        p        <- andPred sym p_prior pb
-        p_neg    <- andPred sym p_prior pb_neg
-        p_res    <- checkSatisfiable sym p
-        notp_res <- checkSatisfiable sym p_neg
-        case (p_res, notp_res) of
-          (Unsat, Unsat) -> return InfeasibleBranch
-          (Unsat, _ )    -> return $! NoBranch False
-          (_    , Unsat) -> return $! NoBranch True
-          (_    , _)     -> return $! SymbolicBranch True
+      Nothing    ->
+        do p0_neg   <- notPred sym p0
+           p_prior  <- getPathCondition sym
+           p        <- andPred sym p_prior p0
+           p_neg    <- andPred sym p_prior p0_neg
+           p_res    <- checkSatisfiable sym p
+           notp_res <- checkSatisfiable sym p_neg
+           case (p_res, notp_res) of
+             (Unsat, Unsat) -> return InfeasibleBranch
+             (Unsat, _ )    -> return $! NoBranch False
+             (_    , Unsat) -> return $! NoBranch True
+             (_    , _)     -> return $! SymbolicBranch True
 
-  sbGetProofObligations sym = do
+  getProofObligations sym = do
     stk <- getAssumptionStack sym
     AS.getProofObligations stk
 
-  sbSetProofObligations sym obligs = do
+  setProofObligations sym obligs = do
     stk <- getAssumptionStack sym
     AS.setProofObligations obligs stk
 
-  sbPushAssumptionFrame sym = do
+  pushAssumptionFrame sym = do
     stk <- getAssumptionStack sym
     AS.pushFrame stk
 
-  sbPopAssumptionFrame sym ident = do
+  popAssumptionFrame sym ident = do
     stk <- getAssumptionStack sym
     frm <- AS.popFrame ident stk
     readIORef (assumeFrameCond frm)
+
+  cloneAssumptionState sym = do
+    stk <- getAssumptionStack sym
+    AS.cloneAssumptionStack stk
+
+  restoreAssumptionState sym stk = do
+    modifyIORef' (SB.sbStateManager sym)
+      (\st -> st{ saw_assumptions = stk })

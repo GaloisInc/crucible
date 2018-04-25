@@ -31,7 +31,7 @@ module Lang.Crucible.Solver.AssumptionStack
   , ProofGoal(..)
   , AssumptionFrame(..)
   , AssumptionStack(..)
-  , FrameIdent
+  , FrameIdentifier
   , initAssumptionStack
   , cloneAssumptionStack
   , collectAssumptions
@@ -43,6 +43,8 @@ module Lang.Crucible.Solver.AssumptionStack
   , pushFrame
   , popFrame
   , inFreshFrame
+  , stackHeight
+  , allAssumptionFrames
   ) where
 
 import           Control.Exception (bracketOnError)
@@ -52,6 +54,7 @@ import           Data.IORef
 import           Data.Parameterized.Nonce
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import           Data.Word
 
 import           Lang.Crucible.ProgramLoc
 
@@ -69,12 +72,12 @@ data Assertion pred msg
 assertPred :: Simple Lens (Assertion pred msg) pred
 assertPred = lens _assertPred (\s v -> s { _assertPred = v })
 
-newtype FrameIdent t = FrameIdent (Nonce t t)
+newtype FrameIdentifier = FrameIdentifier Word64
  deriving(Eq,Ord)
 
-data AssumptionFrame pred t =
+data AssumptionFrame pred =
   AssumptionFrame
-  { assumeFrameIdent :: FrameIdent t
+  { assumeFrameIdent :: FrameIdentifier
   , assumeFrameCond  :: IORef (Seq pred)
   }
 
@@ -84,25 +87,43 @@ data ProofGoal pred msg =
   , proofGoal        :: Assertion pred msg
   }
 
+data AssumptionStack pred msg =
+  AssumptionStack
+  { assumeStackGen   :: IO FrameIdentifier
+  , currentFrame     :: IORef (AssumptionFrame pred)
+  , frameStack       :: IORef (Seq (AssumptionFrame pred))
+  , proofObligations :: IORef (Seq (ProofGoal pred msg))
+  }
+
+allAssumptionFrames :: AssumptionStack pred msg -> IO (Seq (AssumptionFrame pred))
+allAssumptionFrames stk =
+  do frms <- readIORef (frameStack stk)
+     topframe <- readIORef (currentFrame stk)
+     return (frms |> topframe)
+
+stackHeight :: AssumptionStack pred msg -> IO Int
+stackHeight as = Seq.length <$> readIORef (frameStack as)
+
 initAssumptionStack ::
   NonceGenerator IO t ->
-  IO (AssumptionStack pred t msg)
+  IO (AssumptionStack pred msg)
 initAssumptionStack gen =
-  do ident <- FrameIdent <$> freshNonce gen
+  do let genM = FrameIdentifier . indexValue <$> freshNonce gen
+     ident <- genM
      condRef  <- newIORef mempty
      frmRef <- newIORef (AssumptionFrame ident condRef)
      stackRef <- newIORef mempty
      oblsRef <- newIORef mempty
      return AssumptionStack
-            { assumeStackGen = gen
+            { assumeStackGen = genM
             , currentFrame = frmRef
             , frameStack = stackRef
             , proofObligations = oblsRef
             }
 
 cloneAssumptionStack ::
-  AssumptionStack pred t msg ->
-  IO (AssumptionStack pred t msg)
+  AssumptionStack pred msg ->
+  IO (AssumptionStack pred msg)
 cloneAssumptionStack stk =
   do frm'  <- newIORef =<< cloneFrame =<< readIORef (currentFrame stk)
      frms' <- newIORef =<< traverse cloneFrame =<< readIORef (frameStack stk)
@@ -115,8 +136,8 @@ cloneAssumptionStack stk =
             }
 
 cloneFrame ::
-  AssumptionFrame pred t ->
-  IO (AssumptionFrame pred t)
+  AssumptionFrame pred ->
+  IO (AssumptionFrame pred)
 cloneFrame frm =
   do ps <- newIORef =<< readIORef (assumeFrameCond frm)
      return AssumptionFrame
@@ -124,17 +145,9 @@ cloneFrame frm =
             , assumeFrameCond = ps
             }
 
-data AssumptionStack pred t msg =
-  AssumptionStack
-  { assumeStackGen   :: NonceGenerator IO t
-  , currentFrame     :: IORef (AssumptionFrame pred t)
-  , frameStack       :: IORef (Seq (AssumptionFrame pred t))
-  , proofObligations :: IORef (Seq (ProofGoal pred msg))
-  }
-
 assume ::
   pred ->
-  AssumptionStack pred t msg ->
+  AssumptionStack pred msg ->
   IO ()
 assume p stk =
   do frm  <- readIORef (currentFrame stk)
@@ -142,7 +155,7 @@ assume p stk =
 
 appendAssumptions ::
   Seq pred ->
-  AssumptionStack pred t msg ->
+  AssumptionStack pred msg ->
   IO ()
 appendAssumptions ps stk =
   do frm  <- readIORef (currentFrame stk)
@@ -150,7 +163,7 @@ appendAssumptions ps stk =
 
 assert ::
   Assertion pred msg ->
-  AssumptionStack pred t msg ->
+  AssumptionStack pred msg ->
   IO ()
 assert p stk =
   do assumes <- collectAssumptions stk
@@ -160,7 +173,7 @@ assert p stk =
 
 
 collectAssumptions ::
-  AssumptionStack pred t msg ->
+  AssumptionStack pred msg ->
   IO (Seq pred)
 collectAssumptions stk = do
   frms <- readIORef (frameStack stk)
@@ -168,21 +181,21 @@ collectAssumptions stk = do
   join <$> traverse (readIORef . assumeFrameCond) (frms Seq.|> frm)
 
 getProofObligations ::
-  AssumptionStack pred t msg ->
+  AssumptionStack pred msg ->
   IO (Seq (ProofGoal pred msg))
 getProofObligations stk = readIORef (proofObligations stk)
 
 setProofObligations ::
   Seq (ProofGoal pred msg) ->
-  AssumptionStack pred t msg ->
+  AssumptionStack pred msg ->
   IO ()
 setProofObligations obls stk = writeIORef (proofObligations stk) obls
 
 freshFrame ::
-  AssumptionStack pred t msg ->
-  IO (AssumptionFrame pred t)
+  AssumptionStack pred msg ->
+  IO (AssumptionFrame pred)
 freshFrame stk =
-  do ident <- FrameIdent <$> freshNonce (assumeStackGen stk)
+  do ident <- assumeStackGen stk
      cond  <- newIORef mempty
      return AssumptionFrame
             { assumeFrameIdent = ident
@@ -190,8 +203,8 @@ freshFrame stk =
             }
 
 pushFrame ::
-  AssumptionStack pred t msg ->
-  IO (FrameIdent t)
+  AssumptionStack pred msg ->
+  IO FrameIdentifier
 pushFrame stk =
   do new <- freshFrame stk
      let ident = assumeFrameIdent new
@@ -201,9 +214,9 @@ pushFrame stk =
      return ident
 
 popFrame ::
-  FrameIdent t ->
-  AssumptionStack pred t msg ->
-  IO (AssumptionFrame pred t)
+  FrameIdentifier ->
+  AssumptionStack pred msg ->
+  IO (AssumptionFrame pred)
 popFrame ident stk =
   do frm <- readIORef (currentFrame stk)
      unless (assumeFrameIdent frm == ident)
@@ -219,9 +232,9 @@ popFrame ident stk =
      return frm
 
 inFreshFrame ::
-  AssumptionStack pred t msg ->
+  AssumptionStack pred msg ->
   IO a ->
-  IO (AssumptionFrame pred t, a)
+  IO (AssumptionFrame pred, a)
 inFreshFrame stk action =
   bracketOnError
      (pushFrame stk)

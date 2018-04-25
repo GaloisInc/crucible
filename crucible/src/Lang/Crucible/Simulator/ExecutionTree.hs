@@ -127,6 +127,7 @@ import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Solver.AssumptionStack ( FrameIdentifier )
 import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
 
@@ -429,7 +430,7 @@ data ValueFromFrame p sym ext (root :: *) (f :: *)  where
   -- VFFBranch ctx b t denotes @ctx[[] <b> t]@.
   VFFBranch :: !(ValueFromFrame p sym ext ret (CrucibleLang blocks a))
                -- /\ Outer context.
-            -> !(FrameIdentifier sym)
+            -> !FrameIdentifier
                -- /\ State before this branch
             -> !(Pred sym)
                -- /\ Assertion of current branch

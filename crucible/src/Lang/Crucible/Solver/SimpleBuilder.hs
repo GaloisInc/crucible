@@ -66,8 +66,6 @@ module Lang.Crucible.Solver.SimpleBuilder
   , cacheStartSizeOption
   , cacheTerms
 
-    -- * IsSimpleBuilderState
-  , IsSimpleBuilderState(..)
     -- * Elt
   , Elt(..)
   , asApp
@@ -185,9 +183,8 @@ import qualified Lang.Crucible.Config as CFG
 import           Lang.Crucible.MATLAB.Intrinsics.Solver
 import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.AssumptionStack ( FrameIdent, ProofGoal(..) )
+import           Lang.Crucible.Solver.AssumptionStack ( Assertion, assertPred )
 import           Lang.Crucible.Solver.Concrete
-import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Symbol
 import           Lang.Crucible.Solver.WeightedSum (SemiRing, SemiRingRepr(..), WeightedSum, semiRingBase)
@@ -1115,54 +1112,15 @@ data SimpleBuilder t (st :: * -> *)
           -- | Current location in program.
         , sbVarBindings :: !(IORef (SymbolVarBimap t))
           -- | Provides access to typeclass instance for @st@.
-        , sbStateManagerIsBoolSolver :: forall x. (IsSimpleBuilderState st => x) -> x
+        -- , sbStateManagerIsBoolSolver :: forall x. (IsSimpleBuilderState st => x) -> x
           -- | Cache for Matlab functions
         , sbMatlabFnCache
           :: !(PH.HashTable RealWorld (MatlabFnWrapper t) (SimpleSymFnWrapper t))
         }
 
--- | Typeclass that simple build state should implement.
-class IsSimpleBuilderState (st :: * -> *) where
-  ----------------------------------------------------------------------
-  -- Assertions
-
-  -- | Add an assertion to the current state, and record a proof obligation.
-  --
-  -- This may call fail in the monad if the list of assertions is unsatisfiable.
-  sbAddAssertion :: SimpleBuilder t st -> BoolElt t -> SimErrorReason -> IO ()
-
-  -- | Add an assumption to the current state.
-  sbAddAssumption :: SimpleBuilder t st -> BoolElt t -> IO ()
-
-  sbAddAssumptions :: SimpleBuilder t st -> Seq (BoolElt t) -> IO () 
-
-  -- | Return a conjunction of all the path assumptions
-  sbAllAssumptions :: SimpleBuilder t st -> IO (BoolElt t)
-
-  -- | Get the collection of proof obligations.
-  sbGetProofObligations :: SimpleBuilder t st -> IO (Seq (ProofGoal (BoolElt t) SimErrorReason))
-
-  -- | Set the collection of proof obligations.
-  sbSetProofObligations :: SimpleBuilder t st -> (Seq (ProofGoal (BoolElt t) SimErrorReason)) -> IO ()
-
-  ----------------------------------------------------------------------
-  -- Branch manipulations
-
-  -- | Given a Boolean predicate corresponding to a branch, this decides
-  -- what the next course of action should be for the branch.
-  sbEvalBranch :: SimpleBuilder t st
-               -> BoolElt t -- Predicate to branch on.
-               -> IO (BranchResult (SimpleBuilder t st))
-
-  sbPushAssumptionFrame :: SimpleBuilder t st -> IO (FrameIdent t)
-
-  sbPopAssumptionFrame :: SimpleBuilder t st -> FrameIdent t -> IO (Seq (BoolElt t))
-
-
 type instance SymFn (SimpleBuilder t st) = SimpleSymFn t
 type instance SymExpr (SimpleBuilder t st) = Elt t
 type instance BoundVar (SimpleBuilder t st) = SimpleBoundVar t
-type instance FrameIdentifier (SimpleBuilder t st) = FrameIdent t
 
 sbBVDomainParams :: SimpleBuilder t st -> IO (BVD.BVDomainParams)
 sbBVDomainParams sym =
@@ -2499,8 +2457,9 @@ cacheOptDesc gen storageRef szSetting =
     (Just (ConcreteBool False))
 
 
-newSimpleBuilder :: IsSimpleBuilderState st
-                 => st t
+newSimpleBuilder :: --IsSimpleBuilderState st
+                 -- => st t
+                 st t
                     -- ^ Current state for simple builder.
                  -> NonceGenerator IO t
                     -- ^ Nonce generator for names
@@ -2517,7 +2476,6 @@ newSimpleBuilder st gen = do
   storage_ref   <- newIORef es
   bindings_ref  <- newIORef Bimap.empty
   matlabFnCache <- stToIO $ PH.new
-
 
   -- Set up configuration options
   cfg <- CFG.initialConfig 0
@@ -2543,7 +2501,6 @@ newSimpleBuilder st gen = do
                , curAllocator = storage_ref
                , sbStateManager = st_ref
                , sbVarBindings = bindings_ref
-               , sbStateManagerIsBoolSolver = \x -> x
                , sbMatlabFnCache = matlabFnCache
                }
 
@@ -3000,65 +2957,6 @@ sbConcreteLookup sym arr0 mcidx idx
     case exprType arr0 of
       BaseArrayRepr _ range ->
         sbMakeElt sym (SelectArray range arr0 idx)
-
-
------------------------------------------------------------------------
--- Defer to the enclosed state manager for IsBoolSolver operations
--- and datatypes
-
-instance IsBoolSolver (SimpleBuilder t st) where
-
-  evalBranch sym p =
-    case asConstantPred p of
-      Just True  -> return $! NoBranch True
-      Just False -> return $! NoBranch False
-      Nothing    ->
-        sbStateManagerIsBoolSolver sym $
-          sbEvalBranch sym p
-
-  addAssertion sb e m =
-    case asConstantPred e of
-      Just True  -> return ()
-      Just False -> addFailedAssertion sb m
-      _ ->
-        sbStateManagerIsBoolSolver sb $
-          sbAddAssertion sb e m
-
-  addAssumption sb e =
-    case asConstantPred e of
-      Just True  -> return ()
-      Just False -> addFailedAssertion sb InfeasibleBranchError
-      _ ->
-        sbStateManagerIsBoolSolver sb $
-          sbAddAssumption sb e
-
-  addAssumptions sb =
-    sbStateManagerIsBoolSolver sb $
-      sbAddAssumptions sb
-
-  addFailedAssertion sym msg = do
-    loc <- getCurrentProgramLoc sym
-    Ex.throwIO (SimError loc msg)
-
-  pushAssumptionFrame sb =
-    sbStateManagerIsBoolSolver sb $
-      sbPushAssumptionFrame sb
-
-  popAssumptionFrame sb i =
-    sbStateManagerIsBoolSolver sb $
-      sbPopAssumptionFrame sb i
-
-  getPathCondition sb =
-    sbStateManagerIsBoolSolver sb $
-      sbAllAssumptions sb
-
-  getProofObligations sb = do
-    sbStateManagerIsBoolSolver sb $ do
-      sbGetProofObligations sb
-
-  setProofObligations sb obligs = do
-    sbStateManagerIsBoolSolver sb $ do
-      sbSetProofObligations sb obligs
 
 ----------------------------------------------------------------------
 -- Expression builder instances

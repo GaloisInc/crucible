@@ -20,8 +20,7 @@ and execution contexts in the symbolic simulator.
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilies #-}
 module Lang.Crucible.Solver.BoolInterface
-  ( FrameIdentifier
-  , BranchResult(..)
+  ( BranchResult(..)
   , IsBoolSolver(..)
   , Assertion(..)
   , assertPred
@@ -61,8 +60,6 @@ data BranchResult sym
 
 type IsSymInterface sym = (IsBoolSolver sym, IsSymExprBuilder sym)
 
-type family FrameIdentifier (sym :: *) :: *
-
 -- | A Boolean solver has function for building up terms, and operating
 -- within an assertion context.
 class IsBoolSolver sym where
@@ -79,13 +76,13 @@ class IsBoolSolver sym where
   -- | Push a new assumption frame onto the stack.  Assumptions and assertions
   --   made will now be associated with this frame on the stack until a new
   --   frame is pushed onto the stack, or until this one is popped.
-  pushAssumptionFrame :: sym -> IO (FrameIdentifier sym)
+  pushAssumptionFrame :: sym -> IO FrameIdentifier
 
   -- | Pop an assumption frame from the stack.  The collected assumptions
   --   in this frame are returned.  Pops are required to be well-bracketed
   --   with pushes.  In particular, if the given frame identifier is not
   --   the identifier of the top frame on the stack, an error will be raised.
-  popAssumptionFrame :: sym -> FrameIdentifier sym -> IO (Seq (Pred sym))
+  popAssumptionFrame :: sym -> FrameIdentifier -> IO (Seq (Pred sym))
 
   ----------------------------------------------------------------------
   -- Assertions
@@ -119,6 +116,10 @@ class IsBoolSolver sym where
   --   to remove proof obligations that have been successfully proved by resetting the list
   --   of obligations to be only those not proved.
   setProofObligations :: sym -> Seq (ProofGoal (Pred sym) SimErrorReason) -> IO ()
+
+  cloneAssumptionState :: sym -> IO (AssumptionStack (Pred sym) SimErrorReason)
+
+  restoreAssumptionState :: sym -> AssumptionStack (Pred sym) SimErrorReason -> IO ()
 
 
 addAssertionM :: IsBoolSolver sym

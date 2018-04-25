@@ -13,6 +13,7 @@
 ------------------------------------------------------------------------
 
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 module Lang.Crucible.Solver.SimpleBackend
   ( -- * SimpleBackend
@@ -22,6 +23,7 @@ module Lang.Crucible.Solver.SimpleBackend
   , SimpleBackendState
   ) where
 
+import           Control.Exception ( throwIO )
 import           Control.Lens
 import           Data.IORef
 import           Data.Parameterized.Nonce
@@ -42,7 +44,7 @@ type SimpleBackend t = SB.SimpleBuilder t SimpleBackendState
 -- It contains the current assertion stack.
 
 newtype SimpleBackendState t
-      = SimpleBackendState { sbAssumptionStack :: AssumptionStack (BoolElt t) t SimErrorReason }
+      = SimpleBackendState { sbAssumptionStack :: AssumptionStack (BoolElt t) SimErrorReason }
 
 -- | Returns an initial execution state.
 initialSimpleBackendState :: NonceGenerator IO t -> IO (SimpleBackendState t)
@@ -54,44 +56,66 @@ newSimpleBackend gen =
   do st <- initialSimpleBackendState gen
      SB.newSimpleBuilder st gen
 
-getAssumptionStack :: SimpleBackend t -> IO (AssumptionStack (BoolElt t) t SimErrorReason)
+getAssumptionStack :: SimpleBackend t -> IO (AssumptionStack (BoolElt t) SimErrorReason)
 getAssumptionStack sym = sbAssumptionStack <$> readIORef (SB.sbStateManager sym)
 
-instance SB.IsSimpleBuilderState SimpleBackendState where
-  sbAddAssertion sym e m = do
-    loc <- SB.curProgramLoc sym
-    stk <- getAssumptionStack sym
-    assert (Assertion loc e (Just m)) stk
+instance IsBoolSolver (SimpleBackend t) where
+  evalBranch _sym p =
+    case asConstantPred p of
+      Just True  -> return $! NoBranch True
+      Just False -> return $! NoBranch False
+      Nothing    -> return $! SymbolicBranch True
 
-  sbAddAssumption sym e = do
-    stk <- getAssumptionStack sym
-    assume e stk
+  addAssertion sym e m =
+    case asConstantPred e of
+      Just True  -> return ()
+      Just False -> addFailedAssertion sym m
+      _ ->
+        do loc <- SB.curProgramLoc sym
+           stk <- getAssumptionStack sym
+           assert (Assertion loc e (Just m)) stk
 
-  sbAddAssumptions sym ps = do
+  addAssumption sym e =
+    case asConstantPred e of
+      Just True  -> return ()
+      Just False -> addFailedAssertion sym InfeasibleBranchError
+      _ ->
+        do stk <- getAssumptionStack sym
+           assume e stk
+
+  addFailedAssertion sym msg = do
+    loc <- getCurrentProgramLoc sym
+    throwIO (SimError loc msg)
+
+  addAssumptions sym ps = do
     stk <- getAssumptionStack sym
     appendAssumptions ps stk
 
-  sbAllAssumptions sym = do
+  getPathCondition sym = do
     stk <- getAssumptionStack sym
     ps <- collectAssumptions stk
     andAllOf sym folded ps
 
-  sbEvalBranch _ _ =
-    return $! SymbolicBranch True
-
-  sbGetProofObligations sym = do
+  getProofObligations sym = do
     stk <- getAssumptionStack sym
     AS.getProofObligations stk
 
-  sbSetProofObligations sym obligs = do
+  setProofObligations sym obligs = do
     stk <- getAssumptionStack sym
     AS.setProofObligations obligs stk
 
-  sbPushAssumptionFrame sym = do
+  pushAssumptionFrame sym = do
     stk <- getAssumptionStack sym
     pushFrame stk
 
-  sbPopAssumptionFrame sym ident = do
+  popAssumptionFrame sym ident = do
     stk <- getAssumptionStack sym
     frm <- popFrame ident stk
     readIORef (assumeFrameCond frm)
+
+  cloneAssumptionState sym = do
+    stk <- getAssumptionStack sym
+    AS.cloneAssumptionStack stk
+
+  restoreAssumptionState sym stk = do
+    writeIORef (SB.sbStateManager sym) (SimpleBackendState stk)

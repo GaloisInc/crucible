@@ -53,6 +53,7 @@ import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Solver.AssumptionStack (ProofGoal(..), assertPred)
+import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
 import qualified Lang.Crucible.Solver.SAWCoreBackend as SAW
 import qualified Lang.Crucible.Solver.SimpleBuilder as SB
@@ -186,8 +187,8 @@ handleProofObligations ::
   P.VerificationSimulateOptions ->
   IO ()
 handleProofObligations sim sym opts =
-  do obls <- SB.sbGetProofObligations sym
-     SB.sbSetProofObligations sym mempty
+  do obls <- getProofObligations sym
+     setProofObligations sym mempty
      dirPath <- makeAbsolute (Text.unpack (opts^.P.verificationSimulateOptions_output_directory))
      createDirectoryIfMissing True dirPath
      if opts^.P.verificationSimulateOptions_separate_obligations
