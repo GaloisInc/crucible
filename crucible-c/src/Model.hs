@@ -12,9 +12,9 @@ import Control.Exception(throw)
 
 import Lang.Crucible.Types(BaseTypeRepr(..),BaseToType)
 import Lang.Crucible.Simulator.RegMap(RegValue)
-import Lang.Crucible.Solver.SimpleBackend(SimpleBackend)
 import Lang.Crucible.Solver.SimpleBackend.GroundEval
         (GroundValue,GroundEvalFn(..))
+import Lang.Crucible.Solver.SimpleBuilder(SimpleBuilder)
 
 import Error
 
@@ -30,12 +30,12 @@ addVar ::
 addVar k v (Model mp) = Model (MapF.insertWith jn k (Vars [ v ]) mp)
   where jn (Vars new) (Vars old) = Vars (new ++ old)
 
-evalVars :: GroundEvalFn scope -> Vars (SimpleBackend scope) ty -> IO (Vals ty)
+evalVars :: GroundEvalFn s -> Vars (SimpleBuilder s t) ty -> IO (Vals ty)
 evalVars ev (Vars xs) = Vals . reverse <$> mapM (groundEval ev) xs
 
 evalModel ::
-  GroundEvalFn scope ->
-  Model (SimpleBackend scope) ->
+  GroundEvalFn s ->
+  Model (SimpleBuilder s t) ->
   IO (MapF BaseTypeRepr Vals)
 evalModel ev (Model mp) = traverseF (evalVars ev) mp
 
@@ -57,7 +57,7 @@ ppVals ty (Vals xs) =
     _ -> throw (Bug ("Type not implemented: " ++ show ty))
 
 ppModel ::
-  GroundEvalFn scope -> Model (SimpleBackend scope) -> IO String
+  GroundEvalFn s -> Model (SimpleBuilder s t) -> IO String
 ppModel ev m =
   do vals <- evalModel ev m
      return $ unlines

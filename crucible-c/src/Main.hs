@@ -20,7 +20,7 @@ import Data.Parameterized.Context(pattern Empty)
 import Text.LLVM.AST(Module)
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 
-import Lang.Crucible.Solver.SimpleBackend (SimpleBackend, newSimpleBackend)
+import Lang.Crucible.Solver.SimpleBackend (newSimpleBackend)
 import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
 
 
@@ -37,6 +37,7 @@ import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Simulator.OverrideSim
         ( fnBindingsFromList, initSimState, runOverrideSim, callCFG)
 
+import Lang.Crucible.Solver.Interface(IsSymInterface)
 import Lang.Crucible.Solver.BoolInterface(getProofObligations)
 
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn)
@@ -88,10 +89,10 @@ setCounterFunc f = unlines
 
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::
-  ArchOk arch =>
+  (ArchOk arch, IsSymInterface b) =>
   HandleAllocator RealWorld ->
-  SimpleBackend scope ->
-  IO (SimCtxt (SimpleBackend scope) arch)
+  b ->
+  IO (SimCtxt b arch)
 setupSimCtxt halloc sym =
   withPtrWidth ?ptrWidth $
   do let verbosity = 0
@@ -117,7 +118,7 @@ parseLLVM file =
 
 
 setupMem ::
-  ArchOk arch =>
+  (ArchOk arch, IsSymInterface scope) =>
   LLVMContext arch ->
   ModuleTranslation arch ->
   OverM scope arch ()

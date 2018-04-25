@@ -2,7 +2,6 @@
 module Types where
 
 
-import Lang.Crucible.Solver.SimpleBackend(SimpleBackend)
 import Lang.Crucible.Solver.BoolInterface(Pred)
 import Lang.Crucible.Simulator.RegMap(RegValue)
 import Lang.Crucible.Simulator.OverrideSim(OverrideSim)
@@ -25,11 +24,11 @@ type Val b t        = RegValue b t
 
 -- | The instane of the override monad we use,
 -- when we don't care about the context of the surrounding function.
-type OverM scope arch a =
+type OverM b arch a =
   forall r args ret.
   OverrideSim
     Model
-    (SimpleBackend scope)                  -- the backend
+    b                                      -- the backend
     (LLVM arch)                            -- LLVM extensions
     r
     args
@@ -37,16 +36,16 @@ type OverM scope arch a =
     a
 
 -- | This is the instance of the 'OverrideSim' monad that we use.
-type Fun scope arch args ret =
+type Fun b arch args ret =
   forall r.
   OverrideSim
     Model
-    (SimpleBackend scope)                  -- the backend
+    b                                      -- the backend
     (LLVM arch)                            -- LLVM extensions
     r
     args
     ret
-    (Val (SimpleBackend scope) ret)
+    (Val b ret)
 
 
 

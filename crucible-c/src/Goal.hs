@@ -3,7 +3,7 @@ module Goal where
 import Control.Lens((^.))
 import Control.Monad(foldM)
 
-import Lang.Crucible.Solver.SimpleBackend(SimpleBackend, SimpleBackendState)
+import Lang.Crucible.Solver.SimpleBuilder(SimpleBuilder)
 import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
 import Lang.Crucible.Solver.BoolInterface(IsBoolExprBuilder, Pred)
 import Lang.Crucible.Solver.SimpleBackend.Z3(z3Adapter)
@@ -39,8 +39,8 @@ obligGoal sym g = foldM imp (gShows g ^. assertPred) (gAssumes g)
   imp p a = impliesPred sym a p
 
 proveGoal ::
-  SimCtxt (SimpleBackend scope) arch ->
-  Goal (SimpleBackend scope) ->
+  SimCtxt (SimpleBuilder t st) arch ->
+  Goal (SimpleBuilder t st) ->
   IO ()
 proveGoal ctxt g =
   do let sym = ctxt ^. ctxSymInterface
