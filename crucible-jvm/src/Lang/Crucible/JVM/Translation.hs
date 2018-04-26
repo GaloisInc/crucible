@@ -208,6 +208,17 @@ rEqual mr1 mr2 =
       }
     }
 
+----------------------------------------------------------------------
+-- JVMContext
+
+data JVMHandleInfo where
+  JVMHandleInfo :: J.Method -> FnHandle init ret -> JVMHandleInfo
+
+data JVMContext =
+  JVMContext {
+    symbolMap :: Map (J.ClassName, J.MethodKey) JVMHandleInfo,
+  }
+
 ------------------------------------------------------------------------
 -- JVMState
 
@@ -504,9 +515,6 @@ dPush d = pushValue (DValue d)
 
 rPush :: JVMRef s -> JVMStmtGen h s ret ()
 rPush r = pushValue (RValue r)
-
-assertTrueM :: t0 -> [Char] -> JVMStmtGen h s ret ()
-assertTrueM _ _ = sgUnimplemented "assertTrueM"
 
 setLocal :: J.LocalVariableIndex -> JVMValue s -> JVMStmtGen h s ret ()
 setLocal idx v =
@@ -914,7 +922,7 @@ generateInstruction (pc, instr) =
     J.Checkcast _tp ->
       do objectRef <- rPop
          () <- sgUnimplemented "checkcast" --assertTrueM (isNull objectRef ||| objectRef `hasType` tp) "java/lang/ClassCastException"
-         pushValue $ RValue objectRef
+         rPush objectRef
     J.Iinc idx constant ->
       do value <- getLocal idx >>= fromIValue
          let constValue = iConst (fromIntegral constant)
@@ -1205,16 +1213,6 @@ initialJVMExprFrame cn method ctx asgn = JVMFrame [] locals
     idxs = J.methodParameterIndexes method
     idxs' = if static then idxs else 0 : idxs
     locals = Map.fromList (zip idxs' vals)
-
-----------------------------------------------------------------------
-
-data JVMHandleInfo where
-  JVMHandleInfo :: J.Method -> FnHandle init ret -> JVMHandleInfo
-
-data JVMContext =
-  JVMContext {
-    symbolMap :: Map (J.ClassName, J.MethodKey) JVMHandleInfo
-  }
 
 ----------------------------------------------------------------------
 
