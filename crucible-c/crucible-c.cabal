@@ -40,7 +40,8 @@ executable crucible-c
     llvm-pretty-bc-parser,
     parameterized-utils,
     filepath,
-    process
+    process,
+    directory
 
 
   ghc-options: -Wall

@@ -10,9 +10,10 @@ import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)
 import System.IO(hPutStrLn,stdout,stderr)
 import System.Environment(getProgName,getArgs)
-import System.FilePath(takeExtension)
+import System.FilePath(takeExtension,(</>))
 
 import Control.Monad.State(evalStateT)
+import Control.Monad.IO.Class(liftIO)
 
 import Data.Parameterized.Nonce(withIONonceGenerator)
 import Data.Parameterized.Some(Some(..))
@@ -21,9 +22,10 @@ import Data.Parameterized.Context(pattern Empty)
 import Text.LLVM.AST(Module)
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 
--- import Lang.Crucible.Solver.SimpleBackend (newSimpleBackend)
-import Lang.Crucible.Solver.OnlineBackend(withOnlineBackend,setConfig)
+import Lang.Crucible.Solver.OnlineBackend
+          (withOnlineBackend,setConfig,getYicesProcess)
 import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
+import Lang.Crucible.Solver.SimpleBackend.Yices(push,pop,yicesConn)
 
 
 import Lang.Crucible.Config(initialConfig)
@@ -59,6 +61,8 @@ import Overrides
 import Model
 import Clang
 
+outDir :: FilePath
+outDir = "output"
 
 main :: IO ()
 main =
@@ -66,13 +70,11 @@ main =
      case args of
        [file] | takeExtension file == ".bc" -> checkBC file
        file : incs ->
-          do let outFile = "compiled.bc"
-             genBitCode incs file outFile
-             checkBC outFile
+         (checkBC =<< genBitCode incs file outDir)
           `catch` \e -> do hPutStrLn stderr (ppError e)
                            case e of
                              FailedToProve _ (Just c) ->
-                               do let cfile = "counter-example.c"
+                               do let cfile = outDir </> "counter-example.c"
                                   writeFile cfile c
                                   hPutStrLn stderr
                                      ("Counter example in " ++ show cfile)
@@ -87,7 +89,8 @@ main =
 
 checkBC :: FilePath -> IO ()
 checkBC file =
-  do simulate file (checkFun "main")
+  do putStrLn ("Checking " ++ show file)
+     simulate file (checkFun "main")
      putStrLn "Valid."
 
 
@@ -100,7 +103,9 @@ setupSimCtxt ::
 setupSimCtxt halloc sym =
   withPtrWidth ?ptrWidth $
   do let verbosity = 0
-     cfg <- initialConfig verbosity (solver_adapter_config_options prover)
+     cfg <- initialConfig verbosity
+               $ solver_adapter_config_options prover
+                 -- ++ solver_adapter_config_options yicesOnlineAdapter
      return (initSimContext
                   sym
                   llvmIntrinsicTypes
@@ -141,7 +146,9 @@ setupMem ctx mtrans =
 
 simulate ::
   FilePath ->
-  (forall scope arch. ArchOk arch => ModuleCFGMap arch -> OverM scope arch ())->
+  (forall scope arch.
+      ArchOk arch => ModuleCFGMap arch -> OverM scope arch ()
+  ) ->
   IO ()
 simulate file k =
   do llvm_mod   <- parseLLVM file
@@ -153,8 +160,12 @@ simulate file k =
        withPtrWidth ptrW $
        withIONonceGenerator $ \nonceGen ->
        withOnlineBackend nonceGen $ \sym ->
-       do simctx <- setupSimCtxt halloc sym
+       do -- sym <- newSimpleBackend nonceGen
+          simctx <- setupSimCtxt halloc sym
           setConfig sym (simConfig simctx)
+          yices <- getYicesProcess sym
+          liftIO (push (yicesConn yices))
+
           mem  <- initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
           let simSt  = initSimState simctx globSt defaultErrorHandler
@@ -163,6 +174,7 @@ simulate file k =
                    do setupMem llvmCtxt trans
                       setupOverrides llvmCtxt
                       k (cfgMap trans)
+          liftIO (pop (yicesConn yices))
 
           case res of
             FinishedExecution ctx' _ ->
