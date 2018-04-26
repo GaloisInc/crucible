@@ -217,7 +217,7 @@ data JVMState ret s
   , _jsFrameMap :: !(Map J.BBId (JVMFrame (JVMReg s)))
   , _jsCFG :: J.CFG
   , jsRetType :: TypeRepr ret
-    -- TODO: add JVM context stuff here (maybe Codebase?)
+  , jsContext :: JVMContext
   }
 
 jsLabelMap :: Simple Lens (JVMState ret s) (Map J.BBId (Label s))
@@ -1220,13 +1220,14 @@ data JVMContext =
 
 -- | Build the initial JVM generator state upon entry to to the entry
 -- point of a method.
-initialState :: J.Method -> TypeRepr ret -> JVMState ret s
-initialState method ret =
+initialState :: JVMContext -> J.Method -> TypeRepr ret -> JVMState ret s
+initialState ctx method ret =
   JVMState {
     _jsLabelMap = Map.empty,
     _jsFrameMap = Map.empty,
     _jsCFG = methodCFG method,
-    jsRetType = ret
+    jsRetType = ret,
+    jsContext = ctx
   }
 
 methodCFG :: J.Method -> J.CFG
@@ -1262,7 +1263,7 @@ defineMethod ctx cn method =
          let retType  = handleReturnType h
          let def :: FunctionDef JVM h (JVMState ret) args ret
              def inputs = (s, f)
-               where s = initialState method retType
+               where s = initialState ctx method retType
                      f = generateMethod cn method argTypes inputs
          (SomeCFG g, []) <- defineFunction InternalPos h def
          case toSSA g of
