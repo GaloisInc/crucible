@@ -580,6 +580,66 @@ nextPC pc =
 
 ----------------------------------------------------------------------
 
+pushRet ::
+  forall h s ret tp. TypeRepr tp -> Expr JVM s tp -> JVMStmtGen h s ret ()
+pushRet tp expr =
+  tryPush dPush $
+  tryPush fPush $
+  tryPush iPush $
+  tryPush lPush $
+  tryPush rPush $
+  sgFail "pushRet: invalid type"
+  where
+    tryPush ::
+      forall t. KnownRepr TypeRepr t =>
+      (Expr JVM s t -> JVMStmtGen h s ret ()) ->
+      JVMStmtGen h s ret () -> JVMStmtGen h s ret ()
+    tryPush push k =
+      case testEquality tp (knownRepr :: TypeRepr t) of
+        Just Refl -> push expr
+        Nothing -> k
+
+popArgument ::
+  forall tp h s ret. TypeRepr tp -> JVMStmtGen h s ret (Expr JVM s tp)
+popArgument tp =
+  tryPop dPop $
+  tryPop fPop $
+  tryPop iPop $
+  tryPop lPop $
+  tryPop rPop $
+  sgFail "pushRet: invalid type"
+  where
+    tryPop ::
+      forall t. KnownRepr TypeRepr t =>
+      JVMStmtGen h s ret (Expr JVM s t) ->
+      JVMStmtGen h s ret (Expr JVM s tp) ->
+      JVMStmtGen h s ret (Expr JVM s tp)
+    tryPop pop k =
+      case testEquality tp (knownRepr :: TypeRepr t) of
+        Just Refl -> pop
+        Nothing -> k
+
+-- | Pop arguments from the stack; the last argument should be at the
+-- top of the stack.
+popArguments ::
+  forall args h s ret.
+  CtxRepr args -> JVMStmtGen h s ret (Ctx.Assignment (Expr JVM s) args)
+popArguments args =
+  case Ctx.viewAssign args of
+    Ctx.AssignEmpty -> return Ctx.empty
+    Ctx.AssignExtend tps tp ->
+      do x <- popArgument tp
+         xs <- popArguments tps
+         return (Ctx.extend xs x)
+
+callJVMHandle :: JVMHandleInfo -> JVMStmtGen h s ret ()
+callJVMHandle (JVMHandleInfo _method handle) =
+  do args <- popArguments (handleArgTypes handle)
+     result <- lift $ call (App (HandleLit handle)) args
+     pushRet (handleReturnType handle) result
+
+----------------------------------------------------------------------
+
 -- | Do the heavy lifting of translating JVM instructions to crucible code.
 generateInstruction ::
   forall h s ret.
@@ -886,7 +946,12 @@ generateInstruction (pc, instr) =
     J.Invokevirtual   _type      _methodKey -> sgUnimplemented "Invokevirtual"
     J.Invokeinterface _className _methodKey -> sgUnimplemented "Invokeinterface"
     J.Invokespecial   _type      _methodKey -> sgUnimplemented "Invokespecial"
-    J.Invokestatic    _className _methodKey -> sgUnimplemented "Invokestatic"
+    J.Invokestatic    className methodKey ->
+      do ctx <- lift $ gets jsContext
+         let mhandle = Map.lookup (className, methodKey) (symbolMap ctx)
+         case mhandle of
+           Nothing -> sgFail "invokestatic: method not found"
+           Just handle -> callJVMHandle handle
     J.Invokedynamic   _word16 -> sgUnimplemented "Invokedynamic"
 
     J.Ireturn -> returnInstr iPop
