@@ -5,6 +5,8 @@
 module Main(main) where
 
 import Data.String(fromString)
+import Data.Function(on)
+import Data.List(sortBy)
 import qualified Data.Map as Map
 import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)
@@ -13,7 +15,6 @@ import System.Environment(getProgName,getArgs)
 import System.FilePath(takeExtension,dropExtension,takeFileName)
 
 import Control.Monad.State(evalStateT)
-import Control.Monad.IO.Class(liftIO)
 
 import Data.Parameterized.Nonce(withIONonceGenerator)
 import Data.Parameterized.Some(Some(..))
@@ -22,20 +23,17 @@ import Data.Parameterized.Context(pattern Empty)
 import Text.LLVM.AST(Module)
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 
-import Lang.Crucible.Solver.OnlineBackend
-          (withOnlineBackend,setConfig,getYicesProcess)
 import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
-import Lang.Crucible.Solver.SimpleBackend.Yices(push,pop,yicesConn)
-
 
 import Lang.Crucible.Config(initialConfig)
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
+import Lang.Crucible.Config(opt)
 import Lang.Crucible.Simulator.RegMap(emptyRegMap,regValue)
 import Lang.Crucible.Simulator.ExecutionTree
-        ( initSimContext, defaultErrorHandler, simConfig
-        , ExecResult(..)
+        ( initSimContext, defaultErrorHandler
+        , ExecResult(..), SimConfig
         )
 import Lang.Crucible.Simulator.OverrideSim
         ( fnBindingsFromList, initSimState, runOverrideSim, callCFG)
@@ -53,6 +51,10 @@ import Lang.Crucible.LLVM.Translation
 import Lang.Crucible.LLVM.Types(withPtrWidth)
 import Lang.Crucible.LLVM.Intrinsics
           (llvmIntrinsicTypes, llvmPtrWidth, register_llvm_overrides)
+
+import Lang.Crucible.Solver.SAWCoreBackend(newSAWCoreBackend,sawCheckPathSat)
+import Verifier.SAW.Prelude(preludeModule)
+import Verifier.SAW.SharedTerm(mkSharedContext)
 
 import Error
 import Goal
@@ -106,23 +108,18 @@ checkBC file =
 setupSimCtxt ::
   (ArchOk arch, IsSymInterface sym) =>
   HandleAllocator RealWorld ->
+  SimConfig Model sym ->
   sym ->
-  IO (SimCtxt sym arch)
-setupSimCtxt halloc sym =
-  withPtrWidth ?ptrWidth $
-  do let verbosity = 0
-     cfg <- initialConfig verbosity
-               $ solver_adapter_config_options prover
-                 -- ++ solver_adapter_config_options yicesOnlineAdapter
-     return (initSimContext
-                  sym
-                  llvmIntrinsicTypes
-                  cfg
-                  halloc
-                  stdout
-                  (fnBindingsFromList [])
-                  llvmExtensionImpl
-                  emptyModel)
+  SimCtxt sym arch
+setupSimCtxt halloc cfg sym =
+  initSimContext sym
+                 llvmIntrinsicTypes
+                 cfg
+                 halloc
+                 stdout
+                 (fnBindingsFromList [])
+                 llvmExtensionImpl
+                 emptyModel
 
 
 -- | Parse an LLVM bit-code file.
@@ -167,12 +164,13 @@ simulate file k =
      llvmPtrWidth llvmCtxt $ \ptrW ->
        withPtrWidth ptrW $
        withIONonceGenerator $ \nonceGen ->
-       withOnlineBackend nonceGen $ \sym ->
-       do -- sym <- newSimpleBackend nonceGen
-          simctx <- setupSimCtxt halloc sym
-          setConfig sym (simConfig simctx)
-          yices <- getYicesProcess sym
-          liftIO (push (yicesConn yices))
+       do let verbosity = 0
+          cfg <- initialConfig verbosity
+               $ [ opt sawCheckPathSat True "Enable path checking" ]
+              ++ solver_adapter_config_options prover
+          sc  <- mkSharedContext preludeModule
+          sym <- newSAWCoreBackend sc nonceGen cfg
+          let simctx = setupSimCtxt halloc cfg sym
 
           mem  <- initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
@@ -182,11 +180,12 @@ simulate file k =
                    do setupMem llvmCtxt trans
                       setupOverrides llvmCtxt
                       k (cfgMap trans)
-          liftIO (pop (yicesConn yices))
 
           case res of
             FinishedExecution ctx' _ ->
-              mapM_ (proveGoal ctx' . mkGoal) =<< getProofObligations sym
+              do gs <- getProofObligations sym
+                 let ordGs = sortBy (compare `on` goalPriority) (map mkGoal gs)
+                 mapM_ (proveGoal ctx') ordGs
             AbortedResult _ err -> throwError (SimFail err)
 
 checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM scope arch ()

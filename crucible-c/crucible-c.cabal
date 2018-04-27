@@ -38,6 +38,8 @@ executable crucible-c
     bytestring,
     crucible,
     crucible-llvm,
+    crucible-saw,
+    saw-core,
     llvm-pretty,
     llvm-pretty-bc-parser,
     parameterized-utils,

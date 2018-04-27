@@ -10,7 +10,7 @@ import Control.Exception
 
 import Error
 import CLibSrc
-import Log
+-- import Log
 
 -- Unused for now
 data CCConfig = CCConfig
@@ -38,7 +38,7 @@ getClang = attempt $ getEnv "CLANG"
       m : more -> do x <- try m
                      case x of
                        Left (SomeException {}) -> attempt more
-                       Right a -> say "Cruc" a >> return a
+                       Right a -> return a
 
 
 
