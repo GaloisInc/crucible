@@ -117,6 +117,9 @@ module Lang.Crucible.Solver.Interface
   , backendPred
   , isNonZero
   , isReal
+  , cplxDiv
+  , cplxLog
+  , cplxLogBase
 
   , baseIsConcrete
 
@@ -1969,6 +1972,75 @@ isReal :: IsExprBuilder sym => sym -> SymCplx sym -> IO (Pred sym)
 isReal sym v = do
   i <- getImagPart sym v
   realEq sym i (realZero sym)
+
+-- | Divide one number by another.
+--
+-- Adds assertion on divide by zero.
+cplxDiv :: IsExprBuilder sym
+        => sym
+        -> SymCplx sym
+        -> SymCplx sym
+        -> IO (SymCplx sym)
+cplxDiv sym x y = do
+  xr :+ xi <- cplxGetParts sym x
+  yc@(yr :+ yi) <- cplxGetParts sym y
+  case asRational <$> yc of
+    (_ :+ Just 0) -> do
+      zc <- (:+) <$> realDiv sym xr yr <*> realDiv sym xi yr
+      mkComplex sym zc
+    (Just 0 :+ _) -> do
+      zc <- (:+) <$> realDiv sym xi yi <*> realDiv sym xr yi
+      mkComplex sym zc
+    _ -> do
+      yr_abs <- realMul sym yr yr
+      yi_abs <- realMul sym yi yi
+      y_abs <- realAdd sym yr_abs yi_abs
+
+      zr_1 <- realMul sym xr yr
+      zr_2 <- realMul sym xi yi
+      zr <- realAdd sym zr_1 zr_2
+
+      zi_1 <- realMul sym xi yr
+      zi_2 <- realMul sym xr yi
+      zi <- realSub sym zi_1 zi_2
+
+      zc <- (:+) <$> realDiv sym zr y_abs <*> realDiv sym zi y_abs
+      mkComplex sym zc
+
+-- | Helper function that returns logarithm of input.
+--
+-- This operation adds an assertion that the input is non-zero.
+cplxLog' :: IsExprBuilder sym
+         => sym -> SymCplx sym -> IO (Complex (SymReal sym))
+cplxLog' sym x = do
+  xr :+ xi <- cplxGetParts sym x
+  -- Get the magnitude of the value.
+  xm <- realHypot sym xr xi
+  -- Get angle of complex number.
+  xa <- realAtan2 sym xi xr
+  -- Get log of magnitude
+  zr <- realLog sym xm
+  return $! zr :+ xa
+
+-- | Returns logarithm of input.
+--
+-- This operation adds an assertion that the input is non-zero.
+cplxLog :: IsExprBuilder sym
+        => sym -> SymCplx sym -> IO (SymCplx sym)
+cplxLog sym x = mkComplex sym =<< cplxLog' sym x
+
+-- | Returns logarithm of input at a given base.
+--
+-- This operation adds an assertion that the input is non-zero.
+cplxLogBase :: IsExprBuilder sym
+            => Rational
+            -> sym
+            -> SymCplx sym
+            -> IO (SymCplx sym)
+cplxLogBase base sym x = do
+  b <- realLog sym =<< realLit sym base
+  z <- traverse (\r -> realDiv sym r b) =<< cplxLog' sym x
+  mkComplex sym z
 
 --------------------------------------------------------------------------
 -- Relationship to concrete values

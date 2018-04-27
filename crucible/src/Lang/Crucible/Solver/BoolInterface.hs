@@ -28,9 +28,6 @@ module Lang.Crucible.Solver.BoolInterface
     -- * Utilities
   , addAssertionM
   , assertIsInteger
-  , cplxDiv
-  , cplxLog
-  , cplxLogBase
   , readPartExpr
   ) where
 
@@ -51,7 +48,6 @@ data BranchResult sym
 
      -- | No branch is needed, and the predicate is evaluated to the
      -- given value.
-
    | NoBranch !Bool
 
      -- | In branching, the simulator detected that the current path
@@ -130,79 +126,6 @@ addAssertionM :: IsBoolSolver sym
 addAssertionM sym pf msg = do
   p <- pf
   addAssertion sym p msg
-
--- | Divide one number by another.
---
--- Adds assertion on divide by zero.
-cplxDiv :: (IsExprBuilder sym, IsBoolSolver sym)
-        => sym
-        -> SymCplx sym
-        -> SymCplx sym
-        -> IO (SymCplx sym)
-cplxDiv sym x y = do
-  addAssertionM sym (isNonZero sym y) (GenericSimError "Divide by zero")
-  xr :+ xi <- cplxGetParts sym x
-  yc@(yr :+ yi) <- cplxGetParts sym y
-  case asRational <$> yc of
-    (_ :+ Just 0) -> do
-      zc <- (:+) <$> realDiv sym xr yr <*> realDiv sym xi yr
-      mkComplex sym zc
-    (Just 0 :+ _) -> do
-      zc <- (:+) <$> realDiv sym xi yi <*> realDiv sym xr yi
-      mkComplex sym zc
-    _ -> do
-      yr_abs <- realMul sym yr yr
-      yi_abs <- realMul sym yi yi
-      y_abs <- realAdd sym yr_abs yi_abs
-
-      zr_1 <- realMul sym xr yr
-      zr_2 <- realMul sym xi yi
-      zr <- realAdd sym zr_1 zr_2
-
-      zi_1 <- realMul sym xi yr
-      zi_2 <- realMul sym xr yi
-      zi <- realSub sym zi_1 zi_2
-
-      zc <- (:+) <$> realDiv sym zr y_abs <*> realDiv sym zi y_abs
-      mkComplex sym zc
-
--- | Helper function that returns logarithm of input.
---
--- This operation adds an assertion that the input is non-zero.
-cplxLog' :: (IsExprBuilder sym, IsBoolSolver sym)
-         => sym -> SymCplx sym -> IO (Complex (SymReal sym))
-cplxLog' sym x = do
-  let err = GenericSimError "Input to log must be non-zero."
-  addAssertionM sym (isNonZero sym x) err
-  xr :+ xi <- cplxGetParts sym x
-  -- Get the magnitude of the value.
-  xm <- realHypot sym xr xi
-  -- Get angle of complex number.
-  xa <- realAtan2 sym xi xr
-  -- Get log of magnitude
-  zr <- realLog sym xm
-  return $! zr :+ xa
-
--- | Returns logarithm of input.
---
--- This operation adds an assertion that the input is non-zero.
-cplxLog :: (IsExprBuilder sym, IsBoolSolver sym)
-        => sym -> SymCplx sym -> IO (SymCplx sym)
-cplxLog sym x = mkComplex sym =<< cplxLog' sym x
-
--- | Returns logarithm of input at a given base.
---
--- This operation adds an assertion that the input is non-zero.
-cplxLogBase :: (IsExprBuilder sym, IsBoolSolver sym)
-            => Rational
-            -> sym
-            -> SymCplx sym
-            -> IO (SymCplx sym)
-cplxLogBase base sym x = do
-  b <- realLog sym =<< realLit sym base
-  z <- traverse (\r -> realDiv sym r b) =<< cplxLog' sym x
-  mkComplex sym z
-
 
 assertIsInteger :: (IsBoolSolver sym, IsExprBuilder sym)
                 => sym
