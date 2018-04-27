@@ -695,7 +695,7 @@ checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $ do
 
             new_assume_frame <- pushAssumptionFrame sym
             pnot <- notPred sym p
-            addAssumption sym p
+            addAssumption sym pnot
 
             let paused_res :: PausedPartialFrame p sym ext root (CrucibleLang b r) args
                 paused_res = PausedValue { _pausedValue = er
