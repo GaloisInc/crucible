@@ -82,3 +82,14 @@ cabal update
 cabal new-configure
 cabal new-build all
 ```
+
+The build depends on having `hpb` in your path. After fetching the
+dependencies, this can be arranged by entering `dependencies/hpb/` and
+running the following commands:
+```
+cabal sandbox init
+cabal install --dependencies-only
+cabal install
+cp ./cabal-sandbox/bin/hpb ⟨EXE_PATH⟩
+```
+where `⟨EXE_PATH⟩` is a directory on your `$PATH`.

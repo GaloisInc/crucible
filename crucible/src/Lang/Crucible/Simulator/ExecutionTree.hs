@@ -1130,6 +1130,7 @@ data ExtensionImpl p sym ext
 -- | Global context for state.
 data SimContext (personality :: *) (sym :: *) (ext :: *)
    = SimContext { _ctxSymInterface       :: !sym
+                  -- | Class dictionary for @'IsSymInterface' sym@
                 , ctxSolverProof         :: !(forall a . IsSymInterfaceProof sym a)
                 , ctxIntrinsicTypes      :: !(IntrinsicTypes sym)
                   -- | Allocator for function handles

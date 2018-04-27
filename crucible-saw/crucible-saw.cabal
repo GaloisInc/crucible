@@ -16,7 +16,7 @@ library
   build-depends:
     abcBridge,
     aig,
-    base >= 4.7 && < 4.11,
+    base >= 4.7 && < 4.12,
     containers,
     crucible >= 0.1,
     lens,
