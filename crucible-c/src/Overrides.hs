@@ -43,7 +43,8 @@ import Lang.Crucible.Simulator.SimError (SimErrorReason(..))
 import Lang.Crucible.Solver.Symbol(userSymbol)
 import Lang.Crucible.Solver.Interface
           (freshConstant, bvLit, bvEq, asUnsignedBV, IsSymInterface)
-import Lang.Crucible.Solver.BoolInterface (addAssertion,addAssumption,notPred,falsePred)
+import Lang.Crucible.Solver.BoolInterface
+        (addFailedAssertion,addAssertion,addAssumption,notPred)
 
 import Lang.Crucible.LLVM.Translation
         ( LLVMContext, LLVMHandleInfo(..)
@@ -196,4 +197,4 @@ sv_comp_error ::
 sv_comp_error =
   do sym  <- getSymInterface
      let rsn = AssertFailureSimError "Called __VERIFIER_error"
-     liftIO $ addAssertion sym (falsePred sym) rsn
+     liftIO $ addFailedAssertion sym rsn

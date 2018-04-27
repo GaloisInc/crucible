@@ -3,6 +3,7 @@ module Goal where
 import Control.Lens((^.))
 import Control.Monad(foldM)
 
+import Lang.Crucible.Solver.Interface(printSymExpr)
 import Lang.Crucible.Solver.BoolInterface
         ( IsBoolExprBuilder
         , Pred, notPred,impliesPred
@@ -55,7 +56,8 @@ proveGoal ::
 proveGoal ctxt g =
   do let sym = ctxt ^. ctxSymInterface
          cfg = simConfig ctxt
-     p <- notPred sym =<< obligGoal sym g
+     g1 <- obligGoal sym g
+     p <- notPred sym g1
 
      let say _n _x = return () -- putStrLn ("[" ++ show _n ++ "] " ++ _x)
      solver_adapter_check_sat prover sym cfg say p $ \res ->

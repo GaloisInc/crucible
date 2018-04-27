@@ -54,7 +54,7 @@ genBitCode incs src root =
 
      clang <- getClang
 
-     let params = [ "-c", "-g", "-emit-llvm" ]
+     let params = [ "-c", "-g", "-emit-llvm", "-O0" ]
                ++ concat [ ["-I",i] | i <- incs ]
                ++ [ src, "-o", tgt ]
 
@@ -100,6 +100,7 @@ genCounterExe counter_src incs src root =
      case res of
        ExitSuccess   -> return tgt
        ExitFailure n -> throwError (ClangError n sout serr)
+
 
 
 

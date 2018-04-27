@@ -49,9 +49,9 @@ ppVals ty (Vals xs) =
     BaseBVRepr n ->
       let cty = "int" ++ show n ++ "_t"
       in unlines
-          [ "size_t crucible_values_number_" ++ cty ++
+          [ "size_t const crucible_values_number_" ++ cty ++
                    " = " ++ show (length xs) ++ ";"
-          , cty ++ " crucible_values_" ++ cty ++ "[] = { " ++
+          , cty ++ " const crucible_values_" ++ cty ++ "[] = { " ++
                 intercalate "," (map show xs) ++ " };"
           ]
     _ -> throw (Bug ("Type not implemented: " ++ show ty))
