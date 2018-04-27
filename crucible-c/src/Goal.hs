@@ -6,7 +6,7 @@ import Control.Monad(foldM)
 import Lang.Crucible.Solver.BoolInterface
         ( IsBoolExprBuilder
         , Pred, notPred,impliesPred
-        , Assertion, assertPred, assertMsg
+        , Assertion, assertPred, assertMsg, assertLoc
         )
 import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
 import Lang.Crucible.Solver.SatResult(SatResult(..))
@@ -54,10 +54,12 @@ proveGoal ctxt g =
           Sat (evalFn,_mbRng) ->
             do let model = ctxt ^. cruciblePersonality
                str <- ppModel evalFn model
-               throwError (FailedToProve (assertMsg a) (Just str))
-          _     -> throwError (FailedToProve (assertMsg a) Nothing)
+               giveUp (Just str)
+          _  -> giveUp Nothing
 
-  where a = gShows g
+  where
+  a = gShows g
+  giveUp mb = throwError (FailedToProve (assertLoc a) (assertMsg a) mb)
 
 
 

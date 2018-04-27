@@ -61,7 +61,9 @@ ppModel ::
 ppModel ev m =
   do vals <- evalModel ev m
      return $ unlines
-            $ MapF.foldrWithKey (\k v rest -> ppVals k v : rest) [] vals
+            $ "#include <stdint.h>"
+            : "#include <stddef.h>"
+            : MapF.foldrWithKey (\k v rest -> ppVals k v : rest) [] vals
 
 
 

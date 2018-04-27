@@ -25,7 +25,9 @@ executable crucible-c
     Goal,
     Overrides,
     Model,
-    Clang
+    Clang,
+    CLibSrc,
+    Log
 
 
   build-depends:
@@ -41,7 +43,10 @@ executable crucible-c
     parameterized-utils,
     filepath,
     process,
-    directory
+    directory,
+    template-haskell,
+    text,
+    ansi-terminal
 
 
   ghc-options: -Wall

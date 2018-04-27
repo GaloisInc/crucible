@@ -4,11 +4,13 @@ module Error (module Error, catch) where
 import Control.Monad.IO.Class(MonadIO, liftIO)
 import Control.Exception(Exception(..), SomeException(..), throwIO, catch)
 import Data.Typeable(cast)
+import qualified Data.Text as Text
 
 import Data.LLVM.BitCode (formatError)
 import qualified Data.LLVM.BitCode as LLVM
 
 
+import Lang.Crucible.ProgramLoc(ProgramLoc,plSourceLoc,Position(..))
 import Lang.Crucible.Simulator.ExecutionTree (AbortedResult(..))
 import Lang.Crucible.Simulator.SimError
           (SimErrorReason(..),ppSimError,simErrorReasonMsg,simErrorReason)
@@ -20,7 +22,8 @@ throwError x = liftIO (throwIO x)
 
 data Error =
     LLVMParseError LLVM.Error
-  | FailedToProve (Maybe SimErrorReason)
+  | FailedToProve ProgramLoc
+                  (Maybe SimErrorReason)
                   (Maybe String) -- Counter example as C functions.
   | forall b arch.
       SimFail (AbortedResult b (LLVM arch))
@@ -41,9 +44,16 @@ ppError :: Error -> String
 ppError err =
   case err of
     LLVMParseError e -> formatError e
-    FailedToProve mb _ -> case mb of
-                            Nothing -> "Assertion failed." -- shouldn't happen
-                            Just s  -> simErrorReasonMsg s
+    FailedToProve loc mb _ -> docLoc ++ txt
+      where
+      docLoc =
+        case plSourceLoc loc of
+          SourcePos f l c ->
+            Text.unpack f ++ ":" ++ show l ++ ":" ++ show c ++ " "
+          _ -> ""
+      txt = case mb of
+              Nothing -> "Assertion failed." -- shouldn't happen
+              Just s  -> simErrorReasonMsg s
     SimFail (AbortedExec e _)
       | AssertFailureSimError x <- simErrorReason e -> x
     SimFail x -> unlines ["Error during simulation:", ppErr x]

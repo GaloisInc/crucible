@@ -10,7 +10,7 @@ import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)
 import System.IO(hPutStrLn,stdout,stderr)
 import System.Environment(getProgName,getArgs)
-import System.FilePath(takeExtension,(</>))
+import System.FilePath(takeExtension,dropExtension,takeFileName)
 
 import Control.Monad.State(evalStateT)
 import Control.Monad.IO.Class(liftIO)
@@ -60,25 +60,20 @@ import Types
 import Overrides
 import Model
 import Clang
+import Log
 
-outDir :: FilePath
-outDir = "output"
+outDir :: FilePath -> FilePath
+outDir f = "output-" ++ dropExtension (takeFileName f)
 
 main :: IO ()
 main =
   do args <- getArgs
      case args of
        [file] | takeExtension file == ".bc" -> checkBC file
+                                                `catch` errHandler file []
        file : incs ->
-         (checkBC =<< genBitCode incs file outDir)
-          `catch` \e -> do hPutStrLn stderr (ppError e)
-                           case e of
-                             FailedToProve _ (Just c) ->
-                               do let cfile = outDir </> "counter-example.c"
-                                  writeFile cfile c
-                                  hPutStrLn stderr
-                                     ("Counter example in " ++ show cfile)
-                             _ -> return ()
+         (checkBC =<< genBitCode incs file (outDir file))
+          `catch` errHandler file incs
 
        _ -> do p <- getProgName
                hPutStrLn stderr $ unlines
@@ -87,11 +82,24 @@ main =
                   , "  " ++ p ++ " FILE.c INC_DIR1 INC_DIR2 ..."
                   ]
 
+
+errHandler :: FilePath -> [FilePath] -> Error -> IO ()
+errHandler file incs e =
+  do sayFail "Crux" (ppError e)
+     case e of
+       FailedToProve _ _ (Just c) ->
+         do exe <- genCounterExe c incs file (outDir file)
+            say "Crux" ("Counter example exe " ++ show exe)
+       _ -> return ()
+    `catch` \e1 -> sayFail "Crux" (ppError e1)
+
+
+
 checkBC :: FilePath -> IO ()
 checkBC file =
-  do putStrLn ("Checking " ++ show file)
+  do say "Crux" ("Checking " ++ show file)
      simulate file (checkFun "main")
-     putStrLn "Valid."
+     sayOK "Crux" "Valid."
 
 
 -- | Create a simulator context for the given architecture.
