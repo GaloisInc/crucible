@@ -10,7 +10,7 @@ import Control.Exception
 
 import Error
 import CLibSrc
--- import Log
+import Log
 
 -- Unused for now
 data CCConfig = CCConfig
@@ -58,7 +58,7 @@ genBitCode incs src root =
                ++ concat [ ["-I",i] | i <- incs ]
                ++ [ src, "-o", tgt ]
 
-     -- say "Clang" (src ++ " -> " ++ tgt)
+     say "Clang" (src ++ " -> " ++ tgt)
 
      (res,sout,serr) <- readProcessWithExitCode clang params ""
      case res of
@@ -87,7 +87,7 @@ genCounterExe counter_src incs src root =
      let counterName = dir </> "counter-example.c"
      writeFile counterName counter_src
 
-     let params = [ "-g", "-O2" ]
+     let params = [ "-g", "-O0" ]
                ++ concat [ ["-I",i] | i <- incs ]
                ++ [ counterName
                   , libName
