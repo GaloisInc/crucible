@@ -6,11 +6,13 @@ import System.Process
 import System.Exit
 import System.FilePath
 import System.Directory
+import Control.Exception
 
 import Error
 import CLibSrc
 import Log
 
+-- Unused for now
 data CCConfig = CCConfig
   { ccPath        :: FilePath           -- ^ Path to Clang
   , ccIncludes    :: [FilePath]         -- ^ Use these dirs when compiling
@@ -20,10 +22,25 @@ data CCConfig = CCConfig
 
 
 getClang :: IO FilePath
-getClang = return "clang-4.0" -- XXX
+getClang = attempt $ getEnv "CLANG"
+                   : map inPath opts
+  where
+  inPath x = head . lines <$> readProcess "/usr/bin/which" [x] ""
+  opts     = [ "clang", "clang-4.0" ]
 
-getLink :: IO FilePath
-getLink = return "llvm-link-4.0" -- XXX
+  attempt :: [IO FilePath] -> IO FilePath
+  attempt ms =
+    case ms of
+      [] -> throwError $ EnvError $
+              unlines [ "Failed to find `clang`."
+                      , "You may use CLANG to provide path to executable."
+                      ]
+      m : more -> do x <- try m
+                     case x of
+                       Left (SomeException {}) -> attempt more
+                       Right a -> say "Cruc" a >> return a
+
+
 
 genBitCode ::
   [FilePath]  {- ^ Include paths -} ->

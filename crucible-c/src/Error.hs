@@ -31,6 +31,7 @@ data Error =
   | MissingFun String
   | Bug String
   | ClangError Int String String
+  | EnvError String
 
 instance Show Error where
   show = show . ppError
@@ -68,6 +69,7 @@ ppError err =
                 [ "   " ++ l | l <- lines sout ] ++
                 [ "*** Standard error:" ] ++
                 [ "   " ++ l | l <- lines serr ]
+    EnvError msg -> msg
 
 ppErr :: AbortedResult sym ext -> String
 ppErr aberr =
