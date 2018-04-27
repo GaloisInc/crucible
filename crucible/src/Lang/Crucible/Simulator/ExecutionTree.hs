@@ -703,14 +703,14 @@ checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $ do
                                          }
             resumeFrame s next (VFFBranch ctx new_assume_frame pnot (VFFCompletePath pathAssumes paused_res) tgt)
           VFFCompletePath otherAssumes other -> do
-            pathAssumes <- popAssumptionFrame sym assume_frame
-
             -- Get location where branch occured
             -- Merge results together
             ar <- mergePartialResult s tgt p er (other^.pausedValue)
 
             -- Merge the assumptions from each branch and add to the
             -- current assumption frame
+            pathAssumes <- popAssumptionFrame sym assume_frame
+
             mergedAssumes <- mergeAssumptions sym p pathAssumes otherAssumes
             addAssumption sym mergedAssumes
 
