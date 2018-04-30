@@ -23,7 +23,7 @@ import Lang.Crucible.Types
 import Lang.Crucible.FunctionName(functionNameFromText)
 import Lang.Crucible.CFG.Core(GlobalVar)
 import Lang.Crucible.FunctionHandle (handleArgTypes,handleReturnType)
-import Lang.Crucible.Simulator.RegMap(RegMap(..),regValue,RegValue)
+import Lang.Crucible.Simulator.RegMap(RegMap(..),regValue,RegValue,RegEntry)
 import Lang.Crucible.Simulator.ExecutionTree
         ( FnState(..)
         , cruciblePersonality
@@ -72,7 +72,14 @@ setupOverrides ::
 setupOverrides ctxt =
   do let mvar = llvmMemVar ctxt
      regOver ctxt "crucible_int8_t"
-        (Empty :> tPtr) knownRepr lib_fresh_i8
+        (Empty :> tPtr) knownRepr (lib_fresh_i8 mvar)
+     regOver ctxt "crucible_int16_t"
+        (Empty :> tPtr) knownRepr (lib_fresh_i16 mvar)
+     regOver ctxt "crucible_int32_t"
+        (Empty :> tPtr) knownRepr (lib_fresh_i32 mvar)
+     regOver ctxt "crucible_int64_t"
+        (Empty :> tPtr) knownRepr (lib_fresh_i64 mvar)
+
      regOver ctxt "crucible_assume"
         (Empty :> knownRepr :> tPtr :> knownRepr) knownRepr lib_assume
      regOver ctxt "crucible_assert"
@@ -130,15 +137,46 @@ mkFresh nm ty =
      stateContext.cruciblePersonality %= addVar ty elt
      return elt
 
+lookupString ::
+  (IsSymInterface sym, ArchOk arch) =>
+  GlobalVar Mem -> RegEntry sym (TPtr arch) -> OverM sym arch String
+lookupString mvar ptr =
+  do sym <- getSymInterface
+     mem <- readGlobal mvar
+     bytes <- liftIO (loadString sym mem (regValue ptr) Nothing)
+     return (BS8.unpack (BS.pack bytes))
+
+lib_fresh_bits ::
+  (ArchOk arch, IsSymInterface sym, 1 <= n) =>
+  GlobalVar Mem -> NatRepr n -> Fun sym arch (EmptyCtx ::> TPtr arch) (TBits n)
+lib_fresh_bits mvar w =
+  do RegMap (Empty :> pName) <- getOverrideArgs
+     name <- lookupString mvar pName
+     x    <- mkFresh name (BaseBVRepr w)
+     sym  <- getSymInterface
+     liftIO (llvmPointer_bv sym x)
 
 
 lib_fresh_i8 ::
   (ArchOk arch, IsSymInterface sym) =>
-  Fun sym arch (EmptyCtx ::> TPtr arch) (TBits 8)
-lib_fresh_i8 =
-  do x <- mkFresh "X" (BaseBVRepr (knownNat @8))
-     sym <- getSymInterface
-     liftIO (llvmPointer_bv sym x)
+  GlobalVar Mem -> Fun sym arch (EmptyCtx ::> TPtr arch) (TBits 8)
+lib_fresh_i8 mem = lib_fresh_bits mem knownNat
+
+lib_fresh_i16 ::
+  (ArchOk arch, IsSymInterface sym) =>
+  GlobalVar Mem -> Fun sym arch (EmptyCtx ::> TPtr arch) (TBits 16)
+lib_fresh_i16 mem = lib_fresh_bits mem knownNat
+
+lib_fresh_i32 ::
+  (ArchOk arch, IsSymInterface sym) =>
+  GlobalVar Mem -> Fun sym arch (EmptyCtx ::> TPtr arch) (TBits 32)
+lib_fresh_i32 mem = lib_fresh_bits mem knownNat
+
+lib_fresh_i64 ::
+  (ArchOk arch, IsSymInterface sym) =>
+  GlobalVar Mem -> Fun sym arch (EmptyCtx ::> TPtr arch) (TBits 64)
+lib_fresh_i64 mem = lib_fresh_bits mem knownNat
+
 
 lib_assume ::
   (ArchOk arch, IsSymInterface sym) =>
@@ -159,9 +197,8 @@ lib_assert ::
 lib_assert mvar =
   do RegMap (Empty :> p :> pFile :> line) <- getOverrideArgs
      sym  <- getSymInterface
-     mem  <- readGlobal mvar
-     liftIO $ do file <- BS.pack <$> loadString sym mem (regValue pFile) Nothing
-                 ln   <- projectLLVM_bv sym (regValue line)
+     file <- BS8.pack <$> lookupString mvar pFile
+     liftIO $ do ln   <- projectLLVM_bv sym (regValue line)
                  let lnMsg = case asUnsignedBV ln of
                                Nothing -> ""
                                Just x  -> ":" ++ show x
@@ -172,6 +209,9 @@ lib_assert mvar =
                  check <- notPred sym =<< bvEq sym cond zero
                  addAssertion sym check rsn
 
+
+
+--------------------------------------------------------------------------------
 
 sv_comp_fresh_i32 ::
   (ArchOk arch, IsSymInterface sym) =>
