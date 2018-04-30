@@ -88,6 +88,8 @@ setupOverrides ctxt =
         (Empty :> knownRepr :> tPtr :> knownRepr) knownRepr (lib_assert mvar)
      regOver ctxt "__VERIFIER_nondet_uint"
         Empty knownRepr sv_comp_fresh_i32
+     regOver ctxt "__VERIFIER_assert"
+        (Empty :> knownRepr) knownRepr sv_comp_assert
      regOver ctxt "__VERIFIER_assume"
         (Empty :> knownRepr) knownRepr sv_comp_assume
      regOver ctxt "__VERIFIER_error"
@@ -232,6 +234,19 @@ sv_comp_assume =
      liftIO $ do cond <- projectLLVM_bv sym (regValue p)
                  zero <- bvLit sym knownRepr 0
                  addAssumption sym =<< notPred sym =<< bvEq sym cond zero
+
+sv_comp_assert ::
+  (ArchOk arch, IsSymInterface sym) =>
+  Fun sym arch (EmptyCtx ::> TBits 32) UnitType
+sv_comp_assert =
+  do RegMap (Empty :> p) <- getOverrideArgs
+     sym  <- getSymInterface
+     liftIO $ do cond <- projectLLVM_bv sym (regValue p)
+                 zero <- bvLit sym knownRepr 0
+                 let msg = "Assertion failed."
+                     rsn = AssertFailureSimError msg
+                 check <- notPred sym =<< bvEq sym cond zero
+                 addAssertion sym check rsn
 
 sv_comp_error ::
   (ArchOk arch, IsSymInterface sym) =>
