@@ -52,7 +52,7 @@ obligGoal sym g = foldM imp (gShows g ^. assertPred) (gAssumes g)
 proveGoal ::
   SimCtxt (SimpleBuilder s t) arch ->
   Goal (SimpleBuilder s t) ->
-  IO ()
+  IO (Maybe Error)
 proveGoal ctxt g =
   do let sym = ctxt ^. ctxSymInterface
      g1 <- obligGoal sym g
@@ -61,16 +61,16 @@ proveGoal ctxt g =
      let say _n _x = return () -- putStrLn ("[" ++ show _n ++ "] " ++ _x)
      solver_adapter_check_sat prover sym say p $ \res ->
         case res of
-          Unsat -> return ()
+          Unsat -> return Nothing
           Sat (evalFn,_mbRng) ->
             do let model = ctxt ^. cruciblePersonality
                str <- ppModel evalFn model
-               giveUp (Just str)
-          _  -> giveUp Nothing
+               return (Just (e (Just str)))
+          _  -> return Nothing
 
   where
   a = gShows g
-  giveUp mb = throwError (FailedToProve (assertLoc a) (assertMsg a) mb)
+  e mb = FailedToProve (assertLoc a) (assertMsg a) mb
 
 
 

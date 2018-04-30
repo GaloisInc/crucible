@@ -8,6 +8,7 @@ import Data.String(fromString)
 import Data.Function(on)
 import Data.List(sortBy)
 import qualified Data.Foldable as Fold
+import Data.Maybe(catMaybes)
 import qualified Data.Map as Map
 import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)
@@ -75,7 +76,6 @@ main =
              do unless (takeExtension file == ".bc") (genBitCode opts)
                 checkBC (optsBCFile opts) `catch` errHandler opts
            `catch` \e -> sayFail "Crux" (ppError e)
-
        _ -> do p <- getProgName
                hPutStrLn stderr $ unlines
                   [ "Usage:"
@@ -94,8 +94,10 @@ errHandler opts e =
 checkBC :: FilePath -> IO ()
 checkBC file =
   do say "Crux" ("Checking " ++ show file)
-     simulate file (checkFun "main")
-     sayOK "Crux" "Valid."
+     errs <- simulate file (checkFun "main")
+     case catMaybes errs of
+      [] -> sayOK "Crux" "Valid."
+      (e : _) -> errHandler file incs e
 
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::
@@ -145,7 +147,7 @@ simulate ::
   (forall scope arch.
       ArchOk arch => ModuleCFGMap arch -> OverM scope arch ()
   ) ->
-  IO ()
+  IO [Maybe Error]
 simulate file k =
   do llvm_mod   <- parseLLVM file
      halloc     <- newHandleAllocator
@@ -179,7 +181,7 @@ simulate file k =
             FinishedExecution ctx' _ ->
               do gs <- Fold.toList <$> getProofObligations sym
                  let ordGs = sortBy (compare `on` goalPriority) (map mkGoal gs)
-                 mapM_ (proveGoal ctx') ordGs
+                 mapM (proveGoal ctx') ordGs
             AbortedResult _ err -> throwError (SimFail err)
 
 checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM scope arch ()
