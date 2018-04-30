@@ -110,7 +110,7 @@ import           Lang.Crucible.Utils.StateContT
 --   * 'ret'  return type of the current frame
 --   * 'a'    the value type
 --
-newtype OverrideSim (p :: * -> *) sym ext rtp (args :: Ctx CrucibleType) (ret :: CrucibleType) a
+newtype OverrideSim p sym ext rtp (args :: Ctx CrucibleType) (ret :: CrucibleType) a
       = Sim { unSim :: StateContT (SimState p sym ext rtp (OverrideLang args ret) 'Nothing)
                                   (ExecResult p sym ext rtp)
                                   IO

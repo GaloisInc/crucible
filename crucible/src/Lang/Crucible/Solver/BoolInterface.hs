@@ -36,7 +36,6 @@ import Data.Sequence (Seq)
 import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Solver.Interface
 import Lang.Crucible.Solver.AssumptionStack
-import Lang.Crucible.Utils.Complex
 
 -- | Result of attempting to branch on a predicate.
 data BranchResult sym

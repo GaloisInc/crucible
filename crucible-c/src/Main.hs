@@ -7,6 +7,7 @@ module Main(main) where
 import Data.String(fromString)
 import Data.Function(on)
 import Data.List(sortBy)
+import qualified Data.Foldable as Fold
 import qualified Data.Map as Map
 import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)
@@ -25,21 +26,20 @@ import Data.LLVM.BitCode (parseBitCodeFromFile)
 
 import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
 
-import Lang.Crucible.Config(initialConfig)
+import Lang.Crucible.Config (extendConfig)
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
-import Lang.Crucible.Config(opt)
 import Lang.Crucible.Simulator.RegMap(emptyRegMap,regValue)
 import Lang.Crucible.Simulator.ExecutionTree
         ( initSimContext, defaultErrorHandler
-        , ExecResult(..), SimConfig
+        , ExecResult(..)
         )
 import Lang.Crucible.Simulator.OverrideSim
         ( fnBindingsFromList, initSimState, runOverrideSim, callCFG)
 
-import Lang.Crucible.Solver.Interface(IsSymInterface)
-import Lang.Crucible.Solver.BoolInterface(getProofObligations)
+import Lang.Crucible.Solver.Interface(getConfiguration)
+import Lang.Crucible.Solver.BoolInterface(getProofObligations,IsSymInterface)
 
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn)
 import Lang.Crucible.LLVM.Translation
@@ -52,7 +52,7 @@ import Lang.Crucible.LLVM.Types(withPtrWidth)
 import Lang.Crucible.LLVM.Intrinsics
           (llvmIntrinsicTypes, llvmPtrWidth, register_llvm_overrides)
 
-import Lang.Crucible.Solver.SAWCoreBackend(newSAWCoreBackend,sawCheckPathSat)
+import Lang.Crucible.Solver.SAWCoreBackend(newSAWCoreBackend)
 import Verifier.SAW.Prelude(preludeModule)
 import Verifier.SAW.SharedTerm(mkSharedContext)
 
@@ -108,13 +108,11 @@ checkBC file =
 setupSimCtxt ::
   (ArchOk arch, IsSymInterface sym) =>
   HandleAllocator RealWorld ->
-  SimConfig Model sym ->
   sym ->
   SimCtxt sym arch
-setupSimCtxt halloc cfg sym =
+setupSimCtxt halloc sym =
   initSimContext sym
                  llvmIntrinsicTypes
-                 cfg
                  halloc
                  stdout
                  (fnBindingsFromList [])
@@ -164,13 +162,14 @@ simulate file k =
      llvmPtrWidth llvmCtxt $ \ptrW ->
        withPtrWidth ptrW $
        withIONonceGenerator $ \nonceGen ->
-       do let verbosity = 0
-          cfg <- initialConfig verbosity
-               $ [ opt sawCheckPathSat True "Enable path checking" ]
-              ++ solver_adapter_config_options prover
-          sc  <- mkSharedContext preludeModule
-          sym <- newSAWCoreBackend sc nonceGen cfg
-          let simctx = setupSimCtxt halloc cfg sym
+       do sc  <- mkSharedContext preludeModule
+          sym <- newSAWCoreBackend sc nonceGen
+
+          -- set up configuration options
+          let cfg = getConfiguration sym
+          extendConfig (solver_adapter_config_options prover) cfg
+
+          let simctx = setupSimCtxt halloc sym
 
           mem  <- initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
@@ -183,7 +182,7 @@ simulate file k =
 
           case res of
             FinishedExecution ctx' _ ->
-              do gs <- getProofObligations sym
+              do gs <- Fold.toList <$> getProofObligations sym
                  let ordGs = sortBy (compare `on` goalPriority) (map mkGoal gs)
                  mapM_ (proveGoal ctx') ordGs
             AbortedResult _ err -> throwError (SimFail err)

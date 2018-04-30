@@ -193,7 +193,10 @@ newSAWCoreBackend sc gen = do
               , saw_elt_cache = ch
               , saw_assumptions = stk
               }
-  SB.newSimpleBuilder st gen
+  sym <- SB.newSimpleBuilder st gen
+  extendConfig sawOptions (getConfiguration sym)
+  return sym
+
 
 -- | Register an interpretation for a symbolic function.
 -- This is not used during simulation, but rather, when we translate

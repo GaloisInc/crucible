@@ -13,7 +13,7 @@ import qualified Data.LLVM.BitCode as LLVM
 import Lang.Crucible.ProgramLoc(ProgramLoc,plSourceLoc,Position(..))
 import Lang.Crucible.Simulator.ExecutionTree (AbortedResult(..))
 import Lang.Crucible.Simulator.SimError
-          (SimErrorReason(..),ppSimError,simErrorReasonMsg,simErrorReason)
+          (SimError(..), SimErrorReason(..),ppSimError,simErrorReasonMsg,simErrorReason)
 
 import Lang.Crucible.LLVM.Extension(LLVM)
 
@@ -74,9 +74,9 @@ ppError err =
 ppErr :: AbortedResult sym ext -> String
 ppErr aberr =
   case aberr of
+    AbortedExec (SimError _ InfeasibleBranchError) _gp -> "Assumptions too strong (dead code)"
     AbortedExec err _gp -> show (ppSimError err)
     AbortedExit e       -> "The program exited with result " ++ show e
-    AbortedInfeasible   -> "Assumptions too strong (dead code)"
     AbortedBranch {}    -> "(Aborted branch?)"
 
 
