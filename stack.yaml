@@ -6,7 +6,6 @@ packages:
   - crucible-blt/
   - crucible-saw/
   - crucible-server/
-  - galois-matlab/
   - dependencies/abcBridge/
   - dependencies/aig/
   - dependencies/blt/

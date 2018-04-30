@@ -2,7 +2,7 @@ Name:          crucible
 Version:       0.3.2
 Author:        Galois Inc.
 Maintainer:    jhendrix@galois.com, rdockins@galois.com
-Copyright:     (c) Galois, Inc 2014-2017
+Copyright:     (c) Galois, Inc 2014-2018
 License:       BSD3
 License-file:  LICENSE
 Build-type:    Simple

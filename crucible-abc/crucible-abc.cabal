@@ -2,7 +2,7 @@ Name:          crucible-abc
 Version:       0.1
 Author:        Galois Inc.
 Maintainer:    jhendrix@galois.com
-Copyright:     (c) Galois, Inc 2014-2016
+Copyright:     (c) Galois, Inc 2014-2018
 License:       BSD3
 License-file:  LICENSE
 Build-type:    Simple
