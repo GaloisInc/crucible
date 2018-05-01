@@ -10,9 +10,10 @@ import Data.List(sortBy)
 import qualified Data.Map as Map
 import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)
+import Control.Monad(unless)
 import System.IO(hPutStrLn,stdout,stderr)
 import System.Environment(getProgName,getArgs)
-import System.FilePath(takeExtension,dropExtension,takeFileName)
+import System.FilePath(takeExtension)
 
 import Control.Monad.State(evalStateT)
 
@@ -63,46 +64,38 @@ import Overrides
 import Model
 import Clang
 import Log
-
-outDir :: FilePath -> FilePath
-outDir f = "output-" ++ dropExtension (takeFileName f)
+import Options
 
 main :: IO ()
 main =
   do args <- getArgs
      case args of
-       [file] | takeExtension file == ".bc" -> checkBC file
-                                                `catch` errHandler file []
-       file : incs ->
-         (checkBC =<< genBitCode incs file (outDir file))
-          `catch` errHandler file incs
+       file : _ ->
+          do opts <- testOptions file
+             do unless (takeExtension file == ".bc") (genBitCode opts)
+                checkBC (optsBCFile opts) `catch` errHandler opts
+           `catch` \e -> sayFail "Crux" (ppError e)
 
        _ -> do p <- getProgName
                hPutStrLn stderr $ unlines
                   [ "Usage:"
                   , "  " ++ p ++ " FILE.bc"
-                  , "  " ++ p ++ " FILE.c INC_DIR1 INC_DIR2 ..."
                   ]
 
 
-errHandler :: FilePath -> [FilePath] -> Error -> IO ()
-errHandler file incs e =
+errHandler :: Options -> Error -> IO ()
+errHandler opts e =
   do sayFail "Crux" (ppError e)
      case e of
-       FailedToProve _ _ (Just c) ->
-         do exe <- genCounterExe c incs file (outDir file)
-            say "Crux" ("Counter example exe " ++ show exe)
+       FailedToProve _ _ (Just c) -> buildModelExes opts c
        _ -> return ()
     `catch` \e1 -> sayFail "Crux" (ppError e1)
-
-
 
 checkBC :: FilePath -> IO ()
 checkBC file =
   do say "Crux" ("Checking " ++ show file)
      simulate file (checkFun "main")
      sayOK "Crux" "Valid."
-
 
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::

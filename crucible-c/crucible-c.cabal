@@ -26,8 +26,8 @@ executable crucible-c
     Overrides,
     Model,
     Clang,
-    CLibSrc,
-    Log
+    Log,
+    Options
 
 
   build-depends:

@@ -20,9 +20,16 @@ uint64_t crucible_uint64_t (const char *name);
 
 size_t   crucible_size_t   (const char *name);
 
-
 #define assuming(e) crucible_assume(e, __FILE__, __LINE__)
 #define check(e) crucible_assert(e, __FILE__, __LINE__)
+
+
+// API for SV-COMP
+void __VERIFIER_assume(int);
+void __VERIFIER_error(void);
+unsigned int __VERIFIER_nondet_uint(void);
+
+
 
 #endif
 

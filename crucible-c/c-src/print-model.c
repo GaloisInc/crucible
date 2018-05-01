@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <inttypes.h>
 
-void print_model(void) {
+int main () {
   size_t i;
   for (i = 0; i < crux_value_num(int8_t); ++i)
     printf("%s = %"PRId8"\n", crux_names(int8_t)[i], crux_values(int8_t)[i]);
@@ -15,6 +15,8 @@ void print_model(void) {
 
   for (i = 0; i < crux_value_num(int64_t); ++i)
     printf("%s = %"PRId64"\n", crux_names(int64_t)[i], crux_values(int64_t)[i]);
+
+  return 0;
 }
 
 

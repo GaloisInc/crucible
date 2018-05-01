@@ -9,8 +9,9 @@ import System.Directory
 import Control.Exception
 
 import Error
-import CLibSrc
-import Log
+-- import CLibSrc
+-- import Log
+import Options
 
 
 
@@ -33,66 +34,65 @@ getClang = attempt $ getEnv "CLANG"
                        Left (SomeException {}) -> attempt more
                        Right a -> return a
 
-
-
-genBitCode ::
-  [FilePath]  {- ^ Include paths -} ->
-  FilePath    {- ^ Source file -} ->
-  FilePath    {- ^ Output directory -} ->
-  IO FilePath {- ^ Location of bit-code file -}
-genBitCode incs src root =
-  do let dir = root -- </> takeDirectory src
-         tgt = dir </> dropExtension (takeFileName src) <.> "bc"
-     createDirectoryIfMissing True dir
-
-     clang <- getClang
-
-     let params = [ "-c", "-g", "-emit-llvm", "-O0" ]
-               ++ concat [ ["-I",i] | i <- incs ]
-               ++ [ src, "-o", tgt ]
-
-     say "Clang" (src ++ " -> " ++ tgt)
-
+runClang :: Options -> [String] -> IO ()
+runClang opts params =
+  do let clang = clangBin opts
+     -- say "Clang" (show params)
      (res,sout,serr) <- readProcessWithExitCode clang params ""
      case res of
-       ExitSuccess   -> return tgt
+       ExitSuccess   -> return ()
        ExitFailure n -> throwError (ClangError n sout serr)
 
-cLibSrc
 
-genCounterExe ::
-  String      {- ^ Counter source -} ->
-  [FilePath]  {- ^ Include paths -} ->
-  FilePath    {- ^ Source file -} ->
-  FilePath    {- ^ Output directory -} ->
-  IO FilePath {- ^ Location of bit-code file -}
-genCounterExe counter_src incs src root =
-  do -- say "Crux" "Generating counter example executable"
-     let dir = root -- </> takeDirectory src
-         tgt = dir </> dropExtension (takeFileName src) ++ "-counter" <.> "exe"
+
+genBitCode :: Options -> IO ()
+genBitCode opts =
+  do let dir = outDir opts
+     let libs = libDir opts
      createDirectoryIfMissing True dir
 
-     clang <- getClang
+     let params = [ "-c", "-g", "-emit-llvm", "-O0"
+                  , "-I", libs </> "includes"
+                  , inputFile opts
+                  , "-o", optsBCFile opts
+                  ]
 
-     let libName = dir </> "sv-comp.c"
-     writeFile libName c_src
+     runClang opts params
 
-     let counterName = dir </> "counter-example.c"
-     writeFile counterName counter_src
 
-     let params = [ "-g", "-O0" ]
-               ++ concat [ ["-I",i] | i <- incs ]
-               ++ [ counterName
-                  , libName
-                  , src
-                  , "-o", tgt ]
+buildModelExes :: Options -> String -> IO ()
+buildModelExes opts counter_src =
+  do let dir  = outDir opts
+     createDirectoryIfMissing True dir
 
-     -- say "Clang" (src ++ " -> " ++ tgt)
+     let counterFile = dir </> "counter-example.c"
+     writeFile counterFile counter_src
 
-     (res,sout,serr) <- readProcessWithExitCode clang params ""
-     case res of
-       ExitSuccess   -> return tgt
-       ExitFailure n -> throwError (ClangError n sout serr)
+     let libs = libDir opts
+     runClang opts [ "-I", libs </> "includes"
+                   , counterFile
+                   , libs </> "print-model.c"
+                   , "-o", dir </> "print-counter-example"
+                   ]
+
+     runClang opts [ "-I", libs </> "includes"
+                   , counterFile
+                   , libs </> "concrete-backend.c"
+                   , optsBCFile opts
+                   , "-O0", "-g"
+                   , "-o", dir </> "debug"
+                   ]
+
+
+testOptions :: FilePath -> IO Options
+testOptions inp =
+  do clang <- getClang
+     return Options { clangBin  = clang
+                    , libDir    = "c-src"
+                    , outDir    = "out-" ++ dropExtension (takeFileName inp)
+                    , inputFile = inp
+                    }
+
 
 
 

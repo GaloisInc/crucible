@@ -12,8 +12,8 @@ import Lang.Crucible.Solver.BoolInterface
 import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
 import Lang.Crucible.Solver.SatResult(SatResult(..))
 import Lang.Crucible.Solver.SimpleBuilder (SimpleBuilder)
--- import Lang.Crucible.Solver.SimpleBackend.Z3(z3Adapter)
-import Lang.Crucible.Solver.SimpleBackend.Yices(yicesAdapter)
+import Lang.Crucible.Solver.SimpleBackend.Z3(z3Adapter)
+-- import Lang.Crucible.Solver.SimpleBackend.Yices(yicesAdapter)
 
 import Lang.Crucible.Simulator.SimError(SimErrorReason(..))
 import Lang.Crucible.Simulator.ExecutionTree
@@ -26,8 +26,8 @@ import Model
 
 
 prover :: SolverAdapter s
--- prover = z3Adapter
-prover = yicesAdapter
+prover = z3Adapter
+--prover = yicesAdapter
 
 data Goal sym = Goal
   { gAssumes :: [Pred sym]

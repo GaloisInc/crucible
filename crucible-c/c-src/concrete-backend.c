@@ -28,3 +28,9 @@ mk_crux_func(int16_t)
 mk_crux_func(int32_t)
 mk_crux_func(int64_t)
 
+
+unsigned int __VERIFIER_nondet_uint (void) { return crucible_int32_t("x"); }
+void __VERIFIER_assume(int x) { crucible_assume(x, "??", 0); }
+void __VERIFIER_error(void) { crucible_assert(0, "??", 0); }
+
+

@@ -7,11 +7,12 @@ int8_t f(int8_t x) {
 }
 
 
-void test_f(void) {
-  forall(int8_t,x);
+int main() {
+  int8_t x = crucible_int8_t("x");
 
   assuming(x < 100);
-  check(f(x) <= 100);
+  check(f(x) < 100);
+  return 0;
 }
 
 
