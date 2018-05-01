@@ -136,8 +136,10 @@ pattern BVIte :: () => (1 <= w, tp ~ BVType w) => f BoolType -> NatRepr w -> f t
 pattern BVIte c w x y = BaseIte (BaseBVRepr w) c x y
 
 -- | The main Crucible expression datastructure, defined as a
--- multisorted algebra. Type @'App' f tp@ encodes the top-level
--- application of a Crucible expression. The type parameter @tp@ is a
+-- multisorted algebra. Type @'App' ext f tp@ encodes the top-level
+-- application of a Crucible expression. The parameter @ext@ is used
+-- to indicate which syntax extension is being used via the
+-- @ExprExtension@ type family.  The type parameter @tp@ is a
 -- type index that indicates the Crucible type of the values denoted
 -- by the given expression form. Parameter @f@ is used everywhere a
 -- recursive sub-expression would go.  Uses of the 'App' type will
@@ -152,7 +154,7 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   ----------------------------------------------------------------------
   -- Polymorphic
 
-  -- | Return true fi two base types are equal.
+  -- | Return true if two base types are equal.
   BaseIsEq :: !(BaseTypeRepr tp)
            -> !(f (BaseToType tp))
            -> !(f (BaseToType tp))

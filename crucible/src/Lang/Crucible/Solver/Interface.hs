@@ -1,6 +1,6 @@
 {-|
 Module           : Lang.Crucible.Solver.Interface
-Copyright        : (c) Galois, Inc 2014-2016
+Copyright        : (c) Galois, Inc 2014-2018
 License          : BSD3
 Maintainer       : Joe Hendrix <jhendrix@galois.com>
 
@@ -31,13 +31,13 @@ provide several type family definitions and class instances for @sym@:
   [@instance 'IsExpr' ('SymExpr' sym)@]
   Recognizers for various kinds of literal expressions.
 
-  [@instance 'Lang.Crucible.ProgramLoc.HasProgramLoc' ('SymPathState' sym)@]
-
   [@instance 'OrdF' ('SymExpr' sym)@]
 
   [@instance 'TestEquality' ('SymExpr' sym)@]
 
   [@instance 'HashableF' ('SymExpr' sym)@]
+
+The canonical implementation of these interface classes is found in "Lang.Crucible.Solver.SimpleBuilder".
 -}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
@@ -58,21 +58,19 @@ provide several type family definitions and class instances for @sym@:
 {-# LANGUAGE TypeOperators #-}
 module Lang.Crucible.Solver.Interface
   ( -- * Interface classes
-    -- ** IsExpr
-    IsExpr(..)
-    -- ** IsExprBuilder
-  , SymExpr
-  , IsExprBuilder(..)
-    -- ** IsSymInterface
+    -- ** Type Families
+    SymExpr
   , BoundVar
+  , SymFn
+    -- ** Expression recognizers
+  , IsExpr(..)
   , IsSymFn(..)
+    -- ** IsExprBuilder
+  , IsExprBuilder(..)
   , IsSymExprBuilder(..)
-    -- * Bound variables
-  , SymEncoder(..)
-  , ArrayResultWrapper(..)
+
     -- * Type Aliases
   , Pred
-  , SymFn
   , SymNat
   , SymInteger
   , SymReal
@@ -81,21 +79,31 @@ module Lang.Crucible.Solver.Interface
   , SymStruct
   , SymBV
   , SymArray
+
     -- * IndexLit
   , IndexLit(..)
   , indexLit
-    -- * WordMap
+
+    -- * Word Map operations
   , WordMap(..)
   , emptyWordMap
   , muxWordMap
   , insertWordMap
   , lookupWordMap
+
     -- * Concrete values
   , asConcrete
   , concreteToSym
 
+    -- * SymEncoder
+  , SymEncoder(..)
+
     -- * Utilities
+  , ArrayResultWrapper(..)
   , PartExpr(..)
+  , backendPred
+  , andAllOf
+  , orOneOf
   , itePredM
   , mkRational
   , mkReal
@@ -111,12 +119,10 @@ module Lang.Crucible.Solver.Interface
   , rationalAsInteger
   , baseDefaultValue
 
-  , andAllOf
-  , orOneOf
   , predToReal
-  , backendPred
   , isNonZero
   , isReal
+
   , cplxDiv
   , cplxLog
   , cplxLogBase
@@ -126,6 +132,7 @@ module Lang.Crucible.Solver.Interface
     -- * Indexing
   , muxIntegerRange
 
+    -- * Reexports
   , module Data.Parameterized.NatRepr
   , Lang.Crucible.Solver.Symbol.SolverSymbol
   ) where
@@ -221,6 +228,9 @@ itePredM sym c mx my =
 ------------------------------------------------------------------------
 -- IsExpr
 
+-- | This class provides operations for recognizing when symbolic expressions
+--   represent concrete values, extracting the type from an expression,
+--   and for providing pretty-printed representations of an expression.
 class IsExpr e where
   -- | Evaluate if predicate is constant.
   asConstantPred :: e BaseBoolType -> Maybe Bool
@@ -242,29 +252,33 @@ class IsExpr e where
   asComplex :: e BaseComplexType -> Maybe (Complex Rational)
   asComplex _ = Nothing
 
+  -- | Return the unsigned value if this is a constant bitvector.
   asUnsignedBV :: e (BaseBVType w) -> Maybe Integer
   asUnsignedBV _ = Nothing
 
+  -- | Return the signed value if this is a constant bitvector.
   asSignedBV   :: (1 <= w) => e (BaseBVType w) -> Maybe Integer
   asSignedBV _ = Nothing
 
+  -- | Return the string value if this is a constant string
   asString :: e BaseStringType -> Maybe Text
   asString _ = Nothing
 
   -- | Return the unique element value if this is a constant array,
-  -- such as one made with 'constantArray'.
+  --   such as one made with 'constantArray'.
   asConstantArray :: e (BaseArrayType idx bt) -> Maybe (e bt)
   asConstantArray _ = Nothing
 
   -- | Get type of expression.
   exprType :: e tp -> BaseTypeRepr tp
 
+  -- | Get the width of a bitvector
   bvWidth      :: e (BaseBVType w) -> NatRepr w
   bvWidth e =
     case exprType e of
       BaseBVRepr w -> w
 
-  -- | Print a sym expression for debugging purposes.
+  -- | Print a sym expression for debugging or display purposes.
   printSymExpr :: e tp -> Doc
 
 ------------------------------------------------------------------------
@@ -351,9 +365,7 @@ data PartExpr p v
 --
 -- Methods of this class refer to type families @'SymExpr' sym@
 -- and @'SymFn' sym@.
-class ( IsExpr (SymExpr sym)
-      , HashableF (SymExpr sym)
-      ) => IsExprBuilder sym where
+class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym where
 
   -- | Retrieve the configuration object corresponding to this solver interface.
   getConfiguration :: sym -> Config
@@ -408,32 +420,40 @@ class ( IsExpr (SymExpr sym)
   ----------------------------------------------------------------------
   -- Boolean operations.
 
+  -- | Constant true predicate
   truePred  :: sym -> Pred sym
+
+  -- | Constant false predicate
   falsePred :: sym -> Pred sym
 
+  -- | Boolean negation
   notPred :: sym -> Pred sym -> IO (Pred sym)
 
+  -- | Boolean conjunction
   andPred :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
 
+  -- | Boolean disjunction
   orPred  :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
   orPred sym x y = do
     xn <- notPred sym x
     yn <- notPred sym y
     notPred sym =<< andPred sym xn yn
 
+  -- | Boolean implication
   impliesPred :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
   impliesPred sym x y = do
     nx <- notPred sym x
     orPred sym y nx
 
+  -- | Exclusive-or operation
   xorPred :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
 
+  -- | Equality of boolean values
   eqPred  :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
   eqPred sym x y = notPred sym =<< xorPred sym x y
 
-  -- | Perform ite on a predicate.
+  -- | If-then-else on a predicate.
   itePred :: sym -> Pred sym -> Pred sym -> Pred sym -> IO (Pred sym)
-
 
   ----------------------------------------------------------------------
   -- Nat operations.
@@ -483,6 +503,7 @@ class ( IsExpr (SymExpr sym)
   -- | @'natLe' sym x y@ returns @true@ if @x <= y@.
   natLe :: sym -> SymNat sym -> SymNat sym -> IO (Pred sym)
 
+  -- | @'natLt' sym x y@ returns @true@ if @x < y@.
   natLt :: sym -> SymNat sym -> SymNat sym -> IO (Pred sym)
   natLt sym x y = notPred sym =<< natLe sym y x
 
@@ -1097,7 +1118,6 @@ class ( IsExpr (SymExpr sym)
   bvToNat :: (1 <= w) => sym -> SymBV sym w -> IO (SymNat sym)
   bvToNat sym bv = integerToNat sym =<< bvToInteger sym bv
 
-
   -- | Convert a real number to an integer.
   --
   -- This should return some value even if the real argument is not a integer,
@@ -1171,10 +1191,6 @@ class ( IsExpr (SymExpr sym)
 
   ----------------------------------------------------------------------
   -- Bitvector operations.
-
-  -- The width of the output should be at least the width of the
-  -- input, but we do not enforce this in the Haskell typechecker,
-  -- because it turns out to be painful to do so.
 
   -- | Convert a signed bitvector to the nearest signed bitvector with
   -- the given width. If the resulting width is smaller, this clamps
@@ -1364,21 +1380,32 @@ class ( IsExpr (SymExpr sym)
   -- | Return value denoting pi.
   realPi :: sym -> IO (SymReal sym)
 
+  -- | Natural logarithm
   realLog :: sym -> SymReal sym -> IO (SymReal sym)
 
+  -- | Natural exponentiation
   realExp :: sym -> SymReal sym -> IO (SymReal sym)
 
+  -- | Sine trig function
   realSin :: sym -> SymReal sym -> IO (SymReal sym)
+
+  -- | Cosine trig function
   realCos :: sym -> SymReal sym -> IO (SymReal sym)
 
+  -- | Tangent trig function
   realTan :: sym -> SymReal sym -> IO (SymReal sym)
   realTan sym x = do
     sin_x <- realSin sym x
     cos_x <- realCos sym x
     realDiv sym sin_x cos_x
 
+  -- | Hyperbolic sine
   realSinh :: sym -> SymReal sym -> IO (SymReal sym)
+
+  -- | Hyperbolic cosine
   realCosh :: sym -> SymReal sym -> IO (SymReal sym)
+
+  -- | Hyperbolic tangent
   realTanh :: sym -> SymReal sym -> IO (SymReal sym)
   realTanh sym x = do
     sinh_x <- realSinh sym x
@@ -1648,12 +1675,15 @@ class ( IsExpr (SymExpr sym)
 -----------------------------------------------------------------------
 -- WordMap operations
 
+-- | A @WordMap@ represents a finite partial map from bitvectors of width @w@
+--   to elements of type @tp@.
 data WordMap sym w tp =
      SimpleWordMap !(SymExpr sym
                        (BaseArrayType (EmptyCtx ::> BaseBVType w) BaseBoolType))
                    !(SymExpr sym
                        (BaseArrayType (EmptyCtx ::> BaseBVType w) tp))
 
+-- | Create a word map where every element is undefined.
 emptyWordMap :: (IsExprBuilder sym, 1 <= w)
              => sym
              -> NatRepr w
@@ -1664,6 +1694,7 @@ emptyWordMap sym w tp = do
   SimpleWordMap <$> constantArray sym idxRepr (falsePred sym)
                 <*> baseDefaultValue sym (BaseArrayRepr idxRepr tp)
 
+-- | Compute a pointwise if-then-else operation on the elements of two word maps.
 muxWordMap :: IsExprBuilder sym
            => sym
            -> NatRepr w
@@ -1676,26 +1707,26 @@ muxWordMap sym _w _tp p (SimpleWordMap bs1 xs1) (SimpleWordMap bs2 xs2) = do
   SimpleWordMap <$> arrayIte sym p bs1 bs2
                 <*> arrayIte sym p xs1 xs2
 
-
+-- | Update a word map at the given index.
 insertWordMap :: IsExprBuilder sym
               => sym
               -> NatRepr w
               -> BaseTypeRepr a
-              -> SymBV sym w
-              -> SymExpr sym a
-              -> WordMap sym w a
+              -> SymBV sym w {- ^ index -} 
+              -> SymExpr sym a {- ^ new value -}
+              -> WordMap sym w a {- ^ word map to update -}
               -> IO (WordMap sym w a)
 insertWordMap sym _w _ idx v (SimpleWordMap bs xs) = do
   let i = Ctx.singleton idx
   SimpleWordMap <$> arrayUpdate sym bs i (truePred sym)
                 <*> arrayUpdate sym xs i v
 
-
+-- | Lookup the value of an index in a word map.
 lookupWordMap :: IsExprBuilder sym
               => sym
               -> NatRepr w
               -> BaseTypeRepr a
-              -> SymBV sym w
+              -> SymBV sym w {- ^ index -}
               -> WordMap sym w a
               -> IO (PartExpr (Pred sym) (SymExpr sym a))
 lookupWordMap sym _w _tp idx (SimpleWordMap bs xs) = do
@@ -1726,6 +1757,7 @@ iteM ite sym p mx my = do
 -- 'IsSymInterface'.
 type family SymFn sym :: Ctx BaseType -> BaseType -> *
 
+-- | A class for extracting type representatives from symbolic functions
 class IsSymFn fn where
   -- | Get the argument types of a function.
   fnArgTypes :: fn args ret -> Ctx.Assignment BaseTypeRepr args
@@ -1734,7 +1766,7 @@ class IsSymFn fn where
   fnReturnType :: fn args ret -> BaseTypeRepr ret
 
 -- | This extends the interface for building expressions with operations
--- for creating new constants and functions.
+--   for creating new symbolic constants and functions.
 class ( IsExprBuilder sym
       , IsSymFn (SymFn sym)
       , OrdF (SymExpr sym)
@@ -1743,7 +1775,7 @@ class ( IsExprBuilder sym
   ----------------------------------------------------------------------
   -- Fresh variables
 
-  -- | Create a fresh uninterpreted constant.
+  -- | Create a fresh top-level uninterpreted constant.
   freshConstant :: sym -> SolverSymbol -> BaseTypeRepr tp -> IO (SymExpr sym tp)
 
   -- | Create a fresh latch.
@@ -1755,7 +1787,8 @@ class ( IsExprBuilder sym
   -- | Creates a bound variable.
   --
   -- This will be treated as a free constant when appearing inside asserted
-  -- expressions.  It can be added to predicates as well.
+  -- expressions.  These are intended to be bound using quantifiers or
+  -- symbolic functions.
   freshBoundVar :: sym -> SolverSymbol -> BaseTypeRepr tp -> IO (BoundVar sym tp)
 
   -- | Return an expression that references the bound variable.
@@ -1838,8 +1871,6 @@ class ( IsExprBuilder sym
                 -- ^ Arguments to function
              -> IO (SymExpr sym ret)
 
-------------------------------------------------------------------------
--- IsSymInterface utilities
 
 -- | This returns true if the value corresponds to a concrete value.
 baseIsConcrete :: forall sym bt
@@ -1952,6 +1983,7 @@ realExprAsNat x =
 cplxExprAsNat :: (IsExpr e, Monad m) => e BaseComplexType -> m Natural
 cplxExprAsNat x = fromInteger <$> cplxExprAsInteger x
 
+-- | Compute the conjunction of a sequence of predicates.
 andAllOf :: IsExprBuilder sym
          => sym
          -> Fold s (Pred sym)
@@ -1959,6 +1991,7 @@ andAllOf :: IsExprBuilder sym
          -> IO (Pred sym)
 andAllOf sym f s = foldlMOf f (andPred sym) (truePred sym) s
 
+-- | Compute the disjunction of a sequence of predicates.
 orOneOf :: IsExprBuilder sym
          => sym
          -> Fold s (Pred sym)
@@ -1977,8 +2010,6 @@ isReal sym v = do
   realEq sym i (realZero sym)
 
 -- | Divide one number by another.
---
--- Adds assertion on divide by zero.
 cplxDiv :: IsExprBuilder sym
         => sym
         -> SymCplx sym
@@ -2011,8 +2042,6 @@ cplxDiv sym x y = do
       mkComplex sym zc
 
 -- | Helper function that returns logarithm of input.
---
--- This operation adds an assertion that the input is non-zero.
 cplxLog' :: IsExprBuilder sym
          => sym -> SymCplx sym -> IO (Complex (SymReal sym))
 cplxLog' sym x = do
@@ -2026,15 +2055,11 @@ cplxLog' sym x = do
   return $! zr :+ xa
 
 -- | Returns logarithm of input.
---
--- This operation adds an assertion that the input is non-zero.
 cplxLog :: IsExprBuilder sym
         => sym -> SymCplx sym -> IO (SymCplx sym)
 cplxLog sym x = mkComplex sym =<< cplxLog' sym x
 
 -- | Returns logarithm of input at a given base.
---
--- This operation adds an assertion that the input is non-zero.
 cplxLogBase :: IsExprBuilder sym
             => Rational
             -> sym
@@ -2048,6 +2073,8 @@ cplxLogBase base sym x = do
 --------------------------------------------------------------------------
 -- Relationship to concrete values
 
+-- | Return a concrete representation of a value, if it
+--   is concrete.
 asConcrete :: IsExpr e => e tp -> Maybe (ConcreteVal tp)
 asConcrete x =
   case exprType x of
@@ -2062,6 +2089,7 @@ asConcrete x =
     BaseArrayRepr _ _ -> Nothing -- FIXME?
 
 
+-- | Create a literal symbolic value from a concrete value.
 concreteToSym :: IsExprBuilder sym => sym -> ConcreteVal tp -> IO (SymExpr sym tp)
 concreteToSym sym = \case
    ConcreteBool True    -> return (truePred sym)

@@ -73,7 +73,7 @@ instance IsBoolSolver (SimpleBackend t) where
       _ ->
         do loc <- SB.curProgramLoc sym
            stk <- getAssumptionStack sym
-           assert (Assertion loc e (Just m)) stk
+           assert (Assertion loc e m) stk
 
   addAssumption sym e =
     case asConstantPred e of

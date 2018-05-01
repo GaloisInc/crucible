@@ -7,6 +7,9 @@
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
 --
+-- This module defines a representation of concrete values of base
+-- types.  These are values in fully-evaluated form that do not depend
+-- on any symbolic constants.
 -----------------------------------------------------------------------
 
 {-# LANGUAGE BangPatterns #-}
@@ -26,7 +29,9 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 module Lang.Crucible.Solver.Concrete
-  ( ConcreteVal(..)
+  (
+    -- * Concrete values
+    ConcreteVal(..)
   , concreteType
   , ppConcrete
 
@@ -58,6 +63,7 @@ import           Data.Parameterized.TraversableFC
 import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Utils.Complex
 
+-- | A data type for representing the concrete values of base types.
 data ConcreteVal tp where
   ConcreteBool    :: Bool -> ConcreteVal BaseBoolType
   ConcreteNat     :: Natural -> ConcreteVal BaseNatType
@@ -65,13 +71,17 @@ data ConcreteVal tp where
   ConcreteReal    :: Rational -> ConcreteVal BaseRealType
   ConcreteString  :: Text -> ConcreteVal BaseStringType
   ConcreteComplex :: Complex Rational -> ConcreteVal BaseComplexType
-  ConcreteBV      :: (1 <= w) => NatRepr w -> Integer -> ConcreteVal (BaseBVType w)
+  ConcreteBV      ::
+    (1 <= w) =>
+    NatRepr w {- Width of the bitvector -} ->
+    Integer   {- Unsigned value of the bitvector -} ->
+    ConcreteVal (BaseBVType w)
   ConcreteStruct  :: Ctx.Assignment ConcreteVal ctx -> ConcreteVal (BaseStructType ctx)
   ConcreteArray   ::
-     Ctx.Assignment BaseTypeRepr (idx ::> i) ->
-     ConcreteVal b ->
-     Map (Ctx.Assignment ConcreteVal (idx ::> i)) (ConcreteVal b) ->
-     ConcreteVal (BaseArrayType (idx ::> i) b)
+    Ctx.Assignment BaseTypeRepr (idx ::> i) {- Type representatives for the index tuple -} ->
+    ConcreteVal b {- A default value -} ->
+    Map (Ctx.Assignment ConcreteVal (idx ::> i)) (ConcreteVal b) {- A collection of point-updates -} ->
+    ConcreteVal (BaseArrayType (idx ::> i) b)
 
 fromConcreteBool :: ConcreteVal BaseBoolType -> Bool
 fromConcreteBool (ConcreteBool x) = x
@@ -97,7 +107,7 @@ fromConcreteUnsignedBV (ConcreteBV _w x) = x
 fromConcreteSignedBV :: ConcreteVal (BaseBVType w) -> Integer
 fromConcreteSignedBV (ConcreteBV w x) = toSigned w x
 
-
+-- | Compute the type representative for a concrete value.
 concreteType :: ConcreteVal tp -> BaseTypeRepr tp
 concreteType = \case
   ConcreteBool{}     -> BaseBoolRepr
@@ -134,7 +144,7 @@ instance OrdF ConcreteVal where
 instance Ord (ConcreteVal tp) where
   compare x y = toOrdering (compareF x y)
 
-
+-- | Pretty-print a concrete value
 ppConcrete :: ConcreteVal tp -> PP.Doc
 ppConcrete = \case
   ConcreteBool x -> PP.text (show x)

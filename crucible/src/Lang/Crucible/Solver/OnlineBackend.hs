@@ -27,7 +27,7 @@ module Lang.Crucible.Solver.OnlineBackend
   ( -- * OnlineBackend
     OnlineBackend
   , withOnlineBackend
-    -- * OnlineBackendStatex
+    -- * OnlineBackendState
   , OnlineBackendState
   , getYicesProcess
   , Yices.YicesProcess(..)
@@ -211,7 +211,7 @@ instance IsBoolSolver (OnlineBackend t) where
            conn <- Yices.yicesConn <$> getYicesProcess sym
            stk <- getAssumptionStack sym
            -- Record assertion
-           assert (Assertion loc p (Just m)) stk
+           assert (Assertion loc p m) stk
            -- Send assertion to yices
            Yices.assume conn p
 

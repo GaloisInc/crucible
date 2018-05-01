@@ -26,25 +26,31 @@ solvers.
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilies #-}
 module Lang.Crucible.Solver.AssumptionStack
-  ( Assertion(..)
+  ( -- * Assertions and proof goals
+    Assertion(..)
   , assertPred
   , ProofGoal(..)
+
+    -- * Frames and assumption stacks
+    -- ** Basic data types
+  , FrameIdentifier
   , AssumptionFrame(..)
   , AssumptionStack(..)
-  , FrameIdentifier
+    -- ** Manipulating assumption stacks
   , initAssumptionStack
   , cloneAssumptionStack
-  , collectAssumptions
-  , assume
-  , appendAssumptions
-  , assert
-  , getProofObligations
-  , setProofObligations
   , pushFrame
   , popFrame
-  , inFreshFrame
+  , getProofObligations
+  , setProofObligations
   , stackHeight
   , allAssumptionFrames
+  , inFreshFrame
+    -- ** Assumption management
+  , assume
+  , assert
+  , collectAssumptions
+  , appendAssumptions
   ) where
 
 import           Control.Exception (bracketOnError)
@@ -65,28 +71,44 @@ data Assertion pred msg
                  -- | Predicate that was asserted.
                , _assertPred :: !pred
                  -- | Message added when assertion was made.
-               , assertMsg :: !(Maybe msg)
+               , assertMsg :: !msg
                }
 
 -- | Predicate that was asserted.
 assertPred :: Simple Lens (Assertion pred msg) pred
 assertPred = lens _assertPred (\s v -> s { _assertPred = v })
 
+-- | A @FrameIdentifier@ is a unique value that is generated when
+--   an new assumption frame is pushed onto the stack, and must
+--   be provided when poping values from the stack.   This is
+--   primarily a debugging aid, to ensure that stack management
+--   remains well-bracketed.
 newtype FrameIdentifier = FrameIdentifier Word64
  deriving(Eq,Ord)
 
+-- | A single @AssumptionFrame@ represents a collection
+--   of assumtptions.  They will later be recinded when
+--   the associated frame is popped from the stack.
 data AssumptionFrame pred =
   AssumptionFrame
   { assumeFrameIdent :: FrameIdentifier
   , assumeFrameCond  :: IORef (Seq pred)
   }
 
+-- | A proof goal consists of a collection of assumptions
+--   that were in scope when an assertion was made, together
+--   with the given assertion.
 data ProofGoal pred msg =
   ProofGoal
   { proofAssumptions :: Seq pred
   , proofGoal        :: Assertion pred msg
   }
 
+-- | An assumption stack is a data structure for tracking
+--   logical assumptions and proof obligations.  Assumptions
+--   can be added to the current stack frame, and stack frames
+--   may be pushed (to remember a previous state) or popped
+--   to restore a previous state.
 data AssumptionStack pred msg =
   AssumptionStack
   { assumeStackGen   :: IO FrameIdentifier
@@ -95,15 +117,20 @@ data AssumptionStack pred msg =
   , proofObligations :: IORef (Seq (ProofGoal pred msg))
   }
 
+-- | Get a collection of all current stack frames, with newer frames on the right.
 allAssumptionFrames :: AssumptionStack pred msg -> IO (Seq (AssumptionFrame pred))
 allAssumptionFrames stk =
   do frms <- readIORef (frameStack stk)
      topframe <- readIORef (currentFrame stk)
      return (frms |> topframe)
 
+-- | Compute the height of the pushed stack frames.  NOTE! that this count
+--   does not include the current stack frame, and thus the @stackHeight@ will
+--   always be one less than the number of frames returned by @allAssumptionFrames@
 stackHeight :: AssumptionStack pred msg -> IO Int
 stackHeight as = Seq.length <$> readIORef (frameStack as)
 
+-- | Produce a fresh assumption stack.
 initAssumptionStack ::
   NonceGenerator IO t ->
   IO (AssumptionStack pred msg)
@@ -121,6 +148,13 @@ initAssumptionStack gen =
             , proofObligations = oblsRef
             }
 
+-- | Create a deep copy of the given assumption stack so that this exact state
+--   can be restored at a later time, without being modified by destructive
+--   updates in the meantime.
+--
+--   NOTE! however, that proof obligations are NOT copied into the clone.
+--   Instead, proof obligations remain only in the original @AssumptionStack@
+--   and the new stack has an empty obligation list.
 cloneAssumptionStack ::
   AssumptionStack pred msg ->
   IO (AssumptionStack pred msg)
@@ -145,6 +179,7 @@ cloneFrame frm =
             , assumeFrameCond = ps
             }
 
+-- | Add the given logical assumption to the current stack frame.
 assume ::
   pred ->
   AssumptionStack pred msg ->
@@ -153,6 +188,7 @@ assume p stk =
   do frm  <- readIORef (currentFrame stk)
      modifyIORef' (assumeFrameCond frm) (\prev -> prev Seq.|> p)
 
+-- | Add the given collection logical assumption to the current stack frame.
 appendAssumptions ::
   Seq pred ->
   AssumptionStack pred msg ->
@@ -161,6 +197,10 @@ appendAssumptions ps stk =
   do frm  <- readIORef (currentFrame stk)
      modifyIORef' (assumeFrameCond frm) (\prev -> prev Seq.>< ps)
 
+-- | Add a new proof obligation to the current collection of obligations based
+--   on all the assumptions currently in scope and the predicate in the given assertion.
+--  
+--   Then, assume the given assertion predicate in the current assumption frame.
 assert ::
   Assertion pred msg ->
   AssumptionStack pred msg ->
@@ -172,6 +212,8 @@ assert p stk =
      assume (p^.assertPred) stk
 
 
+-- | Collect all the assumptions currently in scope in this stack frame
+--   and all previously-pushed stack frames.
 collectAssumptions ::
   AssumptionStack pred msg ->
   IO (Seq pred)
@@ -180,11 +222,13 @@ collectAssumptions stk = do
   frm  <- readIORef (currentFrame stk)
   join <$> traverse (readIORef . assumeFrameCond) (frms Seq.|> frm)
 
+-- | Retrieve the current collection of proof obligations.
 getProofObligations ::
   AssumptionStack pred msg ->
   IO (Seq (ProofGoal pred msg))
 getProofObligations stk = readIORef (proofObligations stk)
 
+-- | Set the current collection of proof obligations.
 setProofObligations ::
   Seq (ProofGoal pred msg) ->
   AssumptionStack pred msg ->
@@ -202,6 +246,10 @@ freshFrame stk =
             , assumeFrameCond  = cond
             }
 
+-- | Push a new assumption frame on top of the stack.  The
+--   returned @FrameIdentifier@ can be used later to pop this
+--   frame.  Frames must be pushed and popped in a coeherent
+--   well-bracketed way.
 pushFrame ::
   AssumptionStack pred msg ->
   IO FrameIdentifier
@@ -213,6 +261,8 @@ pushFrame stk =
      modifyIORef' (frameStack stk) (\frames -> frames |> frm)
      return ident
 
+-- | Pop a previously-pushed assumption frame from the stack.
+--   All assumptions in that frame will be forgotten.
 popFrame ::
   FrameIdentifier ->
   AssumptionStack pred msg ->
@@ -231,6 +281,10 @@ popFrame ident stk =
             writeIORef (currentFrame stk) new
      return frm
 
+-- | Run an action in the scope of a fresh assumption frame.
+--   The frame will be popped and returned on successful
+--   completion of the action.  If the action raises an exception,
+--   the frame will be popped and discarded.
 inFreshFrame ::
   AssumptionStack pred msg ->
   IO a ->

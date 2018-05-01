@@ -20,12 +20,15 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Solver.SimpleBackend.GroundEval
-  ( GroundValue
+  ( -- * Ground evaluation
+    GroundValue
   , GroundValueWrapper(..)
   , GroundArray(..)
   , lookupArray
   , GroundEvalFn(..)
   , EltRangeBindings
+
+    -- * Internal operations
   , tryEvalGroundElt
   , evalGroundElt
   , evalGroundApp
@@ -67,6 +70,8 @@ type family GroundValue (tp :: BaseType) where
   GroundValue (BaseStructType ctx)  = Ctx.Assignment GroundValueWrapper ctx
 
 -- | A function that calculates ground values for elements.
+--   Clients of solvers should use the @groundEval@ function for computing
+--   values in models.
 newtype GroundEvalFn t = GroundEvalFn { groundEval :: forall tp . Elt t tp -> IO (GroundValue tp) }
 
 -- | Function that calculates upper and lower bounds for real-valued elements.
@@ -104,6 +109,7 @@ toDouble = fromRational
 fromDouble :: Double -> Rational
 fromDouble = toRational
 
+-- | Construct a default value for a given base type.
 defaultValueForType :: BaseTypeRepr tp -> GroundValue tp
 defaultValueForType tp =
   case tp of
@@ -118,6 +124,9 @@ defaultValueForType tp =
     BaseStructRepr ctx -> fmapFC (GVW . defaultValueForType) ctx
 
 {-# INLINABLE evalGroundElt #-}
+-- | Helper function for evaluating @Elt@ expressions in a model.
+--
+--   This function is intended for implementers of symbolic backends.
 evalGroundElt :: (forall u . Elt t u -> IO (GroundValue u))
               -> Elt t tp
               -> IO (GroundValue tp)
@@ -153,6 +162,9 @@ tryEvalGroundElt _ (BoundVarElt v) =
     UninterpVarKind   -> return $! defaultValueForType (bvarType v)
 
 {-# INLINABLE evalGroundNonceApp #-}
+-- | Helper function for evaluating @NonceApp@ expressions.
+--
+--   This function is intended for implementers of symbolic backends.
 evalGroundNonceApp :: Monad m
                    => (forall u . Elt t u -> MaybeT m (GroundValue u))
                    -> NonceApp t (Elt t) tp
@@ -171,6 +183,9 @@ evalGroundNonceApp _ a0 = lift $ fail $
 forallIndex :: Ctx.Size (ctx :: Ctx.Ctx k) -> (forall tp . Ctx.Index ctx tp -> Bool) -> Bool
 forallIndex sz f = Ctx.forIndex sz (\b j -> f j && b) True
 
+-- | Helper function for evaluating @App@ expressions.
+--
+--   This function is intended for implementers of symbolic backends.
 evalGroundApp :: forall t tp
                . (forall u . Elt t u -> IO (GroundValue u))
               -> App (Elt t) tp
