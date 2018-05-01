@@ -194,7 +194,7 @@ checkFun nm mp =
     Just (AnyCFG anyCfg) ->
       case cfgArgTypes anyCfg of
         Empty -> (regValue <$> callCFG anyCfg emptyRegMap) >> return ()
-        _ -> throwError BadFun
+        _     -> throwError BadFun
     Nothing -> throwError (MissingFun nm)
 
 

@@ -134,7 +134,7 @@ mkFresh nm ty =
                Left err -> fail (show err) -- XXX
                Right a  -> return a
      elt <- liftIO (freshConstant sym name ty)
-     stateContext.cruciblePersonality %= addVar ty elt
+     stateContext.cruciblePersonality %= addVar nm ty elt
      return elt
 
 lookupString ::

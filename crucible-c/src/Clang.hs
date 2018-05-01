@@ -12,13 +12,6 @@ import Error
 import CLibSrc
 import Log
 
--- Unused for now
-data CCConfig = CCConfig
-  { ccPath        :: FilePath           -- ^ Path to Clang
-  , ccIncludes    :: [FilePath]         -- ^ Use these dirs when compiling
-  , ccDefines     :: [(String,String)]  -- ^ CPP defines
-  , ccWarns       :: Bool               -- ^ Do we want to see warnings
-  }
 
 
 getClang :: IO FilePath
@@ -26,7 +19,7 @@ getClang = attempt $ getEnv "CLANG"
                    : map inPath opts
   where
   inPath x = head . lines <$> readProcess "/usr/bin/which" [x] ""
-  opts     = [ "clang", "clang-4.0" ]
+  opts     = [ "clang", "clang-4.0", "clang-3.6" ]
 
   attempt :: [IO FilePath] -> IO FilePath
   attempt ms =

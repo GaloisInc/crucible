@@ -3,7 +3,7 @@ module Goal where
 import Control.Lens((^.))
 import Control.Monad(foldM)
 
-import Lang.Crucible.Solver.Interface(printSymExpr)
+-- import Lang.Crucible.Solver.Interface(printSymExpr)
 import Lang.Crucible.Solver.BoolInterface
         ( IsBoolExprBuilder
         , Pred, notPred,impliesPred
