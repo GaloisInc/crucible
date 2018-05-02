@@ -66,7 +66,7 @@ proveGoal ctxt g =
             do let model = ctxt ^. cruciblePersonality
                str <- ppModel evalFn model
                return (Just (e (Just str)))
-          _  -> return Nothing
+          _  -> return (Just (e Nothing))
 
   where
   a = gShows g
