@@ -50,6 +50,7 @@ import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.Solver.Symbol (emptySymbol)
@@ -92,7 +93,7 @@ complexRealAsChar v = do
 
 
 -- | Helper method for implementing 'indexSymbolic'
-indexSymbolic' :: IsSymInterface sym
+indexSymbolic' :: (IsSymInterface sym, IsBoolSolver sym)
                => sym
                -> (Pred sym -> a -> a -> IO a)
                   -- ^ Function for merging valeus
@@ -122,7 +123,7 @@ indexSymbolic' sym iteFn f p ((l,h):nl) (si:il) = do
 -- This function takes a list of symbolic indices as natural numbers
 -- along with a pair of lower and upper bounds for each index.
 -- It assumes that the indices are all in range.
-indexSymbolic :: IsSymInterface sym
+indexSymbolic :: (IsSymInterface sym, IsBoolSolver sym)
               => sym
               -> (Pred sym -> a  -> a -> IO a)
                  -- ^ Function for combining results together.
@@ -144,6 +145,7 @@ evalBase _ evalSub (BaseTerm tp e) =
     BaseNatRepr     -> evalSub e
     BaseIntegerRepr -> evalSub e
     BaseRealRepr    -> evalSub e
+    BaseStringRepr  -> evalSub e
     BaseComplexRepr -> evalSub e
     BaseStructRepr  _ -> evalSub e
     BaseArrayRepr _ _ -> evalSub e
@@ -224,7 +226,7 @@ type EvalAppFunc sym app = forall f.
 {-# INLINE evalApp #-}
 -- | Evaluate the application.
 evalApp :: forall sym ext
-         . IsSymInterface sym
+         . (IsSymInterface sym, IsBoolSolver sym)
         => sym
         -> IntrinsicTypes sym
         -> (Int -> String -> IO ())
@@ -359,7 +361,9 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
         PE (asConstantPred -> Just True) v -> return v
         _ -> do
           msg <- evalSub msg_expr
-          readPartExpr sym maybe_val (GenericSimError (Text.unpack msg))
+          case asString msg of
+            Just msg' -> readPartExpr sym maybe_val (GenericSimError (Text.unpack msg'))
+            Nothing -> fail "Expected concrete string in fromJustValue"
 
     ----------------------------------------------------------------------
     -- Side conditions
@@ -638,19 +642,6 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
         PE p v -> do
           muxRegForType sym itefns (baseToType tp) p v d
 
-    --------------------------------------------------------------------
-    -- StructFields
-
-    EmptyStructFields -> return V.empty
-    FieldsEq x y -> do
-      xv <- evalSub x
-      yv <- evalSub y
-      return $ backendPred sym (xv == yv)
-    HasField e s_expr -> do
-      ev <- evalSub e
-      sv <- evalSub s_expr
-      return $ backendPred sym (ev `V.elem` sv)
-
     ---------------------------------------------------------------------
     -- Struct
 
@@ -683,22 +674,28 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     LookupStringMapEntry _ m_expr i_expr -> do
       i <- evalSub i_expr
       m <- evalSub m_expr
-      return $ joinMaybePE (Map.lookup i m)
+      case asString i of
+        Just i' -> return $ joinMaybePE (Map.lookup i' m)
+        Nothing -> fail "Expected concrete string in lookupStringMapEntry"
     InsertStringMapEntry _ m_expr i_expr v_expr -> do
       m <- evalSub m_expr
       i <- evalSub i_expr
       v <- evalSub v_expr
-      return $ Map.insert i v m
+      case asString i of
+        Just i' -> return $ Map.insert i' v m
+        Nothing -> fail "Expected concrete string in insertStringMapEntry"
 
     --------------------------------------------------------------------
     -- Text
 
-    TextLit txt -> return txt
+    TextLit txt -> stringLit sym txt
     ShowValue _bt x_expr -> do
       x <- evalSub x_expr
-      return $! Text.pack (show (printSymExpr x))
-    AppendString x y ->
-      Text.append <$> evalSub x <*> evalSub y
+      stringLit sym (Text.pack (show (printSymExpr x)))
+    AppendString x y -> do
+      x' <- evalSub x
+      y' <- evalSub y
+      stringConcat sym x' y'
 
     ---------------------------------------------------------------------
     -- Introspection

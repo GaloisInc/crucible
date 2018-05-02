@@ -53,10 +53,10 @@ Quick start
 -------------
 
 
-Crucible is mainly intended to be used as a libarary for other
+Crucible is mainly intended to be used as a library for other
 downstream projects.  As such, the build system infrastructure in this
 repository is relatively minimal. Downstream projects are expected to
-do the primary work of tracking dependencies, and mantaining a
+do the primary work of tracking dependencies, and maintaining a
 coherent working set of git submodules, etc.
 
 However, for convenience, we provide here some basic support for

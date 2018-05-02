@@ -4,9 +4,10 @@ Copyright   : (c) Galois, Inc 2014-2016
 License     : BSD3
 Maintainer  : Joe Hendrix <jhendrix@galois.com>
 
-This module provides a minimalistic interface for manipulating Boolean formulas
-and execution contexts in the symbolic simulator.
+This module provides an interface that symbolic backends must provide
+for interacting with the symbolic simulator.
 -}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -16,91 +17,22 @@ and execution contexts in the symbolic simulator.
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilies #-}
 module Lang.Crucible.Solver.BoolInterface
-  ( IsPred(..)
-  , SymExpr
-  , Pred
-  , SymPathState
-  , BranchResult(..)
-  , IsBoolExprBuilder(..)
+  ( BranchResult(..)
   , IsBoolSolver(..)
   , Assertion(..)
   , assertPred
-  , itePredM
+  , IsSymInterface
+    -- * Utilities
+  , addAssertionM
+  , assertIsInteger
+  , readPartExpr
   ) where
 
-import Control.Exception (throwIO)
-import Control.Lens
-import Control.Monad.IO.Class
+import Data.Sequence (Seq)
 
-import Lang.Crucible.BaseTypes
-import Lang.Crucible.ProgramLoc
 import Lang.Crucible.Simulator.SimError
-
--- | The class for expressions.
-type family SymExpr (sym :: *) :: BaseType -> *
-
-type Pred sym = SymExpr sym BaseBoolType
-
-------------------------------------------------------------------------
--- IsPred
-
-class IsPred v where
-  -- | Evaluate if predicate is constant.
-  asConstantPred :: v -> Maybe Bool
-  asConstantPred _ = Nothing
-
-------------------------------------------------------------------------
--- IsBoolSolver
-
--- | @IsBoolExprBuilder@ has methods for constructing
---   symbolic expressions of boolean type.
-class IsBoolExprBuilder sym where
-  truePred  :: sym -> Pred sym
-  falsePred :: sym -> Pred sym
-
-  notPred :: sym -> Pred sym -> IO (Pred sym)
-
-  andPred :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
-
-  orPred  :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
-  orPred sym x y = do
-    xn <- notPred sym x
-    yn <- notPred sym y
-    notPred sym =<< andPred sym xn yn
-
-  impliesPred :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
-  impliesPred sym x y = do
-    nx <- notPred sym x
-    orPred sym y nx
-
-  xorPred :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
-
-  eqPred  :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
-  eqPred sym x y = notPred sym =<< xorPred sym x y
-
-  -- | Perform ite on a predicate.
-  itePred :: sym -> Pred sym -> Pred sym -> Pred sym -> IO (Pred sym)
-
-
--- | Perform an ite on a predicate lazily.
-itePredM :: (IsPred (Pred sym), IsBoolExprBuilder sym, MonadIO m)
-         => sym
-         -> Pred sym
-         -> m (Pred sym)
-         -> m (Pred sym)
-         -> m (Pred sym)
-itePredM sym c mx my =
-  case asConstantPred c of
-    Just True -> mx
-    Just False -> my
-    Nothing -> do
-      x <- mx
-      y <- my
-      liftIO $ itePred sym c x y
-
--- | State in the backend associated with a particular execution path.
--- This is useful
-type family SymPathState (sym :: *) :: *
+import Lang.Crucible.Solver.Interface
+import Lang.Crucible.Solver.AssumptionStack
 
 -- | Result of attempting to branch on a predicate.
 data BranchResult sym
@@ -112,80 +44,45 @@ data BranchResult sym
 
      -- | No branch is needed, and the predicate is evaluated to the
      -- given value.
-
    | NoBranch !Bool
 
      -- | In branching, the simulator detected that the current path
      -- is infeasible.
    | InfeasibleBranch
 
--- | Information about an assertion that was previously made.
-data Assertion pred
-   = Assertion { -- | Location of assertion
-                 assertLoc :: !ProgramLoc
-                 -- | Predicate that was asserted.
-               , _assertPred :: !pred
-                 -- | Message added when assertion was made.
-               , assertMsg :: !(Maybe SimErrorReason)
-               }
+type IsSymInterface sym = (IsBoolSolver sym, IsSymExprBuilder sym)
 
--- | Predicate that was asserted.
-assertPred :: Simple Lens (Assertion pred) pred
-assertPred = lens _assertPred (\s v -> s { _assertPred = v })
-
--- | A Boolean solver has function for building up terms, and operating
--- within an assertion context.
-class ( HasProgramLoc (SymPathState sym)
-      ) => IsBoolSolver sym where
+-- | This class provides operations that interact with the symbolic simulator.
+--   It allows for logical assumptions/assertions to be added to the current
+--   path condition, and allows queries to be asked about branch conditions.
+class IsBoolSolver sym where
 
   ----------------------------------------------------------------------
   -- Branch manipulations
 
   -- | Given a Boolean predicate that the simulator wishes to branch on,
-  -- this decides what the next course of action should be for the branch.
+  --   this decides what the next course of action should be for the branch.
   evalBranch :: sym
              -> Pred sym -- Predicate to branch on.
              -> IO (BranchResult sym)
 
-  -- | Get current state information.
-  getCurrentState :: sym -> IO (SymPathState sym)
+  -- | Push a new assumption frame onto the stack.  Assumptions and assertions
+  --   made will now be associated with this frame on the stack until a new
+  --   frame is pushed onto the stack, or until this one is popped.
+  pushAssumptionFrame :: sym -> IO FrameIdentifier
 
-  -- | Reset simulator back to previous state.
-  resetCurrentState :: sym -> SymPathState sym -> IO ()
-
-  -- | @switchPathState sym old new@
-  --
-  -- This switch the path state from the current one to new.
-  -- old is guaranteed to be a predecessor of both states
-  switchCurrentState :: sym -> SymPathState sym -> SymPathState sym -> IO ()
-
-  -- | Push a branch predicate and add new assertion level.
-  pushBranchPred :: sym -> Pred sym -> IO ()
-
-  -- | @mergeState sym p true_state false_state@ updates the current state info to
-  -- correspond to add assertions in true_state when p is assumed true and assertions
-  -- in false state when p is assumed false.
-  mergeState :: sym
-             -> Pred sym
-             -> SymPathState sym
-             -> SymPathState sym
-             -> IO ()
-
-  ----------------------------------------------------------------------
-  -- Program location operations
-
-  -- | Get current location of program for term creation purposes.
-  getCurrentProgramLoc :: sym -> IO ProgramLoc
-
-  -- | Set current location of program for term creation purposes.
-  setCurrentProgramLoc :: sym -> ProgramLoc -> IO ()
+  -- | Pop an assumption frame from the stack.  The collected assumptions
+  --   in this frame are returned.  Pops are required to be well-bracketed
+  --   with pushes.  In particular, if the given frame identifier is not
+  --   the identifier of the top frame on the stack, an error will be raised.
+  popAssumptionFrame :: sym -> FrameIdentifier -> IO (Seq (Pred sym))
 
   ----------------------------------------------------------------------
   -- Assertions
 
   -- | Add an assertion to the current state.
   --
-  -- This may throw the given SimError if the assertion is unsatisfiable.
+  -- This may throw the given @SimErrorReason@ if the assertion is unsatisfiable.
   --
   -- Every assertion added to the system produces a proof obligation. These
   -- proof obligations can be retrieved via the 'getProofObligations' call.
@@ -193,38 +90,64 @@ class ( HasProgramLoc (SymPathState sym)
 
   -- | Add an assumption to the current state.  Like assertions, assumptions
   --   add logical facts to the current path condition.  However, assumptions
-  --   cannot lead to path failures.  Moreover, they do not produce proof
-  --   obligations the way assertions do.
+  --   do not produce proof obligations the way assertions do.
   addAssumption :: sym -> Pred sym -> IO ()
 
-  -- | This will cause the current path to fail
-  addFailedAssertion :: sym -> SimErrorReason -> IO a
-  addFailedAssertion sym msg = do
-    loc <- getCurrentProgramLoc sym
-    throwIO (SimError loc msg)
+  -- | Add a collection of assumptions to the current state.
+  addAssumptions :: sym -> Seq (Pred sym) -> IO ()
 
-  -- | Get the current path condition as a predicate.
-  getAssertionPred :: sym -> IO (Pred sym)
+  -- | This will cause the current path to fail, with the given error.
+  addFailedAssertion :: sym -> SimErrorReason -> IO a
+
+  -- | Get the current path condition as a predicate.  This consists of the conjunction
+  --   of all the assumptions currently in scope.
+  getPathCondition :: sym -> IO (Pred sym)
 
   -- | Get the collection of proof obligations.
-  getProofObligations :: sym -> IO [([Pred sym], Assertion (Pred sym))]
+  getProofObligations :: sym -> IO (Seq (ProofGoal (Pred sym) SimErrorReason))
 
-  -- | Set the collection of proof obligations to the given list.  Typically, this is used
+  -- | Set the collection of proof obligations to the given sequence.  Typically, this is used
   --   to remove proof obligations that have been successfully proved by resetting the list
   --   of obligations to be only those not proved.
-  setProofObligations :: sym -> [([Pred sym], Assertion (Pred sym))] -> IO ()
+  setProofObligations :: sym -> Seq (ProofGoal (Pred sym) SimErrorReason) -> IO ()
 
-  -- | Return assertions that were added between the two path states.
-  --
-  -- The second path state must be a successor of the first.
-  -- The assertions will be returned in reverse order from how they were
-  -- added.
-  getAssertionsBetween :: sym
-                       -> SymPathState sym
-                       -> SymPathState sym
-                       -> IO [Assertion (Pred sym)]
+  -- | Create a snapshot of the current assumption state, that may later be restored.
+  --   This is useful for supporting control-flow patterns that don't neatly fit into
+  --   the stack push/pop model.
+  cloneAssumptionState :: sym -> IO (AssumptionStack (Pred sym) SimErrorReason)
 
-  getAssertionsSince :: sym -> SymPathState sym -> IO [Assertion (Pred sym)]
-  getAssertionsSince sym old = do
-    cur <- getCurrentState sym
-    getAssertionsBetween sym old cur
+  -- | Restore the assumption state to a previous snapshot.
+  restoreAssumptionState :: sym -> AssumptionStack (Pred sym) SimErrorReason -> IO ()
+
+
+-- | Run the given action to compute a predicate, and assert it.
+addAssertionM :: IsBoolSolver sym
+              => sym
+              -> IO (Pred sym)
+              -> SimErrorReason
+              -> IO ()
+addAssertionM sym pf msg = do
+  p <- pf
+  addAssertion sym p msg
+
+-- | Assert that the given real-valued expression is an integer.
+assertIsInteger :: (IsBoolSolver sym, IsExprBuilder sym)
+                => sym
+                -> SymReal sym
+                -> SimErrorReason
+                -> IO ()
+assertIsInteger sym v msg = do
+  addAssertionM sym (isInteger sym v) msg
+
+-- | Given a partial expression, assert that it is defined
+--   and return the underlying value.
+readPartExpr :: IsBoolSolver sym
+             => sym
+             -> PartExpr (Pred sym) v
+             -> SimErrorReason
+             -> IO v
+readPartExpr sym Unassigned msg = do
+  addFailedAssertion sym msg
+readPartExpr sym (PE p v) msg = do
+  addAssertion sym p msg
+  return v

@@ -12,7 +12,7 @@ import Lang.Crucible.LLVM.Types(HasPtrWidth)
 import Model
 
 -- | A simulator context for an arch
-type SimCtxt sym arch = SimContext Model sym (LLVM arch)
+type SimCtxt sym arch = SimContext (Model sym) sym (LLVM arch)
 
 -- | This happens quite a lot, so just a shorter name
 type ArchOk arch    = HasPtrWidth (ArchWidth arch)
@@ -24,7 +24,7 @@ type TBits n        = LLVMPointerType n
 type OverM sym arch a =
   forall r args ret.
   OverrideSim
-    Model
+    (Model sym)
     sym                                    -- the backend
     (LLVM arch)                            -- LLVM extensions
     r
@@ -36,7 +36,7 @@ type OverM sym arch a =
 type Fun sym arch args ret =
   forall r.
   OverrideSim
-    Model
+    (Model sym)
     sym                                    -- the backend
     (LLVM arch)                            -- LLVM extensions
     r

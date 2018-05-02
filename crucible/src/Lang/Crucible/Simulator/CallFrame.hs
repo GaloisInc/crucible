@@ -46,7 +46,7 @@ import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.ProgramLoc ( ProgramLoc )
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
-import           Lang.Crucible.Solver.Interface ( Pred, IsSymInterface )
+import           Lang.Crucible.Solver.Interface ( Pred, IsExprBuilder )
 
 ------------------------------------------------------------------------
 -- SomeHandle
@@ -143,7 +143,7 @@ extendFrame tp v s f = f { _frameRegs = assignReg tp v (_frameRegs f)
                          , _frameStmts = s
                          }
 
-mergeCallFrame :: IsSymInterface sym
+mergeCallFrame :: IsExprBuilder sym
                => sym
                -> IntrinsicTypes sym
                -> MuxFn (Pred sym) (CallFrame sym ext blocks ret args)

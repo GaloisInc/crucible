@@ -9,6 +9,7 @@
 --
 -- CVC4-specific tweaks to the basic SMTLib2 solver interface.
 ------------------------------------------------------------------------
+{-# LANGUAGE OverloadedStrings #-}
 module Lang.Crucible.Solver.SimpleBackend.CVC4
   ( CVC4
   , cvc4Adapter
@@ -23,8 +24,11 @@ import qualified System.IO.Streams as Streams
 import           System.Process
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
+import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
 import           Lang.Crucible.Solver.Adapter
+import           Lang.Crucible.Solver.Concrete
+import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.ProcessUtils
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
@@ -32,26 +36,28 @@ import           Lang.Crucible.Solver.SimpleBackend.ProblemFeatures
 import qualified Lang.Crucible.Solver.SimpleBackend.SMTLib2 as SMT2
 import           Lang.Crucible.Solver.SimpleBackend.SMTWriter
 import           Lang.Crucible.Solver.SimpleBuilder
-import           Lang.Crucible.Utils.MonadVerbosity
 import           Lang.Crucible.Utils.Streams
 
 
-intWithRangeOpt :: Monad m => ConfigOption Int -> Int -> Int -> ConfigDesc m
-intWithRangeOpt nm lo hi = mkOpt nm Nothing sty PP.empty
-  where sty = integralWithRangeOptSty (Inclusive lo) (Inclusive hi)
+intWithRangeOpt :: ConfigOption BaseIntegerType -> Integer -> Integer -> ConfigDesc
+intWithRangeOpt nm lo hi = mkOpt nm sty Nothing Nothing
+  where sty = integerWithRangeOptSty (Inclusive lo) (Inclusive hi)
 
 data CVC4 = CVC4
 
 -- | Path to cvc4
-cvc4Path :: ConfigOption FilePath
-cvc4Path = configOption "cvc4_path"
+cvc4Path :: ConfigOption BaseStringType
+cvc4Path = configOption knownRepr "cvc4_path"
 
-cvc4RandomSeed :: ConfigOption Int
-cvc4RandomSeed = configOption "cvc4.random-seed"
+cvc4RandomSeed :: ConfigOption BaseIntegerType
+cvc4RandomSeed = configOption knownRepr "cvc4.random-seed"
 
-cvc4Options :: MonadVerbosity m => [ConfigDesc m]
+cvc4Options :: [ConfigDesc]
 cvc4Options =
-  [ mkOpt cvc4Path (Just "cvc4") executablePathOptSty "Path to CVC4 executable"
+  [ mkOpt cvc4Path
+          executablePathOptSty
+          (Just (PP.text "Path to CVC4 executable"))
+          (Just (ConcreteString "cvc4"))
   , intWithRangeOpt cvc4RandomSeed (negate (2^(30::Int)-1)) (2^(30::Int)-1)
   ]
 
@@ -88,15 +94,13 @@ writeCVC4SMT2File sym h p = do
   SMT2.writeExit c
 
 runCVC4InOverride
-   :: Monad m
-   => SimpleBuilder t st
-   -> Config m
+   :: SimpleBuilder t st
    -> (Int -> String -> IO ())
    -> BoolElt t
    -> (SatResult (GroundEvalFn t, Maybe (EltRangeBindings t)) -> IO a)
    -> IO a
-runCVC4InOverride sym cfg logLn p cont = do
-  solver_path <- findSolverPath =<< getConfigValue cvc4Path cfg
+runCVC4InOverride sym logLn p cont = do
+  solver_path <- findSolverPath cvc4Path (getConfiguration sym)
   withCVC4 sym solver_path (logLn 2) $ \s -> do
     -- Assume the predicate holds.
     SMT2.assume (SMT2.sessionWriter s) p

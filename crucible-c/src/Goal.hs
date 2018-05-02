@@ -2,14 +2,14 @@ module Goal where
 
 import Control.Lens((^.))
 import Control.Monad(foldM)
+import qualified Data.Foldable as Fold
 
--- import Lang.Crucible.Solver.Interface(printSymExpr)
+import Lang.Crucible.Solver.Interface
+        (IsExprBuilder, Pred, notPred, impliesPred)
 import Lang.Crucible.Solver.BoolInterface
-        ( IsBoolExprBuilder
-        , Pred, notPred,impliesPred
-        , Assertion, assertPred, assertMsg, assertLoc
-        )
+        ( Assertion, assertPred, assertMsg, assertLoc )
 import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
+import Lang.Crucible.Solver.AssumptionStack(ProofGoal(..))
 import Lang.Crucible.Solver.SatResult(SatResult(..))
 import Lang.Crucible.Solver.SimpleBuilder (SimpleBuilder)
 import Lang.Crucible.Solver.SimpleBackend.Z3(z3Adapter)
@@ -17,7 +17,7 @@ import Lang.Crucible.Solver.SimpleBackend.Z3(z3Adapter)
 
 import Lang.Crucible.Simulator.SimError(SimErrorReason(..))
 import Lang.Crucible.Simulator.ExecutionTree
-        (ctxSymInterface, simConfig, cruciblePersonality)
+        (ctxSymInterface, cruciblePersonality)
 
 
 import Error
@@ -31,20 +31,20 @@ prover = z3Adapter
 
 data Goal sym = Goal
   { gAssumes :: [Pred sym]
-  , gShows   :: Assertion (Pred sym)
+  , gShows   :: Assertion (Pred sym) SimErrorReason
   }
 
 -- Check assertions before other things
 goalPriority :: Goal sym -> Int
 goalPriority g =
   case assertMsg (gShows g) of
-    Just (AssertFailureSimError {}) -> 0
+    AssertFailureSimError {} -> 0
     _ -> 1
 
-mkGoal :: ([Pred sym], Assertion (Pred sym)) -> Goal sym
-mkGoal (as,p) = Goal { gAssumes = as, gShows = p }
+mkGoal :: ProofGoal (Pred sym) SimErrorReason -> Goal sym
+mkGoal (ProofGoal as p) = Goal { gAssumes = (Fold.toList as), gShows = p }
 
-obligGoal :: IsBoolExprBuilder sym => sym -> Goal sym -> IO (Pred sym)
+obligGoal :: IsExprBuilder sym => sym -> Goal sym -> IO (Pred sym)
 obligGoal sym g = foldM imp (gShows g ^. assertPred) (gAssumes g)
   where
   imp p a = impliesPred sym a p
@@ -55,12 +55,11 @@ proveGoal ::
   IO ()
 proveGoal ctxt g =
   do let sym = ctxt ^. ctxSymInterface
-         cfg = simConfig ctxt
      g1 <- obligGoal sym g
      p <- notPred sym g1
 
      let say _n _x = return () -- putStrLn ("[" ++ show _n ++ "] " ++ _x)
-     solver_adapter_check_sat prover sym cfg say p $ \res ->
+     solver_adapter_check_sat prover sym say p $ \res ->
         case res of
           Unsat -> return ()
           Sat (evalFn,_mbRng) ->

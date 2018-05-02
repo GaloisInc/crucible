@@ -10,6 +10,7 @@
 -- This module provides a Crucible backend that produces SAWCore terms.
 ------------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -17,7 +18,7 @@
 
 module Lang.Crucible.Solver.SAWCoreBackend where
 
-import           Control.Exception ( assert, throw, bracket )
+import           Control.Exception ( bracket, throwIO )
 import           Control.Lens
 import           Control.Monad
 import           Data.IORef
@@ -37,9 +38,10 @@ import           Numeric.Natural
 
 import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
-import           Lang.Crucible.ProgramLoc
-import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Solver.AssumptionStack as AS
+import           Lang.Crucible.Solver.BoolInterface
+import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.SatResult
 import qualified Lang.Crucible.Solver.SimpleBuilder as SB
@@ -66,19 +68,21 @@ data SAWCoreState n
       -- The key is the "indexValue" of the "symFunId" for the function
 
     , saw_elt_cache :: SB.IdxCache n SAWElt
-    , saw_assertions  :: Seq (Assertion (Pred (SAWCoreBackend n)))
-    , saw_obligations :: Seq (Seq (Pred (SAWCoreBackend n)), Assertion (Pred (SAWCoreBackend n)))
-    , saw_config    :: forall a. ConfigOption a -> IO a
+
+    , saw_assumptions :: AssumptionStack (SB.BoolElt n) SimErrorReason
     }
 
-sawCheckPathSat :: ConfigOption Bool
-sawCheckPathSat = configOption "saw.check_path_sat"
+sawCheckPathSat :: ConfigOption BaseBoolType
+sawCheckPathSat = configOption BaseBoolRepr "saw.check_path_sat"
 
-sawOptions :: Monad m => [ConfigDesc m]
+sawOptions :: [ConfigDesc]
 sawOptions =
-  [ opt sawCheckPathSat False
+  [ opt sawCheckPathSat (ConcreteBool False)
     "Check the satisfiability of path conditions on branches"
   ]
+
+getAssumptionStack :: SAWCoreBackend n -> IO (AssumptionStack (SB.BoolElt n) SimErrorReason)
+getAssumptionStack sym = saw_assumptions <$> readIORef (SB.sbStateManager sym)
 
 data SAWElt (bt :: BaseType) where
   SAWElt :: !SC.Term -> SAWElt bt
@@ -98,12 +102,12 @@ type SAWCoreBackend n = SB.SimpleBuilder n SAWCoreState
 --   set up with a fresh naming context.  This means that all
 --   symbolic inputs, symMap entries, element cache entires,
 --   assertions and proof obligations start empty while
---   running the action.  After the action completes, the 
+--   running the action.  After the action completes, the
 --   state of these fields is restored.
 inFreshNamingContext :: SAWCoreBackend n -> IO a -> IO a
 inFreshNamingContext sym f =
   do old <- readIORef (SB.sbStateManager sym)
-     bracket (mkNew old) (restore old) action
+     bracket (mkNew (SB.eltCounter sym) old) (restore old) action
 
  where
  action new =
@@ -113,17 +117,16 @@ inFreshNamingContext sym f =
  restore old _new =
    do writeIORef (SB.sbStateManager sym) old
 
- mkNew old =
+ mkNew gen old =
    do ch <- SB.newIdxCache
       iref <- newIORef mempty
+      stk <- initAssumptionStack gen
       let new = SAWCoreState
                 { saw_ctx = saw_ctx old
                 , saw_inputs = iref
                 , saw_symMap = mempty
                 , saw_elt_cache = ch
-                , saw_assertions = mempty
-                , saw_obligations = mempty
-                , saw_config = saw_config old
+                , saw_assumptions = stk
                 }
       return new
 
@@ -146,6 +149,7 @@ baseSCType ctx bt =
             fail $ "SAW backend only supports single element arrays."
           join $ SC.scFun ctx <$> baseSCType ctx dom
                               <*> baseSCType ctx range
+    BaseStringRepr   -> fail "SAW backend does not support string values: baseSCType"
     BaseComplexRepr  -> fail "SAW backend does not support complex values: baseSCType"
     BaseRealRepr     -> fail "SAW backend does not support real values: baseSCType"
     BaseStructRepr _ -> fail "FIXME baseSCType for structures"
@@ -177,21 +181,22 @@ bindSAWTerm sym bt t = do
 newSAWCoreBackend ::
   SC.SharedContext ->
   NonceGenerator IO s ->
-  SimConfig p (SAWCoreBackend s) ->
   IO (SAWCoreBackend s)
-newSAWCoreBackend sc gen cfg = do
+newSAWCoreBackend sc gen = do
   inpr <- newIORef Seq.empty
   ch   <- SB.newIdxCache
+  stk  <- initAssumptionStack gen
   let st = SAWCoreState
               { saw_ctx = sc
               , saw_inputs = inpr
               , saw_symMap = Map.empty
               , saw_elt_cache = ch
-              , saw_assertions = Seq.empty
-              , saw_obligations = Seq.empty
-              , saw_config = \opt -> getConfigValue opt cfg
+              , saw_assumptions = stk
               }
-  SB.newSimpleBuilder st gen
+  sym <- SB.newSimpleBuilder st gen
+  extendConfig sawOptions (getConfiguration sym)
+  return sym
+
 
 -- | Register an interpretation for a symbolic function.
 -- This is not used during simulation, but rather, when we translate
@@ -450,6 +455,8 @@ evaluateElt sym sc cache = f
        SB.SemiRingInt  -> scIntLit sc x
        SB.SemiRingReal -> scRealLit sc x
    go (SB.BVElt w i _) = SAWElt <$> SC.scBvConst sc (fromIntegral (natValue w)) i
+
+   go (SB.StringElt{}) = fail "SAW backend does not support string values"
 
    go (SB.BoundVarElt bv) =
       case SB.bvarKind bv of
@@ -718,37 +725,6 @@ evaluateElt sym sc cache = f
         SB.StructField{} -> nyi -- FIXME
         SB.StructIte{} -> nyi -- FIXME
 
--- | The current location in the program.
-assertions :: Simple Lens (SAWCoreState n) (Seq.Seq (Assertion (Pred (SAWCoreBackend n))))
-assertions = lens saw_assertions (\s v -> s { saw_assertions = v })
-
--- | The sequence of accumulated assertion obligations
-proofObligs :: Simple Lens (SAWCoreState n) (Seq (Seq (Pred (SAWCoreBackend n)), Assertion (Pred (SAWCoreBackend n))))
-proofObligs = lens saw_obligations (\s v -> s { saw_obligations = v })
-
-appendAssertion :: ProgramLoc
-                -> Pred (SAWCoreBackend n)
-                -> SimErrorReason
-                -> SAWCoreState n
-                -> SAWCoreState n
-appendAssertion l p m s =
-  let ast = Assertion l p (Just m) in
-  s & assertions %~ (Seq.|> ast)
-    & proofObligs %~ (Seq.|> (fmap (^.assertPred) (s^.assertions), ast))
-
--- | Append assertions to path state.
-appendAssertions :: Seq (Assertion (Pred (SAWCoreBackend n)))
-                 -> SAWCoreState n
-                 -> SAWCoreState n
-appendAssertions pairs = assertions %~ (Seq.>< pairs)
-
-appendAssumption :: ProgramLoc
-                 -> Pred (SAWCoreBackend n)
-                 -> SAWCoreState n
-                 -> SAWCoreState n
-appendAssumption l p s =
-  s & assertions %~ (Seq.|> Assertion l p Nothing)
-
 checkSatisfiable :: SAWCoreBackend n
                  -> (Pred (SAWCoreBackend n))
                  -> IO (SatResult ())
@@ -756,9 +732,9 @@ checkSatisfiable sym p = do
   mgr <- readIORef (SB.sbStateManager sym)
   let sc = saw_ctx mgr
       cache = saw_elt_cache mgr
-  enabled <- saw_config mgr sawCheckPathSat
+  enabled <- getMaybeOpt =<< getOptionSetting sawCheckPathSat (getConfiguration sym)
   case enabled of
-    True -> do
+    Just True -> do
       t <- evaluateElt sym sc cache p
       let bbPrims = const Map.empty
       BBSim.withBitBlastedPred GIA.proxy sc bbPrims t $ \be lit _shapes -> do
@@ -766,66 +742,77 @@ checkSatisfiable sym p = do
         case satRes of
           AIG.Unsat -> return Unsat
           _ -> return (Sat ())
-    False -> return (Sat ())
+    _ -> return (Sat ())
 
-instance SB.IsSimpleBuilderState SAWCoreState where
-  sbAddAssumption sym e = do
-    case SB.asApp e of
-      Just SB.TrueBool -> return ()
-      _ -> do
-        loc <- getCurrentProgramLoc sym
-        modifyIORef' (SB.sbStateManager sym) $ appendAssumption loc e
+instance IsBoolSolver (SAWCoreBackend n) where
+  addAssertion sym e m = do
+    case asConstantPred e of
+      Just True  -> return ()
+      Just False -> addFailedAssertion sym m
+      _ ->
+        do loc <- SB.curProgramLoc sym
+           stk <- getAssumptionStack sym
+           AS.assert (Assertion loc e m) stk
 
-  sbAddAssertion sym e m = do
-    case SB.asApp e of
-      Just SB.TrueBool -> return ()
-      Just SB.FalseBool -> do
-        loc <- getCurrentProgramLoc sym
-        throw (SimError loc m)
-      _ -> do
-        loc <- getCurrentProgramLoc sym
-        modifyIORef' (SB.sbStateManager sym) $ appendAssertion loc e m
+  addAssumption sym e = do
+    case asConstantPred e of
+      Just True  -> return ()
+      Just False -> addFailedAssertion sym InfeasibleBranchError
+      _ ->
+        do stk <- getAssumptionStack sym
+           assume e stk
 
-  sbAppendAssertions sym s = do
-    modifyIORef' (SB.sbStateManager sym) $ appendAssertions s
+  addFailedAssertion sym msg = do
+    loc <- getCurrentProgramLoc sym
+    throwIO (SimError loc msg)
 
-  sbAssertionsBetween old cur =
-    assert (old_cnt <= Seq.length a) $ Seq.drop old_cnt a
-    where a = cur^.assertions
-          old_cnt = Seq.length $ old^.assertions
+  addAssumptions sym ps = do
+    stk <- getAssumptionStack sym
+    AS.appendAssumptions ps stk
 
-  sbAllAssertions sym = do
-    s <- readIORef (SB.sbStateManager sym)
-    andAllOf sym folded (view assertPred <$> s^.assertions)
+  getPathCondition sym = do
+    stk <- getAssumptionStack sym
+    ps <- AS.collectAssumptions stk
+    andAllOf sym folded ps
 
-  sbEvalBranch sym pb = do
-    case asConstantPred pb of
+  evalBranch sym p0 =
+    case asConstantPred p0 of
       Just True  -> return $! NoBranch True
       Just False -> return $! NoBranch False
-      Nothing -> do
-        pb_neg <- notPred sym pb
-        p_prior <- SB.sbAllAssertions sym
-        p <- andPred sym p_prior pb
-        p_neg <- andPred sym p_prior pb_neg
-        p_res    <- checkSatisfiable sym p
-        notp_res <- checkSatisfiable sym p_neg
-        case (p_res, notp_res) of
-          (Unsat, Unsat) -> return InfeasibleBranch
-          (Unsat, _ )    -> return $! NoBranch False
-          (_    , Unsat) -> return $! NoBranch True
-          (_    , _)     -> return $! SymbolicBranch True
+      Nothing    ->
+        do p0_neg   <- notPred sym p0
+           p_prior  <- getPathCondition sym
+           p        <- andPred sym p_prior p0
+           p_neg    <- andPred sym p_prior p0_neg
+           p_res    <- checkSatisfiable sym p
+           notp_res <- checkSatisfiable sym p_neg
+           case (p_res, notp_res) of
+             (Unsat, Unsat) -> return InfeasibleBranch
+             (Unsat, _ )    -> return $! NoBranch False
+             (_    , Unsat) -> return $! NoBranch True
+             (_    , _)     -> return $! SymbolicBranch True
 
-  sbGetProofObligations sym = do
-    mg <- readIORef (SB.sbStateManager sym)
-    return $ mg^.proofObligs
+  getProofObligations sym = do
+    stk <- getAssumptionStack sym
+    AS.getProofObligations stk
 
-  sbSetProofObligations sym obligs = do
-    modifyIORef' (SB.sbStateManager sym) (set proofObligs obligs)
+  setProofObligations sym obligs = do
+    stk <- getAssumptionStack sym
+    AS.setProofObligations obligs stk
 
-  sbPushBranchPred sym p = SB.sbAddAssumption sym p
-  sbBacktrackToState sym old =
-    -- Copy assertions from old state to current state
-    modifyIORef' (SB.sbStateManager sym) (set assertions (old ^. SB.pathState ^. assertions))
-  sbSwitchToState sym _ new =
-    -- Copy assertions from new state to current state
-    modifyIORef' (SB.sbStateManager sym) (set assertions (new ^. SB.pathState ^. assertions))
+  pushAssumptionFrame sym = do
+    stk <- getAssumptionStack sym
+    AS.pushFrame stk
+
+  popAssumptionFrame sym ident = do
+    stk <- getAssumptionStack sym
+    frm <- AS.popFrame ident stk
+    readIORef (assumeFrameCond frm)
+
+  cloneAssumptionState sym = do
+    stk <- getAssumptionStack sym
+    AS.cloneAssumptionStack stk
+
+  restoreAssumptionState sym stk = do
+    modifyIORef' (SB.sbStateManager sym)
+      (\st -> st{ saw_assumptions = stk })

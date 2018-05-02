@@ -89,8 +89,8 @@ import           Lang.Crucible.Simulator.Frame
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.Utils.MonadST
 import           Lang.Crucible.Utils.MonadVerbosity
 import           Lang.Crucible.Utils.StateContT
@@ -110,7 +110,7 @@ import           Lang.Crucible.Utils.StateContT
 --   * 'ret'  return type of the current frame
 --   * 'a'    the value type
 --
-newtype OverrideSim (p :: * -> *) sym ext rtp (args :: Ctx CrucibleType) (ret :: CrucibleType) a
+newtype OverrideSim p sym ext rtp (args :: Ctx CrucibleType) (ret :: CrucibleType) a
       = Sim { unSim :: StateContT (SimState p sym ext rtp (OverrideLang args ret) 'Nothing)
                                   (ExecResult p sym ext rtp)
                                   IO
@@ -183,8 +183,11 @@ getPathConditions = do
 
 instance MonadVerbosity (OverrideSim p sym ext rtp args ret) where
   getVerbosity = do
-    cfg <- simConfig <$> getContext
-    liftIO $ getConfigValue verbosity cfg
+    ctx <- getContext
+    let cfg = ctxSolverProof ctx (getConfiguration (ctx^.ctxSymInterface))
+    v <- liftIO (getOpt =<< getOptionSetting verbosity cfg)
+    return (fromInteger v)
+
   getLogFunction = do
     h <- printHandle <$> getContext
     verb <- getVerbosity

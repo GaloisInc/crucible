@@ -41,10 +41,12 @@ import Lang.Crucible.Simulator.SimError (SimErrorReason(..))
 
 
 import Lang.Crucible.Solver.Symbol(userSymbol)
-import Lang.Crucible.Solver.Interface
-          (freshConstant, bvLit, bvEq, asUnsignedBV, IsSymInterface)
 import Lang.Crucible.Solver.BoolInterface
-        (addFailedAssertion,addAssertion,addAssumption,notPred)
+          (IsSymInterface)
+import Lang.Crucible.Solver.Interface
+          (freshConstant, bvLit, bvEq, asUnsignedBV,notPred)
+import Lang.Crucible.Solver.BoolInterface
+        (addFailedAssertion,addAssertion,addAssumption)
 
 import Lang.Crucible.LLVM.Translation
         ( LLVMContext, LLVMHandleInfo(..)

@@ -66,8 +66,8 @@ import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Solver.Partial
 
 import qualified Lang.Crucible.Solver.SAWCoreBackend as SAW
 

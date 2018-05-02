@@ -25,9 +25,13 @@ import           System.Exit
 import           System.IO
 import qualified System.IO.Streams as Streams
 import           System.Process
+import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
+import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
 import           Lang.Crucible.Solver.Adapter
+import           Lang.Crucible.Solver.Concrete
+import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.ProcessUtils
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
@@ -35,19 +39,21 @@ import           Lang.Crucible.Solver.SimpleBackend.ProblemFeatures
 import qualified Lang.Crucible.Solver.SimpleBackend.SMTLib2 as SMT2
 import           Lang.Crucible.Solver.SimpleBackend.SMTWriter
 import           Lang.Crucible.Solver.SimpleBuilder
-import           Lang.Crucible.Utils.MonadVerbosity
 import           Lang.Crucible.Utils.Streams
 
 data Z3 = Z3
 
 -- | Path to Z3
-z3Path :: ConfigOption FilePath
-z3Path = configOption "z3_path"
+z3Path :: ConfigOption BaseStringType
+z3Path = configOption knownRepr "z3_path"
 
-z3Options :: MonadVerbosity m => [ConfigDesc m]
+z3Options :: [ConfigDesc]
 z3Options =
-  [ mkOpt z3Path (Just "z3") executablePathOptSty
-    ("Z3 executable path" :: String)
+  [ mkOpt
+      z3Path
+      executablePathOptSty
+      (Just (PP.text "Z3 executable path"))
+      (Just (ConcreteString "z3"))
   ]
 
 z3Adapter :: SolverAdapter st
@@ -94,15 +100,13 @@ writeZ3SMT2File
 writeZ3SMT2File = SMT2.writeDefaultSMT2 Z3 "Z3" z3Features
 
 runZ3InOverride
-   :: Monad m
-   => SimpleBuilder t st
-   -> Config m
+   :: SimpleBuilder t st
    -> (Int -> String -> IO ())
    -> BoolElt t
    -> (SatResult (GroundEvalFn t, Maybe (EltRangeBindings t)) -> IO a)
    -> IO a
-runZ3InOverride sym cfg logLn p cont = do
-  z3_path <- findSolverPath =<< getConfigValue z3Path cfg
+runZ3InOverride sym logLn p cont = do
+  z3_path <- findSolverPath z3Path (getConfiguration sym)
   withZ3 sym z3_path (logLn 2) $ \s -> do
     -- Assume the predicate holds.
     SMT2.assume (SMT2.sessionWriter s) p

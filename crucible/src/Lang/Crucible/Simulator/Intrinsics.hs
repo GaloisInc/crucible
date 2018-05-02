@@ -36,7 +36,7 @@ import qualified GHC.TypeLits
 import           GHC.Stack
 
 import           Lang.Crucible.Types
-import           Lang.Crucible.Solver.BoolInterface
+import           Lang.Crucible.Solver.Interface
 
 -- | Type family for intrinsic type representations.  Intrinsic types
 --   are identified by a type-level `Symbol`, and this typeclass allows

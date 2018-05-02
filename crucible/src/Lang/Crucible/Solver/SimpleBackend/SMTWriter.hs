@@ -221,6 +221,7 @@ semiRingTypeMap SemiRingReal = RealTypeMap
 
 data BaseTypeError = ComplexTypeUnsupported
                    | ArrayUnsupported
+                   | StringTypeUnsupported
 
 type ArrayConstantFn v
    = [SMT_Type]
@@ -798,6 +799,7 @@ typeMapNoFunction conn tp0 = do
     BaseRealRepr -> Right $! RealTypeMap
     BaseNatRepr  -> Right $! NatTypeMap
     BaseIntegerRepr -> Right $! IntegerTypeMap
+    BaseStringRepr -> Left $! StringTypeUnsupported
     BaseComplexRepr
       | feat `hasProblemFeature` useStructs        -> Right $! ComplexToStructTypeMap
       | feat `hasProblemFeature` useSymbolicArrays -> Right $! ComplexToArrayTypeMap
@@ -816,6 +818,10 @@ getBaseSMT_Type v = do
   conn <- asks scConn
   let nm = show (bvarName v)
   case typeMap conn (bvarType v) of
+    Left StringTypeUnsupported -> do
+      fail $ show $ text nm
+        <+> text "is a string variable, and we do not support this with"
+        <+> text (smtWriterName conn ++ ".")
     Left ComplexTypeUnsupported -> do
       fail $ show $ text nm
         <+> text "is a complex variable, and we do not support this with"
@@ -1303,6 +1309,7 @@ type SMTSource = String -> BaseTypeError -> Doc
 ppBaseTypeError :: BaseTypeError -> Doc
 ppBaseTypeError ComplexTypeUnsupported = text "complex values"
 ppBaseTypeError ArrayUnsupported = text "arrays encoded as a functions"
+ppBaseTypeError StringTypeUnsupported = text "string values"
 
 eltSource :: Elt t tp -> SMTSource
 eltSource e solver_name cause =
@@ -2081,6 +2088,9 @@ mkExpr t@(SemiRingLiteral SemiRingInt i _) = do
 mkExpr t@(SemiRingLiteral SemiRingReal r _) = do
   checkLinearSupport t
   return (SMTExpr RealTypeMap (rationalTerm r))
+mkExpr t@(StringElt{}) =
+  do conn <- asks scConn
+     theoryUnsupported conn "strings" t
 mkExpr (BVElt w x _) =
   return $ SMTExpr (BVTypeMap w) $ bvTerm w x
 mkExpr (NonceAppElt ea) =

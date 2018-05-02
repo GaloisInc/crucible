@@ -15,19 +15,24 @@ module Lang.Crucible.Solver.Adapter
   ( SolverAdapter(..)
   , defaultWriteSMTLIB2Features
   , defaultSolverAdapter
+  , solverAdapterOptions
   ) where
 
 import           Data.Bits
-import           Data.Typeable
+import           Data.IORef
+import qualified Data.Map as Map
+import qualified Data.Text as T
 import           System.IO
+import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
+import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
+import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
 import           Lang.Crucible.Solver.SimpleBackend.ProblemFeatures
 import           Lang.Crucible.Solver.SimpleBuilder
 
-import           Lang.Crucible.Utils.MonadVerbosity
 
 data SolverAdapter st =
   SolverAdapter
@@ -35,7 +40,7 @@ data SolverAdapter st =
 
     -- | Configuration options relevant to this solver adapter
   , solver_adapter_config_options
-        :: !(forall m . MonadVerbosity m => [ConfigDesc m])
+        :: ![ConfigDesc]
 
     -- | Operation to check the satisfiability of a formula.
     --   The second argument is a callback that calculates the ultimate result from
@@ -44,10 +49,8 @@ data SolverAdapter st =
     --   callback completes, so any necessary information should be extracted from
     --   them before returning.
   , solver_adapter_check_sat
-        :: !(forall m t a
-         . Monad m
-        => SimpleBuilder t st
-        -> Config m
+        :: !(forall t a.
+           SimpleBuilder t st
         -> (Int -> String -> IO ())
         -> BoolElt t
         -> (SatResult (GroundEvalFn t, Maybe (EltRangeBindings t)) -> IO a)
@@ -56,7 +59,7 @@ data SolverAdapter st =
     -- | Write an SMTLib2 problem instance onto the given handle, incorporating
     --   any solver-specific tweaks appropriate to this solver
   , solver_adapter_write_smt2 :: !(forall t . SimpleBuilder t st -> Handle -> BoolElt t -> IO ())
-  } deriving (Typeable)
+  }
 
 
 instance Show (SolverAdapter st) where
@@ -75,5 +78,23 @@ defaultWriteSMTLIB2Features
   .|. useQuantifiers
   .|. useSymbolicArrays
 
-defaultSolverAdapter :: Typeable st => ConfigOption (SolverAdapter st)
-defaultSolverAdapter = configOption "default_solver"
+defaultSolverAdapter :: ConfigOption BaseStringType
+defaultSolverAdapter = configOption BaseStringRepr "default_solver"
+
+
+solverAdapterOptions ::
+  [SolverAdapter st] ->
+  IO ([ConfigDesc], IO (SolverAdapter st))
+solverAdapterOptions [] = fail "No solver adapters specified!"
+solverAdapterOptions xs@(def:_) =
+  do ref <- newIORef def
+     let opts = sty ref : concatMap solver_adapter_config_options xs
+     return (opts, readIORef ref)
+
+ where
+ f ref x = (T.pack (solver_adapter_name x), writeIORef ref x >> return optOK)
+ vals ref = Map.fromList (map (f ref) xs)
+ sty ref = mkOpt defaultSolverAdapter
+                 (listOptSty (vals ref))
+                 (Just (PP.text "Indicates which solver to use for check-sat queries"))
+                 (Just (ConcreteString (T.pack (solver_adapter_name def))))

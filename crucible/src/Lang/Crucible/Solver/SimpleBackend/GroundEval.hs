@@ -20,12 +20,15 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Solver.SimpleBackend.GroundEval
-  ( GroundValue
+  ( -- * Ground evaluation
+    GroundValue
   , GroundValueWrapper(..)
   , GroundArray(..)
   , lookupArray
   , GroundEvalFn(..)
   , EltRangeBindings
+
+    -- * Internal operations
   , tryEvalGroundElt
   , evalGroundElt
   , evalGroundApp
@@ -43,6 +46,7 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.TraversableFC
 import           Data.Ratio
+import           Data.Text (Text)
 import           Numeric.Natural
 
 import           Lang.Crucible.BaseTypes
@@ -61,10 +65,13 @@ type family GroundValue (tp :: BaseType) where
   GroundValue BaseRealType          = Rational
   GroundValue (BaseBVType w)        = Integer
   GroundValue BaseComplexType       = Complex Rational
+  GroundValue BaseStringType        = Text
   GroundValue (BaseArrayType idx b) = GroundArray idx b
   GroundValue (BaseStructType ctx)  = Ctx.Assignment GroundValueWrapper ctx
 
 -- | A function that calculates ground values for elements.
+--   Clients of solvers should use the @groundEval@ function for computing
+--   values in models.
 newtype GroundEvalFn t = GroundEvalFn { groundEval :: forall tp . Elt t tp -> IO (GroundValue tp) }
 
 -- | Function that calculates upper and lower bounds for real-valued elements.
@@ -102,6 +109,7 @@ toDouble = fromRational
 fromDouble :: Double -> Rational
 fromDouble = toRational
 
+-- | Construct a default value for a given base type.
 defaultValueForType :: BaseTypeRepr tp -> GroundValue tp
 defaultValueForType tp =
   case tp of
@@ -111,10 +119,14 @@ defaultValueForType tp =
     BaseIntegerRepr -> 0
     BaseRealRepr    -> 0
     BaseComplexRepr -> 0 :+ 0
+    BaseStringRepr  -> mempty
     BaseArrayRepr _ b -> ArrayConcrete (defaultValueForType b) Map.empty
     BaseStructRepr ctx -> fmapFC (GVW . defaultValueForType) ctx
 
 {-# INLINABLE evalGroundElt #-}
+-- | Helper function for evaluating @Elt@ expressions in a model.
+--
+--   This function is intended for implementers of symbolic backends.
 evalGroundElt :: (forall u . Elt t u -> IO (GroundValue u))
               -> Elt t tp
               -> IO (GroundValue tp)
@@ -140,6 +152,7 @@ tryEvalGroundElt _ (SemiRingLiteral SemiRingNat c _) = return c
 tryEvalGroundElt _ (SemiRingLiteral SemiRingInt c _) = return c
 tryEvalGroundElt _ (SemiRingLiteral SemiRingReal c _) = return c
 tryEvalGroundElt _ (BVElt _ c _) = return c
+tryEvalGroundElt _ (StringElt x _) = return x
 tryEvalGroundElt f (NonceAppElt a0) = evalGroundNonceApp (lift . f) (nonceEltApp a0)
 tryEvalGroundElt f (AppElt a0)      = evalGroundApp f (appEltApp a0)
 tryEvalGroundElt _ (BoundVarElt v) =
@@ -149,6 +162,9 @@ tryEvalGroundElt _ (BoundVarElt v) =
     UninterpVarKind   -> return $! defaultValueForType (bvarType v)
 
 {-# INLINABLE evalGroundNonceApp #-}
+-- | Helper function for evaluating @NonceApp@ expressions.
+--
+--   This function is intended for implementers of symbolic backends.
 evalGroundNonceApp :: Monad m
                    => (forall u . Elt t u -> MaybeT m (GroundValue u))
                    -> NonceApp t (Elt t) tp
@@ -167,6 +183,9 @@ evalGroundNonceApp _ a0 = lift $ fail $
 forallIndex :: Ctx.Size (ctx :: Ctx.Ctx k) -> (forall tp . Ctx.Index ctx tp -> Bool) -> Bool
 forallIndex sz f = Ctx.forIndex sz (\b j -> f j && b) True
 
+-- | Helper function for evaluating @App@ expressions.
+--
+--   This function is intended for implementers of symbolic backends.
 evalGroundApp :: forall t tp
                . (forall u . Elt t u -> IO (GroundValue u))
               -> App (Elt t) tp

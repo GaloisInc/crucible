@@ -109,6 +109,7 @@ import           Numeric.Natural
 
 import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.Types

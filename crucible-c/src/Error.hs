@@ -13,7 +13,7 @@ import qualified Data.LLVM.BitCode as LLVM
 import Lang.Crucible.ProgramLoc(ProgramLoc,plSourceLoc,Position(..))
 import Lang.Crucible.Simulator.ExecutionTree (AbortedResult(..))
 import Lang.Crucible.Simulator.SimError
-          (SimErrorReason(..),ppSimError,simErrorReasonMsg,simErrorReason)
+          (SimError(..), SimErrorReason(..),ppSimError,simErrorReasonMsg,simErrorReason)
 
 import Lang.Crucible.LLVM.Extension(LLVM)
 
@@ -23,7 +23,7 @@ throwError x = liftIO (throwIO x)
 data Error =
     LLVMParseError LLVM.Error
   | FailedToProve ProgramLoc
-                  (Maybe SimErrorReason)
+                  SimErrorReason
                   (Maybe String) -- Counter example as C functions.
   | forall b arch.
       SimFail (AbortedResult b (LLVM arch))
@@ -45,16 +45,15 @@ ppError :: Error -> String
 ppError err =
   case err of
     LLVMParseError e -> formatError e
-    FailedToProve loc mb _ -> docLoc ++ txt
+    FailedToProve loc s _ -> docLoc ++ txt
       where
       docLoc =
         case plSourceLoc loc of
           SourcePos f l c ->
             Text.unpack f ++ ":" ++ show l ++ ":" ++ show c ++ " "
           _ -> ""
-      txt = case mb of
-              Nothing -> "Assertion failed." -- shouldn't happen
-              Just s  -> simErrorReasonMsg s
+      txt = simErrorReasonMsg s
+
     SimFail (AbortedExec e _)
       | AssertFailureSimError x <- simErrorReason e -> x
     SimFail x -> unlines ["Error during simulation:", ppErr x]
@@ -74,9 +73,9 @@ ppError err =
 ppErr :: AbortedResult sym ext -> String
 ppErr aberr =
   case aberr of
+    AbortedExec (SimError _ InfeasibleBranchError) _gp -> "Assumptions too strong (dead code)"
     AbortedExec err _gp -> show (ppSimError err)
     AbortedExit e       -> "The program exited with result " ++ show e
-    AbortedInfeasible   -> "Assumptions too strong (dead code)"
     AbortedBranch {}    -> "(Aborted branch?)"
 
 

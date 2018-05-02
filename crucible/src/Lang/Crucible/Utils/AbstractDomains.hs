@@ -82,6 +82,7 @@ import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.TraversableFC
 import           Data.Ratio (denominator)
+import           Data.Text (Text)
 import           Numeric.Natural
 
 import           Lang.Crucible.BaseTypes
@@ -468,11 +469,12 @@ natRangeToRange (NatMultiRange l u) = MultiRange (Inclusive l) u
 
 
 -- | An abstract value represents a disjoint st of values.
-type family   AbstractValue (tp::BaseType) :: * where
+type family AbstractValue (tp::BaseType) :: * where
   AbstractValue BaseBoolType = Maybe Bool
   AbstractValue BaseNatType = NatValueRange
   AbstractValue BaseIntegerType = ValueRange Integer
   AbstractValue BaseRealType = RealAbstractValue
+  AbstractValue BaseStringType = ()
   AbstractValue (BaseBVType w) = BVDomain w
   AbstractValue BaseComplexType = Complex RealAbstractValue
   AbstractValue (BaseArrayType idx b) = AbstractValue b
@@ -486,6 +488,7 @@ type family ConcreteValue (tp::BaseType) :: * where
   ConcreteValue BaseNatType = Natural
   ConcreteValue BaseIntegerType = Integer
   ConcreteValue BaseRealType = Rational
+  ConcreteValue BaseStringType = Text
   ConcreteValue (BaseBVType w) = Integer
   ConcreteValue BaseComplexType = Complex Rational
   ConcreteValue (BaseArrayType idx b) = ()
@@ -503,6 +506,7 @@ avTop tp =
     BaseIntegerRepr -> unboundedRange
     BaseRealRepr    -> ravUnbounded
     BaseComplexRepr -> ravUnbounded :+ ravUnbounded
+    BaseStringRepr  -> ()
     BaseBVRepr w    -> BVD.any w
     BaseArrayRepr _a b -> avTop b
     BaseStructRepr flds -> fmapFC (\etp -> AbstractValueWrapper (avTop etp)) flds
@@ -515,6 +519,7 @@ avSingle tp =
     BaseNatRepr -> natSingleRange
     BaseIntegerRepr -> singleRange
     BaseRealRepr -> ravSingle
+    BaseStringRepr -> \_ -> ()
     BaseComplexRepr -> fmap ravSingle
     BaseBVRepr w -> BVD.singleton w
     BaseArrayRepr _a b -> \_ -> avTop b
@@ -554,6 +559,10 @@ instance Abstractable BaseBoolType where
     where f Nothing _ = True
           f _ Nothing = True
           f (Just x) (Just y) = x == y
+
+instance Abstractable BaseStringType where
+  avJoin _ _ _ = ()
+  avOverlap _ _ _ = True
 
 -- Natural numbers have a lower and upper bound associated with them.
 instance Abstractable BaseNatType where
@@ -604,6 +613,7 @@ withAbstractable bt k =
     BaseBVRepr _w -> k
     BaseNatRepr -> k
     BaseIntegerRepr -> k
+    BaseStringRepr -> k
     BaseRealRepr -> k
     BaseComplexRepr -> k
     BaseArrayRepr _a _b -> k

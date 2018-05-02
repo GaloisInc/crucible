@@ -46,7 +46,7 @@ data ExtX86 :: (CrucibleType -> *) -> CrucibleType -> * where
 
 
 eval :: forall sym f tp.
-        I.IsSymInterface sym =>
+        I.IsSymExprBuilder sym =>
         sym ->
         (forall subT. f subT -> IO (RegValue sym subT)) ->
         ExtX86 f tp ->
@@ -60,7 +60,7 @@ eval sym ev ext =
 
 
 -- | See @vpslldq@
-vShiftL :: (I.IsSymInterface sym, 1 <= w) =>
+vShiftL :: (I.IsSymExprBuilder sym, 1 <= w) =>
            sym -> NatRepr w -> Word8 -> SymBV sym w -> IO (SymBV sym w)
 vShiftL sym w amt v =
   do i <- I.bvLit sym w (8 * fromIntegral amt)
@@ -69,7 +69,7 @@ vShiftL sym w amt v =
 
 -- | See @vpshufd@
 vShufD :: forall sym w.
-          I.IsSymInterface sym =>
+          I.IsSymExprBuilder sym =>
           sym -> NatRepr w -> Word8 -> SymBV sym w -> IO (SymBV sym w)
 vShufD sym w ixes v
   | Just I.Refl <- testEquality w n128 = mk128 v
