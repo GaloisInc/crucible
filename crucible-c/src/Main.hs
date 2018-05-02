@@ -74,7 +74,7 @@ main =
        file : _ ->
           do opts <- testOptions file
              do unless (takeExtension file == ".bc") (genBitCode opts)
-                checkBC (optsBCFile opts) `catch` errHandler opts
+                checkBC opts `catch` errHandler opts
            `catch` \e -> sayFail "Crux" (ppError e)
        _ -> do p <- getProgName
                hPutStrLn stderr $ unlines
@@ -91,13 +91,14 @@ errHandler opts e =
        _ -> return ()
     `catch` \e1 -> sayFail "Crux" (ppError e1)
 
-checkBC :: FilePath -> IO ()
-checkBC file =
-  do say "Crux" ("Checking " ++ show file)
+checkBC :: Options -> IO ()
+checkBC opts =
+  do let file = optsBCFile opts
+     say "Crux" ("Checking " ++ show file)
      errs <- simulate file (checkFun "main")
      case catMaybes errs of
       [] -> sayOK "Crux" "Valid."
-      (e : _) -> errHandler file incs e
+      (e : _) -> errHandler opts e
 
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::
