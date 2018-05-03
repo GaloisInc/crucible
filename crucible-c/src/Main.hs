@@ -28,7 +28,7 @@ import Data.LLVM.BitCode (parseBitCodeFromFile)
 
 import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
 
-import Lang.Crucible.Config (extendConfig, getOptionSetting, setOpt, verbosity)
+import Lang.Crucible.Config (extendConfig)
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
@@ -44,7 +44,8 @@ import Lang.Crucible.Simulator.OverrideSim
         ( fnBindingsFromList, initSimState, runOverrideSim, callCFG)
 
 import Lang.Crucible.Solver.Interface(getConfiguration)
-import Lang.Crucible.Solver.BoolInterface(getProofObligations,IsSymInterface)
+import Lang.Crucible.Solver.BoolInterface
+  (getProofObligations,IsSymInterface, pushAssumptionFrame, popAssumptionFrame)
 
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn, LLVM)
 import Lang.Crucible.LLVM.Translation
@@ -57,9 +58,7 @@ import Lang.Crucible.LLVM.Types(withPtrWidth)
 import Lang.Crucible.LLVM.Intrinsics
           (llvmIntrinsicTypes, llvmPtrWidth, register_llvm_overrides)
 
-import Lang.Crucible.Solver.SAWCoreBackend(newSAWCoreBackend, sawCheckPathSat)
-import Verifier.SAW.Prelude(preludeModule)
-import Verifier.SAW.SharedTerm(mkSharedContext)
+import Lang.Crucible.Solver.OnlineBackend(withOnlineBackend)
 
 import Error
 import Goal
@@ -161,18 +160,12 @@ simulate file k =
      llvmPtrWidth llvmCtxt $ \ptrW ->
        withPtrWidth ptrW $
        withIONonceGenerator $ \nonceGen ->
-       do sc  <- mkSharedContext preludeModule
-          sym <- newSAWCoreBackend sc nonceGen
-
-          -- set up configuration options
+       withOnlineBackend nonceGen $ \sym ->
+       do -- set up configuration options
           let cfg = getConfiguration sym
           extendConfig (solver_adapter_config_options prover) cfg
-          opt <- getOptionSetting sawCheckPathSat cfg
-          _ <- setOpt opt True
 
-          vopt <- getOptionSetting verbosity cfg
-          _ <- setOpt vopt 1
-
+          frm <- pushAssumptionFrame sym
           let simctx = setupSimCtxt halloc sym
 
           mem  <- initializeMemory sym llvmCtxt llvm_mod
@@ -183,6 +176,8 @@ simulate file k =
                    do setupMem llvmCtxt trans
                       setupOverrides llvmCtxt
                       k (cfgMap trans)
+
+          _ <- popAssumptionFrame sym frm
 
           case res of
             FinishedExecution ctx' _ ->

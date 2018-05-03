@@ -12,8 +12,8 @@ import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
 import Lang.Crucible.Solver.AssumptionStack(ProofGoal(..))
 import Lang.Crucible.Solver.SatResult(SatResult(..))
 import Lang.Crucible.Solver.SimpleBuilder (SimpleBuilder)
-import Lang.Crucible.Solver.SimpleBackend.Z3(z3Adapter)
--- import Lang.Crucible.Solver.SimpleBackend.Yices(yicesAdapter)
+-- import Lang.Crucible.Solver.SimpleBackend.Z3(z3Adapter)
+import Lang.Crucible.Solver.OnlineBackend(yicesOnlineAdapter,OnlineBackendState)
 
 import Lang.Crucible.Simulator.SimError(SimErrorReason(..))
 import Lang.Crucible.Simulator.ExecutionTree
@@ -25,9 +25,14 @@ import Types
 import Model
 
 
-prover :: SolverAdapter s
-prover = z3Adapter
+-- prover :: SolverAdapter s
+-- prover = z3Adapter
 --prover = yicesAdapter
+
+prover :: SolverAdapter OnlineBackendState
+prover = yicesOnlineAdapter
+
+
 
 data Goal sym = Goal
   { gAssumes :: [Pred sym]
@@ -50,8 +55,8 @@ obligGoal sym g = foldM imp (gShows g ^. assertPred) (gAssumes g)
   imp p a = impliesPred sym a p
 
 proveGoal ::
-  SimCtxt (SimpleBuilder s t) arch ->
-  Goal (SimpleBuilder s t) ->
+  SimCtxt (SimpleBuilder s OnlineBackendState) arch ->
+  Goal (SimpleBuilder s OnlineBackendState) ->
   IO (Maybe Error)
 proveGoal ctxt g =
   do let sym = ctxt ^. ctxSymInterface
