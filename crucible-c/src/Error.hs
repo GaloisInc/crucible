@@ -3,6 +3,7 @@ module Error (module Error, catch) where
 
 import Control.Monad.IO.Class(MonadIO, liftIO)
 import Control.Exception(Exception(..), SomeException(..), throwIO, catch)
+import Control.Lens((^.))
 import Data.Typeable(cast)
 import qualified Data.Text as Text
 
@@ -11,22 +12,26 @@ import qualified Data.LLVM.BitCode as LLVM
 
 
 import Lang.Crucible.ProgramLoc(ProgramLoc,plSourceLoc,Position(..))
-import Lang.Crucible.Simulator.ExecutionTree (AbortedResult(..))
+import Lang.Crucible.Simulator.ExecutionTree
+          (AbortedResult(..), SomeFrame(..), gpValue, ppExceptionContext)
 import Lang.Crucible.Simulator.SimError
-          (SimError(..), SimErrorReason(..),ppSimError,simErrorReasonMsg,simErrorReason)
+          (SimError(..), SimErrorReason(..),ppSimError
+          ,simErrorReasonMsg )
+import Lang.Crucible.Simulator.Frame(SimFrame)
 
 import Lang.Crucible.LLVM.Extension(LLVM)
 
 throwError :: MonadIO m => Error -> m a
 throwError x = liftIO (throwIO x)
 
+
 data Error =
     LLVMParseError LLVM.Error
   | FailedToProve ProgramLoc
                   SimErrorReason
                   (Maybe String) -- Counter example as C functions.
-  | forall b arch.
-      SimFail (AbortedResult b (LLVM arch))
+  | forall sym arch. SimFail SimError [ SomeFrame (SimFrame sym (LLVM arch)) ]
+  | forall sym arch. SimAbort (AbortedResult sym (LLVM arch))
   | BadFun
   | MissingFun String
   | Bug String
@@ -54,9 +59,14 @@ ppError err =
           _ -> ""
       txt = simErrorReasonMsg s
 
-    SimFail (AbortedExec e _)
-      | AssertFailureSimError x <- simErrorReason e -> x
-    SimFail x -> unlines ["Error during simulation:", ppErr x]
+    SimFail e fs -> ppE e fs
+    SimAbort ab ->
+      case ab of
+        AbortedExec e p -> ppE e [ SomeFrame (p ^. gpValue) ]
+        AbortedExit c ->
+          unlines [ "Program terminated with exit code: " ++ show c ]
+        AbortedBranch {} -> "XXX: Aborted branch?"
+
     BadFun -> "Function should have no arguments"
     MissingFun nm -> "Cannot find code for " ++ show nm
     Bug x -> x
@@ -69,6 +79,10 @@ ppError err =
                 [ "*** Standard error:" ] ++
                 [ "   " ++ l | l <- lines serr ]
     EnvError msg -> msg
+
+  where
+  ppE e fs = unlines $ ("*** " ++ show (ppSimError e))
+                     : [ "*** " ++ l | l <- lines (show (ppExceptionContext fs)) ]
 
 ppErr :: AbortedResult sym ext -> String
 ppErr aberr =

@@ -28,14 +28,17 @@ import Data.LLVM.BitCode (parseBitCodeFromFile)
 
 import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
 
-import Lang.Crucible.Config (extendConfig, getOptionSetting, setOpt)
+import Lang.Crucible.Config (extendConfig, getOptionSetting, setOpt, verbosity)
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
 import Lang.Crucible.Simulator.RegMap(emptyRegMap,regValue)
 import Lang.Crucible.Simulator.ExecutionTree
-        ( initSimContext, defaultErrorHandler
+        ( initSimContext
         , ExecResult(..)
+        , ErrorHandler(..)
+        , stateTree
+        , activeFrames
         )
 import Lang.Crucible.Simulator.OverrideSim
         ( fnBindingsFromList, initSimState, runOverrideSim, callCFG)
@@ -43,7 +46,7 @@ import Lang.Crucible.Simulator.OverrideSim
 import Lang.Crucible.Solver.Interface(getConfiguration)
 import Lang.Crucible.Solver.BoolInterface(getProofObligations,IsSymInterface)
 
-import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn)
+import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn, LLVM)
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, initializeMemory
         , transContext, cfgMap, initMemoryCFG
@@ -167,11 +170,14 @@ simulate file k =
           opt <- getOptionSetting sawCheckPathSat cfg
           _ <- setOpt opt True
 
+          vopt <- getOptionSetting verbosity cfg
+          _ <- setOpt vopt 1
+
           let simctx = setupSimCtxt halloc sym
 
           mem  <- initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
-          let simSt  = initSimState simctx globSt defaultErrorHandler
+          let simSt  = initSimState simctx globSt eHandler
 
           res <- runOverrideSim simSt UnitRepr $
                    do setupMem llvmCtxt trans
@@ -183,7 +189,10 @@ simulate file k =
               do gs <- Fold.toList <$> getProofObligations sym
                  let ordGs = sortBy (compare `on` goalPriority) (map mkGoal gs)
                  mapM (proveGoal ctx') ordGs
-            AbortedResult _ err -> throwError (SimFail err)
+            AbortedResult _ err -> throwError (SimAbort err)
+
+eHandler :: ErrorHandler (Model sym) sym (LLVM arch) trp
+eHandler = EH (\e st -> throwError (SimFail e (activeFrames (st ^. stateTree))))
 
 checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM scope arch ()
 checkFun nm mp =
