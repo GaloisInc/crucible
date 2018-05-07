@@ -11,7 +11,7 @@ import Data.LLVM.BitCode (formatError)
 import qualified Data.LLVM.BitCode as LLVM
 
 
-import Lang.Crucible.ProgramLoc(ProgramLoc,plSourceLoc,Position(..))
+import Lang.Crucible.ProgramLoc(plSourceLoc,Position(..))
 import Lang.Crucible.Simulator.ExecutionTree
           (AbortedResult(..), SomeFrame(..), gpValue, ppExceptionContext)
 import Lang.Crucible.Simulator.SimError
@@ -27,8 +27,7 @@ throwError x = liftIO (throwIO x)
 
 data Error =
     LLVMParseError LLVM.Error
-  | FailedToProve ProgramLoc
-                  SimErrorReason
+  | FailedToProve SimError
                   (Maybe String) -- Counter example as C functions.
   | forall sym arch. SimFail SimError [ SomeFrame (SimFrame sym (LLVM arch)) ]
   | forall sym arch. SimAbort (AbortedResult sym (LLVM arch))
@@ -50,14 +49,14 @@ ppError :: Error -> String
 ppError err =
   case err of
     LLVMParseError e -> formatError e
-    FailedToProve loc s _ -> docLoc ++ txt
+    FailedToProve e _ -> docLoc ++ txt
       where
       docLoc =
-        case plSourceLoc loc of
+        case plSourceLoc (simErrorLoc e) of
           SourcePos f l c ->
             Text.unpack f ++ ":" ++ show l ++ ":" ++ show c ++ " "
           _ -> ""
-      txt = simErrorReasonMsg s
+      txt = simErrorReasonMsg (simErrorReason e)
 
     SimFail e fs -> ppE e fs
     SimAbort ab ->

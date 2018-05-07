@@ -427,7 +427,7 @@ llvmAssertRtnOverride =
   UnitRepr
   (\_ sym _args ->
        do let err = AssertFailureSimError "Call to __assert_rtn"
-          liftIO $ addAssertion sym (falsePred sym) err
+          liftIO $ assert sym (falsePred sym) err
   )
 
 llvmCallocOverride
@@ -1102,7 +1102,7 @@ callCtlz sym _mvar
     do isNonzero <- bvIsNonzero sym val
        zeroOK    <- notPred sym =<< bvIsNonzero sym isZeroUndef
        p <- orPred sym isNonzero zeroOK
-       addAssertion sym p (AssertFailureSimError "Ctlz called with disallowed zero value")
+       assert sym p (AssertFailureSimError "Ctlz called with disallowed zero value")
        -- FIXME: implement CTLZ as a SimpleBuilder primitive
        go (0 :: Integer)
  where

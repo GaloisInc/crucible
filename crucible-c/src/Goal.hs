@@ -2,12 +2,11 @@ module Goal where
 
 import Control.Lens((^.))
 import Control.Monad(foldM)
-import qualified Data.Foldable as Fold
 
 import Lang.Crucible.Solver.Interface
         (IsExprBuilder, Pred, notPred, impliesPred)
 import Lang.Crucible.Solver.BoolInterface
-        ( Assertion, assertPred, assertMsg, assertLoc )
+        ( ProofObligation, labeledPredMsg, labeledPred )
 import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
 import Lang.Crucible.Solver.AssumptionStack(ProofGoal(..))
 import Lang.Crucible.Solver.SatResult(SatResult(..))
@@ -15,7 +14,6 @@ import Lang.Crucible.Solver.SimpleBuilder (SimpleBuilder)
 -- import Lang.Crucible.Solver.SimpleBackend.Z3(z3Adapter)
 import Lang.Crucible.Solver.OnlineBackend(yicesOnlineAdapter,OnlineBackendState)
 
-import Lang.Crucible.Simulator.SimError(SimErrorReason(..))
 import Lang.Crucible.Simulator.ExecutionTree
         (ctxSymInterface, cruciblePersonality)
 
@@ -34,29 +32,17 @@ prover = yicesOnlineAdapter
 
 
 
-data Goal sym = Goal
-  { gAssumes :: [Pred sym]
-  , gShows   :: Assertion (Pred sym) SimErrorReason
-  }
 
--- Check assertions before other things
-goalPriority :: Goal sym -> Int
-goalPriority g =
-  case assertMsg (gShows g) of
-    AssertFailureSimError {} -> 0
-    _ -> 1
-
-mkGoal :: ProofGoal (Pred sym) SimErrorReason -> Goal sym
-mkGoal (ProofGoal as p) = Goal { gAssumes = (Fold.toList as), gShows = p }
-
-obligGoal :: IsExprBuilder sym => sym -> Goal sym -> IO (Pred sym)
-obligGoal sym g = foldM imp (gShows g ^. assertPred) (gAssumes g)
+-- XXX: Change
+obligGoal :: IsExprBuilder sym => sym -> ProofObligation sym -> IO (Pred sym)
+obligGoal sym g = foldM imp (proofGoal g ^. labeledPred)
+                            (proofAssumptions g)
   where
-  imp p a = impliesPred sym a p
+  imp p a = impliesPred sym (a ^. labeledPred) p
 
 proveGoal ::
   SimCtxt (SimpleBuilder s OnlineBackendState) arch ->
-  Goal (SimpleBuilder s OnlineBackendState) ->
+  ProofObligation (SimpleBuilder s OnlineBackendState) ->
   IO (Maybe Error)
 proveGoal ctxt g =
   do let sym = ctxt ^. ctxSymInterface
@@ -74,8 +60,8 @@ proveGoal ctxt g =
           _  -> return (Just (e Nothing))
 
   where
-  a = gShows g
-  e mb = FailedToProve (assertLoc a) (assertMsg a) mb
+  a    = proofGoal g
+  e mb = FailedToProve (a ^. labeledPredMsg) mb
 
 
 

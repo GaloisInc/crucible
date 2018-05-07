@@ -239,11 +239,11 @@ evalStmt sym = eval
         v1 <- isValidPointer sym x mem
         v2 <- isValidPointer sym y mem
         v3 <- G.notAliasable sym x y (memImplHeap mem)
-        addAssertion sym v1
+        assert sym v1
            (AssertFailureSimError $ unlines ["Invalid pointer compared for equality:", show x_doc, show allocs_doc])
-        addAssertion sym v2
+        assert sym v2
            (AssertFailureSimError $ unlines ["Invalid pointer compared for equality:", show y_doc, show allocs_doc])
-        addAssertion sym v3
+        assert sym v3
            (AssertFailureSimError $ unlines ["Const pointers compared for equality:", show x_doc, show y_doc, show allocs_doc])
 
         ptrEq sym PtrWidth x y
@@ -255,9 +255,9 @@ evalStmt sym = eval
            y_doc = G.ppPtr y
        v1 <- isValidPointer sym x mem
        v2 <- isValidPointer sym y mem
-       addAssertion sym v1
+       assert sym v1
           (AssertFailureSimError $ unwords ["Invalid pointer compared for ordering:", show x_doc])
-       addAssertion sym v2
+       assert sym v2
           (AssertFailureSimError $ unwords ["Invalid pointer compared for ordering:", show y_doc])
        ptrLe sym PtrWidth x y
 
@@ -482,7 +482,7 @@ loadRaw :: (IsSymInterface sym, HasPtrWidth wptr)
 loadRaw sym mem ptr valType =
   do res <- loadRawWithCondition sym mem ptr valType
      case res of
-       Right (p,r,v) -> v <$ addAssertion sym p r
+       Right (p,r,v) -> v <$ assert sym p r
        Left e        -> fail e
 
 
@@ -526,7 +526,7 @@ doLoad sym mem ptr valType alignment = do
       Unassigned ->
         fail errMsg
       PE p' v' -> do
-        addAssertion sym p' (AssertFailureSimError errMsg)
+        assert sym p' (AssertFailureSimError errMsg)
         unpackMemValue sym v'
 
 -- | Store an LLVM value in memory. Also assert that the pointer is
@@ -542,7 +542,7 @@ storeRaw sym mem ptr valType val = do
     (p, heap') <- G.writeMem sym PtrWidth ptr valType val (memImplHeap mem)
     let errMsg = "Invalid memory store: address " ++ show (G.ppPtr ptr) ++
                  " at type " ++ show (G.ppType valType)
-    addAssertion sym p (AssertFailureSimError errMsg)
+    assert sym p (AssertFailureSimError errMsg)
     return mem{ memImplHeap = heap' }
 
 -- | Store an LLVM value in memory. The pointed-to memory region may
@@ -559,7 +559,7 @@ storeConstRaw sym mem ptr valType val = do
     (p, heap') <- G.writeConstMem sym PtrWidth ptr valType val (memImplHeap mem)
     let errMsg = "Invalid memory store: address " ++ show (G.ppPtr ptr) ++
                  " at type " ++ show (G.ppType valType)
-    addAssertion sym p (AssertFailureSimError errMsg)
+    assert sym p (AssertFailureSimError errMsg)
     return mem{ memImplHeap = heap' }
 
 -- | Store a 'RegValue' in memory. Also assert that the pointer is
@@ -610,7 +610,7 @@ assertDisjointRegions'
   -> IO ()
 assertDisjointRegions' lbl sym w dest dlen src slen = do
   c <- buildDisjointRegionsAssertion sym w dest dlen src slen
-  addAssertion sym c
+  assert sym c
      (AssertFailureSimError ("Memory regions not disjoint in " ++ lbl))
 
 
@@ -663,7 +663,7 @@ doCalloc
 doCalloc sym mem sz num = do
   (ov, sz') <- unsignedWideMultiplyBV sym sz num
   ov_iszero <- notPred sym =<< bvIsNonzero sym ov
-  addAssertion sym ov_iszero
+  assert sym ov_iszero
      (AssertFailureSimError "Multiplication overflow in calloc()")
 
   z <- bvLit sym knownNat 0
@@ -768,7 +768,7 @@ doFree sym mem ptr = do
   -- NB: free is defined and has no effect if passed a null pointer
   isNull <- ptrIsNull sym PtrWidth ptr
   c' <- orPred sym c isNull
-  addAssertion sym c' (AssertFailureSimError errMsg)
+  assert sym c' (AssertFailureSimError errMsg)
   return mem{ memImplHeap = heap', memImplHandleMap = hMap' }
 
 doMemset
@@ -799,7 +799,7 @@ doMemset sym _w mem dest val len = do
       let xs   = V.generate (fromInteger sz) (\_ -> val')
       let arr  = LLVMValArray (G.bitvectorType 1) xs
       (c, heap') <- G.writeMem sym PtrWidth dest tp arr (memImplHeap mem)
-      addAssertion sym c
+      assert sym c
          (AssertFailureSimError "Invalid region specified in memset")
       return mem{ memImplHeap = heap' }
 
@@ -818,7 +818,7 @@ doMemcpy sym w mem dest src len = do
 
   (c, heap') <- G.copyMem sym PtrWidth dest src len' (memImplHeap mem)
 
-  addAssertion sym c
+  assert sym c
      (AssertFailureSimError "Invalid memory region in memcpy")
 
   return mem{ memImplHeap = heap' }
@@ -846,7 +846,7 @@ doPtrAddOffset sym m x off = do
    v  <- isValidPointer sym x' m
    let x_doc = G.ppPtr x
    let off_doc = printSymExpr off
-   addAssertion sym v
+   assert sym v
        (AssertFailureSimError $ unlines ["Pointer arithmetic resulted in invalid pointer:", show x_doc, show off_doc])
    return x'
 

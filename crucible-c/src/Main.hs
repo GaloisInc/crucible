@@ -5,8 +5,6 @@
 module Main(main) where
 
 import Data.String(fromString)
-import Data.Function(on)
-import Data.List(sortBy)
 import qualified Data.Foldable as Fold
 import Data.Maybe(catMaybes)
 import qualified Data.Map as Map
@@ -89,7 +87,7 @@ errHandler :: Options -> Error -> IO ()
 errHandler opts e =
   do sayFail "Crux" (ppError e)
      case e of
-       FailedToProve _ _ (Just c) -> buildModelExes opts c
+       FailedToProve _ (Just c) -> buildModelExes opts c
        _ -> return ()
     `catch` \e1 -> sayFail "Crux" (ppError e1)
 
@@ -182,8 +180,7 @@ simulate file k =
           case res of
             FinishedExecution ctx' _ ->
               do gs <- Fold.toList <$> getProofObligations sym
-                 let ordGs = sortBy (compare `on` goalPriority) (map mkGoal gs)
-                 mapM (proveGoal ctx') ordGs
+                 mapM (proveGoal ctx') gs
             AbortedResult _ err -> throwError (SimAbort err)
 
 eHandler :: ErrorHandler (Model sym) sym (LLVM arch) trp

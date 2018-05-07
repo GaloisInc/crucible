@@ -24,6 +24,7 @@ module Lang.Crucible.Solver.BoolInterface
     -- * Assumption management
   , assert
   , AssumptionReason(..)
+  , assumptionLoc
   , Assertion
   , Assumption
   , ProofObligation
@@ -60,6 +61,13 @@ data AssumptionReason =
   | AssumingNoError SimError
     -- ^ An assumption justified by a proof of the impossibility of
     -- a certain simulator error.
+
+assumptionLoc :: AssumptionReason -> ProgramLoc
+assumptionLoc r =
+  case r of
+    AssumptionReason l _ -> l
+    ExploringAPath l     -> l
+    AssumingNoError s    -> simErrorLoc s
 
 instance AS.AssumeAssert AssumptionReason SimError where
   assertToAssume = AssumingNoError

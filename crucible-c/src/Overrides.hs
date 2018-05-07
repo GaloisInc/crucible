@@ -44,9 +44,11 @@ import Lang.Crucible.Solver.Symbol(userSymbol)
 import Lang.Crucible.Solver.BoolInterface
           (IsSymInterface)
 import Lang.Crucible.Solver.Interface
-          (freshConstant, bvLit, bvEq, asUnsignedBV,notPred)
+          (freshConstant, bvLit, bvEq, asUnsignedBV,notPred
+          , getCurrentProgramLoc)
 import Lang.Crucible.Solver.BoolInterface
-        (addFailedAssertion,addAssertion,addAssumption)
+        (addFailedAssertion,assert,addAssumption, LabeledPred(..)
+        , AssumptionReason(..))
 
 import Lang.Crucible.LLVM.Translation
         ( LLVMContext, LLVMHandleInfo(..)
@@ -193,7 +195,10 @@ lib_assume =
      sym  <- getSymInterface
      liftIO $ do cond <- projectLLVM_bv sym (regValue p)
                  zero <- bvLit sym knownRepr 0
-                 addAssumption sym =<< notPred sym =<< bvEq sym cond zero
+                 asmpP <- notPred sym =<< bvEq sym cond zero
+                 loc   <- getCurrentProgramLoc sym
+                 let msg = AssumptionReason loc "XXX"
+                 addAssumption sym (LabeledPred asmpP msg)
 
 
 lib_assert ::
@@ -213,7 +218,7 @@ lib_assert mvar =
                  zero <- bvLit sym knownRepr 0
                  let rsn = AssertFailureSimError msg
                  check <- notPred sym =<< bvEq sym cond zero
-                 addAssertion sym check rsn
+                 assert sym check rsn
 
 
 
@@ -235,7 +240,10 @@ sv_comp_assume =
      sym  <- getSymInterface
      liftIO $ do cond <- projectLLVM_bv sym (regValue p)
                  zero <- bvLit sym knownRepr 0
-                 addAssumption sym =<< notPred sym =<< bvEq sym cond zero
+                 loc  <- getCurrentProgramLoc sym
+                 let msg = AssumptionReason loc "XXX"
+                 check <- notPred sym =<< bvEq sym cond zero
+                 addAssumption sym (LabeledPred check msg)
 
 {-
 sv_comp_assert ::
