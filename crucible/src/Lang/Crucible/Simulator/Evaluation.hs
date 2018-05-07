@@ -32,7 +32,7 @@ module Lang.Crucible.Simulator.Evaluation
   , updateVectorWithSymNat
   ) where
 
-import           Control.Exception (assert)
+import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad
 import qualified Data.Map.Strict as Map
@@ -114,7 +114,7 @@ indexSymbolic' sym iteFn f p ((l,h):nl) (si:il) = do
       l_sym <- natLit sym l
       h_sym <- natLit sym h
       inRange <- join $ andPred sym <$> natLe sym l_sym si <*> natLe sym si h_sym
-      addAssertion sym inRange (GenericSimError "Index exceeds matrix dimensions.")
+      assert sym inRange (GenericSimError "Index exceeds matrix dimensions.")
       let predFn i = natEq sym si =<< natLit sym (fromInteger i)
       muxIntegerRange predFn iteFn (subIndex . fromInteger) (toInteger l) (toInteger h)
 
@@ -160,7 +160,7 @@ indexVectorWithSymNat :: IsExprBuilder sym
                       -> IO a
 indexVectorWithSymNat sym iteFn v si = do
   let n = fromIntegral (V.length v)
-  assert (n > 0) $ do
+  Ex.assert (n > 0) $ do
   case asNat si of
     Just i | 0 <= i && i <= n -> return (v V.! fromIntegral i)
            | otherwise -> error "indexVectorWithSymNat given bad value"

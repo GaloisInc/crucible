@@ -44,7 +44,7 @@ type SimpleBackend t = SB.SimpleBuilder t SimpleBackendState
 -- It contains the current assertion stack.
 
 newtype SimpleBackendState t
-      = SimpleBackendState { sbAssumptionStack :: AssumptionStack (BoolElt t) SimErrorReason }
+      = SimpleBackendState { sbAssumptionStack :: AssumptionStack (BoolElt t) AssumptionReason SimError }
 
 -- | Returns an initial execution state.
 initialSimpleBackendState :: NonceGenerator IO t -> IO (SimpleBackendState t)
@@ -56,7 +56,7 @@ newSimpleBackend gen =
   do st <- initialSimpleBackendState gen
      SB.newSimpleBuilder st gen
 
-getAssumptionStack :: SimpleBackend t -> IO (AssumptionStack (BoolElt t) SimErrorReason)
+getAssumptionStack :: SimpleBackend t -> IO (AssumptionStack (BoolElt t) AssumptionReason SimError)
 getAssumptionStack sym = sbAssumptionStack <$> readIORef (SB.sbStateManager sym)
 
 instance IsBoolSolver (SimpleBackend t) where
@@ -66,22 +66,21 @@ instance IsBoolSolver (SimpleBackend t) where
       Just False -> return $! NoBranch False
       Nothing    -> return $! SymbolicBranch True
 
-  addAssertion sym e m =
-    case asConstantPred e of
+  addAssertion sym a =
+    case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
-      Just False -> addFailedAssertion sym m
+      Just False -> throwIO (a^.labeledPredMsg)
       _ ->
-        do loc <- SB.curProgramLoc sym
-           stk <- getAssumptionStack sym
-           assert (Assertion loc e m) stk
+        do stk <- getAssumptionStack sym
+           AS.assert a stk
 
-  addAssumption sym e =
-    case asConstantPred e of
+  addAssumption sym a =
+    case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
       Just False -> addFailedAssertion sym InfeasibleBranchError
       _ ->
         do stk <- getAssumptionStack sym
-           assume e stk
+           AS.assume a stk
 
   addFailedAssertion sym msg = do
     loc <- getCurrentProgramLoc sym
@@ -94,7 +93,7 @@ instance IsBoolSolver (SimpleBackend t) where
   getPathCondition sym = do
     stk <- getAssumptionStack sym
     ps <- collectAssumptions stk
-    andAllOf sym folded ps
+    andAllOf sym (folded.labeledPred) ps
 
   getProofObligations sym = do
     stk <- getAssumptionStack sym

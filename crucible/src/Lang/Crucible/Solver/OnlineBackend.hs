@@ -139,7 +139,7 @@ shutdownYicesProcess yices = do
 -- | This represents the state of the backend along a given execution.
 -- It contains the current assertions and program location.
 data OnlineBackendState t
-   = OnlineBackendState { assumptionStack :: !(AssumptionStack (SB.BoolElt t) SimErrorReason)
+   = OnlineBackendState { assumptionStack :: !(AssumptionStack (SB.BoolElt t) AssumptionReason SimError)
                           -- ^ Number of times we have pushed
                         , yicesProc    :: !(IORef (Maybe (Yices.YicesProcess t YicesOnline)))
                         }
@@ -154,7 +154,7 @@ initialOnlineBackendState gen = do
               , yicesProc = procref
               }
 
-getAssumptionStack :: OnlineBackend t -> IO (AssumptionStack (SB.BoolElt t) SimErrorReason)
+getAssumptionStack :: OnlineBackend t -> IO (AssumptionStack (SB.BoolElt t) AssumptionReason SimError)
 getAssumptionStack sym = assumptionStack <$> readIORef (SB.sbStateManager sym)
 
 getYicesProcess :: OnlineBackend t -> IO (Yices.YicesProcess t YicesOnline)
@@ -202,35 +202,34 @@ checkSatisfiable sym p = do
      Yices.check yproc
 
 instance IsBoolSolver (OnlineBackend t) where
-  addAssertion sym p m = do
-    case asConstantPred p of
+  addAssertion sym a = do
+    case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
-      Just False -> addFailedAssertion sym m
+      Just False -> throwIO (a^.labeledPredMsg)
       _ ->
-        do loc <- SB.curProgramLoc sym
-           conn <- Yices.yicesConn <$> getYicesProcess sym
+        do conn <- Yices.yicesConn <$> getYicesProcess sym
            stk <- getAssumptionStack sym
            -- Record assertion
-           assert (Assertion loc p m) stk
+           AS.assert a stk
            -- Send assertion to yices
-           Yices.assume conn p
+           Yices.assume conn (a^.labeledPred)
 
-  addAssumption sym p = do
-    case asConstantPred p of
+  addAssumption sym a = do
+    case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
       Just False -> addFailedAssertion sym InfeasibleBranchError
       _ ->
         do conn <- Yices.yicesConn <$> getYicesProcess sym
            stk <- getAssumptionStack sym
            -- Record assumption
-           assume p stk
+           AS.assume a stk
            -- Send assertion to yices
-           Yices.assume conn p
+           Yices.assume conn (a^.labeledPred)
 
   addAssumptions sym a = do
     -- Tell Yices of assertions
     conn <- Yices.yicesConn <$> getYicesProcess sym
-    mapM_ (Yices.assume conn) (toList a)
+    mapM_ (Yices.assume conn . view labeledPred) (toList a)
     -- Add assertions to list
     stk <- getAssumptionStack sym
     appendAssumptions a stk
@@ -238,7 +237,7 @@ instance IsBoolSolver (OnlineBackend t) where
   getPathCondition sym = do
     stk <- getAssumptionStack sym
     ps <- collectAssumptions stk
-    andAllOf sym folded ps
+    andAllOf sym (folded.labeledPred) ps
 
   evalBranch sym p = do
     case asConstantPred p of
@@ -297,4 +296,4 @@ instance IsBoolSolver (OnlineBackend t) where
     forM_ (toList frms) $ \frm ->
       do Yices.push conn
          ps <- readIORef (assumeFrameCond frm)
-         forM_ (toList ps) (Yices.assume conn)
+         forM_ (toList ps) (Yices.assume conn . view labeledPred)

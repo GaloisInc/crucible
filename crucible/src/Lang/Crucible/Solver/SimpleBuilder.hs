@@ -101,7 +101,6 @@ module Lang.Crucible.Solver.SimpleBuilder
   , NonceApp(..)
   , nonceAppType
 
-  , impliesAssert
     -- * Bound Variable information
   , SimpleBoundVar
   , bvarId
@@ -164,7 +163,6 @@ import           Data.Parameterized.TH.GADT
 import           Data.Parameterized.TraversableFC
 import           Data.Ratio (numerator, denominator)
 import           Data.STRef
-import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.Set (Set)
 import qualified Data.Set as Set
@@ -182,8 +180,6 @@ import           Lang.Crucible.BaseTypes
 import qualified Lang.Crucible.Config as CFG
 import           Lang.Crucible.MATLAB.Intrinsics.Solver
 import           Lang.Crucible.ProgramLoc
-import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.AssumptionStack ( Assertion, assertPred )
 import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Symbol
@@ -2520,25 +2516,6 @@ startCaching sb = do
   sz <- CFG.getOpt (sbCacheStartSize sb)
   s <- newCachedStorage (eltCounter sb) (fromInteger sz)
   writeIORef (curAllocator sb) s
-
-
--- | @impliesAssert sym b a@ returns the assertions that hold
--- if @b@ is false or all the assertions in @a@ are true.
-impliesAssert :: SimpleBuilder t st
-              -> BoolElt t
-              -> Seq (Assertion (BoolElt t) SimErrorReason)
-              -> IO (Seq (Assertion (BoolElt t) SimErrorReason))
-impliesAssert sym c = go Seq.empty
-  where --
-        go prev next =
-          case Seq.viewr next of
-            Seq.EmptyR -> return prev
-            new Seq.:> a -> do
-              let p = a^.assertPred
-              p' <- impliesPred sym c p
-              case asApp p' of
-                Just TrueBool -> go prev new
-                _ -> go (prev Seq.|> (a & assertPred .~ p')) new
 
 
 bvBinOp1 :: (1 <= w)
