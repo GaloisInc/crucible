@@ -171,7 +171,7 @@ assertConditions sc cryEnv phase =
         do unless (CT.tIsBit tp) $ fail "Verification harness precondition does not have type 'Bit'"
            tm <- translateExpr sc cryEnv ex
            x  <- SAW.bindSAWTerm sym BaseBoolRepr tm
-           addAssertion sym x (AssertFailureSimError "Verification override precondition")
+           assert sym x (AssertFailureSimError "Verification override precondition")
 
 
 assumeConditions ::
@@ -185,8 +185,8 @@ assumeConditions sc cryEnv phase =
         do unless (CT.tIsBit tp) $ fail "Verification harness postcondition does not have type 'Bit'"
            tm <- translateExpr sc cryEnv ex
            x  <- SAW.bindSAWTerm sym BaseBoolRepr tm
-           addAssumption sym x
-
+           loc <- getCurrentProgramLoc sym
+           addAssumption sym (LabeledPred x (AssumptionReason loc "Verification postcondition"))
 
 createFreshHarnessVar ::
   SAW.SAWCoreBackend n ->
@@ -780,7 +780,8 @@ assumeEquiv sym hvt tm subTm =
          -> do tm' <- liftIO $ SAW.bindSAWTerm sym (BaseBVRepr w) tm
                subTm' <- substTermAsBV sym w subTm
                eq  <- liftIO $ bvEq sym tm' subTm'
-               liftIO $ addAssumption sym eq
+               loc <- liftIO $ getCurrentProgramLoc sym
+               liftIO $ addAssumption sym (LabeledPred eq (AssumptionReason loc "Equality condition"))
          | otherwise -> fail ("Invalid word width in assumeEquiv" ++ show n)
 
        HarnessVarArray elems n
@@ -790,7 +791,8 @@ assumeEquiv sym hvt tm subTm =
                vals' <- substTermAsArray sym elems w subTm
                eq <- liftIO (andAllOf sym folded =<<
                        zipWithM (\v v' -> bvEq sym v v') (toList vals) (toList vals'))
-               liftIO $ addAssumption sym eq
+               loc <- liftIO $ getCurrentProgramLoc sym
+               liftIO $ addAssumption sym (LabeledPred eq (AssumptionReason loc "Equality condition"))
          | otherwise -> fail ("Invalid word width in assumeEquiv" ++ show n)
 
 assertEquiv ::
@@ -808,7 +810,7 @@ assertEquiv sym hvt tm subTm =
          -> do tm' <- liftIO $ SAW.bindSAWTerm sym (BaseBVRepr w) tm
                subTm' <- substTermAsBV sym w subTm
                eq  <- liftIO $ bvEq sym tm' subTm'
-               liftIO $ addAssertion sym eq (AssertFailureSimError "Equality condition failed")
+               liftIO $ assert sym eq (AssertFailureSimError "Equality condition failed")
          | otherwise -> fail ("Invalid word width in assertEquiv" ++ show n)
 
        HarnessVarArray elems n
@@ -818,7 +820,7 @@ assertEquiv sym hvt tm subTm =
                vals' <- substTermAsArray sym elems w subTm
                eq <- liftIO (andAllOf sym folded =<<
                        zipWithM (\v v' -> bvEq sym v v') (toList vals) (toList vals'))
-               liftIO $ addAssertion sym eq (AssertFailureSimError "Equality condition failed")
+               liftIO $ assert sym eq (AssertFailureSimError "Equality condition failed")
          | otherwise -> fail ("Invalid word width in assertEquiv" ++ show n)
 
 simulateHarness ::

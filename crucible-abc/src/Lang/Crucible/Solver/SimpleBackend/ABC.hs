@@ -398,6 +398,7 @@ bitblastExpr h ae = do
 
     NatToInteger{}  -> intFail
     IntegerToReal{} -> realFail
+    BVToNat{} -> natFail
     BVToInteger{} -> intFail
     SBVToInteger{} -> intFail
 

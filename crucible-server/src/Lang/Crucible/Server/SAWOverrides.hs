@@ -51,8 +51,7 @@ import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
-import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.AssumptionStack (ProofGoal(..), assertPred)
+import           Lang.Crucible.Solver.AssumptionStack (ProofGoal(..), labeledPred)
 import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
 import qualified Lang.Crucible.Solver.SAWCoreBackend as SAW
@@ -200,7 +199,7 @@ handleSeparateProofObligations ::
   Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
   SAW.SAWCoreBackend n ->
   FilePath ->
-  Seq (ProofGoal (Pred (SAW.SAWCoreBackend n)) SimErrorReason) ->
+  Seq (ProofObligation (SAW.SAWCoreBackend n)) ->
   IO ()
 handleSeparateProofObligations sim sym dir obls = fail "FIXME separate proof obligations!"
 
@@ -208,7 +207,7 @@ handleSingleProofObligation ::
   Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
   SAW.SAWCoreBackend n ->
   FilePath ->
-  Seq (ProofGoal (Pred (SAW.SAWCoreBackend n)) SimErrorReason) ->
+  Seq (ProofObligation (SAW.SAWCoreBackend n)) ->
   IO ()
 handleSingleProofObligation _sim sym dir obls =
   do createDirectoryIfMissing True {- create parents -} dir
@@ -223,11 +222,11 @@ handleSingleProofObligation _sim sym dir obls =
 
 sequentToSC ::
   SAW.SAWCoreBackend n ->
-  ProofGoal (Pred (SAW.SAWCoreBackend n)) SimErrorReason ->
+  ProofObligation (SAW.SAWCoreBackend n) ->
   IO (Pred (SAW.SAWCoreBackend n))
-sequentToSC sym (ProofGoal assumes assert) =
-  do assume <- andAllOf sym folded assumes
-     impliesPred sym assume (assert^.assertPred)
+sequentToSC sym (ProofGoal assumes goal) =
+  do assume <- andAllOf sym (folded.labeledPred) assumes
+     impliesPred sym assume (goal^.labeledPred)
 
 sawFulfillExportModelRequest
    :: forall p n

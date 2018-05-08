@@ -69,7 +69,7 @@ data SAWCoreState n
 
     , saw_elt_cache :: SB.IdxCache n SAWElt
 
-    , saw_assumptions :: AssumptionStack (SB.BoolElt n) SimErrorReason
+    , saw_assumptions :: AssumptionStack (SB.BoolElt n) AssumptionReason SimError
     }
 
 sawCheckPathSat :: ConfigOption BaseBoolType
@@ -81,7 +81,7 @@ sawOptions =
     "Check the satisfiability of path conditions on branches"
   ]
 
-getAssumptionStack :: SAWCoreBackend n -> IO (AssumptionStack (SB.BoolElt n) SimErrorReason)
+getAssumptionStack :: SAWCoreBackend n -> IO (AssumptionStack (SB.BoolElt n) AssumptionReason SimError)
 getAssumptionStack sym = saw_assumptions <$> readIORef (SB.sbStateManager sym)
 
 data SAWElt (bt :: BaseType) where
@@ -711,6 +711,7 @@ evaluateElt sym sc cache = f
         SB.IntegerToNat{} -> nyi -- FIXME
         SB.IntegerToReal x -> IntToRealSAWElt . SAWElt <$> f x
         SB.RealToInteger{} -> nyi -- FIXME
+        SB.BVToNat{} -> nyi -- FIXME
         SB.BVToInteger{} -> nyi -- FIXME
         SB.IntegerToSBV{} -> nyi -- FIXME
         SB.SBVToInteger{} -> nyi -- FIXME
@@ -745,22 +746,21 @@ checkSatisfiable sym p = do
     _ -> return (Sat ())
 
 instance IsBoolSolver (SAWCoreBackend n) where
-  addAssertion sym e m = do
-    case asConstantPred e of
+  addAssertion sym a = do
+    case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
-      Just False -> addFailedAssertion sym m
+      Just False -> throwIO (a^.labeledPredMsg)
       _ ->
-        do loc <- SB.curProgramLoc sym
-           stk <- getAssumptionStack sym
-           AS.assert (Assertion loc e m) stk
+        do stk <- getAssumptionStack sym
+           AS.assert a stk
 
-  addAssumption sym e = do
-    case asConstantPred e of
+  addAssumption sym a = do
+    case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
       Just False -> addFailedAssertion sym InfeasibleBranchError
       _ ->
         do stk <- getAssumptionStack sym
-           assume e stk
+           AS.assume a stk
 
   addFailedAssertion sym msg = do
     loc <- getCurrentProgramLoc sym
@@ -773,7 +773,7 @@ instance IsBoolSolver (SAWCoreBackend n) where
   getPathCondition sym = do
     stk <- getAssumptionStack sym
     ps <- AS.collectAssumptions stk
-    andAllOf sym folded ps
+    andAllOf sym (folded.labeledPred) ps
 
   evalBranch sym p0 =
     case asConstantPred p0 of
