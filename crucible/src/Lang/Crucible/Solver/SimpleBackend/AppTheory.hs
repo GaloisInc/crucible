@@ -130,6 +130,7 @@ appTheory a0 =
 
     NatToInteger{}  -> LinearArithTheory
     IntegerToReal{} -> LinearArithTheory
+    BVToNat{}       -> LinearArithTheory
     BVToInteger{}   -> LinearArithTheory
     SBVToInteger{}  -> LinearArithTheory
 

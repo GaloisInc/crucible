@@ -160,7 +160,6 @@ import           Lang.Crucible.Config
 import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.Symbol
---import           Lang.Crucible.Solver.WeightedSum (WeightedSum)
 import           Lang.Crucible.Utils.Arithmetic
 import           Lang.Crucible.Utils.Complex
 import qualified Lang.Crucible.Utils.Hashable as Hash
@@ -365,6 +364,16 @@ data PartExpr p v
 --
 -- Methods of this class refer to type families @'SymExpr' sym@
 -- and @'SymFn' sym@.
+--
+-- Note: Some methods in this class represent operations that are
+-- partial functions on their domain (e.g., division by 0).
+-- Such functions will have documentation strings indicating that they
+-- are undefined under some conditions.
+--
+-- The behavior of these functions is generally to throw an error
+-- if it is concretely obvious that the function results in an undefined
+-- value; but otherwise they will silently produce an unspecified value
+-- of the expected type.
 class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym where
 
   -- | Retrieve the configuration object corresponding to this solver interface.
@@ -498,6 +507,7 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
   -- | If-then-else applied to natural numbers.
   natIte :: sym -> Pred sym -> SymNat sym -> SymNat sym -> IO (SymNat sym)
 
+  -- | Equality predicate for natural numbers.
   natEq :: sym -> SymNat sym -> SymNat sym -> IO (Pred sym)
 
   -- | @'natLe' sym x y@ returns @true@ if @x <= y@.
@@ -593,6 +603,9 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
         -> IO (SymBV sym w)
 
   -- | Unsigned bitvector division.
+  --
+  --   The result of @bvUdiv x y@ is undefined when @y@ is zero,
+  --   but is otherwise equal to @floor( x / y )@.
   bvUdiv :: (1 <= w)
          => sym
          -> SymBV sym w
@@ -600,6 +613,9 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
          -> IO (SymBV sym w)
 
   -- | Unsigned bitvector remainder.
+  --
+  --   The result of @bvUrem x y@ is undefined when @y@ is zero,
+  --   but is otherwise equal to @x - (bvUdiv x y) * y@.
   bvUrem :: (1 <= w)
          => sym
          -> SymBV sym w
@@ -608,8 +624,13 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
 
   -- | Signed bitvector division.  The result is truncated to zero.
   --
-  -- TODO: Document semantics when divisor is zero and case of
-  -- minSigned w / -1 = minSigned w.
+  --   The result of @bvSdiv x y@ is undefined when @y@ is zero,
+  --   but is equal to @floor(x/y)@ when @x@ and @y@ have the same sign,
+  --   and equal to @ceiling(x/y)@ when @x@ and @y@ have opposite signs.
+  --
+  --   NOTE! However, that there is a corner case when dividing @MIN_INT@ by
+  --   @-1@, in which case an overflow condition occurs, and the result is instead
+  --   @MIN_INT@.
   bvSdiv :: (1 <= w)
          => sym
          -> SymBV sym w
@@ -617,6 +638,9 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
          -> IO (SymBV sym w)
 
   -- | Signed bitvector remainder.
+  --
+  --   The result of @bvSrem x y@ is undefined when @y@ is zero, but is
+  --   otherwise equal to @x - (bvSdiv x y) * y@.
   bvSrem :: (1 <= w)
          => sym
          -> SymBV sym w
@@ -648,7 +672,6 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
         -> SymBV sym w
         -> SymBV sym w
         -> IO (Pred sym)
-  bvEq = isEq
 
   -- | Return true if bitvectors are distinct.
   bvNe  :: (1 <= w)
@@ -807,7 +830,7 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
   addUnsignedOF sym x y = do
     -- Compute result
     r   <- bvAdd sym x y
-            -- Return that this overflows if x input value is greater than result.
+    -- Return that this overflows if x input value is greater than result.
     (,) <$> bvUgt sym x r <*> pure r
 
   -- | Signed add with overflow bit. Overflow is true if positive +
@@ -956,7 +979,7 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
   -- | Create an array from an arbitrary symbolic function.
   --
   -- Arrays created this way can typically not be compared
-  -- for equality when provided to the simulator.
+  -- for equality when provided to backend solvers.
   arrayFromFn :: sym
               -> SymFn sym (idx ::> itp) ret
               -> IO (SymArray sym (idx ::> itp) ret)
@@ -1025,7 +1048,6 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
           -> SymArray sym idx b
           -> SymArray sym idx b
           -> IO (Pred sym)
-  arrayEq = isEq
 
   -- | Return true if all entries in the array are true.
   allTrueEntries :: sym -> SymArray sym idx BaseBoolType -> IO (Pred sym)
@@ -1051,6 +1073,9 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
 
   -- | Convert an integer to a real number.
   integerToReal :: sym -> SymInteger sym -> IO (SymReal sym)
+
+  -- | Convert the unsigned value of a bitvector to a natural.
+  bvToNat :: (1 <= w) => sym -> SymBV sym w -> IO (SymNat sym)
 
   -- | Return the unsigned value of the given bitvector as an integer.
   bvToInteger :: (1 <= w) => sym -> SymBV sym w -> IO (SymInteger sym)
@@ -1084,6 +1109,7 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
   -- Lossy (non-injective) conversions
 
   -- | Round a real number to an integer.
+  --
   -- Numbers are rounded to the nearest representable number, with rounding away from
   -- zero when two integers are equi-distant (e.g., 1.5 rounds to 2).
   realRound :: sym -> SymReal sym -> IO (SymInteger sym)
@@ -1112,30 +1138,33 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
   -- For negative integers, the result is undefined.
   integerToNat :: sym -> SymInteger sym -> IO (SymNat sym)
 
-  -- | Convert the unsigned value of a bitvector to a natural.
-  --   May fail if the width of the bitvector exceeds the precison
-  --   of Haskell 'Int'.
-  bvToNat :: (1 <= w) => sym -> SymBV sym w -> IO (SymNat sym)
-  bvToNat sym bv = integerToNat sym =<< bvToInteger sym bv
-
   -- | Convert a real number to an integer.
   --
-  -- This should return some value even if the real argument is not a integer,
-  -- but the result result may be arbitrarily chosen.
+  -- The result is undefined if the given real number does not represent an integer.
   realToInteger :: sym -> SymReal sym -> IO (SymInteger sym)
 
   -- | Convert a real number to a natural number.
   --
-  -- This should return some value even if the real argument is not a natural number,
-  -- but the result result may be arbitrarily chosen.
+  -- The result is undefined if the given real number does not represent a natural number.
   realToNat :: sym -> SymReal sym -> IO (SymNat sym)
   realToNat sym r = realToInteger sym r >>= integerToNat sym
 
-  -- | Convert a real number to a signed bitvector.
+  -- | Convert a real number to an unsigned bitvector.
+  --
   -- Numbers are rounded to the nearest representable number, with rounding away from
   -- zero when two integers are equi-distant (e.g., 1.5 rounds to 2).
-  realToInt  :: (1 <= w) => sym -> SymReal sym -> NatRepr w -> IO (SymBV sym w)
-  realToInt sym r w  = do
+  -- When the real is negative the result is zero.
+  realToBV :: (1 <= w) => sym -> SymReal sym -> NatRepr w -> IO (SymBV sym w)
+  realToBV sym r w = do
+    i <- realRound sym r
+    clampedIntToBV sym i w
+
+  -- | Convert a real number to a signed bitvector.
+  --
+  -- Numbers are rounded to the nearest representable number, with rounding away from
+  -- zero when two integers are equi-distant (e.g., 1.5 rounds to 2).
+  realToSBV  :: (1 <= w) => sym -> SymReal sym -> NatRepr w -> IO (SymBV sym w)
+  realToSBV sym r w  = do
     i <- realRound sym r
     clampedIntToSBV sym i w
 
@@ -1179,15 +1208,6 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
         iteM bvIte sym is_gt (bvLit sym w max_val) $
           -- Do unclamped conversion.
           integerToBV sym i w
-
-  -- | Convert a real number to an unsigned bitvector.
-  -- Numbers are rounded to the nearest representable number, with rounding away from
-  -- zero when two integers are equi-distant (e.g., 1.5 rounds to 2).
-  -- When the real is negative the result is zero.
-  realToUInt :: (1 <= w) => sym -> SymReal sym -> NatRepr w -> IO (SymBV sym w)
-  realToUInt sym r w = do
-    i <- realRound sym r
-    clampedIntToBV sym i w
 
   ----------------------------------------------------------------------
   -- Bitvector operations.
@@ -1276,7 +1296,7 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
   -- | Check the equality of two strings
   stringEq :: sym -> SymString sym -> SymString sym -> IO (Pred sym)
 
-  -- | If-then-else on strings.
+  -- | If-then-else on strings
   stringIte :: sym -> Pred sym -> SymString sym -> SymString sym -> IO (SymString sym)
 
   -- | Concatenate two strings
@@ -1302,7 +1322,6 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
 
   -- | Check equality of two real numbers.
   realEq :: sym -> SymReal sym -> SymReal sym -> IO (Pred sym)
-  realEq = isEq
 
   -- | Check non-equality of two real numbers.
   realNe :: sym -> SymReal sym -> SymReal sym -> IO (Pred sym)
@@ -1375,12 +1394,15 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
   -- x-axis and the line from the origin @(x,y)@.
   --
   -- When @x@ is @0@ this returns @pi/2 * sgn y@.
+  --
+  -- When @x@ and @y@ are both zero, this function is undefined.
   realAtan2 :: sym -> SymReal sym -> SymReal sym -> IO (SymReal sym)
 
   -- | Return value denoting pi.
   realPi :: sym -> IO (SymReal sym)
 
-  -- | Natural logarithm
+  -- | Natural logarithm.  @realLog x@ is undefined
+  --   for @x <= 0@.
   realLog :: sym -> SymReal sym -> IO (SymReal sym)
 
   -- | Natural exponentiation
@@ -1392,7 +1414,9 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
   -- | Cosine trig function
   realCos :: sym -> SymReal sym -> IO (SymReal sym)
 
-  -- | Tangent trig function
+  -- | Tangent trig function.  @realTan x@ is undefined
+  --   when @cos x = 0@,  i.e., when @x = pi/2 + k*pi@ for
+  --   some integer @k@.
   realTan :: sym -> SymReal sym -> IO (SymReal sym)
   realTan sym x = do
     sin_x <- realSin sym x
@@ -1574,7 +1598,9 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
         i_part <- realMul sym neg_sin_x sinh_y
         mkComplex sym (r_part :+ i_part)
 
-  -- | Compute tangent of a complex number.
+  -- | Compute tangent of a complex number.  @cplxTan x@ is undefined
+  --   when @cplxCos x@ is @0@, which occurs only along the real line
+  --   in the same conditions where @realCos x@ is @0@.
   cplxTan :: sym -> SymCplx sym -> IO (SymCplx sym)
   cplxTan sym arg = do
     c@(x :+ y) <- cplxGetParts sym arg
@@ -1712,7 +1738,7 @@ insertWordMap :: IsExprBuilder sym
               => sym
               -> NatRepr w
               -> BaseTypeRepr a
-              -> SymBV sym w {- ^ index -} 
+              -> SymBV sym w {- ^ index -}
               -> SymExpr sym a {- ^ new value -}
               -> WordMap sym w a {- ^ word map to update -}
               -> IO (WordMap sym w a)
@@ -1754,7 +1780,7 @@ iteM ite sym p mx my = do
 -- | A function that can be applied to symbolic arguments.
 --
 -- This type is used by some methods in classes 'IsExprBuilder' and
--- 'IsSymInterface'.
+-- 'IsSymExprBuilder'.
 type family SymFn sym :: Ctx BaseType -> BaseType -> *
 
 -- | A class for extracting type representatives from symbolic functions
@@ -1778,7 +1804,7 @@ class ( IsExprBuilder sym
   -- | Create a fresh top-level uninterpreted constant.
   freshConstant :: sym -> SolverSymbol -> BaseTypeRepr tp -> IO (SymExpr sym tp)
 
-  -- | Create a fresh latch.
+  -- | Create a fresh latch variable.
   freshLatch    :: sym -> SolverSymbol -> BaseTypeRepr tp -> IO (SymExpr sym tp)
 
   ----------------------------------------------------------------------
@@ -1824,7 +1850,12 @@ class ( IsExprBuilder sym
             -> SymExpr sym ret
             -- ^ Operation defining result of defined function.
             -> (Ctx.Assignment (SymExpr sym) args -> Bool)
-               -- ^ Predicate for checking if we should evaluate function.
+            -- ^ Predicate for checking if we should evaluate function.
+            --
+            --   When applied to actual arguments, this predicate indicates
+            --   if the definition of the function should be unfolded and reduced.
+            --   A typical use would be to unfold and evaluate the body of the function
+            --   if all the input arguments are concrete.
             -> IO (SymFn sym args ret)
 
   -- | Return a function defined by Haskell computation over symbolic expressions.
@@ -1834,8 +1865,7 @@ class ( IsExprBuilder sym
                   -> SolverSymbol
                   -- ^ The name to give a function (need not be unique)
                   -> Ctx.Assignment BaseTypeRepr args
-                  -- ^ Arguments for function
-
+                  -- ^ Type signature for the arguments
                   -> Ctx.CurryAssignment args (SymExpr sym) (IO (SymExpr sym ret))
                   -- ^ Operation defining result of defined function.
                   -> IO (SymFn sym args ret)
@@ -1860,9 +1890,6 @@ class ( IsExprBuilder sym
                        -> IO (SymFn sym args ret)
 
   -- | Apply a set of arguments to a symbolic function.
-  --
-  -- This will automatically add assertions to the current context stating that
-  -- the preconditions hold.
   applySymFn :: sym
                 -- ^ Symbolic interface
              -> SymFn sym args ret
@@ -2010,6 +2037,8 @@ isReal sym v = do
   realEq sym i (realZero sym)
 
 -- | Divide one number by another.
+--
+--   @cplxDiv x y@ is undefined when @y@ is @0@.
 cplxDiv :: IsExprBuilder sym
         => sym
         -> SymCplx sym
@@ -2041,7 +2070,7 @@ cplxDiv sym x y = do
       zc <- (:+) <$> realDiv sym zr y_abs <*> realDiv sym zi y_abs
       mkComplex sym zc
 
--- | Helper function that returns logarithm of input.
+-- | Helper function that returns the principal logarithm of input.
 cplxLog' :: IsExprBuilder sym
          => sym -> SymCplx sym -> IO (Complex (SymReal sym))
 cplxLog' sym x = do
@@ -2054,14 +2083,19 @@ cplxLog' sym x = do
   zr <- realLog sym xm
   return $! zr :+ xa
 
--- | Returns logarithm of input.
+-- | Returns the principal logarithm of the input value.
+--
+--   @cplxLog x@ is undefined when @x@ is @0@, and has a
+--   cut discontinuity along the negative real line.
 cplxLog :: IsExprBuilder sym
         => sym -> SymCplx sym -> IO (SymCplx sym)
 cplxLog sym x = mkComplex sym =<< cplxLog' sym x
 
 -- | Returns logarithm of input at a given base.
+--
+--   @cplxLogBase b x@ is undefined when @x@ is @0@.
 cplxLogBase :: IsExprBuilder sym
-            => Rational
+            => Rational {- ^ Base for the logarithm -}
             -> sym
             -> SymCplx sym
             -> IO (SymCplx sym)

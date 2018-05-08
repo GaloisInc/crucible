@@ -382,6 +382,7 @@ evalGroundApp f0 a0 = do
 
     NatToInteger x -> toInteger <$> f x
     IntegerToReal x -> toRational <$> f x
+    BVToNat x      -> fromInteger <$> f x
     BVToInteger x  -> f x
     SBVToInteger x -> toSigned (bvWidth x) <$> f x
 

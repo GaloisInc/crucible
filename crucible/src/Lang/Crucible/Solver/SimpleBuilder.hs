@@ -4,10 +4,9 @@ Copyright   : (c) Galois Inc, 2015-2016
 License     : BSD3
 Maintainer  : jhendrix@galois.com
 
-This module defines a template for instantiating the solver interface
+This module defines the canonical implementation of the solver interface
 from "Lang.Crucible.Solver.Interface". Type @'SimpleBuilder' t st@ is
-an instance of class 'IsSymInterface', but using it requires a type
-@st@ in class 'IsSimpleBuilderState'.
+an instance of the classes 'IsExprBuilder' and 'IsSymExprBuilder'.
 
 Solver interfaces built from 'SimpleBuilder' include the
 'Lang.Crucible.Solver.SimpleBackend.SimpleBackend' and
@@ -613,6 +612,7 @@ data App (e :: BaseType -> *) (tp :: BaseType) where
   -- Not defined on non-integral reals.
   RealToInteger :: !(e BaseRealType) -> App e BaseIntegerType
 
+  BVToNat       :: (1 <= w) => !(e (BaseBVType w)) -> App e BaseNatType
   BVToInteger   :: (1 <= w) => !(e (BaseBVType w)) -> App e BaseIntegerType
   SBVToInteger  :: (1 <= w) => !(e (BaseBVType w)) -> App e BaseIntegerType
 
@@ -810,17 +810,20 @@ data SymFnInfo t (args :: Ctx BaseType) (ret :: BaseType)
    = UninterpFnInfo !(Ctx.Assignment BaseTypeRepr args)
                     !(BaseTypeRepr ret)
      -- ^ Information about the argument type and return type of an uninterpreted function.
+
    | DefinedFnInfo !(Ctx.Assignment (SimpleBoundVar t) args)
                    !(Elt t ret)
                    !(Ctx.Assignment (Elt t) args -> Bool)
      -- ^ Information about a defined function.
      -- Includes bound variables, expression associated to a defined function, and
      -- an assignment for determining when to instantiate values.
+
    | MatlabSolverFnInfo !(MatlabSolverFn (Elt t) args ret)
                         !(Ctx.Assignment (SimpleBoundVar t) args)
                         !(Elt t ret)
-     -- ^ This is a function that corresponds to a matlab solver.  It includes the
-     -- definition as a simplebuilder elt to enable export to other solvers.
+     -- ^ This is a function that corresponds to a matlab solver function.
+     --   It includes the definition as a SimpleBuilder elt to
+     --   enable export to other solvers.
 
 -- | This represents a symbolic function in the simulator.
 -- Parameter @t@ is a phantom type brand used to track nonces.
@@ -987,6 +990,7 @@ appType a =
 
     NatToInteger{} -> knownRepr
     IntegerToReal{} -> knownRepr
+    BVToNat{} -> knownRepr
     BVToInteger{} -> knownRepr
     SBVToInteger{} -> knownRepr
 
@@ -1333,6 +1337,7 @@ ppApp' a0 = do
 
     NatToInteger x  -> ppSExpr "natToInteger" [x]
     IntegerToReal x -> ppSExpr "integerToReal" [x]
+    BVToNat x       -> ppSExpr "bvToNat" [x]
     BVToInteger  x  -> ppSExpr "bvToInteger" [x]
     SBVToInteger x  -> ppSExpr "sbvToInteger" [x]
 
@@ -2105,6 +2110,8 @@ abstractEval bvParams f a0 = do
 
     NatToInteger x -> natRangeToRange (f x)
     IntegerToReal x -> RAV (mapRange toRational (f x)) (Just True)
+    BVToNat x -> natRange lx (Inclusive ux)
+      where Just (lx, ux) = BVD.ubounds (bvWidth x) (f x)
     BVToInteger x -> valueRange (Inclusive lx) (Inclusive ux)
       where Just (lx, ux) = BVD.ubounds (bvWidth x) (f x)
     SBVToInteger x -> valueRange (Inclusive lx) (Inclusive ux)
@@ -2669,6 +2676,7 @@ reduceApp sym a0 = do
     IntegerToReal x -> integerToReal sym x
     RealToInteger x -> realToInteger sym x
 
+    BVToNat x       -> bvToNat sym x
     BVToInteger x   -> bvToInteger sym x
     SBVToInteger x  -> sbvToInteger sym x
     IntegerToSBV x w -> integerToSBV sym x w
@@ -4331,6 +4339,10 @@ instance IsExprBuilder (SimpleBuilder t st) where
     | otherwise =
       sbMakeElt sym (RealToInteger x)
 
+  bvToNat sym x
+    | Just i <- asUnsignedBV x = natLit sym (fromInteger i)
+    | otherwise = sbMakeElt sym (BVToNat x)
+
   bvToInteger sym x
     | Just i <- asUnsignedBV x = intLit sym i
     | otherwise = sbMakeElt sym (BVToInteger x)
@@ -4600,7 +4612,6 @@ instance IsSymExprBuilder (SimpleBuilder t st) where
     return fn
 
   applySymFn sym fn args = do
-    -- Check side conditions.
    case symFnInfo fn of
      DefinedFnInfo bound_vars e shouldEval
        | shouldEval args -> do

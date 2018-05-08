@@ -1960,6 +1960,11 @@ appSMTExpr ae = do
       addSideCondition "ceiling" $ (x .<= r) .&& (r .< x + 1)
       return nm
 
+    BVToNat xe -> do
+      checkLinearSupport i
+      x <- mkExpr xe
+      freshBoundTerm NatTypeMap $ bvIntTerm (bvWidth xe) (asBase x)
+
     BVToInteger xe -> do
       checkLinearSupport i
       x <- mkExpr xe
