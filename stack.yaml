@@ -1,13 +1,14 @@
 flags: {}
 packages:
-  - crucible/
-  - crucible-llvm/
-  - crucible-server/
-
   - what4/
   - what4-abc/
   - what4-blt/
+
+  - crucible/
+  - crucible-llvm/
   - crucible-saw/
+  - crucible-server/
+  - crucible-c/
 
   - dependencies/abcBridge/
   - dependencies/aig/
@@ -16,6 +17,7 @@ packages:
   - dependencies/cryptol-verifier/
   - dependencies/hpb/
   - dependencies/llvm-pretty/
+  - dependencies/llvm-pretty-bc-parser/
   - dependencies/parameterized-utils/
   - dependencies/saw-core/
   - dependencies/saw-core-aig/
@@ -25,5 +27,7 @@ extra-deps:
   - monadLib-3.7.3
   - simple-smt-0.7.1
   - sbv-7.7
+  - fgl-visualize-0.1.0.1
+  - dotgen-0.4.2
 
 resolver: lts-10.6
