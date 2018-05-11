@@ -24,9 +24,13 @@ import Data.Parameterized.Context(pattern Empty)
 import Text.LLVM.AST(Module)
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 
-import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
+import What4.Solver.Adapter(SolverAdapter(..))
+import What4.Config (extendConfig)
+import What4.Interface(getConfiguration)
 
-import Lang.Crucible.Config (extendConfig)
+import Lang.Crucible.Backend
+  (getProofObligations,IsSymInterface, pushAssumptionFrame, popAssumptionFrame)
+import Lang.Crucible.Backend.Online(withOnlineBackend)
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
@@ -41,10 +45,6 @@ import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Simulator.OverrideSim
         ( fnBindingsFromList, initSimState, runOverrideSim, callCFG)
 
-import Lang.Crucible.Solver.Interface(getConfiguration)
-import Lang.Crucible.Solver.BoolInterface
-  (getProofObligations,IsSymInterface, pushAssumptionFrame, popAssumptionFrame)
-
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn, LLVM)
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, initializeMemory
@@ -56,7 +56,7 @@ import Lang.Crucible.LLVM.Types(withPtrWidth)
 import Lang.Crucible.LLVM.Intrinsics
           (llvmIntrinsicTypes, llvmPtrWidth, register_llvm_overrides)
 
-import Lang.Crucible.Solver.OnlineBackend(withOnlineBackend)
+
 
 import Error
 import Goal

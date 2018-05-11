@@ -19,8 +19,13 @@ import Data.Parameterized.Context.Unsafe (Assignment)
 import Data.Parameterized.Context(pattern Empty, pattern (:>))
 
 
+import What4.FunctionName(functionNameFromText)
+import What4.Symbol(userSymbol)
+import What4.Interface
+          (freshConstant, bvLit, bvEq, asUnsignedBV,notPred
+          , getCurrentProgramLoc)
+
 import Lang.Crucible.Types
-import Lang.Crucible.FunctionName(functionNameFromText)
 import Lang.Crucible.CFG.Core(GlobalVar)
 import Lang.Crucible.FunctionHandle (handleArgTypes,handleReturnType)
 import Lang.Crucible.Simulator.RegMap(RegMap(..),regValue,RegValue,RegEntry)
@@ -38,18 +43,9 @@ import Lang.Crucible.Simulator.OverrideSim
         , readGlobal
         )
 import Lang.Crucible.Simulator.SimError (SimErrorReason(..))
-
-
-import Lang.Crucible.Solver.Symbol(userSymbol)
-import Lang.Crucible.Solver.BoolInterface
-          (IsSymInterface)
-import Lang.Crucible.Solver.Interface
-          (freshConstant, bvLit, bvEq, asUnsignedBV,notPred
-          , getCurrentProgramLoc)
-import Lang.Crucible.Solver.BoolInterface
-        (addFailedAssertion,assert,addAssumption, LabeledPred(..)
-        , AssumptionReason(..))
-
+import Lang.Crucible.Backend
+          (IsSymInterface,addFailedAssertion,assert
+          , addAssumption, LabeledPred(..), AssumptionReason(..))
 import Lang.Crucible.LLVM.Translation
         ( LLVMContext, LLVMHandleInfo(..)
         , symbolMap

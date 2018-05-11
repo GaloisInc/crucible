@@ -3,20 +3,20 @@ module Goal where
 import Control.Lens((^.))
 import Control.Monad(foldM)
 
-import Lang.Crucible.Solver.Interface
+import What4.Interface
         (IsExprBuilder, Pred, notPred, impliesPred)
-import Lang.Crucible.Solver.BoolInterface
-        ( ProofObligation, labeledPredMsg, labeledPred )
-import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
-import Lang.Crucible.Solver.AssumptionStack(ProofGoal(..))
-import Lang.Crucible.Solver.SatResult(SatResult(..))
-import Lang.Crucible.Solver.SimpleBuilder (SimpleBuilder)
--- import Lang.Crucible.Solver.SimpleBackend.Z3(z3Adapter)
-import Lang.Crucible.Solver.OnlineBackend(yicesOnlineAdapter,OnlineBackendState)
+import What4.AssumptionStack(ProofGoal(..))
+import What4.SatResult(SatResult(..))
+import What4.Solver.Adapter(SolverAdapter(..))
+import What4.Expr.Builder (ExprBuilder)
+-- import What4.Solver.Z3(z3Adapter)
 
+
+import Lang.Crucible.Backend
+        ( ProofObligation, labeledPredMsg, labeledPred )
+import Lang.Crucible.Backend.Online(yicesOnlineAdapter,OnlineBackendState)
 import Lang.Crucible.Simulator.ExecutionTree
         (ctxSymInterface, cruciblePersonality)
-
 
 import Error
 import Types
@@ -41,8 +41,8 @@ obligGoal sym g = foldM imp (proofGoal g ^. labeledPred)
   imp p a = impliesPred sym (a ^. labeledPred) p
 
 proveGoal ::
-  SimCtxt (SimpleBuilder s OnlineBackendState) arch ->
-  ProofObligation (SimpleBuilder s OnlineBackendState) ->
+  SimCtxt (ExprBuilder s OnlineBackendState) arch ->
+  ProofObligation (ExprBuilder s OnlineBackendState) ->
   IO (Maybe Error)
 proveGoal ctxt g =
   do let sym = ctxt ^. ctxSymInterface

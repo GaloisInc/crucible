@@ -11,7 +11,8 @@ import Data.LLVM.BitCode (formatError)
 import qualified Data.LLVM.BitCode as LLVM
 
 
-import Lang.Crucible.ProgramLoc(plSourceLoc,Position(..))
+import What4.ProgramLoc(plSourceLoc,Position(..))
+
 import Lang.Crucible.Simulator.ExecutionTree
           (AbortedResult(..), SomeFrame(..), gpValue, ppExceptionContext)
 import Lang.Crucible.Simulator.SimError
