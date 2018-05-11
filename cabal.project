@@ -6,11 +6,12 @@
 
 packages:
   what4/
-  crucible/
-  crucible-abc/
+  what4-abc/
   crucible-blt/
-  crucible-llvm/
   crucible-saw/
+
+  crucible/
+  crucible-llvm/
   crucible-server/
   crucible-c/
 

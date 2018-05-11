@@ -1,5 +1,5 @@
 {-
-Module           : Lang.Crucible.Solver.SimpleBackend.ABC
+Module           : What4.Solver.ABC
 Copyright        : (c) Galois, Inc 2014-2016
 Maintainer       : Joe Hendrix <jhendrix@galois.com>
 License          : BSD3
@@ -19,7 +19,7 @@ representation.
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -Werror #-}
-module Lang.Crucible.Solver.SimpleBackend.ABC
+module What4.Solver.ABC
   ( Network
   , newNetwork
   , withNetwork
@@ -68,21 +68,21 @@ import qualified System.IO.Streams as Streams
 import           System.Process
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-import           Lang.Crucible.BaseTypes
-import           Lang.Crucible.Config
-import           Lang.Crucible.ProgramLoc
-import qualified Lang.Crucible.Simulator.Utils.Environment as Env
-import           Lang.Crucible.Solver.Adapter
-import           Lang.Crucible.Solver.Concrete
-import           Lang.Crucible.Solver.Interface (getConfiguration)
-import           Lang.Crucible.Solver.SatResult
-import           Lang.Crucible.Solver.SimpleBackend.GroundEval
-import           Lang.Crucible.Solver.SimpleBackend.VarIdentification
-import           Lang.Crucible.Solver.SimpleBuilder
-import           Lang.Crucible.Utils.Complex
-import           Lang.Crucible.Utils.MonadST
-import           Lang.Crucible.Utils.Streams
-import qualified Lang.Crucible.Utils.UnaryBV as UnaryBV
+import           What4.BaseTypes
+import           What4.Concrete
+import           What4.Config
+import           What4.Interface (getConfiguration)
+import           What4.Expr.Builder
+import           What4.Expr.GroundEval
+import qualified What4.Expr.UnaryBV as UnaryBV
+import           What4.Expr.VarIdentification
+import           What4.ProgramLoc
+import           What4.Solver.Adapter
+import           What4.SatResult
+import           What4.Utils.Complex
+import qualified What4.Utils.Environment as Env
+import           What4.Utils.MonadST
+import           What4.Utils.Streams
 
 abcQbfIterations :: ConfigOption BaseIntegerType
 abcQbfIterations = configOption BaseIntegerRepr "abc.qbf_max_iterations"
@@ -173,11 +173,11 @@ data Network t s = Network { gia :: GIA.GIA s
                            , revOutputs :: !(IORef [GIA.Lit s])
                            }
 
-memoEltNonce :: Network t s
-             -> Nonce t tp
-             -> IO (NameType s tp)
-             -> IO (NameType s tp)
-memoEltNonce ntk n ev = do
+memoExprNonce :: Network t s
+              -> Nonce t tp
+              -> IO (NameType s tp)
+              -> IO (NameType s tp)
+memoExprNonce ntk n ev = do
   let c = nameCache ntk
   mnm <- liftST $ H.lookup c n
   case mnm of
@@ -187,21 +187,21 @@ memoEltNonce ntk n ev = do
       liftST $ H.insert c n r
       return r
 
-eval :: Network t s -> Elt t tp -> IO (NameType s tp)
+eval :: Network t s -> Expr t tp -> IO (NameType s tp)
 eval _ (SemiRingLiteral SemiRingNat n _) = return (GroundNat n)
 eval _ (SemiRingLiteral SemiRingInt n _) = return (GroundInt n)
 eval _ (SemiRingLiteral SemiRingReal r _) = return (GroundRat r)
-eval ntk (BVElt w v _) = return $ BV $ AIG.bvFromInteger (gia ntk) (widthVal w) v
-eval _ (StringElt s _) = return (GroundString s)
+eval ntk (BVExpr w v _) = return $ BV $ AIG.bvFromInteger (gia ntk) (widthVal w) v
+eval _ (StringExpr s _) = return (GroundString s)
 
-eval ntk (NonceAppElt e) = do
-  memoEltNonce ntk (nonceEltId e) $ do
+eval ntk (NonceAppExpr e) = do
+  memoExprNonce ntk (nonceExprId e) $ do
     bitblastPred ntk e
-eval ntk (AppElt a) = do
-  memoEltNonce ntk (appEltId a) $ do
+eval ntk (AppExpr a) = do
+  memoExprNonce ntk (appExprId a) $ do
     bitblastExpr ntk a
-eval ntk (BoundVarElt info) = do
-  memoEltNonce ntk (bvarId info) $ do
+eval ntk (BoundVarExpr info) = do
+  memoExprNonce ntk (bvarId info) $ do
     case bvarKind info of
       QuantifierVarKind ->
         error $ "Bound variable is not defined."
@@ -210,7 +210,7 @@ eval ntk (BoundVarElt info) = do
       UninterpVarKind ->
         error $ "Uninterpreted variable that was not defined."
 
-eval' :: Network t s -> Elt t tp -> IO (LitValue s tp)
+eval' :: Network t s -> Expr t tp -> IO (LitValue s tp)
 eval' ntk e = do
   r <- eval ntk e
   case r of
@@ -227,17 +227,17 @@ failAt l msg = fail $ show $
    text msg <$$>
    text "From term created at" <+> pretty (plSourceLoc l)
 
-failTerm :: Elt t tp -> String -> IO a
+failTerm :: Expr t tp -> String -> IO a
 failTerm e nm = do
   fail $ show $
     text "The" <+> text nm <+> text "created at"
-         <+> pretty (plSourceLoc (eltLoc e))
+         <+> pretty (plSourceLoc (exprLoc e))
          <+> text "is not supported by ABC:" <$$>
-    indent 2 (ppElt e)
+    indent 2 (ppExpr e)
 
-bitblastPred :: Network t s -> NonceAppElt t tp -> IO (NameType s tp)
+bitblastPred :: Network t s -> NonceAppExpr t tp -> IO (NameType s tp)
 bitblastPred h e = do
-  case nonceEltApp e of
+  case nonceExprApp e of
     Forall _ x -> eval h x
     Exists _ x -> eval h x
     ArrayFromFn{} -> fail "ABC does not support uninterpreted functions"
@@ -246,20 +246,20 @@ bitblastPred h e = do
     FnApp{} -> fail "ABC does not support uninterpreted functions"
 
 -- | Create a representation of the expression as Boolean variables.
-bitblastExpr :: forall t s tp . Network t s -> AppElt t tp -> IO (NameType s tp)
+bitblastExpr :: forall t s tp . Network t s -> AppExpr t tp -> IO (NameType s tp)
 bitblastExpr h ae = do
   let g = gia h
   let natFail :: IO a
-      natFail = failTerm (AppElt ae) "natural number expression"
+      natFail = failTerm (AppExpr ae) "natural number expression"
   let intFail :: IO a
-      intFail = failTerm (AppElt ae) "integer expression"
+      intFail = failTerm (AppExpr ae) "integer expression"
   let realFail :: IO a
-      realFail = failTerm (AppElt ae) "real expression"
+      realFail = failTerm (AppExpr ae) "real expression"
   let arrayFail :: IO a
-      arrayFail = failTerm (AppElt ae) "array expression"
+      arrayFail = failTerm (AppExpr ae) "array expression"
   let structFail :: IO a
-      structFail = failTerm (AppElt ae) "struct expression"
-  case appEltApp ae of
+      structFail = failTerm (AppExpr ae) "struct expression"
+  case appExprApp ae of
 
     TrueBool  -> do
       return $ B $ GIA.true
@@ -330,7 +330,7 @@ bitblastExpr h ae = do
     BVUnaryTerm u -> do
       let w = UnaryBV.width u
       let cns v = return $ AIG.bvFromInteger g (widthVal w) v
-      let ite :: BoolElt t
+      let ite :: BoolExpr t
               -> AIG.BV (GIA.Lit s)
               -> AIG.BV (GIA.Lit s)
               -> IO (AIG.BV (GIA.Lit s))
@@ -484,13 +484,13 @@ evaluateSatModel ntk initial_args sat_res = do
       eval_fn <- GIA.evaluator (gia ntk) (assignment ++ initial_args)
       -- Create cache for memoizing results.
       groundCache <- newIdxCache
-      let f :: Elt t tp -> IO (GroundValue tp)
-          f e = case eltMaybeId e of
-                  Nothing -> evalGroundElt f e
+      let f :: Expr t tp -> IO (GroundValue tp)
+          f e = case exprMaybeId e of
+                  Nothing -> evalGroundExpr f e
                   Just n ->
                     fmap unGVW $ idxCacheEval groundCache e $ fmap GVW $ do
                       evalNonce ntk n eval_fn $ do
-                        evalGroundElt f e
+                        evalGroundExpr f e
       return $ Sat $ GroundEvalFn f
 
     GIA.Unsat -> return Unsat
@@ -519,8 +519,8 @@ addOutput :: Network t s -> GIA.Lit s -> IO ()
 addOutput h l = do
   modifyIORef' (revOutputs h) $ (l:)
 
-outputElt :: Network t s -> Elt t tp -> IO ()
-outputElt h e = do
+outputExpr :: Network t s -> Expr t tp -> IO ()
+outputExpr h e = do
   r <- eval h e
   case r of
     B l -> addOutput h l
@@ -545,7 +545,7 @@ getForallPred ntk (Some b) p e_binding a_binding = do
   let e = boundTopTerm b
   let t = boundInnerTerm b
   -- Bind top-most quantifier to e
-  liftST $ H.insert c (nonceEltId e) (B p)
+  liftST $ H.insert c (nonceExprId e) (B p)
   -- Switch on quantifier type.
   case boundQuant b of
     ForallBound -> do
@@ -595,7 +595,7 @@ checkNoForallVars vars = do
   unless (Map.null (vars^.forallQuantifiers)) $ do
     fail "This operation does not support universally quantified variables."
 
-recordUninterpConstants :: Network t s -> Set (Some (SimpleBoundVar t)) -> IO ()
+recordUninterpConstants :: Network t s -> Set (Some (ExprBoundVar t)) -> IO ()
 recordUninterpConstants ntk s = do
   let recordCon v = recordBinding ntk =<< addBoundVar' ntk v
   mapM_ recordCon (Fold.toList s)
@@ -607,7 +607,7 @@ recordBoundVar ntk info = do
 -- | Expression to check is satisfiable.
 checkSat :: Config
          -> (Int -> String -> IO ())
-         -> BoolElt t
+         -> BoolExpr t
          -> IO (SatResult (GroundEvalFn t))
 checkSat cfg logLn e = do
   -- Get variables in expression.
@@ -705,7 +705,7 @@ addBoundVar ntk (Some info) = do
   freshBinding ntk (bvarId bvar) (bvarLoc bvar) (bvarType bvar)
 
 -- | Add a bound variable.
-addBoundVar' :: Network t s -> Some (SimpleBoundVar t) -> IO (VarBinding t s)
+addBoundVar' :: Network t s -> Some (ExprBoundVar t) -> IO (VarBinding t s)
 addBoundVar' ntk (Some bvar) = do
   freshBinding ntk (bvarId bvar) (bvarLoc bvar) (bvarType bvar)
 
@@ -737,7 +737,7 @@ readSATInput logLn in_stream vars = do
 -- | Write an external file using DIMACS format.
 writeDimacsFile :: Network t s
                 -> FilePath
-                -> BoolElt t
+                -> BoolExpr t
                 -> IO [Int]
 writeDimacsFile ntk cnf_path condition = do
   -- Get variables in expression.
@@ -756,7 +756,7 @@ writeDimacsFile ntk cnf_path condition = do
 -- | Run an external solver using competition dimacs format.
 runExternalDimacsSolver :: (Int -> String -> IO ()) -- ^ Logging function
                         -> (FilePath -> IO String)
-                        -> BoolElt t
+                        -> BoolExpr t
                         -> IO (SatResult (GroundEvalFn t))
 runExternalDimacsSolver logLn mkCommand condition = do
   temp_dir <- getTemporaryDirectory
@@ -787,16 +787,16 @@ hasBoundVars vars = not (Map.null (vars^.forallQuantifiers))
 
 -- | Write AIG that outputs given value.
 writeAig :: FilePath
-         -> [Some (Elt t)]
+         -> [Some (Expr t)]
             -- ^ The combinational outputs.
-         -> [Some (Elt t)]
+         -> [Some (Expr t)]
             -- ^ The latch outputs (may be empty)
          -> IO ()
 writeAig path v latchOutputs = do
   -- Get variables in expression.
   let vars = runST $ collectVarInfo $ do
-               Fold.traverse_ (traverseSome_ (recordEltVars ExistsOnly)) v
-               Fold.traverse_ (traverseSome_ (recordEltVars ExistsOnly))
+               Fold.traverse_ (traverseSome_ (recordExprVars ExistsOnly)) v
+               Fold.traverse_ (traverseSome_ (recordExprVars ExistsOnly))
                               latchOutputs
   -- Check inputs.
   checkSupportedByAbc vars
@@ -814,11 +814,11 @@ writeAig path v latchOutputs = do
     -- Add latchInputs
     Fold.traverse_ (addBoundVar' ntk) $ vars^.latches
     -- Add value to AIGER output.
-    Fold.traverse_ (traverseSome_ (outputElt ntk)) v
+    Fold.traverse_ (traverseSome_ (outputExpr ntk)) v
     -- Get current number of outputs.
     cOutCount <- getOutputCount ntk
     -- Write latch outputs.
-    Fold.traverse_ (traverseSome_ (outputElt ntk)) latchOutputs
+    Fold.traverse_ (traverseSome_ (outputExpr ntk)) latchOutputs
     -- Get number of outputs including latches.
     allInCount <- getInputCount ntk
     allOutCount <- getOutputCount ntk

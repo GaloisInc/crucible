@@ -1,4 +1,4 @@
-Name:          crucible-abc
+Name:          what4-abc
 Version:       0.1
 Author:        Galois Inc.
 Maintainer:    jhendrix@galois.com
@@ -8,11 +8,11 @@ License-file:  LICENSE
 Build-type:    Simple
 Cabal-version: >= 1.9.2
 Category:      Language
-Synopsis:      Crucible bindings to ABC
+Synopsis:      What4 bindings to ABC
 Description:
   ABC provides datastructures and solver support for working with
   boolean circuits expressed using And-Inverter Graphs (AIGs).  This
-  package provides support for lowering Crucible formulae to AIGs
+  package provides support for lowering What4 formulae to AIGs
   and binding to ABC solver subroutines.
 
 library
@@ -22,7 +22,7 @@ library
     abcBridge >= 0.11,
     ansi-wl-pprint,
     containers,
-    crucible >= 0.1,
+    what4 >= 0.4,
     directory,
     io-streams,
     lens,
@@ -37,7 +37,7 @@ library
   hs-source-dirs: src
 
   exposed-modules:
-    Lang.Crucible.Solver.SimpleBackend.ABC
+    What4.Solver.ABC
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
