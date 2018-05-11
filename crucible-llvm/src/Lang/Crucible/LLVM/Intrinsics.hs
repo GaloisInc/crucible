@@ -59,17 +59,19 @@ import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Some
 
+import           What4.FunctionName
+import           What4.Interface
+import           What4.Utils.MonadST
+
+import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.FunctionName
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
 
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
@@ -80,7 +82,6 @@ import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.Printf
 import           Lang.Crucible.LLVM.Translation.Types
-import           Lang.Crucible.Utils.MonadST
 
 
 llvmIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym

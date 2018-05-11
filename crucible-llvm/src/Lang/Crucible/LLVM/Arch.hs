@@ -4,9 +4,9 @@ module Lang.Crucible.LLVM.Arch
   ( llvmExtensionEval
   ) where
 
+import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.Evaluation
-import           Lang.Crucible.Solver.BoolInterface
 
 import           Lang.Crucible.LLVM.Extension
 import qualified Lang.Crucible.LLVM.Arch.X86 as X86

@@ -104,17 +104,20 @@ import           Data.Parameterized.Some
 import qualified Data.Vector as V
 import qualified Text.LLVM.AST as L
 
+import           What4.ProgramLoc
+import           What4.Interface
+import           What4.Partial
+
+import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
+
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
 import qualified Lang.Crucible.LLVM.Bytes as G

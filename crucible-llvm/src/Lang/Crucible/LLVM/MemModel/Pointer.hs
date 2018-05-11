@@ -107,11 +107,12 @@ import qualified Data.Vector as V
 import           Data.Word (Word64)
 import           Numeric.Natural
 
+import           What4.Interface
+import           What4.Partial
+
+import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.Types
 import qualified Lang.Crucible.LLVM.Bytes as G
 import qualified Lang.Crucible.LLVM.MemModel.Type as G

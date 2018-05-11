@@ -18,6 +18,7 @@ library
     bytestring,
     containers >= 0.5.8.0,
     crucible,
+    what4 >= 0.4,
     deepseq,
     directory,
     ghc-prim,
