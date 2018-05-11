@@ -31,7 +31,7 @@ module What4.Expr.VarIdentification
   , Polarity(..)
   , VarRecorder
   , collectVarInfo
-  , recordEltVars
+  , recordExprVars
   , predicateVarInfo
   ) where
 
@@ -227,7 +227,7 @@ addBothVar ExistsOnly e q v x = do
                  }
   VR $ existQuantifiers  %= Map.insert e (Some info)
   VR $ forallQuantifiers %= Map.insert e (Some info)
-  recordEltVars ExistsForall x
+  recordExprVars ExistsForall x
 addBothVar ExistsForall _ _ _ _ = do
   fail $ "mss does not allow existental variables to appear inside forall quantifier."
 
@@ -249,11 +249,11 @@ recordAssertionVars scope p (AppExpr ae) = do
     -- We've already seen the element in the context @oldp@.
     Just (Just oldp) -> do
       when (oldp /= p) $ do
-        recurseAssertedAppEltVars scope p ae
+        recurseAssertedAppExprVars scope p ae
         liftST $ H.insert ht idx Nothing
     -- We have not seen this element yet.
     Nothing -> do
-      recurseAssertedAppEltVars scope p ae
+      recurseAssertedAppExprVars scope p ae
       liftST $ H.insert ht idx (Just p)
 recordAssertionVars scope p (NonceAppExpr ae) = do
   ht <- VR ask
@@ -265,21 +265,21 @@ recordAssertionVars scope p (NonceAppExpr ae) = do
     -- We've already seen the element in the context @oldp@.
     Just (Just oldp) -> do
       when (oldp /= p) $ do
-        recurseAssertedNonceAppEltVars scope p ae
+        recurseAssertedNonceAppExprVars scope p ae
         liftST $ H.insert ht idx Nothing
     -- We have not seen this element yet.
     Nothing -> do
-      recurseAssertedNonceAppEltVars scope p ae
+      recurseAssertedNonceAppExprVars scope p ae
       liftST $ H.insert ht idx (Just p)
 recordAssertionVars scope _ e = do
-  recordEltVars scope e
+  recordExprVars scope e
 
--- | This records asserted variables in an app elt.
-recurseAssertedNonceAppEltVars :: Scope
+-- | This records asserted variables in an app expr.
+recurseAssertedNonceAppExprVars :: Scope
                            -> Polarity
                            -> NonceAppExpr t BaseBoolType
                            -> VarRecorder s t ()
-recurseAssertedNonceAppEltVars scope p ea0 =
+recurseAssertedNonceAppExprVars scope p ea0 =
   case nonceExprApp ea0 of
     Forall v x -> do
       case p of
@@ -297,21 +297,21 @@ recurseAssertedNonceAppEltVars scope p ea0 =
           addForallVar      p ea0 ExistBound v x
     _ -> recurseNonceAppVars scope ea0
 
--- | This records asserted variables in an app elt.
-recurseAssertedAppEltVars :: Scope -> Polarity -> AppExpr t BaseBoolType -> VarRecorder s t ()
-recurseAssertedAppEltVars scope p ea0 =
+-- | This records asserted variables in an app expr.
+recurseAssertedAppExprVars :: Scope -> Polarity -> AppExpr t BaseBoolType -> VarRecorder s t ()
+recurseAssertedAppExprVars scope p ea0 =
   case appExprApp ea0 of
     NotBool x -> recordAssertionVars scope (negatePolarity p) x
     AndBool x y -> mapM_ (recordAssertionVars scope p) [x, y]
     IteBool c x y -> do
-      recordEltVars scope c
+      recordExprVars scope c
       recordAssertionVars scope p x
       recordAssertionVars scope p y
-    _ -> recurseEltVars scope ea0
+    _ -> recurseExprVars scope ea0
 
 
-memoEltVars :: Nonce t (tp::BaseType) -> VarRecorder s t () -> VarRecorder s t ()
-memoEltVars n recurse = do
+memoExprVars :: Nonce t (tp::BaseType) -> VarRecorder s t () -> VarRecorder s t ()
+memoExprVars n recurse = do
   let idx = indexValue n
   ht <- VR ask
   mp <- liftST $ H.lookup ht idx
@@ -322,17 +322,17 @@ memoEltVars n recurse = do
       liftST $ H.insert ht idx Nothing
 
 -- | Record the variables in an element.
-recordEltVars :: Scope -> Expr t tp -> VarRecorder s t ()
-recordEltVars _ SemiRingLiteral{} = addFeatures useLinearArithmetic
-recordEltVars _ BVExpr{}  = addFeatures useBitvectors
-recordEltVars _ StringExpr{} = addFeatures useStrings
-recordEltVars scope (NonceAppExpr e0) = do
-  memoEltVars (nonceExprId e0) $ do
+recordExprVars :: Scope -> Expr t tp -> VarRecorder s t ()
+recordExprVars _ SemiRingLiteral{} = addFeatures useLinearArithmetic
+recordExprVars _ BVExpr{}  = addFeatures useBitvectors
+recordExprVars _ StringExpr{} = addFeatures useStrings
+recordExprVars scope (NonceAppExpr e0) = do
+  memoExprVars (nonceExprId e0) $ do
     recurseNonceAppVars scope e0
-recordEltVars scope (AppExpr e0) = do
-  memoEltVars (appExprId e0) $ do
-    recurseEltVars scope e0
-recordEltVars _ (BoundVarExpr info) = do
+recordExprVars scope (AppExpr e0) = do
+  memoExprVars (appExprId e0) $ do
+    recurseExprVars scope e0
+recordExprVars _ (BoundVarExpr info) = do
   addFeaturesForVarType (bvarType info)
   case bvarKind info of
     QuantifierVarKind ->
@@ -346,8 +346,8 @@ recordFnVars :: ExprSymFn t args ret -> VarRecorder s t ()
 recordFnVars f = do
   case symFnInfo f of
     UninterpFnInfo{}  -> return ()
-    DefinedFnInfo _ d _ -> recordEltVars ExistsForall d
-    MatlabSolverFnInfo _ _ d -> recordEltVars ExistsForall d
+    DefinedFnInfo _ d _ -> recordExprVars ExistsForall d
+    MatlabSolverFnInfo _ _ d -> recordExprVars ExistsForall d
 
 
 -- | Recurse through the variables in the element, adding bound variables
@@ -364,14 +364,14 @@ recurseNonceAppVars scope ea0 = do
       recordFnVars f
     MapOverArrays f _ a -> do
       recordFnVars f
-      traverseFC_ (\(ArrayResultWrapper e) -> recordEltVars scope e) a
+      traverseFC_ (\(ArrayResultWrapper e) -> recordExprVars scope e) a
     ArrayTrueOnEntries f a -> do
       recordFnVars f
-      recordEltVars scope a
+      recordExprVars scope a
 
     FnApp f a -> do
       recordFnVars f
-      traverseFC_ (recordEltVars scope) a
+      traverseFC_ (recordExprVars scope) a
 
 addTheoryFeatures :: AppTheory -> VarRecorder s t ()
 addTheoryFeatures th =
@@ -389,7 +389,7 @@ addTheoryFeatures th =
 
 -- | Recurse through the variables in the element, adding bound variables
 -- as both exist and forall vars.
-recurseEltVars :: forall s t tp. Scope -> AppExpr t tp -> VarRecorder s t ()
-recurseEltVars scope ea0 = do
+recurseExprVars :: forall s t tp. Scope -> AppExpr t tp -> VarRecorder s t ()
+recurseExprVars scope ea0 = do
   addTheoryFeatures (appTheory (appExprApp ea0))
-  traverseFC_ (recordEltVars scope) (appExprApp ea0)
+  traverseFC_ (recordExprVars scope) (appExprApp ea0)

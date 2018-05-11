@@ -57,7 +57,7 @@ module What4.Expr
     -- ** Semirings
   , Coefficient
   , SemiRing
-  , SemiRingRepr
+  , SemiRingRepr(..)
   , WeightedSum
  
     -- ** Unary BV
