@@ -1,6 +1,6 @@
 ------------------------------------------------------------------------
 -- |
--- Module      : Lang.Crucible.Solver.SimpleBackend
+-- Module      : Lang.Crucible.Backend.Simple
 -- Description : The "simple" solver backend
 -- Copyright   : (c) Galois, Inc 2015-2016
 -- License     : BSD3
@@ -15,7 +15,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-module Lang.Crucible.Solver.SimpleBackend
+module Lang.Crucible.Backend.Simple
   ( -- * SimpleBackend
     SimpleBackend
   , newSimpleBackend
@@ -28,14 +28,14 @@ import           Control.Lens
 import           Data.IORef
 import           Data.Parameterized.Nonce
 
-import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.AssumptionStack as AS
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Solver.SimpleBuilder (BoolElt)
-import qualified Lang.Crucible.Solver.SimpleBuilder as SB
+import           What4.AssumptionStack as AS
+import           What4.Interface
+import qualified What4.Expr.Builder as B
 
-type SimpleBackend t = SB.SimpleBuilder t SimpleBackendState
+import           Lang.Crucible.Backend
+import           Lang.Crucible.Simulator.SimError
+
+type SimpleBackend t = B.ExprBuilder t SimpleBackendState
 
 ------------------------------------------------------------------------
 -- SimpleBackendState
@@ -44,7 +44,7 @@ type SimpleBackend t = SB.SimpleBuilder t SimpleBackendState
 -- It contains the current assertion stack.
 
 newtype SimpleBackendState t
-      = SimpleBackendState { sbAssumptionStack :: AssumptionStack (BoolElt t) AssumptionReason SimError }
+      = SimpleBackendState { sbAssumptionStack :: AssumptionStack (B.BoolExpr t) AssumptionReason SimError }
 
 -- | Returns an initial execution state.
 initialSimpleBackendState :: NonceGenerator IO t -> IO (SimpleBackendState t)
@@ -54,10 +54,10 @@ newSimpleBackend :: NonceGenerator IO t
                  -> IO (SimpleBackend t)
 newSimpleBackend gen =
   do st <- initialSimpleBackendState gen
-     SB.newSimpleBuilder st gen
+     B.newExprBuilder st gen
 
-getAssumptionStack :: SimpleBackend t -> IO (AssumptionStack (BoolElt t) AssumptionReason SimError)
-getAssumptionStack sym = sbAssumptionStack <$> readIORef (SB.sbStateManager sym)
+getAssumptionStack :: SimpleBackend t -> IO (AssumptionStack (B.BoolExpr t) AssumptionReason SimError)
+getAssumptionStack sym = sbAssumptionStack <$> readIORef (B.sbStateManager sym)
 
 instance IsBoolSolver (SimpleBackend t) where
   evalBranch _sym p =
@@ -117,4 +117,4 @@ instance IsBoolSolver (SimpleBackend t) where
     AS.cloneAssumptionStack stk
 
   restoreAssumptionState sym stk = do
-    writeIORef (SB.sbStateManager sym) (SimpleBackendState stk)
+    writeIORef (B.sbStateManager sym) (SimpleBackendState stk)

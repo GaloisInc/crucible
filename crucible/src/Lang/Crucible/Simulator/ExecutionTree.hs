@@ -116,12 +116,16 @@ import           System.Exit (ExitCode)
 import           System.IO
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
-import           Lang.Crucible.Config
+import           What4.AssumptionStack ( FrameIdentifier )
+import           What4.Config
+import           What4.Interface
+import           What4.FunctionName (FunctionName)
+import           What4.ProgramLoc
+
+import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.FunctionHandle (FnHandleMap, HandleAllocator)
-import           Lang.Crucible.FunctionName (FunctionName)
-import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.Evaluation
 import           Lang.Crucible.Simulator.Frame
@@ -129,9 +133,8 @@ import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.AssumptionStack ( FrameIdentifier )
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
+
+
 
 
 -- | @swap_unless b (x,y)@ returns @(x,y)@ when @b@ is @True@ and

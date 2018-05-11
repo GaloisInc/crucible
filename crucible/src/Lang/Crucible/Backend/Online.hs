@@ -1,6 +1,6 @@
 ------------------------------------------------------------------------
 -- |
--- Module      : Lang.Crucible.Solver.OnlineBackend
+-- Module      : Lang.Crucible.Backend.Online
 -- Description : A solver backend that maintains a persistent connection
 -- Copyright   : (c) Galois, Inc 2015-2016
 -- License     : BSD3
@@ -23,7 +23,7 @@
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RankNTypes #-}
-module Lang.Crucible.Solver.OnlineBackend
+module Lang.Crucible.Backend.Online
   ( -- * OnlineBackend
     OnlineBackend
   , withOnlineBackend
@@ -45,23 +45,25 @@ import           System.Exit
 import           System.IO
 import           System.Process
 
-import qualified Lang.Crucible.Config as CFG
-import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.Adapter
-import           Lang.Crucible.Solver.AssumptionStack as AS
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
-import qualified Lang.Crucible.Solver.ProcessUtils as Proc
-import           Lang.Crucible.Solver.SatResult
-import           Lang.Crucible.Solver.SimpleBackend.ProblemFeatures
-import           Lang.Crucible.Solver.SimpleBackend.SMTWriter
+import qualified What4.Config as CFG
+import           What4.Solver.Adapter
+import           What4.AssumptionStack as AS
+import           What4.Interface
+import qualified What4.Utils.Process as Proc
+import           What4.SatResult
+import           What4.ProblemFeatures
+import           What4.Protocol.SMTWriter
   ( assumeFormula
   , mkFormula
   )
-import qualified Lang.Crucible.Solver.SimpleBackend.Yices as Yices
-import qualified Lang.Crucible.Solver.SimpleBuilder as SB
+import qualified What4.Solver.Yices as Yices
+import qualified What4.Expr.Builder as B
 
-type OnlineBackend t = SB.SimpleBuilder t OnlineBackendState
+import           Lang.Crucible.Backend
+import           Lang.Crucible.Simulator.SimError
+
+
+type OnlineBackend t = B.ExprBuilder t OnlineBackendState
 
 yicesOnlineAdapter :: SolverAdapter OnlineBackendState
 yicesOnlineAdapter =
@@ -113,7 +115,7 @@ startYicesProcess cfg = do
              .|. useSymbolicArrays
              .|. useComplexArithmetic
              .|. useStructs
-  conn <- Yices.newConnection in_h features SB.emptySymbolVarBimap
+  conn <- Yices.newConnection in_h features B.emptySymbolVarBimap
   Yices.setYicesParams conn cfg
   err_reader <- Yices.startHandleReader err_h
   return $! Yices.YicesProcess { Yices.yicesConn   = conn
@@ -139,7 +141,7 @@ shutdownYicesProcess yices = do
 -- | This represents the state of the backend along a given execution.
 -- It contains the current assertions and program location.
 data OnlineBackendState t
-   = OnlineBackendState { assumptionStack :: !(AssumptionStack (SB.BoolElt t) AssumptionReason SimError)
+   = OnlineBackendState { assumptionStack :: !(AssumptionStack (B.BoolExpr t) AssumptionReason SimError)
                           -- ^ Number of times we have pushed
                         , yicesProc    :: !(IORef (Maybe (Yices.YicesProcess t YicesOnline)))
                         }
@@ -154,12 +156,12 @@ initialOnlineBackendState gen = do
               , yicesProc = procref
               }
 
-getAssumptionStack :: OnlineBackend t -> IO (AssumptionStack (SB.BoolElt t) AssumptionReason SimError)
-getAssumptionStack sym = assumptionStack <$> readIORef (SB.sbStateManager sym)
+getAssumptionStack :: OnlineBackend t -> IO (AssumptionStack (B.BoolExpr t) AssumptionReason SimError)
+getAssumptionStack sym = assumptionStack <$> readIORef (B.sbStateManager sym)
 
 getYicesProcess :: OnlineBackend t -> IO (Yices.YicesProcess t YicesOnline)
 getYicesProcess sym = do
-  st <- readIORef (SB.sbStateManager sym)
+  st <- readIORef (B.sbStateManager sym)
   mproc <- readIORef (yicesProc st)
   case mproc of
     Just p -> do
@@ -178,7 +180,7 @@ withOnlineBackend :: NonceGenerator IO t
                   -> IO a
 withOnlineBackend gen action = do
   st <- initialOnlineBackendState gen
-  sym <- SB.newSimpleBuilder st gen
+  sym <- B.newExprBuilder st gen
   r <- try $ action sym
   mp <- readIORef (yicesProc st)
   case mp of
@@ -190,7 +192,7 @@ withOnlineBackend gen action = do
 
 checkSatisfiable
     :: OnlineBackend t
-    -> SB.BoolElt t
+    -> B.BoolExpr t
     -> IO (SatResult ())
 checkSatisfiable sym p = do
    yproc <- getYicesProcess sym

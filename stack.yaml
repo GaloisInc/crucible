@@ -6,6 +6,7 @@ packages:
   - crucible-blt/
   - crucible-saw/
   - crucible-server/
+  - what4/
   - dependencies/abcBridge/
   - dependencies/aig/
   - dependencies/blt/

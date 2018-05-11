@@ -31,7 +31,7 @@ import Data.String
 import Data.Typeable
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-import Lang.Crucible.ProgramLoc
+import What4.ProgramLoc
 
 ------------------------------------------------------------------------
 -- SimError

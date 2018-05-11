@@ -1,5 +1,5 @@
 {-|
-Module      : Lang.Crucible.Solver.BoolInterface
+Module      : Lang.Crucible.Backend
 Copyright   : (c) Galois, Inc 2014-2016
 License     : BSD3
 Maintainer  : Joe Hendrix <jhendrix@galois.com>
@@ -16,7 +16,7 @@ for interacting with the symbolic simulator.
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilies #-}
-module Lang.Crucible.Solver.BoolInterface
+module Lang.Crucible.Backend
   ( BranchResult(..)
   , IsBoolSolver(..)
   , IsSymInterface
@@ -45,11 +45,12 @@ module Lang.Crucible.Solver.BoolInterface
 
 import           Data.Sequence (Seq)
 
-import           Lang.Crucible.ProgramLoc
-import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.Interface
-import qualified Lang.Crucible.Solver.AssumptionStack as AS
+import qualified What4.AssumptionStack as AS
+import           What4.Interface
+import           What4.Partial
+import           What4.ProgramLoc
 
+import           Lang.Crucible.Simulator.SimError
 
 data AssumptionReason =
     AssumptionReason ProgramLoc String

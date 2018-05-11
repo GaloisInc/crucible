@@ -109,7 +109,7 @@ module Lang.Crucible.Types
   , module Data.Parameterized.Ctx
   , module Data.Parameterized.NatRepr
   , module Data.Parameterized.SymbolRepr
-  , module Lang.Crucible.BaseTypes
+  , module What4.BaseTypes
   ) where
 
 import           Data.Hashable
@@ -125,7 +125,7 @@ import           Data.Parameterized.SymbolRepr
 import qualified Data.Parameterized.TH.GADT as U
 import           Text.PrettyPrint.ANSI.Leijen
 
-import           Lang.Crucible.BaseTypes
+import           What4.BaseTypes
 
 -------------------------------------------------------------------------
 -- Concrete types
