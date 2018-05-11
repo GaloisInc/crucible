@@ -36,7 +36,13 @@ import qualified Data.Vector as V
 import           System.Directory
 import           System.FilePath
 
-import           Lang.Crucible.Config
+import           What4.Config
+import           What4.AssumptionStack (ProofGoal(..), labeledPred)
+import           What4.Interface
+import qualified What4.Expr.Builder as SB
+
+import           Lang.Crucible.Backend
+import qualified Lang.Crucible.Backend.SAWCore as SAW
 import qualified Lang.Crucible.Proto as P
 import           Lang.Crucible.Server.CryptolEnv
 import           Lang.Crucible.Server.Requests
@@ -51,11 +57,6 @@ import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
-import           Lang.Crucible.Solver.AssumptionStack (ProofGoal(..), labeledPred)
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
-import qualified Lang.Crucible.Solver.SAWCoreBackend as SAW
-import qualified Lang.Crucible.Solver.SimpleBuilder as SB
 import           Lang.Crucible.Types
 
 import qualified Verifier.SAW.ExternalFormat as SAW

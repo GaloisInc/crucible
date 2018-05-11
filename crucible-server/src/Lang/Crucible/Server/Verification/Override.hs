@@ -59,17 +59,19 @@ import           Data.Parameterized.Some
 import qualified Cryptol.TypeCheck.AST as CT
 import qualified Cryptol.Utils.PP as PP
 
+import           What4.Interface
+import           What4.FunctionName
+import           What4.Partial
+import           What4.WordMap
+
+import           Lang.Crucible.Backend
+import qualified Lang.Crucible.Backend.SAWCore as SAW
 import           Lang.Crucible.Types
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.FunctionName
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
-
-import qualified Lang.Crucible.Solver.SAWCoreBackend as SAW
 
 import qualified Verifier.SAW.Simulator.SBV as SBV (sbvSolveBasic, toWord)
 import qualified Data.SBV.Dynamic as SBV (svAsInteger)
