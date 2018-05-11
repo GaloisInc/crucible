@@ -7,7 +7,7 @@
 packages:
   what4/
   what4-abc/
-  crucible-blt/
+  what4-blt/
   crucible-saw/
 
   crucible/

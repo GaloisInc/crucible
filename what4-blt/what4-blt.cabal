@@ -1,4 +1,4 @@
-Name:          crucible-blt
+Name:          what4-blt
 Version:       0.2
 Author:        Galois Inc.
 Maintainer:    rdockins@galois.com
@@ -7,7 +7,7 @@ License-file:  LICENSE
 Build-type:    Simple
 Cabal-version: >= 1.10
 Category:      Language
-Synopsis:      Crucible bindings to BLT
+Synopsis:      What4 bindings to BLT
 Description:
   BLT is a library the solves bounded integer linear programs by
   reducing the problem to bounded lattice search.  This package
@@ -20,7 +20,7 @@ library
     ansi-wl-pprint,
     blt >= 0.12.1,
     containers,
-    crucible >= 0.1,
+    what4 >= 0.4,
     lens >= 1.2,
     parameterized-utils,
     text,
@@ -29,7 +29,7 @@ library
   hs-source-dirs: src
 
   exposed-modules:
-    Lang.Crucible.Solver.SimpleBackend.BLT
+    What4.Solver.BLT
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
@@ -48,7 +48,7 @@ test-suite test
   build-depends:
     base             >= 4.7,
     containers,
-    crucible-blt,
+    what4-blt,
     QuickCheck,
     tasty            >= 0.10,
     tasty-hunit      >= 0.9,

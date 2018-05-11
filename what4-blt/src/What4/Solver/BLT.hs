@@ -1,7 +1,7 @@
 -----------------------------------------------------------------------
 -- |
--- Module           : Lang.Crucible.Solver.SimpleBackend.BLT
--- Description      : Crucible solver interface for BLT
+-- Module           : What4.Solver.BLT
+-- Description      : What4 solver interface for BLT
 -- Copyright        : (c) Galois, Inc 2015-2016
 -- License          : BSD3
 -- Maintainer       : bjones@galois.com
@@ -27,7 +27,7 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Werror #-}
-module Lang.Crucible.Solver.SimpleBackend.BLT
+module What4.Solver.BLT
   ( -- * BLT Adapter API
     bltParams
   , bltOptions
@@ -80,17 +80,18 @@ import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import qualified Data.Parameterized.HashTable as PH
 import           Data.Parameterized.Nonce
-import           Lang.Crucible.BaseTypes
-import           Lang.Crucible.Config
-import           Lang.Crucible.ProgramLoc
-import           Lang.Crucible.Solver.Adapter
-import           Lang.Crucible.Solver.Concrete
-import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Solver.SatResult
-import           Lang.Crucible.Solver.SimpleBackend.GroundEval
-import           Lang.Crucible.Solver.SimpleBuilder
-import qualified Lang.Crucible.Solver.WeightedSum as WSum
-import           Lang.Crucible.Utils.Complex
+
+import           What4.BaseTypes
+import           What4.Config
+import           What4.ProgramLoc
+import           What4.Concrete
+import           What4.Interface
+import           What4.SatResult
+import           What4.Expr.GroundEval
+import           What4.Expr.Builder
+import qualified What4.Expr.WeightedSum as WSum
+import           What4.Solver.Adapter
+import           What4.Utils.Complex
 
 import           BLT.Binding
 
@@ -117,7 +118,7 @@ bltAdapter =
    }
 
 runBLTInOverride :: Config
-                 -> BoolElt t -- ^ proposition to check
+                 -> BoolExpr t -- ^ proposition to check
                  -> (SatResult (GroundEvalFn t) -> IO a)
                  -> IO a
 runBLTInOverride cfg p contFn = do
@@ -325,9 +326,9 @@ data Handle t = Handle
     getCtx     :: HContext
     -- | associate elements for variables to the index.
   , varIndices :: !(PH.HashTable RealWorld (Nonce t) VarIndex)
-    -- | associate each observed Elt with a BLTExpr that represents the
+    -- | associate each observed Expr with a BLTExpr that represents the
     -- variable on the BLT side
-  , eltCache   :: !(IdxCache t NameType)
+  , exprCache  :: !(IdxCache t NameType)
     -- | associate lower/upper bounds with each top level expression
   , boundMap   :: !(IORef (Map BLTExpr Bounds))
     -- | flag set if a trivial conflict in assumptions is found
@@ -356,7 +357,7 @@ newHandle :: BLTParams -> IO (Handle t)
 newHandle par = do
   getCtx     <- bltInit (par^.blt_mode) (par^.blt_sound)
   varIndices <- stToIO PH.new
-  eltCache   <- newIdxCache
+  exprCache  <- newIdxCache
   boundMap   <- newIORef Map.empty
   flagUNSAT  <- newIORef False
   let params = par
@@ -385,19 +386,19 @@ setUNSAT h = do
 -- Evaluate Symbolic Expressions from 'crucible'
 ------------------------------------------------------------------------
 
--- | Parse given Elt Bool as a conjunction of inequalities and record them
-assume :: Handle t -> BoolElt t -> IO ()
-assume _ (BoundVarElt v) =
+-- | Parse given Expr Bool as a conjunction of inequalities and record them
+assume :: Handle t -> BoolExpr t -> IO ()
+assume _ (BoundVarExpr v) =
   failAt' (bvarLoc v) "Boolean variables are not supported by BLT."
-assume _ (NonceAppElt e) =
+assume _ (NonceAppExpr e) =
   fail . show $
     text "Unsupported term created at" <+> pretty (plSourceLoc l) <>
-    text ":" <$$> indent 2 (pretty (NonceAppElt e))
+    text ":" <$$> indent 2 (pretty (NonceAppExpr e))
   where
-  l = nonceEltLoc e
+  l = nonceExprLoc e
 assume _ (SemiRingLiteral sr _ _) = case sr of {}
-assume h b@(AppElt ba) = do
-  let a = appEltApp ba in
+assume h b@(AppExpr ba) = do
+  let a = appExprApp ba in
     case a of
       TrueBool    -> return ()
       FalseBool   -> do
@@ -416,7 +417,7 @@ assume h b@(AppElt ba) = do
         text "Unsupported term created at" <+> pretty (plSourceLoc l) <>
         text ":" <$$> indent 2 (pretty b)
   where
-  l = appEltLoc ba
+  l = appExprLoc ba
   appLEq lhs rhs =
     let (lhs', rhs') = normalizeLEQ lhs rhs in
     case (isBLTConst lhs', isBLTConst rhs') of
@@ -497,23 +498,23 @@ recordUpperBound h r e = assert (isBLTHomog e && leadingCoeff e > 0) $ do
 
 -- | Cached version of evalReal'. We wrap and unwrap the NameType to be
 -- compatible with IdxCache functions in Core.
-evalReal :: Handle t -> RealElt t -> IO BLTExpr
-evalReal h e = asName <$> idxCacheEval (eltCache h) e (N <$> evalReal' h e)
+evalReal :: Handle t -> RealExpr t -> IO BLTExpr
+evalReal h e = asName <$> idxCacheEval (exprCache h) e (N <$> evalReal' h e)
 
 -- | Parse a RealVal expression, flattening it to a (new) BLTExpr.
 
-evalReal' :: Handle t -> RealElt t -> IO BLTExpr
+evalReal' :: Handle t -> RealExpr t -> IO BLTExpr
 -- Integer variables are supported, but not Real
-evalReal' _ (BoundVarElt v) =
+evalReal' _ (BoundVarExpr v) =
   failAt (bvarLoc v) "Real variables are not supported by BLT."
 evalReal' h (SemiRingLiteral SemiRingReal r _) = do
   when (isVerb h) $ putStrLn ("BLT@evalReal: rational const " ++ show r)
   return (mkBLT r)
-evalReal' _ (NonceAppElt ea) =
-  failAt (nonceEltLoc ea) "symbolic functions"
-evalReal' h epr@(AppElt epa) = do
-  let l = eltLoc epr
-  case appEltApp epa of
+evalReal' _ (NonceAppExpr ea) =
+  failAt (nonceExprLoc ea) "symbolic functions"
+evalReal' h epr@(AppExpr epa) = do
+  let l = exprLoc epr
+  case appExprApp epa of
 
     RealPart c -> do
       (r :+ _) <- evalCplx h c
@@ -547,18 +548,18 @@ evalReal' h epr@(AppElt epa) = do
     _ ->
       fail $ "BLT encountered a real expression that it does not support.\n"
           ++ "The term was created at " ++ show (plSourceLoc l) ++ ":\n"
-          ++ "  " ++ show (ppEltTop epr)
+          ++ "  " ++ show (ppExprTop epr)
 
 
 -- | Cached version of evalInteger'. We wrap and unwrap the NameType to be
 -- compatible with IdxCache functions in Core.
-evalInteger :: Handle t -> IntegerElt t -> IO BLTExpr
-evalInteger h e = asName <$> idxCacheEval (eltCache h) e (N <$> evalInteger' h e)
+evalInteger :: Handle t -> IntegerExpr t -> IO BLTExpr
+evalInteger h e = asName <$> idxCacheEval (exprCache h) e (N <$> evalInteger' h e)
 
 -- | Parse an IntegerType element, flattening it to a (new) BLTExpr.
-evalInteger' :: Handle t -> IntegerElt t -> IO BLTExpr
+evalInteger' :: Handle t -> IntegerExpr t -> IO BLTExpr
 -- Match integer variable.
-evalInteger' h (BoundVarElt info) =
+evalInteger' h (BoundVarExpr info) =
   case bvarKind info of
     QuantifierVarKind ->
       failAt' (bvarLoc info) "Bound variables are not supported by BLT."
@@ -574,11 +575,11 @@ evalInteger' h (SemiRingLiteral SemiRingInt i _) = do
   when (isVerb h) $ putStrLn ("BLT@evalInteger: integer const " ++ show i)
   return $ mkBLT (toRational i)
 -- Match expression
-evalInteger' _ (NonceAppElt ea) =
-  failAt (nonceEltLoc ea) "symbolic functions"
-evalInteger' h (AppElt epa) = do
-  let l = appEltLoc epa
-  case appEltApp epa of
+evalInteger' _ (NonceAppExpr ea) =
+  failAt (nonceExprLoc ea) "symbolic functions"
+evalInteger' h (AppExpr epa) = do
+  let l = appExprLoc epa
+  case appExprApp epa of
     -- support only linear expressions
     SemiRingMul SemiRingInt x y -> do
       x' <- evalInteger h x
@@ -594,14 +595,14 @@ evalInteger' h (AppElt epa) = do
 
     _ -> failAt l "The given integer expressions"
 
--- | Evaluate complex symbolic expressions to their ModelElt type.
-evalCplx :: Handle t -> CplxElt t -> IO (Complex BLTExpr)
-evalCplx _ (BoundVarElt i) = failAt (bvarLoc i) "Complex variables"
+-- | Evaluate complex symbolic expressions to their ModelExpr type.
+evalCplx :: Handle t -> CplxExpr t -> IO (Complex BLTExpr)
+evalCplx _ (BoundVarExpr i) = failAt (bvarLoc i) "Complex variables"
 evalCplx _ (SemiRingLiteral sr _ _) = case sr of {}
-evalCplx _ (NonceAppElt ea) =
-  failAt (nonceEltLoc ea) "symbolic functions"
-evalCplx h (AppElt ea) =
-  case appEltApp ea of
+evalCplx _ (NonceAppExpr ea) =
+  failAt (nonceExprLoc ea) "symbolic functions"
+evalCplx h (AppExpr ea) =
+  case appExprApp ea of
     Cplx (r :+ i) -> do
       r' <- evalReal h r
       i' <- evalReal h i
@@ -609,8 +610,8 @@ evalCplx h (AppElt ea) =
     SemiRingSum sr _ -> case sr of {}
     SemiRingMul sr _ _ -> case sr of {}
     SemiRingIte sr _ _ _ -> case sr of {}
-    SelectArray{} -> failAt (appEltLoc ea) "symbolic arrays"
-    StructField{} -> failAt (appEltLoc ea) "symbolic arrays"
+    SelectArray{} -> failAt (appExprLoc ea) "symbolic arrays"
+    StructField{} -> failAt (appExprLoc ea) "symbolic arrays"
 
 ------------------------------------------------------------------------
 -- Call Solver
@@ -660,8 +661,8 @@ checkSat h = do
       _ | bltUNSAT == rc -> return Unsat
         | bltSAT   == rc -> do
           groundCache <- newIdxCache
-          let f :: Elt t tp -> IO (GroundValue tp)
-              f (BoundVarElt info) = do
+          let f :: Expr t tp -> IO (GroundValue tp)
+              f (BoundVarExpr info) = do
                 -- See what this was bound to.
                 me <- stToIO $ PH.lookup (varIndices h) (bvarId info)
                 case me of
@@ -670,7 +671,7 @@ checkSat h = do
                   Nothing ->
                    return $ defaultValueForType $ bvarType info
 
-              f e = unGVW <$> idxCacheEval groundCache e (GVW <$> evalGroundElt f e)
+              f e = unGVW <$> idxCacheEval groundCache e (GVW <$> evalGroundExpr f e)
           return $ Sat $ GroundEvalFn f
         | otherwise -> fail ("** BLT: checkSat failed, return code = " ++ show rc)
 

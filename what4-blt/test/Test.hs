@@ -2,7 +2,6 @@
 
 module Main where
 
-import Control.Applicative
 import Data.Either (isLeft)
 import qualified Data.Map.Strict as Map
 
@@ -10,7 +9,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
 
-import Lang.Crucible.Solver.SimpleBackend.BLT
+import What4.Solver.BLT
 import BLT.Binding
 
 main :: IO ()
@@ -118,10 +117,6 @@ instance Arbitrary BLTExpr where
 
 instance Arbitrary BLTVar where
   arbitrary = BLTVar <$> arbitrary
-
-instance Arbitrary (Map.Map BLTVar Rational) where
-  arbitrary = Map.fromList <$> arbitrary
-  --shrink m = Map.fromList <$> shrink (Map.toList m)
 
 prop_addBLTE_comm :: BLTExpr -> BLTExpr -> Bool
 prop_addBLTE_comm x y = addBLTE x y == addBLTE y x
