@@ -1108,7 +1108,7 @@ data ExprBuilder t (st :: * -> *)
         , sbProgramLoc :: !(IORef ProgramLoc)
           -- | Additional state maintained by the state manager
         , sbStateManager :: !(IORef (st t))
-          -- | Current location in program.
+
         , sbVarBindings :: !(IORef (SymbolVarBimap t))
           -- | Cache for Matlab functions
         , sbMatlabFnCache

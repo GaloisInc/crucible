@@ -33,10 +33,12 @@ error rather than sending invalid output to a file.
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 module What4.Protocol.SMTWriter
   ( -- * Type classes
     SupportTermOps(..)
   , SMTWriter(..)
+  , SMTReadWriter (..)
   , SMTEvalBVArrayFn
   , SMTEvalBVArrayWrapper(..)
     -- * Terms
@@ -47,6 +49,7 @@ module What4.Protocol.SMTWriter
   , app_list
   , builder_list
   , fromText
+  , asConfigValue
     -- * SMTWriter
   , WriterConn( supportFunctionDefs
               , supportFunctionArguments
@@ -98,8 +101,11 @@ import qualified Data.Text.Lazy.IO as Lazy
 import           Data.Word
 import           System.IO
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (<>))
+import           Data.ByteString(ByteString)
+import qualified System.IO.Streams as Streams
 
 import           What4.BaseTypes
+import           What4.Concrete
 import           What4.Interface (ArrayResultWrapper(..), IndexLit(..))
 import           What4.ProblemFeatures
 import           What4.Expr.Builder
@@ -107,6 +113,7 @@ import           What4.Expr.GroundEval
 import qualified What4.Expr.WeightedSum as WSum
 import qualified What4.Expr.UnaryBV as UnaryBV
 import           What4.ProgramLoc
+import           What4.SatResult
 import           What4.Symbol
 import           What4.Utils.Complex
 import qualified What4.Utils.Hashable as Hash
@@ -405,6 +412,24 @@ class Num v => SupportTermOps v where
   lambdaTerm :: Maybe ([(Text, SMT_Type)] -> v -> v)
   lambdaTerm = Nothing
 
+
+-- | Attempt to interpret a Config value as a solver value.
+asConfigValue ::
+  forall f s tp.
+  SupportTermOps (Term s) =>
+  f s -> ConcreteVal tp -> Maybe Builder
+asConfigValue _ v =
+  case v of
+    ConcreteBool x    -> Just (render (boolExpr x))
+    ConcreteReal x    -> Just (render (rationalTerm x))
+    ConcreteInteger x -> Just (render (integerTerm x))
+    ConcreteString x  -> Just (Builder.fromText x) -- XXX: overload?
+    _                 -> Nothing
+
+  where
+  render :: Term s -> Builder
+  render = renderTerm
+
 ------------------------------------------------------------------------
 -- Term
 
@@ -646,6 +671,18 @@ class (SupportTermOps (Term h)) => SMTWriter h where
   -- | Create a command that asserts a formula.
   assertCommand :: f h -> Term h -> Command h
 
+  -- | Push 1 new scope
+  pushCommand   :: f h -> Command h
+
+  -- | Pop 1 existing scope
+  popCommand    :: f h -> Command h
+
+  -- | Check if the current set of assumption is satisfiable
+  checkCommand  :: f h -> Command h
+
+  -- | Set an option/parameter.
+  setOptCommand :: f h -> Text -> Builder -> Command h
+
   -- | Declare a new symbol with the given name, arguments types, and result type.
   declareCommand :: f h
                  -> Text
@@ -666,6 +703,7 @@ class (SupportTermOps (Term h)) => SMTWriter h where
   -- | Declare a struct datatype if is has not been already given the number of
   -- arguments in the struct.
   declareStructDatatype :: WriterConn t h -> Int -> IO ()
+
 
 -- | Write a command to the connection.
 writeCommand :: WriterConn t h -> Command h -> IO ()
@@ -1249,7 +1287,7 @@ checkQuantifierSupport nm t = do
   when (supportQuantifiers conn == False) $ do
     theoryUnsupported conn nm t
 
--- | Generate a SMTLIB function for a simplebuilder function.
+-- | Generate a SMTLIB function for a ExprBuilder function.
 --
 -- Since SimpleBuilder different simple builder values with the same type may
 -- have different SMTLIB types (particularly arrays), getSMTSymFn requires the
@@ -1361,7 +1399,7 @@ defineFn conn nm arg_vars return_value arg_types =
     -- Evaluate return value
     mkExpr return_value
 
--- | Create a SMT symbolic function from the SimpleSymFn.
+-- | Create a SMT symbolic function from the ExprSymFn.
 --
 -- Returns the return type of the function.
 --
@@ -2178,6 +2216,16 @@ data SMTEvalFunctions h
                         -- signifies that we should fall back to index-selection
                         -- representation of arrays.
                       }
+
+-- | Used when we need two way communication with the solver.
+class SMTWriter h => SMTReadWriter h where
+  -- | Get functions for parsing values out of the solver.
+  smtEvalFuns ::
+    WriterConn t h -> Streams.InputStream ByteString -> SMTEvalFunctions h
+
+  -- | Parse a set result from the solver's response.
+  smtSatResult :: f h -> Streams.InputStream ByteString -> IO (SatResult ())
+
 
 -- | Return the terms associated with the given ground index variables.
 smtIndicesTerms :: forall v idx

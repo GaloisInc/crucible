@@ -82,6 +82,7 @@ library
     What4.Solver.Yices
     What4.Solver.Z3
 
+    What4.Protocol.Online
     What4.Protocol.SMTLib2
     What4.Protocol.SMTWriter
     What4.Protocol.ReadDecimal
@@ -96,6 +97,7 @@ library
     What4.Utils.Complex
     What4.Utils.Endian
     What4.Utils.Environment
+    What4.Utils.HandleReader
     What4.Utils.Hashable
     What4.Utils.LeqMap
     What4.Utils.MonadST

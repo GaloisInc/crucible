@@ -387,6 +387,12 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
 
   assertCommand _ e = Cmd $ app "assert" [renderTerm e]
 
+  pushCommand _  = Cmd "(push 1)"
+  popCommand _   = Cmd "(pop 1)"
+  checkCommand _ = checkSatCommand
+  setOptCommand _ x y = setOptionCommand (Option opt)
+    where opt = Builder.fromText x <> Builder.fromText " " <> y
+
   declareCommand proxy v argTypes retType = Cmd $
     app "declare-fun" [ Builder.fromText v
                       , builder_list (unType (exprTweaks proxy) <$> argTypes)
@@ -483,9 +489,10 @@ parseBvArraySolverValue _ _ _ = return Nothing
 -- Session
 
 -- | This is an interactive session with an SMT solver
-data Session t a = Session { sessionWriter :: !(WriterConn t (Writer a))
-                           , sessionResponse :: !(Streams.InputStream UTF8.ByteString)
-                           }
+data Session t a = Session
+  { sessionWriter   :: !(WriterConn t (Writer a))
+  , sessionResponse :: !(Streams.InputStream UTF8.ByteString)
+  }
 
 -- | Get a value from a solver (must be called after checkSat)
 runGetValue :: SMTLib2Tweaks a
@@ -508,33 +515,51 @@ runCheckSat :: forall b t a.
                -- ^ Function for evaluating model.
                -- The evaluation should be complete before
             -> IO a
-runCheckSat s doEval = do
-  writeCheckSat (sessionWriter s)
-  msat_result <- try $ Streams.parseFromStream parseNextWord (sessionResponse s)
-  case msat_result of
-    Left Streams.ParseException{} -> fail $ "Could not parse check_sat result."
-    Right "unsat" -> do
-      doEval Unsat
-    Right "sat" -> do
-      let evalBool tm = do
-            parseBoolSolverValue =<< runGetValue s tm
-      let evalBV w tm =
-            parseBvSolverValue w =<< runGetValue s tm
-      let evalReal tm =
-            parseRealSolverValue =<< runGetValue s tm
-      let evalBvArray :: SMTEvalBVArrayFn (Writer b) w v
-          evalBvArray w v tm =
-            parseBvArraySolverValue w v =<< runGetValue s tm
-      let evalFns = SMTEvalFunctions { smtEvalBool = evalBool
-                                     , smtEvalBV = evalBV
-                                     , smtEvalReal = evalReal
-                                     , smtEvalBvArray = Just (SMTEvalBVArrayWrapper evalBvArray)
-                                     }
-      evalFn <- smtExprGroundEvalFn (sessionWriter s) evalFns
-      doEval (Sat (evalFn, Nothing))
-    Right "unknown" ->
-      doEval Unknown
-    Right res -> fail $ "Could not interpret result from solver: " ++ res
+runCheckSat s doEval =
+  do let w = sessionWriter s
+         r = sessionResponse s
+     res <- smtSatResult w r
+     case res of
+       Unsat -> doEval Unsat
+       Unknown -> doEval Unknown
+       Sat _ ->
+         do evalFn <- smtExprGroundEvalFn w (smtEvalFuns w r)
+            doEval (Sat (evalFn, Nothing))
+
+instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
+  smtEvalFuns w s = smtLibEvalFuns Session { sessionWriter = w
+                                           , sessionResponse = s }
+
+
+  smtSatResult _ s =
+    do mb <- try (Streams.parseFromStream parseNextWord s)
+       case mb of
+         Left Streams.ParseException{} ->
+            fail $ "Could not parse check_sat result."
+         Right "unsat" -> return Unsat
+         Right "sat" -> return (Sat ())
+         Right "unknown" -> return Unknown
+         Right res -> fail ("Could not interpret result from solver: " ++ res)
+
+
+
+smtLibEvalFuns ::
+  forall t a. SMTLib2Tweaks a => Session t a -> SMTEvalFunctions (Writer a)
+smtLibEvalFuns s = SMTEvalFunctions
+                  { smtEvalBool = evalBool
+                  , smtEvalBV = evalBV
+                  , smtEvalReal = evalReal
+                  , smtEvalBvArray = Just (SMTEvalBVArrayWrapper evalBvArray)
+                  }
+  where
+  evalBool tm = parseBoolSolverValue =<< runGetValue s tm
+  evalBV w tm = parseBvSolverValue w =<< runGetValue s tm
+  evalReal tm = parseRealSolverValue =<< runGetValue s tm
+
+  evalBvArray :: SMTEvalBVArrayFn (Writer a) w v
+  evalBvArray w v tm = parseBvArraySolverValue w v =<< runGetValue s tm
+
+
 
 -- | A default method for writing SMTLib2 problems without any
 --   solver-specific tweaks.

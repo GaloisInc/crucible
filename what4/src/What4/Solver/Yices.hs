@@ -34,7 +34,7 @@ module What4.Solver.Yices
   , eval
   , push
   , pop
-  , inFreshFrame
+  , inNewFrame
   , setParam
   , setYicesParams
   , HandleReader
@@ -45,10 +45,7 @@ module What4.Solver.Yices
   , efSolveCommand
 
     -- * Live connection
-  , YicesProcess(..)
   , yicesEvalBool
-  , check
-  , checkAndGetModel
 
   , SMTWriter.addCommand
     -- * Solver adapter interface
@@ -59,9 +56,7 @@ module What4.Solver.Yices
   , yicesOptions
   ) where
 
-import           Control.Concurrent (ThreadId, forkIO, killThread)
-import           Control.Concurrent.Chan
-import           Control.Exception (assert, bracket, bracket_, catch, throwIO, try)
+import           Control.Exception (assert)
 import           Control.Lens ((^.))
 import           Control.Monad
 import           Data.Bits
@@ -73,16 +68,18 @@ import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.String (fromString)
 import           Data.Text (Text)
-import qualified Data.Text.IO as Text
+import qualified Data.Text as Text
+import           Data.Text.Encoding(decodeUtf8',decodeUtf8)
 import qualified Data.Text.Lazy as LazyText
 import           Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
 import           Data.Text.Lazy.Builder.Int (decimal)
+import           Data.ByteString(ByteString)
 import           System.Exit
 import           System.IO
-import           System.IO.Error
 import           System.Process
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
+import qualified System.IO.Streams as Streams
 
 import           What4.BaseTypes
 import           What4.Config
@@ -96,8 +93,11 @@ import           What4.Expr.GroundEval
 import           What4.Expr.VarIdentification
 import           What4.Protocol.SMTLib2 (writeDefaultSMT2)
 import           What4.Protocol.SMTWriter as SMTWriter
+import           What4.Protocol.Online
 import qualified What4.Protocol.PolyRoot as Root
+import           What4.Utils.HandleReader
 import           What4.Utils.Process
+
 
 -- | This is a tag used to indicate that a 'WriterConn' is a connection
 -- to a specific Yices process.
@@ -108,7 +108,7 @@ asYicesConfigValue :: ConcreteVal tp -> Maybe Builder
 asYicesConfigValue v = case v of
   ConcreteBool x ->
       return (if x then "true" else "false")
-  ConcreteReal x -> 
+  ConcreteReal x ->
       return $ decimal (numerator x) <> "/" <> decimal (denominator x)
   ConcreteInteger x ->
       return $ decimal x
@@ -284,22 +284,12 @@ assertForallCommand vars e = Cmd $ app "assert" [renderTerm res]
  where res = binder_app "forall" (uncurry mkBinding <$> vars) e
        mkBinding nm tp = Builder.fromText nm <> "::" <> unType tp
 
-checkCommand :: Command (Connection s)
-checkCommand = Cmd "(check)"
 
 efSolveCommand :: Command (Connection s)
 efSolveCommand = Cmd "(ef-solve)"
 
 evalCommand :: Term (Connection s)-> Command (Connection s)
 evalCommand v = Cmd $ app "eval" [renderTerm v]
-
--- | Push a new assertion frame
-pushCommand :: Command (Connection s)
-pushCommand = Cmd "(push)"
-
--- | Pop the most recent assertion frame
-popCommand :: Command (Connection s)
-popCommand = Cmd "(pop)"
 
 -- | Tell yices to show a model
 showModelCommand :: Command (Connection s)
@@ -343,6 +333,10 @@ newConnection h reqFeatures bindings = do
 instance SMTWriter (Connection s) where
   commentCommand _ b = Cmd (";; " <> b)
 
+  pushCommand _   = Cmd "(push)"
+  popCommand _    = Cmd "(pop)"
+  checkCommand _  = Cmd "(check)"
+  setOptCommand _ x o = setParamCommand x o
   assertCommand _ (T nm) = Cmd $ app "assert" [nm]
 
   declareCommand _ v args tp =
@@ -355,12 +349,85 @@ instance SMTWriter (Connection s) where
 
   declareStructDatatype _ _ = return ()
 
+instance SMTReadWriter (Connection s) where
+  smtEvalFuns conn resp =
+    SMTEvalFunctions { smtEvalBool    = yicesEvalBool conn resp
+                     , smtEvalBV      = \w -> yicesEvalBV w conn resp
+                     , smtEvalReal    = yicesEvalReal conn resp
+                     , smtEvalBvArray = Nothing
+                     }
+
+  smtSatResult _ = getSatResponse
+
+instance OnlineSolver s (Connection s) where
+  startSolverProcess = yicesStartSolver
+  shutdownSolverProcess = yicesShutdownSolver
+
+yicesShutdownSolver :: SolverProcess s (Connection s) -> IO ()
+yicesShutdownSolver p =
+   do hClose (solverStdin p)
+
+      --logLn 2 "Waiting for yices to terminate"
+      txt <- readAllLines (solverStderr p)
+
+      ec <- waitForProcess (solverHandle p)
+      case ec of
+        ExitSuccess -> do
+          return ()
+          --logLn 2 "Yices terminated."
+        ExitFailure exit_code -> do
+          fail $ "yices exited with unexpected code " ++ show exit_code ++ "\n"
+              ++ LazyText.unpack txt
+
+yicesStartSolver :: B.ExprBuilder s st -> IO (SolverProcess s (Connection s))
+yicesStartSolver sym = do
+  let cfg = getConfiguration sym
+  yices_path <- findSolverPath yicesPath cfg
+  let args = ["--mode=push-pop"]
+
+  let create_proc
+        = (proc yices_path args)
+          { std_in  = CreatePipe
+          , std_out = CreatePipe
+          , std_err = CreatePipe
+          , create_group = True
+          , cwd = Nothing
+          }
+
+  let startProcess = do
+        x <- createProcess create_proc
+        case x of
+          (Just in_h, Just out_h, Just err_h, ph) -> return (in_h,out_h,err_h,ph)
+          _ -> fail "Internal error in yicesStartServer: Failed to create handle."
+
+  (in_h,out_h,err_h,ph) <- startProcess
+
+  --void $ forkIO $ logErrorStream err_stream (logLn 2)
+  -- Create new connection for sending commands to yices.
+  let features = useLinearArithmetic
+             .|. useBitvectors
+             .|. useSymbolicArrays
+             .|. useComplexArithmetic
+             .|. useStructs
+  conn <- newConnection in_h features B.emptySymbolVarBimap
+  setYicesParams conn cfg
+
+  err_reader <- startHandleReader err_h
+  out_stream <- Streams.handleToInputStream out_h
+  return $! SolverProcess { solverConn   = conn
+                          , solverStdin  = in_h
+                          , solverStderr = err_reader
+                          , solverHandle = ph
+                          , solverResponse = out_stream
+                          , solverEvalFuns = smtEvalFuns conn out_stream
+                          }
+
 ------------------------------------------------------------------------
 -- Translation code
 
 -- | Send a check command to Yices.
 sendCheck :: WriterConn t (Connection s) -> IO ()
-sendCheck c = addCommand c checkCommand
+sendCheck c = addCommand c (checkCommand c)
 
 sendCheckExistsForall :: WriterConn t (Connection s) -> IO ()
 sendCheckExistsForall c = addCommand c checkExistsForallCommand
@@ -387,108 +454,73 @@ setYicesParams conn cfg = do
 eval :: WriterConn t (Connection s) -> Term (Connection s) -> IO ()
 eval c e = addCommand c (evalCommand e)
 
-inFreshFrame :: WriterConn t (Connection s) -> IO a -> IO a
-inFreshFrame c m = bracket_ (push c) (pop c) m
-
-push :: WriterConn t (Connection s) -> IO ()
-push c = do
-  pushEntryStack c
-  addCommand c pushCommand
-
-pop :: WriterConn t (Connection s) -> IO ()
-pop c = do
-  popEntryStack c
-  addCommand c popCommand
-
 -- | Print a command to show the model.
 sendShowModel :: WriterConn t (Connection s) -> IO ()
 sendShowModel c = addCommand c showModelCommand
 
--- | A live connection to a running Yices process.
-data YicesProcess t s =
-  YicesProcess { yicesConn  :: !(WriterConn t (Connection s))
-                   -- ^ Writer for sending commands to Yices
-                 , yicesHandle :: !ProcessHandle
-                   -- ^ Handle to Yices process
-                 , yicesStdin :: !Handle
-                   -- ^ Standard in for Yices process.
-                 , yicesStdout :: !Handle
-                   -- ^ Standard out for Yices process.
-                 , yicesStderr :: !HandleReader
-                   -- ^ Standard error for Yices process
-                 }
 
--- | Get the sat result from a previous SAT command
-getSatResult :: YicesProcess t s -> IO (SatResult ())
-getSatResult yp = do
-  let ph = yicesHandle yp
-  let out_h = yicesStdout yp
-  let err_reader = yicesStderr yp
-  sat_result <- try $ hGetLine out_h
-  case sat_result of
-    Left e
-      | isEOFError e -> do
-          txt <- readAllLines err_reader
-          -- Interrupt process; suppress any exceptions that occur.
-          catch (interruptProcessGroupOf ph) (\(_ :: IOError) -> return ())
-          -- Wait for process to end
-          ec <- waitForProcess ph
-          let ec_code = case ec of
-                          ExitSuccess -> 0
-                          ExitFailure code -> code
-          fail $ "yices terminated with exit code "++ show ec_code ++ ".\n"
-              ++ LazyText.unpack txt
-      | otherwise ->  do
-          throwIO e
-    Right "unsat" ->
-      return $! Unsat
-    Right "sat" -> do
-      return $! Sat ()
-    Right "unknown" ->
-      return $! Unknown
-    Right kword ->
-      fail $ "Unexpected result value from yices check: " ++ kword
 
--- | Send a check command to Yices and get the status.
---
--- This may fail if Yices terminates.
-check :: YicesProcess t s -> IO (SatResult ())
-check yp = do
-  sendCheck (yicesConn yp)
-  getSatResult yp
+-- | Get a line of output from Yices, if any.
+yicesGetLine :: Streams.InputStream ByteString -> IO (Maybe Text)
+yicesGetLine resp =
+  do mbBytes <- Streams.read resp
+     case mbBytes of
+       Nothing -> return Nothing
+       Just bytes ->
+         case decodeUtf8' bytes of
+           Left err -> fail (show err)
+           Right a  -> return (Just a)
 
-getModel :: YicesProcess t s -> IO (GroundEvalFn t)
-getModel yp = do
-  let evalReal tm = do
-        eval (yicesConn yp) tm
-        l <- Text.hGetLine (yicesStdout yp)
-        case Root.fromYicesText l of
-          Nothing -> do
-            fail $ "Could not parse real value returned by yices:\n  " ++ show l
-          Just r -> pure $ Root.approximate r
-  let evalFns = SMTEvalFunctions { smtEvalBool = yicesEvalBool yp
-                                 , smtEvalBV   = yicesEvalBV yp
-                                 , smtEvalReal = evalReal
-                                 , smtEvalBvArray = Nothing
-                                 }
-  smtExprGroundEvalFn (yicesConn yp) evalFns
+-- | Get a line of output from Yices.  Throws an exception at EOF.
+yicesDoGetLine :: Streams.InputStream ByteString -> IO Text
+yicesDoGetLine resp =
+  do mb <- yicesGetLine resp
+     case mb of
+       Nothing -> fail "Missing response from the solver."
+       Just b  -> return b
 
--- | Send a check command to Yices and get the model.
---
--- This may fail if Yices terminates.
-checkAndGetModel :: YicesProcess t s -> IO (SatResult (GroundEvalFn t))
-checkAndGetModel yp = do
-  sat_result <- check yp
-  case sat_result of
-    Unsat   -> return $! Unsat
-    Unknown -> return $! Unknown
-    Sat () -> Sat <$> getModel yp
+
+-- | Get the sat result from a previous SAT command.
+-- Throws an exception if something goes wrong.
+getSatResponse :: Streams.InputStream ByteString -> IO (SatResult ())
+getSatResponse resps =
+  do res <- Streams.read resps
+     case res of
+       Nothing -> fail $ unlines [ "Unexpected end of input."
+                                 , "*** Expecting: sat result"
+                                 ]
+       Just txt ->
+         case txt of
+           "unsat"    -> return Unsat
+           "sat"      -> return (Sat ())
+           "unknown"  -> return Unknown
+           _  -> fail $ unlines
+              [ "Unexpected sat result:"
+              , "*** Result: " ++ Text.unpack (decodeUtf8 txt)
+              , "*** Expecting: unsat/sat/unknown"
+              ]
+
+type Eval scope solver ty =
+  WriterConn scope (Connection solver) ->
+  Streams.InputStream ByteString ->
+  Term (Connection solver) ->
+  IO ty
+
+-- | Call eval to get a Rational term
+yicesEvalReal :: Eval s t Rational
+yicesEvalReal conn resp tm =
+    do eval conn tm
+       l <- yicesDoGetLine resp
+       case Root.fromYicesText l of
+         Nothing -> do
+           fail $ "Could not parse real value returned by yices:\n  " ++ show l
+         Just r -> pure $ Root.approximate r
 
 -- | Call eval to get a Boolean term.
-yicesEvalBool :: YicesProcess t s -> Term (Connection s) -> IO Bool
-yicesEvalBool yp tm = do
-  eval (yicesConn yp) tm
-  l <- Text.hGetLine (yicesStdout yp)
+yicesEvalBool :: Eval s t Bool
+yicesEvalBool conn resp tm = do
+  eval conn tm
+  l <- yicesDoGetLine resp
   case l of
     "true"  -> return $! True
     "false" -> return $! False
@@ -496,13 +528,10 @@ yicesEvalBool yp tm = do
       fail $ "Could not parse yices value " ++ show l ++ " as a Boolean."
 
 -- | Send eval command and get result back.
-yicesEvalBV :: YicesProcess t s
-               -> Int -- ^ Width of  expression
-               -> Term (Connection s)  -- ^ Term to get value of
-               -> IO Integer
-yicesEvalBV yp w tm = do
-  eval (yicesConn yp) tm
-  l <- hGetLine (yicesStdout yp)
+yicesEvalBV :: Int -> Eval s t Integer
+yicesEvalBV w conn resp tm = do
+  eval conn tm
+  l <- Text.unpack <$> yicesDoGetLine resp
   case l of
     '0' : 'b' : nm -> readBit w nm
     _ -> fail "Could not parse value returned by yices as bitvector."
@@ -517,24 +546,6 @@ readBit w0 = go 0 0
             '0' -> go (n+1) (v `shiftL` 1)       r
             '1' -> go (n+1) ((v `shiftL` 1) + 1) r
             _ -> fail "Not a bitvector."
-
-{-
--- | Parse a Yices Real value
-yicesRealValue :: Monad m => Text -> m Rational
-yicesRealValue (
-    -- Read an integer
-  | [(r,"")] <- readDecimal v =
-    return r
-    -- Divison case means we have a rational.
-  | (f,(_:t)) <- break (\c -> c == '/') v
-  , [(n,"")] <- reads f
-  , [(d,"")] <- reads t =
-    return (n % d)
-  | otherwise =
-  fail $ "Could not parse solver value " ++ v ++ " as a real."
-yicesRealValue _ =
-  fail "Could not parse solver value as a real."
--}
 
 ------------------------------------------------------------------
 -- SolverAdapter interface
@@ -724,71 +735,6 @@ writeYicesFile sym path p = do
       sendCheck c
     sendShowModel c
 
--- | Wrapper to help with reading from another process's standard out and stderr.
---
--- We want to be able to read from another process's stderr and stdout without
--- causing the process to stall because 'stdout' or 'stderr' becomes full.  This
--- data type will read from either of the handles, and buffer as much data as needed
--- in the queue.  It then provides a line-based method for reading that data as
--- strict bytestrings.
-data HandleReader = HandleReader { hrChan :: !(Chan (Maybe Text))
-                                 , hrHandle :: !Handle
-                                 , hrThreadId :: !ThreadId
-                                 }
-
-streamLines :: Chan (Maybe Text) -> Handle -> IO ()
-streamLines c h = do
-  ln <- Text.hGetLine h
-  writeChan c (Just ln)
-  streamLines c h
-
--- | Create a new handle reader for reading the given handle.
-startHandleReader :: Handle -> IO HandleReader
-startHandleReader h = do
-  c <- newChan
-  let handle_err e
-        | isEOFError e = do
-            writeChan c Nothing
-        | otherwise = do
-            hPutStrLn stderr $ show (ioeGetErrorType e)
-            hPutStrLn stderr $ show e
-  tid <- forkIO $ streamLines c h `catch` handle_err
-
-  return $! HandleReader { hrChan     = c
-                         , hrHandle   = h
-                         , hrThreadId = tid
-                         }
-
-
--- | Stop the handle reader; cannot be used afterwards.
-stopHandleReader :: HandleReader -> IO ()
-stopHandleReader hr = do
-  killThread (hrThreadId hr)
-  hClose (hrHandle hr)
-
--- | Run an execution with a handle reader and stop it wheen down
-withHandleReader :: Handle -> (HandleReader -> IO a) -> IO a
-withHandleReader h = bracket (startHandleReader h) stopHandleReader
-
-readNextLine :: HandleReader -> IO (Maybe Text)
-readNextLine hr = do
-  mr <- readChan (hrChan hr)
-  case mr of
-    -- Write back 'Nothing' because thread should have terminated.
-    Nothing -> writeChan (hrChan hr) Nothing
-    Just{} -> return()
-  return mr
-
-readAllLines :: HandleReader -> IO LazyText.Text
-readAllLines hr = go LazyText.empty
-  where go :: LazyText.Text -> IO LazyText.Text
-        go prev = do
-          mr <- readNextLine hr
-          case mr of
-            Nothing -> return prev
-            Just e -> go $! prev `LazyText.append` (LazyText.fromStrict e)
-                                 `LazyText.snoc` '\n'
-
 -- | Run writer and get a yices result.
 runYicesInOverride :: B.ExprBuilder t st
                    -> (Int -> String -> IO ())
@@ -810,6 +756,8 @@ runYicesInOverride sym logLn condition resultFn = do
     -- Log stderr to output.
     withHandleReader err_h $ \err_reader -> do
 
+      responses <- Streams.lines =<< Streams.handleToInputStream out_h
+
       -- Create new connection for sending commands to yices.
       bindings <- B.getSymbolVarBimap sym
       c <- newConnection in_h features bindings
@@ -823,29 +771,20 @@ runYicesInOverride sym logLn condition resultFn = do
         addCommand c efSolveCommand
       else
         sendCheck c
-      let yp = YicesProcess { yicesConn = c
-                            , yicesHandle = ph
-                            , yicesStdin  = in_h
-                            , yicesStdout = out_h
-                            , yicesStderr = err_reader
-                            }
+
+      let yp = SolverProcess { solverConn = c
+                             , solverHandle = ph
+                             , solverStdin  = in_h
+                             , solverResponse = responses
+                             , solverStderr = err_reader
+                             , solverEvalFuns = smtEvalFuns c responses
+                             }
       sat_result <- getSatResult yp
       r <-
          case sat_result of
            Unsat -> resultFn Unsat
            Unknown -> resultFn Unknown
            Sat () -> resultFn . Sat =<< getModel yp
-      -- Close input stream.
-      hClose in_h
 
-      logLn 2 "Waiting for yices to terminate"
-      txt <- readAllLines err_reader
-
-      ec <- waitForProcess ph
-      case ec of
-        ExitSuccess -> do
-          logLn 2 "Yices terminated."
-          return r
-        ExitFailure exit_code -> do
-          fail $ "yices exited with unexpected code " ++ show exit_code ++ "\n"
-              ++ LazyText.unpack txt
+      yicesShutdownSolver yp
+      return r

@@ -9,6 +9,8 @@
 --
 -- Z3-specific tweaks to the basic SMTLib2 solver interface.
 ------------------------------------------------------------------------
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 module What4.Solver.Z3
        ( Z3
@@ -22,6 +24,7 @@ module What4.Solver.Z3
 import           Control.Concurrent
 import           Control.Monad.State.Strict
 import           Data.Bits
+import qualified Data.Text.Lazy as LazyText
 import           System.Exit
 import           System.IO
 import qualified System.IO.Streams as Streams
@@ -37,8 +40,10 @@ import           What4.ProblemFeatures
 import           What4.SatResult
 import           What4.Expr.Builder
 import           What4.Expr.GroundEval
+import           What4.Protocol.Online
 import qualified What4.Protocol.SMTLib2 as SMT2
 import           What4.Protocol.SMTWriter
+import           What4.Utils.HandleReader
 import           What4.Utils.Process
 import           What4.Utils.Streams
 
@@ -132,7 +137,6 @@ withZ3 sym z3_path logFn action = do
     void $ forkIO $ logErrorStream err_stream logFn
     -- Create writer and session
     bindings <- getSymbolVarBimap sym
-    let
     wtr <- SMT2.newWriter Z3 in_h "Z3" True z3Features True bindings
     out_stream <- Streams.handleToInputStream out_h
     let s = SMT2.Session { SMT2.sessionWriter = wtr
@@ -155,3 +159,63 @@ withZ3 sym z3_path logFn action = do
         return r
       ExitFailure exit_code ->
         fail $ "Z3 exited with unexpected code: " ++ show exit_code
+
+instance OnlineSolver t (SMT2.Writer Z3) where
+  startSolverProcess = z3StartSolver
+  shutdownSolverProcess = z3ShutdownSolver
+
+z3StartSolver :: ExprBuilder t st -> IO (SolverProcess t (SMT2.Writer Z3))
+z3StartSolver sym =
+  do let cfg = getConfiguration sym
+     z3_path <- findSolverPath z3Path cfg
+     let args = ["-smt2", "-in"]
+     let create_proc = (proc z3_path args)
+                       { std_in  = CreatePipe
+                       , std_out = CreatePipe
+                       , std_err = CreatePipe
+                       , create_group = True
+                       , cwd = Nothing
+                       }
+     let startProcess = do
+           x <- createProcess create_proc
+           case x of
+             (Just in_h, Just out_h, Just err_h, ph) -> return (in_h,out_h,err_h,ph)
+             _ -> fail "Internal error in z3StartServer: Failed to create handle."
+
+     (in_h, out_h, err_h, ph) <- startProcess
+
+     -- Log stderr to output.
+     err_reader <- startHandleReader err_h
+     -- Create writer and session
+     bindings <- getSymbolVarBimap sym
+     wtr <- SMT2.newWriter Z3 in_h "Z3" True z3Features True bindings
+
+     out_stream <- Streams.handleToInputStream out_h
+     -- Tell Z3 to produce models.
+     SMT2.setOption wtr (SMT2.produceModels True)
+     -- Tell Z3 to round and print algebraic reals as decimal
+     SMT2.setOption wtr (SMT2.ppDecimal True)
+
+     return $! SolverProcess
+               { solverConn = wtr
+               , solverStdin = in_h
+               , solverStderr = err_reader
+               , solverHandle = ph
+               , solverResponse = out_stream
+               , solverEvalFuns = smtEvalFuns wtr out_stream
+               }
+
+
+z3ShutdownSolver :: SolverProcess t (SMT2.Writer Z3) -> IO ()
+z3ShutdownSolver p =
+  do -- Tell Z3 to exit
+     SMT2.writeExit (solverConn p)
+
+     txt <- readAllLines (solverStderr p)
+
+     ec <- waitForProcess (solverHandle p)
+     case ec of
+       ExitSuccess ->
+         return ()
+       ExitFailure exit_code ->
+         fail ("Z3 exited with unexpected code: " ++ show exit_code ++ "\n" ++ LazyText.unpack txt)
