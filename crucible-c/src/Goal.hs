@@ -7,30 +7,21 @@ import What4.Interface
         (IsExprBuilder, Pred, notPred, impliesPred)
 import What4.AssumptionStack(ProofGoal(..))
 import What4.SatResult(SatResult(..))
-import What4.Solver.Adapter(SolverAdapter(..))
 import What4.Expr.Builder (ExprBuilder)
+import What4.Protocol.Online( OnlineSolver )
 -- import What4.Solver.Z3(z3Adapter)
 
 
 import Lang.Crucible.Backend
         ( ProofObligation, labeledPredMsg, labeledPred )
-import Lang.Crucible.Backend.Online(yicesOnlineAdapter,OnlineBackendState)
+import Lang.Crucible.Backend.Online
+        ( OnlineBackendState, checkSatisfiableWithModel, getSolverProcess )
 import Lang.Crucible.Simulator.ExecutionTree
         (ctxSymInterface, cruciblePersonality)
 
 import Error
 import Types
 import Model
-
-
--- prover :: SolverAdapter s
--- prover = z3Adapter
---prover = yicesAdapter
-
-prover :: SolverAdapter OnlineBackendState
-prover = yicesOnlineAdapter
-
-
 
 
 -- XXX: Change
@@ -41,19 +32,20 @@ obligGoal sym g = foldM imp (proofGoal g ^. labeledPred)
   imp p a = impliesPred sym (a ^. labeledPred) p
 
 proveGoal ::
-  SimCtxt (ExprBuilder s OnlineBackendState) arch ->
-  ProofObligation (ExprBuilder s OnlineBackendState) ->
+  OnlineSolver s solver =>
+  SimCtxt (ExprBuilder s (OnlineBackendState solver)) arch ->
+  ProofObligation (ExprBuilder s (OnlineBackendState solver)) ->
   IO (Maybe Error)
 proveGoal ctxt g =
   do let sym = ctxt ^. ctxSymInterface
      g1 <- obligGoal sym g
      p <- notPred sym g1
+     sp <- getSolverProcess sym
 
-     let say _n _x = return () -- putStrLn ("[" ++ show _n ++ "] " ++ _x)
-     solver_adapter_check_sat prover sym say p $ \res ->
+     checkSatisfiableWithModel sp p $ \res ->
         case res of
           Unsat -> return Nothing
-          Sat (evalFn,_mbRng) ->
+          Sat evalFn ->
             do let model = ctxt ^. cruciblePersonality
                str <- ppModel evalFn model
                return (Just (e (Just str)))

@@ -24,13 +24,9 @@ import Data.Parameterized.Context(pattern Empty)
 import Text.LLVM.AST(Module)
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 
-import What4.Solver.Adapter(SolverAdapter(..))
-import What4.Config (extendConfig)
-import What4.Interface(getConfiguration)
-
 import Lang.Crucible.Backend
   (getProofObligations,IsSymInterface, pushAssumptionFrame, popAssumptionFrame)
-import Lang.Crucible.Backend.Online(withOnlineBackend)
+import Lang.Crucible.Backend.Online(withYicesOnlineBackend)
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
@@ -158,12 +154,8 @@ simulate file k =
      llvmPtrWidth llvmCtxt $ \ptrW ->
        withPtrWidth ptrW $
        withIONonceGenerator $ \nonceGen ->
-       withOnlineBackend nonceGen $ \sym ->
-       do -- set up configuration options
-          let cfg = getConfiguration sym
-          extendConfig (solver_adapter_config_options prover) cfg
-
-          frm <- pushAssumptionFrame sym
+       withYicesOnlineBackend nonceGen $ \sym ->
+       do frm <- pushAssumptionFrame sym
           let simctx = setupSimCtxt halloc sym
 
           mem  <- initializeMemory sym llvmCtxt llvm_mod
