@@ -8,11 +8,10 @@
 -- Stability   : provisional
 --
 -- The online backend maintains an open connection to an SMT solver
--- (Yices, currently) that is used to prune unsatisfiable execution
--- traces during simulation.  At every symbolic branch point, the SMT
--- solver is queried to determine if one or both symbolic branches are
--- unsatisfiable.  Only branches with satisfiable branch conditions
--- are explored.
+-- that is used to prune unsatisfiable execution traces during simulation.
+-- At every symbolic branch point, the SMT solver is queried to determine
+-- if one or both symbolic branches are unsatisfiable.
+-- Only branches with satisfiable branch conditions are explored.
 --
 -- The online backend also allows override definitions access to a
 -- persistent SMT solver connection.  This can be useful for some
@@ -20,282 +19,282 @@
 -- small solver queries in a tight interaction loop.
 ------------------------------------------------------------------------
 
-{-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Lang.Crucible.Backend.Online
   ( -- * OnlineBackend
     OnlineBackend
   , withOnlineBackend
+  , checkSatisfiable
+  , checkSatisfiableWithModel
+  , getSolverProcess
+  , resetSolverProcess
+    -- ** Yices
+  , YicesOnlineBackend
+  , withYicesOnlineBackend
+    -- ** Z3
+  , Z3OnlineBackend
+  , withZ3OnlineBackend
     -- * OnlineBackendState
   , OnlineBackendState
-  , getYicesProcess
-  , Yices.YicesProcess(..)
-  , yicesOnlineAdapter
   ) where
 
-import           Control.Exception ( SomeException, throwIO, try )
+
+import           Control.Exception
+                    ( SomeException(..), throwIO, try )
 import           Control.Lens
 import           Control.Monad
-import           Data.Bits
 import           Data.Foldable
 import           Data.IORef
 import           Data.Parameterized.Nonce
-import           System.Exit
-import           System.IO
-import           System.Process
 
-import qualified What4.Config as CFG
-import           What4.Solver.Adapter
 import           What4.AssumptionStack as AS
-import           What4.Interface
-import qualified What4.Utils.Process as Proc
-import           What4.SatResult
-import           What4.ProblemFeatures
-import           What4.Protocol.SMTWriter
-  ( assumeFormula
-  , mkFormula
-  )
-import qualified What4.Solver.Yices as Yices
+import           What4.Config
 import qualified What4.Expr.Builder as B
+import           What4.Interface
+import           What4.SatResult
+import           What4.Protocol.Online
+import           What4.Protocol.SMTWriter as SMT
+import           What4.Protocol.SMTLib2 as SMT2
+import qualified What4.Solver.Yices as Yices
+import qualified What4.Solver.Z3 as Z3
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.SimError
 
 
-type OnlineBackend t = B.ExprBuilder t OnlineBackendState
+-- | Get the connection for sending commands to the solver.
+getSolverConn ::
+  OnlineSolver scope solver =>
+  OnlineBackend scope solver -> IO (WriterConn scope solver)
+getSolverConn sym = solverConn <$> getSolverProcess sym
 
-yicesOnlineAdapter :: SolverAdapter OnlineBackendState
-yicesOnlineAdapter =
-   Yices.yicesAdapter
-   { solver_adapter_check_sat = \sym _ p cont -> do
-        yproc <- getYicesProcess sym
-        let c = Yices.yicesConn yproc
+--------------------------------------------------------------------------------
+type OnlineBackend scope solver =
+                        B.ExprBuilder scope (OnlineBackendState solver)
 
-        -- build the formula outside the frame to
-        -- preserve intermediate cache results
-        p_smtformula <- mkFormula c p
 
-        Yices.inFreshFrame c $ do
-          assumeFormula c p_smtformula
-          res <- Yices.checkAndGetModel yproc
-          cont (fmap (\x -> (x, Nothing)) res)
-   }
+type YicesOnlineBackend scope = OnlineBackend scope (Yices.Connection scope)
+
+-- | Do something with a Yices online backend.
+--   The backend is only valid in the continuation.
+--
+--   The Yices configuration options will be automatically
+--   installed into the backend configuration object.
+withYicesOnlineBackend ::
+  NonceGenerator IO scope ->
+  (YicesOnlineBackend scope -> IO a) ->
+  IO a
+withYicesOnlineBackend gen action =
+  withOnlineBackend gen $ \sym ->
+    do extendConfig Yices.yicesOptions (getConfiguration sym)
+       action sym
+
+type Z3OnlineBackend scope = OnlineBackend scope (SMT2.Writer Z3.Z3)
+
+-- | Do something with a Z3 online backend.
+--   The backend is only valid in the continuation.
+--
+--   The Z3 configuration options will be automatically
+--   installed into the backend configuration object.
+withZ3OnlineBackend ::
+  NonceGenerator IO scope ->
+  (Z3OnlineBackend scope -> IO a) ->
+  IO a
+withZ3OnlineBackend gen action =
+  withOnlineBackend gen $ \sym ->
+    do extendConfig Z3.z3Options (getConfiguration sym)
+       action sym
 
 ------------------------------------------------------------------------
--- OnlineBackendState
+-- OnlineBackendState: implementation details.
 
-data YicesOnline
-
-startYicesProcess :: CFG.Config -> IO (Yices.YicesProcess t s)
-startYicesProcess cfg = do
-  yices_path <- Proc.findSolverPath Yices.yicesPath cfg
-  let args = ["--mode=push-pop"]
-
-  let create_proc
-        = (proc yices_path args)
-          { std_in  = CreatePipe
-          , std_out = CreatePipe
-          , std_err = CreatePipe
-          , cwd = Nothing
-          }
-
-  let startProcess = do
-        x <- createProcess create_proc
-        case x of
-          (Just in_h, Just out_h, Just err_h, ph) -> return (in_h,out_h,err_h,ph)
-          _ -> fail "Internal error in startYicesProcess: Failed to create handle."
-
-  (in_h,out_h,err_h,ph) <- startProcess
-
-  --void $ forkIO $ logErrorStream err_stream (logLn 2)
-  -- Create new connection for sending commands to yices.
-  let features = useLinearArithmetic
-             .|. useBitvectors
-             .|. useSymbolicArrays
-             .|. useComplexArithmetic
-             .|. useStructs
-  conn <- Yices.newConnection in_h features B.emptySymbolVarBimap
-  Yices.setYicesParams conn cfg
-  err_reader <- Yices.startHandleReader err_h
-  return $! Yices.YicesProcess { Yices.yicesConn   = conn
-                               , Yices.yicesStdin  = in_h
-                               , Yices.yicesStdout = out_h
-                               , Yices.yicesStderr = err_reader
-                               , Yices.yicesHandle = ph
-                               }
-
-shutdownYicesProcess :: Yices.YicesProcess t s -> IO ()
-shutdownYicesProcess yices = do
-  -- Close input stream.
-  hClose (Yices.yicesStdin yices)
-  -- Log outstream as error messages.
-
-  --logLn 2 "Waiting for yices to terminate"
-  ec <- waitForProcess (Yices.yicesHandle yices)
-  case ec of
-    ExitSuccess -> return () --logLn 2 "Yices terminated."
-    ExitFailure x ->
-       fail $ "yices exited with unexpected code: "++show x
+-- | Is the solver running or not?
+data SolverState scope solver =
+    SolverNotStarted
+  | SolverStarted (SolverProcess scope solver)
 
 -- | This represents the state of the backend along a given execution.
 -- It contains the current assertions and program location.
-data OnlineBackendState t
-   = OnlineBackendState { assumptionStack :: !(AssumptionStack (B.BoolExpr t) AssumptionReason SimError)
-                          -- ^ Number of times we have pushed
-                        , yicesProc    :: !(IORef (Maybe (Yices.YicesProcess t YicesOnline)))
-                        }
+data OnlineBackendState solver scope = OnlineBackendState
+  { assumptionStack ::
+      !(AssumptionStack (B.BoolExpr scope) AssumptionReason SimError)
+      -- ^ Number of times we have pushed
+  , solverProc :: !(IORef (SolverState scope solver))
+    -- ^ The solver process, if any.
+  }
 
 -- | Returns an initial execution state.
-initialOnlineBackendState :: NonceGenerator IO t -> IO (OnlineBackendState t)
-initialOnlineBackendState gen = do
-  stk <- initAssumptionStack gen
-  procref <- newIORef Nothing
-  return $! OnlineBackendState
-              { assumptionStack = stk
-              , yicesProc = procref
-              }
+initialOnlineBackendState ::
+  NonceGenerator IO scope ->
+  IO (OnlineBackendState solver scope)
+initialOnlineBackendState gen =
+  do stk <- initAssumptionStack gen
+     procref <- newIORef SolverNotStarted
+     return $! OnlineBackendState
+                 { assumptionStack = stk
+                 , solverProc = procref
+                 }
 
-getAssumptionStack :: OnlineBackend t -> IO (AssumptionStack (B.BoolExpr t) AssumptionReason SimError)
+getAssumptionStack ::
+  OnlineBackend scope solver ->
+  IO (AssumptionStack (B.BoolExpr scope) AssumptionReason SimError)
 getAssumptionStack sym = assumptionStack <$> readIORef (B.sbStateManager sym)
 
-getYicesProcess :: OnlineBackend t -> IO (Yices.YicesProcess t YicesOnline)
-getYicesProcess sym = do
-  st <- readIORef (B.sbStateManager sym)
-  mproc <- readIORef (yicesProc st)
-  case mproc of
-    Just p -> do
-      return p
-    Nothing -> do
-      let cfg = getConfiguration sym
-      p <- startYicesProcess cfg
-      -- set up Yices parameters
-      Yices.setYicesParams (Yices.yicesConn p) cfg
-      Yices.push (Yices.yicesConn p)
-      writeIORef (yicesProc st) (Just p)
-      return p
 
-withOnlineBackend :: NonceGenerator IO t
-                  -> (OnlineBackend t -> IO a)
-                  -> IO a
+-- | Shutdown any currently-active solver process.
+--   A fresh solver process will be started on the
+--   next call to `getSolverProcess`.
+resetSolverProcess ::
+  OnlineSolver scope solver =>
+  OnlineBackend scope solver ->
+  IO ()
+resetSolverProcess sym = do
+  do st <- readIORef (B.sbStateManager sym)
+     mproc <- readIORef (solverProc st)
+     case mproc of
+       -- Nothing to do
+       SolverNotStarted -> return ()
+       SolverStarted p ->
+         do shutdownSolverProcess p
+            writeIORef (solverProc st) SolverNotStarted
+
+-- | Get the solver process.
+--   Starts the solver, if that hasn't happened already.
+getSolverProcess ::
+  OnlineSolver scope solver =>
+  OnlineBackend scope solver ->
+  IO (SolverProcess scope solver)
+getSolverProcess sym = do
+  st <- readIORef (B.sbStateManager sym)
+  mproc <- readIORef (solverProc st)
+  case mproc of
+    SolverStarted p -> return p
+    SolverNotStarted ->
+      do p <- startSolverProcess sym
+         push (solverConn p)
+         writeIORef (solverProc st) (SolverStarted p)
+         return p
+
+-- | Do something with an online backend.
+--   The backend is only valid in the continuation.
+--
+--   Configuration options are not automatically installed
+--   by this operation.
+withOnlineBackend ::
+  OnlineSolver scope solver =>
+  NonceGenerator IO scope ->
+  (OnlineBackend scope solver -> IO a) ->
+  IO a
 withOnlineBackend gen action = do
-  st <- initialOnlineBackendState gen
+  st  <- initialOnlineBackendState gen
   sym <- B.newExprBuilder st gen
-  r <- try $ action sym
-  mp <- readIORef (yicesProc st)
+  r   <- try (action sym)
+  mp  <- readIORef (solverProc st)
   case mp of
-   Nothing -> return ()
-   Just p -> shutdownYicesProcess p
+    SolverNotStarted {} -> return ()
+    SolverStarted p     -> shutdownSolverProcess p
   case r of
-   Left e -> throwIO (e :: SomeException)
+   Left e  -> throwIO (e :: SomeException)
    Right x -> return x
 
-checkSatisfiable
-    :: OnlineBackend t
-    -> B.BoolExpr t
-    -> IO (SatResult ())
-checkSatisfiable sym p = do
-   yproc <- getYicesProcess sym
-   let c = Yices.yicesConn yproc
 
-   p_smtexpr <- mkFormula c p
-   Yices.inFreshFrame c $ do
-     assumeFormula c p_smtexpr
-     Yices.check yproc
-
-instance IsBoolSolver (OnlineBackend t) where
-  addAssertion sym a = do
+instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver) where
+  addAssertion sym a =
     case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
       Just False -> throwIO (a^.labeledPredMsg)
       _ ->
-        do conn <- Yices.yicesConn <$> getYicesProcess sym
-           stk <- getAssumptionStack sym
+        do conn <- getSolverConn sym
+           stk  <- getAssumptionStack sym
            -- Record assertion
            AS.assert a stk
            -- Send assertion to yices
-           Yices.assume conn (a^.labeledPred)
+           SMT.assume conn (a^.labeledPred)
 
-  addAssumption sym a = do
+  addAssumption sym a =
     case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
       Just False -> addFailedAssertion sym InfeasibleBranchError
       _ ->
-        do conn <- Yices.yicesConn <$> getYicesProcess sym
-           stk <- getAssumptionStack sym
+        do conn <- getSolverConn sym
+           stk  <- getAssumptionStack sym
            -- Record assumption
            AS.assume a stk
            -- Send assertion to yices
-           Yices.assume conn (a^.labeledPred)
+           SMT.assume conn (a^.labeledPred)
 
-  addAssumptions sym a = do
-    -- Tell Yices of assertions
-    conn <- Yices.yicesConn <$> getYicesProcess sym
-    mapM_ (Yices.assume conn . view labeledPred) (toList a)
-    -- Add assertions to list
-    stk <- getAssumptionStack sym
-    appendAssumptions a stk
+  addAssumptions sym a =
+    do -- Tell the solver of assertions
+       conn <- getSolverConn sym
+       mapM_ (SMT.assume conn . view labeledPred) (toList a)
+       -- Add assertions to list
+       stk <- getAssumptionStack sym
+       appendAssumptions a stk
 
-  getPathCondition sym = do
-    stk <- getAssumptionStack sym
-    ps <- collectAssumptions stk
-    andAllOf sym (folded.labeledPred) ps
+  getPathCondition sym =
+    do stk <- getAssumptionStack sym
+       ps <- collectAssumptions stk
+       andAllOf sym (folded.labeledPred) ps
 
-  evalBranch sym p = do
+  evalBranch sym p =
     case asConstantPred p of
       Just True  -> return $! NoBranch True
       Just False -> return $! NoBranch False
       Nothing ->
-        do notP <- notPred sym p
-           p_res    <- checkSatisfiable sym p
-           notp_res <- checkSatisfiable sym notP
+        do proc     <- getSolverProcess sym
+           notP     <- notPred sym p
+           p_res    <- checkSatisfiable proc p
+           notp_res <- checkSatisfiable proc notP
            case (p_res, notp_res) of
              (Unsat, Unsat) -> return InfeasibleBranch
              (Unsat, _ )    -> return $ NoBranch False
              (_    , Unsat) -> return $ NoBranch True
              (_    , _)     -> return $ SymbolicBranch True
 
-  pushAssumptionFrame sym = do
-    conn <- Yices.yicesConn <$> getYicesProcess sym
-    stk <- getAssumptionStack sym
-    Yices.push conn
-    pushFrame stk
+  pushAssumptionFrame sym =
+    do conn <- getSolverConn sym
+       stk  <- getAssumptionStack sym
+       push conn
+       pushFrame stk
 
-  popAssumptionFrame sym ident = do
-    conn <- Yices.yicesConn <$> getYicesProcess sym
-    stk <- getAssumptionStack sym
-    h <- stackHeight stk
-    frm <- popFrame ident stk
-    ps <- readIORef (assumeFrameCond frm)
-    Yices.pop conn
-    when (h == 0) (Yices.push conn)
-    return ps
+  popAssumptionFrame sym ident =
+    do conn <- getSolverConn sym
+       stk <- getAssumptionStack sym
+       h <- stackHeight stk
+       frm <- popFrame ident stk
+       ps <- readIORef (assumeFrameCond frm)
+       pop conn
+       when (h == 0) (push conn)
+       return ps
 
-  getProofObligations sym = do
-    stk <- getAssumptionStack sym
-    AS.getProofObligations stk
+  getProofObligations sym =
+    do stk <- getAssumptionStack sym
+       AS.getProofObligations stk
 
-  setProofObligations sym obligs = do
-    stk <- getAssumptionStack sym
-    AS.setProofObligations obligs stk
+  setProofObligations sym obligs =
+    do stk <- getAssumptionStack sym
+       AS.setProofObligations obligs stk
 
-  addFailedAssertion sym msg = do
-    loc <- getCurrentProgramLoc sym
-    throwIO (SimError loc msg)
+  addFailedAssertion sym msg =
+    do loc <- getCurrentProgramLoc sym
+       throwIO (SimError loc msg)
 
-  cloneAssumptionState sym = do
-    stk <- getAssumptionStack sym
-    AS.cloneAssumptionStack stk
+  cloneAssumptionState sym =
+    do stk <- getAssumptionStack sym
+       AS.cloneAssumptionStack stk
 
-  restoreAssumptionState sym stk = do
-    conn <- Yices.yicesConn <$> getYicesProcess sym
-    oldstk <- getAssumptionStack sym
-    h <- stackHeight oldstk
-    -- NB, pop h+1 times
-    forM_ [0 .. h] $ \_ -> Yices.pop conn
+  restoreAssumptionState sym stk =
+    do conn   <- getSolverConn sym
+       oldstk <- getAssumptionStack sym
+       h <- stackHeight oldstk
+       -- NB, pop h+1 times
+       forM_ [0 .. h] $ \_ -> pop conn
 
-    frms   <- AS.allAssumptionFrames stk
-    forM_ (toList frms) $ \frm ->
-      do Yices.push conn
-         ps <- readIORef (assumeFrameCond frm)
-         forM_ (toList ps) (Yices.assume conn . view labeledPred)
+       frms   <- AS.allAssumptionFrames stk
+       forM_ (toList frms) $ \frm ->
+         do push conn
+            ps <- readIORef (assumeFrameCond frm)
+            forM_ (toList ps) (SMT.assume conn . view labeledPred)
