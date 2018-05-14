@@ -413,7 +413,7 @@ yicesStartSolver sym = do
   setYicesParams conn cfg
 
   err_reader <- startHandleReader err_h
-  out_stream <- Streams.handleToInputStream out_h
+  out_stream <- Streams.lines =<< Streams.handleToInputStream out_h
   return $! SolverProcess { solverConn   = conn
                           , solverStdin  = in_h
                           , solverStderr = err_reader
