@@ -26,6 +26,7 @@ import Data.LLVM.BitCode (parseBitCodeFromFile)
 
 import Lang.Crucible.Backend
   (getProofObligations,IsSymInterface, pushAssumptionFrame, popAssumptionFrame)
+-- import Lang.Crucible.Backend.Online(withZ3OnlineBackend)
 import Lang.Crucible.Backend.Online(withYicesOnlineBackend)
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
@@ -91,10 +92,10 @@ checkBC :: Options -> IO ()
 checkBC opts =
   do let file = optsBCFile opts
      say "Crux" ("Checking " ++ show file)
-     errs <- simulate file (checkFun "main")
-     case catMaybes errs of
-      [] -> sayOK "Crux" "Valid."
-      (e : _) -> errHandler opts e
+     mbErr <- simulate file (checkFun "main")
+     case mbErr of
+      Nothing -> sayOK "Crux" "Valid."
+      Just e -> errHandler opts e
 
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::
@@ -144,7 +145,7 @@ simulate ::
   (forall scope arch.
       ArchOk arch => ModuleCFGMap arch -> OverM scope arch ()
   ) ->
-  IO [Maybe Error]
+  IO (Maybe Error)
 simulate file k =
   do llvm_mod   <- parseLLVM file
      halloc     <- newHandleAllocator
@@ -154,6 +155,7 @@ simulate file k =
      llvmPtrWidth llvmCtxt $ \ptrW ->
        withPtrWidth ptrW $
        withIONonceGenerator $ \nonceGen ->
+       -- withZ3OnlineBackend nonceGen $ \sym ->
        withYicesOnlineBackend nonceGen $ \sym ->
        do frm <- pushAssumptionFrame sym
           let simctx = setupSimCtxt halloc sym
@@ -172,8 +174,9 @@ simulate file k =
           case res of
             FinishedExecution ctx' _ ->
               do gs <- Fold.toList <$> getProofObligations sym
-                 mapM (proveGoal ctx') gs
+                 proveGoals ctx' gs
             AbortedResult _ err -> throwError (SimAbort err)
+
 
 eHandler :: ErrorHandler (Model sym) sym (LLVM arch) trp
 eHandler = EH (\e st -> throwError (SimFail e (activeFrames (st ^. stateTree))))

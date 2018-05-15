@@ -32,6 +32,7 @@ executable crucible-c
 
   build-depends:
     base >= 4.8 && < 4.12,
+    ansi-wl-pprint,
     containers,
     lens,
     mtl,

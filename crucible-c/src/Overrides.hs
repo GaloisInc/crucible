@@ -193,7 +193,7 @@ lib_assume =
                  zero <- bvLit sym knownRepr 0
                  asmpP <- notPred sym =<< bvEq sym cond zero
                  loc   <- getCurrentProgramLoc sym
-                 let msg = AssumptionReason loc "XXX"
+                 let msg = AssumptionReason loc "(assumption)"
                  addAssumption sym (LabeledPred asmpP msg)
 
 
