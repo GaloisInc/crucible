@@ -46,6 +46,7 @@ import qualified Verifier.SAW.Cryptol.Prims as CryPrims
 import qualified Verifier.SAW.SharedTerm as SC
 import qualified Verifier.SAW.Simulator.BitBlast as BBSim
 import qualified Verifier.SAW.TypedAST as SC
+import qualified Verifier.SAW.Cryptol.Prelude as Prelude
 
 data SAWCruciblePersonality sym = SAWCruciblePersonality
 
@@ -140,13 +141,15 @@ sawBackendSharedContext :: SAWCoreBackend n -> IO SC.SharedContext
 sawBackendSharedContext sym =
   saw_ctx <$> readIORef (SB.sbStateManager sym)
 
--- | Run a computation with a fresh SAWCoreBackend, in the context of the
---   given module.
-withSAWCoreBackend :: SC.Module -> (forall n. SAWCoreBackend n -> IO a) -> IO a
-withSAWCoreBackend md f = do
+-- | Run a computation with a fresh SAWCoreBackend, in the context of the SAW
+-- core modules @Prelude@, @Cryptol@, and a fresh, empty @CryptolServer@ module
+withSAWCoreBackend :: (forall n. SAWCoreBackend n -> IO a) -> IO a
+withSAWCoreBackend f = do
   withIONonceGenerator $ \gen -> do
     cfg <- initialConfig 0 []
-    sc   <- SC.mkSharedContext md
+    sc   <- SC.mkSharedContext
+    Prelude.scLoadPreludeModule sc
+    Prelude.scLoadCryptolModule sc
     sym  <- newSAWCoreBackend sc gen cfg
     f sym
 
