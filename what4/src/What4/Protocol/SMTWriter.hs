@@ -2159,7 +2159,7 @@ mkExpr (BoundVarExpr var) = do
             ++ show (plSourceLoc (bvarLoc var)) ++ "."
    UninterpVarKind -> do
      conn <- asks scConn
-     cacheWriterResult (bvarId var) DeleteNever $ do
+     cacheWriterResult (bvarId var) DeleteOnPop $ do
        checkVarTypeSupport var
 
        -- Use predefined var name if it has not been defined.
