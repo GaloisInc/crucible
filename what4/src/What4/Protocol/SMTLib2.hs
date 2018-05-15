@@ -534,8 +534,10 @@ instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
   smtSatResult _ s =
     do mb <- try (Streams.parseFromStream parseNextWord s)
        case mb of
-         Left Streams.ParseException{} ->
-            fail $ "Could not parse check_sat result."
+         Left (SomeException e) ->
+            fail $ unlines [ "Could not parse check_sat result."
+                           , "*** Exception: " ++ displayException e
+                           ]
          Right "unsat" -> return Unsat
          Right "sat" -> return (Sat ())
          Right "unknown" -> return Unknown
