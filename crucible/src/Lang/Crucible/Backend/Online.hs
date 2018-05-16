@@ -50,7 +50,6 @@ import           Data.Foldable
 import           Data.IORef
 import           Data.Parameterized.Nonce
 
-import           What4.AssumptionStack as AS
 import           What4.Config
 import qualified What4.Expr.Builder as B
 import           What4.Interface
@@ -62,6 +61,7 @@ import qualified What4.Solver.Yices as Yices
 import qualified What4.Solver.Z3 as Z3
 
 import           Lang.Crucible.Backend
+import           Lang.Crucible.Backend.AssumptionStack as AS
 import           Lang.Crucible.Simulator.SimError
 
 

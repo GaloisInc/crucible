@@ -61,6 +61,7 @@ library
     Lang.Crucible.Analysis.Postdom
     Lang.Crucible.Analysis.Reachable
     Lang.Crucible.Backend
+    Lang.Crucible.Backend.AssumptionStack
     Lang.Crucible.Backend.Online
     Lang.Crucible.Backend.Simple
     Lang.Crucible.CFG.Common

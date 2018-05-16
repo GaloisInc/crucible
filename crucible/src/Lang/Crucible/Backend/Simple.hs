@@ -28,10 +28,10 @@ import           Control.Lens
 import           Data.IORef
 import           Data.Parameterized.Nonce
 
-import           What4.AssumptionStack as AS
 import           What4.Interface
 import qualified What4.Expr.Builder as B
 
+import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.SimError
 
@@ -48,7 +48,7 @@ newtype SimpleBackendState t
 
 -- | Returns an initial execution state.
 initialSimpleBackendState :: NonceGenerator IO t -> IO (SimpleBackendState t)
-initialSimpleBackendState gen = SimpleBackendState <$> initAssumptionStack gen
+initialSimpleBackendState gen = SimpleBackendState <$> AS.initAssumptionStack gen
 
 newSimpleBackend :: NonceGenerator IO t
                  -> IO (SimpleBackend t)
@@ -88,11 +88,11 @@ instance IsBoolSolver (SimpleBackend t) where
 
   addAssumptions sym ps = do
     stk <- getAssumptionStack sym
-    appendAssumptions ps stk
+    AS.appendAssumptions ps stk
 
   getPathCondition sym = do
     stk <- getAssumptionStack sym
-    ps <- collectAssumptions stk
+    ps <- AS.collectAssumptions stk
     andAllOf sym (folded.labeledPred) ps
 
   getProofObligations sym = do
@@ -105,12 +105,12 @@ instance IsBoolSolver (SimpleBackend t) where
 
   pushAssumptionFrame sym = do
     stk <- getAssumptionStack sym
-    pushFrame stk
+    AS.pushFrame stk
 
   popAssumptionFrame sym ident = do
     stk <- getAssumptionStack sym
-    frm <- popFrame ident stk
-    readIORef (assumeFrameCond frm)
+    frm <- AS.popFrame ident stk
+    readIORef (AS.assumeFrameCond frm)
 
   cloneAssumptionState sym = do
     stk <- getAssumptionStack sym

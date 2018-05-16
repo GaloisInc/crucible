@@ -38,7 +38,6 @@ import           Numeric.Natural
 
 import           What4.BaseTypes
 import           What4.Config
-import           What4.AssumptionStack as AS
 import           What4.Concrete
 import           What4.Interface
 import           What4.SatResult
@@ -47,6 +46,7 @@ import qualified What4.Expr.WeightedSum as WSum
 import           What4.Symbol
 
 import           Lang.Crucible.Backend
+import           Lang.Crucible.Backend.AssumptionStack as AS
 import           Lang.Crucible.Simulator.SimError
 
 import qualified Verifier.SAW.SharedTerm as SC
