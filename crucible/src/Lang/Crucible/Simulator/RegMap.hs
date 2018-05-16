@@ -64,7 +64,7 @@ data RegEntry sym tp = RegEntry { regType :: !(TypeRepr tp)
 
 -- | A set of registers in an execution frame.
 newtype RegMap sym (ctx :: Ctx CrucibleType)
-      = RegMap (Ctx.Assignment (RegEntry sym) ctx)
+      = RegMap { regMap :: Ctx.Assignment (RegEntry sym) ctx }
 
 regMapSize :: RegMap sym ctx -> Ctx.Size ctx
 regMapSize (RegMap s) = Ctx.size s
@@ -125,9 +125,9 @@ pushBranchForType :: forall sym tp
               -> IO (RegValue sym tp)
 pushBranchForType s iTypes p =
   case p of
-    IntrinsicRepr nm ->
+    IntrinsicRepr nm ctx ->
        case MapF.lookup nm iTypes of
-         Just IntrinsicMuxFn -> pushBranchIntrinsic s nm
+         Just IntrinsicMuxFn -> pushBranchIntrinsic s nm ctx
          Nothing ->
            fail $ unwords ["Unknown intrinsic type:", show nm]
 
@@ -146,9 +146,9 @@ abortBranchForType :: forall sym tp
               -> IO (RegValue sym tp)
 abortBranchForType s iTypes p =
   case p of
-    IntrinsicRepr nm ->
+    IntrinsicRepr nm ctx ->
        case MapF.lookup nm iTypes of
-         Just IntrinsicMuxFn -> abortBranchIntrinsic s nm
+         Just IntrinsicMuxFn -> abortBranchIntrinsic s nm ctx
          Nothing ->
            fail $ unwords ["Unknown intrinsic type:", show nm]
 
@@ -203,10 +203,10 @@ muxRegForType s itefns p =
      SymbolicStructRepr{}        -> structIte s
      MatlabSymbolicIntArrayRepr -> muxReg s p
      MatlabSymbolicUIntArrayRepr -> muxReg s p
-     RecursiveRepr nm -> muxRecursive (muxRegForType s itefns) nm
-     IntrinsicRepr nm ->
+     RecursiveRepr nm ctx -> muxRecursive (muxRegForType s itefns) nm ctx
+     IntrinsicRepr nm ctx ->
        case MapF.lookup nm itefns of
-         Just IntrinsicMuxFn -> muxIntrinsic s nm
+         Just IntrinsicMuxFn -> muxIntrinsic s nm ctx
          Nothing ->
            fail $ unwords ["Unknown intrinsic type:", show nm]
 

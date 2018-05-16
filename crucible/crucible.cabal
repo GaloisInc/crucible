@@ -43,7 +43,7 @@ library
     io-streams,
     lens,
     mtl,
-    parameterized-utils >= 0.1.10,
+    parameterized-utils >= 1.0 && < 1.1,
     process,
     scientific,
     temporary >= 1.2,

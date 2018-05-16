@@ -25,6 +25,7 @@ module Lang.Crucible.Simulator.RegValue
   , CanMux(..)
   , RegValue'(..)
   , VariantBranch(..)
+  , injectVariant
   , MuxFn
 
     -- * Register values
@@ -50,6 +51,7 @@ module Lang.Crucible.Simulator.RegValue
   ) where
 
 import           Control.Monad
+import           Control.Monad.Trans.Class
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Proxy
@@ -91,8 +93,8 @@ type family RegValue (sym :: *) (tp :: CrucibleType) :: * where
   RegValue sym (WordMapType w tp) = WordMap sym w tp
   RegValue sym IntWidthType = IntWidth
   RegValue sym UIntWidthType = UIntWidth
-  RegValue sym (RecursiveType nm) = RolledType sym nm
-  RegValue sym (IntrinsicType nm) = Intrinsic sym nm
+  RegValue sym (RecursiveType nm ctx) = RolledType sym nm ctx
+  RegValue sym (IntrinsicType nm ctx) = Intrinsic sym nm ctx
   RegValue sym (MultiDimArrayType tp) = MultiDimArray (RegValue sym tp)
   RegValue sym (SymbolicMultiDimArrayType bt) = SMDA.SymMultiDimArray (SymExpr sym) bt
   RegValue sym MatlabIntType = SomeInt sym
@@ -245,21 +247,7 @@ mergePartExpr :: IsBoolExprBuilder sym
               -> PartExpr (Pred sym) v
               -> PartExpr (Pred sym) v
               -> IO (PartExpr (Pred sym) v)
-mergePartExpr sym fn pt x y =
-  case (x,y) of
-    (PE px vx, PE py vy) -> do
-      p' <- itePred sym pt px py
-      v' <- fn pt vx vy
-      return (PE p' v')
-    (PE px vx, Unassigned) -> do
-      p' <- andPred sym pt px
-      return (PE p' vx)
-    (Unassigned, PE py vy) -> do
-      pf <- notPred sym pt
-      p' <- andPred sym pf py
-      return (PE p' vy)
-    (Unassigned, Unassigned) ->
-      return Unassigned
+mergePartExpr sym fn c = mergePartial sym (\a b -> lift (fn c a b)) c
 
 instance (IsBoolExprBuilder sym, CanMux sym tp) => CanMux sym (MaybeType tp) where
   {-# INLINE muxReg #-}
@@ -342,7 +330,7 @@ muxStringMap sym = \f c x y -> do
 ------------------------------------------------------------------------
 -- RegValue Recursive instance
 
-newtype RolledType sym nm = RolledType { unroll :: RegValue sym (UnrollType nm) }
+newtype RolledType sym nm ctx = RolledType { unroll :: RegValue sym (UnrollType nm ctx) }
 
 
 {-# INLINE muxRecursive #-}
@@ -350,9 +338,10 @@ muxRecursive
    :: IsRecursiveType nm
    => (forall tp. TypeRepr tp -> ValMuxFn sym tp)
    -> SymbolRepr nm
-   -> ValMuxFn sym (RecursiveType nm)
-muxRecursive recf = \nm p x y -> do
-   RolledType <$> recf (unrollType nm) p (unroll x) (unroll y)
+   -> CtxRepr ctx
+   -> ValMuxFn sym (RecursiveType nm ctx)
+muxRecursive recf = \nm ctx p x y -> do
+   RolledType <$> recf (unrollType nm ctx) p (unroll x) (unroll y)
 
 ------------------------------------------------------------------------
 -- RegValue Struct instance
@@ -370,6 +359,18 @@ muxStruct recf ctx = \p x y ->
 -- RegValue Variant instance
 
 newtype VariantBranch sym tp = VB { unVB :: PartExpr (Pred sym) (RegValue sym tp) }
+
+injectVariant ::
+  IsSymInterface sym =>
+  sym ->
+  CtxRepr ctx ->
+  Ctx.Index ctx tp ->
+  RegValue sym tp ->
+  RegValue sym (VariantType ctx)
+injectVariant sym ctxRepr idx val =
+  let voidVariant = Ctx.generate (Ctx.size ctxRepr) (\_ -> VB Unassigned)
+      branch = VB (PE (truePred sym) val)
+   in Ctx.update idx branch voidVariant
 
 {-# INLINE muxVariant #-}
 muxVariant

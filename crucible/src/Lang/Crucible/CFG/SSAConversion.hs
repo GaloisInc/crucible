@@ -37,7 +37,7 @@ import qualified Data.Foldable as Fold
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
-import           Data.Parameterized.Context as Ctx hiding ((++))
+import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
 import           Data.Sequence (Seq)

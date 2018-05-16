@@ -27,7 +27,7 @@ library
     lens,
     llvm-pretty >= 0.7.1.1 && < 0.7.2,
     mtl,
-    parameterized-utils >= 0.1.9 && < 0.2,
+    parameterized-utils >= 1.0 && < 1.1,
     template-haskell,
     text,
     transformers,
@@ -50,6 +50,7 @@ library
     Lang.Crucible.LLVM.PrettyPrint
     Lang.Crucible.LLVM.Printf
     Lang.Crucible.LLVM.Translation
+    Lang.Crucible.LLVM.Translation.Types
 
   ghc-options: -Wall -Werror
   ghc-prof-options: -O2 -fprof-auto-top

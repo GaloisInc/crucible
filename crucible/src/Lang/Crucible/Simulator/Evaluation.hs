@@ -677,8 +677,8 @@ evalApp sym itefns logFn evalSub a0 = do
     ----------------------------------------------------------------------
     -- Recursive Types
 
-    RollRecursive _ e   -> RolledType <$> evalSub e
-    UnrollRecursive _ e -> unroll <$> evalSub e
+    RollRecursive _ _ e   -> RolledType <$> evalSub e
+    UnrollRecursive _ _ e -> unroll <$> evalSub e
 
     ----------------------------------------------------------------------
     -- Vector
@@ -1600,8 +1600,11 @@ evalApp sym itefns logFn evalSub a0 = do
 
     InjectVariant ctx idx ve -> do
          v <- evalSub ve
-         let voidVariant = Ctx.generate (Ctx.size ctx) (\_ -> VB $ Unassigned)
-         return $ Ctx.update idx (VB (PE (truePred sym) v)) voidVariant
+         return $ injectVariant sym ctx idx v
+
+    ProjectVariant _ctx idx ve -> do
+         v <- evalSub ve
+         return $ unVB $ v Ctx.! idx
 
     ----------------------------------------------------------------------
     -- IdentValueMap

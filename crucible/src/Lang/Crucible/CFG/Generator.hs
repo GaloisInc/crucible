@@ -92,7 +92,7 @@ import           Control.Lens hiding (Index)
 import           Control.Monad.State.Strict
 import qualified Data.Foldable as Fold
 import           Data.Maybe
-import           Data.Parameterized.Context as Ctx hiding ((++))
+import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
 import           Data.Sequence (Seq)

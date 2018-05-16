@@ -250,14 +250,16 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- Recursive Types
   RollRecursive :: IsRecursiveType nm
                 => !(SymbolRepr nm)
-                -> !(f (UnrollType nm))
-                -> App f (RecursiveType nm)
+                -> !(CtxRepr ctx)
+                -> !(f (UnrollType nm ctx))
+                -> App f (RecursiveType nm ctx)
 
   UnrollRecursive
                 :: IsRecursiveType nm
                 => !(SymbolRepr nm)
-                -> !(f (RecursiveType nm))
-                -> App f (UnrollType nm)
+                -> !(CtxRepr ctx)
+                -> !(f (RecursiveType nm ctx))
+                -> App f (UnrollType nm ctx)
 
   ----------------------------------------------------------------------
   -- Vector
@@ -1133,6 +1135,11 @@ data App (f :: CrucibleType -> *) (tp :: CrucibleType) where
             -> !(f tp)
             -> App f (VariantType ctx)
 
+  ProjectVariant :: !(CtxRepr ctx)
+                 -> !(Ctx.Index ctx tp)
+                 -> !(f (VariantType ctx))
+                 -> App f (MaybeType tp)
+
   ----------------------------------------------------------------------
   -- Struct
 
@@ -1279,8 +1286,8 @@ appType a0 =
     ----------------------------------------------------------------------
     -- Recursive Types
 
-    RollRecursive nm _ -> RecursiveRepr nm
-    UnrollRecursive nm _ -> unrollType nm
+    RollRecursive nm ctx _ -> RecursiveRepr nm ctx
+    UnrollRecursive nm ctx _ -> unrollType nm ctx
 
     ----------------------------------------------------------------------
     -- Vector
@@ -1563,6 +1570,7 @@ appType a0 =
     -- Variants
 
     InjectVariant ctx _ _ -> VariantRepr ctx
+    ProjectVariant ctx idx _ -> MaybeRepr (ctx Ctx.! idx)
 
     ----------------------------------------------------------------------
     -- StringMap

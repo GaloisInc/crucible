@@ -33,6 +33,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeSynonymInstances #-}
@@ -40,6 +41,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Types
   ( -- * CrucibleType data kind
     type CrucibleType
@@ -97,6 +99,8 @@ module Lang.Crucible.Types
 
   , IntWidth(..)
   , UIntWidth(..)
+
+  , pattern KnownBV
 
     -- * Derived constructors for kind CrucibleType
   , StructFieldsType
@@ -219,8 +223,10 @@ data FloatInfoRepr (flt::FloatInfo) where
 --   both the type-level and the representative-level unrolling
 --   of a named recursive type.  Parameter @nm@ has kind 'Symbol'.
 class IsRecursiveType (nm::Symbol) where
-  type UnrollType nm :: CrucibleType
-  unrollType :: SymbolRepr nm -> TypeRepr (UnrollType nm)
+  type UnrollType nm (ctx :: Ctx CrucibleType) :: CrucibleType
+  unrollType :: SymbolRepr nm -> CtxRepr ctx -> TypeRepr (UnrollType nm ctx)
+
+type CtxRepr = Ctx.Assignment TypeRepr
 
 -- | This data kind describes the types of values and expressions that
 --   can occur in Crucible CFGs.  Sometimes these correspond to objects that
@@ -281,14 +287,17 @@ data CrucibleType where
    -- unrolling.  Similar to Haskell's newtype, recursive types to not necessarly
    -- have to mention the recursive type being defined; in which case, the type
    -- is simply a new named type which is isomorphic to its definition.
-   RecursiveType :: Symbol -> CrucibleType
+   RecursiveType :: Symbol -> Ctx CrucibleType -> CrucibleType
+
 
    -- Named intrinsic types.  Intrinsic types are a way to extend the crucible
    -- type system after-the-fact and add new type implementations.
    -- Core crucible provides no operations on intrinsic types; they must be provided
    -- as built-in override functions.  See the `IntrinsicClass` typeclass
    -- and the `Intrinsic` type family defined in "Lang.Crucible.Simulator.Intrinsics".
-   IntrinsicType :: Symbol -> CrucibleType
+   --
+   -- The context of crucible types are type arguments to the intrinsic type.
+   IntrinsicType :: Symbol -> Ctx CrucibleType -> CrucibleType
 
    -- A multidimensional array of values.  These arrays are "external" arrays
    -- that exist only in the simulator.  Array dimensions are not tracked statically,
@@ -377,7 +386,7 @@ type RecursiveType = 'RecursiveType -- ^ @:: 'Symbol' -> 'CrucibleType'@.
 -- the 'Lang.Crucible.Simulator.Intrinsics.IntrinsicClass' typeclass
 -- and the 'Lang.Crucible.Simulator.Intrinsics.Intrinsic' type family
 -- defined in "Lang.Crucible.Simulator.Intrinsics".
-type IntrinsicType = 'IntrinsicType -- ^ @:: 'Symbol' -> 'CrucibleType'@.
+type IntrinsicType ctx = 'IntrinsicType ctx -- ^ @:: 'Symbol' -> 'Ctx CrucibleType' -> 'CrucibleType'@.
 
 -- | The type of mutable reference cells.
 type ReferenceType = 'ReferenceType -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
@@ -501,8 +510,6 @@ asBaseType tp =
 ----------------------------------------------------------------
 -- Type representatives
 
-type CtxRepr = Ctx.Assignment TypeRepr
-
 -- | A family of representatives for Crucible types. Parameter @tp@
 -- has kind 'CrucibleType'.
 data TypeRepr (tp::CrucibleType) where
@@ -515,22 +522,24 @@ data TypeRepr (tp::CrucibleType) where
    RealValRepr :: TypeRepr RealValType
    ComplexRealRepr :: TypeRepr ComplexRealType
    BVRepr :: (1 <= n) => !(NatRepr n) -> TypeRepr (BVType n)
-   IntrinsicRepr :: SymbolRepr nm
-                 -> TypeRepr (IntrinsicType nm)
+   IntrinsicRepr :: !(SymbolRepr nm)
+                 -> !(CtxRepr ctx)
+                 -> TypeRepr (IntrinsicType nm ctx)
    RecursiveRepr :: IsRecursiveType nm
                  => SymbolRepr nm
-                 -> TypeRepr (RecursiveType nm)
+                 -> CtxRepr ctx
+                 -> TypeRepr (RecursiveType nm ctx)
    FloatRepr :: !(FloatInfoRepr flt) -> TypeRepr (FloatType flt)
    CharRepr :: TypeRepr CharType
    StringRepr :: TypeRepr StringType
-   FunctionHandleRepr :: !(Ctx.Assignment TypeRepr ctx)
+   FunctionHandleRepr :: !(CtxRepr ctx)
                       -> !(TypeRepr ret)
                       -> TypeRepr (FunctionHandleType ctx ret)
 
    MaybeRepr   :: !(TypeRepr tp) -> TypeRepr (MaybeType   tp)
    VectorRepr  :: !(TypeRepr tp) -> TypeRepr (VectorType  tp)
-   StructRepr  :: !(Ctx.Assignment TypeRepr ctx) -> TypeRepr (StructType  ctx)
-   VariantRepr :: !(Ctx.Assignment TypeRepr ctx) -> TypeRepr (VariantType ctx)
+   StructRepr  :: !(CtxRepr ctx) -> TypeRepr (StructType  ctx)
+   VariantRepr :: !(CtxRepr ctx) -> TypeRepr (VariantType ctx)
    ReferenceRepr :: TypeRepr a -> TypeRepr (ReferenceType a)
 
    WordMapRepr :: (1 <= n)
@@ -602,11 +611,11 @@ instance KnownCtx TypeRepr ctx => KnownRepr TypeRepr (VariantType ctx) where
 instance KnownRepr TypeRepr a => KnownRepr TypeRepr (ReferenceType a) where
   knownRepr = ReferenceRepr knownRepr
 
-instance (KnownSymbol s) => KnownRepr TypeRepr (IntrinsicType s) where
-  knownRepr = IntrinsicRepr knownSymbol
+instance (KnownSymbol s, KnownCtx TypeRepr ctx) => KnownRepr TypeRepr (IntrinsicType s ctx) where
+  knownRepr = IntrinsicRepr knownSymbol knownRepr
 
-instance (KnownSymbol s, IsRecursiveType s) => KnownRepr TypeRepr (RecursiveType s) where
-  knownRepr = RecursiveRepr knownSymbol
+instance (KnownSymbol s, KnownCtx TypeRepr ctx, IsRecursiveType s) => KnownRepr TypeRepr (RecursiveType s ctx) where
+  knownRepr = RecursiveRepr knownSymbol knownRepr
 
 instance (1 <= w, KnownNat w, KnownRepr BaseTypeRepr tp)
       => KnownRepr TypeRepr (WordMapType w tp) where
@@ -633,6 +642,13 @@ instance KnownRepr TypeRepr tp => KnownRepr TypeRepr (MultiDimArrayType tp) wher
 
 instance KnownRepr BaseTypeRepr bt => KnownRepr TypeRepr (SymbolicMultiDimArrayType bt) where
   knownRepr = SymbolicMultiDimArrayRepr knownRepr
+
+
+-- | Pattern synonym specifying bitvector TypeReprs.  Intended to be use
+--   with type applications, e.g., @KnownBV \@32@.
+pattern KnownBV :: forall n. (1 <= n, KnownNat n) => TypeRepr (BVType n)
+pattern KnownBV <- BVRepr (testEquality (knownRepr :: NatRepr n) -> Just Refl)
+  where KnownBV = knownRepr
 
 ------------------------------------------------------------------------
 -- Misc typeclass instances

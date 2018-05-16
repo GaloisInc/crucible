@@ -20,7 +20,7 @@ module Lang.Crucible.CFG.ExtractSubgraph
 
 import           Control.Lens
 import           Control.Monad.ST
-import           Data.Parameterized.Context as Ctx hiding ((++))
+import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Map as MapF
 import           Data.Set as S
 import           Debug.Trace
