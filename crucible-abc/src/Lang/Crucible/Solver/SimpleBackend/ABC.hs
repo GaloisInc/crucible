@@ -12,6 +12,7 @@ representation.
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -58,6 +59,7 @@ import           Data.Parameterized.Nonce (Nonce)
 import           Data.Parameterized.Some
 import           Data.Set (Set)
 import qualified Data.Set as Set
+import qualified Data.Text as T
 import           Foreign.C.Types
 import           Numeric.Natural
 import           System.Directory
@@ -71,6 +73,8 @@ import           Lang.Crucible.Config
 import           Lang.Crucible.ProgramLoc
 import qualified Lang.Crucible.Simulator.Utils.Environment as Env
 import           Lang.Crucible.Solver.Adapter
+import           Lang.Crucible.Solver.Concrete
+import           Lang.Crucible.Solver.Interface (getConfiguration)
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
 import           Lang.Crucible.Solver.SimpleBackend.VarIdentification
@@ -80,13 +84,13 @@ import           Lang.Crucible.Utils.MonadST
 import           Lang.Crucible.Utils.Streams
 import qualified Lang.Crucible.Utils.UnaryBV as UnaryBV
 
-abcQbfIterations :: ConfigOption CInt
-abcQbfIterations = configOption "abc.qbf_max_iterations"
+abcQbfIterations :: ConfigOption BaseIntegerType
+abcQbfIterations = configOption BaseIntegerRepr "abc.qbf_max_iterations"
 
-abcOptions :: Monad m => [ConfigDesc m]
+abcOptions :: [ConfigDesc]
 abcOptions =
-  [ opt abcQbfIterations  maxBound
-    "Max number of iterations to run ABC's QBF solver"
+  [ opt abcQbfIterations (ConcreteInteger (toInteger (maxBound :: CInt)))
+    (text "Max number of iterations to run ABC's QBF solver")
   ]
 
 abcAdapter :: SolverAdapter st
@@ -94,8 +98,8 @@ abcAdapter =
    SolverAdapter
    { solver_adapter_name = "abc"
    , solver_adapter_config_options = abcOptions
-   , solver_adapter_check_sat = \_ ctx logLn p cont -> do
-           res <- checkSat ctx logLn p
+   , solver_adapter_check_sat = \sym logLn p cont -> do
+           res <- checkSat (getConfiguration sym) logLn p
            cont (fmap (\x -> (x,Nothing)) res)
    , solver_adapter_write_smt2 = \_ _ _ -> do
        fail "ABC backend does not support writing SMTLIB2 files."
@@ -103,13 +107,13 @@ abcAdapter =
 
 
 -- | Command to run sat solver.
-satCommand :: ConfigOption FilePath
-satCommand = configOption "sat_command"
+satCommand :: ConfigOption BaseStringType
+satCommand = configOption BaseStringRepr "sat_command"
 
-genericSatOptions :: Monad m => [ConfigDesc m]
+genericSatOptions :: [ConfigDesc]
 genericSatOptions =
-  [ opt satCommand "glucose $1"
-    "Generic SAT solving command to run"
+  [ opt satCommand (ConcreteString "glucose $1")
+    (text "Generic SAT solving command to run")
   ]
 
 genericSatAdapter :: SolverAdapter st
@@ -117,8 +121,9 @@ genericSatAdapter =
    SolverAdapter
    { solver_adapter_name = "sat"
    , solver_adapter_config_options = genericSatOptions
-   , solver_adapter_check_sat = \_ cfg logLn p cont -> do
-       cmd <- getConfigValue satCommand cfg
+   , solver_adapter_check_sat = \sym logLn p cont -> do
+       let cfg = getConfiguration sym
+       cmd <- T.unpack <$> (getOpt =<< getOptionSetting satCommand cfg)
        let mkCommand path = do
              let var_map = Map.fromList [("1",path)]
              Env.expandEnvironmentPath var_map cmd
@@ -137,6 +142,7 @@ type family LitValue s (tp :: BaseType) where
   LitValue s BaseNatType      = Natural
   LitValue s BaseIntegerType  = Integer
   LitValue s BaseRealType     = Rational
+  LitValue s BaseStringType   = T.Text
   LitValue s BaseComplexType  = Complex Rational
 
 -- | Newtype wrapper around names.
@@ -146,8 +152,8 @@ data NameType s (tp :: BaseType) where
   GroundNat :: Natural -> NameType s BaseNatType
   GroundInt :: Integer -> NameType s BaseIntegerType
   GroundRat :: Rational -> NameType s BaseRealType
+  GroundString :: T.Text -> NameType s BaseStringType
   GroundComplex :: Complex Rational -> NameType s BaseComplexType
-
 
 -- | A variable binding in ABC.
 data VarBinding t s where
@@ -186,6 +192,8 @@ eval _ (SemiRingLiteral SemiRingNat n _) = return (GroundNat n)
 eval _ (SemiRingLiteral SemiRingInt n _) = return (GroundInt n)
 eval _ (SemiRingLiteral SemiRingReal r _) = return (GroundRat r)
 eval ntk (BVElt w v _) = return $ BV $ AIG.bvFromInteger (gia ntk) (widthVal w) v
+eval _ (StringElt s _) = return (GroundString s)
+
 eval ntk (NonceAppElt e) = do
   memoEltNonce ntk (nonceEltId e) $ do
     bitblastPred ntk e
@@ -212,6 +220,7 @@ eval' ntk e = do
     GroundInt c -> return c
     GroundRat c -> return c
     GroundComplex c -> return c
+    GroundString c -> return c
 
 failAt :: ProgramLoc -> String -> IO a
 failAt l msg = fail $ show $
@@ -459,6 +468,7 @@ evalNonce ntk n eval_fn fallback = do
     Just (GroundInt x) -> return x
     Just (GroundRat x) -> return x
     Just (GroundComplex c) -> return c
+    Just (GroundString c) -> return c
     Nothing -> fallback
 
 evaluateSatModel :: forall t s
@@ -518,6 +528,7 @@ outputElt h e = do
     GroundInt _ -> fail $ "Cannot bitblast integer values."
     GroundRat _ -> fail $ "Cannot bitblast real values."
     GroundComplex _ -> fail $ "Cannot bitblast complex values."
+    GroundString _ -> fail $ "Cannot bitblast string values."
 
 -- | @getForallPred ntk v p ev av@ adds assertion that:
 -- @Ep.Eev.Aav.p = v@.
@@ -593,15 +604,14 @@ recordBoundVar ntk info = do
   recordBinding ntk =<< addBoundVar ntk info
 
 -- | Expression to check is satisfiable.
-checkSat :: Monad m
-         => Config m
+checkSat :: Config
          -> (Int -> String -> IO ())
          -> BoolElt t
          -> IO (SatResult (GroundEvalFn t))
 checkSat cfg logLn e = do
   -- Get variables in expression.
   let vars = predicateVarInfo e
-  max_qbf_iter <- getConfigValue abcQbfIterations cfg
+  max_qbf_iter <- fromInteger <$> (getOpt =<< getOptionSetting abcQbfIterations cfg)
   checkSupportedByAbc vars
   checkNoLatches vars
   withNetwork $ \ntk -> do
@@ -682,6 +692,7 @@ freshBinding ntk n l tp = do
     BaseNatRepr     -> failAt l "Natural number variables are not supported by ABC."
     BaseIntegerRepr -> failAt l "Integer variables are not supported by ABC."
     BaseRealRepr    -> failAt l "Real variables are not supported by ABC."
+    BaseStringRepr  -> failAt l "String variables are not supported by ABC."
     BaseComplexRepr -> failAt l "Complex variables are not supported by ABC."
     BaseArrayRepr _ _ -> failAt l "Array variables are not supported by ABC."
     BaseStructRepr{}  -> failAt l "Struct variables are not supported by ABC."

@@ -32,6 +32,7 @@ import           Lang.Crucible.Server.Simulator
 import           Lang.Crucible.Server.SAWOverrides
 import           Lang.Crucible.Server.SimpleOverrides
 
+import qualified Verifier.SAW.SharedTerm as SAW
 import qualified Verifier.SAW.TypedAST as SAW
 import qualified Verifier.SAW.Prelude as SAW
 
@@ -80,13 +81,14 @@ runSAWSimulator :: Handle -> Handle -> IO ()
 runSAWSimulator hin hout =
   do let ok_resp = mempty
                    & P.handShakeResponse_code .~ P.HandShakeOK
-     SAW.withSAWCoreBackend scm $ \(sym :: SAW.SAWCoreBackend n) ->
-       do sawState <- initSAWServerPersonality sym
-          s <- newSimulator sym sawState [] [] hin hout
-
-          putDelimited hout ok_resp
-          -- Enter loop to start reading commands.
-          fulfillRequests s sawBackendRequests
+     withIONonceGenerator $ \gen -> do
+       sc <- SAW.mkSharedContext scm
+       sym <- SAW.newSAWCoreBackend sc gen
+       sawState <- initSAWServerPersonality sym
+       s <- newSimulator sym sawServerOptions sawState sawServerOverrides hin hout
+       putDelimited hout ok_resp
+       -- Enter loop to start reading commands.
+       fulfillRequests s sawBackendRequests
 
 runSimpleSimulator :: Handle -> Handle -> IO ()
 runSimpleSimulator hin hout = do
@@ -94,7 +96,7 @@ runSimpleSimulator hin hout = do
     let ok_resp = mempty
                   & P.handShakeResponse_code .~ P.HandShakeOK
     sym <- newSimpleBackend gen
-    s <- newSimulator sym CrucibleServerPersonality simpleServerOptions simpleServerOverrides hin hout
+    s <- newSimulator sym simpleServerOptions CrucibleServerPersonality simpleServerOverrides hin hout
     -- Enter loop to start reading commands.
     putDelimited hout ok_resp
     fulfillRequests s simpleBackendRequests

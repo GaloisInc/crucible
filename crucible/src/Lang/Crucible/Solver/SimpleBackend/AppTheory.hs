@@ -25,6 +25,7 @@ data AppTheory
    | ComputableArithTheory
    | BitvectorTheory
    | QuantifierTheory
+   | StringTheory
    | ArrayTheory
    | StructTheory
      -- ^ Theory attributed to structs (equivalent to records in CVC4/Z3, tuples in Yices)

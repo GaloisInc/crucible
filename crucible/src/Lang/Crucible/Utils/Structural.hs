@@ -23,8 +23,7 @@ import Text.PrettyPrint.ANSI.Leijen (brackets, text)
 import Data.Parameterized.TH.GADT
 import Data.Parameterized.TraversableFC
 
-
-import Lang.MATLAB.Utils.PrettyPrint (ppFn, commas)
+import Lang.Crucible.Utils.PrettyPrint (ppFn, commas)
 
 ------------------------------------------------------------------------
 -- Contructor cases

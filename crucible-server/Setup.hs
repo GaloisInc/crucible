@@ -65,8 +65,8 @@ mkProto out_dir = do
                          , "--module=" ++ protoModule
                          ]
 
-dummyPreprocessor :: BuildInfo -> LocalBuildInfo -> PreProcessor
-dummyPreprocessor build local = PreProcessor {
+dummyPreprocessor :: BuildInfo -> LocalBuildInfo -> ComponentLocalBuildInfo -> PreProcessor
+dummyPreprocessor build local _clbi = PreProcessor {
   platformIndependent = True,
   runPreProcessor =
     mkSimplePreProcessor $ \inFile outFile verbosity -> do

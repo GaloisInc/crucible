@@ -11,6 +11,7 @@ packages:
   crucible-llvm/
   crucible-saw/
   crucible-server/
+  crucible-c/
   galois-matlab/
 
 optional-packages:
@@ -19,6 +20,7 @@ optional-packages:
   dependencies/blt/
   dependencies/hpb/
   dependencies/llvm-pretty/
+  dependencies/llvm-pretty-bc-parser/
   dependencies/parameterized-utils/
   dependencies/saw-core/
   dependencies/saw-core-aig/

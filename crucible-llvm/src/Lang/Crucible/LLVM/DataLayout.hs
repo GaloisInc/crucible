@@ -15,9 +15,12 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.LLVM.DataLayout
-  ( Size
-  , Offset
-  , Alignment
+  ( -- * Alignments
+    Alignment
+  , padToAlignment
+  , toAlignment
+  , fromAlignment
+  , alignmentToExponent
     -- * Data layout declarations.
   , DataLayout
   , EndianForm(..)
@@ -40,24 +43,39 @@ import Control.Monad.State.Strict
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
-import Data.Word (Word32, Word64)
+import Data.Word (Word32)
 import qualified Text.LLVM as L
 import Numeric.Natural
 
 import Lang.Crucible.Utils.Arithmetic
+import Lang.Crucible.LLVM.Bytes
 
 
 ------------------------------------------------------------------------
 -- Data layout
 
--- | Size is in bytes unless bits is explicitly stated.
-type Size = Word64
-
-type Offset = Word64
-
 -- | Alignments must be a power of two, so we just store the exponent.
 -- e.g., alignment value of 3 indicates the pointer must align on 2^3-byte boundaries.
-type Alignment = Word32
+newtype Alignment = Alignment Word32
+  deriving (Eq, Ord, Num, Show)
+
+-- | @padToAlignment x a@ returns the smallest value greater than or
+-- equal to @x@ that is aligned to @a@.
+padToAlignment :: Bytes -> Alignment -> Bytes
+padToAlignment x (Alignment n) = fromInteger (nextPow2Multiple (bytesToInteger x) (fromIntegral n))
+
+-- | Convert a number of bytes into an alignment, if it is a power of 2.
+toAlignment :: Bytes -> Maybe Alignment
+toAlignment (Bytes x)
+  | isPow2 x = Just (fromIntegral (lg x))
+  | otherwise = Nothing
+
+-- | Convert an alignment to a number of bytes.
+fromAlignment :: Alignment -> Bytes
+fromAlignment (Alignment n) = Bytes (2 ^ n)
+
+alignmentToExponent :: Alignment -> Integer
+alignmentToExponent (Alignment n) = toInteger n
 
 newtype AlignInfo = AT (Map Natural Alignment)
   deriving (Eq)
@@ -131,7 +149,7 @@ instance At AlignInfo where
 
 -- | Flags byte orientation of target machine.
 data EndianForm = BigEndian | LittleEndian
-  deriving (Eq)
+  deriving (Eq,Show)
 
 -- | Parsed data layout
 data DataLayout
@@ -186,7 +204,7 @@ layoutWarnings :: Simple Lens DataLayout [L.LayoutSpec]
 layoutWarnings = lens _layoutWarnings (\s v -> s { _layoutWarnings = v})
 
 ptrBitwidth :: DataLayout -> Natural
-ptrBitwidth dl = 8 * fromIntegral (dl^.ptrSize)
+ptrBitwidth dl = fromInteger (bytesToBits (dl^.ptrSize))
 
 -- | Reduce the bit level alignment to a byte value, and error if it is not
 -- a multiple of 8.
@@ -276,10 +294,10 @@ addLayoutSpec ls =
       L.LittleEndian -> intLayout .= LittleEndian
       L.PointerSize _n sz a _ ->
          case fromBits a of
-           Right a' | r == 0 -> do ptrSize .= w
+           Right a' | r == 0 -> do ptrSize .= fromIntegral w
                                    ptrAlign .= a'
            _ -> layoutWarnings %= (ls:)
-       where (w,r) = fromIntegral sz `divMod` 8
+       where (w,r) = sz `divMod` 8
       L.IntegerSize    sz a _ -> setAtBits integerInfo ls sz a
       L.VectorSize     sz a _ -> setAtBits vectorInfo  ls sz a
       L.FloatSize      sz a _ -> setAtBits floatInfo   ls sz a
@@ -295,4 +313,4 @@ parseDataLayout dl = execState (mapM_ addLayoutSpec dl) defaultDataLayout
 
 -- | The size of an integer of the given bitwidth, in bytes.
 intWidthSize :: Natural -> Size
-intWidthSize w = (fromIntegral w + 7) `div` 8
+intWidthSize w = bitsToBytes w

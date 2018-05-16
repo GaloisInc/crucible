@@ -45,9 +45,13 @@ import qualified System.IO.Streams as Streams
 import qualified System.IO.Streams.Attoparsec as Streams
 import           System.IO.Temp
 import           System.Process
+import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
+import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
 import           Lang.Crucible.Solver.Adapter
+import           Lang.Crucible.Solver.Concrete
+import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.ProcessUtils
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
@@ -55,19 +59,21 @@ import           Lang.Crucible.Solver.SimpleBackend.ProblemFeatures
 import qualified Lang.Crucible.Solver.SimpleBackend.SMTLib2 as SMT2
 import qualified Lang.Crucible.Solver.SimpleBackend.SMTWriter as SMTWriter
 import           Lang.Crucible.Solver.SimpleBuilder
-import           Lang.Crucible.Utils.MonadVerbosity
 import           Lang.Crucible.Utils.Streams (logErrorStream)
 
 data DReal = DReal
 
 -- | Path to dReal
-drealPath :: ConfigOption FilePath
-drealPath = configOption "dreal_path"
+drealPath :: ConfigOption BaseStringType
+drealPath = configOption knownRepr "dreal_path"
 
-drealOptions :: MonadVerbosity m => [ConfigDesc m]
+drealOptions :: [ConfigDesc]
 drealOptions =
-  [ mkOpt drealPath (Just "dreal") executablePathOptSty
-    ("Path to dReal executable" :: String)
+  [ mkOpt
+      drealPath 
+      executablePathOptSty
+      (Just (PP.text "Path to dReal executable"))
+      (Just (ConcreteString "dreal"))
   ]
 
 drealAdapter :: SolverAdapter st
@@ -75,8 +81,8 @@ drealAdapter =
   SolverAdapter
   { solver_adapter_name = "dreal"
   , solver_adapter_config_options = drealOptions
-  , solver_adapter_check_sat = \sym cfg logLn p cont ->
-      runDRealInOverride sym cfg logLn p $ \res ->
+  , solver_adapter_check_sat = \sym logLn p cont ->
+      runDRealInOverride sym logLn p $ \res ->
          case res of
            Sat (c,m) -> do
              evalFn <- getAvgBindings c m
@@ -229,15 +235,13 @@ parseNextWord = do
   UTF8.toString <$> takeWhile1 isAlphaNum
 
 runDRealInOverride
-   :: Monad m
-   => SimpleBuilder t st
-   -> Config m
+   :: SimpleBuilder t st
    -> (Int -> String -> IO ())
    -> BoolElt t   -- ^ proposition to check
    -> (SatResult (SMT2.WriterConn t (SMT2.Writer DReal), DRealBindings) -> IO a)
    -> IO a
-runDRealInOverride sym cfg logLn p modelFn = do
-  solver_path <- findSolverPath =<< getConfigValue drealPath cfg
+runDRealInOverride sym logLn p modelFn = do
+  solver_path <- findSolverPath drealPath (getConfiguration sym)
   withSystemTempDirectory "dReal.tmp" $ \tmpdir ->
       withProcessHandles solver_path ["-model"] (Just tmpdir) $ \(in_h, out_h, err_h, ph) -> do
 

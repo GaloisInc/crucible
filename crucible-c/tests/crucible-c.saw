@@ -1,0 +1,38 @@
+code <- llvm_load_module "example1.bc";
+
+crucible_int8_t <- crucible_llvm_unsafe_assume_spec code "crucible_int8_t"
+  do { name <- crucible_fresh_pointer (llvm_int 8);
+       crucible_execute_func [name];
+       x <- crucible_fresh_var "XXX" (llvm_int 8);
+       crucible_return (crucible_term x);
+     };
+
+
+crucible_assume <- crucible_llvm_unsafe_assume_spec code "crucible_assume"
+  do { b    <- crucible_fresh_var "Condition" (llvm_int 8);
+       file <- crucible_fresh_pointer (llvm_int 8);
+       line <- crucible_fresh_var "line" (llvm_int 32);
+       crucible_execute_func [ crucible_term b, file, crucible_term line ];
+       crucible_postcond {{ b != 0x00 }};
+     };
+
+crucible_assert <- crucible_llvm_unsafe_assume_spec code "crucible_assert"
+  do { b    <- crucible_fresh_var "condition" (llvm_int 8);
+       file <- crucible_fresh_pointer (llvm_int 8);
+       line <- crucible_fresh_var "line" (llvm_int 32);
+       crucible_precond {{ b != 0x00 }};
+       crucible_execute_func [ crucible_term b, file, crucible_term line ];
+     };
+
+crucible_llvm_verify
+  code
+  "test_f"
+  [ crucible_int8_t
+  , crucible_assume
+  , crucible_assert
+  ]
+  true
+  (crucible_execute_func [])
+  z3;
+
+

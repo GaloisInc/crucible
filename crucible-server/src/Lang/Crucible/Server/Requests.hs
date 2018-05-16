@@ -12,14 +12,17 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Lang.Crucible.Server.Requests
   ( logMsg
@@ -35,6 +38,7 @@ import           Control.Lens
 import           Control.Monad
 import           Control.Monad.State.Strict
 import           Data.IORef
+import           Data.Foldable (toList)
 import           Data.Typeable
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
@@ -66,6 +70,8 @@ import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
+import           Lang.Crucible.Solver.Concrete
+import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MonadVerbosity
@@ -137,7 +143,7 @@ parseArgs :: IsSymInterface sym
           -> Seq P.Value
           -> IO (Ctx.Assignment (RegEntry sym) ctx)
 parseArgs sim types s =
-  case Ctx.view types of
+  case Ctx.viewAssign types of
     Ctx.AssignEmpty -> do
       when (not (Seq.null s)) $ do
         fail $ "More arguments than expected."
@@ -186,6 +192,84 @@ fulfillRunCallRequest sim f_val encoded_args = do
       sendCallAllAborted sim
 
 ------------------------------------------------------------------------
+-- GetConfigValue request
+
+fulfillGetConfigValueRequest
+    :: IsSymInterface sym
+    => Simulator p sym
+       -- ^ Simulator to run.
+    -> Text
+       -- ^ Name of the configuration setting
+    -> IO ()
+fulfillGetConfigValueRequest sim nm =
+  do ctx <- getSimContext sim
+     let sym = ctx^.ctxSymInterface
+         cfg = getConfiguration sym
+     Some optSetting <- getOptionSettingFromText nm cfg
+     getOption optSetting >>= \case
+       Just v ->
+         do e <- concreteToSym sym v
+            pv <- toProtoValue sim (RegEntry (baseToType (concreteType v)) e)
+            let resp =
+                 mempty & P.simulatorValueResponse_successful .~ True
+                        & P.simulatorValueResponse_value .~ pv
+            let gresp =
+                 mempty & P.genericResponse_code .~ P.SimulatorValueGenResp
+                        & P.genericResponse_simValResponse .~ resp
+            sendResponse sim gresp
+       Nothing ->
+         do let msg = "Config option " <> nm <> " is not set."
+                gresp =
+                  mempty & P.genericResponse_code .~ P.ExceptionGenResp
+                         & P.genericResponse_message .~ msg
+            sendResponse sim gresp
+
+------------------------------------------------------------------------
+-- SetConfigValue request
+
+fulfillSetConfigValueRequest
+    :: IsSymInterface sym
+    => Simulator p sym
+       -- ^ Simulator to run.
+    -> Text
+       -- ^ Name of the configuration setting
+    -> Seq P.Value
+       -- ^ Value of the configuration setting
+    -> IO ()
+fulfillSetConfigValueRequest sim nm vals =
+  do ctx <- getSimContext sim
+     let sym = ctx^.ctxSymInterface
+         cfg = getConfiguration sym
+     case Seq.viewl vals of
+       val Seq.:< (Seq.null -> True) ->
+         do Some (RegEntry tpr v) <- fromProtoValue sim val
+            Some optSetting <- getOptionSettingFromText nm cfg
+            let tpr' = baseToType (configOptionType (optionSettingName optSetting))
+            case testEquality tpr tpr' of
+              Just Refl
+                | Just x <- asConcrete v ->
+                    do res <- setOption optSetting x
+                       case optionSetError res of
+                         Just msg -> fail (show msg)
+                         Nothing ->
+                           do let ws = toList (optionSetWarnings res)
+                              unless (null ws)
+                                     (sendTextResponse sim (Text.unlines (map (Text.pack . show) ws)))
+                              sendAckResponse sim
+
+                | otherwise ->
+                      fail $ unlines [ "Expected concrete value of type " ++ show tpr'
+                                     , "but was given a symbolic value."
+                                     ]
+
+              Nothing   -> fail $ unlines [ "Expected value of type " ++ show tpr'
+                                          , "when setting configuration value " ++ show nm
+                                          , "but was given a value of type " ++ show tpr
+                                          ]
+
+       _ -> fail "Expected a single argument for SetConfigValue"
+
+------------------------------------------------------------------------
 -- SetVerbosity request
 
 fulfillSetVerbosityRequest
@@ -202,12 +286,12 @@ fulfillSetVerbosityRequest sim args = do
   case v of
     Some (RegEntry NatRepr nv) | Just n <- asNat nv -> do
       ctx <- readIORef (simContext sim)
-      let cfg = simConfig ctx
+      let cfg = getConfiguration (ctx^.ctxSymInterface)
       let h   = printHandle ctx
-      oldv <- getConfigValue verbosity cfg
-      ctx' <- withVerbosity h oldv $ liftIO $ flip execStateT ctx $
-                  setConfigValue verbosity cfg (fromIntegral n)
-      writeIORef (simContext sim) ctx'
+      verbSetting <- getOptionSetting verbosity cfg
+      oldv <- fromInteger <$> liftIO (getOpt verbSetting)
+      ws <- withVerbosity h oldv $ liftIO (setOpt verbSetting (toInteger n))
+      unless (null ws) (sendTextResponse sim (Text.unlines (map (Text.pack . show) ws)))
       sendAckResponse sim
     _ -> fail "expected a natural number argument to SetVerbosity request"
 
@@ -241,7 +325,7 @@ fulfillApplyPrimitiveRequest sim p_op args res_type = do
     Right (Some a) -> do
       let logLn _ _ = return ()
       sym <- getInterface sim
-      r <- Sim.evalApp sym MapF.empty logLn (\(RegEntry _ v) -> return v) a
+      r <- Sim.evalApp sym MapF.empty logLn (\_ x -> case x of) (\(RegEntry _ v) -> return v) a
       pv <- toProtoValue sim (RegEntry (appType a) r)
       let resp =
            mempty & P.simulatorValueResponse_successful .~ True
@@ -356,7 +440,7 @@ fulfillGetMultipartLoadHandleRequest sim hinfo = do
 
 printTermOverride :: (IsSymInterface sym)
                   => BaseTypeRepr ty
-                  -> Override p sym (EmptyCtx ::> BaseToType ty) UnitType
+                  -> Override p sym () (EmptyCtx ::> BaseToType ty) UnitType
 printTermOverride tpr =
   mkOverride (functionNameFromText (Text.pack ("printTerm_"++show tpr))) $ do
     RegMap args <- getOverrideArgs
@@ -373,7 +457,7 @@ buildPrintTermOverride
     -> BaseTypeRepr ty
     -> IO SomeHandle
 buildPrintTermOverride sim tpr =
-  SomeHandle <$> simOverrideHandle sim (Ctx.empty Ctx.%> baseToType tpr) UnitRepr
+  SomeHandle <$> simOverrideHandle sim (Ctx.empty Ctx.:> baseToType tpr) UnitRepr
                                    (printTermOverride tpr)
 
 fulfillPrintTermHandleRequest :: IsSymInterface sym
@@ -440,6 +524,13 @@ handleOneRequest sim addlRequests request =
     P.SetVerbosity -> do
       let args = request^.P.request_args
       fulfillSetVerbosityRequest sim args
+    P.GetConfigValue -> do
+      let nm   = request^.P.request_config_setting_name
+      fulfillGetConfigValueRequest sim nm
+    P.SetConfigValue -> do
+      let nm   = request^.P.request_config_setting_name
+      let args = request^.P.request_args
+      fulfillSetConfigValueRequest sim nm args
     P.ApplyPrimitive -> do
       let p_op = request^.P.request_prim_op
       let args = request^.P.request_args
@@ -468,6 +559,11 @@ handleOneRequest sim addlRequests request =
       let harness  = request^.P.request_verification_harness
       fulfillCompileVerificationOverrideRequest addlRequests sim harness
 
+    P.SimulateVerificationHarness -> do
+      let harness  = request^.P.request_verification_harness
+      let opts     = request^.P.request_verification_sim_options
+      fullfillSimulateVerificationHarnessRequest addlRequests sim harness opts
+
     P.ResumeSimulation -> do
       nyi "resumeSimulation"
     P.UseOverride -> do
@@ -493,6 +589,11 @@ data BackendSpecificRequests p sym
       , fulfillCompileVerificationOverrideRequest
          :: Simulator p sym
          -> P.VerificationHarness
+         -> IO ()
+      , fullfillSimulateVerificationHarnessRequest
+         :: Simulator p sym
+         -> P.VerificationHarness
+         -> P.VerificationSimulateOptions
          -> IO ()
       }
 

@@ -387,17 +387,6 @@ public final class Type {
     }
 
     /**
-     * A concrete positive integer.
-     */
-    public static final Type INT_WIDTH = new Type(Protos.CrucibleTypeId.IntWidthType);
-
-    /**
-     * A concrete non-negative integer.
-     */
-    public static final Type UINT_WIDTH = new Type(Protos.CrucibleTypeId.UIntWidthType);
-
-
-    /**
      * Return protocol buffer representation for type.
      * @return the representation
      */

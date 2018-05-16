@@ -1,7 +1,7 @@
 Name:          crucible-blt
 Version:       0.2
 Author:        Galois Inc.
-Maintainer:    bjones@galois.com
+Maintainer:    rdockins@galois.com
 License:       BSD3
 License-file:  LICENSE
 Build-type:    Simple
@@ -16,13 +16,14 @@ Description:
 
 library
   build-depends:
-    base >= 4.7 && < 4.11,
+    base >= 4.7 && < 4.12,
     ansi-wl-pprint,
     blt >= 0.12.1,
     containers,
     crucible >= 0.1,
     lens >= 1.2,
     parameterized-utils,
+    text,
     transformers
 
   hs-source-dirs: src

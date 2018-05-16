@@ -46,6 +46,55 @@ public final class SAWSimulator extends Simulator {
 	return sim;
     }
 
+    /**
+     * Set whether path satisfiablity checking is enabled in the symbolic simulator.
+     *
+     * @param pathSat The new setting value
+     * @throws IOException If an I/O error occurs while communicating with the crucible server.
+     */
+    public synchronized void setPathSatChecking( boolean pathSat ) throws IOException {
+        SimulatorValue pathSatVal = pathSat ? BoolValue.TRUE : BoolValue.FALSE;
+
+        issueRequest( Protos.Request.newBuilder()
+                      .setCode( Protos.RequestCode.SetConfigValue )
+                      .setConfigSettingName( "saw.check_path_sat" )
+                      .addArg( pathSatVal.getValueRep() ) );
+
+        getNextAckResponse();
+    }
+
+    /**
+     * Get whether path satisfiablity checking is currently enabled in the symbolic simulator.
+     *
+     * @returns The current setting of the path satisfiability configuration value.
+     * @throws IOException If an I/O error occurs while communicating with the crucible server.
+     * @throws SimulatorFailedException if an unexpected (non-boolean) value is returned by the server.
+     */
+    public synchronized boolean getPathSatChecking() throws IOException {
+        issueRequest( Protos.Request.newBuilder()
+                      .setCode(Protos.RequestCode.GetConfigValue)
+                      .setConfigSettingName( "saw.check_path_sat" ) );
+
+        Protos.SimulatorValueResponse r = getNextSimulatorValueResponse();
+
+        if (!r.getSuccessful()) {
+            String msg = "Could not create simulator value";
+            String err = r.getErrorMsg();
+            if( !(err == null) ) { msg = msg + ": " + err; }
+            throw new SimulatorFailedException(msg);
+        }
+
+        // Parse value back.
+        SimulatorValue v = fromProtosValue(r.getValue(), Type.BOOL);
+        if( v instanceof BoolValue ) {
+            BoolValue bv = (BoolValue) v;
+            return bv.getValue();
+        } else {
+            String msg = "Expected boolean value response from simulator when retrieving path sat checking configuration value";
+            throw new SimulatorFailedException(msg);
+        }
+    }
+
     public synchronized
     FunctionHandle compileHarness( VerificationHarness harness ) throws IOException {
         issueRequest( Protos.Request.newBuilder()
@@ -53,6 +102,19 @@ public final class SAWSimulator extends Simulator {
                       .setVerificationHarness( harness.getRep() ));
 
         return predefinedHandleInfoResponse();
+    }
+
+
+    public synchronized void produceVerificationGoals( VerificationHarness harness, VerificationOptions verifOpts )
+        throws IOException
+    {
+        issueRequest( Protos.Request.newBuilder()
+                      .setCode(Protos.RequestCode.SimulateVerificationHarness)
+                      .setVerificationHarness(harness.getRep())
+                      .setVerificationSimOptions(verifOpts.getRep()) );
+
+        // Wait for the server to finish
+        getNextAckResponse();
     }
 
 
@@ -76,6 +138,6 @@ public final class SAWSimulator extends Simulator {
         issueRequest(b);
 
         // Wait for the server to finish
-        Protos.CallResponse r = getNextCallResponse();
+        getNextAckResponse();
     }
 }

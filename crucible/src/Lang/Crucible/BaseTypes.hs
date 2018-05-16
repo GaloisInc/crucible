@@ -36,12 +36,13 @@
 {-# LANGUAGE UndecidableInstances #-}
 module Lang.Crucible.BaseTypes
   ( -- * BaseType data kind
-    type BaseType
+    type BaseType(..)
     -- ** Constructors for kind BaseType
   , BaseBoolType
   , BaseIntegerType
   , BaseNatType
   , BaseRealType
+  , BaseStringType
   , BaseBVType
   , BaseComplexType
   , BaseStructType
@@ -51,6 +52,7 @@ module Lang.Crucible.BaseTypes
   , arrayTypeIndices
   , arrayTypeResult
   , module Data.Parameterized.NatRepr
+
     -- * KnownRepr
   , KnownRepr(..)  -- Re-export from 'Data.Parameterized.Classes'
   , KnownCtx
@@ -65,7 +67,6 @@ import           Data.Parameterized.TH.GADT
 import           GHC.TypeLits
 import           Text.PrettyPrint.ANSI.Leijen
 
-
 --------------------------------------------------------------------------------
 -- KnownCtx
 
@@ -75,18 +76,31 @@ type KnownCtx f = KnownRepr (Ctx.Assignment f)
 ------------------------------------------------------------------------
 -- BaseType
 
--- | This data kind enumerates the Crucible base types, which are
--- types that may appear in solver expressions.
+-- | This data kind enumerates the Crucible solver interface types,
+-- which are types that may be represented symbolically.
 data BaseType
+     -- | @BaseBoolType@ denotes Boolean values.
    = BaseBoolType
-   | BaseIntegerType
+     -- | @BaseNatType@ denotes a natural number.
    | BaseNatType
+     -- | @BaseIntegerType@ denotes an integer.
+   | BaseIntegerType
+     -- | @BaseRealType@ denotes a real number.
    | BaseRealType
+     -- | @BaseBVType n@ denotes a bitvector with @n@-bits.
    | BaseBVType GHC.TypeLits.Nat
+     -- | @BaseStringType@ denotes a sequence of Unicode codepoints
+   | BaseStringType
+     -- | @BaseComplexType@ denotes a complex number with real components.
    | BaseComplexType
-     -- An aggregate type containing a sequence of values of the
-     -- given types.
+     -- | @BaseStructType tps@ denotes a sequence of values with types @tps@.
    | BaseStructType (Ctx.Ctx BaseType)
+     -- | @BaseArrayType itps rtp@ denotes a function mapping indices @itps@
+     -- to values of type @rtp@.
+     --
+     -- It does not have bounds as one would normally expect from an
+     -- array in a programming language, but the solver does provide
+     -- operations for doing pointwise updates.
    | BaseArrayType  (Ctx.Ctx BaseType) BaseType
 
 type BaseBoolType    = 'BaseBoolType    -- ^ @:: 'BaseType'@.
@@ -94,6 +108,7 @@ type BaseIntegerType = 'BaseIntegerType -- ^ @:: 'BaseType'@.
 type BaseNatType     = 'BaseNatType     -- ^ @:: 'BaseType'@.
 type BaseRealType    = 'BaseRealType    -- ^ @:: 'BaseType'@.
 type BaseBVType      = 'BaseBVType      -- ^ @:: 'GHC.TypeLits.Nat' -> 'BaseType'@.
+type BaseStringType  = 'BaseStringType  -- ^ @:: 'BaseType'@.
 type BaseComplexType = 'BaseComplexType -- ^ @:: 'BaseType'@.
 type BaseStructType  = 'BaseStructType  -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseType'@.
 type BaseArrayType   = 'BaseArrayType   -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseType' -> 'BaseType'@.
@@ -101,7 +116,7 @@ type BaseArrayType   = 'BaseArrayType   -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseTy
 ------------------------------------------------------------------------
 -- BaseTypeRepr
 
--- | A runtime representation of a solver base type. Parameter @bt@
+-- | A runtime representation of a solver interface type. Parameter @bt@
 -- has kind 'BaseType'.
 data BaseTypeRepr (bt::BaseType) :: * where
    BaseBoolRepr :: BaseTypeRepr BaseBoolType
@@ -109,6 +124,7 @@ data BaseTypeRepr (bt::BaseType) :: * where
    BaseNatRepr  :: BaseTypeRepr BaseNatType
    BaseIntegerRepr :: BaseTypeRepr BaseIntegerType
    BaseRealRepr    :: BaseTypeRepr BaseRealType
+   BaseStringRepr  :: BaseTypeRepr BaseStringType
    BaseComplexRepr :: BaseTypeRepr BaseComplexType
 
    -- The representation of a struct type.
@@ -136,6 +152,8 @@ instance KnownRepr BaseTypeRepr BaseNatType where
   knownRepr = BaseNatRepr
 instance KnownRepr BaseTypeRepr BaseRealType where
   knownRepr = BaseRealRepr
+instance KnownRepr BaseTypeRepr BaseStringType where
+  knownRepr = BaseStringRepr
 instance (1 <= w, KnownNat w) => KnownRepr BaseTypeRepr (BaseBVType w) where
   knownRepr = BaseBVRepr knownNat
 instance KnownRepr BaseTypeRepr BaseComplexType where

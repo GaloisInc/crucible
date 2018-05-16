@@ -50,7 +50,7 @@ import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Types
 import           Lang.Crucible.ProgramLoc
 import qualified Lang.Crucible.Proto as P
-import           Lang.Crucible.Solver.Interface
+import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Server.ValueConv
 import           Lang.Crucible.Server.Encoding
 import           Lang.Crucible.Server.Simulator
@@ -246,7 +246,7 @@ transNatExpr pe = do
 
 
 data BlockState s = BlockState { blockPos :: !Position
-                               , blockStmts :: ![Posd (R.Stmt s)]
+                               , blockStmts :: ![Posd (R.Stmt () s)]
                                }
 
 type StmtTrans s r = StateT (BlockState s) (Trans s r)
@@ -256,7 +256,7 @@ setPos p = do
   s <- get
   put $! s { blockPos = p }
 
-addStmt :: R.Stmt s -> StmtTrans s r ()
+addStmt :: R.Stmt () s -> StmtTrans s r ()
 addStmt stmt = seq stmt $ do
   s <- get
   let pstmt = Posd (blockPos s) stmt
@@ -264,7 +264,7 @@ addStmt stmt = seq stmt $ do
   let l = pstmt : blockStmts s
   put $! s { blockStmts = l }
 
-addAppStmt :: App (R.Atom s) tp -> StmtTrans s r (R.Atom s tp)
+addAppStmt :: App () (R.Atom s) tp -> StmtTrans s r (R.Atom s tp)
 addAppStmt app = do
   i <- lift $ use atomIndex
   lift $ atomIndex .= i + 1
@@ -300,7 +300,7 @@ transExpr pe = do
           case isPosNat w of
             Nothing -> fail $ "Zero width bitvector."
             Just LeqProof -> do
-              let i = decodeUnsigned (pe^.P.expr_data)
+              let i = decodeSigned (pe^.P.expr_data)
               fmap Some $ addAppStmt $ BVLit w i
         Nothing -> fail "Width is too large"
     P.StringExpr -> do
@@ -336,7 +336,7 @@ transExprSeqWithTypes :: Seq P.Expr
                       -> CtxRepr ctx
                       -> StmtTrans s ret (Ctx.Assignment (R.Atom s) ctx)
 transExprSeqWithTypes s0 c0 =
-  case Ctx.view c0 of
+  case Ctx.viewAssign c0 of
     Ctx.AssignEmpty -> do
       when (not (Seq.null s0)) $ do
         fail $ "More expressions than expected."
@@ -345,7 +345,7 @@ transExprSeqWithTypes s0 c0 =
       case Seq.viewr s0 of
         Seq.EmptyR -> fail $ "Fewer expressions than expected."
         s Seq.:> pe -> do
-          (Ctx.%>) <$> transExprSeqWithTypes s c
+          (Ctx.:>) <$> transExprSeqWithTypes s c
                    <*> transExprWithType pe tp
 
 ------------------------------------------------------------------------
@@ -442,7 +442,7 @@ transTermStmt retType t = do
 transBlock :: TypeRepr ret
            -> Word64  -- ^ Index of block (0 is first index).
            -> P.Block -- ^ Block to write to.
-           -> Trans s ret (R.Block s ret)
+           -> Trans s ret (R.Block () s ret)
 transBlock retType idx b = do
   block_id <- getBlockID idx
   v <- gets argVec
@@ -477,7 +477,7 @@ mkRegs p base argTypes = V.generate (V.length v) f
 unpackCFG :: IsSymInterface sym
           => Simulator p sym
           -> P.Cfg
-          -> (forall s init ret. R.CFG s init ret -> IO a)
+          -> (forall s init ret. R.CFG () s init ret -> IO a)
           -> IO a
 unpackCFG sim pg cont = do
   let h_index   = pg^.P.cfg_handle_id

@@ -1,7 +1,7 @@
 Name:          crucible-server
 Version:       0.1
 Author:        Galois Inc.
-Maintainer:    bjones@galois.com
+Maintainer:    rdockins@galois.com
 Build-type:    Custom
 License:       BSD3
 License-file:  LICENSE
@@ -36,9 +36,9 @@ library
     cryptol,
     cryptol-verifier,
     executable-path,
+    directory,
     filepath,
     GraphSCC,
-    galois-matlab,
     hashable,
     hashtables,
     hpb >= 0.1.1,
@@ -81,7 +81,7 @@ library
 executable crucible-server
   build-depends:
     ansi-wl-pprint,
-    base >= 4.7 && < 4.11,
+    base >= 4.7 && < 4.12,
     crucible,
     crucible-abc,
     crucible-saw,

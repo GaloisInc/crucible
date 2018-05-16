@@ -10,7 +10,6 @@ packages:
 - crucible-llvm
 - crucible-saw
 - crucible-server
-- galois-matlab
 - dependencies/abcBridge
 - dependencies/aig
 - dependencies/parameterized-utils

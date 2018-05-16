@@ -66,9 +66,9 @@ import Control.Applicative ((<$>))
 import Data.Monoid (Monoid(..))
 #endif
 
+import Lang.Crucible.LLVM.Bytes
 import Lang.Crucible.LLVM.DataLayout
 import Lang.Crucible.LLVM.PrettyPrint
-import Lang.Crucible.Utils.Arithmetic
 
 -- | Performs a binary search on a range of ints.
 binarySearch :: (Int -> Ordering)
@@ -232,7 +232,7 @@ memTypeSize dl mtp =
     MetadataType -> 0
 
 memTypeSizeInBits :: DataLayout -> MemType -> Natural
-memTypeSizeInBits dl tp = fromIntegral $ 8 * memTypeSize dl tp
+memTypeSizeInBits dl tp = fromInteger $ bytesToBits (memTypeSize dl tp)
 
 -- | Returns ABI byte alignment constraint in bytes.
 memTypeAlign :: DataLayout -> MemType -> Alignment
@@ -322,7 +322,7 @@ mkStructInfo dl packed tps0 = go [] 0 a0 tps0
             fieldAlign = nextAlign maxAlign tpl
 
             -- Size of field at alignment for next thing.
-            sz' = nextPow2Multiple e (fromIntegral fieldAlign)
+            sz' = padToAlignment e fieldAlign
 
         go flds sz maxAlign [] =
             StructInfo { siDataLayout = dl

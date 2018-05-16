@@ -10,6 +10,7 @@
 -- This module provides a Crucible backend that produces SAWCore terms.
 ------------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -17,15 +18,19 @@
 
 module Lang.Crucible.Solver.SAWCoreBackend where
 
-import           Control.Exception ( assert, throw )
+import           Control.Exception ( bracket, throwIO )
 import           Control.Lens
 import           Control.Monad
 import           Data.IORef
+import           Data.Map ( Map )
+import qualified Data.Map as Map
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Nonce
 import           Data.Ratio
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import           Data.Word(Word64)
+import qualified Data.Text as Text
 
 import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
@@ -33,16 +38,16 @@ import           Numeric.Natural
 
 import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
-import           Lang.Crucible.ProgramLoc
-import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Solver.AssumptionStack as AS
+import           Lang.Crucible.Solver.BoolInterface
+import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.SatResult
 import qualified Lang.Crucible.Solver.SimpleBuilder as SB
 import           Lang.Crucible.Solver.Symbol
 import qualified Lang.Crucible.Solver.WeightedSum as WSum
 
-import qualified Verifier.SAW.Cryptol.Prims as CryPrims
 import qualified Verifier.SAW.SharedTerm as SC
 import qualified Verifier.SAW.Simulator.BitBlast as BBSim
 import qualified Verifier.SAW.TypedAST as SC
@@ -55,22 +60,30 @@ data SAWCruciblePersonality sym = SAWCruciblePersonality
 data SAWCoreState n
   = SAWCoreState
     { saw_ctx       :: SC.SharedContext                         -- ^ the main SAWCore datastructure for building shared terms
-    , saw_inputs    :: IORef (Seq (SC.ExtCns SC.Term ))  -- ^ a record of all the symbolic input variables created so far,
-                                                                  --   in the order they were created
+    , saw_inputs    :: IORef (Seq (SC.ExtCns SC.Term ))
+      -- ^ a record of all the symbolic input variables created so far,
+      --   in the order they were created
+
+    , saw_symMap :: !(Map Word64 (SC.SharedContext -> [SC.Term] -> IO SC.Term))
+      -- ^ What to do with uninterpred functions.
+      -- The key is the "indexValue" of the "symFunId" for the function
+
     , saw_elt_cache :: SB.IdxCache n SAWElt
-    , saw_assertions  :: Seq (Assertion (Pred (SAWCoreBackend n)))
-    , saw_obligations :: Seq (Seq (Pred (SAWCoreBackend n)), Assertion (Pred (SAWCoreBackend n)))
-    , saw_config    :: SimConfig SAWCruciblePersonality (SAWCoreBackend n)
+
+    , saw_assumptions :: AssumptionStack (SB.BoolElt n) SimErrorReason
     }
 
-sawCheckPathSat :: ConfigOption Bool
-sawCheckPathSat = configOption "saw.check_path_sat"
+sawCheckPathSat :: ConfigOption BaseBoolType
+sawCheckPathSat = configOption BaseBoolRepr "saw.check_path_sat"
 
-sawOptions :: Monad m => [ConfigDesc m]
+sawOptions :: [ConfigDesc]
 sawOptions =
-  [ opt sawCheckPathSat False
+  [ opt sawCheckPathSat (ConcreteBool False)
     "Check the satisfiability of path conditions on branches"
   ]
+
+getAssumptionStack :: SAWCoreBackend n -> IO (AssumptionStack (SB.BoolElt n) SimErrorReason)
+getAssumptionStack sym = saw_assumptions <$> readIORef (SB.sbStateManager sym)
 
 data SAWElt (bt :: BaseType) where
   SAWElt :: !SC.Term -> SAWElt bt
@@ -84,6 +97,45 @@ data SAWElt (bt :: BaseType) where
 
 type SAWCoreBackend n = SB.SimpleBuilder n SAWCoreState
 
+
+-- | Run the given IO action with the given SAW backend.
+--   While while running the action, the SAW backend is
+--   set up with a fresh naming context.  This means that all
+--   symbolic inputs, symMap entries, element cache entires,
+--   assertions and proof obligations start empty while
+--   running the action.  After the action completes, the
+--   state of these fields is restored.
+inFreshNamingContext :: SAWCoreBackend n -> IO a -> IO a
+inFreshNamingContext sym f =
+  do old <- readIORef (SB.sbStateManager sym)
+     bracket (mkNew (SB.eltCounter sym) old) (restore old) action
+
+ where
+ action new =
+   do writeIORef (SB.sbStateManager sym) new
+      f
+
+ restore old _new =
+   do writeIORef (SB.sbStateManager sym) old
+
+ mkNew gen old =
+   do ch <- SB.newIdxCache
+      iref <- newIORef mempty
+      stk <- initAssumptionStack gen
+      let new = SAWCoreState
+                { saw_ctx = saw_ctx old
+                , saw_inputs = iref
+                , saw_symMap = mempty
+                , saw_elt_cache = ch
+                , saw_assumptions = stk
+                }
+      return new
+
+getInputs :: SAWCoreBackend n -> IO (Seq (SC.ExtCns SC.Term))
+getInputs sym =
+  do st <- readIORef (SB.sbStateManager sym)
+     readIORef (saw_inputs st)
+
 baseSCType :: SC.SharedContext -> BaseTypeRepr tp -> IO SC.Term
 baseSCType ctx bt =
   case bt of
@@ -92,12 +144,13 @@ baseSCType ctx bt =
     BaseNatRepr  -> SC.scNatType ctx
     BaseIntegerRepr -> SC.scIntegerType ctx
     BaseArrayRepr indexTypes range ->
-      case Ctx.view indexTypes of
+      case Ctx.viewAssign indexTypes of
         Ctx.AssignExtend b dom -> do
           when (not (Ctx.null b)) $ do
             fail $ "SAW backend only supports single element arrays."
           join $ SC.scFun ctx <$> baseSCType ctx dom
                               <*> baseSCType ctx range
+    BaseStringRepr   -> fail "SAW backend does not support string values: baseSCType"
     BaseComplexRepr  -> fail "SAW backend does not support complex values: baseSCType"
     BaseRealRepr     -> fail "SAW backend does not support real values: baseSCType"
     BaseStructRepr _ -> fail "FIXME baseSCType for structures"
@@ -126,32 +179,42 @@ bindSAWTerm sym bt t = do
   SB.insertIdxValue (saw_elt_cache st) (SB.bvarId bv) (SAWElt t)
   return sbVar
 
-newSAWCoreBackend :: SC.SharedContext
-                  -> NonceGenerator IO s
-                  -> SimConfig SAWCruciblePersonality (SAWCoreBackend s)
-                  -> IO (SAWCoreBackend s)
-newSAWCoreBackend sc gen cfg = do
+newSAWCoreBackend ::
+  SC.SharedContext ->
+  NonceGenerator IO s ->
+  IO (SAWCoreBackend s)
+newSAWCoreBackend sc gen = do
   inpr <- newIORef Seq.empty
   ch   <- SB.newIdxCache
-  let st = SAWCoreState sc inpr ch Seq.empty Seq.empty cfg
-  SB.newSimpleBuilder st gen
+  stk  <- initAssumptionStack gen
+  let st = SAWCoreState
+              { saw_ctx = sc
+              , saw_inputs = inpr
+              , saw_symMap = Map.empty
+              , saw_elt_cache = ch
+              , saw_assumptions = stk
+              }
+  sym <- SB.newSimpleBuilder st gen
+  extendConfig sawOptions (getConfiguration sym)
+  return sym
+
+
+-- | Register an interpretation for a symbolic function.
+-- This is not used during simulation, but rather, when we translate
+-- crucible values back into SAW.
+sawRegisterSymFunInterp ::
+  SAWCoreBackend n ->
+  SB.SimpleSymFn n args ret ->
+  (SC.SharedContext -> [SC.Term] -> IO SC.Term) ->
+  IO ()
+sawRegisterSymFunInterp sym f i =
+  modifyIORef (SB.sbStateManager sym) $ \s ->
+      s { saw_symMap = Map.insert (indexValue (SB.symFnId f)) i (saw_symMap s) }
 
 
 sawBackendSharedContext :: SAWCoreBackend n -> IO SC.SharedContext
 sawBackendSharedContext sym =
   saw_ctx <$> readIORef (SB.sbStateManager sym)
-
--- | Run a computation with a fresh SAWCoreBackend, in the context of the SAW
--- core modules @Prelude@, @Cryptol@, and a fresh, empty @CryptolServer@ module
-withSAWCoreBackend :: (forall n. SAWCoreBackend n -> IO a) -> IO a
-withSAWCoreBackend f = do
-  withIONonceGenerator $ \gen -> do
-    cfg <- initialConfig 0 []
-    sc   <- SC.mkSharedContext
-    Prelude.scLoadPreludeModule sc
-    Prelude.scLoadCryptolModule sc
-    sym  <- newSAWCoreBackend sc gen cfg
-    f sym
 
 toSC :: SAWCoreBackend n -> SB.Elt n tp -> IO SC.Term
 toSC sym elt = do
@@ -347,6 +410,22 @@ scNatLe sc (SAWElt x) (SAWElt y) =
      SAWElt <$> SC.scOr sc lt eq
 
 
+-- | Note: first element in the result is the right-most value in the assignment
+evaluateAsgn ::
+  SAWCoreBackend n ->
+  SC.SharedContext ->
+  SB.IdxCache n SAWElt ->
+  Ctx.Assignment (SB.Elt n) args ->
+  IO [SC.Term]
+evaluateAsgn sym sc cache xs =
+  case xs of
+    Ctx.Empty -> return []
+    ys Ctx.:> x ->
+      do v  <- evaluateElt sym sc cache x
+         vs <- evaluateAsgn sym sc cache ys
+         return (v:vs)
+
+
 evaluateElt :: forall n tp
              . SAWCoreBackend n
             -> SC.SharedContext
@@ -377,11 +456,15 @@ evaluateElt sym sc cache = f
        SB.SemiRingReal -> scRealLit sc x
    go (SB.BVElt w i _) = SAWElt <$> SC.scBvConst sc (fromIntegral (natValue w)) i
 
+   go (SB.StringElt{}) = fail "SAW backend does not support string values"
+
    go (SB.BoundVarElt bv) =
       case SB.bvarKind bv of
         SB.UninterpVarKind -> do
            tp <- baseSCType sc (SB.bvarType bv)
-           SAWElt <$> sawCreateVar sym "x" tp
+           -- SAWElt <$> sawCreateVar sym "x" tp
+           SAWElt <$> sawCreateVar sym nm tp
+             where nm = Text.unpack $ solverSymbolAsText $ SB.bvarName bv
         SB.LatchVarKind ->
           fail $ unwords ["SAW backend does not support latch variables"]
         SB.QuantifierVarKind ->
@@ -399,8 +482,14 @@ evaluateElt sym sc cache = f
           fail "SAW backend does not support symbolic arrays"
         SB.ArrayTrueOnEntries{} ->
           fail "SAW backend does not support symbolic arrays"
-        SB.FnApp{} ->
-          fail "SAW backend does not support symbolic functions"
+        SB.FnApp fn asgn ->
+          do st <- readIORef (SB.sbStateManager sym)
+             case Map.lookup (indexValue (SB.symFnId fn)) (saw_symMap st) of
+               Nothing -> fail ("Unknown symbolic function: " ++ show fn)
+               Just mk ->
+                 do ts <- evaluateAsgn sym sc cache asgn
+                    SAWElt <$> mk sc ts
+
 
    go a0@(SB.AppElt a) =
       let nyi :: Monad m => m a
@@ -571,7 +660,7 @@ evaluateElt sym sc cache = f
         SB.ArrayMap{} -> fail "FIXME SAW backend does not support ArrayMap."
 
         SB.ConstantArray indexTypes _range v -> fmap SAWElt $ do
-          case Ctx.view indexTypes of
+          case Ctx.viewAssign indexTypes of
             Ctx.AssignExtend b dom -> do
               when (not (Ctx.null b)) $ do
                 fail $ "SAW backend only supports single element arrays."
@@ -582,7 +671,7 @@ evaluateElt sym sc cache = f
               SC.scLambda sc "_" ty v'
 
         SB.SelectArray _ arr indexTerms -> fmap SAWElt $ do
-          case Ctx.view indexTerms of
+          case Ctx.viewAssign indexTerms of
             Ctx.AssignExtend b idx -> do
               when (not (Ctx.null b)) $ do
                 fail $ "SAW backend only supports single element arrays."
@@ -590,7 +679,7 @@ evaluateElt sym sc cache = f
               join $ SC.scApply sc <$> f arr <*> f idx
 
         SB.MuxArray indexTypes range p x y -> fmap SAWElt $ do
-          case Ctx.view indexTypes of
+          case Ctx.viewAssign indexTypes of
             Ctx.AssignExtend b dom -> do
               when (not (Ctx.null b)) $ do
                 fail $ "SAW backend only supports single element arrays."
@@ -603,7 +692,7 @@ evaluateElt sym sc cache = f
           rangeTy <- baseSCType sc range
           arr' <- f arr
           v'   <- f v
-          case Ctx.view indexTerms of
+          case Ctx.viewAssign indexTerms of
             Ctx.AssignExtend b idx -> do
               when (not (Ctx.null b)) $ do
                 fail $ "SAW backend only supports single element arrays."
@@ -636,114 +725,94 @@ evaluateElt sym sc cache = f
         SB.StructField{} -> nyi -- FIXME
         SB.StructIte{} -> nyi -- FIXME
 
--- | The current location in the program.
-assertions :: Simple Lens (SAWCoreState n) (Seq.Seq (Assertion (Pred (SAWCoreBackend n))))
-assertions = lens saw_assertions (\s v -> s { saw_assertions = v })
-
--- | The sequence of accumulated assertion obligations
-proofObligs :: Simple Lens (SAWCoreState n) (Seq (Seq (Pred (SAWCoreBackend n)), Assertion (Pred (SAWCoreBackend n))))
-proofObligs = lens saw_obligations (\s v -> s { saw_obligations = v })
-
-appendAssertion :: ProgramLoc
-                -> Pred (SAWCoreBackend n)
-                -> SimErrorReason
-                -> SAWCoreState n
-                -> SAWCoreState n
-appendAssertion l p m s =
-  let ast = Assertion l p (Just m) in
-  s & assertions %~ (Seq.|> ast)
-    & proofObligs %~ (Seq.|> (fmap (^.assertPred) (s^.assertions), ast))
-
--- | Append assertions to path state.
-appendAssertions :: Seq (Assertion (Pred (SAWCoreBackend n)))
-                 -> SAWCoreState n
-                 -> SAWCoreState n
-appendAssertions pairs = assertions %~ (Seq.>< pairs)
-
-appendAssumption :: ProgramLoc
-                 -> Pred (SAWCoreBackend n)
-                 -> SAWCoreState n
-                 -> SAWCoreState n
-appendAssumption l p s =
-  s & assertions %~ (Seq.|> Assertion l p Nothing)
-
 checkSatisfiable :: SAWCoreBackend n
                  -> (Pred (SAWCoreBackend n))
                  -> IO (SatResult ())
 checkSatisfiable sym p = do
   mgr <- readIORef (SB.sbStateManager sym)
-  let cfg = saw_config mgr
-      sc = saw_ctx mgr
+  let sc = saw_ctx mgr
       cache = saw_elt_cache mgr
-  enabled <- getConfigValue sawCheckPathSat cfg
+  enabled <- getMaybeOpt =<< getOptionSetting sawCheckPathSat (getConfiguration sym)
   case enabled of
-    True -> do
+    Just True -> do
       t <- evaluateElt sym sc cache p
-      BBSim.withBitBlastedPred GIA.proxy sc CryPrims.bitblastPrims t $ \be lit _shapes -> do
+      let bbPrims = const Map.empty
+      BBSim.withBitBlastedPred GIA.proxy sc bbPrims t $ \be lit _shapes -> do
         satRes <- AIG.checkSat be lit
         case satRes of
           AIG.Unsat -> return Unsat
           _ -> return (Sat ())
-    False -> return (Sat ())
+    _ -> return (Sat ())
 
-instance SB.IsSimpleBuilderState SAWCoreState where
-  sbAddAssumption sym e = do
-    case SB.asApp e of
-      Just SB.TrueBool -> return ()
-      _ -> do
-        loc <- getCurrentProgramLoc sym
-        modifyIORef' (SB.sbStateManager sym) $ appendAssumption loc e
+instance IsBoolSolver (SAWCoreBackend n) where
+  addAssertion sym e m = do
+    case asConstantPred e of
+      Just True  -> return ()
+      Just False -> addFailedAssertion sym m
+      _ ->
+        do loc <- SB.curProgramLoc sym
+           stk <- getAssumptionStack sym
+           AS.assert (Assertion loc e m) stk
 
-  sbAddAssertion sym e m = do
-    case SB.asApp e of
-      Just SB.TrueBool -> return ()
-      Just SB.FalseBool -> do
-        loc <- getCurrentProgramLoc sym
-        throw (SimError loc m)
-      _ -> do
-        loc <- getCurrentProgramLoc sym
-        modifyIORef' (SB.sbStateManager sym) $ appendAssertion loc e m
+  addAssumption sym e = do
+    case asConstantPred e of
+      Just True  -> return ()
+      Just False -> addFailedAssertion sym InfeasibleBranchError
+      _ ->
+        do stk <- getAssumptionStack sym
+           assume e stk
 
-  sbAppendAssertions sym s = do
-    modifyIORef' (SB.sbStateManager sym) $ appendAssertions s
+  addFailedAssertion sym msg = do
+    loc <- getCurrentProgramLoc sym
+    throwIO (SimError loc msg)
 
-  sbAssertionsBetween old cur =
-    assert (old_cnt <= Seq.length a) $ Seq.drop old_cnt a
-    where a = cur^.assertions
-          old_cnt = Seq.length $ old^.assertions
+  addAssumptions sym ps = do
+    stk <- getAssumptionStack sym
+    AS.appendAssumptions ps stk
 
-  sbAllAssertions sym = do
-    s <- readIORef (SB.sbStateManager sym)
-    andAllOf sym folded (view assertPred <$> s^.assertions)
+  getPathCondition sym = do
+    stk <- getAssumptionStack sym
+    ps <- AS.collectAssumptions stk
+    andAllOf sym folded ps
 
-  sbEvalBranch sym pb = do
-    case asConstantPred pb of
+  evalBranch sym p0 =
+    case asConstantPred p0 of
       Just True  -> return $! NoBranch True
       Just False -> return $! NoBranch False
-      Nothing -> do
-        pb_neg <- notPred sym pb
-        p_prior <- SB.sbAllAssertions sym
-        p <- andPred sym p_prior pb
-        p_neg <- andPred sym p_prior pb_neg
-        p_res    <- checkSatisfiable sym p
-        notp_res <- checkSatisfiable sym p_neg
-        case (p_res, notp_res) of
-          (Unsat, Unsat) -> return InfeasibleBranch
-          (Unsat, _ )    -> return $! NoBranch False
-          (_    , Unsat) -> return $! NoBranch True
-          (_    , _)     -> return $! SymbolicBranch True
+      Nothing    ->
+        do p0_neg   <- notPred sym p0
+           p_prior  <- getPathCondition sym
+           p        <- andPred sym p_prior p0
+           p_neg    <- andPred sym p_prior p0_neg
+           p_res    <- checkSatisfiable sym p
+           notp_res <- checkSatisfiable sym p_neg
+           case (p_res, notp_res) of
+             (Unsat, Unsat) -> return InfeasibleBranch
+             (Unsat, _ )    -> return $! NoBranch False
+             (_    , Unsat) -> return $! NoBranch True
+             (_    , _)     -> return $! SymbolicBranch True
 
-  sbGetProofObligations sym = do
-    mg <- readIORef (SB.sbStateManager sym)
-    return $ mg^.proofObligs
+  getProofObligations sym = do
+    stk <- getAssumptionStack sym
+    AS.getProofObligations stk
 
-  sbSetProofObligations sym obligs = do
-    modifyIORef' (SB.sbStateManager sym) (set proofObligs obligs)
+  setProofObligations sym obligs = do
+    stk <- getAssumptionStack sym
+    AS.setProofObligations obligs stk
 
-  sbPushBranchPred sym p = SB.sbAddAssumption sym p
-  sbBacktrackToState sym old =
-    -- Copy assertions from old state to current state
-    modifyIORef' (SB.sbStateManager sym) (set assertions (old ^. SB.pathState ^. assertions))
-  sbSwitchToState sym _ new =
-    -- Copy assertions from new state to current state
-    modifyIORef' (SB.sbStateManager sym) (set assertions (new ^. SB.pathState ^. assertions))
+  pushAssumptionFrame sym = do
+    stk <- getAssumptionStack sym
+    AS.pushFrame stk
+
+  popAssumptionFrame sym ident = do
+    stk <- getAssumptionStack sym
+    frm <- AS.popFrame ident stk
+    readIORef (assumeFrameCond frm)
+
+  cloneAssumptionState sym = do
+    stk <- getAssumptionStack sym
+    AS.cloneAssumptionStack stk
+
+  restoreAssumptionState sym stk = do
+    modifyIORef' (SB.sbStateManager sym)
+      (\st -> st{ saw_assumptions = stk })

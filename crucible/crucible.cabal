@@ -1,8 +1,8 @@
 Name:          crucible
-Version:       0.3.1
+Version:       0.3.2
 Author:        Galois Inc.
 Maintainer:    jhendrix@galois.com, rdockins@galois.com
-Copyright:     (c) Galois, Inc 2014-2017
+Copyright:     (c) Galois, Inc 2014-2018
 License:       BSD3
 License-file:  LICENSE
 Build-type:    Simple
@@ -13,7 +13,7 @@ Description:
   Crucible provides a program representation format based on single-static assignment
   (SSA) form control flow graphs, and a symbolic simulation engine for executing
   programs expressed in this format.  It also provides support for communicating with
-  a variety of SAT and SMT solvers; including Z3, CVC4, Yices, STP, and dReal.
+  a variety of SAT and SMT solvers, including Z3, CVC4, Yices, STP, and dReal.
 
 
 -- Many (but not all, sadly) uses of unsafe operations are
@@ -27,7 +27,7 @@ flag unsafe-operations
 
 library
   build-depends:
-    base >= 4.8 && < 4.11,
+    base >= 4.8 && < 4.12,
     ansi-wl-pprint,
     attoparsec,
     bimap >= 0.2,
@@ -37,7 +37,6 @@ library
     directory,
     fgl,
     filepath,
-    galois-matlab,
     hashable,
     hashtables,
     io-streams,
@@ -52,7 +51,8 @@ library
     th-abstraction >=0.1 && <0.3,
     transformers,
     utf8-string,
-    vector
+    vector,
+    ghc-prim
 
   default-language: Haskell2010
   default-extensions:
@@ -71,6 +71,7 @@ library
     Lang.Crucible.CFG.Common
     Lang.Crucible.CFG.Core
     Lang.Crucible.CFG.Expr
+    Lang.Crucible.CFG.Extension
     Lang.Crucible.CFG.ExtractSubgraph
     Lang.Crucible.CFG.Generator
     Lang.Crucible.CFG.Reg
@@ -90,11 +91,12 @@ library
     Lang.Crucible.Simulator.OverrideSim
     Lang.Crucible.Simulator.RegMap
     Lang.Crucible.Simulator.RegValue
-    Lang.Crucible.Simulator.VarRecord
     Lang.Crucible.Simulator.SimError
     Lang.Crucible.Simulator.Utils.Environment
     Lang.Crucible.Solver.Adapter
+    Lang.Crucible.Solver.AssumptionStack
     Lang.Crucible.Solver.BoolInterface
+    Lang.Crucible.Solver.Concrete
     Lang.Crucible.Solver.Interface
     Lang.Crucible.Solver.OnlineBackend
     Lang.Crucible.Solver.Partial
@@ -121,6 +123,7 @@ library
     Lang.Crucible.Solver.WeightedSum
     Lang.Crucible.Syntax
     Lang.Crucible.Types
+    Lang.Crucible.Vector
     Lang.Crucible.Utils.AbstractDomains
     Lang.Crucible.Utils.Arithmetic
     Lang.Crucible.Utils.BitSet
@@ -129,18 +132,20 @@ library
     Lang.Crucible.Utils.BVDomain.Map
     Lang.Crucible.Utils.Complex
     Lang.Crucible.Utils.CoreRewrite
-    Lang.Crucible.Utils.ConstK
+    Lang.Crucible.Utils.Endian
     Lang.Crucible.Utils.Hashable
     Lang.Crucible.Utils.LeqMap
     Lang.Crucible.Utils.MonadST
     Lang.Crucible.Utils.MonadVerbosity
     Lang.Crucible.Utils.OnlyNatRepr
+    Lang.Crucible.Utils.PrettyPrint
     Lang.Crucible.Utils.SExp
     Lang.Crucible.Utils.StateContT
     Lang.Crucible.Utils.Streams
     Lang.Crucible.Utils.Structural
-    Lang.Crucible.Utils.SymMultiDimArray
     Lang.Crucible.Utils.UnaryBV
+
+
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top

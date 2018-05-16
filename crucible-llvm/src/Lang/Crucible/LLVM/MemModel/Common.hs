@@ -14,39 +14,12 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
 module Lang.Crucible.LLVM.MemModel.Common
-  ( Addr
-  , Size
-  , Bytes
-  , bytesToBits
-  , bytesToInteger
-  , toBytes
-  , bitsToBytes
-
-    -- * Range declarations.
-  , Range(..)
-
-    -- * Term declarations
-  , Term(..)
-  , foldTermM
-
-    -- * Type declarations
-  , Type(..)
-  , TypeF(..)
-  , bitvectorType
-  , floatType
-  , doubleType
-  , arrayType
-  , mkStruct
-  , mkType
-  , typeEnd
-  , Field
-  , fieldVal
-  , fieldPad
-  , fieldOffset
-  , mkField
+  ( -- * Range declarations.
+    Range(..)
 
     -- * Pointer declarations
   , PtrExpr(..)
@@ -55,8 +28,7 @@ module Lang.Crucible.LLVM.MemModel.Common
 
   , Mux(..)
 
-  , ValueCtor
-  , ValueCtorF(..)
+  , ValueCtor(..)
 
   , BasePreference(..)
 
@@ -66,8 +38,7 @@ module Lang.Crucible.LLVM.MemModel.Common
   , fixedSizeRangeLoad
   , symbolicRangeLoad
 
-  , ValueView
-  , ViewF(..)
+  , ValueView(..)
 
   , ValueLoad(..)
   , valueLoad
@@ -78,55 +49,20 @@ module Lang.Crucible.LLVM.MemModel.Common
 import Control.Exception (assert)
 import Control.Lens
 import Control.Monad.State
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Maybe
-import Data.Typeable
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word
 
--- | A newtype for expressing numbers of bytes.
---   This newtype is expicitly introduced to avoid confusion
---   between widths expressed as numbers of bits vs numbers of bytes.
-newtype Bytes = Bytes { unBytes :: Word64 }
- deriving (Eq,Ord,Show,Num)
+import Lang.Crucible.LLVM.Bytes
+import Lang.Crucible.LLVM.DataLayout
+import Lang.Crucible.LLVM.MemModel.Type
 
-bytesToBits :: Bytes -> Integer
-bytesToBits (Bytes n) = 8 * toInteger n
-
-bytesToInteger :: Bytes -> Integer
-bytesToInteger (Bytes n) = toInteger n
-
-toBytes :: Integral a => a -> Bytes
-toBytes = Bytes . fromIntegral
-
-bitsToBytes :: Integral a => a -> Bytes
-bitsToBytes n = Bytes ( (fromIntegral n + 7) `div` 8 )
-
-type Addr = Bytes
-type Size = Bytes
-type Offset = Bytes
-
--- | @WR i j@ denotes that the write should store in range [i..j).
+-- | @R i j@ denotes that the write should store in range [i..j).
 data Range = R { rStart :: Addr, _rEnd :: Addr }
   deriving (Eq, Show)
-
--- Var
-
-data Term f a = App (f (Term f a))
-              | Var a
-  deriving (Functor, Foldable, Traversable)
-
-class ShowF f where
-  showsPrecF :: Show a => Int -> f a -> ShowS
-
-instance (ShowF f, Show a)  => Show (Term f a) where
-  showsPrec p (App f) = showParen (p >= 10) (showString "App " . showsPrecF 10 f)
-  showsPrec p (Var x) = showParen (p >= 10) (showString "Var " . showsPrec 10 x)
-
-foldTermM :: (Monad m, Traversable f)
-          => (a -> m r) -> (f r -> m r) -> Term f a -> m r
-foldTermM f _ (Var v) = f v
-foldTermM f g (App v) = g =<< traverse (foldTermM f g) v
 
 -- Value
 
@@ -174,7 +110,14 @@ intValue (Bytes n) = CValue (toInteger n)
 
 -- Muxs
 
-data Mux a = Mux Cond (Mux a) (Mux a) | MuxVar a
+data Mux a
+  = Mux Cond (Mux a) (Mux a)
+  | MuxTable PtrExpr PtrExpr (Map Bytes (Mux a)) (Mux a)
+    -- ^ 'MuxTable' encodes a lookup table: @'MuxTable' p1 p2
+    -- 'Map.empty' z@ is equivalent to @z@, and @'MuxTable' p1 p2
+    -- ('Map.insert' (i, x) m) z@ is equivalent to @'Mux' (p1 '.+'
+    -- 'intValue' i '.==' p2) x ('MuxTable' p1 p2 m z)@.
+  | MuxVar a
   deriving Show
 
 -- Variable for mem model.
@@ -194,118 +137,31 @@ loadInStoreRange (Bytes 0) = Load .== Store
 loadInStoreRange n = And (Store .<= Load)
                          (Load .<= Store .+ intValue n)
 
-data Field v = Field { fieldOffset :: Offset
-                     , _fieldVal   :: v
-                     , fieldPad    :: Bytes
-                     }
- deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Typeable)
-
-fieldVal :: Lens (Field a) (Field b) a b
-fieldVal = lens _fieldVal (\s v -> s { _fieldVal = v })
-
-mkField :: Offset -> v -> Bytes -> Field v
-mkField = Field
-
-data TypeF v
-   = Bitvector Bytes -- ^ Size of bitvector in bytes (must be > 0).
-   | Float
-   | Double
-   | Array Word64 v
-   | Struct (Vector (Field v))
- deriving (Eq,Ord,Show,Typeable)
-
-data Type = Type { typeF :: TypeF Type
-                 , typeSize :: Bytes
-                 }
-  deriving (Eq,Ord,Typeable)
-
-instance Show Type where
-  showsPrec p t = showParen (p >= 10) $
-    case typeF t of
-      Bitvector w -> showString "bitvectorType " . shows w
-      Float -> showString "float"
-      Double -> showString "double"
-      Array n tp -> showString "arrayType " . shows n . showString " " . showsPrec 10 tp
-      Struct v -> showString "mkStruct " . shows (V.toList (fldFn <$> v))
-        where fldFn f = (f^.fieldVal, fieldPad f)
-
-mkType :: TypeF Type -> Type
-mkType tf = Type tf $
-  case tf of
-    Bitvector w -> w
-    Float -> 4
-    Double -> 8
-    Array n e -> (Bytes n) * typeSize e
-    Struct flds -> assert (V.length flds > 0) (fieldEnd (V.last flds))
-
-bitvectorType :: Bytes -> Type
-bitvectorType w = Type (Bitvector w) w
-
-floatType :: Type
-floatType = mkType Float
-
-doubleType :: Type
-doubleType = mkType Double
-
-arrayType :: Word64 -> Type -> Type
-arrayType n e = Type (Array n e) ((Bytes n) * typeSize e)
-
-structType :: V.Vector (Field Type) -> Type
-structType flds = assert (V.length flds > 0) $
-  Type (Struct flds) (fieldEnd (V.last flds))
-
-mkStruct :: V.Vector (Type,Bytes) -> Type
-mkStruct l = structType (evalState (traverse fldFn l) 0)
-  where fldFn (tp,p) = do
-          o <- get
-          put $! o + typeSize tp + p
-          return Field { fieldOffset = o
-                       , _fieldVal = tp
-                       , fieldPad = p
-                       }
-
--- | Returns end of actual type bytes (excluded padding from structs).
-typeEnd :: Addr -> Type -> Addr
-typeEnd a tp = seq a $
-  case typeF tp of
-    Bitvector w -> a + w
-    Float -> a + 4
-    Double -> a + 8
-    Array n etp -> typeEnd (a + Bytes (n-1) * (typeSize etp)) etp
-    Struct flds -> typeEnd (a + fieldOffset f) (f^.fieldVal)
-      where f = V.last flds
-
--- | Returns end of field including padding bytes.
-fieldEnd :: Field Type -> Bytes
-fieldEnd f = fieldOffset f + typeSize (f^.fieldVal) + fieldPad f
-
 -- Value constructor
 
-data ValueCtorF v
-   = -- | Concatenates two bitvectors.
-     -- The first bitvector contains values stored at the low-order bytes
-     -- while the second contains values at the high-order bytes.  Thus, the
-     -- meaning of this depends on the endianness of the target architecture.
-     ConcatBV Bytes v Bytes v
-   | BVToFloat v
-   | BVToDouble v
-     -- | Cons one value to beginning of array.
-   | ConsArray Type v Integer v
-   | AppendArray Type Integer v Integer v
-   | MkArray Type (Vector v)
-   | MkStruct (Vector (Field Type,v))
- deriving (Functor, Foldable, Traversable, Show)
-
-instance ShowF ValueCtorF where
-  showsPrecF = showsPrec
-
-type ValueCtor a = Term ValueCtorF a
+-- | Describes how to construct a larger LLVM value as a combination
+-- of smaller components.
+data ValueCtor a
+  = ValueCtorVar a
+    -- | Concatenates two bitvectors.
+    -- The first bitvector contains values stored at the low-address bytes
+    -- while the second contains values at the high-address bytes. Thus, the
+    -- meaning of this depends on the endianness of the target architecture.
+  | ConcatBV Bytes (ValueCtor a) Bytes (ValueCtor a)
+  | BVToFloat (ValueCtor a)
+  | BVToDouble (ValueCtor a)
+    -- | Cons one value to beginning of array.
+  | ConsArray Type (ValueCtor a) Integer (ValueCtor a)
+  | AppendArray Type Integer (ValueCtor a) Integer (ValueCtor a)
+  | MkArray Type (Vector (ValueCtor a))
+  | MkStruct (Vector (Field Type, ValueCtor a))
+  deriving (Functor, Foldable, Traversable, Show)
 
 concatBV :: Bytes -> ValueCtor a -> Bytes -> ValueCtor a -> ValueCtor a
-concatBV xw x yw y = App (ConcatBV xw x yw y)
+concatBV xw x yw y = ConcatBV xw x yw y
 
 singletonArray :: Type -> ValueCtor a -> ValueCtor a
-singletonArray tp e = App (MkArray tp (V.singleton e))
+singletonArray tp e = MkArray tp (V.singleton e)
 
 -- | Create value of type that splits at a particular byte offset.
 splitTypeValue :: Type   -- ^ Type of value to create
@@ -317,30 +173,32 @@ splitTypeValue tp d subFn = assert (d > 0) $
     Bitvector sz -> assert (d < sz) $
       concatBV d (subFn 0 (bitvectorType d))
                (sz - d) (subFn d (bitvectorType (sz - d)))
-    Float -> App (BVToFloat (subFn 0 (bitvectorType 4)))
-    Double -> App (BVToDouble (subFn 0 (bitvectorType 8)))
+    Float -> BVToFloat (subFn 0 (bitvectorType 4))
+    Double -> BVToDouble (subFn 0 (bitvectorType 8))
     Array n0 etp -> assert (n0 > 0) $ do
       let esz = typeSize etp
       let (c,part) = assert (esz > 0) $ unBytes d `divMod` unBytes esz
-      let result
-            | c > 0 = assert (c < n0) $
-              App $ AppendArray etp
-                                (toInteger c)
-                                (subFn 0 (arrayType c etp))
-                                (toInteger (n0 - c))
-                                (consPartial ((Bytes c) * esz) (n0 - c))
-            | otherwise = consPartial 0 n0
-          consPartial o n
+      let n = n0 - c
+      let o = d - Bytes part -- (Bytes c) * esz
+      let consPartial
             | part == 0 = subFn o (arrayType n etp)
             | n > 1 =
-                App $ ConsArray etp
-                                (subFn o etp)
-                                (toInteger (n-1))
-                                (subFn (o+esz) (arrayType (n-1) etp))
+                ConsArray etp
+                          (subFn o etp)
+                          (toInteger (n-1))
+                          (subFn (o+esz) (arrayType (n-1) etp))
             | otherwise = assert (n == 1) $
                 singletonArray etp (subFn o etp)
+      let result
+            | c > 0 = assert (c < n0) $
+              AppendArray etp
+                          (toInteger c)
+                          (subFn 0 (arrayType c etp))
+                          (toInteger n)
+                          consPartial
+            | otherwise = consPartial
       result
-    Struct flds -> App $ MkStruct (fldFn <$> flds)
+    Struct flds -> MkStruct (fldFn <$> flds)
       where fldFn fld = (fld, subFn (fieldOffset fld) (fld^.fieldVal))
 
 -- | This is used so that when we are comparing symbolic loads against
@@ -354,11 +212,16 @@ data BasePreference
 
 -- RangeLoad
 
+-- | A 'RangeLoad' describes different kinds of memory loads in the
+-- context of a byte range copied into an old memory.
 data RangeLoad a b
-      -- | Load value from old value.
-    = OutOfRange a Type
-      -- | In range includes offset relative to store and type.
-    | InRange b Type
+  = OutOfRange a Type
+    -- ^ Load from an address range disjoint from the copied bytes.
+    -- The arguments represent the address and type of the load.
+  | InRange b Type
+    -- ^ Load consists of bytes within the copied range. The first
+    -- argument represents the offset relative to the start of the
+    -- copied bytes.
   deriving (Show)
 
 adjustOffset :: (b -> d)
@@ -367,23 +230,27 @@ adjustOffset :: (b -> d)
 adjustOffset _ outFn (OutOfRange a tp) = OutOfRange (outFn a) tp
 adjustOffset inFn _  (InRange b tp) = InRange (inFn b) tp
 
-rangeLoad :: Addr -> Type -> Range -> ValueCtor (RangeLoad Addr Addr)
+-- | Decomposes a single load after a memcopy into a combination of
+-- simple value loads.
+rangeLoad ::
+  Addr  {- ^ load offset  -} ->
+  Type  {- ^ load type    -} ->
+  Range {- ^ copied range -} ->
+  ValueCtor (RangeLoad Addr Addr)
 rangeLoad lo ltp s@(R so se)
    | so == se  = loadFail
    | le <= so  = loadFail
    | se <= lo  = loadFail
    | lo < so   = splitTypeValue ltp (so - lo) (\o tp -> rangeLoad (lo+o) tp s)
    | se < le   = splitTypeValue ltp (se - lo) (\o tp -> rangeLoad (lo+o) tp s)
-   | otherwise = assert (so <= lo && le <= se) $ Var (InRange (lo - so) ltp)
+   | otherwise = assert (so <= lo && le <= se) $ ValueCtorVar (InRange (lo - so) ltp)
  where le = typeEnd lo ltp
-       loadFail = Var (OutOfRange lo ltp)
-
-type RangeLoadMux v w = Mux (ValueCtor (RangeLoad v w))
+       loadFail = ValueCtorVar (OutOfRange lo ltp)
 
 fixedOffsetRangeLoad :: Addr
                      -> Type
                      -> Addr
-                     -> RangeLoadMux Addr Addr
+                     -> Mux (ValueCtor (RangeLoad Addr Addr))
 fixedOffsetRangeLoad l tp s
   | s < l = do -- Store is before load.
     let sd = l - s -- Number of bytes load comes after store
@@ -396,7 +263,7 @@ fixedOffsetRangeLoad l tp s
       | i < le-s  = Mux (IntEq StoreSize (intValue i)) (loadVal i) (loadCase (i+1))
       | otherwise = loadVal i
     loadVal ssz = MuxVar (rangeLoad l tp (R s (s+ssz)))
-    loadFail = MuxVar (Var (OutOfRange l tp))
+    loadFail = MuxVar (ValueCtorVar (OutOfRange l tp))
 
 -- | @fixLoadBeforeStoreOffset pref i k@ adjusts a pointer value that is relative
 -- the load address into a global pointer.  The code assumes that @load + i == store@.
@@ -427,8 +294,8 @@ loadFromStoreStart pref tp i j = adjustOffset inFn outFn <$> rangeLoad 0 tp (R i
 fixedSizeRangeLoad :: BasePreference -- ^ Whether addresses are based on store or load.
                    -> Type
                    -> Bytes
-                   -> RangeLoadMux PtrExpr IntExpr
-fixedSizeRangeLoad _ tp 0 = MuxVar (Var (OutOfRange Load tp))
+                   -> Mux (ValueCtor (RangeLoad PtrExpr IntExpr))
+fixedSizeRangeLoad _ tp 0 = MuxVar (ValueCtorVar (OutOfRange Load tp))
 fixedSizeRangeLoad pref tp ssz =
   Mux (loadOffset lsz .<= Store) loadFail (prefixL lsz)
   where
@@ -455,10 +322,10 @@ fixedSizeRangeLoad pref tp ssz =
       where inFn = intValue
             outFn = fixLoadAfterStoreOffset pref i
 
-    loadSucc = MuxVar (Var (InRange (Load .- Store) tp))
-    loadFail = MuxVar (Var (OutOfRange Load tp))
+    loadSucc = MuxVar (ValueCtorVar (InRange (Load .- Store) tp))
+    loadFail = MuxVar (ValueCtorVar (OutOfRange Load tp))
 
-symbolicRangeLoad :: BasePreference -> Type -> RangeLoadMux PtrExpr IntExpr
+symbolicRangeLoad :: BasePreference -> Type -> Mux (ValueCtor (RangeLoad PtrExpr IntExpr))
 symbolicRangeLoad pref tp =
   Mux (Store .<= Load)
   (Mux (loadOffset sz .<= storeEnd) (loadVal0 sz) (loadIter0 (sz-1)))
@@ -485,58 +352,71 @@ symbolicRangeLoad pref tp =
                 | otherwise = loadFail
 
     loadVal i j = MuxVar (loadFromStoreStart pref tp i j)
-    loadFail = MuxVar (Var (OutOfRange Load tp))
+    loadFail = MuxVar (ValueCtorVar (OutOfRange Load tp))
 
 -- ValueView
 
-type ValueView v = Term ViewF v
+-- | Represents a projection of a sub-component out of a larger LLVM value.
+data ValueView
+  = ValueViewVar Type
+    -- | Select low-address bytes in the bitvector.
+    -- The sizes include the number of low bytes, and the number of high bytes.
+  | SelectPrefixBV Bytes Bytes ValueView
+    -- | Select the given number of high-address bytes in the bitvector.
+    -- The sizes include the number of low bytes, and the number of high bytes.
+  | SelectSuffixBV Bytes Bytes ValueView
+  | FloatToBV ValueView
+  | DoubleToBV ValueView
+  | ArrayElt Word64 Type Word64 ValueView
 
-data ViewF v
-     -- | Select low-order bytes in the bitvector.
-     -- The sizes include the number of low bytes, and the number of high bytes.
-   = SelectLowBV Bytes Bytes v
-     -- | Select the given number of high-order bytes in the bitvector.
-     -- The sizes include the number of low bytes, and the number of high bytes.
-   | SelectHighBV Bytes Bytes v
-   | FloatToBV v
-   | DoubleToBV v
-   | ArrayElt Word64 Type Word64 v
+  | FieldVal (Vector (Field Type)) Int ValueView
+  deriving Show
 
-   | FieldVal (Vector (Field Type)) Int v
-  deriving (Show, Functor, Foldable, Traversable)
+viewType :: ValueView -> Maybe Type
+viewType (ValueViewVar tp) = Just tp
+viewType (SelectPrefixBV u v vv) =
+  do tp <- typeF <$> viewType vv
+     guard (Bitvector (u + v) == tp)
+     pure $ bitvectorType u
+viewType (SelectSuffixBV u v vv) =
+  do tp <- typeF <$> viewType vv
+     guard (Bitvector (u + v) == tp)
+     pure $ bitvectorType v
+viewType (FloatToBV vv) =
+  do tp <- typeF <$> viewType vv
+     guard (Float == tp)
+     pure $ bitvectorType 4
+viewType (DoubleToBV vv) =
+  do tp <- typeF <$> viewType vv
+     guard (Double == tp)
+     pure $ bitvectorType 8
+viewType (ArrayElt n etp i vv) =
+  do tp <- typeF <$> viewType vv
+     guard (i < n && Array n etp == tp)
+     pure $ etp
+viewType (FieldVal v i vv) =
+  do tp <- typeF <$> viewType vv
+     guard (Struct v == tp)
+     view fieldVal <$> (v V.!? i)
 
-instance ShowF ViewF where
-  showsPrecF = showsPrec
-
-viewOpType :: ViewF (TypeF Type) -> Maybe Type
-viewOpType (SelectLowBV  u v tp) | Bitvector (u + v) == tp = pure $ bitvectorType u
-viewOpType (SelectHighBV u v tp) | Bitvector (u + v) == tp = pure $ bitvectorType v
-viewOpType (FloatToBV tp)        | Float == tp  = pure $ bitvectorType 4
-viewOpType (DoubleToBV tp)       | Double == tp = pure $ bitvectorType 8
-viewOpType (ArrayElt n etp i tp) | i < n && Array n etp == tp = pure $ etp
-viewOpType (FieldVal v i     tp) | Struct v == tp          = view fieldVal <$> (v V.!? i)
-viewOpType _ = Nothing
-
-viewType :: ValueView Type -> Maybe Type
-viewType = foldTermM return (viewOpType . fmap typeF)
-
--- ValueLoad
-
+-- | A 'ValueLoad' describes different kinds of memory loads in the
+-- context of a new value stored into an old memory.
 data ValueLoad v
-  = -- Old memory that was used
-    OldMemory v Type
-  | LastStore (ValueView Type)
-    -- | Indicates load touches memory that is invalid, and can't be
-    -- read.
+  = OldMemory v Type
+    -- ^ Load from an address range disjoint from the stored value.
+    -- The arguments represent the address and type of the load.
+  | LastStore ValueView
+    -- ^ Load consists of valid bytes within the stored value.
   | InvalidMemory Type
+    -- ^ Load touches invalid memory (e.g. trying to read struct padding bytes as a bitvector).
   deriving (Functor,Show)
 
-loadBitvector :: Addr -> Bytes -> Addr -> ValueView Type -> ValueCtor (ValueLoad Addr)
+loadBitvector :: Addr -> Bytes -> Addr -> ValueView -> ValueCtor (ValueLoad Addr)
 loadBitvector lo lw so v = do
   let le = lo + lw
   let ltp = bitvectorType lw
   let stp = fromMaybe (error ("loadBitvector given bad view " ++ show v)) (viewType v)
-  let retValue eo v' = (sz',valueLoad lo' (bitvectorType sz') eo v')
+  let retValue eo v' = (sz', valueLoad lo' (bitvectorType sz') eo v')
         where etp = fromMaybe (error ("Bad view " ++ show v')) (viewType v')
               esz = typeSize etp
               lo' = max lo eo
@@ -547,12 +427,12 @@ loadBitvector lo lw so v = do
         -- Number of bytes to drop.
         let d = lo - so
         -- Store is before load.
-        valueLoad lo ltp lo (App (SelectHighBV d (sw - d) v))
+        valueLoad lo ltp lo (SelectSuffixBV d (sw - d) v)
       | otherwise -> assert (lo == so && lw < sw) $
         -- Load ends before store ends.
-        valueLoad lo ltp so (App (SelectLowBV lw (sw - lw) v))
-    Float -> valueLoad lo ltp lo (App (FloatToBV v))
-    Double -> valueLoad lo ltp lo (App (DoubleToBV v))
+        valueLoad lo ltp so (SelectPrefixBV lw (sw - lw) v)
+    Float -> valueLoad lo ltp lo (FloatToBV v)
+    Double -> valueLoad lo ltp lo (DoubleToBV v)
     Array n tp -> snd $ foldl1 cv (val <$> r)
       where cv (wx,x) (wy,y) = (wx + wy, concatBV wx x wy y)
             esz = typeSize tp
@@ -561,7 +441,7 @@ loadBitvector lo lw so v = do
             -- Get range of indices to read.
             r | p1 == 0 = assert (c1 > c0) [c0..c1-1]
               | otherwise = assert (c1 >= c0) [c0..c1]
-            val i = retValue (so+(Bytes i)*esz) (App (ArrayElt n tp i v))
+            val i = retValue (so+(Bytes i)*esz) (ArrayElt n tp i v)
     Struct sflds -> assert (not (null r)) $ snd $ foldl1 cv r
       where cv (wx,x) (wy,y) = (wx+wy, concatBV wx x wy y)
             r = concat (zipWith val [0..] (V.toList sflds))
@@ -570,67 +450,78 @@ loadBitvector lo lw so v = do
                     ee = eo + typeSize (f^.fieldVal)
                     v1 | le <= eo = v2
                        | ee <= lo = v2
-                       | otherwise = retValue eo (App (FieldVal sflds i v)) : v2
+                       | otherwise = retValue eo (FieldVal sflds i v) : v2
                     v2 | fieldPad f == 0 = []   -- Return no padding.
                        | le <= ee = [] -- Nothing of load ends before padding.
                          -- Nothing if padding ends before load begins.
                        | ee+fieldPad f <= lo = []
-                       | otherwise = [(p,Var badMem)]
+                       | otherwise = [(p, ValueCtorVar badMem)]
                       where p = min (ee+fieldPad f) le - (max lo ee)
                             tpPad  = bitvectorType p
                             badMem = InvalidMemory tpPad
 
--- | @valueLoad lo ltp so v@ returns a value with type @ltp@ from reading the
--- value @v@.  The load address is @lo@ and the stored address is @so@.
-valueLoad :: Addr -> Type -> Addr -> ValueView Type -> ValueCtor (ValueLoad Addr)
+-- | Decomposes a single load after a store into a combination of
+-- simple value loads.
+valueLoad ::
+  Addr      {- ^ load address         -} ->
+  Type      {- ^ load type            -} ->
+  Addr      {- ^ store address        -} ->
+  ValueView {- ^ view of stored value -} ->
+  ValueCtor (ValueLoad Addr)
 valueLoad lo ltp so v
-  | le <= so = Var (OldMemory lo ltp) -- Load ends before store
-  | se <= lo = Var (OldMemory lo ltp) -- Store ends before load
+  | le <= so = ValueCtorVar (OldMemory lo ltp) -- Load ends before store
+  | se <= lo = ValueCtorVar (OldMemory lo ltp) -- Store ends before load
     -- Load is before store.
   | lo < so  = splitTypeValue ltp (so - lo) (\o tp -> valueLoad (lo+o) tp so v)
     -- Load ends after store ends.
   | se < le  = splitTypeValue ltp (le - se) (\o tp -> valueLoad (lo+o) tp so v)
-  | (lo,ltp) == (so,stp) = Var (LastStore v)
+  | (lo,ltp) == (so,stp) = ValueCtorVar (LastStore v)
   | otherwise =
     case typeF ltp of
       Bitvector lw -> loadBitvector lo lw so v
-      Float  -> App $ BVToFloat  $ valueLoad 0 (bitvectorType 4) so v
-      Double -> App $ BVToDouble $ valueLoad 0 (bitvectorType 8) so v
+      Float  -> BVToFloat  $ valueLoad 0 (bitvectorType 4) so v
+      Double -> BVToDouble $ valueLoad 0 (bitvectorType 8) so v
       Array ln tp ->
         let leSize = typeSize tp
             val i = valueLoad (lo+leSize*fromIntegral i) tp so v
-         in App (MkArray tp (V.generate (fromIntegral ln) val))
+         in MkArray tp (V.generate (fromIntegral ln) val)
       Struct lflds ->
         let val f = (f, valueLoad (lo+fieldOffset f) (f^.fieldVal) so v)
-         in App (MkStruct (val <$> lflds))
+         in MkStruct (val <$> lflds)
  where stp = fromMaybe (error ("Coerce value given bad view " ++ show v)) (viewType v)
        le = typeEnd lo ltp
        se = so + typeSize stp
 
-type ValueLoadMux = Mux (ValueCtor (ValueLoad PtrExpr))
-
-symbolicValueLoad :: BasePreference -- ^ Whether addresses are based on store or load.
-                  -> Type
-                  -> ValueView Type
-                  -> ValueLoadMux
-symbolicValueLoad pref tp v =
-  Mux (loadOffset lsz .<= Store) loadFail (prefixL lsz)
+symbolicValueLoad ::
+  BasePreference {- ^ whether addresses are based on store or load -} ->
+  Type           {- ^ load type            -} ->
+  ValueView      {- ^ view of stored value -} ->
+  Alignment      {- ^ alignment of store and load -} ->
+  Mux (ValueCtor (ValueLoad PtrExpr))
+symbolicValueLoad pref tp v alignment =
+  Mux (loadOffset lsz .<= Store) loadFail $
+  MuxTable Load Store (prefixTable stride) $
+  MuxTable Store Load (suffixTable 0) loadFail
   where
-    prefixL i
-      | i > 0 =
-        Mux (loadOffset i .== Store)
-        (MuxVar (fmap (fixLoadBeforeStoreOffset pref i) <$> valueLoad 0 tp i v))
-        (prefixL (i - 1))
-      | otherwise = suffixS 0
+    stride = fromAlignment alignment
     lsz = typeEnd 0 tp
     Just stp = viewType v
 
-    suffixS i
+    prefixTable :: Bytes -> Map Bytes (Mux (ValueCtor (ValueLoad PtrExpr)))
+    prefixTable i
+      | i < lsz = Map.insert i
+        (MuxVar (fmap adjustFn <$> valueLoad 0 tp i v))
+        (prefixTable (i + stride))
+      | otherwise = Map.empty
+      where adjustFn = fixLoadBeforeStoreOffset pref i
+
+    suffixTable :: Bytes -> Map Bytes (Mux (ValueCtor (ValueLoad PtrExpr)))
+    suffixTable i
       | i < typeSize stp =
-        Mux (Load .== storeOffset i)
+        Map.insert i
         (MuxVar (fmap adjustFn <$> valueLoad i tp 0 v))
-        (suffixS (i + 1))
-      | otherwise = loadFail
+        (suffixTable (i + stride))
+      | otherwise = Map.empty
       where adjustFn = fixLoadAfterStoreOffset pref i
 
-    loadFail = MuxVar (Var (OldMemory Load tp))
+    loadFail = MuxVar (ValueCtorVar (OldMemory Load tp))

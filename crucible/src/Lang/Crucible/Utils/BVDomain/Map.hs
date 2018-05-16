@@ -1,10 +1,10 @@
 {-|
-Module      : Lang.Crucible.Utils.BVDomain.Map
-Copyright   : (c) Galois Inc, 2015-2016
+Copyright   : (c) Galois Inc, 2015-2017
 License     : BSD3
 Maintainer  : jhendrix@galois.com
 
-Defines a bitvector domain based on maps.
+Defines a simple way of representing sets of bitvector values for
+abstract interpretation purposes.
 -}
 
 {-# LANGUAGE CPP #-}
@@ -55,14 +55,14 @@ module Lang.Crucible.Utils.BVDomain.Map
   , zext
   , sext
   , trunc
-  , not
+  , Lang.Crucible.Utils.BVDomain.Map.not
   , and
   , or
   , xor
   ) where
 
 import           Control.Exception (assert)
-import           Control.Lens ((&), over, both)
+import           Control.Lens ((&))
 import qualified Data.Bits as Bits
 import           Data.Bits hiding (testBit, xor)
 import qualified Data.Foldable as Fold
@@ -75,7 +75,7 @@ import qualified Data.Set as Set
 
 import           GHC.TypeLits
 
-import           Prelude hiding (any, concat, negate, not, and, or)
+import           Prelude hiding (any, concat, negate, and, or)
 
 -- | @halfRange n@ returns @2^(n-1)@.
 halfRange :: NatRepr w -> Integer
@@ -88,8 +88,12 @@ rangeSize w = 2^(natValue w)
 -- BVDomain Parameters
 
 -- | Parameters for a domain
-newtype BVDomainParams = DP { rangeLimit :: Int }
+newtype BVDomainParams
+  = DP { rangeLimit :: Int
+         -- ^ Maximum number of discrete ranges that we track.
+       }
 
+-- | Default allows two discrete ranges (this is useful for signed and unsigned.
 defaultBVDomainParams :: BVDomainParams
 defaultBVDomainParams = DP { rangeLimit = 2 }
 
@@ -104,7 +108,7 @@ newtype BVDomain (w :: Nat)
                 domainRanges :: (Map Integer Integer)
               }
 
--- | Checks the invariants that should be mainined by BVDomain.
+-- | Checks the invariants that should be maintained by BVDomain.
 isValidBVDomain :: NatRepr w -> BVDomain w -> Bool
 isValidBVDomain w d =
     case Map.toList (domainRanges d) of
@@ -133,6 +137,7 @@ count :: BVDomain w -> Integer
 count d = sum (uncurry rangeWidth <$> toList d)
   where rangeWidth l h = h - l + 1
 
+-- | Return the number of elements in the domain.
 rangeCount :: BVDomain w -> Integer
 rangeCount d = toInteger (Map.size (domainRanges d))
 
@@ -176,10 +181,12 @@ domainGE v d =
     -- Otherwise get first value in next range.
     _ -> fst <$> Map.lookupGE v (domainRanges d)
 
+-- | Return the minimum unsigned value in domain or @Nothing@ if domain is empty.
 domainUnsignedMin :: BVDomain w -> Maybe Integer
 domainUnsignedMin d | isEmpty d = Nothing
                     | otherwise = Just $! fst (Map.findMin (domainRanges d))
 
+-- | Return the maximum unsigned value in domain or @Nothing@ if domain is empty.
 domainUnsignedMax :: BVDomain w -> Maybe Integer
 domainUnsignedMax d | isEmpty d = Nothing
                     | otherwise = Just $! snd (Map.findMax (domainRanges d))
@@ -191,6 +198,7 @@ domainSignedMin w d
     Just $! neg_l - rangeSize w
   | otherwise = domainUnsignedMin d
 
+-- | Return the maximum signed value in the domain or @Nothing@ if domain is empty.
 domainSignedMax :: (1 <= w) => NatRepr w -> BVDomain w -> Maybe Integer
 domainSignedMax w d
     -- There is a positive value.
@@ -208,6 +216,7 @@ ubounds _ d = (,) <$> domainUnsignedMin d <*> domainUnsignedMax d
 instance Show (BVDomain w) where
   show d = "fromList " ++ show (toList d)
 
+-- | Return true if domains contain a common element.
 domainsOverlap :: BVDomain w -> BVDomain w -> Bool
 domainsOverlap xd yd = go (toList xd) (toList yd)
   where go [] _ = False
@@ -268,24 +277,26 @@ testBit w d i = assert (i < natValue w) $
 ------------------------------------------------------------------------
 -- Internal Methods
 
-
--- | Maps the size of each gap to the set of end addresses for a gap
--- of that size.
+-- | A GapMap is a data structure used to identify which ranges to
+-- combine when the number of discrete ranges in the BVDomain exceeds
+-- the limit defined by the parameters.
+--
+-- In particular, it maps the integer size of each gap between contiguous
+-- range entries to the set of end addresses whose subsequent gap has
+-- the given size.
 type GapMap = Map Integer (Set Integer)
-
-gapSize :: Integer -> Integer -> Integer
-gapSize h_prev l = l - h_prev
 
 -- | @deleteGapEntry h l gm@ deletes the gap from @h@ to @l@ from @gm@.
 deleteGapEntry :: Integer -> Integer -> GapMap -> GapMap
-deleteGapEntry h_prev l gm = Map.adjust (Set.delete l) (gapSize h_prev l) gm
+deleteGapEntry h_prev l gm = Map.adjust (Set.delete l) (l - h_prev) gm
 
+-- | Inserts a new gap into the map
 insertGapEntry :: Integer -- ^ Upper bound before start of gap.
                -> Integer -- ^ Lower bound that ends gap.
                -> GapMap
                -> GapMap
 insertGapEntry h_prev l gm = Map.alter (Just . f) sz gm
-  where sz = gapSize h_prev l
+  where sz = l - h_prev
         f = maybe (Set.singleton l) (Set.insert l)
 
 -- | @deleteGapRange l h m gm@ deletes any gap before the entry @l@ from @gm@.
@@ -321,41 +332,60 @@ insertGapRange l h m gm =
 gapsToMerge ::  GapMap -> [Integer]
 gapsToMerge = concatMap Set.toList . Map.elems
 
+-- | Intermediate BV domain results before merging the results.
+data InterBVDomain
+   = InterBVDomain { interGaps :: !GapMap
+                   , interMap  :: !(Map Integer Integer)
+                   }
+
+emptyInterBVDomain :: InterBVDomain
+emptyInterBVDomain =
+  InterBVDomain { interGaps = Map.empty
+                , interMap = Map.empty
+                }
+
 -- | Create bounded BV domain with given size from gap map and range map.
 boundedBVDomain :: BVDomainParams -- ^ Maximum size of BVDomain range
-                -> (GapMap, Map Integer Integer)
+                -> InterBVDomain
                 -> BVDomain w
-boundedBVDomain params (gm,m0) = BVDomain { domainRanges = d }
-  where cnt = rangeLimit params
+boundedBVDomain params input = BVDomain { domainRanges = d }
+  where gm = interGaps input
+        m0 = interMap input
+        cnt = rangeLimit params
         d = foldl' f m0 (take (Map.size m0 - cnt) (gapsToMerge gm))
         f :: Map Integer Integer
           -> Integer -- ^ Lower bound of range to delete
           -> Map Integer Integer
-        f m l = m & Map.delete l
-                  & Map.insert l_prev h
+        f m l = Map.insert l_prev h $ Map.delete l m
           where Just (l_prev,_) = Map.lookupLT l m
                 Just h = Map.lookup l m
 
--- | @insertRange' l h d@ inserts the range [l,h] into @d@.
-insertRange' :: Integer
-             -> Integer
-             -> (GapMap, Map Integer Integer)
-             -> (GapMap, Map Integer Integer)
-insertRange' l h (gm, m) = seq l $ seq h $ seq gm $ seq m $
-  case Map.lookupLE (h+1) m of
+-- | @insertRange l h d@ inserts the range [l,h] into @d@.
+insertRange :: Integer
+            -> Integer
+            -> InterBVDomain
+            -> InterBVDomain
+insertRange l h inputs = seq l $ seq h $ seq inputs $
+  case Map.lookupLE (h+1) (interMap inputs) of
     -- Look for overlapping range to delete.
     Just (l_prev, h_prev)
       -- Check to see if current range subsumes new range.
-      | l_prev <= l && h <= h_prev -> (gm,m)
+      | l_prev <= l && h <= h_prev -> inputs
         -- Check to see if they overlap.
       | h_prev + 1 >= l ->
         let l' = min l l_prev
             h' = max h h_prev
-            gm' = deleteGapRange l_prev h_prev m gm
-            m' = Map.delete l_prev m
-         in insertRange' l' h' (gm',m')
-    _ -> (insertGapRange l h m gm, Map.insert l h m)
-
+            inputs' = InterBVDomain
+                      { interGaps =
+                          deleteGapRange l_prev h_prev (interMap inputs) (interGaps inputs)
+                      , interMap =
+                          Map.delete l_prev (interMap inputs)
+                      }
+         in insertRange l' h' inputs'
+    _ ->
+      InterBVDomain { interGaps = insertGapRange l h (interMap inputs) (interGaps inputs)
+                    , interMap  = Map.insert l h (interMap inputs)
+                    }
 
 ------------------------------------------------------------------------
 -- Internal operations
@@ -388,29 +418,31 @@ signedToUnsignedRanges w l0 = concatMap go l0
 ------------------------------------------------------------------------
 -- Operations
 
--- | @range w l h@ returns domain containing values @l@ to @h@.
-range :: (1 <= w) => NatRepr w -> Integer -> Integer -> BVDomain w
-range w l h = assert (0 <= l && l <= h && h <= maxUnsigned w) $
-  BVDomain { domainRanges = Map.singleton l h
-           }
-
-empty :: (1 <= w) => NatRepr w -> BVDomain w
-empty _ = BVDomain { domainRanges = Map.empty
-                   }
-
-any :: (1 <= w) => NatRepr w -> BVDomain w
-any w = range w 0 (maxUnsigned w)
-
--- | Create a bitvector domain representing the integer.
---
-singleton :: (1 <= w) => NatRepr w -> Integer -> BVDomain w
-singleton w v = range w v v
-
+-- | Return true if this is a non-empty range.
 validRange :: NatRepr w -> Integer -> Integer -> Bool
 validRange w l h = 0 <= l && l <= h && h <= maxUnsigned w
 
 checkRanges :: NatRepr w -> [(Integer, Integer)] -> Bool
 checkRanges w l = all (uncurry (validRange w)) l
+
+-- | @range w l h@ returns domain containing values @l@ to @h@.
+range :: (1 <= w) => NatRepr w -> Integer -> Integer -> BVDomain w
+range w l h = assert (validRange w l h) $
+  BVDomain { domainRanges = Map.singleton l h
+           }
+
+-- | Return the empty domain.
+empty :: (1 <= w) => NatRepr w -> BVDomain w
+empty _ = BVDomain { domainRanges = Map.empty
+                   }
+
+-- | Represents all values
+any :: (1 <= w) => NatRepr w -> BVDomain w
+any w = range w 0 (maxUnsigned w)
+
+-- | Create a bitvector domain representing the integer.
+singleton :: (1 <= w) => NatRepr w -> Integer -> BVDomain w
+singleton w v = range w v v
 
 -- | From an ascending list of elements.
 -- The elements are assumed to be distinct.
@@ -429,10 +461,52 @@ fromList :: (1 <= w)
          -> NatRepr w
          -> [(Integer, Integer)]
          -> BVDomain w
-fromList _ params w ranges =
-    assert (checkRanges w ranges) (boundedBVDomain params res)
-  where empty_maps = (Map.empty, Map.empty)
-        res  = Fold.foldl' (\p (l,h) -> insertRange' l h p) empty_maps ranges
+fromList nm params w ranges
+  | Prelude.not (checkRanges w ranges) =
+      error $ nm ++ " provided invalid values to range with width " ++ show w ++ "\n  "
+         ++ show ranges
+  | otherwise = boundedBVDomain params $
+    Fold.foldl' (\p (l,h) -> insertRange l h p) emptyInterBVDomain ranges
+
+-- | Create a BVdomain from a list of ranges.
+--
+-- Let @res = modList nm params u ranges@, then for each pair
+-- @(l,h)@ in @ranges@, there is a @x \in [l,h]@ then @(x mod 2^n)@
+-- should be inn @res@.
+modList :: forall u
+          .  1 <= u
+          => String
+          -> BVDomainParams
+          -> NatRepr u
+          -> [(Integer,Integer)]
+             -- List of ranges
+
+          -> BVDomain u
+modList nm params w ranges
+    -- If the width exceeds maxInt, then just return anything (otherwise we can't even shift.
+  | natValue w > toInteger (maxBound :: Int) = any w
+  | otherwise =
+    -- This entries over each range, and returns either @Nothing@ if
+    -- the range contains all elements or the range.
+    let mapRange :: [(Integer, Integer)]
+                 -> [(Integer, Integer)]
+                 -> BVDomain u
+        mapRange processed [] = fromList nm params w processed
+        mapRange processed ((lbound, ubound):next)
+            -- If the upper bits are the same, then truncation is fine.
+            | high_ubound == high_lbound =
+              mapRange ((low_lbound, low_ubound):processed) next
+            -- If high_ubound is one more than low_lbound, and
+            | high_ubound == high_lbound + 1, low_ubound < low_lbound =
+                mapRange ((0, low_ubound) : (low_lbound, rangeSize w - 1) : processed)
+                         next
+            -- Otherwise return all elements.
+            | otherwise = any w
+          where high_lbound = lbound `shiftR` fromInteger (natValue w)
+                high_ubound = ubound `shiftR` fromInteger (natValue w)
+                low_lbound  = maxUnsigned w .&. lbound
+                low_ubound  = maxUnsigned w .&. ubound
+     in mapRange [] ranges
 
 -- | @concat x y@ returns domain where each element in @x@ has been
 -- concatenated with an element in @y@.  The most-significant bits
@@ -479,15 +553,6 @@ concat params wx x wy y = do
 select :: (1 <= u) => Integer -> NatRepr u -> BVDomain w -> BVDomain u
 select _i n _d = any n -- TODO
 
-{-
-splitRange :: Integer -> BVDomain w -> [Either (Integer,Integer) (Integer,Integer)]
-splitRange v d = go (toList d)
-  where go [] = []
-        go r@((l,_):_) | l >= v = Right <$> r
-        go ((l,h):r)   | h >= v = Left (l,v-1) : (Right <$> ((v,h):r))
-        go (p:r) = Left p : go r
--}
-
 negate :: (1 <= w) => BVDomainParams -> NatRepr w -> BVDomain w -> BVDomain w
 negate params w d = fromList "negate" params w r
   where r = concatMap go (toList d)
@@ -497,26 +562,17 @@ negate params w d = fromList "negate" params w r
         go (0,h) = [(0,0), (neg h, sz-1)]
         go (l,h) = [(neg h, neg l)]
 
-modRange :: NatRepr w -> Integer -> Integer -> [(Integer,Integer)]
-modRange w l0 h0
-    | ld == hd = assert (lm <= hm) $ [(lm,hm)]
-    | otherwise = assert (ld < hd) $ [(lm, sz-1), (0, hm)]
-  where sz = rangeSize w
-        (ld,lm) = l0 `divMod` sz
-        (hd,hm) = h0 `divMod` sz
-
 add :: (1 <= w) => BVDomainParams -> NatRepr w -> BVDomain w -> BVDomain w -> BVDomain w
-add params w x y =
-  fromList "add" params w $ do
-    (xl,xh) <- toList x
-    (yl,yh) <- toList y
-    modRange w (xl + yl) (xh + yh)
-
-mul :: (1 <= w) => BVDomainParams -> NatRepr w -> BVDomain w -> BVDomain w -> BVDomain w
-mul params w x y = fromList "mul" params w $ do
+add params w x y = modList "add" params w $ do
   (xl,xh) <- toList x
   (yl,yh) <- toList y
-  modRange w (xl * yl) (xh * yh)
+  pure (xl + yl, xh + yh)
+
+mul :: (1 <= w) => BVDomainParams -> NatRepr w -> BVDomain w -> BVDomain w -> BVDomain w
+mul params w x y = modList "mul" params w $ do
+  (xl,xh) <- toList x
+  (yl,yh) <- toList y
+  pure (xl * yl, xh * yh)
 
 udiv :: (1 <= w) => NatRepr w -> BVDomain w -> BVDomain w -> BVDomain w
 udiv w _x _y = any w -- TODO
@@ -569,10 +625,9 @@ sext params uw x w = do
     LeqProof -> fromList "sext" params w $ do
       signedToUnsignedRanges w (toSignedRanges uw x)
 
+-- | Truncate a domain to a smaller domain.
 trunc :: (1 <= u, u+1 <= w) => BVDomainParams -> BVDomain w -> NatRepr u -> BVDomain u
-trunc params x w =
-  fromList "trunc" params w $ do
-    fmap (over both (toUnsigned w)) (toList x)
+trunc params x w = modList "trunc" params w (toList x)
 
 -- | Complement bits in range.
 not :: (1 <= w) => NatRepr w -> BVDomain w -> BVDomain w

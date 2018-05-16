@@ -14,12 +14,14 @@ Solver interfaces built from 'SimpleBuilder' include the
 'Lang.Crucible.Solver.OnlineBackend.OnlineBackend' types.
 
 -}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -48,8 +50,22 @@ module Lang.Crucible.Solver.SimpleBuilder
   , sbCacheStartSize
   , sbBVDomainRangeLimit
   , sbStateManager
-    -- * IsSimpleBuilderState
-  , IsSimpleBuilderState(..)
+  , eltCounter
+  , startCaching
+  , stopCaching
+
+    -- * Specialized representations
+  , bvUnary
+  , natSum
+  , intSum
+  , realSum
+
+    -- ** configuration options
+  , unaryThresholdOption
+  , bvdomainRangeLimitOption
+  , cacheStartSizeOption
+  , cacheTerms
+
     -- * Elt
   , Elt(..)
   , asApp
@@ -76,6 +92,7 @@ module Lang.Crucible.Solver.SimpleBuilder
   , RealElt
   , BVElt
   , CplxElt
+  , StringElt
     -- * App
   , App(..)
   , traverseApp
@@ -83,9 +100,7 @@ module Lang.Crucible.Solver.SimpleBuilder
     -- * NonceApp
   , NonceApp(..)
   , nonceAppType
-    -- * SimpleBuilderPathState
-  , SimpleBuilderPathState(..)
-  , pathState
+
   , impliesAssert
     -- * Bound Variable information
   , SimpleBoundVar
@@ -124,8 +139,8 @@ module Lang.Crucible.Solver.SimpleBuilder
   , Lang.Crucible.Solver.WeightedSum.SemiRingRepr(..)
   ) where
 
-import           Control.Exception (assert)
-import           Control.Lens hiding (asIndex)
+import qualified Control.Exception as Ex
+import           Control.Lens hiding (asIndex, (:>), Empty)
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.ST
@@ -140,8 +155,7 @@ import           Data.IORef
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import           Data.Parameterized.Classes
-import qualified Data.Parameterized.Context as Ctx
-import           Data.Parameterized.Ctx
+import           Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.HashTable as PH
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Nonce
@@ -165,9 +179,12 @@ import qualified Text.PrettyPrint.ANSI.Leijen as PP
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           Lang.Crucible.BaseTypes
+import qualified Lang.Crucible.Config as CFG
 import           Lang.Crucible.MATLAB.Intrinsics.Solver
 import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Solver.AssumptionStack ( Assertion, assertPred )
+import           Lang.Crucible.Solver.Concrete
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.Symbol
 import           Lang.Crucible.Solver.WeightedSum (SemiRing, SemiRingRepr(..), WeightedSum, semiRingBase)
@@ -543,7 +560,6 @@ data App (e :: BaseType -> *) (tp :: BaseType) where
            -> !(e (BaseBVType w))
            -> App e (BaseBVType w)
 
-
   ------------------------------------------------------------------------
   -- Array operations
 
@@ -686,6 +702,7 @@ data AppElt t (tp :: BaseType)
 data Elt t (tp :: BaseType) where
   SemiRingLiteral :: !(SemiRingRepr tp) -> !(WSum.Coefficient tp) -> !ProgramLoc -> Elt t tp
   BVElt  :: (1 <= w) => !(NatRepr w) -> !Integer -> !ProgramLoc -> Elt t (BaseBVType w)
+  StringElt :: !Text -> !ProgramLoc -> Elt t BaseStringType
   -- Application
   AppElt :: {-# UNPACK #-} !(AppElt t tp) -> Elt t tp
   -- An atomic predicate
@@ -708,6 +725,7 @@ asNonceApp _ = Nothing
 eltLoc :: Elt t tp -> ProgramLoc
 eltLoc (SemiRingLiteral _ _ l) = l
 eltLoc (BVElt _ _ l) = l
+eltLoc (StringElt _ l) = l
 eltLoc (NonceAppElt a)  = nonceEltLoc a
 eltLoc (AppElt a)   = appEltLoc a
 eltLoc (BoundVarElt v) = bvarLoc v
@@ -729,6 +747,7 @@ type BVElt t n = Elt t (BaseBVType n)
 type IntegerElt t = Elt t BaseIntegerType
 type RealElt t = Elt t BaseRealType
 type CplxElt t = Elt t BaseComplexType
+type StringElt t = Elt t BaseStringType
 
 iteSize :: Elt t tp -> Integer
 iteSize e =
@@ -737,7 +756,16 @@ iteSize e =
     Just (BVIte _ sz _ _ _) -> sz
     _ -> 0
 
+{-# INLINE boolEltAsBool #-}
+boolEltAsBool :: BoolElt t -> Maybe Bool
+boolEltAsBool e
+  | Just TrueBool  <- asApp e = Just True
+  | Just FalseBool <- asApp e = Just False
+  | otherwise = Nothing
+
 instance IsExpr (Elt t) where
+  asConstantPred = boolEltAsBool
+
   asNat (SemiRingLiteral SemiRingNat n _) = Just n
   asNat _ = Nothing
 
@@ -753,6 +781,7 @@ instance IsExpr (Elt t) where
 
   exprType (SemiRingLiteral sr _ _) = semiRingBase sr
   exprType (BVElt w _ _) = BaseBVRepr w
+  exprType (StringElt _ _) = BaseStringRepr
   exprType (NonceAppElt e)  = nonceAppType (nonceEltApp e)
   exprType (AppElt e) = appType (appEltApp e)
   exprType (BoundVarElt i) = bvarType i
@@ -761,6 +790,9 @@ instance IsExpr (Elt t) where
   asUnsignedBV _ = Nothing
 
   asSignedBV x = toSigned (bvWidth x) <$> asUnsignedBV x
+
+  asString (StringElt x _) = Just x
+  asString _ = Nothing
 
   asConstantArray (asApp -> Just (ConstantArray _ _ def)) = Just def
   asConstantArray _ = Nothing
@@ -996,22 +1028,6 @@ data EltAllocator t
                   }
 
 ------------------------------------------------------------------------
--- SimpleBuilderPathState
-
--- | Type @'SimpleBuilderPathState' (st t)@ instantiates the type
--- family @'SymExpr' ('SimpleBuilder' t st)@.
-data SimpleBuilderPathState (st :: *) =
-  SBPS { _pathState :: !st
-       , sbpsLoc :: !ProgramLoc
-       }
-
-pathState :: Simple Lens (SimpleBuilderPathState st) st
-pathState = lens _pathState (\s v -> s { _pathState = v })
-
-instance HasProgramLoc (SimpleBuilderPathState st) where
-  programLoc = lens sbpsLoc (\s l -> s { sbpsLoc = l })
-
-------------------------------------------------------------------------
 -- SymbolVarBimap
 
 -- | A bijective map between vars and their canonical name for printing
@@ -1072,107 +1088,45 @@ data SimpleBuilder t (st :: * -> *)
         , sbFalse :: !(BoolElt t)
           -- | Constant zero.
         , sbZero  :: !(RealElt t)
+          -- | Configuration object for this symbolic backend
+        , sbConfiguration :: !CFG.Config
           -- | Flag used to tell the backend whether to evaluate
           -- ground rational values as double precision floats when
           -- a function cannot be evaluated as a rational.
         , sbFloatReduce :: !Bool
           -- | The maximum number of distinct values a term may have and use the
           -- unary representation.
-        , _sbUnaryThreshold :: !Int
+        , sbUnaryThreshold :: !(CFG.OptionSetting BaseIntegerType)
           -- | The maximum number of distinct ranges in a BVDomain expression.
-        , _sbBVDomainRangeLimit :: !Int
+        , sbBVDomainRangeLimit :: !(CFG.OptionSetting BaseIntegerType)
           -- | The starting size when building a new cache
-        , _sbCacheStartSize :: !Int
+        , sbCacheStartSize :: !(CFG.OptionSetting BaseIntegerType)
           -- | Counter to generate new unique identifiers for elements and functions.
         , eltCounter :: !(NonceGenerator IO t)
           -- | Reference to current allocator for expressions.
         , curAllocator :: !(IORef (EltAllocator t))
+          -- | The current program location
+        , sbProgramLoc :: !(IORef ProgramLoc)
           -- | Additional state maintained by the state manager
         , sbStateManager :: !(IORef (st t))
           -- | Current location in program.
-        , sbProgramLoc  :: !(IORef ProgramLoc)
-          -- | Provides a bi-jective mapping between names and
-          -- bound variables.
         , sbVarBindings :: !(IORef (SymbolVarBimap t))
           -- | Provides access to typeclass instance for @st@.
-        , sbStateManagerIsBoolSolver :: forall x. (IsSimpleBuilderState st => x) -> x
+        -- , sbStateManagerIsBoolSolver :: forall x. (IsSimpleBuilderState st => x) -> x
           -- | Cache for Matlab functions
         , sbMatlabFnCache
           :: !(PH.HashTable RealWorld (MatlabFnWrapper t) (SimpleSymFnWrapper t))
         }
 
--- | Typeclass that simple build state should implement.
-class IsSimpleBuilderState (st :: * -> *) where
-  ----------------------------------------------------------------------
-  -- Assertions
-
-  -- | Add an assertion to the current state, and record a proof obligation.
-  --
-  -- This may call fail in the monad if the list of assertions is unsatisfiable.
-  sbAddAssertion :: SimpleBuilder t st -> BoolElt t -> SimErrorReason -> IO ()
-
-  -- | Add an assumption to the current state.
-  sbAddAssumption :: SimpleBuilder t st -> BoolElt t -> IO ()
-
-  -- | Return a list of all the assertions between the given states.
-  sbAssertionsBetween :: st t -- ^ Old path state
-                      -> st t -- ^ New path state
-                      -> Seq (Assertion (BoolElt t))
-
-  -- | Return a conjunction of all the assertions.
-  sbAllAssertions :: SimpleBuilder t st -> IO (BoolElt t)
-
-  sbAppendAssertions :: SimpleBuilder t st -> Seq (Assertion (BoolElt t)) -> IO ()
-
-  -- | Get the collection of proof obligations.
-  sbGetProofObligations :: SimpleBuilder t st -> IO (Seq (Seq (BoolElt t), Assertion (BoolElt t)))
-
-  -- | Set the collection of proof obligations.
-  sbSetProofObligations :: SimpleBuilder t st -> Seq (Seq (BoolElt t), Assertion (BoolElt t)) -> IO ()
-
-  ----------------------------------------------------------------------
-  -- Branch manipulations
-
-  -- | Given a Boolean predicate corresponding to a branch, this decides
-  -- what the next course of action should be for the branch.
-  sbEvalBranch :: SimpleBuilder t st
-               -> BoolElt t -- Predicate to branch on.
-               -> IO (BranchResult (SimpleBuilder t st))
-
-  -- | Push a branch predicate to the current state.
-  sbPushBranchPred :: SimpleBuilder t st -> BoolElt t -> IO ()
-
-  -- | Backtrack to a previous state.
-  sbBacktrackToState :: SimpleBuilder t st
-                     -> SimpleBuilderPathState (st t)
-                     -> IO ()
-
-  -- | Backtrack to a previous state.
-  sbSwitchToState :: SimpleBuilder t st
-                  -> SimpleBuilderPathState (st t)
-                  -> SimpleBuilderPathState (st t)
-                  -> IO ()
-
 type instance SymFn (SimpleBuilder t st) = SimpleSymFn t
-type instance SymPathState (SimpleBuilder t st) = SimpleBuilderPathState (st t)
 type instance SymExpr (SimpleBuilder t st) = Elt t
 type instance BoundVar (SimpleBuilder t st) = SimpleBoundVar t
 
--- | The maximum number of distinct values a term may have and use the
--- unary representation.
-sbUnaryThreshold :: Simple Lens (SimpleBuilder t st) Int
-sbUnaryThreshold = lens _sbUnaryThreshold (\s v -> s { _sbUnaryThreshold = v })
+sbBVDomainParams :: SimpleBuilder t st -> IO (BVD.BVDomainParams)
+sbBVDomainParams sym =
+  do rl <- CFG.getOpt (sbBVDomainRangeLimit sym)
+     return BVD.DP { BVD.rangeLimit = fromInteger rl }
 
-sbCacheStartSize :: Simple Lens (SimpleBuilder t st) Int
-sbCacheStartSize = lens _sbCacheStartSize (\s v -> s { _sbCacheStartSize = v })
-
--- | The maximum number of distinct ranges in a BVDomain expression.
-sbBVDomainRangeLimit :: Simple Lens (SimpleBuilder t st) Int
-sbBVDomainRangeLimit = lens _sbBVDomainRangeLimit (\s v -> s { _sbBVDomainRangeLimit = v })
-
-sbBVDomainParams :: SimpleBuilder t st -> BVD.BVDomainParams
-sbBVDomainParams sym = BVD.DP { BVD.rangeLimit = sym^.sbBVDomainRangeLimit
-                              }
 
 -- Dummy declaration splice to bring App into template haskell scope.
 $(return [])
@@ -1189,6 +1143,7 @@ ppVarTypeCode tp =
     BaseBVRepr _    -> "bv"
     BaseIntegerRepr -> "i"
     BaseRealRepr    -> "r"
+    BaseStringRepr  -> "s"
     BaseComplexRepr -> "c"
     BaseArrayRepr _ _ -> "a"
     BaseStructRepr _ -> "struct"
@@ -1544,6 +1499,10 @@ compareElt (BVElt wx x _) (BVElt wy y _) =
 compareElt BVElt{} _ = LTF
 compareElt _ BVElt{} = GTF
 
+compareElt (StringElt x _) (StringElt y _) = fromOrdering (compare x y)
+compareElt StringElt{} _ = LTF
+compareElt _ StringElt{} = GTF
+
 compareElt (NonceAppElt x) (NonceAppElt y) = compareF x y
 compareElt NonceAppElt{} _ = LTF
 compareElt _ NonceAppElt{} = GTF
@@ -1594,9 +1553,10 @@ instance Hashable (Elt t tp) where
     s `hashWithSalt` (3::Int)
       `hashWithSalt` w
       `hashWithSalt` x
-  hashWithSalt s (AppElt x)      = hashWithSalt (hashWithSalt s (4::Int)) (appEltId x)
-  hashWithSalt s (NonceAppElt x)     = s `hashWithSalt` (5::Int) `hashWithSalt` (nonceEltId x)
-  hashWithSalt s (BoundVarElt x) = hashWithSalt (hashWithSalt s (6::Int)) x
+  hashWithSalt s (StringElt x _) = hashWithSalt (hashWithSalt s (4::Int)) x
+  hashWithSalt s (AppElt x)      = hashWithSalt (hashWithSalt s (5::Int)) (appEltId x)
+  hashWithSalt s (NonceAppElt x) = hashWithSalt (hashWithSalt s (6::Int)) (nonceEltId x)
+  hashWithSalt s (BoundVarElt x) = hashWithSalt (hashWithSalt s (7::Int)) x
 
 instance PH.HashableF (Elt t) where
   hashWithSaltF = hashWithSalt
@@ -1766,7 +1726,7 @@ defaultPPEltOpts =
 -- | Pretty print an 'Elt' using let bindings to create the term.
 ppElt :: Elt t tp -> Doc
 ppElt e
-     | null bindings = ppEltDoc False r
+     | Prelude.null bindings = ppEltDoc False r
      | otherwise =
          text "let" <+> align (vcat bindings) PP.<$>
          text " in" <+> align (ppEltDoc False r)
@@ -1857,7 +1817,7 @@ ppElt' e0 o = do
                 -> Text
                 -> [PrettyArg (Elt t)]
                 -> ST s AppPPElt
-      renderApp idx loc nm args = assert (not (null args)) $ do
+      renderApp idx loc nm args = Ex.assert (not (Prelude.null args)) $ do
         elts0 <- traverse renderArg args
         -- Get width not including parenthesis of outer app.
         let total_width = Text.length nm + sum ((\e -> 1 + ppEltLength e) <$> elts0)
@@ -1926,6 +1886,8 @@ ppElt' e0 o = do
                        | otherwise   = prettyApp "divReal"  [ showPrettyArg n, showPrettyArg d ]
       getBindings (BVElt w n _) = do
         return $ stringPPElt $ "0x" ++ (N.showHex n []) ++ ":[" ++ show w ++ "]"
+      getBindings (StringElt x _) = do
+        return $ stringPPElt $ (show x)
       getBindings (NonceAppElt e) = do
         cacheResult (ExprPPIndex (indexValue (nonceEltId e))) (nonceEltLoc e)
           =<< ppNonceApp bindFn (nonceEltApp e)
@@ -2043,12 +2005,11 @@ quantAbsEval _ f q =
     ArrayTrueOnEntries _ a -> f a
     FnApp g _           -> unconstrainedAbsValue (symFnReturnType g)
 
-abstractEval :: SimpleBuilder t st
+abstractEval :: BVD.BVDomainParams
              -> (forall u . Elt t u -> AbstractValue u)
              -> App (Elt t) tp
              -> AbstractValue tp
-abstractEval sym f a0 = do
-  let bvParams = sbBVDomainParams sym
+abstractEval bvParams f a0 = do
   case a0 of
 
     ------------------------------------------------------------------------
@@ -2198,6 +2159,7 @@ eltAbsValue (SemiRingLiteral sr x _) =
     SemiRingNat  -> natSingleRange x
     SemiRingInt  -> singleRange x
     SemiRingReal -> ravSingle x
+eltAbsValue (StringElt{})   = ()
 eltAbsValue (BVElt w c _)   = BVD.singleton w c
 eltAbsValue (NonceAppElt e) = nonceEltAbsValue e
 eltAbsValue (AppElt e)      = appEltAbsValue e
@@ -2269,6 +2231,7 @@ newIdxCache = stToIO $ IdxCache <$> PH.new
 lookupIdxValue :: MonadIO m => IdxCache t f -> Elt t tp -> m (Maybe (f tp))
 lookupIdxValue _ SemiRingLiteral{} = return Nothing
 lookupIdxValue _ BVElt{} = return Nothing
+lookupIdxValue _ StringElt{} = return Nothing
 lookupIdxValue c (NonceAppElt e) = liftIO $ lookupIdx c (nonceEltId e)
 lookupIdxValue c (AppElt e)  = liftIO $ lookupIdx c (appEltId e)
 lookupIdxValue c (BoundVarElt i) = liftIO $ lookupIdx c (bvarId i)
@@ -2293,6 +2256,7 @@ clearIdxCache c = stToIO $ PH.clear (cMap c)
 eltMaybeId :: Elt t tp -> Maybe (Nonce t tp)
 eltMaybeId SemiRingLiteral{} = Nothing
 eltMaybeId BVElt{}  = Nothing
+eltMaybeId StringElt{} = Nothing
 eltMaybeId (NonceAppElt e) = Just $! nonceEltId e
 eltMaybeId (AppElt  e) = Just $! appEltId e
 eltMaybeId (BoundVarElt e) = Just $! bvarId e
@@ -2353,8 +2317,9 @@ semiRingLit sb sr x = do
 sbMakeElt :: SimpleBuilder t st -> App (Elt t) tp -> IO (Elt t tp)
 sbMakeElt sym a = do
   s <- readIORef (curAllocator sym)
-  let v = abstractEval sym eltAbsValue a
+  params <- sbBVDomainParams sym
   pc <- curProgramLoc sym
+  let v = abstractEval params eltAbsValue a
   case appType a of
     -- Check if abstract interpretation concludes this is a constant.
     BaseBoolRepr | Just b <- v -> return $ backendPred sym b
@@ -2401,37 +2366,141 @@ sbFreshIndex sb = freshNonce (eltCounter sb)
 sbFreshSymFnNonce :: SimpleBuilder t st -> IO (Nonce t (ctx:: Ctx BaseType))
 sbFreshSymFnNonce sb = freshNonce (eltCounter sb)
 
-newSimpleBuilder :: IsSimpleBuilderState st
-                 => st t
+------------------------------------------------------------------------
+-- Configuration option for controlling the maximum number of value a unary
+-- threshold may have.
+
+-- | Maximum number of values in unary bitvector encoding.
+--
+--   This option is named \"backend.unary_threshold\"
+unaryThresholdOption :: CFG.ConfigOption BaseIntegerType
+unaryThresholdOption = CFG.configOption BaseIntegerRepr "backend.unary_threshold"
+
+-- | The configuration option for setting the maximum number of
+-- values a unary threshold may have.
+unaryThresholdDesc :: CFG.ConfigDesc
+unaryThresholdDesc = CFG.mkOpt unaryThresholdOption sty help (Just (ConcreteInteger 0))
+  where sty = CFG.integerWithMinOptSty (CFG.Inclusive 0)
+        help = Just (text "Maximum number of values in unary bitvector encoding.")
+
+------------------------------------------------------------------------
+-- Configuration option for controlling how many disjoint ranges
+-- should be allowed in bitvector domains.
+
+-- | Maximum number of ranges in bitvector abstract domains.
+--
+--   This option is named \"backend.bvdomain_range_limit\"
+bvdomainRangeLimitOption :: CFG.ConfigOption BaseIntegerType
+bvdomainRangeLimitOption = CFG.configOption BaseIntegerRepr "backend.bvdomain_range_limit"
+
+bvdomainRangeLimitDesc :: CFG.ConfigDesc
+bvdomainRangeLimitDesc = CFG.mkOpt bvdomainRangeLimitOption sty help (Just (ConcreteInteger 2))
+  where sty = CFG.integerWithMinOptSty (CFG.Inclusive 0)
+        help = Just (text "Maximum number of ranges in bitvector domains.")
+
+------------------------------------------------------------------------
+-- Cache start size
+
+-- | Starting size for element cache when caching is enabled.
+--
+--   This option is named \"backend.cache_start_size\"
+cacheStartSizeOption :: CFG.ConfigOption BaseIntegerType
+cacheStartSizeOption = CFG.configOption BaseIntegerRepr "backend.cache_start_size"
+
+-- | The configuration option for setting the size of the initial hash set
+-- used by simple builder
+cacheStartSizeDesc :: CFG.ConfigDesc
+cacheStartSizeDesc = CFG.mkOpt cacheStartSizeOption sty help (Just (ConcreteInteger 100000))
+  where sty = CFG.integerWithMinOptSty (CFG.Inclusive 0)
+        help = Just (text "Starting size for element cache")
+
+------------------------------------------------------------------------
+-- Cache terms
+
+-- | Indicates if we should cache terms.  When enabled, hash-consing
+--   is used to find and deduplicate common subexpressions.
+--
+--   This option is named \"use_cache\"
+cacheTerms :: CFG.ConfigOption BaseBoolType
+cacheTerms = CFG.configOption BaseBoolRepr "use_cache"
+
+cacheOptStyle ::
+  NonceGenerator IO t ->
+  IORef (EltAllocator t) ->
+  CFG.OptionSetting BaseIntegerType ->
+  CFG.OptionStyle BaseBoolType
+cacheOptStyle gen storageRef szSetting =
+  CFG.boolOptSty & CFG.set_opt_onset
+        (\mb b -> f (fmap fromConcreteBool mb) (fromConcreteBool b) >> return CFG.optOK)
+ where
+ f :: Maybe Bool -> Bool -> IO ()
+ f mb b | mb /= Just b = if b then start else stop
+        | otherwise = return ()
+
+ stop  = do s <- newStorage gen
+            writeIORef storageRef s
+
+ start = do sz <- CFG.getOpt szSetting
+            s <- newCachedStorage gen (fromInteger sz)
+            writeIORef storageRef s
+
+cacheOptDesc ::
+  NonceGenerator IO t ->
+  IORef (EltAllocator t) ->
+  CFG.OptionSetting BaseIntegerType ->
+  CFG.ConfigDesc
+cacheOptDesc gen storageRef szSetting =
+  CFG.mkOpt
+    cacheTerms
+    (cacheOptStyle gen storageRef szSetting)
+    (Just (text "Use hash-consing during term construction"))
+    (Just (ConcreteBool False))
+
+
+newSimpleBuilder :: --IsSimpleBuilderState st
+                 -- => st t
+                 st t
                     -- ^ Current state for simple builder.
                  -> NonceGenerator IO t
                     -- ^ Nonce generator for names
                  ->  IO (SimpleBuilder t st)
 newSimpleBuilder st gen = do
-  let sz = 100000
   st_ref <- newIORef st
-  es <- newCachedStorage gen sz
+  es <- newStorage gen
 
   t <- appElt es initializationLoc TrueBool  (Just True)
   f <- appElt es initializationLoc FalseBool (Just False)
   let z = SemiRingLiteral SemiRingReal 0 initializationLoc
-  storage_ref   <- newIORef es
+
   loc_ref       <- newIORef initializationLoc
+  storage_ref   <- newIORef es
   bindings_ref  <- newIORef Bimap.empty
   matlabFnCache <- stToIO $ PH.new
+
+  -- Set up configuration options
+  cfg <- CFG.initialConfig 0
+           [ unaryThresholdDesc
+           , bvdomainRangeLimitDesc
+           , cacheStartSizeDesc
+           ]
+  unarySetting       <- CFG.getOptionSetting unaryThresholdOption cfg
+  domainRangeSetting <- CFG.getOptionSetting bvdomainRangeLimitOption cfg
+  cacheStartSetting  <- CFG.getOptionSetting cacheStartSizeOption cfg
+  CFG.extendConfig [cacheOptDesc gen storage_ref cacheStartSetting] cfg
+
   return $! SB { sbTrue  = t
                , sbFalse = f
                , sbZero = z
+               , sbConfiguration = cfg
                , sbFloatReduce = True
-               , _sbUnaryThreshold = 0
-               , _sbBVDomainRangeLimit = 2
-               , _sbCacheStartSize = sz
+               , sbUnaryThreshold = unarySetting
+               , sbBVDomainRangeLimit = domainRangeSetting
+               , sbCacheStartSize = cacheStartSetting
+               , sbProgramLoc = loc_ref
                , eltCounter = gen
                , curAllocator = storage_ref
                , sbStateManager = st_ref
-               , sbProgramLoc   = loc_ref
                , sbVarBindings = bindings_ref
-               , sbStateManagerIsBoolSolver = \x -> x
                , sbMatlabFnCache = matlabFnCache
                }
 
@@ -2440,24 +2509,25 @@ getSymbolVarBimap :: SimpleBuilder t st -> IO (SymbolVarBimap t)
 getSymbolVarBimap sym = readIORef (sbVarBindings sym)
 
 -- | Stop caching applications in backend.
-sbStopCaching :: SimpleBuilder t st -> IO ()
-sbStopCaching sb = do
+stopCaching :: SimpleBuilder t st -> IO ()
+stopCaching sb = do
   s <- newStorage (eltCounter sb)
   writeIORef (curAllocator sb) s
 
 -- | Restart caching applications in backend (clears cache if it is currently caching).
-sbRestartCaching :: SimpleBuilder t st -> IO ()
-sbRestartCaching sb = do
-  let sz = sb^.sbCacheStartSize
-  s <- newCachedStorage (eltCounter sb) sz
+startCaching :: SimpleBuilder t st -> IO ()
+startCaching sb = do
+  sz <- CFG.getOpt (sbCacheStartSize sb)
+  s <- newCachedStorage (eltCounter sb) (fromInteger sz)
   writeIORef (curAllocator sb) s
+
 
 -- | @impliesAssert sym b a@ returns the assertions that hold
 -- if @b@ is false or all the assertions in @a@ are true.
 impliesAssert :: SimpleBuilder t st
               -> BoolElt t
-              -> Seq (Assertion (BoolElt t))
-              -> IO (Seq (Assertion (BoolElt t)))
+              -> Seq (Assertion (BoolElt t) SimErrorReason)
+              -> IO (Seq (Assertion (BoolElt t) SimErrorReason))
 impliesAssert sym c = go Seq.empty
   where --
         go prev next =
@@ -2470,16 +2540,6 @@ impliesAssert sym c = go Seq.empty
                 Just TrueBool -> go prev new
                 _ -> go (prev Seq.|> (a & assertPred .~ p')) new
 
-
-{-# INLINE boolEltAsBool #-}
-boolEltAsBool :: BoolElt t -> Maybe Bool
-boolEltAsBool e
-  | Just TrueBool  <- asApp e = Just True
-  | Just FalseBool <- asApp e = Just False
-  | otherwise = Nothing
-
-instance IsPred (BoolElt t) where
-  asConstantPred = boolEltAsBool
 
 bvBinOp1 :: (1 <= w)
          => (Integer -> Integer -> Integer)
@@ -2544,7 +2604,7 @@ betaReduce sym f args =
     MatlabSolverFnInfo fn_id _ _ -> do
       evalMatlabSolverFn fn_id sym args
 
-reduceApp :: IsExprBuilder sym
+reduceApp :: (IsExprBuilder sym, sym ~ SimpleBuilder t st)
           => sym
           -> App (SymExpr sym) tp
           -> IO (SymExpr sym tp)
@@ -2737,6 +2797,7 @@ evalBoundVars' tbls sym e0 =
   case e0 of
     SemiRingLiteral{} -> return e0
     BVElt{}  -> return e0
+    StringElt{} -> return e0
     AppElt ae -> cachedEval (eltTable tbls) e0 $ do
       let a = appEltApp ae
       a' <- traverseApp (evalBoundVars' tbls sym) a
@@ -2897,190 +2958,47 @@ sbConcreteLookup sym arr0 mcidx idx
       BaseArrayRepr _ range ->
         sbMakeElt sym (SelectArray range arr0 idx)
 
-instance IsBoolExprBuilder (SimpleBuilder t st) where
-
-  truePred  = sbTrue
-  falsePred = sbFalse
-
-  notPred sym x
-    | Just TrueBool  <- asApp x = return $! falsePred sym
-    | Just FalseBool <- asApp x = return $! truePred sym
-    | Just (NotBool xn) <- asApp x = return xn
-    | otherwise = sbMakeElt sym (NotBool x)
-
-  andPred sym x y
-    | Just True  <- asConstantPred x = return y
-    | Just False <- asConstantPred x = return x
-    | Just True  <- asConstantPred y = return x
-    | Just False <- asConstantPred y = return y
-    | x == y = return x
-
-    | Just (NotBool xn) <- asApp x, xn == y =
-      return (falsePred sym)
-    | Just (NotBool yn) <- asApp y, yn == x =
-      return (falsePred sym)
-    | Just (AndBool x1 x2) <- asApp x, (x1 == y || x2 == y) = return x
-    | Just (AndBool y1 y2) <- asApp y, (y1 == x || y2 == x) = return y
-
-    | otherwise = sbMakeElt sym (AndBool (min x y) (max x y))
-
-  xorPred sym x y
-    | Just True  <- asConstantPred x = notPred sym y
-    | Just False <- asConstantPred x = return y
-    | Just True  <- asConstantPred y = notPred sym x
-    | Just False <- asConstantPred y = return x
-    | x == y = return $ falsePred sym
-
-    | Just (NotBool xn) <- asApp x
-    , Just (NotBool yn) <- asApp y = do
-      sbMakeElt sym (XorBool xn yn)
-
-    | Just (NotBool xn) <- asApp x = do
-      notPred sym =<< sbMakeElt sym (XorBool xn y)
-
-    | Just (NotBool yn) <- asApp y = do
-      notPred sym =<< sbMakeElt sym (XorBool x yn)
-
-    | otherwise = do
-      sbMakeElt sym (XorBool x y)
-
-  itePred sb c x y
-      -- ite c c y = c || y
-    | c == x = orPred sb c y
-      -- ite c x c = c && x
-    | c == y = andPred sb c x
-      -- ite c x x = x
-    | x == y = return x
-      -- ite 1 x y = x
-    | Just True  <- asConstantPred c = return x
-      -- ite 0 x y = y
-    | Just False <- asConstantPred c = return y
-      -- ite !c x y = c y x
-    | Just (NotBool cn) <- asApp c   = itePred sb cn y x
-      -- ite c 1 y = c || y
-    | Just True  <- asConstantPred x = orPred sb c y
-      -- ite c 0 y = !c && y
-    | Just False <- asConstantPred x = do
-      andPred sb y =<< sbMakeElt sb (NotBool c)
-      -- ite c x 1 = !c || x
-      --             !(c && !x)
-    | Just True  <- asConstantPred y = do
-      notPred sb =<< andPred sb c =<< notPred sb x
-      -- ite c x 0 = c && x
-    | Just False <- asConstantPred y = do
-      andPred sb c x
-      -- ite c (!x) (!y) = !(ite c x y)
-    | Just (NotBool xn) <- asApp x
-    , Just (NotBool yn) <- asApp y = do
-      notPred sb =<< itePred sb c xn yn
-      -- Default case
-    | otherwise = sbMakeElt sb $ IteBool c x y
-
------------------------------------------------------------------------
--- Defer to the enclosed state manager for IsBoolSolver operations
--- and datatypes
-
-instance IsBoolSolver (SimpleBuilder t st) where
-
-  evalBranch sym p = sbStateManagerIsBoolSolver sym $ sbEvalBranch sym p
-
-  getCurrentState sym = do
-    s <- readIORef (sbStateManager sym)
-    l <- readIORef (sbProgramLoc sym)
-    return $! SBPS s l
-  resetCurrentState sym prev_state = sbStateManagerIsBoolSolver sym $ do
-    sbBacktrackToState sym prev_state
-    -- Update state variables
-    writeIORef (sbStateManager sym) $! (prev_state^.pathState)
-    writeIORef (sbProgramLoc sym) $! sbpsLoc prev_state
-  switchCurrentState sym prev_state next_state  = do
-    sbStateManagerIsBoolSolver sym $ do
-    sbSwitchToState sym prev_state next_state
-    writeIORef (sbStateManager sym) $! (prev_state^.pathState)
-    writeIORef (sbProgramLoc sym) $! sbpsLoc next_state
-
-  pushBranchPred sym p = sbStateManagerIsBoolSolver sym $
-    sbPushBranchPred sym p
-
-  mergeState sym true_pred true_state false_state =
-    sbStateManagerIsBoolSolver sym $ do
-
-    old_ps <- getCurrentState sym
-
-    let true_ps   = true_state^.pathState
-    let false_ps  = false_state^.pathState
-
-    let pre_state = old_ps^.pathState
-
-    -- Drop assertions that were already present at branch.
-    let cur_aseq  = sbAssertionsBetween pre_state true_ps
-    t_aseq <- impliesAssert sym true_pred  cur_aseq
-
-    let neg_aseq  = sbAssertionsBetween pre_state false_ps
-    false_pred <- notPred sym true_pred
-    f_aseq <- impliesAssert sym false_pred neg_aseq
-
-    sbAppendAssertions sym (t_aseq Seq.>< f_aseq)
-
-  ----------------------------------------------------------------------
-  -- Program location operations
-
-  getCurrentProgramLoc = curProgramLoc
-  setCurrentProgramLoc sym l = writeIORef (sbProgramLoc sym) $! l
-
-  ----------------------------------------------------------------------
-  -- Assertion
-
-  addAssertion sb =
-    sbStateManagerIsBoolSolver sb $
-      sbAddAssertion sb
-
-  addAssumption sb =
-    sbStateManagerIsBoolSolver sb $
-      sbAddAssumption sb
-
-  getAssertionPred sb =
-    sbStateManagerIsBoolSolver sb $
-      sbAllAssertions sb
-
-  getAssertionsBetween sb old cur = do
-    sbStateManagerIsBoolSolver sb $
-      return $ toList $ sbAssertionsBetween (old^.pathState) (cur^.pathState)
-
-  getProofObligations sb = do
-    sbStateManagerIsBoolSolver sb $ do
-      obligs <- sbGetProofObligations sb
-      return [ (toList hyps, goal)
-             | (hyps,goal) <- toList obligs
-             ]
-
-  setProofObligations sb obligs = do
-    sbStateManagerIsBoolSolver sb $ do
-      sbSetProofObligations sb $ Seq.fromList
-        [ (Seq.fromList hyps, goal)
-        | (hyps, goal) <- obligs
-        ]
-
 ----------------------------------------------------------------------
 -- Expression builder instances
 
-asUnaryBV :: SimpleBuilder t st
+-- | Evaluate a weighted sum of natural number values
+natSum :: SimpleBuilder t st -> WeightedSum (Elt t) BaseNatType -> IO (NatElt t)
+natSum sym s = semiRingSum sym SemiRingNat s
+
+-- | Evaluate a weighted sum of integer values
+intSum :: SimpleBuilder t st -> WeightedSum (Elt t) BaseIntegerType -> IO (IntegerElt t)
+intSum sym s = semiRingSum sym SemiRingInt s
+
+-- | Evaluate a weighted sum of real values.
+realSum :: SimpleBuilder t st -> WeightedSum (Elt t) BaseRealType -> IO (RealElt t)
+realSum sym s = semiRingSum sym SemiRingReal s
+
+
+bvUnary :: (1 <= w) => SimpleBuilder t st -> UnaryBV (BoolElt t) w -> IO (BVElt t w)
+bvUnary sym u
+    | Just v <-  UnaryBV.asConstant u =
+      bvLit sym (UnaryBV.width u) v
+    | otherwise =
+      sbMakeElt sym (BVUnaryTerm u)
+
+asUnaryBV :: (?unaryThreshold :: Int)
+          => SimpleBuilder t st
           -> BVElt t n
           -> Maybe (UnaryBV (BoolElt t) n)
 asUnaryBV sym e
   | Just (BVUnaryTerm u) <- asApp e = Just u
-  | sym^.sbUnaryThreshold == 0 = Nothing
+  | ?unaryThreshold == 0 = Nothing
   | BVElt w v _ <- e = Just $ UnaryBV.constant sym w v
   | otherwise = Nothing
 
 -- | This create a unary bitvector representing if the size is not too large.
-sbTryUnaryTerm :: (1 <= w)
+sbTryUnaryTerm :: (1 <= w, ?unaryThreshold :: Int)
                => SimpleBuilder t st
                -> UnaryBV (BoolElt t) w
                -> App (Elt t) (BaseBVType w)
                -> IO (BVElt t w)
 sbTryUnaryTerm sym u a
-  | UnaryBV.size u < sym^.sbUnaryThreshold =
+  | UnaryBV.size u < ?unaryThreshold =
     bvUnary sym u
   | otherwise =
     sbMakeElt sym a
@@ -3194,7 +3112,7 @@ semiRingLe sym sr x y
       leNonpos le y sym u v
 
       -- Simplify ite expressions when one of the values is ground.
-      -- This appears to occur fairly often in MATLAB due to range checks.
+      -- This appears to occur fairly often due to range checks.
     | isJust (asSemiRingLit x)
     , Just (SemiRingIte _sr yc y1 y2) <- asApp y
     , isJust (asSemiRingLit y1) || isJust (asSemiRingLit y2) = do
@@ -3203,7 +3121,7 @@ semiRingLe sym sr x y
       itePred sym yc c1 c2
 
       -- Simplify ite expressions when one of the values is ground.
-      -- This appears to occur fairly often in MATLAB due to range checks.
+      -- This appears to occur fairly often due to range checks.
     | isJust (asSemiRingLit y)
     , Just (SemiRingIte _sr xc x1 x2) <- asApp x
     , isJust (asSemiRingLit x1) || isJust (asSemiRingLit x2) = do
@@ -3307,7 +3225,7 @@ semiRingMul sym sr x y
 -- -> not (u > 0 & v < 0) & not (u < 0 & v > 0)
 -- -> (u <= 0 | v >= 0) & (u >= 0 | v <= 0)
 -- -> (u <= 0 | 0 <= v) & (0 <= u | v <= 0)
-leNonneg :: IsBoolExprBuilder sym
+leNonneg :: IsExprBuilder sym
          => (sym -> a -> a -> IO (Pred sym)) -- ^ Less than or equal
          -> a -- ^ zero
          -> sym
@@ -3331,7 +3249,7 @@ leNonneg le zero sym u v = do
 -- -> not (u > 0 & v > 0 | u < 0 & v < 0)
 -- -> not (u > 0 & v > 0) & not (u < 0 & v < 0)
 -- -> (u <= 0 | v <= 0) & (u >= 0 | v >= 0)
-leNonpos :: IsBoolExprBuilder sym
+leNonpos :: IsExprBuilder sym
          => (sym -> a -> a -> IO (Pred sym)) -- ^ Less than or equal
          -> a -- ^ zero
          -> sym
@@ -3410,9 +3328,9 @@ foldIndicesInRangeBounds :: forall sym idx r
                          -> Ctx.Assignment NatLit idx
                          -> IO r
 foldIndicesInRangeBounds sym f0 a0 bnds0 = do
-  case Ctx.view bnds0 of
-    Ctx.AssignEmpty -> f0 a0 Ctx.empty
-    Ctx.AssignExtend bnds (NatLit b) -> foldIndicesInRangeBounds sym (g f0) a0 bnds
+  case bnds0 of
+    Ctx.Empty -> f0 a0 Ctx.empty
+    bnds Ctx.:> NatLit b -> foldIndicesInRangeBounds sym (g f0) a0 bnds
       where g :: (r -> Ctx.Assignment (SymExpr sym) (idx0 ::> BaseNatType) -> IO r)
               -> r
               -> Ctx.Assignment (SymExpr sym) idx0
@@ -3427,6 +3345,10 @@ foldIndicesInRangeBounds sym f0 a0 bnds0 = do
             h f i a j = do
               je <- natLit sym j
               f a (i Ctx.:> je)
+#if !MIN_VERSION_base(4,10,0)
+    -- This should never happen, but silences a warning.
+    _ -> error "internal: invalid index to foldIndicesInRangeBounds"
+#endif
 
 {-
 -- | Compute the weighted sum of two bitvectors.
@@ -3439,6 +3361,93 @@ bvSum = undefined
 -}
 
 instance IsExprBuilder (SimpleBuilder t st) where
+  getConfiguration = sbConfiguration
+
+  ----------------------------------------------------------------------
+  -- Program location operations
+
+  getCurrentProgramLoc = curProgramLoc
+  setCurrentProgramLoc sym l = writeIORef (sbProgramLoc sym) l
+
+  ----------------------------------------------------------------------
+  -- Bool operations.
+
+  truePred  = sbTrue
+  falsePred = sbFalse
+
+  notPred sym x
+    | Just TrueBool  <- asApp x = return $! falsePred sym
+    | Just FalseBool <- asApp x = return $! truePred sym
+    | Just (NotBool xn) <- asApp x = return xn
+    | otherwise = sbMakeElt sym (NotBool x)
+
+  andPred sym x y
+    | Just True  <- asConstantPred x = return y
+    | Just False <- asConstantPred x = return x
+    | Just True  <- asConstantPred y = return x
+    | Just False <- asConstantPred y = return y
+    | x == y = return x
+
+    | Just (NotBool xn) <- asApp x, xn == y =
+      return (falsePred sym)
+    | Just (NotBool yn) <- asApp y, yn == x =
+      return (falsePred sym)
+    | Just (AndBool x1 x2) <- asApp x, (x1 == y || x2 == y) = return x
+    | Just (AndBool y1 y2) <- asApp y, (y1 == x || y2 == x) = return y
+
+    | otherwise = sbMakeElt sym (AndBool (min x y) (max x y))
+
+  xorPred sym x y
+    | Just True  <- asConstantPred x = notPred sym y
+    | Just False <- asConstantPred x = return y
+    | Just True  <- asConstantPred y = notPred sym x
+    | Just False <- asConstantPred y = return x
+    | x == y = return $ falsePred sym
+
+    | Just (NotBool xn) <- asApp x
+    , Just (NotBool yn) <- asApp y = do
+      sbMakeElt sym (XorBool xn yn)
+
+    | Just (NotBool xn) <- asApp x = do
+      notPred sym =<< sbMakeElt sym (XorBool xn y)
+
+    | Just (NotBool yn) <- asApp y = do
+      notPred sym =<< sbMakeElt sym (XorBool x yn)
+
+    | otherwise = do
+      sbMakeElt sym (XorBool x y)
+
+  itePred sb c x y
+      -- ite c c y = c || y
+    | c == x = orPred sb c y
+      -- ite c x c = c && x
+    | c == y = andPred sb c x
+      -- ite c x x = x
+    | x == y = return x
+      -- ite 1 x y = x
+    | Just True  <- asConstantPred c = return x
+      -- ite 0 x y = y
+    | Just False <- asConstantPred c = return y
+      -- ite !c x y = c y x
+    | Just (NotBool cn) <- asApp c   = itePred sb cn y x
+      -- ite c 1 y = c || y
+    | Just True  <- asConstantPred x = orPred sb c y
+      -- ite c 0 y = !c && y
+    | Just False <- asConstantPred x = do
+      andPred sb y =<< sbMakeElt sb (NotBool c)
+      -- ite c x 1 = !c || x
+      --             !(c && !x)
+    | Just True  <- asConstantPred y = do
+      notPred sb =<< andPred sb c =<< notPred sb x
+      -- ite c x 0 = c && x
+    | Just False <- asConstantPred y = do
+      andPred sb c x
+      -- ite c (!x) (!y) = !(ite c x y)
+    | Just (NotBool xn) <- asApp x
+    , Just (NotBool yn) <- asApp y = do
+      notPred sb =<< itePred sb c xn yn
+      -- Default case
+    | otherwise = sbMakeElt sb $ IteBool c x y
 
   ----------------------------------------------------------------------
   -- Nat operations.
@@ -3453,8 +3462,6 @@ instance IsExprBuilder (SimpleBuilder t st) where
     integerToNat sym =<< intSub sym xr yr
 
   natMul sym x y = semiRingMul sym SemiRingNat x y
-
-  natSum sym s = semiRingSum sym SemiRingNat s
 
   natDiv sym x y
     | Just m <- asNat x, Just n <- asNat y = do
@@ -3494,8 +3501,6 @@ instance IsExprBuilder (SimpleBuilder t st) where
   intAdd sym x y = semiRingAdd sym SemiRingInt x y
 
   intMul sym x y = semiRingMul sym SemiRingInt x y
-
-  intSum sym s = semiRingSum sym SemiRingInt s
 
   intIte sym c x y = semiRingIte sym SemiRingInt c x y
 
@@ -3799,15 +3804,17 @@ instance IsExprBuilder (SimpleBuilder t st) where
     | x == y = return x
     | Just (NotBool cn) <- asApp c = bvIte sym cn y x
 
-    | Just ux <- asUnaryBV sym x
-    , Just uy <- asUnaryBV sym y = do
-      uz <- UnaryBV.mux sym c ux uy
-      let sz = 1 + iteSize x + iteSize y
-      sbTryUnaryTerm sym uz (BVIte (bvWidth x) sz c x y)
-
     | otherwise = do
-      let sz = 1 + iteSize x + iteSize y
-      sbMakeElt sym $ BVIte (bvWidth x) sz c x y
+        ut <- CFG.getOpt (sbUnaryThreshold sym)
+        let ?unaryThreshold = fromInteger ut
+        if | Just ux <- asUnaryBV sym x
+           , Just uy <- asUnaryBV sym y ->
+             do uz <- UnaryBV.mux sym c ux uy
+                let sz = 1 + iteSize x + iteSize y
+                sbTryUnaryTerm sym uz (BVIte (bvWidth x) sz c x y)
+           | otherwise ->
+             do let sz = 1 + iteSize x + iteSize y
+                sbMakeElt sym $ BVIte (bvWidth x) sz c x y
 
   bvEq sym x y
     | Just xc <- asUnsignedBV x
@@ -3823,7 +3830,6 @@ instance IsExprBuilder (SimpleBuilder t st) where
       c <- bvLit sym w (i - j)
       bvEq sym c y_r
 
-
     | Just (BVAdd w (asUnsignedBV -> Just i) x_r) <- asApp x
     , Just j <- asUnsignedBV y = do
       c <- bvLit sym w (j - i)
@@ -3836,12 +3842,14 @@ instance IsExprBuilder (SimpleBuilder t st) where
       z_r <- bvAdd sym z_c x_r
       bvEq sym z_r y_r
 
-    | Just ux <- asUnaryBV sym x
-    , Just uy <- asUnaryBV sym y = do
-      UnaryBV.eq sym ux uy
-
     | otherwise = do
-      sbMakeElt sym $ BVEq (min x y) (max x y)
+        ut <- CFG.getOpt (sbUnaryThreshold sym)
+        let ?unaryThreshold = fromInteger ut
+        if | Just ux <- asUnaryBV sym x
+           , Just uy <- asUnaryBV sym y
+           -> UnaryBV.eq sym ux uy
+           | otherwise
+           -> sbMakeElt sym $ BVEq (min x y) (max x y)
 
   bvSlt sym x y
     | Just xc <- asSignedBV x
@@ -3851,12 +3859,14 @@ instance IsExprBuilder (SimpleBuilder t st) where
       return $! backendPred sym b
     | x == y = return (falsePred sym)
 
-      -- Unary values.
-    | Just ux <- asUnaryBV sym x
-    , Just uy <- asUnaryBV sym y = do
-      UnaryBV.slt sym ux uy
-
-    | otherwise = sbMakeElt sym $ BVSlt x y
+    | otherwise = do
+        ut <- CFG.getOpt (sbUnaryThreshold sym)
+        let ?unaryThreshold = fromInteger ut
+        if | Just ux <- asUnaryBV sym x
+           , Just uy <- asUnaryBV sym y
+           -> UnaryBV.slt sym ux uy
+           | otherwise
+           -> sbMakeElt sym $ BVSlt x y
 
   bvUlt sym x y
     | Just xc <- asUnsignedBV x
@@ -3867,12 +3877,15 @@ instance IsExprBuilder (SimpleBuilder t st) where
     | x == y =
       return $! falsePred sym
 
-      -- Unary values.
-    | Just ux <- asUnaryBV sym x
-    , Just uy <- asUnaryBV sym y = do
-      UnaryBV.ult sym ux uy
+    | otherwise = do
+        ut <- CFG.getOpt (sbUnaryThreshold sym)
+        let ?unaryThreshold = fromInteger ut
+        if | Just ux <- asUnaryBV sym x
+           , Just uy <- asUnaryBV sym y
+           -> UnaryBV.ult sym ux uy
 
-    | otherwise = sbMakeElt sym $ BVUlt x y
+           | otherwise
+           -> sbMakeElt sym $ BVUlt x y
 
   bvShl sym x y
    | Just i <- asUnsignedBV x, Just n <- asUnsignedBV y = do
@@ -4037,12 +4050,14 @@ instance IsExprBuilder (SimpleBuilder t st) where
     | Just i <- asSignedBV x = bvLit sym (bvWidth x) (-i)
     | Just (BVNeg _ y) <- asApp x = return y
 
-      -- Negate a unary bitvector.
-    | Just ux <- asUnaryBV sym x = do
-      uz <- UnaryBV.neg sym ux
-      sbTryUnaryTerm sym uz (BVNeg (bvWidth x) x)
-
-    | otherwise = sbMakeElt sym $ BVNeg (bvWidth x) x
+    | otherwise =
+        do ut <- CFG.getOpt (sbUnaryThreshold sym)
+           let ?unaryThreshold = fromInteger ut
+           if | Just ux <- asUnaryBV sym x
+              -> do uz <- UnaryBV.neg sym ux
+                    sbTryUnaryTerm sym uz (BVNeg (bvWidth x) x)
+              | otherwise
+              -> sbMakeElt sym $ BVNeg (bvWidth x) x
 
   bvAdd sym x y
     | Just 0 <- asUnsignedBV x = return y
@@ -4071,13 +4086,15 @@ instance IsExprBuilder (SimpleBuilder t st) where
       z_r <- bvAdd sym x_r y_r
       bvAdd sym z_c z_r
 
-    | Just ux <- asUnaryBV sym x
-    , Just uy <- asUnaryBV sym y = do
-      uz <- UnaryBV.add sym ux uy
-      sbTryUnaryTerm sym uz (BVAdd (bvWidth x) (min x y) (max x y))
-
     | otherwise =
-      sbMakeElt sym $ BVAdd (bvWidth x) (min x y) (max x y)
+        do ut <- CFG.getOpt (sbUnaryThreshold sym)
+           let ?unaryThreshold = fromInteger ut
+           if | Just ux <- asUnaryBV sym x
+              , Just uy <- asUnaryBV sym y
+              -> do uz <- UnaryBV.add sym ux uy
+                    sbTryUnaryTerm sym uz (BVAdd (bvWidth x) (min x y) (max x y))
+              | otherwise
+              -> sbMakeElt sym $ BVAdd (bvWidth x) (min x y) (max x y)
 
   bvMul sym x y
     | Just 0 <- asUnsignedBV x = return x
@@ -4106,12 +4123,6 @@ instance IsExprBuilder (SimpleBuilder t st) where
   bvSdiv = bvSignedBinOp div BVSdiv
   bvSrem = bvSignedBinOp rem BVSrem
 
-  bvUnary sym u
-    | Just v <-  UnaryBV.asConstant u =
-      bvLit sym (UnaryBV.width u) v
-    | otherwise =
-      sbMakeElt sym (BVUnaryTerm u)
-
   mkStruct sym args = do
     sbMakeElt sym $ StructCtor (fmapFC exprType args) args
 
@@ -4130,6 +4141,44 @@ instance IsExprBuilder (SimpleBuilder t st) where
     | otherwise =
       case exprType x of
         BaseStructRepr flds -> sbMakeElt sym $ StructIte flds p x y
+
+  --------------------------------------------------------------------
+  -- String operations
+
+  stringLit sym txt =
+    do l <- curProgramLoc sym
+       return $! StringElt txt l
+
+  stringEq sym x y
+    | Just x' <- asString x
+    , Just y' <- asString y
+    = if x' == y' then return (truePred sym) else return (falsePred sym)
+  stringEq _ _ _
+    = fail "Expected concrete strings in stringEq"
+
+  stringIte _sym c x y
+    | Just c' <- asConstantPred c
+    = if c' then return x else return y
+  stringIte _sym _c x y
+    | Just x' <- asString x
+    , Just y' <- asString y
+    , x' == y'
+    = return x
+  stringIte _sym _c _x _y
+    = fail "Cannot merge distinct concrete strings"
+
+  stringConcat sym x y
+    | Just x' <- asString x
+    , Just y' <- asString y
+    = stringLit sym (x' <> y')
+  stringConcat _ _ _
+    = fail "Expected concrete strings in stringConcat"
+
+  stringLength sym x
+    | Just x' <- asString x
+    = do natLit sym (fromIntegral (Text.length x'))
+  stringLength _ _
+    = fail "Expected concrete strings in stringLength"
 
   --------------------------------------------------------------------
   -- Symbolic array operations
@@ -4428,8 +4477,6 @@ instance IsExprBuilder (SimpleBuilder t st) where
 
   realMul sym x y = semiRingMul sym SemiRingReal x y
 
-  realSum sym s = semiRingSum sym SemiRingReal s
-
   realDiv sym x y
     | Just 0 <- asRational x =
       return x
@@ -4524,10 +4571,7 @@ instance IsExprBuilder (SimpleBuilder t st) where
     (:+) <$> sbMakeElt sym (RealPart x)
          <*> sbMakeElt sym (ImagPart x)
 
-instance IsSymInterface (SimpleBuilder t st) where
-  stopCaching = sbStopCaching
-  restartCaching = sbRestartCaching
-
+instance IsSymExprBuilder (SimpleBuilder t st) where
   freshConstant sym nm tp = do
     v <- sbMakeBoundVar sym nm tp UninterpVarKind
     updateVarBinding sym nm (VarSymbolBinding v)
@@ -4587,6 +4631,7 @@ instance IsSymInterface (SimpleBuilder t st) where
      MatlabSolverFnInfo f _ _ -> do
        evalMatlabSolverFn f sym args
      _ -> sbNonceElt sym $! FnApp fn args
+
 
 --------------------------------------------------------------------------------
 -- MatlabSymbolicArrayBuilder instance

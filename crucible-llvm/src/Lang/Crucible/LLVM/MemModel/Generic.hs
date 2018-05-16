@@ -8,6 +8,7 @@
 -- Stability        : provisional
 ------------------------------------------------------------------------
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -18,18 +19,24 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Lang.Crucible.LLVM.MemModel.Generic
   ( Mem
   , emptyMem
   , AllocType(..)
+  , Mutability(..)
   , MemAlloc(..)
   , memAllocs
+  , memEndian
   , allocMem
   , allocAndWriteMem
   , readMem
   , isValidPointer
+  , isAligned
+  , notAliasable
   , writeMem
+  , writeConstMem
   , copyMem
   , pushStackFrameMem
   , popStackFrameMem
@@ -37,9 +44,13 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , branchMem
   , branchAbortMem
   , mergeMem
-  , ppMem
+
+    -- * Pretty printing
   , ppType
-  , ppLLVMPtr
+  , ppPtr
+  , ppAlloc
+  , ppAllocs
+  , ppMem
   ) where
 
 import Control.Lens
@@ -47,18 +58,20 @@ import Control.Monad
 import Data.IORef
 import Data.Maybe
 import qualified Data.Map as Map
-import Data.Monoid hiding ((<>))
 import qualified Data.Vector as V
 import Numeric.Natural
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import Data.Parameterized.Classes
+import Data.Parameterized.Some
 
+import Lang.Crucible.LLVM.Bytes
+import Lang.Crucible.LLVM.DataLayout
+import Lang.Crucible.LLVM.MemModel.Type
 import Lang.Crucible.LLVM.MemModel.Common
 import Lang.Crucible.LLVM.MemModel.Pointer
+import Lang.Crucible.Solver.BoolInterface
 import Lang.Crucible.Solver.Interface
-import Lang.Crucible.Solver.Partial
-
 
 --import Debug.Trace as Debug
 
@@ -70,10 +83,16 @@ adrVar (SymbolicOffset v _) = Just v
 data AllocType = StackAlloc | HeapAlloc | GlobalAlloc
   deriving (Show)
 
+data Mutability = Mutable | Immutable
+  deriving (Eq, Show)
+
 -- | Stores writeable memory allocations.
 data MemAlloc sym
-     -- | Allocation with given block ID and number of bytes.
-   = forall w. Alloc AllocType Natural (SymBV sym w) String
+     -- | Allocation with given block ID and number of bytes. The
+     -- 'Mutability' indicates whether the region is read-only. The
+     -- 'String' contains source location information for use in error
+     -- messages.
+   = forall w. Alloc AllocType Natural (SymBV sym w) Mutability String
      -- | The merger of two allocations.
    | AllocMerge (Pred sym) [MemAlloc sym] [MemAlloc sym]
 
@@ -82,15 +101,18 @@ data MemWrite sym
     -- [dst..dst+len).
   = forall w. MemCopy (LLVMPtr sym w, AddrDecomposeResult sym w) (LLVMPtr sym w) (SymBV sym w, Maybe Integer)
     -- | Memstore is given address was written, value, and type of value.
-  | forall w. MemStore (LLVMPtr sym w, AddrDecomposeResult sym w) (PartLLVMVal sym) Type
+  | forall w. MemStore (LLVMPtr sym w, AddrDecomposeResult sym w) (LLVMVal sym) Type
     -- | The merger of two memories.
   | WriteMerge (Pred sym) [MemWrite sym] [MemWrite sym]
+
+--------------------------------------------------------------------------------
+-- Reading from memory
 
 tgAddPtrC :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> LLVMPtr sym w -> Addr -> IO (LLVMPtr sym w)
 tgAddPtrC sym w x y = ptrAdd sym w x =<< constOffset sym w y
 
-badLoad :: (IsBoolExprBuilder sym) => sym -> Type -> IO (Pred sym, PartLLVMVal sym)
-badLoad sym _tp = return (falsePred sym, Unassigned)
+badLoad :: (IsExprBuilder sym) => sym -> Type -> IO (PartLLVMVal sym)
+badLoad _sym _tp = return Unassigned
 
 genPtrExpr :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w
            -> (LLVMPtr sym w, LLVMPtr sym w, SymBV sym w)
@@ -135,70 +157,150 @@ genCondVar sym w inst c =
     IntLe x y         -> join $ bvSle sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
     And x y           -> join $ andPred sym <$> genCondVar sym w inst x <*> genCondVar sym w inst y
 
-genValueCtor :: (IsSymInterface sym) => sym -> ValueCtor (PartLLVMVal sym) -> IO (PartLLVMVal sym)
-genValueCtor sym = foldTermM return (applyCtorFLLVMVal sym)
+genValueCtor :: forall sym .
+  IsSymInterface sym => sym ->
+  EndianForm ->
+  ValueCtor (PartLLVMVal sym) ->
+  IO (PartLLVMVal sym)
+genValueCtor sym end v =
+  case v of
+    ValueCtorVar x -> return x
+    ConcatBV low_w vcl high_w vch ->
+      do vl <- genValueCtor sym end vcl
+         vh <- genValueCtor sym end vch
+         case end of
+           BigEndian    -> bvConcatPartLLVMVal sym high_w vh low_w vl
+           LittleEndian -> bvConcatPartLLVMVal sym low_w vl high_w vh
+    ConsArray tp vc1 n vc2 ->
+      do lv1 <- genValueCtor sym end vc1
+         lv2 <- genValueCtor sym end vc2
+         consArrayPartLLVMVal sym tp lv1 n lv2
+    AppendArray tp n1 vc1 n2 vc2 ->
+      do lv1 <- genValueCtor sym end vc1
+         lv2 <- genValueCtor sym end vc2
+         appendArrayPartLLVMVal sym tp n1 lv1 n2 lv2
+    MkArray tp vv ->
+      do vec <- traverse (genValueCtor sym end) vv
+         mkArrayPartLLVMVal sym tp vec
+    MkStruct vv ->
+      do vec <- traverse (traverse (genValueCtor sym end)) vv
+         mkStructPartLLVMVal sym vec
+    BVToFloat _ ->
+      return Unassigned
+      -- fail "genValueCtor: Floating point values not supported"
+    BVToDouble _ ->
+      return Unassigned
+      -- fail "genValueCtor: Floating point values not supported"
 
-applyView :: (IsSymInterface sym) => sym -> PartLLVMVal sym -> ValueView Type -> IO (PartLLVMVal sym)
-applyView sym t = foldTermM (\_ -> return t) (applyViewFLLVMVal sym)
+-- | Compute the actual value of a value deconstructor expression.
+applyView ::
+  IsSymInterface sym => sym ->
+  EndianForm ->
+  PartLLVMVal sym ->
+  ValueView ->
+  IO (PartLLVMVal sym)
+applyView sym end t val =
+  case val of
+    ValueViewVar _ ->
+      return t
+    SelectPrefixBV i j v ->
+      do t' <- applyView sym end t v
+         case end of
+           BigEndian -> selectHighBvPartLLVMVal sym j i t'
+           LittleEndian -> selectLowBvPartLLVMVal sym i j t'
+    SelectSuffixBV i j v ->
+      do t' <- applyView sym end t v
+         case end of
+           BigEndian -> selectLowBvPartLLVMVal sym j i t'
+           LittleEndian -> selectHighBvPartLLVMVal sym i j t'
+    FloatToBV _ ->
+      return Unassigned
+      --fail "applyView: Floating point values not supported"
+    DoubleToBV _ ->
+      return Unassigned
+      --fail "applyView: Floating point values not supported"
+    ArrayElt sz tp idx v ->
+      arrayEltPartLLVMVal sz tp idx =<< applyView sym end t v
+    FieldVal flds idx v ->
+      fieldValPartLLVMVal flds idx =<< applyView sym end t v
 
--- | Join all conditions in fold together.
-tgAll :: (IsBoolExprBuilder sym) => sym
-      -> Getting (Dual (Endo (Pred sym -> IO (Pred sym)))) s (Pred sym)
-      -> s
-      -> IO (Pred sym)
-tgAll sym fld = foldrMOf fld (andPred sym) (truePred sym)
-
-tgMuxPair :: IsSymInterface sym => sym
-          -> Pred sym
-          -> (Pred sym, PartLLVMVal sym)
-          -> (Pred sym, PartLLVMVal sym)
-          -> IO (Pred sym, PartLLVMVal sym)
-tgMuxPair sym c (xc,xt) (yc,yt) =
-  (,) <$> itePred sym c xc yc
-      <*> muxLLVMVal sym c xt yt
-
-evalValueCtor :: (IsSymInterface sym) => sym
-              -> ValueCtor (Pred sym, PartLLVMVal sym)
-              -> IO (Pred sym, PartLLVMVal sym)
-evalValueCtor sym vc =
-   (,) <$> tgAll sym (traverse . _1) vc
-       <*> genValueCtor sym (snd <$> vc)
-
-evalMuxValueCtor :: forall u sym w .
-                    (1 <= w, IsSymInterface sym) => sym -> NatRepr w
-                    -- Evaluation function
-                 -> (LLVMPtr sym w, LLVMPtr sym w, SymBV sym w)
-                    -- Function for reading specific subranges.
-                 -> (u -> IO (Pred sym, PartLLVMVal sym))
-                 -> Mux (ValueCtor u)
-                 -> IO (Pred sym, PartLLVMVal sym)
-evalMuxValueCtor sym _w _vf subFn (MuxVar v) =
+evalMuxValueCtor ::
+  forall u sym w .
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w ->
+  EndianForm ->
+  (LLVMPtr sym w, LLVMPtr sym w, SymBV sym w) {- ^ Evaluation function -} ->
+  (u -> IO (PartLLVMVal sym)) {- ^ Function for reading specific subranges -} ->
+  Mux (ValueCtor u) ->
+  IO (PartLLVMVal sym)
+evalMuxValueCtor sym _w end _vf subFn (MuxVar v) =
   do v' <- traverse subFn v
-     evalValueCtor sym v'
-evalMuxValueCtor sym w vf subFn (Mux c t1 t2) =
+     genValueCtor sym end v'
+evalMuxValueCtor sym w end vf subFn (Mux c t1 t2) =
   do c' <- genCondVar sym w vf c
-     t1' <- evalMuxValueCtor sym w vf subFn t1
-     t2' <- evalMuxValueCtor sym w vf subFn t2
-     tgMuxPair sym c' t1' t2'
+     t1' <- evalMuxValueCtor sym w end vf subFn t1
+     t2' <- evalMuxValueCtor sym w end vf subFn t2
+     muxLLVMVal sym c' t1' t2'
+evalMuxValueCtor sym w end vf subFn (MuxTable a b m t) =
+  do m' <- traverse (evalMuxValueCtor sym w end vf subFn) m
+     t' <- evalMuxValueCtor sym w end vf subFn t
+     result <- Map.foldrWithKey f (return t') m'
+     p' <- simplPred (Map.assocs (fmap predOf m')) (predOf t')
+     case result of
+       Unassigned -> return Unassigned
+       PE _ v     -> return (PE p' v) -- replace predicate with simplified one
+  where
+    f :: Bytes -> PartLLVMVal sym -> IO (PartLLVMVal sym) -> IO (PartLLVMVal sym)
+    f n t1 k =
+      do c' <- genCondVar sym w vf (PtrOffsetEq (aOffset n) b)
+         t2 <- k
+         muxLLVMVal sym c' t1 t2
+
+    aOffset :: Bytes -> PtrExpr
+    aOffset n = PtrAdd a (CValue (bytesToInteger n))
+
+    predOf :: PartLLVMVal sym -> Pred sym
+    predOf Unassigned = falsePred sym
+    predOf (PE p _) = p
+
+    samePred :: Pred sym -> Pred sym -> Bool
+    samePred p1 p2 =
+      case (asConstantPred p1, asConstantPred p2) of
+        (Just b1, Just b2) -> b1 == b2
+        _ -> False
+
+    simplPred :: [(Bytes, Pred sym)] -> Pred sym -> IO (Pred sym)
+    simplPred [] p0 = return p0
+    simplPred ((n, p) : xps) p0 =
+      do let (xps1, xps2) = span (samePred p . snd) xps
+         let c = if null xps1
+                 then PtrOffsetEq (aOffset n) b
+                 else And (PtrOffsetLe (aOffset n) b)
+                          (PtrOffsetLe b (aOffset (fst (last xps1))))
+         c' <- genCondVar sym w vf c
+         p' <- simplPred xps2 p0
+         itePred sym c' p p'
+
 
 readMemCopy :: forall sym w .
                (1 <= w, IsSymInterface sym)
             => sym -> NatRepr w
+            -> EndianForm
             -> (LLVMPtr sym w, AddrDecomposeResult sym w)
             -> Type
             -> (LLVMPtr sym w, AddrDecomposeResult sym w)
             -> LLVMPtr sym w
             -> (SymBV sym w, Maybe Integer)
-            -> (Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (Pred sym, PartLLVMVal sym))
-            -> IO (Pred sym, PartLLVMVal sym)
-readMemCopy sym w (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
-  let readPrev tp' p = readPrev' tp' . (p,) =<< ptrDecompose sym w p
+            -> (Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (PartLLVMVal sym))
+            -> IO (PartLLVMVal sym)
+readMemCopy sym w end (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
+  let readPrev tp' p = readPrev' tp' (p, ptrDecompose sym w p)
   let varFn = (l, d, sz)
   case (ld, dd) of
     -- Offset if known
     (ConcreteOffset lv lo, ConcreteOffset sv so)
       | lv == sv -> do
-      let subFn :: RangeLoad Addr Addr -> IO (Pred sym, PartLLVMVal sym)
+      let subFn :: RangeLoad Addr Addr -> IO (PartLLVMVal sym)
           subFn (OutOfRange o tp') = do lv' <- natLit sym lv
                                         o' <- bvLit sym w (bytesToInteger o)
                                         readPrev tp' (LLVMPointer lv' o')
@@ -207,9 +309,9 @@ readMemCopy sym w (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
         Just csz -> do
           let s = R (fromInteger so) (fromInteger (so + csz))
           let vcr = rangeLoad (fromInteger lo) tp s
-          evalValueCtor sym =<< traverse subFn vcr
+          genValueCtor sym end =<< traverse subFn vcr
         _ ->
-          evalMuxValueCtor sym w varFn subFn $
+          evalMuxValueCtor sym w end varFn subFn $
             fixedOffsetRangeLoad (fromInteger lo) tp (fromInteger so)
     -- We know variables are disjoint.
     _ | Just lv <- adrVar ld
@@ -217,7 +319,7 @@ readMemCopy sym w (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
       , lv /= sv -> readPrev' tp (l,ld)
       -- Symbolic offsets
     _ -> do
-      let subFn :: RangeLoad PtrExpr IntExpr -> IO (Pred sym, PartLLVMVal sym)
+      let subFn :: RangeLoad PtrExpr IntExpr -> IO (PartLLVMVal sym)
           subFn (OutOfRange o tp') =
             readPrev tp' =<< genPtrExpr sym w varFn o
           subFn (InRange o tp') =
@@ -229,72 +331,91 @@ readMemCopy sym w (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
                    fixedSizeRangeLoad pref tp (fromInteger csz)
                | otherwise =
                    symbolicRangeLoad pref tp
-      evalMuxValueCtor sym w varFn subFn mux0
+      evalMuxValueCtor sym w end varFn subFn mux0
 
 readMemStore :: forall sym w .
                (1 <= w, IsSymInterface sym)
             => sym -> NatRepr w
+            -> EndianForm
             -> (LLVMPtr sym w, AddrDecomposeResult sym w)
                -- ^ The loaded address and information
             -> Type
                -- ^ The type we are reading.
             -> (LLVMPtr sym w, AddrDecomposeResult sym w)
                -- ^ The store we are reading from.
-            -> PartLLVMVal sym
+            -> LLVMVal sym
                -- ^ The value that was stored.
             -> Type
                -- ^ The type of value that was written.
-            -> (Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (Pred sym, PartLLVMVal sym))
+            -> Alignment
+               -- ^ The alignment of the pointer we are reading from
+            -> (Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (PartLLVMVal sym))
                -- ^ A callback function for when reading fails.
-            -> IO (Pred sym, PartLLVMVal sym)
-readMemStore sym w (l,ld) ltp (d,dd) t stp readPrev' = do
+            -> IO (PartLLVMVal sym)
+readMemStore sym w end (l,ld) ltp (d,dd) t stp loadAlign readPrev' = do
   ssz <- bvLit sym w (bytesToInteger (typeSize stp))
   let varFn = (l, d, ssz)
-  let readPrev tp p = readPrev' tp . (p,) =<< ptrDecompose sym w p
+  let readPrev tp p = readPrev' tp (p, ptrDecompose sym w p)
   case (ld, dd) of
     -- Offset if known
     (ConcreteOffset lv lo, ConcreteOffset sv so)
       | lv == sv -> do
-      let subFn :: ValueLoad Addr -> IO (Pred sym, PartLLVMVal sym)
+      let subFn :: ValueLoad Addr -> IO (PartLLVMVal sym)
           subFn (OldMemory o tp')   = do lv' <- natLit sym lv
                                          o' <- bvLit sym w (bytesToInteger o)
                                          readPrev tp' (LLVMPointer lv' o')
-          subFn (LastStore v)       = (truePred sym,) <$> applyView sym t v
+          subFn (LastStore v)       = applyView sym end (PE (truePred sym) t) v
           subFn (InvalidMemory tp') = badLoad sym tp'
-      let vcr = valueLoad (fromInteger lo) ltp (fromInteger so) (Var stp)
-      evalValueCtor sym =<< traverse subFn vcr
+      let vcr = valueLoad (fromInteger lo) ltp (fromInteger so) (ValueViewVar stp)
+      genValueCtor sym end =<< traverse subFn vcr
     -- We know variables are disjoint.
     _ | Just lv <- adrVar ld
       , Just sv <- adrVar dd
       , lv /= sv -> readPrev' ltp (l,ld)
       -- Symbolic offsets
     _ -> do
-      let subFn :: ValueLoad PtrExpr -> IO (Pred sym, PartLLVMVal sym)
-          subFn (OldMemory o tp')   = do
-                     readPrev tp' =<< genPtrExpr sym w varFn o
-          subFn (LastStore v)       = do
-                     (truePred sym,) <$> applyView sym t v
+      let subFn :: ValueLoad PtrExpr -> IO (PartLLVMVal sym)
+          subFn (OldMemory o tp')   = readPrev tp' =<< genPtrExpr sym w varFn o
+          subFn (LastStore v)       = applyView sym end (PE (truePred sym) t) v
           subFn (InvalidMemory tp') = badLoad sym tp'
       let pref | ConcreteOffset{} <- dd = FixedStore
                | ConcreteOffset{} <- ld = FixedLoad
                | otherwise = NeitherFixed
-      evalMuxValueCtor sym w varFn subFn $
-        symbolicValueLoad pref ltp (Var stp)
+      let ctz :: Integer -> Alignment
+          ctz x | x == 0 = 64 -- maximum alignment
+                | odd x = 0
+                | otherwise = 1 + ctz (x `div` 2)
+      let storeAlign =
+            case dd of
+              ConcreteOffset _ x -> ctz x
+              _                  -> 0
+      let align' = min loadAlign storeAlign
+      evalMuxValueCtor sym w end varFn subFn $
+        symbolicValueLoad pref ltp (ValueViewVar stp) align'
 
 readMem :: (1 <= w, IsSymInterface sym)
         => sym -> NatRepr w
         -> LLVMPtr sym w
         -> Type
+        -> Alignment
         -> Mem sym
-        -> IO (Pred sym, PartLLVMVal sym)
-readMem sym w l tp m = do
-  ld <- ptrDecompose sym w l
+        -> IO (PartLLVMVal sym)
+readMem sym w l tp alignment m = do
+  let ld = ptrDecompose sym w l
   sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
-  p  <- isAllocated sym w l sz m
-  (p', val) <- readMem' sym w (l,ld) tp (memWrites m)
-  p'' <- andPred sym p p'
-  return (p'', val)
+  p1 <- isAllocated sym w l sz m
+  p2 <- isAligned sym w l alignment
+  p <- andPred sym p1 p2
+  val <- readMem' sym w (memEndianForm m) (l,ld) tp alignment (memWrites m)
+  val' <- andPartVal sym p val
+  return val'
 
+andPartVal :: IsSymInterface sym => sym -> Pred sym -> PartLLVMVal sym -> IO (PartLLVMVal sym)
+andPartVal sym p val =
+  case val of
+    Unassigned -> return Unassigned
+    PE p' v    -> do p'' <- andPred sym p p'
+                     return (PE p'' v)
 
 data CacheEntry sym w =
   CacheEntry !(Type) !(SymNat sym) !(SymBV sym w)
@@ -305,11 +426,13 @@ instance (TestEquality (SymExpr sym)) => Eq (CacheEntry sym w) where
 
 instance IsSymInterface sym => Ord (CacheEntry sym w) where
   compare (CacheEntry tp1 blk1 off1) (CacheEntry tp2 blk2 off2) =
-    compare tp1 tp2 <> toOrdering (compareF blk1 blk2) <> toOrdering (compareF off1 off2)
+    compare tp1 tp2
+      `mappend` toOrdering (compareF blk1 blk2)
+      `mappend` toOrdering (compareF off1 off2)
 
 
 toCacheEntry :: Type -> LLVMPtr sym w -> CacheEntry sym w
-toCacheEntry tp (LLVMPointer blk bv) = CacheEntry tp blk bv
+toCacheEntry tp (llvmPointerView -> (blk, bv)) = CacheEntry tp blk bv
 
 -- | Read a value from memory given a list of writes.
 --
@@ -317,24 +440,26 @@ toCacheEntry tp (LLVMPointer blk bv) = CacheEntry tp blk bv
 -- read (which may be anything if read was unsuccessful).
 readMem' :: forall w sym . (1 <= w, IsSymInterface sym)
          => sym -> NatRepr w
+         -> EndianForm
          -> (LLVMPtr sym w, AddrDecomposeResult sym w)
             -- ^ Address we are reading along with information about how it was constructed.
          -> Type
             -- ^ The type to read from memory.
+         -> Alignment -- ^ Alignment of pointer to read from
          -> [MemWrite sym]
             -- ^ List of writes.
-         -> IO (Pred sym, PartLLVMVal sym)
-readMem' sym w l0 tp0 = go (badLoad sym tp0) l0 tp0
+         -> IO (PartLLVMVal sym)
+readMem' sym w end l0 tp0 alignment = go (\tp _l -> badLoad sym tp) l0 tp0
   where
-    go :: IO (Pred sym, PartLLVMVal sym) ->
+    go :: (Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (PartLLVMVal sym)) ->
           (LLVMPtr sym w, AddrDecomposeResult sym w) ->
           Type ->
           [MemWrite sym] ->
-          IO (Pred sym, PartLLVMVal sym)
-    go fallback _ _ [] = fallback
+          IO (PartLLVMVal sym)
+    go fallback l tp [] = fallback tp l
     go fallback l tp (h : r) =
       do cache <- newIORef Map.empty
-         let readPrev :: Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (Pred sym, PartLLVMVal sym)
+         let readPrev :: Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (PartLLVMVal sym)
              readPrev tp' l' = do
                m <- readIORef cache
                case Map.lookup (toCacheEntry tp' (fst l')) m of
@@ -346,54 +471,56 @@ readMem' sym w l0 tp0 = go (badLoad sym tp0) l0 tp0
          case h of
            MemCopy dst src sz ->
              case testEquality (ptrWidth (fst dst)) w of
-               Just Refl -> readMemCopy sym w l tp dst src sz readPrev
-               Nothing   -> readPrev tp l 
+               Just Refl -> readMemCopy sym w end l tp dst src sz readPrev
+               Nothing   -> readPrev tp l
            MemStore dst v stp ->
              case testEquality (ptrWidth (fst dst)) w of
-               Just Refl -> readMemStore sym w l tp dst v stp readPrev
+               Just Refl -> readMemStore sym w end l tp dst v stp alignment readPrev
                Nothing   -> readPrev tp l
            WriteMerge _ [] [] ->
              go fallback l tp r
            WriteMerge c xr yr ->
-             do p <- go fallback l tp r -- TODO: wrap this in a delay
-                x <- go (return p) l tp xr
-                y <- go (return p) l tp yr
-                tgMuxPair sym c x y
+             do x <- go readPrev l tp xr
+                y <- go readPrev l tp yr
+                muxLLVMVal sym c x y
+
+--------------------------------------------------------------------------------
+
+-- | The state of memory represented as a stack of pushes, branches, and merges.
+data Mem sym = Mem { memEndianForm :: EndianForm, _memState :: MemState sym }
+
+memState :: Simple Lens (Mem sym) (MemState sym)
+memState = lens _memState (\s v -> s { _memState = v })
 
 -- | A state of memory as of a stack push, branch, or merge.
-data MemState d =
+data MemState sym =
     -- | Represents initial memory and changes since then.
     -- Changes are stored in order, with more recent changes closer to the head
     -- of the list.
-    EmptyMem d
-    -- | Represents a push of a stack frame,  and changes since that stack push.
+    EmptyMem (MemChanges sym)
+    -- | Represents a push of a stack frame, and changes since that stack push.
     -- Changes are stored in order, with more recent changes closer to the head
     -- of the list.
-  | StackFrame d (MemState d)
+  | StackFrame (MemChanges sym) (MemState sym)
     -- | Represents a push of a branch frame, and changes since that branch.
     -- Changes are stored in order, with more recent changes closer to the head
     -- of the list.
-  | BranchFrame d (MemState d)
+  | BranchFrame (MemChanges sym) (MemState sym)
 
-memStateLastChanges :: Simple Lens (MemState d) d
+type MemChanges sym = ([MemAlloc sym], [MemWrite sym])
+
+memStateLastChanges :: Simple Lens (MemState sym) (MemChanges sym)
 memStateLastChanges f s0 =
   case s0 of
     EmptyMem l -> EmptyMem <$> f l
     StackFrame l s  -> flip StackFrame s  <$> f l
     BranchFrame l s -> flip BranchFrame s <$> f l
 
-type MemChanges sym = ([MemAlloc sym], [MemWrite sym])
-
 prependChanges :: MemChanges sym -> MemChanges sym -> MemChanges sym
 prependChanges (xa,xw) (ya,yw) = (xa ++ ya, xw ++ yw)
 
 muxChanges :: Pred sym -> MemChanges sym -> MemChanges sym -> MemChanges sym
-muxChanges c (xa,xw) (ya,yw) = ([AllocMerge c xa ya],[WriteMerge c xw yw])
-
-data Mem sym = Mem { _memState :: MemState (MemChanges sym) }
-
-memState :: Simple Lens (Mem sym) (MemState ([MemAlloc sym], [MemWrite sym]))
-memState = lens _memState (\s v -> s { _memState = v })
+muxChanges c (xa,xw) (ya,yw) = ([AllocMerge c xa ya], [WriteMerge c xw yw])
 
 memChanges :: (MemChanges sym -> [d]) -> Mem sym -> [d]
 memChanges f m = go (m^.memState)
@@ -416,21 +543,74 @@ memAddWrite x = memState . memStateLastChanges . _2 %~ (x:)
 emptyChanges :: MemChanges sym
 emptyChanges = ([],[])
 
-emptyMem :: Mem sym
-emptyMem = Mem { _memState = EmptyMem emptyChanges
-               }
+emptyMem :: EndianForm -> Mem sym
+emptyMem e = Mem { memEndianForm = e, _memState = EmptyMem emptyChanges }
 
-isAllocated' :: (IsExpr (SymExpr sym), IsBoolExprBuilder sym) =>
+memEndian :: Mem sym -> EndianForm
+memEndian = memEndianForm
+
+--------------------------------------------------------------------------------
+-- Pointer validity
+
+-- This function is parameterized by a predicate on the mutability, so
+-- it can optionally be restricted to mutable regions only.
+isAllocatedMut ::
+  forall sym w .
+  (1 <= w, IsSymInterface sym) =>
+  (Mutability -> Bool) ->
+  sym -> NatRepr w     ->
+  LLVMPtr sym w        ->
+  SymBV sym w          ->
+  Mem sym              ->
+  IO (Pred sym)
+isAllocatedMut mutOk sym w (llvmPointerView -> (blk, off)) sz m = do
+   do (ov, end) <- addUnsignedOF sym off sz
+      let step :: forall w'. Natural -> SymBV sym w' -> IO (Pred sym) -> IO (Pred sym)
+          step a asz fallback
+            -- If the allocation is done at pointer width equal to 'w', check if this
+            -- allocation covers the required range.
+            | Just Refl <- testEquality w (bvWidth asz) =
+                 do sameBlock <- natEq sym blk =<< natLit sym a
+                    inRange   <- bvUle sym end asz
+                    okNow     <- andPred sym sameBlock inRange
+                    case asConstantPred okNow of
+                      Just True  -> return okNow
+                      Just False -> fallback
+                      Nothing    -> orPred sym okNow =<< fallback
+
+            -- If the allocation is done at pointer width not equal to 'w', check that
+            -- this allocation is distinct from the base pointer.
+            | otherwise =
+                 do sameBlock <- natEq sym blk =<< natLit sym a
+                    case asConstantPred sameBlock of
+                      Just True  -> return (falsePred sym)
+                      Just False -> fallback
+                      Nothing    ->
+                        do notSameBlock <- notPred sym sameBlock
+                           andPred sym notSameBlock =<< fallback
+
+      -- It is an error if the offset+size calculation overflows.
+      case asConstantPred ov of
+        Just True  -> return (falsePred sym)
+        Just False -> isAllocated' sym step mutOk (memAllocs m)
+        Nothing    ->
+          do nov <- notPred sym ov
+             andPred sym nov =<< isAllocated' sym step mutOk (memAllocs m)
+
+isAllocated' :: (IsExpr (SymExpr sym), IsExprBuilder sym) =>
              sym
              -> (forall w. Natural -> SymBV sym w -> IO (Pred sym) -> IO (Pred sym))
                 -- ^ Evaluation function that takes continuation
                 -- for condition if previous check fails.
+             -> (Mutability -> Bool)
              -> [MemAlloc sym]
              -> IO (Pred sym)
-isAllocated' sym step = go (pure (falsePred sym))
+isAllocated' sym step mutOk = go (pure (falsePred sym))
   where
     go fallback [] = fallback
-    go fallback (Alloc _ a asz _ : r)    = step a asz (go fallback r)
+    go fallback (Alloc _ a asz mut _ : r)
+      | mutOk mut = step a asz (go fallback r)
+      | otherwise = go fallback r
     go fallback (AllocMerge _ [] [] : r) = go fallback r
     go fallback (AllocMerge c xr yr : r) =
       do p <- go fallback r -- TODO: wrap this in a delay
@@ -453,39 +633,12 @@ isAllocated :: forall sym w. (1 <= w, IsSymInterface sym)
             -> SymBV sym w
             -> Mem sym
             -> IO (Pred sym)
-isAllocated sym w (LLVMPointer blk off) sz m = do
-   do (ov, end) <- addUnsignedOF sym off sz
-      let step :: forall w'. Natural -> SymBV sym w' -> IO (Pred sym) -> IO (Pred sym)
-          step a asz fallback
-            -- If the allocation is done at pointer width equal to 'w', check if this
-            -- allocation covers the required range.
-            | Just Refl <- testEquality w (bvWidth asz) =
-                 do sameBlock <- natEq sym blk =<< natLit sym a
-                    inRange   <- bvUle sym sz end
-                    okNow     <- andPred sym sameBlock inRange  
-                    case asConstantPred okNow of
-                      Just True  -> return okNow
-                      Just False -> fallback
-                      Nothing    -> orPred sym okNow =<< fallback
+isAllocated = isAllocatedMut (const True)
 
-            -- If the allocation is done at pointer width not equal to 'w', check that
-            -- this allocation is distinct from the base pointer.
-            | otherwise =
-                 do sameBlock <- natEq sym blk =<< natLit sym a
-                    case asConstantPred sameBlock of
-                      Just True  -> return (falsePred sym)
-                      Just False -> fallback
-                      Nothing    ->
-                        do notSameBlock <- notPred sym sameBlock
-                           andPred sym notSameBlock =<< fallback
-
-      -- It is an error if the offset+size calculation overflows.
-      case asConstantPred ov of
-        Just True  -> return (falsePred sym)
-        Just False -> isAllocated' sym step (memAllocs m)
-        Nothing    ->
-          do nov <- notPred sym ov
-             andPred sym nov =<< isAllocated' sym step (memAllocs m)
+isAllocatedMutable ::
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w -> LLVMPtr sym w -> SymBV sym w -> Mem sym -> IO (Pred sym)
+isAllocatedMutable = isAllocatedMut (== Mutable)
 
 -- | @isValidPointer sym w b m@ returns condition required to prove range
 --   that @p@ is a valid pointer in @m@.  This means that @p@ is in the
@@ -502,29 +655,108 @@ isValidPointer sym w p m = do
    isAllocated sym w p sz m
    -- NB We call isAllocated with a size of 0.
 
+-- | Generate a predicate asserting that the given pointer satisfies
+-- the specified alignment constraint.
+isAligned ::
+  forall sym w .
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w ->
+  LLVMPtr sym w ->
+  Alignment ->
+  IO (Pred sym)
+isAligned sym _w _p a
+  | a == 0 = return (truePred sym)
+isAligned sym w (LLVMPointer _blk offset) a
+  | Just (Some bits) <- someNat (alignmentToExponent a)
+  , Just LeqProof <- isPosNat bits
+  , Just LeqProof <- testLeq bits w =
+    do lowbits <- bvSelect sym (knownNat :: NatRepr 0) bits offset
+       bvEq sym lowbits =<< bvLit sym bits 0
+isAligned sym _ _ _ =
+  return (falsePred sym)
+
+-- | The LLVM memory model generally does not allow for different
+-- memory regions to alias each other: Pointers with different
+-- allocation block numbers will compare as definitely unequal.
+-- However, it does allow two /immutable/ memory regions to alias each
+-- other. To make this sound, equality comparisons between pointers to
+-- different immutable memory regions must not evaluate to false.
+-- Therefore pointer equality comparisons assert that the pointers are
+-- not aliasable: they must not point to two different immutable
+-- blocks.
+notAliasable ::
+  forall sym w .
+  (1 <= w, IsSymInterface sym) =>
+  sym ->
+  LLVMPtr sym w ->
+  LLVMPtr sym w ->
+  Mem sym ->
+  IO (Pred sym)
+notAliasable sym (llvmPointerView -> (blk1, _)) (llvmPointerView -> (blk2, _)) mem =
+  do p0 <- natEq sym blk1 blk2
+     p1 <- isMutable blk1 (memAllocs mem)
+     p2 <- isMutable blk2 (memAllocs mem)
+     orPred sym p0 =<< orPred sym p1 p2
+  where
+    isMutable _blk [] = return (falsePred sym)
+    isMutable blk (Alloc _ _ _ Immutable _ : r) = isMutable blk r
+    isMutable blk (Alloc _ a _ Mutable _ : r) =
+      do p1 <- natEq sym blk =<< natLit sym a
+         p2 <- isMutable blk r
+         orPred sym p1 p2
+    isMutable blk (AllocMerge c x y : r) =
+      do px <- isMutable blk x
+         py <- isMutable blk y
+         p1 <- itePred sym c px py
+         p2 <- isMutable blk r
+         orPred sym p1 p2
+
+--------------------------------------------------------------------------------
+-- Other memory operations
+
+-- | Write a value to memory. The returned 'Pred' asserts that the
+-- pointer falls within an allocated mutable memory region.
 writeMem :: (1 <= w, IsSymInterface sym)
          => sym -> NatRepr w
          -> LLVMPtr sym w
          -> Type
-         -> PartLLVMVal sym
+         -> LLVMVal sym
          -> Mem sym
          -> IO (Pred sym, Mem sym)
-writeMem sym w p tp v m = do
-  (,) <$> (do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
-              isAllocated sym w p sz m)
-      <*> writeMem' sym w p tp v m
+writeMem sym w ptr tp v m =
+  do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
+     p <- isAllocatedMutable sym w ptr sz m
+     return (p, writeMem' sym w ptr tp v m)
 
--- | Write memory without checking if it is allocated.
+-- | Write a value to any memory region, mutable or immutable. The
+-- returned 'Pred' asserts that the pointer falls within an allocated
+-- memory region.
+writeConstMem ::
+  (1 <= w, IsSymInterface sym) =>
+  sym           ->
+  NatRepr w     ->
+  LLVMPtr sym w ->
+  Type          ->
+  LLVMVal sym   ->
+  Mem sym       ->
+  IO (Pred sym, Mem sym)
+writeConstMem sym w ptr tp v m =
+  do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
+     p <- isAllocated sym w ptr sz m
+     return (p, writeMem' sym w ptr tp v m)
+
+-- | Write memory without checking whether it is allocated.
 writeMem' :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
           -> LLVMPtr sym w
           -> Type
-          -> PartLLVMVal sym
+          -> LLVMVal sym
           -> Mem sym
-          -> IO (Mem sym)
-writeMem' sym w p tp v m = addWrite <$> ptrDecompose sym w p
-  where addWrite pd = m & memAddWrite (MemStore (p,pd) v tp)
+          -> Mem sym
+writeMem' sym w p tp v m =
+  m & memAddWrite (MemStore (p, ptrDecompose sym w p) v tp)
 
--- | Perform a mem copy.
+-- | Perform a mem copy. The returned 'Pred' asserts that the source
+-- and destination pointers both fall within allocated memory regions.
 copyMem :: (1 <= w, IsSymInterface sym)
          => sym -> NatRepr w
          -> LLVMPtr sym w -- ^ Dest
@@ -535,35 +767,37 @@ copyMem :: (1 <= w, IsSymInterface sym)
 copyMem sym w dst src sz m = do
   (,) <$> (join $ andPred sym <$> isAllocated sym w dst sz m
                               <*> isAllocated sym w src sz m)
-      <*> (do dstd <- ptrDecompose sym w dst
-              szd <- ptrSizeDecompose sym w sz
-              return $ m & memAddWrite (MemCopy (dst,dstd) src (sz,szd)))
+      <*> (do let dstd = ptrDecompose sym w dst
+              let szd = ptrSizeDecompose sym w sz
+              return $ m & memAddWrite (MemCopy (dst, dstd) src (sz, szd)))
 
 
--- | Allocate space for memory
+-- | Allocate a new empty memory region.
 allocMem :: AllocType -- ^ Type of allocation
          -> Natural -- ^ Block id for allocation
          -> SymBV sym w -- ^ Size
+         -> Mutability -- ^ Is block read-only
          -> String -- ^ Source location
          -> Mem sym
          -> Mem sym
-allocMem a b sz loc = memAddAlloc (Alloc a b sz loc)
+allocMem a b sz mut loc = memAddAlloc (Alloc a b sz mut loc)
 
--- | Allocate space for memory
+-- | Allocate and initialize a new memory region.
 allocAndWriteMem :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
                  -> AllocType -- ^ Type of allocation
                  -> Natural -- ^ Block id for allocation
                  -> Type
+                 -> Mutability -- ^ Is block read-only
                  -> String -- ^ Source location
-                 -> PartLLVMVal sym -- ^ Value to write
+                 -> LLVMVal sym -- ^ Value to write
                  -> Mem sym
                  -> IO (Mem sym)
-allocAndWriteMem sym w a b tp loc v m = do
+allocAndWriteMem sym w a b tp mut loc v m = do
   sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
   base <- natLit sym b
   off <- bvLit sym w 0
   let p = LLVMPointer base off
-  writeMem' sym w p tp v (m & memAddAlloc (Alloc a b sz loc))
+  return (writeMem' sym w p tp v (m & memAddAlloc (Alloc a b sz mut loc)))
 
 pushStackFrameMem :: Mem sym -> Mem sym
 pushStackFrameMem = memState %~ StackFrame emptyChanges
@@ -586,39 +820,30 @@ popStackFrameMem m = m & memState %~ popf
 
         popf _ = error "popStackFrameMem given unexpected memory"
 
-        pa (Alloc StackAlloc _ _ _) = Nothing
-        pa a@(Alloc HeapAlloc _ _ _) = Just a
-        pa a@(Alloc GlobalAlloc _ _ _) = Just a
+        pa (Alloc StackAlloc _ _ _ _) = Nothing
+        pa a@(Alloc HeapAlloc _ _ _ _) = Just a
+        pa a@(Alloc GlobalAlloc _ _ _ _) = Just a
         pa (AllocMerge c x y) = Just (AllocMerge c (mapMaybe pa x) (mapMaybe pa y))
-
-freeMem :: forall sym w
-         . (1 <= w, IsSymInterface sym)
-        => sym -> NatRepr w
-        -> LLVMPtr sym w -- ^ Base of allocation to free
-        -> Mem sym
-        -> IO (Pred sym, Mem sym)
-freeMem sym w p m = do
-  p' <- ptrDecompose sym w p
-  freeMem' sym w p p' m
 
 -- FIXME? This could perhaps be more efficient.  Right now we
 -- will traverse almost the entire memory on every free, even
 -- if we concretely find the corresponding allocation early.
-freeMem' :: forall sym w
-         . (1 <= w, IsSymInterface sym)
-        => sym -> NatRepr w
-        -> LLVMPtr sym w
-        -> AddrDecomposeResult sym w -- ^ Base of allocation to free
-        -> Mem sym
-        -> IO (Pred sym, Mem sym)
-freeMem' sym w p p_decomp m = do
-    (c, st') <- freeSt (m^.memState)
-    return (c, m & memState .~ st')
- where
+freeMem :: forall sym w .
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w ->
+  LLVMPtr sym w {- ^ Base of allocation to free -} ->
+  Mem sym ->
+  IO (Pred sym, Mem sym)
+freeMem sym w p m =
+  do (c, st') <- freeSt (m^.memState)
+     return (c, m & memState .~ st')
+  where
+  p_decomp = ptrDecompose sym w p
+
   freeAllocs :: [MemAlloc sym] -> IO (Pred sym, [MemAlloc sym])
   freeAllocs [] =
      return ( falsePred sym , [] )
-  freeAllocs (a@(Alloc HeapAlloc b _sz _) : as) = do
+  freeAllocs (a@(Alloc HeapAlloc b _sz _ro _) : as) = do
      case p_decomp of
        ConcreteOffset p' poff
          | p' == b -> do
@@ -642,7 +867,7 @@ freeMem' sym w p p_decomp m = do
          c'  <- orPred sym eq c
          return (c', AllocMerge eq [] [a] : as')
 
-  freeAllocs (a@(Alloc _ _ _ _) : as) = do
+  freeAllocs (a@(Alloc _ _ _ _ _) : as) = do
      (c, as') <- freeAllocs as
      return (c, a:as')
 
@@ -659,8 +884,7 @@ freeMem' sym w p p_decomp m = do
       (c,a') <- freeAllocs a
       return (c, (a', w'))
 
-  freeSt :: MemState (MemChanges sym)
-         -> IO (Pred sym, MemState (MemChanges sym))
+  freeSt :: MemState sym -> IO (Pred sym, MemState sym)
   freeSt (StackFrame ch st) = do
             (c1,ch') <- freeCh ch
             (c2,st') <- freeSt st
@@ -689,27 +913,13 @@ mergeMem c x y =
   case (x^.memState, y^.memState) of
     (BranchFrame a s, BranchFrame b _) ->
       let s' = s & memStateLastChanges %~ prependChanges (muxChanges c a b)
-       in x & memState .~ s'
+      in x & memState .~ s'
     _ -> error "mergeMem given unexpected memories"
 
 
 --------------------------------------------------------------------------------
 -- Pretty printing
 
-ppLLVMPtr :: IsExpr (SymExpr sym) => LLVMPtr sym w -> Doc
-ppLLVMPtr (LLVMPointer blk off) =
-    case asNat blk of
-      Just 0 -> off_doc
-      _ -> parens $ blk_doc <> ", " <> off_doc
-  where blk_doc = printSymExpr blk
-        off_doc = printSymExpr off
-
-ppPartTermExpr
-  :: IsExprBuilder sym
-  => PartExpr (Pred sym) (LLVMVal sym)
-  -> Doc
-ppPartTermExpr Unassigned = text "<undef>"
-ppPartTermExpr (PE _p t) = ppTermExpr t
 
 ppTermExpr
   :: forall sym. IsExprBuilder sym
@@ -717,8 +927,8 @@ ppTermExpr
   -> Doc
 ppTermExpr t = -- FIXME, do something with the predicate?
   case t of
-    LLVMValInt base off -> ppLLVMPtr @sym (LLVMPointer base off)
-    LLVMValReal v -> printSymExpr v
+    LLVMValInt base off -> ppPtr @sym (LLVMPointer base off)
+    LLVMValReal _ v -> printSymExpr v
     LLVMValStruct v -> encloseSep lbrace rbrace comma v''
       where v'  = fmap (over _2 ppTermExpr) (V.toList v)
             v'' = map (\(fld,doc) ->
@@ -754,16 +964,19 @@ ppMerge vpp c x y =
     indent 2 (vcat $ map vpp y)
 
 ppAlloc :: IsExprBuilder sym => MemAlloc sym -> Doc
-ppAlloc (Alloc atp base sz loc) =
-  text (show atp) <+> text (show base) <+> printSymExpr sz <+> text loc
+ppAlloc (Alloc atp base sz mut loc) =
+  text (show atp) <+> text (show base) <+> printSymExpr sz <+> text (show mut) <+> text loc
 ppAlloc (AllocMerge c x y) = do
   text "merge" <$$> ppMerge ppAlloc c x y
 
+ppAllocs :: IsExprBuilder sym => [MemAlloc sym] -> Doc
+ppAllocs xs = vcat $ map ppAlloc xs
+
 ppWrite :: IsExprBuilder sym => MemWrite sym -> Doc
 ppWrite (MemCopy (d,_) s (l,_)) = do
-  text "memcopy" <+> ppLLVMPtr d <+> ppLLVMPtr s <+> printSymExpr l
+  text "memcopy" <+> ppPtr d <+> ppPtr s <+> printSymExpr l
 ppWrite (MemStore (d,_) v _) = do
-  char '*' <> ppLLVMPtr d <+> text ":=" <+> ppPartTermExpr v
+  char '*' <> ppPtr d <+> text ":=" <+> ppTermExpr v
 ppWrite (WriteMerge c x y) = do
   text "merge" <$$> ppMerge ppWrite c x y
 
@@ -774,7 +987,7 @@ ppMemChanges (al,wl) =
   text "Writes:" <$$>
   indent 2 (vcat (map ppWrite wl))
 
-ppMemState :: (d -> Doc) -> MemState d -> Doc
+ppMemState :: (MemChanges sym -> Doc) -> MemState sym -> Doc
 ppMemState f (EmptyMem d) = do
   text "Base memory" <$$> indent 2 (f d)
 ppMemState f (StackFrame d ms) = do

@@ -8,16 +8,22 @@
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
 --
--- This module defines CFGs which feature mutable registers, in contrast
--- to the Core CFGs, which are in SSA form.  Register CFGs can be
--- translated into SSA registers using the SSAConversion module.
+-- This module defines CFGs that feature mutable registers, in
+-- contrast to the Core CFGs ("Lang.Crucible.CFG.Core"), which are in
+-- SSA form. Register CFGs can be translated into SSA CFGs using the
+-- "Lang.Crucible.CFG.SSAConversion" module.
+--
+-- Module "Lang.Crucible.CFG.Generator" provides a high-level monadic
+-- interface for producing register CFGs.
 ------------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 module Lang.Crucible.CFG.Reg
   ( -- * CFG
     CFG(..)
@@ -150,12 +156,13 @@ instance Ord (BlockID s) where
 -----------------------------------------------------------------------
 -- AtomSource
 
--- | Identifies what generated atom.
-data AtomSource s tp
+-- | Identifies what generated an atom.
+data AtomSource s (tp :: CrucibleType)
    = Assigned
-     -- Input argument to function.  They are ordered before other blocks.
+     -- | Input argument to function.  They are ordered before other
+     -- inputs to a program.
    | FnInput
-     -- The value passed into a lambda label.  This must appear after
+     -- | Value passed into a lambda label.  This must appear after
      -- other expressions.
    | LambdaArg !(LambdaLabel s tp)
 
@@ -164,13 +171,13 @@ data AtomSource s tp
 
 -- | An expression in the control flow graph with a unique identifier.
 -- Unlike registers, atoms must be assigned exactly once.
-data Atom s tp
+data Atom s (tp :: CrucibleType)
    = Atom { atomPosition :: !Position
             -- ^ Position where register was declared (used for debugging).
           , atomId :: !Int
             -- ^ Unique identifier for atom.
           , atomSource :: !(AtomSource s tp)
-            -- ^ Application used to defined expression.
+            -- ^ How the atom expression was defined.
           , typeOfAtom :: !(TypeRepr tp)
           }
 
@@ -210,7 +217,7 @@ instance Pretty (Atom s tp) where
 -- Reg
 
 -- | A mutable value in the control flow graph.
-data Reg s tp
+data Reg s (tp :: CrucibleType)
    = Reg { -- | Position where register was declared (used for debugging).
            regPosition :: !Position
            -- | Unique identifier for register.
@@ -267,7 +274,8 @@ instance OrdF (LambdaLabel s) where
 ------------------------------------------------------------------------
 -- SomeValue and ValueSet
 
-data Value s tp
+-- | A value is either a register or an atom.
+data Value s (tp :: CrucibleType)
    = RegValue  !(Reg s tp)
    | AtomValue !(Atom s tp)
 
@@ -292,29 +300,30 @@ typeOfValue :: Value s tp -> TypeRepr tp
 typeOfValue (RegValue r) = typeOfReg r
 typeOfValue (AtomValue a) = typeOfAtom a
 
--- | A set of values
+-- | A set of values.
 type ValueSet s = Set (Some (Value s))
 
 ------------------------------------------------------------------------
 -- Expr
 
 -- | An expression in RTL representation.
-data Expr s tp
-  = App !(App (Expr s) tp)
+data Expr ext s (tp :: CrucibleType)
+  = App !(App ext (Expr ext s) tp)
     -- ^ An application of an expression
   | AtomExpr !(Atom s tp)
     -- ^ An evaluated expession
 
-instance Pretty (Expr s tp) where
+instance PrettyExt ext => Pretty (Expr ext s tp) where
   pretty (App a) = ppApp pretty a
   pretty (AtomExpr a) = pretty a
 
-instance Show (Expr s tp) where
+instance PrettyExt ext => Show (Expr ext s tp) where
   show e = show (pretty e)
 
-instance ShowF (Expr s)
+instance PrettyExt ext => ShowF (Expr ext s)
 
-instance IsExpr (Expr s) where
+instance TypeApp (ExprExtension ext) => IsExpr (Expr ext s) where
+  type ExprExt (Expr ext s) = ext
   app = App
   asApp (App x) = Just x
   asApp _ = Nothing
@@ -323,8 +332,8 @@ instance IsExpr (Expr s) where
   exprType (App a)          = appType a
   exprType (AtomExpr a)     = typeOfAtom a
 
-instance IsString (Expr s StringType) where
-  fromString s = app (TextLit (fromString s))
+instance IsString (Expr ext s StringType) where
+  fromString s = App (TextLit (fromString s))
 
 
 
@@ -332,96 +341,115 @@ instance IsString (Expr s StringType) where
 -- AtomValue
 
 -- | The value of an assigned atom.
-data AtomValue s tp where
-  EvalApp :: !(App (Atom s) tp) -> AtomValue s tp
-  ReadReg :: !(Reg s tp) -> AtomValue s tp
+data AtomValue ext s (tp :: CrucibleType) where
+  -- Evaluate an expression
+  EvalApp :: !(App ext (Atom s) tp) -> AtomValue ext s tp
+  -- Read a value from a register
+  ReadReg :: !(Reg s tp) -> AtomValue ext s tp
+  -- Evaluate an extension statement
+  EvalExt :: !(StmtExtension ext (Atom s) tp) -> AtomValue ext s tp
   -- Read from a global vlalue
-  ReadGlobal :: !(GlobalVar tp) -> AtomValue s tp
+  ReadGlobal :: !(GlobalVar tp) -> AtomValue ext s tp
   -- Read from a reference cell
-  ReadRef :: !(Atom s (ReferenceType tp)) -> AtomValue s tp
+  ReadRef :: !(Atom s (ReferenceType tp)) -> AtomValue ext s tp
   -- Create a fresh reference cell
-  NewRef :: !(Atom s tp) -> AtomValue s (ReferenceType tp)
+  NewRef :: !(Atom s tp) -> AtomValue ext s (ReferenceType tp)
+  -- Create a fresh empty reference cell
+  NewEmptyRef :: !(TypeRepr tp) -> AtomValue ext s (ReferenceType tp)
 
   Call :: !(Atom s (FunctionHandleType args ret))
        -> !(Assignment (Atom s) args)
        -> !(TypeRepr ret)
-       -> AtomValue s ret
+       -> AtomValue ext s ret
 
-instance Pretty (AtomValue s tp) where
+instance PrettyExt ext => Pretty (AtomValue ext s tp) where
   pretty v =
     case v of
       EvalApp ap -> ppApp pretty ap
+      EvalExt st -> ppApp pretty st
       ReadReg r -> pretty r
       ReadGlobal g -> text "global" <+> pretty g
       ReadRef r -> text "!" <> pretty r
       NewRef a -> text "newref" <+> pretty a
+      NewEmptyRef tp -> text "emptyref" <+> pretty tp
       Call f args _ -> pretty f <> parens (commas (toListFC pretty args))
 
-typeOfAtomValue :: AtomValue s tp -> TypeRepr tp
+typeOfAtomValue :: (TypeApp (StmtExtension ext) , TypeApp (ExprExtension ext))
+                => AtomValue ext s tp -> TypeRepr tp
 typeOfAtomValue v =
   case v of
     EvalApp a -> appType a
+    EvalExt stmt -> appType stmt
     ReadReg r -> typeOfReg r
     ReadGlobal r -> globalType r
     ReadRef r -> case typeOfAtom r of
                    ReferenceRepr tpr -> tpr
     NewRef a -> ReferenceRepr (typeOfAtom a)
+    NewEmptyRef tp -> ReferenceRepr tp
     Call _ _ r -> r
 
 -- | Fold over all values in an 'AtomValue'.
-foldAtomValueInputs :: (forall x . Value s x -> b -> b) -> AtomValue s tp -> b -> b
+foldAtomValueInputs :: TraverseExt ext
+                    => (forall x . Value s x -> b -> b)
+                    -> AtomValue ext s tp -> b -> b
 foldAtomValueInputs f (ReadReg r)     b = f (RegValue r) b
-foldAtomValueInputs _ (ReadGlobal _)  b =  b
+foldAtomValueInputs f (EvalExt stmt)  b = foldrFC (f . AtomValue) b stmt
+foldAtomValueInputs _ (ReadGlobal _)  b = b
 foldAtomValueInputs f (ReadRef r)     b = f (AtomValue r) b
+foldAtomValueInputs _ (NewEmptyRef _) b = b
 foldAtomValueInputs f (NewRef a)      b = f (AtomValue a) b
 foldAtomValueInputs f (EvalApp app0)  b = foldApp (f . AtomValue) b app0
 foldAtomValueInputs f (Call g a _)    b = f (AtomValue g) (foldrFC' (f . AtomValue) b a)
 
-ppAtomBinding :: Atom s tp -> AtomValue s tp -> Doc
+ppAtomBinding :: PrettyExt ext => Atom s tp -> AtomValue ext s tp -> Doc
 ppAtomBinding a v = pretty a <+> text ":=" <+> pretty v
 
 ------------------------------------------------------------------------
 -- Stmt
 
 -- | Statement in control flow graph.
-data Stmt s
+data Stmt ext s
    = forall tp . SetReg     !(Reg s tp)       !(Atom s tp)
    | forall tp . WriteGlobal  !(GlobalVar tp) !(Atom s tp)
    | forall tp . WriteRef !(Atom s (ReferenceType tp)) !(Atom s tp)
-   | forall tp . DefineAtom !(Atom s tp)      !(AtomValue s tp)
+   | forall tp . DropRef  !(Atom s (ReferenceType tp))
+   | forall tp . DefineAtom !(Atom s tp)      !(AtomValue ext s tp)
    | Print      !(Atom s StringType)
      -- | Assert that the given expression is true.
    | Assert !(Atom s BoolType) !(Atom s StringType)
 
-instance Pretty (Stmt s) where
+instance PrettyExt ext => Pretty (Stmt ext s) where
   pretty s =
     case s of
       SetReg r e     -> pretty r <+> text ":=" <+> pretty e
       WriteGlobal g r  -> text "global" <+> pretty g <+> text ":=" <+> pretty r
       WriteRef r v -> text "ref" <+> pretty r <+> text ":=" <+> pretty v
+      DropRef r    -> text "drop" <+> pretty r
       DefineAtom a v -> ppAtomBinding a v
       Print  v   -> text "print"  <+> pretty v
       Assert c m -> text "assert" <+> pretty c <+> pretty m
 
 -- | Return local value assigned by this statement or @Nothing@ if this
 -- does not modify a register.
-stmtAssignedValue :: Stmt s -> Maybe (Some (Value s))
+stmtAssignedValue :: Stmt ext s -> Maybe (Some (Value s))
 stmtAssignedValue s =
   case s of
     SetReg r _ -> Just (Some (RegValue r))
     DefineAtom a _ -> Just (Some (AtomValue a))
     WriteGlobal{} -> Nothing
     WriteRef{} -> Nothing
+    DropRef{} -> Nothing
     Print{} -> Nothing
     Assert{} -> Nothing
 
 -- | Fold all registers that are inputs tostmt.
-foldStmtInputs :: (forall x . Value s x -> b -> b) -> Stmt s -> b -> b
+foldStmtInputs :: TraverseExt ext => (forall x . Value s x -> b -> b) -> Stmt ext s -> b -> b
 foldStmtInputs f s b =
   case s of
     SetReg _ e     -> f (AtomValue e) b
     WriteGlobal _ a  -> f (AtomValue a) b
     WriteRef r a -> f (AtomValue r) (f (AtomValue a) b)
+    DropRef r    -> f (AtomValue r) b
     DefineAtom _ v -> foldAtomValueInputs f v b
     Print  e     -> f (AtomValue e) b
     Assert c m   -> f (AtomValue c) (f (AtomValue m) b)
@@ -429,6 +457,7 @@ foldStmtInputs f s b =
 ------------------------------------------------------------------------
 -- TermStmt
 
+-- | Statement that terminates a basic block in a control flow graph.
 data TermStmt s (ret :: CrucibleType) where
   -- Jump to the given block.
   Jump :: !(Label s)
@@ -510,7 +539,7 @@ foldTermStmtAtoms f stmt0 b =
     ErrorStmt e -> f e b
 
 
--- | Returns set of registers appearing as inputs to terminal
+-- | Returns the set of registers appearing as inputs to a terminal
 -- statement.
 termStmtInputs :: TermStmt s ret
                -> ValueSet s
@@ -518,7 +547,7 @@ termStmtInputs stmt = foldTermStmtAtoms (Set.insert . Some . AtomValue) stmt Set
 
 
 -- | Returns the next labels for the given block.  Error statements
--- have no next labels, while return/tail calls statements return Nothing.
+-- have no next labels, while return/tail call statements return 'Nothing'.
 termNextLabels :: TermStmt s ret
                -> Maybe [BlockID s]
 termNextLabels s0 =
@@ -537,9 +566,9 @@ termNextLabels s0 =
 -- Block
 
 -- | A basic block within a function.
-data Block s (ret :: CrucibleType)
+data Block ext s (ret :: CrucibleType)
    = Block { blockID           :: !(BlockID s)
-           , blockStmts        :: !(Seq (Posd (Stmt s)))
+           , blockStmts        :: !(Seq (Posd (Stmt ext s)))
            , blockTerm         :: !(Posd (TermStmt s ret))
              -- | Registers that are known to be needed as inputs for this block.
              -- For the first block, this includes the function arguments.
@@ -548,27 +577,28 @@ data Block s (ret :: CrucibleType)
              -- It does not include the lambda reg for lambda blocks.
            , blockKnownInputs  :: !(ValueSet s)
              -- | Registers assigned by statements in block.
-             -- This is a field so that it's value can be memoized.
+             -- This is a field so that its value can be memoized.
            , blockAssignedValues :: !(ValueSet s)
            }
 
-instance Eq (Block s ret) where
+instance Eq (Block ext s ret) where
   x == y = blockID x == blockID y
 
-instance Ord (Block s ret) where
+instance Ord (Block ext s ret) where
   compare x y = compare (blockID x) (blockID y)
 
-instance Pretty (Block s ret) where
+instance PrettyExt ext => Pretty (Block ext s ret) where
   pretty b = text (show (blockID b)) <$$> indent 2 stmts
     where stmts = vcat (pretty . pos_val <$> Fold.toList (blockStmts b)) <$$>
                   pretty (pos_val (blockTerm b))
 
-mkBlock :: forall s ret
-         . BlockID s
+mkBlock :: forall ext s ret
+         . TraverseExt ext
+        => BlockID s
         -> ValueSet s -- ^ Extra inputs to block (only non-empty for initial block)
-        -> Seq (Posd (Stmt s))
+        -> Seq (Posd (Stmt ext s))
         -> Posd (TermStmt s ret)
-        -> Block s ret
+        -> Block ext s ret
 mkBlock block_id inputs stmts term =
   Block { blockID    = block_id
         , blockStmts = stmts
@@ -595,7 +625,7 @@ mkBlock block_id inputs stmts term =
 
        -- Function for inserting updating assigned regs, missing regs
        -- with statement.
-       f :: (ValueSet s, ValueSet s) -> Posd (Stmt s) -> (ValueSet s, ValueSet s)
+       f :: (ValueSet s, ValueSet s) -> Posd (Stmt ext s) -> (ValueSet s, ValueSet s)
        f (ar, mr) s = (ar', mr')
          where ar' = case stmtAssignedValue (pos_val s) of
                        Nothing -> ar
@@ -608,21 +638,25 @@ mkBlock block_id inputs stmts term =
 -- CFG
 
 -- | A CFG using registers instead of SSA form.
-data CFG s init ret
+--
+-- Parameter @ext@ is the syntax extension, @s@ is a phantom type
+-- parameter identifying a particular CFG, @init@ is the list of input
+-- types of the CFG, and @ret@ is the return type.
+data CFG ext s (init :: Ctx CrucibleType) (ret :: CrucibleType)
    = CFG { cfgHandle :: !(FnHandle init ret)
-         , cfgBlocks :: !([Block s ret])
+         , cfgBlocks :: !([Block ext s ret])
          }
 
-cfgInputTypes :: CFG s init ret -> CtxRepr init
+cfgInputTypes :: CFG ext s init ret -> CtxRepr init
 cfgInputTypes g = handleArgTypes (cfgHandle g)
 
-cfgReturnType :: CFG s init ret -> TypeRepr ret
+cfgReturnType :: CFG ext s init ret -> TypeRepr ret
 cfgReturnType g = handleReturnType (cfgHandle g)
 
-instance Show (CFG s init ret) where
+instance PrettyExt ext => Show (CFG ext s init ret) where
   show = show . pretty
 
-instance Pretty (CFG s init ret) where
+instance PrettyExt ext => Pretty (CFG ext s init ret) where
   pretty g = do
     let nm = text (show (handleName (cfgHandle g)))
     let inputs = mkInputAtoms InternalPos (cfgInputTypes g)
@@ -634,4 +668,4 @@ instance Pretty (CFG s init ret) where
 -- SomeCFG
 
 -- | 'SomeCFG' is a CFG with an arbitrary parameter 's'.
-data SomeCFG init ret = forall s . SomeCFG !(CFG s init ret)
+data SomeCFG ext init ret = forall s . SomeCFG !(CFG ext s init ret)
