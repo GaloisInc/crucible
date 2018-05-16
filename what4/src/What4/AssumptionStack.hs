@@ -74,7 +74,7 @@ data LabeledPred pred msg
      }
 
 -- | Predicate that was asserted.
-labeledPred :: Simple Lens (LabeledPred pred msg) pred
+labeledPred :: Lens (LabeledPred pred msg) (LabeledPred pred' msg) pred pred'
 labeledPred = lens _labeledPred (\s v -> s { _labeledPred = v })
 
 -- | Message added when assumption/assertion was made.
