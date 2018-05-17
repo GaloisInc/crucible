@@ -6,7 +6,6 @@ import Text.PrettyPrint.ANSI.Leijen(pretty)
 
 import What4.Interface
         (IsExprBuilder, Pred, notPred, impliesPred)
-import What4.AssumptionStack(ProofGoal(..))
 import What4.SatResult(SatResult(..))
 import What4.Expr.Builder (ExprBuilder)
 import What4.Protocol.Online( OnlineSolver )
@@ -14,7 +13,7 @@ import What4.ProgramLoc(ProgramLoc(..))
 
 import Lang.Crucible.Backend
         ( ProofObligation, labeledPredMsg, labeledPred
-        , AssumptionReason(..) )
+        , AssumptionReason(..), ProofGoal(..) )
 import Lang.Crucible.Backend.Online
         ( OnlineBackendState, checkSatisfiableWithModel, getSolverProcess )
 import Lang.Crucible.Simulator.SimError

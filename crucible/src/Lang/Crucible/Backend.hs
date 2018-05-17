@@ -22,13 +22,14 @@ module Lang.Crucible.Backend
   , IsSymInterface
 
     -- * Assumption management
-  , assert
   , AssumptionReason(..)
   , assumptionLoc
   , Assertion
   , Assumption
   , ProofObligation
   , AssumptionState
+  , assert
+
     -- ** Reexports
   , AS.LabeledPred(..)
   , AS.labeledPred
@@ -45,11 +46,11 @@ module Lang.Crucible.Backend
 
 import           Data.Sequence (Seq)
 
-import qualified What4.AssumptionStack as AS
 import           What4.Interface
 import           What4.Partial
 import           What4.ProgramLoc
 
+import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import           Lang.Crucible.Simulator.SimError
 
 data AssumptionReason =

@@ -1,5 +1,5 @@
 {-|
-Module      : What4.AssumptionStack
+Module      : Lang.Crucible.Backend.AssumptionStack
 Copyright   : (c) Galois, Inc 2018
 License     : BSD3
 Maintainer  : Rob Dockins <rdockins@galois.com>
@@ -25,7 +25,7 @@ solvers.
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilies #-}
-module What4.AssumptionStack
+module Lang.Crucible.Backend.AssumptionStack
   ( -- * Assertions and proof goals
     LabeledPred(..)
   , labeledPred
@@ -74,7 +74,7 @@ data LabeledPred pred msg
      }
 
 -- | Predicate that was asserted.
-labeledPred :: Simple Lens (LabeledPred pred msg) pred
+labeledPred :: Lens (LabeledPred pred msg) (LabeledPred pred' msg) pred pred'
 labeledPred = lens _labeledPred (\s v -> s { _labeledPred = v })
 
 -- | Message added when assumption/assertion was made.

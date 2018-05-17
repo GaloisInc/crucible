@@ -116,7 +116,6 @@ import           System.Exit (ExitCode)
 import           System.IO
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
-import           What4.AssumptionStack ( FrameIdentifier )
 import           What4.Config
 import           What4.Interface
 import           What4.FunctionName (FunctionName)

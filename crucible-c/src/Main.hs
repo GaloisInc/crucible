@@ -6,7 +6,6 @@ module Main(main) where
 
 import Data.String(fromString)
 import qualified Data.Foldable as Fold
-import Data.Maybe(catMaybes)
 import qualified Data.Map as Map
 import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)

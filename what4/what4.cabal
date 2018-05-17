@@ -50,7 +50,6 @@ library
   hs-source-dirs: src
 
   exposed-modules:
-    What4.AssumptionStack
     What4.BaseTypes
     What4.Concrete
     What4.Config
