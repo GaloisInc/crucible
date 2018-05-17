@@ -37,7 +37,6 @@ import           System.Directory
 import           System.FilePath
 
 import           What4.Config
-import           What4.AssumptionStack (ProofGoal(..), labeledPred)
 import           What4.Interface
 import qualified What4.Expr.Builder as SB
 
