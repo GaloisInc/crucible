@@ -23,20 +23,30 @@ import Data.Parameterized.Context(pattern Empty)
 import Text.LLVM.AST(Module)
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 
+import What4.SatResult(SatResult(..))
+import What4.Interface(getCurrentProgramLoc)
+import What4.Protocol.Online(OnlineSolver(..))
+
 import Lang.Crucible.Backend
-  (getProofObligations,IsSymInterface, pushAssumptionFrame, popAssumptionFrame)
--- import Lang.Crucible.Backend.Online(withZ3OnlineBackend)
-import Lang.Crucible.Backend.Online(withYicesOnlineBackend)
+  (getProofObligations,IsSymInterface, pushAssumptionFrame, popAssumptionFrame
+  , getPathCondition)
+import Lang.Crucible.Backend.Online
+        (withZ3OnlineBackend,checkSatisfiableWithModel,OnlineBackend
+        , getSolverProcess)
+-- import Lang.Crucible.Backend.Online(withYicesOnlineBackend)
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
+import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Simulator.RegMap(emptyRegMap,regValue)
 import Lang.Crucible.Simulator.ExecutionTree
         ( initSimContext
         , ExecResult(..)
         , ErrorHandler(..)
-        , stateTree
+        , stateTree, stateContext, ctxSymInterface
         , activeFrames
+        , cruciblePersonality
+        , abortTree
         )
 import Lang.Crucible.Simulator.OverrideSim
         ( fnBindingsFromList, initSimState, runOverrideSim, callCFG)
@@ -71,7 +81,7 @@ main =
           do opts <- testOptions file
              do unless (takeExtension file == ".bc") (genBitCode opts)
                 checkBC opts `catch` errHandler opts
-           `catch` \e -> sayFail "Crux" (ppError e)
+           `catch` \e -> sayFail "Crux" ("This: " ++ ppError e)
        _ -> do p <- getProgName
                hPutStrLn stderr $ unlines
                   [ "Usage:"
@@ -81,17 +91,17 @@ main =
 
 errHandler :: Options -> Error -> IO ()
 errHandler opts e =
-  do sayFail "Crux" (ppError e)
+  do sayFail "Crux" ("That: " ++ ppError e)
      case e of
        FailedToProve _ (Just c) -> buildModelExes opts c
        _ -> return ()
-    `catch` \e1 -> sayFail "Crux" (ppError e1)
+    `catch` \e1 -> sayFail "Crux" ("The other: " ++ ppError e1)
 
 checkBC :: Options -> IO ()
 checkBC opts =
   do let file = optsBCFile opts
      say "Crux" ("Checking " ++ show file)
-     mbErr <- simulate file (checkFun "main")
+     mbErr <- simulate opts file (checkFun "main")
      case mbErr of
       Nothing -> sayOK "Crux" "Valid."
       Just e -> errHandler opts e
@@ -140,12 +150,13 @@ setupMem ctx mtrans =
 
 
 simulate ::
+  Options ->
   FilePath ->
   (forall scope arch.
       ArchOk arch => ModuleCFGMap arch -> OverM scope arch ()
   ) ->
   IO (Maybe Error)
-simulate file k =
+simulate opts file k =
   do llvm_mod   <- parseLLVM file
      halloc     <- newHandleAllocator
      Some trans <- stToIO (translateModule halloc llvm_mod)
@@ -154,14 +165,14 @@ simulate file k =
      llvmPtrWidth llvmCtxt $ \ptrW ->
        withPtrWidth ptrW $
        withIONonceGenerator $ \nonceGen ->
-       -- withZ3OnlineBackend nonceGen $ \sym ->
-       withYicesOnlineBackend nonceGen $ \sym ->
+       withZ3OnlineBackend nonceGen $ \sym ->
+       -- withYicesOnlineBackend nonceGen $ \sym ->
        do frm <- pushAssumptionFrame sym
           let simctx = setupSimCtxt halloc sym
 
           mem  <- initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
-          let simSt  = initSimState simctx globSt eHandler
+          let simSt  = initSimState simctx globSt (eHandler opts)
 
           res <- runOverrideSim simSt UnitRepr $
                    do setupMem llvmCtxt trans
@@ -177,8 +188,29 @@ simulate file k =
             AbortedResult _ err -> throwError (SimAbort err)
 
 
-eHandler :: ErrorHandler (Model sym) sym (LLVM arch) trp
-eHandler = EH (\e st -> throwError (SimFail e (activeFrames (st ^. stateTree))))
+-- eHandler :: ErrorHandler (Model sym) sym (LLVM arch) trp
+eHandler ::
+  (sym ~ OnlineBackend scope solver, OnlineSolver scope solver) =>
+  Options -> ErrorHandler (Model sym) sym (LLVM arch) trp
+eHandler opts = EH $ \e st ->
+  do let ctx = st ^. stateContext
+         sym = ctx ^. ctxSymInterface
+     pc <- getPathCondition sym
+     proc <- getSolverProcess sym
+     really <- checkSatisfiableWithModel proc pc $ \res ->
+      case res of
+        Sat f -> do let model = ctx ^. cruciblePersonality
+                    cCode <- ppModel f model
+                    buildModelExes opts cCode
+                    return True
+        Unsat -> return False
+        Unknown -> fail "Maybe error?"
+     if really then throwError (SimFail e (activeFrames (st ^. stateTree)))
+               else do loc <- getCurrentProgramLoc sym
+                       let err = SimError { simErrorReason = FailedPathSimError
+                                          , simErrorLoc = loc
+                                          }
+                       abortTree err st
 
 checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM scope arch ()
 checkFun nm mp =
