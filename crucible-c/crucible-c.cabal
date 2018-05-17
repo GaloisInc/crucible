@@ -27,7 +27,8 @@ executable crucible-c
     Model,
     Clang,
     Log,
-    Options
+    Options,
+    ChattySolver
 
 
   build-depends:

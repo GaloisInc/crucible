@@ -10,6 +10,7 @@ import qualified Data.Map as Map
 import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)
 import Control.Monad(unless)
+import Control.Exception(SomeException(..))
 import System.IO(hPutStrLn,stdout,stderr)
 import System.Environment(getProgName,getArgs)
 import System.FilePath(takeExtension)
@@ -29,7 +30,7 @@ import What4.Protocol.Online(OnlineSolver(..))
 
 import Lang.Crucible.Backend
   (getProofObligations,IsSymInterface, pushAssumptionFrame, popAssumptionFrame
-  , getPathCondition)
+  , getPathCondition, addFailedAssertion)
 import Lang.Crucible.Backend.Online
         (withZ3OnlineBackend,checkSatisfiableWithModel,OnlineBackend
         , getSolverProcess)
@@ -87,6 +88,7 @@ main =
                   [ "Usage:"
                   , "  " ++ p ++ " FILE.bc"
                   ]
+    `catch` \(SomeException e) -> putStrLn "OOP"
 
 
 errHandler :: Options -> Error -> IO ()
@@ -94,6 +96,7 @@ errHandler opts e =
   do sayFail "Crux" ("That: " ++ ppError e)
      case e of
        FailedToProve _ (Just c) -> buildModelExes opts c
+       SimFail {} -> putStrLn "SIMFAI"
        _ -> return ()
     `catch` \e1 -> sayFail "Crux" ("The other: " ++ ppError e1)
 
@@ -195,6 +198,17 @@ eHandler ::
 eHandler opts = EH $ \e st ->
   do let ctx = st ^. stateContext
          sym = ctx ^. ctxSymInterface
+     putStrLn "HERE"
+     addFailedAssertion sym (simErrorReason e)
+     loc <- getCurrentProgramLoc sym
+     let err = SimError { simErrorReason = FailedPathSimError
+                        , simErrorLoc = loc
+                        }
+     abortTree err st
+
+{-
+     abortTree
+
      pc <- getPathCondition sym
      proc <- getSolverProcess sym
      really <- checkSatisfiableWithModel proc pc $ \res ->
@@ -211,7 +225,7 @@ eHandler opts = EH $ \e st ->
                                           , simErrorLoc = loc
                                           }
                        abortTree err st
-
+-}
 checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM scope arch ()
 checkFun nm mp =
   case Map.lookup (fromString nm) mp of
