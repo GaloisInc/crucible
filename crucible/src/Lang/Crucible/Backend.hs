@@ -83,7 +83,7 @@ type AssumptionState sym = AS.AssumptionStack (Pred sym) AssumptionReason SimErr
 
 
 -- | Result of attempting to branch on a predicate.
-data BranchResult sym
+data BranchResult
      -- | Branch is symbolic.
      --
      -- The Boolean value indicates whether the backend suggests that the active
@@ -112,7 +112,7 @@ class IsBoolSolver sym where
   --   this decides what the next course of action should be for the branch.
   evalBranch :: sym
              -> Pred sym -- Predicate to branch on.
-             -> IO (BranchResult sym)
+             -> IO BranchResult
 
   -- | Push a new assumption frame onto the stack.  Assumptions and assertions
   --   made will now be associated with this frame on the stack until a new
