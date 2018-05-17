@@ -326,23 +326,23 @@ mergePartialResult s tgt pp x y = stateSolverProof s $ do
   case x of
     TotalRes cx ->
       case y of
-        TotalRes cy -> do
+        TotalRes cy ->
           TotalRes <$> merge_fn pp cx cy
-        PartialRes py cy fy -> do
+        PartialRes py cy fy ->
           PartialRes <$> orPred sym pp py
                      <*> merge_fn pp cx cy
-                     ?? fy
+                     <*> pure fy
     PartialRes px cx fx -> do
       case y of
-        TotalRes cy -> do
-          pc <- notPred sym pp
-          PartialRes <$> orPred sym pc px
-                     <*> merge_fn pp cx cy
-                     ?? fx
+        TotalRes cy ->
+          do pc <- notPred sym pp
+             PartialRes <$> orPred sym pc px
+                        <*> merge_fn pp cx cy
+                        <*> pure fx
         PartialRes py cy fy -> do
           PartialRes <$> itePred sym pp px py
                      <*> merge_fn pp cx cy
-                     ?? AbortedBranch pp fx fy
+                     <*> pure (AbortedBranch pp fx fy)
 
 ------------------------------------------------------------------------
 -- ExecResult
