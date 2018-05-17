@@ -51,7 +51,6 @@ import qualified Lang.Crucible.Solver.WeightedSum as WSum
 import qualified Verifier.SAW.SharedTerm as SC
 import qualified Verifier.SAW.Simulator.BitBlast as BBSim
 import qualified Verifier.SAW.TypedAST as SC
-import qualified Verifier.SAW.Cryptol.Prelude as Prelude
 
 data SAWCruciblePersonality sym = SAWCruciblePersonality
 
