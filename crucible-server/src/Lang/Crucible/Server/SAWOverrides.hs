@@ -36,7 +36,12 @@ import qualified Data.Vector as V
 import           System.Directory
 import           System.FilePath
 
-import           Lang.Crucible.Config
+import           What4.Config
+import           What4.Interface
+import qualified What4.Expr.Builder as SB
+
+import           Lang.Crucible.Backend
+import qualified Lang.Crucible.Backend.SAWCore as SAW
 import qualified Lang.Crucible.Proto as P
 import           Lang.Crucible.Server.CryptolEnv
 import           Lang.Crucible.Server.Requests
@@ -51,12 +56,6 @@ import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
-import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.AssumptionStack (ProofGoal(..), assertPred)
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
-import qualified Lang.Crucible.Solver.SAWCoreBackend as SAW
-import qualified Lang.Crucible.Solver.SimpleBuilder as SB
 import           Lang.Crucible.Types
 
 import qualified Verifier.SAW.ExternalFormat as SAW
@@ -200,7 +199,7 @@ handleSeparateProofObligations ::
   Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
   SAW.SAWCoreBackend n ->
   FilePath ->
-  Seq (ProofGoal (Pred (SAW.SAWCoreBackend n)) SimErrorReason) ->
+  Seq (ProofObligation (SAW.SAWCoreBackend n)) ->
   IO ()
 handleSeparateProofObligations sim sym dir obls = fail "FIXME separate proof obligations!"
 
@@ -208,7 +207,7 @@ handleSingleProofObligation ::
   Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
   SAW.SAWCoreBackend n ->
   FilePath ->
-  Seq (ProofGoal (Pred (SAW.SAWCoreBackend n)) SimErrorReason) ->
+  Seq (ProofObligation (SAW.SAWCoreBackend n)) ->
   IO ()
 handleSingleProofObligation _sim sym dir obls =
   do createDirectoryIfMissing True {- create parents -} dir
@@ -223,11 +222,11 @@ handleSingleProofObligation _sim sym dir obls =
 
 sequentToSC ::
   SAW.SAWCoreBackend n ->
-  ProofGoal (Pred (SAW.SAWCoreBackend n)) SimErrorReason ->
+  ProofObligation (SAW.SAWCoreBackend n) ->
   IO (Pred (SAW.SAWCoreBackend n))
-sequentToSC sym (ProofGoal assumes assert) =
-  do assume <- andAllOf sym folded assumes
-     impliesPred sym assume (assert^.assertPred)
+sequentToSC sym (ProofGoal assumes goal) =
+  do assume <- andAllOf sym (folded.labeledPred) assumes
+     impliesPred sym assume (goal^.labeledPred)
 
 sawFulfillExportModelRequest
    :: forall p n

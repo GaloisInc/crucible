@@ -41,12 +41,13 @@ import           Data.Hashable
 import           Data.Maybe
 import qualified Data.Parameterized.Context as Ctx
 
+import           What4.ProgramLoc ( ProgramLoc )
+import           What4.Interface ( Pred, IsExprBuilder )
+
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.ProgramLoc ( ProgramLoc )
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
-import           Lang.Crucible.Solver.Interface ( Pred, IsExprBuilder )
 
 ------------------------------------------------------------------------
 -- SomeHandle

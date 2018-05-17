@@ -56,13 +56,18 @@ import           Data.HPB
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Some
 
+import           What4.Config
+import           What4.FunctionName
+import           What4.Concrete
+import           What4.Interface
+
 import           Lang.Crucible.Analysis.Postdom
-import           Lang.Crucible.Config
 import           Lang.Crucible.CFG.Expr
 import qualified Lang.Crucible.CFG.Core as C
 import qualified Lang.Crucible.CFG.Reg as R
 import           Lang.Crucible.CFG.SSAConversion (toSSA)
-import           Lang.Crucible.FunctionName
+
+import           Lang.Crucible.Backend
 import qualified Lang.Crucible.Proto as P
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import qualified Lang.Crucible.Simulator.Evaluation as Sim
@@ -70,9 +75,6 @@ import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
-import           Lang.Crucible.Solver.Concrete
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MonadVerbosity
 

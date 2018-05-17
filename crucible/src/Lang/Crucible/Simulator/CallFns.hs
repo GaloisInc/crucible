@@ -32,7 +32,7 @@ module Lang.Crucible.Simulator.CallFns
   , crucibleTopFrame
   ) where
 
-import           Control.Exception
+import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.State
 import           Data.IORef
@@ -43,11 +43,16 @@ import           System.IO
 import           System.IO.Error
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-import           Lang.Crucible.Config
+import           What4.Config
+import           What4.Interface
+import           What4.Partial
+import           What4.ProgramLoc
+import           What4.Utils.MonadST
+
+import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.Evaluation
 import           Lang.Crucible.Simulator.ExecutionTree
@@ -58,9 +63,7 @@ import           Lang.Crucible.Simulator.Frame
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Utils.MonadST
+
 
 crucibleSimFrame :: Lens (SimFrame sym ext (CrucibleLang blocks r) ('Just args))
                          (SimFrame sym ext (CrucibleLang blocks r) ('Just args'))
@@ -101,7 +104,7 @@ resolveCallFrame bindings c0 args =
       resolveCallFrame bindings c (assignReg tp v args)
     HandleFnVal h -> do
       case lookupHandleMap h bindings of
-        Nothing -> throw . userError $
+        Nothing -> Ex.throw . userError $
           "Could not resolve function: " ++ show (handleName h)
         Just (UseOverride o) -> do
           let f = OverrideFrame { override = overrideName o
@@ -502,14 +505,14 @@ loopCrucible s = stateSolverProof s $ do
   s_ref <- newIORef (SomeState s)
   let cfg = stateGetConfiguration s
   verb <- getOpt =<< getOptionSetting verbosity cfg
-  next <- catches (loopCrucible' s_ref (fromInteger verb))
-     [ Handler $ \(e::IOException) -> do
+  next <- Ex.catches (loopCrucible' s_ref (fromInteger verb))
+     [ Ex.Handler $ \(e::Ex.IOException) -> do
           SomeState s' <- readIORef s_ref
           if isUserError e then
             return $ mssRunGenericErrorHandler s' (ioeGetErrorString e)
            else
-            throwIO e
-     , Handler $ \(e::SimError) -> do
+            Ex.throwIO e
+     , Ex.Handler $ \(e::SimError) -> do
           SomeState s' <- readIORef s_ref
           return $  mssRunErrorHandler s' e
      ]
@@ -629,7 +632,7 @@ loopCrucible' s_ref verb = do
               msg' = case asString msg of
                        Just txt -> Text.unpack txt
                        _ -> show (printSymExpr msg)
-          addAssertion sym c (AssertFailureSimError msg')
+          assert sym c (AssertFailureSimError msg')
           continueCrucible s_ref verb $ s & stateCrucibleFrame  . frameStmts .~ rest
 
 jumpToBlock :: (IsSymInterface sym, IsSyntaxExtension ext)

@@ -46,18 +46,20 @@ import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Nonce.Unsafe (indexValue)
 import           Data.Parameterized.Some
 
-import           Lang.Crucible.Config
+import           What4.Config
+import           What4.FunctionName
+import           What4.ProgramLoc
+import           What4.Interface
+
+import           Lang.Crucible.Backend
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.FunctionName
-import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Server.CallbackOutputHandle
 import           Lang.Crucible.Server.TypeConv
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
+
 import           Lang.Crucible.Types
 import qualified Lang.Crucible.Proto as P
 

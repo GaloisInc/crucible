@@ -40,6 +40,8 @@ import Data.HPB
 import Data.Parameterized.Some
 import qualified Data.Parameterized.Context as Ctx
 
+import           What4.Interface
+
 import           Lang.Crucible.CFG.Expr
 import qualified Lang.Crucible.CFG.Reg as R
 import qualified Lang.Crucible.Proto as P
@@ -48,7 +50,6 @@ import           Lang.Crucible.Server.Encoding
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Server.Simulator
 import           Lang.Crucible.Server.TypeConv
-import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 

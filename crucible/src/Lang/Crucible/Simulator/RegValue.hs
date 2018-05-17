@@ -60,11 +60,13 @@ import           GHC.TypeLits
 
 import qualified Data.Parameterized.Context as Ctx
 
+import           What4.FunctionName
+import           What4.Interface
+import           What4.Partial
+import           What4.WordMap
+
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.FunctionName
 import           Lang.Crucible.Simulator.Intrinsics
-import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.Types
 
 type MuxFn p v = p -> v -> v -> IO v

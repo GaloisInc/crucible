@@ -106,20 +106,25 @@ module Lang.Crucible.Simulator.ExecutionTree
 import           Control.Lens
 import           Control.Monad.ST (RealWorld)
 import           Control.Monad.State.Strict
+import           Data.Monoid ((<>))
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import           Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import           Data.Type.Equality hiding (sym)
 import           System.Exit (ExitCode)
 import           System.IO
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
-import           Lang.Crucible.Config
+import           What4.Config
+import           What4.Interface
+import           What4.FunctionName (FunctionName)
+import           What4.ProgramLoc
+
+import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.FunctionHandle (FnHandleMap, HandleAllocator)
-import           Lang.Crucible.FunctionName (FunctionName)
-import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.Evaluation
 import           Lang.Crucible.Simulator.Frame
@@ -127,9 +132,8 @@ import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.AssumptionStack ( FrameIdentifier )
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
+
+
 
 
 -- | @swap_unless b (x,y)@ returns @(x,y)@ when @b@ is @True@ and
@@ -418,7 +422,7 @@ data VFFOtherPath p sym ext root f args
      -- ^ This is a active execution and includes the current frame.
      -- Note: this would need to be made more generic
      -- if we want to be able paths concurrently.
-   | VFFCompletePath !(Seq (Pred sym)) !(PausedPartialFrame p sym ext root f args)
+   | VFFCompletePath !(Seq (Assumption sym)) !(PausedPartialFrame p sym ext root f args)
      -- ^ This is a completed execution path.
 
 
@@ -432,6 +436,8 @@ data ValueFromFrame p sym ext (root :: *) (f :: *)  where
                -- /\ Outer context.
             -> !FrameIdentifier
                -- /\ State before this branch
+            -> !ProgramLoc
+               -- /\ Program location of the branch point
             -> !(Pred sym)
                -- /\ Assertion of current branch
             -> !(VFFOtherPath p sym ext ret (CrucibleLang blocks a) args)
@@ -488,7 +494,7 @@ instance PP.Pretty (VFFOtherPath ctx sym ext r f a) where
 ppValueFromFrame :: ValueFromFrame p sym ext ret f -> PP.Doc
 ppValueFromFrame vff =
   case vff of
-    VFFBranch ctx _ _ other mp ->
+    VFFBranch ctx _ _ _ other mp ->
       PP.text "intra_branch" PP.<$$>
       PP.indent 2 (PP.pretty other) PP.<$$>
       PP.indent 2 (PP.text (ppBranchTarget mp)) PP.<$$>
@@ -517,7 +523,7 @@ ppValueFromValue vfv =
 parentFrames :: ValueFromFrame p sym ext r a -> [SomeFrame (SimFrame sym ext)]
 parentFrames c0 =
   case c0 of
-    VFFBranch c _ _ _ _ -> parentFrames c
+    VFFBranch c _ _ _ _ _ -> parentFrames c
     VFFPartial c _ _ _ -> parentFrames c
     VFFEnd vfv -> vfvParents vfv
 
@@ -590,7 +596,7 @@ pathConditions :: ValueFromFrame p sym ext r a
                -> [Pred sym]
 pathConditions c0 =
   case c0 of
-    VFFBranch   c _ p _ _ -> p : pathConditions c
+    VFFBranch   c _ _ p _ _ -> p : pathConditions c
     VFFPartial  c p _ _   -> p : pathConditions c
     VFFEnd vfv            -> vfvConditions vfv
 
@@ -623,7 +629,7 @@ getIntraFrameBranchTarget :: ValueFromFrame p sym ext root (CrucibleLang b a)
                           -> Maybe (Some (CrucibleBranchTarget b))
 getIntraFrameBranchTarget vff0 =
   case vff0 of
-  VFFBranch _ _ _ _ tgt -> Just (Some tgt)
+  VFFBranch _ _ _ _ _ tgt -> Just (Some tgt)
   VFFPartial ctx _ _ _ -> getIntraFrameBranchTarget ctx
   VFFEnd{} -> Nothing
 
@@ -684,7 +690,7 @@ checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $ do
   let ActiveTree ctx0 er = s^.stateTree
   let sym = stateSymInterface s
   case ctx0 of
-    VFFBranch ctx assume_frame p some_next tgt'
+    VFFBranch ctx assume_frame loc p some_next tgt'
       | Just Refl <- testEquality tgt tgt' -> do
         -- Adjust state info.
         -- Merge the two results together.
@@ -695,15 +701,14 @@ checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $ do
 
             new_assume_frame <- pushAssumptionFrame sym
             pnot <- notPred sym p
-            addAssumption sym pnot
+            addAssumption sym (LabeledPred pnot (ExploringAPath loc))
 
             let paused_res :: PausedPartialFrame p sym ext root (CrucibleLang b r) args
                 paused_res = PausedValue { _pausedValue = er
                                          , resume = active_cont
                                          }
-            resumeFrame s next (VFFBranch ctx new_assume_frame pnot (VFFCompletePath pathAssumes paused_res) tgt)
+            resumeFrame s next (VFFBranch ctx new_assume_frame loc pnot (VFFCompletePath pathAssumes paused_res) tgt)
           VFFCompletePath otherAssumes other -> do
-            -- Get location where branch occured
             -- Merge results together
             ar <- mergePartialResult s tgt p er (other^.pausedValue)
 
@@ -712,7 +717,7 @@ checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $ do
             pathAssumes <- popAssumptionFrame sym assume_frame
 
             mergedAssumes <- mergeAssumptions sym p pathAssumes otherAssumes
-            addAssumption sym mergedAssumes
+            addAssumptions sym mergedAssumes
 
             -- Check for more potential merge targets.
             let s' = s & stateTree .~ ActiveTree ctx ar
@@ -777,11 +782,13 @@ intra_branch s p t_label f_label tgt = stateSolverProof s $ do
       -- Select correct branch
       case swap_unless chosen_branch (t_label, f_label) of
         (SomeLabel a_state a_id, SomeLabel o_state o_id) -> do
+          loc <- getCurrentProgramLoc sym
+
           a_frame <- pushBranchVal s a_state
           PausedFrame o_frame <- pushBranchVal s o_state
 
           assume_frame <- pushAssumptionFrame sym
-          addAssumption sym p'
+          addAssumption sym (LabeledPred p' (ExploringAPath loc))
 
           -- Create context for paused frame.
           let o_tree = o_frame & pausedValue %~ TotalRes
@@ -789,7 +796,7 @@ intra_branch s p t_label f_label tgt = stateSolverProof s $ do
                                                                tgt s''
                                                                id
                                                                o_id)
-          let ctx' = VFFBranch ctx assume_frame p' (VFFActivePath o_tree) tgt
+          let ctx' = VFFBranch ctx assume_frame loc p' (VFFActivePath o_tree) tgt
           -- Start a_state (where branch pred is p')
           let PausedFrame pf = a_frame
               setter = stateTree .~ ActiveTree ctx' (TotalRes (pf^.pausedValue))
@@ -814,13 +821,16 @@ mergeAssumptions ::
   IsExprBuilder sym =>
   sym ->
   Pred sym ->
-  Seq (Pred sym) ->
-  Seq (Pred sym) ->
-  IO (Pred sym)
+  Seq (Assumption sym) ->
+  Seq (Assumption sym) ->
+  IO (Seq (Assumption sym))
 mergeAssumptions sym p thens elses =
-  do th <- andAllOf sym folded thens
-     el <- andAllOf sym folded elses
-     itePred sym p th el
+  do pnot <- notPred sym p
+     th' <- (traverse.labeledPred) (impliesPred sym p) thens
+     el' <- (traverse.labeledPred) (impliesPred sym pnot) elses
+     let xs = th' <> el'
+     -- Filter out all the trivally true assumptions
+     return (Seq.filter ((/= Just True) . asConstantPred . view labeledPred) xs)
 
 ------------------------------------------------------------------------
 -- ValueFromFrame
@@ -997,7 +1007,7 @@ resumeValueFromFrameAbort :: SimState p sym ext r g args
 resumeValueFromFrameAbort s ctx0 ar0 = stateSolverProof s $ do
   let sym = stateSymInterface s
   case ctx0 of
-    VFFBranch ctx assume_frame p some_next tgt -> do
+    VFFBranch ctx assume_frame _loc p some_next tgt -> do
       -- Negate branch condition and add to context.
       pnot <- notPred sym p
       let nextCtx = VFFPartial ctx pnot ar0 True
@@ -1006,7 +1016,7 @@ resumeValueFromFrameAbort s ctx0 ar0 = stateSolverProof s $ do
       _assumes <- popAssumptionFrame sym assume_frame
 
       -- Add assertion that path condition holds
-      addAssertion sym pnot FailedPathSimError
+      assert sym pnot FailedPathSimError
 
       -- Resume other branch.
       case some_next of
@@ -1060,7 +1070,7 @@ vffSingleContext :: ValueFromFrame p sym ext ret f
                  -> ValueFromFrame p sym ext ret f
 vffSingleContext ctx0 =
   case ctx0 of
-    VFFBranch ctx _ _ _ _   -> vffSingleContext ctx
+    VFFBranch ctx _ _ _ _ _ -> vffSingleContext ctx
     VFFPartial ctx _ _ _    -> vffSingleContext ctx
     VFFEnd ctx              -> VFFEnd (vfvSingleContext ctx)
 
@@ -1086,8 +1096,8 @@ vffBranchConditions :: ValueFromFrame p sym ext ret f
                     -> [Pred sym]
 vffBranchConditions ctx0 =
   case ctx0 of
-    VFFBranch   ctx _ p _ _  -> p : vffBranchConditions ctx
-    VFFPartial  ctx p _ _    -> p : vffBranchConditions ctx
+    VFFBranch   ctx _ _ p _ _  -> p : vffBranchConditions ctx
+    VFFPartial  ctx p _ _      -> p : vffBranchConditions ctx
     VFFEnd  ctx -> vfvBranchConditions ctx
 
 vfvBranchConditions :: ValueFromValue p sym ext root top_ret

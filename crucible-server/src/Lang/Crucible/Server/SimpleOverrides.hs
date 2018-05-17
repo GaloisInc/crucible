@@ -33,24 +33,22 @@ import           System.IO
 import           Data.Parameterized.Some
 import qualified Data.Parameterized.Context as Ctx
 
-import           Lang.Crucible.Config
+import           What4.Config
+import           What4.Interface
+import           What4.Solver
+import           What4.Solver.Adapter
+import qualified What4.Solver.ABC as ABC
+import qualified What4.Solver.Yices as Yices
+import qualified What4.Protocol.SMTLib2 as SMT2
+import           What4.SatResult
+import           What4.Symbol
+
+import           Lang.Crucible.Backend
+import           Lang.Crucible.Backend.Simple
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
-import           Lang.Crucible.Solver.Adapter
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Solver.SatResult
-import           Lang.Crucible.Solver.SimpleBackend
-import           Lang.Crucible.Solver.SimpleBackend.ABC ( abcAdapter, genericSatAdapter )
-import qualified Lang.Crucible.Solver.SimpleBackend.ABC as ABC
-import           Lang.Crucible.Solver.SimpleBackend.Boolector ( boolectorAdapter )
-import           Lang.Crucible.Solver.SimpleBackend.CVC4 ( cvc4Adapter )
-import qualified Lang.Crucible.Solver.SimpleBackend.SMTLib2 as SMT2
-import qualified Lang.Crucible.Solver.SimpleBackend.Yices as Yices
-import           Lang.Crucible.Solver.SimpleBackend.Z3 ( z3Adapter )
-import           Lang.Crucible.Solver.Symbol
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MonadVerbosity
 
@@ -62,8 +60,8 @@ import           Lang.Crucible.Server.ValueConv
 
 crucibleServerAdapters :: [SolverAdapter st]
 crucibleServerAdapters =
-  [ abcAdapter
-  , genericSatAdapter
+  [ ABC.abcAdapter
+  , ABC.genericSatAdapter
   , boolectorAdapter
   , Yices.yicesAdapter
   , cvc4Adapter

@@ -15,9 +15,8 @@ import Control.Exception(throw)
 
 import Lang.Crucible.Types(BaseTypeRepr(..),BaseToType)
 import Lang.Crucible.Simulator.RegMap(RegValue)
-import Lang.Crucible.Solver.SimpleBackend.GroundEval
-        (GroundValue,GroundEvalFn(..))
-import Lang.Crucible.Solver.SimpleBuilder(SimpleBuilder)
+import What4.Expr
+        (GroundValue,GroundEvalFn(..),ExprBuilder)
 
 import Error
 
@@ -46,14 +45,14 @@ addVar nm k v (Model mp) = Model (MapF.insertWith jn k (Vars [ ent ]) mp)
   where jn (Vars new) (Vars old) = Vars (new ++ old)
         ent = Entry { entryName = nm, entryValue = v }
 
-evalVars :: GroundEvalFn s -> Vars (SimpleBuilder s t) ty -> IO (Vals ty)
+evalVars :: GroundEvalFn s -> Vars (ExprBuilder s t) ty -> IO (Vals ty)
 evalVars ev (Vars xs) = Vals . reverse <$> mapM evEntry xs
   where evEntry e = do v <- groundEval ev (entryValue e)
                        return e { entryValue = v }
 
 evalModel ::
   GroundEvalFn s ->
-  Model (SimpleBuilder s t) ->
+  Model (ExprBuilder s t) ->
   IO (MapF BaseTypeRepr Vals)
 evalModel ev (Model mp) = traverseF (evalVars ev) mp
 
@@ -79,7 +78,7 @@ ppVals ty (Vals xs) =
     _ -> throw (Bug ("Type not implemented: " ++ show ty))
 
 ppModel ::
-  GroundEvalFn s -> Model (SimpleBuilder s t) -> IO String
+  GroundEvalFn s -> Model (ExprBuilder s t) -> IO String
 ppModel ev m =
   do vals <- evalModel ev m
      return $ unlines

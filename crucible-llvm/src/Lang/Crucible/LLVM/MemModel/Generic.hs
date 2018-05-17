@@ -65,13 +65,16 @@ import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import Data.Parameterized.Classes
 import Data.Parameterized.Some
 
+import What4.Interface
+import What4.Partial
+
 import Lang.Crucible.LLVM.Bytes
 import Lang.Crucible.LLVM.DataLayout
 import Lang.Crucible.LLVM.MemModel.Type
 import Lang.Crucible.LLVM.MemModel.Common
 import Lang.Crucible.LLVM.MemModel.Pointer
-import Lang.Crucible.Solver.BoolInterface
-import Lang.Crucible.Solver.Interface
+import Lang.Crucible.Backend
+
 
 --import Debug.Trace as Debug
 
