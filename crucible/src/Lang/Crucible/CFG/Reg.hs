@@ -307,6 +307,14 @@ type ValueSet s = Set (Some (Value s))
 -- Expr
 
 -- | An expression in RTL representation.
+--
+-- The type arguments are:
+--
+--   [@ext@] the extensions currently in use (use @()@ for no extension)
+--
+--   [@s@] a dummy variable that should almost always be universally quantified
+--
+--   [@tp@] the Crucible type of the expression
 data Expr ext s (tp :: CrucibleType)
   = App !(App ext (Expr ext s) tp)
     -- ^ An application of an expression

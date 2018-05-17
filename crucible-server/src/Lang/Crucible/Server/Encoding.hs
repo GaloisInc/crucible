@@ -97,7 +97,7 @@ decodeUnsigned' = BS.foldl f
 -- | Encode an unsigned integer using Google protocol buffers varint format.
 encodeUnsignedVarint :: Integer -> Builder
 encodeUnsignedVarint w
-       -- | If the low 7-bits are set, msb is clear, then we are done.
+       -- If the low 7-bits are set, msb is clear, then we are done.
      | low7 == w = Builder.word8 (fromIntegral low7)
      | otherwise = Builder.word8 (fromIntegral (0x80 .|. low7))
                    <> encodeUnsignedVarint (w `shiftR` 7)

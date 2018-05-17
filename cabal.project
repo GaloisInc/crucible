@@ -12,6 +12,7 @@ packages:
   crucible-saw/
   crucible-server/
   crucible-c/
+  crucible-syntax/
   galois-matlab/
 
 optional-packages:
