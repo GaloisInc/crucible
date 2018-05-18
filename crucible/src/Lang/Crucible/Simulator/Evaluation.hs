@@ -278,11 +278,6 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
                return $! Unassigned
 
     ----------------------------------------------------------------------
-    -- Concrete
-
-    ConcreteLit (TypeableValue x) -> return x
-
-    ----------------------------------------------------------------------
     -- Bool
 
     BoolLit b -> return $ backendPred sym b

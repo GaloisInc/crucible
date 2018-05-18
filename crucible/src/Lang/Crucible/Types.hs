@@ -49,7 +49,6 @@ module Lang.Crucible.Types
   , AnyType
   , UnitType
   , BoolType
-  , ConcreteType
   , NatType
   , IntegerType
   , RealValType
@@ -98,14 +97,8 @@ module Lang.Crucible.Types
 
     -- * Representation of Crucible types
   , TypeRepr(..)
-    -- * Concrete types
-  , TypeableType(..)
-  , TypeableValue(..)
 
     -- * Re-exports
---  , type Data.Parameterized.Ctx.Ctx
---  , Data.Parameterized.Ctx.EmptyCtx
---  , (Data.Parameterized.Ctx.::>)
   , module Data.Parameterized.Ctx
   , module Data.Parameterized.NatRepr
   , module Data.Parameterized.SymbolRepr
@@ -114,8 +107,6 @@ module Lang.Crucible.Types
 
 import           Data.Hashable
 import           Data.Type.Equality
-import           Data.Typeable
-import           GHC.Fingerprint.Type
 import           GHC.TypeLits
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
@@ -126,17 +117,6 @@ import qualified Data.Parameterized.TH.GADT as U
 import           Text.PrettyPrint.ANSI.Leijen
 
 import           What4.BaseTypes
-
--------------------------------------------------------------------------
--- Concrete types
-
--- | Representation of a Haskell type that can be used as a 'ConcreteType'.
-data TypeableType (a :: *) where
-  TypeableType :: (Typeable a, Eq a, Ord a, Show a) => TypeableType a
-
--- | A value of 'ConcreteType'.
-data TypeableValue (a :: *) where
-  TypeableValue :: (Typeable a, Eq a, Ord a, Show a) => a -> TypeableValue a
 
 ------------------------------------------------------------------------
 -- Crucible types
@@ -188,12 +168,6 @@ data CrucibleType where
 
    -- | A dynamic type that can contain values of any type.
    AnyType :: CrucibleType
-
-   -- | A Crucible type that lifts an arbitrary Haskell type, provided
-   -- it supplies `Typeable`, `Eq`, `Ord` and `Show` instances.
-   -- Values of concrete types do not support nontrivial symbolic path
-   -- merging.
-   ConcreteType :: a -> CrucibleType
 
    -- | A type containing a single value "Unit"
    UnitType :: CrucibleType
@@ -260,11 +234,6 @@ type AnyType  = 'AnyType  -- ^ @:: 'CrucibleType'@.
 
 -- | A single character, as a 16-bit wide char.
 type CharType = 'CharType -- ^ @:: 'CrucibleType'@.
-
--- | A Crucible type that lifts an arbitrary Haskell type, provided it
--- supplies 'Typeable', 'Eq', 'Ord' and 'Show' instances. Values of
--- concrete types do not support nontrivial symbolic path merging.
-type ConcreteType = 'ConcreteType -- ^ @:: a -> 'CrucibleType'@.
 
 -- | A type index for floating point numbers.
 type FloatType    = 'FloatType    -- ^ @:: 'FloatInfo' -> 'CrucibleType'@.
@@ -362,7 +331,6 @@ asBaseType tp =
 -- has kind 'CrucibleType'.
 data TypeRepr (tp::CrucibleType) where
    AnyRepr :: TypeRepr AnyType
-   ConcreteRepr :: TypeableType a -> TypeRepr (ConcreteType a)
    UnitRepr :: TypeRepr UnitType
    BoolRepr :: TypeRepr BoolType
    NatRepr  :: TypeRepr NatType
@@ -419,9 +387,6 @@ instance KnownRepr FloatInfoRepr DoubleDoubleFloat where knownRepr = DoubleDoubl
 instance KnownRepr TypeRepr AnyType             where knownRepr = AnyRepr
 instance KnownRepr TypeRepr UnitType            where knownRepr = UnitRepr
 instance KnownRepr TypeRepr CharType            where knownRepr = CharRepr
-
-instance (Eq a, Ord a, Typeable a, Show a) => KnownRepr TypeRepr (ConcreteType a) where
-  knownRepr = ConcreteRepr TypeableType
 
 instance KnownRepr BaseTypeRepr bt => KnownRepr TypeRepr (BaseToType bt) where
   knownRepr = baseToType knownRepr
@@ -500,53 +465,6 @@ instance TestEquality FloatInfoRepr where
 instance OrdF FloatInfoRepr where
   compareF = $(U.structuralTypeOrd [t|FloatInfoRepr|] [])
 
-instance TestEquality TypeableType where
-  testEquality TypeableType TypeableType = eqT
-instance OrdF TypeableType where
-  compareF (TypeableType ::TypeableType x) (TypeableType :: TypeableType y) =
-    case eqT of
-      Just (Refl :: x :~: y) -> EQF
-      _ -> case compare (typeRep (Proxy :: Proxy x)) (typeRep (Proxy :: Proxy y)) of
-             LT -> LTF
-             GT -> GTF
-             EQ -> error "compareF for TypeableType: eqT disagrees with compare"
-instance Hashable (TypeableType x) where
-  hashWithSalt s (TypeableType :: TypeableType x) =
-    case typeRepFingerprint (typeRep (Proxy :: Proxy x)) of
-      Fingerprint f1 f2 -> hashWithSalt (hashWithSalt s f1) f2
-
-instance Show (TypeableType x) where
-  show TypeableType = show $ typeRep (Proxy :: Proxy x)
-
-instance Eq (TypeableValue a) where
-  TypeableValue a == TypeableValue b = a == b
-instance Ord (TypeableValue a) where
-  compare (TypeableValue a) (TypeableValue b) = compare a b
-
-instance Show (TypeableValue a) where
-  show (TypeableValue a) = show a
-instance ShowF TypeableValue
-
-instance TestEquality TypeableValue where
-  testEquality (TypeableValue x :: TypeableValue xty) (TypeableValue y :: TypeableValue yty) =
-    case eqT of
-      Just (Refl :: xty :~: yty) ->
-        if x == y then Just Refl else Nothing
-      Nothing -> Nothing
-instance OrdF TypeableValue where
-  compareF (TypeableValue x :: TypeableValue xty) (TypeableValue y :: TypeableValue yty) =
-    case eqT of
-      Just (Refl :: xty :~: yty) ->
-        case compare x y of
-          EQ -> EQF
-          LT -> LTF
-          GT -> GTF
-      _ -> case compare (typeRep (Proxy :: Proxy xty)) (typeRep (Proxy :: Proxy yty)) of
-             LT -> LTF
-             GT -> GTF
-             EQ -> error "compareF for TypeableValue: eqT disagrees with compare"
-
-
 instance TestEquality TypeRepr where
   testEquality = $(U.structuralTypeEquality [t|TypeRepr|]
                    [ (U.TypeApp (U.ConType [t|NatRepr|]) U.AnyType, [|testEquality|])
@@ -555,7 +473,6 @@ instance TestEquality TypeRepr where
                    , (U.TypeApp (U.ConType [t|CtxRepr|]) U.AnyType, [|testEquality|])
                    , (U.TypeApp (U.ConType [t|BaseTypeRepr|]) U.AnyType, [|testEquality|])
                    , (U.TypeApp (U.ConType [t|TypeRepr|]) U.AnyType, [|testEquality|])
-                   , (U.TypeApp (U.ConType [t|TypeableType|]) U.AnyType, [|testEquality|])
                    , (U.TypeApp (U.TypeApp (U.ConType [t|Ctx.Assignment|]) U.AnyType) U.AnyType
                      , [|testEquality|])
                    ]
@@ -569,7 +486,6 @@ instance OrdF TypeRepr where
                    , (U.TypeApp (U.ConType [t|BaseTypeRepr|])  U.AnyType, [|compareF|])
                    , (U.TypeApp (U.ConType [t|TypeRepr|])      U.AnyType, [|compareF|])
                    , (U.TypeApp (U.ConType [t|CtxRepr|])      U.AnyType, [|compareF|])
-                   , (U.TypeApp (U.ConType [t|TypeableType|]) U.AnyType, [|compareF|])
                    , (U.TypeApp (U.TypeApp (U.ConType [t|Ctx.Assignment|]) U.AnyType) U.AnyType
                      , [|compareF|])
                    ]

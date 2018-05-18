@@ -75,7 +75,6 @@ type MuxFn p v = p -> v -> v -> IO v
 type family RegValue (sym :: *) (tp :: CrucibleType) :: * where
   RegValue sym (BaseToType bt) = SymExpr sym bt
   RegValue sym AnyType = AnyValue sym
-  RegValue sym (ConcreteType a) = a
   RegValue sym UnitType = ()
   RegValue sym CharType = Word16
   RegValue sym (FunctionHandleType a r) = FnVal sym a r
