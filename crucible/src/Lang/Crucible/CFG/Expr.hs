@@ -186,13 +186,6 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
             -> !(f AnyType)
             -> App ext f (MaybeType tp)
 
-  ----------------------------------------------------------------------
-  -- Concrete
-
-  -- Constructs a literal of concrete type
-  ConcreteLit :: !(TypeableValue a)
-              -> App ext f (ConcreteType a)
-
   ---------------------------------------------------------------------
   -- Bool
 
@@ -747,9 +740,6 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     PackAny{} -> knownRepr
     UnpackAny tp _ -> MaybeRepr tp
     ----------------------------------------------------------------------
-    -- Concrete
-    ConcreteLit (TypeableValue _) -> ConcreteRepr TypeableType
-    ----------------------------------------------------------------------
     -- Bool
     BoolLit{} -> knownRepr
     Not{} -> knownRepr
@@ -1029,7 +1019,6 @@ instance TestEqualityFC (ExprExtension ext) => TestEqualityFC (App ext) where
                    , (U.ConType [t|SymbolRepr |]    `U.TypeApp` U.AnyType, [|testEquality|])
                    , (U.ConType [t|TypeRepr|]       `U.TypeApp` U.AnyType, [|testEquality|])
                    , (U.ConType [t|BaseTypeRepr|]  `U.TypeApp` U.AnyType, [|testEquality|])
-                   , (U.ConType [t|TypeableValue|]  `U.TypeApp` U.AnyType, [|testEquality|])
                    , (U.ConType [t|Ctx.Assignment|] `U.TypeApp`
                          (U.ConType [t|BaseTerm|] `U.TypeApp` U.AnyType) `U.TypeApp` U.AnyType
                      , [| testEqualityFC (testEqualityFC testSubterm) |]
@@ -1061,7 +1050,6 @@ instance OrdFC (ExprExtension ext) => OrdFC (App ext) where
                    , (U.ConType [t|SymbolRepr |] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|BaseTypeRepr|] `U.TypeApp` U.AnyType, [|compareF|])
-                   , (U.ConType [t|TypeableValue|] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|Ctx.Assignment|] `U.TypeApp`
                          (U.ConType [t|BaseTerm|] `U.TypeApp` U.AnyType) `U.TypeApp` U.AnyType
                      , [| compareFC (compareFC compareSubterm) |]

@@ -811,10 +811,6 @@ intra_branch s p t_label f_label tgt = stateSolverProof s $ do
           let PausedFrame pf = a_state
               setter = stateTree .~ ActiveTree ctx (TotalRes (pf^.pausedValue))
           tryIntraFrameMerge (resume pf) tgt s setter a_id
-    InfeasibleBranch ->
-      do loc <- getCurrentProgramLoc sym
-         let err = SimError loc InfeasibleBranchError 
-         resumeValueFromFrameAbort s ctx (AbortedExec err (s^.stateTree.actFrame))
 {-# INLINABLE intra_branch #-}
 
 mergeAssumptions ::
@@ -1007,7 +1003,7 @@ resumeValueFromFrameAbort :: SimState p sym ext r g args
 resumeValueFromFrameAbort s ctx0 ar0 = stateSolverProof s $ do
   let sym = stateSymInterface s
   case ctx0 of
-    VFFBranch ctx assume_frame _loc p some_next tgt -> do
+    VFFBranch ctx assume_frame loc p some_next tgt -> do
       -- Negate branch condition and add to context.
       pnot <- notPred sym p
       let nextCtx = VFFPartial ctx pnot ar0 True
@@ -1015,12 +1011,12 @@ resumeValueFromFrameAbort s ctx0 ar0 = stateSolverProof s $ do
       -- Reset the backend path state
       _assumes <- popAssumptionFrame sym assume_frame
 
-      -- Add assertion that path condition holds
-      assert sym pnot FailedPathSimError
-
       -- Resume other branch.
       case some_next of
         VFFActivePath   n -> do
+          -- Add assumption that path condition holds
+          addAssumption sym (LabeledPred pnot (ExploringAPath loc))
+
           -- continue executing
           resumeFrame s n nextCtx
         VFFCompletePath otherAssumes pv -> do

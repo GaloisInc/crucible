@@ -90,7 +90,6 @@ import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import           Data.Text (Text)
-import           Data.Typeable
 import qualified Data.Vector as V
 import           Numeric.Natural
 
@@ -125,9 +124,6 @@ asEapp e =
 -- | An expression that embeds literal values of its type.
 class LitExpr e tp ty | tp -> ty where
   litExpr :: IsExpr e => ty -> e tp
-
-instance (Typeable a, Eq a, Ord a, Show a) => LitExpr e (ConcreteType a) a where
-  litExpr x = app (ConcreteLit (TypeableValue x))
 
 ------------------------------------------------------------------------
 -- Booleans

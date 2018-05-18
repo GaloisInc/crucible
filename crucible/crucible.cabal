@@ -114,6 +114,7 @@ test-suite absint-tests
                  containers,
                  mtl,
                  crucible,
+                 what4,
                  parameterized-utils,
                  tasty >= 0.10,
                  tasty-hunit >= 0.9,

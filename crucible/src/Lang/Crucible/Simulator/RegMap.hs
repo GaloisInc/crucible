@@ -92,11 +92,6 @@ regVal' :: RegMap sym ctx
        -> RegEntry sym tp
 regVal' (RegMap a) r = a Ctx.! regIndex r
 
-muxConcrete :: (Eq a, Show a) => sym -> ValMuxFn sym (ConcreteType a)
-muxConcrete _ _ x y
-  | x == y = return x
-  | otherwise =
-     fail $ unwords ["Attempted to mux distinct concrete values", show x, show y]
 
 muxAny :: IsExprBuilder sym
        => sym
@@ -176,7 +171,6 @@ muxRegForType s itefns p =
      BoolRepr          -> muxReg s p
      StringRepr        -> muxReg s p
 
-     ConcreteRepr TypeableType -> muxConcrete s
      AnyRepr -> muxAny s itefns
      StructRepr  ctx -> muxStruct    (muxRegForType s itefns) ctx
      VariantRepr ctx -> muxVariant s (muxRegForType s itefns) ctx

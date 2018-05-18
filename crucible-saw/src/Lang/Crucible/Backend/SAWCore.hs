@@ -18,7 +18,7 @@
 
 module Lang.Crucible.Backend.SAWCore where
 
-import           Control.Exception ( bracket, throwIO )
+import           Control.Exception ( bracket )
 import           Control.Lens
 import           Control.Monad
 import           Data.IORef
@@ -750,7 +750,7 @@ instance IsBoolSolver (SAWCoreBackend n) where
   addAssertion sym a = do
     case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
-      Just False -> throwIO (a^.labeledPredMsg)
+      Just False -> abortExecSimError sym (a^.labeledPredMsg)
       _ ->
         do stk <- getAssumptionStack sym
            AS.assert a stk
@@ -758,14 +758,12 @@ instance IsBoolSolver (SAWCoreBackend n) where
   addAssumption sym a = do
     case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
-      Just False -> addFailedAssertion sym InfeasibleBranchError
+      Just False -> abortExecSimErrorReason sym InfeasibleBranchError
       _ ->
         do stk <- getAssumptionStack sym
            AS.assume a stk
 
-  addFailedAssertion sym msg = do
-    loc <- getCurrentProgramLoc sym
-    throwIO (SimError loc msg)
+  addFailedAssertion sym msg = abortExecSimErrorReason sym msg
 
   addAssumptions sym ps = do
     stk <- getAssumptionStack sym
@@ -788,7 +786,7 @@ instance IsBoolSolver (SAWCoreBackend n) where
            p_res    <- checkSatisfiable sym p
            notp_res <- checkSatisfiable sym p_neg
            case (p_res, notp_res) of
-             (Unsat, Unsat) -> return InfeasibleBranch
+             (Unsat, Unsat) -> abortExecSimErrorReason sym InfeasibleBranchError
              (Unsat, _ )    -> return $! NoBranch False
              (_    , Unsat) -> return $! NoBranch True
              (_    , _)     -> return $! SymbolicBranch True
