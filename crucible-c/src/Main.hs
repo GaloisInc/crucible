@@ -7,7 +7,7 @@ module Main(main) where
 import Data.String(fromString)
 import qualified Data.Foldable as Fold
 import qualified Data.Map as Map
-import Control.Lens((^.))
+import Control.Lens((^.),(^..))
 import Control.Monad.ST(RealWorld, stToIO)
 import Control.Monad(unless)
 import Control.Exception(SomeException(..))
@@ -41,14 +41,6 @@ import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
 import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Simulator.RegMap(emptyRegMap,regValue)
 import Lang.Crucible.Simulator.ExecutionTree
-        ( initSimContext
-        , ExecResult(..)
-        , ErrorHandler(..)
-        , stateTree, stateContext, ctxSymInterface
-        , activeFrames
-        , cruciblePersonality
-        , abortTree
-        )
 import Lang.Crucible.Simulator.OverrideSim
         ( fnBindingsFromList, initSimState, runOverrideSim, callCFG)
 
@@ -175,7 +167,7 @@ simulate opts file k =
 
           mem  <- initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
-          let simSt  = initSimState simctx globSt (eHandler opts)
+          let simSt  = initSimState simctx globSt defaultErrorHandler -- (eHandler opts)
 
           res <- runOverrideSim simSt UnitRepr $
                    do setupMem llvmCtxt trans
@@ -186,9 +178,26 @@ simulate opts file k =
 
           case res of
             FinishedExecution ctx' _ ->
-              do gs <- Fold.toList <$> getProofObligations sym
+              do putStrLn "First case"
+                 gs <- Fold.toList <$> getProofObligations sym
                  proveGoals ctx' gs
-            AbortedResult _ err -> throwError (SimAbort err)
+            AbortedResult ctxt err ->
+              do putStrLn "Over here"
+                 let fs = err ^.. arFrames
+                 putStrLn "Call stack:"
+                 print (ppExceptionContext fs)
+                 putStrLn "AR:"
+                 putStrLn (unlines (ppAR err))
+                 throwError (SimAbort err)
+
+
+ppAR x = case x of
+           AbortedExec {}      -> ["AbortedExec"]
+           AbortedExit {}      -> ["AbortedExit"]
+           AbortedBranch _ x y -> [ "AbortedBranch" ] ++
+                                  [ "  " ++ l | l <- ppAR x ] ++
+                                  [ "  ---" ] ++
+                                  [ "  " ++ r | r <- ppAR x ]
 
 
 -- eHandler :: ErrorHandler (Model sym) sym (LLVM arch) trp
@@ -198,10 +207,10 @@ eHandler ::
 eHandler opts = EH $ \e st ->
   do let ctx = st ^. stateContext
          sym = ctx ^. ctxSymInterface
-     putStrLn "HERE"
-     addFailedAssertion sym (simErrorReason e)
+     putStrLn ("HERE: " ++ show e)
+     -- addFailedAssertion sym (simErrorReason e)
      loc <- getCurrentProgramLoc sym
-     let err = SimError { simErrorReason = FailedPathSimError
+     let err = SimError { simErrorReason = InfeasibleBranchError
                         , simErrorLoc = loc
                         }
      abortTree err st

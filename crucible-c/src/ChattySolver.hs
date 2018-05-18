@@ -37,7 +37,6 @@ instance OnlineSolver scope solver =>
   evalBranch sym p =
     do res <- evalBranch (theSym sym) p
        case res of
-         InfeasibleBranch  -> return ()
          NoBranch x        -> return ()
          SymbolicBranch _  -> return ()
        return res
