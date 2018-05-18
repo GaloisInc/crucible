@@ -18,13 +18,14 @@ module Lang.Crucible.Simulator.GlobalState
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.TraversableF
 
+import           What4.Interface
+import           What4.Partial
+import           What4.ProgramLoc
+
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
-import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Solver.Partial
 
 newtype GlobalEntry (sym :: *) (tp :: CrucibleType) = GlobalEntry { globalEntryValue :: RegValue sym tp }
 data RefCellContents (sym :: *) (tp :: CrucibleType)
@@ -66,7 +67,7 @@ lookupRef r gst =
   maybe Unassigned (\(RefCellContents p x) -> PE p x) $ MapF.lookup r (globalReferenceMap gst)
 
 -- | Set the value of a reference cell in the state
-insertRef :: IsSymInterface sym
+insertRef :: IsExprBuilder sym
           => sym
           -> RefCell tp
           -> RegValue sym tp
@@ -83,7 +84,7 @@ dropRef r gst =
    gst{ globalReferenceMap = MapF.delete r (globalReferenceMap gst) }
 
 globalPushBranch :: forall sym
-                  . IsSymInterface sym
+                  . IsExprBuilder sym
                  => sym
                  -> IntrinsicTypes sym
                  -> SymGlobalState sym
@@ -107,7 +108,7 @@ globalPushBranch sym iTypes (GlobalState d g refs) = do
   return (GlobalState (d+1) g' refs')
 
 globalAbortBranch :: forall sym
-                . IsSymInterface sym
+                . IsExprBuilder sym
                => sym
                -> IntrinsicTypes sym
                -> SymGlobalState sym
@@ -140,7 +141,7 @@ globalAbortBranch sym iTypes (GlobalState d g refs)
          ]
 
 globalMuxFn :: forall sym
-             . IsSymInterface sym
+             . IsExprBuilder sym
              => sym
              -> IntrinsicTypes sym
              -> MuxFn (Pred sym) (SymGlobalState sym)

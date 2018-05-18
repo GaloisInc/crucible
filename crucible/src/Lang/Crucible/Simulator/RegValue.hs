@@ -60,11 +60,13 @@ import           GHC.TypeLits
 
 import qualified Data.Parameterized.Context as Ctx
 
+import           What4.FunctionName
+import           What4.Interface
+import           What4.Partial
+import           What4.WordMap
+
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.FunctionName
 import           Lang.Crucible.Simulator.Intrinsics
-import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.Types
 
 type MuxFn p v = p -> v -> v -> IO v
@@ -76,7 +78,6 @@ type family RegValue (sym :: *) (tp :: CrucibleType) :: * where
   RegValue sym (ConcreteType a) = a
   RegValue sym UnitType = ()
   RegValue sym CharType = Word16
-  RegValue sym StringType = Text
   RegValue sym (FunctionHandleType a r) = FnVal sym a r
   RegValue sym (MaybeType tp) = PartExpr (Pred sym) (RegValue sym tp)
   RegValue sym (VectorType tp) = V.Vector (RegValue sym tp)
@@ -157,7 +158,7 @@ instance CanMux sym UnitType where
 ------------------------------------------------------------------------
 -- RegValue instance for base types
 
-instance IsBoolExprBuilder sym => CanMux sym BoolType where
+instance IsExprBuilder sym => CanMux sym BoolType where
   {-# INLINE muxReg #-}
   muxReg s = const $ itePred s
 
@@ -177,12 +178,9 @@ instance IsExprBuilder sym => CanMux sym ComplexRealType where
   {-# INLINE muxReg #-}
   muxReg s = \_ -> cplxIte s
 
-------------------------------------------------------------------------
--- RegValue String instance
-
-instance CanMux sym StringType where
+instance IsExprBuilder sym => CanMux sym StringType where
   {-# INLINE muxReg #-}
-  muxReg _ = \ _ -> eqMergeFn "strings"
+  muxReg s = \_ -> stringIte s
 
 ------------------------------------------------------------------------
 -- RegValue Vector instance
@@ -216,7 +214,7 @@ instance CanMux sym CharType where
 ------------------------------------------------------------------------
 -- RegValue Maybe instance
 
-mergePartExpr :: IsBoolExprBuilder sym
+mergePartExpr :: IsExprBuilder sym
               => sym
               -> (Pred sym -> v -> v -> IO v)
               -> Pred sym
@@ -225,7 +223,7 @@ mergePartExpr :: IsBoolExprBuilder sym
               -> IO (PartExpr (Pred sym) v)
 mergePartExpr sym fn c = mergePartial sym (\a b -> lift (fn c a b)) c
 
-instance (IsBoolExprBuilder sym, CanMux sym tp) => CanMux sym (MaybeType tp) where
+instance (IsExprBuilder sym, CanMux sym tp) => CanMux sym (MaybeType tp) where
   {-# INLINE muxReg #-}
   muxReg s = \_ -> do
     let f = muxReg s (Proxy :: Proxy tp)
@@ -236,7 +234,7 @@ instance (IsBoolExprBuilder sym, CanMux sym tp) => CanMux sym (MaybeType tp) whe
 
 -- TODO: Figure out how to actually compare these.
 {-# INLINE muxHandle #-}
-muxHandle :: IsPred (Pred sym)
+muxHandle :: IsExpr (SymExpr sym)
           => sym
           -> Pred sym
           -> FnVal sym a r
@@ -302,7 +300,7 @@ muxStruct recf ctx = \p x y ->
 newtype VariantBranch sym tp = VB { unVB :: PartExpr (Pred sym) (RegValue sym tp) }
 
 injectVariant ::
-  IsSymInterface sym =>
+  IsExprBuilder sym =>
   sym ->
   CtxRepr ctx ->
   Ctx.Index ctx tp ->

@@ -19,8 +19,13 @@ import Data.Parameterized.Context.Unsafe (Assignment)
 import Data.Parameterized.Context(pattern Empty, pattern (:>))
 
 
+import What4.FunctionName(functionNameFromText)
+import What4.Symbol(userSymbol)
+import What4.Interface
+          (freshConstant, bvLit, bvEq, asUnsignedBV,notPred
+          , getCurrentProgramLoc)
+
 import Lang.Crucible.Types
-import Lang.Crucible.FunctionName(functionNameFromText)
 import Lang.Crucible.CFG.Core(GlobalVar)
 import Lang.Crucible.FunctionHandle (handleArgTypes,handleReturnType)
 import Lang.Crucible.Simulator.RegMap(RegMap(..),regValue,RegValue,RegEntry)
@@ -38,14 +43,9 @@ import Lang.Crucible.Simulator.OverrideSim
         , readGlobal
         )
 import Lang.Crucible.Simulator.SimError (SimErrorReason(..))
-
-
-import Lang.Crucible.Solver.Symbol(userSymbol)
-import Lang.Crucible.Solver.Interface
-          (freshConstant, bvLit, bvEq, asUnsignedBV, IsSymInterface)
-import Lang.Crucible.Solver.BoolInterface
-        (addFailedAssertion,addAssertion,addAssumption,notPred)
-
+import Lang.Crucible.Backend
+          (IsSymInterface,addFailedAssertion,assert
+          , addAssumption, LabeledPred(..), AssumptionReason(..))
 import Lang.Crucible.LLVM.Translation
         ( LLVMContext, LLVMHandleInfo(..)
         , symbolMap
@@ -86,6 +86,10 @@ setupOverrides ctxt =
         (Empty :> knownRepr :> tPtr :> knownRepr) knownRepr (lib_assert mvar)
      regOver ctxt "__VERIFIER_nondet_uint"
         Empty knownRepr sv_comp_fresh_i32
+{-
+     regOver ctxt "__VERIFIER_assert"
+        (Empty :> knownRepr) knownRepr sv_comp_assert
+-}
      regOver ctxt "__VERIFIER_assume"
         (Empty :> knownRepr) knownRepr sv_comp_assume
      regOver ctxt "__VERIFIER_error"
@@ -134,7 +138,7 @@ mkFresh nm ty =
                Left err -> fail (show err) -- XXX
                Right a  -> return a
      elt <- liftIO (freshConstant sym name ty)
-     stateContext.cruciblePersonality %= addVar ty elt
+     stateContext.cruciblePersonality %= addVar nm ty elt
      return elt
 
 lookupString ::
@@ -187,7 +191,10 @@ lib_assume =
      sym  <- getSymInterface
      liftIO $ do cond <- projectLLVM_bv sym (regValue p)
                  zero <- bvLit sym knownRepr 0
-                 addAssumption sym =<< notPred sym =<< bvEq sym cond zero
+                 asmpP <- notPred sym =<< bvEq sym cond zero
+                 loc   <- getCurrentProgramLoc sym
+                 let msg = AssumptionReason loc "(assumption)"
+                 addAssumption sym (LabeledPred asmpP msg)
 
 
 lib_assert ::
@@ -207,7 +214,7 @@ lib_assert mvar =
                  zero <- bvLit sym knownRepr 0
                  let rsn = AssertFailureSimError msg
                  check <- notPred sym =<< bvEq sym cond zero
-                 addAssertion sym check rsn
+                 assert sym check rsn
 
 
 
@@ -229,7 +236,25 @@ sv_comp_assume =
      sym  <- getSymInterface
      liftIO $ do cond <- projectLLVM_bv sym (regValue p)
                  zero <- bvLit sym knownRepr 0
-                 addAssumption sym =<< notPred sym =<< bvEq sym cond zero
+                 loc  <- getCurrentProgramLoc sym
+                 let msg = AssumptionReason loc "XXX"
+                 check <- notPred sym =<< bvEq sym cond zero
+                 addAssumption sym (LabeledPred check msg)
+
+{-
+sv_comp_assert ::
+  (ArchOk arch, IsSymInterface sym) =>
+  Fun sym arch (EmptyCtx ::> TBits 32) UnitType
+sv_comp_assert =
+  do RegMap (Empty :> p) <- getOverrideArgs
+     sym  <- getSymInterface
+     liftIO $ do cond <- projectLLVM_bv sym (regValue p)
+                 zero <- bvLit sym knownRepr 0
+                 let msg = "Assertion failed."
+                     rsn = AssertFailureSimError msg
+                 check <- notPred sym =<< bvEq sym cond zero
+                 addAssertion sym check rsn
+-}
 
 sv_comp_error ::
   (ArchOk arch, IsSymInterface sym) =>

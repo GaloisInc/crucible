@@ -76,12 +76,17 @@ import           System.Exit
 import           System.IO
 import           System.IO.Error
 
+import           What4.Config
+import           What4.Interface
+import           What4.FunctionName
+import           What4.Utils.MonadST
+
 import           Lang.Crucible.Analysis.Postdom
-import           Lang.Crucible.Config
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.FunctionName
+
+import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.CallFns
 import           Lang.Crucible.Simulator.CallFrame (mkCallFrame)
 import           Lang.Crucible.Simulator.ExecutionTree
@@ -89,9 +94,6 @@ import           Lang.Crucible.Simulator.Frame
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Solver.Partial
-import           Lang.Crucible.Utils.MonadST
 import           Lang.Crucible.Utils.MonadVerbosity
 import           Lang.Crucible.Utils.StateContT
 
@@ -110,7 +112,7 @@ import           Lang.Crucible.Utils.StateContT
 --   * 'ret'  return type of the current frame
 --   * 'a'    the value type
 --
-newtype OverrideSim (p :: * -> *) sym ext rtp (args :: Ctx CrucibleType) (ret :: CrucibleType) a
+newtype OverrideSim p sym ext rtp (args :: Ctx CrucibleType) (ret :: CrucibleType) a
       = Sim { unSim :: StateContT (SimState p sym ext rtp (OverrideLang args ret) 'Nothing)
                                   (ExecResult p sym ext rtp)
                                   IO
@@ -183,8 +185,11 @@ getPathConditions = do
 
 instance MonadVerbosity (OverrideSim p sym ext rtp args ret) where
   getVerbosity = do
-    cfg <- simConfig <$> getContext
-    liftIO $ getConfigValue verbosity cfg
+    ctx <- getContext
+    let cfg = ctxSolverProof ctx (getConfiguration (ctx^.ctxSymInterface))
+    v <- liftIO (getOpt =<< getOptionSetting verbosity cfg)
+    return (fromInteger v)
+
   getLogFunction = do
     h <- printHandle <$> getContext
     verb <- getVerbosity

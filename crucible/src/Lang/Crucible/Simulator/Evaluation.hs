@@ -32,7 +32,7 @@ module Lang.Crucible.Simulator.Evaluation
   , updateVectorWithSymNat
   ) where
 
-import           Control.Exception (assert)
+import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad
 import qualified Data.Map.Strict as Map
@@ -46,15 +46,18 @@ import           Data.Word
 import           Numeric ( showHex )
 import           Numeric.Natural
 
+import           What4.Interface
+import           What4.Partial
+import           What4.Symbol (emptySymbol)
+import           What4.Utils.Complex
+import           What4.WordMap
+
+import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Solver.Partial
-import           Lang.Crucible.Solver.Symbol (emptySymbol)
 import           Lang.Crucible.Types
-import           Lang.Crucible.Utils.Complex
 
 ------------------------------------------------------------------------
 -- Utilities
@@ -113,7 +116,7 @@ indexSymbolic' sym iteFn f p ((l,h):nl) (si:il) = do
       l_sym <- natLit sym l
       h_sym <- natLit sym h
       inRange <- join $ andPred sym <$> natLe sym l_sym si <*> natLe sym si h_sym
-      addAssertion sym inRange (GenericSimError "Index exceeds matrix dimensions.")
+      assert sym inRange (GenericSimError "Index exceeds matrix dimensions.")
       let predFn i = natEq sym si =<< natLit sym (fromInteger i)
       muxIntegerRange predFn iteFn (subIndex . fromInteger) (toInteger l) (toInteger h)
 
@@ -144,6 +147,7 @@ evalBase _ evalSub (BaseTerm tp e) =
     BaseNatRepr     -> evalSub e
     BaseIntegerRepr -> evalSub e
     BaseRealRepr    -> evalSub e
+    BaseStringRepr  -> evalSub e
     BaseComplexRepr -> evalSub e
     BaseStructRepr  _ -> evalSub e
     BaseArrayRepr _ _ -> evalSub e
@@ -158,7 +162,7 @@ indexVectorWithSymNat :: IsExprBuilder sym
                       -> IO a
 indexVectorWithSymNat sym iteFn v si = do
   let n = fromIntegral (V.length v)
-  assert (n > 0) $ do
+  Ex.assert (n > 0) $ do
   case asNat si of
     Just i | 0 <= i && i <= n -> return (v V.! fromIntegral i)
            | otherwise -> error "indexVectorWithSymNat given bad value"
@@ -359,7 +363,9 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
         PE (asConstantPred -> Just True) v -> return v
         _ -> do
           msg <- evalSub msg_expr
-          readPartExpr sym maybe_val (GenericSimError (Text.unpack msg))
+          case asString msg of
+            Just msg' -> readPartExpr sym maybe_val (GenericSimError (Text.unpack msg'))
+            Nothing -> fail "Expected concrete string in fromJustValue"
 
     ----------------------------------------------------------------------
     -- Side conditions
@@ -638,19 +644,6 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
         PE p v -> do
           muxRegForType sym itefns (baseToType tp) p v d
 
-    --------------------------------------------------------------------
-    -- StructFields
-
-    EmptyStructFields -> return V.empty
-    FieldsEq x y -> do
-      xv <- evalSub x
-      yv <- evalSub y
-      return $ backendPred sym (xv == yv)
-    HasField e s_expr -> do
-      ev <- evalSub e
-      sv <- evalSub s_expr
-      return $ backendPred sym (ev `V.elem` sv)
-
     ---------------------------------------------------------------------
     -- Struct
 
@@ -683,22 +676,28 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     LookupStringMapEntry _ m_expr i_expr -> do
       i <- evalSub i_expr
       m <- evalSub m_expr
-      return $ joinMaybePE (Map.lookup i m)
+      case asString i of
+        Just i' -> return $ joinMaybePE (Map.lookup i' m)
+        Nothing -> fail "Expected concrete string in lookupStringMapEntry"
     InsertStringMapEntry _ m_expr i_expr v_expr -> do
       m <- evalSub m_expr
       i <- evalSub i_expr
       v <- evalSub v_expr
-      return $ Map.insert i v m
+      case asString i of
+        Just i' -> return $ Map.insert i' v m
+        Nothing -> fail "Expected concrete string in insertStringMapEntry"
 
     --------------------------------------------------------------------
     -- Text
 
-    TextLit txt -> return txt
+    TextLit txt -> stringLit sym txt
     ShowValue _bt x_expr -> do
       x <- evalSub x_expr
-      return $! Text.pack (show (printSymExpr x))
-    AppendString x y ->
-      Text.append <$> evalSub x <*> evalSub y
+      stringLit sym (Text.pack (show (printSymExpr x)))
+    AppendString x y -> do
+      x' <- evalSub x
+      y' <- evalSub y
+      stringConcat sym x' y'
 
     ---------------------------------------------------------------------
     -- Introspection

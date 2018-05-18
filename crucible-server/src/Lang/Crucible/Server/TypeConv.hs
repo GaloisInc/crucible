@@ -31,10 +31,11 @@ import Data.HPB
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Some
 
-import Lang.Crucible.ProgramLoc
-import Lang.Crucible.Solver.Interface
+import What4.FunctionName
+import What4.ProgramLoc
+import What4.Interface
+
 import Lang.Crucible.Types
-import Lang.Crucible.FunctionName
 
 import qualified Lang.Crucible.Proto as P
 

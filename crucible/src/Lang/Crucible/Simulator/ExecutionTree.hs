@@ -89,8 +89,6 @@ module Lang.Crucible.Simulator.ExecutionTree
   , ctxSymInterface
   , functionBindings
   , cruciblePersonality
-  , SimConfig
-  , SimConfigMonad(..)
   , FunctionBindings
   , FnState(..)
   , ExtensionImpl(..)
@@ -100,6 +98,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , stateSolverProof
   , stateIntrinsicTypes
   , stateOverrideFrame
+  , stateGetConfiguration
   , mssRunErrorHandler
   , mssRunGenericErrorHandler
   ) where
@@ -107,19 +106,25 @@ module Lang.Crucible.Simulator.ExecutionTree
 import           Control.Lens
 import           Control.Monad.ST (RealWorld)
 import           Control.Monad.State.Strict
+import           Data.Monoid ((<>))
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
+import           Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import           Data.Type.Equality hiding (sym)
 import           System.Exit (ExitCode)
 import           System.IO
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
-import           Lang.Crucible.Config
+import           What4.Config
+import           What4.Interface
+import           What4.FunctionName (FunctionName)
+import           What4.ProgramLoc
+
+import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.FunctionHandle (FnHandleMap, HandleAllocator)
-import           Lang.Crucible.FunctionName (FunctionName)
-import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.Evaluation
 import           Lang.Crucible.Simulator.Frame
@@ -127,9 +132,8 @@ import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Utils.MonadVerbosity
+
+
 
 
 -- | @swap_unless b (x,y)@ returns @(x,y)@ when @b@ is @True@ and
@@ -140,7 +144,7 @@ swap_unless False (x,y) = (y,x)
 {-# INLINE swap_unless #-}
 
 -- | Return assertion where predicate equals a constant
-predEqConst :: IsBoolExprBuilder sym => sym -> Pred sym -> Bool -> IO (Pred sym)
+predEqConst :: IsExprBuilder sym => sym -> Pred sym -> Bool -> IO (Pred sym)
 predEqConst _   p True  = return p
 predEqConst sym p False = notPred sym p
 
@@ -221,9 +225,6 @@ data AbortedResult sym ext where
   AbortedExit :: !ExitCode
               -> AbortedResult sym ext
 
-  -- An aborted execution that was ended because path conditions became infeasible
-  AbortedInfeasible :: AbortedResult sym ext
-
   -- An entire aborted branch.
   AbortedBranch :: !(Pred sym)
                 -> !(AbortedResult sym ext)
@@ -236,7 +237,6 @@ arFrames h (AbortedExec e p) =
   (\(SomeFrame f') -> AbortedExec e (p & gpValue .~ f'))
      <$> h (SomeFrame (p^.gpValue))
 arFrames _ (AbortedExit ec) = pure (AbortedExit ec)
-arFrames _ (AbortedInfeasible) = pure (AbortedInfeasible)
 arFrames h (AbortedBranch p r s) =
   AbortedBranch p <$> arFrames h r
                   <*> arFrames h s
@@ -259,7 +259,8 @@ ppExceptionContext frames = PP.vcat (map pp (init frames))
 abortTree :: SimError -> SimState p sym ext rtp f args -> IO (ExecResult p sym ext rtp)
 abortTree e s = do
   let t = s^.stateTree
-  v <- getConfigValue verbosity (simConfig (s^.stateContext))
+  let cfg = stateGetConfiguration s
+  v <- getOpt =<< getOptionSetting verbosity cfg
   when (v > 0) $ do
     let frames = activeFrames t
     let msg = ppSimError e PP.<$$> PP.indent 2 (ppExceptionContext frames)
@@ -298,7 +299,7 @@ mergeAbortedBranch _ (AbortedExit ec) _ = AbortedExit ec
 mergeAbortedBranch _ _ (AbortedExit ec) = AbortedExit ec
 mergeAbortedBranch c q r = AbortedBranch c q r
 
-mergePartialAndAbortedResult :: IsBoolExprBuilder sym
+mergePartialAndAbortedResult :: IsExprBuilder sym
                              => sym
                              -> Pred sym
                              -> PartialResult sym ext v
@@ -378,8 +379,6 @@ type ExecCont p sym ext r f a = SimState p sym ext r f a -> IO (ExecResult p sym
 -- solver interface.
 data PausedValue p sym ext root f args (v :: *)
    = PausedValue { _pausedValue :: !v
-                 , savedStateInfo :: !(SymPathState sym)
-                   -- ^ Saved state information
                  , resume :: !(ExecCont p sym ext root f args)
                    -- ^ Function to run.
                  }
@@ -423,7 +422,7 @@ data VFFOtherPath p sym ext root f args
      -- ^ This is a active execution and includes the current frame.
      -- Note: this would need to be made more generic
      -- if we want to be able paths concurrently.
-   | VFFCompletePath !(PausedPartialFrame p sym ext root f args)
+   | VFFCompletePath !(Seq (Assumption sym)) !(PausedPartialFrame p sym ext root f args)
      -- ^ This is a completed execution path.
 
 
@@ -435,8 +434,10 @@ data ValueFromFrame p sym ext (root :: *) (f :: *)  where
   -- VFFBranch ctx b t denotes @ctx[[] <b> t]@.
   VFFBranch :: !(ValueFromFrame p sym ext ret (CrucibleLang blocks a))
                -- /\ Outer context.
-            -> !(SymPathState sym)
+            -> !FrameIdentifier
                -- /\ State before this branch
+            -> !ProgramLoc
+               -- /\ Program location of the branch point
             -> !(Pred sym)
                -- /\ Assertion of current branch
             -> !(VFFOtherPath p sym ext ret (CrucibleLang blocks a) args)
@@ -488,12 +489,12 @@ instance PP.Pretty (ValueFromFrame p ext sym ret f) where
 
 instance PP.Pretty (VFFOtherPath ctx sym ext r f a) where
   pretty (VFFActivePath _)   = PP.text "active_path"
-  pretty (VFFCompletePath _) = PP.text "complete_path"
+  pretty (VFFCompletePath _ _) = PP.text "complete_path"
 
 ppValueFromFrame :: ValueFromFrame p sym ext ret f -> PP.Doc
 ppValueFromFrame vff =
   case vff of
-    VFFBranch ctx _ _ other mp ->
+    VFFBranch ctx _ _ _ other mp ->
       PP.text "intra_branch" PP.<$$>
       PP.indent 2 (PP.pretty other) PP.<$$>
       PP.indent 2 (PP.text (ppBranchTarget mp)) PP.<$$>
@@ -522,7 +523,7 @@ ppValueFromValue vfv =
 parentFrames :: ValueFromFrame p sym ext r a -> [SomeFrame (SimFrame sym ext)]
 parentFrames c0 =
   case c0 of
-    VFFBranch c _ _ _ _ -> parentFrames c
+    VFFBranch c _ _ _ _ _ -> parentFrames c
     VFFPartial c _ _ _ -> parentFrames c
     VFFEnd vfv -> vfvParents vfv
 
@@ -595,7 +596,7 @@ pathConditions :: ValueFromFrame p sym ext r a
                -> [Pred sym]
 pathConditions c0 =
   case c0 of
-    VFFBranch   c _ p _ _ -> p : pathConditions c
+    VFFBranch   c _ _ p _ _ -> p : pathConditions c
     VFFPartial  c p _ _   -> p : pathConditions c
     VFFEnd vfv            -> vfvConditions vfv
 
@@ -628,7 +629,7 @@ getIntraFrameBranchTarget :: ValueFromFrame p sym ext root (CrucibleLang b a)
                           -> Maybe (Some (CrucibleBranchTarget b))
 getIntraFrameBranchTarget vff0 =
   case vff0 of
-  VFFBranch _ _ _ _ tgt -> Just (Some tgt)
+  VFFBranch _ _ _ _ _ tgt -> Just (Some tgt)
   VFFPartial ctx _ _ _ -> getIntraFrameBranchTarget ctx
   VFFEnd{} -> Nothing
 
@@ -689,30 +690,34 @@ checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $ do
   let ActiveTree ctx0 er = s^.stateTree
   let sym = stateSymInterface s
   case ctx0 of
-    VFFBranch ctx old_state p some_next tgt'
+    VFFBranch ctx assume_frame loc p some_next tgt'
       | Just Refl <- testEquality tgt tgt' -> do
         -- Adjust state info.
         -- Merge the two results together.
-        sym_state <- getCurrentState sym
+
         case some_next of
           VFFActivePath next -> do
+            pathAssumes <- popAssumptionFrame sym assume_frame
+
+            new_assume_frame <- pushAssumptionFrame sym
             pnot <- notPred sym p
-            switchCurrentState sym old_state (savedStateInfo next)
+            addAssumption sym (LabeledPred pnot (ExploringAPath loc))
+
             let paused_res :: PausedPartialFrame p sym ext root (CrucibleLang b r) args
                 paused_res = PausedValue { _pausedValue = er
-                                         , savedStateInfo = sym_state
                                          , resume = active_cont
                                          }
-            resumeFrame s next (VFFBranch ctx old_state pnot (VFFCompletePath paused_res) tgt)
-          VFFCompletePath other -> do
-            -- Get location where branch occured
+            resumeFrame s next (VFFBranch ctx new_assume_frame loc pnot (VFFCompletePath pathAssumes paused_res) tgt)
+          VFFCompletePath otherAssumes other -> do
             -- Merge results together
             ar <- mergePartialResult s tgt p er (other^.pausedValue)
-            -- Reset the backend path state
-            resetCurrentState sym old_state
-            -- Mux together the assertions along each branch, and add them
-            -- back to the path conditions
-            mergeState sym p sym_state (savedStateInfo other)
+
+            -- Merge the assumptions from each branch and add to the
+            -- current assumption frame
+            pathAssumes <- popAssumptionFrame sym assume_frame
+
+            mergedAssumes <- mergeAssumptions sym p pathAssumes otherAssumes
+            addAssumptions sym mergedAssumes
 
             -- Check for more potential merge targets.
             let s' = s & stateTree .~ ActiveTree ctx ar
@@ -757,53 +762,47 @@ intra_branch :: SimState p sym ext r (CrucibleLang b a) ('Just dc_args)
                 -- ^ Current execution state
              -> Pred sym
                 -- ^ Information about branch
-             -> (SymPathState sym -> SomeLabel p sym ext r b a)
+             -> SomeLabel p sym ext r b a
                 -- ^ true branch.
-             -> (SymPathState sym -> SomeLabel p sym ext r b a)
+             -> SomeLabel p sym ext r b a
                 -- ^ false branch.
              -> CrucibleBranchTarget b (args :: Maybe (Ctx CrucibleType))
                 -- ^ Information for merge
              -> IO (ExecResult p sym ext r)
-intra_branch s p t_fn f_fn tgt = stateSolverProof s $ do
+intra_branch s p t_label f_label tgt = stateSolverProof s $ do
   let ctx = asContFrame (s^.stateTree)
   let sym = stateSymInterface s
   r <- evalBranch sym p
-  cur_state <- getCurrentState sym
+
   case r of
     SymbolicBranch chosen_branch -> do
       -- Get correct predicate
       p' <- predEqConst sym p chosen_branch
-      -- Get current state
-
-      let t_label = t_fn cur_state
-          f_label = f_fn cur_state
 
       -- Select correct branch
       case swap_unless chosen_branch (t_label, f_label) of
         (SomeLabel a_state a_id, SomeLabel o_state o_id) -> do
+          loc <- getCurrentProgramLoc sym
+
           a_frame <- pushBranchVal s a_state
           PausedFrame o_frame <- pushBranchVal s o_state
 
+          assume_frame <- pushAssumptionFrame sym
+          addAssumption sym (LabeledPred p' (ExploringAPath loc))
+
           -- Create context for paused frame.
-          let set_f sym' = pushBranchPred sym' =<< notPred sym' p'
           let o_tree = o_frame & pausedValue %~ TotalRes
-                               & resumed     .~ (\s'' -> do set_f (stateSymInterface s'')
-                                                            tryIntraFrameMerge (resume o_frame)
+                               & resumed     .~ (\s'' -> tryIntraFrameMerge (resume o_frame)
                                                                tgt s''
                                                                id
                                                                o_id)
-          let ctx' = VFFBranch ctx cur_state p' (VFFActivePath o_tree) tgt
+          let ctx' = VFFBranch ctx assume_frame loc p' (VFFActivePath o_tree) tgt
           -- Start a_state (where branch pred is p')
-          pushBranchPred sym p'
           let PausedFrame pf = a_frame
               setter = stateTree .~ ActiveTree ctx' (TotalRes (pf^.pausedValue))
           tryIntraFrameMerge (resume pf) tgt s setter a_id
 
     NoBranch chosen_branch -> do
-      -- Get current state
-      let t_label = t_fn cur_state
-          f_label = f_fn cur_state
-
       -- Execute on active branch.
       let a_label | chosen_branch = t_label
                   | otherwise     = f_label
@@ -813,8 +812,25 @@ intra_branch s p t_fn f_fn tgt = stateSolverProof s $ do
               setter = stateTree .~ ActiveTree ctx (TotalRes (pf^.pausedValue))
           tryIntraFrameMerge (resume pf) tgt s setter a_id
     InfeasibleBranch ->
-      resumeValueFromFrameAbort s ctx AbortedInfeasible
+      do loc <- getCurrentProgramLoc sym
+         let err = SimError loc InfeasibleBranchError 
+         resumeValueFromFrameAbort s ctx (AbortedExec err (s^.stateTree.actFrame))
 {-# INLINABLE intra_branch #-}
+
+mergeAssumptions ::
+  IsExprBuilder sym =>
+  sym ->
+  Pred sym ->
+  Seq (Assumption sym) ->
+  Seq (Assumption sym) ->
+  IO (Seq (Assumption sym))
+mergeAssumptions sym p thens elses =
+  do pnot <- notPred sym p
+     th' <- (traverse.labeledPred) (impliesPred sym p) thens
+     el' <- (traverse.labeledPred) (impliesPred sym pnot) elses
+     let xs = th' <> el'
+     -- Filter out all the trivally true assumptions
+     return (Seq.filter ((/= Just True) . asConstantPred . view labeledPred) xs)
 
 ------------------------------------------------------------------------
 -- ValueFromFrame
@@ -991,25 +1007,30 @@ resumeValueFromFrameAbort :: SimState p sym ext r g args
 resumeValueFromFrameAbort s ctx0 ar0 = stateSolverProof s $ do
   let sym = stateSymInterface s
   case ctx0 of
-    VFFBranch ctx old_state p some_next tgt -> do
+    VFFBranch ctx assume_frame _loc p some_next tgt -> do
       -- Negate branch condition and add to context.
       pnot <- notPred sym p
       let nextCtx = VFFPartial ctx pnot ar0 True
 
       -- Reset the backend path state
-      resetCurrentState sym old_state
+      _assumes <- popAssumptionFrame sym assume_frame
 
       -- Add assertion that path condition holds
-      addAssertion sym pnot FailedPathSimError
+      assert sym pnot FailedPathSimError
 
       -- Resume other branch.
       case some_next of
         VFFActivePath   n -> do
           -- continue executing
           resumeFrame s n nextCtx
-        VFFCompletePath pv -> do
+        VFFCompletePath otherAssumes pv -> do
           let er = pv^.pausedValue
           let s' = s & stateTree .~ ActiveTree nextCtx er
+
+          -- We are committed to the other path,
+          -- assume all of its suspended assumptions
+          addAssumptions sym otherAssumes
+
           -- check for further merges
           checkForIntraFrameMerge (resume pv) tgt s'
     VFFPartial ctx p ay _ -> do
@@ -1049,7 +1070,7 @@ vffSingleContext :: ValueFromFrame p sym ext ret f
                  -> ValueFromFrame p sym ext ret f
 vffSingleContext ctx0 =
   case ctx0 of
-    VFFBranch ctx _ _ _ _   -> vffSingleContext ctx
+    VFFBranch ctx _ _ _ _ _ -> vffSingleContext ctx
     VFFPartial ctx _ _ _    -> vffSingleContext ctx
     VFFEnd ctx              -> VFFEnd (vfvSingleContext ctx)
 
@@ -1075,8 +1096,8 @@ vffBranchConditions :: ValueFromFrame p sym ext ret f
                     -> [Pred sym]
 vffBranchConditions ctx0 =
   case ctx0 of
-    VFFBranch   ctx _ p _ _  -> p : vffBranchConditions ctx
-    VFFPartial  ctx p _ _    -> p : vffBranchConditions ctx
+    VFFBranch   ctx _ _ p _ _  -> p : vffBranchConditions ctx
+    VFFPartial  ctx p _ _      -> p : vffBranchConditions ctx
     VFFEnd  ctx -> vfvBranchConditions ctx
 
 vfvBranchConditions :: ValueFromValue p sym ext root top_ret
@@ -1117,20 +1138,18 @@ data ExtensionImpl p sym ext
 -- SimContext
 
 -- | Global context for state.
-data SimContext personality sym ext
+data SimContext (personality :: *) (sym :: *) (ext :: *)
    = SimContext { _ctxSymInterface       :: !sym
                   -- | Class dictionary for @'IsSymInterface' sym@
                 , ctxSolverProof         :: !(forall a . IsSymInterfaceProof sym a)
                 , ctxIntrinsicTypes      :: !(IntrinsicTypes sym)
-
-                , simConfig              :: !(SimConfig personality sym)
                   -- | Allocator for function handles
                 , simHandleAllocator     :: !(HandleAllocator RealWorld)
                   -- | Handle to write messages to.
                 , printHandle            :: !Handle
                 , extensionImpl          :: ExtensionImpl personality sym ext
                 , _functionBindings      :: !(FunctionBindings personality sym ext)
-                , _cruciblePersonality   :: !(personality sym)
+                , _cruciblePersonality   :: !personality
                 }
 
 -- | A definition of function semantics.
@@ -1147,28 +1166,6 @@ data FnState p sym ext (args :: Ctx CrucibleType) (ret :: CrucibleType)
    = UseOverride !(Override p sym ext args ret)
    | forall blocks . UseCFG !(CFG ext blocks args ret) !(CFGPostdom blocks)
 
-newtype SimConfigMonad p sym a =
-    SimConfigMonad { runSimConfigMonad :: forall ext. StateT (SimContext p sym ext) IO a }
- deriving (Functor)
-type SimConfig p sym = Config (SimConfigMonad p sym)
-
-instance Applicative (SimConfigMonad p sym) where
-  pure x = SimConfigMonad (pure x)
-  SimConfigMonad f <*> SimConfigMonad x = SimConfigMonad (f <*> x)
-
-instance Monad (SimConfigMonad p sym) where
-  return = pure
-  SimConfigMonad x >>= f =
-    SimConfigMonad (x >>= runSimConfigMonad . f)
-
-instance MonadIO (SimConfigMonad p sym) where
-  liftIO m = SimConfigMonad (liftIO m)
-
-instance MonadVerbosity (SimConfigMonad p sym) where
-  getVerbosity = SimConfigMonad getVerbosity
-  showWarning msg = SimConfigMonad $ showWarning msg
-  getLogFunction = SimConfigMonad $ getLogFunction
-
 ------------------------------------------------------------------------
 -- SimContext utilities
 
@@ -1176,18 +1173,16 @@ instance MonadVerbosity (SimConfigMonad p sym) where
 initSimContext :: IsSymInterface sym
                => sym
                -> IntrinsicTypes sym
-               -> SimConfig personality sym
                -> HandleAllocator RealWorld
                -> Handle -- ^ Handle to write output to
                -> FunctionBindings personality sym ext
                -> ExtensionImpl personality sym ext
-               -> personality sym
+               -> personality
                -> SimContext personality sym ext
-initSimContext sym muxFns cfg halloc h bindings extImpl personality =
+initSimContext sym muxFns halloc h bindings extImpl personality =
   SimContext { _ctxSymInterface     = sym
              , ctxSolverProof       = \a -> a
              , ctxIntrinsicTypes    = muxFns
-             , simConfig            = cfg
              , simHandleAllocator   = halloc
              , printHandle          = h
              , extensionImpl        = extImpl
@@ -1202,29 +1197,9 @@ ctxSymInterface = lens _ctxSymInterface (\s v -> s { _ctxSymInterface = v })
 functionBindings :: Simple Lens (SimContext p sym ext) (FunctionBindings p sym ext)
 functionBindings = lens _functionBindings (\s v -> s { _functionBindings = v })
 
-cruciblePersonality :: Simple Lens (SimContext p sym ext) (p sym)
+cruciblePersonality :: Simple Lens (SimContext p sym ext) p
 cruciblePersonality = lens _cruciblePersonality (\s v -> s{ _cruciblePersonality = v })
 
-
-------------------------------------------------------------------------
--- MonadVerbosity instance
-
-instance MonadVerbosity (StateT (SimContext p sym ext) IO) where
-  getVerbosity = do
-    cfg <- gets simConfig
-    liftIO $ getConfigValue verbosity cfg
-
-  getLogFunction = do
-    h <- gets printHandle
-    verb <- getVerbosity
-    return $ \n msg -> do
-      when (n <= verb) $ do
-        hPutStr h msg
-        hFlush h
-  showWarning msg = do
-    h <- gets printHandle
-    liftIO $ hPutStrLn h msg
-    liftIO $ hFlush h
 
 ------------------------------------------------------------------------
 -- SimState
@@ -1273,6 +1248,9 @@ stateSolverProof s = ctxSolverProof (s^.stateContext)
 
 stateIntrinsicTypes :: SimState p sym ext r f args -> IntrinsicTypes sym
 stateIntrinsicTypes s = ctxIntrinsicTypes (s^.stateContext)
+
+stateGetConfiguration :: SimState p sym ext r f args -> Config
+stateGetConfiguration s = stateSolverProof s (getConfiguration (stateSymInterface s))
 
 ------------------------------------------------------------------------
 -- HasSimState instance

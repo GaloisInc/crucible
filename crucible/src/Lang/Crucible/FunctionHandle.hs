@@ -48,9 +48,10 @@ import           Data.Parameterized.Map (MapF)
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Nonce.Unsafe
 
-import           Lang.Crucible.FunctionName
+import           What4.FunctionName
+import           What4.Utils.MonadST
+
 import           Lang.Crucible.Types
-import           Lang.Crucible.Utils.MonadST
 
 ------------------------------------------------------------------------
 -- FunctionHandle

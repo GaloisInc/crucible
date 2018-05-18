@@ -36,7 +36,12 @@ import qualified Data.Vector as V
 import           System.Directory
 import           System.FilePath
 
-import           Lang.Crucible.Config
+import           What4.Config
+import           What4.Interface
+import qualified What4.Expr.Builder as SB
+
+import           Lang.Crucible.Backend
+import qualified Lang.Crucible.Backend.SAWCore as SAW
 import qualified Lang.Crucible.Proto as P
 import           Lang.Crucible.Server.CryptolEnv
 import           Lang.Crucible.Server.Requests
@@ -51,32 +56,29 @@ import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
-import           Lang.Crucible.Solver.Interface
-import qualified Lang.Crucible.Solver.SAWCoreBackend as SAW
-import qualified Lang.Crucible.Solver.SimpleBuilder as SB
 import           Lang.Crucible.Types
 
 import qualified Verifier.SAW.ExternalFormat as SAW
 import qualified Verifier.SAW.SharedTerm as SAW
 import qualified Verifier.SAW.Recognizer as SAW
 
-sawServerOptions :: [ConfigDesc (SimConfigMonad SAWCrucibleServerPersonality (SAW.SAWCoreBackend n))]
+sawServerOptions :: [ConfigDesc]
 sawServerOptions = SAW.sawOptions
 
 sawServerOverrides :: [Simulator p (SAW.SAWCoreBackend n) -> IO SomeHandle]
 sawServerOverrides = []
 
-data SAWCrucibleServerPersonality sym =
+data SAWCrucibleServerPersonality =
    SAWCrucibleServerPersonality
    { _sawServerCryptolEnv :: CryptolEnv
    }
 
-sawServerCryptolEnv :: Simple Lens (SAWCrucibleServerPersonality sym) CryptolEnv
+sawServerCryptolEnv :: Simple Lens SAWCrucibleServerPersonality CryptolEnv
 sawServerCryptolEnv = lens _sawServerCryptolEnv (\s v -> s{ _sawServerCryptolEnv = v })
 
 initSAWServerPersonality ::
   SAW.SAWCoreBackend n ->
-  IO (SAWCrucibleServerPersonality (SAW.SAWCoreBackend n))
+  IO SAWCrucibleServerPersonality
 initSAWServerPersonality sym =
   do sc <- SAW.sawBackendSharedContext sym
      cryEnv <- initCryptolEnv sc
@@ -184,8 +186,8 @@ handleProofObligations ::
   P.VerificationSimulateOptions ->
   IO ()
 handleProofObligations sim sym opts =
-  do obls <- SB.sbGetProofObligations sym
-     SB.sbSetProofObligations sym mempty
+  do obls <- getProofObligations sym
+     setProofObligations sym mempty
      dirPath <- makeAbsolute (Text.unpack (opts^.P.verificationSimulateOptions_output_directory))
      createDirectoryIfMissing True dirPath
      if opts^.P.verificationSimulateOptions_separate_obligations
@@ -197,7 +199,7 @@ handleSeparateProofObligations ::
   Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
   SAW.SAWCoreBackend n ->
   FilePath ->
-  Seq (Seq (Pred (SAW.SAWCoreBackend n)), Assertion (Pred (SAW.SAWCoreBackend n))) ->
+  Seq (ProofObligation (SAW.SAWCoreBackend n)) ->
   IO ()
 handleSeparateProofObligations sim sym dir obls = fail "FIXME separate proof obligations!"
 
@@ -205,9 +207,9 @@ handleSingleProofObligation ::
   Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
   SAW.SAWCoreBackend n ->
   FilePath ->
-  Seq (Seq (Pred (SAW.SAWCoreBackend n)), Assertion (Pred (SAW.SAWCoreBackend n))) ->
+  Seq (ProofObligation (SAW.SAWCoreBackend n)) ->
   IO ()
-handleSingleProofObligation sim sym dir obls =
+handleSingleProofObligation _sim sym dir obls =
   do createDirectoryIfMissing True {- create parents -} dir
      preds <- mapM (sequentToSC sym) obls
      totalPred <- andAllOf sym folded preds
@@ -220,11 +222,11 @@ handleSingleProofObligation sim sym dir obls =
 
 sequentToSC ::
   SAW.SAWCoreBackend n ->
-  (Seq (Pred (SAW.SAWCoreBackend n)), Assertion (Pred (SAW.SAWCoreBackend n))) ->
+  ProofObligation (SAW.SAWCoreBackend n) ->
   IO (Pred (SAW.SAWCoreBackend n))
-sequentToSC sym (assumes, assert) =
-  do assume <- andAllOf sym folded assumes
-     impliesPred sym assume (assert^.assertPred)
+sequentToSC sym (ProofGoal assumes goal) =
+  do assume <- andAllOf sym (folded.labeledPred) assumes
+     impliesPred sym assume (goal^.labeledPred)
 
 sawFulfillExportModelRequest
    :: forall p n

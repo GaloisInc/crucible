@@ -107,10 +107,12 @@ import qualified Data.Vector as V
 import           Data.Word (Word64)
 import           Numeric.Natural
 
+import           What4.Interface
+import           What4.Partial
+
+import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.Types
 import qualified Lang.Crucible.LLVM.Bytes as G
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
@@ -135,10 +137,12 @@ ptrWidth :: IsExprBuilder sym => LLVMPtr sym w -> NatRepr w
 ptrWidth (LLVMPointer _blk bv) = bvWidth bv
 
 -- | Assert that the given LLVM pointer value is actually a raw bitvector and extract its value.
-projectLLVM_bv :: IsSymInterface sym => sym -> RegValue sym (LLVMPointerType w) -> IO (RegValue sym (BVType w))
+projectLLVM_bv ::
+  IsSymInterface sym =>
+  sym -> RegValue sym (LLVMPointerType w) -> IO (RegValue sym (BVType w))
 projectLLVM_bv sym ptr@(LLVMPointer blk bv) =
   do p <- natEq sym blk =<< natLit sym 0
-     addAssertion sym p $
+     assert sym p $
         AssertFailureSimError $ unlines
           [ "Pointer value coerced to bitvector:"
           , "*** " ++ show (ppPtr ptr)
@@ -277,7 +281,7 @@ ptrLe :: (1 <= w, IsSymInterface sym)
       -> IO (Pred sym)
 ptrLe sym _w (LLVMPointer base1 off1) (LLVMPointer base2 off2) =
   do p1 <- natEq sym base1 base2
-     addAssertion sym p1 (AssertFailureSimError "Attempted to compare pointers from different allocations")
+     assert sym p1 (AssertFailureSimError "Attempted to compare pointers from different allocations")
      bvUle sym off1 off2
 
 ptrLt :: (1 <= w, IsSymInterface sym)
@@ -288,7 +292,7 @@ ptrLt :: (1 <= w, IsSymInterface sym)
       -> IO (Pred sym)
 ptrLt sym _w (LLVMPointer base1 off1) (LLVMPointer base2 off2) =
   do p1 <- natEq sym base1 base2
-     addAssertion sym p1 (AssertFailureSimError "Attempted to compare pointers from different allocations")
+     assert sym p1 (AssertFailureSimError "Attempted to compare pointers from different allocations")
      bvUlt sym off1 off2
 
 
@@ -314,7 +318,7 @@ ptrDiff :: (1 <= w, IsSymInterface sym)
         -> IO (SymBV sym w)
 ptrDiff sym _w (LLVMPointer base1 off1) (LLVMPointer base2 off2) =
   do p <- natEq sym base1 base2
-     addAssertion sym p (AssertFailureSimError "Attempted to subtract pointers from different allocations")
+     assert sym p (AssertFailureSimError "Attempted to subtract pointers from different allocations")
      diff <- bvSub sym off1 off2
      return diff
 

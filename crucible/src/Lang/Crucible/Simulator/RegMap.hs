@@ -47,10 +47,12 @@ import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.TraversableFC
 
+import           What4.Interface
+import           What4.WordMap
+
 import           Lang.Crucible.CFG.Core (Reg(..))
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegValue
-import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Types
 
 ------------------------------------------------------------------------

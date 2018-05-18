@@ -98,10 +98,11 @@ import Data.Parameterized.TraversableFC
 import Data.String
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
+import What4.ProgramLoc
+
 import Lang.Crucible.CFG.Common
 import Lang.Crucible.CFG.Expr
 import Lang.Crucible.FunctionHandle
-import Lang.Crucible.ProgramLoc
 import Lang.Crucible.Types
 import Lang.Crucible.Utils.PrettyPrint
 

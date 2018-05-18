@@ -2,76 +2,98 @@ module Goal where
 
 import Control.Lens((^.))
 import Control.Monad(foldM)
+import Text.PrettyPrint.ANSI.Leijen(pretty)
 
-import Lang.Crucible.Solver.Interface(printSymExpr)
-import Lang.Crucible.Solver.BoolInterface
-        ( IsBoolExprBuilder
-        , Pred, notPred,impliesPred
-        , Assertion, assertPred, assertMsg, assertLoc
-        )
-import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
-import Lang.Crucible.Solver.SatResult(SatResult(..))
-import Lang.Crucible.Solver.SimpleBuilder (SimpleBuilder)
--- import Lang.Crucible.Solver.SimpleBackend.Z3(z3Adapter)
-import Lang.Crucible.Solver.SimpleBackend.Yices(yicesAdapter)
+import What4.Interface
+        (IsExprBuilder, Pred, notPred, impliesPred)
+import What4.SatResult(SatResult(..))
+import What4.Expr.Builder (ExprBuilder)
+import What4.Protocol.Online( OnlineSolver )
+import What4.ProgramLoc(ProgramLoc(..))
 
-import Lang.Crucible.Simulator.SimError(SimErrorReason(..))
+import Lang.Crucible.Backend
+        ( ProofObligation, labeledPredMsg, labeledPred
+        , AssumptionReason(..), ProofGoal(..) )
+import Lang.Crucible.Backend.Online
+        ( OnlineBackendState, checkSatisfiableWithModel, getSolverProcess )
+import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Simulator.ExecutionTree
-        (ctxSymInterface, simConfig, cruciblePersonality)
-
+        (ctxSymInterface, cruciblePersonality)
 
 import Error
 import Types
 import Model
+import Log
 
 
-prover :: SolverAdapter s
--- prover = z3Adapter
-prover = yicesAdapter
-
-data Goal sym = Goal
-  { gAssumes :: [Pred sym]
-  , gShows   :: Assertion (Pred sym)
-  }
-
--- Check assertions before other things
-goalPriority :: Goal sym -> Int
-goalPriority g =
-  case assertMsg (gShows g) of
-    Just (AssertFailureSimError {}) -> 0
-    _ -> 1
-
-mkGoal :: ([Pred sym], Assertion (Pred sym)) -> Goal sym
-mkGoal (as,p) = Goal { gAssumes = as, gShows = p }
-
-obligGoal :: IsBoolExprBuilder sym => sym -> Goal sym -> IO (Pred sym)
-obligGoal sym g = foldM imp (gShows g ^. assertPred) (gAssumes g)
+-- XXX: Change
+obligGoal :: IsExprBuilder sym => sym -> ProofObligation sym -> IO (Pred sym)
+obligGoal sym g = foldM imp (proofGoal g ^. labeledPred)
+                            (proofAssumptions g)
   where
-  imp p a = impliesPred sym a p
+  imp p a = impliesPred sym (a ^. labeledPred) p
 
 proveGoal ::
-  SimCtxt (SimpleBuilder s t) arch ->
-  Goal (SimpleBuilder s t) ->
-  IO ()
+  OnlineSolver s solver =>
+  SimCtxt (ExprBuilder s (OnlineBackendState solver)) arch ->
+  ProofObligation (ExprBuilder s (OnlineBackendState solver)) ->
+  IO (Maybe Error)
 proveGoal ctxt g =
   do let sym = ctxt ^. ctxSymInterface
-         cfg = simConfig ctxt
+     describe g
      g1 <- obligGoal sym g
      p <- notPred sym g1
+     sp <- getSolverProcess sym
 
-     let say _n _x = return () -- putStrLn ("[" ++ show _n ++ "] " ++ _x)
-     solver_adapter_check_sat prover sym cfg say p $ \res ->
+     checkSatisfiableWithModel sp p $ \res ->
         case res of
-          Unsat -> return ()
-          Sat (evalFn,_mbRng) ->
+          Unsat -> return Nothing
+          Sat evalFn ->
             do let model = ctxt ^. cruciblePersonality
                str <- ppModel evalFn model
-               giveUp (Just str)
-          _  -> giveUp Nothing
+               return (Just (e (Just str)))
+          _  -> return (Just (e Nothing))
 
   where
-  a = gShows g
-  giveUp mb = throwError (FailedToProve (assertLoc a) (assertMsg a) mb)
+  a    = proofGoal g
+  e mb = FailedToProve (a ^. labeledPredMsg) mb
+
+describe :: ProofObligation (ExprBuilder s (OnlineBackendState solver)) -> IO()
+describe o =
+  do putStrLn "-- Trying to avoid:"
+     ppConc (proofGoal o)
+     putStrLn "-- Using assumptions:"
+     mapM_ ppAsmp (proofAssumptions o)
+  where
+  ppAsmp a = case a ^. labeledPredMsg of
+               AssumptionReason l s ->
+                  putStrLn (sh l ++ ": " ++ s)
+               ExploringAPath l ->
+                  putStrLn (sh l ++ ": Exploring path")
+               AssumingNoError x ->
+                  putStrLn (sh l ++ ": Avoided failure")
+                  where l = simErrorLoc x
+
+  sh l = show (pretty (plSourceLoc l))
+
+  ppConc x = print (x ^. labeledPredMsg)
+
+
+proveGoals ::
+  OnlineSolver s solver =>
+  SimCtxt (ExprBuilder s (OnlineBackendState solver)) arch ->
+  [ProofObligation (ExprBuilder s (OnlineBackendState solver))] ->
+  IO (Maybe Error)
+proveGoals ctx gs =
+  case gs of
+    [] -> return Nothing
+    g : others ->
+      do mb <- proveGoal ctx g
+         case mb of
+           Nothing -> do sayOK "Crux" "Success"
+                         putStrLn "------------"
+                         proveGoals ctx others
+           Just e  -> return (Just e)
 
 
 

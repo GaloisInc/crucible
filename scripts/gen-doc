@@ -1,0 +1,33 @@
+#!/bin/bash
+
+ABS_IX=$PWD/doc/haddock
+
+for i in $*; do
+  echo Generating documenation for $i
+  cabal new-haddock \
+    --haddock-hyperlink-source \
+    --haddock-options "--use-index=$ABS_IX/doc-index.html --use-contents=$ABS_IX/index.html" $i
+done
+
+GHC_VERSION=$(ghc --numeric-version)
+
+if [ ${GHC_VERSION}x == "x" ]; then
+  echo Failed to guess version of GHC.
+  exit 1
+fi
+
+echo Generating TOC and index \(GHC $GHC_VERSION\)
+
+for i in $(find . -name '*.haddock' | grep $GHC_VERSION); do
+  DIR=../../$(dirname $i)
+  OPTS="$OPTS --read-interface=$DIR,$DIR/$(basename $i)"
+done
+
+
+mkdir -p $ABS_IX
+cd $ABS_IX
+haddock $OPTS --gen-index --gen-contents
+
+echo Documentation index is in:
+echo $ABS_IX
+

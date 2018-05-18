@@ -23,10 +23,9 @@ import           Data.HPB
 
 import           Data.Parameterized.Nonce
 
-import           Lang.Crucible.Solver.SimpleBackend
-import qualified Lang.Crucible.Solver.SAWCoreBackend as SAW
+import           Lang.Crucible.Backend.Simple
+import qualified Lang.Crucible.Backend.SAWCore as SAW
 
-import           Lang.Crucible.Config
 import qualified Lang.Crucible.Proto as P
 import           Lang.Crucible.Server.Requests
 import           Lang.Crucible.Server.Simulator
@@ -87,11 +86,10 @@ runSAWSimulator hin hout =
      let ok_resp = mempty
                    & P.handShakeResponse_code .~ P.HandShakeOK
      withIONonceGenerator $ \gen -> do
-       cfg <- initialConfig 0 sawServerOptions
        sc <- SAW.mkSharedContext scm
-       sym <- SAW.newSAWCoreBackend sc gen cfg
+       sym <- SAW.newSAWCoreBackend sc gen
        sawState <- initSAWServerPersonality sym
-       s <- newSimulator sym cfg sawState sawServerOverrides hin hout
+       s <- newSimulator sym sawServerOptions sawState sawServerOverrides hin hout
        putDelimited hout ok_resp
        -- Enter loop to start reading commands.
        fulfillRequests s sawBackendRequests
@@ -102,8 +100,7 @@ runSimpleSimulator hin hout = do
     let ok_resp = mempty
                   & P.handShakeResponse_code .~ P.HandShakeOK
     sym <- newSimpleBackend gen
-    cfg <- initialConfig 0 simpleServerOptions
-    s <- newSimulator sym cfg CrucibleServerPersonality simpleServerOverrides hin hout
+    s <- newSimulator sym simpleServerOptions CrucibleServerPersonality simpleServerOverrides hin hout
     -- Enter loop to start reading commands.
     putDelimited hout ok_resp
     fulfillRequests s simpleBackendRequests

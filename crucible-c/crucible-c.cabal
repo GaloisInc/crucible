@@ -26,20 +26,20 @@ executable crucible-c
     Overrides,
     Model,
     Clang,
-    CLibSrc,
-    Log
+    Log,
+    Options
 
 
   build-depends:
     base >= 4.8 && < 4.12,
+    ansi-wl-pprint,
     containers,
     lens,
     mtl,
     bytestring,
     crucible,
     crucible-llvm,
-    crucible-saw,
-    saw-core,
+    what4,
     llvm-pretty,
     llvm-pretty-bc-parser,
     parameterized-utils,

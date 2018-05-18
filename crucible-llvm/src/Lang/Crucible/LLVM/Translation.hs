@@ -123,11 +123,14 @@ import           Data.Parameterized.Context ( pattern (:>) )
 import Data.Parameterized.Some
 import Text.PrettyPrint.ANSI.Leijen (pretty)
 
+import           What4.FunctionName
+import           What4.ProgramLoc
+
 import qualified Lang.Crucible.CFG.Core as C
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Generator
 import           Lang.Crucible.CFG.SSAConversion( toSSA )
-import           Lang.Crucible.FunctionName
+
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
@@ -142,8 +145,7 @@ import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Translation.Types
 
-import           Lang.Crucible.ProgramLoc
-import           Lang.Crucible.Solver.Interface( IsSymInterface )
+import           Lang.Crucible.Backend( IsSymInterface )
 import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
 
