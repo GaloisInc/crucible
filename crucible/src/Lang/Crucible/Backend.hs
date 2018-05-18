@@ -16,6 +16,7 @@ for interacting with the symbolic simulator.
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Lang.Crucible.Backend
   ( BranchResult(..)
   , IsBoolSolver(..)
@@ -23,6 +24,7 @@ module Lang.Crucible.Backend
 
     -- * Assumption management
   , AssumptionReason(..)
+  , ppAssumptionReason
   , assumptionLoc
   , Assertion
   , Assumption
@@ -38,16 +40,21 @@ module Lang.Crucible.Backend
   , AS.AssumptionStack
   , AS.FrameIdentifier
 
+    -- ** Aborting execution
+  , AbortExecReason(..)
+  , abortExecBeacuse
+  , ppAbortExecReason
+
     -- * Utilities
   , addAssertionM
+  , addFailedAssertion
   , assertIsInteger
   , readPartExpr
-  , abortExecSimErrorReason
-  , abortExecSimError
   ) where
 
 import           Data.Sequence (Seq)
-import           Control.Exception(throwIO)
+import           Control.Exception(Exception(..), throwIO)
+import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.Interface
 import           What4.Partial
@@ -66,6 +73,7 @@ data AssumptionReason =
   | AssumingNoError SimError
     -- ^ An assumption justified by a proof of the impossibility of
     -- a certain simulator error.
+    deriving Show
 
 assumptionLoc :: AssumptionReason -> ProgramLoc
 assumptionLoc r =
@@ -84,8 +92,48 @@ type Assumption sym = AS.LabeledPred (Pred sym) AssumptionReason
 type ProofObligation sym = AS.ProofGoal (Pred sym) AssumptionReason SimError
 type AssumptionState sym = AS.AssumptionStack (Pred sym) AssumptionReason SimError
 
+-- | This is used to signal that current execution path is infeasable.
+data AbortExecReason =
+    InfeasibleBranch
+    -- ^ We tried to decide which way to go at a branch point,
+    -- but neither option is viable.
+
+  | AssumedFalse AssumptionReason
+    -- ^ We assumed false on some branch
+
+  | VariantOptionsExhaused ProgramLoc
+    -- ^ We tried all possible cases for a variant, and now we should
+    -- do something else.
+
+  | ManualAbort ProgramLoc String
+    -- ^ The execution was aborted by calling "mssRunGenericErrorHandler"
+    deriving Show
+
+instance Exception AbortExecReason
 
 
+ppAbortExecReason :: AbortExecReason -> PP.Doc
+ppAbortExecReason e =
+  case e of
+    InfeasibleBranch -> "Abort an infeasbile branch."
+    AssumedFalse reason ->
+      "Abort due to false assumption:" PP.<$$>
+      PP.indent 2 (ppAssumptionReason reason)
+    VariantOptionsExhaused l -> ppLocated l "Variant options exhaused."
+    ManualAbort l msg -> ppLocated l (PP.text msg)
+
+ppAssumptionReason :: AssumptionReason -> PP.Doc
+ppAssumptionReason e =
+  case e of
+    AssumptionReason l msg -> ppLocated l (PP.text msg)
+    ExploringAPath l       -> "Choice point at" PP.<+> ppLoc l
+    AssumingNoError simErr -> ppSimError simErr
+
+ppLocated :: ProgramLoc -> PP.Doc -> PP.Doc
+ppLocated l x = ppLoc l <> ":" PP.<+> x
+
+ppLoc :: ProgramLoc -> PP.Doc
+ppLoc l = PP.pretty (plSourceLoc l)
 
 -- | Result of attempting to branch on a predicate.
 data BranchResult
@@ -129,14 +177,6 @@ class IsBoolSolver sym where
   ----------------------------------------------------------------------
   -- Assertions
 
-  -- | Add an assertion to the current state.
-  --
-  -- This may throw the given @SimErrorReason@ if the assertion is unsatisfiable.
-  --
-  -- Every assertion added to the system produces a proof obligation. These
-  -- proof obligations can be retrieved via the 'getProofObligations' call.
-  addAssertion :: sym -> Assertion sym -> IO ()
-
   -- | Add an assumption to the current state.  Like assertions, assumptions
   --   add logical facts to the current path condition.  However, assumptions
   --   do not produce proof obligations the way assertions do.
@@ -145,12 +185,15 @@ class IsBoolSolver sym where
   -- | Add a collection of assumptions to the current state.
   addAssumptions :: sym -> Seq (Assumption sym) -> IO ()
 
-  -- | This will cause the current path to fail, with the given error.
-  addFailedAssertion :: sym -> SimErrorReason -> IO a
-
   -- | Get the current path condition as a predicate.  This consists of the conjunction
   --   of all the assumptions currently in scope.
   getPathCondition :: sym -> IO (Pred sym)
+
+  -- | Add a new proof obligation to the system.
+  -- The proof may use the current path condition and assumptions.
+  -- Note that this *DOES NOT* add the goal as an assumption.
+  -- See also "addAssertion"
+  addProofObligation :: sym -> Assertion sym -> IO ()
 
   -- | Get the collection of proof obligations.
   getProofObligations :: sym -> IO (Seq (ProofObligation sym))
@@ -169,16 +212,21 @@ class IsBoolSolver sym where
   restoreAssumptionState :: sym -> AssumptionState sym -> IO ()
 
 
--- | Throw an exception, thus aborting the current execution path.
-abortExecSimError :: IsSymInterface sym => sym -> SimError -> IO a
-abortExecSimError _sym err = throwIO err
+-- | Add a proof obligation for the given predicate, and then assume it.
+-- Note that assuming the prediate might cause the current execution
+-- path to abort, if we happened to assume something that is obviously false.
+addAssertion :: IsSymInterface sym => sym -> Assertion sym -> IO ()
+addAssertion sym a@(AS.LabeledPred p msg) =
+  do addProofObligation sym a
+     addAssumption sym (AS.LabeledPred p (AssumingNoError msg))
+
 
 -- | Throw an exception, thus aborting the current execution path.
-abortExecSimErrorReason :: IsSymInterface sym => sym -> SimErrorReason -> IO a
-abortExecSimErrorReason sym reason =
-  do loc <- getCurrentProgramLoc sym
-     throwIO SimError { simErrorLoc = loc, simErrorReason = reason }
+abortExecBeacuse :: AbortExecReason -> IO a
+abortExecBeacuse err = throwIO err
 
+-- | Add a proof obligation using the curren program location,
+-- and assume the given fact.
 assert ::
   IsSymInterface sym =>
   sym ->
@@ -188,6 +236,22 @@ assert ::
 assert sym p msg =
   do loc <- getCurrentProgramLoc sym
      addAssertion sym (AS.LabeledPred p (SimError loc msg))
+
+-- | Add a proof obligation for False. This always aborts execution
+-- of the current path, because after asserting false, we get to assume it,
+-- and so there is no need to check anything after.  This is why the resulting
+-- IO computation can have the fully polymorphic type.
+addFailedAssertion :: IsSymInterface sym => sym -> SimErrorReason -> IO a
+addFailedAssertion sym msg =
+  do loc <- getCurrentProgramLoc sym
+     let err = AS.LabeledPred (falsePred sym) (SimError loc msg)
+     addProofObligation sym err
+     abortExecBeacuse $ AssumedFalse
+                      $ AssumingNoError
+                        SimError { simErrorLoc = loc, simErrorReason = msg }
+
+
+
 
 -- | Run the given action to compute a predicate, and assert it.
 addAssertionM :: IsSymInterface sym

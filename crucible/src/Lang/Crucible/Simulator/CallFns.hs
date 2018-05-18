@@ -340,9 +340,8 @@ stepReturnVariantCases
 stepReturnVariantCases s [] = do
   let top_frame = s^.stateTree^.actFrame
   let loc = frameProgramLoc (top_frame^.crucibleTopFrame)
-  let rsn = PatternMatchFailureSimError
-  let err = SimError loc rsn
-  return (abortExec err s)
+  let rsn = VariantOptionsExhaused loc
+  return (abortExec rsn s)
 stepReturnVariantCases s ((p,JumpCall x_id x_args):cs) = do
   let top_frame = s^.stateTree^.actFrame
   let x_frame = cruciblePausedFrame x_id x_args top_frame
@@ -364,9 +363,8 @@ stepVariantCases
 stepVariantCases s _pd_id [] = do
   let top_frame = s^.stateTree^.actFrame
   let loc = frameProgramLoc (top_frame^.crucibleTopFrame)
-  let rsn = PatternMatchFailureSimError
-  let err = SimError loc rsn
-  return (abortExec err s)
+  let rsn = VariantOptionsExhaused loc
+  return (abortExec rsn s)
 stepVariantCases s pd_id ((p,JumpCall x_id x_args):cs) = do
   let top_frame = s^.stateTree^.actFrame
   let x_frame = cruciblePausedFrame x_id x_args top_frame
@@ -512,7 +510,7 @@ loopCrucible s = stateSolverProof s $ do
             return $ mssRunGenericErrorHandler s' (ioeGetErrorString e)
            else
             Ex.throwIO e
-     , Ex.Handler $ \(e::SimError) -> do
+     , Ex.Handler $ \(e::AbortExecReason) -> do
           SomeState s' <- readIORef s_ref
           return $  mssRunErrorHandler s' e
      ]

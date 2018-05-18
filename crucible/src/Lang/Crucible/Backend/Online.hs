@@ -202,29 +202,21 @@ withOnlineBackend gen action = do
 
 
 instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver) where
-  addAssertion sym a =
+  addProofObligation sym a =
     case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
-      Just False -> abortExecSimError sym (a^.labeledPredMsg)
-      _ ->
-        do conn <- getSolverConn sym
-           stk  <- getAssumptionStack sym
-           -- Record assertion
-           AS.assert a stk
-           -- Send assertion to yices
-           SMT.assume conn (a^.labeledPred)
+      _ -> AS.addProofObligation a =<< getAssumptionStack sym
 
   addAssumption sym a =
     case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
-      Just False -> abortExecSimErrorReason sym InfeasibleBranchError
-      _ ->
-        do conn <- getSolverConn sym
-           stk  <- getAssumptionStack sym
-           -- Record assumption
-           AS.assume a stk
-           -- Send assertion to yices
-           SMT.assume conn (a^.labeledPred)
+      Just False -> abortExecBeacuse (AssumedFalse (a^.labeledPredMsg))
+      _ -> do conn <- getSolverConn sym
+              stk  <- getAssumptionStack sym
+              -- Record assumption
+              AS.assume a stk
+              -- Send assertion to yices
+              SMT.assume conn (a^.labeledPred)
 
   addAssumptions sym a =
     do -- Tell the solver of assertions
@@ -249,7 +241,7 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver) 
            p_res    <- checkSatisfiable proc p
            notp_res <- checkSatisfiable proc notP
            case (p_res, notp_res) of
-             (Unsat, Unsat) -> abortExecSimErrorReason sym InfeasibleBranchError
+             (Unsat, Unsat) -> abortExecBeacuse InfeasibleBranch
              (Unsat, _ )    -> return $ NoBranch False
              (_    , Unsat) -> return $ NoBranch True
              (_    , _)     -> return $ SymbolicBranch True
@@ -277,8 +269,6 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver) 
   setProofObligations sym obligs =
     do stk <- getAssumptionStack sym
        AS.setProofObligations obligs stk
-
-  addFailedAssertion sym msg = abortExecSimErrorReason sym msg
 
   cloneAssumptionState sym =
     do stk <- getAssumptionStack sym

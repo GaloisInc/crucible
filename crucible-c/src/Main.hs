@@ -7,9 +7,10 @@ module Main(main) where
 import Data.String(fromString)
 import qualified Data.Foldable as Fold
 import qualified Data.Map as Map
-import Control.Lens((^.))
+import Control.Lens((^.),(^..))
 import Control.Monad.ST(RealWorld, stToIO)
 import Control.Monad(unless)
+import Control.Exception(SomeException(..),displayException)
 import System.IO(hPutStrLn,stdout,stderr)
 import System.Environment(getProgName,getArgs)
 import System.FilePath(takeExtension)
@@ -23,25 +24,20 @@ import Data.Parameterized.Context(pattern Empty)
 import Text.LLVM.AST(Module)
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 
+
 import Lang.Crucible.Backend
   (getProofObligations,IsSymInterface, pushAssumptionFrame, popAssumptionFrame)
--- import Lang.Crucible.Backend.Online(withZ3OnlineBackend)
-import Lang.Crucible.Backend.Online(withYicesOnlineBackend)
+import Lang.Crucible.Backend.Online(withZ3OnlineBackend)
+-- import Lang.Crucible.Backend.Online(withYicesOnlineBackend)
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
 import Lang.Crucible.Simulator.RegMap(emptyRegMap,regValue)
 import Lang.Crucible.Simulator.ExecutionTree
-        ( initSimContext
-        , ExecResult(..)
-        , ErrorHandler(..)
-        , stateTree
-        , activeFrames
-        )
 import Lang.Crucible.Simulator.OverrideSim
         ( fnBindingsFromList, initSimState, runOverrideSim, callCFG)
 
-import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn, LLVM)
+import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn)
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, initializeMemory
         , transContext, cfgMap, initMemoryCFG
@@ -71,12 +67,15 @@ main =
           do opts <- testOptions file
              do unless (takeExtension file == ".bc") (genBitCode opts)
                 checkBC opts `catch` errHandler opts
-           `catch` \e -> sayFail "Crux" (ppError e)
+           `catch` \e -> sayFail "Crux" ("This: " ++ ppError e)
        _ -> do p <- getProgName
                hPutStrLn stderr $ unlines
                   [ "Usage:"
                   , "  " ++ p ++ " FILE.bc"
                   ]
+    `catch` \(SomeException e) ->
+                    do putStrLn "TOP LEVEL EXCEPTION"
+                       putStrLn (displayException e)
 
 
 errHandler :: Options -> Error -> IO ()
@@ -154,14 +153,14 @@ simulate file k =
      llvmPtrWidth llvmCtxt $ \ptrW ->
        withPtrWidth ptrW $
        withIONonceGenerator $ \nonceGen ->
-       -- withZ3OnlineBackend nonceGen $ \sym ->
-       withYicesOnlineBackend nonceGen $ \sym ->
+       withZ3OnlineBackend nonceGen $ \sym ->
+       -- withYicesOnlineBackend nonceGen $ \sym ->
        do frm <- pushAssumptionFrame sym
           let simctx = setupSimCtxt halloc sym
 
           mem  <- initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
-          let simSt  = initSimState simctx globSt eHandler
+          let simSt  = initSimState simctx globSt defaultErrorHandler
 
           res <- runOverrideSim simSt UnitRepr $
                    do setupMem llvmCtxt trans
@@ -174,11 +173,12 @@ simulate file k =
             FinishedExecution ctx' _ ->
               do gs <- Fold.toList <$> getProofObligations sym
                  proveGoals ctx' gs
-            AbortedResult _ err -> throwError (SimAbort err)
+            AbortedResult _ctxt err ->
+              do let fs = err ^.. arFrames
+                 putStrLn "Call stack:"
+                 print (ppExceptionContext fs)
+                 throwError (SimAbort err)
 
-
-eHandler :: ErrorHandler (Model sym) sym (LLVM arch) trp
-eHandler = EH (\e st -> throwError (SimFail e (activeFrames (st ^. stateTree))))
 
 checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM scope arch ()
 checkFun nm mp =

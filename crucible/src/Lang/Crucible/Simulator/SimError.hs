@@ -41,9 +41,7 @@ data SimErrorReason
    = GenericSimError !String
    | ReadBeforeWriteSimError !String -- FIXME? include relevant data instead of a string?
    | AssertFailureSimError !String
-   | PatternMatchFailureSimError
    | UnknownSolverResponseError
-   | InfeasibleBranchError
  deriving (Typeable)
 
 data SimError
@@ -57,9 +55,7 @@ simErrorReasonMsg :: SimErrorReason -> String
 simErrorReasonMsg (GenericSimError msg) = msg
 simErrorReasonMsg (ReadBeforeWriteSimError msg) = msg
 simErrorReasonMsg (AssertFailureSimError msg) = msg
-simErrorReasonMsg PatternMatchFailureSimError = "pattern match failure"
 simErrorReasonMsg UnknownSolverResponseError = "solver returned 'unknown' in response to query"
-simErrorReasonMsg InfeasibleBranchError = "execution branch made infeasible assumptions"
 
 instance IsString SimErrorReason where
   fromString = GenericSimError
