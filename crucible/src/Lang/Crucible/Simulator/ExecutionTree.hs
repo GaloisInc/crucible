@@ -811,10 +811,6 @@ intra_branch s p t_label f_label tgt = stateSolverProof s $ do
           let PausedFrame pf = a_state
               setter = stateTree .~ ActiveTree ctx (TotalRes (pf^.pausedValue))
           tryIntraFrameMerge (resume pf) tgt s setter a_id
-    InfeasibleBranch ->
-      do loc <- getCurrentProgramLoc sym
-         let err = SimError loc InfeasibleBranchError 
-         resumeValueFromFrameAbort s ctx (AbortedExec err (s^.stateTree.actFrame))
 {-# INLINABLE intra_branch #-}
 
 mergeAssumptions ::

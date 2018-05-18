@@ -205,7 +205,7 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver) 
   addAssertion sym a =
     case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
-      Just False -> throwIO (a^.labeledPredMsg)
+      Just False -> abortExecSimError sym (a^.labeledPredMsg)
       _ ->
         do conn <- getSolverConn sym
            stk  <- getAssumptionStack sym
@@ -217,7 +217,7 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver) 
   addAssumption sym a =
     case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
-      Just False -> addFailedAssertion sym InfeasibleBranchError
+      Just False -> abortExecSimErrorReason sym InfeasibleBranchError
       _ ->
         do conn <- getSolverConn sym
            stk  <- getAssumptionStack sym
@@ -249,7 +249,7 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver) 
            p_res    <- checkSatisfiable proc p
            notp_res <- checkSatisfiable proc notP
            case (p_res, notp_res) of
-             (Unsat, Unsat) -> return InfeasibleBranch
+             (Unsat, Unsat) -> abortExecSimErrorReason sym InfeasibleBranchError
              (Unsat, _ )    -> return $ NoBranch False
              (_    , Unsat) -> return $ NoBranch True
              (_    , _)     -> return $ SymbolicBranch True
@@ -278,9 +278,7 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver) 
     do stk <- getAssumptionStack sym
        AS.setProofObligations obligs stk
 
-  addFailedAssertion sym msg =
-    do loc <- getCurrentProgramLoc sym
-       throwIO (SimError loc msg)
+  addFailedAssertion sym msg = abortExecSimErrorReason sym msg
 
   cloneAssumptionState sym =
     do stk <- getAssumptionStack sym
@@ -298,3 +296,6 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver) 
          do push conn
             ps <- readIORef (assumeFrameCond frm)
             forM_ (toList ps) (SMT.assume conn . view labeledPred)
+
+
+

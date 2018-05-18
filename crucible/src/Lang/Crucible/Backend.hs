@@ -42,9 +42,12 @@ module Lang.Crucible.Backend
   , addAssertionM
   , assertIsInteger
   , readPartExpr
+  , abortExecSimErrorReason
+  , abortExecSimError
   ) where
 
 import           Data.Sequence (Seq)
+import           Control.Exception(throwIO)
 
 import           What4.Interface
 import           What4.Partial
@@ -82,6 +85,8 @@ type ProofObligation sym = AS.ProofGoal (Pred sym) AssumptionReason SimError
 type AssumptionState sym = AS.AssumptionStack (Pred sym) AssumptionReason SimError
 
 
+
+
 -- | Result of attempting to branch on a predicate.
 data BranchResult
      -- | Branch is symbolic.
@@ -93,10 +98,6 @@ data BranchResult
      -- | No branch is needed, and the predicate is evaluated to the
      -- given value.
    | NoBranch !Bool
-
-     -- | In branching, the simulator detected that the current path
-     -- is infeasible.
-   | InfeasibleBranch
 
 type IsSymInterface sym = (IsBoolSolver sym, IsSymExprBuilder sym)
 
@@ -167,6 +168,16 @@ class IsBoolSolver sym where
   -- | Restore the assumption state to a previous snapshot.
   restoreAssumptionState :: sym -> AssumptionState sym -> IO ()
 
+
+-- | Throw an exception, thus aborting the current execution path.
+abortExecSimError :: IsSymInterface sym => sym -> SimError -> IO a
+abortExecSimError _sym err = throwIO err
+
+-- | Throw an exception, thus aborting the current execution path.
+abortExecSimErrorReason :: IsSymInterface sym => sym -> SimErrorReason -> IO a
+abortExecSimErrorReason sym reason =
+  do loc <- getCurrentProgramLoc sym
+     throwIO SimError { simErrorLoc = loc, simErrorReason = reason }
 
 assert ::
   IsSymInterface sym =>
