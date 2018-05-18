@@ -10,7 +10,7 @@ import qualified Data.Map as Map
 import Control.Lens((^.),(^..))
 import Control.Monad.ST(RealWorld, stToIO)
 import Control.Monad(unless)
-import Control.Exception(SomeException(..))
+import Control.Exception(SomeException(..),displayException)
 import System.IO(hPutStrLn,stdout,stderr)
 import System.Environment(getProgName,getArgs)
 import System.FilePath(takeExtension)
@@ -24,27 +24,20 @@ import Data.Parameterized.Context(pattern Empty)
 import Text.LLVM.AST(Module)
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 
-import What4.SatResult(SatResult(..))
-import What4.Interface(getCurrentProgramLoc)
-import What4.Protocol.Online(OnlineSolver(..))
 
 import Lang.Crucible.Backend
-  (getProofObligations,IsSymInterface, pushAssumptionFrame, popAssumptionFrame
-  , getPathCondition, addFailedAssertion)
-import Lang.Crucible.Backend.Online
-        (withZ3OnlineBackend,checkSatisfiableWithModel,OnlineBackend
-        , getSolverProcess)
+  (getProofObligations,IsSymInterface, pushAssumptionFrame, popAssumptionFrame)
+import Lang.Crucible.Backend.Online(withZ3OnlineBackend)
 -- import Lang.Crucible.Backend.Online(withYicesOnlineBackend)
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
-import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Simulator.RegMap(emptyRegMap,regValue)
 import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Simulator.OverrideSim
         ( fnBindingsFromList, initSimState, runOverrideSim, callCFG)
 
-import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn, LLVM)
+import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn)
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, initializeMemory
         , transContext, cfgMap, initMemoryCFG
@@ -80,7 +73,9 @@ main =
                   [ "Usage:"
                   , "  " ++ p ++ " FILE.bc"
                   ]
-    `catch` \(SomeException e) -> putStrLn "OOP"
+    `catch` \(SomeException e) ->
+                    do putStrLn "TOP LEVEL EXCEPTION"
+                       putStrLn (displayException e)
 
 
 errHandler :: Options -> Error -> IO ()
@@ -96,7 +91,7 @@ checkBC :: Options -> IO ()
 checkBC opts =
   do let file = optsBCFile opts
      say "Crux" ("Checking " ++ show file)
-     mbErr <- simulate opts file (checkFun "main")
+     mbErr <- simulate file (checkFun "main")
      case mbErr of
       Nothing -> sayOK "Crux" "Valid."
       Just e -> errHandler opts e
@@ -145,13 +140,12 @@ setupMem ctx mtrans =
 
 
 simulate ::
-  Options ->
   FilePath ->
   (forall scope arch.
       ArchOk arch => ModuleCFGMap arch -> OverM scope arch ()
   ) ->
   IO (Maybe Error)
-simulate opts file k =
+simulate file k =
   do llvm_mod   <- parseLLVM file
      halloc     <- newHandleAllocator
      Some trans <- stToIO (translateModule halloc llvm_mod)
@@ -167,7 +161,7 @@ simulate opts file k =
 
           mem  <- initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
-          let simSt  = initSimState simctx globSt defaultErrorHandler -- (eHandler opts)
+          let simSt  = initSimState simctx globSt defaultErrorHandler
 
           res <- runOverrideSim simSt UnitRepr $
                    do setupMem llvmCtxt trans
@@ -181,7 +175,7 @@ simulate opts file k =
               do putStrLn "First case"
                  gs <- Fold.toList <$> getProofObligations sym
                  proveGoals ctx' gs
-            AbortedResult ctxt err ->
+            AbortedResult _ctxt err ->
               do putStrLn "Over here"
                  let fs = err ^.. arFrames
                  putStrLn "Call stack:"
@@ -191,50 +185,16 @@ simulate opts file k =
                  throwError (SimAbort err)
 
 
+ppAR :: AbortedResult sym ext -> [String]
 ppAR x = case x of
            AbortedExec {}      -> ["AbortedExec"]
            AbortedExit {}      -> ["AbortedExit"]
-           AbortedBranch _ x y -> [ "AbortedBranch" ] ++
-                                  [ "  " ++ l | l <- ppAR x ] ++
+           AbortedBranch _ l r -> [ "AbortedBranch" ] ++
+                                  [ "  " ++ li | li <- ppAR l ] ++
                                   [ "  ---" ] ++
-                                  [ "  " ++ r | r <- ppAR x ]
+                                  [ "  " ++ li | li <- ppAR r ]
 
 
--- eHandler :: ErrorHandler (Model sym) sym (LLVM arch) trp
-eHandler ::
-  (sym ~ OnlineBackend scope solver, OnlineSolver scope solver) =>
-  Options -> ErrorHandler (Model sym) sym (LLVM arch) trp
-eHandler opts = EH $ \e st ->
-  do let ctx = st ^. stateContext
-         sym = ctx ^. ctxSymInterface
-     putStrLn ("HERE: " ++ show e)
-     -- addFailedAssertion sym (simErrorReason e)
-     loc <- getCurrentProgramLoc sym
-     let err = SimError { simErrorReason = InfeasibleBranchError
-                        , simErrorLoc = loc
-                        }
-     abortTree err st
-
-{-
-     abortTree
-
-     pc <- getPathCondition sym
-     proc <- getSolverProcess sym
-     really <- checkSatisfiableWithModel proc pc $ \res ->
-      case res of
-        Sat f -> do let model = ctx ^. cruciblePersonality
-                    cCode <- ppModel f model
-                    buildModelExes opts cCode
-                    return True
-        Unsat -> return False
-        Unknown -> fail "Maybe error?"
-     if really then throwError (SimFail e (activeFrames (st ^. stateTree)))
-               else do loc <- getCurrentProgramLoc sym
-                       let err = SimError { simErrorReason = FailedPathSimError
-                                          , simErrorLoc = loc
-                                          }
-                       abortTree err st
--}
 checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM scope arch ()
 checkFun nm mp =
   case Map.lookup (fromString nm) mp of

@@ -23,7 +23,6 @@ module Lang.Crucible.Backend.Simple
   , SimpleBackendState
   ) where
 
-import           Control.Exception ( throwIO )
 import           Control.Lens
 import           Data.IORef
 import           Data.Parameterized.Nonce
@@ -66,25 +65,16 @@ instance IsBoolSolver (SimpleBackend t) where
       Just False -> return $! NoBranch False
       Nothing    -> return $! SymbolicBranch True
 
-  addAssertion sym a =
+  addProofObligation sym a =
     case asConstantPred (a^.labeledPred) of
-      Just True  -> return ()
-      Just False -> throwIO (a^.labeledPredMsg)
-      _ ->
-        do stk <- getAssumptionStack sym
-           AS.assert a stk
+      Just True -> return ()    -- no trivialities
+      _         -> AS.addProofObligation a =<< getAssumptionStack sym
 
   addAssumption sym a =
     case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
-      Just False -> addFailedAssertion sym InfeasibleBranchError
-      _ ->
-        do stk <- getAssumptionStack sym
-           AS.assume a stk
-
-  addFailedAssertion sym msg = do
-    loc <- getCurrentProgramLoc sym
-    throwIO (SimError loc msg)
+      Just False -> abortExecBeacuse (AssumedFalse (a ^. labeledPredMsg))
+      _          -> AS.assume a =<< getAssumptionStack sym
 
   addAssumptions sym ps = do
     stk <- getAssumptionStack sym

@@ -13,11 +13,11 @@ import qualified Data.LLVM.BitCode as LLVM
 
 import What4.ProgramLoc(plSourceLoc,Position(..))
 
+import Lang.Crucible.Backend(ppAbortExecReason)
 import Lang.Crucible.Simulator.ExecutionTree
           (AbortedResult(..), SomeFrame(..), gpValue, ppExceptionContext)
 import Lang.Crucible.Simulator.SimError
-          (SimError(..), SimErrorReason(..),ppSimError
-          ,simErrorReasonMsg )
+          (SimError(..), ppSimError,simErrorReasonMsg )
 import Lang.Crucible.Simulator.Frame(SimFrame)
 
 import Lang.Crucible.LLVM.Extension(LLVM)
@@ -59,10 +59,11 @@ ppError err =
           _ -> ""
       txt = simErrorReasonMsg (simErrorReason e)
 
-    SimFail e fs -> ppE e fs
+    SimFail e fs -> ppE (ppSimError e) fs
     SimAbort ab ->
       case ab of
-        AbortedExec e p -> ppE e [ SomeFrame (p ^. gpValue) ]
+        AbortedExec e p -> ppE (ppAbortExecReason e)
+                                        [ SomeFrame (p ^. gpValue) ]
         AbortedExit c ->
           unlines [ "Program terminated with exit code: " ++ show c ]
         AbortedBranch {} -> "XXX: Aborted branch?"
@@ -81,14 +82,13 @@ ppError err =
     EnvError msg -> msg
 
   where
-  ppE e fs = unlines $ ("*** " ++ show (ppSimError e))
+  ppE e fs = unlines $ ("*** " ++ show e)
                      : [ "*** " ++ l | l <- lines (show (ppExceptionContext fs)) ]
 
 ppErr :: AbortedResult sym ext -> String
 ppErr aberr =
   case aberr of
-    AbortedExec (SimError _ InfeasibleBranchError) _gp -> "Assumptions too strong (dead code)"
-    AbortedExec err _gp -> show (ppSimError err)
+    AbortedExec abt _gp -> show (ppAbortExecReason abt)
     AbortedExit e       -> "The program exited with result " ++ show e
     AbortedBranch {}    -> "(Aborted branch?)"
 

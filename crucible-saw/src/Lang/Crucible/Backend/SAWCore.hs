@@ -747,23 +747,16 @@ checkSatisfiable sym p = do
     _ -> return (Sat ())
 
 instance IsBoolSolver (SAWCoreBackend n) where
-  addAssertion sym a = do
+  addProofObligation sym a = do
     case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
-      Just False -> abortExecSimError sym (a^.labeledPredMsg)
-      _ ->
-        do stk <- getAssumptionStack sym
-           AS.assert a stk
+      _          -> AS.addProofObligation a =<< getAssumptionStack sym
 
   addAssumption sym a = do
     case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
-      Just False -> abortExecSimErrorReason sym InfeasibleBranchError
-      _ ->
-        do stk <- getAssumptionStack sym
-           AS.assume a stk
-
-  addFailedAssertion sym msg = abortExecSimErrorReason sym msg
+      Just False -> abortExecBeacuse (AssumedFalse (a ^. labeledPredMsg))
+      _ -> AS.assume a =<< getAssumptionStack sym
 
   addAssumptions sym ps = do
     stk <- getAssumptionStack sym
@@ -786,7 +779,7 @@ instance IsBoolSolver (SAWCoreBackend n) where
            p_res    <- checkSatisfiable sym p
            notp_res <- checkSatisfiable sym p_neg
            case (p_res, notp_res) of
-             (Unsat, Unsat) -> abortExecSimErrorReason sym InfeasibleBranchError
+             (Unsat, Unsat) -> abortExecBeacuse InfeasibleBranch
              (Unsat, _ )    -> return $! NoBranch False
              (_    , Unsat) -> return $! NoBranch True
              (_    , _)     -> return $! SymbolicBranch True

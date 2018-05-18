@@ -22,7 +22,7 @@ type instance SymExpr (ChattyBackend scope solver) =
 
 instance OnlineSolver scope solver =>
          IsBoolSolver (ChattyBackend scope solver) where
-  addAssertion             = addAssertion           . theSym
+  addProofObligation       = addProofObligation     . theSym
   addAssumption            = addAssumption          . theSym
   addAssumptions           = addAssumptions         . theSym
   getPathCondition         = getPathCondition       . theSym
@@ -30,7 +30,6 @@ instance OnlineSolver scope solver =>
   popAssumptionFrame       = popAssumptionFrame     . theSym
   getProofObligations      = getProofObligations    . theSym
   setProofObligations      = setProofObligations    . theSym
-  addFailedAssertion       = addFailedAssertion     . theSym
   cloneAssumptionState     = cloneAssumptionState   . theSym
   restoreAssumptionState   = restoreAssumptionState . theSym
 

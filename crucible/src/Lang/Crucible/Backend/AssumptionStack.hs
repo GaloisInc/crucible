@@ -45,6 +45,7 @@ module Lang.Crucible.Backend.AssumptionStack
   , popFrame
   , getProofObligations
   , setProofObligations
+  , addProofObligation
   , stackHeight
   , allAssumptionFrames
   , inFreshFrame
@@ -206,6 +207,22 @@ appendAssumptions ps stk =
 --   so that later obligations can rely on it having been proved.
 class AssumeAssert assumeMsg assertMsg where
   assertToAssume :: assertMsg -> assumeMsg
+
+
+-- | Add a new proof obligation to the current collection of obligations based
+--   on all the assumptions currently in scope and the predicate in the
+-- given assertion.
+addProofObligation ::
+  AssumeAssert assumeMsg assertMsg =>
+  LabeledPred pred assertMsg ->
+  AssumptionStack pred assumeMsg assertMsg ->
+  IO ()
+addProofObligation p stk =
+  do assumes <- collectAssumptions stk
+     let gl = ProofGoal assumes p
+     modifyIORef' (proofObligations stk) (\obls -> obls |> gl)
+
+
 
 -- | Add a new proof obligation to the current collection of obligations based
 --   on all the assumptions currently in scope and the predicate in the given assertion.

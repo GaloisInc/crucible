@@ -131,7 +131,6 @@ import           Lang.Crucible.Simulator.Frame
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
-import           Lang.Crucible.Simulator.SimError
 
 
 
@@ -218,7 +217,7 @@ filterCrucibleFrames _ = Nothing
 data AbortedResult sym ext where
   -- A single aborted execution with the execution state at time of error,
   -- and the reason for the error.
-  AbortedExec :: !SimError
+  AbortedExec :: !AbortExecReason
               -> !(GlobalPair sym (SimFrame sym ext l args))
               -> AbortedResult sym ext
   -- An aborted execution that was ended by a call to 'exit'
@@ -256,14 +255,16 @@ ppExceptionContext frames = PP.vcat (map pp (init frames))
       PP.text ("While returning value")
 
 -- | Abort the current execution.
-abortTree :: SimError -> SimState p sym ext rtp f args -> IO (ExecResult p sym ext rtp)
+abortTree :: AbortExecReason ->
+             SimState p sym ext rtp f args -> IO (ExecResult p sym ext rtp)
 abortTree e s = do
   let t = s^.stateTree
   let cfg = stateGetConfiguration s
   v <- getOpt =<< getOptionSetting verbosity cfg
   when (v > 0) $ do
     let frames = activeFrames t
-    let msg = ppSimError e PP.<$$> PP.indent 2 (ppExceptionContext frames)
+    let msg = ppAbortExecReason e PP.<$$>
+              PP.indent 2 (ppExceptionContext frames)
     -- Print error message.
     hPrint (printHandle (s^.stateContext)) $ msg
   -- Switch to new frame.
@@ -981,7 +982,7 @@ handleSimReturn s ctx0 return_value = stateSolverProof s $ do
 
 -- | Abort the current execution, and either return or switch to next
 -- execution path and run it.
-abortExec :: SimError
+abortExec :: AbortExecReason
           -> SimState p sym ext (r :: *) f args
           -> IO (ExecResult p sym ext r)
 abortExec rsn s = do
@@ -1212,7 +1213,7 @@ data SimState p sym ext rtp f (args :: Maybe (Ctx.Ctx CrucibleType))
 
 newtype ErrorHandler p sym ext rtp
       = EH { runEH :: forall (l :: *) args
-                   . SimError
+                   . AbortExecReason
                    -> SimState p sym ext rtp l args
                    -> IO (ExecResult p sym ext rtp)
            }
@@ -1267,7 +1268,7 @@ stateOverrideFrame = stateTree . actFrame . gpValue . overrideSimFrame
 
 -- | Start running the error handler.
 mssRunErrorHandler :: SimState p sym ext rtp f args
-                   -> SimError
+                   -> AbortExecReason
                    -> IO (ExecResult p sym ext rtp)
 mssRunErrorHandler s err = runEH (s^.errorHandler) err s
 
@@ -1278,5 +1279,4 @@ mssRunGenericErrorHandler
 mssRunGenericErrorHandler s msg = do
   let sym = stateSymInterface s
   loc <- stateSolverProof s $ getCurrentProgramLoc sym
-  let err = SimError loc (GenericSimError msg)
-  mssRunErrorHandler s err
+  mssRunErrorHandler s (ManualAbort loc msg)
