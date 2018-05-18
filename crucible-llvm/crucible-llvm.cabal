@@ -60,5 +60,5 @@ library
     Lang.Crucible.LLVM.Translation.Types
     Lang.Crucible.LLVM.Types
 
-  ghc-options: -Wall -Werror
+  ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
