@@ -54,6 +54,7 @@ import           Lang.Crucible.CFG.Core (Reg(..))
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Types
+import           Lang.Crucible.Utils.MuxTree
 
 ------------------------------------------------------------------------
 -- RegMap
@@ -107,9 +108,7 @@ muxAny s itefns p (AnyValue tpx x) (AnyValue tpy y)
 muxReference :: IsExprBuilder sym
              => sym
              -> ValMuxFn sym (ReferenceType tp)
-muxReference _s _p rx ry
-  | Just Refl <- testEquality rx ry = return rx
-  | otherwise = fail $ unwords ["Attempted to merge distinct reference cells"]
+muxReference s = mergeMuxTree s
 
 {-# INLINABLE pushBranchForType #-}
 pushBranchForType :: forall sym tp
