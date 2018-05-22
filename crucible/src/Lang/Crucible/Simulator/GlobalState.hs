@@ -10,6 +10,7 @@ module Lang.Crucible.Simulator.GlobalState
   , insertRef
   , lookupRef
   , dropRef
+  , updateRef
   , globalPushBranch
   , globalAbortBranch
   , globalMuxFn
@@ -76,6 +77,18 @@ insertRef :: IsExprBuilder sym
 insertRef sym r v gst =
    let x = RefCellContents (truePred sym) v in
    gst{ globalReferenceMap = MapF.insert r x (globalReferenceMap gst) }
+
+
+updateRef ::
+  IsExprBuilder sym =>
+  RefCell tp ->
+  PartExpr (Pred sym) (RegValue sym tp) ->
+  SymGlobalState sym ->
+  SymGlobalState sym
+updateRef r Unassigned gst =
+  gst{ globalReferenceMap = MapF.delete r (globalReferenceMap gst) }
+updateRef r (PE p x) gst =
+  gst{ globalReferenceMap = MapF.insert r (RefCellContents p x) (globalReferenceMap gst) }
 
 dropRef :: RefCell tp
         -> SymGlobalState sym

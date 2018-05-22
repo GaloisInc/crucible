@@ -30,7 +30,7 @@ library
     base >= 4.8 && < 4.12,
     ansi-wl-pprint,
     bytestring,
-    containers >= 0.5.0.0,
+    containers >= 0.5.9.0,
     fgl,
     filepath,
     hashable,
@@ -90,6 +90,7 @@ library
     Lang.Crucible.Utils.BitSet
     Lang.Crucible.Utils.CoreRewrite
     Lang.Crucible.Utils.MonadVerbosity
+    Lang.Crucible.Utils.MuxTree
     Lang.Crucible.Utils.PrettyPrint
     Lang.Crucible.Utils.StateContT
     Lang.Crucible.Utils.Structural
