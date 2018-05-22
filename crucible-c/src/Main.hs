@@ -80,12 +80,11 @@ main =
 
 errHandler :: Options -> Error -> IO ()
 errHandler opts e =
-  do sayFail "Crux" ("That: " ++ ppError e)
+  do sayFail "Crux" (ppError e)
      case e of
        FailedToProve _ (Just c) -> buildModelExes opts c
-       SimFail {} -> putStrLn "SIMFAI"
        _ -> return ()
-    `catch` \e1 -> sayFail "Crux" ("The other: " ++ ppError e1)
+    `catch` \e1 -> sayFail "Crux" (ppError e1)
 
 checkBC :: Options -> IO ()
 checkBC opts =
@@ -172,16 +171,12 @@ simulate file k =
 
           case res of
             FinishedExecution ctx' _ ->
-              do putStrLn "First case"
-                 gs <- Fold.toList <$> getProofObligations sym
+              do gs <- Fold.toList <$> getProofObligations sym
                  proveGoals ctx' gs
             AbortedResult _ctxt err ->
-              do putStrLn "Over here"
-                 let fs = err ^.. arFrames
+              do let fs = err ^.. arFrames
                  putStrLn "Call stack:"
                  print (ppExceptionContext fs)
-                 putStrLn "AR:"
-                 putStrLn (unlines (ppAR err))
                  throwError (SimAbort err)
 
 

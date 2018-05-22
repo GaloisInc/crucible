@@ -156,7 +156,7 @@ instance MonadIO (OverrideSim p sym ext rtp args ret) where
            | Just e <- fromException e0
            , isUserError e ->
              mssRunGenericErrorHandler s (ioeGetErrorString e)
-             -- SimError
+             -- AbortReason
            | Just e <- fromException e0 ->
              mssRunErrorHandler s e
              -- Default case
