@@ -65,6 +65,8 @@ import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.Word
 
+import Lang.Crucible.Panic(panic)
+
 -- | Information about an assertion that was previously made.
 data LabeledPred pred msg
    = LabeledPred
@@ -298,7 +300,11 @@ popFrame ::
 popFrame ident stk =
   do frm <- readIORef (currentFrame stk)
      unless (assumeFrameIdent frm == ident)
-            (fail "Push/pop mismatch in assumption stack!")
+            (panic "AssumptionStack.popFrame"
+                [ "Push/pop mismatch in assumption stack!"
+                , "*** Current frame:  " ++ showFrameId (assumeFrameIdent frm)
+                , "*** Expected ident: " ++ showFrameId ident
+                ])
      frms <- readIORef (frameStack stk)
      case Seq.viewr frms of
        frms' Seq.:> top ->
@@ -308,6 +314,9 @@ popFrame ident stk =
          do new <- freshFrame stk
             writeIORef (currentFrame stk) new
      return frm
+
+  where
+  showFrameId (FrameIdentifier x) = show x
 
 -- | Run an action in the scope of a fresh assumption frame.
 --   The frame will be popped and returned on successful
