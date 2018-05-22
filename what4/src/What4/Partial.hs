@@ -21,13 +21,14 @@ module What4.Partial
  , maybePartExpr
  , joinMaybePE
    -- * PartialT
- , PartialT
+ , PartialT(..)
  , runPartialT
  , returnUnassigned
  , returnMaybe
  , returnPartial
  , addCondition
  , mergePartial
+ , mergePartials
  ) where
 
 import Control.Monad.IO.Class
@@ -69,18 +70,19 @@ joinMaybePE (Just pe) = pe
 ------------------------------------------------------------------------
 -- Merge
 
+-- | If-then-else on partial expressions.
 mergePartial :: (IsExprBuilder sym, MonadIO m) =>
   sym ->
-  (a -> a -> PartialT sym m a) ->
-  Pred sym ->
-  PartExpr (Pred sym) a ->
-  PartExpr (Pred sym) a ->
+  (Pred sym -> a -> a -> PartialT sym m a) {- ^ Operation to combine inner values -} ->
+  Pred sym {- ^ condition to merge on -} ->
+  PartExpr (Pred sym) a {- ^ 'if' value -}  ->
+  PartExpr (Pred sym) a {- ^ 'then' value -} ->
   m (PartExpr (Pred sym) a)
 
 {-# SPECIALIZE mergePartial ::
       IsExprBuilder sym =>
       sym ->
-      (a -> a -> PartialT sym IO a) ->
+      (Pred sym -> a -> a -> PartialT sym IO a) ->
       Pred sym ->
       PartExpr (Pred sym) a ->
       PartExpr (Pred sym) a ->
@@ -89,12 +91,30 @@ mergePartial :: (IsExprBuilder sym, MonadIO m) =>
 mergePartial _ _ _ Unassigned Unassigned =
      return Unassigned
 mergePartial sym _ c (PE px x) Unassigned =
-     PE <$> liftIO (andPred sym px c) <*> return x
+     do p <- liftIO $ andPred sym px c
+        return $! mkPE p x
 mergePartial sym _ c Unassigned (PE py y) =
-     PE <$> liftIO (andPred sym py =<< notPred sym c) <*> return y
+     do p <- liftIO (andPred sym py =<< notPred sym c)
+        return $! mkPE p y
 mergePartial sym f c (PE px x) (PE py y) =
-  do p <- liftIO (itePred sym c px py)
-     runPartialT sym p (f x y)
+    do p <- liftIO (itePred sym c px py)
+       runPartialT sym p (f p x y)
+
+-- | Merge a collection of partial values in an if-then-else tree.
+--   For example, if we merge a list like @[(xp,x),(yp,y),(zp,z)]@,
+--   we get a value that is morally equivalant to:
+--   @if xp then x else (if yp then y else (if zp then z else undefined))@.
+mergePartials :: (IsExprBuilder sym, MonadIO m) =>
+  sym ->
+  (Pred sym -> a -> a -> PartialT sym m a) {- ^ Operation to combine inner values -} ->
+  [(Pred sym, PartExpr (Pred sym) a)]      {- ^ values to merge -} ->
+  m (PartExpr (Pred sym) a)
+mergePartials sym f = go
+  where
+  go [] = return Unassigned
+  go ((c,x):xs) =
+    do y <- go xs
+       mergePartial sym f c x y
 
 ------------------------------------------------------------------------
 -- PartialT
@@ -119,11 +139,11 @@ instance Functor m => Functor (PartialT sym m) where
 -- We depend on the monad transformer as partialT explicitly orders
 -- the calls to the functions in (<*>).  This ordering allows us to
 -- avoid having any requirements that sym implement a partial interface.
-instance Monad m => Applicative (PartialT sym m) where
-  pure a = PartialT $ \_ p -> pure $! PE p a
+instance (IsExpr (SymExpr sym), Monad m) => Applicative (PartialT sym m) where
+  pure a = PartialT $ \_ p -> pure $! mkPE p a
   mf <*> mx = mf >>= \f -> mx >>= \x -> pure (f x)
 
-instance Monad m => Monad (PartialT sym m) where
+instance (IsExpr (SymExpr sym), Monad m) => Monad (PartialT sym m) where
   return = pure
   m >>= h =
     PartialT $ \sym p -> do
@@ -136,7 +156,7 @@ instance Monad m => Monad (PartialT sym m) where
 instance MonadTrans (PartialT sym) where
   lift m = PartialT $ \_ p -> PE p <$> m
 
-instance MonadIO m => MonadIO (PartialT sym m) where
+instance (IsExpr (SymExpr sym), MonadIO m) => MonadIO (PartialT sym m) where
   liftIO = lift . liftIO
 
 -- | End the partial computation and just return the unassigned value.
@@ -144,9 +164,9 @@ returnUnassigned :: Applicative m => PartialT sym m a
 returnUnassigned = PartialT $ \_ _ -> pure Unassigned
 
 -- | Lift a 'Maybe' value to a partial expression.
-returnMaybe :: Applicative m =>  Maybe a -> PartialT sym m a
+returnMaybe :: (IsExpr (SymExpr sym), Applicative m) =>  Maybe a -> PartialT sym m a
 returnMaybe Nothing  = returnUnassigned
-returnMaybe (Just a) = PartialT $ \_ p -> pure (PE p a)
+returnMaybe (Just a) = PartialT $ \_ p -> pure (mkPE p a)
 
 -- | Return a partial expression.
 --
@@ -156,16 +176,10 @@ returnPartial :: (IsExprBuilder sym, MonadIO m)
               => PartExpr (Pred sym) a
               -> PartialT sym m a
 returnPartial Unassigned = returnUnassigned
-returnPartial (PE q a) =
-    case asConstantPred q of
-      Just False -> returnUnassigned
-      _ -> PartialT $ \sym p -> liftIO $ resolve <$> andPred sym p q
-  where resolve r = case asConstantPred r of
-                      Just False -> Unassigned
-                      _ -> PE r a
+returnPartial (PE q a) = PartialT $ \sym p -> liftIO (mkPE <$> andPred sym p q <*> pure a)
 
 -- | Add an extra condition to the current partial computation.
 addCondition :: (IsExprBuilder sym, MonadIO m)
               => Pred sym
               -> PartialT sym m ()
-addCondition q = returnPartial (PE q ())
+addCondition q = returnPartial (mkPE q ())
