@@ -539,7 +539,7 @@ vfvParents c0 =
 -- Utilities
 
 pushCrucibleFrame :: forall sym ext b r a
-                  .  IsExprBuilder sym
+                  .  IsSymInterface sym
                   => sym
                   -> IntrinsicTypes sym
                   -> SimFrame sym ext (CrucibleLang b r) a
@@ -552,7 +552,7 @@ pushCrucibleFrame sym muxFns (RF x) = do
   return $! RF x'
 
 
-popCrucibleFrame :: IsExprBuilder sym
+popCrucibleFrame :: IsSymInterface sym
                  => sym
                  -> IntrinsicTypes sym
                  -> SimFrame sym ext (CrucibleLang b r') a'
@@ -572,7 +572,7 @@ fromNothingCallFrame :: SimFrame sym ext (CrucibleLang b r) 'Nothing
 fromNothingCallFrame (RF x) = x
 
 
-mergeCrucibleFrame :: IsExprBuilder sym
+mergeCrucibleFrame :: IsSymInterface sym
                    => sym
                    -> IntrinsicTypes sym
                    -> CrucibleBranchTarget blocks args -- ^ Target of branch

@@ -22,7 +22,6 @@
 module Lang.Crucible.Simulator.Evaluation
   ( EvalAppFunc
   , evalApp
-  , failIfNothing
   , selectedIndices
   , indexSymbolic
   , integerAsChar
@@ -62,11 +61,6 @@ import           Lang.Crucible.Types
 ------------------------------------------------------------------------
 -- Utilities
 
--- | Call fail with the given message if the maybe value is nothing,
--- otherwise return the value.
-failIfNothing :: Monad m => String -> Maybe a -> m a
-failIfNothing msg Nothing = fail msg
-failIfNothing _  (Just v) = return v
 
 -- | Given a list of Booleans l, @selectedIndices@ returns the indices of
 -- true values in @l@.
@@ -89,6 +83,7 @@ complexRealAsChar v = do
     -- Check number is printable.
     Just r | otherwise -> return (integerAsChar (floor r))
     Nothing -> fail "Symbolic value cannot be interpreted as a character."
+    -- XXX: Should this be a panic?
 
 ------------------------------------------------------------------------
 -- Evaluating expressions
@@ -111,7 +106,8 @@ indexSymbolic' sym iteFn f p ((l,h):nl) (si:il) = do
   case asNat si of
     Just i
       | l <= i && i <= h -> subIndex i
-      | otherwise -> fail $ "Index exceeds matrix dimensions.\n" ++ show (l,i,h)
+      | otherwise -> addFailedAssertion sym (GenericSimError msg)
+        where msg = "Index exceeds matrix dimensions.\n" ++ show (l,i,h)
     Nothing -> do
       l_sym <- natLit sym l
       h_sym <- natLit sym h
@@ -136,7 +132,8 @@ indexSymbolic :: IsSymInterface sym
 indexSymbolic sym iteFn f = indexSymbolic' sym iteFn f []
 
 -- | Evaluate an indexTermterm to an index value.
-evalBase :: sym
+evalBase :: IsSymInterface sym =>
+            sym
          -> (forall utp . f utp -> IO (RegValue sym utp))
          -> BaseTerm f vtp
          -> IO (SymExpr sym vtp)
@@ -153,7 +150,7 @@ evalBase _ evalSub (BaseTerm tp e) =
     BaseArrayRepr _ _ -> evalSub e
 
 -- | Get value stored in vector at a symbolic index.
-indexVectorWithSymNat :: IsExprBuilder sym
+indexVectorWithSymNat :: IsSymInterface sym
                       => sym
                       -> (Pred sym -> a -> a -> IO a)
                          -- ^ Ite function
@@ -165,14 +162,16 @@ indexVectorWithSymNat sym iteFn v si = do
   Ex.assert (n > 0) $ do
   case asNat si of
     Just i | 0 <= i && i <= n -> return (v V.! fromIntegral i)
-           | otherwise -> error "indexVectorWithSymNat given bad value"
+           | otherwise ->
+              addFailedAssertion sym $
+                 GenericSimError "indexVectorWithSymNat given bad value"
     Nothing -> do
       let predFn i = natEq sym si =<< natLit sym (fromInteger i)
       let getElt i = return (v V.! fromInteger i)
       muxIntegerRange predFn iteFn getElt 0 (toInteger (n-1))
 
 -- | Update a vector at a given natural number index.
-updateVectorWithSymNat :: IsExprBuilder sym
+updateVectorWithSymNat :: IsSymInterface sym
                        => sym
                           -- ^ Symbolic backend
                        -> (Pred sym -> a -> a -> IO a)
@@ -188,7 +187,7 @@ updateVectorWithSymNat sym iteFn v si new_val = do
   adjustVectorWithSymNat sym iteFn v si (\_ -> return new_val)
 
 -- | Update a vector at a given natural number index.
-adjustVectorWithSymNat :: IsExprBuilder sym
+adjustVectorWithSymNat :: IsSymInterface sym
                        => sym
                           -- ^ Symbolic backend
                        -> (Pred sym -> a -> a -> IO a)
@@ -206,8 +205,13 @@ adjustVectorWithSymNat sym iteFn v si adj = do
     Just i | i < fromIntegral n -> do
              new_val <- adj (v V.! fromIntegral i)
              return $ v V.// [(fromIntegral i, new_val)]
-           | otherwise -> fail $
-               "internal: Illegal index " ++ show i ++ " given to updateVectorWithSymNat"
+           | otherwise ->
+              -- XXX: Is this really an internal error?
+              -- Looks like an "out of bounds' error.
+             addFailedAssertion sym
+               $ GenericSimError
+               $ "internal: Illegal index " ++ show i ++
+                                          " given to updateVectorWithSymNat"
     Nothing -> do
       let setFn j = do
             -- Compare si and j.
@@ -360,7 +364,9 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
           msg <- evalSub msg_expr
           case asString msg of
             Just msg' -> readPartExpr sym maybe_val (GenericSimError (Text.unpack msg'))
-            Nothing -> fail "Expected concrete string in fromJustValue"
+            Nothing ->
+              addFailedAssertion sym $
+                Unsupported "Symbolic string in fromJustValue"
 
     ----------------------------------------------------------------------
     -- Side conditions
@@ -382,7 +388,8 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     VectorReplicate _ n_expr e_expr -> do
       ne <- evalSub n_expr
       case asNat ne of
-        Nothing -> fail $ "mss does not support symbolic length arrays."
+        Nothing -> addFailedAssertion sym $
+                      Unsupported "arrays with symbolic length"
         Just n -> do
           e <- evalSub e_expr
           return $ V.replicate (fromIntegral n) e
@@ -673,14 +680,16 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       m <- evalSub m_expr
       case asString i of
         Just i' -> return $ joinMaybePE (Map.lookup i' m)
-        Nothing -> fail "Expected concrete string in lookupStringMapEntry"
+        Nothing -> addFailedAssertion sym $
+                    Unsupported "Symbolic string in lookupStringMapEntry"
     InsertStringMapEntry _ m_expr i_expr v_expr -> do
       m <- evalSub m_expr
       i <- evalSub i_expr
       v <- evalSub v_expr
       case asString i of
         Just i' -> return $ Map.insert i' v m
-        Nothing -> fail "Expected concrete string in insertStringMapEntry"
+        Nothing -> addFailedAssertion sym $
+                     Unsupported "Symbolic string in insertStringMapEntry"
 
     --------------------------------------------------------------------
     -- Text

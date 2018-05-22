@@ -472,9 +472,12 @@ stepTerm s _ (TailCall fnExpr _types arg_exprs) = do
 
 stepTerm s _ (ErrorStmt msg) = do
   let msg' = evalReg s msg
+      sym = stateSymInterface s
   case asString msg' of
-    Just txt -> fail (Text.unpack txt)
-    Nothing  -> fail (show (printSymExpr msg'))
+    Just txt -> addFailedAssertion sym
+                  $ GenericSimError $ Text.unpack txt
+    Nothing  -> addFailedAssertion sym
+                  $ GenericSimError $ show (printSymExpr msg')
 
 evalArgs' :: forall sym ctx args
            . RegMap sym ctx

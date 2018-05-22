@@ -224,13 +224,18 @@ writeGlobals g = stateTree . actFrame . gpGlobals .= g
 
 -- | Read a particular global variable from the global variable state.
 readGlobal ::
+  IsSymInterface sym =>
   GlobalVar tp                                     {- ^ global variable -} ->
   OverrideSim p sym ext rtp args ret (RegValue sym tp) {- ^ current value   -}
 readGlobal k =
   do globals <- readGlobals
      case lookupGlobal k globals of
        Just v  -> return v
-       Nothing -> fail ("Attempt to read undefined global " ++ show k)
+       Nothing ->
+         do sym <- getSymInterface
+            liftIO $ addFailedAssertion sym
+                   $ GenericSimError
+                   $ "Attempt to read undefined global " ++ show k
 
 -- | Set the value of a particular global variable.
 writeGlobal ::
