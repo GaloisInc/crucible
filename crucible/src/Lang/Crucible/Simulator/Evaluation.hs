@@ -57,6 +57,7 @@ import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Types
+import           Lang.Crucible.Utils.MuxTree
 
 ------------------------------------------------------------------------
 -- Utilities
@@ -716,6 +717,5 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     ReferenceEq _ ref1 ref2 -> do
       cell1 <- evalSub ref1
       cell2 <- evalSub ref2
-      case testEquality cell1 cell2 of
-        Just Refl -> return (truePred sym)
-        Nothing -> return (falsePred sym)
+      let f r1 r2 = return (backendPred sym (r1 == r2))
+      muxTreeCmpOp sym f cell1 cell2

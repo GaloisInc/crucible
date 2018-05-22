@@ -69,6 +69,7 @@ import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Types
+import           Lang.Crucible.Utils.MuxTree
 import           Lang.Crucible.Backend
 
 type MuxFn p v = p -> v -> v -> IO v
@@ -84,7 +85,7 @@ type family RegValue (sym :: *) (tp :: CrucibleType) :: * where
   RegValue sym (VectorType tp) = V.Vector (RegValue sym tp)
   RegValue sym (StructType ctx) = Ctx.Assignment (RegValue' sym) ctx
   RegValue sym (VariantType ctx) = Ctx.Assignment (VariantBranch sym) ctx
-  RegValue sym (ReferenceType a) = RefCell a
+  RegValue sym (ReferenceType a) = MuxTree sym (RefCell a)
   RegValue sym (WordMapType w tp) = WordMap sym w tp
   RegValue sym (RecursiveType nm ctx) = RolledType sym nm ctx
   RegValue sym (IntrinsicType nm ctx) = Intrinsic sym nm ctx
@@ -225,7 +226,7 @@ mergePartExpr :: IsExprBuilder sym
               -> PartExpr (Pred sym) v
               -> PartExpr (Pred sym) v
               -> IO (PartExpr (Pred sym) v)
-mergePartExpr sym fn c = mergePartial sym (\a b -> lift (fn c a b)) c
+mergePartExpr sym fn c = mergePartial sym (\c' a b -> lift (fn c' a b)) c
 
 instance (IsExprBuilder sym, CanMux sym tp) => CanMux sym (MaybeType tp) where
   {-# INLINE muxReg #-}
