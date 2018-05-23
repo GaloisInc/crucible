@@ -202,8 +202,10 @@ muxRegForType s itefns p =
        case MapF.lookup nm itefns of
          Just IntrinsicMuxFn -> muxIntrinsic s itefns nm ctx
          Nothing -> \_ _ _ ->
-           addFailedAssertion s $
-             Unsupported (unwords ["Unknown intrinsic type:", show nm])
+           panic "RegMap.muxRegForType"
+              [ "Unknown intrinsic type:"
+              , "*** Name: " ++ show nm
+              ]
 
      FloatRepr _ -> \_ _ _ ->
        addFailedAssertion s $
