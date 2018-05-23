@@ -174,10 +174,14 @@ simulate file k =
               do gs <- Fold.toList <$> getProofObligations sym
                  proveGoals ctx' gs
             AbortedResult _ctxt err ->
+              do gs <- Fold.toList <$> getProofObligations sym
+                 proveGoals _ctxt gs
+{-
               do let fs = err ^.. arFrames
                  putStrLn "Call stack:"
                  print (ppExceptionContext fs)
                  throwError (SimAbort err)
+-}
 
 
 checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM scope arch ()

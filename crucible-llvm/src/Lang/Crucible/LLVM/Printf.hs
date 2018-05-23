@@ -285,7 +285,7 @@ formatRational mr fmt minwidth prec flags =
                    | Set.member PrintfPosPlus  flags -> "+"
                    | Set.member PrintfPosSpace flags -> " "
                    | otherwise -> ""
-      let dbl :: Double = N.fromRat (abs r)
+      let dbl = N.fromRat (abs r) :: Double
       let str = case fmt of
                   FloatFormat_Scientific c ->
                        toCase c $ N.showEFloat mprec dbl []
@@ -301,6 +301,8 @@ formatRational mr fmt minwidth prec flags =
                          toCase c $ N.showGFloat mprec dbl []
                   FloatFormat_Hex _c ->
                     -- FIXME, could probably implement this using N.floatToDigits...
+                    -- XXX: THIS IS "fail" in the list monad, which is probably not
+                    -- what we want.
                     fail "'a' and 'A' conversion codes not currently supported"
       let pad = max 0 (minwidth - length str - length sgn)
       if | Set.member PrintfNegativeWidth flags ->
