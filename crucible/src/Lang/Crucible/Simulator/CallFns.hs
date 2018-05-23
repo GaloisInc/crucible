@@ -60,9 +60,11 @@ import           Lang.Crucible.Simulator.ExecutionTree
          )
 import qualified Lang.Crucible.Simulator.ExecutionTree as Exec
 import           Lang.Crucible.Simulator.Frame
+import           Lang.Crucible.Simulator.Intrinsics (IntrinsicTypes)
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Utils.MuxTree
 
 
 crucibleSimFrame :: Lens (SimFrame sym ext (CrucibleLang blocks r) ('Just args))
@@ -171,7 +173,7 @@ evalLogFn s n msg = do
   let cfg = stateGetConfiguration s
   verb <- getMaybeOpt =<< getOptionSetting verbosity cfg
   case verb of
-    Just v | v >= toInteger n -> 
+    Just v | v >= toInteger n ->
       do hPutStr h msg
          hFlush h
     _ -> return ()
@@ -472,9 +474,12 @@ stepTerm s _ (TailCall fnExpr _types arg_exprs) = do
 
 stepTerm s _ (ErrorStmt msg) = do
   let msg' = evalReg s msg
+      sym = stateSymInterface s
   case asString msg' of
-    Just txt -> fail (Text.unpack txt)
-    Nothing  -> fail (show (printSymExpr msg'))
+    Just txt -> addFailedAssertion sym
+                  $ GenericSimError $ Text.unpack txt
+    Nothing  -> addFailedAssertion sym
+                  $ GenericSimError $ show (printSymExpr msg')
 
 evalArgs' :: forall sym ctx args
            . RegMap sym ctx
@@ -528,6 +533,40 @@ continueCrucible s_ref verb s = do
   writeIORef s_ref $! SomeState s
   loopCrucible' s_ref verb
 
+
+alterRef ::
+  IsSymInterface sym =>
+  sym ->
+  IntrinsicTypes sym ->
+  TypeRepr tp ->
+  MuxTree sym (RefCell tp) ->
+  PartExpr (Pred sym) (RegValue sym tp) ->
+  SymGlobalState sym ->
+  IO (SymGlobalState sym)
+alterRef sym iTypes tpr rs newv globs = foldM upd globs (viewMuxTree rs)
+  where
+  f p a b = liftIO $ muxRegForType sym iTypes tpr p a b
+
+  upd gs (r,p) =
+    do let oldv = lookupRef r globs
+       z <- mergePartial sym f p newv oldv
+       return (gs & updateRef r z)
+
+readRef ::
+  IsSymInterface sym =>
+  sym ->
+  IntrinsicTypes sym ->
+  TypeRepr tp ->
+  MuxTree sym (RefCell tp) ->
+  SymGlobalState sym ->
+  IO (RegValue sym tp)
+readRef sym iTypes tpr rs globs =
+  do let vs = map (\(r,p) -> (p,lookupRef r globs)) (viewMuxTree rs)
+     let f p a b = liftIO $ muxRegForType sym iTypes tpr p a b
+     pv <- mergePartials sym f vs
+     let msg = ReadBeforeWriteSimError "Attempted to read uninitialized reference cell"
+     readPartExpr sym pv msg
+
 -- | Internal loop for running the simulator.
 --
 -- This is allowed to throw user execeptions or SimError.
@@ -538,6 +577,7 @@ loopCrucible' :: (IsSymInterface sym, IsSyntaxExtension ext)
 loopCrucible' s_ref verb = do
   SomeState s <- readIORef s_ref
   let ctx = s^.stateContext
+  let iTypes = ctxIntrinsicTypes ctx
   let sym = ctx^.ctxSymInterface
   let top_frame = s^.stateTree^.actFrame
   let cf = top_frame^.crucibleTopFrame
@@ -561,29 +601,38 @@ loopCrucible' s_ref verb = do
           r <- liftST (freshRefCell halloc tpr)
           continueCrucible s_ref verb $
             s & stateTree . actFrame . gpGlobals %~ insertRef sym r v
-              & stateCrucibleFrame %~ extendFrame (ReferenceRepr tpr) r rest
+              & stateCrucibleFrame %~ extendFrame (ReferenceRepr tpr) (toMuxTree sym r) rest
         NewEmptyRefCell tpr -> do
           let halloc = simHandleAllocator ctx
           r <- liftST (freshRefCell halloc tpr)
           continueCrucible s_ref verb $
-            s & stateCrucibleFrame %~ extendFrame (ReferenceRepr tpr) r rest
-        ReadRefCell x -> do
-          let ref = evalReg s x
-          let msg = ReadBeforeWriteSimError "Attempted to read uninitialized reference cell"
-          v <- readPartExpr sym (lookupRef ref (s^.stateTree^.actFrame^.gpGlobals)) msg
-          continueCrucible s_ref verb $
-             s & stateCrucibleFrame %~ extendFrame (refType ref) v rest
-        WriteRefCell x y -> do
-          let ref = evalReg s x
-          let v   = evalReg s y
-          continueCrucible s_ref verb $
-            s & stateTree . actFrame . gpGlobals %~ insertRef sym ref v
-              & stateCrucibleFrame  . frameStmts .~ rest
-        DropRefCell x -> do
-          let ref = evalReg s x
-          continueCrucible s_ref verb $
-            s & stateTree . actFrame . gpGlobals %~ dropRef ref
-              & stateCrucibleFrame  . frameStmts .~ rest
+            s & stateCrucibleFrame %~ extendFrame (ReferenceRepr tpr) (toMuxTree sym r) rest
+        ReadRefCell x ->
+          case evalReg' s x of
+            RegEntry (ReferenceRepr tpr) rs ->
+              do
+              v <- readRef sym iTypes tpr rs (s^.stateTree.actFrame.gpGlobals)
+              continueCrucible s_ref verb $
+                s & stateCrucibleFrame %~ extendFrame tpr v rest
+        WriteRefCell x y ->
+          case evalReg' s x of
+            RegEntry (ReferenceRepr tpr) rs ->
+              do
+              let newv = justPartExpr sym (evalReg s y)
+              globs' <- alterRef sym iTypes tpr rs newv (s^.stateTree.actFrame.gpGlobals)
+
+              continueCrucible s_ref verb $
+                s & stateTree . actFrame . gpGlobals .~ globs'
+                  & stateCrucibleFrame  . frameStmts .~ rest
+        DropRefCell x ->
+          case evalReg' s x of
+            RegEntry (ReferenceRepr tpr) rs ->
+              do
+              globs' <- alterRef sym iTypes tpr rs Unassigned (s^.stateTree.actFrame.gpGlobals)
+              continueCrucible s_ref verb $
+                s & stateTree . actFrame . gpGlobals .~ globs'
+                  & stateCrucibleFrame  . frameStmts .~ rest
+
         ReadGlobal global_var -> do
           case lookupGlobal global_var (top_frame^.gpGlobals) of
             Nothing ->

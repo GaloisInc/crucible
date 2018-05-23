@@ -53,7 +53,11 @@ import           What4.WordMap
 import           Lang.Crucible.CFG.Core (Reg(..))
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegValue
+import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Types
+import           Lang.Crucible.Utils.MuxTree
+import           Lang.Crucible.Backend
+import           Lang.Crucible.Panic
 
 ------------------------------------------------------------------------
 -- RegMap
@@ -93,27 +97,28 @@ regVal' :: RegMap sym ctx
 regVal' (RegMap a) r = a Ctx.! regIndex r
 
 
-muxAny :: IsExprBuilder sym
+muxAny :: IsSymInterface sym
        => sym
        -> IntrinsicTypes sym
        -> ValMuxFn sym AnyType
 muxAny s itefns p (AnyValue tpx x) (AnyValue tpy y)
   | Just Refl <- testEquality tpx tpy =
        AnyValue tpx <$> muxRegForType s itefns tpx p x y
-  | otherwise = fail $ unwords ["Attempted to mux ANY values of different runtime type"
-                               , show tpx, show tpy
-                               ]
+  | otherwise =
+    addFailedAssertion s $
+      Unsupported $ unwords
+                      ["Attempted to mux ANY values of different runtime type"
+                      , show tpx, show tpy
+                      ]
 
-muxReference :: IsExprBuilder sym
+muxReference :: IsSymInterface sym
              => sym
              -> ValMuxFn sym (ReferenceType tp)
-muxReference _s _p rx ry
-  | Just Refl <- testEquality rx ry = return rx
-  | otherwise = fail $ unwords ["Attempted to merge distinct reference cells"]
+muxReference s = mergeMuxTree s
 
 {-# INLINABLE pushBranchForType #-}
 pushBranchForType :: forall sym tp
-               . IsExprBuilder sym
+               . IsSymInterface sym
               => sym
               -> IntrinsicTypes sym
               -> TypeRepr tp
@@ -124,8 +129,11 @@ pushBranchForType s iTypes p =
     IntrinsicRepr nm ctx ->
        case MapF.lookup nm iTypes of
          Just IntrinsicMuxFn -> pushBranchIntrinsic s iTypes nm ctx
-         Nothing ->
-           fail $ unwords ["Unknown intrinsic type:", show nm]
+         Nothing -> \_ ->
+           panic "RegMap.pushBranchForType"
+              [ "Unknown intrinsic type:"
+              , "*** Name: " ++ show nm
+              ]
 
     AnyRepr -> \(AnyValue tpr x) -> AnyValue tpr <$> pushBranchForType s iTypes tpr x
 
@@ -134,7 +142,7 @@ pushBranchForType s iTypes p =
 
 {-# INLINABLE abortBranchForType #-}
 abortBranchForType :: forall sym tp
-               . IsExprBuilder sym
+               . IsSymInterface sym
               => sym
               -> IntrinsicTypes sym
               -> TypeRepr tp
@@ -145,9 +153,11 @@ abortBranchForType s iTypes p =
     IntrinsicRepr nm ctx ->
        case MapF.lookup nm iTypes of
          Just IntrinsicMuxFn -> abortBranchIntrinsic s iTypes nm ctx
-         Nothing ->
-           fail $ unwords ["Unknown intrinsic type:", show nm]
-
+         Nothing -> \_ ->
+           panic "RegMap.abortBranchForType"
+              [ "Unknown intrinsic type:"
+              , "*** Name: " ++ show nm
+              ]
     AnyRepr -> \(AnyValue tpr x) -> AnyValue tpr <$> abortBranchForType s iTypes tpr x
 
     -- All remaining types do no abort branch bookkeeping
@@ -155,7 +165,7 @@ abortBranchForType s iTypes p =
 
 {-# INLINABLE muxRegForType #-}
 muxRegForType :: forall sym tp
-               . IsExprBuilder sym
+               . IsSymInterface sym
               => sym
               -> IntrinsicTypes sym
               -> TypeRepr tp
@@ -183,7 +193,7 @@ muxRegForType s itefns p =
      FunctionHandleRepr _ _ -> muxReg s p
 
      MaybeRepr r          -> mergePartExpr s (muxRegForType s itefns r)
-     VectorRepr r         -> muxVector (muxRegForType s itefns r)
+     VectorRepr r         -> muxVector s (muxRegForType s itefns r)
      StringMapRepr r      -> muxStringMap s (muxRegForType s itefns r)
      SymbolicArrayRepr{}         -> arrayIte s
      SymbolicStructRepr{}        -> structIte s
@@ -191,14 +201,19 @@ muxRegForType s itefns p =
      IntrinsicRepr nm ctx ->
        case MapF.lookup nm itefns of
          Just IntrinsicMuxFn -> muxIntrinsic s itefns nm ctx
-         Nothing ->
-           fail $ unwords ["Unknown intrinsic type:", show nm]
+         Nothing -> \_ _ _ ->
+           panic "RegMap.muxRegForType"
+              [ "Unknown intrinsic type:"
+              , "*** Name: " ++ show nm
+              ]
 
-     FloatRepr _ -> fail $ "Float types are not supported by muxRegForType'"
+     FloatRepr _ -> \_ _ _ ->
+       addFailedAssertion s $
+         Unsupported "Float types are not supported by muxRegForType'"
 
 -- | Mux two register entries.
 {-# INLINE muxRegEntry #-}
-muxRegEntry :: IsExprBuilder sym
+muxRegEntry :: IsSymInterface sym
              => sym
              -> IntrinsicTypes sym
              -> MuxFn (Pred sym) (RegEntry sym tp)
@@ -206,7 +221,7 @@ muxRegEntry sym iteFns pp (RegEntry rtp x) (RegEntry _ y) = do
   RegEntry rtp <$> muxRegForType sym iteFns rtp pp x y
 
 pushBranchRegEntry
-             :: (IsExprBuilder sym)
+             :: (IsSymInterface sym)
              => sym
              -> IntrinsicTypes sym
              -> RegEntry sym tp
@@ -215,7 +230,7 @@ pushBranchRegEntry sym iTypes (RegEntry tp x) =
   RegEntry tp <$> pushBranchForType sym iTypes tp x
 
 abortBranchRegEntry
-             :: (IsExprBuilder sym)
+             :: (IsSymInterface sym)
              => sym
              -> IntrinsicTypes sym
              -> RegEntry sym tp
@@ -225,7 +240,7 @@ abortBranchRegEntry sym iTypes (RegEntry tp x) =
 
 
 {-# INLINE mergeRegs #-}
-mergeRegs :: (IsExprBuilder sym)
+mergeRegs :: (IsSymInterface sym)
           => sym
           -> IntrinsicTypes sym
           -> MuxFn (Pred sym) (RegMap sym ctx)
@@ -234,7 +249,7 @@ mergeRegs sym iTypes pp (RegMap rx) (RegMap ry) = do
 
 {-# INLINE pushBranchRegs #-}
 pushBranchRegs :: forall sym ctx
-           . (IsExprBuilder sym)
+           . (IsSymInterface sym)
           => sym
           -> IntrinsicTypes sym
           -> RegMap sym ctx
@@ -244,7 +259,7 @@ pushBranchRegs sym iTypes (RegMap rx) =
 
 {-# INLINE abortBranchRegs #-}
 abortBranchRegs :: forall sym ctx
-           . (IsExprBuilder sym)
+           . (IsSymInterface sym)
           => sym
           -> IntrinsicTypes sym
           -> RegMap sym ctx
