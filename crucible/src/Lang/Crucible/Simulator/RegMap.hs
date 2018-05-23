@@ -57,6 +57,7 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MuxTree
 import           Lang.Crucible.Backend
+import           Lang.Crucible.Panic
 
 ------------------------------------------------------------------------
 -- RegMap
@@ -129,8 +130,10 @@ pushBranchForType s iTypes p =
        case MapF.lookup nm iTypes of
          Just IntrinsicMuxFn -> pushBranchIntrinsic s iTypes nm ctx
          Nothing -> \_ ->
-           addFailedAssertion s
-             $ Unsupported $ unwords ["Unknown intrinsic type:", show nm]
+           panic "RegMap.pushBranchForType"
+              [ "Unknown intrinsic type:"
+              , "*** Name: " ++ show nm
+              ]
 
     AnyRepr -> \(AnyValue tpr x) -> AnyValue tpr <$> pushBranchForType s iTypes tpr x
 
@@ -151,9 +154,10 @@ abortBranchForType s iTypes p =
        case MapF.lookup nm iTypes of
          Just IntrinsicMuxFn -> abortBranchIntrinsic s iTypes nm ctx
          Nothing -> \_ ->
-           addFailedAssertion s
-              $ Unsupported $ unwords ["Unknown intrinsic type:", show nm]
-
+           panic "RegMap.abortBranchForType"
+              [ "Unknown intrinsic type:"
+              , "*** Name: " ++ show nm
+              ]
     AnyRepr -> \(AnyValue tpr x) -> AnyValue tpr <$> abortBranchForType s iTypes tpr x
 
     -- All remaining types do no abort branch bookkeeping
