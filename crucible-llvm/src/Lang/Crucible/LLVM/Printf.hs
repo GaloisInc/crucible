@@ -12,6 +12,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Lang.Crucible.LLVM.Printf
 ( PrintfFlag(..)
@@ -121,6 +122,8 @@ data PrintfOperations m
                         -> PrintfLengthModifier
                         -> Int -- value to set
                         -> m ()
+
+    , printfUnsupported :: !(forall a. String -> m a)
     }
 
 formatInteger
@@ -271,46 +274,47 @@ formatRational
   -> Int -- min width
   -> Int -- precision
   -> Set PrintfFlag
-  -> String
+  -> Either String String   -- ^ Left indicates an error, right is OK
 formatRational mr fmt minwidth prec flags =
   case mr of
     Nothing ->
       let n = min 4 (min minwidth prec)
-       in replicate n '?'
-    Just r -> do
+       in return (replicate n '?')
+    Just r ->
       -- FIXME, we ignore the thousands flag...
-      let mprec = if prec == 0 then Nothing else Just prec
-      let toCase c x = case c of UpperCase -> map toUpper x; LowerCase -> x
-      let sgn = if | r < 0  -> "-"
-                   | Set.member PrintfPosPlus  flags -> "+"
-                   | Set.member PrintfPosSpace flags -> " "
-                   | otherwise -> ""
-      let dbl = N.fromRat (abs r) :: Double
-      let str = case fmt of
+      do let mprec = if prec == 0 then Nothing else Just prec
+         let toCase c x = case c of
+                            UpperCase -> map toUpper x
+                            LowerCase -> x
+         let sgn = if | r < 0  -> "-"
+                      | Set.member PrintfPosPlus  flags -> "+"
+                      | Set.member PrintfPosSpace flags -> " "
+                      | otherwise -> ""
+         let dbl = N.fromRat (abs r) :: Double
+         str <- case fmt of
                   FloatFormat_Scientific c ->
-                       toCase c $ N.showEFloat mprec dbl []
-                  FloatFormat_Standard c
-                     | Set.member PrintfAlternateForm flags ->
-                         toCase c $ N.showFFloatAlt mprec dbl [] 
-                     | otherwise ->
-                         toCase c $ N.showFFloat mprec dbl [] 
-                  FloatFormat_Auto c
-                     | Set.member PrintfAlternateForm flags ->
-                         toCase c $ N.showGFloatAlt mprec dbl []
-                     | otherwise ->
-                         toCase c $ N.showGFloat mprec dbl []
+                       return $ toCase c $ N.showEFloat mprec dbl []
+                  FloatFormat_Standard c ->
+                   return $ toCase c $
+                     if Set.member PrintfAlternateForm flags
+                       then N.showFFloatAlt mprec dbl []
+                       else N.showFFloat mprec dbl []
+                  FloatFormat_Auto c ->
+                    return $ toCase c $
+                      if Set.member PrintfAlternateForm flags
+                         then N.showGFloatAlt mprec dbl []
+                         else N.showGFloat mprec dbl []
                   FloatFormat_Hex _c ->
                     -- FIXME, could probably implement this using N.floatToDigits...
-                    -- XXX: THIS IS "fail" in the list monad, which is probably not
-                    -- what we want.
-                    fail "'a' and 'A' conversion codes not currently supported"
-      let pad = max 0 (minwidth - length str - length sgn)
-      if | Set.member PrintfNegativeWidth flags ->
-              sgn ++ str ++ replicate pad ' '
-         | Set.member PrintfZeroPadding flags ->
-              sgn ++ replicate pad '0' ++ str
-         | otherwise ->
-              replicate pad ' ' ++ sgn ++ str
+                    Left "'a' and 'A' conversion codes not currently supported"
+         let pad = max 0 (minwidth - length str - length sgn)
+         return $
+           if | Set.member PrintfNegativeWidth flags ->
+                  sgn ++ str ++ replicate pad ' '
+              | Set.member PrintfZeroPadding flags ->
+                   sgn ++ replicate pad '0' ++ str
+              | otherwise ->
+                   replicate pad ' ' ++ sgn ++ str
 
 executeDirectives :: forall m. Monad m
                   => PrintfOperations m
@@ -337,7 +341,12 @@ executeDirectives ops = go id 0 0
            go fstr' len' fld' xs
          Conversion_Floating fmt -> do
            r <- printfGetFloat ops fld' (printfLengthMod d)
-           let rstr  = formatRational r fmt (printfMinWidth d) (printfPrecision d) (printfFlags d)
+           rstr <- case formatRational r fmt
+                           (printfMinWidth d)
+                           (printfPrecision d)
+                           (printfFlags d) of
+                     Left err -> printfUnsupported ops err
+                     Right a -> return a
            let len'  = len + length rstr
            let fstr' = fstr . (rstr ++)
            go fstr' len' fld' xs
