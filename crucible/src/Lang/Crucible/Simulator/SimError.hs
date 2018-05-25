@@ -43,7 +43,6 @@ data SimErrorReason
      -- ^ We can't do that (yet?)
    | ReadBeforeWriteSimError !String -- FIXME? include relevant data instead of a string?
    | AssertFailureSimError !String
-   | UnknownSolverResponseError
  deriving (Typeable)
 
 data SimError
@@ -58,8 +57,6 @@ simErrorReasonMsg (GenericSimError msg) = msg
 simErrorReasonMsg (Unsupported msg) = "Unsupported feature: " ++ msg
 simErrorReasonMsg (ReadBeforeWriteSimError msg) = msg
 simErrorReasonMsg (AssertFailureSimError msg) = msg
-simErrorReasonMsg UnknownSolverResponseError =
-                        "solver returned 'unknown' in response to query"
 
 instance IsString SimErrorReason where
   fromString = GenericSimError
