@@ -463,8 +463,10 @@ packMemValue sym (G.Type (G.Struct fls) _) (StructRepr ctx) xs = do
                   let RV val = xs Ctx.! idx
                   val' <- packMemValue sym (fl^.G.fieldVal) tpr val
                   return (fl, val')
-                _ -> addFailedAssertion sym  -- XXX: or should this be a panic?
-                        $ GenericSimError "packMemValue: actual value has insufficent structure fields"
+                _ -> panic "MemModel.packMemValue"
+                      [ "Mismatch between LLVM and Crucible types"
+                      , "*** Filed out of bounds: " ++ show i
+                      ]
   return $ LLVMValStruct fls'
 
 packMemValue _ stTy crTy _ =
