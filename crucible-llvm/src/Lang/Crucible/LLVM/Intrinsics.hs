@@ -1171,7 +1171,7 @@ callPrintf sym mvar
     mem <- readGlobal mvar
     formatStr <- liftIO $ loadString sym mem strPtr Nothing
     case parseDirectives formatStr of
-      Left err -> overrideError $ GenericSimError err
+      Left err -> overrideError $ AssertFailureSimError err
       Right ds -> do
         ((str, n), mem') <- liftIO $ runStateT (executeDirectives (printfOps sym valist) ds) mem
         writeGlobal mvar mem'
@@ -1198,12 +1198,12 @@ printfOps sym valist =
               return $ asUnsignedBV bv
        Just (AnyValue tpr _) ->
          lift $ addFailedAssertion sym
-              $ GenericSimError
+              $ AssertFailureSimError
               $ unwords ["Type mismatch in printf.  Expected integer, but got:"
                         , show tpr]
        Nothing ->
          lift $ addFailedAssertion sym
-              $ GenericSimError
+              $ AssertFailureSimError
               $ unwords ["Out-of-bounds argument access in printf:", show i]
 
   , printfGetFloat = \i _len ->
@@ -1212,11 +1212,12 @@ printfOps sym valist =
          return $ asRational x
        Just (AnyValue tpr _) ->
          lift $ addFailedAssertion sym
-              $ GenericSimError
-              $ unwords ["Type mismatch in printf.  Expected floating-point, but got:", show tpr]
+              $ AssertFailureSimError
+              $ unwords [ "Type mismatch in printf."
+                        , "Expected floating-point, but got:", show tpr]
        Nothing ->
          lift $ addFailedAssertion sym
-              $ GenericSimError
+              $ AssertFailureSimError
               $ unwords ["Out-of-bounds argument access in printf:", show i]
 
   , printfGetString  = \i numchars ->
@@ -1226,11 +1227,12 @@ printfOps sym valist =
               liftIO $ loadString sym mem ptr numchars
        Just (AnyValue tpr _) ->
          lift $ addFailedAssertion sym
-              $ GenericSimError
-              $ unwords ["Type mismatch in printf.  Expected char*, but got:", show tpr]
+              $ AssertFailureSimError
+              $ unwords [ "Type mismatch in printf."
+                        , "Expected char*, but got:", show tpr]
        Nothing ->
          lift $ addFailedAssertion sym
-              $ GenericSimError
+              $ AssertFailureSimError
               $ unwords ["Out-of-bounds argument access in printf:", show i]
 
   , printfGetPointer = \i ->
@@ -1239,11 +1241,12 @@ printfOps sym valist =
          return $ show (G.ppPtr ptr)
        Just (AnyValue tpr _) ->
          lift $ addFailedAssertion sym
-              $ GenericSimError
-              $ unwords ["Type mismatch in printf.  Expected void*, but got:", show tpr]
+              $ AssertFailureSimError
+              $ unwords [ "Type mismatch in printf."
+                        , "Expected void*, but got:", show tpr]
        Nothing ->
          lift $ addFailedAssertion sym
-              $ GenericSimError
+              $ AssertFailureSimError
               $ unwords ["Out-of-bounds argument access in printf:", show i]
 
   , printfSetInteger = \i len v ->
@@ -1282,11 +1285,12 @@ printfOps sym valist =
 
        Just (AnyValue tpr _) ->
          lift $ addFailedAssertion sym
-              $ GenericSimError
-              $ unwords ["Type mismatch in printf.  Expected void*, but got:", show tpr]
+              $ AssertFailureSimError
+              $ unwords [ "Type mismatch in printf."
+                        , "Expected void*, but got:", show tpr]
 
        Nothing ->
          lift $ addFailedAssertion sym
-              $ GenericSimError
+              $ AssertFailureSimError
               $ unwords ["Out-of-bounds argument access in printf:", show i]
   }
