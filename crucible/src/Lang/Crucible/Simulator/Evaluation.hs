@@ -158,18 +158,25 @@ indexVectorWithSymNat :: IsSymInterface sym
                       -> V.Vector a
                       -> SymNat sym
                       -> IO a
-indexVectorWithSymNat sym iteFn v si = do
-  let n = fromIntegral (V.length v)
-  Ex.assert (n > 0) $ do
+indexVectorWithSymNat sym iteFn v si =
+  Ex.assert (n > 0) $
   case asNat si of
     Just i | 0 <= i && i < n -> return (v V.! fromIntegral i)
-           | otherwise ->
-              addFailedAssertion sym $
-                 GenericSimError "indexVectorWithSymNat given bad value"
-    Nothing -> do
-      let predFn i = natEq sym si =<< natLit sym (fromInteger i)
-      let getElt i = return (v V.! fromInteger i)
-      muxIntegerRange predFn iteFn getElt 0 (toInteger (n-1))
+           | otherwise -> addFailedAssertion sym msg
+    Nothing ->
+      do let predFn i = natEq sym si =<< natLit sym (fromInteger i)
+         let getElt i = return (v V.! fromInteger i)
+         l_sym <- natLit sym 0
+         h_sym <- natLit sym (n - 1)
+         inRange <- join $ andPred sym <$> natLe sym l_sym si
+                                       <*> natLe sym si h_sym
+         assert sym inRange msg
+         muxIntegerRange predFn iteFn getElt 0 (toInteger (n - 1))
+  where
+  n   = fromIntegral (V.length v)
+  msg = AssertFailureSimError "indexVectorWithSymNat given bad value"
+
+
 
 -- | Update a vector at a given natural number index.
 updateVectorWithSymNat :: IsSymInterface sym
