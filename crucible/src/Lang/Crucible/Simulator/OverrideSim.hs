@@ -34,6 +34,7 @@ module Lang.Crucible.Simulator.OverrideSim
   , bindFnHandle
   , exitExecution
   , getOverrideArgs
+  , overrideError
     -- * Function calls
   , callCFG
   , callFnVal
@@ -85,6 +86,7 @@ import           Lang.Crucible.Analysis.Postdom
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.Panic(panic)
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.CallFns
@@ -231,11 +233,10 @@ readGlobal k =
   do globals <- readGlobals
      case lookupGlobal k globals of
        Just v  -> return v
-       Nothing ->
-         do sym <- getSymInterface
-            liftIO $ addFailedAssertion sym
-                   $ GenericSimError
-                   $ "Attempt to read undefined global " ++ show k
+       Nothing -> panic "OverrideSim.readGlobal"
+                          [ "Attempt to read undefined global."
+                          , "*** Global name: " ++ show k
+                          ]
 
 -- | Set the value of a particular global variable.
 writeGlobal ::
@@ -369,6 +370,15 @@ callCFG cfg args = do
   Sim $ StateContT $ \c s -> do
     let f = mkCallFrame cfg (postdomInfo cfg) args
     loopCrucible $ s & stateTree %~ callFn (returnToOverride c) (MF f)
+
+
+-- | Add a failed assertion.  This aborts execution along the current
+-- evaluation path, and adds a proof obligation ensuring that we can't get here
+-- in the first place.
+overrideError :: IsSymInterface sym => SimErrorReason -> OverrideSim p sym ext rtp ars res a
+overrideError err =
+  do sym <- getSymInterface
+     liftIO (addFailedAssertion sym err)
 
 --------------------------------------------------------------------------------
 -- FnBinding

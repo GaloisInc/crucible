@@ -86,6 +86,7 @@ import           Control.Lens hiding (Empty, (:>))
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.ST
+import           Control.Monad.Trans(lift)
 import           Control.Monad.Trans.State
 import           Data.Dynamic
 import           Data.List hiding (group)
@@ -125,6 +126,7 @@ import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.Types
+import           Lang.Crucible.Panic(panic)
 
 import GHC.Stack
 
@@ -162,6 +164,9 @@ llvmStatementExec stmt cst =
   let sym = stateSymInterface cst
    in stateSolverProof cst (runStateT (evalStmt sym stmt) cst)
 
+type EvalM p sym ext rtp blocks ret args a =
+  StateT (CrucibleState p sym ext rtp blocks ret args) IO a
+
 -- | Actual workhorse function for evaluating LLVM extension statements.
 --   The semantics are explicitly organized as a state transformer monad
 --   that modifes the global state of the simulator; this captures the
@@ -170,20 +175,31 @@ evalStmt :: forall p sym ext rtp blocks ret args wptr tp.
   (IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
   LLVMStmt wptr (RegEntry sym) tp ->
-  StateT (CrucibleState p sym ext rtp blocks ret args) IO (RegValue sym tp)
+  EvalM p sym ext rtp blocks ret args (RegValue sym tp)
 evalStmt sym = eval
  where
-  getMem :: GlobalVar Mem -> StateT (CrucibleState p sym ext rtp blocks ret args) IO (RegValue sym Mem)
+  getMem :: GlobalVar Mem ->
+            EvalM p sym ext rtp blocks ret args (RegValue sym Mem)
   getMem mvar =
     do gs <- use (stateTree.actFrame.gpGlobals)
        case lookupGlobal mvar gs of
          Just mem -> return mem
-         Nothing  -> fail ("Global heap value not initialized!: " ++ show mvar)
+         Nothing  ->
+           panic "MemModel.evalStmt.getMem"
+             [ "Global heap value not initialized."
+             , "*** Global heap variable: " ++ show mvar
+             ]
 
-  setMem :: GlobalVar Mem -> RegValue sym Mem -> StateT (CrucibleState p sym ext rtp blocks ret args) IO ()
+  setMem :: GlobalVar Mem ->
+            RegValue sym Mem ->
+            EvalM p sym ext rtp blocks ret args ()
   setMem mvar mem = stateTree.actFrame.gpGlobals %= insertGlobal mvar mem
 
-  eval :: LLVMStmt wptr (RegEntry sym) tp -> StateT (CrucibleState p sym ext rtp blocks ret args) IO (RegValue sym tp)
+  failedAssert :: String -> EvalM p sym ext rtp blocks ret args a
+  failedAssert = lift . addFailedAssertion sym . AssertFailureSimError
+
+  eval :: LLVMStmt wptr (RegEntry sym) tp ->
+          EvalM p sym ext rtp blocks ret args (RegValue sym tp)
   eval (LLVM_PushFrame mvar) =
      do mem <- getMem mvar
         let heap' = G.pushStackFrameMem (memImplHeap mem)
@@ -219,12 +235,13 @@ evalStmt sym = eval
      do mem <- getMem mvar
         mhandle <- liftIO $ doLookupHandle sym mem ptr
         case mhandle of
-           Nothing -> fail "LoadHandle: not a valid function pointer"
+           Nothing -> failedAssert "LoadHandle: not a valid function pointer"
            Just (SomeFnHandle h)
              | Just Refl <- testEquality handleTp expectedTp -> return (HandleFnVal h)
-             | otherwise ->
-                 fail $ unlines ["Expected function handle of type " ++ show expectedTp
-                                ,"but found handle of type " ++ show handleTp]
+             | otherwise -> failedAssert
+                 $ unlines ["Expected function handle of type " ++
+                                                              show expectedTp
+                           ,"but found handle of type " ++ show handleTp]
             where handleTp   = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
                   expectedTp = FunctionHandleRepr args ret
 
@@ -367,10 +384,14 @@ coerceAny sym tpr (AnyValue tpr' x)
   | Just Refl <- testEquality tpr tpr' = return x
   | otherwise =
       do loc <- getCurrentProgramLoc sym
-         fail $ unlines [unwords ["coerceAny: cannot coerce from", show tpr', "to", show tpr]
-                        , "in: " ++ show (plFunction loc)
-                        , "at: " ++ show (plSourceLoc loc)
-                        ]
+         addFailedAssertion sym
+           $ Unsupported -- or is this a GenericSimError?
+           $ unlines
+             [ unwords ["coerceAny: cannot coerce from", show tpr'
+                                                       , "to", show tpr]
+             , "in: " ++ show (plFunction loc)
+             , "at: " ++ show (plSourceLoc loc)
+             ]
 
 unpackMemValue
    :: (HasCallStack, IsSymInterface sym)
@@ -442,14 +463,18 @@ packMemValue sym (G.Type (G.Struct fls) _) (StructRepr ctx) xs = do
                   let RV val = xs Ctx.! idx
                   val' <- packMemValue sym (fl^.G.fieldVal) tpr val
                   return (fl, val')
-                _ -> fail "packMemValue: actual value has insufficent structure fields"
+                _ -> panic "MemModel.packMemValue"
+                      [ "Mismatch between LLVM and Crucible types"
+                      , "*** Filed out of bounds: " ++ show i
+                      ]
   return $ LLVMValStruct fls'
 
 packMemValue _ stTy crTy _ =
-  fail $ unlines [ "Type mismatch when storing value."
-                 , "Expected storable type: " ++ show stTy
-                 , "but got incompatible crucible type: " ++ show crTy
-                 ]
+  panic "MemModel.packMemValue"
+    [ "Type mismatch when storing value."
+    , "*** Expected storable type: " ++ show stTy
+    , "*** Given crucible type: " ++ show crTy
+    ]
 
 doResolveGlobal
   :: (IsSymInterface sym, HasPtrWidth wptr)
@@ -460,7 +485,10 @@ doResolveGlobal
 doResolveGlobal _sym mem symbol =
   case Map.lookup symbol (memImplGlobalMap mem) of
     Just (SomePointer ptr) | PtrWidth <- ptrWidth ptr -> return ptr
-    _ -> fail $ unwords ["Unable to resolve global symbol", show symbol]
+    _ -> panic "MemModel.doResolveGlobal"
+            [ "Unable to resolve global symbol."
+            , "*** Name: " ++ show symbol
+            ]
 
 ppMem :: IsExprBuilder sym => RegValue sym Mem -> Doc
 ppMem mem = G.ppMem (memImplHeap mem)
@@ -486,7 +514,7 @@ loadRaw sym mem ptr valType =
   do res <- loadRawWithCondition sym mem ptr valType
      case res of
        Right (p,r,v) -> v <$ assert sym p r
-       Left e        -> fail e
+       Left e        -> addFailedAssertion sym (AssertFailureSimError e)
 
 
 -- | Load an LLVM value from memory. This version of 'loadRaw'
@@ -526,8 +554,7 @@ doLoad sym mem ptr valType alignment = do
                  " at type " ++ show (G.ppType valType)
     v <- G.readMem sym PtrWidth ptr valType alignment (memImplHeap mem)
     case v of
-      Unassigned ->
-        fail errMsg
+      Unassigned -> addFailedAssertion sym (AssertFailureSimError errMsg)
       PE p' v' -> do
         assert sym p' (AssertFailureSimError errMsg)
         unpackMemValue sym v'
@@ -593,9 +620,11 @@ sextendBVTo :: (1 <= w, IsSymInterface sym)
 sextendBVTo sym w w' x
   | Just Refl <- testEquality w w' = return x
   | Just LeqProof <- testLeq (incNat w) w' = bvSext sym w' x
-  | otherwise = fail $ unwords ["cannot extend bitvector of width", show (natValue w)
-                               , "to", show (natValue w')
-                               ]
+  | otherwise =
+    addFailedAssertion sym
+        $ AssertFailureSimError
+        $ unwords ["cannot extend bitvector of width", show (natValue w)
+                                                     , "to", show (natValue w') ]
 
 -- Two memory regions are disjoint if any of the following are true:
 --   1) Their block pointers are different
@@ -794,7 +823,7 @@ doMemset sym _w mem dest val len = do
       -- FIXME? can we lift this restriction?
       -- Perhaps should add a MemSet constructor
       -- to MemWrites and deal with things that way...
-      fail "memset requires concrete length"
+      addFailedAssertion sym $ Unsupported "`memset` on symbolic length"
     Just sz -> do
       let tp   = G.arrayType (fromInteger sz) (G.bitvectorType 1)
       blk0 <- natLit sym 0
@@ -914,8 +943,10 @@ loadString sym mem = go id
                      p' <- doPtrAddOffset sym mem p =<< bvLit sym PtrWidth 1
                      go (f . (c':)) p' (fmap (\n -> n - 1) maxChars)
                  Nothing ->
-                   fail "Symbolic value encountered when loading a string"
-       _ -> fail "Invalid value encountered when loading a string"
+                   addFailedAssertion sym
+                      $ Unsupported "Symbolic value encountered when loading a string"
+       _ -> panic "MemModel.loadString"
+              [ "Invalid value encountered when loading a string" ]
 
 
 -- | Like 'loadString', except the pointer to load may be null.  If
@@ -931,6 +962,7 @@ loadMaybeString :: forall sym wptr
 loadMaybeString sym mem ptr n = do
   isnull <- ptrIsNull sym PtrWidth ptr
   case asConstantPred isnull of
-    Nothing    -> fail "Symbolic pointer encountered when loading a string"
+    Nothing    -> addFailedAssertion sym
+                    $ Unsupported "Symbolic pointer encountered when loading a string"
     Just True  -> return Nothing
     Just False -> Just <$> loadString sym mem ptr n
