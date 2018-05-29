@@ -7,7 +7,7 @@ module Main(main) where
 import Data.String(fromString)
 import qualified Data.Foldable as Fold
 import qualified Data.Map as Map
-import Control.Lens((^.),(^..))
+import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)
 import Control.Monad(unless)
 import Control.Exception(SomeException(..),displayException)
@@ -90,10 +90,7 @@ checkBC :: Options -> IO ()
 checkBC opts =
   do let file = optsBCFile opts
      say "Crux" ("Checking " ++ show file)
-     mbErr <- simulate file (checkFun "main")
-     case mbErr of
-      Nothing -> sayOK "Crux" "Valid."
-      Just e -> errHandler opts e
+     simulate opts (checkFun "main")
 
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::
@@ -139,13 +136,13 @@ setupMem ctx mtrans =
 
 
 simulate ::
-  FilePath ->
+  Options ->
   (forall scope arch.
       ArchOk arch => ModuleCFGMap arch -> OverM scope arch ()
   ) ->
-  IO (Maybe Error)
-simulate file k =
-  do llvm_mod   <- parseLLVM file
+  IO ()
+simulate opts k =
+  do llvm_mod   <- parseLLVM (optsBCFile opts)
      halloc     <- newHandleAllocator
      Some trans <- stToIO (translateModule halloc llvm_mod)
      let llvmCtxt = trans ^. transContext
@@ -169,29 +166,23 @@ simulate file k =
 
           _ <- popAssumptionFrame sym frm
 
-          case res of
-            FinishedExecution ctx' _ ->
-              do gs <- Fold.toList <$> getProofObligations sym
-                 proveGoals ctx' gs
-            AbortedResult _ctxt err ->
-              do gs <- Fold.toList <$> getProofObligations sym
-                 proveGoals _ctxt gs
-{-
-              do let fs = err ^.. arFrames
-                 putStrLn "Call stack:"
-                 print (ppExceptionContext fs)
-                 throwError (SimAbort err)
--}
+          ctx' <- case res of
+                    FinishedExecution ctx' _ -> return ctx'
+                    AbortedResult ctx' _ -> return ctx'
 
+          gs <- getProofObligations sym
+          let goalNames = goalNumbers (length gs)
 
-ppAR :: AbortedResult sym ext -> [String]
-ppAR x = case x of
-           AbortedExec {}      -> ["AbortedExec"]
-           AbortedExit {}      -> ["AbortedExit"]
-           AbortedBranch _ l r -> [ "AbortedBranch" ] ++
-                                  [ "  " ++ li | li <- ppAR l ] ++
-                                  [ "  ---" ] ++
-                                  [ "  " ++ li | li <- ppAR r ]
+          mapM_ (proveGoal opts ctx') (zip goalNames (Fold.toList gs))
+
+goalNumbers :: Int -> [String]
+goalNumbers n = take n (map name [ 1 .. ])
+  where
+  digitNumber = ceiling (logBase (10::Double) (fromIntegral n))
+
+  name i      = let x = show (i::Int)
+                in replicate (digitNumber - length x) '0' ++ x
+
 
 
 checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM scope arch ()
