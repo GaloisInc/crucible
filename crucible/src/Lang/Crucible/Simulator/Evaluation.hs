@@ -162,7 +162,7 @@ indexVectorWithSymNat sym iteFn v si = do
   let n = fromIntegral (V.length v)
   Ex.assert (n > 0) $ do
   case asNat si of
-    Just i | 0 <= i && i <= n -> return (v V.! fromIntegral i)
+    Just i | 0 <= i && i < n -> return (v V.! fromIntegral i)
            | otherwise ->
               addFailedAssertion sym $
                  GenericSimError "indexVectorWithSymNat given bad value"
