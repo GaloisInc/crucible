@@ -28,6 +28,8 @@ executable crucible-c
     Clang,
     Log,
     Options,
+    ProgressBar,
+    Report,
     ChattySolver
 
 

@@ -73,7 +73,7 @@ data AssumptionReason =
   | AssumingNoError SimError
     -- ^ An assumption justified by a proof of the impossibility of
     -- a certain simulator error.
-    deriving Show
+    deriving (Show,Eq)
 
 assumptionLoc :: AssumptionReason -> ProgramLoc
 assumptionLoc r =

@@ -42,14 +42,14 @@ data SimErrorReason
    | Unsupported !String -- ^ We can't do that (yet?)
    | ReadBeforeWriteSimError !String -- FIXME? include relevant data instead of a string?
    | AssertFailureSimError !String
- deriving (Typeable)
+ deriving (Typeable,Eq)
 
 data SimError
    = SimError
    { simErrorLoc :: !ProgramLoc
    , simErrorReason :: !SimErrorReason
    }
- deriving (Typeable)
+ deriving (Typeable,Eq)
 
 simErrorReasonMsg :: SimErrorReason -> String
 simErrorReasonMsg (GenericSimError msg) = msg
