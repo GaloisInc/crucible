@@ -99,7 +99,7 @@ checkedRegEntry tp (Some r) =
     Just Refl -> return r
     Nothing -> fail $ unwords ["Unexpected type for protocol value. Expected", show tp, "but got", show (getTypeRepr r)]
 
-fromProtoValue :: IsSymInterface sym => Simulator p sym -> P.Value -> IO (Some (RegEntry sym))
+fromProtoValue :: IsSymExprBuilder sym => Simulator p sym -> P.Value -> IO (Some (RegEntry sym))
 fromProtoValue sim v = do
   sym <- getInterface sim
   case v^.P.value_code of
@@ -124,14 +124,14 @@ fromProtoValue sim v = do
         _ -> error "Width is too large"
     P.StringValue -> do
       let s = v^.P.value_string_lit
-      return $ Some $ RegEntry StringRepr s
+      Some . RegEntry StringRepr <$> stringLit sym s
     P.UnitValue -> do
       return $ Some $ RegEntry UnitRepr ()
     P.FnHandleValue -> do
       SomeHandle h <- getHandleBinding sim (v^.P.value_index)
       return $ Some $ RegEntry (handleType h) (HandleFnVal h)
 
-toProtoValue :: IsSymInterface sym => Simulator p sym -> RegEntry sym tp -> IO P.Value
+toProtoValue :: IsSymExprBuilder sym => Simulator p sym -> RegEntry sym tp -> IO P.Value
 toProtoValue sim e@(RegEntry tp v) =
   case tp of
     BoolRepr
@@ -156,9 +156,10 @@ toProtoValue sim e@(RegEntry tp v) =
       return $ mempty & P.value_code  .~ P.BitvectorValue
                       & P.value_width .~ fromInteger wv
                       & P.value_data  .~ toByteString (encodeSigned r)
-    StringRepr -> do
-      return $ mempty & P.value_code .~ P.StringValue
-                      & P.value_string_lit .~ v
+    StringRepr
+      | Just txt <- asString v -> do
+          return $ mempty & P.value_code .~ P.StringValue
+                          & P.value_string_lit .~ txt
     UnitRepr -> do
       return $ mempty & P.value_code .~ P.UnitValue
     FunctionHandleRepr _ _

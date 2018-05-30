@@ -6,7 +6,6 @@ packages:
   - crucible-blt/
   - crucible-saw/
   - crucible-server/
-  - galois-matlab/
   - dependencies/abcBridge/
   - dependencies/aig/
   - dependencies/blt/
@@ -22,5 +21,6 @@ extra-deps:
   - GraphSCC-1.0.4
   - monadLib-3.7.3
   - simple-smt-0.7.1
+  - sbv-7.7
 
 resolver: lts-10.6

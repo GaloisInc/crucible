@@ -42,6 +42,7 @@ module Lang.Crucible.BaseTypes
   , BaseIntegerType
   , BaseNatType
   , BaseRealType
+  , BaseStringType
   , BaseBVType
   , BaseComplexType
   , BaseStructType
@@ -51,6 +52,7 @@ module Lang.Crucible.BaseTypes
   , arrayTypeIndices
   , arrayTypeResult
   , module Data.Parameterized.NatRepr
+
     -- * KnownRepr
   , KnownRepr(..)  -- Re-export from 'Data.Parameterized.Classes'
   , KnownCtx
@@ -87,6 +89,8 @@ data BaseType
    | BaseRealType
      -- | @BaseBVType n@ denotes a bitvector with @n@-bits.
    | BaseBVType GHC.TypeLits.Nat
+     -- | @BaseStringType@ denotes a sequence of Unicode codepoints
+   | BaseStringType
      -- | @BaseComplexType@ denotes a complex number with real components.
    | BaseComplexType
      -- | @BaseStructType tps@ denotes a sequence of values with types @tps@.
@@ -104,6 +108,7 @@ type BaseIntegerType = 'BaseIntegerType -- ^ @:: 'BaseType'@.
 type BaseNatType     = 'BaseNatType     -- ^ @:: 'BaseType'@.
 type BaseRealType    = 'BaseRealType    -- ^ @:: 'BaseType'@.
 type BaseBVType      = 'BaseBVType      -- ^ @:: 'GHC.TypeLits.Nat' -> 'BaseType'@.
+type BaseStringType  = 'BaseStringType  -- ^ @:: 'BaseType'@.
 type BaseComplexType = 'BaseComplexType -- ^ @:: 'BaseType'@.
 type BaseStructType  = 'BaseStructType  -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseType'@.
 type BaseArrayType   = 'BaseArrayType   -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseType' -> 'BaseType'@.
@@ -119,6 +124,7 @@ data BaseTypeRepr (bt::BaseType) :: * where
    BaseNatRepr  :: BaseTypeRepr BaseNatType
    BaseIntegerRepr :: BaseTypeRepr BaseIntegerType
    BaseRealRepr    :: BaseTypeRepr BaseRealType
+   BaseStringRepr  :: BaseTypeRepr BaseStringType
    BaseComplexRepr :: BaseTypeRepr BaseComplexType
 
    -- The representation of a struct type.
@@ -146,6 +152,8 @@ instance KnownRepr BaseTypeRepr BaseNatType where
   knownRepr = BaseNatRepr
 instance KnownRepr BaseTypeRepr BaseRealType where
   knownRepr = BaseRealRepr
+instance KnownRepr BaseTypeRepr BaseStringType where
+  knownRepr = BaseStringRepr
 instance (1 <= w, KnownNat w) => KnownRepr BaseTypeRepr (BaseBVType w) where
   knownRepr = BaseBVRepr knownNat
 instance KnownRepr BaseTypeRepr BaseComplexType where

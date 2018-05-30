@@ -23,8 +23,8 @@ import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
+import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Solver.Partial
 
 newtype GlobalEntry (sym :: *) (tp :: CrucibleType) = GlobalEntry { globalEntryValue :: RegValue sym tp }
 data RefCellContents (sym :: *) (tp :: CrucibleType)

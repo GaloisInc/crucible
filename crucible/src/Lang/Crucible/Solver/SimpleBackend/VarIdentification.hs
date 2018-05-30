@@ -156,8 +156,10 @@ addFeaturesForVarType tp =
     BaseIntegerRepr  -> addFeatures useIntegerArithmetic
     BaseRealRepr     -> addFeatures useLinearArithmetic
     BaseComplexRepr  -> addFeatures useComplexArithmetic
+    BaseStringRepr   -> addFeatures useStrings
     BaseArrayRepr{}  -> addFeatures useSymbolicArrays
     BaseStructRepr{} -> addFeatures useStructs
+
 
 -- | Information about bound variables outside this context.
 data Scope
@@ -323,6 +325,7 @@ memoEltVars n recurse = do
 recordEltVars :: Scope -> Elt t tp -> VarRecorder s t ()
 recordEltVars _ SemiRingLiteral{} = addFeatures useLinearArithmetic
 recordEltVars _ BVElt{}  = addFeatures useBitvectors
+recordEltVars _ StringElt{} = addFeatures useStrings
 recordEltVars scope (NonceAppElt e0) = do
   memoEltVars (nonceEltId e0) $ do
     recurseNonceAppVars scope e0
@@ -380,6 +383,7 @@ addTheoryFeatures th =
     BitvectorTheory       -> addFeatures useBitvectors
     ArrayTheory           -> addFeatures useSymbolicArrays
     StructTheory          -> addFeatures useStructs
+    StringTheory          -> addFeatures useStrings
     QuantifierTheory -> return ()
     FnTheory         -> return ()
 

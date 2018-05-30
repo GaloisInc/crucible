@@ -143,7 +143,7 @@ import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Translation.Types
 
 import           Lang.Crucible.ProgramLoc
-import           Lang.Crucible.Solver.Interface( IsSymInterface )
+import           Lang.Crucible.Solver.BoolInterface( IsSymInterface )
 import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
 

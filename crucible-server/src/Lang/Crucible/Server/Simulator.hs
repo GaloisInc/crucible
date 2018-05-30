@@ -46,6 +46,7 @@ import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Nonce.Unsafe (indexValue)
 import           Data.Parameterized.Some
 
+import           Lang.Crucible.Config
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.FunctionName
 import           Lang.Crucible.ProgramLoc
@@ -55,6 +56,7 @@ import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Server.CallbackOutputHandle
 import           Lang.Crucible.Server.TypeConv
+import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Types
 import qualified Lang.Crucible.Proto as P
@@ -103,15 +105,15 @@ getInterface sim = (^.ctxSymInterface) <$> getSimContext sim
 -- | Create a new Simulator interface
 newSimulator :: IsSymInterface sym
              => sym
-             -> SimConfig p sym
-             -> p sym
+             -> [ConfigDesc]
+             -> p
              -> [Simulator p sym -> IO SomeHandle] -- ^ Predefined function handles to install
              -> Handle
                 -- ^ Handle for reading requests.
              -> Handle
                 -- ^ Handle for writing responses.
              -> IO (Simulator p sym)
-newSimulator sym cfg p hdls request_handle response_handle = do
+newSimulator sym opts p hdls request_handle response_handle = do
   let cb = OutputCallbacks { devCallback = \s -> do
                                sendPrintValue response_handle (decodeUtf8 s)
                            , devClose = return ()
@@ -124,9 +126,12 @@ newSimulator sym cfg p hdls request_handle response_handle = do
   let extImpl :: ExtensionImpl p sym ()
       extImpl = ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x -> case x of)
 
+  -- add relevant configuration options
+  extendConfig opts (getConfiguration sym)
+
   -- Create new context
   ctxRef <- newIORef $
-    initSimContext sym MapF.empty cfg halloc h bindings extImpl p
+    initSimContext sym MapF.empty halloc h bindings extImpl p
 
   hc <- newIORef Map.empty
   ph <- HIO.new

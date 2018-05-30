@@ -11,7 +11,6 @@
 
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -29,9 +28,7 @@ import           Control.Monad.State.Strict
 import           Data.Foldable (toList)
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
-import           Data.Typeable
 import           System.IO
-import           Text.PrettyPrint.ANSI.Leijen ( text )
 
 import           Data.Parameterized.Some
 import qualified Data.Parameterized.Context as Ctx
@@ -42,6 +39,7 @@ import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Solver.Adapter
+import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend
@@ -52,7 +50,6 @@ import           Lang.Crucible.Solver.SimpleBackend.CVC4 ( cvc4Adapter )
 import qualified Lang.Crucible.Solver.SimpleBackend.SMTLib2 as SMT2
 import qualified Lang.Crucible.Solver.SimpleBackend.Yices as Yices
 import           Lang.Crucible.Solver.SimpleBackend.Z3 ( z3Adapter )
-import           Lang.Crucible.Solver.SimpleBuilder
 import           Lang.Crucible.Solver.Symbol
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MonadVerbosity
@@ -63,7 +60,7 @@ import           Lang.Crucible.Server.Requests
 import           Lang.Crucible.Server.TypeConv
 import           Lang.Crucible.Server.ValueConv
 
-crucibleServerAdapters :: Typeable st => [SolverAdapter st]
+crucibleServerAdapters :: [SolverAdapter st]
 crucibleServerAdapters =
   [ abcAdapter
   , genericSatAdapter
@@ -73,16 +70,8 @@ crucibleServerAdapters =
   , z3Adapter
   ]
 
-simpleServerOptions :: forall p t st
-                    .  Typeable st
-                    => [ConfigDesc (SimConfigMonad p (SimpleBuilder t st))]
-simpleServerOptions =
-  let adapters :: [SolverAdapter st]
-      adapters = crucibleServerAdapters in
-  [ optListShow defaultSolverAdapter adapters
-    (text "Indicates which solver to use for check-sat queries")
-
-  ] ++ concatMap solver_adapter_config_options adapters
+simpleServerOptions :: [ConfigDesc]
+simpleServerOptions = concatMap solver_adapter_config_options crucibleServerAdapters
 
 simpleServerOverrides :: [Simulator p (SimpleBackend n) -> IO SomeHandle]
 simpleServerOverrides =
@@ -115,7 +104,7 @@ checkSatWithAbcOverride = do
     let p = regValue $ args^._1
     sym <- getSymInterface
     logLn <- getLogFunction
-    cfg <- simConfig <$> getContext
+    let cfg = getConfiguration sym
     r <- liftIO $ ABC.checkSat cfg logLn p
     return $ backendPred sym (isSat r)
 
@@ -130,8 +119,7 @@ checkSatWithYicesOverride = do
     let p = regValue $ args^._1
     sym <- getSymInterface
     logLn <- getLogFunction
-    cfg <- simConfig <$> getContext
-    r <- liftIO $ Yices.runYicesInOverride sym cfg logLn p (return . isSat)
+    r <- liftIO $ Yices.runYicesInOverride sym logLn p (return . isSat)
     return $ backendPred sym r
 
 ------------------------------------------------------------------------
@@ -149,8 +137,12 @@ writeSMTLib2Override = do
     let file_nm = regValue $ args^._1
         p       = regValue $ args^._2
     sym <- getSymInterface
-    liftIO $ withFile (Text.unpack file_nm) WriteMode $ \h ->
-      SMT2.writeDefaultSMT2 () "SMTLIB2" defaultWriteSMTLIB2Features sym h p
+    case asString file_nm of
+      Just path -> do
+        liftIO $ withFile (Text.unpack path) WriteMode $ \h ->
+          SMT2.writeDefaultSMT2 () "SMTLIB2" defaultWriteSMTLIB2Features sym h p
+      Nothing -> do
+        fail "Expected concrete file name in write_SMTLIB2 override"
 
 -----------------------------------------------------------------------------------------
 -- WriteYicesHandle request
@@ -162,9 +154,12 @@ writeYicesOverride = do
     let file_nm = regValue $ args^._1
         p       = regValue $ args^._2
     ctx <- getContext
-    let sym = ctx^.ctxSymInterface
-    let cfg = simConfig ctx
-    liftIO $ Yices.writeYicesFile sym cfg (Text.unpack file_nm) p
+    case asString file_nm of
+      Just path -> do
+        let sym = ctx^.ctxSymInterface
+        liftIO $ Yices.writeYicesFile sym (Text.unpack path) p
+      Nothing -> do
+        fail "Expected concrete file name in write_yices override"
 
 ------------------------------------------------------------------------
 -- SimpleBackend ExportModel request

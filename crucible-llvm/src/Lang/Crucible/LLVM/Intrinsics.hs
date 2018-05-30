@@ -68,6 +68,7 @@ import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Solver.Interface
 
 import           Lang.Crucible.LLVM.DataLayout

@@ -10,6 +10,7 @@
 -- This module provides an interface for running Boolector and parsing
 -- the results back.
 ------------------------------------------------------------------------
+{-# LANGUAGE OverloadedStrings #-}
 module Lang.Crucible.Solver.SimpleBackend.Boolector
   ( Boolector
   , boolectorPath
@@ -29,9 +30,13 @@ import           System.Exit
 import           System.IO
 import qualified System.IO.Streams as Streams
 import           System.Process
+import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
+import           Lang.Crucible.BaseTypes
 import           Lang.Crucible.Config
 import           Lang.Crucible.Solver.Adapter
+import           Lang.Crucible.Solver.Concrete
+import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Solver.ProcessUtils
 import           Lang.Crucible.Solver.SatResult
 import           Lang.Crucible.Solver.SimpleBackend.GroundEval
@@ -40,19 +45,21 @@ import qualified Lang.Crucible.Solver.SimpleBackend.SMTLib2 as SMT2
 import           Lang.Crucible.Solver.SimpleBackend.SMTWriter
   (smtExprGroundEvalFn, renderTerm, SMTEvalFunctions(..))
 import           Lang.Crucible.Solver.SimpleBuilder
-import           Lang.Crucible.Utils.MonadVerbosity
 import           Lang.Crucible.Utils.Streams
 
 data Boolector = Boolector
 
 -- | Path to boolector
-boolectorPath :: ConfigOption FilePath
-boolectorPath = configOption "boolector_path"
+boolectorPath :: ConfigOption BaseStringType
+boolectorPath = configOption knownRepr "boolector_path"
 
-boolectorOptions :: MonadVerbosity m => [ConfigDesc m]
+boolectorOptions :: [ConfigDesc]
 boolectorOptions =
-  [ mkOpt boolectorPath (Just "boolector") executablePathOptSty
-    "Path to boolector executable"
+  [ mkOpt
+      boolectorPath
+      executablePathOptSty
+      (Just (PP.text "Path to boolector executable"))
+      (Just (ConcreteString "boolector"))
   ]
 
 boolectorAdapter :: SolverAdapter st
@@ -60,8 +67,8 @@ boolectorAdapter =
   SolverAdapter
   { solver_adapter_name = "boolector"
   , solver_adapter_config_options = boolectorOptions
-  , solver_adapter_check_sat = \sym cfg logLn p cont -> do
-      res <- runBoolectorInOverride sym cfg logLn p
+  , solver_adapter_check_sat = \sym logLn p cont -> do
+      res <- runBoolectorInOverride sym logLn p
       cont (fmap (\x -> (x,Nothing)) res)
   , solver_adapter_write_smt2 =
       SMT2.writeDefaultSMT2 () "Boolector" defaultWriteSMTLIB2Features
@@ -70,15 +77,13 @@ boolectorAdapter =
 instance SMT2.SMTLib2Tweaks Boolector where
   smtlib2tweaks = Boolector
 
-runBoolectorInOverride :: Monad m
-                       => SimpleBuilder t st
-                       -> Config m
+runBoolectorInOverride :: SimpleBuilder t st
                        -> (Int -> String -> IO ())
                        -> BoolElt t
                        -> IO (SatResult (GroundEvalFn t))
-runBoolectorInOverride sym cfg logLn p  = do
+runBoolectorInOverride sym logLn p  = do
   -- Get boolector path.
-  path <- findSolverPath =<< getConfigValue boolectorPath cfg
+  path <- findSolverPath boolectorPath (getConfiguration sym)
   withProcessHandles path ["-m"] Nothing $ \(in_h, out_h, err_h, ph) -> do
       -- Log stderr to output.
       err_stream <- Streams.handleToInputStream err_h

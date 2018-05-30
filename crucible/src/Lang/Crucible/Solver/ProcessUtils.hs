@@ -15,23 +15,32 @@ Common utilities for running solvers and getting back results.
 {-# LANGUAGE ScopedTypeVariables #-}
 module Lang.Crucible.Solver.ProcessUtils
   ( withProcessHandles
+  , resolveSolverPath
   , findSolverPath
   ) where
 
 import           Control.Exception
 import qualified Data.Map as Map
+import qualified Data.Text as T
 import           System.IO
 import           System.Process
 
+import           Lang.Crucible.BaseTypes
+import           Lang.Crucible.Config
 import qualified Lang.Crucible.Simulator.Utils.Environment as Env
 
 -- | Utility function that runs a solver specified by the given
 -- config setting within a context.  Errors can then be attributed
 -- to the solver.
-findSolverPath :: FilePath
+resolveSolverPath :: FilePath
                -> IO FilePath
-findSolverPath path = do
+resolveSolverPath path = do
   Env.findExecutable =<< Env.expandEnvironmentPath Map.empty path
+
+findSolverPath :: ConfigOption BaseStringType -> Config -> IO FilePath
+findSolverPath o cfg =
+  do v <- getOpt =<< getOptionSetting o cfg
+     resolveSolverPath (T.unpack v)
 
 -- | This runs a given external binary, providing the process handle and handles to
 -- input and output to the action.  It takes care to terminate the process if any

@@ -1,0 +1,57 @@
+Name:          crucible-c
+Version:       0.3.2
+Author:        Galois Inc.
+Maintainer:    iavor.diatchki@gmail.com
+Copyright:     (c) Galois, Inc 2014-2017
+License:       BSD3
+License-file:  LICENSE
+Build-type:    Simple
+Cabal-version: >= 1.10
+Category:      Language
+Synopsis:      A verification tool for C programs.
+Description:
+  This tool (and corresponding C library) are inteded for writing Crucible
+  specifications by using C as the specificaiton language.
+
+
+executable crucible-c
+
+  hs-source-dirs: src
+  main-is: Main.hs
+
+  other-modules:
+    Types,
+    Error,
+    Goal,
+    Overrides,
+    Model,
+    Clang,
+    Log,
+    Options
+
+
+  build-depends:
+    base >= 4.8 && < 4.12,
+    containers,
+    lens,
+    mtl,
+    bytestring,
+    crucible,
+    crucible-llvm,
+    llvm-pretty,
+    llvm-pretty-bc-parser,
+    parameterized-utils,
+    filepath,
+    process,
+    directory,
+    template-haskell,
+    text,
+    ansi-terminal
+
+
+  ghc-options: -Wall
+  ghc-prof-options: -O2 -fprof-auto-top
+
+  default-language: Haskell2010
+
+
