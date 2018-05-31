@@ -153,12 +153,13 @@ abortBranchForType s iTypes p =
     IntrinsicRepr nm ctx ->
        case MapF.lookup nm iTypes of
          Just IntrinsicMuxFn -> abortBranchIntrinsic s iTypes nm ctx
-         Nothing -> \_ ->
+         Nothing ->
            panic "RegMap.abortBranchForType"
               [ "Unknown intrinsic type:"
               , "*** Name: " ++ show nm
               ]
-    AnyRepr -> \(AnyValue tpr x) -> AnyValue tpr <$> abortBranchForType s iTypes tpr x
+    AnyRepr -> \(AnyValue tpr x) ->
+      AnyValue tpr <$> abortBranchForType s iTypes tpr x
 
     -- All remaining types do no abort branch bookkeeping
     _ -> return
