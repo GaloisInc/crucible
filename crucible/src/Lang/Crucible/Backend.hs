@@ -42,8 +42,10 @@ module Lang.Crucible.Backend
 
     -- ** Aborting execution
   , AbortExecReason(..)
-  , abortExecBeacuse
   , ppAbortExecReason
+  , AbortIO
+  , runAbortIO
+  , abortExecBeacuse
 
     -- * Utilities
   , addAssertionM
@@ -53,7 +55,8 @@ module Lang.Crucible.Backend
   ) where
 
 import           Data.Sequence (Seq)
-import           Control.Exception(Exception(..), throwIO)
+import           Control.Exception(Exception(..), throwIO, catch)
+import           Control.Monad.IO.Class
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.Interface
@@ -161,7 +164,7 @@ class IsBoolSolver sym where
   --   this decides what the next course of action should be for the branch.
   evalBranch :: sym
              -> Pred sym -- Predicate to branch on.
-             -> IO BranchResult
+             -> AbortIO BranchResult
 
   -- | Push a new assumption frame onto the stack.  Assumptions and assertions
   --   made will now be associated with this frame on the stack until a new
@@ -180,10 +183,10 @@ class IsBoolSolver sym where
   -- | Add an assumption to the current state.  Like assertions, assumptions
   --   add logical facts to the current path condition.  However, assumptions
   --   do not produce proof obligations the way assertions do.
-  addAssumption :: sym -> Assumption sym -> IO ()
+  addAssumption :: sym -> Assumption sym -> AbortIO ()
 
   -- | Add a collection of assumptions to the current state.
-  addAssumptions :: sym -> Seq (Assumption sym) -> IO ()
+  addAssumptions :: sym -> Seq (Assumption sym) -> AbortIO ()
 
   -- | Get the current path condition as a predicate.  This consists of the conjunction
   --   of all the assumptions currently in scope.
@@ -212,18 +215,39 @@ class IsBoolSolver sym where
   restoreAssumptionState :: sym -> AssumptionState sym -> IO ()
 
 
+newtype AbortIO a = AIO (IO a)
+
+instance Functor AbortIO where
+  fmap f (AIO a) = AIO (fmap f a)
+
+instance Applicative AbortIO where
+  pure a          = AIO (pure a)
+  AIO f <*> AIO x = AIO (f <*> x)
+
+instance Monad AbortIO where
+  AIO m >>= k = AIO $ do x <- m
+                         let AIO m1 = k x
+                         m1
+-- | Throw an exception, thus aborting the current execution path.
+abortExecBeacuse :: AbortExecReason -> AbortIO a
+abortExecBeacuse err = AIO (throwIO err)
+
+instance MonadIO AbortIO where
+  liftIO = AIO
+
+runAbortIO :: AbortIO a -> (AbortExecReason -> IO a) -> IO a
+runAbortIO (AIO m) h = m `catch` h
+
+
+
 -- | Add a proof obligation for the given predicate, and then assume it.
 -- Note that assuming the prediate might cause the current execution
 -- path to abort, if we happened to assume something that is obviously false.
-addAssertion :: IsSymInterface sym => sym -> Assertion sym -> IO ()
+addAssertion :: IsSymInterface sym => sym -> Assertion sym -> AbortIO ()
 addAssertion sym a@(AS.LabeledPred p msg) =
-  do addProofObligation sym a
+  do liftIO $ addProofObligation sym a
      addAssumption sym (AS.LabeledPred p (AssumingNoError msg))
 
-
--- | Throw an exception, thus aborting the current execution path.
-abortExecBeacuse :: AbortExecReason -> IO a
-abortExecBeacuse err = throwIO err
 
 -- | Add a proof obligation using the curren program location,
 -- and assume the given fact.
@@ -232,20 +256,20 @@ assert ::
   sym ->
   Pred sym ->
   SimErrorReason ->
-  IO ()
+  AbortIO ()
 assert sym p msg =
-  do loc <- getCurrentProgramLoc sym
+  do loc <- liftIO $ getCurrentProgramLoc sym
      addAssertion sym (AS.LabeledPred p (SimError loc msg))
 
 -- | Add a proof obligation for False. This always aborts execution
 -- of the current path, because after asserting false, we get to assume it,
 -- and so there is no need to check anything after.  This is why the resulting
 -- IO computation can have the fully polymorphic type.
-addFailedAssertion :: IsSymInterface sym => sym -> SimErrorReason -> IO a
+addFailedAssertion :: IsSymInterface sym => sym -> SimErrorReason -> AbortIO a
 addFailedAssertion sym msg =
-  do loc <- getCurrentProgramLoc sym
+  do loc <- liftIO $ getCurrentProgramLoc sym
      let err = AS.LabeledPred (falsePred sym) (SimError loc msg)
-     addProofObligation sym err
+     liftIO $ addProofObligation sym err
      abortExecBeacuse $ AssumedFalse
                       $ AssumingNoError
                         SimError { simErrorLoc = loc, simErrorReason = msg }
@@ -256,9 +280,9 @@ addFailedAssertion sym msg =
 -- | Run the given action to compute a predicate, and assert it.
 addAssertionM :: IsSymInterface sym
               => sym
-              -> IO (Pred sym)
+              -> AbortIO (Pred sym)
               -> SimErrorReason
-              -> IO ()
+              -> AbortIO ()
 addAssertionM sym pf msg = do
   p <- pf
   assert sym p msg
@@ -268,9 +292,9 @@ assertIsInteger :: IsSymInterface sym
                 => sym
                 -> SymReal sym
                 -> SimErrorReason
-                -> IO ()
+                -> AbortIO ()
 assertIsInteger sym v msg = do
-  addAssertionM sym (isInteger sym v) msg
+  addAssertionM sym (liftIO (isInteger sym v)) msg
 
 -- | Given a partial expression, assert that it is defined
 --   and return the underlying value.
@@ -278,10 +302,10 @@ readPartExpr :: IsSymInterface sym
              => sym
              -> PartExpr (Pred sym) v
              -> SimErrorReason
-             -> IO v
+             -> AbortIO v
 readPartExpr sym Unassigned msg = do
   addFailedAssertion sym msg
 readPartExpr sym (PE p v) msg = do
-  loc <- getCurrentProgramLoc sym
+  loc <- liftIO $ getCurrentProgramLoc sym
   addAssertion sym (AS.LabeledPred p (SimError loc msg))
   return v

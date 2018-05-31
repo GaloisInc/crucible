@@ -291,7 +291,7 @@ symbolicBranch
     -> BlockID blocks args'
     -> RegMap sym args'
        -- ^ Registers for false state.
-    -> IO (IO (ExecResult p sym ext rtp))
+    -> AbortIO (IO (ExecResult p sym ext rtp))
 symbolicBranch s verb p x_id x_args y_id y_args = do
   let top_frame = s^.stateTree^.actFrame
 
@@ -302,15 +302,15 @@ symbolicBranch s verb p x_id x_args y_id y_args = do
   case cur_frame^.framePostdom of
     Nothing -> do
       when (verb >= 5) $ do
-        hPutStrLn (printHandle (s^.stateContext)) $ "Return-dominated symbolic branch"
-      return $ intra_branch s p (SomeLabel x_frame (Just x_id))
+        liftIO $ hPutStrLn (printHandle (s^.stateContext)) $ "Return-dominated symbolic branch"
+      intra_branch s p (SomeLabel x_frame (Just x_id))
                                 (SomeLabel y_frame (Just y_id))
                                 ReturnTarget
     Just (Some pd_id) ->
       let tgt = BlockTarget pd_id
-      in return $ intra_branch s p (SomeLabel x_frame (Just x_id))
-                                   (SomeLabel y_frame (Just y_id))
-                                   tgt
+      in intra_branch s p (SomeLabel x_frame (Just x_id))
+                          (SomeLabel y_frame (Just y_id))
+                          tgt
 
 data VariantCall sym blocks tp where
   VariantCall :: TypeRepr tp
@@ -338,7 +338,7 @@ stepReturnVariantCases
           . (IsSymInterface sym, IsSyntaxExtension ext)
          => CrucibleState p sym ext rtp blocks r ctx
          -> [(Pred sym, JumpCall sym blocks)]
-         -> IO (IO (ExecResult p sym ext rtp))
+         -> AbortIO (IO (ExecResult p sym ext rtp))
 stepReturnVariantCases s [] = do
   let top_frame = s^.stateTree^.actFrame
   let loc = frameProgramLoc (top_frame^.crucibleTopFrame)
@@ -353,7 +353,7 @@ stepReturnVariantCases s ((p,JumpCall x_id x_args):cs) = do
                      , resume = \s'' -> join $ stepReturnVariantCases s'' cs
                      })
                   Nothing
-  return $ intra_branch s p (SomeLabel x_frame (Just x_id)) y_frame ReturnTarget
+  intra_branch s p (SomeLabel x_frame (Just x_id)) y_frame ReturnTarget
 
 stepVariantCases
          :: forall p sym ext rtp blocks r ctx x
@@ -361,7 +361,7 @@ stepVariantCases
          => CrucibleState p sym ext rtp blocks r ctx
          -> BlockID blocks x
          -> [(Pred sym, JumpCall sym blocks)]
-         -> IO (IO (ExecResult p sym ext rtp))
+         -> AbortIO (IO (ExecResult p sym ext rtp))
 stepVariantCases s _pd_id [] = do
   let top_frame = s^.stateTree^.actFrame
   let loc = frameProgramLoc (top_frame^.crucibleTopFrame)
@@ -376,7 +376,7 @@ stepVariantCases s pd_id ((p,JumpCall x_id x_args):cs) = do
                 }
   let y_frame' = SomeLabel (PausedFrame y_frame) Nothing
   let tgt = BlockTarget pd_id
-  return $ intra_branch s p (SomeLabel x_frame (Just x_id)) y_frame' tgt
+  intra_branch s p (SomeLabel x_frame (Just x_id)) y_frame' tgt
 
 returnAndMerge :: forall p sym ext rtp blocks r args
                .  IsSymInterface sym
@@ -397,7 +397,7 @@ stepTerm :: forall p sym ext rtp blocks r ctx
          => CrucibleState p sym ext rtp blocks r ctx
          -> Int  -- ^ Verbosity
          -> TermStmt blocks r ctx
-         -> IO (IO (ExecResult p sym ext rtp))
+         -> AbortIO (IO (ExecResult p sym ext rtp))
 stepTerm s _ (Jump tgt) = do
   return $! jump s tgt
 stepTerm s verb (Br c x y)
@@ -501,6 +501,7 @@ evalArgs s args = evalArgs' (s^.stateCrucibleFrame.frameRegs) args
 -- and runs it to completion.
 --
 -- It catches exceptions if a step throws an exception.
+-- INVARIANT:  This does not throw `AbortExecReason`
 loopCrucible :: IsSyntaxExtension ext
              => CrucibleState p sym ext rtp blocks r ctx
              -> IO (ExecResult p sym ext rtp)
@@ -573,7 +574,7 @@ readRef sym iTypes tpr rs globs =
 loopCrucible' :: (IsSymInterface sym, IsSyntaxExtension ext)
               => IORef (SomeState p sym ext rtp) -- ^ A reference to the current state value.
               -> Int -- ^ Current verbosity
-              -> IO (IO (ExecResult p sym ext rtp))
+              -> AbortIO (IO (ExecResult p sym ext rtp))
 loopCrucible' s_ref verb = do
   SomeState s <- readIORef s_ref
   let ctx = s^.stateContext

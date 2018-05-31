@@ -36,6 +36,7 @@ module Lang.Crucible.Simulator.RegValue
   , RolledType(..)
 
     -- * Value mux functions
+  , pureMux
   , ValMuxFn
   , eqMergeFn
   , mergePartExpr
@@ -49,6 +50,7 @@ module Lang.Crucible.Simulator.RegValue
 
 import           Control.Monad
 import           Control.Monad.Trans.Class
+import           Control.Monad.IO.Class(liftIO)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Proxy
@@ -72,7 +74,7 @@ import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MuxTree
 import           Lang.Crucible.Backend
 
-type MuxFn p v = p -> v -> v -> IO v
+type MuxFn p v = p -> v -> v -> AbortIO v
 
 -- | Maps register types to the associated value.
 type family RegValue (sym :: *) (tp :: CrucibleType) :: * where
@@ -161,29 +163,36 @@ instance CanMux sym UnitType where
 ------------------------------------------------------------------------
 -- RegValue instance for base types
 
+pureMux :: (p -> a -> a -> IO a) -> MuxFn p a
+pureMux f p a b = liftIO (f p a b)
+
+simpleMux :: (sym -> p -> a -> a -> IO a) -> sym -> x -> MuxFn p a
+simpleMux f s = const $ pureMux (f s)
+
+
 instance IsExprBuilder sym => CanMux sym BoolType where
   {-# INLINE muxReg #-}
-  muxReg s = const $ itePred s
+  muxReg = simpleMux itePred
 
 instance IsExprBuilder sym => CanMux sym NatType where
   {-# INLINE muxReg #-}
-  muxReg s = \_ -> natIte s
+  muxReg = simpleMux natIte
 
 instance IsExprBuilder sym => CanMux sym IntegerType where
   {-# INLINE muxReg #-}
-  muxReg s = \_ -> intIte s
+  muxReg = simpleMux intIte
 
 instance IsExprBuilder sym => CanMux sym RealValType where
   {-# INLINE muxReg #-}
-  muxReg s = \_ -> realIte s
+  muxReg = simpleMux realIte
 
 instance IsExprBuilder sym => CanMux sym ComplexRealType where
   {-# INLINE muxReg #-}
-  muxReg s = \_ -> cplxIte s
+  muxReg = simpleMux cplxIte
 
 instance IsExprBuilder sym => CanMux sym StringType where
   {-# INLINE muxReg #-}
-  muxReg s = \_ -> stringIte s
+  muxReg = simpleMux stringIte
 
 ------------------------------------------------------------------------
 -- RegValue Vector instance
@@ -207,7 +216,7 @@ instance (IsSymInterface sym, CanMux sym tp) => CanMux sym (VectorType tp) where
 instance (IsExprBuilder sym, KnownNat w, KnownRepr BaseTypeRepr tp)
   => CanMux sym (WordMapType w tp) where
   {-# INLINE muxReg #-}
-  muxReg s _ p = muxWordMap s knownNat knownRepr p
+  muxReg s = const $ pureMux $ muxWordMap s knownNat knownRepr
 
 ------------------------------------------------------------------------
 -- RegValue MatlabChar instance
@@ -221,11 +230,11 @@ instance IsSymInterface sym => CanMux sym CharType where
 
 mergePartExpr :: IsExprBuilder sym
               => sym
-              -> (Pred sym -> v -> v -> IO v)
+              -> (Pred sym -> v -> v -> AbortIO v)
               -> Pred sym
               -> PartExpr (Pred sym) v
               -> PartExpr (Pred sym) v
-              -> IO (PartExpr (Pred sym) v)
+              -> AbortIO (PartExpr (Pred sym) v)
 mergePartExpr sym fn c = mergePartial sym (\c' a b -> lift (fn c' a b)) c
 
 instance (IsExprBuilder sym, CanMux sym tp) => CanMux sym (MaybeType tp) where
@@ -251,8 +260,7 @@ muxHandle _ c x y
 
 instance IsExprBuilder sym => CanMux sym (FunctionHandleType a r) where
   {-# INLINE muxReg #-}
-  muxReg s = \_ c x y -> do
-    muxHandle s c x y
+  muxReg s = const $ pureMux $ muxHandle s
 
 ------------------------------------------------------------------------
 -- RegValue IdentValueMap instance

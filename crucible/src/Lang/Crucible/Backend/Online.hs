@@ -46,6 +46,7 @@ import           Control.Exception
                     ( SomeException(..), throwIO, try )
 import           Control.Lens
 import           Control.Monad
+import           Control.Monad.IO.Class(liftIO)
 import           Data.Foldable
 import           Data.IORef
 import           Data.Parameterized.Nonce
@@ -211,7 +212,8 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver) 
     case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
       Just False -> abortExecBeacuse (AssumedFalse (a^.labeledPredMsg))
-      _ -> do conn <- getSolverConn sym
+      _ -> liftIO
+         $ do conn <- getSolverConn sym
               stk  <- getAssumptionStack sym
               -- Record assumption
               AS.assume a stk
@@ -219,6 +221,7 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver) 
               SMT.assume conn (a^.labeledPred)
 
   addAssumptions sym a =
+    liftIO $
     do -- Tell the solver of assertions
        conn <- getSolverConn sym
        mapM_ (SMT.assume conn . view labeledPred) (toList a)
@@ -236,10 +239,13 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver) 
       Just True  -> return $! NoBranch True
       Just False -> return $! NoBranch False
       Nothing ->
-        do proc     <- getSolverProcess sym
-           notP     <- notPred sym p
-           p_res    <- checkSatisfiable proc p
-           notp_res <- checkSatisfiable proc notP
+        do (p_res,notp_res) <-
+            liftIO $
+              do proc     <- getSolverProcess sym
+                 notP     <- notPred sym p
+                 p_res    <- checkSatisfiable proc p
+                 notp_res <- checkSatisfiable proc notP
+                 return (p_res,notp_res)
            case (p_res, notp_res) of
              (Unsat, Unsat) -> abortExecBeacuse InfeasibleBranch
              (Unsat, _ )    -> return $ NoBranch False

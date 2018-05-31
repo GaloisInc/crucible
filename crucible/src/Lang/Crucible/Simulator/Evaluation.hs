@@ -34,6 +34,7 @@ module Lang.Crucible.Simulator.Evaluation
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad
+import           Control.Monad.IO.Class(liftIO)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import           Data.Parameterized.Classes
@@ -93,13 +94,13 @@ complexRealAsChar v = do
 -- | Helper method for implementing 'indexSymbolic'
 indexSymbolic' :: IsSymInterface sym
                => sym
-               -> (Pred sym -> a -> a -> IO a)
+               -> (Pred sym -> a -> a -> AbortIO a)
                   -- ^ Function for merging valeus
-               -> ([Natural] -> IO a) -- ^ Concrete index function.
+               -> ([Natural] -> AbortIO a) -- ^ Concrete index function.
                -> [Natural] -- ^ Values of processed indices (in reverse order)
                -> [(Natural,Natural)] -- ^ Bounds on remaining indices.
                -> [SymNat sym] -- ^ Remaining indices.
-               -> IO a
+               -> AbortIO a
 indexSymbolic' _ _ f p [] _ = f (reverse p)
 indexSymbolic' _ _ f p _ [] = f (reverse p)
 indexSymbolic' sym iteFn f p ((l,h):nl) (si:il) = do
@@ -111,7 +112,7 @@ indexSymbolic' sym iteFn f p ((l,h):nl) (si:il) = do
         where msg = "Index exceeds matrix dimensions.\n" ++ show (l,i,h)
     Nothing ->
       do ensureInRange sym l h si "Index outside matrix dimensions."
-         let predFn i = natEq sym si =<< natLit sym (fromInteger i)
+         let predFn i = liftIO (natEq sym si =<< natLit sym (fromInteger i))
          muxIntegerRange predFn iteFn (subIndex . fromInteger)
                                       (toInteger l) (toInteger h)
 
@@ -123,11 +124,11 @@ ensureInRange ::
   Natural ->
   SymNat sym ->
   String ->
-  IO ()
+  AbortIO ()
 ensureInRange sym l h si msg =
-  do l_sym <- natLit sym l
-     h_sym <- natLit sym h
-     inRange <- join $ andPred sym <$> natLe sym l_sym si <*> natLe sym si h_sym
+  do l_sym <- liftIO $ natLit sym l
+     h_sym <- liftIO $ natLit sym h
+     inRange <- liftIO $ join $ andPred sym <$> natLe sym l_sym si <*> natLe sym si h_sym
      assert sym inRange (AssertFailureSimError msg)
 
 
@@ -139,20 +140,20 @@ ensureInRange sym l h si msg =
 -- It assumes that the indices are all in range.
 indexSymbolic :: IsSymInterface sym
               => sym
-              -> (Pred sym -> a  -> a -> IO a)
+              -> (Pred sym -> a  -> a -> AbortIO a)
                  -- ^ Function for combining results together.
-              -> ([Natural] -> IO a) -- ^ Concrete index function.
+              -> ([Natural] -> AbortIO a) -- ^ Concrete index function.
               -> [(Natural,Natural)] -- ^ High and low bounds at the indices.
               -> [SymNat sym]
-              -> IO a
+              -> AbortIO a
 indexSymbolic sym iteFn f = indexSymbolic' sym iteFn f []
 
 -- | Evaluate an indexTermterm to an index value.
 evalBase :: IsSymInterface sym =>
             sym
-         -> (forall utp . f utp -> IO (RegValue sym utp))
+         -> (forall utp . f utp -> AbortIO (RegValue sym utp))
          -> BaseTerm f vtp
-         -> IO (SymExpr sym vtp)
+         -> AbortIO (SymExpr sym vtp)
 evalBase _ evalSub (BaseTerm tp e) =
   case tp of
     BaseBoolRepr    -> evalSub e
@@ -168,18 +169,18 @@ evalBase _ evalSub (BaseTerm tp e) =
 -- | Get value stored in vector at a symbolic index.
 indexVectorWithSymNat :: IsSymInterface sym
                       => sym
-                      -> (Pred sym -> a -> a -> IO a)
+                      -> (Pred sym -> a -> a -> AbortIO a)
                          -- ^ Ite function
                       -> V.Vector a
                       -> SymNat sym
-                      -> IO a
+                      -> AbortIO a
 indexVectorWithSymNat sym iteFn v si =
   Ex.assert (n > 0) $
   case asNat si of
     Just i | 0 <= i && i < n -> return (v V.! fromIntegral i)
            | otherwise -> addFailedAssertion sym (AssertFailureSimError msg)
     Nothing ->
-      do let predFn i = natEq sym si =<< natLit sym (fromInteger i)
+      do let predFn i = liftIO $ natEq sym si =<< natLit sym (fromInteger i)
          let getElt i = return (v V.! fromInteger i)
          ensureInRange sym 0 (n - 1) si msg
          muxIntegerRange predFn iteFn getElt 0 (toInteger (n - 1))
@@ -193,7 +194,7 @@ indexVectorWithSymNat sym iteFn v si =
 updateVectorWithSymNat :: IsSymInterface sym
                        => sym
                           -- ^ Symbolic backend
-                       -> (Pred sym -> a -> a -> IO a)
+                       -> (Pred sym -> a -> a -> AbortIO a)
                           -- ^ Ite function
                        -> V.Vector a
                           -- ^ Vector to update
@@ -201,7 +202,7 @@ updateVectorWithSymNat :: IsSymInterface sym
                           -- ^ Index to update
                        -> a
                           -- ^ New value to assign
-                       -> IO (V.Vector a)
+                       -> AbortIO (V.Vector a)
 updateVectorWithSymNat sym iteFn v si new_val = do
   adjustVectorWithSymNat sym iteFn v si (\_ -> return new_val)
 
@@ -209,15 +210,15 @@ updateVectorWithSymNat sym iteFn v si new_val = do
 adjustVectorWithSymNat :: IsSymInterface sym
                        => sym
                           -- ^ Symbolic backend
-                       -> (Pred sym -> a -> a -> IO a)
+                       -> (Pred sym -> a -> a -> AbortIO a)
                           -- ^ Ite function
                        -> V.Vector a
                           -- ^ Vector to update
                        -> SymNat sym
                           -- ^ Index to update
-                       -> (a -> IO a)
+                       -> (a -> AbortIO a)
                           -- ^ Adjustment function to apply
-                       -> IO (V.Vector a)
+                       -> AbortIO (V.Vector a)
 adjustVectorWithSymNat sym iteFn v si adj =
   case asNat si of
     Just i
@@ -235,7 +236,7 @@ adjustVectorWithSymNat sym iteFn v si adj =
       where
       setFn j =
         do -- Compare si and j.
-            c <- natEq sym si =<< natLit sym (fromIntegral j)
+            c <- liftIO $ natEq sym si =<< natLit sym (fromIntegral j)
             -- Select old value or new value
             case asConstantPred c of
               Just True  -> adj (v V.! j)
@@ -250,8 +251,8 @@ adjustVectorWithSymNat sym iteFn v si adj =
   msg i = "Illegal index " ++ i ++ "given to updateVectorWithSymNat"
 
 type EvalAppFunc sym app = forall f.
-  (forall tp. f tp -> IO (RegValue sym tp)) ->
-  (forall tp. app f tp -> IO (RegValue sym tp))
+  (forall tp. f tp -> AbortIO (RegValue sym tp)) ->
+  (forall tp. app f tp -> AbortIO (RegValue sym tp))
 
 {-# INLINE evalApp #-}
 -- | Evaluate the application.
@@ -269,7 +270,7 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     BaseIsEq tp xe ye -> do
       x <- evalBase sym evalSub (BaseTerm tp xe)
       y <- evalBase sym evalSub (BaseTerm tp ye)
-      isEq sym x y
+      liftIO $ isEq sym x y
 
     BaseIte tp ce xe ye -> do
       c <- evalSub ce
@@ -279,7 +280,7 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
         Nothing -> do
           x <- evalBase sym evalSub (BaseTerm tp xe)
           y <- evalBase sym evalSub (BaseTerm tp ye)
-          baseTypeIte sym c x y
+          liftIO $ baseTypeIte sym c x y
 
     ----------------------------------------------------------------------
     ExtensionApp x -> evalExt evalSub x
@@ -311,65 +312,65 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     BoolLit b -> return $ backendPred sym b
     Not x -> do
       r <- evalSub x
-      notPred sym r
+      liftIO $ notPred sym r
     And x y -> do
       xv <- evalSub x
       yv <- evalSub y
-      andPred sym xv yv
+      liftIO $ andPred sym xv yv
     Or x y -> do
       xv <- evalSub x
       yv <- evalSub y
-      orPred sym xv yv
+      liftIO $ orPred sym xv yv
     BoolXor x y -> do
       xv <- evalSub x
       yv <- evalSub y
-      xorPred sym xv yv
+      liftIO $ xorPred sym xv yv
 
     ----------------------------------------------------------------------
     -- Nat
 
-    NatLit n -> natLit sym n
+    NatLit n -> liftIO $ natLit sym n
     NatLt xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      natLt sym x y
+      liftIO $ natLt sym x y
     NatLe xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      natLe sym x y
+      liftIO $ natLe sym x y
     NatAdd xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      natAdd sym x y
+      liftIO $ natAdd sym x y
     NatSub xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      natSub sym x y
+      liftIO $ natSub sym x y
     NatMul xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      natMul sym x y
+      liftIO $ natMul sym x y
 
     ----------------------------------------------------------------------
     -- Int
 
-    IntLit n -> intLit sym n
+    IntLit n -> liftIO $ intLit sym n
     IntLt xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      intLt sym x y
+      liftIO $ intLt sym x y
     IntAdd xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      intAdd sym x y
+      liftIO $ intAdd sym x y
     IntSub xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      intSub sym x y
+      liftIO $ intSub sym x y
     IntMul xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      intMul sym x y
+      liftIO $ intMul sym x y
 
     --------------------------------------------------------------------
     -- Maybe
@@ -422,7 +423,7 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       return $ backendPred sym (V.null v)
     VectorSize v_expr -> do
       v <- evalSub v_expr
-      natLit sym (fromIntegral (V.length v))
+      liftIO $ natLit sym (fromIntegral (V.length v))
     VectorGetEntry rtp v_expr i_expr -> do
       v <- evalSub v_expr
       i <- evalSub i_expr
@@ -441,10 +442,10 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     -- Symbolic Arrays
 
     SymArrayLookup _ a i -> do
-      join $ arrayLookup sym <$> evalSub a <*> traverseFC (evalBase sym evalSub) i
+      liftIO =<< arrayLookup sym <$> evalSub a <*> traverseFC (evalBase sym evalSub) i
 
     SymArrayUpdate  _ a i v -> do
-      join $ arrayUpdate sym
+      liftIO =<< arrayUpdate sym
         <$> evalSub a
         <*> traverseFC (evalBase sym evalSub) i
         <*> evalSub v
@@ -462,47 +463,47 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     ----------------------------------------------------------------------
     -- RealVal
 
-    RationalLit d -> realLit sym d
+    RationalLit d -> liftIO $ realLit sym d
     RealAdd xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      realAdd sym x y
+      liftIO $ realAdd sym x y
     RealSub xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      realSub sym x y
+      liftIO $ realSub sym x y
     RealMul xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      realMul sym x y
+      liftIO $ realMul sym x y
     RealDiv xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      realDiv sym x y
+      liftIO $ realDiv sym x y
     RealMod xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      realMod sym x y
+      liftIO $ realMod sym x y
     RealLt x_expr y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      realLt sym x y
+      liftIO $ realLt sym x y
     RealIsInteger x_expr -> do
       x <- evalSub x_expr
-      isInteger sym x
+      liftIO $ isInteger sym x
 
     ----------------------------------------------------------------------
     -- Conversions
 
     NatToInteger x_expr -> do
       x <- evalSub x_expr
-      natToInteger sym x
+      liftIO $ natToInteger sym x
     IntegerToReal x_expr -> do
       x <- evalSub x_expr
-      integerToReal sym x
+      liftIO $ integerToReal sym x
     RealToNat x_expr -> do
       x <- evalSub x_expr
-      realToNat sym x
+      liftIO $ realToNat sym x
 
     ----------------------------------------------------------------------
     -- ComplexReal
@@ -510,149 +511,149 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     Complex r_expr i_expr -> do
       r <- evalSub r_expr
       i <- evalSub i_expr
-      mkComplex sym (r :+ i)
-    RealPart c_expr -> getRealPart sym =<< evalSub c_expr
-    ImagPart c_expr -> getImagPart sym =<< evalSub c_expr
+      liftIO $ mkComplex sym (r :+ i)
+    RealPart c_expr -> liftIO . getRealPart sym =<< evalSub c_expr
+    ImagPart c_expr -> liftIO . getImagPart sym =<< evalSub c_expr
 
     --------------------------------------------------------------------
     -- BVs
 
     BVUndef w ->
-      freshConstant sym emptySymbol (BaseBVRepr w)
+      liftIO $ freshConstant sym emptySymbol (BaseBVRepr w)
 
-    BVLit w x -> bvLit sym w x
+    BVLit w x -> liftIO $ bvLit sym w x
 
     BVConcat _ _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      bvConcat sym x y
+      liftIO $ bvConcat sym x y
     -- FIXME: there are probably some worthwhile special cases to exploit in "BVSelect"
     BVSelect idx n _ xe -> do
       x <- evalSub xe
-      bvSelect sym idx n x
+      liftIO $ bvSelect sym idx n x
     BVTrunc w' _ xe -> do
       x <- evalSub xe
-      bvTrunc sym w' x
+      liftIO $ bvTrunc sym w' x
     BVZext w' _ xe -> do
       x <- evalSub xe
-      bvZext sym w' x
+      liftIO $ bvZext sym w' x
     BVSext w' _ xe -> do
       x <- evalSub xe
-      bvSext sym w' x
+      liftIO $ bvSext sym w' x
     BVNot _ xe ->
-      bvNotBits sym =<< evalSub xe
+      liftIO . bvNotBits sym =<< evalSub xe
     BVAnd _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      bvAndBits sym x y
+      liftIO $ bvAndBits sym x y
     BVOr _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      bvOrBits sym x y
+      liftIO $ bvOrBits sym x y
     BVXor _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      bvXorBits sym x y
+      liftIO $ bvXorBits sym x y
     BVAdd _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      bvAdd sym x y
+      liftIO $ bvAdd sym x y
     BVSub _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      bvSub sym x y
+      liftIO $ bvSub sym x y
     BVMul _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      bvMul sym x y
+      liftIO $ bvMul sym x y
     BVUdiv _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      bvUdiv sym x y
+      liftIO $ bvUdiv sym x y
     BVSdiv _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      bvSdiv sym x y
+      liftIO $ bvSdiv sym x y
     BVUrem _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      bvUrem sym x y
+      liftIO $ bvUrem sym x y
     BVSrem _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      bvSrem sym x y
+      liftIO $ bvSrem sym x y
 
     BvToNat _ xe -> do
-      bvToNat sym =<< evalSub xe
+      liftIO . bvToNat sym =<< evalSub xe
     BvToInteger _ xe -> do
-      bvToInteger sym =<< evalSub xe
+      liftIO . bvToInteger sym =<< evalSub xe
     SbvToInteger _ xe -> do
-      sbvToInteger sym =<< evalSub xe
+      liftIO . sbvToInteger sym =<< evalSub xe
     BVUlt _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      bvUlt sym x y
+      liftIO $ bvUlt sym x y
     BVSlt _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      bvSlt sym x y
+      liftIO $ bvSlt sym x y
     BoolToBV w xe -> do
       x <- evalSub xe
-      one <- bvLit sym w 1
-      zro <- bvLit sym w 0
-      bvIte sym x one zro
+      one <- liftIO $ bvLit sym w 1
+      zro <- liftIO $ bvLit sym w 0
+      liftIO $ bvIte sym x one zro
     BVNonzero _ xe -> do
       x <- evalSub xe
-      bvIsNonzero sym x
+      liftIO $ bvIsNonzero sym x
     BVShl _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      bvShl sym x y
+      liftIO $ bvShl sym x y
     BVLshr _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      bvLshr sym x y
+      liftIO $ bvLshr sym x y
     BVAshr _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      bvAshr sym x y
+      liftIO $ bvAshr sym x y
     BVCarry _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      fst <$> addUnsignedOF sym x y
+      fst <$> liftIO (addUnsignedOF sym x y)
     BVSCarry _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      fst <$> addSignedOF sym x y
+      fst <$> liftIO (addSignedOF sym x y)
     BVSBorrow _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      fst <$> subSignedOF sym x y
+      fst <$> liftIO (subSignedOF sym x y)
     BVUle _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      bvUle sym x y
+      liftIO $ bvUle sym x y
     BVSle _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      bvSle sym x y
+      liftIO $ bvSle sym x y
 
     --------------------------------------------------------------------
     -- Word Maps
 
-    EmptyWordMap w tp -> do
-      emptyWordMap sym w tp
+    EmptyWordMap w tp ->
+      liftIO $ emptyWordMap sym w tp
 
     InsertWordMap w tp ie ve me -> do
       i <- evalSub ie
       v <- evalSub ve
       m <- evalSub me
-      insertWordMap sym w tp i v m
+      liftIO $ insertWordMap sym w tp i v m
 
     LookupWordMap tp ie me -> do
       i <- evalSub ie
       m <- evalSub me
-      x <- lookupWordMap sym (bvWidth i) tp i m
+      x <- liftIO $ lookupWordMap sym (bvWidth i) tp i m
       let msg = "WordMap: read an undefined index" ++
                 case asUnsignedBV i of
                    Nothing  -> ""
@@ -664,7 +665,7 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       i <- evalSub ie
       m <- evalSub me
       d <- evalSub de
-      x <- lookupWordMap sym (bvWidth i) tp i m
+      x <- liftIO $ lookupWordMap sym (bvWidth i) tp i m
       case x of
         Unassigned -> return d
         PE p v -> do
@@ -718,20 +719,20 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     --------------------------------------------------------------------
     -- Text
 
-    TextLit txt -> stringLit sym txt
+    TextLit txt -> liftIO $ stringLit sym txt
     ShowValue _bt x_expr -> do
       x <- evalSub x_expr
-      stringLit sym (Text.pack (show (printSymExpr x)))
+      liftIO $ stringLit sym (Text.pack (show (printSymExpr x)))
     AppendString x y -> do
       x' <- evalSub x
       y' <- evalSub y
-      stringConcat sym x' y'
+      liftIO $ stringConcat sym x' y'
 
     ---------------------------------------------------------------------
     -- Introspection
 
     IsConcrete _ v -> do
-      x <- baseIsConcrete sym =<< evalSub v
+      x <- liftIO . baseIsConcrete sym =<< evalSub v
       return $! if x then truePred sym else falsePred sym
 
     ---------------------------------------------------------------------
@@ -741,4 +742,4 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       cell1 <- evalSub ref1
       cell2 <- evalSub ref2
       let f r1 r2 = return (backendPred sym (r1 == r2))
-      muxTreeCmpOp sym f cell1 cell2
+      liftIO $ muxTreeCmpOp sym f cell1 cell2

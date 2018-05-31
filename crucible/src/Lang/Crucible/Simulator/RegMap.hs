@@ -46,6 +46,7 @@ module Lang.Crucible.Simulator.RegMap
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.TraversableFC
+import           Control.Monad.IO.Class(liftIO)
 
 import           What4.Interface
 import           What4.WordMap
@@ -114,7 +115,7 @@ muxAny s itefns p (AnyValue tpx x) (AnyValue tpy y)
 muxReference :: IsSymInterface sym
              => sym
              -> ValMuxFn sym (ReferenceType tp)
-muxReference s = mergeMuxTree s
+muxReference s = \p x y -> liftIO $ mergeMuxTree s p x y
 
 {-# INLINABLE pushBranchForType #-}
 pushBranchForType :: forall sym tp
@@ -185,22 +186,22 @@ muxRegForType s itefns p =
      StructRepr  ctx -> muxStruct    (muxRegForType s itefns) ctx
      VariantRepr ctx -> muxVariant s (muxRegForType s itefns) ctx
      ReferenceRepr _x -> muxReference s
-     WordMapRepr w tp -> muxWordMap s w tp
+     WordMapRepr w tp -> pureMux $ muxWordMap s w tp
      BVRepr w ->
        case isPosNat w of
          Nothing -> \_ x _ -> return x
-         Just LeqProof -> bvIte s
+         Just LeqProof -> pureMux $ bvIte s
      FunctionHandleRepr _ _ -> muxReg s p
 
      MaybeRepr r          -> mergePartExpr s (muxRegForType s itefns r)
      VectorRepr r         -> muxVector s (muxRegForType s itefns r)
      StringMapRepr r      -> muxStringMap s (muxRegForType s itefns r)
-     SymbolicArrayRepr{}         -> arrayIte s
-     SymbolicStructRepr{}        -> structIte s
+     SymbolicArrayRepr{}         -> pureMux $ arrayIte s
+     SymbolicStructRepr{}        -> pureMux $ structIte s
      RecursiveRepr nm ctx -> muxRecursive (muxRegForType s itefns) nm ctx
      IntrinsicRepr nm ctx ->
        case MapF.lookup nm itefns of
-         Just IntrinsicMuxFn -> muxIntrinsic s itefns nm ctx
+         Just IntrinsicMuxFn -> pureMux $ muxIntrinsic s itefns nm ctx
          Nothing -> \_ _ _ ->
            panic "RegMap.muxRegForType"
               [ "Unknown intrinsic type:"

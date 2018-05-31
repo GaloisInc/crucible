@@ -16,6 +16,8 @@ module Lang.Crucible.Simulator.GlobalState
   , globalMuxFn
   ) where
 
+import           Control.Monad.IO.Class(liftIO)
+
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.TraversableF
 
@@ -161,42 +163,43 @@ globalMuxFn :: forall sym
              -> IntrinsicTypes sym
              -> MuxFn (Pred sym) (SymGlobalState sym)
 globalMuxFn sym iteFns c (GlobalState dx x refs_x) (GlobalState dy y refs_y)
- | dx > 0 && dx == dy = do
+ | dx > 0 && dx == dy =
       GlobalState (dx - 1) <$> MapF.mergeWithKeyM muxEntry checkNullMap checkNullMap x y
                            <*> MapF.mergeWithKeyM muxRef refLeft refRight refs_x refs_y
 
     where muxEntry :: GlobalVar tp
                    -> GlobalEntry sym tp
                    -> GlobalEntry sym tp
-                   -> IO (Maybe (GlobalEntry sym tp))
+                   -> AbortIO (Maybe (GlobalEntry sym tp))
           muxEntry g (GlobalEntry u) (GlobalEntry v) =
             Just . GlobalEntry <$> muxRegForType sym iteFns (globalType g) c u v
 
           muxRef :: RefCell tp
                  -> RefCellContents sym tp
                  -> RefCellContents sym tp
-                 -> IO (Maybe (RefCellContents sym tp))
+                 -> AbortIO (Maybe (RefCellContents sym tp))
           muxRef r (RefCellContents pu u) (RefCellContents pv v) =
             do uv <- muxRegForType sym iteFns (refType r) c u v
-               p <- itePred sym c pu pv
+               p <- liftIO $ itePred sym c pu pv
                return . Just $ RefCellContents p uv
 
-          refLeft :: MapF.MapF RefCell (RefCellContents sym) -> IO (MapF.MapF RefCell (RefCellContents sym))
+          refLeft :: MapF.MapF RefCell (RefCellContents sym) -> AbortIO (MapF.MapF RefCell (RefCellContents sym))
           refLeft m = traverseF f m
-           where f :: RefCellContents sym tp -> IO (RefCellContents sym tp)
+           where f :: RefCellContents sym tp -> AbortIO (RefCellContents sym tp)
                  f (RefCellContents p z) =
-                      do p' <- andPred sym c p
+                      do p' <- liftIO $ andPred sym c p
                          return $ RefCellContents p' z
 
-          refRight :: MapF.MapF RefCell (RefCellContents sym) -> IO (MapF.MapF RefCell (RefCellContents sym))
-          refRight m = do cnot <- notPred sym c; traverseF (f cnot) m
-           where f :: Pred sym -> RefCellContents sym tp -> IO (RefCellContents sym tp)
+          refRight :: MapF.MapF RefCell (RefCellContents sym) -> AbortIO (MapF.MapF RefCell (RefCellContents sym))
+          refRight m = do cnot <- liftIO $ notPred sym c
+                          traverseF (f cnot) m
+           where f :: Pred sym -> RefCellContents sym tp -> AbortIO (RefCellContents sym tp)
                  f cnot (RefCellContents p z) =
-                      do p' <- andPred sym cnot p
+                      do p' <- liftIO $ andPred sym cnot p
                          return $ RefCellContents p' z
 
           checkNullMap :: MapF.MapF GlobalVar (GlobalEntry sym)
-                       -> IO (MapF.MapF GlobalVar (GlobalEntry sym))
+                       -> AbortIO (MapF.MapF GlobalVar (GlobalEntry sym))
           checkNullMap m
             | MapF.null m = return m
             | otherwise =
@@ -204,7 +207,7 @@ globalMuxFn sym iteFns c (GlobalState dx x refs_x) (GlobalState dy y refs_y)
                       [ "Different global variables in each branch." ]
 
 globalMuxFn sym _ _ (GlobalState dx _ _) (GlobalState dy _ _) =
-  do loc <- getCurrentProgramLoc sym
+  do loc <- liftIO $ getCurrentProgramLoc sym
      panic "GlobalState.globalMuxFn"
            [ "Attempting to merge global states of incorrect branch depths:"
            , " *** Depth 1:  " ++ show dx

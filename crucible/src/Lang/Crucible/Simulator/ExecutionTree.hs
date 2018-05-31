@@ -134,7 +134,6 @@ import           Lang.Crucible.Simulator.RegMap
 
 
 
-
 -- | @swap_unless b (x,y)@ returns @(x,y)@ when @b@ is @True@ and
 -- @(y,x)@ when @b@ if @False@.
 swap_unless :: Bool -> (a, a) -> (a,a)
@@ -151,8 +150,12 @@ predEqConst sym p False = notPred sym p
 -- CrucibleBranchTarget
 
 data CrucibleBranchTarget blocks (args :: Maybe (Ctx CrucibleType)) where
+
+   -- Jump to a block
    BlockTarget  :: !(BlockID blocks args)
                 -> CrucibleBranchTarget blocks ('Just args)
+
+   -- Return from a function
    ReturnTarget :: CrucibleBranchTarget blocks 'Nothing
 
 instance TestEquality (CrucibleBranchTarget blocks) where
@@ -422,38 +425,57 @@ data VFFOtherPath p sym ext root f args
    . VFFActivePath !(PausedPartialFrame p sym ext root f o_args)
      -- ^ This is a active execution and includes the current frame.
      -- Note: this would need to be made more generic
-     -- if we want to be able paths concurrently.
-   | VFFCompletePath !(Seq (Assumption sym)) !(PausedPartialFrame p sym ext root f args)
-     -- ^ This is a completed execution path.
+     -- if we want to be able to execute paths concurrently.
+
+   | VFFCompletePath !(Seq (Assumption sym))
+                     !(PausedPartialFrame p sym ext root f args)
+     -- ^ A completed execution path.
+     -- The first field has the assumptions accumulated along the path.
 
 
--- | @ValueFromFrame p sym root ret f@ contains the context for a simulator with state @s@,
+-- | @ValueFromFrame personality sym root ret f@ contains the context for a simulator with
 -- global return type @root@, and top frame with type @f@.
-data ValueFromFrame p sym ext (root :: *) (f :: *)  where
-  -- A Branch is a branch where both execution paths still contains
-  -- executions that need to continue before merge.
-  -- VFFBranch ctx b t denotes @ctx[[] <b> t]@.
+data ValueFromFrame personality sym ext (root :: *) (f :: *)  where
+
+  -- This indicates that we are working on a branch, and the other branch didn't abort.
+  -- (i.e., it either completed or still needs to be processed.)
   VFFBranch :: !(ValueFromFrame p sym ext ret (CrucibleLang blocks a))
                -- /\ Outer context.
+
             -> !FrameIdentifier
                -- /\ State before this branch
+
             -> !ProgramLoc
                -- /\ Program location of the branch point
+
             -> !(Pred sym)
                -- /\ Assertion of current branch
+
             -> !(VFFOtherPath p sym ext ret (CrucibleLang blocks a) args)
-               -- /\ Other computation
+               -- /\ Info about what we've done with the other branch.
+               -- It could be that we already processed it ("VFFCompletePath"),
+               -- or that we still need to work on it ("VFFActivePath").
+
             -> !(CrucibleBranchTarget blocks args)
-               -- /\ Identifies where the merge should occur.
+               -- /\ Identifies where the merge should occur, that is
+               -- at what point are we finished with the current branch.
+
             -> ValueFromFrame p sym ext ret (CrucibleLang blocks a)
 
-  -- A branch where the other child has been aborted.
-  -- VFFPartial ctx p r denotes @ctx[[] <p> r]@.
+  -- We are working on a path where the other branch did abort.
   VFFPartial :: (f ~ CrucibleLang b a)
              => !(ValueFromFrame p sym ext ret f)
+                -- Outer context
+
              -> !(Pred sym)
+                -- Assertion of current branch
+
              -> !(AbortedResult sym ext)
-             -> !Bool -- should we abort the sibling branch when it merges with us?
+                -- What happened on the other branch
+
+             -> !Bool
+                -- should we abort the sibling branch when it merges with us?
+
              -> ValueFromFrame p sym ext ret f
 
   -- VFFEnd denotes that when the function terminates we should just return
@@ -692,7 +714,7 @@ checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $ do
   let sym = stateSymInterface s
   case ctx0 of
     VFFBranch ctx assume_frame loc p some_next tgt'
-      | Just Refl <- testEquality tgt tgt' -> do
+      | Just Refl <- testEquality tgt tgt' ->
         -- Adjust state info.
         -- Merge the two results together.
 
@@ -732,6 +754,7 @@ checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $ do
       er'' <- mergePartialAndAbortedResult sym p er' ar
       let s' = s & stateTree .~ ActiveTree ctx er''
       checkForIntraFrameMerge active_cont tgt s'
+
     _ -> active_cont s
 
 
@@ -769,7 +792,7 @@ intra_branch :: SimState p sym ext r (CrucibleLang b a) ('Just dc_args)
                 -- ^ false branch.
              -> CrucibleBranchTarget b (args :: Maybe (Ctx CrucibleType))
                 -- ^ Information for merge
-             -> IO (ExecResult p sym ext r)
+             -> AbortIO (IO (ExecResult p sym ext r))
 intra_branch s p t_label f_label tgt = stateSolverProof s $ do
   let ctx = asContFrame (s^.stateTree)
   let sym = stateSymInterface s
@@ -1006,11 +1029,11 @@ resumeValueFromFrameAbort s ctx0 ar0 = stateSolverProof s $ do
   case ctx0 of
     VFFBranch ctx assume_frame loc p some_next tgt -> do
       -- Negate branch condition and add to context.
-      pnot <- notPred sym p
+      pnot <- liftIO $ notPred sym p
       let nextCtx = VFFPartial ctx pnot ar0 True
 
       -- Reset the backend path state
-      _assumes <- popAssumptionFrame sym assume_frame
+      _assumes <- liftIO $ popAssumptionFrame sym assume_frame
 
       -- Resume other branch.
       case some_next of
@@ -1041,7 +1064,7 @@ resumeValueFromValueAbort :: IsSymInterface sym
                           => SimState p sym ext (r :: *) f a
                           -> ValueFromValue p sym ext r ret'
                           -> AbortedResult sym ext
-                          -> IO (ExecResult p sym ext r)
+                          -> AbortIO (ExecResult p sym ext r)
 resumeValueFromValueAbort s ctx0 ar0 = do
   case ctx0 of
     VFVCall ctx _ _ -> do

@@ -27,8 +27,8 @@ import Data.LLVM.BitCode (parseBitCodeFromFile)
 
 import Lang.Crucible.Backend
   (getProofObligations,IsSymInterface, pushAssumptionFrame, popAssumptionFrame)
-import Lang.Crucible.Backend.Online(withZ3OnlineBackend)
--- import Lang.Crucible.Backend.Online(withYicesOnlineBackend)
+-- import Lang.Crucible.Backend.Online(withZ3OnlineBackend)
+import Lang.Crucible.Backend.Online(withYicesOnlineBackend)
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
@@ -153,8 +153,8 @@ simulate file k =
      llvmPtrWidth llvmCtxt $ \ptrW ->
        withPtrWidth ptrW $
        withIONonceGenerator $ \nonceGen ->
-       withZ3OnlineBackend nonceGen $ \sym ->
-       -- withYicesOnlineBackend nonceGen $ \sym ->
+       -- withZ3OnlineBackend nonceGen $ \sym ->
+       withYicesOnlineBackend nonceGen $ \sym ->
        do frm <- pushAssumptionFrame sym
           let simctx = setupSimCtxt halloc sym
 

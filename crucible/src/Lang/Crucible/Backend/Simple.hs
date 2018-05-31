@@ -24,6 +24,7 @@ module Lang.Crucible.Backend.Simple
   ) where
 
 import           Control.Lens
+import           Control.Monad.IO.Class(liftIO)
 import           Data.IORef
 import           Data.Parameterized.Nonce
 
@@ -74,9 +75,9 @@ instance IsBoolSolver (SimpleBackend t) where
     case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
       Just False -> abortExecBeacuse (AssumedFalse (a ^. labeledPredMsg))
-      _          -> AS.assume a =<< getAssumptionStack sym
+      _          -> liftIO $ AS.assume a =<< getAssumptionStack sym
 
-  addAssumptions sym ps = do
+  addAssumptions sym ps = liftIO $ do
     stk <- getAssumptionStack sym
     AS.appendAssumptions ps stk
 
