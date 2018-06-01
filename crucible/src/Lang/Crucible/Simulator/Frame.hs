@@ -43,10 +43,16 @@ data OverrideFrame sym (ret :: CrucibleType) args
 -- SimFrame
 
 data SimFrame sym ext l (args :: Maybe (Ctx CrucibleType)) where
+
+  -- | Custom code to execute, typically for "overrides"
   OF :: !(OverrideFrame sym ret args)
      -> SimFrame sym ext (OverrideLang args ret) 'Nothing
+
+  -- | We are executing some Crucible instructions
   MF :: !(CallFrame sym ext blocks ret args)
      -> SimFrame sym ext (CrucibleLang blocks ret) ('Just args)
+
+  -- | We should return this value.
   RF :: !(RegEntry sym ret)
      -> SimFrame sym ext (CrucibleLang blocks ret) 'Nothing
 
