@@ -46,8 +46,8 @@ import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Generator
 import           Lang.Crucible.CFG.SSAConversion (toSSA)
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.ProgramLoc (Position(InternalPos))
 import           Lang.Crucible.Types
+import           What4.ProgramLoc (Position(InternalPos))
 
 ----------------------------------------------------------------------
 -- JVM types
@@ -216,7 +216,7 @@ data JVMHandleInfo where
 
 data JVMContext =
   JVMContext {
-    symbolMap :: Map (J.ClassName, J.MethodKey) JVMHandleInfo,
+    symbolMap :: Map (J.ClassName, J.MethodKey) JVMHandleInfo
   }
 
 ------------------------------------------------------------------------

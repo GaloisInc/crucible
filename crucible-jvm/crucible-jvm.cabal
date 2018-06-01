@@ -30,7 +30,8 @@ library
     text,
     transformers >= 0.3,
     transformers-compat,
-    vector >= 0.7
+    vector >= 0.7,
+    what4 >= 0.4
 
   hs-source-dirs: src
 
