@@ -1189,13 +1189,13 @@ calcGEP_struct fi base =
          callPtrAddOffset base off
 
 translateConversion
-  :: Maybe L.Instr
+  :: L.Instr
   -> L.ConvOp
   -> L.Typed L.Value
   -> L.Type
   -> LLVMGenerator h s arch ret (LLVMExpr s arch)
 translateConversion instr op x outty =
- let showI = maybe "" showInstr instr in
+ let showI = showInstr instr in
  case op of
     L.IntToPtr -> do
        outty' <- liftMemType outty
@@ -1270,7 +1270,7 @@ translateConversion instr op x outty =
        outty' <- liftMemType outty
        x' <- transTypedValue x
        let promoteToFp :: (1 <= w) => NatRepr w -> Expr (LLVM arch) s (BVType w) -> LLVMExpr s arch
-           promoteToFp w bv = BaseExpr RealValRepr (App $ IntegerToReal $ App $ NatToInteger $ App $ BvToNat w bv)
+           promoteToFp w bv = BaseExpr RealValRepr (App $ IntegerToReal $ App $ BvToInteger w bv)
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
            (Scalar (LLVMPointerRepr w) x'', RealValRepr) -> do
@@ -1281,28 +1281,33 @@ translateConversion instr op x outty =
     L.SiToFp -> do
        outty' <- liftMemType outty
        x' <- transTypedValue x
-       let promoteToFp :: (1 <= w) => NatRepr w -> Expr (LLVM arch) s (BVType w) -> LLVMGenerator h s arch ret (LLVMExpr s arch)
-           promoteToFp w bv =
-             do -- is the value negative?
-                t <- AtomExpr <$> mkAtom (App $ BVSlt w bv $ App $ BVLit w 0)
-                -- unsigned value of the bitvector as a real
-                v <- AtomExpr <$> mkAtom (App $ IntegerToReal $ App $ NatToInteger $ App $ BvToNat w bv)
-                -- MAXINT as a real
-                maxint <- AtomExpr <$> mkAtom (App $ RationalLit $ fromInteger $ maxUnsigned w)
-                -- z = if neg then (v - MAXINT) else v
-                let z = App $ RealIte t (App $ RealSub v maxint) v
-                return $ BaseExpr RealValRepr z
-
+       let promoteToFp :: (1 <= w) => NatRepr w -> Expr (LLVM arch) s (BVType w) -> LLVMExpr s arch
+           promoteToFp w bv = BaseExpr RealValRepr (App $ IntegerToReal $ App $ SbvToInteger w bv)
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
            (Scalar (LLVMPointerRepr w) x'', RealValRepr) ->
-             promoteToFp w =<< pointerAsBitvectorExpr w x''
+             promoteToFp w <$> pointerAsBitvectorExpr w x''
            _ -> fail (unlines [unwords ["Invalid uitofp:", show op, show x, show outty], showI])
 
     L.FpToUi -> do
-       reportError "Not Yet Implemented: FpToUi"
+       outty' <- liftMemType outty
+       x' <- transTypedValue x
+       let demoteToInt :: (1 <= w) => NatRepr w -> Expr (LLVM arch) s RealValType -> LLVMExpr s arch
+           demoteToInt w v = BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w $ App $ IntegerToBV w $ App $ RealRound v)
+       llvmTypeAsRepr outty' $ \outty'' ->
+         case (asScalar x', outty'') of
+           (Scalar RealValRepr x'', LLVMPointerRepr w) -> return $ demoteToInt w x''
+           _ -> fail (unlines [unwords ["Invalid fptoui:", show op, show x, show outty], showI])
+
     L.FpToSi -> do
-       reportError "Not Yet Implemented: FpToSi"
+       outty' <- liftMemType outty
+       x' <- transTypedValue x
+       let demoteToInt :: (1 <= w) => NatRepr w -> Expr (LLVM arch) s RealValType -> LLVMExpr s arch
+           demoteToInt w v = BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w $ App $ IntegerToSBV w $ App $ RealRound v)
+       llvmTypeAsRepr outty' $ \outty'' ->
+         case (asScalar x', outty'') of
+           (Scalar RealValRepr x'', LLVMPointerRepr w) -> return $ demoteToInt w x''
+           _ -> fail (unlines [unwords ["Invalid fptoui:", show op, show x, show outty], showI])
 
     L.FpTrunc -> do
        outty' <- liftMemType outty
@@ -1904,7 +1909,7 @@ generateInstr retType lab instr assign_f k =
       k
 
     L.Conv op x outty -> do
-      v <- translateConversion (Just instr) op x outty
+      v <- translateConversion instr op x outty
       assign_f v
       k
 
