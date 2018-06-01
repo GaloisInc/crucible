@@ -1,0 +1,43 @@
+Name:          crucible-jvm
+Version:       0.1
+Author:        Galois Inc.
+Copyright:     (c) Galois, Inc. 2018
+Maintainer:    huffman@galois.com
+License:       BSD3
+License-file:  LICENSE
+Build-type:    Simple
+Cabal-version: >= 1.9.2
+Category:      Language
+Synopsis:      Support for translating and executing JVM code in Crucible
+
+library
+  build-depends:
+    base >= 4 && < 5,
+    aig,
+    ansi-wl-pprint,
+    array,
+    containers,
+    crucible,
+    directory,
+    filepath,
+    haskeline >= 0.7,
+    jvm-parser >= 0.3,
+    lens,
+    mtl >= 2.1,
+    parameterized-utils >= 1.0 && < 1.1,
+    pretty >= 1.1,
+    split >= 0.2,
+    text,
+    transformers >= 0.3,
+    transformers-compat,
+    vector >= 0.7
+
+  hs-source-dirs: src
+
+  exposed-modules:
+    Lang.Crucible.JVM.Translation
+
+  other-modules:
+
+  ghc-options: -Wall -Werror
+  ghc-prof-options: -O2 -fprof-auto-top
