@@ -94,35 +94,19 @@ instance IsRecursiveType "JVM_object" where
 -- Index values for sums and products
 
 tagD :: Ctx.Index JVMValueCtx JVMDoubleType
-tagD =
-  Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $
-  Ctx.skipIndex $ Ctx.nextIndex Ctx.zeroSize
+tagD = Ctx.i1of5
 
 tagF :: Ctx.Index JVMValueCtx JVMFloatType
-tagF =
-  Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $
-  Ctx.nextIndex $ Ctx.incSize Ctx.zeroSize
+tagF = Ctx.i2of5
 
 tagI :: Ctx.Index JVMValueCtx JVMIntType
-tagI =
-  Ctx.skipIndex $ Ctx.skipIndex $ Ctx.nextIndex $
-  Ctx.incSize $ Ctx.incSize Ctx.zeroSize
+tagI = Ctx.i3of5
 
 tagL :: Ctx.Index JVMValueCtx JVMLongType
-tagL =
-  Ctx.skipIndex $ Ctx.nextIndex $ Ctx.incSize $
-  Ctx.incSize $ Ctx.incSize Ctx.zeroSize
+tagL = Ctx.i4of5
 
 tagR :: Ctx.Index JVMValueCtx JVMRefType
-tagR =
-  Ctx.nextIndex $ Ctx.incSize $ Ctx.incSize $
-  Ctx.incSize $ Ctx.incSize Ctx.zeroSize
-
-tag1 :: Ctx.Index (EmptyCtx ::> a ::> b) a
-tag1 = Ctx.skipIndex (Ctx.nextIndex Ctx.zeroSize)
-
-tag2 :: Ctx.Index (EmptyCtx ::> a ::> b) b
-tag2 = Ctx.nextIndex (Ctx.incSize Ctx.zeroSize)
+tagR = Ctx.i5of5
 
 ----------------------------------------------------------------------
 -- JVMValue
@@ -549,7 +533,7 @@ injectVariant ::
 injectVariant tag val = App (InjectVariant knownRepr tag val)
 
 arrayLength :: Expr JVM s JVMArrayType -> JVMInt s
-arrayLength arr = App (GetStruct arr tag1 knownRepr)
+arrayLength arr = App (GetStruct arr Ctx.i1of2 knownRepr)
 
 throw :: JVMRef s -> JVMStmtGen h s ret ()
 throw _ = sgUnimplemented "throw"
@@ -747,7 +731,7 @@ generateInstruction (pc, instr) =
          rawRef <- throwIfRefNull objectRef
          obj <- lift $ readRef rawRef
          let uobj = App (UnrollRecursive knownRepr knownRepr obj)
-         let minst = App (ProjectVariant knownRepr tag1 uobj)
+         let minst = App (ProjectVariant knownRepr Ctx.i1of2 uobj)
          inst <- lift $ assertedJustExpr minst "getfield: not a valid class instance"
          let key = App (TextLit (fromString (J.fieldIdName fldId)))
          let mval = App (LookupStringMapEntry knownRepr inst key)
@@ -769,7 +753,7 @@ generateInstruction (pc, instr) =
          rawRef <- throwIfRefNull objectRef
          obj <- lift $ readRef rawRef
          let uobj = App (UnrollRecursive knownRepr knownRepr obj)
-         let minst = App (ProjectVariant knownRepr tag1 uobj)
+         let minst = App (ProjectVariant knownRepr Ctx.i1of2 uobj)
          inst <- lift $ assertedJustExpr minst "putfield: not a valid class instance"
          var <-
            case J.fieldIdType fldId of
@@ -786,7 +770,7 @@ generateInstruction (pc, instr) =
          let key = App (TextLit (fromString (J.fieldIdName fldId)))
          let mvar = App (JustValue knownRepr var)
          let inst' = App (InsertStringMapEntry knownRepr inst key mvar)
-         let uobj' = App (InjectVariant knownRepr tag1 inst')
+         let uobj' = App (InjectVariant knownRepr Ctx.i1of2 inst')
          let obj' = App (RollRecursive knownRepr knownRepr uobj')
          lift $ writeRef rawRef obj'
     J.Getstatic _fieldId ->
@@ -1033,7 +1017,7 @@ newarrayInstr tag count x =
      let vec = App (VectorReplicate knownRepr (App (BvToNat w32 count)) val)
      let ctx = Ctx.empty `Ctx.extend` count `Ctx.extend` vec
      let arr = App (MkStruct knownRepr ctx)
-     let uobj = App (InjectVariant knownRepr tag2 arr)
+     let uobj = App (InjectVariant knownRepr Ctx.i2of2 arr)
      let obj = App (RollRecursive knownRepr knownRepr uobj)
      rawRef <- lift $ newRef obj
      let ref = App (JustValue knownRepr rawRef)
@@ -1050,9 +1034,9 @@ aloadInstr tag mkVal =
      rawRef <- throwIfRefNull arrayRef
      obj <- lift $ readRef rawRef
      let uobj = App (UnrollRecursive knownRepr knownRepr obj)
-     let marr = App (ProjectVariant knownRepr tag2 uobj)
+     let marr = App (ProjectVariant knownRepr Ctx.i2of2 uobj)
      arr <- lift $ assertedJustExpr marr "aload: not a valid array"
-     let vec = App (GetStruct arr tag2 knownRepr)
+     let vec = App (GetStruct arr Ctx.i2of2 knownRepr)
      -- TODO: assert 0 <= idx < length arr
      let val = App (VectorGetEntry knownRepr vec (App (BvToNat w32 idx)))
      let mx = App (ProjectVariant knownRepr tag val)
@@ -1071,14 +1055,14 @@ astoreInstr tag f x =
      rawRef <- throwIfRefNull arrayRef
      obj <- lift $ readRef rawRef
      let uobj = App (UnrollRecursive knownRepr knownRepr obj)
-     let marr = App (ProjectVariant knownRepr tag2 uobj)
+     let marr = App (ProjectVariant knownRepr Ctx.i2of2 uobj)
      arr <- lift $ assertedJustExpr marr "astore: not a valid array"
-     let vec = App (GetStruct arr tag2 knownRepr)
+     let vec = App (GetStruct arr Ctx.i2of2 knownRepr)
      -- TODO: assert 0 <= idx < length arr
      let val = App (InjectVariant knownRepr tag (f x))
      let vec' = App (VectorSetEntry knownRepr vec (App (BvToNat w32 idx)) val)
-     let arr' = App (SetStruct knownRepr arr tag2 vec')
-     let uobj' = App (InjectVariant knownRepr tag2 arr')
+     let arr' = App (SetStruct knownRepr arr Ctx.i2of2 vec')
+     let uobj' = App (InjectVariant knownRepr Ctx.i2of2 arr')
      let obj' = App (RollRecursive knownRepr knownRepr uobj')
      lift $ writeRef rawRef obj'
 
