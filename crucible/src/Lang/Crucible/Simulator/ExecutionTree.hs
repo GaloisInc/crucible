@@ -257,7 +257,8 @@ ppExceptionContext frames = PP.vcat (map pp (init frames))
 
 -- | Abort the current execution.
 abortTree :: AbortExecReason ->
-             SimState p sym ext rtp f args -> IO (ExecResult p sym ext rtp)
+             SimState p sym ext rtp f args ->
+            IO (AbortIO (ExecResult p sym ext rtp))
 abortTree e s = do
   let t = s^.stateTree
   let cfg = stateGetConfiguration s
@@ -345,20 +346,20 @@ mergePartialResult s tgt pp x y =
           TotalRes <$> merge_fn pp cx cy
 
         PartialRes py cy fy ->
-          PartialRes <$> orPred sym pp py
+          PartialRes <$> liftIO (orPred sym pp py)
                      <*> merge_fn pp cx cy
                      <*> pure fy
 
     PartialRes px cx fx ->
       case y of
         TotalRes cy ->
-          do pc <- notPred sym pp
-             PartialRes <$> orPred sym pc px
+          do pc <- liftIO $ notPred sym pp
+             PartialRes <$> liftIO (orPred sym pc px)
                         <*> merge_fn pp cx cy
                         <*> pure fx
 
         PartialRes py cy fy ->
-          PartialRes <$> itePred sym pp px py
+          PartialRes <$> liftIO (itePred sym pp px py)
                      <*> merge_fn pp cx cy
                      <*> pure (AbortedBranch pp fx fy)
 
@@ -389,7 +390,8 @@ data ExecResult p sym ext (r :: *)
 -- A Paused value and ExecCont
 
 -- | An action with will construct an ExecResult given a global state.
-type ExecCont p sym ext r f a = SimState p sym ext r f a -> IO (ExecResult p sym ext r)
+type ExecCont p sym ext r f a =
+        SimState p sym ext r f a -> AbortIO (ExecResult p sym ext r)
 
 -- | This is essentially a closure denoting a type of continuation that needs a
 -- global state to run, but currently has a value that it will use to generate
@@ -615,18 +617,18 @@ vfvParents c0 =
 ------------------------------------------------------------------------
 -- Utilities
 
-pushCrucibleFrame :: forall sym ext b r a
-                  .  IsSymInterface sym
-                  => sym
-                  -> IntrinsicTypes sym
-                  -> SimFrame sym ext (CrucibleLang b r) a
-                  -> IO (SimFrame sym ext (CrucibleLang b r) a)
-pushCrucibleFrame sym muxFns (MF x) = do
-  r' <- pushBranchRegs sym muxFns (x^.frameRegs)
-  return $! MF (x & frameRegs .~ r')
-pushCrucibleFrame sym muxFns (RF x) = do
-  x' <- pushBranchRegEntry sym muxFns x
-  return $! RF x'
+pushCrucibleFrame ::
+  IsSymInterface sym =>
+  sym ->
+  IntrinsicTypes sym ->
+  SimFrame sym ext (CrucibleLang b r) a ->
+  IO (SimFrame sym ext (CrucibleLang b r) a)
+pushCrucibleFrame sym muxFns (MF x) =
+  do r' <- pushBranchRegs sym muxFns (x^.frameRegs)
+     return $! MF (x & frameRegs .~ r')
+pushCrucibleFrame sym muxFns (RF x) =
+  do x' <- pushBranchRegEntry sym muxFns x
+     return $! RF x'
 
 
 popCrucibleFrame :: IsSymInterface sym
@@ -698,7 +700,7 @@ vfvConditions c0 =
 resumeFrame :: SimState p sym ext r g b
             -> PausedPartialFrame p sym ext r f a
             -> ValueFromFrame p sym ext r f
-            -> IO (ExecResult p sym ext r)
+            -> AbortIO (ExecResult p sym ext r)
 resumeFrame s pv ctx = resume pv $ s & stateTree .~ ActiveTree ctx er
   where er = pv^.pausedValue
 {-# INLINABLE resumeFrame #-}
@@ -748,7 +750,7 @@ tryIntraFrameMerge
     -- ^ Operation to perform on the current tree.
   -> Maybe (BlockID b next_args)
     -- ^ 'Just' the frame corresponds to a label, 'Nothing' otherwise
-  -> IO (ExecResult p sym ext root)
+  -> AbortIO (ExecResult p sym ext root)
 tryIntraFrameMerge active_cont tgt s setter m_bid
   | Just bid  <- m_bid
   , Just Refl <- testEquality tgt (BlockTarget bid)
@@ -770,7 +772,7 @@ checkForIntraFrameMerge ::
   SimState p sym ext root (CrucibleLang b r) args
   {- ^ Current tree. -} ->
 
-  IO (ExecResult p sym ext root)
+  AbortIO (ExecResult p sym ext root)
 
 checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $
   let ActiveTree ctx0 er = s^.stateTree
@@ -786,9 +788,9 @@ checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $
 
           -- We still have some more work to do.
           VFFActivePath next ->
-            do pathAssumes      <- popAssumptionFrame sym assume_frame
-               new_assume_frame <- pushAssumptionFrame sym
-               pnot             <- notPred sym p
+            do pathAssumes      <- liftIO $ popAssumptionFrame sym assume_frame
+               new_assume_frame <- liftIO $ pushAssumptionFrame sym
+               pnot             <- liftIO $ notPred sym p
                addAssumption sym (LabeledPred pnot (ExploringAPath loc))
 
                -- The current branch is done
@@ -798,7 +800,7 @@ checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $
                                           , resume = active_cont
                                           }
                resumeFrame s next
-                 (VFFBranch ctx new_assume_frame loc pnot other tgt)
+                          (VFFBranch ctx new_assume_frame loc pnot other tgt)
 
           -- We are done with both branches, pop-off back to the outer context.
           VFFCompletePath otherAssumes other ->
@@ -806,9 +808,9 @@ checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $
 
                -- Merge the assumptions from each branch and add to the
                -- current assumption frame
-               pathAssumes <- popAssumptionFrame sym assume_frame
-
-               mergedAssumes <- mergeAssumptions sym p pathAssumes otherAssumes
+               pathAssumes <- liftIO $ popAssumptionFrame sym assume_frame
+               mergedAssumes <- liftIO $
+                              mergeAssumptions sym p pathAssumes otherAssumes
                addAssumptions sym mergedAssumes
 
                -- Check for more potential merge targets.
@@ -820,8 +822,8 @@ checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $
     VFFPartial ctx p ar needsMerging ->
       do er'  <- case needsMerging of
                    NoNeedToMerge   -> return er
-                   NeedsToBeMerged -> abortPartialResult s er
-         er'' <- mergePartialAndAbortedResult sym p er' ar
+                   NeedsToBeMerged -> liftIO $ abortPartialResult s er
+         er'' <- liftIO $ mergePartialAndAbortedResult sym p er' ar
          let s' = s & stateTree .~ ActiveTree ctx er''
          checkForIntraFrameMerge active_cont tgt s'
 
@@ -831,20 +833,26 @@ checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $
 --------------------------------------------------------------------------------
 -- Branching
 
+-- | A simulatro frame, paired with a continuation on what to do
+-- when resuming it.
 newtype PausedFrame p sym ext root f args
-      = PausedFrame (PausedValue p sym ext root f args (TopFrame sym ext f args))
+      = PausedFrame (PausedValue p sym ext root f args
+                                                (TopFrame sym ext f args))
 
-pushBranchVal :: (f ~ CrucibleLang b a)
-              => SimState p sym ext root f ma
-              -> PausedFrame p sym ext root f args
-              -> IO (PausedFrame p sym ext root f args)
-pushBranchVal s (PausedFrame pv) = stateSolverProof s $ do
-  let sym = stateSymInterface s
-  let iTypes = stateIntrinsicTypes s
-  let GlobalPair v gs = pv^.pausedValue
-  v' <- pushCrucibleFrame sym iTypes v
-  gs' <- globalPushBranch sym iTypes gs
-  return $! PausedFrame (pv & pausedValue .~ GlobalPair v' gs')
+-- | Notify the values in a frame that we are branching.
+pushBranchVal ::
+  (f ~ CrucibleLang b a) =>
+  SimState p sym ext root f ma ->
+  PausedFrame p sym ext root f args ->
+  IO (PausedFrame p sym ext root f args)
+pushBranchVal s (PausedFrame pv) =
+  stateSolverProof s $
+  do let sym             = stateSymInterface s
+     let iTypes          = stateIntrinsicTypes s
+     let GlobalPair v gs = pv^.pausedValue
+     v'  <- pushCrucibleFrame sym iTypes v
+     gs' <- globalPushBranch  sym iTypes gs
+     return $! PausedFrame (pv & pausedValue .~ GlobalPair v' gs')
 
 
 
@@ -876,7 +884,7 @@ intra_branch ::
   CrucibleBranchTarget b (args :: Maybe (Ctx CrucibleType))
   {- ^ Merge point, where both branches meet again. -} ->
 
-  IO (ExecResult p sym ext r)
+  AbortIO (ExecResult p sym ext r)
 
 intra_branch s p t_label f_label tgt = stateSolverProof s $ do
   let ctx = asContFrame (s^.stateTree)
@@ -884,33 +892,33 @@ intra_branch s p t_label f_label tgt = stateSolverProof s $ do
   r <- evalBranch sym p
 
   case r of
-    SymbolicBranch chosen_branch -> do
-      -- Get correct predicate
-      p' <- predEqConst sym p chosen_branch
+    SymbolicBranch chosen_branch ->
+      do assume_frame <- liftIO $ pushAssumptionFrame sym
+         loc          <- liftIO $ getCurrentProgramLoc sym
+         p'           <- liftIO $ predEqConst sym p chosen_branch
+         addAssumption sym (LabeledPred p' (ExploringAPath loc))
 
-      (SomeLabel a_state a_id, SomeLabel o_state o_id) <-
-                      return (swap_unless chosen_branch (t_label, f_label))
+         (SomeLabel a_state a_id, SomeLabel o_state o_id) <-
+                         return (swap_unless chosen_branch (t_label, f_label))
 
-      loc <- getCurrentProgramLoc sym
+         PausedFrame pf      <- liftIO $ pushBranchVal s a_state
+         PausedFrame o_frame <- liftIO $ pushBranchVal s o_state
 
-      a_frame <- pushBranchVal s a_state
-      PausedFrame o_frame <- pushBranchVal s o_state
 
-      assume_frame <- pushAssumptionFrame sym
-      addAssumption sym (LabeledPred p' (ExploringAPath loc))
 
-      -- Create context for paused frame.
-      let o_tree = o_frame & pausedValue %~ TotalRes
-                           & resumed     .~ (\s'' -> tryIntraFrameMerge
-                                                           (resume o_frame)
-                                                           tgt s''
-                                                           id
-                                                           o_id)
-      let ctx' = VFFBranch ctx assume_frame loc p' (VFFActivePath o_tree) tgt
-      -- Start a_state (where branch pred is p')
-      let PausedFrame pf = a_frame
-          setter = stateTree .~ ActiveTree ctx' (TotalRes (pf^.pausedValue))
-      tryIntraFrameMerge (resume pf) tgt s setter a_id
+         -- Create context for paused frame.
+         let o_tree = VFFActivePath
+                    $ o_frame & pausedValue %~ TotalRes
+                              & resumed     .~ (\s'' -> tryIntraFrameMerge
+                                                              (resume o_frame)
+                                                              tgt s''
+                                                              id
+                                                              o_id)
+
+         let ctx' = VFFBranch ctx assume_frame loc p' o_tree tgt
+         -- Start a_state (where branch pred is p')
+         let setter = stateTree .~ ActiveTree ctx' (TotalRes (pf^.pausedValue))
+         tryIntraFrameMerge (resume pf) tgt s setter a_id
 
     NoBranch chosen_branch ->
       do SomeLabel a_state a_id <-
@@ -1078,7 +1086,7 @@ callFn h f' (ActiveTree ctx er) =
 -- NOTE: All symbolic branching must be resolved before calling `returnValue`.
 returnValue :: SimState p sym ext r f a
             -> RegEntry sym (FrameRetType f)
-            -> IO (ExecResult p sym ext r)
+            -> AbortIO (ExecResult p sym ext r)
 returnValue s v = handleSimReturn s (returnContext ctx) val
   where
   val               = er & partialValue . gpValue .~ v
@@ -1088,7 +1096,7 @@ handleSimReturn ::
   SimState p sym ext r f a ->
   ValueFromValue p sym ext r ret {- ^ Context to return to. -} ->
   PartialResult sym ext ret {- ^ Value that is being returned. -} ->
-  IO (ExecResult p sym ext r)
+  AbortIO (ExecResult p sym ext r)
 handleSimReturn s ctx0 return_value =
   stateSolverProof s $
   case ctx0 of
@@ -1101,7 +1109,8 @@ handleSimReturn s ctx0 return_value =
 
     VFVPartial ctx p r ->
       do let sym = stateSymInterface s
-         new_ret_val <- mergePartialAndAbortedResult sym p return_value r
+         new_ret_val <- liftIO $
+                            mergePartialAndAbortedResult sym p return_value r
          handleSimReturn s ctx new_ret_val
 
     VFVEnd -> return $! FinishedExecution (stateResult s) return_value
@@ -1109,28 +1118,25 @@ handleSimReturn s ctx0 return_value =
 ------------------------------------------------------------------------
 -- Aborting an execution.
 
--- | Abort the current execution, and either return or switch to next
--- execution path and run it.
+-- | Abort the current execution, and return a computation
+-- that would either return or switch to next execution path and run it.
 abortExec :: AbortExecReason
           -> SimState p sym ext (r :: *) f args
-          -> IO (ExecResult p sym ext r)
-abortExec rsn s = do
-  let ActiveTree ctx ar0 = s^.stateTree
-  -- Get aborted result from active result.
-  let ar = case ar0 of
-             TotalRes e -> AbortedExec rsn e
-             PartialRes c ex ar1 -> AbortedBranch c (AbortedExec rsn ex) ar1
-  resumeValueFromFrameAbort s ctx ar
+          -> IO (AbortIO (ExecResult p sym ext r))
+abortExec rsn s = resumeValueFromFrameAbort s ctx ar
+  where
+  ActiveTree ctx ar0 = s^.stateTree
+  ar = case ar0 of
+         TotalRes e          -> AbortedExec rsn e
+         PartialRes c ex ar1 -> AbortedBranch c (AbortedExec rsn ex) ar1
 
--- | Resolve the fact that the current branch aborted.
---
--- This may merge frames, and will throw a user error if merging fail
--- (XXX: we throw an "Unsupported" abort reason...).
+-- | Backtrack an aborted branch, and return a computation that
+-- will merge results and continue exploring.
 resumeValueFromFrameAbort ::
   SimState p sym ext r g args ->
   ValueFromFrame p sym ext r f ->
   AbortedResult sym ext {- ^ The execution that is being aborted. -} ->
-  IO (ExecResult p sym ext r)
+  IO (AbortIO (ExecResult p sym ext r))
 resumeValueFromFrameAbort s ctx0 ar0 = stateSolverProof s $
   let sym = stateSymInterface s
   in
@@ -1140,30 +1146,30 @@ resumeValueFromFrameAbort s ctx0 ar0 = stateSolverProof s $
     VFFBranch ctx assume_frame loc p other_branch tgt ->
       do pnot <- notPred sym p
          let nextCtx = VFFPartial ctx pnot ar0 NeedsToBeMerged
-
-         -- Reset the backend path state
          _assumes <- popAssumptionFrame sym assume_frame
 
-         case other_branch of
+         return $
+           -- Resume execution
+           case other_branch of
 
-           -- We have some more work to do.
-           VFFActivePath   n ->
-             do addAssumption sym (LabeledPred pnot (ExploringAPath loc))
-                resumeFrame s n nextCtx
+             -- We have some more work to do.
+             VFFActivePath   n ->
+               do addAssumption sym (LabeledPred pnot (ExploringAPath loc))
+                  resumeFrame s n nextCtx
 
-           -- The other branch had finished successfully;
-           -- Since this one aborted, then the other one is really the only
-           -- viable option we have, and so we commit to it.
-           VFFCompletePath otherAssumes pv ->
-             do let er = pv^.pausedValue
-                let s' = s & stateTree .~ ActiveTree nextCtx er
+             -- The other branch had finished successfully;
+             -- Since this one aborted, then the other one is really the only
+             -- viable option we have, and so we commit to it.
+             VFFCompletePath otherAssumes pv ->
+               do let er = pv^.pausedValue
+                  let s' = s & stateTree .~ ActiveTree nextCtx er
 
-                -- We are committed to the other path,
-                -- assume all of its suspended assumptions
-                addAssumptions sym otherAssumes
+                  -- We are committed to the other path,
+                  -- assume all of its suspended assumptions
+                  addAssumptions sym otherAssumes
 
-                -- check for further merges, then continue onward.
-                checkForIntraFrameMerge (resume pv) tgt s'
+                  -- check for further merges, then continue onward.
+                  checkForIntraFrameMerge (resume pv) tgt s'
 
     -- Both branches aborted
     VFFPartial ctx p ay _ ->
@@ -1172,21 +1178,19 @@ resumeValueFromFrameAbort s ctx0 ar0 = stateSolverProof s $
     VFFEnd ctx ->
       resumeValueFromValueAbort s ctx ar0
 
--- | Run rest of execution given a value from value context and an aborted
--- result.
+-- | Backtrack to the place where aborted execution started,
+-- and return a computation that can be run to continue exploring.
 resumeValueFromValueAbort :: IsSymInterface sym
                           => SimState p sym ext (r :: *) f a
                           -> ValueFromValue p sym ext r ret'
                           -> AbortedResult sym ext
-                          -> IO (ExecResult p sym ext r)
+                          -> IO (AbortIO (ExecResult p sym ext r))
 resumeValueFromValueAbort s ctx0 ar0 = do
   case ctx0 of
-    VFVCall ctx _ _ -> do
-      -- Pop out of call context.
-      resumeValueFromFrameAbort s ctx ar0
-    VFVPartial ctx p ay -> do
-      resumeValueFromValueAbort s ctx (AbortedBranch p ar0 ay)
-    VFVEnd -> return $ AbortedResult (stateResult s) ar0
+    VFVCall ctx _ _ -> resumeValueFromFrameAbort s ctx ar0
+    VFVPartial ctx p ay ->
+        resumeValueFromValueAbort s ctx (AbortedBranch p ar0 ay)
+    VFVEnd -> return $ return $ AbortedResult (stateResult s) ar0
 
 ------------------------------------------------------------------------
 -- extractCurrentPath
@@ -1260,11 +1264,15 @@ type EvalStmtFunc p sym ext =
   forall rtp blocks r ctx tp'.
     StmtExtension ext (RegEntry sym) tp' ->
     CrucibleState p sym ext rtp blocks r ctx ->
-    IO (RegValue sym tp', CrucibleState p sym ext rtp blocks r ctx)
+    AbortIO (RegValue sym tp', CrucibleState p sym ext rtp blocks r ctx)
 
 data ExtensionImpl p sym ext
   = ExtensionImpl
-    { extensionEval :: IsSymInterface sym => sym -> IntrinsicTypes sym -> (Int -> String -> IO ()) -> EvalAppFunc sym (ExprExtension ext)
+    { extensionEval :: IsSymInterface sym =>
+                       sym ->
+                       IntrinsicTypes sym ->
+                       (Int -> String -> IO ()) ->
+                       EvalAppFunc sym (ExprExtension ext)
     , extensionExec :: EvalStmtFunc p sym ext
     }
 
@@ -1292,7 +1300,7 @@ data Override p sym ext (args :: Ctx CrucibleType) ret
               , overrideHandler
                   :: forall r
                    . SimState p sym ext r (OverrideLang args ret) 'Nothing
-                  -> IO (ExecResult p sym ext r)
+                  -> AbortIO (ExecResult p sym ext r)
               }
 
 -- | State used to indicate what to do when function is called.
@@ -1328,11 +1336,13 @@ ctxSymInterface :: Simple Lens (SimContext p sym ext) sym
 ctxSymInterface = lens _ctxSymInterface (\s v -> s { _ctxSymInterface = v })
 
 -- | A map from function handles to their semantics.
-functionBindings :: Simple Lens (SimContext p sym ext) (FunctionBindings p sym ext)
+functionBindings ::
+  Simple Lens (SimContext p sym ext) (FunctionBindings p sym ext)
 functionBindings = lens _functionBindings (\s v -> s { _functionBindings = v })
 
 cruciblePersonality :: Simple Lens (SimContext p sym ext) p
-cruciblePersonality = lens _cruciblePersonality (\s v -> s{ _cruciblePersonality = v })
+cruciblePersonality =
+  lens _cruciblePersonality (\s v -> s{ _cruciblePersonality = v })
 
 
 ------------------------------------------------------------------------
@@ -1352,7 +1362,7 @@ newtype ErrorHandler p sym ext rtp
       = EH { runEH :: forall (l :: *) args
                    . AbortExecReason
                    -> SimState p sym ext rtp l args
-                   -> IO (ExecResult p sym ext rtp)
+                   -> IO (AbortIO (ExecResult p sym ext rtp))
            }
 
 ------------------------------------------------------------------------
@@ -1363,7 +1373,8 @@ stateContext :: Simple Lens (SimState p sym ext r f a) (SimContext p sym ext)
 stateContext = lens _stateContext (\s v -> s { _stateContext = v })
 {-# INLINE stateContext #-}
 
-errorHandler :: Simple Lens (SimState p sym ext r f a) (ErrorHandler p sym ext r)
+errorHandler ::
+  Simple Lens (SimState p sym ext r f a) (ErrorHandler p sym ext r)
 errorHandler = lens _errorHandler (\s v -> s { _errorHandler = v })
 
 -- | Access the active tree associated with a state.
@@ -1406,14 +1417,16 @@ stateOverrideFrame = stateTree . actFrame . gpValue . overrideSimFrame
 -- | Start running the error handler.
 mssRunErrorHandler :: SimState p sym ext rtp f args
                    -> AbortExecReason
-                   -> IO (ExecResult p sym ext rtp)
+                   -> IO (AbortIO (ExecResult p sym ext rtp))
 mssRunErrorHandler s err = runEH (s^.errorHandler) err s
 
-mssRunGenericErrorHandler
-     :: SimState p sym ext rtp f args
-     -> String
-     -> IO (ExecResult p sym ext rtp)
-mssRunGenericErrorHandler s msg = do
-  let sym = stateSymInterface s
-  loc <- stateSolverProof s $ getCurrentProgramLoc sym
-  mssRunErrorHandler s (ManualAbort loc msg)
+mssRunGenericErrorHandler ::
+  SimState p sym ext rtp f args ->
+  String ->
+  IO (AbortIO (ExecResult p sym ext rtp))
+mssRunGenericErrorHandler s msg =
+  do let sym = stateSymInterface s
+     loc <- stateSolverProof s $ getCurrentProgramLoc sym
+     mssRunErrorHandler s (ManualAbort loc msg)
+
+

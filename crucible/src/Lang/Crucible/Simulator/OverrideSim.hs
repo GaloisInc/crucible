@@ -114,11 +114,18 @@ import           Lang.Crucible.Utils.StateContT
 --   * 'ret'  return type of the current frame
 --   * 'a'    the value type
 --
-newtype OverrideSim p sym ext rtp (args :: Ctx CrucibleType) (ret :: CrucibleType) a
-      = Sim { unSim :: StateContT (SimState p sym ext rtp (OverrideLang args ret) 'Nothing)
-                                  (ExecResult p sym ext rtp)
-                                  IO
-                                  a
+newtype OverrideSim p
+                    sym
+                    ext
+                    rtp
+                    (args :: Ctx CrucibleType)
+                    (ret :: CrucibleType)
+                    a =
+  Sim { unSim :: StateContT
+                   (SimState p sym ext rtp (OverrideLang args ret) 'Nothing)
+                   (ExecResult p sym ext rtp)
+                   AbortIO
+                   a
             }
   deriving ( Functor
            , Applicative
@@ -143,28 +150,17 @@ bindOverrideSim (Sim m) h = Sim $ unSim . h =<< m
 instance Monad (OverrideSim p sym ext rtp args r) where
   return = returnOverrideSim
   (>>=) = bindOverrideSim
-  fail msg = Sim $ StateContT $ \_c s -> mssRunGenericErrorHandler s msg
+  fail msg = panic "OverrideSim" ["fail", msg ]
 
 deriving instance MonadState (SimState p sym ext rtp (OverrideLang args ret) 'Nothing)
                              (OverrideSim p sym ext rtp args ret)
 
 instance MonadIO (OverrideSim p sym ext rtp args ret) where
-  liftIO m = do
-     Sim $ StateContT $ \c s -> do
-       r <- try m
-       case r of
-         Left e0
-           -- IO Exception
-           | Just e <- fromException e0
-           , isUserError e ->
-             mssRunGenericErrorHandler s (ioeGetErrorString e)
-             -- AbortReason
-           | Just e <- fromException e0 ->
-             mssRunErrorHandler s e
-             -- Default case
-           | otherwise ->
-             throwIO e0
-         Right v -> c v s
+  liftIO = abortIO . liftIO
+
+abortIO :: AbortIO a -> OverrideSim p sym ext rtp args ret a
+abortIO m = Sim $ StateContT $ \c s -> do v <- m
+                                          c v s
 
 instance MonadST RealWorld (OverrideSim p sym ext rtp args ret) where
   liftST m = liftIO $ stToIO m
@@ -264,7 +260,7 @@ readRef r = do
    sym <- getSymInterface
    globals <- use $ stateTree . actFrame . gpGlobals
    let msg = ReadBeforeWriteSimError "Attempt to read undefined reference cell"
-   liftIO $ readPartExpr sym (lookupRef r globals) msg
+   abortIO $ readPartExpr sym (lookupRef r globals) msg
 
 writeRef :: IsSymInterface sym
          => RefCell tp
@@ -284,7 +280,7 @@ runOverrideSim :: SimState p sym ext rtp (OverrideLang args tp) 'Nothing
                   -- ^ return type
                -> OverrideSim p sym ext rtp args tp (RegValue sym tp)
                   -- ^ action to run
-               -> IO (ExecResult p sym ext rtp)
+               -> AbortIO (ExecResult p sym ext rtp)
 runOverrideSim s0 tp m = do
   runStateContT (unSim m) (\v s -> returnValue s (RegEntry tp v)) s0
 
@@ -378,7 +374,7 @@ callCFG cfg args = do
 overrideError :: IsSymInterface sym => SimErrorReason -> OverrideSim p sym ext rtp ars res a
 overrideError err =
   do sym <- getSymInterface
-     liftIO (addFailedAssertion sym err)
+     abortIO $ addFailedAssertion sym err
 
 --------------------------------------------------------------------------------
 -- FnBinding

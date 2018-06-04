@@ -195,7 +195,7 @@ evalExpr :: forall p sym ext ctx tp rtp blocks r
           . (IsSymInterface sym, IsSyntaxExtension ext)
          => CrucibleState p sym ext rtp blocks r ctx
          -> Expr ext ctx tp
-         -> IO (RegValue sym tp)
+         -> AbortIO (RegValue sym tp)
 evalExpr s (App a) = do
   let iteFns = stateIntrinsicTypes s
   let sym = stateSymInterface s
@@ -276,22 +276,21 @@ checkStateConsistency s (BlockID block_id) = do
 jump :: (IsSymInterface sym, IsSyntaxExtension ext)
       => CrucibleState p sym ext rtp blocks r args
       -> JumpTarget blocks args
-      -> IO (ExecResult p sym ext rtp)
+      -> AbortIO (ExecResult p sym ext rtp)
 jump s (JumpTarget block_id _tp a) =
   jumpToBlock s block_id (evalArgs s a)
 
 
-symbolicBranch
-    :: (IsSymInterface sym, IsSyntaxExtension ext)
-    => CrucibleState p sym ext rtp blocks ret ctx
-    -> Int
-    -> Pred sym
-    -> BlockID blocks args
-    -> RegMap sym args
-    -> BlockID blocks args'
-    -> RegMap sym args'
-       -- ^ Registers for false state.
-    -> AbortIO (IO (ExecResult p sym ext rtp))
+symbolicBranch ::
+  (IsSymInterface sym, IsSyntaxExtension ext) =>
+  CrucibleState p sym ext rtp blocks ret ctx ->
+  Int ->
+  Pred sym ->
+  BlockID blocks args ->
+  RegMap sym args ->
+  BlockID blocks args' ->
+  RegMap sym args' {- ^ Registers for false state. -} ->
+  AbortIO (AbortIO (ExecResult p sym ext rtp))
 symbolicBranch s verb p x_id x_args y_id y_args = do
   let top_frame = s^.stateTree^.actFrame
 
@@ -300,17 +299,18 @@ symbolicBranch s verb p x_id x_args y_id y_args = do
 
   let cur_frame = top_frame^.crucibleTopFrame
   case cur_frame^.framePostdom of
-    Nothing -> do
-      when (verb >= 5) $ do
-        liftIO $ hPutStrLn (printHandle (s^.stateContext)) $ "Return-dominated symbolic branch"
-      intra_branch s p (SomeLabel x_frame (Just x_id))
-                                (SomeLabel y_frame (Just y_id))
-                                ReturnTarget
+    Nothing ->
+      do when (verb >= 5) $
+           liftIO $ hPutStrLn (printHandle (s^.stateContext))
+                  $ "Return-dominated symbolic branch"
+         return $ intra_branch s p (SomeLabel x_frame (Just x_id))
+                                   (SomeLabel y_frame (Just y_id))
+                                   ReturnTarget
     Just (Some pd_id) ->
       let tgt = BlockTarget pd_id
-      in intra_branch s p (SomeLabel x_frame (Just x_id))
-                          (SomeLabel y_frame (Just y_id))
-                          tgt
+      in return $ intra_branch s p (SomeLabel x_frame (Just x_id))
+                                   (SomeLabel y_frame (Just y_id))
+                                   tgt
 
 data VariantCall sym blocks tp where
   VariantCall :: TypeRepr tp
@@ -318,71 +318,75 @@ data VariantCall sym blocks tp where
               -> SwitchCall sym blocks tp
               -> VariantCall sym blocks tp
 
-cruciblePausedFrame :: IsSyntaxExtension ext
-                    => BlockID b new_args
-                    -> RegMap sym new_args
-                    -> GlobalPair sym (SimFrame sym ext (CrucibleLang b r) ('Just a))
-                    -> Exec.PausedFrame p sym ext
-                       rtp
-                       (CrucibleLang b r)
-                       ('Just new_args)
+-- | Make a paused frame for the given block, where the continuation
+-- is just "loopCrucible".
+cruciblePausedFrame ::
+  IsSyntaxExtension ext =>
+  BlockID b new_args ->
+  RegMap sym new_args ->
+  GlobalPair sym (SimFrame sym ext (CrucibleLang b r) ('Just a)) ->
+  Exec.PausedFrame p sym ext rtp (CrucibleLang b r) ('Just new_args)
 cruciblePausedFrame x_id x_args top_frame =
-  let cf = top_frame & crucibleTopFrame %~ setFrameBlock x_id x_args
-   in PausedFrame $
-      PausedValue { _pausedValue = cf
-                  , resume = loopCrucible
-                  }
+  PausedFrame PausedValue { _pausedValue = cf, resume = loopCrucible }
+  where
+  cf = top_frame & crucibleTopFrame %~ setFrameBlock x_id x_args
 
-stepReturnVariantCases
-         :: forall p sym ext rtp blocks r ctx
-          . (IsSymInterface sym, IsSyntaxExtension ext)
-         => CrucibleState p sym ext rtp blocks r ctx
-         -> [(Pred sym, JumpCall sym blocks)]
-         -> AbortIO (IO (ExecResult p sym ext rtp))
-stepReturnVariantCases s [] = do
-  let top_frame = s^.stateTree^.actFrame
-  let loc = frameProgramLoc (top_frame^.crucibleTopFrame)
-  let rsn = VariantOptionsExhaused loc
-  return (abortExec rsn s)
-stepReturnVariantCases s ((p,JumpCall x_id x_args):cs) = do
-  let top_frame = s^.stateTree^.actFrame
-  let x_frame = cruciblePausedFrame x_id x_args top_frame
-  let y_frame =
-        SomeLabel (PausedFrame $ PausedValue
-                     { _pausedValue = top_frame
-                     , resume = \s'' -> join $ stepReturnVariantCases s'' cs
-                     })
-                  Nothing
+stepReturnVariantCases ::
+  (IsSymInterface sym, IsSyntaxExtension ext) =>
+  CrucibleState p sym ext rtp blocks r ctx ->
+  [(Pred sym, JumpCall sym blocks)] ->
+  AbortIO (ExecResult p sym ext rtp)
+stepReturnVariantCases s [] = abortExecBeacuse (VariantOptionsExhaused loc)
+  where
+  loc       = frameProgramLoc (top_frame^.crucibleTopFrame)
+  top_frame = s^.stateTree^.actFrame
+
+stepReturnVariantCases s ((p,JumpCall x_id x_args):cs) =
   intra_branch s p (SomeLabel x_frame (Just x_id)) y_frame ReturnTarget
+  where
+  top_frame = s^.stateTree^.actFrame
+  x_frame = cruciblePausedFrame x_id x_args top_frame
+  y_frame = SomeLabel
+              (PausedFrame
+                 PausedValue
+                   { _pausedValue = top_frame
+                   , resume = \s'' -> stepReturnVariantCases s'' cs
+                   })
+              Nothing
 
-stepVariantCases
-         :: forall p sym ext rtp blocks r ctx x
-          . (IsSymInterface sym, IsSyntaxExtension ext)
-         => CrucibleState p sym ext rtp blocks r ctx
-         -> BlockID blocks x
-         -> [(Pred sym, JumpCall sym blocks)]
-         -> AbortIO (IO (ExecResult p sym ext rtp))
-stepVariantCases s _pd_id [] = do
-  let top_frame = s^.stateTree^.actFrame
-  let loc = frameProgramLoc (top_frame^.crucibleTopFrame)
-  let rsn = VariantOptionsExhaused loc
-  return (abortExec rsn s)
-stepVariantCases s pd_id ((p,JumpCall x_id x_args):cs) = do
-  let top_frame = s^.stateTree^.actFrame
-  let x_frame = cruciblePausedFrame x_id x_args top_frame
-  let y_frame = PausedValue
-                { _pausedValue = top_frame
-                , resume = \s'' -> join (stepVariantCases s'' pd_id cs)
-                }
-  let y_frame' = SomeLabel (PausedFrame y_frame) Nothing
-  let tgt = BlockTarget pd_id
+
+
+stepVariantCases ::
+  (IsSymInterface sym, IsSyntaxExtension ext) =>
+  CrucibleState p sym ext rtp blocks r ctx ->
+  BlockID blocks x ->
+  [(Pred sym, JumpCall sym blocks)] ->
+  AbortIO (ExecResult p sym ext rtp)
+
+stepVariantCases s _pd_id [] = abortExecBeacuse (VariantOptionsExhaused loc)
+  where
+  loc       = frameProgramLoc (top_frame^.crucibleTopFrame)
+  top_frame = s^.stateTree^.actFrame
+
+stepVariantCases s pd_id ((p,JumpCall x_id x_args):cs) =
   intra_branch s p (SomeLabel x_frame (Just x_id)) y_frame' tgt
+  where
+  top_frame = s^.stateTree^.actFrame
+  x_frame   = cruciblePausedFrame x_id x_args top_frame
+  y_frame   = PausedValue
+                  { _pausedValue = top_frame
+                  , resume = \s'' -> stepVariantCases s'' pd_id cs
+                  }
+  y_frame'  = SomeLabel (PausedFrame y_frame) Nothing
+  tgt       = BlockTarget pd_id
+
+
 
 returnAndMerge :: forall p sym ext rtp blocks r args
                .  IsSymInterface sym
                => SimState p sym ext rtp (CrucibleLang blocks r) args
                -> RegEntry sym r
-               -> IO (ExecResult p sym ext rtp)
+               -> AbortIO (ExecResult p sym ext rtp)
 returnAndMerge s arg = do
   let s' = s & stateTree . actFrame . gpValue .~ RF arg
   let cont :: ExecCont p sym ext rtp (CrucibleLang b r) 'Nothing
@@ -397,9 +401,9 @@ stepTerm :: forall p sym ext rtp blocks r ctx
          => CrucibleState p sym ext rtp blocks r ctx
          -> Int  -- ^ Verbosity
          -> TermStmt blocks r ctx
-         -> AbortIO (IO (ExecResult p sym ext rtp))
-stepTerm s _ (Jump tgt) = do
-  return $! jump s tgt
+         -> AbortIO (AbortIO (ExecResult p sym ext rtp))
+stepTerm s _ (Jump tgt) =
+  return $ jump s tgt
 stepTerm s verb (Br c x y)
   | JumpCall x_id x_args <- evalJumpTarget s x
   , JumpCall y_id y_args <- evalJumpTarget s y = do
@@ -409,8 +413,7 @@ stepTerm s verb (Br c x y)
 
 stepTerm s verb (MaybeBranch tp e j n) = do
   case evalReg s e of
-    Unassigned -> do
-      return $! jump s n
+    Unassigned -> return $ jump s n
     PE p v | SwitchCall j_tgt j_args0 <- evalSwitchTarget s j
            , JumpCall   n_tgt n_args  <- evalJumpTarget   s n -> do
 
@@ -430,13 +433,10 @@ stepTerm s _ (VariantElim ctx e cases) = do
             cases'
   let cur_frame = s^.stateTree^.actFrame^.crucibleTopFrame
   case cur_frame^.framePostdom of
-    Nothing -> do
-      stepReturnVariantCases s ls
-    Just (Some pd_id) -> do
-      stepVariantCases s pd_id ls
+    Nothing           -> return $ stepReturnVariantCases s ls
+    Just (Some pd_id) -> return $ stepVariantCases s pd_id ls
 
-stepTerm s _ (Return arg) = do
-  return $! returnAndMerge s (evalReg' s arg)
+stepTerm s _ (Return arg) = return $! returnAndMerge s (evalReg' s arg)
 
 -- When we make a tail call, we first try to unwind our calling context
 -- and replace the currently-active frame with the frame of the new called
@@ -455,31 +455,34 @@ stepTerm s _ (TailCall fnExpr _types arg_exprs) = do
   let args = evalArgs s arg_exprs
   let bindings = s^.stateContext^.functionBindings
   case resolveCallFrame bindings cl args of
+
     SomeOF o f ->
       case replaceTailFrame (s^.stateTree) (OF f) of
-        Just t' -> do
-          let s' = s & stateTree .~ t'
-          return $! overrideHandler o s'
-        Nothing -> do
-          let s' = s & stateTree %~ callFn tailReturnToCrucible (OF f)
-          return $! overrideHandler o s'
+        Just t' ->
+          do let s' = s & stateTree .~ t'
+             return $! overrideHandler o s'
+        Nothing ->
+          do let s' = s & stateTree %~ callFn tailReturnToCrucible (OF f)
+             return $! overrideHandler o s'
+
     SomeCF f ->
       case replaceTailFrame (s^.stateTree) (MF f) of
-        Just t' -> do
-          let s' = s & stateTree .~ t'
-          return $! loopCrucible s'
-        Nothing -> do
-          let s' = s & stateTree %~ callFn tailReturnToCrucible (MF f)
-          return $! loopCrucible s'
+        Just t' ->
+          do let s' = s & stateTree .~ t'
+             return $! loopCrucible s'
+        Nothing ->
+          do let s' = s & stateTree %~ callFn tailReturnToCrucible (MF f)
+             return $! loopCrucible s'
 
-stepTerm s _ (ErrorStmt msg) = do
-  let msg' = evalReg s msg
-      sym = stateSymInterface s
+stepTerm s _ (ErrorStmt msg) =
   case asString msg' of
     Just txt -> addFailedAssertion sym
                   $ GenericSimError $ Text.unpack txt
     Nothing  -> addFailedAssertion sym
                   $ GenericSimError $ show (printSymExpr msg')
+  where
+  msg' = evalReg s msg
+  sym = stateSymInterface s
 
 evalArgs' :: forall sym ctx args
            . RegMap sym ctx
@@ -497,41 +500,48 @@ evalArgs :: forall p sym ext rtp blocks r ctx args
 evalArgs s args = evalArgs' (s^.stateCrucibleFrame.frameRegs) args
 {-# INLINE evalArgs #-}
 
--- | This continuation starts with a state with an active crucible frame
--- and runs it to completion.
---
--- It catches exceptions if a step throws an exception.
--- INVARIANT:  This does not throw `AbortExecReason`
+{-| This continuation starts with a state with an active crucible frame
+and runs it to completion.
+It catches exceptions and backtracks as it goes along.
+If all alternatives fail, then it throws an exception -}
 loopCrucible :: IsSyntaxExtension ext
              => CrucibleState p sym ext rtp blocks r ctx
-             -> IO (ExecResult p sym ext rtp)
-loopCrucible s = stateSolverProof s $ do
-  s_ref <- newIORef (SomeState s)
-  let cfg = stateGetConfiguration s
-  verb <- getOpt =<< getOptionSetting verbosity cfg
-  next <- Ex.catches (loopCrucible' s_ref (fromInteger verb))
-     [ Ex.Handler $ \(e::Ex.IOException) -> do
-          SomeState s' <- readIORef s_ref
-          if isUserError e then
-            return $ mssRunGenericErrorHandler s' (ioeGetErrorString e)
-           else
-            Ex.throwIO e
-     , Ex.Handler $ \(e::AbortExecReason) -> do
-          SomeState s' <- readIORef s_ref
-          return $  mssRunErrorHandler s' e
-     ]
-  next
+             -> AbortIO (ExecResult p sym ext rtp)
+loopCrucible s =
+  join $
+  liftIO $
+  stateSolverProof s $
+  do s_ref <- newIORef (SomeState s)
+     let cfg = stateGetConfiguration s
+     verb <- getOpt =<< getOptionSetting verbosity cfg
+
+     let abortHandler e =
+           do SomeState s' <- readIORef s_ref
+              mssRunErrorHandler s' e
+
+         ioHandler e
+           | isUserError e =
+              do SomeState s' <- readIORef s_ref
+                 mssRunGenericErrorHandler s' (ioeGetErrorString e)
+           | otherwise = Ex.throwIO e
+
+     runAbortIO (loopCrucible' s_ref (fromInteger verb)) abortHandler
+        `Ex.catch` ioHandler
+
+
+
 
 data SomeState p sym ext rtp where
-  SomeState :: !(CrucibleState p sym ext rtp blocks r ctx) -> SomeState p sym ext rtp
+  SomeState :: !(CrucibleState p sym ext rtp blocks r ctx) ->
+                SomeState p sym ext rtp
 
 continueCrucible :: (IsSymInterface sym, IsSyntaxExtension ext)
                  => IORef (SomeState p sym ext rtp)
                  -> Int
                  -> CrucibleState p sym ext rtp blocks r ctx
-                 -> IO (IO (ExecResult p sym ext rtp))
+                 -> AbortIO (AbortIO (ExecResult p sym ext rtp))
 continueCrucible s_ref verb s = do
-  writeIORef s_ref $! SomeState s
+  liftIO (writeIORef s_ref $! SomeState s)
   loopCrucible' s_ref verb
 
 
@@ -543,10 +553,10 @@ alterRef ::
   MuxTree sym (RefCell tp) ->
   PartExpr (Pred sym) (RegValue sym tp) ->
   SymGlobalState sym ->
-  IO (SymGlobalState sym)
+  AbortIO (SymGlobalState sym)
 alterRef sym iTypes tpr rs newv globs = foldM upd globs (viewMuxTree rs)
   where
-  f p a b = liftIO $ muxRegForType sym iTypes tpr p a b
+  f p a b = lift $ muxRegForType sym iTypes tpr p a b
 
   upd gs (r,p) =
     do let oldv = lookupRef r globs
@@ -560,12 +570,13 @@ readRef ::
   TypeRepr tp ->
   MuxTree sym (RefCell tp) ->
   SymGlobalState sym ->
-  IO (RegValue sym tp)
+  AbortIO (RegValue sym tp)
 readRef sym iTypes tpr rs globs =
   do let vs = map (\(r,p) -> (p,lookupRef r globs)) (viewMuxTree rs)
-     let f p a b = liftIO $ muxRegForType sym iTypes tpr p a b
+     let f p a b = lift $ muxRegForType sym iTypes tpr p a b
      pv <- mergePartials sym f vs
-     let msg = ReadBeforeWriteSimError "Attempted to read uninitialized reference cell"
+     let msg = ReadBeforeWriteSimError
+                "Attempted to read uninitialized reference cell"
      readPartExpr sym pv msg
 
 -- | Internal loop for running the simulator.
@@ -574,9 +585,9 @@ readRef sym iTypes tpr rs globs =
 loopCrucible' :: (IsSymInterface sym, IsSyntaxExtension ext)
               => IORef (SomeState p sym ext rtp) -- ^ A reference to the current state value.
               -> Int -- ^ Current verbosity
-              -> AbortIO (IO (ExecResult p sym ext rtp))
+              -> AbortIO (AbortIO (ExecResult p sym ext rtp))
 loopCrucible' s_ref verb = do
-  SomeState s <- readIORef s_ref
+  SomeState s <- liftIO $ readIORef s_ref
   let ctx = s^.stateContext
   let iTypes = ctxIntrinsicTypes ctx
   let sym = ctx^.ctxSymInterface
@@ -585,27 +596,28 @@ loopCrucible' s_ref verb = do
   let h = printHandle ctx
   case cf^.frameStmts of
     TermStmt pl stmt -> do
-      setCurrentProgramLoc sym pl
-      when (verb >= 4) $ do
-        ppStmtAndLoc h (frameHandle cf) pl (pretty stmt)
+      liftIO $ setCurrentProgramLoc sym pl
+      when (verb >= 4) $
+        liftIO $ ppStmtAndLoc h (frameHandle cf) pl (pretty stmt)
       stepTerm s verb stmt
 
     ConsStmt pl stmt rest -> do
-      setCurrentProgramLoc sym pl
+      liftIO $ setCurrentProgramLoc sym pl
       when (verb >= 4) $ do
         let sz = regMapSize (cf^.frameRegs)
-        ppStmtAndLoc h (frameHandle cf) pl (ppStmt sz stmt)
+        liftIO $ ppStmtAndLoc h (frameHandle cf) pl (ppStmt sz stmt)
       case stmt of
         NewRefCell tpr x -> do
           let halloc = simHandleAllocator ctx
           let v = evalReg s x
-          r <- liftST (freshRefCell halloc tpr)
+          r <- liftIO $ liftST (freshRefCell halloc tpr)
           continueCrucible s_ref verb $
             s & stateTree . actFrame . gpGlobals %~ insertRef sym r v
-              & stateCrucibleFrame %~ extendFrame (ReferenceRepr tpr) (toMuxTree sym r) rest
+              & stateCrucibleFrame %~
+                   extendFrame (ReferenceRepr tpr) (toMuxTree sym r) rest
         NewEmptyRefCell tpr -> do
           let halloc = simHandleAllocator ctx
-          r <- liftST (freshRefCell halloc tpr)
+          r <- liftIO $ liftST (freshRefCell halloc tpr)
           continueCrucible s_ref verb $
             s & stateCrucibleFrame %~ extendFrame (ReferenceRepr tpr) (toMuxTree sym r) rest
         ReadRefCell x ->
@@ -671,8 +683,8 @@ loopCrucible' s_ref verb = do
               msg' = case asString msg of
                        Just txt -> Text.unpack txt
                        _ -> show (printSymExpr msg)
-          hPutStr h msg'
-          hFlush h
+          liftIO $ hPutStr h msg'
+          liftIO $ hFlush h
           continueCrucible s_ref verb $ s & stateCrucibleFrame  . frameStmts .~ rest
         Assert c_expr msg_expr -> do
           let c = evalReg s c_expr
@@ -681,13 +693,14 @@ loopCrucible' s_ref verb = do
                        Just txt -> Text.unpack txt
                        _ -> show (printSymExpr msg)
           assert sym c (AssertFailureSimError msg')
-          continueCrucible s_ref verb $ s & stateCrucibleFrame  . frameStmts .~ rest
+          continueCrucible s_ref verb
+            $ s & stateCrucibleFrame  . frameStmts .~ rest
 
 jumpToBlock :: (IsSymInterface sym, IsSyntaxExtension ext)
              => SimState p sym ext rtp (CrucibleLang blocks r) ('Just a)
              -> BlockID blocks args
              -> RegMap sym args
-             -> IO (ExecResult p sym ext rtp)
+             -> AbortIO (ExecResult p sym ext rtp)
 jumpToBlock s block_id args = do
   let s' = s & stateCrucibleFrame %~ setFrameBlock block_id args
   let cont s2 = loopCrucible s2
