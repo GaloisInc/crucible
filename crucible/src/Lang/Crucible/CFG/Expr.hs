@@ -364,11 +364,28 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- @IntegerToReal@ convert an integer to a real.
   IntegerToReal :: !(f IntegerType) -> App ext f RealValType
 
+  -- @RealRound@ rounds the real number value toward the nearest integer.
+  -- Ties are rounded away from 0.
+  RealRound :: !(f RealValType) -> App ext f IntegerType
+
+  -- @RealRound@ computes the largest integer less-or-equal to the given real number.
+  RealFloor :: !(f RealValType) -> App ext f IntegerType
+
+  -- @RealCeil@ computes the smallest integer greater-or-equal to the given real number.
+  RealCeil :: !(f RealValType) -> App ext f IntegerType
+
+  -- @IntegerToBV@ converts an integer value to an unsigned bitvector.  The result is undefined
+  -- if the input value is not in the range @0 .. 2^w - 1@
+  IntegerToBV :: (1 <= w) => NatRepr w -> !(f IntegerType) -> App ext f (BVType w)
+
+  -- @IntegerToSBV@ converts an integer value to a signed bitvector.  The result is undefined
+  -- if the input value is not in the range @-2^(w - 1) .. 2^(w-1) - 1@
+  IntegerToSBV :: (1 <= w) => NatRepr w -> !(f IntegerType) -> App ext f (BVType w)
+
   -- @RealToNat@ convert a non-negative real integer to natural number.
   -- This is partial, and requires that the input be a non-negative real
   -- integer.
-  RealToNat :: !(f RealValType)
-            -> App ext f NatType
+  RealToNat :: !(f RealValType) -> App ext f NatType
 
   ----------------------------------------------------------------------
   -- ComplexReal
@@ -826,6 +843,11 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     NatToInteger{} -> knownRepr
     IntegerToReal{} -> knownRepr
     RealToNat{} -> knownRepr
+    RealRound{} -> knownRepr
+    RealFloor{} -> knownRepr
+    RealCeil{} -> knownRepr
+    IntegerToBV w _ -> BVRepr w
+    IntegerToSBV w _ -> BVRepr w
 
     ----------------------------------------------------------------------
     -- ComplexReal

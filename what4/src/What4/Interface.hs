@@ -122,6 +122,7 @@ module What4.Interface
     -- * Reexports
   , module Data.Parameterized.NatRepr
   , What4.Symbol.SolverSymbol
+  , What4.Symbol.userSymbol
   ) where
 
 import           Control.Exception (assert)

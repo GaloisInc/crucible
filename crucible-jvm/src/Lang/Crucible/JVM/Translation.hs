@@ -94,35 +94,19 @@ instance IsRecursiveType "JVM_object" where
 -- Index values for sums and products
 
 tagD :: Ctx.Index JVMValueCtx JVMDoubleType
-tagD =
-  Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $
-  Ctx.skipIndex $ Ctx.nextIndex Ctx.zeroSize
+tagD = Ctx.i1of5
 
 tagF :: Ctx.Index JVMValueCtx JVMFloatType
-tagF =
-  Ctx.skipIndex $ Ctx.skipIndex $ Ctx.skipIndex $
-  Ctx.nextIndex $ Ctx.incSize Ctx.zeroSize
+tagF = Ctx.i2of5
 
 tagI :: Ctx.Index JVMValueCtx JVMIntType
-tagI =
-  Ctx.skipIndex $ Ctx.skipIndex $ Ctx.nextIndex $
-  Ctx.incSize $ Ctx.incSize Ctx.zeroSize
+tagI = Ctx.i3of5
 
 tagL :: Ctx.Index JVMValueCtx JVMLongType
-tagL =
-  Ctx.skipIndex $ Ctx.nextIndex $ Ctx.incSize $
-  Ctx.incSize $ Ctx.incSize Ctx.zeroSize
+tagL = Ctx.i4of5
 
 tagR :: Ctx.Index JVMValueCtx JVMRefType
-tagR =
-  Ctx.nextIndex $ Ctx.incSize $ Ctx.incSize $
-  Ctx.incSize $ Ctx.incSize Ctx.zeroSize
-
-tag1 :: Ctx.Index (EmptyCtx ::> a ::> b) a
-tag1 = Ctx.skipIndex (Ctx.nextIndex Ctx.zeroSize)
-
-tag2 :: Ctx.Index (EmptyCtx ::> a ::> b) b
-tag2 = Ctx.nextIndex (Ctx.incSize Ctx.zeroSize)
+tagR = Ctx.i5of5
 
 ----------------------------------------------------------------------
 -- JVMValue
@@ -548,8 +532,36 @@ injectVariant ::
   Expr JVM s (VariantType ctx)
 injectVariant tag val = App (InjectVariant knownRepr tag val)
 
+fromJVMDynamic :: J.Type -> Expr JVM s JVMValueType -> JVMStmtGen h s ret (JVMValue s)
+fromJVMDynamic ty dyn =
+  case ty of
+    J.BooleanType -> IValue <$> projectVariant tagI dyn
+    J.ArrayType _ -> RValue <$> projectVariant tagR dyn
+    J.ByteType    -> IValue <$> projectVariant tagI dyn
+    J.CharType    -> IValue <$> projectVariant tagI dyn
+    J.ClassType _ -> RValue <$> projectVariant tagR dyn
+    J.DoubleType  -> DValue <$> projectVariant tagD dyn
+    J.FloatType   -> FValue <$> projectVariant tagF dyn
+    J.IntType     -> IValue <$> projectVariant tagI dyn
+    J.LongType    -> LValue <$> projectVariant tagL dyn
+    J.ShortType   -> IValue <$> projectVariant tagI dyn
+
+toJVMDynamic :: J.Type -> JVMValue s -> JVMStmtGen h s ret (Expr JVM s JVMValueType)
+toJVMDynamic ty val =
+  case ty of
+    J.BooleanType -> injectVariant tagI <$> fmap boolFromInt (fromIValue val)
+    J.ArrayType _ -> injectVariant tagR <$> fromRValue val
+    J.ByteType    -> injectVariant tagI <$> fmap byteFromInt (fromIValue val)
+    J.CharType    -> injectVariant tagI <$> fmap charFromInt (fromIValue val)
+    J.ClassType _ -> injectVariant tagR <$> fromRValue val
+    J.DoubleType  -> injectVariant tagD <$> fromDValue val
+    J.FloatType   -> injectVariant tagF <$> fromFValue val
+    J.IntType     -> injectVariant tagI <$> fromIValue val
+    J.LongType    -> injectVariant tagL <$> fromLValue val
+    J.ShortType   -> injectVariant tagI <$> fmap shortFromInt (fromIValue val)
+
 arrayLength :: Expr JVM s JVMArrayType -> JVMInt s
-arrayLength arr = App (GetStruct arr tag1 knownRepr)
+arrayLength arr = App (GetStruct arr Ctx.i1of2 knownRepr)
 
 throw :: JVMRef s -> JVMStmtGen h s ret ()
 throw _ = sgUnimplemented "throw"
@@ -577,6 +589,14 @@ nextPC pc =
      case J.nextPC cfg pc of
        Nothing -> sgFail "nextPC"
        Just pc' -> return pc'
+
+getStaticMap ::
+  J.ClassName -> JVMStmtGen h s ret (Expr JVM s (StringMapType JVMValueType))
+getStaticMap _className = sgUnimplemented "getStaticMap"
+
+putStaticMap ::
+  J.ClassName -> Expr JVM s (StringMapType JVMValueType) -> JVMStmtGen h s ret ()
+putStaticMap _className _ = sgUnimplemented "putStaticMap"
 
 ----------------------------------------------------------------------
 
@@ -742,66 +762,52 @@ generateInstruction (pc, instr) =
     -- Object creation and manipulation
     J.New _name ->
       do sgUnimplemented "new" -- pushValue . RValue =<< newObject name
-    J.Getfield fldId ->
+
+    J.Getfield fieldId ->
       do objectRef <- rPop
          rawRef <- throwIfRefNull objectRef
          obj <- lift $ readRef rawRef
          let uobj = App (UnrollRecursive knownRepr knownRepr obj)
-         let minst = App (ProjectVariant knownRepr tag1 uobj)
+         let minst = App (ProjectVariant knownRepr Ctx.i1of2 uobj)
          inst <- lift $ assertedJustExpr minst "getfield: not a valid class instance"
-         let key = App (TextLit (fromString (J.fieldIdName fldId)))
+         let key = App (TextLit (fromString (J.fieldIdName fieldId)))
          let mval = App (LookupStringMapEntry knownRepr inst key)
-         val <- lift $ assertedJustExpr mval "getfield: field not found"
-         case J.fieldIdType fldId of
-           J.BooleanType -> iPush =<< projectVariant tagI val
-           J.ArrayType _ -> rPush =<< projectVariant tagR val
-           J.ByteType    -> iPush =<< projectVariant tagI val
-           J.CharType    -> iPush =<< projectVariant tagI val
-           J.ClassType _ -> rPush =<< projectVariant tagR val
-           J.DoubleType  -> dPush =<< projectVariant tagD val
-           J.FloatType   -> fPush =<< projectVariant tagF val
-           J.IntType     -> iPush =<< projectVariant tagI val
-           J.LongType    -> lPush =<< projectVariant tagL val
-           J.ShortType   -> iPush =<< projectVariant tagI val
-    J.Putfield fldId ->
+         dyn <- lift $ assertedJustExpr mval "getfield: field not found"
+         val <- fromJVMDynamic (J.fieldIdType fieldId) dyn
+         pushValue val
+
+    J.Putfield fieldId ->
       do val <- popValue
          objectRef <- rPop
          rawRef <- throwIfRefNull objectRef
          obj <- lift $ readRef rawRef
          let uobj = App (UnrollRecursive knownRepr knownRepr obj)
-         let minst = App (ProjectVariant knownRepr tag1 uobj)
+         let minst = App (ProjectVariant knownRepr Ctx.i1of2 uobj)
          inst <- lift $ assertedJustExpr minst "putfield: not a valid class instance"
-         var <-
-           case J.fieldIdType fldId of
-             J.BooleanType -> injectVariant tagI <$> fmap boolFromInt (fromIValue val)
-             J.ArrayType _ -> injectVariant tagR <$> fromRValue val
-             J.ByteType    -> injectVariant tagI <$> fmap byteFromInt (fromIValue val)
-             J.CharType    -> injectVariant tagI <$> fmap charFromInt (fromIValue val)
-             J.ClassType _ -> injectVariant tagR <$> fromRValue val
-             J.DoubleType  -> injectVariant tagD <$> fromDValue val
-             J.FloatType   -> injectVariant tagF <$> fromFValue val
-             J.IntType     -> injectVariant tagI <$> fromIValue val
-             J.LongType    -> injectVariant tagL <$> fromLValue val
-             J.ShortType   -> injectVariant tagI <$> fmap shortFromInt (fromIValue val)
-         let key = App (TextLit (fromString (J.fieldIdName fldId)))
-         let mvar = App (JustValue knownRepr var)
-         let inst' = App (InsertStringMapEntry knownRepr inst key mvar)
-         let uobj' = App (InjectVariant knownRepr tag1 inst')
+         dyn <- toJVMDynamic (J.fieldIdType fieldId) val
+         let key = App (TextLit (fromString (J.fieldIdName fieldId)))
+         let mdyn = App (JustValue knownRepr dyn)
+         let inst' = App (InsertStringMapEntry knownRepr inst key mdyn)
+         let uobj' = App (InjectVariant knownRepr Ctx.i1of2 inst')
          let obj' = App (RollRecursive knownRepr knownRepr uobj')
          lift $ writeRef rawRef obj'
-    J.Getstatic _fieldId ->
-      do sgUnimplemented "getstatic" --initializeClass $ J.fieldIdClass fieldId
-         --pushStaticFieldValue fieldId
+
+    J.Getstatic fieldId ->
+      do inst <- getStaticMap (J.fieldIdClass fieldId)
+         let key = App (TextLit (fromString (J.fieldIdName fieldId)))
+         let mdyn = App (LookupStringMapEntry knownRepr inst key)
+         dyn <- lift $ assertedJustExpr mdyn "getfield: field not found"
+         val <- fromJVMDynamic (J.fieldIdType fieldId) dyn
+         pushValue val
+
     J.Putstatic fieldId ->
-      do --initializeClass $ J.fieldIdClass fieldId
-         _value <-
-           case J.fieldIdType fieldId of
-             J.BooleanType -> return . IValue . boolFromInt =<< iPop
-             J.ByteType    -> return . IValue . byteFromInt =<< iPop
-             J.CharType    -> return . IValue . charFromInt =<< iPop
-             J.ShortType   -> return . IValue . shortFromInt =<< iPop
-             _             -> popValue
-         sgUnimplemented "putstatic" --setStaticFieldValue fieldId value
+      do inst <- getStaticMap (J.fieldIdClass fieldId)
+         let key = App (TextLit (fromString (J.fieldIdName fieldId)))
+         val <- popValue
+         dyn <- toJVMDynamic (J.fieldIdType fieldId) val
+         let mdyn = App (JustValue knownRepr dyn)
+         let inst' = App (InsertStringMapEntry knownRepr inst key mdyn)
+         putStaticMap (J.fieldIdClass fieldId) inst'
 
     -- Array creation and manipulation
     J.Newarray arrayType ->
@@ -1033,7 +1039,7 @@ newarrayInstr tag count x =
      let vec = App (VectorReplicate knownRepr (App (BvToNat w32 count)) val)
      let ctx = Ctx.empty `Ctx.extend` count `Ctx.extend` vec
      let arr = App (MkStruct knownRepr ctx)
-     let uobj = App (InjectVariant knownRepr tag2 arr)
+     let uobj = App (InjectVariant knownRepr Ctx.i2of2 arr)
      let obj = App (RollRecursive knownRepr knownRepr uobj)
      rawRef <- lift $ newRef obj
      let ref = App (JustValue knownRepr rawRef)
@@ -1050,9 +1056,9 @@ aloadInstr tag mkVal =
      rawRef <- throwIfRefNull arrayRef
      obj <- lift $ readRef rawRef
      let uobj = App (UnrollRecursive knownRepr knownRepr obj)
-     let marr = App (ProjectVariant knownRepr tag2 uobj)
+     let marr = App (ProjectVariant knownRepr Ctx.i2of2 uobj)
      arr <- lift $ assertedJustExpr marr "aload: not a valid array"
-     let vec = App (GetStruct arr tag2 knownRepr)
+     let vec = App (GetStruct arr Ctx.i2of2 knownRepr)
      -- TODO: assert 0 <= idx < length arr
      let val = App (VectorGetEntry knownRepr vec (App (BvToNat w32 idx)))
      let mx = App (ProjectVariant knownRepr tag val)
@@ -1071,14 +1077,14 @@ astoreInstr tag f x =
      rawRef <- throwIfRefNull arrayRef
      obj <- lift $ readRef rawRef
      let uobj = App (UnrollRecursive knownRepr knownRepr obj)
-     let marr = App (ProjectVariant knownRepr tag2 uobj)
+     let marr = App (ProjectVariant knownRepr Ctx.i2of2 uobj)
      arr <- lift $ assertedJustExpr marr "astore: not a valid array"
-     let vec = App (GetStruct arr tag2 knownRepr)
+     let vec = App (GetStruct arr Ctx.i2of2 knownRepr)
      -- TODO: assert 0 <= idx < length arr
      let val = App (InjectVariant knownRepr tag (f x))
      let vec' = App (VectorSetEntry knownRepr vec (App (BvToNat w32 idx)) val)
-     let arr' = App (SetStruct knownRepr arr tag2 vec')
-     let uobj' = App (InjectVariant knownRepr tag2 arr')
+     let arr' = App (SetStruct knownRepr arr Ctx.i2of2 vec')
+     let uobj' = App (InjectVariant knownRepr Ctx.i2of2 arr')
      let obj' = App (RollRecursive knownRepr knownRepr uobj')
      lift $ writeRef rawRef obj'
 
@@ -1281,7 +1287,7 @@ initialJVMExprFrame cn method ctx asgn = JVMFrame [] locals
 
 ----------------------------------------------------------------------
 
--- | Build the initial JVM generator state upon entry to to the entry
+-- | Build the initial JVM generator state upon entry to the entry
 -- point of a method.
 initialState :: JVMContext -> J.Method -> TypeRepr ret -> JVMState ret s
 initialState ctx method ret =
