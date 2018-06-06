@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+<script src="jquery.min.js"></script>
+<script src="sample.js"></script>
+<script src="goals.js"></script>
+<script>
+function drawLines() {
+  var i
+  var dom = $('<ol/>')
+  for (i = 0; i < lines.length; ++i) {
+    var li = $('<li/>').text(lines[i])
+    dom.append(li)
+  }
+  return dom
+}
+
+$(document).ready(function() {
+  $('#source-code').append(drawLines())
+  $('#nav-bar').append(drawLines())
+})
+</script>
+<style>
+html { height: 100%; padding: 0; margin: 0; }
+body { height: 100%; padding: 0; margin: 0; }
+
+#nav-bar {
+  width: 25%;
+  float: left;
+  height: 90%;
+  overflow: auto;
+}
+
+#source-code {
+  float: right;
+  width: 74%;
+  font-family: monospace;
+  white-space: pre;
+  height: 90%;
+  overflow: auto;
+  font-size: 16px;
+}
+
+#source-code>ol {
+  counter-reset: item;
+}
+
+#source-code>ol>li {
+  list-style-type: none;
+  counter-increment: item;
+}
+
+#source-code>ol>li:hover {
+  background-color: #ccf;
+}
+
+#source-code>ol>li:before {
+  display: inline-block;
+  width: 4em;
+  text-align: right;
+  content: counter(item);
+  margin-right: 1em;
+  font-size: 10px;
+  font-style: italic;
+  color: #999;
+}
+
+</style>
+</head>
+<body><div id="nav-bar"></div
+><div id="source-code"></div
+></body>
+</html>
+

@@ -503,6 +503,24 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     RealToNat x_expr -> do
       x <- evalSub x_expr
       realToNat sym x
+    BvToNat _ xe -> do
+      bvToNat sym =<< evalSub xe
+    BvToInteger _ xe -> do
+      bvToInteger sym =<< evalSub xe
+    SbvToInteger _ xe -> do
+      sbvToInteger sym =<< evalSub xe
+    RealFloor xe ->
+      realFloor sym =<< evalSub xe
+    RealCeil xe ->
+      realCeil sym =<< evalSub xe
+    RealRound xe ->
+      realRound sym =<< evalSub xe
+    IntegerToBV w xe -> do
+      x <- evalSub xe
+      integerToBV sym x w
+    IntegerToSBV w xe -> do
+      x <- evalSub xe
+      integerToSBV sym x w
 
     ----------------------------------------------------------------------
     -- ComplexReal
@@ -582,12 +600,6 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       y <- evalSub ye
       bvSrem sym x y
 
-    BvToNat _ xe -> do
-      bvToNat sym =<< evalSub xe
-    BvToInteger _ xe -> do
-      bvToInteger sym =<< evalSub xe
-    SbvToInteger _ xe -> do
-      sbvToInteger sym =<< evalSub xe
     BVUlt _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye

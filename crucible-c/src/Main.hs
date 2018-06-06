@@ -2,12 +2,14 @@
 {-# Language TypeFamilies #-}
 {-# Language RankNTypes #-}
 {-# Language PatternSynonyms #-}
+
+{-# Language FlexibleContexts #-}
 module Main(main) where
 
 import Data.String(fromString)
 import qualified Data.Foldable as Fold
 import qualified Data.Map as Map
-import Control.Lens((^.),(^..))
+import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)
 import Control.Monad(unless)
 import Control.Exception(SomeException(..),displayException)
@@ -15,7 +17,7 @@ import System.IO(hPutStrLn,stdout,stderr)
 import System.Environment(getProgName,getArgs)
 import System.FilePath(takeExtension)
 
-import Control.Monad.State(evalStateT)
+import Control.Monad.State(evalStateT,liftIO)
 
 import Data.Parameterized.Nonce(withIONonceGenerator)
 import Data.Parameterized.Some(Some(..))
@@ -26,14 +28,13 @@ import Data.LLVM.BitCode (parseBitCodeFromFile)
 
 
 import Lang.Crucible.Backend
-  (getProofObligations,IsSymInterface, pushAssumptionFrame, popAssumptionFrame)
-import Lang.Crucible.Backend.Online(withZ3OnlineBackend)
--- import Lang.Crucible.Backend.Online(withYicesOnlineBackend)
+import Lang.Crucible.Backend.Online
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
 import Lang.Crucible.Simulator.RegMap(emptyRegMap,regValue)
 import Lang.Crucible.Simulator.ExecutionTree
+import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Simulator.OverrideSim
         ( fnBindingsFromList, initSimState, runOverrideSim, callCFG)
 
@@ -58,6 +59,8 @@ import Model
 import Clang
 import Log
 import Options
+import ProgressBar
+import Report
 
 main :: IO ()
 main =
@@ -66,8 +69,8 @@ main =
        file : _ ->
           do opts <- testOptions file
              do unless (takeExtension file == ".bc") (genBitCode opts)
-                checkBC opts `catch` errHandler opts
-           `catch` \e -> sayFail "Crux" ("This: " ++ ppError e)
+                checkBC opts
+           `catch` \e -> sayFail "Crux" (ppError e)
        _ -> do p <- getProgName
                hPutStrLn stderr $ unlines
                   [ "Usage:"
@@ -77,23 +80,11 @@ main =
                     do putStrLn "TOP LEVEL EXCEPTION"
                        putStrLn (displayException e)
 
-
-errHandler :: Options -> Error -> IO ()
-errHandler opts e =
-  do sayFail "Crux" (ppError e)
-     case e of
-       FailedToProve _ (Just c) -> buildModelExes opts c
-       _ -> return ()
-    `catch` \e1 -> sayFail "Crux" (ppError e1)
-
 checkBC :: Options -> IO ()
 checkBC opts =
   do let file = optsBCFile opts
      say "Crux" ("Checking " ++ show file)
-     mbErr <- simulate file (checkFun "main")
-     case mbErr of
-      Nothing -> sayOK "Crux" "Valid."
-      Just e -> errHandler opts e
+     generateReport opts =<< simulate opts (checkFun "main")
 
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::
@@ -139,13 +130,13 @@ setupMem ctx mtrans =
 
 
 simulate ::
-  FilePath ->
-  (forall scope arch.
-      ArchOk arch => ModuleCFGMap arch -> OverM scope arch ()
+  Options ->
+  (forall sym arch.
+      ArchOk arch => ModuleCFGMap arch -> OverM sym arch ()
   ) ->
-  IO (Maybe Error)
-simulate file k =
-  do llvm_mod   <- parseLLVM file
+  IO [ ([AssumptionReason], SimError, ProofResult) ]
+simulate opts k =
+  do llvm_mod   <- parseLLVM (optsBCFile opts)
      halloc     <- newHandleAllocator
      Some trans <- stToIO (translateModule halloc llvm_mod)
      let llvmCtxt = trans ^. transContext
@@ -153,8 +144,8 @@ simulate file k =
      llvmPtrWidth llvmCtxt $ \ptrW ->
        withPtrWidth ptrW $
        withIONonceGenerator $ \nonceGen ->
-       withZ3OnlineBackend nonceGen $ \sym ->
-       -- withYicesOnlineBackend nonceGen $ \sym ->
+       -- withZ3OnlineBackend nonceGen $ \sym ->
+       withYicesOnlineBackend nonceGen $ \sym ->
        do frm <- pushAssumptionFrame sym
           let simctx = setupSimCtxt halloc sym
 
@@ -169,28 +160,34 @@ simulate file k =
 
           _ <- popAssumptionFrame sym frm
 
-          case res of
-            FinishedExecution ctx' _ ->
-              do gs <- Fold.toList <$> getProofObligations sym
-                 proveGoals ctx' gs
-            AbortedResult _ctxt err ->
-              do gs <- Fold.toList <$> getProofObligations sym
-                 proveGoals _ctxt gs
-{-
-              do let fs = err ^.. arFrames
-                 putStrLn "Call stack:"
-                 print (ppExceptionContext fs)
-                 throwError (SimAbort err)
--}
+          ctx' <- case res of
+                    FinishedExecution ctx' _ -> return ctx'
+                    AbortedResult ctx' _ -> return ctx'
 
+          say "Crux" "Simulation complete."
 
-checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM scope arch ()
+          gs <- Fold.toList <$> getProofObligations sym
+          let n = length gs
+              suff = if n == 1 then "" else "s"
+          say "Crux" ("Proving " ++ show n ++ " side condition" ++ suff ++ ".")
+          withProgressBar 60 gs $ \g ->
+             do result <- proveGoal ctx' g
+                return ( map (^. labeledPredMsg)
+                             (Fold.toList (proofAssumptions g))
+                       , proofGoal g ^. labeledPredMsg
+                       , result
+                       )
+
+checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM sym arch ()
 checkFun nm mp =
   case Map.lookup (fromString nm) mp of
     Just (AnyCFG anyCfg) ->
       case cfgArgTypes anyCfg of
-        Empty -> (regValue <$> callCFG anyCfg emptyRegMap) >> return ()
+        Empty ->
+          do liftIO $ say "Crux" ("Simulating function " ++ show nm)
+             (regValue <$> callCFG anyCfg emptyRegMap) >> return ()
         _     -> throwError BadFun
     Nothing -> throwError (MissingFun nm)
+
 
 
