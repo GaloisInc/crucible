@@ -22,7 +22,7 @@ import Model
 
 
 data ProofResult = Proved
-                 | NotProved (Maybe String)   -- ^ Counter example, if any
+                 | NotProved (Maybe ModelViews)   -- ^ Counter example, if any
 
 proveGoal ::
   ( sym ~ ExprBuilder s (OnlineBackendState solver)

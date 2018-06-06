@@ -8,6 +8,7 @@ import Lang.Crucible.Backend
 import What4.ProgramLoc
 
 import Options
+import Model
 import Goal
 
 type SideCond = ([AssumptionReason], SimError, ProofResult)
@@ -22,7 +23,8 @@ jsList xs = "[" ++ intercalate "," xs ++ "]"
 
 jsSideCond :: SideCond -> String
 jsSideCond (asmps,conc,status) =
-  unlines [ "{ \"proved\": "    ++ proved
+  unlines [ "{ \"proved\": " ++ proved
+          , ", \"counter-example\": " ++ example
           , ", \"goal\": "      ++ name
           , ", \"location\": "  ++ loc
           , ", \"assumptions\": " ++ jsList asmpList
@@ -32,6 +34,10 @@ jsSideCond (asmps,conc,status) =
   proved = case status of
              Proved -> "true"
              _      -> "false"
+
+  example = case status of
+             NotProved (Just m) -> modelInJS m
+             _  -> "null"
 
   name = show (simErrorReasonMsg (simErrorReason conc))
 
