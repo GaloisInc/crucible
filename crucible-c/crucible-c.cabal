@@ -27,7 +27,9 @@ executable crucible-c
     Model,
     Clang,
     Log,
-    Options
+    Options,
+    ProgressBar,
+    Report
 
 
   build-depends:

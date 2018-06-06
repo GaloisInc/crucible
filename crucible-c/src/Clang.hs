@@ -56,7 +56,6 @@ genBitCode opts =
                   , inputFile opts
                   , "-o", optsBCFile opts
                   ]
-
      runClang opts params
 
 
@@ -87,10 +86,13 @@ buildModelExes opts counter_src =
 testOptions :: FilePath -> IO Options
 testOptions inp =
   do clang <- getClang
+     let name = dropExtension (takeFileName inp)
+         odir = "out-" ++ name
      return Options { clangBin  = clang
                     , libDir    = "c-src"
-                    , outDir    = "out-" ++ dropExtension (takeFileName inp)
+                    , outDir    = odir
                     , inputFile = inp
+                    , optsBCFile = odir </> name <.> "bc"
                     }
 
 
