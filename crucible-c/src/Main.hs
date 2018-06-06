@@ -144,8 +144,8 @@ simulate opts k =
      llvmPtrWidth llvmCtxt $ \ptrW ->
        withPtrWidth ptrW $
        withIONonceGenerator $ \nonceGen ->
-       -- withZ3OnlineBackend nonceGen $ \sym ->
-       withYicesOnlineBackend nonceGen $ \sym ->
+       withZ3OnlineBackend nonceGen $ \sym ->
+       -- withYicesOnlineBackend nonceGen $ \sym ->
        do frm <- pushAssumptionFrame sym
           let simctx = setupSimCtxt halloc sym
 
@@ -162,7 +162,9 @@ simulate opts k =
 
           ctx' <- case res of
                     FinishedExecution ctx' _ -> return ctx'
-                    AbortedResult ctx' _ -> return ctx'
+                    AbortedResult ctx' _ ->
+                      do putStrLn "Aborted result"
+                         return ctx'
 
           say "Crux" "Simulation complete."
 
