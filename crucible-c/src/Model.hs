@@ -127,8 +127,8 @@ ppModelJS ::
 ppModelJS ev m =
   do vals <- evalModel ev m
      let ents = MapF.foldrWithKey (\k v rest -> ppValsJS k v ++ rest) [] vals
-         pre  = "{ " : repeat ", "
-     return $ unlines $ zipWith (++) pre ents ++ ["}"]
+         pre  = "[ " : repeat ", "
+     return $ unlines $ zipWith (++) pre ents ++ ["]"]
 
 
 
