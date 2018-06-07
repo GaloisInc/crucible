@@ -43,7 +43,17 @@ jsSideCond (asmps,conc,status) =
 
   loc  = src (simErrorLoc conc)
 
-  asmpList = map (src . assumptionLoc) asmps
+  asmpList = map mkAsmp asmps
+
+  mkAsmp a = "{ \"line\": " ++ src (assumptionLoc a) ++
+             ", \"dir\": " ++ asmpDir a ++ "}"
+
+  asmpDir a = case a of
+                ExploringAPath nm _ ->
+                  case nm of
+                    TrueBranch -> "true"
+                    FalseBranch -> "false"
+                _ -> "null"
 
   src x = case plSourceLoc x of
             SourcePos _ l _ -> show (show l)

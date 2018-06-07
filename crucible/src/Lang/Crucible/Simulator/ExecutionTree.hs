@@ -440,6 +440,7 @@ data VFFOtherPath p sym ext ret f args
    -- | This corresponds the a path that still needs to be analyzed.
    = forall o_args.
       VFFActivePath
+        !BranchName
         !(PausedPartialFrame p sym ext ret f o_args)
 
      -- | This is a completed execution path.
@@ -448,6 +449,7 @@ data VFFOtherPath p sym ext ret f args
         {- Assumptions that we collected while analyzing the branch -}
 
         !(PausedPartialFrame p sym ext ret f args)
+
 
 
 {- | This type contains information about the current state of the exploration
@@ -566,7 +568,7 @@ instance PP.Pretty (ValueFromFrame p ext sym ret f) where
   pretty = ppValueFromFrame
 
 instance PP.Pretty (VFFOtherPath ctx sym ext r f a) where
-  pretty (VFFActivePath _)   = PP.text "active_path"
+  pretty (VFFActivePath _ _)   = PP.text "active_path"
   pretty (VFFCompletePath _ _) = PP.text "complete_path"
 
 ppValueFromFrame :: ValueFromFrame p sym ext ret f -> PP.Doc
@@ -785,11 +787,11 @@ checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $
         case other_branch of
 
           -- We still have some more work to do.
-          VFFActivePath next ->
+          VFFActivePath nm next ->
             do pathAssumes      <- popAssumptionFrame sym assume_frame
                new_assume_frame <- pushAssumptionFrame sym
                pnot             <- notPred sym p
-               addAssumption sym (LabeledPred pnot (ExploringAPath loc))
+               addAssumption sym (LabeledPred pnot (ExploringAPath nm loc))
 
                -- The current branch is done
                let other = VFFCompletePath
@@ -897,7 +899,8 @@ intra_branch s p t_label f_label tgt = stateSolverProof s $ do
       PausedFrame o_frame <- pushBranchVal s o_state
 
       assume_frame <- pushAssumptionFrame sym
-      addAssumption sym (LabeledPred p' (ExploringAPath loc))
+      let nm = branchNameFromBool chosen_branch
+      addAssumption sym (LabeledPred p' (ExploringAPath nm loc))
 
       -- Create context for paused frame.
       let o_tree = o_frame & pausedValue %~ TotalRes
@@ -906,7 +909,9 @@ intra_branch s p t_label f_label tgt = stateSolverProof s $ do
                                                            tgt s''
                                                            id
                                                            o_id)
-      let ctx' = VFFBranch ctx assume_frame loc p' (VFFActivePath o_tree) tgt
+      let todo = VFFActivePath (branchNameFromBool (not chosen_branch)) o_tree
+          ctx' = VFFBranch ctx assume_frame loc p' todo tgt
+
       -- Start a_state (where branch pred is p')
       let PausedFrame pf = a_frame
           setter = stateTree .~ ActiveTree ctx' (TotalRes (pf^.pausedValue))
@@ -1147,8 +1152,8 @@ resumeValueFromFrameAbort s ctx0 ar0 = stateSolverProof s $
          case other_branch of
 
            -- We have some more work to do.
-           VFFActivePath   n ->
-             do addAssumption sym (LabeledPred pnot (ExploringAPath loc))
+           VFFActivePath nm n ->
+             do addAssumption sym (LabeledPred pnot (ExploringAPath nm loc))
                 resumeFrame s n nextCtx
 
            -- The other branch had finished successfully;

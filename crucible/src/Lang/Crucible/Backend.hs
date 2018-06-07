@@ -24,6 +24,8 @@ module Lang.Crucible.Backend
 
     -- * Assumption management
   , AssumptionReason(..)
+  , BranchName(..)
+  , branchNameFromBool
   , ppAssumptionReason
   , assumptionLoc
   , Assertion
@@ -67,7 +69,7 @@ data AssumptionReason =
     AssumptionReason ProgramLoc String
     -- ^ An unstructured description of the source of an assumption.
 
-  | ExploringAPath ProgramLoc
+  | ExploringAPath BranchName ProgramLoc
     -- ^ This arose because we want to explore a specific path.
 
   | AssumingNoError SimError
@@ -75,11 +77,18 @@ data AssumptionReason =
     -- a certain simulator error.
     deriving Show
 
+
+data BranchName = TrueBranch | FalseBranch
+                    deriving Show
+
+branchNameFromBool :: Bool -> BranchName
+branchNameFromBool b = if b then TrueBranch else FalseBranch
+
 assumptionLoc :: AssumptionReason -> ProgramLoc
 assumptionLoc r =
   case r of
     AssumptionReason l _ -> l
-    ExploringAPath l     -> l
+    ExploringAPath _ l   -> l
     AssumingNoError s    -> simErrorLoc s
 
 instance AS.AssumeAssert AssumptionReason SimError where
@@ -126,8 +135,15 @@ ppAssumptionReason :: AssumptionReason -> PP.Doc
 ppAssumptionReason e =
   case e of
     AssumptionReason l msg -> ppLocated l (PP.text msg)
-    ExploringAPath l       -> "Choice point at" PP.<+> ppLoc l
+    ExploringAPath nm l    -> "The" PP.<+> ppBranchName nm PP.<+> "at"
+                                                           PP.<+> ppLoc l
     AssumingNoError simErr -> ppSimError simErr
+
+ppBranchName :: BranchName -> PP.Doc
+ppBranchName x =
+  case x of
+    TrueBranch -> "true branch"
+    FalseBranch -> "false branch"
 
 ppLocated :: ProgramLoc -> PP.Doc -> PP.Doc
 ppLocated l x = ppLoc l <> ":" PP.<+> x

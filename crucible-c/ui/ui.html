@@ -36,6 +36,10 @@ function drawCounterExample(e) {
   })
 }
 
+function drawAsmpDir(a) {
+  return $('<span/>').addClass('asmp-dir').text(a)
+}
+
 function drawGoals() {
   var dom = $('<div>').addClass('goals')
 
@@ -47,12 +51,16 @@ function drawGoals() {
                    )
     li.click(function() {
       $('.ctr-example').remove()
+      $('.asmp-dir').remove()
       $('.line').removeClass('highlight-proved')
                 .removeClass('highlight-failed')
                 .removeClass('highlight-assumed')
      jQuery.each(g.assumptions, function(ix,a) {
-        if (a === g.location) return true
-        $('#line-' + a).addClass('highlight-assumed')
+        if (a.line === g.location) return true
+        var ln = $('#line-' + a.line)
+        ln.addClass('highlight-assumed')
+        if (a.dir !== null)
+          ln.append(drawAsmpDir(a.dir))
       })
       if (g.location !== null)
         $('#line-' + g.location)
@@ -121,6 +129,16 @@ body { height: 100%; padding: 0; margin: 0; }
 .highlight-failed  { background-color: red; }
 .highlight-assumed { background-color: cyan; }
 .ctr-example {
+  border: 1px solid black;
+  margin: 5px;
+  background-color: #eee;
+  padding-left: 2px;
+  padding-right: 2px;
+  border-radius: 5px;
+  font-size: smaller;
+}
+
+.asmp-dir {
   border: 1px solid black;
   margin: 5px;
   background-color: #eee;
