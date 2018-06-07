@@ -47,11 +47,14 @@ import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.TraversableFC
 
+import           What4.Interface
+import           What4.WordMap
+
 import           Lang.Crucible.CFG.Core (Reg(..))
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegValue
-import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Types
+import           Lang.Crucible.Utils.MuxTree
 
 ------------------------------------------------------------------------
 -- RegMap
@@ -90,11 +93,6 @@ regVal' :: RegMap sym ctx
        -> RegEntry sym tp
 regVal' (RegMap a) r = a Ctx.! regIndex r
 
-muxConcrete :: (Eq a, Show a) => sym -> ValMuxFn sym (ConcreteType a)
-muxConcrete _ _ x y
-  | x == y = return x
-  | otherwise =
-     fail $ unwords ["Attempted to mux distinct concrete values", show x, show y]
 
 muxAny :: IsExprBuilder sym
        => sym
@@ -110,9 +108,7 @@ muxAny s itefns p (AnyValue tpx x) (AnyValue tpy y)
 muxReference :: IsExprBuilder sym
              => sym
              -> ValMuxFn sym (ReferenceType tp)
-muxReference _s _p rx ry
-  | Just Refl <- testEquality rx ry = return rx
-  | otherwise = fail $ unwords ["Attempted to merge distinct reference cells"]
+muxReference s = mergeMuxTree s
 
 {-# INLINABLE pushBranchForType #-}
 pushBranchForType :: forall sym tp
@@ -174,7 +170,6 @@ muxRegForType s itefns p =
      BoolRepr          -> muxReg s p
      StringRepr        -> muxReg s p
 
-     ConcreteRepr TypeableType -> muxConcrete s
      AnyRepr -> muxAny s itefns
      StructRepr  ctx -> muxStruct    (muxRegForType s itefns) ctx
      VariantRepr ctx -> muxVariant s (muxRegForType s itefns) ctx

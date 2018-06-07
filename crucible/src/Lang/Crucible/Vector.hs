@@ -68,10 +68,11 @@ import Unsafe.Coerce
 import Data.Coerce
 import Prelude hiding (length,zipWith)
 
+import What4.Utils.Endian
+
 import Lang.Crucible.Types
 import Lang.Crucible.Syntax
 import Lang.Crucible.CFG.Expr
-import Lang.Crucible.Utils.Endian
 
 -- | Fixed-size non-empty vectors.
 data Vector n a where

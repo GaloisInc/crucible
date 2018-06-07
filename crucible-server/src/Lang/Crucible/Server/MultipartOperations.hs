@@ -32,14 +32,15 @@ import           Control.Monad.ST (RealWorld, stToIO)
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Text as Text
 
+import           What4.FunctionName
+import           What4.ProgramLoc
+
 import           Lang.Crucible.Analysis.Postdom
 import qualified Lang.Crucible.CFG.Core as C
 import qualified Lang.Crucible.CFG.Generator as Gen
 import qualified Lang.Crucible.CFG.Reg as R
 import           Lang.Crucible.CFG.SSAConversion (toSSA)
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.FunctionName
-import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Server.Simulator
 import           Lang.Crucible.Syntax

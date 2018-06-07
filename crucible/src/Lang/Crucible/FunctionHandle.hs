@@ -41,6 +41,7 @@ module Lang.Crucible.FunctionHandle
 
 import           Control.Monad.ST
 import           Data.Hashable
+import           Data.Ord (comparing)
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Classes
@@ -48,9 +49,10 @@ import           Data.Parameterized.Map (MapF)
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Nonce.Unsafe
 
-import           Lang.Crucible.FunctionName
+import           What4.FunctionName
+import           What4.Utils.MonadST
+
 import           Lang.Crucible.Types
-import           Lang.Crucible.Utils.MonadST
 
 ------------------------------------------------------------------------
 -- FunctionHandle
@@ -70,6 +72,9 @@ data FnHandle (args :: Ctx CrucibleType) (ret :: CrucibleType)
 
 instance Eq (FnHandle args ret) where
   h1 == h2 = handleID h1 == handleID h2
+
+instance Ord (FnHandle args ret) where
+  compare h1 h2 = comparing handleID h1 h2
 
 instance Show (FnHandle args ret) where
   show h = show (handleName h)
@@ -151,6 +156,12 @@ instance OrdF RefCell where
       LTF -> LTF
       EQF -> EQF
       GTF -> GTF
+
+instance Eq (RefCell tp) where
+  x == y = isJust (testEquality x y)
+
+instance Ord (RefCell tp) where
+  compare x y = toOrdering (compareF x y)
 
 ------------------------------------------------------------------------
 -- FnHandleMap

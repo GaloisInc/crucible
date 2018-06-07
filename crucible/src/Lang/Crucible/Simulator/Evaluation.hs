@@ -32,7 +32,7 @@ module Lang.Crucible.Simulator.Evaluation
   , updateVectorWithSymNat
   ) where
 
-import           Control.Exception (assert)
+import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad
 import qualified Data.Map.Strict as Map
@@ -46,16 +46,19 @@ import           Data.Word
 import           Numeric ( showHex )
 import           Numeric.Natural
 
+import           What4.Interface
+import           What4.Partial
+import           What4.Symbol (emptySymbol)
+import           What4.Utils.Complex
+import           What4.WordMap
+
+import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Solver.Partial
-import           Lang.Crucible.Solver.Symbol (emptySymbol)
 import           Lang.Crucible.Types
-import           Lang.Crucible.Utils.Complex
+import           Lang.Crucible.Utils.MuxTree
 
 ------------------------------------------------------------------------
 -- Utilities
@@ -93,7 +96,7 @@ complexRealAsChar v = do
 
 
 -- | Helper method for implementing 'indexSymbolic'
-indexSymbolic' :: (IsSymInterface sym, IsBoolSolver sym)
+indexSymbolic' :: IsSymInterface sym
                => sym
                -> (Pred sym -> a -> a -> IO a)
                   -- ^ Function for merging valeus
@@ -114,7 +117,7 @@ indexSymbolic' sym iteFn f p ((l,h):nl) (si:il) = do
       l_sym <- natLit sym l
       h_sym <- natLit sym h
       inRange <- join $ andPred sym <$> natLe sym l_sym si <*> natLe sym si h_sym
-      addAssertion sym inRange (GenericSimError "Index exceeds matrix dimensions.")
+      assert sym inRange (GenericSimError "Index exceeds matrix dimensions.")
       let predFn i = natEq sym si =<< natLit sym (fromInteger i)
       muxIntegerRange predFn iteFn (subIndex . fromInteger) (toInteger l) (toInteger h)
 
@@ -123,7 +126,7 @@ indexSymbolic' sym iteFn f p ((l,h):nl) (si:il) = do
 -- This function takes a list of symbolic indices as natural numbers
 -- along with a pair of lower and upper bounds for each index.
 -- It assumes that the indices are all in range.
-indexSymbolic :: (IsSymInterface sym, IsBoolSolver sym)
+indexSymbolic :: IsSymInterface sym
               => sym
               -> (Pred sym -> a  -> a -> IO a)
                  -- ^ Function for combining results together.
@@ -160,7 +163,7 @@ indexVectorWithSymNat :: IsExprBuilder sym
                       -> IO a
 indexVectorWithSymNat sym iteFn v si = do
   let n = fromIntegral (V.length v)
-  assert (n > 0) $ do
+  Ex.assert (n > 0) $ do
   case asNat si of
     Just i | 0 <= i && i <= n -> return (v V.! fromIntegral i)
            | otherwise -> error "indexVectorWithSymNat given bad value"
@@ -226,7 +229,7 @@ type EvalAppFunc sym app = forall f.
 {-# INLINE evalApp #-}
 -- | Evaluate the application.
 evalApp :: forall sym ext
-         . (IsSymInterface sym, IsBoolSolver sym)
+         . IsSymInterface sym
         => sym
         -> IntrinsicTypes sym
         -> (Int -> String -> IO ())
@@ -274,11 +277,6 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
                return $! PE (truePred sym) v
           | otherwise ->
                return $! Unassigned
-
-    ----------------------------------------------------------------------
-    -- Concrete
-
-    ConcreteLit (TypeableValue x) -> return x
 
     ----------------------------------------------------------------------
     -- Bool
@@ -710,6 +708,5 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     ReferenceEq _ ref1 ref2 -> do
       cell1 <- evalSub ref1
       cell2 <- evalSub ref2
-      case testEquality cell1 cell2 of
-        Just Refl -> return (truePred sym)
-        Nothing -> return (falsePred sym)
+      let f r1 r2 = return (backendPred sym (r1 == r2))
+      muxTreeCmpOp sym f cell1 cell2

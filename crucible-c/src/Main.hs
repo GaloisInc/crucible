@@ -5,10 +5,7 @@
 module Main(main) where
 
 import Data.String(fromString)
-import Data.Function(on)
-import Data.List(sortBy)
 import qualified Data.Foldable as Fold
-import Data.Maybe(catMaybes)
 import qualified Data.Map as Map
 import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)
@@ -26,9 +23,10 @@ import Data.Parameterized.Context(pattern Empty)
 import Text.LLVM.AST(Module)
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 
-import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
-
-import Lang.Crucible.Config (extendConfig)
+import Lang.Crucible.Backend
+  (getProofObligations,IsSymInterface, pushAssumptionFrame, popAssumptionFrame)
+-- import Lang.Crucible.Backend.Online(withZ3OnlineBackend)
+import Lang.Crucible.Backend.Online(withYicesOnlineBackend)
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
@@ -43,10 +41,6 @@ import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Simulator.OverrideSim
         ( fnBindingsFromList, initSimState, runOverrideSim, callCFG)
 
-import Lang.Crucible.Solver.Interface(getConfiguration)
-import Lang.Crucible.Solver.BoolInterface
-  (getProofObligations,IsSymInterface, pushAssumptionFrame, popAssumptionFrame)
-
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn, LLVM)
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, initializeMemory
@@ -58,7 +52,7 @@ import Lang.Crucible.LLVM.Types(withPtrWidth)
 import Lang.Crucible.LLVM.Intrinsics
           (llvmIntrinsicTypes, llvmPtrWidth, register_llvm_overrides)
 
-import Lang.Crucible.Solver.OnlineBackend(withOnlineBackend)
+
 
 import Error
 import Goal
@@ -89,7 +83,7 @@ errHandler :: Options -> Error -> IO ()
 errHandler opts e =
   do sayFail "Crux" (ppError e)
      case e of
-       FailedToProve _ _ (Just c) -> buildModelExes opts c
+       FailedToProve _ (Just c) -> buildModelExes opts c
        _ -> return ()
     `catch` \e1 -> sayFail "Crux" (ppError e1)
 
@@ -97,10 +91,10 @@ checkBC :: Options -> IO ()
 checkBC opts =
   do let file = optsBCFile opts
      say "Crux" ("Checking " ++ show file)
-     errs <- simulate file (checkFun "main")
-     case catMaybes errs of
-      [] -> sayOK "Crux" "Valid."
-      (e : _) -> errHandler opts e
+     mbErr <- simulate file (checkFun "main")
+     case mbErr of
+      Nothing -> sayOK "Crux" "Valid."
+      Just e -> errHandler opts e
 
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::
@@ -150,7 +144,7 @@ simulate ::
   (forall scope arch.
       ArchOk arch => ModuleCFGMap arch -> OverM scope arch ()
   ) ->
-  IO [Maybe Error]
+  IO (Maybe Error)
 simulate file k =
   do llvm_mod   <- parseLLVM file
      halloc     <- newHandleAllocator
@@ -160,12 +154,9 @@ simulate file k =
      llvmPtrWidth llvmCtxt $ \ptrW ->
        withPtrWidth ptrW $
        withIONonceGenerator $ \nonceGen ->
-       withOnlineBackend nonceGen $ \sym ->
-       do -- set up configuration options
-          let cfg = getConfiguration sym
-          extendConfig (solver_adapter_config_options prover) cfg
-
-          frm <- pushAssumptionFrame sym
+       -- withZ3OnlineBackend nonceGen $ \sym ->
+       withYicesOnlineBackend nonceGen $ \sym ->
+       do frm <- pushAssumptionFrame sym
           let simctx = setupSimCtxt halloc sym
 
           mem  <- initializeMemory sym llvmCtxt llvm_mod
@@ -182,9 +173,9 @@ simulate file k =
           case res of
             FinishedExecution ctx' _ ->
               do gs <- Fold.toList <$> getProofObligations sym
-                 let ordGs = sortBy (compare `on` goalPriority) (map mkGoal gs)
-                 mapM (proveGoal ctx') ordGs
+                 proveGoals ctx' gs
             AbortedResult _ err -> throwError (SimAbort err)
+
 
 eHandler :: ErrorHandler (Model sym) sym (LLVM arch) trp
 eHandler = EH (\e st -> throwError (SimFail e (activeFrames (st ^. stateTree))))

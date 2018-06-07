@@ -31,7 +31,7 @@ import Data.String
 import Data.Typeable
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-import Lang.Crucible.ProgramLoc
+import What4.ProgramLoc
 
 ------------------------------------------------------------------------
 -- SimError
@@ -42,7 +42,6 @@ data SimErrorReason
    | ReadBeforeWriteSimError !String -- FIXME? include relevant data instead of a string?
    | AssertFailureSimError !String
    | PatternMatchFailureSimError
-   | FailedPathSimError
    | UnknownSolverResponseError
    | InfeasibleBranchError
  deriving (Typeable)
@@ -59,7 +58,6 @@ simErrorReasonMsg (GenericSimError msg) = msg
 simErrorReasonMsg (ReadBeforeWriteSimError msg) = msg
 simErrorReasonMsg (AssertFailureSimError msg) = msg
 simErrorReasonMsg PatternMatchFailureSimError = "pattern match failure"
-simErrorReasonMsg FailedPathSimError = "failed path error"
 simErrorReasonMsg UnknownSolverResponseError = "solver returned 'unknown' in response to query"
 simErrorReasonMsg InfeasibleBranchError = "execution branch made infeasible assumptions"
 

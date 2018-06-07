@@ -12,7 +12,7 @@ module Lang.Crucible.Simulator.Frame
 
 import Control.Lens
 
-import Lang.Crucible.FunctionName
+import What4.FunctionName
 import Lang.Crucible.Simulator.CallFrame
 import Lang.Crucible.Simulator.RegMap
 import Lang.Crucible.Types
