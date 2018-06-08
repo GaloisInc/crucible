@@ -46,13 +46,10 @@ jsSideCond (asmps,conc,status) =
   asmpList = map mkAsmp asmps
 
   mkAsmp a = "{ \"line\": " ++ src (assumptionLoc a) ++
-             ", \"dir\": " ++ asmpDir a ++ "}"
+             ", \"tgt\": " ++ asmpTgt a ++ "}"
 
-  asmpDir a = case a of
-                ExploringAPath nm _ ->
-                  case nm of
-                    TrueBranch -> "true"
-                    FalseBranch -> "false"
+  asmpTgt a = case a of
+                ExploringAPath _ (Just l) -> src l
                 _ -> "null"
 
   src x = case plSourceLoc x of

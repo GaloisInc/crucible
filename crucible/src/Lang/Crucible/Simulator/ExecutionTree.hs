@@ -33,6 +33,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , gpValue
   , gpGlobals
   , TopFrame
+  , crucibleTopFrame
     -- * AbortedResult
   , AbortedResult(..)
     -- * PartialResult
@@ -61,6 +62,7 @@ module Lang.Crucible.Simulator.ExecutionTree
     -- * Branch information
   , PausedValue(..)
   , PausedFrame(..)
+
     -- ** Branch and merge at return
   , intra_branch
   , SomeLabel(..)
@@ -83,6 +85,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , CrucibleBranchTarget(..)
   , errorHandler
   , stateContext
+  , stateCrucibleFrame
     -- * SimContext
   , Override(..)
   , SimContext(..)
@@ -199,6 +202,23 @@ mergeGlobalPair merge_fn global_fn c x y =
 
 -- | A frame plus the global state associated with it.
 type TopFrame sym ext f a = GlobalPair sym (SimFrame sym ext f a)
+
+crucibleTopFrame ::
+  Lens (TopFrame sym ext (CrucibleLang blocks r) ('Just args))
+       (TopFrame sym ext (CrucibleLang blocks r) ('Just args'))
+       (CallFrame sym ext blocks r args)
+       (CallFrame sym ext blocks r args')
+crucibleTopFrame = gpValue . crucibleSimFrame
+
+stateCrucibleFrame ::
+  Lens (SimState p sym ext rtp (CrucibleLang blocks r) ('Just a))
+       (SimState p sym ext rtp (CrucibleLang blocks r) ('Just a'))
+       (CallFrame sym ext blocks r a)
+       (CallFrame sym ext blocks r a')
+stateCrucibleFrame = stateTree . actFrame . crucibleTopFrame
+{-# INLINE stateCrucibleFrame #-}
+
+
 
 ------------------------------------------------------------------------
 -- SomeFrame
@@ -440,7 +460,7 @@ data VFFOtherPath p sym ext ret f args
    -- | This corresponds the a path that still needs to be analyzed.
    = forall o_args.
       VFFActivePath
-        !BranchName
+        !(Maybe ProgramLoc) {- Location of branch target -}
         !(PausedPartialFrame p sym ext ret f o_args)
 
      -- | This is a completed execution path.
@@ -787,11 +807,11 @@ checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $
         case other_branch of
 
           -- We still have some more work to do.
-          VFFActivePath nm next ->
+          VFFActivePath toTgt next ->
             do pathAssumes      <- popAssumptionFrame sym assume_frame
                new_assume_frame <- pushAssumptionFrame sym
                pnot             <- notPred sym p
-               addAssumption sym (LabeledPred pnot (ExploringAPath nm loc))
+               addAssumption sym (LabeledPred pnot (ExploringAPath loc toTgt))
 
                -- The current branch is done
                let other = VFFCompletePath
@@ -860,6 +880,13 @@ data SomeLabel p sym ext r b a =
   SomeLabel !(PausedFrame p sym ext r (CrucibleLang b a) ('Just args))
             !(Maybe (BlockID b args))
 
+getTgtLoc ::
+  SimState p sym ext r (CrucibleLang b a) ('Just dc_args) ->
+  BlockID b y ->
+  ProgramLoc
+getTgtLoc s (BlockID i) = blockLoc (blocks Ctx.! i)
+  where
+  blocks = frameBlockMap (s ^. stateCrucibleFrame)
 
 -- | Branch with a merge point inside this frame.
 intra_branch ::
@@ -894,13 +921,15 @@ intra_branch s p t_label f_label tgt = stateSolverProof s $ do
                       return (swap_unless chosen_branch (t_label, f_label))
 
       loc <- getCurrentProgramLoc sym
+      let a_loc  = getTgtLoc s <$> a_id
+          o_loc  = getTgtLoc s <$> o_id
+
 
       a_frame <- pushBranchVal s a_state
       PausedFrame o_frame <- pushBranchVal s o_state
 
       assume_frame <- pushAssumptionFrame sym
-      let nm = branchNameFromBool chosen_branch
-      addAssumption sym (LabeledPred p' (ExploringAPath nm loc))
+      addAssumption sym (LabeledPred p' (ExploringAPath loc a_loc))
 
       -- Create context for paused frame.
       let o_tree = o_frame & pausedValue %~ TotalRes
@@ -909,7 +938,7 @@ intra_branch s p t_label f_label tgt = stateSolverProof s $ do
                                                            tgt s''
                                                            id
                                                            o_id)
-      let todo = VFFActivePath (branchNameFromBool (not chosen_branch)) o_tree
+      let todo = VFFActivePath o_loc o_tree
           ctx' = VFFBranch ctx assume_frame loc p' todo tgt
 
       -- Start a_state (where branch pred is p')
@@ -1152,8 +1181,8 @@ resumeValueFromFrameAbort s ctx0 ar0 = stateSolverProof s $
          case other_branch of
 
            -- We have some more work to do.
-           VFFActivePath nm n ->
-             do addAssumption sym (LabeledPred pnot (ExploringAPath nm loc))
+           VFFActivePath toLoc n ->
+             do addAssumption sym (LabeledPred pnot (ExploringAPath loc toLoc))
                 resumeFrame s n nextCtx
 
            -- The other branch had finished successfully;

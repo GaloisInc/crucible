@@ -67,25 +67,6 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Utils.MuxTree
 
 
-crucibleSimFrame :: Lens (SimFrame sym ext (CrucibleLang blocks r) ('Just args))
-                         (SimFrame sym ext (CrucibleLang blocks r) ('Just args'))
-                         (CallFrame sym ext blocks r args)
-                         (CallFrame sym ext blocks r args')
-crucibleSimFrame f (MF c) = MF <$> f c
-
-crucibleTopFrame ::  Lens (TopFrame sym ext (CrucibleLang blocks r) ('Just args))
-                          (TopFrame sym ext (CrucibleLang blocks r) ('Just args'))
-                          (CallFrame sym ext blocks r args)
-                          (CallFrame sym ext blocks r args')
-crucibleTopFrame = gpValue . crucibleSimFrame
-
-stateCrucibleFrame :: Lens (SimState p sym ext rtp (CrucibleLang blocks r) ('Just a))
-                           (SimState p sym ext rtp (CrucibleLang blocks r) ('Just a'))
-                           (CallFrame sym ext blocks r a)
-                           (CallFrame sym ext blocks r a')
-stateCrucibleFrame = stateTree . actFrame . crucibleTopFrame
-{-# INLINE stateCrucibleFrame #-}
-
 ------------------------------------------------------------------------
 -- resolveCallFrame
 

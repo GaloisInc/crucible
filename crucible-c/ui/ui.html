@@ -18,6 +18,8 @@ function drawLines() {
   return dom
 }
 
+function getLine(n) { return $('#line-' + n) }
+
 function drawStatus(proved) {
   return $('<div/>').text(proved ? 'OK' : 'failed')
                     .css('display','inline-block')
@@ -31,13 +33,26 @@ function drawStatus(proved) {
 function drawCounterExample(e) {
   if (e === null) return
   jQuery.each(e, function(ix,v) {
-    $('#line-' + v.line).append($('<span/>')
-                        .addClass('ctr-example').text(v.val))
+    getLine(v.line).append($('<span/>')
+                   .addClass('ctr-example').text(v.val))
   })
 }
 
-function drawAsmpDir(a) {
-  return $('<span/>').addClass('asmp-dir').text(a)
+
+var nextLabel = 0
+
+function newLabel() { // XXX
+  return "L" + nextLabel++
+}
+
+function drawAsmpTgt(a,b) {
+  var lnFrom = getLine(a)
+  var lnTo   = getLine(b)
+
+  var l = newLabel()
+
+  lnFrom.append($('<span/>').addClass('asmp-lab').text(l))
+  lnTo.append($('<span/>').addClass('asmp-lab').text(l))
 }
 
 function drawGoals() {
@@ -51,18 +66,17 @@ function drawGoals() {
                    )
     li.click(function() {
       $('.ctr-example').remove()
-      $('.asmp-dir').remove()
+      $('.asmp-lab').remove()
       $('.line').removeClass('highlight-proved')
                 .removeClass('highlight-failed')
                 .removeClass('highlight-assumed')
      jQuery.each(g.assumptions, function(ix,a) {
-        var ln = $('#line-' + a.line)
+        var ln = getLine(a.line)
         if (a.line !== g.location) ln.addClass('highlight-assumed')
-        if (a.dir !== null)
-          ln.append(drawAsmpDir(a.dir))
+        if (a.tgt !== null) drawAsmpTgt(a.line, a.tgt)
       })
       if (g.location !== null)
-        $('#line-' + g.location)
+        getLine(g.location)
             .addClass(g.proved ? 'highlight-proved' : 'highlight-failed')
       drawCounterExample(g['counter-example'])
     })
@@ -137,7 +151,7 @@ body { height: 100%; padding: 0; margin: 0; }
   font-size: smaller;
 }
 
-.asmp-dir {
+.asmp-lab {
   border: 1px solid black;
   margin: 5px;
   background-color: #eee;
