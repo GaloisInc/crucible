@@ -135,7 +135,7 @@ ppAssumptionReason e =
     AssumingNoError simErr -> ppSimError simErr
 
 ppLocated :: ProgramLoc -> PP.Doc -> PP.Doc
-ppLocated l x = ppLoc l <> ":" PP.<+> x
+ppLocated l x = ppLoc l PP.<> ":" PP.<+> x
 
 ppLoc :: ProgramLoc -> PP.Doc
 ppLoc l = PP.pretty (plSourceLoc l)
