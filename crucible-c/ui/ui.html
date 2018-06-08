@@ -56,9 +56,8 @@ function drawGoals() {
                 .removeClass('highlight-failed')
                 .removeClass('highlight-assumed')
      jQuery.each(g.assumptions, function(ix,a) {
-        if (a.line === g.location) return true
         var ln = $('#line-' + a.line)
-        ln.addClass('highlight-assumed')
+        if (a.line !== g.location) ln.addClass('highlight-assumed')
         if (a.dir !== null)
           ln.append(drawAsmpDir(a.dir))
       })
