@@ -100,12 +100,12 @@ systemSymbol :: String -> SolverSymbol
 systemSymbol s
     -- System symbols must contain an exclamation mark to distinguish them from
     -- user symbols (which are not allowed to have exclamation marks).
-  | any (== '!') s == False =
+  | '!' `notElem` s =
     error $
       "The system symbol " ++ show s ++ " must contain at least one exclamation mark '!'"
   | otherwise =
     case parseAnySymbol s of
-      Left e -> error ("Error parsing system symbol " ++ show e ++ ":" ++ ppSolverSymbolError e)
+      Left e -> error ("Error parsing system symbol " ++ show s ++ ": " ++ ppSolverSymbolError e)
       Right r -> r
 
 instance Show SolverSymbol where
