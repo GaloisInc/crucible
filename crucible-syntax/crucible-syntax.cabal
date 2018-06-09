@@ -1,0 +1,87 @@
+Name:          crucible-syntax
+Version:       0.1
+Author:        Galois Inc.
+Maintainer:    dtc@galois.com
+Build-type:    Custom
+License:       BSD3
+License-file:  LICENSE
+Cabal-version: >= 1.9.2
+Category:      Language
+Synopsis:      A syntax for reading and writing Crucible control-flow graphs
+Description:
+  This package provides a syntax for directly constructing Crucible
+  control-flow graphs, as well as for observing them.
+
+extra-source-files:
+
+custom-setup
+  setup-depends:
+    base >= 4.7 && < 5,
+    Cabal >= 1.24,
+    directory,
+    filepath,
+    process
+
+library
+  build-depends:
+    ansi-wl-pprint,
+    base >= 4.7,
+    bytestring >= 0.10.2,
+    containers,
+    crucible >= 0.1,
+    crucible-abc,
+    crucible-saw,
+    cryptol,
+    cryptol-verifier,
+    executable-path,
+    directory,
+    filepath,
+    GraphSCC,
+    hashable,
+    hashtables,
+    hpb >= 0.1.1,
+    lens,
+    megaparsec,
+    mtl,
+    parameterized-utils >= 0.1.7,
+    parsec,
+    saw-core,
+    saw-core-sbv,
+    sbv,
+    s-cargot,
+    text,
+    transformers,
+    vector
+
+  hs-source-dirs: src
+
+  build-tools:
+    hpb
+
+  exposed-modules:
+    Lang.Crucible.Syntax
+
+  ghc-options: -Wall
+  ghc-prof-options: -O2 -fprof-auto-top
+
+
+executable crucible-parser
+  build-depends:
+    ansi-wl-pprint,
+    base >= 4.7 && < 4.12,
+    crucible,
+    crucible-abc,
+    crucible-saw,
+    crucible-server,
+    cryptol-verifier,
+    hpb >= 0.1.1,
+    lens,
+    parameterized-utils >= 0.1.7,
+    saw-core,
+    text
+
+  ghc-options: -Wall
+
+  main-is: Main.hs
+  hs-source-dirs:
+    crucible-syntax
