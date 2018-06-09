@@ -35,7 +35,6 @@ import           Lang.Crucible.Server.SimpleOverrides
 import qualified Verifier.SAW.SharedTerm as SAW
 import qualified Verifier.SAW.TypedAST as SAW
 import qualified Verifier.SAW.Prelude as SAW
-import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 
 main :: IO ()
 main = do
@@ -80,10 +79,7 @@ runSimulator hin hout = do
 
 runSAWSimulator :: Handle -> Handle -> IO ()
 runSAWSimulator hin hout =
-  do let scm = SAW.insImport SAW.preludeModule $
-               SAW.insImport CryptolSAW.cryptolModule $
-               SAW.emptyModule (SAW.mkModuleName ["CryptolServer"])
-     let ok_resp = mempty
+  do let ok_resp = mempty
                    & P.handShakeResponse_code .~ P.HandShakeOK
      withIONonceGenerator $ \gen -> do
        sc <- SAW.mkSharedContext scm
