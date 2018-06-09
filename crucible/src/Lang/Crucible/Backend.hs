@@ -92,7 +92,7 @@ type Assumption sym = AS.LabeledPred (Pred sym) AssumptionReason
 type ProofObligation sym = AS.ProofGoal (Pred sym) AssumptionReason SimError
 type AssumptionState sym = AS.AssumptionStack (Pred sym) AssumptionReason SimError
 
--- | This is used to signal that current execution path is infeasable.
+-- | This is used to signal that current execution path is infeasible.
 data AbortExecReason =
     InfeasibleBranch
     -- ^ We tried to decide which way to go at a branch point,
@@ -115,7 +115,7 @@ instance Exception AbortExecReason
 ppAbortExecReason :: AbortExecReason -> PP.Doc
 ppAbortExecReason e =
   case e of
-    InfeasibleBranch -> "Abort an infeasbile branch."
+    InfeasibleBranch -> "Abort an infeasible branch."
     AssumedFalse reason ->
       "Abort due to false assumption:" PP.<$$>
       PP.indent 2 (ppAssumptionReason reason)
