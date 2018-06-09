@@ -42,7 +42,7 @@ module Lang.Crucible.Backend
 
     -- ** Aborting execution
   , AbortExecReason(..)
-  , abortExecBeacuse
+  , abortExecBecause
   , ppAbortExecReason
 
     -- * Utilities
@@ -222,8 +222,8 @@ addAssertion sym a@(AS.LabeledPred p msg) =
 
 
 -- | Throw an exception, thus aborting the current execution path.
-abortExecBeacuse :: AbortExecReason -> IO a
-abortExecBeacuse err = throwIO err
+abortExecBecause :: AbortExecReason -> IO a
+abortExecBecause err = throwIO err
 
 -- | Add a proof obligation using the curren program location,
 -- and assume the given fact.
@@ -246,7 +246,7 @@ addFailedAssertion sym msg =
   do loc <- getCurrentProgramLoc sym
      let err = AS.LabeledPred (falsePred sym) (SimError loc msg)
      addProofObligation sym err
-     abortExecBeacuse $ AssumedFalse
+     abortExecBecause $ AssumedFalse
                       $ AssumingNoError
                         SimError { simErrorLoc = loc, simErrorReason = msg }
 

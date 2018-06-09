@@ -755,7 +755,7 @@ instance IsBoolSolver (SAWCoreBackend n) where
   addAssumption sym a = do
     case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
-      Just False -> abortExecBeacuse (AssumedFalse (a ^. labeledPredMsg))
+      Just False -> abortExecBecause (AssumedFalse (a ^. labeledPredMsg))
       _ -> AS.assume a =<< getAssumptionStack sym
 
   addAssumptions sym ps = do
@@ -779,7 +779,7 @@ instance IsBoolSolver (SAWCoreBackend n) where
            p_res    <- checkSatisfiable sym p
            notp_res <- checkSatisfiable sym p_neg
            case (p_res, notp_res) of
-             (Unsat, Unsat) -> abortExecBeacuse InfeasibleBranch
+             (Unsat, Unsat) -> abortExecBecause InfeasibleBranch
              (Unsat, _ )    -> return $! NoBranch False
              (_    , Unsat) -> return $! NoBranch True
              (_    , _)     -> return $! SymbolicBranch True

@@ -73,7 +73,7 @@ instance IsBoolSolver (SimpleBackend t) where
   addAssumption sym a =
     case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
-      Just False -> abortExecBeacuse (AssumedFalse (a ^. labeledPredMsg))
+      Just False -> abortExecBecause (AssumedFalse (a ^. labeledPredMsg))
       _          -> AS.assume a =<< getAssumptionStack sym
 
   addAssumptions sym ps = do

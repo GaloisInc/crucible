@@ -210,7 +210,7 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver) 
   addAssumption sym a =
     case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
-      Just False -> abortExecBeacuse (AssumedFalse (a^.labeledPredMsg))
+      Just False -> abortExecBecause (AssumedFalse (a^.labeledPredMsg))
       _ -> do conn <- getSolverConn sym
               stk  <- getAssumptionStack sym
               -- Record assumption
@@ -241,7 +241,7 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver) 
            p_res    <- checkSatisfiable proc p
            notp_res <- checkSatisfiable proc notP
            case (p_res, notp_res) of
-             (Unsat, Unsat) -> abortExecBeacuse InfeasibleBranch
+             (Unsat, Unsat) -> abortExecBecause InfeasibleBranch
              (Unsat, _ )    -> return $ NoBranch False
              (_    , Unsat) -> return $ NoBranch True
              (_    , _)     -> return $ SymbolicBranch True
