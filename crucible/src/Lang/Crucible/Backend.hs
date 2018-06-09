@@ -46,6 +46,7 @@ module Lang.Crucible.Backend
   , ppAbortExecReason
 
     -- * Utilities
+  , addAssertion
   , addAssertionM
   , addFailedAssertion
   , assertIsInteger
@@ -192,7 +193,7 @@ class IsBoolSolver sym where
   -- | Add a new proof obligation to the system.
   -- The proof may use the current path condition and assumptions.
   -- Note that this *DOES NOT* add the goal as an assumption.
-  -- See also "addAssertion"
+  -- See also 'addAssertion'.
   addProofObligation :: sym -> Assertion sym -> IO ()
 
   -- | Get the collection of proof obligations.
