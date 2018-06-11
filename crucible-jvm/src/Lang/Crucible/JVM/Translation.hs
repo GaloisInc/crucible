@@ -1246,6 +1246,8 @@ packTypes [] ctx _asgn
 packTypes (t : ts) ctx asgn =
   jvmTypeAsRepr t $ \mkVal ctp ->
   case ctx of
+    Ctx.Empty ->
+      error "packTypes: arguments do not match JVM types"
     ctx' Ctx.:> ctp' ->
       case testEquality ctp ctp' of
         Nothing -> error $ unwords ["crucible type mismatch", show ctp, show ctp']
