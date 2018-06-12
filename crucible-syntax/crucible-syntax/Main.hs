@@ -1,5 +1,6 @@
 module Main where
 
+import System.IO
 import Data.Monoid
 import Data.SCargot
 import qualified Data.Text as T
@@ -13,24 +14,30 @@ newtype TheFile = TheFile FilePath
   deriving (Eq, Show, Ord)
 
 
-input :: Opt.Parser TheFile
-input = TheFile <$> Opt.strArgument (Opt.metavar "FILE" <> Opt.help "The file to process")
+input :: Opt.Parser (Maybe TheFile)
+input = Opt.optional $ TheFile <$> Opt.strArgument (Opt.metavar "FILE" <> Opt.help "The file to process")
 
-data Options = Options { theFile :: TheFile
-                       , replp :: Bool
-                       }
-
-
---opts :: Opt.Parser Options
---opts = Options <$> Opt
+repl :: IO ()
+repl =
+  do hSetBuffering stdout NoBuffering
+     putStr "> "
+     l <- T.getLine
+     case decode parseExpr l of
+       Left err ->
+         do putStrLn err; repl
+       Right v ->
+         do print v; repl
 
 main :: IO ()
 main =
-  do TheFile input <- Opt.execParser opts
-     contents <- T.readFile input
-     case decode parseExpr contents of
-       Left err -> print err
-       Right sexprs ->
-         print sexprs
+  do file <- Opt.execParser options
+     case file of
+       Nothing -> repl
+       Just (TheFile input) ->
+         do contents <- T.readFile input
+            case decode parseExpr contents of
+              Left err -> print err
+              Right sexprs ->
+                print sexprs
 
-  where opts = Opt.info input (Opt.fullDesc)
+  where options = Opt.info input (Opt.fullDesc)

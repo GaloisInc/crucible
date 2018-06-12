@@ -53,6 +53,7 @@ import Lang.Crucible.FunctionName
 
 import Numeric.Natural()
 
+import Text.Parsec (try)
 import Text.Parsec.Text (Parser)
 import Text.Parsec.Char (char, string)
 
@@ -124,12 +125,12 @@ kw =  string "defun" $> Defun
   <|> string "print" $> Print_
 
 atom :: Parser Atomic
-atom =  Kw <$> kw
-    <|> Lbl <$> parseR7RSIdent <* char ':'
+atom =  try (Kw <$> kw)
+    <|> try (Lbl <$> parseR7RSIdent <* char ':')
     <|> At <$> parseR7RSIdent
     <|> Fn <$> (char '@' *> parseR7RSIdent)
     <|> Rg <$> (char '$' *> parseR7RSIdent)
-    <|> Int . fromInteger <$> signedPrefixedNumber
+    <|> try (Int . fromInteger <$> signedPrefixedNumber)
     <|> Rat <$> ((%) <$> signedPrefixedNumber <* char '/' <*> prefixedNumber)
     <|> char '#' *>  (char 't' $> Bool True <|> char 'f' $> Bool False)
 
