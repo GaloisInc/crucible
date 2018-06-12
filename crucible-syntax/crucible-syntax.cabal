@@ -43,6 +43,7 @@ library
     lens,
     megaparsec,
     mtl,
+    optparse-applicative,
     parameterized-utils >= 0.1.7,
     parsec,
     saw-core,
@@ -59,13 +60,13 @@ library
     hpb
 
   exposed-modules:
-    Lang.Crucible.Syntax
+    Lang.Crucible.Syntax.Concrete
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
 
 
-executable crucible-parser
+executable crucibler
   build-depends:
     ansi-wl-pprint,
     base >= 4.7 && < 4.12,
@@ -73,11 +74,14 @@ executable crucible-parser
     crucible-abc,
     crucible-saw,
     crucible-server,
+    crucible-syntax,
     cryptol-verifier,
     hpb >= 0.1.1,
     lens,
+    optparse-applicative,
     parameterized-utils >= 0.1.7,
     saw-core,
+    s-cargot,
     text
 
   ghc-options: -Wall

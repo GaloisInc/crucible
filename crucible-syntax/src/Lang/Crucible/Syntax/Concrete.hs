@@ -1,6 +1,6 @@
 {-# LANGUAGE GADTs, OverloadedStrings, RankNTypes, LiberalTypeSynonyms, KindSignatures, DataKinds, StandaloneDeriving, FlexibleInstances, GeneralizedNewtypeDeriving, TypeFamilies, PolyKinds, ScopedTypeVariables, MultiParamTypeClasses, UndecidableInstances, PartialTypeSignatures, FlexibleContexts, ImplicitParams #-}
 -- {-# OPTIONS_GHC -fprint-explicit-kinds -fprint-explicit-foralls #-}
-module Lang.Crucible.Syntax where
+module Lang.Crucible.Syntax.Concrete where
 
 import Prelude hiding (fail)
 
@@ -72,6 +72,7 @@ data Keyword = Defun | DefBlock
              | Mod
              | Lt
              | Jump_ | Return_
+             | Print_
   deriving (Eq, Ord, Show)
 
 data Atomic = Kw Keyword -- keywords are all the built-in operators and expression formers
@@ -120,6 +121,7 @@ kw =  string "defun" $> Defun
   <|> string "mod" $> Mod
   <|> string "jump" $> Jump_
   <|> string "return" $> Return_
+  <|> string "print" $> Print_
 
 atom :: Parser Atomic
 atom =  Kw <$> kw
@@ -140,6 +142,8 @@ printExpr = setMaxWidth 72 $ setIndentAmount 2 $ setFromCarrier fromWellFormed $
   where printAtom (Kw s) = T.pack (show s)
         printAtom (Lbl l) = l <> ":"
         printAtom (Rg r) = "$" <> r
+        printAtom (At a) = a
+        printAtom (Fn a) = "@" <> a
         printAtom (Int i) = T.pack (show i)
         printAtom (Rat r) = T.pack (show r)
         printAtom (Bool b) = if b then "#t" else "#f"
@@ -386,6 +390,13 @@ label :: AST s -> CFGParser h s ret (LabelInfo s)
 label (A (Lbl x)) = getLabel x
 label other = fail $ "Unknown block label " ++ show other
 
+saveAtom :: Text -> TypeRepr ty -> Expr () s ty -> CFGParser h s ret ()
+saveAtom x t e =
+  do (BlockState () lbls ats) <- get
+     case Map.lookup x ats of
+       Nothing -> put $ BlockState () lbls (Map.insert x (Pair t e) ats)
+       Just _ -> fail $ "Atom name already taken: " ++ show x
+
 
 --------------------------------------------------------------------------
 
@@ -524,7 +535,7 @@ blocks (aBlock:moreBlocks) =
                      do lbl <- Gen.newLambdaLabel' ty
                         let lblInfo = ArgLbl ty lbl
                         put (BlockState ha (Map.insert l lblInfo lbls) ats)
-                        return (l, (Right (Triple ty lbl (BlockFun $ \arg -> do _asdlfkasdlkfj))))
+                        return (l, (Right (Triple ty lbl (BlockFun $ \arg -> do saveAtom x ty arg; blockContents blockBody))))
 
             blockLabel other = fail $ "Not a block: " ++ show other
 
@@ -538,7 +549,10 @@ blocks (aBlock:moreBlocks) =
 
 -- | Build an ordinary statement
 normStmt :: AST s -> CFGParser h s ret ()
-normStmt _ = _adslkf
+normStmt (L [A (Kw Print_), e]) =
+  do (E e') <- liftExpr $ checkExpr StringRepr e
+     Gen.addPrintStmt e'
+normStmt other = fail $ "Unknown statement: " ++ show other
 
 
 cfg :: MonadFail m => AST s -> m (ST h (ACFG))
