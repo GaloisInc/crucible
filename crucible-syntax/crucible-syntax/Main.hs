@@ -1,8 +1,11 @@
 module Main where
 
+import Control.Monad.Except
+import Control.Monad.ST
 import System.IO
 import Data.Monoid
 import Data.SCargot
+import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
@@ -19,25 +22,27 @@ input = Opt.optional $ TheFile <$> Opt.strArgument (Opt.metavar "FILE" <> Opt.he
 
 repl :: IO ()
 repl =
-  do hSetBuffering stdout NoBuffering
-     putStr "> "
-     l <- T.getLine
-     case decode parseExpr l of
-       Left err ->
-         do putStrLn err; repl
-       Right v ->
-         do print v; repl
+  do putStr "> "
+     T.getLine >>= go
+     repl
+
+go :: Text -> IO ()
+go theInput =
+  case decode parseExpr theInput of
+    Left err -> putStrLn err
+    Right v ->
+      do print v
+         cfgs <- mapM (\x -> cfg x >>= _alksdj . runExceptT ) v
+         mapM_ print cfgs
+
 
 main :: IO ()
 main =
   do file <- Opt.execParser options
      case file of
-       Nothing -> repl
+       Nothing -> hSetBuffering stdout NoBuffering >> repl
        Just (TheFile input) ->
          do contents <- T.readFile input
-            case decode parseExpr contents of
-              Left err -> print err
-              Right sexprs ->
-                print sexprs
+            go contents
 
   where options = Opt.info input (Opt.fullDesc)

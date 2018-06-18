@@ -50,6 +50,7 @@ module Lang.Crucible.CFG.Generator
   , modifyRegM
   , readGlobal
   , writeGlobal
+
   , newRef
   , newEmptyRef
   , readRef
