@@ -518,6 +518,7 @@ runCheckSat :: forall b t a.
 runCheckSat s doEval =
   do let w = sessionWriter s
          r = sessionResponse s
+     addCommand w (checkCommand w)
      res <- smtSatResult w r
      case res of
        Unsat -> doEval Unsat
