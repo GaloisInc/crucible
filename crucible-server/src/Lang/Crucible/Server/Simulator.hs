@@ -331,14 +331,22 @@ serverErrorHandler sim = EH $ \e s -> do
     let loc = mapMaybe filterCrucibleFrames frames
     -- let msg = ppExceptionContext frames e
 
-    -- Tell client that a part aborted with the given message.
-    case simErrorReason e of
-      ReadBeforeWriteSimError msg -> do
-          sendCallPathAborted sim P.AbortedReadBeforeWrite (show msg) loc
-      AssertFailureSimError msg -> do
-          sendCallPathAborted sim P.AbortedUserAssertFailure (show msg) loc
-      _ -> do
-          sendCallPathAborted sim P.AbortedGeneric (show (simErrorReason e)) loc
+    -- If a branch aborted becasue of an error condition,
+    -- tell client that a part aborted with the given message.
+    case e of
+      ManualAbort _ msg ->
+        sendCallPathAborted sim P.AbortedGeneric msg loc
+      AssumedFalse (AssumingNoError se) ->
+        case simErrorReason se of
+          ReadBeforeWriteSimError msg -> do
+            sendCallPathAborted sim P.AbortedReadBeforeWrite (show msg) loc
+          AssertFailureSimError msg -> do
+            sendCallPathAborted sim P.AbortedUserAssertFailure (show msg) loc
+          _ -> do
+            sendCallPathAborted sim P.AbortedGeneric (show (simErrorReason se)) loc
+
+      -- In other cases, do nothing
+      _ -> return ()
 
     -- Abort execution.
     abortExec e s

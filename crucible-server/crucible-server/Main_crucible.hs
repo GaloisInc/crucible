@@ -22,6 +22,7 @@ import           System.IO
 import           Data.HPB
 
 import           Data.Parameterized.Nonce
+import qualified Data.ABC.GIA as GIA
 
 import           Lang.Crucible.Backend.Simple
 import qualified Lang.Crucible.Backend.SAWCore as SAW
@@ -33,7 +34,6 @@ import           Lang.Crucible.Server.SAWOverrides
 import           Lang.Crucible.Server.SimpleOverrides
 
 import qualified Verifier.SAW.SharedTerm as SAW
-import qualified Verifier.SAW.TypedAST as SAW
 import qualified Verifier.SAW.Prelude as SAW
 
 main :: IO ()
@@ -82,8 +82,9 @@ runSAWSimulator hin hout =
   do let ok_resp = mempty
                    & P.handShakeResponse_code .~ P.HandShakeOK
      withIONonceGenerator $ \gen -> do
-       sc <- SAW.mkSharedContext scm
-       sym <- SAW.newSAWCoreBackend sc gen
+       sc <- SAW.mkSharedContext
+       SAW.scLoadPreludeModule sc
+       sym <- SAW.newSAWCoreBackend GIA.proxy sc gen
        sawState <- initSAWServerPersonality sym
        s <- newSimulator sym sawServerOptions sawState sawServerOverrides hin hout
        putDelimited hout ok_resp
