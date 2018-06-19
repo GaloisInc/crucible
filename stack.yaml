@@ -5,6 +5,7 @@ packages:
   - what4-blt/
 
   - crucible/
+  - crucible-jvm/
   - crucible-llvm/
   - crucible-saw/
   - crucible-server/
@@ -16,6 +17,7 @@ packages:
   - dependencies/cryptol/
   - dependencies/cryptol-verifier/
   - dependencies/hpb/
+  - dependencies/jvm-parser/
   - dependencies/llvm-pretty/
   - dependencies/llvm-pretty-bc-parser/
   - dependencies/parameterized-utils/
@@ -24,10 +26,12 @@ packages:
   - dependencies/saw-core-sbv/
 extra-deps:
   - GraphSCC-1.0.4
+  - data-inttrie-0.1.4
   - monadLib-3.7.3
   - simple-smt-0.7.1
   - sbv-7.7
   - fgl-visualize-0.1.0.1
   - dotgen-0.4.2
+  - panic-0.3.0.0
 
 resolver: lts-10.6
