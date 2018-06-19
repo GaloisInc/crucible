@@ -73,7 +73,9 @@ joinMaybePE (Just pe) = pe
 -- | If-then-else on partial expressions.
 mergePartial :: (IsExprBuilder sym, MonadIO m) =>
   sym ->
-  (Pred sym -> a -> a -> PartialT sym m a) {- ^ Operation to combine inner values -} ->
+  (Pred sym -> a -> a -> PartialT sym m a)
+    {- ^ Operation to combine inner values. The 'Pred' parameter is the
+         definedness predicate for the resulting value. -} ->
   Pred sym {- ^ condition to merge on -} ->
   PartExpr (Pred sym) a {- ^ 'if' value -}  ->
   PartExpr (Pred sym) a {- ^ 'then' value -} ->

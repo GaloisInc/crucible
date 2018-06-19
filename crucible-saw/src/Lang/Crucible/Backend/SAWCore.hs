@@ -32,7 +32,6 @@ import qualified Data.Sequence as Seq
 import           Data.Word(Word64)
 import qualified Data.Text as Text
 
-import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG as AIG
 import           Numeric.Natural
 
@@ -55,6 +54,9 @@ import qualified Verifier.SAW.TypedAST as SC
 
 data SAWCruciblePersonality sym = SAWCruciblePersonality
 
+data AIGProxy where
+  AIGProxy :: (AIG.IsAIG l g) => AIG.Proxy l g -> AIGProxy
+
 -- | The SAWCoreBackend is a crucible backend that represents symbolic values
 --   as SAWCore terms.
 data SAWCoreState n
@@ -71,6 +73,7 @@ data SAWCoreState n
     , saw_elt_cache :: B.IdxCache n SAWExpr
 
     , saw_assumptions :: AssumptionStack (B.BoolExpr n) AssumptionReason SimError
+    , saw_aig_proxy :: AIGProxy
     }
 
 sawCheckPathSat :: ConfigOption BaseBoolType
@@ -128,6 +131,7 @@ inFreshNamingContext sym f =
                 , saw_symMap = mempty
                 , saw_elt_cache = ch
                 , saw_assumptions = stk
+                , saw_aig_proxy = saw_aig_proxy old
                 }
       return new
 
@@ -180,10 +184,12 @@ bindSAWTerm sym bt t = do
   return sbVar
 
 newSAWCoreBackend ::
+  (AIG.IsAIG l g) =>
+  AIG.Proxy l g ->
   SC.SharedContext ->
   NonceGenerator IO s ->
   IO (SAWCoreBackend s)
-newSAWCoreBackend sc gen = do
+newSAWCoreBackend proxy sc gen = do
   inpr <- newIORef Seq.empty
   ch   <- B.newIdxCache
   stk  <- initAssumptionStack gen
@@ -193,6 +199,7 @@ newSAWCoreBackend sc gen = do
               , saw_symMap = Map.empty
               , saw_elt_cache = ch
               , saw_assumptions = stk
+              , saw_aig_proxy = AIGProxy proxy
               }
   sym <- B.newExprBuilder st gen
   extendConfig sawOptions (getConfiguration sym)
@@ -734,12 +741,13 @@ checkSatisfiable sym p = do
   mgr <- readIORef (B.sbStateManager sym)
   let sc = saw_ctx mgr
       cache = saw_elt_cache mgr
+  AIGProxy proxy <- return (saw_aig_proxy mgr)
   enabled <- getMaybeOpt =<< getOptionSetting sawCheckPathSat (getConfiguration sym)
   case enabled of
     Just True -> do
       t <- evaluateExpr sym sc cache p
       let bbPrims = const Map.empty
-      BBSim.withBitBlastedPred GIA.proxy sc bbPrims t $ \be lit _shapes -> do
+      BBSim.withBitBlastedPred proxy sc bbPrims t $ \be lit _shapes -> do
         satRes <- AIG.checkSat be lit
         case satRes of
           AIG.Unsat -> return Unsat
