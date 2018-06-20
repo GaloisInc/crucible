@@ -957,7 +957,14 @@ generateInstruction (pc, instr) =
     J.Ret _idx -> sgFail "ret" --warning "jsr/ret not implemented"
 
     -- Method invocation and return instructions
-    J.Invokevirtual   _type      _methodKey -> sgUnimplemented "Invokevirtual"
+    J.Invokevirtual   (J.ClassType className) methodKey ->
+      -- TODO: determine whether it's a call further up the inheritance chain
+      do ctx <- lift $ gets jsContext
+         let mhandle = Map.lookup (className, methodKey) (symbolMap ctx)
+         case mhandle of
+           Nothing -> sgFail "invokevirtual: method not found"
+           Just handle -> callJVMHandle handle
+    J.Invokevirtual   tp         _methodKey -> sgUnimplemented $ "Invokevirtual for " ++ show tp
     J.Invokeinterface _className _methodKey -> sgUnimplemented "Invokeinterface"
     J.Invokespecial   _type      _methodKey -> sgUnimplemented "Invokespecial"
     J.Invokestatic    className methodKey ->
