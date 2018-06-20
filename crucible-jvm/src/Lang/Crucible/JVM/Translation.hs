@@ -342,9 +342,17 @@ generateBasicBlock bb rs =
      -- Read initial values
      vs <- readRegisters rs
      -- Translate all instructions
-     evalStateT (mapM_ generateInstruction (J.bbInsts bb)) vs
-     -- There should have been a block-terminating instruction
-     jvmFail "generateBasicBlock: no terminal instruction"
+     (_, eframe) <- runStateT (mapM_ generateInstruction (J.bbInsts bb)) vs
+     -- If we didn't already handle a block-terminating instruction,
+     -- jump to the successor block, if there's only one.
+     cfg <- use jsCFG
+     case J.succs cfg (J.bbId bb) of
+       [J.BBId succPC] ->
+         do lbl <- processBlockAtPC succPC eframe
+            _ <- jump lbl
+            jvmFail "generateBasicBlock: ran off end of block"
+       [] -> jvmFail "generateBasicBlock: no terminal instruction and no successor"
+       _  -> jvmFail "generateBasicBlock: no terminal instruction and multiple successors"
 
 -- | Prepare for a branch or jump to the given address, by generating
 -- a transition block to copy the values into the appropriate
