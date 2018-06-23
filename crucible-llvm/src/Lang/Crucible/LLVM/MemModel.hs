@@ -383,15 +383,12 @@ coerceAny :: (HasCallStack, IsSymInterface sym)
 coerceAny sym tpr (AnyValue tpr' x)
   | Just Refl <- testEquality tpr tpr' = return x
   | otherwise =
-      do loc <- getCurrentProgramLoc sym
-         addFailedAssertion sym
-           $ Unsupported -- or is this a GenericSimError?
-           $ unlines
-             [ unwords ["coerceAny: cannot coerce from", show tpr'
-                                                       , "to", show tpr]
-             , "in: " ++ show (plFunction loc)
-             , "at: " ++ show (plSourceLoc loc)
-             ]
+    do loc <- getCurrentProgramLoc sym
+       panic "coerceAny"
+                  [ unwords ["Cannot coerce from", show tpr', "to", show tpr]
+                  , "in: " ++ show (plFunction loc)
+                  , "at: " ++ show (plSourceLoc loc)
+                  ]
 
 unpackMemValue
    :: (HasCallStack, IsSymInterface sym)

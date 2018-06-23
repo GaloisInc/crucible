@@ -297,17 +297,17 @@ defaultErrorHandler = EH abortTree
 ------------------------------------------------------------------------
 -- PartialResult
 
--- | "PartialResult" contains a value and global variables along with an
+-- | 'PartialResult' contains a value and global variables along with an
 -- optional aborted result.
 data PartialResult sym ext (v :: *)
 
-    -- | A "TotalRes" indicates that the the global pair is always defined.
+    -- | A 'TotalRes' indicates that the the global pair is always defined.
    = TotalRes !(GlobalPair sym v)
 
-    {- | "PartialRes" indicates that the global pair may be undefined
+    {- | 'PartialRes' indicates that the global pair may be undefined
         under some circusmstances.  The predicate specifies when the
-        "GlobalPair" is guaranteed to be defined.
-        The "AbortedResult" describes the circumstances under which
+        'GlobalPair' is guaranteed to be defined.
+        The 'AbortedResult' describes the circumstances under which
         the result would be partial. -}
    | PartialRes !(Pred sym)               -- if true, global pair is defined
                 !(GlobalPair sym v)       -- the value
@@ -545,8 +545,8 @@ data ValueFromFrame p sym ext (ret :: *) (f :: *)
 
 
 data PendingPartialMerges =
-    NoNeedToMerge
-  | NeedsToBeMerged
+    NoNeedToAbort
+  | NeedsToBeAborted
 
 
 -- | value from value denotes
@@ -839,10 +839,10 @@ checkForIntraFrameMerge active_cont tgt s = stateSolverProof s $
 
     -- Since the other branch aborted before it got to the merge point,
     -- we merge-in the partiality on our current path and keep going.
-    VFFPartial ctx p ar needsMerging ->
-      do er'  <- case needsMerging of
-                   NoNeedToMerge   -> return er
-                   NeedsToBeMerged -> abortPartialResult s er
+    VFFPartial ctx p ar needsAborting ->
+      do er'  <- case needsAborting of
+                   NoNeedToAbort    -> return er
+                   NeedsToBeAborted -> abortPartialResult s er
          er'' <- mergePartialAndAbortedResult sym p er' ar
          let s' = s & stateTree .~ ActiveTree ctx er''
          checkForIntraFrameMerge active_cont tgt s'
@@ -1005,8 +1005,8 @@ unwindContext :: ValueFromFrame p sym ext root f
 unwindContext c0 =
     case c0 of
       VFFBranch{} -> Nothing
-      VFFPartial _ _ _ NeedsToBeMerged -> Nothing
-      VFFPartial d p ar NoNeedToMerge ->
+      VFFPartial _ _ _ NeedsToBeAborted -> Nothing
+      VFFPartial d p ar NoNeedToAbort ->
         (\d' -> VFVPartial d' p ar) <$> unwindContext d
       VFFEnd vfv -> return vfv
 
@@ -1079,7 +1079,7 @@ asContFrame :: (f ~ CrucibleLang b a)
 asContFrame (ActiveTree ctx active_res) =
   case active_res of
     TotalRes{} -> ctx
-    PartialRes p _ex ar -> VFFPartial ctx p ar NoNeedToMerge
+    PartialRes p _ex ar -> VFFPartial ctx p ar NoNeedToAbort
 
 activeFrames :: ActiveTree ctx sym ext root a args ->
                 [SomeFrame (SimFrame sym ext)]
@@ -1173,7 +1173,7 @@ resumeValueFromFrameAbort s ctx0 ar0 = stateSolverProof s $
     -- This is the first abort.
     VFFBranch ctx assume_frame loc p other_branch tgt ->
       do pnot <- notPred sym p
-         let nextCtx = VFFPartial ctx pnot ar0 NeedsToBeMerged
+         let nextCtx = VFFPartial ctx pnot ar0 NeedsToBeAborted
 
          -- Reset the backend path state
          _assumes <- popAssumptionFrame sym assume_frame

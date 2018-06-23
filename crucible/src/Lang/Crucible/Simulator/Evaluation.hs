@@ -85,6 +85,7 @@ complexRealAsChar v = do
     Just r | otherwise -> return (integerAsChar (floor r))
     Nothing -> fail "Symbolic value cannot be interpreted as a character."
     -- XXX: Should this be a panic?
+    -- XXX: We should move this to crucible-matlab
 
 ------------------------------------------------------------------------
 -- Evaluating expressions
@@ -413,7 +414,7 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       ne <- evalSub n_expr
       case asNat ne of
         Nothing -> addFailedAssertion sym $
-                      Unsupported "arrays with symbolic length"
+                      Unsupported "vectors with symbolic length"
         Just n -> do
           e <- evalSub e_expr
           return $ V.replicate (fromIntegral n) e

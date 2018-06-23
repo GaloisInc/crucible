@@ -448,7 +448,7 @@ evaluateAsgn sym sc cache xs =
          vs <- evaluateAsgn sym sc cache ys
          return (v:vs)
 
-{- | Declare the we don't support something or other.
+{- | Declare that we don't support something or other.
 This aborts the current path of execution, and adds a proof
 obligation to ensure that we won't get there.
 These proof obligations are all tagged with "Unsupported", so that

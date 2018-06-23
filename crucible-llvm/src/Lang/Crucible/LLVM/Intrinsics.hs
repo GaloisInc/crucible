@@ -169,9 +169,8 @@ mkLLVMContext :: HandleAllocator s
 mkLLVMContext halloc m = do
   let (errs, typeCtx) = TyCtx.llvmContextFromModule m
   unless (null errs) $
-    panic "Intrinsics.mkLLVMContext"
-       $ [ "Failed to construct LLVM type context:" ]
-       ++ map show errs
+    fail $ unlines
+         $ [ "Failed to construct LLVM type context:" ] ++ map show errs
   let dl = TyCtx.llvmDataLayout typeCtx
 
   case someNat (toInteger (ptrBitwidth dl)) of
