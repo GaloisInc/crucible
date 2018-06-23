@@ -1287,7 +1287,7 @@ translateConversion instr op x outty =
          case (asScalar x', outty'') of
            (Scalar (LLVMPointerRepr w) x'', RealValRepr) ->
              promoteToFp w <$> pointerAsBitvectorExpr w x''
-           _ -> fail (unlines [unwords ["Invalid uitofp:", show op, show x, show outty], showI])
+           _ -> fail (unlines [unwords ["Invalid sitofp:", show op, show x, show outty], showI])
 
     L.FpToUi -> do
        outty' <- liftMemType outty
@@ -1307,7 +1307,7 @@ translateConversion instr op x outty =
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
            (Scalar RealValRepr x'', LLVMPointerRepr w) -> return $ demoteToInt w x''
-           _ -> fail (unlines [unwords ["Invalid fptoui:", show op, show x, show outty], showI])
+           _ -> fail (unlines [unwords ["Invalid fptosi:", show op, show x, show outty], showI])
 
     L.FpTrunc -> do
        outty' <- liftMemType outty

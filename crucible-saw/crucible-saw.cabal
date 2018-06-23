@@ -14,7 +14,6 @@ Description:
 
 library
   build-depends:
-    abcBridge,
     aig,
     base >= 4.7 && < 4.12,
     containers,

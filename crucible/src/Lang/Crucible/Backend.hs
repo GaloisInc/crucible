@@ -42,10 +42,11 @@ module Lang.Crucible.Backend
 
     -- ** Aborting execution
   , AbortExecReason(..)
-  , abortExecBeacuse
+  , abortExecBecause
   , ppAbortExecReason
 
     -- * Utilities
+  , addAssertion
   , addAssertionM
   , addFailedAssertion
   , assertIsInteger
@@ -95,7 +96,7 @@ type Assumption sym = AS.LabeledPred (Pred sym) AssumptionReason
 type ProofObligation sym = AS.ProofGoal (Pred sym) AssumptionReason SimError
 type AssumptionState sym = AS.AssumptionStack (Pred sym) AssumptionReason SimError
 
--- | This is used to signal that current execution path is infeasable.
+-- | This is used to signal that current execution path is infeasible.
 data AbortExecReason =
     InfeasibleBranch
     -- ^ We tried to decide which way to go at a branch point,
@@ -118,7 +119,7 @@ instance Exception AbortExecReason
 ppAbortExecReason :: AbortExecReason -> PP.Doc
 ppAbortExecReason e =
   case e of
-    InfeasibleBranch -> "Abort an infeasbile branch."
+    InfeasibleBranch -> "Abort an infeasible branch."
     AssumedFalse reason ->
       "Abort due to false assumption:" PP.<$$>
       PP.indent 2 (ppAssumptionReason reason)
@@ -197,7 +198,7 @@ class IsBoolSolver sym where
   -- | Add a new proof obligation to the system.
   -- The proof may use the current path condition and assumptions.
   -- Note that this *DOES NOT* add the goal as an assumption.
-  -- See also "addAssertion"
+  -- See also 'addAssertion'.
   addProofObligation :: sym -> Assertion sym -> IO ()
 
   -- | Get the collection of proof obligations.
@@ -227,8 +228,8 @@ addAssertion sym a@(AS.LabeledPred p msg) =
 
 
 -- | Throw an exception, thus aborting the current execution path.
-abortExecBeacuse :: AbortExecReason -> IO a
-abortExecBeacuse err = throwIO err
+abortExecBecause :: AbortExecReason -> IO a
+abortExecBecause err = throwIO err
 
 -- | Add a proof obligation using the curren program location,
 -- and assume the given fact.
@@ -251,7 +252,7 @@ addFailedAssertion sym msg =
   do loc <- getCurrentProgramLoc sym
      let err = AS.LabeledPred (falsePred sym) (SimError loc msg)
      addProofObligation sym err
-     abortExecBeacuse $ AssumedFalse
+     abortExecBecause $ AssumedFalse
                       $ AssumingNoError
                         SimError { simErrorLoc = loc, simErrorReason = msg }
 

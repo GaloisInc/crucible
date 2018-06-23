@@ -342,9 +342,17 @@ generateBasicBlock bb rs =
      -- Read initial values
      vs <- readRegisters rs
      -- Translate all instructions
-     evalStateT (mapM_ generateInstruction (J.bbInsts bb)) vs
-     -- There should have been a block-terminating instruction
-     jvmFail "generateBasicBlock: no terminal instruction"
+     (_, eframe) <- runStateT (mapM_ generateInstruction (J.bbInsts bb)) vs
+     -- If we didn't already handle a block-terminating instruction,
+     -- jump to the successor block, if there's only one.
+     cfg <- use jsCFG
+     case J.succs cfg (J.bbId bb) of
+       [J.BBId succPC] ->
+         do lbl <- processBlockAtPC succPC eframe
+            _ <- jump lbl
+            jvmFail "generateBasicBlock: ran off end of block"
+       [] -> jvmFail "generateBasicBlock: no terminal instruction and no successor"
+       _  -> jvmFail "generateBasicBlock: no terminal instruction and multiple successors"
 
 -- | Prepare for a branch or jump to the given address, by generating
 -- a transition block to copy the values into the appropriate
@@ -716,9 +724,9 @@ generateInstruction (pc, instr) =
     J.Iand  -> binary iPop iPop iPush (\a b -> App (BVAnd w32 a b))
     J.Ior   -> binary iPop iPop iPush (\a b -> App (BVOr  w32 a b))
     J.Ixor  -> binary iPop iPop iPush (\a b -> App (BVXor w32 a b))
-    J.Ishl  -> binary iPop iPop iPush (error "iShl")
-    J.Ishr  -> binary iPop iPop iPush (error "iShr")
-    J.Iushr -> binary iPop iPop iPush (error "iUshr")
+    J.Ishl  -> binary iPop iPop iPush (\a b -> App (BVShl w32 a b))
+    J.Ishr  -> binary iPop iPop iPush (\a b -> App (BVAshr w32 a b))
+    J.Iushr -> binary iPop iPop iPush (\a b -> App (BVLshr w32 a b))
     J.Ladd  -> binary lPop lPop lPush (\a b -> App (BVAdd w64 a b))
     J.Lsub  -> binary lPop lPop lPush (\a b -> App (BVSub w64 a b))
     J.Lmul  -> binary lPop lPop lPush (\a b -> App (BVMul w64 a b))
@@ -949,7 +957,14 @@ generateInstruction (pc, instr) =
     J.Ret _idx -> sgFail "ret" --warning "jsr/ret not implemented"
 
     -- Method invocation and return instructions
-    J.Invokevirtual   _type      _methodKey -> sgUnimplemented "Invokevirtual"
+    J.Invokevirtual   (J.ClassType className) methodKey ->
+      -- TODO: determine whether it's a call further up the inheritance chain
+      do ctx <- lift $ gets jsContext
+         let mhandle = Map.lookup (className, methodKey) (symbolMap ctx)
+         case mhandle of
+           Nothing -> sgFail "invokevirtual: method not found"
+           Just handle -> callJVMHandle handle
+    J.Invokevirtual   tp         _methodKey -> sgUnimplemented $ "Invokevirtual for " ++ show tp
     J.Invokeinterface _className _methodKey -> sgUnimplemented "Invokeinterface"
     J.Invokespecial   _type      _methodKey -> sgUnimplemented "Invokespecial"
     J.Invokestatic    className methodKey ->
@@ -1246,6 +1261,8 @@ packTypes [] ctx _asgn
 packTypes (t : ts) ctx asgn =
   jvmTypeAsRepr t $ \mkVal ctp ->
   case ctx of
+    Ctx.Empty ->
+      error "packTypes: arguments do not match JVM types"
     ctx' Ctx.:> ctp' ->
       case testEquality ctp ctp' of
         Nothing -> error $ unwords ["crucible type mismatch", show ctp, show ctp']

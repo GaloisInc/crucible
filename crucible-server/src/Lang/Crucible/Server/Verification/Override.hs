@@ -623,14 +623,16 @@ termAsConcrete ::
 termAsConcrete sc tm =
    do ss <- basic_ss sc
       tm' <- rewriteSharedTerm sc ss tm
+      mmap <- scGetModuleMap sc
       case getAllExts tm' of
-               [] -> do sbv <- SBV.toWord =<< SBV.sbvSolveBasic (scModule sc) Map.empty [] tm'
+               [] -> do sbv <- SBV.toWord =<< SBV.sbvSolveBasic mmap Map.empty [] tm'
                         return (SBV.svAsInteger sbv)
                _ -> return Nothing
 
 defRewrites :: SharedContext -> Ident -> IO [RewriteRule]
 defRewrites sc ident =
-      case findDef (scModule sc) ident of
+   do mdef <- scFindDef sc ident
+      case mdef of
         Nothing -> return []
         Just def -> scDefRewriteRules sc def
 

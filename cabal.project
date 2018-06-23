@@ -10,6 +10,7 @@ packages:
   what4-blt/
 
   crucible/
+  crucible-jvm/
   crucible-llvm/
   crucible-saw/
   crucible-server/
@@ -19,6 +20,7 @@ optional-packages:
   dependencies/abcBridge/
   dependencies/aig/
   dependencies/blt/
+  dependencies/jvm-parser/
   dependencies/hpb/
   dependencies/llvm-pretty/
   dependencies/llvm-pretty-bc-parser/

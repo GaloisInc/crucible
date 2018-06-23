@@ -47,6 +47,18 @@
 -- to install.  A configuration may be later extended with additional
 -- options by using the `extendConfig` operation.
 --
+-- Example use (assuming the you wanted to use the z3 solver):
+--
+-- > import What4.Solver
+-- >
+-- > setupSolverConfig :: (IsExprBuilder sym) -> sym -> IO ()
+-- > setupSolverConfig sym = do
+-- >   let cfg = getConfiguration sym
+-- >   extendConfig (solver_adapter_config_options z3Adapter) cfg
+-- >   z3PathSetter <- getOptionSetting z3Path
+-- >   res <- setOpt z3PathSetter "/usr/bin/z3"
+-- >   assert (null res) (return ())
+--
 -- Developer's note: we might want to add the following operations:
 --
 --   * a method for \"unsetting\" options to restore the default state of an option
