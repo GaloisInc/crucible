@@ -67,25 +67,6 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Utils.MuxTree
 
 
-crucibleSimFrame :: Lens (SimFrame sym ext (CrucibleLang blocks r) ('Just args))
-                         (SimFrame sym ext (CrucibleLang blocks r) ('Just args'))
-                         (CallFrame sym ext blocks r args)
-                         (CallFrame sym ext blocks r args')
-crucibleSimFrame f (MF c) = MF <$> f c
-
-crucibleTopFrame ::  Lens (TopFrame sym ext (CrucibleLang blocks r) ('Just args))
-                          (TopFrame sym ext (CrucibleLang blocks r) ('Just args'))
-                          (CallFrame sym ext blocks r args)
-                          (CallFrame sym ext blocks r args')
-crucibleTopFrame = gpValue . crucibleSimFrame
-
-stateCrucibleFrame :: Lens (SimState p sym ext rtp (CrucibleLang blocks r) ('Just a))
-                           (SimState p sym ext rtp (CrucibleLang blocks r) ('Just a'))
-                           (CallFrame sym ext blocks r a)
-                           (CallFrame sym ext blocks r a')
-stateCrucibleFrame = stateTree . actFrame . crucibleTopFrame
-{-# INLINE stateCrucibleFrame #-}
-
 ------------------------------------------------------------------------
 -- resolveCallFrame
 
@@ -474,9 +455,12 @@ stepTerm s _ (TailCall fnExpr _types arg_exprs) = do
 
 stepTerm s _ (ErrorStmt msg) = do
   let msg' = evalReg s msg
+      sym = stateSymInterface s
   case asString msg' of
-    Just txt -> fail (Text.unpack txt)
-    Nothing  -> fail (show (printSymExpr msg'))
+    Just txt -> addFailedAssertion sym
+                  $ GenericSimError $ Text.unpack txt
+    Nothing  -> addFailedAssertion sym
+                  $ GenericSimError $ show (printSymExpr msg')
 
 evalArgs' :: forall sym ctx args
            . RegMap sym ctx
@@ -532,7 +516,7 @@ continueCrucible s_ref verb s = do
 
 
 alterRef ::
-  IsExprBuilder sym =>
+  IsSymInterface sym =>
   sym ->
   IntrinsicTypes sym ->
   TypeRepr tp ->

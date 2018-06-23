@@ -22,7 +22,6 @@
 module Lang.Crucible.Simulator.Evaluation
   ( EvalAppFunc
   , evalApp
-  , failIfNothing
   , selectedIndices
   , indexSymbolic
   , integerAsChar
@@ -63,11 +62,6 @@ import           Lang.Crucible.Utils.MuxTree
 ------------------------------------------------------------------------
 -- Utilities
 
--- | Call fail with the given message if the maybe value is nothing,
--- otherwise return the value.
-failIfNothing :: Monad m => String -> Maybe a -> m a
-failIfNothing msg Nothing = fail msg
-failIfNothing _  (Just v) = return v
 
 -- | Given a list of Booleans l, @selectedIndices@ returns the indices of
 -- true values in @l@.
@@ -90,6 +84,8 @@ complexRealAsChar v = do
     -- Check number is printable.
     Just r | otherwise -> return (integerAsChar (floor r))
     Nothing -> fail "Symbolic value cannot be interpreted as a character."
+    -- XXX: Should this be a panic?
+    -- XXX: We should move this to crucible-matlab
 
 ------------------------------------------------------------------------
 -- Evaluating expressions
@@ -112,14 +108,30 @@ indexSymbolic' sym iteFn f p ((l,h):nl) (si:il) = do
   case asNat si of
     Just i
       | l <= i && i <= h -> subIndex i
-      | otherwise -> fail $ "Index exceeds matrix dimensions.\n" ++ show (l,i,h)
-    Nothing -> do
-      l_sym <- natLit sym l
-      h_sym <- natLit sym h
-      inRange <- join $ andPred sym <$> natLe sym l_sym si <*> natLe sym si h_sym
-      assert sym inRange (GenericSimError "Index exceeds matrix dimensions.")
-      let predFn i = natEq sym si =<< natLit sym (fromInteger i)
-      muxIntegerRange predFn iteFn (subIndex . fromInteger) (toInteger l) (toInteger h)
+      | otherwise -> addFailedAssertion sym (AssertFailureSimError msg)
+        where msg = "Index exceeds matrix dimensions.\n" ++ show (l,i,h)
+    Nothing ->
+      do ensureInRange sym l h si "Index outside matrix dimensions."
+         let predFn i = natEq sym si =<< natLit sym (fromInteger i)
+         muxIntegerRange predFn iteFn (subIndex . fromInteger)
+                                      (toInteger l) (toInteger h)
+
+
+ensureInRange ::
+  IsSymInterface sym =>
+  sym ->
+  Natural ->
+  Natural ->
+  SymNat sym ->
+  String ->
+  IO ()
+ensureInRange sym l h si msg =
+  do l_sym <- natLit sym l
+     h_sym <- natLit sym h
+     inRange <- join $ andPred sym <$> natLe sym l_sym si <*> natLe sym si h_sym
+     assert sym inRange (AssertFailureSimError msg)
+
+
 
 -- | Lookup a value in an array that may be at a symbolic offset.
 --
@@ -137,7 +149,8 @@ indexSymbolic :: IsSymInterface sym
 indexSymbolic sym iteFn f = indexSymbolic' sym iteFn f []
 
 -- | Evaluate an indexTermterm to an index value.
-evalBase :: sym
+evalBase :: IsSymInterface sym =>
+            sym
          -> (forall utp . f utp -> IO (RegValue sym utp))
          -> BaseTerm f vtp
          -> IO (SymExpr sym vtp)
@@ -154,26 +167,31 @@ evalBase _ evalSub (BaseTerm tp e) =
     BaseArrayRepr _ _ -> evalSub e
 
 -- | Get value stored in vector at a symbolic index.
-indexVectorWithSymNat :: IsExprBuilder sym
+indexVectorWithSymNat :: IsSymInterface sym
                       => sym
                       -> (Pred sym -> a -> a -> IO a)
                          -- ^ Ite function
                       -> V.Vector a
                       -> SymNat sym
                       -> IO a
-indexVectorWithSymNat sym iteFn v si = do
-  let n = fromIntegral (V.length v)
-  Ex.assert (n > 0) $ do
+indexVectorWithSymNat sym iteFn v si =
+  Ex.assert (n > 0) $
   case asNat si of
-    Just i | 0 <= i && i <= n -> return (v V.! fromIntegral i)
-           | otherwise -> error "indexVectorWithSymNat given bad value"
-    Nothing -> do
-      let predFn i = natEq sym si =<< natLit sym (fromInteger i)
-      let getElt i = return (v V.! fromInteger i)
-      muxIntegerRange predFn iteFn getElt 0 (toInteger (n-1))
+    Just i | 0 <= i && i < n -> return (v V.! fromIntegral i)
+           | otherwise -> addFailedAssertion sym (AssertFailureSimError msg)
+    Nothing ->
+      do let predFn i = natEq sym si =<< natLit sym (fromInteger i)
+         let getElt i = return (v V.! fromInteger i)
+         ensureInRange sym 0 (n - 1) si msg
+         muxIntegerRange predFn iteFn getElt 0 (toInteger (n - 1))
+  where
+  n   = fromIntegral (V.length v)
+  msg = "indexVectorWithSymNat given bad value"
+
+
 
 -- | Update a vector at a given natural number index.
-updateVectorWithSymNat :: IsExprBuilder sym
+updateVectorWithSymNat :: IsSymInterface sym
                        => sym
                           -- ^ Symbolic backend
                        -> (Pred sym -> a -> a -> IO a)
@@ -189,7 +207,7 @@ updateVectorWithSymNat sym iteFn v si new_val = do
   adjustVectorWithSymNat sym iteFn v si (\_ -> return new_val)
 
 -- | Update a vector at a given natural number index.
-adjustVectorWithSymNat :: IsExprBuilder sym
+adjustVectorWithSymNat :: IsSymInterface sym
                        => sym
                           -- ^ Symbolic backend
                        -> (Pred sym -> a -> a -> IO a)
@@ -201,17 +219,23 @@ adjustVectorWithSymNat :: IsExprBuilder sym
                        -> (a -> IO a)
                           -- ^ Adjustment function to apply
                        -> IO (V.Vector a)
-adjustVectorWithSymNat sym iteFn v si adj = do
-  let n = V.length v
+adjustVectorWithSymNat sym iteFn v si adj =
   case asNat si of
-    Just i | i < fromIntegral n -> do
-             new_val <- adj (v V.! fromIntegral i)
-             return $ v V.// [(fromIntegral i, new_val)]
-           | otherwise -> fail $
-               "internal: Illegal index " ++ show i ++ " given to updateVectorWithSymNat"
-    Nothing -> do
-      let setFn j = do
-            -- Compare si and j.
+    Just i
+
+      | i < fromIntegral n ->
+        do new_val <- adj (v V.! fromIntegral i)
+           return $ v V.// [(fromIntegral i, new_val)]
+
+      | otherwise ->
+        addFailedAssertion sym $ AssertFailureSimError $ msg $ show i ++ " "
+
+    Nothing ->
+      do ensureInRange sym 0 (fromIntegral (n-1)) si (msg "")
+         V.generateM n setFn
+      where
+      setFn j =
+        do -- Compare si and j.
             c <- natEq sym si =<< natLit sym (fromIntegral j)
             -- Select old value or new value
             case asConstantPred c of
@@ -220,7 +244,11 @@ adjustVectorWithSymNat sym iteFn v si adj = do
               Nothing ->
                 do new_val <- adj (v V.! j)
                    iteFn c new_val (v V.! j)
-      V.generateM n setFn
+
+
+  where
+  n     = V.length v
+  msg i = "Illegal index " ++ i ++ "given to updateVectorWithSymNat"
 
 type EvalAppFunc sym app = forall f.
   (forall tp. f tp -> IO (RegValue sym tp)) ->
@@ -361,7 +389,9 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
           msg <- evalSub msg_expr
           case asString msg of
             Just msg' -> readPartExpr sym maybe_val (GenericSimError (Text.unpack msg'))
-            Nothing -> fail "Expected concrete string in fromJustValue"
+            Nothing ->
+              addFailedAssertion sym $
+                Unsupported "Symbolic string in fromJustValue"
 
     ----------------------------------------------------------------------
     -- Side conditions
@@ -383,7 +413,8 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     VectorReplicate _ n_expr e_expr -> do
       ne <- evalSub n_expr
       case asNat ne of
-        Nothing -> fail $ "mss does not support symbolic length arrays."
+        Nothing -> addFailedAssertion sym $
+                      Unsupported "vectors with symbolic length"
         Just n -> do
           e <- evalSub e_expr
           return $ V.replicate (fromIntegral n) e
@@ -686,14 +717,16 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       m <- evalSub m_expr
       case asString i of
         Just i' -> return $ joinMaybePE (Map.lookup i' m)
-        Nothing -> fail "Expected concrete string in lookupStringMapEntry"
+        Nothing -> addFailedAssertion sym $
+                    Unsupported "Symbolic string in lookupStringMapEntry"
     InsertStringMapEntry _ m_expr i_expr v_expr -> do
       m <- evalSub m_expr
       i <- evalSub i_expr
       v <- evalSub v_expr
       case asString i of
         Just i' -> return $ Map.insert i' v m
-        Nothing -> fail "Expected concrete string in insertStringMapEntry"
+        Nothing -> addFailedAssertion sym $
+                     Unsupported "Symbolic string in insertStringMapEntry"
 
     --------------------------------------------------------------------
     -- Text

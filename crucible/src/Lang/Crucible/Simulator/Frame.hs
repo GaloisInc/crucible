@@ -8,6 +8,7 @@ module Lang.Crucible.Simulator.Frame
   , OverrideLang
   , OverrideFrame(..)
   , overrideSimFrame
+  , crucibleSimFrame
   ) where
 
 import Control.Lens
@@ -43,10 +44,16 @@ data OverrideFrame sym (ret :: CrucibleType) args
 -- SimFrame
 
 data SimFrame sym ext l (args :: Maybe (Ctx CrucibleType)) where
+
+  -- | Custom code to execute, typically for "overrides"
   OF :: !(OverrideFrame sym ret args)
      -> SimFrame sym ext (OverrideLang args ret) 'Nothing
+
+  -- | We are executing some Crucible instructions
   MF :: !(CallFrame sym ext blocks ret args)
      -> SimFrame sym ext (CrucibleLang blocks ret) ('Just args)
+
+  -- | We should return this value.
   RF :: !(RegEntry sym ret)
      -> SimFrame sym ext (CrucibleLang blocks ret) 'Nothing
 
@@ -55,3 +62,12 @@ overrideSimFrame :: Lens (SimFrame sym ext (OverrideLang a r) 'Nothing)
                          (OverrideFrame sym r a)
                          (OverrideFrame sym r a)
 overrideSimFrame f (OF g) = OF <$> f g
+
+
+crucibleSimFrame :: Lens (SimFrame sym ext (CrucibleLang blocks r) ('Just args))
+                         (SimFrame sym ext (CrucibleLang blocks r) ('Just args'))
+                         (CallFrame sym ext blocks r args)
+                         (CallFrame sym ext blocks r args')
+crucibleSimFrame f (MF c) = MF <$> f c
+
+

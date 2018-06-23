@@ -9,6 +9,7 @@ module Main(main) where
 import Data.String(fromString)
 import qualified Data.Foldable as Fold
 import qualified Data.Map as Map
+import Data.Maybe(catMaybes)
 import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)
 import Control.Monad(unless)
@@ -129,6 +130,7 @@ setupMem ctx mtrans =
      mapM_ registerModuleFn $ Map.toList $ cfgMap mtrans
 
 
+-- Returns only non-trivial goals
 simulate ::
   Options ->
   (forall sym arch.
@@ -144,8 +146,8 @@ simulate opts k =
      llvmPtrWidth llvmCtxt $ \ptrW ->
        withPtrWidth ptrW $
        withIONonceGenerator $ \nonceGen ->
-       -- withZ3OnlineBackend nonceGen $ \sym ->
-       withYicesOnlineBackend nonceGen $ \sym ->
+       withZ3OnlineBackend nonceGen $ \sym ->
+       -- withYicesOnlineBackend nonceGen $ \sym ->
        do frm <- pushAssumptionFrame sym
           let simctx = setupSimCtxt halloc sym
 
@@ -162,7 +164,9 @@ simulate opts k =
 
           ctx' <- case res of
                     FinishedExecution ctx' _ -> return ctx'
-                    AbortedResult ctx' _ -> return ctx'
+                    AbortedResult ctx' _ ->
+                      do putStrLn "Aborted result"
+                         return ctx'
 
           say "Crux" "Simulation complete."
 
@@ -170,13 +174,24 @@ simulate opts k =
           let n = length gs
               suff = if n == 1 then "" else "s"
           say "Crux" ("Proving " ++ show n ++ " side condition" ++ suff ++ ".")
-          withProgressBar 60 gs $ \g ->
-             do result <- proveGoal ctx' g
-                return ( map (^. labeledPredMsg)
-                             (Fold.toList (proofAssumptions g))
-                       , proofGoal g ^. labeledPredMsg
-                       , result
-                       )
+          fmap catMaybes $
+            withProgressBar 60 gs $ \g ->
+               do result <- proveGoal ctx' g
+                  case result of
+                    NotProved {} -> return (Just (toRes result g))
+                    Proved ->
+                      do simp <- simpProved ctx' g
+                         case simp of
+                           Trivial -> return Nothing
+                           NotTrivial g1 -> return (Just (toRes Proved g1))
+
+   where toRes result g =
+           ( map (^. labeledPredMsg)
+                 (Fold.toList (proofAssumptions g))
+           , proofGoal g ^. labeledPredMsg
+           , result
+           )
+
 
 checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM sym arch ()
 checkFun nm mp =

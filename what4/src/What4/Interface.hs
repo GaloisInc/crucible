@@ -2056,12 +2056,13 @@ concreteToSym sym = \case
 -- muxIntegerRange
 
 {-# INLINABLE muxIntegerRange #-}
--- | This function is used for selecting a value from among potential values in a
--- range.
---
--- 'muxIntegerRange p ite f l h' returns an expression denoting the value obtained
--- from the value 'f i' where 'i' is the smallest value in the range '[l..h]' such that
--- 'p i' is true.  If 'p i' is true for no such value then, this returns the value 'f h'.
+{- | This function is used for selecting a value from among potential
+values in a range.
+
+'muxIntegerRange p ite f l h' returns an expression denoting the value obtained
+from the value 'f i' where 'i' is the smallest value in the range '[l..h]'
+such that 'p i' is true.  If 'p i' is true for no such value then,
+this returns the value 'f h'. -}
 muxIntegerRange :: Monad m
                 => (Integer -> m (e BaseBoolType))
                    -- ^ Returns predicate that holds if we have found the value we are looking

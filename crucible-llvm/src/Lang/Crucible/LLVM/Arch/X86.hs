@@ -25,6 +25,7 @@ import qualified What4.Interface as I
 import Lang.Crucible.CFG.Extension
 import Lang.Crucible.Types(CrucibleType,BVType,NatRepr,TypeRepr(..))
 import Lang.Crucible.Simulator.RegValue(RegValue)
+import Lang.Crucible.Panic(panic)
 
 import Lang.Crucible.LLVM.Arch.Util((|->))
 
@@ -78,7 +79,8 @@ vShufD sym w ixes v
     do lower128 <- mk128 =<< I.bvSelect sym n0   n128 v
        upper128 <- mk128 =<< I.bvSelect sym n128 n128 v
        I.bvConcat sym upper128 lower128
-  | otherwise = fail "[vShufD]: Unexpected width"
+  | otherwise = panic "Arch.X86.vShufD"
+                        [ "*** Unexpected width: " ++ show (I.natValue w) ]
 
   where
   mk128 :: SymBV sym 128 -> IO (SymBV sym 128)

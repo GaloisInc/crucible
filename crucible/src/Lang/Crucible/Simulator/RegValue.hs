@@ -67,8 +67,10 @@ import           What4.WordMap
 
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Simulator.Intrinsics
+import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MuxTree
+import           Lang.Crucible.Backend
 
 type MuxFn p v = p -> v -> v -> IO v
 
@@ -136,12 +138,13 @@ class CanMux sym (tp :: CrucibleType) where
 -- | Merge function that checks if two values are equal, and
 -- fails if they are not.
 {-# INLINE eqMergeFn #-}
-eqMergeFn :: Eq v => String -> MuxFn p v
-eqMergeFn nm = \_ x y ->
+eqMergeFn :: (IsSymInterface sym, Eq v) => sym -> String -> MuxFn p v
+eqMergeFn sym nm = \_ x y ->
   if x == y then
     return x
   else
-    fail $ "Cannot merge dissimilar " ++ nm ++ "."
+    addFailedAssertion sym
+      $ Unsupported $ "Cannot merge dissimilar " ++ nm ++ "."
 
 ------------------------------------------------------------------------
 -- RegValue AnyType instance
@@ -186,15 +189,17 @@ instance IsExprBuilder sym => CanMux sym StringType where
 -- RegValue Vector instance
 
 {-# INLINE muxVector #-}
-muxVector :: MuxFn p e
-          -> MuxFn p (V.Vector e)
-muxVector f p x y
+muxVector :: IsSymInterface sym =>
+             sym -> MuxFn p e -> MuxFn p (V.Vector e)
+muxVector sym f p x y
   | V.length x == V.length y = V.zipWithM (f p) x y
-  | otherwise = fail "Cannot merge vectors with different dimensions."
+  | otherwise =
+    addFailedAssertion sym
+      $ Unsupported "Cannot merge vectors with different dimensions."
 
-instance CanMux sym tp => CanMux sym (VectorType tp) where
+instance (IsSymInterface sym, CanMux sym tp) => CanMux sym (VectorType tp) where
   {-# INLINE muxReg #-}
-  muxReg s _ = muxVector (muxReg s (Proxy :: Proxy tp))
+  muxReg s _ = muxVector s (muxReg s (Proxy :: Proxy tp))
 
 ------------------------------------------------------------------------
 -- RegValue WordMap instance
@@ -207,9 +212,9 @@ instance (IsExprBuilder sym, KnownNat w, KnownRepr BaseTypeRepr tp)
 ------------------------------------------------------------------------
 -- RegValue MatlabChar instance
 
-instance CanMux sym CharType where
+instance IsSymInterface sym => CanMux sym CharType where
   {-# INLINE muxReg #-}
-  muxReg _ = \_ -> eqMergeFn "characters"
+  muxReg s = \_ -> eqMergeFn s "characters"
 
 ------------------------------------------------------------------------
 -- RegValue Maybe instance

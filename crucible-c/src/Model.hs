@@ -17,11 +17,15 @@ import Lang.Crucible.Types(BaseTypeRepr(..),BaseToType)
 import Lang.Crucible.Simulator.RegMap(RegValue)
 import What4.Expr
         (GroundValue,GroundEvalFn(..),ExprBuilder)
+import What4.ProgramLoc
 
 import Error
 
 newtype Model sym   = Model (MapF BaseTypeRepr (Vars sym))
-data Entry ty       = Entry { entryName :: String, entryValue :: ty }
+data Entry ty       = Entry { entryName :: String
+                            , entryLoc :: ProgramLoc
+                            , entryValue :: ty
+                            }
 newtype Vars sym ty = Vars [ Entry (RegValue sym (BaseToType ty)) ]
 newtype Vals ty     = Vals [ Entry (GroundValue ty) ]
 
@@ -36,14 +40,15 @@ noVars :: BaseTypeRepr ty -> Pair BaseTypeRepr (Vars sym)
 noVars ty = Pair ty (Vars [])
 
 addVar ::
+  ProgramLoc ->
   String ->
   BaseTypeRepr ty ->
   RegValue sym (BaseToType ty) ->
   Model sym ->
   Model sym
-addVar nm k v (Model mp) = Model (MapF.insertWith jn k (Vars [ ent ]) mp)
+addVar l nm k v (Model mp) = Model (MapF.insertWith jn k (Vars [ ent ]) mp)
   where jn (Vars new) (Vars old) = Vars (new ++ old)
-        ent = Entry { entryName = nm, entryValue = v }
+        ent = Entry { entryName = nm, entryLoc = l, entryValue = v }
 
 evalVars :: GroundEvalFn s -> Vars (ExprBuilder s t) ty -> IO (Vals ty)
 evalVars ev (Vars xs) = Vals . reverse <$> mapM evEntry xs
@@ -59,9 +64,21 @@ evalModel ev (Model mp) = traverseF (evalVars ev) mp
 
 --------------------------------------------------------------------------------
 
+data ModelViews = ModelViews
+  { modelInC :: String
+  , modelInJS :: String
+  }
 
-ppVals :: BaseTypeRepr ty -> Vals ty -> String
-ppVals ty (Vals xs) =
+ppModel :: GroundEvalFn s -> Model (ExprBuilder s t) -> IO ModelViews
+ppModel ev m =
+  do c_code <- ppModelC ev m
+     js_code <- ppModelJS ev m
+     return ModelViews { modelInC  = c_code
+                       , modelInJS = js_code
+                       }
+
+ppValsC :: BaseTypeRepr ty -> Vals ty -> String
+ppValsC ty (Vals xs) =
   case ty of
     BaseBVRepr n ->
       let cty = "int" ++ show n ++ "_t"
@@ -77,15 +94,42 @@ ppVals ty (Vals xs) =
           ]
     _ -> throw (Bug ("Type not implemented: " ++ show ty))
 
-ppModel ::
+ppModelC ::
   GroundEvalFn s -> Model (ExprBuilder s t) -> IO String
-ppModel ev m =
+ppModelC ev m =
   do vals <- evalModel ev m
      return $ unlines
             $ "#include <stdint.h>"
             : "#include <stddef.h>"
             : ""
-            : MapF.foldrWithKey (\k v rest -> ppVals k v : rest) [] vals
+            : MapF.foldrWithKey (\k v rest -> ppValsC k v : rest) [] vals
+
+
+ppValsJS :: BaseTypeRepr ty -> Vals ty -> [String]
+ppValsJS ty (Vals xs) =
+  case ty of
+    BaseBVRepr n ->
+      let showEnt e = unlines [ "{ \"name\": " ++ show (entryName e)
+                              , ", \"line\": " ++ showL (entryLoc e)
+                              , ", \"val\": " ++ show (show (entryValue e))
+                              , ", \"bits\": " ++ show n
+                              , "}" ]
+      in map showEnt xs
+
+    _ -> throw (Bug ("Type not implemented: " ++ show ty))
+  where
+  showL l = case plSourceLoc l of
+              SourcePos _ x _ -> show x
+              _               -> "null"
+
+ppModelJS ::
+  GroundEvalFn s -> Model (ExprBuilder s t) -> IO String
+ppModelJS ev m =
+  do vals <- evalModel ev m
+     let ents = MapF.foldrWithKey (\k v rest -> ppValsJS k v ++ rest) [] vals
+         pre  = "[ " : repeat ", "
+     return $ unlines $ zipWith (++) pre ents ++ ["]"]
+
 
 
 
