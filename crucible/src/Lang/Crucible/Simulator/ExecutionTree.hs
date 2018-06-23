@@ -1093,8 +1093,8 @@ callFn ::
         ReturnHandler p sym ext r f new_args)
     {- ^ What to do with the restul of the function -} ->
 
-  SimFrame sym ext a args ->
-    {- ^ The code to run -}
+  SimFrame sym ext a args
+    {- ^ The code to run -} ->
 
   ActiveTree p sym ext r f old_args ->
   ActiveTree p sym ext r a args
