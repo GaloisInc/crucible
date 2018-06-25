@@ -592,34 +592,25 @@ isAllocatedMut mutOk sym w (llvmPointerView -> (blk, off)) sz m = do
                         do notSameBlock <- notPred sym sameBlock
                            andPred sym notSameBlock =<< fallback
 
+      let go :: IO (Pred sym) -> [MemAlloc sym] -> IO (Pred sym)
+          go fallback [] = fallback
+          go fallback (Alloc _ a asz mut _ : r)
+            | mutOk mut = step a asz (go fallback r)
+            | otherwise = go fallback r
+          go fallback (AllocMerge _ [] [] : r) = go fallback r
+          go fallback (AllocMerge c xr yr : r) =
+            do p <- go fallback r -- TODO: wrap this in a delay
+               px <- go (return p) xr
+               py <- go (return p) yr
+               itePred sym c px py
+
       -- It is an error if the offset+size calculation overflows.
       case asConstantPred ov of
         Just True  -> return (falsePred sym)
-        Just False -> isAllocated' sym step mutOk (memAllocs m)
+        Just False -> go (pure (falsePred sym)) (memAllocs m)
         Nothing    ->
           do nov <- notPred sym ov
-             andPred sym nov =<< isAllocated' sym step mutOk (memAllocs m)
-
-isAllocated' :: (IsExpr (SymExpr sym), IsExprBuilder sym) =>
-             sym
-             -> (forall w. Natural -> SymBV sym w -> IO (Pred sym) -> IO (Pred sym))
-                -- ^ Evaluation function that takes continuation
-                -- for condition if previous check fails.
-             -> (Mutability -> Bool)
-             -> [MemAlloc sym]
-             -> IO (Pred sym)
-isAllocated' sym step mutOk = go (pure (falsePred sym))
-  where
-    go fallback [] = fallback
-    go fallback (Alloc _ a asz mut _ : r)
-      | mutOk mut = step a asz (go fallback r)
-      | otherwise = go fallback r
-    go fallback (AllocMerge _ [] [] : r) = go fallback r
-    go fallback (AllocMerge c xr yr : r) =
-      do p <- go fallback r -- TODO: wrap this in a delay
-         px <- go (return p) xr
-         py <- go (return p) yr
-         itePred sym c px py
+             andPred sym nov =<< go (pure (falsePred sym)) (memAllocs m)
 
 -- | @isAllocated sym w p sz m@ returns condition required to prove range
 -- @[p..p+sz)@ lies within a single allocation in @m@.
