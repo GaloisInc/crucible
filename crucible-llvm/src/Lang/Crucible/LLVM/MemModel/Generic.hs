@@ -96,6 +96,8 @@ data MemAlloc sym
      -- 'String' contains source location information for use in error
      -- messages.
    = forall w. Alloc AllocType Natural (SymBV sym w) Mutability String
+     -- | Freeing of the given block ID.
+   | MemFree (SymNat sym)
      -- | The merger of two allocations.
    | AllocMerge (Pred sym) [MemAlloc sym] [MemAlloc sym]
 
@@ -597,6 +599,14 @@ isAllocatedMut mutOk sym w (llvmPointerView -> (blk, off)) sz m = do
           go fallback (Alloc _ a asz mut _ : r)
             | mutOk mut = step a asz (go fallback r)
             | otherwise = go fallback r
+          go fallback (MemFree a : r) =
+            do sameBlock <- natEq sym blk a
+               case asConstantPred sameBlock of
+                 Just True  -> return (falsePred sym)
+                 Just False -> go fallback r
+                 Nothing    ->
+                   do notSameBlock <- notPred sym sameBlock
+                      andPred sym notSameBlock =<< go fallback r
           go fallback (AllocMerge _ [] [] : r) = go fallback r
           go fallback (AllocMerge c xr yr : r) =
             do p <- go fallback r -- TODO: wrap this in a delay
@@ -698,6 +708,7 @@ notAliasable sym (llvmPointerView -> (blk1, _)) (llvmPointerView -> (blk2, _)) m
       do p1 <- natEq sym blk =<< natLit sym a
          p2 <- isMutable blk r
          orPred sym p1 p2
+    isMutable blk (MemFree _ : r) = isMutable blk r
     isMutable blk (AllocMerge c x y : r) =
       do px <- isMutable blk x
          py <- isMutable blk y
@@ -817,81 +828,52 @@ popStackFrameMem m = m & memState %~ popf
         pa (Alloc StackAlloc _ _ _ _) = Nothing
         pa a@(Alloc HeapAlloc _ _ _ _) = Just a
         pa a@(Alloc GlobalAlloc _ _ _ _) = Just a
+        pa a@(MemFree _) = Just a
         pa (AllocMerge c x y) = Just (AllocMerge c (mapMaybe pa x) (mapMaybe pa y))
 
--- FIXME? This could perhaps be more efficient.  Right now we
--- will traverse almost the entire memory on every free, even
--- if we concretely find the corresponding allocation early.
+-- | Free a heap-allocated block of memory. The returned 'Pred'
+-- asserts that the pointer points to the base of a valid
+-- heap-allocated block.
 freeMem :: forall sym w .
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w ->
   LLVMPtr sym w {- ^ Base of allocation to free -} ->
   Mem sym ->
   IO (Pred sym, Mem sym)
-freeMem sym w p m =
-  do (c, st') <- freeSt (m^.memState)
-     return (c, m & memState .~ st')
+freeMem sym w (LLVMPointer blk off) m =
+  do z <- bvLit sym w 0
+     p1 <- bvEq sym off z
+     p2 <- isHeapAllocated (return (falsePred sym)) (memAllocs m)
+     p <- andPred sym p1 p2
+     return (p, memAddAlloc (MemFree blk) m)
   where
-  p_decomp = ptrDecompose sym w p
-
-  freeAllocs :: [MemAlloc sym] -> IO (Pred sym, [MemAlloc sym])
-  freeAllocs [] =
-     return ( falsePred sym , [] )
-  freeAllocs (a@(Alloc HeapAlloc b _sz _ro _) : as) = do
-     case p_decomp of
-       ConcreteOffset p' poff
-         | p' == b -> do
-             let c = if poff == 0 then truePred sym else falsePred sym
-             return (c, as)
-         | otherwise -> do
-             (c, as') <- freeAllocs as
-             return (c, a : as')
-       SymbolicOffset p' poff
-         | p' == b -> do
-             c <- bvEq sym poff =<< bvLit sym w 0
-             return (c, as)
-         | otherwise -> do
-             (c, as') <- freeAllocs as
-             return (c, a : as')
-       _ -> do
-         base <- natLit sym b
-         off <- bvLit sym w 0
-         eq <- ptrEq sym w p (LLVMPointer base off)
-         (c, as') <- freeAllocs as
-         c'  <- orPred sym eq c
-         return (c', AllocMerge eq [] [a] : as')
-
-  freeAllocs (a@(Alloc _ _ _ _ _) : as) = do
-     (c, as') <- freeAllocs as
-     return (c, a:as')
-
-  freeAllocs (AllocMerge cm x y : as) = do
-     (c1, x') <- freeAllocs x
-     (c2, y') <- freeAllocs y
-     c <- itePred sym cm c1 c2
-     (c3, as') <- freeAllocs as
-     c' <- orPred sym c c3
-     return (c', AllocMerge cm x' y' : as')
-
-  freeCh :: MemChanges sym -> IO (Pred sym, MemChanges sym)
-  freeCh (a, w') = do
-      (c,a') <- freeAllocs a
-      return (c, (a', w'))
-
-  freeSt :: MemState sym -> IO (Pred sym, MemState sym)
-  freeSt (StackFrame ch st) = do
-            (c1,ch') <- freeCh ch
-            (c2,st') <- freeSt st
-            c <- orPred sym c1 c2
-            return (c, StackFrame ch' st')
-  freeSt (BranchFrame ch st) = do
-            (c1,ch') <- freeCh ch
-            (c2,st') <- freeSt st
-            c <- orPred sym c1 c2
-            return (c, BranchFrame ch' st')
-  freeSt (EmptyMem ch) = do
-            (c, ch') <- freeCh ch
-            return (c, EmptyMem ch')
+    isHeapAllocated :: IO (Pred sym) -> [MemAlloc sym] -> IO (Pred sym)
+    isHeapAllocated fallback [] = fallback
+    isHeapAllocated fallback (alloc : r) =
+      case alloc of
+        Alloc HeapAlloc a _ _ _ ->
+          do sameBlock <- natEq sym blk =<< natLit sym a
+             case asConstantPred sameBlock of
+               Just True  -> return (truePred sym)
+               Just False -> isHeapAllocated fallback r
+               Nothing    -> orPred sym sameBlock =<< isHeapAllocated fallback r
+        Alloc _ _ _ _ _ ->
+          isHeapAllocated fallback r
+        MemFree a ->
+          do sameBlock <- natEq sym blk a
+             case asConstantPred sameBlock of
+               Just True  -> return (falsePred sym)
+               Just False -> isHeapAllocated fallback r
+               Nothing    ->
+                 do notSameBlock <- notPred sym sameBlock
+                    andPred sym notSameBlock =<< isHeapAllocated fallback r
+        AllocMerge _ [] [] ->
+          isHeapAllocated fallback r
+        AllocMerge c xr yr ->
+          do p <- isHeapAllocated fallback r -- TODO: wrap this in a delay
+             px <- isHeapAllocated (return p) xr
+             py <- isHeapAllocated (return p) yr
+             itePred sym c px py
 
 
 branchMem :: Mem sym -> Mem sym
@@ -960,6 +942,8 @@ ppMerge vpp c x y =
 ppAlloc :: IsExprBuilder sym => MemAlloc sym -> Doc
 ppAlloc (Alloc atp base sz mut loc) =
   text (show atp) <+> text (show base) <+> printSymExpr sz <+> text (show mut) <+> text loc
+ppAlloc (MemFree base) =
+  text "free" <+> printSymExpr base
 ppAlloc (AllocMerge c x y) = do
   text "merge" <$$> ppMerge ppAlloc c x y
 
