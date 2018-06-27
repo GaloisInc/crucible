@@ -733,7 +733,7 @@ writeMem :: (1 <= w, IsSymInterface sym)
 writeMem sym w ptr tp v m =
   do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
      p <- isAllocatedMutable sym w ptr sz m
-     return (p, writeMem' sym w ptr tp v m)
+     return (p, memAddWrite (MemStore ptr v tp) m)
 
 -- | Write a value to any memory region, mutable or immutable. The
 -- returned 'Pred' asserts that the pointer falls within an allocated
@@ -750,17 +750,7 @@ writeConstMem ::
 writeConstMem sym w ptr tp v m =
   do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
      p <- isAllocated sym w ptr sz m
-     return (p, writeMem' sym w ptr tp v m)
-
--- | Write memory without checking whether it is allocated.
-writeMem' :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
-          -> LLVMPtr sym w
-          -> Type
-          -> LLVMVal sym
-          -> Mem sym
-          -> Mem sym
-writeMem' _sym _w p tp v m =
-  m & memAddWrite (MemStore p v tp)
+     return (p, memAddWrite (MemStore ptr v tp) m)
 
 -- | Perform a mem copy. The returned 'Pred' asserts that the source
 -- and destination pointers both fall within allocated memory regions.
@@ -802,7 +792,8 @@ allocAndWriteMem sym w a b tp mut loc v m = do
   base <- natLit sym b
   off <- bvLit sym w 0
   let p = LLVMPointer base off
-  return (writeMem' sym w p tp v (m & memAddAlloc (Alloc a b sz mut loc)))
+  return (m & memAddAlloc (Alloc a b sz mut loc)
+            & memAddWrite (MemStore p v tp))
 
 pushStackFrameMem :: Mem sym -> Mem sym
 pushStackFrameMem = memState %~ StackFrame emptyChanges
