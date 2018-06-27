@@ -44,6 +44,7 @@ module Lang.Crucible.LLVM.MemModel.Common
   , valueLoad
   , symbolicValueLoad
 
+  , memsetValue
   ) where
 
 import Control.Exception (assert)
@@ -525,3 +526,19 @@ symbolicValueLoad pref tp v alignment =
       where adjustFn = fixLoadAfterStoreOffset pref i
 
     loadFail = MuxVar (ValueCtorVar (OldMemory Load tp))
+
+-- | Create a value of the given type made up of copies of the given byte.
+memsetValue :: a -> Type -> ValueCtor a
+memsetValue byte = go
+  where
+    val = ValueCtorVar byte
+    go tp =
+      case typeF tp of
+        Bitvector sz
+          | sz <= 1 -> val
+          | otherwise -> concatBV 1 val (sz - 1) (go (bitvectorType (sz - 1)))
+        Float -> BVToFloat (go (bitvectorType 4))
+        Double -> BVToDouble (go (bitvectorType 8))
+        Array n etp -> MkArray etp (V.replicate (fromIntegral n) (go etp))
+        Struct flds -> MkStruct (fldFn <$> flds)
+          where fldFn fld = (fld, go (fld^.fieldVal))
