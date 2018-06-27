@@ -824,7 +824,9 @@ popStackFrameMem m = m & memState %~ popf
 
 -- | Free a heap-allocated block of memory. The returned 'Pred'
 -- asserts that the pointer points to the base of a valid
--- heap-allocated block.
+-- heap-allocated mutable block. Because the LLVM memory model allows
+-- immutable blocks to alias each other, freeing an immutable block
+-- could lead to unsoundness.
 freeMem :: forall sym w .
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w ->
@@ -842,7 +844,7 @@ freeMem sym w (LLVMPointer blk off) m =
     isHeapAllocated fallback [] = fallback
     isHeapAllocated fallback (alloc : r) =
       case alloc of
-        Alloc HeapAlloc a _ _ _ ->
+        Alloc HeapAlloc a _ Mutable _ ->
           do sameBlock <- natEq sym blk =<< natLit sym a
              case asConstantPred sameBlock of
                Just True  -> return (truePred sym)
