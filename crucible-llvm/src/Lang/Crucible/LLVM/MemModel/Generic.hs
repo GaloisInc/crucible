@@ -104,9 +104,9 @@ data MemAlloc sym
 data MemWrite sym
     -- | @MemCopy dst src len@ represents a copy from [src..src+len) to
     -- [dst..dst+len).
-  = forall w. MemCopy (LLVMPtr sym w, AddrDecomposeResult sym w) (LLVMPtr sym w) (SymBV sym w, Maybe Integer)
+  = forall w. MemCopy (LLVMPtr sym w) (LLVMPtr sym w) (SymBV sym w)
     -- | Memstore is given address was written, value, and type of value.
-  | forall w. MemStore (LLVMPtr sym w, AddrDecomposeResult sym w) (LLVMVal sym) Type
+  | forall w. MemStore (LLVMPtr sym w) (LLVMVal sym) Type
     -- | The merger of two memories.
   | WriteMerge (Pred sym) [MemWrite sym] [MemWrite sym]
 
@@ -293,12 +293,13 @@ readMemCopy :: forall sym w .
             -> EndianForm
             -> (LLVMPtr sym w, AddrDecomposeResult sym w)
             -> Type
-            -> (LLVMPtr sym w, AddrDecomposeResult sym w)
             -> LLVMPtr sym w
-            -> (SymBV sym w, Maybe Integer)
+            -> LLVMPtr sym w
+            -> SymBV sym w
             -> (Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (PartLLVMVal sym))
             -> IO (PartLLVMVal sym)
-readMemCopy sym w end (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
+readMemCopy sym w end (l,ld) tp d src sz readPrev' = do
+  let dd = ptrDecompose sym w d
   let readPrev tp' p = readPrev' tp' (p, ptrDecompose sym w p)
   let varFn = (l, d, sz)
   case (ld, dd) of
@@ -310,7 +311,7 @@ readMemCopy sym w end (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
                                         o' <- bvLit sym w (bytesToInteger o)
                                         readPrev tp' (LLVMPointer lv' o')
           subFn (InRange    o tp') = readPrev tp' =<< tgAddPtrC sym w src o
-      case szd of
+      case asUnsignedBV sz of
         Just csz -> do
           let s = R (fromInteger so) (fromInteger (so + csz))
           let vcr = rangeLoad (fromInteger lo) tp s
@@ -332,7 +333,7 @@ readMemCopy sym w end (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
       let pref | ConcreteOffset{} <- dd = FixedStore
                | ConcreteOffset{} <- ld = FixedLoad
                | otherwise = NeitherFixed
-      let mux0 | Just csz <- szd =
+      let mux0 | Just csz <- asUnsignedBV sz =
                    fixedSizeRangeLoad pref tp (fromInteger csz)
                | otherwise =
                    symbolicRangeLoad pref tp
@@ -346,7 +347,7 @@ readMemStore :: forall sym w .
                -- ^ The loaded address and information
             -> Type
                -- ^ The type we are reading.
-            -> (LLVMPtr sym w, AddrDecomposeResult sym w)
+            -> LLVMPtr sym w
                -- ^ The store we are reading from.
             -> LLVMVal sym
                -- ^ The value that was stored.
@@ -357,10 +358,11 @@ readMemStore :: forall sym w .
             -> (Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (PartLLVMVal sym))
                -- ^ A callback function for when reading fails.
             -> IO (PartLLVMVal sym)
-readMemStore sym w end (l,ld) ltp (d,dd) t stp loadAlign readPrev' = do
+readMemStore sym w end (l,ld) ltp d t stp loadAlign readPrev' = do
   ssz <- bvLit sym w (bytesToInteger (typeSize stp))
   let varFn = (l, d, ssz)
   let readPrev tp p = readPrev' tp (p, ptrDecompose sym w p)
+  let dd = ptrDecompose sym w d
   case (ld, dd) of
     -- Offset if known
     (ConcreteOffset lv lo, ConcreteOffset sv so)
@@ -475,11 +477,11 @@ readMem' sym w end l0 tp0 alignment = go (\tp _l -> badLoad sym tp) l0 tp0
                    return x
          case h of
            MemCopy dst src sz ->
-             case testEquality (ptrWidth (fst dst)) w of
+             case testEquality (ptrWidth dst) w of
                Just Refl -> readMemCopy sym w end l tp dst src sz readPrev
                Nothing   -> readPrev tp l
            MemStore dst v stp ->
-             case testEquality (ptrWidth (fst dst)) w of
+             case testEquality (ptrWidth dst) w of
                Just Refl -> readMemStore sym w end l tp dst v stp alignment readPrev
                Nothing   -> readPrev tp l
            WriteMerge _ [] [] ->
@@ -757,8 +759,8 @@ writeMem' :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
           -> LLVMVal sym
           -> Mem sym
           -> Mem sym
-writeMem' sym w p tp v m =
-  m & memAddWrite (MemStore (p, ptrDecompose sym w p) v tp)
+writeMem' _sym _w p tp v m =
+  m & memAddWrite (MemStore p v tp)
 
 -- | Perform a mem copy. The returned 'Pred' asserts that the source
 -- and destination pointers both fall within allocated memory regions.
@@ -772,9 +774,7 @@ copyMem :: (1 <= w, IsSymInterface sym)
 copyMem sym w dst src sz m = do
   (,) <$> (join $ andPred sym <$> isAllocated sym w dst sz m
                               <*> isAllocated sym w src sz m)
-      <*> (do let dstd = ptrDecompose sym w dst
-              let szd = ptrSizeDecompose sym w sz
-              return $ m & memAddWrite (MemCopy (dst, dstd) src (sz, szd)))
+      <*> (return $ m & memAddWrite (MemCopy dst src sz))
 
 
 -- | Allocate a new empty memory region.
@@ -951,9 +951,9 @@ ppAllocs :: IsExprBuilder sym => [MemAlloc sym] -> Doc
 ppAllocs xs = vcat $ map ppAlloc xs
 
 ppWrite :: IsExprBuilder sym => MemWrite sym -> Doc
-ppWrite (MemCopy (d,_) s (l,_)) = do
+ppWrite (MemCopy d s l) = do
   text "memcopy" <+> ppPtr d <+> ppPtr s <+> printSymExpr l
-ppWrite (MemStore (d,_) v _) = do
+ppWrite (MemStore d v _) = do
   char '*' <> ppPtr d <+> text ":=" <+> ppTermExpr v
 ppWrite (WriteMerge c x y) = do
   text "merge" <$$> ppMerge ppWrite c x y
