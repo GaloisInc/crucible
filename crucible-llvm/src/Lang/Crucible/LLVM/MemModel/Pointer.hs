@@ -75,7 +75,6 @@ module Lang.Crucible.LLVM.MemModel.Pointer
   , ptrToPtrVal
   , constOffset
   , ptrDecompose
-  , ptrSizeDecompose
   , ptrComparable
   , ptrOffsetEq
   , ptrOffsetLe
@@ -228,15 +227,6 @@ ptrDecompose _sym _w (LLVMPointer (asNat -> Just b) off) =
   SymbolicOffset b off
 ptrDecompose _sym _w p =
   Symbolic p
-
--- | Determine if the given bitvector value is a concrete offset
-ptrSizeDecompose ::
-  IsExprBuilder sym =>
-  sym -> NatRepr w ->
-  SymBV sym w ->
-  Maybe Integer
-ptrSizeDecompose _ _ (asUnsignedBV -> Just off) = Just off
-ptrSizeDecompose _ _ _ = Nothing
 
 
 -- | Test whether pointers point into the same allocation unit.
