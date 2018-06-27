@@ -128,7 +128,7 @@ pattern LLVMPointer blk offset = RolledType (Ctx.Empty Ctx.:> RV blk Ctx.:> RV o
 #endif
 
 -- | Alternative to the @LLVMPointer@ pattern synonym, this function can be used as a view
---   consturctor instead to silence incomplete pattern warnings.
+--   constructor instead to silence incomplete pattern warnings.
 llvmPointerView :: RegValue sym (LLVMPointerType w) -> (RegValue sym NatType, RegValue sym (BVType w))
 llvmPointerView (LLVMPointer blk offset) = (blk, offset)
 
