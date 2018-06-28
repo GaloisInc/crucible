@@ -226,6 +226,13 @@ evalStmt sym = eval
      do mem <- getMem mvar
         liftIO $ (coerceAny sym tpr =<< doLoad sym mem ptr valType alignment)
 
+  eval (LLVM_MemClear mvar (regValue -> ptr) bytes) =
+    do mem <- getMem mvar
+       z   <- liftIO $ bvLit sym knownNat 0
+       len <- liftIO $ bvLit sym PtrWidth (G.bytesToInteger bytes)
+       mem' <- liftIO $ doMemset sym PtrWidth mem ptr z len
+       setMem mvar mem'
+
   eval (LLVM_Store mvar (regValue -> ptr) tpr valType _alignment (regValue -> val)) =
      do mem <- getMem mvar
         mem' <- liftIO $ doStore sym mem ptr tpr valType val
@@ -800,6 +807,7 @@ doFree sym mem ptr = do
   assert sym c' (AssertFailureSimError errMsg)
   return mem{ memImplHeap = heap', memImplHandleMap = hMap' }
 
+
 doMemset
   :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr)
   => sym
@@ -809,28 +817,15 @@ doMemset
   -> RegValue sym (BVType 8)
   -> RegValue sym (BVType w)
   -> IO (MemImpl sym)
-doMemset sym _w mem dest val len = do
-  --dest_doc <- ppPtr sym dest
-  --val_doc <- printSymExpr sym val
-  --len_doc <- printSymExpr sym len
-  --putStrLn $ unwords ["doMemset:", show dest_doc, show val_doc, show len_doc]
+doMemset sym w mem dest val len = do
+  len' <- sextendBVTo sym w PtrWidth len
 
-  case asUnsignedBV len of
-    Nothing -> do
-      -- FIXME? can we lift this restriction?
-      -- Perhaps should add a MemSet constructor
-      -- to MemWrites and deal with things that way...
-      addFailedAssertion sym $ Unsupported "`memset` on symbolic length"
-    Just sz -> do
-      let tp   = G.arrayType (fromInteger sz) (G.bitvectorType 1)
-      blk0 <- natLit sym 0
-      let val' = LLVMValInt blk0 val
-      let xs   = V.generate (fromInteger sz) (\_ -> val')
-      let arr  = LLVMValArray (G.bitvectorType 1) xs
-      (c, heap') <- G.writeMem sym PtrWidth dest tp arr (memImplHeap mem)
-      assert sym c
-         (AssertFailureSimError "Invalid region specified in memset")
-      return mem{ memImplHeap = heap' }
+  (c, heap') <- G.setMem sym PtrWidth dest val len' (memImplHeap mem)
+
+  assert sym c
+     (AssertFailureSimError "Invalid memory region in memset")
+
+  return mem{ memImplHeap = heap' }
 
 
 doMemcpy
