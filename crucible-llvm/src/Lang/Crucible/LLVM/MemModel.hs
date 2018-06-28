@@ -242,8 +242,8 @@ evalStmt sym = eval
      do mem <- getMem mvar
         mhandle <- liftIO $ doLookupHandle sym mem ptr
         case mhandle of
-           Nothing -> failedAssert "LoadHandle: not a valid function pointer"
-           Just (SomeFnHandle h)
+           Left doc -> failedAssert (show doc)
+           Right (SomeFnHandle h)
              | Just Refl <- testEquality handleTp expectedTp -> return (HandleFnVal h)
              | otherwise -> failedAssert
                  $ unlines ["Expected function handle of type " ++
@@ -770,15 +770,20 @@ doLookupHandle
   => sym
   -> MemImpl sym
   -> RegValue sym (LLVMPointerType wptr)
-  -> IO (Maybe a)
+  -> IO (Either Doc a)
 doLookupHandle _sym mem ptr = do
   let LLVMPointer blk _ = ptr
   case asNat blk of
-    Just i | i /= 0 ->
-      case Map.lookup (toInteger i) (memImplHandleMap mem) of
-        Just x -> return $! fromDynamic x
-        Nothing -> return Nothing
-    _ -> return Nothing
+    Nothing -> return (Left (text "Cannot resolve a symbolic pointer to a function handle:" <$$> ppPtr ptr))
+    Just i
+      | i == 0 -> return (Left (text "Cannot treat raw bitvector as function pointer:" <$$> ppPtr ptr))
+      | otherwise ->
+          case Map.lookup (toInteger i) (memImplHandleMap mem) of
+            Nothing -> return (Left ("Pointer is not a function pointer:" <$$> ppPtr ptr))
+            Just x ->
+              case fromDynamic x of
+                Nothing -> return (Left ("Function handle did not have expected type:" <$$> ppPtr ptr))
+                Just a  -> return (Right a)
 
 -- | Free the memory region pointed to by the given pointer. Also
 -- assert that the pointer either points to the beginning of an
