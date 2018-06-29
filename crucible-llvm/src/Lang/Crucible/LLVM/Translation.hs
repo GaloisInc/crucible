@@ -454,9 +454,9 @@ liftConstant c = case c of
   IntConst w i ->
     return $ BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w (App (BVLit w i)))
   FloatConst f ->
-    return $ BaseExpr RealValRepr (App (RationalLit (toRational f)))
+    return $ BaseExpr (FloatRepr SingleFloatRepr) (App (FloatLit f))
   DoubleConst d ->
-    return $ BaseExpr RealValRepr (App (RationalLit (toRational d)))
+    return $ BaseExpr (FloatRepr DoubleFloatRepr) (App (DoubleLit d))
   ArrayConst mt vs ->
     do vs' <- mapM liftConstant vs
        return (VecExpr mt $ Seq.fromList vs')
@@ -682,8 +682,8 @@ zeroExpand (ArrayType n tp) k =
 zeroExpand (VecType n tp) k =
   llvmTypeAsRepr tp $ \tpr -> unpackVec tpr (replicate (fromIntegral n) (ZeroExpr tp)) $ k (VectorRepr tpr)
 zeroExpand (PtrType _tp) k = k PtrRepr nullPointer
-zeroExpand FloatType   k  = k RealValRepr (App (RationalLit 0))
-zeroExpand DoubleType  k  = k RealValRepr (App (RationalLit 0))
+zeroExpand FloatType   k  = k (FloatRepr SingleFloatRepr) (App (FloatLit 0))
+zeroExpand DoubleType  k  = k (FloatRepr DoubleFloatRepr) (App (DoubleLit 0))
 zeroExpand MetadataType _ = ?err "Cannot zero expand metadata"
 
 nullPointer :: (IsExpr e, HasPtrWidth wptr)
@@ -1272,44 +1272,41 @@ translateConversion instr op x outty =
     L.UiToFp -> do
        outty' <- liftMemType outty
        x' <- transTypedValue x
-       let promoteToFp :: (1 <= w) => NatRepr w -> Expr (LLVM arch) s (BVType w) -> LLVMExpr s arch
-           promoteToFp w bv = BaseExpr RealValRepr (App $ IntegerToReal $ App $ BvToInteger w bv)
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
-           (Scalar (LLVMPointerRepr w) x'', RealValRepr) -> do
-             promoteToFp w <$> pointerAsBitvectorExpr w x''
-
+           (Scalar (LLVMPointerRepr w) x'', FloatRepr fi) -> do
+             bv <- pointerAsBitvectorExpr w x''
+             return $ BaseExpr (FloatRepr fi) $ App $ FloatFromBV fi bv
            _ -> fail (unlines [unwords ["Invalid uitofp:", show op, show x, show outty], showI])
 
     L.SiToFp -> do
        outty' <- liftMemType outty
        x' <- transTypedValue x
-       let promoteToFp :: (1 <= w) => NatRepr w -> Expr (LLVM arch) s (BVType w) -> LLVMExpr s arch
-           promoteToFp w bv = BaseExpr RealValRepr (App $ IntegerToReal $ App $ SbvToInteger w bv)
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
-           (Scalar (LLVMPointerRepr w) x'', RealValRepr) ->
-             promoteToFp w <$> pointerAsBitvectorExpr w x''
+           (Scalar (LLVMPointerRepr w) x'', FloatRepr fi) -> do
+             bv <- pointerAsBitvectorExpr w x''
+             return $ BaseExpr (FloatRepr fi) $ App $ FloatFromSBV fi bv
            _ -> fail (unlines [unwords ["Invalid sitofp:", show op, show x, show outty], showI])
 
     L.FpToUi -> do
        outty' <- liftMemType outty
        x' <- transTypedValue x
-       let demoteToInt :: (1 <= w) => NatRepr w -> Expr (LLVM arch) s RealValType -> LLVMExpr s arch
-           demoteToInt w v = BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w $ App $ IntegerToBV w $ App $ RealRound v)
+       let demoteToInt :: (1 <= w) => NatRepr w -> Expr (LLVM arch) s (FloatType fi) -> LLVMExpr s arch
+           demoteToInt w v = BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w $ App $ FloatToBV w v)
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
-           (Scalar RealValRepr x'', LLVMPointerRepr w) -> return $ demoteToInt w x''
+           (Scalar (FloatRepr _) x'', LLVMPointerRepr w) -> return $ demoteToInt w x''
            _ -> fail (unlines [unwords ["Invalid fptoui:", show op, show x, show outty], showI])
 
     L.FpToSi -> do
        outty' <- liftMemType outty
        x' <- transTypedValue x
-       let demoteToInt :: (1 <= w) => NatRepr w -> Expr (LLVM arch) s RealValType -> LLVMExpr s arch
-           demoteToInt w v = BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w $ App $ IntegerToSBV w $ App $ RealRound v)
+       let demoteToInt :: (1 <= w) => NatRepr w -> Expr (LLVM arch) s (FloatType fi) -> LLVMExpr s arch
+           demoteToInt w v = BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w $ App $ FloatToBV w v)
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
-           (Scalar RealValRepr x'', LLVMPointerRepr w) -> return $ demoteToInt w x''
+           (Scalar (FloatRepr _) x'', LLVMPointerRepr w) -> return $ demoteToInt w x''
            _ -> fail (unlines [unwords ["Invalid fptosi:", show op, show x, show outty], showI])
 
     L.FpTrunc -> do
@@ -1317,8 +1314,8 @@ translateConversion instr op x outty =
        x' <- transTypedValue x
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
-           (Scalar RealValRepr x'', RealValRepr) -> do
-             return $ BaseExpr RealValRepr x''
+           (Scalar (FloatRepr _) x'', FloatRepr fi) -> do
+             return $ BaseExpr (FloatRepr fi) $ App $ FloatCast fi x''
            _ -> fail (unlines [unwords ["Invalid fptrunc:", show op, show x, show outty], showI])
 
     L.FpExt -> do
@@ -1326,8 +1323,8 @@ translateConversion instr op x outty =
        x' <- transTypedValue x
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
-           (Scalar RealValRepr x'', RealValRepr) -> do
-             return $ BaseExpr RealValRepr x''
+           (Scalar (FloatRepr _) x'', FloatRepr fi) -> do
+             return $ BaseExpr (FloatRepr fi) $ App $ FloatCast fi x''
            _ -> fail (unlines [unwords ["Invalid fpext:", show op, show x, show outty], showI])
 
 
@@ -2026,38 +2023,41 @@ generateInstr retType lab instr assign_f k =
          k
 
     L.FCmp op x y -> do
-           let cmpf :: Expr (LLVM arch) s RealValType
-                    -> Expr (LLVM arch) s RealValType
+           let isNaNCond = App . FloatIsNaN
+           let cmpf :: Expr (LLVM arch) s (FloatType fi)
+                    -> Expr (LLVM arch) s (FloatType fi)
                     -> Expr (LLVM arch) s BoolType
                cmpf a b =
-                  -- We assume that values are never NaN, so the ordered and unordered
-                  -- operations are the same.
+                  -- True if a is NAN or b is NAN
+                  let unoCond = App $ Or (isNaNCond a) (isNaNCond b) in
+                  let mkUno c = App $ Or c unoCond in
                   case op of
-                    L.Ftrue  -> App (BoolLit True)
-                    L.Ffalse -> App (BoolLit False)
-                    L.Foeq   -> App (RealEq a b)
-                    L.Fueq   -> App (RealEq a b)
-                    L.Fone   -> App $ Not $ App (RealEq a b)
-                    L.Fune   -> App $ Not $ App (RealEq a b)
-                    L.Folt   -> App (RealLt a b)
-                    L.Fult   -> App (RealLt a b)
-                    L.Fogt   -> App (RealLt b a)
-                    L.Fugt   -> App (RealLt b a)
-                    L.Fole   -> App $ Not $ App (RealLt b a)
-                    L.Fule   -> App $ Not $ App (RealLt b a)
-                    L.Foge   -> App $ Not $ App (RealLt a b)
-                    L.Fuge   -> App $ Not $ App (RealLt a b)
-                    L.Ford   -> App (BoolLit True)  -- True if a <> QNAN and b <> QNAN
-                    L.Funo   -> App (BoolLit False) -- True if a == QNNA or b == QNAN
+                    L.Ftrue  -> App $ BoolLit True
+                    L.Ffalse -> App $ BoolLit False
+                    L.Foeq   -> App $ FloatEq a b
+                    L.Folt   -> App $ FloatLt a b
+                    L.Fole   -> App $ FloatLe a b
+                    L.Fogt   -> App $ FloatGt a b
+                    L.Foge   -> App $ FloatGe a b
+                    L.Fone   -> App $ FloatNe a b
+                    L.Fueq   -> mkUno $ App $ FloatEq a b
+                    L.Fult   -> mkUno $ App $ FloatLt a b
+                    L.Fule   -> mkUno $ App $ FloatLe a b
+                    L.Fugt   -> mkUno $ App $ FloatGt a b
+                    L.Fuge   -> mkUno $ App $ FloatGe a b
+                    L.Fune   -> mkUno $ App $ FloatNe a b
+                    L.Ford   -> App $ And (App $ Not $ isNaNCond a) (App $ Not $ isNaNCond b)
+                    L.Funo   -> unoCond
 
            x' <- transTypedValue x
            y' <- transTypedValue (L.Typed (L.typedType x) y)
            case (asScalar x', asScalar y') of
-             (Scalar RealValRepr x'',
-              Scalar RealValRepr y'') -> do
-                assign_f (BaseExpr (LLVMPointerRepr (knownNat :: NatRepr 1))
+             (Scalar (FloatRepr fi) x'',
+              Scalar (FloatRepr fi') y'')
+              | Just Refl <- testEquality fi fi' ->
+                do assign_f (BaseExpr (LLVMPointerRepr (knownNat :: NatRepr 1))
                                    (BitvectorAsPointerExpr knownNat (App (BoolToBV knownNat (cmpf  x'' y'')))))
-                k
+                   k
 
              _ -> fail $ unwords ["Floating point comparison on incompatible values", show x, show y]
 
@@ -2149,10 +2149,11 @@ arithOp op x y =
            z   <- intop op w xbv ybv
            return (BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w z))
 
-    (Scalar RealValRepr x',
-     Scalar RealValRepr y') -> do
-        ex <- fop x' y'
-        return (BaseExpr RealValRepr ex)
+    (Scalar (FloatRepr fi) x',
+     Scalar (FloatRepr fi') y')
+      | Just Refl <- testEquality fi fi' ->
+        do ex <- fop fi x' y'
+           return (BaseExpr (FloatRepr fi) ex)
 
     _ | Just (t,xs) <- asVectorWithType x
       , Just ys     <- asVector y ->
@@ -2164,21 +2165,22 @@ arithOp op x y =
                          show x, show y]
 
   where
-  fop :: Expr (LLVM arch) s RealValType ->
-         Expr (LLVM arch) s RealValType ->
-         LLVMGenerator h s arch ret (Expr (LLVM arch) s RealValType)
-  fop a b =
+  fop :: (FloatInfoRepr fi) ->
+         Expr (LLVM arch) s (FloatType fi) ->
+         Expr (LLVM arch) s (FloatType fi) ->
+         LLVMGenerator h s arch ret (Expr (LLVM arch) s (FloatType fi))
+  fop fi a b =
     case op of
        L.FAdd ->
-         return (App (RealAdd a b))
+         return $ App $ FloatAdd fi a b
        L.FSub ->
-         return (App (RealSub a b))
+         return $ App $ FloatSub fi a b
        L.FMul ->
-         return (App (RealMul a b))
+         return $ App $ FloatMul fi a b
        L.FDiv ->
-         return (App (RealDiv a b))
+         return $ App $ FloatDiv fi a b
        L.FRem -> do
-         return (App (RealMod a b))
+         return $ App $ FloatRem fi a b
        _ -> reportError
               $ fromString
               $ unwords [ "unsupported floating-point arith operation"
