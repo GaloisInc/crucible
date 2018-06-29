@@ -77,6 +77,7 @@ type MuxFn p v = p -> v -> v -> IO v
 -- | Maps register types to the associated value.
 type family RegValue (sym :: *) (tp :: CrucibleType) :: * where
   RegValue sym (BaseToType bt) = SymExpr sym bt
+  RegValue sym (FloatType _) = SymExpr sym BaseRealType
   RegValue sym AnyType = AnyValue sym
   RegValue sym UnitType = ()
   RegValue sym CharType = Word16
@@ -174,6 +175,10 @@ instance IsExprBuilder sym => CanMux sym IntegerType where
   muxReg s = \_ -> intIte s
 
 instance IsExprBuilder sym => CanMux sym RealValType where
+  {-# INLINE muxReg #-}
+  muxReg s = \_ -> realIte s
+
+instance IsExprBuilder sym => CanMux sym (FloatType fi) where
   {-# INLINE muxReg #-}
   muxReg s = \_ -> realIte s
 
