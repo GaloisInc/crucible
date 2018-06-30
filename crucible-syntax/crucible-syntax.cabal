@@ -78,6 +78,7 @@ executable crucibler
     cryptol-verifier,
     hpb >= 0.1.1,
     lens,
+    mtl,
     optparse-applicative,
     parameterized-utils >= 0.1.7,
     saw-core,

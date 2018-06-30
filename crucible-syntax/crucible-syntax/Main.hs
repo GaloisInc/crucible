@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 module Main where
 
 import Control.Monad.Except
@@ -10,6 +11,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
 import Lang.Crucible.Syntax.Concrete
+import Lang.Crucible.CFG.SSAConversion
 
 import qualified Options.Applicative as Opt
 
@@ -31,9 +33,12 @@ go theInput =
   case decode parseExpr theInput of
     Left err -> putStrLn err
     Right v ->
-      do print v
-         cfgs <- mapM (\x -> cfg x >>= _alksdj . runExceptT ) v
-         mapM_ print cfgs
+      do forM_ v $ T.putStrLn . encodeOne printExpr
+         cfgs <- mapM (stToIO . top . cfg) v
+         forM_ cfgs $
+           \case
+             Left err -> print err
+             Right (ACFG _ _ theCfg) -> print (toSSA theCfg)
 
 
 main :: IO ()
