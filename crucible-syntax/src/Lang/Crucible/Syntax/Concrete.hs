@@ -72,7 +72,7 @@ data Keyword = Defun | DefBlock
              | Not_ | And_ | Or_ | Xor_
              | Mod
              | Lt
-             | Jump_ | Return_ | Branch_ | MaybeBranch_ | TailCall_
+             | Jump_ | Return_ | Branch_ | MaybeBranch_ | TailCall_ | Error_ | Output_
              | Print_
   deriving (Eq, Ord)
 
@@ -127,6 +127,8 @@ keywords =
   , ("branch" , Branch_)
   , ("maybe-branch" , MaybeBranch_)
   , ("tail-call" , TailCall_)
+  , ("error", Error_)
+  , ("output", Output_)
   , ("print" , Print_)
   ]
 
@@ -614,7 +616,11 @@ termStmt (L (A (Kw TailCall_) : atomAst@(A (At f)) : args)) =
                 return $ TailCall at argTypes theArgs
        Just (Pair otherType _) -> throwError $ NotAFunction atomAst otherType
 termStmt (L [A (Kw Error_), msg]) =
-  _todo
+  ErrorStmt <$> typedAtom' StringRepr msg
+termStmt (L [A (Kw Output_), l, atm]) =
+  do Pair ty lbl <- labelArgs l
+     arg <- typedAtom' ty atm
+     return $ Output lbl arg
 termStmt e = throwError $ NotTermStmt e
 
 data SnocList a = Begin | Snoc (SnocList a) a
