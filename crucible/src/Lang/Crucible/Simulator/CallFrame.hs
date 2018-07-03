@@ -31,6 +31,7 @@ module Lang.Crucible.Simulator.CallFrame
   , frameProgramLoc
   , setFrameBlock
   , extendFrame
+  , updateFrame
   , mergeCallFrame
     -- * SomeHandle
   , SomeHandle(..)
@@ -134,6 +135,12 @@ setFrameBlock (BlockID block_id) args f = f'
                  , _frameStmts = b^.blockStmts
                  , _framePostdom  = listToMaybe pd
                  }
+
+updateFrame :: RegMap sym ctx'
+            -> StmtSeq ext blocks ret ctx'
+            -> CallFrame sym ext blocks ret ctx
+            -> CallFrame sym ext blocks ret ctx'
+updateFrame r s f = f { _frameRegs = r, _frameStmts = s }
 
 -- | Extend frame with new register.
 extendFrame :: TypeRepr tp

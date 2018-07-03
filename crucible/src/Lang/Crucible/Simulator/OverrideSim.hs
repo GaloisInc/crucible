@@ -67,7 +67,8 @@ module Lang.Crucible.Simulator.OverrideSim
 import           Control.Exception
 import           Control.Lens
 import           Control.Monad
-import           Control.Monad.IO.Class
+import           Control.Monad.Reader
+--import           Control.Monad.IO.Class
 import           Control.Monad.ST
 import           Control.Monad.State.Strict
 import           Data.List (foldl')
@@ -89,8 +90,8 @@ import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Panic(panic)
 
 import           Lang.Crucible.Backend
-import           Lang.Crucible.Simulator.CallFns
 import           Lang.Crucible.Simulator.CallFrame (mkCallFrame)
+import           Lang.Crucible.Simulator.EvalStmt (SomeSimFrame(..), resolveCallFrame, continue)
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.Frame
 import           Lang.Crucible.Simulator.GlobalState
@@ -116,7 +117,7 @@ import           Lang.Crucible.Utils.StateContT
 --
 newtype OverrideSim p sym ext rtp (args :: Ctx CrucibleType) (ret :: CrucibleType) a
       = Sim { unSim :: StateContT (SimState p sym ext rtp (OverrideLang args ret) 'Nothing)
-                                  (ExecResult p sym ext rtp)
+                                  (ExecState p sym ext rtp)
                                   IO
                                   a
             }
@@ -127,8 +128,8 @@ newtype OverrideSim p sym ext rtp (args :: Ctx CrucibleType) (ret :: CrucibleTyp
 -- | Exit from the current execution by ignoring the continuation
 --   and immediately returning an aborted execution result.
 exitExecution :: IsSymInterface sym => ExitCode -> OverrideSim p sym ext rtp args r a
-exitExecution ec = Sim $ StateContT $ \_c s -> do
-  return $ AbortedResult (s^.stateContext) (AbortedExit ec)
+exitExecution ec = Sim $ StateContT $ \_c s ->
+  return $ ResultState $ AbortedResult (s^.stateContext) (AbortedExit ec)
 
 returnOverrideSim :: a -> OverrideSim p sym ext rtp args r a
 returnOverrideSim v = Sim $ return v
@@ -143,7 +144,7 @@ bindOverrideSim (Sim m) h = Sim $ unSim . h =<< m
 instance Monad (OverrideSim p sym ext rtp args r) where
   return = returnOverrideSim
   (>>=) = bindOverrideSim
-  fail msg = Sim $ StateContT $ \_c s -> mssRunGenericErrorHandler s msg
+  fail msg = Sim $ StateContT $ \_c -> runReaderT (runGenericErrorHandler msg)
 
 deriving instance MonadState (SimState p sym ext rtp (OverrideLang args ret) 'Nothing)
                              (OverrideSim p sym ext rtp args ret)
@@ -151,16 +152,18 @@ deriving instance MonadState (SimState p sym ext rtp (OverrideLang args ret) 'No
 instance MonadIO (OverrideSim p sym ext rtp args ret) where
   liftIO m = do
      Sim $ StateContT $ \c s -> do
+       -- FIXME, should we be doing this exception handling here, or should
+       -- we just continue to let it bubble upward?
        r <- try m
        case r of
          Left e0
            -- IO Exception
            | Just e <- fromException e0
            , isUserError e ->
-             mssRunGenericErrorHandler s (ioeGetErrorString e)
+             runReaderT (runGenericErrorHandler (ioeGetErrorString e)) s
              -- AbortReason
            | Just e <- fromException e0 ->
-             mssRunErrorHandler s e
+             runReaderT (runErrorHandler e) s
              -- Default case
            | otherwise ->
              throwIO e0
@@ -277,16 +280,14 @@ writeRef r v =
 ------------------------------------------------------------------------
 -- Override utilities
 
--- | Run an override sim.
-runOverrideSim :: SimState p sym ext rtp (OverrideLang args tp) 'Nothing
-                  -- ^ initial state
-               -> TypeRepr tp
-                  -- ^ return type
-               -> OverrideSim p sym ext rtp args tp (RegValue sym tp)
-                  -- ^ action to run
-               -> IO (ExecResult p sym ext rtp)
-runOverrideSim s0 tp m = do
-  runStateContT (unSim m) (\v s -> returnValue s (RegEntry tp v)) s0
+-- | Turn an 'OverrideSim' action into an 'ExecCont' that can be executed
+--   using standard Crucible execution primitives like 'execCrucible'
+runOverrideSim ::
+  TypeRepr tp {- ^ return type -} ->
+  OverrideSim p sym ext rtp args tp (RegValue sym tp) {- ^ action to execute  -} ->
+  ExecCont p sym ext rtp (OverrideLang args tp) 'Nothing
+runOverrideSim tp m = ReaderT $ \s0 -> stateSolverProof s0 $
+  runStateContT (unSim m) (\v -> runReaderT (returnValue (RegEntry tp v))) s0
 
 -- | Create an initial 'SimState'.
 initSimState :: SimContext p sym ext
@@ -311,7 +312,7 @@ mkOverride' :: FunctionName
             -> Override p sym ext args ret
 mkOverride' nm tp f =
   Override { overrideName = nm
-           , overrideHandler = \s -> runOverrideSim s tp f
+           , overrideHandler = runOverrideSim tp f
            }
 
 -- | Create an override from a statically inferrable return type and definition using `OverrideSim`.
@@ -332,6 +333,7 @@ withSimContext m = do
   stateContext .= ctx'
   return r
 
+
 -- | Call a function with the given arguments.
 callFnVal :: IsSyntaxExtension ext
           => FnVal sym args ret
@@ -342,9 +344,9 @@ callFnVal cl args = do
     let bindings = s^.stateContext^.functionBindings
     case resolveCallFrame bindings cl args of
       SomeOF o f -> do
-        overrideHandler o $ s & stateTree %~ callFn (returnToOverride c) (OF f)
+        runReaderT (runOverride o) (s & stateTree %~ callFn (returnToOverride (ReaderT . c)) (OF f))
       SomeCF f -> do
-        loopCrucible $ s & stateTree %~ callFn (returnToOverride c) (MF f)
+        runReaderT continue $ s & stateTree %~ callFn (returnToOverride (ReaderT . c)) (MF f)
 
 -- | Call a function with the given arguments.  Provide the arguments as an
 --   @Assignment@ instead of as a @RegMap@.
@@ -369,7 +371,7 @@ callCFG  :: IsSyntaxExtension ext
 callCFG cfg args = do
   Sim $ StateContT $ \c s -> do
     let f = mkCallFrame cfg (postdomInfo cfg) args
-    loopCrucible $ s & stateTree %~ callFn (returnToOverride c) (MF f)
+    runReaderT continue $ s & stateTree %~ callFn (returnToOverride (ReaderT . c)) (MF f)
 
 
 -- | Add a failed assertion.  This aborts execution along the current

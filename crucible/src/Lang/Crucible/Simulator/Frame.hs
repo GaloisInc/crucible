@@ -63,7 +63,6 @@ overrideSimFrame :: Lens (SimFrame sym ext (OverrideLang a r) 'Nothing)
                          (OverrideFrame sym r a)
 overrideSimFrame f (OF g) = OF <$> f g
 
-
 crucibleSimFrame :: Lens (SimFrame sym ext (CrucibleLang blocks r) ('Just args))
                          (SimFrame sym ext (CrucibleLang blocks r) ('Just args'))
                          (CallFrame sym ext blocks r args)
