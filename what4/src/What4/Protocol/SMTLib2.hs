@@ -58,6 +58,7 @@ module What4.Protocol.SMTLib2
 import           Control.Applicative
 import           Control.Exception
 import           Control.Monad.State.Strict
+import           Data.Char(digitToInt)
 import           Data.IORef
 import qualified Data.ByteString.UTF8 as UTF8
 import qualified Data.Map.Strict as Map
@@ -72,7 +73,7 @@ import           Data.Text (Text)
 import           Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
 import           Data.Text.Lazy.Builder.Int (decimal)
-import           Numeric (readDec, readHex)
+import           Numeric (readDec, readHex, readInt)
 import qualified System.IO as IO
 import qualified System.IO.Streams as Streams
 import qualified System.IO.Streams.Attoparsec as Streams
@@ -88,6 +89,11 @@ import           What4.Protocol.ReadDecimal
 import           What4.Protocol.SExp
 import qualified What4.Protocol.SMTWriter as SMTWriter
 import           What4.Protocol.SMTWriter hiding (assume)
+
+
+------------------------------------------------------------------------
+readBin :: Num a => ReadS a
+readBin = readInt 2 (`elem` ("01" :: String)) digitToInt
 
 ------------------------------------------------------------------------
 -- Logic
@@ -460,6 +466,9 @@ parseRealSolverValue s = fail $ "Could not parse solver value: " ++ show s
 parseBvSolverValue :: Monad m => Int -> SExp -> m Integer
 parseBvSolverValue _ (SAtom ('#':'x':v)) | [(r,"")] <- readHex v =
   return r
+parseBvSolverValue _ (SAtom ('#':'b':v)) | [(r,"")] <- readBin v =
+  return r
+
 parseBvSolverValue _ (SApp ["_", SAtom ('b':'v':n_str), SAtom _w_str])
   | [(n,"")] <- readDec n_str = do
     return n
