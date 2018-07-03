@@ -49,6 +49,11 @@ newtype SimpleBackendState t
 initialSimpleBackendState :: NonceGenerator IO t -> IO (SimpleBackendState t)
 initialSimpleBackendState gen = SimpleBackendState <$> AS.initAssumptionStack gen
 
+import Data.Parameterized.Nonce
+
+gen <- newIONonceGenerator
+bld <- newSimpleBackend gen
+
 newSimpleBackend :: NonceGenerator IO t
                  -> IO (SimpleBackend t)
 newSimpleBackend gen =
