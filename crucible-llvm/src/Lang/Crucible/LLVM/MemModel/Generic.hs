@@ -38,6 +38,7 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , writeMem
   , writeConstMem
   , copyMem
+  , setMem
   , pushStackFrameMem
   , popStackFrameMem
   , freeMem
@@ -96,15 +97,19 @@ data MemAlloc sym
      -- 'String' contains source location information for use in error
      -- messages.
    = forall w. Alloc AllocType Natural (SymBV sym w) Mutability String
+     -- | Freeing of the given block ID.
+   | MemFree (SymNat sym)
      -- | The merger of two allocations.
    | AllocMerge (Pred sym) [MemAlloc sym] [MemAlloc sym]
 
 data MemWrite sym
     -- | @MemCopy dst src len@ represents a copy from [src..src+len) to
     -- [dst..dst+len).
-  = forall w. MemCopy (LLVMPtr sym w, AddrDecomposeResult sym w) (LLVMPtr sym w) (SymBV sym w, Maybe Integer)
+  = forall w. MemCopy (LLVMPtr sym w) (LLVMPtr sym w) (SymBV sym w)
+    -- | @MemSet dst val len@ fills @len@ copies of byte @val@ into [dst..dst+len).
+  | forall w. MemSet (LLVMPtr sym w) (SymBV sym 8) (SymBV sym w)
     -- | Memstore is given address was written, value, and type of value.
-  | forall w. MemStore (LLVMPtr sym w, AddrDecomposeResult sym w) (LLVMVal sym) Type
+  | forall w. MemStore (LLVMPtr sym w) (LLVMVal sym) Type
     -- | The merger of two memories.
   | WriteMerge (Pred sym) [MemWrite sym] [MemWrite sym]
 
@@ -291,12 +296,13 @@ readMemCopy :: forall sym w .
             -> EndianForm
             -> (LLVMPtr sym w, AddrDecomposeResult sym w)
             -> Type
-            -> (LLVMPtr sym w, AddrDecomposeResult sym w)
             -> LLVMPtr sym w
-            -> (SymBV sym w, Maybe Integer)
+            -> LLVMPtr sym w
+            -> SymBV sym w
             -> (Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (PartLLVMVal sym))
             -> IO (PartLLVMVal sym)
-readMemCopy sym w end (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
+readMemCopy sym w end (l,ld) tp d src sz readPrev' = do
+  let dd = ptrDecompose sym w d
   let readPrev tp' p = readPrev' tp' (p, ptrDecompose sym w p)
   let varFn = (l, d, sz)
   case (ld, dd) of
@@ -308,7 +314,7 @@ readMemCopy sym w end (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
                                         o' <- bvLit sym w (bytesToInteger o)
                                         readPrev tp' (LLVMPointer lv' o')
           subFn (InRange    o tp') = readPrev tp' =<< tgAddPtrC sym w src o
-      case szd of
+      case asUnsignedBV sz of
         Just csz -> do
           let s = R (fromInteger so) (fromInteger (so + csz))
           let vcr = rangeLoad (fromInteger lo) tp s
@@ -330,11 +336,72 @@ readMemCopy sym w end (l,ld) tp (d,dd) src (sz,szd) readPrev' = do
       let pref | ConcreteOffset{} <- dd = FixedStore
                | ConcreteOffset{} <- ld = FixedLoad
                | otherwise = NeitherFixed
-      let mux0 | Just csz <- szd =
+      let mux0 | Just csz <- asUnsignedBV sz =
                    fixedSizeRangeLoad pref tp (fromInteger csz)
                | otherwise =
                    symbolicRangeLoad pref tp
       evalMuxValueCtor sym w end varFn subFn mux0
+
+
+readMemSet ::
+  forall sym w .
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w ->
+  EndianForm ->
+  (LLVMPtr sym w, AddrDecomposeResult sym w) ->
+  Type ->
+  LLVMPtr sym w ->
+  SymBV sym 8 ->
+  SymBV sym w ->
+  (Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (PartLLVMVal sym)) ->
+  IO (PartLLVMVal sym)
+readMemSet sym w end (l,ld) tp d byte sz readPrev' =
+  do let dd = ptrDecompose sym w d
+     let readPrev tp' p = readPrev' tp' (p, ptrDecompose sym w p)
+     let varFn = (l, d, sz)
+     case (ld, dd) of
+       -- Offset if known
+       (ConcreteOffset lv lo, ConcreteOffset sv so)
+         | lv == sv ->
+           do let subFn :: RangeLoad Addr Addr -> IO (PartLLVMVal sym)
+                  subFn (OutOfRange o tp') = do lv' <- natLit sym lv
+                                                o' <- bvLit sym w (bytesToInteger o)
+                                                readPrev tp' (LLVMPointer lv' o')
+                  subFn (InRange   _o tp') = do blk0 <- natLit sym 0
+                                                let val = LLVMValInt blk0 byte
+                                                let b = PE (truePred sym) val
+                                                genValueCtor sym end (memsetValue b tp')
+              case asUnsignedBV sz of
+                Just csz ->
+                  do let s = R (fromInteger so) (fromInteger (so + csz))
+                     let vcr = rangeLoad (fromInteger lo) tp s
+                     genValueCtor sym end =<< traverse subFn vcr
+                _ ->
+                  evalMuxValueCtor sym w end varFn subFn $
+                    fixedOffsetRangeLoad (fromInteger lo) tp (fromInteger so)
+       -- We know variables are disjoint.
+       _ | Just lv <- adrVar ld
+         , Just sv <- adrVar dd
+         , lv /= sv -> readPrev' tp (l,ld)
+       -- Symbolic offsets
+       _ ->
+         do let subFn :: RangeLoad PtrExpr IntExpr -> IO (PartLLVMVal sym)
+                subFn (OutOfRange o tp') =
+                  readPrev tp' =<< genPtrExpr sym w varFn o
+                subFn (InRange _o tp') =
+                  do blk0 <- natLit sym 0
+                     let val = LLVMValInt blk0 byte
+                     let b = PE (truePred sym) val
+                     genValueCtor sym end (memsetValue b tp')
+            let pref | ConcreteOffset{} <- dd = FixedStore
+                     | ConcreteOffset{} <- ld = FixedLoad
+                     | otherwise = NeitherFixed
+            let mux0 | Just csz <- asUnsignedBV sz =
+                         fixedSizeRangeLoad pref tp (fromInteger csz)
+                     | otherwise =
+                         symbolicRangeLoad pref tp
+            evalMuxValueCtor sym w end varFn subFn mux0
+
 
 readMemStore :: forall sym w .
                (1 <= w, IsSymInterface sym)
@@ -344,7 +411,7 @@ readMemStore :: forall sym w .
                -- ^ The loaded address and information
             -> Type
                -- ^ The type we are reading.
-            -> (LLVMPtr sym w, AddrDecomposeResult sym w)
+            -> LLVMPtr sym w
                -- ^ The store we are reading from.
             -> LLVMVal sym
                -- ^ The value that was stored.
@@ -355,10 +422,11 @@ readMemStore :: forall sym w .
             -> (Type -> (LLVMPtr sym w, AddrDecomposeResult sym w) -> IO (PartLLVMVal sym))
                -- ^ A callback function for when reading fails.
             -> IO (PartLLVMVal sym)
-readMemStore sym w end (l,ld) ltp (d,dd) t stp loadAlign readPrev' = do
+readMemStore sym w end (l,ld) ltp d t stp loadAlign readPrev' = do
   ssz <- bvLit sym w (bytesToInteger (typeSize stp))
   let varFn = (l, d, ssz)
   let readPrev tp p = readPrev' tp (p, ptrDecompose sym w p)
+  let dd = ptrDecompose sym w d
   case (ld, dd) of
     -- Offset if known
     (ConcreteOffset lv lo, ConcreteOffset sv so)
@@ -473,11 +541,15 @@ readMem' sym w end l0 tp0 alignment = go (\tp _l -> badLoad sym tp) l0 tp0
                    return x
          case h of
            MemCopy dst src sz ->
-             case testEquality (ptrWidth (fst dst)) w of
+             case testEquality (ptrWidth dst) w of
                Just Refl -> readMemCopy sym w end l tp dst src sz readPrev
                Nothing   -> readPrev tp l
+           MemSet dst v sz ->
+             case testEquality (ptrWidth dst) w of
+               Just Refl -> readMemSet sym w end l tp dst v sz readPrev
+               Nothing   -> readPrev tp l
            MemStore dst v stp ->
-             case testEquality (ptrWidth (fst dst)) w of
+             case testEquality (ptrWidth dst) w of
                Just Refl -> readMemStore sym w end l tp dst v stp alignment readPrev
                Nothing   -> readPrev tp l
            WriteMerge _ [] [] ->
@@ -592,34 +664,33 @@ isAllocatedMut mutOk sym w (llvmPointerView -> (blk, off)) sz m = do
                         do notSameBlock <- notPred sym sameBlock
                            andPred sym notSameBlock =<< fallback
 
+      let go :: IO (Pred sym) -> [MemAlloc sym] -> IO (Pred sym)
+          go fallback [] = fallback
+          go fallback (Alloc _ a asz mut _ : r)
+            | mutOk mut = step a asz (go fallback r)
+            | otherwise = go fallback r
+          go fallback (MemFree a : r) =
+            do sameBlock <- natEq sym blk a
+               case asConstantPred sameBlock of
+                 Just True  -> return (falsePred sym)
+                 Just False -> go fallback r
+                 Nothing    ->
+                   do notSameBlock <- notPred sym sameBlock
+                      andPred sym notSameBlock =<< go fallback r
+          go fallback (AllocMerge _ [] [] : r) = go fallback r
+          go fallback (AllocMerge c xr yr : r) =
+            do p <- go fallback r -- TODO: wrap this in a delay
+               px <- go (return p) xr
+               py <- go (return p) yr
+               itePred sym c px py
+
       -- It is an error if the offset+size calculation overflows.
       case asConstantPred ov of
         Just True  -> return (falsePred sym)
-        Just False -> isAllocated' sym step mutOk (memAllocs m)
+        Just False -> go (pure (falsePred sym)) (memAllocs m)
         Nothing    ->
           do nov <- notPred sym ov
-             andPred sym nov =<< isAllocated' sym step mutOk (memAllocs m)
-
-isAllocated' :: (IsExpr (SymExpr sym), IsExprBuilder sym) =>
-             sym
-             -> (forall w. Natural -> SymBV sym w -> IO (Pred sym) -> IO (Pred sym))
-                -- ^ Evaluation function that takes continuation
-                -- for condition if previous check fails.
-             -> (Mutability -> Bool)
-             -> [MemAlloc sym]
-             -> IO (Pred sym)
-isAllocated' sym step mutOk = go (pure (falsePred sym))
-  where
-    go fallback [] = fallback
-    go fallback (Alloc _ a asz mut _ : r)
-      | mutOk mut = step a asz (go fallback r)
-      | otherwise = go fallback r
-    go fallback (AllocMerge _ [] [] : r) = go fallback r
-    go fallback (AllocMerge c xr yr : r) =
-      do p <- go fallback r -- TODO: wrap this in a delay
-         px <- go (return p) xr
-         py <- go (return p) yr
-         itePred sym c px py
+             andPred sym nov =<< go (pure (falsePred sym)) (memAllocs m)
 
 -- | @isAllocated sym w p sz m@ returns condition required to prove range
 -- @[p..p+sz)@ lies within a single allocation in @m@.
@@ -707,6 +778,7 @@ notAliasable sym (llvmPointerView -> (blk1, _)) (llvmPointerView -> (blk2, _)) m
       do p1 <- natEq sym blk =<< natLit sym a
          p2 <- isMutable blk r
          orPred sym p1 p2
+    isMutable blk (MemFree _ : r) = isMutable blk r
     isMutable blk (AllocMerge c x y : r) =
       do px <- isMutable blk x
          py <- isMutable blk y
@@ -729,7 +801,7 @@ writeMem :: (1 <= w, IsSymInterface sym)
 writeMem sym w ptr tp v m =
   do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
      p <- isAllocatedMutable sym w ptr sz m
-     return (p, writeMem' sym w ptr tp v m)
+     return (p, memAddWrite (MemStore ptr v tp) m)
 
 -- | Write a value to any memory region, mutable or immutable. The
 -- returned 'Pred' asserts that the pointer falls within an allocated
@@ -746,17 +818,7 @@ writeConstMem ::
 writeConstMem sym w ptr tp v m =
   do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
      p <- isAllocated sym w ptr sz m
-     return (p, writeMem' sym w ptr tp v m)
-
--- | Write memory without checking whether it is allocated.
-writeMem' :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
-          -> LLVMPtr sym w
-          -> Type
-          -> LLVMVal sym
-          -> Mem sym
-          -> Mem sym
-writeMem' sym w p tp v m =
-  m & memAddWrite (MemStore (p, ptrDecompose sym w p) v tp)
+     return (p, memAddWrite (MemStore ptr v tp) m)
 
 -- | Perform a mem copy. The returned 'Pred' asserts that the source
 -- and destination pointers both fall within allocated memory regions.
@@ -770,10 +832,21 @@ copyMem :: (1 <= w, IsSymInterface sym)
 copyMem sym w dst src sz m = do
   (,) <$> (join $ andPred sym <$> isAllocated sym w dst sz m
                               <*> isAllocated sym w src sz m)
-      <*> (do let dstd = ptrDecompose sym w dst
-              let szd = ptrSizeDecompose sym w sz
-              return $ m & memAddWrite (MemCopy (dst, dstd) src (sz, szd)))
+      <*> (return $ m & memAddWrite (MemCopy dst src sz))
 
+-- | Perform a mem set, filling a number of bytes with a given 8-bit
+-- value. The returned 'Pred' asserts that the pointer falls within an
+-- allocated memory region.
+setMem ::
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w ->
+  LLVMPtr sym w {- ^ Pointer -} ->
+  SymBV sym 8 {- ^ Byte value -} ->
+  SymBV sym w {- ^ Number of bytes to set -} ->
+  Mem sym -> IO (Pred sym, Mem sym)
+setMem sym w ptr val sz m =
+  do p <- isAllocated sym w ptr sz m
+     return (p, memAddWrite (MemSet ptr val sz) m)
 
 -- | Allocate a new empty memory region.
 allocMem :: AllocType -- ^ Type of allocation
@@ -800,7 +873,8 @@ allocAndWriteMem sym w a b tp mut loc v m = do
   base <- natLit sym b
   off <- bvLit sym w 0
   let p = LLVMPointer base off
-  return (writeMem' sym w p tp v (m & memAddAlloc (Alloc a b sz mut loc)))
+  return (m & memAddAlloc (Alloc a b sz mut loc)
+            & memAddWrite (MemStore p v tp))
 
 pushStackFrameMem :: Mem sym -> Mem sym
 pushStackFrameMem = memState %~ StackFrame emptyChanges
@@ -826,81 +900,54 @@ popStackFrameMem m = m & memState %~ popf
         pa (Alloc StackAlloc _ _ _ _) = Nothing
         pa a@(Alloc HeapAlloc _ _ _ _) = Just a
         pa a@(Alloc GlobalAlloc _ _ _ _) = Just a
+        pa a@(MemFree _) = Just a
         pa (AllocMerge c x y) = Just (AllocMerge c (mapMaybe pa x) (mapMaybe pa y))
 
--- FIXME? This could perhaps be more efficient.  Right now we
--- will traverse almost the entire memory on every free, even
--- if we concretely find the corresponding allocation early.
+-- | Free a heap-allocated block of memory. The returned 'Pred'
+-- asserts that the pointer points to the base of a valid
+-- heap-allocated mutable block. Because the LLVM memory model allows
+-- immutable blocks to alias each other, freeing an immutable block
+-- could lead to unsoundness.
 freeMem :: forall sym w .
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w ->
   LLVMPtr sym w {- ^ Base of allocation to free -} ->
   Mem sym ->
   IO (Pred sym, Mem sym)
-freeMem sym w p m =
-  do (c, st') <- freeSt (m^.memState)
-     return (c, m & memState .~ st')
+freeMem sym w (LLVMPointer blk off) m =
+  do z <- bvLit sym w 0
+     p1 <- bvEq sym off z
+     p2 <- isHeapAllocated (return (falsePred sym)) (memAllocs m)
+     p <- andPred sym p1 p2
+     return (p, memAddAlloc (MemFree blk) m)
   where
-  p_decomp = ptrDecompose sym w p
-
-  freeAllocs :: [MemAlloc sym] -> IO (Pred sym, [MemAlloc sym])
-  freeAllocs [] =
-     return ( falsePred sym , [] )
-  freeAllocs (a@(Alloc HeapAlloc b _sz _ro _) : as) = do
-     case p_decomp of
-       ConcreteOffset p' poff
-         | p' == b -> do
-             let c = if poff == 0 then truePred sym else falsePred sym
-             return (c, as)
-         | otherwise -> do
-             (c, as') <- freeAllocs as
-             return (c, a : as')
-       SymbolicOffset p' poff
-         | p' == b -> do
-             c <- bvEq sym poff =<< bvLit sym w 0
-             return (c, as)
-         | otherwise -> do
-             (c, as') <- freeAllocs as
-             return (c, a : as')
-       _ -> do
-         base <- natLit sym b
-         off <- bvLit sym w 0
-         eq <- ptrEq sym w p (LLVMPointer base off)
-         (c, as') <- freeAllocs as
-         c'  <- orPred sym eq c
-         return (c', AllocMerge eq [] [a] : as')
-
-  freeAllocs (a@(Alloc _ _ _ _ _) : as) = do
-     (c, as') <- freeAllocs as
-     return (c, a:as')
-
-  freeAllocs (AllocMerge cm x y : as) = do
-     (c1, x') <- freeAllocs x
-     (c2, y') <- freeAllocs y
-     c <- itePred sym cm c1 c2
-     (c3, as') <- freeAllocs as
-     c' <- orPred sym c c3
-     return (c', AllocMerge cm x' y' : as')
-
-  freeCh :: MemChanges sym -> IO (Pred sym, MemChanges sym)
-  freeCh (a, w') = do
-      (c,a') <- freeAllocs a
-      return (c, (a', w'))
-
-  freeSt :: MemState sym -> IO (Pred sym, MemState sym)
-  freeSt (StackFrame ch st) = do
-            (c1,ch') <- freeCh ch
-            (c2,st') <- freeSt st
-            c <- orPred sym c1 c2
-            return (c, StackFrame ch' st')
-  freeSt (BranchFrame ch st) = do
-            (c1,ch') <- freeCh ch
-            (c2,st') <- freeSt st
-            c <- orPred sym c1 c2
-            return (c, BranchFrame ch' st')
-  freeSt (EmptyMem ch) = do
-            (c, ch') <- freeCh ch
-            return (c, EmptyMem ch')
+    isHeapAllocated :: IO (Pred sym) -> [MemAlloc sym] -> IO (Pred sym)
+    isHeapAllocated fallback [] = fallback
+    isHeapAllocated fallback (alloc : r) =
+      case alloc of
+        Alloc HeapAlloc a _ Mutable _ ->
+          do sameBlock <- natEq sym blk =<< natLit sym a
+             case asConstantPred sameBlock of
+               Just True  -> return (truePred sym)
+               Just False -> isHeapAllocated fallback r
+               Nothing    -> orPred sym sameBlock =<< isHeapAllocated fallback r
+        Alloc _ _ _ _ _ ->
+          isHeapAllocated fallback r
+        MemFree a ->
+          do sameBlock <- natEq sym blk a
+             case asConstantPred sameBlock of
+               Just True  -> return (falsePred sym)
+               Just False -> isHeapAllocated fallback r
+               Nothing    ->
+                 do notSameBlock <- notPred sym sameBlock
+                    andPred sym notSameBlock =<< isHeapAllocated fallback r
+        AllocMerge _ [] [] ->
+          isHeapAllocated fallback r
+        AllocMerge c xr yr ->
+          do p <- isHeapAllocated fallback r -- TODO: wrap this in a delay
+             px <- isHeapAllocated (return p) xr
+             py <- isHeapAllocated (return p) yr
+             itePred sym c px py
 
 
 branchMem :: Mem sym -> Mem sym
@@ -969,6 +1016,8 @@ ppMerge vpp c x y =
 ppAlloc :: IsExprBuilder sym => MemAlloc sym -> Doc
 ppAlloc (Alloc atp base sz mut loc) =
   text (show atp) <+> text (show base) <+> printSymExpr sz <+> text (show mut) <+> text loc
+ppAlloc (MemFree base) =
+  text "free" <+> printSymExpr base
 ppAlloc (AllocMerge c x y) = do
   text "merge" <$$> ppMerge ppAlloc c x y
 
@@ -976,9 +1025,11 @@ ppAllocs :: IsExprBuilder sym => [MemAlloc sym] -> Doc
 ppAllocs xs = vcat $ map ppAlloc xs
 
 ppWrite :: IsExprBuilder sym => MemWrite sym -> Doc
-ppWrite (MemCopy (d,_) s (l,_)) = do
+ppWrite (MemCopy d s l) = do
   text "memcopy" <+> ppPtr d <+> ppPtr s <+> printSymExpr l
-ppWrite (MemStore (d,_) v _) = do
+ppWrite (MemSet d v l) = do
+  text "memset" <+> ppPtr d <+> printSymExpr v <+> printSymExpr l
+ppWrite (MemStore d v _) = do
   char '*' <> ppPtr d <+> text ":=" <+> ppTermExpr v
 ppWrite (WriteMerge c x y) = do
   text "merge" <$$> ppMerge ppWrite c x y

@@ -498,13 +498,13 @@ transValue ty L.ValUndef =
   return $ UndefExpr ty
 
 transValue ty L.ValZeroInit =
-  liftConstant (ZeroConst ty)
+  return $ ZeroExpr ty
 
 transValue ty@(PtrType _) L.ValNull =
-  liftConstant (ZeroConst ty)
+  return $ ZeroExpr ty
 
 transValue ty@(IntType _) L.ValNull =
-  liftConstant (ZeroConst ty)
+  return $ ZeroExpr ty
 
 transValue _ (L.ValString str) = do
   let eight = knownNat :: NatRepr 8
@@ -808,17 +808,15 @@ extractElt
     -> LLVMExpr s arch  -- ^ vector expression
     -> LLVMExpr s arch -- ^ index expression
     -> LLVMGenerator h s arch ret (LLVMExpr s arch)
-extractElt _ ty _ _ (UndefExpr _)  =
+extractElt _instr ty _n (UndefExpr _) _i =
    return $ UndefExpr ty
-extractElt instr ty n v (ZeroExpr zty) = do
-   let ?err = fail
+extractElt _instr ty _n (ZeroExpr _) _i =
+   return $ ZeroExpr ty
+extractElt _ ty _ _ (UndefExpr _) =
+   return $ UndefExpr ty
+extractElt instr ty n v (ZeroExpr zty) =
+   let ?err = fail in
    zeroExpand zty $ \tyr ex -> extractElt instr ty n v (BaseExpr tyr ex)
-extractElt instr ty n (UndefExpr _) i  = do
-   let ?err = fail
-   undefExpand ty $ \tyr ex -> extractElt instr ty n (BaseExpr tyr ex) i
-extractElt instr ty n (ZeroExpr _) i   = do
-   let ?err = fail
-   zeroExpand ty  $ \tyr ex -> extractElt instr ty n (BaseExpr tyr ex) i
 extractElt instr _ n (VecExpr _ vs) i
   | Scalar (LLVMPointerRepr _) (BitvectorAsPointerExpr _ x) <- asScalar i
   , App (BVLit _ x') <- x
@@ -1060,6 +1058,11 @@ callStore :: MemType
           -> LLVMExpr s arch
           -> Alignment
           -> LLVMGenerator h s arch ret ()
+callStore typ (asScalar -> Scalar PtrRepr ptr) (ZeroExpr _mt) _align =
+ do memVar <- getMemVar
+    typ'   <- toStorableType typ
+    void $ extensionStmt (LLVM_MemClear memVar ptr (G.typeSize typ'))
+
 callStore typ (asScalar -> Scalar PtrRepr ptr) v align =
  do let ?err = fail
     unpackOne v $ \vtpr vexpr -> do
@@ -1336,6 +1339,10 @@ bitCast :: (?lc::TyCtx.LLVMContext,HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
           LLVMExpr s arch ->
           MemType ->
           LLVMGenerator h s arch ret (LLVMExpr s arch)
+
+bitCast (ZeroExpr _) tgtT = return (ZeroExpr tgtT)
+bitCast (UndefExpr _) tgtT = return (UndefExpr tgtT)
+
 bitCast expr tgtT =
   llvmTypeAsRepr tgtT $ \cruT ->    -- Crucible version of the type
 

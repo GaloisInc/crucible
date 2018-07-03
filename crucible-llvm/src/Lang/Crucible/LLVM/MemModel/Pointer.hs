@@ -75,7 +75,6 @@ module Lang.Crucible.LLVM.MemModel.Pointer
   , ptrToPtrVal
   , constOffset
   , ptrDecompose
-  , ptrSizeDecompose
   , ptrComparable
   , ptrOffsetEq
   , ptrOffsetLe
@@ -128,7 +127,7 @@ pattern LLVMPointer blk offset = RolledType (Ctx.Empty Ctx.:> RV blk Ctx.:> RV o
 #endif
 
 -- | Alternative to the @LLVMPointer@ pattern synonym, this function can be used as a view
---   consturctor instead to silence incomplete pattern warnings.
+--   constructor instead to silence incomplete pattern warnings.
 llvmPointerView :: RegValue sym (LLVMPointerType w) -> (RegValue sym NatType, RegValue sym (BVType w))
 llvmPointerView (LLVMPointer blk offset) = (blk, offset)
 
@@ -228,15 +227,6 @@ ptrDecompose _sym _w (LLVMPointer (asNat -> Just b) off) =
   SymbolicOffset b off
 ptrDecompose _sym _w p =
   Symbolic p
-
--- | Determine if the given bitvector value is a concrete offset
-ptrSizeDecompose ::
-  IsExprBuilder sym =>
-  sym -> NatRepr w ->
-  SymBV sym w ->
-  Maybe Integer
-ptrSizeDecompose _ _ (asUnsignedBV -> Just off) = Just off
-ptrSizeDecompose _ _ _ = Nothing
 
 
 -- | Test whether pointers point into the same allocation unit.

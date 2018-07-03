@@ -45,6 +45,7 @@ import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.Types
 
 import           Lang.Crucible.LLVM.Arch.X86 as X86
+import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
@@ -126,6 +127,15 @@ data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> *) :: CrucibleType -> * where
      !G.Type                     {- Storable type of the value -} ->
      !Alignment                  {- Assumed alignment of the pointer -} ->
      !(f tp)                     {- Value to store -} ->
+     LLVMStmt wptr f UnitType
+
+  -- | Clear a region of memory by setting all the bytes in it to the zero byte.
+  --   This is primarily used for initializing the value of global variables,
+  --   but can also result from zero initializers.
+  LLVM_MemClear ::
+     !(GlobalVar Mem)            {- Memory global variable -} ->
+     !(f (LLVMPointerType wptr)) {- Pointer to store at -} ->
+     !Bytes                      {- Number of bytes to clear -} ->
      LLVMStmt wptr f UnitType
 
   -- | Load the Crucible function handle that corresponds to a function pointer value.
@@ -238,6 +248,7 @@ instance (1 <= wptr) => TypeApp (LLVMStmt wptr) where
     LLVM_Alloca w _ _ _ -> LLVMPointerRepr w
     LLVM_Load _ _ tp _ _  -> tp
     LLVM_Store{} -> knownRepr
+    LLVM_MemClear{} -> knownRepr
     LLVM_LoadHandle _ _ args ret -> FunctionHandleRepr args ret
     LLVM_ResolveGlobal w _ _ -> LLVMPointerRepr w
     LLVM_PtrEq{} -> knownRepr
@@ -257,6 +268,8 @@ instance PrettyApp (LLVMStmt wptr) where
        text "load" <+> text (show mvar) <+> pp ptr <+> text (show tp) <+> text (show a)
     LLVM_Store mvar ptr _tpr tp a v ->
        text "store" <+> text (show mvar) <+> pp ptr <+> text (show tp) <+> text (show a) <+> pp v
+    LLVM_MemClear mvar ptr len ->
+       text "memClear" <+> text (show mvar) <+> pp ptr <+> text (show len)
     LLVM_LoadHandle mvar ptr args ret ->
        text "loadFunctionHandle" <+> text (show mvar) <+> pp ptr <+> text "as" <+> text (show (FunctionHandleRepr args ret))
     LLVM_ResolveGlobal _ mvar gs ->
