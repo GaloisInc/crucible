@@ -53,6 +53,7 @@ import           Lang.Crucible.Server.Verification.Harness
 import           Lang.Crucible.Server.Verification.Override
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Simulator.ExecutionTree
+import           Lang.Crucible.Simulator.EvalStmt (executeCrucible)
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
@@ -163,13 +164,14 @@ sawFulfillSimulateVerificationHarnessRequest sim harness opts =
 
                   let simSt = initSimState ctx emptyGlobals (serverErrorHandler sim)
 
-                  exec_res <- runOverrideSim simSt UnitRepr (simulateHarness sim rw w sc cryEnv' harness' pc sp ret fn)
+                  exec_res <- executeCrucible simSt $ runOverrideSim UnitRepr
+                                (simulateHarness sim rw w sc cryEnv' harness' pc sp ret fn)
 
                   case exec_res of
-                    FinishedExecution ctx' (TotalRes (GlobalPair _r _globals)) -> do
+                    FinishedResult ctx' (TotalRes (GlobalPair _r _globals)) -> do
                       sendTextResponse sim "Finished!"
                       writeIORef (simContext sim) $! ctx'
-                    FinishedExecution ctx' (PartialRes _ (GlobalPair _r _globals) _) -> do
+                    FinishedResult ctx' (PartialRes _ (GlobalPair _r _globals) _) -> do
                       sendTextResponse sim "Finished, some paths aborted!"
                       writeIORef (simContext sim) $! ctx'
                     AbortedResult ctx' _ -> do
@@ -274,13 +276,14 @@ sawFulfillExportModelRequest _sim P.ExportAIGER _path _vals = do
   fail "SAW backend does not implement AIGER export"
 
 
-sawTypeFromTypeVar :: SAW.SharedContext
+sawTypeFromTypeVar :: SAW.SAWCoreBackend n
+                   -> SAW.SharedContext
                    -> [Int]
                    -> BaseTypeRepr tp
                    -> IO SAW.Term
-sawTypeFromTypeVar sc [] bt = SAW.baseSCType sc bt
-sawTypeFromTypeVar sc (x:xs) bt = do
-  txs <- sawTypeFromTypeVar sc xs bt
+sawTypeFromTypeVar sym sc [] bt = SAW.baseSCType sym sc bt
+sawTypeFromTypeVar sym sc (x:xs) bt = do
+  txs <- sawTypeFromTypeVar sym sc xs bt
   n <- SAW.scNat sc (fromIntegral x)
   SAW.scVecType sc n txs
 
@@ -330,7 +333,7 @@ sawFulfillSymbolHandleRequest sim proto_tp = do
   Some vtp <- varTypeFromProto proto_tp
   sym <- getInterface sim
   st <- readIORef $ SB.sbStateManager sym
-  sawTp <- sawTypeFromTypeVar (SAW.saw_ctx st) dims' vtp
+  sawTp <- sawTypeFromTypeVar sym (SAW.saw_ctx st) dims' vtp
 
   respondToPredefinedHandleRequest sim (SymbolicHandle dims' (Some vtp)) $ do
     let o = symbolicOverride (SAW.saw_ctx st) dims' sawTp tpr

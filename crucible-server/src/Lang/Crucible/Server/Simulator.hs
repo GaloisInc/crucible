@@ -26,6 +26,7 @@ import           Control.Applicative
 #endif
 import           Control.Exception
 import           Control.Lens
+import           Control.Monad.IO.Class
 import           Control.Monad.ST (RealWorld, stToIO)
 import           Data.Hashable
 import qualified Data.HashTable.IO as HIO
@@ -324,8 +325,8 @@ sendCallPathAborted sim code msg bt = do
 serverErrorHandler :: IsSymInterface sym
                    => Simulator p sym
                    -> ErrorHandler p sym () rtp
-serverErrorHandler sim = EH $ \e s -> do
-    let t = s^.stateTree
+serverErrorHandler sim = EH $ \e ->
+ do t <- view stateTree
     let frames = activeFrames t
     -- Get location of frame.
     let loc = mapMaybe filterCrucibleFrames frames
@@ -333,20 +334,21 @@ serverErrorHandler sim = EH $ \e s -> do
 
     -- If a branch aborted becasue of an error condition,
     -- tell client that a part aborted with the given message.
-    case e of
-      ManualAbort _ msg ->
-        sendCallPathAborted sim P.AbortedGeneric msg loc
-      AssumedFalse (AssumingNoError se) ->
-        case simErrorReason se of
-          ReadBeforeWriteSimError msg -> do
-            sendCallPathAborted sim P.AbortedReadBeforeWrite (show msg) loc
-          AssertFailureSimError msg -> do
-            sendCallPathAborted sim P.AbortedUserAssertFailure (show msg) loc
-          _ -> do
-            sendCallPathAborted sim P.AbortedGeneric (show (simErrorReason se)) loc
+    liftIO $
+      case e of
+        ManualAbort _ msg ->
+          sendCallPathAborted sim P.AbortedGeneric msg loc
+        AssumedFalse (AssumingNoError se) ->
+          case simErrorReason se of
+            ReadBeforeWriteSimError msg -> do
+              sendCallPathAborted sim P.AbortedReadBeforeWrite (show msg) loc
+            AssertFailureSimError msg -> do
+              sendCallPathAborted sim P.AbortedUserAssertFailure (show msg) loc
+            _ -> do
+              sendCallPathAborted sim P.AbortedGeneric (show (simErrorReason se)) loc
 
-      -- In other cases, do nothing
-      _ -> return ()
+        -- In other cases, do nothing
+        _ -> return ()
 
     -- Abort execution.
-    abortExec e s
+    abortExec e
