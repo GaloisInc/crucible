@@ -37,7 +37,7 @@ provide several type family definitions and class instances for @sym@:
 
   [@instance 'HashableF' ('SymExpr' sym)@]
 
-The canonical implementation of these interface classes is found in "What4.Solver.SimpleBuilder".
+The canonical implementation of these interface classes is found in "What4.Expr.Builder".
 -}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
