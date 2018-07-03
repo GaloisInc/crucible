@@ -35,6 +35,8 @@ import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
 import Lang.Crucible.Simulator.RegMap(emptyRegMap,regValue)
 import Lang.Crucible.Simulator.ExecutionTree
+import Lang.Crucible.Simulator.EvalStmt
+        ( executeCrucible )
 import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Simulator.OverrideSim
         ( fnBindingsFromList, initSimState, runOverrideSim, callCFG)
@@ -146,8 +148,8 @@ simulate opts k =
      llvmPtrWidth llvmCtxt $ \ptrW ->
        withPtrWidth ptrW $
        withIONonceGenerator $ \nonceGen ->
-       withZ3OnlineBackend nonceGen $ \sym ->
-       -- withYicesOnlineBackend nonceGen $ \sym ->
+       -- withZ3OnlineBackend nonceGen $ \sym ->
+       withYicesOnlineBackend nonceGen $ \sym ->
        do frm <- pushAssumptionFrame sym
           let simctx = setupSimCtxt halloc sym
 
@@ -155,7 +157,7 @@ simulate opts k =
           let globSt = llvmGlobals llvmCtxt mem
           let simSt  = initSimState simctx globSt defaultErrorHandler
 
-          res <- runOverrideSim simSt UnitRepr $
+          res <- executeCrucible simSt $ runOverrideSim UnitRepr $
                    do setupMem llvmCtxt trans
                       setupOverrides llvmCtxt
                       k (cfgMap trans)
@@ -163,7 +165,7 @@ simulate opts k =
           _ <- popAssumptionFrame sym frm
 
           ctx' <- case res of
-                    FinishedExecution ctx' _ -> return ctx'
+                    FinishedResult ctx' _ -> return ctx'
                     AbortedResult ctx' _ ->
                       do putStrLn "Aborted result"
                          return ctx'
