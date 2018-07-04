@@ -85,6 +85,37 @@ rangeSize :: NatRepr w -> Integer
 rangeSize w = 2^(natValue w)
 
 ------------------------------------------------------------------------
+-- ModRange
+
+-- | This is used to represent contiguous or the complement of contiguous ranges.
+data ModRange
+  = InclusiveRange !Integer !Integer
+    -- ^ @InclusiveRange l h@ denotes the range [l..h]
+  | ExclusiveRange !Integer !Integer
+    -- ^ @ExclusiveRange l h@ denotes the range @union [0..l] [h..maxUnsigned w]@
+  | AnyRange
+    -- ^ @AnyRange@ special case to denote any value.
+
+-- | Given lower and upper bound integer bounds this looks at the allowed bitvector
+-- values of a given width through inspecting low and high bits.
+modRange :: NatRepr w -> Integer -> Integer -> ModRange
+modRange w lbound ubound
+    -- If the upper bits are the same, then truncation is fine.
+    | high_ubound == high_lbound =
+        InclusiveRange low_lbound low_ubound
+      --  If high_ubound is one more than low_lbound, and there is a gap between
+      -- the least bits of the upper bound and the least bits of the lower bound
+      -- then split to two cases.
+    | high_ubound == high_lbound + 1, low_ubound + 1 < low_lbound =
+        ExclusiveRange low_ubound low_lbound
+      -- Otherwise return all elements.
+    | otherwise = AnyRange
+  where high_lbound = lbound `shiftR` fromInteger (natValue w)
+        high_ubound = ubound `shiftR` fromInteger (natValue w)
+        low_lbound  = maxUnsigned w .&. lbound
+        low_ubound  = maxUnsigned w .&. ubound
+
+------------------------------------------------------------------------
 -- BVDomain Parameters
 
 -- | Parameters for a domain
@@ -102,9 +133,15 @@ defaultBVDomainParams = DP { rangeLimit = 2 }
 
 newtype BVDomain (w :: Nat)
    = BVDomain { -- | Map from lower bounds to upper bound for that range.
-                -- All integers are unsigned.
-                -- The ranges are normalized so that no distinct ranges
-                -- are overlapping or contiguous.
+                --
+                -- * Each key in the map should be less than or equal to the
+                --   associated value.
+                -- * Each key should be non-negative.
+                -- * Each value should be at most @maxNat w@.
+                -- * The ranges are normalized so that no distinct ranges
+                --   are overlapping or contiguous.  Effectively, this means
+                --   each key after the first should be greater than the
+                --   bound values that occur before in an in-order traversal.
                 domainRanges :: (Map Integer Integer)
               }
 
@@ -337,6 +374,7 @@ data InterBVDomain
    = InterBVDomain { interGaps :: !GapMap
                    , interMap  :: !(Map Integer Integer)
                    }
+  deriving (Show)
 
 emptyInterBVDomain :: InterBVDomain
 emptyInterBVDomain =
@@ -344,11 +382,13 @@ emptyInterBVDomain =
                 , interMap = Map.empty
                 }
 
--- | Create bounded BV domain with given size from gap map and range map.
-boundedBVDomain :: BVDomainParams -- ^ Maximum size of BVDomain range
+-- | Create bounded BV domain with given size from the interBVdomain
+boundedBVDomain :: String -- ^ Name of function calling this
+                -> BVDomainParams -- ^ Maximum size of BVDomain range
+                -> NatRepr w
                 -> InterBVDomain
                 -> BVDomain w
-boundedBVDomain params input = BVDomain { domainRanges = d }
+boundedBVDomain nm params w input = BVDomain { domainRanges = d }
   where gm = interGaps input
         m0 = interMap input
         cnt = rangeLimit params
@@ -425,11 +465,21 @@ validRange w l h = 0 <= l && l <= h && h <= maxUnsigned w
 checkRanges :: NatRepr w -> [(Integer, Integer)] -> Bool
 checkRanges w l = all (uncurry (validRange w)) l
 
--- | @range w l h@ returns domain containing values @l@ to @h@.
+-- | @range w l u@ returns domain containing all bitvectors formed
+-- from the @w@ low order bits of some @i@ in @[l,u]@.  Note that per
+-- @testBit@, the least significant bit has index @0@.
 range :: (1 <= w) => NatRepr w -> Integer -> Integer -> BVDomain w
-range w l h = assert (validRange w l h) $
-  BVDomain { domainRanges = Map.singleton l h
-           }
+range w li ui =
+  case modRange w li ui of
+    InclusiveRange l u ->
+      BVDomain { domainRanges = Map.singleton l u
+               }
+    ExclusiveRange l u ->
+      BVDomain { domainRanges = Map.fromList [(0,l), (u,maxUnsigned w)]
+               }
+    AnyRange ->
+      BVDomain { domainRanges = Map.singleton 0 (maxUnsigned w)
+               }
 
 -- | Return the empty domain.
 empty :: (1 <= w) => NatRepr w -> BVDomain w
@@ -438,11 +488,14 @@ empty _ = BVDomain { domainRanges = Map.empty
 
 -- | Represents all values
 any :: (1 <= w) => NatRepr w -> BVDomain w
-any w = range w 0 (maxUnsigned w)
+any w = BVDomain { domainRanges = Map.singleton 0 (maxUnsigned w)
+                 }
 
 -- | Create a bitvector domain representing the integer.
 singleton :: (1 <= w) => NatRepr w -> Integer -> BVDomain w
-singleton w v = range w v v
+singleton w v
+  | 0 <= v && v <= maxUnsigned w = BVDomain { domainRanges = Map.singleton v v }
+  | otherwise = error "singleton given invalid input."
 
 -- | From an ascending list of elements.
 -- The elements are assumed to be distinct.
@@ -465,7 +518,7 @@ fromList nm params w ranges
   | Prelude.not (checkRanges w ranges) =
       error $ nm ++ " provided invalid values to range with width " ++ show w ++ "\n  "
          ++ show ranges
-  | otherwise = boundedBVDomain params $
+  | otherwise = boundedBVDomain nm params w $
     Fold.foldl' (\p (l,h) -> insertRange l h p) emptyInterBVDomain ranges
 
 -- | Create a BVdomain from a list of ranges.
@@ -492,20 +545,14 @@ modList nm params w ranges
                  -> [(Integer, Integer)]
                  -> BVDomain u
         mapRange processed [] = fromList nm params w processed
-        mapRange processed ((lbound, ubound):next)
-            -- If the upper bits are the same, then truncation is fine.
-            | high_ubound == high_lbound =
+        mapRange processed ((lbound, ubound):next) =
+          case modRange w lbound ubound of
+            InclusiveRange low_lbound low_ubound ->
               mapRange ((low_lbound, low_ubound):processed) next
-            -- If high_ubound is one more than low_lbound, and
-            | high_ubound == high_lbound + 1, low_ubound < low_lbound =
+            ExclusiveRange low_ubound low_lbound ->
                 mapRange ((0, low_ubound) : (low_lbound, rangeSize w - 1) : processed)
                          next
-            -- Otherwise return all elements.
-            | otherwise = any w
-          where high_lbound = lbound `shiftR` fromInteger (natValue w)
-                high_ubound = ubound `shiftR` fromInteger (natValue w)
-                low_lbound  = maxUnsigned w .&. lbound
-                low_ubound  = maxUnsigned w .&. ubound
+            AnyRange -> any w
      in mapRange [] ranges
 
 -- | @concat x y@ returns domain where each element in @x@ has been
