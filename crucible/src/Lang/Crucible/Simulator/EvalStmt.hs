@@ -25,6 +25,7 @@ module Lang.Crucible.Simulator.EvalStmt
   ( SomeSimFrame(..)
   , resolveCallFrame
 
+  , singleStepCrucible
   , executeCrucible
 
   , continue
@@ -34,7 +35,7 @@ module Lang.Crucible.Simulator.EvalStmt
   , evalExpr
   , stepTerm
   , stepStmt
-  , stepCrucible
+  , stepBasicBlock
   ) where
 
 import qualified Control.Exception as Ex
@@ -561,15 +562,15 @@ stepStmt _verb stmt rest =
             liftIO $ assert sym c (AssertFailureSimError msg')
             continueWith (stateCrucibleFrame  . frameStmts .~ rest)
 
--- | Main evaluation operation for running a single step of the
---   Crucible evaluator.
+-- | Main evaluation operation for running a single step of
+--   basic block evalaution.
 --
 --   This is allowed to throw user execeptions or SimError.
-stepCrucible ::
+stepBasicBlock ::
   (IsSymInterface sym, IsSyntaxExtension ext) =>
-  Int ->
+  Int {- ^ Current verbosity -} ->
   ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
-stepCrucible verb =
+stepBasicBlock verb =
   do ctx <- view stateContext
      let sym = ctx^.ctxSymInterface
      let h = printHandle ctx
@@ -589,6 +590,35 @@ stepCrucible verb =
                  let sz = regMapSize (cf^.frameRegs)
                  when (verb >= 4) $ ppStmtAndLoc h (frameHandle cf) pl (ppStmt sz stmt)
             stepStmt verb stmt rest
+
+
+-- | Run a single step of the Crucible symbolic simulator.
+--
+--   'AbortExecReason' exceptions and 'UserError'
+--   exceptions are NOT caught, and must be handled
+--   by the calling context of 'singleStepCrucible'.
+singleStepCrucible ::
+  (IsSymInterface sym, IsSyntaxExtension ext) =>
+  Int {- ^ Current verbosity -} ->
+  ExecState p sym ext rtp ->
+  IO (ExecState p sym ext rtp)
+singleStepCrucible verb exst =
+  case exst of
+    ResultState res ->
+      return (ResultState res)
+
+    AbortState rsn st ->
+      let (EH handler) = st^.errorHandler in
+      runReaderT (handler rsn) st
+
+    OverrideState ovr st ->
+      runReaderT (overrideHandler ovr) st
+
+    ControlTransferState k tgt st ->
+      runReaderT (performIntraFrameMerge k tgt) st
+
+    RunningState st ->
+      runReaderT (stepBasicBlock verb) st
 
 
 -- | Given a 'SimState' and an execution continuation,
@@ -626,18 +656,19 @@ executeCrucible st0 cont =
                       Ex.throwIO e
                 ]
       case exst of
-        ResultState res -> return res
+        ResultState res ->
+          return res
 
         AbortState rsn st' ->
-          do let (EH handler) = st'^.errorHandler
-             loop verbOpt st' (handler rsn)
+          let (EH handler) = st'^.errorHandler in
+          loop verbOpt st' (handler rsn)
 
         OverrideState ovr st' ->
-          do loop verbOpt st' (overrideHandler ovr)
+          loop verbOpt st' (overrideHandler ovr)
 
-        JumpState k tgt st' ->
-          do loop verbOpt st' (performIntraFrameMerge k tgt)
+        ControlTransferState k tgt st' ->
+          loop verbOpt st' (performIntraFrameMerge k tgt)
 
         RunningState st' ->
           do verb <- fromInteger <$> getOpt verbOpt
-             loop verbOpt st' (stepCrucible verb)
+             loop verbOpt st' (stepBasicBlock verb)

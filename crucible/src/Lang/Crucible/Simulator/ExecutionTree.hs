@@ -80,8 +80,6 @@ module Lang.Crucible.Simulator.ExecutionTree
     -- * High level operations.
   , replaceTailFrame
   , getIntraFrameBranchTarget
---  , tryIntraFrameMerge
---  , checkForIntraFrameMerge
   , performIntraFrameMerge
   , callFn
   , returnValue
@@ -430,7 +428,7 @@ data ExecState p sym ext (rtp :: *)
          !(SimState p sym ext rtp (OverrideLang args ret) 'Nothing)
 
    | forall blocks r args.
-       JumpState
+       ControlTransferState
          !(ExecCont p sym ext rtp (CrucibleLang blocks r) args)
          !(CrucibleBranchTarget blocks args)
          !(SimState p sym ext rtp (CrucibleLang blocks r) args)
@@ -438,7 +436,8 @@ data ExecState p sym ext (rtp :: *)
 ------------------------------------------------------------------------
 -- A Paused value and ExecCont
 
--- | An action with will construct an ExecResult given a global state.
+-- | An action which will construct an ExecState given a global state.
+--   Such continuations correspond to a single step of execution.
 type ExecCont p sym ext r f a =
   ReaderT (SimState p sym ext r f a) IO (ExecState p sym ext r)
 
@@ -471,12 +470,12 @@ resumed = lens resume (\s v -> s { resume = v })
 data ReturnHandler top_return p sym ext r f args new_args where
   ReturnToOverride ::
     (ret -> ExecCont p sym ext rtp (OverrideLang args r) 'Nothing)
-     {- ^ Continuation to run next. -} ->
+      {- ^ Remaining override code to run when the return value becomse available -} ->
     ReturnHandler ret p sym ext rtp (OverrideLang args r) 'Nothing 'Nothing
   
   ReturnToCrucible ::
-    TypeRepr ret ->
-    StmtSeq ext blocks r (ctx ::> ret) ->
+    TypeRepr ret {- ^ Type of the return value -} ->
+    StmtSeq ext blocks r (ctx ::> ret) {- ^ Remaining statements to execute -} ->
     ReturnHandler (RegEntry sym ret)
       p sym ext root (CrucibleLang blocks r) ('Just ctx) ('Just (ctx ::> ret))
 
@@ -485,14 +484,15 @@ data ReturnHandler top_return p sym ext r f args new_args where
       p sym ext root (CrucibleLang blocks r) ctx 'Nothing
 
 
-returnToOverride :: (ret -> ExecCont p sym ext rtp (OverrideLang args r) 'Nothing)
-                    -- ^ Continuation to run next.
-                 -> ReturnHandler ret p sym ext rtp (OverrideLang args r) 'Nothing 'Nothing
+returnToOverride ::
+  (ret -> ExecCont p sym ext rtp (OverrideLang args r) 'Nothing)
+    {- ^ Remaining override code to run when the return value becomse available -} ->
+  ReturnHandler ret p sym ext rtp (OverrideLang args r) 'Nothing 'Nothing
 returnToOverride = ReturnToOverride
 
 returnToCrucible :: forall p sym ext root ret blocks r ctx.
-  TypeRepr ret ->
-  StmtSeq ext blocks r (ctx ::> ret) ->
+  TypeRepr ret {- ^ Type of the return value -} ->
+  StmtSeq ext blocks r (ctx ::> ret) {- ^ Remaining statements to execute -} ->
   ReturnHandler (RegEntry sym ret)
     p sym ext root (CrucibleLang blocks r) ('Just ctx) ('Just (ctx ::> ret))
 returnToCrucible = ReturnToCrucible
@@ -762,8 +762,6 @@ popCrucibleFrame sym intrinsicFns (RF x') =
   RF <$> abortBranchRegEntry sym intrinsicFns x'
 
 
-
-
 fromJustCallFrame :: SimFrame sym ext (CrucibleLang b r) ('Just a)
                   -> CallFrame sym ext b r a
 fromJustCallFrame (MF x) = x
@@ -889,7 +887,7 @@ checkForIntraFrameMerge ::
 
   ExecCont p sym ext root (CrucibleLang b r) args
 checkForIntraFrameMerge cont tgt =
-  ReaderT $ return . JumpState cont tgt
+  ReaderT $ return . ControlTransferState cont tgt
 
 
 -- | Perform a single instance of path merging at a join point.
@@ -1258,7 +1256,7 @@ handleSimReturn ctx0 return_value = do
          handleSimReturn ctx new_ret_val
 
     VFVEnd ->
-      do res <- asks stateResult
+      do res <- view stateContext
          return $! ResultState $ FinishedResult res return_value
 
 ------------------------------------------------------------------------
@@ -1338,7 +1336,7 @@ resumeValueFromValueAbort ctx0 ar0 =
     VFVPartial ctx p ay -> do
       resumeValueFromValueAbort ctx (AbortedBranch p ar0 ay)
     VFVEnd ->
-      do res <- asks stateResult
+      do res <- view stateContext
          return $! ResultState $ AbortedResult res ar0
 
 ------------------------------------------------------------------------
@@ -1539,10 +1537,6 @@ stateGetConfiguration s = stateSolverProof s (getConfiguration (stateSymInterfac
 ------------------------------------------------------------------------
 -- HasSimState instance
 
--- | Extract the global state state result from the current state.
-stateResult :: SimState p sym ext rtp f a -> SimContext p sym ext
-stateResult s = s^.stateContext
-
 -- | View a sim context.
 stateOverrideFrame :: Lens (SimState p sym ext q (OverrideLang a r) 'Nothing)
                            (SimState p sym ext q (OverrideLang a r) 'Nothing)
@@ -1554,15 +1548,16 @@ stateOverrideFrame = stateTree . actFrame . gpValue . overrideSimFrame
 -- Running error handler
 
 -- | Start running the error handler.
-runErrorHandler :: AbortExecReason
-                   -> ExecCont p sym ext rtp f args
+runErrorHandler ::
+  AbortExecReason ->
+  ExecCont p sym ext rtp f args
 runErrorHandler err = ReaderT $ \s -> return (AbortState err s)
 
-runGenericErrorHandler
-     :: String
-     -> ExecCont p sym ext rtp f args
+runGenericErrorHandler ::
+  String ->
+  ExecCont p sym ext rtp f args
 runGenericErrorHandler msg =
-  do s <- ask
-     let sym = stateSymInterface s
-     loc <- stateSolverProof s $ liftIO (getCurrentProgramLoc sym)
+  do ctx <- view stateContext
+     let sym = ctx^.ctxSymInterface
+     loc <- ctxSolverProof ctx (liftIO (getCurrentProgramLoc sym))
      runErrorHandler (ManualAbort loc msg)
