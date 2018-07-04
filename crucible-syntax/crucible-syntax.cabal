@@ -45,7 +45,7 @@ library
     mtl,
     optparse-applicative,
     parameterized-utils >= 0.1.7,
-    parsec,
+    megaparsec,
     saw-core,
     saw-core-sbv,
     sbv,
@@ -60,7 +60,9 @@ library
     hpb
 
   exposed-modules:
+    Lang.Crucible.Syntax.Atoms
     Lang.Crucible.Syntax.Concrete
+    Lang.Crucible.Syntax.SExpr
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
@@ -78,6 +80,7 @@ executable crucibler
     cryptol-verifier,
     hpb >= 0.1.1,
     lens,
+    megaparsec,
     mtl,
     optparse-applicative,
     parameterized-utils >= 0.1.7,
