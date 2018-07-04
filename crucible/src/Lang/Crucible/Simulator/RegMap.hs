@@ -177,6 +177,7 @@ muxRegForType s itefns p =
      NatRepr           -> muxReg s p
      IntegerRepr       -> muxReg s p
      RealValRepr       -> muxReg s p
+     FloatRepr _       -> muxReg s p
      ComplexRealRepr   -> muxReg s p
      CharRepr          -> muxReg s p
      BoolRepr          -> muxReg s p
@@ -207,10 +208,6 @@ muxRegForType s itefns p =
               [ "Unknown intrinsic type:"
               , "*** Name: " ++ show nm
               ]
-
-     FloatRepr _ -> \_ _ _ ->
-       addFailedAssertion s $
-         Unsupported "Float types are not supported by muxRegForType'"
 
 -- | Mux two register entries.
 {-# INLINE muxRegEntry #-}
