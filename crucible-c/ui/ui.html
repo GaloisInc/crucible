@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+<script src="jquery.min.js"></script>
+<script src="sample.js"></script>
+<script src="report.js"></script>
+<script>
+function drawLines() {
+  var i
+  var dom = $('<ol/>')
+  for (i = 0; i < lines.length; ++i) {
+    var li = $('<li/>').attr('id','line-' + (i+1))
+                       .addClass('line')
+                       .text(lines[i])
+    dom.append(li)
+  }
+  return dom
+}
+
+function getLine(n) { return $('#line-' + n) }
+
+function drawStatus(proved) {
+  return $('<div/>').text(proved ? 'OK' : 'failed')
+                    .css('display','inline-block')
+                    .css('margin', '2px')
+                    .css('padding', '2px')
+                    .css('text-align','center')
+                    .css('border-radius','2px')
+                    .addClass(proved ? 'highlight-proved' : 'highlight-failed')
+}
+
+function drawCounterExample(e) {
+  if (e === null) return
+  jQuery.each(e, function(ix,v) {
+    getLine(v.line).append($('<span/>')
+                   .addClass('ctr-example').text(v.val))
+  })
+}
+
+
+var nextLabel = 0
+
+function newLabel() { // XXX
+  return "L" + nextLabel++
+}
+
+function drawAsmpTgt(a,b) {
+  var lnFrom = getLine(a)
+  var lnTo   = getLine(b)
+
+  var l = newLabel()
+
+  lnFrom.append($('<span/>').addClass('asmp-lab').text(l))
+  lnTo.append($('<span/>').addClass('asmp-lab').text(l))
+}
+
+function drawGoals() {
+  var dom = $('<div>').addClass('goals')
+
+  jQuery.each(goals, function(gNum,g) {
+    var li = $('<div/>')
+            .css('cursor','pointer')
+            .append( drawStatus(g.proved)
+                   , $('<span/>').text(g.goal)
+                   )
+    li.click(function() {
+      $('.ctr-example').remove()
+      $('.asmp-lab').remove()
+      $('.line').removeClass('highlight-proved')
+                .removeClass('highlight-failed')
+                .removeClass('highlight-assumed')
+     jQuery.each(g.assumptions, function(ix,a) {
+        var ln = getLine(a.line)
+        if (a.line !== g.location) ln.addClass('highlight-assumed')
+        if (a.tgt !== null) drawAsmpTgt(a.line, a.tgt)
+      })
+      if (g.location !== null)
+        getLine(g.location)
+            .addClass(g.proved ? 'highlight-proved' : 'highlight-failed')
+      drawCounterExample(g['counter-example'])
+    })
+    dom.append(li)
+  })
+
+  return dom
+}
+
+$(document).ready(function() {
+  $('#source-code').append(drawLines())
+  $('#nav-bar').append(drawGoals())
+})
+</script>
+<style>
+html { height: 100%; padding: 0; margin: 0; }
+body { height: 100%; padding: 0; margin: 0; }
+
+#nav-bar {
+  width: 25%;
+  float: left;
+  height: 90%;
+  overflow: auto;
+}
+
+#source-code {
+  float: right;
+  width: 74%;
+  font-family: monospace;
+  white-space: pre;
+  height: 90%;
+  overflow: auto;
+  font-size: 16px;
+}
+
+#source-code>ol {
+  counter-reset: item;
+}
+
+#source-code>ol>li {
+  list-style-type: none;
+  counter-increment: item;
+}
+
+#source-code>ol>li:hover {
+  background-color: #ccf;
+}
+
+#source-code>ol>li:before {
+  display: inline-block;
+  width: 4em;
+  text-align: right;
+  content: counter(item);
+  margin-right: 1em;
+  font-size: 10px;
+  font-style: italic;
+  color: #999;
+}
+
+.goals { margin: 5px; }
+
+.highlight-proved  { background-color: green; }
+.highlight-failed  { background-color: red; }
+.highlight-assumed { background-color: cyan; }
+.ctr-example {
+  border: 1px solid black;
+  margin: 5px;
+  background-color: #eee;
+  padding-left: 2px;
+  padding-right: 2px;
+  border-radius: 5px;
+  font-size: smaller;
+}
+
+.asmp-lab {
+  border: 1px solid black;
+  margin: 5px;
+  background-color: #eee;
+  padding-left: 2px;
+  padding-right: 2px;
+  border-radius: 5px;
+  font-size: smaller;
+}
+
+</style>
+</head>
+<body><div id="nav-bar"></div
+><div id="source-code"></div
+></body>
+</html>
+

@@ -519,7 +519,7 @@ parseSchema env input = do
               let k = Nothing -- allow either kind KNum or KType
               (t', goals) <- TM.collectGoals $ TK.checkType t k
               return (T.Forall [] [] t', goals)
-            _ -> TK.checkSchema True rschema
+            _ -> TK.checkSchema TM.AllowWildCards rschema
     out <- MM.io (TM.runInferM tcEnv' infer)
     (schema, _goals) <- MM.interactive (runInferOutput out)
     --mapM_ (MM.io . print . TP.ppWithNames TP.emptyNameMap) goals

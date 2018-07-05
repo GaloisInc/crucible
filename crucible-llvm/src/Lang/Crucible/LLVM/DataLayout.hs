@@ -47,7 +47,7 @@ import Data.Word (Word32)
 import qualified Text.LLVM as L
 import Numeric.Natural
 
-import Lang.Crucible.Utils.Arithmetic
+import What4.Utils.Arithmetic
 import Lang.Crucible.LLVM.Bytes
 
 

@@ -19,8 +19,13 @@ import Data.Parameterized.Context.Unsafe (Assignment)
 import Data.Parameterized.Context(pattern Empty, pattern (:>))
 
 
+import What4.FunctionName(functionNameFromText)
+import What4.Symbol(userSymbol)
+import What4.Interface
+          (freshConstant, bvLit, bvEq, asUnsignedBV,notPred
+          , getCurrentProgramLoc)
+
 import Lang.Crucible.Types
-import Lang.Crucible.FunctionName(functionNameFromText)
 import Lang.Crucible.CFG.Core(GlobalVar)
 import Lang.Crucible.FunctionHandle (handleArgTypes,handleReturnType)
 import Lang.Crucible.Simulator.RegMap(RegMap(..),regValue,RegValue,RegEntry)
@@ -38,16 +43,9 @@ import Lang.Crucible.Simulator.OverrideSim
         , readGlobal
         )
 import Lang.Crucible.Simulator.SimError (SimErrorReason(..))
-
-
-import Lang.Crucible.Solver.Symbol(userSymbol)
-import Lang.Crucible.Solver.BoolInterface
-          (IsSymInterface)
-import Lang.Crucible.Solver.Interface
-          (freshConstant, bvLit, bvEq, asUnsignedBV,notPred)
-import Lang.Crucible.Solver.BoolInterface
-        (addFailedAssertion,addAssertion,addAssumption)
-
+import Lang.Crucible.Backend
+          (IsSymInterface,addFailedAssertion,assert
+          , addAssumption, LabeledPred(..), AssumptionReason(..))
 import Lang.Crucible.LLVM.Translation
         ( LLVMContext, LLVMHandleInfo(..)
         , symbolMap
@@ -140,7 +138,8 @@ mkFresh nm ty =
                Left err -> fail (show err) -- XXX
                Right a  -> return a
      elt <- liftIO (freshConstant sym name ty)
-     stateContext.cruciblePersonality %= addVar nm ty elt
+     loc   <- liftIO $ getCurrentProgramLoc sym
+     stateContext.cruciblePersonality %= addVar loc nm ty elt
      return elt
 
 lookupString ::
@@ -193,7 +192,10 @@ lib_assume =
      sym  <- getSymInterface
      liftIO $ do cond <- projectLLVM_bv sym (regValue p)
                  zero <- bvLit sym knownRepr 0
-                 addAssumption sym =<< notPred sym =<< bvEq sym cond zero
+                 asmpP <- notPred sym =<< bvEq sym cond zero
+                 loc   <- getCurrentProgramLoc sym
+                 let msg = AssumptionReason loc "(assumption)"
+                 addAssumption sym (LabeledPred asmpP msg)
 
 
 lib_assert ::
@@ -213,7 +215,7 @@ lib_assert mvar =
                  zero <- bvLit sym knownRepr 0
                  let rsn = AssertFailureSimError msg
                  check <- notPred sym =<< bvEq sym cond zero
-                 addAssertion sym check rsn
+                 assert sym check rsn
 
 
 
@@ -235,7 +237,10 @@ sv_comp_assume =
      sym  <- getSymInterface
      liftIO $ do cond <- projectLLVM_bv sym (regValue p)
                  zero <- bvLit sym knownRepr 0
-                 addAssumption sym =<< notPred sym =<< bvEq sym cond zero
+                 loc  <- getCurrentProgramLoc sym
+                 let msg = AssumptionReason loc "XXX"
+                 check <- notPred sym =<< bvEq sym cond zero
+                 addAssumption sym (LabeledPred check msg)
 
 {-
 sv_comp_assert ::

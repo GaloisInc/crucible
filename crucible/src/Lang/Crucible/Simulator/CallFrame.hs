@@ -41,12 +41,14 @@ import           Data.Hashable
 import           Data.Maybe
 import qualified Data.Parameterized.Context as Ctx
 
+import           What4.ProgramLoc ( ProgramLoc )
+import           What4.Interface ( Pred )
+
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.ProgramLoc ( ProgramLoc )
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
-import           Lang.Crucible.Solver.Interface ( Pred, IsExprBuilder )
+import           Lang.Crucible.Backend
 
 ------------------------------------------------------------------------
 -- SomeHandle
@@ -143,7 +145,7 @@ extendFrame tp v s f = f { _frameRegs = assignReg tp v (_frameRegs f)
                          , _frameStmts = s
                          }
 
-mergeCallFrame :: IsExprBuilder sym
+mergeCallFrame :: IsSymInterface sym
                => sym
                -> IntrinsicTypes sym
                -> MuxFn (Pred sym) (CallFrame sym ext blocks ret args)

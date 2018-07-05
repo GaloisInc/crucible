@@ -32,7 +32,7 @@ module Lang.Crucible.Simulator.CallFns
   , crucibleTopFrame
   ) where
 
-import           Control.Exception
+import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.State
 import           Data.IORef
@@ -43,11 +43,16 @@ import           System.IO
 import           System.IO.Error
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-import           Lang.Crucible.Config
+import           What4.Config
+import           What4.Interface
+import           What4.Partial
+import           What4.ProgramLoc
+import           What4.Utils.MonadST
+
+import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.Evaluation
 import           Lang.Crucible.Simulator.ExecutionTree
@@ -55,31 +60,12 @@ import           Lang.Crucible.Simulator.ExecutionTree
          )
 import qualified Lang.Crucible.Simulator.ExecutionTree as Exec
 import           Lang.Crucible.Simulator.Frame
+import           Lang.Crucible.Simulator.Intrinsics (IntrinsicTypes)
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Utils.MonadST
+import           Lang.Crucible.Utils.MuxTree
 
-crucibleSimFrame :: Lens (SimFrame sym ext (CrucibleLang blocks r) ('Just args))
-                         (SimFrame sym ext (CrucibleLang blocks r) ('Just args'))
-                         (CallFrame sym ext blocks r args)
-                         (CallFrame sym ext blocks r args')
-crucibleSimFrame f (MF c) = MF <$> f c
-
-crucibleTopFrame ::  Lens (TopFrame sym ext (CrucibleLang blocks r) ('Just args))
-                          (TopFrame sym ext (CrucibleLang blocks r) ('Just args'))
-                          (CallFrame sym ext blocks r args)
-                          (CallFrame sym ext blocks r args')
-crucibleTopFrame = gpValue . crucibleSimFrame
-
-stateCrucibleFrame :: Lens (SimState p sym ext rtp (CrucibleLang blocks r) ('Just a))
-                           (SimState p sym ext rtp (CrucibleLang blocks r) ('Just a'))
-                           (CallFrame sym ext blocks r a)
-                           (CallFrame sym ext blocks r a')
-stateCrucibleFrame = stateTree . actFrame . crucibleTopFrame
-{-# INLINE stateCrucibleFrame #-}
 
 ------------------------------------------------------------------------
 -- resolveCallFrame
@@ -101,7 +87,7 @@ resolveCallFrame bindings c0 args =
       resolveCallFrame bindings c (assignReg tp v args)
     HandleFnVal h -> do
       case lookupHandleMap h bindings of
-        Nothing -> throw . userError $
+        Nothing -> Ex.throw . userError $
           "Could not resolve function: " ++ show (handleName h)
         Just (UseOverride o) -> do
           let f = OverrideFrame { override = overrideName o
@@ -168,7 +154,7 @@ evalLogFn s n msg = do
   let cfg = stateGetConfiguration s
   verb <- getMaybeOpt =<< getOptionSetting verbosity cfg
   case verb of
-    Just v | v >= toInteger n -> 
+    Just v | v >= toInteger n ->
       do hPutStr h msg
          hFlush h
     _ -> return ()
@@ -337,9 +323,8 @@ stepReturnVariantCases
 stepReturnVariantCases s [] = do
   let top_frame = s^.stateTree^.actFrame
   let loc = frameProgramLoc (top_frame^.crucibleTopFrame)
-  let rsn = PatternMatchFailureSimError
-  let err = SimError loc rsn
-  return (abortExec err s)
+  let rsn = VariantOptionsExhaused loc
+  return (abortExec rsn s)
 stepReturnVariantCases s ((p,JumpCall x_id x_args):cs) = do
   let top_frame = s^.stateTree^.actFrame
   let x_frame = cruciblePausedFrame x_id x_args top_frame
@@ -361,9 +346,8 @@ stepVariantCases
 stepVariantCases s _pd_id [] = do
   let top_frame = s^.stateTree^.actFrame
   let loc = frameProgramLoc (top_frame^.crucibleTopFrame)
-  let rsn = PatternMatchFailureSimError
-  let err = SimError loc rsn
-  return (abortExec err s)
+  let rsn = VariantOptionsExhaused loc
+  return (abortExec rsn s)
 stepVariantCases s pd_id ((p,JumpCall x_id x_args):cs) = do
   let top_frame = s^.stateTree^.actFrame
   let x_frame = cruciblePausedFrame x_id x_args top_frame
@@ -471,9 +455,12 @@ stepTerm s _ (TailCall fnExpr _types arg_exprs) = do
 
 stepTerm s _ (ErrorStmt msg) = do
   let msg' = evalReg s msg
+      sym = stateSymInterface s
   case asString msg' of
-    Just txt -> fail (Text.unpack txt)
-    Nothing  -> fail (show (printSymExpr msg'))
+    Just txt -> addFailedAssertion sym
+                  $ GenericSimError $ Text.unpack txt
+    Nothing  -> addFailedAssertion sym
+                  $ GenericSimError $ show (printSymExpr msg')
 
 evalArgs' :: forall sym ctx args
            . RegMap sym ctx
@@ -502,14 +489,14 @@ loopCrucible s = stateSolverProof s $ do
   s_ref <- newIORef (SomeState s)
   let cfg = stateGetConfiguration s
   verb <- getOpt =<< getOptionSetting verbosity cfg
-  next <- catches (loopCrucible' s_ref (fromInteger verb))
-     [ Handler $ \(e::IOException) -> do
+  next <- Ex.catches (loopCrucible' s_ref (fromInteger verb))
+     [ Ex.Handler $ \(e::Ex.IOException) -> do
           SomeState s' <- readIORef s_ref
           if isUserError e then
             return $ mssRunGenericErrorHandler s' (ioeGetErrorString e)
            else
-            throwIO e
-     , Handler $ \(e::SimError) -> do
+            Ex.throwIO e
+     , Ex.Handler $ \(e::AbortExecReason) -> do
           SomeState s' <- readIORef s_ref
           return $  mssRunErrorHandler s' e
      ]
@@ -527,6 +514,40 @@ continueCrucible s_ref verb s = do
   writeIORef s_ref $! SomeState s
   loopCrucible' s_ref verb
 
+
+alterRef ::
+  IsSymInterface sym =>
+  sym ->
+  IntrinsicTypes sym ->
+  TypeRepr tp ->
+  MuxTree sym (RefCell tp) ->
+  PartExpr (Pred sym) (RegValue sym tp) ->
+  SymGlobalState sym ->
+  IO (SymGlobalState sym)
+alterRef sym iTypes tpr rs newv globs = foldM upd globs (viewMuxTree rs)
+  where
+  f p a b = liftIO $ muxRegForType sym iTypes tpr p a b
+
+  upd gs (r,p) =
+    do let oldv = lookupRef r globs
+       z <- mergePartial sym f p newv oldv
+       return (gs & updateRef r z)
+
+readRef ::
+  IsSymInterface sym =>
+  sym ->
+  IntrinsicTypes sym ->
+  TypeRepr tp ->
+  MuxTree sym (RefCell tp) ->
+  SymGlobalState sym ->
+  IO (RegValue sym tp)
+readRef sym iTypes tpr rs globs =
+  do let vs = map (\(r,p) -> (p,lookupRef r globs)) (viewMuxTree rs)
+     let f p a b = liftIO $ muxRegForType sym iTypes tpr p a b
+     pv <- mergePartials sym f vs
+     let msg = ReadBeforeWriteSimError "Attempted to read uninitialized reference cell"
+     readPartExpr sym pv msg
+
 -- | Internal loop for running the simulator.
 --
 -- This is allowed to throw user execeptions or SimError.
@@ -537,6 +558,7 @@ loopCrucible' :: (IsSymInterface sym, IsSyntaxExtension ext)
 loopCrucible' s_ref verb = do
   SomeState s <- readIORef s_ref
   let ctx = s^.stateContext
+  let iTypes = ctxIntrinsicTypes ctx
   let sym = ctx^.ctxSymInterface
   let top_frame = s^.stateTree^.actFrame
   let cf = top_frame^.crucibleTopFrame
@@ -560,29 +582,38 @@ loopCrucible' s_ref verb = do
           r <- liftST (freshRefCell halloc tpr)
           continueCrucible s_ref verb $
             s & stateTree . actFrame . gpGlobals %~ insertRef sym r v
-              & stateCrucibleFrame %~ extendFrame (ReferenceRepr tpr) r rest
+              & stateCrucibleFrame %~ extendFrame (ReferenceRepr tpr) (toMuxTree sym r) rest
         NewEmptyRefCell tpr -> do
           let halloc = simHandleAllocator ctx
           r <- liftST (freshRefCell halloc tpr)
           continueCrucible s_ref verb $
-            s & stateCrucibleFrame %~ extendFrame (ReferenceRepr tpr) r rest
-        ReadRefCell x -> do
-          let ref = evalReg s x
-          let msg = ReadBeforeWriteSimError "Attempted to read uninitialized reference cell"
-          v <- readPartExpr sym (lookupRef ref (s^.stateTree^.actFrame^.gpGlobals)) msg
-          continueCrucible s_ref verb $
-             s & stateCrucibleFrame %~ extendFrame (refType ref) v rest
-        WriteRefCell x y -> do
-          let ref = evalReg s x
-          let v   = evalReg s y
-          continueCrucible s_ref verb $
-            s & stateTree . actFrame . gpGlobals %~ insertRef sym ref v
-              & stateCrucibleFrame  . frameStmts .~ rest
-        DropRefCell x -> do
-          let ref = evalReg s x
-          continueCrucible s_ref verb $
-            s & stateTree . actFrame . gpGlobals %~ dropRef ref
-              & stateCrucibleFrame  . frameStmts .~ rest
+            s & stateCrucibleFrame %~ extendFrame (ReferenceRepr tpr) (toMuxTree sym r) rest
+        ReadRefCell x ->
+          case evalReg' s x of
+            RegEntry (ReferenceRepr tpr) rs ->
+              do
+              v <- readRef sym iTypes tpr rs (s^.stateTree.actFrame.gpGlobals)
+              continueCrucible s_ref verb $
+                s & stateCrucibleFrame %~ extendFrame tpr v rest
+        WriteRefCell x y ->
+          case evalReg' s x of
+            RegEntry (ReferenceRepr tpr) rs ->
+              do
+              let newv = justPartExpr sym (evalReg s y)
+              globs' <- alterRef sym iTypes tpr rs newv (s^.stateTree.actFrame.gpGlobals)
+
+              continueCrucible s_ref verb $
+                s & stateTree . actFrame . gpGlobals .~ globs'
+                  & stateCrucibleFrame  . frameStmts .~ rest
+        DropRefCell x ->
+          case evalReg' s x of
+            RegEntry (ReferenceRepr tpr) rs ->
+              do
+              globs' <- alterRef sym iTypes tpr rs Unassigned (s^.stateTree.actFrame.gpGlobals)
+              continueCrucible s_ref verb $
+                s & stateTree . actFrame . gpGlobals .~ globs'
+                  & stateCrucibleFrame  . frameStmts .~ rest
+
         ReadGlobal global_var -> do
           case lookupGlobal global_var (top_frame^.gpGlobals) of
             Nothing ->
@@ -629,7 +660,7 @@ loopCrucible' s_ref verb = do
               msg' = case asString msg of
                        Just txt -> Text.unpack txt
                        _ -> show (printSymExpr msg)
-          addAssertion sym c (AssertFailureSimError msg')
+          assert sym c (AssertFailureSimError msg')
           continueCrucible s_ref verb $ s & stateCrucibleFrame  . frameStmts .~ rest
 
 jumpToBlock :: (IsSymInterface sym, IsSyntaxExtension ext)

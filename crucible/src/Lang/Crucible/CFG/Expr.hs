@@ -186,13 +186,6 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
             -> !(f AnyType)
             -> App ext f (MaybeType tp)
 
-  ----------------------------------------------------------------------
-  -- Concrete
-
-  -- Constructs a literal of concrete type
-  ConcreteLit :: !(TypeableValue a)
-              -> App ext f (ConcreteType a)
-
   ---------------------------------------------------------------------
   -- Bool
 
@@ -265,6 +258,48 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   RealLt :: !(f RealValType) -> !(f RealValType) -> App ext f BoolType
   -- Return true if real value is integer.
   RealIsInteger :: !(f RealValType) -> App ext f BoolType
+
+  ----------------------------------------------------------------------
+  -- Float
+
+  -- Floating point constants
+  FloatLit :: !Float -> App ext f (FloatType SingleFloat)
+  DoubleLit :: !Double -> App ext f (FloatType DoubleFloat)
+  FloatNaN :: (FloatInfoRepr fi) -> App ext f (FloatType fi)
+  FloatPInf :: (FloatInfoRepr fi) -> App ext f (FloatType fi)
+  FloatNInf :: (FloatInfoRepr fi) -> App ext f (FloatType fi)
+
+  -- Arithmetic operations
+  FloatAdd :: (FloatInfoRepr fi) -> !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f (FloatType fi)
+  FloatSub :: (FloatInfoRepr fi) -> !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f (FloatType fi)
+  FloatMul :: (FloatInfoRepr fi) -> !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f (FloatType fi)
+  FloatDiv :: (FloatInfoRepr fi) -> !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f (FloatType fi)
+  -- Foating-point remainder of the two operands
+  FloatRem :: (FloatInfoRepr fi) -> !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f (FloatType fi)
+
+  -- Comparison operations
+  FloatEq :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
+  FloatGt :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
+  FloatGe :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
+  FloatLt :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
+  FloatLe :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
+  FloatNe :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
+
+  -- Conversion operations
+  FloatCast :: (FloatInfoRepr fi) -> !(f (FloatType fi')) -> App ext f (FloatType fi)
+  FloatFromBV :: (1 <= w) => (FloatInfoRepr fi) -> !(f (BVType w)) -> App ext f (FloatType fi)
+  FloatFromSBV :: (1 <= w) => (FloatInfoRepr fi) -> !(f (BVType w)) -> App ext f (FloatType fi)
+  FloatFromReal :: (FloatInfoRepr fi) -> !(f RealValType) -> App ext f (FloatType fi)
+  FloatToBV :: (1 <= w) => !(NatRepr w) -> !(f (FloatType fi)) -> App ext f (BVType w)
+  FloatToSBV :: (1 <= w) => !(NatRepr w) -> !(f (FloatType fi)) -> App ext f (BVType w)
+  FloatToReal :: !(f (FloatType fi)) -> App ext f RealValType
+
+  -- Classification operations
+  FloatIsNaN :: !(f (FloatType fi)) -> App ext f BoolType
+  FloatIsInfinite :: !(f (FloatType fi)) -> App ext f BoolType
+  FloatIsZero :: !(f (FloatType fi)) -> App ext f BoolType
+  FloatIsPositive :: !(f (FloatType fi)) -> App ext f BoolType
+  FloatIsNegative :: !(f (FloatType fi)) -> App ext f BoolType
 
   ----------------------------------------------------------------------
   -- Maybe
@@ -371,11 +406,28 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- @IntegerToReal@ convert an integer to a real.
   IntegerToReal :: !(f IntegerType) -> App ext f RealValType
 
+  -- @RealRound@ rounds the real number value toward the nearest integer.
+  -- Ties are rounded away from 0.
+  RealRound :: !(f RealValType) -> App ext f IntegerType
+
+  -- @RealRound@ computes the largest integer less-or-equal to the given real number.
+  RealFloor :: !(f RealValType) -> App ext f IntegerType
+
+  -- @RealCeil@ computes the smallest integer greater-or-equal to the given real number.
+  RealCeil :: !(f RealValType) -> App ext f IntegerType
+
+  -- @IntegerToBV@ converts an integer value to an unsigned bitvector.  The result is undefined
+  -- if the input value is not in the range @0 .. 2^w - 1@
+  IntegerToBV :: (1 <= w) => NatRepr w -> !(f IntegerType) -> App ext f (BVType w)
+
+  -- @IntegerToSBV@ converts an integer value to a signed bitvector.  The result is undefined
+  -- if the input value is not in the range @-2^(w - 1) .. 2^(w-1) - 1@
+  IntegerToSBV :: (1 <= w) => NatRepr w -> !(f IntegerType) -> App ext f (BVType w)
+
   -- @RealToNat@ convert a non-negative real integer to natural number.
   -- This is partial, and requires that the input be a non-negative real
   -- integer.
-  RealToNat :: !(f RealValType)
-            -> App ext f NatType
+  RealToNat :: !(f RealValType) -> App ext f NatType
 
   ----------------------------------------------------------------------
   -- ComplexReal
@@ -747,9 +799,6 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     PackAny{} -> knownRepr
     UnpackAny tp _ -> MaybeRepr tp
     ----------------------------------------------------------------------
-    -- Concrete
-    ConcreteLit (TypeableValue _) -> ConcreteRepr TypeableType
-    ----------------------------------------------------------------------
     -- Bool
     BoolLit{} -> knownRepr
     Not{} -> knownRepr
@@ -782,6 +831,37 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     RealMod{} -> knownRepr
     RealLt{} -> knownRepr
     RealIsInteger{} -> knownRepr
+
+    ----------------------------------------------------------------------
+    -- Float
+    FloatLit{} -> knownRepr
+    DoubleLit{} -> knownRepr
+    FloatNaN fi -> FloatRepr fi
+    FloatPInf fi -> FloatRepr fi
+    FloatNInf fi -> FloatRepr fi
+    FloatAdd fi _ _ -> FloatRepr fi
+    FloatSub fi _ _ -> FloatRepr fi
+    FloatMul fi _ _ -> FloatRepr fi
+    FloatDiv fi _ _ -> FloatRepr fi
+    FloatRem fi _ _ -> FloatRepr fi
+    FloatEq{} -> knownRepr
+    FloatLt{} -> knownRepr
+    FloatLe{} -> knownRepr
+    FloatGt{} -> knownRepr
+    FloatGe{} -> knownRepr
+    FloatNe{} -> knownRepr
+    FloatCast fi _ -> FloatRepr fi
+    FloatFromBV fi _ -> FloatRepr fi
+    FloatFromSBV fi _ -> FloatRepr fi
+    FloatFromReal fi _ -> FloatRepr fi
+    FloatToBV w _ -> BVRepr w
+    FloatToSBV w _ -> BVRepr w
+    FloatToReal{} -> knownRepr
+    FloatIsNaN{} -> knownRepr
+    FloatIsInfinite{} -> knownRepr
+    FloatIsZero{} -> knownRepr
+    FloatIsPositive{} -> knownRepr
+    FloatIsNegative{} -> knownRepr
 
     ----------------------------------------------------------------------
     -- Maybe
@@ -836,6 +916,11 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     NatToInteger{} -> knownRepr
     IntegerToReal{} -> knownRepr
     RealToNat{} -> knownRepr
+    RealRound{} -> knownRepr
+    RealFloor{} -> knownRepr
+    RealCeil{} -> knownRepr
+    IntegerToBV w _ -> BVRepr w
+    IntegerToSBV w _ -> BVRepr w
 
     ----------------------------------------------------------------------
     -- ComplexReal
@@ -1029,7 +1114,7 @@ instance TestEqualityFC (ExprExtension ext) => TestEqualityFC (App ext) where
                    , (U.ConType [t|SymbolRepr |]    `U.TypeApp` U.AnyType, [|testEquality|])
                    , (U.ConType [t|TypeRepr|]       `U.TypeApp` U.AnyType, [|testEquality|])
                    , (U.ConType [t|BaseTypeRepr|]  `U.TypeApp` U.AnyType, [|testEquality|])
-                   , (U.ConType [t|TypeableValue|]  `U.TypeApp` U.AnyType, [|testEquality|])
+                   , (U.ConType [t|FloatInfoRepr|]  `U.TypeApp` U.AnyType, [|testEquality|])
                    , (U.ConType [t|Ctx.Assignment|] `U.TypeApp`
                          (U.ConType [t|BaseTerm|] `U.TypeApp` U.AnyType) `U.TypeApp` U.AnyType
                      , [| testEqualityFC (testEqualityFC testSubterm) |]
@@ -1061,7 +1146,7 @@ instance OrdFC (ExprExtension ext) => OrdFC (App ext) where
                    , (U.ConType [t|SymbolRepr |] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|BaseTypeRepr|] `U.TypeApp` U.AnyType, [|compareF|])
-                   , (U.ConType [t|TypeableValue|] `U.TypeApp` U.AnyType, [|compareF|])
+                   , (U.ConType [t|FloatInfoRepr|] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|Ctx.Assignment|] `U.TypeApp`
                          (U.ConType [t|BaseTerm|] `U.TypeApp` U.AnyType) `U.TypeApp` U.AnyType
                      , [| compareFC (compareFC compareSubterm) |]

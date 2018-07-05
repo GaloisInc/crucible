@@ -60,20 +60,25 @@ import           GHC.TypeLits
 
 import qualified Data.Parameterized.Context as Ctx
 
+import           What4.FunctionName
+import           What4.Interface
+import           What4.Partial
+import           What4.WordMap
+
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.FunctionName
 import           Lang.Crucible.Simulator.Intrinsics
-import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Solver.Partial
+import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Types
+import           Lang.Crucible.Utils.MuxTree
+import           Lang.Crucible.Backend
 
 type MuxFn p v = p -> v -> v -> IO v
 
 -- | Maps register types to the associated value.
 type family RegValue (sym :: *) (tp :: CrucibleType) :: * where
   RegValue sym (BaseToType bt) = SymExpr sym bt
+  RegValue sym (FloatType _) = SymExpr sym BaseRealType
   RegValue sym AnyType = AnyValue sym
-  RegValue sym (ConcreteType a) = a
   RegValue sym UnitType = ()
   RegValue sym CharType = Word16
   RegValue sym (FunctionHandleType a r) = FnVal sym a r
@@ -81,7 +86,7 @@ type family RegValue (sym :: *) (tp :: CrucibleType) :: * where
   RegValue sym (VectorType tp) = V.Vector (RegValue sym tp)
   RegValue sym (StructType ctx) = Ctx.Assignment (RegValue' sym) ctx
   RegValue sym (VariantType ctx) = Ctx.Assignment (VariantBranch sym) ctx
-  RegValue sym (ReferenceType a) = RefCell a
+  RegValue sym (ReferenceType a) = MuxTree sym (RefCell a)
   RegValue sym (WordMapType w tp) = WordMap sym w tp
   RegValue sym (RecursiveType nm ctx) = RolledType sym nm ctx
   RegValue sym (IntrinsicType nm ctx) = Intrinsic sym nm ctx
@@ -134,12 +139,13 @@ class CanMux sym (tp :: CrucibleType) where
 -- | Merge function that checks if two values are equal, and
 -- fails if they are not.
 {-# INLINE eqMergeFn #-}
-eqMergeFn :: Eq v => String -> MuxFn p v
-eqMergeFn nm = \_ x y ->
+eqMergeFn :: (IsSymInterface sym, Eq v) => sym -> String -> MuxFn p v
+eqMergeFn sym nm = \_ x y ->
   if x == y then
     return x
   else
-    fail $ "Cannot merge dissimilar " ++ nm ++ "."
+    addFailedAssertion sym
+      $ Unsupported $ "Cannot merge dissimilar " ++ nm ++ "."
 
 ------------------------------------------------------------------------
 -- RegValue AnyType instance
@@ -172,6 +178,10 @@ instance IsExprBuilder sym => CanMux sym RealValType where
   {-# INLINE muxReg #-}
   muxReg s = \_ -> realIte s
 
+instance IsExprBuilder sym => CanMux sym (FloatType fi) where
+  {-# INLINE muxReg #-}
+  muxReg s = \_ -> realIte s
+
 instance IsExprBuilder sym => CanMux sym ComplexRealType where
   {-# INLINE muxReg #-}
   muxReg s = \_ -> cplxIte s
@@ -184,15 +194,17 @@ instance IsExprBuilder sym => CanMux sym StringType where
 -- RegValue Vector instance
 
 {-# INLINE muxVector #-}
-muxVector :: MuxFn p e
-          -> MuxFn p (V.Vector e)
-muxVector f p x y
+muxVector :: IsSymInterface sym =>
+             sym -> MuxFn p e -> MuxFn p (V.Vector e)
+muxVector sym f p x y
   | V.length x == V.length y = V.zipWithM (f p) x y
-  | otherwise = fail "Cannot merge vectors with different dimensions."
+  | otherwise =
+    addFailedAssertion sym
+      $ Unsupported "Cannot merge vectors with different dimensions."
 
-instance CanMux sym tp => CanMux sym (VectorType tp) where
+instance (IsSymInterface sym, CanMux sym tp) => CanMux sym (VectorType tp) where
   {-# INLINE muxReg #-}
-  muxReg s _ = muxVector (muxReg s (Proxy :: Proxy tp))
+  muxReg s _ = muxVector s (muxReg s (Proxy :: Proxy tp))
 
 ------------------------------------------------------------------------
 -- RegValue WordMap instance
@@ -205,9 +217,9 @@ instance (IsExprBuilder sym, KnownNat w, KnownRepr BaseTypeRepr tp)
 ------------------------------------------------------------------------
 -- RegValue MatlabChar instance
 
-instance CanMux sym CharType where
+instance IsSymInterface sym => CanMux sym CharType where
   {-# INLINE muxReg #-}
-  muxReg _ = \_ -> eqMergeFn "characters"
+  muxReg s = \_ -> eqMergeFn s "characters"
 
 ------------------------------------------------------------------------
 -- RegValue Maybe instance
@@ -219,7 +231,7 @@ mergePartExpr :: IsExprBuilder sym
               -> PartExpr (Pred sym) v
               -> PartExpr (Pred sym) v
               -> IO (PartExpr (Pred sym) v)
-mergePartExpr sym fn c = mergePartial sym (\a b -> lift (fn c a b)) c
+mergePartExpr sym fn c = mergePartial sym (\c' a b -> lift (fn c' a b)) c
 
 instance (IsExprBuilder sym, CanMux sym tp) => CanMux sym (MaybeType tp) where
   {-# INLINE muxReg #-}

@@ -1,5 +1,5 @@
 Name:          crucible
-Version:       0.3.2
+Version:       0.4
 Author:        Galois Inc.
 Maintainer:    jhendrix@galois.com, rdockins@galois.com
 Copyright:     (c) Galois, Inc 2014-2018
@@ -29,30 +29,24 @@ library
   build-depends:
     base >= 4.8 && < 4.12,
     ansi-wl-pprint,
-    attoparsec,
-    bimap >= 0.2,
     bytestring,
-    containers >= 0.5.0.0,
-    deepseq,
-    directory,
+    containers >= 0.5.9.0,
     fgl,
     filepath,
     hashable,
     hashtables,
-    io-streams,
     lens,
     mtl,
     parameterized-utils >= 1.0 && < 1.1,
     process,
-    scientific,
-    temporary >= 1.2,
     template-haskell,
     text,
     th-abstraction >=0.1 && <0.3,
     transformers,
-    utf8-string,
     vector,
-    ghc-prim
+    ghc-prim,
+    what4 >= 0.4,
+    panic >= 0.3
 
   default-language: Haskell2010
   default-extensions:
@@ -67,7 +61,10 @@ library
     Lang.Crucible.Analysis.Fixpoint.Components
     Lang.Crucible.Analysis.Postdom
     Lang.Crucible.Analysis.Reachable
-    Lang.Crucible.BaseTypes
+    Lang.Crucible.Backend
+    Lang.Crucible.Backend.AssumptionStack
+    Lang.Crucible.Backend.Online
+    Lang.Crucible.Backend.Simple
     Lang.Crucible.CFG.Common
     Lang.Crucible.CFG.Core
     Lang.Crucible.CFG.Expr
@@ -76,11 +73,7 @@ library
     Lang.Crucible.CFG.Generator
     Lang.Crucible.CFG.Reg
     Lang.Crucible.CFG.SSAConversion
-    Lang.Crucible.Config
     Lang.Crucible.FunctionHandle
-    Lang.Crucible.FunctionName
-    Lang.Crucible.MATLAB.Intrinsics.Solver
-    Lang.Crucible.ProgramLoc
     Lang.Crucible.Simulator.CallFns
     Lang.Crucible.Simulator.CallFrame
     Lang.Crucible.Simulator.Evaluation
@@ -92,60 +85,17 @@ library
     Lang.Crucible.Simulator.RegMap
     Lang.Crucible.Simulator.RegValue
     Lang.Crucible.Simulator.SimError
-    Lang.Crucible.Simulator.Utils.Environment
-    Lang.Crucible.Solver.Adapter
-    Lang.Crucible.Solver.AssumptionStack
-    Lang.Crucible.Solver.BoolInterface
-    Lang.Crucible.Solver.Concrete
-    Lang.Crucible.Solver.Interface
-    Lang.Crucible.Solver.OnlineBackend
-    Lang.Crucible.Solver.Partial
-    Lang.Crucible.Solver.ProcessUtils
-    Lang.Crucible.Solver.SatResult
-    Lang.Crucible.Solver.SimpleBackend
-    Lang.Crucible.Solver.SimpleBackend.AppTheory
-    Lang.Crucible.Solver.SimpleBackend.Boolector
-    Lang.Crucible.Solver.SimpleBackend.CVC4
-    Lang.Crucible.Solver.SimpleBackend.DReal
-    Lang.Crucible.Solver.SimpleBackend.GroundEval
-    Lang.Crucible.Solver.SimpleBackend.ProblemFeatures
-    Lang.Crucible.Solver.SimpleBackend.ReadDecimal
-    Lang.Crucible.Solver.SimpleBackend.Simplify
-    Lang.Crucible.Solver.SimpleBackend.SMTLib2
-    Lang.Crucible.Solver.SimpleBackend.SMTWriter
-    Lang.Crucible.Solver.SimpleBackend.STP
-    Lang.Crucible.Solver.SimpleBackend.VarIdentification
-    Lang.Crucible.Solver.SimpleBackend.Yices
-    Lang.Crucible.Solver.SimpleBackend.Z3
-    Lang.Crucible.Solver.SimpleBuilder
-    Lang.Crucible.Solver.Symbol
-    Lang.Crucible.Solver.Utils.PolyRoot
-    Lang.Crucible.Solver.WeightedSum
     Lang.Crucible.Syntax
     Lang.Crucible.Types
     Lang.Crucible.Vector
-    Lang.Crucible.Utils.AbstractDomains
-    Lang.Crucible.Utils.Arithmetic
+    Lang.Crucible.Panic
     Lang.Crucible.Utils.BitSet
-    Lang.Crucible.Utils.BVDomain
-    Lang.Crucible.Utils.BVDomain.Empty
-    Lang.Crucible.Utils.BVDomain.Map
-    Lang.Crucible.Utils.Complex
     Lang.Crucible.Utils.CoreRewrite
-    Lang.Crucible.Utils.Endian
-    Lang.Crucible.Utils.Hashable
-    Lang.Crucible.Utils.LeqMap
-    Lang.Crucible.Utils.MonadST
     Lang.Crucible.Utils.MonadVerbosity
-    Lang.Crucible.Utils.OnlyNatRepr
+    Lang.Crucible.Utils.MuxTree
     Lang.Crucible.Utils.PrettyPrint
-    Lang.Crucible.Utils.SExp
     Lang.Crucible.Utils.StateContT
-    Lang.Crucible.Utils.Streams
     Lang.Crucible.Utils.Structural
-    Lang.Crucible.Utils.UnaryBV
-
-
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
@@ -167,6 +117,7 @@ test-suite absint-tests
                  containers,
                  mtl,
                  crucible,
+                 what4,
                  parameterized-utils,
                  tasty >= 0.10,
                  tasty-hunit >= 0.9,

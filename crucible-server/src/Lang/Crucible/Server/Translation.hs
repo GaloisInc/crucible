@@ -43,14 +43,15 @@ import Data.HPB
 import Data.Parameterized.Some
 import Data.Parameterized.TraversableFC
 
+import           What4.ProgramLoc
+
+import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
 import qualified Lang.Crucible.CFG.Reg as R
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Types
-import           Lang.Crucible.ProgramLoc
 import qualified Lang.Crucible.Proto as P
-import           Lang.Crucible.Solver.BoolInterface
 import           Lang.Crucible.Server.ValueConv
 import           Lang.Crucible.Server.Encoding
 import           Lang.Crucible.Server.Simulator

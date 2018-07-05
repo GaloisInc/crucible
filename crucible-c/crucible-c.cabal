@@ -27,17 +27,21 @@ executable crucible-c
     Model,
     Clang,
     Log,
-    Options
+    Options,
+    ProgressBar,
+    Report
 
 
   build-depends:
     base >= 4.8 && < 4.12,
+    ansi-wl-pprint,
     containers,
     lens,
     mtl,
     bytestring,
     crucible,
     crucible-llvm,
+    what4,
     llvm-pretty,
     llvm-pretty-bc-parser,
     parameterized-utils,
