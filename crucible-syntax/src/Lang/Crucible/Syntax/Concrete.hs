@@ -35,6 +35,9 @@ import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import qualified Data.Text as T
 
+import What4.ProgramLoc
+import What4.FunctionName
+import What4.Utils.MonadST
 
 import Lang.Crucible.Syntax.SExpr
 import Lang.Crucible.Syntax.Atoms
@@ -43,10 +46,8 @@ import Lang.Crucible.CFG.Reg
 import Lang.Crucible.CFG.Expr
 import Lang.Crucible.CFG.Generator (Generator)
 import qualified Lang.Crucible.CFG.Generator as Gen
-import Lang.Crucible.ProgramLoc
-import Lang.Crucible.Utils.MonadST
+
 import Lang.Crucible.FunctionHandle
-import Lang.Crucible.FunctionName
 
 import Numeric.Natural ()
 
