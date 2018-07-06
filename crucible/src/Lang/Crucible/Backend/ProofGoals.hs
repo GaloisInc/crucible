@@ -32,6 +32,7 @@ data GoalCollector asmp goal = GoalCollector
 
   , gcCurAsmps  :: [asmp]
     -- ^ Assumptions for the child under construction.
+    -- These are *not* in scope for 'gcCurDone'.
 
   , gcIsPushFrame  :: Bool
     -- ^ Is this a frame that came from a "push" instruction.
@@ -39,7 +40,9 @@ data GoalCollector asmp goal = GoalCollector
     -- with this flag set to 'True'
 
   , gcContext :: Maybe (GoalCollector asmp goal)
-    -- ^ This the context for the current goal under construction.
+    -- ^ These are the goals and assumptions further up the tree from here.
+    -- The assumptions of the current path are `gcCurAsmps` together
+    -- with all the assumptions in `gcContext`.
   }
 
 -- | A collector with no goals and no context.
@@ -56,18 +59,25 @@ gcPush :: GoalCollector asmp goal -> GoalCollector asmp goal
 gcPush gc = GoalCollector { gcCurDone     = []
                           , gcCurAsmps    = []
                           , gcIsPushFrame = True
-                          , gcContext       = Just gc
+                          , gcContext     = Just gc
                           }
 
 -- | Add a new proof obligation to the current context.
 gcProve :: goal -> GoalCollector asmp goal -> GoalCollector asmp goal
 gcProve g gc =
   case gcCurAsmps gc of
+    {- If we don't have any new assumptions, then we don't need to push
+       a new assumptions frame: instead we can just add the proof oblidations
+       as a sibling. -}
     [] -> gc { gcCurDone = Prove g : gcCurDone gc }
+
+    {- If we do have assumptions, then we need to start a new frame,
+       as the current assumptions are the only ones that should be in
+       in scope for the new proof obligations. -}
     _  -> GoalCollector { gcCurDone     = [Prove g]
                         , gcCurAsmps    = []
                         , gcIsPushFrame = False
-                        , gcContext       = Just gc
+                        , gcContext     = Just gc
                         }
 
 -- | Add an extra assumptions to the current context.
@@ -80,6 +90,11 @@ gcPop :: GoalCollector asmp goal ->
           Either (GoalCollector asmp goal) (Goals asmp goal)
 gcPop = go Nothing
   where
+
+  {- The function `go` completes frames one at a time.  The "hole" is what
+     we should use to complete the current path.  If it is 'Nothing', then
+     there was nothing interesting on the current path, and we discard
+     assumptions that lead to here -}
   go hole gc =
     case gcContext gc of
 
@@ -91,20 +106,26 @@ gcPop = go Nothing
       -- More frames
       Just prev
         | gcIsPushFrame gc ->
+          -- This was a push frame, so we should stop right here.
           Left $ case newHole of
                    Nothing -> prev
                    Just p  -> prev { gcCurDone = p : gcCurDone prev }
 
+         -- Keep unwinding, using the newly constructed child.
         | otherwise -> go newHole prev
 
 
 
     where
+    -- Turn the new children into a new item to fill in the parent context.
     newHole  = case newChildren of
-                     []  -> Nothing
-                     [p] -> Just p
-                     ps  -> Just (ProveAll ps)
+                     []  -> Nothing             -- Nothing interesting
+                     [p] -> Just p              -- Only one path
+                     ps  -> Just (ProveAll ps)  -- Inseart a branch point
 
+    {- The new children consist of the already complete children, 'gcCurDone',
+       and potentially a new child, if the current path was filled with
+       something interesting. -}
     newChildren =
           case hole of
             Nothing -> gcCurDone gc
