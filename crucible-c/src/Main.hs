@@ -136,7 +136,7 @@ simulate ::
   (forall sym arch.
       ArchOk arch => ModuleCFGMap arch -> OverM sym arch ()
   ) ->
-  IO [ ([AssumptionReason], SimError, ProofResult) ]
+  IO ProvedGoals
 simulate opts k =
   do llvm_mod   <- parseLLVM (optsBCFile opts)
      halloc     <- newHandleAllocator
@@ -170,11 +170,10 @@ simulate opts k =
 
           say "Crux" "Simulation complete."
 
-          gs <- proofGoalsToList <$> getProofObligations sym
-          let n = length gs
-              suff m = if m == 1 then "" else "s"
+          provedGoalsTree ctx' =<< proveGoals ctx' =<< getProofObligations sym
+{-
           say "Crux"
-                ("Proving " ++ show n ++ " side condition" ++ suff n ++ ".")
+              ("Proving " ++ show n ++ " side condition" ++ suff n ++ ".")
           xs <- withProgressBar' "Proving: " gs $ \g ->
                 do result <- proveGoal ctx' g
                    case result of
@@ -190,13 +189,18 @@ simulate opts k =
                                   " side condition" ++ suff bad ++ "."
             else sayOK "Crux" "Proved all side conditions."
           return (catMaybes xs)
+-}
 
+{-
    where toRes result g =
            ( map (^. labeledPredMsg)
                  (Fold.toList (proofAssumptions g))
            , proofGoal g ^. labeledPredMsg
            , result
            )
+
+           suff m = if m == 1 then "" else "s"
+-}
 
 
 checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM sym arch ()

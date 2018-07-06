@@ -4,23 +4,33 @@ import System.IO
 import System.Console.ANSI
 import Control.Monad(zipWithM)
 
+
+prepStatus :: String -> Int -> (Integer -> IO (), IO ())
+prepStatus pref tot = (start,end)
+  where
+  start n = do putStr (msg n)
+               hFlush stdout
+  end     = cursorBackward msgLen
+
+  totS  = show tot
+  totW  = length totS
+  sh x  = let y = show x
+          in replicate (totW - length y) ' ' ++ y
+
+  msgLen = length (msg 0)
+
+  msg n = pref ++ sh (n::Integer) ++ " / " ++ totS
+
+
+
 withProgressBar' :: String -> [a] -> (a -> IO b) -> IO [b]
 withProgressBar' pref xs f = zipWithM one [ 1 .. ] xs
   where
-  tot  = show (length xs)
-  totW = length tot
-  sh x = let y = show x
-         in replicate (totW - length y) ' ' ++ y
+  (start,end) = prepStatus pref (length xs)
 
-  msgLen = length (msg 0)
-  clear  = cursorBackward msgLen
-
-  msg n = pref ++ sh (n::Integer) ++ " / " ++ tot
-
-  one n a = do putStr (msg n)
-               hFlush stdout
+  one n a = do start n
                b <- f a
-               clear
+               end
                return b
 
 
