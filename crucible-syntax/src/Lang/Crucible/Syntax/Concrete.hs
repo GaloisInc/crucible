@@ -326,21 +326,6 @@ synthExpr (L [A (Kw Mod), e1, e2]) =
 synthExpr (L [A (Kw Integerp), e]) =
   do E e' <- checkExpr RealValRepr e
      return $ SomeExpr BoolRepr (E (App (RealIsInteger e')))
-synthExpr e@(L [A (Kw Plus), a, b]) =
-      (SomeExpr NatRepr <$> checkNumeric NatRepr NatRepr e a b NatAdd)
-  <|> (SomeExpr IntegerRepr <$> checkNumeric IntegerRepr IntegerRepr e a b IntAdd)
-  <|> (SomeExpr RealValRepr <$> checkNumeric RealValRepr RealValRepr e a b RealAdd)
-
-synthExpr e@(L [A (Kw Minus), a, b]) =
-      (SomeExpr NatRepr <$> checkNumeric NatRepr NatRepr e a b NatSub)
-  <|> (SomeExpr IntegerRepr <$> checkNumeric IntegerRepr IntegerRepr e a b IntSub)
-  <|> (SomeExpr RealValRepr <$> checkNumeric RealValRepr RealValRepr e a b RealSub)
-
-synthExpr e@(L [A (Kw Times), a, b]) =
-      (SomeExpr NatRepr <$> checkNumeric NatRepr NatRepr e a b NatMul)
-  <|> (SomeExpr IntegerRepr <$> checkNumeric IntegerRepr IntegerRepr e a b IntMul)
-  <|> (SomeExpr RealValRepr <$> checkNumeric RealValRepr RealValRepr e a b RealMul)
-
 synthExpr e@(L [A (Kw Lt), a, b]) =
   SomeExpr BoolRepr <$>
   synthComparison
