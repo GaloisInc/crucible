@@ -672,8 +672,9 @@ saveArgs ctx1 ctx2 =
        \(Const (Pair t (Functor.Pair (Const x) (Functor.Pair (Const argPos) y)))) ->
          with (stxAtoms . at x) $ \case
            Just _ -> throwError $ DuplicateAtom argPos x
-           Nothing -> stxAtoms %= Map.insert x (Pair t y)
-
+           Nothing ->
+             do stxAtoms %= Map.insert x (Pair t y)
+                stxNextAtom %= max (atomId y + 1)
 
 functionHeader :: AST s -> TopParser h s (FunctionName, Some (Ctx.Assignment Arg), Some TypeRepr, [AST s])
 functionHeader (L (A (Kw Defun) : name : arglist : ret : body)) =
