@@ -29,6 +29,7 @@ module Lang.Crucible.Backend
   , Assertion
   , Assumption
   , ProofObligation
+  , ProofObligations
   , AssumptionState
   , assert
 
