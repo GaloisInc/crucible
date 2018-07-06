@@ -188,9 +188,10 @@ cloneAssumptionStack ::
   AssumptionStack pred assumeMsg assertMsg ->
   IO (AssumptionStack pred assumeMsg assertMsg)
 cloneAssumptionStack stk =
-  do frm'  <- newIORef =<< cloneFrame =<< readIORef (currentFrame stk)
-     frms' <- newIORef =<< traverse cloneFrame =<< readIORef (frameStack stk)
-     obls' <- newIORef emptyGoalCollector
+  do frm'    <- newIORef =<< cloneFrame =<< readIORef (currentFrame stk)
+     frms'   <- newIORef =<< traverse cloneFrame =<< readIORef (frameStack stk)
+     oldObls <- readIORef (proofObligations stk)
+     obls'   <- newIORef $! gcRemoveObligations oldObls
      return AssumptionStack
             { assumeStackGen = assumeStackGen stk
             , currentFrame = frm'
