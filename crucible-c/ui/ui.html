@@ -65,6 +65,8 @@ function drawGoals() {
                    , $('<span/>').text(g.goal)
                    )
     li.click(function() {
+      $('.selected').removeClass('selected')
+      li.addClass('selected')
       $('.ctr-example').remove()
       $('.asmp-lab').remove()
       $('.line').removeClass('highlight-proved')
@@ -144,7 +146,9 @@ body { height: 100%; padding: 0; margin: 0; }
 .ctr-example {
   border: 1px solid black;
   margin: 5px;
-  background-color: #eee;
+  background-color: #ff0000;
+  color: white;
+  font-weight: bold;
   padding-left: 2px;
   padding-right: 2px;
   border-radius: 5px;
@@ -159,6 +163,10 @@ body { height: 100%; padding: 0; margin: 0; }
   padding-right: 2px;
   border-radius: 5px;
   font-size: smaller;
+}
+
+.selected {
+  background-color: #ccf;
 }
 
 </style>
