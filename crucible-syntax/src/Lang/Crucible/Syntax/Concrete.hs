@@ -19,9 +19,9 @@ import Control.Monad.Writer.Class ()
 
 import Lang.Crucible.Types
 
-import Data.Functor
+--import Data.Functor
 import qualified Data.Functor.Product as Functor
-import Data.Ratio
+--import Data.Ratio
 import Data.Parameterized.Some(Some(..))
 import Data.Parameterized.Pair (Pair(..))
 import Data.Parameterized.Map (MapF)
@@ -30,7 +30,7 @@ import qualified Data.Parameterized.Map as MapF
 import qualified Data.Parameterized.Context as Ctx
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Sequence (Seq)
+--import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -44,8 +44,8 @@ import Lang.Crucible.Syntax.Atoms
 
 import Lang.Crucible.CFG.Reg
 import Lang.Crucible.CFG.Expr
-import Lang.Crucible.CFG.Generator (Generator)
-import qualified Lang.Crucible.CFG.Generator as Gen
+--import Lang.Crucible.CFG.Generator (Generator)
+--import qualified Lang.Crucible.CFG.Generator as Gen
 
 import Lang.Crucible.FunctionHandle
 
@@ -138,7 +138,7 @@ errPos (Errs e1 e2) = best (errPos e1) (errPos e2)
         best _ p@(BinaryPos _ _) = p
         best p@(OtherPos _) _ = p
         best _ p@(OtherPos _) = p
-        best a b = a
+        best a _b = a
 errPos (TooSmall p _) = p
 errPos (UnknownAtom p _) = p
 errPos (UnknownBlockLabel p _) = p
@@ -296,7 +296,6 @@ synthExpr (L []) =
 synthExpr (L [A (Kw Pack), arg]) =
   do SomeExpr ty (E e) <- synthExpr arg
      return $ SomeExpr AnyRepr (E (App (PackAny ty e)))
-  -- TODO case for ConcreteLit
 synthExpr (A (Bool b)) =
   return $ SomeExpr BoolRepr (E (App (BoolLit b)))
 synthExpr (L [A (Kw Not_), arg]) =
@@ -327,6 +326,21 @@ synthExpr (L [A (Kw Mod), e1, e2]) =
 synthExpr (L [A (Kw Integerp), e]) =
   do E e' <- checkExpr RealValRepr e
      return $ SomeExpr BoolRepr (E (App (RealIsInteger e')))
+synthExpr e@(L [A (Kw Plus), a, b]) =
+      (SomeExpr NatRepr <$> checkNumeric NatRepr NatRepr e a b NatAdd)
+  <|> (SomeExpr IntegerRepr <$> checkNumeric IntegerRepr IntegerRepr e a b IntAdd)
+  <|> (SomeExpr RealValRepr <$> checkNumeric RealValRepr RealValRepr e a b RealAdd)
+
+synthExpr e@(L [A (Kw Minus), a, b]) =
+      (SomeExpr NatRepr <$> checkNumeric NatRepr NatRepr e a b NatSub)
+  <|> (SomeExpr IntegerRepr <$> checkNumeric IntegerRepr IntegerRepr e a b IntSub)
+  <|> (SomeExpr RealValRepr <$> checkNumeric RealValRepr RealValRepr e a b RealSub)
+
+synthExpr e@(L [A (Kw Times), a, b]) =
+      (SomeExpr NatRepr <$> checkNumeric NatRepr NatRepr e a b NatMul)
+  <|> (SomeExpr IntegerRepr <$> checkNumeric IntegerRepr IntegerRepr e a b IntMul)
+  <|> (SomeExpr RealValRepr <$> checkNumeric RealValRepr RealValRepr e a b RealMul)
+
 synthExpr e@(L [A (Kw Lt), a, b]) =
   SomeExpr BoolRepr <$>
   synthComparison
@@ -485,12 +499,12 @@ labelNoArgs :: AST s -> CFGParser h s ret (Label s)
 labelNoArgs ast =
   label ast >>= \case
     NoArgLbl l -> return l
-    ArgLbl t l -> throwError $ CantJumpToLambda (syntaxPos ast) ast
+    ArgLbl _t _l -> throwError $ CantJumpToLambda (syntaxPos ast) ast
 
 labelArgs :: AST s -> CFGParser h s ret (Pair TypeRepr (LambdaLabel s))
 labelArgs ast =
   label ast >>= \case
-    NoArgLbl l -> throwError $ CantThrowToNonLambda (syntaxPos ast) ast
+    NoArgLbl _l -> throwError $ CantThrowToNonLambda (syntaxPos ast) ast
     ArgLbl t l -> return (Pair t l)
 
 
@@ -521,12 +535,16 @@ normStmt stmt@(L [A (Kw Print_), e]) =
   do (E e') <- lift $ checkExpr StringRepr e
      at <- eval e e'
      tell [withPosFrom stmt $ Print at]
+normStmt stmt@(L [A (Kw Let), A (At an), e]) =
+  do SomeExpr tp (E e') <- lift $ synthExpr e
+     atom <- eval stmt e'
+     stxAtoms %= Map.insert an (Pair tp atom)
 
 normStmt other = throwError $ BadStatement (syntaxPos other) other
 
 blockBody :: forall s h ret . Position -> [AST s] -> CFGParser h s ret ([Posd (Stmt () s)], Posd (TermStmt s ret))
 blockBody p [] = throwError $ EmptyBlock p
-blockBody p (stmt:stmts) = helper (fmap snd . runWriterT . traverse normStmt) stmt stmts
+blockBody _p (stmt:stmts) = helper (fmap snd . runWriterT . traverse normStmt) stmt stmts
   where helper ss s [] =
           do stmts <- ss []
              t <- termStmt s

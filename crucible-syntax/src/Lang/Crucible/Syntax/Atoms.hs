@@ -38,12 +38,14 @@ data Keyword = Defun | DefBlock
              | Lt
              | Jump_ | Return_ | Branch_ | MaybeBranch_ | TailCall_ | Error_ | Output_
              | Print_
+             | Let
   deriving (Eq, Ord)
 
 keywords :: [(Text, Keyword)]
 keywords =
   [ ("defun" , Defun)
   , ("defblock" , DefBlock)
+  , ("let", Let)
   , ("start" , Start)
   , ("unpack" , Unpack)
   , ("+" , Plus)
