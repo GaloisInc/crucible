@@ -28,7 +28,7 @@ data Keyword = Defun | DefBlock
              | Plus | Minus | Times | Div
              | Just_ | Nothing_ | FromJust
              | AnyT | UnitT | BoolT | NatT | IntegerT | RealT | ComplexRealT | CharT | StringT
-             | BitVectorT
+             | BitVectorT | VectorT
              | The
              | Equalp | Integerp
              | If
@@ -36,6 +36,8 @@ data Keyword = Defun | DefBlock
              | Not_ | And_ | Or_ | Xor_
              | Mod
              | Lt
+             | VectorLit_ | VectorReplicate_ | VectorIsEmpty_ | VectorSize_
+             | VectorGetEntry_ | VectorSetEntry_ | VectorCons_
              | Jump_ | Return_ | Branch_ | MaybeBranch_ | TailCall_ | Error_ | Output_
              | Print_
              | Let
@@ -69,6 +71,14 @@ keywords =
   , ("Char" , CharT)
   , ("String" , StringT)
   , ("BitVector" , BitVectorT)
+  , ("Vector", VectorT)
+  , ("vector", VectorLit_)
+  , ("vector-replicate", VectorReplicate_)
+  , ("vector-empty?", VectorIsEmpty_)
+  , ("vector-size", VectorSize_)
+  , ("vector-get", VectorGetEntry_)
+  , ("vector-set", VectorSetEntry_)
+  , ("vector-cons", VectorCons_)
   , ("if" , If)
   , ("pack" , Pack)
   , ("not" , Not_)

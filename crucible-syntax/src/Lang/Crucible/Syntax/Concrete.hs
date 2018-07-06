@@ -34,6 +34,7 @@ import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Vector as V
 
 import What4.ProgramLoc
 import What4.FunctionName
@@ -74,7 +75,7 @@ printExpr = toText (PrintRules rules) printAtom
         rules _ = Nothing
 
 
-newtype E s t = E (Expr () s t)
+newtype E s t = E { unE :: Expr () s t }
   deriving Show
 
 
@@ -87,6 +88,7 @@ data ExprErr s where
   TypeError :: Position -> AST s -> TypeRepr expected -> TypeRepr found -> ExprErr s
   AnonTypeError :: Position -> TypeRepr expected -> TypeRepr found -> ExprErr s
   TypeMismatch :: Position -> AST s -> TypeRepr left -> AST s -> TypeRepr right -> ExprErr s
+  NotVector :: Position -> AST s -> TypeRepr tp -> ExprErr s
   BadSyntax :: Position -> AST s -> ExprErr s
   CantSynth :: Position -> AST s -> ExprErr s
   NotAType :: Position -> AST s -> ExprErr s
@@ -129,6 +131,7 @@ errPos (NotAType p _) = p
 errPos (NotANat p _) = p
 errPos (NotNumeric p _ _) = p
 errPos (NotComparison p _ _) = p
+errPos (NotVector p _ _) = p
 errPos (NotABaseType p _) = p
 errPos (TrivialErr p) = p
 errPos (Errs e1 e2) = best (errPos e1) (errPos e2)
@@ -252,6 +255,11 @@ isType t@(A (Kw x)) =
     CharT -> return $ Some CharRepr
     StringT -> return $ Some StringRepr
     _ -> throwError $ NotAType (syntaxPos t) t
+
+isType (L [A (Kw VectorT), a]) =
+  do Some t <- isType a
+     return $ Some (VectorRepr t)
+
 isType (L [A (Kw BitVectorT), n]) =
   case n of
     A (Int i) ->
@@ -262,6 +270,7 @@ isType (L [A (Kw BitVectorT), n]) =
             Nothing -> throwError $ TooSmall (syntaxPos n) len
             Just LeqProof -> return $ Some $ BVRepr len
     other -> throwError $ NotNumeric (syntaxPos other) other NatRepr
+
 -- TODO more types
 isType e = throwError $ NotAType (syntaxPos e) e
 
@@ -339,6 +348,65 @@ synthExpr e@(A (At x)) =
      case ats of
        Nothing -> throwError $ UnknownAtom (syntaxPos e) x
        Just (Pair t at) -> return $ SomeExpr t (E (AtomExpr at))
+
+synthExpr e@(L [A (Kw VectorLit_), tpe, L vs]) =
+  do Some tp <- isType tpe
+     vs' <- (V.fromList . map unE) <$> mapM (checkExpr tp) vs
+     return (SomeExpr (VectorRepr tp) (E (App (VectorLit tp vs'))))
+
+synthExpr e@(L [A (Kw VectorReplicate_), n, x]) =
+  do E n' <- checkExpr NatRepr n
+     SomeExpr tp (E x') <- synthExpr x
+     return (SomeExpr (VectorRepr tp) (E (App (VectorReplicate tp n' x'))))
+
+synthExpr e@(L [A (Kw VectorIsEmpty_), v]) =
+  do SomeExpr tp (E v') <- synthExpr v
+     case tp of
+       VectorRepr eltp ->
+         return (SomeExpr BoolRepr (E (App (VectorIsEmpty v'))))
+       _ -> throwError $ NotVector (syntaxPos v) v tp
+
+synthExpr e@(L [A (Kw VectorSize_), v]) =
+  do SomeExpr tp (E v') <- synthExpr v
+     case tp of
+       VectorRepr eltp ->
+         return (SomeExpr NatRepr (E (App (VectorSize v'))))
+       _ -> throwError $ NotVector (syntaxPos v) v tp
+
+synthExpr e@(L [A (Kw VectorGetEntry_), v, n]) =
+  do SomeExpr tp (E v') <- synthExpr v
+     E n' <- checkExpr NatRepr n
+     case tp of
+       VectorRepr eltp ->
+         return (SomeExpr eltp (E (App (VectorGetEntry eltp v' n'))))
+       _ -> throwError $ NotVector (syntaxPos v) v tp
+
+synthExpr e@(L [A (Kw VectorSetEntry_), v, n, x]) =
+ (do SomeExpr eltp (E x') <- synthExpr x
+     E v' <- checkExpr (VectorRepr eltp) v
+     E n' <- checkExpr NatRepr n
+     return (SomeExpr (VectorRepr eltp) (E (App (VectorSetEntry eltp v' n' x')))))
+ <|>
+ (do SomeExpr tp (E v') <- synthExpr v
+     E n' <- checkExpr NatRepr n
+     case tp of
+       VectorRepr eltp ->
+         do E x' <- checkExpr eltp x
+            return (SomeExpr (VectorRepr eltp) (E (App (VectorSetEntry eltp v' n' x'))))
+       _ -> throwError $ NotVector (syntaxPos v) v tp)
+
+synthExpr e@(L [A (Kw VectorCons_), h, v]) =
+  (do SomeExpr eltp (E h') <- synthExpr h
+      E v' <- checkExpr (VectorRepr eltp) v
+      return (SomeExpr (VectorRepr eltp) (E (App (VectorCons eltp h' v')))))
+  <|>
+  (do SomeExpr tp (E v') <- synthExpr v
+      case tp of
+        VectorRepr eltp ->
+          do E h' <- checkExpr eltp h
+             return (SomeExpr (VectorRepr eltp) (E (App (VectorCons eltp h' v'))))
+        _ -> throwError $ NotVector (syntaxPos v) v tp)
+
 synthExpr ast = throwError $ CantSynth (syntaxPos ast) ast
 
 
@@ -784,5 +852,3 @@ cfg defun =
 
      handle <- liftST $ mkHandle' ha name types ret
      ACFG types ret <$> (parseCFG handle (blocks (syntaxPos defun) body))
-
-
