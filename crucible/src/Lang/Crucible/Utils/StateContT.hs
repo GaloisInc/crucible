@@ -29,7 +29,7 @@ import Control.Monad.Reader.Class (MonadReader(..))
 import Control.Monad.State.Class  (MonadState(..))
 import Control.Monad.Trans (MonadTrans(..))
 
-import Lang.Crucible.Utils.MonadST
+import What4.Utils.MonadST
 
 -- | A monad transformer that provides @MonadCont@ and @MonadState@.
 newtype StateContT s r m a

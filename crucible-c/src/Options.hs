@@ -12,13 +12,10 @@ data Options = Options
   , outDir   :: FilePath
     -- ^ Store results in this directory
 
+  , optsBCFile :: FilePath
+    -- ^ Use this bit-code file.
+
   , inputFile :: FilePath
     -- ^ The file to analyze
   }
-
-optsBCFile :: Options -> FilePath
-optsBCFile opts =
-  case takeExtension (inputFile opts) of
-    ".bc" -> inputFile opts
-    _     -> outDir opts </> "input.bc"
 

@@ -161,7 +161,7 @@ instance (PP.PP id, PP.PP ex) => PP.PP (VerificationSetupStep id ex) where
   ppPrec _ (DeclareFreshVariable var) =
      PP.pp var PP.<+> PP.text ":=" PP.<+> PP.text "<fresh>"
   ppPrec _i (RegisterVal off var) =
-     PP.text "reg[" PP.<> PP.integer (fromIntegral off) PP.<> PP.text "] :=" PP.<+> PP.pp var
+     PP.text "reg[" PP.<.> PP.integer (fromIntegral off) PP.<.> PP.text "] :=" PP.<+> PP.pp var
   ppPrec _i (MemPointsTo base off var) =
      PP.pp base PP.<+> PP.text "+" PP.<+> PP.integer (fromIntegral off) PP.<+> PP.text "|->" PP.<+> PP.pp var
 
@@ -243,7 +243,7 @@ instance (PP.PP id, PP.PP ex) => PP.PP (VerificationHarness id ex) where
     PP.text "=== Poststate ==="
     PP.$$
     PP.pp (verificationPoststate harness)
-    PP.<>
+    PP.<.>
     case (verificationOutput harness) of
       Nothing -> PP.empty
       Just o  -> PP.empty PP.$$

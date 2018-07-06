@@ -24,10 +24,12 @@ import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Map as MapF
 import           Data.Set as S
 import           Debug.Trace
+
+import           What4.FunctionName
+import           What4.ProgramLoc
+
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.FunctionName
-import           Lang.Crucible.ProgramLoc
 
 -- | Given a CFG @cfg@, a set of blocks @cuts@ that take the return type as their sole
 -- argument, and a block @bi@ that takes the CFG's init type as its sole argument,

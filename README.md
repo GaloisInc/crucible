@@ -2,35 +2,50 @@ Introduction
 -------------
 
 Crucible is a language-agnostic library for performing forward
-symbolic execution of imperative programs.  It provides a collection of
-data-structures and APIs for expressing programs as control-flow
+symbolic execution of imperative programs.  It provides a collection
+of data-structures and APIs for expressing programs as control-flow
 graphs.  Programs expressed as CFGs in this way can be automatically
 explored by the symbolic execution engine.  In addition, new data
 types and operations can be added to the symbolic simulator by
-implementing fresh primitives directly in Haskell.  Crucible also
-provides connections to a variety of SAT and SMT solvers that can be
-used to perform verification and find counterexamples to logical
-conditions computed from program simulation.
+implementing fresh primitives directly in Haskell.  Crucible relies on
+an underlying library called What4 that provides formula
+representations, and connections to a variety of SAT and SMT solvers
+that can be used to perform verification and find counterexamples to
+logical conditions computed from program simulation.
 
-Crucible has been designed as a set of Haskell packages organized so that Crucible
-itself has a minimal number of external dependencies, and functionality
-independent of crucible can be separated into sub-libraries.
+Crucible has been designed as a set of Haskell packages organized so
+that Crucible itself has a minimal number of external dependencies,
+and functionality independent of crucible can be separated into sub-libraries.
 
-Currently, the repo consists of the following Haskell packages:
+Currently, the repository consists of the following Haskell packages:
 
- * **`crucible`** provides the core Crucible definitions, the
-   symbolic simulator, the `SimpleBackend` formula representation, interfaces
-   between `SimpleBackend` and SMT solvers, and an LLVM-to-Crucible translator.
- * **`crucible-abc`** provides functionality for generating
-   ABC networks from `SimpleBackend` expressions.
- * **`crucible-blt`** provides functionality for generating
-   BLT problems from `SimpleBackend` expressions.
+ * **`what4`** provides a library for formula representation and
+   communications with satisfiability and SMT solvers (e.g., Yices and Z3).
+ * **`what4-abc`** provides additional solver support for the ABC
+   circuit synthesis library, which has strong support for equality
+   and satisfiability queries involving boolean circuits.
+ * **`what4-blt`** provides additional solver support for the BLT
+   solver, which specializes in bounded integer linear problems.
+
+ * **`crucible`** provides the core Crucible definitions, including the
+   symbolic simulator and control-flow-graph program representations.
+ * **`crucible-llvm`** provides translation and runtime support for
+   executing LLVM assembly programs in the Crucible symbolic simulator.
+ * **`crucible-jvm`** provides translation and runtime support for
+   executing JVM bytecode programs in the Crucible symbolic simulator.
  * **`crucible-saw`** provides functionality for generating
    SAW Core terms from Crucible Control-Flow-Graphs.
- * **`galois-matlab`** provides a few data structures for working with
-   MATLAB values.
 
-In addition, there is the following library/executable package:
+In addition, there are the following library/executable packages:
+
+ * ** `crucible-c`**, a standalone frontend for executing C programs
+   in the crucible symbolic simulator.  The front-end invokes `clang`
+   to produce LLVM bitcode, and runs the resulting programs using
+   the `crucible-llvm` language frontend.  Programs interact directly
+   with the symbolic simulator using the protocol established for
+   the [SV-COMP][sv-comp] competition.
+
+[sv-comp]: https://sv-comp.sosy-lab.org
 
  * **`crucible-server`**, a standalone process that allows constructing
    and symbolically executing Crucible programs via [Protocol Buffers][pb].
@@ -51,7 +66,6 @@ directory for details).
 
 Quick start
 -------------
-
 
 Crucible is mainly intended to be used as a library for other
 downstream projects.  As such, the build system infrastructure in this
@@ -83,9 +97,11 @@ cabal new-configure
 cabal new-build all
 ```
 
-The build depends on having `hpb` in your path. After fetching the
-dependencies, this can be arranged by entering `dependencies/hpb/` and
-running the following commands:
+If you wish to build `crucible-server` (which will be built if you
+build all packages, as above), then the build depends on having `hpb`
+in your path. After fetching the dependencies, this can be arranged by
+entering `dependencies/hpb/` and running the following commands:
+
 ```
 cabal sandbox init
 cabal install --dependencies-only

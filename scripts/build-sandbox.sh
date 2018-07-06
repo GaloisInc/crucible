@@ -53,6 +53,7 @@ checkout () {
 PKG_LIST="GaloisInc/abcBridge GaloisInc/aig GaloisInc/blt \
           GaloisInc/saw-core GaloisInc/saw-core-aig GaloisInc/saw-core-sbv \
 	  GaloisInc/hpb elliottt/llvm-pretty \
+	  GaloisInc/jvm-parser \
 	  GaloisInc/cryptol GaloisInc/cryptol-verifier \
 	  elliottt/llvm-pretty \
           GaloisInc/llvm-pretty-bc-parser GaloisInc/parameterized-utils"

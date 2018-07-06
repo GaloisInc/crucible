@@ -26,12 +26,14 @@ custom-setup
 
 library
   build-depends:
+    abcBridge,
     ansi-wl-pprint,
     base >= 4.7,
     bytestring >= 0.10.2,
     containers,
+    what4,
+    what4-abc,
     crucible >= 0.1,
-    crucible-abc,
     crucible-saw,
     cryptol,
     cryptol-verifier,
@@ -82,8 +84,10 @@ executable crucible-server
   build-depends:
     ansi-wl-pprint,
     base >= 4.7 && < 4.12,
+    abcBridge,
+    what4,
+    what4-abc,
     crucible,
-    crucible-abc,
     crucible-saw,
     crucible-server,
     cryptol-verifier,

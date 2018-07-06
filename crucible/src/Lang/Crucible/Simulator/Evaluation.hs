@@ -22,7 +22,6 @@
 module Lang.Crucible.Simulator.Evaluation
   ( EvalAppFunc
   , evalApp
-  , failIfNothing
   , selectedIndices
   , indexSymbolic
   , integerAsChar
@@ -32,7 +31,7 @@ module Lang.Crucible.Simulator.Evaluation
   , updateVectorWithSymNat
   ) where
 
-import           Control.Exception (assert)
+import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad
 import qualified Data.Map.Strict as Map
@@ -46,25 +45,23 @@ import           Data.Word
 import           Numeric ( showHex )
 import           Numeric.Natural
 
+import           What4.Interface
+import           What4.Partial
+import           What4.Symbol (emptySymbol)
+import           What4.Utils.Complex
+import           What4.WordMap
+
+import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Solver.Partial
-import           Lang.Crucible.Solver.Symbol (emptySymbol)
 import           Lang.Crucible.Types
-import           Lang.Crucible.Utils.Complex
+import           Lang.Crucible.Utils.MuxTree
 
 ------------------------------------------------------------------------
 -- Utilities
 
--- | Call fail with the given message if the maybe value is nothing,
--- otherwise return the value.
-failIfNothing :: Monad m => String -> Maybe a -> m a
-failIfNothing msg Nothing = fail msg
-failIfNothing _  (Just v) = return v
 
 -- | Given a list of Booleans l, @selectedIndices@ returns the indices of
 -- true values in @l@.
@@ -87,13 +84,15 @@ complexRealAsChar v = do
     -- Check number is printable.
     Just r | otherwise -> return (integerAsChar (floor r))
     Nothing -> fail "Symbolic value cannot be interpreted as a character."
+    -- XXX: Should this be a panic?
+    -- XXX: We should move this to crucible-matlab
 
 ------------------------------------------------------------------------
 -- Evaluating expressions
 
 
 -- | Helper method for implementing 'indexSymbolic'
-indexSymbolic' :: (IsSymInterface sym, IsBoolSolver sym)
+indexSymbolic' :: IsSymInterface sym
                => sym
                -> (Pred sym -> a -> a -> IO a)
                   -- ^ Function for merging valeus
@@ -109,21 +108,37 @@ indexSymbolic' sym iteFn f p ((l,h):nl) (si:il) = do
   case asNat si of
     Just i
       | l <= i && i <= h -> subIndex i
-      | otherwise -> fail $ "Index exceeds matrix dimensions.\n" ++ show (l,i,h)
-    Nothing -> do
-      l_sym <- natLit sym l
-      h_sym <- natLit sym h
-      inRange <- join $ andPred sym <$> natLe sym l_sym si <*> natLe sym si h_sym
-      addAssertion sym inRange (GenericSimError "Index exceeds matrix dimensions.")
-      let predFn i = natEq sym si =<< natLit sym (fromInteger i)
-      muxIntegerRange predFn iteFn (subIndex . fromInteger) (toInteger l) (toInteger h)
+      | otherwise -> addFailedAssertion sym (AssertFailureSimError msg)
+        where msg = "Index exceeds matrix dimensions.\n" ++ show (l,i,h)
+    Nothing ->
+      do ensureInRange sym l h si "Index outside matrix dimensions."
+         let predFn i = natEq sym si =<< natLit sym (fromInteger i)
+         muxIntegerRange predFn iteFn (subIndex . fromInteger)
+                                      (toInteger l) (toInteger h)
+
+
+ensureInRange ::
+  IsSymInterface sym =>
+  sym ->
+  Natural ->
+  Natural ->
+  SymNat sym ->
+  String ->
+  IO ()
+ensureInRange sym l h si msg =
+  do l_sym <- natLit sym l
+     h_sym <- natLit sym h
+     inRange <- join $ andPred sym <$> natLe sym l_sym si <*> natLe sym si h_sym
+     assert sym inRange (AssertFailureSimError msg)
+
+
 
 -- | Lookup a value in an array that may be at a symbolic offset.
 --
 -- This function takes a list of symbolic indices as natural numbers
 -- along with a pair of lower and upper bounds for each index.
 -- It assumes that the indices are all in range.
-indexSymbolic :: (IsSymInterface sym, IsBoolSolver sym)
+indexSymbolic :: IsSymInterface sym
               => sym
               -> (Pred sym -> a  -> a -> IO a)
                  -- ^ Function for combining results together.
@@ -134,7 +149,8 @@ indexSymbolic :: (IsSymInterface sym, IsBoolSolver sym)
 indexSymbolic sym iteFn f = indexSymbolic' sym iteFn f []
 
 -- | Evaluate an indexTermterm to an index value.
-evalBase :: sym
+evalBase :: IsSymInterface sym =>
+            sym
          -> (forall utp . f utp -> IO (RegValue sym utp))
          -> BaseTerm f vtp
          -> IO (SymExpr sym vtp)
@@ -151,26 +167,31 @@ evalBase _ evalSub (BaseTerm tp e) =
     BaseArrayRepr _ _ -> evalSub e
 
 -- | Get value stored in vector at a symbolic index.
-indexVectorWithSymNat :: IsExprBuilder sym
+indexVectorWithSymNat :: IsSymInterface sym
                       => sym
                       -> (Pred sym -> a -> a -> IO a)
                          -- ^ Ite function
                       -> V.Vector a
                       -> SymNat sym
                       -> IO a
-indexVectorWithSymNat sym iteFn v si = do
-  let n = fromIntegral (V.length v)
-  assert (n > 0) $ do
+indexVectorWithSymNat sym iteFn v si =
+  Ex.assert (n > 0) $
   case asNat si of
-    Just i | 0 <= i && i <= n -> return (v V.! fromIntegral i)
-           | otherwise -> error "indexVectorWithSymNat given bad value"
-    Nothing -> do
-      let predFn i = natEq sym si =<< natLit sym (fromInteger i)
-      let getElt i = return (v V.! fromInteger i)
-      muxIntegerRange predFn iteFn getElt 0 (toInteger (n-1))
+    Just i | 0 <= i && i < n -> return (v V.! fromIntegral i)
+           | otherwise -> addFailedAssertion sym (AssertFailureSimError msg)
+    Nothing ->
+      do let predFn i = natEq sym si =<< natLit sym (fromInteger i)
+         let getElt i = return (v V.! fromInteger i)
+         ensureInRange sym 0 (n - 1) si msg
+         muxIntegerRange predFn iteFn getElt 0 (toInteger (n - 1))
+  where
+  n   = fromIntegral (V.length v)
+  msg = "indexVectorWithSymNat given bad value"
+
+
 
 -- | Update a vector at a given natural number index.
-updateVectorWithSymNat :: IsExprBuilder sym
+updateVectorWithSymNat :: IsSymInterface sym
                        => sym
                           -- ^ Symbolic backend
                        -> (Pred sym -> a -> a -> IO a)
@@ -186,7 +207,7 @@ updateVectorWithSymNat sym iteFn v si new_val = do
   adjustVectorWithSymNat sym iteFn v si (\_ -> return new_val)
 
 -- | Update a vector at a given natural number index.
-adjustVectorWithSymNat :: IsExprBuilder sym
+adjustVectorWithSymNat :: IsSymInterface sym
                        => sym
                           -- ^ Symbolic backend
                        -> (Pred sym -> a -> a -> IO a)
@@ -198,17 +219,23 @@ adjustVectorWithSymNat :: IsExprBuilder sym
                        -> (a -> IO a)
                           -- ^ Adjustment function to apply
                        -> IO (V.Vector a)
-adjustVectorWithSymNat sym iteFn v si adj = do
-  let n = V.length v
+adjustVectorWithSymNat sym iteFn v si adj =
   case asNat si of
-    Just i | i < fromIntegral n -> do
-             new_val <- adj (v V.! fromIntegral i)
-             return $ v V.// [(fromIntegral i, new_val)]
-           | otherwise -> fail $
-               "internal: Illegal index " ++ show i ++ " given to updateVectorWithSymNat"
-    Nothing -> do
-      let setFn j = do
-            -- Compare si and j.
+    Just i
+
+      | i < fromIntegral n ->
+        do new_val <- adj (v V.! fromIntegral i)
+           return $ v V.// [(fromIntegral i, new_val)]
+
+      | otherwise ->
+        addFailedAssertion sym $ AssertFailureSimError $ msg $ show i ++ " "
+
+    Nothing ->
+      do ensureInRange sym 0 (fromIntegral (n-1)) si (msg "")
+         V.generateM n setFn
+      where
+      setFn j =
+        do -- Compare si and j.
             c <- natEq sym si =<< natLit sym (fromIntegral j)
             -- Select old value or new value
             case asConstantPred c of
@@ -217,7 +244,11 @@ adjustVectorWithSymNat sym iteFn v si adj = do
               Nothing ->
                 do new_val <- adj (v V.! j)
                    iteFn c new_val (v V.! j)
-      V.generateM n setFn
+
+
+  where
+  n     = V.length v
+  msg i = "Illegal index " ++ i ++ "given to updateVectorWithSymNat"
 
 type EvalAppFunc sym app = forall f.
   (forall tp. f tp -> IO (RegValue sym tp)) ->
@@ -226,7 +257,7 @@ type EvalAppFunc sym app = forall f.
 {-# INLINE evalApp #-}
 -- | Evaluate the application.
 evalApp :: forall sym ext
-         . (IsSymInterface sym, IsBoolSolver sym)
+         . IsSymInterface sym
         => sym
         -> IntrinsicTypes sym
         -> (Int -> String -> IO ())
@@ -274,11 +305,6 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
                return $! PE (truePred sym) v
           | otherwise ->
                return $! Unassigned
-
-    ----------------------------------------------------------------------
-    -- Concrete
-
-    ConcreteLit (TypeableValue x) -> return x
 
     ----------------------------------------------------------------------
     -- Bool
@@ -363,7 +389,9 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
           msg <- evalSub msg_expr
           case asString msg of
             Just msg' -> readPartExpr sym maybe_val (GenericSimError (Text.unpack msg'))
-            Nothing -> fail "Expected concrete string in fromJustValue"
+            Nothing ->
+              addFailedAssertion sym $
+                Unsupported "Symbolic string in fromJustValue"
 
     ----------------------------------------------------------------------
     -- Side conditions
@@ -385,7 +413,8 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     VectorReplicate _ n_expr e_expr -> do
       ne <- evalSub n_expr
       case asNat ne of
-        Nothing -> fail $ "mss does not support symbolic length arrays."
+        Nothing -> addFailedAssertion sym $
+                      Unsupported "vectors with symbolic length"
         Just n -> do
           e <- evalSub e_expr
           return $ V.replicate (fromIntegral n) e
@@ -464,6 +493,94 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       isInteger sym x
 
     ----------------------------------------------------------------------
+    -- Float
+
+    FloatLit f -> realLit sym $ toRational f
+    DoubleLit d -> realLit sym $ toRational d
+    FloatNaN _ -> addFailedAssertion sym $
+                Unsupported "NaN floating point"
+    FloatPInf _ -> addFailedAssertion sym $
+                 Unsupported "+Inf floating point"
+    FloatNInf _ -> addFailedAssertion sym $
+                 Unsupported "-Inf floating point"
+    FloatAdd _ xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      realAdd sym x y
+    FloatSub _ xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      realSub sym x y
+    FloatMul _ xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      realMul sym x y
+    FloatDiv _ xe ye -> do
+      -- TODO: handle division by zero
+      x <- evalSub xe
+      y <- evalSub ye
+      realDiv sym x y
+    FloatRem _ xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      realMod sym x y
+    FloatEq x_expr y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      realEq sym x y
+    FloatLt x_expr y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      realLt sym x y
+    FloatLe x_expr y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      realLe sym x y
+    FloatGt x_expr y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      realGt sym x y
+    FloatGe x_expr y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      realGe sym x y
+    FloatNe x_expr y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      realNe sym x y
+    FloatCast _ x_expr ->
+      -- nop
+      evalSub x_expr
+    FloatFromBV _ x_expr ->
+      uintToReal sym =<< evalSub x_expr
+    FloatFromSBV _ x_expr ->
+      sbvToReal sym =<< evalSub x_expr
+    FloatFromReal _ x_expr ->
+      -- nop
+      evalSub x_expr
+    FloatToBV w x_expr -> do
+      -- TODO: handle case when value does not fit
+      x <- evalSub x_expr
+      realToBV sym x w
+    FloatToSBV w x_expr -> do
+      -- TODO: handle case when value does not fit
+      x <- evalSub x_expr
+      realToSBV sym x w
+    FloatToReal x_expr ->
+      -- nop
+      evalSub x_expr
+    FloatIsNaN _ -> do
+      return $! falsePred sym
+    FloatIsInfinite _ -> do
+      return $! falsePred sym
+    FloatIsZero x_expr ->
+      realEq sym (realZero sym) =<< evalSub x_expr
+    FloatIsPositive x_expr -> do
+      realLt sym (realZero sym) =<< evalSub x_expr
+    FloatIsNegative x_expr -> do
+      realGt sym (realZero sym) =<< evalSub x_expr
+
+    ----------------------------------------------------------------------
     -- Conversions
 
     NatToInteger x_expr -> do
@@ -475,6 +592,24 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     RealToNat x_expr -> do
       x <- evalSub x_expr
       realToNat sym x
+    BvToNat _ xe -> do
+      bvToNat sym =<< evalSub xe
+    BvToInteger _ xe -> do
+      bvToInteger sym =<< evalSub xe
+    SbvToInteger _ xe -> do
+      sbvToInteger sym =<< evalSub xe
+    RealFloor xe ->
+      realFloor sym =<< evalSub xe
+    RealCeil xe ->
+      realCeil sym =<< evalSub xe
+    RealRound xe ->
+      realRound sym =<< evalSub xe
+    IntegerToBV w xe -> do
+      x <- evalSub xe
+      integerToBV sym x w
+    IntegerToSBV w xe -> do
+      x <- evalSub xe
+      integerToSBV sym x w
 
     ----------------------------------------------------------------------
     -- ComplexReal
@@ -554,12 +689,6 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       y <- evalSub ye
       bvSrem sym x y
 
-    BvToNat _ xe -> do
-      bvToNat sym =<< evalSub xe
-    BvToInteger _ xe -> do
-      bvToInteger sym =<< evalSub xe
-    SbvToInteger _ xe -> do
-      sbvToInteger sym =<< evalSub xe
     BVUlt _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
@@ -676,14 +805,16 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       m <- evalSub m_expr
       case asString i of
         Just i' -> return $ joinMaybePE (Map.lookup i' m)
-        Nothing -> fail "Expected concrete string in lookupStringMapEntry"
+        Nothing -> addFailedAssertion sym $
+                    Unsupported "Symbolic string in lookupStringMapEntry"
     InsertStringMapEntry _ m_expr i_expr v_expr -> do
       m <- evalSub m_expr
       i <- evalSub i_expr
       v <- evalSub v_expr
       case asString i of
         Just i' -> return $ Map.insert i' v m
-        Nothing -> fail "Expected concrete string in insertStringMapEntry"
+        Nothing -> addFailedAssertion sym $
+                     Unsupported "Symbolic string in insertStringMapEntry"
 
     --------------------------------------------------------------------
     -- Text
@@ -710,6 +841,5 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     ReferenceEq _ ref1 ref2 -> do
       cell1 <- evalSub ref1
       cell2 <- evalSub ref2
-      case testEquality cell1 cell2 of
-        Just Refl -> return (truePred sym)
-        Nothing -> return (falsePred sym)
+      let f r1 r2 = return (backendPred sym (r1 == r2))
+      muxTreeCmpOp sym f cell1 cell2

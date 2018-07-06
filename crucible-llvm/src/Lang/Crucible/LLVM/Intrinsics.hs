@@ -59,17 +59,20 @@ import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Some
 
+import           What4.FunctionName
+import           What4.Interface
+import           What4.Utils.MonadST
+
+import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.FunctionName
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
+import           Lang.Crucible.Panic(panic)
 
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
@@ -80,7 +83,6 @@ import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.Printf
 import           Lang.Crucible.LLVM.Translation.Types
-import           Lang.Crucible.Utils.MonadST
 
 
 llvmIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
@@ -167,9 +169,8 @@ mkLLVMContext :: HandleAllocator s
 mkLLVMContext halloc m = do
   let (errs, typeCtx) = TyCtx.llvmContextFromModule m
   unless (null errs) $
-          fail $ unlines $ [ "Failed to construct LLVM type context:" ]
-                           ++
-                           map show errs
+    fail $ unlines
+         $ [ "Failed to construct LLVM type context:" ] ++ map show errs
   let dl = TyCtx.llvmDataLayout typeCtx
 
   case someNat (toInteger (ptrBitwidth dl)) of
@@ -233,7 +234,8 @@ transformLLVMArgs sym (rest' :> tp') (rest :> tp) = do
                  x'  <- RegEntry tp' <$> f (regValue x)
                  pure (xs' :> x')))
 transformLLVMArgs _ _ _ =
-  fail "transformLLVMArgs: argument shape mismatch!"
+  panic "Intrinsics.transformLLVMArgs"
+    [ "transformLLVMArgs: argument shape mismatch!" ]
 
 transformLLVMRet ::
   (IsSymInterface sym, Monad m) =>
@@ -251,7 +253,11 @@ transformLLVMRet _sym ret ret'
   | Just Refl <- testEquality ret ret'
   = return (ValTransformer return)
 transformLLVMRet _sym ret ret'
-  = fail $ unwords ["Cannot transform", show ret, "value into", show ret']
+  = panic "Intrinsics.transformLLVMRet"
+      [ "Cannot transform types"
+      , "*** Source type: " ++ show ret
+      , "*** Target type: " ++ show ret'
+      ]
 
 -- | Do some pipe-fitting to match a Crucible override function into the shape
 --   expected by the LLVM calling convention.  This basically just coerces
@@ -300,11 +306,17 @@ register_llvm_override llvmOverride = do
       Just (LLVMHandleInfo _decl' h) -> do
         case testEquality (handleArgTypes h) derivedArgs of
            Nothing ->
-             fail $ unwords ["argument type mismatch when registering LLVM mss override", show nm]
+             panic "Intrinsics.register_llvm_override"
+               [ "Argument type mismatch when registering LLVM mss override."
+               , "*** Override name: " ++ show nm
+               ]
            Just Refl ->
              case testEquality (handleReturnType h) derivedRet of
                Nothing ->
-                 fail $ unwords ["return type mismatch when registering LLVM mss override", show nm]
+                 panic "Intrinsics.register_llvm_override"
+                   [ "return type mismatch when registering LLVM mss override"
+                   , "*** Override name: " ++ show nm
+                   ]
                Just Refl -> lift $ bindFnHandle h (UseOverride o)
       Nothing ->
         do ctx <- lift $ use stateContext
@@ -427,7 +439,7 @@ llvmAssertRtnOverride =
   UnitRepr
   (\_ sym _args ->
        do let err = AssertFailureSimError "Call to __assert_rtn"
-          liftIO $ addAssertion sym (falsePred sym) err
+          liftIO $ assert sym (falsePred sym) err
   )
 
 llvmCallocOverride
@@ -1102,7 +1114,7 @@ callCtlz sym _mvar
     do isNonzero <- bvIsNonzero sym val
        zeroOK    <- notPred sym =<< bvIsNonzero sym isZeroUndef
        p <- orPred sym isNonzero zeroOK
-       addAssertion sym p (AssertFailureSimError "Ctlz called with disallowed zero value")
+       assert sym p (AssertFailureSimError "Ctlz called with disallowed zero value")
        -- FIXME: implement CTLZ as a SimpleBuilder primitive
        go (0 :: Integer)
  where
@@ -1158,7 +1170,7 @@ callPrintf sym mvar
     mem <- readGlobal mvar
     formatStr <- liftIO $ loadString sym mem strPtr Nothing
     case parseDirectives formatStr of
-      Left err -> fail err
+      Left err -> overrideError $ AssertFailureSimError err
       Right ds -> do
         ((str, n), mem') <- liftIO $ runStateT (executeDirectives (printfOps sym valist) ds) mem
         writeGlobal mvar mem'
@@ -1172,7 +1184,10 @@ printfOps :: (IsSymInterface sym, HasPtrWidth wptr)
           -> PrintfOperations (StateT (MemImpl sym) IO)
 printfOps sym valist =
   PrintfOperations
-  { printfGetInteger = \i sgn _len ->
+  { printfUnsupported = \x -> lift $ addFailedAssertion sym
+                                   $ Unsupported x
+
+  , printfGetInteger = \i sgn _len ->
      case valist V.!? (i-1) of
        Just (AnyValue (LLVMPointerRepr _w) x) ->
          do bv <- liftIO (projectLLVM_bv sym x)
@@ -1181,18 +1196,28 @@ printfOps sym valist =
             else
               return $ asUnsignedBV bv
        Just (AnyValue tpr _) ->
-         fail $ unwords ["Type mismatch in printf.  Expected integer, but got:", show tpr]
+         lift $ addFailedAssertion sym
+              $ AssertFailureSimError
+              $ unwords ["Type mismatch in printf.  Expected integer, but got:"
+                        , show tpr]
        Nothing ->
-         fail $ unwords ["Out-of-bounds argument access in printf:", show i]
+         lift $ addFailedAssertion sym
+              $ AssertFailureSimError
+              $ unwords ["Out-of-bounds argument access in printf:", show i]
 
   , printfGetFloat = \i _len ->
      case valist V.!? (i-1) of
        Just (AnyValue RealValRepr x) ->
          return $ asRational x
        Just (AnyValue tpr _) ->
-         fail $ unwords ["Type mismatch in printf.  Expected floating-point, but got:", show tpr]
+         lift $ addFailedAssertion sym
+              $ AssertFailureSimError
+              $ unwords [ "Type mismatch in printf."
+                        , "Expected floating-point, but got:", show tpr]
        Nothing ->
-         fail $ unwords ["Out-of-bounds argument access in printf:", show i]
+         lift $ addFailedAssertion sym
+              $ AssertFailureSimError
+              $ unwords ["Out-of-bounds argument access in printf:", show i]
 
   , printfGetString  = \i numchars ->
      case valist V.!? (i-1) of
@@ -1200,18 +1225,28 @@ printfOps sym valist =
            do mem <- get
               liftIO $ loadString sym mem ptr numchars
        Just (AnyValue tpr _) ->
-         fail $ unwords ["Type mismatch in printf.  Expected char*, but got:", show tpr]
+         lift $ addFailedAssertion sym
+              $ AssertFailureSimError
+              $ unwords [ "Type mismatch in printf."
+                        , "Expected char*, but got:", show tpr]
        Nothing ->
-         fail $ unwords ["Out-of-bounds argument access in printf:", show i]
+         lift $ addFailedAssertion sym
+              $ AssertFailureSimError
+              $ unwords ["Out-of-bounds argument access in printf:", show i]
 
   , printfGetPointer = \i ->
      case valist V.!? (i-1) of
        Just (AnyValue PtrRepr ptr) ->
          return $ show (G.ppPtr ptr)
        Just (AnyValue tpr _) ->
-         fail $ unwords ["Type mismatch in printf.  Expected void*, but got:", show tpr]
+         lift $ addFailedAssertion sym
+              $ AssertFailureSimError
+              $ unwords [ "Type mismatch in printf."
+                        , "Expected void*, but got:", show tpr]
        Nothing ->
-         fail $ unwords ["Out-of-bounds argument access in printf:", show i]
+         lift $ addFailedAssertion sym
+              $ AssertFailureSimError
+              $ unwords ["Out-of-bounds argument access in printf:", show i]
 
   , printfSetInteger = \i len v ->
      case valist V.!? (i-1) of
@@ -1243,11 +1278,18 @@ printfOps sym valist =
                  mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w64) tp x
                  put mem'
               _ ->
-                fail $ unwords ["Unsupported size modifier in %n conversion:", show len]
+                lift $ addFailedAssertion sym
+                     $ Unsupported
+                     $ unwords ["Unsupported size modifier in %n conversion:", show len]
 
        Just (AnyValue tpr _) ->
-         fail $ unwords ["Type mismatch in printf.  Expected void*, but got:", show tpr]
+         lift $ addFailedAssertion sym
+              $ AssertFailureSimError
+              $ unwords [ "Type mismatch in printf."
+                        , "Expected void*, but got:", show tpr]
 
        Nothing ->
-         fail $ unwords ["Out-of-bounds argument access in printf:", show i]
+         lift $ addFailedAssertion sym
+              $ AssertFailureSimError
+              $ unwords ["Out-of-bounds argument access in printf:", show i]
   }

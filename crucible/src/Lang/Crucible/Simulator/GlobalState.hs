@@ -10,6 +10,7 @@ module Lang.Crucible.Simulator.GlobalState
   , insertRef
   , lookupRef
   , dropRef
+  , updateRef
   , globalPushBranch
   , globalAbortBranch
   , globalMuxFn
@@ -18,13 +19,16 @@ module Lang.Crucible.Simulator.GlobalState
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.TraversableF
 
+import           What4.Interface
+import           What4.Partial
+import           What4.ProgramLoc
+
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
+import           Lang.Crucible.Backend
+import           Lang.Crucible.Panic(panic)
 
 newtype GlobalEntry (sym :: *) (tp :: CrucibleType) = GlobalEntry { globalEntryValue :: RegValue sym tp }
 data RefCellContents (sym :: *) (tp :: CrucibleType)
@@ -66,7 +70,7 @@ lookupRef r gst =
   maybe Unassigned (\(RefCellContents p x) -> PE p x) $ MapF.lookup r (globalReferenceMap gst)
 
 -- | Set the value of a reference cell in the state
-insertRef :: IsSymInterface sym
+insertRef :: IsExprBuilder sym
           => sym
           -> RefCell tp
           -> RegValue sym tp
@@ -75,6 +79,18 @@ insertRef :: IsSymInterface sym
 insertRef sym r v gst =
    let x = RefCellContents (truePred sym) v in
    gst{ globalReferenceMap = MapF.insert r x (globalReferenceMap gst) }
+
+
+updateRef ::
+  IsExprBuilder sym =>
+  RefCell tp ->
+  PartExpr (Pred sym) (RegValue sym tp) ->
+  SymGlobalState sym ->
+  SymGlobalState sym
+updateRef r Unassigned gst =
+  gst{ globalReferenceMap = MapF.delete r (globalReferenceMap gst) }
+updateRef r (PE p x) gst =
+  gst{ globalReferenceMap = MapF.insert r (RefCellContents p x) (globalReferenceMap gst) }
 
 dropRef :: RefCell tp
         -> SymGlobalState sym
@@ -133,11 +149,11 @@ globalAbortBranch sym iTypes (GlobalState d g refs)
 
   | otherwise = do
       loc <- getCurrentProgramLoc sym
-      fail $ unwords
-         ["Attempting to commit global changes at incorrect branch depth"
-         , show d
-         , show $ plSourceLoc loc
-         ]
+      panic "GlobalState.globalAbortBranch"
+            [ "Attempting to commit global changes at incorrect branch depth"
+            , "*** Depth:    " ++ show d
+            , "*** Location: " ++ show (plSourceLoc loc)
+            ]
 
 globalMuxFn :: forall sym
              . IsSymInterface sym
@@ -183,13 +199,15 @@ globalMuxFn sym iteFns c (GlobalState dx x refs_x) (GlobalState dy y refs_y)
                        -> IO (MapF.MapF GlobalVar (GlobalEntry sym))
           checkNullMap m
             | MapF.null m = return m
-            | otherwise = fail "Different global variables in each branch."
+            | otherwise =
+              panic "GlobalState.globalMuxFn"
+                      [ "Different global variables in each branch." ]
 
-globalMuxFn sym _ _ (GlobalState dx _ _) (GlobalState dy _ _) = do
-  loc <- getCurrentProgramLoc sym
-  fail $ unwords
-     ["Attempting to merge global states of incorrect branch depths:"
-     , show dx
-     , show dy
-     , show $ plSourceLoc loc
-     ]
+globalMuxFn sym _ _ (GlobalState dx _ _) (GlobalState dy _ _) =
+  do loc <- getCurrentProgramLoc sym
+     panic "GlobalState.globalMuxFn"
+           [ "Attempting to merge global states of incorrect branch depths:"
+           , " *** Depth 1:  " ++ show dx
+           , " *** Depth 2:  " ++ show dy
+           , " *** Location: " ++ show (plSourceLoc loc)
+           ]

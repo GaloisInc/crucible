@@ -2,7 +2,7 @@ Name:          crucible-syntax
 Version:       0.1
 Author:        Galois Inc.
 Maintainer:    dtc@galois.com
-Build-type:    Custom
+Build-type:    Simple
 License:       BSD3
 License-file:  LICENSE
 Cabal-version: >= 1.9.2
@@ -29,30 +29,23 @@ library
     bytestring >= 0.10.2,
     containers,
     crucible >= 0.1,
-    crucible-abc,
-    crucible-saw,
-    cryptol,
-    cryptol-verifier,
     executable-path,
     directory,
     filepath,
     GraphSCC,
     hashable,
     hashtables,
-    hpb >= 0.1.1,
     lens,
     megaparsec,
     mtl,
     optparse-applicative,
     parameterized-utils >= 0.1.7,
     megaparsec,
-    saw-core,
-    saw-core-sbv,
-    sbv,
     s-cargot,
     text,
     transformers,
-    vector
+    vector,
+    what4
 
   hs-source-dirs: src
 
@@ -73,20 +66,15 @@ executable crucibler
     ansi-wl-pprint,
     base >= 4.7 && < 4.12,
     crucible,
-    crucible-abc,
-    crucible-saw,
-    crucible-server,
     crucible-syntax,
-    cryptol-verifier,
-    hpb >= 0.1.1,
     lens,
     megaparsec,
     mtl,
     optparse-applicative,
     parameterized-utils >= 0.1.7,
-    saw-core,
     s-cargot,
-    text
+    text,
+    what4
 
   ghc-options: -Wall
 

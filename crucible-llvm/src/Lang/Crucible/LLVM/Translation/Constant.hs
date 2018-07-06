@@ -286,6 +286,8 @@ intConst ::
   Natural {- ^ width of the integer constant, @w@ -} ->
   Integer {- ^ value of the integer constant, @n@ -} ->
   m LLVMConst
+intConst n 0
+  = return (ZeroConst (IntType n))
 intConst n x
   | Just (Some w) <- someNat (fromIntegral n)
   , Just LeqProof <- isPosNat w

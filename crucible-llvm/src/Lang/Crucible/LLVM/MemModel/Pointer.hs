@@ -75,7 +75,6 @@ module Lang.Crucible.LLVM.MemModel.Pointer
   , ptrToPtrVal
   , constOffset
   , ptrDecompose
-  , ptrSizeDecompose
   , ptrComparable
   , ptrOffsetEq
   , ptrOffsetLe
@@ -107,11 +106,12 @@ import qualified Data.Vector as V
 import           Data.Word (Word64)
 import           Numeric.Natural
 
+import           What4.Interface
+import           What4.Partial
+
+import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.BoolInterface
-import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Solver.Partial
 import           Lang.Crucible.Types
 import qualified Lang.Crucible.LLVM.Bytes as G
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
@@ -127,7 +127,7 @@ pattern LLVMPointer blk offset = RolledType (Ctx.Empty Ctx.:> RV blk Ctx.:> RV o
 #endif
 
 -- | Alternative to the @LLVMPointer@ pattern synonym, this function can be used as a view
---   consturctor instead to silence incomplete pattern warnings.
+--   constructor instead to silence incomplete pattern warnings.
 llvmPointerView :: RegValue sym (LLVMPointerType w) -> (RegValue sym NatType, RegValue sym (BVType w))
 llvmPointerView (LLVMPointer blk offset) = (blk, offset)
 
@@ -136,10 +136,12 @@ ptrWidth :: IsExprBuilder sym => LLVMPtr sym w -> NatRepr w
 ptrWidth (LLVMPointer _blk bv) = bvWidth bv
 
 -- | Assert that the given LLVM pointer value is actually a raw bitvector and extract its value.
-projectLLVM_bv :: IsSymInterface sym => sym -> RegValue sym (LLVMPointerType w) -> IO (RegValue sym (BVType w))
+projectLLVM_bv ::
+  IsSymInterface sym =>
+  sym -> RegValue sym (LLVMPointerType w) -> IO (RegValue sym (BVType w))
 projectLLVM_bv sym ptr@(LLVMPointer blk bv) =
   do p <- natEq sym blk =<< natLit sym 0
-     addAssertion sym p $
+     assert sym p $
         AssertFailureSimError $ unlines
           [ "Pointer value coerced to bitvector:"
           , "*** " ++ show (ppPtr ptr)
@@ -226,15 +228,6 @@ ptrDecompose _sym _w (LLVMPointer (asNat -> Just b) off) =
 ptrDecompose _sym _w p =
   Symbolic p
 
--- | Determine if the given bitvector value is a concrete offset
-ptrSizeDecompose ::
-  IsExprBuilder sym =>
-  sym -> NatRepr w ->
-  SymBV sym w ->
-  Maybe Integer
-ptrSizeDecompose _ _ (asUnsignedBV -> Just off) = Just off
-ptrSizeDecompose _ _ _ = Nothing
-
 
 -- | Test whether pointers point into the same allocation unit.
 ptrComparable ::
@@ -278,7 +271,7 @@ ptrLe :: (1 <= w, IsSymInterface sym)
       -> IO (Pred sym)
 ptrLe sym _w (LLVMPointer base1 off1) (LLVMPointer base2 off2) =
   do p1 <- natEq sym base1 base2
-     addAssertion sym p1 (AssertFailureSimError "Attempted to compare pointers from different allocations")
+     assert sym p1 (AssertFailureSimError "Attempted to compare pointers from different allocations")
      bvUle sym off1 off2
 
 ptrLt :: (1 <= w, IsSymInterface sym)
@@ -289,7 +282,7 @@ ptrLt :: (1 <= w, IsSymInterface sym)
       -> IO (Pred sym)
 ptrLt sym _w (LLVMPointer base1 off1) (LLVMPointer base2 off2) =
   do p1 <- natEq sym base1 base2
-     addAssertion sym p1 (AssertFailureSimError "Attempted to compare pointers from different allocations")
+     assert sym p1 (AssertFailureSimError "Attempted to compare pointers from different allocations")
      bvUlt sym off1 off2
 
 
@@ -315,7 +308,7 @@ ptrDiff :: (1 <= w, IsSymInterface sym)
         -> IO (SymBV sym w)
 ptrDiff sym _w (LLVMPointer base1 off1) (LLVMPointer base2 off2) =
   do p <- natEq sym base1 base2
-     addAssertion sym p (AssertFailureSimError "Attempted to subtract pointers from different allocations")
+     assert sym p (AssertFailureSimError "Attempted to subtract pointers from different allocations")
      diff <- bvSub sym off1 off2
      return diff
 
@@ -513,18 +506,18 @@ muxLLVMVal :: forall sym
    -> PartLLVMVal sym
    -> PartLLVMVal sym
    -> IO (PartLLVMVal sym)
-muxLLVMVal sym p = mergePartial sym muxval p
+muxLLVMVal sym cond = mergePartial sym (const muxval) cond
   where
     muxval :: LLVMVal sym -> LLVMVal sym -> PartialT sym IO (LLVMVal sym)
 
     muxval (LLVMValInt base1 off1) (LLVMValInt base2 off2)
       | Just Refl <- testEquality (bvWidth off1) (bvWidth off2)
-      = do base <- liftIO $ natIte sym p base1 base2
-           off  <- liftIO $ bvIte sym p off1 off2
+      = do base <- liftIO $ natIte sym cond base1 base2
+           off  <- liftIO $ bvIte sym cond off1 off2
            return $ LLVMValInt base off
 
     muxval (LLVMValReal xsz x) (LLVMValReal ysz y) | xsz == ysz =
-      do z <- liftIO $ realIte sym p x y
+      do z <- liftIO $ realIte sym cond x y
          return $ LLVMValReal xsz z
 
     muxval (LLVMValStruct fls1) (LLVMValStruct fls2)

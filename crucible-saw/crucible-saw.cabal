@@ -14,11 +14,11 @@ Description:
 
 library
   build-depends:
-    abcBridge,
     aig,
     base >= 4.7 && < 4.12,
     containers,
     crucible >= 0.1,
+    what4 >= 0.4,
     lens,
     text,
     parameterized-utils,
@@ -28,7 +28,7 @@ library
   hs-source-dirs: src
 
   exposed-modules:
-    Lang.Crucible.Solver.SAWCoreBackend
+    Lang.Crucible.Backend.SAWCore
 --    Lang.Crucible.Solver.ExtractSAWCore
 
   ghc-options: -Wall

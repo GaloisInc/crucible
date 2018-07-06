@@ -115,14 +115,15 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import           Data.Void
 
+import           What4.ProgramLoc
+import           What4.Utils.MonadST
+
 import           Lang.Crucible.CFG.Core (AnyCFG(..), GlobalVar(..))
 import           Lang.Crucible.CFG.Expr(App(..), IsSyntaxExtension)
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.CFG.Reg
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Types
-import           Lang.Crucible.Utils.MonadST
 import           Lang.Crucible.Utils.StateContT
 
 ------------------------------------------------------------------------

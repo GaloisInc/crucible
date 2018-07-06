@@ -1,81 +1,112 @@
+{-# Language TypeFamilies #-}
+{-# Language PatternSynonyms #-}
 module Goal where
 
-import Control.Lens((^.))
-import Control.Monad(foldM)
-import qualified Data.Foldable as Fold
+import Control.Lens((^.), (&), (.~))
+import Control.Monad(forM)
+import qualified Data.Sequence as Seq
 
-import Lang.Crucible.Solver.Interface
-        (IsExprBuilder, Pred, notPred, impliesPred)
-import Lang.Crucible.Solver.BoolInterface
-        ( Assertion, assertPred, assertMsg, assertLoc )
-import Lang.Crucible.Solver.Adapter(SolverAdapter(..))
-import Lang.Crucible.Solver.AssumptionStack(ProofGoal(..))
-import Lang.Crucible.Solver.SatResult(SatResult(..))
-import Lang.Crucible.Solver.SimpleBuilder (SimpleBuilder)
--- import Lang.Crucible.Solver.SimpleBackend.Z3(z3Adapter)
-import Lang.Crucible.Solver.OnlineBackend(yicesOnlineAdapter,OnlineBackendState)
+import What4.Interface (notPred, falsePred)
+import What4.SatResult(SatResult(..))
+import What4.Expr.Builder (ExprBuilder)
+import What4.Protocol.Online( OnlineSolver, inNewFrame, solverEvalFuns
+                            , solverConn, check, SolverProcess )
+import What4.Protocol.SMTWriter(mkFormula,assumeFormula,smtExprGroundEvalFn)
 
-import Lang.Crucible.Simulator.SimError(SimErrorReason(..))
+import Lang.Crucible.Backend ( ProofObligation, labeledPred, ProofGoal(..) )
+import Lang.Crucible.Backend.Online
+        ( OnlineBackendState, getSolverProcess )
 import Lang.Crucible.Simulator.ExecutionTree
         (ctxSymInterface, cruciblePersonality)
 
-
-import Error
 import Types
 import Model
 
 
--- prover :: SolverAdapter s
--- prover = z3Adapter
---prover = yicesAdapter
-
-prover :: SolverAdapter OnlineBackendState
-prover = yicesOnlineAdapter
+data ProofResult = Proved
+                 | NotProved (Maybe ModelViews)   -- ^ Counter example, if any
 
 
-
-data Goal sym = Goal
-  { gAssumes :: [Pred sym]
-  , gShows   :: Assertion (Pred sym) SimErrorReason
-  }
-
--- Check assertions before other things
-goalPriority :: Goal sym -> Int
-goalPriority g =
-  case assertMsg (gShows g) of
-    AssertFailureSimError {} -> 0
-    _ -> 1
-
-mkGoal :: ProofGoal (Pred sym) SimErrorReason -> Goal sym
-mkGoal (ProofGoal as p) = Goal { gAssumes = (Fold.toList as), gShows = p }
-
-obligGoal :: IsExprBuilder sym => sym -> Goal sym -> IO (Pred sym)
-obligGoal sym g = foldM imp (gShows g ^. assertPred) (gAssumes g)
-  where
-  imp p a = impliesPred sym a p
 
 proveGoal ::
-  SimCtxt (SimpleBuilder s OnlineBackendState) arch ->
-  Goal (SimpleBuilder s OnlineBackendState) ->
-  IO (Maybe Error)
-proveGoal ctxt g =
-  do let sym = ctxt ^. ctxSymInterface
-     g1 <- obligGoal sym g
-     p <- notPred sym g1
+  ( sym ~ ExprBuilder s (OnlineBackendState solver)
+  , OnlineSolver s solver
+  ) =>
+  SimCtxt sym arch -> ProofObligation sym -> IO ProofResult
 
-     let say _n _x = return () -- putStrLn ("[" ++ show _n ++ "] " ++ _x)
-     solver_adapter_check_sat prover sym say p $ \res ->
-        case res of
-          Unsat -> return Nothing
-          Sat (evalFn,_mbRng) ->
-            do let model = ctxt ^. cruciblePersonality
-               str <- ppModel evalFn model
-               return (Just (e (Just str)))
-          _  -> return (Just (e Nothing))
+proveGoal ctxt g = proveGoal' ctxt g $ \sp ->
+  do f <- smtExprGroundEvalFn (solverConn sp) (solverEvalFuns sp)
+     let model = ctxt ^. cruciblePersonality
+     str <- ppModel f model
+     return (Just str)
+
+
+canProve ::
+  ( sym ~ ExprBuilder s (OnlineBackendState solver)
+  , OnlineSolver s solver
+  ) =>
+  SimCtxt sym arch -> ProofObligation sym -> IO ProofResult
+
+canProve ctxt g = proveGoal' ctxt g $ \_sp -> return Nothing
+
+
+proveGoal' ::
+  ( sym ~ ExprBuilder s (OnlineBackendState solver)
+  , OnlineSolver s solver
+  ) =>
+  SimCtxt sym arch ->
+  ProofObligation sym ->
+  (SolverProcess s solver -> IO (Maybe ModelViews)) ->
+  IO ProofResult
+proveGoal' ctxt g isSat =
+  do let sym = ctxt ^. ctxSymInterface
+     sp <- getSolverProcess sym
+     let conn = solverConn sp
+     asmps <- forM (proofAssumptions g) $ \a ->
+                 mkFormula conn (a ^. labeledPred)
+     conc  <- mkFormula conn =<< notPred sym (proofGoal g ^. labeledPred)
+     inNewFrame conn $
+       do mapM_ (assumeFormula conn) asmps
+          assumeFormula conn conc
+          res <- check sp
+          case res of
+            Unsat  -> return Proved
+            Sat () -> NotProved <$> isSat sp
+            Unknown -> return (NotProved Nothing)
+
+
+data SimpResult sym =
+    Trivial
+  | NotTrivial (ProofObligation sym)
+
+
+simpProved ::
+  ( sym ~ ExprBuilder s (OnlineBackendState solver)
+  , OnlineSolver s solver
+  ) =>
+  SimCtxt sym arch -> ProofObligation sym -> IO (SimpResult sym)
+simpProved ctxt goal =
+  do let false = falsePred (ctxt ^. ctxSymInterface)
+         g1 = goal { proofGoal = (proofGoal goal) & labeledPred .~ false }
+     res <- canProve ctxt g1
+     case res of
+       Proved -> return Trivial
+       _      -> dropAsmps Seq.empty (proofAssumptions goal)
 
   where
-  a = gShows g
-  e mb = FailedToProve (assertLoc a) (assertMsg a) mb
+  -- XXX: can use incremental for more efficient checking
+  -- A simple way to figure out what might be relevant assumptions.
+  dropAsmps keep asmps =
+    case asmps of
+      Seq.Empty -> return (NotTrivial goal { proofAssumptions = keep })
+      a Seq.:<| as ->
+        do res <- canProve ctxt goal { proofAssumptions = as Seq.>< keep }
+           case res of
+             Proved -> dropAsmps keep as
+             NotProved {} -> dropAsmps (a Seq.:<| keep) as
+
+
+
 
 
 
