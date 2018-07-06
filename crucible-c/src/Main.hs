@@ -172,18 +172,24 @@ simulate opts k =
 
           gs <- proofGoalsToList <$> getProofObligations sym
           let n = length gs
-              suff = if n == 1 then "" else "s"
-          say "Crux" ("Proving " ++ show n ++ " side condition" ++ suff ++ ".")
-          fmap catMaybes $
-            withProgressBar 60 gs $ \g ->
-               do result <- proveGoal ctx' g
-                  case result of
-                    NotProved {} -> return (Just (toRes result g))
-                    Proved ->
-                      do simp <- simpProved ctx' g
-                         case simp of
-                           Trivial -> return Nothing
-                           NotTrivial g1 -> return (Just (toRes Proved g1))
+              suff m = if m == 1 then "" else "s"
+          say "Crux"
+                ("Proving " ++ show n ++ " side condition" ++ suff n ++ ".")
+          xs <- withProgressBar' "Proving: " gs $ \g ->
+                do result <- proveGoal ctx' g
+                   case result of
+                     NotProved {} -> return (Just (toRes result g))
+                     Proved ->
+                       do simp <- simpProved ctx' g
+                          case simp of
+                            Trivial -> return Nothing
+                            NotTrivial g1 -> return (Just (toRes Proved g1))
+          let bad  = sum [ 1 | Just (_,_,NotProved {}) <- xs ]
+          if bad > (0 :: Integer)
+            then sayFail "Crux" $ "Failed to prove " ++ show bad ++
+                                  " side condition" ++ suff bad ++ "."
+            else sayOK "Crux" "Proved all side conditions."
+          return (catMaybes xs)
 
    where toRes result g =
            ( map (^. labeledPredMsg)
