@@ -129,8 +129,7 @@ signedPrefixedNumber =
 prefixedNumber :: (Eq a, Num a) => Parser a
 prefixedNumber = char '0' *> hexOrOct <|> decimal
   where decimal = fromInteger . read <$> some (satisfy isDigit <?> "decimal digit")
-        hexOrOct =
-          char 'x' *> hex <|> oct
+        hexOrOct = char 'x' *> hex <|> oct <|> return 0
         hex = reading $ readHex <$> some (satisfy (\c -> isDigit c || elem c ("abcdefABCDEF" :: String)) <?> "hex digit")
         oct = reading $ readOct <$> some (satisfy (\c -> elem c ("01234567" :: String)) <?> "octal digit")
         reading p =
