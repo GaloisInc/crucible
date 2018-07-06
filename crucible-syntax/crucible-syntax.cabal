@@ -93,3 +93,19 @@ executable crucibler
   main-is: Main.hs
   hs-source-dirs:
     crucible-syntax
+
+
+test-suite crucible-syntax-tests
+  type: exitcode-stdio-1.0
+  main-is: Tests.hs
+  hs-source-dirs: test
+  build-depends:
+    base,
+    crucible,
+    crucible-syntax,
+    filepath,
+    megaparsec,
+    tasty,
+    tasty-golden,
+    text
+

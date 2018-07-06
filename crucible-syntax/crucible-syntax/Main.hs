@@ -16,6 +16,8 @@ import Lang.Crucible.CFG.SSAConversion
 
 import qualified Options.Applicative as Opt
 
+import System.Exit
+
 import Text.Megaparsec as MP
 
 
@@ -35,7 +37,9 @@ repl fn =
 go :: TheFile -> Text -> IO ()
 go (TheFile fn) theInput =
   case MP.parse (many (sexp atom) <* eof) fn theInput of
-    Left err -> putStrLn $ parseErrorPretty' theInput err
+    Left err ->
+      do putStrLn $ parseErrorPretty' theInput err
+         exitFailure
     Right v ->
       do forM_ v $ T.putStrLn . printExpr
          cfgs <- mapM (stToIO . top . cfg) v

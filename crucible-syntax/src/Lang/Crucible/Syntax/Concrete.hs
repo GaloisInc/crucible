@@ -667,16 +667,13 @@ functionHeader other = throwError $ NotFunDef (syntaxPos other) other
 argTypes :: Ctx.Assignment Arg init -> Ctx.Assignment TypeRepr init
 argTypes  = fmapFC (\(Arg _ _ t) -> t)
 
--- | An existential dependent triple
-data Triple (f :: k -> *) (g :: k -> *) (h :: k -> *) where
-  Triple :: f a -> g a -> h a -> Triple f g h
 
 type BlockTodo h s ret =
   (LabelName, BlockID s, Position, [AST s])
 
 blocks :: forall h s ret a . Position -> [AST s] -> CFGParser h s ret [Block () s ret]
 blocks funPos [] = throwError $ EmptyFunBody funPos
-blocks funPos (aBlock:moreBlocks) =
+blocks _      (aBlock:moreBlocks) =
   do startContents <- startBlock aBlock
      todo <- allBlockLabels moreBlocks
      blockDefs <- forM (startContents : todo) $ \(lblName, bid, pos, stmts) ->
