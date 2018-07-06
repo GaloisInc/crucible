@@ -5,6 +5,7 @@ module Lang.Crucible.Backend.ProofGoals
   ( Goals(..), goalsToList
   , GoalCollector
   , emptyGoalCollector, gcAssume, gcProve, gcPush, gcPop, gcFinish
+  , gcRemoveObligations
   )
   where
 
@@ -137,4 +138,11 @@ gcFinish gc = case gcPop gc of
                 Left gc1 -> gcFinish gc1
                 Right a  -> a
 
+
+-- | Remove all collected proof obligations, but keep the current set
+-- of assumptions.
+gcRemoveObligations :: GoalCollector asmp goal -> GoalCollector asmp goal
+gcRemoveObligations gc = gc { gcCurDone = []
+                            , gcContext = gcRemoveObligations <$> gcContext gc
+                            }
 
