@@ -58,6 +58,7 @@ module Lang.Crucible.Backend.AssumptionStack
     -- * Collection of proof obligations
   , Goals(..), proofGoalsToList
   , ProofGoals
+  , LabeledGoalCollector
   ) where
 
 import           Control.Exception (bracketOnError)
@@ -115,7 +116,7 @@ data ProofGoal pred assumeMsg assertMsg =
   , proofGoal        :: LabeledPred pred assertMsg
   }
 
-type CruxGoalGCollector pred assumeMsg assertMsg =
+type LabeledGoalCollector pred assumeMsg assertMsg =
   GoalCollector (LabeledPred pred assumeMsg) (LabeledPred pred assertMsg)
 
 type ProofGoals pred assumeMsg assertMsg =
@@ -142,7 +143,7 @@ data AssumptionStack pred assumeMsg assertMsg =
   { assumeStackGen   :: IO FrameIdentifier
   , currentFrame     :: IORef (AssumptionFrame pred assumeMsg)
   , frameStack       :: IORef (Seq (AssumptionFrame pred assumeMsg))
-  , proofObligations :: IORef (CruxGoalGCollector pred assumeMsg assertMsg)
+  , proofObligations :: IORef (LabeledGoalCollector pred assumeMsg assertMsg)
   }
 
 -- | Get a collection of all current stack frames, with newer frames on the right.
