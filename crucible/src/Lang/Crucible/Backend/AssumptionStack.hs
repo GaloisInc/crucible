@@ -44,7 +44,7 @@ module Lang.Crucible.Backend.AssumptionStack
   , pushFrame
   , popFrame
   , getProofObligations
-  , setProofObligations
+  , clearProofObligations
   , addProofObligation
   , stackHeight
   , allAssumptionFrames
@@ -54,6 +54,10 @@ module Lang.Crucible.Backend.AssumptionStack
   , assert
   , collectAssumptions
   , appendAssumptions
+
+    -- * Collection of proof obligations
+  , Goals(..), proofGoalsToList
+  , ProofGoals
   ) where
 
 import           Control.Exception (bracketOnError)
@@ -66,6 +70,7 @@ import qualified Data.Sequence as Seq
 import           Data.Word
 
 import Lang.Crucible.Panic(panic)
+import Lang.Crucible.Backend.ProofGoals
 
 -- | Information about an assertion that was previously made.
 data LabeledPred pred msg
@@ -110,6 +115,23 @@ data ProofGoal pred assumeMsg assertMsg =
   , proofGoal        :: LabeledPred pred assertMsg
   }
 
+type CruxGoalGCollector pred assumeMsg assertMsg =
+  GoalCollector (LabeledPred pred assumeMsg) (LabeledPred pred assertMsg)
+
+type ProofGoals pred assumeMsg assertMsg =
+  Goals (LabeledPred pred assumeMsg) (LabeledPred pred assertMsg)
+
+proofGoalsToList ::
+  ProofGoals pred assumeMsg assertMsg ->
+  [ ProofGoal pred assumeMsg assertMsg ]
+proofGoalsToList = map toProofGoal . goalsToList
+  where
+  toProofGoal (as,b) =
+    ProofGoal { proofAssumptions = Seq.fromList as
+              , proofGoal        = b
+              }
+
+
 -- | An assumption stack is a data structure for tracking
 --   logical assumptions and proof obligations.  Assumptions
 --   can be added to the current stack frame, and stack frames
@@ -120,7 +142,7 @@ data AssumptionStack pred assumeMsg assertMsg =
   { assumeStackGen   :: IO FrameIdentifier
   , currentFrame     :: IORef (AssumptionFrame pred assumeMsg)
   , frameStack       :: IORef (Seq (AssumptionFrame pred assumeMsg))
-  , proofObligations :: IORef (Seq (ProofGoal pred assumeMsg assertMsg))
+  , proofObligations :: IORef (CruxGoalGCollector pred assumeMsg assertMsg)
   }
 
 -- | Get a collection of all current stack frames, with newer frames on the right.
@@ -146,7 +168,7 @@ initAssumptionStack gen =
      condRef  <- newIORef mempty
      frmRef <- newIORef (AssumptionFrame ident condRef)
      stackRef <- newIORef mempty
-     oblsRef <- newIORef mempty
+     oblsRef <- newIORef emptyGoalCollector
      return AssumptionStack
             { assumeStackGen = genM
             , currentFrame = frmRef
@@ -167,7 +189,7 @@ cloneAssumptionStack ::
 cloneAssumptionStack stk =
   do frm'  <- newIORef =<< cloneFrame =<< readIORef (currentFrame stk)
      frms' <- newIORef =<< traverse cloneFrame =<< readIORef (frameStack stk)
-     obls' <- newIORef mempty
+     obls' <- newIORef emptyGoalCollector
      return AssumptionStack
             { assumeStackGen = assumeStackGen stk
             , currentFrame = frm'
@@ -191,7 +213,8 @@ assume ::
   AssumptionStack pred assumeMsg assertMsg ->
   IO ()
 assume p stk =
-  do frm  <- readIORef (currentFrame stk)
+  do modifyIORef' (proofObligations stk) (gcAssume p)
+     frm  <- readIORef (currentFrame stk)
      modifyIORef' (assumeFrameCond frm) (\prev -> prev Seq.|> p)
 
 -- | Add the given collection logical assumptions to the current stack frame.
@@ -200,7 +223,8 @@ appendAssumptions ::
   AssumptionStack pred assumeMsg assertMsg ->
   IO ()
 appendAssumptions ps stk =
-  do frm  <- readIORef (currentFrame stk)
+  do modifyIORef' (proofObligations stk) (\gc -> foldr gcAssume gc ps)
+     frm  <- readIORef (currentFrame stk)
      modifyIORef' (assumeFrameCond frm) (\prev -> prev Seq.>< ps)
 
 -- | This class witnesses the ability to inject assertion messages
@@ -219,10 +243,7 @@ addProofObligation ::
   LabeledPred pred assertMsg ->
   AssumptionStack pred assumeMsg assertMsg ->
   IO ()
-addProofObligation p stk =
-  do assumes <- collectAssumptions stk
-     let gl = ProofGoal assumes p
-     modifyIORef' (proofObligations stk) (\obls -> obls |> gl)
+addProofObligation p stk = modifyIORef' (proofObligations stk) (gcProve p)
 
 
 
@@ -236,9 +257,7 @@ assert ::
   AssumptionStack pred assumeMsg assertMsg ->
   IO ()
 assert p stk =
-  do assumes <- collectAssumptions stk
-     let gl = ProofGoal assumes p
-     modifyIORef' (proofObligations stk) (\obls -> obls |> gl)
+  do modifyIORef' (proofObligations stk) (gcProve p)
      assume (p & over labeledPredMsg assertToAssume) stk
 
 -- | Collect all the assumptions currently in scope in this stack frame
@@ -254,15 +273,14 @@ collectAssumptions stk = do
 -- | Retrieve the current collection of proof obligations.
 getProofObligations ::
   AssumptionStack pred assumeMsg assertMsg ->
-  IO (Seq (ProofGoal pred assumeMsg assertMsg))
-getProofObligations stk = readIORef (proofObligations stk)
+  IO (ProofGoals pred assumeMsg assertMsg)
+getProofObligations stk = gcFinish <$> readIORef (proofObligations stk)
 
--- | Set the current collection of proof obligations.
-setProofObligations ::
-  Seq (ProofGoal pred assumeMsg assertMsg) ->
+-- | Remove all proof obligations.
+clearProofObligations ::
   AssumptionStack pred assumeMsg assertMsg ->
   IO ()
-setProofObligations obls stk = writeIORef (proofObligations stk) obls
+clearProofObligations stk = writeIORef (proofObligations stk) emptyGoalCollector
 
 freshFrame ::
   AssumptionStack pred assumeMsg assertMsg ->
@@ -288,6 +306,7 @@ pushFrame stk =
      frm <- readIORef (currentFrame stk)
      writeIORef (currentFrame stk) new
      modifyIORef' (frameStack stk) (\frames -> frames |> frm)
+     modifyIORef' (proofObligations stk) gcPush
      return ident
 
 -- | Pop a previously-pushed assumption frame from the stack.
@@ -313,6 +332,14 @@ popFrame ident stk =
        Seq.EmptyR ->
          do new <- freshFrame stk
             writeIORef (currentFrame stk) new
+     modifyIORef' (proofObligations stk) $ \gc ->
+       case gcPop gc of
+         Left gc1 -> gc1
+         Right _  ->
+           panic "AssumptionStack.popFrame"
+             [ "Pop with no push in goal collector."
+             , "*** Current frame: " ++ showFrameId (assumeFrameIdent frm)
+             ]
      return frm
 
   where

@@ -266,9 +266,9 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver) 
     do stk <- getAssumptionStack sym
        AS.getProofObligations stk
 
-  setProofObligations sym obligs =
+  clearProofObligations sym =
     do stk <- getAssumptionStack sym
-       AS.setProofObligations obligs stk
+       AS.clearProofObligations stk
 
   cloneAssumptionState sym =
     do stk <- getAssumptionStack sym
