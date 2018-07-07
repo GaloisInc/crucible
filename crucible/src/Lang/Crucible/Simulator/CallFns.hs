@@ -36,6 +36,7 @@ import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.State
 import           Data.IORef
+import           Data.Maybe (fromMaybe)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TraversableFC
 import qualified Data.Text as Text
@@ -47,6 +48,7 @@ import           What4.Config
 import           What4.Interface
 import           What4.Partial
 import           What4.ProgramLoc
+import           What4.Symbol (emptySymbol)
 import           What4.Utils.MonadST
 
 import           Lang.Crucible.Backend
@@ -635,6 +637,9 @@ loopCrucible' s_ref verb = do
           let tp     = appType estmt
           (v,s') <- extensionExec (extensionImpl (s^.stateContext)) estmt' s
           continueCrucible s_ref verb $ s' & stateCrucibleFrame %~ extendFrame tp v rest
+        FreshConstant bt nm -> do
+          x <- liftIO $ freshConstant sym (fromMaybe emptySymbol nm) bt
+          continueCrucible s_ref verb $ s & stateCrucibleFrame %~ extendFrame (baseToType bt) x rest
         CallHandle ret_type fnExpr _types arg_exprs -> do
           let hndl = evalReg s fnExpr
           let args = evalArgs s arg_exprs
