@@ -14,9 +14,9 @@ import Numeric
 
 import Text.Megaparsec as MP hiding (many, some)
 import Text.Megaparsec.Char
+import qualified Text.Megaparsec.Char.Lexer as L
 
-
-newtype AtomName = AtomName Text deriving (Eq, Ord, Show)
+newtype AtomName = AtomName { atomName :: Text } deriving (Eq, Ord, Show)
 newtype LabelName = LabelName Text deriving (Eq, Ord, Show)
 newtype RegName = RegName Text deriving (Eq, Ord, Show)
 newtype FunName = FunName Text deriving (Eq, Ord, Show)
@@ -40,7 +40,7 @@ data Keyword = Defun | DefBlock
              | VectorGetEntry_ | VectorSetEntry_ | VectorCons_
              | Jump_ | Return_ | Branch_ | MaybeBranch_ | TailCall_ | Error_ | Output_
              | Print_
-             | Let
+             | Let | Fresh
   deriving (Eq, Ord)
 
 keywords :: [(Text, Keyword)]
@@ -86,6 +86,7 @@ keywords =
   , ("or" , Or_)
   , ("xor" , Xor_)
   , ("mod" , Mod)
+  , ("fresh", Fresh)
   , ("jump" , Jump_)
   , ("return" , Return_)
   , ("branch" , Branch_)
@@ -110,6 +111,7 @@ data Atomic = Kw Keyword -- keywords are all the built-in operators and expressi
             | Fn FunName -- Function names, minus the leading @
             | Int Integer
             | Rat Rational
+            | Str String
             | Bool Bool
   deriving (Eq, Ord, Show)
 
@@ -123,6 +125,7 @@ atom =  try (Lbl . LabelName <$> (T.pack <$> many letter) <* char ':')
     <|> try (Int . fromInteger <$> signedPrefixedNumber)
     <|> Rat <$> ((%) <$> signedPrefixedNumber <* char '/' <*> prefixedNumber)
     <|> char '#' *>  (char 't' $> Bool True <|> char 'f' $> Bool False)
+    <|> Str <$> (char '"' >> manyTill L.charLiteral (char '"')) -- TODO? does this correctly handle character escapes?
   where letter = satisfy isLetter
 
 kwOrAtom :: Parser Atomic

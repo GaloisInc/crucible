@@ -36,8 +36,10 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 
-import What4.ProgramLoc
+
 import What4.FunctionName
+import What4.ProgramLoc
+import What4.Symbol
 import What4.Utils.MonadST
 
 import Lang.Crucible.Syntax.SExpr
@@ -66,6 +68,7 @@ printExpr = toText (PrintRules rules) printAtom
         printAtom (Rg (RegName r)) = "$" <> r
         printAtom (At (AtomName a)) = a
         printAtom (Fn (FunName a)) = "@" <> a
+        printAtom (Str str) = T.pack (show str)
         printAtom (Int i) = T.pack (show i)
         printAtom (Rat r) = T.pack (show r)
         printAtom (Bool b) = if b then "#t" else "#f"
@@ -91,6 +94,7 @@ data ExprErr s where
   NotVector :: Position -> AST s -> TypeRepr tp -> ExprErr s
   BadSyntax :: Position -> AST s -> ExprErr s
   CantSynth :: Position -> AST s -> ExprErr s
+  NotAUserSymbol :: Position -> AtomName -> SolverSymbolError -> ExprErr s
   NotAType :: Position -> AST s -> ExprErr s
   NotANat :: Position -> Integer -> ExprErr s
   NotNumeric :: Position -> AST s -> TypeRepr t -> ExprErr s
@@ -127,12 +131,13 @@ errPos (AnonTypeError p _ _) = p
 errPos (TypeMismatch p _ _ _ _) = p
 errPos (BadSyntax p _) = p
 errPos (CantSynth p _) = p
+errPos (NotAUserSymbol p _ _) = p
 errPos (NotAType p _) = p
+errPos (NotABaseType p _) = p
 errPos (NotANat p _) = p
 errPos (NotNumeric p _ _) = p
 errPos (NotComparison p _ _) = p
 errPos (NotVector p _ _) = p
-errPos (NotABaseType p _) = p
 errPos (TrivialErr p) = p
 errPos (Errs e1 e2) = best (errPos e1) (errPos e2)
   where best p@(SourcePos _ _ _) _ = p
@@ -241,6 +246,12 @@ checkExpr expectedT ast =
        Just Refl -> return $ e
        Nothing -> throwError $ TypeError (syntaxPos ast) ast expectedT foundT
 
+isBaseType :: MonadError (ExprErr s) m => AST s -> m (Some BaseTypeRepr)
+isBaseType t =
+  do Some tp <- isType t
+     case asBaseType tp of
+       NotBaseType   -> throwError $ NotABaseType (syntaxPos t) tp
+       AsBaseType bt -> return (Some bt)
 
 isType :: MonadError (ExprErr s) m => AST s -> m (Some TypeRepr)
 isType t@(A (Kw x)) =
@@ -275,6 +286,9 @@ isType (L [A (Kw BitVectorT), n]) =
 isType e = throwError $ NotAType (syntaxPos e) e
 
 synthExpr :: (Alternative m, MonadError (ExprErr s) m, MonadState (SyntaxState s) m) => AST s -> m (SomeExpr s)
+synthExpr (A (Str strLit)) =
+  return $ SomeExpr StringRepr (E (App (TextLit (T.pack strLit))))
+
 synthExpr (L [A (Kw The), t, e]) =
   do Some ty <- isType t
      e' <- checkExpr ty e
@@ -584,14 +598,24 @@ regRef other = throwError $ InvalidRegister (syntaxPos other) other
 
 -- | Build an ordinary statement
 normStmt :: AST s -> WriterT [Posd (Stmt () s)] (CFGParser h s ret) ()
+
 normStmt stmt@(L [A (Kw Print_), e]) =
   do (E e') <- lift $ checkExpr StringRepr e
      at <- eval e e'
      tell [withPosFrom stmt $ Print at]
+
 normStmt stmt@(L [A (Kw Let), A (At an), e]) =
   do SomeExpr tp (E e') <- lift $ synthExpr e
      atom <- eval stmt e'
      stxAtoms %= Map.insert an (Pair tp atom)
+
+normStmt stmt@(L [A (Kw Fresh), A (At an), tpe]) =
+  case userSymbol (T.unpack (atomName an)) of
+    Left err -> throwError $ NotAUserSymbol (syntaxPos stmt) an err
+    Right nm ->
+      do Some bt <- isBaseType tpe
+         atom <- freshAtom stmt (FreshConstant bt (Just nm))
+         stxAtoms %= Map.insert an (Pair (baseToType bt) atom)
 
 normStmt other = throwError $ BadStatement (syntaxPos other) other
 
@@ -841,14 +865,13 @@ parseCFG :: (?returnType :: TypeRepr ret)
          -> TopParser h s (CFG () s init ret)
 parseCFG h (CFGParser act) = CFG h <$> TopParser act
 
-cfg :: AST s -> TopParser h s ACFG
-cfg defun =
+cfg :: HandleAllocator h -> AST s -> TopParser h s ACFG
+cfg halloc defun =
   do (name, Some (args :: Ctx.Assignment Arg init) , Some ret, body) <- functionHeader defun
      let types = argTypes args
      let inputAtoms = mkInputAtoms (OtherPos "args") types
      saveArgs args inputAtoms
      let ?returnType = ret
-     ha <- newHandleAllocator
 
-     handle <- liftST $ mkHandle' ha name types ret
+     handle <- liftST $ mkHandle' halloc name types ret
      ACFG types ret <$> (parseCFG handle (blocks (syntaxPos defun) body))
