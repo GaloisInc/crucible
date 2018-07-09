@@ -4,6 +4,8 @@ module Report where
 import System.FilePath
 import Data.List(intercalate,sortBy)
 import Data.Maybe(fromMaybe)
+import Control.Exception(catch,SomeException(..))
+import Control.Monad(when)
 
 import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Backend
@@ -16,17 +18,26 @@ import Goal
 
 type SideCond = ([JS],[(AsmpLab,String)], (SimError,String), Bool, ProofResult)
 
-
 generateReport :: Options -> ProvedGoals -> IO ()
 generateReport opts xs =
-  do writeFile (outDir opts </> "report.js")
+  do when (takeExtension (inputFile opts) == ".c") (generateSource opts)
+     writeFile (outDir opts </> "report.js")
         $ "var goals = " ++ renderJS (jsList (renderSindConds xs))
+
+
+
+generateSource :: Options -> IO ()
+generateSource opts =
+  do src <- readFile (inputFile opts)
+     writeFile (outDir opts </> "source.js")
+        $ "var lines = " ++ show (lines src)
+  `catch` \(SomeException {}) -> return ()
 
 
 renderSindConds :: ProvedGoals -> [ JS ]
 renderSindConds = map snd
                 . sortBy smallerDepth
-                . go 0 []
+                . go (0::Integer) []
   where
   smallerDepth (x,_) (y,_) = compare x y
 

@@ -7,9 +7,7 @@
 module Main(main) where
 
 import Data.String(fromString)
-import qualified Data.Foldable as Fold
 import qualified Data.Map as Map
-import Data.Maybe(catMaybes)
 import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)
 import Control.Monad(unless)
@@ -35,7 +33,6 @@ import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
 import Lang.Crucible.Simulator.RegMap(emptyRegMap,regValue)
 import Lang.Crucible.Simulator.ExecutionTree
-import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Simulator.OverrideSim
         ( fnBindingsFromList, initSimState, runOverrideSim, callCFG)
 
@@ -60,7 +57,6 @@ import Model
 import Clang
 import Log
 import Options
-import ProgressBar
 import Report
 
 main :: IO ()
@@ -85,7 +81,8 @@ checkBC :: Options -> IO ()
 checkBC opts =
   do let file = optsBCFile opts
      say "Crux" ("Checking " ++ show file)
-     generateReport opts =<< simulate opts (checkFun "main")
+     res <- simulate opts (checkFun "main")
+     generateReport opts res
 
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::
@@ -173,37 +170,6 @@ simulate opts k =
           provedGoalsTree ctx'
             =<< proveGoals ctx'
             =<< fmap addLoopMarkers (getProofObligations sym)
-{-
-          say "Crux"
-              ("Proving " ++ show n ++ " side condition" ++ suff n ++ ".")
-          xs <- withProgressBar' "Proving: " gs $ \g ->
-                do result <- proveGoal ctx' g
-                   case result of
-                     NotProved {} -> return (Just (toRes result g))
-                     Proved ->
-                       do simp <- simpProved ctx' g
-                          case simp of
-                            Trivial -> return Nothing
-                            NotTrivial g1 -> return (Just (toRes Proved g1))
-          let bad  = sum [ 1 | Just (_,_,NotProved {}) <- xs ]
-          if bad > (0 :: Integer)
-            then sayFail "Crux" $ "Failed to prove " ++ show bad ++
-                                  " side condition" ++ suff bad ++ "."
-            else sayOK "Crux" "Proved all side conditions."
-          return (catMaybes xs)
--}
-
-{-
-   where toRes result g =
-           ( map (^. labeledPredMsg)
-                 (Fold.toList (proofAssumptions g))
-           , proofGoal g ^. labeledPredMsg
-           , result
-           )
-
-           suff m = if m == 1 then "" else "s"
--}
-
 
 checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM sym arch ()
 checkFun nm mp =
