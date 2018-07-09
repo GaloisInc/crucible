@@ -17,6 +17,7 @@ module What4.Solver.Z3
        , z3Path
        , z3Options
        , z3Adapter
+       , writeZ3SMT2File
        , runZ3InOverride
        , withZ3
        ) where
