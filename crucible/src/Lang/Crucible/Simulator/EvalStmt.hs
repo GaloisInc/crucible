@@ -28,9 +28,6 @@ module Lang.Crucible.Simulator.EvalStmt
   , singleStepCrucible
   , executeCrucible
 
-  , continue
-  , continueWith
-
   , evalReg
   , evalExpr
   , stepTerm
@@ -190,6 +187,8 @@ evalSwitchTarget ::
 evalSwitchTarget (SwitchTarget tgt _tp a) = SwitchCall tgt <$> evalArgs a
 
 
+
+
 {-
 checkStateConsistency :: CrucibleState p sym rtp blocks r a
                       -> BlockID blocks args
@@ -333,7 +332,6 @@ evalArgs args = ReaderT $ \s -> return $! evalArgs' (s^.stateCrucibleFrame.frame
 {-# INLINE evalArgs #-}
 
 
-
 {-# INLINABLE stepTerm #-}
 
 -- | Evaluation operation for evaluating a single block-terminator
@@ -407,8 +405,8 @@ stepTerm _ (TailCall fnExpr _types arg_exprs) =
                         (runOverride o)
        SomeCF f ->
          case replaceTailFrame t (MF f) of
-           Just t' -> continueWith (stateTree .~ t')
-           Nothing -> continueWith (stateTree %~ callFn tailReturnToCrucible (MF f))
+           Just t' -> withReaderT (stateTree .~ t') continue
+           Nothing -> withReaderT (stateTree %~ callFn tailReturnToCrucible (MF f)) continue
 
 stepTerm _ (ErrorStmt msg) =
   do msg' <- evalReg msg
@@ -457,17 +455,22 @@ readRef sym iTypes tpr rs globs =
 --   statement of the Crucible evaluator.
 --
 --   This is allowed to throw user execeptions or SimError.
-stepStmt ::
+stepStmt :: forall p sym ext rtp blocks r ctx ctx'.
   (IsSymInterface sym, IsSyntaxExtension ext) =>
   Int {- ^ Current verbosity -} ->
   Stmt ext ctx ctx' {- ^ Statement to evaluate -} ->
   StmtSeq ext blocks r ctx' {- ^ Remaning statements in the block -} ->
   ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
-stepStmt _verb stmt rest =
+stepStmt verb stmt rest =
   do ctx <- view stateContext
      let sym = ctx^.ctxSymInterface
      let iTypes = ctxIntrinsicTypes ctx
      globals <- view (stateTree.actFrame.gpGlobals)
+
+     let continueWith :: forall rtp' blocks' r' c f a.
+           (SimState p sym ext rtp' f a -> SimState p sym ext rtp' (CrucibleLang blocks' r') ('Just c)) ->
+           ExecCont p sym ext rtp' f a
+         continueWith f = withReaderT f (stepBasicBlock verb)
 
      case stmt of
        NewRefCell tpr x ->
@@ -487,8 +490,8 @@ stepStmt _verb stmt rest =
        ReadRefCell x ->
          do RegEntry (ReferenceRepr tpr) rs <- evalReg' x
             v <- liftIO $ readRef sym iTypes tpr rs globals
-            continueWith
-              (stateCrucibleFrame %~ extendFrame tpr v rest)
+            continueWith $
+              stateCrucibleFrame %~ extendFrame tpr v rest
 
        WriteRefCell x y ->
          do RegEntry (ReferenceRepr tpr) rs <- evalReg' x
@@ -534,7 +537,8 @@ stepStmt _verb stmt rest =
             ReaderT $ \s ->
               do (v,s') <- liftIO $ extensionExec (extensionImpl ctx) estmt' s
                  let tp = appType estmt
-                 return (RunningState (s' & stateCrucibleFrame %~ extendFrame tp v rest))
+                 runReaderT (stepBasicBlock verb)
+                     (s' & stateCrucibleFrame %~ extendFrame tp v rest)
 
        CallHandle ret_type fnExpr _types arg_exprs ->
          do hndl <- evalReg fnExpr

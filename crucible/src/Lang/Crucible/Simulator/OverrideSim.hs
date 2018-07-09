@@ -91,7 +91,7 @@ import           Lang.Crucible.Panic(panic)
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.CallFrame (mkCallFrame)
-import           Lang.Crucible.Simulator.EvalStmt (SomeSimFrame(..), resolveCallFrame, continue)
+import           Lang.Crucible.Simulator.EvalStmt (SomeSimFrame(..), resolveCallFrame)
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.Frame
 import           Lang.Crucible.Simulator.GlobalState
@@ -344,9 +344,9 @@ callFnVal cl args = do
     let bindings = s^.stateContext^.functionBindings
     case resolveCallFrame bindings cl args of
       SomeOF o f -> do
-        runReaderT (runOverride o) (s & stateTree %~ callFn (returnToOverride (ReaderT . c)) (OF f))
+        runReaderT (runOverride o) (s & stateTree %~ callFn (returnToOverride c) (OF f))
       SomeCF f -> do
-        runReaderT continue $ s & stateTree %~ callFn (returnToOverride (ReaderT . c)) (MF f)
+        runReaderT continue $ s & stateTree %~ callFn (returnToOverride c) (MF f)
 
 -- | Call a function with the given arguments.  Provide the arguments as an
 --   @Assignment@ instead of as a @RegMap@.
@@ -371,7 +371,7 @@ callCFG  :: IsSyntaxExtension ext
 callCFG cfg args = do
   Sim $ StateContT $ \c s -> do
     let f = mkCallFrame cfg (postdomInfo cfg) args
-    runReaderT continue $ s & stateTree %~ callFn (returnToOverride (ReaderT . c)) (MF f)
+    runReaderT continue $ s & stateTree %~ callFn (returnToOverride c) (MF f)
 
 
 -- | Add a failed assertion.  This aborts execution along the current

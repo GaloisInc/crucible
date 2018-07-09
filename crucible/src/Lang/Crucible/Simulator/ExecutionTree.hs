@@ -64,9 +64,12 @@ module Lang.Crucible.Simulator.ExecutionTree
   , returnToCrucible
   , tailReturnToCrucible
   , continue
-  , continueWith
   , jumpToBlock
   , runOverride
+
+  , returnAndMerge
+  , returnValue
+  , FrameRetType
 
   , isSingleCont
   , pathConditions
@@ -82,8 +85,6 @@ module Lang.Crucible.Simulator.ExecutionTree
   , getIntraFrameBranchTarget
   , performIntraFrameMerge
   , callFn
-  , returnValue
-  , returnAndMerge
   , abortExec
   , extractCurrentPath
   , branchConditions
@@ -472,7 +473,7 @@ data ReturnHandler top_return p sym ext r f args new_args where
     (ret -> ExecCont p sym ext rtp (OverrideLang args r) 'Nothing)
       {- ^ Remaining override code to run when the return value becomse available -} ->
     ReturnHandler ret p sym ext rtp (OverrideLang args r) 'Nothing 'Nothing
-  
+
   ReturnToCrucible ::
     TypeRepr ret {- ^ Type of the return value -} ->
     StmtSeq ext blocks r (ctx ::> ret) {- ^ Remaining statements to execute -} ->
@@ -485,10 +486,10 @@ data ReturnHandler top_return p sym ext r f args new_args where
 
 
 returnToOverride ::
-  (ret -> ExecCont p sym ext rtp (OverrideLang args r) 'Nothing)
+  (ret -> SimState p sym ext rtp (OverrideLang args r) 'Nothing -> IO (ExecState p sym ext rtp))
     {- ^ Remaining override code to run when the return value becomse available -} ->
   ReturnHandler ret p sym ext rtp (OverrideLang args r) 'Nothing 'Nothing
-returnToOverride = ReturnToOverride
+returnToOverride c = ReturnToOverride (ReaderT . c)
 
 returnToCrucible :: forall p sym ext root ret blocks r ctx.
   TypeRepr ret {- ^ Type of the return value -} ->
@@ -509,24 +510,6 @@ runOverride o = ReaderT (return . OverrideState o)
 
 continue :: ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just a)
 continue = ReaderT (return . RunningState)
-
-continueWith ::
-  (SimState p sym ext rtp f a -> SimState p sym ext rtp (CrucibleLang blocks r) ('Just ctx)) ->
-  ExecCont p sym ext rtp f a
-continueWith f = withReaderT f continue
-
-returnAndMerge :: forall p sym ext rtp blocks r args.
-  IsSymInterface sym =>
-  RegEntry sym r ->
-  ExecCont p sym ext rtp (CrucibleLang blocks r) args
-returnAndMerge arg =
-  let cont :: ExecCont p sym ext rtp (CrucibleLang b r) 'Nothing
-      cont = do RF v <- view (stateTree.actFrame.gpValue)
-                returnValue v
-  in
-  withReaderT
-    (stateTree.actFrame.gpValue .~ RF arg)
-    (checkForIntraFrameMerge cont ReturnTarget)
 
 jumpToBlock :: (IsSymInterface sym, IsSyntaxExtension ext)
              => BlockID blocks args
@@ -821,6 +804,75 @@ resumeFrame pv ctx =
        (stateTree .~ ActiveTree ctx (pv^.pausedValue))
        (resume pv)
 {-# INLINABLE resumeFrame #-}
+
+
+------------------------------------------------------------------------
+-- Return a value
+
+returnAndMerge :: forall p sym ext rtp blocks r args.
+  IsSymInterface sym =>
+  RegEntry sym r ->
+  ExecCont p sym ext rtp (CrucibleLang blocks r) args
+returnAndMerge arg =
+  let cont :: ExecCont p sym ext rtp (CrucibleLang b r) 'Nothing
+      cont = do RF v <- view (stateTree.actFrame.gpValue)
+                returnValue v
+  in
+  withReaderT
+    (stateTree.actFrame.gpValue .~ RF arg)
+    (checkForIntraFrameMerge cont ReturnTarget)
+
+-- | Return value from current execution.
+--
+-- NOTE: All symbolic branching must be resolved before calling `returnValue`.
+returnValue :: IsSymInterface sym
+            => RegEntry sym (FrameRetType f)
+            -> ExecCont p sym ext r f a
+returnValue v =
+  do ActiveTree ctx er <- view stateTree
+     let val = er & partialValue . gpValue .~ v
+     handleSimReturn (returnContext ctx) val
+
+
+handleSimReturn ::
+  IsSymInterface sym =>
+  ValueFromValue p sym ext r ret {- ^ Context to return to. -} ->
+  PartialResult sym ext ret {- ^ Value that is being returned. -} ->
+  ExecCont p sym ext r f a
+handleSimReturn ctx0 return_value = do
+  case ctx0 of
+    VFVCall ctx (MF f) (ReturnToCrucible tpr rest) ->
+      do let v  = return_value^.partialValue.gpValue
+             f' = extendFrame tpr (regValue v) rest f
+         withReaderT
+           (stateTree .~ ActiveTree ctx (return_value & partialValue . gpValue .~ MF f'))
+           continue
+
+    VFVCall ctx _ TailReturnToCrucible ->
+      do let v  = return_value^.partialValue.gpValue
+         withReaderT
+           (stateTree .~ ActiveTree ctx (return_value & partialValue . gpValue .~ RF v))
+           (returnAndMerge v)
+
+    VFVCall ctx (OF f) (ReturnToOverride k) ->
+      do let v = return_value^.partialValue.gpValue
+         withReaderT
+           (stateTree .~ ActiveTree ctx (return_value & partialValue . gpValue .~ OF f))
+           (k v)
+
+    VFVPartial ctx p r ->
+      do sym <- asks stateSymInterface
+         new_ret_val <- liftIO (mergePartialAndAbortedResult sym p return_value r)
+         handleSimReturn ctx new_ret_val
+
+    VFVEnd ->
+      do res <- view stateContext
+         return $! ResultState $ FinishedResult res return_value
+
+
+
+
+
 
 ------------------------------------------------------------------------
 -- | Checking for intra-frame merge.
@@ -1209,55 +1261,6 @@ callFn rh f' (ActiveTree ctx er) =
   old_frame = er ^. partialValue ^. gpValue
   er'       = er &  partialValue  . gpValue .~ f'
 
-
-------------------------------------------------------------------------
--- Return a value
-
--- | Return value from current execution.
---
--- NOTE: All symbolic branching must be resolved before calling `returnValue`.
-returnValue :: IsSymInterface sym
-            => RegEntry sym (FrameRetType f)
-            -> ExecCont p sym ext r f a
-returnValue v =
-  do ActiveTree ctx er <- view stateTree
-     let val = er & partialValue . gpValue .~ v
-     handleSimReturn (returnContext ctx) val
-
-
-handleSimReturn ::
-  IsSymInterface sym =>
-  ValueFromValue p sym ext r ret {- ^ Context to return to. -} ->
-  PartialResult sym ext ret {- ^ Value that is being returned. -} ->
-  ExecCont p sym ext r f a
-handleSimReturn ctx0 return_value = do
-  case ctx0 of
-    VFVCall ctx (MF f) (ReturnToCrucible tpr rest) ->
-      do let v  = return_value^.partialValue.gpValue
-             f' = extendFrame tpr (regValue v) rest f
-         continueWith
-           (stateTree .~ ActiveTree ctx (return_value & partialValue . gpValue .~ MF f'))
-
-    VFVCall ctx _ TailReturnToCrucible ->
-      do let v  = return_value^.partialValue.gpValue
-         withReaderT
-           (stateTree .~ ActiveTree ctx (return_value & partialValue . gpValue .~ RF v))
-           (returnAndMerge v)
-
-    VFVCall ctx (OF f) (ReturnToOverride k) ->
-      do let v = return_value^.partialValue.gpValue
-         withReaderT
-           (stateTree .~ ActiveTree ctx (return_value & partialValue . gpValue .~ OF f))
-           (k v)
-
-    VFVPartial ctx p r ->
-      do sym <- asks stateSymInterface
-         new_ret_val <- liftIO (mergePartialAndAbortedResult sym p return_value r)
-         handleSimReturn ctx new_ret_val
-
-    VFVEnd ->
-      do res <- view stateContext
-         return $! ResultState $ FinishedResult res return_value
 
 ------------------------------------------------------------------------
 -- Aborting an execution.
