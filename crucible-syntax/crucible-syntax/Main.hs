@@ -34,6 +34,7 @@ import Lang.Crucible.CFG.SSAConversion
 import qualified Lang.Crucible.CFG.Core as C
 import Lang.Crucible.Analysis.Postdom (postdomInfo)
 import Lang.Crucible.FunctionHandle
+import Lang.Crucible.Simulator.EvalStmt (executeCrucible)
 import Lang.Crucible.Simulator.ExecutionTree
   ( FunctionBindings, FnState(..), initSimContext, ExtensionImpl(..), defaultErrorHandler
   , ExecResult(..) )
@@ -122,13 +123,13 @@ runSimulator halloc fl inp =
                   (ExtensionImpl (\_ _ _ _ -> \case) (\case)) ()
      let st0 = initSimState ctx emptyGlobals defaultErrorHandler
 
-     res <- Ex.try (runOverrideSim st0 (handleReturnType hMain) $
+     res <- Ex.try (executeCrucible st0 $ runOverrideSim (handleReturnType hMain) $
                      callFnVal' (HandleFnVal hMain) Empty)
      case res of
        Left (ex :: SomeException) ->
          do putStrLn "Exeception escaped!"
             print ex
-       Right (FinishedExecution _ctx _pr) ->
+       Right (FinishedResult _ctx _pr) ->
          putStrLn "Finished!"
        Right (AbortedResult _ctx _ar) ->
          putStrLn "Aborted!"
