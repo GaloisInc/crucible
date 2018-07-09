@@ -170,7 +170,9 @@ simulate opts k =
 
           say "Crux" "Simulation complete."
 
-          provedGoalsTree ctx' =<< proveGoals ctx' =<< getProofObligations sym
+          provedGoalsTree ctx'
+            =<< proveGoals ctx'
+            =<< fmap addLoopMarkers (getProofObligations sym)
 {-
           say "Crux"
               ("Proving " ++ show n ++ " side condition" ++ suff n ++ ".")

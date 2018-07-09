@@ -21,12 +21,9 @@ function drawLines() {
 function getLine(n) { return $('#line-' + n) }
 
 function drawStatus(proved) {
-  return $('<div/>').text(proved ? 'OK' : 'failed')
-                    .css('display','inline-block')
-                    .css('margin', '2px')
-                    .css('padding', '2px')
-                    .css('text-align','center')
-                    .css('border-radius','2px')
+  return $('<div/>')
+         .addClass('tag')
+         .text(proved ? 'ok' : 'fail')
                     .addClass(proved ? 'highlight-proved' : 'highlight-failed')
 }
 
@@ -39,21 +36,37 @@ function drawCounterExample(e) {
 }
 
 
-var nextLabel = 0
-
-function newLabel() { // XXX
-  return "L" + nextLabel++
-}
 
 function drawAsmpTgt(a,b) {
   var lnFrom = getLine(a)
   var lnTo   = getLine(b)
 
-  var l = newLabel()
-
   lnFrom.append($('<span/>').addClass('asmp-lab').text(l))
   lnTo.append($('<span/>').addClass('asmp-lab').text(l))
 }
+
+function drawPath(path) {
+  $('.path').remove()
+  jQuery.each(path,function(ix,branch) {
+    var ln = getLine(branch.line)
+    var tag = $('<span/>').addClass('path')
+    if (branch.loop) tag.text(branch.loop)
+    ln.append(tag)
+  })
+}
+
+function summarizePath(path) {
+  var it = $('<div/>')
+  var fst = true
+  jQuery.each(path,function(ix,branch) {
+    let msg = (fst ? '' : ', ') + branch.line + '(' + branch.tgt + ')'
+    it.append($('<span/>').text(msg))
+    fst = false
+  })
+  return it
+}
+
+
 
 function drawGoals() {
   var dom = $('<div>').addClass('goals')
@@ -63,7 +76,10 @@ function drawGoals() {
             .css('cursor','pointer')
             .append( drawStatus(g.proved)
                    , $('<span/>').text(g.goal)
+                   , $('<pre/>').text(g.lab)
                    )
+            .append(summarizePath(g.path))
+            .append($('<span/>').text(g.trivial))
     li.click(function() {
       $('.selected').removeClass('selected')
       li.addClass('selected')
@@ -75,12 +91,13 @@ function drawGoals() {
      jQuery.each(g.assumptions, function(ix,a) {
         var ln = getLine(a.line)
         if (a.line !== g.location) ln.addClass('highlight-assumed')
-        if (a.tgt !== null) drawAsmpTgt(a.line, a.tgt)
+        // if (a.tgt !== null && a.tgt !== undefined) drawAsmpTgt(a.line, a.tgt)
       })
       if (g.location !== null)
         getLine(g.location)
             .addClass(g.proved ? 'highlight-proved' : 'highlight-failed')
       drawCounterExample(g['counter-example'])
+      if(g.path) drawPath(g.path)
     })
     dom.append(li)
   })
@@ -167,6 +184,28 @@ body { height: 100%; padding: 0; margin: 0; }
 
 .selected {
   background-color: #ccf;
+}
+
+.path {
+  border: 1px solid black;
+  font-weight: bold;
+  min-width: 1em;
+  min-height: 2px;
+  background-color: yellow;
+}
+
+.tag {
+  font-weight: bold;
+  color:       white;
+  font-family: monospace;
+  display: inline-block;
+  margin: 2px;
+  padding: 2px;
+  padding-left: 4px;
+  padding-right: 4px;
+  text-align: center;
+  border-radius: 2px;
+  width: 3em;
 }
 
 </style>

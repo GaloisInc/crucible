@@ -5,9 +5,12 @@ module Goal where
 import Control.Lens((^.), (&), (.~))
 import Control.Monad(forM)
 import qualified Data.Sequence as Seq
+import qualified Data.Map as Map
+import qualified Data.Set as Set
+import           Data.List(mapAccumL)
 import Data.IORef
 
-import What4.Interface (notPred, falsePred)
+import What4.Interface (notPred, falsePred, Pred, printSymExpr)
 import What4.ProgramLoc
 import What4.SatResult(SatResult(..))
 import What4.Expr.Builder (ExprBuilder)
@@ -30,26 +33,30 @@ import ProgressBar
 data ProofResult = Proved
                  | NotProved (Maybe ModelViews)   -- ^ Counter example, if any
 
-type BranchPoint = (ProgramLoc, Maybe ProgramLoc)
-type Path        = [ BranchPoint ]
+type LPred sym   = LabeledPred (Pred sym)
 
+data IsLoop      = NotLoop | LoopIter !Int
+data PredLoc     = PL ProgramLoc IsLoop{-LAZY-}
 
 data ProvedGoals =
-    AtLoc ProgramLoc (Maybe ProgramLoc) ProvedGoals
+    AtLoc PredLoc (Maybe ProgramLoc) ProvedGoals
   | Branch [ ProvedGoals ]
-  | Goal [AssumptionReason] SimError Bool ProofResult
+  | Goal [(AsmpLab,String)] (SimError,String) Bool ProofResult
     -- ^ Keeps only the explanations for the relevant assumptions.
     -- The 'Bool' indicates if the goal is trivial (i.e., the assumptions
     -- are inconsistent)
 
+-- | Locations are annotated with loop information.
+data AsmpLab = Exploring PredLoc (Maybe ProgramLoc)
+             | OtherAsmp AssumptionReason {- Not ExploringAPat -}
 
 -- | Simplify the proved goals.
 provedGoalsTree ::
- ( sym ~ ExprBuilder s (OnlineBackendState solver)
+  ( sym ~ ExprBuilder s (OnlineBackendState solver)
   , OnlineSolver s solver
   ) =>
   SimCtxt sym arch ->
-  Goals (Assumption sym) (Assertion sym, ProofResult) ->
+  Goals (LPred sym AsmpLab) (Assertion sym, ProofResult) ->
   IO ProvedGoals
 provedGoalsTree ctxt = go []
   where
@@ -57,26 +64,22 @@ provedGoalsTree ctxt = go []
     case gs of
       Assuming p gs1 ->
         case p ^. labeledPredMsg of
-          ExploringAPath from to -> AtLoc from to <$> go (p : asmps) gs1
-          _                      -> go (p : asmps) gs1
+          Exploring from to -> AtLoc from to <$> go (p : asmps) gs1
+          _                 -> go (p : asmps) gs1
       Prove (p,r)  ->
         case r of
           Proved ->
-            do (as1,triv) <- simpProved' ctxt ProofGoal
+            do (as1,triv) <- simpProved ctxt ProofGoal
                                    { proofAssumptions = Seq.fromList asmps
                                    , proofGoal        = p
                                    }
-               return (Goal (map (^. labeledPredMsg) as1)
-                             (p ^. labeledPredMsg)
-                             triv
-                             Proved)
+               return (Goal (map mkAsmp as1) (mkAsmp p) triv Proved)
 
-          _ -> return (Goal (map (^. labeledPredMsg) asmps)
-                            (p ^. labeledPredMsg)
-                            False
-                            r)
+          _ -> return (Goal (map mkAsmp asmps) (mkAsmp p) False r)
 
       ProveAll gss -> Branch <$> mapM (go asmps) gss
+
+  mkAsmp a = (a ^. labeledPredMsg, show (printSymExpr (a ^. labeledPred)))
 
 
 countGoals :: Goals a b -> Int
@@ -89,17 +92,34 @@ countGoals gs =
 
 
 
-addLoopMarkers = go Map.empty
+-- | Annotate exploration assumptions with how many times they've
+-- been visited on a particular path.
+addLoopMarkers :: Goals (LabeledPred p AssumptionReason) g ->
+                  Goals (LabeledPred p AsmpLab) g
+addLoopMarkers gs0 = finGs
   where
-  go mp gs = case gs of
-               Assuming p ->
-                 case p ^. labeledPredMsg of
-                   ExploringAPath p _ ->
-                     let mp1 = Map.insertWith (+) p 1 mp
-                         cnt = mp1 Map.! p
-                      in undefined
-               Prove p -> Prove p
-               ProveAll gss -> ProveAll (map (go mp) gss)
+  (loopSet,finGs) = go loopSet Map.empty Set.empty gs0
+
+  go finLoops mp loops gs =
+    case gs of
+      Assuming p gs1 ->
+        let (lab,mp1) =
+               case p ^. labeledPredMsg of
+                 ExploringAPath from to ->
+                   let mp' = Map.insertWith (+) from 1 mp
+                       cnt = if from `Set.member` finLoops
+                                then LoopIter (mp1 Map.! from)
+                                else NotLoop
+                   in (Exploring (PL from cnt) to, mp')
+                 q -> (OtherAsmp q, mp)
+            (ls1,res) = go finLoops mp1 loops gs1
+        in (ls1, Assuming (p & labeledPredMsg .~ lab) res)
+      Prove p ->
+        let ls = Set.union (Map.keysSet (Map.filter (> 1) mp)) loops
+        in (ls, Prove p)
+      ProveAll gss ->
+        let (ls1, res) = mapAccumL (go finLoops mp) loops gss
+        in (ls1, ProveAll res)
 
 
 
@@ -110,14 +130,13 @@ proveGoals ::
   , OnlineSolver s solver
   ) =>
   SimCtxt sym arch ->
-  ProofObligations sym ->
-  IO (Goals (Assumption sym) (Assertion sym, ProofResult))
-
+      Goals (LPred sym asmp) (LPred sym ast) ->
+  IO (Goals (LPred sym asmp) (LPred sym ast, ProofResult))
 proveGoals ctxt gs0 =
   do let sym = ctxt ^. ctxSymInterface
      sp <- getSolverProcess sym
      goalNum <- newIORef 1
-     go sp goalNum gs0
+     inNewFrame (solverConn sp) (go sp goalNum gs0)
   where
   (start,end) = prepStatus "Proving: " (countGoals gs0)
 
@@ -174,7 +193,7 @@ canProve ::
   ( sym ~ ExprBuilder s (OnlineBackendState solver)
   , OnlineSolver s solver
   ) =>
-  SimCtxt sym arch -> ProofObligation sym -> IO ProofResult
+  SimCtxt sym arch -> ProofGoal (Pred sym) asmp ast -> IO ProofResult
 
 canProve ctxt g = proveGoal' ctxt g $ \_sp -> return Nothing
 
@@ -184,7 +203,7 @@ proveGoal' ::
   , OnlineSolver s solver
   ) =>
   SimCtxt sym arch ->
-  ProofObligation sym ->
+  ProofGoal (Pred sym) asmp ast ->
   (SolverProcess s solver -> IO (Maybe ModelViews)) ->
   IO ProofResult
 proveGoal' ctxt g isSat =
@@ -213,37 +232,11 @@ simpProved ::
   ( sym ~ ExprBuilder s (OnlineBackendState solver)
   , OnlineSolver s solver
   ) =>
-  SimCtxt sym arch -> ProofObligation sym -> IO (SimpResult sym)
+  SimCtxt sym arch ->
+  ProofGoal (Pred sym) asmp ast ->
+  IO ( [ LPred sym asmp ], Bool )
+
 simpProved ctxt goal =
-  do let false = falsePred (ctxt ^. ctxSymInterface)
-         g1 = goal { proofGoal = (proofGoal goal) & labeledPred .~ false }
-     res <- canProve ctxt g1
-     case res of
-       Proved -> return Trivial -- we should still minimize the asmps
-       _      -> dropAsmps Seq.empty (proofAssumptions goal)
-
-  where
-  -- XXX: can use incremental for more efficient checking
-  -- A simple way to figure out what might be relevant assumptions.
-  dropAsmps keep asmps =
-    case asmps of
-      Seq.Empty -> return (NotTrivial goal { proofAssumptions = keep })
-      a Seq.:<| as ->
-        do res <- canProve ctxt goal { proofAssumptions = as Seq.>< keep }
-           case res of
-             Proved -> dropAsmps keep as
-             NotProved {} -> dropAsmps (a Seq.:<| keep) as
-
-
-
-
-
-simpProved' ::
-  ( sym ~ ExprBuilder s (OnlineBackendState solver)
-  , OnlineSolver s solver
-  ) =>
-  SimCtxt sym arch -> ProofObligation sym -> IO ([ Assumption sym ], Bool)
-simpProved' ctxt goal =
   do let false = falsePred (ctxt ^. ctxSymInterface)
          g1 = goal { proofGoal = (proofGoal goal) & labeledPred .~ false }
      res <- canProve ctxt g1
