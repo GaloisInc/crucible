@@ -41,6 +41,7 @@ module Lang.Crucible.Simulator.EvalStmt
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.Reader
+import           Data.Maybe (fromMaybe)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TraversableFC
 import qualified Data.Text as Text
@@ -52,6 +53,7 @@ import           What4.Config
 import           What4.Interface
 import           What4.Partial
 import           What4.ProgramLoc
+import           What4.Symbol (emptySymbol)
 import           What4.Utils.MonadST
 
 import           Lang.Crucible.Backend
@@ -517,6 +519,11 @@ stepStmt _verb stmt rest =
             continueWith $
               (stateTree . actFrame . gpGlobals %~ insertGlobal global_var v) .
               (stateCrucibleFrame . frameStmts .~ rest)
+
+       FreshConstant bt mnm ->
+         do let nm = fromMaybe emptySymbol mnm
+            v <- liftIO $ freshConstant sym nm bt
+            continueWith $ stateCrucibleFrame %~ extendFrame (baseToType bt) v rest
 
        SetReg tp e ->
          do v <- evalExpr e
