@@ -49,8 +49,9 @@ function drawPath(path) {
   $('.path').remove()
   jQuery.each(path,function(ix,branch) {
     var ln = getLine(branch.line)
-    var tag = $('<span/>').addClass('path')
-    if (branch.loop) tag.text(branch.loop)
+    var tag = $('<span/>')
+              .addClass('path')
+              .text(branch.loop ? branch.loop : '*')
     ln.append(tag)
   })
 }
@@ -76,10 +77,7 @@ function drawGoals() {
             .css('cursor','pointer')
             .append( drawStatus(g.proved)
                    , $('<span/>').text(g.goal)
-                   , $('<pre/>').text(g.lab)
                    )
-            .append(summarizePath(g.path))
-            .append($('<span/>').text(g.trivial))
     li.click(function() {
       $('.selected').removeClass('selected')
       li.addClass('selected')
@@ -187,11 +185,11 @@ body { height: 100%; padding: 0; margin: 0; }
 }
 
 .path {
-  border: 1px solid black;
   font-weight: bold;
-  min-width: 1em;
-  min-height: 2px;
-  background-color: yellow;
+  background-color: orange;
+  border-radius: 10px;
+  margin: 2px;
+  padding: 2px;
 }
 
 .tag {
