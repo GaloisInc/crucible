@@ -1,0 +1,100 @@
+Name:          crucible-syntax
+Version:       0.1
+Author:        Galois Inc.
+Maintainer:    dtc@galois.com
+Build-type:    Simple
+License:       BSD3
+License-file:  LICENSE
+Cabal-version: >= 1.9.2
+Category:      Language
+Synopsis:      A syntax for reading and writing Crucible control-flow graphs
+Description:
+  This package provides a syntax for directly constructing Crucible
+  control-flow graphs, as well as for observing them.
+
+extra-source-files:
+
+custom-setup
+  setup-depends:
+    base >= 4.7 && < 5,
+    Cabal >= 1.24,
+    directory,
+    filepath,
+    process
+
+library
+  build-depends:
+    ansi-wl-pprint,
+    base >= 4.7,
+    bytestring >= 0.10.2,
+    containers,
+    crucible >= 0.1,
+    executable-path,
+    directory,
+    filepath,
+    GraphSCC,
+    hashable,
+    hashtables,
+    lens,
+    megaparsec,
+    mtl,
+    optparse-applicative,
+    parameterized-utils >= 0.1.7,
+    megaparsec,
+    s-cargot,
+    text,
+    transformers,
+    vector,
+    what4
+
+  hs-source-dirs: src
+
+  build-tools:
+    hpb
+
+  exposed-modules:
+    Lang.Crucible.Syntax.Atoms
+    Lang.Crucible.Syntax.Concrete
+    Lang.Crucible.Syntax.SExpr
+
+  ghc-options: -Wall
+  ghc-prof-options: -O2 -fprof-auto-top
+
+
+executable crucibler
+  build-depends:
+    ansi-wl-pprint,
+    base >= 4.7 && < 4.12,
+    crucible,
+    crucible-syntax,
+    lens,
+    megaparsec,
+    mtl,
+    optparse-applicative,
+    parameterized-utils >= 0.1.7,
+    s-cargot,
+    text,
+    what4
+
+  ghc-options: -Wall
+
+  main-is: Main.hs
+  hs-source-dirs:
+    crucible-syntax
+
+
+test-suite crucible-syntax-tests
+  type: exitcode-stdio-1.0
+  main-is: Tests.hs
+  hs-source-dirs: test
+  build-depends:
+    base,
+    crucible,
+    crucible-syntax,
+    directory,
+    filepath,
+    megaparsec,
+    tasty,
+    tasty-golden,
+    text
+
