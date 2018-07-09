@@ -72,6 +72,7 @@ printExpr = toText (PrintRules rules) printAtom
         rules (Kw Defun) = Just (Special 3)
         rules (Kw DefBlock) = Just (Special 1)
         rules (Kw Start) = Just (Special 1)
+        rules (Kw Registers) = Just (Special 0)
         rules _ = Nothing
 
 
@@ -487,13 +488,13 @@ freshIndex l =
      l .= n + 1
      return n
 
-freshLabelIndex :: CFGParser h s ret Int
+freshLabelIndex :: MonadState (SyntaxState s) m => m Int
 freshLabelIndex = freshIndex stxNextLabel
 
-freshAtomIndex :: CFGParser h s ret Int
+freshAtomIndex :: MonadState (SyntaxState s) m => m Int
 freshAtomIndex = freshIndex stxNextAtom
 
-freshLabel :: CFGParser h s ret (Label s)
+freshLabel :: MonadState (SyntaxState s) m => m (Label s)
 freshLabel = Label <$> freshLabelIndex
 
 freshAtom :: AST s -> AtomValue () s t -> WriterT [Posd (Stmt () s)] (CFGParser h s ret) (Atom s t)
@@ -514,7 +515,7 @@ newLabel x =
      stxLabels %= Map.insert x (NoArgLbl theLbl)
      return theLbl
 
-freshLambdaLabel :: TypeRepr tp -> CFGParser h s ret (LambdaLabel s tp, Atom s tp)
+freshLambdaLabel :: MonadState (SyntaxState s) m => TypeRepr tp -> m (LambdaLabel s tp, Atom s tp)
 freshLambdaLabel t =
   do n <- freshLabelIndex
      i <- freshAtomIndex
@@ -561,7 +562,7 @@ labelArgs ast =
     ArgLbl t l -> return (Pair t l)
 
 
-newUnassignedReg :: TypeRepr t -> CFGParser h s ret (Reg s t)
+newUnassignedReg :: MonadState (SyntaxState s) m => TypeRepr t -> m (Reg s t)
 newUnassignedReg t =
   do i <- freshAtomIndex
      let fakePos = OtherPos "Parser internals"
@@ -720,22 +721,48 @@ funName other = throwError $ NotFunctionName (syntaxPos other) other
 
 saveArgs :: Ctx.Assignment Arg init -> Ctx.Assignment (Atom s) init -> TopParser h s ()
 saveArgs ctx1 ctx2 =
-  let combined = Ctx.zipWith (\(Arg x p t) at -> (Const (Pair t (Functor.Pair (Const x) (Functor.Pair (Const p) at))))) ctx1 ctx2
+  let combined = Ctx.zipWith
+                   (\(Arg x p t) at ->
+                      (Const (Pair t (Functor.Pair (Const x) (Functor.Pair (Const p) at)))))
+                   ctx1 ctx2
   in forMFC_ combined $
        \(Const (Pair t (Functor.Pair (Const x) (Functor.Pair (Const argPos) y)))) ->
-         with (stxAtoms . at x) $ \case
-           Just _ -> throwError $ DuplicateAtom argPos x
-           Nothing ->
-             do stxAtoms %= Map.insert x (Pair t y)
-                stxNextAtom %= max (atomId y + 1)
+         with (stxAtoms . at x) $
+           \case
+             Just _ -> throwError $ DuplicateAtom argPos x
+             Nothing ->
+               do stxAtoms %= Map.insert x (Pair t y)
+                  stxNextAtom %= max (atomId y + 1)
 
-functionHeader :: AST s -> TopParser h s (FunctionName, Some (Ctx.Assignment Arg), Some TypeRepr, [AST s])
-functionHeader (L (A (Kw Defun) : name : arglist : ret : body)) =
+data FunctionHeader s =
+  FunctionHeader { headerName :: FunctionName
+                 , headerArgs :: Some (Ctx.Assignment Arg)
+                 , headerReturnType :: Some TypeRepr
+                 , headerRegisters :: [(RegName, Some (Reg s))]
+                 , functionBody :: [AST s]
+                 }
+
+functionHeader :: AST s -> TopParser h s (FunctionHeader s)
+functionHeader (L (A (Kw Defun) : name : arglist : ret : rest)) =
   do fnName <- funName name
      theArgs <- args arglist (Some Ctx.empty)
      ty <- isType ret
-     return (fnName, theArgs, ty, body)
+     (regs, body) <- getRegisters rest
+     return $ FunctionHeader fnName theArgs ty regs body
+  where getRegisters (L (A (Kw Registers) : regs) : more) =
+          do registers <- saveRegisters regs
+             return (registers, more)
+        getRegisters other = return ([], other)
+        saveRegisters = traverse saveRegister
+        saveRegister :: AST s -> TopParser h s (RegName, Some (Reg s))
+        saveRegister (L [A (Rg x), t]) =
+          do Some ty <- isType t
+             r <- newUnassignedReg ty
+             stxRegisters %= Map.insert x (Pair ty r)
+             return (x, Some r)
+        saveRegister other = throwError $ InvalidRegister (syntaxPos other) other
 functionHeader other = throwError $ NotFunDef (syntaxPos other) other
+
 
 argTypes :: Ctx.Assignment Arg init -> Ctx.Assignment TypeRepr init
 argTypes  = fmapFC (\(Arg _ _ t) -> t)
@@ -843,12 +870,11 @@ parseCFG h (CFGParser act) = CFG h <$> TopParser act
 
 cfg :: AST s -> TopParser h s ACFG
 cfg defun =
-  do (name, Some (args :: Ctx.Assignment Arg init) , Some ret, body) <- functionHeader defun
+  do FunctionHeader name (Some (args :: Ctx.Assignment Arg init)) (Some ret) _ body <- functionHeader defun
      let types = argTypes args
      let inputAtoms = mkInputAtoms (OtherPos "args") types
      saveArgs args inputAtoms
      let ?returnType = ret
      ha <- newHandleAllocator
-
      handle <- liftST $ mkHandle' ha name types ret
      ACFG types ret <$> (parseCFG handle (blocks (syntaxPos defun) body))

@@ -23,6 +23,7 @@ newtype FunName = FunName Text deriving (Eq, Ord, Show)
 
 
 data Keyword = Defun | DefBlock
+             | Registers
              | Start
              | Unpack
              | Plus | Minus | Times | Div
@@ -47,6 +48,7 @@ keywords :: [(Text, Keyword)]
 keywords =
   [ ("defun" , Defun)
   , ("defblock" , DefBlock)
+  , ("registers", Registers)
   , ("let", Let)
   , ("start" , Start)
   , ("unpack" , Unpack)
