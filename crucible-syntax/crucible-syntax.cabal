@@ -91,6 +91,7 @@ test-suite crucible-syntax-tests
     base,
     crucible,
     crucible-syntax,
+    directory,
     filepath,
     megaparsec,
     tasty,

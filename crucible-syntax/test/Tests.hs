@@ -18,8 +18,8 @@ import qualified Text.Megaparsec as MP
 
 import Test.Tasty (defaultMain, TestTree, testGroup)
 import Test.Tasty.Golden
-import System.FilePath (takeBaseName, replaceExtension)
-
+import System.FilePath
+import System.Directory
 
 for = flip map
 
@@ -46,7 +46,9 @@ testParser inFile outFile =
 
 roundTrips :: IO TestTree
 roundTrips =
-  do inputs <- findByExtension [".cbl"] "test-data"
+  do wd <- getCurrentDirectory
+     putStrLn $ "Looking for tests in " ++ wd
+     inputs <- findByExtension [".cbl"] "test-data"
      return $ testGroup "Crucible parsing round-trips"
        [ goldenVsFileDiff
           (takeBaseName input) -- test name
