@@ -84,8 +84,13 @@ setupOverrides ctxt =
         (Empty :> knownRepr :> tPtr :> knownRepr) knownRepr lib_assume
      regOver ctxt "crucible_assert"
         (Empty :> knownRepr :> tPtr :> knownRepr) knownRepr (lib_assert mvar)
+
      regOver ctxt "__VERIFIER_nondet_uint"
         Empty knownRepr sv_comp_fresh_i32
+     regOver ctxt "__VERIFIER_nondet_int"
+        Empty knownRepr sv_comp_fresh_i32
+     regOver ctxt "__VERIFIER_nondet_char"
+        (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i8
 {-
      regOver ctxt "__VERIFIER_assert"
         (Empty :> knownRepr) knownRepr sv_comp_assert
@@ -220,6 +225,16 @@ lib_assert mvar =
 
 
 --------------------------------------------------------------------------------
+
+sv_comp_fresh_i8 ::
+  (ArchOk arch, IsSymInterface sym) =>
+  Fun sym arch (EmptyCtx ::> VectorType AnyType)  (TBits 8)
+sv_comp_fresh_i8 =
+  do x <- mkFresh "X" (BaseBVRepr (knownNat @8))
+     sym <- getSymInterface
+     liftIO (llvmPointer_bv sym x)
+
+
 
 sv_comp_fresh_i32 ::
   (ArchOk arch, IsSymInterface sym) =>
