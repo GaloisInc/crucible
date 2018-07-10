@@ -108,8 +108,9 @@ function drawGoals() {
         }
       })
       if (g.location !== null)
-        getLine(g.location)
-            .addClass(g.proved ? 'highlight-proved' : 'highlight-failed')
+        var it = getLine(g.location)
+        it.addClass(g.proved ? 'highlight-proved' : 'highlight-failed')
+        it[0].scrollIntoView({behavior:'smooth', block:'center'})
       drawCounterExample(g['counter-example'])
       if(g.path) drawPath(g.path)
     })

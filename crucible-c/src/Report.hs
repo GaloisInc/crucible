@@ -2,6 +2,7 @@
 module Report where
 
 import System.FilePath
+import System.Directory(copyFile)
 import Data.List(intercalate,partition)
 import Data.Maybe(fromMaybe)
 import Control.Exception(catch,SomeException(..))
@@ -21,6 +22,9 @@ generateReport opts xs =
   do when (takeExtension (inputFile opts) == ".c") (generateSource opts)
      writeFile (outDir opts </> "report.js")
         $ "var goals = " ++ renderJS (jsList (renderSideConds xs))
+     let copy a = copyFile ("ui" </> a) (outDir opts </> a)
+     copy "index.html"
+     copy "jquery.min.js"
 
 
 
