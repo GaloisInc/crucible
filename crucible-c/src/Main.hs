@@ -169,7 +169,7 @@ simulate opts k =
 
           provedGoalsTree ctx'
             =<< proveGoals ctx'
-            =<< fmap addLoopMarkers (getProofObligations sym)
+            =<< getProofObligations sym
 
 checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM sym arch ()
 checkFun nm mp =

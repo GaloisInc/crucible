@@ -37,23 +37,36 @@ function drawCounterExample(e) {
 
 
 
-function drawAsmpTgt(a,b) {
-  var lnFrom = getLine(a)
-  var lnTo   = getLine(b)
-
-  lnFrom.append($('<span/>').addClass('asmp-lab').text(l))
-  lnTo.append($('<span/>').addClass('asmp-lab').text(l))
-}
-
 function drawPath(path) {
   $('.path').remove()
+  var seen = {}
+  var cur = []
   jQuery.each(path,function(ix,branch) {
-    var ln = getLine(branch.line)
+    var ln = getLine(branch)
+    var num = seen[branch]
+    if (num === undefined) {
+      num = 1
+    } else {
+      ++num
+      /*
+      for (var j = cur.lenght - 1; j > 0; --j) {
+        if (
+      } */
+    }
+    seen[branch] = num
+    var step = ix + 1
+
     var tag = $('<span/>')
               .addClass('path')
-              .text(branch.loop ? branch.loop : '*')
+              .text(step)
     ln.append(tag)
   })
+  /*
+  jQuery.each(seen,function(i,val) {
+    if (val > 1)
+      getLine(i).append($('<span/>').addClass('path').text('(' + val + ')'))
+  })
+  */
 }
 
 function summarizePath(path) {
@@ -72,6 +85,8 @@ function summarizePath(path) {
 function drawGoals() {
   var dom = $('<div>').addClass('goals')
 
+  if (goals.length === 0) dom.append($('<span/>').text('Nothing to prove.'))
+
   jQuery.each(goals, function(gNum,g) {
     var li = $('<div/>')
             .css('cursor','pointer')
@@ -87,9 +102,10 @@ function drawGoals() {
                 .removeClass('highlight-failed')
                 .removeClass('highlight-assumed')
      jQuery.each(g.assumptions, function(ix,a) {
-        var ln = getLine(a.line)
-        if (a.line !== g.location) ln.addClass('highlight-assumed')
-        // if (a.tgt !== null && a.tgt !== undefined) drawAsmpTgt(a.line, a.tgt)
+        var lnName = a.line
+        if (lnName !== g.location) {
+            getLine(lnName).addClass('highlight-assumed')
+        }
       })
       if (g.location !== null)
         getLine(g.location)

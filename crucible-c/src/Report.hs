@@ -2,7 +2,7 @@
 module Report where
 
 import System.FilePath
-import Data.List(intercalate,sortBy)
+import Data.List(intercalate,partition)
 import Data.Maybe(fromMaybe)
 import Control.Exception(catch,SomeException(..))
 import Control.Monad(when)
@@ -16,13 +16,11 @@ import Options
 import Model
 import Goal
 
-type SideCond = ([JS],[(AsmpLab,String)], (SimError,String), Bool, ProofResult)
-
 generateReport :: Options -> ProvedGoals -> IO ()
 generateReport opts xs =
   do when (takeExtension (inputFile opts) == ".c") (generateSource opts)
      writeFile (outDir opts </> "report.js")
-        $ "var goals = " ++ renderJS (jsList (renderSindConds xs))
+        $ "var goals = " ++ renderJS (jsList (renderSideConds xs))
 
 
 
@@ -34,41 +32,53 @@ generateSource opts =
   `catch` \(SomeException {}) -> return ()
 
 
-renderSindConds :: ProvedGoals -> [ JS ]
-renderSindConds = map snd
-                . sortBy smallerDepth
-                . go (0::Integer) []
+renderSideConds :: ProvedGoals -> [ JS ]
+renderSideConds = go []
   where
-  smallerDepth (x,_) (y,_) = compare x y
+  flatBranch (Branch xs : more) = flatBranch (xs ++ more)
+  flatBranch (x : more)         = x : flatBranch more
+  flatBranch []                 = []
 
-  go depth path gs =
+  isGoal x = case x of
+               Goal {} -> True
+               _       -> False
+
+  go path gs =
     case gs of
-      AtLoc pl to gs1 -> go (depth + 1) (jsObj (jsPLoc pl to) : path) gs1
-      Branch gss      -> concatMap (go depth path) gss
-      Goal asmps conc triv proved ->
-        [ (depth, jsSideCond (reverse path,asmps,conc,triv,proved)) ]
+      AtLoc pl _ gs1  -> go (jsLoc pl : path) gs1
+      Branch gss ->
+        let (now,rest) = partition isGoal (flatBranch gss)
+        in concatMap (go path) now ++ concatMap (go path) rest
 
-jsPLoc :: PredLoc -> Maybe ProgramLoc -> [(String,JS)]
-jsPLoc (PL l lp) to =
-    [ "line" ~> jsLoc l
-    , "loop" ~> (case lp of
-                    NotLoop -> jsNull
-                    LoopIter n -> jsStr (show n))
-    , "tgt" ~> jsMaybe (fmap jsLoc to)
-    ]
+      Goal asmps conc triv proved ->
+        [ jsSideCond (reverse path) asmps conc triv proved ]
 
 jsLoc :: ProgramLoc -> JS
 jsLoc x = case plSourceLoc x of
             SourcePos _ l _ -> jsStr (show l)
             _               -> jsNull
 
-jsSideCond :: SideCond -> JS
-jsSideCond (path,asmps,(conc,clab),triv,status) =
+type SideCond = ( [JS]
+                , [(Int,AssumptionReason,String)]
+                , (SimError,String)
+                , Bool
+                , ProofResult
+                )
+
+
+
+jsSideCond ::
+  [JS] ->
+  [(Maybe Int,AssumptionReason,String)] ->
+  (SimError,String) ->
+  Bool ->
+  ProofResult ->
+  JS
+jsSideCond path asmps (conc,_) triv status =
   jsObj
   [ "proved"          ~> proved
   , "counter-example" ~> example
-  , "goal"            ~> name
-  , "lab"             ~> jsStr clab
+  , "goal"            ~> jsStr (simErrorReasonMsg (simErrorReason conc))
   , "location"        ~> jsLoc (simErrorLoc conc)
   , "assumptions"     ~> jsList (map mkAsmp asmps)
   , "trivial"         ~> jsBool triv
@@ -83,14 +93,10 @@ jsSideCond (path,asmps,(conc,clab),triv,status) =
              NotProved (Just m) -> JS (modelInJS m)
              _                  -> jsNull
 
-  name = jsStr (simErrorReasonMsg (simErrorReason conc))
-
-  mkAsmp (a,lab) = jsObj (("lab" ~> jsStr lab) : loc)
-    where
-    loc =
-      case a of
-        Exploring pl d -> jsPLoc pl d
-        OtherAsmp a'   -> [ "line" ~> jsLoc (assumptionLoc a') ]
+  mkAsmp (lab,asmp,_) =
+    jsObj [ "line" ~> jsLoc (assumptionLoc asmp)
+          , "step" ~> jsMaybe ((path !!) <$> lab)
+          ]
 
 --------------------------------------------------------------------------------
 newtype JS = JS { renderJS :: String }
@@ -118,5 +124,8 @@ jsNull = JS "null"
 
 jsMaybe :: Maybe JS -> JS
 jsMaybe = fromMaybe jsNull
+
+jsNum :: Show a => a -> JS
+jsNum = JS . show
 
 

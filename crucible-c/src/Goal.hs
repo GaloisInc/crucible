@@ -2,20 +2,16 @@
 {-# Language PatternSynonyms #-}
 module Goal where
 
-import Control.Lens((^.), (&), (.~))
+import Control.Lens((^.))
 import Control.Monad(forM)
-import qualified Data.Sequence as Seq
-import qualified Data.Map as Map
-import qualified Data.Set as Set
-import           Data.List(mapAccumL)
 import Data.IORef
 
-import What4.Interface (notPred, falsePred, Pred, printSymExpr)
+import What4.Interface (notPred, falsePred, Pred, printSymExpr,asConstantPred)
 import What4.ProgramLoc
 import What4.SatResult(SatResult(..))
 import What4.Expr.Builder (ExprBuilder)
 import What4.Protocol.Online( OnlineSolver, inNewFrame, solverEvalFuns
-                            , solverConn, check, SolverProcess )
+                            , solverConn, check )
 import What4.Protocol.SMTWriter(mkFormula,assumeFormula,smtExprGroundEvalFn)
 
 import Lang.Crucible.Backend
@@ -35,20 +31,16 @@ data ProofResult = Proved
 
 type LPred sym   = LabeledPred (Pred sym)
 
-data IsLoop      = NotLoop | LoopIter !Int
-data PredLoc     = PL ProgramLoc IsLoop{-LAZY-}
-
 data ProvedGoals =
-    AtLoc PredLoc (Maybe ProgramLoc) ProvedGoals
+    AtLoc ProgramLoc (Maybe ProgramLoc) ProvedGoals
   | Branch [ ProvedGoals ]
-  | Goal [(AsmpLab,String)] (SimError,String) Bool ProofResult
+  | Goal [(Maybe Int,AssumptionReason,String)]
+         (SimError,String) Bool ProofResult
     -- ^ Keeps only the explanations for the relevant assumptions.
+    -- The 'Maybe Int' in the assumptions corresponds to its depth in the tree
+    -- (i.e., the step number, if this is a path assumption)
     -- The 'Bool' indicates if the goal is trivial (i.e., the assumptions
     -- are inconsistent)
-
--- | Locations are annotated with loop information.
-data AsmpLab = Exploring PredLoc (Maybe ProgramLoc)
-             | OtherAsmp AssumptionReason {- Not ExploringAPat -}
 
 -- | Simplify the proved goals.
 provedGoalsTree ::
@@ -56,7 +48,7 @@ provedGoalsTree ::
   , OnlineSolver s solver
   ) =>
   SimCtxt sym arch ->
-  Goals (LPred sym AsmpLab) (Assertion sym, ProofResult) ->
+  Goals (Assumption sym) (Assertion sym, ProofResult) ->
   IO ProvedGoals
 provedGoalsTree ctxt = go []
   where
@@ -64,22 +56,20 @@ provedGoalsTree ctxt = go []
     case gs of
       Assuming p gs1 ->
         case p ^. labeledPredMsg of
-          Exploring from to -> AtLoc from to <$> go (p : asmps) gs1
-          _                 -> go (p : asmps) gs1
-      Prove (p,r)  ->
-        case r of
-          Proved ->
-            do (as1,triv) <- simpProved ctxt ProofGoal
-                                   { proofAssumptions = Seq.fromList asmps
-                                   , proofGoal        = p
-                                   }
-               return (Goal (map mkAsmp as1) (mkAsmp p) triv Proved)
-
-          _ -> return (Goal (map mkAsmp asmps) (mkAsmp p) False r)
+          ExploringAPath from to -> AtLoc from to <$> go (p : asmps) gs1
+          _                      -> go (p : asmps) gs1
+      Prove (p,r) ->
+        -- For simplicity we call `simpProved` even when the goal wasn't proved
+        -- This shouldn't really matter, as we won't be able to simplify things
+        do (as1,triv) <- simpProved ctxt asmps p
+           return (Goal (map mkAsmp as1) (mkP p) triv r)
 
       ProveAll gss -> Branch <$> mapM (go asmps) gss
 
-  mkAsmp a = (a ^. labeledPredMsg, show (printSymExpr (a ^. labeledPred)))
+  mkAsmp (n,a) = let (x,y) = mkP a
+                 in (n,x,y)
+
+  mkP a = (a ^. labeledPredMsg, show (printSymExpr (a ^. labeledPred)))
 
 
 countGoals :: Goals a b -> Int
@@ -89,37 +79,6 @@ countGoals gs =
     Prove _        -> 1
     ProveAll gs1   -> sum (map countGoals gs1)
 
-
-
-
--- | Annotate exploration assumptions with how many times they've
--- been visited on a particular path.
-addLoopMarkers :: Goals (LabeledPred p AssumptionReason) g ->
-                  Goals (LabeledPred p AsmpLab) g
-addLoopMarkers gs0 = finGs
-  where
-  (loopSet,finGs) = go loopSet Map.empty Set.empty gs0
-
-  go finLoops mp loops gs =
-    case gs of
-      Assuming p gs1 ->
-        let (lab,mp1) =
-               case p ^. labeledPredMsg of
-                 ExploringAPath from to ->
-                   let mp' = Map.insertWith (+) from 1 mp
-                       cnt = if from `Set.member` finLoops
-                                then LoopIter (mp1 Map.! from)
-                                else NotLoop
-                   in (Exploring (PL from cnt) to, mp')
-                 q -> (OtherAsmp q, mp)
-            (ls1,res) = go finLoops mp1 loops gs1
-        in (ls1, Assuming (p & labeledPredMsg .~ lab) res)
-      Prove p ->
-        let ls = Set.union (Map.keysSet (Map.filter (> 1) mp)) loops
-        in (ls, Prove p)
-      ProveAll gss ->
-        let (ls1, res) = mapAccumL (go finLoops mp) loops gss
-        in (ls1, ProveAll res)
 
 
 
@@ -176,56 +135,28 @@ proveGoals ctxt gs0 =
     conn = solverConn sp
 
 
-proveGoal ::
-  ( sym ~ ExprBuilder s (OnlineBackendState solver)
-  , OnlineSolver s solver
-  ) =>
-  SimCtxt sym arch -> ProofObligation sym -> IO ProofResult
-
-proveGoal ctxt g = proveGoal' ctxt g $ \sp ->
-  do f <- smtExprGroundEvalFn (solverConn sp) (solverEvalFuns sp)
-     let model = ctxt ^. cruciblePersonality
-     str <- ppModel f model
-     return (Just str)
-
-
+-- XXX: Factor out common with proveGoals
 canProve ::
   ( sym ~ ExprBuilder s (OnlineBackendState solver)
   , OnlineSolver s solver
   ) =>
-  SimCtxt sym arch -> ProofGoal (Pred sym) asmp ast -> IO ProofResult
-
-canProve ctxt g = proveGoal' ctxt g $ \_sp -> return Nothing
-
-
-proveGoal' ::
-  ( sym ~ ExprBuilder s (OnlineBackendState solver)
-  , OnlineSolver s solver
-  ) =>
   SimCtxt sym arch ->
-  ProofGoal (Pred sym) asmp ast ->
-  (SolverProcess s solver -> IO (Maybe ModelViews)) ->
+  [LPred sym asmp] ->
+  Pred sym ->
   IO ProofResult
-proveGoal' ctxt g isSat =
+canProve ctxt asmpPs concP =
   do let sym = ctxt ^. ctxSymInterface
      sp <- getSolverProcess sym
      let conn = solverConn sp
-     asmps <- forM (proofAssumptions g) $ \a ->
-                 mkFormula conn (a ^. labeledPred)
-     conc  <- mkFormula conn =<< notPred sym (proofGoal g ^. labeledPred)
+     asmps <- forM asmpPs $ \a -> mkFormula conn (a ^. labeledPred)
+     conc  <- mkFormula conn =<< notPred sym concP
      inNewFrame conn $
        do mapM_ (assumeFormula conn) asmps
           assumeFormula conn conc
           res <- check sp
-          case res of
-            Unsat  -> return Proved
-            Sat () -> NotProved <$> isSat sp
-            Unknown -> return (NotProved Nothing)
-
-
-data SimpResult sym =
-    Trivial
-  | NotTrivial (ProofObligation sym)
+          return $ case res of
+                     Unsat   -> Proved
+                     _       -> NotProved Nothing
 
 
 simpProved ::
@@ -233,32 +164,40 @@ simpProved ::
   , OnlineSolver s solver
   ) =>
   SimCtxt sym arch ->
-  ProofGoal (Pred sym) asmp ast ->
-  IO ( [ LPred sym asmp ], Bool )
+  [ Assumption sym ] ->
+  Assertion sym ->
+  IO ( [ (Maybe Int,Assumption sym) ], Bool )
 
-simpProved ctxt goal =
+simpProved ctxt asmps0 conc =
   do let false = falsePred (ctxt ^. ctxSymInterface)
-         g1 = goal { proofGoal = (proofGoal goal) & labeledPred .~ false }
-     res <- canProve ctxt g1
-     case res of
-       Proved ->
-        do asmps <- dropAsmps Seq.empty (proofAssumptions g1) g1
-           return (asmps, True)
-       _ ->
-        do asmps <- dropAsmps Seq.empty (proofAssumptions goal) goal
-           return (asmps, False)
+     res <- canProve ctxt asmps0 false
+     let (triv,g) = case res of
+                      Proved -> (True,false)
+                      _      -> (False,conc ^. labeledPred)
 
+     conn  <- solverConn <$> getSolverProcess (ctxt ^. ctxSymInterface)
+     asmps1 <- inNewFrame conn (dropAsmps conn 0 [] asmps0 g)
+     return (asmps1, triv)
   where
-  -- XXX: can use incremental for more efficient checking
   -- A simple way to figure out what might be relevant assumptions.
-  dropAsmps keep asmps g =
+  dropAsmps conn n keep{-already assumed-} asmps{-to be filtered-} g =
     case asmps of
-      Seq.Empty -> return (foldr (:) [] keep)
-      a Seq.:<| as ->
-        do res <- canProve ctxt g { proofAssumptions = as Seq.>< keep }
-           case res of
-             Proved       -> dropAsmps keep as g
-             NotProved {} -> dropAsmps (a Seq.:<| keep) as g
+      [] -> return keep
+      a : as ->
+        let aP = a ^. labeledPred
+            next = case a ^. labeledPredMsg of
+                     ExploringAPath {} -> n+1
+                     _                 -> n
+        in case asConstantPred aP of
+             Just True -> dropAsmps conn next keep as g
+             _ ->
+               do res <- canProve ctxt as g
+                  case res of
+                    Proved       -> dropAsmps conn next keep as g
+                    NotProved {} ->
+                       do assumeFormula conn =<< mkFormula conn aP
+                          let lab = if n == next then Nothing else Just n
+                          dropAsmps conn next ((lab,a) : keep) as g
 
 
 
