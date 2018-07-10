@@ -60,10 +60,10 @@ import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.Evaluation
 import           Lang.Crucible.Simulator.ExecutionTree
-import qualified Lang.Crucible.Simulator.ExecutionTree as Exec
 import           Lang.Crucible.Simulator.Frame
 import           Lang.Crucible.Simulator.Intrinsics (IntrinsicTypes)
 import           Lang.Crucible.Simulator.GlobalState
+import           Lang.Crucible.Simulator.Operations
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Utils.MuxTree
@@ -161,6 +161,7 @@ ppStmtAndLoc h sh pl stmt = do
 ------------------------------------------------------------------------
 -- JumpCall
 
+
 data JumpCall sym blocks where
   JumpCall :: !(BlockID blocks args)
            -> !(RegMap sym args)
@@ -187,33 +188,6 @@ evalSwitchTarget ::
 evalSwitchTarget (SwitchTarget tgt _tp a) = SwitchCall tgt <$> evalArgs a
 
 
-
-
-{-
-checkStateConsistency :: CrucibleState p sym rtp blocks r a
-                      -> BlockID blocks args
-                         -- ^ Current block of top of stack frame.
-                      -> IO ()
-checkStateConsistency s (BlockID block_id) = do
-  let f = s^.stateCrucibleFrame
-  case getIntraFrameBranchTarget (s^.stateTree^.actContext) of
-    Nothing -> return ()
-    Just (Some tgt) -> do
-      let Const _pd = framePostdomMap f Ctx.! block_id
-      case branchTarget tgt of
-        ReturnTarget -> return ()
-          -- FIXME? I'm not sure ignoring this situation is correct...
-          -- unless (null pd) $ do
-          --   fail $ "The crucible tree reached an illegal state.\n"
-          --       ++ "Branch target: Function return\n"
-          --       ++ "Postdoms:      " ++ show pd
-        BlockTarget _tgt' -> return ()
-          -- when (Some tgt' `notElem` pd) $ do
-          --   fail $ "The crucible tree reached an illegal state.\n"
-          --       ++ "Branch target: " ++ show tgt' ++ "\n"
-          --       ++ "Postdoms:      " ++ show pd
--}
-
 -- | Jump to given block.
 --
 -- May throw a user error if merging fails.
@@ -223,97 +197,12 @@ jump :: (IsSymInterface sym, IsSyntaxExtension ext)
 jump (JumpTarget block_id _tp a) =
   jumpToBlock block_id =<< evalArgs a
 
-symbolicBranch
-    :: (IsSymInterface sym, IsSyntaxExtension ext)
-    => Int
-    -> Pred sym
-    -> BlockID blocks args
-    -> RegMap sym args
-    -> BlockID blocks args'
-    -> RegMap sym args'
-       -- ^ Registers for false state.
-    -> ExecCont p sym ext rtp (CrucibleLang blocks ret) ('Just ctx)
-symbolicBranch verb p x_id x_args y_id y_args = do
-  ctx <- view stateContext
-  top_frame <- view (stateTree.actFrame)
-
-  let x_frame = cruciblePausedFrame x_id x_args top_frame
-  let y_frame = cruciblePausedFrame y_id y_args top_frame
-
-  let cur_frame = top_frame^.crucibleTopFrame
-  case cur_frame^.framePostdom of
-    Nothing -> do
-      when (verb >= 5) $ do
-        liftIO (hPutStrLn (printHandle ctx) $ "Return-dominated symbolic branch")
-      intra_branch p (SomeLabel x_frame (Just x_id))
-                     (SomeLabel y_frame (Just y_id))
-                     ReturnTarget
-    Just (Some pd_id) ->
-      let tgt = BlockTarget pd_id
-      in intra_branch p (SomeLabel x_frame (Just x_id))
-                        (SomeLabel y_frame (Just y_id))
-                        tgt
 
 data VariantCall sym blocks tp where
   VariantCall :: TypeRepr tp
               -> VariantBranch sym tp
               -> SwitchCall sym blocks tp
               -> VariantCall sym blocks tp
-
-
-cruciblePausedFrame ::
-  IsSyntaxExtension ext =>
-  BlockID b new_args ->
-  RegMap sym new_args ->
-  GlobalPair sym (SimFrame sym ext (CrucibleLang b r) ('Just a)) ->
-  Exec.PausedFrame p sym ext rtp (CrucibleLang b r) ('Just new_args)
-cruciblePausedFrame x_id x_args top_frame =
-  let cf = top_frame & crucibleTopFrame %~ setFrameBlock x_id x_args
-   in PausedFrame $
-      PausedValue { _pausedValue = cf
-                  , resume = continue
-                  }
-
-stepReturnVariantCases ::
-  (IsSymInterface sym, IsSyntaxExtension ext) =>
-  [(Pred sym, JumpCall sym blocks)] ->
-  ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
-stepReturnVariantCases [] = do
-  fm <- view (stateTree.actFrame.crucibleTopFrame)
-  let loc = frameProgramLoc fm
-  let rsn = VariantOptionsExhaused loc
-  abortExec rsn
-stepReturnVariantCases ((p,JumpCall x_id x_args):cs) = do
-  top_frame <- view (stateTree.actFrame)
-  let x_frame = cruciblePausedFrame x_id x_args top_frame
-  let y_frame =
-        SomeLabel (PausedFrame $ PausedValue
-                     { _pausedValue = top_frame
-                     , resume = stepReturnVariantCases cs
-                     })
-                  Nothing
-  intra_branch p (SomeLabel x_frame (Just x_id)) y_frame ReturnTarget
-
-stepVariantCases ::
-  (IsSymInterface sym, IsSyntaxExtension ext) =>
-  BlockID blocks x ->
-  [(Pred sym, JumpCall sym blocks)] ->
-  ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
-stepVariantCases _pd_id [] =
-  do fm <- view (stateTree.actFrame.crucibleTopFrame)
-     let loc = frameProgramLoc fm
-     let rsn = VariantOptionsExhaused loc
-     abortExec rsn
-stepVariantCases pd_id ((p,JumpCall x_id x_args):cs) =
-  do top_frame <- view (stateTree.actFrame)
-     let x_frame = cruciblePausedFrame x_id x_args top_frame
-     let y_frame = PausedValue
-                   { _pausedValue = top_frame
-                   , resume = stepVariantCases pd_id cs
-                   }
-     let y_frame' = SomeLabel (PausedFrame y_frame) Nothing
-     let tgt = BlockTarget pd_id
-     intra_branch p (SomeLabel x_frame (Just x_id)) y_frame' tgt
 
 evalArgs' :: forall sym ctx args.
   RegMap sym ctx ->
@@ -340,7 +229,7 @@ evalArgs args = ReaderT $ \s -> return $! evalArgs' (s^.stateCrucibleFrame.frame
 --   This is allowed to throw user execeptions or SimError.
 stepTerm :: forall p sym ext rtp blocks r ctx.
   (IsSymInterface sym, IsSyntaxExtension ext) =>
-  Int -> -- ^ Verbosity
+  Int {- ^ Verbosity -} ->
   TermStmt blocks r ctx ->
   ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
 stepTerm _ (Jump tgt) = jump tgt
@@ -367,12 +256,13 @@ stepTerm _ (VariantElim ctx e cases) =
      let ls = foldMapFC (\(VariantCall tp (VB v) (SwitchCall tgt regs)) ->
                 case v of
                   Unassigned -> []
-                  PE p v' -> [(p, JumpCall tgt (assignReg tp v' regs))])
+                  PE p v' -> [ResolvedJump p tgt (assignReg tp v' regs)])
               cases'
-     pd <- view (stateTree.actFrame.crucibleTopFrame.framePostdom)
-     case pd of
-       Nothing -> stepReturnVariantCases ls
-       Just (Some pd_id) -> stepVariantCases pd_id ls
+     pd <- view (stateCrucibleFrame.framePostdom)
+     Some tgt <- case pd of
+                   Nothing -> return (Some ReturnTarget)
+                   Just (Some pd_id) -> return (Some (BlockTarget pd_id))
+     stepVariantCases tgt ls
 
 stepTerm _ (Return arg) =
   returnAndMerge =<< evalReg' arg
@@ -537,8 +427,9 @@ stepStmt verb stmt rest =
             ReaderT $ \s ->
               do (v,s') <- liftIO $ extensionExec (extensionImpl ctx) estmt' s
                  let tp = appType estmt
-                 runReaderT (stepBasicBlock verb)
-                     (s' & stateCrucibleFrame %~ extendFrame tp v rest)
+                 runReaderT
+                   (continueWith $ stateCrucibleFrame %~ extendFrame tp v rest)
+                   s'
 
        CallHandle ret_type fnExpr _types arg_exprs ->
          do hndl <- evalReg fnExpr
@@ -550,8 +441,9 @@ stepStmt verb stmt rest =
                   (stateTree %~ callFn (returnToCrucible ret_type rest) (OF f))
                   (runOverride o)
               SomeCF f ->
-                continueWith $
+                withReaderT
                   (stateTree %~ callFn (returnToCrucible ret_type rest) (MF f))
+                  continue
 
        Print e ->
          do msg <- evalReg e
@@ -585,8 +477,7 @@ stepBasicBlock verb =
   do ctx <- view stateContext
      let sym = ctx^.ctxSymInterface
      let h = printHandle ctx
-     top_frame <- view (stateTree.actFrame)
-     let cf = top_frame^.crucibleTopFrame
+     cf <- view stateCrucibleFrame
 
      case cf^.frameStmts of
        TermStmt pl stmt -> do
@@ -619,7 +510,7 @@ singleStepCrucible verb exst =
       return (ResultState res)
 
     AbortState rsn st ->
-      let (EH handler) = st^.errorHandler in
+      let (AH handler) = st^.abortHandler in
       runReaderT (handler rsn) st
 
     OverrideState ovr st ->
@@ -659,10 +550,10 @@ executeCrucible st0 cont =
  loop verbOpt st m =
    do exst <- Ex.catches (runReaderT m st)
                 [ Ex.Handler $ \(e::AbortExecReason) ->
-                    runReaderT (runErrorHandler e) st
+                    runErrorHandler e st
                 , Ex.Handler $ \(e::Ex.IOException) ->
                     if Ex.isUserError e then
-                      runReaderT (runGenericErrorHandler (Ex.ioeGetErrorString e)) st
+                      runGenericErrorHandler (Ex.ioeGetErrorString e) st
                     else
                       Ex.throwIO e
                 ]
@@ -671,7 +562,7 @@ executeCrucible st0 cont =
           return res
 
         AbortState rsn st' ->
-          let (EH handler) = st'^.errorHandler in
+          let (AH handler) = st'^.abortHandler in
           loop verbOpt st' (handler rsn)
 
         OverrideState ovr st' ->

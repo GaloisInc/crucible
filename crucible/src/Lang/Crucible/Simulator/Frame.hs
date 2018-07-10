@@ -9,6 +9,8 @@ module Lang.Crucible.Simulator.Frame
   , OverrideFrame(..)
   , overrideSimFrame
   , crucibleSimFrame
+  , fromJustCallFrame
+  , fromNothingCallFrame
   ) where
 
 import Control.Lens
@@ -68,5 +70,15 @@ crucibleSimFrame :: Lens (SimFrame sym ext (CrucibleLang blocks r) ('Just args))
                          (CallFrame sym ext blocks r args)
                          (CallFrame sym ext blocks r args')
 crucibleSimFrame f (MF c) = MF <$> f c
+
+
+
+fromJustCallFrame :: SimFrame sym ext (CrucibleLang b r) ('Just a)
+                  -> CallFrame sym ext b r a
+fromJustCallFrame (MF x) = x
+
+fromNothingCallFrame :: SimFrame sym ext (CrucibleLang b r) 'Nothing
+                     -> RegEntry sym r
+fromNothingCallFrame (RF x) = x
 
 

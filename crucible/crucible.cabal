@@ -81,6 +81,7 @@ library
     Lang.Crucible.Simulator.Frame
     Lang.Crucible.Simulator.Intrinsics
     Lang.Crucible.Simulator.GlobalState
+    Lang.Crucible.Simulator.Operations
     Lang.Crucible.Simulator.OverrideSim
     Lang.Crucible.Simulator.RegMap
     Lang.Crucible.Simulator.RegValue

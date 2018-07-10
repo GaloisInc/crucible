@@ -30,7 +30,7 @@ module Lang.Crucible.Simulator.OverrideSim
   , withSimContext
   , getContext
   , getSymInterface
-  , getPathConditions
+--  , getPathConditions
   , bindFnHandle
   , exitExecution
   , getOverrideArgs
@@ -95,6 +95,9 @@ import           Lang.Crucible.Simulator.EvalStmt (SomeSimFrame(..), resolveCall
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.Frame
 import           Lang.Crucible.Simulator.GlobalState
+import           Lang.Crucible.Simulator.Operations
+                   ( runGenericErrorHandler, runErrorHandler, returnValue, callFn, runOverride, continue )
+
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Utils.MonadVerbosity
@@ -144,7 +147,7 @@ bindOverrideSim (Sim m) h = Sim $ unSim . h =<< m
 instance Monad (OverrideSim p sym ext rtp args r) where
   return = returnOverrideSim
   (>>=) = bindOverrideSim
-  fail msg = Sim $ StateContT $ \_c -> runReaderT (runGenericErrorHandler msg)
+  fail msg = Sim $ StateContT $ \_c -> runGenericErrorHandler msg
 
 deriving instance MonadState (SimState p sym ext rtp (OverrideLang args ret) 'Nothing)
                              (OverrideSim p sym ext rtp args ret)
@@ -160,10 +163,10 @@ instance MonadIO (OverrideSim p sym ext rtp args ret) where
            -- IO Exception
            | Just e <- fromException e0
            , isUserError e ->
-             runReaderT (runGenericErrorHandler (ioeGetErrorString e)) s
+             runGenericErrorHandler (ioeGetErrorString e) s
              -- AbortReason
            | Just e <- fromException e0 ->
-             runReaderT (runErrorHandler e) s
+             runErrorHandler e s
              -- Default case
            | otherwise ->
              throwIO e0
@@ -182,11 +185,11 @@ getContext = use stateContext
 getSymInterface :: OverrideSim p sym ext rtp args ret sym
 getSymInterface = gets stateSymInterface
 
--- | Return predicates that must be satisfiable for path to be feasible.
-getPathConditions :: OverrideSim p sym ext rtp a ret [Pred sym]
-getPathConditions = do
-  s <- get
-  return (pathConditions (s^.stateTree^.actContext))
+--  Return predicates that must be satisfiable for path to be feasible.
+-- getPathConditions :: OverrideSim p sym ext rtp a ret [Pred sym]
+-- getPathConditions = do
+--   s <- get
+--   return (pathConditions (s^.stateTree^.actContext))
 
 instance MonadVerbosity (OverrideSim p sym ext rtp args ret) where
   getVerbosity = do
@@ -289,21 +292,6 @@ runOverrideSim ::
 runOverrideSim tp m = ReaderT $ \s0 -> stateSolverProof s0 $
   runStateContT (unSim m) (\v -> runReaderT (returnValue (RegEntry tp v))) s0
 
--- | Create an initial 'SimState'.
-initSimState :: SimContext p sym ext
-             -> SymGlobalState sym
-             -- ^ state of global variables
-             -> ErrorHandler p sym ext (RegEntry sym ret)
-             -> SimState p sym ext (RegEntry sym ret) (OverrideLang EmptyCtx ret) 'Nothing
-initSimState ctx globals eh =
-  let startFrame = OverrideFrame { override = startFunctionName
-                                 , overrideRegMap = emptyRegMap
-                                 }
-      ae = GlobalPair (OF startFrame) globals
-   in SimState { _stateContext = ctx
-               , _errorHandler = eh
-               , _stateTree = singletonTree ae
-               }
 
 -- | Create an override from an explicit return type and definition using `OverrideSim`.
 mkOverride' :: FunctionName
