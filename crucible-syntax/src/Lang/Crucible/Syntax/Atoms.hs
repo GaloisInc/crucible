@@ -39,9 +39,11 @@ data Keyword = Defun | DefBlock
              | Lt
              | VectorLit_ | VectorReplicate_ | VectorIsEmpty_ | VectorSize_
              | VectorGetEntry_ | VectorSetEntry_ | VectorCons_
+             | Deref | Ref | EmptyRef
              | Jump_ | Return_ | Branch_ | MaybeBranch_ | TailCall_ | Error_ | Output_
              | Print_
              | Let
+             | SetRegister
   deriving (Eq, Ord)
 
 keywords :: [(Text, Keyword)]
@@ -96,6 +98,10 @@ keywords =
   , ("error", Error_)
   , ("output", Output_)
   , ("print" , Print_)
+  , ("deref", Deref)
+  , ("ref", Ref)
+  , ("empty-ref", EmptyRef)
+  , ("set-register!", SetRegister)
   ]
 
 
