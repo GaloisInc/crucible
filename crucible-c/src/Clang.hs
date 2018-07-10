@@ -59,19 +59,22 @@ genBitCode opts =
      runClang opts params
 
 
-buildModelExes :: Options -> String -> IO ()
-buildModelExes opts counter_src =
+buildModelExes :: Options -> String -> String -> IO (FilePath,FilePath)
+buildModelExes opts suff counter_src =
   do let dir  = outDir opts
      createDirectoryIfMissing True dir
 
-     let counterFile = dir </> "counter-example.c"
+     let counterFile = dir </> ("counter-example-" ++ suff ++ ".c")
+     let printExe    = dir </> ("print-model-" ++ suff)
+     let debugExe    = dir </> ("debug-" ++ suff)
      writeFile counterFile counter_src
 
      let libs = libDir opts
+
      runClang opts [ "-I", libs </> "includes"
                    , counterFile
                    , libs </> "print-model.c"
-                   , "-o", dir </> "print-counter-example"
+                   , "-o", printExe
                    ]
 
      runClang opts [ "-I", libs </> "includes"
@@ -79,8 +82,10 @@ buildModelExes opts counter_src =
                    , libs </> "concrete-backend.c"
                    , optsBCFile opts
                    , "-O0", "-g"
-                   , "-o", dir </> "debug"
+                   , "-o", debugExe
                    ]
+
+     return (printExe, debugExe)
 
 
 testOptions :: FilePath -> IO Options

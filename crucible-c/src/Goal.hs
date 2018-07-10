@@ -105,7 +105,7 @@ proveGoals ctxt gs0 =
        else sayOK "Crux" $ unwords [ "Proved all", show tot, "side conditions." ]
      return res
   where
-  (start,end) = prepStatus "Proving: " (countGoals gs0)
+  (start,end) = prepStatus "Checking: " (countGoals gs0)
 
   go sp gn gs =
     case gs of

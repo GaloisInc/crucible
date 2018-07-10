@@ -33,6 +33,7 @@ import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
 import Lang.Crucible.Simulator.RegMap(emptyRegMap,regValue)
 import Lang.Crucible.Simulator.ExecutionTree
+import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Simulator.OverrideSim
         ( fnBindingsFromList, initSimState, runOverrideSim, callCFG)
 
@@ -46,6 +47,7 @@ import Lang.Crucible.LLVM.Translation
 import Lang.Crucible.LLVM.Types(withPtrWidth)
 import Lang.Crucible.LLVM.Intrinsics
           (llvmIntrinsicTypes, llvmPtrWidth, register_llvm_overrides)
+import What4.ProgramLoc
 
 
 
@@ -83,6 +85,27 @@ checkBC opts =
      say "Crux" ("Checking " ++ show file)
      res <- simulate opts (checkFun "main")
      generateReport opts res
+     makeCounterExamples opts res
+
+
+makeCounterExamples :: Options -> ProvedGoals -> IO ()
+makeCounterExamples opts gs =
+  case gs of
+    AtLoc _ _ gs1 -> makeCounterExamples opts gs1
+    Branch gss    -> mapM_ (makeCounterExamples opts) gss
+    Goal _ (c,_) _ res ->
+      let suff = case plSourceLoc (simErrorLoc c) of
+                   SourcePos _ l _ -> show l
+                   _               -> "unknown"
+          msg = simErrorReasonMsg (simErrorReason c)
+
+      in case res of
+           NotProved (Just m) ->
+             do sayFail "Crux" ("Counter example for " ++ msg)
+                (_prt,dbg) <- buildModelExes opts suff (modelInC m)
+                say "Crux" ("*** debug executable: " ++ dbg)
+                say "Crux" ("*** break on line: " ++ suff)
+           _ -> return ()
 
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::
