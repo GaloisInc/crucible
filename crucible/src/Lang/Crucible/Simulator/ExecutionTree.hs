@@ -952,6 +952,11 @@ intra_branch s p t_label f_label tgt = stateSolverProof s $ do
          let PausedFrame pf = a_state
              setter = stateTree .~ ActiveTree ctx (TotalRes (pf^.pausedValue))
 
+         loc <- getCurrentProgramLoc sym
+         let a_loc = getTgtLoc s <$> a_id
+             true  = truePred sym
+         addAssumption sym (LabeledPred true (ExploringAPath loc a_loc))
+
          tryIntraFrameMerge (resume pf) tgt s setter a_id
 
 

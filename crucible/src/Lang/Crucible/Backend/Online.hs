@@ -208,15 +208,20 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver) 
       _ -> AS.addProofObligation a =<< getAssumptionStack sym
 
   addAssumption sym a =
-    case asConstantPred (a^.labeledPred) of
-      Just True  -> return ()
-      Just False -> abortExecBecause (AssumedFalse (a^.labeledPredMsg))
-      _ -> do conn <- getSolverConn sym
-              stk  <- getAssumptionStack sym
-              -- Record assumption
-              AS.assume a stk
-              -- Send assertion to yices
-              SMT.assume conn (a^.labeledPred)
+    let cond = asConstantPred (a^.labeledPred)
+    in case cond of
+         Just False -> abortExecBecause (AssumedFalse (a^.labeledPredMsg))
+         _ -> do stk  <- getAssumptionStack sym
+                 -- Record assumption, even if trivial.
+                 -- This allows us to keep track of the full path we are on.
+                 AS.assume a stk
+
+                 -- Send assertion to the solver, unless it is trivial.
+                 case cond of
+                   Just True -> return ()
+                   _ -> do conn <- getSolverConn sym
+                           SMT.assume conn (a^.labeledPred)
+
 
   addAssumptions sym a =
     do -- Tell the solver of assertions
