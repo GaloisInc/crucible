@@ -87,7 +87,7 @@ testOptions :: FilePath -> IO Options
 testOptions inp =
   do clang <- getClang
      let name = dropExtension (takeFileName inp)
-         odir = "out" </> name
+         odir = "results" </> name
      createDirectoryIfMissing True odir
      return Options { clangBin  = clang
                     , libDir    = "c-src"
