@@ -411,6 +411,11 @@ synthExpr e@(L [A (Kw VectorCons_), h, v]) =
              return (SomeExpr (VectorRepr eltp) (E (App (VectorCons eltp h' v'))))
         _ -> throwError $ NotVector (syntaxPos v) v tp)
 
+synthExpr e@(L [A (Kw StringAppend), e1, e2]) =
+  do E e1' <- checkExpr StringRepr e1
+     E e2' <- checkExpr StringRepr e2
+     return $ SomeExpr StringRepr (E (App (AppendString e1' e2')))
+
 synthExpr ast = throwError $ CantSynth (syntaxPos ast) ast
 
 

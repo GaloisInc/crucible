@@ -37,6 +37,7 @@ data Keyword = Defun | DefBlock
              | Not_ | And_ | Or_ | Xor_
              | Mod
              | Lt
+             | StringAppend
              | VectorLit_ | VectorReplicate_ | VectorIsEmpty_ | VectorSize_
              | VectorGetEntry_ | VectorSetEntry_ | VectorCons_
              | Deref | Ref | EmptyRef
@@ -98,6 +99,7 @@ keywords =
   , ("error", Error_)
   , ("output", Output_)
   , ("print" , Print_)
+  , ("string-append", StringAppend)
   , ("deref", Deref)
   , ("ref", Ref)
   , ("empty-ref", EmptyRef)
