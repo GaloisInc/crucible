@@ -146,8 +146,8 @@ simulate opts k =
      llvmPtrWidth llvmCtxt $ \ptrW ->
        withPtrWidth ptrW $
        withIONonceGenerator $ \nonceGen ->
-       withZ3OnlineBackend nonceGen $ \sym ->
-       -- withYicesOnlineBackend nonceGen $ \sym ->
+       -- withZ3OnlineBackend nonceGen $ \sym ->
+       withYicesOnlineBackend nonceGen $ \sym ->
        do frm <- pushAssumptionFrame sym
           let simctx = setupSimCtxt halloc sym
 
@@ -170,7 +170,7 @@ simulate opts k =
 
           say "Crux" "Simulation complete."
 
-          gs <- Fold.toList <$> getProofObligations sym
+          gs <- proofGoalsToList <$> getProofObligations sym
           let n = length gs
               suff = if n == 1 then "" else "s"
           say "Crux" ("Proving " ++ show n ++ " side condition" ++ suff ++ ".")

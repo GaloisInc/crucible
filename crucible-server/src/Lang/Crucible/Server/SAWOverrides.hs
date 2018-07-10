@@ -187,7 +187,7 @@ handleProofObligations ::
   IO ()
 handleProofObligations sim sym opts =
   do obls <- getProofObligations sym
-     setProofObligations sym mempty
+     clearProofObligations sym
      dirPath <- makeAbsolute (Text.unpack (opts^.P.verificationSimulateOptions_output_directory))
      createDirectoryIfMissing True dirPath
      if opts^.P.verificationSimulateOptions_separate_obligations
