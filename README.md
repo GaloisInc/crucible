@@ -38,7 +38,7 @@ Currently, the repository consists of the following Haskell packages:
 
 In addition, there are the following library/executable packages:
 
- * ** `crucible-c`**, a standalone frontend for executing C programs
+ * **`crucible-c`**, a standalone frontend for executing C programs
    in the crucible symbolic simulator.  The front-end invokes `clang`
    to produce LLVM bitcode, and runs the resulting programs using
    the `crucible-llvm` language frontend.  Programs interact directly
