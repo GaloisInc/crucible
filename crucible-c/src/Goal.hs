@@ -23,6 +23,7 @@ import Lang.Crucible.Simulator.SimError
 
 import Types
 import Model
+import Log
 import ProgressBar
 
 
@@ -94,8 +95,15 @@ proveGoals ::
 proveGoals ctxt gs0 =
   do let sym = ctxt ^. ctxSymInterface
      sp <- getSolverProcess sym
-     goalNum <- newIORef 1
-     inNewFrame (solverConn sp) (go sp goalNum gs0)
+     goalNum <- newIORef (0,0) -- total, proved
+     res <- inNewFrame (solverConn sp) (go sp goalNum gs0)
+     (tot,proved) <- readIORef goalNum
+     if proved /= tot
+       then sayFail "Crux" $ unwords
+             [ "Failed to prove", show (tot - proved) 
+             , "out of", show tot, "side consitions." ]
+       else sayOK "Crux" $ unwords [ "Proved all", show tot, "side conditions." ]
+     return res
   where
   (start,end) = prepStatus "Proving: " (countGoals gs0)
 
@@ -108,7 +116,7 @@ proveGoals ctxt gs0 =
            return (Assuming p res)
 
       Prove p ->
-        do num <- atomicModifyIORef' gn (\val -> (val + 1, val))
+        do num <- atomicModifyIORef' gn (\(val,y) -> ((val + 1,y), val))
            start num
            let sym  = ctxt ^. ctxSymInterface
            assumeFormula conn =<< mkFormula conn
@@ -117,7 +125,8 @@ proveGoals ctxt gs0 =
            let mkRes status = Prove (p,status)
            ret <- fmap mkRes $
                     case res of
-                      Unsat   -> return Proved
+                      Unsat   -> do modifyIORef' gn (\(x,f) -> (x,f+1))
+                                    return Proved
                       Sat ()  ->
                         do f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
                            let model = ctxt ^. cruciblePersonality

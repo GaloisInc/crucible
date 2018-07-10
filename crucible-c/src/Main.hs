@@ -161,15 +161,13 @@ simulate opts k =
 
           ctx' <- case res of
                     FinishedExecution ctx' _ -> return ctx'
-                    AbortedResult ctx' _ ->
-                      do putStrLn "Aborted result"
-                         return ctx'
+                    AbortedResult ctx' _     -> return ctx'
 
           say "Crux" "Simulation complete."
 
           provedGoalsTree ctx'
             =<< proveGoals ctx'
-            =<< getProofObligations sym
+            =<<  getProofObligations sym
 
 checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM sym arch ()
 checkFun nm mp =
