@@ -4,13 +4,16 @@ import System.IO
 import System.Console.ANSI
 import Control.Monad(zipWithM)
 
+import Control.Concurrent
+
 
 prepStatus :: String -> Int -> (Integer -> IO (), IO ())
 prepStatus pref tot = (start,end)
   where
   start n = do putStr (msg n)
                hFlush stdout
-  end     = cursorBackward msgLen
+  end     = do threadDelay 100000
+               cursorBackward msgLen
 
   totS  = show tot
   totW  = length totS
