@@ -71,6 +71,8 @@ module Lang.Crucible.Simulator.ExecutionTree
   , PendingPartialMerges(..)
 
     -- ** Paused Frames
+  , ResolvedJump(..)
+  , ControlResumption(..)
   , PausedFrame(..)
   , pausedFrame
   , resume
@@ -85,9 +87,6 @@ module Lang.Crucible.Simulator.ExecutionTree
   , returnToCrucible
   , tailReturnToCrucible
 
-    -- * ControlResumption
-  , ControlResumption(..)
-  , ResolvedJump(..)
 
     -- * ActiveTree
   , ActiveTree(..)
@@ -95,12 +94,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , activeFrames
   , actContext
   , actFrame
-
-  , extractCurrentPath
-  , asContFrame
-
---  , branchConditions
---  , pathConditions
+  , actResult
 
     -- * Simulator context
     -- ** Function bindings
@@ -143,7 +137,6 @@ import           Control.Monad.Reader
 import           Control.Monad.ST (RealWorld)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Sequence (Seq)
-import           Data.Type.Equality hiding (sym)
 import           System.Exit (ExitCode)
 import           System.IO
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
@@ -198,29 +191,6 @@ crucibleTopFrame ::
 crucibleTopFrame = gpValue . crucibleSimFrame
 {-# INLINE crucibleTopFrame #-}
 
-
-------------------------------------------------------------------------
--- CrucibleBranchTarget
-
--- | A 'CrucibleBranchTarget' identifies a program location that is a
---   potential join point.  Each label is a merge point, and there is
---   an additional implicit join point at function returns.
-data CrucibleBranchTarget blocks (args :: Maybe (Ctx CrucibleType)) where
-   BlockTarget  :: !(BlockID blocks args)
-                -> CrucibleBranchTarget blocks ('Just args)
-   ReturnTarget :: CrucibleBranchTarget blocks 'Nothing
-
-instance TestEquality (CrucibleBranchTarget blocks) where
-  testEquality (BlockTarget x) (BlockTarget y) =
-    case testEquality x y of
-      Just Refl -> Just Refl
-      Nothing   -> Nothing
-  testEquality (ReturnTarget ) (ReturnTarget ) = Just Refl
-  testEquality _ _ = Nothing
-
-ppBranchTarget :: CrucibleBranchTarget blocks args -> String
-ppBranchTarget (BlockTarget b) = "merge: " ++ show b
-ppBranchTarget ReturnTarget = "return"
 
 
 ------------------------------------------------------------------------
@@ -368,7 +338,7 @@ data ExecState p sym ext (rtp :: *)
      forall args ret.
        OverrideState
          !(Override p sym ext args ret)
-         !(SimState p sym ext rtp (OverrideLang args ret) 'Nothing)
+         !(SimState p sym ext rtp (OverrideLang ret) ('Just args))
 
    | -- | A control transfer state occurs when the included 'SimState' is
      --   in the process of transfering control to the included 'CrucibleBranchTarget'.
@@ -377,8 +347,6 @@ data ExecState p sym ext (rtp :: *)
      --   times in succession before returning to a 'RunningState'.
      forall blocks r args.
        ControlTransferState
-         !(ControlResumption p sym ext rtp blocks r args)
-           {- Action to resume after all pending merges have been resolved -}
          !(CrucibleBranchTarget blocks args)
            {- Target of the control-flow transfer -}
          !(SimState p sym ext rtp (CrucibleLang blocks r) args)
@@ -398,37 +366,36 @@ data ResolvedJump sym blocks
         !(RegMap sym args)
 
 data ControlResumption p sym ext rtp blocks r args where
-  ContinueResumption   :: ControlResumption p sym ext rtp blocks r ('Just args)
-  ReturnResumption     :: ControlResumption p sym ext rtp blocks r 'Nothing
-  CheckMergeResumption :: 
-    ControlResumption p sym ext root blocks r args ->
-    CrucibleBranchTarget blocks args ->
+  ContinueResumption ::
+    ControlResumption p sym ext rtp blocks r args
+  CheckMergeResumption ::
+    BlockID blocks args ->
     ControlResumption p sym ext root blocks r args
   SwitchResumption ::
-    CrucibleBranchTarget blocks args' ->
-    [ResolvedJump sym blocks] ->
-    ControlResumption p sym ext root blocks r ('Just args)
+    CrucibleBranchTarget blocks args' {- postdominator target -}->
+    [ResolvedJump sym blocks]         {- remaining branches -} ->
+    ControlResumption p sym ext root blocks r args
 
 ------------------------------------------------------------------------
 -- Paused Frame
 
 data PausedFrame p sym ext root b r args
    = PausedFrame
-     { _pausedFrame  :: !(PartialResult sym ext (SimFrame sym ext (CrucibleLang b r) args))
+     { _pausedFrame  :: !(PartialResult sym ext (SimFrame sym ext (CrucibleLang b r) ('Just args)))
      , _resume       :: !(ControlResumption p sym ext root b r args)
      }
 
 pausedFrame ::
   Simple Lens
     (PausedFrame p sym ext root b r args)
-    (PartialResult sym ext (SimFrame sym ext (CrucibleLang b r) args))
+    (PartialResult sym ext (SimFrame sym ext (CrucibleLang b r) ('Just args)))
 pausedFrame = lens _pausedFrame (\ppf v -> ppf{ _pausedFrame = v })
 
 resume ::
   Simple Lens
     (PausedFrame p sym ext root b r args)
     (ControlResumption p sym ext root b r args)
-resume = lens _resume (\ppf r -> ppf{ _resume = r })    
+resume = lens _resume (\ppf r -> ppf{ _resume = r })
 
 
 -- | This describes what to do in an inactive path.
@@ -437,19 +404,22 @@ data VFFOtherPath p sym ext ret blocks r args
    -- | This corresponds the a path that still needs to be analyzed.
    = forall o_args.
       VFFActivePath
-        !(Maybe ProgramLoc) {- Location of branch target -}
+        !(Maybe ProgramLoc)
+          {- Location of branch target -}
         !(PausedFrame p sym ext ret blocks r o_args)
+          {- Other branch we still need to run -}
 
      -- | This is a completed execution path.
    | VFFCompletePath
         !(Seq (Assumption sym))
-        {- Assumptions that we collected while analyzing the branch -}
-        !(PausedFrame p sym ext ret blocks r args)
+          {- Assumptions that we collected while analyzing the branch -}
+        !(PartialResult sym ext (SimFrame sym ext (CrucibleLang blocks r) args))
+          {- Result of running the other branch -}
 
 
 type family FrameRetType (f :: *) :: CrucibleType where
   FrameRetType (CrucibleLang b r) = r
-  FrameRetType (OverrideLang b r) = r
+  FrameRetType (OverrideLang r) = r
 
 
 {- | This type contains information about the current state of the exploration
@@ -496,7 +466,7 @@ data ValueFromFrame p sym ext (ret :: *) (f :: *)
          outer context. -}
 
       !(CrucibleBranchTarget blocks args)
-      {- Identifies where the two branches merge back together -}
+      {- Identifies the postdominator where the two branches merge back together -}
 
 
 
@@ -613,39 +583,14 @@ vfvParents c0 =
     VFVPartial c _ _ -> vfvParents c
     VFVEnd -> []
 
-
--- ------------------------------------------------------------------------
--- -- pathConditions
-
--- -- | Return list of conditions along current execution path.
--- pathConditions :: ValueFromFrame p sym ext r a
---                -> [Pred sym]
--- pathConditions c0 =
---   case c0 of
---     VFFBranch   c _ _ p _ _ -> p : pathConditions c
---     VFFPartial  c p _ _   -> p : pathConditions c
---     VFFEnd vfv            -> vfvConditions vfv
-
--- -- | Get the path conditions from the valueFromValue context
--- vfvConditions :: ValueFromValue p sym ext r a
---               -> [Pred sym]
--- vfvConditions c0 =
---   case c0 of
---     VFVCall c _ _ -> pathConditions c
---     VFVPartial c p _ -> p : vfvConditions c
---     VFVEnd -> []
-
 ------------------------------------------------------------------------
 -- ReturnHandler
 
--- | This type names a simulator frame, paired with a continuation
--- to be used when returning from the function.
-
 data ReturnHandler top_return p sym ext r f args new_args where
   ReturnToOverride ::
-    (ret -> ExecCont p sym ext rtp (OverrideLang args r) 'Nothing)
+    (ret -> ExecCont p sym ext rtp (OverrideLang r) ('Just args))
       {- Remaining override code to run when the return value becomse available -} ->
-    ReturnHandler ret p sym ext rtp (OverrideLang args r) 'Nothing 'Nothing
+    ReturnHandler ret p sym ext rtp (OverrideLang r) ('Just args) ('Just args)
 
   ReturnToCrucible ::
     TypeRepr ret                       {- Type of the return value -} ->
@@ -659,9 +604,9 @@ data ReturnHandler top_return p sym ext r f args new_args where
 
 
 returnToOverride ::
-  (ret -> SimState p sym ext rtp (OverrideLang args r) 'Nothing -> IO (ExecState p sym ext rtp))
+  (ret -> SimState p sym ext rtp (OverrideLang r) ('Just args) -> IO (ExecState p sym ext rtp))
     {- ^ Remaining override code to run when the return value becomse available -} ->
-  ReturnHandler ret p sym ext rtp (OverrideLang args r) 'Nothing 'Nothing
+  ReturnHandler ret p sym ext rtp (OverrideLang r) ('Just args) ('Just args)
 returnToOverride c = ReturnToOverride (ReaderT . c)
 
 returnToCrucible :: forall p sym ext root ret blocks r ctx.
@@ -722,75 +667,10 @@ actFrame :: Lens (ActiveTree p sym ext root b args)
 actFrame = actResult . partialValue
 {-# INLINE actFrame #-}
 
--- | Return the context of the current top frame.
-asContFrame :: (f ~ CrucibleLang b a)
-            => ActiveTree     p sym ext ret f args
-            -> ValueFromFrame p sym ext ret f
-asContFrame (ActiveTree ctx active_res) =
-  case active_res of
-    TotalRes{} -> ctx
-    PartialRes p _ex ar -> VFFPartial ctx p ar NoNeedToAbort
-
 activeFrames :: ActiveTree ctx sym ext root a args ->
                 [SomeFrame (SimFrame sym ext)]
 activeFrames (ActiveTree ctx ar) =
   SomeFrame (ar^.partialValue^.gpValue) : parentFrames ctx
-
-
-------------------------------------------------------------------------
--- extractCurrentPath
-
--- | Create a tree that contains just a single path with no branches.
---
--- All branch conditions are converted to assertions.
-extractCurrentPath :: ActiveTree p sym ext ret f args
-                   -> ActiveTree p sym ext ret f args
-extractCurrentPath t =
-  ActiveTree (vffSingleContext (t^.actContext))
-             (TotalRes (t^.actResult^.partialValue))
-
-vffSingleContext :: ValueFromFrame p sym ext ret f
-                 -> ValueFromFrame p sym ext ret f
-vffSingleContext ctx0 =
-  case ctx0 of
-    VFFBranch ctx _ _ _ _ _ -> vffSingleContext ctx
-    VFFPartial ctx _ _ _    -> vffSingleContext ctx
-    VFFEnd ctx              -> VFFEnd (vfvSingleContext ctx)
-
-vfvSingleContext :: ValueFromValue p sym ext root top_ret
-                 -> ValueFromValue p sym ext root top_ret
-vfvSingleContext ctx0 =
-  case ctx0 of
-    VFVCall ctx f h         -> VFVCall (vffSingleContext ctx) f h
-    VFVPartial ctx _ _      -> vfvSingleContext ctx
-    VFVEnd                  -> VFVEnd
-
-------------------------------------------------------------------------
--- branchConditions
-
--- -- | Return all branch conditions along path to this node.
--- branchConditions :: ActiveTree ctx sym ext ret f args -> [Pred sym]
--- branchConditions t =
---   case t^.actResult of
---     TotalRes _ -> vffBranchConditions (t^.actContext)
---     PartialRes p _ _ -> p : vffBranchConditions (t^.actContext)
-
--- vffBranchConditions :: ValueFromFrame p sym ext ret f
---                     -> [Pred sym]
--- vffBranchConditions ctx0 =
---   case ctx0 of
---     VFFBranch   ctx _ _ p _ _  -> p : vffBranchConditions ctx
---     VFFPartial  ctx p _ _      -> p : vffBranchConditions ctx
---     VFFEnd  ctx -> vfvBranchConditions ctx
-
--- vfvBranchConditions :: ValueFromValue p sym ext root top_ret
---                     -> [Pred sym]
--- vfvBranchConditions ctx0 =
---   case ctx0 of
---     VFVCall     ctx _ _      -> vffBranchConditions ctx
---     VFVPartial  ctx p _      -> p : vfvBranchConditions ctx
---     VFVEnd                   -> []
-
 
 
 ------------------------------------------------------------------------
@@ -799,7 +679,7 @@ vfvSingleContext ctx0 =
 -- | A definition of a function's semantics, given as a Haskell action.
 data Override p sym ext (args :: Ctx CrucibleType) ret
    = Override { overrideName    :: FunctionName
-              , overrideHandler :: forall r. ExecCont p sym ext r (OverrideLang args ret) 'Nothing
+              , overrideHandler :: forall r. ExecCont p sym ext r (OverrideLang ret) ('Just args)
               }
 
 -- | State used to indicate what to do when function is called.
@@ -917,7 +797,7 @@ initSimState :: SimContext p sym ext
              -> SymGlobalState sym
              -- ^ state of global variables
              -> AbortHandler p sym ext (RegEntry sym ret)
-             -> SimState p sym ext (RegEntry sym ret) (OverrideLang EmptyCtx ret) 'Nothing
+             -> SimState p sym ext (RegEntry sym ret) (OverrideLang ret) ('Just EmptyCtx)
 initSimState ctx globals ah =
   let startFrame = OverrideFrame { override = startFunctionName
                                  , overrideRegMap = emptyRegMap
@@ -955,8 +835,8 @@ stateCrucibleFrame ::
 stateCrucibleFrame = stateTree . actFrame . crucibleTopFrame
 {-# INLINE stateCrucibleFrame #-}
 
-stateOverrideFrame :: Lens (SimState p sym ext q (OverrideLang a r) 'Nothing)
-                           (SimState p sym ext q (OverrideLang a r) 'Nothing)
+stateOverrideFrame :: Lens (SimState p sym ext q (OverrideLang r) ('Just a))
+                           (SimState p sym ext q (OverrideLang r) ('Just a))
                            (OverrideFrame sym r a)
                            (OverrideFrame sym r a)
 stateOverrideFrame = stateTree . actFrame . gpValue . overrideSimFrame
@@ -972,31 +852,3 @@ stateIntrinsicTypes s = ctxIntrinsicTypes (s^.stateContext)
 
 stateGetConfiguration :: SimState p sym ext r f args -> Config
 stateGetConfiguration s = stateSolverProof s (getConfiguration (stateSymInterface s))
-
-
-{-
-????
-
-checkStateConsistency :: CrucibleState p sym rtp blocks r a
-                      -> BlockID blocks args
-                         -- ^ Current block of top of stack frame.
-                      -> IO ()
-checkStateConsistency s (BlockID block_id) = do
-  let f = s^.stateCrucibleFrame
-  case getIntraFrameBranchTarget (s^.stateTree^.actContext) of
-    Nothing -> return ()
-    Just (Some tgt) -> do
-      let Const _pd = framePostdomMap f Ctx.! block_id
-      case branchTarget tgt of
-        ReturnTarget -> return ()
-          -- FIXME? I'm not sure ignoring this situation is correct...
-          -- unless (null pd) $ do
-          --   fail $ "The crucible tree reached an illegal state.\n"
-          --       ++ "Branch target: Function return\n"
-          --       ++ "Postdoms:      " ++ show pd
-        BlockTarget _tgt' -> return ()
-          -- when (Some tgt' `notElem` pd) $ do
-          --   fail $ "The crucible tree reached an illegal state.\n"
-          --       ++ "Branch target: " ++ show tgt' ++ "\n"
-          --       ++ "Postdoms:      " ++ show pd
--}

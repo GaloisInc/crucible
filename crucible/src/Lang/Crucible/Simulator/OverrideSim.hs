@@ -119,7 +119,7 @@ import           Lang.Crucible.Utils.StateContT
 --   * 'a'    the value type
 --
 newtype OverrideSim p sym ext rtp (args :: Ctx CrucibleType) (ret :: CrucibleType) a
-      = Sim { unSim :: StateContT (SimState p sym ext rtp (OverrideLang args ret) 'Nothing)
+      = Sim { unSim :: StateContT (SimState p sym ext rtp (OverrideLang ret) ('Just args))
                                   (ExecState p sym ext rtp)
                                   IO
                                   a
@@ -149,7 +149,7 @@ instance Monad (OverrideSim p sym ext rtp args r) where
   (>>=) = bindOverrideSim
   fail msg = Sim $ StateContT $ \_c -> runGenericErrorHandler msg
 
-deriving instance MonadState (SimState p sym ext rtp (OverrideLang args ret) 'Nothing)
+deriving instance MonadState (SimState p sym ext rtp (OverrideLang ret) ('Just args))
                              (OverrideSim p sym ext rtp args ret)
 
 instance MonadIO (OverrideSim p sym ext rtp args ret) where
@@ -288,7 +288,7 @@ writeRef r v =
 runOverrideSim ::
   TypeRepr tp {- ^ return type -} ->
   OverrideSim p sym ext rtp args tp (RegValue sym tp) {- ^ action to execute  -} ->
-  ExecCont p sym ext rtp (OverrideLang args tp) 'Nothing
+  ExecCont p sym ext rtp (OverrideLang tp) ('Just args)
 runOverrideSim tp m = ReaderT $ \s0 -> stateSolverProof s0 $
   runStateContT (unSim m) (\v -> runReaderT (returnValue (RegEntry tp v))) s0
 

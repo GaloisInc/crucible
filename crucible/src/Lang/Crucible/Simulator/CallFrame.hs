@@ -18,8 +18,11 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TypeOperators #-}
 module Lang.Crucible.Simulator.CallFrame
-  ( -- * Call frame
-    CallFrame
+  ( -- * CrucibleBranchTarget
+    CrucibleBranchTarget(..)
+  , ppBranchTarget
+    -- * Call frame
+  , CallFrame
   , mkCallFrame
   , frameBlockMap
   , framePostdomMap
@@ -70,6 +73,30 @@ instance Show SomeHandle where
 
 
 ------------------------------------------------------------------------
+-- CrucibleBranchTarget
+
+-- | A 'CrucibleBranchTarget' identifies a program location that is a
+--   potential join point.  Each label is a merge point, and there is
+--   an additional implicit join point at function returns.
+data CrucibleBranchTarget blocks (args :: Maybe (Ctx CrucibleType)) where
+   BlockTarget  :: !(BlockID blocks args)
+                -> CrucibleBranchTarget blocks ('Just args)
+   ReturnTarget :: CrucibleBranchTarget blocks 'Nothing
+
+instance TestEquality (CrucibleBranchTarget blocks) where
+  testEquality (BlockTarget x) (BlockTarget y) =
+    case testEquality x y of
+      Just Refl -> Just Refl
+      Nothing   -> Nothing
+  testEquality (ReturnTarget ) (ReturnTarget ) = Just Refl
+  testEquality _ _ = Nothing
+
+ppBranchTarget :: CrucibleBranchTarget blocks args -> String
+ppBranchTarget (BlockTarget b) = "merge: " ++ show b
+ppBranchTarget ReturnTarget = "return"
+
+
+------------------------------------------------------------------------
 -- CallFrame
 
 -- | A call frame for a crucible block.
@@ -84,7 +111,7 @@ data CallFrame sym ext blocks ret args
                , frameReturnType :: !(TypeRepr ret)
                , _frameRegs      :: !(RegMap sym args)
                , _frameStmts     :: !(StmtSeq ext blocks ret args)
-               , _framePostdom   :: !(Maybe (Some (BlockID blocks)))
+               , _framePostdom   :: !(Some (CrucibleBranchTarget blocks))
                }
 
 -- | List of statements to execute next.
@@ -96,7 +123,7 @@ frameRegs :: Simple Lens (CallFrame sym ext blocks ret args) (RegMap sym args)
 frameRegs = lens _frameRegs (\s v -> s { _frameRegs = v })
 
 -- | List of statements to execute next.
-framePostdom :: Simple Lens (CallFrame sym ext blocks ret ctx) (Maybe (Some (BlockID blocks)))
+framePostdom :: Simple Lens (CallFrame sym ext blocks ret ctx) (Some (CrucibleBranchTarget blocks))
 framePostdom = lens _framePostdom (\s v -> s { _framePostdom = v })
 
 -- | Create a new call frame.
@@ -110,15 +137,20 @@ mkCallFrame :: CFG ext blocks init ret
 mkCallFrame g pdInfo args = do
   let BlockID block_id = cfgEntryBlockID g
   let b = cfgBlockMap g Ctx.! block_id
-  let pd = getConst $ pdInfo Ctx.! block_id
+  let pds = getConst $ pdInfo Ctx.! block_id
   CallFrame { frameHandle   = SomeHandle (cfgHandle g)
             , frameBlockMap = cfgBlockMap g
             , framePostdomMap = pdInfo
             , frameReturnType = cfgReturnType g
             , _frameRegs     = args
             , _frameStmts   = b^.blockStmts
-            , _framePostdom = listToMaybe pd
+            , _framePostdom = mkFramePostdom pds
             }
+
+mkFramePostdom :: [Some (BlockID blocks)] -> Some (CrucibleBranchTarget blocks)
+mkFramePostdom [] = Some ReturnTarget
+mkFramePostdom (Some i:_) = Some (BlockTarget i)
+
 
 -- | Return program location associated with frame.
 frameProgramLoc :: CallFrame sym ext blocks ret ctx -> ProgramLoc
@@ -130,10 +162,10 @@ setFrameBlock :: BlockID blocks args
               -> CallFrame sym ext blocks ret args
 setFrameBlock (BlockID block_id) args f = f'
     where b = frameBlockMap f Ctx.! block_id
-          Const pd = framePostdomMap f Ctx.! block_id
+          pds = getConst $ framePostdomMap f Ctx.! block_id
           f' = f { _frameRegs =  args
                  , _frameStmts = b^.blockStmts
-                 , _framePostdom  = listToMaybe pd
+                 , _framePostdom = mkFramePostdom pds
                  }
 
 updateFrame :: RegMap sym ctx'

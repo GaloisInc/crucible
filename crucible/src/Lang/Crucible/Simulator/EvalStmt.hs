@@ -191,7 +191,7 @@ evalSwitchTarget (SwitchTarget tgt _tp a) = SwitchCall tgt <$> evalArgs a
 -- | Jump to given block.
 --
 -- May throw a user error if merging fails.
-jump :: (IsSymInterface sym, IsSyntaxExtension ext)
+jump :: IsSymInterface sym
       => JumpTarget blocks args
       -> ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just args)
 jump (JumpTarget block_id _tp a) =
@@ -219,93 +219,6 @@ evalArgs ::
   ReaderT (CrucibleState p sym ext rtp blocks r ctx) m (RegMap sym args)
 evalArgs args = ReaderT $ \s -> return $! evalArgs' (s^.stateCrucibleFrame.frameRegs) args
 {-# INLINE evalArgs #-}
-
-
-{-# INLINABLE stepTerm #-}
-
--- | Evaluation operation for evaluating a single block-terminator
---   statement of the Crucible evaluator.
---
---   This is allowed to throw user execeptions or SimError.
-stepTerm :: forall p sym ext rtp blocks r ctx.
-  (IsSymInterface sym, IsSyntaxExtension ext) =>
-  Int {- ^ Verbosity -} ->
-  TermStmt blocks r ctx ->
-  ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
-stepTerm _ (Jump tgt) = jump tgt
-
-stepTerm verb (Br c x y) =
-  do JumpCall x_id x_args <- evalJumpTarget x
-     JumpCall y_id y_args <- evalJumpTarget y
-     p <- evalReg c
-     symbolicBranch verb p x_id x_args y_id y_args
-
-stepTerm verb (MaybeBranch tp e j n) =
-  do evalReg e >>= \case
-       Unassigned -> jump n
-       PE p v ->
-         do SwitchCall j_tgt j_args0 <- evalSwitchTarget j
-            JumpCall   n_tgt n_args  <- evalJumpTarget n
-            let j_args = assignReg tp v j_args0
-            symbolicBranch verb p j_tgt j_args n_tgt n_args
-
-stepTerm _ (VariantElim ctx e cases) =
-  do vs <- evalReg e
-     cases' <- Ctx.generateM (Ctx.size ctx) (\i ->
-                     VariantCall (ctx Ctx.! i) (vs Ctx.! i) <$> evalSwitchTarget (cases Ctx.! i))
-     let ls = foldMapFC (\(VariantCall tp (VB v) (SwitchCall tgt regs)) ->
-                case v of
-                  Unassigned -> []
-                  PE p v' -> [ResolvedJump p tgt (assignReg tp v' regs)])
-              cases'
-     pd <- view (stateCrucibleFrame.framePostdom)
-     Some tgt <- case pd of
-                   Nothing -> return (Some ReturnTarget)
-                   Just (Some pd_id) -> return (Some (BlockTarget pd_id))
-     stepVariantCases tgt ls
-
-stepTerm _ (Return arg) =
-  returnAndMerge =<< evalReg' arg
-
--- When we make a tail call, we first try to unwind our calling context
--- and replace the currently-active frame with the frame of the new called
--- function.  However, this is only successful if there are no pending
--- symbolic merges.
---
--- If there _are_ pending merges we instead treat the tail call as normal
--- call-then-return sequence, pushing a new call frame on the top of our
--- current context (rather than replacing it).  The tailReturnToCrucible
--- function is invoked when the tail-called function returns; it immediately
--- invokes another return in the other caller, which is still present on the
--- stack in this scenerio.
-
-stepTerm _ (TailCall fnExpr _types arg_exprs) =
-  do cl   <- evalReg fnExpr
-     args <- evalArgs arg_exprs
-     bindings <- view (stateContext.functionBindings)
-     t <- view stateTree
-     case resolveCallFrame bindings cl args of
-       SomeOF o f ->
-         case replaceTailFrame t (OF f) of
-           Just t' -> withReaderT
-                        (stateTree .~ t')
-                        (runOverride o)
-           Nothing -> withReaderT
-                        (stateTree %~ callFn tailReturnToCrucible (OF f))
-                        (runOverride o)
-       SomeCF f ->
-         case replaceTailFrame t (MF f) of
-           Just t' -> withReaderT (stateTree .~ t') continue
-           Nothing -> withReaderT (stateTree %~ callFn tailReturnToCrucible (MF f)) continue
-
-stepTerm _ (ErrorStmt msg) =
-  do msg' <- evalReg msg
-     sym <- asks stateSymInterface
-     liftIO $ case asString msg' of
-       Just txt -> addFailedAssertion sym
-                      $ GenericSimError $ Text.unpack txt
-       Nothing  -> addFailedAssertion sym
-                      $ GenericSimError $ show (printSymExpr msg')
 
 
 alterRef ::
@@ -465,6 +378,95 @@ stepStmt verb stmt rest =
             liftIO $ assert sym c (AssertFailureSimError msg')
             continueWith (stateCrucibleFrame  . frameStmts .~ rest)
 
+
+
+{-# INLINABLE stepTerm #-}
+
+-- | Evaluation operation for evaluating a single block-terminator
+--   statement of the Crucible evaluator.
+--
+--   This is allowed to throw user execeptions or SimError.
+stepTerm :: forall p sym ext rtp blocks r ctx.
+  (IsSymInterface sym, IsSyntaxExtension ext) =>
+  Int {- ^ Verbosity -} ->
+  TermStmt blocks r ctx ->
+  ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
+
+stepTerm _ (Jump tgt) = jump tgt
+
+stepTerm verb (Br c x y) =
+  do JumpCall x_id x_args <- evalJumpTarget x
+     JumpCall y_id y_args <- evalJumpTarget y
+     p <- evalReg c
+     symbolicBranch verb p x_id x_args y_id y_args
+
+stepTerm verb (MaybeBranch tp e j n) =
+  do evalReg e >>= \case
+       Unassigned -> jump n
+       PE p v ->
+         do SwitchCall j_tgt j_args0 <- evalSwitchTarget j
+            JumpCall   n_tgt n_args  <- evalJumpTarget n
+            let j_args = assignReg tp v j_args0
+            symbolicBranch verb p j_tgt j_args n_tgt n_args
+
+stepTerm _ (VariantElim ctx e cases) =
+  do vs <- evalReg e
+     cases' <- Ctx.generateM (Ctx.size ctx) (\i ->
+                     VariantCall (ctx Ctx.! i) (vs Ctx.! i) <$> evalSwitchTarget (cases Ctx.! i))
+     let ls = foldMapFC (\(VariantCall tp (VB v) (SwitchCall tgt regs)) ->
+                case v of
+                  Unassigned -> []
+                  PE p v' -> [ResolvedJump p tgt (assignReg tp v' regs)])
+              cases'
+     Some pd <- view (stateCrucibleFrame.framePostdom)
+     stepVariantCases pd ls
+
+stepTerm _ (Return arg) =
+  returnAndMerge =<< evalReg' arg
+
+-- When we make a tail call, we first try to unwind our calling context
+-- and replace the currently-active frame with the frame of the new called
+-- function.  However, this is only successful if there are no pending
+-- symbolic merges.
+--
+-- If there _are_ pending merges we instead treat the tail call as normal
+-- call-then-return sequence, pushing a new call frame on the top of our
+-- current context (rather than replacing it).  The tailReturnToCrucible
+-- function is invoked when the tail-called function returns; it immediately
+-- invokes another return in the other caller, which is still present on the
+-- stack in this scenerio.
+
+stepTerm _ (TailCall fnExpr _types arg_exprs) =
+  do cl   <- evalReg fnExpr
+     args <- evalArgs arg_exprs
+     bindings <- view (stateContext.functionBindings)
+     t <- view stateTree
+     case resolveCallFrame bindings cl args of
+       SomeOF o f ->
+         case replaceTailFrame t (OF f) of
+           Just t' -> withReaderT
+                        (stateTree .~ t')
+                        (runOverride o)
+           Nothing -> withReaderT
+                        (stateTree %~ callFn tailReturnToCrucible (OF f))
+                        (runOverride o)
+       SomeCF f ->
+         case replaceTailFrame t (MF f) of
+           Just t' -> withReaderT (stateTree .~ t') continue
+           Nothing -> withReaderT (stateTree %~ callFn tailReturnToCrucible (MF f)) continue
+
+stepTerm _ (ErrorStmt msg) =
+  do msg' <- evalReg msg
+     sym <- asks stateSymInterface
+     liftIO $ case asString msg' of
+       Just txt -> addFailedAssertion sym
+                      $ GenericSimError $ Text.unpack txt
+       Nothing  -> addFailedAssertion sym
+                      $ GenericSimError $ show (printSymExpr msg')
+
+
+
+
 -- | Main evaluation operation for running a single step of
 --   basic block evalaution.
 --
@@ -516,8 +518,8 @@ singleStepCrucible verb exst =
     OverrideState ovr st ->
       runReaderT (overrideHandler ovr) st
 
-    ControlTransferState k tgt st ->
-      runReaderT (performIntraFrameMerge k tgt) st
+    ControlTransferState tgt st ->
+      runReaderT (performIntraFrameMerge tgt) st
 
     RunningState st ->
       runReaderT (stepBasicBlock verb) st
@@ -568,8 +570,8 @@ executeCrucible st0 cont =
         OverrideState ovr st' ->
           loop verbOpt st' (overrideHandler ovr)
 
-        ControlTransferState k tgt st' ->
-          loop verbOpt st' (performIntraFrameMerge k tgt)
+        ControlTransferState tgt st' ->
+          loop verbOpt st' (performIntraFrameMerge tgt)
 
         RunningState st' ->
           do verb <- fromInteger <$> getOpt verbOpt
