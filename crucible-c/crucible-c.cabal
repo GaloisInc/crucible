@@ -29,6 +29,7 @@ executable crucible-c
     Log,
     Options,
     ProgressBar,
+    Loops,
     Report
 
 

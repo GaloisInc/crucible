@@ -39,34 +39,26 @@ function drawCounterExample(e) {
 
 function drawPath(path) {
   $('.path').remove()
-  var seen = {}
-  var cur = []
-  jQuery.each(path,function(ix,branch) {
+  jQuery.each(path,function(ix,step) {
+    var branch = step.loc
     var ln = getLine(branch)
-    var num = seen[branch]
-    if (num === undefined) {
-      num = 1
-    } else {
-      ++num
-      /*
-      for (var j = cur.lenght - 1; j > 0; --j) {
-        if (
-      } */
-    }
-    seen[branch] = num
-    var step = ix + 1
+
+    var pre = ""
+    if (step.loop.length > 1) {
+      pre = "("
+      for (i = 0; i < step.loop.length - 1; ++i) {
+        pre += step.loop[i]
+        pre += (i === step.loop.length - 2) ? ')' : ','
+      }
+   }
 
     var tag = $('<span/>')
               .addClass('path')
-              .text(step)
+              .append( $('<span/>').text(pre + step.loop[step.loop.length-1])
+                     , $('<sup/>').text(ix+1)
+                     )
     ln.append(tag)
   })
-  /*
-  jQuery.each(seen,function(i,val) {
-    if (val > 1)
-      getLine(i).append($('<span/>').addClass('path').text('(' + val + ')'))
-  })
-  */
 }
 
 function summarizePath(path) {
@@ -201,11 +193,22 @@ body { height: 100%; padding: 0; margin: 0; }
 }
 
 .path {
+  margin-right: 1em;
+}
+
+.path>span {
   font-weight: bold;
   background-color: orange;
   border-radius: 10px;
   margin: 2px;
   padding: 2px;
+}
+
+.path>sup {
+  color: #666;
+  font-style: italic;
+  font-size: small;
+  font-weight: normal;
 }
 
 .tag {

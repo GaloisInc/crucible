@@ -16,6 +16,7 @@ import What4.ProgramLoc
 import Options
 import Model
 import Goal
+import Loops
 
 generateReport :: Options -> ProvedGoals -> IO ()
 generateReport opts xs =
@@ -49,30 +50,28 @@ renderSideConds = go []
 
   go path gs =
     case gs of
-      AtLoc pl _ gs1  -> go (jsLoc pl : path) gs1
+      AtLoc pl _ gs1  -> go ((jsLoc pl, pl) : path) gs1
       Branch gss ->
         let (now,rest) = partition isGoal (flatBranch gss)
         in concatMap (go path) now ++ concatMap (go path) rest
 
       Goal asmps conc triv proved ->
-        [ jsSideCond (reverse path) asmps conc triv proved ]
+        let (ls,ps) = unzip (reverse path)
+            ap      = map fst (annotateLoops ps)
+            mkStep a l = jsObj [ "loop" ~> jsList (map jsNum a)
+                               , "loc"  ~> l ]
+            apath   = zipWith mkStep ap ls
+        in [ jsSideCond apath asmps conc triv proved ]
 
 jsLoc :: ProgramLoc -> JS
 jsLoc x = case plSourceLoc x of
             SourcePos _ l _ -> jsStr (show l)
             _               -> jsNull
 
-type SideCond = ( [JS]
-                , [(Int,AssumptionReason,String)]
-                , (SimError,String)
-                , Bool
-                , ProofResult
-                )
-
 
 
 jsSideCond ::
-  [JS] ->
+  [ JS ] ->
   [(Maybe Int,AssumptionReason,String)] ->
   (SimError,String) ->
   Bool ->
