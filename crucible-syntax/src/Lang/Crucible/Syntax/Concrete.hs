@@ -627,7 +627,7 @@ normStmt stmt@(L [A (Kw Let), A (At an), e]) =
     -- no case for EvalExt because we don't have exts
     -- TODO ReadGlobal
 
-    atomValue stx@(L [A (Kw Fresh), A (At an), tpe]) =
+    atomValue stx@(L [A (Kw Fresh), tpe]) =
       case userSymbol (T.unpack (atomName an)) of
         Left err -> throwError $ NotAUserSymbol (syntaxPos stmt) an err
         Right nm ->

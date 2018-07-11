@@ -11,6 +11,7 @@
 module Main where
 
 import Control.Exception as Ex
+import Control.Lens ( (^.), to )
 import Control.Monad.Except
 import Control.Monad.ST
 import System.IO
@@ -18,6 +19,7 @@ import Data.Monoid
 import Data.Text (Text)
 --import qualified Data.Text as T
 import qualified Data.Text.IO as T
+
 
 import Data.Parameterized.Classes
 import Data.Parameterized.Context
@@ -31,17 +33,21 @@ import qualified Lang.Crucible.Syntax.Concrete as Syntax
 import Lang.Crucible.Syntax.SExpr
 import Lang.Crucible.Syntax.Atoms
 import Lang.Crucible.CFG.SSAConversion
+import qualified Lang.Crucible.Types as C
 import qualified Lang.Crucible.CFG.Core as C
 import Lang.Crucible.Analysis.Postdom (postdomInfo)
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator.EvalStmt (executeCrucible)
 import Lang.Crucible.Simulator.ExecutionTree
-  ( FunctionBindings, FnState(..), initSimContext, ExtensionImpl(..), defaultErrorHandler
-  , ExecResult(..) )
+  ( FunctionBindings, FnState(..), initSimContext, ExtensionImpl(..), ExecResult(..), partialValue, gpValue )
+import Lang.Crucible.Simulator.Operations
+  ( defaultAbortHandler )
 import Lang.Crucible.Simulator.GlobalState
   (emptyGlobals)
 import Lang.Crucible.Simulator.OverrideSim
   (runOverrideSim, initSimState, callFnVal')
+import Lang.Crucible.Simulator.RegMap
+  (regValue)
 import Lang.Crucible.Simulator.RegValue
   (FnVal(..))
 
@@ -121,16 +127,22 @@ runSimulator halloc fl inp =
 
      let ctx = initSimContext sym MapF.empty halloc stdout bindings
                   (ExtensionImpl (\_ _ _ _ -> \case) (\case)) ()
-     let st0 = initSimState ctx emptyGlobals defaultErrorHandler
+     let st0 = initSimState ctx emptyGlobals defaultAbortHandler
 
-     res <- Ex.try (executeCrucible st0 $ runOverrideSim (handleReturnType hMain) $
+     let retTy = handleReturnType hMain
+
+     res <- Ex.try (executeCrucible st0 $ runOverrideSim retTy $
                      callFnVal' (HandleFnVal hMain) Empty)
      case res of
        Left (ex :: SomeException) ->
          do putStrLn "Exeception escaped!"
             print ex
-       Right (FinishedResult _ctx _pr) ->
-         putStrLn "Finished!"
+       Right (FinishedResult _ctx pr) ->
+         do putStrLn "Finished!"
+            case C.asBaseType retTy of
+              C.AsBaseType _btp -> print (printSymExpr (pr^.partialValue.gpValue.to regValue))
+              C.NotBaseType -> return ()
+
        Right (AbortedResult _ctx _ar) ->
          putStrLn "Aborted!"
 
