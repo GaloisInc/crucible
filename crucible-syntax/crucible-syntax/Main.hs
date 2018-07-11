@@ -42,11 +42,13 @@ go (TheFile fn) theInput =
          exitFailure
     Right v ->
       do forM_ v $ T.putStrLn . printExpr
-         cfgs <- mapM (stToIO . top . cfg) v
-         forM_ cfgs $
-           \case
-             Left err -> print err
-             Right (ACFG _ _ theCfg) -> print (toSSA theCfg)
+         cfgs <- stToIO $ top $ cfgs v
+         case cfgs of
+           Left err -> print err
+           Right ok ->
+             forM_ ok $
+              \(ACFG _ _ theCfg) ->
+                print (toSSA theCfg)
 
 
 main :: IO ()

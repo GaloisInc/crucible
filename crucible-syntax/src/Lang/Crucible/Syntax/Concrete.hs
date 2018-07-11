@@ -103,6 +103,7 @@ data ExprErr s where
   TooSmall :: Position -> NatRepr n -> ExprErr s
   UnknownAtom :: Position -> AtomName -> ExprErr s
   UnknownBlockLabel :: Position -> AST s -> ExprErr s
+  UnknownFunction :: Position -> FunName -> ExprErr s
   DuplicateAtom :: Position -> AtomName -> ExprErr s
   DuplicateLabel :: Position -> LabelName -> ExprErr s
   NotArgumentSpec :: Position -> AST s -> ExprErr s
@@ -180,7 +181,7 @@ printExprErr = show
 
 data ComparisonCtor s t = ComparisonCtor (Expr () s t -> Expr () s t -> App () (Expr () s) BoolType)
 
-synthComparison :: (Alternative m, MonadError (ExprErr s) m, MonadState (SyntaxState s) m)
+synthComparison :: (Alternative m, MonadError (ExprErr s) m, MonadState (SyntaxState h s) m)
                 => MapF TypeRepr (ComparisonCtor s)
                 -> AST s -> AST s -> AST s
                 -> m (E s BoolType)
@@ -194,7 +195,7 @@ synthComparison ts e a b =
            Nothing -> throwError$ NotComparison (syntaxPos e) e t1
            Just (ComparisonCtor f) -> return $ E (App (f a' b'))
 
-checkNumeric :: (Alternative m, MonadError (ExprErr s) m, MonadState (SyntaxState s) m)
+checkNumeric :: (Alternative m, MonadError (ExprErr s) m, MonadState (SyntaxState h s) m)
              => TypeRepr t1 -> TypeRepr t2
              -> AST s -> AST s -> AST s
              -> (Expr () s t2 -> Expr () s t2 -> App () (Expr () s) t2)
@@ -207,7 +208,7 @@ checkNumeric t1 t2 e a b f =
          return (E (App (f a' b')))
     Nothing -> throwError$ NotNumeric (syntaxPos e) e t2
 
-checkExpr :: (Alternative m, MonadError (ExprErr s) m, MonadState (SyntaxState s) m)
+checkExpr :: (Alternative m, MonadError (ExprErr s) m, MonadState (SyntaxState h s) m)
           => TypeRepr t -> AST s -> m (E s t)
 checkExpr (MaybeRepr expectedT) (L [A (Kw Unpack), package]) =
   do E e <- checkExpr AnyRepr package
@@ -278,7 +279,7 @@ isType (L [A (Kw BitVectorT), n]) =
 -- TODO more types
 isType e = throwError $ NotAType (syntaxPos e) e
 
-synthExpr :: (Alternative m, MonadError (ExprErr s) m, MonadState (SyntaxState s) m) => AST s -> m (SomeExpr s)
+synthExpr :: (Alternative m, MonadError (ExprErr s) m, MonadState (SyntaxState h s) m) => AST s -> m (SomeExpr s)
 synthExpr (L [A (Kw The), t, e]) =
   do Some ty <- isType t
      e' <- checkExpr ty e
@@ -304,6 +305,13 @@ synthExpr e@(L [A (Kw If), c, t, f]) =
            AsBaseType bt ->
              return $ SomeExpr ty1 (E (App (BaseIte bt c' t' f')))
        Nothing -> throwError $ TypeMismatch (syntaxPos e) t ty1 f ty2
+synthExpr x@(A (Fn n)) =
+  do fn <- funName x
+     fh <- use $ stxFunctions . at fn
+     case fh of
+       Nothing -> throwError $ UnknownFunction (syntaxPos x) n
+       Just (FunctionHeader name args ret handle _) ->
+         return $ SomeExpr (FunctionHandleRepr (argTypes args) ret) (E (App $ HandleLit handle))
 synthExpr (L []) =
   return $ SomeExpr UnitRepr (E (App EmptyApp))
 synthExpr (L [A (Kw Pack), arg]) =
@@ -425,37 +433,59 @@ data LabelInfo :: * -> * where
   NoArgLbl :: Label s -> LabelInfo s
   ArgLbl :: forall s ty . TypeRepr ty -> LambdaLabel s ty -> LabelInfo s
 
-data SyntaxState s = SyntaxState { _stxLabels :: Map LabelName (LabelInfo s)
-                                 , _stxAtoms :: Map AtomName (Pair TypeRepr (Atom s))
-                                 , _stxRegisters :: Map RegName (Pair TypeRepr (Reg s))
-                                 , _stxNextLabel :: Int
-                                 , _stxNextAtom :: Int
-                               }
+data ProgramState h s =
+  ProgramState { _progFunctions :: Map FunctionName FunctionHeader
+               , _progHandleAlloc :: HandleAllocator h
+               }
 
-initSyntaxState :: SyntaxState s
+progFunctions :: Simple Lens (ProgramState h s) (Map FunctionName FunctionHeader)
+progFunctions = lens _progFunctions (\s v -> s { _progFunctions = v })
+
+progHandleAlloc :: Simple Lens (ProgramState h s) (HandleAllocator h)
+progHandleAlloc = lens _progHandleAlloc (\s v -> s { _progHandleAlloc = v })
+
+
+data SyntaxState h s =
+  SyntaxState { _stxLabels :: Map LabelName (LabelInfo s)
+              , _stxAtoms :: Map AtomName (Pair TypeRepr (Atom s))
+              , _stxRegisters :: Map RegName (Pair TypeRepr (Reg s))
+              , _stxNextLabel :: Int
+              , _stxNextAtom :: Int
+              , _stxProgState :: ProgramState h s
+              }
+
+initProgState :: HandleAllocator h -> ProgramState h s
+initProgState = ProgramState Map.empty
+
+initSyntaxState :: ProgramState h s -> SyntaxState h s
 initSyntaxState = SyntaxState Map.empty Map.empty Map.empty 0 0
 
-stxLabels :: Simple Lens (SyntaxState s) (Map LabelName (LabelInfo s))
+stxLabels :: Simple Lens (SyntaxState h s) (Map LabelName (LabelInfo s))
 stxLabels = lens _stxLabels (\s v -> s { _stxLabels = v })
 
-stxAtoms :: Simple Lens (SyntaxState s) (Map AtomName (Pair TypeRepr (Atom s)))
+stxAtoms :: Simple Lens (SyntaxState h s) (Map AtomName (Pair TypeRepr (Atom s)))
 stxAtoms = lens _stxAtoms (\s v -> s { _stxAtoms = v })
 
-stxRegisters :: Simple Lens (SyntaxState s) (Map RegName (Pair TypeRepr (Reg s)))
+stxRegisters :: Simple Lens (SyntaxState h s) (Map RegName (Pair TypeRepr (Reg s)))
 stxRegisters = lens _stxRegisters (\s v -> s { _stxRegisters = v })
 
 
-stxNextLabel :: Simple Lens (SyntaxState s) Int
+stxNextLabel :: Simple Lens (SyntaxState h s) Int
 stxNextLabel = lens _stxNextLabel (\s v -> s { _stxNextLabel = v })
 
-stxNextAtom :: Simple Lens (SyntaxState s) Int
+stxNextAtom :: Simple Lens (SyntaxState h s) Int
 stxNextAtom = lens _stxNextAtom (\s v -> s { _stxNextAtom = v })
 
+stxProgState :: Simple Lens (SyntaxState h s) (ProgramState h s)
+stxProgState = lens _stxProgState (\s v -> s { _stxProgState = v })
+
+stxFunctions :: Simple Lens (SyntaxState h s) (Map FunctionName FunctionHeader)
+stxFunctions = stxProgState . progFunctions
 
 newtype CFGParser h s ret a =
   CFGParser { runCFGParser :: (?returnType :: TypeRepr ret)
                            => ExceptT (ExprErr s)
-                                (StateT (SyntaxState s) (ST h))
+                                (StateT (SyntaxState h s) (ST h))
                                 a
             }
   deriving (Functor)
@@ -480,7 +510,7 @@ instance MonadError (ExprErr s) (CFGParser h s ret) where
   throwError = CFGParser . throwError
   catchError m h = CFGParser $ catchError (runCFGParser m) (runCFGParser . h)
 
-instance MonadState (SyntaxState s) (CFGParser h s ret) where
+instance MonadState (SyntaxState h s) (CFGParser h s ret) where
   get = CFGParser get
   put = CFGParser . put
 
@@ -496,13 +526,13 @@ freshIndex l =
      l .= n + 1
      return n
 
-freshLabelIndex :: MonadState (SyntaxState s) m => m Int
+freshLabelIndex :: MonadState (SyntaxState h s) m => m Int
 freshLabelIndex = freshIndex stxNextLabel
 
-freshAtomIndex :: MonadState (SyntaxState s) m => m Int
+freshAtomIndex :: MonadState (SyntaxState h s) m => m Int
 freshAtomIndex = freshIndex stxNextAtom
 
-freshLabel :: MonadState (SyntaxState s) m => m (Label s)
+freshLabel :: MonadState (SyntaxState h s) m => m (Label s)
 freshLabel = Label <$> freshLabelIndex
 
 freshAtom :: AST s -> AtomValue () s t -> WriterT [Posd (Stmt () s)] (CFGParser h s ret) (Atom s t)
@@ -523,7 +553,7 @@ newLabel x =
      stxLabels %= Map.insert x (NoArgLbl theLbl)
      return theLbl
 
-freshLambdaLabel :: MonadState (SyntaxState s) m => TypeRepr tp -> m (LambdaLabel s tp, Atom s tp)
+freshLambdaLabel :: MonadState (SyntaxState h s) m => TypeRepr tp -> m (LambdaLabel s tp, Atom s tp)
 freshLambdaLabel t =
   do n <- freshLabelIndex
      i <- freshAtomIndex
@@ -570,7 +600,7 @@ labelArgs ast =
     ArgLbl t l -> return (Pair t l)
 
 
-newUnassignedReg :: MonadState (SyntaxState s) m => TypeRepr t -> m (Reg s t)
+newUnassignedReg :: MonadState (SyntaxState h s) m => TypeRepr t -> m (Reg s t)
 newUnassignedReg t =
   do i <- freshAtomIndex
      let fakePos = OtherPos "Parser internals"
@@ -579,7 +609,7 @@ newUnassignedReg t =
                    , typeOfReg = t
                    }
 
-regRef :: (MonadError (ExprErr s) m, MonadState (SyntaxState s) m) => AST s -> m (Pair TypeRepr (Reg s))
+regRef :: (MonadError (ExprErr s) m, MonadState (SyntaxState h s) m) => AST s -> m (Pair TypeRepr (Reg s))
 regRef e@(A (Rg x)) =
   do perhapsReg <- use (stxRegisters . at x)
      case perhapsReg of
@@ -626,6 +656,16 @@ normStmt stmt@(L [A (Kw Let), A (At an), e]) =
       do Some t' <- isType t
          anAtom <- freshAtom stmt (NewEmptyRef t')
          return $ Pair (ReferenceRepr t') anAtom
+    atomValue stx@(L (A (Kw Funcall) : fun : args)) =
+      do SomeExpr t (E fun') <- synthExpr fun
+         case t of
+           FunctionHandleRepr argTypes ret ->
+             do funAtom <- eval fun fun'
+                operandExprs <- lift $ operands (syntaxPos fun) args argTypes
+                operandAtoms <- traverseFC (\(Rand a (E e)) -> eval a e) operandExprs
+                endAtom <- freshAtom stmt $ Call funAtom operandAtoms ret
+                return $ Pair ret endAtom
+           other -> throwError $ NotAFunction (syntaxPos fun) fun other
     atomValue expr =
       do SomeExpr tp (E e') <- lift $ synthExpr expr
          atom <- eval expr e'
@@ -648,7 +688,7 @@ blockBody _p (stmt:stmts) = helper (fmap snd . runWriterT . traverse normStmt) s
           helper (\x -> (ss (s : x))) s' ss'
 
 
-typedAtom :: (MonadError (ExprErr s) m, MonadState (SyntaxState s) m) => Position -> TypeRepr a -> AtomName -> m (Atom s a)
+typedAtom :: (MonadError (ExprErr s) m, MonadState (SyntaxState h s) m) => Position -> TypeRepr a -> AtomName -> m (Atom s a)
 typedAtom p ty x =
   do perhapsAtom <- use (stxAtoms . at x)
      case perhapsAtom of
@@ -659,7 +699,7 @@ typedAtom p ty x =
            Nothing -> throwError $ AnonTypeError p ty ty'
 
 
-typedAtom' :: (MonadError (ExprErr s) m, MonadState (SyntaxState s) m) => TypeRepr a -> AST s -> m (Atom s a)
+typedAtom' :: (MonadError (ExprErr s) m, MonadState (SyntaxState h s) m) => TypeRepr a -> AST s -> m (Atom s a)
 typedAtom' ty e@(A (At x)) =
   do perhapsAtom <- use (stxAtoms . at x)
      case perhapsAtom of
@@ -708,6 +748,20 @@ data SnocList a = Begin | Snoc (SnocList a) a
 toSnoc :: [a] -> SnocList a
 toSnoc = foldl Snoc Begin
 
+data Rand s t = Rand (AST s) (E s t)
+
+operands :: Position -> [AST s] -> Ctx.Assignment TypeRepr args -> CFGParser h s ret (Ctx.Assignment (Rand s) args)
+operands fpos argexprs argtypes = operands' (reverse argexprs) (Ctx.viewAssign argtypes)
+  where
+    operands' :: [AST s] -> Ctx.AssignView TypeRepr args -> CFGParser h s ret (Ctx.Assignment (Rand s) args)
+    operands' [] Ctx.AssignEmpty = return Ctx.empty
+    operands' (a:as) (Ctx.AssignExtend argTypes anArgType) =
+      do a' <- checkExpr anArgType a
+         rest <- operands' as (Ctx.viewAssign argTypes)
+         return $ Ctx.extend rest (Rand a a')
+    operands' otherArgs otherCtx = throwError $ WrongNumberOfArgs (findPosition argexprs)
+    findPosition [] = fpos
+    findPosition (e:es) = syntaxPos e
 
 argAtoms :: Position -> SnocList (AST s) -> CtxRepr ctx -> CFGParser h s ret (Ctx.Assignment (Atom s) ctx)
 argAtoms p xs ctx =
@@ -760,7 +814,10 @@ funName (A (Fn (FunName x))) = pure $ functionNameFromText x
 funName other = throwError $ NotFunctionName (syntaxPos other) other
 
 
-saveArgs :: Ctx.Assignment Arg init -> Ctx.Assignment (Atom s) init -> TopParser h s ()
+saveArgs :: (MonadState (SyntaxState h s) m, MonadError (ExprErr s) m)
+         => Ctx.Assignment Arg init
+         -> Ctx.Assignment (Atom s) init
+         -> m ()
 saveArgs ctx1 ctx2 =
   let combined = Ctx.zipWith
                    (\(Arg x p t) at ->
@@ -775,33 +832,37 @@ saveArgs ctx1 ctx2 =
                do stxAtoms %= Map.insert x (Pair t y)
                   stxNextAtom %= max (atomId y + 1)
 
-data FunctionHeader s =
+data FunctionHeader =
+  forall args ret .
   FunctionHeader { headerName :: FunctionName
-                 , headerArgs :: Some (Ctx.Assignment Arg)
-                 , headerReturnType :: Some TypeRepr
-                 , headerRegisters :: [(RegName, Some (Reg s))]
+                 , headerArgs :: Ctx.Assignment Arg args
+                 , headerReturnType :: TypeRepr ret
+                 , headerHandle :: FnHandle args ret
+                 , headerLoc :: Position
+                 }
+
+data FunctionSource s =
+  FunctionSource { functionRegisters :: [AST s]
                  , functionBody :: [AST s]
                  }
 
-functionHeader :: AST s -> TopParser h s (FunctionHeader s)
-functionHeader (L (A (Kw Defun) : name : arglist : ret : rest)) =
+functionHeader :: AST s -> TopParser h s (FunctionHeader, FunctionSource s)
+functionHeader defun@(L (A (Kw Defun) : name : arglist : ret : rest)) =
   do fnName <- funName name
-     theArgs <- args arglist (Some Ctx.empty)
-     ty <- isType ret
-     (regs, body) <- getRegisters rest
-     return $ FunctionHeader fnName theArgs ty regs body
-  where getRegisters (L (A (Kw Registers) : regs) : more) =
-          do registers <- saveRegisters regs
-             return (registers, more)
-        getRegisters other = return ([], other)
-        saveRegisters = traverse saveRegister
-        saveRegister :: AST s -> TopParser h s (RegName, Some (Reg s))
-        saveRegister (L [A (Rg x), t]) =
-          do Some ty <- isType t
-             r <- newUnassignedReg ty
-             stxRegisters %= Map.insert x (Pair ty r)
-             return (x, Some r)
-        saveRegister other = throwError $ InvalidRegister (syntaxPos other) other
+     Some theArgs <- args arglist (Some Ctx.empty)
+     Some ty <- isType ret
+     let (regs, body) = getRegisters rest
+     ha <- use $ stxProgState  . progHandleAlloc
+     handle <- liftST $ mkHandle' ha fnName (argTypes theArgs) ty
+
+     let header = FunctionHeader fnName theArgs ty handle (syntaxPos defun)
+     saveHeader fnName header
+     return $ (header, FunctionSource regs body)
+  where getRegisters (L (A (Kw Registers) : regs) : more) = (regs, more)
+        getRegisters other = ([], other)
+        saveHeader n h =
+          stxFunctions %= Map.insert n h
+
 functionHeader other = throwError $ NotFunDef (syntaxPos other) other
 
 
@@ -812,7 +873,7 @@ argTypes  = fmapFC (\(Arg _ _ t) -> t)
 type BlockTodo h s ret =
   (LabelName, BlockID s, Position, [AST s])
 
-blocks :: forall h s ret a . Position -> [AST s] -> CFGParser h s ret [Block () s ret]
+blocks :: forall h s ret . Position -> [AST s] -> CFGParser h s ret [Block () s ret]
 blocks funPos [] = throwError $ EmptyFunBody funPos
 blocks _      (aBlock:moreBlocks) =
   do startContents <- startBlock aBlock
@@ -867,13 +928,15 @@ eval stx (AtomExpr at) = pure at -- The expression is already evaluated
 
 newtype TopParser h s a =
   TopParser { runTopParser :: ExceptT (ExprErr s)
-                                (StateT (SyntaxState s) (ST h))
+                                (StateT (SyntaxState h s) (ST h))
                                 a
             }
   deriving (Functor)
 
 top :: TopParser h s a -> ST h (Either (ExprErr s) a)
-top (TopParser (ExceptT (StateT act))) = fst <$> act initSyntaxState
+top (TopParser (ExceptT (StateT act))) =
+  do ha <- newHandleAllocator
+     fst <$> act (initSyntaxState (initProgState ha))
 
 instance Applicative (TopParser h s) where
   pure x = TopParser (pure x)
@@ -895,7 +958,7 @@ instance MonadError (ExprErr s) (TopParser h s) where
   throwError = TopParser . throwError
   catchError m h = TopParser $ catchError (runTopParser m) (runTopParser . h)
 
-instance MonadState (SyntaxState s) (TopParser h s) where
+instance MonadState (SyntaxState h s) (TopParser h s) where
   get = TopParser get
   put = TopParser . put
 
@@ -909,13 +972,29 @@ parseCFG :: (?returnType :: TypeRepr ret)
          -> TopParser h s (CFG () s init ret)
 parseCFG h (CFGParser act) = CFG h <$> TopParser act
 
-cfg :: AST s -> TopParser h s ACFG
-cfg defun =
-  do FunctionHeader name (Some (args :: Ctx.Assignment Arg init)) (Some ret) _ body <- functionHeader defun
+
+initParser :: (MonadState (SyntaxState h s) m, MonadError (ExprErr s) m) => FunctionHeader -> FunctionSource s -> m ()
+initParser (FunctionHeader name (args :: Ctx.Assignment Arg init) ret handle pos) (FunctionSource regs body) =
+  do with stxProgState $ put . initSyntaxState
      let types = argTypes args
      let inputAtoms = mkInputAtoms (OtherPos "args") types
      saveArgs args inputAtoms
-     let ?returnType = ret
-     ha <- newHandleAllocator
-     handle <- liftST $ mkHandle' ha name types ret
-     ACFG types ret <$> (parseCFG handle (blocks (syntaxPos defun) body))
+     forM_ regs saveRegister
+
+  where
+    saveRegister (L [A (Rg x), t]) =
+      do Some ty <- isType t
+         r <- newUnassignedReg ty
+         stxRegisters %= Map.insert x (Pair ty r)
+    saveRegister other = throwError $ InvalidRegister (syntaxPos other) other
+
+cfgs :: [AST s] -> TopParser h s [ACFG]
+cfgs defuns =
+  do headers <- traverse functionHeader defuns
+     forM headers $
+       \(hdr@(FunctionHeader name args ret handle pos), src@(FunctionSource _ body)) ->
+         do let types = argTypes args
+            initParser hdr src
+            let ?returnType = ret
+            ACFG types ret <$> (parseCFG handle (blocks pos body))
+
