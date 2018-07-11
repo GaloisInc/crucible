@@ -91,10 +91,8 @@ setupOverrides ctxt =
         Empty knownRepr sv_comp_fresh_i32
      regOver ctxt "__VERIFIER_nondet_char"
         (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i8
-{-
      regOver ctxt "__VERIFIER_assert"
         (Empty :> knownRepr) knownRepr sv_comp_assert
--}
      regOver ctxt "__VERIFIER_assume"
         (Empty :> knownRepr) knownRepr sv_comp_assume
      regOver ctxt "__VERIFIER_error"
@@ -257,7 +255,6 @@ sv_comp_assume =
                  check <- notPred sym =<< bvEq sym cond zero
                  addAssumption sym (LabeledPred check msg)
 
-{-
 sv_comp_assert ::
   (ArchOk arch, IsSymInterface sym) =>
   Fun sym arch (EmptyCtx ::> TBits 32) UnitType
@@ -266,16 +263,15 @@ sv_comp_assert =
      sym  <- getSymInterface
      liftIO $ do cond <- projectLLVM_bv sym (regValue p)
                  zero <- bvLit sym knownRepr 0
-                 let msg = "Assertion failed."
+                 let msg = "Call to __VERIFIER_assert"
                      rsn = AssertFailureSimError msg
                  check <- notPred sym =<< bvEq sym cond zero
-                 addAssertion sym check rsn
--}
+                 assert sym check rsn
 
 sv_comp_error ::
   (ArchOk arch, IsSymInterface sym) =>
   Fun sym arch (EmptyCtx ::> VectorType AnyType) UnitType
 sv_comp_error =
   do sym  <- getSymInterface
-     let rsn = AssertFailureSimError "Called __VERIFIER_error"
+     let rsn = AssertFailureSimError "Call to __VERIFIER_error"
      liftIO $ addFailedAssertion sym rsn
