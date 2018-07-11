@@ -45,6 +45,7 @@ data Keyword = Defun | DefBlock
              | Print_
              | Let | Fresh
              | SetRegister
+             | Funcall
   deriving (Eq, Ord)
 
 keywords :: [(Text, Keyword)]
@@ -105,6 +106,7 @@ keywords =
   , ("ref", Ref)
   , ("empty-ref", EmptyRef)
   , ("set-register!", SetRegister)
+  , ("funcall", Funcall)
   ]
 
 
@@ -128,7 +130,7 @@ data Atomic = Kw Keyword -- keywords are all the built-in operators and expressi
 
 
 atom :: Parser Atomic
-atom =  try (Lbl . LabelName <$> (T.pack <$> many letter) <* char ':')
+atom =  try (Lbl . LabelName <$> (identifier) <* char ':')
     <|> kwOrAtom
     <|> Fn . FunName <$> (char '@' *> identifier)
     <|> Rg . RegName <$> (char '$' *> identifier)
@@ -136,7 +138,9 @@ atom =  try (Lbl . LabelName <$> (T.pack <$> many letter) <* char ':')
     <|> Rat <$> ((%) <$> signedPrefixedNumber <* char '/' <*> prefixedNumber)
     <|> char '#' *>  (char 't' $> Bool True <|> char 'f' $> Bool False)
     <|> Str <$> (char '"' >> manyTill L.charLiteral (char '"')) -- TODO? does this correctly handle character escapes?
-  where letter = satisfy isLetter
+
+--  where letter = satisfy isLetter
+
 
 kwOrAtom :: Parser Atomic
 kwOrAtom = do x <- identifier

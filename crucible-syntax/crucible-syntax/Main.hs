@@ -78,41 +78,44 @@ repl ha fn =
 
 go :: HandleAllocator RealWorld -> TheFile -> Text ->
    IO (FunctionBindings () (SimpleBackend s) (), Some (FnHandle EmptyCtx))
-go ha (TheFile fn) theInput =
+go halloc (TheFile fn) theInput =
   case MP.parse (many (sexp atom) <* eof) fn theInput of
     Left err ->
       do putStrLn $ parseErrorPretty' theInput err
          exitFailure
     Right v ->
       do forM_ v $ T.putStrLn . Syntax.printExpr
-         cfgs <- mapM (stToIO . Syntax.top . Syntax.cfg ha) v
-         let f :: (FunctionBindings () (SimpleBackend n) (), Maybe (Some (FnHandle EmptyCtx))) ->
-                  Either (Syntax.ExprErr s) Syntax.ACFG ->
-                  IO (FunctionBindings () (SimpleBackend n) (), Maybe (Some (FnHandle EmptyCtx)))
-             f (hdlMap, maybeMain) = \case
-                Left err ->
-                  do print err
-                     return (hdlMap, maybeMain)
-                Right (Syntax.ACFG _ _ cfg) ->
-                  do C.SomeCFG ssa <- return (toSSA cfg)
-                     let h = C.cfgHandle ssa
-                     print h
-                     print ssa
-                     let hdlMap' = insertHandleMap h (UseCFG ssa (postdomInfo ssa)) hdlMap
-                     case maybeMain of
-                       Nothing
-                         | handleName h == "main"
-                         , Just Refl <- testEquality (C.cfgArgTypes ssa) Empty
-                         -> return (hdlMap', Just (C.Some h))
-                       _ -> return (hdlMap', maybeMain)
-
-         (hdlMap, maybeMain) <- foldM f (emptyHandleMap, Nothing) cfgs
-         case maybeMain of
-           Just hMain -> return (hdlMap, hMain)
-           Nothing ->
-             do putStrLn "No 'main' function found"
+         res <- stToIO $ Syntax.top halloc $ Syntax.cfgs v
+         case res of
+           Left err ->
+             do print err
                 exitFailure
-
+           Right cfgs ->
+             do
+             let f :: (FunctionBindings () (SimpleBackend n) (), Maybe (Some (FnHandle EmptyCtx))) ->
+                      Syntax.ACFG ->
+                      IO (FunctionBindings () (SimpleBackend n) (), Maybe (Some (FnHandle EmptyCtx)))
+                 f (hdlMap, maybeMain) = \case
+                    Syntax.ACFG _ _ cfg ->
+                      do C.SomeCFG ssa <- return (toSSA cfg)
+                         let h = C.cfgHandle ssa
+                         print h
+                         print ssa
+                         let hdlMap' = insertHandleMap h (UseCFG ssa (postdomInfo ssa)) hdlMap
+                         case maybeMain of
+                           Nothing
+                             | handleName h == "main"
+                             , Just Refl <- testEquality (C.cfgArgTypes ssa) Empty
+                             -> return (hdlMap', Just (C.Some h))
+                           _ -> return (hdlMap', maybeMain)
+    
+             (hdlMap, maybeMain) <- foldM f (emptyHandleMap, Nothing) cfgs
+             case maybeMain of
+               Just hMain -> return (hdlMap, hMain)
+               Nothing ->
+                 do putStrLn "No 'main' function found"
+                    exitFailure
+   
 runSimulator ::
   HandleAllocator RealWorld ->
   TheFile -> Text ->
@@ -145,7 +148,6 @@ runSimulator halloc fl inp =
 
        Right (AbortedResult _ctx _ar) ->
          putStrLn "Aborted!"
-
 
 main :: IO ()
 main =
