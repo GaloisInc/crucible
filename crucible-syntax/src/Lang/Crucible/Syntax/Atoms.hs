@@ -23,6 +23,7 @@ newtype FunName = FunName Text deriving (Eq, Ord, Show)
 
 
 data Keyword = Defun | DefBlock
+             | Registers
              | Start
              | Unpack
              | Plus | Minus | Times | Div
@@ -36,17 +37,21 @@ data Keyword = Defun | DefBlock
              | Not_ | And_ | Or_ | Xor_
              | Mod
              | Lt
+             | StringAppend
              | VectorLit_ | VectorReplicate_ | VectorIsEmpty_ | VectorSize_
              | VectorGetEntry_ | VectorSetEntry_ | VectorCons_
+             | Deref | Ref | EmptyRef
              | Jump_ | Return_ | Branch_ | MaybeBranch_ | TailCall_ | Error_ | Output_
              | Print_
              | Let | Fresh
+             | SetRegister
   deriving (Eq, Ord)
 
 keywords :: [(Text, Keyword)]
 keywords =
   [ ("defun" , Defun)
   , ("defblock" , DefBlock)
+  , ("registers", Registers)
   , ("let", Let)
   , ("start" , Start)
   , ("unpack" , Unpack)
@@ -95,6 +100,11 @@ keywords =
   , ("error", Error_)
   , ("output", Output_)
   , ("print" , Print_)
+  , ("string-append", StringAppend)
+  , ("deref", Deref)
+  , ("ref", Ref)
+  , ("empty-ref", EmptyRef)
+  , ("set-register!", SetRegister)
   ]
 
 
