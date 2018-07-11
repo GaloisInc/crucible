@@ -33,7 +33,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 module What4.BaseTypes
   ( -- * BaseType data kind
-    type BaseType(..)
+    type BaseType
     -- ** Constructors for kind BaseType
   , BaseBoolType
   , BaseIntegerType
@@ -44,8 +44,18 @@ module What4.BaseTypes
   , BaseComplexType
   , BaseStructType
   , BaseArrayType
+    -- * FloatInfo data kind
+  , type FloatInfo
+    -- ** Constructors for kind FloatInfo
+  , HalfFloat
+  , SingleFloat
+  , DoubleFloat
+  , QuadFloat
+  , X86_80Float
+  , DoubleDoubleFloat
     -- * Representations of base types
   , BaseTypeRepr(..)
+  , FloatInfoRepr(..)
   , arrayTypeIndices
   , arrayTypeResult
   , module Data.Parameterized.NatRepr
@@ -110,6 +120,24 @@ type BaseComplexType = 'BaseComplexType -- ^ @:: 'BaseType'@.
 type BaseStructType  = 'BaseStructType  -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseType'@.
 type BaseArrayType   = 'BaseArrayType   -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseType' -> 'BaseType'@.
 
+-- | This data kind describes the types of floating-point formats.
+-- This consist of the standard IEEE 754-2008 binary floating point formats,
+-- as well as the X86 extended 80-bit format and the double-double format.
+data FloatInfo where
+  HalfFloat         :: FloatInfo  --  16 bit binary IEEE754
+  SingleFloat       :: FloatInfo  --  32 bit binary IEEE754
+  DoubleFloat       :: FloatInfo  --  64 bit binary IEEE754
+  QuadFloat         :: FloatInfo  -- 128 bit binary IEEE754
+  X86_80Float       :: FloatInfo  -- X86 80-bit extended floats
+  DoubleDoubleFloat :: FloatInfo  -- two 64-bit floats fused in the "double-double" style
+
+type HalfFloat   = 'HalfFloat   -- ^  16 bit binary IEEE754.
+type SingleFloat = 'SingleFloat -- ^  32 bit binary IEEE754.
+type DoubleFloat = 'DoubleFloat -- ^  64 bit binary IEEE754.
+type QuadFloat   = 'QuadFloat   -- ^ 128 bit binary IEEE754.
+type X86_80Float = 'X86_80Float -- ^ X86 80-bit extended floats.
+type DoubleDoubleFloat = 'DoubleDoubleFloat -- ^ Two 64-bit floats fused in the "double-double" style.
+
 ------------------------------------------------------------------------
 -- BaseTypeRepr
 
@@ -131,6 +159,15 @@ data BaseTypeRepr (bt::BaseType) :: * where
    BaseArrayRepr :: !(Ctx.Assignment BaseTypeRepr (idx Ctx.::> tp))
                  -> !(BaseTypeRepr xs)
                  -> BaseTypeRepr (BaseArrayType (idx Ctx.::> tp) xs)
+
+-- | A family of value-level representatives for floating-point types.
+data FloatInfoRepr (fi::FloatInfo) where
+  HalfFloatRepr         :: FloatInfoRepr HalfFloat
+  SingleFloatRepr       :: FloatInfoRepr SingleFloat
+  DoubleFloatRepr       :: FloatInfoRepr DoubleFloat
+  QuadFloatRepr         :: FloatInfoRepr QuadFloat
+  X86_80FloatRepr       :: FloatInfoRepr X86_80Float
+  DoubleDoubleFloatRepr :: FloatInfoRepr DoubleDoubleFloat
 
 -- | Return the type of the indices for an array type.
 arrayTypeIndices :: BaseTypeRepr (BaseArrayType idx tp)
@@ -156,6 +193,13 @@ instance (1 <= w, KnownNat w) => KnownRepr BaseTypeRepr (BaseBVType w) where
 instance KnownRepr BaseTypeRepr BaseComplexType where
   knownRepr = BaseComplexRepr
 
+instance KnownRepr FloatInfoRepr HalfFloat         where knownRepr = HalfFloatRepr
+instance KnownRepr FloatInfoRepr SingleFloat       where knownRepr = SingleFloatRepr
+instance KnownRepr FloatInfoRepr DoubleFloat       where knownRepr = DoubleFloatRepr
+instance KnownRepr FloatInfoRepr QuadFloat         where knownRepr = QuadFloatRepr
+instance KnownRepr FloatInfoRepr X86_80Float       where knownRepr = X86_80FloatRepr
+instance KnownRepr FloatInfoRepr DoubleDoubleFloat where knownRepr = DoubleDoubleFloatRepr
+
 instance KnownRepr (Ctx.Assignment BaseTypeRepr) ctx
       => KnownRepr BaseTypeRepr (BaseStructType ctx) where
   knownRepr = BaseStructRepr knownRepr
@@ -175,11 +219,22 @@ instance HashableF BaseTypeRepr where
 instance Hashable (BaseTypeRepr bt) where
   hashWithSalt = $(structuralHash [t|BaseTypeRepr|])
 
+instance HashableF FloatInfoRepr where
+  hashWithSaltF = hashWithSalt
+instance Hashable (FloatInfoRepr fi) where
+  hashWithSalt = $(structuralHash [t|FloatInfoRepr|])
+
 instance Pretty (BaseTypeRepr bt) where
   pretty = text . show
 instance Show (BaseTypeRepr bt) where
   showsPrec = $(structuralShowsPrec [t|BaseTypeRepr|])
 instance ShowF BaseTypeRepr
+
+instance Pretty (FloatInfoRepr fi) where
+  pretty = text . show
+instance Show (FloatInfoRepr fi) where
+  showsPrec = $(structuralShowsPrec [t|FloatInfoRepr|])
+instance ShowF FloatInfoRepr
 
 instance TestEquality BaseTypeRepr where
   testEquality = $(structuralTypeEquality [t|BaseTypeRepr|]
@@ -200,3 +255,8 @@ instance OrdF BaseTypeRepr where
                      )
                    ]
                   )
+
+instance TestEquality FloatInfoRepr where
+  testEquality = $(structuralTypeEquality [t|FloatInfoRepr|] [])
+instance OrdF FloatInfoRepr where
+  compareF = $(structuralTypeOrd [t|FloatInfoRepr|] [])
