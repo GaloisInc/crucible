@@ -69,6 +69,7 @@ printExpr = toText (PrintRules rules) printAtom
         printAtom (Int i) = T.pack (show i)
         printAtom (Rat r) = T.pack (show r)
         printAtom (Bool b) = if b then "#t" else "#f"
+        printAtom (StrLit s) = T.pack $ show s
         rules (Kw Defun) = Just (Special 3)
         rules (Kw DefBlock) = Just (Special 1)
         rules (Kw Start) = Just (Special 1)
@@ -379,6 +380,9 @@ synthExpr e@(A (At x)) =
      case ats of
        Nothing -> throwError $ UnknownAtom (syntaxPos e) x
        Just (Pair t at) -> return $ SomeExpr t (E (AtomExpr at))
+
+synthExpr e@(A (StrLit s)) =
+  return $ SomeExpr StringRepr $ E (App (TextLit s))
 
 synthExpr e@(L [A (Kw VectorLit_), tpe, L vs]) =
   do Some tp <- isType tpe
