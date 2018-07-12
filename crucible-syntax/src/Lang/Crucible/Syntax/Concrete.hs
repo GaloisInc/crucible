@@ -126,6 +126,7 @@ data ExprErr s where
   UnknownRegister :: Position -> RegName -> ExprErr s
   SyntaxError :: AST s -> Text -> ExprErr s
 
+
 errPos :: ExprErr s -> Position
 errPos (TypeError p _ _ _) = p
 errPos (AnonTypeError p _ _) = p
@@ -241,6 +242,13 @@ checkExpr t (L [A (Kw FromJust), a, str]) =
   do E a' <- checkExpr (MaybeRepr t) a
      E str' <- checkExpr StringRepr str
      return (E (App (FromJustValue t a' str')))
+checkExpr expectedT e@(L (A (Kw VectorLit_) : vs)) =
+  case expectedT of
+    VectorRepr tp ->
+      do vs' <- (V.fromList . map unE) <$> mapM (checkExpr tp) vs
+         return (E (App (VectorLit tp vs')))
+    other ->
+      throwError $ NotVector (syntaxPos e) e other
 checkExpr expectedT ast =
   do SomeExpr foundT e <- synthExpr ast
      case testEquality expectedT foundT of
@@ -383,11 +391,6 @@ synthExpr e@(A (At x)) =
 
 synthExpr e@(A (StrLit s)) =
   return $ SomeExpr StringRepr $ E (App (TextLit s))
-
-synthExpr e@(L [A (Kw VectorLit_), tpe, L vs]) =
-  do Some tp <- isType tpe
-     vs' <- (V.fromList . map unE) <$> mapM (checkExpr tp) vs
-     return (SomeExpr (VectorRepr tp) (E (App (VectorLit tp vs'))))
 
 synthExpr e@(L [A (Kw VectorReplicate_), n, x]) =
   do E n' <- checkExpr NatRepr n
