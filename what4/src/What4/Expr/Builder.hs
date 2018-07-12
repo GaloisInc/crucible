@@ -4556,6 +4556,42 @@ instance IsExprBuilder (ExprBuilder t st) where
     (:+) <$> sbMakeExpr sym (RealPart x)
          <*> sbMakeExpr sym (ImagPart x)
 
+----------------------------------------------------------------------
+-- Float operations
+
+type instance SymInterpretedFloatType (ExprBuilder t st) _ = BaseRealType
+
+instance IsFloatExprBuilder (ExprBuilder t st) where
+  floatZero sym _ = realZero sym
+  floatLit sym _ = realLit sym
+  floatNaN = undefined
+  floatPInf = undefined
+  floatNInf = undefined
+  floatAdd sym _ = realAdd sym
+  floatSub sym _ = realSub sym
+  floatMul sym _ = realMul sym
+  floatDiv sym _ = realDiv sym
+  floatRem sym _ = realMod sym
+  floatEq = realEq
+  floatNe = realNe
+  floatLe = realLe
+  floatLt = realLt
+  floatGe = realGe
+  floatGt = realGt
+  floatIte = realIte
+  floatIsNaN sym _ = return $ falsePred sym
+  floatIsInf sym _ = return $ falsePred sym
+  floatIsZero sym = realEq sym $ realZero sym
+  floatIsPos sym = realLt sym $ realZero sym
+  floatIsNeg sym = realGt sym $ realZero sym
+  floatCast _ _ = return
+  bvToFloat sym _ = uintToReal sym
+  sbvToFloat sym _ = sbvToReal sym
+  realToFloat _ _ = return
+  floatToBV sym w x = realToBV sym x w
+  floatToSBV sym w x = realToSBV sym x w
+  floatToReal _ = return
+
 instance IsSymExprBuilder (ExprBuilder t st) where
   freshConstant sym nm tp = do
     v <- sbMakeBoundVar sym nm tp UninterpVarKind
