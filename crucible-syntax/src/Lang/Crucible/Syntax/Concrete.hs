@@ -318,6 +318,12 @@ synthExpr e@(L [A (Kw If), c, t, f]) =
            AsBaseType bt ->
              return $ SomeExpr ty1 (E (App (BaseIte bt c' t' f')))
        Nothing -> throwError $ TypeMismatch (syntaxPos e) t ty1 f ty2
+synthExpr stx@(L [A (Kw Show), e]) =
+  do SomeExpr ty (E e') <- synthExpr e
+     case asBaseType ty of
+       NotBaseType -> throwError $ NotABaseType (syntaxPos e) ty
+       AsBaseType bt ->
+         return $ SomeExpr StringRepr $ E $ App $ ShowValue bt e'
 synthExpr x@(A (Fn n)) =
   do fn <- funName x
      fh <- use $ stxFunctions . at fn

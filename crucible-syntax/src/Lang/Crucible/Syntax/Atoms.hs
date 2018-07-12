@@ -37,6 +37,7 @@ data Keyword = Defun | DefBlock
              | Not_ | And_ | Or_ | Xor_
              | Mod
              | Lt
+             | Show
              | StringAppend
              | VectorLit_ | VectorReplicate_ | VectorIsEmpty_ | VectorSize_
              | VectorGetEntry_ | VectorSetEntry_ | VectorCons_
@@ -61,6 +62,7 @@ keywords =
   , ("*" , Times)
   , ("/" , Div)
   , ("<" , Lt)
+  , ("show", Show)
   , ("just" , Just_)
   , ("nothing" , Nothing_)
   , ("from-just" , FromJust)
