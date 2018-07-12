@@ -71,16 +71,6 @@ module Lang.Crucible.Types
   , StringMapType
   , SymbolicArrayType
 
-    -- * FloatInfo data kind
-  , FloatInfo(..)
-    -- ** Constructors for kind FloatInfo
-  , HalfFloat
-  , SingleFloat
-  , DoubleFloat
-  , QuadFloat
-  , X86_80Float
-  , DoubleDoubleFloat
-  , FloatInfoRepr(..)
     -- * IsRecursiveType
   , IsRecursiveType(..)
 
@@ -121,34 +111,6 @@ import           What4.BaseTypes
 ------------------------------------------------------------------------
 -- Crucible types
 
-
--- | This data kind describes the styles of floating-point values understood
---   by recent LLVM bitcode formats.  This consist of the standard IEEE 754-2008
---   binary floating point formats, as well as the X86 extended 80-bit format
---   and the double-double format.
-data FloatInfo where
-  HalfFloat         :: FloatInfo  --  16 bit binary IEEE754
-  SingleFloat       :: FloatInfo  --  32 bit binary IEEE754
-  DoubleFloat       :: FloatInfo  --  64 bit binary IEEE754
-  QuadFloat         :: FloatInfo  -- 128 bit binary IEEE754
-  X86_80Float       :: FloatInfo  -- X86 80-bit extended floats
-  DoubleDoubleFloat :: FloatInfo  -- 2 64-bit floats fused in the "double-double" style
-
-type HalfFloat   = 'HalfFloat   -- ^  16 bit binary IEEE754.
-type SingleFloat = 'SingleFloat -- ^  32 bit binary IEEE754.
-type DoubleFloat = 'DoubleFloat -- ^  64 bit binary IEEE754.
-type QuadFloat   = 'QuadFloat   -- ^ 128 bit binary IEEE754.
-type X86_80Float = 'X86_80Float -- ^ X86 80-bit extended floats.
-type DoubleDoubleFloat = 'DoubleDoubleFloat -- ^ Two 64-bit floats fused in the "double-double" style.
-
--- | A family of value-level representatives for floating-point types.
-data FloatInfoRepr (flt::FloatInfo) where
-   HalfFloatRepr         :: FloatInfoRepr HalfFloat
-   SingleFloatRepr       :: FloatInfoRepr SingleFloat
-   DoubleFloatRepr       :: FloatInfoRepr DoubleFloat
-   QuadFloatRepr         :: FloatInfoRepr QuadFloat
-   X86_80FloatRepr       :: FloatInfoRepr X86_80Float
-   DoubleDoubleFloatRepr :: FloatInfoRepr DoubleDoubleFloat
 
 -- | This typeclass is used to register recursive Crucible types
 --   with the compiler.  This class defines, for a given symbol,
@@ -377,13 +339,6 @@ data TypeRepr (tp::CrucibleType) where
 ------------------------------------------------------------------------------
 -- Representable class instances
 
-instance KnownRepr FloatInfoRepr HalfFloat         where knownRepr = HalfFloatRepr
-instance KnownRepr FloatInfoRepr SingleFloat       where knownRepr = SingleFloatRepr
-instance KnownRepr FloatInfoRepr DoubleFloat       where knownRepr = DoubleFloatRepr
-instance KnownRepr FloatInfoRepr QuadFloat         where knownRepr = QuadFloatRepr
-instance KnownRepr FloatInfoRepr X86_80Float       where knownRepr = X86_80FloatRepr
-instance KnownRepr FloatInfoRepr DoubleDoubleFloat where knownRepr = DoubleDoubleFloatRepr
-
 instance KnownRepr TypeRepr AnyType             where knownRepr = AnyRepr
 instance KnownRepr TypeRepr UnitType            where knownRepr = UnitRepr
 instance KnownRepr TypeRepr CharType            where knownRepr = CharRepr
@@ -438,19 +393,10 @@ pattern KnownBV <- BVRepr (testEquality (knownRepr :: NatRepr n) -> Just Refl)
 -- Force TypeRepr, etc. to be in context for next slice.
 $(return [])
 
-instance HashableF FloatInfoRepr where
-  hashWithSaltF = hashWithSalt
-instance Hashable (FloatInfoRepr flt) where
-  hashWithSalt = $(U.structuralHash [t|FloatInfoRepr|])
-
 instance HashableF TypeRepr where
   hashWithSaltF = hashWithSalt
 instance Hashable (TypeRepr ty) where
   hashWithSalt = $(U.structuralHash [t|TypeRepr|])
-
-instance Show (FloatInfoRepr flt) where
-  showsPrec = $(U.structuralShowsPrec [t|FloatInfoRepr|])
-instance ShowF FloatInfoRepr
 
 instance Pretty (TypeRepr tp) where
   pretty = text . show
@@ -459,11 +405,6 @@ instance Show (TypeRepr tp) where
   showsPrec = $(U.structuralShowsPrec [t|TypeRepr|])
 instance ShowF TypeRepr
 
-
-instance TestEquality FloatInfoRepr where
-  testEquality = $(U.structuralTypeEquality [t|FloatInfoRepr|] [])
-instance OrdF FloatInfoRepr where
-  compareF = $(U.structuralTypeOrd [t|FloatInfoRepr|] [])
 
 instance TestEquality TypeRepr where
   testEquality = $(U.structuralTypeEquality [t|TypeRepr|]

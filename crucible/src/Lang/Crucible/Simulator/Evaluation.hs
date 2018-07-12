@@ -17,6 +17,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Simulator.Evaluation
@@ -495,90 +496,78 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     ----------------------------------------------------------------------
     -- Float
 
-    FloatLit f -> realLit sym $ toRational f
-    DoubleLit d -> realLit sym $ toRational d
-    FloatNaN _ -> addFailedAssertion sym $
-                Unsupported "NaN floating point"
-    FloatPInf _ -> addFailedAssertion sym $
-                 Unsupported "+Inf floating point"
-    FloatNInf _ -> addFailedAssertion sym $
-                 Unsupported "-Inf floating point"
-    FloatAdd _ xe ye -> do
+    FloatLit f -> floatLit sym SingleFloatRepr $ toRational f
+    DoubleLit d -> floatLit sym DoubleFloatRepr $ toRational d
+    FloatNaN fi -> return $ floatNaN sym fi
+    FloatPInf fi -> return $ floatPInf sym fi
+    FloatNInf fi -> return $ floatNInf sym fi
+    FloatAdd fi xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      realAdd sym x y
-    FloatSub _ xe ye -> do
+      floatAdd sym fi x y
+    FloatSub fi xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      realSub sym x y
-    FloatMul _ xe ye -> do
+      floatSub sym fi x y
+    FloatMul fi xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      realMul sym x y
-    FloatDiv _ xe ye -> do
+      floatMul sym fi x y
+    FloatDiv fi xe ye -> do
       -- TODO: handle division by zero
       x <- evalSub xe
       y <- evalSub ye
-      realDiv sym x y
-    FloatRem _ xe ye -> do
+      floatDiv sym fi x y
+    FloatRem fi xe ye -> do
+      -- TODO: handle division by zero
       x <- evalSub xe
       y <- evalSub ye
-      realMod sym x y
-    FloatEq x_expr y_expr -> do
+      floatRem sym fi x y
+    FloatEq (x_expr :: f (FloatType fi)) (y_expr :: f (FloatType fi)) -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      realEq sym x y
-    FloatLt x_expr y_expr -> do
+      floatEq @sym @fi sym x y
+    FloatLt (x_expr :: f (FloatType fi)) (y_expr :: f (FloatType fi)) -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      realLt sym x y
-    FloatLe x_expr y_expr -> do
+      floatLt @sym @fi sym x y
+    FloatLe (x_expr :: f (FloatType fi)) (y_expr :: f (FloatType fi)) -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      realLe sym x y
-    FloatGt x_expr y_expr -> do
+      floatLe @sym @fi sym x y
+    FloatGt (x_expr :: f (FloatType fi)) (y_expr :: f (FloatType fi)) -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      realGt sym x y
-    FloatGe x_expr y_expr -> do
+      floatGt @sym @fi sym x y
+    FloatGe (x_expr :: f (FloatType fi)) (y_expr :: f (FloatType fi)) -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      realGe sym x y
-    FloatNe x_expr y_expr -> do
+      floatGe @sym @fi sym x y
+    FloatNe (x_expr :: f (FloatType fi)) (y_expr :: f (FloatType fi)) -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      realNe sym x y
-    FloatCast _ x_expr ->
-      -- nop
-      evalSub x_expr
-    FloatFromBV _ x_expr ->
-      uintToReal sym =<< evalSub x_expr
-    FloatFromSBV _ x_expr ->
-      sbvToReal sym =<< evalSub x_expr
-    FloatFromReal _ x_expr ->
-      -- nop
-      evalSub x_expr
-    FloatToBV w x_expr -> do
-      -- TODO: handle case when value does not fit
-      x <- evalSub x_expr
-      realToBV sym x w
-    FloatToSBV w x_expr -> do
-      -- TODO: handle case when value does not fit
-      x <- evalSub x_expr
-      realToSBV sym x w
-    FloatToReal x_expr ->
-      -- nop
-      evalSub x_expr
-    FloatIsNaN _ -> do
-      return $! falsePred sym
-    FloatIsInfinite _ -> do
-      return $! falsePred sym
-    FloatIsZero x_expr ->
-      realEq sym (realZero sym) =<< evalSub x_expr
-    FloatIsPositive x_expr -> do
-      realLt sym (realZero sym) =<< evalSub x_expr
-    FloatIsNegative x_expr -> do
-      realGt sym (realZero sym) =<< evalSub x_expr
+      floatNe @sym @fi sym x y
+    FloatCast fi (x_expr :: f (FloatType fi')) ->
+      floatCast @_ @_ @fi' sym fi =<< evalSub x_expr
+    FloatFromBV fi x_expr -> bvToFloat sym fi =<< evalSub x_expr
+    FloatFromSBV fi x_expr -> sbvToFloat sym fi =<< evalSub x_expr
+    FloatFromReal fi x_expr -> realToFloat sym fi =<< evalSub x_expr
+    FloatToBV w (x_expr :: f (FloatType fi)) ->
+      floatToBV @_ @_ @fi sym w =<< evalSub x_expr
+    FloatToSBV w (x_expr :: f (FloatType fi)) ->
+      floatToSBV @_ @_ @fi sym w =<< evalSub x_expr
+    FloatToReal (x_expr :: f (FloatType fi)) ->
+      floatToReal @sym @fi sym =<< evalSub x_expr
+    FloatIsNaN (x_expr :: f (FloatType fi)) ->
+      floatIsNaN @sym @fi sym =<< evalSub x_expr
+    FloatIsInfinite (x_expr :: f (FloatType fi)) ->
+      floatIsInf @sym @fi sym =<< evalSub x_expr
+    FloatIsZero (x_expr :: f (FloatType fi)) ->
+      floatIsZero @sym @fi sym =<< evalSub x_expr
+    FloatIsPositive (x_expr :: f (FloatType fi)) ->
+      floatIsPos @sym @fi sym =<< evalSub x_expr
+    FloatIsNegative (x_expr :: f (FloatType fi)) ->
+      floatIsNeg @sym @fi sym =<< evalSub x_expr
 
     ----------------------------------------------------------------------
     -- Conversions

@@ -19,6 +19,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Simulator.RegValue
@@ -77,7 +78,7 @@ type MuxFn p v = p -> v -> v -> IO v
 -- | Maps register types to the associated value.
 type family RegValue (sym :: *) (tp :: CrucibleType) :: * where
   RegValue sym (BaseToType bt) = SymExpr sym bt
-  RegValue sym (FloatType _) = SymExpr sym BaseRealType
+  RegValue sym (FloatType fi) = SymFloat sym fi
   RegValue sym AnyType = AnyValue sym
   RegValue sym UnitType = ()
   RegValue sym CharType = Word16
@@ -180,7 +181,7 @@ instance IsExprBuilder sym => CanMux sym RealValType where
 
 instance IsExprBuilder sym => CanMux sym (FloatType fi) where
   {-# INLINE muxReg #-}
-  muxReg s = \_ -> realIte s
+  muxReg s = \_ -> floatIte @sym @fi s
 
 instance IsExprBuilder sym => CanMux sym ComplexRealType where
   {-# INLINE muxReg #-}

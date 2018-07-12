@@ -265,17 +265,17 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- Floating point constants
   FloatLit :: !Float -> App ext f (FloatType SingleFloat)
   DoubleLit :: !Double -> App ext f (FloatType DoubleFloat)
-  FloatNaN :: (FloatInfoRepr fi) -> App ext f (FloatType fi)
-  FloatPInf :: (FloatInfoRepr fi) -> App ext f (FloatType fi)
-  FloatNInf :: (FloatInfoRepr fi) -> App ext f (FloatType fi)
+  FloatNaN :: !(FloatInfoRepr fi) -> App ext f (FloatType fi)
+  FloatPInf :: !(FloatInfoRepr fi) -> App ext f (FloatType fi)
+  FloatNInf :: !(FloatInfoRepr fi) -> App ext f (FloatType fi)
 
   -- Arithmetic operations
-  FloatAdd :: (FloatInfoRepr fi) -> !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f (FloatType fi)
-  FloatSub :: (FloatInfoRepr fi) -> !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f (FloatType fi)
-  FloatMul :: (FloatInfoRepr fi) -> !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f (FloatType fi)
-  FloatDiv :: (FloatInfoRepr fi) -> !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f (FloatType fi)
+  FloatAdd :: !(FloatInfoRepr fi) -> !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f (FloatType fi)
+  FloatSub :: !(FloatInfoRepr fi) -> !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f (FloatType fi)
+  FloatMul :: !(FloatInfoRepr fi) -> !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f (FloatType fi)
+  FloatDiv :: !(FloatInfoRepr fi) -> !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f (FloatType fi)
   -- Foating-point remainder of the two operands
-  FloatRem :: (FloatInfoRepr fi) -> !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f (FloatType fi)
+  FloatRem :: !(FloatInfoRepr fi) -> !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f (FloatType fi)
 
   -- Comparison operations
   FloatEq :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
@@ -286,10 +286,10 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   FloatNe :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
 
   -- Conversion operations
-  FloatCast :: (FloatInfoRepr fi) -> !(f (FloatType fi')) -> App ext f (FloatType fi)
-  FloatFromBV :: (1 <= w) => (FloatInfoRepr fi) -> !(f (BVType w)) -> App ext f (FloatType fi)
-  FloatFromSBV :: (1 <= w) => (FloatInfoRepr fi) -> !(f (BVType w)) -> App ext f (FloatType fi)
-  FloatFromReal :: (FloatInfoRepr fi) -> !(f RealValType) -> App ext f (FloatType fi)
+  FloatCast :: !(FloatInfoRepr fi) -> !(f (FloatType fi')) -> App ext f (FloatType fi)
+  FloatFromBV :: (1 <= w) => !(FloatInfoRepr fi) -> !(f (BVType w)) -> App ext f (FloatType fi)
+  FloatFromSBV :: (1 <= w) => !(FloatInfoRepr fi) -> !(f (BVType w)) -> App ext f (FloatType fi)
+  FloatFromReal :: !(FloatInfoRepr fi) -> !(f RealValType) -> App ext f (FloatType fi)
   FloatToBV :: (1 <= w) => !(NatRepr w) -> !(f (FloatType fi)) -> App ext f (BVType w)
   FloatToSBV :: (1 <= w) => !(NatRepr w) -> !(f (FloatType fi)) -> App ext f (BVType w)
   FloatToReal :: !(f (FloatType fi)) -> App ext f RealValType
