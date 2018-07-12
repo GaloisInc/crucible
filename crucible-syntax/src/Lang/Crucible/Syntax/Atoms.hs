@@ -29,7 +29,7 @@ data Keyword = Defun | DefBlock
              | Plus | Minus | Times | Div
              | Just_ | Nothing_ | FromJust
              | AnyT | UnitT | BoolT | NatT | IntegerT | RealT | ComplexRealT | CharT | StringT
-             | BitVectorT | VectorT
+             | BitVectorT | VectorT | FunT
              | The
              | Equalp | Integerp
              | If
@@ -78,6 +78,7 @@ keywords =
   , ("String" , StringT)
   , ("BitVector" , BitVectorT)
   , ("Vector", VectorT)
+  , ("->", FunT)
   , ("vector", VectorLit_)
   , ("vector-replicate", VectorReplicate_)
   , ("vector-empty?", VectorIsEmpty_)

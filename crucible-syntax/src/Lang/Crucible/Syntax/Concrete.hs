@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveFunctor, GADTs, OverloadedStrings, RankNTypes, LiberalTypeSynonyms, KindSignatures, DataKinds, StandaloneDeriving, FlexibleInstances, GeneralizedNewtypeDeriving, TypeFamilies, PolyKinds, ScopedTypeVariables, MultiParamTypeClasses, UndecidableInstances, PartialTypeSignatures, FlexibleContexts, ImplicitParams, LambdaCase, ViewPatterns #-}
+{-# LANGUAGE DeriveFunctor, GADTs, OverloadedStrings, RankNTypes, LiberalTypeSynonyms, KindSignatures, DataKinds, StandaloneDeriving, FlexibleInstances, GeneralizedNewtypeDeriving, TypeFamilies, PatternGuards, PolyKinds, ScopedTypeVariables, MultiParamTypeClasses, UndecidableInstances, PartialTypeSignatures, FlexibleContexts, ImplicitParams, LambdaCase, ViewPatterns #-}
 -- {-# OPTIONS_GHC -fprint-explicit-kinds -fprint-explicit-foralls #-}
 module Lang.Crucible.Syntax.Concrete where
 
@@ -276,8 +276,21 @@ isType (L [A (Kw BitVectorT), n]) =
             Just LeqProof -> return $ Some $ BVRepr len
     other -> throwError $ NotNumeric (syntaxPos other) other NatRepr
 
+isType (L (A (Kw FunT) : domAndRan)) | Just (doms, ran) <- withLast domAndRan =
+  do doms' <- mapM isType doms
+     Some argTypes <- return $ toCtx (reverse doms')
+     Some ran' <- isType ran
+     return $ Some $ FunctionHandleRepr argTypes ran'
+  where withLast [] = Nothing
+        withLast [x] = Just ([], x)
+        withLast (x : xs) = fmap (\(most, last) -> (x : most, last)) (withLast xs)
+        toCtx [] = Some Ctx.empty
+        toCtx (Some t : ts) | Some ts' <- toCtx ts = Some $ Ctx.extend ts' t
+
 -- TODO more types
 isType e = throwError $ NotAType (syntaxPos e) e
+
+
 
 synthExpr :: (Alternative m, MonadError (ExprErr s) m, MonadState (SyntaxState h s) m) => AST s -> m (SomeExpr s)
 synthExpr (L [A (Kw The), t, e]) =
