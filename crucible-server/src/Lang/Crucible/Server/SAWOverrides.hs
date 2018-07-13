@@ -189,7 +189,7 @@ handleProofObligations ::
   IO ()
 handleProofObligations sim sym opts =
   do obls <- getProofObligations sym
-     setProofObligations sym mempty
+     clearProofObligations sym
      dirPath <- makeAbsolute (Text.unpack (opts^.P.verificationSimulateOptions_output_directory))
      createDirectoryIfMissing True dirPath
      if opts^.P.verificationSimulateOptions_separate_obligations
@@ -201,7 +201,7 @@ handleSeparateProofObligations ::
   Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
   SAW.SAWCoreBackend n ->
   FilePath ->
-  Seq (ProofObligation (SAW.SAWCoreBackend n)) ->
+  ProofObligations (SAW.SAWCoreBackend n) ->
   IO ()
 handleSeparateProofObligations sim sym dir obls = fail "FIXME separate proof obligations!"
 
@@ -209,11 +209,13 @@ handleSingleProofObligation ::
   Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
   SAW.SAWCoreBackend n ->
   FilePath ->
-  Seq (ProofObligation (SAW.SAWCoreBackend n)) ->
+  ProofObligations (SAW.SAWCoreBackend n) ->
   IO ()
 handleSingleProofObligation _sim sym dir obls =
   do createDirectoryIfMissing True {- create parents -} dir
-     preds <- mapM (sequentToSC sym) obls
+     -- TODO: there is probably a much more efficent way to do this
+     -- that more directly follows the structure of the proof goal tree
+     preds <- mapM (sequentToSC sym) (proofGoalsToList obls)
      totalPred <- andAllOf sym folded preds
      sc <- SAW.sawBackendSharedContext sym
      exts <- toList <$> SAW.getInputs sym

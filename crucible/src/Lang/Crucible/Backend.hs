@@ -29,6 +29,7 @@ module Lang.Crucible.Backend
   , Assertion
   , Assumption
   , ProofObligation
+  , ProofObligations
   , AssumptionState
   , assert
 
@@ -39,6 +40,9 @@ module Lang.Crucible.Backend
   , AS.ProofGoal(..)
   , AS.AssumptionStack
   , AS.FrameIdentifier
+  , AS.ProofGoals
+  , AS.Goals(..)
+  , AS.proofGoalsToList
 
     -- ** Aborting execution
   , AbortExecReason(..)
@@ -94,6 +98,7 @@ type Assertion sym  = AS.LabeledPred (Pred sym) SimError
 type Assumption sym = AS.LabeledPred (Pred sym) AssumptionReason
 
 type ProofObligation sym = AS.ProofGoal (Pred sym) AssumptionReason SimError
+type ProofObligations sym = AS.ProofGoals (Pred sym) AssumptionReason SimError
 type AssumptionState sym = AS.AssumptionStack (Pred sym) AssumptionReason SimError
 
 -- | This is used to signal that current execution path is infeasible.
@@ -199,12 +204,12 @@ class IsBoolSolver sym where
   addProofObligation :: sym -> Assertion sym -> IO ()
 
   -- | Get the collection of proof obligations.
-  getProofObligations :: sym -> IO (Seq (ProofObligation sym))
+  getProofObligations :: sym -> IO (ProofObligations sym)
 
-  -- | Set the collection of proof obligations to the given sequence.  Typically, this is used
-  --   to remove proof obligations that have been successfully proved by resetting the list
-  --   of obligations to be only those not proved.
-  setProofObligations :: sym -> Seq (ProofObligation sym) -> IO ()
+  -- | Forget the current collection of proof obligations.
+  -- Presumably, we've already used 'getPathConditions' to save them
+  -- somewhere else.
+  clearProofObligations :: sym -> IO ()
 
   -- | Create a snapshot of the current assumption state, that may later be restored.
   --   This is useful for supporting control-flow patterns that don't neatly fit into

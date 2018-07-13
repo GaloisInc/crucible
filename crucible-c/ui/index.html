@@ -3,7 +3,7 @@
 <head>
 
 <script src="jquery.min.js"></script>
-<script src="sample.js"></script>
+<script src="source.js"></script>
 <script src="report.js"></script>
 <script>
 function drawLines() {
@@ -21,12 +21,9 @@ function drawLines() {
 function getLine(n) { return $('#line-' + n) }
 
 function drawStatus(proved) {
-  return $('<div/>').text(proved ? 'OK' : 'failed')
-                    .css('display','inline-block')
-                    .css('margin', '2px')
-                    .css('padding', '2px')
-                    .css('text-align','center')
-                    .css('border-radius','2px')
+  return $('<div/>')
+         .addClass('tag')
+         .text(proved ? 'ok' : 'fail')
                     .addClass(proved ? 'highlight-proved' : 'highlight-failed')
 }
 
@@ -39,24 +36,48 @@ function drawCounterExample(e) {
 }
 
 
-var nextLabel = 0
 
-function newLabel() { // XXX
-  return "L" + nextLabel++
+function drawPath(path) {
+  $('.path').remove()
+  jQuery.each(path,function(ix,step) {
+    var branch = step.loc
+    var ln = getLine(branch)
+
+    var pre = ""
+    if (step.loop.length > 1) {
+      pre = "("
+      for (i = 0; i < step.loop.length - 1; ++i) {
+        pre += step.loop[i]
+        pre += (i === step.loop.length - 2) ? ')' : ','
+      }
+   }
+
+    var tag = $('<span/>')
+              .addClass('path')
+              .append( $('<span/>').text(pre + step.loop[step.loop.length-1])
+                     , $('<sup/>').text(ix+1)
+                     )
+    ln.append(tag)
+  })
 }
 
-function drawAsmpTgt(a,b) {
-  var lnFrom = getLine(a)
-  var lnTo   = getLine(b)
-
-  var l = newLabel()
-
-  lnFrom.append($('<span/>').addClass('asmp-lab').text(l))
-  lnTo.append($('<span/>').addClass('asmp-lab').text(l))
+function summarizePath(path) {
+  var it = $('<div/>')
+  var fst = true
+  jQuery.each(path,function(ix,branch) {
+    let msg = (fst ? '' : ', ') + branch.line + '(' + branch.tgt + ')'
+    it.append($('<span/>').text(msg))
+    fst = false
+  })
+  return it
 }
+
+
 
 function drawGoals() {
   var dom = $('<div>').addClass('goals')
+
+  if (goals.length === 0) dom.append($('<span/>').text('Nothing to prove.'))
 
   jQuery.each(goals, function(gNum,g) {
     var li = $('<div/>')
@@ -65,20 +86,25 @@ function drawGoals() {
                    , $('<span/>').text(g.goal)
                    )
     li.click(function() {
+      $('.selected').removeClass('selected')
+      li.addClass('selected')
       $('.ctr-example').remove()
       $('.asmp-lab').remove()
       $('.line').removeClass('highlight-proved')
                 .removeClass('highlight-failed')
                 .removeClass('highlight-assumed')
      jQuery.each(g.assumptions, function(ix,a) {
-        var ln = getLine(a.line)
-        if (a.line !== g.location) ln.addClass('highlight-assumed')
-        if (a.tgt !== null) drawAsmpTgt(a.line, a.tgt)
+        var lnName = a.line
+        if (lnName !== g.location) {
+            getLine(lnName).addClass('highlight-assumed')
+        }
       })
       if (g.location !== null)
-        getLine(g.location)
-            .addClass(g.proved ? 'highlight-proved' : 'highlight-failed')
+        var it = getLine(g.location)
+        it.addClass(g.proved ? 'highlight-proved' : 'highlight-failed')
+        it[0].scrollIntoView({behavior:'smooth', block:'center'})
       drawCounterExample(g['counter-example'])
+      if(g.path) drawPath(g.path)
     })
     dom.append(li)
   })
@@ -142,9 +168,10 @@ body { height: 100%; padding: 0; margin: 0; }
 .highlight-failed  { background-color: red; }
 .highlight-assumed { background-color: cyan; }
 .ctr-example {
-  border: 1px solid black;
   margin: 5px;
-  background-color: #eee;
+  background-color: #ff0000;
+  color: white;
+  font-weight: bold;
   padding-left: 2px;
   padding-right: 2px;
   border-radius: 5px;
@@ -159,6 +186,43 @@ body { height: 100%; padding: 0; margin: 0; }
   padding-right: 2px;
   border-radius: 5px;
   font-size: smaller;
+}
+
+.selected {
+  background-color: #ccf;
+}
+
+.path {
+  margin-right: 1em;
+}
+
+.path>span {
+  font-weight: bold;
+  background-color: orange;
+  border-radius: 10px;
+  margin: 2px;
+  padding: 2px;
+}
+
+.path>sup {
+  color: #666;
+  font-style: italic;
+  font-size: small;
+  font-weight: normal;
+}
+
+.tag {
+  font-weight: bold;
+  color:       white;
+  font-family: monospace;
+  display: inline-block;
+  margin: 2px;
+  padding: 2px;
+  padding-left: 4px;
+  padding-right: 4px;
+  text-align: center;
+  border-radius: 2px;
+  width: 3em;
 }
 
 </style>

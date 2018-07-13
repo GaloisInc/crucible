@@ -28,6 +28,7 @@ size_t   crucible_size_t   (const char *name);
 void __VERIFIER_assume(int);
 void __VERIFIER_error(void);
 unsigned int __VERIFIER_nondet_uint(void);
+char __VERIFIER_nondet_char(void);
 
 
 

@@ -137,9 +137,7 @@ atom =  try (Lbl . LabelName <$> (identifier) <* char ':')
     <|> try (Int . fromInteger <$> signedPrefixedNumber)
     <|> Rat <$> ((%) <$> signedPrefixedNumber <* char '/' <*> prefixedNumber)
     <|> char '#' *>  (char 't' $> Bool True <|> char 'f' $> Bool False)
-    <|> Str <$> (char '"' >> manyTill L.charLiteral (char '"')) -- TODO? does this correctly handle character escapes?
-
---  where letter = satisfy isLetter
+    <|> Str <$> (char '"' >> manyTill L.charLiteral (char '"')) -- TODO? does this correctly handle character escape
 
 
 kwOrAtom :: Parser Atomic

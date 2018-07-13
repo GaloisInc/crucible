@@ -7,9 +7,7 @@
 module Main(main) where
 
 import Data.String(fromString)
-import qualified Data.Foldable as Fold
 import qualified Data.Map as Map
-import Data.Maybe(catMaybes)
 import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)
 import Control.Monad(unless)
@@ -49,6 +47,7 @@ import Lang.Crucible.LLVM.Translation
 import Lang.Crucible.LLVM.Types(withPtrWidth)
 import Lang.Crucible.LLVM.Intrinsics
           (llvmIntrinsicTypes, llvmPtrWidth, register_llvm_overrides)
+import What4.ProgramLoc
 
 
 
@@ -60,7 +59,6 @@ import Model
 import Clang
 import Log
 import Options
-import ProgressBar
 import Report
 
 main :: IO ()
@@ -85,7 +83,29 @@ checkBC :: Options -> IO ()
 checkBC opts =
   do let file = optsBCFile opts
      say "Crux" ("Checking " ++ show file)
-     generateReport opts =<< simulate opts (checkFun "main")
+     res <- simulate opts (checkFun "main")
+     generateReport opts res
+     makeCounterExamples opts res
+
+
+makeCounterExamples :: Options -> ProvedGoals -> IO ()
+makeCounterExamples opts gs =
+  case gs of
+    AtLoc _ _ gs1 -> makeCounterExamples opts gs1
+    Branch gss    -> mapM_ (makeCounterExamples opts) gss
+    Goal _ (c,_) _ res ->
+      let suff = case plSourceLoc (simErrorLoc c) of
+                   SourcePos _ l _ -> show l
+                   _               -> "unknown"
+          msg = show (simErrorReason c)
+
+      in case res of
+           NotProved (Just m) ->
+             do sayFail "Crux" ("Counter example for " ++ msg)
+                (_prt,dbg) <- buildModelExes opts suff (modelInC m)
+                say "Crux" ("*** debug executable: " ++ dbg)
+                say "Crux" ("*** break on line: " ++ suff)
+           _ -> return ()
 
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::
@@ -136,7 +156,7 @@ simulate ::
   (forall sym arch.
       ArchOk arch => ModuleCFGMap arch -> OverM sym arch ()
   ) ->
-  IO [ ([AssumptionReason], SimError, ProofResult) ]
+  IO ProvedGoals
 simulate opts k =
   do llvm_mod   <- parseLLVM (optsBCFile opts)
      halloc     <- newHandleAllocator
@@ -164,34 +184,13 @@ simulate opts k =
 
           ctx' <- case res of
                     FinishedResult ctx' _ -> return ctx'
-                    AbortedResult ctx' _ ->
-                      do putStrLn "Aborted result"
-                         return ctx'
+                    AbortedResult ctx' _  -> return ctx'
 
           say "Crux" "Simulation complete."
 
-          gs <- Fold.toList <$> getProofObligations sym
-          let n = length gs
-              suff = if n == 1 then "" else "s"
-          say "Crux" ("Proving " ++ show n ++ " side condition" ++ suff ++ ".")
-          fmap catMaybes $
-            withProgressBar 60 gs $ \g ->
-               do result <- proveGoal ctx' g
-                  case result of
-                    NotProved {} -> return (Just (toRes result g))
-                    Proved ->
-                      do simp <- simpProved ctx' g
-                         case simp of
-                           Trivial -> return Nothing
-                           NotTrivial g1 -> return (Just (toRes Proved g1))
-
-   where toRes result g =
-           ( map (^. labeledPredMsg)
-                 (Fold.toList (proofAssumptions g))
-           , proofGoal g ^. labeledPredMsg
-           , result
-           )
-
+          provedGoalsTree ctx'
+            =<< proveGoals ctx'
+            =<<  getProofObligations sym
 
 checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM sym arch ()
 checkFun nm mp =

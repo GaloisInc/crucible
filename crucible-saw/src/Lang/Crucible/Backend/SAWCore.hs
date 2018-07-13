@@ -832,9 +832,9 @@ instance IsBoolSolver (SAWCoreBackend n) where
     stk <- getAssumptionStack sym
     AS.getProofObligations stk
 
-  setProofObligations sym obligs = do
+  clearProofObligations sym = do
     stk <- getAssumptionStack sym
-    AS.setProofObligations obligs stk
+    AS.clearProofObligations stk
 
   pushAssumptionFrame sym = do
     stk <- getAssumptionStack sym

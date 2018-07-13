@@ -786,6 +786,7 @@ intra_branch p t_label f_label tgt = do
   ctx <- asContFrame <$> view stateTree
   sym <- view stateSymInterface
   r <- liftIO $ evalBranch sym p
+  loc <- liftIO $ getCurrentProgramLoc sym
 
   case r of
     SymbolicBranch chosen_branch -> do
@@ -794,8 +795,6 @@ intra_branch p t_label f_label tgt = do
 
       (SomePausedFrame a_frame a_loc, SomePausedFrame o_frame o_loc) <-
                       return (swap_unless chosen_branch (t_label, f_label))
-
-      loc <- liftIO $ getCurrentProgramLoc sym
 
       a_frame' <- pushPausedFrame a_frame
       o_frame' <- pushPausedFrame o_frame
@@ -811,8 +810,11 @@ intra_branch p t_label f_label tgt = do
       resumeFrame a_frame' ctx'
 
     NoBranch chosen_branch ->
-      do SomePausedFrame a_frame _a_loc <-
+      do SomePausedFrame a_frame a_loc <-
                       return (if chosen_branch then t_label else f_label)
+
+         liftIO $ addAssumption sym (LabeledPred (truePred sym) (ExploringAPath loc a_loc))
+
          resumeFrame a_frame ctx
 
 {-# INLINABLE intra_branch #-}
