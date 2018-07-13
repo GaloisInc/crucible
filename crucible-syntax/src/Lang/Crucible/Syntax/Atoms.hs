@@ -136,9 +136,9 @@ atom =  try (Lbl . LabelName <$> (identifier) <* char ':')
     <|> kwOrAtom
     <|> Fn . FunName <$> (char '@' *> identifier)
     <|> Rg . RegName <$> (char '$' *> identifier)
-    <|> try (Int . fromInteger <$> signedPrefixedNumber)
     <|> Rat <$> ((%) <$> signedPrefixedNumber <* char '/' <*> prefixedNumber)
-    <|> char '#' *>  (char 't' $> Bool True <|> char 'f' $> Bool False)
+    <|> try (Int . fromInteger <$> signedPrefixedNumber)
+    <|> char '#' *>  ((char 't' <|> char 'T') $> Bool True <|> (char 'f' <|> char 'F') $> Bool False)
     <|> char '"' *> (StrLit . T.pack <$> stringContents)
 
 
