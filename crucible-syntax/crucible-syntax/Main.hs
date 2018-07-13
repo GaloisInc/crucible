@@ -15,6 +15,7 @@ import Control.Lens ( (^.), to )
 import Control.Monad.Except
 import Control.Monad.ST
 import System.IO
+import System.Environment
 import Data.Monoid
 import Data.Text (Text)
 --import qualified Data.Text as T
@@ -32,6 +33,7 @@ import What4.Interface
 import qualified Lang.Crucible.Syntax.Concrete as Syntax
 import Lang.Crucible.Syntax.SExpr
 import Lang.Crucible.Syntax.Atoms
+-- import qualified Lang.Crucible.Syntax.Prog
 import Lang.Crucible.CFG.SSAConversion
 import qualified Lang.Crucible.Types as C
 import qualified Lang.Crucible.CFG.Core as C
@@ -51,19 +53,26 @@ import System.Exit
 
 import Text.Megaparsec as MP
 
+data Check = Check { chkInFile :: TheFile
+                   , chkOutFile :: Maybe TheFile
+                   , chkPrettyPrint :: Bool
+                   }
+
+data Command = CheckCommand Check
+             | ReplCommand
 
 newtype TheFile = TheFile FilePath
   deriving (Eq, Show, Ord)
 
 
-input :: Opt.Parser (Maybe TheFile)
-input = Opt.optional $ TheFile <$> Opt.strArgument (Opt.metavar "FILE" <> Opt.help "The file to process")
+file :: String -> Opt.Parser TheFile
+file which = TheFile <$> Opt.strArgument (Opt.metavar "FILE" <> Opt.help ("The " <> which <> " file"))
 
-repl :: HandleAllocator RealWorld -> TheFile -> IO ()
-repl ha fn =
-  do putStr "> "
-     T.getLine >>= runSimulator ha fn
-     repl ha fn
+input :: Opt.Parser TheFile
+input = file "input"
+
+output :: Opt.Parser TheFile
+output = file "output"
 
 go :: HandleAllocator RealWorld -> TheFile -> Text ->
    IO (FunctionBindings () (SimpleBackend s) (), Some (FnHandle EmptyCtx))
@@ -140,12 +149,46 @@ runSimulator halloc fl inp =
 
 main :: IO ()
 main =
-  do ha <- newHandleAllocator
-     file <- Opt.execParser options
-     case file of
-       Nothing -> hSetBuffering stdout NoBuffering >> repl ha (TheFile "stdin")
-       Just f@(TheFile inp) ->
-         do contents <- T.readFile inp
-            runSimulator ha f contents
+  do [f] <- getArgs
+     contents <- T.readFile f
+     ha <- newHandleAllocator
+     runSimulator ha (TheFile f) contents
 
-  where options = Opt.info input (Opt.fullDesc)
+{-
+command :: Opt.Parser Command
+command =
+  Opt.subparser
+    (Opt.command "check"
+     (Opt.info (CheckCommand <$> parseCheck)
+       (Opt.fullDesc <> Opt.progDesc "Check a file" <> Opt.header "crucibler")))
+  <|>
+  Opt.subparser
+    (Opt.command "repl"
+     (Opt.info (pure ReplCommand) (Opt.fullDesc <> Opt.progDesc "Open a REPL")))
+
+parseCheck :: Opt.Parser Check
+parseCheck =
+  Check <$> input <*> Opt.optional output <*> Opt.switch (Opt.help "Pretty-print the source file")
+
+
+repl :: TheFile -> IO ()
+repl f@(TheFile fn) =
+  do putStr "> "
+     l <- T.getLine
+     Prog.go fn l True stdout
+     repl f
+
+main :: IO ()
+main =
+  do cmd <- Opt.execParser options
+     case cmd of
+       ReplCommand -> hSetBuffering stdout NoBuffering >> repl (TheFile "stdin")
+       CheckCommand (Check f@(TheFile input) out pp) ->
+         do contents <- T.readFile input
+            case out of
+              Nothing ->
+                go input contents pp stdout
+              Just (TheFile output) ->
+                withFile output WriteMode (go input contents pp)
+  where options = Opt.info command (Opt.fullDesc)
+-}

@@ -29,7 +29,7 @@ data Keyword = Defun | DefBlock
              | Plus | Minus | Times | Div
              | Just_ | Nothing_ | FromJust
              | AnyT | UnitT | BoolT | NatT | IntegerT | RealT | ComplexRealT | CharT | StringT
-             | BitVectorT | VectorT
+             | BitVectorT | VectorT | FunT
              | The
              | Equalp | Integerp
              | If
@@ -37,6 +37,7 @@ data Keyword = Defun | DefBlock
              | Not_ | And_ | Or_ | Xor_
              | Mod
              | Lt
+             | Show
              | StringAppend
              | VectorLit_ | VectorReplicate_ | VectorIsEmpty_ | VectorSize_
              | VectorGetEntry_ | VectorSetEntry_ | VectorCons_
@@ -61,6 +62,7 @@ keywords =
   , ("*" , Times)
   , ("/" , Div)
   , ("<" , Lt)
+  , ("show", Show)
   , ("just" , Just_)
   , ("nothing" , Nothing_)
   , ("from-just" , FromJust)
@@ -78,6 +80,7 @@ keywords =
   , ("String" , StringT)
   , ("BitVector" , BitVectorT)
   , ("Vector", VectorT)
+  , ("->", FunT)
   , ("vector", VectorLit_)
   , ("vector-replicate", VectorReplicate_)
   , ("vector-empty?", VectorIsEmpty_)
@@ -116,15 +119,15 @@ instance Show Keyword where
              (s:_) -> T.unpack s
 
 
-data Atomic = Kw Keyword -- keywords are all the built-in operators and expression formers
-            | Lbl LabelName -- Labels, but not the trailing colon
-            | At AtomName -- Atom names (which look like Scheme symbols)
-            | Rg RegName -- Registers, whose names have a leading $
-            | Fn FunName -- Function names, minus the leading @
-            | Int Integer
-            | Rat Rational
-            | Str String
-            | Bool Bool
+data Atomic = Kw Keyword -- ^ Keywords are all the built-in operators and expression formers
+            | Lbl LabelName -- ^ Labels, but not the trailing colon
+            | At AtomName -- ^ Atom names (which look like Scheme symbols)
+            | Rg RegName -- ^ Registers, whose names have a leading $
+            | Fn FunName -- ^ Function names, minus the leading @
+            | Int Integer -- ^ Literal integers
+            | Rat Rational -- ^ Literal rational numbers
+            | Bool Bool   -- ^ Literal Booleans
+            | StrLit Text -- ^ Literal strings
   deriving (Eq, Ord, Show)
 
 
@@ -137,8 +140,20 @@ atom =  try (Lbl . LabelName <$> (identifier) <* char ':')
     <|> try (Int . fromInteger <$> signedPrefixedNumber)
     <|> Rat <$> ((%) <$> signedPrefixedNumber <* char '/' <*> prefixedNumber)
     <|> char '#' *>  (char 't' $> Bool True <|> char 'f' $> Bool False)
-    <|> Str <$> (char '"' >> manyTill L.charLiteral (char '"')) -- TODO? does this correctly handle character escape
+    <|> char '"' *> (StrLit . T.pack <$> stringContents)
 
+
+stringContents :: Parser [Char]
+stringContents =  (char '\\' *> ((:) <$> escapeChar <*> stringContents))
+              <|> (char '"' $> [])
+              <|> ((:) <$> satisfy (const True) <*> stringContents)
+
+escapeChar :: Parser Char
+escapeChar =  (char '\\' *> pure '\\')
+          <|> (char '"' *> pure '"')
+          <|> (char 'n' *> pure '\n')
+          <|> (char 't' *> pure '\t')
+          <?> "valid escape character"
 
 kwOrAtom :: Parser Atomic
 kwOrAtom = do x <- identifier

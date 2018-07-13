@@ -8,18 +8,20 @@ import System.Exit
 import Control.Monad.ST
 import Control.Monad
 import Text.Megaparsec as MP
+import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Syntax.Concrete
 import Lang.Crucible.Syntax.SExpr
 import Lang.Crucible.Syntax.Atoms
 import Lang.Crucible.CFG.SSAConversion
 
 -- | The main loop body, useful for both the program and for testing.
-go :: FilePath -- ^ The name of the input (appears in source locations)
+go :: HandleAllocator RealWorld
+   -> FilePath -- ^ The name of the input (appears in source locations)
    -> Text -- ^ The contents of the input
    -> Bool -- ^ Whether to pretty-print the input data as well
    -> Handle -- ^ A handle that will receive the output
    -> IO ()
-go fn theInput pprint outh =
+go ha fn theInput pprint outh =
   case MP.parse (many (sexp atom) <* eof) fn theInput of
     Left err ->
       do putStrLn $ parseErrorPretty' theInput err
@@ -27,7 +29,7 @@ go fn theInput pprint outh =
     Right v ->
       do when pprint $
            forM_ v $ T.hPutStrLn outh . printExpr
-         cfgs <- stToIO $ top $ cfgs v
+         cfgs <- stToIO $ top ha $ cfgs v
          case cfgs of
            Left err -> hPutStrLn outh $ show err
            Right ok ->

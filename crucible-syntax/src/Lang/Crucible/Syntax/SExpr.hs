@@ -83,7 +83,7 @@ sexp atom =
 
 identifier :: Parser Text
 identifier = T.pack <$> identString
-  where letterLike x = isLetter x || (elem x ("<>=+-?*/!_\\" :: [Char]))
+  where letterLike x = isLetter x || (elem x ("<>=+-*/!_\\?" :: [Char]))
         nameChar x = letterLike x || isDigit x
         identString = (:) <$> satisfy letterLike <*> many (satisfy nameChar)
 

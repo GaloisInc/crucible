@@ -9,10 +9,12 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
 import Lang.Crucible.FunctionHandle
+import System.IO
 
 import Lang.Crucible.Syntax.Concrete
 import Lang.Crucible.Syntax.SExpr
 import Lang.Crucible.Syntax.Atoms
+import Lang.Crucible.Syntax.Prog
 import Lang.Crucible.CFG.SSAConversion
 
 import qualified Text.Megaparsec as MP
@@ -31,20 +33,7 @@ testParser :: FilePath -> FilePath -> IO ()
 testParser inFile outFile =
   do ha <- newHandleAllocator
      contents <- T.readFile inFile
-     outContents <-
-       case MP.parse (many (sexp atom) <* MP.eof) inFile contents of
-         Left err ->
-           pure $ T.pack $ MP.parseErrorPretty' contents err
-         Right v ->
-           do let printed = T.concat $ map printExpr v
-              theCfgs <- stToIO $ top ha $ cfgs v
-              let res =
-                    T.concat $
-                      case theCfgs of
-                        Left err -> pure $ T.pack (show err)
-                        Right vs -> for vs $ \(ACFG _ _ theCfg) -> T.pack $ show (toSSA theCfg)
-              pure $ printed <> T.pack "\n" <> res
-     T.writeFile outFile outContents
+     withFile outFile WriteMode $ go ha inFile contents True
 
 roundTrips :: IO TestTree
 roundTrips =

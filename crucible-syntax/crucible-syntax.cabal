@@ -56,6 +56,7 @@ library
     Lang.Crucible.Syntax.Atoms
     Lang.Crucible.Syntax.Concrete
     Lang.Crucible.Syntax.SExpr
+    Lang.Crucible.Syntax.Prog
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top

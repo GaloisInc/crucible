@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveFunctor, GADTs, OverloadedStrings, RankNTypes, LiberalTypeSynonyms, KindSignatures, DataKinds, StandaloneDeriving, FlexibleInstances, GeneralizedNewtypeDeriving, TypeFamilies, PolyKinds, ScopedTypeVariables, MultiParamTypeClasses, UndecidableInstances, PartialTypeSignatures, FlexibleContexts, ImplicitParams, LambdaCase, ViewPatterns #-}
+{-# LANGUAGE DeriveFunctor, GADTs, OverloadedStrings, RankNTypes, LiberalTypeSynonyms, KindSignatures, DataKinds, StandaloneDeriving, FlexibleInstances, GeneralizedNewtypeDeriving, TypeFamilies, PatternGuards, PolyKinds, ScopedTypeVariables, MultiParamTypeClasses, UndecidableInstances, PartialTypeSignatures, FlexibleContexts, ImplicitParams, LambdaCase, ViewPatterns #-}
 -- {-# OPTIONS_GHC -fprint-explicit-kinds -fprint-explicit-foralls #-}
 module Lang.Crucible.Syntax.Concrete where
 
@@ -68,10 +68,10 @@ printExpr = toText (PrintRules rules) printAtom
         printAtom (Rg (RegName r)) = "$" <> r
         printAtom (At (AtomName a)) = a
         printAtom (Fn (FunName a)) = "@" <> a
-        printAtom (Str str) = T.pack (show str)
         printAtom (Int i) = T.pack (show i)
         printAtom (Rat r) = T.pack (show r)
         printAtom (Bool b) = if b then "#t" else "#f"
+        printAtom (StrLit s) = T.pack $ show s
         rules (Kw Defun) = Just (Special 3)
         rules (Kw DefBlock) = Just (Special 1)
         rules (Kw Start) = Just (Special 1)
@@ -128,6 +128,7 @@ data ExprErr s where
   InvalidRegister :: Position -> AST s -> ExprErr s
   UnknownRegister :: Position -> RegName -> ExprErr s
   SyntaxError :: AST s -> Text -> ExprErr s
+
 
 errPos :: ExprErr s -> Position
 errPos (TypeError p _ _ _) = p
@@ -245,6 +246,13 @@ checkExpr t (L [A (Kw FromJust), a, str]) =
   do E a' <- checkExpr (MaybeRepr t) a
      E str' <- checkExpr StringRepr str
      return (E (App (FromJustValue t a' str')))
+checkExpr expectedT e@(L (A (Kw VectorLit_) : vs)) =
+  case expectedT of
+    VectorRepr tp ->
+      do vs' <- (V.fromList . map unE) <$> mapM (checkExpr tp) vs
+         return (E (App (VectorLit tp vs')))
+    other ->
+      throwError $ NotVector (syntaxPos e) e other
 checkExpr expectedT ast =
   do SomeExpr foundT e <- synthExpr ast
      case testEquality expectedT foundT of
@@ -287,13 +295,23 @@ isType (L [A (Kw BitVectorT), n]) =
             Just LeqProof -> return $ Some $ BVRepr len
     other -> throwError $ NotNumeric (syntaxPos other) other NatRepr
 
+isType (L (A (Kw FunT) : domAndRan)) | Just (doms, ran) <- withLast domAndRan =
+  do doms' <- mapM isType doms
+     Some argTypes <- return $ toCtx (reverse doms')
+     Some ran' <- isType ran
+     return $ Some $ FunctionHandleRepr argTypes ran'
+  where withLast [] = Nothing
+        withLast [x] = Just ([], x)
+        withLast (x : xs) = fmap (\(most, last) -> (x : most, last)) (withLast xs)
+        toCtx [] = Some Ctx.empty
+        toCtx (Some t : ts) | Some ts' <- toCtx ts = Some $ Ctx.extend ts' t
+
 -- TODO more types
 isType e = throwError $ NotAType (syntaxPos e) e
 
-synthExpr :: (Alternative m, MonadError (ExprErr s) m, MonadState (SyntaxState h s) m) => AST s -> m (SomeExpr s)
 
-synthExpr (A (Str strLit)) =
-  return $ SomeExpr StringRepr (E (App (TextLit (T.pack strLit))))
+
+synthExpr :: (Alternative m, MonadError (ExprErr s) m, MonadState (SyntaxState h s) m) => AST s -> m (SomeExpr s)
 
 synthExpr (L [A (Kw The), t, e]) =
   do Some ty <- isType t
@@ -320,6 +338,12 @@ synthExpr e@(L [A (Kw If), c, t, f]) =
            AsBaseType bt ->
              return $ SomeExpr ty1 (E (App (BaseIte bt c' t' f')))
        Nothing -> throwError $ TypeMismatch (syntaxPos e) t ty1 f ty2
+synthExpr stx@(L [A (Kw Show), e]) =
+  do SomeExpr ty (E e') <- synthExpr e
+     case asBaseType ty of
+       NotBaseType -> throwError $ NotABaseType (syntaxPos e) ty
+       AsBaseType bt ->
+         return $ SomeExpr StringRepr $ E $ App $ ShowValue bt e'
 synthExpr x@(A (Fn n)) =
   do fn <- funName x
      fh <- use $ stxFunctions . at fn
@@ -376,10 +400,8 @@ synthExpr e@(A (At x)) =
        Nothing -> throwError $ UnknownAtom (syntaxPos e) x
        Just (Pair t at) -> return $ SomeExpr t (E (AtomExpr at))
 
-synthExpr e@(L [A (Kw VectorLit_), tpe, L vs]) =
-  do Some tp <- isType tpe
-     vs' <- (V.fromList . map unE) <$> mapM (checkExpr tp) vs
-     return (SomeExpr (VectorRepr tp) (E (App (VectorLit tp vs'))))
+synthExpr e@(A (StrLit s)) =
+  return $ SomeExpr StringRepr $ E (App (TextLit s))
 
 synthExpr e@(L [A (Kw VectorReplicate_), n, x]) =
   do E n' <- checkExpr NatRepr n
