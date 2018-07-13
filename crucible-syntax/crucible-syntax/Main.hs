@@ -36,24 +36,13 @@ import Lang.Crucible.CFG.SSAConversion
 import qualified Lang.Crucible.Types as C
 import qualified Lang.Crucible.CFG.Core as C
 import Lang.Crucible.Analysis.Postdom (postdomInfo)
-import Lang.Crucible.FunctionHandle
-import Lang.Crucible.Simulator.EvalStmt (executeCrucible)
-import Lang.Crucible.Simulator.ExecutionTree
-  ( FunctionBindings, FnState(..), initSimContext, ExtensionImpl(..), ExecResult(..), partialValue, gpValue )
-import Lang.Crucible.Simulator.Operations
-  ( defaultAbortHandler )
-import Lang.Crucible.Simulator.GlobalState
-  (emptyGlobals)
-import Lang.Crucible.Simulator.OverrideSim
-  (runOverrideSim, initSimState, callFnVal')
-import Lang.Crucible.Simulator.RegMap
-  (regValue)
-import Lang.Crucible.Simulator.RegValue
-  (FnVal(..))
-
 import Lang.Crucible.Backend.Simple
---import Lang.Crucible.Types
---import Lang.Crucible.Backend
+import Lang.Crucible.FunctionHandle
+import Lang.Crucible.Simulator
+  ( FunctionBindings, FnState(..), initSimContext, ExtensionImpl(..), ExecResult(..)
+  , partialValue, gpValue, emptyGlobals, executeCrucible, defaultAbortHandler
+  , runOverrideSim, initSimState, callFnVal', regValue, FnVal(..)
+  )
 
 
 import qualified Options.Applicative as Opt

@@ -54,10 +54,9 @@ import           What4.Interface
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
-import           Lang.Crucible.Simulator.ExecutionTree
-import           Lang.Crucible.Simulator.RegMap
-import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Simulator
+import           Lang.Crucible.Simulator.ExecutionTree (stateTree, activeFrames, filterCrucibleFrames)
+import           Lang.Crucible.Simulator.Operations( abortExec )
 import           Lang.Crucible.Server.CallbackOutputHandle
 import           Lang.Crucible.Server.TypeConv
 
@@ -324,8 +323,8 @@ sendCallPathAborted sim code msg bt = do
 
 serverErrorHandler :: IsSymInterface sym
                    => Simulator p sym
-                   -> ErrorHandler p sym () rtp
-serverErrorHandler sim = EH $ \e ->
+                   -> AbortHandler p sym () rtp
+serverErrorHandler sim = AH $ \e ->
  do t <- view stateTree
     let frames = activeFrames t
     -- Get location of frame.
@@ -336,8 +335,6 @@ serverErrorHandler sim = EH $ \e ->
     -- tell client that a part aborted with the given message.
     liftIO $
       case e of
-        ManualAbort _ msg ->
-          sendCallPathAborted sim P.AbortedGeneric msg loc
         AssumedFalse (AssumingNoError se) ->
           case simErrorReason se of
             ReadBeforeWriteSimError msg -> do

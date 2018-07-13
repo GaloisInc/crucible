@@ -33,14 +33,12 @@ import Lang.Crucible.Backend.Online
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
-import Lang.Crucible.Simulator.RegMap(emptyRegMap,regValue)
-import Lang.Crucible.Simulator.ExecutionTree
-import Lang.Crucible.Simulator.EvalStmt
-        ( executeCrucible )
-import Lang.Crucible.Simulator.SimError
-import Lang.Crucible.Simulator.OverrideSim
-        ( fnBindingsFromList, initSimState, runOverrideSim, callCFG)
-
+import Lang.Crucible.Simulator
+  ( emptyRegMap,regValue, executeCrucible
+  , fnBindingsFromList, initSimState, runOverrideSim, callCFG
+  , SimError(..), ExecResult(..)
+  , initSimContext, initSimState, defaultAbortHandler
+  )
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn)
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, initializeMemory
@@ -155,7 +153,7 @@ simulate opts k =
 
           mem  <- initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
-          let simSt  = initSimState simctx globSt defaultErrorHandler
+          let simSt  = initSimState simctx globSt defaultAbortHandler
 
           res <- executeCrucible simSt $ runOverrideSim UnitRepr $
                    do setupMem llvmCtxt trans
