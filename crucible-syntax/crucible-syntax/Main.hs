@@ -12,6 +12,7 @@ import qualified Data.Text.IO as T
 import Lang.Crucible.Syntax.Concrete
 import Lang.Crucible.Syntax.SExpr
 import Lang.Crucible.Syntax.Atoms
+import Lang.Crucible.Syntax.Prog
 import Lang.Crucible.CFG.SSAConversion
 
 import qualified Options.Applicative as Opt
@@ -20,44 +21,63 @@ import System.Exit
 
 import Text.Megaparsec as MP
 
+data Check = Check { chkInFile :: TheFile
+                   , chkOutFile :: Maybe TheFile
+                   , chkPrettyPrint :: Bool
+                   }
+
+data Command = CheckCommand Check
+             | ReplCommand
 
 newtype TheFile = TheFile FilePath
   deriving (Eq, Show, Ord)
 
 
-input :: Opt.Parser (Maybe TheFile)
-input = Opt.optional $ TheFile <$> Opt.strArgument (Opt.metavar "FILE" <> Opt.help "The file to process")
+file :: String -> Opt.Parser TheFile
+file which = TheFile <$> Opt.strArgument (Opt.metavar "FILE" <> Opt.help ("The " <> which <> " file"))
+
+input :: Opt.Parser TheFile
+input = file "input"
+
+output :: Opt.Parser TheFile
+output = file "output"
+
 
 repl :: TheFile -> IO ()
-repl fn =
+repl f@(TheFile fn) =
   do putStr "> "
-     T.getLine >>= go fn
-     repl fn
+     l <- T.getLine
+     go fn l True stdout
+     repl f
 
-go :: TheFile -> Text -> IO ()
-go (TheFile fn) theInput =
-  case MP.parse (many (sexp atom) <* eof) fn theInput of
-    Left err ->
-      do putStrLn $ parseErrorPretty' theInput err
-         exitFailure
-    Right v ->
-      do forM_ v $ T.putStrLn . printExpr
-         cfgs <- stToIO $ top $ cfgs v
-         case cfgs of
-           Left err -> print err
-           Right ok ->
-             forM_ ok $
-              \(ACFG _ _ theCfg) ->
-                print (toSSA theCfg)
 
+
+command :: Opt.Parser Command
+command =
+  Opt.subparser
+    (Opt.command "check"
+     (Opt.info (CheckCommand <$> parseCheck)
+       (Opt.fullDesc <> Opt.progDesc "Check a file" <> Opt.header "crucibler")))
+  <|>
+  Opt.subparser
+    (Opt.command "repl"
+     (Opt.info (pure ReplCommand) (Opt.fullDesc <> Opt.progDesc "Open a REPL")))
+
+parseCheck :: Opt.Parser Check
+parseCheck =
+  Check <$> input <*> Opt.optional output <*> Opt.switch (Opt.help "Pretty-print the source file")
 
 main :: IO ()
 main =
-  do file <- Opt.execParser options
-     case file of
-       Nothing -> hSetBuffering stdout NoBuffering >> repl (TheFile "stdin")
-       Just f@(TheFile input) ->
+  do cmd <- Opt.execParser options
+     case cmd of
+       ReplCommand -> hSetBuffering stdout NoBuffering >> repl (TheFile "stdin")
+       CheckCommand (Check f@(TheFile input) out pp) ->
          do contents <- T.readFile input
-            go f contents
+            case out of
+              Nothing ->
+                go input contents pp stdout
+              Just (TheFile output) ->
+                withFile output WriteMode (go input contents pp)
 
-  where options = Opt.info input (Opt.fullDesc)
+  where options = Opt.info command (Opt.fullDesc)

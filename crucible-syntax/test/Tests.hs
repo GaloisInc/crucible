@@ -8,9 +8,12 @@ import Data.Monoid
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
+import System.IO
+
 import Lang.Crucible.Syntax.Concrete
 import Lang.Crucible.Syntax.SExpr
 import Lang.Crucible.Syntax.Atoms
+import Lang.Crucible.Syntax.Prog
 import Lang.Crucible.CFG.SSAConversion
 
 
@@ -29,6 +32,7 @@ main = roundTrips >>= defaultMain
 testParser :: FilePath -> FilePath -> IO ()
 testParser inFile outFile =
   do contents <- T.readFile inFile
+     withFile outFile WriteMode $ go inFile contents True
      outContents <-
        case MP.parse (many (sexp atom) <* MP.eof) inFile contents of
          Left err ->
