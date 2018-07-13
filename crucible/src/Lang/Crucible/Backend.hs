@@ -109,8 +109,6 @@ data AbortExecReason =
     -- ^ We tried all possible cases for a variant, and now we should
     -- do something else.
 
-  | ManualAbort ProgramLoc String
-    -- ^ The execution was aborted by calling "mssRunGenericErrorHandler"
     deriving Show
 
 instance Exception AbortExecReason
@@ -124,7 +122,6 @@ ppAbortExecReason e =
       "Abort due to false assumption:" PP.<$$>
       PP.indent 2 (ppAssumptionReason reason)
     VariantOptionsExhaused l -> ppLocated l "Variant options exhaused."
-    ManualAbort l msg -> ppLocated l (PP.text msg)
 
 ppAssumptionReason :: AssumptionReason -> PP.Doc
 ppAssumptionReason e =
@@ -231,8 +228,8 @@ addAssertion sym a@(AS.LabeledPred p msg) =
 abortExecBecause :: AbortExecReason -> IO a
 abortExecBecause err = throwIO err
 
--- | Add a proof obligation using the curren program location,
--- and assume the given fact.
+-- | Add a proof obligation using the current program location.
+--   Afterwards, assume the given fact.
 assert ::
   IsSymInterface sym =>
   sym ->

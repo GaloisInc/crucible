@@ -3,7 +3,8 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 module Lang.Crucible.Simulator.Frame
-  ( SimFrame(..)
+  ( -- * Simulator frames
+    SimFrame(..)
   , CrucibleLang
   , OverrideLang
   , OverrideFrame(..)

@@ -30,6 +30,7 @@ module Lang.Crucible.Simulator.RegMap
   , regVal
   , regVal'
   , assignReg
+  , assignReg'
   , muxRegForType
   , muxReference
   , pushBranchForType
@@ -84,6 +85,12 @@ assignReg :: TypeRepr tp
           -> RegMap sym (ctx ::> tp)
 assignReg tp v (RegMap m) =  RegMap (m Ctx.:> RegEntry tp v)
 {-# INLINE assignReg #-}
+
+assignReg' :: RegEntry sym tp
+           -> RegMap sym ctx
+           -> RegMap sym (ctx ::> tp)
+assignReg' v (RegMap m) =  RegMap (m Ctx.:> v)
+{-# INLINE assignReg' #-}
 
 regVal :: RegMap sym ctx
        -> Reg ctx tp

@@ -74,6 +74,7 @@ library
     Lang.Crucible.CFG.Reg
     Lang.Crucible.CFG.SSAConversion
     Lang.Crucible.FunctionHandle
+    Lang.Crucible.Simulator
     Lang.Crucible.Simulator.CallFrame
     Lang.Crucible.Simulator.Evaluation
     Lang.Crucible.Simulator.EvalStmt

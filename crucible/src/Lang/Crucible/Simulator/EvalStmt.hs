@@ -17,24 +17,29 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 module Lang.Crucible.Simulator.EvalStmt
-  ( SomeSimFrame(..)
-  , resolveCallFrame
-
-  , singleStepCrucible
+  ( -- * High-level evaluation
+    singleStepCrucible
   , executeCrucible
 
+    -- * Lower-level evaluation operations
   , evalReg
+  , evalReg'
   , evalExpr
-  , stepTerm
+  , evalArgs
+  , evalJumpTarget
+  , evalSwitchTarget
   , stepStmt
+  , stepTerm
   , stepBasicBlock
   ) where
 
+import           Control.Applicative (liftA2)
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.Reader
@@ -69,140 +74,50 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Utils.MuxTree
 
 
-------------------------------------------------------------------------
--- resolveCallFrame
-
-data SomeSimFrame p sym ext ret where
-  SomeOF :: Override p sym ext args ret
-         -> OverrideFrame sym ret args
-         -> SomeSimFrame p sym ext ret
-  SomeCF :: CallFrame sym ext blocks ret args
-         -> SomeSimFrame p sym ext ret
-
-resolveCallFrame :: FunctionBindings p sym ext
-                 -> FnVal sym args ret
-                 -> RegMap sym args
-                 -> SomeSimFrame p sym ext ret
-resolveCallFrame bindings c0 args =
-  case c0 of
-    ClosureFnVal c tp v -> do
-      resolveCallFrame bindings c (assignReg tp v args)
-    HandleFnVal h -> do
-      case lookupHandleMap h bindings of
-        Nothing -> Ex.throw . userError $
-          "Could not resolve function: " ++ show (handleName h)
-        Just (UseOverride o) -> do
-          let f = OverrideFrame { override = overrideName o
-                                , overrideRegMap = args
-                                }
-           in SomeOF o f
-        Just (UseCFG g pdInfo) -> do
-          SomeCF (mkCallFrame g pdInfo args)
-
-
-
-------------------------------------------------------------------------
--- CrucibleState
-
-evalLogFn :: CrucibleState p sym ext rtp blocks r ctx
-          -> Int
-          -> String
-          -> IO ()
-evalLogFn s n msg = do
-  let h = printHandle (s^.stateContext)
-  let cfg = stateGetConfiguration s
-  verb <- getMaybeOpt =<< getOptionSetting verbosity cfg
-  case verb of
-    Just v | v >= toInteger n ->
-      do hPutStr h msg
-         hFlush h
-    _ -> return ()
-
--- | Evaluate an expression.
+-- | Retrieve the value of a register
 evalReg ::
   Monad m =>
   Reg ctx tp ->
   ReaderT (CrucibleState p sym ext rtp blocks r ctx) m (RegValue sym tp)
 evalReg r = (`regVal` r) <$> view (stateCrucibleFrame.frameRegs)
 
--- | Evaluate an expression, returning a 'RegEntry'
+-- | Retrieve the value of a register, returning a 'RegEntry'
 evalReg' ::
   Monad m =>
   Reg ctx tp ->
   ReaderT (CrucibleState p sym ext rtp blocks r ctx) m (RegEntry sym tp)
 evalReg' r = (`regVal'` r) <$> view (stateCrucibleFrame.frameRegs)
 
+
+evalLogFn ::
+  Int {- current verbosity -} ->
+  CrucibleState p sym ext rtp blocks r ctx ->
+  Int {- verbosity level of the message -} ->
+  String ->
+  IO ()
+evalLogFn verb s n msg = do
+  let h = s^.stateContext.to printHandle
+  if verb >= n then
+      do hPutStr h msg
+         hFlush h
+  else
+      return ()
+
 -- | Evaluate an expression.
 evalExpr :: forall p sym ext ctx tp rtp blocks r.
   (IsSymInterface sym, IsSyntaxExtension ext) =>
+  Int {- ^ current verbosity -} ->
   Expr ext ctx tp ->
   ReaderT (CrucibleState p sym ext rtp blocks r ctx) IO (RegValue sym tp)
-evalExpr (App a) = do
-  s <- ask
-  let iteFns = stateIntrinsicTypes s
-  let sym = stateSymInterface s
-  let logFn = evalLogFn s
-  r <- liftIO $ evalApp sym iteFns logFn
-                  (extensionEval (extensionImpl (s^.stateContext)) sym iteFns logFn)
-                  (\r -> runReaderT (evalReg r) s)
-                  a
-  return $! r
-
-------------------------------------------------------------------------
--- Pretty printing
-
-ppStmtAndLoc :: Handle -> SomeHandle -> ProgramLoc -> Doc -> IO ()
-ppStmtAndLoc h sh pl stmt = do
-  hPrint h $
-    text (show sh) <> char ':' <$$>
-    indent 2 (stmt <+> text "%" <+> ppNoFileName (plSourceLoc pl))
-  hFlush h
-
-------------------------------------------------------------------------
--- JumpCall
-
-
-data JumpCall sym blocks where
-  JumpCall :: !(BlockID blocks args)
-           -> !(RegMap sym args)
-           -> JumpCall sym blocks
-
-evalJumpTarget ::
-  (IsSymInterface sym, Monad m) =>
-  JumpTarget blocks ctx ->
-  ReaderT (CrucibleState p sym ext rtp blocks r ctx) m (JumpCall sym blocks)
-evalJumpTarget (JumpTarget tgt _ a) = JumpCall tgt <$> evalArgs a
-
-------------------------------------------------------------------------
--- SwitchCall
-
-data SwitchCall sym blocks tp where
-  SwitchCall :: !(BlockID blocks (args ::> tp))
-             -> !(RegMap sym args)
-             -> SwitchCall sym blocks tp
-
-evalSwitchTarget ::
-  (IsSymInterface sym, Monad m) =>
-  SwitchTarget blocks ctx tp ->
-  ReaderT (CrucibleState p sym ext rtp blocks r ctx) m (SwitchCall sym blocks tp)
-evalSwitchTarget (SwitchTarget tgt _tp a) = SwitchCall tgt <$> evalArgs a
-
-
--- | Jump to given block.
---
--- May throw a user error if merging fails.
-jump :: IsSymInterface sym
-      => JumpTarget blocks args
-      -> ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just args)
-jump (JumpTarget block_id _tp a) =
-  jumpToBlock block_id =<< evalArgs a
-
-
-data VariantCall sym blocks tp where
-  VariantCall :: TypeRepr tp
-              -> VariantBranch sym tp
-              -> SwitchCall sym blocks tp
-              -> VariantCall sym blocks tp
+evalExpr verb (App a) = ReaderT $ \s ->
+  do let iteFns = s^.stateIntrinsicTypes
+     let sym = s^.stateSymInterface
+     let logFn = evalLogFn verb s
+     r <- evalApp sym iteFns logFn
+            (extensionEval (extensionImpl (s^.stateContext)) sym iteFns logFn)
+            (\r -> runReaderT (evalReg r) s)
+            a
+     return $! r
 
 evalArgs' :: forall sym ctx args.
   RegMap sym ctx ->
@@ -213,6 +128,7 @@ evalArgs' m0 args = RegMap (fmapFC (getEntry m0) args)
         getEntry (RegMap m) r = m Ctx.! regIndex r
 {-# NOINLINE evalArgs' #-}
 
+-- | Evaluate the actual arguments for a function call or block transfer
 evalArgs ::
   Monad m =>
   Ctx.Assignment (Reg ctx) args ->
@@ -220,6 +136,22 @@ evalArgs ::
 evalArgs args = ReaderT $ \s -> return $! evalArgs' (s^.stateCrucibleFrame.frameRegs) args
 {-# INLINE evalArgs #-}
 
+-- | Resolve the arguments for a jump
+evalJumpTarget ::
+  (IsSymInterface sym, Monad m) =>
+  JumpTarget blocks ctx {- ^  Jump target to evaluate -} ->
+  ReaderT (CrucibleState p sym ext rtp blocks r ctx) m (ResolvedJump sym blocks)
+evalJumpTarget (JumpTarget tgt _ a) = ResolvedJump tgt <$> evalArgs a
+
+-- | Resolve the arguments for a switch target
+evalSwitchTarget ::
+  (IsSymInterface sym, Monad m) =>
+  SwitchTarget blocks ctx tp {- ^ Switch target to evaluate -} ->
+  RegEntry sym tp {- ^ Value inside the variant -}  ->
+  ReaderT (CrucibleState p sym ext rtp blocks r ctx) m (ResolvedJump sym blocks)
+evalSwitchTarget (SwitchTarget tgt _tp a) x =
+  do xs <- evalArgs a
+     return (ResolvedJump tgt (assignReg' x xs))
 
 alterRef ::
   IsSymInterface sym =>
@@ -253,6 +185,7 @@ readRef sym iTypes tpr rs globs =
      pv <- mergePartials sym f vs
      let msg = ReadBeforeWriteSimError "Attempted to read uninitialized reference cell"
      readPartExpr sym pv msg
+
 
 -- | Evaluation operation for evaluating a single straight-line
 --   statement of the Crucible evaluator.
@@ -332,14 +265,14 @@ stepStmt verb stmt rest =
             continueWith $ stateCrucibleFrame %~ extendFrame (baseToType bt) v rest
 
        SetReg tp e ->
-         do v <- evalExpr e
+         do v <- evalExpr verb e
             continueWith $ stateCrucibleFrame %~ extendFrame tp v rest
 
        ExtendAssign estmt -> do
-         do estmt' <- traverseFC evalReg' estmt
+         do let tp = appType estmt
+            estmt' <- traverseFC evalReg' estmt
             ReaderT $ \s ->
               do (v,s') <- liftIO $ extensionExec (extensionImpl ctx) estmt' s
-                 let tp = appType estmt
                  runReaderT
                    (continueWith $ stateCrucibleFrame %~ extendFrame tp v rest)
                    s'
@@ -348,14 +281,14 @@ stepStmt verb stmt rest =
          do hndl <- evalReg fnExpr
             args <- evalArgs arg_exprs
             bindings <- view (stateContext.functionBindings)
-            case resolveCallFrame bindings hndl args of
-              SomeOF o f ->
+            case resolveCall bindings hndl args of
+              OverrideCall o f ->
                 withReaderT
-                  (stateTree %~ callFn (returnToCrucible ret_type rest) (OF f))
+                  (stateTree %~ callFn (ReturnToCrucible ret_type rest) (OF f))
                   (runOverride o)
-              SomeCF f ->
+              CrucibleCall f ->
                 withReaderT
-                  (stateTree %~ callFn (returnToCrucible ret_type rest) (MF f))
+                  (stateTree %~ callFn (ReturnToCrucible ret_type rest) (MF f))
                   continue
 
        Print e ->
@@ -379,6 +312,28 @@ stepStmt verb stmt rest =
             continueWith (stateCrucibleFrame  . frameStmts .~ rest)
 
 
+---------------------------------------------------------------
+-- TODO, this should probably be moved to parameterized-utils
+
+newtype Collector m w a = Collector { runCollector :: m w }
+
+instance Functor (Collector m w) where
+  fmap _ (Collector x) = Collector x
+
+instance (Applicative m, Monoid w) => Applicative (Collector m w) where
+  pure _ = Collector (pure mempty)
+  Collector x <*> Collector y = Collector (liftA2 (<>) x y)
+
+traverseAndCollect ::
+  (Monoid w, Applicative m) =>
+  (forall tp. Ctx.Index ctx tp -> f tp -> m w) ->
+  Ctx.Assignment f ctx ->
+  m w
+traverseAndCollect f =
+  runCollector . Ctx.traverseWithIndex (\i x -> Collector (f i x))
+
+--------------------------- END TODO ----------------------------
+
 
 {-# INLINABLE stepTerm #-}
 
@@ -389,40 +344,40 @@ stepStmt verb stmt rest =
 stepTerm :: forall p sym ext rtp blocks r ctx.
   (IsSymInterface sym, IsSyntaxExtension ext) =>
   Int {- ^ Verbosity -} ->
-  TermStmt blocks r ctx ->
+  TermStmt blocks r ctx {- ^ Terminating statement to evaluate -} ->
   ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
 
-stepTerm _ (Jump tgt) = jump tgt
-
-stepTerm verb (Br c x y) =
-  do JumpCall x_id x_args <- evalJumpTarget x
-     JumpCall y_id y_args <- evalJumpTarget y
-     p <- evalReg c
-     symbolicBranch verb p x_id x_args y_id y_args
-
-stepTerm verb (MaybeBranch tp e j n) =
-  do evalReg e >>= \case
-       Unassigned -> jump n
-       PE p v ->
-         do SwitchCall j_tgt j_args0 <- evalSwitchTarget j
-            JumpCall   n_tgt n_args  <- evalJumpTarget n
-            let j_args = assignReg tp v j_args0
-            symbolicBranch verb p j_tgt j_args n_tgt n_args
-
-stepTerm _ (VariantElim ctx e cases) =
-  do vs <- evalReg e
-     cases' <- Ctx.generateM (Ctx.size ctx) (\i ->
-                     VariantCall (ctx Ctx.! i) (vs Ctx.! i) <$> evalSwitchTarget (cases Ctx.! i))
-     let ls = foldMapFC (\(VariantCall tp (VB v) (SwitchCall tgt regs)) ->
-                case v of
-                  Unassigned -> []
-                  PE p v' -> [ResolvedJump p tgt (assignReg tp v' regs)])
-              cases'
-     Some pd <- view (stateCrucibleFrame.framePostdom)
-     stepVariantCases pd ls
+stepTerm _ (Jump tgt) =
+  jumpToBlock =<< evalJumpTarget tgt
 
 stepTerm _ (Return arg) =
   returnAndMerge =<< evalReg' arg
+
+stepTerm _ (Br c x y) =
+  do x_jump <- evalJumpTarget x
+     y_jump <- evalJumpTarget y
+     p <- evalReg c
+     conditionalBranch p x_jump y_jump
+
+stepTerm _ (MaybeBranch tp e j n) =
+  do evalReg e >>= \case
+       Unassigned -> jumpToBlock =<< evalJumpTarget n
+       PE p v ->
+         do j_jump <- evalSwitchTarget j (RegEntry tp v)
+            n_jump <- evalJumpTarget n
+            conditionalBranch p j_jump n_jump
+
+stepTerm _ (VariantElim ctx e cases) =
+  do vs <- evalReg e
+     jmps <- ctx & traverseAndCollect (\i tp ->
+                case vs Ctx.! i of
+                  VB Unassigned ->
+                    return []
+                  VB (PE p v) ->
+                    do jmp <- evalSwitchTarget (cases Ctx.! i) (RegEntry tp v)
+                       return [(p,jmp)])
+
+     variantCases jmps
 
 -- When we make a tail call, we first try to unwind our calling context
 -- and replace the currently-active frame with the frame of the new called
@@ -437,33 +392,28 @@ stepTerm _ (Return arg) =
 -- stack in this scenerio.
 
 stepTerm _ (TailCall fnExpr _types arg_exprs) =
-  do cl   <- evalReg fnExpr
+  do bindings <- view (stateContext.functionBindings)
+     cl   <- evalReg fnExpr
      args <- evalArgs arg_exprs
-     bindings <- view (stateContext.functionBindings)
      t <- view stateTree
-     case resolveCallFrame bindings cl args of
-       SomeOF o f ->
+     case resolveCall bindings cl args of
+       OverrideCall o f ->
          case replaceTailFrame t (OF f) of
-           Just t' -> withReaderT
-                        (stateTree .~ t')
-                        (runOverride o)
-           Nothing -> withReaderT
-                        (stateTree %~ callFn tailReturnToCrucible (OF f))
-                        (runOverride o)
-       SomeCF f ->
+           Just t' -> withReaderT (stateTree .~ t') (runOverride o)
+           Nothing -> withReaderT (stateTree %~ callFn TailReturnToCrucible (OF f)) (runOverride o)
+       CrucibleCall f ->
          case replaceTailFrame t (MF f) of
            Just t' -> withReaderT (stateTree .~ t') continue
-           Nothing -> withReaderT (stateTree %~ callFn tailReturnToCrucible (MF f)) continue
+           Nothing -> withReaderT (stateTree %~ callFn TailReturnToCrucible (MF f)) continue
 
 stepTerm _ (ErrorStmt msg) =
   do msg' <- evalReg msg
-     sym <- asks stateSymInterface
+     sym <- view stateSymInterface
      liftIO $ case asString msg' of
        Just txt -> addFailedAssertion sym
                       $ GenericSimError $ Text.unpack txt
        Nothing  -> addFailedAssertion sym
                       $ GenericSimError $ show (printSymExpr msg')
-
 
 
 
@@ -482,18 +432,25 @@ stepBasicBlock verb =
      cf <- view stateCrucibleFrame
 
      case cf^.frameStmts of
-       TermStmt pl stmt -> do
-         do liftIO $
-              do setCurrentProgramLoc sym pl
-                 when (verb >= 4) $ ppStmtAndLoc h (frameHandle cf) pl (pretty stmt)
-            stepTerm verb stmt
-
        ConsStmt pl stmt rest ->
          do liftIO $
               do setCurrentProgramLoc sym pl
                  let sz = regMapSize (cf^.frameRegs)
                  when (verb >= 4) $ ppStmtAndLoc h (frameHandle cf) pl (ppStmt sz stmt)
             stepStmt verb stmt rest
+
+       TermStmt pl termStmt -> do
+         do liftIO $
+              do setCurrentProgramLoc sym pl
+                 when (verb >= 4) $ ppStmtAndLoc h (frameHandle cf) pl (pretty termStmt)
+            stepTerm verb termStmt
+
+ppStmtAndLoc :: Handle -> SomeHandle -> ProgramLoc -> Doc -> IO ()
+ppStmtAndLoc h sh pl stmt = do
+  hPrint h $
+    text (show sh) <> char ':' <$$>
+    indent 2 (stmt <+> text "%" <+> ppNoFileName (plSourceLoc pl))
+  hFlush h
 
 
 -- | Run a single step of the Crucible symbolic simulator.
@@ -539,7 +496,7 @@ executeCrucible :: forall p sym ext rtp f a.
   ExecCont p sym ext rtp f a {- ^ Execution continuation to run -} ->
   IO (ExecResult p sym ext rtp)
 executeCrucible st0 cont =
-  do let cfg = stateGetConfiguration st0
+  do let cfg = st0^.stateConfiguration
      verbOpt <- getOptionSetting verbosity cfg
      loop verbOpt st0 cont
 
@@ -552,7 +509,7 @@ executeCrucible st0 cont =
  loop verbOpt st m =
    do exst <- Ex.catches (runReaderT m st)
                 [ Ex.Handler $ \(e::AbortExecReason) ->
-                    runErrorHandler e st
+                    runAbortHandler e st
                 , Ex.Handler $ \(e::Ex.IOException) ->
                     if Ex.isUserError e then
                       runGenericErrorHandler (Ex.ioeGetErrorString e) st

@@ -41,8 +41,6 @@ module Lang.Crucible.Simulator.CallFrame
   ) where
 
 import           Control.Lens
-import           Data.Hashable
-import           Data.Maybe
 import qualified Data.Parameterized.Context as Ctx
 
 import           What4.ProgramLoc ( ProgramLoc )
@@ -54,23 +52,6 @@ import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Backend
 
-------------------------------------------------------------------------
--- SomeHandle
-
--- | A function handle is a reference to a function in a given
--- run of the simulator.  It has a set of expected arguments and return type.
-data SomeHandle where
-   SomeHandle :: !(FnHandle args ret) -> SomeHandle
-
-instance Eq SomeHandle where
-  SomeHandle x == SomeHandle y = isJust (testEquality (handleID x) (handleID y))
-
-instance Hashable SomeHandle where
-  hashWithSalt s (SomeHandle x) = hashWithSalt s (handleID x)
-
-instance Show SomeHandle where
-  show (SomeHandle h) = show (handleName h)
-
 
 ------------------------------------------------------------------------
 -- CrucibleBranchTarget
@@ -79,9 +60,11 @@ instance Show SomeHandle where
 --   potential join point.  Each label is a merge point, and there is
 --   an additional implicit join point at function returns.
 data CrucibleBranchTarget blocks (args :: Maybe (Ctx CrucibleType)) where
-   BlockTarget  :: !(BlockID blocks args)
-                -> CrucibleBranchTarget blocks ('Just args)
-   ReturnTarget :: CrucibleBranchTarget blocks 'Nothing
+   BlockTarget  ::
+     !(BlockID blocks args) ->
+     CrucibleBranchTarget blocks ('Just args)
+   ReturnTarget ::
+     CrucibleBranchTarget blocks 'Nothing
 
 instance TestEquality (CrucibleBranchTarget blocks) where
   testEquality (BlockTarget x) (BlockTarget y) =
@@ -101,18 +84,19 @@ ppBranchTarget ReturnTarget = "return"
 
 -- | A call frame for a crucible block.
 data CallFrame sym ext blocks ret args
-   = CallFrame { frameHandle     :: SomeHandle
-                 -- ^ Handle to control flow graph for the current frame.
-               , frameBlockMap   :: !(BlockMap ext blocks ret)
-                 -- ^ Block map for current control flow graph.
-               , framePostdomMap :: !(CFGPostdom blocks)
-                 -- ^ Post-dominator map for control flow graph associated with this
-                 -- function.
-               , frameReturnType :: !(TypeRepr ret)
-               , _frameRegs      :: !(RegMap sym args)
-               , _frameStmts     :: !(StmtSeq ext blocks ret args)
-               , _framePostdom   :: !(Some (CrucibleBranchTarget blocks))
-               }
+   = CallFrame
+     { frameHandle     :: SomeHandle
+       -- ^ Handle to control flow graph for the current frame.
+     , frameBlockMap   :: !(BlockMap ext blocks ret)
+       -- ^ Block map for current control flow graph.
+     , framePostdomMap :: !(CFGPostdom blocks)
+       -- ^ Post-dominator map for control flow graph associated with this
+       -- function.
+     , frameReturnType :: !(TypeRepr ret)
+     , _frameRegs      :: !(RegMap sym args)
+     , _frameStmts     :: !(StmtSeq ext blocks ret args)
+     , _framePostdom   :: !(Some (CrucibleBranchTarget blocks))
+     }
 
 -- | List of statements to execute next.
 frameStmts :: Simple Lens (CallFrame sym ext blocks ret ctx) (StmtSeq ext blocks ret ctx)

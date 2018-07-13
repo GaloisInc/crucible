@@ -1,7 +1,7 @@
 {-|
 Module      : Lang.Crucible.Simulator.OverrideSim
 Description : The main simulation monad
-Copyright   : (c) Galois, Inc 2014-2016
+Copyright   : (c) Galois, Inc 2014-2018
 License     : BSD3
 Maintainer  : Joe Hendrix <jhendrix@galois.com>
 
@@ -25,12 +25,10 @@ module Lang.Crucible.Simulator.OverrideSim
   ( -- * Monad definition
     OverrideSim(..)
   , runOverrideSim
-  , initSimState
     -- * Monad operations
   , withSimContext
   , getContext
   , getSymInterface
---  , getPathConditions
   , bindFnHandle
   , exitExecution
   , getOverrideArgs
@@ -42,10 +40,9 @@ module Lang.Crucible.Simulator.OverrideSim
     -- * Global variables
   , readGlobal
   , writeGlobal
-  , readGlobals
-  , writeGlobals
     -- * References
   , newRef
+  , newEmptyRef
   , readRef
   , writeRef
     -- * Function bindings
@@ -68,7 +65,6 @@ import           Control.Exception
 import           Control.Lens
 import           Control.Monad
 import           Control.Monad.Reader
---import           Control.Monad.IO.Class
 import           Control.Monad.ST
 import           Control.Monad.State.Strict
 import           Data.List (foldl')
@@ -91,13 +87,12 @@ import           Lang.Crucible.Panic(panic)
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.CallFrame (mkCallFrame)
-import           Lang.Crucible.Simulator.EvalStmt (SomeSimFrame(..), resolveCallFrame)
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.Frame
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Operations
-                   ( runGenericErrorHandler, runErrorHandler, returnValue, callFn, runOverride, continue )
-
+                   ( runGenericErrorHandler, runErrorHandler, runAbortHandler
+                   , returnValue, callFn, runOverride, continue, ResolvedCall(..), resolveCall )
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Utils.MonadVerbosity
@@ -138,9 +133,10 @@ returnOverrideSim :: a -> OverrideSim p sym ext rtp args r a
 returnOverrideSim v = Sim $ return v
 {-# INLINE returnOverrideSim #-}
 
-bindOverrideSim :: OverrideSim p sym ext rtp args r a
-          -> (a -> OverrideSim p sym ext rtp args r b)
-          -> OverrideSim p sym ext rtp args r b
+bindOverrideSim ::
+  OverrideSim p sym ext rtp args r a ->
+  (a -> OverrideSim p sym ext rtp args r b) ->
+  OverrideSim p sym ext rtp args r b
 bindOverrideSim (Sim m) h = Sim $ unSim . h =<< m
 {-# INLINE bindOverrideSim #-}
 
@@ -166,7 +162,7 @@ instance MonadIO (OverrideSim p sym ext rtp args ret) where
              runGenericErrorHandler (ioeGetErrorString e) s
              -- AbortReason
            | Just e <- fromException e0 ->
-             runErrorHandler e s
+             runAbortHandler e s
              -- Default case
            | otherwise ->
              throwIO e0
@@ -183,52 +179,38 @@ getContext = use stateContext
 {-# INLINE getContext #-}
 
 getSymInterface :: OverrideSim p sym ext rtp args ret sym
-getSymInterface = gets stateSymInterface
-
---  Return predicates that must be satisfiable for path to be feasible.
--- getPathConditions :: OverrideSim p sym ext rtp a ret [Pred sym]
--- getPathConditions = do
---   s <- get
---   return (pathConditions (s^.stateTree^.actContext))
+getSymInterface = use stateSymInterface
 
 instance MonadVerbosity (OverrideSim p sym ext rtp args ret) where
-  getVerbosity = do
-    ctx <- getContext
-    let cfg = ctxSolverProof ctx (getConfiguration (ctx^.ctxSymInterface))
-    v <- liftIO (getOpt =<< getOptionSetting verbosity cfg)
-    return (fromInteger v)
+  getVerbosity =
+    do ctx <- getContext
+       let cfg = ctxSolverProof ctx (getConfiguration (ctx^.ctxSymInterface))
+       v <- liftIO (getOpt =<< getOptionSetting verbosity cfg)
+       return (fromInteger v)
 
-  getLogFunction = do
-    h <- printHandle <$> getContext
-    verb <- getVerbosity
-    return $ \n msg -> do
-      when (n <= verb) $ do
-        hPutStr h msg
-        hFlush h
-  showWarning msg = do
-    h <- printHandle <$> getContext
-    liftIO $ do
-    hPutStrLn h msg
-    hFlush h
+  getLogFunction =
+    do h <- printHandle <$> getContext
+       verb <- getVerbosity
+       return $ \n msg -> do
+         when (n <= verb) $ do
+           hPutStr h msg
+           hFlush h
+  showWarning msg =
+    do h <- printHandle <$> getContext
+       liftIO $
+         do hPutStrLn h msg
+            hFlush h
 
 -- | Associate a definition (either an 'Override' or a 'CFG') with the given handle.
-bindFnHandle -- :: (KnownCtx TypeRepr args, KnownRepr TypeRepr ret)
-                  :: FnHandle args ret
-                  -> FnState p sym ext args ret
-                  -> OverrideSim p sym ext rtp a r ()
-bindFnHandle h s = do
+bindFnHandle ::
+  FnHandle args ret ->
+  FnState p sym ext args ret ->
+  OverrideSim p sym ext rtp a r ()
+bindFnHandle h s =
   stateContext . functionBindings %= insertHandleMap h s
 
 ------------------------------------------------------------------------
 -- Mutable variables
-
--- | Read the whole sym global state.
-readGlobals :: OverrideSim p sym ext rtp args ret (SymGlobalState sym)
-readGlobals = use (stateTree . actFrame . gpGlobals)
-
--- | Overwrite the whole sym global state
-writeGlobals :: SymGlobalState sym -> OverrideSim p sym ext rtp args ret ()
-writeGlobals g = stateTree . actFrame . gpGlobals .= g
 
 -- | Read a particular global variable from the global variable state.
 readGlobal ::
@@ -236,7 +218,7 @@ readGlobal ::
   GlobalVar tp                                     {- ^ global variable -} ->
   OverrideSim p sym ext rtp args ret (RegValue sym tp) {- ^ current value   -}
 readGlobal k =
-  do globals <- readGlobals
+  do globals <- use (stateTree . actFrame . gpGlobals)
      case lookupGlobal k globals of
        Just v  -> return v
        Nothing -> panic "OverrideSim.readGlobal"
@@ -252,39 +234,49 @@ writeGlobal ::
 writeGlobal g v = stateTree . actFrame . gpGlobals %= insertGlobal g v
 
 
-newRef :: IsSymInterface sym
-       => TypeRepr tp
-       -> RegValue sym tp
-       -> OverrideSim p sym ext rtp args ret (RefCell tp)
-newRef tpr v = do
-   s <- get
-   let halloc = simHandleAllocator (s^.stateContext)
-   r <- liftST (freshRefCell halloc tpr)
-   writeRef r v
-   return r
+-- | Create a new reference cell
+newRef ::
+  IsSymInterface sym =>
+  TypeRepr tp {- ^ Type of the reference cell -} ->
+  RegValue sym tp {- ^ Initial value of the cell -} ->
+  OverrideSim p sym ext rtp args ret (RefCell tp)
+newRef tpr v =
+  do r <- newEmptyRef tpr
+     writeRef r v
+     return r
 
-readRef :: IsSymInterface sym
-        => RefCell tp
-        -> OverrideSim p sym ext rtp args ret (RegValue sym tp)
-readRef r = do
-   sym <- getSymInterface
-   globals <- use $ stateTree . actFrame . gpGlobals
-   let msg = ReadBeforeWriteSimError "Attempt to read undefined reference cell"
-   liftIO $ readPartExpr sym (lookupRef r globals) msg
+-- | Create a new reference cell with no contents
+newEmptyRef ::
+  TypeRepr tp {- ^ Type of the reference cell -} ->
+  OverrideSim p sym ext rtp args ret (RefCell tp)
+newEmptyRef tpr =
+  do halloc <- use (stateContext . to simHandleAllocator)
+     liftST (freshRefCell halloc tpr)
 
-writeRef :: IsSymInterface sym
-         => RefCell tp
-         -> RegValue sym tp
-         -> OverrideSim p sym ext rtp args ret ()
+-- | Read the current value of a reference cell
+readRef ::
+  IsSymInterface sym =>
+  RefCell tp {- ^ Reference cell to read -} ->
+  OverrideSim p sym ext rtp args ret (RegValue sym tp)
+readRef r =
+  do sym <- getSymInterface
+     globals <- use (stateTree . actFrame . gpGlobals)
+     let msg = ReadBeforeWriteSimError "Attempt to read undefined reference cell"
+     liftIO $ readPartExpr sym (lookupRef r globals) msg
+
+-- | Write a value into a reference cell
+writeRef ::
+  IsSymInterface sym =>
+  RefCell tp {- ^ Reference cell to write -} ->
+  RegValue sym tp {- ^ Value to write into the cell -} ->
+  OverrideSim p sym ext rtp args ret ()
 writeRef r v =
   do sym <- getSymInterface
      stateTree . actFrame . gpGlobals %= insertRef sym r v
 
-------------------------------------------------------------------------
--- Override utilities
 
 -- | Turn an 'OverrideSim' action into an 'ExecCont' that can be executed
---   using standard Crucible execution primitives like 'execCrucible'
+--   using standard Crucible execution primitives like 'executeCrucible'
 runOverrideSim ::
   TypeRepr tp {- ^ return type -} ->
   OverrideSim p sym ext rtp args tp (RegValue sym tp) {- ^ action to execute  -} ->
@@ -294,20 +286,22 @@ runOverrideSim tp m = ReaderT $ \s0 -> stateSolverProof s0 $
 
 
 -- | Create an override from an explicit return type and definition using `OverrideSim`.
-mkOverride' :: FunctionName
-            -> TypeRepr ret
-            -> (forall r . OverrideSim p sym ext r args ret (RegValue sym ret))
-            -> Override p sym ext args ret
+mkOverride' ::
+  FunctionName ->
+  TypeRepr ret ->
+  (forall r . OverrideSim p sym ext r args ret (RegValue sym ret)) ->
+  Override p sym ext args ret
 mkOverride' nm tp f =
   Override { overrideName = nm
            , overrideHandler = runOverrideSim tp f
            }
 
 -- | Create an override from a statically inferrable return type and definition using `OverrideSim`.
-mkOverride :: KnownRepr TypeRepr ret
-           => FunctionName
-           -> (forall r . OverrideSim p sym ext r args ret (RegValue sym ret))
-           -> Override p sym ext args ret
+mkOverride ::
+  KnownRepr TypeRepr ret =>
+  FunctionName ->
+  (forall r . OverrideSim p sym ext r args ret (RegValue sym ret)) ->
+  Override p sym ext args ret
 mkOverride nm = mkOverride' nm knownRepr
 
 -- | Return override arguments.
@@ -315,33 +309,33 @@ getOverrideArgs :: OverrideSim p sym ext rtp args ret (RegMap sym args)
 getOverrideArgs = overrideRegMap <$> use stateOverrideFrame
 
 withSimContext :: StateT (SimContext p sym ext) IO a -> OverrideSim p sym ext rtp args ret a
-withSimContext m = do
-  ctx <- use stateContext
-  (r,ctx') <- liftIO $ runStateT m ctx
-  stateContext .= ctx'
-  return r
-
+withSimContext m =
+  do ctx <- use stateContext
+     (r,ctx') <- liftIO $ runStateT m ctx
+     stateContext .= ctx'
+     return r
 
 -- | Call a function with the given arguments.
-callFnVal :: IsSyntaxExtension ext
-          => FnVal sym args ret
-          -> RegMap sym args
-          -> OverrideSim p sym ext rtp a r (RegEntry sym ret)
-callFnVal cl args = do
-  Sim $ StateContT $ \c s -> do
-    let bindings = s^.stateContext^.functionBindings
-    case resolveCallFrame bindings cl args of
-      SomeOF o f -> do
-        runReaderT (runOverride o) (s & stateTree %~ callFn (returnToOverride c) (OF f))
-      SomeCF f -> do
-        runReaderT continue $ s & stateTree %~ callFn (returnToOverride c) (MF f)
+callFnVal ::
+  IsSyntaxExtension ext =>
+  FnVal sym args ret {- ^ Function to call -} ->
+  RegMap sym args {- ^ Arguments to the function -} ->
+  OverrideSim p sym ext rtp a r (RegEntry sym ret)
+callFnVal cl args =
+  Sim $ StateContT $ \c -> runReaderT $
+    do bindings <- view (stateContext.functionBindings)
+       case resolveCall bindings cl args of
+         OverrideCall o f ->
+           withReaderT (stateTree %~ callFn (ReturnToOverride c) (OF f)) (runOverride o)
+         CrucibleCall f ->
+           withReaderT (stateTree %~ callFn (ReturnToOverride c) (MF f)) continue
 
 -- | Call a function with the given arguments.  Provide the arguments as an
 --   @Assignment@ instead of as a @RegMap@.
 callFnVal' ::
   IsSyntaxExtension ext =>
-  FnVal sym args ret ->
-  Ctx.Assignment (RegValue' sym) args ->
+  FnVal sym args ret {- ^ Function to call -} ->
+  Ctx.Assignment (RegValue' sym) args {- ^ Arguments to the function -} ->
   OverrideSim p sym ext rtp a r (RegValue sym ret)
 callFnVal' cl args =
   do let FunctionHandleRepr tps _ = fnValType cl
@@ -352,23 +346,21 @@ callFnVal' cl args =
 --
 -- Note that this computes the postdominator information, so there is some
 -- performance overhead in the call.
-callCFG  :: IsSyntaxExtension ext
-         => CFG ext blocks init ret
-         -> RegMap sym init
-         -> OverrideSim p sym ext rtp a r (RegEntry sym ret)
-callCFG cfg args = do
-  Sim $ StateContT $ \c s -> do
-    let f = mkCallFrame cfg (postdomInfo cfg) args
-    runReaderT continue $ s & stateTree %~ callFn (returnToOverride c) (MF f)
-
+callCFG ::
+  IsSyntaxExtension ext =>
+  CFG ext blocks init ret {- ^ Function to run -} ->
+  RegMap sym init {- ^ Arguments to the function -} ->
+  OverrideSim p sym ext rtp a r (RegEntry sym ret)
+callCFG cfg args =
+  Sim $ StateContT $ \c -> runReaderT $
+    let f = mkCallFrame cfg (postdomInfo cfg) args in
+    withReaderT (stateTree %~ callFn (ReturnToOverride c) (MF f)) continue
 
 -- | Add a failed assertion.  This aborts execution along the current
 -- evaluation path, and adds a proof obligation ensuring that we can't get here
 -- in the first place.
 overrideError :: IsSymInterface sym => SimErrorReason -> OverrideSim p sym ext rtp ars res a
-overrideError err =
-  do sym <- getSymInterface
-     liftIO (addFailedAssertion sym err)
+overrideError err = Sim $ StateContT $ \_ -> runErrorHandler err
 
 --------------------------------------------------------------------------------
 -- FnBinding
@@ -406,24 +398,24 @@ data AnyFnBindings ext = AnyFnBindings (forall p sym . IsSymInterface sym => [Fn
 type IntrinsicImpl p sym ext args ret =
   IsSymInterface sym => FnHandle args ret -> Override p sym ext args ret
 
-useIntrinsic :: FnHandle args ret
-             -> (FnHandle args ret -> Override p sym ext args ret)
-             -> FnBinding p sym ext
+useIntrinsic ::
+  FnHandle args ret ->
+  (FnHandle args ret -> Override p sym ext args ret) ->
+  FnBinding p sym ext
 useIntrinsic hdl impl = FnBinding hdl (UseOverride (impl hdl))
 
 -- | Make an IntrinsicImpl from an explicit implementation
-mkIntrinsic
-    :: forall p sym ext args ret
-     . (Ctx.CurryAssignmentClass args)
-    => (forall r. Proxy r
+mkIntrinsic :: forall p sym ext args ret.
+  Ctx.CurryAssignmentClass args =>
+  (forall r. Proxy r
                -> sym
                -> Ctx.CurryAssignment args
                     (RegEntry sym)
                     (OverrideSim p sym ext r args ret (RegValue sym ret)))
-        -- ^ Override implementation, given a proxy value to fix the type, a
-        -- reference to the symbolic engine, and a curried arguments
-    -> FnHandle args ret
-    -> Override p sym ext args ret
+    {- ^ Override implementation, given a proxy value to fix the type, a
+         reference to the symbolic engine, and a curried arguments -} ->
+  FnHandle args ret ->
+  Override p sym ext args ret
 mkIntrinsic m hdl = mkOverride' (handleName hdl) (handleReturnType hdl) ovr
  where
    ovr :: forall r. OverrideSim p sym ext r args ret (RegValue sym ret)
