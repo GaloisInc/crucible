@@ -296,6 +296,10 @@ isType (L (A (Kw FunT) : domAndRan)) | Just (doms, ran) <- withLast domAndRan =
         toCtx [] = Some Ctx.empty
         toCtx (Some t : ts) | Some ts' <- toCtx ts = Some $ Ctx.extend ts' t
 
+isType (L [A (Kw MaybeT), t']) =
+  do Some t'' <- isType t'
+     return $ Some $ MaybeRepr t''
+
 -- TODO more types
 isType e = throwError $ NotAType (syntaxPos e) e
 
@@ -444,6 +448,15 @@ synthExpr e@(L [A (Kw VectorCons_), h, v]) =
           do E h' <- checkExpr eltp h
              return (SomeExpr (VectorRepr eltp) (E (App (VectorCons eltp h' v'))))
         _ -> throwError $ NotVector (syntaxPos v) v tp)
+
+synthExpr e@(L [A (Kw ToAny), arg]) =
+  do SomeExpr tp (E arg') <- synthExpr arg
+     return $ SomeExpr AnyRepr $ E $ App $ PackAny tp arg'
+
+synthExpr e@(L [A (Kw FromAny), ty, arg]) =
+  do Some tp <- isType ty
+     E arg' <- checkExpr AnyRepr arg
+     return $ SomeExpr (MaybeRepr tp) $ E $ App $ UnpackAny tp arg'
 
 synthExpr e@(L [A (Kw StringAppend), e1, e2]) =
   do E e1' <- checkExpr StringRepr e1
@@ -742,7 +755,7 @@ termStmt stx@(L [A (Kw Jump_), lbl]) =
   withPosFrom stx . Jump <$> labelNoArgs lbl
 termStmt stx@(L [A (Kw Branch_), A (At c), l1, l2]) =
   withPosFrom stx <$> (Br <$> typedAtom (syntaxPos stx) BoolRepr c <*> labelNoArgs l1 <*> labelNoArgs l2)
-termStmt stx@(L [A (Kw MaybeBranch_), ty, A (At c), l1, l2]) =
+termStmt stx@(L [A (Kw MaybeBranch_), A (At c), l1, l2]) =
   do Pair ty' l1 <- labelArgs l1
      withPosFrom stx <$> (MaybeBranch ty' <$> typedAtom (syntaxPos stx) (MaybeRepr ty') c <*> pure l1 <*> labelNoArgs l2)
 -- TODO VariantElim
@@ -932,7 +945,7 @@ blocks _      (aBlock:moreBlocks) =
                    Nothing ->
                      do theLbl <- newLabel l
                         return (l, LabelID theLbl, bodyPos kw blockBody, blockBody)
-            blockLabel (L (kw@(A (Kw DefBlock)) : lStx@(L [(A (Lbl l)), L [A (At x), t]]) : blockBody)) =
+            blockLabel (L (kw@(A (Kw DefBlock)) : lStx@(L [(A (Lbl l)), A (At x), t]) : blockBody)) =
               do Some ty <- isType t
                  lbls <- use stxLabels
                  case Map.lookup l lbls of

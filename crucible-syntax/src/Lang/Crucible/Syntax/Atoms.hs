@@ -29,7 +29,7 @@ data Keyword = Defun | DefBlock
              | Plus | Minus | Times | Div
              | Just_ | Nothing_ | FromJust
              | AnyT | UnitT | BoolT | NatT | IntegerT | RealT | ComplexRealT | CharT | StringT
-             | BitVectorT | VectorT | FunT
+             | BitVectorT | VectorT | FunT | MaybeT
              | The
              | Equalp | Integerp
              | If
@@ -39,6 +39,7 @@ data Keyword = Defun | DefBlock
              | Lt
              | Show
              | StringAppend
+             | ToAny | FromAny
              | VectorLit_ | VectorReplicate_ | VectorIsEmpty_ | VectorSize_
              | VectorGetEntry_ | VectorSetEntry_ | VectorCons_
              | Deref | Ref | EmptyRef
@@ -66,6 +67,8 @@ keywords =
   , ("just" , Just_)
   , ("nothing" , Nothing_)
   , ("from-just" , FromJust)
+  , ("to-any", ToAny)
+  , ("from-any", FromAny)
   , ("the" , The)
   , ("equal?" , Equalp)
   , ("integer?" , Integerp)
@@ -81,6 +84,7 @@ keywords =
   , ("BitVector" , BitVectorT)
   , ("Vector", VectorT)
   , ("->", FunT)
+  , ("Maybe", MaybeT)
   , ("vector", VectorLit_)
   , ("vector-replicate", VectorReplicate_)
   , ("vector-empty?", VectorIsEmpty_)
@@ -136,8 +140,8 @@ atom =  try (Lbl . LabelName <$> (identifier) <* char ':')
     <|> kwOrAtom
     <|> Fn . FunName <$> (char '@' *> identifier)
     <|> Rg . RegName <$> (char '$' *> identifier)
-    <|> Rat <$> ((%) <$> signedPrefixedNumber <* char '/' <*> prefixedNumber)
     <|> try (Int . fromInteger <$> signedPrefixedNumber)
+    <|> Rat <$> ((%) <$> signedPrefixedNumber <* char '/' <*> prefixedNumber)
     <|> char '#' *>  ((char 't' <|> char 'T') $> Bool True <|> (char 'f' <|> char 'F') $> Bool False)
     <|> char '"' *> (StrLit . T.pack <$> stringContents)
 
@@ -166,7 +170,7 @@ signedPrefixedNumber =
   prefixedNumber
 
 prefixedNumber :: (Eq a, Num a) => Parser a
-prefixedNumber = char '0' *> hexOrOct <|> decimal
+prefixedNumber = try (char '0' *> hexOrOct) <|> decimal
   where decimal = fromInteger . read <$> some (satisfy isDigit <?> "decimal digit")
         hexOrOct = char 'x' *> hex <|> oct <|> return 0
         hex = reading $ readHex <$> some (satisfy (\c -> isDigit c || elem c ("abcdefABCDEF" :: String)) <?> "hex digit")
